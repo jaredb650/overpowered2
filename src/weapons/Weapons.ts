@@ -10,10 +10,10 @@ import { ACTIVE } from '../contracts/select';
 import { survivalLoadout } from '../contracts/loadouts';
 import { CG, type Ctx, type ExplosionKind, type LoopHandle } from '../core/contracts';
 import type {
-  AmmoState, EnemyInstance, KataResult, MissileTarget, ModId, PaintView, ProjectileSpec, ProjectileTrail, ShotSpec, SmartAimView, WeaponId,
-  WeaponModifiers, WeaponSystem,
+  AmmoState, EnemyInstance, FireKind, FireNote, KataResult, MissileTarget, ModId, PaintView, ProjectileSpec, ProjectileTrail, ShotSpec, SmartAimView,
+  WeaponId, WeaponModifiers, WeaponSystem,
 } from '../core/gameplay';
-import { clamp, damp, invLerp, lerp, randomInCone, smoothstep, wrapAngle } from '../core/math';
+import { SeededRandom, clamp, damp, invLerp, lerp, randomInCone, smoothstep, wrapAngle } from '../core/math';
 import { MOVE } from '../player/tuning';
 import type { Combat, Guard, GuardResult } from './Combat';
 import { AdsZoom } from './adsZoom';
@@ -22,7 +22,7 @@ import { HIT_STOP, LAUNCHER, SWORD, TUNING, WEAPONS, WEAPON_ORDER, type FireSele
 import { Fan, type FanHooks, type FanLock } from './fan';
 import { familyOf, familyOfSlot, membersOf, pressSlot, wheelSlot } from './families';
 import { Handling, holdSpeed } from './handling';
-import { PIERCE_ON } from './penetration';
+import { backblast, fillShot } from './shot';
 import { Raufoss } from './raufoss';
 import { FLAK } from './flak';
 import { helixOffset } from './helix';
@@ -52,8 +52,6 @@ const SLOT_ACTIONS = [
 ] as const;
 
 const UP = new THREE.Vector3(0, 1, 0);
-/** `?reach=0` takes range falloff out of every gun: the SMG and the Rivet hit as hard at 100 m as at 10. */
-const REACH_ON = typeof location === 'undefined' || new URLSearchParams(location.search).get('reach') !== '0';
 /** Seconds a rate boost cuts off a reload. Capped so Berserk does not turn reloads into a blink. */
 const MAX_RELOAD_BOOST = 1.5;
 /** `?climb=0` takes the real climb out of every gun that has one (the Thresher): its aim stays where it was put. */
@@ -69,6 +67,9 @@ const FAN_SLOWMO = 'judgeFan';
 const FAN_KICK = 0.6;
 /** Seconds between two reports in `minigun_fire_loop`: a gun firing faster than that (`?slot8=old`) plays it faster. */
 const FIRE_LOOP_STEP = 0.04;
+/** Reused: what the others' screens are told when the Kiln's stream stops (co-op). */
+const BARRAGE_OFF = { weapon: 'buzzsaw' as WeaponId, kind: 'spin' as const, on: false, at: new THREE.Vector3(), normal: null as THREE.Vector3 | null };
+const HOSE_OFF = { weapon: 'kiln' as WeaponId, kind: 'hose' as const, on: false, at: new THREE.Vector3(), normal: null as THREE.Vector3 | null };
 
 const STARTING_LOADOUT = survivalLoadout(ACTIVE.def.id);
 
@@ -238,7 +239,11 @@ export class Weapons implements WeaponSystem, Guard {
   private readonly w = new THREE.Vector3();
   private readonly right = new THREE.Vector3();
   private readonly shot: ShotSpec = { damage: 0, source: '', team: 'player' };
-  private readonly firedEvent = { weapon: 'smg' as WeaponId, origin: new THREE.Vector3(), dir: new THREE.Vector3() };
+  /** Co-op: what each shot adds for the other players' screens (FireNote). Filled before a shot's feedback, cleared after it. */
+  private readonly note: FireNote = { kind: 'gun', left: false, barrel: 0, rays: 0, cone: 0, seed: 0, alt: false, aimed: false, to: new THREE.Vector3() };
+  private readonly firedEvent = { weapon: 'smg' as WeaponId, origin: new THREE.Vector3(), dir: new THREE.Vector3(), note: this.note };
+  /** Co-op: a scatter gun's spread is drawn from a seed the others are sent, so they see the same pellets land. */
+  private readonly spreadRng = new SeededRandom();
   private readonly playOptions = { position: undefined as THREE.Vector3 | undefined, volume: 1, pitch: 1, pitchJitter: 0 };
 
   constructor(private readonly ctx: Ctx) {
@@ -263,7 +268,7 @@ export class Weapons implements WeaponSystem, Guard {
         return true;
       },
       dry: () => this.dryFire(),
-      feedback: (def, strength) => this.shotFeedback(def, false, strength),
+      feedback: (def, strength, kind) => this.shotFeedback(def, false, strength, 0, undefined, kind),
       shot: (def, damage) => this.fillShot(def, damage),
       projectile: (kind, def, speed, damage, trail) => this.fillProjectile(kind, def, speed, damage, trail),
       interval: def => this.interval(def),
@@ -853,6 +858,9 @@ export class Weapons implements WeaponSystem, Guard {
     const yaw = turn > Math.PI ? turn - Math.PI * 2 : turn;
     c.viewmodel.kataSnap?.(left, -yaw);
     this.consume(s);
+    this.note.rays = 1;
+    this.note.aimed = true;
+    this.note.to.copy(head);
     this.shotFeedback(s.def, left, 0.6, 0, dir);
     const shot = this.fillShot(s.def, s.def.damage * this.modifiers.damage);
     // Off to the side or behind, a tracer from the muzzle would cross the screen: it leaves from his side of the player instead.
@@ -1453,12 +1461,26 @@ export class Weapons implements WeaponSystem, Guard {
     if (id === null) {
       this.fireLoop?.stop(0.06);
       this.fireLoop = null;
+      // Co-op: the others' copy of the barrage stops with it.
+      if (this.barrage) {
+        this.barrage = false;
+        BARRAGE_OFF.weapon = this.current;
+        this.ctx.events.emit('weapon:loop', BARRAGE_OFF);
+      }
       return;
     }
+    this.barrage = true;
     if (!this.fireLoop) this.fireLoop = this.ctx.audio.startLoop?.(id) ?? null;
   }
+  /** True while the rotary cannon's barrage is on. */
+  private barrage = false;
 
   private endContinuous(): void {
+    // Co-op: the others' copy of the Kiln's stream ends with it.
+    if (this.loopKind === 'flame_hose_loop') {
+      HOSE_OFF.weapon = this.current;
+      this.ctx.events.emit('weapon:loop', HOSE_OFF);
+    }
     // Everything that ends a loop ends a Lance charge too: a switch, a reload, a melee, a pause, a death.
     this.lance.cancel();
     this.loop?.stop(0.1);
@@ -1516,7 +1538,7 @@ export class Weapons implements WeaponSystem, Guard {
   }
 
   /** The shared frame-of-the-shot beats: flash, light, sound, recoil, shake, brass, event. */
-  private shotFeedback(def: WeaponDef, left: boolean, shot = 1, barrel = 0, dir?: THREE.Vector3): void {
+  private shotFeedback(def: WeaponDef, left: boolean, shot = 1, barrel = 0, dir?: THREE.Vector3, kind: FireKind = 'gun'): void {
     const c = this.ctx;
     // Aimed, the gun is in the shoulder: less kick, climb and shake. The flash and the sound are the same gun.
     const steady = lerp(1, TUNING.ads.recoil, this.aim);
@@ -1550,7 +1572,13 @@ export class Weapons implements WeaponSystem, Guard {
     e.weapon = def.id;
     e.origin.copy(player.eye);
     e.dir.copy(dir ?? fwd);
+    const note = this.note;
+    note.kind = kind;
+    note.left = left;
+    note.barrel = barrel;
     c.events.emit('weapon:fired', e);
+    note.rays = note.cone = note.seed = 0;
+    note.alt = note.aimed = false;
   }
 
   private eject(def: WeaponDef): void {
@@ -1564,39 +1592,7 @@ export class Weapons implements WeaponSystem, Guard {
   }
 
   private fillShot(def: WeaponDef, damage: number): ShotSpec {
-    const m = this.modifiers;
-    const s = this.shot;
-    const explosive = m.explosiveRounds;
-    s.damage = explosive ? damage * TUNING.hellfireRounds.damageMult : damage;
-    s.source = def.id;
-    s.team = 'player';
-    s.maxDistance = undefined;
-    s.tracer = m.tracer ?? def.tracer;
-    s.pierce = 0;
-    s.force = def.force;
-    s.severMult = m.alwaysSever ? 1000 : def.canSever ? def.severMult : 0;
-    s.blastRadius = explosive ? TUNING.hellfireRounds.radius : undefined;
-    s.ricochet = m.ricochet;
-    s.shock = m.shockRounds;
-    s.headshotMult = def.headshotMult;
-    s.tracerFrom = this.muzzleAt;
-    s.type = def.pellets > 1 ? 'pellet' : 'bullet';
-    // A round heavy enough to burst what it kills does so by its row's odds, rolled a round.
-    s.gib = def.gib !== undefined && Math.random() < def.gib;
-    s.burst = def.burst;
-    s.killStop = def.killStop ?? 0;
-    s.impactScale = def.impactScale ?? 1;
-    s.headHops = def.headHops ? def.headHops + m.ricochet : 0;
-    s.penetrate = PIERCE_ON ? def.penetration : 0;
-    s.bodyCost = def.bodyCost;
-    s.penetrateKeep = undefined;
-    s.penetrateWalls = undefined;
-    s.armorPiercing = def.armorPiercing ?? false;
-    s.load = def.load;
-    s.armour = def.armour;
-    s.falloff = REACH_ON ? def.falloff : undefined;
-    s.cleave = 0;
-    return s;
+    return fillShot(this.shot, def, damage, this.modifiers, this.muzzleAt);
   }
 
   private shootGun(s: Slot, left: boolean, both = false): void {
@@ -1608,6 +1604,25 @@ export class Weapons implements WeaponSystem, Guard {
     const two = loaded >= 2 ? def.altBoth : undefined;
     const barrels = two ? loaded : 1;
     this.consume(s, barrels);
+    const scatter = def.pellets > 1;
+    const pellets = Math.round(def.pellets * barrels * (scatter ? this.modifiers.pellets : 1));
+    const cone = def.spread > 0 ? this.coneOf(def) : 0;
+    const note = this.note;
+    const lock = def.round ? null : this.smartLock(left);
+    // Co-op: the others draw the same rounds from the shooter's body. A cone's spread comes from a seed they are sent.
+    let random = Math.random;
+    if (!def.round) {
+      note.rays = pellets;
+      note.cone = cone;
+      note.alt = def.raufoss === true || this.altLoaded.has(def.id);
+      if (lock) {
+        note.aimed = true;
+        this.combat.headOf(lock, note.to);
+      } else if (cone > 0 && this.ctx.coop) {
+        note.seed = (Math.random() * 0xffffffff) >>> 0 || 1;
+        random = this.spreadRng.seed(note.seed);
+      }
+    } else note.alt = this.altLoaded.has(def.id);
     this.shotFeedback(def, left, two ? 1 + (two.kick - 1) * (barrels - 1) : 1, barrel);
     if (def.slow !== undefined) this.handling.shot();
     if (def.climb && CLIMB_ON) this.climb(def.climb, lerp(1, TUNING.ads.climb, this.aim));
@@ -1623,8 +1638,6 @@ export class Weapons implements WeaponSystem, Guard {
     const fwd = c.player.forward;
     const m = this.modifiers;
     const shot = this.fillShot(def, def.damage * m.damage);
-    const scatter = def.pellets > 1;
-    const pellets = Math.round(def.pellets * barrels * (scatter ? m.pellets : 1));
     if (scatter) {
       shot.killStop = HIT_STOP.shotgunKill;
       const t = TUNING.shotgun;
@@ -1640,10 +1653,10 @@ export class Weapons implements WeaponSystem, Guard {
     for (let i = 0; i < pellets; i++) {
       // Barrels together: each one's share of the pellets leaves it, with its own flash, report and shove.
       if (two && next < barrels && i >= (pellets * next) / barrels) this.secondBarrel(def, two, barrel + next, next++);
-      const dir = def.spread > 0 ? randomInCone(fwd, this.coneOf(def), this.dir) : fwd;
+      const dir = cone > 0 ? randomInCone(fwd, cone, this.dir, random) : fwd;
       if (def.raufoss || this.altLoaded.has(def.id)) (this.raufossRounds ??= new Raufoss(c, this.combat)).fire(eye, dir, shot);
       // The smart aim's lock: the round into his head, as the Judge's fanned shot (cover in the line takes it).
-      else if (this.smartLock(left)) this.combat.fireAtHead(eye, this.smartLock(left)!, shot);
+      else if (lock) this.combat.fireAtHead(eye, lock, shot);
       else this.combat.fireRay(eye, dir, shot);
     }
   }
@@ -1785,7 +1798,9 @@ export class Weapons implements WeaponSystem, Guard {
     e.weapon = def.id;
     e.origin.copy(c.player.eye);
     e.dir.copy(c.player.forward);
+    this.note.kind = 'hose';
     c.events.emit('weapon:fired', e);
+    this.note.kind = 'gun';
   }
 
   private shootLance(s: Slot, level: number): void {
@@ -1796,7 +1811,7 @@ export class Weapons implements WeaponSystem, Guard {
     this.consume(s);
     // The kick follows the square of the charge, so a full shot is worth the wait in the hands, not only in damage.
     const weight = lerp(0.35, 1, level * level);
-    this.shotFeedback(def, false, weight);
+    this.shotFeedback(def, false, weight, 0, undefined, 'rail');
     const shot = this.fillShot(def, lerp(t.minDamage, def.damage, level * level) * m.damage);
     shot.pierce = t.maxTargets;
     shot.tracer = undefined;
@@ -2039,14 +2054,7 @@ export class Weapons implements WeaponSystem, Guard {
 
   /** Each tube vents out of the back of the block: smoke over the shoulder and a spit of sparks, where anyone behind sees it. */
   private backblast(): void {
-    const c = this.ctx;
-    const { player } = c;
-    const right = this.right.crossVectors(player.forward, UP).normalize();
-    const at = this.v.copy(player.eye).addScaledVector(player.forward, -0.9).addScaledVector(right, 0.3);
-    at.y -= 0.08;
-    c.fx.smoke(at, 0xb9b4aa, 0.8, 1.3);
-    c.fx.sparks(at, this.w.copy(player.forward).negate(), 5, 0xffa040);
-    c.fx.smoke(at.addScaledVector(player.forward, -1.2), 0x989389, 1.3, 1.9);
+    backblast(this.ctx, this.ctx.player.eye, this.ctx.player.forward);
   }
 
   // -------------------------------------------------------------------------------------------
@@ -2132,11 +2140,23 @@ export class Weapons implements WeaponSystem, Guard {
     if (this.loopKind === 'judge_fan_tension') this.endContinuous();
     this.fanFired = true;
     this.consume(s);
+    const note = this.note;
+    const cone = def.spread > 0 ? this.coneOf(def) : 0;
+    let random = Math.random;
+    note.rays = 1;
+    if (lock) {
+      note.aimed = true;
+      this.combat.headOf(lock.enemy, note.to);
+    } else if (cone > 0 && c.coop) {
+      note.cone = cone;
+      note.seed = (Math.random() * 0xffffffff) >>> 0 || 1;
+      random = this.spreadRng.seed(note.seed);
+    }
     this.shotFeedback(def, false, FAN_KICK);
     const shot = this.fillShot(def, def.damage * this.modifiers.damage);
     const eye = c.player.eye;
     if (lock) this.combat.fireAtHead(eye, lock.enemy, shot);
-    else this.combat.fireRay(eye, def.spread > 0 ? randomInCone(c.player.forward, this.coneOf(def), this.dir) : c.player.forward, shot);
+    else this.combat.fireRay(eye, cone > 0 ? randomInCone(c.player.forward, cone, this.dir, random) : c.player.forward, shot);
   }
 
   /** The fan is over, fired or let go of: the slow motion and the tension end here, whatever ended it. */

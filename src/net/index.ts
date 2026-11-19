@@ -3,7 +3,7 @@ import type { Ctx, GameSystem } from '../core/contracts';
 import { Lobby, type ChatLine, type LobbyPlayer, type Match, type SeatEvent } from './lobby';
 import { errorText } from './lobbyText';
 import { POSE_MS, type Move } from './pose';
-import { AKIMBO_TAG, PROPS, RemotePlayer } from './remote';
+import { AKIMBO_TAG, PROPS, RemotePlayer, friendTorches } from './remote';
 import { clearSession, deployMatch, deploying, resumedRoom, whileLoading } from './session';
 import { SessionHud } from './sessionHud';
 import { CoopWorld } from './world';
@@ -49,6 +49,7 @@ export class CoopSession implements GameSystem {
   private nextPose = 0;
   private seq = 0;
   private hidden = false;
+  private readonly torches: ReturnType<typeof friendTorches>;
   cpuMs = 0;
   private readonly offDoc: (() => void)[] = [];
   /** The session's own layer: the deploy gate, the waiting and reconnecting line, the host-lost board. */
@@ -78,6 +79,8 @@ export class CoopSession implements GameSystem {
 
   constructor(private readonly ctx: Ctx, readonly lobby: Lobby, readonly match: Match, private readonly code = resumedRoom?.code ?? '', private readonly password = resumedRoom?.password ?? '') {
     this.freeRoam = !WORLD_MODES.includes(match.mode);
+    // The friends' weapon lights, in the scene before the first frame (remote.ts).
+    this.torches = friendTorches(ctx);
     this.world = this.freeRoam ? null : new CoopWorld(ctx, this);
     this.endedEarly = whileLoading.ended;
     lobby.onChange = () => this.changed();
@@ -254,7 +257,12 @@ export class CoopSession implements GameSystem {
         this.remotes.delete(id);
       }
     }
-    for (const p of players) if (!this.remotes.has(p.id)) this.remotes.set(p.id, new RemotePlayer(this.ctx, p));
+    // Each friend's seat on this screen, 1 to 3: the slots but this player's own, in order (their strand of a hose, their light).
+    const mine = this.lobby.me?.slot ?? 0;
+    for (const p of players) if (!this.remotes.has(p.id)) {
+      const seat = Math.min(3, Math.max(1, p.slot < mine ? p.slot + 1 : p.slot));
+      this.remotes.set(p.id, new RemotePlayer(this.ctx, p, seat, this.torches[seat - 1] ?? null));
+    }
   }
   private chatLine(line: ChatLine): void {
     if (!this.begun || this.closed) return;
@@ -309,7 +317,9 @@ export class CoopSession implements GameSystem {
     this.lobby.sendPose({ seq: this.seq++ >>> 0, position: p.position.toArray(), velocity: this.localPaused ? [0, 0, 0] : p.velocity.toArray(),
       yaw: Math.atan2(Math.sin(p.yaw), Math.cos(p.yaw)), pitch: p.pitch, move,
       // `-ak`: two of it in hand (the akimbo mod), drawn so on the others' screens (remote.ts).
-      weapon: this.ctx.weapons.akimbo ? `${this.ctx.weapons.current}${AKIMBO_TAG}` : this.ctx.weapons.current });
+      weapon: this.ctx.weapons.akimbo ? `${this.ctx.weapons.current}${AKIMBO_TAG}` : this.ctx.weapons.current,
+      // What they are doing with the gun besides firing it: a reload, a stim, the laser up, a charge (pose.ts DOING).
+      flags: this.world?.doing() ?? 0 });
   }
 
   /** Host: the match is over for everyone, and they all land on the lobby page. */
@@ -350,6 +360,7 @@ export class CoopSession implements GameSystem {
     for (const off of this.offDoc) off();
     for (const remote of this.remotes.values()) remote.dispose();
     this.remotes.clear();
+    for (const light of this.torches) { light.removeFromParent(); light.target.removeFromParent(); light.dispose(); }
     this.lobby.onChange = () => {};
     this.lobby.onPose = () => {};
     this.lobby.onLine = () => {};

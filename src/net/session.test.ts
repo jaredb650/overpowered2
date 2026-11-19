@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 const made = vi.hoisted(() => vi.fn());
-vi.mock('./remote', () => ({ PROPS: ['smg'], RemotePlayer: class {
+vi.mock('./remote', () => ({ PROPS: ['smg'], friendTorches: () => [], RemotePlayer: class {
   dispose = vi.fn(); push = vi.fn(); update = vi.fn();
   constructor(_ctx: unknown, readonly player: unknown) { made(this); }
 } }));
@@ -8,7 +8,7 @@ vi.mock('./remote', () => ({ PROPS: ['smg'], RemotePlayer: class {
 vi.mock('./world', () => ({ CoopWorld: class {
   team = { roster: () => [], reviving: false, onOver: () => {}, restore: vi.fn() };
   mission = { catchUp: vi.fn() };
-  begin = vi.fn(); update = vi.fn(); dispose = vi.fn();
+  begin = vi.fn(); update = vi.fn(); dispose = vi.fn(); doing = () => 0;
 } }));
 import type { Ctx } from '../core/contracts';
 import { CoopSession } from './index';

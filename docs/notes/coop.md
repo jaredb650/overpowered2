@@ -82,7 +82,7 @@ the names the game used before).
 | `world/claims.ts` | Guest's `claim` (its damage as a `hit` event, and the guess at the result); the host's check and apply (`hitIn`); whose claim is being applied (`applying`) and who last hit an enemy (`lastHit`), read by hits.ts for kill credit | `hit` |
 | `world/hits.ts` | What the host's damage did, as every other screen shows it: the host's `hitfx`, `ack`, `sever` and `kill`; a guest drawing its own hit at once (`stamp`, `predict`), putting right what it guessed wrong (`ackIn`) and showing the hits, cuts and deaths the host decided; `whenKilled`; `selfDestruct`. See "Gore on every screen" | `hitfx`, `ack`, `kill`, `sever` |
 | `world/hitWire.ts` | The round and the host's findings as ids and whole numbers: `packHit`/`unpackHit`, `packFacts`/`unpackFacts`, `packKill`/`unpackKill` | |
-| `world/remoteFire.ts` | A player's shots on other screens: the local `fire`, the host's check and relay, drawing it. The shot counter claims carry. Gun Kata's notice | `fire`, `kata` |
+| `world/remoteFire.ts` | A player's weapons on other screens: what is sent of a shot, a projectile, a swing and the gun in hand, the host's check and relay, and handing each to that friend's `Watcher` (`src/weapons/watch.ts`), which draws it. See "Weapons on other screens". Gun Kata's notice | `fire`, `round`, `loop`, `held`, `mfx`, `kata` |
 | `world/enemyFire.ts` | Host: enemy rays against remote players (`enemyRay`), every enemy projectile described once as it leaves (`projectile`), flashes and sounds of things that are not an enemy's attack, the scope and shot recorder attacks.ts uses. Guest: tracers with the near-miss crack, harmless projectile copies, removing one at the host's word, asking the host to blow up one it shot | `ray`, `proj`, `projx`, `projhit`, `efx` |
 | `world/attacks.ts` | Enemy attacks on every screen: the host's three events per attack, and the guest running the same `AttackDef` on its copy against a world that cannot hurt. Also a line said outside an attack and a boss's phase effects | `atk`, `atkf`, `atke`, `say`, `bossfx` |
 | `world/warnings.ts` | Ground rings, falling shells, ground shocks, flashbangs, and the stars and lasers of things that are not an enemy's attack | `zone`, `strike`, `shock`, `bang`, `glint`, `laser` |
@@ -659,6 +659,125 @@ fired; the host answered; every screen wounds as often and as deep as the host d
 leaves the body in the same state or kills it the same kind of way; nobody but the shooter gets a marker or a hit sound; the
 shooter gets the same markers and sounds as host and as guest. `COOP_SIM=lag:120,jitter:40,loss:0.05` runs it on a bad network.
 
+## Weapons on other screens (the remote FX table)
+
+The owner's rule: everything that happens on one player's screen happens on the others'. Until the overhaul a friend's gun, whatever
+it was, was one bullet tracer, a muzzle flash and a sound. Now a friend's shot is **the shooter's own FX code run again on this
+screen, from the friend's body**, with two switches that make it harmless:
+
+- **`Combat.watching`** (a counter, `src/weapons/Combat.ts`). While it is above 0, `strike` and `explode` do nothing, corpses, map
+  objects and vehicles are not touched, and no blood is drawn. Everything else in `fireRay` runs: tracers, wall impacts and bullet
+  holes, flechette needles, API sparks, a 20 mm round's burst, exits through cover, ricochets, shock arcs. `Raufoss.fire`,
+  `flakBurst` and the `Lance` run under it unchanged.
+- **`ProjectileSpec.cosmetic`** (`src/weapons/Projectiles.ts`). A friend's rocket, shell, launcher grenade, thrown grenade, stake,
+  exploding bolt, plasma ball or Quiver missile is a real entry in the projectile pool with this flag: it flies, trails, steers
+  (a missile for the same enemy by uid, a wired rocket for the friend's own laser dot, a helix salvo by its six numbers), bounces,
+  sticks, beeps and bursts as the shooter's does, stepped under `Combat.watching`. Its blast is not drawn by the copy: it arrives
+  from the shooter's game as `boom`. An explosive round carries a number (`ProjectileSpec.tag`), and when the shooter's own goes
+  off it says so (`loop`, kind `proj`, with where): the copy ends there and then, wherever it had got to on this screen (the body
+  it met may stand somewhere else here), and a flak shell bursts at the shooter's own burst point.
+
+The damage is always the shooter's own game's, as claims the host checks. The blood, the wound and the kill reach other screens by
+`hitfx`, `sever` and `kill`. Nothing a watcher draws can hurt, burn, break or move anything that matters.
+
+| Piece | File | What |
+|---|---|---|
+| The table | `src/weapons/watch.ts` `REMOTE_FX`, `REMOTE_MODS` | One row a weapon (`rounds`, `pellets`, `projectile`, `lance`, `hose`, `melee`) and one a mod, each with what a watcher sees in plain words. They are `Record`s over every `WeaponId` and `ModId`, so `tsc` refuses a new weapon or mod without its row, and `watch.test.ts` holds each row to what the weapon's own row fires |
+| The dispatcher | `src/weapons/watch.ts` `Watcher` | One a friend. `fire` (a shot), `launch` (a projectile), `loop` (a beam, giant ball or stream ended), `meleeFx` (a slash in the air), `hold` (their gun and mods), `doing` (their pose's bits), `update` |
+| The friend's body | `src/net/remote.ts` | `Shooter`: their eye and aim from the pose (20 Hz, interpolated), their third-person muzzle (the left gun's for akimbo), a gesture on the body, their seat (1 to 3) and their weapon light |
+| The wire | `src/net/world/remoteFire.ts` | Below |
+| The shooter's note | `FireNote` on `weapon:fired` (`src/core/gameplay.ts`), filled in `Weapons.ts`, `lance.ts`, `melee/Melee.ts` | Kind, hand, barrel, rounds, cone, seed, second load, locked head, swing |
+
+**Events** (reliable lane, JSON for now; the wire lane will pack them). A guest's go to the host, which checks them (the sender's
+body is in the world and not down, the origin is within 7 m of it, `acceptFire`'s token bucket for `fire`, 40 a second for the
+rest), draws them and passes them on with the sender's slot.
+
+| Event | When | Fields | Bytes |
+|---|---|---|---:|
+| `fire` | Every pull, swing, Lance shot; a held Kiln every 120 ms | `weapon`, `origin` (mm), `dir` (1e-4), and only when needed: `k` kind (`rail`, `beam`, `ball`, `giant`, `hose`, `swing`), `f` flags (left hand, second load, barrel; or heavy, energy for a swing), `n` rounds, `c` cone and `s` seed for a scatter, `snd` and `p` for a swing | 80 to 110 |
+| `round` | A gun's round or a thrown grenade leaves (`Combat.spawnProjectile`) | `k` kind, `src`, `o`, `v`, and when set: gravity, life, fuse, trail, size, tint, explodes, wired, flak, the target's uid, the missile's five flight numbers, a helix salvo's six | 90 to 190 |
+| `loop` | The beam ends, the giant ball goes off (`at`, `n`), the Kiln stops, or the sender's own explosive round `i` went off at `at` (`k: 'proj'`) | `k` | 30 to 70 |
+| `held` | The gun in hand or its fitted mods change (looked at every 0.4 s); the host repeats everyone's to a guest who arrives later | `weapon`, `mods` | 40 to 90 |
+| `mfx` | A swing draws in the air: a slash, a ring, dash streaks, a cleave's slam, a sound heard from the swinger | world-space vectors and two numbers | 60 to 110 |
+
+**Pellets come from a seed.** In co-op a scatter gun draws its spread from `SeededRandom` (`src/core/math.ts`) seeded per pull, and
+sends the count, the cone it used (choke and ADS included) and the seed; the watcher draws the same directions with the same
+generator. Single player still uses `Math.random` and is untouched. One round off the aim (the Trommel's wobble) is sent as its own
+direction, and a locked shot (smart aim, a fanned shot, Gun Kata) as the direction to the head.
+
+**Loops follow the pose.** The Lance's sustained beam and the Kiln's stream are not streamed. A `fire` starts them, the friend's
+pose (eye and aim, already 20 a second on the unreliable lane) aims them, and a `loop` event or their own clock ends them: the beam
+after its one second, the stream 0.45 s after the last `fire` that says it is still on. So a lost or late event can never leave one
+stuck on.
+
+**What a player is doing between shots rides in the pose** as one byte (`Pose.flags`, `DOING` in `src/net/pose.ts`, format version
+2, 41-byte header): reloading, injecting a stim, the rocket's laser sight up, a Lance charge under way and its mode. States, not
+events, so a lost pose costs nothing. The watcher turns a rising bit into a gesture and its sounds (a reload plays the gun's own
+`reloadFoley` cues from the friend), draws the laser while its bit is up and steers that friend's wired rockets for its dot, and
+pulls a charge's slivers into their muzzle with the hum.
+
+**The Lance** for a watcher is the same `Lance` class with a `LanceHolder` (the friend's eye, aim and muzzle): `replay('rail' |
+'beam' | 'ball' | 'giant')`, `stop()`, `land(at, normal)`. Everything of the one who pulled the trigger is behind `self`: the cell,
+the kick, the shove, hit-stop, hit markers and every screen effect (flash, chromatic, radial blur, FOV, trauma). The beam's two
+loops and every other sound are placed at the friend's muzzle. A friend's giant ball does not decide what it touches: it flies its
+line, waits up to 0.6 s at a wall, and goes off where the shooter's game says.
+
+**The Kiln** for a watcher is the shooter's napalm (`Flames.friendGlob`): globs at 15 a second (the shooter's own are 30) from the
+friend's nozzle down their aim, each friend their own strand of the one hose ribbon (the layer takes 148 points now, was 74),
+splashing and feeding burning patches marked `cosmetic`, which set nobody alight (who burns is the host's word).
+
+**Weapon lights.** Three spotlights are made with the session, before the first frame, and kept in the scene dark
+(`friendTorches`, `src/net/remote.ts`): adding a light later recompiles every lit shader. A friend's is lit while the gun in their
+hand has its `<gun>Light` mod, from their muzzle down their aim, with the viewmodel torch's own numbers.
+
+**Sounds** are placed at the friend's muzzle and fade with distance as any world sound. A friend's gun report plays at 0.65 of its
+level (`REPORT`). The rotary cannon has no report a round: its barrage loop runs from the friend's gun while rounds keep coming.
+
+**Known limits.** The Bailiff body has no reload or stim clip: a short brace of the arms (`block`) stands in for both. The energy
+blade is its hum, its zap, its light on what is near and its slashes; the blade model on the body is still the steel one. The
+Trommel's spin-up whine before it fires is not sent. A friend's perk looks (a perk's tracer colour, its extra sound layer) are
+not sent. A friend's muzzle flash within 3 m of the camera is lifted into the view scene, as an enemy's is (`docs/notes/fx.md`).
+A stake or a bullet-kind round that stopped in a body on the shooter's screen flies on to the wall behind on a screen where
+that body stands elsewhere (only explosive rounds are ended by number).
+
+**Measured** (the events' own JSON, before the transport's envelope of about 30 bytes; `coop-fx-matrix.mjs` records it a case):
+
+| Weapon | An event | A second, held |
+|---|---:|---:|
+| SMG | 78 B a round | 1.0 KB/s at 800 a minute |
+| Pump shotgun | 112 B a pull (count, cone, seed) | 0.2 KB/s |
+| Thresher | 122 B a shell | 0.6 KB/s at 5 a second |
+| Deuce, both barrels or all four | 112 B | one event a pull |
+| Trommel | 89 B a round | 2.2 KB/s at 25 a second |
+| Lance rail | 96 B | |
+| **Lance beam, held its whole second** | 101 B to start, 22 B to end | **0.12 KB for the beam** (its aim is the pose, which is sent anyway) |
+| Lance ball, giant ball | 218 B, 176 B (start and end) | |
+| Kiln | 88 B every 120 ms | 0.7 KB/s (was a `fire` a glob: 30 a second) |
+| Rocket | 215 B (`fire` and `round`), and 58 B when it goes off | |
+| Quiver salvo of four | 1.1 KB | |
+| A sword swing | 127 B with its slash | |
+
+**Proofs.** `src/weapons/watch.test.ts` (the table; pellets from the seed landing on the shooter's spots; flechettes; a suppressor
+by kit; a round through cover; Raufoss; the rail, the beam, the giant ball; rockets and stakes; the Kiln; swings; the pose's
+bits), `src/net/world/remoteFire.test.ts` (the wire, the host's checks, sizes), and the three-page browser proof
+`tools/scripts/coop-fx-matrix.mjs`: one player fires every weapon, load and special while a second stands beside them and a third
+watches from across the room; on both watchers it compares the fx, decal, light and sound calls with the shooter's own, and where
+things ended. Host firing, then a guest firing. 46 cases: the Lance's four shots and its charge; SMG plain, suppressed, akimbo and
+with its light; Gimlet and its launcher; Harrow and API; Flail; pump, flechettes, choke; Thresher; Deuce one barrel, both, and the
+quad's four; Rocket with and without its laser; a Quiver salvo; Sabot and Raufoss; Awl; autocannon and flak; katana, energy
+blade, stab; Judge, Rivet, Ultramag suppressed, Autoraffica; Trommel and its 12 mm; Piledriver and Raufoss; Kiln; stakes and an
+exploding bolt; a thrown grenade; a reload; a stim.
+
+Run on 2026-11-18 (loopback transport, three pages; the machine was overloaded by other lanes' runs, so the pages made 1 to 12
+frames a second: these runs prove what is drawn and where, not how smooth it is). Clean network: 90 of the 92 case-rounds passed
+with every check (1,581 checks); the two that did not were the Trommel's barrage sound restarting when the shooter's page
+hitched, fixed with the `spin` stop and passed on a re-run. `lag:120,jitter:40,loss:0.05`: 88 of 92; the four misses were a late
+watcher having less of something that ends on the shooter's clock (a flak shell's trail rings, a bolt's beeps, a beam not yet
+begun 350 ms in), which is what lag does; those checks now allow for it, but that re-run was not completed (the pages fell to
+2 frames a second and a guest dropped). After the rebase onto the other lanes' work: 43 of 44 case-rounds of a 22-case subset,
+the one miss a fixed spark count that a 2 fps page could not reach (now relative to the shooter's). Not run: four players,
+real WebRTC (`COOP_NET=rtc`), and any mode but the Crucible.
+
 ## How it works
 
 - **trystero 0.27.0, pinned**, with its default strategy, Nostr: peers meet through public Nostr relays, then talk browser to browser
@@ -987,7 +1106,7 @@ page), and the others are trials. Cloudflare's free tier is the free option, so 
   drawn and heard on every screen (`boom`, 24 a second at most), and the others get a feed line "VIPER called in AIRSTRIKE". The
   aircraft model itself is only on the caller's screen.
 - **Bodies.** A friend holds the nearest baked prop to their gun (SMG, shotgun, launcher, minigun, pistol, sniper rifle, blade, flamer),
-  with flash, tracer and positional sound from its muzzle. Poses: crouch, slide (a crouch at speed), wall run left and right (lean),
+  and everything their gun does is drawn from it (see "Weapons on other screens"). Poses: crouch, slide (a crouch at speed), wall run left and right (lean),
   jump and mantle (the airborne gait), downed (prone), kneeling over a friend they revive. Tags sit above the head, clear of the HUD's
   chest-height markers; a downed friend's tag turns red with their seconds left. Implant parts are not drawn (not cheap).
 - **HUD.** Teammates strip at the top (health, DOWN/DEAD, ping); Tab board; Enter chat (Esc cancels; lines show in the feed); revive

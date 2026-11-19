@@ -14,7 +14,7 @@
  */
 import * as THREE from 'three';
 import { CG, type Ctx, type DamageType, type LoopHandle, type SlashKind } from '../../core/contracts';
-import { toldKill, type EnemyInstance, type WeaponId, type WeaponModifiers } from '../../core/gameplay';
+import { toldKill, type EnemyInstance, type FireNote, type WeaponId, type WeaponModifiers } from '../../core/gameplay';
 import type { GoreRegion } from '../../characters/rig';
 import { clamp, rand } from '../../core/math';
 import { rigInfo } from '../../gore/rigInfo';
@@ -24,6 +24,7 @@ import { SWORD, WEAPONS } from '../data';
 import { closestOnSegment } from '../geometry';
 import { readCombo, type KatanaMove } from './combo';
 import { BLADE_OLD, BODY_RADIUS, DOWNED_HEIGHT, ENERGY, KATANA, MELEE, REACH_DOWN, isMelee, type MeleeDef, type MeleeId, type MeleeSwing } from './data';
+import { MeleeShow } from './show';
 import { swingTouches, sweepDirection, type BodyShape, type SwingFrame, type SwingShape } from './sweep';
 
 type State = 'idle' | 'swing' | 'guard';
@@ -151,7 +152,17 @@ export class Melee {
   private hum: LoopHandle | null = null;
   private humUp = false;
 
-  constructor(private readonly ctx: Ctx, private readonly combat: Combat, private readonly modifiers: WeaponModifiers) {}
+  /** The swing's crescents, rings and streaks, drawn here and told to the other players in co-op (show.ts). */
+  private readonly show: MeleeShow;
+  /** Co-op: what each swing's `weapon:fired` adds for the other players' screens. */
+  private readonly note: FireNote = {
+    kind: 'swing', left: false, barrel: 0, rays: 0, cone: 0, seed: 0, alt: false, aimed: false, to: new THREE.Vector3(),
+    swing: { sound: '', pitch: 1, heavy: false, energy: false },
+  };
+
+  constructor(private readonly ctx: Ctx, private readonly combat: Combat, private readonly modifiers: WeaponModifiers) {
+    this.show = new MeleeShow(ctx);
+  }
 
   /** The weapon whose swings these are. */
   get weapon(): MeleeId {
@@ -355,7 +366,13 @@ export class Melee {
 
   private emitFired(): void {
     const { player, events } = this.ctx;
-    events.emit('weapon:fired', { weapon: this.id, origin: player.eye, dir: player.forward });
+    const swing = this.swing;
+    const told = this.note.swing!;
+    told.sound = swing.sound;
+    told.pitch = (swing.pitch ?? 1) * (this.energy ? 1.12 : 1);
+    told.heavy = swing.move === 'heavy' || swing.move === 'cleave' || swing.move === 'spin';
+    told.energy = this.energy;
+    events.emit('weapon:fired', { weapon: this.id, origin: player.eye, dir: player.forward, note: this.note });
   }
 
   /**
@@ -380,7 +397,7 @@ export class Melee {
     const center = this.vA.copy(tip).addScaledVector(reach, -radius);
     const half = arc / 2;
     const start = this.vB.copy(reach).multiplyScalar(Math.cos(half)).addScaledVector(sweep, -Math.sin(half));
-    this.ctx.fx.slash(center, normal, start, arc, radius, kind);
+    this.show.slash(center, normal, start, arc, radius, kind);
   }
 
   /** A new attack outside the combo window starts the chain and the combo again. Answers whether it was chained. */
@@ -431,6 +448,7 @@ export class Melee {
     this.beginSwing(m.swing, lock);
     this.ctx.hud.callout?.(m.name);
     this.ctx.audio.play('katana_shing', { pitchJitter: 0.03 });
+    this.show.sound('katana_shing');
   }
 
   private startHeavy(swing: MeleeSwing): void {
@@ -506,11 +524,11 @@ export class Melee {
         const flat = this.vB.set(c.player.forward.x, 0, c.player.forward.z).normalize();
         // Well under the eye, so the rings read as rings and not as a line across the view.
         const at = this.vA.set(p.x, p.y + 0.55, p.z).addScaledVector(c.player.velocity, 0.08);
-        c.fx.slash(at, UP, flat, Math.PI * 2, 2.7, 'sweep');
+        this.show.slash(at, UP, flat, Math.PI * 2, 2.7, 'sweep');
         at.y += 0.4;
-        c.fx.slash(at, UP, flat, Math.PI * 2, 2.2, 'light');
+        this.show.slash(at, UP, flat, Math.PI * 2, 2.2, 'light');
         at.y = p.y + 0.08;
-        c.fx.ring(at, UP, 0x88ccff, 3);
+        this.show.ring(at, UP, 0x88ccff, 3);
         c.fx.dust(at, UP, 2);
         this.combat.feel.shake(0.025);
         break;
@@ -529,9 +547,9 @@ export class Melee {
     const fwd = this.aimAt ? this.vB.subVectors(this.aimAt.center, eye).normalize() : c.player.forward;
     const reach = Math.min(this.swing.reach, c.physics.raycast(eye, fwd, this.swing.reach, CG.World)?.distance ?? Infinity);
     this.tip.copy(eye).addScaledVector(fwd, reach);
-    c.fx.ring(this.tip, fwd, STAB_GLOW, 0.7 * size);
+    this.show.ring(this.tip, fwd, STAB_GLOW, 0.7 * size);
     this.tip.copy(eye).addScaledVector(fwd, 0.4);
-    if (size >= 1) c.fx.dashStreaks(this.tip, fwd);
+    if (size >= 1) this.show.dashStreaks(this.tip, fwd);
   }
 
   /** The cleave's blow: a tall crescent straight down, and the floor ahead split where the blade goes in. */
@@ -545,7 +563,7 @@ export class Melee {
     const from = this.tip.copy(player.eye).addScaledVector(flat, 2.2);
     const floor = c.physics.raycast(from, this.vC.set(0, -1, 0), 4, CG.World);
     if (!floor) return;
-    c.fx.slam(floor.point, 0.65);
+    this.show.slam(floor.point, 0.65, flat);
     c.render.decals.add('slash', floor.point, floor.normal, 2.2, Math.atan2(flat.x, flat.z));
     c.fx.sparks(floor.point, floor.normal, 22, 0xfff2cc);
     c.audio.play('katana_cleave_land', { position: floor.point, pitchJitter: 0.05 });
@@ -604,7 +622,7 @@ export class Melee {
     if (wall) this.waveBurst(wall.point, wall.normal);
     else if (w.travelled >= W.range - 1e-3) {
       w.on = false;
-      c.fx.ring(w.pos, w.dir, WAVE_GLOW, 1.4);
+      this.show.ring(w.pos, w.dir, WAVE_GLOW, 1.4);
     }
   }
 
@@ -672,7 +690,7 @@ export class Melee {
     w.on = false;
     const at = this.vA.copy(point).addScaledVector(normal, 0.25);
     c.render.decals.add('slash', point, normal, 2.6, 0);
-    c.fx.ring(at, normal, WAVE_GLOW, 3);
+    this.show.ring(at, normal, WAVE_GLOW, 3);
     this.combat.explode(at, {
       radius: B.radius, damage: B.damage * this.modifiers.damage, kind: 'finisher', source: 'sword_wave', team: 'player',
       selfDamage: 0, playerPush: 0, normal, scale: 0.9, shake: 0.06,
@@ -692,7 +710,8 @@ export class Melee {
       const c = this.ctx;
       c.camera.fovPunch(L.fov, 0.18);
       c.audio.play('blade_dash', { pitchJitter: 0.04 });
-      c.fx.dashStreaks(c.player.eye, c.player.forward);
+    this.show.sound('blade_dash');
+      this.show.dashStreaks(c.player.eye, c.player.forward);
       return;
     }
     // The tornado turns where it stands and the flying slash leaves the blade: neither steps in.
@@ -807,6 +826,7 @@ export class Melee {
     this.pull(best, D.speed * (e ? ENERGY.pull.speed : 1), D.seconds * (e ? ENERGY.pull.seconds : 1), stop, e ? MOVE.runSpeed : Infinity);
     c.camera.fovPunch(D.fov, 0.18);
     c.audio.play('blade_dash', { pitchJitter: 0.04 });
+    this.show.sound('blade_dash');
     return true;
   }
 

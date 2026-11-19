@@ -14,9 +14,12 @@
  * carries on next frame from where it stopped, so twenty deaths are spread over the hit-stop its first one starts. Its
  * bursts are booked as it goes and set off a couple a frame. The beam strikes in ticks, and a crowd it vaporizes is capped
  * in gore (VaporTuning.max).
+ *
+ * In co-op a friend's Lance is this same class (`LanceHolder`, `replay`): their shots run here from their body, drawn and
+ * heard in the world, and harm nothing.
  */
 import * as THREE from 'three';
-import { CG, type Ctx, type LoopHandle } from '../core/contracts';
+import { CG, type Ctx, type LoopHandle, type LoopOptions, type PlayOptions } from '../core/contracts';
 import type {
   AmmoState, EnemyInstance, ExplosionSpec, ProjectileSpec, ProjectileTrail, ShotSpec, StruckList, WeaponModifiers,
 } from '../core/gameplay';
@@ -212,8 +215,11 @@ export interface LanceHost {
   takePress(): boolean;
   /** The trigger on an empty cell: reload, or say so and hand over. */
   dry(): void;
-  /** The frame-of-the-shot beats by `def`: flash, sound, recoil, kick, shake, FOV, the `weapon:fired` event. */
-  feedback(def: WeaponDef, strength: number): void;
+  /**
+   * The frame-of-the-shot beats by `def`: flash, sound, recoil, kick, shake, FOV, the `weapon:fired` event. `kind` is which of
+   * the Lance's four shots it is, for the other players' screens (co-op).
+   */
+  feedback(def: WeaponDef, strength: number, kind?: LanceShot): void;
   /** The shared scratch shot, filled for this gun and the perks in force. */
   shot(def: WeaponDef, damage: number): ShotSpec;
   /** The shared scratch projectile, on the eye line and drawn from the muzzle. */
@@ -221,6 +227,23 @@ export interface LanceHost {
   /** Seconds between shots at the rate in force. */
   interval(def: WeaponDef): number;
 }
+
+/**
+ * Who holds a Lance that is not the player's own: a friend's body in co-op (weapons/watch.ts). Their Lance is this same
+ * class, fired from their eye, down their aim and out of their muzzle, its sounds placed in the world, with nothing that
+ * belongs to the one who pulled the trigger: no cell, no kick, no screen effects, no hit markers, no shove. It runs under
+ * `Combat.watching`, so it hurts nothing: their own game did the damage.
+ */
+export interface LanceHolder {
+  /** Their eye and the way they look, kept current by whoever owns the body. */
+  readonly eye: THREE.Vector3;
+  readonly forward: THREE.Vector3;
+  /** Their gun's muzzle in the world, written into `out`. */
+  muzzle(out: THREE.Vector3): THREE.Vector3;
+}
+
+/** The slot a friend's Lance fires from: nothing reads its cell. */
+const PUPPET: LanceSlot = { def: WEAPONS.lance, cooldown: 0, ammo: { mag: 99, magSize: 99, reserve: 0, maxReserve: 0 } };
 
 const DEF = WEAPONS.lance;
 /** The ball's own feedback: the row's numbers are the rail shot's. */
@@ -274,6 +297,8 @@ const BEAM_PUNCH = { volume: 0.7, pitch: 0.75 };
 const RUMBLE = { volume: 0.9, pitch: 0.6, fadeIn: 0.03 };
 const MODE_SOUND = { pitch: 1 };
 const AT = { position: undefined as THREE.Vector3 | undefined };
+/** A friend's Lance: one sound's options with their muzzle put in, reused. */
+const HEARD: PlayOptions = {};
 const UP = new THREE.Vector3(0, 1, 0);
 const BASIS = new THREE.Matrix4();
 /** Under half width at the muzzle and full width four metres out, so it leaves the gun fat but does not fill the view. */
@@ -392,6 +417,11 @@ function bunched<T extends THREE.BufferGeometry>(geo: T): T {
 }
 /** Newton-seconds a beam tick pushes a body with: it burns, it does not throw. */
 const BURN_FORCE = 6;
+/** Seconds on the real clock a friend's giant ball waits at a wall for their game to say where it went off (co-op). */
+const LAND_WAIT = 0.6;
+/** Reused: what the others' screens are told when the player's own beam ends and giant ball goes off (co-op). */
+const LOOP_BEAM_OFF = { weapon: 'lance' as const, kind: 'beam' as const, on: false, at: new THREE.Vector3(), normal: null as THREE.Vector3 | null };
+const LOOP_GIANT_OFF = { weapon: 'lance' as const, kind: 'giant' as const, on: false, at: new THREE.Vector3(), normal: null as THREE.Vector3 | null };
 
 /** The sustained beam while it lasts. */
 interface Beam {
@@ -476,8 +506,13 @@ export class Lance {
   private readonly muzzlePos = new THREE.Vector3();
   private readonly list: EnemyInstance[] = [];
   private readonly fireLink = (link: Link): void => this.setOff(link);
+  /** How bright the beam is drawn, 0..1: `LANCE_LOOK.beam` for the player's own. */
+  private beamPower = 0;
+  /** A friend's giant ball waits for their game to say where it went off (`land`), and gives up after this many seconds. */
+  private landBy = 0;
 
-  constructor(private readonly ctx: Ctx, private readonly host: LanceHost) {
+  /** `holder`: a friend's body in co-op, whose Lance this then is (LanceHolder). Unset, the player's own. */
+  constructor(private readonly ctx: Ctx, private readonly host: LanceHost, private readonly holder: LanceHolder | null = null) {
     const points: THREE.Vector3[] = [];
     const enemies: null[] = [];
     for (let i = 0; i < T.chain.max; i++) {
@@ -489,6 +524,38 @@ export class Lance {
 
   private get combat(): Combat {
     return this.ctx.combat as Combat;
+  }
+
+  /** The player's own Lance. False for a friend's, drawn here. */
+  private get self(): boolean {
+    return this.holder === null;
+  }
+
+  /** The eye and the aim of whoever holds it. */
+  private get eye(): THREE.Vector3 {
+    return this.holder ? this.holder.eye : this.ctx.player.eye;
+  }
+
+  private get aim(): THREE.Vector3 {
+    return this.holder ? this.holder.forward : this.ctx.player.forward;
+  }
+
+  /** A sound of the gun's: in the player's own ears, or out of a friend's muzzle. */
+  private say(id: string, options?: PlayOptions): void {
+    if (this.self) {
+      this.ctx.audio.play(id, options);
+      return;
+    }
+    HEARD.volume = options?.volume;
+    HEARD.pitch = options?.pitch;
+    HEARD.position = this.muzzle();
+    this.ctx.audio.play(id, HEARD);
+  }
+
+  private startLoop(id: string, options?: LoopOptions): LoopHandle | null {
+    const { audio } = this.ctx;
+    if (this.self) return audio.startLoop?.(id, options) ?? null;
+    return audio.startLoop?.(id, { ...options, position: this.muzzle() }) ?? null;
   }
 
   /** True while a press of this gun's is down. */
@@ -520,12 +587,84 @@ export class Lance {
    * off on the world clock, the beam pours on, and the giant ball flies.
    */
   tick(): void {
-    if (this.punching) this.stepPunch();
-    if (this.sweep.active) this.step();
-    if (this.chain.pending > 0) this.chain.drain(this.ctx.time.elapsed, this.fireLink);
-    if (this.beamState.active) this.stepBeam(this.ctx.time.dt);
-    if (this.giant.active) this.stepGiant(this.ctx.time.dt);
+    // A friend's: every ray, burst and tick of it is for the eye and the ear only.
+    const combat = this.combat;
+    const watched = !this.self;
+    if (watched) combat.watching++;
+    try {
+      if (this.primed > 0 && --this.primed === 0) this.warm(false);
+      if (this.punching) this.stepPunch();
+      if (this.sweep.active) this.step();
+      if (this.chain.pending > 0) this.chain.drain(this.ctx.time.elapsed, this.fireLink);
+      if (this.beamState.active) this.stepBeam(this.ctx.time.dt);
+      if (this.giant.active) this.stepGiant(this.ctx.time.dt);
+    } finally {
+      if (watched) combat.watching--;
+    }
   }
+
+  /**
+   * A friend's shot (co-op), as their game fired it: the same shot from their body, drawn and heard here. `replay('beam')`
+   * pours until `stop()` or its second is up; a giant ball flies until `land()` or its own end.
+   */
+  replay(shot: LanceShot): void {
+    if (this.self) return;
+    const combat = this.combat;
+    combat.watching++;
+    try {
+      if (shot === 'ball') this.fireBall(PUPPET);
+      else if (shot === 'giant') this.fireGiant(PUPPET);
+      else if (shot === 'beam') this.startBeam(PUPPET);
+      else this.fireRail(PUPPET);
+    } finally {
+      combat.watching--;
+    }
+  }
+
+  /** A friend's beam ended early (a switch, a reload, a death). */
+  stop(): void {
+    if (!this.self) this.endBeam();
+  }
+
+  /** A friend's giant ball went off at `at` on their screen: this copy goes off there too, if it is still flying. */
+  land(at: THREE.Vector3, normal: THREE.Vector3 | null): void {
+    if (this.self || !this.giant.active) return;
+    const combat = this.combat;
+    combat.watching++;
+    try {
+      this.giant.at.copy(at);
+      this.detonate(normal);
+    } finally {
+      combat.watching--;
+    }
+  }
+
+  /** A friend took the Lance in hand: its meshes are built and drawn at nothing for a frame, so their first shot compiles nothing. */
+  prime(): void {
+    if (this.look) return;
+    this.ensureLook();
+    this.warm(true);
+    this.primed = 2;
+  }
+
+  /** A friend's body is gone: everything of their Lance with it. */
+  dispose(): void {
+    this.endBeam();
+    this.endGiant();
+    this.endSweep();
+    this.chain.clear();
+    const look = this.look;
+    if (!look) return;
+    this.look = null;
+    for (const m of [look.column, look.sheath, look.shell, look.charge, look.bloom, look.orb, look.halo]) {
+      m.removeFromParent();
+      (m.material as THREE.Material).dispose();
+    }
+    look.column.geometry.dispose();
+    look.shell.geometry.dispose();
+    look.charge.geometry.dispose();
+  }
+  private primed = 0;
 
   /** Every frame the Lance is in hand and free to fire. */
   update(s: LanceSlot, dt: number, held: boolean): void {
@@ -618,6 +757,7 @@ export class Lance {
 
   /** The muzzle now, in world space, from the gun in the hands. */
   private muzzle(): THREE.Vector3 {
+    if (this.holder) return this.holder.muzzle(this.muzzlePos);
     const { player, viewmodel } = this.ctx;
     const out = this.muzzlePos.copy(player.eye).addScaledVector(player.forward, 0.6);
     out.y -= 0.18;
@@ -716,7 +856,9 @@ export class Lance {
     const b = T.ball;
     const m = h.modifiers;
     h.consume(s, b.cost);
-    h.feedback(BALL_DEF, 1);
+    h.feedback(BALL_DEF, 1, 'ball');
+    // A friend's ball flies here as every friend's projectile does (Combat.spawnProjectile sends it): only its flash and sound are this.
+    if (!this.self) return;
     const p = h.projectile('plasma', s.def, b.speed, b.damage * m.damage, 'plasma');
     p.lifetime = b.life;
     p.force = b.force;
@@ -737,7 +879,7 @@ export class Lance {
     const def = s.def;
     const m = h.modifiers;
     h.consume(s, RAIL.cost);
-    h.feedback(DEF, RAIL.weight);
+    h.feedback(DEF, RAIL.weight, 'rail');
     this.fired.rails++;
     s.cooldown = (h.interval(def) / def.interval) * T.recover * RAIL.weight;
 
@@ -745,9 +887,9 @@ export class Lance {
     this.endSweep();
     const sw = this.sweep;
     sw.active = true;
-    sw.origin.copy(c.player.eye);
+    sw.origin.copy(this.eye);
     sw.from.copy(h.muzzleAt);
-    sw.dir.copy(c.player.forward);
+    sw.dir.copy(this.aim);
     sw.damage = def.damage * RAIL.damage * m.damage;
     sw.burstDamage = RAIL.burstDamage * m.damage;
     sw.bodies = RAIL.pierce + 1;
@@ -765,13 +907,15 @@ export class Lance {
 
     // A clap over the report, the screen pulled along the line and the player shoved back. The world is held on what it
     // strikes, in `step`, and the bursts start when it moves again.
-    c.render.post.chromatic(0.4 * RAIL.weight, 0.16);
-    c.audio.play('lance_thunder');
-    c.render.post.radialBlur(0.22, 0.18);
-    c.render.post.flash(FLASH, 0.18, 0.1);
-    // Along the ground only: a shot at the floor must not lift the player off it.
-    c.player.velocity.x -= sw.dir.x * T.push;
-    c.player.velocity.z -= sw.dir.z * T.push;
+    this.say('lance_thunder');
+    if (this.self) {
+      c.render.post.chromatic(0.4 * RAIL.weight, 0.16);
+      c.render.post.radialBlur(0.22, 0.18);
+      c.render.post.flash(FLASH, 0.18, 0.1);
+      // Along the ground only: a shot at the floor must not lift the player off it.
+      c.player.velocity.x -= sw.dir.x * T.push;
+      c.player.velocity.z -= sw.dir.z * T.push;
+    }
     this.step();
   }
 
@@ -829,7 +973,7 @@ export class Lance {
     this.drawRail(sw.from, this.end, sw.first);
     this.chain.load(list, sw.dir, sw.at, RAIL.burst, sw.burstDamage, T.chain.first, T.chain.gap, before);
     const stop = Math.min(HIT_STOP.lanceShot + sw.kills * HIT_STOP.lancePerExtraKill, HIT_STOP.lanceMax);
-    if (hit) combat.feel.stop(stop, true);
+    if (hit && this.self) combat.feel.stop(stop, true);
 
     // It struck all it was let, and may strike more: on from the last body next frame. The list keeps that body out of it.
     if (got === want && got > 0 && sw.bodies > 0) {
@@ -891,7 +1035,7 @@ export class Lance {
     const c = this.ctx;
     const h = this.host;
     const b = this.beamState;
-    h.feedback(BEAM_DEF, 1);
+    h.feedback(BEAM_DEF, 1, 'beam');
     this.fired.beams++;
     s.cooldown = BEAM.seconds + BEAM.recover;
     b.active = true;
@@ -905,16 +1049,18 @@ export class Lance {
     this.warm(false);
     const look = this.look!;
     look.column.visible = look.sheath.visible = look.shell.visible = look.charge.visible = true;
-    c.audio.play('lance_thunder');
-    c.audio.play('orbital_strike', BEAM_PUNCH);
-    this.beamLoop = c.audio.startLoop?.('lance_beam_loop') ?? null;
-    this.rumble = c.audio.startLoop?.('orbital_beam_loop', RUMBLE) ?? null;
-    c.render.post.flash(FLASH, 0.5, 0.22);
-    c.render.post.chromatic(1.2, 0.35);
-    c.render.post.radialBlur(0.45, 0.35);
-    c.camera.addTrauma(0.9);
-    c.camera.fovPunch(8, 0.3);
-    c.camera.kick(0.05, rand(-0.01, 0.01), rand(-0.02, 0.02));
+    this.say('lance_thunder');
+    this.say('orbital_strike', BEAM_PUNCH);
+    this.beamLoop = this.startLoop('lance_beam_loop');
+    this.rumble = this.startLoop('orbital_beam_loop', RUMBLE);
+    if (this.self) {
+      c.render.post.flash(FLASH, 0.5, 0.22);
+      c.render.post.chromatic(1.2, 0.35);
+      c.render.post.radialBlur(0.45, 0.35);
+      c.camera.addTrauma(0.9);
+      c.camera.fovPunch(8, 0.3);
+      c.camera.kick(0.05, rand(-0.01, 0.01), rand(-0.02, 0.02));
+    }
     this.stepBeam(0, true);
   }
 
@@ -928,7 +1074,7 @@ export class Lance {
     const s = b.slot!;
     // On the world's clock, so slow motion draws it out with everything else. Held still, it holds where it is.
     if (dt <= 0 && !first) {
-      this.drawBeam(LANCE_LOOK.beam);
+      this.drawBeam(this.beamPower);
       return;
     }
     b.t += dt;
@@ -941,9 +1087,11 @@ export class Lance {
     // Swells in in a blink and thins away over its last fifth.
     // Full in a blink, white-hot to its last tenth, then gone.
     const power = Math.min(1, b.t / 0.06 + 0.25) * (1 - clamp((k - 0.9) / 0.1) * 0.7);
-    LANCE_LOOK.beam = power;
-    const eye = c.player.eye;
-    const dir = c.player.forward;
+    this.beamPower = power;
+    const self = this.self;
+    if (self) LANCE_LOOK.beam = power;
+    const eye = this.eye;
+    const dir = this.aim;
     const wall = c.physics.raycast(eye, dir, BEAM.range, CG.World);
     b.wall = wall !== null;
     if (wall) {
@@ -958,10 +1106,16 @@ export class Lance {
       b.tickIn += BEAM.tick;
       this.beamTick(eye, dir, power);
     }
-    // Trauma is a max and not a sum, so the beam holds it at a level the whole second, a violent one.
-    c.camera.addTrauma(BEAM.trauma * power);
-    c.player.velocity.x -= dir.x * BEAM.push * dt;
-    c.player.velocity.z -= dir.z * BEAM.push * dt;
+    if (self) {
+      // Trauma is a max and not a sum, so the beam holds it at a level the whole second, a violent one.
+      c.camera.addTrauma(BEAM.trauma * power);
+      c.player.velocity.x -= dir.x * BEAM.push * dt;
+      c.player.velocity.z -= dir.z * BEAM.push * dt;
+    } else {
+      // A friend's beam is heard from their gun, wherever it swings to.
+      this.beamLoop?.setPosition(b.from);
+      this.rumble?.setPosition(b.from);
+    }
     this.beamLoop?.setVolume(0.4 + 0.6 * power, 0.05);
     this.rumble?.setVolume(RUMBLE.volume * power, 0.05);
     if (b.t >= BEAM.seconds) this.endBeam();
@@ -988,15 +1142,16 @@ export class Lance {
       o.vaporize = true;
       const res = this.combat.strike(e, this.far, UP, dir, undefined, 'chest', b.damage, o);
       struck++;
-      if (!res.killed && e.alive) c.enemies.afflict(e, 'burn', BEAM.burn);
+      // A friend's beam sets nobody alight here: whether he burns is the host's word.
+      if (this.self && !res.killed && e.alive) c.enemies.afflict(e, 'burn', BEAM.burn);
       fx.sparks(this.far, UP, 5, 0xbfeeff);
       fx.embers(this.far, 3, 0.6);
     }
     this.list.length = 0;
-    if (struck > 0) c.hud.hitMarker('body');
+    if (struck > 0 && this.self) c.hud.hitMarker('body');
 
     // The gun bucks in the hands every tick: up, and either way, on top of the held shake.
-    c.camera.kick(rand(0.006, 0.014) * power, rand(-0.008, 0.008) * power, rand(-0.01, 0.01) * power);
+    if (this.self) c.camera.kick(rand(0.006, 0.014) * power, rand(-0.008, 0.008) * power, rand(-0.01, 0.01) * power);
     // The air boils along it, nearest first.
     const len = b.from.distanceTo(b.to);
     for (const k of [0.12, 0.45]) if (len * k > 2) fx.heatShimmer(this.v.lerpVectors(b.from, b.to, k), 1.4 + len * k * 0.03, 0.2);
@@ -1024,7 +1179,7 @@ export class Lance {
         fx.arc(this.v, this.w, i === 0 ? 0xffffff : BOLT, 0.09, 0.03 * girth);
       }
     }
-    c.render.post.chromatic(0.25 * power, 0.08);
+    if (this.self) c.render.post.chromatic(0.25 * power, 0.08);
   }
 
   /** True when the body stands within the beam's radius of the line: tested at its feet, its middle and its head. */
@@ -1052,13 +1207,18 @@ export class Lance {
     // Whatever was owed is paid, so a beam let go of early costs what a whole one does.
     if (b.slot && b.paid < BEAM.cost) this.host.consume(b.slot, BEAM.cost - b.paid);
     b.slot = null;
-    LANCE_LOOK.beam = 0;
+    this.beamPower = 0;
+    if (this.self) {
+      LANCE_LOOK.beam = 0;
+      // Co-op: the others' copy of it ends with it.
+      this.ctx.events.emit('weapon:loop', LOOP_BEAM_OFF);
+    }
     if (this.look) this.look.column.visible = this.look.sheath.visible = this.look.shell.visible = this.look.charge.visible = this.look.bloom.visible = false;
     this.beamLoop?.stop(0.12);
     this.beamLoop = null;
     this.rumble?.stop(0.4);
     this.rumble = null;
-    this.ctx.audio.play('railgun_beam');
+    this.say('railgun_beam');
   }
 
   /**
@@ -1072,7 +1232,7 @@ export class Lance {
     const len = Math.max(0.1, b.from.distanceTo(b.to));
     const flicker = 1 + Math.sin(time * 61) * 0.08 + Math.sin(time * 23) * 0.05;
     const dir = this.v.subVectors(b.to, b.from).divideScalar(len);
-    // Across the line, square to the eye from the middle of it.
+    // Across the line, square to the eye from the middle of it: the eye of whoever is looking, which is this screen's player.
     const side = this.w.copy(b.from).lerp(b.to, 0.5).sub(this.ctx.player.eye).cross(dir);
     if (side.lengthSq() < 1e-8) side.set(1, 0, 0);
     side.normalize();
@@ -1130,7 +1290,8 @@ export class Lance {
     const strip = bunched(new THREE.PlaneGeometry(0.5, 1, 1, 24).translate(0, 0.5, 0));
     const tube = bunched(new THREE.CylinderGeometry(1, 1, 1, 24, 32, true).translate(0, 0.5, 0));
     const glowMat = new THREE.ShaderMaterial({
-      vertexShader: GLOW_VERT, fragmentShader: GLOW_FRAG, transparent: true, depthWrite: false, depthTest: false,
+      // The player's own orb is never behind anything. A friend's can be round a corner, and must not shine through the wall.
+      vertexShader: GLOW_VERT, fragmentShader: GLOW_FRAG, transparent: true, depthWrite: false, depthTest: !this.self,
       blending: THREE.AdditiveBlending, toneMapped: false, fog: false,
       uniforms: {
         uCore: { value: new THREE.Color('#ffffff').multiplyScalar(8) }, uRim: { value: new THREE.Color('#4aa8ff').multiplyScalar(4) },
@@ -1186,7 +1347,7 @@ export class Lance {
     const h = this.host;
     const g = this.giant;
     h.consume(s, GIANT.cost);
-    h.feedback(GIANT_DEF, 1);
+    h.feedback(GIANT_DEF, 1, 'giant');
     this.fired.giants++;
     s.cooldown = GIANT.recover;
     // One in the air at a time: a second sets the first off where it is.
@@ -1194,18 +1355,21 @@ export class Lance {
     g.active = true;
     g.age = 0;
     g.damage = GIANT.damage * h.modifiers.damage;
-    g.dir.copy(c.player.forward);
+    g.dir.copy(this.aim);
     g.at.copy(this.muzzle()).addScaledVector(g.dir, GIANT.size * 0.6);
+    this.landBy = 0;
     this.ensureLook();
     this.warm(false);
     this.look!.orb.visible = this.look!.halo.visible = true;
     AT.position = g.at;
     this.giantLoop = c.audio.startLoop?.('lance_giant_loop', AT) ?? null;
-    c.render.post.flash(GREEN, 0.25, 0.15);
-    c.render.post.chromatic(0.6, 0.25);
-    c.camera.addTrauma(0.3);
-    c.player.velocity.x -= g.dir.x * T.push;
-    c.player.velocity.z -= g.dir.z * T.push;
+    if (this.self) {
+      c.render.post.flash(GREEN, 0.25, 0.15);
+      c.render.post.chromatic(0.6, 0.25);
+      c.camera.addTrauma(0.3);
+      c.player.velocity.x -= g.dir.x * T.push;
+      c.player.velocity.z -= g.dir.z * T.push;
+    }
     this.drawGiant();
   }
 
@@ -1216,11 +1380,21 @@ export class Lance {
     g.age += dt;
     const r = GIANT.size / 2;
     const move = GIANT.speed * dt;
+    // A friend's ball has met a wall, or run out its time, on their screen: it hangs there until their game says where it
+    // went off (`land`), for as long as that word can take to cross, and then goes off where it is.
+    if (this.landBy > 0) {
+      this.landBy -= this.ctx.time.realDt;
+      if (this.landBy <= 0) this.detonate(null);
+      else this.drawGiant();
+      return;
+    }
     const wall = c.physics.raycast(g.at, g.dir, move + r, CG.World);
-    const body = c.enemies.raycast(g.at, g.dir, move + r);
+    // Which body it touches is their game's to say: the copies of the enemies here stand a moment behind theirs.
+    const body = this.self ? c.enemies.raycast(g.at, g.dir, move + r) : null;
     if (wall && (!body || wall.distance <= body.distance)) {
       g.at.addScaledVector(g.dir, Math.max(0, wall.distance - r * 0.5));
-      this.detonate(wall.normal);
+      if (this.self) this.detonate(wall.normal);
+      else this.landBy = LAND_WAIT;
       return;
     }
     if (body) {
@@ -1229,12 +1403,15 @@ export class Lance {
       return;
     }
     g.at.addScaledVector(g.dir, move);
-    const n = c.enemies.query(g.at, r + 1.2, this.list);
     let touching = false;
-    for (let i = 0; i < n && !touching; i++) touching = this.list[i]!.alive && this.list[i]!.center.distanceTo(g.at) < r + 0.6;
-    this.list.length = 0;
+    if (this.self) {
+      const n = c.enemies.query(g.at, r + 1.2, this.list);
+      for (let i = 0; i < n && !touching; i++) touching = this.list[i]!.alive && this.list[i]!.center.distanceTo(g.at) < r + 0.6;
+      this.list.length = 0;
+    }
     if (touching || g.age >= GIANT.life) {
-      this.detonate(null);
+      if (this.self) this.detonate(null);
+      else this.landBy = LAND_WAIT;
       return;
     }
     this.drawGiant();
@@ -1268,6 +1445,13 @@ export class Lance {
     const g = this.giant;
     const at = this.near.copy(g.at);
     this.endGiant();
+    if (this.self) {
+      // Co-op: the others' copy of the ball goes off here, not where it has got to on their screens.
+      LOOP_GIANT_OFF.at.copy(at);
+      LOOP_GIANT_OFF.normal = normal;
+      c.events.emit('weapon:loop', LOOP_GIANT_OFF);
+      LOOP_GIANT_OFF.normal = null;
+    }
     const nova = this.nova;
     nova.damage = g.damage;
     nova.normal = normal ?? undefined;
@@ -1290,13 +1474,14 @@ export class Lance {
     render.post.chromatic(1.2 * close + 0.2, 0.5);
     render.post.radialBlur(0.3 * close, 0.35);
     c.camera.addTrauma(0.2 + 0.6 * close);
-    c.time.hitStop(0.05 * close);
+    if (this.self) c.time.hitStop(0.05 * close);
     AT.position = at;
     c.audio.play('lance_nova', AT);
   }
 
   private endGiant(): void {
     this.giant.active = false;
+    this.landBy = 0;
     if (this.look) this.look.orb.visible = this.look.halo.visible = false;
     this.giantLoop?.stop(0.1);
     this.giantLoop = null;

@@ -32,6 +32,7 @@ import { Moves } from './world/moves';
 import { Pods, type PodEvent } from './world/pods';
 import { Props } from './world/props';
 import { RemoteFire } from './world/remoteFire';
+import { WATCHED } from '../weapons/watch';
 import { Replicas } from './world/replicas';
 import { SharedSonar } from './world/sonar';
 import { Targeting } from './world/targeting';
@@ -76,7 +77,7 @@ export class CoopWorld {
     this.validator = w.validator;
     this.team = w.team = new Team(ctx, session, (event, to) => w.send(event, to));
     // A mission's rides are everyone's: each guest's door gun counts through the host as a call-in.
-    this.team.onArrived = id => { this.mission.catchUp(id); this.catchUp(id); this.villain.catchUp(id); };
+    this.team.onArrived = id => { this.mission.catchUp(id); this.catchUp(id); this.villain.catchUp(id); this.shots.catchUp(id); };
     this.mission = new CoopMission(ctx, session, (event, to) => w.send(event, to), this.team,
       () => { for (const p of session.lobby.players) if (!p.host) this.validator.callIn(p.id, performance.now()); });
     this.team.plug(w.router);
@@ -114,7 +115,7 @@ export class CoopWorld {
     w.router.host('worldsync', (_, from) => this.catchUp(from));
     // Moves and identities ride the reliable lane beside the enemies' unreliable states (replicas.ts).
     const moves = new Moves(w, this.enemies), identity = new Identity(w, this.enemies);
-    this.modules = [this.capture, this.vehicles, this.garrison, this.targeting, this.claims, this.credit, this.hits, this.props, this.attacks, this.warnings, w.later, this.time, moves, identity, this.enemies];
+    this.modules = [this.capture, this.vehicles, this.garrison, this.targeting, this.claims, this.credit, this.hits, this.shots, this.props, this.attacks, this.warnings, w.later, this.time, moves, identity, this.enemies];
   }
 
   /** Read by the two-page proofs (tools/scripts/coop-*.mjs): the guest's enemy copies, last snapshot and garrison bodies. */
@@ -229,6 +230,14 @@ export class CoopWorld {
   dodged(player: PlayerSystem, from: THREE.Vector3, reach: number): boolean { return this.targeting.dodged(player, from, reach); }
   /** Host: melee hits spared by that rule, for the proofs. */
   get dodges(): number { return this.targeting.dodges; }
+  /** The local player's gun launched a projectile (Combat.spawnProjectile): the others fly a copy of it that hurts nothing. */
+  launched(spec: ProjectileSpec): number { return this.shots.projectile(spec); }
+  /** The local player's own round `tag` went off at `at`: the others' copies of it end there. */
+  landed(tag: number, at: THREE.Vector3): void { this.shots.landed(tag, at); }
+  /** What the local player is doing with their gun now, as the bits their pose carries (pose.ts DOING). */
+  doing(): number { return this.shots.doing(); }
+  /** What this player has sent of their weapons and drawn of the others', by kind (remoteFire.ts): for the proofs. */
+  get weaponFx(): { sent: RemoteFire['sent']; drawn: RemoteFire['drawn']; watched: typeof WATCHED } { return { sent: this.shots.sent, drawn: this.shots.drawn, watched: WATCHED }; }
   blast(center: THREE.Vector3, spec: ExplosionSpec): void { this.booms.blast(center, spec); }
   update(): void {
     if (!this.w.ready) return;

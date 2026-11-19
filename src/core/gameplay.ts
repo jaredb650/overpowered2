@@ -71,6 +71,55 @@ export type ModId = 'awlAcog' | 'awlCan' | 'awlAp' | 'awlHp' | 'suppressor' | 'r
 
 export type Team = 'player' | 'enemy';
 
+/** Which of a gun's shots a `weapon:fired` was, when it is not its row's one ordinary round. */
+export type FireKind = 'gun' | 'rail' | 'beam' | 'ball' | 'giant' | 'hose' | 'swing';
+
+/**
+ * What a shot adds for the other players' screens in co-op, where weapons/watch.ts draws it from the shooter's body: which
+ * hand and barrel fired, the rounds and the seed their spread was drawn from, and what left the gun when that is not the
+ * row's ordinary round. Whoever fires fills it just before the shot's `weapon:fired`; it is cleared after.
+ */
+export interface FireNote {
+  kind: FireKind;
+  /** The left hand's gun (akimbo), and the barrel it left (a break-open gun's, a tube of the Quiver, the launcher's own). */
+  left: boolean;
+  barrel: number;
+  /**
+   * The hitscan rounds this pull fired, the half-angle of their cone in radians, and the seed their directions were drawn
+   * from down the aim (`SeededRandom`, one `randomInCone` a round). 0 rounds: what left the gun flies (a projectile) or is not
+   * a round. A cone of 0: every round went straight down the aim.
+   */
+  rays: number;
+  cone: number;
+  seed: number;
+  /** The gun's second kind of round was loaded: Raufoss, an exploding bolt. */
+  alt: boolean;
+  /** The round went at `to` and not down the aim: a locked head (the smart aim, a fanned shot, Gun Kata). */
+  aimed: boolean;
+  readonly to: THREE.Vector3;
+  /**
+   * A melee swing (`kind` 'swing'): the sound it makes and at what pitch, whether it is a heavy one (the body's clip), and
+   * whether the blade is the energy blade. Unset on a gun's note.
+   */
+  swing?: { sound: string; pitch: number; heavy: boolean; energy: boolean };
+}
+
+/**
+ * Something a melee swing drew in the air, for the other players' screens in co-op (weapons/melee/show.ts): a slash (`a`
+ * centre, `b` normal, `c` start direction, `x` arc, `y` radius, `look` its SlashKind), a ring (`a` at, `b` facing, `x`
+ * colour, `y` size), dash streaks (`a` at, `b` along), a cleave's slam (`a` at, `b` the blade's line, `x` impact), or a sound heard from the swinger
+ * (`look` its id, `x` its pitch).
+ */
+export interface MeleeFx {
+  kind: 'slash' | 'ring' | 'streaks' | 'slam' | 'sound';
+  readonly a: THREE.Vector3;
+  readonly b: THREE.Vector3;
+  readonly c: THREE.Vector3;
+  x: number;
+  y: number;
+  look: string;
+}
+
 /**
  * A small cannon round going off where it lands: a flash, dust, a crack and a few fragments. It is not a blast: nothing is
  * thrown, nothing rolls on the blast table, and it costs a handful of particles. See src/weapons/burst.ts.
@@ -434,6 +483,13 @@ export interface ProjectileSpec {
   wired?: boolean;
   /** The autocannon's flak shell: a proximity fuze and an air burst of shrapnel (weapons/flak.ts). */
   flak?: boolean;
+  /** The laser a `wired` rocket steers for, when it is not the player's own: the friend's whose rocket it is. */
+  laser?: { on: boolean; at: THREE.Vector3 };
+  /**
+   * Co-op: the number this round goes by between screens, 0 or unset for none. `Combat.spawnProjectile` sets it on the
+   * shooter's own; a copy carries its shooter's, so it can be ended where and when the shooter's really went off.
+   */
+  tag?: number;
 }
 
 export interface CombatSystem extends GameSystem {
@@ -767,7 +823,15 @@ declare module './contracts' {
     'run:start': Record<string, never>;
     'run:end': { score: number; wave: number; kills: number };
 
-    'weapon:fired': { weapon: WeaponId; origin: THREE.Vector3; dir: THREE.Vector3 };
+    /** `note`: what the shot adds for the other players' screens in co-op (FireNote). The object is reused: read it at once. */
+    'weapon:fired': { weapon: WeaponId; origin: THREE.Vector3; dir: THREE.Vector3; note?: FireNote };
+    /** A melee swing drew this (MeleeFx), for the other players' screens in co-op. The object is reused: read it at once. */
+    'melee:fx': MeleeFx;
+    /**
+     * A weapon effect that lasts ended, for the other players' screens in co-op: the Lance's sustained beam, its giant ball
+     * (`at` and `normal`: where it went off), the Kiln's stream, the rotary cannon's barrage (`spin`). Each begins with a `weapon:fired` of that kind.
+     */
+    'weapon:loop': { weapon: WeaponId; kind: 'beam' | 'giant' | 'hose' | 'spin'; on: boolean; at: THREE.Vector3; normal: THREE.Vector3 | null };
     'weapon:switched': { from: WeaponId; to: WeaponId };
     'weapon:reload': { weapon: WeaponId; phase: 'start' | 'end' };
     'weapon:empty': { weapon: WeaponId };

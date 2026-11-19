@@ -5,9 +5,10 @@ const pose = (seq = 1, x = 0): Pose => ({ seq, position: [x, 1, 2], velocity: [3
 describe('pose wire format', () => {
   it('round trips all locomotion states, fields, slots and uint32 wrap', () => {
     for (const move of MOVES) for (let slot = 0; slot < 4; slot++) {
-      const p = { ...pose(0xffffffff), move };
+      // The doing bits ride along: a reload, a stim, the laser, a charge and its mode (DOING).
+      const p = { ...pose(0xffffffff), move, flags: (slot * 7 + 1) & 31 };
       const bytes = encodePose(p, slot);
-      expect(bytes.byteLength).toBe(46);
+      expect(bytes.byteLength).toBe(47);
       expect(decodePose(bytes)).toEqual({ slot, pose: p });
       const offset = new Uint8Array(bytes.byteLength + 12);
       offset.set(new Uint8Array(bytes), 7);
@@ -15,8 +16,8 @@ describe('pose wire format', () => {
     }
   });
   it('drops malformed, truncated, wrong version, impossible and non-finite packets', () => {
-    for (const data of [null, {}, 'pose', new ArrayBuffer(39), new ArrayBuffer(100)]) expect(decodePose(data)).toBeNull();
-    for (const [byte, value] of [[0, 2], [1, 4], [2, MOVES.length], [3, 0]]) {
+    for (const data of [null, {}, 'pose', new ArrayBuffer(40), new ArrayBuffer(100)]) expect(decodePose(data)).toBeNull();
+    for (const [byte, value] of [[0, 1], [1, 4], [2, MOVES.length], [3, 0]]) {
       const bytes = encodePose(pose(), 0);
       new DataView(bytes).setUint8(byte!, value!);
       expect(decodePose(bytes)).toBeNull();

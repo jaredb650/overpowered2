@@ -14,8 +14,8 @@ import { ORDER, type FxUniforms } from './shared';
  *   position  world xyz        aS  across (-1..1), glob serial, age seconds, unused
  */
 const SUB = 3;
-/** Chain points the ribbon can take: every glob and the nozzle. */
-const MAX_IN = 74;
+/** Chain points the ribbon can take: every glob and the nozzle of the player's own stream, and of the friends' drawn here in co-op. */
+const MAX_IN = 148;
 const STRIDE = 6;
 
 const VERT = /* glsl */ `

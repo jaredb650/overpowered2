@@ -87,6 +87,23 @@ hits at 20 fps, damage numbers and reuse. Smoke follows the actual curved positi
 | `handling.ts` | A gun too heavy to run with: the cap a row's `slow` puts on the player's speed, how it eases, and the moves it leaves alone |
 | `testkit.ts` | A firing range for Vitest: the real `Weapons` and `Combat` on real Rapier, stand-in enemies, a stepped clock |
 
+## Other players' weapons (co-op)
+
+Every weapon, load and mod is drawn on the other players' screens by this code, not by a co-op look-alike: `src/weapons/watch.ts`
+holds the remote FX table (`REMOTE_FX`, `REMOTE_MODS`) and the `Watcher` that runs a friend's shot here from their body. What
+makes that safe is `Combat.watching` and `ProjectileSpec.cosmetic`; what the shooter says about a shot is the `FireNote` on
+`weapon:fired`. The full description is `docs/notes/coop.md`, "Weapons on other screens". What it asks of this code:
+
+- **A new weapon or mod needs its row** in `REMOTE_FX` or `REMOTE_MODS`. `tsc` refuses without it.
+- **Draw through `ctx.fx`, `ctx.audio` and `ctx.render` only, and damage through `Combat.strike`, `Combat.explode` and
+  `enemies.afflict`.** Then a watcher gets the look for free and none of the harm. Anything that writes to an enemy, the player,
+  the camera, the HUD or the post chain directly has to be kept from a watcher by hand, as `lance.ts` does with `self`.
+- **A scatter's spread goes through `randomInCone(..., random)`** with the pull's `SeededRandom` in co-op, one call a round and
+  nothing else drawn from it, or the watcher's pellets land somewhere else.
+- **`fillShot` is `src/weapons/shot.ts`**, shared by `Weapons` and the `Watcher`. `backblast` (the Quiver's vent) is there too.
+- **The Lance takes a `LanceHolder`** for a friend's; **`Flames.friendGlob`** is a friend's napalm; **`melee/show.ts`** is what a
+  swing draws in the air, told to the others as `melee:fx`.
+
 ## Using it
 
 ```ts
@@ -554,8 +571,9 @@ does not run three's shadow maps, so one would mean turning them on with a depth
 Office server room at 1440x900 (`tools/scripts/light-live.mjs`): 16.46 ms with no spotlight, 16.47 dark, 15.3 on, all within noise.
 The part is `models/light.ts` (`weaponLight`, glow `torch`): on the left rail of the long guns ahead of the off hand, under the Deuce's
 barrels (inside `barrels`, so it breaks open with them), under the Judge's barrel and the Rivet's dust cover, and on the left of the
-Ultramag's dust cover, since the laser has its rail. Stills: `tools/scripts/light-shots.mjs`, `tools/out/light/`. Co-op: not shown on
-a friend's body; the pose lane carries the gun's id, not its mods.
+Ultramag's dust cover, since the laser has its rail. Stills: `tools/scripts/light-shots.mjs`, `tools/out/light/`. Co-op: a friend's
+light is one of three spotlights made with the session (`friendTorches`, `src/net/remote.ts`), lit while their kit says the gun in
+their hand has its light fitted.
 
 ## Tuning
 

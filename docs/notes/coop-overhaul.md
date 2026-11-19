@@ -276,3 +276,18 @@ Shared files and contracts between lanes:
   ragdoll is waited out by their `replicas.ts`, and their `down` move skips a copy gore already knocked down. Open for
   enemy-motion: a state's sever bits still cut at once (they should wait for the `sever` event). Details: `docs/notes/coop.md`,
   "Gore on every screen".
+- 2026-11-18, weapons-fx: a friend's weapons are drawn by the shooter's own code run again from the friend's body. Decisions:
+  (1) one switch, `Combat.watching`, makes every FX path harmless (strike and explode do nothing, no corpse, map object, vehicle or
+  blood), and `ProjectileSpec.cosmetic` does the same for rounds in flight, so nothing was rewritten as a look-alike and a new
+  gun comes along for free; (2) the remote FX table is `REMOTE_FX` and `REMOTE_MODS` in `src/weapons/watch.ts`, `Record`s over
+  every weapon and mod id, so `tsc` refuses a new one without its row; (3) `fire` is now only for the eye and the ear (claims
+  carry their own shot ids since the claims lane landed), so it lost its shot number and its silent re-sends, which is what made a
+  held beam sound like rail shots; (4) loops (the beam, the Kiln) are a start event, the pose's aim, and a stop event or their own
+  clock, never a stream; (5) what a player is doing between shots (reload, stim, laser, charge) is one byte of bits in the pose
+  (format version 2), states that cannot stick; (6) a scatter gun's pellets come from a seed in co-op only, single player keeps
+  `Math.random`; (7) my event for the gun in hand is `held`, because the team lane took `kit`; (8) three spotlights for friends'
+  weapon lights are made with the session, before the first frame, since adding a light later recompiles every shader. Touched
+  outside the lane, each a few lines: `core/math.ts` (`randomInCone` takes a number source), `core/gameplay.ts` (`FireNote`,
+  `MeleeFx`, two events, three `ProjectileSpec` fields), `fx/layers/hose.ts` (the ribbon takes 148 points, was 74), `net/index.ts`
+  (seat, torch pool, pose flags), `net/world.ts` (four pass-through methods), and the stand-ins in `world.test.ts`,
+  `session.test.ts`, `router.test.ts`. Details: `docs/notes/coop.md`, "Weapons on other screens".

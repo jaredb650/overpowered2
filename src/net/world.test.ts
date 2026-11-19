@@ -99,7 +99,9 @@ function pair(beginGuest = true) {
   const host = context(), guest = context();
   const root = new THREE.Group(); root.position.set(0, 0, -5);
   const remote = { player: guestLobby.me, char: { root, anim: { play: vi.fn() } }, buffer: { sample: () => ({ velocity: [0, 0, 0], yaw: 0 }) },
-    setTag: vi.fn(), muzzle: (v: THREE.Vector3) => v.copy(root.position) };
+    setTag: vi.fn(), muzzle: (v: THREE.Vector3) => v.copy(root.position),
+    // The friend's weapons as this screen draws them (weapons/watch.ts): its own tests are remoteFire.test.ts.
+    watcher: { held: true, hold: vi.fn(), fire: vi.fn(), loop: vi.fn(), launch: vi.fn() } };
   const hs = { lobby: hostLobby, hosting: true, match: hostLobby.match, remotes: new Map([[guestLobby.you, remote]]) } as unknown as CoopSession;
   const gs = { lobby: guestLobby, hosting: false, match: guestLobby.match, remotes: new Map() } as unknown as CoopSession;
   const hw = new CoopWorld(host.ctx, hs), gw = new CoopWorld(guest.ctx, gs);

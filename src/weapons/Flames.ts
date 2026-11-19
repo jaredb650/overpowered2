@@ -20,6 +20,11 @@ import { closestOnSegment, closestSegmentPoints } from './geometry';
 const MAX_FLAMES = 160;
 /** 30 globs a second for `napalm.life` seconds is 66, a lob that long. A flat shot lands in 0.6 s, 18 globs. */
 const MAX_GLOBS = 72;
+/** Co-op: the friends' streams drawn here share one ring this long, a glob every `FRIEND_EVERY` s each. */
+const MAX_FRIEND_GLOBS = 72;
+export const FRIEND_EVERY = 1 / 15;
+/** Players whose streams can be on one screen: this one's and three friends'. */
+const HOSES = 4;
 const MAX_HITS = 3;
 /** A flame loses this much of its bite each time it licks something. */
 const BITE_DECAY = 0.7;
@@ -54,10 +59,14 @@ interface Flame {
   life: number;
   hits: number[];
   hitCount: number;
+  /** Co-op: whose stream it is, 0 the player's own, 1 to 3 a friend's drawn here (which burns nobody). */
+  owner: number;
 }
 
 export interface Patch {
   live: boolean;
+  /** Co-op: laid by a friend's stream drawn here. It burns to be seen, and sets nobody alight: the host says who burns. */
+  cosmetic: boolean;
   serial: number;
   position: THREE.Vector3;
   normal: THREE.Vector3;
@@ -71,13 +80,20 @@ function makeFlame(): Flame {
   return {
     live: false, serial: 0, team: 'player', napalm: false, damage: 0, source: '', position: new THREE.Vector3(),
     velocity: new THREE.Vector3(), offset: new THREE.Vector3(), born: 0, rise: 0, age: 0, life: 0,
-    hits: new Array<number>(MAX_HITS).fill(-1), hitCount: 0,
+    hits: new Array<number>(MAX_HITS).fill(-1), hitCount: 0, owner: 0,
   };
 }
 
 export class Flames {
   private readonly pool: Flame[] = [];
   private readonly globs: Flame[] = [];
+  /** Co-op: the friends' globs, one ring for all of them. */
+  private readonly friends: Flame[] = [];
+  private friendHead = 0;
+  private friendCount = 0;
+  /** Each stream's nozzle, by owner: where its hose is drawn from while it pours. */
+  private readonly nozzles: (THREE.Vector3 | null)[] = new Array<THREE.Vector3 | null>(HOSES).fill(null);
+  private readonly spec: ProjectileSpec = { origin: new THREE.Vector3(), velocity: new THREE.Vector3(), kind: 'flame', team: 'player', damage: 0, source: 'kiln' };
   readonly patches: Patch[] = [];
   private serial = 0;
   private count = 0;
@@ -88,8 +104,7 @@ export class Flames {
   private clock = 0;
   private hoseDrawn = false;
   /** The live muzzle the weapon passes as `visualFrom`. Read every frame, so the hose stays on the nozzle. */
-  private nozzle: THREE.Vector3 | null = null;
-  private readonly chain = new Float32Array((MAX_GLOBS + 1) * HOSE_STRIDE);
+  private readonly chain = new Float32Array((MAX_GLOBS + MAX_FRIEND_GLOBS + HOSES) * HOSE_STRIDE);
   private readonly nearby: EnemyInstance[] = [];
   private readonly dir = new THREE.Vector3();
   private readonly near = new THREE.Vector3();
@@ -103,8 +118,9 @@ export class Flames {
   constructor(private readonly ctx: Ctx, private readonly combat: Combat) {
     for (let i = 0; i < MAX_FLAMES; i++) this.pool.push(makeFlame());
     for (let i = 0; i < MAX_GLOBS; i++) this.globs.push(makeFlame());
+    for (let i = 0; i < MAX_FRIEND_GLOBS; i++) this.friends.push(makeFlame());
     for (let i = 0; i < TUNING.napalm.patch.max; i++) {
-      this.patches.push({ live: false, serial: 0, position: new THREE.Vector3(), normal: new THREE.Vector3(), radius: 0, age: 0, source: '' });
+      this.patches.push({ live: false, cosmetic: false, serial: 0, position: new THREE.Vector3(), normal: new THREE.Vector3(), radius: 0, age: 0, source: '' });
     }
   }
 
@@ -113,14 +129,37 @@ export class Flames {
   clear(): void {
     for (const f of this.pool) f.live = false;
     for (const g of this.globs) g.live = false;
+    for (const g of this.friends) g.live = false;
     for (const p of this.patches) p.live = false;
-    this.count = this.globCount = this.patchCount = 0;
+    this.count = this.globCount = this.friendCount = this.patchCount = 0;
     if (this.hoseDrawn) this.ctx.fx.hose?.(this.chain, 0);
     this.hoseDrawn = false;
   }
 
   get alive(): number {
     return this.count + this.globCount;
+  }
+
+  /** Co-op: globs of friends' streams in the air here. */
+  get watched(): number {
+    return this.friendCount;
+  }
+
+  /**
+   * Co-op: one glob of a friend's Kiln, drawn on this screen (weapons/watch.ts). It flies, joins that friend's own strand of
+   * the hose from `nozzle`, splashes and feeds a burning patch as the shooter's does, and bites and burns nobody.
+   * `owner` is 1 to 3, one a friend.
+   */
+  friendGlob(owner: number, origin: THREE.Vector3, velocity: THREE.Vector3, nozzle: THREE.Vector3): void {
+    if (owner < 1 || owner >= HOSES) return;
+    const spec = this.spec;
+    spec.origin.copy(origin);
+    spec.velocity.copy(velocity);
+    spec.visualFrom = nozzle;
+    const g = this.friends[this.friendHead]!;
+    this.friendHead = (this.friendHead + 1) % MAX_FRIEND_GLOBS;
+    if (!g.live) this.friendCount++;
+    this.fillGlob(g, spec, owner);
   }
 
   /** Patches burning now. */
@@ -172,14 +211,20 @@ export class Flames {
     f.rise = spec.gravity ?? 0;
     f.age = 0;
     f.hitCount = 0;
+    f.owner = 0;
   }
 
   private spawnGlob(spec: ProjectileSpec): void {
-    const n = TUNING.napalm;
     const g = this.globs[this.globHead]!;
     this.globHead = (this.globHead + 1) % MAX_GLOBS;
     if (!g.live) this.globCount++;
+    this.fillGlob(g, spec, 0);
+  }
+
+  private fillGlob(g: Flame, spec: ProjectileSpec, owner: number): void {
+    const n = TUNING.napalm;
     this.fill(g, spec);
+    g.owner = owner;
     g.napalm = true;
     g.rise = spec.gravity ?? n.gravity;
     g.life = spec.lifetime ?? n.life;
@@ -188,7 +233,7 @@ export class Flames {
     g.velocity.x += Math.sin(t * 7.3) * n.wobble + rand(-0.12, 0.12);
     g.velocity.y += Math.sin(t * 5.1 + 1.7) * n.wobble * 0.7;
     g.velocity.z += Math.cos(t * 6.1) * n.wobble + rand(-0.12, 0.12);
-    this.nozzle = spec.visualFrom ?? null;
+    this.nozzles[owner] = spec.visualFrom ?? null;
     if (spec.visualFrom) g.offset.subVectors(spec.visualFrom, spec.origin);
   }
 
@@ -199,7 +244,7 @@ export class Flames {
     this.markerClock -= dt;
     this.splashClock -= dt;
     if (this.count > 0) this.updateFlames(dt);
-    if (this.globCount > 0 || this.hoseDrawn) this.updateGlobs(dt);
+    if (this.globCount > 0 || this.friendCount > 0 || this.hoseDrawn) this.updateGlobs(dt);
     if (this.patchCount > 0) this.updatePatches(dt);
   }
 
@@ -237,32 +282,64 @@ export class Flames {
       this.move(g, dt);
       if (g.live) this.lickEnemies(g);
     }
+    if (this.friendCount > 0) {
+      for (let i = 0; i < MAX_FRIEND_GLOBS; i++) {
+        const g = this.friends[i]!;
+        if (!g.live) continue;
+        g.age += dt;
+        if (g.age >= g.life) {
+          this.kill(g);
+          continue;
+        }
+        g.velocity.multiplyScalar(drag);
+        g.velocity.y += g.rise * dt;
+        this.move(g, dt);
+      }
+    }
     this.drawHose();
   }
 
   /** Newest first, from the nozzle out. A dead glob or a pause in firing starts a new strand. */
   private drawHose(): void {
-    const c = this.chain;
-    let n = 0;
+    let n = this.strand(this.globs, this.globHead, MAX_GLOBS, 0, 0);
+    // Co-op: each friend's stream is its own strand, from their own nozzle.
+    if (this.friendCount > 0) for (let owner = 1; owner < HOSES; owner++) n = this.strand(this.friends, this.friendHead, MAX_FRIEND_GLOBS, owner, n);
+    if (n === 0 && !this.hoseDrawn) return;
+    this.ctx.fx.hose?.(this.chain, n);
+    this.hoseDrawn = n > 0;
+  }
+
+  /**
+   * One player's globs out of `ring`, newest first, written into the chain from point `n` on: a strand from their nozzle,
+   * broken where the trigger was let go. Returns the next free point.
+   */
+  private strand(ring: Flame[], head: number, size: number, owner: number, n: number): number {
     let newer: Flame | null = null;
-    for (let k = 1; k <= MAX_GLOBS; k++) {
-      const g = this.globs[(this.globHead - k + MAX_GLOBS) % MAX_GLOBS]!;
+    const nozzle = this.nozzles[owner];
+    let first = true;
+    for (let k = 1; k <= size; k++) {
+      const g = ring[(head - k + size) % size]!;
+      if (g.owner !== owner && g.live) continue;
       if (!g.live) {
-        newer = null;
+        // Another friend's dead glob in the shared ring says nothing about this strand.
+        if (g.owner === owner) {
+          newer = null;
+          first = false;
+        }
         continue;
       }
-      const start = !newer || newer.born - g.born > STRAND_GAP;
-      if (k === 1 && this.nozzle && this.clock - g.born < STRAND_GAP) {
-        this.write(n++, this.nozzle, 0, g.serial + 1, 1);
+      // A friend's globs come half as often, and a hitch in their word must not cut the hose in two.
+      const start = !newer || newer.born - g.born > (owner === 0 ? STRAND_GAP : STRAND_GAP * 2.5);
+      if (first && nozzle && this.clock - g.born < (owner === 0 ? STRAND_GAP : STRAND_GAP * 2.5)) {
+        this.write(n++, nozzle, 0, g.serial + 1, 1);
         this.write(n++, this.place(g), g.age, g.serial, 0);
       } else {
         this.write(n++, this.place(g), g.age, g.serial, start ? 1 : 0);
       }
+      first = false;
       newer = g;
     }
-    if (n === 0 && !this.hoseDrawn) return;
-    this.ctx.fx.hose?.(c, n);
-    this.hoseDrawn = n > 0;
+    return n;
   }
 
   private place(g: Flame): THREE.Vector3 {
@@ -284,7 +361,8 @@ export class Flames {
 
   private kill(f: Flame): void {
     f.live = false;
-    if (f.napalm) this.globCount--;
+    if (f.owner > 0) this.friendCount--;
+    else if (f.napalm) this.globCount--;
     else this.count--;
   }
 
@@ -311,7 +389,7 @@ export class Flames {
     if (f.team === 'player' && f.damage > 0) c.world.objects?.damageExplosive(wall.collider, f.damage, f.source);
     if (f.napalm) {
       // Liquid does not slide off: it splashes and stays, burning.
-      this.feed(wall.point, wall.normal, f.source);
+      this.feed(wall.point, wall.normal, f.source, f.owner > 0);
       c.fx.napalmSplash?.(wall.point, wall.normal);
       if (this.splashClock <= 0) {
         this.splashClock = SPLASH_SOUND_GAP;
@@ -331,7 +409,7 @@ export class Flames {
   }
 
   /** A glob landing: grows the patch it lands in, or lights a new one, putting out the oldest if the pool is full. */
-  feed(point: THREE.Vector3, normal: THREE.Vector3, source: string): Patch {
+  feed(point: THREE.Vector3, normal: THREE.Vector3, source: string, cosmetic = false): Patch {
     const t = TUNING.napalm.patch;
     let best: Patch | null = null;
     let bestD = Infinity;
@@ -353,6 +431,8 @@ export class Flames {
     if (best) {
       best.age = 0;
       best.radius = Math.min(t.maxRadius, best.radius + t.grow);
+      // The player's own napalm on a friend's patch makes it one that burns.
+      if (!cosmetic) best.cosmetic = false;
       return best;
     }
     const p = free ?? oldest;
@@ -364,6 +444,7 @@ export class Flames {
     p.radius = t.radius;
     p.age = 0;
     p.source = source;
+    p.cosmetic = cosmetic;
     this.patchCount++;
     this.ctx.render.decals.add('scorch', point, normal, rand(1.3, 1.8), rand(0, 6.28));
     return p;
@@ -383,7 +464,7 @@ export class Flames {
       }
       const heat = clamp((t.life - p.age) / t.fade);
       this.ctx.fx.napalm?.(p.position, p.normal, p.radius, heat * thin);
-      if (tick) this.ignite(p);
+      if (tick && !p.cosmetic) this.ignite(p);
     }
   }
 

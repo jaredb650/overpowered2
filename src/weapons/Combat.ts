@@ -145,6 +145,13 @@ export class Combat implements CombatSystem {
   private damageHead = 0;
   private readonly stack: RayState[] = [];
   private rayDepth = 0;
+  /**
+   * Above 0 while another player's shot is drawn here (co-op, weapons/watch.ts): a ray, a projectile, a burst or a beam runs
+   * the code the shooter's own ran, so it looks and sounds the same, and hurts nothing. `strike` and `explode` do nothing (the
+   * host's word on the damage and the blast come by their own events), corpses, map objects and vehicles are not touched,
+   * and no blood is drawn (the hit's own event brings it).
+   */
+  watching = 0;
   private exploding = false;
   /** Hellfire's bullet blasts this frame, against `CAPS.blastsPerFrame`. */
   private bulletBlasts = 0;
@@ -312,6 +319,7 @@ export class Combat implements CombatSystem {
     enemy: EnemyInstance, point: THREE.Vector3, normal: THREE.Vector3, dir: THREE.Vector3,
     bone: number | undefined, region: GoreRegion | undefined, amount: number, o: StrikeOptions,
   ): DamageResult {
+    if (this.watching > 0) return NO_DAMAGE;
     const c = this.ctx;
     const d = this.nextDamage();
     d.amount = bossHit(enemy.isBoss, amount);
@@ -538,7 +546,8 @@ export class Combat implements CombatSystem {
       const stopsOnEnemy = count > 0 && count > through;
       const firstStop = stopsOnEnemy ? st.hits[count - 1]!.distance : limit;
 
-      const shot = this.projectiles.shootable(st.origin, st.dir, count > 0 ? st.hits[0]!.distance : limit);
+      const watching = this.watching > 0;
+      const shot = watching ? null : this.projectiles.shootable(st.origin, st.dir, count > 0 ? st.hits[0]!.distance : limit);
       if (shot) {
         st.end.copy(st.origin).addScaledVector(st.dir, shot.at);
         if (spec.tracer) c.fx.tracer(st.from, st.end, spec.tracer);
@@ -546,7 +555,7 @@ export class Combat implements CombatSystem {
         return;
       }
 
-      if (!spec.skipCorpses) this.hitCorpses(st, firstStop, damage * damageKept(budget), spec);
+      if (!spec.skipCorpses && !watching) this.hitCorpses(st, firstStop, damage * damageKept(budget), spec);
 
       let stopped = false;
       let hopFrom: HitSlot | null = null;
@@ -582,7 +591,7 @@ export class Combat implements CombatSystem {
           r.kills++;
           if (splits) cleave--;
         }
-        if (!res.blocked && wall && wall.distance - h.distance < WALL_BLOOD_REACH) {
+        if (!res.blocked && !watching && wall && wall.distance - h.distance < WALL_BLOOD_REACH) {
           c.render.decals.add('blood', wall.point, wall.normal, rand(0.5, 1.1) * (res.killed ? 1.5 : 1), rand(0, 6.28));
         }
         if (spec.shock && !res.blocked) this.arc(h.point, h.enemy, dealt * SHOCK.damage, spec);
@@ -635,8 +644,8 @@ export class Combat implements CombatSystem {
       this.impact(wall.point, wall.normal, wall.surface, scale);
       if (spec.load === 'flechette') this.needles.stick(wall.point, st.dir);
       else if (spec.load === 'api') c.fx.sparks(wall.point, wall.normal, 5, 0xff5a1e);
-      c.world.objects?.damageExplosive(wall.collider, atWall, spec.source);
-      const vehicle = c.enemies.vehicles?.shot(wall.collider, wall.point, atWall, spec.source) === true;
+      if (!watching) c.world.objects?.damageExplosive(wall.collider, atWall, spec.source);
+      const vehicle = !watching && c.enemies.vehicles?.shot(wall.collider, wall.point, atWall, spec.source) === true;
       left -= wall.distance;
       flown += wall.distance;
 
@@ -694,6 +703,8 @@ export class Combat implements CombatSystem {
 
   /** The back of a body a round went through. `point` is where it went in. */
   exitBody(point: THREE.Vector3, dir: THREE.Vector3, sparks: boolean): void {
+    // A friend's round (co-op): the blood out of his back comes with the hit's own event.
+    if (this.watching > 0) return;
     const c = this.ctx;
     const out = this.vA.copy(point).addScaledVector(dir, PENETRATION.bodyDepth);
     if (sparks) c.fx.sparks(out, dir, 6, 0xffee88);
@@ -998,6 +1009,9 @@ export class Combat implements CombatSystem {
   spawnProjectile(spec: ProjectileSpec): void {
     // Co-op host: an enemy's projectile flies as a copy on every screen. A flame is drawn by each screen's own copy of the attack.
     const netId = spec.team === 'enemy' && !spec.cosmetic ? this.ctx.coop?.world?.projectile(spec) ?? 0 : 0;
+    // Co-op: a round of the player's own flies on the others' screens too, as a copy that hurts nothing (weapons/watch.ts).
+    // It is given a number there, so the copies can be ended when this one goes off (Projectiles.explode).
+    if (spec.team === 'player' && !spec.cosmetic) spec.tag = this.ctx.coop?.world?.launched(spec) ?? 0;
     if (spec.kind === 'flame') {
       this.flames.spawn(spec);
       return;
@@ -1026,6 +1040,8 @@ export class Combat implements CombatSystem {
   // -------------------------------------------------------------------------------------------
 
   explode(position: THREE.Vector3, spec: ExplosionSpec): void {
+    // A friend's shot drawn here (co-op): their own game's blast comes as its own event, drawn and heard once.
+    if (this.watching > 0) return;
     // A blast that sets off another blast waits its turn: it keeps this one's scratch intact, and a
     // short ripple through a stack of barrels looks far better than one big pop.
     if (this.exploding) {

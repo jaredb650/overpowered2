@@ -183,7 +183,10 @@ game tells the player. One game tab per browser (`claimTab`).
 3. A Vitest test next to the code (see `src/weapons/*mods.test.ts`, `src/contracts/chips.test.ts`, `src/progression/implants.test.ts`).
 4. Visuals on the first-person viewmodel **and** the shop studio model (`src/ui/backdrop/gunstage.ts` shows the same model parts).
 5. Notes updated in `docs/notes/weapons.md` / `viewmodels.md` / `progression.md`.
-6. Co-op: if others should see it (third-person FX, beams, call-ins), say whether it replicates; most effects are shooter-only today.
+6. Co-op: other players must see and hear it. A weapon needs its row in `REMOTE_FX` and a mod its row in `REMOTE_MODS`
+   (`src/weapons/watch.ts`; `tsc` refuses without them), and anything it draws that is not a ray through `Combat.fireRay` or a
+   projectile through `Combat.spawnProjectile` needs a `FireNote` kind and a `Watcher` branch. Add a case to
+   `tools/scripts/coop-fx-matrix.mjs` and look at its screenshot pair. See `docs/notes/coop.md`, "Weapons on other screens".
 
 **Model quality bar (any geometry):** real form, never boxes. Bevelled 2D profiles (house mesher or `THREE.Shape` +
 `ExtrudeGeometry` with bevel), chamfers, cut-outs, 2–3 contrasting materials, glow only as thin inset lines. No real logos.

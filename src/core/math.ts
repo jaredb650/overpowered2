@@ -37,16 +37,38 @@ export const pick = <T>(arr: readonly T[]): T => arr[Math.floor(Math.random() * 
 export const chance = (p: number) => Math.random() < p;
 
 const _v = new THREE.Vector3();
-/** Uniform random unit vector written into `out`. */
-export function randomUnit(out: THREE.Vector3): THREE.Vector3 {
-  const z = rand(-1, 1);
-  const a = rand(0, TAU);
+/** Uniform random unit vector written into `out`. `random`: where the numbers come from, when not `Math.random`. */
+export function randomUnit(out: THREE.Vector3, random: () => number = Math.random): THREE.Vector3 {
+  const z = -1 + random() * 2;
+  const a = random() * TAU;
   const r = Math.sqrt(1 - z * z);
   return out.set(r * Math.cos(a), z, r * Math.sin(a));
 }
-/** Random direction within `angle` radians of `dir`, written into `out`. */
-export function randomInCone(dir: THREE.Vector3, angle: number, out: THREE.Vector3): THREE.Vector3 {
-  randomUnit(_v);
-  out.copy(dir).addScaledVector(_v, Math.tan(angle) * Math.sqrt(Math.random()));
+/**
+ * Random direction within `angle` radians of `dir`, written into `out`. `random`: a seeded source, so two machines given the
+ * same seed draw the same spread (co-op: a friend's pellets, weapons/watch.ts).
+ */
+export function randomInCone(dir: THREE.Vector3, angle: number, out: THREE.Vector3, random: () => number = Math.random): THREE.Vector3 {
+  randomUnit(_v, random);
+  out.copy(dir).addScaledVector(_v, Math.tan(angle) * Math.sqrt(random()));
   return out.normalize();
+}
+
+/**
+ * Mulberry32 as one reusable object: `seed` it, then `next` is a `() => number` to hand to `randomInCone`. Nothing is
+ * allocated a shot.
+ */
+export class SeededRandom {
+  private s = 0;
+  readonly next = (): number => {
+    this.s = (this.s + 0x6d2b79f5) >>> 0;
+    let t = this.s;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+  seed(seed: number): () => number {
+    this.s = seed >>> 0;
+    return this.next;
+  }
 }

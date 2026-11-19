@@ -1,4 +1,4 @@
-/** Stage 1 pose lane. Little endian, bounded and versioned; no browser or account identifiers. */
+/** The pose lane. Little endian, bounded and versioned; no browser or account identifiers. */
 export const POSE_HZ = 20;
 export const POSE_MS = 1000 / POSE_HZ;
 export const INTERPOLATION_MS = 100;
@@ -16,23 +16,32 @@ export interface Pose {
   pitch: number;
   move: Move;
   weapon: string;
+  /**
+   * What they are doing with the gun besides firing it (`DOING`), as bits: states that last, so one lost pose costs nothing
+   * and none can stick. Other players draw them (weapons/watch.ts `doing`). Unset reads as 0.
+   */
+  flags?: number;
 }
-const HEADER = 40;
+/** The bits of `Pose.flags`. New ones go on the end. */
+export const DOING = { reload: 1, stim: 2, laser: 4, charge: 8, ball: 16 } as const;
+const VERSION = 2;
+const HEADER = 41;
 const encoder = new TextEncoder();
 const decoder = new TextDecoder('utf-8', { fatal: true });
 
-/** Slot is assigned by the host's roster, never claimed by a guest. 40 byte header + UTF-8 weapon id. */
+/** Slot is assigned by the host's roster, never claimed by a guest. 41 byte header + UTF-8 weapon id. */
 export function encodePose(p: Pose, slot: number): ArrayBuffer {
   const weapon = encoder.encode(p.weapon);
   if (weapon.length > 32 || slot < 0 || slot > 3 || !Number.isInteger(slot)) throw new Error('Invalid pose');
   const data = new ArrayBuffer(HEADER + weapon.length);
   const v = new DataView(data);
-  v.setUint8(0, 1);
+  v.setUint8(0, VERSION);
   v.setUint8(1, slot);
   v.setUint8(2, MOVES.indexOf(p.move));
   v.setUint8(3, weapon.length);
   v.setUint32(4, p.seq, true);
   [...p.position, ...p.velocity, p.yaw, p.pitch].forEach((n, i) => v.setFloat32(8 + i * 4, n, true));
+  v.setUint8(40, (p.flags ?? 0) & 255);
   new Uint8Array(data, HEADER).set(weapon);
   if (!decodePose(data)) throw new Error('Invalid pose');
   return data;
@@ -44,7 +53,7 @@ export function decodePose(data: unknown): { slot: number; pose: Pose } | null {
     : data instanceof Uint8Array ? data : null;
   if (!bytes || bytes.byteLength < HEADER || bytes.byteLength > HEADER + 32) return null;
   const v = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  if (v.getUint8(0) !== 1 || v.getUint8(1) > 3 || v.getUint8(2) >= MOVES.length || v.getUint8(3) !== bytes.length - HEADER) return null;
+  if (v.getUint8(0) !== VERSION || v.getUint8(1) > 3 || v.getUint8(2) >= MOVES.length || v.getUint8(3) !== bytes.length - HEADER) return null;
   const n = Array.from({ length: 8 }, (_, i) => v.getFloat32(8 + i * 4, true));
   if (n.some(x => !Number.isFinite(x)) || n.slice(0, 3).some(x => Math.abs(x) > 10000)
     || n.slice(3, 6).some(x => Math.abs(x) > 1000) || Math.abs(n[6]!) > Math.PI * 2 + 0.01 || Math.abs(n[7]!) > Math.PI) return null;
@@ -52,7 +61,7 @@ export function decodePose(data: unknown): { slot: number; pose: Pose } | null {
   try { weapon = decoder.decode(bytes.subarray(HEADER)); } catch { return null; }
   if (!/^[a-zA-Z0-9_-]{1,32}$/.test(weapon)) return null;
   return { slot: v.getUint8(1), pose: { seq: v.getUint32(4, true), position: n.slice(0, 3) as Pose['position'],
-    velocity: n.slice(3, 6) as Pose['velocity'], yaw: n[6]!, pitch: n[7]!, move: MOVES[v.getUint8(2)]!, weapon } };
+    velocity: n.slice(3, 6) as Pose['velocity'], yaw: n[6]!, pitch: n[7]!, move: MOVES[v.getUint8(2)]!, weapon, ...(v.getUint8(40) ? { flags: v.getUint8(40) } : {}) } };
 }
 
 /** Arrival-time timeline: no assumption that peers' performance.now clocks agree. Never extrapolates a stale player. */

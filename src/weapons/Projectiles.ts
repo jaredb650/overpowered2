@@ -140,10 +140,18 @@ export interface Projectile {
   blastShake: number | undefined;
   /** An autocannon flak shell: a proximity fuze, and its blast is the flak's air burst and cone (flak.ts). */
   flak: boolean;
-  /** Co-op: a copy of a projectile another browser owns. It flies and draws, and hurts and blows up nothing. */
+  /**
+   * Co-op: a copy of a projectile another browser owns: an enemy's on a guest, or a friend's round (ProjectileSpec.cosmetic).
+   * It flies, trails, sticks, beeps and bursts here as the real one does there, stepped under `Combat.watching`, and hurts
+   * and blows up nothing. The real one's blast comes from its owner (`boom`).
+   */
   cosmetic: boolean;
   /** Co-op: the host's number for this enemy projectile (0: none), so its end can be told to the other screens. */
   netId: number;
+  /** The laser a wired rocket steers for: the player's own (ROCKET_LASER), or the friend's whose rocket it is. */
+  laser: { on: boolean; at: THREE.Vector3 };
+  /** Co-op: the number a player's own round goes by between screens (ProjectileSpec.tag), 0 for none. */
+  tag: number;
 }
 
 function createProjectile(): Projectile {
@@ -158,7 +166,7 @@ function createProjectile(): Projectile {
     blastSelf: undefined, blastPush: undefined, pinned: false, lastHit: -1,
     budget: makeBudget(), baseDamage: 0, armorPiercing: false,
     target: null, turnRate: 0, line: new THREE.Vector3(), steerDelay: 0, weave: 0, weavePhase: 0, accel: 0, topSpeed: 0, age: 0, size: 1, wired: false,
-    blastScale: undefined, blastShake: undefined, flak: false, cosmetic: false, netId: 0,
+    blastScale: undefined, blastShake: undefined, flak: false, cosmetic: false, netId: 0, laser: ROCKET_LASER, tag: 0,
     helix: null, helixTravel: 0, helixRight: new THREE.Vector3(), helixUp: new THREE.Vector3(), helixOffset: new THREE.Vector3(),
   };
 }
@@ -296,6 +304,8 @@ export class Projectiles {
     p.flak = spec.flak ?? false;
     p.cosmetic = spec.cosmetic ?? false;
     p.netId = netId;
+    p.laser = spec.laser ?? ROCKET_LASER;
+    p.tag = spec.tag ?? 0;
     p.visualHold = 0;
     p.visualOffset.set(0, 0, 0);
     if (spec.visualFrom) {
@@ -327,6 +337,7 @@ export class Projectiles {
     // A pooled missile must not keep a dead enemy reachable.
     p.target = null;
     p.stuckBone = null;
+    p.laser = ROCKET_LASER;
     const last = this.live.pop()!;
     if (index < this.live.length) this.live[index] = last;
     this.free.push(p);
@@ -338,10 +349,17 @@ export class Projectiles {
     for (let i = this.live.length - 1; i >= 0; i--) {
       const p = this.live[i]!;
       p.life -= dt;
-      if (p.kind === 'grenade') this.stepGrenade(p, dt);
-      else if (p.resting) this.stepBomb(p, dt);
-      else this.step(p, dt);
-      if (p.live && p.life <= 0) this.expire(p);
+      // A friend's round (co-op): everything it does this step is for the eye and the ear only.
+      const watched = p.cosmetic;
+      if (watched) this.combat.watching++;
+      try {
+        if (p.kind === 'grenade') this.stepGrenade(p, dt);
+        else if (p.resting) this.stepBomb(p, dt);
+        else this.step(p, dt);
+        if (p.live && p.life <= 0) this.expire(p);
+      } finally {
+        if (watched) this.combat.watching--;
+      }
       if (!p.live) {
         // A hit can retire others through a chain detonation, so find this one again by value.
         const at = this.live.indexOf(p);
@@ -363,7 +381,7 @@ export class Projectiles {
     const c = this.ctx;
     p.age += dt;
     if (p.wired) {
-      if (ROCKET_LASER.on) this.wire(p, dt);
+      if (p.laser.on) this.wire(p, dt);
     } else if (p.turnRate > 0) this.guide(p, dt);
     else if (p.homing > 0) this.steer(p, dt);
     if (p.gravity > 0) p.velocity.y -= p.gravity * dt;
@@ -389,7 +407,7 @@ export class Projectiles {
     if (p.team === 'player') {
       // A stake that punched through stops short for this frame, so the next enemy on the line still gets swept.
       if (this.sweepEnemies(p, dir, limit)) return;
-      if (p.kind === 'stake') this.sweepCorpses(p, dir, limit);
+      if (p.kind === 'stake' && !p.cosmetic) this.sweepCorpses(p, dir, limit);
     } else if (this.sweepPlayer(p, dir, limit)) {
       return;
     }
@@ -429,7 +447,7 @@ export class Projectiles {
 
   /** Wire guidance, HL2's: the nose turns toward wherever the laser dot is now, at `laserTurn`, so it arcs onto it. */
   private wire(p: Projectile, dt: number): void {
-    const want = this.want.subVectors(ROCKET_LASER.at, p.position);
+    const want = this.want.subVectors(p.laser.at, p.position);
     const dist = want.length();
     if (dist < 1e-3) return;
     turnToward(p.velocity, want.divideScalar(dist), TUNING.rocket.laserTurn * dt);
@@ -726,12 +744,13 @@ export class Projectiles {
       case 'bullet':
         c.fx.impact(wall.point, wall.normal, wall.surface, 0.7);
         c.audio.play(SURFACE_SOUND[wall.surface], { position: wall.point, volume: 0.7, pitchJitter: 0.08 });
+        if (p.cosmetic) break;
         c.world.objects?.damageExplosive(wall.collider, p.damage, p.source);
         if (p.team === 'player') c.enemies.vehicles?.shot(wall.collider, wall.point, p.damage, p.source);
         break;
       default:
         if (p.explosive) {
-          if (p.team === 'player') c.enemies.vehicles?.direct(wall.collider, wall.point, p.damage, p.blastKind, p.source);
+          if (p.team === 'player' && !p.cosmetic) c.enemies.vehicles?.direct(wall.collider, wall.point, p.damage, p.blastKind, p.source);
           this.explode(p, wall.normal);
         }
     }
@@ -745,14 +764,14 @@ export class Projectiles {
   private goThrough(p: Projectile, wall: RayHit): boolean {
     const c = this.ctx;
     const dir = this.dir;
-    if (p.team === 'player' && c.enemies.vehicles?.shot(wall.collider, wall.point, p.damage, p.source) === true) {
+    if (p.team === 'player' && !p.cosmetic && c.enemies.vehicles?.shot(wall.collider, wall.point, p.damage, p.source) === true) {
       p.live = false;
       return true;
     }
     if (!passWall(c.physics, p.budget, wall, dir, this.exit, this.exitNormal)) return false;
     c.fx.impact(wall.point, wall.normal, wall.surface, 1);
     c.audio.play(SURFACE_SOUND[wall.surface], { position: wall.point, volume: 0.8, pitchJitter: 0.08 });
-    c.world.objects?.damageExplosive(wall.collider, p.damage, p.source);
+    if (!p.cosmetic) c.world.objects?.damageExplosive(wall.collider, p.damage, p.source);
     this.combat.exitWall(this.exit, dir, this.exitNormal, wall.surface, 1);
     p.position.copy(this.exit).addScaledVector(dir, 0.02);
     p.damage = p.baseDamage * damageKept(p.budget);
@@ -768,7 +787,7 @@ export class Projectiles {
     c.fx.impact(wall.point, wall.normal, wall.surface, 1.2);
     c.render.decals.add('crack', wall.point, wall.normal, 0.5, rand(0, 6.28));
     c.audio.play('stake_hit_wall', { position: wall.point });
-    c.world.objects?.damageExplosive(wall.collider, p.damage, p.source);
+    if (!p.cosmetic) c.world.objects?.damageExplosive(wall.collider, p.damage, p.source);
     if (bomb) {
       this.stickBomb(p, wall.point, this.dir, wall.normal, null, undefined);
       return;
@@ -803,7 +822,8 @@ export class Projectiles {
     const inv = this.inverse.copy(b.matrixWorld).invert();
     p.stuckLocal.copy(p.position).applyMatrix4(inv);
     p.stuckAxis.copy(dir).transformDirection(inv);
-    this.ctx.enemies.afflict(enemy, 'bolt', p.fuse);
+    // A friend's bolt rides his body here too; whether he panics is the host's word.
+    if (!p.cosmetic) this.ctx.enemies.afflict(enemy, 'bolt', p.fuse);
   }
 
   /** A stuck exploding bolt: it follows its bone, beeps quicker and quicker, then goes off. */
@@ -893,8 +913,10 @@ export class Projectiles {
   }
 
   explode(p: Projectile, normal: THREE.Vector3 | undefined): void {
-    // A copy never blows up: the real one's blast comes from its owner (`boom`).
-    if (p.cosmetic) return;
+    // Co-op: the others' copy of this round ends here and now, wherever it has got to on their screens.
+    if (p.tag !== 0 && !p.cosmetic) this.ctx.coop?.world?.landed(p.tag, p.position);
+    // A friend's flak shell bursts for the eye and the ear (it is stepped under `Combat.watching`).
+    if (p.cosmetic && !p.flak) return;
     if (p.flak) {
       flakBurst(this.ctx, this.combat, p.position, this.v.copy(p.velocity).normalize(), p.source);
       return;
@@ -1023,7 +1045,8 @@ export class Projectiles {
     const r2 = SHOOTABLE_RADIUS * SHOOTABLE_RADIUS;
     for (let i = 0; i < this.live.length; i++) {
       const p = this.live[i]!;
-      if (p.kind !== 'grenade' && !(p.kind === 'rocket' && p.team === 'enemy')) continue;
+      // A friend's own round is not for shooting down; the copy of an enemy's rocket is (the host is asked: `netId`).
+      if ((p.cosmetic && p.netId === 0) || (p.kind !== 'grenade' && !(p.kind === 'rocket' && p.team === 'enemy'))) continue;
       const to = this.w.subVectors(p.position, origin);
       const t = to.dot(dir);
       if (t < 0 || t > bestT) continue;
@@ -1071,12 +1094,36 @@ export class Projectiles {
     if (at >= 0) this.retire(at);
   }
 
+  /**
+   * Co-op: a friend's own round `tag` went off at `at` on their screen. Its copy here ends there too, if it is still flying
+   * (a body it met there may stand somewhere else here): a flak shell bursts there, anything else just goes, and the blast
+   * itself is drawn from the shooter's own word.
+   */
+  land(tag: number, at: THREE.Vector3): void {
+    for (let i = 0; i < this.live.length; i++) {
+      const p = this.live[i]!;
+      if (!p.cosmetic || p.tag !== tag) continue;
+      p.position.copy(at);
+      if (p.flak) {
+        this.combat.watching++;
+        try {
+          this.explode(p, undefined);
+        } finally {
+          this.combat.watching--;
+        }
+      }
+      p.live = false;
+      this.retire(i);
+      return;
+    }
+  }
+
   /** Grenades in a blast cook off a moment later. */
   caughtInBlast(center: THREE.Vector3, radius: number): void {
     const r2 = radius * radius;
     for (let i = 0; i < this.live.length; i++) {
       const p = this.live[i]!;
-      if (p.kind === 'grenade' && p.fuse > 0.08 && p.position.distanceToSquared(center) < r2) p.fuse = 0.08;
+      if (p.kind === 'grenade' && !p.cosmetic && p.fuse > 0.08 && p.position.distanceToSquared(center) < r2) p.fuse = 0.08;
     }
   }
 }

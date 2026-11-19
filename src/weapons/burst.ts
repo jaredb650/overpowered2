@@ -73,7 +73,8 @@ export class Bursts {
     if (close > 0) this.combat.feel.shake(t.shake * scale * close * close);
 
     // A fragment that kills can set off anything a kill sets off. Whatever that fires bursts for the eye and the ear only.
-    if (this.busy || burst.damage <= 0) return;
+    // A friend's round drawn here (co-op, Combat.watching) bursts for the eye and the ear only, too.
+    if (this.busy || burst.damage <= 0 || this.combat.watching > 0) return;
     this.busy = true;
     try {
       this.fragments(point, normal, burst, source, struck);

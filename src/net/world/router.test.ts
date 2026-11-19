@@ -3,7 +3,7 @@ import type { WorldEvent } from '../worldProtocol';
 import { Router } from './router';
 
 describe('the world event router', () => {
-  const fire: WorldEvent = { t: 'fire', shot: 1, weapon: 'smg', origin: [0, 0, 0], dir: [0, 0, -1] };
+  const fire: WorldEvent = { t: 'fire', weapon: 'smg', origin: [0, 0, 0], dir: [0, 0, -1] };
   it('hands an event to the handler of the side that hears it, with who sent it and when', () => {
     const router = new Router();
     const host = vi.fn(), guest = vi.fn();

@@ -18,7 +18,7 @@ import type { GunEvent } from './world/guns';
 import type { HitEvent } from './world/hits';
 import type { PodEvent } from './world/pods';
 import type { PropEvent } from './world/props';
-import type { FireEvent, KataEvent } from './world/remoteFire';
+import type { FireEvent, KataEvent, KitEvent, LoopEvent, MeleeFxEvent, ProjEvent } from './world/remoteFire';
 import type { SonarEvent } from './world/sonar';
 import type { AwardEvent } from './world/credit';
 import type { WhoEvent } from './world/identity';
@@ -38,6 +38,10 @@ export type WorldEvent =
   | ClaimEvent      // world/claims.ts: hit, status, vhit
   | HitEvent        // world/hits.ts: hitfx, kill, sever
   | FireEvent       // world/remoteFire.ts: fire
+  | LoopEvent       // world/remoteFire.ts: loop
+  | ProjEvent       // world/remoteFire.ts: round
+  | KitEvent        // world/remoteFire.ts: held
+  | MeleeFxEvent    // world/remoteFire.ts: mfx
   | KataEvent       // world/remoteFire.ts: kata
   | HurtEvent       // world/targeting.ts: hurt, shove, ghost
   | EnemyFireEvent  // world/enemyFire.ts: ray, proj, projx, projhit, efx
