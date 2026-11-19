@@ -545,7 +545,24 @@ export default async function (host, { sleep, outDir }) {
         check(open.every(Boolean), 'It lands and opens on every screen', await everyone(pods));
         await sleep(500);
         await shot('7-shared-pod');
-        for (const [i, page] of pages.entries()) { const a = (i / pages.length) * Math.PI * 2; await teleport(page, [spot[0] + Math.sin(a) * 2.6, spot[1], spot[2] + Math.cos(a) * 2.6], a); }
+        // Beside the pod, each on ground a player can stand on: a pod may land by a wall or a drop, so a fixed ring of spots
+        // can put one of three players inside something.
+        for (const [i, page] of pages.entries()) {
+          const at = await page.evaluate(([spot, start]) => {
+            const { ctx } = window.__op2, V = ctx.player.position.constructor;
+            for (let k = 0; k < 16; k++) {
+              const a = start + (k / 16) * Math.PI * 2;
+              const p = new V(spot[0] + Math.sin(a) * 2.6, spot[1], spot[2] + Math.cos(a) * 2.6), snapped = p.clone();
+              if (!ctx.world.nav.nearest?.(p, 1.5, snapped)) continue;
+              if (Math.hypot(snapped.x - p.x, snapped.z - p.z) > 0.6 || Math.abs(snapped.y - spot[1]) > 0.8) continue;
+              const eye = new V(snapped.x, snapped.y + 1.5, snapped.z), to = new V(spot[0], spot[1] + 1.2, spot[2]).sub(eye), far = to.length();
+              if (far > 0.6 && ctx.physics.raycast(eye, to.divideScalar(far), far - 0.5, 1)) continue;
+              return [snapped.x, snapped.y, snapped.z, a];
+            }
+            return [spot[0], spot[1], spot[2] + 2.6, 0];
+          }, [spot, (i / pages.length) * Math.PI * 2]);
+          await teleport(page, at.slice(0, 3), at[3]);
+        }
         await sleep(600);
         check((await everyone(page => page.evaluate(() => window.__op2.ctx.progression.pods.supplyNear))).every(Boolean), 'Every player is offered the shop at the shared pod');
         result.bought = [];
