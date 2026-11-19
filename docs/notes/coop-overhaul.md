@@ -449,3 +449,24 @@ Shared files and contracts between lanes:
   `Wreck` class as a `ghost` (no damage, no cook-off blast of its own); vehicle guns' flashes and sounds stay the enemy-attacks
   lane's. Not done: the enemy attack helicopter is still not drawn on guests; the mounted-gun seats have a unit test and no
   browser proof yet.
+
+## The owner is away: standing orders (2026-11-18, night)
+
+The owner left to run errands and will not answer questions. The lead decides, using his feedback so far, and writes each
+decision in the log. Order of work:
+
+1. **The remaining co-op lanes finish and report.**
+2. **Last pass: do the pieces fit, and is the upgrade truly complete?** The wire pass, a whole-diff review by fresh agents,
+   every lane's proof re-run on the final tip (clean, bad network, real WebRTC, 2 to 4 players, every mode), the smoothness table
+   on a quiet machine, every "not done / not proven" item from the lane reports chased down, and fixes. Then typecheck, the
+   whole suite, a production build, and the branch pushed.
+3. **A report on the whole co-op update:** what was done to make it good, and an honest statement of confidence that
+   multiplayer is good and complete, with what is still unproven.
+4. **Then the damage response update starts** (`docs/proposals/damage-response-update.md`, the owner's answers in 10a) and runs
+   **to the end without stopping to ask**. The two goals in his words: (a) gibbing must never feel like body parts
+   disappear: what a destruction spawns should roughly match the size of what was destroyed, a body breaking apart, not being
+   erased; (b) ragdolls should feel like Red Dead, a state-of-the-art responsiveness gradient, with no on/off switch. Risky
+   steps go behind switches so he can compare when he is back; taste calls are made from his answers and recorded.
+
+Keep the machine modest throughout: it is shared, and the other person may shut the agents down if it is swamped (3 browser
+slots, tests at low priority, few agents at once).
