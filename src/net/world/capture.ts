@@ -61,6 +61,9 @@ export function capturable(enemy: Enemy): boolean {
 const _a = new THREE.Vector3();
 const _b = new THREE.Vector3();
 
+/** Host: how many cuffed men's captors are remembered before those of men who are gone are dropped. */
+const CAPTORS_KEPT = 48;
+
 export class Capture implements WorldModule {
   /** Host: who cuffed each prisoner (lobby id), so the bounty reaches them. */
   private readonly captors = new Map<number, string>();
@@ -169,6 +172,9 @@ export class Capture implements WorldModule {
       else if (inHand || capturable(enemy)) {
         // The bounty is the captor's (above). The cuffs are the drone's own, as for the host's key.
         this.captors.set(enemy.uid, from);
+        // A man cuffed and never secured (the run ended, he died on the hook) would stay for ever: past a few dozen, the
+        // entries of men no longer in the world go.
+        if (this.captors.size > CAPTORS_KEPT) for (const uid of [...this.captors.keys()]) if (!ctx.enemies.alive.some(e => e.uid === uid)) this.captors.delete(uid);
         if (prisoners.cuffFor(soldier, inHand ? holder : null)) {
           const name = session.lobby.players.find(p => p.id === from)?.name ?? 'A teammate';
           ctx.hud.feed(`${name} cuffed a prisoner`, FEED_COLOR);
