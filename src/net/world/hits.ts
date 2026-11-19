@@ -104,12 +104,13 @@ export class Hits implements WorldModule {
   private readonly killGuess: KillFacts = { blast: null, shatter: false, heavyHead: false, wound: 0 };
   /**
    * For the proofs: what this screen has drawn, and how long the host took to answer. `nacks`: hits the host refused
-   * (`gone`: the enemy was already dead there, which is no refusal). Kill prediction: `falls` and `deaths` started ahead of
+   * (`gone`: the enemy was already dead there, which is no refusal); `wrongTold`: kills this player's marker and sound
+   * announced that the host did not find. Kill prediction: `falls` and `deaths` started ahead of
    * the host's word, `fallsRight` and `deathsRight` the host then confirmed, `fallsWrong` (the body got up again: a
    * knockdown) and `deathsWrong` (a body that had to be brought back: must stay 0).
    */
   readonly seen = { predicted: 0, shown: 0, acks: 0, corrected: 0, lateKills: 0, severs: 0, kills: 0, ackMs: 0, ackMsMax: 0,
-    nacks: 0, gone: 0, falls: 0, deaths: 0, fallsRight: 0, deathsRight: 0, fallsWrong: 0, deathsWrong: 0 };
+    nacks: 0, gone: 0, wrongTold: 0, falls: 0, deaths: 0, fallsRight: 0, deathsRight: 0, fallsWrong: 0, deathsWrong: 0 };
 
   /** `credit` is built first: its `enemy:killed` listener has named the killer before this one sends the death. */
   constructor(private readonly w: WorldContext, private readonly replicas: Replicas, private readonly credit: Credit, private readonly claims: Claims) {
@@ -297,6 +298,9 @@ export class Hits implements WorldModule {
     if (!facts || !enemy.alive || this.replicas.enemy(value.u) !== enemy) return;
     if (Number.isFinite(value.h)) enemy.health = value.h / 10;
     if (Number.isFinite(value.a)) enemy.armor = value.a / 10;
+    // A kill this player was told of that the host did not find (a man's wounds decided otherwise, or a hit was cut): the
+    // next round into it is a hit on a living enemy again.
+    if (value.k !== 1 && this.toldKill.has(enemy.uid) && enemy.owed <= 1e-6 && enemy.health > 0) { this.toldKill.delete(enemy.uid); this.seen.wrongTold++; }
     // Dropped for dead by this player's hit: it lies there until every answer is in. If it then lives, it gets up.
     if (enemy.predead !== 0) {
       if (value.k !== 1) this.judgeFall(enemy);

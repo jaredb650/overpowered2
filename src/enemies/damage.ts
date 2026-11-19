@@ -19,6 +19,7 @@ import { KNOCK_PASS, MASS_PASS, STAND_PASS, STRENGTH_PASS, WEIGHT_PASS, type Lim
 import { standBudget, StandTuning } from '../gore/stand';
 import { STRUGGLE_PASS } from '../gore/reflex';
 import { bursts, HEAVY_ROUND } from './wounds/rules';
+import type { ZoneHit } from './wounds/zones';
 import { blowsOut } from '../gore/torso';
 import { BLAST, OUTCOME_COUNT, OUTCOMES, rollBlast, tearsWaist, type BlastBody, type BlastOutcome, type BlastRoll, type OutcomeRule } from './blast';
 import { CHECK_CARRY, CHECK_MIN, CHECK_TOPPLE_MAX, CHECK_TOPPLE_MIN, checkStrength, SLIDE_KICK, SLIDE_TOPPLE } from './contact';
@@ -662,7 +663,7 @@ export class DamageModel {
       if (!told) {
         // Already reckoned dead by an earlier hit of this player's: this one met a corpse, as far as the shooter is told.
         if (!body && !e.isBoss && e.health - e.owed <= 0) res.doomed = true;
-        else res.killSoon = this.wouldKill(e, body !== null, region, amount);
+        else res.killSoon = body ? this.woundKills(placed, res) : this.wouldKill(e, false, region, amount);
         if (res.killSoon && this.predictKills) res.sure = this.sureKill(e, d, region, amount, res, body !== null, area);
       }
       if (blast) this.blastShown(e, d, blast);
@@ -699,6 +700,17 @@ export class DamageModel {
    * unanswered should take (`Enemy.owed`), will not outlast it. Never for a body with anatomy (his wounds decide that, on
    * the host), a boss, or a body the host may be about to blow up.
    */
+  /**
+   * A guest's guess for a man with anatomy, whose death is his wounds' to decide on the host (wounds/index.ts
+   * `takePlaced`): a round that reached his brain or his heart kills him outright there, whatever his health, and nothing
+   * else is known from here. The claim carries the hit in the struck bone's own axes (net/world/claims.ts), so the host
+   * reads the same place on its own body that this machine read on its copy.
+   */
+  private woundKills(placed: ZoneHit | null, res: DamageResult): boolean {
+    if (!placed || res.blocked) return false;
+    return (placed.zone === 'head' && !placed.glancing) || placed.zone === 'heart';
+  }
+
   private wouldKill(e: Enemy, anatomy: boolean, region: GoreRegion, amount: number): boolean {
     if (anatomy || e.isBoss || amount <= 0) return false;
     if (region === 'head' && (e.limbHp.get('head') ?? Infinity) - amount <= 0) return true;

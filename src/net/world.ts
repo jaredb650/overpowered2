@@ -11,6 +11,7 @@ import type { Enemy } from '../enemies/Enemy';
 import type { PlayerSense } from '../enemies/aiWorld';
 import type { ClaimValidator } from './authority';
 import type { CoopSession } from './index';
+import { COOP_FEEL } from './feel';
 import { CoopMission } from './mission';
 import { Team } from './team';
 import { Skyhook } from './world/airlift';
@@ -238,6 +239,8 @@ export class CoopWorld {
     return { sent: c.sent, received: c.received, refusedTotal: c.refusedTotal, refused: c.refused, refusals: c.refusals, clamped: v.clamped, doubted: v.doubted,
       accepted: this.w.stats.accepted, late: this.late.books };
   }
+  /** This player's own co-op feel switches (net/feel.ts): kill prediction. The dev panel and the proofs flip them here. */
+  get feel(): typeof COOP_FEEL { return COOP_FEEL; }
   /** The shot id the local player's claims carry now (claims.ts), and on the host the claim being applied: whose, and its shot id. */
   get shot(): number { return this.claims.shot; }
   get applying(): string | null { return this.claims.applying; }

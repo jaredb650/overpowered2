@@ -28,9 +28,11 @@ import { ENEMY_IDS, packDamage, validVec, type Vec, type WireDamage } from './wi
  * Guest to host: my shot `shot` hit enemy `target` like this. `at` is my clock (ms) when I claimed it, `origin` my eye then.
  * `hop`: the round did not come straight from my eye (a ricochet, a hop off another body, an arc, a fragment, a wall it went
  * through), so there is no straight line to test. `weapon` is the gun in my hands, for what it is worth: a round in flight
- * lands after a swap, and the host goes by `damage.source`.
+ * lands after a swap, and the host goes by `damage.source`. `local`: where the round went in, in the struck bone's own axes
+ * on my copy of the body (millimetres kept). The host's body is a moment ahead of my copy and in another stride, so the
+ * world point I saw is off its body by then: the host puts the hit back on the same spot of the same bone (`place`).
  */
-export interface HitClaim { t: 'hit'; shot: number; at?: number; target: number; weapon: string; origin: Vec; damage: WireDamage; hop?: 1 }
+export interface HitClaim { t: 'hit'; shot: number; at?: number; target: number; weapon: string; origin: Vec; damage: WireDamage; hop?: 1; local?: Vec }
 /** Guest to host: my weapon, call-in or perk set enemy `uid` alight, froze it, or left a live bolt in it, for `s` seconds. */
 export interface StatusClaim { t: 'status'; uid: number; kind: StatusKind; s: number; at?: number }
 export type StatusKind = 'burn' | 'freeze' | 'bolt';
@@ -62,6 +64,10 @@ const STRAIGHT_COS = Math.cos(12 * Math.PI / 180);
 export interface Refusal { at: number; from: string; t: ClaimEvent['t']; why: RejectReason | 'kind'; source: string; target: number; shot: number }
 /** Refusals kept for reading back, and written to the console, before only every hundredth is. */
 const REFUSALS_KEPT = 64, REFUSALS_LOGGED = 40;
+
+/** The furthest from a bone's origin a hit on that bone can be, metres in the bone's axes (a Titan's trunk is big). */
+const LOCAL_REACH = 12;
+const _local = new THREE.Vector3();
 
 const NOTHING: DamageResult = { dealt: 0, blocked: false, killed: false, headshot: false, severed: [] };
 const _from = new THREE.Vector3(), _dir = new THREE.Vector3();
@@ -147,6 +153,11 @@ export class Claims implements WorldModule {
     const claim: HitClaim = { t: 'hit', shot: this.shot, at: Math.round(now), target: enemy.uid, weapon: ctx.weapons.current,
       origin: eye.toArray() as Vec, damage: packDamage(damage) };
     if (this.bent(eye, damage)) claim.hop = 1;
+    const struck = damage.bone === undefined ? undefined : enemy.char.bones?.[damage.bone];
+    if (struck) {
+      const at = struck.worldToLocal(_local.copy(damage.point));
+      if (Number.isFinite(at.x + at.y + at.z) && at.length() <= LOCAL_REACH) claim.local = [Math.round(at.x * 1000) / 1000, Math.round(at.y * 1000) / 1000, Math.round(at.z * 1000) / 1000];
+    }
     this.w.send(claim);
     this.sent.hit++;
     const body = enemy as Enemy;
@@ -265,6 +276,7 @@ export class Claims implements WorldModule {
     stats.accepted++;
     const damage = unpackDamage(value.damage);
     if (damage.bone !== undefined && damage.bone >= enemy.char.rig.bones.length) damage.bone = undefined;
+    this.place(enemy, damage, value.local);
     damage.amount = bossHit(enemy.isBoss, damage.amount);
     this.targeting.targetPlayer = this.targeting.players().find(player => player.id === from)?.player ?? ctx.player;
     this.lastHitter.set(enemy.uid, from);
@@ -272,6 +284,19 @@ export class Claims implements WorldModule {
     this.currentShot = value.shot;
     try { this.w.manager.applyDamage(enemy, damage); }
     finally { this.targeting.targetPlayer = null; this.current = null; }
+  }
+
+  /**
+   * Host: puts a guest's hit on the body as the host has it. The claim's world point is where the guest's copy stood a
+   * moment ago; the same spot on the same bone of the host's body is where the round went in. What a man's wounds read off
+   * the point (a brain, a heart, a skid off the skull) is then what the shooter saw, and the wound is drawn on the body.
+   */
+  private place(enemy: Enemy, damage: DamageInfo, local: unknown): void {
+    if (damage.bone === undefined || !validVec(local) || Math.hypot(local[0], local[1], local[2]) > LOCAL_REACH) return;
+    const bone = enemy.char.bones?.[damage.bone];
+    if (!bone) return;
+    const at = bone.localToWorld(_local.set(local[0], local[1], local[2]));
+    if (Number.isFinite(at.x + at.y + at.z)) damage.point.copy(at);
   }
 
   /** Host: a guest's fire, frost or bolt on an enemy, applied as the host's own weapon would. */
