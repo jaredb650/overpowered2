@@ -52,7 +52,7 @@ export function readKit(ctx: Ctx): Kit {
   const p = ctx.progression as KitProgression;
   const chips = rack(ctx);
   const guns: GunKit[] = [];
-  for (const id of w.owned) {
+  for (const id of w.owned ?? []) {
     const a = w.ammo(id);
     const mods = [...(w.mods ?? [])].filter(m => MODS[m]?.weapon === id);
     guns.push({ weapon: id, mods, fitted: mods.filter(m => w.fitted?.has(m)), mag: a.mag, reserve: a.reserve });

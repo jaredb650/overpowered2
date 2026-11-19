@@ -729,8 +729,9 @@ describe('a rejoining player', () => {
     // `ok`: the guest's seat is settled (the host's `restore` was applied), so the host keeps its purse.
     const card = (credits: number) => ({ slot: 1, state: 'up', bleed: 0, life: 0, hp: 100, max: 100, armor: 0, kills: 3, score: 300, credits, downs: 0, revives: 0, ping: 0, ok: true });
     game.guestRoom.channel('action').send({ match: 'world-test', data: { t: 'card', card: card(250) } }); game.relay.flush();
-    // The same callsign comes back on a new page: its first card is an empty purse.
+    // The same player comes back on a new page (its seat is not settled yet): its first card is an empty purse.
     (game.hw.team as unknown as { arrived: Set<string> }).arrived.clear();
+    (game.gw.team as unknown as { settled: boolean }).settled = false;
     (game.guest.ctx.contracts.wallet as unknown as { credits: number }).credits = 0;
     game.guestRoom.channel('action').send({ match: 'world-test', data: { t: 'card', card: card(0) } }); game.relay.flush();
     expect(game.guest.ctx.contracts.wallet).toMatchObject({ credits: 250 });
