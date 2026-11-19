@@ -1,5 +1,5 @@
-// Team rules proof 3: dropping out and coming back. A guest buys a kit, its page dies, and the same browser comes back by the
-// invite link: guns, mods, rounds, grenades, implants, brain chips, call-ins, credits, score and kills are back, kept on the
+// Team rules proof 3: dropping out and coming back. A guest buys a kit, its page dies, and the same browser comes back (a
+// reload): guns, mods, rounds, grenades, implants, brain chips, call-ins, credits, score and kills are back, kept on the
 // host under the browser's id. Then the same again after bleeding out: a rejoin is not a free revive, and the player gets up
 // with the rest of the team when the wave is cleared.
 //
@@ -7,7 +7,7 @@
 //   node tools/shot.mjs --port 5310 --dpr 2 --w 1440 --h 900 --wait 500 --timeout 600 \
 //     --script tools/scripts/coop-team-rejoin.mjs --out tools/out/team/rejoin-final.png
 import { writeFileSync } from 'node:fs';
-import { button, kit, skipBreak } from './coop-kit.mjs';
+import { kit, skipBreak } from './coop-kit.mjs';
 import { BAD_NET, allIn, bleedOut, clearWave, down, invulnerable, netName, players, said, teamParty, world } from './coop-team-kit.mjs';
 
 const PLAYERS = players(2);
@@ -46,12 +46,9 @@ export default async function (host, { sleep, outDir }) {
       const seat = id ? world.team.seats.get(world.team.seatKey(id)) : null;
       return { key: id ? world.team.seatKey(id) : '', id, guns: seat?.kit?.guns.map(g => g.weapon).sort() ?? null, credits: seat?.purse?.credits ?? null, state: id ? world.team.life(id).state : null };
     }, slot);
-    /** The guest's page dies and the same tab comes back by the invite link. */
+    /** The guest's page dies and the same browser comes back: a reload, which rejoins the match by itself (the session's seat). */
     const rejoin = async () => {
-      await guest.goto(party.invite);
-      // The link opens on its password page; a match in progress takes the newcomer straight in from there.
-      await guest.locator('input[type=password]').waitFor({ state: 'visible', timeout: 120000 });
-      await guest.locator('input[type=password]').fill(party.password); await button(guest, 'Join lobby').click();
+      await guest.reload({ waitUntil: 'load', timeout: 120000 });
       await allIn([guest], 'crucible', PLAYERS - 1);
       await host.waitForFunction(n => window.__op2.ctx.coop.remotes.size >= n && [...window.__op2.ctx.coop.remotes.values()].every(r => r.char.root.visible), PLAYERS - 1, { timeout: 60000, polling: 250 });
     };
@@ -88,7 +85,7 @@ export default async function (host, { sleep, outDir }) {
     check(/^s:/.test(kept.key), 'The host keeps the kit under the player\'s seat, not the callsign', kept);
     await shot(guest, 'guest-kit-before');
 
-    progress('the guest\'s page dies; the same browser comes back by the link');
+    progress('the guest\'s page dies; the same browser comes back');
     await rejoin();
     await sleep(BAD_NET ? 1500 : 800);
     const after = await kitOf(guest);

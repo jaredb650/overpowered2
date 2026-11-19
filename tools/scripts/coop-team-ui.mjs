@@ -36,30 +36,38 @@ export default async function (host, { sleep, outDir }) {
 
     progress('ping');
     const live = page => page.evaluate(() => window.__op2.ctx.coop.world.team.marks.live.map(m => ({ slot: m.slot, at: m.at.toArray().map(n => Math.round(n * 10) / 10) })));
-    await guest.keyboard.press('KeyP');
-    const own = await live(guest);
+    // One look at a page's pings: the marks, their labels on the screen and the colour of the first, read together (a ping
+    // lasts six seconds, and a loaded machine is slow).
+    const pings = page => page.evaluate(() => {
+      const shown = [...document.querySelectorAll('.wl .mk')].filter(el => getComputedStyle(el).display !== 'none' && /PING/.test(el.textContent));
+      return { live: window.__op2.ctx.coop.world.team.marks.live.map(m => ({ slot: m.slot, at: m.at.toArray().map(n => Math.round(n * 10) / 10) })),
+        labels: shown.map(el => el.textContent), colour: shown[0]?.style.getPropertyValue('--c') ?? '' };
+    });
     const guestSlot = await guest.evaluate(() => window.__op2.ctx.coop.lobby.me.slot);
-    check(own.length === 1 && own[0].slot === guestSlot, 'The pinger\'s own marker is up at once', own);
-    await host.waitForFunction(() => window.__op2.ctx.coop.world.team.marks.live.length === 1, null, { timeout: 30000, polling: 250 });
-    const seen = await all(live);
+    await guest.keyboard.press('KeyP');
+    const own = await pings(guest);
+    check(own.live.length === 1 && own.live[0].slot === guestSlot, 'The pinger\'s own marker is up at once', own);
+    check(own.labels.some(t => /^YOUR PING/.test(t)), 'The guest\'s own reads YOUR PING', own.labels);
+    await Promise.all(pages.map(page => page.waitForFunction(() => window.__op2.ctx.coop.world.team.marks.live.length === 1, null, { timeout: 30000, polling: 100 })));
+    const seen = await all(pings);
     out.ping = seen;
-    seen.forEach((m, i) => check(m.length === 1 && m[0].slot === guestSlot && JSON.stringify(m[0].at) === JSON.stringify(own[0].at), `Page ${i} has the guest's ping at the same spot`, m));
-    const labels = await all(hudText);
-    check(labels[0].marks.some(t => /^PING · GUEST-TWO/.test(t)), 'The host\'s marker carries the guest\'s name', labels[0].marks);
-    check(labels[1].marks.some(t => /^YOUR PING/.test(t)), 'The guest\'s own reads YOUR PING', labels[1].marks);
-    const colour = await host.evaluate(() => { const el = [...document.querySelectorAll('.wl .mk')].find(e => /^PING · GUEST-TWO/.test(e.textContent)); return el ? el.style.getPropertyValue('--c') : ''; });
-    check(colour === ['#39e0ff', '#ffb33d', '#c69bff', '#79f1ad'][guestSlot], 'The marker is in the guest\'s own colour', { colour, guestSlot });
+    seen.forEach((m, i) => check(m.live.length === 1 && m.live[0].slot === guestSlot && JSON.stringify(m.live[0].at) === JSON.stringify(own.live[0].at), `Page ${i} has the guest's ping at the same spot`, m));
+    check(seen[0].labels.some(t => /^PING · GUEST-TWO/.test(t)), 'The host\'s marker carries the guest\'s name', seen[0].labels);
+    check(seen[0].colour === ['#39e0ff', '#ffb33d', '#c69bff', '#79f1ad'][guestSlot], 'The marker is in the guest\'s own colour', { colour: seen[0].colour, guestSlot });
     // The host looks at it for the picture.
     await host.evaluate(at => {
       const { ctx } = window.__op2; const V = ctx.player.position.constructor;
       const delta = new V(...at).sub(ctx.player.eye);
       ctx.player.yaw = Math.atan2(-delta.x, -delta.z); ctx.player.pitch = Math.atan2(delta.y, Math.hypot(delta.x, delta.z));
-    }, own[0].at);
+    }, own.live[0].at);
+    // A fresh ping for the picture.
     await sleep(500);
+    await guest.keyboard.press('KeyP');
+    await host.waitForFunction(() => window.__op2.ctx.coop.world.team.marks.live.length >= 1, null, { timeout: 30000, polling: 100 });
     await shot(host, 'ping-host'); await shot(guest, 'ping-guest');
     await host.keyboard.press('KeyP'); await settle();
     check((await live(guest)).some(m => m.slot === 0), 'The host\'s ping reaches the guest', await live(guest));
-    await sleep(6500);
+    await sleep(7000);
     const gone = await all(live);
     check(gone.every(m => m.length === 0), 'Every ping is gone after six seconds, on every page', gone);
     await host.evaluate(yaw => { window.__op2.ctx.player.yaw = yaw; window.__op2.ctx.player.pitch = 0; }, spawn.yaw);

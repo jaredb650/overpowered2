@@ -67,8 +67,8 @@ export default async function (host, { sleep, outDir }) {
       progress('host presses Start again');
       const matchBefore = await host.evaluate(() => window.__op2.ctx.coop.match.id);
       await host.locator('.cq-over .cq-btn', { hasText: 'Start again' }).click();
-      for (const page of pages) await page.waitForFunction(id => window.__op2?.ctx?.coop?.world && window.__op2.ctx.coop.match.id !== id
-        && window.__op2.ctx.coop.remotes.size >= 1 && window.__op2.game.state !== 'menu', matchBefore, { timeout: 180000, polling: 250 });
+      // Each page loads the new match's map and stops at "Click to deploy"; allIn presses it.
+      for (const page of pages) await page.waitForFunction(id => !!window.__op2?.ctx?.coop?.match && window.__op2.ctx.coop.match.id !== id, matchBefore, { timeout: 180000, polling: 250 });
       await allIn(pages, contract);
       const again = await Promise.all(pages.map(p => p.evaluate(() => ({ id: window.__op2.ctx.coop.match.id, mode: window.__op2.ctx.coop.match.mode, wave: window.__op2.ctx.waves.wave,
         board: !!document.querySelector('.cq-over .cq-big')?.textContent, players: window.__op2.ctx.coop.lobby.players.length }))));

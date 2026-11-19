@@ -1113,7 +1113,39 @@ Unit: `src/net/team.test.ts` (31 tests, two to four players over the mocked tran
 | `coop-team-rejoin.mjs` | A guest's page dies and the same browser comes back: fifteen parts of the kit and purse are equal before and after; the seat is the same under a new connection; after bleeding out the rejoin is dead on both sides and gets up at wave clear |
 | `coop-team-ui.mjs` | Ping (instant, same spot, name and colour, gone after 6 s); the kill feed's line on every page; three guest kills pay the guest and not the host; a boss kill named in every feed; IN A MENU and CHEATS on the strip and the Tab board |
 
-`TEAM_PLAYERS=2|3|4`, `TEAM_NET=bad` (the simulator at `lag:120,jitter:40,loss:0.05`), `COOP_NET=rtc` for real WebRTC.
+| `coop-team-solo.mjs` | One page, no lobby: the solo break is still 25 s with "L: START NOW", the shop still says "when you leave" and the run is paused under it, L alone still calls the next wave in, and there is no co-op HUD |
+
+`TEAM_PLAYERS=2|3|4`, `TEAM_NET=bad` (the simulator at `lag:120,jitter:40,loss:0.05`), `COOP_NET=rtc` for real WebRTC. One run
+at a time (the machine is shared); each writes its evidence JSON and screenshots beside `--out`.
+
+Runs on 2026-11-18, all on a heavily loaded machine (pages at 2 to 15 frames a second), every check passing:
+
+| Proof | Players | Network | Transport | Checks |
+|---|---|---|---|---:|
+| endings, wipe (with Start again) | 2 | clean | loopback | 32 |
+| endings, wipe | 4 | lag 120, jitter 40, loss 5% | loopback | 60 |
+| endings, Endless Humans won | 2 | lag 120, jitter 40, loss 5% | loopback | 18 |
+| endings, mission won (and the pause menu) | 2 | lag 120, jitter 40, loss 5% | loopback | 20 |
+| break and vote | 3 | clean, then lag 120, jitter 40, loss 5% | loopback | 27, 27 |
+| break and vote | 4 | clean | loopback | 30 |
+| rejoin with the kit | 2 | lag 120, jitter 40, loss 5% | loopback | 25 |
+| rejoin with the kit | 2 | clean | real WebRTC | 25 |
+| ping, kill feed, credit, strip | 3 | clean, then lag 120, jitter 40, loss 5% | loopback | 19, 19 |
+| ping, kill feed, credit, strip | 2 | clean | real WebRTC | 17 |
+| single player untouched | 1 | | | 6 |
+
+The three endings also passed over real WebRTC with two players before the session lane's deploy gate landed (32, 18 and 16
+checks); they have not been run on WebRTC since.
+
+### Not done
+
+- **Outpost Defense on a rejoin:** the kit comes back, but the mode's own loadout screen opens again on the new page and what the
+  player picks there replaces the restored guns.
+- **A lost player's body:** while a connection is down the host still shows nothing of that player, and whether enemies should
+  keep hunting the spot is the targeting module's (not checked here).
+- **The kill feed for a garrison ally's kill** shows nothing (it is nobody's kill); a line for it would be easy to add.
+- **Three- and four-player runs over real WebRTC**, and any run on an idle machine: every timing above was taken under load.
+- **Perks and a call-in seat lost on going down** stay lost (lead's decision D4); **waves and pay do not scale** with players (P4).
 
 ## How it works
 

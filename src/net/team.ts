@@ -718,6 +718,8 @@ export class Team {
       // Kept after they go (a bounty may still be owed to that id, `payee`), but never without bound.
       if (this.left.size > 64) for (const id of [...this.left.keys()]) if (!lobby.players.some(p => p.id === id)) { this.left.delete(id); if (this.left.size <= 32) break; }
       if (this.fulfilledAt && now >= this.fulfilledAt) return this.finish('fulfilled');
+      // Before the barrier lifts (players still loading, nobody past "Click to deploy") there is no run to lose.
+      if ((this.session as { holding?: boolean }).holding === true) { this.markers(); return; }
       if (wiped(lives) && this.checkpoint()) return;
       if (wiped(lives)) return this.finish('wipe');
     }

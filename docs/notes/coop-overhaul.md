@@ -287,6 +287,34 @@ Shared files and contracts between lanes:
   world's own hazard, the shooter and teammates alike: **owner question**, since it is the one place a player can hurt a friend;
   (5) a guest's blast is not forwarded to walls (world-b's). Found on the way: a Vite server left running across a rebase serves
   modules from before it, so restart it after every rebase. Proofs and numbers: `docs/notes/coop.md`, "The shared world".
+- 2026-11-18, team lane (`coop/team`): landed (`3e4f41f` and the commits after it). **Endings:** a co-op run ends only through
+  `team.finish(how)` and the team board on every screen (a wipe, Endless Humans won, a mission won), with buttons (Back to lobby
+  for anyone; the host's Back to lobby (everyone) and Start again), the host's world still running under it, and no solo
+  game-over or "complete" screen anywhere. **Lives:** the dead and the downed get up at wave clear, and again at wave start; a
+  stalled host or a dropped line costs nobody their bleed-out seconds. **Break:** 45 s, 60 s before a boss wave; the next-wave
+  key is a vote of the living players, shown on the HUD and in the shop, whose clock is now the real one; the solo shortcuts
+  that ended a break for everyone are off in co-op. **Seats:** the host keeps each guest's purse, kit (guns, mods, rounds,
+  grenades, stims, implants, brain chips, call-ins, combo) and whether they left alive, under the session's seat id; a new
+  page gets it all back and is never a free revive. **Late join:** `sync` (wave, break clock, vote, custom rules). **Credit:**
+  `world/credit.ts` decides whose kill (claimant, then the owner of a queued blast, then nobody for an ally, then the last
+  player to hurt it within 30 s for a bleed or burn, then the host), and a guest's wound bonus, execution and BACK SHOT label go
+  to that guest (`award`). **Told to the team:** cheats, the host's custom rules, who is in a menu. **HUD:** teammates on the
+  minimap, a kill feed, a ping (middle mouse or P). **Pause menu:** End match asks first; a guest has no checkpoint item.
+  Details and numbers: `docs/notes/coop.md`, "The team's rules". Decisions: (1) only players whose world is up count for a wipe
+  and a vote; (2) the dead never hold a vote up, and a player in the shop votes from the shop; (3) someone who left dead and
+  sat out the team's respawn comes back alive; (4) a connection that drops and returns on the same page keeps what that page
+  holds (the host's copy is older) and its life as it stood; (5) the board returns everyone to the lobby after 20 s (was 15);
+  (6) the kill feed is derived on each screen from the `kill` event already sent, so it adds nothing to the wire; (7) skipping
+  the Commander's briefing no longer shortens the break in co-op. Touched outside the lane, small: `net/lobby.ts`
+  (`browserOf`), `net/index.ts` (`playAgain`, the ending passed to the board), `net/remote.ts` (`color` made public),
+  `net/world.ts` and `world/hits.ts` (kill credit moved to `credit.ts`; one `coop:kill` emit in `killIn`), `world/claims.ts`
+  (`onStatus`), `world/capture.ts` (the bounty's payee), `weapons/Combat.ts` (a queued blast remembers whose it is),
+  `progression/index.ts` and `contracts/rewards.ts` (not-mine guards), `contracts/defense/index.ts` and
+  `enemies/commander/index.ts` (the two solo break shortcuts), `core/contracts.ts`, `input/bindings.ts`, `ui/data.ts` (the
+  `ping` action), `ui/hud/shop.ts` and `defense.ts` (the "START NOW" hint), `world/pods.test.ts` (the break is now 45 s).
+  Proved: `src/net/team.test.ts` (31 tests) and five browser proofs `tools/scripts/coop-team-*.mjs` (endings, break, rejoin, ui,
+  solo), at 2, 3 and 4 players, on a clean network and under `lag:120,jitter:40,loss:0.05`, on loopback and (rejoin, ui) on real
+  WebRTC: the table of runs is in `docs/notes/coop.md`, "The team's rules", Proofs. Not done: the same section, "Not done".
 - 2026-11-18, late: usage cap about to hit (owner has reset tokens). State for whoever resumes: landed so far = rig (done, reported), split (done), enemy-motion main (`970157c`; its 12-case measurement table is still to run on a quiet machine with `coop-motion-*.mjs`), enemy-attacks (two steps), time, claims (core + vehicles), team (endings, respawn), pod race, blood puff. Not yet landed, work sits in each lane's worktree and branch `coop/<lane>` (see `git worktree list`, `git log coop-overhaul..coop/<lane>`, `git -C <worktree> status`): session, gore (client-side model), weapons-fx (all written, 48-case proof running), call-ins, world-a (pods, drops, destructibles written), world-b (Defense in progress), missions, team follow-ups, devtools (dev-only tools), proof-speed (fast proof mode). No lane except rig and split has sent its final report. To resume a lane: a fresh agent in the SAME worktree (or a new worktree on that branch), told to read the lane's row here, its branch's commits and uncommitted diff, then finish, prove and land. After the lanes: phase 2 (wire, verify). Known flaky tests under load, not from this work: `gore/knockdown.test.ts`, `gore/strength.test.ts`, `weapons/viewmodels/hands.test.ts`.
 - 2026-11-18, gore: the blood puff landed first (`421ecce`), then the gore itself. `DamageModel` runs with the facts on (solo, host)
   or off (a guest): `predict` draws a guest's own hit on the frame of the shot, `show`/`severShown`/`killShown` draw what the host
