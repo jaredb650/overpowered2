@@ -40,12 +40,13 @@ Read `CLAUDE.md` first; it still applies except where this section differs.
   else must stay green. Add tests next to what you build.
 - **Ports and browsers:** use only the Vite port your brief gives you, with `OP2_NO_HMR=1`, and stop it when done. Port 5173 is
   never touched.
-- **Use the machine** (owner's order): 32 cores, 62 GB, RTX 4090. Every rule that existed to spare the old 8 GB Mac is void: no
-  one-browser rule, no waiting on other agents' browsers, no 15 fps caps (unless the test is about low frame rate), no
-  one-test-file-at-a-time. Run the whole suite freely, run proofs in parallel, run 3 and 4 player proofs, use more Vite ports from
-  your block if it helps (your port to your port + 4 are yours). Speed of development matters more than compute.
-  Screenshots and probe output go to `tools/out/coop/<your-name>/` in the **main checkout**
-  (`/home/jared/jared/overpowered2/tools/out/coop/<your-name>/`) so the lead can see them.
+- **Use the machine, within its limits** (32 cores, 62 GB, RTX 4090). The rules that spared the old 8 GB Mac are void: run the
+  whole suite when landing, no 15 fps caps unless the test is about low frame rate, 3 and 4 player proofs are fine. But thirteen
+  agents share the box, and 25 browser runs at once filled the memory and the swap (2026-11-18). So: `tools/shot.mjs` takes one
+  of 8 machine-wide browser slots and waits if none is free (never bypass it); keep **at most two** runs alive in your lane;
+  after every run kill what you started and no longer need (hung `shot.mjs`, leftover headless Chrome, spare Vite servers, stray
+  vitest or node watchers, extra worktrees), matching on your ports and your worktree path only. A timing or a failure measured
+  while the box is overloaded (`uptime` load far above 32) proves nothing: measure again.
 - **Stay in your lane.** Your brief lists the files you own. If you must change a file outside it, keep the change minimal and say
   so in your report. Other agents are working in parallel on the neighbouring lanes.
 - **Prove it in the browser.** Unit tests are not enough for co-op: each stage ends with a two-page proof script in
@@ -165,3 +166,4 @@ Shared files and contracts between lanes:
   snapshot codec moved to `world/snapshot.ts` and `worldProtocol.ts` re-exports it; the host's delayed work (`Later`) sits on the
   context, not in `booms.ts`, because targeting queues it and booms depends on targeting.
 - 2026-11-18: all twelve phase 1 lanes launched as T3 delegates (worktrees under `~/.t3/worktrees/overpowered2/`, branches `coop/<lane>`). If a lane stopped at the usage cap, its unlanded work is in its worktree: resume it there with a fresh agent told to read its branch's diff first.
+- 2026-11-18: the box ran out of memory under 25 simultaneous browser runs; `tools/shot.mjs` now queues runs on 8 machine-wide slots and the rules cap each lane at two runs.

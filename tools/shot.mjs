@@ -20,7 +20,7 @@
 //   --quiet            Only print the final JSON
 //   --timeout <s>      Kill the run after this many seconds (default 150)
 //
-// Only one browser runs at a time, at low priority, capped at 60 Hz. Other runs queue for the slot.
+// Runs share a fixed number of browser slots across the whole machine (see SLOTS below), at low priority. Others queue.
 //
 // The script helpers: { sleep, shot(name), keyDown(k), keyUp(k), press(k, ms), mouseMove(dx, dy),
 // click(ms), outDir }.
@@ -51,36 +51,41 @@ mkdirSync(dirname(out), { recursive: true });
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-// This machine has 8 GB and is someone's working computer. Run at the lowest priority (Chrome inherits it),
-// allow one browser at a time, and never let a run hold the slot forever.
+// Browser slots, shared by every checkout and worktree on the machine. Many agents test at once, and each run holds
+// two to four game pages (about 2 GB): without a limit, 25 runs at once filled 62 GB and the swap. A run waits here for a
+// free slot. OP2_SHOT_SLOTS sets the number (default 8 on Linux, 1 elsewhere: the owner's 8 GB Mac). Never bypass it.
 setPriority(0, 19);
-const LOCK = resolve('tools/out/.browser-lock');
+const SLOTS = Math.max(1, Number(process.env.OP2_SHOT_SLOTS ?? (process.platform === 'linux' ? 8 : 1)));
+const SLOT_DIR = process.env.OP2_SHOT_DIR ?? '/tmp/op2-shot-slots';
 const maxRunMs = Number(opt.timeout ?? 150) * 1000;
-const lockHolderAlive = () => {
+let LOCK = '';
+const holderAlive = dir => {
   try {
-    process.kill(Number(readFileSync(join(LOCK, 'pid'), 'utf8')), 0);
-    return Date.now() - statSync(LOCK).mtimeMs < 15 * 60 * 1000;
+    process.kill(Number(readFileSync(join(dir, 'pid'), 'utf8')), 0);
+    return Date.now() - statSync(dir).mtimeMs < Math.max(15 * 60 * 1000, maxRunMs + 60_000);
   } catch {
     return false;
   }
 };
-mkdirSync(dirname(LOCK), { recursive: true });
-for (let told = false; ;) {
-  try {
-    mkdirSync(LOCK);
-    writeFileSync(join(LOCK, 'pid'), String(process.pid));
-    break;
-  } catch {
-    if (!lockHolderAlive()) {
-      rmSync(LOCK, { recursive: true, force: true });
-      continue;
+mkdirSync(SLOT_DIR, { recursive: true });
+for (let told = false; !LOCK;) {
+  for (let i = 0; i < SLOTS && !LOCK; i++) {
+    const dir = join(SLOT_DIR, `slot-${i}`);
+    try {
+      mkdirSync(dir);
+      writeFileSync(join(dir, 'pid'), String(process.pid));
+      LOCK = dir;
+    } catch {
+      // Taken. A holder that died or overran left it behind: clear it and let the next pass take it.
+      try { if (Date.now() - statSync(dir).mtimeMs > 3000 && !holderAlive(dir)) rmSync(dir, { recursive: true, force: true }); } catch { /* gone already */ }
     }
-    if (!told) {
-      console.error('[shot] waiting for the browser slot');
-      told = true;
-    }
-    await sleep(1000);
   }
+  if (LOCK) break;
+  if (!told) {
+    console.error(`[shot] waiting for one of ${SLOTS} browser slots`);
+    told = true;
+  }
+  await sleep(1000 + Math.random() * 500);
 }
 process.on('exit', () => rmSync(LOCK, { recursive: true, force: true }));
 for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(sig, () => process.exit(1));
