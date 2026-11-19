@@ -231,6 +231,26 @@ describe('Focus', () => {
     expect(r.chips.focus).toBe(false);
   });
 
+  it('a co-op lobby walk (a session with no world): Focus is refused, nothing slows and nothing is spent', () => {
+    r.ctx.coop = { world: null } as never;
+    const asked: string[] = [];
+    r.ctx.time.gate = { push: id => void asked.push(`+${id}`), pop: id => void asked.push(`-${id}`) };
+    r.frame('down');
+    expect(r.chips.focus).toBe(false);
+    expect(asked).toEqual([]);
+    expect(r.ctx.time.slowmo).toBe(1);
+    expect(r.sounds).toContain('ui_error');
+    expect(r.callouts).toContain('NO FOCUS BRAIN CHIP IN THE LOBBY');
+    expect(r.chips.meter).toBe(1);
+    // With no gate either (free roam has no co-op clock): still nothing on this screen's own clock.
+    r.ctx.time.gate = null;
+    r.frame('up');
+    r.frame('down');
+    r.run(0.5);
+    expect(r.chips.focus).toBe(false);
+    expect(r.ctx.time.slowmo).toBe(1);
+  });
+
   it('co-op: Focus asks the host through the clock, keeps its own meter, and turns off when the host refuses or ends it', () => {
     // The co-op world as the chip sees it (net/world/clock.ts): the clock's gate takes the request, the world says if it stands.
     const held = new Set<string>();

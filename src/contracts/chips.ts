@@ -261,8 +261,12 @@ export class Chips {
   setFocus(on: boolean): void {
     const { audio, time } = this.ctx;
     if (on === this.focus) return;
-    if (on && (!this.ctx.player.alive || this.meter < FOCUS.start)) {
+    // A co-op lobby walk (a session with no world yet): there is no host clock to ask and nobody to tell, and no slow-mo may
+    // start on any screen without the team's notice. So none starts, as before Focus worked in co-op.
+    const lobbyWalk = !!this.ctx.coop && !this.ctx.coop.world;
+    if (on && (lobbyWalk || !this.ctx.player.alive || this.meter < FOCUS.start)) {
       audio.play('ui_error');
+      if (lobbyWalk) this.ctx.hud.callout?.('NO FOCUS BRAIN CHIP IN THE LOBBY');
       return;
     }
     this.focus = on;
