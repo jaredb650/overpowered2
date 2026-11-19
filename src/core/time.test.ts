@@ -65,6 +65,30 @@ describe('the game clock', () => {
     expect(time.slowmo).toBe(1);
   });
 
+  it('co-op: the blend back to full speed takes its half second of wall time on a screen with long frames; alone it is unchanged', () => {
+    // A guest at 4 fps: frames of a quarter second, each clamped to 1/20 s of world.
+    const guest = new GameTime();
+    guest.gate = { push: () => {}, pop: () => {} };
+    guest.share('coop:0:focus', 0.35, 0.12, 0.5);
+    guest.tick(0.25);
+    expect(guest.slowmo).toBeCloseTo(0.35, 6);
+    guest.unshare('coop:0:focus');
+    guest.tick(0.25);
+    expect(guest.slowmo).toBeCloseTo(0.675, 6);
+    guest.tick(0.25);
+    expect(guest.slowmo).toBe(1);
+    expect(guest.dt).toBe(MAX_STEP);
+    // Single player at the same 4 fps: ten clamped frames, as before this change.
+    const solo = new GameTime();
+    solo.pushScale('focus', 0.35, 0, 0.5);
+    solo.tick(0.25);
+    solo.popScale('focus');
+    for (let i = 0; i < 9; i++) solo.tick(0.25);
+    expect(solo.slowmo).toBeLessThan(1);
+    solo.tick(0.25); solo.tick(0.25);
+    expect(solo.slowmo).toBe(1);
+  });
+
   it('T1: a co-op host at 15, 10, 8 and 5 fps keeps the world at real speed', () => {
     for (const fps of [15, 10, 8, 5]) {
       const time = new GameTime();

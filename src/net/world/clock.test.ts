@@ -293,6 +293,26 @@ describe("the team's slow-mo over the mocked transport", () => {
     game.dispose();
   });
 
+  it('a guest that keeps asking again does not stay slow after the host has ended it', () => {
+    const game = party(1);
+    const a = game.g[0]!;
+    game.run(0.2);
+    a.time.pushScale('timeWarp', 0.25, 0.18, 0.4);
+    // A capsule every 400 ms: the perk refreshes, and each refresh asks the host again.
+    for (let t = 0; t < 2; t += 0.4) { game.run(0.4); a.time.pushScale('timeWarp', 0.25, 0.18, 0.4); }
+    // The host has heard the latest ask and restarted its clock...
+    game.frame();
+    expect(game.host.world.slows).toHaveLength(1);
+    // ...and a moment later ends it (the guest is down on the host's books).
+    game.host.world.team.life(a.lobby.you).fall(performance.now());
+    game.frame();
+    expect(game.host.world.slows).toHaveLength(0);
+    game.frame();
+    expect(a.world.slows).toHaveLength(0);
+    expect(a.world.slowHeld('timeWarp')).toBe(false);
+    game.dispose();
+  });
+
   it("a boss's death slows every screen and names the boss and its killer", () => {
     const game = party(1);
     const a = game.g[0]!;

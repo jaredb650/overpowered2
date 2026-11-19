@@ -112,8 +112,10 @@ export class Clock implements WorldModule, TimeGate {
     if (kind === 'bossDeath') return;
     if (!this.up()) return this.refuse(kind, 'down', 0, now);
     if (now < this.lockUntil) return this.refuse(kind, 'spent', this.lockUntil - now, now);
+    // Asked again while it runs (a second Time Warp): the host restarts its clock, but "just asked" stays the first ask, so
+    // when the host ends it this screen lets go at once instead of waiting for an answer that has already come.
     const again = this.mine.has(kind);
-    this.mine.set(kind, now);
+    if (!again) this.mine.set(kind, now);
     this.released.delete(kind);
     w.send({ t: 'slow', id: kind, on: true, s: this.length(kind) });
     // On my own screen at once; the host's next state confirms it (or `slowno` takes it back).

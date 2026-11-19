@@ -131,16 +131,19 @@ export class GameTime {
     }
     this.realElapsed += real;
 
+    // Co-op: the team's slow-mo blends in and out in true wall time, so a screen with long frames is back at full speed when
+    // the others are, not ten clamped frames later. Single player blends on the clamped step, as it always has.
+    const blend = this.gate ? Math.min(Math.max(rawSeconds, 0), 1) : real;
     let slow = 1;
     for (const [id, r] of this.requests) {
       if (r.releasing) {
-        r.weight -= r.fadeOut > 0 ? real / r.fadeOut : 1;
+        r.weight -= r.fadeOut > 0 ? blend / r.fadeOut : 1;
         if (r.weight <= 0) {
           this.requests.delete(id);
           continue;
         }
       } else {
-        r.weight = Math.min(1, r.weight + (r.fadeIn > 0 ? real / r.fadeIn : 1));
+        r.weight = Math.min(1, r.weight + (r.fadeIn > 0 ? blend / r.fadeIn : 1));
       }
       slow = Math.min(slow, 1 + (r.scale - 1) * r.weight);
     }

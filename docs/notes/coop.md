@@ -1363,7 +1363,8 @@ same code path as a solo screen in its own slow-mo (one shared request on `GameT
 single player does with tracers, impacts and the viewmodel, a guest does too. Other players' bodies are drawn from their pose
 stream on real time, so they move at full speed through the slowed world, as the player does on their own screen. The world blends
 in over the cause's own time (0.05 to 0.18 s) and back over **0.5 s** (0.6 s after a boss), on every screen's own clock, so a late
-or lost message never makes a step.
+or lost message never makes a step. In co-op the blends run on true wall time (`GameTime.tick`, `blend`), so a screen with long
+frames is back at full speed when the others are; single player blends on its clamped step, as before.
 
 **The notice** (`world/slowNotice.ts`): top centre under the teammates strip. One line per cause in the causer's colour:
 "KESTREL used Focus", "KESTREL earned SLOWMO", "KESTREL took Time Warp", "KESTREL killed the JUGGERNAUT" ("The TITAN is dead"
@@ -1396,7 +1397,8 @@ A lone player's Focus (4 s of every 23.5) and SLOWMO never meet the budget; it e
 `slowstate` goes out on every change, every 250 ms while the world is slow and every 2 s otherwise, so a lost message or a late
 joiner is put right within a quarter second. Every entry also carries its own end: a guest lets go of an entry 0.5 s after its
 deadline if the end never arrives. A guest's own request is applied on its own screen at once and confirmed by the next state
-(700 ms to arrive, or it comes off), so the key has no network lag. **The scale is not in the snapshot header**: the periodic
+(700 ms to arrive, or it comes off), so the key has no network lag. Asking again while it runs does not renew those 700 ms:
+when the host ends a slow-mo its owner keeps re-asking for, that screen lets go with everyone else. **The scale is not in the snapshot header**: the periodic
 `slowstate` does that job, and the snapshot lane stays the enemy-motion lane's alone.
 
 **Code path.** `ctx.time.gate` (`core/time.ts`) is set by `Clock` while a co-op world lives. With a gate, `pushScale`, `popScale`

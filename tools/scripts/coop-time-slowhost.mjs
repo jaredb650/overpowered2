@@ -23,8 +23,12 @@ const rates = (page, uids, ms) => page.evaluate(async ([uids, ms]) => {
   let frames = 0, run = true;
   const count = () => { frames++; if (run) requestAnimationFrame(count); };
   requestAnimationFrame(count);
-  const a = where(), t0 = performance.now(), w0 = ctx.time.elapsed, s0 = ctx.time.frame;
+  // Both ends of the window are read on a frame, after the game's own update: positions and clocks only change there.
+  const frameEnd = () => new Promise(r => requestAnimationFrame(r));
+  await frameEnd();
+  const a = where(), t0 = performance.now(), w0 = ctx.time.elapsed, s0 = ctx.time.frame; frames = 0;
   await new Promise(r => setTimeout(r, ms));
+  await frameEnd();
   const seconds = (performance.now() - t0) / 1000, b = where(); run = false;
   const speeds = a.map((p, i) => p && b[i] ? Math.hypot(b[i][0] - p[0], b[i][1] - p[1]) / seconds : null).filter(v => v !== null).sort((x, y) => x - y);
   return { world: +((ctx.time.elapsed - w0) / seconds).toFixed(3), fps: +(frames / seconds).toFixed(1), steps: +((ctx.time.frame - s0) / seconds).toFixed(1),
