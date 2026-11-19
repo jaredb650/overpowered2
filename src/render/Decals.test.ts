@@ -198,3 +198,25 @@ describe('decal rings', () => {
     expect(d.soaked).toBe(0);
   });
 });
+
+describe('the decal sheet baked again at another size (a quality change)', () => {
+  it('every decal already down, and the floor tiles, draw from the new sheet', () => {
+    type Hook = (shader: { uniforms: Record<string, { value: unknown }>; vertexShader: string; fragmentShader: string }) => void;
+    let hook: Hook | null = null;
+    const catching = { apply: (m: THREE.MeshStandardMaterial, h: Hook) => { hook = h; return m; } } as unknown as MaterialPatcher;
+    const first = { albedo: new THREE.Texture(), surface: new THREE.Texture(), dispose() {} };
+    const d = new Decals(catching, first);
+    d.add('blood', at(1), up, 0.5);
+    const shader = { uniforms: {} as Record<string, { value: unknown }>, vertexShader: '', fragmentShader: '' };
+    hook!(shader);
+    expect(shader.uniforms.opDecalA!.value).toBe(first.albedo);
+    const half = { albedo: new THREE.Texture(), surface: new THREE.Texture(), dispose() {} };
+    d.setAtlas(half);
+    // The compiled program holds the same uniform objects, so it follows without a recompile.
+    expect(shader.uniforms.opDecalA!.value).toBe(half.albedo);
+    expect(shader.uniforms.opDecalS!.value).toBe(half.surface);
+    // Nothing on the floor moved: a decal is a cell's number, not its pixels.
+    expect(d.live('blood')).toBe(1);
+  });
+});
+

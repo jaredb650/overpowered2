@@ -8,6 +8,8 @@ export interface BakedSet {
   albedo: THREE.Texture;
   /** RG tangent normal, B roughness, A metalness (or heat for lava). */
   surface: THREE.Texture;
+  /** Frees both textures: for a set that is baked again at another size (the decal sheet). */
+  dispose(): void;
 }
 
 /** Height differences per texel turn into normals here. Higher is bumpier. */
@@ -96,7 +98,7 @@ export class TextureBaker {
     u.uStrength!.value = normalStrength;
     u.uMetalFromExtra!.value = extraMode;
     this.normalPass.render(this.renderer, out);
-    return { albedo: out.textures[0]!, surface: out.textures[1]! };
+    return { albedo: out.textures[0]!, surface: out.textures[1]!, dispose: () => out.dispose() };
   }
 
   /**

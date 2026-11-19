@@ -81,6 +81,11 @@ async function install({ worst, aliveCap, drs, killRate, fightSeconds }) {
     // fourteen a second by chain reaction, and the scene was the perks', not the bot's.
     (await import('/src/core/devflags.ts')).DevFlags.progression = false;
   } catch { /* a production build: drops and perks stay */ }
+  // The gore update's automatic step-down, where the build has one (gore/load.ts): its step is in every snapshot.
+  let load = null;
+  try {
+    load = (await import('/src/gore/load.ts')).GoreLoad;
+  } catch { /* a build from before it */ }
   for (const id of ['smg', 'shotgun', 'rocket', 'kiln']) if (!ctx.weapons.owned.has(id)) ctx.weapons.give(id);
   for (const e of [...ctx.enemies.alive]) ctx.enemies.applyDamage(e, { amount: 99999, type: 'true', point: e.center.clone(), dir: new V(0, 0, 1), force: 0, source: 'smg' });
 
@@ -349,7 +354,8 @@ async function install({ worst, aliveCap, drs, killRate, fightSeconds }) {
       corpses: g.corpses, far: g.far ?? 0, ragdolls: g.ragdolls, limbs: g.limbs, liveLimbs: g.liveLimbs, pieces: g.chunkBodies, halves: g.halves, guts: g.guts,
       decals: d.total ?? d.mesh.count, rings: d.live ? { floor: ring('floor'), scorch: ring('scorch'), big: ring('big'), blood: ring('blood'), mark: ring('mark') } : undefined,
       burning: ctx.gore.fire?.list?.length ?? ctx.gore.fire?.count ?? undefined,
-      rigidBodies: world.bodies.len(), colliders: world.colliders.len(),
+      rigidBodies: world.bodies.len(), colliders: world.colliders.len(), resting: ctx.gore.mess?.stats?.().resting,
+      ease: load?.ease, resolution: r.dynamicResolution?.scale,
       geometries: r.renderer.info.memory.geometries, textures: r.renderer.info.memory.textures, programs: r.renderer.info.programs?.length ?? 0,
       size: r.renderSize?.(),
     };

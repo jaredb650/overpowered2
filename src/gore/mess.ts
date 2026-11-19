@@ -151,10 +151,20 @@ export const MessTuning = {
   push: typeof location === 'undefined' || new URLSearchParams(location.search).get('messpush') !== '0',
   /** `?messrest=0`: bodies at rest keep no capsules, so nothing lands on them: the flat carpet from before. */
   rest: typeof location === 'undefined' || new URLSearchParams(location.search).get('messrest') !== '0',
+  /**
+   * The settings' and the automatic step-down's say on the same thing (`applyLoad`, gore/load.ts): false at Mess Low, and
+   * while frames are being missed on the processor. A body comes to rest with capsules only when this and `rest` are true.
+   */
+  heaps: true,
+  /** The level's caps as the automatic step-down has cut them (`drawn`, `full`), or null: the level's own. */
+  eased: null as MessBudget | null,
 };
 
 /** The caps in force. */
-export const messBudget = (): MessBudget => MESS[MessTuning.level];
+export const messBudget = (): MessBudget => MessTuning.eased ?? MESS[MessTuning.level];
+
+/** A body or a limb coming to rest now leaves its capsules: the URL's switch, the setting and the step-down all agree. */
+export const leavesCapsules = (): boolean => MessTuning.rest && MessTuning.heaps;
 
 /** What mess needs to know of a body or a limb in gore's care. Gore's own classes fit it. */
 export interface MessChain {
@@ -336,6 +346,27 @@ export class MessField {
       this.count.ghosted++;
       this.rests[0]!.dropRest();
     }
+  }
+
+  /**
+   * Takes the capsules of up to `count` chains at rest away, the longest at rest first: they are ghosts again. For when
+   * heaps are turned off under the dead already lying (the Mess setting at Low, the automatic step-down). What lay on one
+   * is woken as when any support goes (`unrested`), falls, and comes to rest without capsules; so a chain that is waiting
+   * to fall is passed over here, or it would be left hanging where it lay. Returns how many are still at rest.
+   */
+  shed(count: number): number {
+    let done = 0;
+    for (let i = 0; i < this.rests.length && done < count; i++) {
+      const rag = this.rests[i]!;
+      let waiting = false;
+      for (const p of this.pending) waiting ||= p.on.rag === rag;
+      if (waiting) continue;
+      this.count.ghosted++;
+      rag.dropRest();
+      done++;
+      i--;
+    }
+    return this.rests.length;
   }
 
   /** A chain is simulating again: its skeleton is live. */

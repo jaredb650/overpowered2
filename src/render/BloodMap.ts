@@ -116,6 +116,7 @@ export class BloodMap {
   private queued = 0;
   private cursor = 0;
   private nextAt = 0;
+  private limit = TILES;
   private readonly pass: FullscreenPass;
   /** Stains drawn into tiles, and tiles wiped to make room, since the last `clear`. For checks. */
   bakedCount = 0;
@@ -146,6 +147,34 @@ export class BloodMap {
     return this.target.texture;
   }
 
+  /** The decal sheet was baked again (another size): later stains are drawn from the new one. */
+  setSheet(sheet: THREE.Texture | null): void {
+    this.pass.uniforms.tSheet!.value = sheet;
+  }
+
+  /**
+   * How many of the sixteen tiles are in use (`QualityPreset.bloodTiles`). Fewer keeps less floor (about 16 m by 16 m a
+   * tile); none turns the map off: nothing is baked, drawn or looked for. Tiles past the new count are emptied.
+   */
+  get tileLimit(): number {
+    return this.limit;
+  }
+
+  set tileLimit(count: number) {
+    const next = Math.max(0, Math.min(TILES, Math.floor(count)));
+    if (next === this.limit) return;
+    for (let i = next; i < TILES; i++) {
+      const t = this.tiles[i]!;
+      if (t.live) this.host.tile(i, 0, 0, 0, 0);
+      t.live = false;
+      t.used = -1;
+    }
+    this.limit = next;
+    if (next === 0) this.queued = 0;
+    // What a dropped tile held may be baked again into one that is left.
+    this.baked.fill(0);
+  }
+
   /** Stains waiting to be drawn into a tile. */
   get pending(): number {
     return this.queued;
@@ -166,7 +195,7 @@ export class BloodMap {
 
   /** The decal in `slot` is about to be overwritten: if it never got into a tile, it goes in now. */
   retire(slot: number): void {
-    if (DevFlags.bloodMap && !this.baked[slot] && bakeable(this.host.matrices, this.host.data, slot)) this.enqueue(slot);
+    if (DevFlags.bloodMap && this.limit > 0 && !this.baked[slot] && bakeable(this.host.matrices, this.host.data, slot)) this.enqueue(slot);
     this.baked[slot] = 0;
   }
 
@@ -210,7 +239,7 @@ export class BloodMap {
   /** The tile for a key, moved there from wherever it was least lately used if there is none. -1 when the map is off. */
   private tileFor(ix: number, iz: number, iy: number, now: number, renderer: THREE.WebGLRenderer): number {
     let oldest = 0;
-    for (let i = 0; i < TILES; i++) {
+    for (let i = 0; i < this.limit; i++) {
       const t = this.tiles[i]!;
       if (t.live && t.ix === ix && t.iz === iz && t.iy === iy) {
         t.used = now;
@@ -243,7 +272,7 @@ export class BloodMap {
 
   /** Bakes what is waiting. Call once a frame, before the decals are drawn. */
   flush(renderer: THREE.WebGLRenderer): void {
-    if (!DevFlags.bloodMap) return;
+    if (!DevFlags.bloodMap || this.limit === 0) return;
     const now = this.host.now();
     if (now < this.nextAt && this.queued * 20 < this.queue.length) return;
     this.nextAt = now + MapTuning.every;

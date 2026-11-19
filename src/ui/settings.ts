@@ -1,16 +1,21 @@
 /** Player settings: persisted to localStorage, applied to the systems that own them. */
 import type { Ctx } from '../core/contracts';
+import { SWAY } from '../enemies/damage';
 import { GoreTuning } from '../gore';
 import { BloodTuning } from '../gore/blood';
 import { ChunkTuning } from '../gore/chunks';
-import { MESS, MESS_LEVELS, MessTuning } from '../gore/mess';
+import { FireTuning } from '../gore/fire';
+import { EASE_STEPS, GoreLoad, HEAPS, LoadTuning } from '../gore/load';
+import { MESS, MESS_LEVELS, MessTuning, type MessBudget, type MessLevel } from '../gore/mess';
 import { SliceTuning } from '../gore/sliced';
 import { WoundTuning } from '../gore/wounds';
 import { clamp } from '../core/math';
+import { QUALITY, SETTINGS_KEY } from '../render/quality';
 import { HIT_TEXT_LEVELS, HitText } from '../progression/data';
 import { TUNING } from '../weapons/data';
 
-const STORAGE_KEY = 'op2.settings.v1';
+/** The renderer reads the saved quality from the same place before the settings are applied (`savedQuality`). */
+const STORAGE_KEY = SETTINGS_KEY;
 /** The player's default radians per pixel. Sensitivity in settings is a multiple of this. */
 const BASE_SENSITIVITY = 0.002;
 
@@ -153,34 +158,96 @@ function applyGore(level: number): void {
   ChunkTuning.maxBodies = g.chunks;
 }
 
-interface MessOwner {
+interface DecalOwner {
   setLimit?(ring: 'scorch' | 'big' | 'blood' | 'mark', limit: number): void;
   soak?: number;
 }
 
+/** As the game is tuned, what the step-down's shares are taken of: dead bodies simulating at once, bodies dying on their feet, and how far from the player enemies wake the dead they walk into. */
+const RAGDOLLS = GoreTuning.maxRagdolls;
+const COLLAPSES = GoreTuning.maxCollapses;
+const ENEMY_RANGE = MessTuning.enemyRange;
+
+/** Every cap of the gore update that a setting or the automatic step-down decides (gore/load.ts says why these). */
+export interface Load {
+  /** The Mess level's caps, with the step's cuts to `drawn` and `full`. */
+  budget: MessBudget;
+  /** Bodies at rest leave their capsules, so the dead heap. */
+  heaps: boolean;
+  ragdolls: number;
+  collapses: number;
+  /** Metres from the player inside which enemies wake the dead they walk into. 0: they do not. */
+  enemyPushRange: number;
+  /** Seconds a still piece lies before it shrinks away. */
+  pieceLinger: number;
+  swayBodies: number;
+  fireLights: number;
+  /** Slots of the big-stain ring in use. */
+  bigStains: number;
+}
+
+/** The caps for a Mess level, a quality level and an automatic step (0: none). Pure. */
+export function loadFor(mess: MessLevel, quality: number, ease: number): Load {
+  const b = MESS[mess];
+  const q = QUALITY[clamp(Math.round(quality), 0, QUALITY.length - 1)]!;
+  const e = clamp(Math.round(ease), 0, EASE_STEPS);
+  const t = LoadTuning;
+  return {
+    budget: e === 0 ? b : { ...b, drawn: Math.max(8, Math.round(b.drawn * t.drawn[e]!)), full: Math.max(3, Math.round(b.full * t.full[e]!)) },
+    heaps: HEAPS[mess] && t.heaps[e]!,
+    ragdolls: Math.max(6, Math.round(RAGDOLLS * t.ragdolls[e]!)),
+    collapses: Math.max(2, Math.round(COLLAPSES * t.collapses[e]!)),
+    enemyPushRange: t.enemiesPush[e]! ? ENEMY_RANGE : 0,
+    pieceLinger: Math.min(b.pieceLinger, t.pieceLinger[e]!),
+    swayBodies: Math.max(1, Math.round(q.swayBodies * t.sway[e]!)),
+    fireLights: Math.max(1, q.fireLights - t.fireLights[e]!),
+    bigStains: Math.max(16, Math.round(b.big * q.bigStains)),
+  };
+}
+
 /**
- * The "Mess" setting: writes each cap to the system that keeps it. The caps and where their numbers come from are `MESS`
- * in gore/mess.ts. Lowering it trims what is over the new caps; raising it gives the room back from here on.
+ * Writes every cap to the system that keeps it, from `GoreLoad` (the Mess setting, the quality level, the automatic
+ * step). `trim`: the player changed a setting, so what is over the new caps goes now (a decal ring shortened, pieces past
+ * their share retired). The step-down passes false: it never takes anything off the floor in front of the player.
  */
-export function applyMess(ctx: Ctx, level: number): void {
-  const name = MESS_LEVELS[clamp(Math.round(level), 0, MESS_LEVELS.length - 1)]!;
-  const b = MESS[name];
-  MessTuning.level = name;
+export function applyLoad(ctx: Ctx, trim: boolean): void {
+  const load = loadFor(GoreLoad.mess, GoreLoad.quality, GoreLoad.ease);
+  const b = load.budget;
+  MessTuning.level = GoreLoad.mess;
+  MessTuning.eased = GoreLoad.ease > 0 ? b : null;
+  MessTuning.heaps = load.heaps;
+  GoreTuning.maxRagdolls = load.ragdolls;
+  GoreTuning.maxCollapses = load.collapses;
+  MessTuning.enemyRange = load.enemyPushRange;
+  ChunkTuning.linger = load.pieceLinger;
+  SWAY.max = load.swayBodies;
+  FireTuning.lights = load.fireLights;
+  GoreLoad.changed = () => applyLoad(ctx, false);
+  if (!trim) return;
   GoreTuning.maxCorpses = b.corpses;
   GoreTuning.maxLimbs = b.limbs;
   SliceTuning.maxHalves = b.halves;
   SliceTuning.hardCap = b.halvesHard;
   ChunkTuning.share = b.pieces;
-  ChunkTuning.linger = b.pieceLinger;
-  const decals = ctx.render?.decals as MessOwner | undefined;
+  const decals = ctx.render?.decals as DecalOwner | undefined;
   if (decals?.setLimit) {
     decals.setLimit('blood', b.blood);
     decals.setLimit('mark', b.marks);
     decals.setLimit('scorch', b.scorches);
-    decals.setLimit('big', b.big);
+    decals.setLimit('big', load.bigStains);
     decals.soak = b.soak;
   }
   (ctx.gore as { chunks?: { trim?(): void } } | undefined)?.chunks?.trim?.();
+}
+
+/**
+ * The "Mess" setting: how many bodies, limbs, pieces and how much blood stay, and whether the dead heap. The caps and
+ * where their numbers come from are `MESS` in gore/mess.ts. Lowering it trims what is over the new caps; raising it gives
+ * the room back from here on.
+ */
+export function applyMess(ctx: Ctx, level: number): void {
+  GoreLoad.mess = MESS_LEVELS[clamp(Math.round(level), 0, MESS_LEVELS.length - 1)]!;
+  applyLoad(ctx, true);
 }
 
 /** Sends every value to its owner. `quality` is separate because changing it recompiles shaders. */
@@ -199,6 +266,13 @@ export function applySettings(ctx: Ctx, s: Settings): void {
   HitText.level = s.hitText;
 }
 
+/**
+ * The renderer's preset, and the gore update's parts that follow it (`QualityPreset`: the decal sheet's size and the floor
+ * tiles are the renderer's own; the big stains kept, the struck parts on physics and the burning bodies' lights are
+ * written here).
+ */
 export function applyQuality(ctx: Ctx, s: Settings): void {
   ctx.render.setQuality?.(s.quality);
+  GoreLoad.quality = s.quality;
+  applyLoad(ctx, true);
 }

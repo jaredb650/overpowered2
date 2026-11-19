@@ -38,7 +38,8 @@ import { SlabTuning } from './slabs';
 import { mulberry32 } from '../core/math';
 import { WoundKind } from '../characters/anatomy/wounds';
 import type { OrganKind, RibKind } from './organs';
-import { MESS, messBudget, MessField, MessTuning } from './mess';
+import { leavesCapsules, MESS, messBudget, MessField } from './mess';
+import { resetLoad, stepLoad } from './load';
 import { FarBatch, FarTuning, type CorpseSnapshot, type FarBakeable, type FarSource } from './far';
 
 /**
@@ -1281,7 +1282,7 @@ export class Gore implements GoreSystem {
   }
 
   private freezeBody(b: DeadBody): void {
-    b.rag?.freeze(MessTuning.rest && b.stakes.length === 0);
+    b.rag?.freeze(leavesCapsules() && b.stakes.length === 0);
     this.mess.rested(b, b.char as never);
     if (!b.pooled && !isMachine(b.char)) {
       b.pooled = true;
@@ -1478,7 +1479,7 @@ export class Gore implements GoreSystem {
 
   private freezeLimb(l: LooseLimb): void {
     l.restedAt = this.ctx.time.elapsed;
-    l.rag.freeze(MessTuning.rest && l.stakes.length === 0);
+    l.rag.freeze(leavesCapsules() && l.stakes.length === 0);
     this.mess.rested(l, l.piece as never);
     this.stopLimbEmitters(l);
     if (l.machine) return;
@@ -3113,6 +3114,7 @@ export class Gore implements GoreSystem {
       } else this.far.lower(t.sinkDepth * k * k);
     }
     this.mess.update();
+    stepLoad(this.ctx, this.mess);
     this.updateBodyLod();
     this.updateStumps();
     this.fire.update(dt);
@@ -3255,6 +3257,7 @@ export class Gore implements GoreSystem {
 
   reset(): void {
     this.clear();
+    resetLoad();
   }
 
   /** Centre of the i-th loose limb, oldest first. */

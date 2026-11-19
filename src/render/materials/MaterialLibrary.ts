@@ -84,6 +84,10 @@ export class WorldMaterials implements MaterialLibrary {
   private readonly baker: TextureBaker;
   /** Multiplies every set's resolution. 0.5 on the lowest preset saves three quarters of the memory. */
   private readonly sizeScale: number;
+  /** The decal sheet's own scale on top of that (`QualityPreset.decalSheet`): 1 is 2048 x 4096, 0.5 a quarter of the memory. */
+  sheetScale = 1;
+
+  private readonly renderer: THREE.WebGLRenderer;
 
   constructor(
     renderer: THREE.WebGLRenderer,
@@ -92,6 +96,7 @@ export class WorldMaterials implements MaterialLibrary {
     sizeScale = 1,
   ) {
     this.sizeScale = sizeScale;
+    this.renderer = renderer;
     this.baker = new TextureBaker(renderer, Math.min(renderer.capabilities.getMaxAnisotropy(), 8));
     shared.opNoise.value = this.baker.noiseTexture();
   }
@@ -102,13 +107,33 @@ export class WorldMaterials implements MaterialLibrary {
       this.set(name);
       await new Promise(resolve => setTimeout(resolve, 0));
     }
+    const decals = await this.sheet(this.baker);
+    this.baker.dispose();
+    return decals;
+  }
+
+  private async sheet(baker: TextureBaker): Promise<BakedSet> {
     // `?bakeTime` logs what each part of the sheet cost to compile and to draw.
     const timed = typeof location !== 'undefined' && location.search.includes('bakeTime');
     const t0 = performance.now();
-    const decals = await this.baker.bakeParts(DECAL_PARTS, Math.round(SHEET.width * this.sizeScale), 9 * this.sizeScale, 1, Math.round(SHEET.height * this.sizeScale), timed);
-    if (timed) console.log(`[bake] decal sheet ${(performance.now() - t0).toFixed(0)} ms in all`);
-    this.baker.dispose();
+    const scale = this.sizeScale * this.sheetScale;
+    const decals = await baker.bakeParts(DECAL_PARTS, Math.round(SHEET.width * scale), 9 * scale, 1, Math.round(SHEET.height * scale), timed);
+    if (timed) console.log(`[bake] decal sheet ${(performance.now() - t0).toFixed(0)} ms in all, ${Math.round(SHEET.width * scale)} x ${Math.round(SHEET.height * scale)}`);
     return decals;
+  }
+
+  /**
+   * The decal sheet baked again at `scale` (a quality change that crosses the line). The caller swaps it in and frees the
+   * old one. Its five shaders are compiled in the background as at load, from the browser's cache when it has them.
+   */
+  async bakeSheet(scale: number): Promise<BakedSet> {
+    this.sheetScale = scale;
+    const baker = new TextureBaker(this.renderer, Math.min(this.renderer.capabilities.getMaxAnisotropy(), 8));
+    try {
+      return await this.sheet(baker);
+    } finally {
+      baker.dispose();
+    }
   }
 
   private set(name: SetName): BakedSet {

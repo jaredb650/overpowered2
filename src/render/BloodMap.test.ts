@@ -128,6 +128,39 @@ describe('old blood kept in floor tiles', () => {
     expect(keys).toContain(tileKey(1, 0, 60).join());
   });
 
+  it('fewer tiles keep less floor, and none turns the map off (the quality setting)', () => {
+    const { d, tick } = at(0);
+    const r = renderer();
+    d.floor.tileLimit = 2;
+    for (let i = 0; i < 3; i++) {
+      d.splat(new THREE.Vector3((i + 0.5) * TILE_SPAN, 0, 1), up, 0.9, down);
+      tick((i + 1) * (MapTuning.dryAge + 2));
+      d.floor.flush(r);
+    }
+    // The third square of floor took the place of the first: two tiles, never three.
+    expect(d.floor.liveTiles).toBe(2);
+    expect(d.floor.evicted).toBe(1);
+    expect(d.floor.tileAt(2)).toBeNull();
+    // Off: the tiles are emptied and hidden, and nothing more is baked, on a stain's way out or after it dries.
+    d.floor.tileLimit = 0;
+    expect(d.floor.liveTiles).toBe(0);
+    const quads = d.mesh.instanceMatrix.array as Float32Array;
+    for (let i = 0; i < TILES; i++) expect(quads[(d.base('floor') + i) * 16 + 15]).toBe(0);
+    const baked = d.floor.bakedCount;
+    d.setLimit('blood', 4);
+    for (let i = 0; i < 9; i++) d.splat(new THREE.Vector3(i, 0, 9), up, 0.9, down);
+    expect(d.floor.pending).toBe(0);
+    tick(1e5);
+    d.floor.flush(r);
+    expect(d.floor.bakedCount).toBe(baked);
+    expect(d.floor.liveTiles).toBe(0);
+    // Back on: what has dried since goes in.
+    d.floor.tileLimit = TILES;
+    tick(1e5 + 1);
+    d.floor.flush(r);
+    expect(d.floor.liveTiles).toBeGreaterThan(0);
+  });
+
   it('a new run clears the tiles with the decals', () => {
     const { d, tick } = at(0);
     const r = renderer();

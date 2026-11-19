@@ -170,6 +170,18 @@ export class Decals implements DecalSystem {
   private readonly time = { value: 0 };
   private readonly proj = { value: new THREE.Vector2() };
   private readonly depth: THREE.IUniform<THREE.Texture | null> = { value: null };
+  private readonly sheetA: THREE.IUniform<THREE.Texture | null> = { value: null };
+  private readonly sheetS: THREE.IUniform<THREE.Texture | null> = { value: null };
+
+  /**
+   * The decal sheet baked again at another size (a quality change): every decal already down is drawn from the new one
+   * on the next frame, since a decal holds a cell's number and not its pixels. The caller frees the old sheet.
+   */
+  setAtlas(atlas: BakedSet): void {
+    this.sheetA.value = atlas.albedo;
+    this.sheetS.value = atlas.surface;
+    this.floor.setSheet(atlas.albedo);
+  }
 
   constructor(patcher: MaterialPatcher, atlas: BakedSet) {
     const geometry = new THREE.PlaneGeometry(1, 1);
@@ -183,8 +195,10 @@ export class Decals implements DecalSystem {
       blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor,
     });
     const bloodMap: THREE.IUniform<THREE.Texture | null> = { value: null };
+    this.sheetA.value = atlas.albedo;
+    this.sheetS.value = atlas.surface;
     const own = {
-      opDecalA: { value: atlas.albedo }, opDecalS: { value: atlas.surface }, opBloodMap: bloodMap, opDepth: this.depth, opProj: this.proj,
+      opDecalA: this.sheetA, opDecalS: this.sheetS, opBloodMap: bloodMap, opDepth: this.depth, opProj: this.proj,
       opWorldTime: this.time, opFade: this.fade,
     };
     const hook: ShaderHook = shader => {

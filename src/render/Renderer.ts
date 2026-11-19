@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { Ctx, DecalSystem, DynamicLights, LightVolumeBakeInput, MaterialLibrary, PostFx, RenderSystem } from '../core/contracts';
 import { createEngineUniforms, VIEW_DEPTH_MAX, type EngineUniforms } from './engine';
-import { DEFAULT_QUALITY, QUALITY, type QualityPreset } from './quality';
+import { DEFAULT_QUALITY, QUALITY, savedQuality, type QualityPreset } from './quality';
 import { MaterialPatcher } from './materials/patch';
 import { WorldMaterials } from './materials/MaterialLibrary';
 import type { BakedSet } from './materials/TextureBaker';
@@ -177,6 +177,8 @@ export class Renderer implements RenderSystem {
 
   /** Bakes textures, atlas and environment, yielding between sets so a loading screen can paint. */
   async ready(): Promise<void> {
+    // Sized by the quality the player last chose, so a machine on Low or Medium never holds the full sheet (89 MB).
+    this.worldMaterials.sheetScale = QUALITY[savedQuality()]!.decalSheet;
     this.decalAtlas = await this.worldMaterials.bakeAll();
     this.decalSystem = new Decals(this.patcher, this.decalAtlas);
     this.decals = this.decalSystem;
@@ -384,7 +386,35 @@ export class Renderer implements RenderSystem {
     this.ssr.configure(next.ssrSteps);
     this.fogPass.configure(next.fogSteps, this.pool.fogPosition, this.pool.fogColor);
     this.emissiveLines.setVisible(next.msaa === 0);
+    if (this.decalSystem) {
+      this.decalSystem.floor.tileLimit = next.bloodTiles;
+      if (next.decalSheet !== this.worldMaterials.sheetScale) void this.resizeSheet(next.decalSheet);
+    }
     this.resize();
+  }
+
+  private sheetJob = 0;
+
+  /**
+   * The decal sheet at another size, for a quality level that asks for one. Baked in the background (its shaders compile
+   * off the main thread) and swapped in when ready; a second change while one is under way wins.
+   */
+  private async resizeSheet(scale: number): Promise<void> {
+    const job = ++this.sheetJob;
+    const next = await this.worldMaterials.bakeSheet(scale);
+    if (job !== this.sheetJob) {
+      next.dispose();
+      return;
+    }
+    const old = this.decalAtlas;
+    this.decalAtlas = next;
+    this.decalSystem.setAtlas(next);
+    old.dispose();
+  }
+
+  /** Width of the decal sheet in use, in pixels: 2048 at full size. */
+  get decalSheetWidth(): number {
+    return (this.decalAtlas?.albedo.image as { width?: number } | undefined)?.width ?? 0;
   }
 
   /** Internal render size after quality and dynamic resolution. */

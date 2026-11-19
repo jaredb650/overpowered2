@@ -342,6 +342,31 @@ All three run on the Test Range through `shot.mjs` (headers have the commands an
 - **`?bakeTime`** on any page logs what the decal sheet cost to compile and to draw; `?bakeTime=cold` changes the shaders'
   text first so the browser's shader cache cannot answer.
 
+### The whole gore update, measured and shown (verify pass, 2026-11-19)
+
+- **`tools/scripts/gore-cost.mjs`: what a heavy fight costs on a build.** A seeded bot fight in real time with every frame
+  drawn (run it at `--dpr 2 --w 1440 --h 900`), on any build's server; the URL picks the mode (`contract=crucible`,
+  `contract=outpost`) and carries switches (`GC_OFF` in the file is every gore-update switch off). `GC_SCENE=worst`: up to
+  48 alive, topped up at five a second, fought from one spot with bullets, then rockets and grenades, then the Kiln, then
+  bullets, then a walk through the heap. `normal`: 16 alive, SMG and shotgun, moving. Per frame it records the interval,
+  the whole script time, the physics step, the gore update, `render()`, the GPU's own time (a timer query round the
+  frame: it works on this machine's OpenGL back end, where it did not on the Mac's Metal), draw calls and triangles; at
+  the end GPU memory by kind, the heap, what is on the floor, and one fixed view of the heap drawn between GPU waits whole
+  and with decals, shadows, the gun and the bodies taken out in turn. `GC_THROTTLE=4` is Chrome's CPU throttle;
+  `GC_QUALITY`, `GC_MESS` set the settings; `GC_DRS=1` with `&drs=1` in the URL lets dynamic resolution and the gore
+  step-down run. **Three things the scene had to learn**, each of which made the first runs a different fight on every
+  build: the run's streak perks, Bombers and Burners chain-react in a crowd kept at 48 (off, and left out); a burning man
+  lights whoever he brushes past, so a crowd refilled beside a fire is a wildfire (the crowd is topped up 11 m out, five a
+  second); and a man with anatomy does not die of his health running out (a stuck one is put down once, through the head).
+- **`tools/scripts/gore-balance.mjs`: did a rule make the game easier?** The single-player comparison's fighter bot
+  plays the game's own waves on a frozen clock; it counts damage taken a wave, heals (about one death each), and for men
+  when each first panicked or broke. `&aimspoil=0` in the URL is the comparison for "a hit spoils his aim";
+  `BAL_WEAPON=kiln` with and without `BAL_EVAL=nofear` is the one for fire and morale.
+- **`tools/scripts/gore-look.mjs`, `gore-look-scenes.mjs`: triggers for `tools/sheet.mjs`.** The first is one 30 s fight
+  through every part of the update, for a contact sheet and a video; the second is four short scenes (`LOOK_SCENE=react|
+  gib|fire|wear`) with a still camera. Both in the Crucible at night from the player's eye, both runnable against an old
+  build's server for "before". The owner's index of them is `tools/out/gore-update/LOOK.md` (not in the repository).
+
 Two Vite servers must not share one `node_modules` (a second worktree with it symlinked): they invalidate each other's
 bundled dependencies and co-op pages fail with "504 Outdated Optimize Dep". And `kill` on an `npx vite` kills the wrapper,
 not the server: stop a server by the pid that holds its port (`ss -ltnp`).

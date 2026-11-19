@@ -109,6 +109,14 @@ four blots.
   by side in the background in 1.2 s cold (0.1 s from the browser's shader cache) and are then drawn in 60 to 77 ms,
   which is what the old sheet's whole bake cost (79 ms). `?bakeTime` logs it, `?bakeTime=cold` without the cache. The
   material sets no longer carry the decal code in their shaders.
+- **Half size on Low and Medium quality** (`QualityPreset.decalSheet`, 0.5): 1024 x 2048, 21 MB with mipmaps, a quarter
+  of the full sheet and half of what the old one took. Blood loses almost nothing, because a cell is a field the shader
+  thresholds and not a picture: at 30 cm across, a drop's edge is as sharp and only its finest spines are rounder.
+  The marks, which are pictures, are softer when looked at from a hand's width (a glass crack's hairlines break into
+  dashes). The size is chosen at load from the saved setting (`savedQuality`), so a machine on Low never allocates the
+  full sheet, and changing the setting bakes the sheet again in the background and swaps it in (`Renderer.resizeSheet`,
+  0.1 s; `Decals.setAtlas`): decals already down keep their place, since a decal stores a cell's number.
+  `tools/out/gore-update/verify/sheet/` has the pairs.
 - **A bug that went with the old shader:** the cell number reached the fragment shader as an interpolated varying, and
   for the first cell of each row (4, 8, 12) a rounding error picked the row above on some pixels: horizontal stripes
   through one blot, one pool and one cut. It is `flat` now, and the cell's rectangle is worked out per vertex.
@@ -124,6 +132,9 @@ four blots.
     ramp, a stair or a wall stays a decal and is overwritten in its turn, as before.
   - **What is lost:** shapes under about 10 cm (fine spatter), the wet look, and, when a seventeenth tile is needed,
     the tile least lately added to (about 65 m by 65 m of floor is kept in all).
+  - **By quality** (`QualityPreset.bloodTiles`, `BloodMap.tileLimit`): all sixteen tiles on High and Ultra, eight on
+    Medium (about 32 m by 64 m of floor kept), none on Low, where old blood goes when its decal is overwritten, as before
+    the update. Each tile in view is one more layer of the decal shader over the floor it covers.
   - `?bloodmap=0` (dev panel "Blood: old stains kept on floors") stops stains going in. `decals.clear()` empties the
     tiles. Tests: `BloodMap.test.ts`. To see it: `DS_LIMIT=120` on `decal-scenes.mjs` cuts the blood ring to 120 decals.
 - **Looking at it:** `/?sandbox=decals` lays every cell on a floor or a wall through the real shader (its header lists
@@ -182,7 +193,7 @@ main menu's helicopter uses it (`docs/notes/ui.md`, "Main menu background"). Set
 
 ## Tuning
 
-- `quality.ts`: one row per preset: MSAA, pixel budget, AO, fog steps, bloom levels, shadow sizes, SSR steps, light count. Index 2 is the default, and saved settings point at it, so retune that row rather than moving the default.
+- `quality.ts`: one row per preset: MSAA, pixel budget, AO, fog steps, bloom levels, shadow sizes, SSR steps, light count. Index 2 is the default, and saved settings point at it, so retune that row rather than moving the default. The gore update's parts are on the same rows (2026-11-19): the decal sheet's size (`decalSheet`), the floor tiles (`bloodTiles`), the share of big stains kept (`bigStains`), struck parts on physics at once (`swayBodies`) and burning bodies that light the floor (`fireLights`); the last three are written by `applyLoad` in `ui/settings.ts`. High and Ultra are the update as its lanes built it. `docs/notes/gore.md`, "What follows which setting".
 - `post/grades.ts`: every grade as plain numbers.
 - `XRay.ts`: silhouette and ring shaders. `HIDDEN_BIAS` is how far behind the depth buffer a body must be to count as hidden.
 - `materials/surfaces.glsl.ts`: every material. `MaterialLibrary.ts` holds tile size, bump, wetness and macro variation.

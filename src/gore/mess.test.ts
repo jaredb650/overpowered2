@@ -142,6 +142,8 @@ beforeEach(() => {
   render.camera = null;
   MessTuning.level = 'standard';
   MessTuning.rest = true;
+  MessTuning.heaps = true;
+  MessTuning.eased = null;
   MessTuning.push = true;
   MessTuning.far = true;
   MessTuning.bakeAfter = 3;
@@ -454,6 +456,53 @@ describe('the caps', () => {
     expect(chainOf(a).resting).toBe(false);
     expect(gore.mess.stats().ghosted).toBeGreaterThan(0);
     MessTuning.maxShapes = was;
+  });
+});
+
+describe('heaps turned off by a setting or by the automatic step-down (gore/load.ts)', () => {
+  it('a body that comes to rest then leaves no capsules, and the next lies beside it on the floor', () => {
+    MessTuning.heaps = false;
+    const c = spawn();
+    gore.ragdoll(c);
+    settle();
+    expect(chainOf(c).resting).toBe(false);
+    expect(gore.mess.stats().shapes).toBe(0);
+    // Only the floor is in the world.
+    expect(physics.world.colliders.len()).toBe(1);
+  });
+
+  it('bodies already at rest give their capsules up a few a frame, the longest at rest first, and what lay on them falls', () => {
+    const list = heap(10);
+    const top = Math.max(...list.map(c => hips(c).y));
+    expect(top).toBeGreaterThan(0.42);
+    const resting = gore.mess.stats().resting;
+    expect(resting).toBe(10);
+    MessTuning.heaps = false;
+    // What gore's update does every frame while heaps are off (`stepLoad`): the oldest two.
+    expect(gore.mess.shed(2)).toBe(resting - 2);
+    expect(list.filter(c => chainOf(c).resting)).toHaveLength(resting - 2);
+    // A frame at a time, as in play: a body waiting to fall keeps its capsules until it has.
+    for (let i = 0; i < 900 && gore.mess.stats().resting > 0; i++) {
+      gore.mess.shed(2);
+      frame();
+    }
+    settle();
+    expect(gore.mess.stats().resting).toBe(0);
+    expect(gore.mess.stats().shapes).toBe(0);
+    expect(physics.world.colliders.len()).toBe(1);
+    // The heap came down: every body is on the floor.
+    expect(Math.max(...list.map(c => hips(c).y))).toBeLessThan(0.3);
+    expect(gore.stats().ragdolls).toBe(0);
+    // Shedding with nothing at rest is nothing.
+    expect(gore.mess.shed(2)).toBe(0);
+  });
+
+  it('the step-down\'s cut to drawn bodies is the budget in force, and goes when it is lifted', () => {
+    const cut = { ...MESS.standard, drawn: 13, full: 4 };
+    MessTuning.eased = cut;
+    expect(messBudget()).toBe(cut);
+    MessTuning.eased = null;
+    expect(messBudget()).toBe(MESS.standard);
   });
 });
 

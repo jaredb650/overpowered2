@@ -46,6 +46,15 @@ export class DynamicResolution {
     return STEPS[this.index]!;
   }
 
+  /**
+   * It went through its whole range, the frame rate did not answer, and it is back at full size, resting: the frame is
+   * held back by something resolution does not touch (the processor, or a frame rate capped from outside). The gore
+   * update's own step-down reads this (gore/load.ts).
+   */
+  get starved(): boolean {
+    return this.giveUp > 0;
+  }
+
   /** Returns true when the scale changed. */
   update(realDt: number): boolean {
     if (!this.enabled || realDt <= 0) return false;

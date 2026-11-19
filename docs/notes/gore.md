@@ -1106,10 +1106,45 @@ oldest stain the cell remembers, so the spot stays freshly wet and the ring stop
 | Blood decals | 2,048 | 8,192 | 8,192 | 12,288 |
 | Layers of blood on one spot | 4 | 6 | 6 | 10 |
 | At the wave break | nothing | **the floor is swept** | nothing | nothing |
+| The dead heap (a body at rest leaves its capsules) | **no** | yes | yes | yes |
 
 "Clear at wave break" is Standard until `wave:clear`, then `Gore.sweep()`: the dead and their limbs sink, pieces shrink,
 blood fades (`Decals.fadeOut`), over 2.2 s, with nothing popping. The old "Gore" setting no longer sets how many bodies,
 limbs or pieces stay; it is how violently a body comes apart.
+
+### What follows which setting (verify pass, 2026-11-19)
+
+`applyLoad` in `ui/settings.ts` is the one place that writes the gore update's caps, from three hands (`GoreLoad` in
+`gore/load.ts`). Tests: `ui/settings.test.ts`, `gore/load.test.ts`, `render/quality.test.ts`, `mess.test.ts` ("heaps
+turned off"). **At High or Ultra quality with Mess at Standard, every number is the one its lane built.**
+
+| Part | Follows | Low end |
+|---|---|---|
+| Bodies, limbs, pieces and blood kept; the wave-break sweep | **Mess** (the table above) | Low: 40 bodies, a fifth of the pieces' room, 2,048 stains |
+| The dead heap (`HEAPS`, `MessTuning.heaps`, `leavesCapsules`) | **Mess** | Low: no capsules, bodies lie one deep as before the update |
+| The decal sheet's size (`decalSheet`) | **Graphics quality** | Low and Medium: half size, 21 MB for 85 (`docs/notes/render.md`) |
+| Floor tiles of old blood (`bloodTiles`) | **Graphics quality** | Medium 8 of 16, Low none |
+| Big stains kept (`bigStains`, a share of Mess's `big`) | **Graphics quality** | Medium three quarters, Low half |
+| Struck parts on physics at once (`swayBodies`, `SWAY.max`) | **Graphics quality** | Medium 5 of 8, Low 3 |
+| Burning bodies that light the floor (`fireLights`) | **Graphics quality** | Medium 2 of 3, Low 1 |
+| Limb wear, the flinch, the hand to the wound, blood on the gun | nothing | measured as free: painted in the skin's own shader, or a few bones of animation |
+
+**The automatic step-down** (`LoadGovernor`, run once a frame from `Gore.update` by `stepLoad`). The game already
+lowers its resolution when frames are missed (`render/DynamicResolution.ts`); that answers a slow GPU, and what the gore
+update costs is on the processor (below, "The whole update: what it costs"). So when the smoothed frame interval stays
+over 18.4 ms for two seconds **and** resolution is already at 0.8 or under, or has gone through its range and given up
+(`DynamicResolution.starved`), a step is taken; a second six seconds later if frames are still missed; one is given back
+after thirty seconds at 60, and that wait doubles (to four minutes) each time giving one back was followed by a miss.
+
+| Step | What it takes |
+|---|---|
+| 1 | The heap's capsules: bodies coming to rest leave none, and the ones already down are shed two a frame, longest at rest first (`MessField.shed`), so a heap comes down in order (what lies on a body is woken, falls and rests without capsules). Corpses drawn as characters 32 to 19 and in full 8 to 6 (the rest are baked, out of sight or past 11 m as always). Struck parts on physics and fire's lights halved. A still piece shrinks away after 30 s (12 s at step 2), as it does at Mess Low |
+| 2 | Dead bodies simulating at once 14 to 10, bodies dying on their feet at once 8 to 4, and enemies no longer wake the dead they walk into (the player's own push is never eased). Characters 13, in full 4. One struck part in four, one light |
+
+A step never shortens a decal ring or retires pieces (only a setting does: `applyLoad(ctx, trim)`), so nothing leaves the
+floor in front of the player but the heap settling. It is off wherever dynamic resolution is off (under automation, or
+`?drs=0`), so a test's picture does not depend on the machine's load; `?drs=1` turns both on in a test. A new run starts
+from the settings (`resetLoad`). Each screen eases its own in co-op: none of this is a rule of the game.
 
 **Switches:** `?messrest=0` (bodies at rest keep no capsules: the flat carpet from before), `?messpush=0` (nothing at
 rest is woken by being walked into) and `?messfar=0` (nothing is baked), all three also in the dev panel under BODIES.
