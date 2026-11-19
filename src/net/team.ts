@@ -86,8 +86,12 @@ export type TeamEvent =
   | { t: 'ready' }
   /** Host: who has voted to start the next wave (slots), how many votes it takes, and whose vote this was (-1: a reset). */
   | { t: 'vote'; ready: number[]; need: number; by: number }
-  /** Host to a guest who arrived mid-run: where the waves stand, so it gets the banner and, in a break, the clock and the vote. */
-  | { t: 'sync'; wave: number; phase: WavePhase; left: number; rest: boolean; custom: boolean; ready: number[]; need: number }
+  /**
+   * Host to a guest whose world has come up, or whose connection is back: where the waves stand. A new page gets the banner
+   * the others had and, in a break, the clock and the vote. `back`: the same page returning after a drop, which has seen the
+   * banner (or is sent the wave's own event it missed), so only the clock and the vote are put right.
+   */
+  | { t: 'sync'; wave: number; phase: WavePhase; left: number; rest: boolean; custom: boolean; ready: number[]; need: number; back?: boolean }
   /** A ping: a marker in the world, for everyone. A guest's goes to the host, who stamps the slot and passes it on. */
   | { t: 'mark'; at: Vec; slot?: number };
 /** The events `receive` takes on each side, for the world's router. */
@@ -102,8 +106,18 @@ export const REVIVE_HEALTH = 40;
 export const REVIVE_REACH = 2.4;
 const HOST_REACH = 4.5;
 const CARD_MS = 250;
+/** A guest that is down while the host's cards say it is up says so again after this long, and this often. */
+export const DISPUTE_MS = 1000;
+/** A guest whose seat is not settled yet asks the host for it this often (`worldsync`). */
+const ASK_MS = 1000;
 /** A guest's kit goes to the host when it has changed, checked this often. */
 export const KIT_MS = 2000;
+/**
+ * A player whose connection drops while they are on their feet still counts as up, for a wipe, for this long. The session
+ * keeps their seat 60 s and they are usually back in a few; without this the last one standing losing their link for a
+ * second ended the run on that frame. Not back by then, the wipe rules apply. A deliberate leave is not a lost seat.
+ */
+export const LOST_UP_MS = 10_000;
 /** A host frame longer than this is a stall (a hitch, a sleeping tab): the bleed clocks do not count the excess. */
 const STALL_MS = 250;
 /** After the Commander falls his last words are read out before the board (ui/commander); if they never finish, the board comes anyway. */
@@ -200,6 +214,7 @@ export class Team {
   readonly marks: Marks;
   private readonly key = new OrderKey();
   private nextCard = 0;
+  private nextAsk = 0;
   private nextKit = 0;
   private sentKit = '';
   private watching = -1;
@@ -207,6 +222,10 @@ export class Team {
   private prompt: { text: string; off: () => void } | null = null;
   private readonly promptAt = new THREE.Vector3();
   private myState: LifeState = 'up';
+  /** Guest: the life I fell on, since when the host's card has said I am up all the same, and when I last said so again. */
+  private fellOn = -1;
+  private disputed = 0;
+  private nextLife = 0;
   private readonly off: (() => void)[] = [];
   /** Host: what each player left with, by stable id (`seatKey`). */
   private readonly seats = new Map<string, Seat>();
@@ -221,10 +240,21 @@ export class Team {
   /** Host: arrived players who are out of the world right now, and those of them the team respawned meanwhile. */
   private readonly awayIds = new Set<string>();
   private readonly rose = new Set<string>();
+  /** Host: players lost while up, and until when each still counts as up for a wipe (`LOST_UP_MS`). */
+  private readonly lostUp = new Map<string, number>();
   onOver: (cards: Card[], wave: number, ending: Ending) => void = () => {};
-  /** Host: a guest's world is up (its first card came in): the moment to hand it what it missed while loading. */
+  /**
+   * Host: a guest's world is up, or back after a drop: the moment to hand it what it missed (world.ts runs every module's
+   * catch-up from here). Called once the team's own words (`restore`, `sync`) have gone out.
+   */
   onArrived: (id: string) => void = () => {};
+  /** Guest: the host's `sync` came: it has this player in the world. The moment to say again what is said once (world.ts). */
+  onSynced: () => void = () => {};
   private readonly arrived = new Set<string>();
+  /** Host: when each player's seat was last sent to them (`restore`), so an impatient ask is not answered twice. */
+  private readonly toldSeat = new Map<string, number>();
+  /** Host: the last wave event each player missed while their connection was down, replayed as the same page comes back. */
+  private readonly missed = new Map<string, Extract<WorldEvent, { t: 'wave' }>>();
 
   constructor(private readonly ctx: Ctx, private readonly session: CoopSession, private readonly send: (event: WorldEvent, to?: string) => void) {
     this.settled = session.hosting;
@@ -234,7 +264,7 @@ export class Team {
     if (session.hosting) {
       this.off.push(ctx.events.on('wave:start', e => {
         this.titanWave = e.boss && isTitanWave(e.wave, (ctx.waves as { rules?: Parameters<typeof isTitanWave>[1] }).rules);
-        this.send({ t: 'wave', kind: 'start', wave: e.wave, total: e.total, boss: e.boss, bonus: 0, titan: this.titanWave, ...this.wavePhase() });
+        this.tellWave({ t: 'wave', kind: 'start', wave: e.wave, total: e.total, boss: e.boss, bonus: 0, titan: this.titanWave, ...this.wavePhase() });
         this.rest.ended();
         // The second pass: anyone who fell in the break itself.
         this.respawnFallen();
@@ -244,7 +274,7 @@ export class Team {
         this.respawnFallen();
         // The team's break is set first, so the clock the event carries is the team's.
         this.rest.began(e.wave);
-        this.send({ t: 'wave', kind: 'clear', wave: e.wave, total: 0, boss: false, bonus: e.bonus, ...this.wavePhase() });
+        this.tellWave({ t: 'wave', kind: 'clear', wave: e.wave, total: 0, boss: false, bonus: e.bonus, ...this.wavePhase() });
       }));
       // A mission won is the end of the run for everyone, with the board.
       this.off.push(ctx.events.on('campaign:complete', () => this.finish('mission')));
@@ -262,6 +292,15 @@ export class Team {
   private wavePhase(): { phase: string; next: number } {
     const waves = this.ctx.waves;
     return { phase: waves.phase, next: Number.isFinite(waves.nextWaveIn) ? Math.max(0, Math.round(waves.nextWaveIn * 10) / 10) : 0 };
+  }
+
+  /**
+   * Host: a wave's own event, to everyone in the world. A player whose connection is down just now cannot hear it: the
+   * latest one is kept for them, and the same page gets it as it comes back (`arrive`), so its shop, pay and banner follow.
+   */
+  private tellWave(event: Extract<WorldEvent, { t: 'wave' }>): void {
+    this.send(event);
+    for (const player of this.session.lobby.players) if (player.away && this.arrived.has(player.id)) this.missed.set(player.id, event);
   }
 
   /**
@@ -341,6 +380,23 @@ export class Team {
     return null;
   }
 
+  /** Host: this player's connection dropped (the session's hook, world.ts). On their feet, they hold a wipe off for a while. */
+  lost(id: string): void {
+    if (!this.session.hosting || this.final) return;
+    if (this.arrived.has(id) && this.life(id).state === 'up') this.lostUp.set(id, performance.now() + LOST_UP_MS);
+  }
+
+  /** Host: is a player who was up when their line dropped still inside the grace? Those who are back, gone or late are forgotten. */
+  private graced(now: number): boolean {
+    let held = false;
+    for (const [id, until] of this.lostUp) {
+      const player = this.session.lobby.players.find(p => p.id === id);
+      if (!player || !player.away || player.state !== 'lost' || now >= until || this.lives.get(id)?.state !== 'up') this.lostUp.delete(id);
+      else held = true;
+    }
+    return held;
+  }
+
   /** Someone hit 0 health. Locally first (the crawl starts at once), then the host makes it so. */
   fell(id: string): void {
     if (this.final) return;
@@ -354,6 +410,7 @@ export class Team {
     if (!this.session.hosting) {
       if (id !== this.session.lobby.you) return;
       const life = this.life(id);
+      this.fellOn = life.life;
       this.send({ t: 'life', slot: this.me, alive: false, life: life.life });
       // Until the host's word comes back, damage for this life is already moot.
       life.state = 'down';
@@ -462,6 +519,7 @@ export class Team {
           const player = lobby.players.find(p => p.id === from);
           const card = cleanCard({ ...(value.card as object), slot: player?.slot });
           if (!card || !player) return true;
+          // The session's own word (`loaded`) usually came first (world.ts); a lobby with no load barrier has only this.
           if (!this.arrived.has(from)) this.arrive(from);
           const life = this.life(from);
           Object.assign(card, { state: life.state, life: life.life, bleed: this.bleedLeft(life), ping: lobby.pingOf(from) ?? 0 });
@@ -531,24 +589,54 @@ export class Team {
     }
   }
 
-  /** Host: a guest's first card: its world is up. Its seat is settled (a returning player's purse, kit and life), then the catch-up. */
-  private arrive(id: string): void {
+  /**
+   * Host: a guest's world is up. Called by the session's arrival hook (world.ts) for every way in, and by a new connection's
+   * first card where there is no hook (a lobby with no load barrier); once per arrival is enough, twice is harmless.
+   *
+   * A new connection (a new page) has its seat settled first, always, once: a returning player's purse, kit and life.
+   * `same`: the same page back after a drop. It still holds its own kit and purse, so no `restore`; it gets the wave event it
+   * missed, with the clock as it stands now. Everyone then gets `sync`, the board if the run is over, and the world's catch-ups.
+   */
+  arrive(id: string, same = false, again = false): void {
+    if (!this.session.hosting) return;
+    if (!this.session.lobby.players.some(p => p.id === id && !p.host && !p.away)) return;
+    const fresh = !this.arrived.has(id);
     this.arrived.add(id);
-    const seat = this.seats.get(this.seatKey(id));
-    const purse = seat?.purse;
-    const dead = seat?.dead === true;
-    // Not a free revive: they wait, dead, for the team's next respawn.
-    if (dead) this.life(id).state = 'dead';
-    const returning = !!seat && (!!purse || !!seat.kit || dead);
-    this.send({ t: 'restore', credits: purse?.credits ?? 0, score: purse?.score ?? 0, kills: purse?.kills ?? 0,
-      ...(returning && seat.kit ? { kit: seat.kit } : {}), ...(dead ? { dead: true } : {}),
-      ...(returning && purse && !dead ? { hp: purse.hp, armor: purse.armor } : {}) }, id);
-    if (seat) seat.dead = false;
+    if (fresh || again) {
+      this.toldSeat.set(id, performance.now());
+      const seat = this.seats.get(this.seatKey(id));
+      const purse = seat?.purse;
+      const dead = seat?.dead === true || (!fresh && this.lives.get(id)?.state === 'dead');
+      // Not a free revive: they wait, dead, for the team's next respawn.
+      if (dead) this.life(id).state = 'dead';
+      const returning = !!seat && (!!purse || !!seat.kit || dead);
+      this.send({ t: 'restore', credits: purse?.credits ?? 0, score: purse?.score ?? 0, kills: purse?.kills ?? 0,
+        ...(returning && seat.kit ? { kit: seat.kit } : {}), ...(dead ? { dead: true } : {}),
+        ...(returning && purse && !dead ? { hp: purse.hp, armor: purse.armor } : {}) }, id);
+      if (seat) seat.dead = false;
+    }
+    // Asked for again by a page that has already arrived (`asked`): the seat is all it lacked.
+    if (!fresh && !same) return;
+    const missed = this.missed.get(id);
+    this.missed.delete(id);
+    const back = same && !fresh;
+    if (back && missed && !this.final) this.send({ ...missed, ...this.wavePhase() }, id);
     this.send({ t: 'sync', wave: this.ctx.waves.wave, phase: this.ctx.waves.phase, left: Math.max(0, Math.ceil(this.ctx.waves.nextWaveIn)),
-      rest: this.rest.on, custom: this.customRules, ...this.rest.tally() }, id);
-    // The run ended while they loaded: they get the board, not a finished world.
+      rest: this.rest.on, custom: this.customRules, ...this.rest.tally(), ...(back ? { back: true } : {}) }, id);
+    // The run ended while they loaded (or while their line was down): they get the board, not a finished world.
     if (this.final) this.send({ t: 'over', wave: this.overWave, cards: this.final, won: this.ending !== 'wipe', how: this.ending ?? 'wipe' }, id);
     this.onArrived(id);
+  }
+
+  /**
+   * Host: a guest's `worldsync`: its world is up and its seat is not settled. Unknown here, it arrives now (the session's
+   * word for it was missed). Known, and still not settled a while after its seat was sent, the seat is sent again.
+   */
+  asked(id: string): void {
+    if (!this.arrived.has(id)) return this.arrive(id);
+    const slot = this.session.lobby.players.find(p => p.id === id)?.slot;
+    if (slot === undefined || this.cards.get(slot)?.ok === true) return;
+    if (performance.now() - (this.toldSeat.get(id) ?? 0) >= ASK_MS * 0.8) this.arrive(id, false, true);
   }
 
   /** Guest: the host has settled my seat. A returning player gets the purse, the kit and their life back. */
@@ -588,16 +676,48 @@ export class Team {
   /** Guest: arrived mid-run. The banner the others got, and in a break the clock and the vote as they stand. */
   private synced(value: Extract<WorldEvent, { t: 'sync' }>): void {
     const { ctx } = this;
+    // The kit goes again at once, whatever was sent before: a kit the host dropped is otherwise never sent again.
+    this.sentKit = '';
+    this.nextKit = 0;
+    this.onSynced();
     const wave = int(value.wave, 1e5);
-    this.customRules = value.custom === true;
-    if (this.customRules) ctx.hud.feed(CUSTOM_LINE, '#ffb33d');
+    // The same page back after a drop: it has had the lines and the banners; only the clock and the vote are put right.
+    const back = value.back === true;
+    const custom = value.custom === true;
+    if (custom && !(back && this.customRules)) ctx.hud.feed(CUSTOM_LINE, '#ffb33d');
+    this.customRules = custom;
     if (this.mission || wave < 1) return;
     if (value.rest === true) {
-      this.rest.began(wave);
+      // A break this page already knows of keeps its own state (the vote's feed lines are not said again).
+      if (!back || !this.rest.on) this.rest.began(wave);
       this.rest.voted({ t: 'vote', ready: Array.isArray(value.ready) ? value.ready : [], need: int(value.need, 4), by: -1 });
       // The break's pod is shared: the world's own catch-up brings it (world/pods.ts).
-      ctx.hud.banner(`WAVE ${wave} CLEAR`, `wave ${wave + 1} in ${int(value.left, 255)} s · find the supply pod`);
+      if (!back) ctx.hud.banner(`WAVE ${wave} CLEAR`, `wave ${wave + 1} in ${int(value.left, 255)} s · find the supply pod`);
+    } else if (back) {
+      if (this.rest.on) this.rest.ended();
     } else ctx.hud.banner(`WAVE ${wave}`, 'in progress · you joined late');
+  }
+
+  /**
+   * Guest: I am down and the host's cards go on saying I am up. `life` is said once and the host drops it from a player it
+   * has marked away (a dropped line), so a guest could crawl for ever while the host thought them on their feet.
+   *  - The host is still on the life I fell on: it never heard. Said again, once a second, until its card agrees.
+   *  - The host has moved on to a later life: it got me up (a revive, a respawn) and that word is what was lost. After
+   *    `DISPUTE_MS` more I stand up where I am.
+   */
+  private insist(now: number): void {
+    const mine = this.cards.get(this.me);
+    if (this.final || this.myState === 'up' || !mine || mine.state !== 'up') { this.disputed = 0; return; }
+    if (!this.disputed) { this.disputed = now; return; }
+    if (now - this.disputed < DISPUTE_MS) return;
+    if (mine.life === this.fellOn) {
+      if (this.myState !== 'down' || now < this.nextLife) return;
+      this.nextLife = now + DISPUTE_MS;
+      this.send({ t: 'life', slot: this.me, alive: false, life: mine.life });
+    } else if (now - this.disputed >= DISPUTE_MS * 2) {
+      this.disputed = 0;
+      this.applyUp({ t: 'up', slot: this.me, life: mine.life, how: 'revive', by: -1 });
+    }
   }
 
   /** A guest whose own state the host has moved on (a lost `up`, a bleed-out). */
@@ -659,6 +779,12 @@ export class Team {
       if (this.session.hosting) this.broadcastCards();
       else this.send({ t: 'card', card: this.card() });
     }
+    // My world is up and the host has not settled my seat: its arrival word for me was lost, or it was not listening yet.
+    // Said once as the world began (world.ts); again while the host's answer has not come.
+    if (!this.session.hosting && !this.settled && now >= (this.nextAsk ||= now + ASK_MS)) {
+      this.nextAsk = now + ASK_MS;
+      this.send({ t: 'worldsync' });
+    }
     if (!this.session.hosting && this.settled && now >= this.nextKit) {
       this.nextKit = now + KIT_MS;
       const kit = readKit(this.ctx);
@@ -667,6 +793,7 @@ export class Team {
     }
     this.rest.update();
     this.marks.key();
+    if (!this.session.hosting) this.insist(now);
     if (this.session.hosting) {
       if (!this.toldRules) {
         // The rules are read as the run starts (Hud.startRun), after this was built: said once, to everyone.
@@ -708,6 +835,9 @@ export class Team {
         if (lobby.players.some(p => p.id === id)) continue;
         this.lives.delete(id);
         this.arrived.delete(id);
+        this.toldSeat.delete(id);
+        this.missed.delete(id);
+        this.lostUp.delete(id);
         const key = this.left.get(id);
         if (key) this.seatOf(key).dead = life.state !== 'up';
         this.awayIds.delete(id);
@@ -719,8 +849,11 @@ export class Team {
       if (this.fulfilledAt && now >= this.fulfilledAt) return this.finish('fulfilled');
       // Before the barrier lifts (players still loading, nobody past "Click to deploy") there is no run to lose.
       if ((this.session as { holding?: boolean }).holding === true) { this.markers(); return; }
-      if (wiped(lives) && this.checkpoint()) return;
-      if (wiped(lives)) return this.finish('wipe');
+      // The last one standing may only have lost their link: the run is not over until they have had time to come back.
+      if (wiped(lives) && !this.graced(now)) {
+        if (this.checkpoint()) return;
+        return this.finish('wipe');
+      }
     }
     this.markers();
     this.reviveKey(dt);

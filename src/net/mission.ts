@@ -765,6 +765,13 @@ export class CoopMission {
     for (const id of this.reported.keys()) if (!this.session.lobby.players.some(p => p.id === id)) this.reported.delete(id);
   }
 
+  /** Guest: the host has this player back in the world: the round counts it reports on a change are reported again. */
+  resay(): void {
+    if (this.session.hosting) return;
+    for (const key of [...this.told.keys()]) if (key.startsWith('rounds:')) this.told.delete(key);
+    this.nextRounds = 0;
+  }
+
   private updateGuest(campaign: Campaign): void {
     campaign.ui.beat(this.beatTitle);
     const now = performance.now();

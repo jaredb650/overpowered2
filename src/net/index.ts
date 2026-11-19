@@ -1,7 +1,7 @@
 /** The game-facing co-op session. Host world snapshots and hit claims are world.ts, the team rules team.ts; never Player or Weapons. */
 import type { Ctx, GameSystem } from '../core/contracts';
 import { tabBusy } from '../core/oneTab';
-import { Lobby, type ChatLine, type LobbyPlayer, type Match, type SeatEvent } from './lobby';
+import { Lobby, type ChatLine, type Match } from './lobby';
 import { errorText } from './lobbyText';
 import { POSE_MS, type Move } from './pose';
 import { AKIMBO_TAG, PROPS, RemotePlayer, friendTorches } from './remote';
@@ -11,6 +11,8 @@ import { CoopWorld } from './world';
 import { CoopHud } from './coopHud';
 import { publishNet, watchCost } from './debug';
 import { pageSim } from './netsim';
+import { Hook, SeatHooks, type Arrival } from './seats';
+export { Hook, type Arrival };
 
 /** The modes whose world the host runs. The others are free roam: everyone walks the map, nothing else. */
 export const WORLD_MODES: readonly Match['mode'][] = ['crucible', 'outpost', 'defense', 'campaign', 'foreclosure'];
@@ -24,19 +26,6 @@ export interface Room { lobby: Lobby; code: string; password: string; match?: Ma
  * `rank` 0 hosts it; the others join, and take over in turn if nobody ahead of them shows up (ui/screens/coop.ts).
  */
 export interface Regroup { code: string; password: string; rank: number; names: string[]; note: string; /** This player's callsign as it was in the room. */ name?: string }
-
-/** A list of listeners. `add` returns the way to take one off again. */
-export class Hook<A extends unknown[]> {
-  private readonly list: ((...args: A) => void)[] = [];
-  add(fn: (...args: A) => void): () => void {
-    this.list.push(fn);
-    return () => { const i = this.list.indexOf(fn); if (i >= 0) this.list.splice(i, 1); };
-  }
-  emit(...args: A): void { for (const fn of [...this.list]) fn(...args); }
-}
-
-/** `seat` is the player's stable key in this room (LobbyPlayer.seat); `id` only their current connection. */
-export interface Arrival { seat: string; slot: number; name: string; rejoin: boolean }
 
 export class CoopSession implements GameSystem {
   readonly freeRoam: boolean;
@@ -62,18 +51,20 @@ export class CoopSession implements GameSystem {
   /** Guest, the host gone for good: the board is up until then, and then everyone regroups. */
   private lostUntil = 0;
   private regroup: Regroup | null = null;
-  /** Host: each seat's connection the last time it came in, to tell a new page from the same one back after a blip. */
-  private readonly lastId = new Map<string, string>();
   private idle: 'menu' | 'hidden' | undefined;
   /**
-   * Host: a player is in the world. Their first time in this match, or again (`rejoin`: a reload, a reconnect after a
-   * drop, back from the lobby page). The moment to hand them everything they missed; key anything kept for them by `seat`.
+   * Host: what happens to a seat (seats.ts). `CoopWorld` is the listener: it hands an arriving player everything they
+   * missed, lets go of what a lost player held in the world, and forgets a connection that is gone (world.ts).
    */
-  readonly onArrived = new Hook<[id: string, info: Arrival]>();
+  private readonly seats = new SeatHooks();
+  /** Host: a player is in the world, for the first time in this match or again (`rejoin`; `same`: on the same page as before). */
+  readonly onArrived = this.seats.onArrived;
   /** Host: a player's connection dropped. Their seat is kept (SEAT_GRACE_MS): hold their state, take their body out. */
-  readonly onLost = new Hook<[id: string, seat: string]>();
+  readonly onLost = this.seats.onLost;
   /** Host: a seat is given up for good (the grace ran out, or they quit). */
-  readonly onGone = new Hook<[seat: string]>();
+  readonly onGone = this.seats.onGone;
+  /** Host: a connection id that will never be heard from again (a seat's old page, or a seat gone). */
+  readonly onForget = this.seats.onForget;
   /** Why the match ended under this player, and whether the room is still there to go back to (or to regroup in). */
   onEnded: (message: string, room: Room | null, regroup?: Regroup) => void = () => {};
   /** Host: the load barrier is over. The game starts the world it has been holding (core/Game.ts). */
@@ -103,7 +94,7 @@ export class CoopSession implements GameSystem {
       if (!this.begun || this.closed) return;
       if (this.hosting) this.onGo();
     };
-    lobby.onSeat = (player, event) => this.seat(player, event);
+    lobby.onSeat = (player, event) => this.seats.feed(player, event);
     if (typeof document !== 'undefined' && lobby.hosting) {
       const seen = () => this.tellHidden();
       document.addEventListener('visibilitychange', seen);
@@ -184,8 +175,11 @@ export class CoopSession implements GameSystem {
       .map(r => ({ ...r, card: cards.find(c => c.slot === r.card.slot)! })), wave, performance.now(), ending);
     this.changed();
     if (this.closed) return;
-    this.world?.begin();
-    this.lobby.deployed();
+    // The host's world is up before its own word lifts the barrier (`deployed` can start the waves on the spot). A guest
+    // says it is in first: what its world then asks of the host (`worldsync`) is read by a host that has it in the match,
+    // not dropped as a word from a player still loading.
+    if (this.hosting) { this.world?.begin(); this.lobby.deployed(); }
+    else { this.lobby.deployed(); this.world?.begin(); }
   }
 
   /** Every change in the room: a list from the host, a line, a link in trouble, the room closing. */
@@ -235,19 +229,6 @@ export class CoopSession implements GameSystem {
       this.world.team.roster().map(r => ({ name: r.name, color: r.color, me: r.me, kills: r.card.kills, score: r.card.score, credits: r.card.credits })));
     for (const remote of this.remotes.values()) remote.dispose();
     this.remotes.clear();
-  }
-
-  /** Host: what the lobby says about a seat, as the game's hooks. */
-  private seat(player: LobbyPlayer, event: SeatEvent): void {
-    const seat = player.seat ?? player.id;
-    if (event.kind === 'lost') return this.onLost.emit(player.id, seat);
-    if (event.kind === 'gone') { this.lastId.delete(seat); return this.onGone.emit(seat); }
-    const same = this.lastId.get(seat) === player.id;
-    this.lastId.set(seat, player.id);
-    this.onArrived.emit(player.id, { seat, slot: player.slot, name: player.name, rejoin: event.rejoin });
-    // The team hands a player what they missed when a new connection's first card comes in (team.ts). The same connection
-    // back after a drop has sent cards before, so it is told here.
-    if (event.rejoin && same) this.world?.team.onArrived(player.id);
   }
 
   private roster(): void {

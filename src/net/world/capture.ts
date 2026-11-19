@@ -179,6 +179,14 @@ export class Capture implements WorldModule {
     }
   }
 
+  /** Host: a lost player lets go of the man in their hands (`hostHolds` tells the others he was dropped). */
+  lostSeat(id: string): void {
+    const holder = this.targeting.standIn(id);
+    if (holder) this.prisoners?.dropFor(holder);
+  }
+
+  forgetPeer(id: string): void { this.spent.delete(id); }
+
   /** Host: who holds whom, kept for the guests: a hold that ended (he twisted free, died, was cuffed) is told as `dropped`. */
   private hostHolds(): void {
     const prisoners = this.prisoners;

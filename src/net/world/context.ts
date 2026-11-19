@@ -19,6 +19,19 @@ export interface WorldModule {
   /** Every frame, host and guest alike. `now` is `performance.now()`, read once for the frame. */
   update?(now: number): void;
   dispose?(): void;
+  /**
+   * Host: this player's connection dropped (their seat is kept, `SEAT_GRACE_MS`). Whatever they held in the world is let go:
+   * a seat on a gun, a man in their hands, a slow-mo, a flag they set. `slot` is theirs; they are still in `lobby.players`.
+   */
+  lostSeat?(id: string, slot: number): void;
+  /**
+   * Guest: the host has this player in the world (for the first time, or again after a drop: its `sync`). Whatever this
+   * module says to the host once, on a change, is said again as it stands now: the host drops every word from a player it
+   * has marked away, and neither side is told.
+   */
+  resay?(): void;
+  /** Host: this connection id will never be heard from again (the seat's new page has another, or the seat is gone). */
+  forgetPeer?(id: string): void;
 }
 
 /** Host: work for a little later (an enemy's blast on a remote player, after its fuse), run from the world's update. */

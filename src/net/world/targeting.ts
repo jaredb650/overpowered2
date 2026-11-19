@@ -279,6 +279,23 @@ export class Targeting implements WorldModule {
     }
   }
 
+  /** Host: this guest as the game's player type, if they have ever stood in the world (kept while their connection is down). */
+  standIn(id: string): PlayerSystem | null { return this.adapters.get(id)?.player ?? null; }
+
+  /** Host: a lost player's Ghost is over. Their own page says so again when it is back, if it still runs. */
+  lostSeat(id: string): void { this.ghosts.delete(id); }
+
+  forgetPeer(id: string): void {
+    this.adapters.delete(id); this.ghosts.delete(id); this.w.validator.forget(id);
+  }
+
+  /** Guest: my Ghost as it stands now, whatever the host last heard (it forgets it when my connection drops). */
+  resay(): void {
+    if (this.w.hosting) return;
+    this.ghostSent = this.w.ctx.progression.isActive?.('ghost') ?? false;
+    this.w.send({ t: 'ghost', on: this.ghostSent });
+  }
+
   /** A player who left takes their stand-in and their claim history with them. */
   update(): void {
     this.everyoneStale = true;

@@ -241,13 +241,18 @@ export class Callins implements WorldModule {
     const link = this.plug();
     if (!link) return;
     const { session } = this.w;
+    // In the world, that is: a player whose connection has dropped (or who stepped out) takes their copies and their Frame's
+    // puppet with them on every screen at once, not when the seat is given up a minute later. If the same page comes back
+    // it says again what it still has running (`again`).
     let present = 0;
-    for (const player of session.lobby.players) present |= 1 << player.slot;
+    for (const player of session.lobby.players) if (!player.away || player.id === session.lobby.you) present |= 1 << player.slot;
     const left = this.present & ~present;
     for (let slot = 0; left !== 0 && slot < 4; slot++) if (left & (1 << slot)) link.drop(slot);
     this.present = present;
     for (const remote of session.remotes.values()) remote.hidden = link.inFrame(remote.player.slot);
   }
+
+  forgetPeer(id: string): void { this.rates.delete(id); }
 
   dispose(): void {
     const link = linkOf(this.w);

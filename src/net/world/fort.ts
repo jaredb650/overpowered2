@@ -124,6 +124,11 @@ export class Fort implements WorldModule {
     router.guest('fortradio', value => this.radioIn(value));
   }
 
+  /** Host: a lost player's mounted gun is free at once (it would otherwise wait out the seat's own keep time). */
+  lostSeat(_id: string, slot: number): void { this.find().defense?.leftSeats(slot); }
+
+  forgetPeer(id: string): void { this.spent.delete(id); }
+
   /** The walls and the contract are built after the world is: found on first use, and linked once. */
   private find(): this {
     const { ctx } = this.w;

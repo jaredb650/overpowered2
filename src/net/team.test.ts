@@ -14,6 +14,7 @@ import type { CoopSession } from './index';
 import { endCopy } from './coopHud';
 import { applyKit, cleanKit, readKit, type Kit } from './kit';
 import { Lobby } from './lobby';
+import { SeatHooks } from './seats';
 import { MARK_GAP_MS, MARK_KEEP, MARK_SECONDS } from './marks';
 import type { NetRoom } from './room';
 import { BLEED_MS, KIT_MS } from './team';
@@ -132,7 +133,7 @@ function body(player: unknown, at: [number, number, number] = [0, 0, -3]) {
 }
 
 /** A host and `guests` guests in one match, every world begun. `browsers`: each guest's stable browser id. */
-function party(guests = 1, mode: 'crucible' | 'outpost' | 'campaign' = 'crucible', browsers: string[] = ['b1', 'b2', 'b3']) {
+function party(guests = 1, mode: 'crucible' | 'outpost' | 'campaign' = 'crucible', browsers: string[] = ['b1', 'b2', 'b3'], loading: number[] = []) {
   const relay = new Relay();
   const door = () => new Room('door', new Relay());
   const hostRoom = relay.open('host-peer');
@@ -149,14 +150,19 @@ function party(guests = 1, mode: 'crucible' | 'outpost' | 'campaign' = 'crucible
   hostLobby.startMatch(mode, 'team-test'); relay.flush();
   const build = (lobby: Lobby, room: Room): Side => {
     const c = context();
-    const session = { lobby, hosting: lobby.hosting, match: lobby.match, remotes: new Map(), localPaused: false } as unknown as CoopSession;
+    // The host's seat hooks, fed by the lobby as the real session feeds them (index.ts).
+    const seats = new SeatHooks();
+    if (lobby.hosting) lobby.onSeat = (player, event) => seats.feed(player, event);
+    const session = { lobby, hosting: lobby.hosting, match: lobby.match, remotes: new Map(), localPaused: false,
+      onArrived: seats.onArrived, onLost: seats.onLost, onGone: seats.onGone, onForget: seats.onForget } as unknown as CoopSession;
     const world = new CoopWorld(c.ctx, session);
     return { ...c, lobby, world, room, session };
   };
   const host = build(hostLobby, hostRoom);
   for (const j of joined) sides.push(build(j.lobby, j.room));
   for (const g of sides) (host.session.remotes as Map<string, unknown>).set(g.lobby.you, body(hostLobby.players.find(p => p.id === g.lobby.you)));
-  host.world.begin(); for (const g of sides) g.world.begin();
+  // `loading`: guests whose map is still loading: in the lobby's list, their world not begun (a test begins it when it likes).
+  host.world.begin(); sides.forEach((g, i) => { if (!loading.includes(i)) g.world.begin(); });
   const tick = (ms = 300) => {
     vi.advanceTimersByTime(ms);
     host.world.update(); relay.flush();
@@ -224,8 +230,8 @@ describe('endings: every run ends on the team board', () => {
     game.dispose();
   });
   it('a guest still loading does not hold the run open, and does not wipe it either: only arrived players count', () => {
-    const game = party(2);
-    // Guest 2 never ticks: its world is not up.
+    // Guest 2's world is not up.
+    const game = party(2, 'crucible', undefined, [1]);
     vi.advanceTimersByTime(300); game.host.world.update(); game.relay.flush(); game.guests[0]!.world.update(); game.relay.flush(); game.host.world.update();
     die(game.host); die(game.guests[0]!); game.relay.flush();
     game.host.world.update(); game.relay.flush();
@@ -574,8 +580,8 @@ describe('seats: a rejoin gives the kit back and is not a free revive', () => {
 
 describe('a late joiner is told where the waves stand', () => {
   it('gets the banner mid-wave, and in a break the banner, the clock and the vote', () => {
-    const game = party(2);
     // Only guest 1 is in so far.
+    const game = party(2, 'crucible', undefined, [1]);
     vi.advanceTimersByTime(300); game.host.world.update(); game.relay.flush(); game.guests[0]!.world.update(); game.relay.flush(); game.host.world.update(); game.relay.flush();
     expect(game.guests[0]!.hud.banner).toHaveBeenCalledWith('WAVE 1', expect.stringContaining('in progress'));
     game.host.ctx.events.emit('wave:clear', { wave: 4, bonus: 0 });
@@ -583,7 +589,7 @@ describe('a late joiner is told where the waves stand', () => {
     game.relay.flush(); game.host.world.update(); game.relay.flush();
     press(game.host, 'nextWave'); game.relay.flush();
     const late = game.guests[1]!;
-    late.world.update(); game.relay.flush();
+    late.world.begin(); game.relay.flush();
     expect(late.hud.banner).toHaveBeenCalledWith('WAVE 4 CLEAR', expect.stringContaining('wave 5 in'));
     // The pod itself is the shared world's to bring (world/pods.ts catch-up), never a second one from here.
     expect(late.progression.pods.onWaveClear).not.toHaveBeenCalled();
@@ -786,6 +792,194 @@ describe('the team is told', () => {
     expect(lines.filter(l => /GUEST1 has cheats on/.test(l))).toHaveLength(1);
     expect(game.guests[0]!.world.team.cards.get(0)).toMatchObject({ cheats: true });
     cheats.resetCheatsForTest(false);
+    game.dispose();
+  });
+});
+
+describe('the session\'s word on a seat drives the team: arriving, dropping, coming back', () => {
+  const events = (game: ReturnType<typeof party>, type: string, to: string) => game.relay.events(type).filter(e => e.to === to);
+  it('the same page back after a drop gets the wave it missed with the clock as it stands, the vote, and no second seat', () => {
+    const game = party(2);
+    game.tick();
+    const a = game.guests[0]!, id = a.lobby.you;
+    const heard: string[] = [];
+    a.ctx.events.on('wave:clear', e => heard.push(`clear ${e.wave} ${e.bonus}`));
+    a.ctx.events.on('wave:start', e => heard.push(`start ${e.wave}`));
+    const seatsBefore = events(game, 'restore', id).length;
+    const catchUps = (game.host.progression.pods.catchUp as ReturnType<typeof vi.fn>).mock.calls.length;
+    game.relay.close(a.room); game.relay.flush();
+    // The wave is cleared and the host votes while the line is down: none of it reaches that page.
+    Object.assign(game.host.waves, { wave: 3, phase: 'intermission', nextWaveIn: 40 });
+    game.host.ctx.events.emit('wave:clear', { wave: 3, bonus: 650 }); game.relay.flush();
+    press(game.host, 'nextWave'); game.relay.flush();
+    expect(heard).toEqual([]);
+    game.host.waves.nextWaveIn = 31;
+    a.hud.banner.mockClear();
+    game.relay.reopen(a.room); game.relay.flush(); game.tick();
+    // Its own wave event, late, with the pay; the phase and the clock are the host's of now, not of then.
+    expect(heard).toEqual(['clear 3 650']);
+    expect(a.waves).toMatchObject({ wave: 3, phase: 'intermission' });
+    expect(a.waves.nextWaveIn).toBeGreaterThan(29); expect(a.waves.nextWaveIn).toBeLessThan(32);
+    expect(a.world.team.rest).toMatchObject({ on: true, ready: [0] });
+    // It is the same page: no seat is sent again, and it is not told it "joined late".
+    expect(events(game, 'restore', id)).toHaveLength(seatsBefore);
+    expect(events(game, 'sync', id).at(-1)?.data).toMatchObject({ back: true, rest: true });
+    expect(a.hud.banner).not.toHaveBeenCalledWith(expect.anything(), expect.stringContaining('joined late'));
+    // And the world's own catch-ups ran for it again (the pod, the guns, what is broken).
+    expect((game.host.progression.pods.catchUp as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThan(catchUps);
+    expect(game.host.progression.pods.catchUp).toHaveBeenLastCalledWith(id);
+    // The other guest, who never left, got the wave once, when it happened.
+    expect(events(game, 'wave', game.guests[1]!.lobby.you)).toHaveLength(1);
+    game.dispose();
+  });
+  it('a wave that started while the line was down shuts the break on that page when it is back', () => {
+    const game = party(1);
+    game.tick();
+    const a = game.guests[0]!;
+    Object.assign(game.host.waves, { wave: 2, phase: 'intermission', nextWaveIn: 40 });
+    game.host.ctx.events.emit('wave:clear', { wave: 2, bonus: 0 }); game.relay.flush(); game.tick();
+    expect(a.world.team.rest.on).toBe(true);
+    game.relay.close(a.room); game.relay.flush();
+    Object.assign(game.host.waves, { wave: 3, phase: 'spawning', nextWaveIn: 0 });
+    game.host.ctx.events.emit('wave:start', { wave: 3, total: 18, boss: false }); game.relay.flush();
+    const started: number[] = [];
+    a.ctx.events.on('wave:start', e => started.push(e.wave));
+    game.relay.reopen(a.room); game.relay.flush(); game.tick();
+    expect(started).toEqual([3]);
+    expect(a.world.team.rest.on).toBe(false);
+    expect(a.waves).toMatchObject({ wave: 3, phase: 'spawning' });
+    game.dispose();
+  });
+  it('a page whose seat never reached it asks again until the host has sent it, and is told nothing else twice', () => {
+    const game = party(1);
+    game.tick();
+    const a = game.guests[0]!, id = a.lobby.you;
+    (a.ctx.contracts.wallet as unknown as { credits: number }).credits = 700;
+    game.tick(); game.tick();
+    // As if the seat's word had been lost: the page is not settled, so its cards stop saying so.
+    (a.world.team as unknown as { settled: boolean }).settled = false;
+    const seats = events(game, 'restore', id).length, syncs = events(game, 'sync', id).length;
+    game.tick(400); game.tick(400); game.tick(400); game.tick(400);
+    expect(game.relay.events('worldsync').length).toBeGreaterThan(1);
+    expect(events(game, 'restore', id).length).toBe(seats + 1);
+    expect((a.world.team as unknown as { settled: boolean }).settled).toBe(true);
+    expect(events(game, 'sync', id)).toHaveLength(syncs);
+    // Settled, it stops asking.
+    const asks = game.relay.events('worldsync').length;
+    game.tick(1200); game.tick(1200);
+    expect(game.relay.events('worldsync')).toHaveLength(asks);
+    game.dispose();
+  });
+  it('the last one standing losing their link is not a wipe for ten seconds: back in time, the run goes on', () => {
+    const game = party(1);
+    game.tick();
+    const a = game.guests[0]!;
+    die(game.host); game.relay.flush(); game.tick(100);
+    expect(game.host.world.team.life('host').state).toBe('down');
+    game.relay.close(a.room); game.relay.flush();
+    for (let i = 0; i < 40; i++) { vi.advanceTimersByTime(200); game.host.world.update(); }
+    expect(game.host.lobby.players.find(p => !p.host)).toMatchObject({ state: 'lost' });
+    expect(game.host.world.team.ending).toBeNull();
+    game.relay.reopen(a.room); game.relay.flush(); game.tick();
+    for (let i = 0; i < 30; i++) game.tick(500);
+    expect(game.host.world.team.ending).toBeNull();
+    game.dispose();
+  });
+  it('not back within the ten seconds, the wipe rules apply; a player who was already down holds nothing off', () => {
+    const game = party(1);
+    game.tick();
+    const a = game.guests[0]!;
+    die(game.host); game.relay.flush(); game.tick(100);
+    game.relay.close(a.room); game.relay.flush();
+    for (let i = 0; i < 48; i++) { vi.advanceTimersByTime(200); game.host.world.update(); }
+    expect(game.host.world.team.ending).toBeNull();
+    for (let i = 0; i < 5; i++) { vi.advanceTimersByTime(200); game.host.world.update(); }
+    expect(game.host.world.team.ending).toBe('wipe');
+    game.dispose();
+    // Down when the line dropped: nobody is up, and nothing waits.
+    const second = party(1);
+    second.tick();
+    const b = second.guests[0]!;
+    die(b); second.relay.flush(); second.tick(100);
+    second.relay.close(b.room); second.relay.flush();
+    die(second.host); second.relay.flush();
+    second.host.world.update();
+    expect(second.host.world.team.ending).toBe('wipe');
+    second.dispose();
+  });
+  it('a deliberate leave is not a lost seat: the wipe is at once', () => {
+    const game = party(1);
+    game.tick();
+    const a = game.guests[0]!;
+    die(game.host); game.relay.flush(); game.tick(100);
+    a.lobby.leave(); game.relay.flush();
+    expect(game.host.lobby.players).toHaveLength(1);
+    game.host.world.update();
+    expect(game.host.world.team.ending).toBe('wipe');
+    game.dispose();
+  });
+});
+
+describe('a guest\'s words said once are said again when the host has dropped them', () => {
+  const seatsOf = (game: ReturnType<typeof party>) => (game.host.world.team as unknown as { seats: Map<string, { kit: Kit | null }> }).seats;
+  it('"I am down" while the line was down: the host still says up, so it is said again and the host makes it so', () => {
+    const game = party(2);
+    game.tick();
+    const a = game.guests[0]!, id = a.lobby.you;
+    game.relay.close(a.room); game.relay.flush();
+    // Its own rocket, a crusher, lava: the guest reaches 0 behind a dead line, and the host drops the word.
+    die(a); game.relay.flush();
+    expect(a.player.downed).toBe(true);
+    expect(game.host.world.team.life(id).state).toBe('up');
+    game.relay.reopen(a.room); game.relay.flush();
+    game.tick(); game.tick();
+    expect(game.host.world.team.life(id).state).toBe('up');
+    const before = game.relay.events('life').length;
+    for (let i = 0; i < 5; i++) game.tick(300);
+    expect(game.relay.events('life').length).toBeGreaterThan(before);
+    expect(game.host.world.team.life(id).state).toBe('down');
+    expect(feeds(game.host)).toContain('GUEST1 IS DOWN');
+    // And once the host agrees, it is not said again.
+    const said = game.relay.events('life').length;
+    for (let i = 0; i < 6; i++) game.tick(300);
+    expect(game.relay.events('life')).toHaveLength(said);
+    // A teammate can now get them up, as anyone who is down.
+    expect(a.player.downed).toBe(true);
+    game.host.ctx.events.emit('wave:clear', { wave: 1, bonus: 0 }); game.relay.flush(); game.tick();
+    expect(a.player.alive).toBe(true); expect(a.player.downed).toBe(false);
+    game.dispose();
+  });
+  it('down on a life the host has already moved on from: the guest stands up, it never crawls for ever', () => {
+    const game = party(1);
+    game.tick();
+    const a = game.guests[0]!, id = a.lobby.you;
+    die(a); game.relay.flush(); game.tick(100);
+    expect(game.host.world.team.life(id).state).toBe('down');
+    // The host gets them up, and that word never reaches the guest.
+    const life = game.host.world.team.life(id);
+    life.respawn();
+    for (let i = 0; i < 3; i++) game.tick(300);
+    expect(a.player.downed).toBe(true);
+    for (let i = 0; i < 8; i++) game.tick(300);
+    expect(a.player.downed).toBe(false); expect(a.player.alive).toBe(true);
+    expect(a.world.team.life(id).life).toBe(life.life);
+    game.dispose();
+  });
+  it('a kit that changed while the line was down reaches the host when it is back, so a later reload gives back the newer one', () => {
+    const game = party(1);
+    game.tick();
+    const a = game.guests[0]!;
+    game.tick(KIT_MS + 100); game.tick();
+    game.relay.close(a.room); game.relay.flush();
+    a.weapons.owned.add('shotgun'); a.weapons.grenades = 5;
+    // The guest sends it, on its own clock, to a host that has it marked away: dropped.
+    game.tick(KIT_MS + 100); game.tick();
+    const kept = () => [...seatsOf(game).values()].find(seat => seat.kit)?.kit;
+    expect(kept()?.grenades).not.toBe(5);
+    game.relay.reopen(a.room); game.relay.flush();
+    game.tick(); game.tick();
+    expect(kept()?.grenades).toBe(5);
+    expect(kept()?.guns.map(g => g.weapon).sort()).toEqual(['shotgun', 'smg']);
     game.dispose();
   });
 });

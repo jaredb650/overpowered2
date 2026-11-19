@@ -262,6 +262,9 @@ export class Clock implements WorldModule, TimeGate {
     this.notice?.update(this.active, now);
   }
 
+  /** Host: a player whose connection dropped does not keep the world slow. */
+  lostSeat(_id: string, slot: number): void { this.board.drop(slot); }
+
   dispose(): void {
     const time = this.w.ctx.time;
     if (time.gate === this) time.gate = null;
@@ -319,7 +322,7 @@ export class Clock implements WorldModule, TimeGate {
     for (const entry of board.list) {
       if (entry.kind === 'bossDeath') continue;
       const player = w.session.lobby.players.find(p => p.slot === entry.slot);
-      if (!player || w.life(player.id).state !== 'up') board.drop(entry.slot);
+      if (!player || player.away || w.life(player.id).state !== 'up') board.drop(entry.slot);
     }
     for (const kind of this.mine.keys()) {
       if (board.list.some(entry => entry.slot === this.slot && entry.kind === kind)) continue;

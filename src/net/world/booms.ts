@@ -153,7 +153,7 @@ export class Booms {
   }
 
   /** A player left: their relay budget goes with them. */
-  forget(id: string): void {
+  forgetPeer(id: string): void {
     this.relayed.delete(id);
   }
 }

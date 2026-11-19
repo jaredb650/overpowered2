@@ -257,6 +257,12 @@ export class RemoteFire implements WorldModule {
   }
 
   /** Every frame: what the local player holds is told to the others when it changes. */
+  /** Guest: the gun in hand is told again (the host shows the others whatever it last heard). */
+  resay(): void { this.kitSent = ''; this.kitIn = 0; }
+
+  /** Host: a connection that is gone takes the gun it was last told to hold, and its budget, with it. */
+  forgetPeer(id: string): void { this.kits.delete(id); this.side.delete(id); }
+
   update(): void {
     const { ctx } = this.w;
     this.kitIn -= ctx.time.realDt;

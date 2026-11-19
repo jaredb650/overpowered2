@@ -111,22 +111,24 @@ describe('the deploy gate, real reasons and host loss', () => {
     expect(start).not.toHaveBeenCalled();
     expect(ended.mock.calls[0]![0]).toMatch(/ended while you were loading/);
   });
-  it('feeds seat events to the hooks with the stable seat, and re-runs the catch-up for the same connection coming back', async () => {
+  it('feeds seat events to the hooks with the stable seat, tells the same page back from a new one, and names the connections that are gone', async () => {
     const { session, lobby } = setup(); await session.init(); session.begin();
-    const arrived = vi.fn(), lost = vi.fn(), gone = vi.fn();
-    session.onArrived.add(arrived); session.onLost.add(lost); const off = session.onGone.add(gone);
+    const arrived = vi.fn(), lost = vi.fn(), gone = vi.fn(), forget = vi.fn();
+    session.onArrived.add(arrived); session.onLost.add(lost); const off = session.onGone.add(gone); session.onForget.add(forget);
     const row: LobbyPlayer = { ...guest, seat: 's1' };
-    const team = (session.world as unknown as { team: { onArrived: ReturnType<typeof vi.fn> } }).team;
-    team.onArrived = vi.fn();
     lobby.onSeat(row, { kind: 'in', rejoin: false });
-    expect(arrived).toHaveBeenCalledWith('guest', { seat: 's1', slot: 1, name: 'GUEST', rejoin: false });
-    expect(team.onArrived).not.toHaveBeenCalled(); // a new connection: the team's own first card does it
+    expect(arrived).toHaveBeenLastCalledWith('guest', { seat: 's1', slot: 1, name: 'GUEST', rejoin: false, same: false });
     lobby.onSeat(row, { kind: 'lost' }); expect(lost).toHaveBeenCalledWith('guest', 's1');
+    // The same connection back after a drop: the same page, which still holds its own world.
     lobby.onSeat(row, { kind: 'in', rejoin: true });
-    expect(team.onArrived).toHaveBeenCalledWith('guest');
-    // A new page of the same player: a new connection id, so again the team's own.
+    expect(arrived).toHaveBeenLastCalledWith('guest', expect.objectContaining({ rejoin: true, same: true }));
+    expect(forget).not.toHaveBeenCalled();
+    // A new page of the same player: a new connection id, and the old one will never be heard again.
     lobby.onSeat({ ...row, id: 'guest-new' }, { kind: 'in', rejoin: true });
-    expect(team.onArrived).toHaveBeenCalledOnce();
-    off(); lobby.onSeat(row, { kind: 'gone' }); expect(gone).not.toHaveBeenCalled();
+    expect(arrived).toHaveBeenLastCalledWith('guest-new', expect.objectContaining({ seat: 's1', rejoin: true, same: false }));
+    expect(forget).toHaveBeenCalledExactlyOnceWith('guest');
+    off(); lobby.onSeat({ ...row, id: 'guest-new' }, { kind: 'gone' });
+    expect(gone).not.toHaveBeenCalled();
+    expect(forget).toHaveBeenLastCalledWith('guest-new');
   });
 });

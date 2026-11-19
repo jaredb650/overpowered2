@@ -9,6 +9,7 @@ import { EventBus } from '../../core/events';
 import { Enemy } from '../../enemies/Enemy';
 import type { CoopSession } from '../index';
 import { Lobby } from '../lobby';
+import { SeatHooks } from '../seats';
 import type { NetRoom } from '../room';
 import { CoopWorld } from '../world';
 
@@ -22,6 +23,18 @@ export class Relay {
     this.rooms.push(room);
     return room;
   }
+  /** A connection drops: every other room hears that peer leave. Nothing it sends arrives until `reopen`. */
+  close(room: Room): void {
+    if (!this.rooms.includes(room)) return;
+    this.rooms.splice(this.rooms.indexOf(room), 1);
+    for (const peer of this.rooms) this.queue.push(() => peer.left(room.id));
+  }
+  /** The same page, connected again under the same id. */
+  reopen(room: Room): void {
+    if (this.rooms.includes(room)) return;
+    for (const peer of this.rooms) this.queue.push(() => { peer.join(room.id); room.join(peer.id); });
+    this.rooms.push(room);
+  }
   flush(): void { while (this.queue.length) this.queue.shift()!(); }
   /** The events of type `t` sent on the reliable lane so far. */
   sent<T extends { t: string }>(t: string): T[] {
@@ -32,11 +45,13 @@ export class Relay {
 export class Room implements NetRoom {
   readonly handlers = new Map<string, (data: unknown, from: string) => void>();
   join: (id: string) => void = () => {};
+  left: (id: string) => void = () => {};
   constructor(readonly id: string, private readonly relay: Relay) {}
   channel<T>(lane: string) {
     return {
       on: (handler: (data: T, from: string) => void) => this.handlers.set(lane, handler as (data: unknown, from: string) => void),
       send: (data: T, to?: string) => {
+        if (!this.relay.rooms.includes(this)) return;
         this.relay.packets.push({ lane, data: structuredClone(data), from: this.id, to });
         for (const peer of this.relay.rooms) if (peer !== this && (!to || peer.id === to)) {
           const copied = structuredClone(data);
@@ -46,7 +61,7 @@ export class Room implements NetRoom {
     };
   }
   onPeerJoin(handler: (id: string) => void) { this.join = handler; }
-  onPeerLeave() {}
+  onPeerLeave(handler: (id: string) => void) { this.left = handler; }
   onError() {}
   leave() {}
 }
@@ -102,7 +117,11 @@ export function party(guests = 1, extras: (Record<string, unknown> | undefined)[
   const bodies = guestLobbies.map((_, i) => { const root = new THREE.Group(); root.position.set(3 * (i + 1), 0, -5); return root; });
   const remotes = new Map(guestLobbies.map((lobby, i) => [lobby.you, { player: lobby.me, char: { root: bodies[i]!, anim: { play: vi.fn() } },
     buffer: { sample: () => ({ velocity: [0, 0, 0], yaw: 0 }) }, setTag: vi.fn(), muzzle: (v: THREE.Vector3) => v.copy(bodies[i]!.position) }]));
-  const hs = { lobby: hostLobby, hosting: true, match: hostLobby.match, remotes } as unknown as CoopSession;
+  // The seat hooks as the real session has them (index.ts): the lobby's word on a seat, fed to the world.
+  const seats = new SeatHooks();
+  hostLobby.onSeat = (player, event) => seats.feed(player, event);
+  const hs = { lobby: hostLobby, hosting: true, match: hostLobby.match, remotes,
+    onArrived: seats.onArrived, onLost: seats.onLost, onGone: seats.onGone, onForget: seats.onForget } as unknown as CoopSession;
   const hw = new CoopWorld(host.ctx, hs);
   (host.ctx as { coop?: unknown }).coop = { world: hw, hosting: true };
   const gws = guestLobbies.map((lobby, i) => {
@@ -112,10 +131,13 @@ export function party(guests = 1, extras: (Record<string, unknown> | undefined)[
     return gw;
   });
   hw.begin(); for (const gw of gws) gw.begin();
+  // Each guest's world says it is up as it begins (`worldsync`): the host settles its seat and catches it up, here.
+  relay.flush();
   /** One frame on every side, then every message delivered. */
   const step = () => { hw.update(); for (const gw of gws) gw.update(); relay.flush(); };
   const dispose = () => { hw.dispose(); for (const gw of gws) gw.dispose(); };
   /** Guest `i` sends the host any event at all, as a modified or broken client could. */
   const sendFrom = (i: number, event: unknown) => (gws[i] as unknown as { w: { send(e: unknown): void } }).w.send(event);
-  return { relay, host, guests: sides, hw, gws, hostLobby, guestLobbies, bodies, step, dispose, sendFrom };
+  const rooms = relay.rooms.slice(1);
+  return { relay, host, guests: sides, hw, gws, hostLobby, guestLobbies, bodies, step, dispose, sendFrom, seats, rooms, remotes };
 }

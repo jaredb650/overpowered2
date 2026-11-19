@@ -106,6 +106,8 @@ function pair(beginGuest = true) {
   const gs = { lobby: guestLobby, hosting: false, match: guestLobby.match, remotes: new Map() } as unknown as CoopSession;
   const hw = new CoopWorld(host.ctx, hs), gw = new CoopWorld(guest.ctx, gs);
   hw.begin(); if (beginGuest) gw.begin();
+  // The guest's world says it is up (`worldsync`) and the host settles its seat and catches it up, before the test begins.
+  relay.flush();
   return { relay, host, guest, hw, gw, hostLobby, guestLobby, hostRoom: hr, guestRoom: gr };
 }
 
@@ -863,6 +865,8 @@ describe('stage 3: the team, the economy and what else crosses the wire', () => 
     expect(waves).toEqual(['clear 3 500', 'start 4']);
     expect(life.state).toBe('up');
     expect(game.guest.player.teleport).toHaveBeenCalled();
+    // A page that has not been settled yet (a new page of a returning player) takes the seat the host kept.
+    (game.gw.team as unknown as { settled: boolean }).settled = false;
     send(game, 'host', { t: 'restore', credits: 1234, score: 5000, kills: 12 });
     expect(game.guest.ctx.contracts.wallet).toMatchObject({ credits: 1234 });
     expect(game.guest.ctx.progression.resume).toHaveBeenCalledWith(5000, 12, 0);

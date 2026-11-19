@@ -93,6 +93,8 @@ export class Props implements WorldModule, PropLink {
     objects.net = this;
   }
 
+  forgetPeer(id: string): void { this.spent.delete(id); }
+
   dispose(): void {
     if (this.objects) {
       this.objects.net = null;

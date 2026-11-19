@@ -81,6 +81,11 @@ export class CoopWorld {
   private readonly late: Late;
   /** Run every frame in this order (`update`), and disposed in it. The snapshot goes out last. */
   private readonly modules: WorldModule[];
+  /** Every module, for the seat hooks (`lostSeat`, `forgetPeer`): the ones above and those with no frame of their own. */
+  private readonly parts: WorldModule[];
+  /** Host: players who came in before this page's own world began; they are caught up as it begins. */
+  private readonly early = new Map<string, boolean>();
+  private readonly offSeats: (() => void)[] = [];
 
   constructor(private readonly ctx: Ctx, private readonly session: CoopSession) {
     const w = this.w = new WorldContext(ctx, session);
@@ -128,12 +133,56 @@ export class CoopWorld {
     this.villainProps = new VillainProps(w, this.targeting);
     this.pods = new Pods(w);
     this.props = new Props(w, this.credit, this.targeting);
-    // A guest whose world has just come up asks for what lies in the shared world; the host also sends it on that guest's
-    // first card (`onArrived`). Both, because either can be the one that is missed, and every item is taken once, by id.
-    w.router.host('worldsync', (_, from) => this.catchUp(from));
+    // A guest says so as its world comes up, and again once a second until the host has settled its seat (team.ts): the
+    // spare for the session's own arrival word, which a host still booting does not hear. Every catch-up is safe twice.
+    w.router.host('worldsync', (_, from) => this.team.asked(from));
     // Moves and identities ride the reliable lane beside the enemies' unreliable states (replicas.ts).
     const moves = new Moves(w, this.enemies), identity = new Identity(w, this.enemies);
     this.modules = [this.late, this.capture, this.vehicles, this.garrison, this.fort, this.villainProps, this.targeting, this.claims, this.credit, this.hits, this.shots, this.props, this.attacks, this.warnings, this.calls, this.hook, w.later, this.time, moves, identity, this.enemies];
+    this.parts = [...this.modules, this.booms, this.pods];
+    // Guest: the host's `sync` means it has this player in the world: everything said once is said again (context.ts `resay`).
+    this.team.onSynced = () => {
+      this.mission.resay();
+      for (const part of this.parts) {
+        try { part.resay?.(); } catch (error) { console.warn('[coop] Saying it again to the host failed', error); }
+      }
+    };
+    // The one listener of the session's seat hooks (seats.ts). Everything a module owes a player who arrives, drops or goes
+    // is driven from these three; a stand-in session without them (a unit test's) has only the team's first-card path.
+    const hooks = session as Partial<Pick<CoopSession, 'onArrived' | 'onLost' | 'onForget'>>;
+    if (session.hosting) {
+      if (hooks.onArrived) this.offSeats.push(hooks.onArrived.add((id, info) => this.arrived(id, info.same)));
+      if (hooks.onLost) this.offSeats.push(hooks.onLost.add(id => this.lost(id)));
+      if (hooks.onForget) this.offSeats.push(hooks.onForget.add(id => this.forget(id)));
+    }
+  }
+
+  /**
+   * Host: a player is in the world: a first arrival, a new page of a seat that was here, or (`same`) the same page back after
+   * a drop. The team settles the seat and says where the waves stand, then every catch-up runs (`team.onArrived`).
+   */
+  private arrived(id: string, same: boolean): void {
+    // Before this page's own world has begun there is nothing to hand over yet.
+    if (!this.w.ready) { this.early.set(id, same); return; }
+    this.team.arrive(id, same);
+  }
+
+  /** Host: a player's connection dropped. Their seat is kept; what they held in the world is let go, on every screen. */
+  private lost(id: string): void {
+    const slot = this.session.lobby.players.find(p => p.id === id)?.slot;
+    if (slot === undefined) return;
+    this.team.lost(id);
+    for (const part of this.parts) {
+      try { part.lostSeat?.(id, slot); } catch (error) { console.warn('[coop] Letting go of a lost player\'s things failed', error); }
+    }
+  }
+
+  /** Host: a connection id that is gone for good. */
+  private forget(id: string): void {
+    this.early.delete(id);
+    for (const part of this.parts) {
+      try { part.forgetPeer?.(id); } catch (error) { console.warn('[coop] Forgetting a connection failed', error); }
+    }
   }
 
   /** Read by the two-page proofs (tools/scripts/coop-*.mjs): the guest's enemy copies, last snapshot and garrison bodies. */
@@ -186,6 +235,8 @@ export class CoopWorld {
     this.enemies.begin();
     this.props.begin();
     if (!this.session.hosting) this.w.send({ t: 'worldsync' });
+    for (const [id, same] of this.early) if (this.session.lobby.players.some(p => p.id === id && !p.away)) this.team.arrive(id, same);
+    this.early.clear();
   }
   /** Host: what lies in the shared world now, for a guest who was loading, joined late or came back: pods, dropped guns, what is broken. */
   private catchUp(id: string): void {
@@ -306,6 +357,7 @@ export class CoopWorld {
   allyShot(from: THREE.Vector3, to: THREE.Vector3): void { this.garrison.allyShot(from, to); }
   selfDestruct(enemy: Enemy): void { this.hits.selfDestruct(enemy); }
   dispose(): void {
+    for (const off of this.offSeats) off();
     this.w.dispose();
     this.team.dispose();
     this.mission.dispose();

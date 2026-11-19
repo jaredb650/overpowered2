@@ -332,6 +332,13 @@ export class DropPods {
     }
   }
 
+  /** Co-op guest: the host has this player back in the world. A share taken while it could not hear is told again. */
+  resay(): void {
+    const s = this.session;
+    if (!s || s.hosting) return;
+    for (const pod of this.pods) if (pod.taken && pod.id && pod.phase !== 'spent') this.tell({ op: 'took', id: pod.id });
+  }
+
   /** Co-op host, a cache: gone once every player in the match has had their share. */
   private settle(pod: Pod): void {
     const s = this.session;

@@ -471,6 +471,15 @@ export class Defense {
     return true;
   }
 
+  /** Co-op host: the player in `slot` is out of the world (their connection dropped): any gun they were on is free. */
+  leftSeats(slot: number): void {
+    const guns = this.mounts();
+    for (const [i, rider] of this.riders) if (rider.slot === slot) {
+      guns[i]?.vacate(RIDER);
+      this.riders.delete(i);
+    }
+  }
+
   /** Co-op guest: the host says the gun this player stepped onto is taken. */
   unseat(gun: number): void {
     const g = this.mounts()[gun];

@@ -550,6 +550,8 @@ export class Lobby {
     this.live = this.page !== id;
     this.holdLeft = 0;
     this.beenIn.clear();
+    // With no load barrier (not this match's own map page) everyone here is in the world as it starts.
+    if (this.page !== id) for (const p of this.players) if (!p.host && !p.away && p.seat) this.beenIn.add(p.seat);
     this.readyAt.clear();
     this.out.clear();
     this.starting = new Set(this.players.filter(p => linked(p) && p.state !== 'lost').map(p => p.id));
@@ -926,6 +928,9 @@ export class Lobby {
     }
     if (seated) {
       const was = seated.state;
+      // The same connection found again (the transport dropped the link and remade it under the same id): the same page.
+      const sameLink = seated.id === from;
+      if (!sameLink) this.pings.delete(seated.id);
       this.heard.delete(seated.id);
       this.starting.delete(seated.id);
       seated.id = from;
@@ -954,6 +959,7 @@ export class Lobby {
         if (was === 'lost') this.post(null, `${seated.name} is back.`);
         else this.broadcast();
         this.ch.send({ t: 'start', match: this.match }, from);
+        if (sameLink) this.cameIn(seated);
       } else {
         seated.away = false;
         seated.state = undefined;
@@ -986,6 +992,17 @@ export class Lobby {
     this.post(null, this.barrier ? `${name} is joining…` : this.match ? `${name} joined the match in progress.` : `${name} joined.`);
     this.holdCount();
     if (this.match) this.ch.send({ t: 'start', match: this.match }, from);
+  }
+
+  /**
+   * Host, with no load barrier: the same connection back mid-match is the same page, whose world never went away, so the
+   * seat's return is said here. Behind the barrier it is said when the page says it is in (`loaded`); a new page with no
+   * barrier is known by its first card (team.ts).
+   */
+  private cameIn(player: LobbyPlayer): void {
+    const rejoin = this.beenIn.has(player.seat!);
+    this.beenIn.add(player.seat!);
+    this.onSeat(player, { kind: 'in', rejoin });
   }
 
   private fromGuest(msg: Msg, from: string): void {
@@ -1179,6 +1196,7 @@ export class Lobby {
       player.state = undefined;
       player.away = false;
       this.post(null, `${player.name} reconnected.`);
+      if (this.match) this.cameIn(player);
     }
   }
 

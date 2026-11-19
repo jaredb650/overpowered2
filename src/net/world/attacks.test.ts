@@ -129,6 +129,8 @@ function pair() {
   host.telegraphs.zone.mockImplementation((at: THREE.Vector3, radius: number, seconds: number, color = 0xff3010) => { hw.warnings.zone(at, radius, seconds, color); });
   host.combat.enemyMuzzle.mockImplementation((at: THREE.Vector3, dir: THREE.Vector3, kind: 'enemy') => { hw.enemyFlash(at, dir, kind); });
   hw.begin(); gw.begin();
+  // The guest's world says it is up (`worldsync`) and the host catches it up, before the test begins.
+  relay.flush();
   /** One host frame and its delivery: the snapshot goes out and the guest takes everything. */
   const frame = (ms = 110) => { vi.advanceTimersByTime(ms); hw.update(); relay.flush(); gw.update(); relay.flush(); };
   return { relay, host, guest, hw, gw, hostLobby, guestLobby, friend, frame };

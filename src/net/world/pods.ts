@@ -29,6 +29,11 @@ export class Pods {
     this.w.send(event, to);
   }
 
+  /** Guest: the share of a cache this player has had is said again (the host waits for every player's before the cache goes). */
+  resay(): void {
+    if (!this.w.hosting) this.pods?.resay?.();
+  }
+
   /** Host: a guest's world is up: tell it the pods out now. */
   catchUp(id: string): void {
     this.pods?.catchUp(id);
