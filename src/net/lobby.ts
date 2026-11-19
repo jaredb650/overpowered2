@@ -14,7 +14,8 @@ import { turnConfigured } from './turn';
 import { BUILD } from './build';
 import { defaultStarter, isStarter, type StarterGun } from '../contracts/starter';
 import { decodePose, encodePose, type Pose } from './pose';
-import type { Channel, LobbyRooms, NetError, NetRoom } from './room';
+import { BEHIND_BYTES, type Channel, type ChannelOptions, type LobbyRooms, type NetError, type NetRoom } from './room';
+import { LOOPBACK } from './mode';
 import { iceAdvice } from './ice';
 
 export type LobbyError = 'password' | 'version' | 'host-left' | 'no-host' | 'connect' | 'full' | 'relays' | 'lost' | 'code-taken';
@@ -158,7 +159,8 @@ export class Lobby {
     report('COOP_STAGE', { stage: hosting ? 'hosting' : 'relays' });
     const room = (this.room = rooms.main);
     this.ch = room.channel<Msg>('lobby');
-    this.poses = room.channel<ArrayBuffer>('pose');
+    // Latest-wins, 20 a second: unreliable, so a lost pose never holds up the next (or anything else), and none for a peer that is behind.
+    this.poses = room.channel<ArrayBuffer>('pose', { unreliable: true, latest: true });
     this.poses.on((data, from) => {
       this.heard.set(from, performance.now());
       if (this.phase !== 'open' || !this.match) return;
@@ -378,8 +380,14 @@ export class Lobby {
     } else if (this.hostId) this.poses.send(data, this.hostId);
   }
 
-  gameplay<T>(name: 'world' | 'action', receive: (data: T, from: string) => void): (data: T, to?: string) => number {
-    const channel = this.room.channel<{ match: string; data: T } | ArrayBuffer | Uint8Array>(name);
+  /**
+   * A lane for the match: `receive` hears only the match's players (a guest only the host), and the returned function sends to
+   * them (a guest to the host) and says to how many. Objects travel wrapped with the match id; bytes travel as they are.
+   * `options` picks the lane kind (room.ts): `{ unreliable: true }` for latest-wins bytes that must never wait on a lost packet
+   * (they may arrive out of order, or not at all), and `latest: true` to skip a peer that is behind. The default is reliable.
+   */
+  gameplay<T>(name: string, receive: (data: T, from: string) => void, options?: ChannelOptions): (data: T, to?: string) => number {
+    const channel = this.room.channel<{ match: string; data: T } | ArrayBuffer | Uint8Array>(name, options);
     channel.on((message, from) => {
       this.heard.set(from, performance.now());
       if (this.phase !== 'open' || !this.match) return;
@@ -395,6 +403,15 @@ export class Lobby {
       for (const id of recipients) channel.send(message, id);
       return recipients.length;
     };
+  }
+
+  /**
+   * Backpressure: is this player's connection behind, with more queued for it than the network has taken? A sender of
+   * latest-wins data skips them this time. `unreliable` picks the lane kind asked about.
+   */
+  behind(id: string, unreliable = true): boolean {
+    const peer = id === HOST_ID ? this.hostId : id;
+    return !!peer && (this.room.buffered?.(peer, unreliable && this.room.fast?.(peer) !== false) ?? 0) > BEHIND_BYTES;
   }
 
   /** Who answers for which peer id: lets the game drop lanes from guests who have gone back to the lobby. */
@@ -672,8 +689,10 @@ export class Lobby {
 /** One random id per browser, kept in localStorage; '' where there is none (tests), which turns the twin check off. */
 const BROWSER_ID: string = (() => {
   try {
-    let id = localStorage.getItem('op2_browser');
-    if (!id) localStorage.setItem('op2_browser', (id = crypto.randomUUID()));
+    // On the loopback test transport every tab of the one browser is its own player, so the id is kept per tab.
+    const store = LOOPBACK ? sessionStorage : localStorage;
+    let id = store.getItem('op2_browser');
+    if (!id) store.setItem('op2_browser', (id = crypto.randomUUID()));
     return id;
   } catch { return ''; }
 })();
@@ -693,7 +712,9 @@ export function cleanCode(text: string): string {
   return code.length === CODE_LENGTH && [...code].every(c => CODE_ALPHABET.includes(c)) ? code : '';
 }
 
-export const inviteLink = (code: string, at: { origin: string; pathname: string } = location): string => `${at.origin}${at.pathname}?join=${code}`;
+/** A lobby on the loopback test transport (`loop`) hands out links that stay on it. */
+export const inviteLink = (code: string, at: { origin: string; pathname: string } = location, loop: boolean = LOOPBACK): string =>
+  `${at.origin}${at.pathname}?join=${code}${loop ? '&net=loop' : ''}`;
 
 const CALLSIGNS = ['VIPER', 'GHOST', 'HAMMER', 'RAVEN', 'BISHOP', 'NOMAD', 'SABRE', 'JACKAL', 'COBALT', 'WARDEN', 'ONYX', 'TALON'];
 const NAME_KEY = 'op2_coop_name';

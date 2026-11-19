@@ -6,6 +6,8 @@ import { AKIMBO_TAG, PROPS, RemotePlayer } from './remote';
 import { clearSession, resumedRoom } from './session';
 import { CoopWorld } from './world';
 import { CoopHud } from './coopHud';
+import { publishNet, watchCost } from './debug';
+import { pageSim } from './netsim';
 
 /** The modes whose world the host runs. The others are free roam: everyone walks the map, nothing else. */
 export const WORLD_MODES: readonly Match['mode'][] = ['crucible', 'outpost', 'defense', 'campaign', 'foreclosure'];
@@ -58,6 +60,9 @@ export class CoopSession implements GameSystem {
   /** Called after run:start has reset the HUD's world markers. */
   begin(): void {
     this.begun = true;
+    // `window.__op2.net` for scripts and the console: the simulator, the counters, and this meter (debug.ts).
+    publishNet();
+    watchCost(() => this.cpuMs);
     if (!this.hud && typeof document !== 'undefined') {
       this.hud = new CoopHud(this.ctx, this);
       this.hud.onEndDone = () => this.backToLobby();
@@ -106,6 +111,8 @@ export class CoopSession implements GameSystem {
     if (this.closed || !this.ready) return;
     const now = performance.now();
     this.lobby.heartbeat(now);
+    // The network simulator's delayed sends leave on the frame too: a hidden tab's timers run once a second.
+    pageSim().pump();
     for (const remote of this.remotes.values()) remote.update(now, this.ctx.time.realDt);
     this.world?.update();
     // What co-op itself costs a frame (bodies, snapshots, events), averaged, for the measurements in docs/notes/coop.md.
@@ -145,6 +152,7 @@ export class CoopSession implements GameSystem {
     this.closed = true;
     this.world?.dispose();
     this.hud?.dispose();
+    watchCost(null);
     for (const off of this.offDoc) off();
     for (const remote of this.remotes.values()) remote.dispose();
     this.remotes.clear();

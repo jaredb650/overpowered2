@@ -3,6 +3,8 @@ import { report, reportLobby } from '../core/report';
 /** Tab-local map handoff. Passwords never enter URLs or game messages. The room reconnects before the heavy map boot. */
 import { Lobby, validMatch, type Match } from './lobby';
 import { BUILD } from './build';
+import { carryNet } from './mode';
+import { simText } from './netsim';
 import { isStarter, selectedStarter, type StarterGun } from '../contracts/starter';
 
 interface Handoff { code: string; password: string; name: string; hosting: boolean; match: Match; starter?: StarterGun }
@@ -27,6 +29,8 @@ export function deployMatch(code: string, password: string, lobby: Lobby, match:
   params.set('contract', match.mode);
   if (match.map) params.set('map', match.map);
   params.set('starter', handoff.starter!);
+  // The test transport and the network simulator follow the player into the match page (mode.ts, netsim.ts).
+  carryNet(params, simText());
   location.search = params.toString();
 }
 

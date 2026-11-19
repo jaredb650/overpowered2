@@ -3,6 +3,7 @@ import { classifyError } from './core/errors';
 import { report, reporter, startReporting } from './core/report';
 import { installGlobalCapture } from './core/capture';
 import { showFatalError } from './ui/errorReport';
+import { LOOPBACK } from './net/mode';
 
 startReporting();
 installGlobalCapture(showFatalError);
@@ -25,8 +26,9 @@ async function boot(): Promise<void> {
     await mod.default(params);
     return;
   }
-  // One tab runs the game; another waits behind "Play here instead" (core/oneTab.ts).
-  await (await importRetry(() => import('./core/oneTab'))).claimTab();
+  // One tab runs the game; another waits behind "Play here instead" (core/oneTab.ts). Not on the loopback test transport
+  // (net/mode.ts, dev pages only), whose players are tabs of one browser.
+  if (!LOOPBACK) await (await importRetry(() => import('./core/oneTab'))).claimTab();
   const { startGame } = await importRetry(() => import('./core/Game'));
   await startGame(params);
 }

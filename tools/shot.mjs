@@ -126,7 +126,10 @@ setTimeout(async () => {
   await browser.close().catch(() => {});
   process.exit(2);
 }, maxRunMs).unref();
-const page = await browser.newPage({ viewport: { width, height }, deviceScaleFactor: Number(opt.dpr ?? 1) });
+// A context of its own rather than browser.newPage(): a script may open more pages in it (tabs of one profile, which the
+// co-op kit's loopback transport needs), and browser.newPage()'s private context refuses a second page.
+const context = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: Number(opt.dpr ?? 1) });
+const page = await context.newPage();
 
 const logs = [];
 const errors = [];
