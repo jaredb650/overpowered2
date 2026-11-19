@@ -55,20 +55,27 @@ export default async function (host, { sleep, outDir }) {
       await shooter.waitForFunction(n => window.__op2.ctx.enemies.alive.length >= n, uids.length, { timeout: 20000 });
       await give(shooter, gun);
       await sleep(800);
-      // The trigger held down the middle of the crowd, the magazine topped up as it goes.
-      await shooter.evaluate(() => {
+      // The gun kept on the nearest body of the crowd (they stagger and fall), the magazine topped up as it goes. A minigun's
+      // trigger is held; a pump's is pulled again for every shell.
+      await shooter.evaluate(pump => {
         const { ctx, game } = window.__op2;
         game.setState('playing');
-        let cx = 0, cy = 0, cz = 0;
-        for (const e of ctx.enemies.alive) { cx += e.center.x; cy += e.center.y; cz += e.center.z; }
-        const n = ctx.enemies.alive.length || 1;
-        const dx = cx / n - ctx.player.eye.x, dy = cy / n - ctx.player.eye.y, dz = cz / n - ctx.player.eye.z;
-        ctx.player.yaw = Math.atan2(-dx, -dz); ctx.player.pitch = Math.atan2(dy, Math.hypot(dx, dz));
         window.__goreFired = 0;
         window.__goreOff = ctx.events.on('weapon:fired', () => { window.__goreFired++; });
-        window.__goreTop = setInterval(() => ctx.weapons.refillMagazines(), 100);
-        ctx.input.simulate('fire', true);
-      });
+        let tick = 0;
+        const aim = () => {
+          let to = null, best = Infinity;
+          for (const e of ctx.enemies.alive) { const d = e.center.distanceToSquared(ctx.player.eye); if (d < best) { best = d; to = e.center; } }
+          if (to) {
+            const dx = to.x - ctx.player.eye.x, dy = to.y - ctx.player.eye.y, dz = to.z - ctx.player.eye.z;
+            ctx.player.yaw = Math.atan2(-dx, -dz); ctx.player.pitch = Math.atan2(dy, Math.hypot(dx, dz));
+          }
+          ctx.weapons.refillMagazines();
+          ctx.input.simulate('fire', pump ? tick++ % 2 === 0 : true);
+        };
+        window.__goreTop = setInterval(aim, 60);
+        aim();
+      }, gun === 'shotgun');
       await sleep(500);
       for (const page of party.guests) await zero(page);
       await shooter.evaluate(() => { window.__goreFired = 0; window.__goreSeen = { ...window.__op2.ctx.coop.world.hitsSeen }; });

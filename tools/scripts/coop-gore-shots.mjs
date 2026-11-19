@@ -12,7 +12,7 @@
 //   - a guest's own hit is drawn on the frame its gun fires: the first wound and the first blood puff carry the shot's frame;
 //   - the host answers it, and how long that took (the guest's own clock);
 //   - every screen wounds the body as many times and as deeply (the summed severity agrees), throws a puff a round, cuts the
-//     same limbs, leaves the body in the same state (alive, what is left of it, crawling or not) and, when it dies, kills it
+//     same limbs off the living body (what a later pellet does to the corpse is each screen's own), leaves the body in the same state (alive, what is left of it, crawling or not) and, when it dies, kills it
 //     the same kind of way; ragdolls, gibs and corpses are each screen's own;
 //   - the shooter gets the same feedback as host and as guest: the same hit markers and the same shooter's sounds, and nobody
 //     else gets any.
@@ -61,7 +61,9 @@ function record() {
   };
   const gore = ctx.gore;
   wrap(gore, 'wound', { before: (char, d, severity) => note('wound', { uid: uidOf(char), severity, type: d.type, from: d.from ? 1 : 0 }) });
-  wrap(gore, 'sever', { before: char => uidOf(char), after: (cut, uid, _char, region) => { if (cut) note('sever', { uid, region }); } });
+  // A cut on the living (or on the way into its death) is the host's decision and every screen's; one a later pellet makes on
+  // the corpse, once gore has the body, is that screen's own gore (corpses are each machine's own): counted apart.
+  wrap(gore, 'sever', { before: char => [uidOf(char), !gore.owns(char) || !!gore.downed(char)], after: (cut, [uid, living], _char, region) => { if (cut) note(living ? 'sever' : 'corpseCut', { uid, region }); } });
   wrap(gore, 'knockdown', { before: char => [uidOf(char), !!gore.downed(char)], after: (ok, [uid, was]) => { if (ok && !was) note('knockdown', { uid }); } });
   for (const death of ['ragdoll', 'collapse', 'headshot', 'gib', 'slice', 'vaporize']) wrap(gore, death, { before: char => note('death', { uid: uidOf(char), how: death }) });
   for (const fx of ['bloodPuff', 'bloodHit', 'bloodSpray', 'bloodMist']) wrap(ctx.fx, fx, { before: () => note(fx) });
@@ -73,7 +75,14 @@ function record() {
   ctx.events.on('enemy:hit', e => note('evt:hit', { uid: e.enemy.uid, killSoon: e.result.killSoon ? 1 : 0 }));
   ctx.events.on('enemy:killed', e => note('evt:killed', { uid: e.enemy.uid }));
   ctx.events.on('enemy:severed', e => note('evt:severed', { uid: e.enemy.uid, region: e.region }));
-  window.__goreLog = { log, mark: 0 };
+  // The answers as they arrive, and whether the hit they answer was still waiting for one (a guest only).
+  const hits = ctx.coop.world.hits;
+  if (!ctx.coop.hosting && hits) {
+    const ackIn = hits.ackIn, predict = hits.predict;
+    hits.ackIn = function (value, now) { const slot = this.pending[value.c % 256]; note('ack', { c: value.c, waiting: slot.live && slot.claim === value.c ? 1 : 0 }); return ackIn.call(this, value, now); };
+    hits.predict = function (enemy, damage) { note('predict', { c: damage.claim, uid: enemy.uid }); return predict.call(this, enemy, damage); };
+  }
+  window.__goreLog = { log, mark: 0, world: ctx.coop.world };
 }
 
 const mark = page => page.evaluate(() => { window.__goreLog.mark = window.__goreLog.log.length; const seen = window.__op2.ctx.coop.world.hitsSeen; window.__goreSeen = { ...seen }; });
@@ -95,10 +104,11 @@ const read = (page, uid) => page.evaluate(uid => {
     wounds: of('wound').length, severity: Math.round(of('wound').reduce((sum, e) => sum + e.severity, 0) * 1000) / 1000,
     shooterEye: of('wound').filter(e => e.from).length,
     puffs: of('bloodPuff').length, bloodHits: of('bloodHit').length, sprays: of('bloodSpray').length, mists: of('bloodMist').length, armourSparks: of('armourSparks').length,
-    knockdowns: of('knockdown').length, severs: of('sever').map(e => e.region).sort(), deaths: of('death').map(e => e.how),
+    knockdowns: of('knockdown').length, severs: of('sever').map(e => e.region).sort(), corpseCuts: of('corpseCut').map(e => e.region).sort(), deaths: of('death').map(e => e.how),
     sounds: of('sound').map(e => e.id), markers: of('marker').map(e => e.kind),
     ownHits: of('evt:hit').length, ownKills: of('evt:killed').length, ownSevers: of('evt:severed').length, killSoon: of('evt:hit').filter(e => e.killSoon).length,
     alive: !!enemy, health: enemy ? Math.round(enemy.health) : 0, lost: enemy ? [...enemy.char.severed].sort() : null, maim: enemy ? { ...enemy.maim } : null, downed: enemy ? enemy.downed : null,
+    answersHeard: of('ack').length, answersMatched: of('ack').filter(e => e.waiting).length, hitsNumbered: of('predict').map(e => e.c), sameWorld: window.__goreLog.world === ctx.coop.world,
     predicted: seen.predicted - was.predicted, shown: seen.shown - was.shown, acks: seen.acks - was.acks, corrected: seen.corrected - was.corrected, lateKills: seen.lateKills - was.lateKills,
     ackMs: seen.acks > was.acks ? Math.round((seen.ackMs - was.ackMs) / (seen.acks - was.acks)) : null, ackMsMax: Math.round(seen.ackMsMax),
   };
@@ -130,7 +140,9 @@ async function shoot(page, uid, region, hold, sleep) {
   }, [uid, region ?? null]);
   if (!aimed) return false;
   await sleep(120);
-  await page.evaluate(() => window.__op2.ctx.input.simulate('fire', true));
+  // The trigger is held until the gun has fired (on a loaded machine it may still be coming up), then `hold` ms more.
+  const before = await page.evaluate(() => { const n = window.__goreLog.log.filter(e => e.k === 'fired').length; window.__op2.ctx.input.simulate('fire', true); return n; });
+  await page.waitForFunction(n => window.__goreLog.log.filter(e => e.k === 'fired').length > n, before, { timeout: 6000 }).catch(() => {});
   await sleep(hold);
   await page.evaluate(() => window.__op2.ctx.input.simulate('fire', false));
   return true;
@@ -153,6 +165,9 @@ export default async function (host, { sleep, outDir }) {
     // The host's wave director is stopped: every enemy from here on is one the proof put there.
     await host.evaluate(() => { const { ctx } = window.__op2; ctx.waves.update = () => {}; });
     await calm(host);
+    // Every page well into its match before anything is measured: a page still coming up (the deploy gate, a slow load on
+    // a bad network) starts its world late, and a recorder put on before that watches the wrong one.
+    for (const page of party.pages) await page.waitForFunction(() => window.__op2.ctx.time.frame > 240 && !!window.__op2.ctx.coop?.world, null, { timeout: 120000 });
     for (const page of party.pages) await page.evaluate(record);
     const spot = await ahead(host, 14);
     const lagMs = SIM ? 500 : 0;
@@ -183,8 +198,19 @@ export default async function (host, { sleep, outDir }) {
       for (const page of party.pages) await mark(page);
       const fired = await shoot(shooter, uid, c.aim, c.hold, sleep);
       await sleep(c.settle + lagMs * 2);
+      // On a bad network a reliable message that was lost holds up every one behind it: wait for the host's answers (and
+      // for every screen to have heard of the death) rather than trust a fixed pause.
+      if (shooter !== host) await shooter.waitForFunction(uid => {
+        const { ctx } = window.__op2, seen = ctx.coop.world.hitsSeen, was = window.__goreSeen;
+        return seen.acks - was.acks >= seen.predicted - was.predicted || !ctx.enemies.alive.some(e => e.uid === uid);
+      }, uid, { timeout: 8000 }).catch(() => {});
+      if (c.dies) for (const page of party.guests) await page.waitForFunction(uid => !window.__op2.ctx.enemies.alive.some(e => e.uid === uid), uid, { timeout: 8000 }).catch(() => {});
+      if (SIM) await sleep(600);
       const screens = {};
       screens.host = await read(host, uid); screens.guest = await read(shooterGuest, uid); screens.watcher = await read(watcher, uid);
+      // What the host made of the claims so far (claims.ts), for a case that comes back unanswered.
+      screens.host.claims = await host.evaluate(() => { const world = window.__op2.ctx.coop.world; return { accepted: world.stats.accepted, rejected: world.stats.rejected, refused: { ...world.claims.refused } }; });
+      for (const [key, screen] of Object.entries(screens)) if (!screen.sameWorld) throw new Error(`${name}: the ${key}'s co-op world was rebuilt during the proof (a reconnect): its recorder watched the old one`);
       // A picture of two of the cases, for the eye. On a loaded machine a screenshot can time out: the checks do not need it.
       if (name === 'shotgunPointBlank' || name === 'limb') {
         for (const [page, who] of [[host, 'host'], [shooterGuest, 'guest']]) await shot(page, `${name}-${role}-shoots-${who}-screen`).catch(() => progress(`no screenshot of ${name} on the ${who}'s screen`));

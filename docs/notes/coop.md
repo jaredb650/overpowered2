@@ -720,12 +720,17 @@ gore seeds a broken trunk's pieces from the point (`planGib`), so every screen b
 (tenths), bits, plate index, strength (hundredths)]`; bits: what stopped it (3), the armour outcome (2), broke, headshot, reaction
 level (3), knockout, tripped, blast roll (4). `k` (`packKill`): blast roll, frozen, heavy head, and the killing hit's amount.
 
-Sizes as JSON, before the match wrapper (58 bytes a message today, the wire lane's to remove): `hitfx` about 108 bytes, `ack`
-about 66; the old `hitfx` was about 330 and went to the shooter too (`hitWire.test.ts` holds them under 120 and 70). By
-arithmetic, every round landing: the Buzzsaw at 50 rounds a second is 5.4 KB/s to each watching guest and 3.3 KB/s of answers to
-the shooter (8.3 and 6.2 with the wrapper); a pump shotgun, six pellets every 0.55 s, is 1.2 KB/s to each watcher and 0.7 KB/s
-to the shooter (1.8 and 1.4). Measured in the browser: see the lane's report. The wire lane will make these binary and batch a
-frame's worth.
+Sizes as JSON, before the match wrapper every message on the reliable lane carries today (58 bytes, the wire lane's to
+remove): `hitfx` about 115 bytes, `ack` about 65; the old `hitfx` was about 330 and went to the shooter too
+(`hitWire.test.ts` holds them under 120 and 70 for a sample). Measured in the browser, a guest emptying a gun into sixteen
+bodies for six seconds at 60 fps on a clean link (`tools/scripts/coop-gore-bytes.mjs`, 2026-11-18):
+
+| Gun | Shots a second | Hits a second | To each watching guest (`hitfx`) | To the shooter (`ack`) |
+|---|---:|---:|---:|---:|
+| Buzzsaw (the minigun; a round goes through more than one body) | 24.8 | 36.3 | 4,152 B/s (6,255 with the wrapper) | 2,360 B/s (4,463) |
+| Pump shotgun | 1.8 | 9.1 | 1,058 B/s (1,588) | 610 B/s (1,141) |
+
+No picture of its own hits went to the shooter in either. The wire lane will make these binary and batch a frame's worth.
 
 ### Contracts with the other lanes
 
@@ -750,9 +755,17 @@ dropped claim forgotten; a late kill announced once and what waited on the body 
 `tools/scripts/coop-gore-shots.mjs`: three pages (host, a guest who shoots, a guest who watches). Seven shots, each fired once by
 the host and once by the guest: pistol, rifle, shotgun point-blank, rocket, sword, a shotgun to the leg, a headshot kill. It reads
 from every page what its gore, effects, sound and HUD were asked to do and checks: the guest's first blood is on the frame its gun
-fired; the host answered; every screen wounds as often and as deep as the host decided, throws the puffs, cuts the same limbs,
-leaves the body in the same state or kills it the same kind of way; nobody but the shooter gets a marker or a hit sound; the
-shooter gets the same markers and sounds as host and as guest. `COOP_SIM=lag:120,jitter:40,loss:0.05` runs it on a bad network.
+fired; the host answered; every screen wounds as often and as deep as the host decided, throws the puffs, cuts the same limbs off
+the living body, leaves the body in the same state or kills it the same kind of way; nobody but the shooter gets a marker or a
+hit sound; the shooter gets the same markers and sounds as host and as guest. `COOP_SIM=lag:120,jitter:40,loss:0.05` runs it on
+a bad network. Results on 2026-11-18, loopback transport, the dev box under heavy load from the other lanes: 267 checks pass on
+a clean link (the host's answers took 55 ms on average, 114 at most) and 267 under lag 120, jitter 40, loss 5% (640 ms on
+average, 1,020 at most: two simulated legs, a resend stall and slow frames); the first blood was on the frame of the shot in
+every case, and no claim was rejected (two were answered `gone`: the rest of a blast into a body already dead on the host).
+`tools/scripts/coop-gore-bytes.mjs` is the table above.
+
+What a later pellet of the shooter's own blast does to the fresh corpse (a limb off the dead) is that screen's own gore: other
+screens are not shown a teammate's rounds into corpses.
 
 ## Weapons on other screens (the remote FX table)
 
