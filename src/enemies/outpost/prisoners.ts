@@ -8,7 +8,7 @@
  * Once kneeling he is not furniture. Shot and alive, he runs, because that was his answer. Friends firing nearby is the moment to go for his
  * gun or the gate. Left alone and out of sight, some men think again. And the player can get hold of him: tap E to question him, tap
  * again to let him go, hold E to cuff him, and the drone snatches him away (airlift.ts). The human shield (hold E to take him by the
- * collar and put him between you and his friends) is switched off by `HOSTAGES.on` for now.
+ * collar and put him between you and his friends) is switched off by `HOSTAGES` for now.
  */
 import * as THREE from 'three';
 import type { PlayerDamage } from '../../core/contracts';
@@ -57,26 +57,15 @@ const CUFF_SECONDS = 0.6;
  * The human shield (hold E: him by the collar, between you and his friends) is off for now (owner, 2026-11-15): hold E cuffs him
  * straight away. The grab and everything after it stay here, dormant; true brings them back, with hold E grabbing again.
  */
-export const HOSTAGES = { on: false };
-/** Seconds of holding the key on a man held by the collar that cuff him (the co-op guest's key reads it too). */
-export const HOSTAGE_CUFF_SECONDS = CUFF_SECONDS;
-/** The cone a held man covers, the place he is held, and the pace with him in front: a co-op guest's own screen applies the same. */
-export const SHIELD = { coversCos: 0.42, forward: 1.0, side: 0.34, speed: 5.5, seconds: 14 } as const;
-
-/** A player other than this browser's own who has a man by the collar (co-op host): where they stand and look, and whether they still can. */
-export interface Holder {
-  readonly position: THREE.Vector3;
-  readonly forward: THREE.Vector3;
-  readonly alive: boolean;
-}
+const HOSTAGES = false;
 /** Where he is held, from the player, and how fast a man can go with someone in front of him. */
-const HOLD_FORWARD = SHIELD.forward;
-const HOLD_SIDE = SHIELD.side;
-const HOLD_SPEED = SHIELD.speed;
+const HOLD_FORWARD = 1.0;
+const HOLD_SIDE = 0.34;
+const HOLD_SPEED = 5.5;
 /** Seconds before he twists free. */
-const HOLD_SECONDS = SHIELD.seconds;
+const HOLD_SECONDS = 14;
 /** Cosine of the half angle he covers. Anything from outside it goes past him. */
-const COVERS_COS = SHIELD.coversCos;
+const COVERS_COS = 0.42;
 const PROMPT_COLOR = '#ffc14a';
 const LIE_COLOR = '#ffc14a';
 /** Seconds what he said stays on the map. */
@@ -90,25 +79,14 @@ const _a = new THREE.Vector3();
 const _b = new THREE.Vector3();
 
 export class Prisoners {
-  /** The man this browser's own player has by the collar. */
-  private mine: Soldier | null = null;
-  /** Co-op host: the men other players have by the collar, by who holds them. */
-  private readonly others = new Map<Holder, { s: Soldier; at: number }>();
-  /** What the last question put on the map, for the co-op host to pass on (`prisoner:questioned`). */
-  private readonly said: { at: THREE.Vector3; label: string }[] = [];
+  /** The man the player has by the collar. */
+  held: Soldier | null = null;
   /** Men let go this run. Word gets round. */
   freed = 0;
   /** Men shot on their knees this run. That gets round too (flight.ts). */
   executed = 0;
   private heldAt = 0;
   private focus: Soldier | null = null;
-
-  /** A man some player has by the collar: this browser's own first. His friends hold their fire for it. */
-  get held(): Soldier | null {
-    if (this.mine) return this.mine;
-    for (const hold of this.others.values()) return hold.s;
-    return null;
-  }
   private keyHeld = -1;
   private unprompt: (() => void) | null = null;
   private prompted = '';
@@ -128,8 +106,7 @@ export class Prisoners {
   }
 
   reset(): void {
-    this.mine = this.focus = null;
-    this.others.clear();
+    this.held = this.focus = null;
     this.freed = this.executed = 0;
     this.keyHeld = -1;
     this.clearPrompt();
@@ -216,8 +193,7 @@ export class Prisoners {
 
   /** Back on his feet and no longer anyone's prisoner. */
   private free(s: Soldier): void {
-    if (this.mine === s) this.drop();
-    this.dropFrom(s);
+    if (this.held === s) this.drop();
     if (s.surrendered) {
       s.surrendered = false;
       this.o.prisoners--;
@@ -271,16 +247,13 @@ export class Prisoners {
   // The collar
   // -------------------------------------------------------------------------------------------
 
-  private grab(s: Soldier, holder: Holder | null = null): void {
+  private grab(s: Soldier): void {
     const { o, w } = this;
     const e = s.e;
     if (e.attack) finishAttack(e, w, true);
-    if (holder) this.others.set(holder, { s, at: w.now });
-    else {
-      this.mine = s;
-      this.heldAt = w.now;
-      this.keyHeld = -1;
-    }
+    this.held = s;
+    this.heldAt = w.now;
+    this.keyHeld = -1;
     s.collared = true;
     e.carried = true;
     e.thinkAt = 0;
@@ -306,87 +279,16 @@ export class Prisoners {
 
   /** The player's hands open, for whatever reason. */
   private drop(): void {
-    const s = this.mine;
-    this.mine = null;
+    const s = this.held;
+    this.held = null;
     if (!s) return;
     s.e.carried = false;
     s.collared = false;
   }
 
-  /** Co-op host: whoever else has `s` by the collar lets go of him. */
-  private dropFrom(s: Soldier): void {
-    for (const [holder, hold] of this.others) {
-      if (hold.s !== s) continue;
-      this.others.delete(holder);
-      s.e.carried = false;
-      s.collared = false;
-    }
-  }
-
-  /** Co-op host: the man `holder` has by the collar, if any. */
-  heldBy(holder: Holder): Soldier | null {
-    return this.others.get(holder)?.s ?? null;
-  }
-
-  // -------------------------------------------------------------------------------------------
-  // Co-op host: another player's key on a kneeling man (net/world/capture.ts). The host's own key is `keys`.
-  // -------------------------------------------------------------------------------------------
-
-  /** True for a man on his knees whom a key still means something to. */
-  private kneeling(s: Soldier): boolean {
-    return s.surrendered && !s.released && !s.cuffed && s.fate === 'surrender' && s.e.alive;
-  }
-
-  /** A tap: he is asked. False if he was already, or is no longer anyone's to ask. */
-  questionFor(s: Soldier): boolean {
-    if (!this.kneeling(s) || s.collared || s.questioned) return false;
-    this.question(s);
-    return true;
-  }
-
-  /** A second tap: he is let go. */
-  releaseFor(s: Soldier): boolean {
-    if (!this.kneeling(s) || s.collared || !s.questioned) return false;
-    this.letGo(s);
-    return true;
-  }
-
-  /** A hold: the cuffs. `holder` set: he was in their hands. */
-  cuffFor(s: Soldier, holder: Holder | null = null): boolean {
-    if (!this.kneeling(s)) return false;
-    if (s.collared && (!holder || this.heldBy(holder) !== s)) return false;
-    this.dropFrom(s);
-    this.airlift.cuff(s);
-    return true;
-  }
-
-  /** The human shield, for another player (only with `HOSTAGES.on`): `holder` takes him by the collar. */
-  grabFor(s: Soldier, holder: Holder): boolean {
-    if (!HOSTAGES.on || !this.kneeling(s) || s.collared || this.others.has(holder)) return false;
-    this.grab(s, holder);
-    return true;
-  }
-
-  /** `holder` opens their hands: the man is let go, as the host's own tap lets one go. */
-  dropFor(holder: Holder): boolean {
-    const s = this.heldBy(holder);
-    if (!s) return false;
-    this.letGo(s);
-    return true;
-  }
-
-  /** A round `holder`'s own screen says the man in their hands took for them. */
-  shieldHit(holder: Holder, amount: number, from: THREE.Vector3, source: string): void {
-    const s = this.heldBy(holder);
-    if (!s || !s.e.alive) return;
-    const e = s.e;
-    _a.subVectors(e.center, from).normalize();
-    this.w.enemies.applyDamage(e, { amount, type: 'bullet', point: e.center, dir: _a, force: 0, source, region: 'chest' });
-  }
-
   /** He is in the way of a round coming from the front. It hits him and it does not hit the player. */
   private intercept(d: PlayerDamage): boolean {
-    const h = this.mine;
+    const h = this.held;
     if (!h || !d.from || (d.type !== 'bullet' && d.type !== 'pellet')) return false;
     const { player } = this.w.ctx;
     _a.subVectors(d.from, player.position).setY(0);
@@ -402,45 +304,19 @@ export class Prisoners {
 
   /** One of his own has the player in front of him. Whether that stops him depends on what he is. */
   stopsFire(s: Soldier): boolean {
-    const { player, now } = this.w;
-    let h = this.mine;
-    let since = this.heldAt;
-    // Co-op host: `player` is whoever this soldier is after, who may be the one with a man in front of them.
-    for (const [holder, hold] of this.others) {
-      if (holder.position.distanceToSquared(player.position) > 1) continue;
-      h = hold.s;
-      since = hold.at;
-    }
+    const h = this.held;
     if (!h || h === s) return false;
+    const { player, now } = this.w;
     _a.subVectors(s.e.position, player.position).setY(0).normalize();
     _b.copy(player.forward).setY(0).normalize();
     if (_a.dot(_b) < COVERS_COS) return false;
-    if (now - since < s.rankDef.hesitates) return true;
+    if (now - this.heldAt < s.rankDef.hesitates) return true;
     this.o.comms.say('clearShot', s);
     return false;
   }
 
-  /** Co-op host: each man another player holds stays in front of them; dead, down or out of time, he is free. */
-  private carryOthers(): void {
-    const now = this.w.now;
-    for (const [holder, hold] of this.others) {
-      const e = hold.s.e;
-      if (!e.alive || !holder.alive || now - hold.at > HOLD_SECONDS) {
-        this.dropFrom(hold.s);
-        if (e.alive) this.bolt(hold.s);
-        continue;
-      }
-      _b.copy(holder.forward).setY(0).normalize();
-      const p = holder.position;
-      e.position.set(p.x + _b.x * HOLD_FORWARD + _b.z * HOLD_SIDE, p.y, p.z + _b.z * HOLD_FORWARD - _b.x * HOLD_SIDE);
-      e.groundY = p.y;
-      e.yaw = Math.atan2(_b.x, _b.z);
-    }
-  }
-
   private carry(dt: number): void {
-    if (this.others.size > 0) this.carryOthers();
-    const h = this.mine;
+    const h = this.held;
     if (!h) return;
     const { w } = this;
     const { player } = w.ctx;
@@ -482,11 +358,10 @@ export class Prisoners {
     s.questioned = true;
     const truthful = chance(s.rankDef.talks);
     this.clearMarks();
-    this.said.length = 0;
     if (truthful) this.tell(s);
     else this.lie(s);
     w.ctx.audio.play('vox_pain', { position: s.e.center, volume: 0.5, pitch: 1.15 });
-    w.ctx.events.emit('prisoner:questioned', { enemy: s.e, truthful, marks: this.said, seconds: REVEAL_SECONDS });
+    w.ctx.events.emit('prisoner:questioned', { enemy: s.e, truthful });
     // He has said too much to be any use to them, and he knows it.
     s.morale = Math.min(s.morale, 15);
   }
@@ -503,7 +378,6 @@ export class Prisoners {
       if (men === 0 || n >= MAX_MARKS) continue;
       const lead = q.leader?.e ?? q.members[0]!.e;
       this.marks.push(ctx.hud.marker(lead.center.clone(), `${q.name} ${men}`, PROMPT_COLOR));
-      this.said.push({ at: lead.center.clone(), label: `${q.name} ${men}` });
       n++;
       // He gives up what he thinks will save him: the biggest thing out there, and an ambush above anything.
       const worth = men + (q.goal === 'waylay' ? 10 : 0);
@@ -537,7 +411,6 @@ export class Prisoners {
     if (at) {
       const place = (ctx.world.zoneAt(at)?.name ?? 'yard').toLowerCase();
       this.marks.push(ctx.hud.marker(_a.copy(at).setY(at.y + 1.2).clone(), 'SQUAD?', LIE_COLOR));
-      this.said.push({ at: _a.clone(), label: 'SQUAD?' });
       this.marksUntil = w.now + REVEAL_SECONDS;
       o.comms.relay(`They all pulled back to the ${place}! I swear!`, s, null);
     } else o.comms.relay('I don\'t know anything! I swear!', s, null);
@@ -565,8 +438,8 @@ export class Prisoners {
       return;
     }
     const key = `[${input.labelFor?.('interact') ?? 'E'}]`;
-    const hold = `Hold ${key} to ${HOSTAGES.on ? 'grab' : 'capture'}`;
-    const text = s === this.mine ? `${key} let go · Hold ${key} to capture` : `Tap ${key} to ${s.questioned ? 'release' : 'question'} · ${hold}`;
+    const hold = `Hold ${key} to ${HOSTAGES ? 'grab' : 'capture'}`;
+    const text = s === this.held ? `${key} let go · Hold ${key} to capture` : `Tap ${key} to ${s.questioned ? 'release' : 'question'} · ${hold}`;
     if (text === this.prompted) return;
     this.clearPrompt();
     this.prompted = text;
@@ -592,7 +465,7 @@ export class Prisoners {
   private keys(dt: number): void {
     const { w } = this;
     const { input } = w.ctx;
-    const target = this.mine ?? this.focus;
+    const target = this.held ?? this.focus;
     if (input.pressed('interact') && target) this.keyHeld = 0;
     if (this.keyHeld < 0) return;
     if (!target) {
@@ -601,7 +474,7 @@ export class Prisoners {
     }
     const down = input.isDown('interact');
     if (down) this.keyHeld += dt;
-    if (target === this.mine) {
+    if (target === this.held) {
       if (down && this.keyHeld >= CUFF_SECONDS) this.cuff(target);
       else if (!down) {
         this.keyHeld = -1;
@@ -614,7 +487,7 @@ export class Prisoners {
     if (!g) return;
     this.keyHeld = -1;
     if (g === 'cuff') {
-      if (HOSTAGES.on) this.grab(target);
+      if (HOSTAGES) this.grab(target);
       else this.cuff(target);
     } else if (g === 'letGo') this.letGo(target);
     else this.question(target);
@@ -622,8 +495,7 @@ export class Prisoners {
 
   private letGo(s: Soldier): void {
     const { o, w } = this;
-    if (this.mine === s) this.drop();
-    this.dropFrom(s);
+    if (this.held === s) this.drop();
     o.release(s);
     this.freed++;
     w.ctx.events.emit('prisoner:freed', { enemy: s.e });
@@ -633,13 +505,13 @@ export class Prisoners {
     const { o, w } = this;
     const { ctx, now } = w;
     this.carry(dt);
-    if (o.prisoners > 0 || this.mine || this.others.size > 0) {
+    if (o.prisoners > 0 || this.held) {
       for (let i = o.soldiers.length - 1; i >= 0; i--) {
         const s = o.soldiers[i]!;
         if (s.surrendered && !s.collared && !s.cuffed && s.hitAt >= s.surrenderedAt) this.refuse(s);
       }
-      this.focus = this.mine ? null : this.nearest();
-      this.prompt(this.mine ?? this.focus);
+      this.focus = this.held ? null : this.nearest();
+      this.prompt(this.held ?? this.focus);
       this.keys(dt);
     } else if (this.unprompt) this.clearPrompt();
     if (this.marks.length > 0 && now >= this.marksUntil) this.clearMarks();
@@ -654,8 +526,7 @@ export class Prisoners {
 
   /** The man he was. For a body that has gone: nothing of him stays held. */
   gone(s: Soldier): void {
-    if (this.mine === s) this.drop();
-    this.dropFrom(s);
+    if (this.held === s) this.drop();
     if (this.focus === s) this.focus = null;
     this.airlift.gone(s);
   }

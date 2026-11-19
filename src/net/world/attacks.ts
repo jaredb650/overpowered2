@@ -309,12 +309,18 @@ export class EnemyAttacks implements WorldModule {
       e.attackWindup = e.attackStage = e.attackShots = 0;
     }
     run.to = this.slotOf(value.to);
+    const world = this.world(run.to);
     if (e.attackPhase !== 'active') {
+      // The shot came before this copy's wind-up was over (this page's clock ran slow, or the start was late): the wind-up is
+      // run to its end first, so what it leads up to (a laser going solid, a lane locking) has happened before the shot.
+      if (e.attackPhase === 'windup' && a.windupTick && e.attackClock < e.attackWindup) {
+        e.attackClock = e.attackWindup;
+        this.guard(e, () => a.windupTick!(e, world, 0));
+      }
       e.attackPhase = 'active';
       e.attackClock = 0;
     }
     this.setAim(e, value);
-    const world = this.world(run.to);
     const soldier = soldierOf(e);
     if (soldier) {
       // A copy's soldier is a shell: the host has decided he fires, so his magazine never reads empty here.

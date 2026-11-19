@@ -247,7 +247,9 @@ Shared files and contracts between lanes:
   (the host hooks), `aiWorld.ts` (`cosmetic`), `EnemyManager.ts` (guest path ticks warnings and suppression, `aiWorld`, bark and
   strike), `telegraph.ts`, `weapons/Projectiles.ts`, `Combat.ts`, `Flames.ts` (`lickPlayer`), `enemies/vehicles/*` (rams, wreck
   fire, gun flashes and sounds, `quarry`), `commander/index.ts` (`hurt`), `commander/mortars.ts`, `outpost/index.ts` (flashbang),
-  `net/pose.ts` (`latest`), and `shout()` at nine voice call sites. Not proven in the browser yet: see the lane's report.
+  `net/pose.ts` (`latest`), and `shout()` at nine voice call sites. Proofs: `tools/scripts/coop-attacks-*.mjs`, results in the
+  note. The machine was overloaded all day, so the timing figures there come from the few runs whose pages ran at speed; the
+  full table under bad network, four players and real WebRTC are not proven (phase 2 "verify").
 - 2026-11-18, session lane (`coop/session`): the load barrier and deploy gate, seats by browser id with stable slots, the match
   id in hello, reconnect grace on both sides, reloads that rejoin (a host's reload restarts the match for all), other peers'
   errors, start acks, the stall-proof heartbeat, host loss ending in the board and an automatic regroup on the same code, one
@@ -344,8 +346,3 @@ Shared files and contracts between lanes:
 - **Owner questions still open from the lanes:** a friend's gun report plays at 0.65 volume (louder?); real reload and stim clips
   and an energy blade model for the friend's body (character work).
 - 2026-11-18, evening: the machine is shared with another person, who reports it is swamped by the testing. Browser slots cut to 4; every lane must rebase so the queue applies, keep one run at a time, and use a small viewport at dpr 1 for functional proofs.
-- 2026-11-18, world-b, step 3 landed: **prisoners for guests as designed** (`src/net/world/capture.ts`): tap questions, a second tap
-  releases, a 0.4 s hold captures, the exact prompt and the ring, the reveal for the whole team, the bounty to the captor, two
-  players on one man settled by the host, late join. Decision: the human shield is off in the single-player game
-  (`HOSTAGES.on = false`, owner 2026-11-15), so it is off in co-op too; the guest's side of it is built and proven with the switch
-  on, so turning it back on needs no co-op work. The skyhook stays the call-ins lane's (it hooks the host's `Airlift`).

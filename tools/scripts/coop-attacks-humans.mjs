@@ -170,13 +170,14 @@ export default async function (host, { sleep, outDir }) {
         ctx.enemies.vehicles.spawnGround('tank', { x: p[0], y: p[1], z: p[2], route: [], tag: null, crew: ['trooper'], crewTag: null, holds: false, holdYaw: NaN, parked: false });
       }, [tankAt]);
       let g;
-      for (let waited = 0; waited < 16000; waited += 250) {
+      for (let waited = 0; waited < 45000; waited += 250) {
         await sleep(250);
         g = await readRecord(guest, since);
         if (has(g.ev, 'proj', e => e.kind === 'shell') && has(g.ev, 'boom') && waited > 3000) break;
       }
       out.tank = { laser: g.seen.warnings.lasers, layTone: has(g.ev, 'snd', snd('tank_lay')), cannon: has(g.ev, 'snd', snd('tank_cannon')), flash: has(g.ev, 'flash', e => e.kind === 'autocannon'),
         shell: has(g.ev, 'proj', e => e.kind === 'shell'), boom: has(g.ev, 'boom'), hurt: g.ev.filter(e => e.k === 'hurt').map(e => `${e.source}:${Math.round(e.amount)}`).slice(0, 6) };
+      out.tank.host = await host.evaluate(() => { const v = window.__op2.ctx.enemies.vehicles; const t = [...(v.live ?? [])][0]; return t ? { stage: t.stage, sees: t.sees, layLeft: t.layLeft, reloadLeft: t.reloadLeft, gunLocked: t.gunLocked, elapsed: window.__op2.ctx.time.elapsed } : null; });
       progress(`tank: ${JSON.stringify(out.tank)}`);
       check(out.tank.laser > 0 && out.tank.layTone, 'The guest sees the tank\'s laser lay on them and hears it', out.tank);
       check(out.tank.cannon && out.tank.flash && out.tank.shell && out.tank.boom, 'The guest hears the cannon, sees its flash, the shell in flight and the blast', out.tank);

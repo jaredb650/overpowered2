@@ -95,7 +95,7 @@ the names the game used before).
 | `world/slow.ts` | The team's slow-mo rules with no game in them: the kinds, their scales and caps, the host's list and the team's budget (`SlowBoard`), the notice's words | |
 | `world/clock.ts` | The clock's gate (`ctx.time.gate`): every slow-mo request the game makes, on host and guest; the host's answer; `clock()` applies the list to this screen's clock; the host's long-frame steps | `slow`, `slowstate`, `slowno` |
 | `world/slowNotice.ts` | The notice every screen shows while the world is slow (its own element in the HUD root, `ui/css/cooptime.css`) | |
-| `world/capture.ts` | Prisoners for every player: a guest's tap (question, release) and 0.4 s hold (capture) carried out by the host, the reveal for the team, the bounty to the captor, the shield (off in the game). See "Prisoners for every player" | `capture`, `credit`, `prisoner` |
+| `world/capture.ts` | A guest capturing a prisoner (hold E, the host cuffs, the bounty comes back); `capturable` | `capture`, `credit` |
 | `world/guns.ts` | Carries the news of dropped guns for `weapons/dropped.ts` | `gun` |
 | `world/vehicles.ts` | The host's ground vehicles drawn on guests, 5 Hz, stamped with the host's clock and drawn through a `MotionBuffer` | `vehicles` |
 | `world/villainProps.ts` | The villain's devices, shutters and smoke on every screen; a guest's round on a device; a snare on a guest. See "The villain's props on every screen" | `dev`, `devshot`, `snared`, `shutter`, `smoke` |
@@ -340,6 +340,9 @@ each locked aim point) is sent as the outcome.
   much later than usual an event came (against the smallest delay seen lately, so the two clocks need not agree) and the wind-up
   starts that far in (at most 0.4 s), so the shot lands when the host's `hurt` does. The shot itself is the host's call: a copy
   whose wind-up is over waits for `atkf` (laser still tracking), and gives the attack up after 1.2 s of silence.
+- **A shot that beats the wind-up.** If `atkf` arrives while the copy is still winding up (its start was late, or this page's
+  game clock ran slower than the host's), the wind-up is run to its end first, so what it leads to (a laser going solid, a lane
+  locking) has happened before the shot.
 - **An enemy not drawn yet.** A start that arrives before its enemy's first snapshot is kept for 0.6 s and begun that far in. A
   shot whose start was lost joins the attack at that shot.
 - **Streams for show.** A Burner's flame (`AttackDef.local`) sends only its first shot; every screen makes the rest of the globs
@@ -410,10 +413,38 @@ host's own from its perks and for a guest from that word (it used to force it of
 
 **A guest's sword.** A bullet the host says hit a guest is still theirs to block or send back (`hurtIn` asks `Combat.guard`).
 
-**Proofs** (`tools/scripts/`, each through `shot.mjs`, evidence JSON beside the screenshots): `coop-attacks-crucible.mjs` (one row
-per Crucible attack, 29 of them, each staged alone at the guest), `coop-attacks-humans.mjs` (a real Endless Humans wave, each
-soldier weapon forced once, a tank, a ram, a wreck, the Commander), `coop-attacks-kit.mjs` (the recorder both use). `COOP_SIM`,
-`COOP_PLAYERS` and `ATTACKS`/`PARTS` narrow or stress a run. Unit tests: `src/net/world/attacks.test.ts`.
+**Proofs** (`tools/scripts/`, each through `shot.mjs`, evidence JSON beside the screenshots; `COOP_SIM`, `COOP_PLAYERS` and
+`ATTACKS`/`PARTS`/`SHOTS` narrow or stress a run). Unit tests: `src/net/world/attacks.test.ts` (17).
+
+| Script | What it proves on the guest's page |
+|---|---|
+| `coop-attacks-kit.mjs` | The recorder the others use: every sound, flash, tracer, star, laser, ring, projectile copy, `hurt` and throw a page shows, with the wall clock, so a guest's times can be set against the host's |
+| `coop-attacks-crucible.mjs` | One row per Crucible attack, 29 of them, each staged alone at the guest: the wind-up's clip, voice, star, laser or ring; the shot's flash, sound and projectile bodies; the host's damage and throw; each step's delay behind the host |
+| `coop-attacks-humans.mjs` | A real Endless Humans wave (every attack the host's men start is played on the guest); each of the 10 soldier weapons forced once; a tank's laser, cannon, shell and blast; a ram; a burning wreck; the Commander's chip, bark and briefing in the guest's own box |
+| `coop-attacks-hazards.mjs` | Three players: a slam hurts and throws both guests in the ring; a guest who jumps it takes nothing; a last-moment step out of a swing is spared; Ghost; a guest shoots an enemy rocket down; a guest who is not the target sees the laser sit on the friend it is aimed at |
+| `coop-attacks-shots.mjs` | Four pictures from the guest's eyes at 1440x900, dpr 2, each of one exact frame |
+
+**Measured** (2026-11-18, loopback transport, one machine). The machine was shared with eleven other lanes' browser runs for the
+whole day (load average 45 to 100, swap full), which starves a test page of frames. A row's timing is only judged when every
+page ran at 40 frames a second or more; on a starved page a start and its shot arrive in one late lump, and that measures the
+machine. Re-measure on a quiet machine before quoting the tail figures.
+
+| Run | Result |
+|---|---|
+| Crucible table, 2 players, clean line, pages at 60 fps | 29 of 29 attacks whole on the guest. Each start 1 to 55 ms behind the host's (most 6 to 13), each first shot 4 to 47 ms behind; the guest's wind-up within 33 ms of the host's length. Two rows needed a second go for a stall (121 and 301 ms), then 6 to 12 ms |
+| Crucible table, 2 players, `lag:120,jitter:40,loss:0.05`, 12 attacks, pages starved (1 to 14 fps) | Every wind-up, shot, projectile body, `hurt` and throw arrived. Starts 139 to 769 ms behind, shots 159 to 898 ms; the one row at speed 279 and 168 ms (the simulator's own delay is 120 to 160 ms) |
+| Crucible table, 3 players, clean line, pages starved | The 11 attacks that ran inside the time limit (claw, burst, shotgun, minigun, rocket, sniper, pounce, fuse, flame, slam, stomp) were all whole on the guest; timings not judged |
+| Endless Humans, a real wave, 28 s | 32 of 32 attacks the host's men started were played on the guest; median 12 ms behind, 95th percentile 455 ms (stalls); 123 flashes, 87 bullet bodies, 22 `hurt`s; no attack code threw on a copy |
+| Endless Humans, each weapon forced | 10 of 10: rifle, shotgun (8 pellet bodies a blast), machine gun, rocket, marksman's rifle, pistol, carbine, grenade (with its ring and blast), rifle butt, shield bash (both throw the guest) |
+| Vehicles | Tank: the laser lays on the guest, the lay tone, the cannon's sound and flash, the shell's body, the blast. Scout car: 35 damage and a throw from the ram, the clang heard, its gun heard. Wreck: two burns in 400 ms |
+| The Commander | PAINTED chip up and "There are mines in it now." typed in the guest's box; then the briefing typed and the chip down |
+| Slam, 3 players | Both guests in the ring hurt (21.4 and 20.4) and thrown (9.8 m/s up). The guest who jumped 640 ms into the wind-up took nothing; the one on the ground took it |
+| Dodge grace, 2 players | A step 6 m back 430 and 460 ms into a 500 ms swing: the host still drew the guest in reach (2.0 m) and spared them, their newest pose being 7.5 m clear and 2 to 19 ms old. Earlier steps (300, 380 ms) were out of reach by the ordinary test |
+| Ghost, rocket, watcher, 3 players | The host listed the guest's Ghost and its enemy sensed them hidden. A guest shot the rocket's copy 191 ms into its flight: the host's real one blew up there and the copy went. The third player saw the laser, flash and tracer, the laser 0.00 m from the friend and 3.0 m from themselves |
+
+Not proven: four players; real WebRTC (`COOP_NET=rtc`); the full Crucible table under bad network at speed; Outpost Defense and the
+two missions (they use the same enemies and the same code, and were not run); the helicopter's rockets; the Commander's mortars
+on a guest in a real round; a flashbang's blinding on a guest.
 
 ## The life of a session (overhaul lane "session", 2026-11-18)
 
@@ -1341,35 +1372,6 @@ sets (null alone, where nothing changed).
 Proof: `tools/scripts/coop-worldb-props.mjs` (a host and two guests in Endless Humans: 40 checks), unit tests
 `src/net/world/villainProps.test.ts` (9, his real `Devices`, `Barricades` and `Smoke` on every side).
 
-## Prisoners for every player (overhaul, lane world-b)
-
-`src/net/world/capture.ts`. A guest's E on a kneeling man is the designed key, read by the same `gesture()` and `holdFill()` the
-host's own key uses (`enemies/outpost/capture.ts`): **tap to question, tap again to release, hold 0.4 s to capture**, the prompt
-"Tap [E] to question · Hold [E] to capture" (then "Tap [E] to release · ..."), the fill ring. Reach 3.1 m and the 0.55 cone, as solo.
-
-- The guest sends `capture { uid, act: question | release | cuff }`. The host checks the sender is up and within 4.5 m of the man
-  (bodies, as the host sees them) and does it through `Prisoners.questionFor`, `releaseFor`, `cuffFor`: the same code the host's key
-  runs. Two players on one man are settled by arrival: a man already cuffed, questioned or gone refuses the second key. 20 keys a second.
-- **What he gives up is the team's.** `prisoner:questioned` now carries the marks his word put on the map; the host sends
-  `prisoner { op: 'questioned', marks, seconds, reveal }` and every guest gets the markers for 9 s and, when he told the truth,
-  every fighting man lit through the walls, exactly as the host's screen does. A lie puts "SQUAD?" on everyone's map.
-- Every screen's feed says who questioned, released or cuffed him; the captor's own reads PRISONER CUFFED as solo.
-- **The bounty** (250 to 450 by rank, about 300) goes to the captor when the drone lifts him: the host's purse is paid by the
-  drone and passes it on (`credit`), to the captor's seat if they reloaded (team.ts `payee`).
-- **A late or returning player** gets `prisoner { op: 'state' }`: who is already questioned and who holds whom.
-- **The skyhook drone** is the call-ins lane's (`world/airlift.ts` there hooks the host's `Airlift` directly). What this module
-  gives it: the host's `prisoner:cuffed` and `prisoner:secured` game events fire for a guest's capture as for the host's, and the
-  `prisoner` event names the captor's slot.
-- **The human shield is off in the game** (`HOSTAGES.on = false` in prisoners.ts, the owner's decision of 2026-11-15: hold E cuffs
-  at once). It is built for co-op for the day it returns, and proven with the switch on: `act: grab` puts the man in the guest's
-  hands (`Prisoners.grabFor`; the host keeps him in front of that guest's body, so every screen sees it), `drop` lets him go,
-  hold E 0.6 s cuffs him; on the holder's own screen rounds from the front stop on him (`shield`, applied to him on the host)
-  and the holder walks at his pace; his friends hold their fire for whoever they are after (`stopsFire`).
-
-Proof: `tools/scripts/coop-worldb-prisoners.mjs` (a host and two guests: prompt, question and reveal on every screen, release,
-capture with the ring, the bounty of 300 to the captor alone, two guests holding E on one man, the shield with its switch on:
-34 checks, clean and under `lag:120,jitter:40,loss:0.05`); unit tests `src/net/world/capture.test.ts` (7).
-
 ## Stage 5: the campaign together
 
 The lobby offers **Mission 1: The Outpost** and **Mission 2: Foreclosure**. The host runs the mission. Each guest's campaign host runs
@@ -1739,8 +1741,8 @@ guest's tab dying mid-wave, rejoining by link with credits back, and leaving to 
 - **Host migration:** see Failure cases.
 - **Four-player and multi-machine testing:** only two pages fit on the 8 GB machine; the 4-player numbers above are budgets, not runs.
 - **Aircraft drawn for the others:** a call-in's jet, gunship or helicopter is only on the caller's screen (its explosions are on all).
-- Guest repairs and Barracks hires in Outpost Defense, questioning and releasing a prisoner as a guest, and the shield for a
-  guest (switched off in the game, as in single player) are built: "Outpost Defense: one fort", "Prisoners for every player".
+- **Guest bullets on vehicles**, **grabbing a prisoner as a shield or questioning him** as a guest: the host's only. (Guest repairs
+  and Barracks hires in Outpost Defense are built: "Outpost Defense: one fort".)
 - **Per-muscle wound animation** on guests (a stage 2 limit) is unchanged. Living knockdowns and get-ups are done: "Enemy motion", Moves.
 - **Implant parts** on friends' bodies.
 - **Campaign:** mission 1's opening (briefing, cutscene, door-gunner ride) is proven in the browser; the rest of both missions has only

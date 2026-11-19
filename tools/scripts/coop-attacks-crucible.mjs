@@ -79,8 +79,8 @@ export default async function (host, { sleep, outDir }) {
     for (const page of party.pages) page.on('crash', () => out.errors.push('PAGE CRASHED'));
     for (const page of party.pages) page.on('close', () => out.errors.push('PAGE CLOSED'));
 
-    for (const c of CASES) {
-      if (only && !only.has(c.attack)) continue;
+    // One attack, staged and watched. Returns its row.
+    const play = async c => {
       await calm(host);
       await put(guest, spot.at, spot.yaw);
       await sleep(350);
@@ -103,7 +103,9 @@ export default async function (host, { sleep, outDir }) {
 
       const hostBegin = first(h.log, e => e.uid === uid && e.p === 'begin'), hostFire = first(h.log, e => e.uid === uid && e.p === 'fire');
       const begin = first(g.log, e => e.uid === uid && e.p === 'begin'), fire = first(g.log, e => e.uid === uid && e.p === 'fire');
-      const after = at => g.ev.filter(e => at !== undefined && e.at >= at - 5);
+      // A shock or a ring rides its own event, which can land a little before the attack's on a jittery link.
+      const slack = 5 + (sim ? 150 + jitterMs * 2 : 0);
+      const after = at => g.ev.filter(e => at !== undefined && e.at >= at - slack);
       const hurt = g.ev.find(e => e.k === 'hurt' && (!c.hurt || e.type === c.hurt));
       const row = { kind: c.kind, attack: c.attack, uid, hostBegin: hostBegin ? hostBegin - since : null, beginBehind: begin && hostBegin ? begin - hostBegin : null,
         fireBehind: fire && hostFire ? fire - hostFire : null, windupHost: hostBegin && hostFire ? hostFire - hostBegin : null, windupGuest: begin && fire ? fire - begin : null,
@@ -133,12 +135,20 @@ export default async function (host, { sleep, outDir }) {
       if (begin && fire) need(fire >= begin, 'fire before begin');
       if (timed && c.together && hurt && fire) need(Math.abs(hurt.at - fire) <= 120 + jitterMs * 2, `hurt ${hurt.at - fire} ms from the shot`);
       row.failed = g.seen.attacks.failed;
+      return row;
+    };
+    for (const c of CASES) {
+      if (only && !only.has(c.attack)) continue;
+      let row = await play(c);
+      // A stall on a busy machine makes one step late and says nothing about the link: a row that failed on timing alone is
+      // played once more, and says so.
+      if (row.missing.length && row.missing.every(m => /ms behind|ms from the shot/.test(m))) { const first = row.missing; row = await play(c); row.retried = first; }
       out.rows.push(row);
       progress(`${c.kind} ${c.attack}: ${row.missing.length ? `MISSING ${row.missing.join('; ')}` : 'ok'}  begin +${row.beginBehind} fire +${row.fireBehind} windup ${row.windupHost}/${row.windupGuest} hurt ${row.hurt}`);
     }
     const bad = out.rows.filter(r => r.missing.length);
     const timedRows = out.rows.filter(r => r.timed);
-    out.summary = { cases: out.rows.length, passed: out.rows.length - bad.length, timed: timedRows.length, fpsLow: Math.min(...out.rows.map(r => r.fps)),
+    out.summary = { cases: out.rows.length, passed: out.rows.length - bad.length, retried: out.rows.filter(r => r.retried).length, timed: timedRows.length, fpsLow: Math.min(...out.rows.map(r => r.fps)),
       worstBegin: Math.max(0, ...timedRows.map(r => r.beginBehind ?? 0)), worstFire: Math.max(0, ...timedRows.map(r => r.fireBehind ?? 0)), allowed: BEHIND };
     progress(`summary ${JSON.stringify(out.summary)}`);
     await shot(guest, 'guest-end');

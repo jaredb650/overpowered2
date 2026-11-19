@@ -323,9 +323,3 @@ with a spot, top speed 6.3 m/s, 0 console errors, 60 fps. That matches the headl
 - **The cover shot shows nothing.** The man is behind the wall, which is the point. Crouched cover is proved by the pose sheet and the trails, and leaning by `outpost-live-peek.png`.
 - **Drag and revive have only been seen as stills and numbers.** A rescuer and casualty jostle a little, because crowd separation still
   pushes them apart at 1.1 m.
-
-## Co-op: prisoners
-
-A guest's key on a kneeling man is the same key (tap to question, tap again to release, hold 0.4 s to capture), carried out by the
-host through `Prisoners.questionFor`, `releaseFor`, `cuffFor` (and `grabFor`, `dropFor`, `shieldHit` for the shield, which stays off
-with `HOSTAGES.on`). What a questioned man gives up is shown to the whole team. `docs/notes/coop.md`, "Prisoners for every player".
