@@ -142,6 +142,10 @@ export default async (host, { sleep, outDir }) => {
     let late = null;
     if (part('running') || part('return')) {
       progress('the host calls a gunship in and a guest an AA sentry');
+      // The sentry stands for 60 s (`SENTRY.life`). Under the bad network the late joiner, the stall, the missile and the
+      // 20 s a lost seat is kept took longer than that, and the sentry powered down on its own page before its caller came
+      // back (the old build as well): the check then waited for a sentry that no longer existed. It stands ten minutes here.
+      for (const page of [host, a, b]) await page.evaluate(async () => { (await import('/src/progression/data.ts')).SENTRY.life = 600; });
       const mark = [base[0], base[1], base[2] - 30];
       await host.evaluate(at => { const { ctx } = window.__op2, V = ctx.player.position.constructor; ctx.progression.callinLink.callAt('ac130', new V(...at), new V(1, 0, 0.35), true); }, mark);
       await a.evaluate(at => { const { ctx } = window.__op2, V = ctx.player.position.constructor; ctx.progression.callinLink.callAt('sentry', new V(at[0] + 6, at[1], at[2] + 18), new V(1, 0, 0), true); }, mark);

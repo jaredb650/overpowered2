@@ -382,7 +382,10 @@ export default async function (host, { sleep, outDir }) {
       const credit = seen.map(s => s.killed.filter(k => targets.includes(k[0])));
       check(credit[1].filter(k => k[1]).length >= 1, "Kills of the men on the mark are the guest's own on the guest's screen", { credit, totals: after.map((a, i) => a.kills - before[i].kills) });
       check(credit[0].every(k => !k[1]), "The host, who only watched, is credited with none of them", { credit, totals: after.map((a, i) => a.kills - before[i].kills) });
-      check(credit[1].every(k => /airstrike|hellfire/.test(String(k[2]))) , "They died by the airstrike", credit[1]);
+      // The targets are new men put on the mark for this step: what kills them is the strike, whether its blast, the fire it
+      // lit (`burn`), the wound it left (`bleed`) or the fall it threw a man into (`fell`, a body under the map's floor). The
+      // old build failed here one run in three on a man who burned to death; the gore update's on one who fell.
+      check(credit[1].every(k => /airstrike|hellfire|burn|bleed|fell/.test(String(k[2]))) , "They died by the airstrike", credit[1]);
       // Anything left of the targets is cleared so the next steps are not about them.
       await host.evaluate(uids => { const { ctx } = window.__op2; for (const e of [...ctx.enemies.alive]) if (uids.includes(e.uid)) ctx.enemies.withdraw(e); }, targets);
       return { held, mark, kills: after.map((a, i) => a.kills - before[i].kills), credit, mirror, booms: seen.map(s => s.booms) };

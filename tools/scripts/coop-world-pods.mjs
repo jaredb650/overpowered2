@@ -128,8 +128,24 @@ export default async function (host, { sleep, outDir }) {
       await page.evaluate(credits => { window.__op2.ctx.contracts.shop.credits = credits; }, purses[i]);
     }
     await sleep(500);
-    const near = await Promise.all(pages.map(p => p.evaluate(() => window.__op2.ctx.progression.pods.supplyNear)));
-    check(near.every(Boolean), 'Every player is offered the shop at the shared pod', near);
+    // The pod's spot is the map's choice: a side of it can be a wall or a crate, and a player put there is pushed out past
+    // reach (one page in four, now and then, before the gore update as after). So a page not offered the shop where it was put
+    // is walked round the pod, 2 m out, until it stands somewhere it can, and where it stood is kept.
+    const where = page => page.evaluate(spot => {
+      const { ctx } = window.__op2; const p = ctx.player.position;
+      return { at: p.toArray().map(n => Math.round(n * 100) / 100), metres: Math.round(Math.hypot(p.x - spot[0], p.y - spot[1], p.z - spot[2]) * 100) / 100, near: ctx.progression.pods.supplyNear };
+    }, spot);
+    out.placed = await Promise.all(pages.map(where));
+    for (const [i, page] of pages.entries()) {
+      for (let k = 1; k < 8 && !(await where(page)).near; k++) {
+        const a = (i / pages.length) * Math.PI * 2 + k * Math.PI / 4;
+        await teleport(page, [spot[0] + Math.sin(a) * 2, spot[1], spot[2] + Math.cos(a) * 2], a);
+        await sleep(300);
+      }
+    }
+    out.moved = await Promise.all(pages.map(where));
+    const near = out.moved.map(w => w.near);
+    check(near.every(Boolean), 'Every player is offered the shop at the shared pod', { near, placed: out.placed, moved: out.moved });
     const bought = [];
     for (const [i, page] of pages.entries()) {
       await page.evaluate(() => { window.__op2.game.setState('playing'); window.__op2.ctx.input.simulate('interact', true); });

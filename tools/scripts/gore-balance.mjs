@@ -8,7 +8,7 @@
 //
 // The bot is the single-player comparison's fighter (tools/scripts/lib/solo-scenarios.mjs): it aims at the nearest enemy
 // in sight, holds the trigger, walks a fixed pattern and dashes. It is healed to full when under a third (counted: a heal
-// is about one death), its magazine is bottomless and it buys nothing, so the same fight is asked of every run.
+// is about one death; a hit that would kill outright is counted as its damage and a heal, and does not land), its magazine is bottomless and it buys nothing, so the same fight is asked of every run.
 //
 // Settings: BAL_WAVES (stop when this wave is cleared: default 6; Endless Humans ends itself at round 10), BAL_FRAMES (cap,
 // default 70000), BAL_SEED, BAL_WEAPON (give and hold this gun: `kiln` for the fire rule), BAL_EVAL (JS run in the page
@@ -48,14 +48,38 @@ async function install({ weapon, evalText, waves }) {
   ctx.weapons.modifiers.bottomlessMag = true;
   if (weapon && !ctx.weapons.owned.has(weapon)) ctx.weapons.give(weapon);
   if (weapon) ctx.weapons.switchTo(weapon);
-  const rec = { waves: [], damage: 0, heals: 0, kills: 0, forced: 0, done: false, why: '', frame: 0, men: {}, deaths: {}, lastKill: 0, wave: null };
+  const rec = { waves: [], byType: {}, damage: 0, heals: 0, kills: 0, forced: 0, done: false, why: '', frame: 0, men: {}, deaths: {}, lastKill: 0, wave: null };
   const open = n => {
-    rec.wave = { wave: n, from: rec.frame, frames: 0, damage: 0, heals: 0, kills: 0 };
+    rec.wave = { wave: n, from: rec.frame, frames: 0, damage: 0, byType: {}, heals: 0, kills: 0 };
+  };
+  // Damage by its type as well: "a hit spoils his aim" touches only men's rounds (`bullet`), and a bot caught under a mortar
+  // or in a fire for a wave can take more than the rest of the run together.
+  const kind = (type, amount) => {
+    const k = type ?? '?';
+    rec.byType[k] = (rec.byType[k] ?? 0) + amount;
+    if (rec.wave) rec.wave.byType[k] = (rec.wave.byType[k] ?? 0) + amount;
   };
   ctx.events.on('player:damaged', ev => {
     rec.damage += ev.amount;
     if (rec.wave) rec.wave.damage += ev.amount;
+    kind(ev.type, ev.amount);
   });
+  // A hit that would kill (a blast from above a third of health) is counted as damage and a heal, and does not land: a
+  // death would end the run part way and leave the two builds' runs different lengths.
+  const take = p.takeDamage.bind(p);
+  p.takeDamage = d => {
+    const amount = d.amount * p.modifiers.damageTaken;
+    if (p.alive && !p.modifiers.invulnerable && amount > 0 && amount >= p.health) {
+      rec.damage += amount;
+      rec.heals++;
+      rec.lethal = (rec.lethal || 0) + 1;
+      if (rec.wave) { rec.wave.damage += amount; rec.wave.heals++; }
+      kind(d.type, amount);
+      p.heal(p.maxHealth);
+      return;
+    }
+    take(d);
+  };
   ctx.events.on('enemy:killed', ev => {
     rec.kills++;
     rec.lastKill = rec.frame;
@@ -77,8 +101,26 @@ async function install({ weapon, evalText, waves }) {
     }
   });
   if (ctx.waves?.phase && ctx.waves.phase !== 'intermission' && ctx.waves.wave) open(ctx.waves.wave);
+  // How often an enemy fires while a hit has his aim shaken (`Enemy.shaken`, gone in a third of a second): the only rounds
+  // "a hit spoils his aim" can change. Every attack an enemy has is counted where the brain fires it.
+  rec.shots = 0;
+  rec.shakenShots = 0;
+  const wrapped = new WeakSet();
+  const count = e => {
+    for (const a of e.attacks ?? []) {
+      if (!a || typeof a.fire !== 'function' || wrapped.has(a)) continue;
+      wrapped.add(a);
+      const fire = a.fire;
+      a.fire = function (en, ...rest) {
+        rec.shots++;
+        if (en.shaken > 0) rec.shakenShots++;
+        return fire.call(this, en, ...rest);
+      };
+    }
+  };
   const bot = f => {
     if (rec.done) return;
+    for (const e of ctx.enemies.alive) count(e);
     if (game.state === 'gameover' || game.state === 'victory') {
       rec.done = true;
       rec.why = game.state;
@@ -176,9 +218,10 @@ export default async function (page, { outDir }) {
   const result = {
     label: LABEL, url: new URL(page.url()).search, seed: SEED, weapon: process.env.BAL_WEAPON ?? 'default', eval: process.env.BAL_EVAL ?? null, setup,
     ended: rec.why || 'frame cap', frames: rec.frame, gameSeconds: Math.round(rec.frame / 62.5), realSeconds: Math.round((Date.now() - t0) / 1000),
-    wavesCleared: rec.waves.length, damage: Math.round(rec.damage), heals: rec.heals, kills: rec.kills, forced: rec.forced,
+    wavesCleared: rec.waves.length, damage: Math.round(rec.damage), heals: rec.heals, lethal: rec.lethal ?? 0, enemyShots: rec.shots, shotsWhileShaken: rec.shakenShots, kills: rec.kills, forced: rec.forced,
     damagePerMinute: Math.round(rec.damage / (rec.frame / 62.5 / 60)), deaths: rec.deaths,
-    waves: rec.waves.map(w => ({ wave: w.wave, seconds: Math.round(w.frames / 62.5), damage: Math.round(w.damage), heals: w.heals, kills: w.kills })),
+    damageByType: Object.fromEntries(Object.entries(rec.byType).map(([k, v]) => [k, Math.round(v)])),
+    waves: rec.waves.map(w => ({ wave: w.wave, seconds: Math.round(w.frames / 62.5), damage: Math.round(w.damage), byType: Object.fromEntries(Object.entries(w.byType).map(([k, v]) => [k, Math.round(v)])), heals: w.heals, kills: w.kills })),
     men: men.length ? {
       seen: men.length, panicked: panicked.length, broken: broken.length,
       panickedShare: Math.round(panicked.length / men.length * 100) / 100, brokenShare: Math.round(broken.length / men.length * 100) / 100,

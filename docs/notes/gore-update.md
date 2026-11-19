@@ -507,3 +507,42 @@ red under the weapon light) have no switch: each replaces a fault, and the befor
   - Not measured: anything on a laptop. The GPU's own time cannot be read on an RTX 4090 (it is never the limit).
 
 - 2026-11-19, lead: by the owner's word, test and verification agents run on Opus from here (Fable for design, visual work and hard engineering). Agent gore-verify (Fable) was stopped with its work landed; agent "gore-check" (Opus) continues the co-op sweep (47 of about 177 runs done, in `tools/out/gore-update/verify/coop/`), the single-player comparison and the balance numbers.
+- 2026-11-19, check (agent gore-check, Opus), **the update's checks are done: co-op 176 of 177, single player has no
+  unintended difference, the two fighting rules measured, the suite three times clean** (all of it, with the tables:
+  `docs/notes/gore.md`, "What is proven after the gore update"; evidence in `tools/out/gore-update/verify/`).
+  - **Co-op sweep** (every proof, suites guest, clean, four, bad, rtc; on `00a6c7e`, the body proofs again on
+    `ad39861`): 176 of 177. Each failure on the way was the proofs or the machine, never the game: `motion-moves` read
+    the old chest flame (fixed); `world-pods` four players, `fixsession-callins` under the bad network and
+    `guest-seat/defense` fail on the old build too (proofs fixed: a pod side in a wall, a sentry that ran out of time, a
+    target that died by the strike's fire or fall); `fx-matrix`'s known arc count fails before the update too (five
+    more runs pass, and the old build drew the same low count); `motion-vehicles` was starved by the balance bots and
+    passes on a quiet machine. The one left is `fixhits-pins` with kill prediction off under the bad network, open item
+    12 of the co-op job, the same on the old build.
+  - **Single player** (`solo-parity.mjs --long`, 36 scenarios): 15 the same in every frame; 21 differ where a round
+    meets a body in another pose, a blast moves the living differently, or a thrown piece moves something, and the fight
+    goes another way from there. No menu text but the new "Mess" row, no price, lock, wave rule, mission trigger,
+    weapon number or score rule differs. One new thing a player can notice: a piece thrown out of a blast can reach and
+    nudge the player (0.4 m, 33 m from the blast, in the office; `?gibthrow=0` takes it away).
+  - **Balance:** "a hit spoils his aim" makes no measurable difference to damage taken (Crucible, ten seeds: 221 ± 126
+    on, 200 ± 140 off), because almost no round is fired while it lasts (0.06 to 0.22 % of men's rounds in Endless
+    Humans, 4 % of attacks in the Crucible): `shaken` is gone in 0.35 s and a rifleman's next burst is three quarters of a second or more
+    away. **Fire chips morale works:** with the Kiln, 69 % of men panic against 58 %, 48 % break against 36 %, and they
+    break about 7 s sooner (median 20.5 s from first seen, against 27.4), the same in every seed.
+  - **Typecheck and tests:** clean; the whole suite three times in a row on `ad39861`, 3,103 passed each time.
+  - **Proofs and tools changed** (no game code): `coop-motion-moves.mjs`, `coop-world-pods.mjs`,
+    `coop-fixsession-callins.mjs`, `coop-guest-seat.mjs`; `gore-balance.mjs` counts a killing hit as a heal, damage by
+    type, and every enemy attack and how many were made while shaken.
+
+### Check findings
+
+No game bug was found in the update. For the owner and the next agent:
+
+- **"A hit spoils his aim" is barely felt as written** (above): the window (`SPOIL.seconds`, 0.35 s, in
+  `src/enemies/reactions.ts:84`) is shorter than the gap between a man's bursts (`cooldown` 0.5 to 1.05 s plus a
+  0.26 s wind-up, `src/enemies/outpost/weapons.ts`), so only a hit during a burst or a wind-up changes anything. If
+  the rule is meant to save the player damage, the window would have to be about a second. A balance call; not changed.
+- **Fire fear slows the Kiln's rounds** (side effect, not a fault): men who run from a 12 m flame are harder to reach,
+  and the Kiln bot cleared 6 to 7 rounds in 32 minutes with the rule against 7 to 9 without.
+- **Not the update's, seen on the way:** at the office start the player hangs "in the air" 9.8 cm up for 6.7 s before
+  landing, on both builds (`office-waves` trace, frames 0 to 418); `fixhits-pins` with kill prediction off under the bad
+  network (co-op open item 12).

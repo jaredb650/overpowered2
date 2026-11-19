@@ -38,7 +38,9 @@ const copy = (guest, uid) => guest.evaluate(uid => {
   const r = ctx.coop.world.replicas.get(uid);
   if (!r) return null;
   const e = r.enemy;
-  return { at: e.position.toArray(), yaw: e.yaw, ragdoll: !!ctx.gore.downed(e.char), downed: e.downed, frozen: e.frozen, burning: e.burning, flames: !!e.burnEmitter,
+  return { at: e.position.toArray(), yaw: e.yaw, ragdoll: !!ctx.gore.downed(e.char), downed: e.downed, frozen: e.frozen, burning: e.burning,
+    // The flames: one emitter on the chest before the gore update and with `?fire=0`; since it, gore's fire on the whole body.
+    flames: !!e.burnEmitter || !!ctx.gore.fire?.flaming?.(e.char),
     plays: window.__plays?.[uid] ?? [], alive: e.alive, playhead: r.motion.playhead };
 }, uid);
 const hostEnemy = (host, uid) => host.evaluate(uid => {

@@ -1513,6 +1513,106 @@ figures a machine like the owner's M1 plays an ordinary fight as it did, and the
 did (which did not hold 60 there either: 46). **Nothing here was run on a laptop.** The first things to check on one
 are the heap fight with the dev overlay up, and memory with other programs open.
 
+## What is proven after the gore update (check pass, 2026-11-19)
+
+The game at the end of the update (`ad39861`) against the game before it (`d2e2f8a`, the live co-op build), each on its
+own server. Evidence in `tools/out/gore-update/verify/` in the main checkout: `coop/` (the sweep's table and every run's
+folder), `fxrep-*`, `rep-*`, `pods-*` (repeats on both builds), `parity/` (the single-player comparison), `balance/`,
+`suite/`.
+
+**Typecheck and tests:** `npx tsc --noEmit` clean; the whole suite three runs in a row on `ad39861`: 261 files, 3,103
+tests passed and 7 skipped each time (40, 28.5 and 28.2 s).
+
+### Co-op: 176 of 177 runs pass
+
+Every proof `tools/scripts/coop-all.mjs` knows, suites `guest,clean,four,bad,rtc`. The sweep ran on `00a6c7e`; the one
+game change after it (`cb9a461`, a destroyed trunk piece frees its GPU buffers) touches only bodies, so every proof that
+touches them ran again on `ad39861` (27 runs: `gore-shots` on all three networks, `gore-bytes`, the six guest's-seat
+sessions, `fixhits-predict`, `motion-moves`, `motion-vehicles`, `world-pods`, `fixsession-callins`): all pass.
+
+| Transport, network, players | Passed |
+|---|---|
+| loopback, clean: 2 / 3 / 4 players | 52 / 27 / 11 of 52 / 27 / 11 |
+| loopback, bad (`lag:120,jitter:40,loss:0.05`): 2 / 3 / 4 | 45 of 46 / 20 / 1 |
+| real WebRTC, clean: 2 / 3 | 13 / 5 |
+| one page | 2 |
+
+Every run that failed on the way, and why. **None of them was the game.**
+
+| Run | Verdict | What was done |
+|---|---|---|
+| `motion-moves`, 2 players, clean, bad and WebRTC: "burning on the host is burning on the copy, with flames" | **Proof out of date with the update.** It looked for the old single emitter on the chest (`e.burnEmitter`); a body's flames are gore's now, on the whole body | It reads `gore.fire.flaming(char)` as well. 19 of 19 on all three, on the tip |
+| `fx-matrix`, 3 players, bad: "lance-beam / far: arc: as many as the shooter's own (72 and 45)" | **A flaky check that fails before the update too.** Five more runs pass (three on the gore build, two on the old); on the old build a watcher drew 45 against the shooter's 65, inside the 35 % allowed by 2.75. The watcher's count drops to about 45 now and then on both builds, and the shooter's count that run decides. The update has no code in the Lance or its effects | Left |
+| `world-pods`, 4 players: "every player is offered the shop at the shared pod" | **Flaky proof, before the update too** (the old build failed it once in two). The fourth player was put 2.6 m from the pod on a side where the map's random spot can have a wall or a crate, and was pushed out of reach | A player not offered the shop where it was put is walked round the pod, 2 m out, until it is; where each stood is kept in the evidence. Three of three on the tip |
+| `fixsession-callins`, 3 players, bad: "the sentry back on the others' screens once its caller returns" | **Proof timing, before the update too** (old build: two of two fail). The sentry stands 60 s; under the bad network the earlier steps and the 20 s a lost seat is kept took longer, and the sentry had powered down on its own page (`"own": []`) | The proof gives its sentry ten minutes. Six of six on the tip, three under the bad network |
+| `guest-seat/defense`, 3 players: "they died by the airstrike" | **Proof too strict, before the update too** (old build: one of three, a target that burned to death; here one thrown below the map's floor, `fell`) | The step's targets are new men: death by the strike's fire, wound or fall counts as the strike's. Two of two on the tip |
+| `motion-vehicles` (sweep, and twice on the tip), `guest-seat/outpost` and `outpost@office` (first try) | **The machine**: the balance bots beside them (load 34 to 36); `motion-vehicles` fails its own "the pages really ran at 40 a second" | Passed on a quiet machine; the two seats passed on the runner's retry |
+| `fixhits-pins`, 2 players, bad, prediction off: "the body is nailed to the wall" | **Known before the update** (open item 12 in `coop-overhaul.md`): fails four of four here and three of three on the old build, the same numbers. Kill prediction is on in the game | Left |
+
+### Single player: no unintended difference
+
+`node tools/solo-parity.mjs --old <d2e2f8a> --new <ad39861> --long`: 36 scenarios. **15 play the same in every frame and
+event** (the four Outpost sections and its death, two Foreclosure sections, Retraining, the main menu, ADS focus,
+capture, dropped guns, both movement scenarios, Defense's walls). **21 differ**, and each was read for what must not
+change: the end state, every wave's start and the kinds spawned in it, every damage value by weapon, part and type, the
+score reasons, magazine sizes, the shortest gap between shots of each gun, and every text a menu or the HUD showed.
+
+- **Where they part:** a round meets a body in another pose (the flinch, the hand to the wound, the struck part on
+  physics), so it strikes another part (`death`, `tanks`, `chips`, `defense`, `foreclosure`); a blast moves the men it
+  does not kill differently (`callins`); a brute's round 4 frames after he is wounded leaves from his flinch and hits
+  (`office`); a man's walk differs by one to three centimetres from 71 s on, not traced further (`humans-waves`,
+  `humans-shop`, which end with the same score, kills, credits and gear to the last point); the
+  trunk crack's own fields in a kill's event (`damage.torso`, `damage.spill`: `crucible-waves`, `crucible-shop`, which
+  otherwise play the same). Every later difference is the fight going another way.
+- **Menus:** the one new text is the "Mess" row under Video settings (`menus`, `menus-humans`, `menus-campaign`).
+- **Shop:** both shop scenarios end with the same credits, guns and mods: every price, lock and purchase the same.
+- **Waves:** the same totals and kinds wherever the fight before was the same, to round 10 (`humans-waves`,
+  `office-waves`). In `humans` round 2 is 10 men, not 12: the Commander read a different round 1 (the bot took 247
+  damage, not 96) and fielded "rigged pickups" instead of "crossfire". His rule, on another fight.
+- **Missions:** every section ends with the same objectives, tags, save and deaths; only which soldier speaks a radio line
+  after a hit differs.
+- **Weapons, score, credits:** magazine sizes, gaps between shots and per-round damage the same; no score rule differs (a
+  different reason appears only for a different kill, e.g. PASTED for a gib).
+- **Movement:** both movement scenarios the same. One difference: in `office-waves` at frame 334 a piece thrown out of a
+  blast 33 m off (G2) knocked the player 0.4 m; with `?gibthrow=0` he lands at frame 418 as on the old game. A thrown
+  piece can now reach and nudge the player. (On both builds the player hangs "in the air" 9.8 cm up for the first 6.7 s
+  at the office start; not the update's.)
+
+### Balance: the two rules that change how enemies fight
+
+`tools/scripts/gore-balance.mjs` (its header): one seeded bot plays the game's own waves on a frozen clock. This pass
+made it count a hit that would kill as its damage and a heal (a death ended a run part way), damage by type, and every
+attack an enemy makes and how many of them while a hit has his aim shaken.
+
+**"A hit spoils his aim" (`?aimspoil=0` against on): no measurable change in damage taken.**
+
+- **Endless Humans** (three seeds, to round 10 or 32 minutes of game time): men fire 4,339 to 6,285 rounds a run and
+  **4 to 10 of them while shaken (0.06 to 0.22 %)**. Damage taken, on: 1,905, 10,953, 11,356; off: 1,905, 11,906,
+  21,798. The rule on, seed 1, in two runs: 1,905 and 18,426. The script does not level the start as the single-player
+  comparison does (when each model finishes loading moves the fight), so the spread from run to run is far larger than
+  anything the rule could do.
+- **Crucible** (ten seeds, six waves): 33 of 827 attacks (4 %) made while shaken. Damage taken on 221 ± 126 (58 to 517),
+  off 200 ± 140 (71 to 560): no difference (Welch t = 0.3).
+- **Why so rarely:** `shaken` is gone within `SPOIL.seconds` (0.35 s, sooner after a light hit), and a rifleman's next
+  burst comes after a 0.5 to 1.05 s cooldown and a 0.26 s wind-up; only a hit during a burst or a wind-up changes a shot
+  (the wind-up's delay of up to 0.2 s is not in the count). As tuned the rule is seen, as a flinch and a late swing,
+  more than felt as fewer hits taken. Making it matter would mean a window near a burst's cooldown (about 1 s): a
+  balance call for the owner, not changed.
+
+**Fire chips morale (the Kiln in Endless Humans, three seeds; "without" zeroes `FEAR.burning`, `pyre` and
+`burnedAlive` in the page): squads break about 7 s sooner, and a third more of the men break.** The same in every seed.
+
+| Men seen, per run | With the rule | Without |
+|---|---|---|
+| panicked | 69 % (62 to 73) | 58 % (54 to 60) |
+| broke | 48 % (44 to 51) | 36 % (28 to 40) |
+| seconds from first seen to panic, median | 19.2 (18.2 to 20.2) | 24.8 (23.0 to 25.9) |
+| seconds to break, median | 20.5 (19.2 to 21.1) | 27.4 (25.0 to 30.2) |
+| lowest morale, mean | 29 | 39 |
+
+A side effect worth knowing: with the rule the Kiln bot cleared 6 to 7 rounds in 32 minutes, without it 7 to 9. Men who
+run from a 12 m flame are harder to reach.
+
 ## Known limitations
 
 The fit pass (2026-11-19):
