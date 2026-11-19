@@ -2,6 +2,13 @@ import { defineConfig } from 'vitest/config';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execSync } from 'node:child_process';
+import { setPriority } from 'node:os';
+
+// Tests run at the lowest priority with a bounded number of workers: the dev machine is shared, and a full-suite run on
+// every core at normal priority from several agents at once starved everyone else. OP2_TEST_WORKERS overrides the bound.
+if (process.env.VITEST) {
+  try { setPriority(0, 19); } catch { /* not allowed here: run at the normal priority */ }
+}
 
 /** The build id co-op players compare in the lobby (src/net/build.ts): the commit Pages built, or this checkout's. */
 function buildId(): string {
@@ -21,5 +28,5 @@ export default defineConfig({
   build: { target: 'es2022', chunkSizeWarningLimit: 4000, sourcemap: true },
   optimizeDeps: { exclude: ['@dimforge/rapier3d-compat'] },
   // tools/out is scratch: bots and probes leave test files and whole copies of src there.
-  test: { exclude: ['**/node_modules/**', 'tools/out/**'] },
+  test: { exclude: ['**/node_modules/**', 'tools/out/**'], maxWorkers: Number(process.env.OP2_TEST_WORKERS ?? 8) },
 });

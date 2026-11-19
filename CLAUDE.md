@@ -22,7 +22,8 @@ playwright-core (screenshots). No other runtime deps without a strong reason. De
   `export NVM_DIR="$HOME/.nvm"; . "$NVM_DIR/nvm.sh"; nvm use 22` first (the system node is 18).
 - Dev server: `npm run dev` (Vite, 127.0.0.1, port 5173, `strictPort: false`). Agents use their own port, see Safety.
 - Build: `npm run build` (= `tsc --noEmit && vite build`). Typecheck alone: `npx tsc --noEmit`.
-- Tests: run the **whole suite** (`npx vitest run --testTimeout=60000`, ~20 s on the Linux dev machine), or one file while
+- Tests: run the **whole suite** (`npx vitest run --testTimeout=60000`; it runs at low priority on 8 workers, set in
+  `vite.config.ts`, because the machine is shared: about a minute), or one file while
   iterating (`npx vitest run src/weapons/flail.test.ts`). Known failure at `42ab12d`: `src/core/devflags.test.ts` expects the Range
   to start with `arsenal` on, but `src/lab/settings.ts` defaults it off (stale test). Judge a failure in a clean worktree
   (`git worktree add <scratch>/wt-x HEAD`, symlink `node_modules`, apply your diff) before blaming your change.
