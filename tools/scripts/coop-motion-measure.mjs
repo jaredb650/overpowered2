@@ -13,7 +13,7 @@
 //   MOTION_SECONDS   how long to record (default 20)
 //   MOTION_TAG       a word for the evidence file's name (e.g. baseline, after)
 //   MOTION_SHOTS     take this many screenshots of the guest's view, 120 ms apart, after recording
-//   MOTION_STRICT    1: fail unless the motion is inside the limits at the end of this file
+//   MOTION_STRICT    1: fail unless the pages really ran and the motion is inside LIMITS below
 //
 // What it reports (written to motion-<tag>-<enemies>e-<fps>-<net>.json beside --out, and returned):
 //   delay       how far in the past the guest draws, ms: the one delay that fits the whole run best
@@ -268,6 +268,9 @@ export default async function (host, { sleep, outDir }, options = fromEnv()) {
     const cost = page => page.evaluate(() => { const s = window.__op2.stats(); return { fps: s.fps, cpuMs: s.cpuMs, hidden: document.hidden, visibility: document.visibilityState }; });
     result.run = { tag: TAG, enemies: ENEMIES, hostFpsCap: HOST_FPS, net: NET || 'clean', transport: party.transport, coopMs: hostNet.coopMs,
       host: await cost(host), guest: await cost(guest) };
+    // A page that got few frames was starved by the machine (or its window was not being drawn): what it measured is the
+    // machine. The matrix throws such a run away; a strict run fails on it.
+    result.starved = result.guestFps < 40 || result.hostFps < (HOST_FPS ? HOST_FPS * 0.8 : 40);
     out.result = result;
     check(result.enemies >= ENEMIES * 0.9, 'The guest drew the crowd', result.enemies);
     check(result.stalls.movingFrames > 1000, 'The crowd was moving', result.stalls);
@@ -292,6 +295,7 @@ export default async function (host, { sleep, outDir }, options = fromEnv()) {
       for (let i = 0; i < SHOTS; i++) { await shot(guest, `guest-${i}`); await sleep(120); }
     }
     if (STRICT) {
+      check(!result.starved, 'The pages really ran (40 fps or more): the numbers are the netcode\'s, not the machine\'s', { host: result.hostFps, guest: result.guestFps, cost: result.run });
       const measured = result.declared?.error ?? result.error;
       check(measured.p50 <= LIMITS.errorP50, `An enemy is drawn within ${LIMITS.errorP50} m of the host's, half the time`, measured);
       check(measured.p95 <= LIMITS.errorP95, `... and within ${LIMITS.errorP95} m 95% of the time`, measured);

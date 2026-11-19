@@ -1,78 +1,175 @@
 #!/usr/bin/env node
-// Runs coop-motion-measure.mjs over the whole table: 20 and 48 enemies, the host uncapped and at 20 fps, a clean network
-// and two bad ones. One run at a time, each through tools/shot.mjs (so it waits its turn for a browser like every other
-// proof). Give two ports and each case is run on both, one after the other: the old code and the new, which is how the
-// table in docs/notes/coop.md was made.
+// The enemy-motion table, unattended, from one command. Runs coop-motion-measure.mjs over 12 cases (20 and 48 enemies; the
+// host uncapped and at 20 fps; a clean network, lag:80,jitter:30,loss:0.03 and lag:150,jitter:60,loss:0.08), one run at a
+// time, each through tools/shot.mjs (so it takes a browser slot like every other proof and never bypasses the queue).
 //
-//   node tools/scripts/coop-motion-matrix.mjs --ports 5320 --tags after --out tools/out/coop/enemy-motion
-//   node tools/scripts/coop-motion-matrix.mjs --ports 5321,5320 --tags baseline,after --out <dir> [--only 48e-20fps] [--seconds 20]
+//   node tools/scripts/coop-motion-matrix.mjs                       this checkout only
+//   node tools/scripts/coop-motion-matrix.mjs --baseline d9ecffb    this checkout against an older commit, case by case
 //
-// Each port must already serve the game (OP2_NO_HMR=1 npx vite --port <n> --strictPort). Writes one JSON per run,
-// motion-results.json, and motion-table-<tag>.md per tag, and prints the tables.
-import { spawnSync } from 'node:child_process';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+// It sets up what it needs and takes it down again: a Vite server for this checkout (port 5320) if none answers there, and
+// with --baseline a worktree of that commit in the temp folder (npm ci on first use) with its own Vite (port 5321). A server
+// that already answers on a port is used as it is and left running.
+//
+// A case only counts if its pages really ran. A page that got under 40 frames a second (the host: under 80% of its cap when
+// it is capped) was starved by the machine, and what it measured is the machine, not the netcode: that run is thrown away
+// and tried again (--tries, default 3). A case with no clean run is written as "not measured", never as numbers.
+//
+//   --baseline <rev>   also measure this commit (the old lane was last at d9ecffb)
+//   --ports <a,b>      ports for the baseline and for this checkout (default 5321,5320; one port without --baseline)
+//   --out <dir>        where the evidence goes (default tools/out/coop/enemy-motion/matrix)
+//   --tries <n>        runs per case at most (default 3)
+//   --seconds <n>      seconds recorded per run (default 20)
+//   --budget <min>     stop starting runs after this many minutes; the rest are written as not measured
+//   --only <text>      only cases whose name has this in it (e.g. 48e, 20fps, clean)
+//   --keep             leave the baseline worktree in place afterwards
+//
+// Writes, in --out: one JSON per run, motion-results.json (every case, measured or not, with why) and motion-table.md (the
+// table docs/notes/coop.md carries). Prints the table. Exit code 0 if every case was measured, 3 if some were not.
+import { spawn, spawnSync } from 'node:child_process';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 
 const args = process.argv.slice(2);
-const opt = name => { const i = args.indexOf(`--${name}`); return i < 0 ? undefined : args[i + 1]; };
-const ports = String(opt('ports') ?? '5320').split(',').map(Number);
-const tags = String(opt('tags') ?? 'after').split(',');
-const outDir = resolve(opt('out') ?? 'tools/out/coop/enemy-motion');
+const opt = name => { const i = args.indexOf(`--${name}`); return i < 0 ? undefined : args[i + 1] ?? ''; };
+const baseline = opt('baseline');
+const ports = String(opt('ports') ?? (baseline ? '5321,5320' : '5320')).split(',').map(Number);
+const outDir = resolve(opt('out') ?? 'tools/out/coop/enemy-motion/matrix');
+const tries = Math.max(1, Number(opt('tries') ?? 3));
 const seconds = Number(opt('seconds') ?? 20);
+const budgetMs = opt('budget') ? Number(opt('budget')) * 60_000 : Infinity;
 const only = opt('only');
+const keep = args.includes('--keep');
+if (baseline && ports.length < 2) throw new Error('--baseline needs two ports: --ports <baseline>,<this checkout>');
 mkdirSync(outDir, { recursive: true });
 
+/** The builds measured: the baseline first, so the two runs of a case sit side by side in time. */
+const builds = baseline ? [{ tag: 'baseline', label: `old (${baseline})`, port: ports[0], dir: join(tmpdir(), `op2-motion-baseline-${baseline.replace(/[^\w.-]/g, '_')}`) },
+  { tag: 'after', label: 'new', port: ports[1], dir: process.cwd() }] : [{ tag: 'after', label: 'this checkout', port: ports[0], dir: process.cwd() }];
+
 const NETS = ['', 'lag:80,jitter:30,loss:0.03', 'lag:150,jitter:60,loss:0.08'];
+// The crowd at the cap first: if the time runs out, the cases that say most are in.
 const cases = [];
-for (const enemies of [20, 48]) for (const hostFps of [0, 20]) for (const net of NETS) cases.push({ enemies, hostFps, net });
+for (const hostFps of [0, 20]) for (const enemies of [48, 20]) for (const net of NETS) cases.push({ enemies, hostFps, net });
 const label = c => `${c.enemies}e-${c.hostFps || 60}fps-${c.net ? c.net.replace(/[^a-z0-9.]+/gi, '_') : 'clean'}`;
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const log = text => console.error(`[matrix] ${text}`);
 
-function run(port, tag, c) {
-  const env = { ...process.env, MOTION_ENEMIES: String(c.enemies), MOTION_NET: c.net, MOTION_HOST_FPS: String(c.hostFps), MOTION_SECONDS: String(seconds), MOTION_TAG: tag };
-  spawnSync(process.execPath, ['tools/shot.mjs', '--port', String(port), '--w', '1280', '--h', '720', '--wait', '500', '--timeout', '300', '--quiet',
-    '--script', 'tools/scripts/coop-motion-measure.mjs', '--out', `${outDir}/measure.png`], { env, stdio: ['ignore', 'ignore', 'inherit'] });
-  try { return JSON.parse(readFileSync(`${outDir}/motion-${tag}-${label(c)}.json`, 'utf8')).result ?? null; } catch { return null; }
-}
+// -----------------------------------------------------------------------------------------------
+// Setting up and taking down
+// -----------------------------------------------------------------------------------------------
 
-/**
- * A run only counts if the pages really ran: now and then a guest's window is drawn at a frame or two a second (a headless
- * browser quirk, worse on a busy machine), and a busy machine can starve an uncapped host. Such a run is done again, three
- * times at most, and the best one kept.
- */
-const sound = (r, c) => !!r && r.guestFps >= 45 && r.hostFps >= (c.hostFps ? c.hostFps * 0.8 : 45);
-function steady(port, tag, c) {
-  let best = null;
-  for (let attempt = 1; attempt <= 3; attempt++) {
-    const r = run(port, tag, c);
-    if (r && (!best || r.guestFps + r.hostFps > best.guestFps + best.hostFps)) best = r;
-    if (sound(r, c)) break;
-    console.error(`[matrix] ${tag} ${label(c)}: try ${attempt} ran at guest ${r?.guestFps ?? '?'} / host ${r?.hostFps ?? '?'} fps${attempt < 3 ? ', again' : ''}`);
+const started = [];
+let made = null;
+let current = null;
+const answers = port => fetch(`http://127.0.0.1:${port}/`, { signal: AbortSignal.timeout(2500) }).then(r => r.ok, () => false);
+
+async function serve(build) {
+  if (await answers(build.port)) { log(`${build.tag}: using the server already on port ${build.port}`); return; }
+  if (build.tag === 'baseline') {
+    if (!existsSync(build.dir)) {
+      log(`baseline: a worktree of ${baseline} in ${build.dir}`);
+      const add = spawnSync('git', ['worktree', 'add', '--detach', build.dir, baseline], { stdio: ['ignore', 'ignore', 'inherit'] });
+      if (add.status !== 0) throw new Error(`Could not make a worktree of ${baseline}`);
+      made = build.dir;
+    }
+    if (!existsSync(join(build.dir, 'node_modules'))) {
+      log('baseline: npm ci (once)');
+      if (spawnSync('npm', ['ci'], { cwd: build.dir, stdio: ['ignore', 'ignore', 'inherit'] }).status !== 0) throw new Error('npm ci failed in the baseline worktree');
+    }
   }
-  return best;
+  log(`${build.tag}: starting Vite on port ${build.port}`);
+  const vite = spawn('npx', ['vite', '--port', String(build.port), '--strictPort'], { cwd: build.dir, env: { ...process.env, OP2_NO_HMR: '1' }, stdio: 'ignore' });
+  started.push(vite);
+  for (let waited = 0; waited < 90_000; waited += 1000) { if (await answers(build.port)) return; await sleep(1000); }
+  throw new Error(`Vite did not come up on port ${build.port}`);
 }
 
-const results = tags.map(() => []);
-for (const c of cases) {
-  if (only && !label(c).includes(only)) continue;
-  console.error(`[matrix] ${label(c)}`);
-  ports.forEach((port, i) => results[i].push({ c, result: steady(port, tags[i] ?? `p${port}`, c) }));
-  writeFileSync(`${outDir}/motion-results${only ? `-${only}` : ''}.json`, JSON.stringify(Object.fromEntries(tags.map((tag, i) => [tag, results[i]])), null, 1));
+function down() {
+  current?.kill('SIGTERM');
+  for (const vite of started) vite.kill('SIGTERM');
+  started.length = 0;
+  if (made && !keep) { spawnSync('git', ['worktree', 'remove', '--force', made], { stdio: 'ignore' }); rmSync(made, { recursive: true, force: true }); made = null; }
 }
+for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(signal, () => { down(); process.exit(1); });
+
+// -----------------------------------------------------------------------------------------------
+// One run, and one case
+// -----------------------------------------------------------------------------------------------
+
+function run(build, c) {
+  const env = { ...process.env, MOTION_ENEMIES: String(c.enemies), MOTION_NET: c.net, MOTION_HOST_FPS: String(c.hostFps), MOTION_SECONDS: String(seconds), MOTION_TAG: build.tag };
+  const file = `${outDir}/motion-${build.tag}-${label(c)}.json`;
+  rmSync(file, { force: true });
+  return new Promise(done => {
+    // The proof and the kit are this checkout's, whichever build's pages they drive.
+    current = spawn(process.execPath, ['tools/shot.mjs', '--port', String(build.port), '--w', '1280', '--h', '720', '--wait', '500', '--timeout', '300', '--quiet',
+      '--script', 'tools/scripts/coop-motion-measure.mjs', '--out', `${outDir}/measure.png`], { env, stdio: ['ignore', 'ignore', 'inherit'] });
+    current.on('exit', () => {
+      current = null;
+      try { const out = JSON.parse(readFileSync(file, 'utf8')); done({ result: out.result ?? null, failure: out.failure ?? null }); } catch { done({ result: null, failure: 'the run wrote no evidence' }); }
+    });
+  });
+}
+
+/** Did the pages really run? See the header. */
+const clean = (r, c) => !!r && r.guestFps >= 40 && r.hostFps >= (c.hostFps ? c.hostFps * 0.8 : 40);
+const began = Date.now();
+
+async function measureCase(build, c) {
+  let best = null, why = 'not tried';
+  for (let attempt = 1; attempt <= tries; attempt++) {
+    if (Date.now() - began > budgetMs) return { status: 'not measured', why: best ? why : 'the time budget ran out', best };
+    const { result, failure } = await run(build, c);
+    if (clean(result, c)) return { status: 'measured', result, attempts: attempt };
+    if (result && (!best || result.guestFps + result.hostFps > best.guestFps + best.hostFps)) best = { hostFps: result.hostFps, guestFps: result.guestFps, cost: result.run ? { host: result.run.host, guest: result.run.guest } : undefined };
+    why = result ? `machine loaded: the pages ran at host ${result.hostFps} / guest ${result.guestFps} fps` : `the run failed: ${String(failure).split('\n')[0].slice(0, 160)}`;
+    log(`${build.tag} ${label(c)}: try ${attempt} of ${tries} does not count (${why})`);
+  }
+  return { status: 'not measured', why, best };
+}
+
+// -----------------------------------------------------------------------------------------------
+// The table
+// -----------------------------------------------------------------------------------------------
 
 const cm = v => (Number.isFinite(v) ? (v * 100).toFixed(1) : '-');
 function table(rows) {
-  const lines = ['| Enemies | Host fps (measured; guest) | Network | Drawn behind, ms | Error p50 / p95 / max, cm | Yaw error p50 / p95, deg | Stalled frames | Stalls a minute (crowd / per enemy) | Step p95 / max, cm | Snapshot B/s | All lanes B/s |',
-    '|---:|---|---|---:|---|---|---:|---|---|---:|---:|'];
-  for (const { c, result: r } of rows) {
-    if (!r) { lines.push(`| ${c.enemies} | ${c.hostFps || 'uncapped'} | ${c.net || 'clean'} | failed | | | | | | | |`); continue; }
+  const lines = ['| Enemies | Host | Network | Build | Pages ran at, fps (host / guest) | Drawn behind, ms | Error p50 / p95 / p99, cm | Yaw error p50 / p95, deg | Stalled frames | Stalls a minute per enemy | Step p95, cm | Snapshot B/s | All lanes B/s |',
+    '|---:|---|---|---|---|---:|---|---|---:|---:|---:|---:|---:|'];
+  for (const row of rows) {
+    const { c, build } = row;
+    const start = `| ${c.enemies} | ${c.hostFps ? `${c.hostFps} fps` : 'uncapped'} | ${c.net || 'clean'} | ${build} |`;
+    if (row.status !== 'measured') { lines.push(`${start} not measured: ${row.why} | | | | | | | | |`); continue; }
+    const r = row.result;
+    // Against the moment the guest says it is drawing, where it says (the new lane); else the one delay that fits best.
     const e = r.declared?.error ?? r.error, y = r.declared?.yaw ?? r.yaw;
     const behind = r.declared ? `${Math.round(r.declared.behindMs.p50)} (p95 ${Math.round(r.declared.behindMs.p95)})` : `${r.delay}`;
-    lines.push(`| ${c.enemies} | ${c.hostFps || 'uncapped'} (${r.hostFps}, guest ${r.guestFps}) | ${c.net || 'clean'} | ${behind} | ${cm(e.p50)} / ${cm(e.p95)} / ${cm(e.max)} | ${y.p50.toFixed(1)} / ${y.p95.toFixed(1)} | ${r.stalls.frames} (${r.stalls.percent}%) | ${r.stalls.perMinute} / ${r.stalls.perEnemyMinute} | ${cm(r.step.p95)} / ${cm(r.step.max)} | ${r.bytes.snapshotsPerSecond} | ${r.bytes.hostAllLanesPerSecond} |`);
+    lines.push(`${start} ${r.hostFps} / ${r.guestFps} | ${behind} | ${cm(e.p50)} / ${cm(e.p95)} / ${cm(e.p99)} | ${y.p50.toFixed(1)} / ${y.p95.toFixed(1)} | ${r.stalls.frames} (${r.stalls.percent}%) | ${r.stalls.perEnemyMinute} | ${cm(r.step.p95)} | ${r.bytes.snapshotsPerSecond} | ${r.bytes.hostAllLanesPerSecond} |`);
   }
   return lines.join('\n');
 }
-tags.forEach((tag, i) => {
-  const text = table(results[i]);
-  writeFileSync(`${outDir}/motion-table-${tag}${only ? `-${only}` : ''}.md`, `${text}\n`);
-  console.log(`\n## ${tag}\n\n${text}`);
-});
+
+const rows = [];
+const write = () => {
+  writeFileSync(`${outDir}/motion-results.json`, JSON.stringify({ when: new Date().toISOString(), baseline: baseline ?? null, seconds, tries, rows }, null, 1));
+  writeFileSync(`${outDir}/motion-table.md`, `${table(rows)}\n`);
+};
+try {
+  for (const build of builds) await serve(build);
+  for (const c of cases) {
+    if (only && !label(c).includes(only)) continue;
+    for (const build of builds) {
+      log(`${label(c)} on ${build.tag}`);
+      rows.push({ case: label(c), c, build: build.label, tag: build.tag, ...await measureCase(build, c) });
+      write();
+    }
+  }
+} finally {
+  down();
+}
+write();
+console.log(table(rows));
+const missing = rows.filter(row => row.status !== 'measured').length;
+log(`${rows.length - missing} of ${rows.length} measured; evidence in ${outDir}`);
+process.exit(missing ? 3 : 0);

@@ -252,8 +252,16 @@ two states; its turret is the buffer's yaw. The old per-frame `slerp(0.25)` turn
   under loss and reordering, the roster, `dead`, `whenSeen`), `world/moves.test.ts` (moves and identity), `world/puppets.test.ts`.
 - `tools/scripts/coop-motion-measure.mjs`: two pages and a crowd that never stops moving (both players run in circles). Every
   frame the guest records where it drew each enemy and the host where each really was; each drawn position is then compared with
-  where the host had that enemy at the moment being drawn. `coop-motion-matrix.mjs` runs it over the table below, one run at a
-  time through `tools/shot.mjs`. `MOTION_STRICT=1` makes one run fail outside its limits.
+  where the host had that enemy at the moment being drawn. It also records what the game says a frame costs on each page.
+  `MOTION_STRICT=1` makes one run fail outside its limits, or if a page was starved.
+- `tools/scripts/coop-motion-matrix.mjs`: the whole table from one command, unattended:
+  `node tools/scripts/coop-motion-matrix.mjs --baseline d9ecffb`. It starts a Vite for this checkout if none answers on 5320,
+  makes a worktree of the baseline commit in the temp folder with its own Vite on 5321, runs the 12 cases on both, one run at a
+  time through `tools/shot.mjs` (it waits for a browser slot like any proof), and takes down what it started. **A case only
+  counts if its pages really ran:** under 40 frames a second (the host: under 80% of its cap) the page was starved by the
+  machine and its numbers are the machine's, so the run is thrown away and tried again (`--tries`, default 3); a case with no
+  clean run is written as "not measured", never as numbers. It writes `motion-results.json` and `motion-table.md` in `--out`
+  and exits 3 if any case was not measured. `--only 48e`, `--budget <minutes>`, `--seconds`, `--keep` as its header says.
 - `tools/scripts/coop-motion-moves.mjs`: on the guest, a knocked-down enemy is a ragdoll of the guest's own and gets up with the
   host's, ending where the host's stands; a roar and a hitless stagger play; attack clips are not sent; frozen and burning are
   the copy's state and end with the host's; a withdrawn enemy leaves, a killed one stays dead; the lane is unreliable.
