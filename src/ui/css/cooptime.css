@@ -1,0 +1,13 @@
+/* --- Co-op: the team's slow-motion notice (net/world/slowNotice.ts). Under the teammates strip, top centre. --- */
+.ct { position: absolute; top: 4.9rem; left: 50%; transform: translateX(-50%); min-width: 22rem; padding: 0.45rem 0.9rem 0.5rem;
+  background: rgba(7, 10, 14, 0.78); border-top: 0.125rem solid var(--amber); pointer-events: none; text-align: center;
+  animation: ct-in 0.22s cubic-bezier(0.2, 0.9, 0.25, 1); }
+.ct-row { margin-bottom: 0.3rem; }
+.ct-line { font: 1.7rem/1.15 var(--display); letter-spacing: 0.03em; color: var(--ink); white-space: nowrap; }
+.ct-who { text-transform: none; }
+.ct-bar { height: 0.2rem; margin-top: 0.25rem; background: rgba(157, 176, 189, 0.22); }
+.ct-fill { height: 100%; width: 100%; transform-origin: left center; }
+.ct-state { font: 600 0.85rem/1.3 var(--mono); letter-spacing: 0.08em; color: var(--amber); }
+.ct.done { border-top-color: var(--steel); }
+.ct.done .ct-state { color: var(--steel); }
+@keyframes ct-in { from { opacity: 0; transform: translateX(-50%) translateY(-0.5rem); } to { opacity: 1; transform: translateX(-50%); } }

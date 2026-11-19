@@ -144,7 +144,8 @@ export class Game {
     this.setState('playing');
   }
 
-  private frame(): void {
+  /** One world step. `draw` is false on the extra steps a co-op host takes to catch up on a long frame (time.ts `split`). */
+  private frame(draw = true): void {
     const c = this.ctx;
     if (this.state === 'playing' || (this.state === 'paused' && c.coop)) {
       for (const sys of this.ordered) {
@@ -167,7 +168,7 @@ export class Game {
     const moving = (c.render as { backdrop?: { still: boolean } | null }).backdrop?.still === false;
     // A hidden co-op tab is ticked by a worker (run) and draws nothing: there is nobody to see it.
     const hidden = typeof document !== 'undefined' && document.hidden;
-    if (!hidden && (this.state === 'playing' || c.coop || c.time.frame % (this.state === 'menu' || moving ? 2 : 4) === 0)) this.guard('render', () => c.render.render());
+    if (draw && !hidden && (this.state === 'playing' || c.coop || c.time.frame % (this.state === 'menu' || moving ? 2 : 4) === 0)) this.guard('render', () => c.render.render());
     this.guard('input', () => c.input.endFrame?.());
   }
 
@@ -176,12 +177,19 @@ export class Game {
     let windowStart = last;
     let frames = 0;
     const step = (now: number) => {
-      // Co-op: the host keeps only the slow-mo everyone shares, a guest none (net/world.ts clock()).
-      this.guard('coop-clock', () => this.ctx.coop?.world?.clock());
-      this.ctx.time.tick((now - last) / 1000);
+      const raw = (now - last) / 1000;
       last = now;
       const t0 = performance.now();
-      this.guard('frame', () => this.frame());
+      // One step, except on a co-op host below 20 fps: its world is everyone's, so a long frame is played out in several steps
+      // and drawn once, instead of being clamped (which would run the world slow on every screen). The first step takes the
+      // frame's input; `input.endFrame` at the end of each step leaves the later ones only what is still held.
+      const steps = this.ctx.time.split(raw, this.cpuMs);
+      for (let i = 1; i <= steps; i++) {
+        // Co-op: the team's slow-mo, as the host has it, goes onto this screen's clock (net/world/clock.ts).
+        this.guard('coop-clock', () => this.ctx.coop?.world?.clock());
+        this.ctx.time.tick(raw / steps);
+        this.guard('frame', () => this.frame(i === steps));
+      }
       this.cpuMs = performance.now() - t0;
       frames++;
       if (now - windowStart >= 500) {

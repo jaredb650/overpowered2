@@ -99,6 +99,11 @@ class Progression implements ProgressionSystem {
     this.perks.holdGrade(grade);
   }
 
+  /** Co-op: a teammate's slow-mo is on, and this screen takes its look (net/world/clock.ts). Null gives the screen back. */
+  shareGrade(grade: GradeName | null): void {
+    this.perks.shareGrade(grade);
+  }
+
   init(): void {
     const { ctx } = this;
     const materials = new ModelMaterials(ctx);
@@ -115,6 +120,9 @@ class Progression implements ProgressionSystem {
     this.perks.listen({
       onEffectStart: id => this.effectStarted(id),
       onEffectEnd: id => this.effectEnded(id),
+      // A second Time Warp capsule: the slow-mo is asked for again. Alone that changes nothing (the request is already up);
+      // in co-op it tells the host to start this player's slow-mo clock again (net/world/clock.ts), as the perk's own timer has.
+      onEffectRefresh: id => { if (id === 'slowmo' || id === 'timeWarp') this.ctx.time.pushScale(id, 0.25, 0.18, 0.4); },
     });
     this.resetComboRungs();
     this.resetStyleGate();

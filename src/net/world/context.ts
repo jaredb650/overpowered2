@@ -30,20 +30,35 @@ export function unpackDamage(damage: WireDamage): DamageInfo {
 /** Host: work for a little later (an enemy's blast on a remote player, after its fuse), run from the world's update. */
 export class Later implements WorldModule {
   private queue: { at: number; run: () => void }[] = [];
+  private fuses: { left: number; run: () => void }[] = [];
+  /** `worldDt`: the world clock's step this frame (`ctx.time.dt`), for `after`. */
+  constructor(private readonly worldDt: () => number = () => 0) {}
+  /** At `at` on the real clock (`performance.now()`). */
   push(at: number, run: () => void): void { this.queue.push({ at, run }); }
+  /** After `seconds` of world time: slow-mo stretches it, as it stretches the fuse the players are watching. */
+  after(seconds: number, run: () => void): void { this.fuses.push({ left: seconds, run }); }
   update(now: number): void {
-    const due = this.queue.filter(event => event.at <= now);
-    this.queue = this.queue.filter(event => event.at > now);
-    for (const event of due) event.run();
+    if (this.queue.length > 0) {
+      const due = this.queue.filter(event => event.at <= now);
+      this.queue = this.queue.filter(event => event.at > now);
+      for (const event of due) event.run();
+    }
+    if (this.fuses.length === 0) return;
+    const dt = this.worldDt();
+    for (const fuse of this.fuses) fuse.left -= dt;
+    const due = this.fuses.filter(fuse => fuse.left <= 0);
+    if (due.length === 0) return;
+    this.fuses = this.fuses.filter(fuse => fuse.left > 0);
+    for (const fuse of due) fuse.run();
   }
-  dispose(): void { this.queue = []; }
+  dispose(): void { this.queue = []; this.fuses = []; }
 }
 
 export class WorldContext {
   readonly stats = { snapshotBytes: 0, eventBytes: 0, snapshotPackets: 0, eventPackets: 0, accepted: 0, rejected: 0, since: performance.now() };
   readonly validator = new ClaimValidator();
   readonly router = new Router();
-  readonly later = new Later();
+  readonly later: Later;
   /** The team's lives. Set by world.ts as soon as the team is built (the team needs `send` first). */
   team!: Team;
   /** False until the map is up (`CoopWorld.begin`): events that arrive earlier are dropped, the latest snapshot is kept. */
@@ -58,6 +73,7 @@ export class WorldContext {
   private readonly offs: (() => void)[] = [];
 
   constructor(readonly ctx: Ctx, readonly session: CoopSession) {
+    this.later = new Later(() => ctx.time.dt);
     this.sendSnapshot = session.lobby.gameplay<ArrayBuffer>('world', data => this.onSnapshot(data));
     this.sendAction = session.lobby.gameplay<WorldEvent>('action', (data, from) => this.receive(data, from));
   }

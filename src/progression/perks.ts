@@ -19,6 +19,8 @@ const isCapsule = (id: EffectId): boolean => POWERUPS.includes(id as PowerupId);
 export interface EffectListener {
   onEffectStart?(id: EffectId): void;
   onEffectEnd?(id: EffectId): void;
+  /** A running effect was granted again and its timer went back to full (retrigger 'refresh' or 'stack'). */
+  onEffectRefresh?(id: EffectId): void;
 }
 
 const GRADE_BLEND = 0.25;
@@ -33,6 +35,8 @@ export class PerkRunner {
   private grade: string = 'default';
   /** A seat's picture outranks every perk for as long as it is up. */
   private heldGrade: GradeName | null = null;
+  /** Co-op: a teammate's slow-mo gives this screen its look too. It ranks as that perk would, under a seat's picture. */
+  private sharedGrade: GradeName | null = null;
   private wasInvulnerable = false;
 
   constructor(private readonly ctx: Ctx) {
@@ -62,6 +66,7 @@ export class PerkRunner {
     if (effect.stacks > 0) {
       if (def.retrigger === 'ignore') return;
       effect.remaining = def.seconds;
+      for (const l of this.listeners) l.onEffectRefresh?.(id);
       if (def.retrigger === 'stack' && effect.stacks < def.maxStacks) {
         effect.stacks++;
         // Silent at max stacks, as in the first game: the timer refreshes but nothing new happened.
@@ -213,13 +218,21 @@ export class PerkRunner {
     this.applyGrade();
   }
 
+  /** Co-op (net/world/clock.ts): the look of a slow-mo a teammate caused, or null when it ends. */
+  shareGrade(grade: GradeName | null): void {
+    this.sharedGrade = grade;
+    this.applyGrade();
+  }
+
   private applyGrade(): void {
     let best: EffectDef | null = null;
     for (const e of this.effects) {
       const def = EFFECTS[e.id];
       if (def.grade && (!best || def.gradeRank > best.gradeRank)) best = def;
     }
-    const grade = this.heldGrade ?? best?.grade ?? 'default';
+    // A teammate's SLOWMO looks as this player's own would: it yields only to a perk that outranks SLOWMO (Berserk).
+    const shared = this.sharedGrade && (!best || best.gradeRank <= EFFECTS.slowmo.gradeRank) ? this.sharedGrade : null;
+    const grade = this.heldGrade ?? shared ?? best?.grade ?? 'default';
     if (grade === this.grade) return;
     this.grade = grade;
     this.ctx.render.post.setGrade(grade, grade === 'default' ? GRADE_RELEASE : GRADE_BLEND);

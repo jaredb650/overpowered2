@@ -106,7 +106,8 @@ export class Targeting implements WorldModule {
             const dir = end.sub(from).normalize();
             ctx.combat.fireRay(from, dir, { damage, source, team: 'enemy', tracer: 'enemy' });
           },
-          blast: (at, radius, damage, delay, source) => this.w.later.push(performance.now() + delay * 1000,
+          // The fuse burns on the world clock: under shared slow-mo the grenade the players watch is slowed, and so is its blast.
+          blast: (at, radius, damage, delay, source) => this.w.later.after(delay,
             () => ctx.combat.explode(at, { radius, damage, source, team: 'enemy', kind: 'enemy' })),
         };
         adapter = { id: roster.id, player, life, foe };

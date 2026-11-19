@@ -21,6 +21,7 @@ import { Chatter } from './world/chatter';
 import { Claims, type StatusKind } from './world/claims';
 import { Clock } from './world/clock';
 import { Credit } from './world/credit';
+import type { SlowKind } from './world/slow';
 import { WorldContext, type WorldModule } from './world/context';
 import { EnemyFire } from './world/enemyFire';
 import { Guns, type GunEvent } from './world/guns';
@@ -81,11 +82,12 @@ export class CoopWorld {
     this.claims = new Claims(w, this.enemies, this.targeting);
     this.shots = new RemoteFire(w);
     new Callins(w);
-    // Sonar is shared; Thermal and Focus are each player's own and never sent.
+    // Sonar is shared; Thermal is each player's own and never sent. Focus slows the world for everyone (world/clock.ts).
     new SharedSonar(w);
-    this.time = new Clock(w);
     this.credit = new Credit(w, this.claims);
     this.hits = new Hits(w, this.enemies, this.credit);
+    // After Credit: a boss's death names its killer, which Credit works out on the same `enemy:killed`.
+    this.time = new Clock(w, uid => this.credit.slot(uid));
     new Chatter(w, this.enemies);
     this.capture = new Capture(w, this.enemies);
     this.enemyFire = new EnemyFire(w, this.targeting);
@@ -96,7 +98,7 @@ export class CoopWorld {
     this.guns = new Guns(w);
     this.vehicles = new Vehicles(w);
     this.garrison = new Allies(w);
-    this.modules = [this.capture, this.vehicles, this.garrison, this.targeting, this.claims, this.credit, this.attacks, this.warnings, w.later, this.enemies];
+    this.modules = [this.capture, this.vehicles, this.garrison, this.targeting, this.claims, this.credit, this.attacks, this.warnings, w.later, this.time, this.enemies];
   }
 
   /** Read by the two-page proofs (tools/scripts/coop-*.mjs): the guest's enemy copies, last snapshot and garrison bodies. */
@@ -121,8 +123,17 @@ export class CoopWorld {
   creditAs(owner: string | null): string | null { return this.credit.as(owner); }
   /** Host: floating text for the hit being applied. True when it went to the guest whose hit it was instead. */
   labelFor(at: THREE.Vector3, text: string, color?: string): boolean { return this.credit.label(at, text, color); }
-  /** Before the clock ticks: the host keeps the slow-mo everyone shares, a guest keeps none (its world is the host's). */
+  /** Before the clock ticks: the team's slow-mo, as the host has it, is applied to this screen's clock (world/clock.ts). */
   clock(): void { this.time.clock(); }
+  /** Is this player's own slow-mo of this kind (the Focus brain chip, a perk) still granted by the host, or on its way there? */
+  slowHeld(kind: SlowKind): boolean { return this.time.held(kind); }
+  /** Why this player's last slow-mo of this kind was refused or cut short, read once. */
+  slowRefusal(kind: SlowKind): ReturnType<Clock['takeRefusal']> { return this.time.takeRefusal(kind); }
+  /** What is slowing the world on this screen now, and what the notice reads (the proofs, tools/scripts/coop-time-*.mjs). */
+  get slows(): Clock['active'] { return this.time.active; }
+  get slowNotice(): ReturnType<Clock['readNotice']> { return this.time.readNotice(); }
+  /** Host: the team's slow-mo rules and budget. */
+  get slowBoard(): Clock['board'] { return this.time.board; }
   begin(): void {
     this.w.ready = true;
     this.mission.begin();

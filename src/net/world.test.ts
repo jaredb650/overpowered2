@@ -448,19 +448,20 @@ describe('stage 3: the team, the economy and what else crosses the wire', () => 
     expect(fx.explosion).toHaveBeenCalledOnce();
     game.hw.dispose(); game.gw.dispose();
   });
-  it("slows the host's world for a guest's slow-mo, and only as long as it should", () => {
+  it("slows the host's world for a guest's slow-mo and tells every guest who (the rules and the rest: world/clock.test.ts)", () => {
     const game = pair();
-    const time = { pushScale: vi.fn(), popScale: vi.fn(), keepScales: vi.fn(), clearScales: vi.fn() };
-    Object.assign(game.host.ctx.time, time); Object.assign(game.guest.ctx.time, { clearScales: vi.fn() });
-    game.guest.ctx.events.emit('perk:start', { id: 'slowmo', seconds: 5, label: '', color: '' }); game.relay.flush();
-    expect(time.pushScale).toHaveBeenCalledWith(expect.stringMatching(/^coop:/), 0.25, 0.18, 0.4);
-    game.hw.clock();
-    const keep = time.keepScales.mock.calls[0]![0] as (id: string) => boolean;
-    expect([keep('slowmo'), keep('bossDeath'), keep('coop:x:slowmo'), keep('fanSlowmo'), keep('focus')]).toEqual([true, true, true, false, false]);
+    const hostTime = { share: vi.fn(), unshare: vi.fn() }, guestTime = { share: vi.fn(), unshare: vi.fn() };
+    Object.assign(game.host.ctx.time, hostTime); Object.assign(game.guest.ctx.time, guestTime);
+    // The guest's game asks its own clock (progression's SLOWMO perk); in co-op the clock hands the request to the world.
+    (game.guest.ctx.time as unknown as { gate: { push(id: string, scale: number, fadeIn: number, fadeOut: number): void } }).gate.push('slowmo', 0.25, 0.18, 0.4);
+    game.relay.flush(); game.hw.clock(); game.hw.update(); game.relay.flush(); game.gw.clock();
+    expect(hostTime.share).toHaveBeenCalledWith(expect.stringMatching(/^coop:\d:slowmo$/), 0.25, 0.18, 0.5);
+    expect(guestTime.share).toHaveBeenCalledWith(expect.stringMatching(/^coop:\d:slowmo$/), 0.25, 0.18, 0.5);
+    expect(game.hw.slows.map(e => e.slot)).toEqual([game.guestLobby.me!.slot]);
+    // It cannot outlive its cap, whatever the guest does or does not send.
     vi.advanceTimersByTime(9000); game.hw.clock();
-    expect(time.popScale).toHaveBeenCalled();
-    game.gw.clock();
-    expect(game.guest.ctx.time.clearScales).toHaveBeenCalled();
+    expect(hostTime.unshare).toHaveBeenCalled();
+    expect(game.hw.slows).toHaveLength(0);
     game.hw.dispose(); game.gw.dispose();
   });
   it("shares a sonar ping both ways with a feed line, and never a teammate's thermal or focus", () => {

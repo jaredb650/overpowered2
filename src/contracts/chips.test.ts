@@ -216,7 +216,7 @@ describe('Focus', () => {
     expect(r.ctx.time.slowmo).toBe(1);
   });
 
-  it('needs a quarter of the meter to start, stops on a second tap, and does nothing in co-op', () => {
+  it('needs a quarter of the meter to start, and stops on a second tap', () => {
     r.chips.meter = FOCUS.start - 0.01;
     r.frame('down');
     expect(r.chips.focus).toBe(false);
@@ -229,12 +229,52 @@ describe('Focus', () => {
     r.frame('up');
     r.frame('down');
     expect(r.chips.focus).toBe(false);
-    r.ctx.coop = {} as never;
+  });
+
+  it('co-op: Focus asks the host through the clock, keeps its own meter, and turns off when the host refuses or ends it', () => {
+    // The co-op world as the chip sees it (net/world/clock.ts): the clock's gate takes the request, the world says if it stands.
+    const held = new Set<string>();
+    let grant = true;
+    const asked: string[] = [];
+    r.ctx.time.gate = { push: id => { asked.push(`+${id}`); if (grant) held.add(id); }, pop: id => { asked.push(`-${id}`); held.delete(id); } };
+    r.ctx.coop = { world: { slowHeld: (kind: string) => held.has(kind), slowRefusal: () => null } } as never;
+    r.frame('down');
+    expect(asked).toEqual(['+focus']);
+    expect(r.chips.focus).toBe(true);
+    expect(r.sounds).toContain('ui_toggle');
+    expect(r.callouts).not.toContain('NO FOCUS BRAIN CHIP IN CO-OP');
+    // Nothing went onto this screen's clock past the gate: the host's answer does that.
+    expect(r.ctx.time.slowmo).toBe(1);
+    // The meter is this player's own, on their own clock, as alone.
     r.frame('up');
-    r.run(FOCUS.delay + 1);
+    r.run(1);
+    expect(r.chips.meter).toBeCloseTo(1 - 1 / FOCUS.seconds, 1);
+    expect(r.chips.badge.text).toBe(String(Math.floor(r.chips.meter * 100)));
+    // The host ends it (the team's budget ran out, or this player went down): the chip goes off, and rests before refilling.
+    held.delete('focus');
+    r.frame();
+    expect(r.chips.focus).toBe(false);
+    const meter = r.chips.meter;
+    r.run(FOCUS.delay * 0.5);
+    expect(r.chips.meter).toBe(meter);
+    // Refused on the spot: no toggle, nothing spent, off.
+    r.run(FOCUS.delay + 2);
+    grant = false;
+    const before = r.chips.meter, toggles = r.sounds.filter(s => s === 'ui_toggle').length;
     r.frame('down');
     expect(r.chips.focus).toBe(false);
-    expect(r.callouts).toContain('NO FOCUS BRAIN CHIP IN CO-OP');
+    expect(r.sounds.filter(s => s === 'ui_toggle').length).toBe(toggles);
+    expect(r.chips.meter).toBeGreaterThanOrEqual(before);
+    // Tapping it off is the player's own to do.
+    grant = true;
+    r.frame('up');
+    r.frame('down');
+    expect(r.chips.focus).toBe(true);
+    r.frame('up');
+    r.frame('down');
+    expect(r.chips.focus).toBe(false);
+    expect(asked.at(-1)).toBe('-focus');
+    r.ctx.time.gate = null;
   });
 });
 

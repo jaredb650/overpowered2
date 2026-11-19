@@ -261,15 +261,22 @@ export class Chips {
   setFocus(on: boolean): void {
     const { audio, time } = this.ctx;
     if (on === this.focus) return;
-    if (on && (this.ctx.coop || !this.ctx.player.alive || this.meter < FOCUS.start)) {
-      // Co-op: one player's clock cannot slow the other's (docs/notes/coop.md), so Focus does nothing there.
+    if (on && (!this.ctx.player.alive || this.meter < FOCUS.start)) {
       audio.play('ui_error');
-      if (this.ctx.coop) this.ctx.hud.callout?.('NO FOCUS BRAIN CHIP IN CO-OP');
       return;
     }
     this.focus = on;
     if (on) {
+      // Co-op: the request goes to the host, who slows the world for the whole team and names this player on every screen
+      // (net/world/clock.ts). The meter, the start share and the refill stay this player's own, as alone.
       time.pushScale('focus', FOCUS.scale, FOCUS.fadeIn, FOCUS.fadeOut);
+      const world = this.ctx.coop?.world;
+      if (world && !world.slowHeld('focus')) {
+        // Refused on the spot (down, or the team's slow-mo budget is spent): the clock has said why. Nothing is spent.
+        world.slowRefusal('focus');
+        this.focus = false;
+        return;
+      }
       audio.play('ui_toggle');
     } else {
       time.popScale('focus');
@@ -403,6 +410,14 @@ export class Chips {
 
   private updateFocus(dt: number): void {
     if (this.focus) {
+      const world = this.ctx.coop?.world;
+      if (world && !world.slowHeld('focus')) {
+        // Co-op: the host refused or ended it (this player went down, or the team's budget ran out). The chip goes off with it.
+        world.slowRefusal('focus');
+        this.focus = false;
+        this.rest = FOCUS.delay;
+        return;
+      }
       this.meter = Math.max(0, this.meter - dt / FOCUS.seconds);
       if (this.meter <= 0) this.setFocus(false);
       return;
@@ -444,7 +459,7 @@ export class Chips {
       b.fill = this.kataWait > 0 ? 1 - this.kataWait / KATA.cooldown : 0;
     } else {
       b.lit = this.focus || this.meter >= FOCUS.start;
-      b.text = this.ctx.coop ? 'CO-OP' : `${Math.floor(this.meter * 100)}`;
+      b.text = `${Math.floor(this.meter * 100)}`;
       b.fill = this.meter;
     }
   }
