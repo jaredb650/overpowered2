@@ -30,6 +30,10 @@
 //                counts frames through requestAnimationFrame itself. Always 0 with `fps`, look, and draw: 'all'.
 //     audio      false by default: the page's Web Audio is kept suspended, as the game itself does in a hidden tab (its
 //                audio thread alone took 0.8 of a core per page). Sounds are still asked for; none is mixed. true runs it.
+//     realLock   false by default, in look mode too: every page gets a pretend pointer lock (`fakeLock` below), because
+//                headless Chromium's real one runs away in guest windows (tens of thousands of pointer updates a second,
+//                the browser process at 1.2 cores, the guest's view turning by itself). true or COOP_REAL_LOCK=1 takes
+//                the browser's own lock.
 //     look       true = today's page exactly (draw: 'all', audio: true, clock: 0): for look-checks, videos, and any proof about
 //                smoothness, the cost of drawing, or sound actually playing.
 //                On the command line, over every proof: COOP_LOOK=1, COOP_DRAW=all|<n>, COOP_AUDIO=1, COOP_CLOCK=0|<n>.
@@ -224,6 +228,33 @@ export const noAudio = () => {
   window.__coopAudio = run => { on = run; for (const ac of made) if (ac.state !== 'closed') void (run ? Real.prototype.resume.call(ac) : Real.prototype.suspend.call(ac)).catch(() => {}); };
 };
 
+/**
+ * A pretend pointer lock, as an init script, on by default for every test page (`realLock: true` in startParty or
+ * COOP_REAL_LOCK=1 takes the browser's own). Headless Chromium's real lock runs away in a window opened by a page (every
+ * guest on loopback): measured, 9,000 to 34,000 raw pointer updates a second into the guest page with nobody touching the
+ * mouse, the browser process at 1.2 cores, the guest's own process at twice the host's, a mouse move every frame that
+ * turns the guest's view, and the browser process growing to gigabytes. That, not the game, is what held guest pages at 0
+ * to 1 frame a second on a busy machine. Here the page gets what a granted lock looks like and nothing is locked:
+ * `document.pointerLockElement`, `pointerlockchange`, `exitPointerLock`, and Esc ending the lock with its keydown
+ * swallowed, as Chrome does. A proof's own mouse moves (shot.mjs `mouseMove`, dispatched events) arrive as before.
+ */
+export const fakeLock = () => {
+  if (window.__coopLock) return;
+  let held = null;
+  const changed = () => document.dispatchEvent(new Event('pointerlockchange'));
+  Object.defineProperty(Document.prototype, 'pointerLockElement', { configurable: true, get: () => held });
+  Element.prototype.requestPointerLock = function () {
+    return new Promise(resolve => setTimeout(() => { if (held !== this && this.isConnected) { held = this; changed(); } resolve(); }, 0));
+  };
+  Document.prototype.exitPointerLock = function () { setTimeout(() => { if (held) { held = null; changed(); } }, 0); };
+  window.addEventListener('keydown', event => {
+    if (event.key !== 'Escape' || !held) return;
+    event.stopImmediatePropagation(); event.preventDefault();
+    held = null; changed();
+  }, true);
+  window.__coopLock = () => held;
+};
+
 /** Changes how many frames a second pages draw while they run: 'all' or a number. No effect on a page loaded without fast mode. */
 export const setDraw = async (pages, draw) => {
   for (const page of [pages].flat()) await page.evaluate(hz => window.__op2?.proof?.rate(hz), draw === 'all' ? 1000 : draw).catch(() => {});
@@ -242,7 +273,7 @@ function freshShots(page) {
  * `audio: false` its silence and `clock` its timer; a kit of your own that opens pages passes `party.draw`, `party.audio`
  * and `party.clock`.
  */
-export async function prepare(page, { fps, out, tag, draw = 'all', audio = true, clock = 0 }) {
+export async function prepare(page, { fps, out, tag, draw = 'all', audio = true, clock = 0, realLock = process.env.COOP_REAL_LOCK === '1' }) {
   page.on('pageerror', error => out?.errors.push(`${tag}: ${error.message}`));
   // For the evidence file: each page's warnings, errors and co-op lines, and every address it loads (a page that reloads
   // out of a match shows here).
@@ -260,6 +291,7 @@ export async function prepare(page, { fps, out, tag, draw = 'all', audio = true,
   if (draw !== 'all' || clock > 0) await page.addInitScript(proofSwitch, [draw, clock]);
   if (draw !== 'all') freshShots(page);
   if (!audio) await page.addInitScript(noAudio);
+  if (!realLock) await page.addInitScript(fakeLock);
   await page.addInitScript(quiet);
   await page.addInitScript(returning);
 }
@@ -284,15 +316,16 @@ export async function startParty(host, options) {
     startNow = true, players = 2, net, fps = Number(process.env.COOP_FPS ?? DEFAULT_FPS), transport = process.env.COOP_NET ?? DEFAULT_TRANSPORT } = options ?? {};
   const draw = drawRate(options);
   const clock = draw === 'all' ? 0 : Number(process.env.COOP_CLOCK ?? options?.clock ?? DEFAULT_CLOCK);
+  const realLock = process.env.COOP_REAL_LOCK === '1' || options?.realLock === true;
   const audio = process.env.COOP_AUDIO === '1' || process.env.COOP_LOOK === '1' || (options?.audio ?? options?.look === true);
   if (transport !== 'loop' && transport !== 'rtc') throw new Error(`Unknown transport "${transport}": 'loop' or 'rtc'`);
   if (!(players >= 2 && players <= 4)) throw new Error(`players must be 2 to 4, not ${players}`);
   const picked = modeOf(mode, map);
   const base = new URL(host.url()).origin;
-  const party = { host, guests: [], pages: [host], guest: null, invite: '', password, mode: picked, transport, net, fps, draw, audio, clock, out, progress, sleep, base };
+  const party = { host, guests: [], pages: [host], guest: null, invite: '', password, mode: picked, transport, net, fps, draw, audio, clock, realLock, out, progress, sleep, base };
   if (draw !== 'all' || !audio) progress(`fast mode: pages simulate every frame, draw ${draw === 'all' ? 'every frame' : draw === 0 ? 'only for a screenshot or a measure()' : `${draw} a second`}${audio ? '' : ', audio suspended'} (look: true or COOP_LOOK=1 is the page as a player has it)`);
 
-  await prepare(host, { fps, out, tag: 'host', draw, audio, clock });
+  await prepare(host, { fps, out, tag: 'host', draw, audio, clock, realLock });
   await host.goto(address(base, { transport, net }), { waitUntil: 'load', timeout: 120000 });
   await host.waitForFunction(() => !!window.__op2?.ctx.render, null, { timeout: 120000 });
   await host.locator('.scr-splash').waitFor({ state: 'visible', timeout: 120000 });
@@ -327,10 +360,10 @@ export const startPair = (host, options) => startParty(host, { ...options, playe
  * there (pass it as `page`), so several guests can boot at once.
  */
 async function loadGuest(party, name) {
-  const { host, transport, fps, out, draw, audio, clock } = party;
+  const { host, transport, fps, out, draw, audio, clock, realLock } = party;
   const guest = transport === 'loop' ? await ownWindow(host)
     : await host.context().browser().newPage({ viewport: host.viewportSize(), deviceScaleFactor: await host.evaluate(() => window.devicePixelRatio) });
-  await prepare(guest, { fps, out, tag: name.toLowerCase(), draw, audio, clock });
+  await prepare(guest, { fps, out, tag: name.toLowerCase(), draw, audio, clock, realLock });
   // The same player's browser keeps their callsign; a test page has none stored yet.
   await guest.addInitScript(name => { if (!sessionStorage.getItem('coopKitNamed')) { localStorage.setItem('op2_coop_name', name); sessionStorage.setItem('coopKitNamed', '1'); } }, name);
   await guest.goto(party.invite);

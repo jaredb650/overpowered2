@@ -1357,6 +1357,13 @@ export default async function (host, { sleep, outDir }) {
   `setDraw(pages, 'all' | n)` changes the rate mid-run; `fresh(page)` draws now. A kit of your own that opens pages itself
   passes `party.draw` and `party.audio` to the kit's `prepare(page, { fps, out, tag, draw, audio })`; pages it opens any other
   way are today's pages. Details and numbers: "What a proof costs" below.
+- **A pretend pointer lock, on every kit page, in look mode too** (`fakeLock` in the kit; `realLock: true` or
+  `COOP_REAL_LOCK=1` takes the browser's own). Headless Chromium's real pointer lock runs away in a window opened by a page,
+  which every loopback guest is: 9,000 to 34,000 raw pointer updates a second with nobody touching the mouse, the browser
+  process at 1.2 cores and growing to gigabytes, the guest's own process at twice the host's, and a mouse move every frame
+  that turned the guest's view. **This was the guest page at 0 to 1 frame a second, and most of what a long proof cost.** The
+  page now gets what a granted lock looks like (`document.pointerLockElement`, `pointerlockchange`, `exitPointerLock`, Esc
+  ending it with the keydown swallowed, as Chrome does) and nothing is locked. A proof's own mouse moves arrive as before.
 - **What a run costs:** `node tools/proof-cost.mjs -- node tools/shot.mjs ...` runs any proof and prints its wall time, the wait for
   a slot, peak Chrome memory by process type and CPU seconds. `tools/scripts/page-cost.mjs` under it measures one page (boot stages,
   frame cost, memory split).
@@ -1470,8 +1477,7 @@ own work, so only a cache inside the game could shorten it (not built). In `coop
 - **Page frame rates, three pages in a live fight, both modes at the same moment** (load 70): fast mode 13 to 54 loop frames a
   second on every page, about 38 on average; today's mode 0 to 20, about 5 on average (that fast run also had `clock: 60`).
   Two-page smoke runs without the clock: host 47 to 56 and guest 8 to 28 in fast mode; host 24 to 32 and guest 0 to 26 in
-  today's mode. A guest page can still fall to about 1 frame a second for seconds at a time in either mode; that is not
-  explained (the page is visible and focused, and nothing is flooding its console).
+  today's mode. All of these were taken with the real pointer lock, whose runaway (below) is what held the guests down.
 
 **Before and after, the same proof in both modes at the same moment** (so the same machine load):
 
@@ -1493,11 +1499,34 @@ own work, so only a cache inside the game could shorten it (not built). In `coop
 - `coop-robust` fails in fast mode at "the guest's tab dies; the host is alone within 40 s". Not run in today's mode, so not
   compared: the session lane now keeps a dropped guest's seat for 60 s, which would fail that wait in either mode.
 - `coop-session-start` and a 4-page run were queued and cut when the machine had to be relieved: not run.
-- **Found and not fixed: in `coop-drops` the browser process itself took 225 to 236 CPU seconds on its main thread and grew to 2.3
-  to 3.1 GB, and the pages' compositor threads took 154 to 159 more, in both modes.** That is 40% of that proof's CPU and a third of
-  its memory, it is absent from quiet runs (5 CPU seconds, 130 MB), and it showed in two other runs whose guest page had
-  starved. Suspects, none confirmed: loopback messages (`BroadcastChannel` goes through the browser process) piling up for a page
-  that is not reading them; a DOM screen (the shop) animating at full rate. It is the next thing to look at.
+- In `coop-drops` the browser process itself took 225 to 236 CPU seconds on its main thread and grew to 2.3 to 3.1 GB, and the
+  pages' compositor threads took 154 to 159 more, in both modes; the proof also stopped at 8 of its 12 checks. That was the
+  runaway pointer lock, found next.
+
+**The runaway pointer lock (found second, the biggest single fix).** A probe counting events on each page of a live two-page
+fight: the host got no pointer events; the guest, a window opened by `window.open`, got 9,000 to 34,000 `pointerrawupdate` a
+second and a `mousemove` every frame while under pointer lock, with the browser process at 1.2 cores and the guest's process at
+1.93 (the host's 0.79). With the kit's pretend lock: no events, the browser process under 0.02 cores, both pages' processes at
+0.8, both at 60 frames a second. Same proofs, fast mode, before and after the pretend lock:
+
+| Proof | Lock | Checks | Seconds running | Chrome CPU seconds | Browser process CPU / peak | Peak Chrome memory |
+|---|---|---:|---:|---:|---:|---:|
+| `coop-drops` (load 60 to 77) | real | 8 of 12 | 357 | 815 | 292 s / 2.3 GB | 9.4 GB |
+| `coop-drops` (load 14 to 26) | pretend | **12 of 12** | **57** | **148** | 6 s / 0.15 GB | 3.2 GB |
+| `coop-stage3` (same moment, load 30) | real | fails at check 8 (see below) | 75 | 226 | 40 s | 3.1 GB |
+| `coop-stage3` | pretend | fails at the same check 8 | 75 | 180 | 8 s | 3.1 GB |
+| `coop-smoke` (load 72 to 75) | real | 5 of 5 | 68 and 70 | 144 and 164 | 17 and 18 s | 3.0 GB |
+| `coop-smoke` (load about 20) | pretend | 5 of 5 | 45 | 122 | 5 s | 3.0 GB |
+
+In that last smoke run both pages measured 60 frames a second (host and guest), and the fight began 38 s after the start.
+
+The drops rows were not taken at the same load (the slots were cut between them), so the seconds flatter the pretend lock; the
+CPU seconds and the memory do not depend on load. Against today's mode with the real lock (954 CPU seconds, 11.1 GB, 8 checks),
+`coop-drops` now costs **a sixth of the CPU and under a third of the memory, and passes**.
+
+- `coop-stage3` passed 12 of 12 in both modes before my rebase at 22:55 and fails since at "The guest shops while the world
+  runs on" (the guest's `shop:open` leaves it `playing`), with the real lock as with the pretend one: a change another lane
+  landed (the shop or the break rules), not this work. It needs that lane's eye.
 
 **Slots.** `tools/shot.mjs` keeps **3** runs at once (the lead's cut, kept). The machine is shared: of 32 cores and 62 GB, 8
 cores and 16 GB are another person's and the agents' own compilers, test runs and servers take about 8 cores and 13 GB, which

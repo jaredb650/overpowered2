@@ -423,10 +423,16 @@ Shared files and contracts between lanes:
   quarter less CPU per proof** (`coop-stage3` 334 to 265 CPU seconds with the same 12 checks, `coop-drops` 954 to 815 with the
   same 8, `coop-smoke` 186 to 144-164 with the same 5) and steadier pages (three pages at about 38 frames a second against
   about 5); **not wall time and not memory**: a proof is mostly its four boots and its own waits. `clock: 60` (opt-in) steps a
-  page's loop on a timer instead of animation frames. **Found, not fixed:** in some runs the browser process itself burns 225
-  CPU seconds and grows to 3 GB (40% of `coop-drops`), in both modes; see the note. A kit of your own that opens pages itself passes `party.draw` and `party.audio` to
+  page's loop on a timer instead of animation frames. **Then the big one, also on by default and in look mode too: a pretend pointer lock on every kit page**
+  (`realLock: true` or `COOP_REAL_LOCK=1` opts out). Headless Chromium's real lock runs away in guest windows: tens of
+  thousands of pointer updates a second, the browser process at 1.2 cores and growing to 3 GB, the guest's view turning by
+  itself. That was the guest page at 0 to 1 frame a second. With the pretend lock `coop-drops` went from 815 CPU seconds, 9.4 GB
+  and 8 of 12 checks to 148 CPU seconds, 3.2 GB and 12 of 12. **If a proof of yours was flaky or slow on the guest, run it again
+  after rebasing.** A kit of your own that opens pages itself passes `party.draw` and `party.audio` to
   the kit's exported `prepare()`. Found on the way, not mine to fix: `coop-robust.mjs` waits 40 s for a dropped guest to leave
   the player list and failed there in fast mode; the session lane now keeps the seat 60 s, so it very likely fails in today's
-  mode too (not run). Also written down: what a co-op
+  mode too (not run). And `coop-stage3.mjs` fails since a change landed around 22:55 at "The guest shops while the world runs
+  on" (the guest's `shop:open` leaves it `playing`), with the real lock and today's defaults as well: the shop or break
+  rules' lane should look. Also written down: what a co-op
   test without a browser would take (`docs/notes/coop.md`, "Co-op tests without a browser"). Touched outside my files, small:
   `src/core/Game.ts` (the draw gate), `src/core/contracts.ts` (`settle?()`), `src/render/Renderer.ts` (`settle()`).
