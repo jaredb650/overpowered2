@@ -1073,3 +1073,9 @@ Each: what fails, where, how many players, which network, the evidence, the caus
 10. Harness, fixed: under the bad network the kit's `startParty` pressed Start before the host had the guest's "ready"; the
    host refuses that Start, the party stayed in the lobby, and the proof failed at its first wait with nothing checked
    (`coop-session-blip` and `coop-team-endings` wipe in the bad-network sweep). The kit now waits for "Everyone is ready".
+11. **FIXED (verify-proofs), small. After a host's page reloads on the lobby page, the lobby listed the same players in
+   another order.** Three players, loopback, clean and bad network: `coop-fixsession-reload.mjs` lobby case, "every slot and
+   seat as before the host's reload" (`HOST-ONE, GUEST-THREE, GUEST-TWO`, each in its own slot and seat). Cause: the lobby
+   screen drew `lobby.players` in the array's order, which is the order the guests' pages answered the returning host. Fix:
+   the screen draws the list by slot (`bySlot` in `lobby.ts`, used by `ui/screens/coop.ts`; test in `lobby.test.ts`), and
+   the proof compares seats whatever the order of the page's own array.

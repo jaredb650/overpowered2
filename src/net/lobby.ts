@@ -160,6 +160,13 @@ export const MAX_PLAYERS = 4;
  * for good ("lobby full" while their own ghost held the place). The lobby's own check is the only cap (`admit`).
  */
 export const TRANSPORT_MAX_USERS = MAX_PLAYERS * 3;
+
+/**
+ * The players in the order a list shows them: by slot, the host first. The lobby's own array is in the order players
+ * arrived, and after a host's page reloads the guests come back in whatever order their pages answer: a list drawn in array
+ * order then showed the same players, in the same slots and colours, the other way round.
+ */
+export const bySlot = <T extends { slot: number }>(players: readonly T[]): T[] => [...players].sort((a, b) => a.slot - b.slot);
 export const NAME_MAX = 16;
 export const CHAT_MAX = 160;
 const CHAT_KEEP = 40;

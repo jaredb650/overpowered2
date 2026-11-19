@@ -52,12 +52,12 @@ async function lobbyCase(host, { out, check, progress, shot, sleep }, hold) {
   check(lost.players.length === 3, 'the seat is kept while the guest\'s page reloads', lost.players);
   const back = await until(a, s => s.lobbyScreen && s.phase === 'open' && s.hosting === false && s.players.length === 3, 'the guest back in the lobby by itself', 90000);
   check(back.code === code, 'on the same code, with nothing typed', [back.code, code]);
-  check(JSON.stringify(seats(back)) === JSON.stringify(mine), 'every slot and seat as before the reload', [seats(back), mine]);
+  check(sameSeats(seats(back), mine), 'every slot and seat as before the reload', [seats(back), mine]);
   check(/reloaded/.test(back.note), 'it is told why it is here', back.note);
   const told = await until(b, s => s.chat.includes('GUEST-TWO reconnected.'), 'the other guest told once', 20000);
   check(JSON.stringify(linesAbout(told, 'GUEST-TWO').slice(-2)) === JSON.stringify(['GUEST-TWO lost connection.', 'GUEST-TWO reconnected.']), 'told as lost connection, then reconnected', linesAbout(told, 'GUEST-TWO'));
   const hostSees = await until(host, s => s.players.length === 3 && s.players.every(p => !p.state && !p.away), 'the host listing all three as in the lobby', 20000);
-  check(JSON.stringify(seats(hostSees)) === JSON.stringify(mine), 'the host has every seat as it was', seats(hostSees));
+  check(sameSeats(seats(hostSees), mine), 'the host has every seat as it was', seats(hostSees));
   await shot(a, 'guest-back', true);
 
   progress('the host reloads on the lobby page');
@@ -68,12 +68,12 @@ async function lobbyCase(host, { out, check, progress, shot, sleep }, hold) {
   const again = await until(host, s => s.lobbyScreen && s.phase === 'open' && s.hosting === true && s.players.length === 3 && s.players.every(p => !p.state), 'the host\'s lobby open again with all three', 120000);
   out.hostBackAfter = (Date.now() - reloadAt) / 1000;
   check(again.code === code, 'on the same code', [again.code, code]);
-  check(JSON.stringify(seats(again)) === JSON.stringify(mine), 'every slot and seat as before the host\'s reload', [seats(again), mine]);
+  check(sameSeats(seats(again), mine), 'every slot and seat as before the host\'s reload', [seats(again), mine]);
   check(/reloaded/.test(again.note), 'the host is told its lobby is open again', again.note);
   for (const page of [a, b]) {
     const s = await until(page, x => x.lobbyScreen && x.phase === 'open' && !x.reconnecting && x.players.length === 3, 'the guest back with its host, never having left the lobby page', 30000);
     check(s.hosting === false && s.players.find(p => p.host)?.name === 'HOST-ONE', 'the same host is the host', s.players);
-    check(JSON.stringify(seats(s)) === JSON.stringify(mine), 'the guest sees the same seats', seats(s));
+    check(sameSeats(seats(s), mine), 'the guest sees the same seats', seats(s));
   }
   await shot(host, 'host-back', true);
 
@@ -84,7 +84,7 @@ async function lobbyCase(host, { out, check, progress, shot, sleep }, hold) {
   for (const page of party.pages) await clickDeploy(page);
   for (const page of party.pages) {
     const s = await until(page, x => x.live && x.bodies === 2, 'in the match with both other bodies', 90000);
-    check(JSON.stringify(seats(s)) === JSON.stringify(mine), 'seats kept into the match', seats(s));
+    check(sameSeats(seats(s), mine), 'seats kept into the match', seats(s));
   }
   await shot(host, 'playing');
 }
@@ -169,6 +169,9 @@ async function hostLateCase(host, { out, check, progress, shot, sleep }, hold) {
   for (const page of party.pages) await until(page, s => s.live && s.bodies === 2, 'all three in the new match', 90000);
   await shot(a, 'playing-again');
 }
+
+/** The same players in the same slots and seats, in whatever order the page's list has them (the screen draws them by slot). */
+const sameSeats = (a, b) => JSON.stringify(Object.entries(a).sort()) === JSON.stringify(Object.entries(b).sort());
 
 export default async (host, { sleep, outDir }) => {
   const { out, run, check, progress, shot } = proof(`coop-fixsession-reload-${CASE}`, outDir, sleep);

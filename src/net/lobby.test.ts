@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { COUNTDOWN_S, DOOR_AFTER_MS, HOST_WAIT_MS, Lobby, PING_MS, QUIET_MS, RECONNECT_MS, RELAY_WAIT_MS, SEAT_GRACE_MS, SILENCE_MS, cleanCode, inviteLink, newCode } from './lobby';
+import { COUNTDOWN_S, DOOR_AFTER_MS, HOST_WAIT_MS, Lobby, PING_MS, QUIET_MS, RECONNECT_MS, RELAY_WAIT_MS, SEAT_GRACE_MS, SILENCE_MS, bySlot, cleanCode, inviteLink, newCode } from './lobby';
 import { encodePose, type Pose } from './pose';
 import { FakeRoom, Hub } from './fakeHub';
 
@@ -441,6 +441,15 @@ describe('match start and live room', () => {
     const h = open(true, 'HOST'), g = open(false, 'GUEST'), g2 = open(false, 'THIRD'); hub.flush();
     hub.deliver((g2 as unknown as { room: FakeRoom }).room, 'lobby', { t: 'start', match: { id: 'fake', mode: 'defense' } });
     hub.flush(); expect(h.match).toBeNull(); expect(g.match).toBeNull();
+  });
+});
+
+describe('the order a list shows players in', () => {
+  it('is by slot, the host first, whatever order they came back in, and leaves the lobby\'s own list alone', () => {
+    // After a host's reload the guests answer in any order: the same seats, listed the other way round.
+    const back = [{ name: 'HOST-ONE', slot: 0 }, { name: 'GUEST-THREE', slot: 2 }, { name: 'GUEST-TWO', slot: 1 }];
+    expect(bySlot(back).map(p => p.name)).toEqual(['HOST-ONE', 'GUEST-TWO', 'GUEST-THREE']);
+    expect(back.map(p => p.name)).toEqual(['HOST-ONE', 'GUEST-THREE', 'GUEST-TWO']);
   });
 });
 

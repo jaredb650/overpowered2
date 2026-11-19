@@ -13,6 +13,7 @@ import { starterCards } from './starter';
 import type { Ctx } from '../../core/contracts';
 import { cheatsOn, onCheats } from '../../core/cheats';
 import {
+  bySlot,
   type CoopMap, type CoopMode, type JoinStage, type Match, CODE_LENGTH, Lobby, MAX_PLAYERS, NAME_MAX, CHAT_MAX, cleanCode, inviteLink, loadCallsign, newCode, saveCallsign,
 } from '../../net/lobby';
 import { errorText } from '../../net/lobbyText';
@@ -352,7 +353,7 @@ export class CoopScreen implements Screen {
     this.players.replaceChildren(
       ...(lobby.phase === 'connecting'
         ? [div('co-note', this.regrouping ? `The host was lost. Looking for ${this.regrouping.names[0] ?? 'a teammate'}'s new lobby on the same code…` : 'Looking for the host. This can take up to half a minute.')]
-        : lobby.players.map(pl => div(`co-player${pl.ready ? ' ready' : ''}`,
+        : bySlot(lobby.players).map(pl => div(`co-player${pl.ready ? ' ready' : ''}`,
           span('co-pname', pl.name),
           pl.host ? span('co-tag host', 'Host') : null,
           pl.id === lobby.you ? span('co-tag', 'You') : null,
