@@ -34,6 +34,18 @@ async function lobbyCase(host, { out, check, progress, shot, sleep }, hold) {
   const before = await until(host, s => s.lobbyScreen && s.players.length === 3, 'three players in the lobby', 30000);
   const mine = seats(before);
 
+  progress('a guest has cheats on: the lobby list tags them on every screen');
+  const tags = page => page.evaluate(() => [...document.querySelectorAll('.scr-coop .co-player')].filter(row => row.querySelector('.co-cheats')).map(row => row.textContent));
+  await b.evaluate(() => { window.__op2.ctx.hud.screens.screens.coop.lobby.setCheats(true); });
+  for (const page of party.pages) {
+    await page.waitForFunction(() => document.querySelectorAll('.scr-coop .co-cheats').length === 1, null, { timeout: 15000, polling: 200 });
+    const rows = await tags(page);
+    check(rows.length === 1 && /GUEST-THREE/.test(rows[0]) && /Cheats on/.test(rows[0]), 'the player with cheats on is tagged in the lobby list', rows);
+  }
+  await shot(host, 'cheats-tag', true);
+  await b.evaluate(() => { window.__op2.ctx.hud.screens.screens.coop.lobby.setCheats(false); });
+  await host.waitForFunction(() => document.querySelectorAll('.scr-coop .co-cheats').length === 0, null, { timeout: 15000, polling: 200 });
+
   progress('a guest reloads on the lobby page');
   await a.reload({ waitUntil: 'commit' });
   const lost = await until(host, s => s.players.find(p => p.name === 'GUEST-TWO')?.state === 'lost' || s.chat.includes('GUEST-TWO reconnected.'), 'the host keeping the reloading guest\'s seat', 30000);
