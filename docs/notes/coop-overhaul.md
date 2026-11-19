@@ -365,8 +365,12 @@ Shared files and contracts between lanes:
 - **Also after co-op:** Chrome's built-in packet loss for WebRTC as a second network simulator; a one-off dead-code report
   (`knip`); Rapier `debugRender()` drawn in the lab; a trial of `threejs-devtools-mcp` on one real visual bug.
 - **Far enemies stay at 5 Hz** (drawn about 240 ms back) until the owner has played it; `FAR_EVERY` in `src/net/world/snapshot.ts`.
-- **Damage response update** (`docs/proposals/damage-response-update.md`): nothing starts until the owner says so and answers its
-  taste questions.
+- **Damage response update** (`docs/proposals/damage-response-update.md`): **the owner has said go (2026-11-18): start it once
+  co-op is done and every current agent has finished, not before.** His answers are in section 10a of that file. Start with
+  batch 1, on its own branch off the finished co-op work, behind switches where the plan says so, then batches 2 and 3. Use the
+  cheap test methods built during this job: contact sheets (`tools/sheet.mjs`), picture difference (`tools/diff.mjs`), the
+  frozen clock (`tools/scripts/lib/steady.mjs`), the kit's fast mode, and the browser slot queue; the machine is shared, so
+  few agents at a time (the gore files overlap anyway), tests at low priority, and look-checks for the owner at dpr 2.
 - **Owner's answers, 2026-11-18 evening:** soldiers keep the **simple aim model against guests** for now (fixed bullet speed,
   half lead); the **dodge grace (150 ms, 0.5 m) stays** and is tuned after the owner plays co-op; **barrels hurt every player in
   reach, friends included** (team kills by barrel are wanted: do not make them shooter-only).
