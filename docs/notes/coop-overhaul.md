@@ -732,6 +732,22 @@ on the same game and carries on; `results.md` there is the table so far. Sweeps 
   all six mode and map choices pass** (Crucible 74 of 74, Endless Humans 74, the Office 74, Outpost Defense 70, The Outpost
   66, Foreclosure 66). The bad-network sweep is running (62 runs), three at a time.
 
+- 07:05, verify-proofs: **the bad-network sweep (`lag:120,jitter:40,loss:0.05` on every page, loopback, 62 runs, on
+  `38e80e1` to `42e7c20`): 55 passed on the first pass.** The seven that did not: two never left the lobby (the kit's early
+  Start, finding 10, fixed), `coop-lobby` read the sender's own chat line before it had come back from the host (the proof),
+  the weapons matrix lost 1 line of 1,844 (finding 9, a stake), and three of the fix agents' proofs failed one check each
+  under the bad network: `coop-fixsession-reload` lobby case (the same seats and slots listed in another order),
+  `coop-fixsession-callins` (the guest's uplink not read as jammed within 10 s) and `coop-fixhits-pins` with prediction
+  switched off (the late pin of a stake: no pin with a 310 ms answer). All seven are being run again on the tip.
+  **Real WebRTC so far (13 runs, `93cac4d`): 11 passed**, among them session start, the dropped connection that comes back,
+  the wipe and the board, the rejoin with the kit, the gore proof (267), the weapons matrix (1,844), the shared pod, dropped
+  guns, Outpost Defense, the team's slow-mo (96) and the enemy moves; the call-ins matrix failed its one "targeting" check
+  again (fix-tail has since changed that proof) and the Crucible attacks proof counted a dead public relay's console error
+  as the game's (the proof; its attack checks passed). fix-tail's commits (call-in copies, the host's rules on guests, HUD
+  tags, the cut guest's notice, which closes finding 6) landed meanwhile: the lanes they touch are being run again on
+  `19b1f47` (guest's seat, call-ins, wire, team, missions, enemy attacks, claims, gore, weapons, the fix agents' proofs, the
+  old proofs), then four players and the four oldest proofs.
+
 ## Last pass findings
 
 Each: what fails, where, how many players, which network, the evidence, the cause. For the fix agents.
