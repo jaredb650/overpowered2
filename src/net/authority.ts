@@ -228,6 +228,8 @@ export class ClaimValidator {
   /** Claims cut to their cap, and sight tests passed on the allowance: honest play keeps both near zero. */
   clamped = 0;
   doubted = 0;
+  /** Why the last refusal was one, for a caller whose answer is only yes or no (`status`, `vehicle`). */
+  last: RejectReason | null = null;
 
   private peer(id: string): Peer {
     let peer = this.peers.get(id);
@@ -394,6 +396,7 @@ export class ClaimValidator {
 
   private no(why: RejectReason): Verdict {
     this.refused[why] = (this.refused[why] ?? 0) + 1;
+    this.last = why;
     return { ok: false, why };
   }
 

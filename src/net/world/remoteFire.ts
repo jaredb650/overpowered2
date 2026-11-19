@@ -30,6 +30,7 @@ import { STIM } from '../../progression/data';
 import { DOING } from '../pose';
 import type { RemotePlayer } from '../remote';
 import type { WorldContext, WorldModule } from './context';
+import type { Late } from './late';
 import { validVec, type Vec } from './wire';
 
 /**
@@ -111,7 +112,8 @@ export class RemoteFire implements WorldModule {
   /** Host: side events (`proj`, `loop`) each guest has sent this second. */
   private readonly side = new Map<string, { second: number; count: number }>();
 
-  constructor(private readonly w: WorldContext) {
+  /** `late` (host): keeps a guest's event for a moment when it arrives before that guest's body does. */
+  constructor(private readonly w: WorldContext, private readonly late?: Late) {
     w.listen('weapon:fired', event => this.shoot(event.weapon, event.origin, event.dir, event.note ?? null));
     w.listen('weapon:loop', event => {
       if (!event.on) this.send({ t: 'loop', k: event.kind, ...(event.kind === 'giant' ? { at: point(event.at), ...(event.normal ? { n: point(event.normal) } : {}) } : {}) });
@@ -134,7 +136,7 @@ export class RemoteFire implements WorldModule {
     w.router.guest('mfx', value => this.drawMelee(value));
     w.router.host('held', (value, from) => this.kitIn_(value, from));
     w.router.guest('held', value => this.drawKit(value));
-    w.router.host('kata', (_value, from, now) => { if (w.sender(from, now)) w.validator.kata(from, now); });
+    w.router.host('kata', (_value, from, now) => { w.validator.kata(from, now); });
   }
 
   private send(event: FireEvent | LoopEvent | ProjEvent | KitEvent | MeleeFxEvent): void {
@@ -266,8 +268,11 @@ export class RemoteFire implements WorldModule {
 
   /** Host: a guest's shot, checked, drawn here and passed on to the other guests. */
   private fireIn(value: FireEvent, from: string, now: number): void {
-    const remote = this.w.sender(from, now);
-    if (!remote) return;
+    if (this.late) this.late.with(from, now, 'fire', (remote, at) => this.fireNow(value, from, at, remote));
+    else { const remote = this.w.sender(from, now); if (remote) this.fireNow(value, from, now, remote); }
+  }
+
+  private fireNow(value: FireEvent, from: string, now: number, remote: RemotePlayer): void {
     if (!validVec(value.origin) || !validVec(value.dir) || this.far(remote, value.origin)
       || this.w.life(from).down || !this.w.validator.acceptFire(from, 0, value.weapon, now)) return;
     const event = { ...value, slot: remote.player.slot };
@@ -277,8 +282,12 @@ export class RemoteFire implements WorldModule {
 
   /** Host: a guest's projectile, loop end or swing effect, checked (their body is here, it is near it, not a flood), drawn and passed on. */
   private sideIn(value: LoopEvent | ProjEvent | MeleeFxEvent, from: string, now: number): void {
-    const remote = this.w.sender(from, now);
-    if (!remote || this.w.life(from).down) return;
+    if (this.late) this.late.with(from, now, value?.t ?? 'side', (remote, at) => this.sideNow(value, from, at, remote));
+    else { const remote = this.w.sender(from, now); if (remote) this.sideNow(value, from, now, remote); }
+  }
+
+  private sideNow(value: LoopEvent | ProjEvent | MeleeFxEvent, from: string, now: number, remote: RemotePlayer): void {
+    if (this.w.life(from).down) return;
     const second = Math.floor(now / 1000);
     const side = this.side.get(from) ?? { second, count: 0 };
     if (side.second !== second) { side.second = second; side.count = 0; }

@@ -30,6 +30,7 @@ import { Fort } from './world/fort';
 import { Guns, type GunEvent } from './world/guns';
 import { Hits } from './world/hits';
 import { Identity } from './world/identity';
+import { Late } from './world/late';
 import { Moves } from './world/moves';
 import { Pods, type PodEvent } from './world/pods';
 import { VillainProps } from './world/villainProps';
@@ -75,6 +76,8 @@ export class CoopWorld {
   private readonly time: Clock;
   private readonly calls: Callins;
   private readonly hook: Skyhook;
+  /** Host: a guest's events kept for a moment until that guest's body is in the world (world/late.ts). */
+  private readonly late: Late;
   /** Run every frame in this order (`update`), and disposed in it. The snapshot goes out last. */
   private readonly modules: WorldModule[];
 
@@ -95,13 +98,14 @@ export class CoopWorld {
     // Each module adds its own game listeners and event handlers as it is built. Listeners on one game event run in the order
     // added: Credit must hear `enemy:killed` before Hits and before any system does (who killed it is known first), which holds
     // because it is built before Hits and the world is built before systems init.
+    this.late = new Late(w);
     this.targeting = new Targeting(w);
     this.enemies = new Replicas(w, this.targeting);
     // Before Claims, which lets a guest's rounds hurt them; after Replicas, whose clock their copies are drawn by.
     this.vehicles = new Vehicles(w, this.enemies);
     // Before RemoteFire: a shot's id moves on `weapon:fired`, and claims.ts must hear that first.
     this.claims = new Claims(w, this.enemies, this.targeting, this.vehicles);
-    this.shots = new RemoteFire(w);
+    this.shots = new RemoteFire(w, this.late);
     this.calls = new Callins(w);
     this.hook = new Skyhook(w);
     // Sonar is shared; Thermal is each player's own and never sent. Focus slows the world for everyone (world/clock.ts).
@@ -111,7 +115,7 @@ export class CoopWorld {
     // After Credit: a boss's death names its killer, which Credit works out on the same `enemy:killed`.
     this.time = new Clock(w, uid => this.credit.slot(uid));
     new Chatter(w, this.enemies);
-    this.capture = new Capture(w, this.enemies, this.targeting);
+    this.capture = new Capture(w, this.enemies, this.targeting, this.late);
     this.enemyFire = new EnemyFire(w, this.targeting);
     this.attacks = new EnemyAttacks(w, this.enemies, this.targeting, this.enemyFire);
     this.warnings = new Warnings(w, this.enemyFire);
@@ -128,7 +132,7 @@ export class CoopWorld {
     w.router.host('worldsync', (_, from) => this.catchUp(from));
     // Moves and identities ride the reliable lane beside the enemies' unreliable states (replicas.ts).
     const moves = new Moves(w, this.enemies), identity = new Identity(w, this.enemies);
-    this.modules = [this.capture, this.vehicles, this.garrison, this.fort, this.villainProps, this.targeting, this.claims, this.credit, this.hits, this.shots, this.props, this.attacks, this.warnings, this.calls, this.hook, w.later, this.time, moves, identity, this.enemies];
+    this.modules = [this.late, this.capture, this.vehicles, this.garrison, this.fort, this.villainProps, this.targeting, this.claims, this.credit, this.hits, this.shots, this.props, this.attacks, this.warnings, this.calls, this.hook, w.later, this.time, moves, identity, this.enemies];
   }
 
   /** Read by the two-page proofs (tools/scripts/coop-*.mjs): the guest's enemy copies, last snapshot and garrison bodies. */
@@ -223,6 +227,16 @@ export class CoopWorld {
     if (this.session.hosting) return false;
     this.claims.vehicleHits.blast(center, spec);
     return true;
+  }
+  /**
+   * The claims' books, for the dev log and the proofs: what this guest sent; on the host what arrived, what was refused and
+   * why (`refusedTotal` must stay 0 in an honest game), what was cut to its cap or passed a sight test on the allowance, and
+   * `gone` (the enemy was already dead on the host: not a refusal).
+   */
+  get claimBooks() {
+    const c = this.claims, v = this.validator;
+    return { sent: c.sent, received: c.received, refusedTotal: c.refusedTotal, refused: c.refused, refusals: c.refusals, clamped: v.clamped, doubted: v.doubted,
+      accepted: this.w.stats.accepted, late: this.late.books };
   }
   /** The shot id the local player's claims carry now (claims.ts), and on the host the claim being applied: whose, and its shot id. */
   get shot(): number { return this.claims.shot; }

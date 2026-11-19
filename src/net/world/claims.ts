@@ -21,7 +21,7 @@ import type { Replicas } from './replicas';
 import type { Targeting } from './targeting';
 import { VehicleHits } from './vehicleHits';
 import type { Vehicles } from './vehicles';
-import { ENEMY_IDS, packDamage, type Vec, type WireDamage } from './wire';
+import { ENEMY_IDS, packDamage, validVec, type Vec, type WireDamage } from './wire';
 
 /**
  * Guest to host: my shot `shot` hit enemy `target` like this. `at` is my clock (ms) when I claimed it, `origin` my eye then.
@@ -52,6 +52,11 @@ const STATUS_MS = 250;
 /** Past this angle between the round's own direction and the line from the eye, the hit did not come straight from the eye. */
 const STRAIGHT_COS = Math.cos(12 * Math.PI / 180);
 
+/** One refused claim, as the host wrote it down. */
+export interface Refusal { at: number; from: string; t: ClaimEvent['t']; why: RejectReason | 'kind'; source: string; target: number; shot: number }
+/** Refusals kept for reading back, and written to the console, before only every hundredth is. */
+const REFUSALS_KEPT = 64, REFUSALS_LOGGED = 40;
+
 const NOTHING: DamageResult = { dealt: 0, blocked: false, killed: false, headshot: false, severed: [] };
 const _from = new THREE.Vector3(), _dir = new THREE.Vector3();
 
@@ -71,6 +76,15 @@ export class Claims implements WorldModule {
   readonly vehicleHits: VehicleHits;
   /** Guest: claims sent, by kind, for the proofs. */
   readonly sent = { hit: 0, status: 0, vhit: 0 };
+  /** Host: claims that reached this module, by kind: against a guest's `sent`, what the link and the lobby let through. */
+  readonly received = { hit: 0, status: 0, vhit: 0 };
+  /**
+   * Host: claims refused, in all. An honest game keeps this at zero: the proofs assert it. `gone` (the enemy was already dead
+   * here when the claim arrived) is not a refusal and is not counted: nobody lost a hit.
+   */
+  refusedTotal = 0;
+  /** Host: the last refusals, newest last, each with its reason: for the dev log and the proofs. */
+  readonly refusals: Refusal[] = [];
   /** Host: the last player to land a claim on each enemy, for a kill by bleeding or fire after the hit. */
   private readonly lastHitter = new Map<number, string>();
   /** Host: the guest whose claim is being applied right now (lobby id), and its shot. */
@@ -195,23 +209,45 @@ export class Claims implements WorldModule {
     this.refused[why] = (this.refused[why] ?? 0) + 1;
   }
 
+  /**
+   * Host: a claim was refused. Counted, kept, and said in the console with its reason: a refused claim is a player's hit that
+   * did nothing, and in an honest game there are none. (The validator has already counted it by reason in `refused`.)
+   */
+  private refusal(from: string, value: ClaimEvent, why: Refusal['why']): void {
+    this.w.stats.rejected++;
+    this.refusedTotal++;
+    const hit = value?.t === 'hit' ? value : null;
+    const source = hit ? hit.damage?.source : value?.t === 'vhit' ? value.source : value?.t === 'status' ? value.kind : '';
+    const target = hit ? hit.target : value?.t === 'status' ? value.uid : value?.t === 'vhit' ? value.id : 0;
+    const entry: Refusal = { at: Math.round(performance.now()), from, t: value?.t, why, source: typeof source === 'string' ? source.slice(0, 32) : '',
+      target: Number.isFinite(target) ? target : 0, shot: hit && Number.isFinite(hit.shot) ? hit.shot : 0 };
+    this.refusals.push(entry);
+    if (this.refusals.length > REFUSALS_KEPT) this.refusals.shift();
+    if (this.refusedTotal <= REFUSALS_LOGGED || this.refusedTotal % 100 === 0) {
+      const name = this.w.session.lobby.players.find(p => p.id === from)?.name ?? from;
+      console.warn(`[coop] Refused a claim from ${name}: ${why} (${entry.t} ${entry.source} on #${entry.target}, shot ${entry.shot}); ${this.refusedTotal} refused so far`);
+    }
+  }
+
   /** Host: a guest's claim, checked and applied as that guest's damage. */
   private hitIn(value: HitClaim, from: string, now: number): void {
     const { ctx, stats, session } = this.w;
-    const remote = this.w.sender(from, now);
-    if (!remote) return;
+    this.received.hit++;
     const enemy = Number.isSafeInteger(value?.target) ? ctx.enemies.alive.find(enemy => enemy.uid === value.target) as Enemy | undefined : undefined;
     // Dead on the host before the claim got here: nobody lost a hit, the man was already down.
     if (!enemy) { this.refuse('gone'); return; }
-    const root = remote.char.root.position;
+    // The host's copy of the shooter's body. None yet (their first pose is still on its way, or their body is being built):
+    // the claim is not dropped for that. It is checked against the eye it names itself, which is all the eye test bounds anyway.
+    const root = this.w.sender(from, now)?.char.root.position;
+    const eye: Vec = root ? [root.x, root.y + 1.6, root.z] : validVec(value?.origin) ? value.origin : [0, 0, 0];
     const verdict = this.w.validator.check(from, value, now, {
-      eye: [root.x, root.y + 1.6, root.z], target: enemy.center.toArray() as Vec, size: enemy.char.rig.height, speed: enemy.velocity.length(),
+      eye, target: enemy.center.toArray() as Vec, size: enemy.char.rig.height, speed: enemy.velocity.length(),
       ping: session.lobby.pingOf(from), down: this.w.life(from).down, visible: (origin, target) => this.w.visible(origin, target),
       // Down on the host, he is a ragdoll; on the guest he is the guest's own ragdoll, fallen its own way (gore is each
       // screen's own): the two lie metres apart by design, and the guest shot the one it can see.
       near: point => enemy.downed ? 0 : Math.min(this.nearTrail(enemy.uid, point), this.nearRoot(enemy, point)),
     });
-    if (!verdict.ok) { stats.rejected++; return; }
+    if (!verdict.ok) { this.refusal(from, value, verdict.why); return; }
     stats.accepted++;
     const damage = unpackDamage(value.damage);
     if (damage.bone !== undefined && damage.bone >= enemy.char.rig.bones.length) damage.bone = undefined;
@@ -226,11 +262,11 @@ export class Claims implements WorldModule {
 
   /** Host: a guest's fire, frost or bolt on an enemy, applied as the host's own weapon would. */
   private statusIn(value: StatusClaim, from: string, now: number): void {
-    if (!this.w.sender(from, now)) return;
+    this.received.status++;
     const enemy = Number.isSafeInteger(value?.uid) ? this.w.ctx.enemies.alive.find(enemy => enemy.uid === value.uid) : undefined;
     if (!enemy) { this.refuse('gone'); return; }
     const seconds = this.w.validator.status(from, value, now);
-    if (seconds === null) { this.w.stats.rejected++; return; }
+    if (seconds === null) { this.refusal(from, value, this.w.validator.last ?? 'shape'); return; }
     this.w.stats.accepted++;
     this.lastHitter.set(enemy.uid, from);
     this.onStatus(enemy.uid, from);
@@ -244,14 +280,14 @@ export class Claims implements WorldModule {
   /** Host: a guest's round or blast on the vehicles, applied as the host's own would be. */
   private vhitIn(value: VehicleClaim, from: string, now: number): void {
     const { ctx, stats } = this.w;
-    if (!this.w.sender(from, now)) return;
-    if (!this.w.validator.vehicle(from, value, now)) { stats.rejected++; return; }
+    this.received.vhit++;
+    if (!this.w.validator.vehicle(from, value, now)) { this.refusal(from, value, this.w.validator.last ?? 'shape'); return; }
     const vehicles = ctx.enemies.vehicles as unknown as VehicleBridge | null | undefined;
     if (!vehicles) { this.refuse('gone'); return; }
     const point = new THREE.Vector3(...value.point);
     const kind = value.kind !== undefined && Object.hasOwn(EXPLOSIONS, value.kind) ? value.kind as ExplosionKind : undefined;
     if (value.radius !== undefined) {
-      if (!kind) { stats.rejected++; return; }
+      if (!kind) { this.refusal(from, value, 'kind'); return; }
       stats.accepted++;
       vehicles.blast(point, { radius: value.radius, damage: Math.min(value.amount, 20000), kind, source: value.source, team: 'player', instakill: value.inst === 1 || undefined });
       return;

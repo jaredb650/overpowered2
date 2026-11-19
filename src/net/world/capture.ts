@@ -17,6 +17,7 @@ import { gesture, holdFill } from '../../enemies/outpost/capture';
 import { HOSTAGE_CUFF_SECONDS, HOSTAGES, SHIELD, type Holder, type Prisoners } from '../../enemies/outpost/prisoners';
 import { soldierOf } from '../../enemies/outpost/soldier';
 import type { WorldContext, WorldModule } from './context';
+import type { Late } from './late';
 import type { Replica, Replicas } from './replicas';
 import { CAPTURABLE } from './snapshot';
 import type { Targeting } from './targeting';
@@ -80,7 +81,8 @@ export class Capture implements WorldModule {
   private revealUntil = 0;
   private readonly lit: THREE.Object3D[] = [];
 
-  constructor(private readonly w: WorldContext, private readonly replicas: Replicas, private readonly targeting: Targeting) {
+  /** `late` (host): keeps a guest's key for a moment when it arrives before that guest's body does (world/late.ts). */
+  constructor(private readonly w: WorldContext, private readonly replicas: Replicas, private readonly targeting: Targeting, private readonly late?: Late) {
     const { ctx, session } = w;
     if (w.hosting) {
       // A guest's prisoner: the host's purse was paid by the drone, so the bounty goes on to the guest who cuffed him.
@@ -102,7 +104,10 @@ export class Capture implements WorldModule {
       w.listen('prisoner:cuffed', e => this.tell({ t: 'prisoner', op: 'cuffed', uid: e.enemy.uid, slot: this.slot() }));
       w.listen('prisoner:grabbed', e => this.tell({ t: 'prisoner', op: 'held', uid: e.enemy.uid, slot: this.slot() }));
     }
-    w.router.host('capture', (value, from, now) => this.keyIn(value, from, now));
+    w.router.host('capture', (value, from, now) => {
+      if (this.late) this.late.with(from, now, 'capture', (_remote, at) => this.keyIn(value, from, at));
+      else this.keyIn(value, from, now);
+    });
     w.router.guest('credit', value => {
       const amount = Number.isFinite(value.amount) ? Math.max(0, Math.min(1e6, Math.round(value.amount))) : 0;
       const wallet = ctx.contracts?.wallet;

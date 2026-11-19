@@ -88,7 +88,9 @@ const begin = page => page.evaluate(() => {
   const world = ctx.coop.world;
   world.callins.measure = true;
   for (const key of Object.keys(world.callins.cost)) delete world.callins.cost[key];
-  return { mirror: { ...ctx.progression.callinLink.mirror.stats }, kills: ctx.progression.kills, slot: ctx.coop.lobby.me.slot, clock: ctx.time.realElapsed };
+  return { mirror: { ...ctx.progression.callinLink.mirror.stats }, kills: ctx.progression.kills, slot: ctx.coop.lobby.me.slot, clock: ctx.time.realElapsed,
+    books: JSON.parse(JSON.stringify(world.claimBooks)),
+    foes: ctx.enemies.alive.map(e => [e.uid, +e.position.x.toFixed(1), +e.position.y.toFixed(1), +e.position.z.toFixed(1), Math.round(e.health), Math.round(e.owed ?? 0)]) };
 });
 
 const read = page => page.evaluate(() => {
@@ -98,7 +100,10 @@ const read = page => page.evaluate(() => {
   for (let slot = 0; slot < 4; slot++) for (const copy of link.mirror.copies(slot)) copies.push({ slot, n: copy.n, id: copy.id, where: copy.strike.where.toArray() });
   return { mirror: { ...link.mirror.stats }, kills: ctx.progression.kills, blasts: rec.blasts, tracers: rec.tracers, flashes: rec.flashes, killed: rec.kills,
     tracks: rec.tracks, copies, running: link.running.length, cost: JSON.parse(JSON.stringify(ctx.coop.world.callins.cost)), enemies: ctx.enemies.alive.length,
-    accepted: ctx.coop.world.stats.accepted, rejected: ctx.coop.world.stats.rejected, dropped: ctx.coop.world.boomsDropped, fps: window.__op2.stats().fps };
+    accepted: ctx.coop.world.stats.accepted, rejected: ctx.coop.world.stats.rejected, dropped: ctx.coop.world.boomsDropped, fps: window.__op2.stats().fps,
+    // The claims' books (what this page sent, what the host received and refused), and every enemy as this page has it.
+    books: JSON.parse(JSON.stringify(ctx.coop.world.claimBooks)),
+    foes: ctx.enemies.alive.map(e => [e.uid, +e.position.x.toFixed(1), +e.position.y.toFixed(1), +e.position.z.toFixed(1), Math.round(e.health), Math.round(e.owed ?? 0)]) };
 });
 
 /** Metres from `p` to the nearest point of the polyline `track`. */
@@ -372,8 +377,17 @@ export default async function (host, { sleep, outDir }) {
         call.bytes = Object.values(call.cost).reduce((s, c) => s + c.bytes, 0);
         call.messages = Object.values(call.cost).reduce((s, c) => s + c.orders + c.news, 0);
         call.claims = { accepted: after[0].accepted, rejected: after[0].rejected };
+        // No honest claim is lost: what the caller sent arrived, and the host refused none of it.
+        const sent = after[callerIndex].books.sent, was = before[callerIndex].books?.sent ?? { hit: 0, status: 0, vhit: 0 };
+        call.books = { sent: { hit: sent.hit - was.hit, status: sent.status - was.status, vhit: sent.vhit - was.vhit }, host: after[0].books };
+        check(after[0].books.refusedTotal === 0, `${name}: the host refused no claim (${after[0].books.refusedTotal})`, after[0].books.refusals.slice(-8));
+        check(after[0].books.late.dropped === 0, `${name}: the host dropped no event for want of a body (${after[0].books.late.dropped})`, after[0].books.late);
+        // A call-in that killed nothing: what the caller's screen had where, for the diagnosis.
+        if (plan.kills && killed < 1) call.lost = { callerFoes: after[callerIndex].foes, hostFoes: after[0].foes, mark, callerMid: mid[callerIndex].foes,
+          callerBefore: before[callerIndex].foes, hostBefore: before[0].foes, blasts: after[callerIndex].blasts.slice(0, 60), callerKills: after[callerIndex].killed };
         call.boomsDropped = after.map(a => a.dropped);
         if (plan.kills) check(killed >= 1, `${name}: the enemies it killed are the caller's (${killed} of ${targets.length})`, { killed, left: call.left, own: own.kills });
+        progress(`${name}: claims sent ${JSON.stringify(call.books.sent)}, host received ${JSON.stringify(after[0].books.received)}, refused ${after[0].books.refusedTotal}, gone ${after[0].books.refused.gone ?? 0}`);
         progress(`${name}: done, ${killed} kills, ${call.bytes} bytes in ${call.messages} messages, path ${call.watchers.map(w => w.path.p95).join('/')} m`);
         // Let what is left of it leave before the next one.
         await sleep(1500);
