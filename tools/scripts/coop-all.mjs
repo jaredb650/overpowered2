@@ -261,8 +261,9 @@ export function proofId(run) {
 const slug = id => id.replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').toLowerCase();
 
 const active = new Set();
-function runOnce(run, { port, outRoot, attempt }) {
-  const dir = join(outRoot, slug(run.id) + (attempt > 1 ? `.try${attempt}` : ''));
+function runOnce(run, { port, outRoot, attempt, commit }) {
+  // A folder per run and commit: a later commit's run does not wipe the evidence of an earlier one's failure.
+  const dir = join(outRoot, `${slug(run.id)}@${commit}${attempt > 1 ? `.try${attempt}` : ''}`);
   rmSync(dir, { recursive: true, force: true });
   mkdirSync(dir, { recursive: true });
   const shot = ['tools/shot.mjs', '--port', String(port), '--quiet', '--w', String(run.w), '--h', String(run.h), '--dpr', String(run.dpr), '--wait', String(run.wait ?? 500),
@@ -400,7 +401,7 @@ async function main() {
       commit = commitId(); game = gameId();
       const ran = { commit, game };
       say(`run  ${run.id}${attempt > 1 ? ' (second try)' : ''}`);
-      const got = await runOnce(run, { port, outRoot, attempt });
+      const got = await runOnce(run, { port, outRoot, attempt, commit });
       if (run.transport === 'rtc') lastRtc = Date.now();
       const v = verdict({ ...got, run, maxLoad });
       const tried = { attempt, verdict: v.failed ? 'FAIL' : 'pass', passed: v.passed, failed: v.failed, first: v.first, reason: v.reason, seconds: got.seconds, evidence: got.dir };

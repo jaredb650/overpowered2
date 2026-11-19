@@ -38,7 +38,9 @@ export default async function (host, { sleep, outDir }) {
   const { check, progress, shot } = kit(outDir, tag, out, sleep);
   let party;
   try {
-    party = await startParty(host, { mode: 'crucible', players: 2, out, progress, sleep });
+    // A look-check: the page as a player has it. Each picture is of the frame the page stopped drawing on, and in the kit's
+    // fast mode a page draws no frame at all, so nothing ever froze.
+    party = await startParty(host, { mode: 'crucible', players: 2, look: true, out, progress, sleep });
     await live(party, { enemies: 1 });
     await calm(host);
     const guest = party.guest;
