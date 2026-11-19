@@ -359,6 +359,10 @@ await guest.waitForFunction(([uids, last, truck]) => {
     out.states = await Promise.all(party.pages.map(state));
     await shot(host, 'host'); await shot(guest, 'guest');
     check(failures === 0, 'Every row: the guest lost nothing and dealt what the host\'s own shots deal', out.rows.filter(r => r.problems?.length).map(r => [r.name, r.problems]));
+    // The host's own books for the whole run (fix-hits): not one claim refused, not one event dropped for want of a body.
+    out.books = await host.evaluate(() => JSON.parse(JSON.stringify(window.__op2.ctx.coop.world.claimBooks)));
+    check(out.books.refusedTotal === 0, `The host refused no claim in the whole run (${out.books.received.hit} hits, ${out.books.received.status} statuses, ${out.books.received.vhit} vehicle hits received; ${out.books.refused.gone ?? 0} for an enemy already dead)`, out.books.refusals);
+    check(out.books.late.dropped === 0, 'The host dropped no event for want of a body', out.books.late);
     check(out.errors.length === 0, 'No page exceptions', out.errors);
     return out;
   } catch (error) {

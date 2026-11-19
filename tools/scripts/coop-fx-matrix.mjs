@@ -180,8 +180,21 @@ const launcher = (extra = {}) => function (s, w, ok, info) {
   extra.more?.(s, w, ok, info);
 };
 
+/** A blade or a club: every swing, everything it drew in the air, and its sound from the swinger. */
+const melee = (s, w, ok) => {
+  ok(w.watched.swings === s.sent.fire && w.watched.swings >= 2, `every swing arrived (${s.sent.fire} and ${w.watched.swings})`, w.watched);
+  ok(w.drawn.mfx === s.sent.mfx, `everything the swings drew in the air arrived (${s.sent.mfx} and ${w.drawn.mfx})`, { sent: s.sent, drawn: w.drawn });
+  ok(sum(w.log.sounds) >= w.watched.swings, 'each swing is heard from them', w.log.sounds);
+};
+/** Rounds that go to a head the gun locked (a fan, the smart aim, Gun Kata): each arrives, and ends where the shooter's ended. */
+const aimed = (what, more) => function (s, w, ok) {
+  ok(s.sent.fire >= 2 && w.drawn.fire === s.sent.fire, `every ${what} arrived (${s.sent.fire} sent, ${w.drawn.fire} drawn)`, { sent: s.sent, drawn: w.drawn });
+  alike(s, w, ok, { same: ['tracer', 'muzzleFlash'], ends: ['tracer'], tol: 1.2, slack: 0.2 });
+  more?.(s, w, ok);
+};
+
 /**
- * `fire`: { hold: ms } the trigger held; { pump: every, ms } pressed over and over; { charge: true } held to a full Lance
+ * `fire`: { hold: ms } the trigger held; { kata: ms } Gun Kata set off; { pump: every, ms } pressed over and over; { charge: true } held to a full Lance
  * charge and let go; { tap: ms }. `action`: the button (default fire). `shotAt`: ms after the trigger goes down that the
  * screenshots are taken. `set`: switches for `arm`. `dummies`: bodies in the lane.
  */
@@ -283,7 +296,10 @@ const CASES = [
   { id: 'rivet', weapon: 'rivet', fire: { pump: 180, ms: 900 }, settle: 700, shotAt: 200, expect: gun() },
   { id: 'ultramag', weapon: 'ultramag', mods: ['ultramagCan'], fire: { pump: 450, ms: 1200 }, settle: 700, shotAt: 120, expect: gun({ sounds: ['ultramag_suppressed_shot'] }) },
   { id: 'autoraffica', weapon: 'autoraffica', fire: { pump: 500, ms: 1200 }, settle: 700, shotAt: 150, expect: gun() },
-  { id: 'trommel', weapon: 'buzzsaw', fire: { hold: 2200 }, settle: 900, shotAt: 1900, expect: gun({ same: ['burst'], ends: ['burst'], sounds: ['minigun_fire_loop'], tol: 0.6 }) },
+  { id: 'trommel', weapon: 'buzzsaw', fire: { hold: 2200 }, settle: 900, shotAt: 1900,
+    expect: gun({ same: ['burst'], ends: ['burst'], sounds: ['minigun_fire_loop', 'minigun_spinup', 'minigun_spindown'], tol: 0.6, more(s, w, ok) {
+      ok(w.watched.whines >= 2, `the barrels are heard to spin up and to run down (${w.watched.whines} whines)`, w.watched);
+    } }) },
   { id: 'trommel-12mm', weapon: 'buzzsaw', mods: ['trommel12'], fire: { hold: 2200 }, settle: 900, shotAt: 1900, expect: gun({ sounds: ['minigun_fire_loop'], tol: 0.6 }) },
   { id: 'piledriver', weapon: 'piledriver', fire: { hold: 800 }, settle: 800, shotAt: 450, expect: gun() },
   { id: 'piledriver-raufoss', weapon: 'piledriver', set: { alt: true }, fire: { hold: 500 }, settle: 900, shotAt: 350,
@@ -314,6 +330,35 @@ const CASES = [
       alike(s, w, ok, { ends: ['explosion'], sounds: ['grenade_throw'], tol: 2.5 });
       ok(n(w.log.sounds, 'grenade_bounce') >= 1 || n(s.log.sounds, 'grenade_bounce') === 0, 'it is heard to bounce', w.log.sounds);
     } },
+  // ---- fix-hits: what the first matrix left to unit tests (checklist C15) ---------------------------------------------
+  { id: 'knife', weapon: 'knife', fire: { pump: 500, ms: 1400 }, settle: 700, shotAt: 150, expect: melee },
+  { id: 'crowbar', weapon: 'crowbar', fire: { pump: 600, ms: 1500 }, settle: 700, shotAt: 150, expect: melee },
+  { id: 'shovel', weapon: 'shovel', fire: { pump: 600, ms: 1500 }, settle: 700, shotAt: 150, expect: melee },
+  { id: 'baton', weapon: 'baton', fire: { pump: 500, ms: 1400 }, settle: 700, shotAt: 150, expect: melee },
+  { id: 'judge-fan', weapon: 'judge', dummies: 3, tough: true, action: 'aim', fire: { hold: 1900 }, settle: 1600, shotAt: 2150,
+    expect: aimed('fanned shot') },
+  { id: 'smart-aim', weapon: 'autoraffica', dummies: 3, tough: true, prep: 'smart', fire: { hold: 900 }, settle: 900, shotAt: 600,
+    expect: aimed('smart round') },
+  { id: 'gun-kata', weapon: 'rivet', mods: ['rivetAkimbo'], dummies: 3, tough: true, fire: { kata: 1500 }, settle: 900, shotAt: 400,
+    expect: aimed('kata round', (s, w, ok) => {
+      const flashes = w.log.points.muzzleFlash ?? [];
+      ok(flashes.some(a => flashes.some(b => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]) > 0.2)), 'the kata fires from both hands', flashes.slice(0, 6));
+    }) },
+  { id: 'quiver-painted', weapon: 'quiver', dummies: 3, tough: true, action: 'aim', fire: { hold: 1500 }, settle: 3400, shotAt: 1900,
+    expect: launcher({ tol: 3, more(s, w, ok) {
+      ok(s.sent.round >= 2, `the painted salvo is more than one missile (${s.sent.round})`, s.sent);
+    } }) },
+  { id: 'stake-in-body', weapon: 'stakegun', dummies: 1, tough: true, fire: { pump: 700, ms: 1500 }, settle: 1300, shotAt: 150,
+    expect(s, w, ok) {
+      ok(w.drawn.round === s.sent.round && s.sent.round >= 2, `every stake arrived (${s.sent.round} sent, ${w.drawn.round} drawn)`, { sent: s.sent, drawn: w.drawn });
+      ok(w.projectiles === 0, 'no copy is left flying', w.projectiles);
+      // A stake that stops in a living body on the shooter's screen stops there for a watcher: none stands in the wall behind.
+      ok(n(w.log.fx, 'stake') === n(s.log.fx, 'stake'), `as many stakes stand in the wall as on the shooter's screen (${n(s.log.fx, 'stake')} and ${n(w.log.fx, 'stake')})`, { shooter: s.log.fx, watcher: w.log.fx });
+    } },
+  { id: 'perk-tracer', weapon: 'smg', prep: 'bloodthirst', fire: { hold: 700 }, settle: 700, shotAt: 400,
+    expect: gun({ more(s, w, ok) {
+      ok(w.watched.perkTracers >= s.sent.fire && s.sent.fire > 0, `every round is drawn in the perk's colour (${s.sent.fire} shots, ${w.watched.perkTracers} coloured)`, w.watched);
+    } }) },
   { id: 'reload', weapon: 'smg', set: { mag: 5 }, action: 'reload', fire: { tap: 80 }, settle: 1500, shotAt: 300,
     expect(s, w, ok, info) {
       ok(w.watched.reloads >= 1, 'their reload is a gesture on the watcher', w.watched);
@@ -401,13 +446,13 @@ export default async function (host, { sleep, outDir }) {
         // Bodies in the lane, for what strikes bodies; none otherwise, so walls take it.
         await calm(host);
         if (c.dummies) {
-          await host.evaluate(([count, pts]) => {
+          await host.evaluate(([count, pts, tough]) => {
             const { ctx } = window.__op2; const V = ctx.player.position.constructor;
             for (let i = 0; i < count; i++) {
               const e = ctx.enemies.spawn('husk', new V(...pts[i]));
-              if (e) { e.behaviours = []; e.attacks = []; e.mode = 'hold'; e.dummy = true; }
+              if (e) { e.behaviours = []; e.attacks = []; e.mode = 'hold'; e.dummy = true; if (tough) { e.health = e.maxHealth = 1e6; for (const region of e.limbHp.keys()) e.limbHp.set(region, 1e9); } }
             }
-          }, [c.dummies, Array.from({ length: c.dummies }, (_, i) => P(7 + i * 2.5, 0))]);
+          }, [c.dummies, c.tough === true ? Array.from({ length: c.dummies }, (_, i) => P(8, (i - (c.dummies - 1) / 2) * 1.6)) : Array.from({ length: c.dummies }, (_, i) => P(7 + i * 2.5, 0)), c.tough === true]);
           for (const page of party.guests) await until(page, count => window.__op2.ctx.enemies.alive.length >= count, c.dummies);
           out.dummies = await host.evaluate(() => window.__op2.ctx.enemies.alive.map(e => e.center.toArray().map(n => +n.toFixed(2))));
         }
@@ -434,6 +479,12 @@ export default async function (host, { sleep, outDir }) {
           }, [c.weapon, mods, await shooter.evaluate(() => window.__op2.ctx.coop.lobby.me.slot)], 8000);
         }
         if (set.launcher) await until(shooter, () => window.__op2.ctx.weapons.drawLeft <= 0);
+        // The case's own switch on the shooter: the Autoraffica's smart aim on, or a perk that colours its rounds.
+        if (c.prep) await shooter.evaluate(what => {
+          const { ctx } = window.__op2;
+          if (what === 'smart') ctx.weapons.smartOn = true;
+          else ctx.progression.grant(what);
+        }, c.prep);
         if (c.before) { await shooter.evaluate(hold, [c.before, true]); await sleep(120); await shooter.evaluate(hold, [c.before, false]); await sleep(200); }
         await sleep(500);
         for (const page of party.pages) await page.evaluate(record);
@@ -448,6 +499,7 @@ export default async function (host, { sleep, outDir }) {
         };
         const started = Date.now();
         if (fire.pump) await shooter.evaluate(pump, [action, fire.pump]);
+        else if (fire.kata) out.kata = await shooter.evaluate(() => window.__op2.ctx.weapons.kata());
         else await shooter.evaluate(hold, [action, true]);
         const shotAt = async () => { await sleep(Math.max(0, (c.shotAt ?? 200) - (Date.now() - started))); };
         if (fire.chargeTo) {
@@ -467,6 +519,10 @@ export default async function (host, { sleep, outDir }) {
           await Promise.all([beside, far].map(page => until(page, kind => [...window.__op2.ctx.coop.remotes.values()].some(r => kind === 'beam' ? r.watcher.beaming : !!r.watcher.giantAt), c.during, 1500)));
           mids = await Promise.all(party.pages.map(p => p.evaluate(read)));
           await pair();
+        } else if (fire.kata) {
+          await shotAt();
+          await pair();
+          await sleep(Math.max(0, fire.kata - (Date.now() - started)));
         } else if (fire.pump) {
           await shotAt();
           await pair();
@@ -486,6 +542,7 @@ export default async function (host, { sleep, outDir }) {
           await pair();
         }
         await sleep(c.settle + (NET ? 500 : 0));
+        if (c.prep === 'smart') await shooter.evaluate(() => { window.__op2.ctx.weapons.smartOn = false; });
         if (c.after) { await shooter.evaluate(hold, [c.after, true]); await sleep(120); await shooter.evaluate(hold, [c.after, false]); }
         const after = await Promise.all(party.pages.map(p => p.evaluate(read)));
         const of = page => { const i = party.pages.indexOf(page); const d = delta(after[i], before[i]); if (mids) d.mid = mids[i]; return d; };

@@ -167,6 +167,11 @@ position, so enemies stepped, stopped between messages and froze together whenev
 - **Chunks, each one packet.** A tick's enemies for one guest are cut into chunks of at most `UNRELIABLE_SAFE_BYTES` (1,100).
   Every chunk stands alone: a 16-byte header (format `0xc204`, kind, count, **the host's clock in ms**, tick, wave, phase, seconds
   to the next wave, enemies alive, the host's real tick length) and then records. A lost chunk costs the enemies in it one update.
+  **One bad number costs one record, not the chunk** (fix-hits): the writer sends no number a reader would refuse (`sane`:
+  a place that is not a number goes as 0 and is held to 100 km, health and armour to 0 and up), and a reader that still meets
+  a record with a place, health or kind no enemy can have passes over that record alone (`ChunkReader.skipped`). A chunk of the
+  wrong shape (cut short, a uid twice) is still refused whole. It used to be refused whole for one `NaN` health, which stalled
+  every enemy sharing the chunk, up to 40, on every guest (`hardening.property.test.ts`).
   Nothing waits for it.
 - **Two record sizes.** Every record has the 27 **motion** bytes: uid, bits (full, tier, legs it can stand on, getting up, aiming),
   the flag byte (airborne, downed, frozen, burning, shield, ward, boss entry, can be cuffed), the coarse animation and the slot of
@@ -791,13 +796,60 @@ the enemy's health and armour after, and the host's findings. `ackIn` then puts 
 Everyone else gets `hitfx` (host's own hits: every guest; a guest's claim: the other guests) and runs `show`. The host's own
 screen, which a guest's gun never drew on, gets the round's landing from `Combat.remoteHit`: blood or sparks and its sound there.
 
-**Kills.** The body dies on the host's word (`kill`), never on a guess. What tells the shooter of a kill goes by `killSoon`, at
-once: the kill marker, `headshot` and not `headshot_crack`, the red mist, hit-stop (`toldKill()` in `core/gameplay.ts`, read by
+**The health a guess starts from.** A guest's guess at a kill is "health last heard, less my hits still in the air"
+(`Enemy.owed`). While any of its own hits on an enemy are unanswered, the health it keeps for that enemy comes only from the
+host's answers (`ack`, `hitfx`: in order, each with the health after it), never from a snapshot's full record: a state may or
+may not have those hits in it yet, and taking it would count a hit twice and run the guess ahead of the truth.
+
+**A hit the host does not apply** is answered `nack` (`[the hit's number, the enemy, why]`, to the shooter alone): the enemy
+was already dead there (`gone`, which is no refusal), or the check refused it. The blood already drawn stays. What is put
+right at once, in place of 2.5 s later: the hit stops counting against the enemy's health, the limb pool it wore on the
+guest's own count is given back, a kill the shooter was told of on its strength is taken back (the next round into the enemy
+is a hit again, not a round into a corpse), and a body it floored gets up. A hit the host cut to its cap needs nothing new:
+its `ack` carries the health it really left. `hitsSeen`: `nacks`, `gone`, and `wrongTold` (kills the shooter's marker announced
+that the host then did not find).
+
+**Kills.** The body dies on the host's word (`kill`), unless kill prediction (below) is on and sure. What tells the shooter of a
+kill goes by `killSoon`, at once: the kill marker, `headshot` and not `headshot_crack`, the red mist, hit-stop (`toldKill()` in `core/gameplay.ts`, read by
 Combat, Melee, the Kiln and explosions). A later round into a body already told dead is `doomed`: it marks the body and tells
 the shooter nothing, as a round into a corpse does in single player. A kill the guess missed (a man's wounds decide it on the
 host, or the host knew better) is announced when `kill` arrives (`Combat.killConfirm`). What needs the corpse waits for the
 host's word through `CoopWorld.whenKilled`: a stake nails the body to the wall (`Projectiles.nailLate`), a blade flings it; both
 within 1.5 s or not at all. The guest's own `enemy:killed` is emitted then, as before.
+
+**A man with anatomy** (Endless Humans, the Outpost) dies by his wounds, on the host: his health running out is not his
+death. One rule there is plain, and a guest now applies it to its own hit: a round that reaches his brain (the head zone, not
+a skid off the skull) or his heart kills him outright (`wounds/index.ts` `takePlaced`). So a guest's killing headshot is told
+as a kill at the shot (`headshot`, the puff, the mist, the kill marker), where it used to play the non-kill crack and then the
+kill a round trip later. It is the host's own rule on the same spot of the same bone (`local`, in "Claims"), so the two agree
+unless his head has turned between the two pictures; a guess the host does not confirm is counted (`wrongTold`). His body is
+never dropped ahead of the host's word.
+
+**What a shot counts as its kills** (`ShotResult.kills`, `killed`: the Lance's split past each body it kills and its kill
+stop, the blood on the wall behind) goes by the same guess on a guest (`toldKill`), where it read the host-only `killed` and
+was always 0.
+
+**Kill prediction** (`?predictKills=1` or `0`, stored by `setPredictKills`, `net/feel.ts`; `world.feel`). One round trip is
+55 ms on a clean link and 640 ms on a bad one, and for that long a guest's enemy stood, flinching, after the round that killed
+it. With prediction on, a guest's own hit that its numbers call clearly a kill starts the death on the frame of the shot:
+
+- **Sure enough to drop it** (`sure: 'fall'`, `DamageModel.sureKill`): what the enemy has left (the answers' health less the
+  guest's hits in the air; for a head, its head pool too) is under the hit by 15% of its whole health (6 at least). Never for
+  a boss, a man with anatomy, a machine, a drone, anything with a tank that may blow, armour, a shield, a ward or frost in
+  the sum, a pinned body, or an enemy whose newest state is older than 400 ms. The copy goes down limp at once, by the round's
+  own force, in place of a living body's flinch. It is a **knockdown, not a corpse** (`fellForDead`: the knock-out path):
+  the host's `kill` turns it into the corpse where it lies (through the one kill flow, with the round's force taken out so it
+  is not kicked twice, and gibbed or cut then if that is what the host found), and if the host says it lives it gets up
+  from the floor like any knocked-down body. It waits for the answer to its own hit, not for the host's body to be seen
+  standing (`Enemy.predead`), and for 2.5 s at most.
+- **Beyond doubt** (`sure: 'kill'`): the hit is three times what is left with half the enemy's whole health to spare, and
+  nothing in the death is the host's to roll (never a blast: its ring is). The whole death is played at once through the
+  one kill flow with the guest's own reading of what the host will find (`guessKill`: a head bursts by the host's rule, a
+  trunk opens by the host's rule): a head burst, a cut in two, a gib, a ragdoll. The enemy is gone from that screen; whose
+  kill it was, the score, the pay and the streak still wait for the host's `kill`.
+- **Wrong guesses are counted** (`hitsSeen`): `falls`, `fallsRight`, `fallsWrong` (a body that got up: it reads as a
+  knockdown) and `deaths`, `deathsRight`, `deathsWrong` (a whole death the host denied: the enemy is let back onto the
+  screen from its next state, which is the one thing prediction must never do, and is logged).
 
 **Whose news it is.** A guest emits `enemy:hit` and `enemy:severed` for its own hits only (its own guess), so its hit-confirm
 audio, headshot-hit score, Butcher, BACK SHOT and run report work as solo. On the host, audio's and the run report's listeners
@@ -874,8 +926,8 @@ average, 1,020 at most: two simulated legs, a resend stall and slow frames); the
 every case, and no claim was rejected (two were answered `gone`: the rest of a blast into a body already dead on the host).
 `tools/scripts/coop-gore-bytes.mjs` is the table above.
 
-What a later pellet of the shooter's own blast does to the fresh corpse (a limb off the dead) is that screen's own gore: other
-screens are not shown a teammate's rounds into corpses.
+What a later pellet of the shooter's own blast does to the fresh corpse (a limb off the dead) is that screen's own gore. A
+teammate's later rounds into a corpse are shown too, as marks on this screen's own corpse (see "Weapons on other screens").
 
 ## Weapons on other screens (the remote FX table)
 
@@ -974,6 +1026,25 @@ that body stands elsewhere (only explosive rounds are ended by number).
 | Rocket | 215 B (`fire` and `round`), and 58 B when it goes off | |
 | Quiver salvo of four | 1.1 KB | |
 | A sword swing | 127 B with its slash | |
+
+**What the last pass added** (fix-hits, checklist C15):
+
+- **Rounds into a corpse.** A friend's hitscan rounds mark the corpses on this screen as the player's own do
+  (`Combat.hitCorpses` now runs under `watching` too). Bodies on the floor are each screen's own and marking one decides
+  nothing, so this needs nothing on the wire.
+- **Stakes.** A stake is numbered like an explosive round. A watcher's copy no longer stops in the first body it meets (that
+  body may stand somewhere else on the shooter's screen, and the copy could not tell a kill, which lets the stake fly on,
+  from a hit, which stops it): it flies on, and ends where the shooter says theirs stopped in a body (`loop`, kind `proj`).
+- **The rotary cannon's barrels.** Its spin-up and run-down are told (`weapon:loop`, kind `whine`; on the wire `loop` `whine`
+  with `on: 1` for the spin-up) and heard from the friend's gun.
+- **Perk tracers.** A shot says the tracer a perk gives it (`fire.tc`: 1 Hellfire, 2 Bloodthirst, 3 Berserk), since the
+  others do not know the shooter's perks; the watcher draws the round in that colour.
+- **A friend dashing on a slow link.** A shot or a round was dropped if its origin was 7 m from where the host had the
+  friend's body; a dash covers that in 0.27 s. The gate is now the hit claim's own allowance, `7 + 26 x (0.35 + ping)` m
+  (`originSlack`: 16 m at no ping, 24 m at 300 ms).
+- **Counts a second, each its own** (`PER_SECOND`): launches 80, landings 240, other loop ends 30, swing effects 60. They
+  shared one count of 40, so a gun firing 20 explosive rounds a second ran it out with its launches and landings together
+  and copies were never told where they ended. What is left out is counted (`RemoteFire.dropped`).
 
 **Proofs.** `src/weapons/watch.test.ts` (the table; pellets from the seed landing on the shooter's spots; flechettes; a suppressor
 by kit; a round through cover; Raufoss; the rail, the beam, the giant ball; rockets and stakes; the Kiln; swings; the pose's
@@ -1224,9 +1295,29 @@ The host keeps, for every guest, under the lobby's **seat** (one per browser, th
 
 The host decides who did each piece of damage. A kill belongs to, in order: the guest whose claim is being applied; the player
 whose delayed work is running (a chain blast queued by their hit: `Combat`'s queue notes `crediting` and runs under `creditAs`);
-nobody, for a garrison ally's; the last player to hurt that enemy within 30 s (`LINGER_MS`) when only a bleed or a burn killed it
-(a guest's burn or freeze by status claim counts as their touch); the host otherwise. The host's own hits are remembered as a
-guest's are, so a guest's one hit minutes ago never takes the host's airstrike kill.
+nobody, for a garrison ally's; the last player to hurt that enemy within 30 s (`LINGER_MS`) when no player's hand was on what
+killed it; the host otherwise. The host's own hits are remembered as a guest's are, so a guest's one hit minutes ago never takes
+the host's airstrike kill.
+
+Which rule a death falls under is read off its damage source by one table, `creditRule` (`credit.ts`):
+
+| Rule | Sources | Whose kill |
+|---|---|---|
+| `player` | every weapon id, `grenade`, `sword…`, `slam`, `gib`, `kick`, `stomp`, `barrel`, the call-ins (`airstrike`, `warthog`, `chopper…`, `door_gun…`, `gunship…`, `orbital`, `ac130…`, `black_sun`, `nuke`, `sentry`, `drop_pod`, `frame…`, `mech`, `harrow_…`, `attack…`), the perks (`chain…`, `skyfall`, `frost…`, `rigged`, `deadman`, `vampire`, `overdrive`), `emplacement`, `mounted`, `turret`, the cheat panel's `lab` | the player acting: the claim's guest, the queued blast's owner, else the host |
+| `ally` | `ally_…` (the garrison, the Defense mortar teams) | nobody |
+| `linger` | time: `bleed`, `burn`; the map: `lava`, `crusher`, `electric`, `fell`, `hazard`; other enemies: every enemy id (a blast, a rocket), `trample`, `crash` (a drone coming down), `titan_death`, `frag`, `flashbang`, `smoke`, `manpads`, `mortar`, `tank_cannon`, `enemy_emplacement`, `vehicle_ram`, `wreck…`, `vehicle_blast`; the villain's devices: `mine`, `tripwire`, `claymore`, `snare` | the last player to hurt it in the last 30 s, else the host |
+
+- **A burn's source is `burn`** (`EnemyManager.updateBurn`). The table once matched a made-up `fire`, so a guest's kills by the
+  Kiln, napalm, API rounds, the orbital beam and white phosphorus went to the host, and each burn tick (four a second) also
+  handed a later bleed to the host. A hit from a `linger` source never changes who hurt the enemy last.
+- **Whose fire it is** is noted when it is lit, not only when it hurts: a guest's `status` claim is applied as that guest
+  (`claims.ts` sets `applying` round `afflict`), the host's own `afflict` notes the host (`credit.lit`), and fire that spreads
+  from one enemy to the next keeps the first fire's owner (`credit.spread`, from `updateBurn`).
+- **A source the table does not name** is counted as the host's own, kept in `world.creditUnknown` and written to the console
+  once. `credit.test.ts` reads the game's code for every source name written in it (`source: '…'`, `statusDamage(e, '…')`,
+  `killAll('…')`, `…_SOURCE = '…'`, a device's `cause`) and fails on one with no rule, so a new source cannot fall through to
+  "the host's" unseen. The same file kills with the real status tick of the real `EnemyManager` (burning, bleeding, fire that
+  spreads), not with a made-up event.
 
 - Each player's own browser pays, scores and grants only what they did (`notMine`), as before.
 - Rewards the host's world raises for a guest's doing are not paid on the host and go to that guest as `award`: a wound's bonus
@@ -1315,7 +1406,7 @@ million claims, none refused or cut), `world.test.ts`; browser proof `tools/scri
 
 | Event | Fields | Host applies |
 |---|---|---|
-| `hit` | `shot`, `at`, `target` (enemy uid), `weapon` (in hand, not relied on), `origin` (the shooter's eye), `damage` (the whole `DamageInfo`), `hop?` | `applyDamage` as that guest, after `bossHit` |
+| `hit` | `shot`, `at`, `target` (enemy uid), `weapon` (in hand, not relied on), `origin` (the shooter's eye), `damage` (see "what a claim may say"), `hop?`, `local?` (the hit in the struck bone's own axes) | `applyDamage` as that guest, after `bossHit` |
 | `status` | `uid`, `kind` (`burn`, `freeze`, `bolt`), `s` seconds, `at` | `EnemyManager.afflict`: the same write the weapon makes alone |
 | `vhit` | `id` (the vehicle, as the `vehicles` event numbers it), `part`, `point` (in the vehicle's own frame), `amount`, `source`, `kind?` (a rocket or shell landing on it); or with `radius`: a blast at world `point`, `inst?` an instakill | `VehicleSystem.claimed` (as `shot` / `direct`, no host hit marker), or `blast` |
 
@@ -1367,8 +1458,46 @@ million claims, none refused or cut), `world.test.ts`; browser proof `tools/scri
 - **Down.** A downed or dead shooter's gun, blade, body and mounted gun are refused; what was already in the air (a grenade, a
   rocket) and what stands by itself (a sentry, an aircraft, burning ground) still counts.
 - **Never counted as lost:** a claim on an enemy the host had already killed (`refused.gone`).
-- **Counters** for proofs: `world.stats.accepted / rejected`, `world.validator.refused` (by reason: `shape`, `down`, `eye`, `range`,
-  `point`, `rate`, `hits`, `flood`, `sight`, `gone`), `validator.clamped`, `validator.doubted`, and on a guest `world.claims.sent`.
+- **The same hit twice.** A hit is known by its own number (`damage.claim`, a new one every hit) with the shooter's clock
+  (`at`): the host remembers the last 1,024 of each guest and applies an exact repeat once (`replay`). Two different hits never
+  share that pair (six pellets of one pull have six numbers; a reloaded page counts from 1 again, but not at the same
+  millisecond of a clock that also started again), so the guard cannot cost an honest player a shot. A claim that does not say
+  which hit it is, is not guessed at. The old "a call-in only if called lately" rule is **not** back for ordinary call-in
+  damage: an announcement lost to a dropped link would then lose honest damage. It stands for the instakills (10 minutes).
+- **What a claim may say.** The host builds the damage it applies field by field (`claimedDamage`): amount, type, point,
+  direction, force, source, region, bone, a cut's plane, `gib`, `pierces`, `armorPiercing`, `vaporize` (each only as `true`),
+  `severMult`, `headshotMult`, `reach` (0 to 1000), a blast kind the game has, a load, an armour class, the blast's serial, the
+  hit's number. Anything else in the object, and what is the host's alone to set (where the shooter stood, how a trunk broke,
+  whether the guts spilled), never reaches the damage model.
+- **Where the hit lands on the host's body.** `local` is the hit point in the struck bone's own axes on the guest's copy. The
+  host's body is a moment ahead of that copy and in another stride, so the world point the guest saw is off the body by then
+  (0.6 m for a man running at 4 m/s on a 150 ms picture). The host puts the hit back on the same spot of the same bone
+  (`Claims.place`), after the checks: the wound is drawn on the body, and what a man's wounds read off the point (his brain, his
+  heart, a skid off the skull: `wounds/zones.ts`) is what the shooter saw.
+- **Counters** for proofs and the dev log, all on `world.claimBooks`: a guest's `sent`; on the host `received` (by kind),
+  `accepted`, `refusedTotal` (must stay 0 in an honest game; `gone` is not in it), `refused` by reason (`shape`, `down`, `eye`,
+  `range`, `point`, `rate`, `hits`, `flood`, `sight`, `replay`, `gone`), the last 64 `refusals` each with who, what and why,
+  `clamped`, `doubted`, and `late` (below). Every refusal is also written to the console (`[coop] Refused a claim from NAME:
+  why (…)`: the first 40, then every hundredth).
+
+**No honest claim is lost.** Three places used to drop a guest's word without a trace, and do not now:
+
+- **No body yet.** The host looked up the sender's body and returned if no pose had arrived (a first pose crosses on the
+  unreliable lane, a first shot on the reliable one, so the shot can win; the same in the moment a returning player's body is
+  rebuilt). A `hit`, `status` or `vhit` is now applied at once, body or no body: a hit is checked against the eye it names
+  itself, which is all the eye test bounds. What needs the body to be drawn from or measured against (`fire`, `round`, `loop`,
+  `mfx`, a prisoner's `capture` key) waits for it in order, up to 2 s and 96 events a sender (`world/late.ts`), and is counted
+  and logged if the body never comes (`claimBooks.late`: `held`, `run`, `dropped`).
+- **A refusal** is counted, kept and logged (above), and answered (`nack`, below).
+- **Not fixed here:** an event from a guest the host has marked away (loading, at the deploy gate, or silent for 20 s) is
+  still dropped in `lobby.ts` before the world sees it (review-net M2, the session fix lane's).
+
+**The Warthog that dealt no damage** (checklist C9) was not a lost claim. The call-ins proof stood its six targets in a ring on
+a mark that sat on a walkway about 2 m wide, with ground 6 to 8 m lower on both sides, and most of the targets (held still, no
+gravity) floated over the drop. The Warthog's 50 shells land on the real ground, so unless one of them happened to land on the
+walkway every blast went off 5.9 to 7.9 m under the men, out of its 5 m reach, on every screen alike. Caught with the books on:
+the caller sent 0 claims and the host refused none. The same luck made the host's own Warthog kill 3 or 5 of 6 in other runs.
+The proof now puts its mark on ground that is level for 7 m round.
 
 **Status effects.** Fire, frost and the exploding bolt's panic go through `ctx.enemies.afflict(enemy, kind, seconds)` from the
 Kiln's stream and napalm, the Lance beam, the AC-130's white phosphorus, the orbital beam, Frost Nova and the stuck bolt. Alone and
