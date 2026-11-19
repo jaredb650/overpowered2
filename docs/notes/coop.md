@@ -2615,17 +2615,31 @@ comparisons (agent verify-solo's).
 in six mode and map choices; every proof on loopback, clean; the same under the bad network; each lane's main proof over real
 WebRTC; each lane's main proof with four players; the four oldest proofs.
 
-<!-- ledger:start -->
-Written 2026-11-19 07:47 from the runner's `results.json` (`node tools/scripts/coop-all.mjs --ledger`). 158 of 166 runs passed.
+**Retired in the last pass, with why:** `coop-stage1.mjs` and `coop-stage2.mjs`, the first two proofs ever written (two
+hand-made pages over the real relays, before the kit). Both wait for a splash screen that an invite link no longer shows, and
+what they then assert is either covered by a newer proof or is a rule that has since changed: a match starts and both are on
+the same map and mode with bodies and poses (`coop-smoke`, seven mode and map choices, and `coop-session-start`); Esc does not
+stop the co-op clock (`coop-stage3`, `coop-session-blip`, `coop-team-ui`); a guest leaving and the host leaving (they asserted
+"left" and "host left" at once: now a kept seat, a grace and a regroup, `coop-session-*`, `coop-lobby`); solo play after
+co-op (`coop-team-solo`, `coop-time-solo`); snapshot traffic bounded (`coop-baseline`, `coop-wire-heavy`); a guest's fire
+reaching the host's damage (`coop-claims-matrix`); an enemy hurting a guest (`coop-attacks-*`); death and respawn (they
+asserted an instant respawn: now down, revive, bleed-out and the team's respawn, `coop-stage3`, `coop-team-*`). They were run
+once on `19b1f47`: both timed out at the splash, zero checks. `coop-lobby.mjs` was rewritten on the kit instead (it had no
+assertions). `coop-picker.mjs` (the starter picker while the count runs; a phone is refused) and `coop-dad.mjs` (the
+non-gamer's path, ready and force start) still run as written, over the relays, the picker with one line added to pass the
+deploy gate.
 
-- loop, bad network, 2 players: 43 passed, 2 failed
-- loop, bad network, 3 players: 18 passed, 2 failed
+<!-- ledger:start -->
+Written 2026-11-19 08:17 from the runner's `results.json` (`node tools/scripts/coop-all.mjs --ledger`). 168 of 179 runs passed.
+
+- loop, bad network, 2 players: 44 passed, 1 failed
+- loop, bad network, 3 players: 19 passed, 1 failed
 - loop, bad network, 4 players: 1 passed
 - loop, clean network, 2 players: 51 passed
 - loop, clean network, 3 players: 23 passed, 4 failed
-- loop, clean network, 4 players: 2 passed
+- loop, clean network, 4 players: 7 passed, 4 failed
 - one page, clean network, 1 players: 2 passed
-- rtc, clean network, 2 players: 13 passed
+- rtc, clean network, 2 players: 16 passed, 1 failed
 - rtc, clean network, 3 players: 5 passed
 
 | Lane | Proof | Players | Mode | Transport | Network | Result | Checks passed / failed | Commit | First failing check |
@@ -2633,6 +2647,7 @@ Written 2026-11-19 07:47 from the runner's `results.json` (`node tools/scripts/c
 | call-ins | `callins-matrix` | 3 | crucible | loop | bad | pass | 333 / 0 | `93cac4d` |  |
 | call-ins | `callins-matrix` | 3 | crucible | loop | clean | pass | 333 / 0 | `19b1f47` |  |
 | call-ins | `callins-matrix` | 3 | crucible | rtc | clean | pass | 333 / 0 | `19b1f47` |  |
+| call-ins | `callins-matrix` | 4 | crucible | loop | clean | FAIL | 463 / 1 | `19b1f47` | Every check passed :: ["guest-streak: the key puts the guest into targeting"] |
 | claims | `claims-matrix` | 2 | outpost | loop | bad | pass | 5 / 0 | `42e7c20` |  |
 | claims | `claims-matrix` | 2 | outpost | loop | clean | pass | 5 / 0 | `19b1f47` |  |
 | claims | `claims-matrix` | 2 | outpost | rtc | clean | pass | 5 / 0 | `19b1f47` |  |
@@ -2642,6 +2657,7 @@ Written 2026-11-19 07:47 from the runner's `results.json` (`node tools/scripts/c
 | enemy-attacks | `attacks-crucible` | 2 | crucible | rtc | clean | pass | 3 / 0 | `19b1f47` |  |
 | enemy-attacks | `attacks-hazards` | 3 | crucible | loop | bad | pass | 12 / 0 | `42e7c20` |  |
 | enemy-attacks | `attacks-hazards` | 3 | crucible | loop | clean | pass | 13 / 0 | `19b1f47` |  |
+| enemy-attacks | `attacks-hazards` | 4 | crucible | loop | clean | pass | 13 / 0 | `19b1f47` |  |
 | enemy-attacks | `attacks-humans` | 2 | outpost | loop | bad | pass | 15 / 0 | `42e7c20` |  |
 | enemy-attacks | `attacks-humans` | 2 | outpost | loop | clean | pass | 15 / 0 | `19b1f47` |  |
 | enemy-attacks | `attacks-shots` | 2 | crucible | loop | clean | pass | 2 / 0 | `19b1f47` |  |
@@ -2693,9 +2709,11 @@ Written 2026-11-19 07:47 from the runner's `results.json` (`node tools/scripts/c
 | missions | `missions-play/foreclosure` | 2 | foreclosure | loop | bad | pass | 187 / 0 | `42e7c20` |  |
 | missions | `missions-play/foreclosure` | 2 | foreclosure | loop | clean | pass | 187 / 0 | `19b1f47` |  |
 | old | `baseline` | 2 | crucible | loop | clean | pass | 8 / 0 | `19b1f47` |  |
+| old | `dad/force` | 2 | crucible | rtc | clean | pass | 11 / 0 | `19b1f47` |  |
+| old | `dad/ready` | 2 | crucible | rtc | clean | pass | 11 / 0 | `19b1f47` |  |
 | old | `drops` | 2 | crucible | loop | bad | pass | 12 / 0 | `42e7c20` |  |
 | old | `drops` | 2 | crucible | loop | clean | pass | 12 / 0 | `19b1f47` |  |
-| old | `lobby` | 2 | crucible | loop | bad | FAIL | 0 / 1 | `42e7c20` | coop-lobby FAILED after 6 checks: Error: The sender sees their own line once :: ["GUEST-TWO joined.","welcome in"] |
+| old | `lobby` | 2 | crucible | loop | bad | pass | 14 / 0 | `19b1f47` |  |
 | old | `lobby` | 2 | crucible | loop | clean | pass | 14 / 0 | `19b1f47` |  |
 | old | `lobby` | 2 | crucible | rtc | clean | pass | 14 / 0 | `19b1f47` |  |
 | old | `mission` | 2 | campaign | loop | bad | pass | 6 / 0 | `42e7c20` |  |
@@ -2706,12 +2724,15 @@ Written 2026-11-19 07:47 from the runner's `results.json` (`node tools/scripts/c
 | old | `modes/humans` | 2 | outpost | loop | clean | pass | 5 / 0 | `19b1f47` |  |
 | old | `modes/office` | 2 | crucible (office) | loop | bad | pass | 4 / 0 | `42e7c20` |  |
 | old | `modes/office` | 2 | crucible (office) | loop | clean | pass | 4 / 0 | `19b1f47` |  |
+| old | `picker/desktop` | 2 | crucible | rtc | clean | FAIL | 6 / 1 | `19b1f47` | page.waitForFunction: Timeout 150000ms exceeded. |
+| old | `picker/phone` | 2 | crucible | rtc | clean | pass | 2 / 0 | `19b1f47` |  |
 | old | `robust` | 2 | crucible | loop | clean | pass | 7 / 0 | `19b1f47` |  |
 | old | `smoke/campaign` | 2 | campaign | loop | bad | pass | 5 / 0 | `42e7c20` |  |
 | old | `smoke/campaign` | 2 | campaign | loop | clean | pass | 5 / 0 | `19b1f47` |  |
 | old | `smoke/crucible` | 2 | crucible | loop | bad | pass | 5 / 0 | `42e7c20` |  |
 | old | `smoke/crucible` | 2 | crucible | loop | clean | pass | 5 / 0 | `19b1f47` |  |
 | old | `smoke/crucible` | 2 | crucible | rtc | clean | pass | 5 / 0 | `19b1f47` |  |
+| old | `smoke/crucible` | 4 | crucible | loop | clean | pass | 5 / 0 | `19b1f47` |  |
 | old | `smoke/crucible@office` | 2 | crucible (office) | loop | bad | pass | 5 / 0 | `42e7c20` |  |
 | old | `smoke/crucible@office` | 2 | crucible (office) | loop | clean | pass | 5 / 0 | `19b1f47` |  |
 | old | `smoke/defense` | 2 | defense | loop | bad | pass | 5 / 0 | `42e7c20` |  |
@@ -2743,10 +2764,12 @@ Written 2026-11-19 07:47 from the runner's `results.json` (`node tools/scripts/c
 | session | `session-start` | 3 | crucible | loop | bad | pass | 18 / 0 | `3350938` |  |
 | session | `session-start` | 3 | crucible | loop | clean | pass | 18 / 0 | `e0334ec` |  |
 | session | `session-start` | 3 | crucible | rtc | clean | pass | 18 / 0 | `93cac4d` |  |
+| session | `session-start` | 4 | crucible | loop | clean | pass | 21 / 0 | `19b1f47` |  |
 | session | `session-three` | 3 | crucible | loop | bad | pass | 45 / 0 | `93cac4d` |  |
 | session | `session-three` | 3 | crucible | loop | clean | pass | 45 / 0 | `e0334ec` |  |
 | team | `team-break` | 3 | crucible | loop | bad | pass | 27 / 0 | `93cac4d` |  |
 | team | `team-break` | 3 | crucible | loop | clean | pass | 27 / 0 | `19b1f47` |  |
+| team | `team-break` | 4 | crucible | loop | clean | pass | 30 / 0 | `19b1f47` |  |
 | team | `team-endings/humans` | 2 | outpost | loop | bad | pass | 18 / 0 | `93cac4d` |  |
 | team | `team-endings/humans` | 2 | outpost | loop | clean | pass | 18 / 0 | `19b1f47` |  |
 | team | `team-endings/mission` | 2 | campaign | loop | bad | pass | 20 / 0 | `93cac4d` |  |
@@ -2754,6 +2777,7 @@ Written 2026-11-19 07:47 from the runner's `results.json` (`node tools/scripts/c
 | team | `team-endings/wipe` | 2 | crucible | loop | bad | pass | 32 / 0 | `19b1f47` |  |
 | team | `team-endings/wipe` | 2 | crucible | loop | clean | pass | 32 / 0 | `19b1f47` |  |
 | team | `team-endings/wipe` | 2 | crucible | rtc | clean | pass | 32 / 0 | `93cac4d` |  |
+| team | `team-endings/wipe` | 4 | crucible | loop | clean | pass | 60 / 0 | `19b1f47` |  |
 | team | `team-rejoin` | 2 | crucible | loop | bad | pass | 25 / 0 | `93cac4d` |  |
 | team | `team-rejoin` | 2 | crucible | loop | clean | pass | 25 / 0 | `19b1f47` |  |
 | team | `team-rejoin` | 2 | crucible | rtc | clean | pass | 25 / 0 | `93cac4d` |  |
@@ -2765,7 +2789,8 @@ Written 2026-11-19 07:47 from the runner's `results.json` (`node tools/scripts/c
 | time | `time-team` | 2 | crucible | loop | bad | pass | 96 / 0 | `42e7c20` |  |
 | time | `time-team` | 2 | crucible | loop | clean | pass | 96 / 0 | `e0334ec` |  |
 | time | `time-team` | 2 | crucible | rtc | clean | pass | 96 / 0 | `42e7c20` |  |
-| weapons-fx | `fx-matrix` | 3 | crucible | loop | bad | FAIL | 1843 / 1 | `93cac4d` | host fires / stake-in-body / far: as many stakes stand in the wall as on the shooter's screen (1 and 2) |
+| time | `time-team` | 4 | crucible | loop | clean | FAIL | 84 / 1 | `19b1f47` | page.waitForURL: Timeout 90000ms exceeded. |
+| weapons-fx | `fx-matrix` | 3 | crucible | loop | bad | pass | 1844 / 0 | `19b1f47` |  |
 | weapons-fx | `fx-matrix` | 3 | crucible | loop | clean | pass | 1844 / 0 | `19b1f47` |  |
 | weapons-fx | `fx-matrix` | 3 | crucible | rtc | clean | pass | 1844 / 0 | `93cac4d` |  |
 | wire | `wire-heavy` | 4 | crucible | loop | bad | pass | 4 / 0 | `42e7c20` |  |
@@ -2781,6 +2806,7 @@ Written 2026-11-19 07:47 from the runner's `results.json` (`node tools/scripts/c
 | world-a | `world-pods` | 2 | crucible | loop | bad | pass | 16 / 0 | `93cac4d` |  |
 | world-a | `world-pods` | 2 | crucible | loop | clean | pass | 16 / 0 | `e0334ec` |  |
 | world-a | `world-pods` | 2 | crucible | rtc | clean | pass | 16 / 0 | `42e7c20` |  |
+| world-a | `world-pods` | 4 | crucible | loop | clean | FAIL | 8 / 1 | `19b1f47` | Each player bought something, paid from their own purse :: [{"before":3000,"after":2550,"price":450,"act":{"kind":"weapon","id":"gimlet"},"why":null,"locked":33,"cleared":1,"inBreak":true},{"before":9 |
 | world-a | `world-pods/outpost` | 2 | outpost | loop | bad | pass | 16 / 0 | `93cac4d` |  |
 | world-a | `world-pods/outpost` | 2 | outpost | loop | clean | pass | 16 / 0 | `e0334ec` |  |
 | world-a | `world-props` | 2 | crucible | loop | bad | pass | 14 / 0 | `93cac4d` |  |
@@ -2790,6 +2816,7 @@ Written 2026-11-19 07:47 from the runner's `results.json` (`node tools/scripts/c
 | world-b | `worldb-defense` | 2 | defense | loop | bad | pass | 64 / 0 | `93cac4d` |  |
 | world-b | `worldb-defense` | 2 | defense | loop | clean | pass | 64 / 0 | `e0334ec` |  |
 | world-b | `worldb-defense` | 2 | defense | rtc | clean | pass | 64 / 0 | `42e7c20` |  |
+| world-b | `worldb-defense` | 4 | defense | loop | clean | FAIL | 72 / 1 | `19b1f47` | It is on the guest's screen :: "credits1,430Next: About 10 men in squads. The Test Range runs Endless Humans' waves; the fort has the directorBarracksArmouryInfirmary" |
 | world-b | `worldb-prisoners` | 3 | outpost | loop | bad | pass | 34 / 0 | `93cac4d` |  |
 | world-b | `worldb-prisoners` | 3 | outpost | loop | clean | pass | 34 / 0 | `e0334ec` |  |
 | world-b | `worldb-props` | 3 | outpost | loop | bad | pass | 40 / 0 | `93cac4d` |  |

@@ -751,6 +751,22 @@ on the same game and carries on; `results.md` there is the table so far. Sweeps 
   `19b1f47` (guest's seat, call-ins, wire, team, missions, enemy attacks, claims, gore, weapons, the fix agents' proofs, the
   old proofs), then four players and the four oldest proofs.
 
+- 08:20, verify-proofs: **real WebRTC over the public relays: 18 of 18** (each lane's main proof once, `93cac4d` and
+  `19b1f47`: session start, the dropped connection that comes back, the wipe and the board, the rejoin with the kit, gore
+  267, the weapons matrix 1,844, the call-ins matrix 333, the shared pod, dropped guns, Outpost Defense, the team's slow-mo
+  96, the Crucible's attacks, the enemy moves, the claims matrix, The Outpost played through 242, smoke, stage 3, the
+  lobby). **The re-run of the lanes fix-tail touched, on `19b1f47`: 56 runs, 52 passed first time**; the four were a small
+  game bug (finding 11, the lobby's list order, fixed) and three of the guest's-seat proof's own (finding 13).
+  `coop-wire-stall` passes there: finding 6 is closed by `6695c0e`. **The bad-network failures run again: five of the seven
+  pass; two are findings 9 and 12.** **Four players (`19b1f47`, 9 runs): 5 passed first time** (session start 21, the break
+  vote 30, the wipe and the board 60, the hazards 13, smoke); the other four were proofs meeting a fourth page (the pods
+  proof had three purses; the Defense proof read a panel as it changed; the slow-mo proof's late joiner had no seat left
+  after 84 checks; the call-ins matrix's last part began with the guest still in a seat, 463 checks before it), all
+  corrected and run again in the final pass. **The oldest proofs:** the non-gamer's path passes both ways (11 and 11), a
+  phone is refused (2), the picker needed the deploy gate (fixed), and `coop-stage1` and `coop-stage2` are retired with
+  the reason in `coop.md`, "What is proven". The final pass is running on `2f58315`: the guest's seat in all six choices
+  again, the session lane and the cheap proofs over the last small commits, and every row not yet passed.
+
 ## Last pass findings
 
 Each: what fails, where, how many players, which network, the evidence, the cause. For the fix agents.
