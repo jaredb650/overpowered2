@@ -75,7 +75,8 @@ export default async function (host, { sleep, outDir }) {
     for (let i = 1; i < party.guests.length; i++) await put(party.guests[i], (await ahead(host, -16 - i * 3)).at, spot.yaw);
     await sleep(700);
     out.fps = await Promise.all(party.pages.map(page => page.evaluate(() => window.__op2.stats().fps)));
-    for (const page of party.pages) page.on('console', m => { if (m.type() === 'error' || /\[coop\]/.test(m.text())) out.errors.push(`console: ${m.text().slice(0, 300)}`); });
+    // (Over real WebRTC a public relay that is down logs a console error of its own: that is the relay's, not the game's.)
+    for (const page of party.pages) page.on('console', m => { if ((m.type() === 'error' || /\[coop\]/.test(m.text())) && !/WebSocket connection to 'wss:/.test(m.text())) out.errors.push(`console: ${m.text().slice(0, 300)}`); });
     for (const page of party.pages) page.on('crash', () => out.errors.push('PAGE CRASHED'));
     for (const page of party.pages) page.on('close', () => out.errors.push('PAGE CLOSED'));
 

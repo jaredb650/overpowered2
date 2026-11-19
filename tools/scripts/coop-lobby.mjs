@@ -36,7 +36,9 @@ export default async (host, { sleep, outDir }) => {
     const hostChat = await until(host, s => s.chat.some(t => t.includes('hello from the guest')), "the guest's line on the host", 20000);
     const guestChat = await until(guest, s => s.chat.some(t => t.includes('welcome in')), "the host's line on the guest", 20000);
     check(hostChat.chat.filter(t => t.includes('hello from the guest')).length === 1 && guestChat.chat.filter(t => t.includes('welcome in')).length === 1, 'Each chat line arrives once on the other screen', [hostChat.chat, guestChat.chat]);
-    check(guestChat.chat.filter(t => t.includes('hello from the guest')).length === 1, 'The sender sees their own line once', guestChat.chat);
+    // A line shows on its sender's own screen when it comes back from the host, which under lag is after the host's reply.
+    const own = await until(guest, s => s.chat.some(t => t.includes('hello from the guest')), "the guest's own line on its own screen", 20000);
+    check(own.chat.filter(t => t.includes('hello from the guest')).length === 1, 'The sender sees their own line once', own.chat);
 
     progress('ready off and on');
     await guest.locator('.co-readybtn.on').click();
