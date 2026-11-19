@@ -200,12 +200,13 @@ const shoot = (page, row, aim) => page.evaluate(async ([row, aim]) => {
   let tick = 0, last = 0;
   if (row.mode === 'callin') {
     const manager = ctx.progression.callInsManager;
-    manager.order.point.copy(point); manager.order.heading.set(-Math.sin(ctx.player.yaw), 0, -Math.cos(ctx.player.yaw));
-    manager.fly(row.callin);
+    // The player's own call (not the Commander's `ai` one), at the lead target, flown in along the lane.
+    manager.callAt(row.callin, point, new V(-Math.sin(ctx.player.yaw), 0, -Math.cos(ctx.player.yaw)), false);
   }
   while (timed ? ctx.time.elapsed - gameBegan < row.seconds && performance.now() < giveUp : performance.now() < until || (shots < want && performance.now() < giveUp)) {
     if (game.state !== 'playing') game.setState('playing');
-    for (const perk of row.perks ?? []) if (!ctx.progression.perks.isActive(perk) || tick % 30 === 0) ctx.progression.grant(perk);
+    // A perk that runs out is given again; a one-off (Frost Nova's ring) is cast once and left to spread.
+    for (const perk of row.perks ?? []) if (tick === 0 || (row.mode !== 'idle' && !ctx.progression.perks.isActive(perk))) ctx.progression.grant(perk);
     w.refillMagazines();
     const now = performance.now();
     if (row.mode === 'hold') input.simulate('fire', true);
