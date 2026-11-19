@@ -710,6 +710,20 @@ on the same game and carries on; `results.md` there is the table so far. Sweeps 
   30 s), Outpost Defense 67 of 70 (finding 2 below), both missions 64 of 66 before the fix of finding 1 and 23 of 23 on its
   steps after. **One real bug found and fixed, one known gap confirmed with evidence:** see "Last pass findings".
 
+- 04:40, verify-proofs: **the clean sweep on `0303bad`: 56 of 60 runs passed** (every lane's proofs, loopback, two or three
+  players). The four that failed were the proofs, each fixed: `coop-lobby` (rewritten on the kit in this pass; it read the
+  wrong line for the host's guide), `coop-robust` (waited 40 s for a dropped seat to be freed; a seat is kept 60 s now, so it
+  reads the seat as lost), `coop-attacks-shots` (a look-check that freezes on a drawn frame; fast mode draws none, so it now
+  asks for `look`), and `coop-callins-matrix` (no level ground found for its mark on that run; run again on the tip).
+- 04:50, verify-proofs: on the lead's word the sweeps restarted once more on `e0334ec` (the fix agents and the wire pass are
+  in), four runs at a time, in this order: guest's seat, clean, bad network, real WebRTC, four players, the four oldest. From
+  here a proof is run again on a newer commit only if the commit touched its area (`--any-commit`, then `--force --lane`).
+  **Guest's seat on `e0334ec`, three players, loopback, clean: Endless Humans 74 of 74, the Office 74 of 74, Outpost Defense
+  all passed (the reload keeps its kit now: fix-session's C10 confirmed), The Outpost 66 of 66, Foreclosure 66 of 66; the
+  Crucible 72 of 74**, the two failures the proof's (it stood the third player inside a wall beside a pod that landed by one;
+  fixed, to be run again). The runner also lists the fix agents' and the wire's proofs now (72 runs in the clean suite). The
+  ledger is `docs/notes/coop.md`, "What is proven", written from the runner's results as they come.
+
 ## Last pass findings
 
 Each: what fails, where, how many players, which network, the evidence, the cause. For the fix agents.

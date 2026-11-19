@@ -2505,6 +2505,99 @@ What it shows:
   too) with a round trip of 0.2 to 1.4 ms.
 - Before the GPU flags the same headless pair ran at 1 frame a second per page (software rendering, 1440x900 dpr 2).
 
+## What is proven
+
+The last pass's ledger: every co-op browser proof the runner knows (`tools/scripts/coop-all.mjs`, "Testing" above), at which
+player counts, on which transport and network, with the commit each result was run on. **A row is true of its commit only.** A
+proof is run again on a newer commit when that commit touched its area; a row left on an older commit says so by its commit.
+`loop` is the offline loopback transport, `rtc` real WebRTC over the public relays; `bad` is `lag:120,jitter:40,loss:0.05` on
+every page. "Checks" are the proof's own assertions; a proof stops at its first failure unless it is a matrix.
+
+Not in the table, by design: the smoothness matrix (`coop-motion-matrix.mjs`, agent verify-motion's, in "Enemy motion"),
+`coop-fixhits-onehit.mjs` (a diagnostic), `coop-wire-relay.mjs` (a measurement), `coop-solo-check.mjs` and the single-player
+comparisons (agent verify-solo's).
+
+**Sweeps, in the order they were run** (the state of each is in the plan's log, "Last pass: verify-proofs"): the guest's seat
+in six mode and map choices; every proof on loopback, clean; the same under the bad network; each lane's main proof over real
+WebRTC; each lane's main proof with four players; the four oldest proofs.
+
+<!-- ledger:start -->
+Written 2026-11-19 04:48 from the runner's `results.json` (`node tools/scripts/coop-all.mjs --ledger`). 61 of 66 runs passed.
+
+- loop, clean network, 2 players: 42 passed, 3 failed
+- loop, clean network, 3 players: 17 passed, 2 failed
+- one page, clean network, 1 players: 2 passed
+
+| Lane | Proof | Players | Mode | Transport | Network | Result | Checks passed / failed | Commit | First failing check |
+|---|---|---:|---|---|---|---|---:|---|---|
+| call-ins | `callins-matrix` | 3 | crucible | loop | clean | FAIL | 0 / 1 | `0303bad` | No open, level ground in sight of the spawn to put the mark on |
+| claims | `claims-matrix` | 2 | outpost | loop | clean | pass | 3 / 0 | `0303bad` |  |
+| claims | `claims-matrix/hitch` | 2 | outpost | loop | clean | pass | 3 / 0 | `0303bad` |  |
+| enemy-attacks | `attacks-crucible` | 2 | crucible | loop | clean | pass | 3 / 0 | `0303bad` |  |
+| enemy-attacks | `attacks-hazards` | 3 | crucible | loop | clean | pass | 13 / 0 | `0303bad` |  |
+| enemy-attacks | `attacks-humans` | 2 | outpost | loop | clean | pass | 15 / 0 | `0303bad` |  |
+| enemy-attacks | `attacks-shots` | 2 | crucible | loop | clean | FAIL | 0 / 1 | `0303bad` | Each picture is of the frame it names :: {"sniper-laser":{"frozen":false,"path":"/home/jared/jared/overpowered2/tools/out/coop/verify-proofs/all/attacks-shots-2p-loop-clean/attacks-shots-sniper-laser. |
+| enemy-motion | `motion-moves` | 2 | crucible | loop | clean | pass | 19 / 0 | `0303bad` |  |
+| enemy-motion | `motion-moves/outpost` | 2 | outpost | loop | clean | pass | 3 / 0 | `0303bad` |  |
+| gore | `gore-bytes` | 3 | crucible | loop | clean | pass | 9 / 0 | `0303bad` |  |
+| gore | `gore-shots` | 3 | crucible | loop | clean | pass | 267 / 0 | `0303bad` |  |
+| guest | `guest-seat/campaign` | 3 | campaign | loop | clean | pass | 66 / 0 | `e0334ec` |  |
+| guest | `guest-seat/crucible` | 3 | crucible | loop | clean | FAIL | 72 / 2 | `e0334ec` | break: Every player is offered the shop at the shared pod |
+| guest | `guest-seat/defense` | 3 | defense | loop | clean | pass | 70 / 0 | `e0334ec` |  |
+| guest | `guest-seat/foreclosure` | 3 | foreclosure | loop | clean | pass | 66 / 0 | `e0334ec` |  |
+| guest | `guest-seat/outpost` | 3 | outpost | loop | clean | pass | 74 / 0 | `e0334ec` |  |
+| guest | `guest-seat/outpost@office` | 3 | outpost (office) | loop | clean | pass | 74 / 0 | `e0334ec` |  |
+| missions | `missions-play/campaign` | 2 | campaign | loop | clean | pass | 242 / 0 | `0303bad` |  |
+| missions | `missions-play/foreclosure` | 2 | foreclosure | loop | clean | pass | 190 / 0 | `0303bad` |  |
+| old | `baseline` | 2 | crucible | loop | clean | pass | 8 / 0 | `0303bad` |  |
+| old | `drops` | 2 | crucible | loop | clean | pass | 12 / 0 | `0303bad` |  |
+| old | `lobby` | 2 | crucible | loop | clean | FAIL | 0 / 1 | `0303bad` | coop-lobby FAILED after 7 checks: Error: The host is told who it is waiting for :: "Hosting · 2 of 4" |
+| old | `mission` | 2 | campaign | loop | clean | pass | 6 / 0 | `0303bad` |  |
+| old | `modes/defense` | 2 | defense | loop | clean | pass | 4 / 0 | `0303bad` |  |
+| old | `modes/humans` | 2 | outpost | loop | clean | pass | 5 / 0 | `0303bad` |  |
+| old | `modes/office` | 2 | crucible (office) | loop | clean | pass | 4 / 0 | `0303bad` |  |
+| old | `robust` | 2 | crucible | loop | clean | FAIL | 2 / 1 | `0303bad` | page.waitForFunction: Timeout 40000ms exceeded. |
+| old | `smoke/campaign` | 2 | campaign | loop | clean | pass | 5 / 0 | `0303bad` |  |
+| old | `smoke/crucible` | 2 | crucible | loop | clean | pass | 5 / 0 | `0303bad` |  |
+| old | `smoke/crucible@office` | 2 | crucible (office) | loop | clean | pass | 5 / 0 | `0303bad` |  |
+| old | `smoke/defense` | 2 | defense | loop | clean | pass | 5 / 0 | `0303bad` |  |
+| old | `smoke/foreclosure` | 2 | foreclosure | loop | clean | pass | 5 / 0 | `0303bad` |  |
+| old | `smoke/outpost` | 2 | outpost | loop | clean | pass | 5 / 0 | `0303bad` |  |
+| old | `smoke/outpost@office` | 2 | outpost (office) | loop | clean | pass | 5 / 0 | `0303bad` |  |
+| old | `stage3` | 2 | crucible | loop | clean | pass | 12 / 0 | `0303bad` |  |
+| session | `session-blip` | 2 | crucible | loop | clean | pass | 9 / 0 | `0303bad` |  |
+| session | `session-hostquit` | 3 | crucible | loop | clean | pass | 11 / 0 | `0303bad` |  |
+| session | `session-late` | 2 | crucible | loop | clean | pass | 9 / 0 | `0303bad` |  |
+| session | `session-modes` | 2 | every mode | loop | clean | pass | 30 / 0 | `0303bad` |  |
+| session | `session-noshow` | 2 | crucible | loop | clean | pass | 8 / 0 | `0303bad` |  |
+| session | `session-password` | 2 | crucible | loop | clean | pass | 8 / 0 | `0303bad` |  |
+| session | `session-reload` | 3 | crucible | loop | clean | pass | 9 / 0 | `0303bad` |  |
+| session | `session-start` | 3 | crucible | loop | clean | pass | 18 / 0 | `0303bad` |  |
+| session | `session-three` | 3 | crucible | loop | clean | pass | 45 / 0 | `0303bad` |  |
+| team | `team-break` | 3 | crucible | loop | clean | pass | 27 / 0 | `0303bad` |  |
+| team | `team-endings/humans` | 2 | outpost | loop | clean | pass | 18 / 0 | `0303bad` |  |
+| team | `team-endings/mission` | 2 | campaign | loop | clean | pass | 20 / 0 | `0303bad` |  |
+| team | `team-endings/wipe` | 2 | crucible | loop | clean | pass | 32 / 0 | `0303bad` |  |
+| team | `team-rejoin` | 2 | crucible | loop | clean | pass | 25 / 0 | `0303bad` |  |
+| team | `team-solo` | 1 | crucible | one page | clean | pass | 6 / 0 | `0303bad` |  |
+| team | `team-ui` | 2 | crucible | loop | clean | pass | 17 / 0 | `0303bad` |  |
+| time | `time-slowhost` | 2 | crucible | loop | clean | pass | 11 / 0 | `0303bad` |  |
+| time | `time-solo` | 1 | crucible | one page | clean | pass | 11 / 0 | `0303bad` |  |
+| time | `time-team` | 2 | crucible | loop | clean | pass | 96 / 0 | `0303bad` |  |
+| weapons-fx | `fx-matrix` | 3 | crucible | loop | clean | pass | 1580 / 0 | `0303bad` |  |
+| world-a | `world-cache/campaign` | 2 | campaign | loop | clean | pass | 9 / 0 | `0303bad` |  |
+| world-a | `world-cache/foreclosure` | 2 | foreclosure | loop | clean | pass | 9 / 0 | `0303bad` |  |
+| world-a | `world-drops` | 3 | crucible | loop | clean | pass | 18 / 0 | `0303bad` |  |
+| world-a | `world-pods` | 2 | crucible | loop | clean | pass | 16 / 0 | `0303bad` |  |
+| world-a | `world-pods/outpost` | 2 | outpost | loop | clean | pass | 16 / 0 | `0303bad` |  |
+| world-a | `world-props` | 2 | crucible | loop | clean | pass | 14 / 0 | `0303bad` |  |
+| world-a | `world-props/office` | 2 | crucible (office) | loop | clean | pass | 16 / 0 | `0303bad` |  |
+| world-b | `worldb-defense` | 2 | defense | loop | clean | pass | 64 / 0 | `0303bad` |  |
+| world-b | `worldb-prisoners` | 3 | outpost | loop | clean | pass | 34 / 0 | `0303bad` |  |
+| world-b | `worldb-props` | 3 | outpost | loop | clean | pass | 40 / 0 | `0303bad` |  |
+| world-b | `worldb-vehicles` | 2 | defense | loop | clean | pass | 27 / 0 | `0303bad` |  |
+<!-- ledger:end -->
+
 ## Cloudflare worker: relay + error log (TURN setup, once by the owner)
 
 Most pairs of home connections link directly. Strict routers, mobile data, some offices and some university networks do not; for those
