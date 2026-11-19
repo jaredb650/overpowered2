@@ -234,7 +234,11 @@ export class Claims implements WorldModule {
     this.w.stats.accepted++;
     this.lastHitter.set(enemy.uid, from);
     this.onStatus(enemy.uid, from);
-    this.w.manager.afflict(enemy, value.kind, seconds);
+    // Applied as that guest's doing, so the host's own note of whose fire it is (credit.ts `lit`) names the guest.
+    this.current = from;
+    this.currentShot = 0;
+    try { this.w.manager.afflict(enemy, value.kind, seconds); }
+    finally { this.current = null; }
   }
 
   /** Host: a guest's round or blast on the vehicles, applied as the host's own would be. */

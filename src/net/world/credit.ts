@@ -6,9 +6,12 @@
  * 1. the guest whose claim is being applied (claims.ts `applying`): their gun, their blast, their call-in;
  * 2. the player whose delayed work is running (`as`): a blast queued by their hit (weapons/Combat.ts chains);
  * 3. nobody, when a garrison ally did it;
- * 4. the last player to hurt that enemy within `LINGER_MS`, when nothing but time killed it (a bleed, a burn);
- * 5. the host otherwise: the host's own guns, call-ins, slam, barrels and hazards, as a solo run counts them.
+ * 4. the last player to hurt that enemy within `LINGER_MS`, when no player's hand was on what killed it: time (a bleed, a
+ *    burn), the map (lava, a crusher, a live floor, a fall), another enemy (a blast, a charge), a boss's death;
+ * 5. the host otherwise: the host's own guns, call-ins, slam and barrels, and a death by rule 4 that nobody had a hand in,
+ *    as a solo run counts them.
  * The host's own hits are remembered for rule 4 as a guest's are, so a guest's single hit minutes ago never takes the host's kill.
+ * Which rule a damage source falls under is `creditRule`: one table, and a test that fails on a source it does not name.
  *
  * Rewards the host's world raises for a guest's doing (a wound's bonus, an execution, a BACK SHOT label) are not paid on the
  * host: they go to that guest as `award`, and its own browser scores, labels and grants.
@@ -19,7 +22,8 @@ import { ALLY_SOURCE } from '../../allies/data';
 import { hitText } from '../../progression/data';
 import type { Claims } from './claims';
 import type { WorldContext, WorldModule } from './context';
-import { validVec, type Vec } from './wire';
+import { WEAPONS } from '../../weapons/data';
+import { ENEMY_IDS, validVec, type Vec } from './wire';
 
 /** An enemy died, on any screen: who killed it (`by` a slot, -1 nobody's) and what it was. */
 export interface KillNews { by: number; id: EnemyId; boss: boolean; head: boolean }
@@ -38,8 +42,31 @@ declare module '../../core/contracts' {
 export type AwardEvent = { t: 'award'; kind: 'score' | 'label' | 'executed'; uid: number; points: number; label: string; at: Vec; color?: string };
 const AWARDS: readonly AwardEvent['kind'][] = ['score', 'label', 'executed'];
 
-/** Damage with nobody's hand on it now: it belongs to whoever hurt the enemy last. */
-const LINGER = /^(bleed|fire)$/;
+/**
+ * Whose a death is, by the source its damage names:
+ * - `player`: the player acting now (a guest's claim being applied, the owner of a queued blast, else the host's own doing):
+ *   every gun, blade and grenade, the player's body, call-ins, perks, mounted guns, barrels, the cheat panel;
+ * - `ally`: a garrison soldier's. Nobody is paid;
+ * - `linger`: nobody's hand is on it now. It belongs to whoever hurt the enemy last, for `LINGER_MS`: bleeding and burning
+ *   (the burn tick's source is `burn`: EnemyManager.updateBurn), the map's hazards, a fall, a drone's crash, another enemy's
+ *   blast or charge, the villain's devices, a boss's death taking the field.
+ */
+export type CreditRule = 'player' | 'ally' | 'linger';
+
+/** Time and the map. `fire` is the scratch damage's first value in EnemyManager, never emitted; `''` a scratch one never filled. */
+const LINGER = /^(|bleed|burn|fire|fell|crash|trample|hazard|coop|lava|crusher|electric)$/;
+/** Enemies' own weapons, the villain's devices, wrecks, and what a boss's death does to the field. */
+const ENEMY_MADE = /^(titan_death|frag|flashbang|smoke|manpads|mortar|mine|tripwire|claymore|snare|tank_cannon|enemy_emplacement|vehicle_ram|wreck_fire|wreck|vehicle_blast)$/;
+/** Everything of a player's that is not a gun in the weapon table (authority.ts classes the same names for a claim). */
+const PLAYER_MADE = /^(grenade|sword|slam|gib|kick|stomp|barrel|lab|test|airstrike|warthog|chopper|door_gun|gunship|orbital|ac130|black_sun|nuke|sentry|drop_pod|frame|mech|harrow_|attack|chain|skyfall|frost|rigged|deadman|vampire|overdrive|emplacement|mounted|turret|hazard_)/;
+
+/** The rule for a damage source, or null for a source this table has never heard of (credit then goes as `player`). */
+export function creditRule(source: string): CreditRule | null {
+  if (ALLY_SOURCE.test(source)) return 'ally';
+  if (LINGER.test(source) || ENEMY_MADE.test(source) || ENEMY_IDS.some(id => id === source)) return 'linger';
+  if (Object.hasOwn(WEAPONS, source) || PLAYER_MADE.test(source)) return 'player';
+  return null;
+}
 /** How long a hit keeps its claim on a death by bleeding or burning. */
 export const LINGER_MS = 30_000;
 /** How long a kill's owner is kept: every system has heard `enemy:killed` long before. */
@@ -52,6 +79,8 @@ export class Credit implements WorldModule {
   private readonly lastHit = new Map<number, { id: string; at: number }>();
   /** Host: the player whose delayed work is running right now (lobby id). */
   private owner: string | null = null;
+  /** Host: damage sources seen that `creditRule` does not name, for the proofs and the dev log. Empty in a healthy game. */
+  readonly unknown = new Set<string>();
 
   constructor(private readonly w: WorldContext, private readonly claims: Claims) {
     if (w.hosting) {
@@ -90,16 +119,46 @@ export class Credit implements WorldModule {
   private acting(source: string): string | null {
     const id = this.claims.applying ?? this.owner;
     if (id) return id;
-    return ALLY_SOURCE.test(source) || LINGER.test(source) || source === '' ? null : this.w.session.lobby.you;
+    return this.rule(source) === 'player' ? this.w.session.lobby.you : null;
+  }
+
+  private rule(source: string): CreditRule {
+    const rule = creditRule(source);
+    if (rule) return rule;
+    if (!this.unknown.has(source) && this.unknown.size < 64) {
+      this.unknown.add(source);
+      console.warn(`[coop] No credit rule for damage source "${source}": counted as the host's own (net/world/credit.ts creditRule)`);
+    }
+    return 'player';
+  }
+
+  /**
+   * Host: fire, frost or a live bolt was put on this enemy by the player acting now (EnemyManager.afflict: the host's own
+   * weapon, or a guest's `status` claim being applied). No hit says so, and the death it ends in is theirs.
+   */
+  lit(uid: number): void {
+    if (!this.w.hosting) return;
+    const id = this.claims.applying ?? this.owner ?? this.w.session.lobby.you;
+    if (id) this.lastHit.set(uid, { id, at: performance.now() });
+  }
+
+  /** Host: fire spread from one enemy to the next (EnemyManager.updateBurn). The new fire is whose the old one was. */
+  spread(from: number, to: number): void {
+    if (!this.w.hosting) return;
+    const first = this.lastHit.get(from);
+    if (!first) return;
+    const now = performance.now();
+    const mine = this.lastHit.get(to);
+    if (now - first.at <= LINGER_MS && (!mine || now - mine.at > LINGER_MS)) this.lastHit.set(to, { id: first.id, at: first.at });
   }
 
   private killer(event: KillEvent): string {
     const you = this.w.session.lobby.you;
     const id = this.claims.applying ?? this.owner;
     if (id) return id;
-    const source = event.damage.source;
-    if (ALLY_SOURCE.test(source)) return '';
-    if (LINGER.test(source) || source === '') {
+    const rule = this.rule(event.damage.source);
+    if (rule === 'ally') return '';
+    if (rule === 'linger') {
       const last = this.lastHit.get(event.enemy.uid);
       return last && performance.now() - last.at <= LINGER_MS ? last.id : you;
     }

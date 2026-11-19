@@ -687,8 +687,15 @@ describe('kill credit and rewards go to the player who earned them', () => {
     const b = game.host.manager.spawn('husk', new THREE.Vector3(0, 0, -8)); game.tick(120);
     hit(game, g, b);
     game.host.ctx.events.emit('enemy:hit', { enemy: b, damage: { source: 'kiln', point: b.center, dir: new THREE.Vector3(), amount: 5, type: 'fire', force: 1 }, result: { blocked: false } } as never);
-    kill(game.host, b, 'fire'); game.relay.flush();
+    // `burn` is the burn tick's real source (EnemyManager.updateBurn); credit.test.ts runs the real tick.
+    kill(game.host, b, 'burn'); game.relay.flush();
     expect(by(game, b.uid)).toBe(0);
+    // The guest's fire (a `status` claim), then the burn's own ticks as hits, then it dies burning: the guest's.
+    const d = game.host.manager.spawn('husk', new THREE.Vector3(0, 0, -8)); game.tick(120);
+    g.world.status(g.ctx.enemies.alive.find(e => e.uid === d.uid)!, 'burn', 4); game.relay.flush();
+    for (let i = 0; i < 4; i++) game.host.ctx.events.emit('enemy:hit', { enemy: d, damage: { source: 'burn', point: d.center, dir: new THREE.Vector3(), amount: 4, type: 'fire', force: 0 }, result: { blocked: false } } as never);
+    kill(game.host, d, 'burn'); game.relay.flush();
+    expect(by(game, d.uid)).toBe(slot);
     // A hit long ago no longer claims a bleed.
     const c = game.host.manager.spawn('husk', new THREE.Vector3(0, 0, -8)); game.tick(120);
     hit(game, g, c);

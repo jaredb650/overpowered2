@@ -648,7 +648,11 @@ export class EnemyManager implements EnemySystem {
     const n = this.query(e.position, BURN_SPREAD_RADIUS, this.nearby);
     for (let i = 0; i < n; i++) {
       const o = this.nearby[i]!;
-      if (o !== e && o.burning <= 0) o.burning = 2.5;
+      if (o !== e && o.burning <= 0) {
+        o.burning = 2.5;
+        // Co-op: a death by this new fire is whose the first fire was (net/world/credit.ts).
+        ctx.coop?.world?.burnSpread?.(e, o);
+      }
     }
     if (!e.def.fireproof) this.applyDamage(e, this.statusDamage(e, 'burn', 'fire', 3 + e.maxHealth * 0.03));
   }
@@ -915,8 +919,8 @@ export class EnemyManager implements EnemySystem {
     if (kind === 'burn') e.burning = Math.max(e.burning, seconds);
     else if (kind === 'freeze') e.frozen = seconds;
     else e.bolted = this.ctx.time.elapsed + seconds;
-    const coop = this.ctx.coop;
-    if (coop?.world && !coop.hosting) coop.world.status(enemy, kind, seconds);
+    // The host is told (a guest), or notes whose fire it is for the death it may end in (the host).
+    this.ctx.coop?.world?.status?.(enemy, kind, seconds);
   }
 
   /**

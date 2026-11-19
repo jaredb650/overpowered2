@@ -203,7 +203,14 @@ export class CoopWorld {
   /** For the proofs: what this screen has drawn of its own and of others' hits, and the host's answer times. */
   get hitsSeen(): Hits['seen'] { return this.hits.seen; }
   /** Guest: my weapon, call-in or perk set this enemy alight, froze it or left a live bolt in it (EnemyManager.afflict). */
-  status(enemy: EnemyInstance, kind: StatusKind, seconds: number): void { this.claims.status(enemy, kind, seconds); }
+  status(enemy: EnemyInstance, kind: StatusKind, seconds: number): void {
+    if (this.session.hosting) this.credit.lit(enemy.uid);
+    else this.claims.status(enemy, kind, seconds);
+  }
+  /** Host: fire spread from one enemy to another: a death by it is whose the first fire was (world/credit.ts). */
+  burnSpread(from: EnemyInstance, to: EnemyInstance): void { this.credit.spread(from.uid, to.uid); }
+  /** Host: damage sources seen that the credit table does not name (world/credit.ts): empty in a healthy game. */
+  get creditUnknown(): ReadonlySet<string> { return this.credit.unknown; }
   /**
    * Guest: my round landed on this collider (enemies/vehicles asks). True if it is the hit box of one of the host's vehicles:
    * the host is told. `kind`: a rocket or shell landing on it. False on the host and alone.
