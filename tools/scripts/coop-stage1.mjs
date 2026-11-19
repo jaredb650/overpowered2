@@ -36,6 +36,8 @@ export default async function (host, { sleep, outDir }) {
   await host.waitForFunction(() => !!window.__op2?.ctx.render, null, { timeout: 120000 });
   await host.evaluate(() => { localStorage.setItem('op2.settings.v1', JSON.stringify({ quality: 0, music: 0 })); window.__op2.ctx.render.setQuality(0); });
   await splash(host);
+  // A fresh browser profile's first Play goes to Retraining (contracts/firstLaunch.ts); this page is a returning player.
+  await host.evaluate(() => localStorage.setItem('op2.played.v1', '1'));
   await button(host, 'Play').click();
   await button(host, 'Multiplayer').click();
   await button(host, 'Back').click();

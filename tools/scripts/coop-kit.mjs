@@ -9,8 +9,8 @@
 // STARTING A MATCH
 //   const party = await startParty(host, { transport, players, mode, map, net, fps, out, progress, sleep });
 //     transport  'loop' (default): every page is a window of one browser profile and they talk through the game's loopback
-//                transport (src/net/loopback.ts). No WebRTC, no Nostr relays, a lobby in about a second, and any number
-//                of proofs at once. 'rtc': each page its own profile over real trystero/WebRTC and the public relays;
+//                transport (src/net/loopback.ts). No WebRTC, no Nostr relays, a lobby in about a second, and runs never
+//                meet each other (shot.mjs's slot queue decides how many run at once). 'rtc': each page its own profile over real trystero/WebRTC and the public relays;
 //                slower to connect, and the only way to prove the real transport. COOP_NET=rtc|loop overrides.
 //     players    2 to 4 (the host and 1 to 3 guests).
 //     mode       'crucible' | 'outpost' (Endless Humans) | 'defense' | 'campaign' (mission 1) | 'foreclosure' (mission 2),

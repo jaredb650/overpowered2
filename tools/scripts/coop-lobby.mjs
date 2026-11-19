@@ -16,6 +16,8 @@ export default async function (host, { sleep, outDir }) {
   };
 
   await toMenu(host);
+  // A fresh browser profile's first Play goes to Retraining (contracts/firstLaunch.ts); this page is a returning player.
+  await host.evaluate(() => localStorage.setItem('op2.played.v1', '1'));
   await button(host, 'Play').click();
   await button(host, 'Multiplayer').click();
   await shot(host, '1-start');

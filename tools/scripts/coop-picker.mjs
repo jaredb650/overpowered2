@@ -17,6 +17,8 @@ export default async function (host, { sleep, outDir }) {
     await host.addInitScript(quiet); await host.evaluate(() => window.__op2.ctx.render.setQuality(0));
     host.on('pageerror', error => out.errors.push(`host: ${error.message}`));
     await host.locator('.scr-splash').click();
+    // A fresh browser profile's first Play goes to Retraining (contracts/firstLaunch.ts); this page is a returning player.
+    await host.evaluate(() => localStorage.setItem('op2.played.v1', '1'));
     await button(host, 'Play').click(); await button(host, 'Multiplayer').click(); await button(host, 'Host a lobby').click();
     await host.locator('input[type=password]').fill('picker'); await button(host, 'Open lobby').click();
     await host.locator('.co-code').waitFor({ state: 'visible' });

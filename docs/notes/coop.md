@@ -27,8 +27,12 @@ If a friend cannot connect at all, set up TURN once (below).
 
 | File | What |
 |---|---|
-| `src/net/room.ts` | The seam: `NetRoom` (named channels, peer join and leave, errors) and `LobbyRooms`. Tests pass a fake |
-| `src/net/trystero.ts` | The real `NetRoom` over trystero: 8 Nostr relays, TURN when configured, a malformed message never throws into the game |
+| `src/net/room.ts` | The seam: `NetRoom` (named channels of two kinds, peer join and leave, errors, backpressure) and `LobbyRooms`. Tests pass a fake |
+| `src/net/lanes.ts` | `LaneRoom`: the `NetRoom` both transports share. Reliable and unreliable lanes, the fallback, the simulator and the counters hooked in, a malformed message never throws into the game |
+| `src/net/trystero.ts`, `src/net/fast.ts` | The real transport: trystero (8 Nostr relays, TURN when configured) for the reliable path, and a second, unreliable data channel per peer (`fast.ts`). `openLobby` is the one way in |
+| `src/net/loopback.ts`, `src/net/mode.ts` | The loopback test transport (`?net=loop`, dev pages only) and the switch that picks it |
+| `src/net/netsim.ts` | The network simulator: lag, jitter, loss, resend stalls, a slow link (`?netsim=`) |
+| `src/net/metrics.ts`, `src/net/debug.ts` | Counters per lane and peer, round trips, named series and timers; `window.__op2.net` for scripts |
 | `src/net/turn.ts` | **The TURN config slot** (`WORKER_URL`), fetching and cleaning the Worker's credentials, never hanging (4 s cap) |
 | `tools/turn-worker/worker.js` | The Cloudflare Worker that mints TURN credentials. Setup below |
 | `src/net/lobby.ts` | `Lobby`: players, ready, chat, ping, heartbeat, countdown, full lobby, code clash, end match and away/rejoin, every check on what peers send |
@@ -42,7 +46,8 @@ If a friend cannot connect at all, set up TURN once (below).
 | `src/net/mission.ts` | Campaign co-op: the host's mission mirrored to guests, any-player zones, gathering, checkpoints, late-joiner catch-up |
 | `src/net/coopHud.ts` | Teammates strip, Tab board, Enter chat, end-of-run board |
 | `src/net/*.test.ts`, `src/core/coop.test.ts`, `src/campaign/crowd.test.ts` | Unit tests over the mocked transport |
-| `tools/scripts/coop-kit.mjs` | Shared steps for the two-page browser proofs, including the hidden-tab and bad-network simulators |
+| `tools/scripts/coop-kit.mjs` | The test kit every multi-page proof shares: `startParty`, `live`, `measure` and the rest (see Testing) |
+| `tools/scripts/coop-smoke.mjs`, `coop-baseline.mjs` | The rig's own proofs: any mode with 2 to 4 players reaches a fight; the baseline numbers |
 | `tools/scripts/coop-stage3.mjs`, `coop-modes.mjs`, `coop-mission.mjs`, `coop-robust.mjs` | The two-page proofs (below) |
 
 Small hooks outside `src/net`, each marked with a co-op comment: `Game.ts` (which systems run where, the shared slow-mo clock, the hidden
@@ -151,6 +156,193 @@ must call it, add a method on `CoopWorld` that passes the call on.
   that works is enough. STUN is trystero's default, three Google servers and Cloudflare's: two independent providers, enough, since
   more STUN servers do not get through a NAT that STUN cannot; that needs TURN.
 - **Callsign** is stored in `localStorage` under `op2_coop_name`. The first default is a random `VIPER-27`.
+
+## Transport: two lanes, loopback, the network simulator, metrics
+
+Built in the overhaul's stage 0a. Everything the game sends goes through `NetRoom` (`src/net/room.ts`). Two transports sit behind
+it, and both are a thin `Wire` under one shared class, `LaneRoom` (`src/net/lanes.ts`), so lanes, the simulator and the counters
+behave the same on both.
+
+### Two kinds of lane
+
+`room.channel(name, options)`, or in a match `lobby.gameplay(name, receive, options)`:
+
+| | Reliable (default) | Unreliable (`{ unreliable: true }`) |
+|---|---|---|
+| Arrives | Always, in order | Once or never, in any order |
+| A lost packet | Is sent again; everything behind it to that peer waits | Is gone; nothing waits |
+| For | Facts: events, the lobby, chat | Latest-wins data that is sent again anyway: poses, snapshots |
+| Carries | Objects (as JSON) or bytes | Bytes only (`ArrayBuffer`/`Uint8Array`), to one peer at a time |
+
+- **Fallback, silent:** an unreliable channel uses the reliable path of the same name whenever the fast path to that peer is not up,
+  the message is not bytes, or it is over 16,000 bytes. The receiver's handler hears it either way, so a broken fast path leaves co-op
+  exactly as it was before the lane existed. `room.fast(peerId)` says which path is live.
+- **Safe size: 1,100 bytes** (`UNRELIABLE_SAFE_BYTES`). One message then fits one packet. WebRTC cuts a larger message into packets
+  of about 1,200 bytes, and with no resend one lost packet loses the whole message, so a 2-packet message is lost about twice as
+  often. A snapshot of 48 enemies is 2,172 bytes today: the enemy lane should send it in chunks under the safe size.
+- **Backpressure:** `room.buffered(peerId, unreliable)` is the bytes handed over that the network has not taken yet
+  (`RTCDataChannel.bufferedAmount`, plus the simulator's slow link). Over 8,192 (`BEHIND_BYTES`) the peer is behind:
+  `lobby.behind(playerId)` says so, and a channel opened with `{ latest: true }` skips that peer by itself and counts the skip.
+- **On the wire**, an unreliable message is one frame: `[name length u8][lane name, ASCII][sequence u16 LE][payload]`, 7 bytes over
+  the payload for `pose`. The sequence number is per lane and peer and exists for the loss count.
+- **Today:** only the 20 Hz player poses are on the unreliable lane (`{ unreliable: true, latest: true }`). Enemy snapshots (`world`)
+  and events (`action`) are reliable still; the enemy lane moves snapshots.
+
+**Real WebRTC** (`src/net/fast.ts`, `trystero.ts`): trystero 0.27 has one reliable, ordered data channel per peer and no option for
+another. Once a peer connection is connected, both ends open a second channel on it with the same number (`negotiated`, id 100,
+label `op2-fast`, `ordered: false, maxRetransmits: 0`). It is made only after the connection is up, because a channel made earlier
+makes trystero's answering side start an offer of its own. A link counts as up only after this end has heard the far end on it (each
+end sends a 2-byte probe four times a second until then, at most 10 s); until then, and after the channel closes, sends fall back.
+
+### Loopback: co-op with no network (`?net=loop`)
+
+`src/net/loopback.ts`. Pages of one browser profile talk through a `BroadcastChannel`: no WebRTC, no Nostr relays, a lobby in under
+a second, and runs that never meet each other. The real Lobby and game run on top, with the same codes and passwords, joins and leaves,
+four players, both lane kinds. It is a test transport.
+
+- **On only when both are true:** `?net=loop` is in the address, and the page is a dev build or served from this computer
+  (localhost). The public site ignores the word, so no link can put a player on a transport that reaches nobody. The console says
+  `[coop] LOOPBACK transport` when it is on. The invite link of a loopback lobby carries `&net=loop`, and the match page keeps it.
+- **By hand:** open `http://127.0.0.1:<port>/?net=loop` in two **windows** of the same browser (not two tabs of one window: a tab
+  in the background stops drawing). Host in one, open the invite link in the other. The one-tab rule is off for these pages, and each
+  tab is its own player to the host (the browser id is kept per tab).
+- What it copies from the real transport: a peer id per page, objects as JSON and bytes as `Uint8Array`, a wrong password told only
+  to the peer already in the room (the guest hears through the door), a fifth player refused, and a page that closes or reloads
+  leaving at once (a Web Lock the others wait on). It never loses or delays anything by itself: that is the simulator's job.
+
+### The network simulator (`?netsim=`)
+
+`src/net/netsim.ts`. It is inside the game, so it works in a normal browser on localhost and on both transports. Each page delays
+or drops **what it sends**; to feel 80 ms each way, set it on both pages.
+
+```
+http://127.0.0.1:5173/?netsim=lag:80,jitter:30,loss:0.03        read as the page loads; kept from the lobby into the match
+window.__op2.net.sim.set('lag:150,loss:0.1')                    while playing, in the console (merges with what is set)
+window.__op2.net.sim.set('off')                                 back to normal
+```
+
+| Word | Meaning |
+|---|---|
+| `lag` | ms added to every message this page sends |
+| `jitter` | up to this many more ms, at random per message |
+| `loss` | share of packets lost, 0 to 1 (a number over 1 is read as a percentage) |
+| `stall` | ms a reliable lane takes to resend a lost packet (default 300) |
+| `kbps` | this page's upload speed to each peer; what does not fit queues, and the peer reads as behind |
+
+The two lane kinds suffer differently, as for real. On a **reliable** lane nothing is lost or reordered: a lost packet costs `stall`
+more ms and every later reliable message to that peer waits behind it. On an **unreliable** lane a lost message is really gone, and
+jitter lets a later one overtake an earlier one. Off unless asked for; a friend joining by the invite link is not affected by the
+host's setting. A guest adds `&netsim=...` to their own link.
+
+### Metrics (`window.__op2.net`)
+
+`src/net/metrics.ts` counts, per lane and per peer, bytes and packets both ways, the gap between arrivals, loss and late packets on
+unreliable lanes, and the round trip to each peer once a second on both paths (lanes `net` and `netu`, 9 bytes each).
+`window.__op2.net.snapshot()` returns it all as plain JSON, with the simulator's settings, which peers have the fast path up, what is
+queued for each, and co-op's own frame cost (`CoopSession.cpuMs`, which is unchanged). `window.__op2.net.metrics.reset()` starts a
+measuring window. Object messages are sized by their JSON text, near enough to the wire.
+
+Later lanes can feed their own numbers, all allocation-free once a name exists:
+
+```ts
+import { metrics } from './metrics';
+metrics.gap('snapshot');                 // time since the last call with this name
+metrics.sample('snapshot.enemies', 31);  // any value
+metrics.start('shot', id); /* ... */ metrics.stop('shot', id);   // a named timer, e.g. shot to the host's answer
+```
+
+Each shows up under `series` in the snapshot as `{ n, mean, p50, p90, p99, max, last }`.
+
+## Testing
+
+Unit tests: `src/net/lanes.test.ts`, `fast.test.ts` (the fallback), `loopback.test.ts` (the real Lobby over it), `netsim.test.ts`,
+`metrics.test.ts`, beside the older ones.
+
+Browser proofs run through `tools/shot.mjs` with the kit, `tools/scripts/coop-kit.mjs` (its header lists every helper). Your own Vite
+with HMR off, never port 5173:
+
+```sh
+OP2_NO_HMR=1 npx vite --port <port> --strictPort
+node tools/shot.mjs --port <port> --w 1280 --h 720 --wait 500 --timeout 300 --script tools/scripts/coop-smoke.mjs --out tools/out/coop/<you>/smoke.png
+```
+
+```js
+import { kit, live, measure, startParty, shootLoop, setNet } from './coop-kit.mjs';
+export default async function (host, { sleep, outDir }) {
+  const out = { errors: [], checks: [], screenshots: [] };
+  const { check, progress, shot } = kit(outDir, 'mine', out, sleep);
+  const party = await startParty(host, { transport: 'loop', players: 2, mode: 'crucible', net: 'lag:80,jitter:30,loss:0.03', out, progress, sleep });
+  await live(party, { enemies: 6 });          // a running wave on every screen
+  await shootLoop(party.guest);               // a scripted guest shooting
+  const numbers = await measure(party, 10);   // { host, guests: [...] } with lanes, gaps, round trips, fps
+  check(numbers.guests[0].lanes.world.in.packets > 0, 'the guest gets snapshots');
+}
+```
+
+- `startParty(host, { transport: 'loop' | 'rtc', players: 2..4, mode, map, net, fps })`. Modes: `crucible`, `outpost` (Endless
+  Humans), `defense`, `campaign`, `foreclosure`, and `map: 'office'` for the first two. `startPair` is two players. `openGuest(party,
+  { late: true })` joins or rejoins a running match.
+- **Loopback is the default** (`COOP_NET=rtc` or `transport: 'rtc'` for real WebRTC over the public relays). Each loopback page is
+  its own window of one profile; a second tab of one window would stop drawing.
+- `live(party)` gets to a fight fast: skips the first break in the survival modes, presses Deploy in Outpost Defense, and in the
+  missions puts husks in front of the host instead of waiting out the briefing (`natural: true` waits for the mission's own).
+- `give`, `spawn`, `dummy`, `calm`, `teleport`, `aimAt`, `fireAt`, `shootLoop`/`stopShooting`, `state`, `netStats`, `resetNet`,
+  `setNet`, `measure`, `rtcChannels`. Fire through `fireAt`/`shootLoop`, not the mouse: under pointer lock a mouse press in a
+  loopback page's window also turns the view.
+- **Frame rate:** no cap by default (60 a page). `fps: 15` or `COOP_FPS=15` for a proof about a slow host; the old kit always capped
+  at 15 for the 8 GB Mac.
+- **Headless GPU:** on Linux `tools/shot.mjs` asks ANGLE for the machine's OpenGL driver (`--use-angle=gl-egl`). Without it headless
+  Chromium renders in software: measured 1 frame a second per page at 1440x900 dpr 2 in a two-page match, against 60 on the RTX
+  4090. `OP2_ANGLE=vulkan|swiftshader` picks another back end (Vulkan also reaches the card but lost its WebGL context in one run of
+  three). macOS keeps `--use-angle=metal` exactly as before.
+- The evidence JSON of a kit proof has `console`: each page's warnings, errors, `[coop]` lines and every address it loaded.
+- Proofs that passed on loopback with this kit: `coop-smoke.mjs` in all seven mode and map choices and with 4 players, `coop-stage3.mjs`
+  (12 checks, also on real WebRTC), `coop-robust.mjs` (7), `coop-modes.mjs` (humans, defense, office), `coop-mission.mjs`,
+  `coop-drops.mjs`, `coop-baseline.mjs`.
+
+### Baseline (stage 0a, 2026-11-18)
+
+`tools/scripts/coop-baseline.mjs`: a pair in a live Crucible wave, the guest shooting an SMG by script, 20 s on a clean network and
+20 s with `lag:80,jitter:30,loss:0.03` on both pages, 1280x720, no frame cap, RTX 4090. Full JSON: `baseline-loop.json` and
+`baseline-rtc.json` in the rig's output folder; `summary` in each is this table. **The machine was busy with a dozen other agents
+when these were taken** (1-minute load 47 to 92 on 32 cores), which lowers the frame rates and stretches every p90 and max; the
+rates and sizes per lane are not affected. Re-measure on a quiet machine before comparing a p90.
+
+| | Loopback, clean | Loopback, bad | WebRTC, clean | WebRTC, bad |
+|---|---:|---:|---:|---:|
+| Machine load (1 min) | 50 | 47 | 92 | 88 |
+| Frames a second, host / guest (mean) | 56 / 41 | 47 / 30 | 18 / 14 | 27 / 22 |
+| Enemies alive (mean) | 7 | 20 | 13 | 16 |
+| **Enemy snapshot gap at the guest, ms: p50 / p90 / max** | **112 / 131 / 174** | **109 / 160 / 688** | **121 / 247 / 635** | **119 / 257 / 589** |
+| Snapshots a second at the guest | 9.1 | 8.9 | 6.9 | 7.3 |
+| Pose gap at the guest, ms: p50 / p90 / max | 50 / 75 / 174 | 52 / 97 / 197 | 65 / 168 / 635 | 52 / 145 / 449 |
+| Host sends, bytes a second: `world` (snapshots) | 2,851 | 8,043 | 4,159 | 5,252 |
+| Host sends: `action` (events) | 2,994 | 3,168 | 2,860 | 2,790 |
+| Host sends: `pose` (unreliable) | 858 | 857 | 546 | 660 |
+| Host sends: `lobby` + round-trip pings | 192 | 190 | 196 | 188 |
+| Host total | 6,896 | 12,259 | 7,760 | 8,891 |
+| Guest sends: `action` (claims, fire) | 4,313 | 5,277 | 2,937 | 4,997 |
+| Guest sends: `pose` | 794 | 747 | 450 | 622 |
+| Guest total | 5,161 | 6,077 | 3,441 | 5,671 |
+| Round trip from the guest, unreliable path, ms: p50 / p90 | 26 / 63 | 247 / 302 | 80 / 209 | 286 / 389 |
+| Round trip from the guest, reliable path, ms: p50 / p90 | 26 / 63 | 288 / 443 | 80 / 208 | 297 / 463 |
+| Poses lost on the way (host's / guest's) | 0% / 0% | 3.6% / 4.4% | 0% / 0% | 2.9% / 2.2% |
+| Poses that fell back to the reliable path | 0 | 0 | 0 | 0 |
+| Guest kills in 20 s; host accepted / rejected claims | 20; 40 / 0 | 18; 49 / 0 | 23; 38 / 0 | 15; 51 / 0 |
+| Co-op's own cost a frame, host / guest, ms | 0.15 / 0.10 | 0.17 / 0.29 | 0.76 / 0.47 | 0.28 / 0.45 |
+
+What it shows:
+
+- The snapshot lane runs at 7 to 9 a second, not 10: the send is gated on the host's frame (audit C1). The gap's p50 is 109-121 ms
+  on every network, and one lost packet on the reliable lane stretches the max to 590-690 ms. That is the stall the enemy lane
+  removes by moving snapshots to the unreliable lane with a buffer.
+- On the bad network the reliable path's round trip p90 (443-463 ms) is well above the unreliable path's (302-389 ms): resends and
+  the queue behind them. The unreliable path loses about the asked 3% each way and never waits.
+- On real WebRTC the browser's own counts (`RTCPeerConnection.getStats`) show the `op2-fast` data channel open and carrying the
+  traffic both ways (guest: 894 messages sent, 1,104 received over the run) beside trystero's `data` channel.
+- A two-page loopback match on a machine with nothing else running holds 60 frames a second on both pages (the smoke proof, 4 pages
+  too) with a round trip of 0.2 to 1.4 ms.
+- Before the GPU flags the same headless pair ran at 1 frame a second per page (software rendering, 1440x900 dpr 2).
 
 ## Cloudflare worker: relay + error log (TURN setup, once by the owner)
 
@@ -319,7 +511,7 @@ hints, banners, doors, music, cutscenes, guns and grenades handed out, pickups d
 | A file download fails while loading (flaky connection) | `fetchAsset` (`src/core/fetchAsset.ts`) retries network errors, 5xx and 429 three times; still failing, the page says "Network hiccup while loading" with a Reload button, and a co-op match's handoff is put back first so the reload rejoins the match instead of starting a solo run |
 | The game open in two tabs of one browser | Before: a second tab on the invite link joined as a second player under the same callsign, and tabs share localStorage (settings are saved whole, last tab wins). Now one tab runs the game (`core/oneTab.ts`, a Web Lock); another shows "OVERPOWERED 2 is already open in another tab" with **Play here instead**, which makes the running tab reload into that notice (leaving its room). The host also replaces a guest's old seat when the same browser (an id in localStorage) says hello again. To test two players on one machine, use a second browser profile or a private window |
 | Host tab hidden or minimised | See below |
-| Lag, loss, reordering, duplicates, clock drift | trystero's channels are reliable and ordered, so loss arrives as delay; poses and snapshots carry sequence numbers and drop old or duplicate frames; both render on the receiver's own clock 100 ms behind arrival, so clocks never need to agree; a lost `up` or bleed-out is healed by the 4 Hz team cards |
+| Lag, loss, reordering, duplicates, clock drift | Events, the lobby and (still) enemy snapshots are on the reliable, ordered lane, so loss arrives as delay; player poses are on the unreliable lane, where a lost or late pose is simply skipped; poses and snapshots carry sequence numbers and drop old or duplicate frames; both render on the receiver's own clock 100 ms behind arrival, so clocks never need to agree; a lost `up` or bleed-out is healed by the 4 Hz team cards |
 | Desync | Every enemy snapshot is the full living list: a replica the host no longer has goes after 500 ms, a missing one is spawned |
 | Cheating among friends | Hit claims: a known gun, a living sender, the matching rate-limited shot, range 350 m, line of sight from the shooter's eye, bounded inputs and hits per shot; blasts: no eye line, 160 a second; call-ins: only after calling one in. Revives and captures are checked against the bodies' positions |
 | Malformed messages | Every lane validates shape and range; a handler that throws is caught and logged per message (`trystero.ts`, `CoopWorld.receive`); the fuzz test throws 23 kinds of junk at both ends |
@@ -402,7 +594,7 @@ The `pose` action is binary, little endian, **40 bytes plus 1-32 UTF-8 bytes** o
 Decode accepts ArrayBuffer or trystero's Uint8Array (including an offset view), rejects malformed lengths/versions/states, NaN,
 infinities and implausible bounds. Host start messages are `{ t: 'start', match: { id, mode } }`, acknowledgements `{ t: 'started', id }`.
 Lobby ids remain trystero peer ids except the host's canonical `host`. Slots are stable for a connected player and recycled on departure.
-trystero 0.27's existing action transport is reliable/ordered: a separate unordered snapshot lane and congestion policy remain future work.
+Since the overhaul's stage 0a poses travel on the unreliable lane (see Transport above), 7 bytes of lane framing over the 40 + weapon id.
 
 The buffer renders **100 ms behind receiver arrival time**, so peer clocks need no synchronization. It interpolates position,
 velocity, pitch and shortest-path yaw; rejects duplicate/old sequence numbers (including across wrap), bounds history to 32 frames,

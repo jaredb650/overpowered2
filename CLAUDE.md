@@ -159,7 +159,7 @@ No allocation in hot paths; pool everything with hard caps. Frame order and budg
 | `src/lab/` | Test Range and dev/cheat panel (`/?map=range`, `?dev=1`): mod rows (`mods.ts`), implants, spawn, settings; flags in `src/core/devflags.ts` | `docs/notes/lab.md` |
 | `src/sandbox/` | `/?sandbox=<name>` test pages | |
 | `tools/shot.mjs` | Headless screenshot harness (Playwright chromium) | header comment lists options |
-| `tools/scripts/` | ~160 probe/bot scripts for shot.mjs; `coop-kit.mjs` (`startPair`, two-page co-op proofs) | |
+| `tools/scripts/` | ~160 probe/bot scripts for shot.mjs; `coop-kit.mjs` (`startParty`, 2 to 4 page co-op proofs, loopback or WebRTC) | |
 | `tools/bake/` | Offline character model bake (`npm run bake`) → `public/assets/` | `docs/notes/characters.md` |
 | `tools/music/`, `tools/turn-worker/` | Soundtrack renderer; Cloudflare Worker for TURN relay + error log (not deployed) | `docs/notes/audio.md`, `docs/notes/coop.md` |
 | `docs/` | `DESIGN.md`, `NEXT.md` (older playtest brain dump), `HANDOFF.md`, `notes/`, `proposals/`, `research/`, `campaign/`, `original/` (spec of game 1), `voice/` | |
@@ -200,8 +200,9 @@ audio report if the catalog changes, run `src/audio/audio.test.ts`.
 - `node tools/shot.mjs --port <your port> --url "/?sandbox=gore" --out tools/out/<you>/x.png --dpr 2 --w 1440 --h 900 [--script tools/scripts/foo.mjs] [--eval "<js>"]`.
   **Always pass `--port`:** the default is 5173 (the owner's). If nothing answers on the port, it starts a private Vite on 5199
   with HMR off and closes it after.
-- `tools/scripts/coop-kit.mjs` `startPair`: two pages in one browser, real WebRTC. **Broken on a fresh profile** (first launch goes
-  into Retraining); fixing it is in co-op batch 1.
+- `tools/scripts/coop-kit.mjs`: the co-op test kit. `startParty(host, { transport: 'loop' | 'rtc', players: 2..4, mode, map, net, fps })`,
+  `live`, `measure` and the rest; loopback (`?net=loop`, no WebRTC, no relays) is the default, `COOP_NET=rtc` is real WebRTC. Works
+  on a fresh profile. `docs/notes/coop.md`, "Testing".
 - Page hooks: `window.__op2.game` (state, setState) for scripts.
 
 ## Current state

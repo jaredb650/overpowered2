@@ -91,7 +91,7 @@ system by system) and `docs/notes/coop-audit-life.md` (the life of a session and
 
 | Lane | What | Status |
 |---|---|---|
-| rig | Kit fixed for a fresh profile, headless GPU, offline loopback transport, network simulator, unreliable lane in the transport, metrics, kit API, baseline | doing (first step landed `6ea699b`) |
+| rig | Kit fixed for a fresh profile, headless GPU, offline loopback transport, network simulator, unreliable lane in the transport, metrics, kit API, baseline | done (`6ea699b` kit and GPU, `d9ecffb` transport, then the kit, baseline and notes commit after it) |
 | split | `src/net/world.ts` split into `src/net/world/*` modules behind an event router, no behaviour change | done (`729bb74`) |
 | audits | `coop-audit-play.md`, `coop-audit-life.md` | done |
 
@@ -167,3 +167,17 @@ Shared files and contracts between lanes:
   context, not in `booms.ts`, because targeting queues it and booms depends on targeting.
 - 2026-11-18: all twelve phase 1 lanes launched as T3 delegates (worktrees under `~/.t3/worktrees/overpowered2/`, branches `coop/<lane>`). If a lane stopped at the usage cap, its unlanded work is in its worktree: resume it there with a fresh agent told to read its branch's diff first.
 - 2026-11-18: the box ran out of memory under 25 simultaneous browser runs; `tools/shot.mjs` now queues runs on 8 machine-wide slots and the rules cap each lane at two runs.
+- 2026-11-18, rig: done. **Transport:** one `LaneRoom` (`src/net/lanes.ts`) over two wires. Real WebRTC gets an unreliable,
+  unordered second data channel per peer (`src/net/fast.ts`, negotiated id 100, made only once the connection is up, silent
+  fallback to the reliable path until both ends have heard each other); loopback (`src/net/loopback.ts`, `?net=loop`, dev pages or
+  localhost only) links windows of one browser profile with no WebRTC and no relays. Player poses are on the unreliable lane;
+  snapshots are not moved (enemy-motion's job: `lobby.gameplay('world', fn, { unreliable: true, latest: true })`, messages under
+  1,100 bytes). **Simulator** in the game (`?netsim=lag:80,jitter:30,loss:0.03`, `__op2.net.sim.set`), **metrics** on
+  `__op2.net.snapshot()`. **Kit:** `startParty` (2 to 4 pages, loopback by default, every mode), `live`, `measure`, `shootLoop`;
+  headless Chromium is on the GPU on Linux (60 frames a second a page; it was 1 in software). Baseline numbers and how to use all
+  of it: `docs/notes/coop.md`, "Transport" and "Testing". Decisions: loopback pages are separate **windows** (a background tab of
+  one window stops drawing, so `context.newPage()` cannot be used for game pages); the one-tab rule is skipped on loopback pages
+  (one line in `main.ts`); proofs fire through `fireAt`/`shootLoop`, not the mouse; `publishNet` only attaches to the game's own
+  `window.__op2`. Not done: a hook inside `src/net/world/*` (none was needed: per-lane arrival gaps are counted in the transport);
+  the five oldest self-contained proofs (`coop-stage1/2`, `coop-lobby`, `coop-picker`, `coop-dad`) only got the fresh-profile line
+  and `coop-lobby` is stale against today's invite page; the baseline was taken on a busy machine and wants one quiet re-run.
