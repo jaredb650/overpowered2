@@ -18,8 +18,24 @@
 //     net        the game's network simulator on every page from the start: { lag, jitter, loss, stall, kbps } or the text
 //                'lag:80,jitter:30,loss:0.03' (src/net/netsim.ts). setNet(page, ...) changes one page while it runs.
 //     fps        frame-rate cap per page; 0 or absent is no cap (60 on the dev box). Proofs about a slow host pass 15.
+//     FAST MODE, on by default (measured in docs/notes/coop.md, "What a proof costs"): a page of a proof simulates every
+//     frame as a visible, focused page, but makes no picture nobody looks at and no sound nobody hears.
+//     draw       how many frames a second each page DRAWS: 0 by default (DEFAULT_DRAW), a number, or 'all'. Drawing was
+//                most of a page's main thread, and under a busy GPU it held the next frame back (guest pages at 0 to 1
+//                frame a second). Any screenshot (page.screenshot, the kit's and shot.mjs's shot) first draws fresh frames,
+//                so pictures are as before. A frame rate the kit reports is the loop's (frames simulated); for drawn
+//                frames use measure(party, s, { draw: 'all' }) or look: true.
+//     clock      0 by default (off). clock: 60 steps the page's loop on a timer at that rate instead of on the browser's
+//                animation frames, which a busy GPU can hand out late to guest windows. Not for a proof that caps or
+//                counts frames through requestAnimationFrame itself. Always 0 with `fps`, look, and draw: 'all'.
+//     audio      false by default: the page's Web Audio is kept suspended, as the game itself does in a hidden tab (its
+//                audio thread alone took 0.8 of a core per page). Sounds are still asked for; none is mixed. true runs it.
+//     look       true = today's page exactly (draw: 'all', audio: true, clock: 0): for look-checks, videos, and any proof about
+//                smoothness, the cost of drawing, or sound actually playing.
+//                On the command line, over every proof: COOP_LOOK=1, COOP_DRAW=all|<n>, COOP_AUDIO=1, COOP_CLOCK=0|<n>.
+//                While running: setDraw(page | pages, 'all' | n) changes the rate; fresh(page) draws a few frames now.
 //     startNow   false stops in the lobby with everyone ready.
-//   Returns { host, guests, pages, guest (the first), invite, password, mode: { label, contract, map }, transport }.
+//   Returns { host, guests, pages, guest (the first), invite, password, mode: { label, contract, map }, transport, draw, audio, clock }.
 //   startPair(host, opts) is startParty with two players.
 //   openGuest(party, { name, late }) adds one more page (a fourth player, or with late: true a join or rejoin into a
 //   running match, then inMatch([guest], ...)). A guest leaves by page.close().
@@ -43,6 +59,7 @@
 //   await netStats(page)     window.__op2.net.snapshot(): per-lane bytes and packets, gaps, loss, round trips, fps, sim
 //   await resetNet(pages)    starts a measuring window on each page
 //   await measure(party, seconds)   reset, wait, and return { host, guests: [...] } snapshots with frame rates and enemy counts
+//                                   ({ draw: 'all' } draws every frame for the window on fast pages)
 //   await rtcChannels(page)  rtc only: the browser's own per-data-channel counts (`data` reliable, `op2-fast` unreliable)
 //   await traffic(page)      the older meter: world.stats and, on rtc, the browser's own data-channel byte counts
 //   kit(outDir, prefix, out, sleep) gives { check, progress, shot } writing into `out` ({ errors, checks, screenshots }).
@@ -67,6 +84,31 @@ export function kit(outDir, prefix, out, sleep) {
 
 /** Frames a second a test page is capped at unless the proof says otherwise (COOP_FPS overrides; 0 is no cap). */
 export const DEFAULT_FPS = 0;
+/**
+ * Fast mode: frames a second a test page draws unless the proof says otherwise: none, until a picture is asked for. The
+ * simulation still runs every frame. Measured on the dev box (docs/notes/coop.md, "What a proof costs"): a page's frame is
+ * 13 to 22 ms of main thread with drawing and 2.5 to 6 ms without, and a page that draws nothing kept 60 frames a second
+ * while the same page drawing fell to 1 when other runs kept the GPU busy.
+ */
+export const DEFAULT_DRAW = 0;
+/**
+ * Steps a second of a test page's loop on a timer instead of the browser's animation frames: 0, off, by default. A busy
+ * GPU process can hand animation frames out late to the second and third window of a browser; a timer needs only the
+ * page's own thread. Opt-in (`clock: 60`), because a proof that caps or counts frames through `requestAnimationFrame`
+ * itself (coop-time-slowhost, coop-motion-measure, coop-claims-matrix) would no longer be in step with the game.
+ * Always off with a frame-rate cap (`fps`), with `look` and with `draw: 'all'`.
+ */
+export const DEFAULT_CLOCK = 0;
+
+/** The draw rate a party runs at: 'all' (every frame, today's page) or pictures a second. Environment first, then the proof. */
+export function drawRate({ draw, look } = {}) {
+  const env = process.env.COOP_LOOK === '1' ? 'all' : process.env.COOP_DRAW;
+  const asked = env ?? (look ? 'all' : draw ?? DEFAULT_DRAW);
+  if (asked === 'all' || asked === true) return 'all';
+  const n = Number(asked);
+  if (!(n >= 0)) throw new Error(`draw must be 'all' or a number of pictures a second, not "${asked}"`);
+  return n;
+}
 export const DEFAULT_TRANSPORT = 'loop';
 
 /** What the host can start, by id. `label` is its lobby button, `contract` what the match page's address carries. */
@@ -139,8 +181,68 @@ export const returning = () => localStorage.setItem('op2.played.v1', '1');
 
 const simText = net => !net ? '' : typeof net === 'string' ? net : Object.entries(net).map(([k, v]) => `${k}:${v}`).join(',');
 
-/** The init scripts every test page gets, before its first load. */
-async function prepare(page, { fps, out, tag }) {
+/**
+ * Fast mode's switch, as an init script: the game reads it as it loads (src/core/proofmode.ts; dev builds and localhost
+ * only) and from then on draws `draw` frames a second while simulating all of them.
+ */
+export const proofSwitch = ([draw, clock]) => { window.__op2Proof = { ...(draw === 'all' ? {} : { draw }), ...(clock > 0 ? { clock } : {}) }; };
+
+/**
+ * Draws the next few frames whatever the page's draw rate and waits for them, so a picture taken now is of now. Does
+ * nothing on a page that draws every frame, or outside the game.
+ */
+export const fresh = (page, frames = 2) => page.evaluate(frames => new Promise(done => {
+  const proof = window.__op2?.proof;
+  // A hidden page (the proof of the host's tab hidden) draws nothing: do not wait for it.
+  if (!proof || document.hidden) return done(false);
+  const from = proof.drawn, started = performance.now();
+  proof.show(frames);
+  // By frames drawn, not by time: a page's first picture compiles its shaders and can take seconds on a busy machine.
+  const tick = () => {
+    if (proof.drawn - from >= frames) return setTimeout(() => done(true), 30);
+    if (performance.now() - started > 15000) return done(false);
+    proof.show(frames - (proof.drawn - from));
+    setTimeout(tick, 25);
+  };
+  tick();
+}), frames).catch(() => false);
+
+/**
+ * Fast mode's silence, as an init script: every AudioContext the page makes stays suspended and `resume()` does nothing, so
+ * the browser's audio thread never runs its graph. The game is in the state it puts itself in when its tab is hidden.
+ * `window.__coopAudio(true)` lets the contexts run again.
+ */
+export const noAudio = () => {
+  const Real = window.AudioContext;
+  if (!Real || window.__coopAudio) return;
+  const made = [];
+  let on = false;
+  window.AudioContext = class extends Real {
+    constructor(...args) { super(...args); made.push(this); if (!on) void super.suspend().catch(() => {}); }
+    resume() { return on ? super.resume() : Promise.resolve(); }
+  };
+  window.__coopAudio = run => { on = run; for (const ac of made) if (ac.state !== 'closed') void (run ? Real.prototype.resume.call(ac) : Real.prototype.suspend.call(ac)).catch(() => {}); };
+};
+
+/** Changes how many frames a second pages draw while they run: 'all' or a number. No effect on a page loaded without fast mode. */
+export const setDraw = async (pages, draw) => {
+  for (const page of [pages].flat()) await page.evaluate(hz => window.__op2?.proof?.rate(hz), draw === 'all' ? 1000 : draw).catch(() => {});
+};
+
+/** Every screenshot of a fast page is of fresh frames: wraps this page object's `screenshot` once. */
+function freshShots(page) {
+  if (page.__coopFresh) return;
+  page.__coopFresh = true;
+  const take = page.screenshot.bind(page);
+  page.screenshot = async options => { await fresh(page); return take(options); };
+}
+
+/**
+ * The init scripts every test page gets, before its first load. `draw` is fast mode's rate ('all' or absent: every frame)
+ * `audio: false` its silence and `clock` its timer; a kit of your own that opens pages passes `party.draw`, `party.audio`
+ * and `party.clock`.
+ */
+export async function prepare(page, { fps, out, tag, draw = 'all', audio = true, clock = 0 }) {
   page.on('pageerror', error => out?.errors.push(`${tag}: ${error.message}`));
   // For the evidence file: each page's warnings, errors and co-op lines, and every address it loads (a page that reloads
   // out of a match shows here).
@@ -153,6 +255,11 @@ async function prepare(page, { fps, out, tag }) {
     page.on('framenavigated', frame => { if (frame === page.mainFrame() && log.length < 400) log.push(`${tag}: -> ${frame.url()}`); });
   }
   await page.addInitScript(harness, fps);
+  // The timer clock and a frame-rate cap do not mix: the cap works on animation frames.
+  if (fps > 0) clock = 0;
+  if (draw !== 'all' || clock > 0) await page.addInitScript(proofSwitch, [draw, clock]);
+  if (draw !== 'all') freshShots(page);
+  if (!audio) await page.addInitScript(noAudio);
   await page.addInitScript(quiet);
   await page.addInitScript(returning);
 }
@@ -175,13 +282,17 @@ const callsign = i => ['HOST-ONE', 'GUEST-TWO', 'GUEST-THREE', 'GUEST-FOUR'][i] 
 export async function startParty(host, options) {
   const { mode = 'crucible', map, password = 'coop-kit', out = { errors: [], checks: [], screenshots: [] }, progress = () => {}, sleep = ms => new Promise(r => setTimeout(r, ms)),
     startNow = true, players = 2, net, fps = Number(process.env.COOP_FPS ?? DEFAULT_FPS), transport = process.env.COOP_NET ?? DEFAULT_TRANSPORT } = options ?? {};
+  const draw = drawRate(options);
+  const clock = draw === 'all' ? 0 : Number(process.env.COOP_CLOCK ?? options?.clock ?? DEFAULT_CLOCK);
+  const audio = process.env.COOP_AUDIO === '1' || process.env.COOP_LOOK === '1' || (options?.audio ?? options?.look === true);
   if (transport !== 'loop' && transport !== 'rtc') throw new Error(`Unknown transport "${transport}": 'loop' or 'rtc'`);
   if (!(players >= 2 && players <= 4)) throw new Error(`players must be 2 to 4, not ${players}`);
   const picked = modeOf(mode, map);
   const base = new URL(host.url()).origin;
-  const party = { host, guests: [], pages: [host], guest: null, invite: '', password, mode: picked, transport, net, fps, out, progress, sleep, base };
+  const party = { host, guests: [], pages: [host], guest: null, invite: '', password, mode: picked, transport, net, fps, draw, audio, clock, out, progress, sleep, base };
+  if (draw !== 'all' || !audio) progress(`fast mode: pages simulate every frame, draw ${draw === 'all' ? 'every frame' : draw === 0 ? 'only for a screenshot or a measure()' : `${draw} a second`}${audio ? '' : ', audio suspended'} (look: true or COOP_LOOK=1 is the page as a player has it)`);
 
-  await prepare(host, { fps, out, tag: 'host' });
+  await prepare(host, { fps, out, tag: 'host', draw, audio, clock });
   await host.goto(address(base, { transport, net }), { waitUntil: 'load', timeout: 120000 });
   await host.waitForFunction(() => !!window.__op2?.ctx.render, null, { timeout: 120000 });
   await host.locator('.scr-splash').waitFor({ state: 'visible', timeout: 120000 });
@@ -196,8 +307,11 @@ export async function startParty(host, options) {
   party.invite = invite.toString();
   progress(`host lobby open on ${transport}; ${players - 1} guest${players > 2 ? 's' : ''} joining by link`);
 
-  // Guests join one after another: the lobby list is how the kit knows each is in.
-  for (let i = 1; i < players; i++) await openGuest(party, { name: callsign(i) });
+  // Guests load their pages side by side (a page's boot is most of a short proof), then join one after another in seat
+  // order: the lobby list is how the kit knows each is in.
+  const loading = [];
+  for (let i = 1; i < players; i++) loading.push(await loadGuest(party, callsign(i)));
+  for (let i = 1; i < players; i++) await openGuest(party, { name: callsign(i), page: loading[i - 1] });
   if (!startNow) return party;
   await sleep(transport === 'loop' ? 150 : 600);
   await button(host, picked.label).click(); await button(host, 'Start').click();
@@ -209,17 +323,27 @@ export async function startParty(host, options) {
 export const startPair = (host, options) => startParty(host, { ...options, players: 2 });
 
 /**
- * One more page into the party's lobby by the invite link, named and ready: a guest at the start, a late joiner or a rejoin
- * later. On loopback it is another window of the host's profile; on rtc it has a profile of its own.
+ * A guest's window, opened and set up, with its invite page loaded and the game booting in it. `openGuest` takes it from
+ * there (pass it as `page`), so several guests can boot at once.
  */
-export async function openGuest(party, { name = callsign(party.guests.length + 1), ready = true, late = false } = {}) {
-  const { host, transport, fps, out, password } = party;
+async function loadGuest(party, name) {
+  const { host, transport, fps, out, draw, audio, clock } = party;
   const guest = transport === 'loop' ? await ownWindow(host)
     : await host.context().browser().newPage({ viewport: host.viewportSize(), deviceScaleFactor: await host.evaluate(() => window.devicePixelRatio) });
-  await prepare(guest, { fps, out, tag: name.toLowerCase() });
+  await prepare(guest, { fps, out, tag: name.toLowerCase(), draw, audio, clock });
   // The same player's browser keeps their callsign; a test page has none stored yet.
   await guest.addInitScript(name => { if (!sessionStorage.getItem('coopKitNamed')) { localStorage.setItem('op2_coop_name', name); sessionStorage.setItem('coopKitNamed', '1'); } }, name);
   await guest.goto(party.invite);
+  return guest;
+}
+
+/**
+ * One more page into the party's lobby by the invite link, named and ready: a guest at the start, a late joiner or a rejoin
+ * later. On loopback it is another window of the host's profile; on rtc it has a profile of its own.
+ */
+export async function openGuest(party, { name = callsign(party.guests.length + 1), ready = true, late = false, page } = {}) {
+  const { password } = party;
+  const guest = page ?? await loadGuest(party, name);
   // `late`: a match is running, so the host sends the newcomer straight into it and the lobby list may never be seen.
   await joinFromSplash(guest, password, !late);
   if (!late) {
@@ -332,10 +456,15 @@ export const setNet = (page, net) => page.evaluate(net => window.__op2.net.sim.s
 
 /**
  * A measuring window over the whole party: reset the counters, wait `seconds`, read. Frame rate and enemy count are sampled
- * every second on every page; `everySecond(i)` runs then too (keep a wave going, fire a call-in).
+ * every second on every page; `everySecond(i)` runs then too (keep a wave going, fire a call-in). `fps` is the page's loop
+ * rate: frames simulated a second, which in fast mode are not drawn. For a window about drawn frames pass `draw: 'all'`
+ * (or run the proof with `look: true`).
  */
-export async function measure(party, seconds, { sleep = party.sleep, everySecond } = {}) {
+export async function measure(party, seconds, { sleep = party.sleep, everySecond, draw } = {}) {
   const { pages, host, guests } = party;
+  // `draw: 'all'`: fast pages draw every frame for this window, as a player's page does (a window about drawn frame rates).
+  const drawAll = draw !== undefined && party.draw !== undefined && party.draw !== draw;
+  if (drawAll) { await setDraw(pages, draw); await sleep(600); }
   await resetNet(pages);
   const fps = pages.map(() => []), enemies = pages.map(() => []);
   for (let i = 0; i < seconds; i++) {
@@ -348,7 +477,9 @@ export async function measure(party, seconds, { sleep = party.sleep, everySecond
   }
   const spread = values => ({ mean: Math.round(10 * values.reduce((a, b) => a + b, 0) / values.length) / 10, min: Math.min(...values), max: Math.max(...values) });
   const read = async (page, p) => ({ ...await netStats(page), fps: { ...spread(fps[p]), each: fps[p] }, enemies: spread(enemies[p]) });
-  return { seconds, host: await read(host, 0), guests: await Promise.all(guests.map((page, i) => read(page, i + 1))) };
+  const result = { seconds, host: await read(host, 0), guests: await Promise.all(guests.map((page, i) => read(page, i + 1))) };
+  if (drawAll) await setDraw(pages, party.draw);
+  return result;
 }
 
 /**

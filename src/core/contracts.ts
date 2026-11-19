@@ -211,6 +211,11 @@ export interface RenderSystem extends GameSystem {
   /** Render one frame. Reads the camera as left by CameraRig. */
   render(): void;
   /**
+   * A frame that is not drawn (a test page between its drawn frames, core/proofmode.ts): what game code reads of render()'s
+   * work is still done, and nothing goes to the GPU. No real player's page calls it.
+   */
+  settle?(): void;
+  /**
    * X-ray: draws these meshes as silhouettes through anything in front of them, for the next rendered frame only.
    * Call it every frame they should show, so a pooled character can never stay lit. `strength` 0..1 fades them.
    */

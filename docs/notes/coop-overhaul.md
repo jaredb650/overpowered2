@@ -373,3 +373,28 @@ Shared files and contracts between lanes:
 - **Owner questions still open from the lanes:** a friend's gun report plays at 0.65 volume (louder?); real reload and stim clips
   and an energy blade model for the friend's body (character work).
 - 2026-11-18, evening: the machine is shared with another person, who reports it is swamped by the testing. Browser slots cut to 4; every lane must rebase so the queue applies, keep one run at a time, and use a small viewport at dpr 1 for functional proofs.
+- 2026-11-18, proof-speed: browser proofs made cheaper. **What changed for every lane, with nothing to do but rebase:**
+  (1) **Fast mode is the kit's default.** Pages opened by `startParty`/`startPair`/`openGuest` simulate every frame as before
+  but draw no frame until a picture is asked for, and their Web Audio stays suspended. Every screenshot draws fresh frames
+  first, so pictures are as they were; a frame rate the kit reports is now the loop's (frames simulated a second), and
+  `measure(party, s, { draw: 'all' })` draws every frame for one window. **Opt out**
+  with `look: true` in `startParty`, or `COOP_LOOK=1` on the command line: do that for look-checks, videos, and any proof
+  about smoothness, the cost of drawing, or sound really playing (`draw: 'all' | n` and `audio: true` singly; `COOP_DRAW`,
+  `COOP_AUDIO=1`). The game-side switch (`src/core/proofmode.ts`, `Renderer.settle()`, three lines in `Game.frame`) works only
+  on a dev build or localhost and only when the kit asks. (2) **`tools/shot.mjs`** serves waiting runs in order of arrival and
+  starts no run while less than 20 GB of memory is available; 3 slots (the lead's cut, kept: by the memory and CPU arithmetic in
+  the note 3 fits and 4 only while runs are short, and fast mode does not buy another).
+  (3) **`node tools/proof-cost.mjs -- node tools/shot.mjs ...`** prints what any run cost (wall time, wait, peak memory by
+  process, CPU by process and thread). (4) Guests of a 3 or 4 player party boot side by side. Why, with the numbers:
+  `docs/notes/coop.md`, "What a proof costs, and fast mode": one game page is 1.25 GB whatever the window size; the page's audio
+  thread was the largest single cost of a proof (0.8 of a core per page) and drawing the second. **Measured gain: a fifth to a
+  quarter less CPU per proof** (`coop-stage3` 334 to 265 CPU seconds with the same 12 checks, `coop-drops` 954 to 815 with the
+  same 8, `coop-smoke` 186 to 144-164 with the same 5) and steadier pages (three pages at about 38 frames a second against
+  about 5); **not wall time and not memory**: a proof is mostly its four boots and its own waits. `clock: 60` (opt-in) steps a
+  page's loop on a timer instead of animation frames. **Found, not fixed:** in some runs the browser process itself burns 225
+  CPU seconds and grows to 3 GB (40% of `coop-drops`), in both modes; see the note. A kit of your own that opens pages itself passes `party.draw` and `party.audio` to
+  the kit's exported `prepare()`. Found on the way, not mine to fix: `coop-robust.mjs` waits 40 s for a dropped guest to leave
+  the player list and failed there in fast mode; the session lane now keeps the seat 60 s, so it very likely fails in today's
+  mode too (not run). Also written down: what a co-op
+  test without a browser would take (`docs/notes/coop.md`, "Co-op tests without a browser"). Touched outside my files, small:
+  `src/core/Game.ts` (the draw gate), `src/core/contracts.ts` (`settle?()`), `src/render/Renderer.ts` (`settle()`).

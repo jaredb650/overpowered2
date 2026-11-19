@@ -14,6 +14,7 @@ import { GameTime } from './time';
 import { noop } from './stubs';
 import { cheatsOn, onCheats } from './cheats';
 import { importRetry } from './chunkRetry';
+import { clockDue, drawGate, proofSwitches } from './proofmode';
 import type { Ctx, GameEvents, GameState, GameSystem } from './contracts';
 import './gameplay';
 import type { Regroup, Room } from '../net';
@@ -60,6 +61,8 @@ export class Game {
   private deferredCoopInit: GameSystem[] = [];
   private cpuMs = 0;
   private guard = createFrameGuard();
+  /** Test pages only (core/proofmode.ts): decides which frames are drawn. Null on every real player's page. */
+  readonly proof = drawGate();
 
   constructor(ctx: Ctx) {
     this.ctx = ctx;
@@ -171,7 +174,11 @@ export class Game {
     const moving = (c.render as { backdrop?: { still: boolean } | null }).backdrop?.still === false;
     // A hidden co-op tab is ticked by a worker (run) and draws nothing: there is nobody to see it.
     const hidden = typeof document !== 'undefined' && document.hidden;
-    if (draw && !hidden && (this.state === 'playing' || c.coop || c.time.frame % (this.state === 'menu' || moving ? 2 : 4) === 0)) this.guard('render', () => c.render.render());
+    if (draw && !hidden && (this.state === 'playing' || c.coop || c.time.frame % (this.state === 'menu' || moving ? 2 : 4) === 0)) {
+      // A proof page between its drawn frames: the scene is brought up to date for the game's own reads, and nothing is drawn.
+      if (this.proof && !this.proof.due(c.time.realElapsed)) this.guard('settle', () => c.render.settle?.());
+      else this.guard('render', () => c.render.render());
+    }
     this.guard('input', () => c.input.endFrame?.());
   }
 
@@ -201,9 +208,11 @@ export class Game {
         frames = 0;
       }
     };
+    // Test pages only (core/proofmode.ts): the loop on a timer, so a busy GPU process cannot hold it back. False for a player.
+    const clocked = tickOnProofClock(proofSwitches()?.clock ?? 0, step);
     const tick = (now: number) => {
       requestAnimationFrame(tick);
-      step(now);
+      if (!clocked) step(now);
     };
     requestAnimationFrame(tick);
     keepTickingWhenHidden(() => !!this.ctx.coop, () => step(performance.now()));
@@ -247,6 +256,29 @@ function keepTickingWhenHidden(active: () => boolean, step: () => void): void {
     }
   };
   document.addEventListener('visibilitychange', sync);
+}
+
+/**
+ * A test page's loop clock (core/proofmode.ts): `step` runs `hz` times a second on a worker's timer instead of on animation
+ * frames. A hidden tab is left to `keepTickingWhenHidden`, as on a player's page. False when not asked for or not possible.
+ */
+function tickOnProofClock(hz: number, step: (now: number) => void): boolean {
+  if (!(hz > 0) || typeof document === 'undefined' || typeof Worker === 'undefined') return false;
+  try {
+    const url = URL.createObjectURL(new Blob([`setInterval(() => postMessage(0), ${1000 / hz});`], { type: 'text/javascript' }));
+    const worker = new Worker(url);
+    URL.revokeObjectURL(url);
+    let last = 0;
+    worker.onmessage = () => {
+      const now = performance.now();
+      if (document.hidden || !clockDue(now, last, hz)) return;
+      last = now;
+      step(now);
+    };
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** Where each boot stage starts on the loading bar, sized from measured timings so the bar moves at a steady rate. */
@@ -309,7 +341,7 @@ export async function startGame(params: URLSearchParams): Promise<void> {
   const canvas = document.getElementById('game') as HTMLCanvasElement;
   const ctx = await createCtx(canvas, report);
   const game = new Game(ctx);
-  (window as unknown as { __op2: unknown }).__op2 = { ctx, game, stats: () => game.stats() };
+  (window as unknown as { __op2: unknown }).__op2 = { ctx, game, stats: () => game.stats(), ...(game.proof ? { proof: game.proof } : {}) };
   await game.init(report);
   game.run();
   // The lab loads where dev tools are on, and on any page once Settings > Enable cheats has been unlocked (core/cheats.ts).

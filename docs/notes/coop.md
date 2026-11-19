@@ -1155,7 +1155,26 @@ export default async function (host, { sleep, outDir }) {
   `setNet`, `measure`, `rtcChannels`. Fire through `fireAt`/`shootLoop`, not the mouse: under pointer lock a mouse press in a
   loopback page's window also turns the view.
 - **Frame rate:** no cap by default (60 a page). `fps: 15` or `COOP_FPS=15` for a proof about a slow host; the old kit always capped
-  at 15 for the 8 GB Mac.
+  at 15 for the 8 GB Mac. `COOP_FPS=30` halves what a page's simulation costs (about 0.15 of a core per page in a fight) and
+  is safe for a proof with no bound that depends on the frame rate; it is not the default because three proofs loosen or skip a
+  check below 40 frames a second (`coop-time-solo`, `coop-time-team`, `coop-attacks-humans`).
+- **Fast mode, on by default:** every page of a kit proof simulates every frame as a visible, focused page, but **draws no
+  frame until a picture is asked for** (`draw: 0`) and **keeps its Web Audio suspended** (`audio: false`). Drawing was most of
+  a page's main thread and its only dependence on a GPU that every run shares; the audio thread alone was 0.8 of a core per
+  page. Nothing else changes: the loop runs on animation frames at 60, the window keeps the size you asked for, sounds are still
+  asked for. Every screenshot (`page.screenshot`, the kit's `shot`, shot.mjs's `shot`) draws fresh frames first, so pictures are
+  as before. A frame rate the kit reports (`measure`, `netStats`) is the loop's: frames simulated a second, drawn or not;
+  `measure(party, s, { draw: 'all' })` draws every frame for one window. **Opt out:** `look: true` in
+  `startParty` (or `draw: 'all'`, `audio: true` singly), or `COOP_LOOK=1` on the command line (`COOP_DRAW=all|<n>`,
+  `COOP_AUDIO=1`), for look-checks, videos, and anything about smoothness, the cost of drawing, or sound really playing.
+  `setDraw(pages, 'all' | n)` changes the rate mid-run; `fresh(page)` draws now. A kit of your own that opens pages itself
+  passes `party.draw` and `party.audio` to the kit's `prepare(page, { fps, out, tag, draw, audio })`; pages it opens any other
+  way are today's pages. Details and numbers: "What a proof costs" below.
+- **What a run costs:** `node tools/proof-cost.mjs -- node tools/shot.mjs ...` runs any proof and prints its wall time, the wait for
+  a slot, peak Chrome memory by process type and CPU seconds. `tools/scripts/page-cost.mjs` under it measures one page (boot stages,
+  frame cost, memory split).
+- **Slots:** `tools/shot.mjs` runs 3 at once on the machine, first come first served, and starts no run while less than 20 GB of
+  memory is available (`OP2_SHOT_SLOTS`, `OP2_SHOT_FREE_GB`).
 - **Headless GPU:** on Linux `tools/shot.mjs` asks ANGLE for the machine's OpenGL driver (`--use-angle=gl-egl`). Without it headless
   Chromium renders in software: measured 1 frame a second per page at 1440x900 dpr 2 in a two-page match, against 60 on the RTX
   4090. `OP2_ANGLE=vulkan|swiftshader` picks another back end (Vulkan also reaches the card but lost its WebGL context in one run of
@@ -1190,6 +1209,159 @@ state; packets delivered twice or out of order leave the same state as once in o
 clamp never raises a value. Keep each file under a few hundred milliseconds (the default 100 cases a rule is enough; raise
 `numRuns` only for a rule that has failed before). A failure prints a seed and the shrunk case: paste the case into an
 ordinary test so it stays fixed.
+
+### What a proof costs, and fast mode (lane "proof-speed", 2026-11-18)
+
+Measured with `tools/proof-cost.mjs` (every process under a run, once a second, from `/proc`) and `tools/scripts/page-cost.mjs`
+(one page: boot stages, frame cost, Chrome's own memory account). The machine was busy throughout (1-minute load 44 to 75 on 32
+cores, other agents' proofs), so times are loose and memory and CPU seconds are firm.
+
+**Memory: 1.6 GB for Chrome with one game page, and nothing a proof can turn off changes it.**
+
+| | MB |
+|---|---:|
+| Chrome with an empty page (browser 42, GPU process 71, utility 24, two small renderers 51, zygote 14) | 203 |
+| Chrome with one game page in a Crucible fight | 1,530 to 1,680 |
+| ... of which the page's own process | 1,155 to 1,260 |
+| ... the GPU process | 190 to 250 |
+| ... utility (network, audio, storage), browser, zygote | 95 + 85 + 14 |
+| A two-page proof at its peak | 3,000 to 3,400 |
+
+- The page's own process, by kind of memory: 456 MB in V8's cage, of which **JavaScript objects are only 35 to 58 MB** and
+  **ArrayBuffers 400 to 409 MB** (typed arrays kept on the CPU side: geometry, the baked light, the nav mesh, the character
+  models, the physics engine's wasm memory); **530 MB in Chrome's own allocator** (not split further: decoded images, WebGL's
+  client-side state and copies); 23 MB of code. `performance.memory.usedJSHeapSize` reads 374 to 481 MB because it counts the
+  ArrayBuffers. A forced collection frees nothing (39 to 35 MB).
+- It does not depend on the window: 1,602 MB at 1440x900 dpr 2 against 1,547 MB at 640x360 dpr 1. The kit's pages run at
+  quality Low, which caps the canvas (854x480 in a 1280x720 window, 960x600 at 1440x900 dpr 2), so a small window saves nothing.
+- It does not depend on the server (dev 1,606, production build 1,559), on drawing (1,633 with no frame drawn), or on audio
+  (1,645 with no sound file decoded).
+- Pages grow in long runs: other agents' three and four minute runs had single pages at 2.4 to 4.3 GB (RSS).
+
+**Boot: 8 s of one core on a quiet machine, 15 to 25 s under load, and a two-page proof boots four times** (each page loads the
+game for the lobby, then again for the match). Stages of one boot on the production build, ms from the page's start: engine 100,
+materials 400 to 1,600, audio 300, armoury 200, systems 1,300, the map 2,800 (of which the nav mesh 1,900), the light bake 1,000
+(a worker), characters and gore warm-up 1,000. No one stage dominates and none is waiting on the network: it is the game's
+own work, so only a cache inside the game could shorten it (not built). In `coop-smoke` the boots are 64 to 76 s of the run.
+
+**A frame: drawing is most of the main thread, and the audio thread is a second core.**
+
+| Per game page, steady fight | Cost |
+|---|---:|
+| Main thread, a frame with drawing (`stats().cpuMs`) | 13.6 ms at 640x360, 19 to 22 ms at 854x480 and 960x600 |
+| Main thread, a frame with the scene matrices brought up to date and nothing drawn | 7 ms (busy machine) |
+| Main thread, a frame with no drawing at all | 2.5 to 6 ms |
+| The page's Web Audio thread (`AudioOutputDevice`) | 0.8 of a core, all the time, drawing or not |
+| The run's GPU process, every frame drawn / none | 0.5 to 0.7 / 0.04 to 0.28 of a core |
+
+- In one whole two-page run the audio threads took 92 CPU seconds, the pages' main threads 79 (four boots and the fight), Chrome's
+  thread pool 25, the bake workers 19, the GPU process 24. **The audio thread was the largest single cost of a proof.** It is the
+  game's live audio graph mixing for nobody; it may be worth a look for real players too (not investigated).
+- Drawing ties a page to the GPU, which every run on the machine shares. In one probe, with other runs busy, a guest page drawing
+  4 frames a second got 0 to 9 animation frames a second and, drawing every frame, 0 to 58; the same page seconds later drawing
+  nothing held 43 to 60. That is the "guest at 1 frame a second" other lanes reported. A page that sends nothing to the GPU
+  cannot be held up by it.
+
+**What fast mode is** (`tools/scripts/coop-kit.mjs`, `src/core/proofmode.ts`):
+
+- `draw` (default 0): the kit's init script puts `window.__op2Proof = { draw }` on the page before the game loads. The game reads
+  it **only on a dev build or a page served from this computer** (the loopback transport's gate; the public site ignores it,
+  `proofmode.test.ts`). `Game.frame` then asks a `DrawGate` whether this frame is drawn; a frame that is not calls
+  `Renderer.settle()` instead of `render()`: the scenes' world matrices, the live lights' lifetimes and the post effects' pulses
+  are brought up to date exactly as `render()` does first (33 files of game code read `matrixWorld`), and nothing goes to the
+  GPU. `window.__op2.proof` is the gate: `show(n)` draws the next n frames, `rate(hz)` changes the rate, `drawn`/`skipped` count.
+- `audio` (default false): the kit's init script wraps `AudioContext` so each one is suspended as it is made and `resume()`
+  does nothing; `window.__coopAudio(true)` lets them run. No game code: it is the state the game puts itself in when its tab is
+  hidden. Sounds started while suspended never end, so the voice pool fills and later ones are refused, as in a hidden tab.
+- `clock` (default 0, off; `clock: 60` to try it): the game's loop steps on a worker's timer at that rate instead of on
+  animation frames (`tickOnProofClock` in `Game.ts`, same gate), so a busy GPU process cannot hand a guest window its frames
+  late. Off by default because a proof that caps or counts frames through `requestAnimationFrame` itself (`coop-time-slowhost`,
+  `coop-motion-measure`, `coop-claims-matrix`) would no longer be in step with the game, and its gain was not separated from the
+  two above. A hidden tab is still stepped by the game's own hidden-tab worker.
+- The guests of a three or four player party boot side by side instead of one after another.
+- Not changed: the window size (it costs nothing), the frame-rate cap (none), the dev server (see "Not done").
+- **Page frame rates, three pages in a live fight, both modes at the same moment** (load 70): fast mode 13 to 54 loop frames a
+  second on every page, about 38 on average; today's mode 0 to 20, about 5 on average (that fast run also had `clock: 60`).
+  Two-page smoke runs without the clock: host 47 to 56 and guest 8 to 28 in fast mode; host 24 to 32 and guest 0 to 26 in
+  today's mode. A guest page can still fall to about 1 frame a second for seconds at a time in either mode; that is not
+  explained (the page is visible and focused, and nothing is flooding its console).
+
+**Before and after, the same proof in both modes at the same moment** (so the same machine load):
+
+| Proof (two pages, dev server, 1280x720) | Mode | Checks passed | Seconds running (after the wait for a slot) | Chrome CPU seconds | of which audio threads | Peak Chrome memory |
+|---|---|---:|---:|---:|---:|---:|
+| `coop-smoke` (load 75) | today's (`COOP_LOOK=1`) | 5 of 5 | 81 | 186 | (not split in that run) | 3.0 GB |
+| `coop-smoke` (load 72 to 75, two runs) | fast | 5 of 5 | 68 and 70 | 144 and 164 | 0 | 3.0 and 3.1 GB |
+| `coop-stage3` (same moment, load 73) | today's | 12 of 12 | 123 | 334 | 75 | 3.4 GB |
+| `coop-stage3` | fast | 12 of 12 | 126 | 265 | 0 | 3.3 GB |
+| `coop-drops` (same moment, load 60 to 77) | today's | 8, the same 8 | 366 | 954 | 128 | 11.1 GB |
+| `coop-drops` | fast | 8, the same 8 | 357 | 815 | 0 | 9.4 GB |
+
+- **What it buys: CPU, a fifth to a quarter less per proof on these three, all of it the audio threads and the drawing; not
+  wall time and not memory.** A proof's length is its own waits, its screenshots and its four boots (about 30 CPU seconds
+  each: 12 on the page's thread, 7 in Chrome's pool, 5 in the bake worker, 6 in the GPU process), which fast mode does not touch.
+- **The pages run steadier** (the frame rates above), which is what makes a proof's waits end on time when the machine is busy.
+- An earlier smoke pair, taken while the first version of fast mode still drew every frame inside `measure()`, is not in the
+  table: its guest page starved in both modes (0 frames a second) and both runs took over two minutes.
+- `coop-robust` fails in fast mode at "the guest's tab dies; the host is alone within 40 s". Not run in today's mode, so not
+  compared: the session lane now keeps a dropped guest's seat for 60 s, which would fail that wait in either mode.
+- `coop-session-start` and a 4-page run were queued and cut when the machine had to be relieved: not run.
+- **Found and not fixed: in `coop-drops` the browser process itself took 225 to 236 CPU seconds on its main thread and grew to 2.3
+  to 3.1 GB, and the pages' compositor threads took 154 to 159 more, in both modes.** That is 40% of that proof's CPU and a third of
+  its memory, it is absent from quiet runs (5 CPU seconds, 130 MB), and it showed in two other runs whose guest page had
+  starved. Suspects, none confirmed: loopback messages (`BroadcastChannel` goes through the browser process) piling up for a page
+  that is not reading them; a DOM screen (the shop) animating at full rate. It is the next thing to look at.
+
+**Slots.** `tools/shot.mjs` keeps **3** runs at once (the lead's cut, kept). The machine is shared: of 32 cores and 62 GB, 8
+cores and 16 GB are another person's and the agents' own compilers, test runs and servers take about 8 cores and 13 GB, which
+leaves the proofs 16 cores and 33 GB. Memory: a run is 3.0 to 3.4 GB with two pages and 6 to 7 GB with four, and runs grow when
+they are long (`coop-drops` above reached 11 GB), so three runs are 9 to 21 GB at their peaks and 33 at the worst seen: three
+fits, four only while runs are short. CPU: a two-page run averages 2.1 to 2.7 cores over its life, a four-page run about twice
+that, so three runs are 6 to 16 cores: three fits, four four-page runs (22 cores) do not. Fast mode's fifth to a quarter less
+CPU does not buy another slot, and it frees no memory. Two rules were added to the slots: a run does not start while less than
+20 GB is available (the other person's 16 and the run's own; `OP2_SHOT_FREE_GB`; it waits at most 10 minutes), and waiting runs
+are served in order of arrival (a run of mine waited 12 minutes while later ones went in). While the numbers above were taken
+the machine had 4.5 GB available at one point with eight runs alive, and the swap was full.
+
+**Not done.** Serving proofs from a production build: memory is the same and one paired boot comparison was not conclusive on a
+busy machine; a run would need a build step and a static server per worktree. A boot cache (nav mesh, light bake) inside the
+game. Booting only once per page (opening straight into a match) would halve a short proof but skips the lobby the proofs are
+also about. The 530 MB in Chrome's allocator is not attributed. `coop-team-kit.mjs` opens its third and fourth pages itself, so
+those two draw and play audio as before.
+
+### Co-op tests without a browser (written down, not built)
+
+Most rules and protocol proofs do not need Chrome: they need two or more worlds, a transport between them and a clock.
+
+**What exists.**
+- `src/net/world.test.ts`: `pair()` joins a host and a guest `CoopWorld` (the real one, with every module under
+  `src/net/world/`) through the real `Lobby` over a 30-line in-memory `Relay`, each side on a hand-made `Ctx` of mocks
+  (`context()`: a real `EventBus` and real `Enemy` objects, everything else `vi.fn()`). 30 tests run on it in under a second.
+- `src/net/fakeHub.ts` (`Hub`, `FakeRoom`): an in-memory relay with passwords and links that can be muted, cut and mended;
+  the lobby and session tests use it with fake timers.
+- `src/net/loopback.test.ts` and `netsim.test.ts`: the real `LaneRoom` with both lane kinds, and the simulator's lag, jitter and
+  loss, over an in-memory `BroadcastChannel`.
+- `src/core/stubs.ts` `noop()`: a stand-in for a whole system. Real systems that already run under Vitest in Node: Rapier
+  physics, the enemy manager, gore ragdolls, structures (see `gore/ragdoll.test.ts`, `world/structures.test.ts`).
+
+**What is missing.**
+- A real `Ctx` outside the browser. `createCtx` needs a canvas, WebGL, an `AudioContext` and the DOM HUD. A headless one needs
+  the real time, events, physics, player, weapons and combat, enemies, waves, progression and contracts, with `noop()` for render
+  (a `THREE.Scene` needs no GPU), fx, audio, hud and viewmodels, and characters either read from `public/assets/characters/` off
+  disk or replaced by a bare rig with the same bone names.
+- A map without the browser: the map build and nav mesh run in Node in principle; the light bake (a worker and textures) must
+  be skipped.
+- A loop that is not `requestAnimationFrame`: `Game.frame` is private. It needs one exported `step(dt)` that N worlds call in
+  turn under fake timers (the net code stamps and interpolates on `performance.now()`, which Vitest's fake timers move).
+- `CoopSession` outside the browser: it reads `document.hidden`, the session storage handoff and builds remote players' bodies.
+- One shared helper for the transport: today each test file has its own relay.
+
+**First step.** Move `Relay`, `context()` and `pair()` out of `world.test.ts` into `src/net/testing/party.ts` as
+`party(n, { net })`: N worlds on the real `LaneRoom` over the in-memory channel with the simulator, under fake timers. Then
+replace one mock at a time with the real system, starting with physics and the real `EnemyManager` on a flat test floor, so one
+test can run "a guest's claim, the host's damage, the kill event, the guest's copy dying" through real code at 3% loss. The
+team, claims, time and session-timer proofs can then move to Vitest; the browser keeps the look-checks, real WebRTC, and one
+smoke per lane.
 
 ### Baseline (stage 0a, 2026-11-18)
 

@@ -498,6 +498,23 @@ export class Renderer implements RenderSystem {
     this.lastTriangles = renderer.info.render.triangles;
   }
 
+  /**
+   * A frame that is not drawn (a test page between its drawn frames, core/proofmode.ts). Everything in render() that game
+   * code reads or that counts time still happens: the scenes' world matrices, the live lights' lifetimes, the post
+   * effects' pulses, and the one-frame X-ray list is dropped. Nothing is sent to the GPU.
+   */
+  settle(): void {
+    const { scene, camera, viewScene, viewCamera } = this;
+    if (camera.parent === null) camera.updateMatrixWorld();
+    if (viewCamera.parent === null) viewCamera.updateMatrixWorld();
+    scene.updateMatrixWorld();
+    viewScene.updateMatrixWorld();
+    if (!this.ctx) return;
+    this.pool.update(this.ctx.time.dt, camera, viewCamera);
+    this.postState.update(this.ctx.time.realDt);
+    this.xray.clear();
+  }
+
   render(): void {
     if (this.backdrop && this.frames >= BACKDROP_AFTER) {
       this.renderBackdrop(this.backdrop);
