@@ -496,3 +496,7 @@ decision in the log. Order of work:
 
 Keep the machine modest throughout: it is shared, and the other person may shut the agents down if it is swamped (3 browser
 slots, tests at low priority, few agents at once).
+- 2026-11-18, time: three fixes from the browser proofs landed after the first step: a guest that keeps re-asking lets go when the
+  host ends it; in co-op the blends run on wall time, so a screen with long frames is back at full speed with the others; a lost
+  "I let go" is said again. Proofs on the landed code: two pages 91 checks clean and 91 under `lag:120,jitter:40,loss:0.05`, three
+  pages 87, the slow host 11 (10 fps host: world at 1.00, 0.50 with the fix off), single player 11. Numbers in `coop.md`.

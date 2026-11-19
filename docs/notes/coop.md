@@ -1830,6 +1830,66 @@ If the steps themselves are what is slow (they would cost over half the frame), 
 which still keeps real speed down to 8 fps. After a stall at most 0.25 s of world is played out. Guests and single player are
 unchanged.
 
+**Tests and proofs (2026-11-18).** Unit: `src/net/world/slow.test.ts` (the rules: scales, caps, reset not add, down, the
+budget, a boss's death, a stalled host), `src/net/world/clock.test.ts` (host and two guests over the mocked transport: each
+cause on every screen, two at once, the blends, refusals, a player going down or leaving, the budget, a lost start, a lost end, a
+lost "I let go", a late joiner, junk from the wire, the clock given back to single player), `src/core/time.test.ts` (the gate,
+single player below 20 fps unchanged, the host's steps at 15, 10, 8 and 5 fps, the stall cap, wall-time blends in co-op only),
+`src/contracts/chips.test.ts` (Focus in co-op). Browser, on your own port, one run at a time:
+
+```sh
+node tools/shot.mjs --port <port> --w 1280 --h 720 --wait 500 --timeout 900 --script tools/scripts/coop-time-team.mjs --out tools/out/coop/time/team.png
+#   COOP_PLAYERS=3, COOP_SIM=lag:120,jitter:40,loss:0.05, COOP_ONLY=late,budget (one part), COOP_SHOTS=1 with --dpr 2 --w 1440 --h 900
+node tools/shot.mjs --port <port> --w 1280 --h 720 --wait 500 --timeout 600 --script tools/scripts/coop-time-slowhost.mjs --out tools/out/coop/time/slowhost.png
+node tools/shot.mjs --port <port> --url "/?contract=crucible&autostart=1" --wait 3000 --timeout 300 --script tools/scripts/coop-time-solo.mjs --out tools/out/coop/time/solo.png
+```
+
+`coop-time-team.mjs` asserts on **every** page, for a guest's Focus, the host's Focus, both at once with a perk, a Time Warp and a
+boss's death: the notice's words and the world's speed on it, the notice no later than the slowing, the world clock at the cause's
+scale, the player's own clock at 1.00, walking speed and fire rate against the same page at full speed, enemies' movement against
+their own speed, and a clean return to 1. Then a dropped end both ways, a late joiner mid-slow-mo, the 12 s budget and a downed
+player. Two pages at 60 fps, 91 checks each (three pages: 87 checks, the late joiner left out to stay at three pages, the notice
+on all three screens 13 to 50 ms after the cause, the same scales and speeds):
+
+| | Clean network | `lag:120,jitter:40,loss:0.05` |
+|---|---|---|
+| Notice after the cause, causer's own screen | 9 to 36 ms | 9 to 32 ms |
+| Notice after the cause, the other screen | 20 to 103 ms | 75 to 464 ms (a resent packet) |
+| Back at full speed after the end | 495 to 623 ms | 500 to 767 ms |
+| World clock on every screen | 0.35 / 0.25 / 0.40, exact | the same |
+| Own clock | 1.00 | 1.00 |
+| Walking, at full speed and in a teammate's slow-mo | 12.5 and 12.5 m/s | 12.5 and 12.5 m/s |
+| Fire rate (SMG), full speed and slow-mo | 13.0 to 14.2 and 13.1 to 14.2 a second | 13.1 to 14.2 and 12.9 to 14.2 |
+| Enemies against their own speed | 0.35, 0.25, 0.40 to 0.41 | 0.35, 0.23 to 0.25, 0.40 |
+| A lost end (host to guests) | the guest lets go 1.0 s after the entry's own deadline | the same |
+| A lost "I let go" (guest to host) | every screen at full speed 1.5 s after | 1.5 s |
+| The budget, every player chaining Time Warps | slow for 12.50 to 12.53 s, then "TEAM SLOW-MO SPENT · 2 S" | the same shape |
+
+`coop-time-solo.mjs` is the single-player reference on a solo page (11 checks): SLOWMO runs the world at 0.25 and Focus at 0.35
+with the own clock at 1.00, walking 12.5 m/s before and during, the same fire rate (13.3 a second both), enemies at 0.24 and 0.33
+of their speed, hit-stop intact, no gate and no notice. A teammate's slow-mo on a guest gives the same figures.
+`coop-time-slowhost.mjs` (T1, 11 checks), the guest running free at about 55 fps:
+
+| Host page | Host's world clock against real time | Guest's enemies against their own speed | World steps a second |
+|---|---|---|---|
+| Uncapped (60 fps) | 1.00 | 1.00 | 60 |
+| 15 fps | 1.00 | 1.00 | 30 |
+| 10 fps | 1.00 | 1.01 | 22 |
+| 10 fps, the fix switched off (as before) | 0.50 | 0.50 | 10 |
+
+One click of a semi-automatic on the 10 fps host fired one round, and a mouse move turned the view once. The proofs measure on
+frame boundaries, wait for every page to be drawing at 15 fps before each part, and discount time a page's main thread was
+blocked: the dev box is shared, and a starved page says nothing about timing.
+
+Screenshots (dpr 2, 1440x900, `COOP_SHOTS=1`): the notice on the causer's screen and a teammate's for a Focus, two causes at once
+and a boss's death.
+
+**Not done.** Hit-stop in co-op (it would have to be per screen; owner's call). The Judge's fan slow-mo in co-op (owner's call).
+KF2's "lite" slow-mo for a player far from the fight (research 5.6): everyone gets the same effect. The host's frame rate on its
+team card ("host lagging"). Four pages were not run (three were). The late joiner was measured from the moment its page had finished
+joining, by when the notice was already up; the quarter-second figure for it is the unit test's. Whether the notice ever sits
+on top of a wave banner was not looked at.
+
 ## Stage 4: Endless Humans, Outpost Defense, any map
 
 The host runs the world for all three survival modes, on whichever map the lobby picked; nothing in `src/net` names a map, so the Office

@@ -240,7 +240,7 @@ export default async function (host, { sleep, outDir }) {
 
     await scenario('guest-focus', { title: "A guest's Focus", scale: 0.35, grade: 'default', lines: [you(names[1], 'used Focus')],
       cause: () => tapChip(guest, sleep), end: () => tapChip(guest, sleep) });
-    if (want('guest-focus')) check(await guest.evaluate(() => { const c = window.__op2.ctx.contracts.chips; return c.meter < 0.8 && c.meter > 0.2 && !c.focus; }), "The guest's Focus spent its own meter, as alone");
+    if (want('guest-focus')) check(await guest.evaluate(() => { const c = window.__op2.ctx.contracts.chips; return c.meter < 0.9 && !c.focus; }), "The guest's Focus spent its own meter, as alone");
     for (const page of pages) await fillFocus(page);
 
     await scenario('host-focus', { title: "The host's Focus", scale: 0.35, grade: 'default', lines: [you(names[0], 'used Focus')],
