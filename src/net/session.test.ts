@@ -63,3 +63,70 @@ describe('remote match lifecycle', () => {
     expect(lobby.sendPose).toHaveBeenCalledTimes(22);
   });
 });
+describe('the deploy gate, real reasons and host loss', () => {
+  const gated = (over: Record<string, unknown> = {}) => {
+    const made = setup();
+    Object.assign(made.lobby, { hosting: false, you: 'guest', me: guest, live: false, where: 'loading', ...over });
+    const ended = vi.fn(); made.session.onEnded = ended;
+    const start = vi.fn();
+    return { ...made, ended, start };
+  };
+  it('nothing starts until the deploy click, and the click starts the run, the world and tells the host', async () => {
+    const { session, lobby, start } = gated(); await session.init();
+    session.gate(start);
+    expect(lobby.booted).toHaveBeenCalledOnce();
+    expect(start).not.toHaveBeenCalled(); expect(session.remotes.size).toBe(0);
+    // Not until this page has its host and its match.
+    lobby.phase = 'connecting'; expect(session.deploy()).toBe(false);
+    lobby.phase = 'open'; expect(session.deploy()).toBe(true);
+    expect(start).toHaveBeenCalledOnce(); expect(lobby.deployed).toHaveBeenCalledOnce();
+    expect(session.remotes.size).toBe(1);
+    // A second click does nothing.
+    expect(session.deploy()).toBe(false); expect(start).toHaveBeenCalledOnce();
+  });
+  it('holds the world until the host says the barrier is over, and the host is told to start it once', async () => {
+    const { session, lobby } = setup(); Object.assign(lobby, { live: false });
+    const go = vi.fn(); session.onGo = go;
+    await session.init();
+    expect(session.holding).toBe(true);
+    lobby.onGo(); expect(go).not.toHaveBeenCalled(); // before this page has deployed there is no world to start
+    session.gate(() => {}); session.deploy();
+    Object.assign(lobby, { live: true }); lobby.onGo();
+    expect(session.holding).toBe(false); expect(go).toHaveBeenCalledOnce();
+  });
+  it('a room that closed while the page was loading is told at the gate with its real reason', async () => {
+    const { session, lobby, ended, start } = gated(); await session.init();
+    lobby.phase = 'closed'; lobby.error = 'no-answer';
+    session.gate(start);
+    expect(start).not.toHaveBeenCalled();
+    expect(ended).toHaveBeenCalledOnce();
+    expect(ended.mock.calls[0]![0]).toMatch(/host is not answering/);
+    expect(ended.mock.calls[0]![1]).toBeNull();
+  });
+  it('a match that ended while the page was loading lands on the lobby page, room kept', async () => {
+    const { session, lobby, ended, start } = gated(); await session.init();
+    lobby.onEnd();
+    expect(ended).not.toHaveBeenCalled(); // not before the boot is over
+    session.gate(start);
+    expect(start).not.toHaveBeenCalled();
+    expect(ended.mock.calls[0]![0]).toMatch(/ended while you were loading/);
+  });
+  it('feeds seat events to the hooks with the stable seat, and re-runs the catch-up for the same connection coming back', async () => {
+    const { session, lobby } = setup(); await session.init(); session.begin();
+    const arrived = vi.fn(), lost = vi.fn(), gone = vi.fn();
+    session.onArrived.add(arrived); session.onLost.add(lost); const off = session.onGone.add(gone);
+    const row: LobbyPlayer = { ...guest, seat: 's1' };
+    const team = (session.world as unknown as { team: { onArrived: ReturnType<typeof vi.fn> } }).team;
+    team.onArrived = vi.fn();
+    lobby.onSeat(row, { kind: 'in', rejoin: false });
+    expect(arrived).toHaveBeenCalledWith('guest', { seat: 's1', slot: 1, name: 'GUEST', rejoin: false });
+    expect(team.onArrived).not.toHaveBeenCalled(); // a new connection: the team's own first card does it
+    lobby.onSeat(row, { kind: 'lost' }); expect(lost).toHaveBeenCalledWith('guest', 's1');
+    lobby.onSeat(row, { kind: 'in', rejoin: true });
+    expect(team.onArrived).toHaveBeenCalledWith('guest');
+    // A new page of the same player: a new connection id, so again the team's own.
+    lobby.onSeat({ ...row, id: 'guest-new' }, { kind: 'in', rejoin: true });
+    expect(team.onArrived).toHaveBeenCalledOnce();
+    off(); lobby.onSeat(row, { kind: 'gone' }); expect(gone).not.toHaveBeenCalled();
+  });
+});

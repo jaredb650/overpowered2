@@ -158,6 +158,11 @@ export const SEAT_GRACE_MS = 60_000;
 export const LOADING_SEAT_MS = 180_000;
 /** A heartbeat that last ran longer ago than this means the page itself was stalled, not the peers silent. */
 export const STALL_MS = 5_000;
+/**
+ * After a deliberate leave the room stays up this long, so the goodbye gets out before the connection closes. Without it a
+ * slow link loses the word, and the quit reads "lost connection" on the other side.
+ */
+export const BYE_FLUSH_MS = 600;
 /** A guest closes on an error from a peer it cannot tell from the host only when nothing else is in progress for this long. */
 export const PENDING_ERROR_MS = 8_000;
 /** The host's own row. Guests are listed by their peer id. */
@@ -335,6 +340,8 @@ export class Lobby {
       this.knock = setTimeout(() => this.openDoor(), DOOR_AFTER_MS);
     }
     room.onPeerJoin(id => {
+      // A lobby that has closed says nothing more, though its room may still be up for a moment (BYE_FLUSH_MS).
+      if (this.phase === 'closed') return;
       if (this.phase === 'connecting') { this.unheard.add(id); report('COOP_STAGE', { stage: 'version' }); }
       this.ch.send({ t: 'hello', v: build, name: this.name, host: hosting, page: this.page, match: this.match?.id ?? null, starter: this.starter, born: this.born, browser: this.browser }, id);
     });
@@ -771,11 +778,12 @@ export class Lobby {
 
   /** A deliberate quit: the other side is told, so it reads "left" there and not a lost connection. */
   leave(): void {
+    let told = false;
     if (this.phase === 'open') {
-      if (!this.hosting) { if (this.hostId) this.ch.send({ t: 'bye' }, this.hostId); }
-      else for (const p of this.players) if (linked(p)) this.ch.send({ t: 'bye' }, p.id);
+      if (!this.hosting) { if (this.hostId) { this.ch.send({ t: 'bye' }, this.hostId); told = true; } }
+      else for (const p of this.players) if (linked(p)) { this.ch.send({ t: 'bye' }, p.id); told = true; }
     }
-    this.close(null);
+    this.close(null, told ? BYE_FLUSH_MS : 0);
   }
 
   /** Host: a line from the lobby itself (amber, no name), for everyone. */
@@ -1288,7 +1296,8 @@ export class Lobby {
     return (['ours', 'theirs'] as const).map(side => `${side}:host=${ice[side].host},mdns=${ice[side].mdns},srflx=${ice[side].srflx},relay=${ice[side].relay}`).join(';');
   }
 
-  private close(error: LobbyError | null): void {
+  /** `linger`: how long the room itself stays up after this lobby has closed (a goodbye on its way out). */
+  private close(error: LobbyError | null, linger = 0): void {
     if (this.phase === 'closed') return;
     const stage = this.stage;
     const ice = this.room.status?.().ice;
@@ -1308,7 +1317,8 @@ export class Lobby {
     this.stopCount();
     this.clearWait();
     this.shutDoor();
-    this.room.leave();
+    if (linger > 0) setTimeout(() => this.room.leave(), linger);
+    else this.room.leave();
     this.onChange();
   }
 }

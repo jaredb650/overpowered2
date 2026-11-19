@@ -521,7 +521,7 @@ that missed an `end` while loading still learns its match is over.
 | Host, guest's connection closed | The same at once | |
 | Host, the guest is back | Same browser id (or the same connection answering again): seat back, `'loading'` until its page says where it is, then "NAME is back." | within `SEAT_GRACE_MS` = 60 s |
 | Host, grace over | "NAME left.", seat and slot freed | 60 s |
-| Either, a deliberate quit | `leave()` sends `bye`: "NAME left." at once, no grace; a host's `bye` closes guests at once | |
+| Either, a deliberate quit | `leave()` sends `bye`: "NAME left." at once, no grace; a host's `bye` closes guests at once. The room stays up `BYE_FLUSH_MS` after it, so the word gets out on a slow link | 600 ms |
 | Either, its own page stalled | A heartbeat that last ran more than `STALL_MS` = 5 s ago restarts every peer's silence from now | |
 
 A guest's page always reconciles with the host's list: if the list has it as loading or lost while it is in the world, it says
@@ -615,12 +615,20 @@ Each asserts on every page and runs on the loopback transport; `COOP_SIM='lag:12
 | `coop-session-password` | Someone typing the wrong password does not disturb a friend joining; "Wrong password" for the one, a double press is one lobby |
 | `coop-session-modes` | Every co-op mode in turn in one room: world held while waiting (no wave running, mission not begun), started when the guest clicks |
 
-Unit tests: `src/net/lobbyLife.test.ts` (31: each timer rule and each case above over the fake transport, `fakeHub.ts`).
+| `coop-session-drop` (`COOP_NET=rtc` only) | A live WebRTC connection cut under the guest: "Reconnecting", the seat kept, trystero finds the peer again, the same page back in its seat with credits and gun |
+
+Results, 2026-11-18. Clean network, loopback: all nine pass. `lag:120,jitter:40,loss:0.05`, loopback: all nine pass (that run
+found one bug, fixed: a goodbye cut off by the room closing behind it, so a Leave read as "lost connection"). Real WebRTC
+(three browser profiles, the public relays): `start`, `hostquit` and `drop` pass; regrouped 42 s after the host's tab closed
+(41 s on loopback), and after a cut connection the host noticed in 0.06 s and the guest was back in the world in 1.3 s. The
+other six were not run over real WebRTC. Evidence JSON and screenshots: `tools/out/coop/session/` (not kept in the repo).
+Screenshots of guest pages on loopback show stale tiles in the lower third (the kit's popup windows are shorter than their
+viewport); the host's are clean.
+
+Unit tests: `src/net/session.test.ts` (8: the gate, the hold, real reasons, the hooks) and `src/net/lobbyLife.test.ts` (31: each timer rule and each case above over the fake transport, `fakeHub.ts`).
 
 ### Not done
 
-- The dropped-then-reconnected link over **real WebRTC** (trystero finding the same peer again) is covered by the unit tests
-  and by the loopback proofs only; no proof cuts a real peer connection.
 - A same-connection return after a long drop gets the world catch-ups but not the team's `restore`/`sync` (the guest's page
   kept its kit, and cards and snapshots heal state, but a wave banner or pod call sent while it was away is not replayed).
 - A rejoin after a reload on the lobby page, and a host page reload after its guests have already regrouped (two hosts on one

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { FakeRoom, Hub } from './fakeHub';
 import {
-  CLICK_WAIT_MS, HOST_WAIT_MS, LOADING_SEAT_MS, LOAD_WAIT_MS, Lobby, MATCH_HOST_WAIT_MS, PENDING_ERROR_MS, PING_MS, QUIET_MS, RECONNECT_MS, SEAT_GRACE_MS, SILENCE_MS,
+  BYE_FLUSH_MS, CLICK_WAIT_MS, HOST_WAIT_MS, LOADING_SEAT_MS, LOAD_WAIT_MS, Lobby, MATCH_HOST_WAIT_MS, PENDING_ERROR_MS, PING_MS, QUIET_MS, RECONNECT_MS, SEAT_GRACE_MS, SILENCE_MS,
   START_ACK_MS, type LobbyOptions, type SeatEvent,
 } from './lobby';
 
@@ -421,6 +421,11 @@ describe('the life of a co-op session', () => {
     expect(h.players.map(p => p.name)).toEqual(['HOST', 'BEN']);
     expect(lines(b).at(-1)).toBe('ANNA left.');
     expect(seat).toHaveBeenLastCalledWith('ANNA', { kind: 'gone' });
+    // The room itself stays up a moment so the goodbye gets out on a slow link, then closes; nothing more is said.
+    expect((a as unknown as { room: FakeRoom }).room.closed).toBe(false);
+    tick(BYE_FLUSH_MS + 100);
+    expect((a as unknown as { room: FakeRoom }).room.closed).toBe(true);
+    expect(lines(b).filter(t => /ANNA/.test(t))).toEqual(['ANNA left.']);
     h.leave(); hub.flush();
     expect(b.phase).toBe('closed'); expect(b.error).toBe('host-left');
   });
