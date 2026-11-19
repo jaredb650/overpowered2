@@ -17,5 +17,5 @@ export default async function (page) {
   if (process.env.STEADY_EVAL) await page.evaluate(process.env.STEADY_EVAL);
   const frames = Number(process.env.STEADY_FRAMES ?? 120);
   await steady.frames(page, frames);
-  return { seed: Number(process.env.STEADY_SEED ?? 1), loadingFrames: loading, frames };
+  return { seed: Number(process.env.STEADY_SEED ?? 1), loading, frames };
 }

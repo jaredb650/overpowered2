@@ -16,9 +16,9 @@ export async function before(page, h) {
 
 export default async function (page, h0) {
   const h = cfg.live ? h0 : steady.helpers(page, h0);
-  let loadingFrames = 0;
+  let loading = null;
   if (!cfg.live) {
-    loadingFrames = await steady.ready(page, { until: cfg.until });
+    loading = await steady.ready(page, { until: cfg.until });
     await steady.advance(page, cfg.wait);
   }
   const scriptResult = user?.default ? await user.default(page, h) : undefined;
@@ -70,5 +70,5 @@ export default async function (page, h0) {
   } finally {
     await context.close();
   }
-  return { sheet: cfg.out, size: [grid.width, grid.height], frames, loadingFrames, scriptResult, evalResult };
+  return { sheet: cfg.out, size: [grid.width, grid.height], frames, loading, scriptResult, evalResult };
 }

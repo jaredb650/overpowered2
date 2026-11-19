@@ -6,7 +6,7 @@
 //   export const before = page => steady.install(page, { seed: 1 });   // runs before the page loads
 //   export default async (page, h0) => {
 //     const h = steady.helpers(page, h0);     // h.sleep / h.press / h.click now move the frozen clock
-//     await steady.ready(page);               // steps the page through its loading until window.__op2 exists
+//     await steady.ready(page);               // takes the page through its loading until window.__op2 exists
 //     await steady.frames(page, 120);         // exactly 120 frames of 16 ms
 //     await h.shot();
 //   };
@@ -15,7 +15,8 @@
 //   --script tools/scripts/steady-shot.mjs --out tools/out/<you>/a.png     (see that file for its STEADY_* settings)
 //
 // How it works: Playwright's Clock replaces the page's Date, performance.now, timers and requestAnimationFrame with a clock that
-// only moves when told. It is paused before the page loads; every step is one 16 ms frame (62.5 a second: the fake
+// only moves when told. It is paused before the page loads and stands still all through loading (ready() fires the short
+// timers the page waits on without moving time); after that every step is one 16 ms frame (62.5 a second: the fake
 // requestAnimationFrame fires on 16 ms marks). Math.random is replaced by a seeded generator before any page code runs.
 //
 // What it does NOT freeze: sound, WebRTC, web workers (their own clock and Math.random), crypto.getRandomValues, and CSS
@@ -72,43 +73,51 @@ async function quiet(page, grace) {
 
 const step = (page, ms) => page.evaluate(t => globalThis.__pwClock.controller.runFor(t), ms);
 
-/** Milliseconds of frozen time until the page's next timer or frame is due; a large number when it waits on none. */
-const nextTimer = page => page.evaluate(() => {
+/**
+ * One loading step, in one piece so nothing can slip in between the check and the act: if `until` is true, say so; otherwise
+ * fire, without moving time, the short timers and frames the page is waiting on right now (a shader-compile poll, a yield, a
+ * "next paint"). Long timers (a 5 s flush, a 30 s ping, a watchdog) are left alone. With `advance` it moves time one frame
+ * instead, the ordinary way.
+ */
+const loadStep = (page, until, advance) => page.evaluate(async ([expr, frame, move]) => {
+  let ready = false;
+  try { ready = !!(0, eval)(expr); } catch { /* not there yet */ }
+  if (ready) return 'ready';
   const c = globalThis.__pwClock?.controller;
-  if (!c) return 1e9;
-  if (!c._timers || !c._now) return c.countTimers() ? 0 : 1e9; // another Playwright: no look inside, step whenever any timer exists
-  let soon = 1e9;
-  for (const t of c._timers.values()) soon = Math.min(soon, t.callAt - c._now.ticks);
-  return soon;
-}).catch(() => 1e9);
+  if (!c) return 'idle';
+  if (move || !c._timers || !c._now) { await c.runFor(frame); return 'moved'; }
+  let due = 0;
+  for (const t of c._timers.values()) {
+    if (t.delay > (t.type === 'Interval' ? 100 : 250)) continue;
+    t.callAt = c._now.ticks;
+    due++;
+  }
+  if (!due) return 'idle';
+  await c.runFor(0);
+  return 'fired';
+}, [until, FRAME_MS, advance]).catch(() => 'idle');
 
 /**
- * Steps the frozen page through its loading until `until` (a JS expression) is true. Between steps it lets real work finish
- * (downloads, plus `grace` ms for decoding and compiling), and it steps only when the page is waiting on a timer or frame due
- * within one frame: a far-off timer (a 5 s flush, a 30 s ping) must not move time while real work is still going.
+ * Takes the frozen page through its loading until `until` (a JS expression) is true, with page time standing still: the
+ * clock reads the same at the end of loading every run, however long the downloads and shader compiles really took, and the
+ * game's first frame is always the first step after this returns. Between steps it lets real work finish (downloads, plus
+ * `grace` ms for decoding and compiling).
  *
- * Loading still takes a different number of steps each run (three.js polls its shader compiles every 10 ms of page time, and
- * how long a compile takes is real time), so once ready the clock jumps to the next `mark` (a multiple of 8 s of page time):
- * every run then starts from the same clock reading. That jump fires each waiting timer once, like one long frame.
- * Returns the number of steps loading took.
+ * A page that needs time to pass before it is ready (a fade it waits out) would never get there, so after `patience` steps
+ * time is moved the ordinary way, one frame a step: `advanced` is then true in the result and two runs may differ by a frame.
+ * Returns { steps, advanced }.
  */
-export async function ready(page, { until = '!!window.__op2', timeout = 90000, grace = 60, mark = 8000 } = {}) {
+export async function ready(page, { until = '!!window.__op2', timeout = 90000, grace = 60, patience = 400 } = {}) {
   const start = Date.now();
-  let frames = 0;
+  let steps = 0;
   for (;;) {
     await quiet(page, grace);
-    if (await page.evaluate(until).catch(() => false)) break;
+    const did = await loadStep(page, until, steps >= patience);
+    if (did === 'ready') return { steps, advanced: steps > patience };
     if (Date.now() - start > timeout) throw new Error(`steady: the page was not ready after ${timeout} ms (waiting for: ${until})`);
-    if (await nextTimer(page) <= FRAME_MS) { await step(page, FRAME_MS); state.get(page).frames++; frames++; } else await wait(20);
+    if (did === 'idle') await wait(20);
+    else { steps++; if (did === 'moved') state.get(page).frames++; }
   }
-  if (mark > 0) {
-    await page.evaluate(m => {
-      const c = globalThis.__pwClock.controller;
-      const now = performance.now();
-      return c.fastForward((Math.floor(now / m) + 1) * m - now);
-    }, mark);
-  }
-  return frames;
 }
 
 /** Advances exactly `n` frames of 16 ms. `grace` (real ms) is given before each frame for work that is not a download. */
