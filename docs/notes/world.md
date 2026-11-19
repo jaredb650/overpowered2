@@ -481,6 +481,10 @@ Why it is built the way it is:
 
 ## Breakables
 
+**Co-op:** the host decides what breaks, by the prop's place in `props` (and a barrel's in `explosives`); guests report their hits,
+guess at their own, and draw the rest on the host's word. `PropLink` in `breakables.ts` is the seam; the rules are in
+`docs/notes/coop.md`, "The shared world". Solo, `net` is null and nothing here changes.
+
 `src/world/breakables.ts`, owned by `world/objects.ts`. A map places them as `MapSpec.breakables` (`spec.breakable(kind, x, y, z, yaw, w, h, flat)`);
 any map can. A round reaches one through `Objects.damageExplosive`, a blast through `damageExplosivesInRadius`, so rockets, grenades,
 barrels and melee all work on them unchanged.

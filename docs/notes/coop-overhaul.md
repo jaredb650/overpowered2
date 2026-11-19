@@ -159,6 +159,16 @@ Shared files and contracts between lanes:
   module's `update` must be safe to run two to five times in one animation frame (rate-limit by `performance.now()`, as the
   snapshot does). **Team timers (team):** bleed-out, revive hold and the end board stay on real time by decision (players act
   at full speed in slow-mo, so a stretched bleed-out would be a free extension); waves and breaks are the world's and stretch.
+- **A guest that arrives late** (world-a, landed): `CoopWorld.catchUp(id)` runs when a guest's world comes up, from the guest's own
+  `worldsync` and from `team.onArrived`, possibly twice. A lane with one-shot world state adds its own catch-up there (or beside
+  it, as `villain.catchUp` is) and makes it safe to receive twice.
+- **Barrels, tanks and props** (world-a, landed): the host decides, by number. Code that damages them calls
+  `ctx.world.objects.damageExplosive` / `damageExplosivesInRadius` as before, on host and guest alike: the guest's call is
+  forwarded to the host by itself. On a guest a barrel is only drawn and felt: never rely on `world:explosion` being raised
+  there. A blast that only the local player should feel is `ExplosionSpec.playerOnly` (Combat skips enemies, vehicles, the world).
+  Walls, gates and shacks are **world-b**'s: a guest's blast is NOT forwarded to `walls` by this lane.
+- **Pods** (world-a, landed): a guest's `DropPods.call()` does nothing; the host's reaches it as `pod`. A mission that calls a cache
+  need only do it on the host (the mirrored op on a guest is a no-op).
 - Adding an event: declare it in your own module and add one line to the union, as the split's "Code layout" note in
   `docs/notes/coop.md` describes. Never renumber or rename another lane's wire fields.
 - `enemies/EnemyManager.ts`, `core/Game.ts`, `ui/Hud.ts` are touched by several lanes: keep edits small and local, rebase often.

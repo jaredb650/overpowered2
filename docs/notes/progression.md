@@ -339,6 +339,9 @@ caller plays its own animation and sound. Nothing calls it yet. Test: `stims.tes
 
 ## Pickups
 
+**Co-op:** the drop pods (supply pods and weapon caches) are shared: the host calls one, every screen flies it, each player shops
+or takes their own share (`docs/notes/coop.md`, "The shared world"). Everything else in this section stays each player's own.
+
 Drops 30% per kill, weighted toward what the player lacks, capped at 24, expire in 28 s. Map items: 3 Mega Health and 3 Heavy Armor on `world.pickupSpots` by a stride that lands on the Kill House deck corners, respawning at 45 s and 35 s. Ambient supply every 10 s. Capsules first at 25 s, then every 32 to 48 s, from a shuffled bag of all ten, 30 s life, at least 35 m away, with a `hud.marker`. Pods every second wave clear, with the unlock order in `CACHE_ORDER`, then full resupply once the arsenal is complete. A weapon's family members (`docs/notes/weapons.md`) come with it and are not in `CACHE_ORDER`: the Harrow, the Thresher and the Quiver are there from the start with the SMG, the shotgun and the rocket, the Rivet arrives in the Judge's cache, and the Piledriver in the cache that brings the Trommel, which `CACHE_ORDER` still calls `buzzsaw`. Key 4 starts with the Sabot. The explosive autocannon is its upgrade and is earned: it is second in `CACHE_ORDER` (Judge, Autocannon, Lance, Buzzsaw, Kiln, Stakegun), so the wave 4 pod brings it and everything after it comes one pod later than before. It was a starting weapon, so it comes early rather than last. `?slot4=old` takes it out of the list and makes it a starting weapon again. `weapons.give` and `setLoadout` do that themselves, so a mission that hands out the SMG hands out the Harrow.
 
 ## Tuning knobs

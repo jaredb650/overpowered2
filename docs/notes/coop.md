@@ -97,6 +97,8 @@ the names the game used before).
 | `world/slowNotice.ts` | The notice every screen shows while the world is slow (its own element in the HUD root, `ui/css/cooptime.css`) | |
 | `world/capture.ts` | A guest capturing a prisoner (hold E, the host cuffs, the bounty comes back); `capturable` | `capture`, `credit` |
 | `world/guns.ts` | Carries the news of dropped guns for `weapons/dropped.ts` | `gun` |
+| `world/pods.ts` | Carries the news of the drop pods for `progression/pickups/pods.ts` | `pod` |
+| `world/props.ts` | Barrels, tanks and props: a guest's hits, the host's breaks, chairs, the late guest's state, the machinery clock | `prop` |
 | `world/vehicles.ts` | The host's ground vehicles drawn on guests, 5 Hz, stamped with the host's clock and drawn through a `MotionBuffer` | `vehicles` |
 | `world/villainProps.ts` | The villain's devices, shutters and smoke on every screen; a guest's round on a device; a snare on a guest. See "The villain's props on every screen" | `dev`, `devshot`, `snared`, `shutter`, `smoke` |
 | `world/fort.ts` | Outpost Defense's fort for the whole team: walls, gates and shacks by index, the fort's facts, a guest's blasts, boarding up and Barracks purchases, mortar rounds, the Defense radio. See "Outpost Defense: one fort" | `fort`, `fortstate`, `wallblast`, `wallhit`, `repair`, `repaired`, `fortbuy`, `fortsold`, `shell`, `fortsay`, `fortradio` |
@@ -839,6 +841,119 @@ begun 350 ms in), which is what lag does; those checks now allow for it, but tha
 the one miss a fixed spark count that a 2 fps page could not reach (now relative to the shooter's). Not run: four players,
 real WebRTC (`COOP_NET=rtc`), and any mode but the Crucible.
 
+## The shared world: pods, dropped guns, things that break (overhaul lane "world-a", 2026-11-18)
+
+Owner decision 4: everything is shared. One supply pod, guns on the ground that anyone can take, and one set of barrels, windows
+and props. The host decides each of them; every screen draws its own copy.
+
+| File | What |
+|---|---|
+| `src/progression/pickups/pods.ts` | The pods and every rule about them, solo and co-op |
+| `src/net/world/pods.ts` | Carries the pods' news (`pod`) |
+| `src/weapons/dropped.ts` | Guns on the ground and every rule about them |
+| `src/net/world/guns.ts` | Carries their news (`gun`) |
+| `src/world/objects.ts`, `src/world/breakables.ts` | Barrels, tanks and props; `PropLink` is what they need of the wire |
+| `src/net/world/props.ts` | That wire (`prop`): hits, breaks, chairs, the late guest's state, the machinery clock |
+| `src/net/world.ts` | `catchUp(id)`: pods, guns and props for a guest whose world has just come up; `worldsync` |
+| `src/net/world/sharedkit.ts` | Test kit: a host and guests over a mocked relay, on stub games or real ones (`makeRange`) |
+| `tools/scripts/coop-world-pods.mjs`, `coop-world-drops.mjs`, `coop-world-props.mjs` | The browser proofs |
+
+### A guest that arrives late
+
+"Late" is any guest whose world comes up after something happened: it was still loading the map, it joined mid-match, or it
+came back. Events are dropped until a guest's world has begun, so each of those would miss a pod, a gun or a broken window.
+Two triggers cover it, on purpose both: the guest sends `{ t: 'worldsync' }` the moment its world begins, and the host also runs the
+same catch-up on that guest's first card (`team.onArrived`). The catch-up sends every pod out (with its age), every gun lying
+(with its age), and the world's broken state. Everything is keyed by a number and applied once, so being told twice is harmless.
+Each of the three parts runs on its own: one that throws does not cost the guest the others.
+
+### Supply pods and weapon caches
+
+- **One pod.** The host calls it (`DropPods.call`) and sends `{ t: 'pod', op: 'call', id, at, yaw, age, supply }`. A guest never calls
+  its own (`onWaveClear` and `call` do nothing on a guest; a mission's mirrored cache op is a no-op there too) and flies the
+  host's from the same spot, turned the same way. The spot is picked from the middle of every player in the world, 25 to 110 m
+  out, so it is a fair run for all.
+- **One clock.** In co-op the pods run on the wall clock: the game's `realDt` is capped at 50 ms a frame, and a page that hitched
+  would fly its pod late for good. A guest's pod is behind the host's only by the message's delay.
+- **One blast.** The pod lands once, on the host. A guest skips `combat.explode` in `land()`: its own would hit the enemies again and
+  be mirrored back to everyone (the "three unexplained blasts" of the audit). The host's landing reaches a guest as the usual
+  explosion (`boom`) at the moment its own copy touches down.
+- **Each player's own shop.** E at the open pod opens that player's own Procurement: own credits, own unlocks, own purchases.
+- **Ends on the host's word.** The host retires the pod when its break ends and sends `gone`. A guest's own copy of the waves cannot
+  end it (that was the race of audit A5); only if the host's word never comes does a guest drop it, 10 s after its own break ended.
+- **The race (audit A5), fixed twice over.** Both wave directors (`enemies/waves.ts`, `enemies/outpost/waves.ts`) enter the break before
+  they announce `wave:clear`. The `wave` event carries `phase` and `next`, and `Team.followPhase` sets them on the guest before
+  replaying the event; a clear is always the break, whatever the director said (Outpost Defense's still announces first).
+- **Weapon caches** (missions, and `?shop=0`): the same shared pod. Each player who walks in gets their own share once: the next gun
+  their own arsenal is due, or the full resupply. The pod stays for the others, unmarked for whoever has taken, until every
+  player in the match has had theirs or its 90 s run out; the host says when (`took` from a guest, `gone` to all). Nobody can take
+  another's share.
+- **Ordinary pickups stay each player's own** (ammo, stims, armour, the mega items, power-up capsules, kill drops), as the lead
+  decided. Checked for anything visibly wrong in co-op: each browser lays out and marks only its own, a pickup one player
+  takes was never on another's screen, and a mission's handed-out pickups are mirrored to every player as their own copy. Nothing
+  was changed.
+
+### Dropped guns
+
+A drop is how players share guns. It carries the gun's mods (held and fitted), its magazine and its reserve.
+
+- **Where it lies.** `settle()`: 1.3 m ahead of the feet, stopped 0.4 m short of a wall in the way, then down to the floor under that
+  point (up to 80 m: off a ledge it falls and lies below). The fall is drawn (`fall` metres, the same gravity as the old 0.35 s
+  throw). On level open ground a solo drop is exactly where and how it was.
+- **Seen.** In co-op every drop has a 7 m column of light and a ring on the ground once it has landed, and the feed says "NAME
+  dropped a GUN". The prompt reads "[E] Take GUN (from NAME)".
+- **Taken on purpose.** In co-op a gun is taken only with E. Walking over one takes it only solo, as before. (Decision: a gun on
+  the ground may be a gift for someone else; with auto-take the nearest player hoovers it up.)
+- **Two players at once.** The host gives it to the first `take` it hears (`give` to them, `gone` to all with the taker's name). The
+  other's screen says "NAME got to the GUN first". The host's own E is settled on the host's frame like anyone's.
+- **A guest's drop is never lost** (audit-play W2). It lies on the guest's own screen at once, unnumbered, and goes to the host with a
+  request number (`drop`, `q`). The host numbers it and tells everyone (`add` with `q` and the dropper's `slot`); the guest's own
+  drop takes the number. If the host refuses it (`back`), or says nothing for 4 s, the gun returns to the guest's hands with a
+  feed line. A number that arrives after that is withdrawn (`void`), so there is never a second gun.
+- **Whose drop** is by roster slot, not by callsign.
+- **Host's checks:** a real gun with only its own mods and rounds it could carry (`cleanKit`); the resting spot within 8 m of the
+  guest's body on the host's screen, else its feet; a take within 10.2 m; at most 24 guns lying (the oldest goes).
+- **Logged.** Every gun message is `console.info`'d on both sides as `[coop gun] ...` (audit E11).
+- 150 s on the ground, on the host's clock; a late guest gets each gun with its age.
+
+### Barrels, tanks and props
+
+- **By number.** The map is built from one seed, so `explosives[i]` and `props[i]` are the same thing on every screen (the proofs
+  compare the lists). `set` is `'x'` (explosive) or `'b'` (breakable prop).
+- **A guest's hit** goes to the host: `hit` (added up per target and gun, one message a frame) and `blast` (its own explosions).
+  What its own hit breaks, it breaks at once on its own screen: a guess. The host applies the same damage to its own copy and
+  sends `break`, which every other screen draws with the same pieces and which confirms the guess. A guess not confirmed in
+  2.5 s asks for the host's state (`ask`), which stands the thing up again.
+- **A barrel goes off once.** On a guest a barrel or an exploding prop is only drawn: no `world:explosion`, so no damage to enemies
+  from there (that was audit-play W1, the barrel used twice), no chain, no wear on walls. The host's copy does all of that, as the
+  doing of the guest who set it off (`credit.as`, carried down the chain), so kills go to the right player.
+- **Everyone in reach feels it** (audit-play E7). Each player's own game works out what a world blast does to that player from
+  where they really stand: damage, push and shake, through a blast marked `playerOnly` (`Combat` skips enemies, vehicles and the
+  world for it). That includes the player who shot the barrel, and teammates standing beside it: a barrel is the world's, not a
+  player's weapon. (Decision; see the owner question in the overhaul log.)
+- **Chairs** fly on the host and every guest is told (`knock`, 90 a second at most), then where each came to rest (`rest`), so they
+  end in the same place. A guest never throws one by itself.
+- **Barrels come back** on the host's clock only (`restore`), and never within 20 m of any player.
+- **A late guest** gets `state`: explosives gone, props broken, moved chairs, applied without a sound.
+- **The map's machinery.** Crushers, live plates and gantries are a function of the world clock; a guest adds `clockSkew` so they are
+  in the host's phase (`clock`, every 2 s; eased, or snapped past 0.75 s). The reactor's state is set by the host's waves and
+  rides the same message.
+- **Host's checks:** a living sender whose body is in the world, a target within 450 m, an amount capped at 5,000, 300 hits and 40
+  blasts a second per guest.
+- **Not this lane's:** walls, gates and shacks (`world/structures.ts`) are lane world-b's. A guest's blast is applied on the host to
+  barrels and props only.
+
+Checked and left alone in `src/world/`: mission doors (mirrored by `mission.ts`), jump pads and launch ramps (each player's own
+trigger), hazards (each player's own damage), nav blocks (the host's AI only).
+
+### Verification
+
+Unit: `src/net/world/pods.test.ts` (9), `src/weapons/dropped.test.ts` (9), `src/net/world/props.test.ts` (10), and the older
+`handover.test.ts` and `progression/pickups/pods.test.ts` unchanged.
+
+Browser, each asserting on every page (`node tools/shot.mjs --port <port> --script tools/scripts/<name>.mjs ...`, options in each
+file's header): `coop-world-pods.mjs`, `coop-world-drops.mjs`, `coop-world-props.mjs`. Results: the overhaul log.
+
 ## How it works
 
 - **trystero 0.27.0, pinned**, with its default strategy, Nostr: peers meet through public Nostr relays, then talk browser to browser
@@ -1183,9 +1298,10 @@ page), and the others are trials. Cloudflare's free tier is the free option, so 
   own kills (the host's `kill` event carries the killer's slot and the headshot) as local `enemy:killed`, so its score, combo, perks,
   call-in offers and kill pay work as solo. **Shared wave bonus: every player, alive, down or dead, is paid the full wave-clear pay**,
   because the host's `wave:clear` is replayed on every guest (with `wave:start`: banners, shop breaks, supply pods, ammo top-up).
-- **Loot and the shop.** Pickups, weapon caches and the supply pod are each player's own: every browser lays out its own pickups and
-  drops its own kills' loot, and each player gets their own supply pod near them each break. Nobody can take another's loot.
-  The pod's shop opens over the live world (the co-op "paused" state releases controls but never stops the clock).
+- **Loot and the shop.** Since the overhaul there is one supply pod and one weapon cache for everyone, at the same spot on every
+  screen; each player shops there with their own purse, and takes their own share of a cache. Ordinary pickups are still each
+  player's own. See "The shared world" above. The pod's shop opens over the live world (the co-op "paused" state releases
+  controls but never stops the clock).
 - **Slow motion.** One player slows everyone, and every screen says who: see "Time: the team's slow motion" below.
 - **Call-ins.** Each player calls their own (earned from their own combo). A strike, the AA sentry, the mech, the door gunner or the
   AC-130 runs on the caller's screen; its damage reaches the host as call-in claims, accepted for 4 minutes after the caller's
