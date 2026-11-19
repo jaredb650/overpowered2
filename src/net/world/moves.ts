@@ -232,7 +232,8 @@ export class Moves implements WorldModule {
     try {
       if (move === 'getUp') {
         // Lying in its own ragdoll: that gets up by itself now. Never fell here: the clip, from wherever it lies.
-        if (down) gore.rouse?.(enemy.char);
+        // (Not one this player's own hit dropped for dead a moment ago: that waits for the host's answer to the hit, hits.ts.)
+        if (down) { if (enemy.predead === 0) gore.rouse?.(enemy.char); }
         else anim.getUp?.(GET_UPS[a[0]!] ?? 'prone', Math.max(0.2, Math.min(6, a[1] ?? 1)), Math.max(0, Math.min(1, a[2] ?? 0.5)), Math.max(0, Math.min(0.9, a[3] ?? 0)));
       } else if (down) {
         // Gore has the body: an animator clip would fight it. A second fall on a body already down is nothing new.
