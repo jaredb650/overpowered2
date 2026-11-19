@@ -638,6 +638,17 @@ gore.fire.stats();                    // { alight, smouldering, licks } for chec
 - **Caps.** 40 entries (`max`; a new fire past it takes the place of whatever is nearest cold, never of a living body's);
   the nearest 6 flaming things burn at the full rate and the rest at 45% (`near`, `farRate`); 300 licks a second over
   everything (`budget`), past which every fire thins alike.
+- **A burning corpse draws up (F3).** Over the first 55% of its burning (`curlBy`) the nearest 4 burning corpses (`curls`)
+  bend at the elbows (2 rad), knees (1.25), hips (0.75) and spine (0.3) (`curlPose`), through their own joint muscles:
+  `FireField.drawUp` gives each named joint a flexed target and up to 0.9 of drive (`curlDrive`), and wakes the chain.
+  Gore does not freeze a body while `fire.curling(char)` (`freezable`, and the settle check in `update`); 20% of the burn
+  later (`curlHold`) it is let go and freezes as any body does, which is what holds the pose. Flesh humanoids only. A limb
+  pinned under the body stays where it is.
+- **A burnt body's pieces are dark (F3).** `Gore.gib` sets `chunks.char` to the body's char round its spawns, and
+  `ChunkField.spawn` tints each piece toward black by it through the instance colour (every chunk mesh has one from the
+  start, white). Limbs thrown off carry the body's skin and burn on. Not tinted: the slabs' skin side and the trunk's big
+  pieces (they draw with the body's own skin material, which does not read an instance colour), and the blood a gib
+  throws is as red as ever.
 - **The switch:** `DevFlags.fire` (`?fire=0`, and "New fire" in the dev panel) turns all of it off and gives fire as it was:
   a timer, one emitter on the chest, out at death, a blood pool. The skin's char is drawn by the new shader either way.
 

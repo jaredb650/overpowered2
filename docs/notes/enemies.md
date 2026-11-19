@@ -191,6 +191,14 @@ fireproof (the Burner) flame and burn on but never char.
 
 `DevFlags.fire` off (`?fire=0`): time only, one emitter on the chest, out at death.
 
+**Who fears it** (`fearsFire`, `behaviours.ts`; the owner, 2026-11-18: "zombies are not unnerved by fire and keep
+attacking"). A man alight forgets the fight: `panic` scores 4, he runs in circles, and his attacks are not thought of. The
+dead do not (`EnemyDef.mindless`: Husk, Stalker, Leaper, Bomber, Juggernaut), nor the fireproof (Burner), nor a boss: a
+burning Husk keeps its behaviour and its attacks, comes on, and lights whatever it passes within 2.4 m. Decided by type, not
+by mode: a Trooper panics in The Crucible as he does in the Outpost. This is how an enemy fights, so in co-op it is the
+host's, and guests see it as they see any movement and attack. What watching a burning man does to a squad's nerve is in
+`outpost.md`, "Fire".
+
 ## Tuning knobs
 
 | Where | What |

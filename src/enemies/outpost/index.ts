@@ -50,7 +50,7 @@ import { CALLSIGNS, defaultDoctrine, fireRules, MAX_SQUAD, ROLE_OF, ROLES, type 
 import { DroppedWeapons } from './dropped';
 import { bestRuns, type FleeCandidate } from './flight';
 import './events';
-import { Dread, DREAD_SPIKES, FEAR, moraleCeiling, moraleState, MONSTER_RANGE, RECOVER_AFTER, recoverRate, WITNESS_RANGE } from './morale';
+import { burnFear, Dread, DREAD_SPIKES, FEAR, moraleCeiling, moraleState, MONSTER_RANGE, PYRE_SECONDS, RECOVER_AFTER, recoverRate, WITNESS_RANGE } from './morale';
 import { hear, Intel, sense, SENSE_INTERVAL } from './perception';
 import { Prisoners } from './prisoners';
 import { atLeastRegular, promoted, RANKS, rollGrade, type Rank } from './rank';
@@ -335,6 +335,11 @@ export class Outpost {
       this.pool.release(s);
     }
     this.soldiers.length = 0;
+    this.alight.length = 0;
+    for (const p of this.pyres) {
+      p.until = -1;
+      p.squad = null;
+    }
     this.flushLeaving();
     this.names.reset();
     this.memory.reset();
@@ -941,13 +946,39 @@ export class Outpost {
     if (first) this.comms.say('fear', first);
   }
 
+  /**
+   * Men alight now, and the bodies of burnt men still in flames (`pyres`, each for `PYRE_SECONDS`): what `watchingBurn`
+   * counts. Filled once a morale tick.
+   */
+  private readonly alight: Soldier[] = [];
+  private readonly pyres: { at: THREE.Vector3; until: number; squad: OutpostSquad | null }[] = Array.from({ length: 8 }, () => ({ at: new THREE.Vector3(), until: -1, squad: null }));
+  private pyreAt = 0;
+
+  /**
+   * Morale a second this man loses to the fire: comrades burning in front of him and their bodies in flames, his own squad's
+   * wherever they are and anyone's inside `WITNESS_RANGE`. Not his own fire: a burning man is past morale (`panic`).
+   */
+  watchingBurn(s: Soldier, now: number): number {
+    const r2 = WITNESS_RANGE * WITNESS_RANGE;
+    const at = s.e.position;
+    let alight = 0;
+    for (const o of this.alight) if (o !== s && (o.squad === s.squad || o.e.position.distanceToSquared(at) < r2)) alight++;
+    let pyres = 0;
+    for (const p of this.pyres) if (p.until > now && (p.squad === s.squad || p.at.distanceToSquared(at) < r2)) pyres++;
+    return burnFear(alight, pyres);
+  }
+
   private tickMorale(now: number): void {
     this.moraleAt = now + MORALE_TICK;
     const dread = this.dread.value;
+    this.alight.length = 0;
+    for (const s of this.soldiers) if (s.e.alive && s.e.burning > 0 && !s.e.def.fireproof) this.alight.push(s);
     for (let i = 0; i < this.soldiers.length; i++) {
       const s = this.soldiers[i]!;
       if (!s.fighting) continue;
       const e = s.e;
+      const fire = this.watchingBurn(s, now);
+      if (fire > 0) this.scare(s, fire * MORALE_TICK);
       if (e.pressure > 0.25) s.morale -= FEAR.underFire * e.pressure * MORALE_TICK * s.rankDef.fear;
       if (e.dist < MONSTER_RANGE && e.hasLos) this.scare(s, FEAR.monsterClose * MORALE_TICK * (1 + dread / 50));
       if (now - s.scaredAt > RECOVER_AFTER) {
@@ -1134,10 +1165,19 @@ export class Outpost {
     const { dread, w } = this;
     this.names.died(s);
     const severed = k.severedCount;
-    dread.onKill({ gibbed: k.gibbed, sliced: k.sliced, headshot: k.headshot, severed }, w.now);
+    // Burnt: he died on fire or of it. His body goes on burning where it fell, and frightening those who can see it.
+    const burned = k.damage.type === 'fire' || k.enemy.burning > 0;
+    dread.onKill({ gibbed: k.gibbed, sliced: k.sliced, headshot: k.headshot, severed, burned }, w.now);
     const brutal = k.gibbed || k.sliced || k.headshot || severed > 0;
     this.wounds.onDeath(s);
-    const fear = s.surrendered ? FEAR.execution : FEAR.allyDown + (brutal ? FEAR.brutal : 0);
+    if (burned && !k.gibbed) {
+      const pyre = this.pyres[this.pyreAt]!;
+      this.pyreAt = (this.pyreAt + 1) % this.pyres.length;
+      pyre.at.copy(k.enemy.position);
+      pyre.until = w.now + PYRE_SECONDS;
+      pyre.squad = s.squad;
+    }
+    const fear = s.surrendered ? FEAR.execution : FEAR.allyDown + (brutal ? FEAR.brutal : 0) + (burned ? FEAR.burnedAlive : 0);
     const r2 = WITNESS_RANGE * WITNESS_RANGE;
     for (const o of this.soldiers) {
       if (o.fighting && (o.squad === s.squad || o.e.position.distanceToSquared(k.enemy.position) < r2)) {

@@ -348,11 +348,17 @@ export function relocate(minDist: number, maxDist: number, afterShots: number): 
   };
 }
 
-/** On fire and not built for it: it forgets the fight and runs in circles, lighting up whatever it brushes past. */
+/** Whether fire takes the fight out of it: a man, and nothing built to burn or already dead (`EnemyDef.mindless`). */
+export const fearsFire = (e: Enemy): boolean => !e.def.fireproof && !e.def.mindless && !e.isBoss;
+
+/**
+ * A man on fire: he forgets the fight and runs in circles, lighting up whatever he brushes past. The dead do not (the
+ * owner, 2026-11-18: "zombies are not unnerved by fire and keep attacking"): a burning Husk comes on as it was.
+ */
 export function panic(): Behaviour {
   return {
     name: 'panic',
-    score: (e) => (e.burning > 0 && !e.def.fireproof && e.maim.legs === 2 ? 4 : 0),
+    score: (e) => (e.burning > 0 && fearsFire(e) && e.maim.legs === 2 ? 4 : 0),
     enter(e, w) {
       e.mode = 'point';
       e.face = 'move';

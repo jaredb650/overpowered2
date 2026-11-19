@@ -47,7 +47,26 @@ export const FEAR = {
    * Berserk alone takes an ordinary man to panicked, and it takes only a casualty or two to finish him.
    */
   spike: 1.25,
+  /**
+   * Per second, for each comrade he is watching burn (up to `BURN_WATCHED` of them). The fastest steady loss there is, more
+   * than rounds going past or the monster at arm's length (the owner, 2026-11-18: "burning chips away at morale faster"):
+   * one man alight for five seconds takes a steady man to shaken, two for four seconds take him to panic.
+   */
+  burning: 9,
+  /** Per second, for each comrade's body still in flames near him, for `PYRE_SECONDS` after the death. */
+  pyre: 4,
+  /** On top of `allyDown` when the man died burning or by fire. */
+  burnedAlive: 9,
 } as const;
+
+/** Burning men, and burning bodies, that count at once: past two he is not looking at any one of them. */
+export const BURN_WATCHED = 2;
+/** How long a burnt man's body goes on frightening those near it, about as long as its flames last (gore/fire.ts). */
+export const PYRE_SECONDS = 6;
+
+/** Morale lost per second by a man watching `alight` comrades burn and `pyres` of their bodies in flames. */
+export const burnFear = (alight: number, pyres: number): number =>
+  Math.min(alight, BURN_WATCHED) * FEAR.burning + Math.min(pyres, BURN_WATCHED) * FEAR.pyre;
 
 /** Metres. */
 export const WITNESS_RANGE = 14;
@@ -85,11 +104,13 @@ export interface KillBrutality {
   sliced: boolean;
   headshot: boolean;
   severed: number;
+  /** He died burning or by fire. */
+  burned?: boolean;
 }
 
 /** What a kill adds, before the spree multiplier. */
 export function killDread(k: KillBrutality): number {
-  return 2.5 + (k.gibbed ? 4 : 0) + (k.sliced ? 3 : 0) + (k.headshot ? 1.5 : 0) + Math.min(k.severed, 3) * 1.5;
+  return 2.5 + (k.gibbed ? 4 : 0) + (k.sliced ? 3 : 0) + (k.headshot ? 1.5 : 0) + Math.min(k.severed, 3) * 1.5 + (k.burned ? 3 : 0);
 }
 
 /** Spikes by perk and call-in id. Section 14.3 names Berserk and Hellfire as the two that make men run. */

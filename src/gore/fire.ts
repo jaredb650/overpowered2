@@ -15,6 +15,7 @@ import { CG, type CharacterInstance, type Ctx, type RayHit, type SeveredLimb } f
 import { clamp, rand } from '../core/math';
 import { DevFlags } from '../core/devflags';
 import type { RigDef } from '../characters/rig';
+import type { Rag } from './rag';
 import { CAP_STRIDE, MAX_BONES, rigInfo, type RigInfo } from './rigInfo';
 
 export const FireTuning = {
@@ -45,6 +46,18 @@ export const FireTuning = {
   sootFrom: 0.5,
   /** Seconds without being fed before a living body's fire is taken to be out. */
   hold: 0.2,
+  /**
+   * A burning corpse draws up as it chars: elbows and knees bend, the thighs come up, the back rounds (the heat shortens
+   * the muscles). `curl` is how far, 0..1; it happens over the first `curlBy` of the corpse's burning and is held `curlHold`
+   * of it more so the limbs arrive, by joint drives of `curlDrive`; the nearest `curls` burning corpses do it, the rest lie
+   * as they fell. Radians: elbow, knee, hip, spine.
+   */
+  curl: 1,
+  curlBy: 0.55,
+  curlDrive: 0.9,
+  curlHold: 0.2,
+  curls: 4,
+  curlPose: { elbow: 2, knee: 1.25, hip: 0.75, spine: 0.3 },
 };
 
 const enum Phase { Alive, Corpse, Smoulder }
@@ -89,6 +102,9 @@ class Fire {
   capCount = 0;
   /** Its share of a whole body of its rig, by skin, times the square of that body's size: 1 is a whole man. */
   amount = 1;
+  /** 0..1, how far the heat has drawn this corpse up, and whether it is one of the few still doing so. */
+  curl = 0;
+  curling = false;
 }
 
 const _p = new THREE.Vector3();
@@ -97,6 +113,7 @@ const _down = new THREE.Vector3(0, -1, 0);
 const _up = new THREE.Vector3(0, 1, 0);
 const _hit: RayHit = { point: new THREE.Vector3(), normal: new THREE.Vector3(), distance: 0, surface: 'concrete', collider: null };
 const LIGHT = 0xff7a30;
+const X_AXIS = new THREE.Vector3(1, 0, 0);
 
 /** The skin of a whole body of this rig, in the measure `FireField.measure` weighs capsules by. */
 const skins = new WeakMap<RigInfo, number>();
@@ -125,8 +142,51 @@ export class FireField {
 
   /**
    * @param isCorpse True while gore has this body as a corpse: dead, not being vaporized, not handed back.
+   * @param ragOf That corpse's ragdoll while it is still simulated, for the heat's curl.
    */
-  constructor(private readonly ctx: Ctx, private readonly isCorpse: (char: CharacterInstance) => boolean) {}
+  constructor(
+    private readonly ctx: Ctx,
+    private readonly isCorpse: (char: CharacterInstance) => boolean,
+    private readonly ragOf: (char: CharacterInstance) => Rag | null = () => null,
+  ) {}
+
+  /**
+   * The heat is still drawing this corpse up: gore keeps its ragdoll awake until it is done, and then freezes it as it
+   * lies, which is what holds the pose.
+   */
+  curling(char: CharacterInstance): boolean {
+    return this.by.get(char)?.curling === true;
+  }
+
+  /**
+   * Draws a burning corpse's limbs up by `f.curl`, through its own joint muscles: each named joint is given a flexed
+   * target and a share of drive. Flesh humanoids only: the names are the humanoid rig's, and anything else has none of them.
+   */
+  private drawUp(f: Fire): void {
+    const rag = f.body ? this.ragOf(f.body) : null;
+    if (!rag?.active) {
+      f.curling = false;
+      return;
+    }
+    const t = FireTuning;
+    const pose = t.curlPose;
+    const bones = f.info!.rig.bones;
+    const drive = f.curl * t.curlDrive;
+    for (const c of rag.parts) {
+      const m = c.muscle;
+      if (!c.parent || !m || m.broken) continue;
+      const name = bones[c.bone]!.name;
+      if (name.startsWith('foreArm')) m.pose.setFromAxisAngle(m.hingeAxis, clamp(-pose.elbow * f.curl, m.lo, m.hi));
+      else if (name.startsWith('shin')) m.pose.setFromAxisAngle(m.hingeAxis, clamp(pose.knee * f.curl, m.lo, m.hi));
+      else if (name.startsWith('thigh')) m.pose.setFromAxisAngle(X_AXIS, -pose.hip * f.curl);
+      else if (name === 'spine' || name === 'chest') m.pose.setFromAxisAngle(X_AXIS, pose.spine * f.curl);
+      else if (name.startsWith('upperArm') && m.hasRelax) m.pose.copy(m.relax);
+      else continue;
+      m.drive = Math.max(m.drive, drive);
+    }
+    // A body at rest is asleep, and a sleeping chain's muscles are not stepped.
+    for (const c of rag.parts) if (c.body.isSleeping()) c.body.wakeUp();
+  }
 
   /** A living body is alight this frame. Call it every frame it burns. */
   feed(char: CharacterInstance, fireproof = false): void {
@@ -238,6 +298,8 @@ export class FireField {
     f.smokeAcc = 0;
     f.nextLight = f.nextShimmer = f.nextGlow = 0;
     f.nextSpit = now + rand(0.1, 0.5);
+    f.curl = 0;
+    f.curling = false;
     f.scorched = false;
     f.scorchTries = 0;
     f.nextScorch = now + 0.7;
@@ -357,10 +419,14 @@ export class FireField {
           f.since = now;
           f.lasts = t.smoulder;
           f.heat = 0;
+          f.curling = false;
           if (!f.fireproof) source.setBurn?.(1);
         } else {
           f.heat = k < 1 - t.dieDown ? 1 : 1 - 0.8 * (k - (1 - t.dieDown)) / t.dieDown;
           if (!f.fireproof) source.setBurn?.(f.charFrom + (1 - f.charFrom) * k * (2 - k));
+          // The heat draws it up as it blackens. Flesh only: what is built to burn does not shrink in it.
+          const u = clamp(k / t.curlBy);
+          f.curl = f.body && !f.fireproof ? t.curl * u * u * (3 - 2 * u) : 0;
         }
       }
       if (f.phase === Phase.Smoulder) {
@@ -395,6 +461,10 @@ export class FireField {
       const rank = flaming ? nearer : t.max;
       f.near = rank < t.near;
       if (flaming) all += t.rate * f.heat * f.amount * (f.near ? 1 : t.farRate);
+      // The nearest few burning corpses draw up; one further off, or done, is left to lie and freeze as any body does.
+      const draws = f.phase === Phase.Corpse && f.curl > 0 && (now - f.since) / f.lasts < t.curlBy + t.curlHold && rank < t.curls && DevFlags.fire;
+      f.curling = draws;
+      if (draws) this.drawUp(f);
       if (flaming && rank < t.lights && now >= f.nextLight) {
         f.nextLight = now + rand(0.11, 0.2);
         const size = Math.sqrt(f.amount);

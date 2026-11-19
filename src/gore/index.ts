@@ -460,7 +460,7 @@ export class Gore implements GoreSystem {
     this.fire = new FireField(ctx, char => {
       const b = this.owned.get(char);
       return b !== undefined && !b.down && b.vapor < 0;
-    });
+    }, char => this.owned.get(char)?.rag ?? null);
   }
 
   alight(char: CharacterInstance, fireproof?: boolean): void {
@@ -1073,7 +1073,9 @@ export class Gore implements GoreSystem {
 
   /** Frozen mid-collapse, a body would stand there for good. Frozen alive, it would never get up. A staked one hangs. */
   private freezable(b: DeadBody, keep?: PinTarget): boolean {
-    return b !== keep && b.vapor < 0 && b.rag !== null && b.rag.active && b.stakes.length === 0 && !b.rag.muscle?.collapse && !b.down;
+    return b !== keep && b.vapor < 0 && b.rag !== null && b.rag.active && b.stakes.length === 0 && !b.rag.muscle?.collapse && !b.down
+      // The heat is still drawing a burning corpse up (fire.ts): frozen now, it would stop half way.
+      && !this.fire.curling(b.char);
   }
 
   /**
@@ -1657,10 +1659,13 @@ export class Gore implements GoreSystem {
       // Nothing out of this trunk starts under the floor it stood or lay on.
       const floor = this.floorUnder(hips);
       this.chunks.floor = floor;
+      // A burnt body breaks into burnt pieces.
+      this.chunks.char = DevFlags.fire ? clamp(char.burn ?? 0) : 0;
       const broke = this.breakTrunk(char, plan, chest, blastDir, launch, floor);
       this.spill(char, plan, chest, hips, blastDir, launch, floor);
       this.fleshBurst(chest, hips, blastDir, launch, push, broke ? (full ? 6 : 3) : 13);
       this.chunks.floor = -Infinity;
+      this.chunks.char = 0;
     }
 
     // Guts already out of him (a belly opened before this) are thrown clear with the rest, not taken with the body.
@@ -2515,7 +2520,7 @@ export class Gore implements GoreSystem {
         else if (rag.muscle?.reflex?.ready) this.handBack(b);
         continue;
       }
-      if (rag.calm > t.settleTime || rag.age > (b.stakes.length > 0 ? t.maxPinnedSimTime : t.maxSimTime)) this.freezeBody(b);
+      if ((rag.calm > t.settleTime || rag.age > (b.stakes.length > 0 ? t.maxPinnedSimTime : t.maxSimTime)) && !this.fire.curling(b.char)) this.freezeBody(b);
     }
     // Over the ragdoll budget, what was too fresh or too fast to freeze is looked at again now it has been measured. With
     // `?mass=0` the budget was only ever kept when something died or woke, as before.

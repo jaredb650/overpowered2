@@ -100,6 +100,11 @@ export interface EnemyDef {
   machine?: boolean;
   /** Takes no damage from burning. */
   fireproof?: boolean;
+  /**
+   * The dead (the Husk and its kin): fire does not unnerve it. Alight, it keeps coming and keeps attacking, where a man
+   * forgets the fight and runs in circles (`panic`). It still burns and takes the damage.
+   */
+  mindless?: boolean;
   /** Keeps hit-stop style death spectacle and a health bar. */
   boss?: (e: Enemy, w: AiWorld) => BossController;
   /** Forearm and shin hits count toward the whole limb. */
@@ -129,7 +134,7 @@ export const offhandPistol = (damage: number): AttackDef => gun({
 });
 
 const husk: EnemyDef = {
-  id: 'husk', name: 'Husk', hp: 50, speed: 4, accel: 3.5, turn: 3.5, radius: 0.42, eyeHeight: 1.6, chest: 1.2, score: 100,
+  id: 'husk', mindless: true, name: 'Husk', hp: 50, speed: 4, accel: 3.5, turn: 3.5, radius: 0.42, eyeHeight: 1.6, chest: 1.2, score: 100,
   poise: 0.5, limbFrac: 0.5, headPool: 50, headPoolFixed: true, ranged: false, sidearm: false, crawlPace: 0.6,
   muzzleBone: B.handR, muzzleForward: 0,
   voice: { bark: 'vox_husk_growl', attack: 'vox_husk_snarl', pain: 'vox_pain', die: 'vox_dying_zombie', pitch: 1 }, mass: 0,
@@ -200,7 +205,7 @@ const brute: EnemyDef = {
 };
 
 const stalker: EnemyDef = {
-  id: 'stalker', name: 'Stalker', hp: 120, speed: 11, accel: 12, turn: 12, radius: 0.42, eyeHeight: 1.72, chest: 1.3, score: 200,
+  id: 'stalker', mindless: true, name: 'Stalker', hp: 120, speed: 11, accel: 12, turn: 12, radius: 0.42, eyeHeight: 1.72, chest: 1.3, score: 200,
   poise: 0.6, limbFrac: 0.5, headPool: 0.85, ranged: false, sidearm: false, crawlPace: 0.45,
   muzzleBone: B.handR, muzzleForward: 0,
   voice: { bark: 'vox_stalker_hiss', attack: 'vox_stalker_hiss', pain: 'vox_pain', die: 'vox_dying_zombie', pitch: 1.1 }, mass: 0,
@@ -256,7 +261,7 @@ const riot: EnemyDef = {
 };
 
 const leaper: EnemyDef = {
-  id: 'leaper', name: 'Leaper', hp: 80, speed: 6.5, accel: 5, turn: 5, radius: 0.4, eyeHeight: 1.5, chest: 1.1, score: 150,
+  id: 'leaper', mindless: true, name: 'Leaper', hp: 80, speed: 6.5, accel: 5, turn: 5, radius: 0.4, eyeHeight: 1.5, chest: 1.1, score: 150,
   poise: 0.55, limbFrac: 0.5, headPool: 0.85, ranged: false, sidearm: false, crawlPace: 0.5,
   muzzleBone: B.handR, muzzleForward: 0,
   voice: { bark: 'vox_leaper_shriek', attack: 'vox_leaper_shriek', pain: 'vox_pain', die: 'vox_dying_zombie', pitch: 1.15 }, mass: 0,
@@ -270,7 +275,7 @@ const leaper: EnemyDef = {
 };
 
 const bomber: EnemyDef = {
-  id: 'bomber', name: 'Bomber', hp: 45, speed: 7, accel: 4.5, turn: 4, radius: 0.46, eyeHeight: 1.6, chest: 1.2, score: 100,
+  id: 'bomber', mindless: true, name: 'Bomber', hp: 45, speed: 7, accel: 4.5, turn: 4, radius: 0.46, eyeHeight: 1.6, chest: 1.2, score: 100,
   poise: 0.9, limbFrac: 0.6, headPool: 45, headPoolFixed: true, ranged: false, sidearm: false, crawlPace: 0.5,
   muzzleBone: B.chest, muzzleForward: 0,
   voice: { bark: 'vox_bomber_cackle', attack: 'vox_bomber_cackle', pain: 'vox_pain', die: 'vox_dying_zombie', pitch: 1 }, mass: 0,
@@ -346,7 +351,7 @@ const drone: EnemyDef = {
 };
 
 const juggernaut: EnemyDef = {
-  id: 'juggernaut', name: 'Juggernaut', hp: 2600, speed: 4.4, accel: 3, turn: 2.6, radius: 1.15, eyeHeight: 2.9, chest: 2.1, score: 2000,
+  id: 'juggernaut', mindless: true, name: 'Juggernaut', hp: 2600, speed: 4.4, accel: 3, turn: 2.6, radius: 1.15, eyeHeight: 2.9, chest: 2.1, score: 2000,
   poise: 0.22, limbFrac: 0.2, headPool: Infinity, ranged: false, sidearm: false, crawlPace: 0.45,
   muzzleBone: B.chest, muzzleForward: 0.6, wholeLimbs: true,
   voice: { bark: 'vox_juggernaut_roar', attack: 'vox_juggernaut_roar', pain: 'vox_pain', die: 'vox_dying_zombie', pitch: 0.85 },

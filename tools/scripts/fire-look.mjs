@@ -15,6 +15,7 @@
 //              tendead ten men killed by fire at once: ten corpses burning
 //              tencold the same ten men, not on fire (the bench's baseline)
 //              blast   a rocket's burn outcome
+//              burntgib a man burnt black on his feet, then blown apart by a rocket: his pieces
 //   FIRE_DIST  metres from the eye (default 5)
 //   FIRE_TYPE  archetype (default trooper; husk for `zombie`)
 //   FIRE_SIDE  1: the camera stands off to the side instead of at the player's eye
@@ -81,7 +82,12 @@ export default async function fireLook(page, h) {
       const e = place(TYPE, at, ai);
       made.push(e);
       if (!e) return { error: 'no body' };
-      if (CASE === 'slow' || CASE === 'zombie' || CASE === 'panic' || CASE === 'limb') ctx.enemies.afflict(e, 'burn', CASE === 'zombie' ? 60 : 8);
+      if (CASE === 'slow' || CASE === 'zombie' || CASE === 'panic' || CASE === 'limb' || CASE === 'burntgib') ctx.enemies.afflict(e, 'burn', CASE === 'zombie' ? 60 : 8);
+      if (CASE === 'burntgib') {
+        // Burnt black on his feet, then a rocket at his feet: what comes off him is burnt too.
+        e.health = e.maxHealth = 1e5;
+        e.charred = 1;
+      }
       if (CASE === 'zombie') e.health = e.maxHealth = 1e5;
       if (CASE === 'blast') {
         const c = e.char.bones[2].getWorldPosition(new V());
@@ -117,6 +123,13 @@ export default async function fireLook(page, h) {
           ctx.enemies.afflict(e, 'burn', 4);
         }
         if (!e.alive) state.deadAt = t;
+      }
+      if (CASE === 'burntgib' && !cut && t > 0.8) {
+        cut = true;
+        e.health = 1;
+        const V = ctx.player.position.constructor;
+        const c = e.char.bones[2].getWorldPosition(new V());
+        ctx.combat.explode(c.clone().setY(0.2), { radius: 5, damage: 400, kind: 'rocket', source: 'rocket', team: 'player' });
       }
       if (CASE === 'limb' && !cut && t > 1.2) {
         cut = true;

@@ -13,6 +13,8 @@ import { DevFlags } from '../core/devflags';
 import type { EnemyId } from '../core/gameplay';
 import { makeCtx } from '../sandbox/harness';
 import { EnemyManager } from './EnemyManager';
+import { fearsFire, panic } from './behaviours';
+import { BURN_WATCHED, burnFear, FEAR, killDread, moraleState } from './outpost/morale';
 
 type Burnt = CharacterInstance & { burn: number };
 
@@ -142,5 +144,46 @@ describe('fire chars by the damage it does', () => {
     expect((e.char as Burnt).burn).toBe(0);
     while (e.alive) manager.applyDamage(e, bite());
     expect(gore.burnOn).not.toHaveBeenCalled();
+  });
+});
+
+describe('fire and nerve (F3)', () => {
+  it('a burning man forgets the fight; the dead and what is built to burn do not', () => {
+    const { manager, spawn } = world();
+    const score = (id: EnemyId) => {
+      const e = spawn(id);
+      manager.afflict(e, 'burn', 4);
+      return { fears: fearsFire(e), panic: panic().score(e, undefined as never) };
+    };
+    for (const id of ['trooper', 'gunner', 'brute', 'rocketeer', 'sniper', 'riot', 'warden'] as EnemyId[]) {
+      expect(score(id), id).toEqual({ fears: true, panic: 4 });
+    }
+    // The owner, 2026-11-18: "zombies are not unnerved by fire and keep attacking".
+    for (const id of ['husk', 'stalker', 'leaper', 'bomber', 'juggernaut', 'burner'] as EnemyId[]) {
+      expect(score(id), id).toEqual({ fears: false, panic: 0 });
+    }
+  });
+
+  it('a man who is not on fire does not panic', () => {
+    const { spawn } = world();
+    expect(panic().score(spawn('trooper'), undefined as never)).toBe(0);
+  });
+
+  it('watching a comrade burn costs nerve faster than any other steady loss', () => {
+    expect(FEAR.burning).toBeGreaterThan(FEAR.underFire);
+    expect(FEAR.burning).toBeGreaterThan(FEAR.monsterClose);
+    expect(burnFear(0, 0)).toBe(0);
+    expect(burnFear(1, 0)).toBe(FEAR.burning);
+    // No more than two of each count: past that he is not watching any one of them.
+    expect(burnFear(5, 5)).toBe(BURN_WATCHED * (FEAR.burning + FEAR.pyre));
+    // One man alight for four seconds takes a steady man (100) to shaken, two take him to panic.
+    expect(moraleState(100 - burnFear(1, 0) * 4.5, 0)).toBe('shaken');
+    expect(moraleState(100 - burnFear(2, 0) * 4, 0)).toBe('panicked');
+  });
+
+  it('a man burnt to death is an uglier death, for Dread and for those near him', () => {
+    const plain = { gibbed: false, sliced: false, headshot: false, severed: 0 };
+    expect(killDread({ ...plain, burned: true })).toBeGreaterThan(killDread(plain));
+    expect(FEAR.burnedAlive).toBeGreaterThan(0);
   });
 });

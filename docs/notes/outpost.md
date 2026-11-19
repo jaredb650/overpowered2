@@ -140,6 +140,17 @@ A machine gun fires 34-round bursts and swings at 1.15 rad/s, so it walks across
 
 **Flashbang.** White for over half of about 5 s, the HUD fades out with it (`hud.dazzle`), `ear_ring` plays and the music drops. Only a wall stops it. Facing away still costs 42%. Men within 5 m are dazed too, and being blinded gives the squads an opening.
 
+## Fire
+
+Watching a comrade burn is the fastest steady loss of nerve there is (`morale.ts`, the owner, 2026-11-18: "burning chips away
+at morale faster"). Every morale tick (0.25 s) each fighting man loses `burnFear(alight, pyres)` a second: 9 for each comrade
+alight (`FEAR.burning`; rounds going past are 5, the monster at arm's length 7) and 4 for each burnt comrade's body still in
+flames (`FEAR.pyre`, for `PYRE_SECONDS` = 6 after the death), no more than two of each counted (`BURN_WATCHED`). His own
+squad's count wherever they are, anyone else's inside `WITNESS_RANGE` (14 m); his own fire does not (he is already running in
+circles). One man alight for five seconds takes a steady man (100) to shaken, two for four seconds take him to panicked. A man
+who dies burning or by fire costs those near him `FEAR.burnedAlive` (9) on top of the usual 10, and adds 3 to that kill's
+Dread. `Outpost.watchingBurn`, called from `tickMorale`. Host only, like all morale.
+
 ## Rank
 
 A squad has a grade from `rollGrade(level)`, its leader sits a step above, and belts and long rifles are never conscripts. It shows as `Pvt`, `Cpl`, `Sgt`, `Lt` on the feed. An elite wears a visor. `RANKS` sets aim, lead, sight, fear, toughness, what pins him, how long his gun stays up, surrender, rearming, talking, cook time and how long he holds fire on a hostage.

@@ -15,6 +15,7 @@ import { PlayerSense, type AiWorld } from './aiWorld';
 import { PlateDebris, plateGeometry, plateMaterial, type Plate, type PlateSpec } from './armor';
 import { shout } from './attacks';
 import { finishAttack, thinkAttacks, thinkBehaviours, tickAttack, type Behaviour } from './brain';
+import { fearsFire } from './behaviours';
 import { updateContact } from './contact';
 import { archetypeById } from '../characters/archetypes';
 import { ENEMIES, LIMB_SIZE, waveScale, type Footfall } from './data';
@@ -545,8 +546,8 @@ export class EnemyManager implements EnemySystem {
         e.thinkAt = w.now + THINK_INTERVAL[e.lod]! * rand(0.85, 1.15);
         this.thinkRoute(e);
         thinkBehaviours(e, w);
-        // Panic takes the hands too, but the ones built to burn keep fighting.
-        if (player.alive && (e.burning <= 0 || e.def.fireproof || e.isBoss)) thinkAttacks(e, w);
+        // Panic takes the hands too, but the ones built to burn, and the dead, keep fighting.
+        if (player.alive && (e.burning <= 0 || !fearsFire(e))) thinkAttacks(e, w);
         this.bark(e);
       }
       e.behaviour?.frame?.(e, w, dt);

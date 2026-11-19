@@ -255,6 +255,7 @@ function shard(seed: number): THREE.BufferGeometry {
   return g;
 }
 
+const _tint = new THREE.Color();
 const _m = new THREE.Matrix4();
 const _s = new THREE.Vector3();
 const _hide = new THREE.Matrix4().makeScale(0, 0, 0);
@@ -283,6 +284,11 @@ export class ChunkField {
    * organs and ribs under the floor, and pieces started inside the floor are pushed out through it as often as up.
    */
   floor = -Infinity;
+  /**
+   * How burnt the body is that the pieces spawned next come from, 0..1 (Gore.gib sets it round a gib and clears it): each
+   * is tinted toward char by that much, by its instance colour. A burnt man's pieces are dark, not fresh red.
+   */
+  char = 0;
 
   constructor(private readonly ctx: Ctx, private readonly blood: BloodField, private readonly impacts: ImpactEvents, private readonly trail: GibTrail | null = null) {}
 
@@ -345,6 +351,8 @@ export class ChunkField {
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     for (let i = 0; i < cap; i++) mesh.setMatrixAt(i, _hide);
+    // Every kind has a colour per piece from the start, all white: one program for burnt and unburnt alike.
+    mesh.setColorAt(0, _tint.setRGB(1, 1, 1));
     this.ctx.render.scene.add(mesh);
     this.meshes.set(kind, mesh);
     this.ring.set(kind, 0);
@@ -444,6 +452,11 @@ export class ChunkField {
     // An organ whose slot is wanted does not just go: it bursts where it lies.
     if (c.alive && ORGAN_SET.has(kind) && c.restedAt >= 0) this.burst(c, _up);
     else if (c.alive) this.retire(c);
+    // Burnt (`char`): toward black, unevenly, so a heap of them is not one flat colour.
+    const tinted = this.meshes.get(kind)!;
+    const k = this.char * (0.82 + Math.random() * 0.18);
+    tinted.setColorAt(c.slot, _tint.setRGB(1 - k * 0.94, 1 - k * 0.95, 1 - k * 0.95));
+    tinted.instanceColor!.needsUpdate = true;
 
     if (this.live.length >= ChunkTuning.maxBodies) this.dropBody(this.live[0]!);
 

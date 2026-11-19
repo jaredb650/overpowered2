@@ -165,8 +165,10 @@ describe('a corpse', () => {
     gore.gib(c, new THREE.Vector3(0, 1, 0.5), 300);
     seen.licks = 0;
     run(0.5);
-    expect(gore.fire.stats().alight).toBeLessThanOrEqual(5);
-    // Only what the gib threw off as limbs may still burn: nothing where the body stood.
+    // Only what the gib threw off as limbs may still burn (a head, and each arm and leg whole or in two): nothing where
+    // the body stood.
+    expect(gore.fire.stats().alight).toBeLessThanOrEqual(9);
+    expect(gore.fire.stats().alight).toBe(gore.stats().limbs);
     expect(c.root.parent).toBe(null);
   });
 });
@@ -202,5 +204,64 @@ describe('the caps', () => {
     run(1, crowd);
     expect(seen.licks).toBeLessThan(FireTuning.budget * 1.1);
     expect(seen.licks).toBeGreaterThan(FireTuning.budget * 0.6);
+  });
+});
+
+describe('fire meets the rest of gore (F3)', () => {
+  /** The bend at a joint: the angle between a bone and its parent. */
+  const bend = (c: TestDummy, bone: number, parent: number) => {
+    const a = new THREE.Quaternion(), b = new THREE.Quaternion();
+    c.bones[parent]!.getWorldQuaternion(a);
+    c.bones[bone]!.getWorldQuaternion(b);
+    return a.angleTo(b);
+  };
+
+  it('a burning corpse draws its arms and legs up as it chars, and holds it', () => {
+    const c = spawn(0, 0);
+    c.setBurn(0.85);
+    gore.burnOn(c);
+    gore.ragdoll(c);
+    run(FireTuning.corpseBurn[1] + 1.5);
+    // Elbows closed toward the pose's 2 rad and knees toward its 1.25. A limb pinned under the body cannot get there, so
+    // three of the four are asked for, whatever way it fell.
+    const { elbow, knee } = FireTuning.curlPose;
+    const drawn = [bend(c, 6, 5) / elbow, bend(c, 9, 8) / elbow, bend(c, 12, 11) / knee, bend(c, 15, 14) / knee];
+    expect(drawn.filter(share => share > 0.6 && share < 1.3).length, drawn.map(v => v.toFixed(2)).join(' ')).toBeGreaterThanOrEqual(3);
+    // It has finished and been left to lie: nothing simulated, and the pose is the one it froze in.
+    expect(gore.fire.curling(c)).toBe(false);
+    expect(gore.stats().ragdolls).toBe(0);
+    const held = bend(c, 6, 5);
+    run(3);
+    expect(bend(c, 6, 5)).toBeCloseTo(held, 5);
+  });
+
+  it('only the nearest few draw up at once', () => {
+    const crowd = Array.from({ length: FireTuning.curls + 4 }, (_, i) => spawn(i * 1.6 - 6, -3 - i));
+    for (const c of crowd) {
+      c.setBurn(0.85);
+      gore.burnOn(c);
+      gore.ragdoll(c);
+    }
+    run(1.5);
+    expect(crowd.filter(c => gore.fire.curling(c)).length).toBe(FireTuning.curls);
+  });
+
+  it('the pieces of a burnt body are dark, and of an unburnt one are not', () => {
+    const tintOf = (kind: string, slot: number) => {
+      const mesh = (gore.chunks as unknown as { meshes: Map<string, THREE.InstancedMesh> }).meshes.get(kind)!;
+      return mesh.instanceColor!.getX(slot);
+    };
+    const slots = () => (gore.chunks as unknown as { all: { kind: string; slot: number; alive: boolean }[] }).all.filter(c => c.alive);
+    const c = spawn();
+    c.setBurn(1);
+    gore.burnOn(c);
+    gore.gib(c, new THREE.Vector3(0, 1, 0.5), 300);
+    const burntPieces = slots();
+    expect(burntPieces.length).toBeGreaterThan(4);
+    for (const p of burntPieces) expect(tintOf(p.kind, p.slot)).toBeLessThan(0.3);
+    gore.clear();
+    const fresh = spawn();
+    gore.gib(fresh, new THREE.Vector3(0, 1, 0.5), 300);
+    for (const p of slots()) expect(tintOf(p.kind, p.slot)).toBe(1);
   });
 });
