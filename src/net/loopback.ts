@@ -10,11 +10,11 @@
  *
  * What it copies from the real one: a peer id per page (the same in a lobby's two rooms), objects travelling as JSON and
  * bytes arriving as a Uint8Array, a wrong password telling only the peer already in the room (the guest hears through
- * the door, as for real), a fifth peer refused as full, and a peer whose page closes or navigates leaving at once (a Web
+ * the door, as for real), a peer past the transport's cap (twelve, lobby.ts) refused as full, and a peer whose page closes or navigates leaving at once (a Web
  * Lock the others wait on). What it does not: it never loses, delays or reorders anything. The simulator in the lane layer
  * does that, for both transports.
  */
-import { MAX_PLAYERS } from './lobby';
+import { TRANSPORT_MAX_USERS } from './lobby';
 import { LaneRoom, type Wire } from './lanes';
 import { pageSim } from './netsim';
 export { loopbackOn } from './mode';
@@ -102,7 +102,8 @@ export function loopWire(roomId: string, password: string, options: LoopOptions 
       // Wrong password: only this side, already in the room, is told. The newcomer waits in silence (see the door).
       if (message.key !== password) return fail('password', message.from);
       if (peers.has(message.from)) return;
-      if (peers.size >= MAX_PLAYERS - 1) return bus.post({ t: 'full', from: self, to: message.from } satisfies Message);
+      // The transport's cap, not the game's four: around a match start every player has two pages in the room (lobby.ts).
+      if (peers.size >= TRANSPORT_MAX_USERS - 1) return bus.post({ t: 'full', from: self, to: message.from } satisfies Message);
       bus.post({ t: 'hey', from: self, to: message.from } satisfies Message);
       join(message.from);
     } else if (message.t === 'hey' && message.to === self) join(message.from);

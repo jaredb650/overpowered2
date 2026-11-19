@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { Lobby, inviteLink } from './lobby';
+import { Lobby, TRANSPORT_MAX_USERS, inviteLink } from './lobby';
 import { LaneRoom } from './lanes';
 import { loopWire, type Bus, type BusFactory } from './loopback';
 import { carryNet, loopbackOn } from './mode';
@@ -129,13 +129,22 @@ describe('loopback transport', () => {
     expect(got).toEqual([]);
   });
 
-  it('refuses a fifth peer as full', async () => {
+  it('takes both pages of four players at once, and refuses a peer past the transport cap as full', async () => {
+    // Around a match start every player has a lobby page and a map page in the room: eight peers for four players. The
+    // game's own four is the lobby's to enforce (lobby.ts `admit`); the transport's cap is well above it.
     const hub = new Hub();
-    for (const id of ['a', 'b', 'c', 'd']) { wire(hub, 'ROOM', 'pw', id); await settle(hub); }
-    const fifth = wire(hub, 'ROOM', 'pw', 'e');
+    const eighth: string[] = [];
+    for (let i = 0; i < TRANSPORT_MAX_USERS; i++) {
+      const w = wire(hub, 'ROOM', 'pw', `p${i}`);
+      if (i === 7) w.onPeerJoin(id => eighth.push(id));
+      await settle(hub);
+    }
+    // The eighth page met the seven before it and the four after: nobody was refused below the cap.
+    expect(eighth).toHaveLength(TRANSPORT_MAX_USERS - 1);
+    const over = wire(hub, 'ROOM', 'pw', 'over');
     const errors: NetError[] = [];
     const joined: string[] = [];
-    fifth.onError(e => errors.push(e)); fifth.onPeerJoin(id => joined.push(id));
+    over.onError(e => errors.push(e)); over.onPeerJoin(id => joined.push(id));
     await settle(hub);
     expect(errors).toEqual(['full']);
     expect(joined).toEqual([]);

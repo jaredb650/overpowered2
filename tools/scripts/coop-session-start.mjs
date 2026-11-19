@@ -1,4 +1,4 @@
-// Session proof: the load barrier and the deploy gate, three players, one of them slow to load.
+// Session proof: the load barrier and the deploy gate, three players (COOP_PLAYERS=4 for four), one of them slow to load.
 //
 // The host and the fast guest stop at "Click to deploy" and click for real. Nobody lands in the pause menu. The host's world
 // is held (no wave, no enemies) and every screen says who it is waiting for, by name, while the slow guest's map page has
@@ -11,46 +11,49 @@ export default async (host, { sleep, outDir }) => {
   const { out, run, check, progress, shot } = proof('coop-session-start', outDir, sleep);
   let party = null;
   return run(async () => {
-    party = await startParty(host, { mode: process.env.COOP_MODE ?? 'crucible', players: 3, net: SIM, out, progress, sleep, startNow: false });
-    const [fast, slow] = party.guests;
+    const count = Number(process.env.COOP_PLAYERS ?? 3);
+    party = await startParty(host, { mode: process.env.COOP_MODE ?? 'crucible', players: count, net: SIM, out, progress, sleep, startNow: false });
+    const slow = party.guests.at(-1), quick = party.guests.slice(0, -1), fast = quick[0];
+    const SLOW = ['', '', 'GUEST-TWO', 'GUEST-THREE', 'GUEST-FOUR'][count];
+    const waitingFor = new RegExp(`Waiting for ${SLOW}`);
     const lobby = await snap(host);
-    check(lobby.players.length === 3, 'three players in the lobby', lobby.players);
+    check(lobby.players.length === count, `${count} players in the lobby`, lobby.players);
     const lobbySeats = seats(lobby);
     // The third player's map page is held back 25 s: a slow connection.
     const release = await slowBoot(slow, 25000);
     await pressStart(host, party.mode.label);
     progress('started; the slow guest is held back');
 
-    await atGate(host); await atGate(fast);
+    await atGate(host); for (const page of quick) await atGate(page);
     const gate = await snap(host);
     check(gate.state === 'menu' && !gate.begun && gate.wave === 0 && gate.enemies === 0, 'at the gate nothing has started on the host', gate);
-    check(/GUEST-THREE/.test(gate.gateText) && /loading/.test(gate.gateText), 'the gate lists the slow guest as loading', gate.gateText);
+    check(gate.gateText.includes(SLOW) && /loading/.test(gate.gateText), 'the gate lists the slow guest as loading', gate.gateText);
     await shot(host, 'gate-host', true);
 
     const clicked = Date.now();
-    await clickDeploy(host); await clickDeploy(fast);
-    progress('host and fast guest clicked Deploy');
+    await clickDeploy(host); for (const page of quick) await clickDeploy(page);
+    progress('host and the fast guests clicked Deploy');
     // Ten seconds on: both are playing (walking the map), neither in the pause menu, and the world is still held.
     let worst = { pause: false };
     while (Date.now() - clicked < 10000) {
-      for (const page of [host, fast]) { const s = await snap(page); if (s.pause || s.state !== 'playing') worst = s; }
+      for (const page of [host, ...quick]) { const s = await snap(page); if (s.pause || s.state !== 'playing') worst = s; }
       await sleep(400);
     }
     check(!worst.pause, 'nobody is in the pause menu in the first ten seconds after their deploy click', worst);
     const held = await snap(host), heldGuest = await snap(fast);
     check(held.holding && !held.live && held.wave === 0 && held.enemies === 0 && !held.waveRunning, 'the host holds its world: no wave, no enemies', held);
-    check(/Waiting for GUEST-THREE/.test(held.line) && /Waiting for GUEST-THREE/.test(heldGuest.line), 'both screens say "Waiting for GUEST-THREE"', [held.line, heldGuest.line]);
-    check(heldGuest.enemies === 0 && heldGuest.bodies >= 1, 'the fast guest is in the map with the host\'s body, and no enemies', heldGuest);
+    check(waitingFor.test(held.line) && waitingFor.test(heldGuest.line), `both screens say "Waiting for ${SLOW}"`, [held.line, heldGuest.line]);
+    check(heldGuest.enemies === 0 && heldGuest.bodies === count - 2, 'the fast guest is in the map with the bodies of everyone who is in, and no enemies', heldGuest);
     check(held.time > 3, 'the host\'s clock runs meanwhile (the player can move)', held.time);
     await shot(host, 'waiting-host'); await shot(fast, 'waiting-guest');
 
     await release();
     progress('slow guest released');
     await clickDeploy(slow);
-    const live = await until(host, s => s.live && s.waveRunning, 'the host\'s world live once all three are in', 30000);
+    const live = await until(host, s => s.live && s.waveRunning, 'the host\'s world live once everyone is in', 30000);
     check(!/Waiting/.test(live.line), 'the waiting line is gone', live.line);
     for (const page of party.pages) {
-      const s = await until(page, x => x.live && x.bodies === 2, 'live with both other bodies drawn', 60000);
+      const s = await until(page, x => x.live && x.bodies === count - 1, 'live with every other body drawn', 60000);
       check(JSON.stringify(seats(s)) === JSON.stringify(lobbySeats), `slot and seat are the lobby's on ${s.players.find(p => p.me).name}`, [seats(s), lobbySeats]);
       check(s.players.every(p => !p.state && !p.away), 'everyone is listed as in', s.players);
       check(!s.chat.some(t => /joined|left|lost connection|is back/.test(t)), 'no join or leave lines for the players who started the match', s.chat);

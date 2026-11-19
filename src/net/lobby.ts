@@ -128,6 +128,13 @@ type Msg =
 type DoorMsg = { t: 'wrong' } | { t: 'host' };
 
 export const MAX_PLAYERS = 4;
+/**
+ * The transport's own cap on a room (trystero's `maxUsers`, and the loopback's), kept well above the game's four. Its count
+ * is not the lobby's: it includes a player whose tab died until the transport notices, and both pages of everyone during a
+ * match start (eight pages for four players), so at four it turned away a friend coming straight back, or a new map page,
+ * for good ("lobby full" while their own ghost held the place). The lobby's own check is the only cap (`admit`).
+ */
+export const TRANSPORT_MAX_USERS = MAX_PLAYERS * 3;
 export const NAME_MAX = 16;
 export const CHAT_MAX = 160;
 const CHAT_KEEP = 40;

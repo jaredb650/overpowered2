@@ -17,7 +17,7 @@ import { report } from '../core/report';
  * (`?net=loop`, tests only; loopback.ts).
  */
 import { getRelaySockets, joinRoom, type Room } from 'trystero';
-import { MAX_PLAYERS } from './lobby';
+import { TRANSPORT_MAX_USERS } from './lobby';
 import type { LobbyRooms, NetError, NetRoom } from './room';
 import { fetchTurn, type IceServer } from './turn';
 import { addCandidate, noKinds, type IceKinds, type IceReport } from './ice';
@@ -29,12 +29,6 @@ import { publishNet, watchNet } from './debug';
 
 export const APP_ID = 'overpowered-2-coop';
 export const RELAY_REDUNDANCY = 8;
-/**
- * trystero's own cap on a room, kept well above the game's four. Its count is not the lobby's: it includes a player whose
- * tab died until WebRTC notices, and both pages of everyone during a match start, so at four it turned away a friend
- * coming straight back ("lobby full" while their own ghost held the seat). The lobby's own check is the only cap (lobby.ts `admit`).
- */
-export const TRANSPORT_MAX_USERS = MAX_PLAYERS * 2;
 
 /** The lobby behind `password`, and its door behind the code (room.ts). Fetches TURN first (at most TURN_TIMEOUT_MS). */
 export async function openLobby(code: string, password: string): Promise<LobbyRooms> {

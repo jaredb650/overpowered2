@@ -527,8 +527,9 @@ that missed an `end` while loading still learns its match is over.
 A guest's page always reconciles with the host's list: if the list has it as loading or lost while it is in the world, it says
 `loaded` again (once a second). So a lost message or a host that gave the seat up too early heals itself.
 
-A full lobby never turns a live player away for a ghost: a fifth hello evicts the seat lost longest. trystero's own cap is 8
-(`TRANSPORT_MAX_USERS`), so only the lobby's own check says "full".
+A full lobby never turns a live player away for a ghost: a fifth hello evicts the seat lost longest. The transport's own cap
+(`TRANSPORT_MAX_USERS` = 12, trystero's `maxUsers` and the loopback's alike) is far above four, because around a match start
+every player has two pages in the room: only the lobby's own check says "full".
 
 ### Reloads
 
@@ -605,7 +606,7 @@ Each asserts on every page and runs on the loopback transport; `COOP_SIM='lag:12
 
 | Script | What it proves |
 |---|---|
-| `coop-session-start` | 3 players, one held back 25 s: real clicks on the gate, nobody in the pause menu, the host's world held with "Waiting for GUEST-THREE" on both screens, slots are the lobby's, no join/leave lines, wave 1 only when all are in |
+| `coop-session-start` | 3 players (`COOP_PLAYERS=4` for four; both run), one held back 25 s: real clicks on the gate, nobody in the pause menu, the host's world held with "Waiting for GUEST-THREE" on both screens, slots are the lobby's, no join/leave lines, wave 1 only when all are in |
 | `coop-session-noshow` | A guest that never arrives: the countdown, the host starting alone after 90 s and naming them, the guest joining the running wave later, announced once |
 | `coop-session-blip` | The link silent for 8 s (the guest shows "Reconnecting to host…", nobody dropped, credits and gun unchanged), then the guest's page frozen 22 s (still in the match, never "left"), then the "in a menu" tag |
 | `coop-session-reload` | A guest reloads mid-wave and is back in its seat, never playing without a session; the host reloads and all three are in a new match with their seats |
@@ -620,7 +621,9 @@ Each asserts on every page and runs on the loopback transport; `COOP_SIM='lag:12
 Results, 2026-11-18. Clean network, loopback: all nine pass. `lag:120,jitter:40,loss:0.05`, loopback: all nine pass (that run
 found one bug, fixed: a goodbye cut off by the room closing behind it, so a Leave read as "lost connection"). Real WebRTC
 (three browser profiles, the public relays): `start`, `hostquit` and `drop` pass; regrouped 42 s after the host's tab closed
-(41 s on loopback), and after a cut connection the host noticed in 0.06 s and the guest was back in the world in 1.3 s. The
+(41 s on loopback), and after a cut connection the host noticed in 0.06 s and the guest was back in the world in 1.3 s. A
+later run of `three` failed once on the loopback's own four-page cap (a new map page refused while old pages were still in the
+room, finding S8): both transports now share the raised cap. The
 other six were not run over real WebRTC. Evidence JSON and screenshots: `tools/out/coop/session/` (not kept in the repo).
 Screenshots of guest pages on loopback show stale tiles in the lower third (the kit's popup windows are shorter than their
 viewport); the host's are clean.
@@ -633,7 +636,7 @@ Unit tests: `src/net/session.test.ts` (8: the gate, the hold, real reasons, the 
   kept its kit, and cards and snapshots heal state, but a wave banner or pod call sent while it was away is not replayed).
 - A rejoin after a reload on the lobby page, and a host page reload after its guests have already regrouped (two hosts on one
   code; they do not merge).
-- The one-tab takeover warning (below) is not proven in a browser: the loopback proofs switch the one-tab rule off.
+- The one-tab takeover warning (above) is not proven in a browser: the loopback proofs switch the one-tab rule off.
 
 ## Gore on every screen
 
@@ -1171,7 +1174,7 @@ checks); they have not been run on WebRTC since.
 
 - **trystero 0.27.0, pinned**, with its default strategy, Nostr: peers meet through public Nostr relays, then talk browser to browser
   over WebRTC. `appId` is `overpowered-2-coop`, the room id is the code, and `identity: 'none'` stores nothing and makes each tab its own
-  player. trystero's own `maxUsers` is 8, so the lobby's check is the only cap of four. **Relays:** 8 of trystero's 30 public relays (`RELAY_REDUNDANCY`); trystero picks the same 8 for everyone from
+  player. trystero's own `maxUsers` is 12, so the lobby's check is the only cap of four. **Relays:** 8 of trystero's 30 public relays (`RELAY_REDUNDANCY`); trystero picks the same 8 for everyone from
   the app id, so all players share them, and one answering is enough. If none answers, the lobby stops with a plain "could not reach any of
   the matchmaking relays" instead of waiting.
 - **Code and password.** The host picks the password, and the game picks a 6 character code (no 0, O, 1, I or L). The password is
