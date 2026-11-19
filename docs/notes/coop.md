@@ -1274,7 +1274,7 @@ on guests and has no boxes; a guest's blast still reaches it.
 
 - **trystero 0.27.0, pinned**, with its default strategy, Nostr: peers meet through public Nostr relays, then talk browser to browser
   over WebRTC. `appId` is `overpowered-2-coop`, the room id is the code, and `identity: 'none'` stores nothing and makes each tab its own
-  player. trystero's own `maxUsers` is 12, so the lobby's check is the only cap of four. **Relays:** 8 of trystero's 30 public relays (`RELAY_REDUNDANCY`); trystero picks the same 8 for everyone from
+  player. trystero's own `maxUsers` is 12, so the lobby's check is the only cap of four. **Relays:** 12 of trystero's 30 public relays (`RELAY_REDUNDANCY`); trystero picks the same 12 for everyone from
   the app id, so all players share them, and one answering is enough. If none answers, the lobby stops with a plain "could not reach any of
   the matchmaking relays" instead of waiting.
 - **Code and password.** The host picks the password, and the game picks a 6 character code (no 0, O, 1, I or L). The password is

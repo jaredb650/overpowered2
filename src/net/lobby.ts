@@ -141,8 +141,12 @@ const CHAT_KEEP = 40;
 export const HOST_WAIT_MS = 30_000;
 /** The same wait on a map page: its host is loading a map too, after waiting for slow acks, so the lobby's 30 s is too tight. */
 export const MATCH_HOST_WAIT_MS = 120_000;
-/** No matchmaking relay open by then: nothing else can work, so say so rather than wait out HOST_WAIT_MS. */
-export const RELAY_WAIT_MS = 10_000;
+/**
+ * No matchmaking relay open by then: nothing else can work, so say so rather than wait out HOST_WAIT_MS. 25 s, not 10: on
+ * mobile data or a slow link a relay's handshake alone was measured at 6 to 10 s, and the owner got "could not be reached"
+ * on the public site while every relay answered from a wired machine.
+ */
+export const RELAY_WAIT_MS = 25_000;
 /** How long a guest waits in the main room before it asks at the door. A right password is in within about three. */
 export const DOOR_AFTER_MS = 5_000;
 export const PING_MS = 2_000;
