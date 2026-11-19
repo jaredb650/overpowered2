@@ -204,7 +204,13 @@ export default async function (host, { sleep, outDir }) {
           }
           o.forming = null;
           window.__openings = [];
-          for (const { q, after } of squads) { const opening = q.opening.bind(q); q.opening = seconds => { window.__openings.push(after); return opening(seconds); }; }
+          // Whom a squad is after is the AI's to change as the fight goes: it is set again before each bang (`__setQuarries`)
+          // and read at the moment an opening is taken.
+          window.__setQuarries = () => { for (const { q, after } of squads) for (const s of q.members) s.e.quarry = after === 'guest' ? guest.player : null; };
+          for (const { q, after } of squads) {
+            const opening = q.opening.bind(q);
+            q.opening = seconds => { window.__openings.push(`${after}${(o.quarryOf(q) ? 'guest' : 'host') === after ? '' : ' (now after the other)'}`); return opening(seconds); };
+          }
           return { squads: squads.map(s => ({ after: s.after, men: s.q.members.length, quarry: o.quarryOf(s.q) ? 'guest' : 'host' })), notes: { ...ctx.coop.world.notes } };
         }, [here, guestAt, yaw]);
         out.bangStaged = staged;
@@ -212,7 +218,9 @@ export default async function (host, { sleep, outDir }) {
         const bangAt = async (page, at) => {
           const eye = await page.evaluate(() => { const { ctx } = window.__op2; return [ctx.player.eye.toArray(), ctx.player.forward.toArray()]; });
           const spot = [eye[0][0] + eye[1][0] * 3, eye[0][1] - 0.6, eye[0][2] + eye[1][2] * 3];
-          await host.evaluate(([spot]) => { const { ctx } = window.__op2; const V = ctx.player.position.constructor; window.__openings.length = 0; ctx.enemies.outpost.flashbang(new V(...spot), 0.25); }, [spot]);
+          await host.evaluate(([spot]) => { const { ctx } = window.__op2; const V = ctx.player.position.constructor; window.__openings.length = 0; window.__setQuarries(); ctx.enemies.outpost.flashbang(new V(...spot), 0.25); }, [spot]);
+          // Held through the fuse.
+          for (let i = 0; i < 5; i++) { await sleep(60); await host.evaluate(() => window.__setQuarries()); }
           void at;
         };
         const blind = page => page.evaluate(() => window.__op2.ctx.enemies.outpost.suppression.blinded === true);
