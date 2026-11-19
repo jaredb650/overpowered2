@@ -37,7 +37,7 @@ If a friend cannot connect at all, set up TURN once (below).
 | `src/net/index.ts` | `CoopSession`: the game-facing session, remote bodies, poses, chat lines in the feed, leaving to the lobby, the co-op cost meter |
 | `src/net/remote.ts` | A friend's body: the Bailiff with the nearest third-person prop to their gun, posture, tag |
 | `src/net/pose.ts` | Binary pose codec and arrival-time interpolation buffer |
-| `src/net/world.ts`, `src/net/worldProtocol.ts`, `src/net/authority.ts` | The host's world: enemy snapshots, hit claims and their checks, kill attribution, explosions, call-ins, slow-mo, prisoners, vehicles, the garrison |
+| `src/net/world.ts`, `src/net/world/*.ts`, `src/net/worldProtocol.ts`, `src/net/authority.ts` | The host's world: enemy snapshots, hit claims and their checks, kill attribution, explosions, call-ins, slow-mo, prisoners, vehicles, the garrison. One module per feature: see "Code layout" below |
 | `src/net/team.ts` | Down, revive, bleed-out, spectate, respawn, the wipe, cards (health, kills, credits), rejoin purses |
 | `src/net/mission.ts` | Campaign co-op: the host's mission mirrored to guests, any-player zones, gathering, checkpoints, late-joiner catch-up |
 | `src/net/coopHud.ts` | Teammates strip, Tab board, Enter chat, end-of-run board |
@@ -50,6 +50,67 @@ tab's worker tick), `Player.ts` (`downed` and its crawl), `time.ts` (`keepScales
 co-op, `mount`, quitting to the lobby), `Screens.ts`/`pause.ts` (lobby return, labels), `progression/index.ts`, `contracts/shop/index.ts`,
 `contracts/defense/index.ts`, `Weapons.ts`, `runreport.ts` (a teammate's kill is not yours), `progression/score.ts` (no solo record from
 a co-op run), `EnemyManager.placeReplica` (posture), `allies/fire.ts` (garrison tracers), `campaign/index.ts`, `watch.ts`, `types.ts`.
+
+## Code layout
+
+The co-op world was one class in `src/net/world.ts`. Since the overhaul's stage 0b it is split by feature, with no change in what it
+does or sends. Older sections below that say "`world.ts`" mean the module named here.
+
+`CoopWorld` (`src/net/world.ts`) is what the rest of the game calls, as `ctx.coop.world`. It keeps no feature state. It builds the
+modules, runs them every frame and passes calls on (`claim`, `notMine`, `select`, `steer`, `enemyRay`, `blast`, `clock`, and so on:
+the names the game used before).
+
+| File | Owns | Events on the wire |
+|---|---|---|
+| `world/context.ts` | `WorldContext`, handed to every module: the game `ctx`, the session, `send` (the reliable `action` lane), the snapshot lane, the router, `listen` (game events), the stats, the claim validator, `ready`, and the shared lookups `sender`, `playerOf`, `relay`, `visible`, `life`. Also `Later` (the host's delayed work) and `unpackDamage` | |
+| `world/router.ts` | `Router`: which handler gets an arriving event, by type and by side (host or guest) | |
+| `world/wire.ts` | `Vec`, `validVec`, `WireDamage`, `packDamage`, `ENEMY_IDS`, `REGIONS` | |
+| `world/snapshot.ts` | The binary enemy snapshot: `encodeWorld`, `decodeWorld`, `EnemyFrame`, `SNAPSHOT_MS`, `POSTURES`, `CAPTURABLE` | (the `world` lane) |
+| `world/replicas.ts` | Host: builds and sends the snapshot. Guest: the enemy copies, their interpolation (`animate`), the `dead` set | (the `world` lane) |
+| `world/targeting.ts` | Host: every player as a target (`players()`), `select`, line of sight, `steer` and its routes, `targetPlayer`, sending `hurt`. Guest: taking `hurt`, `allowsLocalDamage` | `hurt` |
+| `world/hits.ts` | Guest's `claim`; the host's check and apply; kill credit (`killedBy`, `lastHitter`, `notMine`, the guest's own kill replay); wounds, severs and deaths on guests; `selfDestruct` | `hit`, `hitfx`, `kill`, `sever` |
+| `world/remoteFire.ts` | A player's shots on other screens: the local `fire`, the host's check and relay, drawing it. The shot counter claims carry. Gun Kata's notice | `fire`, `kata` |
+| `world/enemyFire.ts` | `enemyRay` (the host's enemy rays against remote players) and `projectile`; the guest's tracer | `ray` |
+| `world/booms.ts` | `blast`: explosions sent to other screens (24 a second), an enemy blast's damage on remote players, a guest's blast on the host's vehicles | `boom` |
+| `world/callins.ts` | A call-in's feed line, and the host's note that lets the caller's call-in damage pass | `callin` |
+| `world/sonar.ts` | The shared Sonar ping | `sonar` |
+| `world/chatter.ts` | The soldiers' lines on every screen | `chatter`, `chatcut` |
+| `world/clock.ts` | `clock()`: which slow-mo the host keeps; a guest's slow-mo perk asking the host | `slow` |
+| `world/capture.ts` | A guest capturing a prisoner (hold E, the host cuffs, the bounty comes back); `capturable` | `capture`, `credit` |
+| `world/guns.ts` | Carries the news of dropped guns for `weapons/dropped.ts` | `gun` |
+| `world/vehicles.ts` | The host's ground vehicles drawn on guests, 5 Hz | `vehicles` |
+| `world/allies.ts` | The host's garrison drawn on guests, 5 Hz, and its tracers (30 a second) | `allies`, `ashot` |
+| `team.ts` | As before; registers its own events with the router (`plug`) | `life`, `card`, `team`, `revive`, `up`, `wave`, `over`, `restore` |
+| `mission.ts` | As before; registers its own events with the router (`plug`) | `mission`, `gather` |
+| `worldProtocol.ts` | For code outside `world/`: re-exports `wire.ts` and `snapshot.ts`, and defines `WorldEvent` as the union of every module's event types | |
+
+Rules that keep it working:
+
+- **A module keeps its own state.** It reaches another module only through that module's public methods, and gets it as a constructor
+  argument in `world.ts` (for example `Hits` is given `Replicas`, `Targeting` and `RemoteFire`). Nothing reaches into another module's
+  private fields.
+- **Order.** Modules add their game listeners (`w.listen`) as they are built. Listeners on one game event run in the order added, and
+  the world is built before any system's `init`, so `Hits` hears `enemy:killed` before every system (who killed it is known first).
+  Each frame `CoopWorld.update` runs the team, the mission, then its `modules` list in order: capture, vehicles, allies, targeting,
+  hits, the delayed work, and last the snapshot. After a snapshot goes out the `snapshotSent` hooks run (per-enemy state of dead
+  enemies is forgotten).
+- **Nothing arrives before `begin()`.** Events are dropped until `ready`; the latest snapshot is kept and taken at `begin()`.
+- **A handler that throws drops that one event** with a console warning (`WorldContext.receive`); junk from a peer never stops the game.
+
+**To add an event:**
+
+1. Declare its shape in your module's file, as an exported type with a `t` name no other event uses.
+2. Add that type to the `WorldEvent` union in `src/net/worldProtocol.ts` (one line).
+3. In your module's constructor register who hears it: `w.router.host('name', handler)` for what a guest sends the host,
+   `w.router.guest('name', handler)` for what the host sends guests, `w.router.both(...)` for either. A handler gets
+   `(event, from, now)`: the sender's lobby id and `performance.now()`. Check every field: it came from another browser. A second
+   handler for the same event and side throws when the world is built.
+4. Send it with `w.send(event)` (a guest's goes to the host, the host's to every guest) or `w.send(event, id)` (the host, to one
+   guest). The host passes a guest's event on to the others with `w.relay(event, from)`.
+
+**To add a module:** a class in `src/net/world/` that takes `WorldContext` (and the modules it needs), built in `CoopWorld`'s
+constructor. If it needs a frame tick or cleanup, give it `update(now)` / `dispose()` and add it to the `modules` list. If the game
+must call it, add a method on `CoopWorld` that passes the call on.
 
 ## How it works
 

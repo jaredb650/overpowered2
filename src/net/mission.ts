@@ -19,6 +19,15 @@ import type { Ctx } from '../core/contracts';
 import type { CoopSession } from './index';
 import type { WorldEvent } from './worldProtocol';
 import type { Team } from './team';
+import type { Router } from './world/router';
+import type { Vec } from './world/wire';
+
+/** The mission's events on the wire. */
+export type MissionEvent =
+  /** Host: a mission host op every guest plays on its own inert mission host. Data only; callbacks stay on the host. */
+  | { t: 'mission'; op: string; args: unknown[] }
+  /** Host: a gate is closing; a guest far from `at` is brought there. */
+  | { t: 'gather'; at: Vec; yaw: number };
 
 /** What a guest mirrors. Everything else (squads, battles, spawns, vehicles, bosses) is the host's world, replicated as such. */
 export const MIRRORED = ['speak', 'hush', 'objectives', 'hint', 'banner', 'door', 'music', 'cutscene', 'give', 'grenades', 'drop', 'rack',
@@ -109,6 +118,12 @@ export class CoopMission {
   private gather(): void {
     const at = this.ctx.player.position;
     this.send({ t: 'gather', at: [at.x, at.y, at.z], yaw: this.ctx.player.yaw });
+  }
+
+  /** Registers the mission's events with the world's router (world/router.ts): a guest hears both, the host neither. */
+  plug(router: Router): void {
+    router.guest('mission', event => { this.receive(event); });
+    router.guest('gather', event => { this.receive(event); });
   }
 
   /** Guest: plays a mirrored op on its own (inert) mission host. */

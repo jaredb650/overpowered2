@@ -17,8 +17,37 @@ import { OrderKey } from '../allies/rules';
 import { ALLY } from '../allies/data';
 import { COLORS } from './remote';
 import type { CoopSession } from './index';
-import type { Card, LifeState, WorldEvent } from './worldProtocol';
+import type { WorldEvent } from './worldProtocol';
+import type { Router } from './world/router';
+import type { Vec } from './world/wire';
 import { spread } from './mission';
+
+export type LifeState = 'up' | 'down' | 'dead';
+/** What one player shows the others: the teammates strip and the Tab board. Clamped on arrival (`cleanCard`). */
+export interface Card {
+  slot: number; state: LifeState; bleed: number; life: number; hp: number; max: number; armor: number;
+  kills: number; score: number; credits: number; downs: number; revives: number; ping: number;
+}
+/** The team's events on the wire. */
+export type TeamEvent =
+  /** Guest to host: I am at 0 health, on life `life`. */
+  | { t: 'life'; slot: number; alive: boolean; life: number }
+  /** Guest to host: my card, 4 Hz. Host to guests: everyone's, 4 Hz, with the host's word on life, bleed and ping. */
+  | { t: 'card'; card: Card }
+  | { t: 'team'; list: Card[] }
+  /** Guest to host: I held E over this downed player. */
+  | { t: 'revive'; slot: number }
+  /** Host: this player is up again, revived (`by` the reviver's slot) or respawned at a new wave. */
+  | { t: 'up'; slot: number; life: number; how: 'revive' | 'respawn'; by: number; at?: Vec; yaw?: number }
+  /** Host: the waves' own events, replayed on guests so their shops, pods, banners and ammo follow the host's waves. */
+  | { t: 'wave'; kind: 'start' | 'clear'; wave: number; total: number; boss: boolean; bonus: number }
+  /** Host: nobody is up. The run is over for everyone; the cards are the final board. */
+  | { t: 'over'; wave: number; cards: Card[]; won?: boolean }
+  /** Host to a rejoining guest: the purse and score they left with. */
+  | { t: 'restore'; credits: number; score: number; kills: number };
+/** The events `receive` takes on each side, for the world's router. */
+const HOST_EVENTS = ['life', 'card', 'revive'] as const;
+const GUEST_EVENTS = ['team', 'up', 'wave', 'over', 'restore'] as const;
 
 /** Down to dead. The allies bleed for longer; a friend should be reached in a wave, not after it. */
 export const BLEED_MS = 30_000;
@@ -214,6 +243,12 @@ export class Team {
       this.ctx.hud.feed(`${by?.name ?? 'Someone'} revived ${player.name}`, '#79f1ad');
     }
     if (by?.id === lobby.you && event.how === 'revive') this.revives++;
+  }
+
+  /** Registers the team's events with the world's router (world/router.ts): each goes to `receive` on the side that hears it. */
+  plug(router: Router): void {
+    for (const type of HOST_EVENTS) router.host(type, (event, from) => { this.receive(event, from); });
+    for (const type of GUEST_EVENTS) router.guest(type, (event, from) => { this.receive(event, from); });
   }
 
   /** Everything addressed to the team. True when the event was one of its own. */
