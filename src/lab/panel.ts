@@ -166,7 +166,7 @@ export class LabPanel {
     return b;
   }
 
-  private check(parent: HTMLElement, label: string, key: 'god' | 'arsenal' | 'reserves' | 'overlay' | 'gibbing' | 'explosiveDeaths' | 'progression' | 'muscles' | 'messPush' | 'messRest' | 'messFar' | 'gibThrow' | 'vmBlood' | 'fire' | 'wear' | 'bigBlood' | 'hitBlood' | 'bloodMap' | ReactSwitch): void {
+  private check(parent: HTMLElement, label: string, key: 'god' | 'arsenal' | 'reserves' | 'overlay' | 'gibbing' | 'explosiveDeaths' | 'progression' | 'muscles' | 'messPush' | 'messRest' | 'messFar' | 'gibThrow' | 'vmBlood' | 'fire' | 'wear' | 'dryFlesh' | 'bigBlood' | 'hitBlood' | 'bloodMap' | ReactSwitch): void {
     const row = el('label', 'lab-check');
     const box = el('input');
     box.type = 'checkbox';
@@ -377,6 +377,7 @@ export class LabPanel {
     this.check(this.el, 'Gibs thrown out of the blast', 'gibThrow');
     this.check(this.el, 'Blood on the weapon', 'vmBlood');
     this.check(this.el, 'Wear on limbs', 'wear');
+    this.check(this.el, 'Flesh dries', 'dryFlesh');
     this.check(this.el, 'Blood: big stains on a kill', 'bigBlood');
     this.check(this.el, 'Blood: a mark from every round', 'hitBlood');
     // And its fire: off, fire as it was (a timer, one emitter on the chest, out at death). `?fire=0` too.

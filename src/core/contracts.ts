@@ -354,6 +354,8 @@ export interface CharacterInstance {
   /** How far the fire has burnt through the skin, 0 to 1: charred muscle, then bone, where it has burnt longest. */
   setBurnThrough?(amount: number): void;
   readonly burnThrough?: number;
+  /** How dry the blood and the bared flesh on it are drawn, 0 wet to 1 dry (gore dries the dead where they lie). */
+  setDry?(amount: number): void;
   /** An organ has been thrown out of this body: it is no longer drawn inside it. `left` chooses the lung. */
   takeOrgan?(organ: 'lung' | 'heart' | 'liver' | 'stomach', left?: boolean): void;
   /** Emissive flash on hit. */
@@ -387,6 +389,8 @@ export interface SeveredLimb {
   setEmber?(heat: number): void;
   setBurnThrough?(amount: number): void;
   readonly burnThrough?: number;
+  /** As the body's: the blood on a limb dries where it lies. */
+  setDry?(amount: number): void;
   release(): void;
 }
 

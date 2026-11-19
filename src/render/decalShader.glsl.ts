@@ -218,6 +218,14 @@ if (opBlood) {
   reflectedLight.indirectDiffuse = opTint * (opLight * 2.0 / (1.0 + opLight * 0.9));
   // A wet floor mirrors the whole sky at a low angle and blood would go pale with it: it keeps the glints, not the sheen.
   reflectedLight.indirectSpecular *= 0.4;
+  // Under a weapon light the floor under a stain is many times white, and the fifth of it that thin blood lets through
+  // was enough to wash the stain to pink, and a dried one nearly away (the fit pass's night check). Blood is a filter
+  // over what it lies on, not a veil: the harder the light, the less of the floor comes through unreddened. Where there
+  // is blood at all, that is; the mist round a stain stays mist.
+  float opHard = opLight * 1.6 / (1.0 + opLight * 1.6);
+  diffuseColor.a += (1.0 - diffuseColor.a) * smoothstep(0.5, 0.78, diffuseColor.a) * opHard;
+  // And every drop's raised lip faces a light held at the eye, so each was ringed in white: the glint levels off too.
+  reflectedLight.directSpecular /= 1.0 + opLight * 0.7;
 }
 `;
 

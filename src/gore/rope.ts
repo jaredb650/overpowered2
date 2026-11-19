@@ -88,8 +88,8 @@ const _p = new THREE.Vector3();
 const _down = new THREE.Vector3(0, -1, 0);
 const _hit: RayHit = { point: new THREE.Vector3(), normal: new THREE.Vector3(), distance: 0, surface: 'concrete', collider: null };
 /**
- * What a loose strand of gut lies on: the world, and the dead (bodies at rest keep fixed capsules, mess.ts; a ragdoll
- * still moving and a trunk piece count too). The owner asked for guts "draped over the environment... props, corpses".
+ * What a loose strand of gut lies on: the world, and the dead at rest (their fixed capsules, mess.ts; `under` leaves
+ * out whatever of this group is still moving). The owner asked for guts "draped over the environment... props, corpses".
  */
 const DRAPE_ON = CG.World | CG.Ragdoll;
 
@@ -327,7 +327,7 @@ export class RopeField {
         _p.set(x[i * 3]!, top + 0.4, x[i * 3 + 2]!);
         // A loose strand lies on whatever is under it: the world, and bodies (`DRAPE_ON`). One still hanging from a body
         // finds only the world, or it would be held up by the body it hangs out of.
-        if (this.ctx.physics.raycastInto(_p, _down, top + 4 - x[i * 3 + 1]!, loose ? DRAPE_ON : CG.World, _hit)) r.floors[i] = _hit.point.y;
+        if (this.under(_p, top + 4 - x[i * 3 + 1]!, loose)) r.floors[i] = _hit.point.y;
       }
       // In flight, a point or two a frame are tested along their own step: what a thrown strand hits, it slaps and stops at.
       if (loose) {
@@ -452,6 +452,20 @@ export class RopeField {
   }
 
   /**
+   * What is under `from`, within `max` metres, into `_hit`: the world, and for a loose strand (`drape`) the dead at rest
+   * too. Not anything still moving: a ragdoll in the air or a piece of a trunk flying over a strand is not its floor (it
+   * was, for one build, and a strand was caught a metre up on a piece that then flew on, and hung there from nothing).
+   */
+  private under(from: THREE.Vector3, max: number, drape: boolean): boolean {
+    const physics = this.ctx.physics;
+    if (!drape) return physics.raycastInto(from, _down, max, CG.World, _hit);
+    if (!physics.raycastInto(from, _down, max, DRAPE_ON, _hit)) return false;
+    const body = (_hit.collider as { parent?(): { isFixed(): boolean } | null } | null)?.parent?.();
+    if (!body || body.isFixed()) return true;
+    return physics.raycastInto(from, _down, max, CG.World, _hit);
+  }
+
+  /**
    * A body at rest whose capsules filled the box `lo`..`hi` has gone from under whatever lay on it: a loose strand lying
    * there is let go (a point caught on the body is no longer caught) and falls to what is under it now. Returns how many.
    */
@@ -475,7 +489,7 @@ export class RopeField {
       r.floors.fill(-1e4);
       for (let i = 0; i < P; i++) {
         _p.set(r.x[i * 3]!, r.x[i * 3 + 1]! + 0.3, r.x[i * 3 + 2]!);
-        if (this.ctx.physics.raycastInto(_p, _down, 6, DRAPE_ON, _hit)) r.floors[i] = _hit.point.y;
+        if (this.under(_p, 6, true)) r.floors[i] = _hit.point.y;
       }
     }
     return n;

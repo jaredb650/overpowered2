@@ -58,6 +58,10 @@ Faceted chips stay for explosions. The 20 yellow headshot chips and their flash 
 
 ### The impact puff (2026-11-18)
 
+(Since the gore update's fit pass a body burnt past the soot line gives no puff, spray or strand: gore knocks ash out
+of it instead, `Gore.ashPuff`: a few embers and a wisp of smoke, from the effects already here. `docs/notes/gore.md`,
+"Fire on bodies".)
+
 The owner: "enemies just spurt blood, but they don't have a puff that makes it feel like you're impacting them". Before this, the
 frame a round landed showed no blood at all: the strands were a frame old and a few pixels long, and `bloodHit`'s mist flies back
 along the shot, so from the gun it is seen edge on. The body's red hit flash was the only answer.

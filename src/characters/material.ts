@@ -92,7 +92,23 @@ export const FIRE_REACH = 1.9;
 /** How cooked the flesh a fire bares is drawn (`sChar`): dark and dry, but still meat against the black of the skin. */
 const FIRE_COOKED = 0.95;
 
+/**
+ * Bared flesh (`sBare`) is lit a second time by the brightness of the light on it, so red reads under blue light: this
+ * much of that brightness, and no more of it than `most` (a hard lamp does not turn a wound orange).
+ */
+const BARE = { gain: 0.8, most: 0.55 };
+/**
+ * The most light a burnt pixel gives back, as radiance before the tone map (lit concrete at night is about 0.05 to 0.1,
+ * and under the weapon light several): char and soot, the meat a fire has bared and cooked, and its bone.
+ */
+const COAL = { most: 0.035, cooked: 0.08, bone: 0.3 };
+
 const FRAG_PARS = /* glsl */ `
+#define OP2_BARE_GAIN ${BARE.gain.toFixed(2)}
+#define OP2_BARE_MOST ${BARE.most.toFixed(2)}
+#define OP2_COAL_MOST ${COAL.most.toFixed(3)}
+#define OP2_COOKED_MOST ${COAL.cooked.toFixed(3)}
+#define OP2_BONE_MOST ${COAL.bone.toFixed(3)}
 #define OP2_FIRE_REACH ${FIRE_REACH.toFixed(2)}
 #define OP2_FIRE_COOKED ${FIRE_COOKED.toFixed(2)}
 varying vec4 vColorAO;
@@ -255,16 +271,25 @@ const SKIN_GONE = /* glsl */ `
       // Bone is never clean: blood sits on it in a film and it shows through where that has run off.
       float film = smoothstep(0.36, 0.64, macro.a * 0.55 + micro.a * 0.45);
       under = mix(under, mix(vec3(0.66, 0.6, 0.48) * (0.72 + micro.r * 0.36), vec3(0.13, 0.012, 0.01), film * 0.6), bone);
-      under = mix(under, under * vec3(0.16, 0.15, 0.14) + vec3(0.01, 0.008, 0.007), sChar * (1.0 - bone * 0.45));
+      // Cooked: dark, and brown more than red (under a hard light the red of it read as salmon).
+      under = mix(under, mix(under * 0.16, vec3(0.05, 0.026, 0.016), 0.55 * (1.0 - bone)) + vec3(0.006, 0.005, 0.004), sChar * (1.0 - bone * 0.45));
+      // Dried: not for bone, which only loses the wet on it.
+      under *= mix(vec3(1.0), sDried, 1.0 - bone * 0.6);
       sAlb = mix(sAlb, vec3(0.04, 0.005, 0.009), bruise * 0.72 * (1.0 - sMetal * 0.5));
       sAlb = mix(sAlb, under, raw);
-      sRough = mix(sRough, mix(mix(0.24, 0.4, streak), 0.46, bone), raw);
+      sRough = mix(sRough, mix(mix(mix(0.24, 0.4, streak), 0.46, bone), 0.62, sDry * 0.8), raw);
       sMetal *= 1.0 - raw;
       sEmis *= 1.0 - raw;
       sH *= 1.0 - raw * 0.8;
       // Sunk below the skin's torn edge, deeper in the meat, the bone standing back up out of it.
       sWoundH -= raw * 0.003 + meat * 0.0045 - bone * 0.0025 + (streak - 0.5) * 0.0012 * raw;
       sBare = raw * (1.0 - sChar);
+      // What a fire bared is burnt too: cooked meat gives back a little more than char, and bone more again, so both
+      // show through the black. What a round or a blade bared is not burnt at all.
+      sCoal = mix(sCoal, sChar, raw);
+      sMost = mix(sMost, mix(OP2_COOKED_MOST, OP2_BONE_MOST, bone), raw);
+      // And dry: cooked meat does not shine.
+      sRough = mix(sRough, 0.82, raw * sChar * (1.0 - bone));
     }
 `;
 
@@ -294,6 +319,7 @@ const BURN_SURFACE = /* glsl */ `
     sAlb = mix(sAlb, coal, charred);
     sRough = mix(sRough, mix(0.72, 0.95, flesh), charred);
     sMetal *= 1.0 - charred * 0.6;
+    sCoal = charred;
     sEmis *= 1.0 - charred;
     // The char splits as it shrinks. What shows in the splits is raw while the fire is on it, dry and dark once it is cold.
     float live = max(heat, 1.0 - step(0.995, burn));
@@ -350,12 +376,19 @@ vec3 sGlow = vec3(0.0);
 float sWoundH = 0.0;
 // How much of this pixel is raw flesh laid bare (SKIN_GONE): it is lit warm from the eye, or red would be black here.
 float sBare = 0.0;
+// How much of this pixel is burnt (char, soot, cooked flesh), and the most light such a pixel gives back whatever is
+// shone on it (FRAG_AO): char is black under a weapon light too.
+float sCoal = 0.0, sMost = OP2_COAL_MOST;
 
 #ifdef OP2_SKINNED
 {
   vec4 ex = op2Extra(${EXTRA_PARAMS});
   vec4 info = op2Extra(${EXTRA_INFO});
   float blood = ex.x, flash = ex.y, burn = ex.z, frost = ex.w;
+  // Drying (Character.setDry; gore dries the dead where they lie): the blood on the skin and the flesh a wound or wear
+  // has bared go darker, browner and dull, as the blood on the floor round the body does.
+  float sDry = op2Extra(${EXTRA_FIRE + 1}).w;
+  vec3 sDried = mix(vec3(1.0), vec3(0.58, 0.44, 0.44), sDry);
   float seed = info.y;
   float grain = macro.r * 0.6 + macro.a * 0.4;
   // Plate, as it was before anything charred it: it soots, but it does not burn through.
@@ -388,8 +421,8 @@ float sBare = 0.0;
     // It stops well short of the whole body: past a point, a figure in blotches reads as camouflage, not as blood.
     float t = mix(0.9, 0.7, blood);
     float m = smoothstep(t, t + 0.2, grain * 0.7 + macro.a * 0.14 + micro.r * 0.16 + (1.0 - vColorAO.a) * 0.3);
-    sAlb = mix(sAlb, mix(vec3(0.15, 0.004, 0.005), vec3(0.07, 0.002, 0.004), macro.a), m * 0.9);
-    sRough = mix(sRough, 0.2, m);
+    sAlb = mix(sAlb, mix(vec3(0.15, 0.004, 0.005), vec3(0.07, 0.002, 0.004), macro.a) * sDried, m * 0.9);
+    sRough = mix(sRough, mix(0.2, 0.62, sDry), m);
     sMetal *= 1.0 - m;
   }
 
@@ -467,8 +500,8 @@ float sBare = 0.0;
     if (stain > 0.0) {
       // Dark where it is thick. Bright paint is what made the old wounds look drawn on.
       float wet = stain * (0.8 + grain * 0.2);
-      sAlb = mix(sAlb, mix(vec3(0.17, 0.006, 0.007), vec3(0.075, 0.002, 0.003), stain * stain), wet * 0.94);
-      sRough = mix(sRough, 0.2, wet);
+      sAlb = mix(sAlb, mix(vec3(0.17, 0.006, 0.007), vec3(0.075, 0.002, 0.003), stain * stain) * sDried, wet * 0.94);
+      sRough = mix(sRough, mix(0.2, 0.62, sDry), wet);
       sMetal *= 1.0 - wet;
       // Blood fills the weave. A glossy surface over fine bumps just sparkles.
       sH *= 1.0 - wet * 0.85;
@@ -588,11 +621,28 @@ const FRAG_AO = /* glsl */ `
   reflectedLight.indirectSpecular *= op2Ao;
   // A floor under the baked light. Enemies must stay legible where the map itself goes black.
   reflectedLight.indirectDiffuse += material.diffuseColor * vec3(0.5, 0.62, 0.8) * (uFill * RECIPROCAL_PI * op2Ao);
-  // Bare flesh takes a warm light from the viewer's side, as the inside of a wound does (anatomy/interior.ts): this map is
-  // lit blue, which turns red to black, and a torn limb has to read as red from across a room.
+  // Bare flesh keeps its red under this map's blue light, which would turn it black: it is lit again by the brightness of
+  // what reaches it, whatever colour that is, as blood on the floor is (render/Decals.ts, opTint). By the light, and not
+  // by a fixed amount: with a fixed fill a torn limb in a dark corner was the brightest thing on the screen at 20 m, a
+  // glowing orange where the blood on the floor under it was nearly black (the fit pass's night check). The light is read
+  // back out of what the surface reflected, its own colour divided out, floor and all, and levels off under a hard lamp.
+  // Burnt things are dark whatever is shone on them. Char's albedo is a hundredth, but a weapon light at two metres is
+  // bright enough to turn even that pale: a burnt-through corpse under it read as tan skin with wet red patches, raw and
+  // not burnt (the fit pass's night check). So what a burnt pixel gives back levels off at \`sMost\`: char near black,
+  // cooked meat a dark red-brown, bone a sooty grey. A glow of its own (embers) is not light given back, and is not held.
+  if (sCoal > 0.0) {
+    vec3 op2All = reflectedLight.directDiffuse + reflectedLight.indirectDiffuse + reflectedLight.directSpecular + reflectedLight.indirectSpecular;
+    float op2Bright = dot(op2All, vec3(0.2126, 0.7152, 0.0722));
+    float op2Keep = mix(1.0, sMost * (1.0 - exp(-op2Bright / sMost)) / max(op2Bright, 1e-5), sCoal);
+    reflectedLight.directDiffuse *= op2Keep;
+    reflectedLight.indirectDiffuse *= op2Keep;
+    reflectedLight.directSpecular *= op2Keep;
+    reflectedLight.indirectSpecular *= op2Keep;
+  }
   if (sBare > 0.0) {
-    float op2Facing = saturate(dot(normal, normalize(vViewPosition)));
-    reflectedLight.indirectDiffuse += material.diffuseColor * vec3(1.0, 0.8, 0.78) * (uFill * sBare * (0.22 + op2Facing * 0.5));
+    vec3 op2Lit = (reflectedLight.directDiffuse + reflectedLight.indirectDiffuse) / max(material.diffuseColor, vec3(0.004));
+    float op2Lum = min(dot(op2Lit, vec3(0.2126, 0.7152, 0.0722)), OP2_BARE_MOST);
+    reflectedLight.indirectDiffuse += material.diffuseColor * vec3(1.0, 0.8, 0.78) * (op2Lum * sBare * OP2_BARE_GAIN);
   }
 }
 `;

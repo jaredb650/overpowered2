@@ -104,14 +104,18 @@ const SCENES = {
     const burst = stand('trooper', along(5.2, 1.9), 60);
     f.made.push(worn, shot, burst);
     // Rounds into one leg and one arm until each pool is well spent: wear shows, nothing comes off.
+    // (Its pools and its wear are sized by the health it was made with: that stays, and its health is topped up.)
+    worn.maxHealth = worn.health = 70;
     for (const region of ['legL', 'armR']) {
+      const whole = worn.limbHp.get(region);
       for (let i = 0; i < 40 && worn.alive; i++) {
         const left = worn.limbHp.get(region);
-        if (left === undefined || left < worn.maxHealth * worn.def.limbFrac * 0.3) break;
-        ctx.enemies.applyDamage(worn, round(worn, region, 9));
+        if (left === undefined || left < whole * 0.3) break;
+        ctx.enemies.applyDamage(worn, round(worn, region, 5));
+        worn.health = worn.maxHealth;
       }
     }
-    worn.health = worn.maxHealth;
+    worn.health = worn.maxHealth = 1e5;
     ctx.weapons.equip?.('shotgun');
     look(shot.center);
     f.state.fireAt = 6;
@@ -265,7 +269,7 @@ const stats = () => {
 
 export default async function fitLook(page, h0) {
   const h = steady.helpers(page, h0);
-  await steady.ready(page, { until: '!!(window.__op2 && window.__op2.ctx && window.__op2.ctx.world && window.__op2.ctx.enemies)' });
+  await steady.ready(page, { until: '!!(window.__op2 && window.__op2.game && window.__op2.game.state === "playing")' });
   await steady.frames(page, 90);
   const scene = await page.evaluate(install);
   await steady.frames(page, 10);

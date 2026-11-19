@@ -72,13 +72,16 @@ export const FireTuning = {
 const enum Phase { Alive, Corpse, Smoulder }
 
 /**
- * The instance colour that says how burnt a rigid piece of a body is, 0..1: white is not at all. Plain materials (loose
- * meat, a cut face) are simply darkened by it; the skin's own material reads the char back out of it and burns the piece
- * as it burns a body (characters/material.ts, "a rigid piece of a burnt body"). `vary` breaks a heap of them up.
+ * The instance colour that says how burnt a rigid piece of a body is, 0..1: red 1 is not at all. The wet materials of
+ * loose meat and cut faces cook by it (cooked.ts); the skin's own material reads the char back out of it and burns the
+ * piece as it burns a body (characters/material.ts, "a rigid piece of a burnt body"). `vary` breaks a heap of them up.
+ * `born` is the world time the piece was made.
  */
-export function burnTint(out: THREE.Color, burn: number, vary = 0): THREE.Color {
-  const k = clamp(burn) * (1 - vary * Math.random());
-  return out.setRGB(1 - k * 0.94, 1 - k * 0.95, 1 - k * 0.95);
+export function burnTint(out: THREE.Color, burn: number, vary = 0, born = 0): THREE.Color {
+  const k = clamp(burn) * (vary > 0 ? 1 - vary * Math.random() : 1);
+  // Only the red is a colour. The green is the world time the piece was made, for the flesh that dries (cooked.ts): an
+  // instance's colour is three floats, and nothing that draws these pieces multiplies by the other two.
+  return out.setRGB(1 - k * 0.94, born, 1);
 }
 
 /**

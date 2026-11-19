@@ -204,7 +204,7 @@ const smooth = (a: number, b: number, x: number): number => {
  * What fire leaves of the flesh and bone it bares, as a baked body's vertex colour (bytes, before the shader's lift):
  * the skin shader's SKIN_GONE at `sChar` 0.95, worked back through its curve. Keep in step with it.
  */
-const FAR_COOKED = [37, 20, 19] as const;
+const FAR_COOKED = [40, 27, 23] as const;
 const FAR_COOKED_BONE = [50, 45, 40] as const;
 let farLive = new Uint8Array(4096);
 let farUsed = new Uint8Array(4096);
@@ -330,6 +330,7 @@ function bakeSkin(s: FarSkin, out: FarBuffers, vertex: number, index: number, ma
   const fx = d[fire]!, fy = d[fire + 1]!, fz = d[fire + 2]!;
   const caught = d[fire + 3]! > 0.5;
   const eaten = s.a.interior ? d[fire + 5]! : 0;
+  const dry = Math.min(1, Math.max(0, d[fire + 7]!));
   const worn = s.a.interior && d[s.extras + EXTRA_INFO * 4 + 3]! > 0;
   const wearAt = s.extras + EXTRA_WEAR * 4;
   const wounds = s.a.interior ? s.wounds : 0;
@@ -407,7 +408,8 @@ function bakeSkin(s: FarSkin, out: FarBuffers, vertex: number, index: number, ma
     // A stain is strong at the wound and thins out; a wet body is only a little darker and redder all over.
     const blood = Math.min(0.9, stain * stain * 1.6 + wet * 0.06);
     let r8 = col[i * 4]!, g8 = col[i * 4 + 1]!, b8 = col[i * 4 + 2]!;
-    r8 += (104 - r8) * blood; g8 += (7 - g8) * blood; b8 += (9 - b8) * blood;
+    // Dried, it is darker and browner (the skin shader's own drying: a baked body is an old one).
+    r8 += (104 - 36 * dry - r8) * blood; g8 += (7 + 3 * dry - g8) * blood; b8 += (9 - b8) * blood;
     // The wound itself is dark and deep.
     r8 += (40 - r8) * hole; g8 += (2 - g8) * hole; b8 += (4 - b8) * hole;
     // Char: all over at once, or walking out from where the fire caught, as the shader's far level has it (its noise
@@ -796,6 +798,15 @@ export class Character implements CharacterInstance {
   }
 
   /**
+   * How dry the blood and the bared flesh on it are drawn, 0 wet to 1 dry (the skin shader, "drying"): gore dries the dead
+   * where they lie, in a few steps, as the blood on the floor round them dries. Kept in the spare channel of fire's second
+   * texel, so it goes with a baked body's snapshot and a limb cut from the body.
+   */
+  setDry(amount: number): void {
+    this.data[this.extras + EXTRA_FIRE * 4 + 7] = amount;
+  }
+
+  /**
    * An organ has been thrown out of this body (a blow-out): it is no longer drawn inside it. `left` chooses the lung.
    * Kept in the body's texels, so it goes with a baked body's snapshot and with a top half cut from it, and ends at reset.
    */
@@ -1170,6 +1181,11 @@ export class SeveredPart implements SeveredLimb {
 
   get burnThrough(): number {
     return this.data[this.extras + EXTRA_FIRE * 4 + 5]!;
+  }
+
+  /** As the body's: the blood on a limb dries where it lies. */
+  setDry(amount: number): void {
+    this.data[this.extras + EXTRA_FIRE * 4 + 7] = amount;
   }
 
   /** The material a baked copy of this piece is drawn with (gore/far.ts), as a body's. */

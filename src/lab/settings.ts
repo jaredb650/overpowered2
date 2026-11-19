@@ -38,6 +38,7 @@ export interface LabSettings {
   vmBlood: boolean;
   /** Wear you can see: skin torn as a limb's pool is spent (the gore update's W1). */
   wear: boolean;
+  dryFlesh: boolean;
   /** A kill's big stains, and a round's own mark (the gore update's decals). */
   bigBlood: boolean;
   hitBlood: boolean;
@@ -60,7 +61,7 @@ const CONVENIENCES: readonly (keyof LabSettings)[] = ['spawn', 'ai', 'row'];
 const DEFAULTS: LabSettings = {
   spawn: 'trooper', ai: 'off', row: 5, god: ON_RANGE, arsenal: false, reserves: false, speed: 1, overlay: ON_RANGE,
   gibbing: true, explosiveDeaths: true, progression: !ON_RANGE, muscles: true, gibThrow: true, force: 1,
-  flinch: true, clutch: true, carry: true, aimspoil: true, sway: true, vmBlood: true, fire: true, wear: true, bigBlood: true, hitBlood: true,
+  flinch: true, clutch: true, carry: true, aimspoil: true, sway: true, vmBlood: true, fire: true, wear: true, dryFlesh: true, bigBlood: true, hitBlood: true,
   // `?messpush=0` and `?messrest=0` are these two, off.
   messPush: MessTuning.push, messRest: MessTuning.rest, messFar: MessTuning.far, bloodMap: true,
 };
@@ -107,6 +108,7 @@ export function applyFlags(s: LabSettings): void {
   for (const k of REACT_SWITCHES) DevFlags[k] = s[k];
   DevFlags.vmBlood = s.vmBlood && !switchedOff('vmblood');
   DevFlags.wear = s.wear && !switchedOff('wear');
+  DevFlags.dryFlesh = s.dryFlesh && !switchedOff('dryflesh');
   DevFlags.bigBlood = s.bigBlood && !switchedOff('bigblood');
   DevFlags.hitBlood = s.hitBlood && !switchedOff('hitblood');
   DevFlags.fire = s.fire && !switchedOff('fire');

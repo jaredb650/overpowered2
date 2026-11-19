@@ -169,9 +169,9 @@ None of these exist on skitters and drones, which is how gore and the enemies kn
   fetch an integer divide. 37 bones take 148 texels; after them come `EXTRA_PARAMS` (blood, flash, burn, frost), `EXTRA_INFO`
   (wound count, seed, fractures, most worn region), two `EXTRA_FIRE` texels, 32 wounds of 3 and three wear texels: 251 of
   256 (`EXTRA_*` in `anatomy/glsl.ts`). **Five are free.** A new block goes at the end, before `EXTRA_TEXELS`, which must
-  count it so a severed limb takes it along (`copySurfaceTo`). Spare channels inside the used texels: the second fire
-  texel's `z` holds which organs have been thrown out of the body, a bit each (`takeOrgan`; what is under the skin leaves
-  those out), and its `w` is free.
+  count it so a severed limb takes it along (`copySurfaceTo`). The second fire texel's spare channels are spent too: `z`
+  holds which organs have been thrown out of the body, a bit each (`takeOrgan`; what is under the skin leaves those
+  out), and `w` how dry its blood is (`setDry`).
 - Object-space normal atlas, rotated by the skin matrix in the vertex shader. No tangents, no tangent seams.
 - Atlas A is sRGB albedo with metalness (alpha below 0.5) or emissive (above) packed in alpha. Atlas B is normal plus
   roughness.
@@ -296,6 +296,14 @@ sooty. Plate does not burn through (`sPlate`). While the flames are on it the ba
 (`FIRE_GLOW`); a smouldering body's bared flesh is dark. A body with any burn-through draws with the wounded program
 (`marked`), as a worn one does; it costs no extra draw and works at every level of detail and on a severed limb. Who
 drives it: `docs/notes/gore.md`, "Fire on bodies".
+
+**Under a hard light, and in the dark (the fit pass).** Three rules at the end of the lighting (`FRAG_AO`), each from a
+night check in The Crucible (`docs/notes/gore.md`, "One look"): a burnt pixel (`sCoal`: char, soot, and what a fire
+has bared and cooked) gives back no more light than `sMost` however hard it is lit (`COAL`: 0.035 char, 0.08 cooked
+meat, 0.3 bone), so a burnt body is black under the weapon light and not tan; bared raw flesh (`sBare`) is lit a second
+time by the brightness of the light on it (`BARE`: 0.8 of it, at most 0.55) and not by a fixed amount, so a torn limb
+does not glow in a dark corner; and blood and bared flesh dry (`sDry`, the second fire texel's `w`,
+`Character.setDry`): darker, browner (x 0.58, 0.44, 0.44) and dull (roughness 0.2 to 0.62).
 
 **The kit burns with the body.** A helmet, a rifle or a pack is a mesh of its own and never read the body's burn: a burnt man
 used to wear a clean white helmet. `charredVariant(material)` makes a burnt twin of any character material the first time one

@@ -417,8 +417,46 @@ His trunk is 48.5 litres, an arm 8.5 by capsule (5.8 by mesh), a leg 21.4 (14.2)
 
 What is seen in the half second after is the launch's work (G2, above): before, most of it was on the floor inside the
 fireball by then. The checks are in `gibs.test.ts` (a rocket's kill on real Rapier) and `ragdoll.test.ts` (a gib throws 5
-to 7 limbs, never fewer than five). Brute, Husk, Gunner and the bosses go through the same code with their own kits; the
-table's numbers were measured on the Trooper only.
+to 7 limbs, never fewer than five). The table's numbers are the Trooper's; every archetype is below.
+
+**The audit, every archetype (the fit pass, 2026-11-19).** One of each on the Test Range with a point of health left and
+a rocket at its feet (`GIB=kill tools/scripts/gib-seq.mjs`, `GIB_ID` each in turn; the bosses with `GIB=killboss`, which
+watches their own ten-second death). Litres: the kit and what is thrown as trunk pieces by mesh, limbs by their hit
+capsules (about 1.5 times their mesh), the rest by mesh.
+
+| Archetype | Trunk kit | Thrown as trunk pieces | Limbs, of the body's | Organs, ribs, slabs, meat | Loose gut |
+|---|---|---|---|---|---|
+| Husk | 34.0 | 34.2 in 5 | 59.3 of 59.2 | 15.8, 1.4, 7.7, 3.5 | 12.5 |
+| Trooper | 41.2 | 43.2 in 5 | 71.1 of 71.1 | 18.5, 1.4, 5.9, 3.4 | 12.5 |
+| Gunner | 94.8 | 96.2 in 5 | 100.0 of 100.0 | 13.2, 2.6, 7.4, 3.4 | 9.4 |
+| Brute | 194.5 | 194.5 in 6 | 274.4 of 274.4 | 24.2, 7.0, 20.6, 3.9 | 15.2 |
+| Stalker | 51.4 | 50.8 in 5 | 65.7 of 65.7 | 17.2, 1.7, 5.5, 4.4 | 9.9 |
+| Rocketeer | 52.0 | 53.4 in 5 | 85.9 of 85.9 | 12.9, 2.0, 5.6, 10.2 | 13.3 |
+| Sniper | 48.6 | 51.3 in 5 | 75.5 of 75.5 | 15.0, 1.9, **0.6**, 2.5 | 11.1 |
+| Riot | 79.4 | 81.6 in 5 | 119.6 of 119.6 | 18.2, 3.6, 6.8, 4.3 | 14.9 |
+| Leaper | 23.6 | 24.0 in 5 | 46.9 of 47.0 | 10.0, 1.2, 4.2, 3.2 | 11.1 |
+| Bomber | 42.0 | 43.9 in 5 | 64.8 of 64.8 | 14.2, 1.3, 4.5, 3.4 | 11.8 |
+| Burner | 74.9 | 78.9 in 5 | 109.6 of 109.6 | 12.7, 3.0, 7.8, 1.2 | 9.4 |
+| Warden | 198.8 | 201.8 in 5 | 114.1 of 114.2 | 22.3, 3.6, 6.7, 2.1 | 31.9 |
+| Juggernaut (boss) | 720.6 (waist) | 720.6 in 2 | 907.3 of 907.4 | 68.2 together | 42.5 |
+| Skitter (machine) | hull 31.3 | 31.3 in 4 (was nothing) | every leg and the head (was 31.9 of 44.4) | 1.1 of scrap | |
+| Drone (machine) | hull 48.8 | 48.8 in 4 (was nothing) | 92.7 of 92.8 | 1.0 of scrap | |
+| Titan (boss, a machine) | hull 1,225 | 1,225 in 4 (was nothing) | 7,360 of 7,360 | 0.9 of scrap | |
+
+What it found, and what was done:
+
+- **Every flesh archetype adds up**: each trunk leaves as its own kit (the pieces come to the kit's volume, a few
+  percent over where their torn faces are pushed out), and every limb leaves. Nothing was wrong there.
+- **The machines' hulls were deleted**: fixed, `buildWreck` (above). **A skitter also lost two of its six legs** two
+  bursts in three: its middle legs hang on what the humanoid list of limbs calls forearms, which a burst threw only when
+  the dice split an "arm" in two. A machine's limbs are now thrown by bone, every one (`gibs.test.ts`).
+- **The Sniper's slabs are scraps** (0.05 to 1.0 litre each, where a Trooper's are 0.6 to 2.8): a slab is the biggest
+  island of trunk skin under its patch, and the Sniper's trunk is cut into many small islands (pouches, the cloak). Its
+  burst still adds up without them (trunk, limbs, 15 litres of organs). Not fixed: it wants a slab that can span islands.
+- **The bosses** die by their own sequence and burst at the end of it through the same `gib` (5 s in for the
+  Juggernaut, 8 s for the Titan). The Juggernaut adds up as any flesh body does. **The Titan is a machine, and its hull
+  was deleted** like the drone's: 1,225 litres of it gone, its six limbs and twelve scraps all that was left of the
+  biggest thing in the game. It breaks into its hull's four pieces now.
 
 **A machine's hull (`buildWreck` in `torso.ts`, `Gore.breakHull`).** The skitter and the drone have no trunk kit: no
 flesh, no ribs. Their hull is cut at load like any kit, with every limb that leaves on its own folded away: in two
@@ -604,6 +642,40 @@ blood.bigRay(kind, origin, dir, maxDist, size, along?, delay?, minor?);   // wha
 - **Switches:** `?bigblood=0` (dev panel "Blood: big stains on a kill") leaves only the small drops; `?hitblood=0` ("Blood: a
   mark from every round") takes the per-hit fan away.
 - Tests: `blood.test.ts`, "big stains". Scenes: `tools/scripts/decal-scenes.mjs` (the same seeded kills on any build).
+
+### One look: flesh dries, and what a hard light does (the fit pass, 2026-11-19)
+
+The six lanes each drew blood and flesh their own way. Seen together at night in The Crucible
+(`tools/scripts/fit-look.mjs`), four things disagreed; each is one rule now.
+
+- **Flesh dries, as the blood on the floor does.** A floor of stains that had dried dark was strewn with meat, torn
+  faces and bodies as wet and bright as the second they were made. Loose pieces and cut faces: every piece's instance
+  colour carries the world time it was made (`burnTint`'s green), and from 14 s after that over 75 s more (`DryTuning` in
+  `cooked.ts`) its wet materials dull: darker, browner, rougher (0.56), a quarter of the clearcoat, 0.4 of their own
+  red. Tacky, not matt. Bodies and limbs: gore dries the dead where they lie (`Gore.dryTheDead`, twice a second, six
+  steps over the same times, each one write to the body's skin: `Character.setDry`), and the skin shader darkens and
+  dulls the blood on the skin, each wound's stain and the flesh that wear or a wound has bared. A round into a dried
+  corpse wets it again. A baked body is painted as dry as it was. `?dryflesh=0` (dev panel, "Flesh dries") turns all of
+  it off. Not dried: what is inside a wound's hole (the modelled interior), and organs dry like any piece.
+- **Bared flesh is lit by the light that reaches it** (`characters/material.ts`, `BARE`). Wear's torn flesh had a fixed
+  warm fill so that red would read under this map's blue light; with a fixed fill a torn limb in a dark corner was the
+  brightest thing on the screen at 20 m, a glowing orange, while the blood on the floor under it was nearly black. It
+  is lit again by the brightness of what reaches it, as floor blood is (`opTint`), levelling off under a hard lamp.
+  It still reads at 20 m (the night sheet), as a dark red in shadow.
+- **Burnt things are dark whatever is shone on them** (`COAL`). Char's albedo is a hundredth, but the weapon light at
+  two metres is bright enough to turn even that pale: a burnt-through corpse under it read as tan skin with wet red
+  patches, raw and not burnt. What a burnt pixel gives back now levels off: char near black (0.035), the meat a fire
+  bared a dark brown-red (0.08, and matt), bone a sooty grey (0.3). So a burnt body is black under any light, with its
+  muscle and bone showing through, which is what the owner asked of a body that has clearly burned.
+- **Blood on the floor stays red under the weapon light** (`render/decalShader.glsl.ts`). A stain lets a fifth of the
+  floor through, and under the weapon light the floor is many times white: wet stains washed to pink, dried ones nearly
+  away, and every drop's raised lip was ringed in white (the decal lane's "pale rims"). The harder the light, the less
+  of the floor comes through a stain unreddened (its opacity rises with the light, where there is blood and not mist),
+  and the glint off a lip levels off.
+
+What was looked at and left: the colours themselves. Floor blood (wet 0.22 to 0.125 red, dry 0.115 to 0.05), the body's
+stains (0.17 to 0.075), bared muscle (0.3 to 0.1), cut faces and the blood on the weapon are the same family of
+saturated reds and read as one in the night frames; none was retuned.
 
 ### Blood that reacts (2026-11-19, the gore update's B1, B2, B4)
 
@@ -1280,6 +1352,21 @@ Today's 40 full corpses all in view are about 7 ms there. A full-screen layer of
 machine's, 0.07 ms, so twenty layers under the player's feet are 1.4 ms.
 
 ## Known limitations
+
+The fit pass (2026-11-19):
+
+- **A baked burnt body goes pale under the weapon light.** A baked body is vertex colours through the far material,
+  which has no rule for char: within the light's reach it is lit like anything dark. Bodies are baked at 11 m and
+  beyond or out of sight, where the weapon light is weak; one baked in plain sight in a crowded heap can show it.
+- **Inside a wound's hole the old fixed fill is unchanged** (`anatomy/interior.ts`): the modelled interior still has
+  its own warm light whatever reaches it, so in a dark corner a blown-out chest is brighter than the worn skin round
+  it. Left: it is the look of wounds the owner has had since before the update.
+- **A body that dies on its feet still ends folded on its knees.** Measured (`PROBE=pose`, six headings): four of six
+  SMG collapses and six of six plain drops end with both knees folded right up (2.6 to 2.9 rad). The two knobs that
+  exist (topple speed 1.6 to 2.6, the weak leg's lead 0.14 to 0.32) leave it at four of six. Varying it needs a real
+  change (a leg that slides out from under) judged by eye, and was not cheap; not done.
+- **Two heap tests hang on the dice** (`mess.test.ts`, the strand and the trunk piece on a heap): whether a piece
+  thrown onto eight bodies lodges or rolls off depends on its spin. They pass on the suite's seed.
 
 The mess (2026-11-19):
 

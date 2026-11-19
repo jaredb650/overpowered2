@@ -14,7 +14,8 @@ export const EXTRA_INFO = 1;
  * caught, in bind space, and in w how much that point matters (0: the whole body burns at once, as a blast's burn does).
  * The second: x how hot the char still is (1 alight, fading to 0 cold), y how far the skin has burnt through, 0..1, and
  * in z (not fire's, but the channel was spare and the texels are nearly spent) which organs have been thrown out of the
- * body, a bit each (`Organ` in build.ts, `Character.takeOrgan`): what is under the skin leaves those out. w is free.
+ * body, a bit each (`Organ` in build.ts, `Character.takeOrgan`): what is under the skin leaves those out; and in w how
+ * dry the blood and the bared flesh on the body are, 0..1 (`Character.setDry`). The texel is full.
  */
 export const EXTRA_FIRE = 2;
 export const EXTRA_WOUNDS = 4;

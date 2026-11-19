@@ -316,6 +316,12 @@ All three run on the Test Range through `shot.mjs` (headers have the commands an
   player's eye at `GIB_DIST` metres, stepped on world frames with the dice seeded, and for each moment what is in the world
   and how much of it is in the air, and its litres (the volume audit in `gore.md`). `GIB_ID` picks the archetype,
   `GIB_STILLS` keeps full frames.
+  `GIB=kill` is the same rocket on a body with one point of health, so every archetype bursts (the audit across the
+  cast: `for id in husk trooper ...; do GIB=kill GIB_ID=$id ...`); `GIB=killboss` watches a boss's ten-second death.
+- `tools/scripts/fit-look.mjs`: the gore update's "one look" checks, at night in The Crucible on the frozen clock
+  (`FIT_CASE=blood|wear|burnt|rims|organ|heap`): wear, a close kill and a burst in one frame at 0.25 s to 130 s; worn
+  limbs at 5 to 20 m; a body burnt to death, close; a wet stain with drops on it; a blown-out chest; a burst on a heap.
+  Each with the weapon light off and on. Stills beside `--out`, the numbers on stderr.
 - `tools/scripts/gib-pieces.mjs`: close-ups of the piece models (`GIB_SET=slabs|limbs|trunk|loose`), with each one's size and volume.
 - `tools/scripts/gib-cost.mjs`: a row of bodies each burst by its own rocket; the call, the slowest frame after it, and any
   shader program that first appears (the first-gib stall).

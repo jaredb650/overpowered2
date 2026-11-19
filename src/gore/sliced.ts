@@ -101,7 +101,7 @@ export class Half implements BurningPiece {
     const mesh = this.mesh as THREE.InstancedMesh;
     if (!mesh.isInstancedMesh) return;
     this.burn = amount;
-    mesh.setColorAt(0, burnTint(_tint, amount));
+    mesh.setColorAt(0, burnTint(_tint, amount, 0, this.born));
     mesh.instanceColor!.needsUpdate = true;
   }
 }
@@ -226,15 +226,14 @@ export class SliceField {
   }
 
   /**
-   * The mesh a piece is drawn as. One of a body with any char on it (`burn`), or with flames on it, is an instanced mesh
-   * of one: an instance has a colour of its own, which is where a rigid piece's char is kept (`burnTint`), so a burnt
-   * body's halves are burnt and can burn on. Anything else is the plain mesh it always was.
+   * The mesh a piece is drawn as: an instanced mesh of one. An instance has a colour of its own, which is where a rigid
+   * piece keeps how burnt it is and when it was made (`burnTint`): a burnt body's halves are burnt and can burn on, and
+   * every cut face dries (cooked.ts).
    */
   private meshFor(side: CutSide, skin: THREE.Material, burn: number): THREE.Mesh {
-    if (burn <= 0) return new THREE.Mesh(side.geometry, [skin, this.cap()]);
     const mesh = new THREE.InstancedMesh(side.geometry, [skin, this.cap()], 1);
     mesh.setMatrixAt(0, IDENTITY);
-    mesh.setColorAt(0, burnTint(_tint, burn));
+    mesh.setColorAt(0, burnTint(_tint, burn, 0, this.ctx.time.elapsed));
     return mesh;
   }
 

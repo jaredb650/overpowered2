@@ -1,5 +1,5 @@
 /** Fire on bodies (gore/fire.ts): the living are fed, a corpse burns on and smoulders, limbs burn, soot for blood. */
-import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import * as THREE from 'three';
 import { humanoidRig } from '../characters/rig';
 import { Physics } from '../physics/Physics';
@@ -220,12 +220,14 @@ describe('a burnt body that comes apart (the seams between fire and the rest)', 
     blood.restore();
   });
 
-  it('an unburnt body bursts as red as ever, in plain meshes', () => {
+  it('an unburnt body bursts as red as ever: its pieces are not burnt at all', () => {
     const blood = bloodCalls();
     const opened = gore.trail.opened;
     gore.gib(spawn(), new THREE.Vector3(0, 1, 0.5), 300);
     for (const p of halves()) {
-      expect((p.mesh as THREE.InstancedMesh).isInstancedMesh).not.toBe(true);
+      // Red 1 is no char. (Its green is the time it was made, for the cut face's drying.)
+      expect((p.mesh as THREE.InstancedMesh).instanceColor!.getX(0)).toBe(1);
+      expect(p.burn).toBe(0);
       expect(p.dry).toBe(false);
     }
     run(1);
@@ -433,5 +435,50 @@ describe('fire burns through the skin (F2)', () => {
     run(FireTuning.corpseBurn[1] + 1);
     expect(c.burnThrough).toBe(0);
     expect(c.burn).toBe(0);
+  });
+});
+
+describe('flesh dries where it lies (the fit pass)', () => {
+  type Dried = TestDummy & { dried: number[] };
+  const drying = (x = 0): Dried => {
+    const c = spawn(x, 0) as Dried;
+    c.dried = [];
+    (c as unknown as { setDry(amount: number): void }).setDry = amount => { c.dried.push(amount); };
+    return c;
+  };
+  afterEach(() => {
+    DevFlags.dryFlesh = true;
+  });
+
+  it('a body at rest dries in a few steps from a quarter of a minute on, and a round into it wets it again', () => {
+    const c = drying();
+    gore.ragdoll(c);
+    run(12);
+    // Nothing yet: the blood on the floor round it is only just starting to dull.
+    expect(c.dried).toEqual([]);
+    run(120);
+    // Six steps, each written once, ending dry.
+    expect(c.dried.length).toBe(6);
+    expect(c.dried.at(-1)).toBe(1);
+    for (let i = 1; i < c.dried.length; i++) expect(c.dried[i]!).toBeGreaterThan(c.dried[i - 1]!);
+    const hit = gore.raycastCorpses(new THREE.Vector3().setFromMatrixPosition(c.bones[0]!.matrixWorld).add(new THREE.Vector3(0, 1.5, 0)), new THREE.Vector3(0, -1, 0), 4);
+    gore.damageCorpse(hit!, { amount: 10, type: 'bullet', point: hit!.point.clone(), dir: new THREE.Vector3(0, -1, 0), force: 4, source: 'smg' });
+    expect(c.dried.at(-1)).toBe(0);
+  });
+
+  it('every piece carries the time it was made, and nothing dries with the switch off', () => {
+    run(3);
+    const made = ctx.time.elapsed;
+    gore.gib(spawn(), new THREE.Vector3(0, 1, 0.5), 300);
+    const mesh = (gore.sliced as unknown as { halves: { mesh: THREE.InstancedMesh }[] }).halves[0]!.mesh;
+    expect(mesh.instanceColor!.getY(0)).toBeCloseTo(made, 3);
+    const chunk = (gore.chunks as unknown as { all: { kind: string; slot: number; alive: boolean }[]; meshes: Map<string, THREE.InstancedMesh> });
+    const piece = chunk.all.find(c => c.alive)!;
+    expect(chunk.meshes.get(piece.kind)!.instanceColor!.getY(piece.slot)).toBeCloseTo(made, 3);
+    DevFlags.dryFlesh = false;
+    const c = drying(5);
+    gore.ragdoll(c);
+    run(140);
+    expect(c.dried).toEqual([]);
   });
 });

@@ -388,7 +388,7 @@ export class ChunkField {
     mesh.receiveShadow = true;
     for (let i = 0; i < cap; i++) mesh.setMatrixAt(i, _hide);
     // Every kind has a colour per piece from the start, all white: one program for burnt and unburnt alike.
-    mesh.setColorAt(0, _tint.setRGB(1, 1, 1));
+    mesh.setColorAt(0, burnTint(_tint, 0));
     this.ctx.render.scene.add(mesh);
     this.meshes.set(kind, mesh);
     this.ring.set(kind, 0);
@@ -497,7 +497,7 @@ export class ChunkField {
     else if (c.alive) this.retire(c);
     // Burnt (`char`): toward black, unevenly, so a heap of them is not one flat colour.
     const tinted = this.meshes.get(kind)!;
-    tinted.setColorAt(c.slot, burnTint(_tint, this.char, 0.18));
+    tinted.setColorAt(c.slot, burnTint(_tint, this.char, 0.18, this.ctx.time.elapsed));
     tinted.instanceColor!.needsUpdate = true;
     c.dry = this.char >= FireTuning.sootFrom;
 

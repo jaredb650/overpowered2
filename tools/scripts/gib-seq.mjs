@@ -41,6 +41,8 @@ const CASES = {
   // The same rocket on a body with one point of health left: every archetype bursts, a Brute and a boss too (the volume
   // audit across the whole cast: tools/scripts/gib-audit.mjs reads this case).
   kill: { steps: BLAST_STEPS, act: r => { r.target.health = Math.min(r.target.health, 1); r.target.plates = []; r.explode(0.25, 0.25, r.spec.rocket); } },
+  // And for a boss, whose death is a sequence of its own that ends in the burst: the same, watched for ten seconds.
+  killboss: { steps: [0, 30, 60, 120, 180, 240, 300, 360, 420, 480, 540, 600], act: r => { r.target.health = Math.min(r.target.health, 1); r.target.plates = []; r.explode(0.25, 0.25, r.spec.rocket); } },
   rocket3: { crowd: 3, steps: BLAST_STEPS, act: r => r.explode(0.2, 0.25, r.spec.rocket) },
   grenade: { crowd: 3, steps: BLAST_STEPS, act: r => r.explode(0.2, 0.15, r.spec.grenade) },
   barrel: { steps: BLAST_STEPS, act: r => r.explode(0.5, 0.6, r.spec.barrel) },

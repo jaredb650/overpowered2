@@ -69,6 +69,10 @@ across, 6 down, 256 px) over 20 big ones (4 across, 5 down, 512 px). `decalSheet
 decal material adds to the lit shader. It was 4 by 4 cells at 2048 x 2048, and every blood stain in the game was one of
 four blots.
 
+- **Under the weapon light blood stays red** (the fit pass, `DECAL_LIGHT`): a stain's opacity rises with the light on it
+  (`opHard`: 0 in the dark, 0.83 at a brightness of 3), where there is blood and not mist, because the floor under it is
+  then many times white and the fifth of it a thin stain lets through washed the stain to pink; and the glint off a
+  wet lip levels off (`directSpecular / (1 + 0.7 x light)`), or every drop was ringed in white.
 - **Marks are pictures** (bullet holes, exit craters, scorches, cuts, cracks): albedo, coverage and a height that
   becomes the normal, as before. Every mark is dark but `exit`, the pale spall crater, so it shows on a wall in shadow.
 - **Blood is not a picture.** A blood cell stores fields and the decal shader draws liquid from them: the **outline**

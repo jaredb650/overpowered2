@@ -18,6 +18,7 @@ import { WEAPONS } from '../weapons/data';
 import { BloodField, BloodTuning } from './blood';
 import { Tracks } from './tracks';
 import { FireField, FireTuning, type ParkedFire } from './fire';
+import { DryTuning, tickFlesh } from './cooked';
 import { ChunkField, scatter, type ChunkKind } from './chunks';
 import { ImpactEvents, impactKind, ImpactTuning } from './impacts';
 import { CollapseDrive, impactStrength, MASS_PASS, MuscleTuning, STAND_PASS, STRENGTH_PASS, WEIGHT_PASS, type CollapseOptions, type DownedBody, type KnockdownOptions, type LimbStrength } from './muscles';
@@ -303,6 +304,8 @@ const BLOWN_RIBS: Record<string, readonly RibKind[]> = { L: ['ribsLL', 'ribsUL']
 
 /** A character that has died and is in our care. */
 class DeadBody {
+  /** How dry its blood is drawn, 0..1, in the steps gore has written to its skin (`Gore.dryTheDead`). */
+  dry = 0;
   rag: Rag | null = null;
   readonly stakes: Stake[] = [];
   sinking = -1;
@@ -400,6 +403,8 @@ class LooseLimb {
   parent: THREE.Object3D | null = null;
   /** World time it last came to rest. */
   restedAt = 0;
+  /** How dry its blood is drawn, as a body's. */
+  dry = 0;
   readonly stakes: Stake[] = [];
   health = GoreTuning.limbBurstHealth;
   readonly lastPos = new THREE.Vector3();
@@ -1371,6 +1376,7 @@ export class Gore implements GoreSystem {
     body.damage.set(f.was.damage);
     body.pooled = f.was.pooled;
     body.bare = f.was.bare;
+    body.dry = f.was.dry;
     body.smearLeft = 0;
     body.freshAt = this.ctx.time.elapsed;
     body.rag = f.rag;
@@ -1998,42 +2004,51 @@ export class Gore implements GoreSystem {
     let liveLimbs = 0;
     for (const l of this.limbs) if (l.rag.active) liveLimbs++;
     let spare = clamp(t.maxLiveLimbs - liveLimbs - GIB_REGIONS.length, 0, 2);
-    for (const region of GIB_REGIONS) {
-      const lower = GIB_LOWER[region];
-      const inTwo = lower !== undefined && spare > 0 && Math.random() < 0.35;
-      if (inTwo) spare--;
-      for (const use of inTwo ? [lower, region] : [region]) {
-        const bone = info.severBone.get(use);
-        if (bone === undefined) continue;
-        markSevered(info, char.severed, _skip);
-        if (_skip[bone] === 1 || body?.skip[bone] === 1) continue;
-        const piece = this.takePiece(char, bone);
-        markSubtree(info, bone, _mask);
-        // What has already gone from under it (its own lower part, a moment ago) is not in this piece.
-        for (let i = 0; i < info.count; i++) if (_skip[i] === 1 || body?.skip[i] === 1) _mask[i] = 0;
-        // Thrown by the gib, not killed in the air, whatever its seed: it takes the dial, and `fling` holds the throw.
-        const limb = this.addLimb(char, piece, bone, _mask, seeds, false, dry);
-        char.hideLimb(bone);
-        this.fire.split(char, piece, _mask);
-        const p = limb.rag.center;
-        // A limb falls on the tempo dial and lands as far as it would at full gravity. Chunks keep world gravity and `launch`.
-        const fling = launch * limb.rag.throwScale;
-        if (thrownOut()) this.throwOf('limb', p, _v2).multiplyScalar(limb.rag.throwScale);
-        else {
-          _v2.copy(p).sub(center);
-          if (_v2.lengthSq() < 1e-4) randomUnit(_v2);
-          _v2.normalize().multiplyScalar(fling * rand(0.65, 1.15));
-          _v2.y += fling * rand(0.25, 0.6);
+    // A machine's limbs are not a man's: a skitter's middle legs hang on what a man would call his forearms, and were
+    // thrown only when the dice split an "arm" in two (a third of the time), and deleted with the body otherwise: 12 of
+    // its 44 litres of leg (the volume audit, every archetype). Every limb a machine has leaves it.
+    const throwLimb = (bone: number): void => {
+      markSevered(info, char.severed, _skip);
+      if (_skip[bone] === 1 || body?.skip[bone] === 1) return;
+      const piece = this.takePiece(char, bone);
+      markSubtree(info, bone, _mask);
+      // What has already gone from under it (its own lower part, a moment ago) is not in this piece.
+      for (let i = 0; i < info.count; i++) if (_skip[i] === 1 || body?.skip[i] === 1) _mask[i] = 0;
+      // Thrown by the gib, not killed in the air, whatever its seed: it takes the dial, and `fling` holds the throw.
+      const limb = this.addLimb(char, piece, bone, _mask, seeds, false, dry);
+      char.hideLimb(bone);
+      this.fire.split(char, piece, _mask);
+      const p = limb.rag.center;
+      // A limb falls on the tempo dial and lands as far as it would at full gravity. Chunks keep world gravity and `launch`.
+      const fling = launch * limb.rag.throwScale;
+      if (thrownOut()) this.throwOf('limb', p, _v2).multiplyScalar(limb.rag.throwScale);
+      else {
+        _v2.copy(p).sub(center);
+        if (_v2.lengthSq() < 1e-4) randomUnit(_v2);
+        _v2.normalize().multiplyScalar(fling * rand(0.65, 1.15));
+        _v2.y += fling * rand(0.25, 0.6);
+      }
+      for (const part of limb.rag.parts) {
+        part.body.setLinvel(_v2, true);
+        randomUnit(_v3).multiplyScalar(rand(8, 18));
+        part.body.setAngvel(_v3, true);
+      }
+      limb.rag.muscle?.kick(_v2, 1);
+    };
+    if (machine) {
+      // By bone, not by region: two of a machine's limbs may hang on what the rig calls one region.
+      for (let bone = 1; bone < info.count; bone++) if (char.rig.bones[bone]!.severable) throwLimb(bone);
+    } else {
+      for (const region of GIB_REGIONS) {
+        const lower = GIB_LOWER[region];
+        const inTwo = lower !== undefined && spare > 0 && Math.random() < 0.35;
+        if (inTwo) spare--;
+        for (const use of inTwo ? [lower, region] : [region]) {
+          const bone = info.severBone.get(use);
+          if (bone !== undefined) throwLimb(bone);
         }
-        for (const part of limb.rag.parts) {
-          part.body.setLinvel(_v2, true);
-          randomUnit(_v3).multiplyScalar(rand(8, 18));
-          part.body.setAngvel(_v3, true);
-        }
-        limb.rag.muscle?.kick(_v2, 1);
       }
     }
-
     if (machine) {
       // Its limbs have left it: what is left is the hull, and that breaks into its own pieces.
       const thrown = this.breakHull(char, hips, blastDir, launch);
@@ -2142,7 +2157,7 @@ export class Gore implements GoreSystem {
         warmed = true;
       } else if (isMachine(char)) {
         // A machine's hull is cut here too, with its limbs folded away, so its first burst pays for no cut.
-        for (const bone of rigInfo(char.rig).severBone.values()) if (bone > 0) char.hideLimb(bone);
+        char.rig.bones.forEach((def, bone) => { if (bone > 0 && def.severable) char.hideLimb(bone); });
         this.wreckFor(char);
       }
       char.release();
@@ -2462,7 +2477,7 @@ export class Gore implements GoreSystem {
    */
   private breakHull(char: CharacterInstance, hips: THREE.Vector3, blastDir: THREE.Vector3, launch: number): number {
     const info = rigInfo(char.rig);
-    for (const bone of info.severBone.values()) if (bone > 0) char.hideLimb(bone);
+    for (let bone = 1; bone < info.count; bone++) if (char.rig.bones[bone]!.severable) char.hideLimb(bone);
     const wreck = this.wreckFor(char);
     const floor = this.floorUnder(hips);
     for (const piece of wreck) {
@@ -2653,6 +2668,11 @@ export class Gore implements GoreSystem {
       if (damage.gib) {
         this.gib(char, hit.point, forceOf(damage));
         return;
+      }
+      // Fresh blood on it: wet again, and it dries from now.
+      if (target.dry > 0 && !dry) {
+        target.dry = 0;
+        char.setDry?.(0);
       }
       if (target.rag && !target.rag.active) {
         this.wake(target);
@@ -2959,10 +2979,40 @@ export class Gore implements GoreSystem {
   // Frame
   // -------------------------------------------------------------------------------------------
 
+  /**
+   * The blood and the bared flesh on the dead dry where they lie, as the blood on the floor round them does
+   * (`DryTuning`, shared with the loose pieces' own drying in cooked.ts): from 14 s at rest, over 75 s more, in six steps,
+   * each one write to the body's skin (a body at rest sends its texture only when something is written to it). A round
+   * into it wets it again (`damageCorpse`). Twice a second, and nothing with the switch off.
+   */
+  private dryTheDead(now: number): void {
+    if (now < this.dryAt) return;
+    this.dryAt = now + 0.5;
+    if (!DevFlags.dryFlesh) return;
+    const step = (since: number): number => Math.floor(clamp((now - since - DryTuning.from) / DryTuning.over) * 6) / 6;
+    for (const b of this.bodies) {
+      if (b.down || b.sinking >= 0 || b.vapor >= 0 || b.rag?.active) continue;
+      const dry = step(b.freshAt);
+      if (dry <= b.dry) continue;
+      b.dry = dry;
+      b.char.setDry?.(dry);
+    }
+    for (const l of this.limbs) {
+      if (l.sinking >= 0 || l.rag.active || l.slot >= 0 || l.machine) continue;
+      const dry = step(l.restedAt);
+      if (dry <= l.dry) continue;
+      l.dry = dry;
+      l.piece.setDry?.(dry);
+    }
+  }
+  private dryAt = 0;
+
   update(): void {
     const { time } = this.ctx;
     const dt = time.dt;
     const now = time.elapsed;
+    tickFlesh(now);
+    this.dryTheDead(now);
     this.impacts.frame();
     this.updatePins();
     const t = GoreTuning;

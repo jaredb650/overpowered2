@@ -415,6 +415,9 @@ describe('a machine bursts into its own hull (the volume audit, for machines)', 
     const thrown = pieces.reduce((sum, piece) => sum + litres(piece.side.geometry), 0);
     expect(thrown).toBeGreaterThan(hull * 0.85);
     expect(thrown).toBeLessThan(hull * 1.15);
+    // And every limb it has: a skitter's six legs and its head, where four legs and the head went and two were deleted.
+    const limbBones = new Set(char.rig.bones.map((b, i) => (b.severable && i > 0 ? i : -1)).filter(i => i > 0));
+    expect(gore.stats().limbs).toBe(limbBones.size);
     // Scrap still flies with them, less of it than when scrap was all there was.
     expect(chunks().filter(c => c.kind === 'scrap').length).toBe(7);
     step(240);

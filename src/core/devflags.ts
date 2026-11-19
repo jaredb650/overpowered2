@@ -51,6 +51,12 @@ export const DevFlags = {
   /** Off: a body's skin does not show how far its limbs' pools are spent (characters/anatomy/wear.ts). `?wear=0` starts it off. */
   wear: on('wear'),
   /**
+   * Off: flesh never dries: torn faces, loose meat, and the blood and bared flesh on a body stay as wet and bright as the
+   * moment they were made, while the blood on the floor round them dries (gore/cooked.ts, characters/material.ts).
+   * `?dryflesh=0` starts it off.
+   */
+  dryFlesh: on('dryflesh'),
+  /**
    * The gore update's stains (lane "decals"). `bigBlood` (`?bigblood=0`): a kill lays its big stains (the burst under a
    * gib, the fan past a shot, the sheet on the wall, the soaked patch under a body); off, only the small traced drops
    * land, as before the update. `hitBlood` (`?hitblood=0`): every round leaves its own mark on the floor past the body.
