@@ -2630,24 +2630,24 @@ non-gamer's path, ready and force start) still run as written, over the relays, 
 deploy gate.
 
 <!-- ledger:start -->
-Written 2026-11-19 08:17 from the runner's `results.json` (`node tools/scripts/coop-all.mjs --ledger`). 168 of 179 runs passed.
+Written 2026-11-19 08:45 from the runner's `results.json` (`node tools/scripts/coop-all.mjs --ledger`). 180 of 181 runs passed.
 
-- loop, bad network, 2 players: 44 passed, 1 failed
-- loop, bad network, 3 players: 19 passed, 1 failed
+- loop, bad network, 2 players: 45 passed, 1 failed
+- loop, bad network, 3 players: 20 passed
 - loop, bad network, 4 players: 1 passed
-- loop, clean network, 2 players: 51 passed
-- loop, clean network, 3 players: 23 passed, 4 failed
-- loop, clean network, 4 players: 7 passed, 4 failed
+- loop, clean network, 2 players: 52 passed
+- loop, clean network, 3 players: 27 passed
+- loop, clean network, 4 players: 11 passed
 - one page, clean network, 1 players: 2 passed
-- rtc, clean network, 2 players: 16 passed, 1 failed
+- rtc, clean network, 2 players: 17 passed
 - rtc, clean network, 3 players: 5 passed
 
 | Lane | Proof | Players | Mode | Transport | Network | Result | Checks passed / failed | Commit | First failing check |
 |---|---|---:|---|---|---|---|---:|---|---|
 | call-ins | `callins-matrix` | 3 | crucible | loop | bad | pass | 333 / 0 | `93cac4d` |  |
-| call-ins | `callins-matrix` | 3 | crucible | loop | clean | pass | 333 / 0 | `19b1f47` |  |
+| call-ins | `callins-matrix` | 3 | crucible | loop | clean | pass | 333 / 0 | `2f58315` |  |
 | call-ins | `callins-matrix` | 3 | crucible | rtc | clean | pass | 333 / 0 | `19b1f47` |  |
-| call-ins | `callins-matrix` | 4 | crucible | loop | clean | FAIL | 463 / 1 | `19b1f47` | Every check passed :: ["guest-streak: the key puts the guest into targeting"] |
+| call-ins | `callins-matrix` | 4 | crucible | loop | clean | pass | 465 / 0 | `2f58315` |  |
 | claims | `claims-matrix` | 2 | outpost | loop | bad | pass | 5 / 0 | `42e7c20` |  |
 | claims | `claims-matrix` | 2 | outpost | loop | clean | pass | 5 / 0 | `19b1f47` |  |
 | claims | `claims-matrix` | 2 | outpost | rtc | clean | pass | 5 / 0 | `19b1f47` |  |
@@ -2671,18 +2671,20 @@ Written 2026-11-19 08:17 from the runner's `results.json` (`node tools/scripts/c
 | fixes | `fixgame-notice` | 2 | crucible | loop | clean | pass | 37 / 0 | `19b1f47` |  |
 | fixes | `fixgame-villain` | 2 | outpost | loop | bad | pass | 29 / 0 | `42e7c20` |  |
 | fixes | `fixgame-villain` | 2 | outpost | loop | clean | pass | 29 / 0 | `19b1f47` |  |
-| fixes | `fixhits-pins` | 2 | crucible | loop | bad | FAIL | 1 / 1 | `19b1f47` | prediction off: the body is nailed to the wall behind it on the guest's screen (0 pin) :: {"pins":0,"flings":0,"stops":[0.05],"deaths":1,"seen":{"predicted":1,"shown":0,"acks":1,"corrected":0,"lateKil |
+| fixes | `fixhits-pins` | 2 | crucible | loop | bad | FAIL | 1 / 1 | `2f58315` | prediction off: the body is nailed to the wall behind it on the guest's screen (0 pin) :: {"pins":0,"flings":0,"stops":[0.05],"deaths":1,"seen":{"predicted":1,"shown":0,"acks":1,"corrected":0,"lateKil |
 | fixes | `fixhits-pins` | 2 | crucible | loop | clean | pass | 13 / 0 | `19b1f47` |  |
+| fixes | `fixhits-pins/prediction-on` | 2 | crucible | loop | bad | pass | 9 / 0 | `2f58315` |  |
+| fixes | `fixhits-pins/prediction-on` | 2 | crucible | loop | clean | pass | 9 / 0 | `2f58315` |  |
 | fixes | `fixhits-predict` | 3 | crucible | loop | bad | pass | 11 / 0 | `42e7c20` |  |
 | fixes | `fixhits-predict` | 3 | crucible | loop | clean | pass | 11 / 0 | `19b1f47` |  |
-| fixes | `fixsession-callins` | 3 | outpost | loop | bad | FAIL | 0 / 1 | `19b1f47` | coop-fixsession-callins FAILED after 7 checks: Error: Timed out waiting for: the guest's uplink jammed by the host's word :: {"own":[],"copies":{"0":[],"1":[],"2":[],"3":[]},"missiles":[0,0,0,0],"jamm |
+| fixes | `fixsession-callins` | 3 | outpost | loop | bad | pass | 24 / 0 | `2f58315` |  |
 | fixes | `fixsession-callins` | 3 | outpost | loop | clean | pass | 24 / 0 | `19b1f47` |  |
 | fixes | `fixsession-reload/defense` | 2 | defense | loop | bad | pass | 6 / 0 | `42e7c20` |  |
-| fixes | `fixsession-reload/defense` | 2 | defense | loop | clean | pass | 6 / 0 | `19b1f47` |  |
+| fixes | `fixsession-reload/defense` | 2 | defense | loop | clean | pass | 6 / 0 | `2f58315` |  |
 | fixes | `fixsession-reload/hostlate` | 3 | crucible | loop | bad | pass | 8 / 0 | `42e7c20` |  |
-| fixes | `fixsession-reload/hostlate` | 3 | crucible | loop | clean | pass | 8 / 0 | `19b1f47` |  |
+| fixes | `fixsession-reload/hostlate` | 3 | crucible | loop | clean | pass | 8 / 0 | `2f58315` |  |
 | fixes | `fixsession-reload/lobby` | 3 | crucible | loop | bad | pass | 19 / 0 | `19b1f47` |  |
-| fixes | `fixsession-reload/lobby` | 3 | crucible | loop | clean | FAIL | 0 / 1 | `19b1f47` | coop-fixsession-reload-lobby FAILED after 10 checks: Error: every slot and seat as before the host's reload :: [{"HOST-ONE":"0/s0","GUEST-THREE":"2/s2","GUEST-TWO":"1/s1"},{"HOST-ONE":"0/s0","GUEST-TW |
+| fixes | `fixsession-reload/lobby` | 3 | crucible | loop | clean | pass | 19 / 0 | `2f58315` |  |
 | fixes | `fixsession-return` | 3 | crucible | loop | bad | pass | 26 / 0 | `42e7c20` |  |
 | fixes | `fixsession-return` | 3 | crucible | loop | clean | pass | 26 / 0 | `19b1f47` |  |
 | fixes | `fixtail-rules` | 3 | crucible | loop | bad | pass | 75 / 0 | `19b1f47` |  |
@@ -2697,12 +2699,12 @@ Written 2026-11-19 08:17 from the runner's `results.json` (`node tools/scripts/c
 | gore | `gore-shots` | 3 | crucible | loop | bad | pass | 267 / 0 | `93cac4d` |  |
 | gore | `gore-shots` | 3 | crucible | loop | clean | pass | 267 / 0 | `19b1f47` |  |
 | gore | `gore-shots` | 3 | crucible | rtc | clean | pass | 267 / 0 | `93cac4d` |  |
-| guest | `guest-seat/campaign` | 3 | campaign | loop | clean | FAIL | 65 / 1 | `19b1f47` | callin: The host, who only watched, is credited with none |
-| guest | `guest-seat/crucible` | 3 | crucible | loop | clean | FAIL | 67 / 1 | `19b1f47` | callin: There is open ground in sight of the guest for the mark |
-| guest | `guest-seat/defense` | 3 | defense | loop | clean | pass | 70 / 0 | `19b1f47` |  |
-| guest | `guest-seat/foreclosure` | 3 | foreclosure | loop | clean | FAIL | 65 / 1 | `19b1f47` | callin: The host, who only watched, is credited with none |
-| guest | `guest-seat/outpost` | 3 | outpost | loop | clean | pass | 74 / 0 | `19b1f47` |  |
-| guest | `guest-seat/outpost@office` | 3 | outpost (office) | loop | clean | pass | 74 / 0 | `19b1f47` |  |
+| guest | `guest-seat/campaign` | 3 | campaign | loop | clean | pass | 67 / 0 | `2f58315` |  |
+| guest | `guest-seat/crucible` | 3 | crucible | loop | clean | pass | 75 / 0 | `2f58315` |  |
+| guest | `guest-seat/defense` | 3 | defense | loop | clean | pass | 71 / 0 | `2f58315` |  |
+| guest | `guest-seat/foreclosure` | 3 | foreclosure | loop | clean | pass | 67 / 0 | `2f58315` |  |
+| guest | `guest-seat/outpost` | 3 | outpost | loop | clean | pass | 75 / 0 | `2f58315` |  |
+| guest | `guest-seat/outpost@office` | 3 | outpost (office) | loop | clean | pass | 75 / 0 | `2f58315` |  |
 | missions | `missions-play/campaign` | 2 | campaign | loop | bad | pass | 242 / 0 | `42e7c20` |  |
 | missions | `missions-play/campaign` | 2 | campaign | loop | clean | pass | 242 / 0 | `19b1f47` |  |
 | missions | `missions-play/campaign` | 2 | campaign | rtc | clean | pass | 242 / 0 | `19b1f47` |  |
@@ -2714,7 +2716,7 @@ Written 2026-11-19 08:17 from the runner's `results.json` (`node tools/scripts/c
 | old | `drops` | 2 | crucible | loop | bad | pass | 12 / 0 | `42e7c20` |  |
 | old | `drops` | 2 | crucible | loop | clean | pass | 12 / 0 | `19b1f47` |  |
 | old | `lobby` | 2 | crucible | loop | bad | pass | 14 / 0 | `19b1f47` |  |
-| old | `lobby` | 2 | crucible | loop | clean | pass | 14 / 0 | `19b1f47` |  |
+| old | `lobby` | 2 | crucible | loop | clean | pass | 14 / 0 | `2f58315` |  |
 | old | `lobby` | 2 | crucible | rtc | clean | pass | 14 / 0 | `19b1f47` |  |
 | old | `mission` | 2 | campaign | loop | bad | pass | 6 / 0 | `42e7c20` |  |
 | old | `mission` | 2 | campaign | loop | clean | pass | 6 / 0 | `19b1f47` |  |
@@ -2724,49 +2726,49 @@ Written 2026-11-19 08:17 from the runner's `results.json` (`node tools/scripts/c
 | old | `modes/humans` | 2 | outpost | loop | clean | pass | 5 / 0 | `19b1f47` |  |
 | old | `modes/office` | 2 | crucible (office) | loop | bad | pass | 4 / 0 | `42e7c20` |  |
 | old | `modes/office` | 2 | crucible (office) | loop | clean | pass | 4 / 0 | `19b1f47` |  |
-| old | `picker/desktop` | 2 | crucible | rtc | clean | FAIL | 6 / 1 | `19b1f47` | page.waitForFunction: Timeout 150000ms exceeded. |
+| old | `picker/desktop` | 2 | crucible | rtc | clean | pass | 8 / 0 | `2f58315` |  |
 | old | `picker/phone` | 2 | crucible | rtc | clean | pass | 2 / 0 | `19b1f47` |  |
 | old | `robust` | 2 | crucible | loop | clean | pass | 7 / 0 | `19b1f47` |  |
 | old | `smoke/campaign` | 2 | campaign | loop | bad | pass | 5 / 0 | `42e7c20` |  |
-| old | `smoke/campaign` | 2 | campaign | loop | clean | pass | 5 / 0 | `19b1f47` |  |
+| old | `smoke/campaign` | 2 | campaign | loop | clean | pass | 5 / 0 | `2f58315` |  |
 | old | `smoke/crucible` | 2 | crucible | loop | bad | pass | 5 / 0 | `42e7c20` |  |
-| old | `smoke/crucible` | 2 | crucible | loop | clean | pass | 5 / 0 | `19b1f47` |  |
+| old | `smoke/crucible` | 2 | crucible | loop | clean | pass | 5 / 0 | `2f58315` |  |
 | old | `smoke/crucible` | 2 | crucible | rtc | clean | pass | 5 / 0 | `19b1f47` |  |
 | old | `smoke/crucible` | 4 | crucible | loop | clean | pass | 5 / 0 | `19b1f47` |  |
 | old | `smoke/crucible@office` | 2 | crucible (office) | loop | bad | pass | 5 / 0 | `42e7c20` |  |
-| old | `smoke/crucible@office` | 2 | crucible (office) | loop | clean | pass | 5 / 0 | `19b1f47` |  |
+| old | `smoke/crucible@office` | 2 | crucible (office) | loop | clean | pass | 5 / 0 | `2f58315` |  |
 | old | `smoke/defense` | 2 | defense | loop | bad | pass | 5 / 0 | `42e7c20` |  |
-| old | `smoke/defense` | 2 | defense | loop | clean | pass | 5 / 0 | `19b1f47` |  |
+| old | `smoke/defense` | 2 | defense | loop | clean | pass | 5 / 0 | `2f58315` |  |
 | old | `smoke/foreclosure` | 2 | foreclosure | loop | bad | pass | 5 / 0 | `42e7c20` |  |
-| old | `smoke/foreclosure` | 2 | foreclosure | loop | clean | pass | 5 / 0 | `19b1f47` |  |
+| old | `smoke/foreclosure` | 2 | foreclosure | loop | clean | pass | 5 / 0 | `2f58315` |  |
 | old | `smoke/outpost` | 2 | outpost | loop | bad | pass | 5 / 0 | `42e7c20` |  |
-| old | `smoke/outpost` | 2 | outpost | loop | clean | pass | 5 / 0 | `19b1f47` |  |
+| old | `smoke/outpost` | 2 | outpost | loop | clean | pass | 5 / 0 | `2f58315` |  |
 | old | `smoke/outpost@office` | 2 | outpost (office) | loop | bad | pass | 5 / 0 | `42e7c20` |  |
-| old | `smoke/outpost@office` | 2 | outpost (office) | loop | clean | pass | 5 / 0 | `19b1f47` |  |
+| old | `smoke/outpost@office` | 2 | outpost (office) | loop | clean | pass | 5 / 0 | `2f58315` |  |
 | old | `stage3` | 2 | crucible | loop | bad | pass | 12 / 0 | `42e7c20` |  |
 | old | `stage3` | 2 | crucible | loop | clean | pass | 12 / 0 | `19b1f47` |  |
 | old | `stage3` | 2 | crucible | rtc | clean | pass | 12 / 0 | `19b1f47` |  |
 | session | `session-blip` | 2 | crucible | loop | bad | pass | 9 / 0 | `19b1f47` |  |
-| session | `session-blip` | 2 | crucible | loop | clean | pass | 9 / 0 | `e0334ec` |  |
+| session | `session-blip` | 2 | crucible | loop | clean | pass | 9 / 0 | `2f58315` |  |
 | session | `session-drop` | 2 | crucible | rtc | clean | pass | 7 / 0 | `93cac4d` |  |
 | session | `session-hostquit` | 3 | crucible | loop | bad | pass | 11 / 0 | `93cac4d` |  |
-| session | `session-hostquit` | 3 | crucible | loop | clean | pass | 11 / 0 | `e0334ec` |  |
+| session | `session-hostquit` | 3 | crucible | loop | clean | pass | 11 / 0 | `2f58315` |  |
 | session | `session-late` | 2 | crucible | loop | bad | pass | 9 / 0 | `3350938` |  |
-| session | `session-late` | 2 | crucible | loop | clean | pass | 9 / 0 | `e0334ec` |  |
+| session | `session-late` | 2 | crucible | loop | clean | pass | 9 / 0 | `2f58315` |  |
 | session | `session-modes` | 2 | every mode | loop | bad | pass | 30 / 0 | `3350938` |  |
-| session | `session-modes` | 2 | every mode | loop | clean | pass | 30 / 0 | `e0334ec` |  |
+| session | `session-modes` | 2 | every mode | loop | clean | pass | 30 / 0 | `2f58315` |  |
 | session | `session-noshow` | 2 | crucible | loop | bad | pass | 8 / 0 | `3350938` |  |
-| session | `session-noshow` | 2 | crucible | loop | clean | pass | 8 / 0 | `e0334ec` |  |
+| session | `session-noshow` | 2 | crucible | loop | clean | pass | 8 / 0 | `2f58315` |  |
 | session | `session-password` | 2 | crucible | loop | bad | pass | 8 / 0 | `3350938` |  |
-| session | `session-password` | 2 | crucible | loop | clean | pass | 8 / 0 | `e0334ec` |  |
+| session | `session-password` | 2 | crucible | loop | clean | pass | 8 / 0 | `2f58315` |  |
 | session | `session-reload` | 3 | crucible | loop | bad | pass | 9 / 0 | `252a8a3` |  |
-| session | `session-reload` | 3 | crucible | loop | clean | pass | 9 / 0 | `e0334ec` |  |
+| session | `session-reload` | 3 | crucible | loop | clean | pass | 9 / 0 | `2f58315` |  |
 | session | `session-start` | 3 | crucible | loop | bad | pass | 18 / 0 | `3350938` |  |
-| session | `session-start` | 3 | crucible | loop | clean | pass | 18 / 0 | `e0334ec` |  |
+| session | `session-start` | 3 | crucible | loop | clean | pass | 18 / 0 | `2f58315` |  |
 | session | `session-start` | 3 | crucible | rtc | clean | pass | 18 / 0 | `93cac4d` |  |
 | session | `session-start` | 4 | crucible | loop | clean | pass | 21 / 0 | `19b1f47` |  |
 | session | `session-three` | 3 | crucible | loop | bad | pass | 45 / 0 | `93cac4d` |  |
-| session | `session-three` | 3 | crucible | loop | clean | pass | 45 / 0 | `e0334ec` |  |
+| session | `session-three` | 3 | crucible | loop | clean | pass | 45 / 0 | `2f58315` |  |
 | team | `team-break` | 3 | crucible | loop | bad | pass | 27 / 0 | `93cac4d` |  |
 | team | `team-break` | 3 | crucible | loop | clean | pass | 27 / 0 | `19b1f47` |  |
 | team | `team-break` | 4 | crucible | loop | clean | pass | 30 / 0 | `19b1f47` |  |
@@ -2789,7 +2791,7 @@ Written 2026-11-19 08:17 from the runner's `results.json` (`node tools/scripts/c
 | time | `time-team` | 2 | crucible | loop | bad | pass | 96 / 0 | `42e7c20` |  |
 | time | `time-team` | 2 | crucible | loop | clean | pass | 96 / 0 | `e0334ec` |  |
 | time | `time-team` | 2 | crucible | rtc | clean | pass | 96 / 0 | `42e7c20` |  |
-| time | `time-team` | 4 | crucible | loop | clean | FAIL | 84 / 1 | `19b1f47` | page.waitForURL: Timeout 90000ms exceeded. |
+| time | `time-team` | 4 | crucible | loop | clean | pass | 92 / 0 | `2f58315` |  |
 | weapons-fx | `fx-matrix` | 3 | crucible | loop | bad | pass | 1844 / 0 | `19b1f47` |  |
 | weapons-fx | `fx-matrix` | 3 | crucible | loop | clean | pass | 1844 / 0 | `19b1f47` |  |
 | weapons-fx | `fx-matrix` | 3 | crucible | rtc | clean | pass | 1844 / 0 | `93cac4d` |  |
@@ -2806,7 +2808,7 @@ Written 2026-11-19 08:17 from the runner's `results.json` (`node tools/scripts/c
 | world-a | `world-pods` | 2 | crucible | loop | bad | pass | 16 / 0 | `93cac4d` |  |
 | world-a | `world-pods` | 2 | crucible | loop | clean | pass | 16 / 0 | `e0334ec` |  |
 | world-a | `world-pods` | 2 | crucible | rtc | clean | pass | 16 / 0 | `42e7c20` |  |
-| world-a | `world-pods` | 4 | crucible | loop | clean | FAIL | 8 / 1 | `19b1f47` | Each player bought something, paid from their own purse :: [{"before":3000,"after":2550,"price":450,"act":{"kind":"weapon","id":"gimlet"},"why":null,"locked":33,"cleared":1,"inBreak":true},{"before":9 |
+| world-a | `world-pods` | 4 | crucible | loop | clean | pass | 14 / 0 | `2f58315` |  |
 | world-a | `world-pods/outpost` | 2 | outpost | loop | bad | pass | 16 / 0 | `93cac4d` |  |
 | world-a | `world-pods/outpost` | 2 | outpost | loop | clean | pass | 16 / 0 | `e0334ec` |  |
 | world-a | `world-props` | 2 | crucible | loop | bad | pass | 14 / 0 | `93cac4d` |  |
@@ -2816,7 +2818,7 @@ Written 2026-11-19 08:17 from the runner's `results.json` (`node tools/scripts/c
 | world-b | `worldb-defense` | 2 | defense | loop | bad | pass | 64 / 0 | `93cac4d` |  |
 | world-b | `worldb-defense` | 2 | defense | loop | clean | pass | 64 / 0 | `e0334ec` |  |
 | world-b | `worldb-defense` | 2 | defense | rtc | clean | pass | 64 / 0 | `42e7c20` |  |
-| world-b | `worldb-defense` | 4 | defense | loop | clean | FAIL | 72 / 1 | `19b1f47` | It is on the guest's screen :: "credits1,430Next: About 10 men in squads. The Test Range runs Endless Humans' waves; the fort has the directorBarracksArmouryInfirmary" |
+| world-b | `worldb-defense` | 4 | defense | loop | clean | pass | 79 / 0 | `2f58315` |  |
 | world-b | `worldb-prisoners` | 3 | outpost | loop | bad | pass | 34 / 0 | `93cac4d` |  |
 | world-b | `worldb-prisoners` | 3 | outpost | loop | clean | pass | 34 / 0 | `e0334ec` |  |
 | world-b | `worldb-props` | 3 | outpost | loop | bad | pass | 40 / 0 | `93cac4d` |  |

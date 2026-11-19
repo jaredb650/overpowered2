@@ -767,6 +767,44 @@ on the same game and carries on; `results.md` there is the table so far. Sweeps 
   the reason in `coop.md`, "What is proven". The final pass is running on `2f58315`: the guest's seat in all six choices
   again, the session lane and the cheap proofs over the last small commits, and every row not yet passed.
 
+- 08:50, verify-proofs, **done. The ledger: 181 runs, 180 passed, 12,339 checks** (`docs/notes/coop.md`, "What is proven",
+  with the commit of every row: 36 rows on the final tip `2f58315`, 62 on `19b1f47`, the rest on the five commits before
+  it, none older than `e0334ec`; a row was run again when a later commit touched its area).
+  - **B5, every lane's proofs, loopback: clean 77 of 77** (two to four players; 4,106 checks), **bad network
+    (`lag:120,jitter:40,loss:0.05`) 66 of 67** (3,972 checks). The one failure is finding 12 (a stake's late pin with
+    kill prediction switched off, not the game's default; the default path passes clean and bad).
+  - **B6, real WebRTC over the public relays: 18 of 18** (3,020 checks). **Four players: 9 of 9** (779 checks: session
+    start, the wipe and the board, the break's vote, the shared pod, Outpost Defense, the team's slow-mo, the hazards, the
+    call-ins matrix 465, smoke).
+  - **B7, every mode from a guest's seat, three players, on the final tip: 6 of 6** (Crucible 75 of 75, Endless Humans 75,
+    Endless Humans on the Office 75, Outpost Defense 71, The Outpost 67, Foreclosure 67): a fight seen, heard and felt on
+    the guest, kills and credit both ways with gore on every screen, a guest's Focus with its notice on every screen, a
+    guest's airstrike flown by the host with the kills the guest's, a gun dropped and taken, down and revived, the break
+    with the shared pod and every purse its own (the Barracks in Defense, a weapon cache in the missions), a reload that
+    rejoins with the kit, and the team board. Pictures looked at.
+  - **The oldest proofs:** `coop-dad` both ways, `coop-picker` both ways, `coop-lobby` rewritten with real checks (clean,
+    bad, WebRTC); `coop-stage1` and `coop-stage2` retired with the reason. **C19:** the kit's `lateGuest`.
+  - **Real bugs found: four fixed here, two fixed by their lanes from these findings, two small ones open.** Fixed here,
+    each with a test: a guest's reload in a mission lost the guns the mission had not handed out (finding 1); with kill
+    prediction on a guest's one-shot kill was unscored, unpaid and silent (finding 5); the lobby's list changed order
+    after a host's reload (finding 11); and in the kit, a Start pressed before the host had the guests' ready (finding
+    10). Fixed by others: a guest cut for a slow link saw no word of it (finding 6, `6695c0e`); overlapping name tags
+    (finding 4). Open: findings 9 (a far watcher once saw a friend's stake fly on under the bad network; 1 run of 2) and
+    12. Seen once and not placed: finding 8 (a guest's page exception in the heaviest four-player scene; four later runs
+    clean, the kit now keeps the stack).
+  - **Flaky, by the count:** `coop-callins-matrix` failed "host-frame: the enemies it killed are the caller's (0 of 6)" in
+    1 run of 2 on `2f58315` (the Frame's bot did not get its kills in the window; 333 of 333 on the run after), and its
+    "blasts arrive" check failed on `e0334ec` and `6445d5d` before fix-tail's `6669d68` and has passed 6 of 6 since.
+    `gore/muscles.test.ts` failed once in a whole-suite run under load and 3 of 3 alone (verify-solo's `bcba89f` seeds the
+    gore tests since).
+  - **Not proven, and why:** nothing was played by a person; the pages are driven by scripts, with dev kills and teleports
+    where a real fight would take minutes. Real WebRTC was run on one machine (both ends on one network, no TURN relay, no
+    real distance or packet loss): the bad network is the game's own simulator on loopback only, never over WebRTC. Four
+    players were run on loopback only, and only each lane's main proof. The guest's seat was run clean, on loopback, with
+    three players only. Endless Humans was not played to its round-10 ending from a guest's seat here (the team lane's
+    `coop-team-endings` humans case covers the win; the missions' full play-through is `coop-missions-play`). Sound is
+    asserted as asked for, never listened to. Long sessions (an hour of play, memory, drift) were not run.
+
 ## Last pass findings
 
 Each: what fails, where, how many players, which network, the evidence, the cause. For the fix agents.
@@ -1087,8 +1125,8 @@ Each: what fails, where, how many players, which network, the evidence, the caus
 9. **OPEN, small, cosmetic. Under the bad network a watcher can see a friend's stake fly on to the wall when it stopped in a
    body on the shooter's screen.** `coop-fx-matrix.mjs`, three players, `lag:120,jitter:40,loss:0.05`, case `stake-in-body`,
    the host firing, the far watcher: of three stakes the shooter's screen stood one in the wall (two stayed in bodies), the
-   watcher's stood two (one blood hit fewer). 1 failed line of 1,844 in that run; the clean run and the real-WebRTC run
-   have it right. Checklist C15's item; nothing is decided by it (the host's damage is the same).
+   watcher's stood two (one blood hit fewer). 1 failed line of 1,844 in that run; the same run again on `19b1f47` passed
+   1,844 of 1,844, and the clean and real-WebRTC runs have it right. Checklist C15's item; nothing is decided by it (the host's damage is the same).
 10. Harness, fixed: under the bad network the kit's `startParty` pressed Start before the host had the guest's "ready"; the
    host refuses that Start, the party stayed in the lobby, and the proof failed at its first wait with nothing checked
    (`coop-session-blip` and `coop-team-endings` wipe in the bad-network sweep). The kit now waits for "Everyone is ready".
