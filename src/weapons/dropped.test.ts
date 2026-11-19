@@ -202,6 +202,20 @@ describe('dropped guns in co-op', () => {
     game.dispose();
   });
 
+  it("a guest's drop the host lays somewhere else lies there on the dropper's screen too", () => {
+    const { game, hands, all, stand } = table(2);
+    const [host, a, b] = hands as [Hands, Hands, Hands];
+    stand(all[1]!, 10, 0);
+    // The host still sees this guest 30 m away (a stale pose under lag): it lays the gun at the feet it sees.
+    const seen = (game.host.session.remotes.get(game.guests[0]!.lobby.you) as unknown as { char: { root: THREE.Object3D } }).char.root;
+    Object.defineProperty(seen, 'position', { value: new THREE.Vector3(40, 0, 0) });
+    a.press('dropWeapon');
+    expect(a.guns.list[0]!.at).toEqual([10, 0, -1.3]);
+    game.relay.flush();
+    expect([host, a, b].map(h => h.guns.list.map(g => g.at))).toEqual(Array(3).fill([[40, 0, 0]]));
+    game.dispose();
+  });
+
   it('checks what a guest sends: a drop far from its body lands at its feet, a far take is refused, junk is ignored', () => {
     const { game, hands, all, stand } = table(1);
     const [host, a] = hands as [Hands, Hands];

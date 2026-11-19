@@ -1861,5 +1861,10 @@ guest's tab dying mid-wave, rejoining by link with credits back, and leaving to 
   and Barracks hires in Outpost Defense are built: "Outpost Defense: one fort".)
 - **Per-muscle wound animation** on guests (a stage 2 limit) is unchanged. Living knockdowns and get-ups are done: "Enemy motion", Moves.
 - **Implant parts** on friends' bodies.
+- **The shared world** (lane world-a): walls, gates and shacks are not in it (lane world-b's). A prop two players have each
+  half-damaged breaks when the host's count says so: a guest only knows its own hits, so it can see that break one message later
+  than its own guess would have shown it. A late guest gets what is broken, not the scorch marks or the wreck fires. Ordinary
+  pickups are each player's own by decision. Weapon caches are unit-tested and proven once in the browser in a mission; four
+  pages and real WebRTC were not run for these proofs (the machine's page limit).
 - **Campaign:** mission 1's opening (briefing, cutscene, door-gunner ride) is proven in the browser; the rest of both missions has only
   the unit-tested rules behind it, not a full two-player playthrough.

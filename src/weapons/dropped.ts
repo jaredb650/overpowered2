@@ -308,11 +308,16 @@ export class DroppedGuns {
       if (q && this.voided.delete(q)) return this.tell({ op: 'void', id: gun.id });
       const mine = q ? this.drops.find(d => d.pending === q) : undefined;
       if (mine) {
-        // My own drop, numbered: it stays where it lies here, under the host's number.
+        // My own drop, numbered. It lies where the host put it: the same spot unless the host saw this player somewhere else
+        // (a stale pose) and laid it at their feet there. One spot on every screen matters more than which.
         if (this.prompt?.id === mine.id) this.unprompt();
         mine.id = gun.id;
         mine.pending = 0;
         mine.by = gun.by;
+        mine.at = gun.at;
+        if (typeof value.fall === 'number' && Number.isFinite(value.fall)) mine.fall = Math.min(MAX_FALL, Math.max(0, value.fall));
+        mine.tag.set(gun.at[0], gun.at[1] + FLOAT + 0.55, gun.at[2]);
+        mine.mark?.position.set(gun.at[0], gun.at[1] + 0.03, gun.at[2]);
         return;
       }
       if (this.drops.some(d => d.id === gun.id)) return;

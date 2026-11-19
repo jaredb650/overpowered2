@@ -273,6 +273,20 @@ Shared files and contracts between lanes:
   (`deploy(page)`), and a proof that waits for a world must go through it. Touched outside the lane, small: `ui/screens/Screens.ts`
   (`coopRegroup`, the played match to `adopt`), `tools/scripts/coop-kit.mjs` (`deploy`, `inMatch`), `src/net/trystero.ts` (the
   cap). Open for the owner: see the lane's report.
+- 2026-11-18, world-a: landed (`e2775a3`, follow-ups after it). **Pods:** one supply pod or weapon cache for everyone, called by the
+  host, flown by every screen at the same spot on the wall clock; each player's own shop and own share of a cache; the race of
+  audit A5 fixed at both ends (the directors enter the break before announcing it, and the `wave` event carries the phase).
+  **Dropped guns:** settle on the ground, a light column and ring, E only in co-op, a guest's drop shows at once and returns to
+  the hands if refused or unanswered, every gun re-sent with its age to a guest whose world comes up. **Destructibles:** barrels,
+  tanks and props break once, by number, on the host's word; guests guess at their own hits; a barrel counts once, on the host,
+  for the player who set it off, and every player in reach feels it on their own screen; chairs, respawns, the reactor and the
+  timed machinery follow the host; a late guest gets the world as broken as it is. Decisions: (1) co-op takes a gun only with E
+  (walking over one takes it only solo), so nobody hoovers up a gift; (2) ordinary pickups stay each player's own, nothing found
+  visibly wrong; (3) barrel and prop blasts are drawn from the `break` event by number on each screen, not through `booms.ts`
+  (the same pieces, the same instant, and no second explosion from the wire); (4) a barrel hurts every player in reach, as the
+  world's own hazard, the shooter and teammates alike: **owner question**, since it is the one place a player can hurt a friend;
+  (5) a guest's blast is not forwarded to walls (world-b's). Found on the way: a Vite server left running across a rebase serves
+  modules from before it, so restart it after every rebase. Proofs and numbers: `docs/notes/coop.md`, "The shared world".
 - 2026-11-18, late: usage cap about to hit (owner has reset tokens). State for whoever resumes: landed so far = rig (done, reported), split (done), enemy-motion main (`970157c`; its 12-case measurement table is still to run on a quiet machine with `coop-motion-*.mjs`), enemy-attacks (two steps), time, claims (core + vehicles), team (endings, respawn), pod race, blood puff. Not yet landed, work sits in each lane's worktree and branch `coop/<lane>` (see `git worktree list`, `git log coop-overhaul..coop/<lane>`, `git -C <worktree> status`): session, gore (client-side model), weapons-fx (all written, 48-case proof running), call-ins, world-a (pods, drops, destructibles written), world-b (Defense in progress), missions, team follow-ups, devtools (dev-only tools), proof-speed (fast proof mode). No lane except rig and split has sent its final report. To resume a lane: a fresh agent in the SAME worktree (or a new worktree on that branch), told to read the lane's row here, its branch's commits and uncommitted diff, then finish, prove and land. After the lanes: phase 2 (wire, verify). Known flaky tests under load, not from this work: `gore/knockdown.test.ts`, `gore/strength.test.ts`, `weapons/viewmodels/hands.test.ts`.
 - 2026-11-18, gore: the blood puff landed first (`421ecce`), then the gore itself. `DamageModel` runs with the facts on (solo, host)
   or off (a guest): `predict` draws a guest's own hit on the frame of the shot, `show`/`severShown`/`killShown` draw what the host

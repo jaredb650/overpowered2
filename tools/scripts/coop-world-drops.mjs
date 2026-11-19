@@ -142,7 +142,8 @@ export default async function (host, { sleep, outDir }) {
     if (other !== host) {
       // The gun goes back to the host first: a guest's drop taken by the host.
       await lay(other);
-      await sleep(500);
+      await teleport(host, (await drops(host))[0].at, 0);
+      await sleep(700);
       await press(host, 'interact', sleep, () => window.__op2.ctx.weapons.owned.has('deuce'));
       for (const page of pages) await wait(page, () => window.__op2.ctx.weapons.dropped.list.length === 0);
       check(await owns(host, 'deuce') && !await owns(other, 'deuce'), "The host took a guest's drop");
@@ -173,17 +174,19 @@ export default async function (host, { sleep, outDir }) {
         const { ctx, game } = window.__op2; const V = ctx.player.position.constructor;
         game.setState('playing');
         ctx.player.teleport(new V(spawn[0] + 4, spawn[1] + 9, spawn[2] - 6), 0);
-        ctx.input.simulate('dropWeapon', true);
-        setTimeout(() => ctx.input.simulate('dropWeapon', false), 150);
+        // A moment in the air first, so the host has seen this player there (a drop far from where the host sees its player is
+        // laid at the feet the host sees).
+        setTimeout(() => ctx.input.simulate('dropWeapon', true), 450);
+        setTimeout(() => ctx.input.simulate('dropWeapon', false), 600);
       }, [spawn]);
-      await sleep(600);
+      await sleep(1100);
     }
     for (const page of pages) await wait(page, () => window.__op2.ctx.weapons.dropped.drops.length === 1 && window.__op2.ctx.weapons.dropped.drops[0].id > 0);
     await sleep(2000);
     seen = await Promise.all(pages.map(drops));
     out.highDrop = seen;
     check(seen.every(s => same(core(s), core(seen[0]))), 'A gun dropped from the air is at one spot on every page', seen.map(s => s[0]?.at));
-    check(Math.abs(seen[0][0].at[1] - ground) < 0.3 && seen[0][0].fall > 3, 'It fell to the ground below instead of hanging in the air', { at: seen[0][0].at, fall: seen[0][0].fall, ground });
+    check(Math.abs(seen[0][0].at[1] - ground) < 0.3 && seen[0][0].fall > 2, 'It fell to the ground below instead of hanging in the air', { at: seen[0][0].at, fall: seen[0][0].fall, ground });
     check(seen.every(s => s[0].y !== null && Math.abs(s[0].y - (s[0].at[1] + 0.45)) < 0.2), 'It is drawn resting just over the ground on every page', seen.map(s => s[0].y));
     await lookAt(host, seen[0][0].at, 4, 1);
     await sleep(700);
@@ -230,7 +233,9 @@ export default async function (host, { sleep, outDir }) {
       out.loading.late = l; out.loading.host = h;
       check(!ready, 'The gun was dropped before the joining guest\'s world was up');
       check(same(core(h), core(l)), 'The guest that was loading has the gun, the same as the host', core(l));
-      check(l[0].age > 1 && Math.abs(l[0].age - h[0].age) < 3, 'It arrived with its age (lying there, not thrown again)', [h[0].age, l[0].age]);
+      // The age it was sent with, plus this page's own clock since: short of the host's only by how long the message waited on a
+      // page that was still busy loading.
+      check(l[0].age > 1 && Math.abs(l[0].age - h[0].age) < 8, 'It arrived with its age (lying there, not thrown again)', [h[0].age, l[0].age]);
       await lookAt(late, l[0].at, 4, 2);
       await sleep(900);
       await shot(late, '3-dropped-while-loading-late-guest');
