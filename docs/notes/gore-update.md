@@ -80,7 +80,7 @@ Each lane owns a vertical through the plan's batches and goes on to its next ste
 
 | Lane | Ports | Steps, in order | Mainly in | Status |
 |---|---|---|---|---|
-| react | 5600-5609 | R1 every hit shows (strong, every round); R2 hand to the wound and a hurt posture; R4 dying carries the shots; R3b a hit spoils his aim (host decides); **R3 the struck part goes physical** (the gradient: animation, powered part, whole-body balance, limp, blended by weight; behind a switch) | `characters/animation/HumanoidAnimator.ts`, `enemies/damage.ts` (`respond`), `enemies/reactions.ts`, `gore/stand.ts`, `gore/rag.ts`, `gore/muscles.ts` | todo |
+| react | 5600-5609 | R1 every hit shows (strong, every round); R2 hand to the wound and a hurt posture; R4 dying carries the shots; R3b a hit spoils his aim (host decides); **R3 the struck part goes physical** (the gradient: animation, powered part, whole-body balance, limp, blended by weight; behind a switch) | `characters/animation/HumanoidAnimator.ts`, `enemies/damage.ts` (`respond`), `enemies/reactions.ts`, `gore/stand.ts`, `gore/rag.ts`, `gore/muscles.ts` | doing: R1 done |
 | gibs | 5610-5619 | G1 rockets and grenades crack the trunk; G2 show the break: pieces thrown hard out of the fireball, bright wet torn faces, mid-size slabs, so the pieces add up to the body destroyed (every destruction: torso, head, limbs, whole-body gib); free guts that detach, fly and drape; O1 organs you notice (bigger, squash, roll, burst when stepped on or shot) | `gore/torso.ts`, `gore/chunks.ts`, `gore/index.ts` (gib paths), the gut rope, `weapons/Combat.ts` blast force only where G1 needs it | todo |
 | fire | 5620-5629 | F1 fire finishes the job (char by fire damage, the corpse burns on then smoulders, soot not a blood pool, flames on the whole body and on severed burning limbs); F3 fire meets the other systems (curled burnt corpses, dark pieces, morale chips faster, burning zombies keep attacking); F2 fire spreads from where it touched and eats the skin to muscle and bone | `enemies/EnemyManager.ts` burn, `characters/material.ts`, `fx/recipes`, `enemies/outpost/morale.ts`, `enemies/behaviours.ts` | todo |
 | mess | 5630-5639 | M0 measure the budgets; P1 the mess stays (decal rings by kind and about four times the room, pieces that do not expire, corpses sink only out of view, resting bodies that stack and are **pushed aside as ragdolls** when walked into, the "Mess" setting); P3 many more corpses (tiers, baked far bodies that can wake) | `render/Decals.ts` (the rings and budgets), `gore/chunks.ts` lifetimes, `gore/rag.ts`, `gore/sliced.ts`, `gore/index.ts` corpse caps, settings UI | todo |
@@ -103,6 +103,7 @@ Shared files and contracts:
 
 | Switch | Default | What it compares | Lane |
 |---|---|---|---|
+| `?flinch=0`, dev panel "Hits: every hit shows" | on | R1: the hit flinch's new shape and size (twist, dropped shoulder, struck arm 20 to 40 degrees, knee dip, a floor by weapon) against the 3 to 10 degree nod from before | react |
 
 ## Log
 
@@ -114,3 +115,4 @@ Shared files and contracts:
   `DecalKind`, `CELLS` and `RING_OF` (big stains go in ring `big`, which nothing uses yet); `decals.onRetire` is the call when
   a decal is about to be overwritten (P2's hook); `mesh.count` is no longer the number of decals (`decals.total`,
   `live(ring)`). The counts are the plan's until M0 has measured overdraw.
+- 2026-11-19, react: **R1 landed.** Every hit shows from the first round (`docs/notes/enemies.md`, "How a hit shows"). Decisions: the strong end on every round as the owner answered (an SMG round turns a Trooper's chest 30 degrees and a struck arm 36); the wobble is kept out by the spring's shape (`HitSpring`: overdamped on the way back), not by keeping it small; fire and shock keep their old size (thirty bites a second); a hard trunk hit on a standing body takes one catch step. Look: `tools/out/gore-update/react/r1/` and its `LOOK.md`. The probe is `tools/scripts/hit-seq.mjs` (`docs/notes/devtools.md`).

@@ -293,8 +293,11 @@ export interface CharacterAnimation {
   setLocomotion(input: LocomotionInput): void;
   /** Plays an action layer on top of locomotion. Returns its duration in seconds. */
   play(action: AnimAction, speed?: number): number;
-  /** Additive spring impulse on one bone in response to a hit (world-space direction). */
-  flinch(bone: number, worldDir: THREE.Vector3, magnitude: number): void;
+  /**
+   * Additive spring impulse on one bone in response to a hit (world-space direction). `worldPoint` is where it landed: with
+   * it a body turns the shoulder that was struck. Left out, a hit to the trunk goes to one side and then the other.
+   */
+  flinch(bone: number, worldDir: THREE.Vector3, magnitude: number, worldPoint?: THREE.Vector3): void;
   /** Advance by world dt. `lod` 0 is full rate; higher values skip work. */
   update(dt: number, lod: number): void;
 }

@@ -289,6 +289,17 @@ with the shader programs that were linked on it.
 - `tools/scripts/audio-thread.mjs`: the CPU of Chrome's audio thread on an empty page, with a bare `AudioContext`, and with the
   game idle, fighting and suspended, read from `/proc`. Tells the browser's cost from the game's.
 
+- **`tools/scripts/hit-seq.mjs`: what one hit does to a living enemy, from the player's eye.** A case is
+  `weapon:enemy:region:metres[:option...]` (`HIT=smg:trooper:armL:12,shotgun:brute:chest:5:p2`, or `HIT_SET=regions|bodies|
+  weapons|ranges|held|short`); the weapon's real damage, force and type go through the real damage model along the line
+  from the eye. One contact sheet a case (`hit-<HIT_LABEL>-<case>.png` next to `--out`, 18 world frames over 1.5 s, tiles
+  cropped round the enemy at the true size on a 1440x900 Retina screen), and per part the degrees it turned, when that
+  peaked, when it was back, how far it moved on screen, and how far it swung past rest the other way. Options: `x3` three
+  rounds, `x0` held fire, `p2` two pellets, `hp3` three times the health, `ai`, `walk`, `back`, `side`, `oL`/`oR` toward a
+  shoulder. `HIT_FRAMES=0,2,4,7,12,24` makes a strip narrow enough to look at pixel for pixel, `HIT_ZOOM=3` enlarges,
+  `HIT_STILLS=4` also saves the whole screen, `HIT_CROWD=24` adds a crowd with its AI on under 2 s of swept SMG fire and
+  reports the physics step. Run it on the Test Range: `--url "/?map=range" --dpr 2 --w 1440 --h 900 --timeout 900`.
+
 ## 9. The test suite: seeded randomness
 
 `tools/test-setup.ts` (Vitest `setupFiles`) replaces `Math.random` with a seeded generator, restarted before every test from

@@ -128,9 +128,23 @@ const HEADSHOT_TWITCH = WEIGHT_PASS ? 0 : SUDDEN_TWITCH;
  */
 const FLINCH = MASS_PASS ? { base: 0.2, gain: 2.2, max: 1.4 } : { base: 0.35, gain: 3, max: 1.6 };
 const MACHINE_FLINCH = { base: 0.35, gain: 3, max: 1.6 };
-export const flinchSize = (share: number, machine = false): number => {
+/**
+ * The gore update's R1 (`DevFlags.flinch`, `?flinch=0`): a round's flinch is sized by its weapon as well, and has a floor, so
+ * the share of health it took can no longer shrink it to nothing (an SMG round on a Brute was 0.41, a 3 degree nod). The floor
+ * is by how hard the weapon pushes, in newton-seconds: under `lightUnder` a light pistol, from `heavyFrom` a hand cannon or
+ * better, between them every SMG and rifle; a shell's pellets land together, so each has a small one. On top of the floor's
+ * rule the push adds `perForce` per newton-second. Fire, shock, bleeding and being run into keep the old size: they are not
+ * rounds, and the first two land thirty times a second.
+ */
+export const FLINCH_FLOOR = { light: 0.9, mid: 1.05, heavy: 1.3, pellet: 0.5, lightUnder: 10, heavyFrom: 30, perForce: 0.005, max: 1.7 };
+const ROUNDS: ReadonlySet<DamageType> = new Set<DamageType>(['bullet', 'pellet', 'melee', 'slash', 'explosive']);
+export const flinchSize = (share: number, machine = false, force = 0, type?: DamageType): number => {
   const f = machine ? MACHINE_FLINCH : FLINCH;
-  return clamp(f.base + share * f.gain, f.base, f.max);
+  const size = clamp(f.base + share * f.gain, f.base, f.max);
+  if (machine || !DevFlags.flinch || type === undefined || !ROUNDS.has(type)) return size;
+  const k = FLINCH_FLOOR;
+  const floor = type === 'pellet' ? k.pellet : force < k.lightUnder ? k.light : force < k.heavyFrom ? k.mid : k.heavy;
+  return Math.min(k.max, Math.max(floor, size + force * k.perForce));
 };
 /**
  * Most of its stagger and knockback a body keeps when it dies, in m/s. The living shed both within a second; a corpse
@@ -1366,13 +1380,13 @@ export class DamageModel {
     const frac = clamp(amount / e.maxHealth, 0, 1);
     const bone = d.bone ?? (e.def.machine ? DroneBone.body : REGION_BONE[region] ?? 0);
     const armoured = res.blocked;
-    const flinch = flinchSize(frac, e.def.machine === true);
+    const flinch = flinchSize(frac, e.def.machine === true, d.force || DEFAULT_FORCE[d.type], d.type);
     const profile = profileOf(e);
 
     // A body with a profile, on its feet, flinches in `respond`, which knows first whether a head hit takes it to the floor.
     // Not one on its feet on its muscles: gore has its root, the animator would read its yaw as 0, and the round lands on the
     // body itself.
-    if (!profile || (e.downed && !this.w.ctx.gore.downed(char)?.standing)) char.anim.flinch(bone, d.dir, flinch);
+    if (!profile || (e.downed && !this.w.ctx.gore.downed(char)?.standing)) char.anim.flinch(bone, d.dir, flinch, d.point);
     char.hitFlash(armoured ? 0.35 : clamp(0.55 + frac * 2, 0.55, 1));
     if (!armoured && d.type !== 'fire' && d.type !== 'shock' && !e.def.machine) {
       e.blood = Math.min(1, e.blood + 0.08 + frac * 1.1);
@@ -1443,7 +1457,7 @@ export class DamageModel {
     // before, which only a head hit did).
     const riseDown = STRUGGLE_PASS && !held && r.level === 'felled' && e.rising > 0;
     const floors = headDown || riseDown;
-    if (!floors) anim.flinch(bone, d.dir, flinch);
+    if (!floors) anim.flinch(bone, d.dir, flinch, d.point);
     if (held) return;
     const felt = profile.pain > 0;
     const blast = d.type === 'explosive';
@@ -1468,7 +1482,7 @@ export class DamageModel {
         return;
       }
       if (floors) {
-        anim.flinch(bone, d.dir, flinch);
+        anim.flinch(bone, d.dir, flinch, d.point);
         // Gore has no room for it. Inside the cooldown or a get-up a head hit only skipped them to go to the floor, so it
         // flinches as any other hit would there; staggered, an SMG would pin and shove a body for as long as it kept firing.
         // A body felled on its way up is always inside a get-up.

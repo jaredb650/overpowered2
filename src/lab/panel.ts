@@ -2,7 +2,7 @@
 import { MISSIONS } from '../campaign/missions';
 import type { VehicleKind } from '../campaign/types';
 import { CONTRACTS, type ContractId } from '../contracts/data';
-import { ON_RANGE } from '../core/devflags';
+import { ON_RANGE, type ReactSwitch } from '../core/devflags';
 import type { CallInId, EnemyId, ModId, PerkId, PowerupId, WeaponId } from '../core/gameplay';
 import { ENEMIES } from '../enemies/data';
 import { CALLIN_ORDER, CALLINS, EFFECTS, POWERUPS, implantLabel } from '../progression/data';
@@ -166,7 +166,7 @@ export class LabPanel {
     return b;
   }
 
-  private check(parent: HTMLElement, label: string, key: 'god' | 'arsenal' | 'reserves' | 'overlay' | 'gibbing' | 'explosiveDeaths' | 'progression' | 'muscles'): void {
+  private check(parent: HTMLElement, label: string, key: 'god' | 'arsenal' | 'reserves' | 'overlay' | 'gibbing' | 'explosiveDeaths' | 'progression' | 'muscles' | ReactSwitch): void {
     const row = el('label', 'lab-check');
     const box = el('input');
     box.type = 'checkbox';
@@ -367,6 +367,12 @@ export class LabPanel {
     this.check(this.el, 'Explosive deaths', 'explosiveDeaths');
     this.check(this.el, 'Combos and perks', 'progression');
     this.check(this.el, 'Muscles', 'muscles');
+    // The gore update's hit reactions, one row each, for playing with and without (`?flinch=0` and the rest set them at load).
+    this.check(this.el, 'Hits: every hit shows', 'flinch');
+    this.check(this.el, 'Hits: hand to the wound', 'clutch');
+    this.check(this.el, 'Hits: struck part physical', 'sway');
+    this.check(this.el, 'Hits: spoil his aim', 'aimspoil');
+    this.check(this.el, 'Hits: dying carries shots', 'carry');
     this.check(this.el, 'Aim readout', 'overlay');
     const force = el('input');
     const value = el('span');

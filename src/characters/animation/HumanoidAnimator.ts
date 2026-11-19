@@ -8,12 +8,13 @@
  */
 import * as THREE from 'three';
 import type { AnimAction, CharacterAnimation, LocomotionInput } from '../../core/contracts';
+import { DevFlags } from '../../core/devflags';
 import { HumanoidBone as H, type GoreRegion, type RigDef } from '../rig';
 import type { ArchetypeDef } from '../archetypes';
 import { GetUpPose, sampleGetUp, type GetUpKind } from './getUp';
 import { Limb } from './ik';
 import { Postures, type PostureName } from './postures';
-import { Spring3 } from './springs';
+import { HitSpring, Spring3 } from './springs';
 import { STYLES, type MoveStyle } from './styles';
 
 const TAU = Math.PI * 2;
@@ -46,6 +47,67 @@ const clipPose = new GetUpPose();
 export const FlinchSprings = new URLSearchParams(typeof location === 'undefined' ? '' : location.search).get('mass') === '0'
   ? { spine: [170, 13], chest: [210, 15], head: [240, 13], pelvis: [180, 15] }
   : { spine: [110, 17], chest: [130, 19], head: [160, 15], pelvis: [120, 18] };
+
+/**
+ * How a hit shows on a body that stays on its feet (the gore update's R1, `?flinch=0` for the nod it replaces). Every figure is
+ * the peak a flinch of size 1 reaches from rest, in radians unless it says otherwise; `flinch` sizes it by the weapon and the
+ * body's build. What reads from behind the gun is sideways and down, so the trunk twists with the struck shoulder and drops
+ * it, a struck arm is thrown back and out with the elbow folding after it, and a struck leg gives at the knee. It all rides on
+ * `HitSpring`, which peaks in four frames and comes back overdamped: no part crosses rest on the way home.
+ */
+export const HitShape = {
+  /** The trunk: leaning away along the shot, turning the struck shoulder with the round, and dropping that shoulder. */
+  lean: 0.16,
+  twist: 0.5,
+  drop: 0.36,
+  /** A round that lands nearer the spine than this share of the shoulder's width goes to one side or the other by turns. */
+  centre: 0.6,
+  /** Furthest fire can hold the trunk, on any axis. */
+  trunkMax: 0.7,
+  /** A round in the belly folds the body over it, whichever way it came. */
+  fold: 0.22,
+  /** The hips: pushed back along the shot and off to the side away from the struck shoulder, and sinking, in body heights. */
+  hipBack: 0.035,
+  hipSide: 0.03,
+  hipSink: 0.04,
+  hipsMax: 0.09,
+  /** How much of the trunk's twist and roll the pelvis takes over planted feet. */
+  hipsTurn: 0.25,
+  /** The head, on a hit to it: snapped along the shot, turned and tipped by the side it was struck on. */
+  headSnap: 0.4,
+  headTurn: 0.34,
+  headTilt: 0.26,
+  headMax: 0.7,
+  /** And on a hit to the trunk: how much of the shoulder's drop the head goes with, where it would otherwise stay level. */
+  headFollow: 0.8,
+  /** A struck arm: the upper arm thrown back along the shot and out from the body, and the elbow folding after it. */
+  armSwing: 0.55,
+  armOut: 0.45,
+  elbow: 0.55,
+  wrist: 0.4,
+  armMax: 0.95,
+  /** The arm on the struck side of a chest hit goes with the shoulder by this share, and the other arm by this one. */
+  armFollow: 0.45,
+  armOther: 0.12,
+  /** A hand with a gun in it is thrown this much of that; the hand on its foregrip goes this much of the way with it. */
+  gunArm: 0.75,
+  gunFollow: 0.55,
+  /** A struck leg: how far its knee gives per unit of size (1 is a buckle), and the most a flinch asks. */
+  knee: 0.5,
+  kneeMax: 0.8,
+  /** And the body over it: bent forward, leaning to that side, the hips shifted toward it in body heights. */
+  legFold: 0.1,
+  legLean: 0.12,
+  legShift: 0.024,
+  /**
+   * A hit to the trunk this big (its size for this build) on a body standing still takes a catch step: the foot on the
+   * struck side goes back this far, in body heights, and the idle walks it home. Not again for `stepGap` seconds, or held
+   * fire would have it dancing.
+   */
+  stepFrom: 1.2,
+  step: 0.14,
+  stepGap: 0.6,
+};
 
 /** How a body takes a hit that upsets its balance. */
 const REEL = {
@@ -339,6 +401,21 @@ export class HumanoidAnimator implements CharacterAnimation {
   private readonly armRS = new Spring3(150, 11);
   private readonly recoil = new Spring3(420, 26);
   private readonly landing = new Spring3(120, 13);
+  /**
+   * What a hit rides on (`HitShape`): the trunk's pitch, twist and roll; the head's; the hips' shift in body heights; and for
+   * each arm (left, right) the upper arm's swing, and behind it on a slower spring the fold of the elbow and wrist.
+   */
+  private readonly hitTrunk = new HitSpring(17, 8.5, 0.65);
+  private readonly hitHead = new HitSpring(20, 10, 0.6);
+  private readonly hitHips = new HitSpring(14, 7, 0.7);
+  private readonly hitArm = [new HitSpring(15, 7, 0.55), new HitSpring(15, 7, 0.55)];
+  private readonly hitFore = [new HitSpring(10, 5.5, 0.6), new HitSpring(10, 5.5, 0.6)];
+  /** Which side the last round down the middle went to. */
+  private hitSide = 1;
+  private hitSideAt = -1;
+  /** Seconds until a hit may ask for another catch step. */
+  private hitStep = 0;
+  private readonly shoulderX: number;
 
   private readonly pelvisPos = new THREE.Vector3();
   private readonly pelvisQ = new THREE.Quaternion();
@@ -362,6 +439,7 @@ export class HumanoidAnimator implements CharacterAnimation {
     this.hipY = bones[H.hips]!.position.y;
     this.ankleY = bindAnkle(bones);
     this.legLength = bones[H.shinL]!.position.length() + bones[H.footL]!.position.length();
+    this.shoulderX = Math.max(Math.abs(bones[H.upperArmL]!.position.x), 0.05);
     const leg = (side: 1 | -1, t: number, s: number, f: number, phaseOffset: number): Foot => ({
       planted: true, pos: new THREE.Vector3(), from: new THREE.Vector3(), to: new THREE.Vector3(), yaw: 0, fromYaw: 0, t: 1, dur: 0.3, pitch: 0,
       side, limb: new Limb(bones[t]!, bones[s]!, bones[f]!, new THREE.Vector3(0, 0, 1)), hipOffset: bones[t]!.position.clone(), phaseOffset, lastPsi: phaseOffset, ground: 0, roll: 0,
@@ -446,7 +524,7 @@ export class HumanoidAnimator implements CharacterAnimation {
     return duration;
   }
 
-  flinch(bone: number, worldDir: THREE.Vector3, magnitude: number): void {
+  flinch(bone: number, worldDir: THREE.Vector3, magnitude: number, worldPoint?: THREE.Vector3): void {
     // Into character space: the root only ever rotates about Y.
     const yaw = this.root.rotation.y;
     const c = Math.cos(yaw), s = Math.sin(yaw);
@@ -454,9 +532,15 @@ export class HumanoidAnimator implements CharacterAnimation {
     const dz = worldDir.x * s + worldDir.z * c;
     const dy = worldDir.y;
     const m = magnitude * (1.4 - this.weight * 0.9);
+    const name = this.rig.bones[bone]?.region ?? 'chest';
+    if (DevFlags.flinch) {
+      // Where across the body it landed, in shoulder widths: his left is +X.
+      const across = worldPoint ? ((worldPoint.x - this.root.position.x) * c - (worldPoint.z - this.root.position.z) * s) / this.shoulderX : 0;
+      this.takeHit(name, dx, dz, m, across);
+      return;
+    }
     // Lean away from the hit: a push along +Z pitches forward, along +X rolls toward -Z axis.
     const px = dz * 5, pz = -dx * 5;
-    const name = this.rig.bones[bone]?.region ?? 'chest';
     let wSpine = 0.6, wChest = 1, wHead = 0.6, wPelvis = 0.4;
     if (name === 'head') { wSpine = 0.1; wChest = 0.3; wHead = 2.6; wPelvis = 0.05; }
     else if (name === 'abdomen') { wSpine = 1.4; wChest = 0.5; wPelvis = 1; }
@@ -468,6 +552,73 @@ export class HumanoidAnimator implements CharacterAnimation {
     this.pelvis.kick(dx * m * wPelvis * 0.5, dy * m * wPelvis * 0.3, dz * m * wPelvis * 0.5);
     if (name.endsWith('L') && (name.startsWith('arm') || name.startsWith('forearm'))) this.armLS.kick(dx * m * 4, 0, dz * m * 4);
     if (name.endsWith('R') && (name.startsWith('arm') || name.startsWith('forearm'))) this.armRS.kick(dx * m * 4, 0, dz * m * 4);
+  }
+
+  /**
+   * One hit, on the springs (`HitShape`). `dx`, `dz` are the round's direction in the body's own axes (his left is +X, his
+   * front +Z), `m` its size for this build, `across` where it landed across him in shoulder widths. Nothing here moves a bone
+   * on this frame: every part is a kick to a spring, or the knee's ease, because gore reads a jump as speed if the same burst
+   * kills (gore.md, "Nothing a hit does to the animation may land in one frame").
+   */
+  private takeHit(name: string, dx: number, dz: number, m: number, across: number): void {
+    const S = HitShape;
+    const arm = name.startsWith('arm') || name.startsWith('forearm');
+    const leg = name.startsWith('leg') || name.startsWith('shin');
+    let side = arm || leg ? (name.endsWith('L') ? 1 : -1) : clamp(across, -1, 1);
+    // Down the middle there is no shoulder to turn, so it goes to one side and then the other: held fire rocks a body. The
+    // pellets of one shell land on one frame and go the same way, or they would cancel.
+    if (Math.abs(side) < S.centre) {
+      if (this.time !== this.hitSideAt) this.hitSide = -this.hitSide;
+      this.hitSideAt = this.time;
+      side = this.hitSide * S.centre;
+    }
+    // The struck shoulder goes with the round: back from a shot in front, forward from one behind. A shot from the side
+    // turns nothing and leans the body away.
+    const turn = -dz * side;
+    let lean = dz * S.lean, twist = turn * S.twist, roll = -side * S.drop - dx * S.lean;
+    let back = dz * S.hipBack, shift = -side * S.hipSide + dx * S.hipBack, sink = S.hipSink;
+    if (name === 'head') {
+      lean *= 0.3; twist *= 0.3; roll *= 0.3; back *= 0.3; shift *= 0.3; sink *= 0.3;
+      this.hitHead.hit(dz * S.headSnap * m, turn * S.headTurn * m, (-side * S.headTilt - dx * S.headSnap) * m, S.headMax);
+    } else {
+      if (name === 'abdomen') { lean = S.fold; twist *= 0.5; roll *= 0.6; back *= 1.8; sink *= 2; }
+      else if (arm) { lean *= 0.35; twist *= 0.8; roll *= 0.6; back *= 0.4; shift *= 0.5; sink *= 0.4; }
+      else if (leg) { lean = S.legFold; twist *= 0.3; roll = -side * S.legLean; back *= 0.6; shift = side * S.legShift; sink = 0; }
+      // The head would hold level over a dropped shoulder (`poseUpperBody` counters the trunk): it goes part of the way with it.
+      this.hitHead.hit(0, 0, roll * S.headFollow * m, S.headMax);
+    }
+    this.hitTrunk.hit(lean * m, twist * m, roll * m, S.trunkMax);
+    this.hitHips.hit(shift * m, -sink * m, back * m, S.hipsMax);
+
+    if (leg && this.plan === 'biped') {
+      const to = side > 0 ? 1 : -1;
+      // The other knee is still giving: it has to come back first, or the hips would roll across in one frame.
+      if (to === this.buckleSide || this.buckleW <= 0.05) {
+        this.buckleSide = to;
+        this.buckle = Math.max(this.buckle, clamp(S.knee * m, 0, S.kneeMax));
+      }
+      return;
+    }
+    if (leg) return;
+    // A hard enough round to the trunk of a body standing still: the foot on that side steps back to catch it.
+    if (!arm && name !== 'head' && m >= S.stepFrom && this.hitStep <= 0 && this.plan === 'biped' && this.moveBlend < 0.3 && this.stepAside === 0 && !this.action) {
+      this.hitStep = S.stepGap;
+      this.meleeFlip = side > 0 ? -1 : 1;
+      this.stepAside = (dz > 0 ? 1 : -1) * S.step;
+    }
+    // Arms: the struck one thrown back along the shot and out, the elbow folding behind it; on a chest hit the arm on that
+    // side goes with its shoulder. A hand on a gun is thrown less, and the hand on its foregrip goes with it.
+    const armed = this.grip !== null && !this.armGoneR;
+    for (let i = 0; i < 2; i++) {
+      const own = i === 0 ? 1 : -1;
+      let share = arm ? (own === side ? 1 : 0) : name === 'head' ? 0 : own * side > 0 ? S.armFollow * Math.abs(side) : S.armOther;
+      if (armed && i === 1) share *= S.gunArm;
+      if (arm && armed && i === 0 && side < 0 && this.grip!.foregrip) share = S.gunArm * S.gunFollow;
+      if (share <= 0) continue;
+      const swing = -dz * S.armSwing * share * m, out = (own * S.armOut - dx * S.armSwing) * share * m;
+      this.hitArm[i]!.hit(swing, 0, out, S.armMax);
+      this.hitFore[i]!.hit(Math.hypot(swing, out), 0, 0, S.armMax);
+    }
   }
 
   stumble(worldDir: THREE.Vector3, strength: number, bone: number): void {
@@ -617,6 +768,9 @@ export class HumanoidAnimator implements CharacterAnimation {
     this.stride = 0;
     this.spine.clear(); this.chest.clear(); this.head.clear(); this.pelvis.clear();
     this.armLS.clear(); this.armRS.clear(); this.recoil.clear(); this.landing.clear();
+    this.hitTrunk.clear(); this.hitHead.clear(); this.hitHips.clear();
+    this.hitStep = 0;
+    for (let i = 0; i < 2; i++) { this.hitArm[i]!.clear(); this.hitFore[i]!.clear(); }
     this.hands[0]!.planted.set(0, 0, 0);
     this.hands[1]!.planted.set(0, 0, 0);
     this.reel = this.flail = this.flailW = this.buckle = this.buckleW = 0;
@@ -756,6 +910,8 @@ export class HumanoidAnimator implements CharacterAnimation {
   private stepSprings(dt: number): void {
     this.spine.step(dt); this.chest.step(dt); this.head.step(dt); this.pelvis.step(dt);
     this.armLS.step(dt); this.armRS.step(dt); this.recoil.step(dt); this.landing.step(dt);
+    this.hitTrunk.step(dt); this.hitHead.step(dt); this.hitHips.step(dt);
+    for (let i = 0; i < 2; i++) { this.hitArm[i]!.step(dt); this.hitFore[i]!.step(dt); }
   }
 
   private stepAction(dt: number): void {
@@ -765,6 +921,7 @@ export class HumanoidAnimator implements CharacterAnimation {
       if (a.t >= 1) this.action = null;
     }
     this.blockHold = Math.max(0, this.blockHold - dt * 1.5);
+    this.hitStep = Math.max(0, this.hitStep - dt);
     this.reel = Math.max(0, this.reel - dt);
     this.flail *= Math.exp(-REEL.flailFade * dt);
     this.buckle *= Math.exp(-REEL.buckleFade * dt);
@@ -1057,7 +1214,9 @@ export class HumanoidAnimator implements CharacterAnimation {
     x += this.posture.sway * L;
     y -= this.posture.drop * L;
     z += this.posture.shift * L;
-    this.pelvisPos.set(x + this.pelvis.x * 0.08 * L, y + this.pelvis.y * 0.05 * L, z + this.pelvis.z * 0.08 * L);
+    // A hit shifts the hips over planted feet. On the floor there is nothing under them to sink into.
+    const hh = this.hitHips;
+    this.pelvisPos.set(x + this.pelvis.x * 0.08 * L + hh.x * L, y + this.pelvis.y * 0.05 * L + hh.y * L * (1 - this.planBlend), z + this.pelvis.z * 0.08 * L + hh.z * L);
 
     const yawP = Math.sin(ph) * lerp(0.1, 0.2, run) * mv * bounce * 0.8;
     const rollP = Math.cos(ph) * lerp(0.05, 0.03, run) * mv * bounce;
@@ -1065,7 +1224,8 @@ export class HumanoidAnimator implements CharacterAnimation {
     const dazed = this.dazeW * DAZE_SWAY;
     const sway = Math.sin(this.time * 1.9 + this.seed);
     x += sway * dazed * 0.25 * L;
-    qEuler(this.pelvisQ, pitchP, yawP + actYaw, rollP + this.leanSide * 0.5 - this.buckleSide * this.buckleW * REEL.buckleRoll + sway * dazed * 0.5);
+    const ht = this.hitTrunk;
+    qEuler(this.pelvisQ, pitchP, yawP + actYaw + ht.y * HitShape.hipsTurn, rollP + this.leanSide * 0.5 - this.buckleSide * this.buckleW * REEL.buckleRoll + sway * dazed * 0.5 + ht.z * HitShape.hipsTurn);
     if (this.planBlend > 0.001) {
       // Prone: the spine lies along the direction of travel.
       qEuler(qA, 1.42, Math.sin(this.crawlPhase * TAU) * 0.16 * this.moveBlend, Math.sin(this.crawlPhase * TAU) * 0.1 * this.moveBlend);
@@ -1167,10 +1327,13 @@ export class HumanoidAnimator implements CharacterAnimation {
     }
 
     const sp = this.spine, ch = this.chest, hd = this.head;
+    // A hit's lean, twist and roll, shared between the two joints of the trunk; the pelvis has taken `hipsTurn` of the turn.
+    const ht = this.hitTrunk, hh = this.hitHead;
+    const turn = 1 - HitShape.hipsTurn;
     const spineQ = this.bones[H.spine]!.quaternion;
     const chestQ = this.bones[H.chest]!.quaternion;
-    qEuler(spineQ, bend * 0.45 + sp.x * 0.5, twist * 0.42 + sp.y * 0.5, roll * 0.5 + sp.z * 0.5);
-    qEuler(chestQ, bend * 0.55 + ch.x * 0.6, twist * 0.58 + ch.y * 0.6, roll * 0.5 + ch.z * 0.6);
+    qEuler(spineQ, bend * 0.45 + sp.x * 0.5 + ht.x * 0.45, twist * 0.42 + sp.y * 0.5 + ht.y * 0.45 * turn, roll * 0.5 + sp.z * 0.5 + ht.z * 0.45 * turn);
+    qEuler(chestQ, bend * 0.55 + ch.x * 0.6 + ht.x * 0.55, twist * 0.58 + ch.y * 0.6 + ht.y * 0.55 * turn, roll * 0.5 + ch.z * 0.6 + ht.z * 0.55 * turn);
 
     this.chestQ.copy(this.pelvisQ).multiply(spineQ).multiply(chestQ);
     this.chestPos.copy(this.bones[H.spine]!.position).applyQuaternion(this.pelvisQ).add(this.pelvisPos);
@@ -1182,8 +1345,8 @@ export class HumanoidAnimator implements CharacterAnimation {
       euler.setFromQuaternion(this.chestQ, 'YXZ');
       const gaze = st.gazeLift;
       const counterX = -euler.x * gaze, counterY = -euler.y * 0.5, counterZ = -euler.z * 0.6;
-      qEuler(this.bones[H.neck]!.quaternion, counterX * 0.45 + hd.x * 0.4, counterY * 0.4 + headYaw * 0.4 + hd.y * 0.4, counterZ * 0.5 + hd.z * 0.4);
-      qEuler(this.bones[H.head]!.quaternion, counterX * 0.55 + headPitch + hd.x * 0.7, counterY * 0.6 + headYaw * 0.6 + hd.y * 0.7, counterZ * 0.5 + hd.z * 0.7);
+      qEuler(this.bones[H.neck]!.quaternion, counterX * 0.45 + hd.x * 0.4 + hh.x * 0.4, counterY * 0.4 + headYaw * 0.4 + hd.y * 0.4 + hh.y * 0.4, counterZ * 0.5 + hd.z * 0.4 + hh.z * 0.4);
+      qEuler(this.bones[H.head]!.quaternion, counterX * 0.55 + headPitch + hd.x * 0.7 + hh.x * 0.6, counterY * 0.6 + headYaw * 0.6 + hd.y * 0.7 + hh.y * 0.6, counterZ * 0.5 + hd.z * 0.7 + hh.z * 0.6);
     }
     this.poseArms(dt, lod);
   }
@@ -1217,7 +1380,24 @@ export class HumanoidAnimator implements CharacterAnimation {
       } else if (lod <= 1) {
         h.limb.relaxEnd();
       }
+      this.swingArm(h);
     }
+  }
+
+  /**
+   * A hit's swing on an arm the pose has just been solved for: the upper arm turned about the shoulder in the chest's axes,
+   * then the elbow folded and the wrist let back behind it. Laid over the solved arm, so a hand leaves what it was holding
+   * for as long as the swing lasts, and the gun in it goes with it.
+   */
+  private swingArm(h: Hand): void {
+    const i = h.side > 0 ? 0 : 1;
+    const a = this.hitArm[i]!, f = this.hitFore[i]!;
+    if (!a.active && !f.active) return;
+    const limb = h.limb!;
+    limb.a.quaternion.premultiply(qEuler(qB, a.x, 0, a.z));
+    // The elbow only folds one way (the rig's hinge: about its own X, toward the front).
+    limb.b.quaternion.multiply(qEuler(qB, -Math.abs(f.x) * HitShape.elbow, 0, 0));
+    limb.c.quaternion.multiply(qEuler(qB, Math.abs(f.x) * HitShape.wrist, 0, 0));
   }
 
   /** What a hand does for the body's sake, over whatever it was doing: out for balance, to a wound, up to the face. */
@@ -1540,8 +1720,9 @@ export class HumanoidAnimator implements CharacterAnimation {
     const bend = p.bend + strain * 0.1;
     const spineQ = this.bones[H.spine]!.quaternion;
     const chestQ = this.bones[H.chest]!.quaternion;
-    qEuler(spineQ, bend * 0.45, 0, 0);
-    qEuler(chestQ, bend * 0.55 + ch.x * 0.6, ch.y * 0.6, ch.z * 0.6);
+    const ht = this.hitTrunk;
+    qEuler(spineQ, bend * 0.45 + ht.x * 0.45, ht.y * 0.45, ht.z * 0.45);
+    qEuler(chestQ, bend * 0.55 + ch.x * 0.6 + ht.x * 0.55, ch.y * 0.6 + ht.y * 0.55, ch.z * 0.6 + ht.z * 0.55);
     this.chestQ.copy(this.pelvisQ).multiply(spineQ).multiply(chestQ);
     this.chestPos.copy(this.bones[H.spine]!.position).applyQuaternion(this.pelvisQ).add(this.pelvisPos);
     qA.copy(this.pelvisQ).multiply(spineQ);

@@ -110,11 +110,48 @@ One rule, in `reactions.ts`: `power = (force / body mass + damage / health) x re
 
 | Level | What happens |
 |---|---|
-| Flinch | The spring flinch, sized by the share of health the hit took (`flinchSize` in `damage.ts`), and a cry. One SMG round tips a Trooper's chest 0.16 rad and it comes back without rocking past (`docs/notes/gore.md`, Taking rounds). A drone's and a skitter's keep the size they had before stage 3 |
+| Flinch | Every hit shows, from the first round (the gore update's R1, below): the trunk twists with the struck shoulder and drops it, a struck arm is thrown back, a struck leg gives at the knee, sized by the weapon with a floor (`flinchSize` in `damage.ts`), and a cry. A drone's and a skitter's keep the size they had before stage 3 |
 | Stagger | `e.reel` carries the body the way it was hit, the feet step after it, a hand goes to the wound or up to the face. No thinking while `e.stagger` lasts. At strength 0.35 or more (`STAND_FROM`), where the player can see it (full detail, in view, within 20 m, on the ground on two legs), gore takes the body on the same frame and it catches its balance on its muscles or does not (`stumble.budget`, `gore/stand.ts`): `e.downed` for up to 2.5 s, then handed back standing with 0.2 s of stagger, or down as from any knockdown. A further round costs it `amount / maxHealth` of its budget, a head hit `HEAD_COST`. Refused, or with `?stand=0`, the stagger is the animation's |
 | Fall | A stagger, and where the player can see it (full detail, in view, within 20 m) gore takes the body on the same frame and it loses its balance on its muscles (`stumble`, at most 0.16 to 0.42 s plus 0.35); anywhere else, or with gore full or `?stand=0`, 0.16 to 0.42 s later `gore.knockdown`, so it visibly fails to catch itself |
 | Felled | `gore.knockdown` at once, with no steps to catch itself: a head hit it lives through, cooldown or not, or a hard hit on its way up |
 | Thrown | `gore.knockdown` at once, for a blast, and the blast does the throwing |
+
+**How a hit shows (gore update R1, 2026-11-19; `?flinch=0` or the dev panel's "Hits: every hit shows" for the nod it replaces).**
+Before, a hit that did not stagger leaned the chest 3 to 10 degrees straight away from the gun for a third of a second, and a
+struck arm moved 1.5 degrees: from behind the gun, nothing. Now `HumanoidAnimator.flinch(bone, dir, size, point)` is given where
+the round landed and moves the body sideways and down (`HitShape` in `HumanoidAnimator.ts` has every number, each the peak at
+size 1):
+
+- **Trunk:** turns the struck shoulder with the round (back from a shot in front, forward from one behind; 0.5 rad), drops that
+  shoulder (0.36), leans away along the shot (0.16); the hips go back and to the other side and sink (0.03 to 0.04 of body
+  height); the head goes most of the way with the shoulders. A round nearer the spine than 0.6 of the shoulder's width goes
+  to one side and then the other, so held fire rocks a body; the pellets of one shell go the same way. A belly hit folds the
+  body over it. A trunk hit of size 1.2 or more on a body standing still also takes one catch step back (0.14 of body height,
+  not again for 0.6 s).
+- **Struck arm:** the upper arm thrown back and out (0.55 and 0.45 rad), the elbow folding and the wrist letting go behind it
+  on a slower spring. A hand with a gun in it is thrown 0.75 of that, and the hand on its foregrip goes 0.55 of the way with
+  it; on a chest hit the arm on the struck side goes 0.45 of the way with its shoulder.
+- **Struck leg:** that knee gives (the stumble's own buckle, eased in: hips down and rolled toward it, feet planted), the body
+  bends and leans over it, the hips shift toward it.
+- **Head** (a glance, a helmet, a light pistol): snapped along the shot, turned and tipped by the side it was struck on.
+
+It rides on `HitSpring` (`springs.ts`): out on one stiffness, back on a softer one with the same damping, so it peaks in four
+frames (0.07 s) and comes back overdamped over about 0.7 s. No part crosses rest on the way home, whatever the size, which is
+why this can be large where the plain spring had to be small (it rang past rest by a seventh at half its damping). A kick asks
+for no more than takes the spring to its limit (`trunkMax` 0.7 rad), so one very hard round cannot fold a body and a stream of
+them leans it to the limit and holds it there. Nothing moves on the frame of the hit: every part is a kick to a spring or the
+knee's ease (gore reads a jump as speed if the same burst kills).
+
+Size (`flinchSize(share, machine, force, type)`): what it was, `0.2 + 2.2 x share of health`, plus `0.005` per newton-second
+of the weapon's push, and never under a floor by that push: 0.9 under 10 N·s (the Rivet, the Autoraffica), 1.05 from 10
+(every SMG and rifle), 1.3 from 30 (the Judge and up), 0.5 for each pellet of a shell; at most 1.7. Fire, shock, bleeding and
+being run into keep the old size (they are not rounds, and the first two land thirty times a second). The animator still
+scales by build (`1.4 - 0.9 x weight`: a Trooper 1.18, a Brute 0.77, a Husk 1.31).
+
+Measured on the Test Range from the player's eye at 12 m, one SMG round (`tools/scripts/hit-seq.mjs`, before to after): a
+Trooper's chest turns 10.4 to 30 degrees, peak at frame 4 where it was frame 6, back within a tenth by 0.68 s where it was 0.37;
+its struck upper arm 1.5 to 36 degrees and that hand 45; a leg hit moves its head 0.2 to 9 pixels sideways on a 1440-wide
+screen; a Brute's chest 2.8 to 19 degrees, its struck arm to 36; a Husk's chest 14.8 to 45. Past rest the other way: none.
 
 A shot leg at 2.2 m/s or more trips a body by `profile.trip`: it keeps its speed and falls forward. So does a leg more than 45% gone, at a stand.
 

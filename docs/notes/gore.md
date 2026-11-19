@@ -200,7 +200,8 @@ A body that is falling or dying answers every round, and nothing restarts.
 - The animation under a collapse flinches too, and the muscles carry that as well.
 - Once it has let go a jolt is 35%, and 15% once tone has gone. At full strength an SMG walked a body 5 m along the floor in 3 s.
 - A waist takes `corpseTrunkHealth` (420), not `corpseLimbHealth` (60). An SMG cut every body in two with its third round, because the chest counts toward the waist. It is also why a point blank shotgun's throw went up: see `docs/notes/lab.md`.
-- The living are the animator's, not gore's: a hit that does not kill flinches it on springs (`HumanoidAnimator.flinch`), at a
+- **Since the gore update (2026-11-19) the living flinch is a different shape and size: `docs/notes/enemies.md`, "How a hit
+  shows". What follows is the flinch before it, which `?flinch=0` puts back.** The living are the animator's, not gore's: a hit that does not kill flinches it on springs (`HumanoidAnimator.flinch`), at a
   size `damage.ts` works out from the share of health it took, `flinchSize`: 0.2 + 2.2 × share, at most 1.4 (0.35 + 3 × share
   and 1.6 before). The animator already sizes it by build, so mass is not counted twice. The springs under the spine, chest,
   head and pelvis (`FlinchSprings`) are damped to about 0.8 of critical (the head 0.6), against about half before: a round

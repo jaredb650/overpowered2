@@ -18,6 +18,9 @@ export const DEV_ASKED = ON_RANGE || dev === '1';
  */
 export const DEV_TOOLS = DEV_ASKED || (typeof location !== 'undefined' && import.meta.env?.DEV && dev !== '0');
 
+/** A switch that a URL parameter turns off (`?name=0`), for comparing the game with and without one change. */
+const on = (name: string): boolean => query?.get(name) !== '0';
+
 export const DevFlags = {
   /** Off: nothing bursts into limbs and chunks, whatever killed it. */
   gibbing: true,
@@ -29,4 +32,20 @@ export const DevFlags = {
   muscles: true,
   /** Master multiplier on every push a body takes. */
   force: 1,
+  /**
+   * The gore update's hit reactions (docs/notes/gore-update.md, lane "react"), each with its URL switch, so the game can be
+   * played with and without one. `flinch` (`?flinch=0`): every hit shows, in the shape and at the size of the update; off,
+   * the small nod from before it. `clutch` (`?clutch=0`): a hand to the wound and a hurt posture on a plain flinch too.
+   * `carry` (`?carry=0`): more bodies die on their feet at once, and a kill on a body on its muscles keeps that motion.
+   * `aimspoil` (`?aimspoil=0`): a hit spoils an enemy's aim. `sway` (`?sway=0`): the struck part goes onto physics.
+   */
+  flinch: on('flinch'),
+  clutch: on('clutch'),
+  carry: on('carry'),
+  aimspoil: on('aimspoil'),
+  sway: on('sway'),
 };
+
+/** The hit-reaction switches as the page's URL left them: the lab starts from these, not from what it last remembered. */
+export const REACT_SWITCHES = ['flinch', 'clutch', 'carry', 'aimspoil', 'sway'] as const;
+export type ReactSwitch = (typeof REACT_SWITCHES)[number];
