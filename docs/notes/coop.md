@@ -2192,6 +2192,7 @@ plays `time_warp_in` and `time_warp_out`; the causer hears what single player pl
 | Longest one request can run | Focus 4.5 s, SLOWMO and Time Warp 5.5 s, a boss's death 9 s (real time). Focus asks for what its meter holds |
 | Each player's own limits | Unchanged: Focus's 4 s meter, 25% to start, 1.5 s rest, 18 s refill; a perk's 5 s; SLOWMO's rearm |
 | Down or dead | Refused ("NO SLOW-MO WHILE DOWN"); whatever they had running ends. The same when a player leaves |
+| A lobby walk (a session with no world yet) | Focus is refused ("NO FOCUS BRAIN CHIP IN THE LOBBY"): there is no host clock to ask and nobody to show the notice to, and no slow-mo starts without it |
 | The team's budget | Players can keep the world slow **12 s in a row**. The budget fills at 1 s per second of full speed. Run dry, the world returns to full speed and nothing a player asks for is granted until **3 s** are back ("TEAM SLOW-MO SPENT · 3 S"). So: at most 12 s at once, and half the time over a long fight |
 | A boss's death | The world's own: never refused, spends none of the budget |
 
