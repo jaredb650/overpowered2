@@ -13,6 +13,7 @@
 //   burnt   a Trooper burnt to death at 4 m and another at 8 m: stills while they burn, as they smoulder and cold, light
 //           off and on.
 //   rims    a big wet stain with wet drops laid on it, looked down on from standing, light off and on.
+//   dry     the blood scene's burst, close on the meat it leaves, at 3 s and 130 s (add `&dryflesh=0` to the URL to compare)
 //   organ   a Trooper's chest blown out from behind (the blow-out throws an organ): the hole, close, from the side it left by.
 //   heap    eight bodies killed on one spot, then one burst on top of them: where the pieces and the guts come to rest.
 // FIT_SHOTS  seconds at which to take stills, for the cases that take them at times.
@@ -204,24 +205,30 @@ const SCENES = {
     const e = stand('trooper', along(2.4, 0));
     f.made.push(e);
     let frame = 0;
+    let yaw = 0;
     const tick = () => {
       requestAnimationFrame(tick);
       frame++;
-      // Once he stands as the game has turned him: through the chest from his right to his left, so the far side opens
-      // on his left, and the player steps round to that side at once and looks into the hole before he can turn.
-      if (frame !== 12) return;
+      if (frame < 12) return;
       e.char.root.updateMatrixWorld(true);
       const chest = e.char.bones[2].getWorldPosition(new V());
       const hisLeft = new V(1, 0, 0).applyQuaternion(e.char.root.quaternion).setY(0).normalize();
-      const dir = hisLeft.clone();
-      const point = chest.clone().addScaledVector(dir, -0.18);
-      point.y += 0.08;
-      ctx.gore.blowOut(e.char, { amount: 200, type: 'bullet', point, dir, force: 60, source: 'sabot', bone: 2, region: 'chest' });
-      f.state.organs = e.char.organsGone ?? null;
-      const eye = chest.clone().addScaledVector(dir, 1.05);
+      if (frame === 12) {
+        // Once he stands as the game has turned him: through the chest from his right to his left, so the far side
+        // opens on his left.
+        yaw = e.yaw;
+        const point = chest.clone().addScaledVector(hisLeft, -0.18);
+        point.y += 0.08;
+        ctx.gore.blowOut(e.char, { amount: 200, type: 'bullet', point, dir: hisLeft.clone(), force: 60, source: 'sabot', bone: 2, region: 'chest' });
+        f.state.organs = e.char.organsGone ?? null;
+        f.light(true);
+      }
+      // He is held as he stood, and the player stands on the side the round left by, every frame: he would turn to
+      // face whoever is beside him, and the picture would be of his chest plate.
+      e.yaw = yaw;
+      const eye = chest.clone().addScaledVector(hisLeft, 1.45);
       f.P.teleport(new V(eye.x, f.home.y, eye.z), 0);
-      f.look(chest.clone().setY(chest.y + 0.1));
-      f.light(true);
+      f.look(chest.clone().setY(chest.y + 0.05));
     };
     requestAnimationFrame(tick);
     return {};
@@ -260,6 +267,9 @@ const SCENES = {
     return {};
   },
 };
+
+// The same burst, looked at from beside the meat it leaves.
+SCENES.dry = SCENES.blood;
 
 /** What the floor holds now, for the stills' captions. */
 const stats = () => {
@@ -306,6 +316,29 @@ export default async function fitLook(page, h0) {
       await still(`blood-${String(t).replace('.', '_')}s`);
     }
     await withLight('blood-end');
+  } else if (CASE === 'dry') {
+    // Close on the biggest piece the burst left (a trunk piece, else a limb): wet at 3 s, and the same after 130 s.
+    // With `?dryflesh=0` in the URL the same scene is the flesh that never dried.
+    await run(3);
+    const what = await page.evaluate(() => {
+      const f = window.__fit;
+      const g = f.ctx.gore;
+      const half = (g.sliced.halves ?? []).find(h => h.mesh && h.sinking < 0);
+      const limb = g.limbs[0];
+      const at = half ? half.mesh.getWorldPosition(new f.V()) : limb ? limb.rag.center.clone() : null;
+      if (!at) return 'nothing to look at';
+      const d = new f.V().subVectors(at, f.home).setY(0).normalize();
+      f.P.teleport(new f.V(at.x - d.x * 1.25, f.home.y, at.z - d.z * 1.25), 0);
+      f.look(at);
+      return half ? 'a trunk piece' : 'a limb';
+    });
+    console.error('[fit-look] dry: looking at', what);
+    await steady.frames(page, 4);
+    await still('dry-3s');
+    await withLight('dry-3s');
+    await run(127);
+    await still('dry-130s');
+    await withLight('dry-130s');
   } else if (CASE === 'wear') {
     await run(0.6);
     await still('wear');

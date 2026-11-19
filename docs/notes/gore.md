@@ -1302,7 +1302,9 @@ Measured, the same fight and the same chokepoint, before the fit pass and after 
 | A chokepoint, 80 kills: draw calls / triangles / one frame drawn | 583 / 2.98 M / 3.88 ms | 415 / 2.16 M / 2.95 ms | 576 / 3.31 M |
 | The same: highest hips, bodies with hips over 35 cm | 0.68 m, 9 | 0.65 m, 13 | 0.14 m, 0 |
 
-The heap is as high as it was: nothing here takes a capsule out of the world.
+The heap is as high as it was: nothing here takes a capsule out of the world. Run again on the last build of the pass
+(the fight plays out a little differently with every change to the dice): 463 draw calls, 2.59 M triangles, 2.81 ms,
+highest hips 0.72 m; the chokepoint 419 / 2.09 M, highest hips 0.83 m.
 
 ### What a heap costs the physics step (the fit pass, 2026-11-19)
 

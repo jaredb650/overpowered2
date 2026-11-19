@@ -86,7 +86,7 @@ Each lane owns a vertical through the plan's batches and goes on to its next ste
 | mess | 5630-5639 | M0 measure the budgets; P1 the mess stays (decal rings by kind and about four times the room, pieces that do not expire, corpses sink only out of view, resting bodies that stack and are **pushed aside as ragdolls** when walked into, the "Mess" setting); P3 many more corpses (tiers, baked far bodies that can wake) | `render/Decals.ts` (the rings and budgets), `gore/chunks.ts` lifetimes, `gore/rag.ts`, `gore/sliced.ts`, `gore/index.ts` corpse caps, settings UI | done: M0, P1, the push rule, the "Mess" setting, P3 (the far batch). Limbs were baked by "fit". Not done: the laptop has not been measured (lane "verify") |
 | decals | 5640-5649 | D1 realistic decal designs and BIG decals for coverage (the sheet, the choice of shape by speed, angle, amount and weapon, wet and dry surface response); B1 more blood from one hit; B4 drips from ceilings and ledges, splashes, soaked bodies; B2 footprints and slide smears; P2 blood that never has to go (the floor texture) | `render/materials/decalAtlas.glsl.ts`, the shape choice in `render/Decals.ts` and `gore/blood.ts`, `fx/layers/blood.ts` | done: D1 (the sheet, big stains, marks), B1, B4, B2, P2 |
 | wear | 5650-5659 | B3 blood on the weapon and hands; W1 wear you can see: readable limb damage (skin torn to muscle, then bone, as a region's pool is spent), without changing what shooting a limb does | `weapons/viewmodels/` materials, `characters/material.ts`, `characters/anatomy/interior.ts`, the body's data texture | done: B3 (aaaa677), W1 |
-| fit | 5660-5669 | The seams between the six: fire and the others, gibs and the others, mess and the others (limbs baked, the long fight's cost), react and the others, the co-op "limb" case, one look, the notes | everything above, at the joins | done: steps 1 to 3 (`bd37370`, `9e61f7d`, `563ec87`). Not done: see its log entries |
+| fit | 5660-5669 | The seams between the six: fire and the others, gibs and the others, mess and the others (limbs baked, the long fight's cost), react and the others, the co-op "limb" case, one look, the notes | everything above, at the joins | done: steps 1 to 4 (`bd37370`, `9e228fa`, `50a0bdb`, `dfbdce9`; pictures and `LOOK.md` in `tools/out/gore-update/fit/`). Not done: listed in its last log entry |
 | verify | (its own) | The whole update's cost on a laptop, the quality settings, the whole co-op sweep, single player, the owner's pictures | measurements and settings | (its own log) |
 
 Shared files and contracts:
@@ -450,4 +450,32 @@ red under the weapon light) have no switch: each replaces a fault, and the befor
     Decided: it lives in `src/physics/Physics.ts`, which is no lane's file, because that is where the fault was.
   - Still true: a heap's step is about a third dearer than a flat floor's, and the old game gains from the same fix.
     Your step-down for Low and for missed frames is still worth having.
+- 2026-11-19, fit, **last entry: what was proven on the final build, what is not done, and what was decided.**
+  - **Proofs on `dfbdce9`:** whole suite green (3,079 tests); the co-op gore proof (`coop-gore-shots.mjs`, three
+    pages) twelve runs in a row, 267 checks each, none failed (`fit/coop-limb/final-gate`, `final`). The same proof on
+    the tip the lanes left (`e801633`) failed one run in ten on the "limb" case, and that failure was the proof's own
+    (step 1). The same seeded long fight on the final build, Standard: **150 kills on one spot 463 draw calls, 2.59 M
+    triangles, 2.81 ms a frame drawn** (the game before the update 640 / 3.45 M / 5.08 ms; the update before this pass
+    813 / 4.41 M / 5.55 ms), highest hips 0.72 m and 6 bodies over 35 cm (0.80 m and 7 before the pass); the
+    chokepoint at 80 kills 419 / 2.09 M, highest hips 0.83 m.
+  - **Not done:**
+    1. The settle of a body that dies on its feet (knees folded right up, most times): needs a change judged by eye.
+    2. Trunk pieces and halves are not baked into a batch (0.05 M triangles between them); they only lost their shadows.
+    3. A baked burnt body can go pale under the weapon light: the far batch has no rule for char under a hard light.
+    4. The inside of a wound's hole keeps its old fixed light.
+    5. The Sniper's trunk breaks into scraps (0.05 to 1.0 L), because its trunk skin is many small islands.
+    6. Pieces thrown by a burst on a heap mostly fly clear of it; what does come down on the dead stays there (tests),
+       but a still picture shows little of it.
+    7. A heap's physics step is still about a third dearer than a flat floor's. Nothing here was measured on a
+       laptop: that is "verify".
+    8. The struck arm can still be seen in a wall when the animated flinch itself puts it there (R1's pose, which has
+       never collided with anything).
+  - **Decided, without asking:** burnt past half char means no red at all (pieces, faces, stains, ribbons), by the
+    owner's "burnt things look burnt"; flesh dries tacky, not matt, on the floor blood's clock, with a switch; limbs
+    are baked by keeping the piece and hiding it, so nothing has to be restored; the limp follows the look and the
+    rules of what a round does to a limb are untouched; no stop for the struck arm against its own trunk (measured:
+    nothing for it to do); the physics step fix went into `src/physics/Physics.ts` with a switch, because that is
+    where the fault was, though it is the whole game's; three ways of thinning the heap for the step were measured
+    as nothing and thrown away rather than left as dead knobs.
+  - **Pictures and what to look at:** `tools/out/gore-update/fit/LOOK.md` and `fit/pictures/`.
 

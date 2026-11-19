@@ -105,6 +105,13 @@ Wounds stack: `Injuries.add` deepens a wound in the same place and adds a new on
 
 Needed for the crawl, and all additive. `HumanoidAnimator.ts`: `prone` forces the crawl plan, `clutch` split out of `protect` so a hand holds a wound while crawling, `rearm`. `postures.ts`: `hunched`, `pistol`, `leftOnly`. `getUp.ts`: optional `prone`. `gore/reflex.ts`: one condition. `EnemyManager.ts`: `model` and `fitPlates` no longer private. `Enemy.ts`, `movement.ts`: `footbound`. `tools/scripts/outpost-sim.ts`: real waves, and a `wounds` scenario.
 
+**Since the gore update (2026-11-19), three things about a hurt limb are written elsewhere and agree with this note's
+rules, which did not change:** how a limb looks as its pool is spent (torn skin from the first hit, muscle, then bone:
+`docs/notes/characters.md`, "Wear you can see"); the limp, which now starts with that look and no longer waits for 45%
+(`docs/notes/enemies.md`, "The limp goes with the look"); and how blood and bared flesh dry on the living's kit, the
+dead and the floor together (`docs/notes/gore.md`, "One look"). What a round does to a limb (the wear it takes, when it
+gives, the conditions in the table above) is as it was.
+
 ## Tuning
 
 | Where | What |
