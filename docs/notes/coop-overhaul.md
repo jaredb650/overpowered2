@@ -602,10 +602,15 @@ Work through all of it; write the outcome beside each item in the log (fixed wit
 **D. Finish**
 22. `docs/notes/coop.md` reads as one document; `docs/HANDOFF.md` and `CLAUDE.md` say what is true now; the audits are marked
     with what was fixed. Push `coop-overhaul`. The lead writes the report for the owner.
-- 2026-11-18, claims: landed in four steps (`f20155d` the split of `claims.ts` out of `hits.ts`, `2b7a8e4` the new check, `1043123`
-  vehicles). The host favours the shooter: per-gun token buckets on the shooter's clock built from the weapon table, clamp instead
-  of reject, sight only for a straight shot from a gun that cannot pass walls, claim classes, `status` and `vhit` claims. Decisions:
-  a claim's shot id is the claims module's own count, not `fire.shot`; call-in damage needs no announced call-in except for the
-  instakills (10 minutes); a blocked straight shot passes on a small allowance before it is refused; a guest's vehicles are solid
-  (they have the real hit boxes); `booms.ts` no longer carries vehicle damage. What each check is: `docs/notes/coop.md`, "Claims".
-
+- 2026-11-18/19, claims: landed (`f20155d` the split of `claims.ts` out of `hits.ts`, `2b7a8e4` the new check, `1043123` vehicles,
+  then the proof and what it found). The host favours the shooter: per-gun token buckets on the shooter's clock built from the
+  weapon table, clamp instead of reject, sight only for a straight shot from a gun that cannot pass walls, claim classes, `status`
+  and `vhit` claims. Proofs: `claims.matrix.test.ts` (604 cases, 1.2 million claims, none refused or cut) and
+  `tools/scripts/coop-claims-matrix.mjs` (63 rows as host and as guest: 63 of 63 on a clean link, under
+  `lag:120,jitter:40,loss:0.05`, and with the host at 15 fps with stalls; 7,202 guest claims, 0 rejected, 0 cut). Decisions: a claim's
+  shot id is the claims module's own count, not `fire.shot`; call-in damage needs no announced call-in except for the instakills
+  (10 minutes); a blocked straight shot passes on a small allowance before it is refused; a guest's vehicles are solid (they have
+  the real hit boxes); `booms.ts` no longer carries vehicle damage; the hit point is not checked against an enemy that is down on
+  the host (each screen has its own ragdoll). What each check is: `docs/notes/coop.md`, "Claims". For whoever runs proofs: restart
+  your Vite after editing `src/` (the machine is out of file-watch handles, so a running server keeps serving old code), and
+  `page.bringToFront()` the page that must run at full frame rate.
