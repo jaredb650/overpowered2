@@ -255,7 +255,14 @@ seat, voice, whether he is known by name, leads his squad and talks big, and the
 
 ### Vehicles and the garrison
 
-Both still go 5 times a second on the reliable lane as JSON, now with the host's clock (`at`). On a guest each has a
+Both go 5 times a second as JSON with the host's clock (`at`). **Since 2026-11-19 (lane "fix-session") they ride the
+unreliable `world` lane, not the reliable one**, where under loss they queued behind the stall, arrived in a burst and held real
+events behind them (review minor 7). They are "side packets" beside the enemies' snapshot chunks (`context.ts` `sendSide`: two
+bytes `05 c2`, a kind byte, then the JSON; a snapshot chunk has its own magic), cut into parts of at most `PART_BYTES` = 900
+so each fits a packet under the safe unreliable size (`world/sideList.ts`: `{ at, i, n, list }`). A guest draws a list when it
+has every part of one stamp and drops a part older than the stamp it is on, so a lost packet costs only that list (the next is
+200 ms later) and none is ever resent. The lane's own rule (`latest`) skips a guest that is behind. Only the sending and the
+gathering changed: the drawing and its buffer below are as they were. On a guest each has a
 `MotionBuffer` (`place`: velocity worked out from its last two places), so they are drawn between two states about 220 ms back
 and carried on when one is late. A vehicle's attitude rides in the buffer's four spare numbers and is slerped between the same
 two states; its turret is the buffer's yaw. The old per-frame `slerp(0.25)` turned faster at higher frame rates; this does not
@@ -549,7 +556,13 @@ The handoff stays in sessionStorage for as long as the match does (only `clearSe
 - A match that ends, or changes, while a page is still loading it: the page lands on the lobby page with "The match ended while
   you were loading", or goes to the new match.
 - Closing or reloading a tab mid-match asks first (`beforeunload`), except for the game's own page changes.
-- Not covered: a reload on the lobby page (between matches) still drops out of the room; the invite link brings the player back.
+- **A reload on the lobby page, between matches,** walks back into the room. The tab keeps a second note beside the match
+  handoff (`op2_coop_room`: code, password, callsign, hosting, and for a host every seat it has given out), written whenever a
+  lobby is attached to the lobby page and removed by Leave or when the room closes for good (`session.ts` `rememberRoom`,
+  `roomToRejoin`, `forgetRoom`). The boot finds it once the match handoff has been tried and opens Multiplayer on the room
+  (`CoopScreen.rejoin`): a guest joins again and the host gives the same browser its seat and slot back ("lost connection",
+  "reconnected"); a host opens its lobby again on the same code with the same seat table, and its guests, who were on
+  "Reconnecting to host… 30", take it back and are listed in the seats they had. An invite link in the address wins over the note.
 
 ### Host loss
 
@@ -561,6 +574,29 @@ No host migration: the world lives only on the host's page. When the host is gon
    joiner waits 14 s times its place in the line, then takes over if nobody ahead showed up; a host that finds the code
    already hosted joins instead. Players on the lobby page when the host goes regroup the same way, without the board.
 3. The old host can come back with the invite link and joins as a guest.
+
+**One room, one host.** Two hosts can meet on one code: a regroup where two took over at once, and a host whose page reloaded
+for longer than its guests waited, coming back (as the host of a new match on its map page, or on its lobby page) to find them
+regrouped. `Lobby.otherHost` settles it from the two hellos (each host's carries `born` and `n`, the guests connected to it,
+and is said again on every heartbeat so the count acted on is current):
+
+| This host | The other | Who gives way |
+|---|---|---|
+| nobody connected | has players | this one |
+| nobody connected | nobody connected | the newer (`born`) |
+| has players | anything | not this one (two hosts that both have players stay: rooms are not merged) |
+
+The one that gives way closes with `code-taken` and remembers the other's callsign (`yieldedTo`); its page then joins that lobby
+as a guest: the lobby page through `CoopScreen.ended`, a map page through `CoopSession.roomClosed`, which hands the screen a
+regroup plan ("Your team regrouped while this page was away. NAME is hosting now; you have joined their lobby."). A host's own
+other page (same browser id) and a host on its way out to a map page are never rivals. So a returning host never strands a
+player: if its guests are under a new host it joins them, and if the new lobby is still empty and newer, that lobby's player
+joins the old host's new match instead.
+
+**A guest takes back only the host it knew.** While "Reconnecting", a guest accepts a host's hello from a new connection only
+when it carries the browser id of the host it had (`hostBrowser`): its own host's new page or remade connection. Anyone else who
+says "host" on the code is ignored (it used to be taken as the host). The regroup's elected host needs no exception: by then the
+guest has closed its old lobby and joins the new one on purpose.
 
 Measured on the loopback transport: tab closed to everyone in the new lobby, 41 s (30 s grace, 10 s board, about 1 s to meet).
 
@@ -591,19 +627,80 @@ Measured on the loopback transport: tab closed to everyone in the new lobby, 41 
 
 | Hook | When |
 |---|---|
-| `onArrived.add((id, { seat, slot, name, rejoin }) => …)` | Host: a player is in the world. `rejoin` when that seat has been in this match before (reload, reconnect, back from the lobby page) |
+| `onArrived.add((id, { seat, slot, name, rejoin, same }) => …)` | Host: a player is in the world. `rejoin` when that seat has been in this match before (reload, reconnect, back from the lobby page); `same` when it is also the same page as before (its connection dropped and came back), which still holds its own kit, purse and world |
 | `onLost.add((id, seat) => …)` | Host: a player's connection dropped while they were in the world; the seat is kept 60 s |
 | `onGone.add(seat => …)` | Host: a seat is given up for good |
+| `onForget.add(id => …)` | Host: a connection id that will never be heard again: a seat's old page once it is back on a new one, or a seat gone |
 | `holding` | True until the barrier lifts. Host-side timers that must not run before every player is in can read it |
 | `lobby.live`, `lobby.waitingFor`, `lobby.holdLeft` | The barrier, who it waits for, seconds until it starts regardless |
 | `lobby.reconnecting`, `lobby.reconnectIn` | Guest: the link to the host is in trouble |
 | `deploy()` | Presses "Click to deploy" from a script (`coop-kit.mjs` `deploy`, used by `inMatch`) |
 
-The team's own first-card arrival (`team.onArrived`) still fires for every new connection. For the same connection coming back
-after a drop (no new page, so no new first card) the session calls `team.onArrived(id)` itself, so the mission, dropped guns
-and villain catch-ups run again. The team needs no `restore` for it: that page still holds its own kit and purse, its life went
-on where it stopped (a downed player's bleed-out does not run while their line is down), and a respawn the team had meanwhile is
-sent to it as it comes back (`team.ts`, `rose`).
+The hooks live in `src/net/seats.ts` (`SeatHooks`, fed by `Lobby.onSeat`) and have **one listener: `CoopWorld`** (`world.ts`,
+`arrived` / `lost` / `forget`). Nothing else should subscribe; a module with a duty on one of them implements the matching
+method of `WorldModule` (`world/context.ts`) and the world calls it:
+
+| Moment | What the world does |
+|---|---|
+| **Arrived** (any way in) | `team.arrive(id, same)`: a new connection has its seat settled (`restore`: purse, kit, life), always, once; the same page back gets the last `wave` event it missed with the clock as it stands; everyone gets `sync` (wave, phase, break clock, vote, custom rules; `back` for the same page, which then shows no "joined late" banner), the board if the run is over, and then every catch-up (`team.onArrived`: mission, pods, guns, props, fort, villain's props, prisoners, vehicles, the Commander, friends' guns, call-ins). An arrival said before the host's own world is up is kept and run as it begins |
+| **Lost** (`lostSeat(id, slot)`) | What the player held in the world is let go at once: their slow-mo (`clock.ts`), their Ghost flag (`targeting.ts`), their mounted gun (`fort.ts`, `Defense.leftSeats`), the man in their hands (`capture.ts`); the team starts the wipe grace (below). Their call-in copies and Frame puppet go on every screen, guests too, because `callins.ts` counts only players who are in the world; their vote stops counting with them (`teamBreak.ts`) |
+| **Forget** (`forgetPeer(id)`) | Everything kept by connection id is dropped: stand-ins, Ghost and claim history (`targeting.ts`), the gun last told and budgets (`remoteFire.ts`), relay budgets (`booms.ts`), rates (`callins.ts`, `fort.ts`, `props.ts`, `capture.ts`). The lobby drops the id's ping and the lane layer its frame count when the peer leaves |
+
+A lobby with no load barrier (every unit test's) says a seat's return only for the same connection coming back; a new page
+there is known by its first card or its `worldsync`, which is also the spare in a real match:
+
+**`worldsync`.** A guest says it as its world begins, after `loaded` (it used to be sent before, so the host, which still had
+the guest as loading, always dropped it), and again every second until the host's `restore` has reached it (`ASK_MS`). The host
+answers a page it does not know by arriving it (`team.asked`), and a page it knows but that is still not settled by sending the
+seat again, at most once a second. So a host that was still booting when the session's own word came, or a `restore` that was
+lost, heals itself.
+
+### What a late or returning player is caught up on
+
+Every fact that is said once, who hands it to a player who arrives late, reloads, or comes back on the same page after a drop,
+and what proves it. "Arrive" is `team.arrive` and the catch-ups it runs.
+
+| Fact | Who catches them up | Proven by |
+|---|---|---|
+| The seat: credits, score, kills, kit, life (`restore`) | Arrive, for a new connection; sent again if the page asks (`worldsync`) | `team.test.ts` (seats, "asks again"), `coop-team-rejoin`, `coop-fixsession-reload` defense |
+| Where the waves stand: wave, phase, break clock, vote, custom rules (`sync`) | Arrive, every time | `team.test.ts` (late joiner, same page back), `coop-fixsession-return` |
+| A wave event sent while their line was down (`wave`) | Arrive, same page: the last one, replayed with the clock of now (its pay, shop and banner follow) | `team.test.ts`, `coop-fixsession-return` part 1 |
+| The run is over (`over`) | Arrive | `team.test.ts`, `coop-fixsession-return` part 3 |
+| A respawn or revive that happened while away (`up`) | `team.update` (`rose`), as they come back; and a guest whose host has moved on to a later life stands up by itself after 2 s (`insist`) | `team.test.ts` |
+| Lives, bleed, cards | Repeat 4 times a second | `team.test.ts` |
+| The team's slow-mo (`slowstate`) | Repeats (4 a second while slow, every 2 s otherwise) | `clock.test.ts` (late joiner), `coop-time-team` |
+| Enemies: place, health, plates, limbs, status | The full record once a second on the snapshot lane; `who` is told again after an absence | `replicas.test.ts`, `coop-session-late` |
+| Vehicles, garrison, wrecks | Repeat 5 times a second; wrecks in `vehicles.catchUp` | `vehicleParts.test.ts`, `coop-worldb-vehicles` |
+| Supply pods and caches | `pods.catchUp`, with their age | `pods.test.ts`, `coop-world-pods` |
+| Dropped guns | `guns.catchUp`, with their age | `coop-drops` |
+| Barrels, tanks, props, chairs | `props.catchUp` | `props.test.ts` |
+| The fort: walls, gates, shacks, shops, guns, hires | `fort.catchUp`, then `fortstate` repeats | `fort.test.ts`, `coop-worldb-defense` |
+| The villain's devices, shutters, smoke | `villainProps.catchUp` | `villainProps.test.ts` |
+| Prisoners: questioned, held, cuffed | `capture.catchUp` | `capture.test.ts` |
+| The Commander's briefing and warning chips | `villain.catchUp` | `attacks.test.ts` |
+| The gun each friend holds (`held`) | `shots.catchUp` | `remoteFire.test.ts` |
+| A mission: place, section, doors, objectives, music, sky, lights, kit, chips, racks, the film or ride | `mission.catchUp` | `mission.test.ts`, `coop-missions-play` |
+| Call-ins in flight, a friend's Frame | `calls.catchUp` (each running order with its age); Frame poses repeat 10 a second | `callins.test.ts`, `coop-fixsession-callins` |
+| The skyhook on its way to a prisoner | `hook.catchUp` (the lift with the seconds left) | `callins.test.ts`, `coop-fixsession-callins` |
+| Pings, feed lines, tracers, blasts, attack clips, sounds | Nobody, by design: they pass | |
+
+And the other way, what a **guest** says once to the host, which the host drops while it has that guest marked away:
+
+| Word | How it gets there anyway | Proven by |
+|---|---|---|
+| "I am down" (`life`) | Said again every second while the guest is down and the host's card says up on the same life (`team.insist`, `DISPUTE_MS`) | `team.test.ts`, `coop-fixsession-return` |
+| Ghost on or off (`ghost`) | The host forgets it when the line drops; the guest says its state again on the host's `sync` (`resay`) | `seatHooks.test.ts`, `coop-fixsession-return` |
+| The kit (`kit`) | Sent again on `sync`, whatever was sent before | `team.test.ts`, `coop-fixsession-return` |
+| The gun in hand (`held`) | Said again on `sync` | `seatHooks.test.ts`, `coop-fixsession-return` |
+| A cache share taken (`pod took`), a mission's round counts (`rounds`) | Said again on `sync` | by reading; no proof of their own |
+| Call-ins still running (`cin`) | Said again on `sync` with their age (`Callins.resay`) | `callins.test.ts` |
+| A slow-mo let go (`slow` off) | Said again while the host still lists it (`clock.ts`) | `clock.test.ts` |
+| A vote, a revive, a prisoner key, a mission's skip | Press again: every one shows the host's word, not the guest's guess | |
+| A fort purchase (`fortbuy`) | Refunded after `ASK_SECONDS` with "No answer from the host" | `fort.test.ts` |
+| Hit claims, `fire`, pings | Not said again (claims: checklist C9 and C12) | |
+
+`resay` is one method on `WorldModule`: the guest's world calls it on every module when the host's `sync` arrives, because that
+is the host saying it has this player in the world.
 
 ### Proofs (`tools/scripts/coop-session-*.mjs`, helpers in `coop-session-kit.mjs`)
 
@@ -633,15 +730,22 @@ other six were not run over real WebRTC. Evidence JSON and screenshots: `tools/o
 Screenshots of guest pages on loopback show stale tiles in the lower third (the kit's popup windows are shorter than their
 viewport); the host's are clean.
 
-Unit tests: `src/net/session.test.ts` (8: the gate, the hold, real reasons, the hooks) and `src/net/lobbyLife.test.ts` (31: each timer rule and each case above over the fake transport, `fakeHub.ts`).
+Unit tests: `src/net/session.test.ts` (the gate, the hold, real reasons, the hooks, the host-lost board, a host that gave way),
+`src/net/lobbyLife.test.ts` (each timer rule and each case above over the fake transport, `fakeHub.ts`; one room one host; the
+lobby-page reload), `src/net/seatHooks.test.ts` (what a lost player lets go of, what is forgotten, what a guest says again),
+`src/net/roomNote.test.ts` (the room a tab remembers).
+
+**The fix pass (lane "fix-session", 2026-11-19)** added two proofs, results in the plan's log:
+
+| Script | What it proves |
+|---|---|
+| `coop-fixsession-return` | A guest's line dead for 20 s and more while every page runs (`sim.cut`), then back on the same page: the seat kept, its slow-mo let go, the wave event it missed replayed with the host's clock, the vote, no second seat; "I am down", Ghost, the kit and the gun in hand said again and in force on the host. The last one standing losing their link: no wipe for 10 s, none if back in time, the wipe at 10 s if not, and the board for the page that was away |
+| `coop-fixsession-reload` | `FIX_CASE=lobby`: a guest, then the host, reload on the lobby page and are back in the same room in the same seats, and a match starts from it. `defense`: a reload mid-match in Outpost Defense gives the kit back and opens no loadout screen. `hostlate`: a host whose page comes back after its guests regrouped gives way and joins their lobby; one room, one host, a match from it |
 
 ### Not done
 
-- A same-connection return after a long drop gets the world catch-ups but not the team's `restore`/`sync` (the guest's page
-  kept its kit, and cards and snapshots heal state, but a wave banner or pod call sent while it was away is not replayed).
-- A rejoin after a reload on the lobby page, and a host page reload after its guests have already regrouped (two hosts on one
-  code; they do not merge).
 - The one-tab takeover warning (above) is not proven in a browser: the loopback proofs switch the one-tab rule off.
+- Two hosts that both have players on one code stay two rooms (it needs both to have gathered players apart; there is no merge).
 
 ## Gore on every screen
 
@@ -912,6 +1016,7 @@ and props. The host decides each of them; every screen draws its own copy.
 
 "Late" is any guest whose world comes up after something happened: it was still loading the map, it joined mid-match, or it
 came back. Events are dropped until a guest's world has begun, so each of those would miss a pod, a gun or a broken window.
+(2026-11-19: the triggers are now the session's arrival word and, as its spare, `worldsync`; see "Hooks for the other lanes".)
 Two triggers cover it, on purpose both: the guest sends `{ t: 'worldsync' }` the moment its world begins, and the host also runs the
 same catch-up on that guest's first card (`team.onArrived`). The catch-up sends every pod out (with its age), every gun lying
 (with its age), and the world's broken state. Everything is keyed by a number and applied once, so being told twice is harmless.
@@ -1055,8 +1160,13 @@ puts up the team board. No page ever shows the solo "Run over" or "Mission compl
   stops the clock. Buttons: a guest has **Back to lobby** (steps out alone); the host has **Back to lobby (everyone)** and **Start
   again** (`CoopSession.playAgain`: everyone lands on the lobby page and the same mode starts at once, each on their gun). Arrow
   keys pick, Enter presses. After `END_SECONDS` = 20 s the host's page takes everyone back to the lobby.
-- Only players **whose world is up** count for the wipe (`present()`): not someone still loading, on the lobby page or with a
-  dropped connection. A guest who arrives after the run ended is sent the board at once.
+- Only players **whose world is up** count for the wipe (`present()`): not someone still loading or on the lobby page. A guest
+  who arrives after the run ended is sent the board at once.
+- **A dropped connection is not a wipe on that frame.** A player who was on their feet when their line dropped still counts as
+  up for `LOST_UP_MS` = 10 s (the session keeps the seat 60 s and they are usually back in a few); once their line answers again
+  they get at least `LOST_BACK_MS` = 5 s more to arrive. Not back by then, the wipe rules apply. Someone who was already down
+  holds nothing off, and a deliberate leave is not a lost seat. (Before, the last one standing losing their link for a second
+  ended the run.)
 - A host that is gone for good is the session's own board ("The life of a session", Host loss).
 
 ### Lives
@@ -1105,7 +1215,7 @@ The host keeps, for every guest, under the lobby's **seat** (one per browser, th
   on the guest before it is applied.
 - **Money owed follows the seat** (`team.payee`): a prisoner's bounty for a captor who reloaded goes to their new page; for one who
   is out, it waits in their purse.
-- **A late joiner** (and every arrival) gets `sync { wave, phase, left, rest, custom, ready, need }`: the banner the others had
+- **A late joiner** (and every arrival) gets `sync { wave, phase, left, rest, custom, ready, need, back? }`: the banner the others had
   ("WAVE 4 · in progress · you joined late", or the break's "WAVE 4 CLEAR · wave 5 in 31 s"), the break's clock and the vote as
   they stand, and the custom-rules line. The break's pod reaches them through the shared world's own catch-up (`world/pods.ts`).
 
@@ -1126,7 +1236,8 @@ guest's are, so a guest's one hit minutes ago never takes the host's airstrike k
 ### Told to the team
 
 - **Cheats:** a player's card carries `cheats`. The first card that says so puts "NAME has cheats on · unranked" in every feed and
-  the lobby chat, and CHEATS on the strip and both boards.
+  the lobby chat, and CHEATS on the strip and both boards. In the lobby, before a match, the list tags them too ("Cheats on ·
+  unranked": `LobbyPlayer.cheats`, sent with the player's `set`; `CoopScreen` tells the lobby from `core/cheats.ts`).
 - **Custom rules:** when the host plays the Crucible on its own saved rules every player gets "HOST'S CUSTOM RULES APPLY · unranked"
   as they arrive, and a boss wave's banner names the host's boss (`wave { titan }`), not what the guest's own saved rules say.
 - **In a menu:** a player standing in the Esc menu, a shop or the loadout shows IN A MENU on the strip, SHOPPING during a break.
@@ -1184,8 +1295,8 @@ checks); they have not been run on WebRTC since.
 
 ### Not done
 
-- **Outpost Defense on a rejoin:** the kit comes back, but the mode's own loadout screen opens again on the new page and what the
-  player picks there replaces the restored guns.
+- (Fixed, 2026-11-19.) Outpost Defense on a rejoin: a guest's loadout screen now waits for the host's word on the seat
+  (`team.seated`), and a player who came back with a kit is not asked at all (`Defense.resumed`): the restored kit wins.
 - **A lost player's body:** while a connection is down the host still shows nothing of that player, and whether enemies should
   keep hunting the spot is the targeting module's (not checked here).
 - **The kill feed for a garrison ally's kill** shows nothing (it is nobody's kill); a line for it would be easy to add.
@@ -1506,6 +1617,10 @@ export default async function (host, { sleep, outDir }) {
   that turned the guest's view. **This was the guest page at 0 to 1 frame a second, and most of what a long proof cost.** The
   page now gets what a granted lock looks like (`document.pointerLockElement`, `pointerlockchange`, `exitPointerLock`, Esc
   ending it with the keydown swallowed, as Chrome does) and nothing is locked. A proof's own mouse moves arrive as before.
+- **A dead line:** `page.evaluate(() => window.__op2.net.sim.cut(true))` drops everything that page sends and everything that
+  arrives, reliable lanes included, and tells neither end, while both pages keep running; `cut(false)` brings the line back and
+  what was said meanwhile is gone for good. It is how a proof makes a guest act behind a dropped connection on either transport
+  (the host gives the seat up after `SILENCE_MS` = 20 s). Not a simulator setting: it is never carried to the next page.
 - **What a run costs:** `node tools/proof-cost.mjs -- node tools/shot.mjs ...` runs any proof and prints its wall time, the wait for
   a slot, peak Chrome memory by process type and CPU seconds. `tools/scripts/page-cost.mjs` under it measures one page (boot stages,
   frame cost, memory split).
@@ -2016,10 +2131,34 @@ passes it on. A player who leaves takes their copies with them. At most 6 copies
 
 The `wire` lane will pack these (the poses are thirteen numbers as text).
 
-**Not mirrored:** the missile a Rocketeer or a boss fires at an aircraft (each player's own game hunts its own aircraft, so a
-guest's is hunted, but watchers see the flares and the crash and not the missile); enemy helicopters fighting a guest's helicopter
-(vehicles are the host's); a mission's rides, where every player mans their own copy; a call-in already running when a player
-joins late (they see the next one).
+**Added by the fix pass (lane "fix-session", 2026-11-19):**
+
+- **Late and returning players.** An order carries `age`, the seconds its call-in has been running (`cin { age }`, bounded to
+  900). The host tells a player who arrives every call-in running now, its own (`CallInManager.runningOrders`) and its copies of
+  the other players' (`copyOrders(slot)`), each with its age (`Callins.catchUp`). A guest whose line dropped has its copies
+  dropped on every other screen with the seat; when the same page is back it says again what it still has up, with ages
+  (`Callins.resay`; the host passes those on under their own budget of 16 a second and does not wake the Commander again).
+  The same number told twice is still one copy.
+- **Copies keep the wall clock.** A copy is born at "now minus age" and each frame is run up to the wall clock since then, not
+  to the sum of that screen's frames (`CallinMirror.update`). More than `BEHIND_S` = 0.25 s behind, it is run forward in steps
+  of 1/30 s, at most 20 s of strike time a frame, with the context quiet (`GhostStats.quiet`: no blast, round, tracer, sound or
+  shake), its rounds in flight advanced with it. So a late joiner's gunship is on the host's place of the circle one frame after
+  it is told, a short strike that is already over is never shown, one in its last moments shows only what is left, and a screen
+  that dropped frames or a tab that was hidden catches up instead of flying late for the rest of the strike. This is the same
+  for every call-in; the gunship's own `clock` news still works and agrees with it. A strike that cannot be run forward blind
+  (it throws) is dropped for that screen, as before the fix: the next one is seen whole.
+- **The uplink jammer holds every player.** A guest has no radio men of its own, so its game goes by the host's word
+  (`commander:status`, flag `uplink`, already mirrored and told to an arriving player by `villain.ts`): `uplinkJammed()` in
+  `callins/link.ts`. A guest's call under the jammer reads "HELD: UPLINK JAMMED" and goes when the jammer stops or after the
+  same 12 s patience as the host's.
+- **The missile an enemy fires at an aircraft** is told by the aircraft's own game as news of that call-in: `aa` (it left from
+  here) and `aax` (it burst there: on the aircraft, on a flare, or spent). Every screen flying a copy flies a missile of its own
+  from the same spot at its copy (the same speed, climb and turn as `antiAir.ts`), and ends it where the caller's ended.
+- **The skyhook** tells a player who arrives of a drone still on its way, with the seconds it has left (`Skyhook.catchUp`).
+
+**Not mirrored:** enemy helicopters fighting a guest's helicopter (vehicles are the host's); a mission's rides, where every
+player mans their own copy. A late joiner does not see rounds that were already in flight when they arrived, nor a prisoner
+already on the hook (he is simply gone).
 
 Files: `src/progression/callins/link.ts` (the plain-number types both sides share), `ghost.ts`, `mirror.ts`, each strike's
 `news`/`tell` (`shared.ts` `StrikeNet`), `src/frame/puppet.ts`, `src/enemies/outpost/airlift.ts` (`AirliftCopy`),
@@ -2373,6 +2512,15 @@ at most 4 a second each): `weapon:fired`, `weapon:unlocked`, `weapon:switched`, 
 `prisoner:questioned`. The host's world, heard on the host's own bus: `commander:done`, `enemy:surrendered`, `enemy:killed`,
 `vehicle:destroyed`. A forwarded action reaches the runner's trigger only: it is never emitted on the host's bus, so the host's HUD
 and guns hear nothing of it.
+
+### A mission won together is won by each player
+
+The host's `finished` word carries `counts` when the win opens what the mission opens (`mission.unlocks`, and not a run begun
+part-way from a dev flag). Each guest's own browser then records it in its own save (`recordCampaignBeaten`, the flag that
+opens Endless Humans), exactly as the host's does in `campaign/index.ts`, and its result says whether that opened something
+there. A word from a guest cannot write anyone's save. The other things the game keeps per player: the **high score** is not
+written by a co-op run for anyone, host or guest (`progression/score.ts`, a rule from before the overhaul: a team's run would
+overwrite a solo record); the first-launch flag is untouched. Lead's call if co-op should keep high scores of its own.
 
 ### The rules, per trigger and set piece
 
