@@ -2,7 +2,7 @@
 // to host…" for the grace, then get the team board ("HOST LOST") with their numbers, then regroup by themselves in a new
 // lobby on the same code and password: the lowest slot hosts, the other joins it. From there they start a match again.
 import { button, live, readyUp, startParty } from './coop-kit.mjs';
-import { SIM, acceptLeave, atGate, clickDeploy, immortal, proof, snap, until } from './coop-session-kit.mjs';
+import { SIM, acceptLeave, atGate, clickDeploy, immortal, pressStart, proof, snap, until } from './coop-session-kit.mjs';
 
 export default async (host, { sleep, outDir }) => {
   const { out, run, check, progress, shot } = proof('coop-session-hostquit', outDir, sleep);
@@ -47,7 +47,7 @@ export default async (host, { sleep, outDir }) => {
 
     progress('the regrouped lobby starts a match');
     await readyUp(b);
-    await button(a, 'Start').click();
+    await pressStart(a);
     for (const page of [a, b]) await atGate(page, 180000);
     for (const page of [a, b]) await clickDeploy(page);
     for (const page of [a, b]) await until(page, s => s.live && s.bodies === 1 && s.wave >= 1 && s.enemies > 0, 'a live wave in the regrouped room', 60000);

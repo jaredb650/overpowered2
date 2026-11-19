@@ -3,7 +3,7 @@
 // when the guest clicks, the world starts: the wave director runs, or the mission begins. Then the host ends the match
 // and both are back in the lobby for the next mode.
 import { MODES, button, readyUp, startParty } from './coop-kit.mjs';
-import { SIM, atGate, clickDeploy, endMatch, immortal, proof, snap, until } from './coop-session-kit.mjs';
+import { SIM, atGate, clickDeploy, endMatch, immortal, pressStart, proof, snap, until } from './coop-session-kit.mjs';
 
 const world = page => page.evaluate(() => {
   const { ctx } = window.__op2;
@@ -23,8 +23,7 @@ export default async (host, { sleep, outDir }) => {
       if (only && !only.includes(id)) continue;
       progress(`mode ${id}`);
       const mission = mode.contract === 'campaign' || mode.contract === 'foreclosure';
-      await button(host, mode.label).click();
-      await button(host, 'Start').click();
+      await pressStart(host, mode.label);
       await atGate(host, 240000); await atGate(guest, 240000);
       await clickDeploy(host);
       await sleep(5000);

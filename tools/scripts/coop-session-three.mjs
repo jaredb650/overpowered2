@@ -3,7 +3,7 @@
 // seat they had in the lobby, the host's mode pick is still the one just played after each match, and the room and its
 // code never change.
 import { button, readyUp, startParty } from './coop-kit.mjs';
-import { SIM, atGate, clickDeploy, endMatch, immortal, proof, seats, snap, stall, until } from './coop-session-kit.mjs';
+import { SIM, atGate, clickDeploy, endMatch, immortal, pressStart, proof, seats, snap, stall, until } from './coop-session-kit.mjs';
 
 const ROUNDS = [
   { label: 'Crucible mode', mode: 'crucible', map: undefined },
@@ -23,8 +23,7 @@ export default async (host, { sleep, outDir }) => {
     const matches = [];
     for (const [i, round] of ROUNDS.entries()) {
       progress(`match ${i + 1}: ${round.label}`);
-      await button(host, round.label).click();
-      await button(host, 'Start').click();
+      await pressStart(host, round.label);
       // The countdown is five seconds: the hitch lands on the start itself.
       await sleep(4300);
       await stall(hitchy, 3000);

@@ -1,5 +1,6 @@
 /** The game-facing co-op session. Host world snapshots and hit claims are world.ts, the team rules team.ts; never Player or Weapons. */
 import type { Ctx, GameSystem } from '../core/contracts';
+import { tabBusy } from '../core/oneTab';
 import { Lobby, type ChatLine, type LobbyPlayer, type Match, type SeatEvent } from './lobby';
 import { errorText } from './lobbyText';
 import { POSE_MS, type Move } from './pose';
@@ -63,6 +64,7 @@ export class CoopSession implements GameSystem {
   private regroup: Regroup | null = null;
   /** Host: each seat's connection the last time it came in, to tell a new page from the same one back after a blip. */
   private readonly lastId = new Map<string, string>();
+  private idle: 'menu' | 'hidden' | undefined;
   /**
    * Host: a player is in the world. Their first time in this match, or again (`rejoin`: a reload, a reconnect after a
    * drop, back from the lobby page). The moment to hand them everything they missed; key anything kept for them by `seat`.
@@ -166,6 +168,8 @@ export class CoopSession implements GameSystem {
   /** Called after run:start has reset the HUD's world markers. */
   begin(): void {
     this.begun = true;
+    // Another tab of this browser taking over would end this (core/oneTab.ts): its notice says so.
+    tabBusy.coop = this.hosting ? 'host' : 'guest';
     // `window.__op2.net` for scripts and the console: the simulator, the counters, and this meter (debug.ts).
     publishNet();
     watchCost(() => this.cpuMs);
@@ -301,6 +305,9 @@ export class CoopSession implements GameSystem {
       if (now >= this.lostUntil) return this.end(plan.note, false, plan);
     }
     if (!this.begun) return;
+    // Standing still under a menu, or in a hidden tab: the others are told, so nobody wonders why (lobby.ts `idle`).
+    const idle = typeof document !== 'undefined' && document.hidden ? 'hidden' : this.localPaused ? 'menu' : undefined;
+    if (idle !== this.idle) this.lobby.setIdle(this.idle = idle);
     for (const remote of this.remotes.values()) remote.update(now, this.ctx.time.realDt);
     this.world?.update();
     // What co-op itself costs a frame (bodies, snapshots, events), averaged, for the measurements in docs/notes/coop.md.
@@ -352,6 +359,7 @@ export class CoopSession implements GameSystem {
   leave(keepRoom = false): Room | null {
     if (this.closed) return null;
     this.closed = true;
+    tabBusy.coop = '';
     this.world?.dispose();
     this.hud?.dispose();
     watchCost(null);

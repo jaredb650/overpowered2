@@ -6,7 +6,7 @@
 // host ends that match while it is still loading: the third lands on the lobby page with everyone else, told why, never in
 // a dead run.
 import { button, live, openGuest, readyUp, startParty } from './coop-kit.mjs';
-import { SIM, atGate, clickDeploy, endMatch, immortal, linesAbout, proof, slowBoot, snap, until } from './coop-session-kit.mjs';
+import { SIM, atGate, clickDeploy, endMatch, immortal, linesAbout, pressStart, proof, slowBoot, snap, until } from './coop-session-kit.mjs';
 
 export default async (host, { sleep, outDir }) => {
   const { out, run, check, progress, shot } = proof('coop-session-late', outDir, sleep);
@@ -40,7 +40,7 @@ export default async (host, { sleep, outDir }) => {
     const code = (await snap(host)).code;
     for (const guest of party.guests) await readyUp(guest);
     await slowBoot(third, 25000);
-    await button(host, 'Start').click();
+    await pressStart(host);
     await atGate(host, 240000); await atGate(party.guest, 240000);
     await clickDeploy(host);
     const waiting = await until(host, s => /Waiting for .*GUEST-THREE/.test(s.line), 'the host waiting for the slow third', 20000);

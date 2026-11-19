@@ -1,7 +1,8 @@
 // Session proof: a network blip is not the end. Mid-wave the link between host and guest goes silent for 8 s. The guest sees
 // "Reconnecting to host…", nobody is dropped, and both are in the same match and wave afterwards with the guest's credits
 // and gun unchanged. Then the guest's page itself freezes for 22 s (a closed lid, a long hitch): it is still in the match
-// when it wakes, and the host says "lost connection" and "is back" rather than throwing it out.
+// when it wakes, and the host says "lost connection" and "is back" rather than throwing it out. Last, the guest opens its
+// menu and the tag over its body on the host's screen says so.
 import { live, startParty } from './coop-kit.mjs';
 import { SIM, blip, immortal, lineLog, linesAbout, proof, snap, stall, until, watchLine } from './coop-session-kit.mjs';
 
@@ -42,6 +43,15 @@ export default async (host, { sleep, outDir }) => {
     check(!about.includes('GUEST-TWO left.'), 'the host never said the guest left', about);
     out.afterFreeze = about;
     await until(guest, s => s.enemies > 0 || s.wave > wave, 'the guest still getting the world', 30000);
+
+    progress('guest opens its menu');
+    await guest.evaluate(() => window.__op2.ctx.hud.pause());
+    await until(host, s => s.players.find(p => p.name === 'GUEST-TWO')?.idle === 'menu', 'the host knowing the guest is in a menu', 15000);
+    await sleep(300);
+    const tag = await host.evaluate(() => [...window.__op2.ctx.coop.remotes.values()][0]?.tagText ?? '');
+    check(tag === 'GUEST-TWO · in a menu', 'the tag over the guest says "in a menu"', tag);
+    await guest.evaluate(() => window.__op2.game.setState('playing'));
+    await until(host, s => !s.players.find(p => p.name === 'GUEST-TWO')?.idle, 'and stops saying so when the guest is back', 15000);
     await shot(host, 'host-end');
   }, () => party);
 };

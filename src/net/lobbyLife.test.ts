@@ -492,6 +492,19 @@ describe('the life of a co-op session', () => {
     expect(e.error).toBe('full');
   });
 
+  it('a player under a menu or in a hidden tab is listed so, for the tag over their body', () => {
+    const { h, gs } = playing('ANNA', 'BEN');
+    const [a, b] = gs as unknown as [Lobby, Lobby, Lobby];
+    a.setIdle('menu'); hub.flush();
+    expect(h.players.find(p => p.name === 'ANNA')?.idle).toBe('menu');
+    expect(b.players.find(p => p.name === 'ANNA')?.idle).toBe('menu');
+    a.setIdle(undefined); h.setIdle('hidden'); hub.flush();
+    expect(b.players.map(p => p.idle)).toEqual(['hidden', undefined, undefined]);
+    // Junk from a guest is not passed on.
+    hub.deliver((a as unknown as { room: FakeRoom }).room, 'lobby', { t: 'set', name: 'ANNA', ready: false, idle: '<b>' }, peer(h)); hub.flush();
+    expect(h.players.find(p => p.name === 'ANNA')?.idle).toBeUndefined();
+  });
+
   // --- Other peers' errors (L2, L8) ---
 
   it("a joining guest is not closed by another peer's failed connection or wrong password", () => {

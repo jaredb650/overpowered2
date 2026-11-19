@@ -738,7 +738,9 @@ export class Team {
       const life = this.lives.get(player.id);
       if (!remote) continue;
       remote.downed = life?.state === 'down';
-      remote.setTag(remote.downed ? `${player.name} DOWN ${card?.bleed ?? ''}s` : '', DOWN_COLOR);
+      // Session lane: a teammate standing still under a menu or in a hidden tab says so on their tag (LobbyPlayer.idle).
+      remote.setTag(remote.downed ? `${player.name} DOWN ${card?.bleed ?? ''}s` : player.idle ? `${player.name} · ${player.idle === 'hidden' ? 'tabbed out' : 'in a menu'}` : '',
+        remote.downed ? DOWN_COLOR : '#9db0bd');
     }
   }
 

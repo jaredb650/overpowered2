@@ -26,7 +26,7 @@ export const snap = page => page.evaluate(() => {
     hosting: lobby?.hosting ?? null, phase: lobby?.phase ?? null, error: lobby?.error ?? null, live: lobby?.live ?? null, where: lobby?.where ?? null,
     page: lobby?.page ?? null, match: lobby?.match?.id ?? null, mode: lobby?.match?.mode ?? null, awayFrom: lobby?.awayFrom?.id ?? null,
     reconnecting: lobby?.reconnecting ? lobby.reconnectIn : 0, holdLeft: lobby?.holdLeft ?? 0, pick: lobby?.pick ?? null,
-    players: (lobby?.players ?? []).map(p => ({ name: p.name, slot: p.slot, seat: p.seat ?? '', state: p.state ?? '', away: !!p.away, host: !!p.host, me: p.id === lobby.you, ready: !!p.ready })),
+    players: (lobby?.players ?? []).map(p => ({ name: p.name, slot: p.slot, seat: p.seat ?? '', state: p.state ?? '', away: !!p.away, host: !!p.host, me: p.id === lobby.you, ready: !!p.ready, idle: p.idle ?? '' })),
     chat: (lobby?.chat ?? []).map(c => c.text),
     wave: ctx.waves.wave, wavePhase: ctx.waves.phase, waveRunning: ctx.waves.running === true, enemies: ctx.enemies.alive.length, time: ctx.time.elapsed,
     credits: wallet?.credits ?? null, kills: ctx.progression.kills, weapon: ctx.weapons.current, locked: ctx.input.locked === true,
@@ -126,6 +126,16 @@ export function proof(name, outDir, sleep) {
     return out;
   };
   return { out, run, ...tools };
+}
+
+/**
+ * The host's Start, pressed when it can work: every guest is listed as ready on the host's own screen (on a slow network a
+ * READY takes a moment to arrive, and Start before it is refused with "Waiting for NAME to ready up").
+ */
+export async function pressStart(host, label) {
+  await until(host, s => s.lobbyScreen && s.players.length > 1 && s.players.every(p => p.host || p.ready || p.state === 'lost'), 'every guest ready on the host\'s screen', 30000);
+  if (label) await host.getByRole('button', { name: label, exact: true }).click();
+  await host.getByRole('button', { name: 'Start', exact: true }).click();
 }
 
 /** Closing or reloading a tab mid-match asks "leave?" (index.ts). A script says yes. */

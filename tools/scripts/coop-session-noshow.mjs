@@ -2,7 +2,7 @@
 // after LOAD_WAIT_MS (90 s) it starts without them and says so. When the guest's page finally loads it is told the match is
 // already running, joins it in progress with the wave and its enemies, keeps its lobby slot, and is announced once.
 import { startParty } from './coop-kit.mjs';
-import { SIM, atGate, clickDeploy, immortal, linesAbout, proof, slowBoot, snap, until } from './coop-session-kit.mjs';
+import { SIM, atGate, clickDeploy, immortal, linesAbout, pressStart, proof, slowBoot, snap, until } from './coop-session-kit.mjs';
 
 export default async (host, { sleep, outDir }) => {
   const { out, run, check, progress, shot } = proof('coop-session-noshow', outDir, sleep);
@@ -11,7 +11,7 @@ export default async (host, { sleep, outDir }) => {
     party = await startParty(host, { mode: 'crucible', players: 2, net: SIM, out, progress, sleep, startNow: false });
     const guest = party.guest;
     const release = await slowBoot(guest, 130000);
-    await host.getByRole('button', { name: 'Start', exact: true }).click();
+    await pressStart(host);
     const started = Date.now();
     await clickDeploy(host);
     await immortal(host);

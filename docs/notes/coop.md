@@ -571,6 +571,16 @@ Measured on the loopback transport: tab closed to everyone in the new lobby, 41 
   joiner, "X lost connection.", "X is back.", "X reconnected." (back in the room but on the lobby page), "X left.", "X went
   back to the lobby.". The session's roster diff says nothing more.
 
+### Standing still, and the other tab
+
+- **In a menu, tabbed out.** A player whose Esc menu, shop or loadout is open, or whose tab is hidden, stands still under fire
+  by design. The session tells the room (`LobbyPlayer.idle`: `'menu'` or `'hidden'`, sent with the player's `set`), and the tag
+  over their body reads "NAME · in a menu" or "NAME · tabbed out" (one call site in `team.ts` `markers`).
+- **"Play here instead" in another tab** makes the running tab reload (`core/oneTab.ts`). If that tab is in a co-op match, the
+  waiting tab's notice now says so first: "A co-op match is being hosted in that tab. Playing here instead ends it for
+  everyone in it." (or, for a guest, "takes you out of it"). The running tab answers the waiting tab's question over the same
+  BroadcastChannel (`tabBusy`).
+
 ### Hooks for the other lanes (`CoopSession`)
 
 | Hook | When |
@@ -597,7 +607,7 @@ Each asserts on every page and runs on the loopback transport; `COOP_SIM='lag:12
 |---|---|
 | `coop-session-start` | 3 players, one held back 25 s: real clicks on the gate, nobody in the pause menu, the host's world held with "Waiting for GUEST-THREE" on both screens, slots are the lobby's, no join/leave lines, wave 1 only when all are in |
 | `coop-session-noshow` | A guest that never arrives: the countdown, the host starting alone after 90 s and naming them, the guest joining the running wave later, announced once |
-| `coop-session-blip` | The link silent for 8 s (the guest shows "Reconnecting to host…", nobody dropped, credits and gun unchanged), then the guest's page frozen 22 s (still in the match, never "left") |
+| `coop-session-blip` | The link silent for 8 s (the guest shows "Reconnecting to host…", nobody dropped, credits and gun unchanged), then the guest's page frozen 22 s (still in the match, never "left"), then the "in a menu" tag |
 | `coop-session-reload` | A guest reloads mid-wave and is back in its seat, never playing without a session; the host reloads and all three are in a new match with their seats |
 | `coop-session-late` | A late joiner by invite ("is joining…", "joined.", the wave and its enemies); a match ended while a slow page loads lands that page in the lobby with the reason |
 | `coop-session-hostquit` | The host's tab closes: "Reconnecting", the HOST LOST board, both guests in one new lobby on the same code with the lowest slot hosting, and a new match from there |
@@ -605,7 +615,7 @@ Each asserts on every page and runs on the loopback transport; `COOP_SIM='lag:12
 | `coop-session-password` | Someone typing the wrong password does not disturb a friend joining; "Wrong password" for the one, a double press is one lobby |
 | `coop-session-modes` | Every co-op mode in turn in one room: world held while waiting (no wave running, mission not begun), started when the guest clicks |
 
-Unit tests: `src/net/lobbyLife.test.ts` (30: each timer rule and each case above over the fake transport, `fakeHub.ts`).
+Unit tests: `src/net/lobbyLife.test.ts` (31: each timer rule and each case above over the fake transport, `fakeHub.ts`).
 
 ### Not done
 
@@ -613,8 +623,10 @@ Unit tests: `src/net/lobbyLife.test.ts` (30: each timer rule and each case above
   and by the loopback proofs only; no proof cuts a real peer connection.
 - A same-connection return after a long drop gets the world catch-ups but not the team's `restore`/`sync` (the guest's page
   kept its kit, and cards and snapshots heal state, but a wave banner or pod call sent while it was away is not replayed).
-- Hidden-tab and "in a menu" tags on teammates (M7, M8), a note in the one-tab takeover (H2), a rejoin after a reload on the
-  lobby page, and a host page reload after its guests have already regrouped (two hosts on one code; they do not merge).
+- A rejoin after a reload on the lobby page, and a host page reload after its guests have already regrouped (two hosts on one
+  code; they do not merge).
+- The one-tab takeover warning (below) is not proven in a browser: the loopback proofs switch the one-tab rule off.
+
 ## Gore on every screen
 
 The owner's rule: the gore is computed on each client, never streamed from the host, and a guest's own hits are instant. Bodies are

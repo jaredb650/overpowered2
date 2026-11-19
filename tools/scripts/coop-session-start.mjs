@@ -5,7 +5,7 @@
 // not even arrived. When that guest clicks, the world starts for all three. Slots are the ones each player had in the lobby,
 // and nobody is announced as joined or left on the way.
 import { startParty } from './coop-kit.mjs';
-import { SIM, atGate, clickDeploy, proof, seats, slowBoot, snap, until } from './coop-session-kit.mjs';
+import { SIM, atGate, clickDeploy, pressStart, proof, seats, slowBoot, snap, until } from './coop-session-kit.mjs';
 
 export default async (host, { sleep, outDir }) => {
   const { out, run, check, progress, shot } = proof('coop-session-start', outDir, sleep);
@@ -18,8 +18,7 @@ export default async (host, { sleep, outDir }) => {
     const lobbySeats = seats(lobby);
     // The third player's map page is held back 25 s: a slow connection.
     const release = await slowBoot(slow, 25000);
-    await host.getByRole('button', { name: party.mode.label, exact: true }).click();
-    await host.getByRole('button', { name: 'Start', exact: true }).click();
+    await pressStart(host, party.mode.label);
     progress('started; the slow guest is held back');
 
     await atGate(host); await atGate(fast);

@@ -49,7 +49,11 @@ export interface LobbyPlayer {
    * deploy"), 'lost' (the connection dropped; the seat is kept for SEAT_GRACE_MS). Absent: in the world, or on the lobby page.
    */
   state?: SeatState;
+  /** In the world but not at the controls: a menu, the shop or the loadout is open ('menu'), or their tab is hidden ('hidden'). */
+  idle?: Idle;
 }
+export type Idle = 'menu' | 'hidden';
+const idleOf = (value: unknown): Idle | undefined => (value === 'menu' || value === 'hidden' ? value : undefined);
 export type SeatState = 'loading' | 'ready' | 'lost';
 
 /** One seat as the match handoff carries it to the host's map page, so that page knows who is coming (session.ts). */
@@ -97,7 +101,7 @@ type Msg =
    * A host whose `page` is not its `match` is on its way out to a new page; see `hello`.
    */
   | { t: 'hello'; v: string; name: string; host: boolean; page?: string | null; match?: string | null; starter?: StarterGun; born?: number; browser?: string }
-  | { t: 'set'; name: string; ready: boolean; starter?: StarterGun }
+  | { t: 'set'; name: string; ready: boolean; starter?: StarterGun; idle?: Idle }
   /**
    * `live`: the match's world has started (the load barrier is over). `holdLeft`: seconds until it starts regardless.
    * `on`: the match the host is running or starting, null for none, so a page that missed an `end` (it was loading, or
@@ -251,6 +255,7 @@ export class Lobby {
   private readonly ch: Channel<Msg>;
   private hostId: string | null = null;
   private ready = false;
+  private idle: Idle | undefined;
   private wait: ReturnType<typeof setTimeout> | null = null;
   private relayWait: ReturnType<typeof setTimeout> | null = null;
   /** Guest: peers connected whose hello has not come yet (the host, while its version is checked). */
@@ -491,6 +496,13 @@ export class Lobby {
     if (!this.hosting) return;
     this.pick = map ? { mode, map } : { mode };
     this.broadcast();
+  }
+
+  /** This player is standing still under a menu, or their tab is hidden: the others' tag over them says so. */
+  setIdle(idle: Idle | undefined): void {
+    if (idle === this.idle) return;
+    this.idle = idle;
+    this.change();
   }
 
   setReady(ready: boolean): void {
@@ -813,10 +825,11 @@ export class Lobby {
     if (this.hosting && me) {
       me.name = this.uniqueName(this.name, me);
       me.ready = this.ready;
+      me.idle = this.idle;
       if (!this.match) me.starter = this.starter;
       this.broadcast();
     } else if (this.hostId) {
-      this.ch.send({ t: 'set', name: this.name, ready: this.ready, starter: this.starter }, this.hostId);
+      this.ch.send({ t: 'set', name: this.name, ready: this.ready, starter: this.starter, idle: this.idle }, this.hostId);
     }
   }
 
@@ -876,7 +889,7 @@ export class Lobby {
       this.shutDoor();
     } else {
       // The host's new connection knows nothing this page said to the old one.
-      this.ch.send({ t: 'set', name: this.name, ready: this.ready, starter: this.starter }, from);
+      this.ch.send({ t: 'set', name: this.name, ready: this.ready, starter: this.starter, idle: this.idle }, from);
       this.nextLoaded = 0;
     }
     this.onChange();
@@ -971,6 +984,7 @@ export class Lobby {
     } else if (msg.t === 'set') {
       player.name = this.uniqueName(clean(msg.name, NAME_MAX) || player.name, player);
       player.ready = msg.ready === true;
+      player.idle = idleOf(msg.idle);
       if (!this.match) player.starter = isStarter(msg.starter) ? msg.starter : undefined;
       this.broadcast();
       this.holdCount();
@@ -1065,6 +1079,7 @@ export class Lobby {
         slot: Number.isInteger(p?.slot) && p.slot >= 0 && p.slot < MAX_PLAYERS ? p.slot : -1,
         seat: clean(p?.seat, 16) || undefined,
         state: SEAT_STATES.includes(p?.state as SeatState) ? p.state : undefined,
+        idle: idleOf(p?.idle),
       }));
       this.holdLeft = Number.isFinite(msg.holdLeft) ? Math.max(0, Math.min(999, Math.round(msg.holdLeft!))) : 0;
       const live = msg.live === true;
