@@ -276,8 +276,8 @@ The rest are additive, in `contracts.ts`. `PhysicsSystem`: `preStep`, `radialLis
 
 | Kill | What the trunk does |
 |---|---|
-| Gib from a blast, force over `TorsoTuning.waistUnder` (420) | **Crack**: 3 or 5 capped pieces, 6 over `six` (1500), flying out from the trunk. The whole ribcage (six fragments) bursts from where it sat, 4 organs, 1 or 2 loose strands of gut, a strand hanging off the pelvis |
-| Gib at or under 420, or a fifth of the rest | **Waist tear**: chest and pelvis apart, gut hanging from the pelvis, liver and stomach, one loose strand |
+| Any gib: a rocket, a grenade, a barrel, a shell, a round that obliterates, a frozen body, a boss's death. Four in five | **Crack**: capped pieces flying out from the trunk, **5 or 6** from a blast of force `TorsoTuning.bigFrom` (60) or more (every rocket and hand grenade; 6 for `sixShare` 0.4 of them, and always over `six` 1500), **3** from a smaller blast or anything that is not one. The whole ribcage (six fragments) bursts from where it sat, 4 organs, 5 slabs (below), 1 or 2 loose strands of gut, a strand hanging off the pelvis |
+| The other fifth of gibs (`waistShare` 0.2) | **Waist tear**: chest and pelvis apart, gut hanging from the pelvis, liver and stomach, 3 slabs, one loose strand |
 | A killing Sabot, Awl, Ultramag or Piledriver round in the chest or belly, or a shotgun from 3 m | **Blow-out**: the body stays and drops; its far side opened (two stacked craters, the interior shows ribs and spine), meat, two rib fragments and an organ thrown out along the round, gut left hanging from an opened belly |
 | A head burst, a limb or head cut off, a partial head | **Spurt** from the stump (or the head's wound): a beating jet of blood, the Kiln's hose in blood |
 | A shotgun in the belly from 4.5 m, a big round through it, a blast at belly height of 45% of health or more, alive or dead | A **loop of gut** hangs from the wound for as long as the body lasts, dragged behind when he crawls |
@@ -327,6 +327,63 @@ chunks and organs rest on boxes from their own shape; trunk pieces' hulls take e
 sink only after 8 s in sight (`minShown`, hard cap 44). Strands find the floor under each point in turn and ride a radius
 above it, are 4 cm thick, paler, faintly lit and lie 30 s. The jet stains whatever it meets: 20 rays a frame along its globs,
 one `bleedAt` a spurt per 0.08 s (a decapitation near a wall left 35 to 38 stains on the wall and floor in 5 s).
+
+**What breaks a trunk (the gore update's G1, 2026-11-19).** The break used to be chosen by force over a line of 420, and a
+blast's force on a body is `0.875 x impulse x radius x falloff`: 73 to 84 for a rocket's fireball, 65 to 74 for a grenade's,
+46 to 74 for a barrel's. No weapon reached it, so every rocket kill was the waist tear and the crack was never seen. `planGib`
+now chooses by what killed him and reads only what crosses the wire with the kill (the point, the source, the type, the force
+rounded to a tenth), so every co-op screen makes the same plan. `torso.test.ts` checks every blast in the game from the
+weapon tables, and `gibs.test.ts` that a rocket's kill really leaves the pieces.
+
+**How the pieces leave (G2, `GibThrow` in `index.ts`).** The owner's rule: the fireball is not touched, the pieces are thrown
+with force out of it, and nothing floats (every piece falls at the world's 19 m/s²). A rocket's fireball is about 3 m wide
+and 2.5 m tall for 0.2 s with dark smoke in its place to 0.8 s, and at the old 3 to 7 m/s everything had landed inside it by
+0.5 s. Now each piece heads out from the trunk's middle and on with the blast (`along` 0.3 of its heading is the blast's;
+turned up to `fan` 1.1 rad either way; the small meat goes all round) and up hard:
+
+| Piece | Out, m/s | Up, m/s | |
+|---|---|---|---|
+| trunk piece | 2.5 to 5.5 | 7.5 to 10.5 | spin to 10 rad/s |
+| waist-tear half | 2.5 to 4 | 5 to 7.5 | a body's worth of weight each |
+| limb, head | 2.5 to 6 | 6.5 to 10 | times the tempo dial's `throwScale` |
+| ribcage fragment | 2.5 to 6.5 | 6 to 10.5 | |
+| organ | 2.5 to 6 | 6.5 to 11 | |
+| slab | 2.5 to 7 | 6.5 to 11 | |
+| meat, viscera, bone | 1.5 to 8 | 3 to 11 | |
+| loose gut | 2.5 to 6 | 6 to 9.5 | |
+
+All times `power`, the square root of the kill's force over 80 kept to 0.85 to 1.35 (a rocket about 1, a boss the most). The
+blast's direction is now the killing damage's own (`damage.dir`): `gib`'s `center` is the body's own middle on most calls and
+said nothing of it, so before this everything went "up from the middle". Measured on the Test Range, a rocket at a Trooper's
+feet: every trunk piece, limb and loose piece still in the air at 0.6 s (two trunk pieces and three limbs at 0.6 s before,
+none at 0.8 s), trunk pieces down between 0.9 and 1.2 s, the middle piece 4.5 m from the blast and the furthest 8 m.
+`?gibthrow=0` or the dev panel's "Gibs thrown out of the blast" puts the old launch back.
+
+**The blood a piece trails (`trail.ts`).** A ribbon behind every trunk piece, limb (a gib's and one shot off a living man),
+organ and slab while it flies faster than 2.2 m/s in its first 1.3 s: a chain of 7 globs left in its path every 0.05 s that
+keep 0.3 of its speed and fall, drawn as one wet rope from the piece back along where it has been by the arterial spurts'
+layer (`fx.bloodHose`; `SpurtField` appends the ribbons to its chain, and the layer takes 640 chain points where it took
+256). 48 ribbons at once, the oldest given to the next piece. Meat of 5 cm and over and rib fragments leave strands instead
+(`fx.gibTrail`, 5 a frame over everything). This, more than the pieces themselves, is what reads from 6 to 15 m: red arcs
+out of the fire, each ending in a piece.
+
+**Slabs (`slabs.ts`).** Between the trunk's pieces (2 to 27 litres) and the lumps of meat (a tenth of a litre) nothing was
+the size of a forearm. A slab is a patch of the archetype's own skin and suit lifted off its trunk at load (six sites: both
+sides of the chest, a shoulder blade, a flank, the belly, the small of the back), 25 to 33 cm long and 15 to 20 wide, the
+skin's triangles split twice, cut to a torn, lobed outline, with a smooth lumpy layer of muscle 6 cm thick under it (in
+bands, sinew streaks), and a lip where a line of fat shows under the skin. 1 to 3 litres each on a Trooper. One geometry in
+two groups (the skin's material, the cut face's), drawn as instances by `ChunkField.register`, `SlabTuning.perShape` (6) of
+each shape of each archetype in the world; a mesh is drawn once at load so its programs compile there, then only while one
+of its pieces exists. A crack throws 5, a waist tear 3, a gib past the frame's full ones 2. Building them adds 10 to 20 ms
+an archetype to the kit at load.
+
+**Torn faces** (the cut face's material, `SliceField.cap`): roughness 0.22, full clearcoat and a breath of their own red
+(`emissive 0x2c0406`), so they catch the light and are never black on a dark floor. The sword's cut shares it.
+
+**The first gib.** On the Linux machine the first gib's call is 15 to 25 ms against about 3 for the rest, before and after
+this work (first use of the limb pool and the code paths, not a shader). The slab meshes and the blood rope compile at load:
+no program is compiled in the frame after the first gib (two were, the slabs' instanced skin and cut face, until
+`ChunkField.register` waited for its own materials' draw and not a depth pass's). Probe: `tools/scripts/gib-cost.mjs`.
 
 **Caps.** Organs: lung 16, liver, heart and stomach 10 each; ribcage fragments 12 of each kind, all inside `ChunkTuning.maxBodies`
 (72 live bodies), oldest first. Trunk pieces count as halves (`SliceTuning.maxHalves`, 20 live, now shared with the sword).

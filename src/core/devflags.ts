@@ -30,6 +30,8 @@ export const DevFlags = {
   progression: true,
   /** Off: new ragdolls run on hard limits with no muscle layer. */
   muscles: true,
+  /** Off: a burst body's pieces leave it as before the gore update (slower, lower, no ribbons of blood). `?gibthrow=0` too. */
+  gibThrow: true,
   /** Master multiplier on every push a body takes. */
   force: 1,
   /**

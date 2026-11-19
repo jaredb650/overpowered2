@@ -151,7 +151,8 @@ export const BLOOD_HOSE: HoseStyle = {
     uBright: { value: new THREE.Vector3(0.3, 0.008, 0.011) },
   },
   width: bloodHoseWidth,
-  points: 256,
+  // Eight spurts of 31 points, and the ribbons flying pieces of a body trail (gore/trail.ts): 48 of 8.
+  points: 640,
 };
 
 const _p = new THREE.Vector3();

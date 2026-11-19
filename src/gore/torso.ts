@@ -1,8 +1,9 @@
 /**
  * How a trunk breaks (docs/proposals/torso-gore.md). Three ways, and one choice made once per death:
  *
- *  - crack: a blast. The trunk comes apart into 3 to 6 capped pieces: skin outside, flesh, ribs and spine on every broken face.
- *  - waist: a lighter blast. One tilted tear across the belly: the chest and the pelvis, the guts between them.
+ *  - crack: anything that bursts a body (a rocket, a grenade, a barrel, a shell, a round that obliterates, a frozen body
+ *    shattering). The trunk comes apart into 3 to 6 capped pieces: skin outside, flesh, ribs and spine on every broken face.
+ *  - waist: one burst in five, for variety. One tilted tear across the belly: the chest and the pelvis, the guts between them.
  *  - blowout: a big single round (`BLOWOUT_ROUNDS`, a shotgun at point blank). The body stays; its far side is opened.
  *
  * The pieces are cut once per archetype from the model in its bind pose (`Character.bakePose(true)`), with every limb and
@@ -15,6 +16,7 @@ import { HumanoidBone as B } from '../characters/rig';
 import { mulberry32 } from '../core/math';
 import { cutMesh, weldTable, type BoneCrossing, type CutSide } from './cut';
 import type { OrganKind, RibKind } from './organs';
+import { buildSlabs, SlabTuning, type Slab } from './slabs';
 
 export type TorsoBreak = 'crack' | 'waist' | 'blowout';
 
@@ -24,10 +26,17 @@ export const BLOWOUT_ROUNDS: ReadonlySet<string> = new Set(['sabot', 'awl', 'ult
 export const POINT_BLANK = 3;
 
 export const TorsoTuning = {
-  /** Explosive force at or under which a gib is a waist tear, and over which it cracks. Over `six` it is six pieces. */
-  waistUnder: 420,
+  /**
+   * A blast of this force or more on the body it bursts cracks the trunk into five or six pieces; a smaller one, and
+   * anything that is not a blast (a round that obliterates, a frozen body), into three. The break used to be chosen by
+   * force alone, over a line (420) that no weapon reached: a rocket's fireball gives 73 to 84, a grenade's 65 to 74, a
+   * barrel's 46 to 74, the Gimlet's grenade 50 to 58. Over `six` (a boss, the nuke) it is always six.
+   */
+  bigFrom: 60,
   six: 1500,
-  /** A share of crack deaths that tear at the waist all the same, for variety. */
+  /** Of the big ones, the share that go into six pieces and not five. */
+  sixShare: 0.4,
+  /** A share of bursts that tear at the waist all the same, for variety. */
   waistShare: 0.2,
   /** How far the broken faces are pushed in and out along the cut, so they read as torn. Metres on a 1.85 m body. */
   jag: 0.016,
@@ -47,6 +56,8 @@ export interface GibPlan {
   hang: boolean;
   /** Ribcage fragments thrown, in place. */
   ribs: RibKind[];
+  /** Mid-size slabs of his own skin and meat thrown with the pieces (slabs.ts). */
+  slabs: number;
   seed: number;
 }
 
@@ -67,8 +78,10 @@ export function seedOf(d: Pick<DamageInfo, 'point' | 'source'>): number {
 const ALL_RIBS: readonly RibKind[] = ['ribsUL', 'ribsLL', 'ribsUR', 'ribsLR', 'sternum', 'spine'];
 
 /**
- * What a gib does with the trunk. `torso` already on the damage (the host's choice, over the wire) wins. `full` false is a
- * gib past `fullPerFrame` this frame: the smallest version that still leaves the trunk's pieces in its place.
+ * What a gib does with the trunk, chosen by what killed him. `torso` already on the damage (the host's choice, over the
+ * wire) wins. `full` false is a gib past `fullPerFrame` this frame: the smallest version that still leaves the trunk's
+ * pieces in its place. Everything it reads crosses the wire with the kill (the point, the source, the type, the force in
+ * tenths), so every screen makes the same plan.
  */
 export function planGib(d: Pick<DamageInfo, 'point' | 'source' | 'type'> & { torso?: TorsoBreak }, force: number, full = true): GibPlan {
   const seed = seedOf(d);
@@ -76,13 +89,16 @@ export function planGib(d: Pick<DamageInfo, 'point' | 'source' | 'type'> & { tor
   const t = TorsoTuning;
   // Rolled whatever was told, so the rolls after it are the same on a guest told the answer.
   const roll = rnd();
-  const waist = d.torso === 'waist' || (d.torso === undefined && (force <= t.waistUnder || roll < t.waistShare));
+  const waist = d.torso === 'waist' || (d.torso === undefined && roll < t.waistShare);
   if (waist) {
-    return { mode: 'waist', pieces: 2, organs: full ? pickOrgans(rnd, ['liver', 'stomach'], 2) : ['liver'], ropes: full ? 1 : 0, hang: true, ribs: [], seed };
+    return { mode: 'waist', pieces: 2, organs: full ? pickOrgans(rnd, ['liver', 'stomach'], 2) : ['liver'], ropes: full ? 1 : 0, hang: true, ribs: [], slabs: full ? SlabTuning.waist : SlabTuning.lite, seed };
   }
-  const pieces = !full ? 3 : force > t.six ? 6 : rnd() < 0.35 ? 3 : 5;
+  // The wire carries a force in tenths: compared as the guest will see it.
+  const f = Math.round(force * 10) / 10;
+  const six = rnd() < t.sixShare;
+  const pieces = !full ? 3 : f > t.six ? 6 : d.type === 'explosive' && f >= t.bigFrom ? (six ? 6 : 5) : 3;
   const organs = full ? pickOrgans(rnd, ['lung', 'lung', 'liver', 'heart', 'stomach'], 4) : pickOrgans(rnd, ['lung', 'liver'], 2);
-  return { mode: 'crack', pieces, organs, ropes: full ? 1 + Math.floor(rnd() * 2) : 1, hang: full, ribs: full ? [...ALL_RIBS] : [], seed };
+  return { mode: 'crack', pieces, organs, ropes: full ? 1 + Math.floor(rnd() * 2) : 1, hang: full, ribs: full ? [...ALL_RIBS] : [], slabs: full ? SlabTuning.full : SlabTuning.lite, seed };
 }
 
 /** `n` of `from`, in a seeded order. */
@@ -137,6 +153,8 @@ export interface TorsoKit {
   crack3: TorsoPiece[];
   crack5: TorsoPiece[];
   crack6: TorsoPiece[];
+  /** The mid-size pieces lifted off this trunk's skin (slabs.ts). */
+  slabs: Slab[];
   /** What building it cost, for the notes. */
   ms: number;
 }
@@ -312,6 +330,8 @@ export function buildKit(char: CharacterInstance): TorsoKit {
     geometry, origin: new THREE.Vector3(), capCenter: new THREE.Vector3(), capNormal: new THREE.Vector3(0, 1, 0),
     hull: new Float32Array(0), min: box.min.clone(), max: box.max.clone(), capArea: 0,
   };
+  // Before the trunk is cut up: the slabs are lifted off its whole skin.
+  const slabs = buildSlabs(geometry, char, hips.y, chest.y);
   const byWaist = split([whole], waist, [spineDisc(waist.p.y)]);
   // Kept whole for the waist tear, and cut on for the rest: `split` disposes what it cuts, so the waist keeps copies.
   const keep = (sides: CutSide[]): CutSide[] => sides.map(c => ({ ...c, geometry: c.geometry.clone(), origin: c.origin.clone() }));
@@ -343,6 +363,7 @@ export function buildKit(char: CharacterInstance): TorsoKit {
     crack3: [...pieces(left), ...pieces(right), ...L],
     crack5: [...pieces(leftRibs.above), ...pieces(leftRibs.below), ...pieces(rightRibs.above), ...pieces(rightRibs.below), ...L],
     crack6: [...pieces(leftRibs.above), ...pieces(leftRibs.below), ...pieces(rightRibs.above), ...pieces(rightRibs.below), ...pieces(pelvisHalves.above), ...pieces(pelvisHalves.below)],
+    slabs,
     ms: 0,
   };
   kit.ms = performance.now() - started;
@@ -365,10 +386,15 @@ const _sc = new THREE.Vector3();
  * same as the skin's inverse bind), to the piece's origin. Written into `p` and `q`. Exactly where its skin is this frame.
  */
 export function placePiece(char: CharacterInstance, piece: TorsoPiece, p: THREE.Vector3, q: THREE.Quaternion): void {
-  const bone = char.bones[piece.bone]!;
+  placeAt(char, piece.bone, piece.side.origin, p, q);
+}
+
+/** The same for anything that sits at `at` in the model's bind space and rides bone `b`: a slab. */
+export function placeAt(char: CharacterInstance, b: number, at: THREE.Vector3, p: THREE.Vector3, q: THREE.Quaternion): void {
+  const bone = char.bones[b]!;
   bone.updateWorldMatrix(true, false);
-  bindPos(char, piece.bone, _b);
-  _o.makeTranslation(piece.side.origin.x - _b.x, piece.side.origin.y - _b.y, piece.side.origin.z - _b.z);
+  bindPos(char, b, _b);
+  _o.makeTranslation(at.x - _b.x, at.y - _b.y, at.z - _b.z);
   _m.multiplyMatrices(bone.matrixWorld, _o);
   _m.decompose(p, q, _sc);
 }

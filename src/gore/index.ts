@@ -29,7 +29,9 @@ import { SliceField } from './sliced';
 import { WoundPlanner, WoundTuning } from './wounds';
 import { RopeField } from './rope';
 import { SpurtField } from './spurt';
-import { blowsOut, buildKit, kitPieces, placePiece, planGib, seedOf, spillsGuts, TorsoTuning, TRUNK_EXITS, type GibPlan, type TorsoKit } from './torso';
+import { GibTrail, TrailTuning, type Ribbon } from './trail';
+import { blowsOut, buildKit, kitPieces, placeAt, placePiece, planGib, seedOf, spillsGuts, TorsoTuning, TRUNK_EXITS, type GibPlan, type TorsoKit } from './torso';
+import { SlabTuning } from './slabs';
 import { mulberry32 } from '../core/math';
 import { WoundKind } from '../characters/anatomy/wounds';
 import type { OrganKind, RibKind } from './organs';
@@ -159,7 +161,8 @@ export const GoreTuning = {
   limbForceShare: 0.45,
   /**
    * A gib flies at its force over this, between these speeds in m/s. Lighter than a body, so it goes further than one. Its
-   * limbs take `Rag.throwScale` of it, since they fall on the tempo dial. Chunks keep world gravity and all of it.
+   * limbs take `Rag.throwScale` of it, since they fall on the tempo dial. Chunks keep world gravity and all of it. With
+   * `GibThrow.on` this only sizes a machine's scrap: flesh is thrown by `GibThrow`.
    */
   gibForcePerSpeed: 30,
   gibSpeedMin: 6,
@@ -176,6 +179,46 @@ export const GoreTuning = {
   /** How long a top half keeps dragging itself along. */
   crawlSeconds: 7,
 };
+
+/**
+ * How a burst body's pieces leave it (the gore update's G2). The owner's rule: the fireball is not touched, and the pieces
+ * are thrown with force out of it, at full weight, so the player sees the body come apart. A rocket's fireball is about
+ * 3 m wide and 2.5 m tall for 0.2 s, with dark smoke in its place to 0.8 s: thrown at 3 to 7 m/s as before, everything
+ * was on the floor inside it by 0.5 s. So each piece goes up hard and out along the blast: at 8 m/s up from chest height
+ * it is over the fireball's top by 0.25 s, at the top of its arc (2.9 m) at 0.42 s and down at 0.95 s, 3 to 6 m off.
+ *
+ * Each class is `[out, up]`, m/s along the floor and upward at `power` 1, each a range a piece is drawn from; `along` is
+ * how much of its heading is the blast's against straight out from the trunk's middle. `power` is the square root of the
+ * kill's force over `force`, kept inside `power`: a rocket's fireball is 1, a boss's death the most.
+ * `?gibthrow=0` (and the lab's switch) puts the old launch back, to compare.
+ */
+type ThrowClass = 'trunk' | 'half' | 'limb' | 'ribs' | 'organ' | 'slab' | 'meat' | 'gut';
+type Range = readonly [number, number];
+export const GibThrow: {
+  on: boolean; force: number; power: Range; along: number; fan: number; spin: number; spinLight: number;
+} & Record<ThrowClass, readonly [out: Range, up: Range]> = {
+  on: typeof location === 'undefined' || new URLSearchParams(location.search).get('gibthrow') !== '0',
+  force: 80,
+  power: [0.85, 1.35],
+  along: 0.3,
+  /** Radians a heading is turned by, at most, either way. */
+  fan: 1.1,
+  trunk: [[2.5, 5.5], [7.5, 10.5]],
+  /** A waist tear's two halves are a body's worth of weight each: they part, and the chest goes over. */
+  half: [[2.5, 4], [5, 7.5]],
+  limb: [[2.5, 6], [6.5, 10]],
+  ribs: [[2.5, 6.5], [6, 10.5]],
+  organ: [[2.5, 6], [6.5, 11]],
+  slab: [[2.5, 7], [6.5, 11]],
+  meat: [[1.5, 8], [3, 11]],
+  gut: [[2.5, 6], [6, 9.5]],
+  /** Turns a second, at most, about each axis: a trunk piece, and a lighter one. */
+  spin: 10,
+  spinLight: 16,
+};
+
+/** The gore update's launch is on: not switched off by the URL or by the lab's panel. */
+const thrownOut = (): boolean => GibThrow.on && DevFlags.gibThrow;
 
 const forceOf = (d: DamageInfo): number => (d.force > 0 ? d.force : DEFAULT_FORCE[d.type]);
 /**
@@ -277,6 +320,8 @@ class LooseLimb {
   readonly smearAt = new THREE.Vector3();
   prevSpeed = 0;
   dripAt = 0;
+  /** The ribbon of blood it trails while it flies (trail.ts). */
+  ribbon: Ribbon | null = null;
   emitter: EmitterHandle | null = null;
   /** Short arterial spray from the cut end of the limb. */
   endSpray: EmitterHandle | null = null;
@@ -369,6 +414,8 @@ export class Gore implements GoreSystem {
   readonly ropes: RopeField;
   /** Arterial jets out of necks and stumps (spurt.ts). */
   readonly spurts: SpurtField;
+  /** The blood a flying piece trails (trail.ts): one budget for trunk pieces, limbs and loose pieces. */
+  readonly trail: GibTrail;
   /** Each archetype's trunk, cut once into the pieces it breaks into (torso.ts). */
   private readonly kits = new Map<string, TorsoKit>();
   private gibFrame = -1;
@@ -390,13 +437,14 @@ export class Gore implements GoreSystem {
   constructor(private readonly ctx: Ctx) {
     this.blood = new BloodField(ctx);
     this.impacts = new ImpactEvents(ctx);
-    this.chunks = new ChunkField(ctx, this.blood, this.impacts);
+    this.trail = new GibTrail(ctx);
+    this.chunks = new ChunkField(ctx, this.blood, this.impacts, this.trail);
     this.chunks.ensure();
     this.wounds = new WoundPlanner(ctx, isMachine, (char, bone) => this.owned.get(char)?.rag?.breakJoint(bone));
-    this.sliced = new SliceField(ctx, this.blood, this.impacts);
+    this.sliced = new SliceField(ctx, this.blood, this.impacts, this.trail);
     this.ropes = new RopeField(ctx, this.blood);
     this.ropes.ensure();
-    this.spurts = new SpurtField(ctx, this.blood);
+    this.spurts = new SpurtField(ctx, this.blood, this.trail);
   }
 
   init(): void {
@@ -1168,6 +1216,8 @@ export class Gore implements GoreSystem {
       const a = info.axis;
       _v4.set(-a[bone * 3]!, -a[bone * 3 + 1]!, -a[bone * 3 + 2]!).multiplyScalar(0.02);
       limb.endSpray = this.ctx.fx.attachEmitter(piece.bones[bone]!, 'stumpSpray', _v4, 1.3) ?? null;
+      // Thrown hard, it draws its arc in blood from its cut end (trail.ts): a limb off a living man as much as a gib's.
+      limb.ribbon = this.trail.open(limb);
     }
     this.limbs.push(limb);
     return limb;
@@ -1473,6 +1523,14 @@ export class Gore implements GoreSystem {
     away.y = Math.max(away.y, 0.25);
     away.normalize();
     const blastDir = new THREE.Vector3().copy(away);
+    // The way the blast went, along the floor: the kill's own direction (a blast's runs from its centre through the
+    // body, a round's along its shot). `center` is the body's own middle on most calls, and says nothing of it.
+    const flat = this.gibFlat.copy(damage ? damage.dir : away).setY(0);
+    if (flat.lengthSq() < 0.01) randomUnit(flat).setY(0);
+    flat.normalize();
+    this.gibMid.copy(hips).lerp(chest, 0.5);
+    this.gibPower = clamp(Math.sqrt(push / GibThrow.force), GibThrow.power[0], GibThrow.power[1]) * DevFlags.force;
+    if (thrownOut()) blastDir.set(flat.x, 0.6, flat.z).normalize();
 
     // Speed comes from impulse over a body's mass, with a floor so a gib never looks like a stumble.
     const t = GoreTuning;
@@ -1501,10 +1559,13 @@ export class Gore implements GoreSystem {
       const p = limb.rag.center;
       // A limb falls on the tempo dial and lands as far as it would at full gravity. Chunks keep world gravity and `launch`.
       const fling = launch * limb.rag.throwScale;
-      _v2.copy(p).sub(center);
-      if (_v2.lengthSq() < 1e-4) randomUnit(_v2);
-      _v2.normalize().multiplyScalar(fling * rand(0.65, 1.15));
-      _v2.y += fling * rand(0.25, 0.6);
+      if (thrownOut()) this.throwOf('limb', p, _v2).multiplyScalar(limb.rag.throwScale);
+      else {
+        _v2.copy(p).sub(center);
+        if (_v2.lengthSq() < 1e-4) randomUnit(_v2);
+        _v2.normalize().multiplyScalar(fling * rand(0.65, 1.15));
+        _v2.y += fling * rand(0.25, 0.6);
+      }
       for (const part of limb.rag.parts) {
         part.body.setLinvel(_v2, true);
         randomUnit(_v3).multiplyScalar(rand(8, 18));
@@ -1540,11 +1601,47 @@ export class Gore implements GoreSystem {
     this.enforceBudget();
   }
 
+  /** The gib being thrown: the blast's heading along the floor, the trunk's middle, and how hard (`GibThrow`). */
+  private readonly gibFlat = new THREE.Vector3(1, 0, 0);
+  private readonly gibMid = new THREE.Vector3();
+  private gibPower = 1;
+
+  /**
+   * The velocity one piece of the body being burst leaves at (`GibThrow`), into `out`: along the floor it heads out from
+   * the trunk's middle and on with the blast, turned by up to `fan` either way, and it goes up hard.
+   */
+  private throwOf(kind: ThrowClass, at: THREE.Vector3, out: THREE.Vector3, rnd: () => number = Math.random, fan = GibThrow.fan): THREE.Vector3 {
+    const t = GibThrow;
+    const [across, up] = t[kind];
+    const flat = this.gibFlat;
+    // Straight out from the trunk's middle. A piece at the middle has no such way and takes the blast's.
+    let rx = at.x - this.gibMid.x;
+    let rz = at.z - this.gibMid.z;
+    const reach = Math.hypot(rx, rz);
+    if (reach > 0.02) {
+      rx /= reach;
+      rz /= reach;
+    } else {
+      rx = flat.x;
+      rz = flat.z;
+    }
+    const x = flat.x * t.along + rx * (1 - t.along);
+    const z = flat.z * t.along + rz * (1 - t.along);
+    const l = Math.hypot(x, z) || 1;
+    const turn = (rnd() * 2 - 1) * fan;
+    const c = Math.cos(turn);
+    const s = Math.sin(turn);
+    const speed = (across[0] + (across[1] - across[0]) * rnd()) * this.gibPower;
+    return out.set(((x * c - z * s) / l) * speed, (up[0] + (up[1] - up[0]) * rnd()) * Math.sqrt(this.gibPower), ((x * s + z * c) / l) * speed);
+  }
+
   /**
    * Cuts every flesh humanoid's kit now, at load, so no gib in play pays for a cut. Each archetype's spare instance is
    * borrowed while nobody is fighting, cut, and given back pristine.
    */
   warm(): void {
+    // The blood rope every flying piece now trails: compiled here, not on the first gib.
+    this.spurts.warm();
     const library = this.ctx.characters;
     if (!library?.archetypes) return;
     let warmed = false;
@@ -1572,8 +1669,33 @@ export class Gore implements GoreSystem {
       for (const b of TRUNK_EXITS) char.hideLimb(b);
       kit = buildKit(char);
       this.kits.set(char.archetype, kit);
+      // Its slabs are drawn as instances, in his skin on one face and the cut face's meat on the other.
+      kit.slabs.forEach((slab, i) => this.chunks.register(`slab:${char.archetype}:${i}`, slab.geometry, [char.skinMaterial, this.sliced.flesh], slab.half, SlabTuning.perShape));
     }
     return kit;
+  }
+
+  /**
+   * The mid-size pieces of a burst trunk (slabs.ts): `plan.slabs` of the kit's, each from where it sits on his body at
+   * this moment, thrown as the rest are. They fill the gap between the trunk's few big pieces and the small meat.
+   */
+  private throwSlabs(char: CharacterInstance, kit: TorsoKit, plan: GibPlan, blastDir: THREE.Vector3, launch: number): void {
+    const n = kit.slabs.length;
+    if (n === 0 || plan.slabs === 0) return;
+    const rnd = mulberry32(plan.seed ^ 0x51ab51ab);
+    const first = Math.floor(rnd() * n);
+    for (let k = 0; k < Math.min(plan.slabs, n); k++) {
+      // Every other one round the trunk, so a few of them still come from all sides of it.
+      const i = (first + k * 2 + (k * 2 >= n ? 1 : 0)) % n;
+      const slab = kit.slabs[i]!;
+      placeAt(char, slab.bone, slab.at, _v3, _q);
+      // Just clear of the skin it is a copy of, the way it faces.
+      _v4.copy(slab.normal).applyQuaternion(_q);
+      _v3.addScaledVector(_v4, 0.03);
+      if (thrownOut()) this.throwOf('slab', _v3, _v2, rnd, 1.6);
+      else _v2.copy(_v4).multiplyScalar(launch * (0.3 + rnd() * 0.3)).addScaledVector(blastDir, launch * 0.3).setY(_v2.y + 2 + rnd() * 3);
+      this.chunks.spawn(`slab:${char.archetype}:${i}`, _v3.x, _v3.y, _v3.z, _v2.x, _v2.y, _v2.z, 1, _q, GibThrow.spinLight);
+    }
   }
 
   /**
@@ -1613,13 +1735,16 @@ export class Gore implements GoreSystem {
       const near = Math.min(launch, TorsoTuning.pieceSpeed);
       _v2.normalize().multiplyScalar(near * (waist ? 0.25 : 0.55) * (0.7 + rnd() * 0.5)).addScaledVector(blastDir, near * (waist ? 0.35 : 0.45));
       _v2.y += (waist ? 1 : 2) + rnd() * 2.5;
-      const half = this.sliced.throwPiece(piece.side, char.skinMaterial, _v3, _q, _v2, waist ? 3 : 7);
+      // Thrown up and out of the fireball, tumbling (`GibThrow`).
+      if (thrownOut()) this.throwOf(waist ? 'half' : 'trunk', _v3, _v2, rnd);
+      const half = this.sliced.throwPiece(piece.side, char.skinMaterial, _v3, _q, _v2, thrownOut() ? (waist ? 4 : GibThrow.spin) : waist ? 3 : 7);
       // The guts hang out of the pelvis's broken face.
       if (plan.hang && !hung && piece.bone === HumanoidBone.hips) {
         hung = true;
         this.ropes.hang(half.mesh, piece.side.capCenter, half.mesh, scale);
       }
     }
+    this.throwSlabs(char, kit, plan, blastDir, launch);
     return true;
   }
 
@@ -1633,7 +1758,10 @@ export class Gore implements GoreSystem {
       bone.getWorldQuaternion(_q);
       // As wide as his chest: a broad archetype's ribcage is broader, so it fills the trunk it bursts out of.
       const cage = scale * clamp((char.rig.bones[CHEST]!.hit?.radius ?? 0.16) / 0.16, 1, 1.4);
-      this.chunks.burstRibs(_v.setFromMatrixPosition(bone.matrixWorld), _q, cage, blastDir, plan.ribs, Math.min(launch, TorsoTuning.pieceSpeed) * 0.45);
+      this.chunks.burstRibs(
+        _v.setFromMatrixPosition(bone.matrixWorld), _q, cage, blastDir, plan.ribs, Math.min(launch, TorsoTuning.pieceSpeed) * 0.45, 1,
+        thrownOut() ? (at, out) => this.throwOf('ribs', at, out, rnd) : undefined,
+      );
     }
     for (const organ of plan.organs) {
       _v3.copy(hips).lerp(chest, ORGAN_AT[organ]);
@@ -1641,6 +1769,7 @@ export class Gore implements GoreSystem {
       _v3.z += (rnd() - 0.5) * 0.08 * scale;
       _v2.set(rnd() - 0.5, rnd() * 0.5, rnd() - 0.5).addScaledVector(blastDir, 1.2).normalize().multiplyScalar(Math.min(launch, TorsoTuning.pieceSpeed) * (0.3 + rnd() * 0.35));
       _v2.y += 1 + rnd() * 3;
+      if (thrownOut()) this.throwOf('organ', _v3, _v2, rnd, 1.6);
       _q.setFromAxisAngle(_v4.set(rnd() - 0.5, rnd() - 0.5, rnd() - 0.5).normalize(), rnd() * 6.28);
       this.chunks.spawn(organ, _v3.x, _v3.y, _v3.z, _v2.x, _v2.y, _v2.z, ORGAN_SIZE[organ] * scale, _q, 9);
     }
@@ -1649,6 +1778,7 @@ export class Gore implements GoreSystem {
       _v3.y = Math.max(_v3.y, floor + 0.25);
       _v2.set(rnd() - 0.5, 0.3, rnd() - 0.5).addScaledVector(blastDir, 1).normalize().multiplyScalar(launch * (0.2 + rnd() * 0.2));
       _v2.y += 1.5;
+      if (thrownOut()) this.throwOf('gut', _v3, _v2, rnd, 1.6);
       this.ropes.spill(_v3, _v2, scale, plan.seed + i);
     }
   }
@@ -1714,6 +1844,8 @@ export class Gore implements GoreSystem {
       _v3.copy(chest).addScaledVector(_v2, 0.18);
       _v2.addScaledVector(blastDir, 1.1).normalize().multiplyScalar(launch * rand(0.5, 1.1));
       _v2.y += rand(1, 7);
+      // All round, not only on with the blast: the small pieces are the cloud the big ones come out of.
+      if (thrownOut()) this.throwOf('meat', _v3, _v2, Math.random, Math.PI);
       // Mostly small: a few big lumps would steal the eye from the trunk's pieces, the ribs and the organs.
       this.chunks.spawn('meat', _v3.x, _v3.y, _v3.z, _v2.x, _v2.y, _v2.z, 0.03 + 0.07 * Math.random() ** 2.2);
     }
@@ -1723,6 +1855,7 @@ export class Gore implements GoreSystem {
       _v3.y += 0.12;
       _v2.addScaledVector(blastDir, 1).normalize().multiplyScalar(launch * rand(0.3, 0.8));
       _v2.y += rand(1, 5);
+      if (thrownOut()) this.throwOf('meat', _v3, _v2, Math.random, 2);
       this.chunks.spawn('viscera', _v3.x, _v3.y, _v3.z, _v2.x, _v2.y, _v2.z, rand(0.05, 0.08));
     }
     for (let i = 0; i < (few ? 2 : 5); i++) {
@@ -1730,6 +1863,7 @@ export class Gore implements GoreSystem {
       _v3.copy(chest).addScaledVector(_v2, 0.15);
       _v2.addScaledVector(blastDir, 1.2).normalize().multiplyScalar(launch * rand(0.6, 1.2));
       _v2.y += rand(1, 6);
+      if (thrownOut()) this.throwOf('meat', _v3, _v2, Math.random, 2);
       this.chunks.spawn('bone', _v3.x, _v3.y, _v3.z, _v2.x, _v2.y, _v2.z, rand(0.03, 0.055));
     }
     fx.gibBurst(chest, blastDir, clamp(push / 40, 6, 20));
@@ -2213,11 +2347,13 @@ export class Gore implements GoreSystem {
 
     this.updateBodyLod();
     this.updateStumps();
-    this.spurts.update(dt);
     this.ropes.update(dt);
     this.blood.update(dt);
     this.chunks.update(dt);
     this.sliced.update(dt);
+    // After everything that flies has said where it is: the ribbons move on, and the spurts' layer draws them with its own.
+    this.trail.update(dt);
+    this.spurts.update(dt);
   }
 
   /** Nobody else sets a body's detail once it is dead, and one that died at a distance can be walked up to. */
@@ -2253,6 +2389,10 @@ export class Gore implements GoreSystem {
       l.trail = 0;
       const p = rag.parts[0]!;
       this.blood.droplet(rag.center.x, rag.center.y, rag.center.z, p.v.x * 0.15, p.v.y * 0.15, p.v.z * 0.15, rand(0.05, 0.11));
+    }
+    // Thrown hard, it draws its arc in blood from its cut end (trail.ts), a limb off a living man as much as a gib's.
+    if (l.ribbon && speed > TrailTuning.minSpeed && rag.age < TrailTuning.seconds) {
+      this.trail.feed(l.ribbon, l, l.piece.bones[l.rootBone]!.getWorldPosition(_v), rag.parts[0]!.v);
     }
     if (speed < 1.5 && now >= l.dripAt && rag.age < 5) {
       l.dripAt = now + rand(0.18, 0.4);
@@ -2324,6 +2464,7 @@ export class Gore implements GoreSystem {
     this.chunks.clear();
     this.sliced.clear();
     this.ropes.clear();
+    this.trail.clear();
     this.spurts.clear();
   }
 

@@ -12,8 +12,11 @@ import { clamp, mulberry32, rand, TAU } from '../core/math';
 import type { BloodField } from './blood';
 import { ImpactTuning, type ImpactEvents } from './impacts';
 import { buildFlesh, buildOrgans, buildRibcage, ORGANS, RIB_KINDS, type OrganKind, type RibKind } from './organs';
+import { TrailTuning, type GibTrail, type Ribbon } from './trail';
 
-export type ChunkKind = 'meat' | 'viscera' | 'bone' | 'cranium' | 'jaw' | 'brain' | 'eye' | 'scrap' | OrganKind | RibKind;
+/** A piece cut from one archetype's own body at load and registered here (`ChunkField.register`): a slab of its trunk (slabs.ts). */
+export type CutKind = `slab:${string}`;
+export type ChunkKind = 'meat' | 'viscera' | 'bone' | 'cranium' | 'jaw' | 'brain' | 'eye' | 'scrap' | OrganKind | RibKind | CutKind;
 
 export const ChunkTuning = {
   /** Slots per kind. A new piece reclaims the oldest in that kind. */
@@ -21,7 +24,7 @@ export const ChunkTuning = {
     meat: 96, viscera: 40, bone: 48, cranium: 24, jaw: 16, brain: 16, eye: 16, scrap: 48,
     // Organs and the ribcage's six fragments: eight trunks' worth, the oldest given back first.
     lung: 16, liver: 10, heart: 10, stomach: 10, ribsUL: 12, ribsLL: 12, ribsUR: 12, ribsLR: 12, sternum: 12, spine: 12,
-  } as Record<ChunkKind, number>,
+  } as Record<Exclude<ChunkKind, CutKind>, number>,
   /** Bodies alive at once across all kinds. Past this, new pieces take the oldest body's place. */
   maxBodies: 72,
   /** Seconds at rest before the body is dropped. */
@@ -35,6 +38,8 @@ export const ChunkTuning = {
   impactSpeed: 3.5,
 };
 
+/** A piece at least this big across, metres, trails blood as it flies: an organ, a rib fragment, a slab, a big lump of meat. */
+const TRAIL_BULK = 0.05;
 /** Seconds a flying piece of meat drips for, and its drops a second. */
 const GIB_DRIP_FOR = 2.5;
 const GIB_DRIPS = 3;
@@ -58,6 +63,9 @@ interface Chunk {
   nextThud: number;
   /** An organ's wobble after a landing, 1 down to 0. */
   wob: number;
+  /** World time it may next leave a strand of blood in its path, and the ribbon a big piece trails (trail.ts). */
+  trailAt: number;
+  ribbon: Ribbon | null;
   alive: boolean;
   readonly p: THREE.Vector3;
   readonly q: THREE.Quaternion;
@@ -203,10 +211,12 @@ function buildKit(): { geometry: Map<ChunkKind, THREE.BufferGeometry>; pieces: K
 }
 
 /** A kit piece's collider half-size against its head radius (a ribcage fragment's: its body's scale). A plain lump uses 0.72 of its size. */
-const KIT_BOX: Partial<Record<ChunkKind, number>> = {
+const KIT_BOX: Partial<Record<Exclude<ChunkKind, CutKind>, number>> = {
   cranium: 0.42, jaw: 0.3, brain: 0.3, eye: 0.17, ribsUL: 0.055, ribsLL: 0.055, ribsUR: 0.055, ribsLR: 0.055, sternum: 0.035, spine: 0.045,
 };
 const ORGAN_SET: ReadonlySet<ChunkKind> = new Set(ORGANS);
+/** Kinds that trail a ribbon of blood as they fly (trail.ts). */
+const RIBBONED: Set<ChunkKind> = new Set(ORGANS);
 const LASTING: ReadonlySet<ChunkKind> = new Set([...ORGANS, ...RIB_KINDS]);
 
 /** Curved plate: a fragment of cranium, thin with a rough broken edge. Now only scrap, for machines. */
@@ -245,7 +255,7 @@ export class ChunkField {
    */
   floor = -Infinity;
 
-  constructor(private readonly ctx: Ctx, private readonly blood: BloodField, private readonly impacts: ImpactEvents) {}
+  constructor(private readonly ctx: Ctx, private readonly blood: BloodField, private readonly impacts: ImpactEvents, private readonly trail: GibTrail | null = null) {}
 
   /** Builds the instanced meshes. Called at load, because doing it on the first gib stalls that frame. */
   ensure(): void {
@@ -260,24 +270,7 @@ export class ChunkField {
       });
       return render.materials?.patch ? render.materials.patch(m) ?? m : m;
     };
-    const make = (kind: ChunkKind, geometry: THREE.BufferGeometry, material: THREE.Material) => {
-      const cap = ChunkTuning.capacity[kind];
-      const mesh = new THREE.InstancedMesh(geometry, material, cap);
-      mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-      mesh.frustumCulled = false;
-      mesh.castShadow = true;
-      mesh.receiveShadow = true;
-      for (let i = 0; i < cap; i++) mesh.setMatrixAt(i, _hide);
-      render.scene.add(mesh);
-      this.meshes.set(kind, mesh);
-      this.ring.set(kind, 0);
-      const slots: Chunk[] = Array.from({ length: cap }, (_, slot) => ({
-        kind, slot, body: null, size: 0, bulk: 0, sx: 1, sy: 1, sz: 1, born: 0, still: 0, restedAt: -1, speed: 0, splats: 0, nextThud: 0, wob: 0, alive: false,
-        p: new THREE.Vector3(), q: new THREE.Quaternion(), v: new THREE.Vector3(),
-      }));
-      this.slots.set(kind, slots);
-      this.all.push(...slots);
-    };
+    const make = (kind: Exclude<ChunkKind, CutKind>, geometry: THREE.BufferGeometry, material: THREE.Material) => this.make(kind, geometry, material, ChunkTuning.capacity[kind]);
     // Soft torn flesh, smooth-shaded and wet (organs.ts): faceted lumps read as red gems.
     const flesh = buildFlesh();
     const meat = wet(0.24, 0.9, 0x180304);
@@ -316,11 +309,62 @@ export class ChunkField {
     }
   }
 
+  private make(kind: ChunkKind, geometry: THREE.BufferGeometry, material: THREE.Material | THREE.Material[], cap: number): THREE.InstancedMesh {
+    const mesh = new THREE.InstancedMesh(geometry, material, cap);
+    mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    mesh.frustumCulled = false;
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    for (let i = 0; i < cap; i++) mesh.setMatrixAt(i, _hide);
+    this.ctx.render.scene.add(mesh);
+    this.meshes.set(kind, mesh);
+    this.ring.set(kind, 0);
+    const slots: Chunk[] = Array.from({ length: cap }, (_, slot) => ({
+      kind, slot, body: null, size: 0, bulk: 0, sx: 1, sy: 1, sz: 1, born: 0, still: 0, restedAt: -1, speed: 0, splats: 0, nextThud: 0, wob: 0, trailAt: 0, ribbon: null, alive: false,
+      p: new THREE.Vector3(), q: new THREE.Quaternion(), v: new THREE.Vector3(),
+    }));
+    this.slots.set(kind, slots);
+    this.all.push(...slots);
+    return mesh;
+  }
+
+  /**
+   * A kind of piece cut from one archetype's own body (a slab of its trunk, slabs.ts): its geometry in metres as it sits
+   * on that body, so it is thrown at size 1 and never stretched; `half` is half its bounds, for the box it rests on;
+   * `cap` how many may be in the world. Its mesh is drawn once at load, out of sight, so its programs compile there and
+   * not on the first gib, and after that only while one of them is in the world: thirteen archetypes of six slabs would
+   * otherwise be a hundred and fifty draws of nothing every frame.
+   */
+  register(kind: CutKind, geometry: THREE.BufferGeometry, material: THREE.Material | THREE.Material[], half: THREE.Vector3, cap: number): void {
+    if (this.meshes.has(kind)) return;
+    this.ensure();
+    const mesh = this.make(kind, geometry, material, cap);
+    this.extent.set(kind, half.clone().multiplyScalar(0.85));
+    RIBBONED.add(kind);
+    this.cut.set(kind, 0);
+    // Drawn with each of its own materials, that is: a depth pass draws it with another, and compiles nothing of these.
+    const own = new Set(Array.isArray(material) ? material : [material]);
+    mesh.onAfterRender = (_renderer, _scene, _camera, _geometry, used) => {
+      own.delete(used);
+      if (own.size > 0) return;
+      mesh.onAfterRender = () => {};
+      this.drawn.add(kind);
+      if (this.cut.get(kind) === 0) mesh.visible = false;
+    };
+  }
+
+  /** Pieces alive of each registered kind, and the kinds whose mesh has been drawn once. */
+  private readonly cut = new Map<ChunkKind, number>();
+  private readonly drawn = new Set<ChunkKind>();
+
   /**
    * One whole ribcage bursting: each of `kinds` starts where it sits in the chest (`at`, turned `turn`, at `scale` of a 1.85 m
    * body) and flies out from the middle of it and on along `dir`. All six together read as a ribcage for a frame.
    */
-  burstRibs(at: THREE.Vector3, turn: THREE.Quaternion, scale: number, dir: THREE.Vector3, kinds: readonly RibKind[], push: number, pop = 1): void {
+  burstRibs(
+    at: THREE.Vector3, turn: THREE.Quaternion, scale: number, dir: THREE.Vector3, kinds: readonly RibKind[], push: number, pop = 1,
+    thrown?: (from: THREE.Vector3, out: THREE.Vector3) => unknown,
+  ): void {
     this.ensure();
     for (const kind of kinds) {
       const local = this.ribAt.get(kind)!;
@@ -329,11 +373,10 @@ export class ChunkField {
       const out = _o.set(p.x, (local.y - 0.1) * scale * 0.6, p.z).normalize();
       p.add(at);
       const out2 = rand(2, 3.6) * pop;
-      this.spawn(
-        kind, p.x, p.y, p.z,
-        out.x * out2 + dir.x * push * rand(0.6, 1), out.y * out2 + dir.y * push + rand(1.5, 3.5) * pop, out.z * out2 + dir.z * push * rand(0.6, 1),
-        scale, turn, 10 * pop,
-      );
+      out.set(out.x * out2 + dir.x * push * rand(0.6, 1), out.y * out2 + dir.y * push + rand(1.5, 3.5) * pop, out.z * out2 + dir.z * push * rand(0.6, 1));
+      // A gib says how its own pieces leave (`GibThrow` in index.ts).
+      thrown?.(p, out);
+      this.spawn(kind, p.x, p.y, p.z, out.x, out.y, out.z, scale, turn, 10 * pop);
     }
   }
 
@@ -374,12 +417,17 @@ export class ChunkField {
     if (this.live.length >= ChunkTuning.maxBodies) this.dropBody(this.live[0]!);
 
     const extent = this.extent.get(kind);
-    const box = KIT_BOX[kind];
+    const own = this.cut.get(kind);
+    const box = own !== undefined ? 1 : KIT_BOX[kind as Exclude<ChunkKind, CutKind>];
     const hx = size * (box ?? 0.72);
-    // The kit's pieces fit together into a head or a ribcage, so they keep their shape.
+    // The kit's pieces fit together into a head or a ribcage, and a slab is a piece of one man: they keep their shape.
     c.sx = box === undefined ? 0.75 + Math.random() * 0.5 : 1;
     c.sy = box === undefined ? 0.75 + Math.random() * 0.5 : 1;
     c.sz = box === undefined ? 0.75 + Math.random() * 0.5 : 1;
+    if (own !== undefined) {
+      this.cut.set(kind, own + 1);
+      this.meshes.get(kind)!.visible = true;
+    }
     // Never started under the floor of the gib it came out of, however it is turned: a body lying down turns its
     // ribcage on its side, and a piece started half in a thin floor is pushed out of either face of it.
     const reach = extent ? Math.max(extent.x * c.sx, extent.y * c.sy, extent.z * c.sz) * size : hx;
@@ -408,7 +456,7 @@ export class ChunkField {
     );
     c.body = body;
     c.size = size;
-    c.bulk = box === undefined ? size : hx;
+    c.bulk = own !== undefined && extent ? Math.max(extent.x, extent.y, extent.z) * 0.6 : box === undefined ? size : hx;
     c.born = this.ctx.time.elapsed;
     c.still = 0;
     c.restedAt = -1;
@@ -416,6 +464,9 @@ export class ChunkField {
     c.splats = 0;
     c.nextThud = 0;
     c.wob = 0;
+    c.trailAt = 0;
+    // An organ or a slab draws a ribbon behind it; a lump of meat or a rib fragment leaves strands.
+    c.ribbon = this.trail && RIBBONED.has(kind) ? this.trail.open(c) : null;
     c.alive = true;
     this.live.push(c);
   }
@@ -443,6 +494,11 @@ export class ChunkField {
     const mesh = this.meshes.get(c.kind)!;
     mesh.setMatrixAt(c.slot, _hide);
     mesh.instanceMatrix.needsUpdate = true;
+    const own = this.cut.get(c.kind);
+    if (own !== undefined) {
+      this.cut.set(c.kind, own - 1);
+      if (own <= 1 && this.drawn.has(c.kind)) mesh.visible = false;
+    }
   }
 
   private write(c: Chunk, scale: number): void {
@@ -477,6 +533,13 @@ export class ChunkField {
       // Meat drips as it flies and for a moment after, inside the blood budget's drops a frame.
       if (c.kind !== 'scrap' && c.kind !== 'bone' && now - c.born < GIB_DRIP_FOR && Math.random() < dt * GIB_DRIPS) {
         this.blood.drip(c.p, _o.copy(c.v).multiplyScalar(0.3), 0.8 + c.bulk * 8);
+      }
+      // The bigger pieces draw their arc in blood (trail.ts): what the eye follows out of a fireball.
+      if (this.trail && speed > TrailTuning.minSpeed && now - c.born < TrailTuning.seconds) {
+        if (c.ribbon) this.trail.feed(c.ribbon, c, c.p, c.v);
+        else if (c.bulk >= TRAIL_BULK && c.kind !== 'scrap' && c.kind !== 'bone' && now >= c.trailAt && this.trail.leave(c.p, c.v, clamp(c.bulk * 9, 0.4, 1))) {
+          c.trailAt = now + TrailTuning.strandEvery;
+        }
       }
       if (c.kind !== 'scrap') {
         const scale = clamp(c.bulk / ImpactTuning.organFullSize, ImpactTuning.organFloor, 1);

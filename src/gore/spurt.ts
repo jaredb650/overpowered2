@@ -81,13 +81,22 @@ export function heartbeat(phase: number): number {
 export class SpurtField {
   private readonly spurts: Spurt[] = Array.from({ length: SpurtTuning.max }, () => new Spurt());
   private serial = 0;
-  private readonly chain = new Float32Array(SpurtTuning.max * (SpurtTuning.globs + 1) * STRIDE);
+  private readonly chain: Float32Array;
   private drawn = false;
   private firstSpurt = 0;
   /** Stains laid so far, for checks. */
   stains = 0;
 
-  constructor(private readonly ctx: Ctx, private readonly blood: BloodField) {}
+  /**
+   * `tail` is more rope for the same layer, drawn after the spurts' own: the ribbons flying pieces trail (trail.ts). It
+   * says how many chain points it may add, and adds them.
+   */
+  constructor(
+    private readonly ctx: Ctx, private readonly blood: BloodField,
+    private readonly tail: { readonly points: number; append(chain: Float32Array, count: number): number } | null = null,
+  ) {
+    this.chain = new Float32Array((SpurtTuning.max * (SpurtTuning.globs + 1) + (tail?.points ?? 0)) * STRIDE);
+  }
 
   /**
    * A spurt out of `target` at `offset`, along `axis` (both in its frame), for `seconds`. `owner` is the body's root: when
@@ -117,6 +126,13 @@ export class SpurtField {
     s.drops = 0;
     s.nextStain = 0;
     for (let i = 0; i < SpurtTuning.globs; i++) s.globs[i * G + 7] = 0;
+  }
+
+  private warming = 0;
+
+  /** Draws the blood rope once, out of sight, so its program is compiled at load. */
+  warm(): void {
+    this.warming = 2;
   }
 
   /** Spurts still pumping. */
@@ -261,6 +277,21 @@ export class SpurtField {
         }
         put(s.globs[g]!, s.globs[g + 1]!, s.globs[g + 2]!, s.globs[g + 6]!, s.fired - k);
       }
+    }
+    if (this.tail) count = this.tail.append(c, count);
+    if (this.warming > 0 && count === 0) {
+      // A short rope far under the world, for a frame or two: the layer's program compiles now, not on the first neck
+      // opened or the first body burst in a fight.
+      this.warming--;
+      for (let i = 0; i < 3; i++) {
+        c[i * STRIDE] = i * 0.1;
+        c[i * STRIDE + 1] = -500 - i * 0.2;
+        c[i * STRIDE + 2] = 0;
+        c[i * STRIDE + 3] = i * 0.1;
+        c[i * STRIDE + 4] = i * 0.35;
+        c[i * STRIDE + 5] = i === 0 ? 1 : 0;
+      }
+      count = 3;
     }
     if (count > 0 || this.drawn) this.ctx.fx.bloodHose?.(c, count);
     this.drawn = count > 0;

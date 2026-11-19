@@ -300,6 +300,22 @@ with the shader programs that were linked on it.
   `HIT_STILLS=4` also saves the whole screen, `HIT_CROWD=24` adds a crowd with its AI on under 2 s of swept SMG fire and
   reports the physics step. Run it on the Test Range: `--url "/?map=range" --dpr 2 --w 1440 --h 900 --timeout 900`.
 
+### Gib probes (the gore update, 2026-11-19)
+
+All three run on the Test Range through `shot.mjs` (headers have the commands and the `GIB_*` settings):
+
+- `tools/scripts/gib-seq.mjs`: every way a body is destroyed (`GIB=rocket1,rocket3,grenade,barrel,shell,direct,heavy,frozen,
+  shotgun,headburst,headpartial,armL,legL,limbburst,slice,waist,vaporize,corpse,...`), one contact sheet a case from the
+  player's eye at `GIB_DIST` metres, stepped on world frames with the dice seeded, and for each moment what is in the world
+  and how much of it is in the air. `GIB_ID` picks the archetype, `GIB_STILLS` keeps full frames.
+- `tools/scripts/gib-pieces.mjs`: close-ups of the piece models (`GIB_SET=slabs|trunk|loose`), with each one's size and volume.
+- `tools/scripts/gib-cost.mjs`: a row of bodies each burst by its own rocket; the call, the slowest frame after it, and any
+  shader program that first appears (the first-gib stall).
+
+Two Vite servers must not share one `node_modules` (a second worktree with it symlinked): they invalidate each other's
+bundled dependencies and co-op pages fail with "504 Outdated Optimize Dep". And `kill` on an `npx vite` kills the wrapper,
+not the server: stop a server by the pid that holds its port (`ss -ltnp`).
+
 ## 9. The test suite: seeded randomness
 
 `tools/test-setup.ts` (Vitest `setupFiles`) replaces `Math.random` with a seeded generator, restarted before every test from

@@ -13,6 +13,7 @@ import { cutMesh, weldTable, type BoneCrossing, type CutSide } from './cut';
 import { RagTuning } from './rag';
 import { rigInfo } from './rigInfo';
 import { sear, type Sear } from './sear';
+import { TrailTuning, type GibTrail, type Ribbon } from './trail';
 
 export const SliceTuning = {
   /**
@@ -58,6 +59,8 @@ export class Half {
   speed = 0;
   /** World time this half may next be heard landing. */
   nextThud = 0;
+  /** A thrown trunk piece: the ribbon of blood it trails from its torn face while it flies (trail.ts). */
+  ribbon: Ribbon | null = null;
   /** Burning away (a vaporizing cut): when it started, how long it takes, its materials, whether it has lifted, the next spark. */
   vapor = -1;
   vaporFor = 0;
@@ -112,7 +115,7 @@ export class SliceField {
   /** Cost of the last cut in milliseconds, excluding the character's own bakePose. */
   lastCutMs = 0;
 
-  constructor(private readonly ctx: Ctx, private readonly blood: BloodField, private readonly impacts: ImpactEvents) {}
+  constructor(private readonly ctx: Ctx, private readonly blood: BloodField, private readonly impacts: ImpactEvents, private readonly trail: GibTrail | null = null) {}
 
   get count(): number {
     return this.halves.length;
@@ -122,10 +125,18 @@ export class SliceField {
     if (this.capMaterial) return this.capMaterial;
     const m = new THREE.MeshPhysicalMaterial({
       // No canvas in Node, where the tests cut bodies: the vertex colours carry the cut face alone there.
-      map: typeof document === 'undefined' ? null : fleshTexture(), vertexColors: true, roughness: 0.28, metalness: 0, clearcoat: 0.6, clearcoatRoughness: 0.3,
+      map: typeof document === 'undefined' ? null : fleshTexture(), vertexColors: true, roughness: 0.22, metalness: 0, clearcoat: 1, clearcoatRoughness: 0.18,
+      // Wet, and with a breath of its own red: a torn face is what says a piece was a body, and in a dark, blue-lit map a
+      // matt dark red face on a dark floor read as nothing (the gore update's G2).
+      emissive: new THREE.Color(0x2c0406),
     });
     this.capMaterial = this.ctx.render.materials?.patch ? this.ctx.render.materials.patch(m) ?? m : m;
     return this.capMaterial;
+  }
+
+  /** The cut face's material: wet red meat by vertex colour. Slabs wear it on their underside (slabs.ts). */
+  get flesh(): THREE.Material {
+    return this.cap();
   }
 
   /** Bone discs for every bone that crosses the plane. */
@@ -279,6 +290,7 @@ export class SliceField {
     half.shared = true;
     half.body = body;
     half.emitter = this.ctx.fx.attachEmitter(mesh, 'stumpSpray', side.capCenter, 2.5) ?? null;
+    half.ribbon = this.trail?.open(half) ?? null;
     this.halves.push(half);
     this.enforce();
     return half;
@@ -374,6 +386,10 @@ export class SliceField {
       const speed = h.v.length();
       h.nextThud = this.impacts.land('body', (h.speed - speed) * heard, h.speed * heard, h.p, h.nextThud);
       h.speed = speed;
+      // From its torn face, which is where a piece of a trunk bleeds.
+      if (h.ribbon && speed > TrailTuning.minSpeed && now - h.born < TrailTuning.seconds) {
+        this.trail!.feed(h.ribbon, h, _v.copy(h.side.capCenter).applyQuaternion(h.q).add(h.p), h.v);
+      }
       h.mesh.position.copy(h.p);
       h.mesh.quaternion.copy(h.q);
       h.age += dt;

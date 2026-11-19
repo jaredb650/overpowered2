@@ -81,7 +81,7 @@ Each lane owns a vertical through the plan's batches and goes on to its next ste
 | Lane | Ports | Steps, in order | Mainly in | Status |
 |---|---|---|---|---|
 | react | 5600-5609 | R1 every hit shows (strong, every round); R2 hand to the wound and a hurt posture; R4 dying carries the shots; R3b a hit spoils his aim (host decides); **R3 the struck part goes physical** (the gradient: animation, powered part, whole-body balance, limp, blended by weight; behind a switch) | `characters/animation/HumanoidAnimator.ts`, `enemies/damage.ts` (`respond`), `enemies/reactions.ts`, `gore/stand.ts`, `gore/rag.ts`, `gore/muscles.ts` | doing: R1 done |
-| gibs | 5610-5619 | G1 rockets and grenades crack the trunk; G2 show the break: pieces thrown hard out of the fireball, bright wet torn faces, mid-size slabs, so the pieces add up to the body destroyed (every destruction: torso, head, limbs, whole-body gib); free guts that detach, fly and drape; O1 organs you notice (bigger, squash, roll, burst when stepped on or shot) | `gore/torso.ts`, `gore/chunks.ts`, `gore/index.ts` (gib paths), the gut rope, `weapons/Combat.ts` blast force only where G1 needs it | todo |
+| gibs | 5610-5619 | G1 rockets and grenades crack the trunk; G2 show the break: pieces thrown hard out of the fireball, bright wet torn faces, mid-size slabs, so the pieces add up to the body destroyed (every destruction: torso, head, limbs, whole-body gib); free guts that detach, fly and drape; O1 organs you notice (bigger, squash, roll, burst when stepped on or shot) | `gore/torso.ts`, `gore/chunks.ts`, `gore/index.ts` (gib paths), the gut rope, `weapons/Combat.ts` blast force only where G1 needs it | doing: G1, G2 landed |
 | fire | 5620-5629 | F1 fire finishes the job (char by fire damage, the corpse burns on then smoulders, soot not a blood pool, flames on the whole body and on severed burning limbs); F3 fire meets the other systems (curled burnt corpses, dark pieces, morale chips faster, burning zombies keep attacking); F2 fire spreads from where it touched and eats the skin to muscle and bone | `enemies/EnemyManager.ts` burn, `characters/material.ts`, `fx/recipes`, `enemies/outpost/morale.ts`, `enemies/behaviours.ts` | todo |
 | mess | 5630-5639 | M0 measure the budgets; P1 the mess stays (decal rings by kind and about four times the room, pieces that do not expire, corpses sink only out of view, resting bodies that stack and are **pushed aside as ragdolls** when walked into, the "Mess" setting); P3 many more corpses (tiers, baked far bodies that can wake) | `render/Decals.ts` (the rings and budgets), `gore/chunks.ts` lifetimes, `gore/rag.ts`, `gore/sliced.ts`, `gore/index.ts` corpse caps, settings UI | todo |
 | decals | 5640-5649 | D1 realistic decal designs and BIG decals for coverage (the sheet, the choice of shape by speed, angle, amount and weapon, wet and dry surface response); B1 more blood from one hit; B4 drips from ceilings and ledges, splashes, soaked bodies; B2 footprints and slide smears; P2 blood that never has to go (the floor texture) | `render/materials/decalAtlas.glsl.ts`, the shape choice in `render/Decals.ts` and `gore/blood.ts`, `fx/layers/blood.ts` | todo |
@@ -103,6 +103,7 @@ Shared files and contracts:
 
 | Switch | Default | What it compares | Lane |
 |---|---|---|---|
+| `?gibthrow=0`, dev panel "Gibs thrown out of the blast" | on | G2: a burst body's pieces thrown up and out of the fireball (7 to 10 m/s up, all round) against the old launch (3 to 7 m/s, down inside the fireball by 0.5 s). The ribbons, the slabs and the crack itself stay either way | gibs |
 | `?flinch=0`, dev panel "Hits: every hit shows" | on | R1: the hit flinch's new shape and size (twist, dropped shoulder, struck arm 20 to 40 degrees, knee dip, a floor by weapon) against the 3 to 10 degree nod from before | react |
 
 ## Log
@@ -116,3 +117,18 @@ Shared files and contracts:
   a decal is about to be overwritten (P2's hook); `mesh.count` is no longer the number of decals (`decals.total`,
   `live(ring)`). The counts are the plan's until M0 has measured overdraw.
 - 2026-11-19, react: **R1 landed.** Every hit shows from the first round (`docs/notes/enemies.md`, "How a hit shows"). Decisions: the strong end on every round as the owner answered (an SMG round turns a Trooper's chest 30 degrees and a struck arm 36); the wobble is kept out by the spring's shape (`HitSpring`: overdamped on the way back), not by keeping it small; fire and shock keep their old size (thirty bites a second); a hard trunk hit on a standing body takes one catch step. Look: `tools/out/gore-update/react/r1/` and its `LOOK.md`. The probe is `tools/scripts/hit-seq.mjs` (`docs/notes/devtools.md`).
+- 2026-11-19, gibs: **G1 and G2 landed** (`docs/notes/gore.md`, "What breaks a trunk" and the four paragraphs after it).
+  A rocket, grenade, barrel or shell kill now cracks the trunk: 5 or 6 pieces from the big blasts, 3 from the small ones and
+  from a round that obliterates, the whole ribcage, 4 organs, 5 slabs. Decisions: the break is chosen by the damage's type and
+  force alone, because those cross the wire with the kill and `blastKind` does not; one burst in five still tears at the
+  waist. **G2 by the owner's rules:** nothing in `fx/recipes/explosions.ts` is touched, no piece has reduced gravity; pieces
+  go up at 7 to 10 m/s and out all round, so they are over the fireball's top as it goes and in the air to about a second.
+  Decided: all round and not only away from the blast (`along` 0.3), because the player fires the rocket and everything
+  thrown straight away from him shrinks to a dot behind the smoke; a **ribbon of blood** behind every big piece through the
+  spurts' own layer, since at 6 m a trunk piece is 30 pixels and dark and the ribbon is what the eye follows; **slabs** cut
+  from each archetype's own trunk skin. **For "mess":** `ChunkTuning.capacity` is now typed without the slab kinds; a slab's
+  count is `SlabTuning.perShape` (6 a shape an archetype) in `slabs.ts`, and yours to raise with the rest. Trunk pieces still
+  count as halves. **For "decals":** `fx.gibTrail` (a strand) books one stain in three through `core.stains`, and a ribbon
+  leaves none of its own. **For "fire":** slabs are `ChunkField` instances drawn with the archetype's skin material; tint
+  them where you tint the trunk's pieces. Probes: `tools/scripts/gib-seq.mjs` (every destruction, frame by frame, with
+  counts), `gib-pieces.mjs` (close-ups of the models), `gib-cost.mjs`. Look: `tools/out/gore-update/gibs/` and its `LOOK.md`.

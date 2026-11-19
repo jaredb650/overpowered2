@@ -24,6 +24,8 @@ export interface LabSettings {
   explosiveDeaths: boolean;
   progression: boolean;
   muscles: boolean;
+  /** The gore update's launch of a burst body's pieces (`GibThrow`). Off: the old one, to compare. */
+  gibThrow: boolean;
   force: number;
   /** The gore update's hit reactions (`DevFlags`): each starts as the page's URL has it (`?flinch=0` and the rest), never as last left. */
   flinch: boolean;
@@ -40,7 +42,7 @@ const CONVENIENCES: readonly (keyof LabSettings)[] = ['spawn', 'ai', 'row'];
 /** Perks start off on the range because a stray Hellfire is exactly what stops a body being studied. */
 const DEFAULTS: LabSettings = {
   spawn: 'trooper', ai: 'off', row: 5, god: ON_RANGE, arsenal: false, reserves: false, speed: 1, overlay: ON_RANGE,
-  gibbing: true, explosiveDeaths: true, progression: !ON_RANGE, muscles: true, force: 1,
+  gibbing: true, explosiveDeaths: true, progression: !ON_RANGE, muscles: true, gibThrow: true, force: 1,
   flinch: true, clutch: true, carry: true, aimspoil: true, sway: true,
 };
 
@@ -81,6 +83,7 @@ export function applyFlags(s: LabSettings): void {
   DevFlags.explosiveDeaths = s.explosiveDeaths;
   DevFlags.progression = s.progression;
   DevFlags.muscles = s.muscles;
+  DevFlags.gibThrow = s.gibThrow;
   DevFlags.force = s.force;
   for (const k of REACT_SWITCHES) DevFlags[k] = s[k];
 }

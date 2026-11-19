@@ -237,6 +237,27 @@ export function bloodDrip(core: FxCore, position: THREE.Vector3, velocity: THREE
   core.stains.book(core.bloodNow + l.time, l, half * STAIN_SCALE * DRIP_STAIN);
 }
 
+/**
+ * What a piece of a burst body trails as it flies: a fat strand left in its path that keeps a third of the piece's speed,
+ * so the piece draws away from it and the strand falls behind, stretched along the arc. Gore calls it for each piece in
+ * flight every few hundredths of a second (`gore/trail.ts`, a few a frame over all of them). One in three stains where
+ * it lands.
+ */
+export function gibTrail(core: FxCore, position: THREE.Vector3, velocity: THREE.Vector3, size = 1): void {
+  const { x, y, z } = position;
+  const b = core.blood.begin(core.bloodNow, core.floorAt(x, y, z), null, BLOOD_TONE.arterial);
+  const half = TRAIL_HALF * clamp(size, 0.4, 1.6) * rand(0.75, 1.3);
+  const l = b.add(
+    x, y, z, velocity.x * TRAIL_KEEP + rand(-0.5, 0.5), velocity.y * TRAIL_KEEP + rand(-0.3, 0.5), velocity.z * TRAIL_KEEP + rand(-0.5, 0.5),
+    half, 0.22, 1.4,
+  );
+  if (Math.random() < 0.34) core.stains.book(core.bloodNow + l.time, l, half * STAIN_SCALE);
+}
+
+/** Half width of a trunk piece's trail strand, m, and the share of the piece's speed it keeps. */
+const TRAIL_HALF = 0.034;
+const TRAIL_KEEP = 0.32;
+
 /** Half width of a drip, m. */
 const DRIP_HALF = 0.0055;
 /** A drip's spot against what a strand of its width leaves: a falling drop hits square and does not spread far. */

@@ -183,6 +183,7 @@ Camera shake and hit-stop are not done here. Callers own those. Explosions do fi
 
 | Where | What |
 |---|---|
+| `recipes/blood.ts` `gibTrail`, `layers/hose.ts` `BLOOD_HOSE` | What a flying piece of a body trails (gore's `trail.ts` decides when): `gibTrail` is one fat strand (half width 3.4 cm at size 1) that keeps 0.32 of the piece's speed and stains one time in three; the blood rope takes 640 chain points (256 before), the spurts' and the pieces' ribbons together |
 | `palette.ts` | All colours and gains. `BLOOD` is albedo, `BLOOD_TONE` where a burst sits between venous and arterial |
 | `recipes/blood.ts` | Strand counts, speed, width, trail, drag per effect. `emitters.ts` for stumps and trails |
 | `recipes/blood.ts` `PUFF`, `layers/blood.ts` `PUFF_LOOK`, `PUFF_FAR_*`, `PUFF_MIN_PX`; `gore/blood.ts` `BloodTuning.puff*` | The impact puff: size by weight, life, drift, the cap a frame; its three bands and light floor; growth with distance; a blast's puffs on one body |

@@ -544,6 +544,11 @@ export interface FxSystem extends GameSystem {
   /** One drop falling from a wound or gib, leaving a small spot where it lands. `size` 1 is a plain drop. */
   bloodDrip?(position: THREE.Vector3, velocity?: THREE.Vector3, size?: number): void;
   /**
+   * A strand of blood left in the path of a flying piece of a body at `position` moving at `velocity`: gore calls it every
+   * few hundredths of a second for each piece in flight, and together they draw its arc. `size` 1 is a trunk piece's.
+   */
+  gibTrail?(position: THREE.Vector3, velocity: THREE.Vector3, size?: number): void;
+  /**
    * The impact puff of a round on flesh, whole on the frame it lands and gone in a fifth of a second: hit feedback. `dir` is
    * the round's; `weight` 0..1 as for `bloodSpray`; `scale` sizes it. Gore fires it from every bullet and pellet wound.
    */

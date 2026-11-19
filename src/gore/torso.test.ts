@@ -1,7 +1,9 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import * as THREE from 'three';
 import { humanoidRig, HumanoidBone as B } from '../characters/rig';
-import type { Ctx, DamageInfo } from '../core/contracts';
+import type { Ctx, DamageInfo, ExplosionKind } from '../core/contracts';
+import { BLAST } from '../enemies/blast';
+import { EXPLOSIONS, TUNING } from '../weapons/data';
 import { Physics } from '../physics/Physics';
 import { makeCtx } from '../sandbox/harness';
 import { ChunkTuning } from './chunks';
@@ -27,29 +29,80 @@ describe('choosing how a trunk breaks', () => {
       expect(planGib(wire, wire.force)).toEqual(host);
     }
   });
-  it('cracks a trunk into 3 to 6 pieces, tears a light blast at the waist, and stays inside its organ budget', () => {
+  it('cracks a trunk into 3 to 6 pieces, tears one in five at the waist, and stays inside its organ budget', () => {
     const modes = new Set<string>();
-    for (let i = 0; i < 60; i++) {
-      const force = 200 + i * 40;
+    let waists = 0;
+    for (let i = 0; i < 200; i++) {
+      const force = 20 + i * 12;
       const plan = planGib(blast(v(i, 1, 0), force), force);
       modes.add(plan.mode);
       if (plan.mode === 'crack') {
         expect(plan.pieces).toBeGreaterThanOrEqual(3);
         expect(plan.pieces).toBeLessThanOrEqual(6);
         expect(plan.ribs).toEqual(RIB_KINDS);
+        // A big blast is five or six pieces, a small one three, and the biggest always six.
+        if (force > TorsoTuning.six) expect(plan.pieces).toBe(6);
+        else if (force >= TorsoTuning.bigFrom) expect(plan.pieces).toBeGreaterThanOrEqual(5);
+        else expect(plan.pieces).toBe(3);
       } else {
+        waists++;
         expect(plan.pieces).toBe(2);
       }
-      if (force <= TorsoTuning.waistUnder) expect(plan.mode).toBe('waist');
       expect(plan.organs.length).toBeGreaterThan(0);
       expect(plan.organs.length).toBeLessThanOrEqual(4);
       for (const o of plan.organs) expect(ORGANS).toContain(o);
     }
     expect(modes).toEqual(new Set(['crack', 'waist']));
+    expect(waists / 200).toBeGreaterThan(TorsoTuning.waistShare - 0.1);
+    expect(waists / 200).toBeLessThan(TorsoTuning.waistShare + 0.1);
     // Past the frame's full gibs: still pieces, fewer of everything else.
     const lite = planGib({ ...blast(v(0, 1, 0), 2000), torso: 'crack' }, 2000, false);
     expect(lite).toMatchObject({ mode: 'crack', pieces: 3, ribs: [] });
     expect(lite.organs.length).toBeLessThanOrEqual(2);
+  });
+  it('cracks for every blast in the game that can burst a body: none has to reach a force no weapon has', () => {
+    // What `Combat.blastEnemies` puts on the damage: blastForce x impulse x radius x falloff, and the fireball that
+    // bursts is the inner ring (src/enemies/blast.ts), where the falloff is still 0.85 or more.
+    const blasts: readonly (readonly [ExplosionKind, number])[] = [
+      ['rocket', TUNING.rocket.radius], ['grenade', TUNING.grenade.radius], ['grenade', TUNING.launcher.radius],
+      ['barrel', 4.5], ['barrel', 7], ['shell', 5], ['enemy', 5], ['hellfire', 9], ['plasma', 5],
+    ];
+    for (const [kind, radius] of blasts) {
+      const [fireball] = BLAST.rings[kind];
+      for (const reach of [0, fireball]) {
+        const falloff = 1 - reach * (1 - EXPLOSIONS[kind].edgeDamage);
+        const force = TUNING.blastForce * EXPLOSIONS[kind].impulse * radius * falloff;
+        let cracks = 0;
+        let big = 0;
+        const N = 100;
+        for (let i = 0; i < N; i++) {
+          const plan = planGib({ ...blast(v(i * 0.31, 1.1, i * 0.17), force), source: kind }, force);
+          if (plan.mode !== 'crack') continue;
+          cracks++;
+          expect(plan.ribs).toEqual(RIB_KINDS);
+          expect(plan.organs.length).toBe(4);
+          if (plan.pieces >= 5) big++;
+        }
+        // Four in five crack, whatever the blast.
+        expect(cracks, `${kind} at ${reach}`).toBeGreaterThan(N * 0.65);
+        // And the weapons a player thinks of as big are five or six pieces every time they do.
+        if (kind === 'rocket' || kind === 'hellfire' || (kind === 'grenade' && radius === TUNING.grenade.radius)) expect(big, `${kind} at ${reach}`).toBe(cracks);
+      }
+    }
+    // A round that obliterates (the Trommel's) and a frozen body shattering are not blasts: three pieces, with the ribs.
+    const round: DamageInfo = { amount: 300, type: 'bullet', point: v(1, 1.2, 3), dir: v(0, 0, -1), force: 60, source: 'buzzsaw', gib: true };
+    const plan = planGib({ ...round, torso: 'crack' }, round.force);
+    expect(plan).toMatchObject({ mode: 'crack', pieces: 3 });
+    expect(plan.ribs).toEqual(RIB_KINDS);
+  });
+  it('makes the same plan from a force that crossed the wire in tenths', () => {
+    for (let i = 0; i < 400; i++) {
+      const force = 59.5 + i * 0.0025;
+      const d = blast(v(i * 0.13, 1, 2), force);
+      const host = planGib(d, force);
+      const sent = Math.round(force * 10) / 10;
+      expect(planGib({ ...d, torso: host.mode }, sent)).toEqual(host);
+    }
   });
   it('blows a trunk out for the big single rounds and a shotgun at point blank, and nothing else', () => {
     const hit = (source: string, type: DamageInfo['type'], region: DamageInfo['region']) => ({ source, type, region });
