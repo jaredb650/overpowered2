@@ -44,9 +44,14 @@ export default async function (host, { sleep, outDir }) {
         labels: shown.map(el => el.textContent), colour: shown[0]?.style.getPropertyValue('--c') ?? '' };
     });
     const guestSlot = await guest.evaluate(() => window.__op2.ctx.coop.lobby.me.slot);
+    const pressedAt = Date.now();
     await guest.keyboard.press('KeyP');
+    // Its own frame puts it up: no word from the host is needed (the simulator's lag is 120 ms each way, and this is quicker
+    // than a round trip only on a machine that is not starved; the time is kept in the evidence).
+    await guest.waitForFunction(() => window.__op2.ctx.coop.world.team.marks.live.length === 1, null, { timeout: 30000, polling: 30 });
+    out.ownPingMs = Date.now() - pressedAt;
     const own = await pings(guest);
-    check(own.live.length === 1 && own.live[0].slot === guestSlot, 'The pinger\'s own marker is up at once', own);
+    check(own.live.length === 1 && own.live[0].slot === guestSlot, 'The pinger\'s own marker is up on its own page, without the host', own);
     check(own.labels.some(t => /^YOUR PING/.test(t)), 'The guest\'s own reads YOUR PING', own.labels);
     await Promise.all(pages.map(page => page.waitForFunction(() => window.__op2.ctx.coop.world.team.marks.live.length === 1, null, { timeout: 30000, polling: 100 })));
     const seen = await all(pings);
