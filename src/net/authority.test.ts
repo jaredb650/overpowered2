@@ -176,6 +176,13 @@ describe('blast, call-in, perk and body claims', () => {
     expect(claimKind('rocket', 'explosive')).toBe('blast');
     expect(claimKind('airstrike', 'explosive')).toBe('assist');
   });
+  it('reads every weapon in the table as a gun or a blade, and its blast as a blast', () => {
+    for (const id of Object.keys(WEAPONS)) {
+      expect(['gun', 'melee'], id).toContain(claimClass(id, 'bullet'));
+      expect(claimClass(id, 'explosive'), id).toBe('blast');
+      expect(limitsOf(id), id).not.toBeNull();
+    }
+  });
   it('takes a grenade round a corner without a shot, but not a flood', () => {
     const validator = new ClaimValidator();
     expect(validator.check('guest', blast('grenade'), 1000, wall).ok).toBe(true);
