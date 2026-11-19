@@ -80,7 +80,7 @@ the pintle; parked and unmanned, it needed a stand.
 Vehicles live on the host. A guest draws each one as a working copy (wheels, tracks, springs, turret, barrel, roof gun, thrown
 tracks, fires, engine sound) from `GroundVehicle.wire()`, cannot walk or shoot through it, and gets the same wreck when it dies
 (`Wreck` with `ghost`, on its own colliders, the tank's turret thrown the same way). `docs/notes/coop.md`, "Enemy vehicles on a
-guest are working machines". The attack helicopter is not drawn on guests yet.
+guest are working machines". The attack helicopter flies on guests too, and comes down as the same wreck.
 
 ## Not done
 

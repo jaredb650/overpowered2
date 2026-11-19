@@ -164,6 +164,8 @@ export default async function (host, { sleep, outDir }) {
     }, [a, b, clay]);
     for (const page of pages) await teleport(page, base.spawn, base.yaw);
     if (players === 2) {
+      // A cloud lasts 13 s, less than a page takes to load: for this step the host's is kept up until the newcomer is in.
+      await host$(host, at => { const { ctx } = window.__op2; const V = ctx.player.position.constructor; const s = ctx.enemies.outpost.commander.smoke; s.pop(new V(...at)); for (const k of s.clouds) if (k.until > ctx.time.elapsed) k.until = ctx.time.elapsed + 600; }, smokeAt);
       const late = await lateJoin(party, 'LATE-JOIN');
       await inMatch([late], 'outpost', true);
       await late.evaluate(() => { window.__op2.ctx.player.modifiers.invulnerable = true; });

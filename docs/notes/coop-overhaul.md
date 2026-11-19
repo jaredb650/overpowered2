@@ -500,3 +500,10 @@ slots, tests at low priority, few agents at once).
   host ends it; in co-op the blends run on wall time, so a screen with long frames is back at full speed with the others; a lost
   "I let go" is said again. Proofs on the landed code: two pages 91 checks clean and 91 under `lag:120,jitter:40,loss:0.05`, three
   pages 87, the slow host 11 (10 fps host: world at 1.00, 0.50 with the fix off), single player 11. Numbers in `coop.md`.
+- 2026-11-18, world-b, step 5 landed: **the enemy attack helicopter flies on guests** (the vehicle system's own airframe from
+  `EnemyChopper.wire()`: rotors, chin gun, tail and rotor shot off, fire and smoke as it falls, engine sound, hit boxes) and comes
+  down as the same wreck. Proofs at this point, all on the loopback transport, clean and under `lag:120,jitter:40,loss:0.05`:
+  Defense 64 checks (two pages and a late joiner) and 71 (three pages), props 40 (three pages) and 33 (bad network, with a late
+  joiner), prisoners 34, vehicles 27. Note for every lane: commit `4b36599` (enemy-attacks step 3) reverted this lane's whole
+  step 3 at the tip (capture.ts, prisoners.ts, the test, the proof, the notes); it was restored in `c29e2ef`. Rebase, never copy
+  files over a newer tip.

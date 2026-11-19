@@ -2,8 +2,9 @@
 // late joiner; COOP_PLAYERS=3 is a host and two guests). A scout car drives past: on the guest its wheels turn, it has its roof
 // gun, and it cannot be walked or shot through. A tank lays its gun on the guest and fires: the guest's copy has the turret
 // round on it and the gun lifted. A track is thrown and the engine catches on the host: gone and burning on the guest. Both
-// are destroyed: each becomes a wreck on the guest where it died, as cover, the tank's turret thrown clear; and a player who
-// joins late has both wrecks.
+// are destroyed: each becomes a wreck on the guest where it died, as cover, the tank's turret thrown clear. The attack
+// helicopter flies on the guest, loses its tail when the host's does and comes down as a wreck. A player who joins late has
+// every wreck.
 //   node tools/shot.mjs --port 5390 --dpr 2 --w 1440 --h 900 --wait 500 --timeout 900 --script tools/scripts/coop-worldb-vehicles.mjs --out tools/out/coop/world-b/vehicles.png
 //   COOP_SIM=lag:120,jitter:40,loss:0.05 for the bad network.
 import { writeFileSync } from 'node:fs';
@@ -120,7 +121,7 @@ export default async function (host, { sleep, outDir }) {
     await until(host, () => window.__op2.ctx.enemies.vehicles.live.length === 0 && window.__op2.ctx.enemies.vehicles.wrecks.length === 2, null, 'Both are destroyed on the host', 120000);
     for (const g of guests) await until(g, () => { const n = window.__op2.ctx.coop.world.vehicles; return n.puppets.size === 0 && n.wrecks.size === 2; }, null, 'Both are wrecks on the guest, and nothing is still driving', 60000);
     const wrecks = (await copies(guest)).wrecks;
-    const hostWrecks = await host.evaluate(() => window.__op2.ctx.enemies.vehicles.wrecks.map(w => w.root.position.toArray().map(n => Math.round(n * 10) / 10)));
+    let hostWrecks = await host.evaluate(() => window.__op2.ctx.enemies.vehicles.wrecks.map(w => w.root.position.toArray().map(n => Math.round(n * 10) / 10)));
     check(wrecks.every(w => hostWrecks.some(h => Math.hypot(h[0] - w.at[0], h[2] - w.at[2]) < 1.5)), 'Each wreck lies where the host\'s does', { wrecks, hostWrecks });
     check(wrecks.some(w => w.flung), "The tank's turret is thrown clear on the guest", wrecks);
     check(wrecks.some(w => w.burning), 'The wrecks burn on the guest', wrecks);
@@ -137,14 +138,32 @@ export default async function (host, { sleep, outDir }) {
     await sleep(1200);
     await shot(guest, 'guest-wrecks');
 
+    // --- The attack helicopter ------------------------------------------------------------------------------------------------------
+    await host.evaluate(() => {
+      const { ctx } = window.__op2; const V = ctx.player.position.constructor;
+      window.__heli = ctx.enemies.vehicles.spawnChopper(new V(-60, 30, -110), [new V(-20, 0, -90), new V(20, 0, -90)], null);
+    });
+    await until(guest, () => window.__op2.ctx.coop.world.vehicles.chopper?.visible === true, null, 'The attack helicopter flies on the guest', 60000);
+    await sleep(2500);
+    const heli = { host: await host.evaluate(() => window.__heli.position.toArray()), guest: await guest.evaluate(() => window.__op2.ctx.coop.world.vehicles.chopper) };
+    check(Math.hypot(heli.host[0] - heli.guest.at[0], heli.host[1] - heli.guest.at[1], heli.host[2] - heli.guest.at[2]) < 12 && heli.guest.tail, "It is where the host's is, tail and all", heli);
+    await lookAt(guest, heli.guest.at);
+    await shot(guest, 'guest-helicopter');
+    // Its tail is shot off on the host: off on the guest, and it spins down into a wreck on both.
+    await host.evaluate(() => { const v = window.__heli; const tail = v.parts.find(p => p.def.id === 'tail'); v.take(tail.pool + 1, tail, 'rocket', v.position.clone()); });
+    await until(guest, () => window.__op2.ctx.coop.world.vehicles.chopper?.tail === false, null, "The helicopter's tail is gone on the guest", 60000);
+    await until(host, () => window.__op2.ctx.enemies.vehicles.wrecks.length === 3, null, 'It comes down on the host', 120000);
+    for (const g of guests) await until(g, () => { const n = window.__op2.ctx.coop.world.vehicles; return n.wrecks.size === 3 && !n.chopper; }, null, 'Its wreck lies on the guest and nothing is left flying', 60000);
+
     // --- A late joiner has the wrecks -----------------------------------------------------------------------------------------------
+    hostWrecks = await host.evaluate(() => window.__op2.ctx.enemies.vehicles.wrecks.map(w => w.root.position.toArray().map(n => Math.round(n * 10) / 10)));
     if (players === 2) {
       const late = await lateJoin(party, 'LATE-JOIN');
       await inMatch([late], 'defense', false);
       await late.locator('.scr-loadout').waitFor({ state: 'visible', timeout: 60000 }).catch(() => {});
       if (await late.locator('.scr-loadout').isVisible().catch(() => false)) await late.getByRole('button', { name: 'Deploy', exact: true }).click();
       await late.evaluate(() => { window.__op2.ctx.player.modifiers.invulnerable = true; window.__op2.game.setState('playing'); });
-      await until(late, () => window.__op2.ctx.coop.world.vehicles.wrecks.size === 2, null, 'The late joiner has both wrecks', 90000);
+      await until(late, () => window.__op2.ctx.coop.world.vehicles.wrecks.size === 3, null, 'The late joiner has all three wrecks', 90000);
       const theirs = (await copies(late)).wrecks;
       check(theirs.every(w => hostWrecks.some(h => Math.hypot(h[0] - w.at[0], h[2] - w.at[2]) < 1.5)), "The late joiner's wrecks lie where the host's do", theirs);
     }

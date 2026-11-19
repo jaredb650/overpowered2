@@ -71,6 +71,9 @@ const ROCKET: ProjectileSpec = {
   explosion: { radius: CHOPPER.rockets.radius, damage: CHOPPER.rockets.damage, kind: 'enemy' }, trail: 'smoke', lifetime: 4,
 };
 
+/** Flags in `EnemyChopper.wire`: the tail still on, the main rotor still on, going down, the chin gun firing. */
+export const CHOPPER_WIRE = { tail: 1, rotor: 2, stricken: 4, firing: 8 } as const;
+
 export class EnemyChopper extends Vehicle {
   private readonly pilot: Autopilot;
   private readonly plan: PilotPlan;
@@ -126,6 +129,17 @@ export class EnemyChopper extends Vehicle {
 
   override get center(): THREE.Vector3 {
     return this.rig.frame.root.position;
+  }
+
+  /**
+   * Co-op host: what a guest's copy is drawn from beyond where it flies (net/world/vehicles.ts), written into `out`: how fast the
+   * rotors turn, the chin gun's world yaw and pitch, and `CHOPPER_WIRE` flags.
+   */
+  wire(out: number[]): number[] {
+    out.length = 0;
+    out.push(this.rotorRate, this.mount.yaw, this.mount.pitch, (this.rig.tail.visible ? CHOPPER_WIRE.tail : 0) | (this.fate === 'dropping' ? 0 : CHOPPER_WIRE.rotor)
+      | (this.fate === 'flying' ? 0 : CHOPPER_WIRE.stricken) | (this.mount.firing ? CHOPPER_WIRE.firing : 0));
+    return out;
   }
 
   private stepFrame(dt: number): void {

@@ -2034,12 +2034,16 @@ capture with the ring, the bounty of 300 to the captor alone, two guests holding
   spin; it sets off no cook-off blast and burns nobody (both are the host's, and reach guests as `boom` and `hurt`). It stands on
   colliders of its own (one per part), so it is cover on every screen. `wreck { op: 'gone' }` clears one the host cleared.
 - **A late or returning player** gets every wreck standing (`Vehicles.catchUp`), lying where it lies with its seconds of fire left.
-- **Not built:** the enemy attack helicopter is still not drawn on guests at all (its rockets and gun are heard and hurt; a
-  copy of the aircraft, its rotors, its crash and its wreck are the missing piece). A wreck's cook-off blasts are seen as the
-  host's explosions but the copy's own turret recoil on a cannon shot is not played.
+- **The attack helicopter** flies on guests too: the vehicle system's own airframe (there is only ever one), placed from the
+  same 5 Hz states, with `EnemyChopper.wire()` for its rotors' rate, its chin gun's aim, and flags (tail on, main rotor on, going
+  down, gun firing). Its rotors turn, the tail and its rotor go when the host's are shot off, it trails fire and black smoke
+  as it falls, and its engine is heard. On the ground it becomes the same wreck (`Fleet.gunshipWreck`), on the boxes of what is
+  left of it. It has hit boxes on a guest as the ground vehicles do.
+- **Not built:** the barrel's recoil on a guest's copy when the tank fires; a wreck's cook-off blasts are seen as the host's
+  explosions only.
 
-Proof: `tools/scripts/coop-worldb-vehicles.mjs` (Outpost Defense's open field); unit tests `src/net/world/vehicleParts.test.ts` (4,
-the real models and wreck class on both sides).
+Proof: `tools/scripts/coop-worldb-vehicles.mjs` (Outpost Defense's open field); unit tests `src/net/world/vehicleParts.test.ts` (5,
+the real models, airframe and wreck class on both sides).
 
 ## Mounted guns: one gun, one gunner (overhaul, lane world-b)
 
@@ -2055,7 +2059,7 @@ sit on a gun the host's garrison was firing, and nobody saw anyone else's gun mo
   rounds hurt nothing (the damage is done on the gunner's own screen, through the claims lane's mounted-gun kind).
 - A seat with no word from its guest for 2.5 s is free again (they left, dropped or died).
 
-Unit test: `src/net/world/fort.test.ts`, "one mounted gun, one gunner". Not proven in a browser yet (see the plan's log).
+Unit test: `src/net/world/fort.test.ts`, "one mounted gun, one gunner"; in the browser, the mounted-gun step of `coop-worldb-defense.mjs`.
 
 ## Missions (the campaign together)
 

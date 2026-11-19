@@ -10,6 +10,9 @@ import { writeFileSync } from 'node:fs';
 import { inMatch, kit, live, shootLoop, startParty, stopShooting, teleport } from './coop-kit.mjs';
 import { lateJoin } from './coop-worldb-kit.mjs';
 
+/** Turns the seated player's view a quarter of a radian, as a mouse would. */
+const page_turn = page => page.evaluate(() => { const seat = window.__op2.ctx.progression.callInsManager.emplacements.all[0].seat; if (seat) seat.yaw += 0.25; else window.__op2.ctx.player.yaw += 0.25; });
+
 /** Every piece that is not whole and shut, as [index, stage, health, gate up], and the fort's facts, as this page has them. */
 const fort = page => page.evaluate(() => {
   const { ctx } = window.__op2;
@@ -244,6 +247,32 @@ export default async function (host, { sleep, outDir }) {
     for (const page of pages) await until(page, id => window.__op2.ctx.world.objects.walls.isOpen(window.__op2.ctx.world.objects.walls.all[id]), gate.id, 'The gate rises for a guest, on every screen');
     await teleport(other, [gate.x + 20, gate.y, gate.z + 20], 0);
     for (const page of pages) await until(page, id => !window.__op2.ctx.world.objects.walls.isOpen(window.__op2.ctx.world.objects.walls.all[id]), gate.id, 'It drops behind them, on every screen');
+
+    // --- A mounted gun: one gunner on every screen ------------------------------------------------------------------------------
+    const gunAt = await guest.evaluate(() => { const g = window.__op2.ctx.progression.callInsManager.emplacements.all[0]; return [g.standAt.x, g.standAt.y, g.standAt.z]; });
+    await teleport(host, [gunAt[0] + 30, 0, gunAt[2] + 30], 0);
+    await teleport(guest, gunAt, 0);
+    await until(guest, () => (document.querySelector('.hud')?.textContent ?? '').includes('MAN GUN'), null, 'A guest at a mounted gun is offered it');
+    await guest.evaluate(() => window.__op2.ctx.input.simulate('interact', true)); await sleep(120);
+    await guest.evaluate(() => window.__op2.ctx.input.simulate('interact', false));
+    await until(guest, () => window.__op2.ctx.progression.callInsManager.emplacements.all[0].occupant === 'player', null, 'The guest is on the gun');
+    await until(host, () => { const g = window.__op2.ctx.progression.callInsManager.emplacements.all[0]; return g.occupant !== null && g.remote === true; }, null, "On the host the gun is taken, as somebody else's");
+    const slot = await guest.evaluate(() => window.__op2.ctx.coop.lobby.me.slot);
+    await until(host, slot => window.__op2.ctx.contracts.defense.state().guns[0][0] === slot, slot, "The fort's word names the guest as its gunner");
+    // The host walks up to it: no prompt, the gun is manned.
+    await teleport(host, gunAt, 0);
+    await sleep(600);
+    check(!(await host.evaluate(() => (document.querySelector('.hud')?.textContent ?? '').includes('MAN GUN'))), 'The host is not offered a gun a guest is on');
+    await teleport(host, [gunAt[0] + 30, 0, gunAt[2] + 30], 0);
+    // The guest swings it and fires: the host's copy follows and is seen firing.
+    const before0 = await host.evaluate(() => window.__op2.ctx.progression.callInsManager.emplacements.all[0].aimYaw);
+    await guest.evaluate(() => { window.__op2.game.setState('playing'); window.__op2.ctx.input.simulate('fire', true); });
+    await page_turn(guest);
+    await until(host, y => { const g = window.__op2.ctx.progression.callInsManager.emplacements.all[0]; return Math.abs(g.aimYaw - y) > 0.08 && g.shooting; }, before0, "The host sees the guest's gun swing and fire");
+    await guest.evaluate(() => window.__op2.ctx.input.simulate('fire', false));
+    await guest.evaluate(() => window.__op2.ctx.input.simulate('interact', true)); await sleep(120);
+    await guest.evaluate(() => window.__op2.ctx.input.simulate('interact', false));
+    await until(host, () => window.__op2.ctx.progression.callInsManager.emplacements.all[0].occupant === null, null, 'The guest steps off and the gun is free on the host');
 
     // --- A shop lost, the break, the preview, the rebuild ---------------------------------------------------------------
     await host.evaluate(() => window.__op2.ctx.contracts.defense.damageShop('armoury', 1e6));

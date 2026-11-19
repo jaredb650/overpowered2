@@ -7,9 +7,11 @@ import * as THREE from 'three';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Ctx } from '../../core/contracts';
 import { noop } from '../../core/stubs';
-import { VEHICLES, type GroundDef } from '../../enemies/vehicles/data';
+import { CHOPPER_WIRE } from '../../enemies/vehicles/chopper';
+import { CHOPPER, VEHICLES, type GroundDef } from '../../enemies/vehicles/data';
 import { GunRack, WIRE } from '../../enemies/vehicles/ground';
-import { Fleet } from '../../enemies/vehicles/models';
+import { CHIN_GUN, Fleet, GUNSHIP_AIRFRAME, gunshipTailGroup } from '../../enemies/vehicles/models';
+import { Airframe } from '../../progression/callins/airframe';
 import { Wreck } from '../../enemies/vehicles/wreck';
 import { ModelMaterials } from '../../progression/modelkit';
 import { Gun } from '../../vehicles/guns';
@@ -30,8 +32,17 @@ function system(ctx: Ctx) {
     audio: { play: vi.fn(), startLoop: () => noop('loop') },
   });
   const materials = new ModelMaterials(ctx);
+  let gunship: { frame: Airframe<never>; tail: THREE.Group; gun: Gun } | null = null;
   const sys = { ctx, fleet: new Fleet(materials, scene), guns: new GunRack(spec => new Gun(materials, scene, spec)), live: [] as unknown[], wrecks: [] as Wreck[],
-    closeGround: vi.fn(), detonate: vi.fn() };
+    closeGround: vi.fn(), detonate: vi.fn(),
+    /** The one helicopter airframe, as VehicleSystem builds it. */
+    rig() {
+      if (gunship) return gunship;
+      const frame = new Airframe(materials, scene, GUNSHIP_AIRFRAME) as unknown as Airframe<never>;
+      const tail = gunshipTailGroup(materials);
+      frame.root.add(tail);
+      return (gunship = { frame, tail, gun: new Gun(materials, scene, CHIN_GUN) });
+    } };
   (ctx.enemies as unknown as { vehicles: unknown }).vehicles = sys;
   return { sys, colliders, scene };
 }
@@ -148,6 +159,38 @@ describe('enemy vehicles on a guest are working machines', () => {
       expect(g.copy(i).wreckCount).toBe(0);
       expect(g.guests[i]!.colliders.size).toBe(0);
     }
+    g.dispose();
+  });
+
+  it('flies the attack helicopter on the guest, takes its tail off when the host\'s goes, and lays its wreck down', () => {
+    const g = game();
+    const heli = { alive: true, def: VEHICLES.chopper, position: new THREE.Vector3(10, 22, -30), quaternion: new THREE.Quaternion(), flags: CHOPPER_WIRE.tail | CHOPPER_WIRE.rotor,
+      wire(out: number[]) { out.length = 0; out.push(1, 0.5, -0.2, heli.flags); return out; } };
+    g.host.sys.live.push(heli);
+    g.run(900);
+    const rig = g.guests[0]!.sys.rig();
+    expect(rig.frame.root.visible).toBe(true);
+    expect(rig.frame.root.position.distanceTo(heli.position)).toBeLessThan(0.5);
+    expect(rig.tail.visible).toBe(true);
+    // The tail is shot off on the host and it starts down.
+    heli.flags = CHOPPER_WIRE.rotor | CHOPPER_WIRE.stricken;
+    heli.position.y = 15;
+    g.run(700);
+    expect(rig.tail.visible).toBe(false);
+    expect(rig.frame.root.position.y).toBeLessThan(20);
+    // It hits the ground on the host: off the list, a wreck of its body with no tail.
+    g.host.sys.live.length = 0;
+    const root = g.host.sys.fleet.gunshipWreck(false);
+    root.position.set(10, 0.2, -30);
+    g.host.sys.wrecks.push(new Wreck(g.host.sys as never, root, [], CHOPPER.wreck, CHOPPER.halfWidth, CHOPPER.halfLength, null));
+    g.run(500);
+    expect(rig.frame.root.visible).toBe(false);
+    expect(g.copy(0).wreckCount).toBe(1);
+    const lying = [...g.copy(0).wrecks.values()][0]!.wreck.root.position;
+    expect(lying.x).toBeCloseTo(10);
+    expect(lying.z).toBeCloseTo(-30);
+    // Cover: every part but the rotor and the tail that was shot off.
+    expect(g.guests[0]!.colliders.size).toBe(CHOPPER.parts.filter(p => p.id !== 'rotor' && p.id !== 'tail').length);
     g.dispose();
   });
 
