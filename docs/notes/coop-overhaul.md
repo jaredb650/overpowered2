@@ -153,3 +153,4 @@ Shared files and contracts between lanes:
   the feed lines are three small modules (`callins.ts`, `sonar.ts`, `chatter.ts`) because different lanes will grow them; the binary
   snapshot codec moved to `world/snapshot.ts` and `worldProtocol.ts` re-exports it; the host's delayed work (`Later`) sits on the
   context, not in `booms.ts`, because targeting queues it and booms depends on targeting.
+- 2026-11-18: all twelve phase 1 lanes launched as T3 delegates (worktrees under `~/.t3/worktrees/overpowered2/`, branches `coop/<lane>`). If a lane stopped at the usage cap, its unlanded work is in its worktree: resume it there with a fresh agent told to read its branch's diff first.
