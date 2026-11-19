@@ -27,7 +27,7 @@ const read = page => page.evaluate(() => {
     worldIn: world ? { perSecond: world.in.packetsPerSecond, gapP90: world.gap.p90 } : null,
     // Its own hit claims sent in the window: it is still fighting.
     hits: net.events.hit?.out.n ?? 0, shots: net.events.fire?.out.n ?? 0, state: ctx.coop.lobby.me?.state ?? 'in',
-    line: document.querySelector('.cs-line')?.textContent ?? '', saidBehind: !!window.__saidBehind };
+    line: document.querySelector('.cs-line')?.textContent ?? '', saidBehind: !!window.__saidBehind, lines: window.__lines ?? [] };
 });
 /** The host's view of one guest: what is queued for it, what the rule says, and the seat. */
 const hostView = (host, id) => host.evaluate(id => {
@@ -50,7 +50,15 @@ export default async function (host, { sleep, outDir }) {
     const slow = party.guests.at(-1), others = party.guests.slice(0, -1);
     const slowId = await slow.evaluate(() => window.__op2.ctx.coop.lobby.you);
     // The squeezed guest's own screen is watched from the start: its notice may only show for a moment.
-    await slow.evaluate(() => { setInterval(() => { if (/fell behind/i.test(document.querySelector('.cs-line')?.textContent ?? '')) window.__saidBehind = true; }, 30); });
+    // Every distinct status line the slow guest's screen shows, with when (so a run that never says "fell behind" shows what it said instead).
+    await slow.evaluate(() => {
+      window.__lines = [];
+      setInterval(() => {
+        const el = document.querySelector('.cs-line'), text = el && el.style.display !== 'none' ? (el.textContent ?? '').replace(/\d+/g, 'N') : '';
+        if (/fell behind/i.test(text)) window.__saidBehind = true;
+        if (window.__lines.at(-1)?.[1] !== text && window.__lines.length < 60) window.__lines.push([Math.round(performance.now()), text]);
+      }, 30);
+    });
     for (let i = 0; i < 10; i++) { await sleep(1000); await skipBreak(host); }
 
     // 1. Everyone healthy: the numbers the other guests must keep.

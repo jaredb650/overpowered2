@@ -452,7 +452,9 @@ export default async function (host, { sleep, outDir }) {
         await face(guest, [mark[0], mark[1], mark[2]]);
         const tap = async key => { await guest.evaluate(k => window.__op2.ctx.input.simulate(k, true), key); await sleep(120); await guest.evaluate(k => window.__op2.ctx.input.simulate(k, false), key); await sleep(200); };
         await tap('streak');
-        const aiming = await guest.evaluate(() => window.__op2.ctx.progression.targeting);
+        // Targeting may open a frame or more after the key (it did not read as open 320 ms after the press on three runs of
+        // three, though the click that followed called the strike each time): wait for it instead of reading once.
+        const aiming = await guest.waitForFunction(() => window.__op2.ctx.progression.targeting, null, { timeout: 3000, polling: 30 }).then(h => h.jsonValue(), () => null);
         await face(guest, [mark[0], mark[1], mark[2]]);
         await tap('fire');
         const called = await host.waitForFunction(n => window.__op2.ctx.progression.callinLink.mirror.stats.orders > n, before, { timeout: 15000 }).then(() => true, () => false);

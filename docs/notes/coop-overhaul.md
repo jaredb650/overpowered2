@@ -724,6 +724,14 @@ on the same game and carries on; `results.md` there is the table so far. Sweeps 
   fixed, to be run again). The runner also lists the fix agents' and the wire's proofs now (72 runs in the clean suite). The
   ledger is `docs/notes/coop.md`, "What is proven", written from the runner's results as they come.
 
+- 06:10, verify-proofs: **the clean sweep on the tip (`e0334ec` to `38e80e1`; the commit of each row is in the ledger): 72
+  runs, loopback, two to four players.** First pass 65 of 72; of the seven failures one was a real bug (finding 5: a guest's
+  one-shot kill unscored with kill prediction on; fixed, `0f9d9ce`, and the gore proof is 267 of 267 again), five were proofs
+  (finding 7, all fixed and passing or queued to run again), and one is open (finding 6, the cut guest's silent screen). The
+  airstrike's "blasts arrive" check passed on `38e80e1` after fix-tail's `6669d68`. **Guest's seat on the tip, three players:
+  all six mode and map choices pass** (Crucible 74 of 74, Endless Humans 74, the Office 74, Outpost Defense 70, The Outpost
+  66, Foreclosure 66). The bad-network sweep is running (62 runs), three at a time.
+
 ## Last pass findings
 
 Each: what fails, where, how many players, which network, the evidence, the cause. For the fix agents.
@@ -949,3 +957,26 @@ Each: what fails, where, how many players, which network, the evidence, the caus
    stand-in is a whole enemy: it stands on the pooled object the body was (every field is there, whoever it is by now) with
    what the kill is about set over it as it stood at its death (id, definition, health, where, frozen, burning, the limbs
    off). Test: `world.test.ts`, "a whole death played ahead of the host" reads the enemy the kill is told about.
+6. **OPEN, for the wire lane's owner. A guest the host has cut for falling behind sees nothing on its own screen while it is
+   held out.** Four players, loopback, the heavy fight, the host's link to one guest squeezed to 16 kbit/s
+   (`coop-wire-stall.mjs`): 3 runs of 3 on `e0334ec`, `6445d5d` and `38e80e1` fail the one check "While held out, its own
+   screen said its connection had fallen behind"; the other 21 pass (the host cuts it once, queues nothing more, the others
+   play on, it comes back caught up). The proof now records every status line the cut guest's screen showed: for the 13 s it
+   was out there was none, neither "Your connection fell behind. Catching up…" nor "Reconnecting to host…". Cause: the guest
+   learns it was cut from the host's player list (`src/net/index.ts` `status()` reads `lobby.me.state === 'lost'`), and that
+   list is a reliable message queued behind the very backlog it was cut for, so it arrives as the queue drains, the moment
+   the seat comes back; "Reconnecting" does not show either because the squeezed link still trickles, so the host is never
+   silent. What the player sees is a world that stops with no word. Suggested fix: tell a cut guest on the unreliable lane
+   (a few bytes, repeated while it is out), or let the guest say it itself when the host's snapshots stop while its
+   reliable lane is still arriving. Not fixed here: it is a design choice in the wire lane's code.
+7. Proofs, not the game, found by the clean sweep on `e0334ec`/`6445d5d` and fixed: `coop-fx-matrix` (the case before
+   "reload" grants Bloodthirst, whose bottomless magazine made the reload a reload that never happens: a case's perk now ends
+   with the case), `coop-callins-matrix` ("the key puts the guest into targeting" read the state 320 ms after the key and
+   got nothing three runs of three, though the click after it called the strike: it now waits for it), `coop-robust` (read
+   a field the team's seats replaced; expected a new window to get a lost seat's purse, which is kept by the browser's seat),
+   `coop-lobby` (when the host leaves the lobby the guest now hosts it: the session's host-loss rule), `coop-attacks-shots`
+   (needs drawn frames), `coop-guest-seat` (stood a player inside a wall beside the pod).
+8. Seen once, not reproduced: `coop-wire-heavy.mjs`, four players, clean, on `6445d5d`: one guest threw
+   `Cannot read properties of undefined (reading '0')` 62 times in the 30 s window (the proof's "No page exceptions" check);
+   three more runs of the same scene had none. The kit now keeps the stack of each distinct page exception in the evidence
+   (`out.stacks`), so the next time it happens it can be placed.
