@@ -32,7 +32,6 @@ export function endCopy(ending: Ending, wave: number): { big: string; sub: strin
   switch (ending) {
     case 'fulfilled': return { big: 'CONTRACT FULFILLED', won: true, sub: 'The Commander is deceased. The Council thanks you all for your service. Payment is under review.' };
     case 'mission': return { big: 'MISSION COMPLETE', won: true, sub: 'The Council thanks you all for your service.' };
-    case 'host': return { big: 'HOST LOST', won: false, sub: `The host's connection ended on wave ${wave}. The Council has filed a missing contractor report.` };
     default: return { big: 'TEAM WIPED', won: false, sub: `The run ended on wave ${wave}. The Council notes the outcome and regrets nothing.` };
   }
 }
@@ -243,7 +242,7 @@ export class CoopHud {
       el.tabIndex = -1;
       return { el, run };
     };
-    this.buttons = ending === 'host' ? [] : hosting
+    this.buttons = hosting
       ? [make('Back to lobby (everyone)', () => this.onEndDone()), make('Start again', () => this.onPlayAgain())]
       : [make('Back to lobby', () => this.onEndDone())];
     this.buttons.forEach((button, i) => {

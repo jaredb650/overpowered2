@@ -5,7 +5,7 @@
 //   COOP_NET=rtc|loop    the transport (the kit's own switch): loopback by default, real WebRTC with rtc
 //
 // One run at a time per lane (the machine is shared): `pgrep -fa "shot.mjs --port <your port>"` before starting one.
-import { startParty } from './coop-kit.mjs';
+import { deploy, startParty } from './coop-kit.mjs';
 
 export const BAD_NET = process.env.TEAM_NET === 'bad';
 export const NET = 'lag:120,jitter:40,loss:0.05';
@@ -23,8 +23,10 @@ export async function teamParty(host, { mode, count = 2, out, progress, sleep, p
 
 /** Every page in the match, its world up, every other player's body in it, every guest's seat settled, the feed recorded. */
 export async function allIn(pages, contract, others = pages.length - 1) {
+  for (const page of pages) await page.waitForURL(new RegExp(`contract=${contract}`), { timeout: 120000 });
+  // Past "Click to deploy": everyone deploys before anyone is waited on, since the world starts when all are in.
+  await Promise.all(pages.map(page => deploy(page)));
   for (const page of pages) {
-    await page.waitForURL(new RegExp(`contract=${contract}`), { timeout: 120000 });
     await page.waitForFunction(n => window.__op2?.ctx?.coop?.world && window.__op2.game.state !== 'menu' && window.__op2.ctx.coop.remotes.size >= n
       && [...window.__op2.ctx.coop.remotes.values()].every(r => r.char.root.visible), others, { timeout: 180000, polling: 250 });
     await page.evaluate(() => { window.__op2.game.setState('playing'); });

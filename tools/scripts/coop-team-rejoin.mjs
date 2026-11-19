@@ -85,7 +85,7 @@ export default async function (host, { sleep, outDir }) {
     }, slot, { timeout: 30000, polling: 250 });
     const kept = await seatOf();
     out.kept = kept;
-    check(/^b:/.test(kept.key), 'The host keeps the seat under the browser\'s id, not the callsign', kept);
+    check(/^s:/.test(kept.key), 'The host keeps the kit under the player\'s seat, not the callsign', kept);
     await shot(guest, 'guest-kit-before');
 
     progress('the guest\'s page dies; the same browser comes back by the link');

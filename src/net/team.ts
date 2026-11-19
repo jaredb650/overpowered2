@@ -42,9 +42,9 @@ import { Marks } from './marks';
 import { TeamBreak } from './teamBreak';
 
 export type LifeState = 'up' | 'down' | 'dead';
-/** How a run ended: everyone down, the contract fulfilled (the Commander dead), a mission won, or the host gone. */
-export type Ending = 'wipe' | 'fulfilled' | 'mission' | 'host';
-const ENDINGS: readonly Ending[] = ['wipe', 'fulfilled', 'mission', 'host'];
+/** How a run ended: everyone down, the contract fulfilled (the Commander dead) or a mission won. (A lost host is the session's own board.) */
+export type Ending = 'wipe' | 'fulfilled' | 'mission';
+const ENDINGS: readonly Ending[] = ['wipe', 'fulfilled', 'mission'];
 /** What one player shows the others: the teammates strip and the Tab board. Clamped on arrival (`cleanCard`). */
 export interface Card {
   slot: number; state: LifeState; bleed: number; life: number; hp: number; max: number; armor: number;
@@ -86,7 +86,7 @@ export type TeamEvent =
   | { t: 'ready' }
   /** Host: who has voted to start the next wave (slots), how many votes it takes, and whose vote this was (-1: a reset). */
   | { t: 'vote'; ready: number[]; need: number; by: number }
-  /** Host to a guest who arrived mid-run: where the waves stand, so it gets the banner and, in a break, its pod. */
+  /** Host to a guest who arrived mid-run: where the waves stand, so it gets the banner and, in a break, the clock and the vote. */
   | { t: 'sync'; wave: number; phase: WavePhase; left: number; rest: boolean; custom: boolean; ready: number[]; need: number }
   /** A ping: a marker in the world, for everyone. A guest's goes to the host, who stamps the slot and passes it on. */
   | { t: 'mark'; at: Vec; slot?: number };
@@ -218,6 +218,9 @@ export class Team {
   private toldRules = false;
   /** Host: each arrived guest's seat key, kept while they are in, because the lobby forgets a player the moment they leave. */
   private readonly left = new Map<string, string>();
+  /** Host: arrived players who are out of the world right now, and those of them the team respawned meanwhile. */
+  private readonly awayIds = new Set<string>();
+  private readonly rose = new Set<string>();
   onOver: (cards: Card[], wave: number, ending: Ending) => void = () => {};
   /** Host: a guest's world is up (its first card came in): the moment to hand it what it missed while loading. */
   onArrived: (id: string) => void = () => {};
@@ -299,13 +302,18 @@ export class Team {
     return this.present().filter(p => this.life(p.id).state === 'up').map(p => p.slot);
   }
 
-  /** Host: the id a player's seat is kept under: their browser's, so it survives a reload; their callsign where there is none. */
+  /**
+   * Host: the id a player's seat is kept under: the lobby's seat (one per browser, the same through reloads and reconnects),
+   * else their browser's id, else their callsign.
+   */
   private seatKey(id: string): string {
     const lobby = this.session.lobby as CoopSession['lobby'] & { browserOf?(id: string): string };
+    const player = lobby.players.find(p => p.id === id);
+    const seat = (player as { seat?: string } | undefined)?.seat;
+    if (seat) return `s:${seat}`;
     const browser = lobby.browserOf?.(id);
     if (browser) return `b:${browser}`;
-    const name = lobby.players.find(p => p.id === id)?.name;
-    return name ? `n:${name}` : '';
+    return player?.name ? `n:${player.name}` : '';
   }
 
   private seatOf(key: string): Seat {
@@ -378,8 +386,11 @@ export class Team {
 
   /** Host: a revive or a respawn. The player's own browser puts them back on their feet: at the map's spawn, or beside `at`. */
   private up(id: string, how: 'revive' | 'respawn', by?: string, at?: [number, number, number], yaw = 0): void {
-    const slot = this.session.lobby.players.find(p => p.id === id)?.slot;
+    const target = this.session.lobby.players.find(p => p.id === id);
+    const slot = target?.slot;
     if (slot === undefined) return;
+    // Out of the world just now (a dropped connection): the news waits for them (`update`).
+    if (target!.away) this.rose.add(id);
     const life = this.life(id);
     const event: WorldEvent = { t: 'up', slot, life: life.life, how, by: by ? this.session.lobby.players.find(p => p.id === by)?.slot ?? -1 : -1,
       ...(at ? { at, yaw } : {}) };
@@ -526,15 +537,13 @@ export class Team {
     this.arrived.add(id);
     const seat = this.seats.get(this.seatKey(id));
     const purse = seat?.purse;
-    const returning = !!seat && (!!purse || !!seat.kit || seat.dead);
-    if (seat?.dead) {
-      // Not a free revive: they wait, dead, for the team's next respawn.
-      const life = this.life(id);
-      life.state = 'dead';
-    }
+    const dead = seat?.dead === true;
+    // Not a free revive: they wait, dead, for the team's next respawn.
+    if (dead) this.life(id).state = 'dead';
+    const returning = !!seat && (!!purse || !!seat.kit || dead);
     this.send({ t: 'restore', credits: purse?.credits ?? 0, score: purse?.score ?? 0, kills: purse?.kills ?? 0,
-      ...(returning && seat.kit ? { kit: seat.kit } : {}), ...(seat?.dead ? { dead: true } : {}),
-      ...(returning && purse && !seat.dead ? { hp: purse.hp, armor: purse.armor } : {}) }, id);
+      ...(returning && seat.kit ? { kit: seat.kit } : {}), ...(dead ? { dead: true } : {}),
+      ...(returning && purse && !dead ? { hp: purse.hp, armor: purse.armor } : {}) }, id);
     if (seat) seat.dead = false;
     this.send({ t: 'sync', wave: this.ctx.waves.wave, phase: this.ctx.waves.phase, left: Math.max(0, Math.ceil(this.ctx.waves.nextWaveIn)),
       rest: this.rest.on, custom: this.customRules, ...this.rest.tally() }, id);
@@ -546,6 +555,8 @@ export class Team {
   /** Guest: the host has settled my seat. A returning player gets the purse, the kit and their life back. */
   private restored(value: Extract<WorldEvent, { t: 'restore' }>): void {
     const { ctx } = this;
+    // This page has been settled before (its connection dropped and came back): what it holds is newer than the host's copy.
+    if (this.settled) return;
     const credits = int(value.credits, 1e9), score = int(value.score, 1e9), kills = int(value.kills, 1e6);
     const kit = value.kit ? cleanKit(value.kit) : null;
     const back = credits > 0 || score > 0 || !!kit || value.dead === true;
@@ -575,7 +586,7 @@ export class Team {
     this.sentKit = JSON.stringify(readKit(ctx));
   }
 
-  /** Guest: arrived mid-run. The banner the others got, and in a break its own pod. */
+  /** Guest: arrived mid-run. The banner the others got, and in a break the clock and the vote as they stand. */
   private synced(value: Extract<WorldEvent, { t: 'sync' }>): void {
     const { ctx } = this;
     const wave = int(value.wave, 1e5);
@@ -585,9 +596,8 @@ export class Team {
     if (value.rest === true) {
       this.rest.began(wave);
       this.rest.voted({ t: 'vote', ready: Array.isArray(value.ready) ? value.ready : [], need: int(value.need, 4), by: -1 });
-      ctx.hud.banner(`WAVE ${wave} CLEAR`, `wave ${wave + 1} in ${int(value.left, 255)} s · the supply pod is inbound`);
-      // The break's pod, which the others' `wave:clear` called: this browser's own, until pods are shared (pickups/pods.ts).
-      (ctx.progression as unknown as { pods?: { onWaveClear?(wave: number): void } }).pods?.onWaveClear?.(wave);
+      // The break's pod is shared: the world's own catch-up brings it (world/pods.ts).
+      ctx.hud.banner(`WAVE ${wave} CLEAR`, `wave ${wave + 1} in ${int(value.left, 255)} s · find the supply pod`);
     } else ctx.hud.banner(`WAVE ${wave}`, 'in progress · you joined late');
   }
 
@@ -667,9 +677,23 @@ export class Team {
         if (this.customRules) this.ctx.hud.feed(CUSTOM_LINE, '#ffb33d');
       }
       // A stalled host (a long hitch, a sleeping laptop) must not eat a downed player's seconds.
-      const stall = this.lastNow ? now - this.lastNow - STALL_MS : 0;
+      const frame = this.lastNow ? now - this.lastNow : 0;
+      const stall = frame - STALL_MS;
       this.lastNow = now;
       if (stall > 0) for (const life of this.lives.values()) if (life.state === 'down') life.bleedUntil += stall;
+      // A player whose connection dropped (or who is out of the world) is not bleeding: their seconds wait for them. When
+      // the same page is back, a respawn the team had meanwhile reaches them now.
+      for (const player of lobby.players) {
+        if (!this.arrived.has(player.id)) continue;
+        if (player.away) {
+          this.awayIds.add(player.id);
+          const life = this.lives.get(player.id);
+          if (life?.state === 'down') life.bleedUntil += Math.min(frame, STALL_MS);
+        } else if (this.awayIds.delete(player.id) && this.rose.delete(player.id)) {
+          const life = this.life(player.id);
+          if (life.state === 'up') this.send({ t: 'up', slot: player.slot, life: life.life, how: 'respawn', by: -1 }, player.id);
+        }
+      }
       const lives: TeamLife[] = [];
       for (const player of this.present()) {
         const life = this.life(player.id);
@@ -687,6 +711,8 @@ export class Team {
         this.arrived.delete(id);
         const key = this.left.get(id);
         if (key) this.seatOf(key).dead = life.state !== 'up';
+        this.awayIds.delete(id);
+        this.rose.delete(id);
       }
       for (const id of this.arrived) if (!this.left.has(id)) this.left.set(id, this.seatKey(id));
       // Kept after they go (a bounty may still be owed to that id, `payee`), but never without bound.
@@ -818,12 +844,6 @@ export class Team {
     const cards = [...this.cards.values()];
     this.send({ t: 'over', wave: this.ctx.waves.wave, cards, won: how !== 'wipe', how });
     this.over(cards, this.ctx.waves.wave, how);
-  }
-
-  /** A guest whose host is gone for good: the board, from the cards it last had (the session calls this, net/index.ts). */
-  hostLost(): void {
-    if (this.session.hosting || this.final) return;
-    this.over([...this.cards.values()], this.ctx.waves.wave, 'host');
   }
 
   private over(cards: Card[], wave: number, ending: Ending): void {

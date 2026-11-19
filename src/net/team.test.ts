@@ -38,6 +38,12 @@ class Relay {
     this.rooms.splice(this.rooms.indexOf(room), 1);
     for (const peer of this.rooms) this.queue.push(() => peer.left(room.id));
   }
+  /** The same browser, the same page, connected again after a drop. */
+  reopen(room: Room): void {
+    if (this.rooms.includes(room)) return;
+    for (const peer of this.rooms) this.queue.push(() => { peer.join(room.id); room.join(peer.id); });
+    this.rooms.push(room);
+  }
   flush(): void { while (this.queue.length) this.queue.shift()!(); }
   events(type: string): { data: WorldEvent; to?: string; from: string }[] {
     return this.packets.filter(p => p.lane === 'action' && (p.data as { data: WorldEvent }).data.t === type).map(p => ({ data: (p.data as { data: WorldEvent }).data, to: p.to, from: p.from }));
@@ -107,7 +113,7 @@ function context() {
   const progression = { kills: 0, score: 0, headshots: 0, combo: 0, callIns, stims, loadout: new Loadout(),
     resume: vi.fn((score: number, kills: number) => { progression.score = score; progression.kills = kills; }), award: vi.fn(),
     grantCallIn: vi.fn((id: string) => { callIns.add(id); }), setCombo: vi.fn((n: number) => { progression.combo = n; }),
-    pods: { onWaveClear: vi.fn() } };
+    pods: { onWaveClear: vi.fn(), catchUp: vi.fn(), netIn: vi.fn() } };
   const hud = { feed: vi.fn(), follow: vi.fn(() => () => {}), callout: vi.fn(), banner: vi.fn(), marker: vi.fn((_at: THREE.Vector3, _label: string, _color?: string) => vi.fn()), floatText: vi.fn(), hold: vi.fn() };
   const waves = { wave: 1, phase: 'spawning', nextWaveIn: 0 };
   const ctx = { events, player, enemies: manager, weapons, waves, physics: { raycast: vi.fn(() => null as { point: THREE.Vector3 } | null) },
@@ -242,16 +248,6 @@ describe('endings: every run ends on the team board', () => {
     expect(endCopy('wipe', 7).sub).toContain('wave 7');
     expect(endCopy('fulfilled', 10)).toMatchObject({ big: 'CONTRACT FULFILLED', won: true });
     expect(endCopy('mission', 0)).toMatchObject({ big: 'MISSION COMPLETE', won: true });
-    expect(endCopy('host', 4)).toMatchObject({ big: 'HOST LOST', won: false });
-  });
-  it('a guest whose host is gone puts the board up from the cards it has', () => {
-    const game = party(1);
-    game.tick();
-    const seen: string[] = [];
-    game.guests[0]!.world.team.onOver = (cards, _w, ending) => seen.push(`${ending}:${cards.length}`);
-    game.guests[0]!.world.team.hostLost();
-    expect(seen).toEqual(['host:2']);
-    game.dispose();
   });
 });
 
@@ -493,6 +489,50 @@ describe('seats: a rejoin gives the kit back and is not a free revive', () => {
     expect(kitOf(back).guns.map(g => g.weapon).sort()).toEqual(['shotgun', 'smg']);
     game.dispose();
   });
+  it('a connection that drops and comes back on the same page keeps its life, its seconds and what it holds', () => {
+    const game = party(2);
+    game.tick();
+    const a = game.guests[0]!;
+    const id = a.lobby.you;
+    arm(a); game.tick(KIT_MS + 100); game.tick();
+    die(a); game.relay.flush(); game.tick(100);
+    const life = game.host.world.team.life(id);
+    const bleedBefore = life.bleedUntil - performance.now();
+    // The line drops for ten seconds; the page is still there, and its seat is kept.
+    game.relay.close(a.room); game.relay.flush();
+    for (let i = 0; i < 50; i++) { vi.advanceTimersByTime(200); game.host.world.update(); }
+    expect(game.host.lobby.players.find(p => p.id === id)).toMatchObject({ away: true, state: 'lost' });
+    expect(life.state).toBe('down');
+    // Nobody bleeds out behind a dead line: the seconds are still theirs.
+    expect(life.bleedUntil - performance.now()).toBeGreaterThan(bleedBefore - 1000);
+    (a.ctx.contracts.wallet as unknown as { credits: number }).credits = 999;
+    game.relay.reopen(a.room); game.relay.flush();
+    game.tick(); game.tick();
+    expect(game.host.lobby.players.some(p => p.id === id && !p.away)).toBe(true);
+    expect(game.host.world.team.life(id)).toBe(life);
+    expect(life.state).toBe('down');
+    // What their page holds is newer than the host's copy: nothing is put back over it.
+    expect(a.ctx.contracts.wallet).toMatchObject({ credits: 999 });
+    expect(a.weapons.setLoadout).not.toHaveBeenCalled();
+    expect(feeds(a).some(f => /REJOINED|YOU LEFT DOWN/.test(f))).toBe(false);
+    game.dispose();
+  });
+  it('a respawn the team had while a connection was down reaches that player when it is back', () => {
+    const game = party(2);
+    game.tick();
+    const a = game.guests[0]!;
+    const id = a.lobby.you;
+    die(a); game.relay.flush(); game.tick(100);
+    game.relay.close(a.room); game.relay.flush(); game.tick();
+    game.host.ctx.events.emit('wave:clear', { wave: 2, bonus: 0 }); game.relay.flush();
+    expect(game.host.world.team.life(id).state).toBe('up');
+    expect(a.player.alive).toBe(false);
+    game.relay.reopen(a.room); game.relay.flush();
+    game.tick(); game.tick();
+    expect(a.player.alive).toBe(true);
+    expect(a.player.downed).toBe(false);
+    game.dispose();
+  });
   it('a brand-new player gets no purse, no kit and no line about rejoining', () => {
     const game = party(1);
     game.tick();
@@ -533,12 +573,11 @@ describe('seats: a rejoin gives the kit back and is not a free revive', () => {
 });
 
 describe('a late joiner is told where the waves stand', () => {
-  it('gets the banner mid-wave, and in a break the banner, the vote and its pod', () => {
+  it('gets the banner mid-wave, and in a break the banner, the clock and the vote', () => {
     const game = party(2);
     // Only guest 1 is in so far.
     vi.advanceTimersByTime(300); game.host.world.update(); game.relay.flush(); game.guests[0]!.world.update(); game.relay.flush(); game.host.world.update(); game.relay.flush();
     expect(game.guests[0]!.hud.banner).toHaveBeenCalledWith('WAVE 1', expect.stringContaining('in progress'));
-    expect(game.guests[0]!.progression.pods.onWaveClear).not.toHaveBeenCalled();
     game.host.ctx.events.emit('wave:clear', { wave: 4, bonus: 0 });
     Object.assign(game.host.waves, { wave: 4, phase: 'intermission', nextWaveIn: 8 });
     game.relay.flush(); game.host.world.update(); game.relay.flush();
@@ -546,7 +585,8 @@ describe('a late joiner is told where the waves stand', () => {
     const late = game.guests[1]!;
     late.world.update(); game.relay.flush();
     expect(late.hud.banner).toHaveBeenCalledWith('WAVE 4 CLEAR', expect.stringContaining('wave 5 in'));
-    expect(late.progression.pods.onWaveClear).toHaveBeenCalledWith(4);
+    // The pod itself is the shared world's to bring (world/pods.ts catch-up), never a second one from here.
+    expect(late.progression.pods.onWaveClear).not.toHaveBeenCalled();
     expect(late.world.team.rest).toMatchObject({ on: true, ready: [0] });
     game.dispose();
   });

@@ -16,10 +16,14 @@ part disagree (respawn timers, free roam, the pose and snapshot formats), this t
    1 or 2), which guests see, and presses Start: dimmed and refused, with "Waiting for X to ready up", until every friend is ready.
    A five-second countdown runs on every screen; Start again cancels it, and so does a friend going unready or joining. While
    someone is not ready the host also has **Force start** (press twice): it starts at once, each guest on their pick or the mode's gun.
-4. Play. Tab shows the team board, Enter opens chat, E beside a downed friend revives them. Esc opens a menu over the live game.
-5. When everyone is down (or the mission is won) the final board shows and everyone lands back in the same lobby. The host's
-   "End match (all to lobby)" does the same at any time; a friend's "Leave match (to lobby)" steps out while the others play on,
-   and "Rejoin match" takes them back.
+4. Play. Tab shows the team board, Enter opens chat, E beside a downed friend revives them, the middle mouse button (or P) pings
+   the spot you are looking at for everyone. Between waves L readies you up: the break ends early once everyone alive is ready.
+   Esc opens a menu over the live game.
+5. When everyone is down, or the run is won (the Commander dead in Endless Humans, a mission finished), the team board shows on
+   every screen with its buttons: **Back to lobby** for anyone, and for the host **Back to lobby (everyone)** and **Start again**.
+   Left alone it takes everyone back to the lobby after 20 s. The host's "End match (all to lobby)" in the Esc menu does the same
+   at any time (it asks first); a friend's "Leave match (to lobby)" steps out while the others play on, and "Rejoin match" takes
+   them back with their kit.
 
 If a friend cannot connect at all, set up TURN once (below).
 
@@ -45,9 +49,11 @@ If a friend cannot connect at all, set up TURN once (below).
 | `src/net/remote.ts` | A friend's body: the Bailiff with the nearest third-person prop to their gun, posture, tag |
 | `src/net/pose.ts` | Binary pose codec and arrival-time interpolation buffer |
 | `src/net/world.ts`, `src/net/world/*.ts`, `src/net/worldProtocol.ts`, `src/net/authority.ts` | The host's world: enemy snapshots, hit claims and their checks, kill attribution, explosions, call-ins, slow-mo, prisoners, vehicles, the garrison. One module per feature: see "Code layout" below |
-| `src/net/team.ts` | Down, revive, bleed-out, spectate, respawn, the wipe, cards (health, kills, credits), rejoin purses |
+| `src/net/team.ts` | The team's rules: down, revive, bleed-out, spectate, respawn at wave clear, endings (`finish`), cards, seats (a returning player's purse, kit and life), the late joiner's `sync`. See "The team's rules" |
+| `src/net/teamBreak.ts`, `kit.ts`, `marks.ts` | The break's length and ready vote; a player's kit read, cleaned and put back; pings |
+| `src/net/world/credit.ts` | Whose kill, whose reward (`notMine`, `award`), and the kill feed's news (`coop:kill`) |
 | `src/net/mission.ts` | Campaign co-op: the host's mission mirrored to guests, any-player zones, gathering, checkpoints, late-joiner catch-up |
-| `src/net/coopHud.ts` | Teammates strip, Tab board, Enter chat, end-of-run board |
+| `src/net/coopHud.ts` | Teammates strip, the break's clock and vote, the kill feed, Tab board, Enter chat, the end-of-run board and its buttons |
 | `src/net/*.test.ts`, `src/core/coop.test.ts`, `src/campaign/crowd.test.ts` | Unit tests over the mocked transport |
 | `tools/scripts/coop-kit.mjs` | The test kit every multi-page proof shares: `startParty`, `live`, `measure` and the rest (see Testing) |
 | `tools/scripts/coop-smoke.mjs`, `coop-baseline.mjs` | The rig's own proofs: any mode with 2 to 4 players reaches a fight; the baseline numbers |
@@ -82,6 +88,7 @@ the names the game used before).
 | `world/claims.ts` | Guest's `claim` (its damage as a `hit` event, and the guess at the result); the host's check and apply (`hitIn`); whose claim is being applied (`applying`) and who last hit an enemy (`lastHit`), read by hits.ts for kill credit | `hit` |
 | `world/hits.ts` | What the host's damage did, as every other screen shows it: the host's `hitfx`, `ack`, `sever` and `kill`; a guest drawing its own hit at once (`stamp`, `predict`), putting right what it guessed wrong (`ackIn`) and showing the hits, cuts and deaths the host decided; `whenKilled`; `selfDestruct`. See "Gore on every screen" | `hitfx`, `ack`, `kill`, `sever` |
 | `world/hitWire.ts` | The round and the host's findings as ids and whole numbers: `packHit`/`unpackHit`, `packFacts`/`unpackFacts`, `packKill`/`unpackKill` | |
+| `world/credit.ts` | Whose kill and whose hit (`notMine`, `crediting`, `creditAs` for work put off to a later frame); rewards sent to the guest who earned them; `coop:kill` on every screen | `award` |
 | `world/remoteFire.ts` | A player's weapons on other screens: what is sent of a shot, a projectile, a swing and the gun in hand, the host's check and relay, and handing each to that friend's `Watcher` (`src/weapons/watch.ts`), which draws it. See "Weapons on other screens". Gun Kata's notice | `fire`, `round`, `loop`, `held`, `mfx`, `kata` |
 | `world/enemyFire.ts` | Host: enemy rays against remote players (`enemyRay`), every enemy projectile described once as it leaves (`projectile`), flashes and sounds of things that are not an enemy's attack, the scope and shot recorder attacks.ts uses. Guest: tracers with the near-miss crack, harmless projectile copies, removing one at the host's word, asking the host to blow up one it shot | `ray`, `proj`, `projx`, `projhit`, `efx` |
 | `world/attacks.ts` | Enemy attacks on every screen: the host's three events per attack, and the guest running the same `AttackDef` on its copy against a world that cannot hurt. Also a line said outside an attack and a boss's phase effects | `atk`, `atkf`, `atke`, `say`, `bossfx` |
@@ -103,7 +110,7 @@ the names the game used before).
 | `world/villainProps.ts` | The villain's devices, shutters and smoke on every screen; a guest's round on a device; a snare on a guest. See "The villain's props on every screen" | `dev`, `devshot`, `snared`, `shutter`, `smoke` |
 | `world/fort.ts` | Outpost Defense's fort for the whole team: walls, gates and shacks by index, the fort's facts, a guest's blasts, boarding up and Barracks purchases, mortar rounds, the Defense radio. See "Outpost Defense: one fort" | `fort`, `fortstate`, `wallblast`, `wallhit`, `repair`, `repaired`, `fortbuy`, `fortsold`, `shell`, `fortsay`, `fortradio` |
 | `world/allies.ts` | The host's garrison drawn on guests, 5 Hz, the same way, and its tracers (30 a second) | `allies`, `ashot` |
-| `team.ts` | As before; registers its own events with the router (`plug`) | `life`, `card`, `team`, `revive`, `up`, `wave`, `over`, `restore` |
+| `team.ts` | The team's rules ("The team's rules" below); registers its own events with the router (`plug`) | `life`, `card`, `team`, `revive`, `up`, `wave`, `over`, `restore`, `kit`, `ready`, `vote`, `sync`, `mark` |
 | `mission.ts` | As before; registers its own events with the router (`plug`) | `mission`, `gather` |
 | `worldProtocol.ts` | For code outside `world/`: re-exports `wire.ts` and `snapshot.ts`, and defines `WorldEvent` as the union of every module's event types | |
 
@@ -578,7 +585,9 @@ Measured on the loopback transport: tab closed to everyone in the new lobby, 41 
 
 The team's own first-card arrival (`team.onArrived`) still fires for every new connection. For the same connection coming back
 after a drop (no new page, so no new first card) the session calls `team.onArrived(id)` itself, so the mission, dropped guns
-and villain catch-ups run again; the team's `restore` and `sync` do not (see "Not done").
+and villain catch-ups run again. The team needs no `restore` for it: that page still holds its own kit and purse, its life went
+on where it stopped (a downed player's bleed-out does not run while their line is down), and a respawn the team had meanwhile is
+sent to it as it comes back (`team.ts`, `rose`).
 
 ### Proofs (`tools/scripts/coop-session-*.mjs`, helpers in `coop-session-kit.mjs`)
 
@@ -982,6 +991,129 @@ the host only (3, 0 and 2, 0 in the two-page runs), the guest's game sent 0 dama
 health and the host 22 m away lost none. Host refused 0 of the guests' hits.
 
 Not run: four pages and real WebRTC (`COOP_NET=rtc`), under the lead's limit of three pages and one browser a lane.
+
+## The team's rules (overhaul lane "team", 2026-11-18)
+
+What it means to play as a team: how a run ends, who gets up when, the break between waves, what a player keeps across a drop,
+who is paid for what, and the HUD that says so. Co-op only: single player's endings, break and shop are untouched. Code:
+`src/net/team.ts` (lives, endings, seats), `teamBreak.ts`, `kit.ts`, `marks.ts`, `world/credit.ts`, `coopHud.ts`.
+
+### Endings
+
+A co-op run ends in exactly one way: the host calls `team.finish(how)`, which sends `over { how, cards, wave }`, and every screen
+puts up the team board. No page ever shows the solo "Run over" or "Mission complete" screen, and the host's game never enters the
+`gameover` state, so the host's world keeps running under the board.
+
+| Ending | What triggers it on the host | Headline |
+|---|---|---|
+| `wipe` | Nobody who is in the world is up (and, in a mission, there is no checkpoint to go back to) | TEAM WIPED |
+| `fulfilled` | Endless Humans: the Commander is dead. `Hud.fulfilled()` calls it once his last words are read; if they never finish, the team calls it itself after 25 s | CONTRACT FULFILLED |
+| `mission` | `campaign:complete` | MISSION COMPLETE |
+
+- **The board** (`coopHud.showEnd`) sits over everything (`Hud.teamBoard`): the co-op "paused" state lets the mouse go and never
+  stops the clock. Buttons: a guest has **Back to lobby** (steps out alone); the host has **Back to lobby (everyone)** and **Start
+  again** (`CoopSession.playAgain`: everyone lands on the lobby page and the same mode starts at once, each on their gun). Arrow
+  keys pick, Enter presses. After `END_SECONDS` = 20 s the host's page takes everyone back to the lobby.
+- Only players **whose world is up** count for the wipe (`present()`): not someone still loading, on the lobby page or with a
+  dropped connection. A guest who arrives after the run ended is sent the board at once.
+- A host that is gone for good is the session's own board ("The life of a session", Host loss).
+
+### Lives
+
+- Down at 0 health, 30 s to bleed out (`BLEED_MS`), revived by a teammate's held E: as stage 3.
+- **Everyone dead or down gets up when the wave is cleared**, before the wave's pay and pod go out, and again as the next wave
+  starts (for someone who fell during the break). In a mission the dead wait for a checkpoint, and are told so ("back at the
+  checkpoint", never "next wave").
+- The bleed clock never counts a stalled host: a host frame longer than 250 ms gives the excess back to every downed player. A
+  player whose connection has dropped does not bleed at all until they are back.
+- Perks are still lost on going down (lead's decision).
+
+### The break and the ready vote (`teamBreak.ts`)
+
+- **45 s** after a cleared wave (`TEAM_BREAK`), **60 s** before a boss wave (`BOSS_BREAK`: the Crucible's boss waves by the host's
+  rules, Endless Humans' wave 10). The host sets it as the break begins, so the clock that goes out with the wave's news is the
+  team's. The first countdown of a run is not a break.
+- **The next-wave key (L) is a vote.** A guest's key sends `ready`; the host's own key is a vote like anyone's. When **every living
+  player in the world** has voted the break drops to its last 3 s (`CUT_TO`). One player alone never cuts another's shopping; the
+  dead never hold the team up; a player in the shop can vote from the shop screen; a voter who leaves stops counting.
+- Every screen is told with `vote { ready: slots, need, by }`: the chip under the teammates strip reads `NEXT WAVE IN 36 s · 1/2
+  READY · [L] READY UP` (or `YOU ARE READY`), teammates who are ready carry READY on the strip, and the feed says who ("GUEST-TWO is
+  ready (1/2)", then "EVERYONE READY · next wave in 3").
+- **The shop screen tells the truth** in co-op: "Break. Wave 6 in 12 s. The clock is running: 1/2 ready. L: ready up." It counts
+  down live, and when the wave starts it says so and shuts itself. Single player still reads "when you leave", because there the
+  run does wait.
+- In co-op the solo shortcuts that ended a break for everyone are off: the Crucible shop's and Outpost Defense's L, and skipping
+  the Commander's briefing (which now only shuts him up).
+
+### Seats: dropping out and coming back
+
+The host keeps, for every guest, under the lobby's **seat** (one per browser, the same through reloads and reconnects):
+
+| Kept | From | Given back |
+|---|---|---|
+| The purse: credits, score, kills (and health and armour) | The guest's 4 Hz card, once that guest says its seat is settled (`ok`) | `restore` on arrival |
+| The kit (`kit.ts`): every gun with its mods and rounds, the gun in hand, grenades, stims, implants and slots, brain chips and slots, call-ins held, the combo, headshots | `kit`, sent by the guest when it has changed, at most every 2 s (`KIT_MS`) | `restore { kit }`, put back through the game's own calls (`applyKit`) |
+| Whether they left dead or down | The host's own life for them | `restore { dead }` |
+
+- A guest's world coming up (its first card) always gets one `restore`, empty for a new player. Until it has applied it, the guest's
+  cards do not say `ok` and its kit is not sent, so a fresh page's zeros can never overwrite what the host is keeping.
+- **A rejoin is not a free revive.** Someone who left dead or down comes back dead and gets up at the team's next respawn. If the
+  team respawned while they were away, they come back alive.
+- The kit is cleaned on the host (`cleanKit`: known guns, mods, implants, chips and call-ins only, every number bounded) and again
+  on the guest before it is applied.
+- **Money owed follows the seat** (`team.payee`): a prisoner's bounty for a captor who reloaded goes to their new page; for one who
+  is out, it waits in their purse.
+- **A late joiner** (and every arrival) gets `sync { wave, phase, left, rest, custom, ready, need }`: the banner the others had
+  ("WAVE 4 · in progress · you joined late", or the break's "WAVE 4 CLEAR · wave 5 in 31 s"), the break's clock and the vote as
+  they stand, and the custom-rules line. The break's pod reaches them through the shared world's own catch-up (`world/pods.ts`).
+
+### Kill credit and rewards (`world/credit.ts`)
+
+The host decides who did each piece of damage. A kill belongs to, in order: the guest whose claim is being applied; the player
+whose delayed work is running (a chain blast queued by their hit: `Combat`'s queue notes `crediting` and runs under `creditAs`);
+nobody, for a garrison ally's; the last player to hurt that enemy within 30 s (`LINGER_MS`) when only a bleed or a burn killed it
+(a guest's burn or freeze by status claim counts as their touch); the host otherwise. The host's own hits are remembered as a
+guest's are, so a guest's one hit minutes ago never takes the host's airstrike kill.
+
+- Each player's own browser pays, scores and grants only what they did (`notMine`), as before.
+- Rewards the host's world raises for a guest's doing are not paid on the host and go to that guest as `award`: a wound's bonus
+  (`score`), an execution (`executed`: the guest's own browser scores it and grants Geneva), a BACK SHOT label (`label`).
+- Every kill is announced on every screen as the game event `coop:kill { by, id, boss, head }`: the host's from its own
+  `enemy:killed`, a guest's from the `kill` it already receives. Nothing new on the wire for the kill feed.
+
+### Told to the team
+
+- **Cheats:** a player's card carries `cheats`. The first card that says so puts "NAME has cheats on · unranked" in every feed and
+  the lobby chat, and CHEATS on the strip and both boards.
+- **Custom rules:** when the host plays the Crucible on its own saved rules every player gets "HOST'S CUSTOM RULES APPLY · unranked"
+  as they arrive, and a boss wave's banner names the host's boss (`wave { titan }`), not what the guest's own saved rules say.
+- **In a menu:** a player standing in the Esc menu, a shop or the loadout shows IN A MENU on the strip, SHOPPING during a break.
+- **Pause menu:** the host's "End match (all to lobby)" asks first (a second press within 4 s). In a mission a guest has no
+  checkpoint item; the host's reads "Checkpoint (whole team)" and takes everyone back with a line in every feed.
+
+### Co-op HUD
+
+- **Minimap:** each teammate is a round dot in the colour of their tag with a tick the way they face, held on the rim when off the
+  map; a downed one pulses red; the dead are not drawn.
+- **Kill feed** (left, mid-height, five lines, 4.5 s each): who killed what, in the killer's colour ("YOU" for your own). One
+  player's kills of one kind within 2.5 s share a line ("HUSK ×3"); a headshot adds "· HEAD". A boss is also named in the main feed
+  ("VIPER killed the Juggernaut").
+- **Ping** (`marks.ts`, action `ping`: middle mouse or P, rebindable in Settings): a marker where the player is looking (300 m; a
+  ping at nothing lands on the ground 40 m ahead), "PING · NAME" in their colour, on every screen and the minimap for 6 s. The
+  pinger's own is instant; the host stamps whose it is and passes it on. Two markers a player at most, one every 350 ms.
+
+### Proofs (`tools/scripts/coop-team-*.mjs`, helpers in `coop-team-kit.mjs`)
+
+Unit: `src/net/team.test.ts` (31 tests, two to four players over the mocked transport).
+
+| Script | What it asserts on every page |
+|---|---|
+| `coop-team-endings.mjs` | `TEAM_CASE=wipe`: the board, no solo screen, the host's clock and the guests' snapshots still running under it, Start again, a guest's own Back to lobby, the host's Enter. `humans`: wave 10 by the dev hooks, a guest kills the Commander, CONTRACT FULFILLED, the kill is the guest's. `mission`: a guest's pause menu has no checkpoint item, End match asks first, MISSION COMPLETE, the board's own clock takes everyone back |
+| `coop-team-break.mjs` | The dead player is up at wave clear; 45 s on every page; the HUD chip; the shop's clock running; one vote does not cut the break; a dead player's key is not a vote; the last living player votes from the shop and the break drops to 3 s; the shop shuts itself; the vote is cleared |
+| `coop-team-rejoin.mjs` | A guest's page dies and the same browser comes back: fifteen parts of the kit and purse are equal before and after; the seat is the same under a new connection; after bleeding out the rejoin is dead on both sides and gets up at wave clear |
+| `coop-team-ui.mjs` | Ping (instant, same spot, name and colour, gone after 6 s); the kill feed's line on every page; three guest kills pay the guest and not the host; a boss kill named in every feed; IN A MENU and CHEATS on the strip and the Tab board |
+
+`TEAM_PLAYERS=2|3|4`, `TEAM_NET=bad` (the simulator at `lag:120,jitter:40,loss:0.05`), `COOP_NET=rtc` for real WebRTC.
 
 ## How it works
 
@@ -1490,11 +1622,13 @@ page), and the others are trials. Cloudflare's free tier is the free option, so 
   not shoot. A teammate holding E within 2.4 m for `ALLY.revive` seconds (the allies' hold, `OrderKey`; no stim spent) gets them up at
   40 health where they lay; the host checks the two bodies really were within 4.5 m. After 30 s (`BLEED_MS`) down they are DEAD.
 - **Spectate.** The dead ride over a living teammate's shoulder (`camera.setSeat`, gun hidden); Fire cycles teammates.
-- **Respawn.** The dead (and anyone still down) come back at the spawn when the next wave starts.
+- **Respawn.** The dead and anyone still down come back at the spawn **when the wave is cleared**, so everyone shops; a second
+  pass runs as the next wave starts. (Before the overhaul: only the dead, only at wave start.)
 - **Wipe.** Nobody up: the run is over for everyone. The final board (kills, score, credits, downs, revives, ping) shows on every
-  screen; 15 s later (or the host's Enter) everyone is back in the same lobby. A co-op run never writes a solo high score.
-- **Economy: each player's own purse.** Every browser runs its own Crucible shop and credits. The host attributes every kill: a guest's
-  accepted claim marks the enemy, a later death by bleeding or fire goes to the last guest to land a claim, anything else is the host's.
+  screen with its buttons; 20 s later (or the host's button or Enter) everyone is back in the same lobby. A co-op run never writes
+  a solo high score. Every other ending goes through the same board: see "The team's rules".
+- **Economy: each player's own purse.** Every browser runs its own Crucible shop and credits. The host attributes every kill
+  (`world/credit.ts`, rules in "The team's rules").
   A teammate's kill skips the host's score, combo, perks, kill pay, sword ammo and run report (`CoopWorld.notMine`). A guest replays its
   own kills (the host's `kill` event carries the killer's slot and the headshot) as local `enemy:killed`, so its score, combo, perks,
   call-in offers and kill pay work as solo. **Shared wave bonus: every player, alive, down or dead, is paid the full wave-clear pay**,
@@ -1513,8 +1647,9 @@ page), and the others are trials. Cloudflare's free tier is the free option, so 
   and everything their gun does is drawn from it (see "Weapons on other screens"). Poses: crouch, slide (a crouch at speed), wall run left and right (lean),
   jump and mantle (the airborne gait), downed (prone), kneeling over a friend they revive. Tags sit above the head, clear of the HUD's
   chest-height markers; a downed friend's tag turns red with their seconds left. Implant parts are not drawn (not cheap).
-- **HUD.** Teammates strip at the top (health, DOWN/DEAD, ping); Tab board; Enter chat (Esc cancels; lines show in the feed); revive
-  prompt over the downed friend; end-of-run board.
+- **HUD.** Teammates strip at the top (health, DOWN/DEAD, SHOPPING or IN A MENU, CHEATS, READY, ping); the break's clock and vote
+  under it; the kill feed at the left; teammates on the minimap; Tab board; Enter chat (Esc cancels; lines show in the feed);
+  revive prompt over the downed friend; the end-of-run board with its buttons.
 - **Esc never pauses co-op** (stage 1). Leaving: the host's "End match (all to lobby)", a guest's "Leave match (to lobby)".
 
 ## Time: the team's slow motion
