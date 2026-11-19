@@ -13,9 +13,8 @@
 //     --script tools/scripts/coop-missions-play.mjs --out tools/out/coop/missions/<name>.png
 //   COOP_MISSION=campaign|foreclosure   COOP_ACTOR=host|guest   COOP_PLAYERS=2|3   COOP_SIM=lag:120,jitter:40,loss:0.05
 //   COOP_EXTRAS=skip,restart:softskins,rejoin:barracks   COOP_TAG=<name for the evidence and screenshots>
-//   COOP_DRAW=1   guests draw all the time. By default a guest's page is a hidden tab between screenshots: the game keeps a hidden
-//                 tab's world ticking without drawing (Game.ts, keepTickingWhenHidden), which takes the guests off a busy machine's
-//                 GPU. Everything checked is state and HUD, which do not need a picture; each screenshot shows the page for a moment.
+//   Pages run in the kit's fast mode (no picture between screenshots, no sound mixed) with the loop on a 30 Hz timer
+//   (COOP_CLOCK), so a busy machine's GPU cannot hold a guest's window back. COOP_LOOK=1 is the page as a player has it.
 //   COOP_BEAT=<section id>   starts the host's mission there (dev servers only), to prove a late section without the early ones
 import { writeFileSync } from 'node:fs';
 import { loadavg } from 'node:os';
@@ -236,17 +235,12 @@ export default async function (host, { sleep, outDir }) {
   const out = { tag: TAG, mission: MISSION, actor: ACTOR, players: PLAYERS, sim: SIM ?? null, extras: EXTRAS, errors: [], checks: [], screenshots: [], beats: [], soft: [], timeline: [] };
   const { check, progress } = kit(outDir, TAG, out, sleep);
   // JPEG: a 2880x1800 PNG takes a page's main thread for a second or more, and a stalled page is a late screen.
-  const DRAW = process.env.COOP_DRAW === '1';
-  const hide = (page, on) => page.evaluate(on => { window.__coopHide?.(on); }, on).catch(() => {});
   const shot = async (page, name) => {
     // COOP_SHOTS=0: none while the mission runs (a capture can stall a page on a busy machine); the end and a failure still get theirs.
     if (process.env.COOP_SHOTS === '0' && !/^(end|failure|restart|rejoin)/.test(name)) return;
     const path = `${outDir}/${TAG}-${name}.jpg`;
-    const hidden = !DRAW && page !== host;
-    // A hidden guest is shown for the picture: a few frames to draw the world it has been keeping.
-    if (hidden) { await hide(page, false); await sleep(900); }
+    // The kit draws fresh frames for any screenshot of a fast page.
     await page.screenshot({ path, type: 'jpeg', quality: 88, timeout: 120000 });
-    if (hidden) await hide(page, true);
     out.screenshots.push(path);
   };
   /** A difference worth writing down that is another lane's to close, or a matter of a frame: recorded, not failed. */
@@ -256,10 +250,9 @@ export default async function (host, { sleep, outDir }) {
   const write = () => writeFileSync(`${outDir}/${TAG}-evidence.json`, JSON.stringify(out, null, 2));
   try {
     if (BEAT) await host.addInitScript(beat => { try { sessionStorage.setItem('op2.dev.beat', beat); } catch { /* no storage: from the top */ } }, BEAT);
-    party = await startParty(host, { mode: MISSION, players: PLAYERS, net: SIM, out, progress, sleep });
+    party = await startParty(host, { mode: MISSION, players: PLAYERS, net: SIM, clock: process.env.COOP_LOOK === '1' ? 0 : Number(process.env.COOP_CLOCK ?? 30), out, progress, sleep });
     await inMatch(party.pages, party.mode.contract, true);
     for (const page of party.pages) await page.evaluate(install);
-    if (!DRAW) for (const guest of party.guests) await hide(guest, true);
     // What each screen's console says about co-op, and every error.
     out.console = [];
     const listen = (page, name) => page.on('console', m => {
@@ -469,7 +462,7 @@ export default async function (host, { sleep, outDir }) {
         const back = await openGuest(party, { name: 'GUEST-ONE' });
         await inMatch([back], party.mode.contract, true);
         await back.evaluate(install);
-        if (!DRAW) await hide(back, true);
+
         guests = [...party.guests];
         await sleep(3000);
         const [h2, ...g2] = await all();
