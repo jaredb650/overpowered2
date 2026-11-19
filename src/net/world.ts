@@ -83,7 +83,10 @@ export class CoopWorld {
     // A mission's rides are everyone's: each guest's door gun counts through the host as a call-in.
     this.team.onArrived = id => { this.mission.catchUp(id); this.catchUp(id); this.villain.catchUp(id); this.shots.catchUp(id); };
     this.mission = new CoopMission(ctx, session, (event, to) => w.send(event, to), this.team,
-      () => { for (const p of session.lobby.players) if (!p.host) this.validator.callIn(p.id, performance.now()); });
+      () => { for (const p of session.lobby.players) if (!p.host) this.validator.callIn(p.id, performance.now()); },
+      // A guest going back to a checkpoint rebuilds its run: its copies of the host's enemies and vehicles go first, and come
+      // back from the next snapshot.
+      () => { this.enemies.dispose(); this.vehicles.dispose(); });
     this.team.plug(w.router);
     this.mission.plug(w.router);
     // Each module adds its own game listeners and event handlers as it is built. Listeners on one game event run in the order
@@ -264,6 +267,7 @@ export class CoopWorld {
   dispose(): void {
     this.w.dispose();
     this.team.dispose();
+    this.mission.dispose();
     for (const module of this.modules) module.dispose?.();
   }
 }

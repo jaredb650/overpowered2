@@ -668,58 +668,7 @@ describe('stage 3: the team, the economy and what else crosses the wire', () => 
   });
 });
 
-describe('stage 5: a mission run by the host and mirrored to guests', () => {
-  beforeEach(() => vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance'] }));
-  afterEach(() => vi.useRealTimers());
-  const missionHost = () => {
-    const host = { speak: vi.fn(), place: vi.fn(), door: vi.fn(), ride: vi.fn(), objectives: vi.fn(), deploy: vi.fn(), saved: vi.fn(), squad: vi.fn() } as Record<string, ReturnType<typeof vi.fn> | unknown>;
-    return { active: true, host, provide(parts: object) { Object.assign(host, parts); } };
-  };
-  it('mirrors what the mission shows and hands out, never the world it runs, and spreads everyone at a mark', () => {
-    const game = pair();
-    const hostCampaign = missionHost(), guestCampaign = missionHost();
-    Object.assign(game.host.ctx, { campaign: hostCampaign }); Object.assign(game.guest.ctx, { campaign: guestCampaign });
-    game.hw.mission.begin();
-    const h = hostCampaign.host as Record<string, (...a: unknown[]) => unknown>;
-    const g = guestCampaign.host as Record<string, ReturnType<typeof vi.fn>>;
-    const done = vi.fn();
-    h.speak!({ who: 'commander', text: 'You are trespassing.' }, done);
-    h.place!({ at: [10, 0, 10], yaw: 0 });
-    h.objectives!([{ text: 'Get in', done: false }]);
-    h.squad!('hunt', { at: [0, 0, 0] });
-    h.ride!('doorGunner', [{ at: [0, 30, 0] }, { at: [50, 30, 0] }], done);
-    game.relay.flush();
-    expect(g.speak).toHaveBeenCalledWith({ who: 'commander', text: 'You are trespassing.' }, expect.any(Function));
-    expect(g.place).toHaveBeenCalledWith({ at: [11.3, 0, 10], yaw: 0 });
-    expect(g.objectives).toHaveBeenCalledOnce();
-    expect(g.squad).not.toHaveBeenCalled();
-    expect(g.ride).toHaveBeenCalledOnce();
-    // The host's own callbacks stay the host's: the guest's copies never call them.
-    (g.speak!.mock.calls[0]![1] as () => void)();
-    expect(done).not.toHaveBeenCalled();
-    // The guest may not drive the host's mission.
-    game.guestRoom.channel('action').send({ match: 'world-test', data: { t: 'mission', op: 'place', args: [{ at: [999, 0, 999], yaw: 0 }] } });
-    game.relay.flush();
-    expect((hostCampaign.host as Record<string, ReturnType<typeof vi.fn>>).place).toBeDefined();
-    expect(game.host.player.teleport).not.toHaveBeenCalled();
-    game.hw.dispose(); game.gw.dispose();
-  });
-  it('counts any living player in a zone, gathers stragglers at a closing gate, and respawns everyone at a checkpoint', () => {
-    const game = pair();
-    const hostCampaign = missionHost();
-    Object.assign(game.host.ctx, { campaign: hostCampaign }); Object.assign(game.guest.ctx, { campaign: missionHost() });
-    game.hw.mission.begin();
-    expect(game.hw.mission.crowd().map(p => p.z)).toEqual([0, -5]);
-    game.guest.player.position.set(200, 0, 200);
-    const h = hostCampaign.host as Record<string, (...a: unknown[]) => unknown>;
-    h.door!('gate', {}, 0, 1, vi.fn()); game.relay.flush();
-    expect(game.guest.player.teleport).toHaveBeenCalled();
-    const life = game.hw.team.life(game.guestLobby.you); life.fall(0); life.bleed(Infinity);
-    h.saved!({}); game.relay.flush();
-    expect(life.state).toBe('up');
-    game.hw.dispose(); game.gw.dispose();
-  });
-});
+// Stage 5, a mission run by the host and played on every screen: src/net/mission.test.ts and src/campaign/coop.test.ts.
 
 describe('a rejoining player', () => {
   beforeEach(() => vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance'] }));

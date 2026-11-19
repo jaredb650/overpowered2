@@ -54,11 +54,14 @@ class Idle implements CampaignSystem {
   }
 }
 
+/** What co-op reaches a running campaign through (net/mission.ts): its host and HUD, and the two steps of a team's checkpoint. */
+export type { Campaign };
+
 class Campaign implements CampaignSystem {
   readonly active = true;
   readonly runner: MissionRunner;
-  private readonly ui: CampaignHud;
-  private readonly host: GameHost;
+  readonly ui: CampaignHud;
+  readonly host: GameHost;
   /** Set between a run being rebuilt and its first frame, when every other system has finished clearing itself. */
   private opening: 'fresh' | 'redeploy' | null = null;
   private banked: ReturnType<GameHost['bank']> | null = null;
@@ -98,7 +101,8 @@ class Campaign implements CampaignSystem {
       this.vehicles++;
     });
     events.on('campaign:complete', () => this.complete());
-    events.on('game:state', e => this.ui.setPaused(e.to !== 'playing'));
+    // Co-op: a menu over the live world stops nothing, so the radio keeps time with the other screens.
+    events.on('game:state', e => this.ui.setPaused(e.to !== 'playing' && !(e.to === 'paused' && this.ctx.coop)));
     const page = (window as unknown as { __op2?: { campaign?: unknown } }).__op2;
     if (page) page.campaign = this;
   }
@@ -131,8 +135,28 @@ class Campaign implements CampaignSystem {
     if (this.runner.state !== 'down') return false;
     this.banked = this.host.bank();
     this.opening = 'redeploy';
+    // Co-op: every screen rebuilds its run with the host's (net/mission.ts), before the host's own.
+    this.ctx.coop?.world?.mission.restarting();
     (window as unknown as { __op2: { game: GameHandle } }).__op2.game.newRun();
     return true;
+  }
+
+  /**
+   * Co-op, on a guest: the host has taken the team back to a checkpoint. This screen's run is rebuilt the way the host's is, with
+   * the Council's cut out of this player's own score, and the mission host is cleared now, not on the next frame, so that what the
+   * host mirrors next (doors, objectives, the kit) lands on a clean one.
+   */
+  follow(): void {
+    this.banked = this.host.bank();
+    this.opening = 'redeploy';
+    (window as unknown as { __op2: { game: GameHandle } }).__op2.game.newRun();
+    if (this.opening) this.open();
+  }
+
+  /** The mission's numbers so far, as the complete screen and the co-op board show them. */
+  tally(): MissionResult {
+    const { mission, elapsed, deaths } = this.runner;
+    return { title: mission.title, seconds: elapsed, deaths, vehicles: this.vehicles, unlocked: false };
   }
 
   restart(): boolean {
@@ -142,9 +166,8 @@ class Campaign implements CampaignSystem {
 
   /** A test that started halfway has beaten nothing. */
   private complete(): void {
-    const { runner, vehicles } = this;
-    const { mission, elapsed, deaths } = runner;
-    this.result = { title: mission.title, seconds: elapsed, deaths, vehicles, unlocked: mission.unlocks === true && !START_BEAT && recordCampaignBeaten() };
+    const { mission } = this.runner;
+    this.result = { ...this.tally(), unlocked: mission.unlocks === true && !START_BEAT && recordCampaignBeaten() };
   }
 
   update(): void {
@@ -164,7 +187,10 @@ class Campaign implements CampaignSystem {
     this.retraining?.clear();
     this.ui.reset();
     // A co-op guest's mission is the host's (net/mission.ts): its own runner never starts.
-    if (this.ctx.coop?.world && !this.ctx.coop.hosting) return;
+    if (this.ctx.coop?.world && !this.ctx.coop.hosting) {
+      if (redeploying && this.banked) this.ctx.progression.resume(this.banked.score, this.banked.kills, this.banked.headshots);
+      return;
+    }
     // shortcut: a mission's corpse cap under the gore setting's, applied each run; a settings change mid-run lifts it until the next.
     const { corpses } = this.runner.mission;
     if (corpses !== undefined) GoreTuning.maxCorpses = Math.min(GoreTuning.maxCorpses, corpses);

@@ -208,6 +208,11 @@ class Progression implements ProgressionSystem {
     return this.callInsManager.flyFlight(flight);
   }
 
+  /** Co-op: the host's mission ride is over, so this player's copy of it lets them go (campaign/host.ts, `alight`). */
+  leaveSeat(): void {
+    this.callInsManager.leaveSeat();
+  }
+
   /** A mission's flak shuts the sky (campaign `callins` step). Not on ProgressionSystem: only the campaign host asks. */
   holdCallIns(held: boolean): void {
     this.callInsManager.shut = held;

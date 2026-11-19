@@ -112,12 +112,20 @@ export class RemotePlayer implements Shooter {
   /** The tag's colour, by slot: the minimap and the pings use it too. */
   readonly color: string;
   private tagText = '';
+  private tagColor = '';
   /** One tag per friend: their name, or (team.ts) their name with DOWN and the seconds they have left, in red. */
   setTag(text: string, color: string): void {
     if (text === this.tagText) return;
     this.tagText = text;
+    this.tagColor = color;
     this.removeTag();
     this.removeTag = this.ctx.hud.follow(this.tag, text || this.player.name, text ? color : this.color);
+  }
+
+  /** A rebuilt run (a mission's checkpoint) has cleared the HUD's world markers: the tag is put back as it was. */
+  retag(): void {
+    this.removeTag();
+    this.removeTag = this.ctx.hud.follow(this.tag, this.tagText || this.player.name, this.tagText ? this.tagColor : this.color);
   }
 
   private arm(weapon: string): void {

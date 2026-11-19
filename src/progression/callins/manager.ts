@@ -444,6 +444,11 @@ export class CallInManager {
     }
   }
 
+  /** Co-op: out of whatever seat the player is in, now (a mission's ride ended on the host). */
+  leaveSeat(): void {
+    this.seats.eject();
+  }
+
   /** The player died: nothing is left half-open, but strikes already called in still land. */
   onDeath(): void {
     this.seats.eject();

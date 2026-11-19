@@ -50,6 +50,15 @@ export class Racks {
     }
   }
 
+  /** Co-op: a teammate took this one. It goes from here with no pickup of its own, and what it meant is handed back. */
+  pull(weapon: WeaponId): (() => void) | null {
+    const index = this.racks.findIndex(r => r.weapon === weapon);
+    if (index < 0) return null;
+    const { took } = this.racks[index]!;
+    this.remove(index);
+    return took;
+  }
+
   private remove(index: number): void {
     const rack = this.racks[index]!;
     rack.unmark();

@@ -31,6 +31,11 @@ export class CutscenePlayer {
   private total = 0;
   private done: ((skipped: boolean) => void) | null = null;
   private figure: CharacterInstance | null = null;
+  /**
+   * Co-op: asked when this player presses skip. True ends the film here and now, as it does alone; false leaves it running (the
+   * press was a vote, and net/mission.ts ends every screen's film together). Unset alone.
+   */
+  askSkip: (() => boolean) | null = null;
 
   constructor(private readonly ctx: Ctx, private readonly ui: CampaignHud) {}
 
@@ -38,11 +43,29 @@ export class CutscenePlayer {
     return this.scene !== null;
   }
 
-  play(scene: Cutscene, done: (skipped: boolean) => void): void {
+  /** `from`: seconds into it, for a co-op player who arrives while it runs. Past its end, it is over at once. */
+  play(scene: Cutscene, done: (skipped: boolean) => void, from = 0): void {
     const { camera, hud, player, weapons } = this.ctx;
+    // Co-op: a film sent again while it runs (a catch-up that crossed its start) is the one already playing.
+    if (this.scene) this.release();
     this.scene = scene;
     this.index = this.clock = this.total = 0;
     this.done = done;
+    for (let left = from; left > 0;) {
+      const seconds = scene.shots[this.index]!.seconds;
+      if (left < seconds) {
+        this.clock = left;
+        break;
+      }
+      left -= seconds;
+      if (++this.index >= scene.shots.length) {
+        this.scene = null;
+        this.done = null;
+        done(false);
+        return;
+      }
+    }
+    this.total = from;
     player.park(player.position);
     weapons.setHolstered(true);
     camera.setSeat(this.view);
@@ -106,7 +129,7 @@ export class CutscenePlayer {
     this.clock += dt;
     this.total += dt;
     this.figure?.anim.update(dt, 0);
-    if (this.total > SKIP_AFTER && this.ctx.input.pressed('interact')) {
+    if (this.total > SKIP_AFTER && this.ctx.input.pressed('interact') && (this.askSkip?.() ?? true)) {
       this.stop(true);
       return;
     }
@@ -119,6 +142,11 @@ export class CutscenePlayer {
       this.cut();
     }
     this.frame();
+  }
+
+  /** Co-op: the host's film is over, so this one is. Nothing happens if it already ended. */
+  end(skipped: boolean): void {
+    if (this.scene) this.stop(skipped);
   }
 
   private stop(skipped: boolean): void {
@@ -137,6 +165,7 @@ export class CutscenePlayer {
     this.done = null;
     this.strike();
     this.ui.caption('');
+    this.ui.votes('');
     camera.setSeat(null);
     camera.setZoom(null);
     hud.seat(null);

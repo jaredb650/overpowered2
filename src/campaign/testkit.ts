@@ -23,6 +23,25 @@ export class FakeHost implements MissionHost {
   rosterMen: string[] = [];
   skyHeld = false;
   racks: (() => void)[] = [];
+  /** The gun on each rack, beside `racks`. */
+  rackGuns: string[] = [];
+  /** Co-op (host.ts): the film's skip hook and its forced end, cues sent and played, guns issued, a ride in progress. */
+  film = {
+    askSkip: null as (() => boolean) | null,
+    end: (skipped: boolean): void => {
+      const done = this.cutsceneDone;
+      this.cutsceneDone = null;
+      if (!done) return;
+      this.cue('filmEnd', skipped);
+      done(skipped);
+    },
+  };
+  shown: [name: string, args: readonly unknown[]][] = [];
+  issuedGuns: string[] = [];
+  riding = false;
+  /** Each ride taken: `circle` over the fight first, or straight down its `route`. */
+  rides: string[] = [];
+  calls: [name: string, arg: string | undefined][] = [];
   autoSpeak = true;
   drills = true;
   ammo = Infinity;
@@ -89,8 +108,30 @@ export class FakeHost implements MissionHost {
   grenades(count: number): void {
     this.log.push(`grenades ${count}`);
   }
-  rack(_weapon: string, _at: unknown, took: () => void): void {
+  rack(weapon: string, _at: unknown, took: () => void): void {
     this.racks.push(took);
+    this.rackGuns.push(weapon);
+  }
+  cue(_name: string, ..._args: unknown[]): void {}
+  show(name: string, args: readonly unknown[]): void {
+    this.shown.push([name, args]);
+    if (name === 'filmEnd') this.film.end(args[0] === true);
+    if (name === 'alight') this.riding = false;
+  }
+  issue(weapon: string): void {
+    this.issuedGuns.push(weapon);
+    this.unrack(weapon);
+  }
+  taken(weapon: string): boolean {
+    const took = this.unrack(weapon);
+    took?.();
+    return !!took;
+  }
+  private unrack(weapon: string): (() => void) | null {
+    const i = this.rackGuns.indexOf(weapon);
+    if (i < 0) return null;
+    this.rackGuns.splice(i, 1);
+    return this.racks.splice(i, 1)[0]!;
   }
   drop(item: string): void {
     this.log.push(`drop ${item}`);
@@ -98,11 +139,14 @@ export class FakeHost implements MissionHost {
   cutscene(_id: string, _scene: unknown, done: (skipped: boolean) => void): void {
     this.cutsceneDone = done;
   }
-  ride(_seat: string, _route: unknown, done: () => void): void {
+  ride(_seat: string, _route: unknown, done: () => void, circle?: boolean): void {
     this.rideDone = done;
+    this.riding = true;
+    this.rides.push(circle ? 'circle' : 'route');
   }
   sortie(_over: unknown, done: () => void): void {
     this.sortieDone = done;
+    this.riding = true;
   }
   frame(act: string, _at: unknown, done: () => void): void {
     this.log.push(`frame ${act}`);
@@ -132,8 +176,9 @@ export class FakeHost implements MissionHost {
   music(state: string): void {
     this.log.push(`music ${state}`);
   }
-  call(name: string): void {
+  call(name: string, arg?: string): void {
     this.log.push(`call ${name}`);
+    this.calls.push([name, arg]);
   }
   deploy(at: { at: readonly number[] } | null, loadout: { weapons: readonly string[] }): void {
     this.deployed = { at: at ? at.at.join(',') : null, weapons: loadout.weapons.join(',') };

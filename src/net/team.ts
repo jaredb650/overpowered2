@@ -365,11 +365,10 @@ export class Team {
     this.broadcastCards();
   }
 
-  /** Host: a checkpoint (or the team's redeploy): everyone down or dead gets up beside the host. */
-  respawnAll(): void {
+  /** Host: a checkpoint (or the team's redeploy): everyone down or dead gets up beside the host, or beside `at` (the mission's leading player). */
+  respawnAll(at: { x: number; y: number; z: number } = this.ctx.player.position, yaw = this.ctx.player.yaw): void {
     if (!this.session.hosting) return;
-    const at = this.ctx.player.position;
-    for (const [id, life] of this.lives) if (life.respawn()) this.up(id, 'respawn', undefined, [at.x, at.y, at.z], this.ctx.player.yaw);
+    for (const [id, life] of this.lives) if (life.respawn()) this.up(id, 'respawn', undefined, [at.x, at.y, at.z], yaw);
     this.forgiveSeats();
   }
 

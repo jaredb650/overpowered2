@@ -63,6 +63,9 @@ export class CampaignHud {
   private readonly curtainEl = div('ms-curtain');
   private readonly captionEl = span('ms-caption');
   private readonly captionText = new Label(this.captionEl);
+  /** Co-op: who has voted to skip the film, beside the skip key. Empty alone. */
+  private readonly votesEl = span('ms-votes');
+  private readonly votesText = new Label(this.votesEl);
   private readonly box: HTMLElement;
   private readonly name: Label;
   private readonly tag: Label;
@@ -90,7 +93,7 @@ export class CampaignHud {
     this.objectiveList.append(this.beatEl);
     const skip = h('b');
     const skipKey = new Label(skip);
-    const panel = div('ms-cinema', div('ms-bar top'), div('ms-bar bottom', this.captionEl, span('ms-skip', skip, ' skip')));
+    const panel = div('ms-cinema', div('ms-bar top'), div('ms-bar bottom', this.captionEl, span('ms-skip', skip, ' skip', this.votesEl)));
     this.cinema = {
       el: panel,
       update: () => skipKey.set(ctx.input.labelFor('interact')),
@@ -146,6 +149,11 @@ export class CampaignHud {
 
   caption(text: string): void {
     this.captionText.set(text);
+  }
+
+  /** Co-op: the skip vote so far, as "1/2". Empty clears it. */
+  votes(text: string): void {
+    this.votesText.set(text ? ` ${text}` : '');
   }
 
   private setCurtain(share: number): void {
@@ -223,6 +231,7 @@ export class CampaignHud {
     this.savedEl.classList.remove('on');
     this.curtain(0);
     this.caption('');
+    this.votes('');
     this.objectiveList.replaceChildren(this.beatEl);
     this.rows.clear();
   }

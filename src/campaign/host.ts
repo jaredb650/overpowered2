@@ -21,8 +21,9 @@ import { CutscenePlayer } from './cutscene';
 import { Doors } from './doors';
 import type { CampaignHud } from './hud';
 import { Racks } from './racks';
+import { WEAPONS } from '../weapons/data';
 import type { MissionRunner } from './runner';
-import type { BattleOrder, Callout, Cutscene, DoorDef, FrameAct, Loadout, Mark, MissionHost, ObjectiveState, SquadOrder, SquadOrders } from './types';
+import type { BattleOrder, Beat, Callout, Cutscene, DoorDef, FrameAct, Loadout, Mark, MissionHost, ObjectiveState, SquadOrder, SquadOrders } from './types';
 import { War } from './war';
 
 /** Seconds between men coming on, the same walk-in the waves use. */
@@ -93,6 +94,9 @@ export class GameHost implements MissionHost {
       squadMen: this.squadMen,
       release: tag => this.release(tag),
       signal: name => this.runner.signal(name),
+      // Read each time: co-op replaces both (net/mission.ts).
+      cue: (name, ...args) => this.cue(name, ...args),
+      crowd: () => this.crowd?.(),
     }, calls, fronts);
     this.courier = new Courier(ctx, name => this.runner.signal(name));
     const { events } = ctx;
@@ -307,8 +311,12 @@ export class GameHost implements MissionHost {
     else this.ctx.progression.placePickup(item, _v.set(...at.at));
   }
 
-  cutscene(_id: string, scene: Cutscene, done: (skipped: boolean) => void): void {
-    this.film.play(scene, done);
+  /** `from`: seconds into it, for a co-op player who arrives while it runs. */
+  cutscene(_id: string, scene: Cutscene, done: (skipped: boolean) => void, from = 0): void {
+    this.film.play(scene, skipped => {
+      this.cue('filmEnd', skipped);
+      done(skipped);
+    }, from);
   }
 
   /**
@@ -318,6 +326,7 @@ export class GameHost implements MissionHost {
   ride(seat: CallInId, route: readonly Mark[], done: () => void, circle = false): void {
     this.rideDone = done;
     this.launcher = null;
+    this.riding = true;
     if (route.length < 2 || seat !== 'doorGunner') {
       this.ctx.progression.boardCallIn(seat);
       return;
@@ -334,6 +343,7 @@ export class GameHost implements MissionHost {
   sortie(over: Mark, done: () => void): void {
     this.place(over);
     this.rideDone = done;
+    this.riding = true;
     this.ctx.progression.boardCallIn('ac130', _v.set(...over.at));
   }
 
@@ -341,6 +351,7 @@ export class GameHost implements MissionHost {
   frame(act: FrameAct, at: Mark, done: () => void): void {
     if (act === 'eject') this.place(at);
     this.ctx.hud.banner('DISTRAINT FRAME', `Stand-in: ${act}`);
+    this.cue('frame', act);
     done();
   }
 
@@ -393,6 +404,7 @@ export class GameHost implements MissionHost {
     const dir = a.body.center.clone().sub(shooter).normalize();
     this.ctx.fx.tracer(shooter, a.body.center, 'sabot');
     this.ctx.audio.play('sniper_fire', { position: shooter, volume: 1 });
+    this.cue('sniped', shooter.toArray(), a.body.center.toArray());
     // Just enough to put him down, or plenty: the wound table decides how he falls, `takeHit` whether he gets up.
     const amount = kill ? a.maxHealth * SNIPED.kill : a.health * SNIPED.wound;
     allies.hurt(a, amount, a.body.center, dir, undefined, 'chest', 'bullet', 'sniper');
@@ -500,6 +512,85 @@ export class GameHost implements MissionHost {
     }
   }
 
+  // ---------------------------------------------------------------------------------------------
+  // Co-op (campaign/coop.ts has the table; net/mission.ts does the carrying)
+  // ---------------------------------------------------------------------------------------------
+
+  /** Co-op: every living player's feet (types.ts). net/mission.ts provides it; alone it is unset. */
+  crowd?: () => readonly { x: number; y: number; z: number }[];
+
+  /**
+   * A set piece's look, for the other screens (coop.ts, CUES). Alone, and on the host itself, this does nothing: the host has
+   * already drawn its own. In co-op net/mission.ts replaces it on the host with one that sends the cue, and a guest plays it (`show`).
+   */
+  cue(_name: string, ..._args: unknown[]): void {}
+
+  /** Co-op, on a guest: plays a cue the host sent. What arrives came from another browser, so every field is checked. */
+  show(name: string, args: readonly unknown[]): void {
+    const { ctx } = this;
+    const vec = (v: unknown): THREE.Vector3 | null =>
+      Array.isArray(v) && v.length === 3 && v.every(n => typeof n === 'number' && Number.isFinite(n)) ? new THREE.Vector3(v[0], v[1], v[2]) : null;
+    switch (name) {
+      // The host's ride is over. A seat that is still flying its own copy lets go; nothing else is touched.
+      case 'alight':
+        if (this.riding) (ctx.progression as unknown as { leaveSeat?(): void }).leaveSeat?.();
+        this.riding = false;
+        return;
+      case 'filmEnd':
+        this.film.end(args[0] === true);
+        return;
+      case 'votes':
+        this.ui.votes(typeof args[0] === 'string' ? args[0].slice(0, 12) : '');
+        return;
+      case 'callout': {
+        const at = vec(args[3]);
+        if (at) this.war.heard(String(args[0] ?? '').slice(0, 160), args[1] === null ? null : String(args[1] ?? '').slice(0, 60), String(args[2] ?? '').slice(0, 40), at, args[4] === true);
+        return;
+      }
+      case 'charge': {
+        const at = vec(args[0]);
+        if (at) this.war.showCharge(at, typeof args[1] === 'number' ? args[1] : -1);
+        return;
+      }
+      case 'sniped': {
+        const from = vec(args[0]);
+        const to = vec(args[1]);
+        if (!from || !to) return;
+        ctx.fx.tracer(from, to, 'sabot');
+        ctx.audio.play('sniper_fire', { position: from, volume: 1 });
+        return;
+      }
+      case 'frame':
+        ctx.hud.banner('DISTRAINT FRAME', `Stand-in: ${String(args[0] ?? '').slice(0, 12)}`);
+        return;
+      default:
+        console.warn(`[campaign] no cue "${name}"`);
+    }
+  }
+
+  /** Co-op: true from a mirrored ride or sortie until the host says it is over. */
+  riding = false;
+
+  /**
+   * Co-op: a teammate took the gun off a rack, for the team. This player's copy of the rack goes and the gun is issued, in the hand
+   * they already hold: only the one who walked over it draws it.
+   */
+  issue(weapon: WeaponId, by: string): void {
+    this.racks.pull(weapon);
+    if (this.ctx.weapons.owned.has(weapon)) return;
+    this.ctx.weapons.give(weapon);
+    this.ctx.hud.feed(`${by} took the ${WEAPONS[weapon].name}: one issued to you`, MARKER_COLOR);
+  }
+
+  /** Co-op, on the host: a guest walked over their copy of this rack. True when it was still there to take. */
+  taken(weapon: WeaponId): boolean {
+    const took = this.racks.pull(weapon);
+    if (!took) return false;
+    this.ctx.weapons.give(weapon);
+    took();
+    return true;
+  }
+
   deploy(at: Mark | null, loadout: Loadout): void {
     const { player, weapons } = this.ctx;
     if (at) {
@@ -511,7 +602,7 @@ export class GameHost implements MissionHost {
     weapons.setLoadout(loadout.weapons, loadout.grenades);
   }
 
-  saved(): void {
+  saved(_beat?: Beat): void {
     this.ui.saved();
   }
 
@@ -535,6 +626,8 @@ export class GameHost implements MissionHost {
     if (this.rideDone && !this.ctx.player.parked) {
       const done = this.rideDone;
       this.rideDone = null;
+      this.riding = false;
+      this.cue('alight');
       done();
     }
   }
@@ -548,6 +641,7 @@ export class GameHost implements MissionHost {
     this.bossTag = null;
     this.rideDone = null;
     this.launcher = null;
+    this.riding = false;
     this.squadMen.length = 0;
     this.battles.clear();
     this.arrivalClock = 0;

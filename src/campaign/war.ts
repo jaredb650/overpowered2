@@ -45,6 +45,10 @@ export interface WarHost {
   readonly squadMen: readonly Ally[];
   release(tag: string): void;
   signal(name: string): void;
+  /** Co-op: a look for the other screens (host.ts, `cue`). Does nothing alone. */
+  cue?(name: string, ...args: unknown[]): void;
+  /** Co-op: every living player's feet. Unset alone, when the war reads the one player. */
+  crowd?(): readonly { x: number; y: number; z: number }[] | undefined;
 }
 
 interface Front {
@@ -66,6 +70,8 @@ interface Crew {
   man: Enemy | null;
   /** What he is shooting: the player, a Bailiff, or nothing. */
   target: Ally | 'player' | null;
+  /** Co-op: the feet of the player he is on, when it is not this screen's own. */
+  other: { x: number; y: number; z: number } | null;
   burstUntil: number;
   restUntil: number;
   shotAt: number;
@@ -145,7 +151,7 @@ export class War {
   /** `tag`'s nearest man to `gun` mans it for as long as he lives. */
   crew(gun: Emplacement, tag: string): void {
     if (this.crews.some(c => c.gun === gun)) return;
-    this.crews.push({ gun, tag, man: null, target: null, burstUntil: 0, restUntil: 0, shotAt: 0 });
+    this.crews.push({ gun, tag, man: null, target: null, other: null, burstUntil: 0, restUntil: 0, shotAt: 0 });
   }
 
   /** One of the player's own sets a charge on `at`: the wall there goes CHARGE.seconds after he gets to it, if he lives that long. */
@@ -193,6 +199,8 @@ export class War {
     this.crews.length = 0;
     this.charge?.label?.();
     this.charge = null;
+    this.shownCharge?.();
+    this.shownCharge = null;
     for (const off of this.watching) off();
     this.watching.length = 0;
     this.calledAt = -99;
@@ -220,8 +228,8 @@ export class War {
     if (!o) return;
     const militia = this.militia(f.id, this.men);
     for (let i = f.men.length - 1; i >= 0; i--) if (f.men[i]!.state === 'dead') f.men.splice(i, 1);
-    const p = this.ctx.player.position;
-    if (!f.joined && (p.distanceTo(f.from) < JOIN || p.distanceTo(f.at) < JOIN)) {
+    // Co-op: any player walking up to it is in it.
+    if (!f.joined && (this.near(f.from, JOIN) || this.near(f.at, JOIN))) {
       f.joined = true;
       for (const s of militia) s.squad.directed = false;
     }
@@ -324,8 +332,17 @@ export class War {
     const { gun } = c;
     const { player } = this.ctx;
     c.target = null;
+    c.other = null;
     if (player.alive && !player.parked && this.canSee(gun, player.eye)) {
       c.target = 'player';
+      return;
+    }
+    // Co-op: the gun is the team's problem. Any other player in the arc and in sight will do.
+    for (const p of this.host.crowd?.() ?? []) {
+      if (Math.abs(p.x - player.position.x) + Math.abs(p.z - player.position.z) < 0.5) continue;
+      if (!this.canSee(gun, _a.set(p.x, p.y + 1.5, p.z))) continue;
+      c.target = 'player';
+      c.other = p;
       return;
     }
     let bestD: number = CREW.reach;
@@ -361,7 +378,8 @@ export class War {
       gun.trigger(false);
       return;
     }
-    gun.aimAt(t === 'player' ? _a.copy(this.ctx.player.position).setY(this.ctx.player.position.y + 1.2) : t.body.center);
+    if (t === 'player' && c.other) gun.aimAt(_a.set(c.other.x, c.other.y + 1.2, c.other.z));
+    else gun.aimAt(t === 'player' ? _a.copy(this.ctx.player.position).setY(this.ctx.player.position.y + 1.2) : t.body.center);
     if (now >= c.burstUntil && now >= c.restUntil) {
       c.burstUntil = now + rand(...CREW.burst);
       c.restUntil = c.burstUntil + rand(...CREW.rest);
@@ -415,6 +433,7 @@ export class War {
       this.unlabel(c);
       c.label = this.ctx.hud.follow(_a.copy(c.at).setY(c.at.y + 2.2), `CHARGE ${Math.max(0, left)}   KEEP HIM ALIVE`, '#ff5a3a');
       this.ctx.audio.play('bomber_beep', { position: c.at, volume: 0.7 });
+      this.host.cue?.('charge', c.at.toArray(), Math.max(0, left));
     }
     if (now - c.setAt < CHARGE.seconds) return;
     this.blow(c);
@@ -435,9 +454,39 @@ export class War {
   }
 
   private unlabel(c: Charge): void {
+    if (c.label) this.host.cue?.('charge', c.at.toArray(), -1);
     c.label?.();
     c.label = null;
     c.shown = -1;
+  }
+
+  /** Co-op, on a guest: the host's charge counting down over its man. Below 0 takes the label off. */
+  private shownCharge: (() => void) | null = null;
+  showCharge(at: THREE.Vector3, left: number): void {
+    this.shownCharge?.();
+    this.shownCharge = null;
+    if (left < 0) return;
+    this.shownCharge = this.ctx.hud.follow(at.clone().setY(at.y + 2.2), `CHARGE ${Math.min(99, Math.round(left))}   KEEP HIM ALIVE`, '#ff5a3a');
+    this.ctx.audio.play('bomber_beep', { position: at, volume: 0.7 });
+  }
+
+  /** Co-op, on a guest: one of the host's call-outs, on this player's feed if the fight is in their earshot. */
+  heard(text: string, speaker: string | null, squad: string, at: THREE.Vector3, bureau: boolean): void {
+    if (at.distanceTo(this.ctx.player.position) > EARSHOT) return;
+    const { line } = this;
+    line.kind = bureau ? 'ally' : 'contact';
+    line.text = text;
+    line.squad = squad;
+    line.speaker = speaker;
+    line.position.copy(at);
+    this.ctx.events.emit('comms:line', line);
+  }
+
+  /** The player within `metres` of a point: alone the one player, in co-op any living one. */
+  private near(at: THREE.Vector3, metres: number): boolean {
+    if (at.distanceTo(this.ctx.player.position) < metres) return true;
+    for (const p of this.host.crowd?.() ?? []) if (Math.hypot(p.x - at.x, p.y - at.y, p.z - at.z) < metres) return true;
+    return false;
   }
 
   // -------------------------------------------------------------------------------------------
@@ -456,7 +505,9 @@ export class War {
   private say(side: CallSide, kind: CallKind, at: THREE.Vector3, front: string, label: string, who: string, urgent = false): boolean {
     const now = this.now;
     if (!urgent && now - this.calledAt < CALL_GAP) return false;
-    if (at.distanceTo(this.ctx.player.position) > EARSHOT) return false;
+    // Co-op: said if any player is in earshot, and each hears it only if they are (`heard`).
+    const mine = at.distanceTo(this.ctx.player.position) <= EARSHOT;
+    if (!mine && !this.near(at, EARSHOT)) return false;
     const rows = this.calls.filter(c => c.side === side && c.kind === kind);
     if (rows.length === 0) return false;
     const key = `${side}.${kind}`;
@@ -472,7 +523,8 @@ export class War {
     line.speaker = side === 'bureau' && label ? `${label}, ${who}` : who;
     line.position.copy(at);
     this.said.push(row.id);
-    this.ctx.events.emit('comms:line', line);
+    if (mine) this.ctx.events.emit('comms:line', line);
+    this.host.cue?.('callout', line.text, line.speaker, line.squad, at.toArray(), side === 'bureau');
     return true;
   }
 }
