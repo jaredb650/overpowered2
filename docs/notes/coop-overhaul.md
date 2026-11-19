@@ -329,3 +329,17 @@ Shared files and contracts between lanes:
   about 7 draw calls and 56,000 triangles. Nothing was timed (load 65 to 70). For the co-op lanes: every step in the plan is
   drawn by each screen from the hit and kill events it already gets, except one optional rule (a hit spoils an enemy's aim),
   which would be the host's to decide.
+
+## Queued for after the co-op work (owner's calls, 2026-11-18)
+
+- **Rapier SIMD build: pinned.** The owner: the current physics build works well and is fundamental to the feel. Do not measure
+  or swap it until he raises it again.
+- **Linter, minimal form: yes, after co-op lands.** `oxlint` or Biome with two or three "ban this name / ban this import" rules
+  for the mechanical house rules, no style rules, run on demand, not a gate. The first run's existing breaks are listed for a ruling.
+- **Also after co-op:** Chrome's built-in packet loss for WebRTC as a second network simulator; a one-off dead-code report
+  (`knip`); Rapier `debugRender()` drawn in the lab; a trial of `threejs-devtools-mcp` on one real visual bug.
+- **Far enemies stay at 5 Hz** (drawn about 240 ms back) until the owner has played it; `FAR_EVERY` in `src/net/world/snapshot.ts`.
+- **Damage response update** (`docs/proposals/damage-response-update.md`): nothing starts until the owner says so and answers its
+  taste questions.
+- **Owner questions still open from the lanes:** a friend's gun report plays at 0.65 volume (louder?); real reload and stim clips
+  and an energy blade model for the friend's body (character work).
