@@ -506,3 +506,4 @@ red under the weapon light) have no switch: each replaces a fault, and the befor
     to the first gib of each type: a trade for the owner, written up and left.
   - Not measured: anything on a laptop. The GPU's own time cannot be read on an RTX 4090 (it is never the limit).
 
+- 2026-11-19, lead: by the owner's word, test and verification agents run on Opus from here (Fable for design, visual work and hard engineering). Agent gore-verify (Fable) was stopped with its work landed; agent "gore-check" (Opus) continues the co-op sweep (47 of about 177 runs done, in `tools/out/gore-update/verify/coop/`), the single-player comparison and the balance numbers.
