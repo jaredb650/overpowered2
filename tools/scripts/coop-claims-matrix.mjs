@@ -259,17 +259,28 @@ export default async function (host, { sleep, outDir }) {
           const stood = await stand(host, row.target, row.near, who === 'host');
           if (!stood.aim) { result.skipped = 'no target'; break; }
           // Every guest must have the targets (and the truck's hit boxes) before a round is fired.
-          await guest.waitForFunction(([n, truck]) => {
+await guest.waitForFunction(([uids, truck]) => {
             const { ctx } = window.__op2;
-            return ctx.enemies.alive.length >= n && (!truck || ctx.coop.world.claims.vehicleHits.fleet.size > 0);
-          }, [stood.uids?.length ?? 0, row.target === 'truck'], { timeout: 90000 });
+            const mine = ctx.enemies.alive.map(e => e.uid);
+            // These targets and no others: the last trial's are still on the guest's screen for a moment after the host withdrew them.
+            return uids.every(uid => mine.includes(uid)) && mine.every(uid => uids.includes(uid)) && (!truck || ctx.coop.world.claims.vehicleHits.fleet.size === 1);
+          }, [stood.uids ?? [], row.target === 'truck'], { timeout: 90000 });
           await sleep(row.target === 'boss' ? 2500 : 700);
           await arm(other, row, lane, false); await arm(page, row, lane, true);
+          // The window in front gets the frames when the machine is short of them: the shooter's.
+          await page.bringToFront().catch(() => {});
           await sleep(350);
           const before = await read(host), sentBefore = await sentBy(guest);
           if (who === 'guest' && process.env.CLAIMS_HITCH) await hitch(host, true);
           const fired = await shoot(page, row, stood.aim), shots = fired.shots;
           await sleep(settle + (row.mode === 'grenade' || row.weapon === 'kiln' ? 2500 : 0));
+          // Every claim the guest sent is in the host's books (applied, refused, or on a man already dead) before they are read:
+          // on a slow link and a starved page the last of them are still on their way.
+          const allIn = async () => {
+            const now = await read(host), sent = sum(delta(await sentBy(guest), sentBefore));
+            return now.accepted - before.accepted + now.rejected - before.rejected + (now.refused.gone ?? 0) - (before.refused.gone ?? 0) >= sent;
+          };
+          for (let waited = 0; who === 'guest' && waited < 20000 && !await allIn(); waited += 400) await sleep(400);
           await hitch(host, false);
           const after = await read(host), sentAfter = await sentBy(guest);
           const perf = await page.evaluate(() => { const st = window.__op2.stats(), { ctx } = window.__op2; return { fps: st.fps, cpuMs: st.cpuMs, draws: st.drawCalls, tris: st.triangles, enemies: ctx.enemies.alive.length, dying: ctx.enemies.dying?.length, scene: ctx.render.scene.children.length }; });
