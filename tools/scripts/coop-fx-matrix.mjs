@@ -543,6 +543,9 @@ export default async function (host, { sleep, outDir }) {
         }
         await sleep(c.settle + (NET ? 500 : 0));
         if (c.prep === 'smart') await shooter.evaluate(() => { window.__op2.ctx.weapons.smartOn = false; });
+        // A perk granted for a case ends with the case: Bloodthirst's bottomless magazine made the reload case that follows
+        // a reload that never happens (nothing to reload), on the shooter's own screen as on the watchers'.
+        else if (c.prep) await shooter.evaluate(what => window.__op2.ctx.progression.perks.stop(what), c.prep);
         if (c.after) { await shooter.evaluate(hold, [c.after, true]); await sleep(120); await shooter.evaluate(hold, [c.after, false]); }
         const after = await Promise.all(party.pages.map(p => p.evaluate(read)));
         const of = page => { const i = party.pages.indexOf(page); const d = delta(after[i], before[i]); if (mids) d.mid = mids[i]; return d; };
