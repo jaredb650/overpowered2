@@ -635,3 +635,4 @@ Work through all of it; write the outcome beside each item in the log (fixed wit
   vehicle kill marks on guests (world-b's vehicles); the Commander's box between rounds in a mission (enemy-attacks).
   Under `lag:120,loss:0.05` the kit's own Start can be pressed before the host has the guests' "ready" and is then refused
   (my proof waits for "Everyone is ready" first).
+- 2026-11-19: the owner said push, to demo co-op from the public site. `dev` and the site are at `1aee89b` (typecheck clean, production build boots with no errors, dist audit clean, `coop-smoke` over real WebRTC 5 of 5; the suite's two failures were the stale `devflags` test and `gore/stand.test.ts`, which passes 3 of 3 alone). The last pass was still running, so later fixes on `coop-overhaul` are NOT on the site: push again, with the owner's word, when the last pass is green.
