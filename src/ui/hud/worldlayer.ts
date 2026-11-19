@@ -18,6 +18,34 @@ const RING_Y = 0.56;
 const _v = new THREE.Vector3();
 const _view = new THREE.Vector3();
 
+/** A name tag's line of text, in rem: how far the next tag's line is set under it. */
+export const TAG_ROW = 1.45;
+/** Half the width of a tag's text, in rem, from its characters: the plate's padding, the distance and its unit included. */
+export const tagHalfWidth = (chars: number): number => (chars + 5) * 0.31 + 0.5;
+
+/**
+ * Co-op: which line each friend's name tag is printed on, so that two friends in the same direction (one behind the other,
+ * or both pinned to the same point of the ring) read as two lines and not one tag printed over the other. `x`, `y`: where
+ * each tag is on screen; `half`: half its width; `row`: filled in, 0 for a tag where it would be anyway. In the order
+ * given, each tag takes the first line under any earlier tag it would touch. Nothing is made.
+ */
+export function stackTags(n: number, x: ArrayLike<number>, y: ArrayLike<number>, half: ArrayLike<number>, rowHeight: number, row: { [i: number]: number }): void {
+  for (let i = 0; i < n; i++) {
+    row[i] = 0;
+    for (let j = 0; j < i; j++) {
+      if (Math.abs(x[i]! - x[j]!) >= half[i]! + half[j]!) continue;
+      const other = y[j]! + row[j]! * rowHeight;
+      if (Math.abs(y[i]! + row[i]! * rowHeight - other) >= rowHeight) continue;
+      // The first line that is a whole line under the other tag's. Always further down than it was, so this ends.
+      const next = Math.ceil((other - y[i]!) / rowHeight - 1e-9) + 1;
+      if (next <= row[i]!) continue;
+      row[i] = next;
+      // Its new line may sit on a tag it had cleared: look at them all again.
+      j = -1;
+    }
+  }
+}
+
 interface FloatText {
   el: HTMLElement;
   text: HTMLElement;
@@ -44,7 +72,14 @@ interface Marker extends MapMarker {
   offscreen: boolean | null;
   /** Bumped on each reuse, so a remover held for an old marker cannot take down its replacement. */
   use: number;
+  /** A co-op friend's name tag (`stackTags`), the characters in it, and the line its text is on now. */
+  tag: boolean;
+  chars: number;
+  row: number;
 }
+
+/** Most name tags stacked at once: three friends. */
+const MAX_TAGS = 4;
 
 export class WorldLayer {
   readonly el: HTMLElement;
@@ -54,6 +89,11 @@ export class WorldLayer {
   private width = 1;
   private height = 1;
   private rem = 16;
+  private readonly tags: Marker[] = [];
+  private readonly tagX = new Float32Array(MAX_TAGS);
+  private readonly tagY = new Float32Array(MAX_TAGS);
+  private readonly tagHalf = new Float32Array(MAX_TAGS);
+  private readonly tagRow = new Int8Array(MAX_TAGS);
 
   constructor(private readonly ctx: Ctx) {
     this.el = div('wl');
@@ -72,7 +112,7 @@ export class WorldLayer {
       el.style.display = 'none';
       this.el.append(el);
       this.markers.push({
-        el, arrow, label, dist: new Num(dist), pos: new THREE.Vector3(), color: '', live: false, target: null, clock: 0, offscreen: null, use: 0,
+        el, arrow, label, dist: new Num(dist), pos: new THREE.Vector3(), color: '', live: false, target: null, clock: 0, offscreen: null, use: 0, tag: false, chars: 0, row: 0,
       });
     }
     this.measure();
@@ -101,11 +141,11 @@ export class WorldLayer {
   }
 
   /** A marker that tracks `target`, which must stay valid until the returned remover is called. */
-  follow(target: THREE.Vector3, label: string, color?: string): () => void {
-    return this.place(target, target, label, color);
+  follow(target: THREE.Vector3, label: string, color?: string, tag = false): () => void {
+    return this.place(target, target, label, color, tag);
   }
 
-  private place(position: THREE.Vector3, target: THREE.Vector3 | null, label: string, color?: string): () => void {
+  private place(position: THREE.Vector3, target: THREE.Vector3 | null, label: string, color?: string, tag = false): () => void {
     const m = this.markers.find(x => !x.live) ?? this.markers[0]!;
     const use = ++m.use;
     m.pos.copy(position);
@@ -114,6 +154,9 @@ export class WorldLayer {
     m.live = true;
     m.offscreen = null;
     m.clock = 0;
+    m.tag = tag;
+    m.chars = label.length;
+    if (m.row !== 0) { m.row = 0; m.el.style.removeProperty('--row'); }
     m.label.textContent = label;
     m.el.style.setProperty('--c', m.color);
     m.el.style.display = '';
@@ -155,6 +198,7 @@ export class WorldLayer {
     }
 
     const eye = this.ctx.player.eye;
+    let tags = 0;
     for (const m of this.markers) {
       if (!m.live) continue;
       if (m.target) m.pos.copy(m.target);
@@ -181,10 +225,27 @@ export class WorldLayer {
         m.el.classList.toggle('off', off);
       }
       m.el.style.transform = `translate3d(${(x + w).toFixed(1)}px,${(y + h).toFixed(1)}px,0)`;
+      if (m.tag && tags < MAX_TAGS) {
+        this.tags[tags] = m;
+        this.tagX[tags] = x; this.tagY[tags] = y; this.tagHalf[tags] = tagHalfWidth(m.chars) * this.rem;
+        tags++;
+      }
       m.clock -= dt;
       if (m.clock <= 0 && eye) {
         m.clock = 0.2;
         m.dist.set(Math.round(eye.distanceTo(m.pos)));
+      }
+    }
+    // Co-op: friends' name tags that would be printed over each other go on lines of their own. Alone there are none.
+    if (tags > 0) {
+      stackTags(tags, this.tagX, this.tagY, this.tagHalf, TAG_ROW * this.rem, this.tagRow);
+      for (let i = 0; i < tags; i++) {
+        const m = this.tags[i]!;
+        const row = this.tagRow[i]!;
+        if (row === m.row) continue;
+        m.row = row;
+        if (row === 0) m.el.style.removeProperty('--row');
+        else m.el.style.setProperty('--row', String(row));
       }
     }
   }
@@ -196,6 +257,7 @@ export class WorldLayer {
     }
     for (const m of this.markers) {
       m.live = false;
+      m.tag = false;
       m.el.style.display = 'none';
     }
   }

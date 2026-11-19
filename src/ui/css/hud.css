@@ -540,6 +540,8 @@
   white-space: nowrap;
   font-size: 1rem;
 }
+/* Co-op: a friend's name tag that would be printed over another's goes on the line under it (--row, worldlayer.ts stackTags). */
+.mk[style*="--row"] .mk-text { margin-top: calc(var(--row) * 1.45rem); }
 .mk-label { color: var(--c); }
 .mk-dist::after { content: 'm'; color: var(--steel); }
 

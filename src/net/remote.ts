@@ -106,7 +106,7 @@ export class RemotePlayer implements Shooter {
     this.char.root.visible = false;
     ctx.render.scene.add(this.char.root);
     this.color = `#${color.getHexString()}`;
-    this.removeTag = ctx.hud.follow(this.tag, player.name, this.color);
+    this.removeTag = ctx.hud.follow(this.tag, player.name, this.color, true);
     this.watcher = new Watcher(ctx, this);
     this.watcher.torch = torch;
   }
@@ -121,13 +121,13 @@ export class RemotePlayer implements Shooter {
     this.tagText = text;
     this.tagColor = color;
     this.removeTag();
-    this.removeTag = this.ctx.hud.follow(this.tag, text || this.player.name, text ? color : this.color);
+    this.removeTag = this.ctx.hud.follow(this.tag, text || this.player.name, text ? color : this.color, true);
   }
 
   /** A rebuilt run (a mission's checkpoint) has cleared the HUD's world markers: the tag is put back as it was. */
   retag(): void {
     this.removeTag();
-    this.removeTag = this.ctx.hud.follow(this.tag, this.tagText || this.player.name, this.tagText ? this.tagColor : this.color);
+    this.removeTag = this.ctx.hud.follow(this.tag, this.tagText || this.player.name, this.tagText ? this.tagColor : this.color, true);
   }
 
   private arm(weapon: string): void {

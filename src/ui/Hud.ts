@@ -702,8 +702,8 @@ export class Hud implements HudSystem {
     return this.worldLayer.marker(position, label, color);
   }
 
-  follow(target: THREE.Vector3, label: string, color?: string): () => void {
-    return this.worldLayer.follow(target, label, color);
+  follow(target: THREE.Vector3, label: string, color?: string, tag?: boolean): () => void {
+    return this.worldLayer.follow(target, label, color, tag);
   }
 
   loading(fraction: number, label: string): void {
