@@ -27,7 +27,7 @@ function character(id: EnemyId): CharacterInstance {
   const anim = { flinch: vi.fn(), stumble: vi.fn(), play: vi.fn(), daze: vi.fn(), guard: vi.fn(), holdWound: vi.fn(), getUp: vi.fn(), setLocomotion: vi.fn(), update: vi.fn() };
   const char = { archetype: id, rig, root, bones, severed: new Set(), anim, hitFlash: vi.fn(), setBloodiness: vi.fn(), isFractured: () => false,
     attachProp: (bone: number, prop: THREE.Object3D) => bones[bone]!.add(prop), release: vi.fn(), setLod: vi.fn(), setFrost: vi.fn(),
-    burn: 0, setBurn(amount: number) { char.burn = amount; }, setEmber: vi.fn() };
+    burn: 0, setBurn(amount: number) { char.burn = amount; }, setEmber: vi.fn(), setBurnOrigin: vi.fn() };
   return char as unknown as CharacterInstance;
 }
 
@@ -144,6 +144,24 @@ describe('fire chars by the damage it does', () => {
     expect((e.char as Burnt).burn).toBe(0);
     while (e.alive) manager.applyDamage(e, bite());
     expect(gore.burnOn).not.toHaveBeenCalled();
+  });
+});
+
+describe('where the fire caught (F2)', () => {
+  it('a flame that strikes a body says where: the bone and the point of the hit', () => {
+    const { manager, spawn } = world();
+    const e = spawn('trooper');
+    const d = bite();
+    manager.applyDamage(e, d);
+    expect(e.char.setBurnOrigin).toHaveBeenCalledWith(B.chest, d.point);
+  });
+
+  it('the burn that follows, and a bullet, do not', () => {
+    const { manager, spawn } = world();
+    const e = spawn('trooper');
+    manager.applyDamage(e, round(5));
+    manager.applyDamage(e, { ...bite(3), source: 'burn', bone: undefined });
+    expect(e.char.setBurnOrigin).not.toHaveBeenCalled();
   });
 });
 

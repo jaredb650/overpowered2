@@ -58,6 +58,15 @@ export const FireTuning = {
   curlHold: 0.2,
   curls: 4,
   curlPose: { elbow: 2, knee: 1.25, hip: 0.75, spine: 0.3 },
+  /**
+   * The fire burns through the skin (F2; `setBurnThrough`, drawn by the skin shader). Alive, once the char is past
+   * `eatFrom`, by `eatAlive` a second up to `eatAliveMax`: patches of bared muscle on a man who has burned for some seconds.
+   * A corpse goes on to `eatMax` over its burning: muscle over most of it and bone where the fire caught.
+   */
+  eatFrom: 0.8,
+  eatAlive: 0.09,
+  eatAliveMax: 0.4,
+  eatMax: 0.75,
 };
 
 const enum Phase { Alive, Corpse, Smoulder }
@@ -102,6 +111,9 @@ class Fire {
   capCount = 0;
   /** Its share of a whole body of its rig, by skin, times the square of that body's size: 1 is a whole man. */
   amount = 1;
+  /** 0..1, how far the fire has burnt through its skin, and where that stood when it died. */
+  eaten = 0;
+  eatenFrom = 0;
   /** 0..1, how far the heat has drawn this corpse up, and whether it is one of the few still doing so. */
   curl = 0;
   curling = false;
@@ -139,6 +151,8 @@ export class FireField {
   private readonly by = new Map<Burnable, Fire>();
   /** Licks drawn in the last frame, for the checks. */
   licks = 0;
+  /** Which of an entry's capsules `pointOn` last chose. */
+  private lastCap = 0;
 
   /**
    * @param isCorpse True while gore has this body as a corpse: dead, not being vaporized, not handed back.
@@ -195,6 +209,12 @@ export class FireField {
     if (!f) {
       f = this.take(char, char, char.rig, fireproof);
       if (!f) return;
+      // Lit by something with no point of its own (a patch he stood in, the man beside him): it catches somewhere on him.
+      // A flame that struck him has already said where (`setBurnOrigin` keeps the first).
+      if (f.capCount > 0 && char.setBurnOrigin) {
+        this.pointOn(f, _p);
+        char.setBurnOrigin(f.info!.capBone[f.caps[this.lastCap]!]!, _p);
+      }
     } else if (f.phase !== Phase.Alive) {
       // Lit again while it smoked.
       f.phase = Phase.Alive;
@@ -298,6 +318,7 @@ export class FireField {
     f.smokeAcc = 0;
     f.nextLight = f.nextShimmer = f.nextGlow = 0;
     f.nextSpit = now + rand(0.1, 0.5);
+    f.eaten = f.eatenFrom = source.burnThrough ?? 0;
     f.curl = 0;
     f.curling = false;
     f.scorched = false;
@@ -332,6 +353,7 @@ export class FireField {
     f.dead = true;
     f.since = now;
     f.charFrom = f.source!.burn ?? 0;
+    f.eatenFrom = f.eaten;
     // What has hardly burnt has more left to burn.
     f.lasts = seconds[0] + (seconds[1] - seconds[0]) * (1 - clamp(f.charFrom)) * rand(0.7, 1) + rand(0, 0.8);
     f.heat = 1;
@@ -355,6 +377,7 @@ export class FireField {
     while (i < f.capCount - 1 && f.weights[i]! < pick) i++;
     const info = f.info!;
     const c = f.caps[i]!;
+    this.lastCap = i;
     const o = c * CAP_STRIDE;
     const caps = info.caps;
     const t = Math.random();
@@ -412,6 +435,10 @@ export class FireField {
         f.lasts = t.putOut;
         f.charFrom = source.burn ?? 0;
       }
+      if (f.phase === Phase.Alive && !f.fireproof && dt > 0 && f.eaten < t.eatAliveMax && (source.burn ?? 0) >= t.eatFrom) {
+        f.eaten = Math.min(t.eatAliveMax, f.eaten + dt * t.eatAlive);
+        source.setBurnThrough?.(f.eaten);
+      }
       if (f.phase === Phase.Corpse) {
         const k = (now - f.since) / f.lasts;
         if (k >= 1) {
@@ -424,6 +451,12 @@ export class FireField {
         } else {
           f.heat = k < 1 - t.dieDown ? 1 : 1 - 0.8 * (k - (1 - t.dieDown)) / t.dieDown;
           if (!f.fireproof) source.setBurn?.(f.charFrom + (1 - f.charFrom) * k * (2 - k));
+          // And burns through it, most of the way by the time the flames die down.
+          if (!f.fireproof) {
+            const e = clamp((k - 0.1) / 0.75);
+            f.eaten = Math.max(f.eaten, f.eatenFrom + (t.eatMax - f.eatenFrom) * e * e * (3 - 2 * e));
+            source.setBurnThrough?.(f.eaten);
+          }
           // The heat draws it up as it blackens. Flesh only: what is built to burn does not shrink in it.
           const u = clamp(k / t.curlBy);
           f.curl = f.body && !f.fireproof ? t.curl * u * u * (3 - 2 * u) : 0;

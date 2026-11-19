@@ -87,7 +87,14 @@ vWear = op2Wear();
 }
 `;
 
+/** Metres, in the bind pose, over which a fire walks out from where it caught: a hand to the far foot. */
+const FIRE_REACH = 1.9;
+/** How cooked the flesh a fire bares is drawn (`sChar`): dark and dry, but still meat against the black of the skin. */
+const FIRE_COOKED = 0.95;
+
 const FRAG_PARS = /* glsl */ `
+#define OP2_FIRE_REACH ${FIRE_REACH.toFixed(2)}
+#define OP2_FIRE_COOKED ${FIRE_COOKED.toFixed(2)}
 varying vec4 vColorAO;
 varying vec4 vMatV;
 varying vec4 vDetailW;
@@ -181,6 +188,48 @@ const WEAR_DRIVER = /* glsl */ `
       sThrough = pow(vWear.x, 1.15) * 0.97 + vWear.y * 0.8 - field;
       #endif
       sChar = vWear.w * 0.5;
+    }
+`;
+
+/**
+ * Fire's burn-through, the second driver of SKIN_GONE (the gore update's F2: "fire should eat skin down to muscle and
+ * bone"). `eaten` 0..1 (Character.setBurnThrough) walks a threshold through big patches of noise and through the distance
+ * from where the fire caught, so the skin goes first and deepest there: raw edge, charred muscle, then slivers of bone.
+ * What it bares is cooked, not wet: `sChar`. Plate does not burn through. Not while the Lance is dissolving the body.
+ */
+const FIRE_DRIVER = /* glsl */ `
+    float sEaten = op2Extra(${EXTRA_FIRE + 1}).y;
+    float sFireDepth = -1.0;
+    if (sEaten > 0.004 && ex.z <= 1.0) {
+      vec4 fireAt = op2Extra(${EXTRA_FIRE});
+      float from = fireAt.w > 0.5 ? clamp(distance(vBind, fireAt.xyz) / OP2_FIRE_REACH, 0.0, 1.0) : 0.45;
+      #ifdef OP2_FAR
+      float patches = 0.35;
+      #else
+      float wide = texture2D(tDetail, vBind.xy * 0.31 + vBind.z * 0.23 + 0.11).a;
+      // Spread out to fill 0..1, so the share of the skin that has gone is the number below.
+      float patches = clamp((wide * 0.7 + macro.a * 0.22 + micro.r * 0.08 - 0.5) * 3.0 + 0.5, 0.0, 1.0);
+      #endif
+      // Burnt right through, 0.8 of the skin has gone where the fire caught and 0.4 at the far end of the body. The depth
+      // is steep, so the middle of a bared patch is down to bone while its edge is still raw.
+      sFireDepth = sPlate > 0.5 ? -1.0 : (sEaten * 0.8 - from * 0.4 - patches) * 1.3;
+      if (sFireDepth > sThrough) {
+        sThrough = sFireDepth;
+        sChar = OP2_FIRE_COOKED;
+      }
+    }
+`;
+
+/**
+ * While the flames are on it, what the fire has bared glows a little along its fibres, and brightest at the edge where the
+ * skin is still going. Once it only smoulders (heat 0.6 and under) the bared flesh is dark: the glow left is the skin's.
+ */
+const FIRE_GLOW = /* glsl */ `
+    if (sFireDepth > -0.06) {
+      float flames = clamp(op2Extra(${EXTRA_FIRE + 1}).x * 2.5 - 1.5, 0.0, 1.0);
+      float rim = smoothstep(-0.06, 0.0, sFireDepth) * (1.0 - smoothstep(0.0, 0.05, sFireDepth));
+      float fibres = smoothstep(0.55, 0.8, texture2D(tDetail, vec2(vBind.x * 13.0 + vBind.z * 9.0, vBind.y * 2.4)).a) * smoothstep(0.0, 0.1, sFireDepth);
+      sGlow += vec3(1.0, 0.24, 0.03) * flames * (rim * 2.5 + fibres * 0.3);
     }
 `;
 
@@ -309,6 +358,8 @@ float sBare = 0.0;
   float blood = ex.x, flash = ex.y, burn = ex.z, frost = ex.w;
   float seed = info.y;
   float grain = macro.r * 0.6 + macro.a * 0.4;
+  // Plate, as it was before anything charred it: it soots, but it does not burn through.
+  float sPlate = sMetal;
 
   if (burn > 0.001) {
     float n = grain * 0.7 + micro.b * 0.3;
@@ -324,6 +375,11 @@ float sBare = 0.0;
     }
     // How hot the char still is: 1 alight, fading to 0 cold (Character.setEmber, kept by gore/fire.ts).
     float heat = op2Extra(${EXTRA_FIRE + 1}).x;
+    // Where the fire caught (Character.setBurnOrigin): with one, the threshold is mostly how far a pixel is from it, so
+    // the burn walks out across the body from there with a ragged edge, and is whole by about 0.75. Without one (a
+    // blast's burn, lava) it comes up through the noise everywhere at once, as it always did.
+    vec4 fireAt = op2Extra(${EXTRA_FIRE});
+    if (fireAt.w > 0.5) n = n * 0.42 + clamp(distance(vBind, fireAt.xyz) / OP2_FIRE_REACH, 0.0, 1.0) * 0.72;
     ${BURN_SURFACE}
   }
 
@@ -459,7 +515,9 @@ float sBare = 0.0;
     // fire's burn-through sets the same two (docs/notes/characters.md, "Skin gone").
     float sThrough = -1.0, sChar = 0.0;
     ${WEAR_DRIVER}
+    ${FIRE_DRIVER}
     ${SKIN_GONE}
+    ${FIRE_GLOW}
   }
   #endif
 

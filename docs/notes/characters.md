@@ -282,6 +282,19 @@ body and dark and dry once it is cold; they glow by `heat` (`setEmber`, the firs
 falls fewer of them glow, patch by patch, with a warm band either side (`op2CrackWide`). At the far level of detail there are
 no splits, only a faint flat glow. Past 1 the same number is still the Lance's vaporize.
 
+**Where it caught, and burning through (F2).** `setBurnOrigin(bone, worldPoint)` stores a point of the bind pose in the
+first fire texel (the first one given is kept). With one, the burn's threshold is mostly the distance from it
+(`n * 0.42 + distance / 1.9 m * 0.72`), so the char walks out across the body from where the flame touched, with a ragged
+glowing edge, and is whole by a burn of about 0.75; without one (a blast's burn, lava) it comes up everywhere at once as
+before. `setBurnThrough(0..1)` (the second fire texel's `y`) is fire's driver of the one skin-gone path (`FIRE_DRIVER`,
+beside `WEAR_DRIVER`, drawn by `SKIN_GONE`): `sThrough = (eaten x 0.8 - distance share x 0.4 - patches) x 1.3`, so burnt
+right through, 0.8 of the skin has gone where the fire caught and 0.4 at the far end of the body, the middle of a bared
+patch down to bone while its edge is raw; `sChar` 0.95, so what it bares is cooked dark and not wet red, and the bone is
+sooty. Plate does not burn through (`sPlate`). While the flames are on it the bared fibres and the edge glow a little
+(`FIRE_GLOW`); a smouldering body's bared flesh is dark. A body with any burn-through draws with the wounded program
+(`marked`), as a worn one does; it costs no extra draw and works at every level of detail and on a severed limb. Who
+drives it: `docs/notes/gore.md`, "Fire on bodies".
+
 **The kit burns with the body.** A helmet, a rifle or a pack is a mesh of its own and never read the body's burn: a burnt man
 used to wear a clean white helmet. `charredVariant(material)` makes a burnt twin of any character material the first time one
 is needed (the same program with `OP2_CHARRED`: burn 1, cold), and `setBurn` past 0.55 swaps every prop still on its bone to

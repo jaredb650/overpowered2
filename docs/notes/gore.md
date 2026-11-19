@@ -646,6 +646,14 @@ gore.fire.stats();                    // { alight, smouldering, licks } for chec
 - **Caps.** 40 entries (`max`; a new fire past it takes the place of whatever is nearest cold, never of a living body's);
   the nearest 6 flaming things burn at the full rate and the rest at 45% (`near`, `farRate`); 300 licks a second over
   everything (`budget`), past which every fire thins alike.
+- **It starts where it touched and burns through the skin (F2).** A flame that strikes a body gives the skin its
+  origin (`DamageModel.run`: a fire hit with a bone, not the burn's own ticks); a body lit by something with no point (a
+  napalm patch, the man beside him) catches at a random point on itself (`feed`). The skin's char then walks out from
+  there (`docs/notes/characters.md`, "Burnt skin"). `FireField` also drives how far the fire is through the skin
+  (`setBurnThrough`): alive, once the char is past 0.8 (`eatFrom`), 0.09 a second up to 0.4 (`eatAlive`, `eatAliveMax`:
+  patches of bared muscle on a man who has burned for some seconds); a corpse goes on to 0.75 (`eatMax`) over the first
+  85% of its burning, muscle over most of the trunk and bone where the fire caught; a limb leaves with what its body had
+  and goes on to the same. Nothing fireproof is eaten.
 - **A burning corpse draws up (F3).** Over the first 55% of its burning (`curlBy`) the nearest 4 burning corpses (`curls`)
   bend at the elbows (2 rad), knees (1.25), hips (0.75) and spine (0.3) (`curlPose`), through their own joint muscles:
   `FireField.drawUp` gives each named joint a flexed target and up to 0.9 of drive (`curlDrive`), and wakes the chain.

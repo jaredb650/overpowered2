@@ -371,9 +371,9 @@ export class Character implements CharacterInstance {
     return this.worn.amount(region);
   }
 
-  /** Whether anything on this body needs the wounded program: a wound, or worn skin. */
+  /** Whether anything on this body needs the wounded program: a wound, worn skin, or skin burnt through. */
   private get marked(): boolean {
-    return this.book.count > 0 || this.worn.most > 0;
+    return this.book.count > 0 || this.worn.most > 0 || this.burnThrough > 0;
   }
 
   /** Puts the body on the wounded program, with its inside if it has been opened. */
@@ -443,6 +443,38 @@ export class Character implements CharacterInstance {
   }
 
   private kitCharred = false;
+
+  /**
+   * Where the fire caught: a world point on `bone`. From then on the char walks out across the body from there instead of
+   * coming up everywhere at once, and the skin burns through there first. The first point a fire is given is kept.
+   */
+  setBurnOrigin(boneIndex: number, worldPoint: THREE.Vector3): void {
+    const o = this.extras + EXTRA_FIRE * 4;
+    const bone = this.bones[boneIndex];
+    if (!bone || this.data[o + 3]! > 0) return;
+    // World to bone local, then bone local to bind space, as a wound is placed.
+    bone.updateWorldMatrix(true, false);
+    v.copy(worldPoint).applyMatrix4(m.copy(bone.matrixWorld).invert()).add(this.a.bindPositions[boneIndex]!);
+    this.data[o] = v.x;
+    this.data[o + 1] = v.y;
+    this.data[o + 2] = v.z;
+    this.data[o + 3] = 1;
+  }
+
+  /**
+   * How far the fire has burnt through the skin, 0 to 1: charred muscle and then bone show where it has burnt longest,
+   * nearest where it caught (the skin shader's FIRE_DRIVER, drawn by the one skin-gone path it shares with wear). Flesh
+   * only: a machine's skin does not burn through.
+   */
+  setBurnThrough(amount: number): void {
+    if (!this.a.interior) return;
+    this.data[this.extras + EXTRA_FIRE * 4 + 5] = amount;
+    if (amount > 0) this.showWounds();
+  }
+
+  get burnThrough(): number {
+    return this.data[this.extras + EXTRA_FIRE * 4 + 5]!;
+  }
 
   /** The char on it now, as `setBurn` left it. */
   get burn(): number {
@@ -680,7 +712,7 @@ export class SeveredPart implements SeveredLimb {
   }
 
   private showWounds(): void {
-    if (this.book.count === 0 && this.worn.most <= 0) return;
+    if (this.book.count === 0 && this.worn.most <= 0 && this.burnThrough <= 0) return;
     this.mesh.material = this.a.woundMaterial;
     if (this.book.open === 0 || !this.a.interior) return;
     if (!this.inside) {
@@ -711,6 +743,16 @@ export class SeveredPart implements SeveredLimb {
 
   setEmber(heat: number): void {
     this.data[this.extras + EXTRA_FIRE * 4 + 4] = heat;
+  }
+
+  setBurnThrough(amount: number): void {
+    if (!this.a.interior) return;
+    this.data[this.extras + EXTRA_FIRE * 4 + 5] = amount;
+    if (amount > 0) this.showWounds();
+  }
+
+  get burnThrough(): number {
+    return this.data[this.extras + EXTRA_FIRE * 4 + 5]!;
   }
 
   /** Takes the pose of `src`'s chain from `boneIndex` down. */

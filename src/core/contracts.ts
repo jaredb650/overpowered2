@@ -349,6 +349,11 @@ export interface CharacterInstance {
   readonly burn?: number;
   /** How hot its char still is, 1 alight to 0 cold: the glow in the cracks. Gore's fire keeps it (gore/fire.ts). */
   setEmber?(heat: number): void;
+  /** Where the fire caught, a world point on a bone: the char walks out from there, and the skin burns through there first. */
+  setBurnOrigin?(boneIndex: number, worldPoint: THREE.Vector3): void;
+  /** How far the fire has burnt through the skin, 0 to 1: charred muscle, then bone, where it has burnt longest. */
+  setBurnThrough?(amount: number): void;
+  readonly burnThrough?: number;
   /** Emissive flash on hit. */
   hitFlash(intensity: number): void;
   /** Attaches a prop (gun, shield) to a bone. Falls with the bone when severed. */
@@ -378,6 +383,8 @@ export interface SeveredLimb {
   setBurn?(amount: number): void;
   readonly burn?: number;
   setEmber?(heat: number): void;
+  setBurnThrough?(amount: number): void;
+  readonly burnThrough?: number;
   release(): void;
 }
 

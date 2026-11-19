@@ -215,6 +215,15 @@ export class TestDummy implements CharacterInstance {
   setEmber(heat: number): void {
     this.ember = heat;
   }
+  burnThrough = 0;
+  setBurnThrough(amount: number): void {
+    this.burnThrough = amount;
+  }
+  /** Where a fire caught, as the bone it was given. -1 until one has. */
+  burnOrigin = -1;
+  setBurnOrigin(bone: number): void {
+    if (this.burnOrigin < 0) this.burnOrigin = bone;
+  }
 
   attachProp(boneIndex: number, prop: THREE.Object3D): void {
     this.bones[boneIndex]!.add(prop);
@@ -264,6 +273,8 @@ export class TestDummy implements CharacterInstance {
       ember: this.ember,
       setBurn: (amount: number) => { piece.burn = amount; },
       setEmber: (heat: number) => { piece.ember = heat; },
+      burnThrough: this.burnThrough,
+      setBurnThrough: (amount: number) => { piece.burnThrough = amount; },
       release: () => {
         root.removeFromParent();
         skeleton.dispose();

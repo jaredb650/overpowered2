@@ -696,7 +696,11 @@ export class DamageModel {
     }
     // Fire chars by what it takes as well as by the clock (EnemyManager.burnLook), on every screen: a man the flamethrower
     // kills in a quarter of a second is as burnt as one who burned for four.
-    if (d.type === 'fire' && DevFlags.fire && !e.def.fireproof) this.char(e, e.charred + (amount / e.maxHealth) * FIRE_CHAR);
+    if (d.type === 'fire' && DevFlags.fire && !e.def.fireproof) {
+      // Where the flame touched him is where his burn starts and walks out from (the first such point is kept).
+      if (d.bone !== undefined && d.source !== 'burn') e.char.setBurnOrigin?.(d.bone, d.point);
+      this.char(e, e.charred + (amount / e.maxHealth) * FIRE_CHAR);
+    }
     // Before the death is picked, so a killing shot leaves its mark on the body too.
     if (this.w.ctx.gore.wound(e.char, d, blast?.outcome === 'flesh' ? 1 : amount / e.maxHealth)) this.updateMaim(e);
     this.wearTrunk(e, region, d, amount, area);

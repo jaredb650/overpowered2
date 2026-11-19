@@ -265,3 +265,55 @@ describe('fire meets the rest of gore (F3)', () => {
     for (const p of slots()) expect(tintOf(p.kind, p.slot)).toBe(1);
   });
 });
+
+describe('fire burns through the skin (F2)', () => {
+  it('catches somewhere on a man lit with no point of his own, and bares muscle only once he is well charred', () => {
+    const c = spawn();
+    run(0.2, [c]);
+    expect(c.burnOrigin).toBeGreaterThanOrEqual(0);
+    // Alight but hardly charred: nothing through yet, however long.
+    run(2, [c]);
+    expect(c.burnThrough).toBe(0);
+    c.setBurn(0.9);
+    run(2, [c]);
+    expect(c.burnThrough).toBeCloseTo(2 * FireTuning.eatAlive, 1);
+    run(10, [c]);
+    expect(c.burnThrough).toBe(FireTuning.eatAliveMax);
+  });
+
+  it('a corpse burns through most of the way by the time its flames die, and stays so', () => {
+    const c = spawn();
+    c.setBurn(0.85);
+    gore.burnOn(c);
+    gore.ragdoll(c);
+    run(1);
+    const early = c.burnThrough;
+    expect(early).toBeLessThan(0.2);
+    run(FireTuning.corpseBurn[1] + 1);
+    expect(c.burnThrough).toBeCloseTo(FireTuning.eatMax, 5);
+    run(FireTuning.smoulder + 2);
+    expect(c.burnThrough).toBeCloseTo(FireTuning.eatMax, 5);
+  });
+
+  it('a limb leaves with what its body had burnt through, and goes on', () => {
+    const c = spawn();
+    c.setBurn(0.95);
+    run(3, [c]);
+    const had = c.burnThrough;
+    expect(had).toBeGreaterThan(0.2);
+    gore.sever(c, 'armL', cut);
+    const limb = (gore as unknown as { limbs: { piece: SeveredLimb }[] }).limbs[0]!.piece;
+    expect(limb.burnThrough).toBeCloseTo(had, 5);
+    run(FireTuning.limbBurn[1] + 1.5, [c]);
+    expect(limb.burnThrough!).toBeCloseTo(FireTuning.eatMax, 5);
+  });
+
+  it('what is built to burn is not eaten', () => {
+    const c = spawn();
+    gore.burnOn(c, true);
+    gore.ragdoll(c);
+    run(FireTuning.corpseBurn[1] + 1);
+    expect(c.burnThrough).toBe(0);
+    expect(c.burn).toBe(0);
+  });
+});
