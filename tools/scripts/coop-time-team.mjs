@@ -188,7 +188,9 @@ export default async function (host, { sleep, outDir }) {
         })));
         throw new Error(`${title}: no slow-mo within 8 s of the cause :: ${JSON.stringify(out.stuck)} :: ${error.message}`);
       });
-      // What every screen reads, the moment they all show it; then the blend in, then the measuring window.
+      // What every screen reads, the moment they all show it (every line of it, when two causes start a moment apart); then
+      // the blend in, then the measuring window.
+      await Promise.all(pages.map(page => page.waitForFunction(n => window.__op2.ctx.coop.world.slowNotice.lines.length >= n, lines.length, { timeout: 5000 }))).catch(() => {});
       const [seen, states] = await Promise.all([Promise.all(pages.map(watched)), Promise.all(pages.map(read))]);
       await sleep(250);
       const during = await measure(uids);
