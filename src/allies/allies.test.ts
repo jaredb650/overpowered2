@@ -356,6 +356,55 @@ describe('orders and revive', () => {
     expect(sys.allies).toEqual([own]);
   });
 
+  it('co-op host: a friend\'s order is carried out quietly, the man follows that friend, and a friend\'s revive costs the host nothing', () => {
+    const ctx = fakeCtx();
+    const kit = { count: 1, spend() { if (this.count <= 0) return false; this.count--; return true; } };
+    (ctx.progression as { stims?: unknown }).stims = kit;
+    const sys = new AllySystem(ctx as unknown as Ctx);
+    const a = stand(sys, v(0, 0, -3), ctx);
+    const friend = { position: v(40, 0, 0), forward: v(1, 0, 0), alive: true } as never as Ctx['player'];
+    const leaderOf = (ally: Ally) => (sys as unknown as { leaderOf(a: Ally): Ctx['player'] }).leaderOf(ally);
+    sys.toggle(a, friend);
+    expect(a.order).toBe('follow');
+    expect(a.leader).toBe(friend);
+    expect(leaderOf(a)).toBe(friend);
+    // Nothing of it on the host's own screen: no text over him, no click.
+    expect(ctx.hud.floatText).not.toHaveBeenCalled();
+    expect(ctx.audio.play).not.toHaveBeenCalled();
+    // The friend goes down: he falls in behind the host's player until the friend is up again.
+    (friend as { alive: boolean }).alive = false;
+    expect(leaderOf(a)).toBe(ctx.player);
+    (friend as { alive: boolean }).alive = true;
+    expect(leaderOf(a)).toBe(friend);
+    // Back to his post, by anyone: he is nobody's follower.
+    sys.toggle(a);
+    expect(a.order).toBe('post');
+    expect(a.leader).toBeNull();
+    expect(ctx.audio.play).toHaveBeenCalledTimes(1);
+    // The squad, for a friend.
+    sys.toggleSquad(friend);
+    expect(a.leader).toBe(friend);
+    expect(ctx.hud.feed).not.toHaveBeenCalled();
+    // A friend's stim gets a downed man up and leaves the host's own kit alone.
+    sys.hurt(a, 200, a.body.center, v(0, 0, -1), undefined, 'chest', 'bullet', 'trooper');
+    expect(a.state).toBe('down');
+    expect(sys.reviveBy(a)).toBe(true);
+    expect(a.state).toBe('up');
+    expect(kit.count).toBe(1);
+    expect(sys.reviveBy(a)).toBe(false);
+  });
+
+  it('alone a man\'s leader is always the player', () => {
+    const ctx = fakeCtx();
+    const sys = new AllySystem(ctx as unknown as Ctx);
+    const a = stand(sys, v(0, 0, -3), ctx);
+    sys.toggle(a);
+    expect(a.order).toBe('follow');
+    expect(a.leader).toBeNull();
+    expect((sys as unknown as { leaderOf(a: Ally): unknown }).leaderOf(a)).toBe(ctx.player);
+    expect(ctx.hud.floatText).toHaveBeenCalledTimes(1);
+  });
+
   it('a dead ally cannot be revived', () => {
     const ctx = fakeCtx();
     const sys = new AllySystem(ctx as unknown as Ctx);

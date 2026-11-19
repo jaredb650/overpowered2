@@ -1126,6 +1126,11 @@ Each of the three parts runs on its own: one that throws does not cost the guest
   out, so it is a fair run for all.
 - **One clock.** In co-op the pods run on the wall clock: the game's `realDt` is capped at 50 ms a frame, and a page that hitched
   would fly its pod late for good. A guest's pod is behind the host's only by the message's delay.
+  **Under the team's slow-mo a pod and a dropped gun keep full speed, and that is what single player does** (checked for the
+  review's finding 8, 2026-11-19): alone they are stepped on the real clock (`progression/index.ts` `pods.update(realDt)`,
+  `Weapons.ts` `dropped.update(realDt)`, as on `dev` before the overhaul), so SLOWMO, Focus and Time Warp have never slowed a
+  pod's fall or a gun's drop. The wall clock is that same real time, the same on every page. Putting them on the shared world
+  clock would make co-op the one place a pod falls slowly, so they stay (`world/pods.test.ts`, "under the team's slow-mo").
 - **One blast.** The pod lands once, on the host. A guest skips `combat.explode` in `land()`: its own would hit the enemies again and
   be mirrored back to everyone (the "three unexplained blasts" of the audit). The host's landing reaches a guest as the usual
   explosion (`boom`) at the moment its own copy touches down.

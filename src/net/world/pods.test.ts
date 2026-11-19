@@ -108,6 +108,35 @@ describe('one pod for everyone', () => {
   beforeEach(() => vi.useFakeTimers({ toFake: ['performance', 'setTimeout', 'clearTimeout'] }));
   afterEach(() => vi.useRealTimers());
 
+  it('under the team\'s slow-mo a pod falls as it does alone in slow-mo: at full speed, on every screen alike', async () => {
+    // Alone the pods are stepped on the real clock (progression/index.ts: `pods.update(realDt)`), so a slowed world does not
+    // slow a pod. In co-op they read the wall clock, which is that same real time and the same on every page: the world's
+    // scale never enters it. A pod on a clock that slowed would be the one thing in co-op that differs from single player.
+    const games = [await game(), await game()];
+    const table = party(1, true, games.map(g => g.ctx));
+    const pods = games.map(g => podsOf(g.ctx, true));
+    table.build();
+    pods[0]!.call(SPOT.clone());
+    table.relay.flush();
+    // The world at a quarter speed on both screens for the whole fall: the game's own clocks say so, the wall clock does not.
+    for (const g of games) Object.assign(g.ctx.time, { slowmo: 0.25 });
+    const frames = Math.ceil((LANDS + 0.2) * 60);
+    for (let i = 0; i < frames; i++) {
+      vi.advanceTimersByTime(1000 / 60);
+      // What each screen's progression hands the pods: its real step. (A world step would be a quarter of it.)
+      for (const p of pods) p.update(1 / 60);
+    }
+    for (const p of pods) expect(view(p)[0]!.phase).not.toBe('falling');
+    for (const p of pods) expect(['landed', 'open']).toContain(view(p)[0]!.phase);
+    // And a solo pod given the same real time is at the same place in its life.
+    const alone = await game();
+    const solo = podsOf(alone.ctx, true);
+    solo.call(SPOT.clone());
+    for (let i = 0; i < frames; i++) solo.update(1 / 60);
+    expect(view(solo)[0]!.phase).toBe(view(pods[0]!)[0]!.phase);
+    table.dispose();
+  });
+
   it('the host calls it; every guest flies the same pod at the same spot and none calls its own', async () => {
     const games = [await game(), await game('spawning'), await game('spawning')];
     const table = party(2, true, games.map(g => g.ctx));
