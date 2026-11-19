@@ -73,16 +73,19 @@ export interface StrikeOrder {
   /** Unit XZ direction of travel. Only the Warthog uses it. */
   heading: THREE.Vector3;
   /**
-   * What the strike rolls its scatter from (`mulberry32`). The manager draws a fresh one for every call; in co-op it goes to
-   * the other players with the order, so every screen's copy lands its rounds on the same spots.
+   * Co-op: what the strike rolls its scatter from (`mulberry32`). The manager draws a fresh one for every call that has
+   * other players to tell, and it goes to them with the order, so every screen's copy lands its rounds on the same spots.
+   * Alone there is none, and the scatter is `Math.random`'s, draw for draw as it was before co-op.
    */
   seed?: number;
   /** An angle the caller worked out from where they stood, given to a copy that cannot: the gunship's side of its circle, a pod's facing. */
   yaw?: number;
 }
 
-/** A strike's own generator, from its order's seed. An order made without one (a test's) gets a seed of its own. */
-export const rngOf = (order: StrikeOrder): (() => number) => mulberry32(order.seed ?? Math.floor(Math.random() * 0x100000000));
+const plain = (): number => Math.random();
+
+/** A strike's own generator: from its order's seed in co-op, and `Math.random` itself for an order with none (alone). */
+export const rngOf = (order: StrikeOrder): (() => number) => order.seed === undefined ? plain : mulberry32(order.seed);
 
 /** The HUD for a banner that is every player's business (the nuke's countdown): shown by a co-op copy as by the caller's own. */
 export const everyone = (kit: StrikeKit): Ctx['hud'] => kit.all ?? kit.ctx.hud;

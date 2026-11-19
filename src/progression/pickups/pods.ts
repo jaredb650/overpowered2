@@ -241,7 +241,8 @@ export class DropPods {
     pod.entry.position.copy(spot);
     if (!Number.isNaN(floor)) pod.entry.position.y = floor;
     pod.id = this.session ? ++this.serial : 0;
-    pod.yaw = rand(0, TAU);
+    // Co-op: the way it faces goes out with the call. Alone it is drawn as it starts to fall (`startFall`), as it always was.
+    if (pod.id) pod.yaw = rand(0, TAU);
     this.begin(pod, 0);
     if (pod.id) this.tell({ op: 'call', id: pod.id, at: pod.entry.position.toArray() as [number, number, number], yaw: pod.yaw, age: 0 });
   }
@@ -428,6 +429,7 @@ export class DropPods {
     pod.timer = 0;
     pod.group.visible = true;
     for (const d of pod.doors) d.rotation.x = 0;
+    if (!pod.id) pod.yaw = rand(0, TAU);
     pod.group.rotation.y = pod.yaw;
     pod.group.position.copy(pod.entry.position).setY(pod.entry.position.y + D.height);
     pod.trail = fx.attachEmitter(pod.group, 'hellfireTrail', new THREE.Vector3(0, 0.2, 0), D.height / D.speed + 0.2);

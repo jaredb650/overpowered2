@@ -3,7 +3,7 @@
  * aircraft and beam following its caller's word (ghost.ts, mirror.ts, link.ts).
  */
 import * as THREE from 'three';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Ctx } from '../../core/contracts';
 import type { ExplosionSpec, ProjectileSpec } from '../../core/gameplay';
 import { noop } from '../../core/stubs';
@@ -21,7 +21,7 @@ import { CallinMirror, MAX_COPIES } from './mirror';
 import type { NukeAftermath } from './nuke';
 import { Orbital } from './orbital';
 import { Ordnance } from './ordnance';
-import { TELL_EVERY, type StrikeKit, type StrikeOrder } from './shared';
+import { rngOf, TELL_EVERY, type StrikeKit, type StrikeOrder } from './shared';
 import { Warthog } from './warthog';
 
 let r: Range;
@@ -134,6 +134,45 @@ describe('the context a copy flies on', () => {
     // Everything else is the real game's.
     expect(ghost.enemies.alive).toBe(r.ctx.enemies.alive);
     expect(ghost.physics).toBe(r.ctx.physics);
+  });
+});
+
+describe('alone there is no seed: a strike rolls from Math.random, draw for draw as before co-op', () => {
+  afterEach(() => vi.restoreAllMocks());
+  const alone = (): StrikeOrder => ({ point: new THREE.Vector3(0, 0, -30), heading: new THREE.Vector3(1, 0, 0) });
+
+  it('an order with no seed hands back Math.random itself, one draw a roll, and a seeded one never touches it', () => {
+    const draws = vi.spyOn(Math, 'random').mockReturnValueOnce(0.125).mockReturnValueOnce(0.75);
+    const rng = rngOf(alone());
+    expect(draws).toHaveBeenCalledTimes(0);
+    expect([rng(), rng()]).toEqual([0.125, 0.75]);
+    expect(draws).toHaveBeenCalledTimes(2);
+    const seeded = rngOf(order(7));
+    seeded();
+    seeded();
+    expect(draws).toHaveBeenCalledTimes(2);
+  });
+
+  it('the Airstrike draws five numbers a rocket, in the order it always did', () => {
+    const seen: number[][] = [];
+    const spy = new Proxy(r.ctx, { get: (t, k) => (k === 'combat' ? { ...noop<object>('combat'), spawnProjectile: (s: ProjectileSpec) => void seen.push([...s.origin.toArray(), ...s.velocity.toArray()]), explode() {} } : Reflect.get(t, k)) });
+    const kit = kitOn(spy);
+    const strike = new Airstrike(kit, alone());
+    // Up to the moment before the first rocket, then the dice are watched over that one rocket.
+    fly(strike, kit, AIRSTRIKE.rocketsAt - 0.05);
+    expect(seen).toHaveLength(0);
+    const dice = [0.5, 0.25, 0.5, 0.5, 0.5];
+    let i = 0;
+    const draws = vi.spyOn(Math, 'random').mockImplementation(() => dice[i++ % dice.length]!);
+    fly(strike, kit, 0.1);
+    expect(seen).toHaveLength(1);
+    expect(draws).toHaveBeenCalledTimes(5);
+    // The radius from the first draw, the angle from the second (a quarter turn: straight along +z).
+    expect(seen[0]![0]).toBeCloseTo(0, 5);
+    expect(seen[0]![2]).toBeCloseTo(-30 + 0.5 * AIRSTRIKE.scatter, 5);
+    // No drift at 0.5 and 0.5: straight down.
+    expect(seen[0]![3]).toBeCloseTo(0, 6);
+    expect(seen[0]![5]).toBeCloseTo(0, 6);
   });
 });
 

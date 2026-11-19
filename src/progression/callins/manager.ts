@@ -524,8 +524,9 @@ export class CallInManager implements CallinLink {
 
   private launch(id: CallInId, ai = false): Strike {
     const order = this.mark;
-    // A fresh roll for every call. In co-op the others get it with the order, and their copies roll the same.
-    order.seed = Math.floor(Math.random() * 0x100000000);
+    // Co-op: a fresh seed for every call, which the others get with the order, so their copies roll the same scatter. Alone
+    // there is no seed and no draw for one: the strike rolls from `Math.random`, as it did before co-op.
+    order.seed = this.sender ? Math.floor(Math.random() * 0x100000000) : undefined;
     order.yaw = undefined;
     const net = this.net();
     const strike = this.build(id, ai, net);

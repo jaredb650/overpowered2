@@ -131,6 +131,16 @@ export function clearOfWalls(p: THREE.Vector3): THREE.Vector3 {
 }
 
 /**
+ * Whom an attackers' mortar round is aimed at: a player inside the walls six times in ten, or nobody (the wall itself). The
+ * dice are thrown as they were for one player: none with nobody inside, one with one, and a second only to choose among
+ * several (co-op).
+ */
+export function shelled<T>(inWalls: readonly T[], roll: () => number = Math.random): T | null {
+  if (inWalls.length === 0 || roll() >= 0.6) return null;
+  return inWalls.length === 1 ? inWalls[0]! : inWalls[Math.floor(roll() * inWalls.length)]!;
+}
+
+/**
  * Where a team's next round goes: at random, but weighted toward groups and vehicles out in the field, and never inside the walls.
  * With nothing worth a round it goes somewhere in the field anyway: the owner wants a constant bombardment to watch.
  */

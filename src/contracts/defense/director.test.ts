@@ -19,7 +19,7 @@ import { FORT_POSTS, RINGS } from '../../world/map/fort/plan';
 import { MapSpec } from '../../world/map/spec';
 import { Structures } from '../../world/structures';
 import { ECONOMY, paysFor } from './data';
-import { FIELD_MORTAR, MortarCrew, pickMortarTarget, SATCHEL, satchelBlast, TEAM_MORTAR, tooClose, type MortarCandidate } from './field';
+import { FIELD_MORTAR, MortarCrew, pickMortarTarget, SATCHEL, satchelBlast, shelled, TEAM_MORTAR, tooClose, type MortarCandidate } from './field';
 import { Garrison, GARRISON, sideOf } from './garrison';
 import { Defense } from './index';
 import { HandRepair, handPay } from './repair';
@@ -425,5 +425,34 @@ describe('the garrison', () => {
     expect(Math.max(Math.abs(gunner.post.x), Math.abs(gunner.post.z))).toBeLessThan(RINGS.find(r => r.id === 'middle')!.half);
     g.stand([gunner, shotgun]);
     expect(gunner.mount).toBe(gun);
+  });
+});
+
+describe('whom the attackers\' mortar shells', () => {
+  const dice = (...values: number[]) => {
+    let i = 0;
+    const roll = () => values[i++]!;
+    return { roll, used: () => i };
+  };
+
+  it('nobody inside the walls: the wall, and no dice thrown', () => {
+    const d = dice(0.1);
+    expect(shelled([], d.roll)).toBeNull();
+    expect(d.used()).toBe(0);
+  });
+
+  it('one player inside: that player six times in ten, on one throw, as before co-op', () => {
+    const hit = dice(0.59, 0.99);
+    expect(shelled(['me'], hit.roll)).toBe('me');
+    expect(hit.used()).toBe(1);
+    const miss = dice(0.6);
+    expect(shelled(['me'], miss.roll)).toBeNull();
+    expect(miss.used()).toBe(1);
+  });
+
+  it('several inside (co-op): a second throw picks one of them', () => {
+    const d = dice(0.2, 0.7);
+    expect(shelled(['a', 'b', 'c'], d.roll)).toBe('c');
+    expect(d.used()).toBe(2);
   });
 });

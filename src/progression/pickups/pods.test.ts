@@ -3,7 +3,7 @@
  * is not a pickup. E within reach of an open one is the only way into the shop, and it is gone when the break ends.
  */
 import * as THREE from 'three';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Ctx } from '../../core/contracts';
 import type { WavePhase } from '../../core/gameplay';
 import { noop } from '../../core/stubs';
@@ -131,5 +131,24 @@ describe('supply pods', () => {
     step(pods, 0.5);
     expect(r.weapons.owned.has('judge')).toBe(true);
     expect(opened).toBe(0);
+  });
+});
+
+describe('alone, a pod draws from the dice when it always did', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('its facing is drawn as it starts to fall, not two seconds earlier when it is called', () => {
+    const pods = new DropPods(r.ctx, new ModelMaterials(r.ctx), true);
+    const draws = vi.spyOn(Math, 'random');
+    pods.call(SPOT.clone());
+    // Called onto a given spot: nothing is drawn yet (a spot of its own choosing draws only for the spot).
+    expect(draws).toHaveBeenCalledTimes(0);
+    step(pods, DROP_POD.warnSeconds - 0.1);
+    expect(draws).toHaveBeenCalledTimes(0);
+    draws.mockReturnValue(0.25);
+    step(pods, 0.2);
+    expect(draws).toHaveBeenCalledTimes(1);
+    const group = (pods as unknown as { pods: { phase: string; group: THREE.Group }[] }).pods.find(p => p.phase === 'falling')!.group;
+    expect(group.rotation.y).toBeCloseTo(Math.PI / 2, 6);
   });
 });

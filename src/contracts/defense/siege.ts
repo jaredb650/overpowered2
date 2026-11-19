@@ -30,7 +30,7 @@ import type { OutpostSquad } from '../../enemies/outpost/squad';
 import { ModelBuilder, ModelMaterials } from '../../progression/modelkit';
 import { FORT_MORTARS, FORT_SHOPS, LEVEL, RAMPART, ring, type FortShop, type RingId } from '../../world/map/fort/plan';
 import type { StructureSpec, Structures } from '../../world/structures';
-import { DEPTH_RING, depthAt, FIELD_MORTAR, MortarCrew, nextRing, onRing, outward, SATCHEL, satchelBlast } from './field';
+import { DEPTH_RING, depthAt, FIELD_MORTAR, MortarCrew, nextRing, onRing, outward, SATCHEL, satchelBlast, shelled } from './field';
 import { Shells } from './shells';
 
 const TICK = 0.4;
@@ -85,6 +85,8 @@ export function padSpots(spec: { x: number; z: number }, out: THREE.Vector3, lan
   land.set(spec.x, LEVEL.deck, spec.z).addScaledVector(n, -(RAMPART.from + RAMPART.to) / 2);
 }
 const _up = new THREE.Vector3(0, 1, 0);
+/** Reused: the players a mortar team may shell this salvo. */
+const _inWalls: THREE.Vector3[] = [];
 
 export type JobKind = 'assault' | 'sapper' | 'engineer' | 'crew';
 
@@ -1008,11 +1010,17 @@ export class Siege {
       }
       if (!fire) continue;
       this.counts.salvos++;
-      // Co-op: any player inside the walls may be the one shelled.
-      const inWalls = this.defenders().filter(q => depthAt(q.x, q.z) > 0);
-      const inside = inWalls.length > 0;
+      // Alone: the one player, by the same draws as ever. Co-op: any player inside the walls may be the one shelled.
+      const own = this.ctx.player.position;
+      const inWalls = _inWalls;
+      inWalls.length = 0;
+      if (this.ctx.coop?.world) {
+        const all = this.defenders();
+        for (let i = 0; i < all.length; i++) if (depthAt(all[i]!.x, all[i]!.z) > 0) inWalls.push(all[i]!);
+      } else if (depthAt(own.x, own.z) > 0) inWalls.push(own);
       for (let k = 0; k < FIELD_MORTAR.salvo; k++) {
-        if (inside && Math.random() < 0.6) _a.copy(inWalls[Math.floor(Math.random() * inWalls.length)]!);
+        const who = shelled(inWalls);
+        if (who) _a.copy(who);
         else this.wallTarget(t, _a);
         const a = rand(0, Math.PI * 2), r = rand(0, FIELD_MORTAR.scatter);
         _a.x += Math.sin(a) * r;

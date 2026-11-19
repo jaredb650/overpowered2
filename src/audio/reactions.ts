@@ -48,13 +48,23 @@ const isMachine = (e: EnemyInstance) => e.id === 'skitter' || e.id === 'drone';
  */
 export function killSounds(audio: AudioSystem, at: Vector3, gibbed: boolean): void {
   if (gibbed) {
-    audio.play('blood_splatter', { position: at, delay: 0.03 });
+    audio.play('blood_splatter', killSound(at, 1, 1, 0.03));
     // What went up coming down.
-    audio.play('gib_rain', { position: at, delay: 0.15 });
+    audio.play('gib_rain', killSound(at, 1, 1, 0.15));
   } else {
-    audio.play('head_pop', { position: at });
-    audio.play('vox_gurgle', { position: at, volume: 0.8, pitch: rand(0.9, 1.1), delay: 0.18 });
+    audio.play('head_pop', killSound(at, 1, 1, 0));
+    audio.play('vox_gurgle', killSound(at, 0.8, rand(0.9, 1.1), 0.18));
   }
+}
+
+/** Reused: every gib and killing headshot comes through here, and `play` keeps nothing of what it is handed. */
+const KILL_SOUND: PlayOptions = {};
+function killSound(position: Vector3, volume: number, pitch: number, delay: number): PlayOptions {
+  KILL_SOUND.position = position;
+  KILL_SOUND.volume = volume;
+  KILL_SOUND.pitch = pitch;
+  KILL_SOUND.delay = delay;
+  return KILL_SOUND;
 }
 
 /** Landings past this range are never worth a voice. */

@@ -338,7 +338,9 @@ export class War {
       return;
     }
     // Co-op: the gun is the team's problem. Any other player in the arc and in sight will do.
-    for (const p of this.host.crowd?.() ?? []) {
+    const crowd = this.host.crowd?.();
+    for (let i = 0; crowd && i < crowd.length; i++) {
+      const p = crowd[i]!;
       if (Math.abs(p.x - player.position.x) + Math.abs(p.z - player.position.z) < 0.5) continue;
       if (!this.canSee(gun, _a.set(p.x, p.y + 1.5, p.z))) continue;
       c.target = 'player';
@@ -485,7 +487,11 @@ export class War {
   /** The player within `metres` of a point: alone the one player, in co-op any living one. */
   private near(at: THREE.Vector3, metres: number): boolean {
     if (at.distanceTo(this.ctx.player.position) < metres) return true;
-    for (const p of this.host.crowd?.() ?? []) if (Math.hypot(p.x - at.x, p.y - at.y, p.z - at.z) < metres) return true;
+    const crowd = this.host.crowd?.();
+    for (let i = 0; crowd && i < crowd.length; i++) {
+      const p = crowd[i]!;
+      if (Math.hypot(p.x - at.x, p.y - at.y, p.z - at.z) < metres) return true;
+    }
     return false;
   }
 

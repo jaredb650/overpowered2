@@ -406,7 +406,7 @@ export class Prisoners {
     let h = this.mine;
     let since = this.heldAt;
     // Co-op host: `player` is whoever this soldier is after, who may be the one with a man in front of them.
-    for (const [holder, hold] of this.others) {
+    if (this.others.size > 0) for (const [holder, hold] of this.others) {
       if (holder.position.distanceToSquared(player.position) > 1) continue;
       h = hold.s;
       since = hold.at;
