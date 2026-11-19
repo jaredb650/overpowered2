@@ -918,5 +918,4 @@ Each: what fails, where, how many players, which network, the evidence, the caus
   owner's call after he has played it. For him to know: a field of view above 90 shows far enemies in a strip at each edge
   of the screen (the cone is 60 degrees either side). Not measured: real WebRTC, more than one guest, human squads and
   bosses, a guest page that itself runs slowly, the far tier at 10 Hz, the helicopter on the buffer. Outside my files, one
-  line each: the kit's `deploy` works on a build from before the load barrier (the baseline); `coop-motion-moves.mjs` waited
-  a fixed 700 ms for a withdrawal the lane allows 800 ms for.
+  line: the kit's `deploy` works on a build from before the load barrier (the baseline).
