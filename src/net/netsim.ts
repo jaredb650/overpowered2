@@ -90,7 +90,9 @@ export class NetSim implements SimSettings {
   ) {}
 
   get active(): boolean {
-    return this.down || this.lag > 0 || this.jitter > 0 || this.loss > 0 || this.kbps > 0 || this.peerKbps.size > 0;
+    // Still active while anything is in the air: a message sent after the settings were switched off must not arrive
+    // ahead of the ones they delayed (a reliable lane never reorders).
+    return this.down || this.lag > 0 || this.jitter > 0 || this.loss > 0 || this.kbps > 0 || this.peerKbps.size > 0 || this.heap.length > 0;
   }
 
   /** A dead line, or the line back. */

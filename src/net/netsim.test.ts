@@ -181,4 +181,19 @@ describe('network simulator', () => {
     expect(sim.buffered('slow')).toBe(0);
     expect(sim.active).toBe(false);
   });
+  it('keeps a reliable lane in order when it is switched off with messages still in the air', () => {
+    const { sim, advance } = rig();
+    sim.set('lag:200');
+    const got: string[] = [];
+    sim.reliable('p', 10, () => got.push('delayed'));
+    sim.set('off');
+    // Something is still in the air, so the lane layer must keep asking (lanes.ts sends at once when the simulator is idle).
+    expect(sim.active).toBe(true);
+    sim.reliable('p', 10, () => got.push('sent after'));
+    advance(100);
+    expect(got).toEqual([]);
+    advance(101);
+    expect(got).toEqual(['delayed', 'sent after']);
+    expect(sim.active).toBe(false);
+  });
 });

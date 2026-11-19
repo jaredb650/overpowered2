@@ -201,6 +201,10 @@ describe('backpressure on the event lane', () => {
     g.relay.flush();
     g.lobbies[0]!.setReady(true); g.relay.flush();
     expect(seat.state).toBe('lost');
+    // Nor does its page saying it is in the world bring it back early.
+    g.guestRooms[0]!.channel('lobby').send({ t: 'loaded', click: true, id: 'match-one' }, 'host-peer'); g.relay.flush();
+    expect([seat.state, seat.away]).toEqual(['lost', true]);
+    expect(g.seats).toEqual([['g1', { kind: 'lost' }]]);
     // The queue has drained: the next word from it brings it back, as a rejoin, so the world catches it up.
     g.hostRoom.queued.set('g1', 0);
     g.lobbies[0]!.setReady(true); g.relay.flush();

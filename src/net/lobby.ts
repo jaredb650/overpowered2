@@ -1277,7 +1277,8 @@ export class Lobby {
         this.ch.send({ t: 'start', match: this.match }, from);
       }
     } else if (msg.t === 'loaded' && typeof msg.click === 'boolean' && this.match && msg.id === this.match.id) {
-      this.loaded(player, msg.click);
+      // A seat cut for its backlog comes back when the backlog has drained (`seatBack`, above), not because its page says it is in.
+      if (!this.stalled.has(player.id)) this.loaded(player, msg.click);
     } else if (msg.t === 'bye') {
       this.byes.add(from);
       this.dropSeat(player, `${player.name} left.`);

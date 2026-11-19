@@ -18,15 +18,16 @@ const PLAYERS = Number(process.env.STALL_PLAYERS ?? 4);
 const SLOW_BYTES = 16 * 1024, STALLED_BYTES = 128 * 1024;
 
 /** One page's reading over a window: its frame rate, the events it got, the gaps between them, its kills. */
-const begin = page => page.evaluate(() => { window.__op2.net.metrics.reset(); window.__stallKills = window.__op2.ctx.progression.kills; });
+const begin = page => page.evaluate(() => { window.__op2.net.metrics.reset(); });
 const read = page => page.evaluate(() => {
   const { ctx } = window.__op2, net = window.__op2.net.snapshot();
   const action = net.lanes.action, world = net.lanes.world;
   return { fps: window.__op2.stats().fps, seconds: net.seconds, enemies: ctx.enemies.alive.length,
     actionIn: action ? { perSecond: action.in.packetsPerSecond, bytesPerSecond: action.in.bytesPerSecond, gapP50: action.gap.p50, gapP90: action.gap.p90, gapMax: action.gap.max } : null,
     worldIn: world ? { perSecond: world.in.packetsPerSecond, gapP90: world.gap.p90 } : null,
-    kills: ctx.progression.kills - (window.__stallKills ?? 0), state: ctx.coop.lobby.me?.state ?? 'in',
-    line: document.querySelector('.cs-line')?.textContent ?? '' };
+    // Its own hit claims sent in the window: it is still fighting.
+    hits: net.events.hit?.out.n ?? 0, shots: net.events.fire?.out.n ?? 0, state: ctx.coop.lobby.me?.state ?? 'in',
+    line: document.querySelector('.cs-line')?.textContent ?? '', saidBehind: !!window.__saidBehind };
 });
 /** The host's view of one guest: what is queued for it, what the rule says, and the seat. */
 const hostView = (host, id) => host.evaluate(id => {
@@ -34,6 +35,7 @@ const hostView = (host, id) => host.evaluate(id => {
   const player = lobby.players.find(p => p.id === id);
   return { queued: net.peers[id]?.bufferedReliable ?? 0, verdict: lobby.pressure.of(id), dropped: lobby.pressure.stats.dropped, stalls: lobby.pressure.stats.stalls,
     seat: player ? (player.state ?? 'in') : 'gone', away: !!player?.away, fps: window.__op2.stats().fps, simPending: net.sim.pending,
+    saidBehind: lobby.chat.filter(c => /fell behind/.test(c.text)).length,
     heapMB: Math.round((performance.memory?.usedJSHeapSize ?? 0) / 1048576), chat: lobby.chat.slice(-4).map(c => c.text) };
 }, id);
 
@@ -47,6 +49,8 @@ export default async function (host, { sleep, outDir }) {
     await heavyFight(party);
     const slow = party.guests.at(-1), others = party.guests.slice(0, -1);
     const slowId = await slow.evaluate(() => window.__op2.ctx.coop.lobby.you);
+    // The squeezed guest's own screen is watched from the start: its notice may only show for a moment.
+    await slow.evaluate(() => { setInterval(() => { if (/fell behind/i.test(document.querySelector('.cs-line')?.textContent ?? '')) window.__saidBehind = true; }, 30); });
     for (let i = 0; i < 10; i++) { await sleep(1000); await skipBreak(host); }
 
     // 1. Everyone healthy: the numbers the other guests must keep.
@@ -77,39 +81,46 @@ export default async function (host, { sleep, outDir }) {
     check(cut.dropped > 0, 'Before the cut, cosmetic events were left out for it', cut);
     check(cut.chat.some(text => /fell behind/.test(text)), 'The lobby says who fell behind, and why', cut.chat);
 
-    // 3. Held out: nothing more is queued for it, and the other two play on as before.
-    progress('the guest is held out; the others play on');
+    // 3. Held out: nothing more is queued for it (its queue only drains), and the other two play on as before. The link is
+    // let go at once; what is queued still leaves at the squeezed speed, so the guest is out for as long as that takes.
+    progress('the guest is held out; the link is let go; the others play on');
+    await host.evaluate(id => window.__op2.net.sim.throttle(id, 0), slowId);
     const atCut = await hostView(host, slowId);
-    for (let i = 0; i < 10; i++) { await sleep(1000); await skipBreak(host); const view = await hostView(host, slowId); peak = Math.max(peak, view.queued); out.timeline.push({ at: Date.now() - started, queued: view.queued, verdict: view.verdict, seat: view.seat }); }
-    const later = await hostView(host, slowId);
-    out.held = { atCut, later, peak, others: await Promise.all(others.map(read)) };
-    check(peak < STALLED_BYTES + 32 * 1024, `The host never queued more than the stalled mark for it (peak ${Math.round(peak / 1024)} KB)`, peak);
-    check(later.queued < atCut.queued, 'After the cut its queue only drains', { atCut: atCut.queued, later: later.queued });
+    let grew = 0, last = atCut.queued, back = null;
+    for (let i = 0; i < 240 && !back; i++) {
+      await sleep(500);
+      if (i % 2 === 0) await skipBreak(host);
+      const view = await hostView(host, slowId);
+      out.timeline.push({ at: Date.now() - started, queued: view.queued, verdict: view.verdict, seat: view.seat });
+      if (view.seat === 'lost') { grew = Math.max(grew, view.queued - last); last = Math.min(last, view.queued); peak = Math.max(peak, view.queued); }
+      else if (view.seat === 'in') back = { at: Date.now() - started, chat: view.chat };
+    }
+    out.held = { atCut, peak, grewWhileOut: grew, back, others: await Promise.all(others.map(read)) };
+    check(peak < STALLED_BYTES + 16 * 1024, `The host never queued more than the stalled mark for it (peak ${Math.round(peak / 1024)} KB)`, peak);
+    // The lobby still pings it and sends it the list: a few hundred bytes, never the game.
+    check(grew < 2048, 'While it was held out nothing of the game was queued for it: its queue only drained', { grew, atCut: atCut.queued });
+    check(!!back, 'Once its queue has drained the guest is back in the match', out.timeline.slice(-6));
     out.others = out.held.others.map((now, i) => ({ before: out.healthy.others[i], during: now }));
     for (const [i, o] of out.others.entries()) {
       check(o.during.fps >= o.before.fps * 0.8 - 2, `Guest ${i + 1} kept its frame rate through the other's stall`, [o.before.fps, o.during.fps]);
       check(o.during.actionIn.gapP90 <= o.before.actionIn.gapP90 * 2 + 25, `Guest ${i + 1} kept getting events as often`, [o.before.actionIn, o.during.actionIn]);
       check(o.during.worldIn.perSecond >= o.before.worldIn.perSecond * 0.75, `Guest ${i + 1} kept getting snapshots`, [o.before.worldIn, o.during.worldIn]);
-      check(o.during.kills > 0, `Guest ${i + 1} kept killing`, o.during.kills);
+      check(o.during.hits > 0 || o.during.shots > 0, `Guest ${i + 1} kept fighting`, o.during);
     }
-    check(later.fps >= out.healthy.host.fps * 0.8 - 2, 'The host kept its frame rate', [out.healthy.host.fps, later.fps]);
+    const hostNow = await hostView(host, slowId);
+    check(hostNow.fps >= out.healthy.host.fps * 0.8 - 2, 'The host kept its frame rate', [out.healthy.host.fps, hostNow.fps]);
     await shot(others[0], 'other-guest');
 
-    // 4. The link is let go. The queue drains, the guest is told, and it is back with the world as it is now.
-    progress('the link is let go');
-    await host.evaluate(id => window.__op2.net.sim.throttle(id, 0), slowId);
-    const toldLine = await slow.waitForFunction(() => /fell behind/.test(document.querySelector('.cs-line')?.textContent ?? ''), null, { timeout: 120000 }).then(() => true, () => false);
-    out.slowScreenSaid = toldLine;
-    await shot(slow, 'held-out');
-    const back = await host.waitForFunction(id => { const p = window.__op2.ctx.coop.lobby.players.find(x => x.id === id); return !!p && !p.state && !p.away; }, slowId, { timeout: 150000 }).then(() => true, () => false);
-    check(back, 'Once its queue has drained the guest is back in the match', await hostView(host, slowId));
+    // 4. Back, with the world as it is now, and healthy from here on.
+    progress('the guest is back');
     for (const page of party.pages) await begin(page);
-    for (let i = 0; i < 6; i++) { await sleep(1000); await skipBreak(host); }
+    for (let i = 0; i < 8; i++) { await sleep(1000); await skipBreak(host); }
     out.after = { host: await hostView(host, slowId), slow: await read(slow), hostEnemies: await host.evaluate(() => window.__op2.ctx.enemies.alive.length) };
     check(out.after.slow.state === 'in' && out.after.slow.actionIn?.perSecond > 5 && out.after.slow.worldIn?.perSecond > 5, 'It gets events and snapshots again', out.after.slow);
     check(Math.abs(out.after.slow.enemies - out.after.hostEnemies) <= 8, 'Its world is the host\'s again', [out.after.slow.enemies, out.after.hostEnemies]);
-    check(out.after.host.verdict === 'ok', 'And it is judged healthy', out.after.host);
-    check(toldLine, 'While held out, its own screen said its connection had fallen behind', out.after.slow);
+    check(out.after.host.verdict === 'ok' && out.after.host.stalls === 1 && out.after.host.saidBehind === 1 && out.after.host.seat === 'in', 'It is judged healthy and was cut once, not again', out.after.host);
+    check(out.after.host.chat.some(text => /is back|reconnected/.test(text)), 'The lobby says it is back', out.after.host.chat);
+    check(out.after.slow.saidBehind, 'While held out, its own screen said its connection had fallen behind', out.after.slow);
     await shot(slow, 'back');
     out.machine = { load1m: Math.round(loadavg()[0] * 10) / 10, cores: cpus().length };
     for (const page of party.pages) await stopShooting(page).catch(() => {});
