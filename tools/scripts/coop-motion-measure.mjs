@@ -262,12 +262,34 @@ export default async function (host, { sleep, outDir }, options = fromEnv()) {
       worldLane: hostNet.lanes?.world ? { unreliable: hostNet.lanes.world.unreliable, out: hostNet.lanes.world.out, fallback: hostNet.lanes.world.fallback, skipped: hostNet.lanes.world.skipped } : null,
       guestWorldLane: guestNet.lanes?.world ? { in: guestNet.lanes.world.in, lossPercent: guestNet.lanes.world.lossPercent, late: guestNet.lanes.world.late, gap: guestNet.lanes.world.gap } : null,
     };
+    // What the game itself says a frame costs on each page: a page that is cheap to run and still slow was starved by the
+    // machine (or its window was not being drawn), and its numbers say nothing about the netcode.
+    const cost = page => page.evaluate(() => { const s = window.__op2.stats(); return { fps: s.fps, cpuMs: s.cpuMs, hidden: document.hidden, visibility: document.visibilityState }; });
     result.run = { tag: TAG, enemies: ENEMIES, hostFpsCap: HOST_FPS, net: NET || 'clean', transport: party.transport, coopMs: hostNet.coopMs,
-      guestClock: await guest.evaluate(() => { const r = window.__op2.ctx.coop.world.motion?.(); return r ?? null; }).catch(() => null) };
+      host: await cost(host), guest: await cost(guest) };
     out.result = result;
     check(result.enemies >= ENEMIES * 0.9, 'The guest drew the crowd', result.enemies);
     check(result.stalls.movingFrames > 1000, 'The crowd was moving', result.stalls);
-    if (SHOTS) for (let i = 0; i < SHOTS; i++) { await shot(guest, `guest-${i}`); await sleep(120); }
+    if (SHOTS) {
+      // For the pictures the guest stops and watches the crowd come past the host.
+      await guest.evaluate(() => {
+        const { ctx } = window.__op2;
+        ctx.input.simulate('forward', false);
+        const look = () => {
+          let x = 0, y = 0, z = 0, n = 0;
+          for (const e of ctx.enemies.alive) { x += e.center.x; y += e.center.y; z += e.center.z; n++; }
+          if (n) {
+            const dx = x / n - ctx.player.eye.x, dy = y / n - ctx.player.eye.y, dz = z / n - ctx.player.eye.z;
+            ctx.player.yaw = Math.atan2(-dx, -dz);
+            ctx.player.pitch = Math.atan2(dy, Math.hypot(dx, dz));
+          }
+          requestAnimationFrame(look);
+        };
+        requestAnimationFrame(look);
+      });
+      await sleep(1500);
+      for (let i = 0; i < SHOTS; i++) { await shot(guest, `guest-${i}`); await sleep(120); }
+    }
     if (STRICT) {
       const measured = result.declared?.error ?? result.error;
       check(measured.p50 <= LIMITS.errorP50, `An enemy is drawn within ${LIMITS.errorP50} m of the host's, half the time`, measured);
