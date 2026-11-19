@@ -126,6 +126,27 @@ describe('network simulator', () => {
     expect(got).toEqual([1, 2]);
   });
 
+  it('a cut line drops everything it is given, reliable lanes included, until it is back', () => {
+    const { sim, advance } = rig();
+    const got: number[] = [];
+    sim.cut(true);
+    expect(sim.active).toBe(true);
+    sim.reliable('a', 1, () => got.push(1));
+    expect(sim.unreliable('a', 1, () => got.push(2))).toBe(false);
+    advance(5000);
+    expect(got).toEqual([]);
+    expect(sim.stats.dropped).toBe(2);
+    sim.cut(false);
+    expect(sim.active).toBe(false);
+    sim.reliable('a', 1, () => got.push(3));
+    advance(10);
+    // What was said while it was down is gone for good; what is said now arrives.
+    expect(got).toEqual([3]);
+    // Not a setting: it is not carried into the next page's address.
+    sim.cut(true);
+    expect(sim.get()).not.toHaveProperty('down');
+  });
+
   it('keeps going when a delayed send throws', () => {
     const { sim, advance } = rig();
     sim.set({ lag: 10 });

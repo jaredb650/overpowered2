@@ -365,8 +365,18 @@ export class Defense {
     for (const gun of this.mounts()) gun.upgrade(1);
   }
 
+  /**
+   * Co-op: this player is back in a match they had left (a reload, a rejoin) and the host has put their kit back
+   * (net/team.ts). The restored kit wins: no loadout is asked for, and nothing replaces what they came back with.
+   */
+  resumed(): void {
+    this.needLoadout = false;
+  }
+
   update(): void {
     if (this.needLoadout) {
+      // Co-op guest: whether this is a returning player is the host's word (their seat). The loadout waits for it, a moment.
+      if (this.guest && this.ctx.coop?.world?.team.seated === false) return;
       if (!this.asked) {
         this.asked = true;
         this.ctx.events.emit('defense:open', { screen: 'loadout' });

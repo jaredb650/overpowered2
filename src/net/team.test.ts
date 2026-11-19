@@ -539,6 +539,29 @@ describe('seats: a rejoin gives the kit back and is not a free revive', () => {
     expect(a.player.downed).toBe(false);
     game.dispose();
   });
+  it('Outpost Defense: a player who comes back with a kit is not sent to the loadout screen; a new player is', () => {
+    const game = party(1);
+    game.tick();
+    const a = game.guests[0]!;
+    arm(a); game.tick(KIT_MS + 100); game.tick();
+    const back = game.rejoin(0, 'guest-1b');
+    const defense = { resumed: vi.fn() };
+    (back.ctx.contracts as unknown as { defense: unknown }).defense = defense;
+    expect(back.world.team.seated).toBe(false);
+    game.tick();
+    expect(back.world.team.seated).toBe(true);
+    expect(defense.resumed).toHaveBeenCalledOnce();
+    expect(kitOf(back).guns.map(g => g.weapon).sort()).toEqual(['shotgun', 'smg']);
+    game.dispose();
+    // A new player's seat is settled with nothing in it: the mode's own loadout is theirs to pick.
+    const other = party(1, 'crucible', undefined, [0]);
+    const fresh = { resumed: vi.fn() };
+    (other.guests[0]!.ctx.contracts as unknown as { defense: unknown }).defense = fresh;
+    other.guests[0]!.world.begin(); other.tick();
+    expect(other.guests[0]!.world.team.seated).toBe(true);
+    expect(fresh.resumed).not.toHaveBeenCalled();
+    other.dispose();
+  });
   it('a brand-new player gets no purse, no kit and no line about rejoining', () => {
     const game = party(1);
     game.tick();
@@ -883,6 +906,25 @@ describe('the session\'s word on a seat drives the team: arriving, dropping, com
     game.relay.reopen(a.room); game.relay.flush(); game.tick();
     for (let i = 0; i < 30; i++) game.tick(500);
     expect(game.host.world.team.ending).toBeNull();
+    game.dispose();
+  });
+  it('a returning player on their way back in (their line answers, their page has not said where it is) still holds the wipe off', () => {
+    const game = party(1);
+    game.tick();
+    const a = game.guests[0]!;
+    die(game.host); game.relay.flush(); game.tick(100);
+    game.relay.close(a.room); game.relay.flush();
+    const row = game.host.lobby.players.find(p => !p.host)!;
+    expect(row.state).toBe('lost');
+    for (let i = 0; i < 45; i++) { vi.advanceTimersByTime(200); game.host.world.update(); }
+    // Nine seconds in the lobby hears from them again: behind the load barrier that is 'loading' until their page reports in.
+    row.state = 'loading';
+    for (let i = 0; i < 15; i++) { vi.advanceTimersByTime(200); game.host.world.update(); }
+    // Twelve seconds after the loss, and no wipe: they were given time to arrive.
+    expect(game.host.world.team.ending).toBeNull();
+    // But not for ever: a page that never reports in is not waited on.
+    for (let i = 0; i < 20; i++) { vi.advanceTimersByTime(200); game.host.world.update(); }
+    expect(game.host.world.team.ending).toBe('wipe');
     game.dispose();
   });
   it('not back within the ten seconds, the wipe rules apply; a player who was already down holds nothing off', () => {

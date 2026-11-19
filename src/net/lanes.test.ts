@@ -47,6 +47,31 @@ const bytes = (...values: number[]) => new Uint8Array(values);
 describe('the lane layer', () => {
   afterEach(() => { vi.useRealTimers(); });
 
+  it('a cut line (the simulator) sends nothing and hears nothing, on both kinds of lane; and a peer who leaves takes its frame count with it', () => {
+    const { a, b, meet } = link();
+    const sim = new NetSim();
+    const left = new LaneRoom(a.wire, { metrics: null, sim }), right = new LaneRoom(b.wire, { metrics: null });
+    meet();
+    const heardRight: unknown[] = [], heardLeft: unknown[] = [];
+    right.channel<{ n: number }>('lobby').on(data => heardRight.push(data));
+    right.channel<Uint8Array>('pose', { unreliable: true }).on(data => heardRight.push([...data]));
+    left.channel<{ n: number }>('lobby').on(data => heardLeft.push(data));
+    sim.cut(true);
+    left.channel<{ n: number }>('lobby').send({ n: 1 }, 'b');
+    left.channel<Uint8Array>('pose', { unreliable: true }).send(bytes(7), 'b');
+    right.channel<{ n: number }>('lobby').send({ n: 2 }, 'a');
+    expect(heardRight).toEqual([]); expect(heardLeft).toEqual([]);
+    sim.cut(false);
+    left.channel<{ n: number }>('lobby').send({ n: 3 }, 'b');
+    right.channel<{ n: number }>('lobby').send({ n: 4 }, 'a');
+    expect(heardRight).toEqual([{ n: 3 }]); expect(heardLeft).toEqual([{ n: 4 }]);
+    const seq = () => (left as unknown as { lanes: Map<string, { seq: Map<string, number> }> }).lanes.get('pose')!.seq;
+    left.channel<Uint8Array>('pose', { unreliable: true }).send(bytes(8), 'b');
+    expect(seq().has('b')).toBe(true);
+    for (const h of a.leaves) h('b');
+    expect(seq().has('b')).toBe(false);
+  });
+
   it('carries a reliable lane as before: objects as objects, to the handler with the sender id', () => {
     const { a, b, meet } = link();
     const left = new LaneRoom(a.wire, { metrics: null }), right = new LaneRoom(b.wire, { metrics: null });

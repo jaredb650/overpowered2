@@ -17,6 +17,11 @@
  * a lost message, and jitter lets a later message overtake an earlier one.
  *
  * It is per page and one way: to feel 80 ms each way, set lag 80 on both pages. Off unless asked for.
+ *
+ *   window.__op2.net.sim.cut(true)    a dead line: nothing this page sends leaves it and nothing arrives, reliable lanes
+ *                                     included, and neither end is told (a real connection that dies loses what was in
+ *                                     flight). cut(false) brings it back; what was said meanwhile is gone for good. Not a
+ *                                     setting: it is never carried to the next page.
  */
 
 import { NETSIM } from './mode';
@@ -57,6 +62,8 @@ export class NetSim implements SimSettings {
   loss = 0;
   stall = SIM_OFF.stall;
   kbps = 0;
+  /** The line is dead (`cut`): everything sent or arriving is dropped. */
+  down = false;
   /** What it has done since the page loaded. */
   readonly stats = { delayed: 0, dropped: 0, resent: 0 };
   /** A binary heap of what is still in the air, earliest first; ties leave in the order they were sent. */
@@ -75,7 +82,12 @@ export class NetSim implements SimSettings {
   ) {}
 
   get active(): boolean {
-    return this.lag > 0 || this.jitter > 0 || this.loss > 0 || this.kbps > 0;
+    return this.down || this.lag > 0 || this.jitter > 0 || this.loss > 0 || this.kbps > 0;
+  }
+
+  /** A dead line, or the line back. */
+  cut(on: boolean): void {
+    this.down = on;
   }
 
   set(settings: Partial<SimSettings> | string): SimSettings {
@@ -104,6 +116,7 @@ export class NetSim implements SimSettings {
 
   /** A message on a reliable lane: `deliver` runs late, never out of order for this peer, never dropped. */
   reliable(peer: string, bytes: number, deliver: () => void): void {
+    if (this.down) { this.stats.dropped++; return; }
     const now = this.now();
     let at = this.link(peer, bytes, now) + this.lag + this.random() * this.jitter;
     // A lost packet is sent again after `stall`; the resend can be lost too.
@@ -118,7 +131,7 @@ export class NetSim implements SimSettings {
 
   /** A message on an unreliable lane: lost (false, `deliver` never runs) or late on its own, whatever the others do. */
   unreliable(peer: string, bytes: number, deliver: () => void): boolean {
-    if (this.random() < this.loss) {
+    if (this.down || this.random() < this.loss) {
       this.stats.dropped++;
       return false;
     }

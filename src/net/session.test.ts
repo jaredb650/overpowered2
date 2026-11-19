@@ -10,8 +10,12 @@ vi.mock('./world', () => ({ CoopWorld: class {
   mission = { catchUp: vi.fn() };
   begin = vi.fn(); update = vi.fn(); dispose = vi.fn(); doing = () => 0;
 } }));
+// The session's own layer (the gate, the status line, the host-lost board) and the co-op HUD are DOM: stand-ins that record.
+const view = vi.hoisted(() => ({ showLost: vi.fn(), setLostFoot: vi.fn(), setLine: vi.fn(), showGate: vi.fn(), hideGate: vi.fn(), paintGate: vi.fn(), dispose: vi.fn() }));
+vi.mock('./sessionHud', () => ({ SessionHud: class { showLost = view.showLost; setLostFoot = view.setLostFoot; setLine = view.setLine; showGate = view.showGate; hideGate = view.hideGate; paintGate = view.paintGate; dispose = view.dispose; } }));
+vi.mock('./coopHud', () => ({ CoopHud: class { update = vi.fn(); dispose = vi.fn(); showEnd = vi.fn(); } }));
 import type { Ctx } from '../core/contracts';
-import { CoopSession } from './index';
+import { CoopSession, LOST_BOARD_MS } from './index';
 import type { Lobby, LobbyPlayer } from './lobby';
 
 const host: LobbyPlayer = { id: 'host', name: 'HOST', host: true, ready: true, slot: 0 };
@@ -110,6 +114,62 @@ describe('the deploy gate, real reasons and host loss', () => {
     session.gate(start);
     expect(start).not.toHaveBeenCalled();
     expect(ended.mock.calls[0]![0]).toMatch(/ended while you were loading/);
+  });
+  it('a guest whose host is gone puts the board up from the cards it has, then regroups on the same code', async () => {
+    // A page with a screen: the board is the session's own layer (sessionHud.ts).
+    vi.stubGlobal('document', { hidden: false, addEventListener: () => {}, removeEventListener: () => {} });
+    try {
+      const { session, lobby, ended } = gated();
+      const s = session as unknown as { code: string; password: string; world: { team: { roster(): unknown[] } } };
+      s.code = 'ABC234'; s.password = 'pw';
+      Object.assign(lobby, { away: vi.fn() });
+      (session as unknown as { ctx: { waves: { wave: number } } }).ctx.waves = { wave: 4 };
+      s.world.team.roster = () => [
+        { name: 'HOST', color: '#fff', me: false, card: { kills: 9, score: 4000, credits: 300 } },
+        { name: 'GUEST', color: '#0ff', me: true, card: { kills: 5, score: 2500, credits: 120 } },
+      ];
+      await session.init(); session.gate(() => {}); session.deploy();
+      view.showLost.mockClear();
+      const now = vi.spyOn(performance, 'now').mockReturnValue(50_000);
+      // The grace ran out: the room closes under the match with the host gone.
+      lobby.phase = 'closed'; lobby.error = 'host-left'; lobby.onChange();
+      expect(view.showLost).toHaveBeenCalledOnce();
+      const [headline, sub, rows] = view.showLost.mock.calls[0]!;
+      expect(headline).toBe('HOST LOST');
+      expect(sub).toMatch(/The host left\. The match ended on wave 4/);
+      expect(rows).toEqual([
+        { name: 'HOST', color: '#fff', me: false, kills: 9, score: 4000, credits: 300 },
+        { name: 'GUEST', color: '#0ff', me: true, kills: 5, score: 2500, credits: 120 },
+      ]);
+      // The board stays for LOST_BOARD_MS with its countdown; nothing ends before then, and a second word changes nothing.
+      expect(ended).not.toHaveBeenCalled();
+      lobby.onChange();
+      expect(view.showLost).toHaveBeenCalledOnce();
+      now.mockReturnValue(50_000 + LOST_BOARD_MS - 1000); session.update();
+      expect(view.setLostFoot).toHaveBeenLastCalledWith('You host the new lobby in 1');
+      expect(ended).not.toHaveBeenCalled();
+      now.mockReturnValue(50_000 + LOST_BOARD_MS + 10); session.update();
+      // Then everyone meets again on the same code: this guest, the lowest slot left, hosts.
+      expect(ended).toHaveBeenCalledOnce();
+      expect(ended.mock.calls[0]![1]).toBeNull();
+      expect(ended.mock.calls[0]![2]).toMatchObject({ code: 'ABC234', password: 'pw', rank: 0, names: ['GUEST'] });
+      expect(ended.mock.calls[0]![0]).toMatch(/You are hosting this lobby now/);
+    } finally { vi.unstubAllGlobals(); }
+  });
+  it('a lost connection to the host reads so on the board; before the deploy click there is no board, only the regroup', async () => {
+    vi.stubGlobal('document', { hidden: false, addEventListener: () => {}, removeEventListener: () => {} });
+    try {
+      const { session, lobby, ended } = gated();
+      const s = session as unknown as { code: string; password: string };
+      s.code = 'ABC234'; s.password = 'pw';
+      await session.init(); session.gate(() => {});
+      view.showLost.mockClear();
+      lobby.phase = 'closed'; lobby.error = 'lost'; lobby.onChange();
+      expect(view.showLost).not.toHaveBeenCalled();
+      expect(ended).toHaveBeenCalledOnce();
+      expect(ended.mock.calls[0]![0]).toMatch(/Lost the connection to the host/);
+      expect(ended.mock.calls[0]![2]).toMatchObject({ rank: 0 });
+    } finally { vi.unstubAllGlobals(); }
   });
   it('feeds seat events to the hooks with the stable seat, tells the same page back from a new one, and names the connections that are gone', async () => {
     const { session, lobby } = setup(); await session.init(); session.begin();

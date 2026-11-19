@@ -223,6 +223,34 @@ describe('the runtime', () => {
     expect(d.needLoadout).toBe(false);
   });
 
+  it('co-op: a guest is not asked for a loadout until the host has settled their seat, and never when they came back with a kit', () => {
+    const { ctx, setLoadout } = fakeCtx();
+    const opened: string[] = [];
+    const team = { seated: false };
+    Object.assign(ctx, { events: { emit: (name: string, e: { screen: string }) => { if (name === 'defense:open') opened.push(e.screen); } },
+      coop: { hosting: false, world: { team } } });
+    // A returning player: the host's word comes with their kit, and the loadout screen never opens.
+    const back = new Defense(ctx);
+    back.needLoadout = true;
+    back.update(); back.update();
+    expect(opened).toEqual([]);
+    team.seated = true;
+    back.resumed();
+    expect(back.needLoadout).toBe(false);
+    back.needLoadout = false;
+    expect(opened).toEqual([]);
+    expect(setLoadout).not.toHaveBeenCalled();
+    // A new player: once their (empty) seat is settled, the loadout is asked for, once.
+    team.seated = false;
+    const fresh = new Defense(ctx);
+    fresh.needLoadout = true;
+    fresh.update();
+    expect(opened).toEqual([]);
+    team.seated = true;
+    fresh.update(); fresh.update();
+    expect(opened).toEqual(['loadout']);
+  });
+
   it('loses a shop to damage and rebuilds it in a break for its sum', () => {
     const { ctx } = fakeCtx();
     const d = new Defense(ctx);

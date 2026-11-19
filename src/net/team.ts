@@ -118,6 +118,11 @@ export const KIT_MS = 2000;
  * second ended the run on that frame. Not back by then, the wipe rules apply. A deliberate leave is not a lost seat.
  */
 export const LOST_UP_MS = 10_000;
+/**
+ * Once such a player's connection answers again they are on their way back in (the lobby has them 'loading' until their page
+ * says where it is, a round trip or two): they get at least this long to arrive, even if the ten seconds run out meanwhile.
+ */
+export const LOST_BACK_MS = 5_000;
 /** A host frame longer than this is a stall (a hitch, a sleeping tab): the bleed clocks do not count the excess. */
 const STALL_MS = 250;
 /** After the Commander falls his last words are read out before the board (ui/commander); if they never finish, the board comes anyway. */
@@ -231,6 +236,8 @@ export class Team {
   private readonly seats = new Map<string, Seat>();
   /** Guest: the host has settled my seat (its `restore` came): my purse and kit may be kept from now on. */
   private settled: boolean;
+  /** The host has settled this player's seat: a new player's empty one, or a returning player's purse, kit and life. */
+  get seated(): boolean { return this.settled; }
   private lastNow = 0;
   private fulfilledAt = 0;
   private toldCheats = false;
@@ -240,8 +247,8 @@ export class Team {
   /** Host: arrived players who are out of the world right now, and those of them the team respawned meanwhile. */
   private readonly awayIds = new Set<string>();
   private readonly rose = new Set<string>();
-  /** Host: players lost while up, and until when each still counts as up for a wipe (`LOST_UP_MS`). */
-  private readonly lostUp = new Map<string, number>();
+  /** Host: players lost while up: until when each still counts as up for a wipe (`LOST_UP_MS`), and whether their line is back. */
+  private readonly lostUp = new Map<string, { until: number; back: boolean }>();
   onOver: (cards: Card[], wave: number, ending: Ending) => void = () => {};
   /**
    * Host: a guest's world is up, or back after a drop: the moment to hand it what it missed (world.ts runs every module's
@@ -383,15 +390,19 @@ export class Team {
   /** Host: this player's connection dropped (the session's hook, world.ts). On their feet, they hold a wipe off for a while. */
   lost(id: string): void {
     if (!this.session.hosting || this.final) return;
-    if (this.arrived.has(id) && this.life(id).state === 'up') this.lostUp.set(id, performance.now() + LOST_UP_MS);
+    if (this.arrived.has(id) && this.life(id).state === 'up') this.lostUp.set(id, { until: performance.now() + LOST_UP_MS, back: false });
   }
 
   /** Host: is a player who was up when their line dropped still inside the grace? Those who are back, gone or late are forgotten. */
   private graced(now: number): boolean {
     let held = false;
-    for (const [id, until] of this.lostUp) {
+    for (const [id, grace] of this.lostUp) {
       const player = this.session.lobby.players.find(p => p.id === id);
-      if (!player || !player.away || player.state !== 'lost' || now >= until || this.lives.get(id)?.state !== 'up') this.lostUp.delete(id);
+      // Back in the world, gone, or out by choice (on the lobby page: away with no state): nothing to wait for.
+      if (!player || !player.away || !player.state || this.lives.get(id)?.state !== 'up') { this.lostUp.delete(id); continue; }
+      // Their line answers again: not in yet, but coming.
+      if (player.state !== 'lost' && !grace.back) { grace.back = true; grace.until = Math.max(grace.until, now + LOST_BACK_MS); }
+      if (now >= grace.until) this.lostUp.delete(id);
       else held = true;
     }
     return held;
@@ -654,6 +665,8 @@ export class Team {
       if (kit) {
         try { applyKit(ctx, kit); }
         catch (error) { console.warn('[coop] The kit could not be put back whole', error); }
+        // Outpost Defense arms each player from its own loadout screen as a run starts: not one who came back with a kit.
+        (ctx.contracts as unknown as { defense?: { resumed?(): void } } | undefined)?.defense?.resumed?.();
       }
       const p = ctx.player as unknown as { alive: boolean; downed: boolean; health: number; maxHealth: number; armor: number };
       if (value.dead === true) {

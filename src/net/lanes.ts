@@ -97,6 +97,8 @@ export class LaneRoom implements NetRoom {
     });
     wire.onPeerLeave(id => {
       this.peers.delete(id);
+      // The next connection under this id counts its frames from 0 again.
+      for (const lane of this.lanes.values()) lane.seq.delete(id);
       for (const handler of this.leaves) handler(id);
     });
     wire.onFast((frame, from) => this.fastIn(frame, from));
@@ -128,7 +130,8 @@ export class LaneRoom implements NetRoom {
     lane = made;
     this.lanes.set(name, lane);
     wire.on((data, from) => {
-      if (this.closed) return;
+      // A dead line (the simulator's `cut`) hears nothing either.
+      if (this.closed || this.sim.down) return;
       made.stats?.peer(from).in(sizeOf(data), this.now());
       this.deliver(made, data, from);
     });
@@ -186,7 +189,7 @@ export class LaneRoom implements NetRoom {
   }
 
   private fastIn(frame: Uint8Array, from: string): void {
-    if (this.closed || frame.byteLength < 4) return;
+    if (this.closed || this.sim.down || frame.byteLength < 4) return;
     const length = frame[0]!;
     if (frame.byteLength < 1 + length + 2) return;
     // Lanes are few: match the name's bytes rather than build a string per packet.
