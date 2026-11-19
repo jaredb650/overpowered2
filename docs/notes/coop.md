@@ -333,7 +333,9 @@ two states; its turret is the buffer's yaw. The old per-frame `slerp(0.25)` turn
 `node tools/scripts/coop-motion-matrix.mjs --baseline d9ecffb`, 12 cases on the old lane (`d9ecffb`) and on the new, 30 s
 recorded each, loopback transport, the Crucible, both pages drawn at 1280x720. The new lane is this branch as it stood with
 the two fixes below in it; nothing in the enemy lane's code has changed at the tip since (`replicas.ts` gained one line at
-spawn, `motion.ts` and `snapshot.ts` none). **All 24 runs counted on the first try**: the
+spawn, `motion.ts` and `snapshot.ts` none), and one case run again on the landed tip, after the wire pass (48 enemies, the
+worst network: on screen 287 ms old, 1.7 cm off the path at the 95th percentile, 0.01% of frames stood still, no jumps),
+agrees with its row. **All 24 runs counted on the first try**: the
 guest page ran at 59.9 to 60 frames a second in every one, the host at 56.5 to 58.7 (19.6 to 22.9 with its cap), and the
 machine's 1-minute load before a run was 4.6 to 11.7 on 32 cores (other agents' proofs were running; the runner waits while
 it is over 12). The crowd is husks, troopers and stalkers; the host runs in circles and the guest stays 14 m from the host,

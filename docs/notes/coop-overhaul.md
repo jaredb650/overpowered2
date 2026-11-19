@@ -918,4 +918,6 @@ Each: what fails, where, how many players, which network, the evidence, the caus
   owner's call after he has played it. For him to know: a field of view above 90 shows far enemies in a strip at each edge
   of the screen (the cone is 60 degrees either side). Not measured: real WebRTC, more than one guest, human squads and
   bosses, a guest page that itself runs slowly, the far tier at 10 Hz, the helicopter on the buffer. Outside my files, one
-  line: the kit's `deploy` works on a build from before the load barrier (the baseline).
+  line: the kit's `deploy` works on a build from before the load barrier (the baseline). Landed at `d082879`; the table's
+  runs were made before the wire pass landed, so one case was run again on the landed tip (48 enemies, the worst network)
+  and agrees with its row.
