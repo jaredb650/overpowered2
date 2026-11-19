@@ -267,7 +267,9 @@ export class DropPods {
     pod.ring.setColor(color, 2);
     pod.marker = hud.marker(_p.copy(pod.entry.position).setY(pod.entry.position.y + 3), this.supply ? SUPPLY.label : PICKUP_LOOK.weaponCache.label, color);
     if (age < 1) audio.play('cache_incoming');
-    hud.feed(this.supply ? 'SUPPLY POD INBOUND: THE SHOP IS IN IT UNTIL THE BREAK ENDS' : 'WEAPON CACHE INBOUND', color);
+    // A guest who arrives with it already standing is told so, not that it is on its way.
+    const down = age >= D.warnSeconds + D.height / D.speed;
+    hud.feed(this.supply ? `SUPPLY POD ${down ? 'DOWN' : 'INBOUND'}: THE SHOP IS IN IT UNTIL THE BREAK ENDS` : `WEAPON CACHE ${down ? 'DOWN' : 'INBOUND'}`, color);
     if (age > 0) this.skipTo(pod, age);
   }
 
