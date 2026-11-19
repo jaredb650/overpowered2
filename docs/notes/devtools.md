@@ -74,7 +74,7 @@ shows how.) It uses Playwright's Clock, already inside `playwright-core`: `Date`
 seeded generator before any page code runs. `tools/shot.mjs` scripts may now export `before(page)`, which runs before the page
 loads: that is the only change to `shot.mjs`.
 
-Two things had to be solved to get the same picture twice, and are worth knowing:
+Three things had to be solved to get the same picture twice, and are worth knowing:
 
 - **Loading takes a different amount of real time each run** (downloads, and three.js polling its shader compiles every 10 ms
   of page time). So page time stands still all through loading: `ready()` fires the short timers the page is waiting on (a
@@ -83,13 +83,28 @@ Two things had to be solved to get the same picture twice, and are worth knowing
   early. Every run leaves loading with the clock at the same reading and the game at frame 0. A page that needs time to pass
   before it is ready gets it after 400 such steps, and the result then says `advanced: true`.
 - **Late files.** A step is only taken while no request is in flight, so a download lands on the same frame every run.
+- **The clock must be paused in one call.** Playwright's `clock.install()` followed by `clock.pauseAt()` replays, in every new
+  page, the few real milliseconds that passed between the two calls, so `performance.now()` started at 3 ms one run and 7 ms the
+  next. Anything reading it directly (a three.js clock, a shader's time) then drifted by a hair: 0.11 % of pixels on a gun's
+  edges. `pauseAt()` alone starts every page at exactly 0, and `ready()` returns that reading as `clockMs`.
 
-**Proof (2026-11-18):** `/?sandbox=gore` after 120 frames, twice: `tools/diff.mjs --threshold 0 --aa` reports 0 of 921,600 pixels
-changed, 0 bytes different. `/?sandbox=gore&scenario=explosion` as a 24-frame sheet at 1440x900 dpr 2 (blast, gibs, blood,
-smoke, ragdolls), twice: 0 of 3,944,700 pixels different. The control, the same sheet twice with `--live`: 17 % of pixels
-changed (71 % differ at all), and the frames asked for every 100 ms arrived at 0, 402, 548, 4106, 5228 ms on the loaded machine.
-Two earlier versions of the helper failed this proof (film grain everywhere, then one frame of drift): the cause each time was
-loading moving the clock by a different amount.
+**Proof (2026-11-18), each the same command run twice, compared with `tools/diff.mjs --threshold 0 --aa`:**
+
+| Page | Result |
+|---|---|
+| `/?sandbox=gore`, 120 frames, 1280x720 | 0 of 921,600 pixels differ |
+| `/?sandbox=gore&scenario=explosion` as a 24-frame sheet at 1440x900 dpr 2 (blast, gibs, blood, smoke, ragdolls) | 0 of 3,944,700 pixels differ (run twice more after the last change: 0 again) |
+| `/?sandbox=viewmodels&weapon=smg&pose=reload`, 90 frames, 1440x900 dpr 2 | **2,404 of 5,184,000 differ (0.046 %), by 1 to 7 levels out of 255, 1,989 of them by 1.** At the default threshold, and at 0.03: 0 changed |
+| Control: the explosion sheet twice with `--live` | 17 % changed (71 % differ at all); frames asked for every 100 ms arrived at 0, 402, 548, 4106, 5228 ms on the loaded machine |
+
+**What still differs, honestly:** on the gun, two small patches (the hazard stripes on the magazine, the markings on the sight)
+come out a level or two different between runs. Both are decals drawn through a 2D canvas and uploaded as one texture
+(`src/weapons/viewmodels/kit/materials.ts`, `makeDecals`); the likely cause is Chrome rasterising that canvas on the GPU, which
+this helper cannot pin. Not proven. In practice: compare gun shots at the default threshold (or `--threshold 0.03`), where it
+reads 0, and treat a strict-mode difference under 0.1 % confined to those decals as noise.
+
+Three earlier versions of the helper failed these proofs (film grain everywhere, then one frame of drift, then hairline gun
+edges): the causes are the three points above.
 
 Not frozen: sound, WebRTC, web workers, `crypto.getRandomValues`, and CSS animations in the DOM (HUD and menu fades run in real
 time; `page.screenshot({ animations: 'disabled' })` settles those). So this is for single-player look-checks, not co-op.

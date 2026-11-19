@@ -18,7 +18,11 @@ const pose: fc.Arbitrary<Pose> = fc.record({
   pitch: f32(-3.14, 3.14),
   move: fc.constantFrom(...MOVES),
   weapon,
-});
+  // The "doing" bits: one byte, and a pose with none set comes back without the field.
+  flags: fc.option(fc.integer({ min: 0, max: 255 }), { nil: undefined }),
+}, { requiredKeys: ['seq', 'position', 'velocity', 'yaw', 'pitch', 'move', 'weapon'] });
+/** Bytes before the weapon name, read off the codec so a new header field does not break these tests. */
+const HEADER = encodePose({ seq: 0, position: [0, 0, 0], velocity: [0, 0, 0], yaw: 0, pitch: 0, move: 'walk', weapon: 'smg' }, 0).byteLength - 3;
 const slot = fc.integer({ min: 0, max: 3 });
 const bytesOf = (data: ArrayBuffer) => [...new Uint8Array(data)];
 
@@ -26,10 +30,11 @@ describe('pose wire format, by property', () => {
   it('decode(encode(pose)) is the pose, with numbers at 32-bit float precision and nothing else changed', () => {
     fc.assert(fc.property(pose, slot, (p, s) => {
       const data = encodePose(p, s);
-      expect(data.byteLength).toBe(40 + p.weapon.length);
+      expect(data.byteLength).toBe(HEADER + p.weapon.length);
       const back = decodePose(data);
-      expect(back).toEqual({ slot: s, pose: { ...p, position: p.position.map(Math.fround), velocity: p.velocity.map(Math.fround),
-        yaw: Math.fround(p.yaw), pitch: Math.fround(p.pitch) } });
+      const { flags, ...rest } = p;
+      expect(back).toEqual({ slot: s, pose: { ...rest, position: p.position.map(Math.fround), velocity: p.velocity.map(Math.fround),
+        yaw: Math.fround(p.yaw), pitch: Math.fround(p.pitch), ...(flags ? { flags } : {}) } });
       // The quantization error of a 32-bit float at this size: under a millimetre at the far edge of any map.
       for (let i = 0; i < 3; i++) expect(Math.abs(back!.pose.position[i]! - p.position[i]!)).toBeLessThanOrEqual(0.0005);
       // A decoded pose encodes back to the same bytes: one pose, one packet.

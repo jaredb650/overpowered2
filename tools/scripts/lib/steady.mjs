@@ -47,7 +47,8 @@ const state = new WeakMap();
  */
 export async function install(page, { seed = 1, time = '2026-01-01T12:00:00Z' } = {}) {
   await page.addInitScript(`Math.random = (${mulberry32})(${Number(seed)});`);
-  await page.clock.install({ time });
+  // pauseAt alone, not install() then pauseAt(): Playwright replays in each new page the real time that passed between the two
+  // calls, so performance.now() would start a few milliseconds off, differently every run. One call starts every page at 0.
   await page.clock.pauseAt(time);
   // Requests in flight: a step is only taken while none is, so a file that arrives late lands on the same frame every run.
   const s = { inflight: 0, frames: 0 };
@@ -105,7 +106,7 @@ const loadStep = (page, until, advance) => page.evaluate(async ([expr, frame, mo
  *
  * A page that needs time to pass before it is ready (a fade it waits out) would never get there, so after `patience` steps
  * time is moved the ordinary way, one frame a step: `advanced` is then true in the result and two runs may differ by a frame.
- * Returns { steps, advanced }.
+ * Returns { steps, advanced, clockMs }: clockMs is the page's performance.now() at ready, the same every run (0 unless advanced).
  */
 export async function ready(page, { until = '!!window.__op2', timeout = 90000, grace = 60, patience = 400 } = {}) {
   const start = Date.now();
@@ -113,7 +114,7 @@ export async function ready(page, { until = '!!window.__op2', timeout = 90000, g
   for (;;) {
     await quiet(page, grace);
     const did = await loadStep(page, until, steps >= patience);
-    if (did === 'ready') return { steps, advanced: steps > patience };
+    if (did === 'ready') return { steps, advanced: steps > patience, clockMs: await page.evaluate(() => performance.now()) };
     if (Date.now() - start > timeout) throw new Error(`steady: the page was not ready after ${timeout} ms (waiting for: ${until})`);
     if (did === 'idle') await wait(20);
     else { steps++; if (did === 'moved') state.get(page).frames++; }

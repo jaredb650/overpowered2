@@ -219,7 +219,8 @@ audio report if the catalog changes, run `src/audio/audio.test.ts`.
     24 frames of motion on one image with the time under each (`--crop`, `--video out.mp4`, `--live` for co-op and menus).
     **Use it for anything that moves** (reloads, recoil, ragdolls, blood): a single screenshot cannot show it.
   - Repeatable pictures: `--wait 0 --script tools/scripts/steady-shot.mjs` (or `tools/scripts/lib/steady.mjs` in your own script)
-    freezes the page clock and seeds `Math.random`; two runs are pixel-identical. Single player only. A `shot.mjs` script may
+    freezes the page clock and seeds `Math.random`; two runs are pixel-identical (on the gun: within 7 levels on 0.05 % of pixels,
+    0 at the default threshold). Single player only. A `shot.mjs` script may
     export `before(page)`, run before the page loads.
   - `tools/scripts/soak-memory.mjs` (leak soak over Crucible waves; `SOAK_MODE=fixed` tells a leak from a pool filling) and
     `tools/scripts/perf-trace.mjs` (slowest frames and the functions in them).
