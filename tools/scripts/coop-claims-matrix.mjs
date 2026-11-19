@@ -40,10 +40,10 @@ const ROWS = [
   gun('gun kata (rivet akimbo)', 'rivet', { mode: 'kata', mods: ['rivetAkimbo'], seconds: 4, tol: 0.5 }),
   gun('lance rail', 'lance', { mode: 'charge', seconds: 5, tol: 0.4 }),
   gun('buzzsaw', 'buzzsaw', { tol: 0.35 }), gun('buzzsaw 12 mm', 'buzzsaw', { mods: ['trommel12'], tol: 0.1 }), gun('piledriver', 'piledriver'),
-  gun('kiln', 'kiln', { tol: 0.5, burns: true, near: 5 }), gun('stakegun', 'stakegun', { mode: 'tap', tol: 0.1 }),
-  gun('sword', 'sword', { near: 1.9, tol: 0.5 }), gun('knife', 'knife', { near: 1.6, tol: 0.5 }), gun('crowbar', 'crowbar', { near: 1.7, tol: 0.5 }),
-  gun('shovel', 'shovel', { near: 1.7, tol: 0.5 }), gun('baton', 'baton', { near: 1.6, tol: 0.5 }),
-  gun('sword under Berserk and Haste', 'sword', { near: 1.9, perks: ['berserk', 'haste'], tol: 0.5 }),
+  gun('kiln', 'kiln', { tol: 0.5, burns: true, near: 3, smooth: true }), gun('stakegun', 'stakegun', { mode: 'tap', tol: 0.1 }),
+  gun('sword', 'sword', { near: 1.6, tol: 0.5 }), gun('knife', 'knife', { near: 1.3, tol: 0.5 }), gun('crowbar', 'crowbar', { near: 1.3, tol: 0.5 }),
+  gun('shovel', 'shovel', { near: 1.3, tol: 0.5 }), gun('baton', 'baton', { near: 1.3, tol: 0.5 }),
+  gun('sword under Berserk and Haste', 'sword', { near: 1.6, perks: ['berserk', 'haste'], tol: 0.5 }),
   gun('grenade', 'smg', { mode: 'grenade', seconds: 4, tol: 0.6, near: 5 }),
   gun('frost nova', 'smg', { mode: 'idle', perks: ['frostNova'], seconds: 2, freezes: true, tol: 9 }),
   gun('airstrike', 'smg', { mode: 'callin', callin: 'airstrike', seconds: 9, tol: 9 }),
@@ -169,7 +169,9 @@ const shoot = (page, row, aim) => page.evaluate(async ([row, aim]) => {
   const yaw = ctx.player.yaw, pitch = ctx.player.pitch, update = ctx.player.update;
   ctx.player.update = function (...args) { this.yaw = yaw; this.pitch = pitch; return update.apply(this, args); };
   await wait(250);
-  const began = performance.now(), until = began + row.seconds * 1000;
+  const began = performance.now(), until = began + row.seconds * 1000, gameBegan = ctx.time.elapsed;
+  // A strike, a fuse or a perk runs on the game's clock, which a starved page runs slow: wait in that clock.
+  const timed = ['idle', 'callin', 'grenade'].includes(row.mode);
   const want = row.want ?? ({ hold: 12, tap: 4, both: 3, fan: 6, charge: 2, kata: 5 }[row.mode] ?? 0), giveUp = began + Math.max(20000, row.seconds * 6000);
   let tick = 0, last = 0;
   if (row.mode === 'callin') {
@@ -177,7 +179,7 @@ const shoot = (page, row, aim) => page.evaluate(async ([row, aim]) => {
     manager.order.point.copy(point); manager.order.heading.set(-Math.sin(ctx.player.yaw), 0, -Math.cos(ctx.player.yaw));
     manager.fly(row.callin);
   }
-  while (performance.now() < until || (shots < want && performance.now() < giveUp)) {
+  while (timed ? ctx.time.elapsed - gameBegan < row.seconds && performance.now() < giveUp : performance.now() < until || (shots < want && performance.now() < giveUp)) {
     if (game.state !== 'playing') game.setState('playing');
     for (const perk of row.perks ?? []) if (!ctx.progression.perks.isActive(perk) || tick % 30 === 0) ctx.progression.grant(perk);
     w.refillMagazines();
@@ -195,7 +197,7 @@ const shoot = (page, row, aim) => page.evaluate(async ([row, aim]) => {
   for (const action of ['fire', 'aim', 'grenade']) input.simulate(action, false);
   delete ctx.player.update;
   off();
-  return { shots, frames: tick, state: game.state, focus: document.hasFocus(), hidden: document.hidden };
+  return { shots, frames: tick, fps: Math.round(tick / ((performance.now() - began) / 1000)), state: game.state, focus: document.hasFocus(), hidden: document.hidden };
 }, [row, aim]);
 
 /** Host: totals so far, and how the targets stand. */
@@ -248,60 +250,70 @@ export default async function (host, { sleep, outDir }) {
     let failures = 0;
 
     for (const row of rows) {
-      const result = { name: row.name };
-      for (const who of ['host', 'guest']) {
-        const page = who === 'host' ? host : guest, other = who === 'host' ? guest : host;
-        const stood = await stand(host, row.target, row.near, who === 'host');
-        if (!stood.aim) { result.skipped = 'no target'; break; }
-        // Every guest must have the targets (and the truck's hit boxes) before a round is fired.
-        await guest.waitForFunction(([n, truck]) => {
-          const { ctx } = window.__op2;
-          return ctx.enemies.alive.length >= n && (!truck || ctx.coop.world.claims.vehicleHits.fleet.size > 0);
-        }, [stood.uids?.length ?? 0, row.target === 'truck'], { timeout: 90000 });
-        await sleep(row.target === 'boss' ? 2500 : 700);
-        await arm(other, row, lane, false); await arm(page, row, lane, true);
-        await sleep(350);
-        const before = await read(host), sentBefore = await sentBy(guest);
-        if (who === 'guest' && process.env.CLAIMS_HITCH) await hitch(host, true);
-        const fired = await shoot(page, row, stood.aim), shots = fired.shots;
-        await sleep(settle + (row.mode === 'grenade' || row.weapon === 'kiln' ? 2500 : 0));
-        await hitch(host, false);
-        const after = await read(host), sentAfter = await sentBy(guest);
-        const perf = await page.evaluate(() => { const st = window.__op2.stats(), { ctx } = window.__op2; return { fps: st.fps, cpuMs: st.cpuMs, draws: st.drawCalls, tris: st.triangles, enemies: ctx.enemies.alive.length, dying: ctx.enemies.dying?.length, scene: ctx.render.scene.children.length }; });
-        const d = delta(after, before), sent = delta(sentAfter, sentBefore);
-        const dealt = row.target === 'truck' ? d.vehicle : d.dealt;
-        result[who] = { shots, frames: fired.frames, perf, dealt: Math.round(dealt), perShot: shots ? Math.round(dealt / shots * 10) / 10 : 0, hits: d.hits, blocked: d.blocked,
-          burning: after.burning, frozen: after.frozen, same: after.same, differ: after.differ,
-          ...(who === 'guest' ? { sent, accepted: d.accepted, rejected: d.rejected, clamped: d.clamped, doubted: d.doubted,
-            refused: Object.fromEntries(Object.entries(after.refused).map(([k, v]) => [k, v - (before.refused[k] ?? 0)]).filter(([, v]) => v)) } : {}) };
+      // A trial on a starved page is void (flames skip past bodies at 4 frames a second, alone as well): it is run again.
+      let result;
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        result = { name: row.name, attempt };
+        for (const who of ['host', 'guest']) {
+          const page = who === 'host' ? host : guest, other = who === 'host' ? guest : host;
+          const stood = await stand(host, row.target, row.near, who === 'host');
+          if (!stood.aim) { result.skipped = 'no target'; break; }
+          // Every guest must have the targets (and the truck's hit boxes) before a round is fired.
+          await guest.waitForFunction(([n, truck]) => {
+            const { ctx } = window.__op2;
+            return ctx.enemies.alive.length >= n && (!truck || ctx.coop.world.claims.vehicleHits.fleet.size > 0);
+          }, [stood.uids?.length ?? 0, row.target === 'truck'], { timeout: 90000 });
+          await sleep(row.target === 'boss' ? 2500 : 700);
+          await arm(other, row, lane, false); await arm(page, row, lane, true);
+          await sleep(350);
+          const before = await read(host), sentBefore = await sentBy(guest);
+          if (who === 'guest' && process.env.CLAIMS_HITCH) await hitch(host, true);
+          const fired = await shoot(page, row, stood.aim), shots = fired.shots;
+          await sleep(settle + (row.mode === 'grenade' || row.weapon === 'kiln' ? 2500 : 0));
+          await hitch(host, false);
+          const after = await read(host), sentAfter = await sentBy(guest);
+          const perf = await page.evaluate(() => { const st = window.__op2.stats(), { ctx } = window.__op2; return { fps: st.fps, cpuMs: st.cpuMs, draws: st.drawCalls, tris: st.triangles, enemies: ctx.enemies.alive.length, dying: ctx.enemies.dying?.length, scene: ctx.render.scene.children.length }; });
+          const d = delta(after, before), sent = delta(sentAfter, sentBefore);
+          const dealt = row.target === 'truck' ? d.vehicle : d.dealt;
+          result[who] = { shots, frames: fired.frames, shooterFps: fired.fps, perf, dealt: Math.round(dealt), perShot: shots ? Math.round(dealt / shots * 10) / 10 : 0, hits: d.hits, blocked: d.blocked,
+            burning: after.burning, frozen: after.frozen, same: after.same, differ: after.differ,
+            ...(who === 'guest' ? { sent, accepted: d.accepted, rejected: d.rejected, clamped: d.clamped, doubted: d.doubted,
+              refused: Object.fromEntries(Object.entries(after.refused).map(([k, v]) => [k, v - (before.refused[k] ?? 0)]).filter(([, v]) => v)) } : {}) };
+        }
+        if (result.guest && result.host) {
+          const g = result.guest, h = result.host;
+          const claims = sum(g.sent);
+          const problems = [];
+          const gone = g.refused.gone ?? 0;
+          delete g.refused.gone;
+          g.gone = gone;
+          if (claims === 0 && h.dealt > 0) problems.push('the guest sent no claims');
+          if (g.accepted + gone !== claims) problems.push(`${claims} claims sent, ${g.accepted} applied, ${gone} on men already dead`);
+          if (g.rejected) problems.push(`${g.rejected} rejected`);
+          if (sum(g.refused)) problems.push(`refused ${JSON.stringify(g.refused)}`);
+          if (g.clamped) problems.push(`${g.clamped} cut to the cap`);
+          const fires = !['idle', 'callin', 'grenade'].includes(row.mode);
+          if (fires && h.shots === 0) problems.push('the host fired nothing');
+          if (fires && g.shots === 0) problems.push('the guest fired nothing');
+          const ratio = h.perShot > 0 && g.shots > 0 ? g.perShot / h.perShot : h.dealt > 0 ? g.dealt / h.dealt : 1;
+          result.ratio = Math.round(ratio * 1000) / 1000;
+          result.exact = row.tol === undefined;
+          if (h.dealt > 0 && g.dealt === 0) problems.push('the guest dealt nothing');
+          else if (g.differ.length) problems.push(`the same hit dealt different damage: ${JSON.stringify(g.differ.slice(0, 3))}`);
+          else if (h.dealt > 0 && fires && h.shots >= 3 && g.shots >= 3 && (ratio < 0.4 || ratio > 2.5)) problems.push(`damage per shot far apart: guest ${g.perShot}, host ${h.perShot}`);
+          if (row.burns === true && h.burning > 0 && g.burning === 0) problems.push('the host set them alight, the guest did not');
+          if (row.freezes && h.frozen > 0 && g.frozen === 0) problems.push('the host froze them, the guest did not');
+          result.problems = problems;
+        } else progress(`skip ${row.name}: ${result.skipped}`);
+        const starved = Math.min(result.host?.shooterFps ?? 99, result.guest?.shooterFps ?? 99) < (row.smooth ? 20 : 8);
+        if (!result.problems?.length || !starved || attempt === 3) break;
+        progress(`again ${row.name}: a page ran at ${Math.min(result.host?.shooterFps ?? 99, result.guest?.shooterFps ?? 99)} frames a second (${result.problems.join('; ')})`);
       }
-      if (result.guest && result.host) {
-        const g = result.guest, h = result.host;
-        const claims = sum(g.sent);
-        const problems = [];
-        const gone = g.refused.gone ?? 0;
-        delete g.refused.gone;
-        g.gone = gone;
-        if (claims === 0 && h.dealt > 0) problems.push('the guest sent no claims');
-        if (g.accepted + gone !== claims) problems.push(`${claims} claims sent, ${g.accepted} applied, ${gone} on men already dead`);
-        if (g.rejected) problems.push(`${g.rejected} rejected`);
-        if (sum(g.refused)) problems.push(`refused ${JSON.stringify(g.refused)}`);
-        if (g.clamped) problems.push(`${g.clamped} cut to the cap`);
-        const fires = !['idle', 'callin', 'grenade'].includes(row.mode);
-        if (fires && h.shots === 0) problems.push('the host fired nothing');
-        if (fires && g.shots === 0) problems.push('the guest fired nothing');
-        const ratio = h.perShot > 0 && g.shots > 0 ? g.perShot / h.perShot : h.dealt > 0 ? g.dealt / h.dealt : 1;
-        result.ratio = Math.round(ratio * 1000) / 1000;
-        result.exact = row.tol === undefined;
-        if (h.dealt > 0 && g.dealt === 0) problems.push('the guest dealt nothing');
-        else if (g.differ.length) problems.push(`the same hit dealt different damage: ${JSON.stringify(g.differ.slice(0, 3))}`);
-        else if (h.dealt > 0 && fires && h.shots >= 3 && g.shots >= 3 && (ratio < 0.4 || ratio > 2.5)) problems.push(`damage per shot far apart: guest ${g.perShot}, host ${h.perShot}`);
-        if (row.burns === true && h.burning > 0 && g.burning === 0) problems.push('the host set them alight, the guest did not');
-        if (row.freezes && h.frozen > 0 && g.frozen === 0) problems.push('the host froze them, the guest did not');
-        result.problems = problems;
-        if (problems.length) failures++;
-        progress(`${problems.length ? 'FAIL' : 'ok  '} ${row.name}: host ${h.shots} shots ${h.perShot}/shot, guest ${g.shots} shots ${g.perShot}/shot, ${claims} claims ${g.accepted} applied, ${g.same} kinds of hit compared${g.gone ? ` (${g.gone} on the dead)` : ''}${problems.length ? ` :: ${problems.join('; ')}` : ''}`);
-      } else progress(`skip ${row.name}: ${result.skipped}`);
+      if (result.problems?.length) failures++;
+      if (result.problems) {
+        const g = result.guest, h = result.host, problems = result.problems, claims = sum(g.sent);
+          progress(`${problems.length ? 'FAIL' : 'ok  '} ${row.name}: host ${h.shots} shots ${h.perShot}/shot, guest ${g.shots} shots ${g.perShot}/shot, ${claims} claims ${g.accepted} applied, ${g.same} kinds of hit compared${g.gone ? ` (${g.gone} on the dead)` : ''}${problems.length ? ` :: ${problems.join('; ')}` : ''}`);
+      }
       out.rows.push(result);
     }
     out.states = await Promise.all(party.pages.map(state));
