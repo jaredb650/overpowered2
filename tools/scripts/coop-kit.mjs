@@ -306,7 +306,11 @@ function watchFrames(page, out, tag) {
  * and `party.clock`.
  */
 export async function prepare(page, { fps, out, tag, draw = 'all', audio = true, clock = 0, realLock = process.env.COOP_REAL_LOCK === '1' }) {
-  page.on('pageerror', error => out?.errors.push(`${tag}: ${error.message}`));
+  page.on('pageerror', error => {
+    out?.errors.push(`${tag}: ${error.message}`);
+    // Where it was thrown, once per distinct error: the message alone ("Cannot read properties of undefined") finds nothing.
+    if (out) { const stacks = (out.stacks ??= {}); const key = `${tag}: ${error.message}`; if (!(key in stacks) && Object.keys(stacks).length < 20) stacks[key] = String(error.stack ?? '').split('\n').slice(0, 8).join('\n'); }
+  });
   // For the evidence file: each page's warnings, errors and co-op lines, and every address it loads (a page that reloads
   // out of a match shows here).
   if (out) {
