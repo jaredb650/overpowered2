@@ -121,8 +121,9 @@ export class OutpostWaves implements WaveSystem {
     if (this.cursor < this.queue.length || manager.queued > 0 || this.o.hostile > 0 || this.o.commander.person.pending) return;
     const bonus = 500 + 150 * this.wave;
     ctx.audio.play('wave_clear');
-    ctx.events.emit('wave:clear', { wave: this.wave, bonus });
+    // The break begins before it is announced (as in enemies/waves.ts); its length is the villain's, set once he has heard the clear.
     this.phase = 'intermission';
+    ctx.events.emit('wave:clear', { wave: this.wave, bonus });
     this.nextWaveIn = this.o.commander.intermission(this.wave, INTERMISSION);
   }
 }

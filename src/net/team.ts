@@ -13,6 +13,7 @@
  */
 import * as THREE from 'three';
 import type { Ctx } from '../core/contracts';
+import type { WavePhase } from '../core/gameplay';
 import { OrderKey } from '../allies/rules';
 import { ALLY } from '../allies/data';
 import { COLORS } from './remote';
@@ -40,7 +41,7 @@ export type TeamEvent =
   /** Host: this player is up again, revived (`by` the reviver's slot) or respawned at a new wave. */
   | { t: 'up'; slot: number; life: number; how: 'revive' | 'respawn'; by: number; at?: Vec; yaw?: number }
   /** Host: the waves' own events, replayed on guests so their shops, pods, banners and ammo follow the host's waves. */
-  | { t: 'wave'; kind: 'start' | 'clear'; wave: number; total: number; boss: boolean; bonus: number }
+  | { t: 'wave'; kind: 'start' | 'clear'; wave: number; total: number; boss: boolean; bonus: number; phase?: string; next?: number }
   /** Host: nobody is up. The run is over for everyone; the cards are the final board. */
   | { t: 'over'; wave: number; cards: Card[]; won?: boolean }
   /** Host to a rejoining guest: the purse and score they left with. */
@@ -143,11 +144,11 @@ export class Team {
     this.off.push(ctx.events.on('player:died', () => this.fell(session.lobby.you)));
     if (session.hosting) {
       this.off.push(ctx.events.on('wave:start', e => {
-        this.send({ t: 'wave', kind: 'start', wave: e.wave, total: e.total, boss: e.boss, bonus: 0 });
+        this.send({ t: 'wave', kind: 'start', wave: e.wave, total: e.total, boss: e.boss, bonus: 0, ...this.wavePhase() });
         // The dead come back with the next wave.
         for (const [id, life] of this.lives) if (life.state === 'dead' && life.respawn()) this.up(id, 'respawn');
       }));
-      this.off.push(ctx.events.on('wave:clear', e => this.send({ t: 'wave', kind: 'clear', wave: e.wave, total: 0, boss: false, bonus: e.bonus })));
+      this.off.push(ctx.events.on('wave:clear', e => this.send({ t: 'wave', kind: 'clear', wave: e.wave, total: 0, boss: false, bonus: e.bonus, ...this.wavePhase() })));
       // A mission won is the end of the run for everyone, with the board.
       this.off.push(ctx.events.on('campaign:complete', () => {
         this.broadcastCards();
@@ -159,6 +160,25 @@ export class Team {
   }
 
   private get me(): number { return this.session.lobby.me?.slot ?? 0; }
+
+  /** Host: the waves' phase and clock as a wave event goes out. A guest's only other source is the next snapshot, which is later. */
+  private wavePhase(): { phase: string; next: number } {
+    const waves = this.ctx.waves;
+    return { phase: waves.phase, next: Number.isFinite(waves.nextWaveIn) ? Math.max(0, Math.round(waves.nextWaveIn * 10) / 10) : 0 };
+  }
+
+  /**
+   * Guest: the phase a wave event carries is set before the event is replayed, so what hears it (the supply pod, the shop) is
+   * already in the break. Without it the pod was called in `spawning` and retired on the next frame (audit A5).
+   */
+  private followPhase(kind: 'start' | 'clear', phase: unknown, next: unknown, wave: number): void {
+    // A clear is the break whatever the host's director said at that instant (Outpost Defense's still announces first).
+    const known: WavePhase = kind === 'clear' ? 'intermission' : phase === 'boss' || phase === 'clearing' ? phase : 'spawning';
+    const waves = this.ctx.waves as { wave: number; phase: WavePhase; nextWaveIn: number };
+    waves.wave = wave;
+    waves.phase = known;
+    if (typeof next === 'number' && Number.isFinite(next) && next >= 0 && next < 100000) waves.nextWaveIn = next;
+  }
 
   life(id: string): TeamLife {
     let life = this.lives.get(id);
@@ -304,6 +324,7 @@ export class Team {
       case 'up': if (Number.isInteger(value.slot) && Number.isInteger(value.life)) this.applyUp(value); return true;
       case 'wave':
         if (!Number.isInteger(value.wave) || value.wave < 0 || value.wave > 100000) return true;
+        this.followPhase(value.kind, value.phase, value.next, value.wave);
         if (value.kind === 'start') this.ctx.events.emit('wave:start', { wave: value.wave, total: int(value.total, 1000), boss: value.boss === true });
         else if (value.kind === 'clear') this.ctx.events.emit('wave:clear', { wave: value.wave, bonus: int(value.bonus, 1e7) });
         return true;

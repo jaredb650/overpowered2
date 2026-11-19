@@ -251,9 +251,10 @@ export class Waves implements WaveSystem {
     const bonus = 500 + 150 * this.wave;
     ctx.audio.play('wave_clear');
     ctx.world.objects.setReactorState('stable');
-    ctx.events.emit('wave:clear', { wave: this.wave, bonus });
+    // The break begins before it is announced: whoever hears `wave:clear` (a supply pod, co-op's relay to guests) is already in it.
     this.phase = 'intermission';
     this.nextWaveIn = this.lastWaveBoss ? this.rules.bossBreakSeconds : this.rules.breakSeconds;
+    ctx.events.emit('wave:clear', { wave: this.wave, bonus });
   }
 }
 
