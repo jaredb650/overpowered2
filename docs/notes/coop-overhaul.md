@@ -994,7 +994,15 @@ Each: what fails, where, how many players, which network, the evidence, the caus
     loss:** the matrix now counts each watcher's rounds and blasts against the caller's own, and prints the seconds each
     copy made up or skipped. Three pages, loopback, clean: 333 of 333 checks; airstrike 15 of 15 rockets and 16 of 16
     blasts on every watcher, both callers; Warthog 50 of 50; gunship 167 of 167 and 129 of 129 blasts; nothing skipped
-    anywhere. Bad network and real WebRTC: LAG3_AND_RTC.
+    anywhere. Under `lag:120,jitter:40,loss:0.05`: 329 of 332; airstrike 15 of 15 and 16 of 16 on every watcher, Warthog
+    50 of 50, gunship 152 of 152, nothing skipped. The three that failed there are not this bug: "guest-streak: the key
+    puts the guest into targeting" (the proof's own, fixed by verify-proofs in a commit my run did not have yet);
+    "host-frame: the enemies it killed are the caller's (0 of 6)" (the proof's Frame shot at the men and killed none that
+    time; it kills 1 to 3 of 6 in other runs: a thin check, not diagnosed further); and "guest-orbital: the copy on host
+    keeps to the caller's path" (the proof's caller was faced a metre over the mark, so its first word of its aim was the
+    ground 30 m behind it, and with the next word late a copy ran after that spot: the protocol as written, on an aim no
+    player has. The proof's caller now looks at the mark; see its comment). **Real WebRTC, the airstrike, three pages: 36 of
+    36, 15 of 15 rockets and 16 of 16 blasts on every watcher, both callers.**
   - **2. A guest's page and the host's agree on the rules of the run: audited, six gaps found, all fixed.** The table is in
     the note. In short: the host's Crucible rules now cross in `sync` and a guest plays them, never its own saved ones; a
     guest's manager is on the host's wave; a guest's "enemies left" is the host's count (it showed 8 where the host said
@@ -1020,6 +1028,17 @@ Each: what fails, where, how many players, which network, the evidence, the caus
     the hook: its drone is within 0.1 m of the other guest's. **Rounds in flight are not caught up, on purpose:** a round
     is in the air under two seconds, a page takes eight or more to arrive, and its blast and damage reach the newcomer
     anyway.
+  - **5. The cut guest's own screen (the lead's late item; "Last pass findings" 6): fixed.** A guest the host holds out
+    for a slow link (and one it merely skips for being behind) now reads "Connection too slow. Catching up…" in the
+    session's status line, in the place and red of "Reconnecting to host…", from a second after the feed stops until the
+    first packet of the catch-up. The host cannot tell it (every word, reliable or not, is behind the backlog it was cut
+    for), so the guest detects it: no pose from the host and nothing on the world lane for a second, counted in frames of
+    its own page (`net/starved.ts`, `CoopSession.feed`). The host's side of the rule is untouched. Not shown for a line
+    that is down, a host whose tab is hidden or whose page is loading, or a run that is over. Unit: `starved.test.ts`
+    (4), `session.test.ts` (4 more). `coop-wire-stall.mjs`, four players: **25 of 25** (it failed this one check 3 runs
+    of 3 before); the notice stood 20.9 s (the host had the guest out 14.3 s; it shows from when the guest is first
+    skipped) and was gone when the guest was back. Two checks added to the proof: the notice stands for the time held
+    out, and is gone afterwards.
   - **Decisions the lead may overrule:** 4 s as the line between "make it up drawn" and "skip it unseen" (a look call: a
     3 s freeze now ends in 1.5 s of a strike at triple speed); the now-playing tag is made smaller in co-op rather than the
     strip moved (the strip's stack under it was measured by fix-game's proof and is untouched); a mission's threat level
