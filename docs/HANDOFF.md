@@ -1,17 +1,16 @@
-# Handoff: where things stand (2026-11-18)
+# Handoff: where things stand (2026-11-19)
 
 Written when development moved from the owner's 8 GB M1 Mac to a remote machine. Rules and how to work: `CLAUDE.md` at the repo root.
 Update this file when the state below changes.
 
 ## Live vs local
 
-- **Public site** (https://jaredb650.github.io/overpowered2/): `origin/dev` is at **`42ab12d`**; game code is as of `da2ff4c`
-  ("First launch goes to Retraining; Play > Training for everyone else"). The Pages run for `42ab12d` succeeded
-  (2026-11-18). The docs-only commits below are on `origin/dev`:
-  - `1c67d50` `docs/research/coop-netcode.md`: how co-op horde shooters (KF2, KF3, Source, DRG, Fatshark) make a guest feel like the host, and a staged plan for ours.
-  - `2eb1896` `docs/notes/coop-audit.md`: root causes of the owner's co-op playtest reports, shooter-only effects, lag sources, fix list.
-  - `74749c4` `docs/proposals/gore-ragdoll-proposals.md` + `docs/research/gore-audit.md`, `gore-techniques.md`, `ragdoll-techniques.md`.
-  - The commit that adds `CLAUDE.md` and this file.
+- **Public site** (https://jaredb650.github.io/overpowered2/): `origin/dev` at **`d2e2f8a`** (2026-11-19): the finished co-op
+  overhaul, pushed after a final check (single player matches the game before it in 36 scripted scenarios apart from the blood
+  puff, the dropped gun resting on the ground and two Guide lines; suite 2,844 green three times; real-WebRTC smoke 5 of 5).
+  What co-op is now, what is proven and what is not: `docs/notes/coop.md` ("What is proven") and `docs/notes/coop-overhaul.md`.
+- **In progress on branch `gore-update`** (cut from that commit, not on the site): the damage response update, six lanes; rules
+  and log in `docs/notes/gore-update.md`, plan in `docs/proposals/damage-response-update.md`.
 - **Only on the owner's Mac, not in any clone:**
   - Uncommitted leftovers (19 lines, owner hasn't decided): `docs/notes/viewmodels.md` (a rewritten Ultramag description and an
     exposed-action reload write-up), `docs/notes/weapons.md` (Harrow 50/100 → 60/120 in the text), `src/core/gameplay.ts` and

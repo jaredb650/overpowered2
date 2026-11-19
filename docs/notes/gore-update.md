@@ -139,3 +139,4 @@ Shared files and contracts:
   match does not end with every gun permanently coated; nothing lands within 2.8 cm of a sight point; a bullet kill at 3 m
   leaves a few drops and a gib at arm's length a lot (amounts in the note). Pictures: `tools/out/gore-update/wear/b3/`.
   Not done: drips off the gun, a clean magazine on reload, a friend's kill spattering a co-op guest.
+- 2026-11-19: the finished co-op (`d2e2f8a`) is on `dev` and the public site, after agent final-check's CLEAN TO MERGE. Seen twice and not run down: the end board shows guests' ping near 1 s in proofs (4 ms mid-match); probably the test pages in the background, for the owner to watch in a real game.
