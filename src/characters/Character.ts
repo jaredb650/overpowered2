@@ -145,7 +145,7 @@ const paintDir = new THREE.Vector3();
 const paint: WoundHit = { kind: WoundKind.graze, bone: 0, point: paintDir, dir: paintDir, radius: 0.05, depth: 0.03, ragged: 0.5 };
 
 /** Past this LOD a body is too far off for anything but paint. */
-const FAR_LOD = 2;
+export const FAR_LOD = 2;
 /** From this LOD on, nothing under the skin is drawn. */
 const INSIDE_LOD = 1;
 

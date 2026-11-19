@@ -243,6 +243,7 @@ Cap behaviour, from a browser run: 12,000 chips in one call clamps to 9,000 live
 | First bullet hit: worst frame interval | 217 ms | 100 ms |
 | FX and decal programs first used in play | 3 or more | 0 |
 | Programs still first used in play | | 2 at the first husk (characters), 2 at the first headshot (gore) |
+| The same, 2026-11-19 (`tools/scripts/solo-perf.mjs`, a run started from the splash) | | 0 at the first enemy since `CharacterLibrary.warmWounds` also draws an unhurt and a far body; still first used in play: one small program at the first spawn and the heat shimmer's |
 | Steady interval around any blood event | 33-67 ms | 33-67 ms, no measurable change |
 | Particles in a full gib | 407-411 | 62 |
 

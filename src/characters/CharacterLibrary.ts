@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import type { CharacterInstance, CharacterLibrary, Ctx } from '../core/contracts';
 import { CAST, archetypeById, rigFor, type ArchetypeDef } from './archetypes';
-import { Character, SeveredPart, type ArchetypeData } from './Character';
+import { Character, FAR_LOD, SeveredPart, type ArchetypeData } from './Character';
 import { buildInterior } from './anatomy/build';
 import { createInteriorMaterial } from './anatomy/interior';
 import { createBackingMaterial } from './anatomy/backing';
@@ -133,11 +133,23 @@ export class CharacterLibraryImpl implements CharacterLibrary {
     body.root.position.y = WARM_DEPTH;
     body.root.traverse(o => { o.frustumCulled = false; });
     scene.add(body.root);
+    // A body nobody has shot, and one seen from far off, are two more programs (the plain and the far material): left to
+    // first use they link as the first wave walks in. They stand beside the wounded one for that frame.
+    const plain = this.spawn(entry.id) as Character;
+    const far = this.spawn(entry.id) as Character;
+    far.setLod(FAR_LOD, true);
+    for (const extra of [plain, far]) {
+      extra.root.position.y = WARM_DEPTH;
+      extra.root.traverse(o => { o.frustumCulled = false; });
+      scene.add(extra.root);
+    }
     body.inside!.onAfterRender = () => {
       body.inside!.onAfterRender = () => {};
       queueMicrotask(() => {
-        body.root.traverse(o => { o.frustumCulled = true; });
-        body.release();
+        for (const warm of [body, plain, far]) {
+          warm.root.traverse(o => { o.frustumCulled = true; });
+          warm.release();
+        }
       });
     };
   }
