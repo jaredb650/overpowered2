@@ -997,6 +997,10 @@ export class Lobby {
       report('COOP_VERSION_MISMATCH', { stage: 'host-version' });
       return this.post(null, `${wanted} could not join: different game version. They need to reload.`);
     }
+    // A guest's hello is answered with the host's own. The one sent as the connection came up can be missed by a page that
+    // left this room and came straight back (a host that gave way and rejoined as a guest, over real WebRTC, never heard
+    // it and gave up with "lobby not found"): a guest that hears nothing from a host has no host.
+    this.sayHello(from);
     if (seated) {
       const was = seated.state;
       // The same connection found again (the transport dropped the link and remade it under the same id): the same page.

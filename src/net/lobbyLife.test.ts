@@ -721,6 +721,25 @@ describe('the life of a co-op session', () => {
     expect(tagged(a)).toEqual(['HOST']);
   });
 
+  it('a host answers a guest\'s hello with its own, so a guest that missed the first one still finds its host', () => {
+    const h = page(true, 'HOST', 'bh'); hub.flush();
+    const g = page(false, 'ANNA', 'b-ANNA');
+    // The host's hello at connection time never reaches the guest: only the guest's own hello gets through.
+    const sent: { t?: string; host?: boolean }[] = [];
+    const lost = roomOf(g).message.bind(roomOf(g));
+    let drop = true;
+    roomOf(g).message = (name: string, data: unknown, from: string) => {
+      const msg = data as { t?: string; host?: boolean };
+      if (name === 'lobby' && msg?.t === 'hello' && msg.host && drop) { drop = false; sent.push(msg); return; }
+      lost(name, data, from);
+    };
+    hub.flush();
+    expect(sent).toHaveLength(1);
+    expect(g.phase).toBe('open');
+    expect(g.players.map(p => p.name)).toEqual(['HOST', 'ANNA']);
+    expect(h.players.map(p => p.name)).toEqual(['HOST', 'ANNA']);
+  });
+
   it('a guest that reloads on the lobby page takes its own seat back, and nobody else is disturbed', () => {
     const { h, gs } = lobbyOf('ANNA', 'BEN');
     const [a, b] = gs as unknown as [Lobby, Lobby];
