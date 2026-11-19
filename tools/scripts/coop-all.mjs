@@ -314,7 +314,8 @@ async function main() {
   mkdirSync(outRoot, { recursive: true });
   const file = join(outRoot, 'results.json');
   const results = readJson(file)?.results ?? {};
-  const commit = commitId(), game = gameId();
+  // The game is read again before every run: a rebase or an edit under a running sweep must not be written down as the old game.
+  let commit = commitId(), game = gameId();
   const say = text => console.error(`[coop-all ${new Date().toTimeString().slice(0, 8)}] ${text}`);
   const save = () => {
     writeFileSync(file, JSON.stringify({ commit, written: new Date().toISOString(), results }, null, 2));
@@ -352,6 +353,8 @@ async function main() {
         const gap = Number(opt['rtc-gap'] ?? 45) * 1000 * attempt - (Date.now() - lastRtc);
         if (gap > 0) await sleep(gap);
       }
+      commit = commitId(); game = gameId();
+      const ran = { commit, game };
       say(`run  ${run.id}${attempt > 1 ? ' (second try)' : ''}`);
       const got = await runOnce(run, { port, outRoot, attempt });
       if (run.transport === 'rtc') lastRtc = Date.now();
@@ -359,7 +362,7 @@ async function main() {
       const tried = { attempt, verdict: v.failed ? 'FAIL' : 'pass', passed: v.passed, failed: v.failed, first: v.first, reason: v.reason, seconds: got.seconds, evidence: got.dir };
       record = {
         id: run.id, proof: run.proof, lane: run.lane, suite: run.suite, players: run.players, mode: run.mode, map: run.map, transport: run.transport, net: run.net,
-        commit, game, proofId: proofId(run), at: new Date().toISOString(), verdict: v.failed ? 'FAIL' : attempt > 1 ? 'pass (2nd try)' : 'pass', passed: v.passed, failed: v.failed, first: v.first, failures: v.failures,
+        commit: ran.commit, game: ran.game, proofId: proofId(run), at: new Date().toISOString(), verdict: v.failed ? 'FAIL' : attempt > 1 ? 'pass (2nd try)' : 'pass', passed: v.passed, failed: v.failed, first: v.first, failures: v.failures,
         note: v.failed ? v.reason : attempt > 1 ? `first try: ${record.tries[0].reason || 'failed'}: ${record.tries[0].first}`.slice(0, 200) : '',
         seconds: got.seconds, wait: got.cost?.waitSeconds ?? null, cpu: got.cost?.cpuSeconds ?? null, peakMb: got.cost?.peakMb ?? null, load: got.cost?.load ?? null,
         frames: v.frames, evidence: got.dir, tries: [...(record?.tries ?? []), tried],
