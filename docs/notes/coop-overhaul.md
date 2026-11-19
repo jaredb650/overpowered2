@@ -367,6 +367,9 @@ Shared files and contracts between lanes:
 - **Far enemies stay at 5 Hz** (drawn about 240 ms back) until the owner has played it; `FAR_EVERY` in `src/net/world/snapshot.ts`.
 - **Damage response update** (`docs/proposals/damage-response-update.md`): nothing starts until the owner says so and answers its
   taste questions.
+- **Owner's answers, 2026-11-18 evening:** soldiers keep the **simple aim model against guests** for now (fixed bullet speed,
+  half lead); the **dodge grace (150 ms, 0.5 m) stays** and is tuned after the owner plays co-op; **barrels hurt every player in
+  reach, friends included** (team kills by barrel are wanted: do not make them shooter-only).
 - **Owner questions still open from the lanes:** a friend's gun report plays at 0.65 volume (louder?); real reload and stim clips
   and an energy blade model for the friend's body (character work).
 - 2026-11-18, evening: the machine is shared with another person, who reports it is swamped by the testing. Browser slots cut to 4; every lane must rebase so the queue applies, keep one run at a time, and use a small viewport at dpr 1 for functional proofs.
