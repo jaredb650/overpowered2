@@ -6,8 +6,8 @@
  * the address (`?predictKills=0` or `1`), from what was stored by `setPredictKills`, then the default.
  */
 const KEY = 'op2.coop.predictKills';
-/** On by default: the long noisy proof (tools/scripts/coop-fixhits-predict.mjs) saw no wrong resurrection. */
-export const PREDICT_KILLS_DEFAULT = true;
+/** Off until the long noisy proof (tools/scripts/coop-fixhits-predict.mjs) has shown no wrong resurrection; then on. */
+export const PREDICT_KILLS_DEFAULT = false;
 
 function read(): boolean {
   try {
