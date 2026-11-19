@@ -169,7 +169,7 @@ export class Phosphorus {
       const n = enemies.query(c.point, r * left + 0.5, _near) || 0;
       for (let k = 0; k < n; k++) {
         const e = _near[k]!;
-        if (e.alive && Math.abs(e.position.y - c.point.y) < r) e.burning = Math.max(e.burning, WP.burn);
+        if (e.alive && Math.abs(e.position.y - c.point.y) < r) enemies.afflict(e, 'burn', WP.burn);
       }
     }
   }

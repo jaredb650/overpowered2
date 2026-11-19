@@ -4,7 +4,7 @@
  * frame and hands calls on. The layout and how to add an event are in docs/notes/coop.md, "Code layout".
  */
 import type * as THREE from 'three';
-import type { Ctx, DamageInfo, PlayerDamage, PlayerSystem } from '../core/contracts';
+import type { Ctx, DamageInfo, ExplosionKind, PlayerDamage, PlayerSystem } from '../core/contracts';
 import type { DamageResult, EnemyInstance, ExplosionSpec } from '../core/gameplay';
 import type { Enemy } from '../enemies/Enemy';
 import type { PlayerSense } from '../enemies/aiWorld';
@@ -17,7 +17,7 @@ import { Booms } from './world/booms';
 import { Callins } from './world/callins';
 import { Capture } from './world/capture';
 import { Chatter } from './world/chatter';
-import { Claims } from './world/claims';
+import { Claims, type StatusKind } from './world/claims';
 import { Clock } from './world/clock';
 import { WorldContext, type WorldModule } from './world/context';
 import { EnemyFire } from './world/enemyFire';
@@ -65,12 +65,13 @@ export class CoopWorld {
     // added: Hits must hear `enemy:killed` before any system does, which holds because the world is built before systems init.
     this.enemies = new Replicas(w);
     this.targeting = new Targeting(w);
+    // Before RemoteFire: a shot's id moves on `weapon:fired`, and claims.ts must hear that first.
+    this.claims = new Claims(w, this.enemies, this.targeting);
     this.shots = new RemoteFire(w);
     new Callins(w);
     // Sonar is shared; Thermal and Focus are each player's own and never sent.
     new SharedSonar(w);
     this.time = new Clock(w);
-    this.claims = new Claims(w, this.enemies, this.targeting, this.shots);
     this.hits = new Hits(w, this.enemies, this.claims);
     new Chatter(w, this.enemies);
     this.capture = new Capture(w, this.enemies);
@@ -79,7 +80,7 @@ export class CoopWorld {
     this.guns = new Guns(w);
     this.vehicles = new Vehicles(w);
     this.garrison = new Allies(w);
-    this.modules = [this.capture, this.vehicles, this.garrison, this.targeting, this.hits, w.later, this.enemies];
+    this.modules = [this.capture, this.vehicles, this.garrison, this.targeting, this.claims, this.hits, w.later, this.enemies];
   }
 
   /** Read by the two-page proofs (tools/scripts/coop-*.mjs): the guest's enemy copies, last snapshot and garrison bodies. */
@@ -106,6 +107,16 @@ export class CoopWorld {
     this.enemies.begin();
   }
   claim(enemy: EnemyInstance, damage: DamageInfo): DamageResult { return this.claims.claim(enemy, damage); }
+  /** Guest: my weapon, call-in or perk set this enemy alight, froze it or left a live bolt in it (EnemyManager.afflict). */
+  status(enemy: EnemyInstance, kind: StatusKind, seconds: number): void { this.claims.status(enemy, kind, seconds); }
+  /** Guest: my round struck the shape of one of the host's vehicles (world/vehicles.ts `shapeOf`), on this part. */
+  vehicleHit(id: number, part: string, point: THREE.Vector3, amount: number, source: string, kind?: ExplosionKind): void {
+    this.claims.vehicleHit(id, part, point, amount, source, kind);
+  }
+  /** The shot id the local player's claims carry now (claims.ts), and on the host the claim being applied: whose, and its shot id. */
+  get shot(): number { return this.claims.shot; }
+  get applying(): string | null { return this.claims.applying; }
+  get applyingShot(): number { return this.claims.applyingShot; }
   updateGuests(): void {
     const now = performance.now();
     this.vehicles.animate(now);

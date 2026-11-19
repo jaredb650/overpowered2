@@ -988,7 +988,7 @@ export class Lance {
       o.vaporize = true;
       const res = this.combat.strike(e, this.far, UP, dir, undefined, 'chest', b.damage, o);
       struck++;
-      if (!res.killed && e.alive) e.burning = Math.max(e.burning, BEAM.burn);
+      if (!res.killed && e.alive) c.enemies.afflict(e, 'burn', BEAM.burn);
       fx.sparks(this.far, UP, 5, 0xbfeeff);
       fx.embers(this.far, 3, 0.6);
     }

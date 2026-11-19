@@ -864,6 +864,19 @@ export class EnemyManager implements EnemySystem {
     return this.model.apply(enemy as Enemy, damage);
   }
 
+  /**
+   * Fire, frost and the live bolt, from anything of the player's: the same write a weapon used to make itself. On a co-op guest
+   * the enemy is a copy, so the host is told too (net/world/claims.ts `status`) and does this for real.
+   */
+  afflict(enemy: EnemyInstance, kind: 'burn' | 'freeze' | 'bolt', seconds: number): void {
+    const e = enemy as Enemy;
+    if (kind === 'burn') e.burning = Math.max(e.burning, seconds);
+    else if (kind === 'freeze') e.frozen = seconds;
+    else e.bolted = this.ctx.time.elapsed + seconds;
+    const coop = this.ctx.coop;
+    if (coop?.world && !coop.hosting) coop.world.status(enemy, kind, seconds);
+  }
+
   /** A co-op guest's copy of a host enemy, in the posture the host's snapshot says (net/world.ts). */
   placeReplica(enemy: Enemy, dt: number, posture: string): void {
     this.place(enemy);

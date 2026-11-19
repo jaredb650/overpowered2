@@ -114,6 +114,17 @@ system by system) and `docs/notes/coop-audit-life.md` (the life of a session and
 Shared files and contracts between lanes:
 - `src/net/world/hits.ts`: **claims** extracts the claim-building and host-validation code into `claims.ts` first and lands it early;
   **gore** owns what a guest does when `hitfx`/`sever`/`kill` arrive and the prediction at the hit site. Each keeps out of the other's half.
+- **The shot id** (claims, landed): every `hit` claim carries `shot` (the shooter's own count of shots, swings and bursts, from 1,
+  never reused in a match) and `at` (the shooter's clock, ms). On the **guest**, `ctx.coop.world.shot` is the id the claim just
+  sent carried: read it right after `applyDamage` returns to tag a predicted hit. On the **host**, while a guest's claim is
+  being applied (inside `enemy:hit`, `enemy:severed`, `enemy:killed`), `ctx.coop.world.applying` is that guest's lobby id and
+  `ctx.coop.world.applyingShot` its `shot`: **gore** stamps them on `hitfx`, `sever` and `kill` so the shooter can match the answer
+  to what it predicted. Both read `null` / `0` for the host's own damage. The id moves on every `weapon:fired`, and on a claim
+  made more than 100 ms after the last move (a round landing, a beam still on). It is not `fire.shot`: **weapons-fx** may send
+  `ctx.coop.world.shot` as `fire.shot` if it wants the two equal (claims.ts hears `weapon:fired` first).
+- **Status effects** (claims, landed): fire, frost and the live bolt go through `ctx.enemies.afflict(enemy, 'burn' | 'freeze' |
+  'bolt', seconds)`, never a direct write to `enemy.burning` / `frozen` / `bolted`. It writes the local copy as before and, on a
+  guest, tells the host (`status`). New effects of this kind call it too.
 - Reactions on replicas: **gore** starts stagger, flinch and knockdown locally from the cosmetic damage model (own hits and
   `hitfx`). **enemy-motion**'s move events cover clips with no hit behind them and must not restart a clip of the same kind that
   began in the last 400 ms. Attack clips, telegraphs and sounds belong to **enemy-attacks**.

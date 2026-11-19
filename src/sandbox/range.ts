@@ -64,6 +64,8 @@ function raySphere(o: THREE.Vector3, d: THREE.Vector3, c: THREE.Vector3, r: numb
 
 /** Stand-in for EnemySystem with the same semantics as src/enemies/damage.ts for region multipliers. */
 class Dummies implements EnemySystem {
+  /** The rig's game clock, for a bolt's fuse. */
+  now: () => number = () => 0;
   alive: EnemyInstance[] = [];
   remaining = 0;
   add(x: number, z: number, health = 100000, y = 0): Dummy {
@@ -111,6 +113,11 @@ class Dummies implements EnemySystem {
       if (h) list.push(h);
     }
     return list.sort((a, b) => a.distance - b.distance).slice(0, limit);
+  }
+  afflict(e: EnemyInstance, kind: 'burn' | 'freeze' | 'bolt', seconds: number): void {
+    if (kind === 'burn') e.burning = Math.max(e.burning, seconds);
+    else if (kind === 'freeze') e.frozen = seconds;
+    else e.bolted = this.now() + seconds;
   }
   applyDamage(e: EnemyInstance, d: DamageInfo): DamageResult {
     const dummy = e as Dummy;
@@ -226,6 +233,7 @@ async function makeRig(): Promise<Rig> {
     }),
   });
   ctx.enemies = enemies;
+  enemies.now = () => ctx.time.elapsed;
   ctx.gore = noop('gore');
   ctx.hud = { hitMarker: (k: string) => record.markers.push(k), feed() {} } as unknown as Ctx['hud'];
   ctx.viewmodel = {

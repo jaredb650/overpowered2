@@ -63,6 +63,7 @@ function world(): World {
     },
     enemies: {
       alive: enemies, vehicles: undefined,
+      afflict: (e: EnemyInstance, _kind: string, seconds: number) => { e.burning = Math.max(e.burning, seconds); },
       query: (c: THREE.Vector3, r: number, out: EnemyInstance[]) => {
         let n = 0;
         for (const e of enemies) if (e.alive && e.position.distanceTo(c) <= r) out[n++] = e;

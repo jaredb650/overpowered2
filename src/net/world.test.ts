@@ -69,7 +69,7 @@ function context() {
     }),
   };
   const manager = { alive, spawn, withdraw: vi.fn((enemy: Enemy) => { enemy.alive = false; alive.splice(alive.indexOf(enemy), 1); }),
-    applyDamage: vi.fn(), replayDeath: vi.fn((enemy: Enemy) => { enemy.alive = false; alive.splice(alive.indexOf(enemy), 1); }),
+    applyDamage: vi.fn(), afflict: vi.fn(), replayDeath: vi.fn((enemy: Enemy) => { enemy.alive = false; alive.splice(alive.indexOf(enemy), 1); }),
     placeReplica: vi.fn() };
   const ctx = { events, player, enemies: manager, weapons: { current: 'smg' }, waves: { wave: 1 }, physics: { raycast: vi.fn(() => null) },
     world: { playerSpawns: [{ position: new THREE.Vector3(4, 0, 4), yaw: 0 }] }, hud: { feed: vi.fn(), follow: vi.fn(() => () => {}), callout: vi.fn() },
@@ -163,9 +163,88 @@ describe('host-authoritative world over the mocked lobby transport', () => {
     game.gw.claim(replica, { ...damage, load: 'hp' }); game.relay.flush();
     game.gw.claim(replica, { ...damage, load: undefined, type: 'pellet', pierces: true }); game.relay.flush();
     expect(game.host.manager.applyDamage).toHaveBeenCalledTimes(3);
+    // A wall on the host only (the two machines' worlds differ): AP goes through it; a plain round from 20 m gets the benefit
+    // of the doubt eight times, then a wall is a wall.
     game.host.ctx.physics.raycast = vi.fn(() => ({}) as never);
     game.gw.claim(replica, damage); game.relay.flush();
-    expect(game.host.manager.applyDamage).toHaveBeenCalledTimes(3); expect(game.hw.stats.rejected).toBe(1);
+    expect(game.host.manager.applyDamage).toHaveBeenCalledTimes(4);
+    game.guest.player.eye.set(0, 1.6, 8);
+    const plain = { ...damage, load: undefined };
+    for (let i = 0; i < 9; i++) game.gw.claim(replica, plain);
+    game.relay.flush();
+    expect(game.host.manager.applyDamage).toHaveBeenCalledTimes(12); expect(game.hw.stats.rejected).toBe(1);
+    expect(game.hw.validator.refused.sight).toBe(1);
+    game.hw.dispose(); game.gw.dispose();
+  });
+  it('numbers a guest\'s shots itself, never invents a fire event, and flags a round that did not come straight from the eye', () => {
+    const game = pair();
+    const enemy = game.host.manager.spawn('husk', new THREE.Vector3(0, 0, -10));
+    game.hw.update(); game.relay.flush();
+    game.guest.player.eye.set(0, 1.6, -5);
+    const replica = game.guest.ctx.enemies.alive[0]!;
+    const sent = () => game.relay.packets.filter(packet => packet.lane === 'action').map(packet => (packet.data as { data: WorldEvent }).data);
+    const hits = () => sent().filter(event => event.t === 'hit') as Extract<WorldEvent, { t: 'hit' }>[];
+    const at = (source: string, type: DamageInfo['type'] = 'bullet'): DamageInfo =>
+      ({ amount: 20, type, point: enemy.center.clone(), dir: new THREE.Vector3(0, 0, -1), force: 5, source, region: 'chest' });
+    // A ground slam, a parried round, a mounted gun and a perk: claims of their own kind, and no made-up gun shot for anyone to see.
+    for (const [source, type] of [['slam', 'crush'], ['sword_deflect', 'bullet'], ['emplacement', 'bullet'], ['chain_storm', 'shock']] as const) game.gw.claim(replica, at(source, type));
+    game.relay.flush();
+    expect(sent().filter(event => event.t === 'fire')).toHaveLength(0);
+    expect(game.host.manager.applyDamage).toHaveBeenCalledTimes(4);
+    expect(game.hw.stats.rejected).toBe(0);
+    // Every real shot is a new shot id; hits of one shot share it; a round that lands 100 ms after the last shot gets its own.
+    const first = hits().at(-1)!.shot;
+    game.guest.ctx.events.emit('weapon:fired', { weapon: 'smg', origin: game.guest.player.eye, dir: game.guest.player.forward });
+    game.gw.claim(replica, at('smg')); game.gw.claim(replica, at('smg'));
+    game.guest.ctx.events.emit('weapon:fired', { weapon: 'smg', origin: game.guest.player.eye, dir: game.guest.player.forward });
+    game.gw.claim(replica, at('smg'));
+    vi.advanceTimersByTime(150);
+    game.gw.claim(replica, at('stakegun'));
+    expect(hits().slice(-4).map(hit => hit.shot - first)).toEqual([1, 1, 2, 3]);
+    expect(game.gw.shot).toBe(first + 3);
+    expect(hits().at(-1)!.at).toBeGreaterThan(hits().at(-2)!.at!);
+    expect(hits().every(hit => hit.hop === undefined)).toBe(true);
+    // A ricochet comes from another direction; a round through a wall has the guest's own wall on its line.
+    game.gw.claim(replica, { ...at('smg'), dir: new THREE.Vector3(1, 0, 0) });
+    expect(hits().at(-1)!.hop).toBe(1);
+    game.guest.player.eye.set(0, 1.6, 8);
+    game.guest.ctx.physics.raycast = vi.fn(() => ({}) as never);
+    game.gw.claim(replica, { ...at('smg'), dir: new THREE.Vector3(0, 0, -1) });
+    expect(hits().at(-1)!.hop).toBe(1);
+    // The host, whose own world has a wall there too, takes both: there is no straight line to test.
+    game.host.ctx.physics.raycast = vi.fn(() => ({}) as never);
+    game.relay.flush();
+    expect(game.hw.stats.rejected).toBe(0);
+    // The shot being applied is readable on the host while it is applied, for the answer that goes back.
+    let seen: [string | null, number] = [null, 0];
+    game.host.manager.applyDamage.mockImplementationOnce(() => { seen = [game.hw.applying, game.hw.applyingShot]; });
+    game.gw.claim(replica, at('smg')); game.relay.flush();
+    expect(seen).toEqual([game.guestLobby.you, game.gw.shot]);
+    expect(game.hw.applying).toBeNull();
+    game.hw.dispose(); game.gw.dispose();
+  });
+  it('takes a guest\'s fire, frost and live bolt to the host, a renewed one four times a second and once more at the end', () => {
+    const game = pair();
+    game.host.manager.spawn('husk', new THREE.Vector3(0, 0, -10));
+    game.hw.update(); game.relay.flush();
+    const replica = game.guest.ctx.enemies.alive[0]!;
+    const hostEnemy = game.host.ctx.enemies.alive[0]!;
+    // Standing in napalm: renewed every frame for half a second.
+    for (let frame = 0; frame < 30; frame++) { game.gw.status(replica, 'burn', 6); vi.advanceTimersByTime(16); game.gw.update(); }
+    vi.advanceTimersByTime(300); game.gw.update();
+    game.gw.status(replica, 'freeze', 4); game.gw.status(replica, 'bolt', 1.2);
+    game.relay.flush();
+    const calls = game.host.manager.afflict.mock.calls;
+    expect(calls.every(call => call[0] === hostEnemy)).toBe(true);
+    const burns = calls.filter(call => call[1] === 'burn');
+    expect(burns.length).toBeGreaterThanOrEqual(2); expect(burns.length).toBeLessThanOrEqual(4);
+    expect(burns.every(call => call[2] === 6)).toBe(true);
+    expect(calls.filter(call => call[1] === 'freeze').map(call => call[2])).toEqual([4]);
+    expect(calls.filter(call => call[1] === 'bolt').map(call => call[2])).toEqual([1.2]);
+    // The host's own never goes out as a claim.
+    const before = game.relay.packets.length;
+    game.hw.status(hostEnemy, 'burn', 6);
+    expect(game.relay.packets.length).toBe(before);
     game.hw.dispose(); game.gw.dispose();
   });
   it('turns a guest\'s instakill on a boss into the boss hit a host player gets', () => {

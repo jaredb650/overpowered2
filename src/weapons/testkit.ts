@@ -36,6 +36,8 @@ function raySphere(o: THREE.Vector3, d: THREE.Vector3, c: THREE.Vector3, r: numb
 /** Bodies are a 0.55 m sphere at chest height and a 0.14 m head, as in the range sandbox. */
 export class Dummies implements EnemySystem {
   alive: EnemyInstance[] = [];
+  /** The rig's game clock, for a bolt's fuse. */
+  now: () => number = () => 0;
   remaining = 0;
   add(x: number, z: number, health = 100000, y = 0): Dummy {
     const bones = RIG.bones.map(() => new THREE.Bone());
@@ -89,6 +91,11 @@ export class Dummies implements EnemySystem {
       if (h) list.push(h);
     }
     return list.sort((a, b) => a.distance - b.distance).slice(0, limit);
+  }
+  afflict(e: EnemyInstance, kind: 'burn' | 'freeze' | 'bolt', seconds: number): void {
+    if (kind === 'burn') e.burning = Math.max(e.burning, seconds);
+    else if (kind === 'freeze') e.frozen = seconds;
+    else e.bolted = this.now() + seconds;
   }
   applyDamage(e: EnemyInstance, d: DamageInfo): DamageResult {
     const dummy = e as Dummy;
@@ -227,6 +234,7 @@ export async function makeRange(): Promise<Range> {
     render: new Proxy(noop<Ctx['render']>('render'), { get: (t, k) => (k === 'decals' ? decals : Reflect.get(t, k)) }),
   });
   ctx.enemies = enemies;
+  enemies.now = () => ctx.time.elapsed;
   ctx.gore = noop('gore');
   ctx.hud = { hitMarker() {}, feed() {} } as unknown as Ctx['hud'];
   ctx.viewmodel = {

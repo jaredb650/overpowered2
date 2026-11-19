@@ -273,22 +273,20 @@ describe('the host and a guest\'s kata', () => {
     return ok;
   }
 
-  it('turns down a burst faster than the gun without a kata, and takes it all inside the kata window', () => {
+  it('takes a kata\'s whole burst from any akimbo gun, with or without the notice, and still turns down a flood', () => {
     const gap = KATA.step * 1000;
-    expect(WEAPONS.ultramag.interval * 650).toBeGreaterThan(gap);
-    expect(burst(new ClaimValidator(), 'ultramag', gap, 8, 0)).toBeLessThan(8);
+    // The burst outruns the gun's own rate; the host's limit for a gun that takes akimbo already has room for it (authority.ts `limitsOf`).
+    expect(WEAPONS.ultramag.interval * 1000).toBeGreaterThan(gap);
+    for (const gun of ['smg', 'rivet', 'ultramag', 'judge', 'autoraffica']) {
+      expect(burst(new ClaimValidator(), gun, gap, KATA.most, 0), gun).toBe(KATA.most);
+      // Every shot of it read by the host in one frame, after a hitch.
+      expect(burst(new ClaimValidator(), gun, 0, KATA.most, 0), gun).toBe(KATA.most);
+    }
     const v = new ClaimValidator();
     expect(v.kata('guest', 1000)).toBe(true);
     expect(burst(v, 'ultramag', gap, 14, 1000)).toBe(14);
-    // Past the window the gun's own rate holds again.
-    expect(burst(v, 'ultramag', gap, 6, 1000 + KATA.window * 1000 + 100)).toBeLessThan(6);
-  });
-
-  it('opens the window once a charge: a guest cannot keep it open', () => {
-    const v = new ClaimValidator();
-    expect(v.kata('guest', 0)).toBe(true);
-    expect(v.kata('guest', 3000)).toBe(false);
-    expect(v.kata('guest', KATA.cooldown * 1000)).toBe(true);
+    // A shot a millisecond for two seconds is not a kata.
+    expect(burst(new ClaimValidator(), 'ultramag', 1, 2000, 0)).toBeLessThan(1000);
   });
 
   it('takes the Autoraffica akimbo\'s dual smart fire, a round from each gun in turn at twice the smart rate', () => {
@@ -296,10 +294,10 @@ describe('the host and a guest\'s kata', () => {
     expect(burst(new ClaimValidator(), 'autoraffica', gap, 40, 0, true)).toBe(40);
   });
 
-  it('lets akimbo through at twice the gun\'s rate, on a gun that takes it only', () => {
+  it('lets akimbo through at twice the gun\'s rate', () => {
     const gap = WEAPONS.ultramag.interval * 1000 / 2;
-    expect(burst(new ClaimValidator(), 'ultramag', gap, 6, 0, true)).toBe(6);
-    expect(burst(new ClaimValidator(), 'ultramag', gap, 6, 0, false)).toBeLessThan(6);
-    expect(burst(new ClaimValidator(), 'awl', WEAPONS.awl.interval * 1000 / 2, 4, 0, true)).toBeLessThan(4);
+    expect(burst(new ClaimValidator(), 'ultramag', gap, 40, 0, true)).toBe(40);
+    // Under every fire-rate perk at once as well (2x), which the old check threw half of away.
+    expect(burst(new ClaimValidator(), 'ultramag', gap / 2, 40, 0, true)).toBe(40);
   });
 });

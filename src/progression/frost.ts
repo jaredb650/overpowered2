@@ -69,7 +69,7 @@ export class FrostNova {
 
   private freeze(e: EnemyInstance): void {
     const shell = this.shells.find(s => s.enemy === e) ?? this.shells.find(s => s.enemy === null);
-    e.frozen = FROST.freezeSeconds;
+    this.ctx.enemies.afflict(e, 'freeze', FROST.freezeSeconds);
     if (!shell || shell.enemy === e) return;
     shell.enemy = e;
     shell.grown = 0;

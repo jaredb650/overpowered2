@@ -10,7 +10,7 @@ import type { BoomEvent } from './world/booms';
 import type { CallinEvent } from './world/callins';
 import type { CaptureEvent } from './world/capture';
 import type { ChatterEvent } from './world/chatter';
-import type { HitClaim } from './world/claims';
+import type { ClaimEvent } from './world/claims';
 import type { SlowEvent } from './world/clock';
 import type { EnemyFireEvent } from './world/enemyFire';
 import type { GunEvent } from './world/guns';
@@ -22,12 +22,12 @@ import type { VehiclesEvent } from './world/vehicles';
 
 export * from './world/wire';
 export * from './world/snapshot';
-export type { HitClaim } from './world/claims';
+export type { HitClaim, StatusClaim, VehicleClaim } from './world/claims';
 export type { Card, LifeState } from './team';
 
 /** Everything that crosses the reliable `action` lane (world/context.ts `send`, world/router.ts). */
 export type WorldEvent =
-  | HitClaim        // world/claims.ts: hit
+  | ClaimEvent      // world/claims.ts: hit, status, vhit
   | HitEvent        // world/hits.ts: hitfx, kill, sever
   | FireEvent       // world/remoteFire.ts: fire
   | KataEvent       // world/remoteFire.ts: kata

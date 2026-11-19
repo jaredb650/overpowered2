@@ -756,7 +756,7 @@ export class Projectiles {
     const inv = this.inverse.copy(b.matrixWorld).invert();
     p.stuckLocal.copy(p.position).applyMatrix4(inv);
     p.stuckAxis.copy(dir).transformDirection(inv);
-    enemy.bolted = this.ctx.time.elapsed + p.fuse;
+    this.ctx.enemies.afflict(enemy, 'bolt', p.fuse);
   }
 
   /** A stuck exploding bolt: it follows its bone, beeps quicker and quicker, then goes off. */

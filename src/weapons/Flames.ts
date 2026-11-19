@@ -397,7 +397,7 @@ export class Flames {
       this.head.y += e.char.rig.height;
       closestOnSegment(p.position, e.position, this.head, this.near);
       if (this.near.distanceTo(p.position) > p.radius + BODY_RADIUS) continue;
-      e.burning = Math.max(e.burning, TUNING.kiln.burnSeconds);
+      this.ctx.enemies.afflict(e, 'burn', TUNING.kiln.burnSeconds);
     }
   }
 
@@ -424,7 +424,7 @@ export class Flames {
       const res = this.combat.strike(e, this.near, this.dir, this.dir, undefined, undefined, f.damage, o);
       f.damage *= BITE_DECAY;
       // Napalm sticks: a man the stream hits is coated in it.
-      if (!res.blocked) e.burning = Math.max(e.burning, f.napalm ? TUNING.napalm.coatSeconds : TUNING.kiln.burnSeconds);
+      if (!res.blocked) c.enemies.afflict(e, 'burn', f.napalm ? TUNING.napalm.coatSeconds : TUNING.kiln.burnSeconds);
       if (this.markerClock <= 0 || res.killed) {
         this.markerClock = MARKER_GAP;
         c.hud.hitMarker(res.killed ? 'kill' : res.blocked ? 'armor' : 'body');

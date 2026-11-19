@@ -532,6 +532,11 @@ export interface EnemySystem extends GameSystem {
   raycastAll(origin: THREE.Vector3, dir: THREE.Vector3, maxDist: number, limit: number): EnemyRayHit[];
   /** The one place damage reaches an enemy. */
   applyDamage(enemy: EnemyInstance, damage: DamageInfo): DamageResult;
+  /**
+   * The one place a weapon, call-in or perk sets an enemy alight (`burn`: at least `seconds` more), freezes it (`freeze`: for
+   * `seconds`) or leaves a live bolt in it (`bolt`: its fuse). A co-op guest's goes to the host as a claim.
+   */
+  afflict(enemy: EnemyInstance, kind: 'burn' | 'freeze' | 'bolt', seconds: number): void;
   /** Writes enemies within `radius` into `out` and returns its length. */
   query(center: THREE.Vector3, radius: number, out: EnemyInstance[]): number;
   killAll(source: string): void;

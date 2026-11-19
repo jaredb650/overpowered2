@@ -225,7 +225,7 @@ export class Orbital implements Strike {
     for (let i = 0; i < count; i++) {
       const e = this.near[i]!;
       if (!e.alive) continue;
-      e.burning = Math.max(e.burning, O.burnSeconds);
+      enemies.afflict(e, 'burn', O.burnSeconds);
       this.burn.point.copy(e.center);
       this.burn.dir.subVectors(e.center, this.point).setY(0.6).normalize();
       enemies.applyDamage(e, this.burn);
