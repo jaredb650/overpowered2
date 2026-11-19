@@ -190,6 +190,11 @@ export interface ClaimScene {
   size?: number;
   /** How fast the enemy is moving on the host, m/s: where the guest saw it is behind by the link's delay. */
   speed?: number;
+  /**
+   * Metres from a point to the nearest place the enemy's centre has been on the host in the last two seconds. A man thrown
+   * across the room by the last shot is still where he stood on the shooter's screen when the next one lands.
+   */
+  near?: (point: Vec) => number;
   /** The shooter's round trip to the host, ms, if measured. */
   ping?: number;
   /** The shooter is down or dead: only what was already in flight or stands by itself still counts. */
@@ -282,7 +287,8 @@ export class ClaimValidator {
     if (distance(claim.origin, scene.target) > RANGE[kind]) return this.no('range');
     const slack = 10 + (scene.size ?? 2) + (scene.speed ?? 0) * (0.35 + ping / 1000);
     const area = kind === 'blast' || kind === 'callin' || kind === 'perk' || kind === 'world';
-    if (!area && distance(damage.point, scene.target) > slack && fromSegment(scene.target, claim.origin, damage.point) > slack) return this.no('point');
+    if (!area && distance(damage.point, scene.target) > slack && fromSegment(scene.target, claim.origin, damage.point) > slack
+      && (scene.near?.(damage.point) ?? Infinity) > slack) return this.no('point');
 
     // How much. Over the cap it is cut, unless it is a kill the weapon really has.
     const cap = gun ? gun.instakill ? INSTAKILL : Math.max(CAPS[kind], gun.damage * DAMAGE_ROOM) : CAPS[kind];

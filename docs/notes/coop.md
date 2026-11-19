@@ -1238,8 +1238,9 @@ million claims, none refused or cut), `world.test.ts`; browser proof `tools/scri
 - **Where.** The claim's eye within `7 + 26 x (0.35 + ping)` m of the host's copy of the shooter (16 m at no ping, 24 m at
   300 ms: a 26 m/s dash; 80 m for a mounted gun; not checked for blasts, call-ins, perks). Range from the eye: 850 m for guns
   (Combat's own is 800), 60 melee, anywhere for call-ins and perks. The hit point within `10 + the enemy's height + its speed x
-  the delay` of the enemy on the host, **or** the enemy that near the line from the eye to the point (the Lance beam names its far
-  end, up to 400 m out).
+  the delay` of the enemy on the host, **or** of anywhere its centre has been in the last 2 s (the host notes it every 100 ms: a man
+  the last shot threw across the room is still where he stood on the shooter's screen), **or** the enemy that near the line from the
+  eye to the point (the Lance beam names its far end, up to 400 m out).
 - **Sight.** Tested only for a straight shot (no `hop`) from a gun whose row does not pass walls on its own, without an AP or
   API load, not a flame, from more than 6 m. From the claim's eye to the hit point, the last metre not looked at; failing that
   from the host's copy of the eye, and to the enemy's centre and head as the host has it. If all fail, the hit still passes on an

@@ -4,7 +4,8 @@
 // every claim it sent is applied on the host, none refused, none cut, and each hit deals what the host's own identical hit
 // dealt: the host notes every hit by round, region and load, its own and the guest's, with what the damage model made of it
 // (dealt over claimed), and where both made the same hit that must be the same number. (Per shot the two differ a little by where on the body the rounds land: the guest hits
-// what is on its own screen, and the still targets breathe.) Damage per shot is reported side by side; the guest far under the host (40%) fails.
+// what is on its own screen, and the still targets breathe.) Damage per shot is reported side by side; the guest far under the host (40%) fails,
+// except at arm's length (melee, the Kiln), where a target a hit has shoved back is in or out of reach by luck on either page.
 // A trial runs until the row's shots are fired, not for a fixed time, so a starved page proves the same thing more slowly.
 // `gone` is a claim on a man the host had already killed: nobody lost a hit, so it is counted, not failed.
 // Targets: a column of five husks, a boss (a Juggernaut), and a parked truck. Endless Humans, the one survival mode with vehicles.
@@ -84,7 +85,10 @@ const prepare = host => host.evaluate(() => {
       if (run > best.run) best = { yaw, run, from: [x, y, z] };
     }
   }
-  window.__claims = { yaw: best.yaw, run: best.run, from: best.from, mine: {}, theirs: {}, dealt: 0, hits: 0, blocked: 0, vehicle: 0, sources: {} };
+  window.__claims = { yaw: best.yaw, run: best.run, from: best.from, mine: {}, theirs: {}, burn: 0, freeze: 0, bolt: 0, dealt: 0, hits: 0, blocked: 0, vehicle: 0, sources: {} };
+  // Fire, frost and bolts set on the host, by the host's own weapon or a guest's claim.
+  const afflict = ctx.enemies.afflict.bind(ctx.enemies);
+  ctx.enemies.afflict = (enemy, kind, seconds) => { const c = window.__claims; c[kind] = (c[kind] ?? 0) + 1; return afflict(enemy, kind, seconds); };
   ctx.events.on('enemy:hit', e => {
     const c = window.__claims;
     if (['burn', 'bleed', 'hazard'].includes(e.damage.source)) return;
@@ -212,7 +216,7 @@ const shoot = (page, row, aim) => page.evaluate(async ([row, aim]) => {
 const read = host => host.evaluate(() => {
   const { ctx } = window.__op2, c = window.__claims, world = ctx.coop.world;
   const targets = ctx.enemies.alive.filter(e => c.uids.includes(e.uid));
-  return { dealt: c.dealt, hits: c.hits, blocked: c.blocked, vehicle: c.vehicle, sources: { ...c.sources }, accepted: world.stats.accepted, rejected: world.stats.rejected,
+  return { burn: c.burn, freeze: c.freeze, bolt: c.bolt, dealt: c.dealt, hits: c.hits, blocked: c.blocked, vehicle: c.vehicle, sources: { ...c.sources }, accepted: world.stats.accepted, rejected: world.stats.rejected,
     refused: { ...world.validator.refused }, clamped: world.validator.clamped, doubted: world.validator.doubted,
     same: Object.keys(c.theirs).filter(k => c.mine[k]).length,
     differ: Object.keys(c.theirs).filter(k => c.mine[k] && !Object.keys(c.theirs[k]).every(v => c.mine[k][v])).map(k => [k, Object.keys(c.mine[k]), Object.keys(c.theirs[k])]),
@@ -296,7 +300,7 @@ await guest.waitForFunction(([uids, last, truck]) => {
           const d = delta(after, before), sent = delta(sentAfter, sentBefore);
           const dealt = row.target === 'truck' ? d.vehicle : d.dealt;
           result[who] = { shots, frames: fired.frames, shooterFps: fired.fps, perf, dealt: Math.round(dealt), perShot: shots ? Math.round(dealt / shots * 10) / 10 : 0, hits: d.hits, blocked: d.blocked,
-            burning: after.burning, frozen: after.frozen, same: after.same, differ: after.differ,
+            burning: d.burn, frozen: d.freeze, bolted: d.bolt, same: after.same, differ: after.differ,
             ...(who === 'guest' ? { sent, accepted: d.accepted, rejected: d.rejected, clamped: d.clamped, doubted: d.doubted,
               refused: Object.fromEntries(Object.entries(after.refused).map(([k, v]) => [k, v - (before.refused[k] ?? 0)]).filter(([, v]) => v)) } : {}) };
         }
@@ -320,7 +324,7 @@ await guest.waitForFunction(([uids, last, truck]) => {
           result.exact = row.tol === undefined;
           if (h.dealt > 0 && g.dealt === 0) problems.push('the guest dealt nothing');
           else if (g.differ.length) problems.push(`the same hit dealt different damage: ${JSON.stringify(g.differ.slice(0, 3))}`);
-          else if (h.dealt > 0 && fires && h.shots >= 3 && g.shots >= 3 && ratio < 0.4) problems.push(`the guest's damage per shot is far under the host's: guest ${g.perShot}, host ${h.perShot}`);
+          else if (h.dealt > 0 && fires && h.shots >= 3 && g.shots >= 3 && ratio < 0.4 && !row.near) problems.push(`the guest's damage per shot is far under the host's: guest ${g.perShot}, host ${h.perShot}`);
           if (row.burns === true && h.burning > 0 && g.burning === 0) problems.push('the host set them alight, the guest did not');
           if (row.freezes && h.frozen > 0 && g.frozen === 0) problems.push('the host froze them, the guest did not');
           result.problems = problems;

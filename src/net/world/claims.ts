@@ -42,6 +42,8 @@ export type ClaimEvent = HitClaim | StatusClaim | VehicleClaim;
 
 /** A shot id is stale once nothing has fired for this long: the next claim (a round landing, a beam still on) starts a new one. */
 const STALE_MS = 100;
+/** Host: each enemy's centre is noted this often, this many times back (two seconds), for a hit on where he was (authority.ts `near`). */
+const TRAIL_MS = 100, TRAIL = 20;
 /** A status that is renewed every tick (standing in napalm) is sent this often at most, and once more when it stops. */
 const STATUS_MS = 250;
 /** Past this angle between the round's own direction and the line from the eye, the hit did not come straight from the eye. */
@@ -71,6 +73,9 @@ export class Claims implements WorldModule {
   /** Host: the guest whose claim is being applied right now (lobby id), and its shot. */
   private current: string | null = null;
   private currentShot = 0;
+  /** Host: where each enemy's centre has been lately, as x, y, z triples in a ring. */
+  private readonly trails = new Map<number, { at: Float32Array; count: number; next: number }>();
+  private trailAt = -Infinity;
   /** Guest: when the shot id last moved, and the frame's clock when it was last used. */
   private bumpedAt = -Infinity;
   /** Guest: statuses lately sent, by enemy and kind, with what is still owed (`pending` seconds, 0 for none). */
@@ -86,6 +91,7 @@ export class Claims implements WorldModule {
     w.router.host('vhit', (value, from, now) => this.vhitIn(value, from, now));
     w.snapshotSent.push(alive => {
       for (const uid of this.lastHitter.keys()) if (!alive.has(uid)) this.lastHitter.delete(uid);
+      for (const uid of this.trails.keys()) if (!alive.has(uid)) this.trails.delete(uid);
     });
   }
 
@@ -198,6 +204,7 @@ export class Claims implements WorldModule {
     const verdict = this.w.validator.check(from, value, now, {
       eye: [root.x, root.y + 1.6, root.z], target: enemy.center.toArray() as Vec, size: enemy.char.rig.height, speed: enemy.velocity.length(),
       ping: session.lobby.pingOf(from), down: this.w.life(from).down, visible: (origin, target) => this.w.visible(origin, target),
+      near: point => this.nearTrail(enemy.uid, point),
     });
     if (!verdict.ok) { stats.rejected++; return; }
     stats.accepted++;
@@ -246,8 +253,30 @@ export class Claims implements WorldModule {
     else this.refuse('gone');
   }
 
+  /** Host: metres from `point` to the nearest place this enemy's centre has been in the last two seconds. */
+  private nearTrail(uid: number, point: Vec): number {
+    const trail = this.trails.get(uid);
+    let best = Infinity;
+    if (trail) for (let i = 0; i < trail.count; i++) {
+      best = Math.min(best, Math.hypot(trail.at[i * 3]! - point[0], trail.at[i * 3 + 1]! - point[1], trail.at[i * 3 + 2]! - point[2]));
+    }
+    return best;
+  }
+
   update(now: number): void {
-    if (this.w.hosting) return;
+    if (this.w.hosting) {
+      if (now - this.trailAt < TRAIL_MS) return;
+      this.trailAt = now;
+      for (const enemy of this.w.ctx.enemies.alive) {
+        let trail = this.trails.get(enemy.uid);
+        if (!trail) this.trails.set(enemy.uid, trail = { at: new Float32Array(TRAIL * 3), count: 0, next: 0 });
+        const center = (enemy as Enemy).center;
+        trail.at[trail.next * 3] = center.x; trail.at[trail.next * 3 + 1] = center.y; trail.at[trail.next * 3 + 2] = center.z;
+        trail.next = (trail.next + 1) % TRAIL;
+        trail.count = Math.min(TRAIL, trail.count + 1);
+      }
+      return;
+    }
     this.vehicleHits.update();
     // What a throttled status still owes: the last word on how long it burns.
     for (const [key, entry] of this.statuses) {

@@ -236,6 +236,26 @@ describe('host-authoritative world over the mocked lobby transport', () => {
     expect(game.hw.applying).toBeNull();
     game.hw.dispose(); game.gw.dispose();
   });
+  it('takes a hit on where an enemy stood a moment ago: a man thrown across the room is still there on the shooter\'s screen', () => {
+    const game = pair();
+    const enemy = game.host.manager.spawn('husk', new THREE.Vector3(0, 0, -10));
+    game.hw.update(); game.relay.flush();
+    game.guest.player.eye.set(0, 1.6, -5);
+    const replica = game.guest.ctx.enemies.alive[0]!;
+    const damage: DamageInfo = { amount: 16, type: 'pellet', point: replica.center.clone(), dir: new THREE.Vector3(0, 0, -1), force: 12, source: 'deuce', region: 'chest' };
+    // The host's body is flung 30 m between two of the guest's shots; the host has noted where it was.
+    vi.advanceTimersByTime(150); game.hw.update();
+    enemy.position.set(0, 0, -40); enemy.center.set(0, 1, -40);
+    vi.advanceTimersByTime(150); game.hw.update();
+    game.gw.claim(replica, damage); game.relay.flush();
+    expect(game.host.manager.applyDamage).toHaveBeenCalledOnce();
+    // Three seconds on, the place he left is no longer his.
+    for (let i = 0; i < 30; i++) { vi.advanceTimersByTime(100); game.hw.update(); }
+    game.gw.claim(replica, damage); game.relay.flush();
+    expect(game.host.manager.applyDamage).toHaveBeenCalledOnce();
+    expect(game.hw.validator.refused.point).toBe(1);
+    game.hw.dispose(); game.gw.dispose();
+  });
   it('takes a guest\'s round and blast to the host\'s vehicles, as claims and not as part of the drawing', () => {
     const game = pair();
     const truck = { alive: true, def: { kind: 'truck' }, position: new THREE.Vector3(0, 0, -20), quaternion: new THREE.Quaternion() };

@@ -119,6 +119,10 @@ describe('friends-only hit sanity checks', () => {
     expect(validator.check('guest', dashed, 100, scene({ ping: 200 })).ok).toBe(true);
     const titan = claim(2); titan.damage.point = [0, 9, -10];
     expect(validator.check('guest', titan, 100, scene({ size: 6 })).ok).toBe(true);
+    // A man the last shot threw across the room: on the shooter's screen he is still where he stood, and the hit on him there counts.
+    const thrown = claim(4);
+    expect(validator.check('guest', thrown, 100, scene({ target: [0, 1, -40] }))).toEqual({ ok: false, why: 'point' });
+    expect(validator.check('guest', thrown, 100, scene({ target: [0, 1, -40], near: point => Math.hypot(point[0], point[1] - 1, point[2] + 10.5) })).ok).toBe(true);
     // The Lance's beam names its far end: the enemy is somewhere along it, up to 400 m out.
     const beam = claim(3); beam.damage.source = 'lance'; beam.damage.type = 'fire'; beam.damage.point = [0, 1.6, -400];
     expect(validator.check('guest', beam, 100, scene({ target: [0.5, 1, -380] })).ok).toBe(true);
