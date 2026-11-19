@@ -95,8 +95,9 @@ the names the game used before).
 | `world/warnings.ts` | Ground rings, falling shells, ground shocks, flashbangs, and the stars and lasers of things that are not an enemy's attack | `zone`, `strike`, `shock`, `bang`, `glint`, `laser` |
 | `world/villain.ts` | The Commander's briefing, barks, warning chips, arrival and last words raised on guests as the same game events | `cmd` |
 | `world/hostTime.ts` | `HostTime`: how much later than usual a host-stamped event arrived, so a late wind-up starts that far in | |
-| `world/booms.ts` | `blast`: explosions sent to other screens (24 a second), an enemy blast's damage on remote players, a guest's blast on the host's vehicles | `boom` |
-| `world/callins.ts` | A call-in's feed line, and the host's note that lets the caller's call-in damage pass | `callin` |
+| `world/booms.ts` | `blast`: explosions sent to other screens on a two-bucket budget (24 a second of anything, 12 more for large or near ones), an enemy blast's damage on remote players, a guest's blast on the host's vehicles. `show` (`CoopWorld.boom`) is the API for a blast combat did not make | `boom` |
+| `world/callins.ts` | Call-ins, the Frame and streak-perk effects on every screen: the order, the news, the pose, the checks and the relay; the host's note that lets the caller's call-in damage pass. See "Call-ins on every screen" | `callin`, `cin`, `cnews`, `mech`, `aadown`, `pfx` |
+| `world/airlift.ts` | The capture skyhook: the host says when a drone is sent for a cuffed man, every guest flies the same pass | `airlift` |
 | `world/sonar.ts` | The shared Sonar ping | `sonar` |
 | `world/chatter.ts` | The soldiers' lines on every screen | `chatter`, `chatcut` |
 | `world/slow.ts` | The team's slow-mo rules with no game in them: the kinds, their scales and caps, the host's list and the team's budget (`SlowBoard`), the notice's words | |
@@ -1739,8 +1740,8 @@ page), and the others are trials. Cloudflare's free tier is the free option, so 
 - **Call-ins.** Each player calls their own (earned from their own combo). A strike, the AA sentry, the mech, the door gunner or the
   AC-130 runs on the caller's screen; its damage reaches the host as call-in claims, accepted for 4 minutes after the caller's
   `callin:used` (sentries stand that long), rate-capped at 160 a second, no line-of-sight test. Every explosion anyone's game makes is
-  drawn and heard on every screen (`boom`, 24 a second at most), and the others get a feed line "VIPER called in AIRSTRIKE". The
-  aircraft model itself is only on the caller's screen.
+  drawn and heard on every screen (`boom`), and the others get a feed line "VIPER called in AIRSTRIKE". Since the overhaul
+  the call-in itself plays on every screen: see "Call-ins on every screen".
 - **Bodies.** A friend holds the nearest baked prop to their gun (SMG, shotgun, launcher, minigun, pistol, sniper rifle, blade, flamer),
   and everything their gun does is drawn from it (see "Weapons on other screens"). Poses: crouch, slide (a crouch at speed), wall run left and right (lean),
   jump and mantle (the airborne gait), downed (prone), kneeling over a friend they revive. Tags sit above the head, clear of the HUD's
@@ -1829,6 +1830,74 @@ at 10 fps, up to five (4 fps), drawn once. The first step takes the frame's inpu
 If the steps themselves are what is slow (they would cost over half the frame), there are fewer and longer ones, up to 0.125 s,
 which still keeps real speed down to 8 fps. After a stall at most 0.25 s of world is played out. Guests and single player are
 unchanged.
+## Call-ins on every screen
+
+The owner's rule: everyone can call them in, and it is global. A call-in made by any player plays on every screen as it does for the
+caller. Damage stays the caller's: its own game claims every hit with the host, and a watcher's copy never deals any.
+
+**How.** The caller's game sends an **order** (`cin`: which call-in, its own number 0-255, the mark, one angle, a seed) and every
+other screen starts the same call-in through the *same strike class* (`progression/callins/mirror.ts`), on a context that cannot
+hurt anything (`ghost.ts`): `combat.explode` and `spawnProjectile` draw, sound and shake but hurt nobody (`ExplosionSpec.cosmetic`,
+`ProjectileSpec.ghost`: a copy's round bursts on the first body or wall in its way, as its caller's does), `fireRay` is a tracer and an impact, `enemies.applyDamage` and `afflict` do nothing, banners and crew
+chatter are muted, no key is ever down. Each player has their own set of what a strike borrows (jet, missiles, gunship and its
+rounds, both helicopters, sentry, Frame), built the first time they call something that needs it. What an order cannot say goes as
+**news** (`cnews`), named by the call-in's number. A copy starts when its order arrives, so it runs one network delay behind the
+caller's, in step with the kills and blasts that arrive on the same ordered lane.
+
+| Call-in | What keeps it the same everywhere | What a watcher sees |
+|---|---|---|
+| Airstrike | The seed: the same 15 rockets from the same places | The ring, 15 rockets falling with their trails and blasts, the finale missile and its blast, flash and shake |
+| Warthog | The seed and the heading | The strip, the jet on the same pass with its trails and flares, 50 shells with tracers from its nose, their blasts, the roar |
+| Orbital Lance | `steer` 10 times a second (the caller's aim on the ground), `release` | The pilot laser, the column and pool following the caller's aim at the beam's own speed, the ignition blast, embers, scorch marks, the hum |
+| Black Sun | The order (a place and a clock) | The singularity growing, the streaks, bodies pulled in, the implosion and its blast. The host's copy drags the real enemies; the pull tugs every player |
+| Tactical Nuke | The order | The siren and countdown banner (for everyone), the missile, the white flash, the shock front, the mushroom cloud and burnt sky. The front shoves every player |
+| AA sentry | The order and the seed | The pod falling on the mark, the landing blast, the gun unfolding, tracking and firing at what flies (by itself, at the same drones), powering down |
+| AC-130 | Its circle is the order (centre and side) and its clock (`clock` once a second, so a screen that dropped frames does not fall behind on the circle); `round` for every round with the exact spot it flies to, `bomb`, `laser` 10 times a second while guiding, `flares`, `down` | The ship on the same circle, the ring, every 25, 40 and 105 mm round in flight with its muzzle flash and report, each round's own blast (HE, AP, flak cone, white phosphorus cloud), the glide bomb steering onto the laser, flares, the crash. The same whether the crew or a player is on the guns |
+| Attack chopper, door gunner | `pose` 10 times a second (position, attitude, the gun's aim and the triggers), `flares`, `down` (with where it was and how fast it was going, so every wreck lands on the same spot), `end` | The helicopter where the caller's is, rotors and engine sound, the gun pointing where the caller's points, its cannon shells, rockets or 20 mm stream with tracers, flashes and bursts, flares, the crash and wreck |
+| The Frame (drop) | The order: the spot and the facing | The pod coming down on its jets, the landing blast, the Frame standing open. Its own pilot boards it; nobody else is offered the seat |
+| The Frame (crewed) | `mech`: its pose 10 times a second (feet, legs, hull, stride, sink, sway, the guns' spot, firing and jets) and a word for each shell, missile, stomp, smoke and backhand | A puppet of the same body and arms walking where the pilot walks, footfalls, jets, the rotary's tracers, 40 mm shells in flight and their blasts, pod missiles, the stomp, the smoke. The pilot's own body is not drawn while they are in it |
+| A mission's courier (`flyFlight`) | As a helicopter: `pose`, `down` | The host's Packmule crossing and being shot down |
+
+Also on the wire: `aadown` (host to one guest: the Commander's missile brought your aircraft down; the host raises
+`callin:teammate` for every guest's call-in, which the Commander and the Outpost's dread hear as they hear the host's own),
+`pfx` (a streak perk's effect in the world: Chain Storm's arcs, Frost Nova's ring; Skyfall, Chain Reaction and Hellfire rounds are
+blasts and already travel as `boom`), and `airlift` (the skyhook: `uid`, where the hook takes the man, the heading, the seconds
+until it does; every guest flies its own drone, hook and line and carries its copy of the man up).
+
+**Blasts.** A blast is sent as `boom` unless it is `cosmetic` (it is a copy), `mirrored` (the copies draw it themselves: every
+call-in's rounds, so a gunship run costs no booms at all) or `worldObject` (its owner drew it). The budget is two buckets a sender:
+24 a second for anything, and 12 more that only a large blast (5 m or more) or one near another player may use, so a storm of small
+far blasts is thinned first. The host keeps a pair for itself and one for each guest it relays. `CoopWorld.boomsDropped` counts
+what was left out.
+
+**Checks.** Every field of what arrives is checked, numbers are bounded and rounded to a millimetre, and a sender is capped at 4
+orders, 90 news, 40 Frame messages and 30 perk effects a second. A guest's goes to the host, which stamps the caller's slot and
+passes it on. A player who leaves takes their copies with them. At most 6 copies a player.
+
+**Cost on the wire** (measured by the proof, `Callins.cost`: bytes of the events as JSON, without the lane's envelope):
+
+| Call-in | Bytes for the whole call | Messages | Rate while it runs |
+|---|---:|---:|---|
+| Airstrike, Warthog, Black Sun, nuke | 123 to 127 | 2 (the order, the end) | nothing |
+| AA sentry (shot down at 9 s in the proof) | 158 | 3 | nothing |
+| Orbital Lance | 4,300 | 72 | 60 bytes, 10 a second, for 7 s |
+| AC-130, crew on the guns (50 s of a 141 s sortie) | 12,800 | 214 | about 60 bytes a round, plus its clock once a second |
+| AC-130, a player on the guns (same) | 9,300 | 164 | the same per round |
+| Attack chopper (27 s) | 32,000 | 270 | a pose of about 120 bytes 10 a second: 1.2 KB/s |
+| Door gunner (27 s) | 30,300 | 268 | 1.1 KB/s |
+| The Frame, crewed (20 s, walking and firing) | 17,000 | 200 | a pose of about 86 bytes 10 a second, and a word a shell |
+
+The `wire` lane will pack these (the poses are thirteen numbers as text).
+
+**Not mirrored:** the missile a Rocketeer or a boss fires at an aircraft (each player's own game hunts its own aircraft, so a
+guest's is hunted, but watchers see the flares and the crash and not the missile); enemy helicopters fighting a guest's helicopter
+(vehicles are the host's); a mission's rides, where every player mans their own copy; a call-in already running when a player
+joins late (they see the next one).
+
+Files: `src/progression/callins/link.ts` (the plain-number types both sides share), `ghost.ts`, `mirror.ts`, each strike's
+`news`/`tell` (`shared.ts` `StrikeNet`), `src/frame/puppet.ts`, `src/enemies/outpost/airlift.ts` (`AirliftCopy`),
+`src/net/world/callins.ts`, `airlift.ts`, `booms.ts`. Tests: `src/net/world/callins.test.ts`, `booms.test.ts`,
+`src/progression/callins/copies.test.ts`. Proof: `tools/scripts/coop-callins-matrix.mjs`.
 
 **Tests and proofs (2026-11-18).** Unit: `src/net/world/slow.test.ts` (the rules: scales, caps, reset not add, down, the
 budget, a boss's death, a stalled host), `src/net/world/clock.test.ts` (host and two guests over the mocked transport: each
@@ -2559,7 +2628,7 @@ guest's tab dying mid-wave, rejoining by link with credits back, and leaving to 
 
 - **Host migration:** see Failure cases.
 - **Four-player and multi-machine testing:** only two pages fit on the 8 GB machine; the 4-player numbers above are budgets, not runs.
-- **Aircraft drawn for the others:** a call-in's jet, gunship or helicopter is only on the caller's screen (its explosions are on all).
+- **Anti-air missiles at another player's aircraft, and a call-in already running when a player joins:** see "Call-ins on every screen".
 - Guest repairs and Barracks hires in Outpost Defense, questioning and releasing a prisoner as a guest, and the shield for a
   guest (switched off in the game, as in single player) are built: "Outpost Defense: one fort", "Prisoners for every player".
   Guest bullets on vehicles are the claims lane's, and built.

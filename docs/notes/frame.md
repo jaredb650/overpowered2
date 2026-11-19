@@ -91,6 +91,27 @@ hurts the player: the blasts take `selfDamage: 0` and `playerPush: 0`, and the i
 | Backhand | 200 and a fling to the left at 750, with `fx.slash`; the right arm swings across |
 | A planted foot | 400 and a gib to anyone within 1.4 m of it |
 
+## Co-op: the Frame on other screens
+
+A player in a Frame is drawn on every other screen as a **puppet** of it (`src/frame/puppet.ts` `FramePuppet`): the same `StandIn`
+body and the two arm `Gun`s, seen from outside. Nothing has to ask for it. `Frame` (`seat.ts`) has a `net` hook that the call-in
+manager sets while there are other players (`CallInManager.linkFrame`); whenever a player is in a Frame, however they got there (a
+call-in's drop, a mission's beat through `progression.frame.board(...)`, `?frame=1`), it sends:
+
+- its **pose** ten times a second (`MechPose`, 13 numbers: feet, leg yaw, view yaw, stride, walk, the hull's sink and sway, the
+  spot the guns are on, and flags for the rotary firing and the jets lit), and `null` as the player leaves it;
+- a word for each **40 mm shell** (round, muzzle, the exact spot it flies to, seconds), each **pod missile** (from, velocity), the
+  **stomp** (height), the **smoke** and the **backhand**.
+
+The puppet eases onto each pose, plants its feet with dust and a footfall sound, turns its arms onto the pilot's sight, draws the
+rotary's tracers at the gun's rate, flies the shells and missiles and bursts them for the look (`shellImpact`, `smokeScreen` and
+`podMissile` in `weapons.ts` are shared with the real one), and hurts nothing: it is built on the call-ins' ghost context. Four
+seconds without a pose and it is taken for empty. The pilot's own body (which rides in the cockpit) is not drawn while they are in
+it (`RemotePlayer.hidden`). On the wire it is the `mech` event (`src/net/world/callins.ts`): about 95 bytes ten times a second.
+
+For another system that needs to know where a teammate's Frame is: `ctx.progression.callinLink.mirror.frameOf(slot)` (its
+`position`, `occupied`), and `inFrame(slot)`.
+
 ## For stage 4 (the body)
 
 - Replace `StandIn` in `cockpit.ts`. Keep `pose(feet, legYaw, viewYaw, stride, walk, sink, sway, inside, eye)` or its equivalent:

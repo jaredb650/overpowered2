@@ -106,7 +106,7 @@ system by system) and `docs/notes/coop-audit-life.md` (the life of a session and
 | gore | 5340-5349 | `src/net/world/hits.ts` (receiving side: `hitfx`, `sever`, `kill`), `enemies/damage.ts` cosmetic path, `weapons/Combat.ts` hit feedback, `gore/`, `fx/` blood recipes, `audio/reactions.ts` | Guests run the full cosmetic damage model on replicas (E3, A2); own hits predicted at once, host answer adds only the rest, matched by shot id; **blood puff on flesh hits, single player too** (owner decision 1); shooter-eye gore choices; real severity; sever through the full path with `updateMaim`; kill blast roll and shatter; "killed" answer, kill marker, hit-confirm audio and `enemy:hit` on the shooter's screen (P10, P11); gore budgets equal for host and guest |
 | claims | 5350-5359 | `src/net/authority.ts`, new `src/net/world/claims.ts` (the sending and validating side, extracted from `hits.ts` in its first commit), `enemies/EnemyManager.ts` status entry points | Honest shots are never dropped: token-bucket rate check on the shooter's own shot clock, bursts, the Judge (P1, P2, M5); line of sight for piercing guns, ricochets, corners (P3); clamp instead of reject, AC-130 bomb (P4); status effects by claim: burn, freeze, stuck bolt (P5); damage kinds that are not gun shots, no made-up `fire` (P6); Lance beam limits (P7); P8, P9; guest bullets versus vehicles (audit D) |
 | weapons-fx | 5360-5369 | `src/net/world/remoteFire.ts`, `net/remote.ts`, pose bits in `net/pose.ts`, the emitting side in `weapons/` (lance, Flames, Melee, projectiles, loads) | Remote FX table per weapon (E6, A3, all of table B "Weapons"): Lance rail, charged beam and balls; per-pellet tracers with impacts and decals; projectiles as cosmetic flights; flechette, API, Raufoss, flak; melee swings and slashes; Kiln hose; casings; akimbo muzzles; reload, stim and weapon-light pose bits; rocket laser; thrown grenades; the re-sent `fire` heard as rail shots (P7 note) |
-| call-ins | 5370-5379 | `src/net/world/callins.ts`, `booms.ts`, `progression/callins/*`, `src/frame/` puppet, sentries, `enemies/outpost/airlift.ts` | Every aircraft, beam, round in flight, the orbital column and the nuke on every screen from the caller's targeting result and a seed (E10); AC-130 blasts mirrored (W3); the mech and its shells; sentries; the skyhook; streaks and call-ins earned and used by every player and seen by all; the villain's anti-air versus guests' aircraft |
+| call-ins (landed, see log) | 5370-5379 | `src/net/world/callins.ts`, `booms.ts`, `progression/callins/*`, `src/frame/` puppet, sentries, `enemies/outpost/airlift.ts` | Every aircraft, beam, round in flight, the orbital column and the nuke on every screen from the caller's targeting result and a seed (E10); AC-130 blasts mirrored (W3); the mech and its shells; sentries; the skyhook; streaks and call-ins earned and used by every player and seen by all; the villain's anti-air versus guests' aircraft |
 | world-a | 5380-5389 | `src/progression/pickups/*`, `src/net/world/guns.ts`, `weapons/dropped.ts`, `world/breakables.ts`, barrels | One shared supply pod and shared caches at the same spot for everyone, pod race fixed (A5/E2, E5); dropped weapons: catch-up for late and loading guests, a visible marker, refusals (A4/E11, W2); destructibles and barrels host-authoritative by id (E12, W1, E7); world-object blasts visible; decide pickups (see decisions) |
 | world-b | 5390-5399 | `src/contracts/defense/*`, `world/structures.ts`, `enemies/commander/barricades.ts`, `devices.ts`, `src/net/world/capture.ts`, `vehicles.ts` | Outpost Defense shared: walls, gates, breaches, shops, preview; guests repair and hire (M1); the villain's shutters, mines, wires, claymores, snares, smoke on guests (V2 props); capture for guests as designed: 0.4 s hold, tap to question, shield (V4); vehicle puppets with wheels, guns, flashes, wrecks (B) |
 | time | 5400-5409 | `src/net/world/clock.ts`, `contracts/chips.ts` Focus, `core/time.ts`, slow-mo perks | One player slows everyone with a "NAME used X" notice on every screen (owner decision 3); Focus enabled in co-op; host owns the scale and broadcasts it; guests slow the world clock and their cosmetics, never `playerDt`; blend-out; T1 host below 20 fps must not slow the world; T2 |
@@ -507,3 +507,36 @@ slots, tests at low priority, few agents at once).
   joiner), prisoners 34, vehicles 27. Note for every lane: commit `4b36599` (enemy-attacks step 3) reverted this lane's whole
   step 3 at the tip (capture.ts, prisoners.ts, the test, the proof, the notes); it was restored in `c29e2ef`. Rebase, never copy
   files over a newer tip.
+- 2026-11-18, call-ins: every call-in, the Frame, the sentry, the skyhook and the streak perks' effects play on every screen.
+  **How:** the caller sends an order (`cin`: id, its own number, the mark, one angle, a seed) and news of what the order cannot say
+  (`cnews`); every other screen runs the *same strike class* on a context that cannot hurt (`progression/callins/ghost.ts`,
+  `mirror.ts`), so the aircraft, path, guns, rounds in flight, beams, blasts and sounds are the caller's own code. The table per
+  call-in, the wire and the numbers: `docs/notes/coop.md`, "Call-ins on every screen". Decisions: a copy starts when its order
+  arrives (one network delay behind the caller, in step with the kills and booms on the same ordered lane) rather than on a shared
+  clock; a copy draws its own blasts (`mirrored` on the caller's, so no `boom`), which is why a gunship run costs no booms; the
+  blast budget is two buckets (24 a second of anything, 12 more for large or near), one pair per sender on the host; the AA sentry's
+  copy tracks and fires by itself at the same drones (its shots are not sent); the nuke's countdown banner, the shove of its front
+  and the Black Sun's tug reach every player; the host's copy of a guest's Black Sun drags the real enemies (the world is the
+  host's). **For other lanes:**
+  - **claims:** call-in damage arrives as claims from these sources, all from the caller's own game: `airstrike` (rockets, and the
+    instakill finale as blast kind `hellfire`), `warthog`, `orbital` (fire ticks plus one `plasma` blast; its burn goes through
+    `enemies.afflict`), `black_sun` (crush ticks, then the instakill `finisher`), `nuke` (type `true`, 999999), `sentry` (rays),
+    `drop_pod` (the sentry's and the Frame's landing), `ac130_25mm`, `ac130_40mm`, `ac130_40mm_ap`, `ac130_flak` (blast and
+    pellets), `ac130_105mm`, `ac130_wp` (blast; the cloud burns through `afflict`), `ac130_bomb` (instakill `finisher`),
+    `ac130_crash`, `chopper_cannon`, `chopper_rocket`, `chopper_crash`, `door_gun` (rays and bursts), `door_gun_crash`, and the
+    Frame's `frame_rotary`, `frame_40mm`, `frame_40mm_ap`, `frame_flak`, `frame_pod` and its blows. A watcher's copy claims
+    nothing. The host notes a call on `cin` as well as on `callin` (`validator.callIn`).
+  - **missions:** the Frame needs nothing from you: any player in a Frame, however boarded (`progression.frame.board(...)`), is a
+    puppet on the other screens (`docs/notes/frame.md`, "Co-op"). `flyFlight` (the courier) is announced too and its shoot-down
+    reaches every screen. `boardFlight` rides are still one copy per player and are not mirrored. `callins(held)` is yours.
+  - **enemy-motion:** one line in `Replicas.animate`: a replica with `carried` set is skipped (the skyhook's copy places him).
+    Keep it, or give the skyhook another way to hold a replica.
+  - **weapons-fx:** `RemotePlayer.hidden` (one field, one line in `update`) hides a friend's body while they are in a Frame.
+    `ProjectileSpec.ghost` is the call-ins' harmless round that bursts by itself; `cosmetic` (enemy-attacks') stays the copy that
+    waits for its owner. `ExplosionSpec.cosmetic` is a blast that hurts nothing and is never sent on.
+  - **world-a:** `ctx.coop.world.boom(center, kind, radius, scale?)` shows a blast combat did not make (a barrel) on the others.
+  - **enemies:** new game event `callin:teammate` (host only: a guest called one in); the Commander's MANPADS and the Outpost's
+    dread hear it. A guest's aircraft is brought down by `aadown` to that guest.
+  Not done: the missile a Rocketeer or boss fires at an aircraft is not drawn for watchers; enemy helicopters do not fight a
+  guest's helicopter; a call-in already running when a player joins late is not caught up; a guest is never held by the uplink
+  jammer (the radio men are the host's).

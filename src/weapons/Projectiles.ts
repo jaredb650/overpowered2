@@ -138,6 +138,9 @@ export interface Projectile {
   wired: boolean;
   blastScale: number | undefined;
   blastShake: number | undefined;
+  /** Co-op: a call-in copy's round (ProjectileSpec.ghost), and whether this round's blast is drawn by the other screens' copies. */
+  ghost: boolean;
+  blastMirrored: boolean;
   /** An autocannon flak shell: a proximity fuze, and its blast is the flak's air burst and cone (flak.ts). */
   flak: boolean;
   /**
@@ -166,7 +169,7 @@ function createProjectile(): Projectile {
     blastSelf: undefined, blastPush: undefined, pinned: false, lastHit: -1,
     budget: makeBudget(), baseDamage: 0, armorPiercing: false,
     target: null, turnRate: 0, line: new THREE.Vector3(), steerDelay: 0, weave: 0, weavePhase: 0, accel: 0, topSpeed: 0, age: 0, size: 1, wired: false,
-    blastScale: undefined, blastShake: undefined, flak: false, cosmetic: false, netId: 0, laser: ROCKET_LASER, tag: 0,
+    blastScale: undefined, blastShake: undefined, flak: false, cosmetic: false, netId: 0, laser: ROCKET_LASER, tag: 0, ghost: false, blastMirrored: false,
     helix: null, helixTravel: 0, helixRight: new THREE.Vector3(), helixUp: new THREE.Vector3(), helixOffset: new THREE.Vector3(),
   };
 }
@@ -207,6 +210,7 @@ export class Projectiles {
     instakill: undefined as boolean | undefined, selfDamage: undefined as number | undefined,
     playerPush: undefined as number | undefined, normal: undefined as THREE.Vector3 | undefined,
     scale: undefined as number | undefined, shake: undefined as number | undefined,
+    cosmetic: undefined as boolean | undefined, mirrored: undefined as boolean | undefined,
   };
 
   constructor(private readonly ctx: Ctx, private readonly combat: Combat) {
@@ -314,6 +318,8 @@ export class Projectiles {
     }
     const blast = spec.explosion;
     p.explosive = !!blast;
+    p.ghost = spec.ghost === true;
+    p.blastMirrored = blast?.mirrored === true;
     if (blast) {
       p.blastRadius = blast.radius;
       p.blastDamage = blast.damage;
@@ -403,6 +409,25 @@ export class Projectiles {
     if (p.flak && this.flakFuze(p, dir, len)) return;
     const wall = c.physics.raycast(p.position, dir, len, CG.World);
     const limit = wall ? wall.distance : len;
+    if (p.ghost) {
+      // A call-in copy's round: it bursts on the first body or wall in its way, as its caller's does, and hurts neither.
+      const body = p.team === 'player' ? c.enemies.raycast(p.position, dir, limit) : null;
+      if (body) {
+        p.position.copy(body.point);
+        if (p.explosive) this.explode(p, undefined);
+        p.live = false;
+        return;
+      }
+      if (!wall) {
+        p.position.addScaledVector(dir, len);
+        return;
+      }
+      p.position.copy(wall.point);
+      if (p.explosive) this.explode(p, wall.normal);
+      else c.fx.impact(wall.point, wall.normal, wall.surface, 0.7);
+      p.live = false;
+      return;
+    }
 
     if (p.team === 'player') {
       // A stake that punched through stops short for this frame, so the next enemy on the line still gets swept.
@@ -932,6 +957,8 @@ export class Projectiles {
     b.playerPush = p.blastPush;
     b.scale = p.blastScale;
     b.shake = p.blastShake;
+    b.cosmetic = p.ghost;
+    b.mirrored = p.blastMirrored;
     b.normal = normal;
     // Lift the centre off the surface, or every line-of-sight ray starts inside the wall it hit.
     const at = this.v.copy(p.position);

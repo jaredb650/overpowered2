@@ -6,13 +6,14 @@
 import type RAPIER from '@dimforge/rapier3d-compat';
 import type * as THREE from 'three';
 import type { Ctx, DamageInfo, ExplosionKind, MuzzleKind, PlayerDamage, PlayerSystem, TracerKind } from '../core/contracts';
-import type { DamageResult, EnemyInstance, ExplosionSpec, ProjectileSpec } from '../core/gameplay';
+import type { CallInId, DamageResult, EnemyInstance, ExplosionSpec, ProjectileSpec } from '../core/gameplay';
 import type { Enemy } from '../enemies/Enemy';
 import type { PlayerSense } from '../enemies/aiWorld';
 import type { ClaimValidator } from './authority';
 import type { CoopSession } from './index';
 import { CoopMission } from './mission';
 import { Team } from './team';
+import { Skyhook } from './world/airlift';
 import { Allies } from './world/allies';
 import { EnemyAttacks } from './world/attacks';
 import { Booms } from './world/booms';
@@ -72,6 +73,8 @@ export class CoopWorld {
   private readonly fort: Fort;
   private readonly villainProps: VillainProps;
   private readonly time: Clock;
+  private readonly calls: Callins;
+  private readonly hook: Skyhook;
   /** Run every frame in this order (`update`), and disposed in it. The snapshot goes out last. */
   private readonly modules: WorldModule[];
 
@@ -99,7 +102,8 @@ export class CoopWorld {
     // Before RemoteFire: a shot's id moves on `weapon:fired`, and claims.ts must hear that first.
     this.claims = new Claims(w, this.enemies, this.targeting, this.vehicles);
     this.shots = new RemoteFire(w);
-    new Callins(w);
+    this.calls = new Callins(w);
+    this.hook = new Skyhook(w);
     // Sonar is shared; Thermal is each player's own and never sent. Focus slows the world for everyone (world/clock.ts).
     new SharedSonar(w);
     this.credit = new Credit(w, this.claims);
@@ -124,13 +128,24 @@ export class CoopWorld {
     w.router.host('worldsync', (_, from) => this.catchUp(from));
     // Moves and identities ride the reliable lane beside the enemies' unreliable states (replicas.ts).
     const moves = new Moves(w, this.enemies), identity = new Identity(w, this.enemies);
-    this.modules = [this.capture, this.vehicles, this.garrison, this.fort, this.villainProps, this.targeting, this.claims, this.credit, this.hits, this.shots, this.props, this.attacks, this.warnings, w.later, this.time, moves, identity, this.enemies];
+    this.modules = [this.capture, this.vehicles, this.garrison, this.fort, this.villainProps, this.targeting, this.claims, this.credit, this.hits, this.shots, this.props, this.attacks, this.warnings, this.calls, this.hook, w.later, this.time, moves, identity, this.enemies];
   }
 
   /** Read by the two-page proofs (tools/scripts/coop-*.mjs): the guest's enemy copies, last snapshot and garrison bodies. */
   get replicas(): Replicas['map'] { return this.enemies.map; }
   get receivedSeq(): number | null { return this.enemies.receivedSeq; }
   get allyBodies(): Allies['bodies'] { return this.garrison.bodies; }
+
+  /** The call-ins' wire (world/callins.ts): its cost meter, for the proofs. */
+  get callins(): Callins { return this.calls; }
+  /** A streak perk's effect in the world, for the other screens: Chain Storm's arc from `at` to `to`, Frost Nova's ring at `at`. */
+  perkFx(kind: 'arc' | 'nova', at: THREE.Vector3, to?: THREE.Vector3): void { this.calls.perkFx(kind, at, to); }
+  /** The capture skyhook as this screen flies it (world/airlift.ts), for the proofs. */
+  get skyhook(): Skyhook { return this.hook; }
+  /** How many `boom`s the budget has left out (world/booms.ts). */
+  get boomsDropped(): number { return this.booms.dropped; }
+  /** Host: the Commander's missile on the aircraft another player called in. That player's own game brings it down. */
+  shootDown(slot: number, id: CallInId): boolean { return this.calls.shootDown(slot, id); }
 
   /** Host: the player the enemy being updated is after (EnemyManager reads and clears it). */
   get targetPlayer(): PlayerSystem | null { return this.targeting.targetPlayer; }
@@ -248,6 +263,8 @@ export class CoopWorld {
   /** What this player has sent of their weapons and drawn of the others', by kind (remoteFire.ts): for the proofs. */
   get weaponFx(): { sent: RemoteFire['sent']; drawn: RemoteFire['drawn']; watched: typeof WATCHED } { return { sent: this.shots.sent, drawn: this.shots.drawn, watched: WATCHED }; }
   blast(center: THREE.Vector3, spec: ExplosionSpec): void { this.booms.blast(center, spec); }
+  /** A blast combat did not make (a map explosive its owner drew itself), shown on the other screens. It hurts nothing there. */
+  boom(center: THREE.Vector3, kind: ExplosionKind, radius: number, scale?: number): void { this.booms.show(center, kind, radius, scale); }
   update(): void {
     if (!this.w.ready) return;
     const now = performance.now();

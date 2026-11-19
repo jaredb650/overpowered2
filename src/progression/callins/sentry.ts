@@ -14,7 +14,7 @@ import { CALLINS, SENTRY as S } from '../data';
 import { ModelBuilder, type ModelMaterials } from '../modelkit';
 import type { AntiAir, Missile } from './antiAir';
 import { GroundRing } from './ground';
-import { aboveFloor, type Strike, type StrikeKit, type StrikeOrder } from './shared';
+import { aboveFloor, rngOf, type Strike, type StrikeKit, type StrikeOrder } from './shared';
 
 const COLOR = CALLINS.sentry.color;
 const STEEL = '#4a535d';
@@ -156,6 +156,7 @@ export class Sentry implements Strike {
   private t = 0;
   private readonly feet = new THREE.Vector3();
   private readonly pivot = new THREE.Vector3();
+  readonly where: THREE.Vector3;
   private readonly ring: GroundRing;
   private readonly shot: ShotSpec = { damage: S.damage, source: 'sentry', team: 'player', maxDistance: S.range + 10, tracer: 'heavy', force: 8, impactScale: 1.3 };
   private fall: number = S.height;
@@ -171,16 +172,17 @@ export class Sentry implements Strike {
   private yawNow = 0;
   private pitchNow = 0;
 
-  constructor(private readonly kit: StrikeKit, order: StrikeOrder, private readonly rig: SentryRig, private readonly sky: AntiAir) {
+  constructor(private readonly kit: StrikeKit, order: StrikeOrder, private readonly rig: SentryRig, private readonly sky: Pick<AntiAir, 'missiles'>) {
     const { ctx, probe } = kit;
     const p = order.point;
     const floor = probe.heightAt(p.x, p.y + 2, p.z, 40);
     this.feet.set(p.x, Number.isNaN(floor) ? p.y : floor, p.z);
     // Under a roof it comes down from the roof: it has nothing to shoot there, but nothing breaks either.
     this.fall = Math.max(2, probe.headroom(p.x, this.feet.y + 1, p.z, S.height) - 1);
+    this.where = rig.root.position;
     this.ring = new GroundRing(ctx);
     this.ring.setColor(COLOR, 2);
-    this.yawNow = rand(0, TAU);
+    this.yawNow = rngOf(order)() * TAU;
     this.unmark = ctx.hud.marker(_p.copy(this.feet).setY(this.feet.y + 3), CALLINS.sentry.name, COLOR);
     ctx.audio.play('cache_incoming');
   }
@@ -259,7 +261,7 @@ export class Sentry implements Strike {
     this.trail?.stop();
     this.trail = null;
     combat.explode(aboveFloor(p), {
-      radius: S.impactRadius, damage: S.impactDamage, kind: 'rocket', source: 'drop_pod', team: 'player', selfDamage: 0, playerPush: 8,
+      radius: S.impactRadius, damage: S.impactDamage, kind: 'rocket', source: 'drop_pod', team: 'player', selfDamage: 0, playerPush: 8, mirrored: true,
     });
     audio.play('cache_land', { position: p });
     audio.play('metal_groan', { position: p, volume: 0.6, pitch: 1.5 });

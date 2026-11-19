@@ -18,6 +18,7 @@ import type { Flight } from '../vehicles/flight';
 import { ALLY_SOURCE } from '../allies/data';
 import { ACTIVE } from '../contracts/select';
 import { SHOP_ON } from '../contracts/shop/data';
+import type { CallinLink } from './callins/link';
 import { CallInManager } from './callins/manager';
 import type { Frame } from '../frame/seat';
 import { aboveFloor } from './callins/shared';
@@ -165,6 +166,8 @@ class Progression implements ProgressionSystem {
   get multiplier(): number { return this.scoreKeeper.comboTier(this.combo) * this.scoreKeeper.speedTier(); }
   get effects(): readonly ActiveEffect[] { return this.perks.effects; }
   get callIns(): ReadonlySet<CallInId> { return this.callInsManager.held; }
+  /** Co-op's line to the call-ins: this player's told to the others, theirs flown here (callins/link.ts, net/world/callins.ts). */
+  get callinLink(): CallinLink { return this.callInsManager; }
   get targeting(): CallInId | null { return this.callInsManager.aiming; }
   /** True while the aim would put the player inside the blast. */
   get dangerClose(): boolean { return this.callInsManager.targeting.dangerClose; }

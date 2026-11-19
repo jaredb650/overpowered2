@@ -24,7 +24,7 @@ import { OrbitPath } from './airframe';
 import type { AntiAir, Hunt } from './antiAir';
 import { GunnerStrike, type Ride } from './gunnerStrike';
 import { DOOR as D, SMALL_MAP } from './heliData';
-import type { StrikeKit } from './shared';
+import type { StrikeKit, StrikeNet } from './shared';
 
 const G = D.gun;
 /** Points around the circle to check for anything tall. */
@@ -94,8 +94,9 @@ export class DoorGunner extends GunnerStrike<UtilityMount> {
     ai = false,
     /** Fires a mission's missile. Only a ride that loiters needs it. */
     private readonly antiAir: AntiAir | null = null,
+    net: StrikeNet = {},
   ) {
-    super(kit, rig, D, ride, 'door', 'door_gun', ai);
+    super(kit, rig, D, ride, 'door', 'door_gun', ai, net);
     const { bounds } = kit.ctx.world;
     const small = (bounds.max.x - bounds.min.x) / 2 < SMALL_MAP;
     this.limit = small ? D.limit.small : D.limit.large;
@@ -264,7 +265,8 @@ export class DoorGunner extends GunnerStrike<UtilityMount> {
   protected shoot(dt: number): void {
     const { audio } = this.kit.ctx;
     const { gun, seat } = this;
-    if (this.scripted) this.belt.ammo = this.belt.max;
+    // A mission's ride never runs dry, and a co-op copy fires for as long as its caller's does.
+    if (this.scripted || this.puppet) this.belt.ammo = this.belt.max;
     const held = this.trigger.fire && this.belt.ammo > 0;
     seat.spin = clamp(seat.spin + (held ? dt / G.spinUp : -dt / G.spinDown));
     gun.turn(seat.spin * G.barrelRate * dt);

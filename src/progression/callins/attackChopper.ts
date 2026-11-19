@@ -16,7 +16,7 @@ import { Autopilot } from '../../vehicles/pilot';
 import type { SeatRig } from '../../vehicles/seat';
 import { GunnerStrike, type Ride } from './gunnerStrike';
 import { ATTACK as A, SMALL_MAP } from './heliData';
-import type { StrikeKit } from './shared';
+import type { StrikeKit, StrikeNet } from './shared';
 
 const C = A.cannon;
 const R = A.rockets;
@@ -29,13 +29,13 @@ const _play: PlayOptions = { unaffectedByTime: true };
 
 const SHELL: ProjectileSpec = {
   origin: _from, velocity: _vel, kind: 'shell', team: 'player', damage: C.damage, source: 'chopper_cannon',
-  explosion: { radius: C.radius, damage: C.damage, kind: 'shell', selfDamage: 0, playerPush: 0 },
+  explosion: { radius: C.radius, damage: C.damage, kind: 'shell', selfDamage: 0, playerPush: 0, mirrored: true },
   trail: 'none', tracer: 'heavy', lifetime: 3,
 };
 
 const ROCKET: ProjectileSpec = {
   origin: _from, velocity: _vel, kind: 'rocket', team: 'player', damage: R.damage, source: 'chopper_rocket',
-  explosion: { radius: R.radius, damage: R.damage, kind: 'rocket', selfDamage: 0, playerPush: 0 },
+  explosion: { radius: R.radius, damage: R.damage, kind: 'rocket', selfDamage: 0, playerPush: 0, mirrored: true },
   trail: 'smoke', lifetime: 4,
 };
 
@@ -51,8 +51,8 @@ export class AttackChopper extends GunnerStrike<AttackMount> {
   private readonly cannon = { name: '30MM CANNON', ammo: C.rounds, max: C.rounds };
   private readonly rockets = { name: 'ROCKETS', ammo: R.rounds, max: R.rounds };
 
-  constructor(kit: StrikeKit, rig: SeatRig, ride: Ride<AttackMount>, ai = false) {
-    super(kit, rig, A, ride, 'chin', 'chopper', ai);
+  constructor(kit: StrikeKit, rig: SeatRig, ride: Ride<AttackMount>, ai = false, net: StrikeNet = {}) {
+    super(kit, rig, A, ride, 'chin', 'chopper', ai, net);
     const { bounds } = kit.ctx.world;
     const span = (bounds.max.x - bounds.min.x) / 2;
     const plan = span < SMALL_MAP ? A.small : A.large;
@@ -82,6 +82,11 @@ export class AttackChopper extends GunnerStrike<AttackMount> {
   }
 
   protected shoot(dt: number): void {
+    // A co-op copy fires while its caller's does: the caller's own magazines say when that stops.
+    if (this.puppet) {
+      this.cannon.ammo = this.cannon.max;
+      this.rockets.ammo = this.rockets.max;
+    }
     this.cannonIn = Math.max(0, this.cannonIn - dt);
     this.rocketIn = Math.max(0, this.rocketIn - dt);
     if (this.trigger.fire && this.cannon.ammo > 0 && this.cannonIn <= 0) this.fireCannon();

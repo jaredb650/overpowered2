@@ -20,6 +20,8 @@ import { AC130 as A } from './ac130Data';
 /** `g40` is the 40 mm's HE, `wp` the 105's white phosphorus. */
 export type RoundKind = 'g25' | 'g40' | 'ap' | 'flak' | 'g105' | 'wp';
 export type ImpactKind = RoundKind | 'bomb';
+/** Every round by number, for the co-op wire (link.ts `round`). Add at the end only. */
+export const ROUND_KINDS: readonly RoundKind[] = ['g25', 'g40', 'ap', 'flak', 'g105', 'wp'];
 type SparkKind = RoundKind | 'flare' | 'flash';
 
 interface Look {

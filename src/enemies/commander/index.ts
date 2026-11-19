@@ -122,6 +122,8 @@ export class Commander {
   private heardUntil = 0;
   private lockAt = -1;
   private lockFor: CallInId | null = null;
+  /** Co-op: whose call-in the lock is on, by lobby slot. -1 is this player's own. */
+  private lockSlot = -1;
   /** The room the player spent the last wave in. */
   lastRoom = '';
   /** Every door on the map, shut or not. What the tracker's numbers index. */
@@ -159,6 +161,8 @@ export class Commander {
       this.traps.onPickup(p.kind, p.position);
     });
     events.on('callin:used', c => this.onCallIn(c.id));
+    // Co-op: a teammate's aircraft is answered as the host's own is.
+    events.on('callin:teammate', c => this.onCallIn(c.id, c.slot));
     events.on('player:damaged', d => {
       this.tracker.round.damageTaken += d.amount;
       if (this.cause) this.tracker.trapped(this.cause, d.amount);
@@ -425,11 +429,12 @@ export class Commander {
     if (this.heardFrom - d >= FOLLOW_MOVED && d < FOLLOW_REACH) this.tracker.round.chatterFollowed++;
   }
 
-  private onCallIn(id: CallInId): void {
+  private onCallIn(id: CallInId, slot = -1): void {
     this.tracker.round.callIns++;
     if (!AIRCRAFT.has(id) || this.units.count('manpads') === 0) return;
     this.lockAt = this.w.now + LOCK_SECONDS;
     this.lockFor = id;
+    this.lockSlot = slot;
     this.status('aaLock', true);
     this.radio('radio.manpads.lock', this.units.first('manpads')?.s ?? null);
   }
@@ -449,7 +454,9 @@ export class Commander {
       origin: _a, velocity: _b, kind: 'rocket', team: 'enemy', damage: 0, source: 'manpads', gravity: 0, lifetime: 1.6, trail: 'smoke',
     });
     ctx.audio.play('enemy_rocket_fire', { position: _a, volume: 1 });
-    const hit = (ctx.progression as unknown as Shooter).shootDown?.(id) ?? false;
+    // A teammate's (co-op): their own game brings it down, told by the host.
+    const hit = this.lockSlot >= 0 ? ctx.coop?.world?.shootDown(this.lockSlot, id) ?? false
+      : (ctx.progression as unknown as Shooter).shootDown?.(id) ?? false;
     if (hit) this.tracker.trapped('manpads', 0);
     this.radio(hit ? 'radio.manpads.hit' : 'radio.manpads.miss', u.s);
   }

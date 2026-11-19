@@ -224,6 +224,7 @@ export class Outpost {
     events.on('enemy:severed', s => this.onSevered(s.enemy));
     events.on('perk:start', p => this.spike(p.id));
     events.on('callin:used', c => this.spike(c.id));
+    events.on('callin:teammate', c => this.spike(c.id));
     events.on('weapon:fired', f => this.onFired(f.weapon, f.origin));
     events.on('player:landed', l => this.noise(this.w.player.position, l.impact * LANDING_NOISE));
     events.on('player:slam', s => this.noise(s.position, s.radius * 4));

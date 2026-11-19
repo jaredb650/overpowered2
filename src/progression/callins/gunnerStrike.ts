@@ -21,7 +21,8 @@ import { EngineSound, type Airframe } from './airframe';
 import { Crash, type CrashPlan } from './crash';
 import type { HeliPlan } from './heliData';
 import { Radio } from './radio';
-import { FLARE_LOCKOUT, type Aircraft, type StrikeKit } from './shared';
+import type { NewsKind } from './link';
+import { FLARE_LOCKOUT, TELL_EVERY, type Aircraft, type StrikeKit, type StrikeNet } from './shared';
 
 /** How a gun sits with nobody on it: on the middle of its arc, drooped. */
 const STOWED_PITCH = -0.3;
@@ -32,6 +33,14 @@ const WIND_DOWN = 5;
 const HITS_PER_CALL = 5;
 /** A helicopter shot down: it spins as it falls, and the blast where it lands is a big rocket's. */
 const CRASH: CrashPlan = { gravity: 11, spin: 4.5, spinUp: 3, pitchRate: 0.5, pitch: 0.5, belly: 1.2, radius: 9, damage: 420, wreck: 9, scale: 1.3 };
+
+/** Co-op: seconds a copy flies on along its last heading when its caller goes quiet, and after how long it is taken for gone. */
+const COAST = 0.4;
+const LOST = 6;
+/** The `triggers` number of a pose (link.ts): fire, the second weapon, heading home. */
+const FIRE = 1;
+const ALT = 2;
+const HOME = 4;
 
 const _pivot = new THREE.Vector3();
 const _chase = new THREE.Vector3();
@@ -87,6 +96,21 @@ export abstract class GunnerStrike<M extends string> implements Aircraft {
   private departed = 0;
   private bingoCalled = false;
   private hitCalls = 0;
+  /**
+   * Co-op. A copy of another player's aircraft is flown from that player's poses: where it was drawn when the last one came
+   * (`from`), where that one puts it (`to`), and how far between them it is, in seconds. It never flies or fights by itself.
+   */
+  protected readonly puppet: boolean;
+  private readonly tell: StrikeNet['tell'];
+  private readonly drawFlares: StrikeNet['flares'];
+  private tellIn = 0;
+  private readonly fromAt = new THREE.Vector3();
+  private readonly fromTurn = new THREE.Quaternion();
+  private readonly toAt = new THREE.Vector3();
+  private readonly toTurn = new THREE.Quaternion();
+  private readonly coast = new THREE.Vector3();
+  private posed = -1;
+  private gone = false;
 
   constructor(
     protected readonly kit: StrikeKit,
@@ -97,9 +121,14 @@ export abstract class GunnerStrike<M extends string> implements Aircraft {
     /** Every damage source this aircraft uses starts with this. */
     readonly sources: string,
     ai: boolean,
+    net: StrikeNet = {},
   ) {
     const { ctx } = kit;
-    this.ai = ai;
+    this.puppet = net.puppet === true;
+    this.tell = net.tell;
+    this.drawFlares = net.flares;
+    // Nobody on this screen is ever in a copy's seat.
+    this.ai = ai || this.puppet;
     this.hits = plan.armour.hits;
     this.flares = plan.armour.flares;
     this.rounds = plan.armour.rounds;
@@ -143,6 +172,10 @@ export abstract class GunnerStrike<M extends string> implements Aircraft {
 
   get position(): THREE.Vector3 {
     return this.frame.root.position;
+  }
+
+  get where(): THREE.Vector3 {
+    return this.position;
   }
 
   /** Where the guns are heard from: the aircraft under AI, and nowhere in particular (in the head) from the seat. */
@@ -190,6 +223,7 @@ export abstract class GunnerStrike<M extends string> implements Aircraft {
     if (this.crash || this.flares <= 0 || this.flareLock > 0) return false;
     this.flares--;
     this.flareLock = FLARE_LOCKOUT;
+    this.tell?.('flares');
     this.kit.ctx.audio.play('flame_ignite', { volume: 0.8, pitch: 1.5, position: this.heard });
     if (this.plan.armour.pilot) this.radio.say('FLARES. FLARES.');
     return true;
@@ -199,6 +233,8 @@ export abstract class GunnerStrike<M extends string> implements Aircraft {
   down(): void {
     if (this.crash) return;
     const { frame, kit, rig } = this;
+    const { position: at } = frame.root;
+    this.tell?.('down', [at.x, at.y, at.z, this.velocity.x, this.velocity.y, this.velocity.z]);
     this.hits = 0;
     this.seat.leave();
     this.silence();
@@ -215,6 +251,7 @@ export abstract class GunnerStrike<M extends string> implements Aircraft {
       this.stow(dt);
       return this.crash.update(dt);
     }
+    if (this.puppet) return this.shadow(dt);
     const { frame, gunMount, seat, kit } = this;
     this.clock += dt;
     this.flareLock = Math.max(0, this.flareLock - dt);
@@ -235,6 +272,7 @@ export abstract class GunnerStrike<M extends string> implements Aircraft {
     this.engines.update(position, running, dt, kit.ctx.render.camera.position);
     seat.altitude = position.y - this.rig.skyline.ground(position.x, position.z);
 
+    if (this.tell) this.say(dt);
     if (!this.ai && !this.homebound && seat.stage === 'left') this.handOver();
     if (this.homebound) {
       this.stow(dt);
@@ -250,6 +288,102 @@ export abstract class GunnerStrike<M extends string> implements Aircraft {
     if (seat.stage === 'seated') this.fighting(dt);
     else this.stow(dt);
     return false;
+  }
+
+  /** Co-op, the caller's own: its pose for the other screens' copies, `TELL_EVERY` seconds apart. */
+  private say(dt: number): void {
+    this.tellIn -= dt;
+    if (this.tellIn > 0) return;
+    this.tellIn = Math.max(0, this.tellIn + TELL_EVERY);
+    const { position: p, quaternion: q } = this.frame.root;
+    const { seat, trigger } = this;
+    // The guns are only on the trigger while someone is at them: in the seat, or the crew.
+    const armed = !this.homebound && (this.ai ? this.clock >= this.plan.boardSeconds : seat.stage === 'seated');
+    const triggers = (armed && trigger.fire ? FIRE : 0) | (armed && trigger.alt ? ALT : 0) | (this.homebound ? HOME : 0);
+    this.tell!('pose', [p.x, p.y, p.z, q.x, q.y, q.z, q.w, seat.yaw, seat.pitch, seat.point.x, seat.point.y, seat.point.z, triggers]);
+  }
+
+  news(kind: NewsKind, v: readonly number[]): void {
+    if (!this.puppet) return;
+    if (kind === 'down') {
+      // From where the caller's was, at the speed it had: every screen's wreck comes down on the same spot.
+      if (v.length >= 6 && !this.crash) {
+        this.frame.root.position.set(v[0]!, v[1]!, v[2]!);
+        this.velocity.set(v[3]!, v[4]!, v[5]!);
+      }
+      this.down();
+    } else if (kind === 'flares') {
+      this.kit.ctx.audio.play('flame_ignite', { volume: 0.8, pitch: 1.5, position: this.position });
+      this.drawFlares?.(this.position);
+    } else if (kind === 'end') this.gone = true;
+    else if (kind === 'pose' && v.length >= 13) this.pose(v);
+  }
+
+  private pose(v: readonly number[]): void {
+    const { root } = this.frame;
+    const { seat, trigger } = this;
+    if (this.posed < 0) {
+      // The first word: it is simply there.
+      root.position.set(v[0]!, v[1]!, v[2]!);
+      root.quaternion.set(v[3]!, v[4]!, v[5]!, v[6]!).normalize();
+      this.toAt.copy(root.position);
+      this.coast.set(0, 0, 0);
+    } else {
+      this.coast.set(v[0]!, v[1]!, v[2]!).sub(this.toAt).divideScalar(Math.max(this.posed, TELL_EVERY * 0.5));
+    }
+    this.fromAt.copy(root.position);
+    this.fromTurn.copy(root.quaternion);
+    this.toAt.set(v[0]!, v[1]!, v[2]!);
+    this.toTurn.set(v[3]!, v[4]!, v[5]!, v[6]!).normalize();
+    this.posed = 0;
+    seat.yaw = v[7]!;
+    seat.pitch = v[8]!;
+    seat.point.set(v[9]!, v[10]!, v[11]!);
+    const triggers = v[12]!;
+    trigger.fire = (triggers & FIRE) !== 0;
+    trigger.alt = (triggers & ALT) !== 0;
+    this.homebound = (triggers & HOME) !== 0;
+  }
+
+  /**
+   * Co-op, a copy: one frame of following the caller's aircraft. It is drawn between the last two poses, a pose behind, and
+   * coasts a moment past the last one. The guns point where the caller's point and fire while the caller's fire, through
+   * the same `shoot`, so the flashes, tracers and rounds are this aircraft's own. True once the caller's has gone.
+   */
+  private shadow(dt: number): boolean {
+    const { frame, gunMount, seat } = this;
+    const { root } = frame;
+    this.clock += dt;
+    this.radio.update(dt);
+    if (this.posed < 0) {
+      // Nothing heard yet: it is not drawn until the caller says where it is.
+      frame.hide();
+      this.gun.hide();
+      return this.gone || this.clock > LOST;
+    } else {
+      this.posed += dt;
+      const k = Math.min(1, this.posed / TELL_EVERY);
+      root.visible = true;
+      root.position.lerpVectors(this.fromAt, this.toAt, k);
+      if (this.posed > TELL_EVERY) root.position.addScaledVector(this.coast, Math.min(this.posed - TELL_EVERY, COAST));
+      root.quaternion.slerpQuaternions(this.fromTurn, this.toTurn, k);
+      this.velocity.copy(this.coast);
+    }
+    frame.update(dt);
+    frame.mount(gunMount, _pivot);
+    this.engines.update(root.position, 1, dt, this.kit.ctx.render.camera.position);
+    if (this.homebound || this.posed < 0 || this.posed > COAST) {
+      this.trigger.fire = this.trigger.alt = false;
+      this.silence();
+      this.stow(dt);
+    } else {
+      const cp = Math.cos(seat.pitch);
+      seat.aim.set(-Math.sin(seat.yaw) * cp, Math.sin(seat.pitch), -Math.cos(seat.yaw) * cp);
+      seat.view.position.copy(_pivot);
+      this.gun.point(_pivot, seat.yaw, seat.pitch, dt);
+      this.shoot(dt);
+    }
+    return this.gone || this.posed > LOST;
   }
 
   private chaseView(): void {

@@ -4,11 +4,11 @@
  */
 import * as THREE from 'three';
 import type { EmitterHandle } from '../../core/contracts';
-import { rand, smoothstep } from '../../core/math';
+import { smoothstep } from '../../core/math';
 import { ModelBuilder, type ModelMaterials } from '../modelkit';
 import { CALLINS, WARTHOG as W } from '../data';
 import { GroundStrip } from './ground';
-import type { Strike, StrikeKit, StrikeOrder } from './shared';
+import { rngOf, roll, type Strike, type StrikeKit, type StrikeOrder } from './shared';
 
 const _aim = new THREE.Vector3();
 const _from = new THREE.Vector3();
@@ -81,16 +81,20 @@ export class Warthog implements Strike {
   private readonly heading = new THREE.Vector3();
   private readonly strip: GroundStrip;
   private readonly jet: THREE.Group;
+  readonly where: THREE.Vector3;
   private readonly trails: EmitterHandle[] = [];
+  private readonly rng: () => number;
 
   constructor(private readonly kit: StrikeKit, order: StrikeOrder) {
     const { ctx } = kit;
+    this.rng = rngOf(order);
     this.center.copy(order.point);
     this.heading.copy(order.heading);
     this.strip = new GroundStrip(ctx);
     this.strip.setColor(CALLINS.warthog.color, 2);
     this.jet = kit.jet;
     this.jet.visible = false;
+    this.where = this.jet.position;
     ctx.audio.play('walkietalkie_fire');
   }
 
@@ -162,7 +166,7 @@ export class Warthog implements Strike {
     const { audio, combat, fx } = this.kit.ctx;
     const i = this.fired++;
     const along = (i / (W.shells - 1) - 0.5) * W.length;
-    const across = rand(-W.scatter, W.scatter);
+    const across = roll(this.rng, -W.scatter, W.scatter);
     _aim.copy(this.center).addScaledVector(this.heading, along);
     _side.set(-this.heading.z, 0, this.heading.x);
     _aim.addScaledVector(_side, across);
@@ -180,7 +184,7 @@ export class Warthog implements Strike {
     combat.spawnProjectile({
       origin: _from, velocity: _vel, kind: 'shell', team: 'player', damage: W.shellDamage, source: 'warthog',
       gravity: 0, lifetime: 1.5, tracer: 'heavy',
-      explosion: { radius: W.shellRadius, damage: W.shellDamage, kind: 'shell', selfDamage: 0 },
+      explosion: { radius: W.shellRadius, damage: W.shellDamage, kind: 'shell', selfDamage: 0, mirrored: true },
     });
     audio.play('30mmShell_flyBy', { position: _aim });
 

@@ -5,10 +5,11 @@
  */
 import type { MissionEvent } from './mission';
 import type { TeamEvent } from './team';
+import type { AirliftEvent } from './world/airlift';
 import type { AlliesEvent } from './world/allies';
 import type { AttackEvent } from './world/attacks';
 import type { BoomEvent } from './world/booms';
-import type { CallinEvent } from './world/callins';
+import type { CallinsEvent } from './world/callins';
 import type { CaptureEvent } from './world/capture';
 import type { ChatterEvent } from './world/chatter';
 import type { ClaimEvent } from './world/claims';
@@ -51,7 +52,8 @@ export type WorldEvent =
   | WarningEvent    // world/warnings.ts: zone, glint, laser, shock, strike, bang
   | VillainEvent    // world/villain.ts: cmd
   | BoomEvent       // world/booms.ts: boom
-  | CallinEvent     // world/callins.ts: callin
+  | CallinsEvent    // world/callins.ts: callin, cin, cnews, mech, aadown
+  | AirliftEvent    // world/airlift.ts: airlift
   | SonarEvent      // world/sonar.ts: sonar
   | ChatterEvent    // world/chatter.ts: chatter, chatcut
   | SlowEvent       // world/clock.ts: slow

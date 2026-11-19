@@ -21,6 +21,8 @@ import { BOUNTY } from '../../contracts/defense/data';
 import { Airframe, type AirframeSpec } from '../../progression/callins/airframe';
 import { hitText } from '../../progression/data';
 import { ModelBuilder, ModelMaterials } from '../../progression/modelkit';
+import type { Ctx } from '../../core/contracts';
+import type { EnemyInstance } from '../../core/gameplay';
 import type { AiWorld } from '../aiWorld';
 import { finishAttack } from '../brain';
 import { Capture, CLICKS, DRAG_SPEED, rope, snatchTime, type Wallet } from './capture';
@@ -165,10 +167,185 @@ function droneAt(at: THREE.Vector3, dir: THREE.Vector3, s: number, out: THREE.Ve
   return hookAt(at, dir, s, out).addScaledVector(dir, TRAIL).setY(out.y + DROP);
 }
 
+/** The shared parts a drone and a pair of cuffs are made from, built the first time one is needed. */
+interface Parts { materials: ModelMaterials; rope: THREE.BufferGeometry; ropeMat: THREE.Material; ring: THREE.BufferGeometry; link: THREE.BufferGeometry; steel: THREE.Material }
+
+function makeParts(ctx: Ctx): Parts {
+  const { materials } = ctx.render;
+  return {
+    materials: new ModelMaterials(ctx),
+    rope: new THREE.CylinderGeometry(0.02, 0.02, 1, 5, 1, true).translate(0, 0.5, 0),
+    ropeMat: materials.patch(new THREE.MeshStandardMaterial({ color: '#1c1a17', roughness: 0.95 })),
+    ring: new THREE.TorusGeometry(0.048, 0.012, 6, 14),
+    link: new THREE.BoxGeometry(1, 0.014, 0.014),
+    steel: materials.patch(new THREE.MeshStandardMaterial({ color: '#a2a8ae', metalness: 0.85, roughness: 0.3 })),
+  };
+}
+
+function makeDrone(ctx: Ctx, kit: Parts): Drone {
+  const { scene } = ctx.render;
+  // Matte, not the call-ins' polished metal: a working machine, painted to be hard to see against a night sky.
+  const matte = ctx.render.materials.patch(new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, metalness: 0.2, roughness: 0.85 }));
+  const paint = { group: (b: ModelBuilder) => kit.materials.group(b, matte) } as ModelMaterials;
+  const hook = new ModelBuilder()
+    .cyl(0.025, 0.025, 0.2, 6, STEEL, { at: [0, 0.1, 0] })
+    .box(0.08, 0.06, 0.05, DARK, { at: [0, 0.21, 0] })
+    .solid(new THREE.TorusGeometry(0.06, 0.014, 6, 12, Math.PI * 1.35), STEEL, { at: [0.06, 0, 0], rot: [0, 0, Math.PI * 0.85] });
+  return new Drone(paint, scene, new THREE.Mesh(kit.rope, kit.ropeMat), kit.materials.group(hook));
+}
+
+/** The drone's nose down into its dive and up out of it, on a pass along `dir`, `s` seconds from the snatch. */
+function flyDrone(d: Drone, dir: THREE.Vector3, s: number, wobble: number, dt: number): void {
+  const climb = 2 * SWOOP * s + (s > 0 ? 2 * CLIMB * s : 0);
+  const pitch = clamp(0.38 - climb * 0.012, 0.1, 0.55);
+  _f.copy(dir).setY(-Math.tan(pitch));
+  d.frame.fly(d.pos, _f, Math.sin(wobble * 3) * 0.06);
+  d.frame.update(dt);
+  d.hum?.setPosition(d.pos);
+}
+
+/** The line from the drum (`win`) down to the hook at `load`. */
+function drawLine(d: Drone, win: THREE.Vector3, load: THREE.Vector3): void {
+  d.rope.visible = d.hook.visible = true;
+  _a.subVectors(win, load);
+  const len = _a.length();
+  if (len < 1e-3) return;
+  _a.divideScalar(len);
+  _q.setFromUnitVectors(UP, _a);
+  d.hook.position.copy(load);
+  d.hook.quaternion.copy(_q);
+  // The line runs from the top of the hook's shank to the drum.
+  d.rope.position.copy(load).addScaledVector(_a, 0.22);
+  d.rope.quaternion.copy(_q);
+  d.rope.scale.set(1, Math.max(0.01, len - 0.22), 1);
+}
+
+function parkDrone(d: Drone): void {
+  d.busy = false;
+  d.frame.hide();
+  d.rope.visible = d.hook.visible = false;
+  d.hum?.stop(0.3);
+  d.hum = null;
+}
+
+/** One pass a co-op guest is flying a copy of. */
+interface Pass {
+  uid: number;
+  readonly at: THREE.Vector3;
+  readonly dir: THREE.Vector3;
+  /** Seconds from the snatch: negative on the way in. */
+  s: number;
+  drone: Drone;
+  hooked: boolean;
+}
+
+/**
+ * Co-op, on a guest: the skyhook on this screen. The prisoners and their capture live on the host, which says when a drone
+ * is sent for a man (`begin`: who, where the hook takes him, the heading of the pass, the seconds until it does) and if he
+ * comes off the line or the pass is called off (`cancel`). This flies the same drone on the same pass with its hook and line,
+ * takes this screen's copy of the man off the floor as the hook reaches him, and carries him up on the end of the line until
+ * the host's snapshot drops him. It pays nothing and decides nothing.
+ */
+export class AirliftCopy {
+  private readonly passes: Pass[] = [];
+  private readonly drones: Drone[] = [];
+  private parts: Parts | null = null;
+
+  constructor(private readonly ctx: Ctx) {}
+
+  /** Drones in the air here, for the proofs. */
+  get flying(): number {
+    return this.passes.length;
+  }
+
+  /** Where each drone is, for the proofs. */
+  get positions(): THREE.Vector3[] {
+    return this.passes.map(p => p.drone.pos);
+  }
+
+  begin(uid: number, at: THREE.Vector3, dir: THREE.Vector3, lead: number): void {
+    this.cancel(uid);
+    if (this.passes.length >= MAX_DRONES) return;
+    let drone = this.drones.find(d => !d.busy);
+    if (!drone) this.drones.push(drone = makeDrone(this.ctx, this.parts ??= makeParts(this.ctx)));
+    drone.busy = true;
+    const pass: Pass = { uid, at: at.clone(), dir: dir.clone().setY(0).normalize(), s: -Math.max(0, Math.min(lead, 30)), drone, hooked: false };
+    this.passes.push(pass);
+  }
+
+  cancel(uid: number): void {
+    const i = this.passes.findIndex(p => p.uid === uid);
+    if (i < 0) return;
+    this.release(this.passes[i]!);
+    parkDrone(this.passes[i]!.drone);
+    this.passes.splice(i, 1);
+  }
+
+  /** The copy of the man goes back to the host's word for where he is. */
+  private release(pass: Pass): void {
+    const e = this.man(pass.uid);
+    if (e) (e as EnemyInstance & { carried: boolean }).carried = false;
+  }
+
+  private man(uid: number): EnemyInstance | null {
+    for (const e of this.ctx.enemies.alive) if (e.uid === uid) return e;
+    return null;
+  }
+
+  update(dt: number): void {
+    const { ctx } = this;
+    for (let i = this.passes.length - 1; i >= 0; i--) {
+      const pass = this.passes[i]!;
+      const d = pass.drone;
+      pass.s += dt;
+      const { s } = pass;
+      if (s < -LEAD) continue;
+      droneAt(pass.at, pass.dir, s, d.pos);
+      if (!d.hum) d.hum = ctx.audio.startLoop('liftdrone_rotor_loop', { position: d.pos, doppler: true, fadeIn: 0.2 }) ?? null;
+      flyDrone(d, pass.dir, s, s, dt);
+      const win = d.frame.mount('winch', _d);
+      hookAt(pass.at, pass.dir, s, _b);
+      const e = this.man(pass.uid);
+      if (s >= 0 && !pass.hooked) {
+        pass.hooked = true;
+        ctx.audio.play('liftdrone_snatch', { position: pass.at });
+        ctx.audio.play('cuff_click', { position: pass.at, pitch: 0.7, volume: 1.2 });
+      }
+      if (pass.hooked && e) {
+        // He hangs from the hook by his back: the copy is carried, and the snapshot's word for where he stands is set aside.
+        const carried = e as EnemyInstance & { carried: boolean; def?: { chest: number } };
+        carried.carried = true;
+        e.position.set(_b.x, _b.y - (carried.def?.chest ?? 1.2) - 0.12, _b.z);
+        (ctx.enemies as unknown as { placeReplica?(enemy: EnemyInstance, dt: number, posture: string): void }).placeReplica?.(e, dt, 'bound');
+      }
+      drawLine(d, win, _b);
+      if (s > AFTER || (s > 1 && d.pos.distanceTo(ctx.player.position) > GONE_RANGE)) {
+        this.release(pass);
+        parkDrone(d);
+        this.passes.splice(i, 1);
+      }
+    }
+  }
+
+  clear(): void {
+    for (const pass of this.passes) {
+      this.release(pass);
+      parkDrone(pass.drone);
+    }
+    this.passes.length = 0;
+  }
+}
+
 export class Airlift {
   readonly held: Held[] = [];
   private readonly drones: Drone[] = [];
-  private kit: { materials: ModelMaterials; rope: THREE.BufferGeometry; ropeMat: THREE.Material; ring: THREE.BufferGeometry; link: THREE.BufferGeometry; steel: THREE.Material } | null = null;
+  private kit: Parts | null = null;
+  /**
+   * Co-op, on the host: told as a drone is sent for a man (his uid, where the hook takes him, the heading of the pass and the
+   * seconds until it does) and, with `at` null, when he comes off the line or leaves the round, so every other screen flies
+   * the same pass (`AirliftCopy`, net/world/airlift.ts).
+   */
+  onPass: ((uid: number, at: THREE.Vector3 | null, dir: THREE.Vector3, lead: number) => void) | null = null;
   /** The line's far end and length for this frame's tug, read by `pull`, which is made once. */
   private readonly anchor = new THREE.Vector3();
   private length = LINE;
@@ -238,6 +415,7 @@ export class Airlift {
     const h = this.held[i]!;
     this.held.splice(i, 1);
     h.cuffs.removeFromParent();
+    if (h.drone && h.c.phase !== 'hooked' && h.c.phase !== 'gone') this.onPass?.(s.e.uid, null, h.dir, 0);
     if (h.drone) this.park(h.drone);
   }
 
@@ -394,31 +572,12 @@ export class Airlift {
   // The drone
   // -------------------------------------------------------------------------------------------
 
-  private prepare(): NonNullable<Airlift['kit']> {
-    if (this.kit) return this.kit;
-    const { materials } = this.w.ctx.render;
-    this.kit = {
-      materials: new ModelMaterials(this.w.ctx),
-      rope: new THREE.CylinderGeometry(0.02, 0.02, 1, 5, 1, true).translate(0, 0.5, 0),
-      ropeMat: materials.patch(new THREE.MeshStandardMaterial({ color: '#1c1a17', roughness: 0.95 })),
-      ring: new THREE.TorusGeometry(0.048, 0.012, 6, 14),
-      link: new THREE.BoxGeometry(1, 0.014, 0.014),
-      steel: materials.patch(new THREE.MeshStandardMaterial({ color: '#a2a8ae', metalness: 0.85, roughness: 0.3 })),
-    };
-    return this.kit;
+  private prepare(): Parts {
+    return this.kit ??= makeParts(this.w.ctx);
   }
 
   private build(): Drone {
-    const kit = this.prepare();
-    const { scene } = this.w.ctx.render;
-    // Matte, not the call-ins' polished metal: a working machine, painted to be hard to see against a night sky.
-    const matte = this.w.ctx.render.materials.patch(new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, metalness: 0.2, roughness: 0.85 }));
-    const paint = { group: (b: ModelBuilder) => kit.materials.group(b, matte) } as ModelMaterials;
-    const hook = new ModelBuilder()
-      .cyl(0.025, 0.025, 0.2, 6, STEEL, { at: [0, 0.1, 0] })
-      .box(0.08, 0.06, 0.05, DARK, { at: [0, 0.21, 0] })
-      .solid(new THREE.TorusGeometry(0.06, 0.014, 6, 12, Math.PI * 1.35), STEEL, { at: [0.06, 0, 0], rot: [0, 0, Math.PI * 0.85] });
-    const d = new Drone(paint, scene, new THREE.Mesh(kit.rope, kit.ropeMat), kit.materials.group(hook));
+    const d = makeDrone(this.w.ctx, this.prepare());
     this.drones.push(d);
     return d;
   }
@@ -430,6 +589,7 @@ export class Airlift {
     h.c.drone = true;
     h.snatchAt = Math.max(snatchTime(h.drag), h.age + LEAD);
     h.snagged = 0;
+    this.onPass?.(h.c.s.e.uid, h.at, h.dir, h.snatchAt - h.age);
   }
 
   /** One frame of the pass. True when it is over and the man is gone. */
@@ -537,6 +697,7 @@ export class Airlift {
     }
     pose(e, 'cuffed');
     h.c.drop();
+    this.onPass?.(e.uid, null, h.dir, 0);
     h.limp = false;
     h.planned = false;
     h.drone = null;
@@ -565,26 +726,10 @@ export class Airlift {
 
   /** Leaning hard into a pass this fast, nose down in the dive and up into the climb. */
   private pose(d: Drone, h: Held, s: number, dt: number): void {
-    const climb = 2 * SWOOP * s + (s > 0 ? 2 * CLIMB * s : 0);
-    const pitch = clamp(0.38 - climb * 0.012, 0.1, 0.55);
-    _f.copy(h.dir).setY(-Math.tan(pitch));
-    d.frame.fly(d.pos, _f, Math.sin(h.age * 3) * 0.06);
-    d.frame.update(dt);
-    d.hum?.setPosition(d.pos);
+    flyDrone(d, h.dir, s, h.age, dt);
   }
 
   private drawLine(d: Drone, win: THREE.Vector3, load: THREE.Vector3): void {
-    d.rope.visible = d.hook.visible = true;
-    _a.subVectors(win, load);
-    const len = _a.length();
-    if (len < 1e-3) return;
-    _a.divideScalar(len);
-    _q.setFromUnitVectors(UP, _a);
-    d.hook.position.copy(load);
-    d.hook.quaternion.copy(_q);
-    // The line runs from the top of the hook's shank to the drum.
-    d.rope.position.copy(load).addScaledVector(_a, 0.22);
-    d.rope.quaternion.copy(_q);
-    d.rope.scale.set(1, Math.max(0.01, len - 0.22), 1);
+    drawLine(d, win, load);
   }
 }

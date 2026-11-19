@@ -7,9 +7,9 @@
  */
 import * as THREE from 'three';
 import { lerp, rand, TAU } from '../../core/math';
-import type { Frame } from '../../frame/seat';
 import { CALLINS, FRAME_DROP as D } from '../data';
 import { GroundRing } from './ground';
+import type { NewsKind } from './link';
 import { aboveFloor, type Strike, type StrikeKit } from './shared';
 
 const COLOR = CALLINS.frame.color;
@@ -24,20 +24,39 @@ const _at = new THREE.Vector3();
 
 type Phase = 'warning' | 'falling' | 'waiting' | 'crewed';
 
+/**
+ * What the drop needs of a Frame: the player's own (`Frame`, src/frame/seat.ts), or in co-op the stand-in drawn for another
+ * player's (`FramePuppet`, src/frame/puppet.ts), which is `occupied` while that player is in it.
+ */
+export interface DroppedFrame {
+  readonly occupied: boolean;
+  readonly walker: { readonly feet: THREE.Vector3 };
+  stand(feet: THREE.Vector3, yaw: number): void;
+  board(feet: THREE.Vector3, yaw: number, seconds?: number): void;
+  hide(): void;
+}
+
 export class FrameDrop implements Strike {
   private phase: Phase = 'warning';
   private t = 0;
-  private readonly feet = new THREE.Vector3();
-  private readonly yaw: number;
+  /** Where it comes down and the way it faces. A co-op copy is given the caller's. */
+  readonly feet = new THREE.Vector3();
+  readonly yaw: number;
+  /** Where the Frame is: in the air on its way down, then on its feet, then wherever its pilot walks it. */
+  readonly where = new THREE.Vector3();
   private readonly ring: GroundRing;
   private flameIn = 0;
   private unmark: (() => void) | null = null;
   private unprompt: (() => void) | null = null;
+  /** Co-op, on a copy: the caller's own is over. */
+  private ended = false;
 
-  constructor(private readonly kit: StrikeKit, private readonly frame: Frame) {
+  constructor(private readonly kit: StrikeKit, private readonly frame: DroppedFrame, at?: { feet: THREE.Vector3; yaw: number }) {
     const { ctx } = kit;
-    this.yaw = ctx.player.yaw;
-    this.spot(this.feet);
+    this.yaw = at ? at.yaw : ctx.player.yaw;
+    if (at) this.feet.copy(at.feet);
+    else this.spot(this.feet);
+    this.where.copy(this.feet).setY(this.feet.y + D.height);
     this.ring = new GroundRing(ctx);
     this.ring.setColor(COLOR, 2);
     this.unmark = ctx.hud.marker(_p.copy(this.feet).setY(this.feet.y + 7), CALLINS.frame.name, COLOR);
@@ -54,8 +73,16 @@ export class FrameDrop implements Strike {
     if (!Number.isNaN(floor)) out.y = floor;
   }
 
+  news(kind: NewsKind): void {
+    if (kind === 'end') this.ended = true;
+  }
+
   update(dt: number): boolean {
     this.t += dt;
+    if (this.ended) {
+      this.gone();
+      return true;
+    }
     switch (this.phase) {
       case 'warning':
         this.showRing();
@@ -66,12 +93,23 @@ export class FrameDrop implements Strike {
         // Slowing at the end on its jets, so it lands rather than arrives.
         const y = lerp(this.feet.y + D.height, this.feet.y, 1 - (1 - k) * (1 - k));
         this.frame.stand(_at.copy(this.feet).setY(y), this.yaw);
+        this.where.copy(_at);
         this.showRing();
         this.burn(dt, k);
         if (k >= 1) this.land();
         break;
       }
       case 'waiting':
+        // A copy of another player's (co-op) offers nobody a seat: it waits for its own pilot, whose word ends it.
+        if (this.kit.cosmetic) {
+          if (this.frame.occupied) {
+            // Crewed: the marker that said where it landed has done its work, as on the pilot's own screen.
+            this.unmark?.();
+            this.unmark = null;
+            this.next('crewed');
+          } else this.frame.stand(this.feet, this.yaw);
+          break;
+        }
         if (this.t >= D.wait) {
           this.gone();
           return true;
@@ -79,6 +117,7 @@ export class FrameDrop implements Strike {
         this.offer();
         break;
       case 'crewed':
+        this.where.copy(this.frame.walker.feet);
         if (!this.frame.occupied) {
           this.gone();
           return true;
@@ -116,10 +155,11 @@ export class FrameDrop implements Strike {
     const { audio, camera, combat, fx, player, render } = this.kit.ctx;
     const p = this.feet;
     this.next('waiting');
+    this.where.copy(p);
     this.frame.stand(p, this.yaw);
     this.ring.hide();
     combat.explode(aboveFloor(p), {
-      radius: D.impactRadius, damage: D.impactDamage, kind: 'rocket', source: 'drop_pod', team: 'player', selfDamage: 0, playerPush: 14,
+      radius: D.impactRadius, damage: D.impactDamage, kind: 'rocket', source: 'drop_pod', team: 'player', selfDamage: 0, playerPush: 14, mirrored: true,
     });
     fx.slam(p, 2.4);
     for (let i = 0; i < 12; i++) {

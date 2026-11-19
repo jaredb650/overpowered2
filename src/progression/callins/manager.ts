@@ -30,10 +30,12 @@ import { DoorGunner } from './doorGunner';
 import { FrameDrop } from './frameDrop';
 import { GroundProbe, groundMaterials } from './ground';
 import type { Ride } from './gunnerStrike';
+import type { CallinLink, CallinSend, CallNews, CallOrder, MechKind } from './link';
+import { CallinMirror } from './mirror';
 import { Nuke, NukeAftermath, nukeFrontMaterial } from './nuke';
 import { Orbital, orbitalMaterials } from './orbital';
 import { Ordnance } from './ordnance';
-import { isAircraft, TapOrHold, type Aircraft, type Strike, type StrikeKit, type StrikeOrder } from './shared';
+import { isAircraft, TapOrHold, type Aircraft, type Strike, type StrikeKit, type StrikeNet, type StrikeOrder } from './shared';
 import { Sentry, SentryRig } from './sentry';
 import { Targeting } from './targeting';
 import { Warthog, warthogModel } from './warthog';
@@ -77,7 +79,7 @@ interface HeldCall {
 /** Seconds between the device leaving and the gun being drawn. */
 const GUN_BACK_DELAY = 0.16;
 
-export class CallInManager {
+export class CallInManager implements CallinLink {
   readonly held = new Set<CallInId>();
   /** A mission has shut the sky: every key is refused, and what is held stays held. */
   shut = false;
@@ -94,7 +96,16 @@ export class CallInManager {
   private frameRig: Frame | null = null;
   private readonly harrow: Ride<AttackMount>;
   private readonly packmule: Ride<UtilityMount>;
-  private readonly order: StrikeOrder = { point: new THREE.Vector3(), heading: new THREE.Vector3(1, 0, 0) };
+  private readonly mark: StrikeOrder = { point: new THREE.Vector3(), heading: new THREE.Vector3(1, 0, 0), seed: 0 };
+  /**
+   * Co-op (link.ts). `send` is set while there are other players to tell: every call-in this player makes goes out through
+   * it as an order, with whatever it does afterwards as news, under `serial`, its own number. `mirror` plays theirs here.
+   */
+  private sender: CallinSend | null = null;
+  readonly mirror: CallinMirror;
+  private serial = 0;
+  /** The number each running strike was told under, so its end can be told too. */
+  private readonly told = new Map<Strike, number>();
   /** The Orbital Lance keeps the designator up and the gun away until it finishes or the player lets go. */
   private steering: Orbital | null = null;
   private holstered = false;
@@ -128,6 +139,7 @@ export class CallInManager {
     this.packmule = { frame: new Airframe(materials, scene, UTILITY_AIRFRAME), gun: new Gun(materials, scene, M134) };
     this.antiAir = new AntiAir(ctx, new Ac130Rounds(ctx, materials), this.seats.prisoners);
     this.sentryRig = new SentryRig(materials, scene);
+    this.mirror = new CallinMirror(ctx, materials, this.seats, this.aftermath);
     this.emplacements = new Emplacements(ctx, materials, this.seats, () => this.holster());
     // The map is built by the first run, and its guns stay for every run after.
     const unlisten = ctx.events.on('run:start', () => {
@@ -163,7 +175,63 @@ export class CallInManager {
 
   /** The Distraint Frame (src/frame). `board` puts the player in a fresh one. */
   get frame(): Frame {
-    return (this.frameRig ??= new Frame(this.ctx, this.kit.materials, this.seats, () => this.holster()));
+    if (!this.frameRig) {
+      this.frameRig = new Frame(this.ctx, this.kit.materials, this.seats, () => this.holster());
+      this.linkFrame();
+    }
+    return this.frameRig;
+  }
+
+  // --- Co-op: this player's call-ins told to the others, and theirs played here (link.ts) -------------------------------
+
+  get send(): CallinSend | null {
+    return this.sender;
+  }
+
+  set send(send: CallinSend | null) {
+    this.sender = send;
+    this.linkFrame();
+  }
+
+  /** The Frame tells the others of itself whenever the player is in it, however they got there. */
+  private linkFrame(): void {
+    const frame = this.frameRig;
+    if (!frame) return;
+    const send = this.sender;
+    frame.net = send ? { pose: values => send.mech(values), news: (kind, values) => send.mechNews(kind, values) } : null;
+  }
+
+  order(slot: number, order: CallOrder): void { this.mirror.begin(slot, order); }
+  news(slot: number, news: CallNews): void { this.mirror.news(slot, news); }
+  mech(slot: number, pose: number[] | null): void { this.mirror.mech(slot, pose); }
+  mechNews(slot: number, kind: MechKind, values: number[]): void { this.mirror.mechNews(slot, kind, values); }
+  drop(slot: number): void { this.mirror.drop(slot); }
+  inFrame(slot: number): boolean { return this.mirror.inFrame(slot); }
+  has(slot: number, id: CallInId): boolean { return this.mirror.copies(slot).some(copy => copy.id === id); }
+
+  /** A strike's line to the other screens' copies of it, or nothing to say alone. Call before the strike is built. */
+  private net(): StrikeNet {
+    const send = this.sender;
+    if (!send) return {};
+    const n = this.serial = (this.serial + 1) & 255;
+    return { tell: (k, v) => send.news(v ? { n, k, v } : { n, k }) };
+  }
+
+  /** Tells the others of a strike just launched: `yaw` is the one angle it needs (see `CallOrder.yaw`). */
+  private announce(strike: Strike, id: CallInId, ai: boolean, at: THREE.Vector3, yaw: number): void {
+    const send = this.sender;
+    if (!send) return;
+    const n = this.serial;
+    this.told.set(strike, n);
+    send.order({ n, id, at: [at.x, at.y, at.z], yaw, seed: this.mark.seed ?? 0, ai, age: 0 });
+  }
+
+  /** A told strike is over: its copies that cannot know (an aircraft's, a waiting Frame's) are told. */
+  private retire(strike: Strike): void {
+    const n = this.told.get(strike);
+    if (n === undefined) return;
+    this.told.delete(strike);
+    this.sender?.news({ n, k: 'end' });
   }
 
   cooldown(id: CallInId): number {
@@ -208,9 +276,11 @@ export class CallInManager {
         strike.dispose();
         this.strikes.splice(i, 1);
         this.flying.delete(strike);
+        this.retire(strike);
         if (strike === this.steering) this.lowerDevice();
       }
     }
+    this.mirror.update(dt);
     this.aircraft.length = 0;
     for (const strike of this.strikes) if (isAircraft(strike)) this.aircraft.push(strike);
     this.antiAir.update(dt, this.aircraft);
@@ -289,8 +359,8 @@ export class CallInManager {
     this.heldCall.id = id;
     this.heldCall.ai = ai;
     this.heldCall.age = 0;
-    this.heldCall.point.copy(this.order.point);
-    this.heldCall.heading.copy(this.order.heading);
+    this.heldCall.point.copy(this.mark.point);
+    this.heldCall.heading.copy(this.mark.heading);
     audio.play('callin_denied');
     hud.feed(`${CALLINS[id].name} HELD: UPLINK JAMMED`, CALLINS[id].color);
   }
@@ -301,8 +371,8 @@ export class CallInManager {
     if (this.uplinkDown && call.age < UPLINK_PATIENCE) return;
     if (this.steering || this.seats.occupied || !this.ctx.player.alive) return;
     this.calling = false;
-    this.order.point.copy(call.point);
-    this.order.heading.copy(call.heading);
+    this.mark.point.copy(call.point);
+    this.mark.heading.copy(call.heading);
     if (SEATED.has(call.id)) {
       this.takeOff(call.id, call.ai);
       return;
@@ -317,7 +387,7 @@ export class CallInManager {
     this.flying.set(strike, id);
     if (strike instanceof Orbital) this.steering = strike;
     else this.lowerDevice();
-    this.ctx.events.emit('callin:used', { id, position: this.order.point });
+    this.ctx.events.emit('callin:used', { id, position: this.mark.point });
   }
 
   /** The Commander's MANPADS, on the newest of this kind. An aircraft crashes, with the player thrown out of its seat. Anything else is simply gone. */
@@ -329,9 +399,13 @@ export class CallInManager {
         strike.down();
         return true;
       }
+      // Not an aircraft: it is simply gone, here and (co-op) on every screen flying a copy of it.
+      const n = this.told.get(strike);
+      if (n !== undefined) this.sender?.news({ n, k: 'down' });
       strike.dispose();
       this.strikes.splice(i, 1);
       this.flying.delete(strike);
+      this.retire(strike);
       return true;
     }
     return false;
@@ -345,8 +419,8 @@ export class CallInManager {
     if (this.targeting.id) this.targeting.exit();
     this.held.delete(id);
     this.cooldowns[id] = CALLINS[id].cooldown;
-    if (over) this.order.point.copy(over);
-    else if (!this.targeting.solve(this.order.point)) this.order.point.copy(this.ctx.player.position);
+    if (over) this.mark.point.copy(over);
+    else if (!this.targeting.solve(this.mark.point)) this.mark.point.copy(this.ctx.player.position);
     if (this.uplinkDown && !this.calling && this.heldCall.age === 0) {
       this.hold(id, ai);
       return;
@@ -363,7 +437,24 @@ export class CallInManager {
     const strike = this.launch(id, ai);
     this.strikes.push(strike);
     this.flying.set(strike, id);
-    events.emit('callin:used', { id, position: id === 'ac130' ? this.order.point : player.position });
+    events.emit('callin:used', { id, position: id === 'ac130' ? this.mark.point : player.position });
+  }
+
+  /**
+   * This call-in now, on `point`, with no key pressed, nothing spent and no jammer asked: for the dev panel and the co-op
+   * proofs (tools/scripts/coop-callins-matrix.mjs). `heading` is the Warthog's run on the ground; `ai` sends an aircraft in
+   * with its crew instead of seating the player.
+   */
+  callAt(id: CallInId, point: THREE.Vector3, heading?: THREE.Vector3, ai = true): void {
+    this.mark.point.copy(point);
+    if (heading) this.mark.heading.copy(heading).setY(0).normalize();
+    if (SEATED.has(id) || id === 'frame') this.takeOff(id, ai);
+    else this.fly(id);
+  }
+
+  /** The player's own running strikes, newest last, for the proofs. */
+  get running(): readonly Strike[] {
+    return this.strikes;
   }
 
   /** Onto a mission's ride in the Packmule: a fixed flight, or its circle first (`Flight.loiter`). Nothing on the ground can hold this one up. */
@@ -382,9 +473,11 @@ export class CallInManager {
 
   /** The Packmule on a mission's fixed flight with its own crew and nobody in the seat: a courier crossing. `down()` brings it down. */
   flyFlight(flight: Flight): { down(): void; readonly position: THREE.Vector3 } {
-    const strike = new DoorGunner(this.kit, this.seats, this.packmule, flight, true);
+    // Co-op: the others see it cross too, as a copy that follows this one's pose (a mission's courier is the host's alone to fly).
+    const strike = new DoorGunner(this.kit, this.seats, this.packmule, flight, true, null, this.net());
     this.strikes.push(strike);
     this.flying.set(strike, 'doorGunner');
+    this.announce(strike, 'doorGunner', true, strike.position, 0);
     return strike;
   }
 
@@ -415,8 +508,8 @@ export class CallInManager {
     const id = this.targeting.id!;
     const def = CALLINS[id];
     const { audio } = this.ctx;
-    this.order.point.copy(this.targeting.point);
-    this.order.heading.copy(this.targeting.heading);
+    this.mark.point.copy(this.targeting.point);
+    this.mark.heading.copy(this.targeting.heading);
     this.held.delete(id);
     this.cooldowns[id] = def.cooldown;
     this.targeting.exit();
@@ -430,16 +523,28 @@ export class CallInManager {
   }
 
   private launch(id: CallInId, ai = false): Strike {
+    const order = this.mark;
+    // A fresh roll for every call. In co-op the others get it with the order, and their copies roll the same.
+    order.seed = Math.floor(Math.random() * 0x100000000);
+    order.yaw = undefined;
+    const net = this.net();
+    const strike = this.build(id, ai, net);
+    const yaw = strike instanceof Ac130 ? strike.angle : strike instanceof FrameDrop ? strike.yaw : Math.atan2(order.heading.z, order.heading.x);
+    this.announce(strike, id, ai, strike instanceof FrameDrop ? strike.feet : order.point, yaw);
+    return strike;
+  }
+
+  private build(id: CallInId, ai: boolean, net: StrikeNet): Strike {
     switch (id) {
-      case 'airstrike': return new Airstrike(this.kit, this.order);
-      case 'warthog': return new Warthog(this.kit, this.order);
-      case 'doorGunner': return new DoorGunner(this.kit, this.seats, this.packmule, null, ai);
-      case 'attackChopper': return new AttackChopper(this.kit, this.seats, this.harrow, ai);
-      case 'orbital': return new Orbital(this.kit, this.order, this.targeting);
-      case 'ac130': return new Ac130(this.kit, this.order, this.gunship, this.seats, ai);
-      case 'blackSun': return new BlackSun(this.kit, this.order);
-      case 'nuke': return new Nuke(this.kit, this.order, this.aftermath);
-      case 'sentry': return new Sentry(this.kit, this.order, this.sentryRig, this.antiAir);
+      case 'airstrike': return new Airstrike(this.kit, this.mark);
+      case 'warthog': return new Warthog(this.kit, this.mark);
+      case 'doorGunner': return new DoorGunner(this.kit, this.seats, this.packmule, null, ai, null, net);
+      case 'attackChopper': return new AttackChopper(this.kit, this.seats, this.harrow, ai, net);
+      case 'orbital': return new Orbital(this.kit, this.mark, this.targeting, net);
+      case 'ac130': return new Ac130(this.kit, this.mark, this.gunship, this.seats, ai, net);
+      case 'blackSun': return new BlackSun(this.kit, this.mark);
+      case 'nuke': return new Nuke(this.kit, this.mark, this.aftermath);
+      case 'sentry': return new Sentry(this.kit, this.mark, this.sentryRig, this.antiAir);
       case 'frame': return new FrameDrop(this.kit, this.frame);
     }
   }
@@ -466,9 +571,13 @@ export class CallInManager {
     this.emplacements.clear();
     if (this.targeting.id) this.targeting.exit();
     this.steering = null;
-    for (const strike of this.strikes) strike.dispose();
+    for (const strike of this.strikes) {
+      strike.dispose();
+      this.retire(strike);
+    }
     this.strikes.length = 0;
     this.flying.clear();
+    this.mirror.clear();
     this.antiAir.clear();
     this.aircraft.length = 0;
     this.tapHold.cancel();

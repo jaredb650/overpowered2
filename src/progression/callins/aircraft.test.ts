@@ -19,7 +19,8 @@ import { AntiAir, ANTI_AIR, type Sky } from './antiAir';
 import { AttackChopper } from './attackChopper';
 import { DoorGunner } from './doorGunner';
 import { ATTACK, DOOR } from './heliData';
-import { FLARE_LOCKOUT, TapOrHold, type Aircraft, type StrikeKit } from './shared';
+import type { NewsKind } from './link';
+import { FLARE_LOCKOUT, TapOrHold, TELL_EVERY, type Aircraft, type StrikeKit, type StrikeNet } from './shared';
 
 const DT = 1 / 30;
 
@@ -201,8 +202,9 @@ interface Gunship {
   positions: THREE.Vector3[];
 }
 
-function gunship(w: World, ai: boolean): Gunship {
+function gunship(w: World, ai: boolean, net: StrikeNet = {}, yaw?: number): Gunship & { aims: THREE.Vector3[] } {
   const fired: string[] = [];
+  const aims: THREE.Vector3[] = [];
   const positions: THREE.Vector3[] = [];
   const airframe = frame();
   const fly = airframe['fly'] as (p: THREE.Vector3, f: THREE.Vector3) => void;
@@ -212,13 +214,14 @@ function gunship(w: World, ai: boolean): Gunship {
   };
   const rounds = {
     laser: new THREE.Vector3(), laserFrom: new THREE.Vector3(), laserOn: false, idle: true, bombLive: false,
-    fire: (kind: string) => fired.push(kind), drop: () => fired.push('bomb'), update() {}, flare() {}, flash() {}, clear() {}, onImpact: null,
+    fire: (kind: string, _from: THREE.Vector3, aim: THREE.Vector3) => { fired.push(kind); aims.push(aim.clone()); },
+    drop: () => fired.push('bomb'), update() {}, flare() {}, flash() {}, clear() {}, onImpact: null,
   };
   const rig = seatRig();
   const kit = { ctx: w.ctx, probe: { heightAt: () => 0, clearance: (..._a: number[]) => _a[6]! } } as unknown as StrikeKit;
-  const order = { point: new THREE.Vector3(), heading: new THREE.Vector3(1, 0, 0) };
-  const strike = new Ac130(kit, order, { airframe, rounds, prisoners: new Set(), probe: kit.probe } as unknown as Ac130Rig, rig as never, ai);
-  return { strike, rig, fired, positions };
+  const order = { point: new THREE.Vector3(), heading: new THREE.Vector3(1, 0, 0), yaw };
+  const strike = new Ac130(kit, order, { airframe, rounds, prisoners: new Set(), probe: kit.probe } as unknown as Ac130Rig, rig as never, ai, net);
+  return { strike, rig, fired, positions, aims };
 }
 
 describe('the AC-130', () => {
@@ -444,7 +447,7 @@ interface Dummy extends Aircraft {
 
 function dummy(at: THREE.Vector3, o: Partial<Aircraft> = {}): Dummy {
   const d: Dummy = {
-    position: at, sources: 'chopper', hits: 2, flares: 3, rounds: 0, flown: true, autoFlares: false, huntable: true,
+    position: at, where: at, sources: 'chopper', hits: 2, flares: 3, rounds: 0, flown: true, autoFlares: false, huntable: true,
     struckBy: 0, popped: 0,
     hit() { d.struckBy++; return --d.hits <= 0; },
     shot: () => false,
@@ -847,5 +850,106 @@ describe('a circling mission ride', () => {
     release();
     tick(60, () => w.log.unparks > 0);
     expect(heard).toEqual(['fly7', 'fly8', 'fly9', 'fly10']);
+  });
+});
+
+// --- Co-op: an aircraft and the copy of it flown on another screen ----------------------------------------------------
+
+describe("co-op: another player's aircraft", () => {
+  type Word = { kind: NewsKind; values: number[] };
+  const teller = (said: Word[]): StrikeNet => ({ tell: (kind, values) => void said.push({ kind, values: values ?? [] }) });
+
+  it("a copy of the gunship flies the caller's circle, fires nothing by itself, and puts every round it is told of on the same spot", () => {
+    const said: Word[] = [];
+    const mine = gunship(world(), true, teller(said));
+    // The copy's own screen has a man standing in the box too: its crew must leave him alone.
+    const theirs = gunship(world(), true, { puppet: true }, mine.strike.angle);
+    const seconds = AC130.orbit.entrySeconds + 30;
+    for (let t = 0; t < seconds; t += DT) {
+      mine.strike.update(DT);
+      for (const word of said.splice(0)) theirs.strike.news(word.kind, word.values);
+      theirs.strike.update(DT);
+    }
+    expect(mine.fired.length).toBeGreaterThan(20);
+    expect(theirs.fired).toEqual(mine.fired);
+    for (let i = 0; i < mine.aims.length; i++) expect(theirs.aims[i]!.distanceTo(mine.aims[i]!)).toBeLessThan(0.01);
+    // The same circle, from the same side.
+    expect(theirs.positions.at(-1)!.distanceTo(mine.positions.at(-1)!)).toBeLessThan(0.01);
+    // With nothing said, a copy stays silent for a whole sortie.
+    const quiet = gunship(world(), true, { puppet: true }, 0);
+    run(quiet.strike, AC130.orbit.entrySeconds + 40);
+    expect(quiet.fired).toHaveLength(0);
+  });
+
+  it('the gunship says when it is shot down, and the copy goes down with it', () => {
+    const said: Word[] = [];
+    const mine = gunship(world(), true, teller(said));
+    const theirs = gunship(world(), true, { puppet: true }, mine.strike.angle);
+    run(mine.strike, AC130.orbit.entrySeconds + 2);
+    run(theirs.strike, AC130.orbit.entrySeconds + 2);
+    said.length = 0;
+    mine.strike.down();
+    expect(said.map(word => word.kind)).toEqual(['down']);
+    theirs.strike.news('down', []);
+    expect(theirs.strike.huntable).toBe(false);
+  });
+
+  function heli(w: World, net: StrikeNet, ai = true): { strike: AttackChopper; root: THREE.Group } {
+    const airframe = frame();
+    const root = airframe['root'] as THREE.Group;
+    const gun = { point() {}, snap() {}, recoil() {}, hide() {}, muzzle: (out: THREE.Vector3) => out.copy(root.position) };
+    const strike = new AttackChopper({ ctx: w.ctx } as StrikeKit, seatRig() as never, { frame: airframe, gun } as never, ai, net);
+    return { strike, root };
+  }
+
+  it("a helicopter tells its pose ten times a second, and a copy flies where it flies and fires while it fires", () => {
+    const said: Word[] = [];
+    const callers = world();
+    const watchers = world();
+    // Nobody to shoot on the watcher's screen: every round its copy fires is one the caller's fired.
+    watchers.enemies.length = 0;
+    const mine = heli(callers, teller(said));
+    const copy = heli(watchers, { puppet: true });
+    let poses = 0, worst = 0;
+    const seconds = ATTACK.boardSeconds + 12;
+    for (let t = 0; t < seconds; t += DT) {
+      mine.strike.update(DT);
+      for (const word of said.splice(0)) {
+        if (word.kind === 'pose') { poses++; expect(word.values).toHaveLength(13); }
+        copy.strike.news(word.kind, word.values);
+      }
+      copy.strike.update(DT);
+      if (t > 1) worst = Math.max(worst, copy.root.position.distanceTo(mine.root.position));
+    }
+    expect(poses).toBeGreaterThan(seconds / TELL_EVERY * 0.8);
+    expect(poses).toBeLessThanOrEqual(Math.ceil(seconds / TELL_EVERY) + 1);
+    // A pose behind, at the pilot's dash speed at most.
+    expect(worst).toBeLessThan(ATTACK.large.dash * (TELL_EVERY * 2 + DT) + 1);
+    expect(callers.log.projectiles).toBeGreaterThan(5);
+    expect(watchers.log.projectiles).toBeGreaterThan(callers.log.projectiles * 0.5);
+    // Nobody on the watcher's screen was ever put in its seat.
+    expect(watchers.log.parks).toBe(0);
+  });
+
+  it('a copy that hears nothing more stops firing, and is gone when its caller says so or goes quiet', () => {
+    const copy = heli(world(), { puppet: true });
+    const w = world();
+    const other = heli(w, { puppet: true });
+    const pose = (fire: number) => [10, 40, 10, 0, 0, 0, 1, 0, -0.6, 0, 0, 30, fire];
+    other.strike.news('pose', pose(1));
+    run(other.strike, 0.3);
+    const fired = w.log.projectiles;
+    expect(fired).toBeGreaterThan(0);
+    // The triggers were down in the last pose, and no more came: the guns stop within half a second.
+    run(other.strike, 1);
+    const after = w.log.projectiles;
+    run(other.strike, 2);
+    expect(w.log.projectiles).toBe(after);
+    // Quiet for long enough: it is taken for gone.
+    expect(run(other.strike, 8)).toBe(true);
+    copy.strike.news('pose', pose(0));
+    expect(run(copy.strike, 0.5)).toBe(false);
+    copy.strike.news('end', []);
+    expect(copy.strike.update(DT)).toBe(true);
   });
 });

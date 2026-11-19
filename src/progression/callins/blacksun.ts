@@ -124,6 +124,7 @@ export class BlackSun implements Strike {
   private crushIn = 0;
   private wakeIn = 0;
   private readonly center = new THREE.Vector3();
+  readonly where = this.center;
   private readonly ground = new THREE.Vector3();
   private readonly group = new THREE.Group();
   private readonly core: THREE.Mesh;
@@ -324,7 +325,7 @@ export class BlackSun implements Strike {
     // White fire rather than the nuke's recipe: the top of the ladder keeps its own fireball and its own sound.
     combat.explode(this.center, {
       radius: B.implodeRadius, damage: 99999, kind: 'finisher', source: 'black_sun', team: 'player',
-      instakill: true, selfDamage: 0, playerPush: 30, shake: 0.6, scale: 2,
+      instakill: true, selfDamage: 0, playerPush: 30, shake: 0.6, scale: 2, mirrored: true,
     });
     this.throwOut();
     physics.radialImpulse(this.center, B.pullRadius * 1.4, B.implodeImpulse);

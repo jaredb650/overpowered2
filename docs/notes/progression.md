@@ -128,6 +128,28 @@ The walkie and designator are the viewmodel's `Offhand`, driven by `progression.
 | Black Sun | Grows 1 s, pulls to 6.2, collapses, implodes at 6.75 | Dragged by the feet, walls hold them, crush within 3.5 m from T+2.6. Corpses orbit at 10 m. Implosion radius 28, bodies leave at about 55 m/s. Uses `finisher`, so the nuke keeps its own recipe |
 | Nuke | Siren 6 s, missile for the last 2.8 s, white, front at 105 m/s | Kills every enemy it reaches, bosses within a few frames despite their per-hit cap. Sky, ash, cloud and moonlight stay for 45 s, gone by 70 s |
 
+### Co-op: every call-in on every screen
+
+Any player's call-in plays on every other screen through the same strike class, on a context that cannot hurt anything. The full
+account (the table per call-in, the wire, the numbers) is in `docs/notes/coop.md`, "Call-ins on every screen". What a strike
+needs to take part:
+
+- **`StrikeOrder.seed`.** Everything a strike rolls that decides where something lands comes from `rngOf(order)` (`shared.ts`), not
+  `Math.random()`: the airstrike's rockets, the Warthog's shells, the sentry's first facing. The manager draws a fresh seed for
+  every call (`launch`), so alone nothing changes; in co-op the seed goes out with the order and every copy rolls the same.
+- **`StrikeNet`** (`shared.ts`), for a strike that does things its order cannot say. The caller's own gets `tell(kind, numbers)`
+  and says them as they happen; a copy is a `puppet`, does none of it by itself, and plays what it hears through
+  `Strike.news(kind, numbers)`. Kinds are `link.ts` `NewsKind`. The Orbital Lance tells its aim, the gunship every round
+  (`Battery.onRound`, played by `Battery.echo`), a helicopter its pose and triggers (`GunnerStrike.say` / `shadow`).
+- **`mirrored: true`** on every blast a strike makes, so the caller's game does not also send it as a `boom` (the copy draws it).
+- **`kit.cosmetic`** guards the few things a strike does past its context: a prompt for the player (the Frame's seat), a state
+  written onto an enemy. `everyone(kit)` is the HUD for a banner that is every player's business (the nuke's countdown).
+- **`Strike.where`**: where the thing a player would look at is. The co-op proof compares a caller's with its copies'.
+
+`CallInManager` is the game's side of the line (`CallinLink`, `ctx.progression.callinLink`): `send` is set by co-op while there
+are others to tell, `mirror` (`CallinMirror`) plays theirs, `callAt(id, point, heading, ai)` makes a call from a script.
+A new call-in must be added to `CallinMirror.launch`, or the others will see nothing.
+
 ### The AA sentry and the Frame
 
 **AA sentry** (`sentry`, key I, combo 20, cooldown 75 s, Outpost Defense 1,800; numbers in `SENTRY`). The Sentinels' old rung. Key,

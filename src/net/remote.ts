@@ -79,6 +79,8 @@ export class RemotePlayer implements Shooter {
   private jetIn = 0;
   /** Set by the team rules (team.ts): this friend is down, and is drawn on the floor whatever their pose says. */
   downed = false;
+  /** Set by the call-ins (world/callins.ts): this friend is in a Frame, which is drawn in their place. The body still moves, unseen. */
+  hidden = false;
 
   /**
    * `seat`: which of the friends on this screen they are, 1 to 3 (their own strand of the napalm hose). `torch`: the
@@ -179,7 +181,7 @@ export class RemotePlayer implements Shooter {
       return;
     }
     const c = this.char;
-    c.root.visible = true;
+    c.root.visible = !this.hidden;
     this.arm(p.weapon);
     c.root.position.fromArray(p.position);
     // Player looks down -Z; the allies' body faces +Z.

@@ -3,10 +3,10 @@
  * then 15 rockets a tenth of a second apart, a beat of silence, and the largest single blast in the first game.
  */
 import * as THREE from 'three';
-import { rand, TAU } from '../../core/math';
+import { TAU } from '../../core/math';
 import { AIRSTRIKE as A, CALLINS } from '../data';
 import { GroundRing } from './ground';
-import { aboveFloor, type Strike, type StrikeKit, type StrikeOrder } from './shared';
+import { aboveFloor, rngOf, roll, type Strike, type StrikeKit, type StrikeOrder } from './shared';
 
 const _from = new THREE.Vector3();
 const _vel = new THREE.Vector3();
@@ -18,10 +18,13 @@ export class Airstrike implements Strike {
   private finaleLaunched = false;
   private landed = false;
   private readonly point = new THREE.Vector3();
+  readonly where = this.point;
   private readonly ring: GroundRing;
+  private readonly rng: () => number;
 
   constructor(private readonly kit: StrikeKit, order: StrikeOrder) {
     this.point.copy(order.point);
+    this.rng = rngOf(order);
     this.ring = new GroundRing(kit.ctx);
     this.ring.setColor(CALLINS.airstrike.color, 2.2);
     kit.ctx.audio.play('walkietalkie_fire');
@@ -51,15 +54,16 @@ export class Airstrike implements Strike {
   private rocket(): void {
     this.fired++;
     // Radius straight from random() biases to the centre, which is the shape the first game had.
-    const r = Math.random() * A.scatter;
-    const a = rand(0, TAU);
+    const { rng } = this;
+    const r = rng() * A.scatter;
+    const a = roll(rng, 0, TAU);
     _from.set(this.point.x + Math.cos(a) * r, 0, this.point.z + Math.sin(a) * r);
-    _from.y = this.point.y + this.startHeight(_from.x, _from.z, rand(A.rocketHeight[0], A.rocketHeight[1]));
-    _vel.set(rand(-A.rocketDrift, A.rocketDrift), -1, rand(-A.rocketDrift, A.rocketDrift)).normalize().multiplyScalar(A.rocketSpeed);
+    _from.y = this.point.y + this.startHeight(_from.x, _from.z, roll(rng, A.rocketHeight[0], A.rocketHeight[1]));
+    _vel.set(roll(rng, -A.rocketDrift, A.rocketDrift), -1, roll(rng, -A.rocketDrift, A.rocketDrift)).normalize().multiplyScalar(A.rocketSpeed);
     this.kit.ctx.combat.spawnProjectile({
       origin: _from, velocity: _vel, kind: 'rocket', team: 'player', damage: A.rocketDamage, source: 'airstrike',
       gravity: 0, lifetime: 5,
-      explosion: { radius: A.rocketRadius, damage: A.rocketDamage, kind: 'rocket', selfDamage: A.rocketSelfDamage },
+      explosion: { radius: A.rocketRadius, damage: A.rocketDamage, kind: 'rocket', selfDamage: A.rocketSelfDamage, mirrored: true },
     });
   }
 
@@ -80,7 +84,7 @@ export class Airstrike implements Strike {
     const { camera, combat, fx, render, time } = this.kit.ctx;
     combat.explode(aboveFloor(p), {
       radius: A.finaleRadius, damage: 99999, kind: 'hellfire', source: 'airstrike', team: 'player',
-      instakill: true, selfDamage: 0, playerPush: A.finalePlayerPush,
+      instakill: true, selfDamage: 0, playerPush: A.finalePlayerPush, mirrored: true,
     });
     fx.ring(p, _vel.set(0, 1, 0), '#ffaa00', A.finaleRadius * 2);
     render.post.flash('#ffb060', 1.1, 0.45);
@@ -90,7 +94,7 @@ export class Airstrike implements Strike {
     camera.addTrauma(0.85);
     time.hitStop(0.09);
     render.lights.flash(p, '#ffa040', 90, 60, 0.5);
-    render.decals.add('scorch', p, _vel, A.finaleRadius * 0.9, rand(0, TAU));
+    render.decals.add('scorch', p, _vel, A.finaleRadius * 0.9, roll(this.rng, 0, TAU));
     this.landed = true;
   }
 

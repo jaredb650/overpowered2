@@ -1,6 +1,8 @@
 /** What every call-in shares. */
 import * as THREE from 'three';
 import type { Ctx } from '../../core/contracts';
+import { mulberry32 } from '../../core/math';
+import type { NewsKind } from './link';
 import type { ModelMaterials } from '../modelkit';
 import type { GroundProbe } from './ground';
 import type { Ordnance } from './ordnance';
@@ -22,6 +24,13 @@ export interface StrikeKit {
   ordnance: Ordnance;
   /** The one Warthog airframe, hidden between runs. */
   jet: THREE.Group;
+  /** Co-op: the HUD every player reads, on a copy's kit, whose own context keeps the caller's banners to the caller. See `everyone`. */
+  all?: Ctx['hud'];
+  /**
+   * Co-op: this kit flies another player's call-in for the look (mirror.ts). Its context already hurts nothing (ghost.ts);
+   * this is for the few things a strike does past it: a state written straight onto an enemy, a prompt for the player.
+   */
+  cosmetic?: boolean;
 }
 
 /**
@@ -34,13 +43,52 @@ export interface Strike {
   update(dt: number): boolean;
   /** Called when it finishes and when a run ends early: no more damage, nothing left in the scene. */
   dispose(): void;
+  /** Co-op, on a copy: what its caller's own did that the order could not say (link.ts `CallNews`). */
+  news?(kind: NewsKind, values: readonly number[]): void;
+  /**
+   * Where the thing a player would look at is now: the aircraft, the foot of the beam, the pod, the mark. The co-op proofs
+   * compare a caller's with its copies' to see that every screen flies the same path.
+   */
+  readonly where: THREE.Vector3;
 }
+
+/**
+ * Co-op, for a strike that does things its order cannot say (a steered beam, an aircraft's guns). The caller's own is given
+ * `tell`, and says them as they happen; every other screen's copy is a `puppet`, which does none of it by itself and plays
+ * what it is told through `Strike.news`. Alone, a strike gets neither.
+ */
+export interface StrikeNet {
+  puppet?: boolean;
+  tell?: Tell | null;
+  /** On a copy: draws the flares its caller's aircraft threw, from where the copy is. */
+  flares?: (from: THREE.Vector3) => void;
+}
+export type Tell = (kind: NewsKind, values?: number[]) => void;
+
+/** Seconds between a caller's words on something that moves all the time: a pose, a steered point. */
+export const TELL_EVERY = 0.1;
 
 export interface StrikeOrder {
   point: THREE.Vector3;
   /** Unit XZ direction of travel. Only the Warthog uses it. */
   heading: THREE.Vector3;
+  /**
+   * What the strike rolls its scatter from (`mulberry32`). The manager draws a fresh one for every call; in co-op it goes to
+   * the other players with the order, so every screen's copy lands its rounds on the same spots.
+   */
+  seed?: number;
+  /** An angle the caller worked out from where they stood, given to a copy that cannot: the gunship's side of its circle, a pod's facing. */
+  yaw?: number;
 }
+
+/** A strike's own generator, from its order's seed. An order made without one (a test's) gets a seed of its own. */
+export const rngOf = (order: StrikeOrder): (() => number) => mulberry32(order.seed ?? Math.floor(Math.random() * 0x100000000));
+
+/** The HUD for a banner that is every player's business (the nuke's countdown): shown by a co-op copy as by the caller's own. */
+export const everyone = (kit: StrikeKit): Ctx['hud'] => kit.all ?? kit.ctx.hud;
+
+/** `lo` to `hi` from a strike's own generator. */
+export const roll = (rng: () => number, lo: number, hi: number): number => lo + rng() * (hi - lo);
 
 /** Seconds after a pop before the flares will go again, so a double press does not throw two. */
 export const FLARE_LOCKOUT = 3;

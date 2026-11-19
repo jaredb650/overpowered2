@@ -25,10 +25,11 @@ import { AC130 as A } from './ac130Data';
 import { Battery, FireControl, GUN_ORDER } from './ac130Guns';
 import { AC130_AIRFRAME, type Ac130Mount } from './ac130Model';
 import { Crash } from './crash';
-import { AIR, Ac130Rounds, flakCone, type ImpactKind } from './ac130Rounds';
+import { AIR, Ac130Rounds, flakCone, ROUND_KINDS, type ImpactKind } from './ac130Rounds';
 import { GroundProbe, GroundRing } from './ground';
 import { Radio } from './radio';
-import { FLARE_LOCKOUT, type Aircraft, type StrikeKit, type StrikeOrder } from './shared';
+import type { NewsKind } from './link';
+import { FLARE_LOCKOUT, TELL_EVERY, type Aircraft, type StrikeKit, type StrikeNet, type StrikeOrder } from './shared';
 
 const UP = new THREE.Vector3(0, 1, 0);
 /** Metres a blast stands off a wall, so its line-of-sight rays do not start inside it. */
@@ -46,6 +47,8 @@ const LASER_START = 0.15;
 /** How far from the bomb the ground still feels it. */
 const BOMB_FELT = 160;
 const WEAPON_KEYS: readonly Action[] = ['weapon1', 'weapon2', 'weapon3', 'weapon4'];
+/** Seconds a co-op copy's clock may differ from its caller's before it is set to it. */
+const CLOCK_SLACK = 0.25;
 
 const G = A.gatling;
 const B = A.bofors;
@@ -137,7 +140,8 @@ interface Cloud {
 export class Phosphorus {
   private readonly clouds: Cloud[] = [];
 
-  constructor(private readonly ctx: Ctx) {}
+  /** `cosmetic`: the cloud of another player's shell (co-op). It is drawn, and sets nobody alight: the caller's own does. */
+  constructor(private readonly ctx: Ctx, private readonly cosmetic = false) {}
 
   add(point: THREE.Vector3): void {
     this.clouds.push({ point: point.clone(), age: 0, puffIn: 0 });
@@ -166,7 +170,7 @@ export class Phosphorus {
         fx.smoke(_at, 0xf4f6f8, r * rand(0.75, 1.1) * (0.4 + 0.6 * left), rand(2.5, 4));
         if (Math.random() < left) fx.embers(_at, 3, r * 0.4);
       }
-      const n = enemies.query(c.point, r * left + 0.5, _near) || 0;
+      const n = this.cosmetic ? 0 : enemies.query(c.point, r * left + 0.5, _near) || 0;
       for (let k = 0; k < n; k++) {
         const e = _near[k]!;
         if (e.alive && Math.abs(e.position.y - c.point.y) < r) enemies.afflict(e, 'burn', WP.burn);
@@ -202,6 +206,13 @@ export class Ac130 implements Aircraft {
   private view = 0;
   /** The crew has the guns. Once true it stays true. */
   private ai: boolean;
+  /** Co-op: a copy of another player's ship. Its crew fires nothing by itself; every round is one it was told of. */
+  private readonly puppet: boolean;
+  private readonly tell: StrikeNet['tell'];
+  private tellIn = 0;
+  private clockIn = 1;
+  /** Which side of its circle it arrives on. The caller's own works it out from where they stand; a copy is given it. */
+  readonly angle: number;
 
   private readonly path = new OrbitPath(A.orbit);
   private readonly ring: GroundRing;
@@ -215,17 +226,25 @@ export class Ac130 implements Aircraft {
   private readonly radius = CALLINS.ac130.radius;
   private readonly color = CALLINS.ac130.color;
 
-  constructor(private readonly kit: StrikeKit, order: StrikeOrder, private readonly rig: Ac130Rig, private readonly seats: SeatRig, ai: boolean) {
+  constructor(private readonly kit: StrikeKit, order: StrikeOrder, private readonly rig: Ac130Rig, private readonly seats: SeatRig, ai: boolean, net: StrikeNet = {}) {
     const { ctx } = kit;
-    this.ai = ai;
-    this.path.begin(order.point, this.arrivalAngle(order.point));
+    this.puppet = net.puppet === true;
+    this.tell = net.tell;
+    this.ai = ai || this.puppet;
+    this.angle = order.yaw ?? this.arrivalAngle(order.point);
+    this.path.begin(order.point, this.angle);
     this.ring = new GroundRing(ctx);
     this.ring.setColor(this.color, 1.6);
     this.radio = new Radio(ctx, A.callsign, this.color);
     this.engines = new EngineSound(ctx, A.engine);
     this.battery = new Battery(ctx, rig.probe, rig.airframe, rig.rounds);
     this.crew = new FireControl(ctx, this.battery, rig.airframe, this.path.center, this.radius, this.radio, rig.prisoners);
-    this.phosphorus = new Phosphorus(ctx);
+    this.phosphorus = new Phosphorus(ctx, kit.cosmetic === true);
+    const { tell } = this;
+    if (tell) {
+      this.battery.onRound = (kind, aim) => tell('round', [ROUND_KINDS.indexOf(kind), aim.x, aim.y, aim.z]);
+      this.battery.onBomb = aim => tell('bomb', [aim.x, aim.y, aim.z]);
+    }
     this.seat = new GunnerSeat(ctx, seats, A.seat);
     this.seat.weapons.push(...this.battery.weapons, this.flareRow);
     rig.rounds.onImpact = (kind, point, normal, dir) => this.impact(kind, point, normal, dir);
@@ -250,6 +269,10 @@ export class Ac130 implements Aircraft {
 
   get position(): THREE.Vector3 {
     return this.rig.airframe.root.position;
+  }
+
+  get where(): THREE.Vector3 {
+    return this.position;
   }
 
   get flown(): boolean {
@@ -285,6 +308,7 @@ export class Ac130 implements Aircraft {
     if (this.crash) return;
     const { path, rig, seats } = this;
     const C = A.crash;
+    this.tell?.('down');
     this.hits = 0;
     this.offStation = true;
     this.seat.leave();
@@ -305,9 +329,41 @@ export class Ac130 implements Aircraft {
     if (this.crash || this.flares <= 0 || this.flareLock > 0) return false;
     this.flares--;
     this.flareLock = FLARE_LOCKOUT;
+    this.tell?.('flares');
     this.dropFlares();
     this.kit.ctx.audio.play('flame_ignite', { volume: 0.8, pitch: 1.3, position: this.flown ? undefined : this.position });
     return true;
+  }
+
+  /** Co-op, on a copy: what the caller's ship did. */
+  news(kind: NewsKind, v: readonly number[]): void {
+    if (!this.puppet || this.crash) return;
+    const { battery } = this;
+    switch (kind) {
+      case 'round': {
+        const round = ROUND_KINDS[v[0]!];
+        if (round && v.length >= 4) battery.echo(round, _at.set(v[1]!, v[2]!, v[3]!));
+        break;
+      }
+      case 'bomb':
+        if (v.length >= 3) battery.dropBomb(_at.set(v[0]!, v[1]!, v[2]!));
+        break;
+      case 'laser':
+        if (v.length >= 3) battery.laser.set(v[0]!, v[1]!, v[2]!);
+        break;
+      case 'flares':
+        this.dropFlares();
+        this.kit.ctx.audio.play('flame_ignite', { volume: 0.8, pitch: 1.3, position: this.position });
+        break;
+      case 'down':
+        this.down();
+        break;
+      case 'clock':
+        // The caller's clock, a network's delay old. A copy that has fallen behind it (dropped frames) or run ahead is put
+        // back: a quarter of a second is eight metres of circle.
+        if (v.length >= 1 && Math.abs(v[0]! - this.t) > CLOCK_SLACK) this.t = v[0]!;
+        break;
+    }
   }
 
   private fly(): void {
@@ -350,6 +406,17 @@ export class Ac130 implements Aircraft {
     // From a little way down the beam: a line that starts at the seat's own eye clips the near plane into a streak.
     rig.airframe.mount('sensor', rig.rounds.laserFrom).lerp(rig.rounds.laser, LASER_START);
     rig.rounds.laserOn = battery.guiding;
+    // Co-op: the ship's clock for the copies, once a second.
+    if (this.tell && (this.clockIn -= dt) <= 0) {
+      this.clockIn = 1;
+      this.tell('clock', [t]);
+    }
+    // Co-op: where the bomb is being steered, for the copies, which turn theirs onto the same spot.
+    if (this.tell && battery.guiding && (this.tellIn -= dt) <= 0) {
+      this.tellIn = Math.max(0, this.tellIn + TELL_EVERY);
+      const { laser } = battery;
+      this.tell('laser', [laser.x, laser.y, laser.z]);
+    }
     this.drawRing(dt);
     this.throwFlares(dt);
     return t >= path.ends && rig.rounds.idle && this.phosphorus.count === 0;
@@ -445,7 +512,7 @@ export class Ac130 implements Aircraft {
     if (this.countdownAt < countdown.length && left <= countdown[this.countdownAt]![0]) {
       this.radio.say(countdown[this.countdownAt++]![1]);
     }
-    if (this.ai) this.crew.update(dt, seconds);
+    if (this.ai && !this.puppet) this.crew.update(dt, seconds);
     this.killWindow -= dt;
     this.praiseIn -= dt;
     if (this.killWindow <= 0) this.recentKills = 0;

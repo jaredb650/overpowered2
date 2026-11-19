@@ -57,6 +57,8 @@ function copyBlast(to: ExplosionSpec, from: ExplosionSpec): void {
   to.worldObject = from.worldObject;
   to.playerOnly = from.playerOnly;
   to.vaporize = from.vaporize;
+  to.cosmetic = from.cosmetic;
+  to.mirrored = from.mirrored;
 }
 
 interface HitSlot {
@@ -1109,6 +1111,16 @@ export class Combat implements CombatSystem {
       look.normal = spec.normal;
       c.fx.explosion(center, look);
       for (let i = 0; i < def.sounds.length; i++) this.sound(def.sounds[i]!, center);
+    }
+    if (spec.cosmetic) {
+      // Someone else's: bodies already on the floor are thrown and the view shakes, and that is all.
+      c.physics.radialImpulse(center, radius * 1.35, def.impulse * radius);
+      const far = c.player.parked ? Infinity : c.player.eye.distanceTo(center);
+      const felt = clamp(1 - Math.max(0, far - radius) / def.shakeRange) ** 2;
+      this.feel.shake((spec.shake ?? def.shake) * felt);
+      if (def.fovPunch > 0 && felt > 0.05) c.camera.fovPunch(def.fovPunch * felt, 0.18);
+      if (def.flash > 0 && felt > 0.2) c.render.post.flash(0xffcc88, def.flash * felt, 0.14);
+      return;
     }
     // Co-op guest, a blast the host already counted (`playerOnly`): no enemy is hurt from here, or it would be hurt twice.
     const hit = spec.playerOnly ? this.noHits : this.blastEnemies(center, spec, id);

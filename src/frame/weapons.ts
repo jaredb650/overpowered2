@@ -296,6 +296,68 @@ const PELLET: ShotSpec = {
   damage: B.flak.pelletDamage, source: 'frame_flak', team: 'player', maxDistance: B.flak.reach, force: 14, severMult: 2.2, impactScale: 1.4,
 };
 
+/**
+ * A 40 mm round from the arm landing: the blast and its look. A function on the context alone, so the copy of another
+ * player's Frame (co-op, puppet.ts) lands its shells through it too, on a context that hurts nothing.
+ */
+export function shellImpact(ctx: Ctx, kind: ImpactKind, point: THREE.Vector3, normal: THREE.Vector3 | null, dir: THREE.Vector3): void {
+  if (kind !== 'g40' && kind !== 'ap' && kind !== 'flak') return;
+  const { combat, fx, audio } = ctx;
+  _at.copy(point);
+  if (normal) _at.addScaledVector(normal, WALL_STANDOFF);
+  combat.explode(_at, BLASTS[kind]);
+  if (kind === 'g40') {
+    fx.explosion(point, { kind: 'shell', radius: B.he.radius, scale: 1, normal: normal ?? undefined });
+    fx.ring(point, normal ?? UP, '#ffb040', B.he.radius * 1.5);
+    audio.play('30mmshell_explode', { position: point, volume: 0.9 });
+  } else if (kind === 'ap') {
+    fx.explosion(point, { kind: 'hellfireBullet', radius: B.ap.radius, scale: 1.1, normal: normal ?? undefined });
+    fx.sparks(point, normal ?? UP, 24, '#cfe4ff');
+    audio.play('30mmshell_explode', { position: point, volume: 0.8, pitch: 1.25 });
+  } else {
+    fx.explosion(point, { kind: 'shell', radius: B.flak.radius, scale: 0.8 });
+    fx.ring(point, dir, '#ff7030', B.flak.radius * 2);
+    audio.play('30mmshell_explode', { position: point, pitch: 0.8 });
+    audio.play('shotgun_fire', { position: point, volume: 0.7, pitch: 0.6 });
+    flakCone(dir, B.flak.cone, _pellets);
+    for (let i = 0; i < _pellets.length; i++) {
+      PELLET.tracer = i % 3 === 0 ? 'heavy' : undefined;
+      combat.fireRay(point, _pellets[i]!, PELLET);
+    }
+  }
+}
+
+/** The smoke going: flares up and out of the back, and a ring of smoke round the legs that lasts. The look alone. */
+export function smokeScreen(ctx: Ctx, rounds: Pick<Ac130Rounds, 'flare'>, at: THREE.Vector3, yaw: number, heard?: THREE.Vector3): void {
+  const { fx, audio } = ctx;
+  const S = FRAME.smoke;
+  for (let i = 0; i < 10; i++) {
+    const a = yaw + Math.PI + ((i - 4.5) / 4.5) * 1.6;
+    _v.set(-Math.sin(a) * rand(8, 14), rand(9, 15), -Math.cos(a) * rand(8, 14));
+    _at.copy(at);
+    _at.y += 5.4;
+    rounds.flare(_at, _v, 2.6);
+  }
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2;
+    _at.set(at.x + Math.cos(a) * 4, at.y + rand(1.5, 4), at.z + Math.sin(a) * 4);
+    fx.smoke(_at, 0xc4c8cc, S.size * rand(0.8, 1.2), S.seconds);
+  }
+  audio.play('grenade_throw', { pitch: 0.6, position: heard });
+  audio.play('steam_burst', { volume: 1, pitch: 0.7, position: heard });
+}
+
+/** The pod's missile, less where it starts, where it is going and who it is after. */
+export function podMissile(): ProjectileSpec {
+  return {
+    origin: new THREE.Vector3(), velocity: new THREE.Vector3(), kind: 'rocket', team: 'player', damage: P.damage,
+    source: 'frame_pod', trail: 'swarm', gib: true, severMult: 1, force: 70,
+    turnRate: TUNING.quiver.turnRate, steerDelay: TUNING.quiver.steerDelay, weave: TUNING.quiver.weave, accel: TUNING.quiver.accel,
+    topSpeed: TUNING.quiver.topSpeed, size: 0.7, target: null,
+    explosion: { radius: P.radius, damage: P.blast, kind: 'rocket', selfDamage: 0, playerPush: 0, scale: TUNING.quiver.blastScale, shake: TUNING.quiver.blastShake, mirrored: true },
+  };
+}
+
 /** Below this the sight is on something right under the arm, and a round goes down the bore instead. */
 const NEAR_SIGHT = 6;
 /** The rotary's spin loop with the barrels barely turning, and its fire loop's written rate. */
@@ -340,6 +402,12 @@ export class FrameGuns {
   private readonly paintables: MissileTarget[] = [];
   private sight: Sight | null = null;
   private readonly look = (): readonly PaintCandidate[] => this.gather();
+  /**
+   * Co-op: told of each 40 mm as it leaves (its round, the muzzle, the exact spot it flies to and the seconds it takes) and
+   * of each missile (where from, and its velocity), so the other screens' copy of this Frame fires the same ones.
+   */
+  onShell: ((round: Round40, from: THREE.Vector3, aim: THREE.Vector3, seconds: number) => void) | null = null;
+  onMissile: ((from: THREE.Vector3, velocity: THREE.Vector3) => void) | null = null;
 
   constructor(
     private readonly ctx: Ctx,
@@ -472,6 +540,7 @@ export class FrameGuns {
     const reach = _muzzle.distanceTo(_aim) + (round === 'ap' ? B.ap.beyond : 0);
     _aim.copy(_muzzle).addScaledVector(_dir, reach);
     this.rounds.fire(round, _muzzle, _aim, reach / C.speed, 0, Infinity);
+    this.onShell?.(round, _muzzle, _aim, reach / C.speed);
     this.rounds.flash(_muzzle, 1.6, 0.07, 9, 10, 5, 1.4);
     fx.muzzleFlash(_muzzle, _bore, 'autocannon');
     // A puff well out ahead of the brake: at the muzzle, a metre from the eye, it filled half the screen.
@@ -486,30 +555,7 @@ export class FrameGuns {
   }
 
   private impact(kind: ImpactKind, point: THREE.Vector3, normal: THREE.Vector3 | null, dir: THREE.Vector3): void {
-    if (kind !== 'g40' && kind !== 'ap' && kind !== 'flak') return;
-    const { combat, fx, audio } = this.ctx;
-    _at.copy(point);
-    if (normal) _at.addScaledVector(normal, WALL_STANDOFF);
-    combat.explode(_at, BLASTS[kind]);
-    if (kind === 'g40') {
-      fx.explosion(point, { kind: 'shell', radius: B.he.radius, scale: 1, normal: normal ?? undefined });
-      fx.ring(point, normal ?? UP, '#ffb040', B.he.radius * 1.5);
-      audio.play('30mmshell_explode', { position: point, volume: 0.9 });
-    } else if (kind === 'ap') {
-      fx.explosion(point, { kind: 'hellfireBullet', radius: B.ap.radius, scale: 1.1, normal: normal ?? undefined });
-      fx.sparks(point, normal ?? UP, 24, '#cfe4ff');
-      audio.play('30mmshell_explode', { position: point, volume: 0.8, pitch: 1.25 });
-    } else {
-      fx.explosion(point, { kind: 'shell', radius: B.flak.radius, scale: 0.8 });
-      fx.ring(point, dir, '#ff7030', B.flak.radius * 2);
-      audio.play('30mmshell_explode', { position: point, pitch: 0.8 });
-      audio.play('shotgun_fire', { position: point, volume: 0.7, pitch: 0.6 });
-      flakCone(dir, B.flak.cone, _pellets);
-      for (let i = 0; i < _pellets.length; i++) {
-        PELLET.tracer = i % 3 === 0 ? 'heavy' : undefined;
-        combat.fireRay(point, _pellets[i]!, PELLET);
-      }
-    }
+    shellImpact(this.ctx, kind, point, normal, dir);
   }
 
   // ---- the pod ----
@@ -536,20 +582,15 @@ export class FrameGuns {
     }
     p.velocity.copy(_dir).multiplyScalar(q.launchSpeed);
     p.target = dumb ? null : target;
-    p.explosion = { radius: P.radius, damage: P.blast, kind: 'rocket', selfDamage: 0, playerPush: 0, scale: q.blastScale, shake: q.blastShake };
     combat.spawnProjectile(p);
+    this.onMissile?.(p.origin, p.velocity);
     fx.smoke(p.origin, 0xb9b4aa, 0.9, 1.4);
     fx.sparks(p.origin, _v.copy(_dir).negate(), 5, 0xffa040);
     audio.play('quiver_fire', { pitchJitter: 0.05, pitch: 0.85 });
     camera.addTrauma(0.06);
   }
 
-  private readonly projectile: ProjectileSpec = {
-    origin: new THREE.Vector3(), velocity: new THREE.Vector3(), kind: 'rocket', team: 'player', damage: P.damage,
-    source: 'frame_pod', trail: 'swarm', gib: true, severMult: 1, force: 70,
-    turnRate: TUNING.quiver.turnRate, steerDelay: TUNING.quiver.steerDelay, weave: TUNING.quiver.weave, accel: TUNING.quiver.accel,
-    topSpeed: TUNING.quiver.topSpeed, size: 0.7, target: null,
-  };
+  private readonly projectile: ProjectileSpec = podMissile();
 
   /** Everyone near the sight with a clear line to them, enemies and then vehicles: the Quiver's rule, from the cockpit. */
   private gather(): readonly PaintCandidate[] {
@@ -590,22 +631,7 @@ export class FrameGuns {
   /** Flares up and out of the back, and a ring of smoke round the legs that lasts. False when none went. */
   popSmoke(at: THREE.Vector3, yaw: number): boolean {
     if (!this.smoke.pop()) return false;
-    const { fx, audio } = this.ctx;
-    const S = FRAME.smoke;
-    for (let i = 0; i < 10; i++) {
-      const a = yaw + Math.PI + ((i - 4.5) / 4.5) * 1.6;
-      _v.set(-Math.sin(a) * rand(8, 14), rand(9, 15), -Math.cos(a) * rand(8, 14));
-      _at.copy(at);
-      _at.y += 5.4;
-      this.rounds.flare(_at, _v, 2.6);
-    }
-    for (let i = 0; i < 8; i++) {
-      const a = (i / 8) * Math.PI * 2;
-      _at.set(at.x + Math.cos(a) * 4, at.y + rand(1.5, 4), at.z + Math.sin(a) * 4);
-      fx.smoke(_at, 0xc4c8cc, S.size * rand(0.8, 1.2), S.seconds);
-    }
-    audio.play('grenade_throw', { pitch: 0.6 });
-    audio.play('steam_burst', { volume: 1, pitch: 0.7 });
+    smokeScreen(this.ctx, this.rounds, at, yaw);
     return true;
   }
 

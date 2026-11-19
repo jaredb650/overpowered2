@@ -12,7 +12,7 @@ import { clamp, lerp, rand, smoothstep, TAU } from '../../core/math';
 import { NUKE as N } from '../data';
 import { BodyQuery } from './bodies';
 import { GroundRing } from './ground';
-import type { Strike, StrikeKit, StrikeOrder } from './shared';
+import { everyone, type Strike, type StrikeKit, type StrikeOrder } from './shared';
 
 const NOISE = /* glsl */ `
 float nHash(vec3 p) { return fract(sin(dot(p, vec3(17.1, 113.7, 53.3))) * 43758.5453); }
@@ -319,6 +319,7 @@ export class Nuke implements Strike {
   private done = false;
   private playerHit = false;
   private readonly zero = new THREE.Vector3();
+  readonly where = this.zero;
   private readonly ring: GroundRing;
   private siren: LoopHandle | null = null;
   private readonly front: THREE.Mesh;
@@ -345,12 +346,13 @@ export class Nuke implements Strike {
     ctx.audio.play('walkietalkie_fire');
     this.siren = ctx.audio.startLoop('siren_loop', { unaffectedByTime: true });
     ctx.audio.play('nuke_siren', { unaffectedByTime: true });
-    ctx.hud.banner('TACTICAL NUKE INBOUND', `DETONATION IN ${N.sirenTime}`, '#ff2a2a');
+    everyone(kit).banner('TACTICAL NUKE INBOUND', `DETONATION IN ${N.sirenTime}`, '#ff2a2a');
   }
 
   update(dt: number): boolean {
     this.t += dt;
-    const { audio, hud } = this.kit.ctx;
+    const { audio } = this.kit.ctx;
+    const hud = everyone(this.kit);
 
     if (this.detonatedAt < 0) {
       const left = Math.ceil(N.sirenTime - this.t);

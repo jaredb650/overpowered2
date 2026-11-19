@@ -60,6 +60,8 @@ export class FrostNova {
     this.radius = 0;
     audio.play('frost_nova_blast');
     fx.ring(this.front, _up, ICE, FROST.radius * 2);
+    // Co-op: the ring goes out on every screen (net/world/callins.ts `pfx`). Who it freezes is the host's to say.
+    this.ctx.coop?.world?.perkFx('nova', this.front);
     fx.frostShatter(player.eye, _up, 2);
     render.post.flash(ICE, 0.8, 0.5);
     render.post.chromatic(0.6, 0.4);

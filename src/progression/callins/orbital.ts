@@ -8,7 +8,8 @@ import type { EnemyInstance } from '../../core/gameplay';
 import { rand, TAU } from '../../core/math';
 import { CALLINS, ORBITAL as O } from '../data';
 import { GroundRing } from './ground';
-import { aboveFloor, type Strike, type StrikeKit, type StrikeOrder } from './shared';
+import type { NewsKind } from './link';
+import { aboveFloor, TELL_EVERY, type Strike, type StrikeKit, type StrikeNet, type StrikeOrder } from './shared';
 import type { Targeting } from './targeting';
 
 const BEAM_VERT = /* glsl */ `
@@ -98,6 +99,7 @@ export class Orbital implements Strike {
   private tickIn = 0;
   private scorched = 0;
   private readonly point = new THREE.Vector3();
+  readonly where = this.point;
   private readonly lastScorch = new THREE.Vector3();
   private readonly group = new THREE.Group();
   private readonly column: THREE.Mesh;
@@ -113,8 +115,13 @@ export class Orbital implements Strike {
     force: 8, source: 'orbital', severMult: 2,
   };
 
-  constructor(private readonly kit: StrikeKit, order: StrikeOrder, private readonly targeting: Targeting) {
-    const { ctx, probe } = kit;
+  /** Co-op: the caller's aim on the ground as last told, which a copy steers by; and the caller's clock for telling it. */
+  private readonly told = new THREE.Vector3();
+  private hasTold = false;
+  private tellIn = 0;
+
+  constructor(private readonly kit: StrikeKit, order: StrikeOrder, private readonly targeting: Pick<Targeting, 'solve'>, private readonly net: StrikeNet = {}) {
+    const { ctx } = kit;
     this.point.copy(order.point);
     this.lastScorch.copy(order.point);
     this.ring = new GroundRing(ctx);
@@ -186,12 +193,36 @@ export class Orbital implements Strike {
 
   /** The player lets go: the beam stays where it stands and burns out on its own. */
   release(): void {
+    if (this.steered) this.net.tell?.('release');
     this.steered = false;
+  }
+
+  news(kind: NewsKind, v: readonly number[]): void {
+    if (kind === 'release') this.steered = false;
+    else if (kind === 'steer' && v.length >= 3) {
+      this.told.set(v[0]!, v[1]!, v[2]!);
+      this.hasTold = true;
+    }
+  }
+
+  /** Where the beam is being steered: the player's own aim, or on a copy the caller's as last told. False for nowhere. */
+  private aim(dt: number, out: THREE.Vector3): boolean {
+    const { net } = this;
+    if (net.puppet) {
+      if (this.hasTold) out.copy(this.told);
+      return this.hasTold;
+    }
+    if (!this.targeting.solve(out)) return false;
+    if (net.tell && (this.tellIn -= dt) <= 0) {
+      this.tellIn = Math.max(0, this.tellIn + TELL_EVERY);
+      net.tell('steer', [out.x, out.y, out.z]);
+    }
+    return true;
   }
 
   private steer(dt: number): void {
     // Never slower than the player can run, so a moving target can always be reached.
-    if (!this.steered || !this.targeting.solve(_aim)) return;
+    if (!this.steered || !this.aim(dt, _aim)) return;
     _step.subVectors(_aim, this.point);
     const d = _step.length();
     if (d < 1e-3) return;
@@ -214,14 +245,15 @@ export class Orbital implements Strike {
     time.hitStop(0.06);
     fx.ring(this.point, _up, CALLINS.orbital.color, 22);
     combat.explode(aboveFloor(this.point), {
-      radius: CALLINS.orbital.radius * 1.5, damage: 260, kind: 'plasma', source: 'orbital', team: 'player', selfDamage: 0,
+      radius: CALLINS.orbital.radius * 1.5, damage: 260, kind: 'plasma', source: 'orbital', team: 'player', selfDamage: 0, mirrored: true,
     });
   }
 
   private burnTick(): void {
     const { camera, enemies, fx, physics, render } = this.kit.ctx;
     const radius = CALLINS.orbital.radius;
-    const count = enemies.query(this.point, radius, this.near);
+    // A copy of someone else's beam (co-op) sets nobody alight and burns nobody: the caller's own does.
+    const count = this.kit.cosmetic ? 0 : enemies.query(this.point, radius, this.near);
     for (let i = 0; i < count; i++) {
       const e = this.near[i]!;
       if (!e.alive) continue;

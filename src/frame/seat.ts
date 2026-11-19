@@ -16,7 +16,9 @@
 import * as THREE from 'three';
 import type { Ctx, LoopHandle, PlayerDamage } from '../core/contracts';
 import { clamp, rand, wrapAngle } from '../core/math';
-import { Ac130Rounds } from '../progression/callins/ac130Rounds';
+import { Ac130Rounds, ROUND_KINDS } from '../progression/callins/ac130Rounds';
+import type { MechKind } from '../progression/callins/link';
+import { TELL_EVERY } from '../progression/callins/shared';
 import type { ModelMaterials } from '../progression/modelkit';
 import { Gun } from '../vehicles/guns';
 import type { GunnerWeapon } from '../vehicles/hud';
@@ -25,6 +27,19 @@ import { CANNON_ARM, FRAME_PLACES, ROTARY_ARM, StandIn } from './cockpit';
 import { Walker, type WalkerIntent } from './controller';
 import { FRAME, framePlan } from './data';
 import { backhand, crush, FrameGuns, shove, stomp } from './weapons';
+
+/**
+ * Co-op: how the Frame the player is in is told to the other screens, which draw a stand-in of it (puppet.ts `FramePuppet`).
+ * `pose` is `MechPose` a few times a second, and null as the player leaves it; `news` is what it fires and does.
+ */
+export interface FrameNet {
+  pose(values: number[] | null): void;
+  news(kind: MechKind, values?: number[]): void;
+}
+
+/** The `flags` number of a `MechPose`: the rotary firing, the jets lit. */
+export const MECH_FIRING = 1;
+export const MECH_JETS = 2;
 
 const UP = new THREE.Vector3(0, 1, 0);
 const DOWN = new THREE.Vector3(0, -1, 0);
@@ -65,6 +80,10 @@ export class Frame {
   private readonly jetRow: GunnerWeapon = { name: '', ammo: 0, max: 100 };
   private readonly chargeRow: GunnerWeapon = { name: '', ammo: 0, max: FRAME.charge.count, reload: -1 };
   private readonly intercept = (damage: PlayerDamage): boolean => this.hit(damage);
+  /** Co-op: set while there are other players to tell (callins/manager.ts). Whoever boards this Frame, and however, they are told. */
+  net: FrameNet | null = null;
+  private tellIn = 0;
+  private told = false;
 
   constructor(private readonly ctx: Ctx, materials: ModelMaterials, private readonly rig: SeatRig, private readonly onBoard: () => void) {
     const { scene } = ctx.render;
@@ -73,6 +92,25 @@ export class Frame {
     this.rotaryGun = new Gun(materials, scene, ROTARY_ARM);
     this.cannonGun = new Gun(materials, scene, CANNON_ARM);
     this.guns = new FrameGuns(ctx, new Ac130Rounds(ctx, materials), this.rotaryGun, this.cannonGun, out => this.body.place(TUBES, out));
+    this.guns.onShell = (round, from, aim, seconds) => this.net?.news('shell', [ROUND_KINDS.indexOf(round), from.x, from.y, from.z, aim.x, aim.y, aim.z, seconds]);
+    this.guns.onMissile = (from, velocity) => this.net?.news('missile', [from.x, from.y, from.z, velocity.x, velocity.y, velocity.z]);
+  }
+
+  /** Co-op: this frame's pose for the other screens, `TELL_EVERY` seconds apart. */
+  private say(dt: number, seat: GunnerSeat): void {
+    this.tellIn -= dt;
+    if (this.tellIn > 0) return;
+    this.tellIn = Math.max(0, this.tellIn + TELL_EVERY);
+    this.told = true;
+    const w = this.walker;
+    const walk = w.grounded ? clamp(w.speed / FRAME.walk.forward) : 0;
+    const sway = FRAME.feel.sway * Math.sin(w.stride * Math.PI) * walk;
+    const firing = this.guns.rotary.firing && this.ctx.input.isDown('fire');
+    // Where the guns point: the sight's spot, or on along the sight with nothing near under it.
+    if (seat.range > 6) _to.copy(seat.point);
+    else _to.copy(seat.aim).multiplyScalar(GUN_REACH).add(seat.view.position);
+    this.net!.pose([w.feet.x, w.feet.y, w.feet.z, w.legYaw, w.viewYaw, w.stride, walk, this.dip, sway, _to.x, _to.y, _to.z,
+      (firing ? MECH_FIRING : 0) | (w.jetting && !w.grounded ? MECH_JETS : 0)]);
   }
 
   /** The player is in it. */
@@ -168,7 +206,11 @@ export class Frame {
     camera.syncSeat();
     this.aimGuns(dt, seat);
     this.guns.update(dt, seat);
-    if (input.pressed('weaponLast') && !this.guns.popSmoke(w.feet, w.viewYaw)) this.ctx.audio.play('weapon_dry');
+    if (this.net) this.say(dt, seat);
+    if (input.pressed('weaponLast')) {
+      if (this.guns.popSmoke(w.feet, w.viewYaw)) this.net?.news('smoke');
+      else this.ctx.audio.play('weapon_dry');
+    }
     this.blows(dt);
     this.panel(seat);
     _at.copy(this.eye);
@@ -254,6 +296,7 @@ export class Frame {
     const { audio, camera, fx, physics, render, enemies } = this.ctx;
     const at = this.walker.feet;
     const k = height >= S.big ? 1 : S.small;
+    this.net?.news('stomp', [height]);
     stomp(enemies, at, height);
     fx.slam(at, 3.2 * k);
     this.dustRing(at, 2.4 * k, 10, 2.4 * k);
@@ -385,6 +428,7 @@ export class Frame {
     if (input.pressed('melee') && this.backhandIn <= 0) {
       this.backhandIn = FRAME.backhand.every;
       this.swing = 0;
+      this.net?.news('swing');
       const n = backhand(enemies, w.feet, w.viewYaw);
       _at.copy(w.feet);
       _at.y += 2.2;
@@ -429,6 +473,9 @@ export class Frame {
 
   /** Whatever emptied the seat, everything the Frame set on the player is given back and its sounds stop. */
   private release(): void {
+    if (this.told) this.net?.pose(null);
+    this.told = false;
+    this.tellIn = 0;
     this.seat = null;
     if (this.ctx.player.interceptor === this.intercept) this.ctx.player.interceptor = null;
     this.body.hide();

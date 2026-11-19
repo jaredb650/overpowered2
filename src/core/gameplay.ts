@@ -417,6 +417,13 @@ export interface ExplosionSpec {
   playerOnly?: boolean;
   /** Its kills are vaporized (DamageInfo.vaporize). */
   vaporize?: boolean;
+  /**
+   * Co-op: another player's blast, played here by this screen's copy of what made it (a call-in flown on every screen). Drawn,
+   * heard and felt, and nothing more: it hurts nobody, breaks nothing and is never sent on.
+   */
+  cosmetic?: boolean;
+  /** Co-op: every other screen flies its own copy of what made this blast and draws it there, so it is not sent as a `boom`. */
+  mirrored?: boolean;
 }
 
 /**
@@ -461,6 +468,12 @@ export interface ProjectileSpec {
   /** Budget one body costs, as on ShotSpec. */
   bodyCost?: number;
   armorPiercing?: boolean;
+  /**
+   * Co-op: a round of another player's call-in, fired here by this screen's copy of that call-in (progression/callins/
+   * ghost.ts). It bursts on the first body or wall in its way, as its caller's does, and hurts nothing: its blast is `cosmetic`.
+   * Not `cosmetic` above, which is a copy that waits for its owner's word and never bursts by itself.
+   */
+  ghost?: boolean;
   /**
    * A guided missile: steered at this target at `turnRate`, and onto the nearest live enemy, vehicle or aircraft ahead if
    * it dies. Null with a
@@ -850,6 +863,8 @@ declare module './contracts' {
     'perk:end': { id: PerkId | PowerupId };
     'callin:ready': { id: CallInId };
     'callin:used': { id: CallInId; position: THREE.Vector3 };
+    /** Co-op, on the host: another player called one in. Not `callin:used`, which is this player's own hand, score and report. */
+    'callin:teammate': { id: CallInId; slot: number; position: THREE.Vector3 };
     'combo:changed': { combo: number };
     'score:gain': { points: number; reason: string; position?: THREE.Vector3 };
     'pickup:collected': { kind: PickupKind; position: THREE.Vector3 };

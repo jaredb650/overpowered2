@@ -283,6 +283,8 @@ export class Replicas implements WorldModule {
       const s = motion.advance(dt, hostNow, jitter, this.sample);
       if (s.mode === 2) continue;
       const enemy = replica.enemy;
+      // On the skyhook's line (world/airlift.ts): this screen's drone has him, and puts him where its hook is.
+      if (enemy.carried) continue;
       const flags = motion.tag(s.at, 0), state = motion.tag(s.at, 1), severed = motion.tag(s.at, 3);
       const posture = POSTURES[motion.tag(s.at, 2)] ?? 'stand';
       const hostDown = (flags & DOWNED) !== 0;

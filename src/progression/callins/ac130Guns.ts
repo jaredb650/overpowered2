@@ -124,6 +124,14 @@ export class Battery {
   private bay = -1;
   private stream: LoopHandle | null = null;
   private streaming = false;
+  /**
+   * Co-op. The caller's own battery tells the other screens of every round as it leaves (`onRound`, with the exact spot it
+   * is going to) and of the ramp opening (`onBomb`); their copies play each one through `echo`. `echoing` is the seconds a
+   * copy's 25 mm stream is still heard after the last round it was told of.
+   */
+  onRound: ((kind: RoundKind, aim: THREE.Vector3) => void) | null = null;
+  onBomb: ((aim: THREE.Vector3) => void) | null = null;
+  private echoing = 0;
 
   constructor(
     private readonly ctx: Ctx,
@@ -160,6 +168,10 @@ export class Battery {
       const wasLoading = mag.reloading >= 0;
       mag.update(dt);
       if (wasLoading && mag.reloading < 0 && this.seated) this.ctx.audio.play(gun === 'g105' ? 'reload_rocket' : 'reload_shell_in', { volume: 0.6 });
+    }
+    if (this.echoing > 0) {
+      this.echoing -= dt;
+      this.streaming = true;
     }
     if (!this.streaming) this.endStream();
     this.streaming = false;
@@ -237,10 +249,49 @@ export class Battery {
     _aim.x += rand(-r, r);
     _aim.z += rand(-r, r);
     this.ground(_aim);
-    this.shoot('g25', _aim, false);
-    this.rounds.flash(_from, 1, 0.05, 5, 9, 6, 2.4);
-    this.kick(0.05);
+    this.launch('g25', _aim);
     return true;
+  }
+
+  /**
+   * One round of `kind` leaves its gun for exactly `aim`: the round, the flash at the muzzle, the report, the kick. Whatever
+   * scatter it has was rolled before this, so the caller's ship and every copy of it put the round on the same spot.
+   */
+  private launch(kind: RoundKind, aim: THREE.Vector3): void {
+    if (kind === 'g25') {
+      this.airframe.mount('gun25', _from);
+      this.shoot('g25', aim, false);
+      this.rounds.flash(_from, 1, 0.05, 5, 9, 6, 2.4);
+      this.kick(0.05);
+    } else if (kind === 'g105' || kind === 'wp') {
+      this.airframe.mount('gun105', _from);
+      // Arrives along its tangent, which is steep, so the arm test is on that line and not on the one back to the gun.
+      _d.subVectors(_from, aim).divideScalar(H.flight);
+      _d.y += 0.5 * H.gravity * H.flight;
+      _d.normalize();
+      this.rounds.fire(kind, _from, aim, H.flight, H.gravity, this.armRange(aim, _d.x, _d.y, _d.z, 160));
+      this.rounds.flash(_from, 6, 0.12, 22, 12, 8, 3);
+      this.ctx.fx.smoke(_from, 0xb4bcc4, 3.2, 2.2);
+      this.report('rocket_fire', _from, 2, 0.5);
+      this.report('explosion_distant', _from, 0.5, 1.2);
+      this.kick(0.45);
+    } else {
+      this.airframe.mount('gun40', _from);
+      this.shoot(kind, aim, kind === 'ap');
+      this.rounds.flash(_from, 2.4, 0.08, 9, 10, 5, 1.4);
+      this.report('autocannon_fire', _from, 1.6, kind === 'ap' ? 0.8 : 0.72);
+      this.kick(0.12);
+    }
+    this.onRound?.(kind, aim);
+  }
+
+  /** Co-op, on a copy: a round another player's ship fired, from this copy's own gun to the same spot. */
+  echo(kind: RoundKind, aim: THREE.Vector3): void {
+    if (kind === 'g25') {
+      this.echoing = 0.25;
+      this.openStream();
+    }
+    this.launch(kind, aim);
   }
 
   private openStream(): void {
@@ -266,27 +317,14 @@ export class Battery {
     _aim.x += rand(-r, r);
     _aim.z += rand(-r, r);
     if (round === 'ap') _aim.addScaledVector(_d.subVectors(_aim, _from).normalize(), B.ap.beyond);
-    this.shoot(round, _aim, round === 'ap');
-    this.rounds.flash(_from, 2.4, 0.08, 9, 10, 5, 1.4);
-    this.report('autocannon_fire', _from, 1.6, round === 'ap' ? 0.8 : 0.72);
-    this.kick(0.12);
+    this.launch(round, _aim);
     return true;
   }
 
   /** A 105 on a real arc, onto `aim` in `H.flight` seconds. */
   fire105(aim: THREE.Vector3): boolean {
     if (!this.mags.g105.take()) return false;
-    this.airframe.mount('gun105', _from);
-    // Arrives along its tangent, which is steep, so the arm test is on that line and not on the one back to the gun.
-    _d.subVectors(_from, aim).divideScalar(H.flight);
-    _d.y += 0.5 * H.gravity * H.flight;
-    _d.normalize();
-    this.rounds.fire(this.round105, _from, aim, H.flight, H.gravity, this.armRange(aim, _d.x, _d.y, _d.z, 160));
-    this.rounds.flash(_from, 6, 0.12, 22, 12, 8, 3);
-    this.ctx.fx.smoke(_from, 0xb4bcc4, 3.2, 2.2);
-    this.report('rocket_fire', _from, 2, 0.5);
-    this.report('explosion_distant', _from, 0.5, 1.2);
-    this.kick(0.45);
+    this.launch(this.round105, aim);
     return true;
   }
 
@@ -297,6 +335,7 @@ export class Battery {
     this.rounds.laser.copy(aim);
     this.airframe.mount('ramp', _from);
     this.report('metal_groan', _from, 0.9, 0.7);
+    this.onBomb?.(aim);
     return true;
   }
 

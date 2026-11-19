@@ -99,6 +99,8 @@ export class ChainEffects {
       if (!best) break;
       fx.arc(from, best.center, STORM_COLOR, 0.22, 0.16);
       fx.sparks(best.center, _dir.subVectors(best.center, from).normalize(), 10, STORM_COLOR);
+      // Co-op: the arc is drawn on every screen (net/world/callins.ts `pfx`). The damage is this player's claim.
+      this.ctx.coop?.world?.perkFx('arc', from, best.center);
       this.hit.point.copy(best.center);
       this.hit.dir.copy(_dir);
       this.resolvingHop = link.hop;
