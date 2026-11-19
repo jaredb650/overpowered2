@@ -348,3 +348,37 @@ Shared files and contracts:
     guard in the same frame). One real hole next to it is closed: a limb dropped by the fallback never recounted the
     copy's arms (`updateMaim` is called now; `replicas.test.ts`). **Co-op:** that one line is the only change to it.
 
+- 2026-11-19, verify, first numbers, **for "gore-fit" now** (the whole table comes later): **in a heavy fight the update's
+  cost on this machine is the physics step, and it is bodies falling into a heap of resting capsules.** The scene is
+  `tools/scripts/gore-cost.mjs` (its header says what it plays): real time, every frame drawn at 1440x900 dpr 2, default
+  quality, Mess at Standard, up to 48 alive in the Crucible topped up at five a second and fought from one spot (bullets,
+  then rockets and grenades, then the Kiln, then bullets), about 420 kills in 90 s, the same on each build. One run each
+  on `e801633` (i9-13900K, RTX 4090, load 2 to 5), ms a frame:
+
+  | Build | Script, mean (95th) | Physics step, mean (95th) | `render()` | `gore.update` | GPU | Draws | Triangles | Frames over 16.9 ms, of 5,100 |
+  |---|---|---|---|---|---|---|---|---|
+  | before the update (`d2e2f8a`) | 9.8 (12.0) | 1.55 (2.6) | 6.3 | 0.35 | 5.0 | 691 | 3.5 M | 25 |
+  | tip, every switch off | 11.7 (15.4) | 1.62 (2.6) | 8.1 | 0.40 | 5.1 | 861 | 4.9 M | 136 |
+  | tip | **14.5 (19.4)** | **4.99 (7.7)** | 7.1 | 0.82 | 5.1 | 775 | 4.3 M | **821** |
+  | tip, `?messrest=0` | 12.8 | 2.36 (4.0) | 7.9 | 0.71 | | | | 320 |
+  | tip, `MessTuning.maxShapes` 600 | 14.1 | 4.13 (6.1) | | | | | | 628 |
+  | tip, `MessTuning.maxShapes` 1,300 | 14.3 | 4.52 (7.7) | | | | | | 924 |
+
+  - The world has 1,990 colliders before the first kill (the Crucible's own), 4,190 once the heap has grown, 2,040 with
+    `?messrest=0`. The step is already 4.4 ms ten seconds in, with 750 capsules down, and capping the capsules at 600
+    barely helps: **it is not how many there are, it is about twenty live ragdolls a frame landing in and lying on a
+    heap, each of their parts against every capsule under it** (a resting body leaves about 18). M0's "2,250 capsules
+    cost nothing" dropped fourteen ragdolls once on capsules spread out; a fight keeps dropping them on the same spot.
+    In Endless Humans, where men die spread over the floor, the same capsules cost 0.9 ms, not 3.4.
+  - **So "loose pieces meet resting bodies' capsules" (fit, step 1) is on the costly side of this**: up to 72 more
+    moving things against the heap. Not measured yet on `bd37370`; I will.
+  - What would bring it down, in your files: a resting body keeping three to five big shapes (trunk, hips, thighs)
+    where it keeps every bone's now; or only the top layer of a heap keeping shapes; or fewer bodies allowed to be live
+    ragdolls on a heap at once. On this machine the tip misses 60 in this scene one frame in six where the game before
+    it missed one in two hundred; a laptop's processor is slower.
+  - **The switches-off build is not the old game:** with `?messfar=0` Standard keeps 120 bodies as characters (4.9 M
+    triangles, 861 draws against 691): heavier to draw than either the old game or the update.
+  - The GPU's own time is the same on all three (5.0 to 5.1 ms on the RTX 4090 at 1440x900); `render()` on the tip is
+    0.8 ms over the old game (84 more draws, 0.8 M more triangles).
+  - What I am doing with it: Mess at Low will not leave capsules, and the automatic step-down (dynamic resolution's)
+    will stop leaving them when frames are missed and resolution is not the cause.
