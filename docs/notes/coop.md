@@ -2528,17 +2528,20 @@ in six mode and map choices; every proof on loopback, clean; the same under the 
 WebRTC; each lane's main proof with four players; the four oldest proofs.
 
 <!-- ledger:start -->
-Written 2026-11-19 06:10 from the runner's `results.json` (`node tools/scripts/coop-all.mjs --ledger`). 76 of 80 runs passed.
+Written 2026-11-19 06:34 from the runner's `results.json` (`node tools/scripts/coop-all.mjs --ledger`). 103 of 110 runs passed.
 
-- loop, bad network, 2 players: 1 passed
-- loop, bad network, 3 players: 1 passed
+- loop, bad network, 2 players: 15 passed, 2 failed
+- loop, bad network, 3 players: 8 passed, 1 failed
 - loop, clean network, 2 players: 50 passed
 - loop, clean network, 3 players: 22 passed, 2 failed
 - loop, clean network, 4 players: 0 passed, 2 failed
 - one page, clean network, 1 players: 2 passed
+- rtc, clean network, 2 players: 3 passed
+- rtc, clean network, 3 players: 3 passed
 
 | Lane | Proof | Players | Mode | Transport | Network | Result | Checks passed / failed | Commit | First failing check |
 |---|---|---:|---|---|---|---|---:|---|---|
+| call-ins | `callins-matrix` | 3 | crucible | loop | bad | pass | 333 / 0 | `93cac4d` |  |
 | call-ins | `callins-matrix` | 3 | crucible | loop | clean | FAIL | 331 / 1 | `38e80e1` | Every check passed :: ["guest-streak: the key puts the guest into targeting"] |
 | claims | `claims-matrix` | 2 | outpost | loop | clean | pass | 5 / 0 | `e0334ec` |  |
 | claims | `claims-matrix/hitch` | 2 | outpost | loop | clean | pass | 5 / 0 | `e0334ec` |  |
@@ -2559,7 +2562,9 @@ Written 2026-11-19 06:10 from the runner's `results.json` (`node tools/scripts/c
 | fixes | `fixsession-reload/lobby` | 3 | crucible | loop | clean | pass | 19 / 0 | `e0334ec` |  |
 | fixes | `fixsession-return` | 3 | crucible | loop | clean | pass | 26 / 0 | `e0334ec` |  |
 | gore | `gore-bytes` | 3 | crucible | loop | clean | pass | 9 / 0 | `e0334ec` |  |
+| gore | `gore-shots` | 3 | crucible | loop | bad | pass | 267 / 0 | `93cac4d` |  |
 | gore | `gore-shots` | 3 | crucible | loop | clean | pass | 267 / 0 | `38e80e1` |  |
+| gore | `gore-shots` | 3 | crucible | rtc | clean | pass | 267 / 0 | `93cac4d` |  |
 | guest | `guest-seat/campaign` | 3 | campaign | loop | clean | pass | 66 / 0 | `6445d5d` |  |
 | guest | `guest-seat/crucible` | 3 | crucible | loop | clean | pass | 74 / 0 | `6445d5d` |  |
 | guest | `guest-seat/defense` | 3 | defense | loop | clean | pass | 70 / 0 | `6445d5d` |  |
@@ -2584,37 +2589,64 @@ Written 2026-11-19 06:10 from the runner's `results.json` (`node tools/scripts/c
 | old | `smoke/outpost` | 2 | outpost | loop | clean | pass | 5 / 0 | `6445d5d` |  |
 | old | `smoke/outpost@office` | 2 | outpost (office) | loop | clean | pass | 5 / 0 | `6445d5d` |  |
 | old | `stage3` | 2 | crucible | loop | clean | pass | 12 / 0 | `6445d5d` |  |
+| session | `session-blip` | 2 | crucible | loop | bad | FAIL | 0 / 1 | `93cac4d` | coop-session-blip FAILED after 0 checks: page.waitForURL: Timeout 90000ms exceeded. |
 | session | `session-blip` | 2 | crucible | loop | clean | pass | 9 / 0 | `e0334ec` |  |
+| session | `session-drop` | 2 | crucible | rtc | clean | pass | 7 / 0 | `93cac4d` |  |
+| session | `session-hostquit` | 3 | crucible | loop | bad | pass | 11 / 0 | `93cac4d` |  |
 | session | `session-hostquit` | 3 | crucible | loop | clean | pass | 11 / 0 | `e0334ec` |  |
+| session | `session-late` | 2 | crucible | loop | bad | pass | 9 / 0 | `3350938` |  |
 | session | `session-late` | 2 | crucible | loop | clean | pass | 9 / 0 | `e0334ec` |  |
 | session | `session-modes` | 2 | every mode | loop | bad | pass | 30 / 0 | `3350938` |  |
 | session | `session-modes` | 2 | every mode | loop | clean | pass | 30 / 0 | `e0334ec` |  |
+| session | `session-noshow` | 2 | crucible | loop | bad | pass | 8 / 0 | `3350938` |  |
 | session | `session-noshow` | 2 | crucible | loop | clean | pass | 8 / 0 | `e0334ec` |  |
+| session | `session-password` | 2 | crucible | loop | bad | pass | 8 / 0 | `3350938` |  |
 | session | `session-password` | 2 | crucible | loop | clean | pass | 8 / 0 | `e0334ec` |  |
+| session | `session-reload` | 3 | crucible | loop | bad | pass | 9 / 0 | `252a8a3` |  |
 | session | `session-reload` | 3 | crucible | loop | clean | pass | 9 / 0 | `e0334ec` |  |
 | session | `session-start` | 3 | crucible | loop | bad | pass | 18 / 0 | `3350938` |  |
 | session | `session-start` | 3 | crucible | loop | clean | pass | 18 / 0 | `e0334ec` |  |
+| session | `session-start` | 3 | crucible | rtc | clean | pass | 18 / 0 | `93cac4d` |  |
+| session | `session-three` | 3 | crucible | loop | bad | pass | 45 / 0 | `93cac4d` |  |
 | session | `session-three` | 3 | crucible | loop | clean | pass | 45 / 0 | `e0334ec` |  |
+| team | `team-break` | 3 | crucible | loop | bad | pass | 27 / 0 | `93cac4d` |  |
 | team | `team-break` | 3 | crucible | loop | clean | pass | 27 / 0 | `e0334ec` |  |
+| team | `team-endings/humans` | 2 | outpost | loop | bad | pass | 18 / 0 | `93cac4d` |  |
 | team | `team-endings/humans` | 2 | outpost | loop | clean | pass | 18 / 0 | `e0334ec` |  |
+| team | `team-endings/mission` | 2 | campaign | loop | bad | pass | 20 / 0 | `93cac4d` |  |
 | team | `team-endings/mission` | 2 | campaign | loop | clean | pass | 20 / 0 | `e0334ec` |  |
+| team | `team-endings/wipe` | 2 | crucible | loop | bad | FAIL | 0 / 1 | `93cac4d` | the proof says it failed |
 | team | `team-endings/wipe` | 2 | crucible | loop | clean | pass | 32 / 0 | `e0334ec` |  |
+| team | `team-endings/wipe` | 2 | crucible | rtc | clean | pass | 32 / 0 | `93cac4d` |  |
+| team | `team-rejoin` | 2 | crucible | loop | bad | pass | 25 / 0 | `93cac4d` |  |
 | team | `team-rejoin` | 2 | crucible | loop | clean | pass | 25 / 0 | `e0334ec` |  |
+| team | `team-rejoin` | 2 | crucible | rtc | clean | pass | 25 / 0 | `93cac4d` |  |
 | team | `team-solo` | 1 | crucible | one page | clean | pass | 6 / 0 | `e0334ec` |  |
+| team | `team-ui` | 2 | crucible | loop | bad | pass | 17 / 0 | `93cac4d` |  |
 | team | `team-ui` | 2 | crucible | loop | clean | pass | 17 / 0 | `e0334ec` |  |
 | time | `time-slowhost` | 2 | crucible | loop | clean | pass | 11 / 0 | `e0334ec` |  |
 | time | `time-solo` | 1 | crucible | one page | clean | pass | 11 / 0 | `e0334ec` |  |
 | time | `time-team` | 2 | crucible | loop | clean | pass | 96 / 0 | `e0334ec` |  |
+| weapons-fx | `fx-matrix` | 3 | crucible | loop | bad | FAIL | 1843 / 1 | `93cac4d` | host fires / stake-in-body / far: as many stakes stand in the wall as on the shooter's screen (1 and 2) |
 | weapons-fx | `fx-matrix` | 3 | crucible | loop | clean | FAIL | 1836 / 8 | `6445d5d` | host fires / reload / beside: their reload is a gesture on the watcher |
+| weapons-fx | `fx-matrix` | 3 | crucible | rtc | clean | pass | 1844 / 0 | `93cac4d` |  |
 | wire | `wire-heavy` | 4 | crucible | loop | clean | FAIL | 3 / 1 | `6445d5d` | No page exceptions :: ["guest-two: Cannot read properties of undefined (reading '0')","guest-two: Cannot read properties of undefined (reading '0')","guest-two: Cannot read properties of undefined (re |
 | wire | `wire-stall` | 4 | crucible | loop | clean | FAIL | 21 / 1 | `6445d5d` | While held out, its own screen said its connection had fallen behind :: {"fps":60,"seconds":8.09,"enemies":44,"actionIn":{"perSecond":49.67,"bytesPerSecond":7793,"gapP50":18.4,"gapP90":36,"gapMax":62. |
+| world-a | `world-cache/campaign` | 2 | campaign | loop | bad | pass | 9 / 0 | `93cac4d` |  |
 | world-a | `world-cache/campaign` | 2 | campaign | loop | clean | pass | 9 / 0 | `e0334ec` |  |
+| world-a | `world-cache/foreclosure` | 2 | foreclosure | loop | bad | pass | 9 / 0 | `93cac4d` |  |
 | world-a | `world-cache/foreclosure` | 2 | foreclosure | loop | clean | pass | 9 / 0 | `e0334ec` |  |
+| world-a | `world-drops` | 3 | crucible | loop | bad | pass | 18 / 0 | `93cac4d` |  |
 | world-a | `world-drops` | 3 | crucible | loop | clean | pass | 18 / 0 | `e0334ec` |  |
+| world-a | `world-pods` | 2 | crucible | loop | bad | pass | 16 / 0 | `93cac4d` |  |
 | world-a | `world-pods` | 2 | crucible | loop | clean | pass | 16 / 0 | `e0334ec` |  |
+| world-a | `world-pods/outpost` | 2 | outpost | loop | bad | pass | 16 / 0 | `93cac4d` |  |
 | world-a | `world-pods/outpost` | 2 | outpost | loop | clean | pass | 16 / 0 | `e0334ec` |  |
+| world-a | `world-props` | 2 | crucible | loop | bad | pass | 14 / 0 | `93cac4d` |  |
 | world-a | `world-props` | 2 | crucible | loop | clean | pass | 14 / 0 | `e0334ec` |  |
+| world-a | `world-props/office` | 2 | crucible (office) | loop | bad | pass | 16 / 0 | `93cac4d` |  |
 | world-a | `world-props/office` | 2 | crucible (office) | loop | clean | pass | 16 / 0 | `e0334ec` |  |
+| world-b | `worldb-defense` | 2 | defense | loop | bad | pass | 64 / 0 | `93cac4d` |  |
 | world-b | `worldb-defense` | 2 | defense | loop | clean | pass | 64 / 0 | `e0334ec` |  |
 | world-b | `worldb-prisoners` | 3 | outpost | loop | clean | pass | 34 / 0 | `e0334ec` |  |
 | world-b | `worldb-props` | 3 | outpost | loop | clean | pass | 40 / 0 | `e0334ec` |  |
