@@ -1,83 +1,64 @@
-// Co-op lobby, two pages of one browser over the real Nostr relays: one hosts, one joins by the invite link, a wrong
-// password fails, the right one gets in, names, ready and chat go through, and the host leaving sends the guest back.
+// Co-op lobby proof: what two players do in the lobby before any match. One hosts, one joins by the invite link; both are
+// in the same room by its code; a rename, a chat line each way and the ready flag reach the other screen; the host is told who
+// it is waiting for when the guest is not ready; and when the host leaves, the guest is told so and is out of the room.
+// (A wrong password, a double join and a guest leaving are coop-session-password.mjs.)
 //
-//   node tools/shot.mjs --port 5266 --dpr 2 --w 1440 --h 900 --wait 1000 --timeout 280 \
-//     --script tools/scripts/coop-lobby.mjs --out tools/out/coop/lobby.png
-const PASSWORD = 'hunter2';
+// Rewritten on the kit in the last pass: the first version was two hand-made pages over the real relays that waited for a
+// splash screen an invite link no longer shows, and it asserted nothing (it only took pictures).
+//
+//   node tools/shot.mjs --port <port> --w 1280 --h 720 --wait 500 --timeout 300 --script tools/scripts/coop-lobby.mjs --out tools/out/coop/<you>/lobby.png
+//   COOP_NET=rtc for real WebRTC and the public relays; COOP_SIM=lag:120,jitter:40,loss:0.05 for a bad network.
+import { button, startParty } from './coop-kit.mjs';
+import { SIM, proof, snap, until } from './coop-session-kit.mjs';
 
-export default async function (host, { sleep, outDir }) {
-  const out = {};
-  const shot = (page, name) => page.screenshot({ path: `${outDir}/${name}.png` });
-  const button = (page, name) => page.getByRole('button', { name, exact: true });
-  const toMenu = async page => {
-    await page.locator('.scr-splash').waitFor({ state: 'visible', timeout: 90000 });
-    await sleep(500);
-    await page.locator('.scr-splash').click();
-  };
+export default async (host, { sleep, outDir }) => {
+  const { out, run, check, progress, shot } = proof('coop-lobby', outDir, sleep);
+  let party = null;
+  return run(async () => {
+    party = await startParty(host, { mode: 'crucible', players: 2, net: SIM, out, progress, sleep, startNow: false });
+    const guest = party.guest;
+    const h = await until(host, s => s.players.length === 2 && s.players.every(p => p.host || p.ready), 'the host lists the guest as ready', 30000);
+    const g = await snap(guest);
+    out.start = { host: h.players, guest: g.players, code: h.code };
+    check(/^[A-Z0-9]{6}$/.test(h.code) && g.code === h.code, 'Both pages are in the same room, by its code', [h.code, g.code]);
+    check(party.invite.includes(h.code), 'The invite link carries the code', party.invite);
+    check(h.players.map(p => p.name).join() === 'HOST-ONE,GUEST-TWO' && g.players.map(p => p.name).join() === 'HOST-ONE,GUEST-TWO', 'Both list the same two players, host first', [h.players, g.players]);
+    check(g.players.find(p => p.me)?.name === 'GUEST-TWO' && h.players.find(p => p.me)?.host, 'Each page knows which player it is', [h.players, g.players]);
+    await shot(host, 'host-lobby', true);
 
-  await toMenu(host);
-  // A fresh browser profile's first Play goes to Retraining (contracts/firstLaunch.ts); this page is a returning player.
-  await host.evaluate(() => localStorage.setItem('op2.played.v1', '1'));
-  await button(host, 'Play').click();
-  await button(host, 'Multiplayer').click();
-  await shot(host, '1-start');
-  await button(host, 'Host a lobby').click();
-  await host.keyboard.type(PASSWORD);
-  await shot(host, '2-host-form');
-  await host.keyboard.press('Enter');
-  await host.locator('.co-code').waitFor({ state: 'visible' });
-  const code = await host.locator('.co-code').textContent();
-  out.code = code;
-  out.link = await host.locator('.co-link').textContent();
-  await shot(host, '3-host-lobby');
+    progress('a rename, chat both ways');
+    const name = guest.locator('.co-field input').first();
+    await name.fill('GUEST-7'); await name.press('Enter');
+    const renamed = await until(host, s => s.players.some(p => p.name === 'GUEST-7'), 'the host sees the new callsign', 20000);
+    check(!renamed.players.some(p => p.name === 'GUEST-TWO') && renamed.players.length === 2, 'A rename replaces the name on the host: no second player appears', renamed.players);
+    await guest.locator('.co-chat + .co-input').fill('hello from the guest'); await guest.keyboard.press('Enter');
+    await host.locator('.co-chat + .co-input').fill('welcome in'); await host.keyboard.press('Enter');
+    const hostChat = await until(host, s => s.chat.some(t => t.includes('hello from the guest')), "the guest's line on the host", 20000);
+    const guestChat = await until(guest, s => s.chat.some(t => t.includes('welcome in')), "the host's line on the guest", 20000);
+    check(hostChat.chat.filter(t => t.includes('hello from the guest')).length === 1 && guestChat.chat.filter(t => t.includes('welcome in')).length === 1, 'Each chat line arrives once on the other screen', [hostChat.chat, guestChat.chat]);
+    check(guestChat.chat.filter(t => t.includes('hello from the guest')).length === 1, 'The sender sees their own line once', guestChat.chat);
 
-  // The guest: a second page of the same browser, in its own context (its own storage, so its own callsign).
-  const guest = await host.context().browser().newPage({ viewport: host.viewportSize(), deviceScaleFactor: 2 });
-  guest.on('pageerror', e => (out.guestErrors ??= []).push(e.message));
-  await guest.goto(out.link.replace(/^https?:\/\/[^/]+/, new URL(host.url()).origin));
-  await toMenu(guest);
-  await guest.locator('.scr-coop .co-input').first().waitFor({ state: 'visible' });
-  out.codeFilled = await guest.locator('.scr-coop .co-field input').first().inputValue();
-  await shot(guest, '4-guest-join-page');
+    progress('ready off and on');
+    await guest.locator('.co-readybtn.on').click();
+    const waiting = await until(host, s => s.players.some(p => !p.host && !p.ready), 'the host sees the guest not ready', 20000);
+    const guide = await host.evaluate(() => document.querySelector('.scr-coop .nt-ref')?.textContent ?? '');
+    check(/Waiting for GUEST-7 to ready up/.test(guide), 'The host is told who it is waiting for', guide);
+    check(waiting.phase === 'open' && waiting.match === null, 'Nothing has started');
+    await guest.locator('.co-readybtn:not(.on)').click();
+    await until(host, s => s.players.every(p => p.host || p.ready), 'the host sees the guest ready again', 20000);
+    check(/Everyone is ready/.test(await host.evaluate(() => document.querySelector('.scr-coop .nt-ref')?.textContent ?? '')), 'With the guest ready the host reads "Everyone is ready"');
+    await shot(guest, 'guest-lobby', true);
 
-  const t0 = Date.now();
-  await guest.keyboard.type('wrong-one');
-  await guest.keyboard.press('Enter');
-  await guest.locator('.co-err').waitFor({ state: 'visible', timeout: 60000 });
-  out.wrongPassword = { text: await guest.locator('.co-err').textContent(), seconds: (Date.now() - t0) / 1000 };
-  await shot(guest, '5-guest-wrong-password');
-  await sleep(1500);
-  out.hostAfterWrong = await host.locator('.co-chat').textContent();
-  await shot(host, '6-host-saw-wrong-password');
-
-  const t1 = Date.now();
-  await guest.locator('.scr-coop .co-field input[type=password]').fill(PASSWORD);
-  await guest.keyboard.press('Enter');
-  await guest.locator('.co-player').nth(1).waitFor({ state: 'visible', timeout: 60000 });
-  out.joinSeconds = (Date.now() - t1) / 1000;
-
-  // The guest renames.
-  const name = guest.locator('.co-field input').first();
-  await name.fill('GUEST-7');
-  await name.press('Enter');
-  await guest.locator('.co-chat + .co-input').fill('hello from the guest');
-  await guest.keyboard.press('Enter');
-  await guest.locator('.co-readybtn:not(.on)').click();
-  await host.locator('.co-chat + .co-input').fill('welcome in');
-  await host.keyboard.press('Enter');
-  await sleep(2000);
-  out.hostPlayers = await host.locator('.co-player').allTextContents();
-  out.guestPlayers = await guest.locator('.co-player').allTextContents();
-  out.hostChat = await host.locator('.co-line').allTextContents();
-  out.guestChat = await guest.locator('.co-line').allTextContents();
-  out.guestStatus = await guest.locator('.co-panel .nt-ref').textContent();
-  await shot(host, '7-host-with-guest');
-  await shot(guest, '8-guest-in-lobby');
-
-  await button(host, 'Leave').click();
-  await guest.locator('.co-err').waitFor({ state: 'visible', timeout: 30000 });
-  out.hostLeft = await guest.locator('.co-err').textContent();
-  await shot(guest, '9-guest-host-left');
-  await guest.close();
-  return out;
-}
+    progress('the host leaves');
+    await button(host, 'Leave').click();
+    const left = await until(guest, s => s.phase !== 'open' || s.players.length < 2, 'the guest out of the room', 30000);
+    await sleep(600);
+    const told = await snap(guest);
+    out.hostLeft = { phase: told.phase, error: told.error, err: told.err, note: told.note, status: told.status };
+    check(told.phase !== 'open', 'When the host leaves the guest is out of the room at once (a deliberate leave has no grace)', out.hostLeft);
+    check(/host/i.test(`${told.err} ${told.note} ${told.status} ${told.error}`), 'and is told the host left', out.hostLeft);
+    check(told.state === 'menu' && told.lobbyScreen, 'They are on the multiplayer screen, not in a match or a blank page', [told.state, told.lobbyScreen]);
+    await shot(guest, 'guest-host-left', true);
+    void left;
+  }, () => party);
+};

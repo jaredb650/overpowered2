@@ -238,6 +238,8 @@ export class Team {
   private settled: boolean;
   /** The host has settled this player's seat: a new player's empty one, or a returning player's purse, kit and life. */
   get seated(): boolean { return this.settled; }
+  /** Guest: my seat just gave my kit back (a reload that rejoined). Read once, by a mission's catch-up, which must not replace it. */
+  private kitBack = false;
   private lastNow = 0;
   private fulfilledAt = 0;
   private toldCheats = false;
@@ -600,6 +602,13 @@ export class Team {
     }
   }
 
+  /** Guest: true once after the seat gave the kit back (`restore` with a kit); asking clears it. */
+  takeKitBack(): boolean {
+    const back = this.kitBack;
+    this.kitBack = false;
+    return back;
+  }
+
   /**
    * Host: a guest's world is up. Called by the session's arrival hook (world.ts) for every way in, and by a new connection's
    * first card where there is no hook (a lobby with no load barrier); once per arrival is enough, twice is harmless.
@@ -667,6 +676,7 @@ export class Team {
         catch (error) { console.warn('[coop] The kit could not be put back whole', error); }
         // Outpost Defense arms each player from its own loadout screen as a run starts: not one who came back with a kit.
         (ctx.contracts as unknown as { defense?: { resumed?(): void } } | undefined)?.defense?.resumed?.();
+        this.kitBack = true;
       }
       const p = ctx.player as unknown as { alive: boolean; downed: boolean; health: number; maxHealth: number; armor: number };
       if (value.dead === true) {

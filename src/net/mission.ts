@@ -107,6 +107,9 @@ export class CoopMission {
   private film: { args: unknown[]; at: number } | null = null;
   private ride: { op: 'ride' | 'sortie'; args: unknown[]; about: string | null } | null = null;
 
+  /** Guest: the mission has deployed this page in this run (a later catch-up must not replace the kit it holds). */
+  private deployed = false;
+
   /** Host: who has voted to skip the film. */
   private readonly skips = new Set<string>();
   private votesShown = '';
@@ -658,6 +661,7 @@ export class CoopMission {
       case 'reset':
         // Back to the checkpoint: this screen's run is rebuilt as the host's is. The copies of the host's world go first.
         this.regroup = null;
+        this.deployed = false;
         this.told.clear();
         this.standing.clear();
         this.onRebuild();
@@ -693,6 +697,15 @@ export class CoopMission {
         if (weapons.length === 0) return;
         if (args[0]) this.regroup = null;
         const mine = starterLoadout(weapons, selectedStarter(this.session.match.mode));
+        // A catch-up (no mark) for a player who already holds a kit of their own adds what the mission has handed out and takes
+        // nothing away: their seat has just given the kit back (a reload that rejoined), or this page was deployed before and
+        // only its connection dropped. A friend's gift and a weapon cache's share are theirs, and the mission's kit knows neither.
+        const kept = this.team.takeKitBack();
+        if (!args[0] && (kept || this.deployed)) {
+          for (const weapon of mine) if (!this.ctx.weapons.owned.has(weapon)) this.ctx.weapons.give(weapon);
+          return;
+        }
+        this.deployed = true;
         host.deploy(args[0] ? marked(args[0]) as Parameters<GameHost['deploy']>[0] : null, { weapons: [...new Set(mine)], grenades: Math.max(0, Math.min(99, Number(kit?.grenades) || 0)) });
         return;
       }

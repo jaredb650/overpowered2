@@ -397,4 +397,43 @@ describe('a mission run by the host and played on every screen', () => {
     expect(later.find(d => d.op === 'cutscene')!.args[2]).toBeCloseTo(4, 0);
     game.hw.dispose(); game.gw.dispose();
   });
+
+  it('catches up a player who holds a kit of their own by adding to it, never by replacing it', () => {
+    const game = pair();
+    const give = vi.fn((weapon: string) => { game.guest.owned.add(weapon); });
+    Object.assign(game.guest.ctx.weapons, { give });
+    game.start();
+    // The mission deployed this page once, with its mark-less opening kit: that one replaces, as it always did.
+    expect(game.gc.host.deployed).toEqual({ at: null, weapons: 'smg,sword' });
+    game.guest.owned.add('sword');
+    // The guest takes a gun a friend dropped for them (the mission's kit knows nothing of it); the mission moves on.
+    game.guest.owned.add('deuce');
+    game.hc.host.taken('shotgun'); game.relay.flush(); game.frame();
+    game.gc.host.deployed = null;
+    // The connection dropped and came back on the same page: the host catches the player up again.
+    game.hw.mission.catchUp(game.guestLobby.you); game.relay.flush();
+    expect(game.gc.host.deployed).toBeNull();
+    expect(give.mock.calls.map(c => c[0])).toEqual(['shotgun', 'rocket']);
+    expect([...game.guest.owned].sort()).toEqual(['deuce', 'rocket', 'shotgun', 'smg', 'sword']);
+    // A reload that rejoined: a new page, not deployed yet, whose seat has just given its kit back (team.ts `restored`).
+    give.mockClear();
+    const fresh = game.gw.mission as unknown as { deployed: boolean };
+    fresh.deployed = false;
+    (game.gw.team as unknown as { kitBack: boolean }).kitBack = true;
+    game.guest.owned.delete('rocket');
+    game.hw.mission.catchUp(game.guestLobby.you); game.relay.flush();
+    expect(game.gc.host.deployed).toBeNull();
+    expect(give.mock.calls.map(c => c[0])).toEqual(['rocket']);
+    expect(game.guest.owned.has('deuce')).toBe(true);
+    // A brand-new late joiner (no kit of their own, never deployed) still gets the mission's kit whole.
+    fresh.deployed = false;
+    game.hw.mission.catchUp(game.guestLobby.you); game.relay.flush();
+    expect(game.gc.host.deployed).toEqual({ at: null, weapons: 'smg,sword,shotgun,rocket' });
+    // And a checkpoint restart replaces everyone's kit, as before: the flag does not outlive the run.
+    game.host.player.position.set(100, 0, 100); game.frame();
+    expect(game.hw.mission.restart()).toBe(true);
+    game.relay.flush(); game.frame();
+    expect(game.gc.host.deployed).toEqual({ at: '101.3,0,100', weapons: 'smg,shotgun,sword' });
+    game.hw.dispose(); game.gw.dispose();
+  });
 });

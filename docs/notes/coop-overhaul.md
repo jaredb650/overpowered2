@@ -683,3 +683,55 @@ Work through all of it; write the outcome beside each item in the log (fixed wit
     either transport: the way to make a guest act behind a dropped connection while both pages run.
   - Proofs and their results: see the table under this entry's last line in `docs/notes/coop.md`, "The life of a session",
     Proofs, and the lane's report. Unit: 2,713 tests pass (the one known `devflags` failure aside).
+
+## Last pass: verify-proofs (checklist B5, B6, B7, C19) — running log
+
+How to carry on if this agent stops: everything is in the runner. `node tools/scripts/coop-all.mjs --port <5480-5489> --suite
+clean,bad,rtc,four,guest,legacy --out /home/jared/jared/overpowered2/tools/out/coop/verify-proofs/all` skips what already passed
+on the same game and carries on; `results.md` there is the table so far. Sweeps run from a second checkout pinned at a commit of
+`coop-overhaul` (a rebase in the working checkout changes the source under a running Vite), on port 5481.
+
+- 2026-11-19 01:30, verify-proofs: **the runner landed** (`0d24813`, `92b73a0`): `tools/scripts/coop-all.mjs`, 59 runs in the clean
+  suite, 142 with bad network, real WebRTC, four players and the guest's seat; documented in `coop.md` "Testing" and `CLAUDE.md`
+  "Tools". **C19 done:** the kit has `lateGuest(party, name)`; world-a's `lateGuest` and world-b's `lateJoin` are now that (their
+  late pages used to be the one page of a proof on the real pointer lock, drawing every frame).
+- 01:45, verify-proofs: `tools/scripts/coop-guest-seat.mjs` (B7) plays one session per mode from a guest's seat: a fight, kills
+  and credit, gore, slow-mo with its notice, a guest's call-in seen by the host, a shared gun, down and revive, the break with
+  the shared pod and every player shopping, a reload that rejoins with the kit, the team board. **The Crucible, three players,
+  loopback, clean: 72 of 72 checks** once the proof read the notice rightly (it stays up through the blend back to full speed
+  with "WORLD BACK TO FULL SPEED"; `coop-time-team.mjs`'s check that the notice outlasts the slow-mo cannot fail as written:
+  it only notes the notice gone after the world is at full speed).
+- 02:50, verify-proofs: the guest's seat in all six mode and map choices, three players, loopback, clean (pictures looked at:
+  the fight, the notice, the call-in, the dropped gun's column, the downed screen, the shared pod with the ready vote and the
+  Commander's box on a guest all read right). Crucible 72 of 72, Endless Humans on the Office 74 of 74, Endless Humans 72 of 74
+  on the run before two proof fixes (a revived guest was shot down again before the check; a man who took cover was shot at for
+  30 s), Outpost Defense 67 of 70 (finding 2 below), both missions 64 of 66 before the fix of finding 1 and 23 of 23 on its
+  steps after. **One real bug found and fixed, one known gap confirmed with evidence:** see "Last pass findings".
+
+## Last pass findings
+
+Each: what fails, where, how many players, which network, the evidence, the cause. For the fix agents.
+
+1. **FIXED (verify-proofs). In a mission, a guest who reloads loses every gun the mission did not hand out** (a gun a friend
+   dropped for them, their share of a weapon cache). Both missions, any player count, any network. Evidence:
+   `coop-guest-seat.mjs` with `COOP_MODE=campaign` and `foreclosure`, step `rejoin`: before `deuce, judge, smg, sword`, after
+   `smg, sword`. Cause: two lanes met. The team's seat gave the kit back (`team.ts` `restored`), then the mission's catch-up for
+   the same arrival sent `deploy [null, kit]` and the guest ran `weapons.setLoadout` with the mission's kit, which replaces.
+   The same happened to a player whose connection dropped and came back on the same page (`net/index.ts` calls
+   `team.onArrived` for a rejoin, so the mission caught them up again). Fix: on a guest, a catch-up `deploy` (no mark) for a
+   player who holds a kit of their own (the seat has just given it back, `Team.takeKitBack()`, or this page was deployed
+   before in this run) adds the mission's guns they lack and takes nothing away. A marked deploy (the start, a checkpoint
+   restart) and a brand-new late joiner replace as before. Tests: `mission.test.ts` "catches up a player who holds a kit of
+   their own by adding to it", `team.test.ts` (the flag is set once by a restored kit). Proven in the browser in both missions.
+2. **Known as C10; fixed by fix-session while this was being written (`a47cff6`), to be confirmed by this proof on the new
+   tip. Outpost Defense: a guest who reloads loses its kit and credits.** Three players, loopback, clean, at `92b73a0`.
+   Evidence: `coop-guest-seat.mjs` `COOP_MODE=defense`, step `rejoin`: guns `deuce, harrow, rivet, smg, sword` became
+   `harrow, rivet, sword`, credits 2345 became 300; the loadout screen was up on the returning page. Cause: every new page
+   starts with `needLoadout` set (`src/contracts/defense/index.ts`), and its `deploy()` replaced what the seat's `restore`
+   had just put back.
+3. Proof, not game: `coop-time-team.mjs` noted the notice as gone only after the world was back at full speed, so "the notice
+   stays until the world is at full speed" could not fail. It now notes it whenever it goes, and adds "no screen was slow at
+   any moment with no notice up" (the notice counts as up while it says WORLD BACK TO FULL SPEED, which it does through the
+   0.45 s blend back; the words are a little early, the notice is there).
+4. Seen in a picture, small: two teammates in the same direction overlap their name tags on the HUD (Office, guest's view:
+   "HOST-ONE 38m" printed over "GUEST-THREE"). Not fixed.

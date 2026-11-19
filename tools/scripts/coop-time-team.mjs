@@ -26,15 +26,21 @@ const watch = page => page.evaluate(() => {
   clearInterval(window.__tw?.timer);
   // `stall`: ms this page's main thread was blocked beyond 50 ms at a time since the watch began (a starved page on a
   // shared machine); `stallNotice` and `stallFull` are its value when the notice showed and when the world was back at 1.
-  const tw = window.__tw = { slowAt: 0, noticeAt: 0, fullAt: 0, goneAt: 0, min: 1, timer: 0, stall: 0, stallNotice: 0, stallFull: 0, last: performance.now() };
+  // `bare`: ms the world was slow on this page with no notice up at all (the owner's rule says never). The notice is up while
+  // it has a line (who, with what) or says "WORLD BACK TO FULL SPEED", which it does through the blend back.
+  const tw = window.__tw = { slowAt: 0, noticeAt: 0, fullAt: 0, goneAt: 0, min: 1, timer: 0, stall: 0, stallNotice: 0, stallFull: 0, bare: 0, last: performance.now() };
   tw.timer = setInterval(() => {
     const at = performance.now(), now = performance.timeOrigin + at, lines = w.slowNotice.lines.length;
+    const up = lines > 0 || !!w.slowNotice.state;
+    if (ctx.time.slowmo < 0.995 && !up) tw.bare += Math.min(50, at - tw.last);
     tw.stall += Math.max(0, at - tw.last - 50); tw.last = at;
     if (!tw.slowAt && ctx.time.slowmo < 0.995) tw.slowAt = now;
     if (!tw.noticeAt && lines > 0) { tw.noticeAt = now; tw.stallNotice = tw.stall; }
     tw.min = Math.min(tw.min, ctx.time.slowmo);
     if (tw.slowAt && !tw.fullAt && ctx.time.slowmo >= 1 && w.slows.length === 0) { tw.fullAt = now; tw.stallFull = tw.stall; }
-    if (tw.noticeAt && tw.fullAt && !tw.goneAt && lines === 0) tw.goneAt = now;
+    // When the notice went, whether or not the world was back by then (it used to be noted only after the world was back,
+    // so the check that it outlasts the slow-mo could not fail).
+    if (tw.noticeAt && !tw.goneAt && !up) tw.goneAt = now;
   }, 4);
 });
 const watched = page => page.evaluate(() => ({ ...window.__tw, timer: 0 }));
@@ -231,6 +237,7 @@ export default async function (host, { sleep, outDir }) {
       // The blend out runs on each page's own clamped clock: below 20 fps it takes that much longer.
       check(after.every((s, i) => s.fullAt - tEnd <= FULL_MS * Math.max(1, frame[i] / 50) + 3 * frame[i] + (s.stallFull - seen[i].stallNotice)), `${title}: every screen is back at full speed within ${FULL_MS} ms of the end (at 20 fps or better)`, [result.fullMs, result.fps, result.stallMs]);
       check(after.every(s => s.goneAt > s.fullAt - 50), `${title}: the notice stays until the world is at full speed, then goes`, result.noticeGoneMs);
+      check(after.every(s => s.bare <= 60), `${title}: no screen was slow at any moment with no notice up`, after.map(s => Math.round(s.bare)));
       const rest = await Promise.all(pages.map(read));
       check(rest.every(s => s.slowmo === 1 && s.slows.length === 0 && s.notice.lines.length === 0), `${title}: afterwards nothing is slow anywhere`, rest.map(s => s.slowmo));
       await sleep(400);

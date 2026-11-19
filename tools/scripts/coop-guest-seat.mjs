@@ -25,7 +25,7 @@
 import { writeFileSync } from 'node:fs';
 import { button, give, inMatch, kit, live, startParty, state, teleport } from './coop-kit.mjs';
 import { record as recordAttacks } from './coop-attacks-kit.mjs';
-import { down, ending, hudText, record as recordSaid, said } from './coop-team-kit.mjs';
+import { down, ending, hudText, recorder as recordSaid } from './coop-team-kit.mjs';
 
 const MODE = process.env.COOP_MODE ?? 'crucible', MAP = process.env.COOP_MAP || undefined;
 const PLAYERS = Number(process.env.COOP_PLAYERS ?? 3);
@@ -245,15 +245,20 @@ export default async function (host, { sleep, outDir }) {
     await step('kills', async () => {
       const result = {};
       for (const [label, shooter, index] of [['guest', A, 1], ['host', host, 0]]) {
-        let spot = null;
-        for (let i = 0; i < 10 && !spot?.at; i++) { spot = await nearest(host, shooter, 9); if (!spot?.at) await sleep(1500); }
-        if (!check(!!spot?.at, `There is an enemy for the ${label} to shoot`, spot)) continue;
-        await teleport(shooter, spot.at, 0);
         await give(shooter, 'smg');
-        await sleep(600 * SLOW);
         const before = await everyone(me);
         const marks = await everyone(goreMark);
-        const dead = await kill(shooter, host, spot.uid, sleep, 30);
+        // A man may duck behind cover, run or give himself up: after eight seconds on one, the shooter goes for the nearest again.
+        let spot = null, dead = false;
+        for (let attempt = 0; attempt < 6 && !dead; attempt++) {
+          spot = null;
+          for (let i = 0; i < 10 && !spot?.at; i++) { spot = await nearest(host, shooter, attempt < 3 ? 9 : 5); if (!spot?.at) await sleep(1500); }
+          if (!spot?.at) break;
+          await teleport(shooter, spot.at, 0);
+          await sleep(500 * SLOW);
+          dead = await kill(shooter, host, spot.uid, sleep, 8);
+        }
+        if (!check(!!spot?.at, `There is an enemy for the ${label} to shoot`, spot)) continue;
         await sleep(1200 * SLOW);
         if (label === 'guest') await shot('2-guest-kill');
         const after = await everyone(me);
@@ -283,13 +288,20 @@ export default async function (host, { sleep, outDir }) {
       // Each page notes whether it ever slowed with no notice up.
       await everyone(page => page.evaluate(() => {
         const { ctx } = window.__op2, w = ctx.coop.world;
-        window.__slowWatch = { bare: 0, slowed: 0, min: 1 };
+        // `early`: ms this screen was slow before its notice first showed; `late`: ms it was still slow after the notice went.
+        const watch = window.__slowWatch = { slowed: 0, min: 1, early: 0, late: 0, slowAt: 0, noticeAt: 0, goneAt: 0, fullAt: 0, last: performance.now() };
         clearInterval(window.__slowTimer);
         window.__slowTimer = setInterval(() => {
-          const s = ctx.time.slowmo, lines = w.slowNotice.lines.length;
-          if (s < 0.95) { window.__slowWatch.slowed++; if (!lines) window.__slowWatch.bare++; }
-          window.__slowWatch.min = Math.min(window.__slowWatch.min, s);
-        }, 16);
+          const now = performance.now(), step = now - watch.last; watch.last = now;
+          // The notice is up while it has a line (who, with what) or says the world is back to full speed (the blend back).
+          const s = ctx.time.slowmo, notice = w.slowNotice, lines = notice.lines.length || (notice.state ? 1 : 0);
+          if (s < 0.95 && !watch.slowAt) watch.slowAt = now;
+          if (lines && !watch.noticeAt) watch.noticeAt = now;
+          if (watch.noticeAt && !lines && !watch.goneAt) watch.goneAt = now;
+          if (watch.slowAt && s >= 0.95 && !watch.fullAt && now - watch.slowAt > 500) watch.fullAt = now;
+          if (s < 0.95) { watch.slowed++; if (!lines) { if (watch.noticeAt) watch.late += step; else watch.early += step; } }
+          watch.min = Math.min(watch.min, s);
+        }, 8);
       }));
       await A.evaluate(() => window.__op2.ctx.input.simulate('sonar', true)); await sleep(80);
       await A.evaluate(() => window.__op2.ctx.input.simulate('sonar', false));
@@ -301,11 +313,13 @@ export default async function (host, { sleep, outDir }) {
       check(during.every((d, i) => d.lines.some(l => l === `${nameA}${i === 1 ? ' (you)' : ''} used Focus`)), `Every screen says who: "${nameA} used Focus"`, during.map(d => d.lines));
       check(during.every(d => /WORLD AT 0\.\d+x · YOU AT FULL SPEED/.test(d.state)), "The notice gives the world's speed", during.map(d => d.state));
       // Focus runs at most 4.5 s; then every screen is back at full speed with no notice left.
-      const back = await Promise.all(pages.map(page => page.waitForFunction(() => window.__op2.ctx.time.slowmo === 1 && window.__op2.ctx.coop.world.slowNotice.lines.length === 0, null, { timeout: 15000 * SLOW, polling: 100 }).then(() => true, () => false)));
+      const back = await Promise.all(pages.map(page => page.waitForFunction(() => window.__op2.ctx.time.slowmo === 1 && window.__op2.ctx.coop.world.slowNotice.lines.length === 0 && !window.__op2.ctx.coop.world.slowNotice.state, null, { timeout: 15000 * SLOW, polling: 100 }).then(() => true, () => false)));
       const watch = await everyone(page => page.evaluate(() => { clearInterval(window.__slowTimer); return window.__slowWatch; }));
       check(back.every(Boolean), 'Afterwards every screen is back at full speed and the notice is gone', await everyone(read));
-      check(watch.every(w => w.slowed > 0 && w.bare <= 2), 'No screen was slow without its notice', watch);
-      return { during, watch };
+      const timing = watch.map(w => ({ early: Math.round(w.early), late: Math.round(w.late), noticeAfterSlow: Math.round(w.noticeAt - w.slowAt), noticeGoneBeforeFull: Math.round(w.fullAt - w.goneAt), min: w.min }));
+      check(watch.every(w => w.slowed > 0 && w.early <= 50), 'No screen slowed before its notice showed (50 ms of slack)', timing);
+      check(watch.every(w => w.late <= 50), 'No screen was still slow after its notice went (50 ms of slack)', timing);
+      return { during, timing };
     });
 
     // ---- a guest's call-in, seen by the host -------------------------------------------------------------------------
@@ -347,12 +361,13 @@ export default async function (host, { sleep, outDir }) {
       check(copied, "The host flies a copy of the guest's airstrike", await host.evaluate(() => ({ ...window.__op2.ctx.progression.callinLink.mirror.stats })));
       await sleep(2500);
       await shot('4-callin-guest'); await shot('4-callin-host', host);
-      const gone = await host.waitForFunction(uids => uids.every(uid => !window.__op2.ctx.enemies.alive.some(e => e.uid === uid)), targets.filter(u => u > 0), { timeout: 30000 * SLOW, polling: 200 }).then(() => true, () => false);
-      await sleep(2500 * SLOW);
+      // A strike's rockets fall where they fall: most of the five men standing on the mark die, as in single player.
+      const gone = await host.waitForFunction(uids => uids.filter(uid => !window.__op2.ctx.enemies.alive.some(e => e.uid === uid)).length >= 3, targets.filter(u => u > 0), { timeout: 30000 * SLOW, polling: 200 }).then(() => true, () => false);
+      await sleep(4000 * SLOW);
       const after = await everyone(me);
       const seen = await Promise.all(pages.map((page, i) => goreSince(page, marks[i], -1)));
       const mirror = await host.evaluate(() => ({ ...window.__op2.ctx.progression.callinLink.mirror.stats }));
-      check(gone, "The guest's strike kills the men on the mark, on the host", { targets, left: await host.evaluate(() => window.__op2.ctx.enemies.alive.filter(e => e.dummy).length) });
+      check(gone, "The guest's strike kills the men on the mark (three of five or more), on the host", { targets, left: await host.evaluate(() => window.__op2.ctx.enemies.alive.filter(e => e.dummy).length) });
       check(mirror.blasts > mirrorBefore.blasts, "The host's copy draws its blasts", { before: mirrorBefore, after: mirror });
       check(seen[0].booms > 0 && seen[1].booms > 0, 'Explosions are drawn on the guest and on the host', seen.map(s => s.booms));
       check(after[1].kills - before[1].kills >= 1, "The kills are the guest's", after.map((a, i) => a.kills - before[i].kills));
@@ -417,7 +432,8 @@ export default async function (host, { sleep, outDir }) {
       await sleep(600);
       await host.evaluate(() => { window.__op2.game.setState('playing'); window.__op2.ctx.input.simulate('interact', true); });
       await sleep(700); await shot('6-being-revived-host', host);
-      const up = await A.waitForFunction(() => window.__op2.ctx.player.alive && !window.__op2.ctx.player.downed, null, { timeout: 12000 * SLOW }).then(() => true, () => false);
+      // Up, and at once out of harm's way: at 40 health in a firefight they would be down again before the next check.
+      const up = await A.waitForFunction(() => { const p = window.__op2.ctx.player; if (p.alive && !p.downed) { p.modifiers.invulnerable = true; return true; } return false; }, null, { timeout: 12000 * SLOW, polling: 50 }).then(() => true, () => false);
       await host.evaluate(() => window.__op2.ctx.input.simulate('interact', false));
       const now = await me(A);
       check(up && now.health > 0, 'The host holds E and the guest gets up', now);
@@ -472,6 +488,40 @@ export default async function (host, { sleep, outDir }) {
       const inBreak = await Promise.all(pages.map(page => page.waitForFunction(() => window.__op2.ctx.waves.phase === 'intermission', null, { timeout: 20000 * SLOW }).then(() => true, () => false)));
       check(inBreak.every(Boolean), 'Every screen is in the break', (await everyone(me)).map(m => m.phase));
       const purses = [3000, 1700, 1500, 1300];
+      if (MODE === 'defense') {
+        // Outpost Defense has no pod: its shops are buildings. Each player walks to the Barracks counter, opens it with E and
+        // hires a rifleman with their own credits; the host carries the hire out.
+        for (const [i, page] of pages.entries()) await page.evaluate(credits => { window.__op2.ctx.contracts.defense.credits = credits; }, purses[i]);
+        const counter = await host.evaluate(() => { const a = window.__op2.ctx.contracts.defense.anchors.barracks; return [a.position.x, a.position.y, a.position.z, a.yaw]; });
+        const result = { wave, bought: [] };
+        const squad = () => host.evaluate(() => window.__op2.ctx.contracts.defense.view().squad);
+        const men = await squad();
+        for (const [i, page] of pages.entries()) {
+          await teleport(page, counter.slice(0, 3), counter[3] + Math.PI);
+          await sleep(500);
+          await page.evaluate(() => { window.__op2.game.setState('playing'); window.__op2.ctx.input.simulate('interact', true); }); await sleep(120);
+          await page.evaluate(() => window.__op2.ctx.input.simulate('interact', false));
+          const opened = await page.locator('.scr-shop:not(.scr-loadout)').waitFor({ state: 'visible', timeout: 10000 }).then(() => true, () => false);
+          check(opened, `Player ${who[i].name} opens the Barracks with E`);
+          await sleep(300);
+          if (page === A) await shot('7-guest-shop', A, true);
+          const bought = await page.evaluate(() => {
+            const d = window.__op2.ctx.contracts.defense, before = d.credits;
+            const offer = d.offers('barracks').find(o => o.act.kind === 'ally' && o.act.type === 'rifleman');
+            return { before, price: offer?.price ?? null, why: offer ? d.buy('barracks', offer.act) : 'no rifleman on offer' };
+          });
+          await page.keyboard.press('Escape'); await sleep(300);
+          await page.evaluate(() => window.__op2.game.setState('playing'));
+          await teleport(page, [counter[0] + 6 + i * 2, counter[1], counter[2] + 6], 0);
+          await sleep(1500 * SLOW);
+          bought.after = await page.evaluate(() => window.__op2.ctx.contracts.defense.credits);
+          result.bought.push(bought);
+        }
+        check(result.bought.every((b, i) => b.why === null && b.before === purses[i] && b.after === purses[i] - b.price), 'Each player hired a rifleman and paid from their own credits (the host did not refuse and refund)', result.bought);
+        const now = await squad();
+        check(now === men + pages.length, `The host's garrison grew by ${pages.length} men`, [men, now]);
+        return result;
+      }
       for (const [i, page] of pages.entries()) await page.evaluate(credits => { const c = window.__op2.ctx.contracts; if (c.shop) c.shop.credits = credits; }, purses[i]);
       const buy = page => page.evaluate(() => {
         const shop = window.__op2.ctx.contracts.shop;

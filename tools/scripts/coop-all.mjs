@@ -15,6 +15,7 @@
 //                     rtc     each lane's main proof over real WebRTC and the public relays (spaced out, one at a time)
 //                     four    each lane's main proof with four pages
 //                     guest   every mode from a guest's seat (coop-guest-seat.mjs), at 1440x900 dpr 2 with pictures
+//                     legacy  the five oldest proofs (their own pages over the real relays)
 //                     all     everything
 //   --only <text>     runs whose id contains the text, or matches /regex/
 //   --lane <names>    only these lanes (session, team, gore, weapons-fx, call-ins, world-a, world-b, time, enemy-attacks,
@@ -142,6 +143,15 @@ export const PROOFS = [
   P('modes/office', 'old', 'coop-modes', { map: 'office', env: { COOP_MODE: 'office' }, t: 700 }),
   P('mission', 'old', 'coop-mission', { mode: 'campaign', t: 800 }),
   P('baseline', 'old', 'coop-baseline', { sim: null, t: 400 }),
+  P('lobby', 'old', 'coop-lobby', { rtc: true, t: 300 }),
+
+  // legacy: the four oldest proofs still as they were written, each its own two pages over the real relays, before the kit
+  P('stage1', 'old', 'coop-stage1', { suites: ['legacy'], transport: 'rtc', sim: null, ...look, t: 450 }),
+  P('stage2', 'old', 'coop-stage2', { suites: ['legacy'], transport: 'rtc', sim: null, ...look, t: 700 }),
+  P('picker/desktop', 'old', 'coop-picker', { suites: ['legacy'], transport: 'rtc', sim: null, env: { GUEST: 'desktop' }, ...look, t: 600 }),
+  P('picker/phone', 'old', 'coop-picker', { suites: ['legacy'], transport: 'rtc', sim: null, env: { GUEST: 'phone' }, ...look, t: 600 }),
+  P('dad/ready', 'old', 'coop-dad', { suites: ['legacy'], transport: 'rtc', sim: null, env: { FLOW: 'ready' }, ...look, t: 600 }),
+  P('dad/force', 'old', 'coop-dad', { suites: ['legacy'], transport: 'rtc', sim: null, env: { FLOW: 'force' }, ...look, t: 600 }),
 
   // guest: every mode from a guest's seat, the nearest thing to a playtest (pictures at the owner's screen size)
   ...[['crucible'], ['outpost'], ['outpost', 'office'], ['defense'], ['campaign'], ['foreclosure']].map(([mode, map]) =>
@@ -165,6 +175,7 @@ export function runs(suites) {
     if (suites.has('clean') && own.includes('clean')) add(p, 'clean');
     if (suites.has('bad') && own.includes('bad') && p.sim) add(p, 'bad', { net: BAD });
     if (suites.has('guest') && own.includes('guest')) add(p, 'guest');
+    if (suites.has('legacy') && own.includes('legacy')) add(p, 'legacy');
     if (suites.has('rtc') && p.rtc) add(p, 'rtc', { transport: 'rtc' });
     if (suites.has('four') && p.four && p.count) add(p, 'four', { players: 4 });
   }
@@ -296,7 +307,7 @@ async function main() {
     if (next === undefined || next.startsWith('--')) opt[argv[i].slice(2)] = true; else { opt[argv[i].slice(2)] = next; i++; }
   }
   const asked = String(opt.suite ?? 'clean').split(',');
-  const suites = new Set(asked.includes('all') ? ['clean', 'bad', 'rtc', 'four', 'guest'] : asked);
+  const suites = new Set(asked.includes('all') ? ['clean', 'bad', 'rtc', 'four', 'guest', 'legacy'] : asked);
   const lanes = opt.lane ? new Set(String(opt.lane).split(',')) : null;
   const only = opt.only === undefined ? null : /^\/.*\/$/.test(opt.only) ? new RegExp(String(opt.only).slice(1, -1)) : null;
   let list = runs(suites).filter(r => (!lanes || lanes.has(r.lane)) && (opt.only === undefined || (only ? only.test(r.id) : r.id.includes(String(opt.only)))));

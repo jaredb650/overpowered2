@@ -439,8 +439,12 @@ describe('seats: a rejoin gives the kit back and is not a free revive', () => {
     expect(back.ctx.contracts.wallet).toMatchObject({ credits: 1450 });
     expect(back.progression.resume).toHaveBeenCalledWith(9000, 40, 7);
     expect(feeds(back).some(f => /your kit and credits are back/.test(f))).toBe(true);
+    // A mission's catch-up asks once whether the seat has just given a kit back (it must then add to it, never replace it).
+    expect(back.world.team.takeKitBack()).toBe(true);
+    expect(back.world.team.takeKitBack()).toBe(false);
     // The other guest, with another browser, got nobody's kit.
     expect(kitOf(game.guests[1]!).guns.map(g => g.weapon)).toEqual(['smg']);
+    expect(game.guests[1]!.world.team.takeKitBack()).toBe(false);
     game.dispose();
   });
   it('a fresh page\'s empty first cards never wipe the purse the host is keeping', () => {
