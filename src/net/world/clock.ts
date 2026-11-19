@@ -174,8 +174,15 @@ export class Clock implements WorldModule, TimeGate {
     for (const item of value.list) {
       if (!item || !isSlowKind(item.k) || !Number.isInteger(item.s) || item.s < -1 || item.s > 3) continue;
       if (![item.sc, item.ms, item.of].every(n => typeof n === 'number' && Number.isFinite(n))) continue;
-      // Mine, and I have let go: the host has not heard yet.
-      if (item.s === me && item.k !== 'bossDeath' && (this.released.get(item.k) ?? 0) > now) continue;
+      // Mine, and I am not holding it: I let go and the host has not heard yet. It stays off this screen; if the host still
+      // lists it after the grace, my word was lost (or this page was reloaded), so it is said again.
+      if (item.s === me && item.k !== 'bossDeath' && !this.mine.has(item.k)) {
+        if ((this.released.get(item.k) ?? 0) <= now) {
+          this.w.send({ t: 'slow', id: item.k, on: false });
+          this.released.set(item.k, now + RELEASE_MS);
+        }
+        continue;
+      }
       const cap = SLOW[item.k].cap * 1000;
       const left = Math.max(0, Math.min(cap, item.ms));
       next.push({ key: slowKey(item.s, item.k), kind: item.k, slot: item.s, scale: Math.max(0.2, Math.min(1, item.sc)), until: now + left,

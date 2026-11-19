@@ -363,6 +363,26 @@ describe("the team's slow-mo over the mocked transport", () => {
     game.dispose();
   });
 
+  it("a guest's lost \"I let go\": it says so again, and the host ends the slow-mo in about a second instead of at its cap", () => {
+    const game = party(2);
+    const [a, b] = game.g as [typeof game.g[number], typeof game.g[number]];
+    game.run(0.2);
+    a.time.pushScale('focus', 0.35, ...FADES);
+    game.run(0.5);
+    a.time.popScale('focus');
+    expect(game.relay.lose(e => e.t === 'slow' && e.on === false)).toBe(1);
+    // Its own screen is at full speed from the moment it let go, and stays so whatever the host still lists.
+    game.run(0.6);
+    expect(a.world.slows).toHaveLength(0);
+    expect(game.host.world.slows).toHaveLength(1);
+    game.run(0.6);
+    expect(game.host.world.slows).toHaveLength(0);
+    expect(a.world.slows).toHaveLength(0);
+    game.run(0.7);
+    for (const side of [game.host, a, b]) expect(side.time.slowmo).toBe(1);
+    game.dispose();
+  });
+
   it('a lost start: the periodic state puts the guest right within a quarter second', () => {
     const game = party(1);
     const a = game.g[0]!;
@@ -420,12 +440,15 @@ describe("the team's slow-mo over the mocked transport", () => {
       { t: 'slowstate' }, { t: 'slowstate', list: 'all', lock: 0 }, { t: 'slowstate', list: [null, { k: 'nope', s: 0, sc: 0.1, ms: 1, of: 1 }, { k: 'focus', s: 9, sc: 0.1, ms: 1, of: 1 },
         { k: 'focus', s: 0, sc: 'slow', ms: 1, of: 1 }], lock: 'never' }, { t: 'slowno', id: 'focus', why: 'because', ms: NaN }, { t: 'slowno' }];
     for (const data of junk) for (const room of game.relay.rooms) room.channel('action').send({ match: 'clock-test', data });
-    expect(() => game.run(0.3)).not.toThrow();
-    // The one well-formed request among them (`s` is not a number, so the cap stands) is an honest Focus from the guest.
-    expect(game.host.world.slows.map(e => [e.slot, e.kind])).toEqual([[a.slot, 'focus']]);
-    expect(game.host.world.slows[0]!.total).toBe(SLOW.focus.cap * 1000);
-    // A guest never takes a scale below the floor, or a state from anyone but the host: the guest's own junk went to the host only.
-    expect(a.time.slowmo).toBeGreaterThanOrEqual(0.34);
+    expect(() => game.frame()).not.toThrow();
+    // The one well-formed request among them (`s` is not a number, so the cap stands) reads as a Focus from the guest...
+    expect(game.host.world.slowBoard.list.map(e => [e.slot, e.kind])).toEqual([[a.slot, 'focus']]);
+    expect(game.host.world.slowBoard.list[0]!.total).toBe(SLOW.focus.cap * 1000);
+    // ...which the guest's own game never asked for: it does not slow that screen, and the guest tells the host to drop it.
+    expect(() => game.run(0.5)).not.toThrow();
+    expect(a.world.slows).toHaveLength(0);
+    expect(a.time.slowmo).toBe(1);
+    expect(game.host.world.slows).toHaveLength(0);
     game.dispose();
   });
 

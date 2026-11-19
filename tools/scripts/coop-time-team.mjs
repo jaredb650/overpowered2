@@ -144,6 +144,8 @@ export default async function (host, { sleep, outDir }) {
     const only = process.env.COOP_ONLY?.split(',');
     const want = key => !only || only.includes(key);
     out.only = only ?? 'all';
+    /** Nothing is slowing the world on any page, and each is back at full speed. */
+    const quiet = list => Promise.all(list.map(page => page.waitForFunction(() => window.__op2.ctx.time.slowmo === 1 && window.__op2.ctx.coop.world.slows.length === 0, null, { timeout: 15000 })));
     /** Every page has blended down to a slowed world. */
     const allSlow = list => Promise.all(list.map(page => page.waitForFunction(() => window.__op2.ctx.time.slowmo < 0.5, null, { timeout: 6000 })));
     const round = m => ({ world: +m.world.toFixed(3), own: +m.own.toFixed(3), walk: +m.walk.toFixed(2), fire: +m.fire.toFixed(1), enemy: m.enemy === null ? null : +m.enemy.toFixed(2), fps: Math.round(m.fps) });
@@ -213,7 +215,8 @@ export default async function (host, { sleep, outDir }) {
       check(states.every(s => s.notice.state === `WORLD AT ${scale.toFixed(2)}x · YOU AT FULL SPEED`), `${title}: the notice gives the world's speed (${scale}x)`, result.state);
       check(during.every(m => near(m.world, scale, 0.06)), `${title}: every screen's world clock runs at ${scale}x`, result.during.map(m => m.world));
       check(during.every(m => near(m.own, 1, 0.04)), `${title}: every player's own clock stays at full speed`, result.during.map(m => m.own));
-      check(before.every(m => m.enemy !== null && near(m.enemy, 1, 0.25)) && during.every(m => m.enemy !== null && near(m.enemy, scale, m.fps >= 30 ? 0.12 : 0.2)), `${title}: the host's enemies, and every guest's copies, move at ${scale}x their own speed (1x before)`,
+      // Before: a sanity figure only (a guest's copies hold still for a moment whenever a snapshot is late, more so on a loaded box).
+      check(before.every(m => m.enemy !== null && m.enemy > 0.5 && m.enemy < 1.3) && during.every(m => m.enemy !== null && near(m.enemy, scale, m.fps >= 30 ? 0.12 : 0.2)), `${title}: the host's enemies, and every guest's copies, move at ${scale}x their own speed (1x before)`,
         [result.before.map(m => m.enemy), result.during.map(m => m.enemy)]);
       check(during.every((m, i) => near(m.walk / before[i].walk, 1, 0.1)), `${title}: every player walks as fast as at full speed (single-player slow-mo gives the same)`, [result.before.map(m => m.walk), result.during.map(m => m.walk)]);
       // A gun fires on whole frames, so its measured rate moves with the frame rate: the tight bound needs a steady 40 fps.
@@ -309,18 +312,19 @@ export default async function (host, { sleep, outDir }) {
       await fillBudget(host); for (const page of pages) await fillFocus(page);
       await guest.evaluate(() => {
         const w = window.__op2.ctx.coop.world.w, send = w.send.bind(w);
-        w.send = (event, to) => { if (event.t === 'slow' && event.on === false) { window.__lostOff = (window.__lostOff ?? 0) + 1; return; } send(event, to); };
+        w.send = (event, to) => { if (event.t === 'slow' && event.on === false && !window.__lostOff) { window.__lostOff = 1; return; } send(event, to); };
       });
       for (const page of pages) await watch(page);
       const onAt = await tapChip(guest, sleep);
       await allSlow(pages);
-      await tapChip(guest, sleep);
+      const offAt = await tapChip(guest, sleep);
       for (const page of pages) await page.waitForFunction(() => window.__tw.fullAt > 0, null, { timeout: 15000 });
       const capped = await Promise.all(pages.map(watched));
-      out.scenarios['dropped-off'] = { lost: await guest.evaluate(() => window.__lostOff), fullMs: capped.map(s => Math.round(s.fullAt - onAt)) };
+      out.scenarios['dropped-off'] = { lost: await guest.evaluate(() => window.__lostOff), sinceOnMs: capped.map(s => Math.round(s.fullAt - onAt)), sinceOffMs: capped.map(s => Math.round(s.fullAt - offAt)) };
       check(out.scenarios['dropped-off'].lost === 1, "Dropped off: the guest's \"I let go\" never reached the host");
-      // Focus's cap is 4.5 s (the guest asked for its full 4 s meter plus a quarter), then the blend out.
-      check(capped.every(s => s.fullAt - onAt <= 4500 + 500 + FULL_MS), 'Dropped off: the host ends it at its cap, so every screen is back at full speed', out.scenarios['dropped-off'].fullMs);
+      // The guest says it again 0.7 s later (when the host's state still lists it); then the host's answer and the blend out.
+      check(capped.every(s => s.fullAt - offAt <= 700 + 250 + FULL_MS + (s.stallFull - s.stallNotice)), 'Dropped off: the guest says it again, and every screen is back at full speed about a second later (not at the 4.5 s cap)', out.scenarios['dropped-off']);
+      check(capped[0].fullAt - offAt >= 600, 'Dropped off: (control) the host did not hear the first one: it ran on past it', out.scenarios['dropped-off'].sinceOffMs);
       await sleep(600);
     }
 
@@ -391,8 +395,9 @@ export default async function (host, { sleep, outDir }) {
       await tapChip(guest, sleep);
       await allSlow(all);
       check((await Promise.all(all.map(read))).every(s => s.slowmo < 0.5 && s.slows.length === 1), 'Budget: three seconds later a Focus is granted again');
-      await tapChip(guest, sleep);
-      await sleep(1500);
+      // Off, whatever state it is in by now (only three seconds were back, and the host may have ended it already).
+      await guest.evaluate(() => window.__op2.ctx.contracts.chips.setFocus(false));
+      await quiet(all);
     }
 
     if (want('down')) {
@@ -401,6 +406,7 @@ export default async function (host, { sleep, outDir }) {
       progress('a downed player is refused');
       await healthy(party.pages);
       await fillBudget(host); for (const page of all) await fillFocus(page);
+      await quiet(all);
       await guest.evaluate(() => { const { ctx } = window.__op2; ctx.player.modifiers.invulnerable = false; (w => { w.receivingDamage = true; ctx.player.takeDamage({ amount: 500, type: 'bullet', source: 'trooper' }); w.receivingDamage = false; })(ctx.coop.world); });
       await host.waitForFunction(() => [...window.__op2.ctx.coop.world.team.cards.values()].some(c => c.slot === 1 && c.state === 'down'), null, { timeout: 10000 });
       for (const page of all) await watch(page);
