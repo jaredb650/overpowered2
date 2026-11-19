@@ -236,6 +236,7 @@ lane: `{ t: 'move', uid, at, m, a }`, `at` the host's clock, `a` the move's numb
 | `roar`, `land`, `leap`, `block` | A boss arriving and changing phase, a leaper, a drop-in, a guard | `anim.play` at the host's speed |
 | `down` | Any living knockdown (`gore.knockdown`): a slide, a blast, a wound, a fall after a stagger | The copy is knocked down by the guest's own gore with the host's push: velocity, impact, topple, lie and rise times, the wound. A real ragdoll, landing where the guest's physics puts it (owner decision 2). A body a blast threw is thrown the way the host's went, read from its next states |
 | `getUp` | Gore handing the host's body back, or a medic's hand | A copy in its own ragdoll is told to rise (`gore.rouse`); one that never fell plays the get-up clip |
+| `rise` | A downed body beginning to get itself up (the host polls `gore.rising` for the bodies gore has), or one handed back without lying (it caught its balance) | A copy in its own ragdoll starts up now (`gore.rouse`). Without it a copy waited for `getUp`, which the host's body only reaches after pushing itself up, and stood up about a second behind it |
 
 - **The host changes no enemy code for this.** While a match is hosted the module wraps each enemy's `play`, `stumble`, `daze` and
   `getUp`, and gore's `knockdown`, and puts them back when the match ends. The attack clips (`attackMelee`, `attackHeavy`, `shoot`,
@@ -1539,6 +1540,49 @@ the snapshot's flags.
 stops on the hull, sparks there, and a vehicle is cover and solid, as on the host. The hit names the part and the point in the
 vehicle's own frame, so a hit on the hatch on the shooter's screen is a hit on the hatch. The host's enemy helicopter is not drawn
 on guests and has no boxes; a guest's blast still reaches it.
+
+### The same work for a guest's gun (fix-hits, 2026-11-19)
+
+The claims matrix applied every claim a guest sent, yet several guest rows dealt well under the host's damage a shot on a clean
+link: Ultramag akimbo 11 hits against the host's 21 for 20 shots, Piledriver 23 against 44, SMG with AP 46 against 60. Found
+with `tools/scripts/coop-claims-matrix.mjs` (each trial now records how its targets stood on the shooter's own screen: the
+share of the time they were off their feet) and `tools/scripts/coop-fixhits-onehit.mjs` (one still man, strings of rounds,
+and on both screens every 50 ms whether his body is on its feet, balancing or on the floor, what each damage model chose, the
+moves sent and played, and the push-up's own measurements).
+
+- **Not the cause:** hit detection against the copies, the second gun of an akimbo pair, a fast cadence, a pierce through a
+  column of bodies. Every row in which no target leaves its feet matched hit for hit (Rivet 19 and 19, Rivet akimbo 31 and 31,
+  SMG akimbo 54 and 54, a boss 5 and 5).
+- **The cause: a copy's limbs read as part gone.** A limb's strength is its pool over the body's whole health
+  (`poolStrength`, weak once 45% is gone). A guest makes each copy with its own page's idea of the enemy's health
+  (`def.hp x waveScale(its own wave) x its own rules`), sizes the limb pools from that, and then takes the host's health from
+  the snapshot. Where the host's enemy has more health the copy's every limb was that much "worn": it could not catch its
+  balance on its muscles (the budget scales with strength) and could not push itself up off the floor (effort 1, progress 0,
+  for the reflex's whole 2 s of patience, where the host's body is up in 0.8 s). It lay about 2 s longer after every fall and
+  was out of the line of fire that long: with the Ultramag a guest's copies were off their feet 70 to 79% of a trial against
+  the host's 7 to 21%. **In the proof this was extreme** (targets of 10,000,000 health whose limb pools the proof sets by hand
+  on the host only). **In play it is smaller and real** wherever the two pages disagree on an enemy's health by more than
+  1.8 times: enemy health grows 8.5% a wave and nothing in the co-op code sets the wave on a guest's enemy manager (from about
+  wave 11 in the Crucible), and the host's "Enemy health" rule goes to 400%.
+  **Fix:** `EnemyManager.fitReplicaHealth`, called as a copy is made (`replicas.ts`): the limb pools are scaled to the host's
+  health, so each limb is as whole on the copy as on the host. A head pool that is a fixed number is left alone.
+- **Also fixed on the way, both real:**
+  - *Two sets of dice.* A hit's reaction (flinch, stagger, fall) was rolled by the guest when it drew its own hit and again by
+    the host when it decided it. A guest's own hit now carries a seed both ends take from the hit's number
+    (`reactions.ts` `reactionSeed`, `dice`), so the body does the same thing on both screens; single player and the host's
+    own hits roll `Math.random` as before.
+  - *Standing up a second late.* The host's `getUp` move is sent when the get-up clip takes over, after the body has pushed
+    itself up and gathered (0.55 to 1.3 s). A copy began its own push-up only then. The host now sends `rise` the moment a
+    downed body begins to get itself up (`gore.rising`), and when one is handed back without lying at all (it caught its
+    balance); a copy starts up then (`moves.ts`).
+- **The proof's own noise:** the melee rows. A still shooter's first blow shoves or floors the one man in reach, and what the
+  next eleven swings meet is luck on either screen: the host's own baton landed 2 of 12 in one run and 12 of 12 in another.
+
+After the fix, clean link, the same rows (hits, host and guest): Ultramag 9 and 9, Ultramag akimbo under Berserk and Haste 21
+and 21, SMG with AP 60 and 60, SMG ricochet 105 and 105, Harrow API 60 and 60, Piledriver 44 and 47, Buzzsaw 12 mm 54 and 78,
+Judge fan of six 14 and 14; the targets were off their feet the same share of the time on both screens (Ultramag akimbo 0.22
+and 0.20). What still differs rolls dice of its own on each machine (a shotgun's pellets 21 and 18, Hellfire rounds' blasts
+85 and 76) or is the melee noise above.
 
 ## How it works
 
