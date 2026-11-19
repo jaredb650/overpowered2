@@ -563,6 +563,29 @@ Additions from the owner, same day:
   obliterate paths. This belongs with O1 (organs you notice) and G1/G2.
 
 - **6, floaty gib pieces: no.** No reduced gravity on pieces. They are thrown hard and fall at the game's normal weight.
+- **More realistic decal designs: wanted (added by the owner).** New step **D1, decals that look real**, in batch 1 beside P1
+  (which already rebuilds the decal budget). Today the whole decal sheet is 16 cells drawn by one shader
+  (`src/render/materials/decalAtlas.glsl.ts`, cells listed in `src/render/Decals.ts`): one bullet hole, one exit crater, two
+  scorches, **four blood blots, two pools, two smears**, two slashes, two cracks; every stain in the game is one of those,
+  warped. D1 redraws and enlarges the sheet, blood first:
+  - **Blood shapes from how real blood lands:** round drops with scalloped edges and small satellite spots; fast droplets as
+    long ovals with a tail that points along their travel (so a wall shows which way the shot went); fine mist from
+    high-speed hits; cast-off lines of evenly spaced drops from a swung blade or a thrown limb; arterial arcs (a wavy line of
+    large stains); drip trails under a moving wounded man; wipes and swipes with feathered ends; pools with an irregular
+    outline, a darker thick edge and a wet highlight; runs with a bead at the bottom; dried stains with a dark rim and a
+    paler, cracked middle.
+  - **Many more variants per kind** (aim for 8 to 16 blood stains instead of 4), chosen by what made the stain: speed, angle
+    to the surface, amount, weapon. Angle and speed are known when the drop is traced, so the shape can be right for the hit.
+  - **Surface response:** wet blood shines and fresh thick edges stand up a little (the sheet already has a surface texture
+    beside the colour); dried blood is flat and matt.
+  - **Then the rest of the sheet:** bullet holes per surface (concrete chip and dust ring, metal dent with a bright rim,
+    glass star), entry against exit, scorches with soot streaks and a burnt centre, blade cuts, cracks, and the footprint and
+    soot shapes the other steps need.
+  - **How it is judged:** the owner judges by eye. Before and after sheets of every cell at dpr 2, and the same ten-kill scene
+    and single-hit scenes with the old and new sheet, as stills and contact sheets. Art direction holds: saturated red, cold
+    world. This is visual work: Fable only.
+  - **Cost to check:** sheet size and memory (a larger atlas, still one texture and one draw), and that the shader that draws
+    the sheet at load does not add a stall.
 - **Sound is not a focus for now:** the game has plenty of gore sounds. This update is about what is seen.
 
 Status: not started. It is queued behind the co-op overhaul (the co-op gore lane is editing the same files); the owner says when.
