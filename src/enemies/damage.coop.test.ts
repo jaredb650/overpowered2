@@ -562,6 +562,18 @@ describe('a guest is on the host\'s wave and counts what is left as the host doe
     expect(stale.spawn('trooper').damageMul).toBe(1);
   });
 
+  it('takes the Crucible\'s rules as the numbers a spawn is made with', () => {
+    const w = world();
+    w.manager.tune({ healthPct: 200, damagePct: 150, helmetsFrom: 1 });
+    const husk = w.spawn('husk'), gunner = w.spawn('gunner');
+    const plain = world();
+    expect(husk.maxHealth).toBe(plain.spawn('husk').maxHealth * 2);
+    expect(husk.damageMul).toBe(1.5);
+    // Helmets from wave 1: a Gunner wears one on the first wave. On the standard game he does not until wave 8.
+    expect(gunner.plates).toHaveLength(1);
+    expect(plain.spawn('gunner').plates).toHaveLength(0);
+  });
+
   it('counts the host\'s queue and prisoners on top of the copies alive here, and for itself when alone', () => {
     const w = world();
     w.spawn('husk'); w.spawn('husk');

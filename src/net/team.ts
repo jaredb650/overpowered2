@@ -727,6 +727,7 @@ export class Team {
 
   private applyRules(rules: CrucibleRules): void {
     adoptRules(rules);
+    (this.ctx.enemies as { tune?(rules: CrucibleRules): void }).tune?.(rules);
     (this.ctx.waves as { adopt?(rules: CrucibleRules): void }).adopt?.(rules);
   }
 

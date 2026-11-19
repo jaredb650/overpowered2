@@ -853,8 +853,9 @@ describe('the host\'s rules are the run\'s rules on every screen', () => {
   it('a guest is told the host\'s custom Crucible rules as it arrives, plays by them, and says so once', () => {
     const game = party(1, 'crucible', ['b1'], [0]);
     const guest = game.guests[0]!, id = guest.lobby.you;
-    const adopt = vi.fn();
+    const adopt = vi.fn(), tune = vi.fn();
     Object.assign(guest.waves, { adopt });
+    Object.assign(guest.manager, { tune });
     // The host's page plays these (one process stands for both pages here: the rules are set as the host's world reads them).
     const hosts = cloneRules(DEFAULT_RULES);
     hosts.healthPct = 200; hosts.damagePct = 150; hosts.helmetsFrom = 1; hosts.startWave = 12; hosts.titan.first = 12; hosts.types.brute.on = false;
@@ -875,6 +876,9 @@ describe('the host\'s rules are the run\'s rules on every screen', () => {
     guest.ctx.events.emit('run:start', {});
     expect(adopt).toHaveBeenCalledTimes(2);
     expect(rulesEqual(adopt.mock.calls[1]![0] as CrucibleRules, hosts)).toBe(true);
+    // The manager's numbers are set by the team itself, not through the waves: a guest's waves are never set up.
+    expect(tune).toHaveBeenCalledTimes(2);
+    expect(tune.mock.calls[1]![0]).toMatchObject({ healthPct: 200, damagePct: 150, helmetsFrom: 1 });
     game.dispose();
   });
 

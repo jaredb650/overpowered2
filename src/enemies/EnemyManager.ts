@@ -257,6 +257,13 @@ export class EnemyManager implements EnemySystem {
     return this.w;
   }
 
+  /** Co-op guest: the host's Crucible rules as the numbers every copy is made with (the waves set the same three as a run starts, `Waves.start`). */
+  tune(rules: { healthPct: number; damagePct: number; helmetsFrom: number }): void {
+    this.tuning.health = rules.healthPct / 100;
+    this.tuning.damage = rules.damagePct / 100;
+    this.tuning.helmetsFrom = rules.helmetsFrom;
+  }
+
   /** The wave the next spawn is scaled for (`waveScale`). */
   get level(): number {
     return this.wave;
