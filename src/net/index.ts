@@ -1,9 +1,11 @@
 /** The game-facing co-op session. Host world snapshots and hit claims are world.ts, the team rules team.ts; never Player or Weapons. */
 import type { Ctx, GameSystem } from '../core/contracts';
-import { Lobby, type ChatLine, type Match } from './lobby';
+import { Lobby, type ChatLine, type LobbyPlayer, type Match, type SeatEvent } from './lobby';
+import { errorText } from './lobbyText';
 import { POSE_MS, type Move } from './pose';
 import { AKIMBO_TAG, PROPS, RemotePlayer } from './remote';
-import { clearSession, resumedRoom } from './session';
+import { clearSession, deployMatch, deploying, resumedRoom, whileLoading } from './session';
+import { SessionHud } from './sessionHud';
 import { CoopWorld } from './world';
 import { CoopHud } from './coopHud';
 import { publishNet, watchCost } from './debug';
@@ -11,9 +13,29 @@ import { pageSim } from './netsim';
 
 /** The modes whose world the host runs. The others are free roam: everyone walks the map, nothing else. */
 export const WORLD_MODES: readonly Match['mode'][] = ['crucible', 'outpost', 'defense', 'campaign', 'foreclosure'];
+/** How long the team board stays up after the host is gone for good, before everyone regroups in a new lobby. */
+export const LOST_BOARD_MS = 10_000;
 
-/** Where a player lands after the match: the same room, on its lobby page. */
-export interface Room { lobby: Lobby; code: string; password: string }
+/** Where a player lands after the match: the same room, on its lobby page. `match`: what was just played, so the host's picker stays on it. */
+export interface Room { lobby: Lobby; code: string; password: string; match?: Match }
+/**
+ * After the host is gone for good: everyone who was in the room meets again in a new lobby on the same code and password.
+ * `rank` 0 hosts it; the others join, and take over in turn if nobody ahead of them shows up (ui/screens/coop.ts).
+ */
+export interface Regroup { code: string; password: string; rank: number; names: string[]; note: string; /** This player's callsign as it was in the room. */ name?: string }
+
+/** A list of listeners. `add` returns the way to take one off again. */
+export class Hook<A extends unknown[]> {
+  private readonly list: ((...args: A) => void)[] = [];
+  add(fn: (...args: A) => void): () => void {
+    this.list.push(fn);
+    return () => { const i = this.list.indexOf(fn); if (i >= 0) this.list.splice(i, 1); };
+  }
+  emit(...args: A): void { for (const fn of [...this.list]) fn(...args); }
+}
+
+/** `seat` is the player's stable key in this room (LobbyPlayer.seat); `id` only their current connection. */
+export interface Arrival { seat: string; slot: number; name: string; rejoin: boolean }
 
 export class CoopSession implements GameSystem {
   readonly freeRoam: boolean;
@@ -26,26 +48,67 @@ export class CoopSession implements GameSystem {
   private closed = false;
   private nextPose = 0;
   private seq = 0;
-  private seen = new Map<string, string>();
   private hidden = false;
-  private firstRoster = true;
   cpuMs = 0;
   private readonly offDoc: (() => void)[] = [];
-  /** Why the match ended under this player, and whether the room is still there to go back to. */
-  onEnded: (message: string, room: Room | null) => void = () => {};
+  /** The session's own layer: the deploy gate, the waiting and reconnecting line, the host-lost board. */
+  private view: SessionHud | null = null;
+  /** Set while "Click to deploy" is up: what the click starts (the local run). */
+  private gateStart: (() => void) | null = null;
+  /** The host ended the match before this page had finished loading it. */
+  private endedEarly = false;
+  /** Guest, the host gone for good: the board is up until then, and then everyone regroups. */
+  private lostUntil = 0;
+  private regroup: Regroup | null = null;
+  /** Host: each seat's connection the last time it came in, to tell a new page from the same one back after a blip. */
+  private readonly lastId = new Map<string, string>();
+  /**
+   * Host: a player is in the world. Their first time in this match, or again (`rejoin`: a reload, a reconnect after a
+   * drop, back from the lobby page). The moment to hand them everything they missed; key anything kept for them by `seat`.
+   */
+  readonly onArrived = new Hook<[id: string, info: Arrival]>();
+  /** Host: a player's connection dropped. Their seat is kept (SEAT_GRACE_MS): hold their state, take their body out. */
+  readonly onLost = new Hook<[id: string, seat: string]>();
+  /** Host: a seat is given up for good (the grace ran out, or they quit). */
+  readonly onGone = new Hook<[seat: string]>();
+  /** Why the match ended under this player, and whether the room is still there to go back to (or to regroup in). */
+  onEnded: (message: string, room: Room | null, regroup?: Regroup) => void = () => {};
+  /** Host: the load barrier is over. The game starts the world it has been holding (core/Game.ts). */
+  onGo: () => void = () => {};
 
   constructor(private readonly ctx: Ctx, readonly lobby: Lobby, readonly match: Match, private readonly code = resumedRoom?.code ?? '', private readonly password = resumedRoom?.password ?? '') {
     this.freeRoam = !WORLD_MODES.includes(match.mode);
     this.world = this.freeRoam ? null : new CoopWorld(ctx, this);
-    lobby.onChange = () => this.roster();
+    this.endedEarly = whileLoading.ended;
+    lobby.onChange = () => this.changed();
     lobby.onPose = (id, pose) => this.remotes.get(id)?.push(pose, performance.now());
     lobby.onLine = line => this.chatLine(line);
-    // The host took everyone back to the lobby page.
-    lobby.onEnd = () => this.end('The host ended the match. You are back in the lobby.', true);
+    // The host took everyone back to the lobby page. While this page is still loading, that waits for the boot to end.
+    lobby.onEnd = () => {
+      if (this.gateStart || this.begun) this.end('The host ended the match. You are back in the lobby.', true);
+      else this.endedEarly = true;
+    };
+    // The host moved on to another match (its page reloaded, so its world is gone): this page follows it.
+    lobby.onMatch = next => {
+      if (next.id === this.match.id || !this.code) return;
+      console.info('[coop] The host started a new match; loading it.');
+      try { deployMatch(this.code, this.password, lobby, next); } catch (error) { console.warn('[coop] Could not follow the host to its new match', error); }
+    };
+    lobby.onGo = () => {
+      if (!this.begun || this.closed) return;
+      if (this.hosting) this.onGo();
+    };
+    lobby.onSeat = (player, event) => this.seat(player, event);
     if (typeof document !== 'undefined' && lobby.hosting) {
       const seen = () => this.tellHidden();
       document.addEventListener('visibilitychange', seen);
       this.offDoc.push(() => document.removeEventListener('visibilitychange', seen));
+    }
+    if (typeof addEventListener === 'function') {
+      // Closing or reloading the tab mid-match asks first. A reload rejoins (session.ts); a close does not.
+      const asking = (e: BeforeUnloadEvent) => { if (this.begun && !this.closed && this.lobby.phase === 'open' && !leavingOnPurpose()) e.preventDefault(); };
+      addEventListener('beforeunload', asking);
+      this.offDoc.push(() => removeEventListener('beforeunload', asking));
     }
   }
   get hosting(): boolean { return this.lobby.hosting; }
@@ -57,31 +120,132 @@ export class CoopSession implements GameSystem {
     await Promise.all(PROPS.map(id => Promise.resolve().then(() => lib.prop(id)).catch(() => undefined)));
     this.ready = true;
   }
+  /**
+   * The load barrier's half on this page. True from the deploy click until the host's world starts: the host holds its waves,
+   * directors and mission meanwhile (core/Game.ts), and every screen says who is still loading.
+   */
+  get holding(): boolean { return !!this.world && !this.lobby.live; }
+
+  /**
+   * The map has loaded. Nothing starts yet: the page shows "Click to deploy", and that click is what takes the mouse,
+   * unlocks the sound, starts the local run (`start`) and tells the host this player is in. A room that closed, or a match
+   * that ended, while the page was loading is told here instead, with the real reason.
+   */
+  gate(start: () => void): void {
+    if (this.closed) return;
+    this.lobby.booted();
+    if (this.lobby.phase === 'closed') return this.roomClosed();
+    if (this.endedEarly || whileLoading.ended) return this.end('The match ended while you were loading. You are back in the lobby.', true);
+    this.gateStart = start;
+    if (typeof document !== 'undefined') {
+      this.view ??= new SessionHud();
+      this.view.showGate(`Co-op · ${this.hosting ? 'hosting' : 'joining'}`, () => this.deploy());
+    }
+    this.changed();
+  }
+
+  /** This page has its host and its match: the click may go ahead. */
+  private get canDeploy(): boolean {
+    return this.lobby.phase === 'open' && this.lobby.match?.id === this.match.id && !this.lobby.reconnecting;
+  }
+
+  /** The deploy click (or Enter). Also for scripts: `__op2.ctx.coop.deploy()`. */
+  deploy(): boolean {
+    const start = this.gateStart;
+    if (!start || this.closed || !this.canDeploy) return false;
+    this.gateStart = null;
+    this.view?.hideGate();
+    start();
+    this.begin();
+    return true;
+  }
+
   /** Called after run:start has reset the HUD's world markers. */
   begin(): void {
     this.begun = true;
     // `window.__op2.net` for scripts and the console: the simulator, the counters, and this meter (debug.ts).
     publishNet();
     watchCost(() => this.cpuMs);
+    this.gateStart = null;
     if (!this.hud && typeof document !== 'undefined') {
+      this.view ??= new SessionHud();
       this.hud = new CoopHud(this.ctx, this);
       this.hud.onEndDone = () => this.backToLobby();
       this.hud.onPlayAgain = () => this.playAgain();
     }
     if (this.world) this.world.team.onOver = (cards, wave, ending) => this.hud?.showEnd(this.world!.team.roster().filter(r => cards.some(c => c.slot === r.card.slot))
       .map(r => ({ ...r, card: cards.find(c => c.slot === r.card.slot)! })), wave, performance.now(), ending);
-    this.roster();
-    if (!this.closed) this.world?.begin();
+    this.changed();
+    if (this.closed) return;
+    this.world?.begin();
+    this.lobby.deployed();
   }
-  private roster(): void {
-    if (this.closed || !this.ready || !this.begun) return;
-    if (this.lobby.phase === 'closed') {
-      const message = this.lobby.error === 'host-left' ? 'The host left. The co-op match has ended.'
-        : this.lobby.error === 'lost' ? 'Lost the connection to the host. The co-op match has ended.'
-        : 'The co-op room disconnected. Return to Multiplayer to try again.';
-      this.end(message, false);
+
+  /** Every change in the room: a list from the host, a line, a link in trouble, the room closing. */
+  private changed(): void {
+    if (this.closed) return;
+    // Before the gate there is nobody to tell yet: the boot's end reads the room's state itself (`gate`).
+    if (!this.gateStart && !(this.ready && this.begun)) return;
+    if (this.lobby.phase === 'closed') return this.roomClosed();
+    if (this.gateStart) return this.paintGate();
+    this.roster();
+  }
+
+  private paintGate(): void {
+    const lobby = this.lobby;
+    const others = lobby.waitingFor.filter(p => p.id !== lobby.you);
+    const sub = lobby.reconnecting ? `Reconnecting to host… ${lobby.reconnectIn}`
+      : lobby.phase !== 'open' ? 'Finding the host…'
+      : !this.canDeploy ? 'Waiting for the host…'
+      : lobby.live ? 'The match is already running: you join it in progress.'
+      : others.length ? `${others.map(p => p.name).join(', ')} still loading. You can deploy and look around; the fight starts when everyone is in.`
+      : 'Everyone else is ready.';
+    this.view?.paintGate(this.canDeploy, sub, lobby.players, lobby.you);
+  }
+
+  /** The room closed under this page: the real reason, on the screen and in the console (the lobby logs it as it closes). */
+  private roomClosed(): void {
+    const { lobby } = this;
+    const error = lobby.error;
+    const reason = error ? errorText(error, lobby.theirBuild, this.code, lobby.connectAdvice) : 'The co-op room closed.';
+    const hostGone = !this.hosting && (error === 'host-left' || error === 'lost') && !!this.code;
+    if (!hostGone) return this.end(error === 'host-left' ? 'The host left. The co-op match has ended.' : reason, false);
+    // No host migration: the world lived on the host's page. Everyone who is left meets again on the same code instead.
+    const { rank, names } = lobby.successors();
+    const next = names[0] ?? 'You';
+    const lead = error === 'lost' ? 'Lost the connection to the host.' : 'The host left.';
+    this.regroup = { code: this.code, password: this.password, rank, names, name: lobby.me?.name,
+      note: rank === 0 ? `${lead} You are hosting this lobby now${names.length > 1 ? '; the others are rejoining' : ''}.` : `${lead} ${next} is hosting now.` };
+    // Mid-match the team's numbers are shown first; before the deploy click there is nothing to show.
+    if (!this.begun || !this.world || !this.view || this.lostUntil) {
+      if (!this.lostUntil) this.end(this.regroup.note, false, this.regroup);
       return;
     }
+    this.lostUntil = performance.now() + LOST_BOARD_MS;
+    const wave = this.ctx.waves.wave;
+    this.view.setLine('');
+    this.view.showLost('HOST LOST', `${lead} The match ended${wave > 0 ? ` on wave ${wave}` : ''}. Your team's numbers are below.`,
+      this.world.team.roster().map(r => ({ name: r.name, color: r.color, me: r.me, kills: r.card.kills, score: r.card.score, credits: r.card.credits })));
+    for (const remote of this.remotes.values()) remote.dispose();
+    this.remotes.clear();
+  }
+
+  /** Host: what the lobby says about a seat, as the game's hooks. */
+  private seat(player: LobbyPlayer, event: SeatEvent): void {
+    const seat = player.seat ?? player.id;
+    if (event.kind === 'lost') return this.onLost.emit(player.id, seat);
+    if (event.kind === 'gone') { this.lastId.delete(seat); return this.onGone.emit(seat); }
+    const same = this.lastId.get(seat) === player.id;
+    this.lastId.set(seat, player.id);
+    this.onArrived.emit(player.id, { seat, slot: player.slot, name: player.name, rejoin: event.rejoin });
+    // The team hands a player what they missed when a new connection's first card comes in (team.ts). The same connection
+    // back after a drop has sent cards before, so it is told here.
+    if (event.rejoin && same) this.world?.team.onArrived(player.id);
+  }
+
+  private roster(): void {
+    if (this.closed || !this.ready || !this.begun) return;
+    // Joins, drops and returns are the lobby's own lines (chatLine): one source, so nothing is said twice.
     const players = this.lobby.players.filter(p => p.id !== this.lobby.you && !p.away);
     for (const [id, remote] of this.remotes) {
       const player = players.find(p => p.id === id);
@@ -90,12 +254,6 @@ export class CoopSession implements GameSystem {
         this.remotes.delete(id);
       }
     }
-    for (const [id, name] of this.seen) if (!players.some(p => p.id === id)) this.ctx.hud.feed(`${name} left.`, '#ffb33d');
-    for (const p of players) if (!this.seen.has(p.id) && !this.firstRoster) {
-      this.ctx.hud.feed(`${p.name} joined.`, '#79f1ad');
-    }
-    this.seen = new Map(players.map(p => [p.id, p.name]));
-    this.firstRoster = false;
     for (const p of players) if (!this.remotes.has(p.id)) this.remotes.set(p.id, new RemotePlayer(this.ctx, p));
   }
   private chatLine(line: ChatLine): void {
@@ -108,12 +266,33 @@ export class CoopSession implements GameSystem {
     this.hidden = hidden;
     this.lobby.notice(hidden ? 'The host\'s game is in a background tab: the world keeps running, a little coarser.' : 'The host is back.');
   }
+  /** The one status line: the link in trouble first, then who the world is still waiting for. */
+  private status(): void {
+    const { lobby, view } = this;
+    if (!view) return;
+    if (this.gateStart) return this.paintGate();
+    if (this.lostUntil || !this.begun) return;
+    if (lobby.reconnecting) return view.setLine(`Reconnecting to host… ${lobby.reconnectIn}`, true);
+    const waiting = lobby.match && !lobby.live ? lobby.waitingFor : [];
+    if (!waiting.length) return view.setLine('');
+    view.setLine(`Waiting for ${waiting.map(p => p.name).join(', ')}${lobby.holdLeft ? ` · starting without them in ${lobby.holdLeft} s` : ''}`);
+  }
+
   update(): void {
     if (this.closed || !this.ready) return;
     const now = performance.now();
     this.lobby.heartbeat(now);
     // The network simulator's delayed sends leave on the frame too: a hidden tab's timers run once a second.
     pageSim().pump();
+    if (this.closed) return;
+    this.status();
+    if (this.lostUntil) {
+      const left = Math.max(0, Math.ceil((this.lostUntil - now) / 1000));
+      const plan = this.regroup!;
+      this.view?.setLostFoot(plan.rank === 0 ? `You host the new lobby in ${left}` : `Regrouping in ${plan.names[0] ?? 'a teammate'}'s lobby in ${left}`);
+      if (now >= this.lostUntil) return this.end(plan.note, false, plan);
+    }
+    if (!this.begun) return;
     for (const remote of this.remotes.values()) remote.update(now, this.ctx.time.realDt);
     this.world?.update();
     // What co-op itself costs a frame (bodies, snapshots, events), averaged, for the measurements in docs/notes/coop.md.
@@ -151,9 +330,9 @@ export class CoopSession implements GameSystem {
     if (lobby.phase === 'open' && !lobby.match) lobby.startMatch(mode, undefined, map);
   }
 
-  private end(message: string, keepRoom: boolean): void {
+  private end(message: string, keepRoom: boolean, regroup?: Regroup): void {
     const room = this.leave(keepRoom);
-    this.onEnded(message, room);
+    this.onEnded(message, room, regroup);
   }
 
   /**
@@ -166,6 +345,8 @@ export class CoopSession implements GameSystem {
     this.world?.dispose();
     this.hud?.dispose();
     watchCost(null);
+    this.view?.dispose();
+    this.gateStart = null;
     for (const off of this.offDoc) off();
     for (const remote of this.remotes.values()) remote.dispose();
     this.remotes.clear();
@@ -173,6 +354,9 @@ export class CoopSession implements GameSystem {
     this.lobby.onPose = () => {};
     this.lobby.onLine = () => {};
     this.lobby.onEnd = () => {};
+    this.lobby.onMatch = () => {};
+    this.lobby.onGo = () => {};
+    this.lobby.onSeat = () => {};
     const open = keepRoom && this.lobby.phase === 'open' && !!this.code;
     if (open) {
       if (this.hosting) this.lobby.endMatch();
@@ -180,9 +364,12 @@ export class CoopSession implements GameSystem {
       else if (this.lobby.match) this.lobby.away(false);
     } else this.lobby.leave();
     clearSession();
-    return open ? { lobby: this.lobby, code: this.code, password: this.password } : null;
+    return open ? { lobby: this.lobby, code: this.code, password: this.password, match: this.match } : null;
   }
 }
+
+/** This page is changing address of its own accord (to a map page): no prompt for that. */
+const leavingOnPurpose = (): boolean => deploying;
 
 declare module '../core/contracts' {
   interface Ctx { coop?: CoopSession }

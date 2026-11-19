@@ -248,3 +248,16 @@ Shared files and contracts between lanes:
   strike), `telegraph.ts`, `weapons/Projectiles.ts`, `Combat.ts`, `Flames.ts` (`lickPlayer`), `enemies/vehicles/*` (rams, wreck
   fire, gun flashes and sounds, `quarry`), `commander/index.ts` (`hurt`), `commander/mortars.ts`, `outpost/index.ts` (flashbang),
   `net/pose.ts` (`latest`), and `shout()` at nine voice call sites. Not proven in the browser yet: see the lane's report.
+- 2026-11-18, session lane (`coop/session`): the load barrier and deploy gate, seats by browser id with stable slots, the match
+  id in hello, reconnect grace on both sides, reloads that rejoin (a host's reload restarts the match for all), other peers'
+  errors, start acks, the stall-proof heartbeat, host loss ending in the board and an automatic regroup on the same code, one
+  source for join and leave lines, real error text. Details, numbers, hooks and proofs: `docs/notes/coop.md`, "The life of a
+  session". Decisions: (1) players who are in **walk the map while the world waits** (the click is the gate; the wave clock, the
+  directors and a mission's runner are what is held); (2) `away` now covers loading and lost seats too, with `state` saying
+  which, so every existing `!p.away` filter stays right; (3) a **host's page reload restarts the match** of the same mode for the
+  same players rather than ending it; (4) in the lobby as in a match a dropped guest keeps a seat for 60 s; (5) the barrier
+  applies only on a match's own map page, so page-less test lobbies behave as before. For other lanes: `CoopSession.onArrived /
+  onLost / onGone` (with the stable `seat`), `holding`, `lobby.live`; `coop-kit.mjs` `inMatch` now presses the deploy gate
+  (`deploy(page)`), and a proof that waits for a world must go through it. Touched outside the lane, small: `ui/screens/Screens.ts`
+  (`coopRegroup`, the played match to `adopt`), `tools/scripts/coop-kit.mjs` (`deploy`, `inMatch`), `src/net/trystero.ts` (the
+  cap). Open for the owner: see the lane's report.

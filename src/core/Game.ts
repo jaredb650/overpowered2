@@ -16,8 +16,8 @@ import { cheatsOn, onCheats } from './cheats';
 import { importRetry } from './chunkRetry';
 import type { Ctx, GameEvents, GameState, GameSystem } from './contracts';
 import './gameplay';
-import type { Room } from '../net';
-import { reconnectMatch, resumeFailed, resumedLobby, resumedMatch } from '../net/session';
+import type { Regroup, Room } from '../net';
+import { handoffUsed, reconnectMatch, resumeFailed, resumedLobby, resumedMatch } from '../net/session';
 
 type Factory = (...args: never[]) => unknown;
 type Progress = (fraction: number, label: string, crawl?: Crawl) => void;
@@ -140,7 +140,8 @@ export class Game {
     c.time.clearScales();
     for (const sys of this.ordered) if (!this.freeRoamSkips(sys)) sys.reset?.();
     c.events.emit('run:start', {});
-    if (!c.coop || (!c.coop.freeRoam && c.coop.hosting)) c.waves.start?.();
+    // Co-op's load barrier: the host's waves (and directors, which the waves drive) wait until every player is in (net/index.ts `holding`).
+    if (!c.coop || (!c.coop.freeRoam && c.coop.hosting && !c.coop.holding)) c.waves.start?.();
     this.setState('playing');
   }
 
@@ -150,6 +151,8 @@ export class Game {
     if (this.state === 'playing' || (this.state === 'paused' && c.coop)) {
       for (const sys of this.ordered) {
         if (this.freeRoamSkips(sys)) continue;
+        // The load barrier holds the host's mission too: its runner opens on the campaign's first update.
+        if (sys === c.campaign && c.coop?.hosting && c.coop.holding) continue;
         // Menus release local controls while the room, bodies, world and physics keep ticking.
         if (this.state === 'paused' && c.coop
           && (sys === c.player || sys === c.weapons || sys === c.viewmodel || (!c.coop.world && (sys === c.combat || sys === c.progression)))) continue;
@@ -299,8 +302,9 @@ export async function createCtx(canvas: HTMLCanvasElement, onProgress: Progress 
  * read window.__op2.
  */
 export async function startGame(params: URLSearchParams): Promise<void> {
-  await reconnectMatch();
+  // The loading screen first: reconnecting the room can take seconds (the relay credentials, the relays themselves).
   showLoading();
+  await reconnectMatch();
   const report: Progress = (f, label, crawl) => loadingScreen.set(f, label, crawl);
   const canvas = document.getElementById('game') as HTMLCanvasElement;
   const ctx = await createCtx(canvas, report);
@@ -318,16 +322,23 @@ export async function startGame(params: URLSearchParams): Promise<void> {
   if (DEV_TOOLS || cheatsOn()) await loadLab();
   onCheats(on => { if (on) loadLab().catch(() => { labLoaded = false; }); });
   if (ctx.coop) {
-    const hud = ctx.hud as Ctx['hud'] & { startRun(): void; quitToMenu(): void; screens: { coopEnded(message: string, room: Room | null): void } };
-    ctx.coop.onEnded = (message, room) => {
+    const hud = ctx.hud as Ctx['hud'] & { startRun(): void; quitToMenu(): void;
+      screens: { coopEnded(message: string, room: Room | null): void; coopRegroup(plan: Regroup): void } };
+    ctx.coop.onEnded = (message, room, regroup) => {
       hud.quitToMenu();
-      hud.screens.coopEnded(message, room);
+      if (regroup) hud.screens.coopRegroup(regroup);
+      else hud.screens.coopEnded(message, room);
     };
-    if (ctx.coop.lobby.phase === 'closed') ctx.coop.onEnded('The host left or the room could not reconnect.', null);
-    else {
-      hud.startRun();
-      ctx.coop.begin();
-    }
+    // The world the host held while players loaded (newRun skipped it) starts now.
+    ctx.coop.onGo = () => ctx.waves.start?.();
+    // From here a reload of this page is a reload mid-match (net/session.ts).
+    handoffUsed();
+    // The map is up behind "Click to deploy": the click takes the mouse and starts this player's run, so nobody begins a
+    // match in the pause menu, and the host's world waits for every player's click. A room that closed, or a match that
+    // ended, during the load is told there with its real reason.
+    game.setState('menu');
+    ctx.hud.showScreen?.('none');
+    ctx.coop.gate(() => hud.startRun());
   } else if (resumeFailed) {
     game.setState('menu');
     (ctx.hud as Ctx['hud'] & { screens: { coopEnded(message: string): void } }).screens.coopEnded(resumeFailed);

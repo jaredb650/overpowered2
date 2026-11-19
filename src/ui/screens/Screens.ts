@@ -3,7 +3,7 @@ import type { Ctx } from '../../core/contracts';
 import { adoptLoading } from '../boot';
 import { div } from '../dom';
 import type { Hud } from '../Hud';
-import type { Room } from '../../net';
+import type { Regroup, Room } from '../../net';
 import type { Settings } from '../settings';
 import { Nav } from './nav';
 import { GameOverScreen } from './gameover';
@@ -110,8 +110,14 @@ export class Screens {
   coopEnded(message: string, room: Room | null = null): void {
     this.show('coop');
     const screen = this.screens.coop as CoopScreen;
-    if (room) screen.adopt(room.lobby, room.code, room.password, message);
+    if (room) screen.adopt(room.lobby, room.code, room.password, message, room.match);
     else screen.showMessage(message);
+  }
+
+  /** The host is gone for good: everyone who was in the room meets again in a new lobby on the same code. */
+  coopRegroup(plan: Regroup): void {
+    this.show('coop');
+    (this.screens.coop as CoopScreen).regroup(plan);
   }
 
   /** Outpost Defense's buy menu for one shop. */

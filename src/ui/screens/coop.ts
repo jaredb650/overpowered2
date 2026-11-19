@@ -11,12 +11,13 @@ import { report, reportLobby, reportSolo } from '../../core/report';
 import { STARTERS, defaultStarter, saveStarter, starterPreference } from '../../contracts/starter';
 import { starterCards } from './starter';
 import type { Ctx } from '../../core/contracts';
-import { BUILD } from '../../net/build';
 import {
-  type CoopMap, type CoopMode, type JoinStage, CODE_LENGTH, Lobby, MAX_PLAYERS, NAME_MAX, CHAT_MAX, cleanCode, inviteLink, loadCallsign, newCode, saveCallsign, type LobbyError,
+  type CoopMap, type CoopMode, type JoinStage, type Match, CODE_LENGTH, Lobby, MAX_PLAYERS, NAME_MAX, CHAT_MAX, cleanCode, inviteLink, loadCallsign, newCode, saveCallsign,
 } from '../../net/lobby';
+import { errorText } from '../../net/lobbyText';
+import type { Regroup } from '../../net';
 import { div, h, span } from '../dom';
-import { deployMatch } from '../../net/session';
+import { canDeploy, deployMatch } from '../../net/session';
 import { turnConfigured } from '../../net/turn';
 import type { Hud } from '../Hud';
 import type { Nav, NavItem } from './nav';
@@ -53,6 +54,11 @@ export const PHONE = typeof navigator !== 'undefined' && typeof matchMedia === '
 export const PHONE_TEXT = 'OVERPOWERED 2 needs a computer with keyboard and mouse.';
 
 type Page = 'start' | 'host' | 'join' | 'lobby';
+
+/** Regrouping after a lost host: how long each player in the line waits for the one ahead of them to open the new lobby. */
+const REGROUP_WAIT_MS = 14_000;
+/** The ways a regrouping join can fail that mean "nobody is hosting": the next in line takes over. */
+const NOBODY: readonly string[] = ['no-host', 'no-answer', 'connect', 'relays', 'host-left', 'lost'];
 
 function field(label: string, input: HTMLInputElement): HTMLElement {
   return h('label', 'co-field', span('nt-k', label), input);
@@ -92,6 +98,11 @@ export class CoopScreen implements Screen {
   private message = '';
   private reportCode: ErrorCode | null = null;
   private invite = INVITE;
+  /** A lobby is being opened (the awaits in `open`): a second press must not open another. */
+  private busy = false;
+  /** Meeting again after the host was lost: the plan, and whether this page has already taken its turn at hosting. */
+  private regrouping: Regroup | null = null;
+  private tookOver = false;
   /** On the join page from an invite link: the code is known, so the page asks only for the password. */
   private invited = false;
   private joinButton = h('button', 'co-copy co-join', 'Join lobby');
@@ -160,12 +171,7 @@ export class CoopScreen implements Screen {
         button.addEventListener('keydown', e => {
           if (e.key === 'Enter' || e.key === ' ') e.stopPropagation();
         });
-        button.addEventListener('click', () => {
-          this.mode = i;
-          this.modes.querySelectorAll('.co-mode').forEach((el, n) => el.classList.toggle('on', n === i));
-          this.modeNote.textContent = MODE_NOTE[MODES[i]!.mode];
-          this.lobby?.setPick(MODES[i]!.mode, MODES[i]!.map);
-        });
+        button.addEventListener('click', () => this.pickMode(i));
         return button;
       })),
       this.modeNote,
@@ -188,6 +194,13 @@ export class CoopScreen implements Screen {
     );
   }
 
+  private pickMode(i: number): void {
+    this.mode = i;
+    this.modes.querySelectorAll('.co-mode').forEach((el, n) => el.classList.toggle('on', n === i));
+    this.modeNote.textContent = MODE_NOTE[MODES[i]!.mode];
+    this.lobby?.setPick(MODES[i]!.mode, MODES[i]!.map);
+  }
+
   open(nav: Nav): void {
     this.nav = nav;
     nav.left = nav.right = null;
@@ -196,7 +209,7 @@ export class CoopScreen implements Screen {
       this.joinCode.value = this.invite;
       this.invite = '';
       this.invited = true;
-      history.replaceState(null, '', location.pathname);
+      // The code stays in the address until the lobby is joined, so a reload on this page still knows it (`attach`).
       this.go('join');
     } else {
       this.go(this.lobby ? 'lobby' : 'start');
@@ -300,13 +313,16 @@ export class CoopScreen implements Screen {
     const n = lobby.players.length;
     const trying = lobby.hosting ? lobby.trying : 0;
     const waiting = lobby.hosting ? lobby.notReady.length : 0;
+    const slow = lobby.hosting && lobby.match ? lobby.slowToStart : [];
     this.status.textContent = lobby.phase === 'connecting'
-      ? STAGE[lobby.stage]
+      ? (this.regrouping ? `Regrouping · ${STAGE[lobby.stage]}` : STAGE[lobby.stage])
+      : lobby.reconnecting ? `Reconnecting to host… ${lobby.reconnectIn}`
+      : lobby.match && lobby.hosting ? (slow.length ? `Starting · waiting for ${slow.map(p => p.name).join(', ')}` : 'Starting…')
       : lobby.count ? `Starting in ${lobby.count}${lobby.hosting ? ' · Start again to cancel' : ''}`
       : lobby.awayFrom ? 'The match is still on · Rejoin match to go back'
       : lobby.hosting ? `Hosting · ${n} of ${MAX_PLAYERS}${trying ? ` · ${trying} trying to connect` : ''}`
       : `Connected · ${n} of ${MAX_PLAYERS}`;
-    this.status.classList.toggle('co-wait', lobby.phase === 'connecting' || lobby.count > 0);
+    this.status.classList.toggle('co-wait', lobby.phase === 'connecting' || lobby.count > 0 || !!lobby.reconnecting);
     this.startItem.el.querySelector('.mi-t')!.textContent = lobby.count ? `Cancel (${lobby.count})` : 'Start';
     this.startItem.el.classList.toggle('off', !lobby.count && waiting > 0);
     this.forceItem.el.querySelector('.mi-t')!.textContent = performance.now() < this.forceArmed ? 'Sure? Click again' : 'Force start';
@@ -316,7 +332,7 @@ export class CoopScreen implements Screen {
     const arrow = () => span('co-arrow', '→');
     this.guide.style.display = lobby.phase === 'open' && !lobby.count && !lobby.awayFrom ? '' : 'none';
     if (lobby.hosting) {
-      this.guide.replaceChildren(n === 1 ? 'Waiting for players. Send them the invite link and tell them the password.'
+      this.guide.replaceChildren(n === 1 ? 'Waiting for players. Send them the invite link (it opens straight on this lobby, also for someone new to the game) and tell them the password.'
         : waiting ? `Waiting for ${lobby.notReady.map(p => p.name).join(', ')} to ready up. Start unlocks when everyone is ready, or use Force start.`
         : 'Everyone is ready. Press Start.');
     } else {
@@ -331,15 +347,15 @@ export class CoopScreen implements Screen {
     });
     this.players.replaceChildren(
       ...(lobby.phase === 'connecting'
-        ? [div('co-note', 'Looking for the host. This can take up to half a minute.')]
+        ? [div('co-note', this.regrouping ? `The host was lost. Looking for ${this.regrouping.names[0] ?? 'a teammate'}'s new lobby on the same code…` : 'Looking for the host. This can take up to half a minute.')]
         : lobby.players.map(pl => div(`co-player${pl.ready ? ' ready' : ''}`,
           span('co-pname', pl.name),
           pl.host ? span('co-tag host', 'Host') : null,
           pl.id === lobby.you ? span('co-tag', 'You') : null,
           span('co-tag', (pl.starter ?? defaultStarter(lobby.pick.mode)).toUpperCase()),
-          pl.away ? span('co-tag', 'In lobby') : null,
-          span('co-ping', pl.host ? '' : pl.ping === undefined ? '… ms' : `${pl.ping} ms`),
-          span('co-ready', pl.host ? 'Starts the match' : pl.ready ? '✓ READY' : 'NOT READY'),
+          pl.state === 'lost' ? span('co-tag', 'Reconnecting') : pl.state ? span('co-tag', 'Loading') : pl.away ? span('co-tag', 'In lobby') : null,
+          span('co-ping', pl.host || pl.state === 'lost' ? '' : pl.ping === undefined ? '… ms' : `${pl.ping} ms`),
+          span('co-ready', pl.host ? 'Starts the match' : pl.state === 'lost' ? 'LOST CONNECTION' : pl.ready ? '✓ READY' : 'NOT READY'),
         ))),
     );
     this.modes.style.display = lobby.hosting ? '' : 'none';
@@ -354,7 +370,8 @@ export class CoopScreen implements Screen {
   }
 
   private async submit(): Promise<void> {
-    if (this.lobby) return;
+    // Enter in the password field, the menu item and the button all land here: one lobby however many presses.
+    if (this.lobby || this.busy) return;
     this.reportCode = null;
     if (PHONE) return this.fail(`${PHONE_TEXT} Open the invite link on a computer.`);
     const password = this.password.value;
@@ -366,33 +383,67 @@ export class CoopScreen implements Screen {
       this.code = newCode();
     }
     if (!password) return this.fail('Type a password first.');
-    const hosting = this.page === 'host';
-    await reportLobby(this.code, hosting ? 'host' : 'guest');
-    report('COOP_ATTEMPT', { stage: hosting ? 'host' : 'join' });
-    // trystero is only fetched by someone who plays co-op.
-    const name = this.name.value.trim() || loadCallsign();
-    this.status.textContent = 'Connecting...';
-    let rooms;
-    try {
-      const { openLobby } = await import('../../net/trystero');
-      rooms = await openLobby(this.code, password);
-    } catch (error) {
-      report('COOP_RELAYS_UNREACHABLE', { error, stage: 'open-room' });
-      this.reportCode = 'COOP_RELAYS_UNREACHABLE';
-      return this.fail('Could not start the connection. Check you are online, then try again.');
-    }
-    const lobby = new Lobby(rooms, hosting, name);
-    this.attach(lobby, password);
+    this.regrouping = null;
+    await this.openRoom(this.page === 'host', password);
   }
 
-  /** Back from a match: the same room, the same players, on the lobby page. */
-  adopt(lobby: Lobby, code: string, password: string, message = ''): void {
+  /** Opens the lobby on `this.code`, as host or guest. One at a time (`busy`), with the buttons greyed meanwhile. */
+  private async openRoom(hosting: boolean, password: string, hostWait?: number): Promise<void> {
+    if (this.lobby || this.busy) return;
+    this.busy = true;
+    this.joinButton.disabled = true;
+    this.list.classList.add('co-busy');
+    try {
+      await reportLobby(this.code, hosting ? 'host' : 'guest');
+      report('COOP_ATTEMPT', { stage: this.regrouping ? 'regroup' : hosting ? 'host' : 'join' });
+      // trystero is only fetched by someone who plays co-op.
+      const name = this.name.value.trim() || loadCallsign();
+      this.status.textContent = 'Connecting...';
+      let rooms;
+      try {
+        const { openLobby } = await import('../../net/trystero');
+        rooms = await openLobby(this.code, password);
+      } catch (error) {
+        report('COOP_RELAYS_UNREACHABLE', { error, stage: 'open-room' });
+        this.reportCode = 'COOP_RELAYS_UNREACHABLE';
+        this.regrouping = null;
+        return this.fail('Could not start the connection. Check you are online, then try again.');
+      }
+      this.attach(new Lobby(rooms, hosting, name, undefined, hostWait ? { hostWait } : {}), password);
+    } finally {
+      this.busy = false;
+      this.joinButton.disabled = false;
+      this.list.classList.remove('co-busy');
+    }
+  }
+
+  /** Back from a match: the same room, the same players, on the lobby page. `played`: the match just played, which the picker stays on. */
+  adopt(lobby: Lobby, code: string, password: string, message = '', played?: Match): void {
     if (lobby.phase === 'closed') return this.showMessage(message || 'The co-op room closed.');
     if (this.lobby !== lobby) this.lobby?.leave();
     this.code = code;
+    const mode = played ? MODES.findIndex(m => m.mode === played.mode && m.map === played.map) : -1;
+    if (mode >= 0) this.pickMode(mode);
     this.attach(lobby, password);
     this.lobbyNote = message;
     this.paintLobby();
+  }
+
+  /**
+   * The host is gone for good (its tab closed, its network died past the reconnect grace). There is no host migration:
+   * the world lived on that page. So everyone left meets again in a new lobby on the same code and password. The first in
+   * the line (lowest slot) hosts; the others join it, and each takes over in turn if nobody ahead of them shows up.
+   */
+  regroup(plan: Regroup): void {
+    if (this.lobby || this.busy) return;
+    this.regrouping = plan;
+    this.tookOver = plan.rank === 0;
+    this.code = plan.code;
+    this.lobbyNote = plan.note;
+    // Everyone comes back under the callsign they had in the room.
+    if (plan.name) this.name.value = plan.name;
+    console.info(`[coop] Regrouping on the same code: ${plan.rank === 0 ? 'hosting' : `joining ${plan.names[0] ?? 'the new host'}`}.`);
+    void this.openRoom(plan.rank === 0, plan.password, plan.rank === 0 ? undefined : REGROUP_WAIT_MS * plan.rank);
   }
 
   private attach(lobby: Lobby, password: string): void {
@@ -407,12 +458,20 @@ export class CoopScreen implements Screen {
     this.starter.replaceChildren(span('nt-k', 'Your weapon · already picked for you, change it if you like'), ...cards.map(card => card.el));
     if (lobby.hosting) lobby.setPick(MODES[this.mode]!.mode, MODES[this.mode]!.map);
     this.roomPassword = password;
+    // Joined: the invite code has done its work. Only it goes; the rest of the address stays.
+    const query = new URLSearchParams(location.search);
+    if (query.has('join')) {
+      query.delete('join');
+      history.replaceState(null, '', `${location.pathname}${query.size ? `?${query}` : ''}`);
+    }
+    // Asked before any guest is sent off to load a map this page could not follow them to.
+    lobby.canStart = canDeploy;
     lobby.onMatch = match => {
       try { deployMatch(this.code, this.roomPassword, lobby, match); }
       catch {
         lobby.leave();
         this.lobby = null;
-        this.go('start', 'Co-op needs tab storage to load the map. Enable session storage and host again.');
+        this.go('start', 'Co-op needs tab storage to load the map. Allow site data for this page and join again.');
       }
     };
     lobby.onChange = () => {
@@ -452,15 +511,38 @@ export class CoopScreen implements Screen {
     this.lobby = null;
     const error = lobby.error;
     if (!error) return;
+    const plan = this.regrouping;
+    // Regrouping, and the lobby this page joined never appeared (or went again): its turn to host. And a page that hosted
+    // only to find someone already hosting on the code joins them.
+    if (plan && !this.tookOver && NOBODY.includes(error)) {
+      this.tookOver = true;
+      this.lobbyNote = 'The host was lost, and nobody ahead of you came back. You are hosting this lobby now.';
+      return void this.openRoom(true, plan.password);
+    }
+    if (plan && error === 'code-taken') {
+      this.regrouping = { ...plan, rank: 1 };
+      this.lobbyNote = 'The host was lost. A teammate is hosting this lobby now.';
+      return void this.openRoom(false, plan.password);
+    }
+    // The host of a lobby this page was in is gone for good: meet again on the same code.
+    if ((error === 'host-left' || error === 'lost') && lobby.players.length > 1 && this.roomPassword) {
+      const { rank, names } = lobby.successors();
+      const lead = error === 'lost' ? 'Lost the connection to the host.' : 'The host left.';
+      this.go('start');
+      return this.regroup({ code: this.code, password: this.roomPassword, rank, names, name: lobby.me?.name,
+        note: rank === 0 ? `${lead} You are hosting this lobby now${names.length > 1 ? '; the others are rejoining' : ''}.` : `${lead} ${names[0] ?? 'A teammate'} is hosting now.` });
+    }
+    this.regrouping = null;
     this.reportCode = coopErrorCode(error, /same network/i.test(lobby.connectAdvice), turnConfigured());
     this.ctx.audio.play?.('ui_error');
-    const retry = error === 'password' || error === 'no-host' || error === 'connect' || error === 'relays' || error === 'lost';
+    const retry = error === 'password' || error === 'no-host' || error === 'no-answer' || error === 'connect' || error === 'relays' || error === 'lost';
     if (retry) this.joinCode.value = this.code;
     this.go(retry ? 'join' : 'start', errorText(error, lobby.theirBuild, this.code, lobby.connectAdvice));
   }
 
   private leave(): void {
     this.lobbyNote = '';
+    this.regrouping = null;
     this.lobby?.leave();
     this.lobby = null;
     this.roomPassword = '';
@@ -490,19 +572,4 @@ export class CoopScreen implements Screen {
   }
 }
 
-/** `advice`: with 'connect', what the failed connection's candidates say (ice.ts), in place of the generic network line. */
-export function errorText(error: LobbyError, theirBuild: string, code: string, advice = ''): string {
-  switch (error) {
-    case 'password': return 'Wrong password. Check it with the host and try again.';
-    case 'version': return `Version mismatch: the host has ${theirBuild}, you have ${BUILD}. Both of you hard reload (Ctrl+Shift+R, or Cmd+Shift+R on a Mac), then try again.`;
-    case 'host-left': return 'The host left, so the lobby is closed.';
-    case 'no-host': return `Lobby not found: nobody answered on code ${code}. Check the code and password with the host; an old invite link points at a lobby that has closed. If both are right, ${turnConfigured() ? 'the host may have left.' : "your networks may not be able to connect directly: set up TURN or try a different network."}`;
-    case 'connect': return advice ? `Couldn't connect. ${advice}` : turnConfigured()
-      ? "Couldn't connect, even through the relay server. Have one player switch networks (e.g. a phone hotspot)."
-      : "Couldn't connect. One of your networks blocks direct connections. Have one player switch networks (e.g. a phone hotspot); a relay server (TURN) would fix it for good.";
-    case 'full': return 'That lobby is full: four players.';
-    case 'relays': return 'Contacting lobby servers failed: could not reach any of the matchmaking relays. Check your internet connection (a VPN or firewall can block them), then try again.';
-    case 'lost': return 'Lost the connection to the host: nothing heard for 20 seconds. Their game may have closed or their network dropped.';
-    case 'code-taken': return 'That code was already in use by another lobby. Host again for a fresh code.';
-  }
-}
+export { errorText };

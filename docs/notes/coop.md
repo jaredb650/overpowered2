@@ -37,7 +37,10 @@ If a friend cannot connect at all, set up TURN once (below).
 | `tools/turn-worker/worker.js` | The Cloudflare Worker that mints TURN credentials. Setup below |
 | `src/net/lobby.ts` | `Lobby`: players, ready, chat, ping, heartbeat, countdown, full lobby, code clash, end match and away/rejoin, every check on what peers send |
 | `src/ui/screens/coop.ts`, `src/ui/css/coop.css` | Play > Multiplayer: start, host, join and lobby pages; the in-match co-op HUD styles |
-| `src/net/session.ts` | Tab-local match handoff and early room reconnect across the map page load |
+| `src/net/session.ts` | Tab-local match handoff (kept for the match's life, with the roster), early room reconnect across the map page load, reloads |
+| `src/net/sessionHud.ts`, `src/ui/css/coopsession.css` | The deploy gate, the waiting and reconnecting line, the host-lost board |
+| `src/net/lobbyText.ts` | Every reason a room closes, in words |
+| `src/net/fakeHub.ts` | The lobby tests' in-memory transport (mute, sever and mend a link) |
 | `src/net/index.ts` | `CoopSession`: the game-facing session, remote bodies, poses, chat lines in the feed, leaving to the lobby, the co-op cost meter |
 | `src/net/remote.ts` | A friend's body: the Bailiff with the nearest third-person prop to their gun, posture, tag |
 | `src/net/pose.ts` | Binary pose codec and arrival-time interpolation buffer |
@@ -381,11 +384,170 @@ per Crucible attack, 29 of them, each staged alone at the guest), `coop-attacks-
 soldier weapon forced once, a tank, a ram, a wreck, the Commander), `coop-attacks-kit.mjs` (the recorder both use). `COOP_SIM`,
 `COOP_PLAYERS` and `ATTACKS`/`PARTS` narrow or stress a run. Unit tests: `src/net/world/attacks.test.ts`.
 
+## The life of a session (overhaul lane "session", 2026-11-18)
+
+From the moment a lobby opens to the moment everyone is back in it: `src/net/lobby.ts` (the rules), `session.ts` (the handoff
+between pages), `index.ts` (`CoopSession`: the gate, the hold, the hooks), `sessionHud.ts` (what it draws), `lobbyText.ts` (every
+closing reason in words), `ui/screens/coop.ts` (the lobby page, regrouping). Findings fixed are those of
+`docs/notes/coop-audit-life.md` listed for this lane in `coop-overhaul.md`.
+
+### Seats
+
+- A **seat** is one player in a room: `LobbyPlayer.seat` (`s1`, `s2`…), given by the host to a browser the first time it says
+  hello and kept for the room's whole life, across the host's own page loads (the handoff carries the table). The browser's id
+  is the one in localStorage (`op2_browser`; per tab on the loopback transport). **Slot** (colour, tag, spawn, side-step) stays
+  with the seat: the same in the lobby, in the match, after a reload, in the next match.
+- `LobbyPlayer.id` is only the seat's **current connection** (the transport's peer id). It changes on every page load. Keep
+  nothing by it that must outlive a reload; key by `seat` (or on the host `lobby.browserOf(id)`, which the team's purses and kits use).
+- `away` now means **not in the match's world right now**: nothing of the game is sent to or taken from that player, no body is
+  drawn, nothing targets them, no wipe waits on them. `state` says why: `'loading'` (their map page is booting, or they have not
+  connected yet), `'ready'` (booted, at "Click to deploy"), `'lost'` (connection dropped, seat kept). `away` with no `state` is
+  the old meaning: on the lobby page by choice. Code that filters on `!p.away` is right for all four.
+- Callsigns are unique in a room: the second `VIPER-27` is `VIPER-27 (2)` (host, on hello and on every rename).
+
+### Which page is talking (the match id in hello)
+
+A match is played on a fresh page per player. `hello` carries `page` (the match this page was built for, null on a lobby
+page) and, from a host, `match` (the match it is running or starting). A host whose `page` is not its `match` is on its way
+out to a new page: a guest already on a map page ignores it and waits for its successor, and such a host ignores guests arriving
+for its next page. `Lobby.page` is reset to null when a match ends or is left, so the rule holds for the second and third match
+in a room (the old one-time `deployed` flag did not). The lobby list carries `on` (the running match's id or null), so a page
+that missed an `end` while loading still learns its match is over.
+
+### Start, the load barrier and the deploy gate
+
+1. The host's Start (or Force start) first asks `canStart` (tab storage writable), then sends `start`. Guests acknowledge and
+   change page. The host waits for the acknowledgements at most `START_ACK_MS` = 5 s (the lobby status reads "Starting ·
+   waiting for NAME"), then changes page too; a guest that was slow gets `start` again when its page says hello.
+2. The handoff (sessionStorage `op2_coop_match`) carries the **roster** (browser, seat, name, slot, starter) to the host's map
+   page, whose lobby pre-seats everyone as `'loading'` before they connect.
+3. Every map page boots, then stops at **"Click to deploy"** (`CoopSession.gate`, drawn by `sessionHud.ts`): the map behind,
+   the list of players with "loading the map / at the deploy screen / in". The click is that page's first gesture: it takes the
+   mouse, unlocks the sound and starts the local run (`hud.startRun`), so nobody starts in the pause menu. The page tells the
+   host `loaded` twice: booted (`click: false`), then in (`click: true`).
+4. **The host's world is held** until the barrier lifts: `CoopSession.holding` keeps `Game.newRun` from calling `waves.start()`
+   (all three wave directors, and with them the Commander and the Defense director) and skips the host's campaign update (a
+   mission's runner opens on its first update). Players who are in walk the map meanwhile, with one line on every screen:
+   "Waiting for NAME · starting without them in 54 s".
+5. The barrier lifts (`Lobby.live`, `onGo`) when every seat is in, or when the wait has run out for each missing one:
+   `LOAD_WAIT_MS` = 90 s from the host's own deploy click for a player still loading, `CLICK_WAIT_MS` = 20 s for one sitting
+   at the deploy screen, nothing for a lost seat. A lobby line names who it started without. They join later as late joiners:
+   their `loaded` makes them present, and the team's first-card catch-up hands them the rest.
+6. Liveness while loading: a guest's map page waits `MATCH_HOST_WAIT_MS` = 120 s for its host (a lobby page 30 s), judges no
+   silence until it has booted, and forgives a host whose own row still says loading; the host applies no silence rule to a
+   loading seat (the barrier bounds it; an unconnected seat is dropped after `LOADING_SEAT_MS` = 3 min).
+7. The barrier exists only on the map page of its own match (`Lobby.barrier`). A lobby that plays a match without a page of its
+   own (every unit test) admits a mid-match newcomer directly, as before.
+
+### A blip is not the end
+
+| Side | What happens | Numbers |
+|---|---|---|
+| Guest, host silent | "Reconnecting to host… 30" (red line), the room stays open, poses stop. Anything heard from the host ends it | silent `QUIET_MS` = 6 s, then `RECONNECT_MS` = 30 s |
+| Guest, host's connection closed | The same line. A hello from the host (the same page reconnected by trystero, or its reloaded page) ends it | 30 s |
+| Guest, grace over | The room closes with `lost` or `host-left`; see "Host loss" | |
+| Host, guest silent | The seat goes `'lost'` ("NAME lost connection."), body out of the world, slot and everything kept by seat stay | `SILENCE_MS` = 20 s |
+| Host, guest's connection closed | The same at once | |
+| Host, the guest is back | Same browser id (or the same connection answering again): seat back, `'loading'` until its page says where it is, then "NAME is back." | within `SEAT_GRACE_MS` = 60 s |
+| Host, grace over | "NAME left.", seat and slot freed | 60 s |
+| Either, a deliberate quit | `leave()` sends `bye`: "NAME left." at once, no grace; a host's `bye` closes guests at once | |
+| Either, its own page stalled | A heartbeat that last ran more than `STALL_MS` = 5 s ago restarts every peer's silence from now | |
+
+A guest's page always reconciles with the host's list: if the list has it as loading or lost while it is in the world, it says
+`loaded` again (once a second). So a lost message or a host that gave the seat up too early heals itself.
+
+A full lobby never turns a live player away for a ghost: a fifth hello evicts the seat lost longest. trystero's own cap is 8
+(`TRANSPORT_MAX_USERS`), so only the lobby's own check says "full".
+
+### Reloads
+
+The handoff stays in sessionStorage for as long as the match does (only `clearSession` removes it: leaving, or the match ending).
+
+- **A guest reloads** (F5, the error panel's Reload): the new page rejoins the same match, takes its seat back, stops at the
+  gate ("already running") and is announced "lost connection" then "is back". It is never a solo run. What the player gets back
+  (purse, kit, life) is the team lane's restore, keyed by browser.
+- **The host reloads:** its page was the world, which cannot be picked up again. The new page opens a **new match of the same
+  mode** for the same roster; the guests, who were on "Reconnecting to host", get `start` for a match that is not theirs and
+  follow it to a fresh page (`Lobby.onMatch`), through the gate again. Everyone restarts from the beginning, in the same room.
+- A match that ends, or changes, while a page is still loading it: the page lands on the lobby page with "The match ended while
+  you were loading", or goes to the new match.
+- Closing or reloading a tab mid-match asks first (`beforeunload`), except for the game's own page changes.
+- Not covered: a reload on the lobby page (between matches) still drops out of the room; the invite link brings the player back.
+
+### Host loss
+
+No host migration: the world lives only on the host's page. When the host is gone for good (grace over, or it quit):
+
+1. Mid-match, guests get the team board "HOST LOST" with each player's kills, score and credits for `LOST_BOARD_MS` = 10 s.
+2. Then everyone **regroups on the same code and password** (`CoopScreen.regroup`): the survivors in slot order as the host
+   last listed them (`Lobby.successors`), the first hosts a new lobby, the others join it under the callsigns they had. Each
+   joiner waits 14 s times its place in the line, then takes over if nobody ahead showed up; a host that finds the code
+   already hosted joins instead. Players on the lobby page when the host goes regroup the same way, without the board.
+3. The old host can come back with the invite link and joins as a guest.
+
+Measured on the loopback transport: tab closed to everyone in the new lobby, 41 s (30 s grace, 10 s board, about 1 s to meet).
+
+### Joining
+
+- Another peer's failed connection or wrong password never closes a joiner. Errors are kept per peer; the door tells a joiner
+  which peer the host is (`{ t: 'host' }`), and only the host's own failure closes the join at once. With nobody at the door
+  and nothing else in progress the join gives its only reason after `PENDING_ERROR_MS` = 8 s.
+- A host that connects but never says hello (frozen, still loading) reads "its host is not answering" (`no-answer`).
+- Join and Open lobby are one lobby however many presses (`busy`); the invite code stays in the address until the lobby is joined.
+- Every close writes its reason to the console (`[coop] The room closed: lost (guest, joined, match crucible).`) and every
+  screen shows `errorText()` (`lobbyText.ts`): the join page, the lobby page and a running match alike.
+- Join and leave lines have one source, the lobby's own (`post`): "X joined.", "X is joining…" then "X joined." for a late
+  joiner, "X lost connection.", "X is back.", "X reconnected." (back in the room but on the lobby page), "X left.", "X went
+  back to the lobby.". The session's roster diff says nothing more.
+
+### Hooks for the other lanes (`CoopSession`)
+
+| Hook | When |
+|---|---|
+| `onArrived.add((id, { seat, slot, name, rejoin }) => …)` | Host: a player is in the world. `rejoin` when that seat has been in this match before (reload, reconnect, back from the lobby page) |
+| `onLost.add((id, seat) => …)` | Host: a player's connection dropped while they were in the world; the seat is kept 60 s |
+| `onGone.add(seat => …)` | Host: a seat is given up for good |
+| `holding` | True until the barrier lifts. Host-side timers that must not run before every player is in can read it |
+| `lobby.live`, `lobby.waitingFor`, `lobby.holdLeft` | The barrier, who it waits for, seconds until it starts regardless |
+| `lobby.reconnecting`, `lobby.reconnectIn` | Guest: the link to the host is in trouble |
+| `deploy()` | Presses "Click to deploy" from a script (`coop-kit.mjs` `deploy`, used by `inMatch`) |
+
+The team's own first-card arrival (`team.onArrived`) still fires for every new connection. For the same connection coming back
+after a drop (no new page, so no new first card) the session calls `team.onArrived(id)` itself, so the mission, dropped guns
+and villain catch-ups run again; the team's `restore` and `sync` do not (see "Not done").
+
+### Proofs (`tools/scripts/coop-session-*.mjs`, helpers in `coop-session-kit.mjs`)
+
+Each asserts on every page and runs on the loopback transport; `COOP_SIM='lag:120,jitter:40,loss:0.05'` reruns it on a bad network.
+
+| Script | What it proves |
+|---|---|
+| `coop-session-start` | 3 players, one held back 25 s: real clicks on the gate, nobody in the pause menu, the host's world held with "Waiting for GUEST-THREE" on both screens, slots are the lobby's, no join/leave lines, wave 1 only when all are in |
+| `coop-session-noshow` | A guest that never arrives: the countdown, the host starting alone after 90 s and naming them, the guest joining the running wave later, announced once |
+| `coop-session-blip` | The link silent for 8 s (the guest shows "Reconnecting to host…", nobody dropped, credits and gun unchanged), then the guest's page frozen 22 s (still in the match, never "left") |
+| `coop-session-reload` | A guest reloads mid-wave and is back in its seat, never playing without a session; the host reloads and all three are in a new match with their seats |
+| `coop-session-late` | A late joiner by invite ("is joining…", "joined.", the wave and its enemies); a match ended while a slow page loads lands that page in the lobby with the reason |
+| `coop-session-hostquit` | The host's tab closes: "Reconnecting", the HOST LOST board, both guests in one new lobby on the same code with the lowest slot hosting, and a new match from there |
+| `coop-session-three` | Three matches in one room with a 3 s hitch on one guest at every start: everyone in every match, seats kept, the host's mode pick remembered |
+| `coop-session-password` | Someone typing the wrong password does not disturb a friend joining; "Wrong password" for the one, a double press is one lobby |
+| `coop-session-modes` | Every co-op mode in turn in one room: world held while waiting (no wave running, mission not begun), started when the guest clicks |
+
+Unit tests: `src/net/lobbyLife.test.ts` (30: each timer rule and each case above over the fake transport, `fakeHub.ts`).
+
+### Not done
+
+- The dropped-then-reconnected link over **real WebRTC** (trystero finding the same peer again) is covered by the unit tests
+  and by the loopback proofs only; no proof cuts a real peer connection.
+- A same-connection return after a long drop gets the world catch-ups but not the team's `restore`/`sync` (the guest's page
+  kept its kit, and cards and snapshots heal state, but a wave banner or pod call sent while it was away is not replayed).
+- Hidden-tab and "in a menu" tags on teammates (M7, M8), a note in the one-tab takeover (H2), a rejoin after a reload on the
+  lobby page, and a host page reload after its guests have already regrouped (two hosts on one code; they do not merge).
+
 ## How it works
 
 - **trystero 0.27.0, pinned**, with its default strategy, Nostr: peers meet through public Nostr relays, then talk browser to browser
   over WebRTC. `appId` is `overpowered-2-coop`, the room id is the code, and `identity: 'none'` stores nothing and makes each tab its own
-  player. `maxUsers` is 4. **Relays:** 8 of trystero's 30 public relays (`RELAY_REDUNDANCY`); trystero picks the same 8 for everyone from
+  player. trystero's own `maxUsers` is 8, so the lobby's check is the only cap of four. **Relays:** 8 of trystero's 30 public relays (`RELAY_REDUNDANCY`); trystero picks the same 8 for everyone from
   the app id, so all players share them, and one answering is enough. If none answers, the lobby stops with a plain "could not reach any of
   the matchmaking relays" instead of waiting.
 - **Code and password.** The host picks the password, and the game picks a 6 character code (no 0, O, 1, I or L). The password is
@@ -834,9 +996,11 @@ hints, banners, doors, music, cutscenes, guns and grenades handed out, pickups d
 
 | Case | What happens |
 |---|---|
-| Host leaves or crashes | Every guest's match ends with "The host left" (or, if silent, "Lost the connection to the host" after 20 s), back to Multiplayer. **No host migration:** the host's browser *is* the world (enemy AI, physics, mission runner, wave director); a guest has only cosmetic replicas, so migrating would mean rebuilding the whole simulation from a 10 Hz snapshot mid-fight. Not feasible here |
-| Guest disconnects | Body and tag go, a feed line says so, the run goes on; the host drops a silent guest after 20 s |
-| Guest rejoins mid-match, even mid-wave | The invite link and password; the host sends the match, the guest loads the map and gets the full enemy state from the next snapshot (every snapshot is complete), team cards within 250 ms, their purse and score back by callsign, and in a mission the catch-up above |
+| Host leaves or crashes | Guests wait on "Reconnecting to host… 30" (a host that only reloaded restarts the match for everyone), then get the team board and regroup in a new lobby on the same code with the next player as host. **No host migration:** the host's browser *is* the world. See "The life of a session" |
+| Guest disconnects | "NAME lost connection.", body and tag go, the seat is kept 60 s, the run goes on; then "NAME left." |
+| Guest rejoins mid-match, even mid-wave | A reload rejoins by itself; otherwise the invite link and password. Same seat and slot, the deploy gate, the full enemy state from the next snapshot, and the team's restore (purse, kit, life) by browser |
+| A network blip | Nobody is dropped: "Reconnecting to host…" on the guest for up to 30 s, a kept seat on the host for 60 s |
+| A slow or absent player at match start | The host's world waits at most 90 s, naming them; they join in progress when they arrive |
 | Wrong password | Told on both ends, never silence (the door) |
 | Version mismatch | "Version mismatch: the host has X, you have Y. Both of you hard reload (Ctrl+Shift+R, or Cmd+Shift+R on a Mac)" |
 | A phone or touch-only tablet | "OVERPOWERED 2 needs a computer with keyboard and mouse" on Multiplayer; Join and Host refuse |

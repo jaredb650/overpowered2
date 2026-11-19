@@ -1,88 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { COUNTDOWN_S, DOOR_AFTER_MS, HOST_WAIT_MS, Lobby, PING_MS, RELAY_WAIT_MS, SILENCE_MS, cleanCode, inviteLink, newCode } from './lobby';
+import { COUNTDOWN_S, DOOR_AFTER_MS, HOST_WAIT_MS, Lobby, PING_MS, QUIET_MS, RECONNECT_MS, RELAY_WAIT_MS, SEAT_GRACE_MS, SILENCE_MS, cleanCode, inviteLink, newCode } from './lobby';
 import { encodePose, type Pose } from './pose';
-import type { NetError, NetRoom } from './room';
-
-/**
- * An in-memory relay. Peers in one room with the same password connect. A wrong one fails the handshake on one end only,
- * as trystero does: the end that received the offer, which is down to how the peer ids compare. `failsAt` picks it.
- */
-class Hub {
-  private rooms: FakeRoom[] = [];
-  private queue: (() => void)[] = [];
-  failsAt: 'newcomer' | 'resident' = 'newcomer';
-
-  open(roomId: string, password: string, peerId: string): FakeRoom {
-    const room = new FakeRoom(peerId, roomId, password, this);
-    for (const other of this.rooms) {
-      if (other.roomId !== roomId) continue;
-      if (other.password === password) {
-        this.later(() => other.joined(room.id));
-        this.later(() => room.joined(other.id));
-      } else if (this.failsAt === 'newcomer') {
-        this.later(() => room.fail('password', other.id));
-      } else {
-        this.later(() => other.fail('password', room.id));
-      }
-    }
-    this.rooms.push(room);
-    return room;
-  }
-
-  later(fn: () => void): void {
-    this.queue.push(fn);
-  }
-
-  deliver(from: FakeRoom, name: string, data: unknown, to?: string): void {
-    for (const r of this.rooms) {
-      if (r === from || r.roomId !== from.roomId || r.password !== from.password || (to && r.id !== to)) continue;
-      const copy = structuredClone(data);
-      this.later(() => r.message(name, copy, from.id));
-    }
-  }
-
-  gone(room: FakeRoom): void {
-    this.rooms = this.rooms.filter(r => r !== room);
-    for (const r of this.rooms) if (r.roomId === room.roomId && r.password === room.password) this.later(() => r.left(room.id));
-  }
-
-  flush(): void {
-    for (let i = 0; i < 1000 && this.queue.length; i++) this.queue.shift()!();
-  }
-}
-
-class FakeRoom implements NetRoom {
-  private handlers: Record<string, ((data: unknown, from: string) => void)[]> = {};
-  private joins: ((id: string) => void)[] = [];
-  private leaves: ((id: string) => void)[] = [];
-  private errors: ((e: NetError, peerId?: string) => void)[] = [];
-  closed = false;
-
-  constructor(readonly id: string, readonly roomId: string, readonly password: string, private readonly hub: Hub) {}
-
-  channel<T>(name: string) {
-    return {
-      send: (data: T, to?: string) => {
-        if (!this.closed) this.hub.deliver(this, name, data, to);
-      },
-      on: (handler: (data: T, from: string) => void) => {
-        (this.handlers[name] ??= []).push(handler as (data: unknown, from: string) => void);
-      },
-    };
-  }
-  onPeerJoin(h: (id: string) => void) { this.joins.push(h); }
-  onPeerLeave(h: (id: string) => void) { this.leaves.push(h); }
-  onError(h: (e: NetError, peerId?: string) => void) { this.errors.push(h); }
-  leave() {
-    if (this.closed) return;
-    this.closed = true;
-    this.hub.gone(this);
-  }
-  joined(id: string) { if (!this.closed) for (const h of this.joins) h(id); }
-  left(id: string) { if (!this.closed) for (const h of this.leaves) h(id); }
-  fail(e: NetError, peerId: string) { if (!this.closed) for (const h of this.errors) h(e, peerId); }
-  message(name: string, data: unknown, from: string) { if (!this.closed) for (const h of this.handlers[name] ?? []) h(data, from); }
-}
+import { FakeRoom, Hub } from './fakeHub';
 
 describe('co-op lobby', () => {
   let hub: Hub;
@@ -184,8 +103,10 @@ describe('co-op lobby', () => {
     const second = guest('pw', 'b1', 'GUEST');
     second.browser = 'browser-1';
     hub.flush();
-    expect(h.players.map(p => p.name)).toEqual(['HOSTY', 'OTHER', 'GUEST']);
+    // It takes its own seat back, in place: the same slot, the same seat id.
+    expect(h.players.map(p => [p.name, p.slot])).toEqual([['HOSTY', 0], ['GUEST', 1], ['OTHER', 2]]);
     expect(h.players.filter(p => p.name === 'GUEST')).toHaveLength(1);
+    expect(h.players[1]!.id).toBe(second.you);
     expect(second.phase).toBe('open');
   });
 
@@ -271,6 +192,10 @@ describe('co-op lobby', () => {
     // The guest stops answering (a closed lid): nothing from it reaches the host.
     (g as unknown as { ch: { send(): void } }).ch.send = () => {};
     vi.advanceTimersByTime(SILENCE_MS + PING_MS * 2); hub.flush();
+    // Not thrown out yet: the seat is kept in case it was only the network.
+    expect(h.players[1]).toMatchObject({ name: 'GUEST', state: 'lost', away: true });
+    expect(h.chat.at(-1)?.text).toBe('GUEST lost connection.');
+    vi.advanceTimersByTime(SEAT_GRACE_MS + PING_MS * 2); hub.flush();
     expect(h.players).toHaveLength(1);
     expect(h.chat.at(-1)?.text).toBe('GUEST left.');
   });
@@ -279,7 +204,10 @@ describe('co-op lobby', () => {
     const h = host(); const g = guest(); hub.flush();
     expect(g.phase).toBe('open');
     (h as unknown as { ch: { send(): void } }).ch.send = () => {};
-    vi.advanceTimersByTime(SILENCE_MS + PING_MS * 2); hub.flush();
+    vi.advanceTimersByTime(QUIET_MS + PING_MS * 2); hub.flush();
+    // First the grace: the room stays open while the link may still come back.
+    expect(g.phase).toBe('open'); expect(g.reconnecting?.reason).toBe('lost');
+    vi.advanceTimersByTime(RECONNECT_MS + PING_MS * 2); hub.flush();
     expect(g.phase).toBe('closed'); expect(g.error).toBe('lost');
   });
 
@@ -406,9 +334,9 @@ describe('co-op lobby', () => {
 describe('match start and live room', () => {
   let hub: Hub;
   let n = 0;
-  const open = (host: boolean, name: string, deployed = false) => {
+  const open = (host: boolean, name: string, page: string | null = null) => {
     const id = `m${n++}`;
-    return new Lobby({ main: hub.open('MATCH', 'pw', id), door: () => hub.open('MATCH-door', 'MATCH', id) }, host, name, 'same', deployed);
+    return new Lobby({ main: hub.open('MATCH', 'pw', id), door: () => hub.open('MATCH-door', 'MATCH', id) }, host, name, 'same', { page });
   };
   beforeEach(() => { vi.useFakeTimers(); hub = new Hub(); });
   afterEach(() => vi.useRealTimers());
@@ -478,12 +406,12 @@ describe('match start and live room', () => {
     const oldHost = open(true, 'HOST'), oldGuest = open(false, 'GUEST'); hub.flush();
     oldHost.startMatch('crucible', 'handoff'); hub.flush();
     oldGuest.leave(); hub.flush();
-    const returning = open(false, 'GUEST', true); hub.flush();
+    const returning = open(false, 'GUEST', 'handoff'); hub.flush();
     expect(returning.phase).toBe('connecting');
     expect(oldHost.players.map(p => p.name)).toEqual(['HOST']);
     oldHost.leave(); hub.flush();
     expect(returning.error).toBeNull();
-    const deployedHost = open(true, 'HOST', true);
+    const deployedHost = open(true, 'HOST', 'handoff');
     deployedHost.startMatch('crucible', 'handoff'); hub.flush();
     expect(returning.phase).toBe('open');
     expect(returning.match).toEqual({ id: 'handoff', mode: 'crucible' });

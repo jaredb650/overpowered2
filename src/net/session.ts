@@ -1,13 +1,29 @@
 import { onBeforeChunkReload } from '../core/chunkRetry';
 import { report, reportLobby } from '../core/report';
-/** Tab-local map handoff. Passwords never enter URLs or game messages. The room reconnects before the heavy map boot. */
-import { Lobby, validMatch, type Match } from './lobby';
+/**
+ * Tab-local map handoff. A match is played on a fresh page per player (maps are fixed for a page's life), so the lobby
+ * writes what the map page needs into sessionStorage and changes page. Passwords never enter URLs or game messages. The
+ * room reconnects before the heavy map boot.
+ *
+ * The handoff stays for as long as the match does (only `clearSession` removes it), so a reload of the map page lands in
+ * the same match, never in a silent solo run: a guest takes its seat back, and a host, whose page was the world, opens a
+ * new match of the same mode for the same players, who follow it.
+ */
+import { Lobby, validMatch, type Match, type SeatRecord } from './lobby';
 import { BUILD } from './build';
 import { carryNet } from './mode';
 import { simText } from './netsim';
 import { isStarter, selectedStarter, type StarterGun } from '../contracts/starter';
 
-interface Handoff { code: string; password: string; name: string; hosting: boolean; match: Match; starter?: StarterGun }
+interface Handoff {
+  code: string; password: string; name: string; hosting: boolean; match: Match; starter?: StarterGun;
+  /** Host: the players the lobby sent into this match, so the map page can wait for them by name and keep their seats. */
+  roster?: SeatRecord[];
+  /** Host: every seat this room has given out (browser id, seat id). */
+  seats?: [string, string][];
+  /** A map page has already been built from this handoff: finding it again means the page was reloaded. */
+  used?: boolean;
+}
 const KEY = 'op2_coop_match';
 export let resumedLobby: Lobby | null = null;
 export let resumedMatch: Match | null = null;
@@ -15,13 +31,34 @@ export let resumedMatch: Match | null = null;
 export let resumedRoom: { code: string; password: string } | null = null;
 /** Why a match handoff found on this page could not be used: shown on Multiplayer, never a silent splash. */
 export let resumeFailed = '';
+/** This page was reloaded in the middle of its match (and has rejoined it). */
+export let reloaded = false;
+/**
+ * What the host did while this page was still loading the map. The game is not listening yet (its session is built at the
+ * end of the boot), so this keeps the news: the match ended, and the boot must land on the lobby page, not in a dead run.
+ */
+export const whileLoading = { ended: false };
 /** The handoff this page read, kept so a failed boot can put it back (restoreHandoff). */
 let consumed: string | null = null;
+/** This page is changing to a map page of its own accord: no "leave the match?" prompt for that. */
+export let deploying = false;
+
+/** '' when this tab can carry a match to its map page, else why not. Asked before the host sends anyone off. */
+export function canDeploy(): string {
+  try {
+    sessionStorage.setItem(`${KEY}_probe`, '1');
+    sessionStorage.removeItem(`${KEY}_probe`);
+    return '';
+  } catch {
+    return 'Co-op needs tab storage to load the map, and this browser is blocking it. Allow site data for this page, then start again.';
+  }
+}
 
 export function deployMatch(code: string, password: string, lobby: Lobby, match: Match): void {
   const handoff: Handoff = { code, password, name: lobby.me?.name ?? 'PLAYER', hosting: lobby.hosting, match,
     // This player's own pick first: the host's list can lag a pick made as the count ran out.
-    starter: lobby.starter ?? lobby.me?.starter ?? selectedStarter(match.mode) };
+    starter: lobby.starter ?? lobby.me?.starter ?? selectedStarter(match.mode),
+    ...(lobby.hosting ? lobby.seatRecords() : {}) };
   // If storage is blocked, fail on the lobby page rather than reloading into an unrelated single-player run.
   sessionStorage.setItem(KEY, JSON.stringify(handoff));
   const params = new URLSearchParams(location.search);
@@ -31,28 +68,46 @@ export function deployMatch(code: string, password: string, lobby: Lobby, match:
   params.set('starter', handoff.starter!);
   // The test transport and the network simulator follow the player into the match page (mode.ts, netsim.ts).
   carryNet(params, simText());
-  location.search = params.toString();
+  deploying = true;
+  const next = params.toString();
+  // The same mode on the same map again (a match restarted under a loading or reloaded page): the address does not change.
+  if (`?${next}` === location.search) location.reload();
+  else location.search = next;
 }
 
 export async function reconnectMatch(): Promise<void> {
   try {
     const raw = sessionStorage.getItem(KEY);
     if (!raw) return;
-    sessionStorage.removeItem(KEY);
     consumed = raw;
     resumeFailed = 'The co-op match could not be carried over to this page. Join the lobby again.';
     const data = JSON.parse(raw) as Handoff;
     if (!validMatch(data.match) || typeof data.code !== 'string' || !/^[A-Z2-9]{6}$/.test(data.code)
       || typeof data.password !== 'string' || typeof data.name !== 'string' || typeof data.hosting !== 'boolean'
       || new URLSearchParams(location.search).get('contract') !== data.match.mode
-      || (new URLSearchParams(location.search).get('map') ?? undefined) !== data.match.map) return;
+      || (new URLSearchParams(location.search).get('map') ?? undefined) !== data.match.map) {
+      sessionStorage.removeItem(KEY);
+      return;
+    }
+    reloaded = data.used === true;
+    // The host's page was the world. Reloaded, it cannot pick that world up again, so it opens a new match of the same mode
+    // for the same players: their pages take the new match's start and follow (Lobby.onMatch).
+    const match: Match = reloaded && data.hosting ? { ...data.match, id: crypto.randomUUID() } : data.match;
+    if (match !== data.match) sessionStorage.setItem(KEY, JSON.stringify({ ...data, match } satisfies Handoff));
     await reportLobby(data.code, data.hosting ? 'host' : 'guest');
-    report('COOP_ATTEMPT', { stage: 'reconnect' });
+    report('COOP_ATTEMPT', { stage: reloaded ? 'reload' : 'reconnect' });
+    if (reloaded) console.info(`[coop] This page was reloaded mid-match: ${data.hosting ? 'hosting the match again from its start' : 'rejoining it'}.`);
     const { openLobby } = await import('./trystero');
-    resumedMatch = data.match;
+    resumedMatch = match;
     resumedRoom = { code: data.code, password: data.password };
-    resumedLobby = new Lobby(await openLobby(data.code, data.password), data.hosting, data.name, BUILD, true, isStarter(data.starter) ? data.starter : selectedStarter(data.match.mode));
-    if (data.hosting) resumedLobby.startMatch(data.match.mode, data.match.id, data.match.map);
+    const roster = Array.isArray(data.roster) ? data.roster.filter(r => r && typeof r.browser === 'string' && typeof r.seat === 'string' && Number.isInteger(r.slot)) : [];
+    const seats = Array.isArray(data.seats) ? data.seats.filter(s => Array.isArray(s) && typeof s[0] === 'string' && typeof s[1] === 'string') : [];
+    const lobby = resumedLobby = new Lobby(await openLobby(data.code, data.password), data.hosting, data.name, BUILD,
+      { page: match.id, roster, seats }, isStarter(data.starter) ? data.starter : selectedStarter(data.match.mode));
+    lobby.onEnd = () => { whileLoading.ended = true; };
+    // The host moved on to another match while this page loaded (or reloaded): go there.
+    lobby.onMatch = next => { if (next.id !== match.id) deployMatch(data.code, data.password, lobby, next); };
+    if (data.hosting) lobby.startMatch(match.mode, match.id, match.map);
     resumeFailed = '';
   } catch (error) {
     report('COOP_DISCONNECTED', { error, stage: 'reconnect' });
@@ -61,9 +116,20 @@ export async function reconnectMatch(): Promise<void> {
   }
 }
 
-/** The boot failed after this page took the handoff: put it back, so a reload lands in the same match, not a solo run. */
+/**
+ * The map page booted from its handoff. Marked only now, so a boot that failed and was reloaded is still the first page of
+ * its match (a host must not restart a match nobody has seen yet).
+ */
+export function handoffUsed(): void {
+  try {
+    const raw = sessionStorage.getItem(KEY);
+    if (raw) sessionStorage.setItem(KEY, JSON.stringify({ ...(JSON.parse(raw) as Handoff), used: true }));
+  } catch { /* blocked storage */ }
+}
+
+/** The boot failed after this page took the handoff: make sure it is still there, so a reload lands in the same match. */
 export function restoreHandoff(): void {
-  try { if (consumed) sessionStorage.setItem(KEY, consumed); } catch { /* blocked storage: the reload starts solo */ }
+  try { if (consumed && !sessionStorage.getItem(KEY)) sessionStorage.setItem(KEY, consumed); } catch { /* blocked storage: the reload starts solo */ }
 }
 
 onBeforeChunkReload(restoreHandoff);
@@ -73,5 +139,6 @@ export function clearSession(): void {
   resumedLobby = null;
   resumedMatch = null;
   resumedRoom = null;
+  consumed = null;
   try { sessionStorage.removeItem(KEY); } catch { /* blocked storage */ }
 }

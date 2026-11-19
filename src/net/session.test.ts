@@ -18,7 +18,8 @@ const host: LobbyPlayer = { id: 'host', name: 'HOST', host: true, ready: true, s
 const guest: LobbyPlayer = { id: 'guest', name: 'GUEST', host: false, ready: true, slot: 1 };
 function setup() {
   const lobby = { players: [host, guest], you: 'host', hosting: true, match: { id: 'test', mode: 'outpost' },
-    phase: 'open', error: null, onChange: () => {}, onPose: vi.fn(), leave: vi.fn(), sendPose: vi.fn(), heartbeat: vi.fn() } as unknown as Lobby;
+    phase: 'open', error: null, live: true, waitingFor: [], reconnecting: null, onChange: () => {}, onPose: vi.fn(), leave: vi.fn(), sendPose: vi.fn(),
+    heartbeat: vi.fn(), deployed: vi.fn(), booted: vi.fn(), successors: () => ({ rank: 0, names: ['GUEST'] }) } as unknown as Lobby;
   const ctx = { characters: { load: vi.fn(), prop: vi.fn() }, hud: { feed: vi.fn() }, time: { realDt: 0.016 },
     player: { position: { toArray: () => [1, 2, 3] }, velocity: { toArray: () => [4, 5, 6] }, yaw: 0, pitch: 0.2,
       speed: 9, grounded: true, crouched: false }, weapons: { current: 'smg' }, input: { isDown: () => false } } as unknown as Ctx;
@@ -27,14 +28,18 @@ function setup() {
 }
 beforeEach(() => { made.mockClear(); vi.restoreAllMocks(); });
 describe('remote match lifecycle', () => {
-  it('creates tags/bodies after run startup, removes a departed guest and emits its callsign once', async () => {
+  it('creates tags/bodies after run startup, removes a departed guest and says so once', async () => {
     const { session, lobby, ctx } = setup(); await session.init();
     expect(made).not.toHaveBeenCalled();
     lobby.onChange(); expect(made).not.toHaveBeenCalled();
     session.begin(); expect(session.remotes.size).toBe(1);
     const remote = session.remotes.get('guest')!;
     lobby.players = [host]; lobby.onChange(); lobby.onChange();
-    expect(remote.dispose).toHaveBeenCalledOnce(); expect(ctx.hud.feed).toHaveBeenCalledOnce();
+    expect(remote.dispose).toHaveBeenCalledOnce();
+    // The news itself is the lobby's own line, once: the roster change says nothing more (no doubled "left").
+    expect(ctx.hud.feed).not.toHaveBeenCalled();
+    lobby.onLine({ from: null, text: 'GUEST left.' });
+    expect(ctx.hud.feed).toHaveBeenCalledOnce();
     expect(ctx.hud.feed).toHaveBeenCalledWith('GUEST left.', '#ffb33d');
     expect(session.remotes.size).toBe(0);
   });

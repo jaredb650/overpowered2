@@ -256,10 +256,22 @@ export async function joinFromSplash(page, password, listed = true) {
   if (listed) await page.locator('.co-player').nth(1).waitFor({ state: 'visible', timeout: 90000 });
 }
 
+/**
+ * Past "Click to deploy" (the load barrier, src/net/index.ts `gate`): each page stops there once its map has loaded, and the
+ * host's world waits until every player is through. This presses it the way a script can; a proof about the click itself
+ * (the mouse, the pause menu) clicks `.cs-gate` instead.
+ */
+export const deploy = (page, timeout = 150000) => page.waitForFunction(() => {
+  const coop = window.__op2?.ctx?.coop;
+  return !!coop && (coop.begun === true || coop.deploy() === true);
+}, null, { timeout });
+
 /** Every page in the match with the world and the other players' bodies up. */
 export async function inMatch(pages, contract, play = true) {
+  for (const page of pages) await page.waitForURL(new RegExp(`contract=${contract}`), { timeout: 90000 });
+  // Everyone deploys before anyone is waited on: the world starts when all are in.
+  await Promise.all(pages.map(page => deploy(page)));
   for (const page of pages) {
-    await page.waitForURL(new RegExp(`contract=${contract}`), { timeout: 90000 });
     await page.waitForFunction(() => window.__op2?.ctx.coop?.world && window.__op2.ctx.coop.remotes.size >= 1
       && [...window.__op2.ctx.coop.remotes.values()].some(r => r.char.root.visible), null, { timeout: 150000 });
     if (play) await page.evaluate(() => { window.__op2.game.setState('playing'); });

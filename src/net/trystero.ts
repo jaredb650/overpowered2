@@ -29,6 +29,12 @@ import { publishNet, watchNet } from './debug';
 
 export const APP_ID = 'overpowered-2-coop';
 export const RELAY_REDUNDANCY = 8;
+/**
+ * trystero's own cap on a room, kept well above the game's four. Its count is not the lobby's: it includes a player whose
+ * tab died until WebRTC notices, and both pages of everyone during a match start, so at four it turned away a friend
+ * coming straight back ("lobby full" while their own ghost held the seat). The lobby's own check is the only cap (lobby.ts `admit`).
+ */
+export const TRANSPORT_MAX_USERS = MAX_PLAYERS * 2;
 
 /** The lobby behind `password`, and its door behind the code (room.ts). Fetches TURN first (at most TURN_TIMEOUT_MS). */
 export async function openLobby(code: string, password: string): Promise<LobbyRooms> {
@@ -146,7 +152,7 @@ export function openRoom(code: string, password: string, turn: IceServer[] = [],
   });
   const room: Room = joinRoom(
     // identity 'none': a fresh key per visit, nothing stored, and two browser profiles (or a private window) are two players. One browser runs one tab (core/oneTab.ts).
-    { appId: APP_ID, password, identity: 'none', maxUsers: MAX_PLAYERS, relayConfig: { redundancy: RELAY_REDUNDANCY },
+    { appId: APP_ID, password, identity: 'none', maxUsers: TRANSPORT_MAX_USERS, relayConfig: { redundancy: RELAY_REDUNDANCY },
       rtcPolyfill: peers.Peer, ...(turn.length ? { turnConfig: turn } : {}) },
     code,
   );
