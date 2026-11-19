@@ -6,6 +6,8 @@
 //
 // Settings (environment):
 //   TRACE_MS      how long to record (default 5000)
+//   TRACE_UNTIL   JS expression to wait for before recording (default: the game is in play, so the trace is not of the
+//                 loading screen; --wait alone is not enough on a busy machine)
 //   TRACE_SCRIPT  another shot.mjs script to run while recording, instead of just waiting (its result is returned too)
 //   TRACE_EVAL    JS run in the page right after recording starts (spawn the wave, fire the gun)
 //   TRACE_TOP     how many slow frames to list (default 8; twice as many functions)
@@ -20,6 +22,7 @@ import * as trace from './lib/trace.mjs';
 export default async function (page, h) {
   const inner = process.env.TRACE_SCRIPT ? await import(pathToFileURL(resolve(process.env.TRACE_SCRIPT)).href) : null;
   let result;
+  await page.waitForFunction(process.env.TRACE_UNTIL ?? '!!window.__op2 && (!window.__op2.game || window.__op2.game.state === "playing")', null, { timeout: 120000 });
   const { summary, events } = await trace.record(page, async () => {
     if (process.env.TRACE_EVAL) await page.evaluate(process.env.TRACE_EVAL);
     if (inner) result = await inner.default(page, h);

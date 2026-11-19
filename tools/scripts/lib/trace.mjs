@@ -49,9 +49,11 @@ function nameOf(frame) {
  *     gc: { count, totalMs, worstMs } }
  */
 export function summarise(events, { top = 8 } = {}) {
-  // The page's main thread: the one with the most animation frames.
+  // The page's main thread: the renderer main thread with the most animation frames (a trace of one page has one; a
+  // loading screen may have no frames at all, and its functions are still worth listing).
   const perThread = new Map();
   for (const e of events) {
+    if (e.name === 'thread_name' && e.args?.name === 'CrRendererMain' && !perThread.has(`${e.pid}:${e.tid}`)) perThread.set(`${e.pid}:${e.tid}`, []);
     if (e.name !== 'FireAnimationFrame' || e.ph !== 'X') continue;
     const key = `${e.pid}:${e.tid}`;
     if (!perThread.has(key)) perThread.set(key, []);
@@ -62,27 +64,28 @@ export function summarise(events, { top = 8 } = {}) {
   const onMain = e => `${e.pid}:${e.tid}` === mainKey;
   const start = frameEvents[0]?.ts ?? 0;
 
-  // Sampling profile of that thread: node id -> name, and every sample as { at, node, self }.
+  // Sampling profile of that thread: node id -> name, and every sample as { at, node, self }. A `Profile` event sits on the
+  // thread it profiles; its `ProfileChunk`s arrive on V8's own profiler thread and carry the same id.
   const names = new Map();
   const samples = [];
   const clocks = new Map();
+  for (const e of events) if (e.name === 'Profile' && onMain(e)) clocks.set(`${e.pid}:${e.id}`, e.args?.data?.startTime ?? e.ts);
   for (const e of events) {
-    if (!onMain(e)) continue;
-    if (e.name === 'Profile') clocks.set(e.id, e.args?.data?.startTime ?? e.ts);
-    if (e.name !== 'ProfileChunk') continue;
+    const profile = `${e.pid}:${e.id}`;
+    if (e.name !== 'ProfileChunk' || !clocks.has(profile)) continue;
     const data = e.args?.data ?? {};
-    for (const node of data.cpuProfile?.nodes ?? []) names.set(`${e.id}:${node.id}`, nameOf(node.callFrame ?? {}));
+    for (const node of data.cpuProfile?.nodes ?? []) names.set(`${profile}:${node.id}`, nameOf(node.callFrame ?? {}));
     const ids = data.cpuProfile?.samples ?? [];
     const deltas = data.timeDeltas ?? [];
-    let at = clocks.get(e.id) ?? e.ts;
+    let at = clocks.get(profile);
     for (let i = 0; i < ids.length; i++) {
       at += deltas[i] ?? 0;
-      samples.push({ at, node: `${e.id}:${ids[i]}`, self: Math.max(0, deltas[i] ?? 0) });
+      samples.push({ at, node: `${profile}:${ids[i]}`, self: Math.max(0, deltas[i] ?? 0) });
     }
-    clocks.set(e.id, at);
+    clocks.set(profile, at);
   }
   samples.sort((a, b) => a.at - b.at);
-  const idle = name => /^\((idle|program|root)\)$/.test(name);
+  const idle = name => /^\((idle|root)\)$/.test(name);
   const tally = (from, to) => {
     const by = new Map();
     for (const s of samples) {
@@ -94,7 +97,7 @@ export function summarise(events, { top = 8 } = {}) {
     return [...by.entries()].sort((a, b) => b[1] - a[1]);
   };
 
-  const gcEvents = events.filter(e => onMain(e) && e.ph === 'X' && /^(MinorGC|MajorGC|V8\.GC_)/.test(e.name) && !/BackgroundThread/.test(e.name));
+  const gcEvents = events.filter(e => onMain(e) && e.ph === 'X' && (e.name === 'MinorGC' || e.name === 'MajorGC'));
   const gcIn = (from, to) => gcEvents.reduce((sum, g) => sum + Math.max(0, Math.min(to, g.ts + (g.dur ?? 0)) - Math.max(from, g.ts)), 0);
 
   const frames = frameEvents.map((e, i) => ({

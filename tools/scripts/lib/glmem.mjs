@@ -56,6 +56,38 @@ export async function sample(page) {
   return { ...gl, heap };
 }
 
+/**
+ * Every live texture and buffer, grouped by its size in bytes: { 'texture 1398100': 12, 'buffer 4096': 300, ... }.
+ * Things of one kind (a wound mask, a baked light map, a ragdoll's mesh) share a size, so the group that keeps growing names
+ * the leak. Compare two with grown().
+ */
+export function groups(page) {
+  return page.evaluate(() => {
+    const out = {};
+    for (const context of globalThis.__glmem ?? []) {
+      const ext = context.isContextLost() ? null : context.getExtension('GMAN_webgl_memory');
+      if (!ext) continue;
+      for (const [kind, type] of [['texture', globalThis.WebGLTexture], ['buffer', globalThis.WebGLBuffer]]) {
+        for (const item of ext.getResourcesInfo(type)) out[`${kind} ${item.size}`] = (out[`${kind} ${item.size}`] ?? 0) + 1;
+      }
+    }
+    return out;
+  });
+}
+
+/** Pure: the groups that have more members in `after` than in `before`, biggest growth in bytes first. */
+export function grown(before, after, top = 10) {
+  return Object.entries(after)
+    .map(([key, count]) => {
+      const [kind, size] = key.split(' ');
+      const was = before[key] ?? 0;
+      return { kind, bytesEach: Number(size), was, now: count, grewBytes: (count - was) * Number(size) };
+    })
+    .filter(g => g.now > g.was)
+    .sort((a, b) => b.grewBytes - a.grewBytes || b.now - b.was - (a.now - a.was))
+    .slice(0, top);
+}
+
 const BYTES = /^(gpu|heap)/;
 
 /**

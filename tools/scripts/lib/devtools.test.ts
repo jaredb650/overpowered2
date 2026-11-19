@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 // @ts-expect-error standalone Node JavaScript tool
-import { verdict } from './glmem.mjs';
+import { grown, verdict } from './glmem.mjs';
 // @ts-expect-error standalone Node JavaScript tool
 import { summarise } from './trace.mjs';
 
@@ -26,6 +26,16 @@ describe('leak soak verdict (tools/scripts/lib/glmem.mjs)', () => {
   it('judges counts by count: a few objects either way is flat, a steady climb is not', () => {
     expect(run([0, 500, 502, 499, 503], 'nTexture').metrics.nTexture.verdict).toBe('flat');
     expect(run([0, 500, 540, 580, 620, 660], 'nTexture').metrics.nTexture.verdict).toBe('grows');
+  });
+  it('lists what multiplied between two readings, biggest in bytes first', () => {
+    const before = { 'texture 1048576': 4, 'texture 64': 10, 'buffer 4096': 100 };
+    const after = { 'texture 1048576': 9, 'texture 64': 500, 'buffer 4096': 100, 'buffer 256': 3 };
+    expect(grown(before, after)).toEqual([
+      { kind: 'texture', bytesEach: 1048576, was: 4, now: 9, grewBytes: 5 * MB },
+      { kind: 'texture', bytesEach: 64, was: 10, now: 500, grewBytes: 490 * 64 },
+      { kind: 'buffer', bytesEach: 256, was: 0, now: 3, grewBytes: 768 },
+    ]);
+    expect(grown(after, after)).toEqual([]);
   });
   it('gives no verdict on too few rounds and skips what is not a number', () => {
     expect(run([0, 1, 2])).toMatchObject({ holds: null });
@@ -60,7 +70,11 @@ describe('performance trace summary (tools/scripts/lib/trace.mjs)', () => {
       if (slow) events.push({ ...main, name: 'MinorGC', ph: 'X', ts: ts + 31_000, dur: 5_000 });
       ts += slow ? 50_000 : 16_700;
     }
-    events.push({ ...main, name: 'ProfileChunk', ph: 'P', id: '0x1', ts, args: { data: { cpuProfile: { nodes, samples }, timeDeltas: deltas } } });
+    // Chunks arrive on V8's profiler thread, tied to the profile by id. A worker's profile (0x2) must not count.
+    events.push({ pid: 1, tid: 99, name: 'ProfileChunk', ph: 'P', id: '0x1', ts, args: { data: { cpuProfile: { nodes, samples }, timeDeltas: deltas } } });
+    events.push({ pid: 1, tid: 8, name: 'Profile', ph: 'P', id: '0x2', ts: 1_000_000, args: { data: { startTime: 1_000_000 } } });
+    events.push({ pid: 1, tid: 99, name: 'ProfileChunk', ph: 'P', id: '0x2', ts, args: { data: { cpuProfile: { nodes: [{ id: 1, callFrame: { functionName: 'workerBake' } }], samples: [1, 1], timeDeltas: [90_000, 90_000] } } } });
+    events.push({ pid: 1, tid: 8, name: 'MinorGC', ph: 'X', ts: 1_000_000, dur: 70_000 });
     // Another thread's frames and samples must not count.
     events.push({ pid: 1, tid: 9, name: 'FireAnimationFrame', ph: 'X', ts: 1_000_000, dur: 900_000 });
     return events;
