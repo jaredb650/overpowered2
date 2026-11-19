@@ -58,6 +58,7 @@ If a friend cannot connect at all, set up TURN once (below).
 | `tools/scripts/coop-kit.mjs` | The test kit every multi-page proof shares: `startParty`, `live`, `measure` and the rest (see Testing) |
 | `tools/scripts/coop-smoke.mjs`, `coop-baseline.mjs` | The rig's own proofs: any mode with 2 to 4 players reaches a fight; the baseline numbers |
 | `tools/scripts/coop-stage3.mjs`, `coop-modes.mjs`, `coop-mission.mjs`, `coop-robust.mjs` | The two-page proofs (below) |
+| `tools/scripts/coop-missions-play.mjs` | Plays either mission from the first line to the team board on 2 or 3 pages and checks every guest's screen at every section. See "Missions", "Proofs" |
 
 Small hooks outside `src/net`, each marked with a co-op comment: `Game.ts` (which systems run where, the shared slow-mo clock, the hidden
 tab's worker tick), `Player.ts` (`downed` and its crawl), `time.ts` (`gate`, `share`, `hostSteps`: see "Time: the team's slow motion"), `Hud.ts` (shops and loadout over the live world in
@@ -2360,6 +2361,73 @@ Hooks: `ctx.coop.world.mission.restart()` (host: the team back to the checkpoint
 through `campaign.restart()`, which is the same thing), `.catchUp(id)` (host: one arriving player; called on their first card),
 `.result` (every screen, once won), `team.respawnAll(at?, yaw?)`.
 
+### Proofs (2026-11-18 and 19)
+
+Unit: `src/campaign/coop.test.ts` (9: every operation, step, `call`, cue, trigger kind and trigger event has a class and is
+carried; what a mission waits on from a player; the zones that end a section) and `src/net/mission.test.ts` (9: the host's real
+mission runner over the mocked transport: what is mirrored and what is not, a guest's shot, a rack taken by either side, low
+rockets on a guest, the two regroups, a regroup dropped by a `place`, the film vote, the ride's end, the result, the checkpoint
+restart, the late joiner's catch-up, and that a guest cannot drive the mission).
+
+Browser: `tools/scripts/coop-missions-play.mjs`. A bot plays the mission on 2 or 3 pages. The ACTOR (the host, or the first
+guest) walks into every zone, takes every gun off its rack, fires and votes; enemies get a dev kill on the host four seconds
+after they appear, and the Commander is brought down in three steps, so every wave, set piece, film and ride still runs. At
+every section each guest's screen is checked against the host's: the title, the objectives, the doors, the lights, the sky,
+the kit, the racks, the enemies present, the film and the ride, the lines heard (same ids, same order, how far apart they
+started), and ten seconds after a section change that nobody was left behind. At the end: the team board, the mission's
+result, every checkpoint notice and hint.
+
+```sh
+OP2_NO_HMR=1 npx vite --port <port> --strictPort
+COOP_MISSION=campaign|foreclosure COOP_ACTOR=host|guest COOP_PLAYERS=2|3 COOP_SIM=lag:120,jitter:40,loss:0.05 \
+COOP_EXTRAS=skip,restart:<section>,rejoin:<section> COOP_BEAT=<start section> COOP_STOP=<end section> COOP_NET=rtc \
+  node tools/shot.mjs --port <port> --dpr 2 --w 1440 --h 900 --wait 500 --timeout 1700 \
+    --script tools/scripts/coop-missions-play.mjs --out tools/out/coop/missions/<name>.png
+```
+
+| Run | Sections | Checks | Lines on a guest behind the host's (median, worst) |
+|---|---|---|---|
+| The Outpost, host acting, 2 players | all 18, 540 s | 236 (1 note: timing not measured in the briefing, a page paused 1.4 s) | 1 to 3 ms, 99 ms |
+| The Outpost, guest acting, films skipped by vote, 2 players | all 18, 441 s | 241 | 0 to 1 ms, 12 ms |
+| The Outpost, guest acting, 3 players, films skipped by 3 votes | all 18, 466 s | 452 | 0 ms, 2 ms |
+| The Outpost, a guest's shot brings the line that waits on one (`heavy`) | 2, 67 s | 28 | 1 ms, 1 ms |
+| The Outpost under `lag:120,jitter:40,loss:0.05`: everyone put down at the gate (checkpoint restart), the guest leaves and rejoins in the breather | `softskins` to `heavy`, 166 s | 76 | 162 ms, 430 ms |
+| The Outpost over real WebRTC, guest acting | `lockout`, `softskins`, 111 s | 29 | 1 ms, 1 ms |
+| Foreclosure, host acting, 2 players | all 16, 325 s | 192 | 0 to 1 ms, 6 ms |
+| Foreclosure, guest acting, under the same bad network, films by vote, restart at the wall, rejoin at the Slip (sky shut) | all 16, 332 s | 225 | up to 285 ms, 447 ms |
+| Foreclosure, 3 players, bad network | all 16, 360 s | 358 (and 4 notes: the proof read the film's end in the same instant on every page; fixed and proven in the next row) | up to 362 ms, 589 ms |
+| Foreclosure, 3 players, bad network: the film ends on every guest when the host's does | 2, 172 s | 36 | up to 428 ms, 695 ms |
+
+Single player, same build: the Outpost's film with one press of skip, no co-op in the page (`crowd` unset, no skip hook), and the
+mission's own tests (`runner.test.ts`, `outpost.test.ts`, `foreclosure.test.ts`, `war.test.ts`) unedited and green.
+
+The pages ran in the kit's fast mode (no picture between screenshots) with the loop on a 30 Hz timer. Screenshots are the guest's
+view at 1440x900, dpr 2, one per section.
+
+What the play-throughs found and fixed on the way: a straggler "near the leader" was treated as arrived, so a regroup was
+cancelled the moment it began (and would have left a teammate outside a sealed door); a regroup that ran out as the mission
+placed the team sent a player back; a player landing a step beside a mark could fall off a narrow deck; and **a hidden co-op tab
+on a slow machine froze**: it took a step for every 33 ms worker tick, the queue grew without end, and the page never reached
+its timers or its network, so the match dropped as "lost" (`Game.ts`, `keepTickingWhenHidden`: queued ticks are now skipped).
+
+Not done, missions:
+
+- **A guest cannot order or revive the host's Bailiffs** (Foreclosure's squad): E on a Bailiff is the host's. Foreclosure teaches
+  the revive on a downed Bailiff, and only the host can do it.
+- **The enemy chopper** (The Outpost, `turn`), **scenery vehicles** (`state: 'parked' | 'wrecked'`, the tank jammed in the gate)
+  and **the kill marks on vehicles** (`call mark`) are not drawn on a guest: `net/world/vehicles.ts` draws living humvees, trucks
+  and tanks only.
+- **Holdfast's wall breach** is a structure stage on the host; whether a guest's wall opens with it depends on the fort's
+  structure sync covering Holdfast (not checked here).
+- **The Commander's box between rounds** (`adapt`) is the host's; a guest gets the mission's lines, not that box.
+- **The courier's door gun** on a guest's copy fires for real through claims the host may accept (within four minutes of a ride):
+  a little extra fire on the militia in the Square per guest.
+- **The Frame in missions** is the game's stand-in, alone and in co-op (see the table).
+- **A friend's name tag shows through a film.**
+- **Each player's own starter gun** is kept by the code and unit-tested; the browser proofs' pages share one browser profile,
+  so every page had the same pick.
+- A line that is in the air when a player arrives is not said again for them; they get the next one.
+
 ## Failure cases handled
 
 | Case | What happens |
@@ -2718,5 +2786,5 @@ guest's tab dying mid-wave, rejoining by link with credits back, and leaving to 
   than its own guess would have shown it. A late guest gets what is broken, not the scorch marks or the wreck fires. Ordinary
   pickups are each player's own by decision. Weapon caches are unit-tested and proven once in the browser in a mission; four
   pages and real WebRTC were not run for these proofs (the machine's page limit).
-- **Campaign:** mission 1's opening (briefing, cutscene, door-gunner ride) is proven in the browser; the rest of both missions has only
-  the unit-tested rules behind it, not a full two-player playthrough.
+- **Campaign:** both missions are played from start to end by 2 and 3 pages ("Missions", "Proofs"), where what is still not done
+  for missions is listed.

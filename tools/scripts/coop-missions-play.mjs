@@ -411,7 +411,15 @@ export default async function (host, { sleep, outDir }) {
             row.skipped = true;
           }
         }
-      } else { if (filmSeen > 0) { for (const [i, g] of gs.entries()) note(!g.film, `${beat}: the film ended on guest ${i + 1}'s screen with the host's`, g.film); } filmSeen = 0; votes = 0; }
+      } else {
+        if (filmSeen > 0) {
+          // The host's film is over: a moment for the word to cross, then every guest's is.
+          await sleep(1500);
+          const [, ...g2] = await all();
+          for (const [i, g] of g2.entries()) check(g.film === false, `${beat}: the film ended on guest ${i + 1}'s screen when the host's did`, g.film);
+        }
+        filmSeen = 0; votes = 0;
+      }
       if (h.riding && h.parked) {
         rideSeen++;
         if (rideSeen === 8) {

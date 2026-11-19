@@ -614,3 +614,20 @@ Work through all of it; write the outcome beside each item in the log (fixed wit
   the host (each screen has its own ragdoll). What each check is: `docs/notes/coop.md`, "Claims". For whoever runs proofs: restart
   your Vite after editing `src/` (the machine is out of file-watch handles, so a running server keeps serving old code), and
   `page.bringToFront()` the page that must run at full frame rate.
+- 2026-11-19, missions: landed. Every mission operation is classed in one table (`src/campaign/coop.ts`, printed in
+  `docs/notes/coop.md`, "Missions") with tests that fail on an unclassed one. Newly on every screen: the sky shut to call-ins, the
+  lights, a brain chip the mission hands out, the courier and its flak, the wreck's smoke, the checkpoint notice, the war's
+  call-outs, the breaching charge's countdown, the sniper's round, the Frame's stand-in. Any player's shot, zone, rack take or
+  low rockets counts; a wall gun turns on any player. Decisions: a film is skipped when every player has pressed skip; a gun on a
+  rack is the team's (first to reach it, everyone is issued one); a section ended by a zone moves on with the first player and
+  the others have 10 s to get into it before being put on that player's spot (a closing door: 5 s, 30 m); a ride ends for all
+  with the host's; a checkpoint restart is the same new run on every screen; each player keeps their own starter gun. The
+  missions' Frame beats are still the game's stand-in, alone too, so nothing to pilot yet: when a real one is provided, first
+  to reach it pilots. Both missions played start to end on 2 and 3 pages, clean and under `lag:120,jitter:40,loss:0.05`, with a
+  restart and a rejoin, and a stretch on real WebRTC (table in the notes). Found on the way and fixed: a hidden co-op tab froze
+  on a slow machine (`Game.ts`: one step per queued worker tick, without end). For every lane: **a dev server started with
+  `OP2_NO_HMR=1` served stale files after edits on this machine** (its watcher missed them while many servers ran): restart
+  it before a proof. Not done: a guest ordering or reviving the host's Bailiffs; the Outpost's chopper, scenery vehicles and
+  vehicle kill marks on guests (world-b's vehicles); the Commander's box between rounds in a mission (enemy-attacks).
+  Under `lag:120,loss:0.05` the kit's own Start can be pressed before the host has the guests' "ready" and is then refused
+  (my proof waits for "Everyone is ready" first).
