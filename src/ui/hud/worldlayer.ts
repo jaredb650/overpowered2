@@ -27,7 +27,8 @@ export const tagHalfWidth = (chars: number): number => (chars + 5) * 0.31 + 0.5;
  * Co-op: which line each friend's name tag is printed on, so that two friends in the same direction (one behind the other,
  * or both pinned to the same point of the ring) read as two lines and not one tag printed over the other. `x`, `y`: where
  * each tag is on screen; `half`: half its width; `row`: filled in, 0 for a tag where it would be anyway. In the order
- * given, each tag takes the first line under any earlier tag it would touch. Nothing is made.
+ * given (the caller's: lowest on the screen first, so no pin sits on another tag's text), each tag takes the first line under
+ * any earlier tag it would touch. Nothing is made.
  */
 export function stackTags(n: number, x: ArrayLike<number>, y: ArrayLike<number>, half: ArrayLike<number>, rowHeight: number, row: { [i: number]: number }): void {
   for (let i = 0; i < n; i++) {
@@ -238,6 +239,18 @@ export class WorldLayer {
     }
     // Co-op: friends' name tags that would be printed over each other go on lines of their own. Alone there are none.
     if (tags > 0) {
+      // Lowest on the screen first: it keeps its line, right under its own pin, and a tag whose pin is higher has its
+      // text set under that. The other way round the lower pin sat on the upper tag's text. A tag that has its own line
+      // keeps it while the two are level (half a rem), so two friends side by side do not swap lines every frame.
+      const { tagX, tagY, tagHalf } = this;
+      for (let i = 1; i < tags; i++) {
+        for (let j = i; j > 0 && this.tagKey(j) > this.tagKey(j - 1); j--) {
+          const m = this.tags[j]!; this.tags[j] = this.tags[j - 1]!; this.tags[j - 1] = m;
+          let t = tagX[j]!; tagX[j] = tagX[j - 1]!; tagX[j - 1] = t;
+          t = tagY[j]!; tagY[j] = tagY[j - 1]!; tagY[j - 1] = t;
+          t = tagHalf[j]!; tagHalf[j] = tagHalf[j - 1]!; tagHalf[j - 1] = t;
+        }
+      }
       stackTags(tags, this.tagX, this.tagY, this.tagHalf, TAG_ROW * this.rem, this.tagRow);
       for (let i = 0; i < tags; i++) {
         const m = this.tags[i]!;
@@ -248,6 +261,11 @@ export class WorldLayer {
         else m.el.style.setProperty('--row', String(row));
       }
     }
+  }
+
+  /** How low on the screen tag `i` is, for the order they are stacked in. */
+  private tagKey(i: number): number {
+    return this.tagY[i]! + (this.tags[i]!.row === 0 ? this.rem * 0.5 : 0);
   }
 
   reset(): void {
