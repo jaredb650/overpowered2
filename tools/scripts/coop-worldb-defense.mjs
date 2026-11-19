@@ -283,8 +283,11 @@ export default async function (host, { sleep, outDir }) {
     for (const page of pages) await until(page, () => window.__op2.ctx.contracts.defense.inBreak, null, 'The break is on every screen', 300000);
     const preview = await agree(pages, async p => (await fort(p)).preview, 'The next wave\'s line');
     check(typeof preview === 'string' && preview.length > 8 && !/placeholder/i.test(preview), "A guest's HUD has the host's line about the next wave", preview);
+    // The HUD's panel is redrawn a moment after the state it reads: wait for it rather than read it in the same instant
+    // (with four pages the line had just changed and the panel still showed the one before).
+    await guest.waitForFunction(head => (document.querySelector('.df')?.textContent ?? '').includes(head), preview.slice(0, 12), { timeout: 8000, polling: 100 }).catch(() => {});
     const hud = await guest.evaluate(() => document.querySelector('.df')?.textContent ?? '');
-    check(hud.includes(preview.slice(0, 12)), "It is on the guest's screen", hud);
+    check(hud.includes(preview.slice(0, 12)), "It is on the guest's screen", { hud, preview });
     const rebuilt = await guest.evaluate(() => { const d = window.__op2.ctx.contracts.defense; d.credits = 3000; return d.buy('armoury', { kind: 'rebuild', shop: 'armoury' }); });
     check(rebuilt === null, 'A guest rebuilds the Armoury in the break', rebuilt);
     for (const page of pages) await until(page, () => !window.__op2.ctx.contracts.defense.shops.armoury.lost, null, 'The Armoury is back on every screen');

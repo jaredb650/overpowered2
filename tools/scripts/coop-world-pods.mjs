@@ -121,7 +121,7 @@ export default async function (host, { sleep, outDir }) {
     for (const [i, page] of pages.entries()) await shot(page, `1-pod-open-${names[i]}`);
 
     // Each player walks up and shops with their own purse.
-    const purses = [3000, 900, 1500];
+    const purses = [3000, 900, 1500, 1200];
     for (const [i, page] of pages.entries()) {
       const a = (i / pages.length) * Math.PI * 2;
       await teleport(page, [spot[0] + Math.sin(a) * 2.6, spot[1], spot[2] + Math.cos(a) * 2.6], a);
