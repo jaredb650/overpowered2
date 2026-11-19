@@ -756,8 +756,12 @@ describe('a hit the host refuses, and a death started ahead of the host\'s word'
     game.guest.manager.predictDamage.mockImplementation((_t: Enemy, damage: DamageInfo) => ({ dealt: damage.amount, killed: false, headshot: false, severed: [], blocked: false, killSoon: true, sure: 'kill' }) as DamageResult);
     const kills: GameEvents['enemy:killed'][] = []; game.guest.ctx.events.on('enemy:killed', k => kills.push(k));
     const feed = vi.fn(); game.guest.ctx.events.on('coop:kill', feed);
+    // As it stands when it dies: frozen, an arm off.
+    replica.frozen = 2.5; (replica.char.severed as Set<string>).add('armL');
     game.fire();
     game.gw.claim(replica, game.shot(200));
+    // The pooled object goes on to be somebody else: none of that is this kill's.
+    replica.frozen = 0; (replica.char.severed as Set<string>).clear();
     // Now, with nothing yet across the wire.
     expect(game.guest.manager.replayDeath).toHaveBeenCalledOnce();
     expect(replica.alive).toBe(false);
@@ -776,6 +780,15 @@ describe('a hit the host refuses, and a death started ahead of the host\'s word'
     expect(kills[0]!.enemy.uid).toBe(enemy.uid);
     expect(feed).toHaveBeenCalledOnce();
     expect(game.gw.hitsSeen).toMatchObject({ deaths: 1, deathsRight: 1, deathsWrong: 0, lateKills: 0 });
+    // The enemy the kill is told about is a whole enemy, as it stood at its death: every listener of a kill reads it (the
+    // frost perk's shatter read `char.rig.height` of a bare stand-in, threw, and the kill was dropped unscored and unpaid).
+    const told = kills[0]!.enemy;
+    expect(told).toMatchObject({ alive: false, health: 0, frozen: 2.5, burning: 0, isBoss: false });
+    expect(told.char.rig).toBe(replica.char.rig);
+    expect([...told.char.severed]).toEqual(['armL']);
+    expect(told.id).toBe(enemy.id);
+    // Not the pooled object itself: what a later enemy does with that object does not change this kill.
+    expect(told).not.toBe(replica);
     game.hw.dispose(); game.gw.dispose();
   });
 

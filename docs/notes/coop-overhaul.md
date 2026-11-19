@@ -937,3 +937,15 @@ Each: what fails, where, how many players, which network, the evidence, the caus
   line: the kit's `deploy` works on a build from before the load barrier (the baseline). Landed at `d082879`; the table's
   runs were made before the wire pass landed, so one case was run again on the landed tip (48 enemies, the worst network)
   and agrees with its row.
+5. **FIXED (verify-proofs). With kill prediction on, a guest's kill that is played whole ahead of the host (a one-shot
+   headshot, any `sure: 'kill'`) was never scored, paid or counted on the guest's own screen, and had no kill sound.** Any
+   mode, any network; found by `coop-gore-shots.mjs` case `headshotKill` on `e0334ec` ("the same shooter's sounds": the host
+   hears `hit_marker_kill`, the guest does not; the guest's own `enemy:killed` count was 0) with this in the guest's console:
+   `[coop] Dropped an event that could not be applied kill TypeError: Cannot read properties of undefined (reading 'height')
+   at FrostNova.onKill`. Cause: two lanes met. For a foretold death the host's `kill` is told to the guest's game with a
+   stand-in enemy (`hits.ts` `standIn`), a bare object of a dozen fields; the frost perk's kill listener
+   (`progression/frost.ts` `onKill`) reads `enemy.frozen` and `enemy.char.rig.height`, threw, and the router dropped the whole
+   event, so no later listener ran either. It passed before `f16721f` only because prediction was off by default. Fix: the
+   stand-in is a whole enemy: it stands on the pooled object the body was (every field is there, whoever it is by now) with
+   what the kill is about set over it as it stood at its death (id, definition, health, where, frozen, burning, the limbs
+   off). Test: `world.test.ts`, "a whole death played ahead of the host" reads the enemy the kill is told about.

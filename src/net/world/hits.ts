@@ -84,7 +84,11 @@ interface Pending {
 }
 
 /** A whole death played ahead of the host's word (`sure: 'kill'`): what its `kill` will need once the body is long gone. */
-interface Foretold { at: number; claim: number; def: Enemy['def']; maxHealth: number }
+interface Foretold {
+  at: number; claim: number; def: Enemy['def']; maxHealth: number;
+  /** The enemy's own object as it died (pooled: another enemy by the time the host's word comes), and what of it a kill's listeners read. */
+  body: Enemy; boss: boolean; frozen: number; burning: number; severed: Set<GoreRegion>;
+}
 
 const newPending = (): Pending => ({
   live: false, claim: 0, enemy: null, uid: 0, at: 0, owed: 0, blocked: false, level: 'flinch', region: undefined, spent: 0, sure: undefined,
@@ -229,7 +233,8 @@ export class Hits implements WorldModule {
     const { manager } = this.w;
     const uid = enemy.uid;
     const told = manager.model.guessKill(enemy, damage, this.killGuess);
-    this.foretold.set(uid, { at: slot.at, claim: slot.claim, def: enemy.def, maxHealth: enemy.maxHealth });
+    this.foretold.set(uid, { at: slot.at, claim: slot.claim, def: enemy.def, maxHealth: enemy.maxHealth,
+      body: enemy, boss: enemy.isBoss, frozen: enemy.frozen, burning: enemy.burning, severed: new Set(enemy.char.severed) });
     this.replicas.dead.add(uid);
     this.seen.deaths++;
     enemy.predead = 0;
@@ -538,11 +543,24 @@ export class Hits implements WorldModule {
  * What a kill's listeners read of an enemy (score, pay, the run report, the floating text), for a death played so long ago
  * that the enemy's own object may have been given to another.
  */
+/**
+ * The enemy a foretold death's own kill is told about (`enemy:killed`). Every listener of a kill reads the enemy (the score,
+ * the perks, the frost's shatter, the run report), so it must be a whole enemy: it stands on the pooled object the body was,
+ * which has every field whoever it is by now, with what the kill is about set over it as it stood at the death. (A bare
+ * object here threw in the first listener that read a field it lacked, and the kill was dropped: no score, no pay, no sound.)
+ */
 function standIn(was: Foretold, value: Extract<HitEvent, { t: 'kill' }>): Enemy {
   const at = new THREE.Vector3(value.at[0], value.at[1], value.at[2]);
-  return { uid: value.uid, id: value.id, def: was.def, isBoss: false, alive: false, health: 0, maxHealth: was.maxHealth, yaw: value.yaw,
-    position: at, center: at.clone().setY(at.y + 1), velocity: new THREE.Vector3(), machine: was.def?.machine === true,
-    char: { severed: new Set<GoreRegion>() } } as unknown as Enemy;
+  const over = (base: object, fields: Record<string, unknown>): object => {
+    const made = Object.create(base) as object;
+    for (const [key, v] of Object.entries(fields)) Object.defineProperty(made, key, { value: v, writable: true, enumerable: true, configurable: true });
+    return made;
+  };
+  return over(was.body, {
+    uid: value.uid, id: value.id, def: was.def, isBoss: was.boss, alive: false, health: 0, maxHealth: was.maxHealth, yaw: value.yaw,
+    position: at, center: at.clone().setY(at.y + 1), velocity: new THREE.Vector3(), frozen: was.frozen, burning: was.burning,
+    char: over(was.body.char, { severed: was.severed }),
+  }) as Enemy;
 }
 
 const UP = new THREE.Vector3(0, 1, 0);
