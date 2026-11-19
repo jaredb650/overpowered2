@@ -565,4 +565,166 @@ describe('the life of a co-op session', () => {
     // The list they agreed on is the last one the host sent, and it survives the close.
     expect(b.successors().names).toEqual(['BEN', 'CARL']);
   });
+
+  // --- One room, one host (a host back after its guests gave it up) ---
+
+  const roomOf = (lobby: Lobby) => (lobby as unknown as { room: FakeRoom }).room;
+  /** The guests give the host up and regroup: ANNA hosts a new lobby on the code, the others join it. */
+  const regrouped = (...joiners: string[]) => {
+    const a = page(true, 'ANNA', 'b-ANNA');
+    const rest = joiners.map(name => page(false, name, `b-${name}`));
+    hub.flush();
+    return { a, rest };
+  };
+
+  it('a host whose page reloaded for longer than its guests waited finds them regrouped, gives way, and is named who to join', () => {
+    const { h, gs } = playing('ANNA', 'BEN');
+    const records = h.seatRecords();
+    // The host's page is gone for good as far as its guests can tell: they wait out the grace and close.
+    for (const g of gs) hub.sever(peer(h), peer(g));
+    hub.flush(); roomOf(h).leave();
+    tick(RECONNECT_MS + PING_MS + 500);
+    expect(gs.map(g => g.error)).toEqual(['host-left', 'host-left']);
+    const { a, rest: [b] } = regrouped('BEN');
+    expect(a.players.map(p => p.name)).toEqual(['ANNA', 'BEN']);
+    // Now the old host's new map page comes up, hosting a new match of the same mode for a roster that has moved on.
+    const h2 = page(true, 'HOST', 'bh', { page: 'm1-again', roster: records.roster, seats: records.seats });
+    h2.startMatch('crucible', 'm1-again'); hub.flush();
+    expect(h2.phase).toBe('closed'); expect(h2.error).toBe('code-taken'); expect(h2.yieldedTo).toBe('ANNA');
+    // The regrouped lobby is untouched: one host, and nobody followed the old host's start.
+    expect(a.phase).toBe('open'); expect(a.match).toBeNull();
+    expect(b!.phase).toBe('open'); expect(b!.match).toBeNull();
+    expect(b!.players.map(p => p.name)).toEqual(['ANNA', 'BEN']);
+    // And it walks in as a guest of the room it used to host.
+    const h3 = page(false, 'HOST', 'bh'); hub.flush();
+    expect(h3.phase).toBe('open');
+    expect(a.players.map(p => p.name)).toEqual(['ANNA', 'BEN', 'HOST']);
+  });
+
+  it('of two hosts with nobody connected the newer gives way, whichever of them is the returning one', () => {
+    // The regrouped lobby is older: the returning host gives way.
+    const a = page(true, 'ANNA', 'b-ANNA'); hub.flush();
+    vi.advanceTimersByTime(50);
+    const h2 = page(true, 'HOST', 'bh', { page: 'm2' }); h2.startMatch('crucible', 'm2'); hub.flush();
+    expect(h2.error).toBe('code-taken'); expect(a.phase).toBe('open');
+    a.leave(); hub.flush();
+    // The returning host's page was up first (its guests were still looking at the board): the new, empty lobby gives way,
+    // and its player joins the match the old host is starting.
+    const h3 = page(true, 'HOST', 'bh', { page: 'm3' }); h3.startMatch('crucible', 'm3'); hub.flush();
+    vi.advanceTimersByTime(50);
+    const a2 = page(true, 'ANNA', 'b-ANNA'); hub.flush();
+    expect(a2.error).toBe('code-taken'); expect(a2.yieldedTo).toBe('HOST');
+    expect(h3.phase).toBe('open');
+    const next = vi.fn();
+    const a3 = page(false, 'ANNA', 'b-ANNA'); a3.onMatch = next; hub.flush();
+    expect(next).toHaveBeenCalledWith({ id: 'm3', mode: 'crucible' });
+  });
+
+  it('a host with players never gives way: a new, empty lobby on the code of a match being played goes, and the match is not disturbed', () => {
+    const { h, gs } = playing('CARL');
+    vi.advanceTimersByTime(50);
+    const stray = page(true, 'ANNA', 'b-ANNA'); hub.flush();
+    expect(stray.error).toBe('code-taken'); expect(stray.yieldedTo).toBe('HOST');
+    expect(h.phase).toBe('open'); expect(gs[0]!.phase).toBe('open'); expect(h.players).toHaveLength(2);
+    expect(h.match?.id).toBe('m1'); expect(gs[0]!.match?.id).toBe('m1');
+  });
+
+  it('two hosts that both believe they are alone settle it on the next heartbeat, when each says again how many it has', () => {
+    const old = page(true, 'HOST', 'bh', { page: 'm5' }); old.startMatch('crucible', 'm5');
+    vi.advanceTimersByTime(50);
+    const a = page(true, 'ANNA', 'b-ANNA');
+    hub.mute(peer(old), peer(a));
+    hub.flush();
+    // ANNA's lobby gains a player the old host cannot see (BEN is connected to ANNA only).
+    const players = (a as unknown as { players: { id: string; name: string; ready: boolean; host: boolean; slot: number; seat: string }[] }).players;
+    players.push({ id: 'ben-peer', name: 'BEN', ready: false, host: false, slot: 1, seat: 's1' });
+    hub.unmute(peer(old), peer(a));
+    const born = (lobby: Lobby) => (lobby as unknown as { born: number }).born;
+    // Hellos that crossed while ANNA was still alone: the old host is older, ANNA has a player now, so neither gives way.
+    hub.deliver(roomOf(a), 'lobby', { t: 'hello', v: 'b1', name: 'ANNA', host: true, page: null, match: null, born: born(a), browser: 'b-ANNA', n: 0 }, peer(old));
+    hub.deliver(roomOf(old), 'lobby', { t: 'hello', v: 'b1', name: 'HOST', host: true, page: 'm5', match: 'm5', born: born(old), browser: 'bh', n: 0 }, peer(a));
+    hub.flush();
+    expect(old.phase).toBe('open'); expect(a.phase).toBe('open');
+    // The heartbeat says it again, with the count of now.
+    tick(PING_MS + 200);
+    expect(old.error).toBe('code-taken'); expect(old.yieldedTo).toBe('ANNA');
+    expect(a.phase).toBe('open');
+  });
+
+  it('a guest whose link is in trouble takes back only the host it knew, by its browser, never whoever else says "host"', () => {
+    const { h, gs } = playing('ANNA');
+    const [a] = gs as unknown as [Lobby];
+    const records = h.seatRecords();
+    hub.sever(peer(h), peer(a)); hub.flush(); roomOf(h).leave(); hub.flush();
+    expect(a.reconnecting?.reason).toBe('host-left');
+    // Someone else opens a lobby on the code while ANNA waits: not her host.
+    const stranger = page(true, 'MALLORY', 'bx'); hub.flush();
+    expect(a.reconnecting).not.toBeNull();
+    expect(stranger.players.map(p => p.name)).toContain('ANNA');
+    expect(a.players.some(p => p.name === 'MALLORY')).toBe(false);
+    stranger.leave(); hub.flush();
+    // Her own host's new page: taken back at once.
+    const next = vi.fn(); a.onMatch = next;
+    const h2 = page(true, 'HOST', 'bh', { page: 'm1-again', roster: records.roster, seats: records.seats });
+    h2.startMatch('crucible', 'm1-again'); hub.flush();
+    expect(a.reconnecting).toBeNull();
+    expect(next).toHaveBeenCalledWith({ id: 'm1-again', mode: 'crucible' });
+  });
+
+  // --- A reload on the lobby page, between matches ---
+
+  it('a host that reloads its lobby page opens the room again with the same seats, and its guests take it back without leaving', () => {
+    const { h, gs } = lobbyOf('ANNA', 'BEN');
+    const [a, b] = gs as unknown as [Lobby, Lobby];
+    a.setReady(true); hub.flush();
+    const before = h.players.map(p => [p.name, p.slot, p.seat]);
+    const seats = h.seatRecords().seats;
+    // The page goes without a goodbye, as a reload does.
+    roomOf(h).leave(); hub.flush();
+    expect(a.phase).toBe('open'); expect(a.reconnecting?.reason).toBe('host-left');
+    expect(b.reconnecting?.reason).toBe('host-left');
+    tick(4000);
+    const h2 = page(true, 'HOST', 'bh', { seats }); hub.flush();
+    tick(PING_MS + 200);
+    expect(a.reconnecting).toBeNull(); expect(b.reconnecting).toBeNull();
+    expect(a.phase).toBe('open'); expect(b.phase).toBe('open');
+    // Everyone is listed again, each in the seat they had; who was ready still is.
+    const seatOf = (name: string) => h2.players.find(p => p.name === name)?.seat;
+    for (const [name, , seat] of before) expect(seatOf(name as string)).toBe(seat);
+    expect(h2.players.find(p => p.name === 'ANNA')?.ready).toBe(true);
+    expect(a.players.map(p => p.name).sort()).toEqual(['ANNA', 'BEN', 'HOST']);
+    // And the room works: the host can start a match from it.
+    for (const g of gs) g.setReady(true);
+    hub.flush();
+    const started = vi.fn(); a.onMatch = started;
+    expect(h2.startMatch('crucible', 'm9')).toBe(true); hub.flush();
+    expect(started).toHaveBeenCalledWith({ id: 'm9', mode: 'crucible' });
+  });
+
+  it('a guest that reloads on the lobby page takes its own seat back, and nobody else is disturbed', () => {
+    const { h, gs } = lobbyOf('ANNA', 'BEN');
+    const [a, b] = gs as unknown as [Lobby, Lobby];
+    const slot = a.me!.slot, seat = h.players.find(p => p.name === 'ANNA')!.seat;
+    roomOf(a).leave(); hub.flush();
+    expect(h.players.find(p => p.name === 'ANNA')).toMatchObject({ state: 'lost', slot });
+    const a2 = page(false, 'ANNA', 'b-ANNA'); hub.flush();
+    expect(a2.phase).toBe('open');
+    expect(h.players.map(p => p.name)).toEqual(['HOST', 'ANNA', 'BEN']);
+    expect(h.players.find(p => p.name === 'ANNA')).toMatchObject({ slot, seat });
+    expect(h.players.find(p => p.name === 'ANNA')?.state).toBeUndefined();
+    expect(lines(b).slice(-2)).toEqual(['ANNA lost connection.', 'ANNA reconnected.']);
+  });
+
+  it('a host back on its lobby page after its guests regrouped gives way to their lobby', () => {
+    const { h, gs } = lobbyOf('ANNA', 'BEN');
+    const seats = h.seatRecords().seats;
+    roomOf(h).leave(); hub.flush();
+    tick(RECONNECT_MS + PING_MS + 500);
+    expect(gs.map(g => g.error)).toEqual(['host-left', 'host-left']);
+    const { a } = regrouped('BEN');
+    vi.advanceTimersByTime(50);
+    const h2 = page(true, 'HOST', 'bh', { seats }); hub.flush();
+    expect(h2.error).toBe('code-taken'); expect(h2.yieldedTo).toBe('ANNA');
+    expect(a.phase).toBe('open'); expect(a.players.map(p => p.name)).toEqual(['ANNA', 'BEN']);
+  });
 });

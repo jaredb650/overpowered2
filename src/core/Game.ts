@@ -18,7 +18,7 @@ import { clockDue, drawGate, proofSwitches } from './proofmode';
 import type { Ctx, GameEvents, GameState, GameSystem } from './contracts';
 import './gameplay';
 import type { Regroup, Room } from '../net';
-import { handoffUsed, reconnectMatch, resumeFailed, resumedLobby, resumedMatch } from '../net/session';
+import { forgetRoom, handoffUsed, reconnectMatch, resumeFailed, resumedLobby, resumedMatch, roomToRejoin } from '../net/session';
 
 type Factory = (...args: never[]) => unknown;
 type Progress = (fraction: number, label: string, crawl?: Crawl) => void;
@@ -386,7 +386,13 @@ export async function startGame(params: URLSearchParams): Promise<void> {
     game.setState('menu');
     (ctx.hud as Ctx['hud'] & { screens: { coopEnded(message: string): void } }).screens.coopEnded(resumeFailed);
   } else if (params.get('autostart') || ON_RANGE) game.newRun();
-  else {
+  else if (!params.get('join') && roomToRejoin()) {
+    // Reloaded on the lobby page, between matches: back into the same room (ui/screens/coop.ts `rejoin`).
+    game.setState('menu');
+    (ctx.hud as Ctx['hud'] & { screens: { coopRejoin(note: NonNullable<ReturnType<typeof roomToRejoin>>): void } }).screens.coopRejoin(roomToRejoin()!);
+  } else {
+    // An invite link to another lobby, or nothing kept: the tab is in no room.
+    if (params.get('join')) forgetRoom();
     game.setState('menu');
     ctx.hud.showScreen?.('splash');
   }

@@ -25,6 +25,14 @@ interface Handoff {
   used?: boolean;
 }
 const KEY = 'op2_coop_match';
+/**
+ * The room this tab is in, kept beside the match handoff for as long as the player is in it (the lobby page writes it as a
+ * lobby is attached, leaving removes it). A reload on the lobby page, between matches, finds it and walks back into the same
+ * room: a guest joins again and takes its seat back; a host opens its lobby again on the same code, where its guests are
+ * waiting on "Reconnecting to host".
+ */
+const ROOM_KEY = 'op2_coop_room';
+export interface RoomNote { code: string; password: string; name: string; hosting: boolean; /** Host: every seat given out (browser id, seat id). */ seats?: [string, string][] }
 export let resumedLobby: Lobby | null = null;
 export let resumedMatch: Match | null = null;
 /** The room the match was played in, so leaving the match lands back in its lobby rather than the main menu. */
@@ -141,4 +149,31 @@ export function clearSession(): void {
   resumedRoom = null;
   consumed = null;
   try { sessionStorage.removeItem(KEY); } catch { /* blocked storage */ }
+}
+
+/** The lobby page is in this room now. Written again whenever the host's seat table grows. */
+export function rememberRoom(code: string, password: string, lobby: Lobby): void {
+  const note: RoomNote = { code, password, name: lobby.me?.name ?? '', hosting: lobby.hosting, ...(lobby.hosting ? { seats: lobby.seatRecords().seats } : {}) };
+  try {
+    const text = JSON.stringify(note);
+    if (sessionStorage.getItem(ROOM_KEY) !== text) sessionStorage.setItem(ROOM_KEY, text);
+  } catch { /* blocked storage: a reload on the lobby page starts from the menu */ }
+}
+
+/** The player left the room, or it closed for good. */
+export function forgetRoom(): void {
+  try { sessionStorage.removeItem(ROOM_KEY); } catch { /* blocked storage */ }
+}
+
+/** The room this tab was in when its page was reloaded, or null. Read once the match handoff has been tried (`reconnectMatch`). */
+export function roomToRejoin(): RoomNote | null {
+  try {
+    const raw = sessionStorage.getItem(ROOM_KEY);
+    if (!raw) return null;
+    const note = JSON.parse(raw) as RoomNote;
+    if (typeof note.code !== 'string' || !/^[A-Z2-9]{6}$/.test(note.code) || typeof note.password !== 'string' || !note.password
+      || typeof note.name !== 'string' || typeof note.hosting !== 'boolean') { forgetRoom(); return null; }
+    const seats = Array.isArray(note.seats) ? note.seats.filter(s => Array.isArray(s) && typeof s[0] === 'string' && typeof s[1] === 'string').slice(0, 64) : undefined;
+    return { code: note.code, password: note.password, name: note.name.slice(0, 16), hosting: note.hosting, ...(seats ? { seats } : {}) };
+  } catch { return null; }
 }

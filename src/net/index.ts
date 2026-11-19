@@ -5,7 +5,7 @@ import { Lobby, type ChatLine, type Match } from './lobby';
 import { errorText } from './lobbyText';
 import { POSE_MS, type Move } from './pose';
 import { AKIMBO_TAG, PROPS, RemotePlayer, friendTorches } from './remote';
-import { clearSession, deployMatch, deploying, resumedRoom, whileLoading } from './session';
+import { clearSession, deployMatch, deploying, forgetRoom, resumedRoom, whileLoading } from './session';
 import { SessionHud } from './sessionHud';
 import { CoopWorld } from './world';
 import { CoopHud } from './coopHud';
@@ -210,6 +210,13 @@ export class CoopSession implements GameSystem {
     const error = lobby.error;
     const reason = error ? errorText(error, lobby.theirBuild, this.code, lobby.connectAdvice) : 'The co-op room closed.';
     const hostGone = !this.hosting && (error === 'host-left' || error === 'lost') && !!this.code;
+    // This host gave way to another on its code (lobby.ts `otherHost`): its page reloaded for longer than its guests
+    // waited, and they have regrouped under one of them. It joins that lobby as a guest; nobody is left hosting alone.
+    if (this.hosting && error === 'code-taken' && this.code) {
+      const who = lobby.yieldedTo || 'A teammate';
+      return this.end('', false, { code: this.code, password: this.password, rank: 1, names: [who], name: lobby.me?.name,
+        note: `Your team regrouped while this page was away. ${who} is hosting now; you have joined their lobby.` });
+    }
     if (!hostGone) return this.end(error === 'host-left' ? 'The host left. The co-op match has ended.' : reason, false);
     // No host migration: the world lived on the host's page. Everyone who is left meets again on the same code instead.
     const { rank, names } = lobby.successors();
@@ -362,7 +369,11 @@ export class CoopSession implements GameSystem {
       if (this.hosting) this.lobby.endMatch();
       // A guest the host already sent back has no match to step out of.
       else if (this.lobby.match) this.lobby.away(false);
-    } else this.lobby.leave();
+    } else {
+      this.lobby.leave();
+      // Out of the room as well as the match: a reload must not walk back in (a regroup remembers the room again as it joins).
+      forgetRoom();
+    }
     clearSession();
     return open ? { lobby: this.lobby, code: this.code, password: this.password, match: this.match } : null;
   }

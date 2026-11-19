@@ -171,6 +171,19 @@ describe('the deploy gate, real reasons and host loss', () => {
       expect(ended.mock.calls[0]![2]).toMatchObject({ rank: 0 });
     } finally { vi.unstubAllGlobals(); }
   });
+  it('a host that gave way to its regrouped team is sent to join their lobby, not to an error page', async () => {
+    const { session, lobby } = setup();
+    const s = session as unknown as { code: string; password: string };
+    s.code = 'ABC234'; s.password = 'pw';
+    Object.assign(lobby, { me: host, yieldedTo: 'ANNA' });
+    const ended = vi.fn(); session.onEnded = ended;
+    await session.init(); session.begin();
+    lobby.phase = 'closed'; lobby.error = 'code-taken'; lobby.onChange();
+    expect(ended).toHaveBeenCalledOnce();
+    expect(ended.mock.calls[0]![1]).toBeNull();
+    expect(ended.mock.calls[0]![2]).toMatchObject({ code: 'ABC234', password: 'pw', rank: 1, names: ['ANNA'], name: 'HOST' });
+    expect(ended.mock.calls[0]![2].note).toMatch(/ANNA is hosting now/);
+  });
   it('feeds seat events to the hooks with the stable seat, tells the same page back from a new one, and names the connections that are gone', async () => {
     const { session, lobby } = setup(); await session.init(); session.begin();
     const arrived = vi.fn(), lost = vi.fn(), gone = vi.fn(), forget = vi.fn();

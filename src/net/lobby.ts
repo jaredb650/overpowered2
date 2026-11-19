@@ -99,8 +99,9 @@ type Msg =
   /**
    * `page`: the match this page was built for, null on a lobby page. `match` (host): the match it is running or starting.
    * A host whose `page` is not its `match` is on its way out to a new page; see `hello`.
+   * `n` (host): how many guests are connected to it now, for two hosts that meet on one code (`otherHost`).
    */
-  | { t: 'hello'; v: string; name: string; host: boolean; page?: string | null; match?: string | null; starter?: StarterGun; born?: number; browser?: string }
+  | { t: 'hello'; v: string; name: string; host: boolean; page?: string | null; match?: string | null; starter?: StarterGun; born?: number; browser?: string; n?: number }
   | { t: 'set'; name: string; ready: boolean; starter?: StarterGun; idle?: Idle }
   /**
    * `live`: the match's world has started (the load barrier is over). `holdLeft`: seconds until it starts regardless.
@@ -270,6 +271,15 @@ export class Lobby {
 
   private readonly ch: Channel<Msg>;
   private hostId: string | null = null;
+  /**
+   * Guest: the browser of the host this page knows (hello carries it). While the link is in trouble only that browser is
+   * taken as the host again, on a new connection or a new page: never whoever else says "host" on the code.
+   */
+  private hostBrowser = '';
+  /** Host: other hosts met on this code (peer ids), told again each heartbeat how many players this one has. */
+  private readonly rivals = new Set<string>();
+  /** Host: the callsign of the host this lobby gave way to (`error` is then 'code-taken'). */
+  yieldedTo = '';
   private ready = false;
   private idle: Idle | undefined;
   private wait: ReturnType<typeof setTimeout> | null = null;
@@ -354,7 +364,7 @@ export class Lobby {
       // A lobby that has closed says nothing more, though its room may still be up for a moment (BYE_FLUSH_MS).
       if (this.phase === 'closed') return;
       if (this.phase === 'connecting') { this.unheard.add(id); report('COOP_STAGE', { stage: 'version' }); }
-      this.ch.send({ t: 'hello', v: build, name: this.name, host: hosting, page: this.page, match: this.match?.id ?? null, starter: this.starter, born: this.born, browser: this.browser }, id);
+      this.sayHello(id);
     });
     room.onPeerLeave(id => this.peerLeft(id));
     room.onError((error, peerId) => this.netError(error, peerId));
@@ -363,6 +373,11 @@ export class Lobby {
       if (this.phase !== 'closed' && msg && typeof msg === 'object' && typeof msg.t === 'string') this.receive(msg, from);
     });
     this.beat = setInterval(() => this.heartbeat(), PING_MS);
+  }
+
+  private sayHello(to: string): void {
+    this.ch.send({ t: 'hello', v: this.build, name: this.name, host: this.hosting, page: this.page, match: this.match?.id ?? null, starter: this.starter,
+      born: this.born, browser: this.browser, ...(this.hosting ? { n: this.players.filter(linked).length } : {}) }, to);
   }
 
   /** Anything at all from a peer is its heartbeat; from a guest's silent host, it is the link coming back. */
@@ -403,6 +418,8 @@ export class Lobby {
     // Also called every game frame, which a hidden tab's worker keeps ticking when its timers are throttled.
     if (now < this.nextBeat) return;
     this.nextBeat = now + PING_MS - 50;
+    // Another host on this code hears how many players this one has now, so the two always agree on who gives way.
+    for (const id of this.rivals) this.sayHello(id);
     for (const p of [...this.players]) {
       if (!linked(p)) continue;
       const last = this.heard.get(p.id) ?? now;
@@ -883,8 +900,7 @@ export class Lobby {
     const sameBuild = msg.v === this.build;
     if (this.hosting) {
       if (this.match && this.page !== this.match.id && msg.page === this.match.id) return;
-      // Two hosts on one code: the newer, still empty lobby steps aside so guests are never split between them.
-      if (msg.host) return void (!this.page && this.players.length === 1 && !this.match && Number(msg.born) < this.born && this.close('code-taken'));
+      if (msg.host) return this.otherHost(msg, from);
       this.admit(msg, from, sameBuild);
       return;
     }
@@ -894,6 +910,10 @@ export class Lobby {
     if (leaving && this.page) return;
     // A second host on the code is not ours, unless ours is gone and this is its new page (or the same page, reconnected).
     if (this.hostId && this.hostId !== from && !this.reconnecting) return;
+    // And then only the host this page knew: the same browser, by its id. Anyone else who says "host" while the link is in
+    // trouble is a stranger (or a teammate's regrouped lobby, which this page joins on purpose once its own host is given up).
+    const theirs = typeof msg.browser === 'string' ? msg.browser.slice(0, 64) : '';
+    if (this.hostId && this.hostId !== from && this.hostBrowser && theirs !== this.hostBrowser) return;
     if (!sameBuild) {
       if (this.phase !== 'connecting') return;
       this.theirBuild = clean(msg.v, 40);
@@ -901,6 +921,7 @@ export class Lobby {
     }
     const first = this.phase === 'connecting';
     this.hostId = from;
+    this.hostBrowser = theirs;
     this.phase = 'open';
     if (this.reconnecting) console.info('[coop] The host is back.');
     this.reconnecting = null;
@@ -914,6 +935,32 @@ export class Lobby {
       this.nextLoaded = 0;
     }
     this.onChange();
+  }
+
+  /**
+   * Host: another host on this code. One room has one host, so one of the two gives way (closes with 'code-taken'; its page
+   * then joins the other as a guest, ui/screens/coop.ts and index.ts) and nobody is left alone in a lobby of their own:
+   *  - a host with nobody connected to it gives way to one that has players;
+   *  - of two with nobody, the newer gives way (`born`).
+   * Both ends work it out from the same two hellos, which each repeats on its heartbeat (`rivals`), so the count of players
+   * each acts on is the other's of now. Two hosts that both have players stay as they are: there is no merging two rooms.
+   *
+   * How two hosts meet: a new lobby opened on a code in use; a regroup where two took over at once; and a host whose page
+   * reloaded for longer than its guests waited, coming back (as a host on its map page, or on its lobby page) to find them
+   * regrouped under a new host.
+   */
+  private otherHost(msg: Extract<Msg, { t: 'hello' }>, from: string): void {
+    // This player's own other page (the lobby page being left, the map page being loaded) is no rival.
+    if (this.browser && msg.browser === this.browser) return;
+    // Nor is a host on its way out to a map page: it is about to be gone, and its next page speaks for itself.
+    if ((typeof msg.match === 'string' && msg.page !== msg.match) || (this.match && this.page !== this.match.id)) return;
+    this.rivals.add(from);
+    const mine = this.players.filter(linked).length;
+    const theirs = Number.isInteger(msg.n) && msg.n! > 0 ? msg.n! : 0;
+    if (mine > 0 || !(theirs > 0 || Number(msg.born) < this.born)) return;
+    this.yieldedTo = clean(msg.name, NAME_MAX);
+    console.info(`[coop] Another host${this.yieldedTo ? ` (${this.yieldedTo})` : ''} has this code${theirs ? ` with ${theirs} player${theirs === 1 ? '' : 's'}` : ''}; this lobby gives way.`);
+    this.close('code-taken');
   }
 
   /** Host: a guest's hello. The same browser takes its own seat back (a reload, a reconnect, another tab); a new one gets a seat. */
@@ -1140,6 +1187,8 @@ export class Lobby {
   }
 
   private peerLeft(id: string): void {
+    this.rivals.delete(id);
+    this.pings.delete(id);
     if (!this.hosting) {
       this.unheard.delete(id);
       // Not the end yet: a dropped link comes back more often than not (RECONNECT_MS).

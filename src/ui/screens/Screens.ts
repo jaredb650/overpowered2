@@ -4,6 +4,7 @@ import { adoptLoading } from '../boot';
 import { div } from '../dom';
 import type { Hud } from '../Hud';
 import type { Regroup, Room } from '../../net';
+import type { RoomNote } from '../../net/session';
 import type { Settings } from '../settings';
 import { Nav } from './nav';
 import { GameOverScreen } from './gameover';
@@ -118,6 +119,12 @@ export class Screens {
   coopRegroup(plan: Regroup): void {
     this.show('coop');
     (this.screens.coop as CoopScreen).regroup(plan);
+  }
+
+  /** This page was reloaded while in a lobby, between matches: it walks back into the same room (net/session.ts `roomToRejoin`). */
+  coopRejoin(note: RoomNote): void {
+    this.show('coop');
+    (this.screens.coop as CoopScreen).rejoin(note);
   }
 
   /** Outpost Defense's buy menu for one shop. */

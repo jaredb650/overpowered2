@@ -17,7 +17,7 @@ import {
 import { errorText } from '../../net/lobbyText';
 import type { Regroup } from '../../net';
 import { div, h, span } from '../dom';
-import { canDeploy, deployMatch } from '../../net/session';
+import { canDeploy, deployMatch, forgetRoom, rememberRoom, type RoomNote } from '../../net/session';
 import { turnConfigured } from '../../net/turn';
 import type { Hud } from '../Hud';
 import type { Nav, NavItem } from './nav';
@@ -103,6 +103,8 @@ export class CoopScreen implements Screen {
   /** Meeting again after the host was lost: the plan, and whether this page has already taken its turn at hosting. */
   private regrouping: Regroup | null = null;
   private tookOver = false;
+  /** Walking back into a room after this page was reloaded on its lobby page: the room as the tab kept it. */
+  private rejoining: RoomNote | null = null;
   /** On the join page from an invite link: the code is known, so the page asks only for the password. */
   private invited = false;
   private joinButton = h('button', 'co-copy co-join', 'Join lobby');
@@ -388,7 +390,7 @@ export class CoopScreen implements Screen {
   }
 
   /** Opens the lobby on `this.code`, as host or guest. One at a time (`busy`), with the buttons greyed meanwhile. */
-  private async openRoom(hosting: boolean, password: string, hostWait?: number): Promise<void> {
+  private async openRoom(hosting: boolean, password: string, hostWait?: number, seats?: RoomNote['seats']): Promise<void> {
     if (this.lobby || this.busy) return;
     this.busy = true;
     this.joinButton.disabled = true;
@@ -409,7 +411,7 @@ export class CoopScreen implements Screen {
         this.regrouping = null;
         return this.fail('Could not start the connection. Check you are online, then try again.');
       }
-      this.attach(new Lobby(rooms, hosting, name, undefined, hostWait ? { hostWait } : {}), password);
+      this.attach(new Lobby(rooms, hosting, name, undefined, { ...(hostWait ? { hostWait } : {}), ...(hosting && seats ? { seats } : {}) }), password);
     } finally {
       this.busy = false;
       this.joinButton.disabled = false;
@@ -446,6 +448,24 @@ export class CoopScreen implements Screen {
     void this.openRoom(plan.rank === 0, plan.password, plan.rank === 0 ? undefined : REGROUP_WAIT_MS * plan.rank);
   }
 
+  /**
+   * This page was reloaded while in a lobby, between matches. It walks back into the same room on the same code: a guest
+   * joins again (the host gives the same browser its seat back); a host opens its lobby again with the seats it had given
+   * out, where its guests wait on "Reconnecting to host" for RECONNECT_MS and take it back by its browser's id. A host that
+   * was away longer finds its guests regrouped under one of them: its lobby gives way ('code-taken') and it joins theirs.
+   */
+  rejoin(note: RoomNote): void {
+    if (this.lobby || this.busy) return;
+    this.rejoining = note;
+    this.regrouping = null;
+    this.code = note.code;
+    if (note.name) this.name.value = note.name;
+    this.lobbyNote = note.hosting ? 'This page was reloaded. Your lobby is open again on the same code; the others reconnect by themselves.'
+      : 'This page was reloaded. You are back in the lobby.';
+    console.info(`[coop] This page was reloaded in a lobby: ${note.hosting ? 'hosting it again on the same code' : 'joining it again'}.`);
+    void this.openRoom(note.hosting, note.password, undefined, note.seats);
+  }
+
   private attach(lobby: Lobby, password: string): void {
     const preference = starterPreference();
     if (preference) lobby.setStarter(preference);
@@ -474,8 +494,11 @@ export class CoopScreen implements Screen {
         this.go('start', 'Co-op needs tab storage to load the map. Allow site data for this page and join again.');
       }
     };
+    // The tab remembers the room, so a reload on this page walks back into it (`rejoin`).
+    rememberRoom(this.code, password, lobby);
     lobby.onChange = () => {
       if (lobby.phase === 'closed') return this.ended(lobby);
+      if (lobby.phase === 'open') rememberRoom(this.code, password, lobby);
       // The rejoin item comes and goes with the match the host still plays, and Force start with whoever is not ready.
       if (this.page === 'lobby' && (this.list.contains(this.rejoinItem.el) !== !!lobby.awayFrom
         || (lobby.hosting && this.list.contains(this.forceItem.el) !== lobby.notReady.length > 0))) this.go('lobby');
@@ -524,6 +547,13 @@ export class CoopScreen implements Screen {
       this.lobbyNote = 'The host was lost. A teammate is hosting this lobby now.';
       return void this.openRoom(false, plan.password);
     }
+    // A host back after a reload finds its guests regrouped under one of them: it joins their lobby, as a guest.
+    const note = this.rejoining;
+    this.rejoining = null;
+    if (note?.hosting && error === 'code-taken') {
+      this.lobbyNote = `Your team regrouped while this page was away. ${lobby.yieldedTo || 'A teammate'} is hosting now; you have joined their lobby.`;
+      return void this.openRoom(false, note.password);
+    }
     // The host of a lobby this page was in is gone for good: meet again on the same code.
     if ((error === 'host-left' || error === 'lost') && lobby.players.length > 1 && this.roomPassword) {
       const { rank, names } = lobby.successors();
@@ -533,6 +563,8 @@ export class CoopScreen implements Screen {
         note: rank === 0 ? `${lead} You are hosting this lobby now${names.length > 1 ? '; the others are rejoining' : ''}.` : `${lead} ${names[0] ?? 'A teammate'} is hosting now.` });
     }
     this.regrouping = null;
+    // Closed for good under this page: nothing to walk back into.
+    forgetRoom();
     this.reportCode = coopErrorCode(error, /same network/i.test(lobby.connectAdvice), turnConfigured());
     this.ctx.audio.play?.('ui_error');
     const retry = error === 'password' || error === 'no-host' || error === 'no-answer' || error === 'connect' || error === 'relays' || error === 'lost';
@@ -543,6 +575,8 @@ export class CoopScreen implements Screen {
   private leave(): void {
     this.lobbyNote = '';
     this.regrouping = null;
+    this.rejoining = null;
+    forgetRoom();
     this.lobby?.leave();
     this.lobby = null;
     this.roomPassword = '';
