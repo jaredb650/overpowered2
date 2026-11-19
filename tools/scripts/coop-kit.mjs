@@ -19,11 +19,16 @@ export function kit(outDir, prefix, out, sleep) {
   return { check, progress, shot };
 }
 
-/** Caps a test page at 15 frames a second (two full worlds on an 8 GB machine) and meters its data channels. */
-export function harness() {
+/**
+ * Runs in each test page: an optional frame-rate cap, the hidden-tab switch, and a meter on its data channels.
+ * `fps` caps the page's animation frames (0 or absent: no cap). The old kit always capped at 15 for an 8 GB Mac; pass
+ * `fps: 15` to a proof that depends on a slow host.
+ */
+export function harness(fps = 0) {
   const requestFrame = window.requestAnimationFrame.bind(window);
   window.requestAnimationFrame = callback => {
-    const deadline = performance.now() + 1000 / 15;
+    // Half a display frame of slack, so a 30 cap lands on every second 60 Hz frame instead of every third.
+    const deadline = fps > 0 ? performance.now() + 1000 / fps - 8 : 0;
     const tick = now => (window.__coopHidden ? setTimeout(() => requestFrame(tick), 200) : now >= deadline ? callback(now) : requestFrame(tick));
     return requestFrame(tick);
   };
@@ -64,13 +69,24 @@ export function harness() {
   };
 }
 
+/** Frames a second a test page is capped at unless the proof says otherwise (COOP_FPS overrides; 0 is no cap). */
+export const DEFAULT_FPS = 0;
+
 export const quiet = () => localStorage.setItem('op2.settings.v1', JSON.stringify({ quality: 0, music: 0 }));
 
+/**
+ * A fresh browser profile's first Play goes to Retraining (src/contracts/firstLaunch.ts), never to the menu the kit drives.
+ * A test page is a returning player: this writes the key the game itself writes on any first run.
+ */
+export const returning = () => localStorage.setItem('op2.played.v1', '1');
+
 /** Host and one guest in a lobby, on the mode button `mode`, started with the countdown. Returns the guest page and invite link. */
-export async function startPair(host, { mode, password, out, progress, sleep, startNow = true }) {
+export async function startPair(host, { mode, password, out, progress, sleep, startNow = true, fps = Number(process.env.COOP_FPS ?? DEFAULT_FPS) }) {
   await host.waitForFunction(() => !!window.__op2?.ctx.render, null, { timeout: 120000 });
-  await host.addInitScript(harness); await host.evaluate(harness);
+  await host.addInitScript(harness, fps); await host.evaluate(harness, fps);
   await host.addInitScript(quiet); await host.evaluate(() => window.__op2.ctx.render.setQuality(0));
+  // The host page loaded before any init script: mark it now (Play reads it on the click), and for its later page loads.
+  await host.addInitScript(returning); await host.evaluate(returning);
   host.on('pageerror', error => out.errors.push(`host: ${error.message}`));
   await host.locator('.scr-splash').waitFor({ state: 'visible', timeout: 120000 });
   await host.locator('.scr-splash').click();
@@ -82,7 +98,7 @@ export async function startPair(host, { mode, password, out, progress, sleep, st
   progress('host lobby open; guest joining by link');
   const guest = await host.context().browser().newPage({ viewport: host.viewportSize(), deviceScaleFactor: 2 });
   guest.on('pageerror', error => out.errors.push(`guest: ${error.message}`));
-  await guest.addInitScript(harness); await guest.addInitScript(quiet);
+  await guest.addInitScript(harness, fps); await guest.addInitScript(quiet); await guest.addInitScript(returning);
   const invite = link.replace(/^https?:\/\/[^/]+/, new URL(host.url()).origin);
   await guest.goto(invite);
   await joinFromSplash(guest, password);

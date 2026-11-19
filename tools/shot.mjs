@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Headless GPU harness: opens a page in real Chrome (ANGLE/Metal), runs an optional script,
+// Headless GPU harness: opens a page in Playwright's Chromium on the GPU (ANGLE: Metal on a Mac, OpenGL on Linux), runs an optional script,
 // takes screenshots, and reports console errors plus frame timing.
 //
 //   node tools/shot.mjs --url "/?sandbox=gore" --out tools/out/gore.png --wait 4000
@@ -104,11 +104,19 @@ if (!absolute) {
 }
 const url = absolute ? opt.url : `${base}${opt.url ?? '/'}`;
 
+// The GPU: Metal on the Mac. On Linux '--use-angle=metal' means nothing and headless Chromium falls back to SwiftShader
+// (software: about 1 frame a second for this game at 1440x900 dpr 2), so ask ANGLE for the machine's own OpenGL driver
+// through EGL, which needs no display (60 frames a second on the dev box's RTX 4090). OP2_ANGLE picks another back end:
+// 'vulkan' also reaches the card but lost its WebGL context in one run of three; 'swiftshader' is the old software path.
+// Other systems keep the Mac's flags exactly.
+const angle = process.env.OP2_ANGLE ?? (process.platform === 'linux' ? 'gl-egl' : 'metal');
+const gpuArgs = [`--use-angle=${angle}`, ...(angle === 'vulkan' ? ['--enable-features=Vulkan'] : []), '--enable-gpu', '--ignore-gpu-blocklist', '--use-gl=angle'];
+
 const browser = await chromium.launch({
   channel: 'chromium', // Playwright's own Chromium: the real Chrome app run headless hijacks the owner's Chrome (no windows open)
   headless: true,
   args: [
-    '--use-angle=metal', '--enable-gpu', '--ignore-gpu-blocklist', '--use-gl=angle',
+    ...gpuArgs,
     '--autoplay-policy=no-user-gesture-required',
     '--disable-background-timer-throttling', '--disable-renderer-backgrounding', '--disable-backgrounding-occluded-windows',
   ],
