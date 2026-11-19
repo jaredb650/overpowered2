@@ -11,7 +11,7 @@ import type { CharacterInstance, Ctx, DamageInfo, GameEvents } from '../core/con
 import type { EnemyId } from '../core/gameplay';
 import { makeCtx } from '../sandbox/harness';
 import { WEAPONS } from '../weapons/data';
-import { newFacts, type HitFacts } from './damage';
+import { newFacts, poolStrengths, type HitFacts } from './damage';
 import { EnemyManager } from './EnemyManager';
 
 function character(id: EnemyId): CharacterInstance {
@@ -496,5 +496,34 @@ describe('a guest and the host roll the same for the same hit', () => {
   it('a hit with no number (single player, the host\'s own gun) is this machine\'s own dice, as it always was', () => {
     const a = levels(world(false), false, 120, false), b = levels(world(false), false, 120, false);
     expect(a).not.toEqual(b);
+  });
+});
+
+describe('a copy of an enemy with more health than this page would have given it', () => {
+  it('has limbs as whole as the host\'s: the pools follow the host\'s health, a fixed head pool does not', () => {
+    const host = world(), guest = world();
+    // The host's wave is deep (or its rules say double health): its enemy is made with three times the health.
+    (host.manager as unknown as { tuning: { health: number } }).tuning.health = 3;
+    const there = host.spawn('trooper'), here = guest.spawn('trooper');
+    expect(there.maxHealth).toBeCloseTo(here.maxHealth * 3, 6);
+    const whole = (e: typeof here) => poolStrengths(e, { legL: 0, legR: 0, armL: 0, armR: 0, trunk: 0, neck: 0 });
+    expect(whole(there)).toMatchObject({ legL: 1, legR: 1, armL: 1, armR: 1 });
+    // The snapshot's health alone, as it was: every limb reads a third gone (0.66), and worse the deeper the wave.
+    const head = here.limbHp.get('head')!;
+    const built = here.maxHealth;
+    here.maxHealth = there.maxHealth;
+    expect(whole(here).legL).toBeLessThan(0.7);
+    // Fitted: the same as the host's, limb for limb and pool for pool.
+    here.maxHealth = built;
+    guest.manager.fitReplicaHealth(here, there.maxHealth);
+    expect(here.maxHealth).toBe(there.maxHealth);
+    expect(whole(here)).toMatchObject({ legL: 1, legR: 1, armL: 1, armR: 1 });
+    for (const region of ['legL', 'shinR', 'armL', 'forearmR', 'abdomen'] as const) expect(here.limbHp.get(region)).toBeCloseTo(there.limbHp.get(region)!, 6);
+    expect(here.limbHp.get('head')).toBeCloseTo(there.limbHp.get('head')!, 6);
+    expect(head).toBeGreaterThan(0);
+    // The same health: nothing moves.
+    const before = [...here.limbHp.values()];
+    guest.manager.fitReplicaHealth(here, there.maxHealth);
+    expect([...here.limbHp.values()]).toEqual(before);
   });
 });

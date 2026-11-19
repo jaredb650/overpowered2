@@ -1012,6 +1012,21 @@ export class EnemyManager implements EnemySystem {
     this.model.shooter = null;
   }
 
+  /**
+   * Co-op guest: a copy's limb pools were sized at its making for the health this page would have given it (its own wave,
+   * its own rules); the host's enemy has `maxHealth`. The pools are scaled to that, so each limb is as whole on the copy as
+   * on the host. A limb's strength is its pool over the body's whole health (`poolStrength`): left alone, a copy of an enemy
+   * with twice the health read as a body with every limb half gone, could not catch its balance and could not push itself
+   * up off the floor (it lay about 2 s longer than the host's body, out of the line of fire). Sets `maxHealth` too.
+   */
+  fitReplicaHealth(e: Enemy, maxHealth: number): void {
+    const built = e.maxHealth;
+    e.maxHealth = maxHealth;
+    if (!(built > 0) || !(maxHealth > 0) || built === maxHealth) return;
+    const ratio = maxHealth / built;
+    for (const [region, hp] of e.limbHp) if (region !== 'head' || !e.def.headPoolFixed) e.limbHp.set(region, hp * ratio);
+  }
+
   /** Co-op guest: the host's word that this copy should not be on the floor (its answer to a hit this machine guessed wrong). */
   rouseReplica(enemy: Enemy): void {
     if (enemy.downed && !this.ctx.gore.downed(enemy.char)?.standing) this.ctx.gore.rouse?.(enemy.char);

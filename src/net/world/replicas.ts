@@ -213,6 +213,8 @@ export class Replicas implements WorldModule {
       if (!enemy) return;
       enemy.uid = e.uid;
       enemy.yaw = e.yaw;
+      // Its limb pools were sized for this page's own idea of its health: to the host's (EnemyManager.fitReplicaHealth).
+      (manager as { fitReplicaHealth?(enemy: Enemy, maxHealth: number): void }).fitReplicaHealth?.(enemy, e.maxHealth);
       replica = { enemy, to: { flags: e.flags, posture: POSTURES[e.posture]!, target: e.target }, motion: new MotionBuffer(), newest: -Infinity, first: t,
         missing: 0, heard: 0, frost: 0, severAt: 0, down: false, downAt: 0, hostUpAt: 0, hostDownAt: (e.flags & DOWNED) !== 0 ? -Infinity : 0, gotUpAt: -Infinity };
       this.map.set(e.uid, replica);
