@@ -85,7 +85,8 @@ the names the game used before).
 | `world/moves.ts` | Enemy moves no hit explains: stagger, stumble, daze, roar, land, leap, block, a living knockdown (`down`) and `getUp`. The host listens at the animator and at gore; a guest plays each when the copy's playhead reaches it | `move` |
 | `world/identity.ts` | Each soldier's names, rank, seat, voice and squad, told once per guest | `who` |
 | `world/targeting.ts` | Host: every player as a target (`players()`, and `hostPlayers()` as the game's own player type for dangers that test them all), `select`, line of sight, `steer` and its routes, `targetPlayer`, sending `hurt` and `shove`, a guest's dodge grace (`dodged`), who holds Ghost. Guest: taking `hurt` (a sword block still works) and `shove`, `allowsLocalDamage`, telling the host about Ghost | `hurt`, `shove`, `ghost` |
-| `world/claims.ts` | Guest's `claim` (its damage as a `hit` event, and the guess at the result); the host's check and apply (`hitIn`); whose claim is being applied (`applying`) and who last hit an enemy (`lastHit`), read by hits.ts for kill credit | `hit` |
+| `world/claims.ts` | A guest's damage as claims: `claim` (a `hit`, with its shot id, the shooter's clock and the guess at the result), `status` (fire, frost, a live bolt), `vehicleHit` / `vehicleBlast`; the host's check and apply for each; whose claim is being applied (`applying`, `applyingShot`) and who last hit an enemy (`lastHit`). See "Claims" below | `hit`, `status`, `vhit` |
+| `world/vehicleHits.ts` | Guest: the hit boxes of the host's trucks, humvees and tanks, moved with their drawings, and what a round on one becomes (owned and run by `Claims`) | |
 | `world/hits.ts` | What the host's damage did, as every other screen shows it: the host's `hitfx`, `ack`, `sever` and `kill`; a guest drawing its own hit at once (`stamp`, `predict`), putting right what it guessed wrong (`ackIn`) and showing the hits, cuts and deaths the host decided; `whenKilled`; `selfDestruct`. See "Gore on every screen" | `hitfx`, `ack`, `kill`, `sever` |
 | `world/hitWire.ts` | The round and the host's findings as ids and whole numbers: `packHit`/`unpackHit`, `packFacts`/`unpackFacts`, `packKill`/`unpackKill` | |
 | `world/credit.ts` | Whose kill and whose hit (`notMine`, `crediting`, `creditAs` for work put off to a later frame); rewards sent to the guest who earned them; `coop:kill` on every screen | `award` |
@@ -95,7 +96,7 @@ the names the game used before).
 | `world/warnings.ts` | Ground rings, falling shells, ground shocks, flashbangs, and the stars and lasers of things that are not an enemy's attack | `zone`, `strike`, `shock`, `bang`, `glint`, `laser` |
 | `world/villain.ts` | The Commander's briefing, barks, warning chips, arrival and last words raised on guests as the same game events | `cmd` |
 | `world/hostTime.ts` | `HostTime`: how much later than usual a host-stamped event arrived, so a late wind-up starts that far in | |
-| `world/booms.ts` | `blast`: explosions sent to other screens on a two-bucket budget (24 a second of anything, 12 more for large or near ones), an enemy blast's damage on remote players, a guest's blast on the host's vehicles. `show` (`CoopWorld.boom`) is the API for a blast combat did not make | `boom` |
+| `world/booms.ts` | `blast`: explosions sent to other screens on a two-bucket budget (24 a second of anything, 12 more for large or near ones), an enemy blast's damage on remote players, a guest's blast on the host's vehicles. `show` (`CoopWorld.boom`) is the API for a blast combat did not make. It carries no damage: a guest's blast on the host's vehicles is a `vhit` claim (claims.ts) | `boom` |
 | `world/callins.ts` | Call-ins, the Frame and streak-perk effects on every screen: the order, the news, the pose, the checks and the relay; the host's note that lets the caller's call-in damage pass. See "Call-ins on every screen" | `callin`, `cin`, `cnews`, `mech`, `aadown`, `pfx` |
 | `world/airlift.ts` | The capture skyhook: the host says when a drone is sent for a cuffed man, every guest flies the same pass | `airlift` |
 | `world/sonar.ts` | The shared Sonar ping | `sonar` |
@@ -118,7 +119,7 @@ the names the game used before).
 Rules that keep it working:
 
 - **A module keeps its own state.** It reaches another module only through that module's public methods, and gets it as a constructor
-  argument in `world.ts` (for example `Claims` is given `Replicas`, `Targeting` and `RemoteFire`, and `Hits` is given `Claims`). Nothing reaches into another module's
+  argument in `world.ts` (for example `Claims` is given `Replicas`, `Targeting` and `Vehicles`). Nothing reaches into another module's
   private fields.
 - **Order.** Modules add their game listeners (`w.listen`) as they are built. Listeners on one game event run in the order added, and
   the world is built before any system's `init`, so `Hits` hears `enemy:killed` before every system (who killed it is known first).
@@ -1185,6 +1186,82 @@ checks); they have not been run on WebRTC since.
 - **Three- and four-player runs over real WebRTC**, and any run on an idle machine: every timing above was taken under load.
 - **Perks and a call-in seat lost on going down** stay lost (lead's decision D4); **waves and pay do not scale** with players (P4).
 
+## Claims: what the host does with a guest's damage
+
+Rule: **favour the shooter.** This is a game among friends. An honest player never loses a hit, on any weapon, with any perk, mod
+or implant, on a bad connection; the checks only stop the absurd. Code: `src/net/authority.ts` (`ClaimValidator`),
+`src/net/world/claims.ts`. Tests: `authority.test.ts`, `claims.matrix.test.ts` (604 weapon/mod/perk cases on three kinds of link, 1.2
+million claims, none refused or cut), `world.test.ts`; browser proof `tools/scripts/coop-claims-matrix.mjs`.
+
+**The three claims** (guest to host, reliable lane):
+
+| Event | Fields | Host applies |
+|---|---|---|
+| `hit` | `shot`, `at`, `target` (enemy uid), `weapon` (in hand, not relied on), `origin` (the shooter's eye), `damage` (the whole `DamageInfo`), `hop?` | `applyDamage` as that guest, after `bossHit` |
+| `status` | `uid`, `kind` (`burn`, `freeze`, `bolt`), `s` seconds, `at` | `EnemyManager.afflict`: the same write the weapon makes alone |
+| `vhit` | `id` (the vehicle, as the `vehicles` event numbers it), `part`, `point` (in the vehicle's own frame), `amount`, `source`, `kind?` (a rocket or shell landing on it); or with `radius`: a blast at world `point`, `inst?` an instakill | `VehicleSystem.claimed` (as `shot` / `direct`, no host hit marker), or `blast` |
+
+- **Shot id and clock.** `shot` is the shooter's own count of shots, swings and bursts (it moves on every `weapon:fired`, and on a
+  claim made more than 100 ms after it last moved: a stake landing, a beam still on). `at` is the shooter's `performance.now()`.
+  No claim ever sends a made-up `fire`. `ctx.coop.world.shot` (guest) and `.applying` / `.applyingShot` (host, during the apply) are
+  how other code reads them.
+- **`hop`.** Set by the guest when a gun's round did not come straight from the eye: its direction is more than 12 degrees off the
+  eye line (a ricochet, a hop off a body, an arc, a fragment) or the guest's own world has a wall on that line (a round that
+  passes walls). The host then has no straight line to test.
+
+**What made the damage decides the check** (`claimClass`, by `damage.source` and `type`):
+
+| Class | Sources | Rate | Sight | Needs the shooter up |
+|---|---|---|---|---|
+| gun | a weapon id, not explosive | shots, per gun | a straight shot only, see below | yes |
+| melee | a melee weapon id, `sword…` | swings, per weapon | none | yes |
+| blast | anything `explosive` not below | 400 hits/s, 800 at once | none | no |
+| callin | `airstrike`, `warthog`, `chopper…`, `door_gun`, `gunship…`, `orbital`, `ac130…`, `black_sun`, `nuke`, `sentry`, `drop_pod`, `frame…`, `mech`, `harrow_…`, `attack…` | 600 / 1200 | none | no |
+| perk | `chain…`, `skyfall`, `frost`, `rigged`, `deadman` | 200 / 400 | none | no |
+| mounted | `emplacement` | 200 / 400 | straight shot, from the claim's origin | yes |
+| body | `slam`, `sword_deflect`, `gib` | 100 / 200 | none | yes |
+| world | `mortar`, `mine`, `tripwire`, `claymore`, `barrel` | 200 / 400 | none | no |
+| other | anything else: never refused for being unknown | 200 / 400 | straight shot | no |
+
+- **Rate.** A hit belongs to a shot; once a shot is in, all its hits are (up to `max(256, pellets x 64)`, far more than a shot lands).
+  Shots are counted per guest and gun in a token bucket that fills on the **shooter's** clock, so bunching from lag, a resend or a
+  host hitch costs nothing. The bucket fills at `RATE_ROOM` (8) times the gun's fastest cadence and holds 1.5 s of that (12 at
+  least). The fastest cadence comes from the weapon table (`limitsOf`): the shortest interval over the bare row, each mod and all
+  mods together, the smart aim's and the Judge fan's gap, halved for a gun that takes akimbo and never slower than Gun Kata's
+  85 ms; a melee swing over the energy blade's speed. 8 covers every fire-rate perk at once (capped at 2 with implants, 7.2 with
+  implants off). The shooter's clock may lag as it likes but not run more than 4 s ahead of where it stood when first heard; a
+  reloaded page's new clock is followed. `kata` and `fire.ak` are no longer needed by the check.
+- **Amount: cut, never dropped.** Cap: a gun's round times 64 (2000 at least); 20000 for the other classes; 4000 mounted. A claim
+  over it is cut to it. Kept whole as kills: a gun whose row is an instakill (the autocannon's shell, direct or splash), a Hellfire
+  rocket's blast, and, with a call-in announced in the last 10 minutes, the airstrike's finale, Black Sun, the **AC-130's bomb**
+  and the nuke. `bossHit` then turns 9999 or more on a boss into 900, for host and guest alike.
+- **Where.** The claim's eye within `7 + 26 x (0.35 + ping)` m of the host's copy of the shooter (16 m at no ping, 24 m at
+  300 ms: a 26 m/s dash; 80 m for a mounted gun; not checked for blasts, call-ins, perks). Range from the eye: 850 m for guns
+  (Combat's own is 800), 60 melee, anywhere for call-ins and perks. The hit point within `10 + the enemy's height + its speed x
+  the delay` of the enemy on the host, **or** the enemy that near the line from the eye to the point (the Lance beam names its far
+  end, up to 400 m out).
+- **Sight.** Tested only for a straight shot (no `hop`) from a gun whose row does not pass walls on its own, without an AP or
+  API load, not a flame, from more than 6 m. From the claim's eye to the hit point, the last metre not looked at; failing that
+  from the host's copy of the eye, and to the enemy's centre and head as the host has it. If all fail, the hit still passes on an
+  allowance (8 at once, one more a second: corners, cover, worlds that differ); past that it is refused.
+- **Down.** A downed or dead shooter's gun, blade, body and mounted gun are refused; what was already in the air (a grenade, a
+  rocket) and what stands by itself (a sentry, an aircraft, burning ground) still counts.
+- **Never counted as lost:** a claim on an enemy the host had already killed (`refused.gone`).
+- **Counters** for proofs: `world.stats.accepted / rejected`, `world.validator.refused` (by reason: `shape`, `down`, `eye`, `range`,
+  `point`, `rate`, `hits`, `flood`, `sight`, `gone`), `validator.clamped`, `validator.doubted`, and on a guest `world.claims.sent`.
+
+**Status effects.** Fire, frost and the exploding bolt's panic go through `ctx.enemies.afflict(enemy, kind, seconds)` from the
+Kiln's stream and napalm, the Lance beam, the AC-130's white phosphorus, the orbital beam, Frost Nova and the stuck bolt. Alone and
+on the host it is the write the weapon used to make. On a guest it also sends `status` (one that is renewed every frame goes out
+four times a second and once more when it stops); the host caps it at 30 s of fire, 20 s of frost, 12 s of bolt. Stagger, flinch
+and knockdown need no claim: the host's damage model works them out from each `hit`. A guest's copy shows burning and frost from
+the snapshot's flags.
+
+**Vehicles.** On a guest each drawn truck, humvee and tank has the real one's boxes in the physics world, so a guest's round
+stops on the hull, sparks there, and a vehicle is cover and solid, as on the host. The hit names the part and the point in the
+vehicle's own frame, so a hit on the hatch on the shooter's screen is a hit on the hatch. The host's enemy helicopter is not drawn
+on guests and has no boxes; a guest's blast still reaches it.
+
 ## How it works
 
 - **trystero 0.27.0, pinned**, with its default strategy, Nostr: peers meet through public Nostr relays, then talk browser to browser
@@ -1738,8 +1815,8 @@ page), and the others are trials. Cloudflare's free tier is the free option, so 
   controls but never stops the clock).
 - **Slow motion.** One player slows everyone, and every screen says who: see "Time: the team's slow motion" below.
 - **Call-ins.** Each player calls their own (earned from their own combo). A strike, the AA sentry, the mech, the door gunner or the
-  AC-130 runs on the caller's screen; its damage reaches the host as call-in claims, accepted for 4 minutes after the caller's
-  `callin:used` (sentries stand that long), rate-capped at 160 a second, no line-of-sight test. Every explosion anyone's game makes is
+  AC-130 runs on the caller's screen; its damage reaches the host as call-in claims, with no line-of-sight test and no time limit
+  (see "Claims"; only the instakills need a call-in announced in the last 10 minutes). Every explosion anyone's game makes is
   drawn and heard on every screen (`boom`), and the others get a feed line "VIPER called in AIRSTRIKE". Since the overhaul
   the call-in itself plays on every screen: see "Call-ins on every screen".
 - **Bodies.** A friend holds the nearest baked prop to their gun (SMG, shotgun, launcher, minigun, pistol, sniper rifle, blade, flamer),
@@ -1968,7 +2045,7 @@ The host runs the world for all three survival modes, on whichever map the lobby
   "can be cuffed" bit. A guest holds E on a surrendered man in reach and in view; the host cuffs him for them through the drone's own
   cuff (not the prisoners' key path, which would drop whatever the host holds). When the drone secures him the bounty moves from the
   host's purse to the captor's. Grabbing a man as a shield and questioning him stay the host's own. Trucks, humvees and tanks are drawn
-  on the guests at 5 Hz; a guest's explosion is applied to them on the host (bullets from guests do not hurt vehicles). Squad chatter
+  on the guests at 5 Hz; a guest's bullets, rockets and blasts are applied to them on the host as claims (`vhit`). Squad chatter
   and voices replicate (stage 2). The Commander's box on guests shows only what reaches them.
 - **Outpost Defense.** Every player deploys from their own loadout screen and spends their own credits at the Armoury and Infirmary,
   over the live world. The fort is one fort for the team since the overhaul: see "Outpost Defense: one fort" below.
@@ -2305,7 +2382,7 @@ through `campaign.restart()`, which is the same thing), `.catchUp(id)` (host: on
 | Host tab hidden or minimised | See below |
 | Lag, loss, reordering, duplicates, clock drift | Events ride the reliable lane, so loss there arrives as delay. Poses and enemy snapshots ride the unreliable lane: a lost packet is simply replaced by the next. Enemy states carry the host's clock; the guest reads that clock from the fastest packet of the last few seconds and draws each enemy a little in the past, so the two pages' clocks never need to agree and may drift ("Enemy motion" below). A lost `up` or bleed-out is healed by the 4 Hz team cards |
 | Desync | Every enemy sends a full record at least once a second, so a missing one is made within a second; twice a second a roster names everyone alive, and a copy the roster no longer names is withdrawn after 500 ms (time for its `kill` to arrive) |
-| Cheating among friends | Hit claims: a known gun, a living sender, the matching rate-limited shot, range 350 m, line of sight from the shooter's eye, bounded inputs and hits per shot; blasts: no eye line, 160 a second; call-ins: only after calling one in. Revives and captures are checked against the bodies' positions |
+| Cheating among friends | Hit claims are checked for the absurd only (see "Claims"): a flood, an amount no weapon makes (cut to a cap), a shot from where the shooter is not, a straight shot through a wall. Revives and captures are checked against the bodies' positions |
 | Malformed messages | Every lane validates shape and range; a handler that throws is caught and logged per message (`trystero.ts`, `CoopWorld.receive`); the fuzz test throws 23 kinds of junk at both ends |
 | Esc, menus, shops, loadout | Never pause co-op |
 

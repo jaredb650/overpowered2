@@ -1,10 +1,12 @@
 // The claims matrix, in the browser. For every weapon, mod load, melee weapon, grenade, call-in and perk that can be scripted,
 // two trials on the same still targets from the same spot: first the HOST fires (its damage goes straight into the damage model:
 // the single-player path), then the GUEST fires (every hit a claim the host checks). The guest's trial must lose nothing:
-// every claim it sent is applied on the host, none refused, none cut. The aim is locked, so a plain bullet's damage per shot
-// must match the host's own to 2%. Pellets, flames, blasts and anything that rolls dice (or kills outright whatever the health:
-// a blast's roll) are checked for the claims alone, with the two numbers reported side by side and only a gross gap (under 40%
-// or over 250%) failing. `gone` is a claim on a man the host had already killed: nobody lost a hit, so it is counted, not failed.
+// every claim it sent is applied on the host, none refused, none cut, and each hit deals what the host's own identical hit
+// dealt: the host notes every hit by round, region, load and amount, its own and the guest's, and where both made the same hit
+// the damage must be the same number. (Per shot the two differ a little by where on the body the rounds land: the guest hits
+// what is on its own screen, and the still targets breathe.) Damage per shot is reported side by side, and a gross gap fails.
+// A trial runs until the row's shots are fired, not for a fixed time, so a starved page proves the same thing more slowly.
+// `gone` is a claim on a man the host had already killed: nobody lost a hit, so it is counted, not failed.
 // Targets: a column of five husks, a boss (a Juggernaut), and a parked truck. Endless Humans, the one survival mode with vehicles.
 //
 //   OP2_NO_HMR=1 npx vite --port 5350 --strictPort
@@ -82,19 +84,24 @@ const prepare = host => host.evaluate(() => {
       if (run > best.run) best = { yaw, run, from: [x, y, z] };
     }
   }
-  window.__claims = { yaw: best.yaw, run: best.run, from: best.from, dealt: 0, hits: 0, blocked: 0, vehicle: 0, sources: {} };
+  window.__claims = { yaw: best.yaw, run: best.run, from: best.from, mine: {}, theirs: {}, dealt: 0, hits: 0, blocked: 0, vehicle: 0, sources: {} };
   ctx.events.on('enemy:hit', e => {
     const c = window.__claims;
     if (['burn', 'bleed', 'hazard'].includes(e.damage.source)) return;
     if (e.result.blocked) { c.blocked++; return; }
     c.dealt += e.result.dealt; c.hits++;
     c.sources[e.damage.source] = (c.sources[e.damage.source] ?? 0) + 1;
+    // The same hit, by whoever made it: a blast rolls dice and a frozen or plated man is another sum, so those are left out.
+    if (e.damage.type === 'explosive' || e.result.armour || e.enemy.frozen > 0) return;
+    const d = e.damage, key = [d.source, d.type, d.region ?? '-', d.load ?? '-', Math.round(d.amount * 100) / 100, e.enemy.id].join('|');
+    const book = ctx.coop.world.applying ? c.theirs : c.mine;
+    (book[key] ??= {})[Math.round(e.result.dealt * 100) / 100] = true;
   });
   return best;
 });
 
 /** Host: clears the field and stands the row's targets in the lane. Returns what to aim at. */
-const stand = (host, target, near) => host.evaluate(([target, near]) => {
+const stand = (host, target, near, fresh) => host.evaluate(([target, near, fresh]) => {
   const { ctx } = window.__op2, V = ctx.player.position.constructor, c = window.__claims;
   ctx.waves.reset(); ctx.waves.nextWaveIn = 1e9;
   for (const enemy of [...ctx.enemies.alive]) ctx.enemies.withdraw(enemy);
@@ -104,6 +111,7 @@ const stand = (host, target, near) => host.evaluate(([target, near]) => {
   const hold = enemy => { enemy.behaviours = []; enemy.attacks = []; enemy.mode = 'hold'; enemy.dummy = true; enemy.health = enemy.maxHealth = 1e7; return enemy; };
   const first = near ?? Math.min(8, c.run * 0.35);
   c.uids = []; c.truck = null;
+  if (fresh) { c.mine = {}; c.theirs = {}; }
   if (target === 'truck') {
     const at = spawn.clone().addScaledVector(dir, Math.min(13, c.run - 4));
     const v = ctx.enemies.vehicles.spawnGround('truck', { x: at.x, y: at.y, z: at.z, route: [], tag: null, crew: [], crewTag: null, holds: false, holdYaw: c.yaw + Math.PI / 2, parked: true });
@@ -121,7 +129,7 @@ const stand = (host, target, near) => host.evaluate(([target, near]) => {
   });
   const lead = ctx.enemies.alive.find(e => e.uid === c.uids[0]);
   return { aim: lead ? [lead.center.x, lead.center.y, lead.center.z] : null, uids: c.uids, boss: lead?.isBoss };
-}, [target, near ?? null]);
+}, [target, near ?? null, fresh]);
 
 /** Any page: stands the player at the firing point (or beside it), facing down the lane, with the row's weapon, mods and perks. */
 const arm = (page, row, lane, shooting) => page.evaluate(([row, lane, shooting]) => {
@@ -161,14 +169,15 @@ const shoot = (page, row, aim) => page.evaluate(async ([row, aim]) => {
   const yaw = ctx.player.yaw, pitch = ctx.player.pitch, update = ctx.player.update;
   ctx.player.update = function (...args) { this.yaw = yaw; this.pitch = pitch; return update.apply(this, args); };
   await wait(250);
-  const until = performance.now() + row.seconds * 1000;
+  const began = performance.now(), until = began + row.seconds * 1000;
+  const want = row.want ?? ({ hold: 12, tap: 4, both: 3, fan: 6, charge: 2, kata: 5 }[row.mode] ?? 0), giveUp = began + Math.max(20000, row.seconds * 6000);
   let tick = 0, last = 0;
   if (row.mode === 'callin') {
     const manager = ctx.progression.callInsManager;
     manager.order.point.copy(point); manager.order.heading.set(-Math.sin(ctx.player.yaw), 0, -Math.cos(ctx.player.yaw));
     manager.fly(row.callin);
   }
-  while (performance.now() < until) {
+  while (performance.now() < until || (shots < want && performance.now() < giveUp)) {
     if (game.state !== 'playing') game.setState('playing');
     for (const perk of row.perks ?? []) if (!ctx.progression.perks.isActive(perk) || tick % 30 === 0) ctx.progression.grant(perk);
     w.refillMagazines();
@@ -176,8 +185,8 @@ const shoot = (page, row, aim) => page.evaluate(async ([row, aim]) => {
     if (row.mode === 'hold') input.simulate('fire', true);
     else if (row.mode === 'tap') input.simulate('fire', tick % 2 === 0);
     else if (row.mode === 'both') { input.simulate('aim', tick % 4 === 0); }
-    else if (row.mode === 'fan') { const phase = (now - (until - row.seconds * 1000)) % 2600; input.simulate('aim', phase < 1900); }
-    else if (row.mode === 'charge') { const phase = (now - (until - row.seconds * 1000)) % 1400; input.simulate('fire', phase < 1150); }
+    else if (row.mode === 'fan') { const phase = (now - began) % 2600; input.simulate('aim', phase < 1900); }
+    else if (row.mode === 'charge') { const phase = (now - began) % 1400; input.simulate('fire', phase < 1150); }
     else if (row.mode === 'kata' && now - last > 2200) { last = now; w.kata(); }
     else if (row.mode === 'grenade') { w.grenades = 4; input.simulate('grenade', now - last > 900 ? (last = now, true) : false); }
     tick++;
@@ -195,6 +204,8 @@ const read = host => host.evaluate(() => {
   const targets = ctx.enemies.alive.filter(e => c.uids.includes(e.uid));
   return { dealt: c.dealt, hits: c.hits, blocked: c.blocked, vehicle: c.vehicle, sources: { ...c.sources }, accepted: world.stats.accepted, rejected: world.stats.rejected,
     refused: { ...world.validator.refused }, clamped: world.validator.clamped, doubted: world.validator.doubted,
+    same: Object.keys(c.theirs).filter(k => c.mine[k]).length,
+    differ: Object.keys(c.theirs).filter(k => c.mine[k] && !Object.keys(c.theirs[k]).every(v => c.mine[k][v])).map(k => [k, Object.keys(c.mine[k]), Object.keys(c.theirs[k])]),
     burning: targets.filter(e => e.burning > 0).length, frozen: targets.filter(e => e.frozen > 0).length, alive: targets.length };
 });
 const sentBy = page => page.evaluate(() => ({ ...window.__op2.ctx.coop.world.claims.sent }));
@@ -240,13 +251,13 @@ export default async function (host, { sleep, outDir }) {
       const result = { name: row.name };
       for (const who of ['host', 'guest']) {
         const page = who === 'host' ? host : guest, other = who === 'host' ? guest : host;
-        const stood = await stand(host, row.target, row.near);
+        const stood = await stand(host, row.target, row.near, who === 'host');
         if (!stood.aim) { result.skipped = 'no target'; break; }
         // Every guest must have the targets (and the truck's hit boxes) before a round is fired.
         await guest.waitForFunction(([n, truck]) => {
           const { ctx } = window.__op2;
           return ctx.enemies.alive.length >= n && (!truck || ctx.coop.world.claims.vehicleHits.fleet.size > 0);
-        }, [stood.uids?.length ?? 0, row.target === 'truck'], { timeout: 20000 });
+        }, [stood.uids?.length ?? 0, row.target === 'truck'], { timeout: 90000 });
         await sleep(row.target === 'boss' ? 2500 : 700);
         await arm(other, row, lane, false); await arm(page, row, lane, true);
         await sleep(350);
@@ -256,10 +267,11 @@ export default async function (host, { sleep, outDir }) {
         await sleep(settle + (row.mode === 'grenade' || row.weapon === 'kiln' ? 2500 : 0));
         await hitch(host, false);
         const after = await read(host), sentAfter = await sentBy(guest);
+        const perf = await page.evaluate(() => { const st = window.__op2.stats(), { ctx } = window.__op2; return { fps: st.fps, cpuMs: st.cpuMs, draws: st.drawCalls, tris: st.triangles, enemies: ctx.enemies.alive.length, dying: ctx.enemies.dying?.length, scene: ctx.render.scene.children.length }; });
         const d = delta(after, before), sent = delta(sentAfter, sentBefore);
         const dealt = row.target === 'truck' ? d.vehicle : d.dealt;
-        result[who] = { shots, frames: fired.frames, dealt: Math.round(dealt), perShot: shots ? Math.round(dealt / shots * 10) / 10 : 0, hits: d.hits, blocked: d.blocked,
-          burning: after.burning, frozen: after.frozen,
+        result[who] = { shots, frames: fired.frames, perf, dealt: Math.round(dealt), perShot: shots ? Math.round(dealt / shots * 10) / 10 : 0, hits: d.hits, blocked: d.blocked,
+          burning: after.burning, frozen: after.frozen, same: after.same, differ: after.differ,
           ...(who === 'guest' ? { sent, accepted: d.accepted, rejected: d.rejected, clamped: d.clamped, doubted: d.doubted,
             refused: Object.fromEntries(Object.entries(after.refused).map(([k, v]) => [k, v - (before.refused[k] ?? 0)]).filter(([, v]) => v)) } : {}) };
       }
@@ -282,13 +294,13 @@ export default async function (host, { sleep, outDir }) {
         result.ratio = Math.round(ratio * 1000) / 1000;
         result.exact = row.tol === undefined;
         if (h.dealt > 0 && g.dealt === 0) problems.push('the guest dealt nothing');
-        else if (h.dealt > 0 && row.tol === undefined && Math.abs(ratio - 1) > 0.02) problems.push(`damage per shot: guest ${g.perShot}, host ${h.perShot}`);
-        else if (h.dealt > 0 && fires && (ratio < 0.4 || ratio > 2.5)) problems.push(`damage per shot far apart: guest ${g.perShot}, host ${h.perShot}`);
+        else if (g.differ.length) problems.push(`the same hit dealt different damage: ${JSON.stringify(g.differ.slice(0, 3))}`);
+        else if (h.dealt > 0 && fires && h.shots >= 3 && g.shots >= 3 && (ratio < 0.4 || ratio > 2.5)) problems.push(`damage per shot far apart: guest ${g.perShot}, host ${h.perShot}`);
         if (row.burns === true && h.burning > 0 && g.burning === 0) problems.push('the host set them alight, the guest did not');
         if (row.freezes && h.frozen > 0 && g.frozen === 0) problems.push('the host froze them, the guest did not');
         result.problems = problems;
         if (problems.length) failures++;
-        progress(`${problems.length ? 'FAIL' : 'ok  '} ${row.name}: host ${h.shots} shots ${h.perShot}/shot, guest ${g.shots} shots ${g.perShot}/shot, ${claims} claims ${g.accepted} applied${g.gone ? ` (${g.gone} on the dead)` : ''}${problems.length ? ` :: ${problems.join('; ')}` : ''}`);
+        progress(`${problems.length ? 'FAIL' : 'ok  '} ${row.name}: host ${h.shots} shots ${h.perShot}/shot, guest ${g.shots} shots ${g.perShot}/shot, ${claims} claims ${g.accepted} applied, ${g.same} kinds of hit compared${g.gone ? ` (${g.gone} on the dead)` : ''}${problems.length ? ` :: ${problems.join('; ')}` : ''}`);
       } else progress(`skip ${row.name}: ${result.skipped}`);
       out.rows.push(result);
     }
