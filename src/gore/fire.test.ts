@@ -466,6 +466,17 @@ describe('flesh dries where it lies (the fit pass)', () => {
     expect(c.dried.at(-1)).toBe(0);
   });
 
+  it('a trunk piece that leaves the world frees the buffers its one instance owns', () => {
+    gore.gib(spawn(), new THREE.Vector3(0, 1, 0.5), 300);
+    const halves = (gore.sliced as unknown as { halves: { mesh: THREE.InstancedMesh }[] }).halves;
+    expect(halves.length).toBeGreaterThan(0);
+    let freed = 0;
+    for (const h of halves) h.mesh.addEventListener('dispose', () => { freed++; });
+    const made = halves.length;
+    gore.clear();
+    expect(freed).toBe(made);
+  });
+
   it('every piece carries the time it was made, and nothing dries with the switch off', () => {
     run(3);
     const made = ctx.time.elapsed;

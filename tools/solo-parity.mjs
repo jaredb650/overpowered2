@@ -12,6 +12,7 @@
 // --group <n>      scenarios per browser run (default 6). A run takes one of the machine's browser slots however many it
 //                  plays, and the two builds run side by side: two slots at a time.
 // --long           also the two runs to the round-10 ending and the shop to round 10 (about 10 minutes each a build)
+// --serial         the old build's run, then the new one's: one browser slot at a time instead of two, twice as long
 // Prints one line a scenario and writes parity.json and each comparison's text to --out. Exit code 0 when nothing differs
 // that is not listed under EXPECTED below.
 import { spawn } from 'node:child_process';
@@ -73,7 +74,9 @@ let bad = 0;
 for (let g = 0; g < groups.length; g++) {
   const list = groups[g];
   console.error(`[parity] ${g + 1}/${groups.length}: ${list.join(', ')}`);
-  await Promise.all([run('old', oldPort, list, g), run('new', newPort, list, g)]);
+  // --serial: one build after the other, so the comparison holds one browser slot and not two (a shared machine).
+  if (argv.includes('--serial')) { await run('old', oldPort, list, g); await run('new', newPort, list, g); }
+  else await Promise.all([run('old', oldPort, list, g), run('new', newPort, list, g)]);
   for (const name of list) {
     const r = await compare(name);
     let frames = 0, events = 0, end = '';

@@ -11,7 +11,7 @@
 //   react   one Trooper 4.5 m off with four times his health, so each hit is seen: a round in the chest, one in the gun arm,
 //           one in a leg, a burst of five, then held fire until he is dead: every round's reaction, the struck arm, the
 //           stagger and the death on his feet
-//   gib     one rocket at the feet of three Troopers 7 m off: what comes out of the fireball, and what is on the floor after
+//   gib     one rocket at the feet of three Troopers 5.5 m off: what comes out of the fireball, and what is on the floor after
 //   fire    the Kiln held for a second and a half on two Troopers and a Husk 5 m off, then left to burn for ten seconds
 //   wear    single rounds into one arm and then one leg of a Trooper 3.5 m off, half a second apart, until each comes off
 // LOOK_HUD=1 leaves the HUD on.
@@ -127,9 +127,10 @@ async function install({ scene, hud }) {
     burst(2.2, 5, trooper, 'chest', -0.1);
     burst(3.0, 30, trooper, 'chest', 0.05);
   } else if (scene === 'gib') {
-    const men = [stand('trooper', 7, -0.7), stand('trooper', 7.5, 0.5), stand('trooper', 6.6, 0.2)];
+    // Near enough to be seen before the rocket: the launcher carries no weapon light, and the hall is dark.
+    const men = [stand('trooper', 5.6, -0.7), stand('trooper', 6.1, 0.5), stand('trooper', 5.2, 0.2)];
     bot.weapon = 'rocket';
-    bot.centre = along(7, 0).add(new V(0, 1.0, 0));
+    bot.centre = along(5.6, 0).add(new V(0, 1.0, 0));
     say(0.5, 0.56, () => new V(men[2].position.x, men[2].position.y + 0.1, men[2].position.z));
   } else if (scene === 'fire') {
     const men = [stand('trooper', 5, -1.1), stand('husk', 5.4, 0.2), stand('trooper', 5, 1.4)];

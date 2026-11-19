@@ -544,6 +544,9 @@ export class SliceField {
   private remove(h: Half): void {
     this.freeze(h);
     h.mesh.removeFromParent();
+    // An instanced mesh of one owns two GPU buffers (its matrix and its colour) that only its own dispose frees: left
+    // out, every half and trunk piece ever made kept both (the leak soak: three buffers and three vertex arrays a kill).
+    (h.mesh as Partial<THREE.InstancedMesh>).dispose?.();
     if (h.sear) for (const m of h.sear.materials) m.dispose();
     if (!h.shared) h.side.geometry.dispose();
   }

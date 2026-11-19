@@ -69,14 +69,22 @@ async function install({ seconds, hud }) {
     let dy = wantYaw - P.yaw;
     dy = Math.atan2(Math.sin(dy), Math.cos(dy));
     P.yaw += dy * ease;
-    P.pitch += (wantPitch - P.pitch) * ease;
+    // Never at the ceiling or the boots: a target on a ledge or at the feet would swing the whole picture.
+    P.pitch += (Math.max(-0.55, Math.min(0.3, wantPitch)) - P.pitch) * ease;
   };
   P.teleport(home, yaw);
 
   const k = seconds / 30;
   // The fight's parts, in seconds of a 30 s fight: [from, weapon].
-  const PARTS = [[0, 'smg'], [7, 'shotgun'], [11, 'rocket'], [15.5, 'kiln'], [20.5, 'smg'], [23.5, 'walk'], [28, 'back']];
-  const KINDS = ['trooper', 'husk', 'trooper', 'husk', 'gunner', 'husk', 'trooper', 'husk', 'husk', 'brute', 'trooper', 'husk'];
+  const PARTS = [[0, 'smg'], [7, 'shotgun'], [11, 'rocket'], [15, 'kiln'], [18.5, 'smg'], [22, 'walk'], [28, 'back']];
+  // Mostly men, who stand off and shoot: a hall of Husks is in the player's face in three seconds and the picture is a mouth.
+  const KINDS = ['trooper', 'trooper', 'husk', 'trooper', 'gunner', 'trooper', 'husk', 'trooper', 'trooper', 'brute', 'trooper', 'husk'];
+  let shell = { damage: 9, force: 30, pellets: 8 };
+  try {
+    const w = (await import('/src/weapons/data.ts')).WEAPONS.shotgun;
+    shell = { damage: w.damage, force: w.force, pellets: w.pellets };
+  } catch { /* the numbers above */ }
+  const fwdAim = along(8).add(new V(0, 1, 0));
   const bot = { t: 0, on: false, spawned: 0, weapon: '', switchT: 0, held: false, lastSpawn: -9, target: null, hold: 0 };
   const born = new WeakMap();
   const fire = on => {
@@ -96,14 +104,22 @@ async function install({ seconds, hud }) {
     const what = part(bot.t);
     const fighting = what !== 'walk' && what !== 'back';
     // A dozen at a time, coming down the hall: thicker for the rockets and the Kiln, which want a group.
-    const want = what === 'rocket' || what === 'kiln' ? 16 : fighting ? 10 : 6;
-    if (alive.length < want && bot.t - bot.lastSpawn > 0.22) {
-      const e = ctx.enemies.spawn(KINDS[bot.spawned % KINDS.length], along(11 + rnd() * 5, (rnd() - 0.5) * 6));
+    const want = what === 'rocket' || what === 'kiln' ? 12 : fighting ? 8 : 0;
+    if (alive.length < want && bot.t - bot.lastSpawn > 0.3) {
+      const e = ctx.enemies.spawn(KINDS[bot.spawned % KINDS.length], along(12 + rnd() * 4, (rnd() - 0.5) * 6));
       bot.lastSpawn = bot.t;
       if (e) {
         bot.spawned++;
         born.set(e, bot.t);
       }
+    }
+    // Whoever gets within arm's reach takes a shell's worth in the chest, whatever is in the hands: the picture is of the
+    // fight, and one body filling the screen hides it.
+    for (const e of alive) {
+      if (e.center.distanceTo(P.eye) > 2.6 || (born.get(e) ?? 0) === -1) continue;
+      born.set(e, -1);
+      const dir = new V().subVectors(e.center, P.eye).normalize();
+      for (let i = 0; i < shell.pellets; i++) ctx.enemies.applyDamage(e, { amount: shell.damage * 3, type: 'pellet', point: e.center.clone(), dir: dir.clone(), force: shell.force, source: 'shotgun' });
     }
     if (fighting) {
       if (P.position.distanceTo(home) > 0.6) P.teleport(home, P.yaw);
@@ -124,26 +140,30 @@ async function install({ seconds, hud }) {
             bot.target = e;
           }
         }
-        bot.hold = bot.t + 2.5;
+        bot.hold = bot.t + 1.6;
       }
       const e = bot.target;
       if (e && bot.t >= bot.switchT) {
         const d = e.center.distanceTo(P.eye);
         const feet = new V(e.position.x, e.position.y + 0.15, e.position.z);
         look(what === 'rocket' ? feet : e.center, 0.22);
-        const near = what === 'shotgun' ? d < 6 : what === 'kiln' ? d < 9 : what === 'rocket' ? d > 5 : true;
-        // The SMG in bursts of half a second, so the body's answer to each is seen between them.
-        const burst = what === 'smg' ? (bot.t * 1.6) % 1 < 0.62 : what === 'kiln' ? true : Math.floor(bot.t * 7.5) % 2 === 0;
+        const near = what === 'shotgun' ? d < 8 : what === 'kiln' ? d < 10 : what === 'rocket' ? d > 5 : true;
+        // The SMG in long bursts with a breath between, so a body's answer is seen; the Kiln in two squirts, not a hose.
+        const burst = what === 'smg' ? (bot.t * 1.1) % 1 < 0.8 : what === 'kiln' ? (bot.t - 15 * k) % 1.75 < 1.1 : Math.floor(bot.t * 7.5) % 2 === 0;
         fire(near && burst);
-      } else fire(false);
+      } else {
+        fire(false);
+        if (!e) look(fwdAim, 0.08);
+      }
     } else {
       fire(false);
-      const to = what === 'walk' ? along(7.5) : home;
+      const to = what === 'walk' ? along(9) : home;
       const d = new V().subVectors(to, P.position);
       d.y = 0;
       if (what === 'walk') {
         if (d.length() > 0.5) {
-          look(new V(to.x, to.y + 0.2, to.z), 0.08);
+          // Eyes on the floor a few steps ahead: what is being walked through.
+          look(new V(P.position.x + fwd.x * 3.5, P.position.y + 0.2, P.position.z + fwd.z * 3.5), 0.08);
           ctx.input.simulate('forward', true);
         } else ctx.input.simulate('forward', false);
       } else {
