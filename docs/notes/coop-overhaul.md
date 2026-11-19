@@ -488,6 +488,10 @@ decision in the log. Order of work:
    whole suite, a production build, and the branch pushed.
 3. **A report on the whole co-op update:** what was done to make it good, and an honest statement of confidence that
    multiplayer is good and complete, with what is still unproven.
+3a. **Merge into `dev` when it is stable (owner, 2026-11-19): "merge a stable version with the updated net code into the dev".**
+   Stable means: the last pass is green (the single-player regression in `Combat.ts` fixed, the proof sweep passing on the
+   final tip, typecheck, suite and production build clean). Then fast-forward local `dev` to that commit. **Do not push `dev`**
+   (that deploys the public site) until the owner says "push"; when he does, follow the push procedure in `CLAUDE.md`.
 4. **Then the damage response update starts** (`docs/proposals/damage-response-update.md`, the owner's answers in 10a) and runs
    **to the end without stopping to ask**. The two goals in his words: (a) gibbing must never feel like body parts
    disappear: what a destruction spawns should roughly match the size of what was destroyed, a body breaking apart, not being
