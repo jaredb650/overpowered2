@@ -540,3 +540,65 @@ slots, tests at low priority, few agents at once).
   Not done: the missile a Rocketeer or boss fires at an aircraft is not drawn for watchers; enemy helicopters do not fight a
   guest's helicopter; a call-in already running when a player joins late is not caught up; a guest is never held by the uplink
   jammer (the radio men are the host's).
+
+## Last pass checklist (the lead's list, from every lane's "not done or not proven")
+
+Work through all of it; write the outcome beside each item in the log (fixed with commit / proven with proof / left, and why).
+
+**A. The pieces fit**
+1. **Accidental reverts.** Lanes rebased onto each other all day and at least one landing (`4b36599`) silently reverted another
+   lane's files (restored in `c29e2ef`). For every commit on `coop-overhaul` since `958212f`, check that what it added is still
+   at the tip or was removed on purpose by a later commit that says so. Restore anything lost.
+2. **Whole-diff review** by fresh eyes: event flows across lanes, order of handlers, catch-up for late joiners and reconnects
+   for every one-shot fact, double handling (world-b's `wallblast` against any other path that feeds a guest's blast to the
+   host's walls, shutters and sandbags), growth without bound, allocations in hot paths, and every place single player could
+   have changed.
+3. **Single player is unchanged** apart from the blood puff and the dropped gun that settles on the ground: play single-player
+   Crucible, Endless Humans and the start of a mission in the browser on `dev` and on the tip and compare behaviour, frame
+   time and memory. This is the owner's first rule.
+4. **Typecheck, whole suite, production build.** In the built site the test-only switches (`?net=loop`, proof mode, the pretend
+   pointer lock) must be unreachable; `?netsim` is allowed. Fix the stale `devflags` test (update its expectation) and make
+   the three load-flaky tests deterministic or explain them (`gore/knockdown`, `gore/strength`, `weapons/viewmodels/hands`).
+
+**B. Proofs on the final tip** (fast mode, 3 browser slots; `look: true` only for look-checks)
+5. Every lane's proofs again on the final tip, clean and under `lag:120,jitter:40,loss:0.05`: session (all nine), team (endings,
+   break, rejoin, ui), gore, weapons-fx matrix (its bad-network re-run never completed), call-ins matrix, world-a, world-b,
+   time, enemy-attacks (the full bad-network table never completed), enemy-motion moves, claims matrix, missions; and the old
+   proofs (`coop-smoke` in all seven modes, `coop-stage3`, `coop-drops`, `coop-robust`, `coop-modes`, `coop-mission`;
+   `coop-lobby` waits for a splash that is gone: fix or retire it; `coop-stage1/2`, `coop-picker`, `coop-dad` unrun).
+6. **Real WebRTC:** each lane's main proof once over `rtc`. **Four players:** each lane's main proof once.
+7. **Every mode from a guest's seat:** Crucible, Endless Humans (and the Office map), Outpost Defense, The Outpost, Foreclosure:
+   a scripted fight with enemy attacks, kills by host and guest, a break with the shared pod, an ending.
+8. **Smoothness table on a quiet machine:** `node tools/scripts/coop-motion-matrix.mjs --baseline d9ecffb` (12 cases). Also
+   vehicles and garrison on the buffer in the browser.
+
+**C. Known gaps to close or decide**
+9. A guest's Warthog once dealt no damage and the host recorded no claims (call-ins report, not diagnosed). Also: claims,
+   `fire`, `capture` from a guest whose body has no pose yet are dropped silently (split report, bug 5). No honest claim may be lost.
+10. Outpost Defense on a rejoin: the loadout screen opens again and replaces the restored kit.
+11. A reconnect on the same page after a long drop gets no team `restore`/`sync` (wave banner, pod call); use `session.onArrived`
+    with `rejoin`. A reload on the lobby page drops out of the room. A host reload longer than the guests' grace leaves two hosts.
+12. A claim the host refuses leaves the guest's drawn wound: add a small "refused" answer or show why it is harmless.
+13. Kill feel for a guest: try dropping the body on the frame of the shot when the guest's own numbers say it is clearly dead;
+    a wrong guess must play as a knockdown and get-up, never a corpse standing up. Keep it only if it looks right; behind a switch.
+14. Endless Humans: a guest's killing headshot plays the non-kill crack first; the Lance's kill stop and cleave count read the
+    host-only `killed`; stake pins and melee flings on a guest are unit-tested only.
+15. Watchers: a teammate's rounds into a corpse; stakes that stop in a body; the Trommel's spin-up whine; perk tracer colours;
+    Gun Kata, the Judge fan, smart aim, the Quiver salvo and the four non-katana melee weapons proven in the browser.
+16. Call-ins: the uplink jammer holds a guest's call-ins as it holds the host's (lead's decision); a call-in running when
+    someone joins late; the missile an enemy fires at an aircraft; copies on a slow watcher re-sync (only the gunship does);
+    the skyhook in the browser (Endless Humans).
+17. The villain learns from every player's shots, pickups, sonar and call-ins, not only the host's; the sonar jammer's false
+    men on guests; a guest can order squad allies and revive a downed ally with a stim.
+18. Skipping the Commander's briefing counts as the host's ready vote (lead's decision). The slow-mo notice must not sit on
+    the wave banner. The lobby tags a player with cheats on. Pods and dropped guns age on the wall clock: check that this
+    reads right under slow-mo.
+19. The kit: `openGuest` cannot join a running match; move world-a's `lateGuest` into the kit.
+20. The wire pass (stage "wire"): batching per frame, no per-message match UUID, no double stringify for stats, backpressure,
+    host per-frame cost flat in players, binary for the hot events only if the numbers ask for it.
+21. Worth a look if cheap: Web Audio's thread costs 0.8 of a core per page (real players too?); a 353 ms shader link one second
+    into play; JS heap growth over fixed rounds.
+
+**D. Finish**
+22. `docs/notes/coop.md` reads as one document; `docs/HANDOFF.md` and `CLAUDE.md` say what is true now; the audits are marked
+    with what was fixed. Push `coop-overhaul`. The lead writes the report for the owner.
