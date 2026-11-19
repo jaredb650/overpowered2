@@ -132,7 +132,7 @@ export const EVENTS: Partial<Record<keyof GameEvents, 'player' | 'world'>> = {
 export const TRIGGERS: Readonly<Record<string, string>> = {
   zone: 'Any living player inside',
   'zone outside': 'Every living player has left',
-  'zone that ends a beat': 'Any living player; the others get REGROUP_SECONDS to follow, then are moved up beside them',
+  'zone that ends a section': 'Any living player; the others get REGROUP_SECONDS to get into the zone, then are moved onto that player\'s spot',
   after: 'The host\'s mission clock',
   kills: 'Kills by anyone: the host\'s world counts them',
   cleared: 'The host\'s books',

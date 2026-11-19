@@ -259,7 +259,7 @@ describe('a mission run by the host and played on every screen', () => {
     game.frame();
     expect(game.gc.host.doorStates.blast).toBe(0);
     expect(game.host.ctx.hud.callout).toHaveBeenCalledWith(expect.stringContaining('REGROUP'));
-    for (let i = 0; i < 6; i++) game.frame(1);
+    for (let i = 0; i < 6; i++) { vi.advanceTimersByTime(1000); game.frame(1); }
     expect(game.host.player.teleport).toHaveBeenCalledOnce();
     expect(game.host.player.position.distanceTo(game.guest.player.position)).toBeLessThan(4);
     // The host walks on into the gate zone: the beat ends, the checkpoint is saved for all, and the guest has ten seconds.
@@ -269,8 +269,11 @@ describe('a mission run by the host and played on every screen', () => {
     expect(game.gc.host.log).toContain('saved inside');
     game.frame();
     expect(game.guest.ctx.hud.callout).toHaveBeenCalledWith(expect.stringContaining(`in ${REGROUP_SECONDS}`));
-    for (let i = 0; i < REGROUP_SECONDS + 1; i++) game.frame(1);
-    expect(game.guest.player.position.distanceTo(game.host.player.position)).toBeLessThan(4);
+    // Standing right beside the leader is not being in the new section: a shut door may be between them.
+    game.guest.player.position.set(100, 0, 88);
+    for (let i = 0; i < REGROUP_SECONDS + 1; i++) { vi.advanceTimersByTime(1000); game.frame(1); }
+    expect(game.guest.player.teleport).toHaveBeenCalledOnce();
+    expect(game.guest.player.position.distanceTo(game.host.player.position)).toBeLessThan(0.1);
     game.hw.dispose(); game.gw.dispose();
   });
 

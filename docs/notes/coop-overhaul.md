@@ -145,6 +145,27 @@ Shared files and contracts between lanes:
   vehicle gun or device needs only those calls. Vehicle turret poses are **world-b**'s.
 - **A line only the host works out** goes through `shout()` (`enemies/attacks.ts`), not `say()`. Pain, sever and death cries
   stay `say()`: **gore**'s local damage model makes them on each screen.
+- **Missions** (missions, landed): which mission operation goes where is one table, `src/campaign/coop.ts`, printed in
+  `docs/notes/coop.md`, "Missions". What the other lanes need from it:
+  - **A checkpoint restart is `run:start` on every screen, mid-match.** The host's `campaign.restart()` (the team's wipe and the
+    pause menu's item both call it) sends `reset`; each guest then runs the same `Game.newRun()` the host does. A module that
+    holds copies of the host's world must drop them on `run:start` (`CoopWorld` does it for the enemy and vehicle copies);
+    anything both sides rebuild the same way from a new run needs nothing sent. `ctx.coop.world.mission.restart()` is the
+    same call for a caller that has no campaign in hand.
+  - **team:** `ctx.coop.world.mission.result` (`MissionResult`: title, seconds, replacements, vehicles) is set on every screen
+    before your `over` goes out, for the board. `team.respawnAll(at?, yaw?)` took two optional arguments (the mission's leading
+    player); nothing else in `team.ts` changed.
+  - **session:** `mission.catchUp(id)` brings one arriving player to where the mission is (place, section, doors, objectives,
+    music, sky, lights, kit, chips, racks, pickups, the film part way or the ride). It is safe to call again for a player who
+    never left (a reconnect inside the grace): a film or ride already running is kept.
+  - **call-ins:** `progression.leaveSeat()` (two lines in `progression/index.ts` and `callins/manager.ts`) takes a player out of
+    a seat when the host's mission ride ends. The missions' `frame` steps are still the game's stand-in banner, alone and in
+    co-op; when a real Frame is provided for them, the rule is one Frame, piloted by the first player to reach it.
+  - **world-b:** a mission's scenery vehicles (`state: 'parked' | 'wrecked'`, the tank jammed in the Outpost's gate), the
+    Outpost's enemy chopper and the kill marks on vehicles (`call mark`) are not drawn on guests by `vehicles.ts` today.
+    Holdfast's wall breach is a structure stage on the host: it needs your structure sync to reach guests.
+  - **enemy-attacks:** the Commander's box between rounds in a mission (`adapt`) and `commander:done` are the host's; `quiet`
+    (`commander:quiet`) is emitted on every screen, ready for your villain mirror.
 - `src/net/world/booms.ts` is **call-ins**'; other lanes that need a visible blast call its API.
 - **Clocks (from the time lane, landed).** `ctx.time.dt` is the world clock on every screen, and on a guest it now follows the
   team's slow-mo: use it for everything cosmetic that must slow with the world (replica animation, enemy projectiles in flight,

@@ -52,7 +52,7 @@ If a friend cannot connect at all, set up TURN once (below).
 | `src/net/team.ts` | The team's rules: down, revive, bleed-out, spectate, respawn at wave clear, endings (`finish`), cards, seats (a returning player's purse, kit and life), the late joiner's `sync`. See "The team's rules" |
 | `src/net/teamBreak.ts`, `kit.ts`, `marks.ts` | The break's length and ready vote; a player's kit read, cleaned and put back; pings |
 | `src/net/world/credit.ts` | Whose kill, whose reward (`notMine`, `award`), and the kill feed's news (`coop:kill`) |
-| `src/net/mission.ts` | Campaign co-op: the host's mission mirrored to guests, any-player zones, gathering, checkpoints, late-joiner catch-up |
+| `src/net/mission.ts`, `src/campaign/coop.ts` | Campaign co-op: the host's mission played on every screen, every player's actions counted, regrouping, film votes, checkpoint restarts, late-joiner catch-up. See "Missions" |
 | `src/net/coopHud.ts` | Teammates strip, the break's clock and vote, the kill feed, Tab board, Enter chat, the end-of-run board and its buttons |
 | `src/net/*.test.ts`, `src/core/coop.test.ts`, `src/campaign/crowd.test.ts` | Unit tests over the mocked transport |
 | `tools/scripts/coop-kit.mjs` | The test kit every multi-page proof shares: `startParty`, `live`, `measure` and the rest (see Testing) |
@@ -111,7 +111,7 @@ the names the game used before).
 | `world/fort.ts` | Outpost Defense's fort for the whole team: walls, gates and shacks by index, the fort's facts, a guest's blasts, boarding up and Barracks purchases, mortar rounds, the Defense radio. See "Outpost Defense: one fort" | `fort`, `fortstate`, `wallblast`, `wallhit`, `repair`, `repaired`, `fortbuy`, `fortsold`, `shell`, `fortsay`, `fortradio`, `gunseat` |
 | `world/allies.ts` | The host's garrison drawn on guests, 5 Hz, the same way, and its tracers (30 a second) | `allies`, `ashot` |
 | `team.ts` | The team's rules ("The team's rules" below); registers its own events with the router (`plug`) | `life`, `card`, `team`, `revive`, `up`, `wave`, `over`, `restore`, `kit`, `ready`, `vote`, `sync`, `mark` |
-| `mission.ts` | As before; registers its own events with the router (`plug`) | `mission`, `gather` |
+| `mission.ts` | The campaign's mirror (see "Missions"); registers its own events with the router (`plug`). `mission` goes both ways: an operation to play from the host, a report (`did`, `took`, `skip`, `rounds`) from a guest | `mission`, `gather` |
 | `worldProtocol.ts` | For code outside `world/`: re-exports `wire.ts` and `snapshot.ts`, and defines `WorldEvent` as the union of every module's event types | |
 
 Rules that keep it working:
@@ -1996,26 +1996,156 @@ sit on a gun the host's garrison was firing, and nobody saw anyone else's gun mo
 
 Unit test: `src/net/world/fort.test.ts`, "one mounted gun, one gunner". Not proven in a browser yet (see the plan's log).
 
-## Stage 5: the campaign together
+## Missions (the campaign together)
 
-The lobby offers **Mission 1: The Outpost** and **Mission 2: Foreclosure**. The host runs the mission. Each guest's campaign host runs
-inert (its runner never starts) and plays what the host's mirrors to it: lines (subtitles and voice), objectives and the beat title,
-hints, banners, doors, music, cutscenes, guns and grenades handed out, pickups dropped, weapon racks, teleports and deploys, rides.
+The lobby offers **Mission 1: The Outpost** and **Mission 2: Foreclosure**. Retraining (the tutorial) is single player only. The
+host's browser runs the mission: the runner, its triggers, the spawns, the battles. Every guest's own mission host runs inert (its
+runner never starts) and plays what the host's does, so a guest plays the same mission from the first line to the ending, and
+every player's actions count.
 
-| Rule | Decision |
+Files: `src/campaign/coop.ts` (the tables below, plain data), `src/net/mission.ts` (carries them out), `src/campaign/host.ts`
+(`cue`, `show`, `issue`, `taken`), `src/campaign/index.ts` (`follow`, `tally`), tests `src/campaign/coop.test.ts` and
+`src/net/mission.test.ts`.
+
+### Where each operation happens
+
+Every operation of the mission host (`MissionHost`, `src/campaign/types.ts`) is in one of three classes. **Mirrored:** the host
+does it and every guest plays the same at once. **Shared, with catch-up:** mirrored, and the host also keeps the latest, so a late
+joiner, a reconnecting player and a team back at a checkpoint get it. **Host's:** the host's alone by design; the last column says
+how it reaches a guest anyway. `coop.test.ts` fails (and a new `MissionHost` method does not compile) until a new operation, step,
+`call`, cue, trigger kind or trigger event has a row.
+
+| Operation | Class | What a guest gets |
+|---|---|---|
+| `playerAt` | Host's | The runner's own feet. Zones read `crowd`, which is every living player |
+| `crowd` | Host's | Every living player's feet, read on the host from the pose lane |
+| `listen` | Host's | The host's own events, plus every guest's player actions, forwarded (`EVENTS`) |
+| `speak` | Mirrored | The line: its box, its portrait and its voice, as the host's radio starts it |
+| `hush` | Mirrored | The radio cut off |
+| `objectives` | Shared, with catch-up | The whole list, with its world markers |
+| `hint` | Mirrored | A teaching prompt, with each player's own keys |
+| `banner` | Mirrored | A banner across the screen |
+| `door` | Shared, with catch-up | Each door as it last moved; a closing door regroups the team |
+| `squad` | Host's | Enemies are the host's world: guests get them in the enemy snapshot |
+| `release` | Host's | Enemy orders: the host's AI |
+| `sweep` | Host's | The host withdraws them; they leave the snapshot, and the vehicles their own lane |
+| `drill` | Host's | Enemy orders: the host's AI |
+| `place` | Mirrored | Everyone to the mark, a step apart |
+| `vehicle` | Host's | The host's vehicles, drawn on guests by the vehicles lane (net/world/vehicles.ts) |
+| `boss` | Host's | An enemy: the snapshot |
+| `health` | Host's | A question about an enemy |
+| `rounds` | Host's | A question: the lowest count among the players who own the gun (guests report theirs) |
+| `give` | Shared, with catch-up | A gun handed to every player; part of the kit a late joiner gets |
+| `grenades` | Shared, with catch-up | Grenades handed to every player; part of the kit |
+| `rack` | Shared, with catch-up | A gun on the map: the first player to reach it takes it for the team, and everyone is issued one |
+| `drop` | Shared, with catch-up | A pickup on every screen (each player's own); a late joiner gets those since the checkpoint |
+| `cutscene` | Shared, with catch-up | The film on every screen in step; a skip is by vote; a late joiner comes in part way |
+| `ride` | Shared, with catch-up | Everyone rides their own copy of the same flight; it ends for all when the host's does |
+| `sortie` | Shared, with catch-up | Everyone gets a gunship seat over the same mark; it ends for all when the host's does |
+| `frame` | Mirrored | The stand-in the game has today: its banner, and the eject's landing mark for everyone |
+| `roster` | Host's | The squad is the host's allies: drawn on guests by the allies lane |
+| `callins` | Shared, with catch-up | The sky shut or open for every player |
+| `battle` | Host's | Allies and enemies: the allies lane and the snapshot |
+| `stop` | Host's | As `battle` |
+| `adapt` | Host's | The Commander's box between rounds: the villain's own mirror (the enemy-attacks lane) carries it |
+| `field` | Host's | Enemy doctrine: the host's AI |
+| `threat` | Host's | How hard the enemy hits: the host's AI |
+| `music` | Shared, with catch-up | The music state |
+| `call` | Mirrored | By name: see `CALLS` |
+| `deploy` | Shared, with catch-up | The mark and the kit: each player lands a step apart with their own starter gun |
+| `saved` | Mirrored | The "Checkpoint" notice; everyone down or dead gets up |
+| `finished` | Mirrored | The mission is won on every screen, with its result for the team board |
+| `cue` | Mirrored | A set piece's look: see `CUES` |
+
+The `call` steps, by name (`CALLS`). Retraining's own (`tut.*`) are single player only.
+
+| `call` name | Class | What a guest gets |
+|---|---|---|
+| `lights` | Shared, with catch-up | The blackout grade and its sound |
+| `crash` | Mirrored | The curtain, the shake and the ring in the ears |
+| `shatter` | Mirrored | The glass going |
+| `comeAbout` | Shared, with catch-up | The circling ride turns for its route, on every player's copy |
+| `mark` | Host's | A kill mark on a host vehicle: the vehicles lane draws vehicles, not their marks |
+| `quiet` | Mirrored | The Commander's box closed |
+| `commanderToRoof` | Host's | An enemy's order |
+| `crew` | Host's | An enemy on a mounted gun: the host's war |
+| `charge` | Host's | An ally's job: the host's war. Its countdown label is a `cue` |
+| `watch` | Host's | The host watches its own walls; the breach reaches guests as a signal's consequences |
+| `wound` | Host's | An ally shot: the host's allies. The round's tracer and report are a `cue` |
+| `lose` | Host's | As `wound` |
+| `courier` | Shared, with catch-up | The courier's flight and the flak round it, on every screen |
+| `wreck` | Shared, with catch-up | The smoke over the wreck |
+| `chip` | Shared, with catch-up | A brain chip fitted for the mission, for every player |
+
+Cues (`CUES`): a set piece's look, sent by the host's `cue(name, ...)` and drawn by a guest's `show`. Alone, `cue` does nothing.
+
+| Cue | What it draws on a guest |
+|---|---|
+| `alight` | The ride or the sortie is over on the host: anyone still in a seat is out of it |
+| `filmEnd` | The film is over on the host (run out, or skipped by vote): it ends here too |
+| `votes` | How many have voted to skip the film, on the film's bar |
+| `callout` | A call-out of the war, on the comms feed |
+| `charge` | The breaching charge's countdown over the man setting it |
+| `sniped` | A sniper's round into one of the squad: its tracer and report |
+| `frame` | The Frame's stand-in banner |
+
+How each kind of trigger counts players (`TRIGGERS`):
+
+| Trigger | Who counts |
+|---|---|
+| zone | Any living player inside |
+| zone outside | Every living player has left |
+| zone that ends a section | Any living player; the others get REGROUP_SECONDS to get into the zone, then are moved onto that player's spot |
+| after | The host's mission clock |
+| kills | Kills by anyone: the host's world counts them |
+| cleared | The host's books |
+| left | The host's books |
+| below | The host's enemy |
+| signal | The host's signals; `took:<weapon>` is raised by any player taking the rack |
+| event | A player's action: any player. A world event: the host's (`EVENTS`) |
+| ammo | The player worst off among those who own the gun |
+
+
+Events a trigger may wait on (`EVENTS`). A player's own action, forwarded from every guest (only the ones the mission waits on,
+at most 4 a second each): `weapon:fired`, `weapon:unlocked`, `weapon:switched`, `weapon:reload`, `stim:inject`, `player:slam`,
+`player:dashed`, `player:jumped`, `player:wallrun`, `player:slide`, `player:mantle`, `sonar:ping`, `chip:kata`, `callin:used`,
+`prisoner:questioned`. The host's world, heard on the host's own bus: `commander:done`, `enemy:surrendered`, `enemy:killed`,
+`vehicle:destroyed`. A forwarded action reaches the runner's trigger only: it is never emitted on the host's bus, so the host's HUD
+and guns hear nothing of it.
+
+### The rules, per trigger and set piece
+
+| Thing | Decision |
 |---|---|
 | Zone triggers | Any living player entering counts; an `outside` trigger waits until all have left |
-| Gates and doors | A closing door gathers the group: a guest more than 30 m from the host is put beside them, so no gate splits it |
-| `place`, `deploy` | Everyone goes to the mark, a step to the side per slot |
-| The door-gunner intro (The Outpost), Foreclosure's flights | Everyone rides: each player mans the door gun of their own copy of the same Packmule on the same route and clock; their rounds count through the host as call-in hits |
-| The gunship sortie | The same: each player gets a gunship seat |
-| The Frame (the mech) | The host's alone |
-| Checkpoints | Everyone down or dead gets up beside the host |
+| A zone that ends a section (The Outpost: `easternApron`, `sallyHall`, `northCorridor`, `coolantNear`, `coolantFar`, `galleryFar`, `stackTop`; Foreclosure: `westGate`) | The mission moves on with the first player in. Everyone else gets **10 s** on the real clock ("REGROUP · moving you up to NAME in 10") and is then put on that player's own spot, unless they got into the zone first. Being near the leader is not enough: a door that has just shut may stand between. So nobody is left behind the blast door, the coolant pit or the gallery |
+| A door closing | Regroups on the living player nearest the door: anyone more than 30 m from them gets **5 s**, then is put on their spot. Each screen's own door leaf still waits above its own player, so a door never closes on anyone |
+| `place`, `deploy` | Everyone goes to the mark, a step (1.3 m) to the side per slot where that step is floor at the mark's height; on a narrow deck or against a wall, onto the mark itself (players' bodies do not collide). Each player keeps the starter gun they picked in the lobby: the host's stands in the kit where theirs goes |
+| Guns on racks | A rack is the team's. The first player to walk over their copy takes it: the runner hears `took:<gun>`, every other player is issued the gun in the hand they hold ("NAME took the X: one issued to you") and the rack goes from every screen. A second take is ignored |
+| `ammo` (rockets running out) | The player worst off among the living who carry the gun. Guests report their rounds when they change, at most twice a second |
+| Kills, `cleared`, `left`, `below` | The host's world: any player's kill counts |
+| Lines, hints, banners, music | Start on every screen when the host's start. A menu open over the live world no longer pauses the voice in co-op |
+| Films | Everyone watches; whoever is down or dead is got up first. **A film is skipped by vote:** the skip key is a vote, the bar shows "1/2", and the film ends on every screen when every player in the match has pressed it. When the host's film ends, every screen's ends. A player arriving while it runs comes in part way |
+| The door-gunner ride (The Outpost), the gunship sortie (Foreclosure) | Everyone rides: each player has a seat on their own copy of the same flight; whoever is down or dead is got up first; their rounds count through the host as call-in hits. The come-about reaches every copy. When the host's ride ends, anyone still in a seat is taken out of it |
+| The courier going down (Foreclosure) | Every screen flies its own copy of the same flight with its own flak round it; the host's decides `war:hit` and `war:downed`. The smoke over the wreck is state |
+| The war (Foreclosure) | A front is joined when any player walks within 32 m. A militia gunner on a wall gun turns on any player in his arc and sight, not only the host. Call-outs are said if any player is in earshot, and each player hears those in their own. The breaching charge's countdown shows on every screen. The sniper's round into the squad has its tracer and report on every screen |
+| The Frame (the mech) | In both missions the `frame` steps are still the game's stand-in, alone as in co-op: a banner, and the eject's landing mark. Every screen gets both. When the real Frame is provided for missions: one Frame, piloted by the first player to reach it (decision), the others on foot beside it, drawn by the call-ins lane's puppet. As a call-in it is each player's own |
+| The sky (`callins`) | Shut and opened for every player |
+| A brain chip the mission hands out (`call chip`) | Fitted for every player |
+| Checkpoints | "Checkpoint" on every screen; everyone down or dead gets up beside the leading player |
 | One player down | The team's to revive; the mission does not fail |
-| Everyone down | The whole team goes back to the last checkpoint (the mission's own redeploy) |
-| Mission won | The end board, then the lobby |
-| A late or returning guest | Gets the loadout, objectives, music, doors and beat, and is put beside the host |
-| Villain lines | As written ("you"); the proposal's Q5 default |
+| Everyone down, or the host's "Restart from checkpoint" | The whole team goes back to the last checkpoint. **Every screen rebuilds its run** (`reset`, then the same `Game.newRun()` the host does): enemies, corpses, pickups, dropped guns, doors, racks and the set pieces go, each player lands at the checkpoint's mark with its kit, the Council takes its 10% of each player's own score, and the doors, objectives and kit are sent again. The sky opens and the lights come back, as alone. A guest cannot send the team back |
+| Mission won | `finished` gives every screen the mission's numbers (`ctx.coop.world.mission.result`: title, seconds, replacements, vehicles) before the team's end goes out; the board is the team lane's |
+| A late or returning player | Is put beside a living player, then gets: the section's title, every door as it stands, the objectives, the music, the sky, the lights, the kit handed out so far (the last checkpoint's, plus every gun and grenade issued since), the brain chips, the wreck's smoke, the racks still standing, the pickups dropped since the checkpoint, and the film (part way) or the ride in progress |
+| Villain lines | As written ("you") |
+
+For the other lanes: a checkpoint restart is `run:start` on every screen in the middle of a match. A module that holds copies of the
+host's world drops them then (`CoopWorld` does it for the enemy and vehicle copies before a guest's run is rebuilt), and state that
+both sides rebuild the same way from a new run needs nothing sent.
+
+Hooks: `ctx.coop.world.mission.restart()` (host: the team back to the checkpoint; the team's wipe and the pause menu's item go
+through `campaign.restart()`, which is the same thing), `.catchUp(id)` (host: one arriving player; called on their first card),
+`.result` (every screen, once won), `team.respawnAll(at?, yaw?)`.
 
 ## Failure cases handled
 

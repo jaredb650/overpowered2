@@ -61,7 +61,7 @@ type TriggerKind = Exclude<KeysOf<Trigger>, 'outside' | 'tag' | 'by' | 'where' |
 
 /** Every kind of trigger has a rule for whom it counts. A new kind is a compile error here until it has one. */
 const TRIGGER_RULES = {
-  zone: ['zone', 'zone outside', 'zone that ends a beat'],
+  zone: ['zone', 'zone outside', 'zone that ends a section'],
   after: ['after'],
   kills: ['kills'],
   cleared: ['cleared'],

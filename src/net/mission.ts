@@ -65,8 +65,6 @@ const DROPS_KEPT = 24;
 /** Milliseconds between two reports of the same player action, and between two looks at the ammo. */
 const DID_MS = 250;
 const ROUNDS_MS = 500;
-/** Within this of the leader, a player moving up to a new section has arrived. */
-const ARRIVED_M = 6;
 const noop = (): void => {};
 
 type Feet = { x: number; y: number; z: number };
@@ -83,7 +81,8 @@ const vec = (v: unknown): v is Vec => Array.isArray(v) && v.length === 3 && v.ev
 /** What goes on the wire: data only. A callback becomes null. */
 const plain = (args: unknown[]): unknown[] => JSON.parse(JSON.stringify(args)) as unknown[];
 
-interface Regroup { slot: number; at: Vec; zone: string | null; left: number; said: number }
+/** `until`: `performance.now()` when the countdown runs out. */
+interface Regroup { slot: number; at: Vec; zone: string | null; until: number; said: number }
 
 export class CoopMission {
   private wrapped = false;
@@ -423,6 +422,21 @@ export class CoopMission {
     return out;
   }
 
+  /**
+   * A step to the side of a mark for this slot, if that is floor at the mark's own height. A mark on a narrow deck or against a
+   * wall has no such step: then the mark itself, where players may stand in one another (their bodies do not collide).
+   */
+  private beside(at: Vec, yaw: number, slot: number): Vec {
+    const to = spread(at, yaw, slot);
+    const nav = this.ctx.world?.nav as { nearest?(point: THREE.Vector3, radius: number, out: THREE.Vector3): boolean } | undefined;
+    if (!nav?.nearest) return to;
+    const point = new THREE.Vector3(...to);
+    const found = new THREE.Vector3();
+    try {
+      return nav.nearest(point, 0.5, found) && Math.abs(found.y - at[1]) < 0.6 ? to : [at[0], at[1], at[2]];
+    } catch { return to; }
+  }
+
   /** Where every living player stands, for the mission's zones. */
   crowd(): Feet[] {
     return this.living().map(p => ({ x: p.at.x, y: p.at.y, z: p.at.z }));
@@ -476,46 +490,53 @@ export class CoopMission {
     const yaw = Number.isFinite(event.yaw) ? event.yaw : 0;
     const seconds = typeof event.in === 'number' && Number.isFinite(event.in) ? Math.max(0, Math.min(60, event.in)) : 0;
     if (seconds <= 0) {
+      // Onto the very spot: a living player stands there, so it is ground, which a step to the side of it may not be.
       const here = this.ctx.player.position;
-      if (Math.hypot(here.x - event.at[0], here.z - event.at[2]) > REGROUP_METRES) this.ctx.player.teleport(new THREE.Vector3(...spread(event.at, yaw, this.me)), yaw);
+      if (Math.hypot(here.x - event.at[0], here.z - event.at[2]) > REGROUP_METRES) this.ctx.player.teleport(new THREE.Vector3(...event.at), yaw);
       return;
     }
     const slot = Number.isInteger(event.slot) ? event.slot! : -1;
     // The leader stays where they are, and the dead come back at the checkpoint.
     if (slot === this.me || !this.ctx.player.alive && !(this.ctx.player as unknown as { downed?: boolean }).downed) return;
-    this.regroup = { slot, at: [...event.at], zone: typeof event.zone === 'string' ? event.zone.slice(0, 40) : null, left: seconds, said: -1 };
+    this.regroup = { slot, at: [...event.at], zone: typeof event.zone === 'string' ? event.zone.slice(0, 40) : null, until: performance.now() + seconds * 1000, said: -1 };
     if (this.together(this.regroup)) this.regroup = null;
   }
 
-  /** True when this player is with the one they are regrouping on. */
+  /** True when this player is where the regroup wants them. */
   private together(r: Regroup): boolean {
     const here = this.ctx.player.position;
+    if (r.zone) {
+      // A new section: only being in its zone is being there. Beside the player who opened it is not enough: a door that has
+      // just shut may stand between, and their body on this screen is a moment behind where they are.
+      const box = this.campaign?.runner.mission.zones[r.zone];
+      return !!box && inside(box, here);
+    }
+    // A closing door: within reach of where its nearest player stood, or of where they are now.
+    if (Math.hypot(here.x - r.at[0], here.y - r.at[1], here.z - r.at[2]) <= REGROUP_METRES) return true;
     const leader = this.session.lobby.players.find(p => p.slot === r.slot);
     const at = leader ? this.where(leader.id) : null;
-    const d = at ? here.distanceTo(at) : Math.hypot(here.x - r.at[0], here.y - r.at[1], here.z - r.at[2]);
-    if (!r.zone) return d <= REGROUP_METRES;
-    // A new section: in its zone, or beside the player who opened it. Near is not enough: a shut door may stand between.
-    const box = this.campaign?.runner.mission.zones[r.zone];
-    return d <= ARRIVED_M || (!!box && inside(box, here));
+    return !!at && here.distanceTo(at) <= REGROUP_METRES;
   }
 
-  private countRegroup(dt: number): void {
+  /** The countdown is on the real clock: a screen running slowly must not make its player wait longer. */
+  private countRegroup(): void {
     const r = this.regroup;
     if (!r) return;
     if (this.together(r)) { this.regroup = null; return; }
-    r.left -= dt;
+    const left = (r.until - performance.now()) / 1000;
     const leader = this.session.lobby.players.find(p => p.slot === r.slot);
     const name = leader?.name ?? 'the team';
-    const shown = Math.max(0, Math.ceil(r.left));
+    const shown = Math.max(0, Math.ceil(left));
     if (shown !== r.said) {
       r.said = shown;
       this.ctx.hud.callout?.(`REGROUP · moving you up to ${name} in ${shown}`);
     }
-    if (r.left > 0) return;
+    if (left > 0) return;
     this.regroup = null;
+    // Onto the leader's own spot (bodies do not collide): where they stand is ground, and a step to the side may be a wall or a drop.
     const at = leader ? this.where(leader.id) : null;
     const to: Vec = at ? [at.x, at.y, at.z] : r.at;
-    this.ctx.player.teleport(new THREE.Vector3(...spread(to, this.ctx.player.yaw, this.me + 1)), this.ctx.player.yaw);
+    this.ctx.player.teleport(new THREE.Vector3(...to), this.ctx.player.yaw);
     this.ctx.hud.feed(`Moved up to ${name}`, '#79f1ad');
   }
 
@@ -613,10 +634,10 @@ export class CoopMission {
   private play(campaign: Campaign, op: string, args: unknown[]): void {
     const host: GameHost = campaign.host;
     const slot = this.me || 1;
-    /** Everyone lands at the mark, a step apart. */
+    /** Everyone lands at the mark, a step apart where there is floor for it. */
     const marked = (mark: unknown): unknown => {
       const m = mark as { at?: unknown; yaw?: number } | null;
-      return m && vec(m.at) ? { ...m, at: spread(m.at, m.yaw ?? 0, slot) } : mark;
+      return m && vec(m.at) ? { ...m, at: this.beside(m.at, m.yaw ?? 0, slot) } : mark;
     };
     switch (op) {
       // The team's own.
@@ -705,7 +726,7 @@ export class CoopMission {
   update(): void {
     const campaign = this.campaign;
     if (!campaign) return;
-    this.countRegroup(this.ctx.time.realDt);
+    this.countRegroup();
     if (this.session.hosting) this.updateHost(campaign);
     else this.updateGuest(campaign);
   }
