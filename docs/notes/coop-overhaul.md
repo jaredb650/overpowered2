@@ -791,3 +791,73 @@ Each: what fails, where, how many players, which network, the evidence, the caus
     three call-ins and the Bomber's feedback (the review's findings 1 and 3) and in nothing else recorded.
   - Seen in passing, not mine: with music on (localhost), the "now playing" tag is drawn over the co-op teammates strip
     for the few seconds it shows.
+- 2026-11-19, fix-hits (checklist C9, C12, C13, C14, C15, review-net M1, m2, m3, m4, m9, and the lead's "a guest's gun does less
+  work"). Landed on `coop-overhaul` in steps; details in `docs/notes/coop.md` ("Kill credit and rewards", "Claims", "The same
+  work for a guest's gun", "Gore on every screen", "Weapons on other screens", "Enemy motion"). Outcome, item by item:
+  - **M1, burn kills went to the host: fixed.** The burn tick's source is `burn`; the table matched a made-up `fire`. Credit
+    now goes by one table of every damage source (`creditRule`), a test reads the game's code and fails on a source with no
+    rule, and the tests kill with the real status tick. Decisions: a fall, a hazard, another enemy's blast, a drone's crash
+    and a boss's death go to whoever hurt the enemy in the last 30 s, else the host (as a solo run counts them); fire that
+    spreads keeps its owner; the host's own fire is noted as the host's.
+  - **C9, no honest claim lost: fixed, and the Warthog explained.** (a) **The Warthog that dealt no damage was the proof, not
+    the game:** its mark stood on a walkway 2 m wide over a drop, the targets floated over the pit, and the shells landed 5.9
+    to 7.9 m under them on every screen unless one happened to land on the walkway (caught with the new books: the caller
+    sent 0 claims, the host refused none). No race in the copies was found or needed. The proof now takes the most level
+    open spot. (b) A `hit`, `status` or `vhit` from a guest with no pose yet is applied at once; `fire`, `round`, `loop`,
+    `mfx` and a prisoner's key wait for the body, in order, up to 2 s (`world/late.ts`). (c) Every refusal is counted, kept
+    with its reason and written to the console (`world.claimBooks`); the claims matrix, the call-ins matrix and the new
+    proofs assert it stays 0. **Count from the long scripted fights: 0 refused of 605 hits (noisy), 0 of 305 (clean), 0 in
+    the claims rows** (394 and 106 of those were for an enemy already dead on the host, which is not a refusal). Not fixed
+    here: an event from a guest the host has marked away is still dropped in `lobby.ts` (M2, the session fix lane's).
+  - **C12, a refused claim: fixed.** The host answers `nack` (the hit's number, why); the guest at once stops counting the
+    hit against the enemy, gives back the limb pool it wore, takes back a kill it was told on its strength, and gets a
+    floored body up. Proved in the browser: a hit refused for `eye` was drawn at once (reckoned 340 of 400) and put back to
+    400 by the host's "no" 20 ms later on a clean link, 416 and 645 ms under `lag:150,jitter:60,loss:0.08`. Also: while a
+    guest's own hits are unanswered an enemy's health comes from the host's answers, never from a state that may count a hit
+    twice.
+  - **C13, kill feel for a guest: built behind a switch** (`?predictKills=0|1`, `setPredictKills`, `world.feel`).
+    A guest's own hit that its numbers call clearly a kill drops the body limp on the frame of the shot, as a knockdown the
+    host's `kill` turns into the corpse where it lies and a wrong guess into a get-up; beyond doubt (three times what is
+    left, half its health to spare) the whole death is played at once and the score waits for the host's word. Never for a
+    boss, a man with anatomy, a machine, armour, a shield, a ward, frost, or a blast. **Decision: on by default**, by the
+    rule the lead set. The proof (`coop-fixhits-predict.mjs`: three pages, one guest predicting and one not in the same
+    fight, both shooting the same enemies, six guns in turn, `lag:150,jitter:60,loss:0.08`, 180 enemies): **no wrong
+    resurrection** (0 whole deaths wrong of 9, no enemy seen alive after dying on either guest); **0 of 64 bodies dropped
+    for dead got up again**; the body leaves its feet at a median of 0 ms after the shot that killed it against 479 ms
+    without (71 of 121 kills within 50 ms against 7 of 138). The run before it, with blasts still predicted, had 6 of 53
+    get up again (5 of 39 on a clean link): the host rolls a blast's ring and the roll sets its damage, so blasts were
+    taken out. On a clean link (120 enemies): 17 whole deaths, 17 right, no resurrection. A kill the guess does not call
+    (a blast, armour, a close call) still waits for the host as before.
+  - **C14: fixed and proven.** A guest's hit crosses in the struck bone's own axes and the host puts it back on the same spot
+    of its own body, so a man's wounds read what the shooter saw; a guest then calls a killing headshot on a man with
+    anatomy at the shot (the kill sound, not the crack first). A shot's kill count goes by the guest's guess, so the Lance
+    splits and stops on a guest (proved: 0.114 s asked for three kills, 0.06 before). Stake pins and melee flings on a guest
+    are proven in the browser (`coop-fixhits-pins.mjs`, 13 checks, prediction off and on).
+  - **C15, watchers: fixed and proven.** A friend's rounds mark this screen's corpses; a friend's stake flies on and ends
+    where the shooter says theirs stopped; the rotary cannon's spin-up and run-down and a perk's tracer colour reach the
+    others; a friend's shot is drawn out to the hit claim's own allowance (16 m at no ping, was a flat 7 m); launches (80 a
+    second), landings (240), loop ends (30) and swing effects (60) each have their own count. `coop-fx-matrix.mjs` gained
+    the knife, crowbar, shovel, baton, the Judge's fan, the smart aim, Gun Kata, the Quiver's painted salvo, a stake in a
+    body, the whine and a perk tracer: 511 checks, host firing and guest firing, clean link. Not proven in the browser:
+    rounds into a corpse (unit test only: a corpse in the line of fire is hard to stage).
+  - **m4, m9, hardening: fixed**, with property tests (`hardening.property.test.ts`). One state record with a number no enemy
+    can have is passed over alone and the writer sends none; a claim's damage is rebuilt field by field from what a claim
+    may say.
+  - **The replay guard is back** in a form that cannot refuse an honest shot: the very same hit (its own number and the
+    shooter's clock) is applied once. The "call-in only if called lately" rule is not back for ordinary call-in damage (a
+    lost announcement would lose honest damage); it stands for the instakills.
+  - **A guest's gun did less work a shot (the lead's item): found and fixed.** Not hit detection, akimbo, cadence or pierce
+    (rows where nobody falls matched hit for hit). A copy's limb pools were sized for the guest's own idea of the enemy's
+    health and read against the host's, so a copy of an enemy with more health had every limb part gone: it could not catch
+    its balance or push itself up, lay about 2 s longer after every fall, and was out of the line of fire that long.
+    Extreme in the proof (10,000,000-health targets), smaller and real in play past a 1.8 times difference (deep waves, the
+    host's "Enemy health" rule). Fixed (`fitReplicaHealth`); also the same reaction rolls on both machines for a guest's
+    own hit, and a `rise` move so a copy starts up with the host's body. After: Ultramag 9 and 9 hits (was 9 and 6),
+    Ultramag akimbo 21 and 21 (was 21 and 11), SMG with AP 60 and 60 (was 60 and 46), the same under
+    `lag:120,jitter:40,loss:0.05`. The melee rows' spread is the proof's own (the host's baton: 2 of 12 in one run, 12 of
+    12 in another).
+  - Seen on the way, not mine: on the tip of 2026-11-19 04:00 the **host's** copy of a guest's airstrike fired 10 and then 8
+    of its 15 rockets in two runs of two (the other guest's copy fired 15 both times; three runs on the tip of 01:35 had 15
+    and 15), so the call-ins matrix fails "the blasts arrive on host" there. The strike itself was whole on the caller's
+    screen and killed 6 of 6. The copy ends when its finale lands (`Airstrike.update` returns `landed`), so a copy whose
+    rockets are behind its finale loses the rest. Call-ins, checklist 16.

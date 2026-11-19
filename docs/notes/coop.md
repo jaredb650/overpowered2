@@ -876,6 +876,23 @@ it. With prediction on, a guest's own hit that its numbers call clearly a kill s
   knockdown) and `deaths`, `deathsRight`, `deathsWrong` (a whole death the host denied: the enemy is let back onto the
   screen from its next state, which is the one thing prediction must never do, and is logged).
 
+**Prediction is on by default** (the lead's rule: on if a long noisy run shows no wrong resurrection). The proof is
+`tools/scripts/coop-fixhits-predict.mjs`: three pages, guest 1 predicting and guest 2 not, side by side in the same fight on
+the same link, both shooting the same held enemies round after round with a different gun each round (SMG, Harrow, shotgun,
+Judge, Rivet, rocket). Results on 2026-11-19, loopback transport:
+
+| Run | Enemies | Dropped for dead: right, wrong | Whole deaths: right, wrong | Seen alive after dying | Body leaves its feet, with and without (median; 90th centile) | Refused by the host |
+|---|---:|---|---|---:|---|---:|
+| `lag:150,jitter:60,loss:0.08`, 18 rounds | 180 | 64, 0 | 9, 0 | 0 | 0 ms and 479 ms; 709 and 821 | 0 of 1,067 hits |
+| the same, 12 rounds, blasts still predicted | 120 | 47, **6** | 1, 0 | 0 | 0 ms and 621 ms; 662 and 1,005 | 0 of 605 |
+| clean link, 12 rounds, blasts still predicted | 120 | 34, **5** | 17, 0 | 0 | 0 ms and 9 ms; 9 and 20 | 0 of 305 |
+
+The wrong drops of the two earlier runs were why a blast is never predicted now (the host rolls its ring, and the roll
+sets its damage). Each run also refuses one hit on purpose (its eye 500 m from the shooter's body): drawn at once (the
+enemy reckoned at 340 of 400), and put back to 400 by the host's `nack` 20 ms later on the clean link and 398 to 645 ms
+later on the noisy one. Stake pins, a shovel's fling and the Lance's kill stop on a guest, with prediction off and on:
+`tools/scripts/coop-fixhits-pins.mjs`, 13 checks.
+
 **Whose news it is.** A guest emits `enemy:hit` and `enemy:severed` for its own hits only (its own guess), so its hit-confirm
 audio, headshot-hit score, Butcher, BACK SHOT and run report work as solo. On the host, audio's and the run report's listeners
 skip a teammate's hit, cut or kill (`notMine`): the host no longer hears a guest's hit markers. What a death or a cut sounds like
@@ -1080,7 +1097,11 @@ things ended. Host firing, then a guest firing. 46 cases: the Lance's four shots
 with its light; Gimlet and its launcher; Harrow and API; Flail; pump, flechettes, choke; Thresher; Deuce one barrel, both, and the
 quad's four; Rocket with and without its laser; a Quiver salvo; Sabot and Raufoss; Awl; autocannon and flak; katana, energy
 blade, stab; Judge, Rivet, Ultramag suppressed, Autoraffica; Trommel and its 12 mm; Piledriver and Raufoss; Kiln; stakes and an
-exploding bolt; a thrown grenade; a reload; a stim.
+exploding bolt; a thrown grenade; a reload; a stim. Added by fix-hits (2026-11-19, clean link, host firing and guest firing, 511
+checks, none failed): the knife, crowbar, shovel and baton; the Judge's fan, the Autoraffica's smart aim and Gun Kata (every
+locked round arrives and ends where the shooter's ended); the Quiver's painted salvo; a stake that stops in a living body (as
+many stand in the wall on a watcher's screen as on the shooter's); the rotary cannon's spin-up and run-down; a perk's tracer.
+Rounds into a corpse are unit-tested only (`watch.test.ts`).
 
 Run on 2026-11-18 (loopback transport, three pages; the machine was overloaded by other lanes' runs, so the pages made 1 to 12
 frames a second: these runs prove what is drawn and where, not how smooth it is). Clean network: 90 of the 92 case-rounds passed
