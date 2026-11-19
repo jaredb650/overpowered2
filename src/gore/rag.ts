@@ -352,12 +352,15 @@ export class Rag {
   /** The box round those capsules, for whoever looks for what lies where (mess.ts). Meaningless unless `resting`. */
   readonly restMin = new THREE.Vector3();
   readonly restMax = new THREE.Vector3();
+  /** The middle of each of those capsules, three floats each: where the chain lies, for whoever walks into it. */
+  readonly restPoints: number[] = [];
   /** Told as the chain's fixed capsules are about to leave the world, by any road: woken, destroyed, or given up. */
   onUnrest: ((rag: Rag) => void) | null = null;
 
   constructor(
     readonly physics: PhysicsSystem,
-    readonly source: RagSource,
+    /** Whose bones these are. Another instance of the same rig, posed the same, may take its place while at rest (`adopt`). */
+    public source: RagSource,
     readonly build: RagBuild,
   ) {
     this.info = rigInfo(source.rig);
@@ -374,6 +377,15 @@ export class Rag {
   /** At rest with its fixed capsules in the world. */
   get resting(): boolean {
     return this.restShapes.length > 0;
+  }
+
+  /**
+   * At rest, the chain is handed another character of the same rig lying in the same pose: the body was baked into the far
+   * batch and has been stood up again on a fresh instance (gore/far.ts). The fixed capsules stay as they are.
+   */
+  adopt(source: RagSource): void {
+    if (this.active) return;
+    this.source = source;
   }
 
   /** How many fixed capsules it has in the world. */
@@ -974,6 +986,7 @@ export class Rag {
     const { R, world } = this.physics;
     const lo = this.restMin.set(Infinity, Infinity, Infinity);
     const hi = this.restMax.set(-Infinity, -Infinity, -Infinity);
+    this.restPoints.length = 0;
     for (const part of this.parts) {
       const body = part.body;
       for (let i = 0, n = body.numColliders(); i < n; i++) {
@@ -989,6 +1002,7 @@ export class Rag {
           .setRestitution(this.build.restitution)
           .setCollisionGroups(REST_GROUPS);
         this.restShapes.push(world.createCollider(desc));
+        this.restPoints.push(t.x, t.y, t.z);
         // The box is tight: a capsule lying down is only its radius high, and what lies on what is read from it.
         const r = c.rotation();
         _a.set(0, half, 0).applyQuaternion(_q.set(r.x, r.y, r.z, r.w));

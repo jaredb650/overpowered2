@@ -201,7 +201,13 @@ async function install({ spot, live, choke }) {
   const corpses = () => (ctx.gore.bodies ?? []).filter(b => b.sinking < 0 && !b.down);
   const hipsOf = b => new V().setFromMatrixPosition(b.char.bones[0].matrixWorld);
   // The heap is looked at where the fight was set, the same place on every build, so two builds' pictures can be laid side by side.
-  const heap = () => ({ centre: killSpot.clone(), list: corpses().map(hipsOf).filter(h => Math.hypot(h.x - killSpot.x, h.z - killSpot.z) < 4.5 && Math.abs(h.y - killSpot.y) < 3) });
+  // Every body on this floor within 9 m counts, the baked ones too (their hips are where their chain's root lay): a heap
+  // grows where they happened to fall, which is not always on the mark.
+  const heap = () => ({
+    centre: killSpot.clone(),
+    list: [...corpses().map(hipsOf), ...(ctx.gore.farBodies ?? []).map(f => f.rag.center.clone())]
+      .filter(h => Math.hypot(h.x - killSpot.x, h.z - killSpot.z) < 9 && Math.abs(h.y - killSpot.y) < 3),
+  });
   const pctl = (a, p) => {
     if (a.length === 0) return 0;
     const s = [...a].sort((x, y) => x - y);
@@ -218,7 +224,7 @@ async function install({ spot, live, choke }) {
     const mem = r.renderer.info.memory;
     const mess = ctx.gore.mess?.stats?.();
     return {
-      kills: bot.kills, forced: bot.forced, corpses: corpses().length, near: list.length, gore: g, mess,
+      kills: bot.kills, forced: bot.forced, corpses: corpses().length, far: g.far ?? 0, farTris: ctx.gore.far?.triangles ?? 0, farBytes: ctx.gore.far?.bytes ?? 0, near: list.length, gore: g, mess,
       within2m: list.filter(h => Math.hypot(h.x - centre.x, h.z - centre.z) < 2).length,
       hipsMax: +Math.max(0, ...heights).toFixed(2), hipsMedian: pctl(heights, 0.5), hips90: pctl(heights, 0.9),
       above35cm: heights.filter(y => y > 0.35).length, above60cm: heights.filter(y => y > 0.6).length,
@@ -301,7 +307,21 @@ async function install({ spot, live, choke }) {
       ring.visible = true;
       ring.updateMatrixWorld(true);
     }
-    r.render();
+    try {
+      r.render();
+    } catch (e) {
+      // Says what was in the scene that could not be drawn, since the error itself names nothing.
+      const bad = [];
+      r.scene.traverse(o => {
+        const list = Array.isArray(o.material) ? o.material : o.material ? [o.material] : [];
+        list.forEach((m, i) => {
+          if (!m || typeof m.onBeforeRender !== 'function') bad.push(`${o.type} "${o.name}" parent "${o.parent?.name}" (${o.parent?.type}) material[${i}] ${m === null ? 'null' : typeof m} ${m?.type ?? ''} keys ${m ? Object.keys(m).slice(0, 6).join(',') : ''} groups ${o.geometry?.groups?.length ?? 0} mats ${list.length}`);
+        });
+        const groups = o.geometry?.groups ?? [];
+        if (Array.isArray(o.material)) for (const g of groups) if (g.materialIndex >= o.material.length) bad.push(`${o.type} "${o.name}" group wants material ${g.materialIndex} of ${o.material.length}`);
+      });
+      throw new Error(`${e.message} :: ${bad.slice(0, 6).join(' | ') || 'no mesh with a bad material found'} :: override ${String(r.scene.overrideMaterial)}`);
+    }
     if (ring) ring.visible = false;
     cam.position.copy(keep.p);
     cam.quaternion.copy(keep.q);
@@ -309,8 +329,32 @@ async function install({ spot, live, choke }) {
     r.viewScene.visible = gun;
   };
 
+  /** What each kind of thing on the floor adds to the frame: draw calls and triangles with it hidden, against all of it. */
+  const breakdown = () => {
+    const g = ctx.gore;
+    const groups = {
+      characters: g.bodies.map(b => b.char.root),
+      limbs: g.limbs.map(l => l.piece.root),
+      halves: (g.sliced.halves ?? []).map(h => h.mesh),
+      pieces: [...(g.chunks.meshes?.values?.() ?? [])],
+      baked: g.far?.mesh ? [g.far.mesh] : [],
+      decals: [r.decals.mesh],
+    };
+    r.render();
+    const all = { calls: r.drawCalls(), tris: r.triangles() };
+    const out = { all, count: Object.fromEntries(Object.entries(groups).map(([k, v]) => [k, v.length])) };
+    for (const [name, list] of Object.entries(groups)) {
+      const was = list.map(o => o.visible);
+      for (const o of list) o.visible = false;
+      r.render();
+      out[name] = { calls: all.calls - r.drawCalls(), tris: all.tris - r.triangles() };
+      list.forEach((o, i) => { o.visible = was[i]; });
+    }
+    r.render();
+    return out;
+  };
   window.__mess = {
-    bot, stats, cost, draw, shoot,
+    bot, stats, cost, draw, shoot, breakdown,
     fight: goal => { bot.goal = goal; bot.phase = 'fight'; },
     walk: () => {
       const { centre } = heap();
@@ -375,11 +419,14 @@ export default async function fight(page, h) {
     for (const which of ['eye', 'high', 'low']) {
       await page.evaluate(w => window.__mess.shoot(w), which);
       row[which] = await still(`kills${stop}-${which}`);
-      if (which === 'eye') row.drawMs = await drawCost();
-      tiles.push({ src: row[which], text: `${stop} kills, ${which}: ${row.corpses} bodies kept, hips up to ${row.hipsMax} m, ${row.decals} decals` });
+      if (which === 'eye') {
+        row.drawMs = await drawCost();
+        row.breakdown = await page.evaluate(() => window.__mess.breakdown());
+      }
+      tiles.push({ src: row[which], text: `${stop} kills, ${which}: ${row.corpses + row.far} bodies kept${row.far ? ` (${row.far} baked)` : ''}, hips up to ${row.hipsMax} m, ${row.decals} decals` });
     }
     report.stops.push(row);
-    console.log(JSON.stringify({ stop, kills: row.kills, corpses: row.corpses, hipsMax: row.hipsMax, above35cm: row.above35cm, decals: row.decals, drawMs: row.drawMs, calls: row.calls }));
+    console.log(JSON.stringify({ stop, kills: row.kills, corpses: row.corpses, far: row.far, hipsMax: row.hipsMax, above35cm: row.above35cm, decals: row.decals, drawMs: row.drawMs, calls: row.calls }));
   }
 
   if (WALK) {

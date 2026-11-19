@@ -152,6 +152,7 @@ are a compositor animation and survive a blocked main thread. `performance.mark(
 | Contract notice | Copy in `contracts/data.ts`, layout `.mm-brief` and `.nt-*` in `css/screens.css`. It has to end above the wordmark |
 | Minimap | `NEAR_RANGE`, `FAR_RANGE`, `FAR_SPEED`, `REDRAW` in `hud/minimap.ts` |
 | Gore levels | `GORE_TABLE` in `settings.ts` |
+| What stays on the floor ("Mess": Low, Clear at wave break, Standard, Everything) | `MESS` in `gore/mess.ts`, written by `applyMess` in `settings.ts`; `docs/notes/gore.md`, "The mess that stays" |
 | Guide copy | `data.ts`. Numbers come from `MOVE`, `WEAPONS`, `TUNING`, `EFFECTS`, `WINDOWS`, `STACK`, `SCORE`, so a retune updates the guide. Enemy first waves are copied from `ROSTER`, which is not exported |
 
 ## Settings
@@ -171,9 +172,9 @@ Stored in `op2.settings.v1`, sanitized on load. They apply and save the moment t
 
 ## Known limitations
 
-- **Gore level changes what stays, not the spray.** It sets corpse and limb caps, stump time, blood reaching the floor and chunk linger.
-  The blood a hit sprays is a fixed recipe in fx, with no scale to set. Excessive cannot raise the caps, which are the design's hard limits,
-  so it buys time and makes corpses come apart sooner. A blood scale in fx would finish this.
+- **Two settings, not one.** "Gore" is how violently a body comes apart (stump time, blood reaching the floor and its size, how soon a
+  corpse loses a limb). "Mess" is how much of it stays (bodies, limbs, pieces, blood, and whether the floor is swept at a wave break).
+  Before the gore update the Gore level set both.
 - **Weapon keys 1 to 0 and the wheel's bindings are not all on the Keys page.** Next and previous are. Slots are listed as fixed in the guide.
 - **Esc in real Chrome is unproven.** Headless Chrome does grant pointer lock, and everything else in the table ran on real clicks and keys, but
   headless delivers the Esc keydown to the page, where desktop Chrome swallows it and ends the lock itself. That path was exercised by

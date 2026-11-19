@@ -1132,7 +1132,15 @@ export class EnemyManager implements EnemySystem {
     e.burning = view.burning ? Math.max(e.burning, REPLICA_STATUS_HOLD) : Math.max(0, e.burning - dt);
     if (e.burning > 0) this.burnLook(e, dt, skin);
     else if (e.alight) this.burnOut(e);
-    if (!e.def.machine) e.maim.legs = view.legs;
+    if (!e.def.machine) {
+      // The host's word, but never more legs than this copy's body has left. The cut arrives as an event of its own, ahead
+      // of the snapshot that knows of it (snapshots are played 150 ms behind): for that moment the view still says two,
+      // and a copy that went down just then is not placed again until it is up, so it kept two legs it did not have (the
+      // co-op gore proof's "what is left of the body", on a watching guest, about one run in three).
+      const lost = e.char.severed;
+      const own = (lost.has('legL') || lost.has('shinL') ? 0 : 1) + (lost.has('legR') || lost.has('shinR') ? 0 : 1);
+      e.maim.legs = Math.min(view.legs, own);
+    }
     if (e.stagger > 0) e.stagger -= dt;
     e.rising = view.rising ? Math.max(e.rising, 0.1) : 0;
   }

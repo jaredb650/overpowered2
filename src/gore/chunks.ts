@@ -305,6 +305,8 @@ export class ChunkField {
   private dismissed = -Infinity;
   /** The share the draws were last cut to (`share`). */
   private shared = -1;
+  /** One past the highest slot each common kind has used since the last clear. */
+  private readonly high = new Map<ChunkKind, number>();
 
   constructor(private readonly ctx: Ctx, private readonly blood: BloodField, private readonly impacts: ImpactEvents, private readonly trail: GibTrail | null = null) {}
 
@@ -468,6 +470,10 @@ export class ChunkField {
     const limit = kind in ChunkTuning.capacity ? Math.max(1, Math.round(slots.length * ChunkTuning.share)) : slots.length;
     const c = slots[ring < limit ? ring : 0]!;
     this.ring.set(kind, (c.slot + 1) % limit);
+    if (kind in ChunkTuning.capacity && (this.high.get(kind) ?? 0) <= c.slot) {
+      this.high.set(kind, c.slot + 1);
+      this.meshes.get(kind)!.count = c.slot + 1;
+    }
     // An organ whose slot is wanted does not just go: it bursts where it lies.
     if (c.alive && ORGAN_SET.has(kind) && c.restedAt >= 0) this.burst(c, _up);
     else if (c.alive) this.retire(c);
@@ -867,6 +873,8 @@ export class ChunkField {
     for (const c of this.all) if (c.alive) this.retire(c);
     this.ghosts.length = 0;
     for (const kind of this.meshes.keys()) this.ring.set(kind, 0);
+    this.high.clear();
+    this.share();
     this.dismissed = -Infinity;
   }
 
@@ -886,13 +894,17 @@ export class ChunkField {
     this.share();
   }
 
-  /** The draw of each common kind runs over the slots in use and no further: the rest of its room costs nothing. */
+  /**
+   * The draw of each common kind runs as far as the last slot it has ever used, and no further than the share in use: the
+   * rest of its room costs nothing. (Every instance in a draw is worked through twice a frame, once for its shadow,
+   * whether or not there is a piece in it.)
+   */
   private share(): void {
     this.shared = ChunkTuning.share;
     const room = ChunkTuning.capacity as Partial<Record<ChunkKind, number>>;
     for (const [kind, mesh] of this.meshes) {
       const cap = room[kind];
-      if (cap !== undefined) mesh.count = Math.max(1, Math.round(cap * ChunkTuning.share));
+      if (cap !== undefined) mesh.count = Math.min(Math.max(1, Math.round(cap * ChunkTuning.share)), this.high.get(kind) ?? 0);
     }
   }
 

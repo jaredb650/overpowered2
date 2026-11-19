@@ -26,7 +26,7 @@ import {
  */
 export type DecalRing = 'floor' | 'scorch' | 'big' | 'blood' | 'mark';
 export const DECAL_RINGS: readonly DecalRing[] = ['floor', 'scorch', 'big', 'blood', 'mark'];
-export const RING_CAPACITY: Readonly<Record<DecalRing, number>> = { floor: TILES, scorch: 256, big: 256, blood: 8192, mark: 1536 };
+export const RING_CAPACITY: Readonly<Record<DecalRing, number>> = { floor: TILES, scorch: 256, big: 256, blood: 12288, mark: 1536 };
 /** Which ring a kind lives in. A new kind needs a row here and in `KIND_CELLS` (`decalSheet.ts`). */
 export const RING_OF: Readonly<Record<DecalKind, DecalRing>> = {
   bullet: 'mark',

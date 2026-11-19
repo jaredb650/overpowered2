@@ -487,7 +487,7 @@ against 6 to 8, first gib of a run 42 to 72 ms against 43 to 50 (after the polis
 
 Breaking: each hit on a limb adds `damage x breaks` to `char.stress` for that joint, and past `breakAt` (60, times size squared) it goes. One Judge round breaks a forearm, a shotgun takes three close pellets, and an SMG about seven rounds. A forearm or shin hit snaps the elbow or knee the wrong way. An upper arm or thigh hit kills the shoulder or hip. Either way a hole opens and a bone end comes out through it. A blast strains whichever limbs its shrapnel found. `updateMaim` counts a broken limb as lost for the AI, except that a broken leg never takes `legs` to 0, because crawling needs a body the animator can see has lost them.
 
-**Gore setting.** Low paints and opens nothing and breaks nothing. Full is as tuned. Excessive cuts 25% wider and limbs go 1.5 times sooner. Written from `applyGore` in `ui/settings.ts`.
+**Gore setting.** Low paints and opens nothing and breaks nothing. Full is as tuned. Excessive cuts 25% wider and limbs go 1.5 times sooner. How much stays on the floor is the "Mess" setting's (see "The mess that stays"). Written from `applyGore` in `ui/settings.ts`.
 
 ## Tuning
 
@@ -970,12 +970,12 @@ oldest stain the cell remembers, so the spot stays freshly wet and the ring stop
 | | Low | Clear at wave break | Standard | Everything |
 |---|---|---|---|---|
 | Bodies kept | 40 | 120 | 120 | 200 |
-| Drawn in full / drawn at all | 6 / 20 | 8 / 32 | 8 / 32 | 12 / 48 |
+| Drawn in full / drawn as characters at all (the rest are baked, see "Many more corpses") | 6 / 20 | 8 / 32 | 8 / 32 | 12 / 40 |
 | Loose limbs | 24 | 48 | 48 | 64 |
 | Trunk pieces and halves | 14 | 28 | 28 | 40 |
 | Slots for pieces (meat) | 64 | 160 | 160 | 320 |
 | Pieces lie | 20 s | until needed | until needed | until needed |
-| Blood decals | 2,048 | 6,144 | 6,144 | 8,192 |
+| Blood decals | 2,048 | 8,192 | 8,192 | 12,288 |
 | Layers of blood on one spot | 4 | 6 | 6 | 10 |
 | At the wave break | nothing | **the floor is swept** | nothing | nothing |
 
@@ -983,8 +983,40 @@ oldest stain the cell remembers, so the spot stays freshly wet and the ring stop
 blood fades (`Decals.fadeOut`), over 2.2 s, with nothing popping. The old "Gore" setting no longer sets how many bodies,
 limbs or pieces stay; it is how violently a body comes apart.
 
-**Switches:** `?messrest=0` (bodies at rest keep no capsules: the flat carpet from before) and `?messpush=0` (nothing at
-rest is woken by being walked into), both also in the dev panel under BODIES.
+**Switches:** `?messrest=0` (bodies at rest keep no capsules: the flat carpet from before), `?messpush=0` (nothing at
+rest is woken by being walked into) and `?messfar=0` (nothing is baked), all three also in the dev panel under BODIES.
+
+**What each level costs** (the same 150-kill fight on one spot on the real clock, `MESS_LIVE=1`, on the development
+machine, which holds its 60 Hz throughout; counted at the end of the fight, before the bodies in sight have been baked
+down):
+
+| | Low | Standard | Everything |
+|---|---|---|---|
+| Bodies on the floor: characters + baked | 28 + 10 | 77 + 41 | 90 + 47 |
+| Frame interval: median / 95th / 99th, ms | 16.7 / 16.8 / 17.0 | 16.7 / 17.0 / 24.6 | 16.7 / 18.1 / 20.7 |
+| Physics step: median / 95th / worst, ms | 1.6 / 3.3 / 6.8 | 1.8 / 3.9 / 6.9 | 1.7 / 3.6 / 9.0 |
+| Gore's own update: median / 95th / worst, ms | 0.6 / 1.1 / 3.6 | 0.7 / 1.3 / 8.5 | 0.6 / 1.1 / 4.2 |
+| Draw calls / triangles for the frame | 468 / 1.86 M | 678 / 4.20 M | 779 / 3.97 M |
+| of which characters | 53 / 0.37 M | 233 / 1.93 M | 264 / 1.91 M |
+| of which loose limbs | 67 / 0.24 M | 153 / 0.63 M | 199 / 0.83 M |
+| of which loose pieces | 121 / 0.63 M | 107 / 1.03 M | 111 / 0.59 M |
+| of which every baked body together | 1 / 0.03 M | 1 / 0.11 M | 1 / 0.12 M |
+| Fixed capsules for the dead | 596 | 1,815 | 2,065 |
+| Running through the heap: ragdolls awake, physics 95th | 6, 1.6 ms | 17, 3.4 ms | 14, 4.0 ms |
+| Blood decals in the buffer | 2,048 | 8,192 | 12,288 |
+| The far batch's arrays | 3.4 MB | 6.7 MB | 6.7 MB |
+
+That Standard row is why `bakeOver` is 4: it was measured with bodies in sight left as characters until twelve past
+their cap. With it at 4 the same fight still stops with 80 characters (4.87 M triangles in the frame, against 3.45 M for
+the game before): during a long fight on one spot bodies are disturbed again before they have lain the 3 s a bake waits
+for, and they are baked down to 36 only once the fighting stops.
+
+**Why Standard is the default, and what is not known.** Once a floor has settled, Standard draws about what the game
+before drew for its 40 corpses (36 characters, of which 28 settled, and every other body in one draw), with three times
+the bodies and four times the blood. During a long fight on one spot it draws more than the game before did, by the
+figures above. Low draws about half of what the game before drew (1.86 M triangles after the same fight). On the
+development machine all three hold 60 Hz. **On the laptop nothing was measured**: if Standard drops frames there in a
+heap, Low is the level that is cheaper than the game was.
 
 **Co-op.** Each screen keeps its own mess and runs all of this on its own bodies, from positions it already has. Nothing
 is sent. A pushed corpse is not in the same place on two screens, and never was: corpses do not block players or bullets
@@ -995,14 +1027,75 @@ on any of them.
 it and lays that out as two contact sheets (the player's eye, and from above). `MESS_CHOKE=1` is a chokepoint: one line,
 no rockets, how high a heap gets. The same script runs on an old build for the "before".
 
-| | Before | After (Standard) |
+| | Before (`66a33f1`) | After (Standard, every lane's work in) |
 |---|---|---|
-| A fight, 150 kills: bodies kept | 40 | 132 |
-| The same: blood decals on the floor (and erased by then) | 2,048 of 2,048 shared with every hole | 6,144 of 6,144, holes apart |
-| A chokepoint, 20 / 46 / 80 kills: highest hips | 0.19 / 0.19 / 0.14 m | 0.32 / 0.70 / 0.88 m |
+| A fight, 30 / 60 / 150 kills: bodies kept | 29 / 40 / 40 | 28 / 54 / 122 (42 of them baked) |
+| The same: blood decals on the floor | 2,048 / 2,048 / 2,048, shared with every hole and full at the 14th kill | 4,995 / 8,454 / 8,852; the first is overwritten after about 40 kills |
+| The same at 150: draw calls, triangles, one frame drawn | 640, 3.45 M, 5.08 ms | 838, 4.87 M, 5.18 ms (80 bodies still characters, 5 s after the last kill; they are baked down to 36) |
+| A chokepoint, 20 / 46 / 80 kills: highest hips | 0.19 / 0.19 / 0.14 m | 0.26 / 0.37 / 0.63 m (0.32 / 0.70 / 0.88 in the first run of P1 alone) |
 | The same at 80: bodies with hips over 0.35 m | 0 | 9 |
-| The same: bodies kept | 20 / 40 / 40 | 20 / 46 / 80 |
+| The same: bodies kept | 20 / 40 / 40 | 20 / 46 / 80 (30 baked) |
+| The same at 80: draw calls, triangles | 576, 3.31 M | 603, 2.95 M |
 | Running through the heap: ragdolls awake at once | 0 (walked through untouched) | up to 18 |
+
+## Many more corpses: the far batch (2026-11-19)
+
+`far.ts` (`FarBatch`, which `Gore` holds as `this.far`), `Character.snapshot`, `restore` and `bakeFar`, the policy in
+`MessField.farPolicy`. Tests: `mess.test.ts`, "the far batch". Proof: `tools/scripts/mess-far.mjs`.
+
+Three ways a dead body is drawn, by age and by where the player is:
+
+| | Which | What it is | Cost each, on the laptop (estimate) |
+|---|---|---|---|
+| Full | the newest `full` (8) | as it died: its own shadow, every level of detail, what is under its skin | 0.18 ms |
+| Settled | the next, up to `drawn` (32) characters in all | still skeleton, no shadow of its own, coarser and closed up past 7 m | 0.06 ms |
+| Baked | the rest, up to the cap on bodies | no character at all: its triangles in one shared mesh, one draw for all of them | 0.007 ms |
+
+**Baking.** A settled body at rest for `bakeAfter` (3 s) is skinned once on the CPU at its coarsest level of detail (a
+Trooper is 1,785 triangles) and written into a slot of one shared geometry, with its gear and any stand-in head as they
+hang. The skin shader's own work is painted into the vertices, since a baked body has no texels to read: each wound's
+stain to the shader's reach and its dark middle, a wet body's all-over darkening, char. Then its character goes back to
+the library for the next enemy. One material draws every archetype (the characters' far material, which shades from the
+vertices alone). Its chain and its fixed capsules stay in the world, so **a baked body is still part of its heap**.
+
+**Standing up again.** `CorpseSnapshot` keeps what the bake cannot: where the body is, each bone's pose, what is cut off
+it, the texels its wounds, blood, burns and wear live in, and copies of what it wore. `Gore.standUp` takes a fresh
+character from the library, lays it out from the snapshot (`Character.restore`), hands it the same chain (`Rag.adopt`)
+and takes the slot back: no bone is anywhere but where it was (0 m in the proof), and nothing enters or leaves the
+physics world. It is at rest still; whoever asked wakes it. What asks:
+
+- **A round** that would meet it (`raycastCorpses` stands up the baked body whose box the ray enters first).
+- **A blast** (`Gore.blast`): the baked bodies it reaches, nearest first.
+- **The player or an enemy walking into it, a body landing on it, or what it lay on going**, exactly as for any body
+  at rest (the lists in `mess.ts` include the baked).
+- At most 3 a frame for rounds and blasts, and the 2 a frame of every other wake.
+
+**Which bodies are which** (`farPolicy`, four times a second). Past `drawn` characters the oldest settled bodies are
+baked, two a look. With room, the nearest baked body is stood up. With neither, the nearest baked body and the furthest
+drawn one change places when the baked one is `swapGain` (4 m) the nearer, so the bodies round the player are the drawn
+ones. **Every one of those changes is made where it cannot be seen: out of the camera's sight, or at least `swapFar`
+(11 m) from it.** A body in plain sight within 11 m is baked only when the characters are `bakeOver` (4) past their cap:
+a heap of more than 36 killed in front of a player who never looks away, where the oldest bodies in it are baked as they lie. Past the cap on bodies, the oldest baked body
+out of sight goes first of all. A burning body is not baked until its flames are out, and `gore.hold(char, seconds)`
+keeps any body a character for as long as someone needs it to be.
+
+**No pop** (`mess-far.mjs`: a row of six bodies photographed as characters, baked, and stood up again, the game stopped):
+
+| Row at | Pixels that change when it is baked | And when it is stood up again, against the first picture |
+|---|---|---|
+| 6 m (in plain sight: only past 36 characters) | 5.7% of the crop round the bodies | 0.02% |
+| 11 m (from here on, any time) | 2.5% | 0.15% |
+| 18 m | 0.14% | 0.001% |
+
+Stood up again a body is the body it was. Baked, it loses what the far level of detail always lost: the lit eye of a
+visor, the weave on cloth, the ribs inside an opened chest (the hole is painted dark).
+
+**Cost.** A bake is 0.2 to 0.3 ms (1 ms the first, while its tables are made), a stand-up 0.1 ms. Sixty mixed bodies in
+view: **381 draw calls and 1.49 M triangles as characters, 126 and 0.50 M baked** (the empty map is 140 and 0.45 M): the
+sixty are one draw of 110,180 triangles. The batch's arrays grow forty bodies at a time, 3.4 MB a step in the page and
+again on the GPU, to 13.6 MB at 160.
+
+**Switch:** `?messfar=0` (dev panel, "Far corpses baked"): nothing is baked, and every body kept stays a character, as in P1.
 
 ## The mess: measured budgets (M0, 2026-11-19)
 
@@ -1087,6 +1180,35 @@ Today's 40 full corpses all in view are about 7 ms there. A full-screen layer of
 machine's, 0.07 ms, so twenty layers under the player's feet are 1.4 ms.
 
 ## Known limitations
+
+The mess (2026-11-19):
+
+- **The laptop figures are an estimate.** Everything was measured on a desktop (i9-13900K, RTX 4090) and scaled from
+  what `docs/notes/render.md` measured on the laptop. Whether Standard holds 60 there in a heap needs the laptop.
+- **Loose limbs and pieces now cost more than the bodies.** At Standard after 150 kills: 48 limbs are 153 draws and
+  0.63 M triangles, the pieces 107 draws and 1.03 M, against one draw and 0.11 M for 41 baked bodies. Limbs are still
+  full-detail skinned pieces with what is under their skin (they lost only their shadows); the pieces' triangles are
+  mostly the other lanes' new slabs and parts. Baking limbs at rest into the far batch is the next thing worth doing.
+- **A body baked in plain sight softens.** Past 36 characters in front of a player who never looks away the oldest are
+  baked where they lie: at 6 m that changes 6% of the pixels round them (the far level's flat colour for the skin's
+  weave, a visor's light gone, an opened chest painted dark). Stood up again they are exactly what they were.
+- **A round stands a baked body up only if it passes within 14 cm of where one of its capsules lay.** One that only
+  clips the edge of a limb goes through it without a mark.
+- **Blood still runs out.** The other lanes now put about 170 to 200 decals on the floor a kill; 8,192 is about the
+  last forty kills, and a soaked spot stops at 6 layers. The floor texture that would keep it all is agent "decals"'s
+  P2, and `Decals.onRetire` is its hook.
+- **Heaps are as high as round, slim capsules stack**: about a metre at a chokepoint after 80 kills. A body's capsules
+  are slimmer than the body drawn (`RagTuning.colliderScale`), so stacked bodies sink into each other a little.
+- **Pieces and guts fall through heaps.** They collide with the world only. Trunk pieces and sword halves rest on
+  nothing but the floor either, and are shoved, not heaped.
+- **The living still walk through a heap.** Enemies are points on the nav graph: they shove bodies a little and wake one
+  now and then, and are never slowed by them. Nor is the player, by the owner's rule.
+- **Bodies woken by a walk run past the ragdoll budget for a moment**: up to 18 chains awake running through a heap of
+  80, physics 3.4 ms at the 95th percentile on this machine.
+- **A burnt body's kit.** three's `clone()` copies `userData` through JSON, and `charKit` keeps a material in there:
+  the copies a baked body carries are made with `cloneKit` for that. The copies a severed limb carries
+  (`SeveredPart.pose`) are still plain clones, harmless only because nothing un-chars them.
+
 
 - **A body that falls from a stagger leans more than it steps.** On stage 6's drive (`stumble` with no budget) its physical feet get 0.15 to 0.3 m of a catch step the animation swings 0.56 m in 8 frames, so reeling backward it leans over its feet from about frame 8 and goes over. Leg gain did not change it. A body catching its balance has pins on its ankles and covers 0.87 to 1.03 of each step. The same pins on the fall cover 0.69 to 1.05, but then it ends by hip gap, not momentum, which two of stage 6's tests read otherwise; left off until the owner has seen both.
 - **A body catching its balance is `downed` to everything else** for up to 2.5 s: it cannot attack, and melee gives it a downed body's low hit volume (`Melee.ts`, `DOWNED_HEIGHT`). Its ghost root does not collide, so it can reel through a neighbour, and into a wall it leaves its animation behind and goes over.

@@ -283,6 +283,13 @@ with the shader programs that were linked on it.
   `dist/` on `127.0.0.1` is the control where the switches are allowed (its header has the commands). Checks: `?net=loop` (the
   one-tab rule still holds, and an opened lobby says `rtc`), proof mode (`window.__op2Proof` set, every frame still drawn), the
   pretend pointer lock and the silenced audio (the kit's page scripts: not in the bundle), `?netsim=`, `?dev=1`, `?dev=0`.
+- **The mess** (`docs/notes/gore.md`, "The mess that stays"): `tools/scripts/mess-fight.mjs`, a seeded bot fight on a frozen
+  clock that kills 30, 60 and 150 on one spot with the real guns, photographs the floor at each from three fixed cameras, then
+  walks the player through it (two contact sheets, the eye's and from above), with the numbers at each stop and what each
+  kind of thing on the floor adds to the frame (`MESS_CHOKE=1` a chokepoint, `MESS_LIVE=1` the real clock, for what the
+  fight costs to run; `MESS_EVAL` sets a "Mess" level); `mess-far.mjs`, the same bodies as characters, baked and stood up
+  again, compared with `tools/diff.mjs`, and a rocket into sixty baked bodies; `mess-m0.mjs` and `mess-physics.probe.ts`,
+  the measurements every cap cites. Each runs on an old build too, from its own worktree and Vite, for the "before".
 - `tools/scripts/first-launch.mjs`: an empty browser on the bare address, the splash, Play, and where that goes (real time).
 - `tools/scripts/first-use.mjs`: the first gib, head shot, sever and shotgun kill against the four after it (the game's work
   on the frame, the worst frame interval, programs linked).

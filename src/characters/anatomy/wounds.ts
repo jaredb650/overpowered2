@@ -131,6 +131,19 @@ export class WoundBook {
     this.open = 0;
   }
 
+  /** The book's own state, apart from the texels, for a body set aside and stood up again later (gore/far.ts). */
+  save(): { count: number; open: number; limits: Float32Array } {
+    return { count: this.count, open: this.open, limits: this.limits.slice() };
+  }
+
+  /** Takes a saved state back. The caller has already put the texels back. */
+  load(saved: { count: number; open: number; limits: Float32Array }): void {
+    this.count = saved.count;
+    this.open = saved.open;
+    this.limits.set(saved.limits);
+    this.onCount(this.count);
+  }
+
   private recount(): void {
     let open = 0;
     for (let i = 0; i < this.count; i++) if (cuts(this.kind(i)) || this.kind(i) === WoundKind.gash) open++;

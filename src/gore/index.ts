@@ -38,6 +38,7 @@ import { mulberry32 } from '../core/math';
 import { WoundKind } from '../characters/anatomy/wounds';
 import type { OrganKind, RibKind } from './organs';
 import { MESS, messBudget, MessField, MessTuning } from './mess';
+import { FarBatch, type CorpseSnapshot, type FarSource } from './far';
 
 /**
  * The baked stand-ins for the head on a partial head wound (docs/proposals/partial-head-wounds.md), by archetype: the side
@@ -245,6 +246,34 @@ const joltOf = (force: number, mass: number): number =>
   clamp((force * DevFlags.force) / MuscleTuning.joltFull) ** MuscleTuning.joltCurve * massShare(mass, MuscleTuning.joltMassExp);
 
 const MAX_STAKES = 3;
+
+/** Where a ray enters a box, in metres along it, or -1 if it misses. 0 from inside. */
+function rayBox(ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, lo: THREE.Vector3, hi: THREE.Vector3): number {
+  let t0 = 0;
+  let t1 = Infinity;
+  if (Math.abs(dx) < 1e-9) {
+    if (ox < lo.x || ox > hi.x) return -1;
+  } else {
+    const n = (lo.x - ox) / dx, f = (hi.x - ox) / dx;
+    t0 = Math.max(t0, Math.min(n, f));
+    t1 = Math.min(t1, Math.max(n, f));
+  }
+  if (Math.abs(dy) < 1e-9) {
+    if (oy < lo.y || oy > hi.y) return -1;
+  } else {
+    const n = (lo.y - oy) / dy, f = (hi.y - oy) / dy;
+    t0 = Math.max(t0, Math.min(n, f));
+    t1 = Math.min(t1, Math.max(n, f));
+  }
+  if (Math.abs(dz) < 1e-9) {
+    if (oz < lo.z || oz > hi.z) return -1;
+  } else {
+    const n = (lo.z - oz) / dz, f = (hi.z - oz) / dz;
+    t0 = Math.max(t0, Math.min(n, f));
+    t1 = Math.min(t1, Math.max(n, f));
+  }
+  return t0 <= t1 ? t0 : -1;
+}
 /** What a dead body counts as having, for how big a wound one hit makes. */
 const CORPSE_HEALTH = 100;
 /** Real seconds between the knocks of rounds into the dead, a living hit's shortest gap, so a Buzzsaw sweep is a beat. */
@@ -302,7 +331,23 @@ class DeadBody {
   /** 0 drawn as in life, 1 settled: mess.ts decides, and holds the shadows it took (`shade`). */
   tier = 0;
   shade: THREE.Object3D[] | null = null;
+  /** World time before which it stays a character, whatever the caps say: something is still happening on it (`Gore.hold`). */
+  holdUntil = 0;
   constructor(readonly char: CharacterInstance, readonly info: RigInfo) {}
+}
+
+/**
+ * A body at rest that has been baked into the far batch (far.ts). Its character has gone back to the library; its chain,
+ * with its fixed capsules, stays in the world, so it is still part of its heap. `was` is the body it was, for what a
+ * round into it had worn down.
+ */
+class FarBody {
+  sinking = -1;
+  readonly stakes: readonly Stake[] = [];
+  constructor(
+    readonly rag: Rag, readonly snap: CorpseSnapshot, readonly slot: number, readonly info: RigInfo,
+    readonly parent: THREE.Object3D | null, readonly was: DeadBody,
+  ) {}
 }
 
 /** What a character on the floor is waiting to do. */
@@ -455,6 +500,14 @@ export class Gore implements GoreSystem {
   private readonly back = new WeakMap<CharacterInstance, 'clip' | 'stand' | 'crawl'>();
   /** The dead at rest: heaps, pushing them aside, and the caps (mess.ts). */
   readonly mess: MessField;
+  /** Old and distant bodies, baked into one mesh (far.ts), and what each needs to be stood up again. */
+  readonly far: FarBatch;
+  private farBodies: FarBody[] = [];
+  /** World time the baked bodies began to sink with the rest of the floor (`sweep`), or -1. */
+  private farSweep = -1;
+  /** Baked bodies stood up on this frame for a round or a blast, and the frame. */
+  private stoodFrame = -1;
+  private stood = 0;
   private readonly onPreStep = (dt: number): void => this.preStep(dt);
   private readonly onRadial = (center: THREE.Vector3, radius: number, strength: number): void =>
     this.blast(center, radius, strength);
@@ -472,10 +525,19 @@ export class Gore implements GoreSystem {
     this.ropes.ensure();
     this.spurts = new SpurtField(ctx, this.blood, this.trail);
     const gore = this;
+    this.far = new FarBatch(ctx);
     this.mess = new MessField(ctx, {
       get bodies() { return gore.bodies; },
       get limbs() { return gore.limbs; },
-      wake: target => this.wake(target as PinTarget),
+      get far() { return gore.farBodies; },
+      wake: target => {
+        // A baked body is stood up first, on a fresh character, and that is what wakes.
+        const real = target instanceof FarBody ? this.standUp(target) : target as PinTarget;
+        if (real) this.wake(real);
+      },
+      bake: body => this.bake(body as DeadBody),
+      standUp: far => this.standUp(far as FarBody) !== null,
+      removeFar: far => this.removeFar(far as FarBody),
       simulating: () => {
         let live = 0;
         for (const b of this.bodies) if (b.rag?.active && b.sinking < 0) live++;
@@ -537,6 +599,14 @@ export class Gore implements GoreSystem {
     this.chunks.dismiss();
     this.sliced.dismiss();
     this.ropes.clear();
+    // The baked ones sink together, as one mesh.
+    if (this.farBodies.length > 0) {
+      this.farSweep = this.ctx.time.elapsed;
+      for (const f of this.farBodies) {
+        f.sinking = this.farSweep;
+        f.rag.dropRest();
+      }
+    }
     (this.ctx.render.decals as { fadeOut?(seconds: number): void }).fadeOut?.(GoreTuning.sinkSeconds);
   }
 
@@ -581,6 +651,7 @@ export class Gore implements GoreSystem {
     const dy = dir.y;
     const dz = dir.z;
     const out = corpseRing[corpseAt = (corpseAt + 1) % corpseRing.length]!;
+    if (this.farBodies.length > 0) this.standOnRay(ox, oy, oz, dx, dy, dz, maxDist);
     for (let i = 0; i < this.bodies.length; i++) {
       const b = this.bodies[i]!;
       // A body that is only down is still an enemy, and enemies have their own ray test.
@@ -1217,6 +1288,125 @@ export class Gore implements GoreSystem {
     b.char.release();
   }
 
+  /**
+   * Bakes a body at rest into the far batch and gives its character back. False if it cannot be: it is moving, staked,
+   * held, not a library character, too big for a slot, or the batch is full.
+   */
+  private bake(b: DeadBody): boolean {
+    const rag = b.rag;
+    if (!rag || rag.active || b.sinking >= 0 || b.down || b.vapor >= 0 || b.stakes.length > 0) return false;
+    if (this.farSweep >= 0 || this.ctx.time.elapsed < b.holdUntil) return false;
+    // A body with flames on it stays a character until they are out: a baked copy cannot burn.
+    if (this.fire.flaming(b.char)) return false;
+    const source = b.char as unknown as Partial<FarSource>;
+    if (typeof source.bakeFar !== 'function' || typeof source.snapshot !== 'function') return false;
+    const slot = this.far.add(source as FarSource);
+    if (slot < 0) return false;
+    const snap = source.snapshot();
+    const parent = b.char.root.parent;
+    const at = this.bodies.indexOf(b);
+    this.mess.forget(b);
+    this.fire.forget(b.char);
+    this.owned.delete(b.char);
+    if (at >= 0) this.bodies.splice(at, 1);
+    b.char.release();
+    this.farBodies.push(new FarBody(rag, snap, slot, b.info, parent, b));
+    return true;
+  }
+
+  /**
+   * Stands a baked body up again as a character, exactly as it lay: a fresh instance from the library, posed, cut and
+   * wounded from the snapshot, on the same chain and the same fixed capsules. At rest still; whoever asked wakes it.
+   */
+  private standUp(f: FarBody): DeadBody | null {
+    const at = this.farBodies.indexOf(f);
+    if (at < 0 || f.sinking >= 0) return null;
+    let char: CharacterInstance;
+    try {
+      char = this.ctx.characters.spawn(f.snap.archetype);
+    } catch {
+      return null;
+    }
+    const source = char as unknown as Partial<FarSource> | undefined;
+    if (typeof source?.restore !== 'function') {
+      char?.release?.();
+      return null;
+    }
+    (f.parent ?? this.ctx.render.scene).add(char.root);
+    source.restore(f.snap);
+    this.farBodies.splice(at, 1);
+    this.far.remove(f.slot);
+    const body = new DeadBody(char, f.info);
+    body.skip.set(f.was.skip);
+    body.damage.set(f.was.damage);
+    body.pooled = f.was.pooled;
+    body.bare = f.was.bare;
+    body.smearLeft = 0;
+    body.freshAt = this.ctx.time.elapsed;
+    body.rag = f.rag;
+    f.rag.adopt(char);
+    this.owned.set(char, body);
+    // It is as old as it ever was: at the front, where the caps look for the oldest.
+    this.bodies.unshift(body);
+    this.mess.stoodUp(body, char as never);
+    const d = _v.setFromMatrixPosition(char.bones[0]!.matrixWorld).distanceTo(this.ctx.player?.position?.isVector3 === true ? this.ctx.player.position : _v);
+    (char as { setLod?(level: number, force?: boolean): void }).setLod?.(this.mess.lodFor(body, d, GoreTuning.bodyLodNear, GoreTuning.bodyLodFar), true);
+    return body;
+  }
+
+  /** A baked body leaves the world: over the cap and out of sight, or swept. */
+  private removeFar(f: FarBody): void {
+    const at = this.farBodies.indexOf(f);
+    if (at < 0) return;
+    this.farBodies.splice(at, 1);
+    this.far.remove(f.slot);
+    f.rag.destroy();
+  }
+
+  /** May one more baked body be stood up this frame for a round or a blast? Six a frame: a stand-up is 0.1 ms. */
+  private mayStand(): boolean {
+    const frame = this.ctx.time.frame ?? 0;
+    if (frame !== this.stoodFrame) {
+      this.stoodFrame = frame;
+      this.stood = 0;
+    }
+    return this.stood++ < 6;
+  }
+
+  /** A baked body the ray would meet is stood up, so that a round into a heap finds a body there to hit. */
+  private standOnRay(ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, maxDist: number): void {
+    let best = maxDist;
+    let found: FarBody | null = null;
+    for (let i = 0; i < this.farBodies.length; i++) {
+      const f = this.farBodies[i]!;
+      if (f.sinking >= 0) continue;
+      const c = f.rag.center;
+      if (!rayNearSphere(ox, oy, oz, dx, dy, dz, c.x, c.y, c.z, f.info.reach[0]!, best)) continue;
+      if (rayBox(ox, oy, oz, dx, dy, dz, f.rag.restMin, f.rag.restMax) < 0) continue;
+      // The box is loose. The round has to pass through the body itself: within a limb's width of where a capsule lies.
+      const p = f.rag.restPoints;
+      for (let k = 0; k < p.length; k += 3) {
+        const px = p[k]! - ox, py = p[k + 1]! - oy, pz = p[k + 2]! - oz;
+        const t = px * dx + py * dy + pz * dz;
+        if (t < 0 || t >= best) continue;
+        const ex = px - dx * t, ey = py - dy * t, ez = pz - dz * t;
+        if (ex * ex + ey * ey + ez * ez > 0.14 * 0.14) continue;
+        best = t;
+        found = f;
+      }
+    }
+    if (found && this.mayStand()) this.standUp(found);
+  }
+
+  /**
+   * Keeps a body a character for `seconds` more, whatever the caps say: something is still happening on it that a baked
+   * copy could not show (it is burning, a line is on it). Nothing if gore does not have it.
+   */
+  hold(char: CharacterInstance, seconds: number): void {
+    const body = this.owned.get(char);
+    if (body) body.holdUntil = Math.max(body.holdUntil, this.ctx.time.elapsed + seconds);
+  }
+
   private freezeLimb(l: LooseLimb): void {
     l.rag.freeze(MessTuning.rest && l.stakes.length === 0);
     this.mess.rested(l, l.piece as never);
@@ -1238,6 +1428,7 @@ export class Gore implements GoreSystem {
     l.rag.freeze();
     l.rag.dropRest();
     this.mess.woke(l.piece as never);
+    this.mess.forgetLimb(l);
     this.stopLimbEmitters(l);
     l.sinking = this.ctx.time.elapsed;
     l.sinkFrom = l.piece.root.position.y;
@@ -1838,7 +2029,12 @@ export class Gore implements GoreSystem {
       let kit: TorsoKit | null = null;
       if (flesh) {
         kit = this.kitFor(char);
-        if (!warmed) this.sliced.warm(kit.waist[0]!.side, char.skinMaterial);
+        if (!warmed) {
+          this.sliced.warm(kit.waist[0]!.side, char.skinMaterial);
+          // The far batch too: its arrays are made and its program is linked here, not on the first body baked in a fight.
+          const source = char as unknown as Partial<FarSource>;
+          if (source.farMaterial && typeof source.bakeFar === 'function') this.far.warm(source as FarSource);
+        }
         warmed = true;
       }
       char.release();
@@ -2433,6 +2629,7 @@ export class Gore implements GoreSystem {
     this.stopLimbEmitters(limb);
     this.fire.forget(limb.piece);
     this.mess.woke(limb.piece as never);
+    this.mess.forgetLimb(limb);
     limb.piece.release();
     const at = this.limbs.indexOf(limb);
     if (at >= 0) this.limbs.splice(at, 1);
@@ -2519,6 +2716,19 @@ export class Gore implements GoreSystem {
    * same goes for an enemy the blast killed a moment ago in this very frame.
    */
   blast(center: THREE.Vector3, radius: number, strength: number): void {
+    // The baked bodies it reaches are stood up to be thrown with the rest, the nearest few: the fireball covers the change.
+    for (let n = 0; n < 6 && this.farBodies.length > 0; n++) {
+      let near: FarBody | null = null;
+      let best = radius;
+      for (const f of this.farBodies) {
+        const d = f.rag.center.distanceTo(center);
+        if (f.sinking < 0 && d < best) {
+          best = d;
+          near = f;
+        }
+      }
+      if (!near || !this.mayStand() || !this.standUp(near)) break;
+    }
     for (let i = 0; i < this.bodies.length; i++) {
       const b = this.bodies[i]!;
       if (b.sinking < 0 && b.rag) this.throwFromBlast(b, b.rag, center, radius, strength);
@@ -2645,6 +2855,7 @@ export class Gore implements GoreSystem {
         if (k >= 1) {
           this.fire.forget(l.piece);
           this.mess.woke(l.piece as never);
+          this.mess.forgetLimb(l);
           l.piece.release();
           this.limbs.splice(i, 1);
           continue;
@@ -2656,6 +2867,14 @@ export class Gore implements GoreSystem {
       this.updateLimb(l, dt);
     }
 
+    if (this.farSweep >= 0) {
+      const k = (now - this.farSweep) / t.sinkSeconds;
+      if (k >= 1) {
+        for (let i = this.farBodies.length - 1; i >= 0; i--) if (this.farBodies[i]!.sinking >= 0) this.removeFar(this.farBodies[i]!);
+        this.farSweep = -1;
+        this.far.lower(0);
+      } else this.far.lower(t.sinkDepth * k * k);
+    }
     this.mess.update();
     this.updateBodyLod();
     this.updateStumps();
@@ -2770,9 +2989,14 @@ export class Gore implements GoreSystem {
       l.rag.destroy();
       this.stopLimbEmitters(l);
       this.mess.woke(l.piece as never);
+      this.mess.forgetLimb(l);
       l.piece.release();
     }
     this.limbs = [];
+    for (const f of this.farBodies) f.rag.destroy();
+    this.farBodies = [];
+    this.far.clear();
+    this.farSweep = -1;
     this.mess.clear();
     this.pins = [];
     for (const s of this.stumps) {
@@ -2799,7 +3023,7 @@ export class Gore implements GoreSystem {
   }
 
   /** Counts for the debug overlay and budget checks. */
-  stats(): { ragdolls: number; corpses: number; limbs: number; liveLimbs: number; limbSpeed: number; chunkBodies: number; rays: number; halves: number; jointGap: number; collapses: number; knockdowns: number; stumbles: number; standing: number; guts: number; spurts: number } {
+  stats(): { ragdolls: number; corpses: number; far: number; limbs: number; liveLimbs: number; limbSpeed: number; chunkBodies: number; rays: number; halves: number; jointGap: number; collapses: number; knockdowns: number; stumbles: number; standing: number; guts: number; spurts: number } {
     let ragdolls = 0;
     let corpses = 0;
     let jointGap = 0;
@@ -2819,7 +3043,7 @@ export class Gore implements GoreSystem {
       limbSpeed = Math.max(limbSpeed, l.rag.speed);
     }
     return {
-      ragdolls, corpses, limbs: this.limbs.length, liveLimbs, limbSpeed, chunkBodies: this.chunks.bodies,
+      ragdolls, corpses, far: this.farBodies.length, limbs: this.limbs.length, liveLimbs, limbSpeed, chunkBodies: this.chunks.bodies,
       rays: this.blood.raysUsed, halves: this.sliced.count, jointGap, collapses: this.collapsing(), knockdowns: this.knockedDown(), stumbles: this.stumbling(), standing: this.standing(),
       guts: this.ropes.live, spurts: this.spurts.live,
     };

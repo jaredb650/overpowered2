@@ -53,13 +53,15 @@ export interface MessBudget {
  * - `low`: 6 full + 14 settled + 20 far = 2.1 ms. A thousand stains.
  * - `standard` (and `break`, the same until the wave ends): 8 + 24 + 88 = 3.5 ms for 120 bodies, against 7.2 ms for the
  *   40 full ones the game drew before; fixed capsules for all of them are 1,800, inside the 2,250 that cost nothing.
- * - `everything`: 12 + 36 + 152 = 5.4 ms for 200 bodies. For a desktop card: on the laptop it will not hold 60 in a heap.
+ * - `everything`: 12 + 28 + 160 = 5.0 ms for 200 bodies. For a desktop card: on the laptop it will not hold 60 in a heap.
+ *
+ * `drawn` plus the 48 that may be alive stays under the 96 instances the library keeps of one archetype, at every level.
  */
 export const MESS: Readonly<Record<MessLevel, MessBudget>> = {
   low: { clearAtBreak: false, corpses: 40, full: 6, drawn: 20, limbs: 24, halves: 14, halvesHard: 22, pieces: 0.2, pieceLinger: 20, blood: 2048, marks: 512, scorches: 96, big: 64, soak: 4 },
-  break: { clearAtBreak: true, corpses: 120, full: 8, drawn: 32, limbs: 48, halves: 28, halvesHard: 44, pieces: 0.5, pieceLinger: Infinity, blood: 6144, marks: 1536, scorches: 256, big: 192, soak: 6 },
-  standard: { clearAtBreak: false, corpses: 120, full: 8, drawn: 32, limbs: 48, halves: 28, halvesHard: 44, pieces: 0.5, pieceLinger: Infinity, blood: 6144, marks: 1536, scorches: 256, big: 192, soak: 6 },
-  everything: { clearAtBreak: false, corpses: 200, full: 12, drawn: 48, limbs: 64, halves: 40, halvesHard: 56, pieces: 1, pieceLinger: Infinity, blood: 8192, marks: 1536, scorches: 256, big: 256, soak: 10 },
+  break: { clearAtBreak: true, corpses: 120, full: 8, drawn: 32, limbs: 48, halves: 28, halvesHard: 44, pieces: 0.5, pieceLinger: Infinity, blood: 8192, marks: 1536, scorches: 256, big: 192, soak: 6 },
+  standard: { clearAtBreak: false, corpses: 120, full: 8, drawn: 32, limbs: 48, halves: 28, halvesHard: 44, pieces: 0.5, pieceLinger: Infinity, blood: 8192, marks: 1536, scorches: 256, big: 192, soak: 6 },
+  everything: { clearAtBreak: false, corpses: 200, full: 12, drawn: 40, limbs: 64, halves: 40, halvesHard: 56, pieces: 1, pieceLinger: Infinity, blood: 12288, marks: 1536, scorches: 256, big: 256, soak: 10 },
 };
 
 export const MessTuning = {
@@ -113,6 +115,25 @@ export const MessTuning = {
   hardOver: 12,
   /** Beyond this a body is out of sight whatever the camera says, m. */
   farAway: 70,
+  /**
+   * A body is baked into the far batch, or stood up out of it, where the change cannot be seen: out of the camera's
+   * sight, or at least this far from it, m. Nearer and in sight it waits, unless the bodies drawn as characters are
+   * `bakeOver` past their cap.
+   */
+  swapFar: 11,
+  /** Seconds a body lies at rest before it may be baked: its pool is still spreading, a stump still beating. */
+  bakeAfter: 3,
+  /**
+   * Characters past their cap at which the oldest is baked even in plain sight. Left at `hardOver` (12), a 150-kill
+   * fight on one spot ended with 77 characters drawn at Standard, 4.2 M triangles, more than the 40 corpses of the game
+   * before: the bodies never left the player's sight to be baked.
+   */
+  bakeOver: 4,
+  /** Bodies baked in one look, and how much nearer a baked body must be than a drawn one for the two to change places, m. */
+  bakesPerLook: 2,
+  swapGain: 4,
+  /** `?messfar=0`: nothing is baked. Past the cap for bodies drawn as characters, the oldest go as they did. */
+  far: typeof location === 'undefined' || new URLSearchParams(location.search).get('messfar') !== '0',
   /** `?messpush=0`: bodies at rest are never woken by being walked into (they still heap). */
   push: typeof location === 'undefined' || new URLSearchParams(location.search).get('messpush') !== '0',
   /** `?messrest=0`: bodies at rest keep no capsules, so nothing lands on them: the flat carpet from before. */
@@ -128,6 +149,10 @@ export interface MessChain {
   sinking: number;
   readonly stakes: readonly unknown[];
 }
+/** A loose limb: a chain with something drawn of its own. */
+export interface MessLimb extends MessChain {
+  readonly piece: { readonly root: THREE.Object3D };
+}
 export interface MessBody extends MessChain {
   readonly char: CharacterInstance;
   readonly info: RigInfo;
@@ -138,12 +163,22 @@ export interface MessBody extends MessChain {
   tier: number;
   /** Shadows it cast before it was settled, to give back. */
   shade: THREE.Object3D[] | null;
+  /** World time before which it stays a character whatever the caps say. */
+  holdUntil: number;
 }
 
 /** What gore does for mess. */
 export interface MessHost {
   readonly bodies: readonly MessBody[];
-  readonly limbs: readonly MessChain[];
+  readonly limbs: readonly MessLimb[];
+  /** Bodies baked into the far batch: at rest with their capsules, and no character until one is stood up. */
+  readonly far: readonly MessChain[];
+  /** Bakes a body at rest into the far batch. False if it cannot be. */
+  bake(body: MessBody): boolean;
+  /** Stands a baked body up as a character again, at rest. False if it cannot be. */
+  standUp(far: MessChain): boolean;
+  /** Takes a baked body out of the world at once. */
+  removeFar(far: MessChain): void;
   /** Thaws a chain and keeps the ragdoll budget, as a round into a corpse does. */
   wake(target: MessChain): void;
   /** Chains simulating now. */
@@ -250,11 +285,13 @@ export class MessField {
   private shapes = 0;
   private wakes = 0;
   private policyAt = 0;
+  /** The shadows taken from each settled limb, to give back. */
+  private readonly limbShade = new Map<MessLimb, THREE.Object3D[]>();
   /** World time the enemies may next wake a body at rest. */
   private enemyWakeAt = 0;
   private readonly onUnrest = (rag: Rag): void => this.unrested(rag);
   /** Counters since the last clear, for checks and the debug overlay. */
-  readonly count = { pushWakes: 0, landWakes: 0, slipWakes: 0, ghosted: 0, removed: 0, sunk: 0 };
+  readonly count = { pushWakes: 0, landWakes: 0, slipWakes: 0, ghosted: 0, removed: 0, sunk: 0, baked: 0, stoodUp: 0 };
 
   constructor(private readonly ctx: Ctx, private readonly host: MessHost) {}
 
@@ -289,8 +326,8 @@ export class MessField {
     const lo = rag.restMin;
     const hi = rag.restMax;
     const all = this.host.bodies as readonly MessChain[];
-    for (let pass = 0; pass < 2; pass++) {
-      const list = pass === 0 ? all : this.host.limbs;
+    for (let pass = 0; pass < 3; pass++) {
+      const list = pass === 0 ? all : pass === 1 ? this.host.limbs : this.host.far;
       for (let i = 0; i < list.length; i++) {
         const other = list[i]!;
         const o = other.rag;
@@ -369,8 +406,9 @@ export class MessField {
       const p = rag.thudPart.p;
       let best: MessChain | null = null;
       let bestD = Infinity;
-      for (let k = 0; k < bodies.length; k++) {
-        const o = bodies[k]!;
+      const far = this.host.far;
+      for (let k = 0; k < bodies.length + far.length; k++) {
+        const o = k < bodies.length ? bodies[k]! : far[k - bodies.length]!;
         const r = o.rag;
         if (o === b || !r?.resting || o.sinking >= 0) continue;
         if (p.x < r.restMin.x - 0.1 || p.x > r.restMax.x + 0.1 || p.z < r.restMin.z - 0.1 || p.z > r.restMax.z + 0.1) continue;
@@ -422,8 +460,8 @@ export class MessField {
     const t = MessTuning;
     const speed = Math.hypot(vel.x, vel.z);
     const bodies = this.host.bodies as readonly MessChain[];
-    for (let pass = 0; pass < 2; pass++) {
-      const list = pass === 0 ? bodies : this.host.limbs;
+    for (let pass = 0; pass < 3; pass++) {
+      const list = pass === 0 ? bodies : pass === 1 ? this.host.limbs : this.host.far;
       for (let i = 0; i < list.length; i++) {
         const target = list[i]!;
         const rag = target.rag;
@@ -455,17 +493,15 @@ export class MessField {
     }
   }
 
-  /** Does the pusher's cylinder reach any bone of this chain at rest? The box said maybe. */
+  /** Does the pusher's cylinder reach any part of this chain at rest? The box said maybe. */
   private touches(rag: Rag, at: THREE.Vector3, radius: number, height: number): boolean {
-    const bones = rag.source.bones;
-    const mask = rag.mask;
-    const r = radius + 0.1;
-    for (let i = rag.build.chainRoot; i < rag.info.count; i++) {
-      if (mask[i] !== 1) continue;
-      const e = bones[i]!.matrixWorld.elements;
-      const dx = e[12]! - at.x;
-      const dz = e[14]! - at.z;
-      if (dx * dx + dz * dz < r * r && e[13]! > at.y - 0.15 && e[13]! < at.y + height) return true;
+    // Where its capsules lie, not its bones: a baked body has no bones until it is stood up again.
+    const p = rag.restPoints;
+    const r = radius + 0.14;
+    for (let i = 0; i < p.length; i += 3) {
+      const dx = p[i]! - at.x;
+      const dz = p[i + 2]! - at.z;
+      if (dx * dx + dz * dz < r * r && p[i + 1]! > at.y - 0.15 && p[i + 1]! < at.y + height) return true;
     }
     return false;
   }
@@ -535,8 +571,19 @@ export class MessField {
       this.setTier(b, want);
     }
     this.limbPolicy(seen);
-    let over = corpses - this.host.maxCorpses();
+    if (MessTuning.far) this.farPolicy(budget, corpses, seen);
+    const far = this.host.far;
+    let over = corpses + far.length - this.host.maxCorpses();
     if (over <= 0) return;
+    // The baked ones are the oldest of all: out of sight, they go first.
+    for (let i = 0; i < far.length && over > 0; i++) {
+      const f = far[i]!;
+      if (f.sinking >= 0 || (seen && this.sees(f.rag!.center, f.rag!.info.reach[0]! + 0.2))) continue;
+      this.count.removed++;
+      this.host.removeFar(f);
+      i--;
+      over--;
+    }
     for (let i = 0; i < bodies.length && over > 0; i++) {
       const b = bodies[i]!;
       if (b.sinking >= 0 || b.down || b.vapor >= 0) continue;
@@ -558,11 +605,107 @@ export class MessField {
     }
   }
 
+  /**
+   * Which bodies are characters and which are baked. Past `drawn` characters the oldest settled ones are baked, where the
+   * change cannot be seen. With room to draw more, the nearest baked body is stood up. And the two change places as the
+   * player moves, so that the bodies nearest are the ones drawn in full.
+   */
+  private farPolicy(budget: MessBudget, corpses: number, seen: boolean): void {
+    const t = MessTuning;
+    const now = this.ctx.time.elapsed;
+    const bodies = this.host.bodies;
+    const far = this.host.far;
+    const eye = seen ? this.ctx.render.camera.position : this.ctx.player?.position;
+    if (eye?.isVector3 !== true) return;
+    const hidden = (at: THREE.Vector3, radius: number): boolean => !seen || !this.sees(at, radius) || at.distanceToSquared(eye) > t.swapFar * t.swapFar;
+    // The settled body furthest off that may be baked, and the baked one nearest.
+    let out: MessBody | null = null;
+    let outD = -1;
+    for (let i = 0; i < bodies.length; i++) {
+      const b = bodies[i]!;
+      if (!this.bakeable(b, now)) continue;
+      const d = b.rag!.center.distanceToSquared(eye);
+      if (d > outD) {
+        outD = d;
+        out = b;
+      }
+    }
+    let near: MessChain | null = null;
+    let nearD = Infinity;
+    for (let i = 0; i < far.length; i++) {
+      const f = far[i]!;
+      if (f.sinking >= 0) continue;
+      const d = f.rag!.center.distanceToSquared(eye);
+      if (d < nearD) {
+        nearD = d;
+        near = f;
+      }
+    }
+    if (corpses > budget.drawn) {
+      // Over: the oldest that nobody can see change, a couple a look. Far past the cap, the oldest whoever is looking.
+      let left = t.bakesPerLook;
+      for (let pass = 0; pass < 2 && left > 0; pass++) {
+        if (pass === 1 && corpses <= budget.drawn + t.bakeOver) break;
+        for (let i = 0; i < bodies.length && left > 0 && corpses > budget.drawn; i++) {
+          const b = bodies[i]!;
+          if (!this.bakeable(b, now) || (pass === 0 && !hidden(b.rag!.center, b.info.reach[0]! + 0.2))) continue;
+          if (!this.host.bake(b)) continue;
+          this.count.baked++;
+          i--;
+          corpses--;
+          left--;
+        }
+      }
+      return;
+    }
+    if (!near) return;
+    const nearHidden = hidden(near.rag!.center, near.rag!.info.reach[0]! + 0.2);
+    if (corpses < budget.drawn - 1) {
+      if (nearHidden && this.host.standUp(near)) this.count.stoodUp++;
+      return;
+    }
+    // Full: the nearest baked body takes the place of the furthest drawn one, if it is much the nearer.
+    if (out && nearHidden && Math.sqrt(outD) > Math.sqrt(nearD) + t.swapGain && hidden(out.rag!.center, out.info.reach[0]! + 0.2)) {
+      if (this.host.bake(out) && this.host.standUp(near)) this.count.stoodUp++;
+    }
+  }
+
+  /** May this body be baked now? Settled, at rest long enough, with nothing holding it. */
+  private bakeable(b: MessBody, now: number): boolean {
+    return b.tier > 0 && b.sinking < 0 && !b.down && b.vapor < 0 && b.stakes.length === 0 && b.rag !== null && !b.rag.active
+      && now - b.freshAt >= MessTuning.bakeAfter && now >= b.holdUntil;
+  }
+
+  /** A baked body is a character again: settled as it was, and its skeleton still. */
+  stoodUp(b: MessBody, source: Skinned): void {
+    this.setTier(b, 1);
+    stillSkeleton(source, true);
+  }
+
   /** Loose limbs past their cap: out of sight first and at once, in sight they sink, oldest first. */
   private limbPolicy(seen: boolean): void {
     const limbs = this.host.limbs;
     let n = 0;
     for (let i = 0; i < limbs.length; i++) if (limbs[i]!.sinking < 0) n++;
+    // All but the newest few at rest cast no shadow of their own, as settled bodies do not: forty-eight limbs were 198
+    // draws, half of them shadows.
+    const full = messBudget().full;
+    for (let i = limbs.length - 1, rank = 0; i >= 0; i--) {
+      const l = limbs[i]!;
+      if (l.sinking >= 0) continue;
+      rank++;
+      const settle = rank > full && l.rag !== null && !l.rag.active;
+      if (settle === this.limbShade.has(l)) continue;
+      if (settle) {
+        const shade: THREE.Object3D[] = [];
+        l.piece.root.traverse(o => {
+          if (!o.castShadow) return;
+          o.castShadow = false;
+          shade.push(o);
+        });
+        this.limbShade.set(l, shade);
+      } else this.forgetLimb(l);
+    }
     let over = n - this.host.maxLimbs();
     for (let i = 0; i < limbs.length && over > 0 && seen; i++) {
       const l = limbs[i]!;
@@ -620,6 +763,14 @@ export class MessField {
     b.shade = null;
   }
 
+  /** A limb is leaving the world, or is to be drawn in full again: its shadows are given back. */
+  forgetLimb(l: MessLimb): void {
+    const shade = this.limbShade.get(l);
+    if (!shade) return;
+    for (const o of shade) o.castShadow = true;
+    this.limbShade.delete(l);
+  }
+
   /** A body is leaving gore's care: it is given back as it was lent. */
   forget(b: MessBody): void {
     this.unshade(b);
@@ -638,7 +789,8 @@ export class MessField {
     this.rests.length = 0;
     this.shapes = 0;
     this.enemyWakeAt = 0;
-    this.count.pushWakes = this.count.landWakes = this.count.slipWakes = this.count.ghosted = this.count.removed = this.count.sunk = 0;
+    for (const l of [...this.limbShade.keys()]) this.forgetLimb(l);
+    this.count.pushWakes = this.count.landWakes = this.count.slipWakes = this.count.ghosted = this.count.removed = this.count.sunk = this.count.baked = this.count.stoodUp = 0;
   }
 
   stats(): { resting: number; shapes: number; waiting: number; settled: number } & MessField['count'] {

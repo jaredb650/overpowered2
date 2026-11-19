@@ -38,11 +38,13 @@ export interface CorpseSnapshot {
   /** The texels after the bones: wounds, blood, burn, breaks. */
   surface: Float32Array;
   wounds: { count: number; open: number; limits: Float32Array };
+  /** The wear on its limbs, as the characters keep count of it (theirs to read). */
+  worn: object;
   stress: Float32Array;
   /** What it wore and carried that was still on it, copies of the meshes with the bone each hung on. */
   gear: { bone: number; object: THREE.Object3D }[];
-  /** Stand-ins (a partial head), as they were mounted. */
-  standIns: { bone: number; object: THREE.Object3D }[];
+  /** What was this body's alone (a partial head standing in for the real one, an implant), as it was mounted. */
+  standIns: { bone: number; object: THREE.Object3D; folds: boolean }[];
 }
 
 /** What the batch needs of a character (characters/Character.ts). */
@@ -52,7 +54,7 @@ export interface FarSource {
   readonly farMaterial: THREE.Material;
   /**
    * Writes the body as it lies into `out`, at most `maxVerts` vertices from `vertex` and `maxIndices` indices from
-   * `index`, the indices counted from `vertex`. Returns how many of each it wrote.
+   * `index`. Returns how many of each it wrote, or none of either if the body does not fit.
    */
   bakeFar(out: FarBuffers, vertex: number, index: number, maxVerts: number, maxIndices: number): { verts: number; indices: number };
   snapshot(): CorpseSnapshot;
@@ -62,12 +64,16 @@ export interface FarSource {
 export const FarTuning = {
   /**
    * Room for one body: the coarsest level of a Brute is 1,954 triangles, and a body's gear (a rifle, a helmet, plates) is
-   * given the rest. What does not fit is left off.
+   * given the rest: sixty mixed bodies in the game came to 1,852 triangles each. What does not fit is left off.
    */
-  slotVerts: 2600,
-  slotIndices: 9000,
-  /** Bodies the batch has room for: the most any "Mess" level keeps past what it draws as characters (200 - 48). */
+  slotVerts: 2200,
+  slotIndices: 7800,
+  /**
+   * Bodies the batch may come to hold: the most any "Mess" level keeps past what it draws as characters (200 - 40). It is
+   * given room forty bodies at a time as they come, 3.4 MB a step, so a level that bakes twenty never pays for 160.
+   */
   slots: 160,
+  step: 40,
 };
 
 /**
@@ -78,8 +84,15 @@ export class FarBatch {
   private mesh: THREE.Mesh | null = null;
   private buffers: FarBuffers | null = null;
   private readonly used: Uint8Array;
+  /** Slots there is room for now. */
+  private room = 0;
   private high = 0;
   private attrs: { position: THREE.BufferAttribute; normal: THREE.BufferAttribute; color: THREE.BufferAttribute; mat: THREE.BufferAttribute; index: THREE.BufferAttribute } | null = null;
+  /** Bytes the batch's arrays hold now, in the page and again on the GPU. */
+  get bytes(): number {
+    return this.room * (FarTuning.slotVerts * 24 + FarTuning.slotIndices * 4);
+  }
+
   /** Bodies in the batch, and its triangles, for the overlay and checks. */
   count = 0;
   triangles = 0;
@@ -91,17 +104,28 @@ export class FarBatch {
   }
 
   /** Built on the first bake (or at load, `warm`), with the first body's far material. */
-  private ensure(material: THREE.Material): FarBuffers {
-    if (this.buffers) return this.buffers;
+  private ensure(material: THREE.Material, want = 1): FarBuffers {
+    if (this.buffers && want <= this.room) return this.buffers;
     const t = FarTuning;
-    const verts = this.slots * t.slotVerts;
+    const room = Math.min(this.slots, Math.ceil(Math.max(want, this.room + 1) / t.step) * t.step);
+    const verts = room * t.slotVerts;
     const buffers: FarBuffers = {
       position: new Float32Array(verts * 3),
       normal: new Int8Array(verts * 4),
       color: new Uint8Array(verts * 4),
       mat: new Uint8Array(verts * 4),
-      index: new Uint32Array(this.slots * t.slotIndices),
+      index: new Uint32Array(room * t.slotIndices),
     };
+    const old = this.buffers;
+    if (old) {
+      // More room: what is there is carried over, and the whole of it sent again, once.
+      buffers.position.set(old.position);
+      buffers.normal.set(old.normal);
+      buffers.color.set(old.color);
+      buffers.mat.set(old.mat);
+      buffers.index.set(old.index);
+    }
+    this.room = room;
     const geometry = new THREE.BufferGeometry();
     const dynamic = <T extends THREE.BufferAttribute>(a: T): T => a.setUsage(THREE.DynamicDrawUsage) as T;
     const attrs = {
@@ -116,18 +140,23 @@ export class FarBatch {
     geometry.setAttribute('aColor', attrs.color);
     geometry.setAttribute('aMat', attrs.mat);
     geometry.setIndex(attrs.index);
-    geometry.setDrawRange(0, 0);
+    geometry.setDrawRange(0, this.high * t.slotIndices);
     // Never culled as a whole: the bodies in it lie all over the map.
     geometry.boundingSphere = new THREE.Sphere(new THREE.Vector3(), Infinity);
-    const mesh = new THREE.Mesh(geometry, material);
-    mesh.name = 'gore.far';
-    mesh.frustumCulled = false;
-    // No shadow of their own: each lies in its own pool, and 150 of them in the shadow pass is what this is here to save.
-    mesh.castShadow = false;
-    mesh.receiveShadow = true;
-    mesh.matrixAutoUpdate = false;
-    this.ctx.render.scene.add(mesh);
-    this.mesh = mesh;
+    if (this.mesh) {
+      this.mesh.geometry.dispose();
+      this.mesh.geometry = geometry;
+    } else {
+      const mesh = new THREE.Mesh(geometry, material);
+      mesh.name = 'gore.far';
+      mesh.frustumCulled = false;
+      // No shadow of their own: each lies in its own pool, and 150 of them in the shadow pass is what this is here to save.
+      mesh.castShadow = false;
+      mesh.receiveShadow = true;
+      mesh.matrixAutoUpdate = false;
+      this.ctx.render.scene.add(mesh);
+      this.mesh = mesh;
+    }
     this.buffers = buffers;
     this.attrs = attrs;
     return buffers;
@@ -136,6 +165,15 @@ export class FarBatch {
   /** Compiles the batch's program at load, so the first body baked in a fight does not stall its frame. */
   warm(source: FarSource): void {
     this.ensure(source.farMaterial);
+    // One body, written and taken out again: an empty draw compiles nothing.
+    const slot = this.add(source);
+    const mesh = this.mesh!;
+    if (slot < 0) return;
+    const drawn = mesh.onAfterRender;
+    mesh.onAfterRender = () => {
+      mesh.onAfterRender = drawn;
+      this.remove(slot);
+    };
   }
 
   /** Bakes `source` as it lies into a free slot. -1 with no slot free. */
@@ -148,11 +186,13 @@ export class FarBatch {
       }
     }
     if (slot < 0) return -1;
-    const buffers = this.ensure(source.farMaterial);
+    const buffers = this.ensure(source.farMaterial, slot + 1);
     const t = FarTuning;
     const v0 = slot * t.slotVerts;
     const i0 = slot * t.slotIndices;
     const wrote = source.bakeFar(buffers, v0, i0, t.slotVerts, t.slotIndices);
+    // Too big for a slot (a Titan): it stays a character.
+    if (wrote.indices === 0) return -1;
     // The rest of the slot draws nothing.
     buffers.index.fill(v0, i0 + wrote.indices, i0 + t.slotIndices);
     this.used[slot] = 1;
@@ -194,19 +234,17 @@ export class FarBatch {
     a.position.needsUpdate = a.normal.needsUpdate = a.color.needsUpdate = a.mat.needsUpdate = a.index.needsUpdate = true;
   }
 
-  /** three clears nothing by itself: the ranges of the frame just drawn are dropped before the next are added. */
-  afterFrame(): void {
-    const a = this.attrs;
-    if (!a) return;
-    if (!a.position.needsUpdate) a.position.clearUpdateRanges();
-    if (!a.normal.needsUpdate) a.normal.clearUpdateRanges();
-    if (!a.color.needsUpdate) a.color.clearUpdateRanges();
-    if (!a.mat.needsUpdate) a.mat.clearUpdateRanges();
-    if (!a.index.needsUpdate) a.index.clearUpdateRanges();
-  }
-
   clear(): void {
     if (!this.buffers) return;
     for (let i = 0; i < this.slots; i++) if (this.used[i]) this.remove(i);
+    this.lower(0);
+  }
+
+  /** Lowers every body in the batch by `metres` at once: how the baked ones sink when the floor is swept. */
+  lower(metres: number): void {
+    if (!this.mesh) return;
+    this.mesh.position.y = -metres;
+    this.mesh.updateMatrix();
+    this.mesh.matrixWorldNeedsUpdate = true;
   }
 }

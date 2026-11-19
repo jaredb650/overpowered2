@@ -6,7 +6,8 @@ import type { LoadedModel } from './model';
 import { BONE_TEXTURE_SIZE, EXTRA_FIRE, EXTRA_INFO, EXTRA_PARAMS, EXTRA_TEXELS, EXTRA_WEAR, EXTRA_WOUNDS } from './anatomy/glsl';
 import { WearBook, type WearKindId } from './anatomy/wear';
 import { FracturePose, type FractureStyle } from './anatomy/fracture';
-import { newWoundSpec, WoundBook, WoundKind, WoundRegion, type WoundKindId } from './anatomy/wounds';
+import { newWoundSpec, STAIN_MARGIN, STAIN_RADII, WOUND_TEXELS, WoundBook, WoundKind, WoundRegion, type WoundKindId } from './anatomy/wounds';
+import type { CorpseSnapshot, FarBuffers } from '../gore/far';
 import { createAnimator, type PooledAnimation } from './animation/index';
 import type { ArchetypeDef } from './archetypes';
 import { charredVariant } from './material';
@@ -188,6 +189,107 @@ function makeBacking(a: ArchetypeData, geometry: THREE.BufferGeometry, skeleton:
   backing.receiveShadow = false;
   backing.bind(skeleton, new THREE.Matrix4());
   return backing;
+}
+
+const NOTHING = { verts: 0, indices: 0 } as const;
+
+/**
+ * A copy of something a body wears, for a body that will outlive this instance. three's `clone` copies `userData` through
+ * JSON, and a burnt kit keeps the material it had in there (`charKit`): put back from a JSON copy, that is not a material
+ * and the next frame cannot be drawn. So each copy is given its original's `userData` as it is, references and all.
+ */
+function cloneKit(object: THREE.Object3D): THREE.Object3D {
+  const copy = object.clone();
+  const from: THREE.Object3D[] = [];
+  object.traverse(o => from.push(o));
+  let i = 0;
+  copy.traverse(o => {
+    const src = from[i++];
+    if (src) o.userData = { ...src.userData };
+  });
+  return copy;
+}
+
+/** A wear book's own count, set aside: the texels it describes are kept with the rest of the surface. */
+function copyWear(from: WearBook): WearBook {
+  const keep = new WearBook(new Float32Array(0), 0, () => {});
+  keep.adopt(from);
+  return keep;
+}
+let farLive = new Uint8Array(4096);
+const farE = new Float64Array(12);
+const farTables = new WeakMap<THREE.BufferGeometry, { verts: Uint32Array; index: Uint32Array }>();
+
+/** The vertices a level of detail's triangles use, and its triangles numbered within them: worked out once a geometry. */
+function farTable(geometry: THREE.BufferGeometry): { verts: Uint32Array; index: Uint32Array } {
+  let t = farTables.get(geometry);
+  if (t) return t;
+  const src = geometry.index!.array;
+  const local = new Map<number, number>();
+  const index = new Uint32Array(src.length);
+  for (let i = 0; i < src.length; i++) {
+    const v = src[i]!;
+    let k = local.get(v);
+    if (k === undefined) local.set(v, (k = local.size));
+    index[i] = k;
+  }
+  t = { verts: Uint32Array.from(local.keys()), index };
+  farTables.set(geometry, t);
+  return t;
+}
+
+const propV = new THREE.Vector3();
+const propN = new THREE.Matrix3();
+const propColor = new THREE.Color();
+const propTint = new THREE.Color();
+const WHITE = new THREE.Color(1, 1, 1);
+
+/**
+ * One plain mesh (a rifle, a helmet, a plate, a stand-in head) written into the far batch where it hangs. A baked model
+ * brings its own vertex colours; anything else is painted its material's colour.
+ */
+function bakeProp(mesh: THREE.Mesh, out: FarBuffers, vertex: number, index: number, maxVerts: number, maxIndices: number, burn: number): { verts: number; indices: number } {
+  const g = mesh.geometry;
+  const pos = g.getAttribute('position');
+  if (!pos) return NOTHING;
+  const idx = g.getIndex();
+  const n = pos.count;
+  const count = idx ? idx.count : n;
+  if (n > maxVerts || count > maxIndices) return NOTHING;
+  const nor = g.getAttribute('normal');
+  const col = g.getAttribute('aColor');
+  // A plain three mesh with vertex colours (an armour plate): linear, where the models' own are stored as they are seen.
+  const plain = col ? null : g.getAttribute('color');
+  const mat = g.getAttribute('aMat');
+  const material = (Array.isArray(mesh.material) ? mesh.material[0] : mesh.material) as THREE.MeshStandardMaterial | undefined;
+  propColor.set(material?.color ?? 0x808080).convertLinearToSRGB();
+  const world = mesh.matrixWorld;
+  propN.getNormalMatrix(world);
+  const dark = 1 - burn * 0.85;
+  for (let i = 0; i < n; i++) {
+    propV.fromBufferAttribute(pos, i).applyMatrix4(world);
+    const v = (vertex + i) * 3;
+    out.position[v] = propV.x; out.position[v + 1] = propV.y; out.position[v + 2] = propV.z;
+    const c = (vertex + i) * 4;
+    if (nor) propV.fromBufferAttribute(nor, i).applyMatrix3(propN).normalize();
+    else propV.set(0, 1, 0);
+    out.normal[c] = propV.x * 127; out.normal[c + 1] = propV.y * 127; out.normal[c + 2] = propV.z * 127; out.normal[c + 3] = 0;
+    if (col) {
+      out.color[c] = col.getX(i) * 255 * dark; out.color[c + 1] = col.getY(i) * 255 * dark; out.color[c + 2] = col.getZ(i) * 255 * dark; out.color[c + 3] = col.getW(i) * 255;
+    } else if (plain) {
+      propTint.setRGB(plain.getX(i), plain.getY(i), plain.getZ(i)).multiply(material?.color ?? WHITE).convertLinearToSRGB();
+      out.color[c] = propTint.r * 255 * dark; out.color[c + 1] = propTint.g * 255 * dark; out.color[c + 2] = propTint.b * 255 * dark; out.color[c + 3] = 255;
+    } else {
+      out.color[c] = propColor.r * 255 * dark; out.color[c + 1] = propColor.g * 255 * dark; out.color[c + 2] = propColor.b * 255 * dark; out.color[c + 3] = 255;
+    }
+    if (mat) {
+      out.mat[c] = mat.getX(i) * 255; out.mat[c + 1] = mat.getY(i) * 255; out.mat[c + 2] = mat.getZ(i) * 255; out.mat[c + 3] = mat.getW(i) * 255;
+    } else {
+      out.mat[c] = (material?.roughness ?? 0.7) * 255; out.mat[c + 1] = (material?.metalness ?? 0) * 255; out.mat[c + 2] = 0; out.mat[c + 3] = 0;
+    }
+  }
+  for (let i = 0; i < count; i++) out.index[index + i] = vertex + (idx ? idx.getX(i) : i);
+  return { verts: n, indices: count };
 }
 
 export class Character implements CharacterInstance {
@@ -538,6 +640,191 @@ export class Character implements CharacterInstance {
     dst.set(this.data.subarray(this.extras, this.extras + EXTRA_TEXELS * 4), dstOffset);
     book.adopt(this.book);
     worn.adopt(this.worn);
+  }
+
+  /** The material a baked copy of any body is drawn with (gore/far.ts): it shades from the vertices alone, so one does for all. */
+  get farMaterial(): THREE.Material {
+    return this.a.farMaterial;
+  }
+
+  /**
+   * What this body would need to be stood up again exactly as it lies, on another instance: where it is, its pose, what is
+   * cut off it, its wounds and blood, and what it wears. For a body about to be baked into the far batch (gore/far.ts).
+   */
+  snapshot(): CorpseSnapshot {
+    const n = this.bones.length;
+    const pose = new Float32Array(n * 7);
+    const cut: number[] = [];
+    for (let i = 0; i < n; i++) {
+      const b = this.bones[i]!;
+      pose[i * 7] = b.position.x; pose[i * 7 + 1] = b.position.y; pose[i * 7 + 2] = b.position.z;
+      pose[i * 7 + 3] = b.quaternion.x; pose[i * 7 + 4] = b.quaternion.y; pose[i * 7 + 5] = b.quaternion.z; pose[i * 7 + 6] = b.quaternion.w;
+      const parent = this.rig.bones[i]!.parent;
+      if (this.hidden[i] && (parent < 0 || !this.hidden[parent])) cut.push(i);
+    }
+    const gear: CorpseSnapshot['gear'] = [];
+    const standIns: CorpseSnapshot['standIns'] = [];
+    for (const p of this.props) {
+      // What has left the bone (a helmet shot off) or gone with a limb is not on the body any more.
+      if (p.object.parent !== this.bones[p.bone] || !p.object.visible || this.hidden[p.bone]) continue;
+      // A stand-in is this body's alone and leaves the instance at its reset, so it is carried as it is. Gear is the
+      // instance's for good: a copy is carried, as a severed limb carries one.
+      if (p.untilReset) standIns.push({ bone: p.bone, object: p.object, folds: this.skeleton.boneInverses[p.bone] !== this.a.bindInverses[p.bone] });
+      else gear.push({ bone: p.bone, object: cloneKit(p.object) });
+    }
+    const q = this.root.quaternion;
+    const at = this.root.position;
+    return {
+      archetype: this.archetype,
+      root: Float32Array.of(at.x, at.y, at.z, q.x, q.y, q.z, q.w),
+      pose, cut,
+      surface: this.data.slice(this.extras, this.extras + EXTRA_TEXELS * 4),
+      wounds: this.book.save(),
+      worn: copyWear(this.worn),
+      stress: this.stress.slice(),
+      gear, standIns,
+    };
+  }
+
+  /** Lays a fresh instance out as `snap` had it. The instance must be as the library gives it: reset. */
+  restore(snap: CorpseSnapshot): void {
+    this.root.position.set(snap.root[0]!, snap.root[1]!, snap.root[2]!);
+    this.root.quaternion.set(snap.root[3]!, snap.root[4]!, snap.root[5]!, snap.root[6]!);
+    for (let i = 0; i < this.bones.length; i++) {
+      const b = this.bones[i]!;
+      b.position.set(snap.pose[i * 7]!, snap.pose[i * 7 + 1]!, snap.pose[i * 7 + 2]!);
+      b.quaternion.set(snap.pose[i * 7 + 3]!, snap.pose[i * 7 + 4]!, snap.pose[i * 7 + 5]!, snap.pose[i * 7 + 6]!);
+    }
+    for (const bone of snap.cut) this.hideLimb(bone);
+    this.data.set(snap.surface, this.extras);
+    // Nothing fades a flash on a body nobody is hitting.
+    this.data[this.extras + EXTRA_PARAMS * 4 + 1] = 0;
+    this.flash = 0;
+    this.book.load(snap.wounds);
+    this.worn.adopt(snap.worn as WearBook);
+    this.stress.set(snap.stress);
+    // Its own gear is whatever the last enemy to wear this instance left on it. The body's own is carried in the snapshot.
+    for (const p of this.props) p.object.visible = false;
+    for (const g of snap.gear) this.attachProp(g.bone, g.object, true);
+    for (const g of snap.standIns) {
+      if (!g.folds || !this.standIn(g.bone, g.object)) this.attachProp(g.bone, g.object, true);
+    }
+    this.showWounds();
+    this.root.updateMatrixWorld(true);
+  }
+
+  /**
+   * The body as it lies, at its coarsest level of detail, written into the far batch's own arrays (gore/far.ts): world
+   * positions and normals, and its colour with what the skin shader would have drawn from this instance's texels painted
+   * into the vertices, since a baked body has no texels: blood, the stain and the dark of each wound, char. Its gear and
+   * stand-ins go in as they hang. Returns nothing written if it does not fit.
+   */
+  bakeFar(out: FarBuffers, vertex: number, index: number, maxVerts: number, maxIndices: number): { verts: number; indices: number } {
+    this.root.updateMatrixWorld(true);
+    this.skeleton.update();
+    const model = this.a.model;
+    const set = this.activeCaps.size ? model.lodsWithCaps : model.lods;
+    const far = farTable(set[Math.min(FAR_LOD, set.length - 1)]!);
+    if (far.verts.length > maxVerts || far.index.length > maxIndices) return NOTHING;
+    const A = model.attributes;
+    const src = A.position.array as Float32Array;
+    const nrm = A.normal.array as Int8Array;
+    const col = A.aColor.array as Uint8Array;
+    const mat = A.aMat.array as Uint8Array;
+    const si = A.skinIndex!.array as Uint8Array;
+    const sw = A.skinWeight!.array as Uint8Array;
+    const bm = this.skeleton.boneMatrices as Float32Array;
+    const d = this.data;
+    const params = this.extras + EXTRA_PARAMS * 4;
+    const wet = this.a.interior ? Math.min(1, d[params]!) : 0;
+    const burn = Math.min(1, Math.max(0, d[params + 2]!));
+    const wounds = this.a.interior ? this.book.count : 0;
+    const w0 = this.extras + EXTRA_WOUNDS * 4;
+    const n = far.verts.length;
+    const live = farLive.length >= n ? farLive : (farLive = new Uint8Array(n));
+    const e = farE;
+    for (let k = 0; k < n; k++) {
+      const i = far.verts[k]!;
+      e.fill(0);
+      let collapsed = 0;
+      for (let j = 0; j < 4; j++) {
+        const w = sw[i * 4 + j]! / 255;
+        if (w === 0) continue;
+        const b = si[i * 4 + j]!;
+        const o = b * 16;
+        if (this.hidden[b] || (b >= this.bones.length && !this.activeCaps.has(this.allBones[b]!))) collapsed += w;
+        e[0] += bm[o]! * w; e[1] += bm[o + 1]! * w; e[2] += bm[o + 2]! * w;
+        e[3] += bm[o + 4]! * w; e[4] += bm[o + 5]! * w; e[5] += bm[o + 6]! * w;
+        e[6] += bm[o + 8]! * w; e[7] += bm[o + 9]! * w; e[8] += bm[o + 10]! * w;
+        e[9] += bm[o + 12]! * w; e[10] += bm[o + 13]! * w; e[11] += bm[o + 14]! * w;
+      }
+      live[k] = collapsed < 0.5 ? 1 : 0;
+      const x = src[i * 3]!, y = src[i * 3 + 1]!, z = src[i * 3 + 2]!;
+      const v = (vertex + k) * 3;
+      out.position[v] = e[0]! * x + e[3]! * y + e[6]! * z + e[9]!;
+      out.position[v + 1] = e[1]! * x + e[4]! * y + e[7]! * z + e[10]!;
+      out.position[v + 2] = e[2]! * x + e[5]! * y + e[8]! * z + e[11]!;
+      const nx = nrm[i * 4]!, ny = nrm[i * 4 + 1]!, nz = nrm[i * 4 + 2]!;
+      const ox = e[0]! * nx + e[3]! * ny + e[6]! * nz;
+      const oy = e[1]! * nx + e[4]! * ny + e[7]! * nz;
+      const oz = e[2]! * nx + e[5]! * ny + e[8]! * nz;
+      const l = 127 / (Math.hypot(ox, oy, oz) || 1);
+      const c = (vertex + k) * 4;
+      out.normal[c] = ox * l; out.normal[c + 1] = oy * l; out.normal[c + 2] = oz * l; out.normal[c + 3] = 0;
+
+      // Blood, in the vertex: how near the nearest wound is (its stain runs out to twice its size and a way down the
+      // body), and the body's overall wet in patches.
+      let stain = 0;
+      let hole = 0;
+      for (let q = 0; q < wounds; q++) {
+        const o = w0 + q * WOUND_TEXELS * 4;
+        const r = d[o + 7]!;
+        const dx = x - d[o]!, dy = y - d[o + 1]!, dz = z - d[o + 2]!;
+        // Below the wound counts for more: blood runs down.
+        const dist = Math.hypot(dx, dy > 0 ? dy : dy * 0.55, dz);
+        // The skin shader's own reach for a stain (`STAIN_RADII`, `STAIN_MARGIN`), and it runs further on a wetter body.
+        const reach = (r * STAIN_RADII + STAIN_MARGIN) * (1 + wet * 0.5);
+        if (dist < reach) stain = Math.max(stain, 1 - dist / reach);
+        if (dist < r) hole = Math.max(hole, 1 - dist / r);
+      }
+      // A stain is strong at the wound and thins out; a wet body is only a little darker and redder all over.
+      const blood = Math.min(0.9, stain * stain * 1.6 + wet * 0.06);
+      let r8 = col[i * 4]!, g8 = col[i * 4 + 1]!, b8 = col[i * 4 + 2]!;
+      r8 += (104 - r8) * blood; g8 += (7 - g8) * blood; b8 += (9 - b8) * blood;
+      // The wound itself is dark and deep.
+      r8 += (40 - r8) * hole; g8 += (2 - g8) * hole; b8 += (4 - b8) * hole;
+      r8 += (16 - r8) * burn; g8 += (13 - g8) * burn; b8 += (12 - b8) * burn;
+      out.color[c] = r8; out.color[c + 1] = g8; out.color[c + 2] = b8; out.color[c + 3] = col[i * 4 + 3]!;
+      // Wet blood shines, char does not; bloodied metal is no longer bare metal.
+      const rough = mat[i * 4]!;
+      out.mat[c] = rough + (70 - rough) * blood * (1 - burn) + (235 - rough) * burn;
+      out.mat[c + 1] = mat[i * 4 + 1]! * (1 - Math.max(blood, burn));
+      out.mat[c + 2] = mat[i * 4 + 2]! * (1 - burn);
+      out.mat[c + 3] = mat[i * 4 + 3]!;
+    }
+    let indices = 0;
+    const tri = far.index;
+    for (let t = 0; t < tri.length; t += 3) {
+      const a = tri[t]!, b = tri[t + 1]!, c = tri[t + 2]!;
+      if (!live[a] || !live[b] || !live[c]) continue;
+      out.index[index + indices] = vertex + a;
+      out.index[index + indices + 1] = vertex + b;
+      out.index[index + indices + 2] = vertex + c;
+      indices += 3;
+    }
+    let verts = n;
+    // What it wears and carries, each a plain mesh hung on a bone.
+    for (const p of this.props) {
+      if (p.object.parent !== this.bones[p.bone] || !p.object.visible || this.hidden[p.bone]) continue;
+      p.object.traverse(o => {
+        const mesh = o as THREE.Mesh;
+        if (!mesh.isMesh || !mesh.visible || (mesh as unknown as THREE.SkinnedMesh).isSkinnedMesh) return;
+        const wrote = bakeProp(mesh, out, vertex + verts, index + indices, maxVerts - verts, maxIndices - indices, burn);
+        verts += wrote.verts;
+        indices += wrote.indices;
+      });
+    }
+    return { verts, indices };
   }
 
   bakePose(bind = false): THREE.BufferGeometry {

@@ -10,6 +10,7 @@ import { groups, Physics } from '../physics/Physics';
 import { makeCtx } from '../sandbox/harness';
 import { createGoreSystem, GoreTuning, type Gore } from './index';
 import { ChunkTuning } from './chunks';
+import type { CorpseSnapshot, FarBuffers } from './far';
 import { MESS, MessTuning, messBudget, stillSkeleton } from './mess';
 import type { Rag } from './rag';
 import { TestDummy } from './testDummy';
@@ -24,6 +25,42 @@ const scene = new THREE.Scene();
 const player = { alive: true, position: v(50, 0, 50), velocity: v(0, 0, 0), eye: v(50, 1.7, 50) };
 const camera = new THREE.PerspectiveCamera(80, 16 / 9, 0.1, 500);
 const render = { scene, camera: null as THREE.PerspectiveCamera | null, decals: { add() {}, splat() {}, clear() {} } };
+
+/** A dummy the far batch can take: it bakes to one triangle at its hips, and stands up again from its pose. */
+class BakeDummy extends TestDummy {
+  readonly farMaterial = new THREE.MeshBasicMaterial();
+  bakeFar(out: FarBuffers, vertex: number, index: number): { verts: number; indices: number } {
+    const at = hips(this);
+    for (let k = 0; k < 3; k++) out.position.set([at.x + k * 0.1, at.y, at.z + (k === 1 ? 0.1 : 0)], (vertex + k) * 3);
+    out.index.set([vertex, vertex + 1, vertex + 2], index);
+    return { verts: 3, indices: 3 };
+  }
+  snapshot(): CorpseSnapshot {
+    const pose = new Float32Array(this.bones.length * 7);
+    this.bones.forEach((b, i) => pose.set([b.position.x, b.position.y, b.position.z, b.quaternion.x, b.quaternion.y, b.quaternion.z, b.quaternion.w], i * 7));
+    const r = this.root;
+    return {
+      archetype: 'bake', root: Float32Array.of(r.position.x, r.position.y, r.position.z, r.quaternion.x, r.quaternion.y, r.quaternion.z, r.quaternion.w),
+      pose, cut: [], surface: new Float32Array(0), wounds: { count: 0, open: 0, limits: new Float32Array(0) }, worn: {}, stress: new Float32Array(0), gear: [], standIns: [],
+    };
+  }
+  restore(snap: CorpseSnapshot): void {
+    this.root.position.fromArray(snap.root, 0);
+    this.root.quaternion.fromArray(snap.root, 3);
+    this.bones.forEach((b, i) => {
+      b.position.fromArray(snap.pose, i * 7);
+      b.quaternion.fromArray(snap.pose, i * 7 + 3);
+    });
+    this.root.updateMatrixWorld(true);
+  }
+}
+const spawnBake = (x = 0, z = 0): BakeDummy => {
+  const c = new BakeDummy(rig);
+  c.root.position.set(x, 0, z);
+  scene.add(c.root);
+  c.root.updateMatrixWorld(true);
+  return c;
+};
 
 function spawn(x = 0, z = 0, y = 0): TestDummy {
   const c = new TestDummy(rig);
@@ -73,7 +110,10 @@ const pellet = (point: THREE.Vector3): DamageInfo => ({ amount: 20, type: 'bulle
 
 beforeAll(async () => {
   physics = await Physics.create();
-  ctx = makeCtx({ physics, render: render as unknown as Ctx['render'], player: player as unknown as Ctx['player'] });
+  ctx = makeCtx({
+    physics, render: render as unknown as Ctx['render'], player: player as unknown as Ctx['player'],
+    characters: { spawn: () => new BakeDummy(rig) } as unknown as Ctx['characters'],
+  });
   gore = createGoreSystem(ctx);
   gore.init();
   physics.addStaticBox(v(0, -0.5, 0), v(80, 0.5, 80), null, 'concrete');
@@ -88,6 +128,8 @@ beforeEach(() => {
   MessTuning.level = 'standard';
   MessTuning.rest = true;
   MessTuning.push = true;
+  MessTuning.far = true;
+  MessTuning.bakeAfter = 3;
   GoreTuning.maxCorpses = MESS.standard.corpses;
 });
 
@@ -514,5 +556,142 @@ describe('loose pieces', () => {
     run(300);
     expect(gore.chunks.bodies).toBe(0);
     expect(meat()).toBe(1);
+  });
+});
+
+describe('the far batch', () => {
+  const looks = (n = 1): void => run(Math.ceil(MessTuning.policyEvery * 60 * n) + 2);
+  /** `count` bakeable bodies killed in rows and left until every one that is going to be baked has been. */
+  function field(count: number, x0 = 0, z0 = 0): BakeDummy[] {
+    const list = Array.from({ length: count }, (_, i) => spawnBake(x0 + (i % 8) * 1.6, z0 + Math.floor(i / 8) * 2.2));
+    for (const c of list) gore.ragdoll(c);
+    settle(900);
+    MessTuning.bakeAfter = 0;
+    looks(count);
+    return list;
+  }
+  const bonesOf = (c: TestDummy): THREE.Vector3[] => c.bones.map(b => new THREE.Vector3().setFromMatrixPosition(b.matrixWorld));
+
+  it('takes the oldest bodies past the number drawn as characters, and gives their instances back', () => {
+    const drawn = messBudget().drawn;
+    const list = field(drawn + 6);
+    expect(gore.stats().far).toBe(6);
+    expect(gore.stats().corpses).toBe(drawn);
+    expect(gore.far.count).toBe(6);
+    expect(gore.far.triangles).toBe(6);
+    expect(gore.mess.stats().baked).toBe(6);
+    // The oldest six: gore no longer has their characters, and they are out of the scene.
+    list.forEach((c, i) => {
+      expect(gore.owns(c), `body ${i}`).toBe(i >= 6);
+      expect(c.root.parent === null, `body ${i} released`).toBe(i < 6);
+    });
+    // Their fixed capsules are still in the world: a baked body is still part of its heap.
+    expect(gore.mess.stats().resting).toBe(drawn + 6);
+  });
+
+  it('bakes nothing with ?messfar=0, nor a body younger than it should be, nor one that is held', () => {
+    const drawn = messBudget().drawn;
+    MessTuning.far = false;
+    const list = field(drawn + 4);
+    expect(gore.stats().far).toBe(0);
+    MessTuning.far = true;
+    MessTuning.bakeAfter = 1e9;
+    looks(4);
+    expect(gore.stats().far).toBe(0);
+    MessTuning.bakeAfter = 0;
+    for (const c of list.slice(0, 2)) gore.hold(c, 30);
+    looks(8);
+    expect(gore.stats().far).toBe(4);
+    expect(gore.owns(list[0]!)).toBe(true);
+    expect(gore.owns(list[1]!)).toBe(true);
+  });
+
+  it('stands a body up again exactly as it lay, on the same capsules', () => {
+    const list = field(messBudget().drawn + 3);
+    const oldest = list[0]!;
+    const was = bonesOf(oldest);
+    const colliders = physics.world.colliders.len();
+    const rests = gore.mess.stats().shapes;
+    expect(gore.owns(oldest)).toBe(false);
+    // A round into where it lies finds it.
+    const hit = gore.raycastCorpses(was[0]!.clone().add(v(0, 1.5, 0)), v(0, -1, 0), 4);
+    expect(hit).not.toBeNull();
+    expect(gore.stats().far).toBe(2);
+    const body = (hit!.handle as { char: TestDummy }).char;
+    expect(body).not.toBe(oldest);
+    const now = bonesOf(body);
+    now.forEach((p, i) => expect(p.distanceTo(was[i]!), `bone ${i}`).toBeLessThan(1e-4));
+    // Nothing was added to or taken from the physics world: still at rest, on the capsules it had.
+    expect(physics.world.colliders.len()).toBe(colliders);
+    expect(gore.mess.stats().shapes).toBe(rests);
+    expect(gore.stats().ragdolls).toBe(0);
+    gore.damageCorpse(hit!, pellet(hit!.point));
+    expect(gore.stats().ragdolls).toBe(1);
+  });
+
+  it('is walked into like any other body: the baked one stands up and is shoved', () => {
+    field(messBudget().drawn + 2, 0, 0);
+    // The oldest was killed standing at the origin and lies about there. A body just stood up is not baked again at once.
+    const at = v(0, 0, 0);
+    MessTuning.bakeAfter = 5;
+    expect(gore.stats().far).toBe(2);
+    player.velocity.set(4, 0, 0);
+    let fewest = 2;
+    let awake = 0;
+    for (let i = 0; i <= 75; i++) {
+      player.position.set(at.x - 2.5 + (i / 60) * 4, 0, at.z + 0.1);
+      frame();
+      fewest = Math.min(fewest, gore.stats().far);
+      awake = Math.max(awake, gore.stats().ragdolls);
+    }
+    player.velocity.set(0, 0, 0);
+    // It stood up and was shoved, and another further off was baked in its place: the number drawn stays at its cap. (With
+    // no camera to hide the change from, it is stood up as the player nears it, before they touch.)
+    expect(fewest).toBe(2);
+    expect(awake).toBeGreaterThan(0);
+    expect(gore.mess.stats().pushWakes).toBeGreaterThan(0);
+    const baked = (gore as unknown as { farBodies: { rag: Rag }[] }).farBodies;
+    for (const f of baked) expect(Math.hypot(f.rag.center.x, f.rag.center.z)).toBeGreaterThan(3);
+  });
+
+  it('is thrown by a blast: the nearest few stand up for it', () => {
+    const list = field(messBudget().drawn + 8);
+    const at = hips(list[2]!);
+    expect(gore.stats().far).toBe(8);
+    physics.radialImpulse(at.clone().setY(0.2), 4, 400);
+    expect(gore.stats().far).toBeLessThan(8);
+    // Six a frame at most.
+    expect(gore.stats().far).toBeGreaterThanOrEqual(8 - 6);
+    expect(gore.stats().ragdolls).toBeGreaterThan(0);
+  });
+
+  it('gives up its oldest out of sight past the cap for bodies, and everything at a clear', () => {
+    const drawn = messBudget().drawn;
+    render.camera = camera;
+    camera.position.set(0, 1.7, -40);
+    camera.lookAt(0, 1.7, -80);
+    camera.updateMatrixWorld(true);
+    camera.updateProjectionMatrix();
+    field(drawn + 10);
+    expect(gore.stats().far).toBe(10);
+    GoreTuning.maxCorpses = drawn + 4;
+    looks(2);
+    expect(gore.stats().far).toBe(4);
+    expect(gore.far.count).toBe(4);
+    gore.clear();
+    expect(gore.stats().far).toBe(0);
+    expect(gore.far.count).toBe(0);
+    expect(physics.world.colliders.len()).toBe(1);
+  });
+
+  it('sinks with the rest when the floor is swept', () => {
+    field(messBudget().drawn + 5);
+    MessTuning.level = 'break';
+    ctx.events.emit('wave:clear', { wave: 3, bonus: 0 });
+    run(Math.ceil(60 * GoreTuning.sinkSeconds) + 5);
+    expect(gore.stats().far).toBe(0);
+    expect(gore.far.count).toBe(0);
+    expect(gore.stats().corpses).toBe(0);
+    expect(physics.world.colliders.len()).toBe(1);
   });
 });
