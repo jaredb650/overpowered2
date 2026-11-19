@@ -8,6 +8,7 @@
  */
 import * as THREE from 'three';
 import { mulberry32 } from '../../../core/math';
+import { BLOOD_LAYERS, makeSpatter, SPATTER_FINE, SPATTER_SIZE, SPATTER_TILE } from '../blood';
 
 export interface Patcher {
   patch<T extends THREE.MeshStandardMaterial>(material: T): T;
@@ -32,6 +33,24 @@ export interface VmUniforms {
   uScope: { value: THREE.Vector4 };
   /** The view's width over its height, for that circle. */
   uScopeAspect: { value: number };
+}
+
+/**
+ * One surface's blood (../blood.ts `BloodCoat.write`). The guns share one set, which the rig fills from the coat of the gun
+ * in the hands, and each glove has its own: a material each over one program.
+ */
+export interface BloodUniforms {
+  /** Per layer, oldest first: the unit vector toward where the blood came from, in the mesh's own space, and its seed. */
+  uBloodA: { value: THREE.Vector4[] };
+  /** Per layer: how much, how wet (1 fresh, 0 dry), and the share that ignores how far forward a surface is. */
+  uBloodB: { value: THREE.Vector4[] };
+  /** The most any layer shows. At zero the shader does none of it. */
+  uBloodOn: { value: number };
+}
+
+function bloodUniforms(): BloodUniforms {
+  const row = () => Array.from({ length: BLOOD_LAYERS }, () => new THREE.Vector4(0, 0, -1, 0));
+  return { uBloodA: { value: row() }, uBloodB: { value: row().map(v => v.set(0, 0, 0, 0)) }, uBloodOn: { value: 0 } };
 }
 
 // --- Detail textures -----------------------------------------------------------------------------
@@ -347,6 +366,8 @@ const VERT_DECL = /* glsl */`
 attribute vec4 aAlb;
 attribute vec4 aSurf;
 attribute float aKind;
+attribute vec2 aBlood;
+varying vec2 vBloodF;
 varying vec4 vAlb;
 varying vec4 vSurf;
 varying float vKind;
@@ -362,6 +383,7 @@ vSurf = aSurf;
 vKind = aKind;
 vOP = position;
 vON = normal;
+vBloodF = aBlood;
 `;
 
 const FRAG_DECL = /* glsl */`
@@ -374,6 +396,11 @@ uniform float uFrost;
 uniform float uClock;
 uniform vec4 uScope;
 uniform float uScopeAspect;
+uniform highp sampler3D tSpatter;
+uniform vec4 uBloodA[${BLOOD_LAYERS}];
+uniform vec4 uBloodB[${BLOOD_LAYERS}];
+uniform float uBloodOn;
+varying vec2 vBloodF;
 varying vec4 vScopeClip;
 varying float vScopeZ;
 varying vec4 vAlb;
@@ -510,6 +537,61 @@ vmAlb *= 1.0 - clamp(vmHot * 0.5, 0.0, 0.5);
 vmEmis += vec3(1.9, 0.52, 0.1) * uPerkHeat * (vmVein * (0.8 + 0.3 * sin(uClock * 3.1 + vmBig.a * 9.0)) + vmEdgeLine * 0.35);
 vmEmis += vec3(2.4, 0.07, 0.05) * uBerserk * (vmVein * 0.9 + vmEdgeLine * 0.4);
 
+// Blood on the weapon and the gloves (../blood.ts). Each layer is one spatter that came from one direction: drops from a
+// tiling field, cut by a threshold, so more blood is more and bigger drops and never a tint. A surface square to where it
+// came from takes round drops, one it only grazed takes long streaks down it, and the muzzle end takes more than the butt.
+float vmBloodM = 0.0;
+float vmBloodH = 0.0;
+vec3 vmBloodCol = vec3(0.0);
+if (uBloodOn > 0.003) {
+  // Never on a sight: y is 0 round a gun's sight points (rig.ts bakeReach). A mesh with no aBlood reads 0 and stays clean.
+  float vmTakes = step(0.002, vBloodF.x) * vBloodF.y;
+  float vmFwd = clamp((vBloodF.x * 255.0 - 1.0) / 254.0, 0.0, 1.0);
+  // Cloth drinks it: a stain with a soft edge and no shine. Everything else beads.
+  float vmSoak = (vmKindId > 5.5 && vmKindId < 6.5) ? 1.0 : 0.0;
+  // Hot steel cooks it off.
+  float vmCook = 1.0 - smoothstep(0.12, 0.45, vmHot);
+  for (int i = 0; i < ${BLOOD_LAYERS}; i++) {
+    vec4 bA = uBloodA[i];
+    vec4 bB = uBloodB[i];
+    if (bB.x < 0.004) continue;
+    float wet = bB.y;
+    float facing = dot(vmN, bA.xyz);
+    // What the eye sees of a gun is mostly its back and top, which face away from a kill in front: so facing only shades
+    // the amount, and it is the streaks that show which way the blood came.
+    float cover = bB.x * mix(mix(0.42, 1.0, smoothstep(-0.8, 0.55, facing)), 1.0, bB.w) * mix(0.5 + 0.5 * vmFwd, 1.0, bB.z) * vmCook * vmTakes;
+    // The field is squeezed along the way the blood was travelling, so its blobs are long that way: a surface square to
+    // it cuts them round, and one it came in low over cuts them as streaks.
+    vec3 q = vOP - bA.xyz * (dot(vOP, bA.xyz) * 0.7);
+    q = q * ${(1 / SPATTER_TILE).toFixed(3)} + vec3(bA.w * 7.31 + float(i) * 0.37, bA.w * 3.17, bA.w * 5.53);
+    float big = texture(tSpatter, q).r;
+    float small = texture(tSpatter, q.zxy * ${SPATTER_FINE.toFixed(2)} + 0.41).r;
+    // Drying, a drop draws in a little and the finest of it is lost.
+    float at = 1.0 - cover + (1.0 - wet) * 0.03;
+    float at2 = 1.0 - min(cover * 1.12, 0.93) + (1.0 - wet) * 0.07;
+    float soft = 1.0 + vmSoak * 3.0;
+    float sb = clamp(fwidth(big) * 0.75, 0.008, 0.25) * soft;
+    float ss = clamp(fwidth(small) * 0.75, 0.008, 0.3) * soft;
+    float drops = smoothstep(at - sb, at + sb, big);
+    float specks = smoothstep(at2 - ss, at2 + ss, small);
+    float m = max(drops, specks);
+    // Thin at a drop's edge, standing thick in its middle.
+    float thick = max(drops * smoothstep(0.0, 0.16, big - at), specks * smoothstep(0.0, 0.2, small - at2) * 0.7);
+    vec3 fresh = mix(vec3(0.46, 0.005, 0.007), vec3(0.13, 0.0015, 0.0025), thick);
+    vec3 dried = mix(vec3(0.15, 0.022, 0.013), vec3(0.06, 0.009, 0.006), thick);
+    vec3 col = mix(dried, fresh, wet);
+    // Soaked cloth is a dark stain in the cloth's own weave, not a film over it.
+    col = mix(col, vmAlb * mix(vec3(0.3, 0.07, 0.06), vec3(0.75, 0.04, 0.04), wet), vmSoak * 0.75);
+    float over = m * mix(0.93, 1.0, thick);
+    vmAlb = mix(vmAlb, col, over);
+    vmRough = mix(vmRough, mix(mix(0.74, 0.13, wet), 0.55 + 0.2 * (1.0 - wet), vmSoak), m);
+    vmMetal *= 1.0 - over;
+    vmBloodCol = mix(vmBloodCol, col, m);
+    vmBloodM = max(vmBloodM, m);
+    vmBloodH = max(vmBloodH, thick * mix(0.3, 1.0, wet) * (1.0 - vmSoak));
+  }
+}
+
 diffuseColor.rgb = vmAlb;
 `;
 
@@ -520,6 +602,14 @@ const FRAG_NORMAL = /* glsl */`
   vec2 nZ = texture2D(tDetailN, vOP.xy * vmBumpScale).xy * 2.0 - 1.0;
   vec3 vmD = vec3(0.0, nX.y, nX.x) * vmW.x + vec3(nY.x, 0.0, nY.y) * vmW.y + vec3(nZ.x, nZ.y, 0.0) * vmW.z;
   normal = normalize(normal + normalMatrix * (vmD * vmBump));
+  // A wet drop stands up off the steel, which is what gives it its glint. From screen derivatives, so it needs no tangents.
+  if (vmBloodH > 0.0) {
+    vec3 sx = dFdx(-vViewPosition), sy = dFdy(-vViewPosition);
+    vec3 r1 = cross(sy, normal), r2 = cross(normal, sx);
+    float det = dot(sx, r1);
+    vec3 g = sign(det) * (dFdx(vmBloodH) * r1 + dFdy(vmBloodH) * r2) * 0.00045;
+    normal = normalize(abs(det) * normal - g);
+  }
 }
 `;
 
@@ -535,6 +625,17 @@ const LIGHT_BAND = /* glsl */`
   iblIrradiance = iblIrradiance / (1.0 + vmPeak * 0.5) + vmHue * 0.26;
   float vmPeakR = max(max(radiance.r, radiance.g), radiance.b);
   radiance = radiance / (1.0 + vmPeakR * 0.5) + vmHue * 0.09;
+}
+`;
+
+/**
+ * Red reflects nothing under cyan light, and most of these maps are lit cyan: blood on the gun would go black the moment
+ * it landed. As the floor stains do (render/Decals.ts), it takes its brightness from the light and keeps its own hue.
+ */
+const BLOOD_LIGHT = /* glsl */`
+if (vmBloodM > 0.0) {
+  float vmLit = dot(iblIrradiance + irradiance, vec3(0.2126, 0.7152, 0.0722));
+  reflectedLight.indirectDiffuse += vmBloodCol * (vmBloodM * vmLit * 0.32 * RECIPROCAL_PI);
 }
 `;
 
@@ -555,6 +656,7 @@ function lightBand(shader: THREE.WebGLProgramParametersWithUniforms): void {
 function inject(shader: THREE.WebGLProgramParametersWithUniforms, uniforms: Record<string, THREE.IUniform>): void {
   Object.assign(shader.uniforms, uniforms);
   lightBand(shader);
+  shader.fragmentShader = shader.fragmentShader.replace('#include <lights_fragment_end>', `${BLOOD_LIGHT}\n#include <lights_fragment_end>`);
   shader.vertexShader = shader.vertexShader
     .replace('#include <common>', `#include <common>\n${VERT_DECL}`)
     .replace('#include <begin_vertex>', `#include <begin_vertex>\n${VERT_BODY}`)
@@ -577,7 +679,14 @@ if (uScope.z > 0.0 && vScopeZ > uScope.w) {
 // --- Library -------------------------------------------------------------------------------------
 
 export class VmMaterials {
+  /** Every opaque surface of a gun. Its blood is `blood.gun`. */
   readonly hard: THREE.MeshStandardMaterial;
+  /** The same surface for each arm, so each glove wears its own blood (`blood.handR`, `blood.handL`). */
+  readonly handR: THREE.MeshStandardMaterial;
+  readonly handL: THREE.MeshStandardMaterial;
+  /** The same surface with no blood, ever: for a copy of a gun shown somewhere else (the shop's turntable). */
+  readonly clean: THREE.MeshStandardMaterial;
+  readonly blood: { gun: BloodUniforms; handR: BloodUniforms; handL: BloodUniforms };
   readonly glass: THREE.MeshStandardMaterial;
   readonly decal: THREE.MeshStandardMaterial;
   readonly uniforms: VmUniforms;
@@ -603,12 +712,29 @@ export class VmMaterials {
       uScopeAspect: { value: 1 },
     };
 
-    const hardUniforms = { ...this.uniforms, tDetail: { value: detail }, tDetailN: { value: normal } } as unknown as Record<string, THREE.IUniform>;
-    const hard = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.5, metalness: 0.5, name: 'vm-hard' });
-    // The engine's patch wraps whatever hook is present, so this has to be set first.
-    hard.onBeforeCompile = shader => inject(shader, hardUniforms);
-    hard.customProgramCacheKey = () => 'vm-hard';
-    this.hard = this.patched(hard);
+    const spatter = new THREE.Data3DTexture(makeSpatter(), SPATTER_SIZE, SPATTER_SIZE, SPATTER_SIZE);
+    spatter.format = THREE.RedFormat;
+    spatter.type = THREE.UnsignedByteType;
+    spatter.wrapS = spatter.wrapT = spatter.wrapR = THREE.RepeatWrapping;
+    spatter.minFilter = spatter.magFilter = THREE.LinearFilter;
+    spatter.unpackAlignment = 1;
+    spatter.needsUpdate = true;
+    this.blood = { gun: bloodUniforms(), handR: bloodUniforms(), handL: bloodUniforms() };
+    // One program, a material per set of blood: three compiles by the cache key and keeps each material's own uniforms.
+    const makeHard = (blood: BloodUniforms): THREE.MeshStandardMaterial => {
+      const uniforms = { ...this.uniforms, ...blood, tDetail: { value: detail }, tDetailN: { value: normal }, tSpatter: { value: spatter } } as unknown as Record<string, THREE.IUniform>;
+      const hard = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.5, metalness: 0.5, name: 'vm-hard' });
+      // The engine's patch wraps whatever hook is present, so this has to be set first.
+      hard.onBeforeCompile = shader => inject(shader, uniforms);
+      hard.customProgramCacheKey = () => 'vm-hard';
+      return this.patched(hard);
+    };
+    this.hard = makeHard(this.blood.gun);
+    this.handR = makeHard(this.blood.handR);
+    this.handL = makeHard(this.blood.handL);
+    this.clean = makeHard(bloodUniforms());
+    // How a copy of a gun made for somewhere else finds it (rest.ts `restingModel`).
+    this.hard.userData.clean = this.clean;
 
     const glass = new THREE.MeshStandardMaterial({
       color: 0x8fb4c8, roughness: 0.06, metalness: 0.85, transparent: true, opacity: 0.22, depthWrite: false, name: 'vm-glass',

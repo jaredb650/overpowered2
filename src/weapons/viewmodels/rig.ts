@@ -6,13 +6,15 @@
  */
 import * as THREE from 'three';
 import { clamp, damp, lerp, smoothstep, wrapAngle } from '../../core/math';
-import { CG, type Ctx, type MovePose, type RayHit } from '../../core/contracts';
-import type { CallInId, ModId, PerkId, PowerupId, SwordMove, ViewmodelRig, WeaponId } from '../../core/gameplay';
+import { DevFlags } from '../../core/devflags';
+import { CG, type Ctx, type DamageInfo, type MovePose, type RayHit } from '../../core/contracts';
+import type { CallInId, EnemyInstance, KillEvent, ModId, PerkId, PowerupId, SwordMove, ViewmodelRig, WeaponId } from '../../core/gameplay';
 import { Arm } from './arms';
 import { inQuad, outBack, outCubic } from './curves';
-import { Anim, HandCtl, ironsUp, type ModLook, type ViewDef } from './def';
+import { Anim, HandCtl, ironsUp, type ModLook, type Tuple3, type ViewDef } from './def';
 import { Kit } from './kit/kit';
 import { VmMaterials } from './kit/materials';
+import { BloodCoat, clearByte, closeness, killBlood, reachByte, VmBloodTuning } from './blood';
 import type { Model } from './kit/model';
 import { buildDefs, buildOffhand, type OffhandSet } from './models';
 import { LamBeams, type LaserCast } from './lam';
@@ -84,6 +86,62 @@ const _moonFrom = new THREE.Vector3();
 const _c = new THREE.Vector3();
 const _qc = new THREE.Quaternion();
 const _one = new THREE.Vector3(1, 1, 1);
+const _bd = new THREE.Vector3();
+const _be = new THREE.Vector3();
+const _bq = new THREE.Quaternion();
+const _bm = new THREE.Matrix4();
+const _bi = new THREE.Matrix4();
+/** The hand bone of an `Arm` (arms.ts `B.hand`): what a glove's blood is measured against. */
+const HAND_BONE = 3;
+
+/**
+ * Writes `aBlood` for a weapon, measured with its parts at rest, so a slide or a magazine keeps its share of the blood
+ * wherever a clip carries it. `x`: a vertex's place along the weapon (blood.ts `reachByte`), mod parts counted, shown or not.
+ * `y`: 0 near any point the gun is aimed by (its own sights and every sight mod's), so blood never lands on a sight.
+ */
+function bakeReach(def: ViewDef, hard: THREE.Material): void {
+  const model = def.model;
+  model.resetParts();
+  model.root.updateMatrixWorld(true);
+  _bi.copy(model.root.matrixWorld).invert();
+  const sights: Tuple3[] = [];
+  const note = (p: Tuple3 | null | undefined) => { if (p) sights.push(p); };
+  note(def.sight); note(def.rear); note(def.scopeEye);
+  for (const look of Object.values(def.mods ?? {})) { note(look.sight); note(look.rear); }
+  const meshes: THREE.Mesh[] = [];
+  model.root.traverse(o => {
+    const mesh = o as THREE.Mesh;
+    if (mesh.isMesh && mesh.material === hard) meshes.push(mesh);
+  });
+  let back = -Infinity;
+  let front = Infinity;
+  const at: Float32Array[] = [];
+  for (const mesh of meshes) {
+    const pos = mesh.geometry.getAttribute('position');
+    _bm.multiplyMatrices(_bi, mesh.matrixWorld);
+    const p = new Float32Array(pos.count * 3);
+    for (let i = 0; i < pos.count; i++) {
+      _be.fromBufferAttribute(pos, i).applyMatrix4(_bm);
+      p[i * 3] = _be.x; p[i * 3 + 1] = _be.y; p[i * 3 + 2] = _be.z;
+      if (_be.z > back) back = _be.z;
+      if (_be.z < front) front = _be.z;
+    }
+    at.push(p);
+  }
+  meshes.forEach((mesh, k) => {
+    const p = at[k]!;
+    const n = p.length / 3;
+    const reach = new Uint8Array(n * 2);
+    for (let i = 0; i < n; i++) {
+      const x = p[i * 3]!, y = p[i * 3 + 1]!, z = p[i * 3 + 2]!;
+      let near = Infinity;
+      for (const s of sights) near = Math.min(near, Math.hypot(x - s[0], y - s[1], z - s[2]));
+      reach[i * 2] = reachByte(z, back, front);
+      reach[i * 2 + 1] = clearByte(near);
+    }
+    mesh.geometry.setAttribute('aBlood', new THREE.BufferAttribute(reach, 2, true));
+  });
+}
 const _mInv = new THREE.Matrix4();
 const _mHand = new THREE.Matrix4();
 const _moonHit: RayHit = { point: new THREE.Vector3(), normal: new THREE.Vector3(), distance: 0, surface: 'concrete', collider: null };
@@ -230,6 +288,12 @@ export class Rig implements ViewmodelRig {
   private frost = 0;
   private frostLeft = 0;
 
+  // Blood on the weapon and the hands (blood.ts): a coat per gun, kept while it is put away, and one per glove.
+  private readonly coats = new Map<string, BloodCoat>();
+  private readonly handCoats: readonly [BloodCoat, BloodCoat] = [new BloodCoat(), new BloodCoat()];
+  /** Player time since the rig was made: what the blood dries by. */
+  private bloodClock = 0;
+
   private lastMag = -1;
   private lastMagLeft = -1;
   private lastBucket = -1;
@@ -251,6 +315,7 @@ export class Rig implements ViewmodelRig {
     for (const def of Object.values(defs)) {
       def.model.root.visible = false;
       (def.id.endsWith('Left') ? this.gunL : this.gun).add(def.model.root);
+      bakeReach(def, this.mats.hard);
     }
 
     this.armR = new Arm(kit, 1);
@@ -296,6 +361,9 @@ export class Rig implements ViewmodelRig {
       on('callin:used', () => this.offhand.confirm()),
       on('sonar:tap', () => this.offhand.tap()),
       on('stim:inject', () => this.offhand.inject()),
+      on('enemy:killed', e => this.onKill(e)),
+      on('enemy:hit', e => this.onStrike(e.enemy, e.damage, e.result.dealt)),
+      on('run:start', () => this.cleanBlood()),
     );
     this.reset();
   }
@@ -570,6 +638,93 @@ export class Rig implements ViewmodelRig {
 
   // --- Frame -------------------------------------------------------------------------------------
 
+  // --- Blood on the weapon and the hands -----------------------------------------------------------
+
+  /** A blow of the blade in the hands: the weapon named by the damage is the one held. */
+  private byBlade(d: DamageInfo): boolean {
+    return (d.type === 'melee' || d.type === 'slash') && this.def !== null && d.source.startsWith(this.def.id);
+  }
+
+  private onKill(e: KillEvent): void {
+    if (e.enemy.machine) return;
+    const d = e.damage;
+    const from = e.enemy.center;
+    const amount = killBlood(d.type, e.gibbed, e.headshot, e.sliced, d.vaporize === true) * closeness(from.distanceTo(this.ctx.player.eye));
+    this.spatter(from, amount, this.byBlade(d));
+  }
+
+  /** Every blow of a blade that lands leaves blood on it, kill or not. */
+  private onStrike(enemy: EnemyInstance, d: DamageInfo, dealt: number): void {
+    if (enemy.machine || !(dealt > 0) || !this.byBlade(d)) return;
+    this.spatter(d.point, VmBloodTuning.blow * closeness(d.point.distanceTo(this.ctx.player.eye)), true);
+  }
+
+  /**
+   * Blood thrown at the player from `from`, a world position: `amount` 0 to 1 of it lands on the weapon in the hands, and a
+   * share on the gloves. `blade`: the weapon was in the body, so it is covered more evenly along its length.
+   */
+  spatter(from: THREE.Vector3, amount: number, blade = false): void {
+    if (!DevFlags.vmBlood || !(amount > 0.004)) return;
+    const render = this.ctx.render;
+    _bd.copy(from).sub(this.ctx.player.eye);
+    if (_bd.lengthSq() < 1e-6) _bd.set(0, 0, -1);
+    else _bd.normalize().transformDirection(render.camera.matrixWorldInverse).transformDirection(render.viewCamera.matrixWorld);
+    this.spatterView(_bd, amount, blade);
+  }
+
+  /** The same, from a direction in the view's own space (-Z ahead, +X right). */
+  spatterView(dir: THREE.Vector3, amount: number, blade = false): void {
+    if (!DevFlags.vmBlood || !(amount > 0.004)) return;
+    const T = VmBloodTuning;
+    const now = this.bloodClock;
+    // Blood falls, so what faces up takes more of it than what faces down.
+    _bd.copy(dir).normalize();
+    _bd.y += T.rain;
+    _bd.normalize();
+    const def = this.def;
+    if (def) {
+      let coat = this.coats.get(def.id);
+      if (!coat) this.coats.set(def.id, coat = new BloodCoat());
+      def.model.root.getWorldQuaternion(_bq).invert();
+      _be.copy(_bd).applyQuaternion(_bq);
+      if (blade) {
+        // The blade went through him: wet on every side, and drawn out along its own length (-Z), so that is the way
+        // the blood runs on it, leaning toward wherever the body was.
+        _be.multiplyScalar(0.3);
+        _be.z -= 1;
+        _be.normalize();
+      }
+      coat.add(_be.x, _be.y, _be.z, amount, now, blade ? T.evenShareMelee : T.evenShare, Math.random, blade ? 1 : 0);
+    }
+    const share = amount * (blade ? T.handsMelee : T.hands);
+    const arms = [this.armR, this.armL];
+    for (let i = 0; i < 2; i++) {
+      // A glove's blood is kept in the hand's own frame: it stays where it landed however the fingers move after.
+      arms[i]!.bones[HAND_BONE]!.getWorldQuaternion(_bq).invert();
+      _be.copy(_bd).applyQuaternion(_bq);
+      this.handCoats[i]!.add(_be.x, _be.y, _be.z, share, now, T.evenShare, Math.random);
+    }
+  }
+
+  /** Every gun and both gloves clean: a new run. */
+  cleanBlood(): void {
+    for (const coat of this.coats.values()) coat.clear();
+    this.handCoats[0].clear();
+    this.handCoats[1].clear();
+  }
+
+  /** Hands the shader this frame's blood: the coat of the gun that is out, and each glove's. */
+  private updateBlood(dt: number): void {
+    this.bloodClock += dt;
+    const b = this.mats.blood;
+    const now = this.bloodClock;
+    const on = DevFlags.vmBlood;
+    const coat = this.def ? this.coats.get(this.def.id) : undefined;
+    b.gun.uBloodOn.value = on && coat ? coat.write(now, b.gun.uBloodA.value, b.gun.uBloodB.value) : 0;
+    b.handR.uBloodOn.value = on ? this.handCoats[0].write(now, b.handR.uBloodA.value, b.handR.uBloodB.value) : 0;
+    b.handL.uBloodOn.value = on ? this.handCoats[1].write(now, b.handL.uBloodA.value, b.handL.uBloodB.value) : 0;
+  }
+
   update(): void {
     const def = this.def;
     if (!def) return;
@@ -646,6 +801,7 @@ export class Rig implements ViewmodelRig {
     if (akReload >= 0) a.reload = akReload;
     this.legs.update(this.gun.visible ? this.move : null, this.ctx.player.pitch, dt);
     this.updateLooks(dt);
+    this.updateBlood(dt);
     this.updateMoon(dt);
     this.updateWrist(dt);
     this.updateLight(def);

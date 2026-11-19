@@ -105,6 +105,7 @@ Shared files and contracts:
 |---|---|---|---|
 | `?gibthrow=0`, dev panel "Gibs thrown out of the blast" | on | G2: a burst body's pieces thrown up and out of the fireball (7 to 10 m/s up, all round) against the old launch (3 to 7 m/s, down inside the fireball by 0.5 s). The ribbons, the slabs and the crack itself stay either way | gibs |
 | `?flinch=0`, dev panel "Hits: every hit shows" | on | R1: the hit flinch's new shape and size (twist, dropped shoulder, struck arm 20 to 40 degrees, knee dip, a floor by weapon) against the 3 to 10 degree nod from before | react |
+| `?vmblood=0`, lab row "Blood on the weapon" | on | Guns and gloves stay clean whatever is killed (B3) | wear |
 
 ## Log
 
@@ -132,3 +133,9 @@ Shared files and contracts:
   leaves none of its own. **For "fire":** slabs are `ChunkField` instances drawn with the archetype's skin material; tint
   them where you tint the trunk's pieces. Probes: `tools/scripts/gib-seq.mjs` (every destruction, frame by frame, with
   counts), `gib-pieces.mjs` (close-ups of the models), `gib-cost.mjs`. Look: `tools/out/gore-update/gibs/` and its `LOOK.md`.
+- 2026-11-19, wear, **B3 landed** (blood on the weapon and hands; `docs/notes/viewmodels.md`, "Blood on the weapon and the
+  hands"). Decisions: each gun keeps its own blood while put away and each glove has its own, so hands stay bloody across a
+  weapon change; blood dries on the floor stains' curve (4 to 55 s) and wears off after 150 s more over 120 s, so a long
+  match does not end with every gun permanently coated; nothing lands within 2.8 cm of a sight point; a bullet kill at 3 m
+  leaves a few drops and a gib at arm's length a lot (amounts in the note). Pictures: `tools/out/gore-update/wear/b3/`.
+  Not done: drips off the gun, a clean magazine on reload, a friend's kill spattering a co-op guest.

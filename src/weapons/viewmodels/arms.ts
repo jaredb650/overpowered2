@@ -14,6 +14,7 @@ import { F } from './kit/finishes';
 import { bakeAo } from './kit/ao';
 import { poly, rect } from './kit/shapes';
 import { screw } from './kit/details';
+import { sleeveByte } from './blood';
 
 export const UPPER_LEN = 0.3;
 export const FORE_LEN = 0.27;
@@ -428,7 +429,16 @@ export class Arm {
 
     const hard = m.tree.layers.get('hard')!;
     const geo = layerGeometry(hard, false);
-    const mesh = new THREE.SkinnedMesh(geo, kit.mats.hard);
+    // Where blood lands on it (blood.ts): all of the glove, less and less up the sleeve.
+    const pos = geo.getAttribute('position');
+    const reach = new Uint8Array(pos.count * 2);
+    for (let i = 0; i < pos.count; i++) {
+      reach[i * 2] = sleeveByte(pos.getZ(i), FORE_LEN);
+      reach[i * 2 + 1] = 255;
+    }
+    geo.setAttribute('aBlood', new THREE.BufferAttribute(reach, 2, true));
+    // Each glove wears its own blood. A stand-in material set (the tests') has only the one surface.
+    const mesh = new THREE.SkinnedMesh(geo, (side > 0 ? kit.mats.handR : kit.mats.handL) ?? kit.mats.hard);
     mesh.frustumCulled = false;
     mesh.name = side > 0 ? 'armR' : 'armL';
     this.mesh = mesh;

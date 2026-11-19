@@ -18,6 +18,13 @@ export function restingModel(id: WeaponId, def: ViewDef): { root: THREE.Object3D
   def.model.resetParts();
   def.animate(a);
   const copy = def.model.root.clone();
+  // The copy is a gun on a turntable or on the floor, not the one in the hands: it does not wear that one's blood
+  // (kit/materials.ts `clean`).
+  copy.traverse(o => {
+    const mesh = o as THREE.Mesh;
+    const clean = mesh.isMesh ? (mesh.material as THREE.Material).userData?.clean as THREE.Material | undefined : undefined;
+    if (clean) mesh.material = clean;
+  });
   copy.visible = true;
   copy.position.set(0, 0, 0);
   copy.rotation.set(0, 0, 0);

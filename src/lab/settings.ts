@@ -3,7 +3,7 @@
  * test never leaks into a run. Those other pages did not ask for the lab, so they keep only the spawn picks: god mode,
  * every weapon, world speed and the rest start off on each load, and a cheat left on can never carry into a playtest.
  */
-import { DEV_ASKED, DevFlags, ON_RANGE, REACT_SWITCHES } from '../core/devflags';
+import { DEV_ASKED, DevFlags, ON_RANGE, REACT_SWITCHES, switchedOff } from '../core/devflags';
 import type { EnemyId, WeaponSystem } from '../core/gameplay';
 
 export type AiMode = 'off' | 'patrol' | 'on';
@@ -33,6 +33,8 @@ export interface LabSettings {
   carry: boolean;
   aimspoil: boolean;
   sway: boolean;
+  /** Blood on the weapon and the gloves (the gore update's B3). */
+  vmBlood: boolean;
 }
 
 const KEY = `op2.lab.v1.${ON_RANGE ? 'range' : DEV_ASKED ? 'game' : 'dev'}`;
@@ -43,7 +45,7 @@ const CONVENIENCES: readonly (keyof LabSettings)[] = ['spawn', 'ai', 'row'];
 const DEFAULTS: LabSettings = {
   spawn: 'trooper', ai: 'off', row: 5, god: ON_RANGE, arsenal: false, reserves: false, speed: 1, overlay: ON_RANGE,
   gibbing: true, explosiveDeaths: true, progression: !ON_RANGE, muscles: true, gibThrow: true, force: 1,
-  flinch: true, clutch: true, carry: true, aimspoil: true, sway: true,
+  flinch: true, clutch: true, carry: true, aimspoil: true, sway: true, vmBlood: true,
 };
 
 /** A page's reaction switches are its URL's: what the panel last had them at would make `?sway=0` mean nothing. */
@@ -86,6 +88,7 @@ export function applyFlags(s: LabSettings): void {
   DevFlags.gibThrow = s.gibThrow;
   DevFlags.force = s.force;
   for (const k of REACT_SWITCHES) DevFlags[k] = s[k];
+  DevFlags.vmBlood = s.vmBlood && !switchedOff('vmblood');
 }
 
 /** Held every frame, as the arsenal is: every reserve back to its max after whatever the last reload took. */

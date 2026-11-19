@@ -46,8 +46,13 @@ export const DevFlags = {
   carry: on('carry'),
   aimspoil: on('aimspoil'),
   sway: on('sway'),
+  /** Off: no blood lands on the weapon in the hands or on the gloves (weapons/viewmodels/blood.ts). `?vmblood=0` starts it off. */
+  vmBlood: on('vmblood'),
 };
 
 /** The hit-reaction switches as the page's URL left them: the lab starts from these, not from what it last remembered. */
 export const REACT_SWITCHES = ['flinch', 'clutch', 'carry', 'aimspoil', 'sway'] as const;
 export type ReactSwitch = (typeof REACT_SWITCHES)[number];
+
+/** The page's address turned a switch off (`?<name>=0`): the lab's stored tick does not turn it back on. */
+export const switchedOff = (name: string): boolean => !on(name);

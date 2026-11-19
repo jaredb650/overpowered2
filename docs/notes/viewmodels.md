@@ -57,6 +57,7 @@ their saves reload the page mid-capture. These are scripted stills, not a human 
 | `poses.ts`, `curves.ts`, `spring.ts` | Finger poses, timing curves, exact closed-form springs |
 | `kit/mesher.ts` | Procedural hard-surface builder. A part's whole surface is one buffer |
 | `kit/materials.ts` | The one shader for every opaque surface, the decal atlas, perk looks, light band |
+| `blood.ts` | Blood on the weapon and the gloves: what throws it, a coat's three layers, the field its drops come from. No three.js |
 | `kit/model.ts`, `kit/ao.ts` | Runtime model (parts, sockets, glows, screens) and per-vertex AO baked at load |
 | `models/*.ts` | One file per weapon: geometry, sockets, and its clip |
 
@@ -160,6 +161,56 @@ Third-person hands use a different bind frame: fingers continue the elbow-to-wri
 **Sword.** Timings are the first game's, the arcs are not. Each runs along the `sweep` in `SWORD.chain`, so blade, crescent and cut plane agree. A move starts from wherever the blade is, so a chain flows. The hilt stays near the bottom edge and the blade does the crossing, otherwise a cut disappears below the screen. The blast frame of the finisher is `p = 0.571`, and `SLAM_END` lands exactly there. The blade shader reads the wear tag as position across the blade, which is how the temper line follows the curve.
 
 **Key 5's other four.** The Shiv (`knife.ts`), Prybar (`crowbar.ts`), Spade (`shovel.ts`) and Cosh (`baton.ts`) are one file each and share one clip, `models/melee.ts`: a move is three poses, start, middle and end, run as one curve, and a move whose row in `MELEE` has an `impact` share first winds up to its start pose over that share, so the model and the blow agree. Moves are `light1`..`light3` and `heavy` (`SwordMove`), each model reading them as its own. The arcs follow the sword's rule: the hand stays low and the head of the weapon crosses the view. A backhand keeps the hand's roll on the forehand side (Z near -1.5); rolled the other way the forearm turned into the view and the weapon pointed at the camera. The Shiv, Prybar and Cosh are one-handed (`left: null`); the Spade has the left hand on its D grip. The Cosh opens on the draw: its two outer tubes are parts (`tube1`, `tube2`) that slide out over the first half of it.
+
+**Blood on the weapon and the hands** (`blood.ts`, the gore update's step B3, 2026-11-19). A close kill or a blow of a blade
+throws blood back at the player, and it lands on the gun in the hands and on both gloves: wet and bright, dry and dark a minute
+later, worn off a few minutes after that.
+
+- **What throws it.** The rig listens to `enemy:killed` and `enemy:hit`. A kill gives `killBlood` (a gib 1, a sliced body 0.95,
+  a blast 0.85, a shotgun 0.75, a bullet 0.42, a quarter more for a head; nothing for fire, shock, a vaporized body or a
+  machine) times `closeness`: all of it inside 1.3 m of the eye, none past 5 m. Every blow of the blade in the hands that lands
+  adds 0.55 to the blade, kill or not. The gloves get 0.6 of what the gun gets (0.75 from a blade).
+- **A coat** (`BloodCoat`) is one surface's blood: three layers, each a spatter with a direction, an amount, the time it
+  landed and a seed. Blood inside 1.2 s of the last lot joins that layer; later blood is a new layer, so fresh red lies over
+  dry; with all three in use the two oldest fold into one (capped at 0.85). Each gun keeps its own coat while it is put
+  away (`Rig.coats`, by weapon id; an akimbo twin shares its gun's), and each glove has one, so a clean pistol drawn after a
+  shotgun kill is held in bloody hands. `run:start` cleans everything.
+- **Direction.** The way from the eye to the body is turned into the view, tipped 0.32 toward straight up (blood falls), and
+  then into the gun's own frame and each hand bone's frame, where it is kept: blood stays where it landed however the gun
+  and the fingers move after. A blade's layer points along the blade and is marked `through`: it was in the body, so every
+  side of it is wet.
+- **The shader** (`kit/materials.ts`, in `vm-hard`). Drops come from `makeSpatter`: a 128 cubed block of space (one byte a
+  voxel, 2 MB, built in about 80 ms at load) with 560 blobs in it, tiling every 15 cm, read once at that size and once 3.7
+  times finer for the small drops. A blob shows where its value is over `1 - cover`, and each carries its own moment, so more
+  blood is more and bigger drops and never a tint: the whole block at an amount of 1 is 35% blood. Because the drops are
+  cut out of space and not projected, a drop runs unbroken over an edge, round a barrel and across a rail's teeth. The block
+  is squeezed to 0.3 along the layer's direction, so a surface square to it cuts round drops and one the blood came in low
+  over cuts streaks. `cover` is the layer's amount, shaded by how the surface faced it (0.42 to 1; a blade ignores this) and
+  by the vertex's place along the weapon (0.5 at the butt to 1 at the muzzle or the point, less of that for a blade). Wet
+  blood is `(0.46, 0.005, 0.007)` thinning to `(0.13, ...)` where it stands thick, roughness 0.13, raised by a bump from
+  screen derivatives so it glints; dry is `(0.15, 0.022, 0.013)`, roughness 0.74, drawn in a little. Cloth (the sleeve) takes
+  a soft dark stain in its own weave. Hot steel cooks it off (`vmHot`). `BLOOD_LIGHT` gives it the brightness of the light
+  with its own hue, as the floor stains have, or it would be black under cyan.
+- **Where it may land: `aBlood`,** two bytes a vertex, written at load by `bakeReach` (rig.ts) with the parts at rest. `x` is
+  the place along the weapon, 1 to 255. `y` is 0 within 2.8 cm of any point the gun is aimed by (its `sight`, `rear`,
+  `scopeEye` and every sight mod's) and fades to 255 over the next 2 cm: **blood never lands on a sight.** Glow lines,
+  lenses, screens and stencils are other materials and are never touched. A mesh with no `aBlood` reads 0 and stays clean:
+  the legs and whatever the left hand holds.
+- **Materials.** `VmMaterials.hard` is the guns' (uniforms `blood.gun`), `handR` and `handL` are the same surface for each
+  arm with its own blood, and `clean` is the same with none: `restingModel` swaps a copy onto it (`hard.userData.clean`),
+  so the shop's turntable and a gun dropped on the floor never wear the blood of the gun in the hands. All four are one
+  program.
+- **Switch:** `?vmblood=0`, or the lab's "Blood on the weapon" row (`DevFlags.vmBlood`).
+- **Cost.** None measurable: the view scene at 1440x900, dpr 2, with a GPU sync a frame, clean against three full layers,
+  differed by under 0.05 ms either way on three weapons (`tools/scripts/vm-blood-cost.mjs`, RTX 4090). Up to six lookups
+  into the block a pixel while a gun is bloody, one skipped branch while it is clean.
+- **Co-op.** Own screen only, nothing sent. A guest's own kills tell its game through `enemy:killed` (net/world/hits.ts); a
+  friend's kill beside a guest does not reach that guest's gun, because no event of it is raised there.
+- **Looking at it.** `tools/scripts/vm-blood.mjs` (sandbox, any weapons: clean, one kill, dried, four kills, aimed) and
+  `tools/scripts/vm-blood-live.mjs` (the Test Range: real kills, the katana through a line, a gun keeping its blood while
+  away, a far kill leaving none, the switch). Tests: `blood.test.ts`.
+- **Not done.** Blood does not run or drip off the gun, and a reload does not bring a clean magazine. An akimbo pair shows
+  the same drops on both guns. Shots into a body that do not kill leave nothing (a blade's do).
 
 **Weapon mods** (`src/weapons/mods.ts`). A `ViewDef`'s `mods` says what each mod looks like on the gun while `weapons.fitted` has it:
 its `part` (hidden otherwise; `Rig.dressMods` sets it after `resetParts`, which shows every part, on both akimbo SMGs), and the `sight`,
