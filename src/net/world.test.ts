@@ -589,7 +589,7 @@ describe('a hit the host refuses, and a death started ahead of the host\'s word'
       if (killed) { target.alive = false; game.host.ctx.events.emit('enemy:killed', { enemy: target, damage, headshot: false, gibbed: false } as never); }
       else game.host.ctx.events.emit('enemy:hit', { enemy: target, damage, result });
     });
-    const events = () => game.relay.packets.filter(p => p.lane === 'action').map(p => (p.data as { data: WorldEvent }).data);
+    const events = () => game.relay.packets.filter(p => p.lane === 'action').map(p => eventOf<WorldEvent>(p.data));
     const fire = () => { vi.advanceTimersByTime(120); game.guest.ctx.events.emit('weapon:fired', { weapon: 'smg', origin: new THREE.Vector3(0, 1.6, -5), dir: new THREE.Vector3(0, 0, -1) } as never); };
     return { ...game, enemy, replica, shot, decide, events, fire };
   }

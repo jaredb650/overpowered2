@@ -29,7 +29,7 @@ export const WORDS = new Words([
   'next', 'guns', 'current', 'grenades', 'stims', 'implants', 'implantsFitted', 'implantSlots', 'chips', 'chipsFitted', 'chipSlots', 'callIns', 'combo',
   'headshots', 'severMult', 'reach', 'blastKind', 'pierces', 'armorPiercing', 'vaporize', 'load', 'armour', 'torso', 'spill', 'slicePlaneNormal',
   // The other events' names:
-  'vhit', 'held', 'mfx', 'kata', 'hurt', 'shove', 'ghost', 'ray', 'proj', 'projx', 'projhit', 'efx', 'atk', 'atkf', 'atke', 'bossfx', 'zone', 'glint',
+  'vhit', 'nack', 'held', 'mfx', 'kata', 'hurt', 'shove', 'ghost', 'ray', 'proj', 'projx', 'projhit', 'efx', 'atk', 'atkf', 'atke', 'bossfx', 'zone', 'glint',
   'laser', 'shock', 'strike', 'bang', 'cmd', 'callin', 'cin', 'mech', 'aadown', 'pfx', 'airlift', 'sonar', 'chatter', 'chatcut', 'slow', 'slowstate',
   'slowno', 'capture', 'credit', 'prisoner', 'award', 'who', 'pod', 'prop', 'worldsync', 'vehicles', 'wreck', 'fort', 'fortstate', 'wallblast', 'wallhit',
   'repair', 'repaired', 'fortbuy', 'fortsold', 'shell', 'fortsay', 'fortradio', 'gunseat', 'dev', 'devshot', 'snared', 'shutter', 'smoke', 'allies',

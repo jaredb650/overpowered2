@@ -436,4 +436,4 @@ export class Claims implements WorldModule {
 }
 
 /** For a peer that is behind: which of this module's events may be left out (net/pressure.ts). A fact never is. */
-export const CLAIMS_WIRE: import('../pressure').WireClasses<ClaimEvent> = { hit: 'fact', status: 'fact', vhit: 'fact' };
+export const CLAIMS_WIRE: import('../pressure').WireClasses<ClaimEvent | NackEvent> = { hit: 'fact', status: 'fact', vhit: 'fact', nack: 'fact' };
