@@ -1,20 +1,8 @@
 // Steps shared by the world-b proofs (coop-worldb-*.mjs), on top of coop-kit.mjs.
-import { button, harness, ownWindow, quiet, returning } from './coop-kit.mjs';
+import { lateGuest } from './coop-kit.mjs';
 
-/** One more player into a match that is already running: by the invite link and the password, straight into the world. */
-export async function lateJoin(party, name) {
-  const { host, transport, fps, out, password } = party;
-  const page = transport === 'loop' ? await ownWindow(host)
-    : await host.context().browser().newPage({ viewport: host.viewportSize(), deviceScaleFactor: await host.evaluate(() => window.devicePixelRatio) });
-  page.on('pageerror', error => out?.errors.push(`${name}: ${error.message}`));
-  await page.addInitScript(harness, fps); await page.addInitScript(quiet); await page.addInitScript(returning);
-  await page.addInitScript(name => { if (!sessionStorage.getItem('coopKitNamed')) { localStorage.setItem('op2_coop_name', name); sessionStorage.setItem('coopKitNamed', '1'); } }, name);
-  await page.goto(party.invite);
-  await page.locator('input[type=password]').waitFor({ state: 'visible', timeout: 120000 });
-  await page.locator('input[type=password]').fill(password); await button(page, 'Join lobby').click();
-  party.guests.push(page); party.pages.push(page);
-  return page;
-}
+/** One more player into a match that is already running: the kit's `lateGuest`. */
+export const lateJoin = lateGuest;
 
 /** Waiting and agreeing, tolerant of a loaded machine. `check` is the kit's; `dump` is run on a page when a wait fails. */
 export function waits({ check, sleep, dump }) {

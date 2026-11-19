@@ -209,6 +209,10 @@ audio report if the catalog changes, run `src/audio/audio.test.ts`.
 - `node tools/shot.mjs --port <your port> --url "/?sandbox=gore" --out tools/out/<you>/x.png --dpr 2 --w 1440 --h 900 [--script tools/scripts/foo.mjs] [--eval "<js>"]`.
   **Always pass `--port`:** the default is 5173 (the owner's). If nothing answers on the port, it starts a private Vite on 5199
   with HMR off and closes it after.
+- **Co-op regression suite:** `node tools/scripts/coop-all.mjs --port <yours> [--suite clean,bad,rtc,four,guest] [--lane <names>] [--only <text>] [--jobs 2]`
+  runs every co-op browser proof with its parameters through `shot.mjs`, starts and stops its own Vite, retries a run that failed
+  for a harness reason, skips what already passed on the same game, and writes `tools/out/coop/all/results.md`. Run it after any
+  change to co-op; add a new proof as one line in its `PROOFS`. `docs/notes/coop.md`, "Testing".
 - `tools/scripts/coop-kit.mjs`: the co-op test kit. `startParty(host, { transport: 'loop' | 'rtc', players: 2..4, mode, map, net, fps })`,
   `live`, `measure` and the rest; loopback (`?net=loop`, no WebRTC, no relays) is the default, `COOP_NET=rtc` is real WebRTC. Works
   on a fresh profile. `docs/notes/coop.md`, "Testing".

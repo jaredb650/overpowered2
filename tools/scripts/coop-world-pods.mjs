@@ -6,25 +6,10 @@
 //     --script tools/scripts/coop-world-pods.mjs --out tools/out/coop/world-a/pods.png
 //   COOP_MODE=crucible|outpost  COOP_MAP=office  COOP_PLAYERS=2|3  COOP_SIM=lag:120,jitter:40,loss:0.05  COOP_NET=rtc
 import { writeFileSync } from 'node:fs';
-import { button, harness, inMatch, kit, live, ownWindow, quiet, returning, startParty, state, teleport } from './coop-kit.mjs';
+import { button, inMatch, kit, lateGuest, live, startParty, state, teleport } from './coop-kit.mjs';
 
-/**
- * A guest who joins a match already running: the invite link and the password take them straight into the match (the kit's
- * `openGuest` waits for the lobby list, which such a guest never sees).
- */
-export async function lateGuest(party, name) {
-  const { host, transport, fps, out, password } = party;
-  const guest = transport === 'loop' ? await ownWindow(host)
-    : await host.context().browser().newPage({ viewport: host.viewportSize(), deviceScaleFactor: await host.evaluate(() => window.devicePixelRatio) });
-  guest.on('pageerror', error => out?.errors.push(`${name}: ${error.message}`));
-  await guest.addInitScript(harness, fps); await guest.addInitScript(quiet); await guest.addInitScript(returning);
-  await guest.addInitScript(name => { if (!sessionStorage.getItem('coopKitNamed')) { localStorage.setItem('op2_coop_name', name); sessionStorage.setItem('coopKitNamed', '1'); } }, name);
-  await guest.goto(party.invite);
-  await guest.locator('input[type=password]').waitFor({ state: 'visible', timeout: 300000 });
-  await guest.locator('input[type=password]').fill(password); await button(guest, 'Join lobby').click();
-  party.guests.push(guest); party.pages.push(guest);
-  return guest;
-}
+/** A guest who joins a match already running: the kit's (it lived here first; coop-world-drops and -props import it from here). */
+export { lateGuest };
 
 /** The pods a page has out now, as plain data. */
 const pods = page => page.evaluate(() => {

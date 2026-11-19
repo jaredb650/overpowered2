@@ -43,6 +43,13 @@
 //   startPair(host, opts) is startParty with two players.
 //   openGuest(party, { name, late }) adds one more page (a fourth player, or with late: true a join or rejoin into a
 //   running match, then inMatch([guest], ...)). A guest leaves by page.close().
+//   lateGuest(party, name) is THE way to join a match that is already running: a new page by the invite link and the
+//   password, straight to the match page (it never sees the lobby list), set up like every other kit page (fast mode, the
+//   pretend pointer lock). Then `await inMatch([page], party.mode.contract)`, or wait for what the proof is about.
+//   COOP_SIM=lag:120,jitter:40,loss:0.05 on the command line is the network of any proof that names none itself.
+//   out.frames: the kit samples every page's loop rate every 3 s while it plays and keeps { n, mean, min, low } per page
+//   (low: samples under 20 a second). A proof that failed with a page mostly under 20 was starved: run it again
+//   (tools/scripts/coop-all.mjs does).
 //
 // GETTING TO A FIGHT
 //   await inMatch(party.pages, party.mode.contract)    every page in the match, world up, the other bodies drawn
@@ -269,6 +276,31 @@ function freshShots(page) {
 }
 
 /**
+ * Every page's loop rate while it plays, sampled every 3 s into `out.frames[tag]` = { n, mean, min, low }: how a failed
+ * proof is told from a starved one (`low` counts samples under 20 frames a second). The loop's rate, drawn or not. A page
+ * that is paused, loading, hidden by the proof or stalled on purpose is not sampled, or is the proof's own doing: the
+ * runner's list marks such proofs (`slow`).
+ */
+function watchFrames(page, out, tag) {
+  const frames = (out.frames ??= {});
+  let busy = false;
+  const timer = setInterval(async () => {
+    if (page.isClosed()) return clearInterval(timer);
+    if (busy) return;
+    busy = true;
+    const fps = await page.evaluate(() => (window.__op2?.game?.state === 'playing' && !document.hidden ? window.__op2.stats().fps : null)).catch(() => null);
+    busy = false;
+    if (typeof fps !== 'number' || !(fps >= 0)) return;
+    const f = (frames[tag] ??= { n: 0, mean: 0, min: Infinity, low: 0 });
+    f.mean = Math.round(10 * (f.mean * f.n + fps) / (f.n + 1)) / 10; f.n++;
+    f.min = Math.min(f.min, fps);
+    if (fps < 20) f.low++;
+  }, 3000);
+  timer.unref?.();
+  page.once('close', () => clearInterval(timer));
+}
+
+/**
  * The init scripts every test page gets, before its first load. `draw` is fast mode's rate ('all' or absent: every frame)
  * `audio: false` its silence and `clock` its timer; a kit of your own that opens pages passes `party.draw`, `party.audio`
  * and `party.clock`.
@@ -285,6 +317,7 @@ export async function prepare(page, { fps, out, tag, draw = 'all', audio = true,
     });
     page.on('framenavigated', frame => { if (frame === page.mainFrame() && log.length < 400) log.push(`${tag}: -> ${frame.url()}`); });
   }
+  if (out) watchFrames(page, out, tag);
   await page.addInitScript(harness, fps);
   // The timer clock and a frame-rate cap do not mix: the cap works on animation frames.
   if (fps > 0) clock = 0;
@@ -313,7 +346,7 @@ const callsign = i => ['HOST-ONE', 'GUEST-TWO', 'GUEST-THREE', 'GUEST-FOUR'][i] 
  */
 export async function startParty(host, options) {
   const { mode = 'crucible', map, password = 'coop-kit', out = { errors: [], checks: [], screenshots: [] }, progress = () => {}, sleep = ms => new Promise(r => setTimeout(r, ms)),
-    startNow = true, players = 2, net, fps = Number(process.env.COOP_FPS ?? DEFAULT_FPS), transport = process.env.COOP_NET ?? DEFAULT_TRANSPORT } = options ?? {};
+    startNow = true, players = 2, net = process.env.COOP_SIM || undefined, fps = Number(process.env.COOP_FPS ?? DEFAULT_FPS), transport = process.env.COOP_NET ?? DEFAULT_TRANSPORT } = options ?? {};
   const draw = drawRate(options);
   const clock = draw === 'all' ? 0 : Number(process.env.COOP_CLOCK ?? options?.clock ?? DEFAULT_CLOCK);
   const realLock = process.env.COOP_REAL_LOCK === '1' || options?.realLock === true;
@@ -388,6 +421,14 @@ export async function openGuest(party, { name = callsign(party.guests.length + 1
   party.guest ??= guest;
   return guest;
 }
+
+/**
+ * A player who joins (or rejoins) a match that is already running: a new page by the invite link and the password, sent
+ * straight on to the match page. It is a kit page like the others (fast mode, the pretend pointer lock, the console in the
+ * evidence). Returns the page at once after the password, still loading: `await inMatch([page], party.mode.contract)`
+ * brings it through the deploy gate and waits for its world, or wait for whatever the proof is about.
+ */
+export const lateGuest = (party, name) => openGuest(party, { name, late: true });
 
 /**
  * A new page in the same browser profile as `page`, in a window of its own. A second tab of one window (context.newPage())

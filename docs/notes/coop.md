@@ -58,6 +58,8 @@ If a friend cannot connect at all, set up TURN once (below).
 | `tools/scripts/coop-kit.mjs` | The test kit every multi-page proof shares: `startParty`, `live`, `measure` and the rest (see Testing) |
 | `tools/scripts/coop-smoke.mjs`, `coop-baseline.mjs` | The rig's own proofs: any mode with 2 to 4 players reaches a fight; the baseline numbers |
 | `tools/scripts/coop-stage3.mjs`, `coop-modes.mjs`, `coop-mission.mjs`, `coop-robust.mjs` | The two-page proofs (below) |
+| `tools/scripts/coop-all.mjs` | Runs every co-op proof with its parameters and writes one results table: the regression suite. See "Testing" |
+| `tools/scripts/coop-guest-seat.mjs` | One scripted session per mode from a guest's seat: a fight, kills and credit, slow-mo, a call-in, a shared gun, a revive, the break, a rejoin, the ending |
 | `tools/scripts/coop-missions-play.mjs` | Plays either mission from the first line to the team board on 2 or 3 pages and checks every guest's screen at every section. See "Missions", "Proofs" |
 
 Small hooks outside `src/net`, each marked with a co-op comment: `Game.ts` (which systems run where, the shared slow-mo clock, the hidden
@@ -1404,6 +1406,48 @@ Each shows up under `series` in the snapshot as `{ n, mean, p50, p90, p99, max, 
 
 Unit tests: `src/net/lanes.test.ts`, `fast.test.ts` (the fallback), `loopback.test.ts` (the real Lobby over it), `netsim.test.ts`,
 `metrics.test.ts`, beside the older ones.
+
+### Every proof, one command (`tools/scripts/coop-all.mjs`)
+
+The regression suite for co-op. It knows every browser proof with its parameters (players, mode, map, transport, network), runs
+them through `tools/shot.mjs` (so the machine's browser slots are honoured), one at a time unless `--jobs 2`, each under its own
+time limit, and writes one table. **Run this, not the proofs one by one, after any change to co-op.**
+
+```sh
+node tools/scripts/coop-all.mjs --port <your port> --list                      # what it would run
+node tools/scripts/coop-all.mjs --port <your port>                             # every proof, loopback, clean network
+node tools/scripts/coop-all.mjs --port <your port> --suite clean,bad --jobs 2  # and under lag:120,jitter:40,loss:0.05
+node tools/scripts/coop-all.mjs --port <your port> --suite rtc                 # each lane's main proof over real WebRTC
+node tools/scripts/coop-all.mjs --port <your port> --lane team,session         # some lanes;  --only <text or /regex/>  some runs
+```
+
+- **Suites:** `clean` (every proof, loopback), `bad` (the same under `lag:120,jitter:40,loss:0.05`, for proofs that take a
+  network), `rtc` (each lane's main proof over real WebRTC and the public relays: never two at once, 45 s apart), `four` (each
+  lane's main proof with four pages), `guest` (every mode from a guest's seat, `coop-guest-seat.mjs`, with pictures at 1440x900
+  dpr 2), `all`.
+- **The server:** it starts its own Vite on `--port` (HMR off) and stops it at the end, so it never serves modules from before
+  an edit or a rebase. Never port 5173.
+- **Results:** `results.json` and `results.md` in `--out` (default `tools/out/coop/all/`): proof, players, mode, transport,
+  network, pass or FAIL, checks passed / failed, seconds, the commit, the first failing check, and the run's folder. Each run's
+  folder holds the proof's own evidence JSON and screenshots, `report.json` (shot.mjs's), `log.txt` and `cost.json`
+  (`tools/proof-cost.mjs`: wall time, the wait for a slot, CPU, peak memory, the machine's load).
+- **Resumable:** a run that passed on the same game (the tree of `src/` at HEAD plus uncommitted changes to it) with the same
+  proof text is skipped, so stop it and start it again at will. `--force` runs everything again; `--any-commit` accepts an old
+  pass. A commit that touches only docs or tools does not make the game new.
+- **Retries:** a failed run is run once more only when it failed for a harness reason: it hit its time limit, a page was
+  starved, the browser died, the machine's load was over 1.5 times `--max-load` (default 16: it also waits for the load to be
+  under that before each run), or on `rtc` the lobby or the match never formed (the relays). A run that passes the second
+  time reads `pass (2nd try)` with the first try's reason. `--retry all` retries any failure once; `--retry none` none.
+- **Starved or broken:** the kit samples every page's loop rate every 3 s while it plays into `out.frames` (`{ n, mean, min,
+  low }` per page, `low` = samples under 20 a second). A failed proof with a page under 20 in over 40% of its samples was
+  starved. Proofs that slow, stall or hide a page on purpose are marked `slow` in the list and are not judged by it.
+- **Adding a proof:** one line in `PROOFS` at the top of the file (`sim` and `count` name the environment variables the proof
+  reads for the network and the player count; `rtc: true` / `four: true` put it in those suites). `tools/lib/coop-all.test.ts`
+  checks that every listed script exists and that ids are unique.
+- **A match that is already running** is joined with the kit's `lateGuest(party, name)` (then `inMatch([page], contract)`): a
+  kit page like the others. World-a's and world-b's own copies of it are gone (their late joiners used to be the one page of a
+  proof with the real pointer lock, drawing every frame).
+- `COOP_SIM=lag:120,jitter:40,loss:0.05` is now the network of any kit proof that names none itself.
 
 Browser proofs run through `tools/shot.mjs` with the kit, `tools/scripts/coop-kit.mjs` (its header lists every helper). Your own Vite
 with HMR off, never port 5173:
