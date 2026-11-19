@@ -36,8 +36,8 @@ Read `CLAUDE.md` first; it still applies except where this section differs.
   (`npx vitest run --testTimeout=60000`, about 20 s), then `git push . HEAD:refs/heads/coop-overhaul`. That push only succeeds as a
   fast-forward; if a peer landed first, rebase again, fix conflicts, re-test, push again. Never force. Never push to `origin`.
   Land in small steps as soon as a piece is complete and green; do not sit on a huge diff.
-- **Known failing test** before this work: `src/core/devflags.test.ts` ("starts every cheat off…", stale expectation). Everything
-  else must stay green. Add tests next to what you build.
+- **No test is known to fail** (the stale `src/core/devflags.test.ts` expectation was fixed on 2026-11-19, and the suite's
+  random numbers are seeded: `tools/test-setup.ts`). Everything must stay green. Add tests next to what you build.
 - **Ports and browsers:** use only the Vite port your brief gives you, with `OP2_NO_HMR=1`, and stop it when done. Port 5173 is
   never touched.
 - **Use the machine, within its limits** (32 cores, 62 GB, RTX 4090). The rules that spared the old 8 GB Mac are void: run the
@@ -560,9 +560,11 @@ Work through all of it; write the outcome beside each item in the log (fixed wit
 3. **Single player is unchanged** apart from the blood puff and the dropped gun that settles on the ground: play single-player
    Crucible, Endless Humans and the start of a mission in the browser on `dev` and on the tip and compare behaviour, frame
    time and memory. This is the owner's first rule.
+   **Outcome (verify-solo, 2026-11-19): unchanged, proven in the browser frame by frame; see "Last pass: verify-solo" below.**
 4. **Typecheck, whole suite, production build.** In the built site the test-only switches (`?net=loop`, proof mode, the pretend
    pointer lock) must be unreachable; `?netsim` is allowed. Fix the stale `devflags` test (update its expectation) and make
    the three load-flaky tests deterministic or explain them (`gore/knockdown`, `gore/strength`, `weapons/viewmodels/hands`).
+   **Outcome (verify-solo, 2026-11-19): all clean, the gates proven on a built site, the tests made deterministic; see "Last pass: verify-solo" below.**
 
 **B. Proofs on the final tip** (fast mode, 3 browser slots; `look: true` only for look-checks)
 5. Every lane's proofs again on the final tip, clean and under `lag:120,jitter:40,loss:0.05`: session (all nine), team (endings,
@@ -604,6 +606,7 @@ Work through all of it; write the outcome beside each item in the log (fixed wit
     host per-frame cost flat in players, binary for the hot events only if the numbers ask for it.
 21. Worth a look if cheap: Web Audio's thread costs 0.8 of a core per page (real players too?); a 353 ms shader link one second
     into play; JS heap growth over fixed rounds.
+   **Outcome (verify-solo, 2026-11-19): looked at, one small warm-up landed, the rest explained; see "Last pass: verify-solo" below.**
 
 **D. Finish**
 22. `docs/notes/coop.md` reads as one document; `docs/HANDOFF.md` and `CLAUDE.md` say what is true now; the audits are marked
@@ -1079,3 +1082,129 @@ Each: what fails, where, how many players, which network, the evidence, the caus
    screen drew `lobby.players` in the array's order, which is the order the guests' pages answered the returning host. Fix:
    the screen draws the list by slot (`bySlot` in `lobby.ts`, used by `ui/screens/coop.ts`; test in `lobby.test.ts`), and
    the proof compares seats whatever the order of the page's own array.
+
+## Last pass: verify-solo (checklist A3, A4, C21), 2026-11-19
+
+Compared: `dev` as it was before the overhaul (`a5e0d38`) against the branch tip, in single player, in the browser. Landed
+as three commits: the tests, the tools, the warm-up. Tools,
+all kept: `tools/solo-parity.mjs` (one command for the whole comparison), `docs/notes/devtools.md` sections 7 to 9.
+
+**A3. Single player is unchanged.** How it was proven: one scripted run per scenario on each build with the clock frozen
+(every frame is 16 ms on both) and `Math.random` seeded **per calling function**, so the blood puff's new draws move nobody
+else's dice; every game event, every word the HUD is told to show, every menu screen's text and, each frame, the player, the
+gun, the wave, the score, the purse, every living enemy and the gore system's counts are recorded and compared exactly. The
+same build twice gives the same record, so a difference is the build's.
+
+- **36 scenarios, about 62 minutes of play a build (233,000 frames): every frame and every event the same**, apart from the
+  list below. Crucible: an 86 s fight with the starting kit; the same with every streak called; six waves fast with a boss wave;
+  the whole shop read at each of six breaks (127 rows: price, lock, reason) and everything open bought. Endless Humans on both
+  maps: a fight (squads, morale, surrender, execution, the Commander's orders and briefings); **all ten rounds to the ending
+  and the game-over screen** (9 minutes each, every wave start and clear on the same frame); the shop read at all ten breaks
+  (every row is open by the break after wave 9, as the rule says). Outpost Defense: five waves with hires, a mortar team and
+  the shops, and a wall knocked down a stage, its repair bought at the Barracks, a second boarded up by hand. The Outpost: its film and first four
+  sections, three later starts (softskins; heavy to wreck; breach to gallery), a death and its checkpoint. Foreclosure: film to
+  landing, three later starts (landing; market to stacks; courier), a death and its checkpoint. Retraining: intake, crouch,
+  slide; and, in real time, that an empty browser's first Play loads it (`tools/scripts/first-launch.mjs`: the splash, a
+  menu of Play, Guide and Settings, then `/?contract=retraining`, the same on both builds). Prisoners: the exact prompt ("Tap [E] to question · Hold [E] to capture", then "Tap [E] to release"), a tap, a
+  release, a 0.35 s hold that stays a tap, a 0.5 s hold that cuffs on the frame 0.4 s is reached, the 300 bounty. A death,
+  the game-over screen and a new run. All 26 weapons in turn at standing targets (held fire, aimed fire, a reload, melee,
+  a grenade): the same shots, hits, damage and kills each, the shotgun's pellets drawn from `Math.random` draw for draw
+  (654 draws on both builds). The four enemies that carry a tank, shot dead. The focus zoom to its limit (3.44 s at full
+  zoom) and its cooldown. Movement on both maps (run, dash, slide, bunny hops, strafes, a slam). Sonar and its recharge, Thermal
+  on and off, Focus (drained to empty, its refill, its start mark, a tap off, used again while firing) and a stim. All ten call-ins. The pause menu, the shop screen, the settings, the splash and the
+  main menu three levels deep, word for word.
+- **Differences found, each with a verdict:**
+  1. **The blood puff** on every bullet and pellet hit on flesh (258 in the 86 s fight). Intended.
+  2. **A dropped gun comes to rest on the ground.** Thrown from the top of a jump it hung at 2.98 m on `dev` and lies at
+     0.43 m now; on the flat it rests 1 cm lower (the floor under it, not the thrower's feet). Intended.
+  3. **The Guide's key list has two co-op lines:** "Next wave now (Defense, Crucible shop; co-op: ready up)" and a new row,
+     "MMB / P: Co-op only: mark a spot for the team". Every other screen's words are the same. Not asked for, harmless; the
+     owner may want the row hidden alone.
+  4. One new game event alone, `weapon:loop` (the Buzzsaw's spin and the Kiln's hose, for other players' screens), with no
+     listener in single player; and new fields on old events (`note`, `from`, `doomed`, `killSoon`, `sure`, `cut`). Harmless.
+  5. Found by the code review and fixed by the fix-game lane during this pass, then checked here in the browser against
+     `dev`: a round that set off an enemy's tank lost its own sound, marker and hit-stop (the `tanks` scenario is the same as
+     `dev` since `77ec683`); a strike's scatter and a pod's facing drew from other dice (the same since `500c68d`: the airstrike
+     run and the ten call-ins match frame for frame).
+  6. Not the game's, the harness's, each found as a "difference" and run to ground: a page of the Commander's words stays up
+     until its **recording** ends, in real time (it closed 14 to 250 frames apart between two runs: recordings are not served
+     now, and both round-10 runs match to the last frame); a music track changes in real time; a menu's Resume waits on the
+     browser's pointer lock (the kit's pretend lock now); a body's idle phase came from the pool it was taken from (it goes by
+     its turn now); and `82ef996` moved a hit's trip, fall and stagger rolls into a helper, `dice`, which alone is
+     `Math.random` draw for draw but drew from another of the harness's streams (ten scenarios "differed" until the harness
+     was told the helper's old name).
+- **Pictures:** the end frame of an idle run is pixel-identical on both builds (0 of 921,600); the end frame of the fight
+  differs by 1.6 %, all of it blood particles round the enemy being shot.
+- **Frame time, the tip against `dev`, drawing on, 1440x900 at dpr 2, RTX 4090, machine load 7 to 15:**
+
+  | | `dev` | tip |
+  |---|---|---|
+  | The same 30 enemies who cannot die, the SMG held on them, 40 s, three runs each: frames a second | 60.0, 60.0, 60.0 | 60.0, 60.0, 60.0 |
+  | ... the game's work a frame, mean (ms) | 8.81, 8.35, 6.35 | 7.73, 7.40, 7.44 |
+  | ... 99th percentile work (ms) / worst frame interval (ms) | 17.4, 14.0, 11.1 / 33.3, 33.3, 16.8 | 13.3, 14.6, 13.7 / 16.8, 33.3, 16.8 |
+  | ... draw calls, mean | 359, 340, 344 | 338, 355, 351 |
+  | A real 60 s Crucible fight, two runs each: mean work (ms) at mean draw calls | 8.25 at 305, 7.25 at 260 | 9.25 at 330, 7.84 at 271 |
+  | ... frames over 33 ms in 3,590 | 2, 1 | 2, 1 |
+  | JS heap / GPU memory at the end of a run | 48 to 53 MB / 486 to 513 MB | 48 to 53 MB / 486 to 522 MB |
+  | Leak soak, the same crowd for 8 rounds, 192 kills: GPU, heap, textures, buffers | 512.9 MB, 57.9 MB, 244, 1,862 | 512.9 MB, 57.9 MB, 240, 1,861 |
+
+  **The overhaul has not made single player slower or heavier.** The two builds are inside each other's run-to-run spread,
+  and the soak ends on the same byte counts with nothing still growing on either.
+
+**A4. Typecheck, the suite, the build, the gates** (on the tip with this lane's commits):
+
+- `npx tsc --noEmit` clean. The whole suite five times in a row: **2,843 passed, 6 skipped, 0 failed, five times** (about 22 s
+  a run, machine load 6 to 16). `npm run build` clean.
+- `dist/`: under `audio/music` only `manifest.json`; no file over 5 MB; 6,472 files, 299 MB; a search for keys finds nothing
+  (two hits in the physics engine's packed binary are chance).
+- **The gates, proven on the built site** (`tools/scripts/gates-public.mjs`). The game takes a page for "ours" by host name
+  (`localhost`, `127.0.0.1`, `[::1]`), so `dist/` served on `127.0.0.2` is the public site as far as it can tell. There, 10 of
+  10: `?net=loop` is ignored (a second tab is still held by the one-tab rule, and an opened lobby says its transport is `rtc`);
+  proof mode is ignored with `window.__op2Proof` set (119 of 119 frames drawn); the pretend pointer lock and the silenced audio
+  are the test kit's own page scripts and are not in the bundle; `?netsim=lag:80,jitter:30` is honoured; `?dev=1` loads the
+  lab, `?dev=0` and no `dev` do not. The control, the same `dist/` on `127.0.0.1`, shows the checks can see the switches: proof
+  mode on (0 of 124 frames drawn), the lobby on `loop`, a second tab running. **No gate leaks; nothing needed fixing.**
+- **The tests.** `devflags.test.ts` expected the Test Range to start with the arsenal on: fixed (it starts off). The three
+  "load-flaky" tests were not load: **they fail alone on an idle machine, by the dice.** Each builds real animators, which draw
+  a random idle phase, and its bound is tighter than the game's real spread (`gore/knockdown` "heading 0,1": 19 of 150 seeds
+  fail, the bone shake across the switch 0.034 m at the median and 0.070 at the worst against 0.06). `Math.random` is now
+  seeded per test (`tools/test-setup.ts`, `OP2_TEST_SEED` to change or turn off), so a run is the same every time and the
+  checks are as strict as before. Under 20 other seeds six gore tests fail for some seed (the table is in `devtools.md`,
+  section 9): **the ragdoll work should widen those bounds or meet them; it is real spread, not a bug hidden.**
+  `hands.test.ts` "failed to load" was its `beforeAll` (every gun model built, a second alone) passing the default 10 s hook
+  limit on a loaded machine at the suite's low priority: hooks now have 60 s, as tests do.
+
+**C21. Cheap wins.**
+
+- **The 353 ms frame "one second into play" is the test address, not the game.** With `?autostart=1` there is no splash, so
+  the game's own warm-up (every FX layer drawn once, every program asked about) lands on the first frames of play: 5 programs
+  link and one frame takes 67 to 83 ms here (353 ms was at machine load 77). A run started from the splash, as a player
+  starts one, has no such frame: nothing links in its first three seconds and its first frames are 16.7 ms. In co-op the
+  match page sits behind "Click to deploy" the same way.
+- **Landed, small:** what still linked in play from the splash was 4 to 5 programs in the first 25 s, 3 of them as the first
+  enemy appears (an unhurt body's material, a far-off body's, the shadow pass's). `CharacterLibrary.warmWounds` now draws an
+  unhurt and a far body beside the wounded one on the first frame: 2 programs link in play, none a body's, and the one
+  50 ms frame seen at the first enemy (one run of four) was not seen in three runs after. Same code alone and in co-op.
+  Still first used in play: one small program at the first spawn, the heat shimmer's, and two FX programs that gave one
+  50 ms frame at 24 s in one run of three. Each is a one-off; warming them is the same trick, in `fx/core.ts` `warm`.
+- **The first gib:** no stall here. Its damage call takes 11 ms against 3 for later ones, no program links, and no frame is
+  late (16.7 ms intervals through all five gibs, on both builds). The 42 to 72 ms in the gore notes was the 8 GB Mac. Left
+  for the damage response update, which has it as Q1.
+- **The audio thread is the game's own graph, not the test browser, and it is not 0.8 of a core.** Measured per thread from
+  `/proc` in one browser: an empty page with a running `AudioContext` 0.006 of a core; the game standing in a break 0.05; the
+  game in a fight (16 voices) 0.36; suspended 0. The 0.8 was two pages on an overloaded machine. It is its own thread, so it
+  costs no frame time. Nothing obviously wasteful at rest (one ambience loop through the master chain); nothing changed.
+
+**For the lead.**
+
+- **The last full pass was on `40beb95` with this lane's three commits on top**, the 33 short scenarios: 28 the same in
+  every frame and event, the 4 menu runs differing only by the Guide's two lines and `drops` by the gun's resting place.
+  The three round-10 runs were last made on `6669d68` with the same three commits: the same to the last frame.
+  The branch was still taking commits while this was measured, and twice a full pass caught one (see 5 and 6). Before
+  merging, run it once more on the very last tip: `node tools/solo-parity.mjs --old <port of a5e0d38> --new <port of the tip>`
+  (about 15 minutes on a quiet machine; `--long` adds the three round-10 runs, 20 more). The old build is a second worktree
+  with its own Vite; restart both servers first.
+- The Guide's two co-op lines alone (difference 3): keep or hide, the owner's call.
+- Six gore tests have bounds tighter than the game's spread (seeded now, so they pass): for whoever does the ragdolls.
+- Not covered by a bot: the later sections of both missions past the ones listed, Retraining past its third lesson (its
+  lessons want real play), flyable vehicles, the Frame's own weapons beyond boarding it, and how anything feels.
