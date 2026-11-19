@@ -5,7 +5,7 @@
  */
 import * as THREE from 'three';
 import type RAPIER from '@dimforge/rapier3d-compat';
-import { CG, type Ctx } from '../core/contracts';
+import { CG, type Ctx, type RayHit } from '../core/contracts';
 import { groups } from '../physics/Physics';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { clamp, mulberry32, rand, TAU } from '../core/math';
@@ -99,6 +99,8 @@ interface Chunk {
   sag: number;
   /** World time an organ may next be kicked. */
   kickAt: number;
+  /** Flying on with no body of its own (over the cap, `ChunkField.ghost`): the floor it is falling to. */
+  floorY: number;
   /** World time it may next leave a strand of blood in its path, and the ribbon a big piece trails (trail.ts). */
   trailAt: number;
   ribbon: Ribbon | null;
@@ -272,6 +274,8 @@ const _rot = new THREE.Quaternion();
 const _p = new THREE.Vector3();
 const _o = new THREE.Vector3();
 const _up = new THREE.Vector3(0, 1, 0);
+const _downward = new THREE.Vector3(0, -1, 0);
+const _floor: RayHit = { point: new THREE.Vector3(), normal: new THREE.Vector3(), distance: 0, surface: 'concrete', collider: null };
 
 export class ChunkField {
   private readonly meshes = new Map<ChunkKind, THREE.InstancedMesh>();
@@ -369,7 +373,7 @@ export class ChunkField {
     this.meshes.set(kind, mesh);
     this.ring.set(kind, 0);
     const slots: Chunk[] = Array.from({ length: cap }, (_, slot) => ({
-      kind, slot, body: null, size: 0, bulk: 0, sx: 1, sy: 1, sz: 1, born: 0, still: 0, restedAt: -1, speed: 0, splats: 0, nextThud: 0, wob: 0, wobV: 0, sag: 0, kickAt: 0, trailAt: 0, ribbon: null, alive: false,
+      kind, slot, body: null, size: 0, bulk: 0, sx: 1, sy: 1, sz: 1, born: 0, still: 0, restedAt: -1, speed: 0, splats: 0, nextThud: 0, wob: 0, wobV: 0, sag: 0, kickAt: 0, floorY: 0, trailAt: 0, ribbon: null, alive: false,
       p: new THREE.Vector3(), q: new THREE.Quaternion(), v: new THREE.Vector3(),
     }));
     this.slots.set(kind, slots);
@@ -473,7 +477,7 @@ export class ChunkField {
     tinted.setColorAt(c.slot, _tint.setRGB(1 - k * 0.94, 1 - k * 0.95, 1 - k * 0.95));
     tinted.instanceColor!.needsUpdate = true;
 
-    if (this.live.length >= ChunkTuning.maxBodies) this.dropBody(this.live[0]!);
+    if (this.live.length >= ChunkTuning.maxBodies) this.ghost(this.live[0]!);
 
     const extent = this.extent.get(kind);
     const own = this.cut.get(kind);
@@ -549,8 +553,33 @@ export class ChunkField {
     this.write(c, 1);
   }
 
+  /**
+   * Over the cap on bodies, the oldest piece in flight gives its body up. It used to stop where it was, which with pieces
+   * thrown high for a second (the gore update) was in mid-air, for good. Now it flies on without one: along its own arc
+   * under the world's gravity to the floor under it, where it rests. It bounces off nothing on the way.
+   */
+  private ghost(c: Chunk): void {
+    const body = c.body;
+    if (!body) return;
+    body.linvel(c.v);
+    this.dropBody(c);
+    if (c.v.lengthSq() < 1.5) return;
+    _o.copy(c.p);
+    _o.y += 0.1;
+    if (!this.ctx.physics.raycastInto(_o, _downward, 40, CG.World, _floor)) return;
+    c.floorY = _floor.point.y + Math.min(0.08, c.bulk * 0.6);
+    if (c.p.y <= c.floorY + 0.02) return;
+    c.restedAt = -1;
+    this.ghosts.push(c);
+  }
+
+  /** Pieces flying on with no body (`ghost`). */
+  private readonly ghosts: Chunk[] = [];
+
   private retire(c: Chunk): void {
     if (c.body) this.dropBody(c);
+    const flying = this.ghosts.indexOf(c);
+    if (flying >= 0) this.ghosts.splice(flying, 1);
     c.alive = false;
     const mesh = this.meshes.get(c.kind)!;
     mesh.setMatrixAt(c.slot, _hide);
@@ -625,6 +654,19 @@ export class ChunkField {
       if (speed < 0.25) c.still += dt;
       else c.still = 0;
       if (c.still > t.settle || now - c.born > 7) this.dropBody(c);
+    }
+    const g = this.ctx.physics.world.gravity.y;
+    for (let i = this.ghosts.length - 1; i >= 0; i--) {
+      const c = this.ghosts[i]!;
+      c.v.y += g * dt;
+      c.p.addScaledVector(c.v, dt);
+      if (c.p.y <= c.floorY) {
+        c.p.y = c.floorY;
+        c.restedAt = now;
+        this.ghosts.splice(i, 1);
+        if (c.kind !== 'scrap') this.blood.stainBelow(c.p, 0.14 + c.bulk * 2.2, 'blood', 0.8);
+      }
+      this.write(c, 1);
     }
     this.updateOrgans(dt, now);
     const all = this.all;
@@ -823,6 +865,7 @@ export class ChunkField {
   clear(): void {
     if (!this.ready) return;
     for (const c of this.all) if (c.alive) this.retire(c);
+    this.ghosts.length = 0;
     for (const kind of this.meshes.keys()) this.ring.set(kind, 0);
     this.dismissed = -Infinity;
   }

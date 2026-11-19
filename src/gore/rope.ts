@@ -186,7 +186,9 @@ export class RopeField {
       a += 1.1 + rnd() * 0.5;
       const rad = r.segment * 0.9;
       const x = at.x + Math.cos(a) * rad, y = at.y + (rnd() - 0.5) * r.segment, z = at.z + Math.sin(a) * rad;
-      const s = 0.75 + rnd() * 0.5;
+      // Its lead end leaves faster than its tail, so it strings out in flight and comes down laid across what is there,
+      // not as a coil that lands in a heap (a heap cannot drape over anything).
+      const s = 0.55 + 0.9 * (i / (RopeTuning.points - 1)) + (rnd() - 0.5) * 0.16;
       r.x[i * 3] = x;
       r.x[i * 3 + 1] = y;
       r.x[i * 3 + 2] = z;

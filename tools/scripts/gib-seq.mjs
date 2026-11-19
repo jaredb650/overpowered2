@@ -70,6 +70,12 @@ const CASES = {
   waist: { steps: BLAST_STEPS, act: r => r.gore(g => g.sever(r.target.char, 'abdomen', r.damage('abdomen', 60, 60, { type: 'slash' }))) },
   // The Lance: meant to leave nothing.
   vaporize: { steps: [0, 6, 12, 24, 36, 48, 60, 80, 100, 120, 140, 160], act: r => r.hit('chest', 400, 30, { vaporize: true, source: 'lance' }) },
+  // Guts over a wall: a wall stood a metre and a half behind him, a rocket in front, and four more strands thrown across
+  // it, so the sheet shows them caught on its top and hanging down both faces.
+  drape: { lookY: 0.8, steps: [0, 12, 24, 36, 48, 60, 90, 120, 150, 180, 240, 300], act: async r => { r.wall(-1.5); await r.walk(2); r.explode(0, 0.25, r.spec.rocket, 0.6); r.strands(-1.5); } },
+  // Guts over something low: the nearest thing on the range that stands half a metre to a metre and a half over the floor
+  // (a crate by a mounted gun), with strands thrown across it from close, seen from two and a half metres.
+  drapelow: { steps: [0, 12, 24, 36, 48, 60, 90, 120, 150, 180, 240, 300], act: async r => { r.target.position.set(40, 0, 40); const top = r.findTop(); r.park(top); r.over(top); } },
   // A corpse on the floor gibbed by a second rocket.
   corpse: { steps: BLAST_STEPS, act: async r => { r.hit('chest', 400, 20, {}); await r.walk(110); r.explode(0.3, 0.25, r.spec.rocket); } },
 };
@@ -145,14 +151,48 @@ export default async function gibSeq(page, h) {
         }
         r.target = r.crowd[0];
         r.centre.copy(AT);
+        r.focus = null;
         r.log = [];
         look(new V(AT.x, c.lookY ?? 1.0, AT.z));
         lab.togglePause();
         await r.walk(c.settle ?? 20);
       },
-      /** A blast `side` metres to the body's left on the floor and `y` up, as a rocket landing at his feet. */
-      explode(side, y, spec) {
-        const at = new V(AT.x + side, y, AT.z + 0.15);
+      /** The top of the nearest thing 0.5 to 1.5 m over the floor within eight metres of the body, by rays straight down. */
+      findTop() {
+        const hit = { point: new V(), normal: new V(), distance: 0, surface: 'concrete', collider: null };
+        const down = new V(0, -1, 0);
+        let best = null;
+        for (let x = -14; x <= 14; x += 0.2) {
+          for (let z = -12; z <= 12; z += 0.2) {
+            if (!ctx.physics.raycastInto(new V(x, 1.7, z), down, 3, 1, hit)) continue;
+            const y = hit.point.y;
+            if (y < 0.4 || y > 1.5) continue;
+            const d = Math.hypot(x - AT.x, z - AT.z);
+            if (!best || d < best.d) best = { x, y, z, d };
+          }
+        }
+        return best;
+      },
+      /** Stands the player two and a half metres from `top`, looking at it. */
+      park(top) {
+        ctx.player.teleport(new V(top.x, 0.1, top.z + 2.5), 0);
+        r.focus = new V(top.x, top.y * 0.6, top.z);
+      },
+      /** Strands of gut thrown across `top` from the player's side. */
+      over(top) {
+        for (let k = 0; k < 4; k++) ctx.gore.ropes.spill(new V(top.x - 0.3 + k * 0.2, top.y + 0.7, top.z + 0.75), new V((k - 1.5) * 0.3, 1.6, -1.5 - k * 0.15), 1, 21 + k);
+      },
+      /** A cover wall across the view, `dz` metres from the body (behind him when negative). */
+      wall(dz) {
+        ctx.world.objects.walls.place({ kind: 'wall', x: AT.x, y: 0, z: AT.z + dz, yaw: 0, length: 4 });
+      },
+      /** Four loose strands of gut thrown across the wall at `dz`. */
+      strands(dz) {
+        for (let k = 0; k < 4; k++) ctx.gore.ropes.spill(new V(AT.x - 1.2 + k * 0.8, 1.7, AT.z + dz + 0.9), new V(0, 2.5, -2.4 - k * 0.2), 1, 11 + k);
+      },
+      /** A blast `side` metres to the body's left on the floor and `y` up, as a rocket landing at his feet; `front` metres toward the player. */
+      explode(side, y, spec, front = 0.15) {
+        const at = new V(AT.x + side, y, AT.z + front);
         r.centre.copy(at);
         ctx.combat.explode(at, { ...spec, source: 'test', team: 'player' });
       },
@@ -201,7 +241,7 @@ export default async function gibSeq(page, h) {
         }
       },
       aim(c) {
-        look(new V(AT.x, c.lookY ?? 1.0, AT.z));
+        look(r.focus ?? new V(AT.x, c.lookY ?? 1.0, AT.z));
       },
       /** Litres inside a closed mesh, by its signed volume. Kept by geometry. */
       meshLitres(g) {

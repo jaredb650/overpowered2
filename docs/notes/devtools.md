@@ -305,10 +305,11 @@ with the shader programs that were linked on it.
 All three run on the Test Range through `shot.mjs` (headers have the commands and the `GIB_*` settings):
 
 - `tools/scripts/gib-seq.mjs`: every way a body is destroyed (`GIB=rocket1,rocket3,grenade,barrel,shell,direct,heavy,frozen,
-  shotgun,headburst,headpartial,armL,legL,limbburst,slice,waist,vaporize,corpse,...`), one contact sheet a case from the
+  shotgun,headburst,headpartial,armL,legL,limbburst,legburst,tophalf,slice,waist,vaporize,drape,drapelow,...`), one contact sheet a case from the
   player's eye at `GIB_DIST` metres, stepped on world frames with the dice seeded, and for each moment what is in the world
-  and how much of it is in the air. `GIB_ID` picks the archetype, `GIB_STILLS` keeps full frames.
-- `tools/scripts/gib-pieces.mjs`: close-ups of the piece models (`GIB_SET=slabs|trunk|loose`), with each one's size and volume.
+  and how much of it is in the air, and its litres (the volume audit in `gore.md`). `GIB_ID` picks the archetype,
+  `GIB_STILLS` keeps full frames.
+- `tools/scripts/gib-pieces.mjs`: close-ups of the piece models (`GIB_SET=slabs|limbs|trunk|loose`), with each one's size and volume.
 - `tools/scripts/gib-cost.mjs`: a row of bodies each burst by its own rocket; the call, the slowest frame after it, and any
   shader program that first appears (the first-gib stall).
 

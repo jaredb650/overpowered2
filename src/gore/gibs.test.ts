@@ -201,6 +201,10 @@ describe('the blood a piece trails', () => {
     expect(gore.trail.live).toBeLessThanOrEqual(TrailTuning.max);
     expect(gore.stats().chunkBodies).toBeLessThanOrEqual(ChunkTuning.maxBodies);
     expect(hose).toBeLessThanOrEqual(gore.trail.points);
+    // Past the cap on bodies the oldest pieces fly on without one: nothing is left standing in the air.
+    expect(chunks().length).toBeGreaterThan(ChunkTuning.maxBodies);
+    step(240);
+    for (const c of chunks()) expect(c.p.y).toBeLessThan(0.6);
   });
 });
 

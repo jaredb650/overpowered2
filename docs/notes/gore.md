@@ -423,7 +423,9 @@ machine (five bakes and three cuts a limb), on top of the kits' 160 and the slab
 or be thrown from explosions". Every burst now throws its strands free (2 or 3 for a crack, 2 for a waist tear; none hangs
 off the pelvis's piece any more), at 2.5 to 6 m/s out and 6 to 9.5 up like the rest; guts already hanging out of a man when
 he bursts, or out of a top half when it is destroyed, are let go and thrown too (`RopeField.drop(owner, velocity)`), where
-they used to go with the body. A loose strand **drapes**: each point rides the top of whatever is under it, as before, and
+they used to go with the body. A thrown strand's lead end leaves faster than its tail (0.55 to 1.45 of the throw along its length), so it strings out in
+flight and comes down laid across what is there; as a coil it landed in a heap, and a heap drapes over nothing. A loose
+strand **drapes**: each point rides the top of whatever is under it, as before, and
 now a point that comes down on something standing `snagStep` (0.3 m) or more over the floor beside it (a ledge, a rail, a
 crate, a parapet) is **caught** there, two points a strand at most, and the rest hangs off it; in flight two points a frame
 are tested along their own step, so a strand thrown at a wall slaps it, wets it (`bleedAt`) and slides down. Not done:
@@ -440,6 +442,11 @@ aside, once every half second); and one **stepped on** (the feet within 20 cm of
 squelch. Bursting is how an organ leaves the world: one whose slot is wanted bursts where it lies too. Not done: an organ
 thrown out of a blow-out is still drawn inside the opened chest (the interior is one mesh an archetype, with no switch an
 organ; it needs a bit in the body's data texture, which the fire and wear lanes are spending now).
+
+**Over the cap on moving pieces** (`ChunkTuning.maxBodies`, 72: three full gibs are exactly that), the oldest piece in
+flight used to give its body up and stop where it was, which with pieces thrown high for a second was in mid-air, for good.
+It now flies on without a body (`ChunkField.ghost`): along its own arc under the world's gravity to the floor under it,
+bouncing off nothing, and rests there. `gibs.test.ts` bursts eight at once and finds nothing left above 0.6 m.
 
 **Caps.** Organs: lung 16, liver, heart and stomach 10 each; ribcage fragments 12 of each kind, all inside `ChunkTuning.maxBodies`
 (72 live bodies), oldest first. Trunk pieces count as halves (`SliceTuning.maxHalves`, 20 live, now shared with the sword).
