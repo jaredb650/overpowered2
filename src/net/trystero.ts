@@ -3,7 +3,7 @@ import { report } from '../core/report';
  * The room over trystero's default strategy, Nostr: peers find each other through public Nostr relays, then talk
  * browser to browser over WebRTC. The password encrypts the handshake, so without it nobody can join or see who is in.
  *
- * Relays: 8 of trystero's public list (it picks the same 8 for everyone from the app id, so all players share them).
+ * Relays: 12 of trystero's public list (it picks the same 12 for everyone from the app id, so all players share them).
  * Any one of them answering is enough; when none does, the lobby says so ('relays') instead of waiting.
  *
  * TURN: `fetchTurn` (turn.ts) asks the owner's Worker for short-lived relay credentials before joining. Without it the
@@ -28,7 +28,8 @@ import { pageSim } from './netsim';
 import { publishNet, watchNet } from './debug';
 
 export const APP_ID = 'overpowered-2-coop';
-export const RELAY_REDUNDANCY = 8;
+/** 12 of trystero's list (the first 8 are the same as before: it takes a prefix of one shuffle). One of the 8 was dead on 2026-11-19. */
+export const RELAY_REDUNDANCY = 12;
 
 /** The lobby behind `password`, and its door behind the code (room.ts). Fetches TURN first (at most TURN_TIMEOUT_MS). */
 export async function openLobby(code: string, password: string): Promise<LobbyRooms> {
