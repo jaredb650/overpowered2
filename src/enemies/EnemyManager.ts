@@ -1050,6 +1050,22 @@ export class EnemyManager implements EnemySystem {
     e.armor *= ratio;
   }
 
+  /**
+   * Co-op guest: the host's word on a soldier's rank, after the copy was fitted (`fitReplicaHealth`). A rank's toughness
+   * multiplies a man's health **after** his limb pools (and any plates his kind is born with) are cut, so the host's pools
+   * are a share of his health before it; the copy's were scaled by the host's whole health over this page's, which holds
+   * this page's own roll of his rank. `was` is the toughness this page gave him, `now` the host's: the pools are put right
+   * by one over the other. (The browser proof read a copy's limbs 15 and 35 % stronger than the host's man's.)
+   */
+  rerankReplica(e: Enemy, was: number, now: number): void {
+    if (!(was > 0) || !(now > 0) || was === now) return;
+    const ratio = was / now;
+    for (const [region, hp] of e.limbHp) if (region !== 'head' || !e.def.headPoolFixed) e.limbHp.set(region, hp * ratio);
+    if (!e.def.plates) return;
+    for (const plate of e.plates) plate.hp *= ratio;
+    e.armor *= ratio;
+  }
+
   /** Co-op guest: the host's word that this copy should not be on the floor (its answer to a hit this machine guessed wrong). */
   rouseReplica(enemy: Enemy): void {
     if (enemy.downed && !this.ctx.gore.downed(enemy.char)?.standing) this.ctx.gore.rouse?.(enemy.char);

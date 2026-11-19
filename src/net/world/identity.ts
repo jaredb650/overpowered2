@@ -93,8 +93,11 @@ export class Identity implements WorldModule {
         s.name = name; s.desig = desig; s.nick = nick;
         s.known = (bits & 1) !== 0;
         s.bravado = (bits & 4) !== 0;
+        const was = s.rankDef?.toughness ?? 1;
         s.rank = RANK_ORDER[rank]!;
         s.rankDef = RANKS[s.rank];
+        // His limbs were fitted to this page's own roll of his rank (EnemyManager.rerankReplica).
+        (this.w.manager as { rerankReplica?(enemy: Enemy, was: number, now: number): void }).rerankReplica?.(enemy, was, s.rankDef.toughness);
         s.seat = seat;
         s.voice = voice;
         this.commander?.wear?.(s, gear);

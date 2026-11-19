@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Enemy } from '../../enemies/Enemy';
 import { GEAR_HEAVY } from '../../enemies/commander/props';
+import { RANKS, RANK_ORDER } from '../../enemies/outpost/rank';
 import { enlist, Soldier } from '../../enemies/outpost/soldier';
 import type { WorldEvent } from '../worldProtocol';
 import type { WorldContext } from './context';
@@ -332,6 +333,21 @@ describe('soldier identity', () => {
     expect(s.squad.name).toBe('Bravo');
     expect(s.isLeader).toBe(true);
     expect(s.titled).toBe('Lt Bravo-1');
+  });
+
+  it('a guest puts its copy\'s limbs right by the rank the host says, once', () => {
+    const guest = side(false);
+    const rerank = vi.fn();
+    Object.assign(guest.w.manager, { rerankReplica: rerank });
+    void new Identity(guest.w as unknown as WorldContext, guest.replicas as unknown as Replicas);
+    const e = guest.copy(7, 0);
+    const s = soldier(e, 11, 'Zulu', false);
+    s.rankDef = RANKS.veteran;
+    guest.take({ t: 'who', list: [[7, 4, 22, 45, RANK_ORDER.indexOf('elite'), 1, 5, 7, 'Bravo', 0]] });
+    expect(rerank).toHaveBeenLastCalledWith(e, RANKS.veteran.toughness, RANKS.elite.toughness);
+    // Told again (his gear changed): his rank is already the host's.
+    guest.take({ t: 'who', list: [[7, 4, 22, 45, RANK_ORDER.indexOf('elite'), 1, 5, 7, 'Bravo', 1]] });
+    expect(rerank).toHaveBeenLastCalledWith(e, RANKS.elite.toughness, RANKS.elite.toughness);
   });
 
   it('the host says what each man wears, says it again when that changes, and a guest dresses its copy by the host\'s word', () => {

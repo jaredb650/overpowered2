@@ -547,6 +547,39 @@ describe('a copy of an enemy with more health than this page would have given it
   });
 });
 
+describe('a copy of a soldier whose rank this page rolled differently', () => {
+  it('has the host\'s limb pools once the host says his rank: toughness multiplies health after the pools are cut', () => {
+    const host = world(), guest = world();
+    const there = host.spawn('trooper'), here = guest.spawn('trooper');
+    const pools = (e: typeof here) => Object.fromEntries([...e.limbHp].map(([k, v]) => [k, Math.round(v * 1000) / 1000]));
+    const cut = pools(there);
+    // The Outpost commissions each: the host's man is a veteran (tougher), this page rolled him a conscript.
+    const VETERAN = 1.35, CONSCRIPT = 0.8;
+    there.maxHealth *= VETERAN; here.maxHealth *= CONSCRIPT;
+    // The first state: fitted to the host's health. The pools come out too strong by one toughness over the other.
+    guest.manager.fitReplicaHealth(here, there.maxHealth);
+    expect(pools(here).legL).toBeCloseTo(cut.legL! * VETERAN / CONSCRIPT, 2);
+    // The host's word on who he is: the pools are the host's.
+    guest.manager.rerankReplica(here, CONSCRIPT, VETERAN);
+    expect(pools(here)).toEqual(cut);
+    expect(pools(there)).toEqual(cut);
+    // Said again, or the same rank on both pages: nothing moves.
+    guest.manager.rerankReplica(here, VETERAN, VETERAN);
+    expect(pools(here)).toEqual(cut);
+  });
+
+  it('a kind born with plates has them cut before his rank too, and they follow', () => {
+    const host = world(), guest = world();
+    const there = host.spawn('brute'), here = guest.spawn('brute');
+    const plates = there.plates.map(p => p.hp), armor = there.armor;
+    there.maxHealth *= 1.35;
+    guest.manager.fitReplicaHealth(here, there.maxHealth);
+    guest.manager.rerankReplica(here, 1, 1.35);
+    for (let i = 0; i < plates.length; i++) expect(here.plates[i]!.hp).toBeCloseTo(plates[i]!, 6);
+    expect(here.armor).toBeCloseTo(armor, 6);
+  });
+});
+
 describe('a guest is on the host\'s wave and counts what is left as the host does', () => {
   it('a copy made on a late wave is made with that wave\'s numbers once the manager is on the host\'s wave', () => {
     const host = world(), guest = world();
