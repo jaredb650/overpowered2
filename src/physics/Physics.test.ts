@@ -19,11 +19,13 @@ async function stepsFor(dt: number): Promise<{ steps: number; covered: number }>
 }
 
 describe('the physics step', () => {
+  // The switch is off by default (the owner compares by playing first): each test sets what it needs.
   afterEach(() => {
-    DevFlags.oneStep = true;
+    DevFlags.oneStep = false;
   });
 
-  it('takes a 60 Hz frame in one step, however the frame time wobbles', async () => {
+  it('with the switch on, takes a 60 Hz frame in one step, however the frame time wobbles', async () => {
+    DevFlags.oneStep = true;
     // What a 60 Hz screen's frames read: 16.6 to 16.8 ms, and now and then a little more.
     for (const ms of [16.6, 1000 / 60, 16.7, 16.8, 17.2, 17.6]) {
       const { steps, covered } = await stepsFor(ms / 1000);
@@ -33,7 +35,8 @@ describe('the physics step', () => {
     }
   });
 
-  it('still cuts a long frame into steps no longer than a 60 Hz frame and a bit', async () => {
+  it('with the switch on, still cuts a long frame into steps no longer than a 60 Hz frame and a bit', async () => {
+    DevFlags.oneStep = true;
     for (const [ms, want] of [[18, 2], [25, 2], [33.4, 2], [36, 3], [50, 3]] as const) {
       const { steps, covered } = await stepsFor(ms / 1000);
       expect(steps, `${ms} ms`).toBe(want);
@@ -42,8 +45,8 @@ describe('the physics step', () => {
     }
   });
 
-  it('with the switch off, cuts every frame a hair over 1/60 s in two, as it did', async () => {
-    DevFlags.oneStep = false;
+  it('by default, cuts every frame a hair over 1/60 s in two, as it always did', async () => {
+    expect(DevFlags.oneStep).toBe(false);
     expect((await stepsFor(1 / 60)).steps).toBe(1);
     expect((await stepsFor(0.0168)).steps).toBe(2);
     expect((await stepsFor(0.0336)).steps).toBe(3);

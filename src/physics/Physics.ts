@@ -19,7 +19,7 @@ export const OWN_BLAST = { ownBlast: true };
 
 const MAX_STEP = 1 / 60;
 /**
- * How far over `MAX_STEP` a frame may run and still be one step (`DevFlags.oneStep`, `?onestep=0`: none). A 60 Hz screen's
+ * How far over `MAX_STEP` a frame may run and still be one step (`DevFlags.oneStep`, off unless `?onestep=1` or the dev panel's row: none). A 60 Hz screen's
  * frames read 16.6 to 16.8 ms, and every one a hair over 1/60 s was cut in two steps of 8.4 ms: measured in a heavy fight
  * (tools/scripts/gore-cost.mjs), 1.57 world steps a frame, each costing as much as one whole one. Every test and every
  * frozen-clock picture feeds exactly 1/60 s and has always taken one step; so does a 120 or 144 Hz screen.

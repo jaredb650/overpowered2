@@ -58,9 +58,11 @@ export const DevFlags = {
   dryFlesh: on('dryflesh'),
   /**
    * A frame up to 6% over 1/60 s is one physics step, where every frame a hair over it was two (physics/Physics.ts,
-   * `STEP_SLACK`). `?onestep=0` starts it off.
+   * `STEP_SLACK`). OFF by default, and `?onestep=1` starts it on: it changes how the whole game's physics is stepped on a
+   * 60 Hz screen (bigger steps, about a third less physics time in a heavy fight), and the owner has said the physics as it
+   * is "seems fundamental to the current feel", so it waits for him to compare the two by playing.
    */
-  oneStep: on('onestep'),
+  oneStep: query?.get('onestep') === '1',
   /**
    * The gore update's stains (lane "decals"). `bigBlood` (`?bigblood=0`): a kill lays its big stains (the burst under a
    * gib, the fan past a shot, the sheet on the wall, the soaked patch under a body); off, only the small traced drops

@@ -122,7 +122,7 @@ Shared files and contracts:
 | Settings, Video, "Mess" | Standard | Low / Clear at wave break / Standard / Everything: how many bodies, limbs, pieces and how much blood stay (`MESS` in `src/gore/mess.ts`) | mess |
 | `?bloodmap=0`, lab row "Blood: old stains kept on floors" | on | P2: dried floor stains kept in floor tiles after their decals are overwritten, against stains that go when the ring comes round | decals |
 | `?dryflesh=0`, dev panel "Flesh dries" | on | Torn faces, loose meat, and the blood and bared flesh on the dead dull over a minute and a half as the blood on the floor does, against flesh that stays as wet and bright as when it was made | fit |
-| `?onestep=0`, dev panel "Physics: one step a 60 Hz frame" | on | A frame up to 6% over 1/60 s is one physics step. Off: every frame a hair over 1/60 s is cut in two steps, as it always was (1.57 world steps a frame at 60 Hz, each the cost of one). **Not gore's alone: it is the whole game's physics step** | fit |
+| `?onestep=1`, dev panel "Physics: one step a 60 Hz frame" | **off** (the lead's call: it changes the whole game's physics stepping, and the owner said the physics as it is "seems fundamental to the current feel") | A frame up to 6% over 1/60 s is one physics step. Off: every frame a hair over 1/60 s is cut in two steps, as it always was (1.57 world steps a frame at 60 Hz, each the cost of one). **Not gore's alone: it is the whole game's physics step** | fit |
 
 Not switches of their own, by design: loose limbs baked into their own batch go with `?messfar=0`; pieces and guts lying
 on the dead go with `?messrest=0`; a burnt body's dry, charred pieces, burning halves and soot go with `?fire=0`; the
@@ -478,4 +478,4 @@ red under the weapon light) have no switch: each replaces a fault, and the befor
     where the fault was, though it is the whole game's; three ways of thinning the heap for the step were measured
     as nothing and thrown away rather than left as dead knobs.
   - **Pictures and what to look at:** `tools/out/gore-update/fit/LOOK.md` and `fit/pictures/`.
-
+- 2026-11-19, lead: agent gore-fit found that on a 60 Hz screen more than half of all frames ran two physics steps and made every such frame one step (about a third less physics time in a heavy fight). That changes how the WHOLE game's physics is stepped for a 60 Hz player (the owner's Mac), and on 2026-11-18 he pinned a change to the physics build with the words "the current physics build works well and seems fundamental to the current feel". So the switch is **off by default** (`?onestep=1` or the dev panel row turns it on); the cost tables in `docs/notes/gore.md` that quote the one-step figure are with it ON. For the owner to compare by playing.
