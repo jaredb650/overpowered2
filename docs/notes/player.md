@@ -225,6 +225,17 @@ above step height is a ledge and is refused: the capsule's round bottom used to 
 sweep hit is refined with a ray along the normal, overlap tests use a slightly smaller capsule, and `depenetrate` catches
 anything left. See `findFloor`, `refineContact` and `collide.ts`.
 
+**Nothing outside the mask changes an answer (`collide.ts`, 2026-11-19).** The mask (`MOVE.collisionMask`, World and
+Barrier) keeps gore, the living and debris out of the player's casts, but not out of Rapier's search tree, and Rapier settles
+a tie between two equally near colliders by the tree's order. Every body in the world changes that order: in the Office the
+spawn presses the capsule into the reception desk and its monitor, both at distance 0, and a rocket kill 33 m off decided
+which face pushed him and where he landed. So a sweep or a ray that hits is cast once more without the collider it hit; if
+something else is at exactly the same distance, the tie goes to the face most square against the motion, then the most
+upward, then by the numbers (`ahead`). `depenetrate` sums its pushes sorted the same way. A track never depends on what
+else is in the world (`goreOneWay.test.ts`, `goreOneWayOffice.test.ts`). Without a tie, nothing changes: the course stress
+bot's 28,803 frames are the same to the bit as before. Cost: about 0.8 µs a tick (every ground ray is cast twice). The
+Office start no longer hangs 9.8 cm up in the desk for seconds: the player is pushed out and lands on the first frame.
+
 **View.** Mouse look is raw: `Input.onMouseMove` adds `movementX/Y` with `unadjustedMovement`, `Player.update` multiplies by
 `sensitivity * lookScale`, and `CameraRig.update` writes that into `camera.rotation` the same frame. Nothing smooths or damps
 it, and a test holds that to 12 places. `lookScale` is 1 unless scoped. There is no strafe roll, because any roll on foot reads as

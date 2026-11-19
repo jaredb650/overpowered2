@@ -262,7 +262,13 @@ living every 12 frames through `applyDamage`: many waves fast, to the boss wave 
 `retraining` and their `?beat=` sections, two with a death and a checkpoint restart; `defense-walls` (a wall knocked down,
 bought back, boarded up by hand); `menus` and `menu-tree` (the words on every menu screen); `capture` (question, release, a hold short of 0.4 s, a
 hold past it); `death` (a run that ends and starts again); `drops`; `tanks` (enemies that carry a tank, shot dead); `weapons`
-(every weapon id in turn at standing targets); `adszoom` (the focus zoom to its limit); `movement`; `chips`; `callins`.
+(every weapon id in turn at standing targets); `adszoom` (the focus zoom to its limit); `movement`; `chips`; `callins`;
+`movement-gore` and `movement-bare` (the `movement` keys after 400 frames in which forty men are killed in a heap on his
+path, through it and through rocket kills 4 m ahead; the bare twin plays the same keys with nothing spawned. `extra` holds his
+feet and velocity as text, at full precision: the two traces' `extra` must be equal on every frame. The kills are hidden
+from score, streaks and perks in both, since a perk changes his speed).
+
+`SOLO_QUERY` adds switches to a scenario's address (`SOLO_QUERY=gibthrow=0`), to run the same scenario with a part turned off.
 
 **Exit codes of `solo-compare`:** 0 the same; 3 the same play in every frame and event with only the gore system's counts
 different (how bodies and limbs came to rest: listed, not failed); 1 different. `music:track` is never compared (a track

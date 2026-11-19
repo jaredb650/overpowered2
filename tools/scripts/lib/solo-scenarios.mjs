@@ -288,6 +288,63 @@ const runnerBot = (ctx, game, f, m) => {
 };
 
 /**
+ * Gore in the player's way (one-way proof, `goreOneWay.test.ts` in the browser). For 400 frames he stands while forty men
+ * are killed in a block 16 m ahead, where he runs and dashes, and come to rest; then the movement scenario's own keys, 400 frames late
+ * (run, dash, slide through the heap, bunny hops, strafes, a turn back, a slam), with a rocket kill 4 m ahead of him every
+ * so often and limbs cut off men beside his path. `memo.bare` (the `movement-bare` twin) plays the keys and spawns nothing:
+ * the two traces' `extra` (his exact feet and velocity, every frame) must be the same to the bit.
+ */
+const goreRunner = (ctx, game, f, m) => {
+  if (game.state !== 'playing') game.setState('playing');
+  if (ctx.waves && ctx.waves.phase === 'intermission') ctx.waves.nextWaveIn = 1e9;
+  const p = ctx.player, i = ctx.input, V = p.position.constructor;
+  p.modifiers.invulnerable = true;
+  if (f === 0) {
+    p.pitch = 0;
+    m.yaw0 = p.yaw;
+    // The kills are for their gore alone: score, streaks and perks never hear of them (a streak's perk makes him faster and
+    // can freeze the clock), in both runs, so the one difference between the two is what lies and flies in his way.
+    const emit = ctx.events.emit.bind(ctx.events);
+    ctx.events.emit = (name, data) => { if (!/^(enemy|score|combo):/.test(name)) emit(name, data); };
+  }
+  const bare = window.__solo.memo.bare;
+  const fwd = new V(-Math.sin(m.yaw0), 0, -Math.cos(m.yaw0)), side = new V(-fwd.z, 0, fwd.x);
+  const kill = (e, d) => { if (e) ctx.enemies.applyDamage(e, { point: e.center.clone(), ...d }); };
+  if (!bare && f === 10) {
+    m.dead = 0;
+    for (let k = 0; k < 40; k++) {
+      const at = p.position.clone().addScaledVector(fwd, 16 + Math.floor(k / 5) * 0.55).addScaledVector(side, ((k % 5) - 2) * 0.55);
+      const e = ctx.enemies.spawn('trooper', at);
+      if (e) { e.behaviours = []; e.attacks = []; kill(e, { amount: 9999, type: 'bullet', source: 'smg', region: 'chest', force: 30, dir: new V(0, -0.6, 0).add(fwd).normalize() }); m.dead++; }
+    }
+  }
+  if (!bare) { const s = ctx.gore.mess?.stats?.(); if (s) { m.shoved = s.pushWakes; m.kicked = s.landWakes; } }
+  const t = f - 400;
+  if (t < 0) return;
+  if (!bare && [90, 160, 250, 330, 450, 560, 640, 1000, 1060].includes(t)) {
+    // A rocket kill just ahead, thrown back at him.
+    const vel = p.velocity.clone().setY(0);
+    const ahead = vel.lengthSq() > 1 ? vel.normalize() : fwd.clone();
+    const e = ctx.enemies.spawn('trooper', p.position.clone().addScaledVector(ahead, 4));
+    if (e) { e.behaviours = []; e.attacks = []; kill(e, { amount: 9999, type: 'explosive', source: 'rocket', force: 900, gib: true, dir: ahead.clone().negate().setY(0.5).normalize() }); }
+    // And a man beside the path who loses a leg.
+    const s = ctx.enemies.spawn('trooper', p.position.clone().addScaledVector(ahead, 6).addScaledVector(side, 1.2));
+    if (s) { s.behaviours = []; s.attacks = []; kill(s, { amount: 9999, type: 'slash', source: 'sword', region: 'legL', force: 60, severMult: 4, dir: side.clone() }); }
+  }
+  // The movement scenario's keys (runnerBot), from t.
+  i.simulate('forward', (t >= 20 && t < 700) || t >= 900);
+  i.simulate('dash', t === 120 || t === 121 || t === 420 || t === 421 || t === 1000 || t === 1001);
+  i.simulate('jump', (t >= 300 && t < 600 && p.grounded) || t === 640 || t === 660 || t === 1100);
+  i.simulate('right', t >= 330 && t < 480);
+  i.simulate('left', t >= 480 && t < 600);
+  if (t >= 700 && t < 900) { p.yaw += 0.02; i.simulate('back', t >= 760 && t < 820); }
+  i.simulate('slide', (t >= 200 && t < 260) || (t >= 1010 && t < 1060) || (t >= 665 && t < 690));
+};
+/** The player's own feet and velocity at full precision (as text: the trace rounds numbers), and his state: what `goreRunner` holds to the bit. */
+const feetProbe = ctx => { const p = ctx.player; return [p.pos.x, p.pos.y, p.pos.z, p.v.x, p.v.y, p.v.z].map(String).concat(p.state); };
+const bareOn = () => { window.__solo.memo.bare = true; };
+
+/**
  * Brain chips on a break that never ends, with a crowd that does not fight: Sonar tapped twice, then Thermal fitted and tapped
  * on and off, then Focus fitted and held to its limit, tapped off, tapped during its cooldown, and used again; then a stim.
  */
@@ -621,6 +678,9 @@ export const SCENARIOS = {
   weapons: { url: CRUCIBLE, bot: armourer, setup: armoury, probe: gunProbe, frames: 420 * 60 },
   movement: { url: CRUCIBLE, bot: runnerBot, setup: home, frames: 1300 },
   'movement-office': { url: OFFICE, bot: runnerBot, setup: home, frames: 1300 },
+  /** The movement keys through a forty-body heap and rocket debris, and the same keys with nothing there (`goreRunner`). */
+  'movement-gore': { url: CRUCIBLE, bot: goreRunner, probe: feetProbe, frames: 1700, after: snapshotRun },
+  'movement-bare': { url: CRUCIBLE, bot: goreRunner, setup: bareOn, probe: feetProbe, frames: 1700 },
   chips: { url: CRUCIBLE, bot: chipper, probe: chipProbe, frames: 2700 },
   callins: { url: CRUCIBLE, bot: caller, setup: home, frames: 9000, after: snapshotRun },
 };

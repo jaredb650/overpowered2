@@ -14,6 +14,7 @@
 //   SOLO_FRAMES    frames of 16 ms to play (default: the scenario's)
 //   SOLO_SEED      seed (default 1)
 //   SOLO_SHOTS     a screenshot every this many frames (default 0: only the last frame)
+//   SOLO_QUERY     switches added to the scenario's address, e.g. "gibthrow=0&messrest=0" (default none)
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import * as steady from './lib/steady.mjs';
@@ -25,6 +26,7 @@ const names = (process.env.SOLO_SCENARIO ?? 'crucible').split(',').map(n => n.tr
 const seed = Number(process.env.SOLO_SEED ?? 1);
 const flying = { n: 0 };
 const wait = ms => new Promise(r => setTimeout(r, ms));
+const withQuery = url => (process.env.SOLO_QUERY ? `${url}${url.includes('?') ? '&' : '?'}${process.env.SOLO_QUERY}` : url);
 
 export async function before(page) {
   for (const name of names) if (!SCENARIOS[name]) throw new Error(`solo-trace: no scenario "${name}". Known: ${Object.keys(SCENARIOS).join(', ')}`);
@@ -73,7 +75,7 @@ async function play(page, name, outDir) {
     if (!fresh) localStorage.setItem('op2.played.v1', '1');
   }, [scenario.firstLaunch ? null : scenario.settings ?? { music: 0 }, !!scenario.firstLaunch]);
   flying.n = 0;
-  await page.goto(origin + scenario.url, { waitUntil: 'load', timeout: 60000 });
+  await page.goto(origin + withQuery(scenario.url), { waitUntil: 'load', timeout: 60000 });
   // Before the game makes its first body: every body handed out from the start of a run on gets its idle phase from its
   // archetype and its turn (the first trooper, the second...), not from Math.random at the time it was built. Which bodies
   // sit in the pool differs between builds and between loads (the warm-up borrows some), and a body's phase moves its limbs,
@@ -123,7 +125,7 @@ async function play(page, name, outDir) {
   }, [scenario.bot ? String(scenario.bot) : null, scenario.probe ? String(scenario.probe) : null]);
   const frames = Number(process.env.SOLO_FRAMES ?? scenario.frames ?? 1800);
   const every = Number(process.env.SOLO_SHOTS ?? 0);
-  const trace = { scenario: name, label, seed, url: scenario.url, loading, frames: [], events: [], random: [], errors: [], shots: [] };
+  const trace = { scenario: name, label, seed, url: withQuery(scenario.url), loading, frames: [], events: [], random: [], errors: [], shots: [] };
   const started = Date.now();
   for (let f = 0; f < frames; f++) {
     await quiet();

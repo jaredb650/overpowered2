@@ -532,6 +532,27 @@ red under the weapon light) have no switch: each replaces a fault, and the befor
   - **Proofs and tools changed** (no game code): `coop-motion-moves.mjs`, `coop-world-pods.mjs`,
     `coop-fixsession-callins.mjs`, `coop-guest-seat.mjs`; `gore-balance.mjs` counts a killing hit as a heal, damage by
     type, and every enemy attack and how many were made while shaken.
+- 2026-11-19, nudge (agent gore-nudge, Opus): **the "thrown piece nudged the player" was not a piece, and the player's
+  movement no longer depends on anything outside his collision groups.** No gore body was ever in his casts (World and
+  Barrier only). In the Office the spawn presses the capsule into the reception desk and its monitor at distance 0, and
+  Rapier settles a tie between two equally near colliders by its search tree, which holds every body in the world: the
+  same sweep gave the desk's face or the monitor's depending on what else existed, and the gore of a kill 33 m off decided
+  when he dropped out of the desk and where (5.4 s and 3.904, 3.921 on the update; 6.7 s and 3.606, 3.768 on the old game,
+  for the same reason). Fixed in `src/player/collide.ts`: a hit is cast again without it, a tie goes to the face most square
+  against the motion (`ahead`), and `depenetrate` sums its pushes in sorted order. The Mech's legs use the same queries.
+  Movement without a tie is the same to the bit (the course stress bot, 28,803 frames; the `movement` scenario against
+  `d2e2f8a`, same play); cost about 0.8 µs a tick. The Office start now lands on the first frame (no 6.7 s hang), the same
+  with `?gibthrow=0`; `movement-office` therefore starts 0.4 m from the old game's and pushes into the desk 6 mm off it.
+  - Tests: `src/player/goreOneWay.test.ts` (one script of run, dash, slide, double jump, wall run, slam and hops against
+    an empty floor: flying pieces, slabs, ribs and organs out of blasts, pieces and organs lying, severed limbs, trunk
+    halves, gut ropes, a forty-body heap shoved through, falling and waking corpses, baked corpses, and all at once: the
+    track the same to the bit, every frame); `goreOneWayOffice.test.ts` (the real Office and gore, which fails on the old
+    `collide.ts` at frame 46). Whole suite 3,114 passed; co-op `gore-shots` 267 checks.
+  - Browser: `movement-gore` against `movement-bare` (new scenarios; the player's exact feet and velocity, 1,700 frames,
+    through the heap, 4 shoved awake, and nine rocket kills 4 m ahead): the same to the bit. `callins`, `weapons`,
+    `foreclosure-landing-die` play the same as before the fix in every frame and event; against the old game their player
+    parts only after their clock does (the fight went another way first), so none of them was a push. `SOLO_QUERY` passes
+    switches to a scenario's address. Evidence: `tools/out/gore-update/nudge/`.
 
 ### Check findings
 

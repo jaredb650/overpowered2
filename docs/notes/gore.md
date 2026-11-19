@@ -1573,10 +1573,15 @@ score reasons, magazine sizes, the shortest gap between shots of each gun, and e
   after a hit differs.
 - **Weapons, score, credits:** magazine sizes, gaps between shots and per-round damage the same; no score rule differs (a
   different reason appears only for a different kill, e.g. PASTED for a gib).
-- **Movement:** both movement scenarios the same. One difference: in `office-waves` at frame 334 a piece thrown out of a
-  blast 33 m off (G2) knocked the player 0.4 m; with `?gibthrow=0` he lands at frame 418 as on the old game. A thrown
-  piece can now reach and nudge the player. (On both builds the player hangs "in the air" 9.8 cm up for the first 6.7 s
-  at the office start; not the update's.)
+- **Movement:** both movement scenarios the same. One difference: in `office-waves` at frame 334 the player moved 0.4 m
+  when a blast went off 33 m away (G2); with `?gibthrow=0` he lands at frame 418 as on the old game. (On both builds the
+  player hangs "in the air" 9.8 cm up for the first 6.7 s at the office start.) **Corrected by agent gore-nudge, the same
+  day: no piece reached him.** Gore is not in the player's collision groups and never touched his capsule. The spawn presses
+  him into the reception desk and its monitor at distance 0. Which of the two Rapier answered with was settled by its search
+  tree, and every body in the world, gore included, is in that tree. The hang ended when that answer flipped, so the
+  number of pieces in the world decided when and where he landed, on the old build as on the new. Fixed in the player's
+  queries (`docs/notes/player.md`, "Nothing outside the mask changes an answer"): he is out of the desk and on the floor
+  on the first frame, and the same with or without any gore.
 
 ### Balance: the two rules that change how enemies fight
 
