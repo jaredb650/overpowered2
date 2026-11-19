@@ -29,7 +29,7 @@ class Arms implements Arsenal {
   }
 }
 
-interface Hands { arms: Arms; guns: DroppedGuns; press: (action: string) => void; feed: string[] }
+interface Hands { arms: Arms; guns: DroppedGuns; press: (action: string) => void; frame: () => void; feed: string[] }
 
 /** Puts an arsenal and its drops on a seat's game. */
 function arm(ctx: Ctx): Hands {
@@ -40,7 +40,9 @@ function arm(ctx: Ctx): Hands {
   (ctx.input as unknown as { pressed: (a: string) => boolean }).pressed = a => a === down;
   const feed: string[] = [];
   (ctx as unknown as { hud: unknown }).hud = { feed: (line: string) => feed.push(line), follow: () => () => {}, callout() {} };
-  return { arms, guns, feed, press: action => { down = action; guns.update(1 / 60); down = ''; } };
+  // A frame: the wall clock moves a sixtieth where the test has it in hand (co-op reads a gun's age off it).
+  const frame = () => { if (vi.isFakeTimers()) vi.advanceTimersByTime(1000 / 60); guns.update(1 / 60); };
+  return { arms, guns, feed, frame, press: action => { down = action; frame(); down = ''; } };
 }
 
 function table(guests: number, begin = true) {
@@ -49,7 +51,7 @@ function table(guests: number, begin = true) {
   game.build();
   const all = [game.host, ...game.guests];
   /** A second of frames on every screen. */
-  const run = (seconds = 1) => { for (let i = 0; i < Math.round(seconds * 60); i++) for (const h of hands) h.guns.update(1 / 60); game.relay.flush(); };
+  const run = (seconds = 1) => { for (let i = 0; i < Math.round(seconds * 60); i++) { vi.advanceTimersByTime(1000 / 60); for (const h of hands) h.guns.update(1 / 60); } game.relay.flush(); };
   const stand = (seat: Seat, x: number, z: number) => seat.player.position.set(x, 0, z);
   return { game, hands, all, run, stand };
 }
@@ -100,7 +102,7 @@ describe('dropped guns in co-op', () => {
     expect(a.feed).toHaveLength(0);
     // Guest to guest, through the host.
     stand(all[2]!, 10, -1.3);
-    b.guns.update(1 / 60);
+    b.frame();
     b.press('interact');
     game.relay.flush();
     expect(b.arms.got.map(k => k.weapon)).toEqual(['deuce']);
@@ -116,7 +118,7 @@ describe('dropped guns in co-op', () => {
     host.press('dropWeapon');
     game.relay.flush();
     stand(all[0]!, 50, 50); stand(all[1]!, 0, -1.0); stand(all[2]!, 0, -1.6);
-    a.guns.update(1 / 60); b.guns.update(1 / 60);
+    a.frame(); b.frame();
     // Both ask before either hears back.
     b.press('interact'); a.press('interact');
     game.relay.flush();
@@ -130,7 +132,7 @@ describe('dropped guns in co-op', () => {
     b.press('dropWeapon');
     game.relay.flush();
     stand(all[0]!, 20, -1.3); stand(all[1]!, 20, -1.3);
-    a.guns.update(1 / 60); host.guns.update(1 / 60);
+    a.frame(); host.frame();
     a.press('interact'); host.press('interact');
     game.relay.flush();
     expect(host.arms.got).toHaveLength(1);
@@ -145,7 +147,7 @@ describe('dropped guns in co-op', () => {
     host.press('dropWeapon');
     game.relay.flush();
     expect(a.guns.list).toHaveLength(0);
-    for (let i = 0; i < 60 * 20; i++) host.guns.update(1 / 60);
+    for (let i = 0; i < 60 * 20; i++) host.frame();
     all[1]!.world.begin();
     game.relay.flush();
     expect(lying(a)).toEqual(lying(host));
@@ -159,7 +161,7 @@ describe('dropped guns in co-op', () => {
     all[2]!.world.begin();
     game.relay.flush();
     expect(lying(b)).toEqual(lying(host));
-    for (let i = 0; i < 60 * (LIFE - 19); i++) host.guns.update(1 / 60);
+    for (let i = 0; i < 60 * (LIFE - 19); i++) host.frame();
     run(0.1);
     expect([host, a, b].map(h => h.guns.list.length)).toEqual([0, 0, 0]);
     game.dispose();
@@ -188,7 +190,7 @@ describe('dropped guns in co-op', () => {
     stand(all[1]!, 10, 0);
     a.press('dropWeapon');
     // The wire holds the message: four seconds with no word.
-    for (let i = 0; i < 60 * 4 + 2; i++) a.guns.update(1 / 60);
+    for (let i = 0; i < 60 * 4 + 2; i++) a.frame();
     expect(a.guns.list).toHaveLength(0);
     expect(a.arms.got.map(k => k.weapon)).toEqual(['deuce']);
     // Now it gets through, late.
@@ -225,7 +227,7 @@ describe('dropped guns solo', () => {
     me.press('dropWeapon');
     expect(lying(me)).toEqual([{ id: 1, weapon: 'deuce', fitted: ['deuceQuad'], mag: 2, reserve: 9, by: '', at: [0, 0, -1.3] }]);
     player.position.set(0, 0, -1.3);
-    for (let i = 0; i < 60; i++) me.guns.update(1 / 60);
+    for (let i = 0; i < 60; i++) me.frame();
     // My own drop: walking over it does nothing.
     expect(me.arms.got).toHaveLength(0);
     me.press('interact');

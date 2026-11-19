@@ -63,6 +63,8 @@ export interface Arsenal {
 
 interface Drop extends WireGun {
   age: number;
+  /** Co-op: `performance.now()` when it was dropped (on this screen: when the news arrived, less its age). */
+  born: number;
   /** Mine: dropped by this player, which walking over never takes back. */
   mine: boolean;
   /** Co-op: the roster slot of who dropped it (-1 unknown). */
@@ -123,7 +125,9 @@ export class DroppedGuns {
     const judge = !s || s.hosting;
     for (let i = this.drops.length - 1; i >= 0; i--) {
       const d = this.drops[i]!;
-      d.age += dt;
+      // Co-op: a gun's age is read off the wall clock, the same on every screen. The game's `dt` here is capped at 50 ms a frame,
+      // so a page drawing slowly would have the gun still falling, and lying there longer than the host's.
+      d.age = s ? Math.max(d.age, (performance.now() - d.born) / 1000) : d.age + dt;
       // The host never numbered this guest's drop: the gun comes back to the hands rather than vanish.
       if (d.pending && d.age > RETURN) {
         this.voided.add(d.pending);
@@ -234,7 +238,7 @@ export class DroppedGuns {
   /** Lays a drop down here. `age` is how long it has lain already (a late guest sees it at rest, not thrown again). */
   private add(gun: WireGun, mine: boolean, slot: number, fall: number, age: number): Drop {
     const d: Drop = {
-      ...gun, age, mine, slot, fall, asked: -1, pending: 0, root: this.model(gun), mark: null,
+      ...gun, age, born: performance.now() - age * 1000, mine, slot, fall, asked: -1, pending: 0, root: this.model(gun), mark: null,
       tag: new THREE.Vector3(gun.at[0], gun.at[1] + FLOAT + 0.55, gun.at[2]),
     };
     if (this.session) d.mark = this.marker(d);
