@@ -157,3 +157,6 @@ export class Booms {
     this.relayed.delete(id);
   }
 }
+
+/** For a peer that is behind: which of this module's events may be left out (net/pressure.ts). A fact never is. */
+export const BOOMS_WIRE: import('../pressure').WireClasses<BoomEvent> = { boom: 'cosmetic' };

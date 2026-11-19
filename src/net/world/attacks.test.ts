@@ -24,6 +24,7 @@ import { goreDoubles } from './goreDoubles';
 import { HostTime } from './hostTime';
 import { DODGE_FRESH_MS } from './targeting';
 import { cleanBriefing } from './villain';
+import { eventOf } from '../batch';
 
 class Relay {
   readonly rooms: Room[] = [];
@@ -38,7 +39,7 @@ class Relay {
   flush(): void { while (this.queue.length) this.queue.shift()!(); }
   /** The world events sent so far, of one type. */
   sent<T extends WorldEvent['t']>(type: T): Extract<WorldEvent, { t: T }>[] {
-    return this.packets.filter(p => p.lane === 'action').map(p => (p.data as { data: WorldEvent }).data).filter(e => e.t === type) as Extract<WorldEvent, { t: T }>[];
+    return this.packets.filter(p => p.lane === 'action').map(p => eventOf<WorldEvent>(p.data)).filter(e => e.t === type) as Extract<WorldEvent, { t: T }>[];
   }
 }
 class Room implements NetRoom {

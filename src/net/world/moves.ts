@@ -347,3 +347,6 @@ declare module '../../core/contracts' {
     rouse?(char: CharacterInstance): void;
   }
 }
+
+/** For a peer that is behind: which of this module's events may be left out (net/pressure.ts). A fact never is. */
+export const MOVES_WIRE: import('../pressure').WireClasses<MoveEvent> = { move: 'fact' };

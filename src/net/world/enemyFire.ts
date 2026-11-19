@@ -293,3 +293,6 @@ export class EnemyFire {
     }
   }
 }
+
+/** For a peer that is behind: which of this module's events may be left out (net/pressure.ts). A fact never is. */
+export const ENEMY_FIRE_WIRE: import('../pressure').WireClasses<EnemyFireEvent> = { ray: 'cosmetic', proj: 'fact', projx: 'fact', projhit: 'fact', efx: 'cosmetic' };

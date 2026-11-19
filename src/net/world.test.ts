@@ -17,6 +17,7 @@ import { decodeChunk, encodeChunk, type WorldEvent } from './worldProtocol';
 import { RULES } from '../enemies/outpost/chatter/lines';
 import { TUNING } from '../weapons/data';
 import type { CommsLine } from '../enemies/outpost/events';
+import { eventOf, batchOf } from './batch';
 
 class Relay {
   readonly rooms: Room[] = [];
@@ -133,7 +134,7 @@ describe('host-authoritative world over the mocked lobby transport', () => {
     }
     game.relay.flush();
     expect(game.host.manager.applyDamage).not.toHaveBeenCalled();
-    expect(game.relay.packets.filter(packet => packet.lane === 'action' && (packet.data as { data: WorldEvent }).data.t === 'hit')).toHaveLength(0);
+    expect(game.relay.packets.filter(packet => packet.lane === 'action' && eventOf<WorldEvent>(packet.data).t === 'hit')).toHaveLength(0);
     game.hw.dispose(); game.gw.dispose();
   });
   it('tracks a renamed remote through a replacement character root', () => {
@@ -197,7 +198,7 @@ describe('host-authoritative world over the mocked lobby transport', () => {
     game.hw.update(); game.relay.flush();
     game.guest.player.eye.set(0, 1.6, -5);
     const replica = game.guest.ctx.enemies.alive[0]!;
-    const sent = () => game.relay.packets.filter(packet => packet.lane === 'action').map(packet => (packet.data as { data: WorldEvent }).data);
+    const sent = () => game.relay.packets.filter(packet => packet.lane === 'action').map(packet => eventOf<WorldEvent>(packet.data));
     const hits = () => sent().filter(event => event.t === 'hit') as Extract<WorldEvent, { t: 'hit' }>[];
     const at = (source: string, type: DamageInfo['type'] = 'bullet'): DamageInfo =>
       ({ amount: 20, type, point: enemy.center.clone(), dir: new THREE.Vector3(0, 0, -1), force: 5, source, region: 'chest' });
@@ -278,7 +279,7 @@ describe('host-authoritative world over the mocked lobby transport', () => {
     const claimed = vi.fn(() => true), blast = vi.fn(() => 1);
     (game.host.ctx.enemies as unknown as { vehicles: unknown }).vehicles = { live: [truck], claimed, blast };
     game.hw.update(); game.relay.flush();
-    const sent = () => game.relay.packets.filter(packet => packet.lane === 'action').map(packet => (packet.data as { data: WorldEvent }).data);
+    const sent = () => game.relay.packets.filter(packet => packet.lane === 'action').map(packet => eventOf<WorldEvent>(packet.data));
     // The vehicles' state rides the unreliable lane as a side packet (world/sideList.ts): two bytes of head, the kind, then JSON.
     const side = game.relay.packets.filter(packet => packet.lane === 'world' && packet.data instanceof ArrayBuffer).map(packet => new Uint8Array(packet.data as ArrayBuffer))
       .filter(bytes => bytes[0] === 0x05 && bytes[1] === 0xc2 && bytes[2] === 1).map(bytes => JSON.parse(new TextDecoder().decode(bytes.subarray(3))) as { list: { id: number }[] });
@@ -422,7 +423,7 @@ describe('host-authoritative world over the mocked lobby transport', () => {
       game.host.ctx.events.emit('enemy:hit', { enemy: target, damage, result });
     });
     const shot = (): DamageInfo => ({ amount: 40, type: 'bullet', point: enemy.center.clone(), dir: new THREE.Vector3(0, 0, -1), force: 12, source: 'smg', region: 'chest' });
-    const packets = () => game.relay.packets.filter(p => p.lane === 'action').map(p => (p.data as { data: WorldEvent }).data);
+    const packets = () => game.relay.packets.filter(p => p.lane === 'action').map(p => eventOf<WorldEvent>(p.data));
 
     // On the frame of the shot, before anything has crossed the wire: the guest's own model has drawn it.
     game.gw.claim(replica, shot());
@@ -525,7 +526,7 @@ describe('host-authoritative world over the mocked lobby transport', () => {
     const row = RULES.findIndex(r => r.id === 'ch.garrison.manDown.namedPro.1');
     game.host.ctx.events.emit('comms:line', { kind: 'manDown', text: '', squad: 'Alpha', speaker: 'Cpl Marsh · Alpha', enemy, position: enemy.center.clone(), row, name: 0, dead: 1, voice: 1 });
     game.relay.flush();
-    const packet = game.relay.packets.filter(p => p.lane === 'action').map(p => (p.data as { data: WorldEvent }).data).find(e => e.t === 'chatter');
+    const packet = game.relay.packets.filter(p => p.lane === 'action').map(p => eventOf<WorldEvent>(p.data)).find(e => e.t === 'chatter');
     expect(packet).toEqual({ t: 'chatter', uid: enemy.uid, line: row, name: 0, dead: 1, rank: -1, squad: 'Alpha', voice: 1 });
     expect(heard).toHaveLength(1);
     // Same man, same voice, on every machine.
@@ -538,7 +539,7 @@ describe('host-authoritative world over the mocked lobby transport', () => {
     expect(cuts).toEqual([{ enemy: game.guest.ctx.enemies.alive[0], at: 7, radio: false }]);
     // Hand-written words stay on the host, and a guest cannot be fed a row that does not exist.
     game.host.ctx.events.emit('comms:line', { kind: 'order', text: 'Words.', squad: 'Command', speaker: null, enemy: null, position: new THREE.Vector3(), row: -1 });
-    game.hostRoom.channel('action').send({ match: 'world-test', data: { t: 'chatter', uid: 0, line: RULES.length, name: 0, dead: -1, rank: 0, squad: 'Alpha' } });
+    game.hostRoom.channel('action').send(batchOf('world-test', [{ t: 'chatter', uid: 0, line: RULES.length, name: 0, dead: -1, rank: 0, squad: 'Alpha' }]));
     game.relay.flush();
     expect(heard).toHaveLength(1);
     game.hw.dispose(); game.gw.dispose();
@@ -557,7 +558,7 @@ describe('host-authoritative world over the mocked lobby transport', () => {
     expect(game.hw.isRemoteTarget()).toBe(false);
     // Damage meant for the life before is dropped.
     const stale: WorldEvent = { t: 'hurt', life: 0, amount: 200, from: [0, 1, -10], type: 'bullet', source: 'trooper' };
-    game.hostRoom.channel('action').send({ match: 'world-test', data: stale }); game.relay.flush();
+    game.hostRoom.channel('action').send(batchOf('world-test', [stale])); game.relay.flush();
     expect(game.guest.player.takeDamage).toHaveBeenCalledTimes(1);
     expect(game.hw.stats.snapshotPackets).toBe(0);
     game.hw.update(); game.relay.flush();
@@ -798,7 +799,7 @@ describe('stage 3: the team, the economy and what else crosses the wire', () => 
   beforeEach(() => vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance'] }));
   afterEach(() => vi.useRealTimers());
   const send = (game: ReturnType<typeof pair>, from: 'host' | 'guest', data: WorldEvent) => {
-    (from === 'host' ? game.hostRoom : game.guestRoom).channel('action').send({ match: 'world-test', data }); game.relay.flush();
+    (from === 'host' ? game.hostRoom : game.guestRoom).channel('action').send(batchOf('world-test', [data])); game.relay.flush();
   };
   it("pays the killer: a guest's kill is not the host's, and the guest replays it as its own", () => {
     const game = pair();
@@ -921,7 +922,7 @@ describe('stage 3: the team, the economy and what else crosses the wire', () => 
     expect(guestSonar.share).toHaveBeenCalledWith(new THREE.Vector3(4, 5, 6));
     expect(game.guest.ctx.hud.feed).toHaveBeenCalledWith('HOST used sonar', expect.any(String));
     expect(hostSonar.share).toHaveBeenCalledOnce();
-    const sent = game.relay.packets.filter(p => p.lane === 'action').map(p => (p.data as { data: WorldEvent }).data.t);
+    const sent = game.relay.packets.filter(p => p.lane === 'action').map(p => eventOf<WorldEvent>(p.data).t);
     expect(sent.filter(t => t === 'sonar')).toHaveLength(2);
     game.hw.dispose(); game.gw.dispose();
   });
@@ -947,12 +948,12 @@ describe('a rejoining player', () => {
     const game = pair();
     // `ok`: the guest's seat is settled (the host's `restore` was applied), so the host keeps its purse.
     const card = (credits: number) => ({ slot: 1, state: 'up', bleed: 0, life: 0, hp: 100, max: 100, armor: 0, kills: 3, score: 300, credits, downs: 0, revives: 0, ping: 0, ok: true });
-    game.guestRoom.channel('action').send({ match: 'world-test', data: { t: 'card', card: card(250) } }); game.relay.flush();
+    game.guestRoom.channel('action').send(batchOf('world-test', [{ t: 'card', card: card(250) }])); game.relay.flush();
     // The same player comes back on a new page (its seat is not settled yet): its first card is an empty purse.
     (game.hw.team as unknown as { arrived: Set<string> }).arrived.clear();
     (game.gw.team as unknown as { settled: boolean }).settled = false;
     (game.guest.ctx.contracts.wallet as unknown as { credits: number }).credits = 0;
-    game.guestRoom.channel('action').send({ match: 'world-test', data: { t: 'card', card: card(0) } }); game.relay.flush();
+    game.guestRoom.channel('action').send(batchOf('world-test', [{ t: 'card', card: card(0) }])); game.relay.flush();
     expect(game.guest.ctx.contracts.wallet).toMatchObject({ credits: 250 });
     game.hw.dispose(); game.gw.dispose();
   });

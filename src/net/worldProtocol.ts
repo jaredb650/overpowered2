@@ -32,6 +32,35 @@ import type { VehiclesEvent } from './world/vehicles';
 import type { VillainEvent } from './world/villain';
 import type { WarningEvent } from './world/warnings';
 
+import { AIRLIFT_WIRE } from './world/airlift';
+import { ALLIES_WIRE } from './world/allies';
+import { ATTACKS_WIRE } from './world/attacks';
+import { BOOMS_WIRE } from './world/booms';
+import { CALLINS_WIRE } from './world/callins';
+import { CAPTURE_WIRE } from './world/capture';
+import { CHATTER_WIRE } from './world/chatter';
+import { CLAIMS_WIRE } from './world/claims';
+import { CLOCK_WIRE } from './world/clock';
+import { CREDIT_WIRE } from './world/credit';
+import { ENEMY_FIRE_WIRE } from './world/enemyFire';
+import { FORT_WIRE } from './world/fort';
+import { GUNS_WIRE } from './world/guns';
+import { HITS_WIRE } from './world/hits';
+import { IDENTITY_WIRE } from './world/identity';
+import { MOVES_WIRE } from './world/moves';
+import { PODS_WIRE } from './world/pods';
+import { PROPS_WIRE } from './world/props';
+import { REMOTE_FIRE_WIRE } from './world/remoteFire';
+import { SONAR_WIRE } from './world/sonar';
+import { TARGETING_WIRE } from './world/targeting';
+import { VEHICLES_WIRE } from './world/vehicles';
+import { VILLAIN_PROPS_WIRE } from './world/villainProps';
+import { VILLAIN_WIRE } from './world/villain';
+import { WARNINGS_WIRE } from './world/warnings';
+import { TEAM_WIRE } from './team';
+import { MISSION_WIRE } from './mission';
+import type { WireClass } from './pressure';
+
 export * from './world/wire';
 export * from './world/snapshot';
 export type { HitClaim, StatusClaim, VehicleClaim } from './world/claims';
@@ -77,3 +106,48 @@ export type WorldEvent =
   | MissionEvent    // mission.ts: mission, gather
   /** Host to guests: the host's tab went to the background (`on`) or came back. Declared, never sent or handled. */
   | { t: 'hidden'; on: boolean };
+
+/**
+ * Every event type, classed for a peer that is behind (net/pressure.ts): each module's own table, gathered. An event
+ * type missing from its module's table does not compile. Built on first use, not as this file loads: the modules import
+ * this file too, and their tables may not exist yet at that moment.
+ */
+const gather = (): { readonly [K in WorldEvent['t']]: WireClass } => ({
+  ...AIRLIFT_WIRE,
+  ...ALLIES_WIRE,
+  ...ATTACKS_WIRE,
+  ...BOOMS_WIRE,
+  ...CALLINS_WIRE,
+  ...CAPTURE_WIRE,
+  ...CHATTER_WIRE,
+  ...CLAIMS_WIRE,
+  ...CLOCK_WIRE,
+  ...CREDIT_WIRE,
+  ...ENEMY_FIRE_WIRE,
+  ...FORT_WIRE,
+  ...GUNS_WIRE,
+  ...HITS_WIRE,
+  ...IDENTITY_WIRE,
+  ...MOVES_WIRE,
+  ...PODS_WIRE,
+  ...PROPS_WIRE,
+  ...REMOTE_FIRE_WIRE,
+  ...SONAR_WIRE,
+  ...TARGETING_WIRE,
+  ...VEHICLES_WIRE,
+  ...VILLAIN_PROPS_WIRE,
+  ...VILLAIN_WIRE,
+  ...WARNINGS_WIRE,
+  ...TEAM_WIRE,
+  ...MISSION_WIRE,
+  worldsync: 'fact',
+  hidden: 'fact',
+});
+let classes: ReadonlyMap<string, WireClass> | null = null;
+export const eventClasses = (): ReadonlyMap<string, WireClass> => (classes ??= new Map(Object.entries(gather())));
+
+/** May this event be left out for a peer that is behind? A type nobody declared is a fact. */
+export function droppable(type: string): boolean {
+  const found = eventClasses().get(type);
+  return found !== undefined && found !== 'fact';
+}

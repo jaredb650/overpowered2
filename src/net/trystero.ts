@@ -151,20 +151,37 @@ export function openRoom(code: string, password: string, turn: IceServer[] = [],
       rtcPolyfill: peers.Peer, ...(turn.length ? { turnConfig: turn } : {}) },
     code,
   );
+  /**
+   * Per peer: bytes handed to trystero that it has not yet put on the data channel (it holds a message back while the
+   * channel has more than 64 KB waiting, and gives it up after ten seconds of that), and how many it gave up on.
+   */
+  const held = new Map<string, number>();
+  const lost = new Map<string, number>();
   const wire: Wire = {
     reliable(name) {
       const action = room.makeAction<never>(name);
       return {
-        send: (data, to) => void action.send(data as never, to ? { target: to } : undefined).catch(() => {}),
+        send: (data, to) => {
+          if (!to) return void action.send(data as never).catch(() => {});
+          const size = data instanceof Uint8Array || data instanceof ArrayBuffer ? data.byteLength : 0;
+          held.set(to, (held.get(to) ?? 0) + size);
+          const settle = () => { const left = (held.get(to) ?? 0) - size; if (left > 0) held.set(to, left); else held.delete(to); };
+          action.send(data as never, { target: to }).then(settle, () => {
+            settle();
+            // A peer that has gone is the lobby's news already; one still here has lost a message it was promised.
+            if (peerOf.has(to)) lost.set(to, (lost.get(to) ?? 0) + 1);
+          });
+        },
         on: handler => void action.onMessage((data, context) => handler(data, context.peerId)),
       };
     },
     fastSend: (to, frame) => peer(to)?.fast?.send(frame) ?? false,
     fastUp: id => peer(id)?.fast?.up ?? false,
     onFast: handler => { fastHandler = handler; },
-    buffered: (id, unreliable) => (unreliable ? peer(id)?.fast?.buffered : peer(id)?.data?.bufferedAmount) ?? 0,
+    buffered: (id, unreliable) => (unreliable ? peer(id)?.fast?.buffered ?? 0 : (peer(id)?.data?.bufferedAmount ?? 0) + (held.get(id) ?? 0)),
+    failed: id => lost.get(id) ?? 0,
     onPeerJoin: handler => void room.onPeerJoin(c => { scan(); handler(c.peerId); }),
-    onPeerLeave: handler => void room.onPeerLeave(c => { peerOf.delete(c.peerId); handler(c.peerId); }),
+    onPeerLeave: handler => void room.onPeerLeave(c => { peerOf.delete(c.peerId); held.delete(c.peerId); lost.delete(c.peerId); handler(c.peerId); }),
     onError: handler =>
       void room.onError(e => {
         const map: Partial<Record<string, NetError>> = {

@@ -76,6 +76,9 @@ export class CoopSession implements GameSystem {
     // The friends' weapon lights, in the scene before the first frame (remote.ts).
     this.torches = friendTorches(ctx);
     this.world = this.freeRoam ? null : new CoopWorld(ctx, this);
+    // One message per peer for everything a frame (or one arriving message) sends on the reliable lane: the queue is
+    // flushed when that frame's script ends, before the page draws (lobby.ts `batching`).
+    lobby.batching(run => queueMicrotask(run));
     this.endedEarly = whileLoading.ended;
     lobby.onChange = () => this.changed();
     lobby.onPose = (id, pose) => this.remotes.get(id)?.push(pose, performance.now());
@@ -274,6 +277,8 @@ export class CoopSession implements GameSystem {
     if (this.gateStart) return this.paintGate();
     if (this.lostUntil || !this.begun) return;
     if (lobby.reconnecting) return view.setLine(`Reconnecting to host… ${lobby.reconnectIn}`, true);
+    // The host has stopped sending to this page because its queue for it grew too long (lobby.ts `stall`).
+    if (!this.hosting && lobby.me?.state === 'lost') return view.setLine('Your connection fell behind. Catching up…', true);
     const waiting = lobby.match && !lobby.live ? lobby.waitingFor : [];
     if (!waiting.length) return view.setLine('');
     view.setLine(`Waiting for ${waiting.map(p => p.name).join(', ')}${lobby.holdLeft ? ` · starting without them in ${lobby.holdLeft} s` : ''}`);
@@ -352,6 +357,7 @@ export class CoopSession implements GameSystem {
     this.closed = true;
     tabBusy.coop = '';
     this.world?.dispose();
+    this.lobby.batching(null);
     this.hud?.dispose();
     watchCost(null);
     this.view?.dispose();

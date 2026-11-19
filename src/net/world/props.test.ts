@@ -10,6 +10,7 @@ import type { Kit } from '../../world/kit/kit';
 import { MapSpec } from '../../world/map/spec';
 import { Objects } from '../../world/objects';
 import { party, type Seat } from './sharedkit';
+import { batchOf } from '../batch';
 
 const V = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
 /** Numbers on the wire: explosives 0 and 1 stand 4 m apart (a chain), 2 is far off. Props: 0 pane, 1 copier, 2 chair, 3 monitor. */
@@ -258,13 +259,13 @@ describe('barrels and props are one world in co-op', () => {
       { t: 'prop', op: 'break', set: 'x', id: 0, source: 'smg' }, { t: 'prop', op: 'state', x: [0, 1, 2], b: [0, 1, 2, 3], chairs: [] }, { t: 'prop', op: 'restore', id: 0 },
     ];
     // From a guest: the host's world does not move (a guest cannot send the host's own words).
-    for (const data of junk) game.guests[0]!.room.channel('action').send({ match: 'shared-test', data });
+    for (const data of junk) game.guests[0]!.room.channel('action').send(batchOf('shared-test', [data]));
     run(0.2);
     expect([alive(host), whole(host)]).toEqual(before.slice(0, 2));
     // From the host: malformed words change nothing on the guest.
     for (const data of [{ t: 'prop', op: 'break' }, { t: 'prop', op: 'break', set: 'x', id: 'a' }, { t: 'prop', op: 'state', x: 'all', b: [] }, { t: 'prop', op: 'state', x: [1.5], b: [], chairs: [] },
       { t: 'prop', op: 'rest', id: 2, p: [0, 0], q: [0, 0, 0, 1] }, { t: 'prop', op: 'knock', id: 2, v: [1e9, 0, 0] }, { t: 'prop', op: 'state', x: [], b: [], chairs: [[2, [1, 2], [0, 0, 0, 1]]] }]) {
-      game.host.room.channel('action').send({ match: 'shared-test', data });
+      game.host.room.channel('action').send(batchOf('shared-test', [data]));
     }
     run(0.2);
     expect([alive(a), whole(a)]).toEqual(before.slice(2));

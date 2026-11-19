@@ -30,6 +30,8 @@ export interface Wire {
   onFast(handler: (frame: Uint8Array, from: string) => void): void;
   /** Bytes queued for `peer` on that path and not yet taken by the network. */
   buffered(peer: string, unreliable: boolean): number;
+  /** Reliable messages to `peer` that were lost while it stayed connected (room.ts `failed`). Absent: never. */
+  failed?(peer: string): number;
   onPeerJoin(handler: (peerId: string) => void): void;
   onPeerLeave(handler: (peerId: string) => void): void;
   onError(handler: (error: NetError, peerId?: string) => void): void;
@@ -269,6 +271,10 @@ export class LaneRoom implements NetRoom {
 
   buffered(peerId: string, unreliable = false): number {
     return this.wire.buffered(peerId, unreliable) + this.sim.buffered(peerId);
+  }
+
+  failed(peerId: string): number {
+    return this.wire.failed?.(peerId) ?? 0;
   }
 
   fast(peerId: string): boolean {

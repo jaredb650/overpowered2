@@ -93,3 +93,6 @@ export class Identity implements WorldModule {
     this.told.clear();
   }
 }
+
+/** For a peer that is behind: which of this module's events may be left out (net/pressure.ts). A fact never is. */
+export const IDENTITY_WIRE: import('../pressure').WireClasses<WhoEvent> = { who: 'fact' };

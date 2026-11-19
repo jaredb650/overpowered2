@@ -10,6 +10,7 @@ import { party, stubGame, type Seat } from '../net/world/sharedkit';
 import { DroppedGuns, LIFE, type Arsenal } from './dropped';
 import type { GunKit } from './handover';
 import { makeRange } from './testkit';
+import { batchOf } from '../net/batch';
 
 /** An arsenal: what a player owns, and the kit their held gun leaves as. */
 class Arms implements Arsenal {
@@ -220,7 +221,7 @@ describe('dropped guns in co-op', () => {
     const { game, hands, all, stand } = table(1);
     const [host, a] = hands as [Hands, Hands];
     stand(all[1]!, 10, 0);
-    const send = (data: unknown) => { game.guests[0]!.room.channel('action').send({ match: 'shared-test', data }); game.relay.flush(); };
+    const send = (data: unknown) => { game.guests[0]!.room.channel('action').send(batchOf('shared-test', [data])); game.relay.flush(); };
     send({ t: 'gun', op: 'drop', q: 1, fall: 9999, gun: { weapon: 'smg', mods: ['deuceQuad', 7], fitted: ['deuceQuad'], mag: 1e9, reserve: -4, id: 0, at: [500, 0, 500], by: 'x' } });
     expect(lying(host)).toEqual([{ id: 1, weapon: 'smg', fitted: [], mag: 60, reserve: 0, by: 'GUEST1', at: [10, 0, 0] }]);
     stand(all[1]!, 100, 100);

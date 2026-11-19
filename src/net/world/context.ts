@@ -11,7 +11,8 @@ import type { CoopSession } from '../index';
 import { metrics } from '../metrics';
 import type { RemotePlayer } from '../remote';
 import type { Team, TeamLife } from '../team';
-import type { WorldEvent } from '../worldProtocol';
+import { droppable, type WorldEvent } from '../worldProtocol';
+import type { EventLane } from '../lobby';
 import { Router } from './router';
 import type { Vec } from './wire';
 
@@ -81,14 +82,15 @@ export class WorldContext {
   readonly snapshotSent: ((alive: Set<number>) => void)[] = [];
   /** Sends a snapshot chunk on the `world` lane, to every guest or the one named; returns how many players it went to. */
   readonly sendSnapshot: (data: ArrayBuffer, to?: string) => number;
-  private readonly sendAction: (data: WorldEvent, to?: string) => number;
+  /** The reliable lane, batched: everything sent in a frame leaves as one message per peer (net/batch.ts). */
+  private readonly action: EventLane<WorldEvent>;
   private readonly offs: (() => void)[] = [];
 
   constructor(readonly ctx: Ctx, readonly session: CoopSession) {
     this.later = new Later(() => ctx.time.dt);
     // Latest-wins bytes: unreliable and unordered, so a lost chunk never holds up the next, and none for a guest that is behind.
     this.sendSnapshot = session.lobby.gameplay<ArrayBuffer>('world', data => this.worldIn(data), { unreliable: true, latest: true });
-    this.sendAction = session.lobby.gameplay<WorldEvent>('action', (data, from) => this.receive(data, from));
+    this.action = session.lobby.events<WorldEvent>('action', (data, from, bytes) => this.receive(data, from, bytes));
   }
 
   get hosting(): boolean { return this.session.hosting; }
@@ -129,26 +131,34 @@ export class WorldContext {
     this.onSnapshot(data);
   }
 
-  /** An event on the reliable lane: from a guest to the host; from the host to every guest, or to the one named. */
+  /**
+   * An event on the reliable lane: from a guest to the host; from the host to every guest, or to the one named. It leaves
+   * with the frame's other events, in order. One classed cosmetic or latest in its module is not sent to a peer that is behind.
+   */
   send(event: WorldEvent, to?: string): void {
+    this.queue(event, to, undefined);
+  }
+
+  /** Host: passes a guest's event on to every other guest. */
+  relay(event: WorldEvent, from: string): void {
+    this.queue(event, undefined, from);
+  }
+
+  private queue(event: WorldEvent, to: string | undefined, except: string | undefined): void {
     const started = performance.now();
-    const recipients = this.sendAction(event, to);
-    const bytes = new TextEncoder().encode(JSON.stringify({ match: this.session.match.id, data: event })).byteLength;
+    const recipients = this.action.send(event, to, except, droppable(event.t));
+    // The size is the encoded record's, as it travels: nothing is turned to text again to be counted.
+    const bytes = this.action.bytes;
     this.stats.eventBytes += bytes * recipients;
     this.stats.eventPackets += recipients;
     metrics.event(event.t, bytes, recipients);
     metrics.spend('coop.send', performance.now() - started);
   }
 
-  /** Host: passes a guest's event on to every other guest. */
-  relay(event: WorldEvent, from: string): void {
-    for (const peer of this.session.lobby.players) if (!peer.host && peer.id !== from) this.send(event, peer.id);
-  }
-
-  private receive(value: WorldEvent, from: string): void {
+  private receive(value: WorldEvent, from: string, bytes: number): void {
     if (!this.ready || !value || typeof value !== 'object' || typeof value.t !== 'string') return;
     const started = performance.now();
-    metrics.heard(value.t);
+    metrics.heard(value.t, bytes);
     try { this.router.dispatch(value, from, this.session.hosting, started); }
     catch (error) { console.warn('[coop] Dropped an event that could not be applied', value.t, error); }
     metrics.spend('coop.receive', performance.now() - started);

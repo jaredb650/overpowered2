@@ -820,3 +820,6 @@ export class CoopMission {
     if (film) film.askSkip = null;
   }
 }
+
+/** For a peer that is behind: which of this module's events may be left out (net/pressure.ts). A fact never is. */
+export const MISSION_WIRE: import('./pressure').WireClasses<MissionEvent> = { mission: 'fact', gather: 'fact' };

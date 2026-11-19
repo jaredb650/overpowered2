@@ -260,3 +260,6 @@ export class Allies implements WorldModule {
     this.standIds.clear();
   }
 }
+
+/** For a peer that is behind: which of this module's events may be left out (net/pressure.ts). A fact never is. */
+export const ALLIES_WIRE: import('../pressure').WireClasses<AlliesEvent> = { allies: 'latest', ashot: 'cosmetic' };

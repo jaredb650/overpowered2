@@ -240,3 +240,6 @@ export class Credit implements WorldModule {
     for (const [uid, kill] of this.killedBy) if (now - kill.at > KILL_KEEP_MS) this.killedBy.delete(uid);
   }
 }
+
+/** For a peer that is behind: which of this module's events may be left out (net/pressure.ts). A fact never is. */
+export const CREDIT_WIRE: import('../pressure').WireClasses<AwardEvent> = { award: 'fact' };

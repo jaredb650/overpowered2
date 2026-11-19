@@ -12,6 +12,7 @@ import type { NetRoom } from '../room';
 import { CoopWorld } from '../world';
 import type { WorldEvent } from '../worldProtocol';
 import { goreDoubles } from './goreDoubles';
+import { eventOf } from '../batch';
 
 export class Relay {
   readonly rooms: Room[] = [];
@@ -26,7 +27,7 @@ export class Relay {
   flush(): void { while (this.queue.length) this.queue.shift()!(); }
   /** Every world event sent so far of one type. */
   sent<T extends WorldEvent['t']>(t: T): Extract<WorldEvent, { t: T }>[] {
-    return this.packets.filter(p => p.lane === 'action').map(p => (p.data as { data: WorldEvent }).data).filter(d => d.t === t) as Extract<WorldEvent, { t: T }>[];
+    return this.packets.filter(p => p.lane === 'action').map(p => eventOf<WorldEvent>(p.data)).filter(d => d.t === t) as Extract<WorldEvent, { t: T }>[];
   }
 }
 

@@ -12,6 +12,7 @@ import { Lobby } from '../lobby';
 import { SeatHooks } from '../seats';
 import type { NetRoom } from '../room';
 import { CoopWorld } from '../world';
+import { eventOf } from '../batch';
 
 export class Relay {
   readonly rooms: Room[] = [];
@@ -38,7 +39,7 @@ export class Relay {
   flush(): void { while (this.queue.length) this.queue.shift()!(); }
   /** The events of type `t` sent on the reliable lane so far. */
   sent<T extends { t: string }>(t: string): T[] {
-    return this.packets.filter(p => p.lane === 'action').map(p => (p.data as { data: T }).data).filter(d => d?.t === t);
+    return this.packets.filter(p => p.lane === 'action').map(p => eventOf<T>(p.data)).filter(d => d?.t === t);
   }
 }
 

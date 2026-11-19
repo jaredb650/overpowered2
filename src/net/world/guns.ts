@@ -44,3 +44,6 @@ export class Guns {
     if (remote) this.dropped?.hostIn(value, from, remote.char.root.position, remote.player.name, this.w.session.lobby.players.find(p => p.id === from)?.slot ?? -1);
   }
 }
+
+/** For a peer that is behind: which of this module's events may be left out (net/pressure.ts). A fact never is. */
+export const GUNS_WIRE: import('../pressure').WireClasses<GunEvent> = { gun: 'fact' };

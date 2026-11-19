@@ -485,3 +485,6 @@ export class RemoteFire implements WorldModule {
     this.remote(event.slot)?.watcher.hold(event.weapon, event.mods);
   }
 }
+
+/** For a peer that is behind: which of this module's events may be left out (net/pressure.ts). A fact never is. */
+export const REMOTE_FIRE_WIRE: import('../pressure').WireClasses<FireEvent | MeleeFxEvent | LoopEvent | ProjEvent | KitEvent | KataEvent> = { fire: 'cosmetic', mfx: 'cosmetic', loop: 'fact', round: 'cosmetic', held: 'fact', kata: 'fact' };

@@ -221,3 +221,6 @@ export class Warnings implements WorldModule {
     this.timed.length = 0;
   }
 }
+
+/** For a peer that is behind: which of this module's events may be left out (net/pressure.ts). A fact never is. */
+export const WARNINGS_WIRE: import('../pressure').WireClasses<WarningEvent> = { zone: 'fact', glint: 'fact', laser: 'fact', shock: 'cosmetic', strike: 'fact', bang: 'fact' };

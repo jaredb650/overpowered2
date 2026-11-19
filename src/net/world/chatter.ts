@@ -71,3 +71,6 @@ export class Chatter {
     ctx.events.emit('comms:line', line);
   }
 }
+
+/** For a peer that is behind: which of this module's events may be left out (net/pressure.ts). A fact never is. */
+export const CHATTER_WIRE: import('../pressure').WireClasses<ChatterEvent> = { chatter: 'cosmetic', chatcut: 'cosmetic' };

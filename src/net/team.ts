@@ -1045,3 +1045,6 @@ export class Team {
 
 /** A slot's tag colour as CSS. */
 export const slotColor = (slot: number): string => `#${(COLORS[slot] ?? COLORS[0]!).toString(16).padStart(6, '0')}`;
+
+/** For a peer that is behind: which of this module's events may be left out (net/pressure.ts). A fact never is. */
+export const TEAM_WIRE: import('./pressure').WireClasses<TeamEvent> = { life: 'fact', card: 'latest', team: 'latest', revive: 'fact', up: 'fact', wave: 'fact', over: 'fact', restore: 'fact', kit: 'fact', ready: 'fact', vote: 'fact', sync: 'fact', mark: 'fact' };

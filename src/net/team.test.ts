@@ -22,6 +22,7 @@ import { BOSS_BREAK, CUT_TO, TEAM_BREAK, teamBreakSeconds } from './teamBreak';
 import { CoopWorld } from './world';
 import { LINGER_MS } from './world/credit';
 import type { WorldEvent } from './worldProtocol';
+import { eventOf, batchOf } from './batch';
 
 class Relay {
   readonly rooms: Room[] = [];
@@ -47,7 +48,7 @@ class Relay {
   }
   flush(): void { while (this.queue.length) this.queue.shift()!(); }
   events(type: string): { data: WorldEvent; to?: string; from: string }[] {
-    return this.packets.filter(p => p.lane === 'action' && (p.data as { data: WorldEvent }).data.t === type).map(p => ({ data: (p.data as { data: WorldEvent }).data, to: p.to, from: p.from }));
+    return this.packets.filter(p => p.lane === 'action' && eventOf<WorldEvent>(p.data).t === type).map(p => ({ data: eventOf<WorldEvent>(p.data), to: p.to, from: p.from }));
   }
 }
 class Room implements NetRoom {
@@ -675,13 +676,13 @@ describe('pings', () => {
     const game = party(1);
     game.tick();
     const g = game.guests[0]!;
-    for (let i = 0; i < 12; i++) g.room.channel('action').send({ match: 'team-test', data: { t: 'mark', at: [i, 0, 0] } }, 'host-peer');
+    for (let i = 0; i < 12; i++) g.room.channel('action').send(batchOf('team-test', [{ t: 'mark', at: [i, 0, 0] }]), 'host-peer');
     game.relay.flush();
     expect(game.host.hud.marker).toHaveBeenCalledTimes(1);
-    for (let i = 0; i < 4; i++) { vi.advanceTimersByTime(MARK_GAP_MS + 10); g.room.channel('action').send({ match: 'team-test', data: { t: 'mark', at: [i, 0, 0] } }, 'host-peer'); game.relay.flush(); }
+    for (let i = 0; i < 4; i++) { vi.advanceTimersByTime(MARK_GAP_MS + 10); g.room.channel('action').send(batchOf('team-test', [{ t: 'mark', at: [i, 0, 0] }]), 'host-peer'); game.relay.flush(); }
     expect(game.host.world.team.marks.live.length).toBe(MARK_KEEP);
     // A forged slot or a bad point is ignored.
-    g.room.channel('action').send({ match: 'team-test', data: { t: 'mark', at: [NaN, 0, 0] } }, 'host-peer'); game.relay.flush();
+    g.room.channel('action').send(batchOf('team-test', [{ t: 'mark', at: [NaN, 0, 0] }]), 'host-peer'); game.relay.flush();
     expect(game.host.world.team.marks.live.length).toBe(MARK_KEEP);
     game.dispose();
   });

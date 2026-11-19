@@ -317,3 +317,6 @@ export class Fort implements WorldModule {
     else hud.feed(text, color);
   }
 }
+
+/** For a peer that is behind: which of this module's events may be left out (net/pressure.ts). A fact never is. */
+export const FORT_WIRE: import('../pressure').WireClasses<FortEvent> = { fort: 'fact', fortstate: 'fact', wallblast: 'fact', wallhit: 'fact', repair: 'fact', repaired: 'fact', fortbuy: 'fact', fortsold: 'fact', shell: 'fact', fortsay: 'fact', fortradio: 'fact', gunseat: 'fact' };

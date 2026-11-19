@@ -10,6 +10,7 @@ import { CoopWorld } from '../world';
 import type { WorldEvent } from '../worldProtocol';
 import { goreDoubles } from './goreDoubles';
 import { SLOW, TEAM_SLOW } from './slow';
+import { eventOf, batchOf } from '../batch';
 
 /** The mocked transport of world.test.ts: every message is copied and queued until `flush`, or thrown away with `lose`. */
 class Relay {
@@ -25,7 +26,7 @@ class Relay {
   /** Drops every queued message `match` picks: the network lost them. */
   lose(match: (event: WorldEvent) => boolean): number {
     const before = this.queue.length;
-    this.queue = this.queue.filter(m => !(m.lane === 'action' && match((m.data as { data: WorldEvent }).data)));
+    this.queue = this.queue.filter(m => !(m.lane === 'action' && match(eventOf<WorldEvent>(m.data))));
     return before - this.queue.length;
   }
 }
@@ -332,7 +333,7 @@ describe("the team's slow-mo over the mocked transport", () => {
     game.run(1);
     for (const side of [game.host, a]) expect(side.time.slowmo).toBe(1);
     // A guest cannot claim a boss died.
-    game.relay.rooms[1]!.channel('action').send({ match: 'clock-test', data: { t: 'slow', id: 'bossDeath', on: true } });
+    game.relay.rooms[1]!.channel('action').send(batchOf('clock-test', [{ t: 'slow', id: 'bossDeath', on: true }]));
     game.run(0.3);
     expect(game.host.world.slows).toHaveLength(0);
     game.dispose();
@@ -439,7 +440,7 @@ describe("the team's slow-mo over the mocked transport", () => {
     const junk: unknown[] = [{ t: 'slow', id: 'x', on: 'yes' }, { t: 'slow', id: 'focus' }, { t: 'slow', id: 'focus', on: true, s: 'long' }, { t: 'slow', id: 'hud-death', on: true },
       { t: 'slowstate' }, { t: 'slowstate', list: 'all', lock: 0 }, { t: 'slowstate', list: [null, { k: 'nope', s: 0, sc: 0.1, ms: 1, of: 1 }, { k: 'focus', s: 9, sc: 0.1, ms: 1, of: 1 },
         { k: 'focus', s: 0, sc: 'slow', ms: 1, of: 1 }], lock: 'never' }, { t: 'slowno', id: 'focus', why: 'because', ms: NaN }, { t: 'slowno' }];
-    for (const data of junk) for (const room of game.relay.rooms) room.channel('action').send({ match: 'clock-test', data });
+    for (const data of junk) for (const room of game.relay.rooms) room.channel('action').send(batchOf('clock-test', [data]));
     expect(() => game.frame()).not.toThrow();
     // The one well-formed request among them (`s` is not a number, so the cap stands) reads as a Focus from the guest...
     expect(game.host.world.slowBoard.list.map(e => [e.slot, e.kind])).toEqual([[a.slot, 'focus']]);

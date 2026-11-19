@@ -299,3 +299,6 @@ export class Callins implements WorldModule {
     this.rates.clear();
   }
 }
+
+/** For a peer that is behind: which of this module's events may be left out (net/pressure.ts). A fact never is. */
+export const CALLINS_WIRE: import('../pressure').WireClasses<CallinsEvent> = { callin: 'fact', cin: 'fact', cnews: 'fact', mech: 'fact', aadown: 'fact', pfx: 'cosmetic' };

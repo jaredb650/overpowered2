@@ -19,6 +19,7 @@ import { Lobby } from './lobby';
 import type { NetRoom } from './room';
 import { CoopWorld } from './world';
 import type { WorldEvent } from './worldProtocol';
+import { eventOf, batchOf } from './batch';
 
 class Relay {
   readonly rooms: Room[] = [];
@@ -168,8 +169,8 @@ function pair() {
     relay.flush();
   };
   const sent = (op: string, to?: string) => relay.packets.filter(p => p.lane === 'action' && p.from === 'host-peer' && (to === undefined || p.to === to))
-    .map(p => (p.data as { data: WorldEvent }).data).filter((d): d is Extract<WorldEvent, { t: 'mission' }> => d.t === 'mission' && d.op === op);
-  const guestSays = (op: string, args: unknown[]) => { gr.channel('action').send({ match: 'mission-test', data: { t: 'mission', op, args } }); relay.flush(); };
+    .map(p => eventOf<WorldEvent>(p.data)).filter((d): d is Extract<WorldEvent, { t: 'mission' }> => d.t === 'mission' && d.op === op);
+  const guestSays = (op: string, args: unknown[]) => { gr.channel('action').send(batchOf('mission-test', [{ t: 'mission', op, args }])); relay.flush(); };
   // The guest's world says it is up (its first card): the host's catch-up for an arriving player goes out now, before the mission.
   frame();
   (guest.player.teleport as ReturnType<typeof vi.fn>).mockClear();
@@ -373,7 +374,7 @@ describe('a mission run by the host and played on every screen', () => {
     const you = game.guestLobby.you;
     const before = game.relay.packets.length;
     game.hw.mission.catchUp(you);
-    const caught = game.relay.packets.slice(before).map(p => (p.data as { data: WorldEvent }).data);
+    const caught = game.relay.packets.slice(before).map(p => eventOf<WorldEvent>(p.data));
     const ops = caught.filter((d): d is Extract<WorldEvent, { t: 'mission' }> => d.t === 'mission').map(d => [d.op, d.args] as const);
     expect(caught[0]!.t).toBe('gather');
     expect(ops.find(o => o[0] === 'door')![1]).toMatchObject(['blast', {}, 0, 0]);
@@ -391,7 +392,7 @@ describe('a mission run by the host and played on every screen', () => {
     vi.advanceTimersByTime(4000);
     const then = game.relay.packets.length;
     game.hw.mission.catchUp(you);
-    const later = game.relay.packets.slice(then).map(p => (p.data as { data: WorldEvent }).data).filter((d): d is Extract<WorldEvent, { t: 'mission' }> => d.t === 'mission');
+    const later = game.relay.packets.slice(then).map(p => eventOf<WorldEvent>(p.data)).filter((d): d is Extract<WorldEvent, { t: 'mission' }> => d.t === 'mission');
     expect(later.find(d => d.op === 'deploy')!.args[1]).toEqual({ weapons: ['smg', 'sword', 'shotgun', 'rocket'], grenades: 3 });
     expect(later.find(d => d.op === 'rack')).toBeUndefined();
     expect(later.find(d => d.op === 'cutscene')!.args[2]).toBeCloseTo(4, 0);

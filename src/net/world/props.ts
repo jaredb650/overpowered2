@@ -298,3 +298,6 @@ export class Props implements WorldModule, PropLink {
     }
   }
 }
+
+/** For a peer that is behind: which of this module's events may be left out (net/pressure.ts). A fact never is. */
+export const PROPS_WIRE: import('../pressure').WireClasses<PropEvent> = { prop: 'fact' };

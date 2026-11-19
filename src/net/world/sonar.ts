@@ -22,3 +22,6 @@ export class SharedSonar {
     });
   }
 }
+
+/** For a peer that is behind: which of this module's events may be left out (net/pressure.ts). A fact never is. */
+export const SONAR_WIRE: import('../pressure').WireClasses<SonarEvent> = { sonar: 'fact' };

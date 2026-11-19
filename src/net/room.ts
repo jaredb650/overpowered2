@@ -64,6 +64,11 @@ export interface NetRoom {
    * latest-wins data skips a peer whose count is over `BEHIND_BYTES` rather than queue stale data behind it.
    */
   buffered?(peerId: string, unreliable?: boolean): number;
+  /**
+   * How many reliable messages to this peer the transport has given up on while it stayed connected (a data channel that
+   * would not drain). Each is a hole in a stream that promised none: the sender must resynchronise the peer (pressure.ts).
+   */
+  failed?(peerId: string): number;
   /** Is the unreliable path to this peer really up? False while a channel that asked for it rides the reliable path. */
   fast?(peerId: string): boolean;
   /** Runs the simulator's due deliveries now. The game calls it every frame, since a hidden tab's timers are throttled. */

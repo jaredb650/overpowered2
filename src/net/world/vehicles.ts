@@ -552,3 +552,6 @@ export class Vehicles implements WorldModule {
     this.wrecks.clear();
   }
 }
+
+/** For a peer that is behind: which of this module's events may be left out (net/pressure.ts). A fact never is. */
+export const VEHICLES_WIRE: import('../pressure').WireClasses<VehiclesEvent> = { vehicles: 'latest', wreck: 'fact' };

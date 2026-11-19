@@ -12,6 +12,10 @@
  *   stall   ms a reliable lane takes to resend a lost packet (default 300)
  *   kbps    the page's upload speed to each peer; what does not fit queues up, and the peer reads as behind
  *
+ *   window.__op2.net.sim.throttle(peerId, 40)     this page's link to ONE peer at 40 kbit/s (0 lifts it): a single slow
+ *                                                 or stalled guest among healthy ones. What is already queued for the
+ *                                                 peer still leaves at the old speed.
+ *
  * The two lane kinds suffer differently, as they do for real. A reliable lane never loses or reorders: a lost packet
  * costs `stall` more ms, and every later reliable message to that peer waits behind it. An unreliable lane really drops
  * a lost message, and jitter lets a later message overtake an earlier one.
@@ -72,6 +76,10 @@ export class NetSim implements SimSettings {
   /** Per peer: when its reliable stream is free again, and when the slow link has sent what is queued. */
   private readonly reliableFree = new Map<string, number>();
   private readonly linkFree = new Map<string, number>();
+  /** Per peer: the speed its queue was last filled at, for `buffered`. */
+  private readonly linkRate = new Map<string, number>();
+  /** Per peer: a link speed of its own, kbit/s (`throttle`). */
+  private readonly peerKbps = new Map<string, number>();
   private handle: unknown = null;
   private handleAt = Infinity;
 
@@ -82,12 +90,22 @@ export class NetSim implements SimSettings {
   ) {}
 
   get active(): boolean {
-    return this.down || this.lag > 0 || this.jitter > 0 || this.loss > 0 || this.kbps > 0;
+    return this.down || this.lag > 0 || this.jitter > 0 || this.loss > 0 || this.kbps > 0 || this.peerKbps.size > 0;
   }
 
   /** A dead line, or the line back. */
   cut(on: boolean): void {
     this.down = on;
+  }
+
+  /** This page's link to one peer at `kbps` kbit/s, whatever the others get; 0 lifts it. */
+  throttle(peer: string, kbps: number): void {
+    if (kbps > 0) this.peerKbps.set(peer, kbps);
+    else this.peerKbps.delete(peer);
+  }
+
+  private speed(peer: string): number {
+    return this.peerKbps.get(peer) ?? this.kbps;
   }
 
   set(settings: Partial<SimSettings> | string): SimSettings {
@@ -101,17 +119,21 @@ export class NetSim implements SimSettings {
 
   /** When the slow link lets a message of `bytes` out to `peer`: now, unless `kbps` is set and the link is busy. */
   private link(peer: string, bytes: number, now: number): number {
-    if (!(this.kbps > 0)) return now;
+    const kbps = this.speed(peer);
+    if (!(kbps > 0)) return now;
     const start = Math.max(now, this.linkFree.get(peer) ?? 0);
-    const end = start + (bytes * 8) / this.kbps;
+    const end = start + (bytes * 8) / kbps;
     this.linkFree.set(peer, end);
+    this.linkRate.set(peer, kbps);
     return end;
   }
 
   /** Bytes still queued for `peer` behind the slow link. */
   buffered(peer: string): number {
-    if (!(this.kbps > 0)) return 0;
-    return Math.max(0, ((this.linkFree.get(peer) ?? 0) - this.now()) * this.kbps / 8);
+    // At the speed the queue was filled at: a throttle lifted since still has its queue to send.
+    const kbps = this.linkRate.get(peer) ?? 0;
+    if (!(kbps > 0)) return 0;
+    return Math.max(0, ((this.linkFree.get(peer) ?? 0) - this.now()) * kbps / 8);
   }
 
   /** A message on a reliable lane: `deliver` runs late, never out of order for this peer, never dropped. */

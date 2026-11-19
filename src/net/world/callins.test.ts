@@ -15,6 +15,7 @@ import { Lobby } from '../lobby';
 import type { NetRoom } from '../room';
 import { CoopWorld } from '../world';
 import type { WorldEvent } from '../worldProtocol';
+import { eventOf } from '../batch';
 
 class Relay {
   readonly rooms: Room[] = [];
@@ -107,8 +108,8 @@ function party() {
 }
 
 const ORDER: CallOrder = { n: 7, id: 'warthog', at: [12.3456789, 0, -40], yaw: 1.23456789, seed: 123456789, ai: false, age: 0 };
-const events = (relay: Relay, from: string, t: string) => relay.packets.filter(p => p.from === from && p.lane === 'action' && (p.data as { data: WorldEvent }).data.t === t)
-  .map(p => (p.data as { data: Record<string, unknown> }).data);
+const events = (relay: Relay, from: string, t: string) => relay.packets.filter(p => p.from === from && p.lane === 'action' && eventOf<WorldEvent>(p.data).t === t)
+  .map(p => eventOf<Record<string, unknown>>(p.data));
 
 describe('call-ins over the mocked lobby transport', () => {
   beforeEach(() => vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance'] }));
@@ -188,7 +189,8 @@ describe('call-ins over the mocked lobby transport', () => {
       { t: 'cnews', n: -1, k: 0 }, { t: 'mech', p: [1, 2, 3] }, { t: 'mech', p: Array(13).fill('a') }, { t: 'mech', k: 42 }, { t: 'mech', k: 0, v: [1e9] },
       { t: 'aadown', id: 'ac130' },
     ];
-    const send = p.lobbies[1]!.gameplay<unknown>('action', () => {});
+    const lane = p.lobbies[1]!.events<unknown>('action', () => {});
+    const send = (event: unknown) => lane.send(event);
     for (const event of junk) send(event);
     p.relay.flush();
     expect(p.games[0]!.log.orders).toHaveLength(0);
@@ -265,7 +267,8 @@ describe('call-ins over the mocked lobby transport', () => {
     expect(fx(2).ring).toHaveBeenCalledOnce();
     expect(fx(0).ring).not.toHaveBeenCalled();
     // Junk draws nothing.
-    const send = p.lobbies[1]!.gameplay<unknown>('action', () => {});
+    const lane = p.lobbies[1]!.events<unknown>('action', () => {});
+    const send = (event: unknown) => lane.send(event);
     send({ t: 'pfx', k: 0, a: [0, 0, 0] }); send({ t: 'pfx', k: 7, a: [0, 0, 0] }); send({ t: 'pfx', k: 1, a: 'x' });
     p.relay.flush();
     expect(fx(0).arc).toHaveBeenCalledOnce();
@@ -334,7 +337,8 @@ describe('call-ins over the mocked lobby transport', () => {
     p.relay.flush();
     expect(cancel).toHaveBeenCalledWith(7);
     // A guest cannot send drones to the others, and junk starts nothing.
-    const send = p.lobbies[1]!.gameplay<unknown>('action', () => {});
+    const lane = p.lobbies[1]!.events<unknown>('action', () => {});
+    const send = (event: unknown) => lane.send(event);
     send({ t: 'airlift', uid: 9, at: [0, 0, 0], dir: [1, 0], in: 1 });
     p.relay.flush();
     expect(begin).toHaveBeenCalledTimes(2);
@@ -357,9 +361,10 @@ describe('call-ins over the mocked lobby transport', () => {
       hook.catchUp(p.lobbies[2]!.you); p.relay.flush();
       expect(begin).not.toHaveBeenCalled();
     } finally { vi.useRealTimers(); }
-    const fromHost = p.lobbies[0]!.gameplay<unknown>('action', () => {});
-    fromHost({ match: p.lobbies[0]!.match!.id, data: { t: 'airlift', uid: 9, at: [0, NaN, 0], dir: [1, 0], in: 1 } });
-    fromHost({ match: p.lobbies[0]!.match!.id, data: { t: 'airlift', uid: 9, at: [0, 0, 0], dir: [0, 0], in: 1 } });
+    const hostLane = p.lobbies[0]!.events<unknown>('action', () => {});
+    const fromHost = (event: unknown) => hostLane.send(event);
+    fromHost({ t: 'airlift', uid: 9, at: [0, NaN, 0], dir: [1, 0], in: 1 });
+    fromHost({ t: 'airlift', uid: 9, at: [0, 0, 0], dir: [0, 0], in: 1 });
     p.relay.flush();
     expect(begin).not.toHaveBeenCalled();
     begin.mockRestore(); cancel.mockRestore();

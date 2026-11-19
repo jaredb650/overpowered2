@@ -205,3 +205,6 @@ export class VillainProps implements WorldModule {
     if (take) barricades.take(take, value.blown === true);
   }
 }
+
+/** For a peer that is behind: which of this module's events may be left out (net/pressure.ts). A fact never is. */
+export const VILLAIN_PROPS_WIRE: import('../pressure').WireClasses<VillainPropsEvent> = { dev: 'fact', devshot: 'fact', snared: 'fact', shutter: 'fact', smoke: 'fact' };

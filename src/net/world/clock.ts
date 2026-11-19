@@ -339,3 +339,6 @@ export class Clock implements WorldModule, TimeGate {
     this.board.name(slot, this.boss.label);
   }
 }
+
+/** For a peer that is behind: which of this module's events may be left out (net/pressure.ts). A fact never is. */
+export const CLOCK_WIRE: import('../pressure').WireClasses<SlowEvent> = { slow: 'fact', slowstate: 'fact', slowno: 'fact' };

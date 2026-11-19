@@ -389,3 +389,6 @@ export class Capture implements WorldModule {
     if (this.holding >= 0) this.unhold(this.holding);
   }
 }
+
+/** For a peer that is behind: which of this module's events may be left out (net/pressure.ts). A fact never is. */
+export const CAPTURE_WIRE: import('../pressure').WireClasses<CaptureEvent> = { capture: 'fact', credit: 'fact', prisoner: 'fact' };

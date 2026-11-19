@@ -396,3 +396,6 @@ export class EnemyAttacks implements WorldModule {
     this.early.clear();
   }
 }
+
+/** For a peer that is behind: which of this module's events may be left out (net/pressure.ts). A fact never is. */
+export const ATTACKS_WIRE: import('../pressure').WireClasses<AttackEvent> = { atk: 'fact', atkf: 'fact', atke: 'fact', say: 'cosmetic', bossfx: 'fact' };

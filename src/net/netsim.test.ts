@@ -156,4 +156,29 @@ describe('network simulator', () => {
     advance(20);
     expect(got).toEqual([2]);
   });
+  it('throttles the link to one peer and leaves the others alone; what was queued still leaves at the old speed', () => {
+    const { sim, advance } = rig();
+    expect(sim.active).toBe(false);
+    sim.throttle('slow', 8);
+    expect(sim.active).toBe(true);
+    const got: string[] = [];
+    // 1,000 bytes at 8 kbit/s is a second each.
+    for (let i = 0; i < 3; i++) sim.reliable('slow', 1000, () => got.push(`slow${i}`));
+    sim.reliable('fine', 1000, () => got.push('fine'));
+    expect(sim.buffered('slow')).toBe(3000);
+    expect(sim.buffered('fine')).toBe(0);
+    advance(1);
+    expect(got).toEqual(['fine']);
+    advance(1000);
+    expect(got).toEqual(['fine', 'slow0']);
+    expect(sim.buffered('slow')).toBeCloseTo(1999, 0);
+    // The throttle is lifted: the queue is still there, and drains as it was filled.
+    sim.throttle('slow', 0);
+    expect(sim.buffered('slow')).toBeCloseTo(1999, 0);
+    sim.reliable('slow', 10, () => got.push('after'));
+    advance(2000);
+    expect(got).toEqual(['fine', 'slow0', 'slow1', 'slow2', 'after']);
+    expect(sim.buffered('slow')).toBe(0);
+    expect(sim.active).toBe(false);
+  });
 });

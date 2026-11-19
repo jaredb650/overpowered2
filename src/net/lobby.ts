@@ -15,6 +15,8 @@ import { BUILD } from './build';
 import { defaultStarter, isStarter, type StarterGun } from '../contracts/starter';
 import { decodePose, encodePose, type Pose } from './pose';
 import { BEHIND_BYTES, type Channel, type ChannelOptions, type LobbyRooms, type NetError, type NetRoom } from './room';
+import { Batcher, KIND_JSON, RecordWriter, batchTag, matchTag, readBatch, readJson, type Packer } from './batch';
+import { Pressure } from './pressure';
 import { LOOPBACK } from './mode';
 import { iceAdvice } from './ice';
 
@@ -75,6 +77,20 @@ export interface LobbyOptions {
   slots?: readonly (readonly [string, number])[];
   /** Guest: how long to wait for a host before giving up (HOST_WAIT_MS, longer on a map page that is busy loading). */
   hostWait?: number;
+}
+
+/**
+ * A reliable lane of events for the match (`Lobby.events`). Everything sent between two flushes travels as one message
+ * per peer (batch.ts), in the order it was sent.
+ */
+export interface EventLane<T> {
+  /**
+   * Queues `data` for the match's players (a guest: for the host), for the one named `to`, or for all but `except`.
+   * `cosmetic`: left out for a peer that is behind (pressure.ts). Returns how many players it was queued for.
+   */
+  send(data: T, to?: string, except?: string, cosmetic?: boolean): number;
+  /** The size on the wire of the event the last `send` encoded, per recipient. */
+  readonly bytes: number;
 }
 
 /** What happened to a seat, for the game (index.ts). `rejoin`: this seat has been in this match's world before. */
@@ -277,6 +293,16 @@ export class Lobby {
   private holdFrom = 0;
   private counter: ReturnType<typeof setInterval> | null = null;
   private readonly poses: Channel<ArrayBuffer>;
+  /** The reliable event lanes' queues, flushed together (`flushEvents`). */
+  private readonly batchers: Batcher[] = [];
+  /** How a flush is put off to the end of the frame; null sends each event as it is queued (`batching`). */
+  private defer: ((run: () => void) => void) | null = null;
+  private flushDue = false;
+  private tagOf = { id: '', tag: 0 };
+  /** Backpressure on the reliable event lanes, per peer (pressure.ts). `stats` counts what it left out. */
+  readonly pressure = new Pressure();
+  /** Host: peers cut for falling too far behind (`stall`). Each comes back when its queue has drained. */
+  private readonly stalled = new Set<string>();
 
   private readonly ch: Channel<Msg>;
   private hostId: string | null = null;
@@ -325,7 +351,9 @@ export class Lobby {
     reporter.context({ role: hosting ? 'host' : 'guest' });
     report('COOP_STAGE', { stage: hosting ? 'hosting' : 'relays' });
     const room = (this.room = rooms.main);
-    this.ch = room.channel<Msg>('lobby');
+    const ch = room.channel<Msg>('lobby');
+    // What the lobby says keeps its place after the events queued before it (an `end` after the match's last event).
+    this.ch = { send: (msg, to) => { this.flushEvents(); ch.send(msg, to); }, on: handler => ch.on(handler) };
     // Latest-wins, 20 a second: unreliable, so a lost pose never holds up the next (or anything else), and none for a peer that is behind.
     this.poses = room.channel<ArrayBuffer>('pose', { unreliable: true, latest: true });
     this.poses.on((data, from) => {
@@ -778,6 +806,7 @@ export class Lobby {
   /**
    * A lane for the match: `receive` hears only the match's players (a guest only the host), and the returned function sends to
    * them (a guest to the host) and says to how many. Objects travel wrapped with the match id; bytes travel as they are.
+   * This is the lane for bytes of the game's own making (the enemy snapshots). Events go through `events`, which batches.
    * `options` picks the lane kind (room.ts): `{ unreliable: true }` for latest-wins bytes that must never wait on a lost packet
    * (they may arrive out of order, or not at all), and `latest: true` to skip a peer that is behind. The default is reliable.
    */
@@ -793,11 +822,127 @@ export class Lobby {
     return (data, to) => {
       if (this.phase !== 'open' || !this.match) return 0;
       const message = data instanceof ArrayBuffer ? data : { match: this.match.id, data };
-      const recipients = this.hosting ? this.players.filter(player => !player.host && !player.away && (!to || player.id === to)).map(player => player.id)
-        : this.hostId ? [this.hostId] : [];
-      for (const id of recipients) channel.send(message, id);
-      return recipients.length;
+      if (!this.hosting) {
+        if (!this.hostId) return 0;
+        channel.send(message, this.hostId);
+        return 1;
+      }
+      // Called for every snapshot chunk to every guest: no list of recipients is built.
+      let count = 0;
+      for (const player of this.players) {
+        if (player.host || player.away || (to && player.id !== to)) continue;
+        channel.send(message, player.id);
+        count++;
+      }
+      return count;
     };
+  }
+
+  /**
+   * A reliable lane of events for the match, batched: `receive` hears each event of the match's players (a guest only the
+   * host's), with its size on the wire, in the order they were sent; `send` queues one. `packer` gives some events a
+   * packed form (batch.ts). Until `batching` is called an event leaves as it is queued, a batch of one.
+   */
+  events<T>(name: string, receive: (data: T, from: string, bytes: number) => void, packer?: Packer<T>): EventLane<T> {
+    const channel = this.room.channel<Uint8Array | ArrayBuffer>(name);
+    const writer = new RecordWriter<T>(packer);
+    const batcher = new Batcher((batch, to) => channel.send(batch, to));
+    this.batchers.push(batcher);
+    const allowed = (from: string): boolean => this.phase === 'open' && !!this.match
+      && (this.hosting ? this.players.some(player => !player.host && !player.away && player.id === from) : from === this.hostId);
+    channel.on((message, from) => {
+      this.hear(from);
+      if (!allowed(from) || batchTag(message) !== this.matchTag()) return;
+      readBatch(message, (kind, payload, size) => {
+        // An event may end the match or send its sender away: the rest of its batch is then nobody's.
+        if (!allowed(from)) return false;
+        const event = kind === KIND_JSON ? readJson(payload) : packer?.unpack(kind, payload) ?? undefined;
+        if (event === undefined) return;
+        try { receive(event as T, from, size); }
+        catch (error) { console.warn('[coop] Dropped an event that could not be applied', error); }
+      });
+    });
+    const lane = {
+      bytes: 0,
+      send: (data: T, to?: string, except?: string, cosmetic = false): number => {
+        if (this.phase !== 'open' || !this.match) return 0;
+        const record = writer.encode(data);
+        if (!record) return 0;
+        lane.bytes = record.end - record.start;
+        const tag = this.matchTag();
+        let count = 0;
+        if (!this.hosting) {
+          if (this.hostId && !(cosmetic && this.pressure.drops(this.hostId))) { batcher.add(record, this.hostId, tag); count = 1; }
+        } else for (const player of this.players) {
+          if (player.host || player.away || (to !== undefined && player.id !== to) || player.id === except) continue;
+          if (cosmetic && this.pressure.drops(player.id)) continue;
+          batcher.add(record, player.id, tag);
+          count++;
+        }
+        if (count === 0) return 0;
+        if (!this.defer) this.flushEvents();
+        else if (!this.flushDue) {
+          this.flushDue = true;
+          this.defer(() => this.flushEvents());
+        }
+        return count;
+      },
+    };
+    return lane;
+  }
+
+  /**
+   * Turns batching on: queued events leave together when `defer` runs its callback. The game passes `queueMicrotask`, so
+   * everything one frame (or one arriving message) produced goes out as one message per peer, at the end of that frame's
+   * script, before the page draws. Unit tests leave it off and read each event as it is sent.
+   */
+  batching(defer: ((run: () => void) => void) | null): void {
+    this.flushEvents();
+    this.defer = defer;
+  }
+
+  /** Sends every queued event now, a message per peer. Also run before anything the lobby itself says, and before it closes. */
+  flushEvents(): void {
+    this.flushDue = false;
+    if (this.batchers.length === 0) return;
+    const now = performance.now();
+    for (const batcher of this.batchers) if (batcher.waiting) batcher.flush(to => this.mayFlush(to, now));
+  }
+
+  private matchTag(): number {
+    const id = this.match?.id ?? '';
+    if (this.tagOf.id !== id) this.tagOf = { id, tag: matchTag(id) };
+    return this.tagOf.tag;
+  }
+
+  /** Is this peer still worth queueing for? Judges its backlog first; a stalled guest is cut here and gets nothing more. */
+  private mayFlush(peer: string, now: number): boolean {
+    if (!this.room.buffered) return true;
+    const verdict = this.pressure.judge(peer, this.room.buffered(peer, false), this.room.failed?.(peer) ?? 0, now);
+    if (verdict !== 'stalled' || !this.hosting) return true;
+    const player = this.players.find(p => p.id === peer);
+    if (player) this.stall(player);
+    return false;
+  }
+
+  /**
+   * Host: a guest's reliable queue has grown past what the link will ever catch up on, or the transport has lost a
+   * message to it. Nothing more is queued for it: the seat is treated as lost (the world goes on for the others, the
+   * body leaves it) and comes back, with everything it missed, when the queue has drained and the guest is heard again
+   * (`seatBack`). If the link is gone for good the seat's grace and the silence rule end it as they always did.
+   */
+  private stall(player: LobbyPlayer): void {
+    if (player.host || player.away || player.state) return;
+    this.stalled.add(player.id);
+    console.warn(`[coop] ${player.name} is too far behind (${Math.round((this.room.buffered?.(player.id, false) ?? 0) / 1024)} KB queued, ${this.room.failed?.(player.id) ?? 0} lost): held out of the match until the link catches up.`);
+    report('COOP_PEER_LEFT', { reason: 'stalled' });
+    this.seatLost(player, performance.now(), `${player.name} fell behind (a slow connection).`);
+  }
+
+  /** Host: a seat cut by `stall` whose queue has not drained yet stays out, whatever is heard from it. */
+  private held(player: LobbyPlayer): boolean {
+    if (!this.stalled.has(player.id)) return false;
+    return !this.pressure.clear(player.id, this.room.buffered?.(player.id, false) ?? 0);
   }
 
   /**
@@ -1090,7 +1235,7 @@ export class Lobby {
     const player = this.players.find(p => p.id === from);
     if (!player) return;
     // A seat given up as lost whose connection was only slow: it is back, and its page says where it is (`loaded`).
-    if (player.state === 'lost' && msg.t !== 'bye') this.seatBack(player);
+    if (player.state === 'lost' && msg.t !== 'bye' && !this.held(player)) this.seatBack(player);
     if (msg.t === 'started' && msg.id === this.match?.id) {
       this.starting.delete(from);
       this.finishStart();
@@ -1218,9 +1363,17 @@ export class Lobby {
     this.onChange();
   }
 
+  /** A connection that is gone: what was queued for it, and what was held against it, go with it. */
+  private forgetPeer(id: string): void {
+    for (const batcher of this.batchers) batcher.forget(id);
+    this.pressure.forget(id);
+    this.stalled.delete(id);
+  }
+
   private peerLeft(id: string): void {
     this.rivals.delete(id);
     this.pings.delete(id);
+    this.forgetPeer(id);
     if (!this.hosting) {
       this.unheard.delete(id);
       // Not the end yet: a dropped link comes back more often than not (RECONNECT_MS).
@@ -1238,7 +1391,7 @@ export class Lobby {
    * Host: a guest's connection is gone, or silent too long. In a match its seat is kept (slot, and whatever the game holds
    * by seat) for SEAT_GRACE_MS; the body leaves the world meanwhile, so nothing targets it and no wipe waits on it.
    */
-  private seatLost(player: LobbyPlayer, now = performance.now()): void {
+  private seatLost(player: LobbyPlayer, now = performance.now(), line = `${player.name} lost connection.`): void {
     if (player.state === 'lost') return;
     this.heard.delete(player.id);
     this.starting.delete(player.id);
@@ -1261,7 +1414,7 @@ export class Lobby {
     player.away = true;
     player.ready = false;
     this.lostAt.set(player.seat!, now);
-    this.post(null, `${player.name} lost connection.`);
+    this.post(null, line);
     if (wasIn && this.match) this.onSeat(player, { kind: 'lost' });
     this.finishStart();
     this.checkHold(now);
@@ -1270,6 +1423,7 @@ export class Lobby {
   /** Host: a lost seat's own connection answers again. */
   private seatBack(player: LobbyPlayer): void {
     this.lostAt.delete(player.seat!);
+    this.stalled.delete(player.id);
     if (this.match && this.out.has(player.seat!)) {
       player.state = undefined;
       this.post(null, `${player.name} reconnected.`);
@@ -1297,6 +1451,7 @@ export class Lobby {
     this.slotWanted.delete(player.seat!);
     this.pings.delete(player.id);
     this.players = this.players.filter(p => p !== player);
+    this.forgetPeer(player.id);
     if (line) this.post(null, line);
     else this.broadcast();
     this.onSeat(player, { kind: 'gone' });
@@ -1412,6 +1567,7 @@ export class Lobby {
   /** `linger`: how long the room itself stays up after this lobby has closed (a goodbye on its way out). */
   private close(error: LobbyError | null, linger = 0): void {
     if (this.phase === 'closed') return;
+    this.flushEvents();
     const stage = this.stage;
     const ice = this.room.status?.().ice;
     const sameLan = !!ice?.ours.publicIps.some(ip => ice.theirs.publicIps.includes(ip));

@@ -12,6 +12,7 @@ import { ModelMaterials } from '../../progression/modelkit';
 import { DropPods } from '../../progression/pickups/pods';
 import { makeRange } from '../../weapons/testkit';
 import { party } from './sharedkit';
+import { batchOf } from '../batch';
 
 const SPOT = new THREE.Vector3(0, 0, -60);
 const LANDS = DROP_POD.warnSeconds + DROP_POD.height / DROP_POD.speed;
@@ -92,11 +93,11 @@ describe('the break reaches a guest with the wave event, not a snapshot later', 
     game.build();
     const guest = game.guests[0]!;
     Object.assign(guest.ctx.waves, { nextWaveIn: 5 });
-    game.host.room.channel('action').send({ match: 'shared-test', data: { t: 'wave', kind: 'start', wave: 4, total: 1, boss: false, bonus: 0, phase: 'intermission', next: -1 } });
+    game.host.room.channel('action').send(batchOf('shared-test', [{ t: 'wave', kind: 'start', wave: 4, total: 1, boss: false, bonus: 0, phase: 'intermission', next: -1 }]));
     game.relay.flush();
     expect(guest.ctx.waves.phase).toBe('spawning');
     expect(guest.ctx.waves.nextWaveIn).toBe(5);
-    game.host.room.channel('action').send({ match: 'shared-test', data: { t: 'wave', kind: 'clear', wave: 4, total: 0, boss: false, bonus: 0, phase: 7, next: 'soon' } });
+    game.host.room.channel('action').send(batchOf('shared-test', [{ t: 'wave', kind: 'clear', wave: 4, total: 0, boss: false, bonus: 0, phase: 7, next: 'soon' }]));
     game.relay.flush();
     expect(guest.ctx.waves.phase).toBe('intermission');
     expect(guest.ctx.waves.nextWaveIn).toBe(5);

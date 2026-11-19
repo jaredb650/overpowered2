@@ -566,3 +566,6 @@ function copyDamage(out: DamageInfo, d: DamageInfo): void {
   out.armorPiercing = d.armorPiercing;
   out.severMult = d.severMult;
 }
+
+/** For a peer that is behind: which of this module's events may be left out (net/pressure.ts). A fact never is. */
+export const HITS_WIRE: import('../pressure').WireClasses<HitEvent> = { hitfx: 'cosmetic', ack: 'fact', kill: 'fact', sever: 'fact' };
