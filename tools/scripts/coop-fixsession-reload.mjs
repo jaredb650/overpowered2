@@ -14,7 +14,7 @@
 //   node tools/shot.mjs --port 5510 --w 1280 --h 720 --wait 500 --timeout 900 \
 //     --script tools/scripts/coop-fixsession-reload.mjs --out tools/out/coop/fix-session/reload.png
 import { button, give, live, readyUp, startParty } from './coop-kit.mjs';
-import { SIM, acceptLeave, atGate, clickDeploy, immortal, linesAbout, pressStart, proof, seats, slowBoot, snap, until } from './coop-session-kit.mjs';
+import { SIM, acceptLeave, atGate, clickDeploy, immortal, linesAbout, pressStart, proof, seats, snap, until } from './coop-session-kit.mjs';
 
 const CASE = process.env.FIX_CASE ?? 'lobby';
 
@@ -120,11 +120,12 @@ async function hostLateCase(host, { out, check, progress, shot, sleep }, hold) {
   await immortal(party.pages);
   const code = new URL(party.invite).searchParams.get('join');
 
-  progress('the host reloads, and its new page is held back for longer than its guests wait');
-  // Thirty seconds of "Reconnecting", ten of the board, then the regroup: the host's document arrives only after that.
-  const release = await slowBoot(host, 600000);
+  progress('the host\'s page goes away, and comes back only after its guests have given it up and regrouped');
+  // A reload whose new page takes longer to arrive than the guests wait: the tab leaves the game for a plain file of the
+  // same site (its match handoff stays in the tab), and goes back to the match's address once the others have regrouped.
+  const matchUrl = host.url();
   const reloadAt = Date.now();
-  host.reload({ waitUntil: 'commit', timeout: 600000 }).catch(() => {});
+  await host.goto(`${party.base}/audio/music/manifest.json`);
   for (const page of [a, b]) await until(page, x => /Reconnecting to host… \d+/.test(x.line), 'the guest showing "Reconnecting to host…"', 20000);
   for (const page of [a, b]) await until(page, x => x.lost === 'HOST LOST', 'the team board after the grace', 60000);
   const newHost = await until(a, s => s.lobbyScreen && s.hosting === true && s.phase === 'open' && s.players.length === 2, 'GUEST-TWO hosting the regrouped lobby with GUEST-THREE in it', 90000);
@@ -133,7 +134,7 @@ async function hostLateCase(host, { out, check, progress, shot, sleep }, hold) {
   await shot(a, 'regrouped', true);
 
   progress('the old host\'s page arrives');
-  await release();
+  await host.goto(matchUrl, { waitUntil: 'commit' });
   // It boots as the host of a new match for its old roster, meets the regrouped lobby, gives way and joins it.
   const joined = await until(host, s => s.lobbyScreen && s.hosting === false && s.phase === 'open' && s.players.length === 3, 'the old host in the regrouped lobby, as a guest', 240000);
   out.oldHostJoinedAfter = (Date.now() - reloadAt) / 1000;
