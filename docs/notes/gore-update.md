@@ -83,7 +83,7 @@ Each lane owns a vertical through the plan's batches and goes on to its next ste
 | react | 5600-5609 | R1 every hit shows (strong, every round); R2 hand to the wound and a hurt posture; R4 dying carries the shots; R3b a hit spoils his aim (host decides); **R3 the struck part goes physical** (the gradient: animation, powered part, whole-body balance, limp, blended by weight; behind a switch) | `characters/animation/HumanoidAnimator.ts`, `enemies/damage.ts` (`respond`), `enemies/reactions.ts`, `gore/stand.ts`, `gore/rag.ts`, `gore/muscles.ts` | doing: R1 done |
 | gibs | 5610-5619 | G1 rockets and grenades crack the trunk; G2 show the break: pieces thrown hard out of the fireball, bright wet torn faces, mid-size slabs, so the pieces add up to the body destroyed (every destruction: torso, head, limbs, whole-body gib); free guts that detach, fly and drape; O1 organs you notice (bigger, squash, roll, burst when stepped on or shot) | `gore/torso.ts`, `gore/chunks.ts`, `gore/index.ts` (gib paths), the gut rope, `weapons/Combat.ts` blast force only where G1 needs it | done: G1, G2, the volume audit, free guts, O1 |
 | fire | 5620-5629 | F1 fire finishes the job (char by fire damage, the corpse burns on then smoulders, soot not a blood pool, flames on the whole body and on severed burning limbs); F3 fire meets the other systems (curled burnt corpses, dark pieces, morale chips faster, burning zombies keep attacking); F2 fire spreads from where it touched and eats the skin to muscle and bone | `enemies/EnemyManager.ts` burn, `characters/material.ts`, `fx/recipes`, `enemies/outpost/morale.ts`, `enemies/behaviours.ts` | doing: F1 done, F3 in hand |
-| mess | 5630-5639 | M0 measure the budgets; P1 the mess stays (decal rings by kind and about four times the room, pieces that do not expire, corpses sink only out of view, resting bodies that stack and are **pushed aside as ragdolls** when walked into, the "Mess" setting); P3 many more corpses (tiers, baked far bodies that can wake) | `render/Decals.ts` (the rings and budgets), `gore/chunks.ts` lifetimes, `gore/rag.ts`, `gore/sliced.ts`, `gore/index.ts` corpse caps, settings UI | todo |
+| mess | 5630-5639 | M0 measure the budgets; P1 the mess stays (decal rings by kind and about four times the room, pieces that do not expire, corpses sink only out of view, resting bodies that stack and are **pushed aside as ragdolls** when walked into, the "Mess" setting); P3 many more corpses (tiers, baked far bodies that can wake) | `render/Decals.ts` (the rings and budgets), `gore/chunks.ts` lifetimes, `gore/rag.ts`, `gore/sliced.ts`, `gore/index.ts` corpse caps, settings UI | doing: M0 done, P1 done (heaps, pushed aside, the setting); P3 (the far batch) next |
 | decals | 5640-5649 | D1 realistic decal designs and BIG decals for coverage (the sheet, the choice of shape by speed, angle, amount and weapon, wet and dry surface response); B1 more blood from one hit; B4 drips from ceilings and ledges, splashes, soaked bodies; B2 footprints and slide smears; P2 blood that never has to go (the floor texture) | `render/materials/decalAtlas.glsl.ts`, the shape choice in `render/Decals.ts` and `gore/blood.ts`, `fx/layers/blood.ts` | doing: D1 (the sheet, big stains, marks), B1, B4, B2 landed; P2 next |
 | wear | 5650-5659 | B3 blood on the weapon and hands; W1 wear you can see: readable limb damage (skin torn to muscle, then bone, as a region's pool is spent), without changing what shooting a limb does | `weapons/viewmodels/` materials, `characters/material.ts`, `characters/anatomy/interior.ts`, the body's data texture | B3 done (aaaa677), W1 done |
 
@@ -110,6 +110,9 @@ Shared files and contracts:
 | `?bigblood=0`, lab row "Blood: big stains on a kill" | on | D1: the big stains a kill lays for coverage (burst, fan, wall sheet, soaked patch, drag, ring) against the small traced drops alone | decals |
 | `?hitblood=0`, lab row "Blood: a mark from every round" | on | B1: every round's own fan on the floor past the body against none | decals |
 | `?fire=0`, dev panel "New fire" | on | F1 and F3: off is fire as it was (a timer, one emitter on the chest, char by seconds alive only, out at death, a red pool under the body, no curl, no dark pieces). Not switched by it: the charred skin's new colours (the shader is one), and the rules of F3 (burning chips morale, the dead ignore fire) | fire |
+| `?messrest=0` (dev panel: "Corpses heap") | on | Off: a body at rest keeps no capsules, so the next one falls through it and bodies lie one deep, as before | mess |
+| `?messpush=0` (dev panel: "Corpses are pushed aside") | on | Off: nothing at rest is woken by the player or an enemy walking into it, or by a body landing on it: corpses are walked through untouched, as before | mess |
+| Settings, Video, "Mess" | Standard | Low / Clear at wave break / Standard / Everything: how many bodies, limbs, pieces and how much blood stay (`MESS` in `src/gore/mess.ts`) | mess |
 
 ## Log
 
@@ -239,4 +242,22 @@ Shared files and contracts:
   `Gore.gib` round its spawns) tints pieces by instance colour; the slabs' skin side and the trunk's big pieces are not
   tinted because they draw with the body's skin material (`charredVariant(material)` in `characters/material.ts` gives a
   burnt twin of any character material if you want it there), and a burnt body's gib still throws red blood and ribbons.
-
+- 2026-11-19, mess, M0 and P1 landed (`docs/notes/gore.md`, "The mess that stays" and "The mess: measured budgets").
+  **Measured:** a corpse costs the frame 0.030 ms of script and 36,600 triangles on the development machine, a third of it
+  a skeleton worked out again every frame for a body that lies still; decals cost by layers stacked on screen (0.006 ms a
+  full-screen layer), not by count; 2,250 fixed capsules cost the physics step nothing. **Built:** a body at rest keeps a
+  fixed capsule where each of its own lay, so bodies heap (chokepoint, 80 kills: hips up to 0.88 m, was 0.14); it wakes as
+  a ragdoll when the player or an enemy walks into it, a body lands on it, or what it lay on goes; its skeleton is still
+  and all but the newest 8 cast no shadow; the oldest out of sight go first; pieces lie until their slot is needed; a
+  soaked spot stops spending decals; the "Mess" setting. **Decided:** default Standard (120 bodies kept, 3.5 ms on the
+  laptop by the estimate with every body in view, against 7.2 ms for the 40 it drew before; **the laptop figures are an
+  estimate scaled from `docs/notes/render.md`, there is no laptop here**). Enemies push at 0.4 of the player's strength
+  and wake one body every 0.6 s between them: at full strength a horde ploughed every heap flat. The old "Gore" setting no
+  longer sets how many bodies, limbs and pieces stay. The stripes where pools overlap were agent "decals"'s find (a cell
+  number interpolated across a quad), fixed in D1. **For "fire":** a body that must stay a character (it is burning) calls
+  `gore.hold(char, seconds)` once P3 lands; `Decals.fadeOut` and `Gore.sweep()` clear the floor at a wave break.
+  **For "gibs":** your `ChunkField.kick` is reused for the player kicking meat, bone and ribs (`shove`); the common kinds'
+  rooms are doubled and `ChunkTuning.share` (0.5 at Standard) says how much is in use, the cut kinds keep all of theirs.
+  **Not done yet:** P3. **Co-op:** `coop-gore-shots.mjs` failed one case twice ("limb", the watcher's screen) with the first
+  build, where a body's still skeleton had to be undone on every path that gives an instance back; it is now one that ends
+  by itself the moment a bone moves, and the proof has passed three full runs since.
