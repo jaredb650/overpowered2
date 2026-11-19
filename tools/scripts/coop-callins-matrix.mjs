@@ -36,28 +36,34 @@ const TAG = process.env.CALLINS_TAG ?? (SIM ? 'lag' : 'clean');
  * may stray from the caller's (`path`, metres), whether its blasts are matched (`blasts`, metres) and what must have been
  * drawn by the copy (`fires`: a counter of the watcher's mirror that must have grown). `kills`: enemies stood on the mark
  * must die to the caller. `end`: shot down by the caller's own game at the end of the watch (the rest of its sortie is
- * minutes long), which also proves the shoot-down reaches every screen.
+ * minutes long), which also proves the shoot-down reaches every screen. `rounds`: the copy must put the caller's rounds in the
+ * air: 'same' exactly as many (a seeded strike), or at least that share of them (a helicopter flown from poses).
  */
 const PLAN = {
-  airstrike: { run: 9, shotAt: 4.6, path: 0.1, blasts: 3, fires: 'projectiles', kills: true },
-  warthog: { run: 10, shotAt: 4.3, path: 6, blasts: 2, fires: 'projectiles', kills: true },
+  airstrike: { run: 9, shotAt: 4.6, path: 0.1, blasts: 3, fires: 'projectiles', kills: true, rounds: 'same' },
+  warthog: { run: 10, shotAt: 4.3, path: 6, blasts: 2, fires: 'projectiles', kills: true, rounds: 'same' },
   orbital: { run: 9.5, shotAt: 4, path: 4, blasts: 4, fires: 'blasts', kills: true, steer: true },
   blackSun: { run: 9, shotAt: 3.5, path: 0.1, blasts: 2, fires: 'blasts', kills: true },
   nuke: { run: 14, shotAt: 9.6, path: 0.1, kills: true },
   sentry: { run: 9, shotAt: 7, path: 1.5, blasts: 2, fires: 'blasts', enemy: 'drone', end: true },
   ac130: { run: 34, shotAt: 26, path: 8, blasts: 2.5, fires: 'news', kills: true, end: true, crash: 16, far: true },
   ac130seat: { id: 'ac130', run: 30, shotAt: 22, path: 8, blasts: 2.5, fires: 'news', kills: true, end: true, crash: 16, seat: true, far: true },
-  attackChopper: { run: 26, shotAt: 14, path: 9, fires: 'projectiles', kills: true, end: true, crash: 12, far: true },
+  attackChopper: { run: 26, shotAt: 14, path: 9, fires: 'projectiles', kills: true, end: true, crash: 12, far: true, rounds: 0.7 },
   doorGunner: { run: 26, shotAt: 15, path: 9, fires: 'rays', kills: true, end: true, crash: 12, far: true },
   frame: { run: 22, shotAt: 17, path: 4, fires: 'rays', kills: true, board: true },
 };
 
 /** Runs in every page once: counts what is drawn, and records where each strike and each copy is, every frame. */
-function recorder() {
+function recorder(callin) {
   if (window.__rec) return;
+  const CALLIN = new RegExp(callin);
   const { ctx } = window.__op2;
-  const rec = window.__rec = { on: false, blasts: [], tracers: 0, flashes: 0, tracks: {}, kills: [] };
+  const rec = window.__rec = { on: false, blasts: [], tracers: 0, flashes: 0, rounds: 0, tracks: {}, kills: [] };
   const { fx } = ctx;
+  // Every round a call-in puts in the air on this page, the caller's own and a copy's alike (a copy's goes through the same
+  // `spawnProjectile`): the caller's count against each watcher's says whether a copy left any out.
+  const spawn = ctx.combat.spawnProjectile.bind(ctx.combat);
+  ctx.combat.spawnProjectile = spec => { if (rec.on && spec.team === 'player' && CALLIN.test(spec.source ?? '')) rec.rounds++; return spawn(spec); };
   const explosion = fx.explosion.bind(fx);
   fx.explosion = (at, options) => { if (rec.on) rec.blasts.push([at.x, at.y, at.z, options?.radius ?? 0]); return explosion(at, options); };
   const tracer = fx.tracer.bind(fx);
@@ -84,7 +90,7 @@ const CALLIN_SOURCE = /^(airstrike|warthog|chopper|door_gun|orbital|ac130|black_
 
 const begin = page => page.evaluate(() => {
   const rec = window.__rec; const { ctx } = window.__op2;
-  rec.blasts.length = 0; rec.tracers = rec.flashes = 0; rec.kills = []; rec.tracks = {}; rec.on = true;
+  rec.blasts.length = 0; rec.tracers = rec.flashes = rec.rounds = 0; rec.kills = []; rec.tracks = {}; rec.on = true;
   const world = ctx.coop.world;
   world.callins.measure = true;
   for (const key of Object.keys(world.callins.cost)) delete world.callins.cost[key];
@@ -98,7 +104,7 @@ const read = page => page.evaluate(() => {
   const link = ctx.progression.callinLink;
   const copies = [];
   for (let slot = 0; slot < 4; slot++) for (const copy of link.mirror.copies(slot)) copies.push({ slot, n: copy.n, id: copy.id, where: copy.strike.where.toArray() });
-  return { mirror: { ...link.mirror.stats }, kills: ctx.progression.kills, blasts: rec.blasts, tracers: rec.tracers, flashes: rec.flashes, killed: rec.kills,
+  return { mirror: { ...link.mirror.stats }, kills: ctx.progression.kills, blasts: rec.blasts, tracers: rec.tracers, flashes: rec.flashes, rounds: rec.rounds, killed: rec.kills,
     tracks: rec.tracks, copies, running: link.running.length, cost: JSON.parse(JSON.stringify(ctx.coop.world.callins.cost)), enemies: ctx.enemies.alive.length,
     accepted: ctx.coop.world.stats.accepted, rejected: ctx.coop.world.stats.rejected, dropped: ctx.coop.world.boomsDropped, fps: window.__op2.stats().fps,
     // The claims' books (what this page sent, what the host received and refused), and every enemy as this page has it.
@@ -169,7 +175,7 @@ export default async function (host, { sleep, outDir }) {
     party = await startParty(host, { mode: 'crucible', players: PLAYERS, net: SIM || undefined, out, progress, sleep });
     await live(party, { enemies: 1 });
     const { pages } = party;
-    for (const page of pages) await page.evaluate(recorder);
+    for (const page of pages) await page.evaluate(recorder, CALLIN_SOURCE.source);
     // The wave is stopped for the whole proof: only what the proof stands on the mark is on the map.
     await host.evaluate(() => { const { waves } = window.__op2.ctx; waves.update = () => {}; });
     await calm(host);
@@ -369,6 +375,10 @@ export default async function (host, { sleep, outDir }) {
           const path = stray(copyTrack, ownTrack);
           const blasts = plan.blasts ? matched(after[callerIndex].blasts, after[i].blasts, plan.blasts) : null;
           const w = { page: i === 0 ? 'host' : `guest${i}`, copy: grew('orders'), path, blasts, drew: { projectiles: grew('projectiles'), rays: grew('rays'), blasts: grew('blasts'), news: grew('news') },
+            // Rounds put in the air and blasts drawn, this watcher's against the caller's own; and how much of the copy's time
+            // this screen ran unseen (`skipped`: it was 2 s or more behind) or made up drawn (`fast`).
+            rounds: { own: after[callerIndex].rounds, copy: after[i].rounds }, blastCount: { own: after[callerIndex].blasts.length, copy: after[i].blasts.length },
+            skipped: +(after[i].mirror.skipped - before[i].mirror.skipped).toFixed(2), fast: +(after[i].mirror.fast - before[i].mirror.fast).toFixed(2),
             tracers: mid[i].tracers, flashes: mid[i].flashes, copiesLeft: after[i].copies.filter(c => c.slot === callerSlot).length,
             // Kills credited to this watcher while it watched. One whose source is the call-in's would be the copy dealing damage.
             // Any other (a man the caller set alight or left bleeding, who died later) is the kill-credit rules', not a copy's.
@@ -379,6 +389,12 @@ export default async function (host, { sleep, outDir }) {
           check(path.points > 10 && path.p95 <= plan.path, `${name}: the copy on ${w.page} keeps to the caller's path (${path.p95} m at the 95th centile, ${plan.path} m allowed)`, path);
           if (plan.fires) check(w.drew[plan.fires] > 0, `${name}: the copy on ${w.page} fires (${plan.fires})`, w.drew);
           if (blasts) check(blasts.of > 0 && blasts.matched >= Math.ceil(blasts.of * 0.9), `${name}: the blasts arrive on ${w.page} (${blasts.matched} of ${blasts.of} within ${plan.blasts} m)`, blasts);
+          // Nothing left out: a seeded strike's copy puts exactly the caller's rounds in the air; one told round by round or
+          // flown from poses may differ by the few in the air as the watch ends. A screen that froze for two seconds or more
+          // (`skipped`) saw less by design, and is not held to it.
+          if (plan.rounds && w.skipped === 0) check(plan.rounds === 'same' ? w.rounds.copy === w.rounds.own && w.rounds.own > 0 : w.rounds.copy >= w.rounds.own * plan.rounds,
+            `${name}: the copy on ${w.page} put the caller's rounds in the air (${w.rounds.copy} of ${w.rounds.own})`, w.rounds);
+          if (plan.blasts && w.skipped === 0) check(w.blastCount.copy >= w.blastCount.own * 0.9, `${name}: ${w.page} drew the caller's blasts (${w.blastCount.copy} of ${w.blastCount.own})`, w.blastCount);
           check(w.killsOfItsOwn === 0, `${name}: the copy on ${w.page} killed nothing of its own`, w.ownKills);
           if (plan.end || plan.board) check(w.copiesLeft === 0 || key === 'ac130' || key === 'ac130seat' || key === 'attackChopper' || key === 'doorGunner',
             `${name}: it is gone from ${w.page} when the caller's is`, after[i].copies);

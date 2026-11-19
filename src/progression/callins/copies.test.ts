@@ -17,7 +17,7 @@ import { Airstrike } from './airstrike';
 import { ghostCtx, type GhostStats } from './ghost';
 import { GroundProbe } from './ground';
 import { uplinkJammed, type CallOrder, type NewsKind } from './link';
-import { CallinMirror, MAX_COPIES } from './mirror';
+import { BEHIND_S, CallinMirror, MAX_COPIES, QUIET_S } from './mirror';
 import type { NukeAftermath } from './nuke';
 import { Orbital } from './orbital';
 import { Ordnance } from './ordnance';
@@ -337,16 +337,66 @@ describe('the mirror', () => {
       expect(rest.stats.blasts).toBe(1);
     });
 
-    it('a screen that stood still for a while catches its copy up instead of flying it late for the rest of its life', () => {
+    it('a screen that stood still for a long while catches its copy up at once instead of flying it late for the rest of its life', () => {
       const steady = mirror(), stalled = mirror();
       steady.begin(1, call('warthog', 3)); stalled.begin(1, call('warthog', 3));
       for (let i = 0; i < 30; i++) { vi.advanceTimersByTime(1000 / 60); steady.update(1 / 60); stalled.update(1 / 60); r.run(1 / 60); }
-      // One and a half seconds in which only the steady screen draws frames (a hidden tab, a long hitch).
-      for (let i = 0; i < 90; i++) { vi.advanceTimersByTime(1000 / 60); steady.update(1 / 60); r.run(1 / 60); }
-      expect(copy(steady, 1)!.age - copy(stalled, 1)!.age).toBeGreaterThan(1.4);
+      // Four and a half seconds in which only the steady screen draws frames (a hidden tab, a long freeze).
+      for (let i = 0; i < 270; i++) { vi.advanceTimersByTime(1000 / 60); steady.update(1 / 60); r.run(1 / 60); }
+      expect(copy(steady, 1)!.age - copy(stalled, 1)!.age).toBeGreaterThan(QUIET_S);
       stalled.update(1 / 60); steady.update(1 / 60);
       expect(Math.abs(copy(steady, 1)!.age - copy(stalled, 1)!.age)).toBeLessThan(0.1);
       expect(copy(stalled, 1)!.strike.where.distanceTo(copy(steady, 1)!.strike.where)).toBeLessThan(6);
+      expect(stalled.stats.skipped).toBeGreaterThan(QUIET_S);
+    });
+
+    // The bug of 2026-11-19: a copy 0.25 s behind was run forward silently, so a hitch during the volley (the proof's own
+    // screenshot was one) cost that screen its rockets: 8 and 10 of 15 in the call-ins matrix, and once the finale's blast.
+    it('a hitch in the middle of an airstrike costs the screen none of its fifteen rockets, nor the finale: the time is made up drawn', () => {
+      for (const [at, hitch] of [[AIRSTRIKE.rocketsAt + 0.3, 0.7], [AIRSTRIKE.rocketsAt - 0.1, 3], [AIRSTRIKE.finaleAt + 0.2, 0.6]] as const) {
+        const m = mirror();
+        m.begin(2, call('airstrike', 7));
+        play(m, at);
+        const before = r.record.explosions;
+        // The screen draws nothing for `hitch` seconds: the wall clock goes on, the copy does not.
+        vi.advanceTimersByTime(hitch * 1000);
+        play(m, AIRSTRIKE.finaleAt + 3 - at);
+        expect(m.stats.projectiles, `rockets after a ${hitch} s hitch at ${at} s`).toBe(AIRSTRIKE.rockets);
+        expect(m.stats.blasts, `the finale after a ${hitch} s hitch at ${at} s`).toBe(1);
+        expect(m.stats.skipped).toBe(0);
+        expect(m.stats.fast).toBeGreaterThan(hitch - 0.25);
+        expect(r.record.explosions - before).toBeGreaterThanOrEqual(1);
+        expect(m.copies(2)).toHaveLength(0);
+      }
+    });
+
+    it('a copy that fell behind is in step again within the hitch\'s own length, and never runs ahead', () => {
+      const steady = mirror(), hitched = mirror();
+      steady.begin(1, call('warthog', 3)); hitched.begin(1, call('warthog', 3));
+      for (let i = 0; i < 30; i++) { vi.advanceTimersByTime(1000 / 60); steady.update(1 / 60); hitched.update(1 / 60); r.run(1 / 60); }
+      for (let i = 0; i < 36; i++) { vi.advanceTimersByTime(1000 / 60); steady.update(1 / 60); r.run(1 / 60); }
+      expect(copy(steady, 1)!.age - copy(hitched, 1)!.age).toBeCloseTo(0.6, 1);
+      // 0.6 s behind, made up at three times speed: in step after 0.3 s.
+      for (let i = 0; i < 20; i++) {
+        vi.advanceTimersByTime(1000 / 60); steady.update(1 / 60); hitched.update(1 / 60); r.run(1 / 60);
+        expect(copy(hitched, 1)!.age).toBeLessThanOrEqual(copy(steady, 1)!.age + 1e-6);
+      }
+      expect(copy(steady, 1)!.age - copy(hitched, 1)!.age).toBeLessThan(BEHIND_S + 1 / 60);
+      expect(hitched.stats.skipped).toBe(0);
+    });
+
+    it('a screen at a low frame rate, whose frames are longer than the game\'s longest step, keeps its copy in step and whole', () => {
+      const m = mirror();
+      m.begin(2, call('airstrike', 7));
+      // Twelve frames a second: 83 ms of wall clock a frame, of which the game clock takes 50 (MAX_STEP).
+      for (let i = 0; i < Math.round((AIRSTRIKE.finaleAt + 3) * 12); i++) {
+        vi.advanceTimersByTime(1000 / 12); m.update(0.05); r.run(0.05);
+        const c = copy(m, 2);
+        if (c) expect(performance.now() / 1000 - (m.copies(2)[0] as unknown as { born: number }).born / 1000 - c.age).toBeLessThan(0.25);
+      }
+      expect(m.stats.projectiles).toBe(AIRSTRIKE.rockets);
+      expect(m.stats.blasts).toBe(1);
+      expect(m.stats.skipped).toBe(0);
     });
 
     it("an enemy's missile at the caller's aircraft is flown on the watcher's screen from the same spot, and bursts where the caller's did", () => {

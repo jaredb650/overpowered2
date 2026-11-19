@@ -68,14 +68,26 @@ interface Copy {
   order: CallOrder;
   /** When its caller's began, on this screen's wall clock (`performance.now()`): what `age` is kept up with. */
   born: number;
+  /** How old its caller's was when this screen was told of it: that much is never shown here (0 on a fresh call). */
+  late: number;
 }
 
 /**
- * A copy more than this far behind its caller's is run forward without being drawn or heard. Under it, an ordinary frame's
- * own step is close enough.
+ * A copy this far or more behind its caller's is run forward to it without being drawn or heard: a player who arrived
+ * part-way, a tab that was hidden, a long freeze. What happened in that stretch happened while this screen was not looking.
  */
-export const BEHIND_S = 0.25;
-/** The steps of that catching up, and the most strike time made up in one frame (a late joiner's gunship takes a few frames). */
+export const QUIET_S = 4;
+/**
+ * Under that, a copy that is behind (a hitch, a slow frame rate, a screenshot) makes the time up **drawn and heard**, a
+ * little faster than life: up to this many more steps of the frame's own length a frame, so at most three times speed
+ * (four seconds are made up in two). Nothing of it is left out. (It was run silently from 0.25 s behind: a third of a
+ * second's hitch during an airstrike's volley cost that screen three or four of its fifteen rockets and their blasts, and
+ * one near its end cost the finale. A proof's screenshot at 1440x900 dpr 2 froze a page for 0.7 to over 2 s.)
+ */
+export const FAST_STEPS = 2;
+/** Closer than this to its caller's, a copy is in step: an ordinary frame's own step is all it gets. */
+export const BEHIND_S = 0.02;
+/** The steps of the quiet catching up, and the most strike time made up in one frame (a late joiner's gunship takes a few frames). */
 const CATCH_STEP = 1 / 30, CATCH_MOST = 20;
 /** An enemy's missile at a player's aircraft, as the watchers see it (antiAir.ts flies the caller's own). */
 interface AaMissile { n: number; body: THREE.Object3D; velocity: THREE.Vector3; age: number; end: THREE.Vector3 | null }
@@ -147,7 +159,8 @@ const _v = new THREE.Vector3();
 
 export class CallinMirror {
   /** What the copies drew, in all: the proofs read it on a watcher to see that the blasts and the fire arrived. */
-  readonly stats: GhostStats & { orders: number; news: number } = { blasts: 0, projectiles: 0, rays: 0, orders: 0, news: 0 };
+  /** `skipped`: seconds of strike time run without picture or sound; `fast`: seconds made up drawn, faster than life. */
+  readonly stats: GhostStats & { orders: number; news: number; skipped: number; fast: number } = { blasts: 0, projectiles: 0, rays: 0, orders: 0, news: 0, skipped: 0, fast: 0 };
   private readonly ghost: Ctx;
   private readonly hangars: (Hangar | null)[] = [null, null, null, null];
   private readonly order: StrikeOrder = { point: new THREE.Vector3(), heading: new THREE.Vector3(1, 0, 0), seed: 0, yaw: 0 };
@@ -191,7 +204,7 @@ export class CallinMirror {
     // `age`: its caller's has been running that long (this player arrived part-way, or the caller is saying it again):
     // the copy is born in the past and `update` runs it forward to now.
     const age = Number.isFinite(o.age) && o.age > 0 ? o.age : 0;
-    hangar.copies.push({ n: o.n, id: o.id, strike, age: 0, order: { ...o, at: [o.at[0], o.at[1], o.at[2]], age: 0 }, born: performance.now() - age * 1000 });
+    hangar.copies.push({ n: o.n, id: o.id, strike, age: 0, order: { ...o, at: [o.at[0], o.at[1], o.at[2]], age: 0 }, born: performance.now() - age * 1000, late: age });
   }
 
   /** That player's copies as orders with their age now: what a player arriving on the host is sent (net/world/callins.ts). */
@@ -313,7 +326,8 @@ export class CallinMirror {
    * Every frame, on the strike clock (`dt`, real seconds) like the player's own strikes. A copy is kept up with the wall
    * clock since its caller's began, not with the sum of this screen's frames: a screen that dropped frames, a tab that was
    * hidden, or a player who arrived while it was running would otherwise fly it late for the rest of its life (only the
-   * gunship had a clock of its own to catch up by). What is skipped to get there is run without picture or sound.
+   * gunship had a clock of its own to catch up by). A little behind (under `QUIET_S`) it runs faster until it is in step,
+   * with everything drawn; far behind, what is skipped to get there is run without picture or sound.
    */
   update(dt: number): void {
     const world = this.ctx.time.dt;
@@ -327,12 +341,14 @@ export class CallinMirror {
         const copy = copies[i]!;
         let done = false;
         const behind = (now - copy.born) / 1000 - copy.age - dt;
-        if (behind > BEHIND_S) {
+        // Far behind, or still inside what its caller's had done before this screen heard of it: forward, unseen.
+        if (behind >= QUIET_S || (copy.age < copy.late && behind > BEHIND_S)) {
           this.stats.quiet = true;
           try {
             for (let left = Math.min(behind, CATCH_MOST); left > 1e-4 && !done; left -= CATCH_STEP) {
               const step = Math.min(CATCH_STEP, left);
               copy.age += step;
+              this.stats.skipped += step;
               done = copy.strike.update(step);
               hangar.advance(step);
             }
@@ -345,6 +361,15 @@ export class CallinMirror {
         if (!done) {
           copy.age += dt;
           done = copy.strike.update(dt);
+        }
+        // A little behind: the same strike a little faster, every round and blast of it drawn.
+        if (!done && dt > 0 && behind > BEHIND_S && behind < QUIET_S && copy.age >= copy.late) {
+          for (let left = Math.min(behind, dt * FAST_STEPS); left > 1e-4 && !done; left -= dt) {
+            const step = Math.min(dt, left);
+            copy.age += step;
+            this.stats.fast += step;
+            done = copy.strike.update(step);
+          }
         }
         if (!done) continue;
         copy.strike.dispose();
