@@ -61,7 +61,9 @@ export class Hits {
   private hitfxIn(value: Extract<HitEvent, { t: 'hitfx' }>): void {
     const { ctx } = this.w;
     const enemy = this.replicas.enemy(value.uid);
-    if (!enemy || this.replicas.dead.has(value.uid)) return;
+    // Not drawn here yet (this came reliably, its first state did not): kept a moment for it, not dropped.
+    if (!enemy) { this.replicas.whenSeen(value.uid, () => this.hitfxIn(value)); return; }
+    if (this.replicas.dead.has(value.uid)) return;
     enemy.health = value.health; enemy.armor = value.armor;
     const damage = unpackDamage(value.damage);
     if (value.blocked) ctx.fx.impact(damage.point, damage.dir.clone().negate(), 'armor');
@@ -70,7 +72,8 @@ export class Hits {
 
   private severIn(value: Extract<HitEvent, { t: 'sever' }>): void {
     const enemy = this.replicas.enemy(value.uid);
-    if (enemy && !enemy.char.severed.has(value.region)) this.w.ctx.gore.sever(enemy.char, value.region, unpackDamage(value.damage));
+    if (!enemy) { this.replicas.whenSeen(value.uid, () => this.severIn(value)); return; }
+    if (!enemy.char.severed.has(value.region)) this.w.ctx.gore.sever(enemy.char, value.region, unpackDamage(value.damage));
   }
 
   private ownKill(enemy: Enemy, damage: DamageInfo, gibbed: boolean, headshot: boolean): void {

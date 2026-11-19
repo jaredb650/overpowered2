@@ -70,8 +70,11 @@ the names the game used before).
 | `world/context.ts` | `WorldContext`, handed to every module: the game `ctx`, the session, `send` (the reliable `action` lane), the snapshot lane, the router, `listen` (game events), the stats, the claim validator, `ready`, and the shared lookups `sender`, `playerOf`, `relay`, `visible`, `life`. Also `Later` (the host's delayed work) and `unpackDamage` | |
 | `world/router.ts` | `Router`: which handler gets an arriving event, by type and by side (host or guest) | |
 | `world/wire.ts` | `Vec`, `validVec`, `WireDamage`, `packDamage`, `ENEMY_IDS`, `REGIONS` | |
-| `world/snapshot.ts` | The binary enemy snapshot: `encodeWorld`, `decodeWorld`, `EnemyFrame`, `SNAPSHOT_MS`, `POSTURES`, `CAPTURABLE` | (the `world` lane) |
-| `world/replicas.ts` | Host: builds and sends the snapshot. Guest: the enemy copies, their interpolation (`animate`), the `dead` set | (the `world` lane) |
+| `world/snapshot.ts` | The enemy snapshot's bytes, version 4: chunks (`ChunkWriter`, `ChunkReader`), the rate tiers (`tierOf`, `dueOn`), `POSTURES`, the flag bits. See "Enemy motion" | (the `world` lane, unreliable) |
+| `world/motion.ts` | No game imports: `HostClock` (the host's clock from its stamps, and the jitter), `MotionBuffer` (one thing's last states, its playhead, interpolation, short extrapolation, easing), `SendClock` (the host's steady tick) | |
+| `world/replicas.ts` | Host: the 20-a-second tick, tiers and chunks per guest, backpressure, the roster. Guest: the enemy copies, their buffers and playheads (`animate`), their own ragdolls, the bounded `dead` set, `whenSeen` (something for an enemy not drawn yet waits for it) | (the `world` lane, unreliable) |
+| `world/moves.ts` | Enemy moves no hit explains: stagger, stumble, daze, roar, land, leap, block, a living knockdown (`down`) and `getUp`. The host listens at the animator and at gore; a guest plays each when the copy's playhead reaches it | `move` |
+| `world/identity.ts` | Each soldier's names, rank, seat, voice and squad, told once per guest | `who` |
 | `world/targeting.ts` | Host: every player as a target (`players()`), `select`, line of sight, `steer` and its routes, `targetPlayer`, sending `hurt`. Guest: taking `hurt`, `allowsLocalDamage` | `hurt` |
 | `world/claims.ts` | Guest's `claim` (its damage as a `hit` event, and the guess at the result); the host's check and apply (`hitIn`); whose claim is being applied (`applying`) and who last hit an enemy (`lastHit`), read by hits.ts for kill credit | `hit` |
 | `world/hits.ts` | Kill credit (`killedBy`, `notMine`, the guest's own kill replay); what the host's damage did, sent out; wounds, severs and deaths on guests; `selfDestruct` | `hitfx`, `kill`, `sever` |
@@ -86,8 +89,8 @@ the names the game used before).
 | `world/slowNotice.ts` | The notice every screen shows while the world is slow (its own element in the HUD root, `ui/css/cooptime.css`) | |
 | `world/capture.ts` | A guest capturing a prisoner (hold E, the host cuffs, the bounty comes back); `capturable` | `capture`, `credit` |
 | `world/guns.ts` | Carries the news of dropped guns for `weapons/dropped.ts` | `gun` |
-| `world/vehicles.ts` | The host's ground vehicles drawn on guests, 5 Hz | `vehicles` |
-| `world/allies.ts` | The host's garrison drawn on guests, 5 Hz, and its tracers (30 a second) | `allies`, `ashot` |
+| `world/vehicles.ts` | The host's ground vehicles drawn on guests, 5 Hz, stamped with the host's clock and drawn through a `MotionBuffer` | `vehicles` |
+| `world/allies.ts` | The host's garrison drawn on guests, 5 Hz, the same way, and its tracers (30 a second) | `allies`, `ashot` |
 | `team.ts` | As before; registers its own events with the router (`plug`) | `life`, `card`, `team`, `revive`, `up`, `wave`, `over`, `restore` |
 | `mission.ts` | As before; registers its own events with the router (`plug`) | `mission`, `gather` |
 | `worldProtocol.ts` | For code outside `world/`: re-exports `wire.ts` and `snapshot.ts`, and defines `WorldEvent` as the union of every module's event types | |
@@ -119,6 +122,158 @@ Rules that keep it working:
 **To add a module:** a class in `src/net/world/` that takes `WorldContext` (and the modules it needs), built in `CoopWorld`'s
 constructor. If it needs a frame tick or cleanup, give it `update(now)` / `dispose()` and add it to the `modules` list. If the game
 must call it, add a method on `CoopWorld` that passes the call on.
+
+## Enemy motion (overhaul lane "enemy-motion", 2026-11-18)
+
+What a guest sees of the host's enemies. It replaces the stage 2 lane described in "Stage 2 (history)" further down: that one sent
+the whole crowd in one reliable message about nine times a second and slid each enemy from wherever it was drawn to the newest
+position, so enemies stepped, stopped between messages and froze together whenever a packet was resent.
+
+### What the host sends
+
+- **A steady tick, 20 a second** (`SendClock`, `TICK_MS` 50). The next tick is counted from the last tick's own time, never from the
+  frame that noticed it, so a 60 fps host ticks 20 times a second (the old lane managed 9.2 of its 10). After a stall it catches up
+  by one tick and drops the rest. A host slower than 20 fps ticks every frame and says so in the header (`tickMs`).
+- **Rate tiers, per guest** (`tierOf`). An enemy is *near* for a guest if it is within 25 m of them, or inside the cone 60 degrees
+  either side of where they look out to 70 m, or a boss, or one of the last 4 alive. Near enemies go every tick (20 Hz). The rest
+  are *far* and go every fourth tick (5 Hz), taking turns by uid so every tick carries about the same load. A new enemy goes to
+  everyone on its first two ticks. If a guest's snapshot bytes pass 64,000 a second the far tier thins to 2 Hz (it cannot happen
+  at the 48-enemy cap; it is the research doc's ceiling).
+- **Chunks, each one packet.** A tick's enemies for one guest are cut into chunks of at most `UNRELIABLE_SAFE_BYTES` (1,100).
+  Every chunk stands alone: a 16-byte header (format `0xc204`, kind, count, **the host's clock in ms**, tick, wave, phase, seconds
+  to the next wave, enemies alive, the host's real tick length) and then records. A lost chunk costs the enemies in it one update.
+  Nothing waits for it.
+- **Two record sizes.** Every record has the 27 **motion** bytes: uid, bits (full, tier, legs it can stand on, getting up, aiming),
+  the flag byte (airborne, downed, frozen, burning, shield, ward, boss entry, can be cuffed), the coarse animation and the slot of
+  the player it is after, position (3 x f32), yaw (i16), velocity (3 x i16 cm/s). A **full** record adds 17: archetype, plates,
+  posture, severed regions, health, max health, armour. An enemy sends full records when it is new, for 8 ticks after anything in
+  them changes, and once a second regardless; a guest can only make an enemy from a full record. The byte layout is the comment
+  at the top of `snapshot.ts`.
+- **A roster twice a second:** the uid of everyone alive (also sent 4 times a second while nobody is alive, so the wave clock
+  still arrives).
+- **Backpressure.** The lane is `{ unreliable: true, latest: true }`, and the host asks `lobby.behind(id)` before building a
+  guest's tick: a guest whose connection is behind gets nothing this tick instead of stale data queued behind more stale data.
+- **Moves and identities** go on the reliable lane (below).
+
+Sizes: 48 new enemies are 2 chunks, 2,144 bytes, once. After that, with nothing changing, a tick of 48 near enemies is 2 chunks
+of 27-byte records. Budgets from the unit test (`replicas.test.ts`): 20 near and 28 far, the split the research doc budgets at
+25 KB/s, costs under 17 KB/s; all 48 next to the guest, the worst case, under 30 KB/s. Measured figures are in the table below.
+
+### What a guest does with it
+
+- **The host's clock** (`HostClock`). A chunk stamped `host` arriving at local `now` says the clocks differ by at least `host - now`.
+  The largest such figure over the last few seconds (the fastest packet) is the offset; how late every other packet runs against
+  it gives the **jitter** (mean plus twice the mean deviation). Two 2.5 s windows, so a route that got slower is followed.
+- **A buffer and a playhead per enemy** (`MotionBuffer`): its last 8 states, sorted by host time whatever order they came in, a
+  repeat dropped. The enemy is drawn at its playhead, between the two states either side: position, yaw (the short way round) and
+  velocity (which drives its gait, as the host's does). The playhead aims at `host now - delay`, where
+  `delay = that enemy's send interval + jitter + 20 ms`, kept between 50 and 450 ms: about **70 ms behind on a clean link for a
+  near enemy at 20 Hz, 120 to 150 at 10 Hz, 220 for a far one at 5 Hz**, and more by exactly the measured jitter on a bad link.
+  It closes on that by running up to 25% fast or slow, so a change of tier or of jitter never shows as a jump.
+- **When the buffer runs dry** (a lost packet, a stalled host) the enemy goes on along its last velocity for 100 ms at full speed,
+  then slows to a stop over about 150 ms more: it never freezes mid-step and never runs off. When the next state lands, the gap
+  between where it was drawn and where the states now put it is carried as an offset and eased away (90 ms, and never faster
+  than 4 m/s): no snap. The same easing takes in a state that arrives late and fills a hole.
+- **A real teleport** (the host re-entering a stranded enemy through a spawn point: over 6 m in a step no speed explains) is drawn
+  as a cut at its own moment, not a slide across the map. A tab that slept is put on the present, not played through.
+- **The body's state takes effect when the playhead reaches it:** airborne, posture, frozen, burning, a severed limb whose
+  `sever` event never came. Health, armour and plates apply the moment a newer state arrives.
+- **Frozen and burning are the copy's own state** (`EnemyManager.placeReplica`, `replicaStatus`): `enemy.frozen` and
+  `enemy.burning` are held above zero while the host's flag is on, so a kill on a frozen copy is a shatter on the guest too, and a
+  burning copy carries the same flames, sizzle and charring skin as the host's (`burnLook`, shared with single player's
+  `updateBurn`), hurting nothing. What the guest's own weapon just put on a copy (`afflict`, ahead of the host's answer) runs out
+  by itself unless the host confirms it.
+- **It aims at who it is after.** The record says which player's slot the enemy has picked and whether it is aiming; the copy's
+  aim offsets point at that player (this one, or a friend's body). Before, a copy never aimed at all.
+- **Spawning and leaving.** A copy is made from the first full record seen. A copy the roster no longer names waits 500 ms for its
+  `kill`, then is withdrawn; a late state older than that roster cannot bring it back. A killed uid is remembered in `dead`, now
+  bounded at 1,024 (`RecentSet`): only the newest kills can still have a chunk in the air.
+- **Something for an enemy not drawn yet** (`Replicas.whenSeen(uid, run)`): events are reliable and states are not, so a `hitfx`,
+  `sever`, `move` or `who` can arrive before the enemy's first state. It is kept up to 1.5 s and runs when the copy appears, instead
+  of being dropped. `hits.ts` uses it for `hitfx` and `sever`; any module may.
+- Chunks that arrive while the map loads are kept (64) and taken at `begin()`, each at its own arrival time.
+
+### Moves (`world/moves.ts`, event `move`)
+
+Positions cannot say that a boss roared or that a man was knocked off his feet. Those are facts, so they go once on the reliable
+lane: `{ t: 'move', uid, at, m, a }`, `at` the host's clock, `a` the move's numbers.
+
+| Move | From | On the guest |
+|---|---|---|
+| `stagger`, `stumble`, `daze` | A shove, an electric floor, a blast that left it standing, a wound | The same clip, or `stumble` with the host's direction, strength and bone |
+| `roar`, `land`, `leap`, `block` | A boss arriving and changing phase, a leaper, a drop-in, a guard | `anim.play` at the host's speed |
+| `down` | Any living knockdown (`gore.knockdown`): a slide, a blast, a wound, a fall after a stagger | The copy is knocked down by the guest's own gore with the host's push: velocity, impact, topple, lie and rise times, the wound. A real ragdoll, landing where the guest's physics puts it (owner decision 2). A body a blast threw is thrown the way the host's went, read from its next states |
+| `getUp` | Gore handing the host's body back, or a medic's hand | A copy in its own ragdoll is told to rise (`gore.rouse`); one that never fell plays the get-up clip |
+
+- **The host changes no enemy code for this.** While a match is hosted the module wraps each enemy's `play`, `stumble`, `daze` and
+  `getUp`, and gore's `knockdown`, and puts them back when the match ends. The attack clips (`attackMelee`, `attackHeavy`, `shoot`,
+  `throw`) are deliberately not sent: `world/attacks.ts` runs the attack itself on the copy. Nothing is started from the
+  snapshot's coarse animation bits any more (they are still carried).
+- **A move plays when the copy's playhead reaches its stamp** (so it starts where the motion shows it starting), at the latest
+  700 ms after it came.
+- **The contract with the gore lane:** a guest's gore starts staggers and knockdowns itself from the hits it sees. A move never
+  restarts a clip of the same kind (`stagger`/`stumble`, or `down`) that began on that copy in the last 400 ms (`SAME_KIND_MS`),
+  whoever began it: the module listens at the copy's animator and at gore on the guest too.
+- **A copy in its own ragdoll** is gore's until gore hands it back: `Replicas.ragdoll` neither places nor animates it. It lies
+  2.5 s longer than the host said, so only the host's `getUp` gets it up; if that word is missed it is roused 600 ms after the
+  host's enemy is seen standing. When it gets up it is where its own physics left it, and the buffer eases it to the host's place
+  (measured: 0 cm apart 2.5 s after getting up). If gore has no room for another body it lies in the `downed` posture as before.
+- At most 90 moves a second from the host, and the same move for the same enemy not twice in 120 ms.
+
+### Who each soldier is (`world/identity.ts`, event `who`)
+
+A copy is made by the same outpost code as the host's man, which deals names and ranks at random. The host now tells each guest
+once per man (batches of 16, five times a second, so a late joiner hears about everyone): surname, designation, nickname, rank,
+seat, voice, whether he is known by name, leads his squad and talks big, and the squad's name. The copy takes them, so
+`Sgt Alpha-1` is `Sgt Alpha-1` on every screen.
+
+### Vehicles and the garrison
+
+Both still go 5 times a second on the reliable lane as JSON, now with the host's clock (`at`). On a guest each has a
+`MotionBuffer` (`place`: velocity worked out from its last two places), so they are drawn between two states about 220 ms back
+and carried on when one is late. A vehicle's attitude rides in the buffer's four spare numbers and is slerped between the same
+two states; its turret is the buffer's yaw. The old per-frame `slerp(0.25)` turned faster at higher frame rates; this does not
+(`puppets.test.ts`: the same at 30 and 120 fps). An ally's gait comes from that velocity, not from the frame's step.
+
+### Proofs
+
+- Unit: `world/motion.test.ts` (the clock, the buffer, loss, outage, easing, tier change, the send clock), `worldProtocol.test.ts`
+  (the bytes, chunk sizes, malformed input, the tiers), `world/replicas.test.ts` (the host's tick, budgets, backpressure, a guest
+  under loss and reordering, the roster, `dead`, `whenSeen`), `world/moves.test.ts` (moves and identity), `world/puppets.test.ts`.
+- `tools/scripts/coop-motion-measure.mjs`: two pages and a crowd that never stops moving (both players run in circles). Every
+  frame the guest records where it drew each enemy and the host where each really was; each drawn position is then compared with
+  where the host had that enemy at the moment being drawn. `coop-motion-matrix.mjs` runs it over the table below, one run at a
+  time through `tools/shot.mjs`. `MOTION_STRICT=1` makes one run fail outside its limits.
+- `tools/scripts/coop-motion-moves.mjs`: on the guest, a knocked-down enemy is a ragdoll of the guest's own and gets up with the
+  host's, ending where the host's stands; a roar and a hitless stagger play; attack clips are not sent; frozen and burning are
+  the copy's state and end with the host's; a withdrawn enemy leaves, a killed one stays dead; the lane is unreliable.
+  `MOVES_MODE=outpost`: every soldier has the host's name, rank, squad and voice.
+
+### Measured
+
+`coop-motion-measure.mjs`, loopback transport, the Crucible, both players running in circles so the crowd (husks, troopers,
+stalkers) never stops. "Error" is the distance between where the guest draws an enemy and where the host had it at the moment
+being drawn; a "stall" is a frame an enemy stood still on the guest while its host twin moved faster than 0.5 m/s.
+
+**First paired run** (2026-11-18; 20 enemies, clean network, 15 s, the old code and the new side by side on the same machine at
+the same time, both pages at 56 to 58 fps):
+
+| | Old lane (`d9ecffb`) | New lane |
+|---|---:|---:|
+| Drawn behind the host, ms | 116 | 95 near (p95 237: the far tier) |
+| Error p50 / p95, cm | 2.2 / 20.6 | 0.4 / 7.6 |
+| Yaw error p50 / p95, degrees | 0.2 / 3.9 | 0.1 / 1.8 |
+| Frames stalled | 38 (0.24%) | 1 (0.01%) |
+| Stalls a minute, whole crowd / per enemy | 140.7 / 7.69 | 3.8 / 0.2 |
+| A frame's step against the host's, p95, cm | 9.8 | 4.1 |
+| Snapshot bytes a second to the guest | 8,328 | 8,250 |
+
+The same bytes buy twice the update rate for near enemies and remove almost every stall.
+
+**The full table** (20 and 48 enemies; host uncapped and at 20 fps; clean, `lag:80,jitter:30,loss:0.03` and
+`lag:150,jitter:60,loss:0.08`; old and new) is not in yet: on the day this landed thirteen agents shared the machine, the load
+average stood near 100 on 32 cores, and a test page starved of frames measures the machine, not the netcode. Run it on a quiet
+box with `node tools/scripts/coop-motion-matrix.mjs --ports <old>,<new> --tags baseline,after` and paste its tables here.
 
 ## How it works
 
@@ -589,8 +744,8 @@ hints, banners, doors, music, cutscenes, guns and grenades handed out, pickups d
 | A file download fails while loading (flaky connection) | `fetchAsset` (`src/core/fetchAsset.ts`) retries network errors, 5xx and 429 three times; still failing, the page says "Network hiccup while loading" with a Reload button, and a co-op match's handoff is put back first so the reload rejoins the match instead of starting a solo run |
 | The game open in two tabs of one browser | Before: a second tab on the invite link joined as a second player under the same callsign, and tabs share localStorage (settings are saved whole, last tab wins). Now one tab runs the game (`core/oneTab.ts`, a Web Lock); another shows "OVERPOWERED 2 is already open in another tab" with **Play here instead**, which makes the running tab reload into that notice (leaving its room). The host also replaces a guest's old seat when the same browser (an id in localStorage) says hello again. To test two players on one machine, use a second browser profile or a private window |
 | Host tab hidden or minimised | See below |
-| Lag, loss, reordering, duplicates, clock drift | Events, the lobby and (still) enemy snapshots are on the reliable, ordered lane, so loss arrives as delay; player poses are on the unreliable lane, where a lost or late pose is simply skipped; poses and snapshots carry sequence numbers and drop old or duplicate frames; both render on the receiver's own clock 100 ms behind arrival, so clocks never need to agree; a lost `up` or bleed-out is healed by the 4 Hz team cards |
-| Desync | Every enemy snapshot is the full living list: a replica the host no longer has goes after 500 ms, a missing one is spawned |
+| Lag, loss, reordering, duplicates, clock drift | Events ride the reliable lane, so loss there arrives as delay. Poses and enemy snapshots ride the unreliable lane: a lost packet is simply replaced by the next. Enemy states carry the host's clock; the guest reads that clock from the fastest packet of the last few seconds and draws each enemy a little in the past, so the two pages' clocks never need to agree and may drift ("Enemy motion" below). A lost `up` or bleed-out is healed by the 4 Hz team cards |
+| Desync | Every enemy sends a full record at least once a second, so a missing one is made within a second; twice a second a roster names everyone alive, and a copy the roster no longer names is withdrawn after 500 ms (time for its `kill` to arrive) |
 | Cheating among friends | Hit claims: a known gun, a living sender, the matching rate-limited shot, range 350 m, line of sight from the shooter's eye, bounded inputs and hits per shot; blasts: no eye line, 160 a second; call-ins: only after calling one in. Revives and captures are checked against the bodies' positions |
 | Malformed messages | Every lane validates shape and range; a handler that throws is caught and logged per message (`trystero.ts`, `CoopWorld.receive`); the fuzz test throws 23 kinds of junk at both ends |
 | Esc, menus, shops, loadout | Never pause co-op |
@@ -603,6 +758,9 @@ the audio context suspends, which the game does when hidden) and over pausing ev
 It does not depend on any browser's own exemptions. Guests' hidden tabs keep sending poses the same way.
 
 ## Measurements
+
+The figures in this section are from before the overhaul (one reliable 45-byte-per-enemy snapshot, 10 Hz). The enemy lane's
+current sizes, rates and measured smoothness are in "Enemy motion" above.
 
 Real WebRTC, two pages in one headless browser, each capped at 15 frames a second (two full worlds on one 8 GB machine), so the snapshot
 rate was ~6 Hz instead of the production 10 Hz. A live Crucible wave of 13 to 21 enemies, host firing, under 150-300 ms lag with 5% resend
@@ -914,7 +1072,7 @@ guest's tab dying mid-wave, rejoining by link with credits back, and leaving to 
 - **Aircraft drawn for the others:** a call-in's jet, gunship or helicopter is only on the caller's screen (its explosions are on all).
 - **Guest bullets on vehicles**, **grabbing a prisoner as a shield or questioning him** as a guest, **guest repairs and Barracks hires**
   in Outpost Defense: the host's only.
-- **Living knockdown get-up blends** on guests and per-muscle wound animation (stage 2 limits) are unchanged.
+- **Per-muscle wound animation** on guests (a stage 2 limit) is unchanged. Living knockdowns and get-ups are done: "Enemy motion", Moves.
 - **Implant parts** on friends' bodies.
 - **Campaign:** mission 1's opening (briefing, cutscene, door-gunner ride) is proven in the browser; the rest of both missions has only
   the unit-tested rules behind it, not a full two-player playthrough.

@@ -19,6 +19,8 @@ import type { HitEvent } from './world/hits';
 import type { FireEvent, KataEvent } from './world/remoteFire';
 import type { SonarEvent } from './world/sonar';
 import type { AwardEvent } from './world/credit';
+import type { WhoEvent } from './world/identity';
+import type { MoveEvent } from './world/moves';
 import type { HurtEvent } from './world/targeting';
 import type { VehiclesEvent } from './world/vehicles';
 import type { VillainEvent } from './world/villain';
@@ -48,6 +50,8 @@ export type WorldEvent =
   | CaptureEvent    // world/capture.ts: capture, credit
   | AwardEvent      // world/credit.ts: award
   | GunEvent        // world/guns.ts: gun
+  | MoveEvent       // world/moves.ts: move
+  | WhoEvent        // world/identity.ts: who
   | VehiclesEvent   // world/vehicles.ts: vehicles
   | AlliesEvent     // world/allies.ts: allies, ashot
   | TeamEvent       // team.ts: life, card, team, revive, up, wave, over, restore, kit, ready, vote, sync, mark

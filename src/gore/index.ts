@@ -702,6 +702,13 @@ export class Gore implements GoreSystem {
     return this.owned.get(char)?.down ?? null;
   }
 
+  /** See net/world/moves.ts: a body that is down gets up as soon as it has come to rest, whatever time it had left to lie. */
+  rouse(char: CharacterInstance): void {
+    const body = this.owned.get(char);
+    const reflex = body?.down ? body.rag?.muscle?.reflex : null;
+    if (reflex) reflex.lie = 0;
+  }
+
   handedBack(char: CharacterInstance): 'clip' | 'stand' | 'crawl' | null {
     return this.back.get(char) ?? null;
   }

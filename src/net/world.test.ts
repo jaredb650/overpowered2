@@ -10,7 +10,7 @@ import { Lobby } from './lobby';
 import type { NetRoom } from './room';
 import { CoopWorld } from './world';
 import { planGib } from '../gore/torso';
-import { decodeWorld, encodeWorld, type WorldEvent } from './worldProtocol';
+import { decodeChunk, encodeChunk, type WorldEvent } from './worldProtocol';
 import { RULES } from '../enemies/outpost/chatter/lines';
 import { TUNING } from '../weapons/data';
 import type { CommsLine } from '../enemies/outpost/events';
@@ -142,10 +142,12 @@ describe('host-authoritative world over the mocked lobby transport', () => {
     expect(game.guest.manager.spawn).toHaveBeenCalledOnce();
     const packet = game.relay.packets.find(packet => packet.lane === 'world')!.data;
     expect(packet).toBeInstanceOf(ArrayBuffer);
-    expect(decodeWorld(packet)?.enemies[0]?.uid).toBe(enemy.uid);
-    game.guestRoom.channel('world').send(encodeWorld({ seq: 200, wave: 99, enemies: [] })); game.relay.flush();
+    const sent = decodeChunk(packet)!;
+    expect(sent.enemies[0]?.uid).toBe(enemy.uid);
+    game.guestRoom.channel('world').send(encodeChunk({ time: sent.time + 1000, tick: 200, wave: 99, enemies: [] })); game.relay.flush();
     expect(game.host.ctx.waves.wave).toBe(1);
-    game.hostRoom.channel('world').send(encodeWorld({ seq: 0, wave: 99, enemies: [] })); game.relay.flush();
+    // A chunk from before the newest one heard says nothing new about the wave.
+    game.hostRoom.channel('world').send(encodeChunk({ time: sent.time - 40, tick: 0, wave: 99, enemies: [] })); game.relay.flush();
     expect(game.guest.ctx.waves.wave).toBe(1);
     game.gw.updateGuests(); expect(game.guest.manager.placeReplica).toHaveBeenCalledOnce();
     game.hw.dispose(); game.gw.dispose();

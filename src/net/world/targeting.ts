@@ -67,6 +67,9 @@ export class Targeting implements WorldModule {
     });
   }
 
+  /** Host: the lobby id of the player this enemy is after, once it has picked one. */
+  targetOf(uid: number): string | undefined { return this.selections.get(uid); }
+
   /** Every player whose body is in the world, the local one included. */
   players(): PlayerTarget[] {
     const { ctx, session } = this.w;

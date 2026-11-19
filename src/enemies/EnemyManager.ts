@@ -68,6 +68,26 @@ const STOOD_STAGGER = 0.2;
 /** A player outrunning the tide strands a lot of it at once. It comes back in a trickle, not all on one frame. */
 const RESCUE_GAP = 0.3;
 
+/**
+ * What a co-op guest's copy of a host enemy is shown as this frame (net/world/replicas.ts). `frozen` and `burning` are the
+ * host's word and become the copy's own state; `feet` and `eye` are the player it is after, for where it aims.
+ */
+export interface ReplicaView {
+  frozen: boolean;
+  /** Frost on its skin, 0..1. */
+  frost: number;
+  burning: boolean;
+  aiming: boolean;
+  feet: THREE.Vector3 | null;
+  eye: THREE.Vector3 | null;
+  /** Legs it can stand on, 0-2. */
+  legs: number;
+  rising: boolean;
+}
+
+/** A guest's copy stays frozen or burning this long past the host's last word of it, seconds. */
+const REPLICA_STATUS_HOLD = 0.3;
+
 /** Character members the contract leaves off. */
 interface Skin {
   setBurn(amount: number): void;
@@ -618,6 +638,21 @@ export class EnemyManager implements EnemySystem {
       e.burnEmitter = null;
       return;
     }
+    this.burnLook(e, dt, skin);
+    e.burnTick -= dt;
+    if (e.burnTick > 0) return;
+    e.burnTick = BURN_TICK;
+    const n = this.query(e.position, BURN_SPREAD_RADIUS, this.nearby);
+    for (let i = 0; i < n; i++) {
+      const o = this.nearby[i]!;
+      if (o !== e && o.burning <= 0) o.burning = 2.5;
+    }
+    if (!e.def.fireproof) this.applyDamage(e, this.statusDamage(e, 'burn', 'fire', 3 + e.maxHealth * 0.03));
+  }
+
+  /** What burning looks and sounds like: the flames on it, the sizzle as they catch, its skin charring. Hurts nothing. */
+  private burnLook(e: Enemy, dt: number, skin: Skin): void {
+    const { ctx } = this;
     if (!e.burnEmitter) {
       // On the chest and not over the root, which a body thrown by a blast leaves lying 1.2 m under the flames.
       const chest = e.char.rig.bones[B.chest]?.name === 'chest';
@@ -628,15 +663,6 @@ export class EnemyManager implements EnemySystem {
       e.charred = Math.min(1, e.charred + dt / CHAR_SECONDS);
       skin.setBurn(e.charred);
     }
-    e.burnTick -= dt;
-    if (e.burnTick > 0) return;
-    e.burnTick = BURN_TICK;
-    const n = this.query(e.position, BURN_SPREAD_RADIUS, this.nearby);
-    for (let i = 0; i < n; i++) {
-      const o = this.nearby[i]!;
-      if (o !== e && o.burning <= 0) o.burning = 2.5;
-    }
-    if (!e.def.fireproof) this.applyDamage(e, this.statusDamage(e, 'burn', 'fire', 3 + e.maxHealth * 0.03));
   }
 
   /**
@@ -741,7 +767,8 @@ export class EnemyManager implements EnemySystem {
     if (e.ward > 0) this.telegraphs.placeWard(e.wardVisual, e.center, e.def.radius + 0.9, e.ward / 70);
   }
 
-  private animate(e: Enemy, dt: number): void {
+  /** `aiming`, `feet` and `eye` are the player's unless a co-op guest's copy says who it is after (`placeReplica`). */
+  private animate(e: Enemy, dt: number, aiming = e.attack !== null || e.face === 'player', feet: THREE.Vector3 = this.player.position, eye: THREE.Vector3 = this.player.eye): void {
     const near = e.dist < 26 ? 0 : e.dist < 60 ? 1 : 2;
     // Bosses stay at full rate: their footfalls shake the camera, and a skipped frame is a skipped plant.
     e.lod = e.isBoss ? 0 : e.inView ? near : Math.min(near + 1, 3);
@@ -754,14 +781,13 @@ export class EnemyManager implements EnemySystem {
     l.speed = speed;
     l.moveX = speed > 0.1 ? (vx * cos - vz * sin) / speed : 0;
     l.moveZ = speed > 0.1 ? (vx * sin + vz * cos) / speed : 0;
-    const dx = this.player.position.x - e.position.x;
-    const dz = this.player.position.z - e.position.z;
+    const dx = feet.x - e.position.x;
+    const dz = feet.z - e.position.z;
     let yawOff = Math.atan2(dx, dz) - e.yaw;
     yawOff = Math.atan2(Math.sin(yawOff), Math.cos(yawOff));
-    const aiming = e.attack !== null || e.face === 'player';
     l.aimYaw = aiming ? clamp(yawOff, -1.2, 1.2) : 0;
     const flat = Math.hypot(dx, dz) || 1;
-    l.aimPitch = aiming ? clamp(Math.atan2(this.player.eye.y - (e.position.y + e.def.eyeHeight), flat), -0.8, 0.8) : 0;
+    l.aimPitch = aiming ? clamp(Math.atan2(eye.y - (e.position.y + e.def.eyeHeight), flat), -0.8, 0.8) : 0;
     l.grounded = !e.airborne;
     e.char.anim.setLocomotion(l);
     e.char.anim.update(dt, e.lod);
@@ -887,14 +913,38 @@ export class EnemyManager implements EnemySystem {
     if (coop?.world && !coop.hosting) coop.world.status(enemy, kind, seconds);
   }
 
-  /** A co-op guest's copy of a host enemy, in the posture the host's snapshot says (net/world.ts). */
-  placeReplica(enemy: Enemy, dt: number, posture: string): void {
+  /**
+   * A co-op guest's copy of a host enemy, where net/world/replicas.ts has just put it, in the posture the host says. With a
+   * `view` it also carries the host's word on its body: frozen and burning become its own state (so a shatter is a shatter,
+   * and it burns and chars as the host's does, hurting nothing), and it aims at the player it is after.
+   */
+  placeReplica(enemy: Enemy, dt: number, posture: string, view?: ReplicaView): void {
+    if (view) this.replicaStatus(enemy, dt, view);
     this.place(enemy);
     enemy.dist = enemy.position.distanceTo(this.ctx.player.position);
     enemy.inView = true;
     (enemy.char.anim as unknown as { setPosture?(posture: string): void }).setPosture?.(posture);
-    this.animate(enemy, dt);
+    if (view?.feet && view.eye) this.animate(enemy, dt, view.aiming, view.feet, view.eye);
+    else this.animate(enemy, dt, false);
     enemy.char.root.updateMatrixWorld(true);
+  }
+
+  /** The look of `updateStatus` on a guest's copy, from the host's flags: no damage, no spreading, no timers of its own. */
+  private replicaStatus(e: Enemy, dt: number, view: ReplicaView): void {
+    const skin = e.char as unknown as Skin;
+    // The host's word holds it frozen or burning. Without it, what this player's own weapon just put on the copy (`afflict`,
+    // ahead of the host's answer) runs out by itself, as it would on the host.
+    e.frozen = view.frozen ? Math.max(e.frozen, REPLICA_STATUS_HOLD) : Math.max(0, e.frozen - dt);
+    skin.setFrost(Math.max(view.frost, clamp(e.frozen * 2)));
+    e.burning = view.burning ? Math.max(e.burning, REPLICA_STATUS_HOLD) : Math.max(0, e.burning - dt);
+    if (e.burning > 0) this.burnLook(e, dt, skin);
+    else if (e.burnEmitter) {
+      e.burnEmitter.stop();
+      e.burnEmitter = null;
+    }
+    if (!e.def.machine) e.maim.legs = view.legs;
+    if (e.stagger > 0) e.stagger -= dt;
+    e.rising = view.rising ? Math.max(e.rising, 0.1) : 0;
   }
 
   replayDeath(enemy: Enemy, damage: DamageInfo, gib: boolean): void {

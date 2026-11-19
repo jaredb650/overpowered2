@@ -27,6 +27,8 @@ import { WorldContext, type WorldModule } from './world/context';
 import { EnemyFire } from './world/enemyFire';
 import { Guns, type GunEvent } from './world/guns';
 import { Hits } from './world/hits';
+import { Identity } from './world/identity';
+import { Moves } from './world/moves';
 import { RemoteFire } from './world/remoteFire';
 import { Replicas } from './world/replicas';
 import { SharedSonar } from './world/sonar';
@@ -77,9 +79,10 @@ export class CoopWorld {
     // Each module adds its own game listeners and event handlers as it is built. Listeners on one game event run in the order
     // added: Credit must hear `enemy:killed` before Hits and before any system does (who killed it is known first), which holds
     // because it is built before Hits and the world is built before systems init.
-    this.enemies = new Replicas(w);
     this.targeting = new Targeting(w);
-    this.vehicles = new Vehicles(w);
+    this.enemies = new Replicas(w, this.targeting);
+    // Before Claims, which lets a guest's rounds hurt them; after Replicas, whose clock their copies are drawn by.
+    this.vehicles = new Vehicles(w, this.enemies);
     // Before RemoteFire: a shot's id moves on `weapon:fired`, and claims.ts must hear that first.
     this.claims = new Claims(w, this.enemies, this.targeting, this.vehicles);
     this.shots = new RemoteFire(w);
@@ -98,8 +101,10 @@ export class CoopWorld {
     this.villain = new Villain(w);
     this.booms = new Booms(w, this.targeting);
     this.guns = new Guns(w);
-    this.garrison = new Allies(w);
-    this.modules = [this.capture, this.vehicles, this.garrison, this.targeting, this.claims, this.credit, this.attacks, this.warnings, w.later, this.time, this.enemies];
+    this.garrison = new Allies(w, this.enemies);
+    // Moves and identities ride the reliable lane beside the enemies' unreliable states (replicas.ts).
+    const moves = new Moves(w, this.enemies), identity = new Identity(w, this.enemies);
+    this.modules = [this.capture, this.vehicles, this.garrison, this.targeting, this.claims, this.credit, this.attacks, this.warnings, w.later, this.time, moves, identity, this.enemies];
   }
 
   /** Read by the two-page proofs (tools/scripts/coop-*.mjs): the guest's enemy copies, last snapshot and garrison bodies. */

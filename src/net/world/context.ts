@@ -67,14 +67,15 @@ export class WorldContext {
   onSnapshot: (data: ArrayBuffer) => void = () => {};
   /** Host: called after each snapshot goes out, with the uids alive in it, for per-enemy state to be forgotten. */
   readonly snapshotSent: ((alive: Set<number>) => void)[] = [];
-  /** Sends a snapshot on the `world` lane; returns how many players it went to. */
-  readonly sendSnapshot: (data: ArrayBuffer) => number;
+  /** Sends a snapshot chunk on the `world` lane, to every guest or the one named; returns how many players it went to. */
+  readonly sendSnapshot: (data: ArrayBuffer, to?: string) => number;
   private readonly sendAction: (data: WorldEvent, to?: string) => number;
   private readonly offs: (() => void)[] = [];
 
   constructor(readonly ctx: Ctx, readonly session: CoopSession) {
     this.later = new Later(() => ctx.time.dt);
-    this.sendSnapshot = session.lobby.gameplay<ArrayBuffer>('world', data => this.onSnapshot(data));
+    // Latest-wins bytes: unreliable and unordered, so a lost chunk never holds up the next, and none for a guest that is behind.
+    this.sendSnapshot = session.lobby.gameplay<ArrayBuffer>('world', data => this.onSnapshot(data), { unreliable: true, latest: true });
     this.sendAction = session.lobby.gameplay<WorldEvent>('action', (data, from) => this.receive(data, from));
   }
 

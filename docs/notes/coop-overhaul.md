@@ -203,3 +203,19 @@ Shared files and contracts between lanes:
   `slowstate`, not a snapshot field. T1: the host cuts a frame over 1/20 s into world steps (`GameTime.split`), single player and
   guests unchanged. T2: an enemy's blast on a remote player burns on the world clock. T3: bleed-out stays on real time (decision
   above). Details: `docs/notes/coop.md`, "Time: the team's slow motion".
+- 2026-11-18, enemy-motion: landed. Enemy snapshots are chunks of at most 1,100 bytes on the unreliable lane, stamped with the
+  host's clock, on a steady 20 Hz tick with near (20 Hz) and far (5 Hz) tiers per guest and backpressure; a guest draws each
+  enemy from a buffer about one send interval plus the measured jitter in the past, carries it on for 100 ms when the buffer runs
+  dry and eases every correction. Moves no hit explains (`move`: stagger, stumble, daze, roar, land, leap, block, living
+  knockdowns as the guest's own ragdolls, get-ups), soldier identity (`who`), frozen and burning as real replica state, aim at the
+  right player, vehicles and the garrison through the same buffer. Details and numbers: `docs/notes/coop.md`, "Enemy motion".
+  Decisions: (1) two record sizes, 27 motion bytes and 44 full, a full one on change and once a second, so a tick costs what the
+  old 10 Hz lane cost at twice the rate; (2) the delay is per enemy (its own send interval), so far enemies sit further in the
+  past instead of extrapolating; (3) a living knockdown is replayed by the guest's own gore from the host's push, not streamed;
+  (4) the host listens for moves at the animator and at `gore.knockdown` rather than editing every call site. For other lanes:
+  `Replicas.whenSeen(uid, run)` keeps an event for an enemy not drawn yet; `replica.to.target` is the slot the enemy is after;
+  attack clips are not sent as moves and nothing is started from the coarse animation bits any more (attacks.ts plays attacks); a move never
+  restarts a stagger or knockdown begun in the last 400 ms on the copy. Touched outside the lane, small: `gore/index.ts`
+  (`rouse`), `world/hits.ts` (`whenSeen` in `hitfxIn`/`severIn`), `world/targeting.ts` (`targetOf`), `world/context.ts` (the lane's
+  options), `world.ts` (construction), `world/vehicles.ts` and `allies.ts` (the buffer). Not done: the full 12-case measurement
+  table (the box was overloaded; one clean paired run is in the note).
