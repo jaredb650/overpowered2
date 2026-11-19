@@ -350,11 +350,14 @@ export class Combat implements CombatSystem {
       d.armorPiercing = true;
       if (enemy.armor > 0) d.pierces = true;
     }
+    // Read before the damage: `o` is the one shared scratch, and a blast the damage itself sets off (a struck tank) fills it
+    // again for its own strikes, `quiet` among them.
     const killStop = o.killStop;
+    const wasQuiet = o.quiet;
     const result = c.enemies.applyDamage(enemy, d);
     if (!result) return NO_DAMAGE;
     // A co-op guest's round into a body it has already been told it killed: a round into a corpse, which says nothing.
-    const quiet = o.quiet || result.doomed === true;
+    const quiet = wasQuiet || result.doomed === true;
 
     if (result.blocked) {
       if (!quiet) {

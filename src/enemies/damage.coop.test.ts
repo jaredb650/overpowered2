@@ -291,3 +291,47 @@ describe('the deciding machine says what it found', () => {
     expect(gore.wound.mock.calls[0]![1].from).toBeUndefined();
   });
 });
+
+describe('a tank that goes up inside a hit does not take the hit\'s own findings with it', () => {
+  /** A blast that, like the real one, runs a bystander's hit through the model before it returns. */
+  function blasts(w: ReturnType<typeof world>, bystander: ReturnType<ReturnType<typeof world>['spawn']>): { count: number } {
+    const seen = { count: 0 };
+    (w.ctx as { combat: unknown }).combat = {
+      explode: (center: THREE.Vector3, spec: { damage: number; source: string }) => {
+        seen.count++;
+        w.manager.applyDamage(bystander, { amount: 1, type: 'bullet', point: center.clone(), dir: new THREE.Vector3(0, 0, -1), force: 0, source: spec.source, region: 'chest', bone: B.chest });
+      },
+    };
+    return seen;
+  }
+
+  it('a head shot that kills a Bomber: the hit and the kill say what that round found, not what its blast did to the next man', () => {
+    const w = world();
+    const bomber = w.spawn('bomber');
+    const brute = w.spawn('brute', -8);
+    const seen = blasts(w, brute);
+    const at = { hit: null as HitFacts | null, wound: -1 };
+    w.ctx.events.on('enemy:hit', e => { if (e.enemy === bomber) at.hit = { ...w.manager.model.found }; });
+    w.ctx.events.on('enemy:killed', e => { if (e.enemy === bomber) at.wound = w.manager.model.foundKill.wound ?? -1; });
+    bomber.health = 5;
+    const res = w.manager.applyDamage(bomber, round('harrow', 'head'));
+    expect(res.killed).toBe(true);
+    expect(seen.count).toBe(1);
+    // The bystander's plate stopped its round inside the blast: that is the bystander's finding, not the Bomber's.
+    expect(at.hit).toMatchObject({ stop: 'none', plate: -1, amount: res.dealt });
+    expect(at.wound).toBe(res.dealt);
+  });
+
+  it('a round into the tank itself: the hit that goes out is that round\'s, with nothing found of the bystander', () => {
+    const w = world();
+    const bomber = w.spawn('bomber');
+    const brute = w.spawn('brute', -8);
+    const seen = blasts(w, brute);
+    let hit: HitFacts | null = null;
+    w.ctx.events.on('enemy:hit', e => { if (e.enemy === bomber) hit = { ...w.manager.model.found }; });
+    const res = w.manager.applyDamage(bomber, round('harrow', 'chest'));
+    expect(res.killed).toBe(true);
+    expect(seen.count).toBe(1);
+    expect(hit).toMatchObject({ stop: 'none', plate: -1, armour: undefined });
+  });
+});

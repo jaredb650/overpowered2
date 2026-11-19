@@ -353,6 +353,21 @@ export function newFacts(): HitFacts {
   return { amount: 0, stop: 'none', armour: undefined, plate: -1, broke: false, headshot: false, level: 'flinch', strength: 0, knockout: false, tripped: false, blast: null };
 }
 
+function copyFacts(to: HitFacts, from: HitFacts): HitFacts {
+  to.amount = from.amount;
+  to.stop = from.stop;
+  to.armour = from.armour;
+  to.plate = from.plate;
+  to.broke = from.broke;
+  to.headshot = from.headshot;
+  to.level = from.level;
+  to.strength = from.strength;
+  to.knockout = from.knockout;
+  to.tripped = from.tripped;
+  to.blast = from.blast;
+  return to;
+}
+
 /** What the deciding machine found about a kill that the others cannot work out: see `DamageModel.killShown`. */
 export interface KillFacts {
   /** Health the killing hit took, for the wound it leaves on the way (0: it left none). Left out, none. */
@@ -399,6 +414,9 @@ export class DamageModel {
   private toldKill: KillFacts | null = null;
   /** What the last `apply` or `predict` found: read at once, before the next hit. */
   readonly found: HitFacts = newFacts();
+  /** `found` as it stood when a tank went up inside a hit, one per blast in progress (`blowTank`). */
+  private readonly foundKept: HitFacts[] = [newFacts(), newFacts(), newFacts(), newFacts()];
+  private blowing = 0;
   /** What the last kill decided here found (`KillFacts`). */
   readonly foundKill: KillFacts = { blast: null, shatter: false, heavyHead: false, wound: 0 };
   /**
@@ -1048,10 +1066,16 @@ export class DamageModel {
     const t = e.def.tank!;
     e.tankBlown = true;
     const stray = d.source in ENEMIES || d.type === 'true' || d.type === 'crush';
+    // The blast goes off inside this hit and runs every body it catches through this model before it returns, each one
+    // writing `found`. This hit's own findings are put back after it: what a co-op host sends of the hit and the kill.
+    const kept = this.blowing < this.foundKept.length ? copyFacts(this.foundKept[this.blowing]!, this.found) : null;
+    this.blowing++;
     ctx.combat.explode(e.center, {
       radius: t.radius * (stray ? STRAY_TANK_RADIUS : 1), damage: t.damage * e.damageMul * (stray ? STRAY_TANK_DAMAGE : 1),
       kind: stray ? 'enemy' : 'barrel', source: stray ? e.id : d.source, team: stray ? 'enemy' : 'player', selfDamage: TANK_SELF_DAMAGE,
     });
+    this.blowing--;
+    if (kept) copyFacts(this.found, kept);
   }
 
   private lethal(e: Enemy, d: DamageInfo, res: DamageResult, region: GoreRegion, severNow: boolean, blast: BlastRoll | null = null): DamageResult {
