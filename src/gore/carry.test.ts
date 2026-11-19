@@ -150,4 +150,40 @@ describe('dying carries the shots', () => {
     for (let i = 0; i < GoreTuning.maxCollapses + 2; i++) gore.collapse(spawnLiving(-30 + i * 2, 14), { duration: 1.2 });
     expect(gore.stats().collapses).toBe(GoreTuning.maxCollapsesBefore);
   });
+
+  it('takes a body whose struck part was on physics from the pose and speed it shows, with no jump', () => {
+    // R3: a part on physics in the animator (`sway.ts`), then the whole body taken onto its muscles, or killed, mid-swing.
+    for (const how of ['stagger', 'death'] as const) {
+      const c = spawnLiving(how === 'stagger' ? 24 : 30, 0);
+      const dir = v(0, 0, -1);
+      const frames: THREE.Vector3[][] = [];
+      const snap = () => frames.push(c.bones.map((_, i) => at(c, i)));
+      c.anim.flinch(B.upperArmL, dir, 1.05, at(c, B.foreArmL));
+      c.anim.sway!('armL', dir, 1.05, B.upperArmL);
+      c.anim.sway!('trunk', dir, 1.05, B.chest);
+      for (let i = 0; i < 6; i++) { frame(c); snap(); }
+      expect(c.anim.swaying).toBe(true);
+      // Mid-swing: the hand is moving, and not where the animation alone would have it.
+      const handSpeed = frames[5]![B.handL]!.distanceTo(frames[4]![B.handL]!) * 60;
+      expect(handSpeed).toBeGreaterThan(0.3);
+      if (how === 'stagger') {
+        c.anim.stumble!(dir, 0.6, B.chest);
+        expect(gore.knockdown(c, { velocity: dir.clone().multiplyScalar(2), stumble: { seconds: StandTuning.maxSeconds, budget: 0.8 }, hurt: 0.6, lie: 0.6, rise: 1.6, wound: { bone: B.chest, point: at(c, B.chest) } })).toBe(true);
+      } else gore.ragdoll(c, { velocity: v(0, 0, 0) });
+      for (let i = 0; i < 8; i++) { frame(c); snap(); }
+      // The change in each bone's movement from one frame to the next, across the take-over and the frames after it.
+      let pop = 0, before = 0;
+      for (let f = 2; f < frames.length; f++) {
+        for (let i = 0; i < c.bones.length; i++) {
+          const d = Math.abs(frames[f]![i]!.distanceTo(frames[f - 1]![i]!) - frames[f - 1]![i]!.distanceTo(frames[f - 2]![i]!));
+          if (f >= 6) pop = Math.max(pop, d);
+          else before = Math.max(before, d);
+        }
+      }
+      log(how, { handSpeed, pop, before });
+      // No sharper than the swing itself was before anything took it over, and under 3.6 m/s in a frame at the worst.
+      expect(pop, how).toBeLessThan(Math.max(before * 1.5, 0.03));
+      expect(pop, how).toBeLessThan(0.06);
+    }
+  });
 });

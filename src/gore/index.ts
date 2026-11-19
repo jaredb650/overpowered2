@@ -1131,6 +1131,9 @@ export class Gore implements GoreSystem {
   private startRag(body: DeadBody, options?: RagdollOptions, walk = false): void {
     const { char, info } = body;
     measureAnimVelocity(char, char.anim, options?.velocity, _seeds, walk);
+    // A struck part that was on physics in the animator (`sway.ts`) has just been read, pose and speed, like the rest of the
+    // body. From here the whole body is this ragdoll's, so what the animator still adds to its targets goes quickly.
+    char.anim.easeSway?.(0.2);
     for (let i = 0; i < info.count; i++) _mask[i] = body.skip[i] === 1 ? 0 : 1;
     body.rag = new Rag(this.ctx.physics, char, {
       chainRoot: 0,

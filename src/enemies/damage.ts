@@ -171,6 +171,13 @@ const DEATH_CARRY = 0.6;
  */
 export const CLUTCH = { share: 0.06, delay: 0.2, seconds: 1.1, perShare: 2, most: 2.2, gap: 1.1, guard: 0.45, hurtFrom: 0.5, hurtFull: 0.25 };
 
+/**
+ * The gore update's R3 (`DevFlags.sway`, `?sway=0`): the struck part goes onto physics (`characters/animation/sway.ts`) for
+ * the nearest bodies: at most `max` at once, within `range` metres, in view and at full detail. Everyone else keeps the
+ * flinch on its springs. A leg hit loosens the upper body by `legShare` of its size: the knee gives, and what is above it sways.
+ */
+export const SWAY = { max: 8, range: 25, legShare: 0.5 };
+
 /** How hard each damage type works a limb pool, on top of the weapon's severMult. */
 const SEVER_FACTOR: Record<DamageType, number> = {
   bullet: 1, pellet: 1.2, explosive: 0.7, melee: 0.8, slash: 2.4, fire: 0, shock: 0, crush: 1, true: 0,
@@ -1513,6 +1520,28 @@ export class DamageModel {
     } else if (!armoured) this.cryOut(e);
   }
 
+  /** Bodies with a part on physics, for the budget. */
+  private readonly swaying: Enemy[] = [];
+  /** How many bodies have a struck part on physics right now. */
+  get swayCount(): number {
+    const list = this.swaying;
+    for (let i = list.length - 1; i >= 0; i--) if (!list[i]!.alive || list[i]!.char.anim.swaying !== true) list.splice(i, 1);
+    return list.length;
+  }
+
+  /** The struck part goes onto physics, for a body near enough to see it on and while there is room (`SWAY`). */
+  private swayPart(e: Enemy, region: GoreRegion, d: DamageInfo, bone: number, size: number): void {
+    const anim = e.char.anim;
+    if (!DevFlags.sway || !anim.sway || e.lod !== 0 || !e.inView || e.dist > SWAY.range) return;
+    if (this.swayCount >= SWAY.max && !this.swaying.includes(e)) return;
+    if (!this.swaying.includes(e)) this.swaying.push(e);
+    const arm = region.startsWith('arm') || region.startsWith('forearm');
+    const leg = region.startsWith('leg') || region.startsWith('shin');
+    if (arm) anim.sway(region.endsWith('L') ? 'armL' : 'armR', d.dir, size, bone);
+    else if (region === 'head') anim.sway('head', d.dir, size, bone);
+    else anim.sway('trunk', d.dir, leg ? size * SWAY.legShare : size, leg ? B.spine : bone);
+  }
+
   /** A round shakes his aim, and puts back the wind-up of an attack he is in the middle of (`SPOIL` in reactions.ts). */
   private spoilAim(e: Enemy, region: GoreRegion, size: number, share: number, stopped: boolean): void {
     const add = shakenBy((region === 'armR' || region === 'forearmR') && e.maim.gunArm, size, share, stopped);
@@ -1580,6 +1609,7 @@ export class DamageModel {
     const floors = headDown || riseDown;
     if (!floors) anim.flinch(bone, d.dir, flinch, d.point);
     if (held) return;
+    if (!floors && ROUNDS.has(d.type)) this.swayPart(e, region, d, bone, flinch);
     const felt = profile.pain > 0;
     const blast = d.type === 'explosive';
     if (r.level === 'flinch') {

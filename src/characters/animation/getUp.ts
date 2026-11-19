@@ -171,6 +171,14 @@ declare module '../../core/contracts' {
      * wound with a hand; `limp` is a weak leg, -1..1 with + the left, which the hips dip on at each step. Both ease in.
      */
     setHurt?(hurt: number, limp: number): void;
+    /**
+     * The struck part goes onto physics (the gore update's R3, `sway.ts`): the arm, the head and neck, or the upper body
+     * becomes a small powered ragdoll hung on the animated body, loosened by `magnitude` and driven back to the animation
+     * over 0.3 to 0.6 s. `swaying` is true while any part is on it; `easeSway` has it give the body back within `seconds`.
+     */
+    sway?(part: 'armL' | 'armR' | 'head' | 'trunk', worldDir: THREE.Vector3, magnitude: number, bone: number): void;
+    readonly swaying?: boolean;
+    easeSway?(seconds: number): void;
     /** Hands come up in front of the face. */
     guard?(seconds: number): void;
     /** Swaying and stupid: a hand to the head and no real balance, while the caller keeps it from acting. */

@@ -158,7 +158,7 @@ export default async function hitSeq(page, h) {
           px[name] = { x: +(now.s[name].x - r.rest.s[name].x).toFixed(2), y: +(now.s[name].y - r.rest.s[name].y).toFixed(2) };
         }
         const gore = ctx.gore;
-        r.trace.push({ f: r.at, deg, px, alive: e.alive, down: e.downed, stag: +e.stagger.toFixed(2), shock: +e.shock.toFixed(2), owned: !!gore.owned?.get(e.char), sway: gore.sways?.of?.(e.char)?.weight ?? null, ms: ctx.physics.stepMs });
+        r.trace.push({ f: r.at, deg, px, alive: e.alive, down: e.downed, stag: +e.stagger.toFixed(2), shock: +e.shock.toFixed(2), owned: !!gore.owned?.get(e.char), sway: e.char.anim.swaying ? +e.char.anim.swayWeight.toFixed(2) : null, ms: ctx.physics.stepMs });
       },
       /** One trigger pull: the weapon's rounds (a shell's pellets together) into the struck bone, along the line from the eye. */
       shoot(c) {
@@ -336,7 +336,7 @@ async function crowdCase(page, h, smg, size) {
         }
       }
       await r.walk(1);
-      return { ms: ctx.physics.stepMs, sways: ctx.gore.sways?.count ?? 0, owned: ctx.gore.owned?.size ?? 0 };
+      return { ms: ctx.physics.stepMs, sways: ctx.enemies.model?.swayCount ?? 0, owned: ctx.gore.owned?.size ?? 0 };
     }, { f, smg });
     worst = Math.max(worst, ms.ms);
     steps.push(ms);

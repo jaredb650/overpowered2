@@ -15,6 +15,7 @@ import { GetUpPose, sampleGetUp, type GetUpKind } from './getUp';
 import { Limb } from './ik';
 import { Postures, type PostureName } from './postures';
 import { HitSpring, Spring3 } from './springs';
+import { Sway, type SwayPart } from './sway';
 import { STYLES, type MoveStyle } from './styles';
 
 const TAU = Math.PI * 2;
@@ -443,6 +444,8 @@ export class HumanoidAnimator implements CharacterAnimation {
   private readonly hitHips = new HitSpring(14, 7, 0.7);
   private readonly hitArm = [new HitSpring(15, 7, 0.55), new HitSpring(15, 7, 0.55)];
   private readonly hitFore = [new HitSpring(10, 5.5, 0.6), new HitSpring(10, 5.5, 0.6)];
+  /** The parts of the body a hit has put on physics (`sway.ts`), made the first time one is asked for. */
+  private swayRig: Sway | null = null;
   /** Which side the last round down the middle went to. */
   private hitSide = 1;
   private hitSideAt = -1;
@@ -654,6 +657,25 @@ export class HumanoidAnimator implements CharacterAnimation {
     }
   }
 
+  sway(part: SwayPart, worldDir: THREE.Vector3, magnitude: number, bone: number): void {
+    this.swayRig ??= new Sway(this.bones, this.root, this.hidden);
+    // By build, as a flinch is.
+    this.swayRig.hit(part, worldDir, magnitude * (1.4 - this.weight * 0.9), bone, this.grip !== null && !this.armGoneR);
+  }
+
+  get swaying(): boolean {
+    return this.swayRig?.live === true;
+  }
+
+  /** How much of the body is on physics, 0..1. */
+  get swayWeight(): number {
+    return this.swayRig?.live ? this.swayRig.weight : 0;
+  }
+
+  easeSway(seconds: number): void {
+    this.swayRig?.ease(seconds);
+  }
+
   stumble(worldDir: THREE.Vector3, strength: number, bone: number): void {
     const s = clamp(strength);
     this.reel = Math.max(this.reel, REEL.seconds * (0.45 + s * 0.55));
@@ -810,6 +832,7 @@ export class HumanoidAnimator implements CharacterAnimation {
     this.armLS.clear(); this.armRS.clear(); this.recoil.clear(); this.landing.clear();
     this.hitTrunk.clear(); this.hitHead.clear(); this.hitHips.clear();
     this.hitStep = 0;
+    this.swayRig?.stop();
     for (let i = 0; i < 2; i++) { this.hitArm[i]!.clear(); this.hitFore[i]!.clear(); }
     this.hands[0]!.planted.set(0, 0, 0);
     this.hands[1]!.planted.set(0, 0, 0);
@@ -908,6 +931,12 @@ export class HumanoidAnimator implements CharacterAnimation {
     if (this.clipKind) this.stepClip(step);
     if (this.snapLeft > 0) this.blendSnapshot(step);
     if (rising) this.keepAboveFloor();
+    // A struck part on physics, over the pose just made. Only at full detail, and never over a get-up, which is keyed.
+    const sway = this.swayRig;
+    if (sway?.live) {
+      if (lod === 0 && this.clipKind === null) sway.step(step);
+      else sway.stop();
+    }
   }
 
   private integrateRoot(dt: number): void {

@@ -211,6 +211,14 @@ A body that is falling or dying answers every round, and nothing restarts.
   own recoil (`play('shoot')`), which now settles the same way. A drone's and a skitter's flinch keep the old size: their
   animators size nothing by build, and their tilt springs were not retuned, so the smaller one was only a smaller reaction.
 
+### The struck part on physics (not a ragdoll of gore's)
+
+Since the gore update's R3 a living body's struck arm, head or upper body is simulated for 0.3 to 0.8 s after a hit, inside
+its animator (`characters/animation/sway.ts`; `docs/notes/enemies.md`, "The struck part goes physical"). It makes no rigid
+bodies and is not in any budget here. What gore does about it: `startRag` reads the bones as they stand and their speed
+through `measureAnimVelocity`, which steps the animator and so the part, then calls `anim.easeSway(0.2)`; under a
+`CollapseDrive` the animator goes on running, so what is left of the swing fades out of the joint targets.
+
 ### The ragdoll budget
 
 `GoreTuning.maxRagdolls` (14) chains simulate at once; past it the budget freezes one. It used to freeze the oldest plain

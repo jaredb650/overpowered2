@@ -187,6 +187,39 @@ Measured on the Test Range (`HIT_SPOIL=1 tools/scripts/hit-seq.mjs`: 25 s each, 
 still): a Trooper's rounds pass 0.18 m from the chest left alone and 0.71 m with a pistol round in his gun arm every 0.15 s
 (0.17 m with the switch off); a Gunner's shell, whose pattern is 0.55 m wide by itself, 0.54 against 0.61.
 
+**The struck part goes physical (gore update R3: the gradient; `?sway=0` or the dev panel's "Hits: struck part physical").**
+Between "the animation flinches" and "the whole body is on its muscles" there was nothing. Now a round also puts the struck
+part on physics for a moment (`characters/animation/sway.ts`, called from `DamageModel.swayPart`): the arm for an arm hit, the
+head and neck for a head hit, the upper body (spine, chest, neck, head, with both arms hanging on the chest it leaves) for a
+trunk hit, and the upper body at half size for a leg hit. The part is a chain of point masses at its joints, held at bone
+length from each other, hung on the joint the animation still owns (the shoulder, the base of the neck, the bottom of the
+spine), each pulled toward where the animation has it by a spring whose strength is the part's `drive`.
+
+- **Looseness and return.** A hit takes `0.6 x size` off the drive, down to a floor (an arm 0.16, a hand with a gun in it
+  0.34, the head 0.18, the upper body 0.36), and it comes back over 0.3 s (a light round) to 0.6 s (a hard one), eased. A
+  further hit loosens it again from where it is; nothing restarts. While it is loose the part hangs with up to 0.4 of its
+  weight, lags what carries it, and its bones cannot stretch, so the elbow and wrist whip.
+- **The snap.** The struck bone's far end is kicked along the shot (1.1 m/s an arm, 1.2 the head, 0.8 the trunk, per unit of
+  size; 0.7 of that on a gun hand), the joints beyond it most of that, those above it 0.55 a joint.
+- **In and out.** It starts on the frame after the hit from the animation's own pose (nothing moves on the hit's frame), at
+  the body's speed plus 0.3 of what the flinch is doing to each joint. When the drive is back the simulated pose is eased
+  out over 0.2 s and the animation has the part again. No simulated bone may point more than 1.15 rad from its animation
+  (a hand 0.5).
+- **Who.** A body within 25 m, in view, at full detail, 8 at once (`SWAY` in `damage.ts`); everyone else keeps the flinch on
+  its springs. A crawling or maimed body gets it on the bones it has left; a get-up clip is never touched.
+- **The hand-overs.** It runs inside the animator on the frame's own pose and makes no rigid bodies, so there is nothing to
+  hand over. When a stagger takes the body onto its muscles, or it dies, gore reads the bones as they stand and their speed
+  with the probe that reads any animation (`measureAnimVelocity` steps the animator, which steps this), then asks the part to
+  let go within 0.2 s (`easeSway`). Each screen runs its own in co-op, from the hit events it already gets.
+
+Measured (`sway.test.ts`, `carry.test.ts`, twins with and without it): going in, no bone's movement changes more sharply
+than the flinch's own kick does without it (0.069 m a frame against 0.114 on an arm); coming out, at most 0.0055 m a frame
+over its last fifth of a second; taken onto its muscles mid-swing 0.041 m (the swing itself has 0.092), killed mid-swing
+0.007 m. A Husk's struck hand travels 0.55 m against 0.42 on the springs alone and peaks at frame 8 against frame 4. It adds
+0.043 ms a frame with eight upper bodies live (Node, one core), and nothing to the physics step: a crowd of 24 under 2 s of
+swept SMG fire on the Test Range, 8 parts live at most, steps 0.5 ms median and 0.8 at the 90th percentile with it and 0.4
+to 0.6 and 0.6 to 1.0 without (`HIT_CROWD=24 tools/scripts/hit-seq.mjs`).
+
 A shot leg at 2.2 m/s or more trips a body by `profile.trip`: it keeps its speed and falls forward. So does a leg more than 45% gone, at a stand.
 
 **A head hit that does not kill puts it on the floor** if it came from a real gun: a shotgun pellet, a heavy round (60 raw damage or more, the Judge), or anything that pushes with `HEAD_KNOCK_FORCE` (15 N·s) or more, which takes in the SMG (20). That is the owner's rule; raise `HEAD_KNOCK_FORCE` past 20 to leave the SMG out again. One SMG round to a Trooper's head is 50 of its 59.5 head pool, so the first floors it and the second kills. A pellet or a heavy round knocks it cold (`KnockdownOptions.knockout`, strength 0.7): the head snaps back on its neck, the neck and arms go slack, it lies half as long again and gets up dazed for its whole `daze`. Anything else tips it over at 1.7 m/s (strength 0.5). It goes down with no flinch and no guard on the animator first, since the ragdoll would start with their speed (an SMG round's flinch had the head spinning 15.5 rad/s against its parent; now about 1). A head hit goes down through the cooldown and a get-up only when gore takes the body: with no room (twelve down, or `?muscles=0`) it staggers, or inside the cooldown or a get-up flinches, so an SMG cannot hold a body in a stagger round after round. The Kiln (1) staggers as before, and so did the Buzzsaw at 6 N·s; reworked into the Trommel it pushes with 34 and floors a body like any real gun, by that number alone (`docs/notes/weapons.md`, "Key 8"; the comment in `reactions.ts` still names the Buzzsaw), a body with no legs only flinches, and bosses and machines keep `poise`. In the Campaign a clean head hit always kills, so this only meets glances and helmets there. `?knock=0` puts back the old rule: only a pellet or a heavy round floors a body, and nothing knocks it cold.
