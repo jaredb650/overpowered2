@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 import type { CharacterInstance, DamageInfo, DamageType } from '../core/contracts';
 import { SPRAY_HEAVY, sprayMark } from '../fx/recipes/blood';
-import { Decals, MAX_DECALS } from '../render/Decals';
+import { Decals, RING_CAPACITY } from '../render/Decals';
 import type { MaterialPatcher } from '../render/materials/patch';
 import type { BakedSet } from '../render/materials/TextureBaker';
 import { makeCtx } from '../sandbox/harness';
@@ -131,30 +131,30 @@ describe('decals', () => {
 
   it('stay inside the cap, the oldest recycled', () => {
     const d = new Decals(patcher, atlas);
-    for (let i = 0; i < MAX_DECALS * 2; i++) d.splat(new THREE.Vector3(0, 1, i * 0.01), wall, 0.9, into);
-    expect(d.mesh.count).toBe(MAX_DECALS);
+    for (let i = 0; i < RING_CAPACITY.blood * 2; i++) d.splat(new THREE.Vector3(0, 1, i * 0.01), wall, 0.9, into);
+    expect(d.live('blood')).toBe(RING_CAPACITY.blood);
   });
 
   it('run down walls from big stains only, and never on a floor', () => {
     const d = new Decals(patcher, atlas);
     d.run(new THREE.Vector3(), floor, 1);
-    expect(d.mesh.count).toBe(0);
+    expect(d.total).toBe(0);
     d.run(new THREE.Vector3(0, 1, 0), wall, 0.4);
-    expect(d.mesh.count).toBe(1);
+    expect(d.total).toBe(1);
     // Hung down the wall and facing out of it, or it is culled.
-    const m = new THREE.Matrix4().fromArray(d.mesh.instanceMatrix.array as Float32Array, 0);
+    const m = new THREE.Matrix4().fromArray(d.mesh.instanceMatrix.array as Float32Array, d.base('blood') * 16);
     const [ax, ay, az] = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
     m.extractBasis(ax, ay, az);
     expect(ax.normalize().y).toBeCloseTo(-1);
     expect(new THREE.Vector3().crossVectors(ax, ay).dot(wall)).toBeGreaterThan(0);
     // A drop's spot on a wall stays a spot; a splash feeds runs.
     d.splat(new THREE.Vector3(0, 1, 0), wall, 0.1, into);
-    expect(d.mesh.count).toBe(2);
+    expect(d.total).toBe(2);
     d.splat(new THREE.Vector3(0, 1, 0), wall, 1, into);
-    expect(d.mesh.count).toBeGreaterThan(3);
-    const before = d.mesh.count;
+    expect(d.total).toBeGreaterThan(3);
+    const before = d.total;
     d.splat(new THREE.Vector3(0, 0, 0), floor, 1, new THREE.Vector3(1, -6, 0));
-    expect(d.mesh.count).toBe(before + 1);
+    expect(d.total).toBe(before + 1);
   });
 });
 

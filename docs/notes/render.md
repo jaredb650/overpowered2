@@ -52,6 +52,15 @@ render.render();                      // once per frame, after the camera is pla
 
 **Decals.** `decals.add(kind, point, normal, size, rotation)`. `size` is the full quad edge in meters. For `bloodSmear` and `slash`, rotation sets the drag direction along local +X. Pools grow over about a second. Decals test depth in the shader, so nothing z-fights or overhangs a ledge. They do not wrap around corners: the part past a corner is cut off. For the same reason a decal must be given the normal of the face it lies on: one laid along a slanted shot stands off the wall and is cut down to a sliver.
 
+**Rings (2026-11-19).** The decal buffer is one instanced mesh and one draw call, cut into four rings by kind
+(`DECAL_RINGS`, `RING_OF`, `RING_CAPACITY` in `Decals.ts`), drawn in this order, bottom first: `scorch` 256 (burns),
+`big` 256 (large coverage stains; no kind uses it yet), `blood` 8,192 (stains, smears, runs, pools), `mark` 1,536 (holes,
+exit craters, cracks, cuts). Each ring overwrites only its own oldest, so bullet holes cannot erase blood. An empty slot
+is a quad of no size, and `mesh.count` is how far the draw runs, not how many decals there are: use `decals.total`,
+`live(ring)`, `limit(ring)`, `retired(ring)` (overwritten since the last clear). `setLimit(ring, n)` uses less of a
+ring (the "Mess" setting). `onRetire(ring, matrices, data, slot)` is called for a decal about to be overwritten, before
+its slot is rewritten: the hook for drawing old blood into a floor texture. A new kind needs a row in `RING_OF` and in `CELLS`.
+
 The atlas is 4 by 4 cells and all sixteen are taken. Every mark in it is dark but one: `exit`, the pale spall crater where a round came out of a wall (`exitHole` in `materials/decalAtlas.glsl.ts`), which is pale so that it shows on a wall in shadow. It took the second `bullet` cell, so bullet holes have one variant and their random rotation.
 
 **Post.** All `PostFx` methods run on real time, so effects decay through hit-stop and pause. `chromatic()` saturates, so anything from 0.01 to over 1 is safe.

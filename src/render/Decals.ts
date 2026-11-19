@@ -3,7 +3,62 @@ import type { DecalKind, DecalSystem } from '../core/contracts';
 import type { MaterialPatcher, ShaderHook } from './materials/patch';
 import type { BakedSet } from './materials/TextureBaker';
 
-export const MAX_DECALS = 2048;
+/**
+ * The decal buffer is one instanced mesh and one draw call, cut into rings by kind. Each ring is a stretch of the buffer
+ * with its own cursor, so a kind only ever overwrites its own oldest: bullet holes cannot erase blood, and a few big
+ * stains cannot be pushed out by a thousand small ones. The order here is the order they are drawn in, bottom first:
+ *
+ * - `scorch`: burns. Under everything, so the blood of the man a rocket killed lands on the burn and not beneath it.
+ * - `big`: large stains laid for coverage (a burst under a gib, a fan along a shot). Few, and kept longest.
+ * - `blood`: every small stain, smear, run and pool. The detail on top of the big ones.
+ * - `mark`: holes, exit craters, cracks and cuts. On top: a round into a bloody wall still leaves its hole.
+ *
+ * `capacity` is the room each ring has in the buffer and never changes. `limit` (`setLimit`, the "Mess" setting) is how
+ * much of it is in use.
+ */
+export type DecalRing = 'scorch' | 'big' | 'blood' | 'mark';
+export const DECAL_RINGS: readonly DecalRing[] = ['scorch', 'big', 'blood', 'mark'];
+export const RING_CAPACITY: Readonly<Record<DecalRing, number>> = { scorch: 256, big: 256, blood: 8192, mark: 1536 };
+/** Which ring a kind lives in. A new kind needs a row here and in `CELLS`. */
+export const RING_OF: Readonly<Record<DecalKind, DecalRing>> = {
+  bullet: 'mark',
+  exit: 'mark',
+  slash: 'mark',
+  crack: 'mark',
+  scorch: 'scorch',
+  blood: 'blood',
+  bloodPool: 'blood',
+  bloodSmear: 'blood',
+};
+/** Every slot in the buffer, all rings together. */
+export const MAX_DECALS = DECAL_RINGS.reduce((n, r) => n + RING_CAPACITY[r], 0);
+
+/**
+ * One decal that is about to be overwritten by a newer one of its ring (never called by `clear`). `matrices` holds 16
+ * floats a slot from `slot * 16` (the quad's two edges, its normal and its place, as columns) and `data` 4 from
+ * `slot * 4` (atlas cell, the world time it landed, flag plus seed, stretch). Read them now: the slot is rewritten as
+ * soon as this returns. This is where old blood can be drawn into a floor texture before it goes.
+ */
+export type DecalRetire = (ring: DecalRing, matrices: Float32Array, data: Float32Array, slot: number) => void;
+
+interface RingState {
+  readonly name: DecalRing;
+  /** First slot in the buffer. */
+  readonly base: number;
+  readonly capacity: number;
+  /** Slots in use, at most `capacity`. */
+  limit: number;
+  /** Next slot to write, 0..limit-1, from `base`. */
+  cursor: number;
+  /** Slots that hold a decal. */
+  live: number;
+  /** Decals overwritten since the last `clear`. */
+  retired: number;
+  dirtyStart: number;
+  dirtyCount: number;
+  /** Slots from `base` to send whole on the next upload: they were emptied by `clear` or a lowered limit. */
+  flush: number;
+}
 
 const _at = new THREE.Vector3();
 
@@ -167,17 +222,17 @@ const NORMAL = /* glsl */ `
 
 /**
  * Surface-aligned quads in one instanced draw, lit by the same patched PBR as the world.
- * The ring buffer overwrites oldest first and only the ranges touched since the last frame are uploaded.
+ * Each ring (see `DECAL_RINGS`) overwrites its own oldest first, and only the ranges touched since the last frame are uploaded.
  */
 export class Decals implements DecalSystem {
   readonly mesh: THREE.InstancedMesh;
   private readonly extra: THREE.InstancedBufferAttribute;
   private readonly matrices: Float32Array;
   private readonly data: Float32Array;
-  private cursor = 0;
-  private count = 0;
-  private dirtyStart = -1;
-  private dirtyCount = 0;
+  private readonly rings: RingState[] = [];
+  private readonly ringOf = {} as Record<DecalKind, RingState>;
+  /** Called for a decal about to be overwritten. See `DecalRetire`. */
+  onRetire: DecalRetire | null = null;
   private now = 0;
   private readonly time = { value: 0 };
   private readonly proj = { value: new THREE.Vector2() };
@@ -218,6 +273,77 @@ export class Decals implements DecalSystem {
     this.mesh.renderOrder = -10;
     this.matrices = this.mesh.instanceMatrix.array as Float32Array;
     this.data = this.extra.array as Float32Array;
+    // An empty slot is a quad of no size (all zeros), so the draw can run to the last slot in use without drawing it.
+    this.matrices.fill(0);
+    let base = 0;
+    for (const name of DECAL_RINGS) {
+      const capacity = RING_CAPACITY[name];
+      this.rings.push({ name, base, capacity, limit: capacity, cursor: 0, live: 0, retired: 0, dirtyStart: -1, dirtyCount: 0, flush: 0 });
+      base += capacity;
+    }
+    for (const kind of Object.keys(RING_OF) as DecalKind[]) this.ringOf[kind] = this.rings[DECAL_RINGS.indexOf(RING_OF[kind])]!;
+  }
+
+  /** How many decals a ring holds now. */
+  live(ring: DecalRing): number {
+    return this.ring(ring).live;
+  }
+
+  /** Decals in all rings together. `mesh.count` is not this: it is how far the draw runs. */
+  get total(): number {
+    let n = 0;
+    for (const r of this.rings) n += r.live;
+    return n;
+  }
+
+  /** A ring's first slot in the buffer. */
+  base(ring: DecalRing): number {
+    return this.ring(ring).base;
+  }
+
+  /** How many a ring may hold: `capacity` unless `setLimit` lowered it. */
+  limit(ring: DecalRing): number {
+    return this.ring(ring).limit;
+  }
+
+  /** Decals of a ring overwritten by newer ones since the last `clear`: 0 means nothing has been erased yet. */
+  retired(ring: DecalRing): number {
+    return this.ring(ring).retired;
+  }
+
+  /**
+   * Sets how many slots of a ring are in use, 1 to its capacity. Lowering it drops what lay past the new end (without
+   * `onRetire`: the player asked for less) and the ring goes on from its start.
+   */
+  setLimit(ring: DecalRing, limit: number): void {
+    const r = this.ring(ring);
+    const next = Math.max(1, Math.min(r.capacity, Math.floor(limit)));
+    if (next === r.limit) return;
+    if (r.live > next) {
+      this.matrices.fill(0, (r.base + next) * 16, (r.base + r.live) * 16);
+      r.flush = Math.max(r.flush, r.live);
+      r.live = next;
+    }
+    // A ring with room left always writes at its end; a full one that is given room goes on from there.
+    if (r.cursor >= next || r.live < next) r.cursor = r.live % next;
+    // Writes waiting to be sent were counted against the old limit: send the ring whole instead.
+    if (r.dirtyCount > 0) {
+      r.flush = Math.max(r.flush, r.limit);
+      r.dirtyStart = -1;
+      r.dirtyCount = 0;
+    }
+    r.limit = next;
+  }
+
+  private ring(name: DecalRing): RingState {
+    return this.rings[DECAL_RINGS.indexOf(name)]!;
+  }
+
+  /** The draw covers every slot up to the last one in use. */
+  private recount(): void {
+    let end = 0;
+    for (const r of this.rings) if (r.live > 0) end = r.base + r.live;
+    this.mesh.count = end;
   }
 
   add(kind: DecalKind, position: THREE.Vector3, normal: THREE.Vector3, size: number, rotation = Math.random() * Math.PI * 2): void {
@@ -322,7 +448,16 @@ export class Decals implements DecalSystem {
     ax: number, ay: number, az: number, bx: number, by: number, bz: number, stretch: number,
     flag = kind === 'bloodPool' ? GROW_POOL : 0,
   ): void {
-    const i = this.cursor;
+    const r = this.ringOf[kind];
+    const i = r.base + r.cursor;
+    if (r.live === r.limit) {
+      r.retired++;
+      if (this.onRetire) this.onRetire(r.name, this.matrices, this.data, i);
+    } else {
+      r.live++;
+      const end = r.base + r.live;
+      if (end > this.mesh.count) this.mesh.count = end;
+    }
     const m = this.matrices;
     const o = i * 16;
     m[o] = ax;
@@ -349,19 +484,24 @@ export class Decals implements DecalSystem {
     this.data[d + 2] = flag + Math.random() * 0.99;
     this.data[d + 3] = stretch;
 
-    if (this.dirtyStart < 0) this.dirtyStart = i;
-    this.dirtyCount = Math.min(this.dirtyCount + 1, MAX_DECALS);
-    this.cursor = (i + 1) % MAX_DECALS;
-    this.count = Math.min(this.count + 1, MAX_DECALS);
-    this.mesh.count = this.count;
+    if (r.dirtyStart < 0) r.dirtyStart = r.cursor;
+    r.dirtyCount = Math.min(r.dirtyCount + 1, r.limit);
+    r.cursor = (r.cursor + 1) % r.limit;
   }
 
   clear(): void {
-    this.cursor = 0;
-    this.count = 0;
-    this.dirtyStart = -1;
-    this.dirtyCount = 0;
-    this.mesh.count = 0;
+    for (const r of this.rings) {
+      if (r.live > 0) {
+        this.matrices.fill(0, r.base * 16, (r.base + r.live) * 16);
+        r.flush = Math.max(r.flush, r.live);
+      }
+      r.dirtyStart = -1;
+      r.dirtyCount = 0;
+      r.cursor = 0;
+      r.live = 0;
+      r.retired = 0;
+    }
+    // The zeroed slots still have to reach the GPU, so the draw keeps its length until `update` has sent them.
   }
 
   /** Uploads what changed and prepares the draw. */
@@ -371,21 +511,37 @@ export class Decals implements DecalSystem {
     this.depth.value = depth;
     const e = camera.projectionMatrix.elements;
     this.proj.value.set(e[10]!, e[14]!);
-    if (this.dirtyCount === 0) return;
-    const start = this.dirtyStart;
-    const count = this.dirtyCount;
-    const first = Math.min(count, MAX_DECALS - start);
-    this.mesh.instanceMatrix.clearUpdateRanges();
-    this.extra.clearUpdateRanges();
-    this.mesh.instanceMatrix.addUpdateRange(start * 16, first * 16);
-    this.extra.addUpdateRange(start * 4, first * 4);
-    if (first < count) {
-      this.mesh.instanceMatrix.addUpdateRange(0, (count - first) * 16);
-      this.extra.addUpdateRange(0, (count - first) * 4);
+    let any = false;
+    for (const r of this.rings) {
+      if (r.dirtyCount === 0 && r.flush === 0) continue;
+      if (!any) {
+        this.mesh.instanceMatrix.clearUpdateRanges();
+        this.extra.clearUpdateRanges();
+        any = true;
+      }
+      if (r.flush > 0) {
+        this.mesh.instanceMatrix.addUpdateRange(r.base * 16, r.flush * 16);
+        this.extra.addUpdateRange(r.base * 4, r.flush * 4);
+        r.flush = 0;
+      }
+      if (r.dirtyCount > 0) {
+        // A ring's dirty stretch can wrap past its end: then it is two ranges.
+        const start = r.dirtyStart;
+        const count = r.dirtyCount;
+        const first = Math.min(count, r.limit - start);
+        this.mesh.instanceMatrix.addUpdateRange((r.base + start) * 16, first * 16);
+        this.extra.addUpdateRange((r.base + start) * 4, first * 4);
+        if (first < count) {
+          this.mesh.instanceMatrix.addUpdateRange(r.base * 16, (count - first) * 16);
+          this.extra.addUpdateRange(r.base * 4, (count - first) * 4);
+        }
+        r.dirtyStart = -1;
+        r.dirtyCount = 0;
+      }
     }
+    if (!any) return;
     this.mesh.instanceMatrix.needsUpdate = true;
     this.extra.needsUpdate = true;
-    this.dirtyStart = -1;
-    this.dirtyCount = 0;
+    this.recount();
   }
 }

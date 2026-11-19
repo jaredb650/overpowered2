@@ -107,3 +107,10 @@ Shared files and contracts:
 ## Log
 
 - 2026-11-19: file written; branch `gore-update` cut from the finished co-op work.
+- 2026-11-19, mess, step 1: **the decal buffer is split into rings by kind** (`src/render/Decals.ts`; `docs/notes/render.md`,
+  "Rings"). Four rings in one instanced mesh and one draw: `scorch` 256, `big` 256, `blood` 8,192, `mark` 1,536, drawn in that
+  order. Decided: scorches got their own ring under everything (the brief had them with the holes), so the blood of a man a
+  rocket killed lands on the burn, not under it; holes, cracks and cuts are on top. **For agent "decals":** add your kinds to
+  `DecalKind`, `CELLS` and `RING_OF` (big stains go in ring `big`, which nothing uses yet); `decals.onRetire` is the call when
+  a decal is about to be overwritten (P2's hook); `mesh.count` is no longer the number of decals (`decals.total`,
+  `live(ring)`). The counts are the plan's until M0 has measured overdraw.

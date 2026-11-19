@@ -224,7 +224,7 @@ function install({ spot }) {
         out[mode] = {
           frames, meanMs: +mean.toFixed(2), p50: +times[Math.floor(times.length * 0.5)].toFixed(1), p95: +times[Math.floor(times.length * 0.95)].toFixed(1),
           p99: +times[Math.floor(times.length * 0.99)].toFixed(1), renderMs: +(renderMs / frames).toFixed(2),
-          bloodCpuMs: +(mine / frames).toFixed(3), decals: ctx.render.decals.mesh.count, particles: fx.stats?.().particles, dripped: ctx.gore.blood?.dripped, bleeding: ctx.gore.blood?.bleeding,
+          bloodCpuMs: +(mine / frames).toFixed(3), decals: ctx.render.decals.total ?? ctx.render.decals.mesh.count, particles: fx.stats?.().particles, dripped: ctx.gore.blood?.dripped, bleeding: ctx.gore.blood?.bleeding,
         };
       }
       return out;
