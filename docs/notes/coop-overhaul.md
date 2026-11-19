@@ -575,6 +575,8 @@ Work through all of it; write the outcome beside each item in the log (fixed wit
    a scripted fight with enemy attacks, kills by host and guest, a break with the shared pod, an ending.
 8. **Smoothness table on a quiet machine:** `node tools/scripts/coop-motion-matrix.mjs --baseline d9ecffb` (12 cases). Also
    vehicles and garrison on the buffer in the browser.
+   **Done 2026-11-19 (verify-motion): the table is made, 24 of 24 runs counted, and three faults it showed are fixed.**
+   The tables and what they mean are in `docs/notes/coop.md`, "Enemy motion", Measured; the outcome is in the log below.
 
 **C. Known gaps to close or decide**
 9. A guest's Warthog once dealt no damage and the host recorded no claims (call-ins report, not diagnosed). Also: claims,
@@ -888,3 +890,32 @@ Each: what fails, where, how many players, which network, the evidence, the caus
   that read or injected the old envelope, `tools/scripts/coop-motion-moves.mjs`. Not done: the enemy snapshots are now
   71% of the host's upload and were not touched; poses direct between guests; a stall on a real data channel (simulator
   and unit tests only). Proofs and what they showed: the same section.
+- 2026-11-19, verify-motion (checklist B8): **the smoothness table is made.** 12 cases on the old lane (`d9ecffb`) and the
+  new, 30 s each, pages drawn: all 24 counted on the first try (guest 60 fps in every run, host 56.5 to 58.7 or 20 with its
+  cap, machine load 4.6 to 11.7). Both lanes are now measured on **one yardstick taken from the recordings alone** (how old
+  the picture really is, how far the copy is off the host's path, frames it stood still while the host's moved, frames it
+  darted), with enemies on the guest's screen, near, far and knocked down told apart; the proof's guest now stays in the
+  fight and looks about, and its pages draw (fast mode would have measured nothing a player sees, and the old build cannot
+  be told not to draw). **On the guest's screen:** a clean network, the picture is 78 to 80 ms old against the old lane's 109
+  to 115 and within 0.8 cm of the host's path against 3.5; a 20 fps host, 0.08% of moving frames stood still against 13.5%;
+  `lag:80,jitter:30,loss:0.03`, 0.01 to 0.08% against 14 to 27% (and 0 to 0.3 darts a minute per enemy against 110 to 210);
+  `lag:150,jitter:60,loss:0.08`, 0 to 0.13% against 29 to 37%, the picture 285 ms old against 315 to 330 with a tail to 600.
+  48 enemies are as smooth as 20. The new lane costs more bytes with the guest in the fight, not the same: 26.6 KB/s of
+  snapshots at 48 enemies against 19.9 (11.2 against 8.3 at 20). **Three faults found and fixed** (`ade264c`, `60f3531` and
+  the commit after): (1) a knocked-down enemy getting up on a guest was drawn for one frame at the host's place and then
+  back where it lay, a pop of 0.9 to 1.3 m there and back on every get-up; (2) every change from the near tier to the far one
+  ran the guest's buffer dry (the enemy slowed to a stop until its next state), and enemies at the edge of the cone flipped
+  between the tiers: one that stops being near is now sent every tick for a second more, its last 12 ticks marked "far", so
+  the guest has fallen back before the states thin (about 1 KB/s); (3) vehicles and the garrison sized their delay from the
+  enemies' lane though they ride the reliable one, so a lost packet stalled them: they use their own lane's jitter now, at
+  the price of being drawn 60 to 130 ms further back on a bad link only. **Vehicles and the garrison in the browser**
+  (`coop-motion-vehicles.mjs`, new): 20 of 20 checks clean and under `lag:120,jitter:40,loss:0.05`; no copy stalls or darts,
+  within 5 to 9 cm of the host's path 95% of the time, and at rest within 0.5 cm and 0.3 degrees of the host's. **Far
+  enemies at 5 Hz** are about 150 ms staler than near ones (225 ms against 77 on a clean link) and 4 to 7 cm off at the 95th
+  percentile, with no stalls or jumps; they are off the screen or over 70 m away at the default field of view. 10 Hz would
+  cost 135 bytes a second per far enemy (0.8 KB/s in the fight measured, 6.5 at the most); `FAR_EVERY` is unchanged, the
+  owner's call after he has played it. For him to know: a field of view above 90 shows far enemies in a strip at each edge
+  of the screen (the cone is 60 degrees either side). Not measured: real WebRTC, more than one guest, human squads and
+  bosses, a guest page that itself runs slowly, the far tier at 10 Hz, the helicopter on the buffer. Outside my files, one
+  line each: the kit's `deploy` works on a build from before the load barrier (the baseline); `coop-motion-moves.mjs` waited
+  a fixed 700 ms for a withdrawal the lane allows 800 ms for.

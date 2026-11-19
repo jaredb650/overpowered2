@@ -171,6 +171,14 @@ position, so enemies stepped, stopped between messages and froze together whenev
   are *far* and go every fourth tick (5 Hz), taking turns by uid so every tick carries about the same load. A new enemy goes to
   everyone on its first two ticks. If a guest's snapshot bytes pass 64,000 a second the far tier thins to 2 Hz (it cannot happen
   at the 48-enemy cap; it is the research doc's ceiling).
+- **Leaving the near tier takes a second** (`NEAR_HOLD_TICKS` 20, `FALL_BACK_TICKS` 12; verify pass, 2026-11-19). An enemy that
+  stops being near is still sent every tick for 20 more ticks. For the first 8 its records still say "near"; for the last 12 they
+  say "far" while the states keep coming every tick, so the guest's playhead falls back to the far tier's delay (about half a
+  second of running slow) *before* the states thin out. Before this the guest learned of the change only when the states
+  thinned: its playhead, 70 ms behind, ran past the newest state and the enemy slowed to a stop until the next one came, at
+  every change; and an enemy at the edge of the ring or the cone flipped between the tiers (measured: a change every 5.6 s
+  per enemy, one in ten undone within 200 ms). Becoming near is immediate, as before. Costs about 1 KB/s at the 48-enemy cap.
+  Off while a guest is over the byte ceiling.
 - **Chunks, each one packet.** A tick's enemies for one guest are cut into chunks of at most `UNRELIABLE_SAFE_BYTES` (1,100).
   Every chunk stands alone: a 16-byte header (format `0xc204`, kind, count, **the host's clock in ms**, tick, wave, phase, seconds
   to the next wave, enemies alive, the host's real tick length) and then records. A lost chunk costs the enemies in it one update.
@@ -257,7 +265,10 @@ lane: `{ t: 'move', uid, at, m, a }`, `at` the host's clock, `a` the move's numb
 - **A copy in its own ragdoll** is gore's until gore hands it back: `Replicas.ragdoll` neither places nor animates it. It lies
   2.5 s longer than the host said, so only the host's `getUp` gets it up; if that word is missed it is roused 600 ms after the
   host's enemy is seen standing. When it gets up it is where its own physics left it, and the buffer eases it to the host's place
-  (measured: 0 cm apart 2.5 s after getting up). If gore has no room for another body it lies in the `downed` posture as before.
+  (measured: 0 cm apart 2.5 s after getting up), walking it there at no more than 4 m/s from the very frame it is handed back
+  (`MotionBuffer.drawnAt(..., sample)`). Until the verify pass that one frame was drawn at the host's place and the next back
+  where the body lay: a pop of up to a metre or two, there and back, on every get-up (seen in the recordings as two "jumps" of
+  0.9 to 1.3 m a frame apart). If gore has no room for another body it lies in the `downed` posture as before.
 - At most 90 moves a second from the host, and the same move for the same enemy not twice in 120 ms.
 
 ### Who each soldier is (`world/identity.ts`, event `who`)
@@ -282,71 +293,228 @@ and carried on when one is late. A vehicle's attitude rides in the buffer's four
 two states; its turret is the buffer's yaw. The old per-frame `slerp(0.25)` turned faster at higher frame rates; this does not
 (`puppets.test.ts`: the same at 30 and 120 fps). An ally's gait comes from that velocity, not from the frame's step.
 
+**How far back they are drawn is sized by their own lane** (verify pass, 2026-11-19). The time is the enemies' clock (many
+more packets), but the jitter is the larger of that lane's and their own: `max(replicas.clock.jitter, own clock's jitter)`. The
+enemies ride the unreliable lane, where nothing waits; these ride the reliable one, where everything waits behind a lost
+packet (300 ms in the simulator). With the enemies' figure a held-up state came after the playhead had passed the last one, and
+the vehicle or the man slowed to a third of his speed and then hurried (`puppets.test.ts`, "keep moving when their lane holds
+states up"). With their own they are drawn further back on such a link and keep their pace. Numbers under "Measured" below.
+
 ### Proofs
 
 - Unit: `world/motion.test.ts` (the clock, the buffer, loss, outage, easing, tier change, the send clock), `worldProtocol.test.ts`
   (the bytes, chunk sizes, malformed input, the tiers), `world/replicas.test.ts` (the host's tick, budgets, backpressure, a guest
   under loss and reordering, the roster, `dead`, `whenSeen`), `world/moves.test.ts` (moves and identity), `world/puppets.test.ts`.
-- `tools/scripts/coop-motion-measure.mjs`: two pages and a crowd that never stops moving (both players run in circles). Every
-  frame the guest records where it drew each enemy and the host where each really was; each drawn position is then compared with
-  where the host had that enemy at the moment being drawn. It also records what the game says a frame costs on each page.
+- `tools/scripts/coop-motion-measure.mjs`: two pages, **drawn** (`look: true`: this proof is about what is seen, and the old
+  build cannot be told not to draw), and a crowd that never stops moving. The host runs in circles; the guest keeps 14 m from
+  the host, in the crowd, and pans its view across the crowd and away (110 degrees either side, every 7 s), so enemies are 6 to
+  40 m off, cross the screen, leave it and come back (`MOTION_GUEST=circles` is the first version: the guest runs its own
+  circle and ends up 40 to 70 m from the crowd, the far tier's case). Every frame the guest records where it drew each enemy
+  and the host where each really was, whether it is far by the host's rule and whether it is knocked down. The two
+  recordings are kept (`.raw.json.gz`) and measured by `analyse()`, the yardstick described under "Measured".
   `MOTION_STRICT=1` makes one run fail outside its limits, or if a page was starved.
 - `tools/scripts/coop-motion-matrix.mjs`: the whole table from one command, unattended:
-  `node tools/scripts/coop-motion-matrix.mjs --baseline d9ecffb`. It starts a Vite for this checkout if none answers on 5320,
-  makes a worktree of the baseline commit in the temp folder with its own Vite on 5321, runs the 12 cases on both, one run at a
-  time through `tools/shot.mjs` (it waits for a browser slot like any proof), and takes down what it started. **A case only
-  counts if its pages really ran:** under 40 frames a second (the host: under 80% of its cap) the page was starved by the
-  machine and its numbers are the machine's, so the run is thrown away and tried again (`--tries`, default 3); a case with no
-  clean run is written as "not measured", never as numbers. It writes `motion-results.json` and `motion-table.md` in `--out`
-  and exits 3 if any case was not measured. `--only 48e`, `--budget <minutes>`, `--seconds`, `--keep` as its header says.
+  `node tools/scripts/coop-motion-matrix.mjs --baseline d9ecffb --ports <old>,<new> --out <dir>`. It starts a Vite for this
+  checkout if none answers on its port, makes a worktree of the baseline commit (`--baseline-dir`, default the temp folder)
+  with its own Vite, runs the 12 cases on both, one run at a time through `tools/shot.mjs` (it waits for a browser slot like
+  any proof, and before each run for the machine's load to be 12 or less, `--max-load`), and takes down what it started. **A
+  case only counts if its pages really ran:** under 40 frames a second (the host: under 80% of its cap) the page was starved
+  by the machine and its numbers are the machine's, so the run is thrown away and tried again (`--tries`, default 3); a case
+  with no clean run is written as "not measured", never as numbers. It writes `motion-results.json` and `motion-table.md`
+  (the tables below) in `--out` and exits 3 if any case was not measured. `--only 48e`, `--budget <minutes>`, `--seconds`,
+  `--keep` as its header says; `--reanalyse --out <dir>` measures an earlier run's recordings again with no browser (after a
+  change to the yardstick), `--table <motion-results.json>` prints its tables again. Any commit can be the baseline: the tier
+  hold was judged with `--baseline <the commit before it>`.
+- `tools/scripts/coop-motion-vehicles.mjs`: Outpost Defense, two pages, drawn. The garrison is told to follow the host, who runs
+  about; then a scout car is driven round a block of the north field and a tank along it. Each copy on the guest is recorded
+  against the host's and measured with the same yardstick (no copy may dart; none may stand still while the host's moves;
+  on the host's path within 15 cm 95% of the time, 35 cm on the bad network), and once the host's have come to rest each
+  copy must be where the host's is (8 cm, 2 degrees of hull, the turret within 12). `COOP_SIM=lag:120,jitter:40,loss:0.05`.
 - `tools/scripts/coop-motion-moves.mjs`: on the guest, a knocked-down enemy is a ragdoll of the guest's own and gets up with the
   host's, ending where the host's stands; a roar and a hitless stagger play; attack clips are not sent; frozen and burning are
   the copy's state and end with the host's; a withdrawn enemy leaves, a killed one stays dead; the lane is unreliable.
   `MOVES_MODE=outpost`: every soldier has the host's name, rank, squad and voice.
 
-### Measured
+### Measured (verify pass, 2026-11-19)
 
-`coop-motion-measure.mjs`, loopback transport, the Crucible, both players running in circles so the crowd (husks, troopers,
-stalkers) never stops. "Error" is the distance between where the guest draws an enemy and where the host had it at the moment
-being drawn (for the old lane, which has no such moment, at the one delay that fits the whole run best). A "stall" is a frame an
-enemy stood still on the guest while its host twin moved faster than 0.5 m/s.
+`node tools/scripts/coop-motion-matrix.mjs --baseline d9ecffb`, 12 cases on the old lane (`d9ecffb`) and on the new, 30 s
+recorded each, loopback transport, the Crucible, both pages drawn at 1280x720. **All 24 runs counted on the first try**: the
+guest page ran at 59.9 to 60 frames a second in every one, the host at 56.5 to 58.7 (19.6 to 22.9 with its cap), and the
+machine's 1-minute load before a run was 4.6 to 11.7 on 32 cores (other agents' proofs were running; the runner waits while
+it is over 12). The crowd is husks, troopers and stalkers; the host runs in circles and the guest stays 14 m from the host,
+in the crowd, panning its view across it and away, so enemies are 6 to 40 m off and cross the screen all the time.
 
-**Only 20 enemies on a clean network has been measured.** The table the brief asked for (20 and 48 enemies; host uncapped and at
-20 fps; clean, `lag:80,jitter:30,loss:0.03` and `lag:150,jitter:60,loss:0.08`; old and new) could not be made on 2026-11-18:
-thirteen agents shared the machine, the load average stood between 50 and 100 on 32 cores, and test pages got anywhere from
-0.1 to 30 frames a second. A starved page measures the machine, so those runs were thrown away, not reported. The runner now
-refuses them itself. To make the table on a quiet machine: `node tools/scripts/coop-motion-matrix.mjs --baseline d9ecffb`.
+**One yardstick for both lanes.** The first table here measured the new lane against its own playhead and the old one at
+one best-fit delay, which are not the same thing. Now nothing a lane says of itself is used: only the two recordings (where
+the guest drew each enemy each frame, where the host really had it each frame, both on one clock). For each drawn frame
+the point of the host twin's path nearest the drawn body is found (searched around the delay that fits that enemy's last
+2 s best). That gives, the same way for any netcode:
 
-What did get a clean run (pages at 40 fps or more), 20 enemies, clean network:
+- **How old the picture is**: when the twin was at that point. This is the real delay behind the host, network included.
+- **Off the host's path**: how far the drawn body is from that point. It is somewhere the real one never was.
+- **Stood still**: frames the copy moved under 0.03 m/s while its twin, at that moment, moved over 0.5 m/s; counted as a share
+  of the frames the twin was moving, as stalls a minute per enemy, and by the longest.
+- **Jumps**: frames the copy moved over 10 cm further than its twin's fastest speed within 150 ms explains.
+- **Speed error**: the difference between the copy's frame-to-frame velocity and its twin's.
+- **Off the host's true place at that instant**: the plain distance to where the host has it right then, age and all.
 
-| Run | Pages, fps (host / guest) | Drawn behind, ms | Error p50 / p95 / p99, cm | Yaw error p50 / p95, deg | Stalled frames | Stalls a minute per enemy | Snapshot B/s |
-|---|---|---:|---|---|---:|---:|---:|
-| Old lane (`d9ecffb`), side by side with the next row | 55.5 / 53.3 | 116 | 2.2 / 20.6 / 50.7 | 0.2 / 3.9 | 38 (0.24%) | 7.69 | 8,328 |
-| New lane, before the other lanes merged | 57.7 / 57.4 | 95 (p95 237) | 0.4 / 7.6 / 22.2 | 0.1 / 1.8 | 1 (0.01%) | 0.2 | 8,250 |
-| New lane, merged | 55.3 / 48.5 | 118 (p95 259) | 0.5 / 7.4 / 28.9 | 0.1 / 1.8 | 13 (0.09%) | 1.61 | 8,797 |
-| New lane, merged, on a busier machine | 42.6 / 45.2 | 126 (p95 285) | 1.3 / 17.0 / 60.5 | 0.1 / 2.2 | 9 (0.05%) | 0.89 | 7,774 |
+Enemies are told apart by what a player can see: **on the guest's screen** (inside their real field of view, any distance),
+**just come onto it** (under a second), off it; and **near** or **far** by the host's own rule at that moment. A knocked-down
+enemy is a ragdoll on each screen's own physics, by the owner's decision, so the frames an enemy is down on either screen
+and the 3 s after are kept out of every figure and looked at apart. Half a second either side of the host itself moving an
+enemy over a metre in one frame (a re-entry through a spawn point, a body set on a ledge) is left out too.
 
-Reading it: on the one pair measured under the same conditions, the new lane draws enemies about five times closer to where the
-host had them at the median (0.4 against 2.2 cm) and nearly three times closer at the 95th percentile, with one stalled frame
-against 38, for the same bytes.
+**On the guest's screen** (what a player looks at; about a third of the crowd at any moment):
 
-**The two lanes are not measured with the same yardstick, and the difference matters.** The old lane draws every enemy the same
-distance in the past, so its error is taken at the one delay that fits best (116 ms). The new lane draws each enemy at its own
-playhead and says where that is, so its error is taken there. Put the new lane on the old yardstick, one delay for the whole
-crowd, and it reads worse than the old one (8.5 cm at the median, 94 cm at the 95th percentile, against 2.2 and 20.6): not because
-enemies jitter, but because far enemies are deliberately drawn further back than near ones. That is the cost of the far tier: an
-enemy more than 25 m away and out of the guest's view is shown about 240 ms in the past instead of about 115. Its motion is as
-smooth as a near one's; it is staler. If playtests show that hurts (a far sniper, a boss seen across the map; bosses are always
-near), raise the far tier's rate in `snapshot.ts` (`FAR_EVERY`): bytes are the only price. The last two rows are the same code with the pages running worse (a guest that hitches draws
-late whatever the netcode does); they are here so nobody takes the best row for the whole truth. The first three rows counted a
-stall as under half a millimetre of movement in a frame; the last counts by speed (under 0.03 m/s), which is the rule the
-script now uses. "p95 behind" is the far tier: enemies far from the guest and out of its view sit about 220 ms further back.
+| Enemies | Host, fps | Network | Lane | Picture is this old, ms (p50 / p95) | Off the host's path, cm (p50 / p95 / p99) | Stood still, % of moving frames | Stalls a minute per enemy (longest, ms) | Jumps a minute per enemy | Speed error p95, m/s |
+|---:|---:|---|---|---|---|---:|---|---:|---:|
+| 48 | 60 | clean | old | 112 / 123 | 0.3 / 3.7 / 9.9 | 0.01 | 0.12 (33) | 0 | 3.1 |
+| 48 | 60 | clean | **new** | 78 / 137 | 0.1 / 0.8 / 3.3 | 0 | 0.12 (15) | 0.12 | 1.0 |
+| 48 | 60 | bad (80 ms, 3% lost) | old | 214 / 415 | 0.3 / 5.3 / 23.1 | 14.24 | 99.05 (300) | 134.18 | 8.9 |
+| 48 | 60 | bad (80 ms, 3% lost) | **new** | 185 / 276 | 0.1 / 0.9 / 3.6 | 0.01 | 0.11 (33) | 0 | 1.0 |
+| 48 | 60 | worst (150 ms, 8% lost) | old | 317 / 598 | 0.2 / 10.7 / 46.3 | 32.98 | 127.64 (600) | 296.58 | 10.9 |
+| 48 | 60 | worst (150 ms, 8% lost) | **new** | 288 / 410 | 0.1 / 1.3 / 7.1 | 0.02 | 0.63 (17) | 0 | 1.1 |
+| 48 | 20 | clean | old | 115 / 148 | 0.3 / 3.9 / 11.3 | 13.48 | 241.64 (66) | 9.12 | 5.6 |
+| 48 | 20 | clean | **new** | 78 / 138 | 0.1 / 0.7 / 3.0 | 0.07 | 2.68 (18) | 0.81 | 2.4 |
+| 48 | 20 | bad (80 ms, 3% lost) | old | 228 / 449 | 0.2 / 6.5 / 21.4 | 27.46 | 206.6 (350) | 192.95 | 10.4 |
+| 48 | 20 | bad (80 ms, 3% lost) | **new** | 185 / 255 | 0.1 / 0.8 / 3.4 | 0.08 | 1.73 (35) | 0.32 | 2.4 |
+| 48 | 20 | worst (150 ms, 8% lost) | old | 315 / 581 | 0.2 / 7.2 / 27.4 | 28.73 | 219.81 (584) | 232.06 | 10.4 |
+| 48 | 20 | worst (150 ms, 8% lost) | **new** | 284 / 409 | 0.1 / 1.4 / 17.1 | 0.11 | 1.85 (68) | 2.06 | 2.5 |
+| 20 | 60 | clean | old | 109 / 120 | 0.3 / 3.3 / 9.1 | 0 | 0 (0) | 0 | 3.1 |
+| 20 | 60 | clean | **new** | 80 / 132 | 0.1 / 0.8 / 2.6 | 0.01 | 0.27 (17) | 0 | 1.0 |
+| 20 | 60 | bad (80 ms, 3% lost) | old | 216 / 449 | 0.2 / 5.9 / 39.3 | 20.8 | 110.31 (317) | 211.3 | 10.4 |
+| 20 | 60 | bad (80 ms, 3% lost) | **new** | 185 / 279 | 0.1 / 1.3 / 8.9 | 0.03 | 0.74 (33) | 0 | 1.0 |
+| 20 | 60 | worst (150 ms, 8% lost) | old | 322 / 615 | 0.2 / 8.1 / 38.5 | 35.17 | 149.13 (633) | 316.02 | 11.1 |
+| 20 | 60 | worst (150 ms, 8% lost) | **new** | 285 / 391 | 0.1 / 1.2 / 12.3 | 0 | 0 (0) | 0 | 1.0 |
+| 20 | 20 | clean | old | 114 / 148 | 0.2 / 3.7 / 10.8 | 13.52 | 239.38 (51) | 19.39 | 5.9 |
+| 20 | 20 | clean | **new** | 79 / 173 | 0.1 / 1.0 / 5.6 | 0.08 | 2.86 (18) | 1.82 | 3.5 |
+| 20 | 20 | bad (80 ms, 3% lost) | old | 227 / 414 | 0.2 / 5.9 / 18.7 | 22.43 | 255.67 (617) | 110.99 | 10.0 |
+| 20 | 20 | bad (80 ms, 3% lost) | **new** | 186 / 288 | 0.1 / 1.3 / 7.3 | 0.03 | 0.52 (34) | 0.26 | 2.7 |
+| 20 | 20 | worst (150 ms, 8% lost) | old | 332 / 612 | 0.2 / 6.9 / 32.5 | 36.65 | 170.88 (550) | 329.12 | 11.2 |
+| 20 | 20 | worst (150 ms, 8% lost) | **new** | 286 / 419 | 0.1 / 1.4 / 7.5 | 0.13 | 2.65 (34) | 0.53 | 2.8 |
 
-Not measured, so not claimed: 48 enemies, a host at 20 fps, and both bad networks, in the browser. What stands behind those
-today is the unit tests: one packet in five lost without a jump or a step back and within 2 cm; half a second of nothing ridden
-out without a jump; chunks out of order, doubled and one in six lost drawing the same walk; one chunk in ten lost between a real
-host tick and a real guest with 30 enemies within 5 cm; a 12 fps host ticking every frame; and the byte budgets (under 17 KB/s
-at 20 near and 28 far, under 30 KB/s with all 48 near, against the research doc's 25 KB/s target and 64 KB/s ceiling).
+**The whole crowd, and how each run went:**
+
+| Enemies | Host, fps | Network | Lane | Pages ran at, fps (host / guest) | Guest's frames, ms (p95 / longest) | Load before the run | Picture is this old, ms (p50 / p95) | Off the host's true place at that instant, cm (p50 / p95) | Off its path, cm (p50 / p95 / p99) | Stood still, % | Jumps a minute per enemy | Snapshot B/s | All lanes B/s |
+|---:|---:|---|---|---|---|---:|---|---|---|---:|---:|---:|---:|
+| 48 | 60 | clean | old | 56.9 / 60 | 18 / 19 | 10.9 | 111 / 123 | 40.9 / 124.6 | 0.3 / 3.9 / 12.5 | 0.27 | 0.04 | 19904 | 22668 |
+| 48 | 60 | clean | **new** | 57 / 60 | 18 / 20 | 9.8 | 78 / 213 | 29.1 / 89.3 | 0.1 / 1.0 / 14.8 | 0 | 0.09 | 26615 | 31323 |
+| 48 | 60 | bad (80 ms, 3% lost) | old | 56.8 / 60 | 18 / 19 | 6.8 | 215 / 448 | 80.3 / 281.0 | 0.3 / 8.4 / 44.5 | 20.85 | 185.6 | 19837 | 22604 |
+| 48 | 60 | bad (80 ms, 3% lost) | **new** | 56.9 / 60 | 18 / 30 | 6.8 | 186 / 316 | 68.7 / 201.9 | 0.1 / 1.3 / 17.1 | 0.01 | 0 | 26675 | 31465 |
+| 48 | 60 | worst (150 ms, 8% lost) | old | 56.9 / 60 | 18 / 19 | 7.6 | 319 / 588 | 122.4 / 398.7 | 0.2 / 10.7 / 64.5 | 33.25 | 278.25 | 19687 | 22483 |
+| 48 | 60 | worst (150 ms, 8% lost) | **new** | 56.5 / 59.9 | 18 / 35 | 7.9 | 286 / 405 | 107.0 / 310.2 | 0.1 / 1.7 / 34.1 | 0.02 | 0.04 | 26909 | 31863 |
+| 48 | 20 | clean | old | 19.6 / 60 | 18 / 20 | 8.8 | 116 / 149 | 43.1 / 138.5 | 0.2 / 4.8 / 21.2 | 14.66 | 9.17 | 16868 | 19587 |
+| 48 | 20 | clean | **new** | 22.5 / 60 | 18 / 21 | 5.8 | 77 / 205 | 29.8 / 91.5 | 0.1 / 1.0 / 18.0 | 0.08 | 1.13 | 26763 | 31457 |
+| 48 | 20 | bad (80 ms, 3% lost) | old | 19.7 / 60 | 18 / 21 | 4.6 | 227 / 449 | 83.3 / 265.7 | 0.2 / 7.2 / 36.5 | 27.3 | 177.14 | 17013 | 19736 |
+| 48 | 20 | bad (80 ms, 3% lost) | **new** | 22.2 / 60 | 18 / 27 | 6.1 | 186 / 316 | 68.6 / 204.7 | 0.1 / 1.1 / 23.6 | 0.09 | 0.31 | 26697 | 31422 |
+| 48 | 20 | worst (150 ms, 8% lost) | old | 19.7 / 60 | 18 / 19 | 7.1 | 330 / 630 | 123.0 / 423.8 | 0.2 / 10.0 / 166.4 | 37.39 | 288.29 | 16722 | 19401 |
+| 48 | 20 | worst (150 ms, 8% lost) | **new** | 22.5 / 60 | 18 / 22 | 6 | 285 / 428 | 103.7 / 313.9 | 0.1 / 1.9 / 41.1 | 0.09 | 1.11 | 26527 | 31140 |
+| 20 | 60 | clean | old | 58.7 / 60 | 18 / 19 | 6.9 | 109 / 120 | 41.3 / 122.9 | 0.3 / 3.7 / 19.5 | 0 | 0.52 | 8390 | 11084 |
+| 20 | 60 | clean | **new** | 58.3 / 60 | 18 / 25 | 5.1 | 80 / 198 | 30.1 / 90.6 | 0.1 / 1.0 / 13.8 | 0.01 | 0.31 | 11296 | 15399 |
+| 20 | 60 | bad (80 ms, 3% lost) | old | 58.4 / 60 | 18 / 32 | 11.7 | 215 / 449 | 85.2 / 287.5 | 0.2 / 6.7 / 44.2 | 20.34 | 194.01 | 8266 | 11002 |
+| 20 | 60 | bad (80 ms, 3% lost) | **new** | 58.4 / 60 | 18 / 20 | 11.2 | 185 / 308 | 72.6 / 200.1 | 0.1 / 1.4 / 31.6 | 0.03 | 0.31 | 11266 | 15528 |
+| 20 | 60 | worst (150 ms, 8% lost) | old | 58.6 / 60 | 18 / 24 | 7.5 | 331 / 602 | 126.6 / 455.6 | 0.2 / 11.7 / 96.3 | 37.88 | 312.91 | 8266 | 10944 |
+| 20 | 60 | worst (150 ms, 8% lost) | **new** | 58.6 / 60 | 18 / 21 | 8.2 | 284 / 417 | 108.5 / 306.5 | 0.1 / 1.5 / 41.5 | 0 | 0 | 11177 | 15370 |
+| 20 | 20 | clean | old | 19.8 / 60 | 17 / 21 | 9.6 | 115 / 148 | 44.3 / 144.2 | 0.2 / 4.1 / 23.3 | 14.3 | 13.45 | 7143 | 9730 |
+| 20 | 20 | clean | **new** | 22.9 / 60 | 18 / 30 | 10 | 78 / 207 | 30.6 / 97.6 | 0.1 / 1.0 / 15.3 | 0.08 | 1.02 | 11209 | 15176 |
+| 20 | 20 | bad (80 ms, 3% lost) | old | 19.8 / 60 | 18 / 27 | 7.3 | 230 / 483 | 87.5 / 300.5 | 0.2 / 6.9 / 37.4 | 27.37 | 174.53 | 7141 | 9745 |
+| 20 | 20 | bad (80 ms, 3% lost) | **new** | 22.8 / 60 | 18 / 24 | 11.2 | 186 / 322 | 71.5 / 203.6 | 0.1 / 1.4 / 23.3 | 0.06 | 0.1 | 11115 | 15031 |
+| 20 | 20 | worst (150 ms, 8% lost) | old | 19.8 / 60 | 17 / 19 | 10.7 | 332 / 594 | 127.3 / 458.8 | 0.2 / 8.1 / 42.6 | 38.07 | 319.25 | 7173 | 9728 |
+| 20 | 20 | worst (150 ms, 8% lost) | **new** | 22.7 / 60 | 18 / 32 | 8.3 | 286 / 427 | 110.6 / 321.4 | 0.1 / 1.5 / 23.9 | 0.1 | 0.42 | 11030 | 15059 |
+
+**The new lane's near and far enemies apart** (the old lane sends all alike):
+
+| Enemies | Host, fps | Network | Near: share | age, ms (p50 / p95) | off its path, cm (p50 / p95 / p99) | stood still, % | Far: share | age, ms (p50 / p95) | off its path, cm (p50 / p95 / p99) | stood still, % | jumps a minute per enemy |
+|---:|---:|---|---:|---|---|---:|---:|---|---|---:|---:|
+| 48 | 60 | clean | 85% | 77 / 91 | 0.1 / 0.8 / 13.1 | 0 | 13% | 195 / 227 | 0.2 / 2.5 / 24.3 | 0 | 0 |
+| 48 | 60 | bad (80 ms, 3% lost) | 86% | 185 / 201 | 0.1 / 1.2 / 15.5 | 0.01 | 13% | 294 / 335 | 0.2 / 2.1 / 28.8 | 0 | 0 |
+| 48 | 60 | worst (150 ms, 8% lost) | 87% | 285 / 301 | 0.1 / 1.7 / 36.6 | 0.02 | 12% | 389 / 442 | 0.1 / 1.8 / 27.8 | 0 | 0 |
+| 48 | 20 | clean | 87% | 77 / 91 | 0.1 / 0.9 / 13.5 | 0.09 | 11% | 194 / 231 | 0.1 / 1.8 / 29.4 | 0 | 0.38 |
+| 48 | 20 | bad (80 ms, 3% lost) | 85% | 186 / 199 | 0.1 / 0.9 / 20.8 | 0.1 | 12% | 306 / 345 | 0.1 / 2.3 / 33.7 | 0.03 | 1.12 |
+| 48 | 20 | worst (150 ms, 8% lost) | 86% | 284 / 303 | 0.1 / 1.6 / 44.3 | 0.1 | 13% | 407 / 450 | 0.2 / 4.2 / 32.5 | 0 | 1.96 |
+| 20 | 60 | clean | 91% | 80 / 89 | 0.1 / 0.9 / 9.5 | 0.01 | 9% | 204 / 233 | 0.2 / 3.9 / 29.0 | 0 | 0 |
+| 20 | 60 | bad (80 ms, 3% lost) | 89% | 185 / 195 | 0.1 / 1.2 / 33.9 | 0.03 | 11% | 300 / 336 | 0.1 / 2.9 / 26.8 | 0 | 0 |
+| 20 | 60 | worst (150 ms, 8% lost) | 84% | 283 / 300 | 0.1 / 1.3 / 46.9 | 0 | 12% | 401 / 437 | 0.1 / 2.6 / 24.4 | 0 | 0 |
+| 20 | 20 | clean | 84% | 78 / 104 | 0.1 / 0.9 / 8.4 | 0.07 | 17% | 170 / 231 | 0.1 / 3.4 / 24.3 | 0.12 | 0.63 |
+| 20 | 20 | bad (80 ms, 3% lost) | 86% | 186 / 204 | 0.1 / 1.1 / 23.6 | 0.06 | 14% | 303 / 345 | 0.1 / 4.2 / 20.9 | 0.06 | 0 |
+| 20 | 20 | worst (150 ms, 8% lost) | 81% | 285 / 312 | 0.1 / 1.2 / 28.0 | 0.12 | 18% | 397 / 447 | 0.1 / 2.8 / 17.5 | 0 | 0.57 |
+
+**What it means.**
+
+- **On a good connection** the old lane was already fine with the host at 60 fps, and the new one is better at everything
+  a player can see: the picture is 78 to 80 ms old instead of 109 to 115, the copy is within 0.8 cm of the host's path 95% of
+  the time instead of 3.3 to 3.9, its speed is three times closer to the host's, and nothing stalls or jumps on either.
+- **With a host at 20 fps** the old lane stepped: an enemy stood still for 13.5% of the frames it should have been moving in
+  (240 short stalls a minute per enemy). The new lane: 0.07 to 0.08%. This is the largest difference a player on a good
+  connection will see.
+- **On a bad connection the old lane broke and the new one does not.** At 80 ms and 3% loss the old lane stood enemies
+  still for 14 to 27% of their moving frames, in stalls of up to 300 to 600 ms, and darted them 110 to 210 times a minute
+  each; at 150 ms and 8% loss, 29 to 37% of frames, 230 to 330 darts a minute each, and the picture was up to 600 ms old.
+  The new lane on the same links: 0 to 0.13% of frames, 0 to 2 small darts a minute, the picture 185 ms old (bad) and
+  285 ms (worst), which is the clean link's 78 plus the link's lag plus what the lane adds to hide its jitter (27 ms on the
+  bad link, 58 on the worst), and it stays on the host's path (1.4 cm at the 95th percentile on the worst link). The old lane rode a reliable channel, where one lost packet holds
+  everything behind it; the new one loses that enemy's one update and nothing else.
+- **48 enemies cost the new lane nothing in smoothness** against 20, on any network.
+- **The weakest case measured** is 48 enemies, a 20 fps host and the worst network: on screen 0.11% of frames stood still
+  (the longest 68 ms), 2 darts a minute per enemy of 11 to 13 cm, over half of them a stalker in mid-leap whose 50 ms host
+  frames the yardstick itself cannot resolve finer. Nothing there called for a fix.
+- **Bytes: the new lane costs more in this scene, not the same.** 26.6 KB/s of snapshots to one guest at 48 enemies against
+  19.9 (31.3 against 22.6 over all lanes), and 11.2 against 8.3 at 20 enemies. The earlier "same bytes" was a guest standing
+  off from the crowd with most of it far; here the guest is in the fight and 81 to 91% of the crowd is near and sent 20 times
+  a second. About 1 KB/s of it is the one-second hold when an enemy leaves the near tier. It is a little over the research
+  doc's 25 KB/s target at the cap and well under its 64 KB/s ceiling.
+
+**Near and far.** A far enemy (over 25 m from the guest and outside the cone they look down, or over 70 m) is sent 5 times a
+second and drawn about 225 ms back on a clean link against 77 for a near one (332 against 185 on the bad link, 438 against
+284 on the worst): 150 ms staler, by design. Against its own playhead a far enemy is within 0.5 cm of the host's at the
+median, 4 to 7 cm at the 95th percentile and 8 to 37 cm at the 99th (a near one: 0.2 and 1.6 to 2.5 cm); in a run with the
+guest 40 to 70 m from the whole crowd and 70% of it far, 1.1 / 19.5 / 85 cm. It does not stall and it does not jump. On the
+yardstick it is stale and a little loose, not rough, and it is off the screen or over 70 m away. One that comes onto the
+screen is near at once: in its first second on screen the picture is already 78 to 81 ms old at the median on a clean
+link (176 to 202 at the 95th percentile) and within 0.8 to 1.1 cm of the path 95% of the time. **Two things for the owner to know:** the
+cone is 60 degrees either side, which is the edge of the screen at the default field of view on a 16:9 screen (60.6
+degrees) and inside it on his 16:10 one (58), but a field of view set above 90 shows a strip at each edge of the screen where
+enemies over 25 m off are far ones (up to 72 degrees at the slider's top). And **10 Hz for the far tier would cost 135
+bytes a second per far enemy**: 0.8 KB/s in the fight measured here (6 of 48 far), 3.8 KB/s at the research doc's split of
+20 near and 28 far (16.3 to 20.1 KB/s by the unit test's count), 6.5 KB/s at the most (all 48 far, 8.0 to 14.5). It would
+draw them about 125 ms back instead of 225 and, for a body that turns, about a quarter as far off its path (not measured:
+`FAR_EVERY` is left at 4 until the owner has played it).
+
+**Knocked down.** While an enemy is down the two screens run their own ragdolls and the copy lies 0.9 to 1.8 m from the
+host's at the 95th percentile, as designed. In the 3 s after it gets up it walks to the host's place at no more than 4 m/s.
+The recordings showed a real fault here, fixed in this pass: on the frame gore handed the body back the copy was drawn at
+the host's place and on the next back where it had lain (two "jumps" of 0.9 to 1.3 m, a frame apart, on every get-up). See
+"Moves", the copy in its own ragdoll.
+
+**Vehicles and the garrison in the browser** (`coop-motion-vehicles.mjs`, Outpost Defense, pages drawn):
+
+| What | Network | Pages, fps (host / guest) | Picture is this old, ms (p50 / p95) | Off the host's path, cm (p50 / p95 / p99) | Heading error p95, deg | Stood still | Jumps | At rest: copy from the host's |
+|---|---|---|---|---|---:|---|---:|---|
+| The garrison (6 men following the host for 20 s) | clean | 50.8 / 60.1 | 228 / 270 | 0.4 / 6.0 / 12.6 | 8.0 | 0% (none) | 0 | 0.2 to 0.5 cm, under 0.2 degrees (5 men standing) |
+| A scout car round a block and a tank, 25 s | clean | 59.8 / 60 | 227 / 233 | 0.3 / 4.9 / 8.7 | 0.7 | 0% (none) | 0 | the car: 0 cm, 0 degrees of hull and turret |
+| The garrison | `lag:120,jitter:40,loss:0.05` | 54.1 / 60.1 | 453 / 529 | 0.5 / 8.6 / 27.2 | 10.4 | 0% (none) | 0 | 0.4 to 0.5 cm, under 0.3 degrees |
+| The scout car and the tank | the same | 59.8 / 60 | 518 / 576 | 0.3 / 5.9 / 9.6 | 0.9 | 0% (none) | 0 | the car: 0 cm, 0 degrees |
+| Before the fix below: the garrison | the same | 56.3 / 60.1 | 392 / 446 | 0.4 / 8.1 / 25.8 | | 0.4% (two stalls, 101 and 234 ms) | 0 | 0.1 to 0.7 cm |
+| Before the fix below: the vehicles | the same | 59.8 / 60 | 385 / 402 | 0.3 / 5.7 / 15.4 | | 0% (none) | 0 | (the check was wrong in that run) |
+
+20 of 20 checks on each network. Both move without steps and end where the host's are. The tank never comes to rest (it goes
+on hunting), so only the car's end is compared; a man still walking is left out the same way. **One weakness found and
+fixed:** these two ride the reliable lane, where a lost packet holds everything behind it for 300 ms, and they sized their
+delay from the enemies' lane, which never sees that. On the bad link a man of the six stood still twice in 20 s (101 and 234
+ms); a unit test with one state in five held up shows the mechanism plainly (the copy slowed to 36% of its speed, then
+hurried). They now use their own lane's jitter. **The price, on a bad link only:** they are drawn 60 to 130 ms further back
+(453 and 518 ms old instead of 392 and 385), near the buffer's 450 ms cap plus the link's lag; on a clean link nothing
+changes (228 ms). If that is the wrong trade, it is one line each in `vehicles.ts` and `allies.ts`. The better cure is to
+send their places on the unreliable lane as the enemies' are (not built: it is a new chunk kind). A garrison man's copy
+turns its body later and more loosely than an enemy's (heading 8 to 10 degrees off at the 95th percentile, its
+frame-to-frame speed up to 4.7 m/s from his): five states a second with the velocity worked out from the last two places
+is coarse for a man who weaves; he is on the path within 6 to 9 cm all the same.
+
+**Not measured, and why.** Real WebRTC (every run here is the loopback transport with the game's own simulator: the lane
+code is the same, the transport under it is not). More than one guest. Enemies other than husks, troopers and stalkers
+(human squads in cover, bosses). A guest page that itself runs slowly: every guest here held 60 frames a second, and a
+guest that hitches draws late whatever the netcode does. The far tier at 10 Hz. The attack helicopter on the buffer (the
+vehicle proof drives a scout car and a tank).
 
 ## Enemy attacks on guests (overhaul lane "enemy-attacks")
 
