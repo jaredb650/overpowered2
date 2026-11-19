@@ -110,7 +110,8 @@ export default async function (host, { sleep, outDir }) {
       await sleep(2600);
       await clearWave(host);
       await host.waitForFunction(() => window.__op2.ctx.waves.phase === 'intermission', null, { timeout: 30000, polling: 200 });
-      await host.evaluate(() => { const { lobby, world } = window.__op2.ctx.coop; world.team.rest.vote(lobby.you); });
+      // With two players the host is the only voter left, and its vote alone would end the break before the guest is back.
+      if (PLAYERS > 2) await host.evaluate(() => { const { lobby, world } = window.__op2.ctx.coop; world.team.rest.vote(lobby.you); });
       await sleep(1500);
       const away = await hostHas(host, slot);
       check(away.life === 'up' && !away.ghost && !away.kit.includes('rocket'), 'the host has heard none of it: still up, no Ghost, the old kit', away);
@@ -128,7 +129,7 @@ export default async function (host, { sleep, outDir }) {
       const now = await waitFor(() => world(guest), w => w.phase === 'intermission' && w.rest.on, 'the break on the returning guest\'s screen', 15000, sleep);
       const hostNow = await world(host);
       check(Math.abs(now.left - hostNow.left) < 4 && now.wave === hostNow.wave, 'the break clock is the host\'s of now, not of when the wave was cleared', [now.left, hostNow.left]);
-      check(now.rest.ready.includes(0), 'the host\'s vote is on the returning guest\'s screen', now.rest);
+      if (PLAYERS > 2) check(now.rest.ready.includes(0), 'the host\'s vote is on the returning guest\'s screen', now.rest);
       const heard = { host: await wavesOf(host), guest: await wavesOf(guest) };
       const cleared = heard.host.filter(w => w.startsWith('clear'));
       check(cleared.length === 1 && JSON.stringify(heard.guest.filter(w => w.startsWith('clear'))) === JSON.stringify(cleared),
