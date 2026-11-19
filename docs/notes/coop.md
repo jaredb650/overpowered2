@@ -68,7 +68,8 @@ the names the game used before).
 | `world/snapshot.ts` | The binary enemy snapshot: `encodeWorld`, `decodeWorld`, `EnemyFrame`, `SNAPSHOT_MS`, `POSTURES`, `CAPTURABLE` | (the `world` lane) |
 | `world/replicas.ts` | Host: builds and sends the snapshot. Guest: the enemy copies, their interpolation (`animate`), the `dead` set | (the `world` lane) |
 | `world/targeting.ts` | Host: every player as a target (`players()`), `select`, line of sight, `steer` and its routes, `targetPlayer`, sending `hurt`. Guest: taking `hurt`, `allowsLocalDamage` | `hurt` |
-| `world/hits.ts` | Guest's `claim`; the host's check and apply; kill credit (`killedBy`, `lastHitter`, `notMine`, the guest's own kill replay); wounds, severs and deaths on guests; `selfDestruct` | `hit`, `hitfx`, `kill`, `sever` |
+| `world/claims.ts` | Guest's `claim` (its damage as a `hit` event, and the guess at the result); the host's check and apply (`hitIn`); whose claim is being applied (`applying`) and who last hit an enemy (`lastHit`), read by hits.ts for kill credit | `hit` |
+| `world/hits.ts` | Kill credit (`killedBy`, `notMine`, the guest's own kill replay); what the host's damage did, sent out; wounds, severs and deaths on guests; `selfDestruct` | `hitfx`, `kill`, `sever` |
 | `world/remoteFire.ts` | A player's shots on other screens: the local `fire`, the host's check and relay, drawing it. The shot counter claims carry. Gun Kata's notice | `fire`, `kata` |
 | `world/enemyFire.ts` | `enemyRay` (the host's enemy rays against remote players) and `projectile`; the guest's tracer | `ray` |
 | `world/booms.ts` | `blast`: explosions sent to other screens (24 a second), an enemy blast's damage on remote players, a guest's blast on the host's vehicles | `boom` |
@@ -87,7 +88,7 @@ the names the game used before).
 Rules that keep it working:
 
 - **A module keeps its own state.** It reaches another module only through that module's public methods, and gets it as a constructor
-  argument in `world.ts` (for example `Hits` is given `Replicas`, `Targeting` and `RemoteFire`). Nothing reaches into another module's
+  argument in `world.ts` (for example `Claims` is given `Replicas`, `Targeting` and `RemoteFire`, and `Hits` is given `Claims`). Nothing reaches into another module's
   private fields.
 - **Order.** Modules add their game listeners (`w.listen`) as they are built. Listeners on one game event run in the order added, and
   the world is built before any system's `init`, so `Hits` hears `enemy:killed` before every system (who killed it is known first).

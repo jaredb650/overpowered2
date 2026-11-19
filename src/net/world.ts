@@ -17,6 +17,7 @@ import { Booms } from './world/booms';
 import { Callins } from './world/callins';
 import { Capture } from './world/capture';
 import { Chatter } from './world/chatter';
+import { Claims } from './world/claims';
 import { Clock } from './world/clock';
 import { WorldContext, type WorldModule } from './world/context';
 import { EnemyFire } from './world/enemyFire';
@@ -37,6 +38,7 @@ export class CoopWorld {
   private readonly enemies: Replicas;
   private readonly targeting: Targeting;
   private readonly shots: RemoteFire;
+  private readonly claims: Claims;
   private readonly hits: Hits;
   private readonly enemyFire: EnemyFire;
   private readonly booms: Booms;
@@ -68,7 +70,8 @@ export class CoopWorld {
     // Sonar is shared; Thermal and Focus are each player's own and never sent.
     new SharedSonar(w);
     this.time = new Clock(w);
-    this.hits = new Hits(w, this.enemies, this.targeting, this.shots);
+    this.claims = new Claims(w, this.enemies, this.targeting, this.shots);
+    this.hits = new Hits(w, this.enemies, this.claims);
     new Chatter(w, this.enemies);
     this.capture = new Capture(w, this.enemies);
     this.enemyFire = new EnemyFire(w, this.targeting);
@@ -102,7 +105,7 @@ export class CoopWorld {
     this.mission.begin();
     this.enemies.begin();
   }
-  claim(enemy: EnemyInstance, damage: DamageInfo): DamageResult { return this.hits.claim(enemy, damage); }
+  claim(enemy: EnemyInstance, damage: DamageInfo): DamageResult { return this.claims.claim(enemy, damage); }
   updateGuests(): void {
     const now = performance.now();
     this.vehicles.animate(now);
