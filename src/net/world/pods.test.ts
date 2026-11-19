@@ -43,6 +43,12 @@ function podsOf(ctx: Ctx, supply: boolean): DropPods {
   return pods;
 }
 
+/** One frame of a set of pods: the wall clock moves a sixtieth, as in the game. */
+const tick = (pods: DropPods | DropPods[]): void => {
+  vi.advanceTimersByTime(1000 / 60);
+  for (const p of [pods].flat()) p.update(1 / 60);
+};
+
 type PodView = { phase: string; id: number; entry: { position: THREE.Vector3; active: boolean }; group: THREE.Group; taken: boolean; weapon: string | null };
 const view = (pods: DropPods): PodView[] => (pods as unknown as { pods: PodView[] }).pods.filter(p => p.phase !== 'spent');
 
@@ -99,6 +105,9 @@ describe('the break reaches a guest with the wave event, not a snapshot later', 
 });
 
 describe('one pod for everyone', () => {
+  beforeEach(() => vi.useFakeTimers({ toFake: ['performance', 'setTimeout', 'clearTimeout'] }));
+  afterEach(() => vi.useRealTimers());
+
   it('the host calls it; every guest flies the same pod at the same spot and none calls its own', async () => {
     const games = [await game(), await game('spawning'), await game('spawning')];
     const table = party(2, true, games.map(g => g.ctx));
@@ -109,7 +118,7 @@ describe('one pod for everyone', () => {
     for (const [i, seat] of table.guests.entries()) seat.ctx.events.on('wave:clear', e => pods[i + 1]!.onWaveClear(e.wave));
     table.host.ctx.events.emit('wave:clear', { wave: 3, bonus: 0 });
     table.relay.flush();
-    for (const p of pods) p.update(1 / 60);
+    tick(pods);
     const host = view(pods[0]!)[0]!;
     expect(host.id).toBe(1);
     for (const guest of [pods[1]!, pods[2]!]) {
@@ -121,7 +130,7 @@ describe('one pod for everyone', () => {
     // One call, to each guest.
     expect(table.relay.sent('pod').filter(e => e.op === 'call').map(e => e.id)).toEqual([1, 1]);
     // It lands and opens on every screen in the same frame, turned the same way; only the host's landing is a blast.
-    for (let i = 0; i < Math.round((LANDS + 1.5) * 60); i++) for (const p of pods) p.update(1 / 60);
+    for (let i = 0; i < Math.round((LANDS + 1.5) * 60); i++) tick(pods);
     expect(pods.map(p => view(p)[0]!.phase)).toEqual(['open', 'open', 'open']);
     expect(pods.map(p => view(p)[0]!.group.rotation.y)).toEqual(Array(3).fill(host.group.rotation.y));
     expect(games.map(g => g.blasts.length)).toEqual([1, 0, 0]);
@@ -129,13 +138,13 @@ describe('one pod for everyone', () => {
     for (const [i, g] of games.entries()) {
       g.r.player.position.copy(host.entry.position);
       g.r.input.simulate('interact', true);
-      pods[i]!.update(1 / 60);
+      tick(pods[i]!);
       g.r.input.endFrame();
       expect(g.opened()).toBe(1);
     }
     // The break ends on the host: the pod goes for everyone, on the host's word.
     (games[0]!.ctx.waves as { phase: WavePhase }).phase = 'spawning';
-    pods[0]!.update(1 / 60);
+    tick(pods[0]!);
     table.relay.flush();
     expect(pods.map(p => view(p).length)).toEqual([0, 0, 0]);
     table.dispose();
@@ -150,7 +159,7 @@ describe('one pod for everyone', () => {
     table.relay.flush();
     // The guest's world is not up: the call was dropped on its floor.
     expect(view(pods[1]!)).toHaveLength(0);
-    for (let i = 0; i < Math.round((LANDS + 4) * 60); i++) pods[0]!.update(1 / 60);
+    for (let i = 0; i < Math.round((LANDS + 4) * 60); i++) tick(pods[0]!);
     table.guests[0]!.world.begin();
     table.relay.flush();
     const seen = view(pods[1]!);
@@ -173,10 +182,10 @@ describe('one pod for everyone', () => {
     table.build();
     pods[0]!.call(SPOT.clone());
     table.relay.flush();
-    for (let i = 0; i < Math.round((DROP_POD.warnSeconds + 0.8) * 60); i++) pods[0]!.update(1 / 60);
+    for (let i = 0; i < Math.round((DROP_POD.warnSeconds + 0.8) * 60); i++) tick(pods[0]!);
     table.guests[0]!.world.begin();
     table.relay.flush();
-    for (const p of pods) p.update(1 / 60);
+    tick(pods);
     const [h, g] = pods.map(p => view(p)[0]!);
     expect(g!.phase).toBe('falling');
     // Within a frame of the fall (the host's own clock restarts on the frame it begins to fall).
@@ -192,15 +201,18 @@ describe('one pod for everyone', () => {
     pods[0]!.call(SPOT.clone());
     table.relay.flush();
     (games[1]!.ctx.waves as { phase: WavePhase }).phase = 'spawning';
-    for (let i = 0; i < 60 * 5; i++) pods[1]!.update(1 / 60);
+    for (let i = 0; i < 60 * 5; i++) tick(pods[1]!);
     expect(view(pods[1]!)).toHaveLength(1);
-    for (let i = 0; i < 60 * 6; i++) pods[1]!.update(1 / 60);
+    for (let i = 0; i < 60 * 6; i++) tick(pods[1]!);
     expect(view(pods[1]!)).toHaveLength(0);
     table.dispose();
   });
 });
 
 describe('a weapon cache is shared: each player takes their own share', () => {
+  beforeEach(() => vi.useFakeTimers({ toFake: ['performance', 'setTimeout', 'clearTimeout'] }));
+  afterEach(() => vi.useRealTimers());
+
   it('stands until every player has had theirs, gives each the gun their own arsenal is due, and nobody takes twice', async () => {
     const games = [await game(), await game(), await game()];
     const table = party(2, true, games.map(g => g.ctx));
@@ -209,26 +221,26 @@ describe('a weapon cache is shared: each player takes their own share', () => {
     pods[0]!.call(SPOT.clone());
     table.relay.flush();
     for (const g of games) g.r.player.position.set(0, 0, 200);
-    for (let i = 0; i < Math.round((LANDS + 1.5) * 60); i++) for (const p of pods) p.update(1 / 60);
+    for (let i = 0; i < Math.round((LANDS + 1.5) * 60); i++) tick(pods);
     expect(pods.map(p => view(p)[0]!.phase)).toEqual(['open', 'open', 'open']);
     const guns = games.map(g => g.r.weapons.owned.size);
     // The first guest walks in: their share, on their screen only. The pod stays on every screen.
     games[1]!.r.player.position.copy(SPOT);
-    pods[1]!.update(1 / 60);
+    tick(pods[1]!);
     table.relay.flush();
     expect(games.map(g => g.r.weapons.owned.size)).toEqual([guns[0], guns[1]! + 1, guns[2]]);
     expect(pods.map(p => view(p).length)).toEqual([1, 1, 1]);
     expect(view(pods[1]!)[0]!.taken).toBe(true);
     // Standing in it gives nothing more.
-    for (let i = 0; i < 30; i++) pods[1]!.update(1 / 60);
+    for (let i = 0; i < 30; i++) tick(pods[1]!);
     expect(games[1]!.r.weapons.owned.size).toBe(guns[1]! + 1);
     // The host, then the last guest: the host retires it for everyone.
     games[0]!.r.player.position.copy(SPOT);
-    pods[0]!.update(1 / 60);
+    tick(pods[0]!);
     table.relay.flush();
     expect(pods.map(p => view(p).length)).toEqual([1, 1, 1]);
     games[2]!.r.player.position.copy(SPOT);
-    pods[2]!.update(1 / 60);
+    tick(pods[2]!);
     table.relay.flush();
     expect(games.map(g => g.r.weapons.owned.size)).toEqual(guns.map(n => n + 1));
     expect(pods.map(p => view(p).length)).toEqual([0, 0, 0]);
@@ -240,11 +252,11 @@ describe('a weapon cache is shared: each player takes their own share', () => {
     const pods = podsOf(g.ctx, false);
     pods.call(SPOT.clone());
     g.r.player.position.set(0, 0, 200);
-    for (let i = 0; i < Math.round((LANDS + 1.5) * 60); i++) pods.update(1 / 60);
+    for (let i = 0; i < Math.round((LANDS + 1.5) * 60); i++) tick(pods);
     expect(view(pods)[0]!.id).toBe(0);
     expect(g.blasts).toHaveLength(1);
     g.r.player.position.copy(SPOT);
-    pods.update(1 / 60);
+    tick(pods);
     expect(view(pods)).toHaveLength(0);
   });
 });

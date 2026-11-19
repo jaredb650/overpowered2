@@ -97,6 +97,8 @@ interface Pod {
   id: number;
   yaw: number;
   age: number;
+  /** Co-op: `performance.now()` at the moment it was called (on this screen: when the call arrived, less its age). */
+  born: number;
   /** Co-op cache: this player has had their share; the pod stays for the others. */
   taken: boolean;
   /** Co-op host, a cache: the lobby ids of who has had their share. */
@@ -117,9 +119,6 @@ export class DropPods {
   private readonly beacons: THREE.Mesh[] = [];
   private serial = 0;
   private readonly center = new THREE.Vector3();
-  /** Co-op: `performance.now()` at the last update (0 before the first), and the seconds the pods' clock is behind the wall's. */
-  private wall = 0;
-  private behind = 0;
 
   constructor(private readonly ctx: Ctx, materials: ModelMaterials, readonly supply = false) {
     this.probe = new GroundProbe(ctx);
@@ -155,7 +154,7 @@ export class DropPods {
       const entry = { kind: 'weaponCache' as const, position: new THREE.Vector3(), active: false };
       this.pods.push({
         phase: 'spent', weapon: null, entry, group, doors, ring: new GroundRing(ctx), timer: 0, trail: null, marker: null,
-        id: 0, yaw: 0, age: 0, taken: false, takers: new Set(), stale: 0,
+        id: 0, yaw: 0, age: 0, born: 0, taken: false, takers: new Set(), stale: 0,
       });
       this.entries.push(entry);
     }
@@ -257,6 +256,7 @@ export class DropPods {
     pod.phase = 'warning';
     pod.timer = 0;
     pod.age = 0;
+    pod.born = performance.now() - age * 1000;
     pod.taken = false;
     pod.stale = 0;
     pod.takers.clear();
@@ -338,18 +338,6 @@ export class DropPods {
   }
 
   update(dt: number): void {
-    // Co-op: the pod is one clock on every screen, so it runs on the wall clock. The game's `realDt` is capped at 50 ms a frame,
-    // and a page that hitched (a slow frame as the banner and the pod first draw) would fly its pod that much behind the others for good.
-    if (this.session) {
-      const now = performance.now();
-      // What the frames' own `dt` has fallen short of the wall clock is paid back; being a little ahead is only frame jitter.
-      if (this.wall > 0) this.behind = Math.max(-0.1, this.behind + Math.min(2, (now - this.wall) / 1000) - dt);
-      this.wall = now;
-      if (this.behind > 0.03) {
-        dt += this.behind;
-        this.behind = 0;
-      }
-    }
     // A supply pod lasts the break it came in. Retraining's stays (SHOP_ANYTIME). In co-op the host ends it for everyone: a guest's
     // own copy of the waves can lag the break by a snapshot, and only stands in if the host's word never comes.
     if (this.supply && !SHOP_ANYTIME && this.ctx.waves.phase !== 'intermission') {
@@ -359,7 +347,10 @@ export class DropPods {
         this.retire(pod);
       }
     } else if (this.guest) for (const pod of this.pods) pod.stale = 0;
-    for (const pod of this.pods) if (pod.phase !== 'spent') this.step(pod, dt);
+    // Co-op: the pod is one clock on every screen, so each pod's age is read off the wall clock from the moment it was called.
+    // The game's `realDt` is capped at 50 ms a frame: a page that hitched would fly its pod that much behind the others for good.
+    const now = this.session ? performance.now() : 0;
+    for (const pod of this.pods) if (pod.phase !== 'spent') this.step(pod, now ? Math.max(0, (now - pod.born) / 1000 - pod.age) : dt);
     if (this.supply) this.readSupply();
   }
 
