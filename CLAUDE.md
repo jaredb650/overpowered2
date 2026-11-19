@@ -95,10 +95,12 @@ https://jaredb650.github.io/overpowered2/ (GitHub Pages, `.github/workflows/page
 - **Port 5173 is the owner's dev server.** Never start, stop or reload anything on it. Run your own Vite on your own port with
   `OP2_NO_HMR=1` (turns HMR off so you never reload the owner's game), e.g. `OP2_NO_HMR=1 npx vite --port 5270 --strictPort`,
   and stop it when done. Kill only processes you started.
-- **Browser:** one browser at a time (the owner's machine is an 8 GB M1; keep the habit). Before `tools/shot.mjs` run
-  `pgrep -fl "^node tools/shot.mjs"` and wait if one runs. Never drive the owner's Google Chrome app: Playwright
-  `channel: 'chromium'` only (shot.mjs does this). If a headless Chrome ever hijacks the owner's Chrome, kill only processes whose
-  command line has `--headless`. Render at **dpr 2, 1440x900** (the owner's Retina screen).
+- **Browser:** never drive the owner's Google Chrome app: Playwright `channel: 'chromium'` only (shot.mjs does this). If a
+  headless Chrome ever hijacks the owner's Chrome, kill only processes whose command line has `--headless`. Look-checks the owner
+  will see render at **dpr 2, 1440x900** (the owner's Retina screen); functional proofs may use any size that is fast.
+- **Compute (owner, 2026-11-18):** development is on a 32-core, 62 GB, RTX 4090 Linux machine. Every rule that existed to spare the
+  old 8 GB Mac is lifted: run the whole test suite, run several browsers and Vite servers at once (each agent on its own port),
+  no frame-rate caps unless a test is about low frame rate, no waiting for another agent's browser. Use the machine to go faster.
 - Screenshots and probe output go to `tools/out/<your-folder>/` (git-ignored, not linkable from the repo).
 
 ## Git: several agents share one checkout

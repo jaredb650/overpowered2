@@ -39,7 +39,11 @@ Read `CLAUDE.md` first; it still applies except where this section differs.
 - **Known failing test** before this work: `src/core/devflags.test.ts` ("starts every cheat off…", stale expectation). Everything
   else must stay green. Add tests next to what you build.
 - **Ports and browsers:** use only the Vite port your brief gives you, with `OP2_NO_HMR=1`, and stop it when done. Port 5173 is
-  never touched. This machine (32 cores, 62 GB, RTX 4090) can run several browsers at once; the old one-browser rule is lifted here.
+  never touched.
+- **Use the machine** (owner's order): 32 cores, 62 GB, RTX 4090. Every rule that existed to spare the old 8 GB Mac is void: no
+  one-browser rule, no waiting on other agents' browsers, no 15 fps caps (unless the test is about low frame rate), no
+  one-test-file-at-a-time. Run the whole suite freely, run proofs in parallel, run 3 and 4 player proofs, use more Vite ports from
+  your block if it helps (your port to your port + 4 are yours). Speed of development matters more than compute.
   Screenshots and probe output go to `tools/out/coop/<your-name>/` in the **main checkout**
   (`/home/jared/jared/overpowered2/tools/out/coop/<your-name>/`) so the lead can see them.
 - **Stay in your lane.** Your brief lists the files you own. If you must change a file outside it, keep the change minimal and say
