@@ -36,7 +36,7 @@ import * as glmem from './lib/glmem.mjs';
 import { mulberry32 } from './lib/steady.mjs';
 
 /** Every switch of the gore update, off: append to a URL for "the update off". */
-export const GC_OFF = 'flinch=0&clutch=0&carry=0&aimspoil=0&sway=0&gibthrow=0&fire=0&messrest=0&messpush=0&messfar=0&bigblood=0&hitblood=0&bloodmap=0&wear=0&vmblood=0';
+export const GC_OFF = 'flinch=0&clutch=0&carry=0&aimspoil=0&sway=0&gibthrow=0&fire=0&messrest=0&messpush=0&messfar=0&bigblood=0&hitblood=0&bloodmap=0&wear=0&vmblood=0&dryflesh=0';
 
 const SCENE = process.env.GC_SCENE ?? 'worst';
 const WORST = SCENE !== 'normal';

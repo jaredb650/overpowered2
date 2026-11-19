@@ -8,9 +8,9 @@
 //     --out tools/out/<you>/react-on.png
 //
 // Scenes (LOOK_SCENE), each with the frames and crop that suit it (`SCENES` below; tools/scripts/gore-look-all.sh runs them all):
-//   react   a Trooper, a Brute and a Husk standing 6 m off (three times their health, so the hits are seen): a burst in the
-//           Trooper's chest, single rounds in his gun arm, a burst in the Brute, rounds in the Husk's leg, then the Trooper
-//           is shot dead: every round's reaction, the struck arm, and the death on his feet
+//   react   one Trooper 4.5 m off with four times his health, so each hit is seen: a round in the chest, one in the gun arm,
+//           one in a leg, a burst of five, then held fire until he is dead: every round's reaction, the struck arm, the
+//           stagger and the death on his feet
 //   gib     one rocket at the feet of three Troopers 7 m off: what comes out of the fireball, and what is on the floor after
 //   fire    the Kiln held for a second and a half on two Troopers and a Husk 5 m off, then left to burn for ten seconds
 //   wear    single rounds into one arm and then one leg of a Trooper 3.5 m off, half a second apart, until each comes off
@@ -118,15 +118,14 @@ async function install({ scene, hud }) {
   const burst = (from, n, e, region, across = 0) => taps(Array.from({ length: n }, (_, i) => from + i * smg.interval), e, region, across);
 
   if (scene === 'react') {
-    const trooper = stand('trooper', 6, -1.7, 3);
-    const brute = stand('brute', 6.4, 0, 1);
-    const husk = stand('husk', 6, 1.7, 4);
-    bot.centre = along(6, 0).add(new V(0, 1, 0));
-    burst(0.4, 4, trooper, 'chest', 0.1);
-    taps([1.4, 1.75, 2.1], trooper, 'armR');
-    burst(2.5, 5, brute, 'chest', -0.12);
-    taps([3.3, 3.55, 3.8], husk, 'legL');
-    burst(4.1, 14, trooper, 'chest', -0.05);
+    // One man, close, and one thing at a time with room after each to see what it did to him.
+    const trooper = stand('trooper', 4.5, 0, 4);
+    bot.centre = along(4.5, 0).add(new V(0, 1, 0));
+    taps([0.4], trooper, 'chest', 0.13);
+    taps([1.0], trooper, 'armR');
+    taps([1.6], trooper, 'legL');
+    burst(2.2, 5, trooper, 'chest', -0.1);
+    burst(3.0, 30, trooper, 'chest', 0.05);
   } else if (scene === 'gib') {
     const men = [stand('trooper', 7, -0.7), stand('trooper', 7.5, 0.5), stand('trooper', 6.6, 0.2)];
     bot.weapon = 'rocket';
@@ -167,8 +166,11 @@ async function install({ scene, hud }) {
   return { scene, home: home.toArray(), alive: ctx.enemies.alive.length };
 }
 
-export default function (page) {
+export default async function (page, h) {
   const scene = process.env.LOOK_SCENE ?? 'react';
   if (!SCENES[scene]) throw new Error(`gore-look-scenes: no scene "${scene}". Known: ${Object.keys(SCENES).join(', ')}`);
-  return page.evaluate(install, { scene, hud: process.env.LOOK_HUD === '1' });
+  const result = await page.evaluate(install, { scene, hud: process.env.LOOK_HUD === '1' });
+  // A few frames before the first picture: the camera is where the bot put the player, and the bodies stand in their poses.
+  await h.sleep(160);
+  return result;
 }

@@ -16,7 +16,7 @@ mkdir -p "$out"
 sheet() { # name script frames every pick crop [more args]
   local name=$1 script=$2 frames=$3 every=$4 pick=$5 crop=$6; shift 6
   local args=(--port "$port" --url "$url" --until "window.__op2?.game?.state==='playing'" --script "$script" --dpr 2 --w 1440 --h 900
-    --frames "$frames" --every "$every" --pick "$pick" --cols 6 --tile 480 --timeout 2400 --out "$out/$name-$tag.png")
+    --frames "$frames" --every "$every" --pick "$pick" --cols 6 --tile "${TILE:-640}" --timeout 2400 --out "$out/$name-$tag.png")
   [ -n "$crop" ] && args+=(--crop "$crop")
   # The short scenes keep their frames (the full-size stills are picked from them); the fight's 900 would be 4 GB.
   [ "$name" != fight ] && args+=(--keep)
@@ -25,12 +25,12 @@ sheet() { # name script frames every pick crop [more args]
 }
 for scene in ${SCENES:-react gib fire wear}; do
   case $scene in
-    react) LOOK_SCENE=react sheet react tools/scripts/gore-look-scenes.mjs 84 64 24 "330,210,780,490" ;;
+    react) TILE=400 LOOK_SCENE=react sheet react tools/scripts/gore-look-scenes.mjs 96 48 48 "520,190,400,500" --cols 8 ;;
     gib)   LOOK_SCENE=gib   sheet gib   tools/scripts/gore-look-scenes.mjs 64 48 24 "" ;;
-    fire)  LOOK_SCENE=fire  sheet fire  tools/scripts/gore-look-scenes.mjs 72 160 24 "280,180,880,560" ;;
+    fire)  LOOK_SCENE=fire  sheet fire  tools/scripts/gore-look-scenes.mjs 72 160 24 "320,200,800,500" ;;
     wear)  LOOK_SCENE=wear  sheet wear  tools/scripts/gore-look-scenes.mjs 70 96 24 "430,120,580,660" ;;
   esac
 done
 if [ "${FIGHT:-0}" = 1 ]; then
-  sheet fight tools/scripts/gore-look.mjs 900 33 30 "" --video "$out/fight-$tag.mp4"
+  TILE=480 sheet fight tools/scripts/gore-look.mjs 900 33 30 "" --video "$out/fight-$tag.mp4"
 fi

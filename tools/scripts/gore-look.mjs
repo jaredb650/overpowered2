@@ -163,6 +163,9 @@ async function install({ seconds, hud }) {
   return { home: home.toArray(), longest };
 }
 
-export default async function (page) {
-  return page.evaluate(install, { seconds: SECONDS, hud: process.env.LOOK_HUD === '1' });
+export default async function (page, h) {
+  const result = await page.evaluate(install, { seconds: SECONDS, hud: process.env.LOOK_HUD === '1' });
+  // A few frames before the first picture, so it is from where the bot put the player.
+  await h.sleep(96);
+  return result;
 }

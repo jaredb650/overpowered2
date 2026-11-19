@@ -1420,6 +1420,99 @@ script), a tier 1 corpse **0.06 ms**, and a baked far body in a shared draw (1,8
 Today's 40 full corpses all in view are about 7 ms there. A full-screen layer of decals is taken as 12 times this
 machine's, 0.07 ms, so twenty layers under the player's feet are 1.4 ms.
 
+## The whole update: what it costs (verify pass, 2026-11-19)
+
+Measured on the final build (`00a6c7e`) against the game before the update (`d2e2f8a`, a second worktree and server) with
+`tools/scripts/gore-cost.mjs` (`docs/notes/devtools.md`): a seeded bot fight in real time, every frame drawn at
+1440x900 dpr 2, High quality, Mess at Standard, on the development machine (i9-13900K, RTX 4090, load 2 to 5).
+**Heavy** is the worst case: up to 48 alive in the Crucible (men in Endless Humans), topped up at five a second and
+fought from one spot so the heap grows, bullets, then rockets and grenades, then the Kiln, then bullets, about 420
+kills in 75 s, then a walk through the heap. **Normal** is 16 alive, SMG and shotgun, moving. "Script" is the whole
+frame's JavaScript, drawing calls included. Two runs of each heavy case, one of each normal. Raw runs:
+`tools/out/gore-update/verify/cost/`.
+
+**The physics step is taken twice on more than half of all 60 Hz frames** (fit, step 4). The fix is behind `?onestep=1`
+and **off by default** (the lead's call); both are given.
+
+| ms a frame (mean; 95th) | Before | Now, default | Now, `?onestep=1` |
+|---|---|---|---|
+| **Crucible heavy**: script | 10.3; 12.8 | **13.1; 17.2** | 12.1; 16.1 |
+| physics step | 1.56; 2.65 | **5.14; 8.25** | 3.34; 4.5 |
+| `gore.update` | 0.38 | 0.87 | 0.93 |
+| `render()` | 6.7 | 5.7 | 6.3 |
+| frame interval: mean; 95th; worst | 16.7; 16.8; 90 | 16.8; 17.8; 122 | 16.9; 18.0; 133 |
+| frames over 16.9 ms | 1.1% | **9.4%** | 6.7% |
+| draw calls: mean (most) | 691 (892) | 596 (1,083) | 627 (1,120) |
+| triangles: mean (most) | 3.5 M (4.6 M) | 3.4 M (5.4 M) | 3.7 M (6.0 M) |
+| walking the heap: script; physics | 10.2; 1.56 | 12.2; 4.94 | 11.2; 3.41 |
+| **Endless Humans heavy**: script | 12.1; 14.7 | 11.6; 15.5 | 10.6; 13.6 |
+| physics step | 1.81; 2.95 | 3.09; 4.8 | 2.18; 3.1 |
+| draw calls; triangles | 908; 3.6 M | 822; 3.8 M | 762; 3.5 M |
+| **Crucible normal**: script; physics | 10.0; 1.05 | 8.5; 1.85 | 8.5; 1.42 |
+| draw calls; triangles | 504; 2.7 M | 438; 2.1 M | 464; 2.5 M |
+| **Endless Humans normal**: script; physics | 7.3; 0.78 | 7.6; 1.57 | 7.0; 0.81 |
+
+- **Drawing is cheaper than before the update** in every scene (fewer draw calls, the same or fewer triangles on
+  average): corpses past 32 and loose limbs at rest are baked into two shared meshes, and a crowded heap is drawn
+  coarser. The most triangles in one frame is higher (5.4 M against 4.6 M): a rocket in a crowd throws twice the pieces.
+- **The cost is the physics step**, in the heap fight above all: 1.6 ms to 5.1 ms. Leaving one switch out at a time
+  (on `bd37370`, before fit's last steps; script ms against 14.6 with all on): `?messrest=0` 11.6, `?messpush=0` 13.4,
+  `?carry=0` 14.1; `?fire=0`, `?gibthrow=0`, the blood switches, the reaction switches and `?wear=0` are inside the
+  noise between runs (about 1 ms); `?messfar=0` is 17.1, since baking is what pays for 120 bodies. So: bodies landing in
+  a heap of resting capsules, enemies stirring the dead, and eight deaths on their feet at once.
+- **The GPU's own time cannot be read on this machine**: the RTX 4090 is never what holds a frame (its timer reads 5 to
+  7 ms in every case, which is the time the commands took to arrive). What a slower GPU pays is reasoned below.
+- **Memory.** GPU 530 to 610 MB before, **660 to 780 MB now** (textures 475 to 550 to 600 to 685; buffers 21 to 48 to
+  48 to 87). Of that: the decal sheet +43 MB, the floor tiles +6, the baked batches and cut pieces about +35 of buffers,
+  and **about 100 to 130 MB of enemy skins that are now on the GPU from load**: the pieces cut from every archetype at
+  load are meshes in the scene from the first frame, so each archetype's two 1024 textures are uploaded then, where the
+  old game uploaded them when that enemy first appeared. In a long Crucible run both end the same; a mode with six kinds
+  now holds all of them. Not fixed (the piece meshes are there so the first gib does not stall); it is the one thing
+  here an 8 GB machine could feel. JS heap 54 to 65 MB before, 68 to 83 now. Low or Medium quality: 590 to 600 MB.
+- **Load** (development server, page start to in play): Crucible 6.8 to 7.1 s before, 7.5 to 7.8 now; Endless Humans
+  3.0 to 3.1 s, 3.9 now. About 0.75 s, as the lanes said.
+
+**With the settings** (Crucible heavy, default physics): Mess at Low 9.3 ms script (physics 2.0, 489 draws, 2.5 M
+triangles), under the old game's 10.3; Mess Low and quality Low 8.4 ms, 360 draws, 1.8 M triangles, 593 MB.
+
+### A laptop, reasoned (there is none here)
+
+**The processor.** `docs/notes/render.md` timed the owner's 8 GB M1 at 16.2 ms of script in an 18-husk Crucible fight
+that takes this machine 7.8: about half this machine's speed. Chrome's own processor throttle at 2x and 4x, same scenes,
+frames a second (fight; walking the heap):
+
+| | Before | Now, as tests run it (no step-down) | Now, as a player gets it (dynamic resolution and the step-down on) | `?onestep=1`, as a player gets it |
+|---|---|---|---|---|
+| Normal fight, half speed | 58 | 59 | (no step taken) | 56 |
+| Heavy fight, half speed | 46; 47 | 29; 26 | **53; 60** | 56; 59 |
+| Heavy fight, quarter speed | 16; 20 | 13; 14 | 21; 26 | 21; 26 |
+
+So on a processor like the M1's: **an ordinary fight is what it was; the heap fight would have halved the frame rate,
+and with the automatic step-down it is better than the old game** (the step-down takes the heap's capsules, and what is
+left draws less than the old game drew). On a machine a quarter of this one's speed the old game was at 16 and this is
+at 21: neither is playable in the worst case, and Mess at Low with quality at Low is the setting for it.
+
+**The GPU**, from counts, since nothing here can time one. The M1's own figures in `render.md` (9.5 to 9.9 ms for the
+Crucible with eight enemies, 13.6 to 15.6 with eighteen at 2.7 M triangles) fit 5 ms plus 3.5 ms a million triangles.
+- **Triangles:** normal 2.7 M before (about 14.5 ms there), 2.1 M now (12.4); heavy 3.5 M (17) and 3.4 M (17), with the
+  worst frame 4.6 M (21) and 5.4 M (24). The heavy fight was over 60's budget on that GPU before the update and is
+  still: the living are the bulk of it (48 within 26 m are all at full detail, 100,000 to 150,000 triangles each with
+  shadow and kit), and that is the old game's, not the update's.
+- **Fill:** four times the stains (8,700 against 2,048), up to 192 two-metre ones and sixteen floor tiles. The one view
+  of the heap drawn with and without decals on this machine: 0.3 to 0.8 ms now against 0.5 before, which is inside its
+  noise. By the mess lane's ratio (a layer costs a laptop twelve times what it costs here) that is 4 to 10 ms standing
+  in the heap looking at the floor, against about 6 before: **the part of the update most likely to cost a laptop's
+  GPU, and the least certain figure here.** It is fill, so dynamic resolution answers it (down to 38% of the pixels),
+  the soak rule caps a spot at six layers, and Mess and quality scale it (2,048 stains and half the big ones at Low).
+- **Burning bodies:** flames are particles in the transparent pass (0.1 to 0.5 ms here with a crowd alight) and three
+  lights at most out of the preset's eight.
+- **Memory:** above. About 0.2 GB more than the old game on a machine that shares 8 GB between everything.
+
+**What a fresh install gets:** High quality, Mess at Standard, dynamic resolution and the step-down on. By these
+figures a machine like the owner's M1 plays an ordinary fight as it did, and the worst case better than the old game
+did (which did not hold 60 there either: 46). **Nothing here was run on a laptop.** The first things to check on one
+are the heap fight with the dev overlay up, and memory with other programs open.
+
 ## Known limitations
 
 The fit pass (2026-11-19):
