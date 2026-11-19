@@ -162,6 +162,15 @@ export const flinchSize = (share: number, machine = false, force = 0, type?: Dam
  */
 const DEATH_CARRY = 0.6;
 
+/**
+ * The gore update's R2 (`DevFlags.clutch`, `?clutch=0`). A plain flinch sends a hand to the wound too (arms up for a blast or
+ * a head hit), where only a stagger did: for a hit that took at least `share` of the body's health, `delay` seconds after
+ * it, held `seconds` plus `perShare` per share of health, and not again for `gap` seconds, or an SMG would restart it with
+ * every round. And a body carries itself hurt: bent over and lower from `hurtFrom` of its health down to `hurtFull`, limping
+ * on a leg by what its wounds have taken off it. Only for a body that feels (`ReactionProfile.pain`); the limp is for any.
+ */
+export const CLUTCH = { share: 0.06, delay: 0.2, seconds: 1.1, perShare: 2, most: 2.2, gap: 1.1, guard: 0.45, hurtFrom: 0.5, hurtFull: 0.25 };
+
 /** How hard each damage type works a limb pool, on top of the weapon's severMult. */
 const SEVER_FACTOR: Record<DamageType, number> = {
   bullet: 1, pellet: 1.2, explosive: 0.7, melee: 0.8, slash: 2.4, fire: 0, shock: 0, crush: 1, true: 0,
@@ -1482,6 +1491,7 @@ export class DamageModel {
     if (e.pinned) dropOff(e);
 
     if (profile) {
+      this.carryHurt(e, profile);
       this.respond(e, d, profile, region, amount, pushForce, bone, armoured, throws, flinch);
       return;
     }
@@ -1490,6 +1500,23 @@ export class DamageModel {
       e.poise = 0;
       this.stagger(e, d.type === 'explosive' ? 0.75 : 0.5);
     } else if (!armoured) this.cryOut(e);
+  }
+
+  /**
+   * How the body carries itself after this hit (R2): hurt by what is left of its health, limping by its weaker leg. A man
+   * with anatomy keeps his own (his wounds hunch him, hold his worst wound and beat his limp: wounds/index.ts).
+   */
+  private carryHurt(e: Enemy, profile: ReactionProfile): void {
+    const anim = e.char.anim;
+    if (!anim.setHurt || this.m.outpost?.wounds.bodyOf(e)) return;
+    if (!DevFlags.clutch) {
+      anim.setHurt(0, 0);
+      return;
+    }
+    const left = e.health / e.maxHealth;
+    const hurt = profile.pain > 0 ? clamp((CLUTCH.hurtFrom - left) / (CLUTCH.hurtFrom - CLUTCH.hurtFull)) * profile.pain : 0;
+    const s = this.strengthOf(e);
+    anim.setHurt(hurt, e.maim.legs < 2 ? 0 : s.legL < s.legR ? 1 - s.legL : s.legR < s.legL ? s.legR - 1 : 0);
   }
 
   private cryOut(e: Enemy): void {
@@ -1536,6 +1563,13 @@ export class DamageModel {
     const blast = d.type === 'explosive';
     if (r.level === 'flinch') {
       if (!armoured) this.cryOut(e);
+      // Hurt enough to notice, a hand goes to it a moment after the flinch, even though he fights on.
+      if (felt && !armoured && DevFlags.clutch && this.w.now >= e.clutchAt && amount >= e.maxHealth * CLUTCH.share) {
+        e.clutchAt = this.w.now + CLUTCH.gap;
+        const share = clamp(amount / e.maxHealth);
+        if (blast || region === 'head') anim.guard?.(CLUTCH.guard + share);
+        else anim.holdWound?.(bone, d.point, Math.min(CLUTCH.most, CLUTCH.seconds + share * CLUTCH.perShare), CLUTCH.delay);
+      }
       return;
     }
     if (felt && !floors) {

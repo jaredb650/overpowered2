@@ -109,6 +109,30 @@ export const HitShape = {
   stepGap: 0.6,
 };
 
+/**
+ * How a hurt body carries itself (the gore update's R2, `setHurt`): bent over and lower by how badly it is hurt, going back
+ * to its last wound with a free hand, and limping on a leg its wounds have weakened.
+ */
+export const HurtShape = {
+  /** At full hurt: radians the spine bends and the head hangs, and body heights the hips sink. */
+  bend: 0.36,
+  head: 0.16,
+  drop: 0.045,
+  /** Rate it eases in and out at, 1/s. */
+  rate: 2.5,
+  /** Hurt this much or more, a hand goes back to the last wound every `guardEvery` seconds (give or take 40%), for `guardFor`. */
+  guardFrom: 0.4,
+  guardEvery: 3.2,
+  guardFor: 1.5,
+  /**
+   * A limp at full weakness: body heights the hips dip while the weak leg carries the body, radians the trunk lurches over
+   * it, and, standing, body heights the hips rest toward the good leg.
+   */
+  limpDip: 0.04,
+  limpRoll: 0.14,
+  limpRest: 0.025,
+};
+
 /** How a body takes a hit that upsets its balance. */
 const REEL = {
   /** Seconds of quick steps at full strength. */
@@ -370,6 +394,15 @@ export class HumanoidAnimator implements CharacterAnimation {
   private clutchFor = 0;
   private clutchW = 0;
   private clutchHand: 1 | -1 = 1;
+  /** Seconds before a hold that was asked for with a delay begins: the flinch first, then the hand. */
+  private clutchIn = 0;
+  /** How hurt the body carries itself, 0..1, where that is heading, and the same for a limp, signed: + is the left leg. */
+  private hurt = 0;
+  private hurtW = 0;
+  private limp = 0;
+  private limpW = 0;
+  /** Seconds until a hurt body's hand next goes back to its wound. */
+  private guardWait = 0;
   /** A wound below the reach of a hand on a straight back, so the body has to bend to it. */
   private clutchLow = false;
   private readonly clutchAt = new THREE.Vector3();
@@ -651,8 +684,10 @@ export class HumanoidAnimator implements CharacterAnimation {
     this.buckle = Math.max(this.buckle, clamp(amount));
   }
 
-  holdWound(bone: number, worldPoint: THREE.Vector3, seconds: number): void {
+  holdWound(bone: number, worldPoint: THREE.Vector3, seconds: number, delay = 0): void {
     if (this.hidden(bone)) return;
+    // A hand already on a wound goes straight to the new one. Otherwise it waits out the flinch.
+    this.clutchIn = this.clutchFor > 0 ? 0 : delay;
     const b = this.bones[bone]!;
     b.updateWorldMatrix(true, false);
     this.clutchAt.copy(worldPoint);
@@ -672,6 +707,11 @@ export class HumanoidAnimator implements CharacterAnimation {
 
   guard(seconds: number): void {
     this.guardFor = Math.max(this.guardFor, seconds);
+  }
+
+  setHurt(hurt: number, limp: number): void {
+    this.hurt = clamp(hurt);
+    this.limp = clamp(limp, -1, 1);
   }
 
   daze(seconds: number): void {
@@ -776,7 +816,8 @@ export class HumanoidAnimator implements CharacterAnimation {
     this.reel = this.flail = this.flailW = this.buckle = this.buckleW = 0;
     this.guardFor = this.guardW = this.dazeFor = this.dazeW = 0;
     this.clutchBone = -1;
-    this.clutchFor = this.clutchW = 0;
+    this.clutchFor = this.clutchW = this.clutchIn = 0;
+    this.hurt = this.hurtW = this.limp = this.limpW = this.guardWait = 0;
     this.clipKind = null;
     this.snapLeft = 0;
     this.posture.reset();
@@ -931,8 +972,19 @@ export class HumanoidAnimator implements CharacterAnimation {
     this.guardW = damp(this.guardW, this.guardFor > 0 ? 1 : 0, GUARD_RATE, dt);
     this.dazeFor = Math.max(0, this.dazeFor - dt);
     this.dazeW = damp(this.dazeW, this.dazeFor > 0 ? 1 : 0, 4, dt);
-    this.clutchFor = Math.max(0, this.clutchFor - dt);
-    this.clutchW = damp(this.clutchW, this.clutchFor > 0 ? 1 : 0, CLUTCH_RATE, dt);
+    if (this.clutchIn > 0) this.clutchIn -= dt;
+    else this.clutchFor = Math.max(0, this.clutchFor - dt);
+    this.clutchW = damp(this.clutchW, this.clutchFor > 0 && this.clutchIn <= 0 ? 1 : 0, CLUTCH_RATE, dt);
+    this.hurtW = damp(this.hurtW, this.hurt, HurtShape.rate, dt);
+    this.limpW = damp(this.limpW, this.limp, HurtShape.rate, dt);
+    // Badly hurt, a hand keeps going back to the last wound.
+    if (this.hurtW >= HurtShape.guardFrom && this.clutchBone >= 0 && this.clutchFor <= 0) {
+      this.guardWait -= dt;
+      if (this.guardWait <= 0) {
+        this.clutchFor = HurtShape.guardFor;
+        this.guardWait = HurtShape.guardFor + HurtShape.guardEvery * (0.6 + 0.8 * Math.abs(noise1(this.time * 0.37 + this.seed)));
+      }
+    }
   }
 
   private cycleTime(): number {
@@ -1149,10 +1201,23 @@ export class HumanoidAnimator implements CharacterAnimation {
     y += lerp(-1, 1, run) * twoPhase * L * lerp(0.012, 0.02, run) * bounce * mv;
     y += this.landing.y * 0.05 * (L / 1.85);
     y -= this.buckleW * REEL.buckleDrop * L;
+    // Hurt, it stands lower. On a weak leg the hips dip while that leg carries the body, and the trunk lurches over it.
+    y -= this.hurtW * HurtShape.drop * L;
+    const limp = Math.abs(this.limpW);
+    let lurch = 0;
+    if (limp > 0.01 && this.plan === 'biped') {
+      const weak = this.feet[this.limpW > 0 ? 0 : 1]!;
+      const duty = lerp(0.62, 0.27, run);
+      const psi = (this.phase + weak.phaseOffset) % 1;
+      lurch = limp * (psi < duty ? Math.sin(Math.PI * (psi / duty)) : 0) * mv;
+      y -= lurch * HurtShape.limpDip * L;
+    }
 
     let swayX = 0, x = 0, z = 0;
     if (this.plan === 'biped') swayX = Math.sin(ph) * L * lerp(0.018, 0.008, run) * bounce * mv;
     x += swayX;
+    // Standing, the weight rests on the good leg.
+    if (limp > 0.01 && this.plan === 'biped') x -= Math.sign(this.limpW) * limp * HurtShape.limpRest * L * (1 - mv);
     z += this.leanFwd * L * 0.08;
     if (this.plan === 'hop') {
       const good = this.feet[0]!.limb ? 1 : -1;
@@ -1225,7 +1290,8 @@ export class HumanoidAnimator implements CharacterAnimation {
     const sway = Math.sin(this.time * 1.9 + this.seed);
     x += sway * dazed * 0.25 * L;
     const ht = this.hitTrunk;
-    qEuler(this.pelvisQ, pitchP, yawP + actYaw + ht.y * HitShape.hipsTurn, rollP + this.leanSide * 0.5 - this.buckleSide * this.buckleW * REEL.buckleRoll + sway * dazed * 0.5 + ht.z * HitShape.hipsTurn);
+    qEuler(this.pelvisQ, pitchP, yawP + actYaw + ht.y * HitShape.hipsTurn, rollP + this.leanSide * 0.5 - this.buckleSide * this.buckleW * REEL.buckleRoll + sway * dazed * 0.5 + ht.z * HitShape.hipsTurn
+      - Math.sign(this.limpW) * lurch * HurtShape.limpRoll);
     if (this.planBlend > 0.001) {
       // Prone: the spine lies along the direction of travel.
       qEuler(qA, 1.42, Math.sin(this.crawlPhase * TAU) * 0.16 * this.moveBlend, Math.sin(this.crawlPhase * TAU) * 0.1 * this.moveBlend);
@@ -1254,8 +1320,9 @@ export class HumanoidAnimator implements CharacterAnimation {
     let roll = this.leanSide * 0.6 + Math.cos(ph) * 0.03 * mv;
     let headPitch = this.posture.head;
     let headYaw = 0;
-    bend += this.posture.bend;
+    bend += this.posture.bend + this.hurtW * HurtShape.bend;
     roll += this.posture.roll;
+    headPitch += this.hurtW * HurtShape.head;
     if (this.dazeW > 0.01) {
       // Head down and rolling, with the body a beat behind it.
       bend += 0.22 * this.dazeW;

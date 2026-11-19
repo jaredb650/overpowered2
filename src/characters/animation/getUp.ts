@@ -161,8 +161,16 @@ declare module '../../core/contracts' {
      * the foot kept planted. Call it each frame it should hold; it eases in, and once no longer called it fades as a buckle does.
      */
     buckleLeg?(side: number, amount: number): void;
-    /** A hand goes to a wound and stays until `seconds` run out. This is the hold that section 14.6 of the design asks for. */
-    holdWound?(bone: number, worldPoint: THREE.Vector3, seconds: number): void;
+    /**
+     * A hand goes to a wound and stays until `seconds` run out. This is the hold that section 14.6 of the design asks for.
+     * With `delay`, it starts that many seconds on (a flinch first, then the hand), unless a hand is already on a wound.
+     */
+    holdWound?(bone: number, worldPoint: THREE.Vector3, seconds: number, delay?: number): void;
+    /**
+     * How the body carries itself from now on: `hurt` 0..1 bends it over and lowers it, and it keeps going back to its last
+     * wound with a hand; `limp` is a weak leg, -1..1 with + the left, which the hips dip on at each step. Both ease in.
+     */
+    setHurt?(hurt: number, limp: number): void;
     /** Hands come up in front of the face. */
     guard?(seconds: number): void;
     /** Swaying and stupid: a hand to the head and no real balance, while the caller keeps it from acting. */

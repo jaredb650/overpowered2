@@ -8,6 +8,7 @@
 // model (`ctx.enemies.applyDamage`), along the line from the player's eye to the struck bone. Options: `x3` three rounds at
 // the weapon's own interval (`x0` holds fire to the end of the sheet), `p2` only two pellets of a shell land, `ai` leaves the
 // enemy's AI on, `walk` has it patrol across the line of fire, `hp3` gives it three times its health (so held fire is seen),
+// `hl30` leaves it 30% of its health before the hit, `wk80` spends 80% of its left leg's pool first (`wr80` the right),
 // `back` shoots it from behind, `side` from its left, `oL` / `oR` land a trunk hit toward its left or right shoulder.
 // HIT_SET=<name> runs a named list (SETS below) in place of HIT. HIT_LABEL=<text> goes into each file name (before/after).
 // HIT_STILLS=4,10 also saves the whole screen at those frames. HIT_CROWD=<n> is the crowd case: n enemies with their AI on,
@@ -29,6 +30,9 @@ const SETS = {
   bodies: ['trooper', 'gunner', 'brute', 'husk'].flatMap(e => ['chest', 'armL', 'legR'].map(r => `smg:${e}:${r}:12`)),
   weapons: ['rivet', 'smg', 'harrow', 'judge', 'shotgun:p2', 'shotgun'].map(w => { const [id, o] = w.split(':'); return `${id}:brute:chest:12${o ? `:${o}` : ''}`; }),
   held: ['smg:trooper:chest:12:x0:hp3', 'smg:brute:chest:12:x0', 'smg:husk:chest:12:x0:hp3', 'smg:trooper:armR:12:x0:hp3', 'smg:trooper:legL:12:x0:hp3'],
+  // R2: the hand to the wound on a plain flinch (run with HIT_FRAMES=0,4,10,16,22,30,40,55,70,90,110,130,150,180), a body at a
+  // third of its health, and a limp.
+  hurt: ['rivet:trooper:chest:12:oL', 'rivet:trooper:abdomen:8', 'rivet:brute:armL:8', 'rivet:gunner:legL:8', 'rivet:husk:chest:8:oL', 'rivet:trooper:chest:8:hl70', 'rivet:brute:chest:8:hl45', 'rivet:trooper:legL:8:wk80:walk', 'rivet:trooper:legL:8:wk80'],
   short: ['smg:trooper:chest:12:oL', 'smg:trooper:armL:12', 'smg:trooper:legR:12', 'smg:brute:chest:12', 'rivet:trooper:chest:25', 'shotgun:trooper:chest:5:p2'],
 };
 
@@ -107,6 +111,11 @@ export default async function hitSeq(page, h) {
         // Facing the player, as an enemy that is shooting at him does; `back` and `side` turn it.
         e.yaw = Math.atan2(ctx.player.position.x - at.x, ctx.player.position.z - at.z) + (c.back ? Math.PI : c.side ? -Math.PI / 2 : 0);
         if (c.hp > 1) e.health = e.maxHealth = e.maxHealth * c.hp;
+        if (c.hl) e.health = e.maxHealth * c.hl / 100;
+        for (const [region, spent] of [['legL', c.wk], ['legR', c.wr]]) {
+          if (!spent) continue;
+          for (const part of [region, region.replace('leg', 'shin')]) e.limbHp.set(part, e.maxHealth * e.def.limbFrac * (part.startsWith('leg') ? 1.2 : 0.9) * (1 - spent / 100));
+        }
         r.target = e;
         e.stagger = 0;
         r.look(new V(0, 1, at.z));
@@ -210,6 +219,7 @@ export default async function hitSeq(page, h) {
       if (/^x\d+$/.test(o)) rounds = Number(o.slice(1));
       else if (/^p\d+$/.test(o)) c.pellets = Number(o.slice(1));
       else if (/^hp\d+$/.test(o)) c.hp = Number(o.slice(2));
+      else if (/^(hl|wk|wr)\d+$/.test(o)) c[o.slice(0, 2)] = Number(o.slice(2));
       else c[o] = true;
     }
     await page.evaluate(c => window.__r.start(c), c);

@@ -79,6 +79,8 @@ export class Enemy implements EnemyInstance {
   barkAt = 0;
   /** Next time being hurt may make it cry out. */
   painAt = 0;
+  /** World time a plain flinch may next send a hand to the wound (`DamageModel.respond`): under an SMG every round would. */
+  clutchAt = 0;
 
   // Movement intent, written by behaviours.
   mode: MoveMode = 'flow';
@@ -267,7 +269,7 @@ export class Enemy implements EnemyInstance {
     this.hasLos = this.inView = false;
     this.losAt = this.aimedAt = this.pressure = 0;
     this.lastDodgeAt = -99;
-    this.thinkAt = this.barkAt = this.painAt = 0;
+    this.thinkAt = this.barkAt = this.painAt = this.clutchAt = 0;
     this.mode = 'flow';
     this.face = 'move';
     this.pace = 1;

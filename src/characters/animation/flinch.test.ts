@@ -252,3 +252,78 @@ describe('a hit on a body that stays on its feet', () => {
     expect(Math.max(...t.map(p => p.arm))).toBeLessThan(0.12);
   });
 });
+
+describe('a hand to the wound, and a hurt posture', () => {
+  const dist = (b: Body, bone: number, to: THREE.Vector3) => worldP(b, bone).distanceTo(to);
+
+  it('lets the flinch go first when asked to wait, then puts a hand on the wound', () => {
+    const b = body('husk');
+    const wound = worldP(b, H.spine).add(new THREE.Vector3(0.05, 0.05, 0.12));
+    const before = Math.min(dist(b, H.handL, wound), dist(b, H.handR, wound));
+    b.anim.holdWound(H.spine, wound, 1.5, 0.2);
+    b.step(10);
+    // A sixth of a second in, neither hand has started for it.
+    expect(Math.min(dist(b, H.handL, wound), dist(b, H.handR, wound))).toBeGreaterThan(before - 0.05);
+    b.step(40);
+    expect(Math.min(dist(b, H.handL, wound), dist(b, H.handR, wound))).toBeLessThan(0.2);
+    // And lets go when its time is up.
+    b.step(120);
+    expect(Math.min(dist(b, H.handL, wound), dist(b, H.handR, wound))).toBeGreaterThan(before - 0.08);
+  });
+
+  it('stands lower and bent over when hurt, eased in, and goes back to its wound', () => {
+    const b = body('trooper');
+    const rest = { head: worldP(b, H.head), chest: axisOf(b, H.chest, new THREE.Vector3(0, 1, 0)) };
+    const wound = worldP(b, H.chest).add(new THREE.Vector3(0.08, 0.1, 0.12));
+    b.anim.holdWound(H.chest, wound, 0.3);
+    b.anim.setHurt(1, 0);
+    b.step(1);
+    // Nothing on the first frame.
+    expect(rest.head.y - worldP(b, H.head).y).toBeLessThan(0.01);
+    b.step(150);
+    expect(rest.head.y - worldP(b, H.head).y).toBeGreaterThan(0.06);
+    expect(axisOf(b, H.chest, new THREE.Vector3(0, 1, 0)).z - rest.chest.z).toBeGreaterThan(0.15);
+    // Over the next ten seconds a hand is on the wound for some of the time, and off it for some.
+    const at = worldP(b, H.chest).add(new THREE.Vector3(0.08, 0.1, 0.12));
+    let on = 0;
+    for (let i = 0; i < 600; i++) {
+      b.step(1);
+      if (Math.min(dist(b, H.handL, at), dist(b, H.handR, at)) < 0.22) on++;
+    }
+    expect(on).toBeGreaterThan(60);
+    expect(on).toBeLessThan(540);
+    b.anim.setHurt(0, 0);
+    b.step(200);
+    expect(rest.head.y - worldP(b, H.head).y).toBeLessThan(0.015);
+  });
+
+  it('dips on a weak leg at each step, leaning over it', () => {
+    const walk = (limp: number) => {
+      const b = body('trooper');
+      b.anim.setHurt(0, limp);
+      let low = Infinity, lean = 0, high = -Infinity;
+      for (let i = 0; i < 600; i++) {
+        b.root.position.z += 1.6 * DT;
+        b.anim.setLocomotion({ speed: 1.6, moveX: 0, moveZ: 1, aimYaw: 0, aimPitch: 0, grounded: true });
+        b.anim.update(DT, 0);
+        if (i < 240) continue;
+        b.root.updateMatrixWorld(true);
+        const hips = worldP(b, H.hips);
+        high = Math.max(high, hips.y);
+        if (hips.y < low) {
+          low = hips.y;
+          // Which way the trunk leans at the bottom of the dip: the chest against the hips, to the body's left (+X).
+          lean = worldP(b, H.chest).x - hips.x;
+        }
+      }
+      return { low, lean, high };
+    };
+    const even = walk(0), left = walk(1), right = walk(-1);
+    // 4% of its height at the bottom of the weak leg's step, and the good leg's step as high as it was.
+    expect(even.low - left.low).toBeGreaterThan(0.03);
+    expect(even.low - right.low).toBeGreaterThan(0.03);
+    expect(Math.abs(left.high - even.high)).toBeLessThan(0.01);
+    expect(left.lean).toBeGreaterThan(0.005);
+    expect(right.lean).toBeLessThan(-0.005);
+  });
+});

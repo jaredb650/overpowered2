@@ -153,6 +153,24 @@ Trooper's chest turns 10.4 to 30 degrees, peak at frame 4 where it was frame 6, 
 its struck upper arm 1.5 to 36 degrees and that hand 45; a leg hit moves its head 0.2 to 9 pixels sideways on a 1440-wide
 screen; a Brute's chest 2.8 to 19 degrees, its struck arm to 36; a Husk's chest 14.8 to 45. Past rest the other way: none.
 
+**A hand to the wound, and a hurt posture (gore update R2; `?clutch=0` or the dev panel's "Hits: hand to the wound").** The
+hold and the guard only ran for a stagger or more: `respond` returned on a plain flinch before it reached them. Now a plain
+flinch sends them too (`CLUTCH` in `damage.ts`), on a body that feels (`ReactionProfile.pain` over 0, so not a Husk, Leaper or
+Bomber), for a round that took at least 0.06 of its health and was not stopped by a plate: 0.2 s after the hit (the flinch
+first, then the hand: `holdWound`'s new `delay`), held 1.1 s plus 2 s per share of health it took, at most 2.2 s; arms up
+(`guard`) for a blast or a head hit it stands through. Not again for 1.1 s (`Enemy.clutchAt`), or an SMG would restart it with
+every round; a stagger still holds the wound by its own rule. The hand is the free one: never the struck arm's, and with a
+gun in the right hand the left leaves the foregrip.
+
+A body without the campaign's wounds also carries itself hurt (`DamageModel.carryHurt` after every hit, `setHurt(hurt, limp)`
+on the animator, `HurtShape`): from half its health down to a quarter it bends over (0.36 rad at full), hangs its head and
+stands 0.045 of its height lower, eased in at 2.5/s, and from 0.4 hurt a hand goes back to its last wound for 1.5 s every 2
+to 4.5 s. A leg limps by what its wounds have taken off it (`strengthOf`: nothing until 0.45 of a pool is gone): the hips dip
+0.04 of the body's height while the weak leg carries it and the trunk lurches 0.14 rad over it; standing, the weight rests on
+the good leg. The limp is for any body with legs, a Husk included; the hurt posture only for one that feels. A man with
+anatomy (the Campaign, Endless Humans) keeps his own: his wounds already hunch him, hold his worst wound and beat his limp
+(`wounds/index.ts`), so `carryHurt` leaves him alone and only the flinch's hand is new for him.
+
 A shot leg at 2.2 m/s or more trips a body by `profile.trip`: it keeps its speed and falls forward. So does a leg more than 45% gone, at a stand.
 
 **A head hit that does not kill puts it on the floor** if it came from a real gun: a shotgun pellet, a heavy round (60 raw damage or more, the Judge), or anything that pushes with `HEAD_KNOCK_FORCE` (15 N·s) or more, which takes in the SMG (20). That is the owner's rule; raise `HEAD_KNOCK_FORCE` past 20 to leave the SMG out again. One SMG round to a Trooper's head is 50 of its 59.5 head pool, so the first floors it and the second kills. A pellet or a heavy round knocks it cold (`KnockdownOptions.knockout`, strength 0.7): the head snaps back on its neck, the neck and arms go slack, it lies half as long again and gets up dazed for its whole `daze`. Anything else tips it over at 1.7 m/s (strength 0.5). It goes down with no flinch and no guard on the animator first, since the ragdoll would start with their speed (an SMG round's flinch had the head spinning 15.5 rad/s against its parent; now about 1). A head hit goes down through the cooldown and a get-up only when gore takes the body: with no room (twelve down, or `?muscles=0`) it staggers, or inside the cooldown or a get-up flinches, so an SMG cannot hold a body in a stagger round after round. The Kiln (1) staggers as before, and so did the Buzzsaw at 6 N·s; reworked into the Trommel it pushes with 34 and floors a body like any real gun, by that number alone (`docs/notes/weapons.md`, "Key 8"; the comment in `reactions.ts` still names the Buzzsaw), a body with no legs only flinches, and bosses and machines keep `poise`. In the Campaign a clean head hit always kills, so this only meets glances and helmets there. `?knock=0` puts back the old rule: only a pellet or a heavy round floors a body, and nothing knocks it cold.
