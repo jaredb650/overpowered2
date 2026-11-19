@@ -1,5 +1,13 @@
 /* --- Co-op: the team's slow-motion notice (net/world/slowNotice.ts). Under the teammates strip, top centre. --- */
-.ct { position: absolute; top: 4.9rem; left: 50%; transform: translateX(-50%); min-width: 22rem; padding: 0.45rem 0.9rem 0.5rem;
+/* Top centre is shared, top to bottom: the teammates strip, the break's ready-vote chip (in a break), this notice (while the
+   world is slow), then the wave banner. Each makes room for the one above it, so none is ever drawn over another:
+   the notice drops under the chip, and the banner under the notice, a line lower for each player slowing the world. */
+.hud { --ct-top: 4.9rem; }
+.hud:has(.cq-rest.up) { --ct-top: 7.3rem; }
+.hud:has(.ct.up) .banners { top: calc(var(--ct-top) + 5.5rem); }
+.hud:has(.ct.up .ct-row + .ct-row) .banners { top: calc(var(--ct-top) + 8.3rem); }
+.hud:has(.ct.up .ct-row + .ct-row + .ct-row) .banners { top: calc(var(--ct-top) + 11.1rem); }
+.ct { position: absolute; top: var(--ct-top); left: 50%; transform: translateX(-50%); min-width: 22rem; padding: 0.45rem 0.9rem 0.5rem;
   background: rgba(7, 10, 14, 0.78); border-top: 0.125rem solid var(--amber); pointer-events: none; text-align: center;
   animation: ct-in 0.22s cubic-bezier(0.2, 0.9, 0.25, 1); }
 .ct-row { margin-bottom: 0.3rem; }

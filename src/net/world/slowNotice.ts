@@ -65,12 +65,12 @@ export class SlowNotice {
     if (entries.length > 0) {
       this.doneAt = 0;
       this.say(`WORLD AT ${scale.toFixed(2)}x · YOU AT FULL SPEED`, false);
-      if (!this.shown) { this.shown = true; this.el.style.display = ''; }
+      if (!this.shown) { this.shown = true; this.el.style.display = ''; this.el.classList.add('up'); }
       return;
     }
     // The last one ended: say so, briefly, so the end is as plain as the start.
     if (!this.doneAt) { this.doneAt = now + DONE_MS; this.say('WORLD BACK TO FULL SPEED', true); }
-    else if (now >= this.doneAt) { this.shown = false; this.doneAt = 0; this.el.style.display = 'none'; }
+    else if (now >= this.doneAt) { this.shown = false; this.doneAt = 0; this.el.style.display = 'none'; this.el.classList.remove('up'); }
   }
 
   private text(entry: SlowEntry): string { return `${entry.kind}|${entry.slot}|${entry.label}|${this.names.name(entry.slot)}`; }

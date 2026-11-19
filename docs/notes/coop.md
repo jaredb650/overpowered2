@@ -2168,7 +2168,11 @@ in over the cause's own time (0.05 to 0.18 s) and back over **0.5 s** (0.6 s aft
 or lost message never makes a step. In co-op the blends run on true wall time (`GameTime.tick`, `blend`), so a screen with long
 frames is back at full speed when the others are; single player blends on its clamped step, as before.
 
-**The notice** (`world/slowNotice.ts`): top centre under the teammates strip. One line per cause in the causer's colour:
+**The notice** (`world/slowNotice.ts`): top centre under the teammates strip. Top centre is shared, top to bottom: the
+teammates strip, the break's ready-vote chip, this notice, the wave banner. Each makes room for the one above
+(`ui/css/cooptime.css`): the notice drops under the chip in a break, and the wave banner comes in under the notice, a line
+lower for each player slowing the world, so none is drawn over another (before, the notice sat on "WAVE 7" by 28 px at
+1440x900; look-check `tools/scripts/coop-fixgame-notice.mjs`, 37 box checks on both screens). One line per cause in the causer's colour:
 "KESTREL used Focus", "KESTREL earned SLOWMO", "KESTREL took Time Warp", "KESTREL killed the JUGGERNAUT" ("The TITAN is dead"
 when no player did it); your own carries "(you)". Under them "WORLD AT 0.35x · YOU AT FULL SPEED", and a bar per line that
 drains to its end. When the last one ends it reads "WORLD BACK TO FULL SPEED" for 1.1 s, then goes. A teammate's slow-mo also

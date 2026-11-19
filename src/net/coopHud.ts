@@ -198,6 +198,8 @@ export class CoopHud {
       fill.style.background = r.color;
     });
     this.rest.style.display = between ? '' : 'none';
+    // For the layout: what else is top centre makes room for the chip while it is up (ui/css/cooptime.css).
+    this.rest.classList.toggle('up', between);
     if (between && rest) {
       const mine = rows.find(r => r.me)?.card.slot ?? -1;
       const key = this.ctx.input.labelFor?.('nextWave') ?? 'L';
