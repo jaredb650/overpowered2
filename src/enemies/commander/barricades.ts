@@ -104,7 +104,7 @@ export class Barricades {
   /** Seals up to `count` of the doors the player uses most. Returns how many came down. */
   drop(count: number): number {
     const { c } = this;
-    const { o, tracker, w } = c;
+    const { o, books: tracker, w } = c;
     let sealed = 0;
     const all = c.doorList;
     for (const i of tracker.hotDoors(6)) {

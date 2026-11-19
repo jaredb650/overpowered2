@@ -24,6 +24,7 @@ import { Chatter } from './world/chatter';
 import { Claims, type StatusKind } from './world/claims';
 import { Clock } from './world/clock';
 import { Credit } from './world/credit';
+import { Crowd } from './world/crowd';
 import type { SlowKind } from './world/slow';
 import { WorldContext, type WorldModule } from './world/context';
 import { EnemyFire } from './world/enemyFire';
@@ -74,6 +75,7 @@ export class CoopWorld {
   private readonly garrison: Allies;
   private readonly fort: Fort;
   private readonly villainProps: VillainProps;
+  private readonly crowd: Crowd;
   private readonly time: Clock;
   private readonly calls: Callins;
   private readonly hook: Skyhook;
@@ -128,9 +130,11 @@ export class CoopWorld {
     this.villain = new Villain(w);
     this.booms = new Booms(w, this.targeting);
     this.guns = new Guns(w);
-    this.garrison = new Allies(w, this.enemies);
+    this.garrison = new Allies(w, this.enemies, this.targeting);
     this.fort = new Fort(w, this.targeting);
     this.villainProps = new VillainProps(w, this.targeting);
+    // Every player, for the host's soldiers and their Commander; what a guest tells the host of itself.
+    this.crowd = new Crowd(w, this.targeting, () => this.claims.applying);
     this.pods = new Pods(w);
     this.props = new Props(w, this.credit, this.targeting);
     // A guest says so as its world comes up, and again once a second until the host has settled its seat (team.ts): the
@@ -138,7 +142,7 @@ export class CoopWorld {
     w.router.host('worldsync', (_, from) => this.team.asked(from));
     // Moves and identities ride the reliable lane beside the enemies' unreliable states (replicas.ts).
     const moves = new Moves(w, this.enemies), identity = new Identity(w, this.enemies);
-    this.modules = [this.late, this.capture, this.vehicles, this.garrison, this.fort, this.villainProps, this.targeting, this.claims, this.credit, this.hits, this.shots, this.props, this.attacks, this.warnings, this.calls, this.hook, w.later, this.time, moves, identity, this.enemies];
+    this.modules = [this.late, this.capture, this.vehicles, this.garrison, this.fort, this.villainProps, this.crowd, this.targeting, this.claims, this.credit, this.hits, this.shots, this.props, this.attacks, this.warnings, this.calls, this.hook, w.later, this.time, moves, identity, this.enemies];
     this.parts = [...this.modules, this.booms, this.pods];
     // Guest: the host's `sync` means it has this player in the world: everything said once is said again (context.ts `resay`).
     this.team.onSynced = () => {
@@ -189,6 +193,8 @@ export class CoopWorld {
   get replicas(): Replicas['map'] { return this.enemies.map; }
   get receivedSeq(): number | null { return this.enemies.receivedSeq; }
   get allyBodies(): Allies['bodies'] { return this.garrison.bodies; }
+  /** A guest's orders to the garrison: asked, carried out by the host, stims handed back (world/allies.ts), for the proofs. */
+  get allyOrders(): Allies['counts'] { return this.garrison.counts; }
 
   /** The call-ins' wire (world/callins.ts): its cost meter, for the proofs. */
   get callins(): Callins { return this.calls; }
@@ -325,6 +331,10 @@ export class CoopWorld {
   get me(): PlayerSystem { return this.ctx.player; }
   /** Host: every player in the world, the host's first, for dangers that must test them all. Null on a guest. */
   hostPlayers(): readonly PlayerSystem[] | null { return this.targeting.hostPlayers(); }
+  /** What a guest has told the host of itself, and the host taken, by kind (world/crowd.ts): for the proofs. */
+  get notes(): Crowd['counts'] { return this.crowd.counts; }
+  /** Host: is this player hidden by their Ghost power-up (targeting.ts)? */
+  ghosted(player: PlayerSystem): boolean { return this.targeting.ghosted(player); }
   /** Host: true if this guest's own screen had them clear of a melee swing from `from` (targeting.ts). */
   dodged(player: PlayerSystem, from: THREE.Vector3, reach: number): boolean { return this.targeting.dodged(player, from, reach); }
   /** Host: melee hits spared by that rule, for the proofs. */

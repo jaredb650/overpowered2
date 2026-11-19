@@ -55,7 +55,11 @@ export class RadioOrders {
       return;
     }
     this.nextAt = now + rand(EVERY[0], EVERY[1]);
-    for (const drill of this.wanted(q, now)) {
+    // Co-op: what he wants of a squad goes by what the player it is fighting is doing (camping, running).
+    this.c.focus(o.quarryOf(q));
+    const wanted = this.wanted(q, now);
+    this.c.focus(null);
+    for (const drill of wanted) {
       if (!q.obey(drill, STANDS_FOR)) continue;
       this.give(q, drill, now);
       return;

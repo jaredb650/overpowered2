@@ -177,6 +177,13 @@ export class Targeting implements WorldModule {
     return this.everyone;
   }
 
+  /** Host: is this player (as `hostPlayers` hands them out) hidden by the Ghost power-up? A guest's is their own word. */
+  ghosted(player: PlayerSystem): boolean {
+    if (player === this.w.ctx.player) return this.w.ctx.progression.isActive?.('ghost') ?? false;
+    for (const [id, adapter] of this.adapters) if (adapter.player === player) return this.ghosts.has(id);
+    return false;
+  }
+
   /** Host: the slot of the player this enemy is after (the host's own if it has picked none). */
   slotFor(uid: number): number {
     const { lobby } = this.w.session;
@@ -241,6 +248,8 @@ export class Targeting implements WorldModule {
   hurt(id: string, damage: PlayerDamage): void {
     const life = this.w.life(id);
     if (life.down || damage.amount <= 0) return;
+    // What the enemy side notes of it (world/crowd.ts): whom it caught, and with what.
+    this.w.ctx.events.emit('coop:hurt', { id, amount: damage.amount, source: damage.source });
     this.w.send({ t: 'hurt', amount: damage.amount, from: (damage.from ?? this.w.ctx.player.position).toArray() as Vec,
       type: damage.type, source: damage.source, life: life.life }, id);
   }

@@ -157,6 +157,14 @@ E is shared. A prisoner in reach and in view keeps it. With `keyTaken` saying ye
 the squad's. A mounted gun yields to an ally the player is looking at
 (`Emplacements.update` reads `ctx.allies.focusDistance`); otherwise a gun in reach takes the press.
 
+### Co-op: a friend's orders
+
+On a co-op host the same orders can come from a guest (`src/net/world/allies.ts`, `docs/notes/coop.md`, "The enemy side and every
+player"): `toggle(a, by)`, `toggleSquad(by)` and `reviveBy(a)` are the host's own code with `by` the friend who asked. A man told
+to follow by a friend follows that friend (`Ally.leader`; `leaderOf` falls back to the host's player while the friend is down or
+gone), and the host's own screen shows no float text, feed line or click for an order it did not give. `reviveBy` spends
+nothing on the host: the friend's own game took the stim. Alone `leader` is always null and nothing differs.
+
 ## Measured
 
 Real Chrome, 1440x900 at dpr 2, Test Range, `contract=outpost`, on the shared machine (load average 4 to 15).

@@ -12,6 +12,8 @@ import * as THREE from 'three';
 import { SONAR } from '../../contracts/data';
 import type { EnemyInstance } from '../../core/gameplay';
 import { rand, TAU } from '../../core/math';
+import type { JamState } from '../outpost/crowd';
+import { ROLE_OF } from '../outpost/doctrine';
 import { soldierOf } from '../outpost/soldier';
 import type { Commander } from './index';
 import { unitOf } from './units';
@@ -47,6 +49,18 @@ export class SonarJam {
   private refreshAt = 0;
   private shuffleAt = 0;
   jammed = false;
+  /** Co-op host: what the guests were last told, and when it is said again for one who has just arrived. */
+  private sharedKey = '';
+  private shareAt = 0;
+  /**
+   * Co-op guest: what the host says its sonar may show (`JamState`). The villain's men are the host's, so a guest is told
+   * who is working a jammer, who is under foil and who is playing dead, and lies to its own sonar and minimap from where its
+   * own player stands, exactly as the host's does.
+   */
+  private told = false;
+  private readonly ops = new Set<number>();
+  private readonly cold = new Set<number>();
+  private readonly floor = new Set<number>();
 
   constructor(private readonly c: Commander) {}
 
@@ -72,6 +86,82 @@ export class SonarJam {
     this.hidden.clear();
     this.jammed = false;
     this.refreshAt = this.shuffleAt = 0;
+    this.sharedKey = '';
+    this.shareAt = 0;
+    this.told = false;
+    this.ops.clear();
+    this.cold.clear();
+    this.floor.clear();
+  }
+
+  /** Co-op guest: the host's word on what the sonar may say. */
+  tell(state: JamState): void {
+    this.told = true;
+    this.jammed = state.on;
+    const fill = (set: Set<number>, list: readonly number[]): void => {
+      set.clear();
+      for (const uid of list) set.add(uid);
+    };
+    fill(this.ops, state.ops);
+    fill(this.cold, state.cold);
+    fill(this.floor, state.floor);
+    this.refreshAt = 0;
+  }
+
+  /** Co-op guest: every frame, what `update` does on the host, from what the host has said and this player's own place. */
+  updateGuest(): void {
+    if (!this.told) return;
+    const { w, devices } = this.c;
+    const now = w.now;
+    const alive = w.ctx.enemies.alive;
+    if (now >= this.refreshAt) {
+      this.refreshAt = now + REFRESH;
+      this.hidden.clear();
+      const p = w.player.position;
+      for (let i = 0; i < alive.length; i++) {
+        const e = alive[i]!;
+        const d = e.position.distanceTo(p);
+        const cold = this.cold.has(e.uid) && d > HIDER_CLEAR;
+        // Only his men are scrambled, as on the host: a soldier's kind is one with a role.
+        const scrambled = this.jammed && d > JAM_CLEAR && !this.ops.has(e.uid) && ROLE_OF[e.id] !== undefined;
+        if (cold || scrambled) this.hidden.add(e.char.mesh);
+      }
+      if (this.jammed && now >= this.shuffleAt) {
+        this.shuffleAt = now + rand(0.6, 1.2);
+        for (const b of this.noise) {
+          const a = rand(0, TAU);
+          const r = rand(STATIC_RANGE[0], STATIC_RANGE[1]);
+          b.position.set(p.x + Math.sin(a) * r, p.y, p.z + Math.cos(a) * r);
+        }
+      }
+    }
+    const live = w.ctx.contracts?.sonar.live ?? 0;
+    if (live <= 0) return;
+    const fade = Math.min(1, live / SONAR.fade);
+    const ghosts = this.ghosts;
+    ghosts.length = 0;
+    for (const d of devices.live) if (d.ghost) ghosts.push(d.ghost);
+    if (ghosts.length > 0) w.ctx.render.highlight(ghosts, SONAR.enemyColor, fade * (0.55 + 0.45 * Math.abs(Math.sin(now * 7.3))));
+    const ops = this.operators;
+    ops.length = 0;
+    for (let i = 0; i < alive.length; i++) if (this.ops.has(alive[i]!.uid)) ops.push(alive[i]!.char.mesh);
+    if (ops.length > 0) w.ctx.render.highlight(ops, JAMMER_COLOR, fade);
+  }
+
+  /** Co-op host: tells the guests when who is jamming, hiding or lying still has changed, and every two seconds besides. */
+  private share(now: number, jam: boolean): void {
+    const state: JamState = { on: jam, ops: [], cold: [], floor: [] };
+    for (const u of this.c.units.list) {
+      const uid = u.s.e.uid;
+      if ((u.kind === 'jammer' || u.kind === 'radio') && u.s.fighting) state.ops.push(uid);
+      else if (u.kind === 'hider' && u.step > 0) state.cold.push(uid);
+      else if (u.kind === 'possum' || u.kind === 'casualty') state.floor.push(uid);
+    }
+    const key = `${jam ? 1 : 0}|${state.ops.join()}|${state.cold.join()}|${state.floor.join()}`;
+    if (key === this.sharedKey && now < this.shareAt) return;
+    this.sharedKey = key;
+    this.shareAt = now + 2;
+    this.c.tellJam(state);
   }
 
   /** Every frame: the picture on the sonar is drawn a frame at a time. */
@@ -119,6 +209,7 @@ export class SonarJam {
         b.position.set(p.x + Math.sin(a) * r, p.y, p.z + Math.cos(a) * r);
       }
     }
+    if (o.crowd) this.share(now, jam);
   }
 
   /**
@@ -131,7 +222,15 @@ export class SonarJam {
     out.length = 0;
     const p = w.player.position;
     const pinged = w.ctx.contracts.sonar.live > 0;
-    for (const e of real) {
+    if (this.told) {
+      // Co-op guest: the same rules, from what the host has said of its men.
+      for (const e of real) {
+        if (this.hidden.has(e.char.mesh) && !this.ops.has(e.uid)) continue;
+        if (this.floor.has(e.uid) && !pinged) continue;
+        if (this.cold.has(e.uid) && e.position.distanceTo(p) > HIDER_CLEAR) continue;
+        out.push(e);
+      }
+    } else for (const e of real) {
       if (this.hidden.has(e.char.mesh) && !this.isOperator(e)) continue;
       const s = soldierOf(e);
       const u = s && unitOf(s);

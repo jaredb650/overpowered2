@@ -133,6 +133,9 @@ export class Mortars {
     const now = w.now;
     this.tickShells(now);
     this.tickSmoke(now);
+    // Co-op: the man the spotter can see is the man who gets painted and shelled, whichever player that is.
+    const shared = this.c.o.crowd !== null && (this.stage === 'idle' || this.stage === 'lasing');
+    if (shared) this.c.focus((this.stage === 'lasing' ? this.spotted : this.c.units.first('spotter'))?.s.e.quarry ?? null);
     switch (this.stage) {
       case 'idle': this.watch(); break;
       case 'lasing': this.lase(now, dt); break;
@@ -149,6 +152,7 @@ export class Mortars {
         if (this.clock <= 0) this.stage = 'idle';
         break;
     }
+    if (shared) this.c.focus(null);
   }
 
   private watch(): void {

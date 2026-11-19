@@ -15,7 +15,7 @@
  * them through `Soldier.foe` (src/enemies/outpost/weapons.ts).
  */
 import * as THREE from 'three';
-import { CG, type CharacterInstance, type Ctx, type DamageInfo, type DamageType, type GameSystem, type Structure } from '../core/contracts';
+import { CG, type CharacterInstance, type Ctx, type DamageInfo, type DamageType, type GameSystem, type PlayerSystem, type Structure } from '../core/contracts';
 import type { EnemyInstance } from '../core/gameplay';
 import type { GoreRegion } from '../characters/rig';
 import { clamp, damp, dampAngle, rand, randInt, TAU } from '../core/math';
@@ -329,26 +329,34 @@ export class AllySystem implements GameSystem {
     return out;
   }
 
-  setOrder(a: Ally, order: Order): void {
+  /** `by` (co-op host): the friend who gave the order, whom he then follows; the host's own screen says nothing of it. */
+  setOrder(a: Ally, order: Order, by: PlayerSystem | null = null): void {
     if (a.state !== 'up' || a.order === order) return;
     a.order = order;
+    a.leader = order === 'follow' ? by : null;
     a.thinkAt = 0;
     a.patrolAt = 0;
-    this.ctx.hud.floatText(_a.copy(a.body.center).setY(a.body.center.y + 1.1), order === 'follow' ? 'ON ME' : 'HOLDING POST', ALLY_TEXT);
+    if (!by) this.ctx.hud.floatText(_a.copy(a.body.center).setY(a.body.center.y + 1.1), order === 'follow' ? 'ON ME' : 'HOLDING POST', ALLY_TEXT);
     this.ctx.events.emit('ally:order', { ally: a, order });
   }
 
-  toggle(a: Ally): void {
-    this.setOrder(a, a.order === 'follow' ? 'post' : 'follow');
-    this.ctx.audio.play('ui_confirm', { volume: 0.6 });
+  /** The player he follows: the local one, or in co-op the friend who told him to, while that friend is on their feet. */
+  private leaderOf(a: Ally): PlayerSystem {
+    return a.leader?.alive ? a.leader : this.ctx.player;
+  }
+
+  toggle(a: Ally, by: PlayerSystem | null = null): void {
+    this.setOrder(a, a.order === 'follow' ? 'post' : 'follow', by);
+    if (!by) this.ctx.audio.play('ui_confirm', { volume: 0.6 });
   }
 
   /** Anyone of the player's own still on his post: they all follow. All already following: back to posts. Detached men are left to their fight. */
-  toggleSquad(): void {
+  toggleSquad(by: PlayerSystem | null = null): void {
     let posted = false;
     for (const a of this.allies) if (!a.detached && a.state === 'up' && a.order === 'post') posted = true;
     const order: Order = posted ? 'follow' : 'post';
-    for (const a of this.allies) if (!a.detached) this.setOrder(a, order);
+    for (const a of this.allies) if (!a.detached) this.setOrder(a, order, by);
+    if (by) return;
     this.ctx.hud.feed(order === 'follow' ? 'SQUAD: ON ME' : 'SQUAD: BACK TO POSTS', ALLY_TEXT);
     this.ctx.audio.play('ui_confirm', { volume: 0.8 });
   }
@@ -372,6 +380,13 @@ export class AllySystem implements GameSystem {
       this.ctx.hud.feed('NO STIMS', ALLY_TEXT);
       return false;
     }
+    this.reviveAlly(a);
+    return true;
+  }
+
+  /** Co-op host: a friend's stim into a downed man (their own game took the stim). False if he is not down. */
+  reviveBy(a: Ally): boolean {
+    if (a.state !== 'down') return false;
     this.reviveAlly(a);
     return true;
   }
@@ -585,7 +600,7 @@ export class AllySystem implements GameSystem {
 
   /** Where his feet should go: the anchor his order gives him, and cover near it if he is in a fight. */
   private chooseDest(a: Ally, now: number): void {
-    const p = this.ctx.player;
+    const p = this.leaderOf(a);
     const e = a.body;
     if (a.patient) {
       this.setDest(a, a.patient.body.position);
@@ -875,7 +890,7 @@ export class AllySystem implements GameSystem {
     // Standing: a riot line faces out, a follower faces where the player does, a post faces its own way.
     let yaw = a.postYaw;
     if (a.def.stance === 'line' && this.breach && a.order === 'post') yaw = this.breach.yaw;
-    else if (a.order === 'follow') yaw = Math.atan2(this.ctx.player.forward.x, this.ctx.player.forward.z);
+    else if (a.order === 'follow') yaw = Math.atan2(this.leaderOf(a).forward.x, this.leaderOf(a).forward.z);
     if (!Number.isNaN(yaw)) e.yaw = dampAngle(e.yaw, yaw, e.def.turn * 0.6, dt);
   }
 

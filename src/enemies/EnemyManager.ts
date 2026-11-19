@@ -6,7 +6,7 @@
  */
 import * as THREE from 'three';
 import { HumanoidBone as B, type GoreRegion } from '../characters/rig';
-import type { CharacterInstance, Ctx, DamageInfo, LocomotionInput, RagdollOptions } from '../core/contracts';
+import type { CharacterInstance, Ctx, DamageInfo, LocomotionInput, PlayerSystem, RagdollOptions } from '../core/contracts';
 import type { CollapseOptions, KnockdownOptions } from '../gore/muscles';
 import type { DamageResult, EnemyId, EnemyInstance, EnemyRayHit, EnemySystem } from '../core/gameplay';
 import { clamp, rand, TAU } from '../core/math';
@@ -28,6 +28,7 @@ import { VehicleSystem, vehiclesActive } from './vehicles';
 import { Telegraphs } from './telegraph';
 import { MAX_ALIVE } from './waves';
 import { HELMET } from './wounds/armour';
+import { isGuest } from '../core/coop';
 
 /** The Crucible's helmeted types: the dangerous ones, so the armour says what to aim at. Troopers stay bare. */
 const CRUCIBLE_HELMETS: ReadonlySet<EnemyId> = new Set<EnemyId>(['gunner', 'rocketeer']);
@@ -412,13 +413,15 @@ export class EnemyManager implements EnemySystem {
     const { ctx, w, director } = this;
     const dt = ctx.time.dt;
     w.now = ctx.time.elapsed;
-    if (ctx.coop?.world && !ctx.coop.hosting) {
+    if (isGuest(ctx)) {
       // A guest runs no AI, but it does show the host's attacks: the warnings tick, and being shot at tells (suppression).
       this.sensePlayer();
       ctx.coop.world.updateGuests();
       this.updateDying(dt);
       this.telegraphs.update(dt);
       this.outpost?.suppression.update(dt);
+      // What the villain's jammer does to this player's own sonar and minimap, from the host's word.
+      this.outpost?.commander.jam.updateGuest();
       this.debris.update(dt);
       this.flushRecycle();
       return;
@@ -449,6 +452,23 @@ export class EnemyManager implements EnemySystem {
     this.flushRecycle();
   }
 
+  /**
+   * Co-op host: from now until the next call, "the player" is `player` for everything that reads the AI's picture of one
+   * (`w.player`, and `ctx.player` inside the enemy system): what a squad, a spotter, a trap or a mortar does outside any one
+   * enemy's own update is done about the player it concerns, as `select` does for each enemy inside it. `null` puts the
+   * host's own player back, which is what must be left behind. Alone, and on a guest, it does nothing: there is one player.
+   */
+  focus(player: PlayerSystem | null): void {
+    const coop = this.ctx.coop;
+    const world = coop?.world;
+    if (!world || !coop!.hosting) return;
+    const other = player && player !== this.ctx.player ? player : null;
+    world.targetPlayer = other;
+    this.sensePlayer();
+    // A friend's Ghost is their own, told to the host; the host's own perks are not theirs.
+    if (other) this.player.ghost = world.ghosted(other);
+  }
+
   private sensePlayer(): void {
     const p = this.player;
     const src = this.w.ctx.player;
@@ -468,7 +488,11 @@ export class EnemyManager implements EnemySystem {
 
   private updateEnemy(e: Enemy, dt: number): void {
     const { w, player } = this;
-    this.ctx.coop?.world?.select(e, player);
+    const world = this.ctx.coop?.world;
+    if (world) {
+      world.select(e, player);
+      e.quarry = world.targetPlayer;
+    }
     this.perceive(e, dt);
     this.updateStatus(e, dt);
     if (!e.alive) return;

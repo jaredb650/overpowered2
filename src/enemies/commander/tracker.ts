@@ -19,6 +19,8 @@ const FAST = 10;
 /** Metres from a door that still counts as firing from it. */
 const DOOR_REACH = 3.5;
 const CELL = 4;
+/** The 4 m square a point is in, as one number. */
+export const cellKey = (x: number, z: number): number => Math.floor(x / CELL) * 4096 + Math.floor(z / CELL);
 /** What each wave's books keep of the last. */
 const HABIT_FADE = 0.8;
 const LONG_RANGE = 22;
@@ -194,7 +196,7 @@ export class StyleTracker {
   }
 
   private trackCell(x: number, y: number, z: number): void {
-    const key = Math.floor(x / CELL) * 4096 + Math.floor(z / CELL);
+    const key = cellKey(x, z);
     if (key === this.cellKey) return;
     this.cellKey = key;
     const c = this.cells.get(key);
@@ -237,6 +239,20 @@ export class StyleTracker {
 
   named(name: string): void {
     this.fallen.push(name);
+  }
+
+  /** Times the player has gone through door `i` this run (`setDoors`'s index). */
+  doorCrossings(i: number): number {
+    return this.doorHits[i] ?? 0;
+  }
+
+  get doorCount(): number {
+    return this.doors.length;
+  }
+
+  /** Every 4 m square the player has stood in this run, in no order. */
+  cellsSeen(): Iterable<Cell> {
+    return this.cells.values();
   }
 
   /** The doors the player goes through most, busiest first. Indexes into `setDoors`. */

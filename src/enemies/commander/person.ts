@@ -126,8 +126,11 @@ export class Person {
       this.shellAt = now + SHELL_EVERY;
       // On the player, with the suit standing in it. He has stopped caring which of them it hits. A shell cannot find anyone under a roof.
       const staged = this.stagedAt !== null;
+      // Co-op: on the player he is fighting.
+      c.focus(e.quarry);
       const clear = !staged || !w.ctx.physics.raycast(w.player.eye, UP, OPEN_SKY);
       if (clear && c.mortars.call(w.player.position, 'mortar', SHELLS, !staged)) c.bark(pick(IN_PERSON.slice(1)).id);
+      c.focus(null);
     }
   }
 

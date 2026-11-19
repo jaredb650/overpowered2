@@ -1,6 +1,6 @@
 /** One friendly soldier. The Enemy is only his body, for the shared steering and animation; everything he knows lives here. */
 import * as THREE from 'three';
-import type { Structure } from '../core/contracts';
+import type { PlayerSystem, Structure } from '../core/contracts';
 import type { EnemyInstance } from '../core/gameplay';
 import { Enemy } from '../enemies/Enemy';
 import type { CoverSpot } from '../enemies/outpost/cover';
@@ -46,6 +46,8 @@ export class Ally implements Vitals, Foe {
   /** Which way the post faces, for a man with nothing to look at. NaN for any. */
   postYaw = Number.NaN;
   order: Order = 'post';
+  /** Co-op host: the player he follows, when a friend gave the order. Null: the local player, as alone. */
+  leader: PlayerSystem | null = null;
   /** The mounted gun at his post, if it has one. He mans it while he holds the post and the player is not at it. */
   mount: AllyMount | null = null;
   /** Another squad's man, fighting his own battle (a mission's `battle`): a held E is not his order. A tap still reaches him. */
@@ -109,6 +111,7 @@ export class Ally implements Vitals, Foe {
     this.bleedsOutAt = 0;
     this.postYaw = Number.NaN;
     this.order = 'post';
+    this.leader = null;
     this.mount = null;
     this.detached = false;
     this.manning = false;

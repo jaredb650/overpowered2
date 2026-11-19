@@ -13,6 +13,7 @@ import type { CallinsEvent } from './world/callins';
 import type { CaptureEvent } from './world/capture';
 import type { ChatterEvent } from './world/chatter';
 import type { ClaimEvent, NackEvent } from './world/claims';
+import type { CrowdEvent } from './world/crowd';
 import type { SlowEvent } from './world/clock';
 import type { EnemyFireEvent } from './world/enemyFire';
 import type { FortEvent } from './world/fort';
@@ -70,7 +71,8 @@ export type WorldEvent =
   | VehiclesEvent   // world/vehicles.ts: vehicles
   | FortEvent       // world/fort.ts: fort, fortstate, wallblast, wallhit, repair, repaired, fortbuy, fortsold, shell, fortsay, fortradio, gunseat
   | VillainPropsEvent // world/villainProps.ts: dev, devshot, snared, shutter, smoke
-  | AlliesEvent     // world/allies.ts: allies, ashot
+  | AlliesEvent     // world/allies.ts: allies, ashot, aorder, arefund
+  | CrowdEvent      // world/crowd.ts: note, jam
   | TeamEvent       // team.ts: life, card, team, revive, up, wave, over, restore, kit, ready, vote, sync, mark
   | MissionEvent    // mission.ts: mission, gather
   /** Host to guests: the host's tab went to the background (`on`) or came back. Declared, never sent or handled. */

@@ -1,7 +1,7 @@
 /** Runtime state of one enemy. Pooled; `reset` must restore every field a previous life could have touched. */
 import * as THREE from 'three';
 import type { GoreRegion } from '../characters/rig';
-import type { CharacterInstance, EmitterHandle, LoopHandle } from '../core/contracts';
+import type { CharacterInstance, EmitterHandle, LoopHandle, PlayerSystem } from '../core/contracts';
 import type { EnemyId, EnemyInstance } from '../core/gameplay';
 import type { AttackDef, AttackPhase, Behaviour } from './brain';
 import type { EnemyDef } from './data';
@@ -240,6 +240,12 @@ export class Enemy implements EnemyInstance {
   dyingKind: 'none' | 'crash' | 'boss' = 'none';
   /** Distance tier for animation and think rates. */
   lod = 0;
+  /**
+   * Co-op host: the player this enemy is after, as of its last update (net/world/targeting.ts `select`). Null alone, on a
+   * guest, and until it has picked one: then it is the one player. What runs outside its own update and is about "the
+   * player" (what it sees, where its squad goes, who its spotter paints) asks this.
+   */
+  quarry: PlayerSystem | null = null;
   boss: BossController | null = null;
   /** Bomber, burner and rocketeer tanks have blown. Stops a chain from firing twice. */
   tankBlown = false;
@@ -319,6 +325,7 @@ export class Enemy implements EnemyInstance {
     this.dying = 0;
     this.dyingKind = 'none';
     this.lod = 0;
+    this.quarry = null;
     this.boss = null;
     this.tankBlown = false;
   }

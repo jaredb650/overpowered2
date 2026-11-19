@@ -6,6 +6,7 @@
 import * as THREE from 'three';
 import type { KillEvent, PickupKind } from '../../core/gameplay';
 import { chance, pick, rand, randInt } from '../../core/math';
+import { nearestOf } from '../outpost/crowd';
 import type { Door } from '../outpost/squad';
 import { CALLSIGNS } from '../outpost/doctrine';
 import type { Soldier } from '../outpost/soldier';
@@ -43,6 +44,7 @@ const _a = new THREE.Vector3();
 const _b = new THREE.Vector3();
 const _c = new THREE.Vector3();
 const _d = new THREE.Vector3();
+const _e = new THREE.Vector3();
 
 export class Traps {
   private readonly corpses: THREE.Vector3[] = [];
@@ -69,16 +71,33 @@ export class Traps {
 
   /** True when the player could see this spot, or is standing on it. */
   private watched(at: THREE.Vector3): boolean {
-    const { w } = this.c;
+    const { w, o } = this.c;
+    const crowd = o.crowd?.players();
+    if (crowd) {
+      // Co-op: nothing is laid where any player could watch it go down, or stands.
+      if (o.playerDistance(at) < CLEAR_OF_PLAYER) return true;
+      _d.copy(at);
+      _d.y += 0.4;
+      return o.seenByAny(_d);
+    }
     if (at.distanceTo(w.player.position) < CLEAR_OF_PLAYER) return true;
     _d.copy(at);
     _d.y += 0.4;
     return w.director.clearLine(_d, w.player.eye);
   }
 
+  /** The player a door is laid against: alone the player, in co-op whichever living one is nearest it. */
+  private comer(x: number, z: number): THREE.Vector3 {
+    const { w, o } = this.c;
+    const crowd = o.crowd?.players();
+    if (!crowd) return w.player.position;
+    _e.set(x, 0, z);
+    return nearestOf(crowd, _e)?.player.position ?? w.player.position;
+  }
+
   /** The doors to work on, busiest first, topped up with any door when the player has not shown a route yet. */
   private doors(count: number): Door[] {
-    const { doorList, o, tracker } = this.c;
+    const { doorList, o, books: tracker } = this.c;
     const out: Door[] = [];
     const seen = new Set<Door>();
     for (const i of tracker.hotDoors(count)) {
@@ -116,7 +135,7 @@ export class Traps {
   }
 
   private layMines(target: number): void {
-    const { devices, tracker, posts, w } = this.c;
+    const { devices, books: tracker, posts, w } = this.c;
     let have = devices.count('mine');
     for (const door of this.doors(target)) {
       if (have >= target || !posts.doorFloor(door, _a)) continue;
@@ -176,7 +195,8 @@ export class Traps {
     for (const door of this.doors(target + 2)) {
       if (have >= target || !posts.doorFloor(door, _a) || this.occupied(_a, 2)) continue;
       // Set back from the door on the far side, facing it, so it catches whoever runs through.
-      const side = (w.player.position.x - door.x) * door.dx + (w.player.position.z - door.z) * door.dz > 0 ? -1 : 1;
+      const from = this.comer(door.x, door.z);
+      const side = (from.x - door.x) * door.dx + (from.z - door.z) * door.dz > 0 ? -1 : 1;
       _b.set(_a.x + door.dx * side * 3.4, _a.y, _a.z + door.dz * side * 3.4);
       if (!w.ctx.world.nav.nearest(_b, 1.5, _b) || this.watched(_b)) continue;
       _c.set(-door.dx * side, 0, -door.dz * side);
@@ -224,7 +244,7 @@ export class Traps {
   }
 
   private spotOnRoute(out: THREE.Vector3): boolean {
-    const { tracker, w } = this.c;
+    const { books: tracker, w } = this.c;
     for (const cell of tracker.hotCells(10)) {
       out.set(cell.x, cell.y, cell.z);
       if (cell.y > 3 || !w.ctx.world.nav.nearest(out, 2.5, out) || this.occupied(out, 3) || this.watched(out)) continue;
@@ -266,6 +286,9 @@ export class Traps {
     const zone = w.ctx.world.zones.find(z => z.name === name && z.id.includes('room')) ?? pick(w.ctx.world.zones.filter(z => z.id.includes('room')));
     if (!zone) return;
     if (zone.bounds.containsPoint(w.player.position)) return;
+    // Co-op: nor with any other player standing in it.
+    const crowd = c.o.crowd?.players();
+    if (crowd?.some(p => p.player.alive && zone.bounds.containsPoint(p.player.position))) return;
     this.roomGroup = devices.newGroup();
     this.room = { min: zone.bounds.min, max: zone.bounds.max, name: zone.name };
     for (let i = 0; i < ROOM_CHARGES; i++) {
@@ -322,8 +345,12 @@ export class Traps {
     const { w, devices, o } = c;
     const room = this.room!;
     if (this.roomUntil < 0) {
-      const p = w.player.position;
-      const inside = p.x > room.min.x + ROOM_DEPTH && p.x < room.max.x - ROOM_DEPTH && p.z > room.min.z + ROOM_DEPTH && p.z < room.max.z - ROOM_DEPTH;
+      const within = (q: THREE.Vector3): boolean => q.x > room.min.x + ROOM_DEPTH && q.x < room.max.x - ROOM_DEPTH && q.z > room.min.z + ROOM_DEPTH && q.z < room.max.z - ROOM_DEPTH;
+      let p = w.player.position;
+      let inside = within(p);
+      // Co-op: the room is wired for whoever walks into it.
+      const crowd = inside ? undefined : o.crowd?.players();
+      if (crowd) for (const q of crowd) if (q.player.alive && within(q.player.position)) { p = q.player.position; inside = true; break; }
       if (!inside) return;
       this.roomUntil = now + ROOM_FUSE;
       this.roomStep = 0;

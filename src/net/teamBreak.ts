@@ -140,8 +140,15 @@ export class TeamBreak {
         if (need !== this.need) this.tell(-1);
       }
     }
-    if (!this.on || this.cut || !between) return;
-    if (!this.ctx.input.pressed('nextWave')) return;
+    if (this.ctx.input.pressed('nextWave')) this.readyUp();
+  }
+
+  /**
+   * This player is ready for the next wave: the next-wave key, or pressing through the Commander's briefing (which alone
+   * shortens the break, and here is that player's vote). The host's is counted at once; a guest's goes to the host.
+   */
+  readyUp(): void {
+    if (!this.on || this.cut || this.waves.phase !== 'intermission') return;
     if (this.session.hosting) this.vote(this.session.lobby.you);
     else this.send({ t: 'ready' });
   }

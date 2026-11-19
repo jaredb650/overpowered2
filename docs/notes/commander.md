@@ -232,3 +232,22 @@ Live cases: `box campBot mortar sniper jammer mines surrender bodies tricks rest
 His props are the host's and are drawn on every guest, tripped by any player and shot by any player: `docs/notes/coop.md`, "The
 villain's props on every screen" (`Devices.link`, `Barricades.link`, `Smoke.link`, set by `src/net/world/villainProps.ts`). His words and
 warning chips reach guests through `src/net/world/villain.ts`.
+
+**He treats every player as a player** (`docs/notes/coop.md`, "The enemy side and every player", which has the table mechanic by
+mechanic). In short:
+
+- **One notebook a player** (`books.ts`, `Commander.books`; the host's own is still `tracker`). A kill, a cut or an execution goes
+  in the notebook of whoever's claim the host is applying; a guest's shots, sonar pings, pickups and damage come as that
+  guest's notes (`Commander.learn`); what one of his own things did to a guest comes from the host's damage on them
+  (`Commander.trapped`). He looks at each living player four times a second, into their own notebook.
+- **What he answers:** each habit at the strength of whoever leans on it most, never added up. The box quotes the round of the
+  player whose habit he is answering.
+- **Where he lays things:** every player's door crossings and footfalls added up (`Books.hotDoors`, `hotCells`), out of every
+  player's sight, never with a player standing in the room.
+- **Whom he shells and watches:** every routine that says "the player" is run about the player it concerns
+  (`Commander.focus`, which is `EnemyManager.focus`): the spotter paints the player he can see, a man with a post watches
+  the player he is after, danger close falls on the player the men are crowding. One mortar mission at a time, as alone.
+- **The jammer** lies to every screen's sonar and minimap: `SonarJam.share` tells the guests who is working it, who is under
+  foil and who is playing dead; a guest's `updateGuest` and `radar` do the rest from where that guest stands.
+
+Alone there is no crowd (`Outpost.crowd` is null): one notebook, `focus` does nothing, and every dice roll is where it was.

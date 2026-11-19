@@ -324,6 +324,22 @@ with a spot, top speed 6.3 m/s, 0 console errors, 60 fps. That matches the headl
 - **Drag and revive have only been seen as stills and numbers.** A rescuer and casualty jostle a little, because crowd separation still
   pushes them apart at 1.1 m.
 
+## Co-op: every player (`crowd.ts`)
+
+On a co-op host `Outpost.crowd` (set by `src/net/world/crowd.ts`) is every player in the world and what the guests tell of
+themselves; alone it is null and nothing below runs. `docs/notes/coop.md`, "The enemy side and every player".
+
+- **Sight and plans.** Each soldier's `sense` runs about the player he is after (`Enemy.quarry`), and each squad's `think` about
+  its quarry (`Outpost.quarryOf`: its leader's), through `Outpost.focus`.
+- **Stillness and motion are a player's own.** `Outpost.stillFor` and `Outpost.track` are now read for whichever player the
+  reader is after (a `Mind` each): a camping guest is the camper for the squad fighting them and the sniper aiming at them.
+- **Noise.** `listenToFeet` hears every living player's footsteps where they are. A guest's gunfire, landings and slams come
+  as notes (`Outpost.told`), with the same radii the host's own make (42 m a shot, 7 m a blade, 3 m per unit of landing).
+- **Openings.** A reload or a player under 35% health is taken only by the squads fighting that player
+  (`seizeOpening(..., whose)`).
+- **The fix, gates, aid.** Command's fix finds one living player at random a pass; a gate counts as watched if any player can
+  see it; a casualty is too dangerous to fetch within reach of any player.
+
 ## Co-op: prisoners
 
 A guest's key on a kneeling man is the same key (tap to question, tap again to release, hold 0.4 s to capture), carried out by the

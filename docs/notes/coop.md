@@ -114,7 +114,8 @@ the names the game used before).
 | `world/vehicles.ts` | The host's ground vehicles drawn on guests, 5 Hz, stamped with the host's clock and drawn through a `MotionBuffer`; their working parts (wheels, tracks, springs, guns, fires, engine) and their wrecks. See "Enemy vehicles on a guest are working machines" | `vehicles`, `wreck` |
 | `world/villainProps.ts` | The villain's devices, shutters and smoke on every screen; a guest's round on a device; a snare on a guest. See "The villain's props on every screen" | `dev`, `devshot`, `snared`, `shutter`, `smoke` |
 | `world/fort.ts` | Outpost Defense's fort for the whole team: walls, gates and shacks by index, the fort's facts, a guest's blasts, boarding up and Barracks purchases, mortar rounds, the Defense radio. See "Outpost Defense: one fort" | `fort`, `fortstate`, `wallblast`, `wallhit`, `repair`, `repaired`, `fortbuy`, `fortsold`, `shell`, `fortsay`, `fortradio`, `gunseat` |
-| `world/allies.ts` | The host's garrison drawn on guests, 5 Hz, the same way, and its tracers (30 a second) | `allies`, `ashot` |
+| `world/allies.ts` | The host's garrison drawn on guests, 5 Hz, the same way, and its tracers (30 a second); a guest's E key on them, asked of the host | `allies`, `ashot`, `aorder`, `arefund` |
+| `world/crowd.ts` | Every player for the host's soldiers and their Commander (`Outpost.crowd`); a guest's notes of itself; the jammer's word to guests. See "The enemy side and every player" | `note`, `jam` |
 | `team.ts` | The team's rules ("The team's rules" below); registers its own events with the router (`plug`) | `life`, `card`, `team`, `revive`, `up`, `wave`, `over`, `restore`, `kit`, `ready`, `vote`, `sync`, `mark` |
 | `mission.ts` | The campaign's mirror (see "Missions"); registers its own events with the router (`plug`). `mission` goes both ways: an operation to play from the host, a report (`did`, `took`, `skip`, `rounds`) from a guest | `mission`, `gather` |
 | `worldProtocol.ts` | For code outside `world/`: re-exports `wire.ts` and `snapshot.ts`, and defines `WorldEvent` as the union of every module's event types | |
@@ -1068,7 +1069,7 @@ A drop is how players share guns. It carries the gun's mods (held and fitted), i
 - **Whose drop** is by roster slot, not by callsign.
 - **Host's checks:** a real gun with only its own mods and rounds it could carry (`cleanKit`); the resting spot within 8 m of the
   guest's body on the host's screen, else its feet; a take within 10.2 m; at most 24 guns lying (the oldest goes).
-- **Logged.** Every gun message is `console.info`'d on both sides as `[coop gun] ...` (audit E11).
+- **Logged, on a dev page only.** Every gun message is `console.info`'d on both sides as `[coop gun] ...` (audit E11), and the pods' as `[coop pod]`; the built site logs neither (`DEV_TOOLS`).
 - 150 s on the ground, on the host's clock; a late guest gets each gun with its age.
 
 ### Barrels, tanks and props
@@ -2318,6 +2319,83 @@ sets (null alone, where nothing changed).
 
 Proof: `tools/scripts/coop-worldb-props.mjs` (a host and two guests in Endless Humans: 40 checks), unit tests
 `src/net/world/villainProps.test.ts` (9, his real `Devices`, `Barricades` and `Smoke` on every side).
+
+## The enemy side and every player (review fix "fix-game", 2026-11-19)
+
+The soldiers and their Commander run on the host and were written about one player. Per enemy that was already right
+(`Targeting.select` points each enemy at its own target before its update). Everything that runs **outside** one enemy's update
+still saw only the host's player: guests were never mortared or trapped, their footsteps and gunfire were silent to the men, and
+the Commander learned only from the host. The lead's ruling, with the owner away: **the villain reacts to whichever player the
+mechanic is about, learns from every player, and nothing is multiplied by the number of players.** Alone, none of this exists:
+`Outpost.crowd` is null and every routine takes the path and throws the dice it always did.
+
+**How.** Three small pieces, no rewrite of any routine:
+
+- **Who is "the player" right now** (`EnemyManager.focus(player)`): points the AI's picture of the player (`w.player`, and
+  `ctx.player` inside the enemy system) at one player, as `select` does per enemy. A routine about a particular player is run
+  under it and needs no co-op branch. `focus(null)` puts the host's own back. Each enemy records its quarry (`Enemy.quarry`) as
+  it is updated, for the routines that ask "whom is this man after".
+- **One state a player** where the men kept one: how long a player has stood still and how they are moving (`Outpost.stillFor`,
+  `Outpost.track`, now read for whichever player the reader is after: `outpost/crowd.ts` `Mind`), and the Commander's notebook
+  (`commander/books.ts`: `Books`, one `StyleTracker` a player, the host's still `commander.tracker`).
+- **What the host cannot see of a guest**, told by the guest (`net/world/crowd.ts`, event `note`): shots (gathered, one note
+  every 0.3 s with the count, the weapon and the place), a landing, a slam, a pickup, a sonar ping, a reload, and being hurt
+  (the damage and the health left). Footsteps need no note: the host reads them off the guest's body. The host takes at most
+  14 notes a second from a guest, only from a living guest whose body is in the world, and only for something within 30 m of
+  that body.
+
+**Each mechanic, and whose it is:**
+
+| Mechanic | Alone | Co-op |
+|---|---|---|
+| A soldier's sight (`perception.sense`) | the player | the player that soldier is after, so a squad's reports and its plan follow the player it is fighting |
+| A squad's plan (`OutpostSquad.think`), the Commander's order to it (`orders.wanted`) | the player | the squad's quarry (its leader's, `Outpost.quarryOf`): "he is camping" and "he is running" are about that player |
+| Footsteps (`listenToFeet`) | the player's | each living player's own, heard where they are, as loud as they are fast |
+| Gunfire, a landing, a slam | the player's events | the host's own events, and each guest's notes, at that guest's place |
+| An opening (a reload, a player badly hurt) | every squad in contact takes it | only the squads fighting the player who gave it |
+| Command's fix on a hidden player | the player | one living player, at random, per pass (so nobody on the team can win by hiding) |
+| A gate out of sight, a prisoner's way out, where it is safe to drag a casualty | the player | out of every player's sight; measured from the nearest living player |
+| The spotter and the mortars (`mortars.watch`, `lase`) | the player he sees | the player the spotter is after and can see: that one is painted and shelled. One mission at a time, as ever |
+| Danger close | 3 men within 8 m of the player | 3 men after one player and within 8 m of them; one call, on the player with the most |
+| In person, on the roof | shells on the player | on the player he is fighting |
+| Men with a job (`units.tick`: spotter, sniper, possum, bait, lane, ambush) | about the player | about the player that man is after (where to watch from, whose back is turned) |
+| Keeping their distance | back away from the player | from the player the man is after |
+| Traps: where (`traps.watched`, claymore side, the wired room) | out of the player's sight; the far side of the door from the player; not with the player in the room | out of every player's sight; the far side from the nearest player; not with any player in the room, and it goes off for whoever walks in |
+| Traps and ambushes: which doors and floor (`hotDoors`, `hotCells`) | the player's crossings | every player's crossings added up: the routes the team uses, weighted by who uses them |
+| The far gate for the tubes | far from the player | far from the nearest player |
+| What he answers (`pickAdaptation`) | the player's habits | each habit at the strength of whoever leans on it most (never a sum); `Books.leader` names them |
+| What the box quotes (`Briefing.report`) | the player's round | the round of the player whose habit he is answering (the host's when he answers nobody's) |
+| Kills, cuts, executions | the notebook | the notebook of whoever's claim the host is applying (`CrowdLink.applying`) |
+| Shots, sonar, pickups, damage taken, his traps that landed | the notebook | each guest's own, from their notes and from `coop:hurt` (what the host's damage on a guest was and what did it) |
+| Call-ins | the notebook | the caller's (`callin:teammate` carries the slot) |
+| Walking toward a voice on the radio | the player | whichever players walked toward it |
+| The jammer on the sonar and minimap (`jam.ts`) | hides men past 13 m, five false blips | the same on every screen, each from its own player's place: the host sends who is working a jammer, hiding under foil or playing dead (`jam`, on change and every 2 s), and a guest's `SonarJam.updateGuest` hides, invents and lights from that |
+
+**Squad allies for a guest** (`net/world/allies.ts`). A guest has the game's own E key on the garrison (`allies/orders.ts`, run on
+stand-ins for the bodies it draws), with the same prompts: a tap sends one man after the guest or back to his post, a hold the
+squad, a longer hold on a man who is down puts the guest's own stim into him. Each is asked of the host (`aorder`: `toggle`,
+`squad`, `revive`), which checks the guest is alive, in reach of the man where the host has them (3.6 m and 3 m of slack; the
+squad: any man within 63 m) and under 6 orders a second, and carries it out with the same code as its own key (`Allies.toggle`,
+`toggleSquad`, `reviveBy`). A man told to follow a guest follows that guest (`Ally.leader`), and the host again if the guest
+goes down or leaves. A stim the host could not use (the man was already up, dead or out of reach) comes back (`arefund`). The
+garrison's `allies` rows carry who is following (bit 1 of the state), so a guest's prompt reads right. `ally:revived` is
+raised on the host, so a mission that teaches the revive counts a guest's.
+
+**Decisions** (the lead's, recorded): a habit is one player's and is never summed; routes are everyone's and are summed;
+the box quotes one player's round, with no name on it (its lines say "you"; naming the player is dialogue work, left);
+the fix on a hidden team picks a living player at random each pass; an opening is taken only by the squads fighting the
+player who gave it; an ally told to follow by a guest stops following the host.
+
+**Not done:** the squads still share one picture of where "the player" is (`Outpost.intel`): it is now fed by every soldier's
+sight of his own quarry and every player's noise, so it moves between players rather than tracking each. A guest's time in a
+room (`lastRoom`) and high ground are read only from their notebook. Flashbang openings are still the host's own eyes.
+
+**Tests:** `src/enemies/commander/books.test.ts` (8), `crowd.test.ts` (12, the real Commander), `src/enemies/focus.coop.test.ts`
+(3), `src/net/world/crowd.test.ts` (7), `allyOrders.test.ts` (6). **Proof:** `tools/scripts/coop-fixgame-villain.mjs`
+(Endless Humans; `COOP_PLAYERS=2|3`, `COOP_SIM`, `PARTS`): the crowd, a guest's footsteps heard at the guest and none at the
+still host, the guest's shots, kill and ping in the guest's notebook and not the host's, the spotter's mission on the guest
+he can see (target on the guest to the centimetre, the host 50 m off), the jammer's five false men on the guest's minimap,
+an ally following the guest and a downed one revived by the guest's stim. Results: see the plan's log.
 
 ## Prisoners for every player (overhaul, lane world-b)
 

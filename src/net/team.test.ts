@@ -363,6 +363,26 @@ describe('the team break and its ready vote', () => {
     expect(a.world.team.rest).toMatchObject({ ready: [], on: false });
     game.dispose();
   });
+  it('pressing through the Commander\'s briefing is that player\'s vote (`readyUp`), and counts once with the key', () => {
+    const game = party(1);
+    game.tick();
+    // Outside a break it says nothing.
+    game.host.world.team.rest.readyUp(); game.relay.flush();
+    expect(game.relay.events('vote')).toHaveLength(0);
+    clear(game, 2);
+    const [a] = game.guests as [Side];
+    game.host.world.team.rest.readyUp(); game.relay.flush();
+    expect(game.host.world.team.rest.ready).toEqual([0]);
+    expect(game.host.waves.nextWaveIn).toBe(TEAM_BREAK);
+    // The key after it is the same vote, not a second one.
+    press(game.host, 'nextWave'); game.relay.flush();
+    expect(game.host.world.team.rest.ready).toEqual([0]);
+    // A guest's goes to the host, and with everyone in the break is cut.
+    a.world.team.rest.readyUp(); game.relay.flush();
+    expect(game.host.world.team.rest.ready).toEqual([0, a.lobby.me!.slot]);
+    expect(game.host.waves.nextWaveIn).toBe(CUT_TO);
+    game.dispose();
+  });
   it('the dead never hold the team up, and a voter who leaves does not either', () => {
     const game = party(3);
     game.tick();

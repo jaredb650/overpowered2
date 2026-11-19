@@ -33,7 +33,7 @@ function villain(ctx: Ctx) {
     o: { noise: vi.fn(), routes: { setClosed: vi.fn() }, doors, soldiers: [] },
     boom: (at: THREE.Vector3, _r: number, _d: number, cause: string) => { booms.push({ at: at.clone(), cause }); },
     hurt: (amount: number, _from: THREE.Vector3, cause: string) => { hurts.push({ amount, cause }); },
-    mortars: { tubeLost: vi.fn() }, tracker: { hotDoors: () => [0, 1] }, posts: { doorFloor: (_d: unknown, out: THREE.Vector3) => (out.set(0, 0, 0), true) },
+    mortars: { tubeLost: vi.fn() }, tracker: { hotDoors: () => [0, 1] }, books: { hotDoors: () => [0, 1] }, posts: { doorFloor: (_d: unknown, out: THREE.Vector3) => (out.set(0, 0, 0), true) },
     doorList: doors, has: () => false, radio: vi.fn(),
   } as unknown as Commander;
   const parts = { devices: new Devices(c), barricades: new Barricades(c), smoke: new Smoke(c) };

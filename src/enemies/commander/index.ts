@@ -30,11 +30,13 @@ import type { EnemyManager } from '../EnemyManager';
 import { GIFT_SOURCES } from '../../progression/data';
 import { MAX_SQUAD, waveStrength } from '../outpost/doctrine';
 import type { Outpost } from '../outpost';
+import type { CrowdPlayer, JamState, Note } from '../outpost/crowd';
 import type { Soldier } from '../outpost/soldier';
 import { soldierOf } from '../outpost/soldier';
 import type { Door } from '../outpost/squad';
 import { ADAPTATIONS, FINAL_WAVE, phaseOf, TRICKS, type AdaptationId, type Phase, type TrickId } from './adaptations';
 import { Barricades } from './barricades';
+import { Books } from './books';
 import { Devices } from './devices';
 import { isDesperate, isFinal, pickAdaptation, plansFor, refit, tricksFrom, type SquadPlan } from './director';
 import './events';
@@ -47,7 +49,7 @@ import { Person } from './person';
 import { Posts } from './posts';
 import { Props } from './props';
 import { Smoke } from './smoke';
-import { StyleTracker } from './tracker';
+import type { StyleTracker } from './tracker';
 import { Traps } from './traps';
 import { unitOf, Units } from './units';
 
@@ -89,8 +91,14 @@ interface Shooter {
   shootDown?(id: CallInId): boolean;
 }
 
+/** What hurt a player that the Commander put there, by the damage's source: a guest's hurt is told with it (`learn`). */
+const HIS: ReadonlySet<string> = new Set(['mortar', 'mine', 'tripwire', 'claymore', 'snare', 'rigged', 'deadman', 'casualty', 'falseSurrender', 'sniper']);
+
 export class Commander {
-  readonly tracker = new StyleTracker();
+  /** What every player did (books.ts). Alone it is the one notebook, `tracker`. */
+  readonly books = new Books();
+  /** The host's own player's notebook, and alone the player's. */
+  readonly tracker: StyleTracker = this.books.own;
   readonly devices: Devices;
   readonly mortars: Mortars;
   readonly units: Units;
@@ -119,6 +127,8 @@ export class Commander {
   /** Where the last voice on the radio was. If the player then walks there, they are listening. */
   private readonly heardAt = new THREE.Vector3();
   private heardFrom = 0;
+  /** Co-op: how far each guest was from that voice (by lobby id), beside the host's own `heardFrom`. */
+  private readonly heardFromOf = new Map<string, number>();
   private heardUntil = 0;
   private lockAt = -1;
   private lockFor: CallInId | null = null;
@@ -153,8 +163,8 @@ export class Commander {
       if (!isMelee(f.weapon) && f.weapon !== 'rocket' && f.weapon !== 'quiver') this.devices.onShot(f.origin, f.dir);
     });
     events.on('enemy:killed', k => this.onKilled(k));
-    events.on('enemy:severed', () => { this.tracker.round.limbs++; });
-    events.on('enemy:executed', () => { this.tracker.round.executions++; });
+    events.on('enemy:severed', () => { this.book().round.limbs++; });
+    events.on('enemy:executed', () => { this.book().round.executions++; });
     events.on('sonar:ping', () => { this.tracker.round.pings++; });
     events.on('pickup:collected', p => {
       this.tracker.round.pickups++;
@@ -170,8 +180,12 @@ export class Commander {
     });
     events.on('comms:line', l => this.onHeard(l.position, l.speaker !== null));
     events.on('commander:skipped', () => {
-      // Co-op: the break is the team's to end, by its ready vote (net/teamBreak.ts); skipping his briefing only shuts him up.
-      if (ctx.coop?.world) return;
+      // Co-op: the break is the team's to end, by its ready vote (net/teamBreak.ts). Pressing through his briefing is this
+      // player's vote: it says "I am ready", as it does alone, and never ends the break for anyone by itself.
+      if (ctx.coop?.world) {
+        ctx.coop.world.team.rest.readyUp();
+        return;
+      }
       const { waves } = this.o;
       if (waves.phase === 'intermission') waves.nextWaveIn = Math.min(waves.nextWaveIn, AFTER_SKIP);
     });
@@ -186,9 +200,10 @@ export class Commander {
     if (!this.mapReady && this.o.doors.length > 0) {
       this.mapReady = true;
       this.doorList = this.o.doors;
-      this.tracker.setDoors(this.doorList);
+      this.books.setDoors(this.doorList);
     }
-    this.tracker.reset();
+    this.books.reset();
+    this.heardFromOf.clear();
     this.units.reset();
     this.devices.clear();
     this.mortars.reset();
@@ -292,16 +307,25 @@ export class Commander {
   intermission(wave: number, base: number, inFight = false): number {
     // Nothing comes after the last wave. The box is already saying goodbye.
     if (this.person.dead) return RUN_OVER;
-    const report = this.tracker.closeRound(wave);
-    this.lastRoom = report.room;
+    // Co-op: every player's round is closed, and a player who has left takes their habits along.
+    const crowd = this.o.crowd?.players();
+    if (crowd) this.books.keep(new Set(crowd.map(p => p.id)));
+    let report = this.books.closeRound(wave);
     const next = wave + 1;
     let adaptation: AdaptationId | null = null;
     const tricks = inFight ? [] : tricksFrom(next);
     for (const t of tricks) this.tricks.add(t);
     if (next <= FINAL_WAVE) {
-      adaptation = pickAdaptation(this.tracker.habits(), inFight ? new Set([...this.have, ...NEEDS_A_WAVE]) : this.have, next);
+      adaptation = pickAdaptation(this.books.habits(), inFight ? new Set([...this.have, ...NEEDS_A_WAVE]) : this.have, next);
       if (adaptation) this.adopt(adaptation);
     }
+    // Co-op: the box quotes the round of the player whose habit he is answering, so every number in it is true of someone.
+    if (crowd && adaptation) {
+      const habit = ADAPTATIONS.find(a => a.id === adaptation)?.habit;
+      const lead = habit ? this.books.leader.get(habit) ?? null : null;
+      report = this.books.report(lead) ?? report;
+    }
+    this.lastRoom = report.room;
     const seconds = clamp(base + 5, base, BRIEFING_SECONDS);
     const briefing: Briefing = { wave, next, phase: phaseOf(next), report, adaptation, tricks, fielded: this.fielded, seconds };
     this.w.ctx.events.emit('commander:briefing', briefing);
@@ -397,17 +421,70 @@ export class Commander {
   private onKilled(k: KillEvent): void {
     const s = soldierOf(k.enemy);
     const source = k.damage.source;
+    // Co-op: whoever's kill it is, it goes in their notebook (the host applies a guest's claim as that guest).
+    const book = this.book();
     if (GIFT_SOURCES.test(source)) {
-      this.tracker.round.gifts++;
+      book.round.gifts++;
       this.w.ctx.events.emit('commander:gift', { position: k.enemy.position, cause: source });
       return;
     }
-    this.tracker.kill(source, k.distance, k.headshot);
+    book.kill(source, k.distance, k.headshot);
     this.traps.onKilled(k);
     if (!s) return;
     const name = this.names.get(s);
-    if (name) this.tracker.named(name);
-    if (s.patient) this.tracker.round.rescuersKilled++;
+    if (name) book.named(name);
+    if (s.patient) book.round.rescuersKilled++;
+  }
+
+  /** The notebook of whoever did what is happening now: the guest whose claim the host is applying, else the host's own. */
+  private book(): StyleTracker {
+    const who = this.o.crowd?.applying();
+    return who ? this.books.of(who.id) : this.tracker;
+  }
+
+  /** A player's notebook: the host's own player's is `tracker`. */
+  private bookOf(p: CrowdPlayer): StyleTracker {
+    return p.own ? this.tracker : this.books.of(p.id);
+  }
+
+  /** Co-op host: points everything that reads "the player" at `player` (null: the host's own back). Nothing alone. */
+  focus(player: PlayerSystem | null): void {
+    this.o.focus(player);
+  }
+
+  /**
+   * Co-op host: what a guest did that he would have noted had the host's own player done it (outpost/crowd.ts `Note`).
+   * Each lands in that guest's own notebook, by the same calls the host's own events make.
+   */
+  learn(who: CrowdPlayer, note: Note): void {
+    const book = this.bookOf(who);
+    switch (note.kind) {
+      case 'shots':
+        for (let i = 0; i < note.n; i++) book.shot(note.what, note.at.x, note.at.z);
+        break;
+      case 'ping':
+        book.round.pings++;
+        break;
+      case 'pickup':
+        book.round.pickups++;
+        this.traps.onPickup(note.what as never, note.at);
+        break;
+      case 'hurt':
+        book.round.damageTaken += note.n;
+        break;
+      default:
+        break;
+    }
+  }
+
+  /** Co-op host: one of his own things hurt a guest (the host's own player's is heard as `player:damaged`). */
+  trapped(who: CrowdPlayer, cause: string, amount: number): void {
+    if (!who.own && HIS.has(cause)) this.bookOf(who).trapped(cause, amount);
+  }
+
+  /** Co-op host: what the guests' sonar and minimap may say (jam.ts). */
+  tellJam(state: JamState): void {
+    this.o.crowd?.jam(state);
   }
 
   private fromSniper(at: THREE.Vector3): boolean {
@@ -420,6 +497,9 @@ export class Commander {
     this.heardAt.copy(at);
     this.heardFrom = this.w.player.position.distanceTo(at);
     this.heardUntil = this.w.now + FOLLOW_WINDOW;
+    // Co-op: each guest heard it from where they stood.
+    const crowd = this.o.crowd?.players();
+    if (crowd) for (const p of crowd) if (!p.own) this.heardFromOf.set(p.id, p.player.position.distanceTo(at));
   }
 
   private watchEars(): void {
@@ -427,10 +507,22 @@ export class Commander {
     this.heardUntil = 0;
     const d = this.w.player.position.distanceTo(this.heardAt);
     if (this.heardFrom - d >= FOLLOW_MOVED && d < FOLLOW_REACH) this.tracker.round.chatterFollowed++;
+    const crowd = this.o.crowd?.players();
+    if (!crowd) return;
+    // Co-op: whoever walked toward the voice is the one who is listening.
+    for (const p of crowd) {
+      const from = this.heardFromOf.get(p.id);
+      if (p.own || from === undefined) continue;
+      const now = p.player.position.distanceTo(this.heardAt);
+      if (from - now >= FOLLOW_MOVED && now < FOLLOW_REACH) this.books.of(p.id).round.chatterFollowed++;
+    }
+    this.heardFromOf.clear();
   }
 
   private onCallIn(id: CallInId, slot = -1): void {
-    this.tracker.round.callIns++;
+    // Co-op: a teammate's call-in goes in the teammate's notebook.
+    const caller = slot >= 0 ? this.o.crowd?.bySlot(slot) : null;
+    (caller ? this.bookOf(caller) : this.tracker).round.callIns++;
     if (!AIRCRAFT.has(id) || this.units.count('manpads') === 0) return;
     this.lockAt = this.w.now + LOCK_SECONDS;
     this.lockFor = id;
@@ -470,7 +562,9 @@ export class Commander {
       if (!s.fighting || s.role === 'shotgun' || s.role === 'shield' || s.e.dist > keep || s.task === 'move' || s.hasOrder || s.squad.directed) continue;
       if (now < (this.backedOffAt.get(s) ?? 0)) continue;
       this.backedOffAt.set(s, now + BACK_OFF_REST);
-      const away = Math.atan2(s.e.position.x - w.player.position.x, s.e.position.z - w.player.position.z) + rand(-0.5, 0.5);
+      // Co-op: away from the player he is too close to, who is the one he is after.
+      const from = (s.e.quarry ?? w.player).position;
+      const away = Math.atan2(s.e.position.x - from.x, s.e.position.z - from.z) + rand(-0.5, 0.5);
       _a.set(s.e.position.x + Math.sin(away) * BACK_OFF, s.e.position.y, s.e.position.z + Math.cos(away) * BACK_OFF);
       if (w.ctx.world.nav.nearest(_a, 5, _a)) o.order(s, _a, null, 2, 0);
     }
@@ -482,13 +576,33 @@ export class Commander {
     if (!this.hasTrick('dangerClose') || !this.mortars.manned || this.mortars.busy) return;
     let close: Soldier | null = null;
     let near = 0;
-    for (const s of o.soldiers) {
-      if (!s.fighting || s.e.dist > 8) continue;
-      near++;
-      close = s;
+    let on = w.player.position;
+    const crowd = o.crowd?.players();
+    if (!crowd) {
+      for (const s of o.soldiers) {
+        if (!s.fighting || s.e.dist > 8) continue;
+        near++;
+        close = s;
+      }
+    } else {
+      // Co-op: the men crowding one player are that player's problem. One call, on whoever has the most of them.
+      for (const p of crowd) {
+        if (!p.player.alive) continue;
+        let count = 0;
+        let last: Soldier | null = null;
+        for (const s of o.soldiers) {
+          if (!s.fighting || s.e.quarry !== p.player || s.e.dist > 8) continue;
+          count++;
+          last = s;
+        }
+        if (count <= near) continue;
+        near = count;
+        close = last;
+        on = p.player.position;
+      }
     }
     if (near < 3 || !close) return;
-    if (!this.mortars.call(w.player.position, 'mortar', 5)) return;
+    if (!this.mortars.call(on, 'mortar', 5)) return;
     this.radio('radio.dangerClose', close);
     w.ctx.audio.play('vox_scream', { position: close.e.center, volume: 0.8 });
   }
@@ -518,8 +632,19 @@ export class Commander {
 
   private watch(now: number): void {
     const { o, w, tracker } = this;
-    const p = w.player;
-    tracker.sample(WATCH_EVERY, p.position.x, p.position.y, p.position.z, p.speed, o.hostile > 0, w.ctx.world.zoneAt(p.position)?.name ?? null);
+    const crowd = o.crowd?.players();
+    if (!crowd) {
+      const p = w.player;
+      tracker.sample(WATCH_EVERY, p.position.x, p.position.y, p.position.z, p.speed, o.hostile > 0, w.ctx.world.zoneAt(p.position)?.name ?? null);
+    } else {
+      // Co-op: one look at each living player, into their own notebook.
+      for (const c of crowd) {
+        const p = c.player;
+        if (!p.alive) continue;
+        const speed = Math.hypot(p.velocity.x, p.velocity.y * 0.5, p.velocity.z);
+        this.bookOf(c).sample(WATCH_EVERY, p.position.x, p.position.y, p.position.z, speed, o.hostile > 0, w.ctx.world.zoneAt(p.position)?.name ?? null);
+      }
+    }
     this.watchEars();
     this.keepAway(now);
     this.dangerClose();
@@ -575,7 +700,8 @@ export class Commander {
     let found = false;
     for (const g of world.spawnPoints) {
       if (g.kind !== 'gate') continue;
-      const d = g.position.distanceTo(this.w.player.position) + rand(0, 8);
+      // Co-op: furthest from every player, which is furthest from the nearest of them.
+      const d = this.o.playerDistance(g.position) + rand(0, 8);
       if (d <= best) continue;
       // A few metres in from the gate, so the crew are not standing in the road the next squad walks through.
       _a.copy(g.position).multiplyScalar(0.86);

@@ -24,7 +24,7 @@
  */
 import * as THREE from 'three';
 import { HumanoidBone as B } from '../../characters/rig';
-import type { DamageInfo } from '../../core/contracts';
+import type { DamageInfo, PlayerSystem } from '../../core/contracts';
 import type { DamageResult, EnemyId, EnemyInstance, KillEvent } from '../../core/gameplay';
 import { clamp, rand, TAU } from '../../core/math';
 import { Pool } from '../../core/pool';
@@ -45,6 +45,7 @@ import { PlayerMemory, rememberPlayer } from './chatter/memory';
 import { Offers } from './chatter/offers';
 import { Comms } from './comms';
 import { CoverMap, type CoverSpot, type SpotReading } from './cover';
+import { Mind, type CrowdLink, type CrowdPlayer, type Note } from './crowd';
 import { CALLSIGNS, defaultDoctrine, fireRules, MAX_SQUAD, ROLE_OF, ROLES, type Doctrine } from './doctrine';
 import { DroppedWeapons } from './dropped';
 import { bestRuns, type FleeCandidate } from './flight';
@@ -63,6 +64,7 @@ import { WoundSystem } from '../wounds';
 import { ARMOUR } from '../wounds/armour';
 import { WoundTuning } from '../wounds/rules';
 import { isMelee } from '../../weapons/melee/data';
+import { isGuest } from '../../core/coop';
 
 export { soldierOf } from './soldier';
 
@@ -153,18 +155,21 @@ export class Outpost {
   prisoners = 0;
   /** What happens to them, and what the player can do about it. */
   readonly captives: Prisoners;
-  /** The player's motion as the men read it. */
-  readonly track = new TargetTrack();
+  /**
+   * Co-op host: every player, and what the guests tell of themselves (crowd.ts; set by net/world/crowd.ts). Null alone, in
+   * free roam and on a guest, where "the player" is the one player.
+   */
+  crowd: CrowdLink | null = null;
+  /** The host's own player's motion and stillness, and alone the player's. A guest's is in `minds`. */
+  private readonly ownMind = new Mind();
+  private readonly minds = new Map<PlayerSystem, Mind>();
   /** What being shot at is doing to the player. */
   readonly suppression: Suppression;
-  /** Seconds the player has stayed in about one place. */
-  stillFor = 0;
   /** The most men on the field lately, which is how a man knows the side is losing. It forgets a beaten fight in a minute or so. */
   peakHostile = 0;
   /** For anyone holding `ctx.enemies.outpost`: the soldier on a body, if it has one. */
   readonly soldierOf = soldierOf;
 
-  private readonly stillAt = new THREE.Vector3();
   private level = 1;
   /** A mission's rank for every squad formed from here on. Null rolls one from the threat level. */
   private fixedGrade: Rank | null = null;
@@ -228,8 +233,79 @@ export class Outpost {
     events.on('weapon:fired', f => this.onFired(f.weapon, f.origin));
     events.on('player:landed', l => this.noise(this.w.player.position, l.impact * LANDING_NOISE));
     events.on('player:slam', s => this.noise(s.position, s.radius * 4));
-    events.on('weapon:reload', r => { if (r.phase === 'start') this.seizeOpening('opening', RELOAD_OPENING); });
+    events.on('weapon:reload', r => { if (r.phase === 'start') this.seizeOpening('opening', RELOAD_OPENING, undefined, this.own()); });
     events.on('player:damaged', () => this.onPlayerHurt());
+  }
+
+  // -------------------------------------------------------------------------------------------
+  // Co-op: which player (crowd.ts)
+  // -------------------------------------------------------------------------------------------
+
+  /** The player "the player" means right now: the one a routine has been pointed at (`focus`), or the host's own. Null alone. */
+  private subject(): PlayerSystem | null {
+    return this.crowd ? this.w.ctx.coop?.world?.targetPlayer ?? null : null;
+  }
+
+  private mindOf(player: PlayerSystem | null): Mind {
+    if (!player || player === this.w.ctx.coop?.world?.me) return this.ownMind;
+    let mind = this.minds.get(player);
+    if (!mind) this.minds.set(player, mind = new Mind());
+    return mind;
+  }
+
+  /** The player's motion as the men read it: of whichever player the reader is after. */
+  get track(): TargetTrack {
+    return this.mindOf(this.subject()).track;
+  }
+
+  /** Seconds the player has stayed in about one place: the one the reader is after. */
+  get stillFor(): number {
+    return this.mindOf(this.subject()).stillFor;
+  }
+
+  /** Co-op host: points the AI's picture of the player at `player` (null: the host's own back). Nothing alone. */
+  focus(player: PlayerSystem | null): void {
+    if (this.crowd) this.manager.focus(player);
+  }
+
+  /** The host's own player, in co-op, for a mechanic that is theirs alone. Undefined alone: everybody's. */
+  private own(): PlayerSystem | undefined {
+    return this.crowd ? this.w.ctx.coop?.world?.me : undefined;
+  }
+
+  /** The player a squad is fighting: its leader's quarry, or that of its first man who has one. Null: the host's own, or alone. */
+  quarryOf(q: OutpostSquad): PlayerSystem | null {
+    const led = q.leader?.e.quarry;
+    if (led) return led;
+    for (const s of q.members) if (s.e.quarry) return s.e.quarry;
+    return null;
+  }
+
+  /**
+   * Co-op host: something a guest did that the men would have heard or the Commander noted, which the host cannot tell from
+   * the guest's pose. The same calls the host's own events make.
+   */
+  told(who: CrowdPlayer, note: Note): void {
+    switch (note.kind) {
+      case 'shots':
+        this.noise(note.at, isMelee(note.what) ? BLADE_NOISE : SHOT_NOISE);
+        break;
+      case 'land':
+        this.noise(note.at, clamp(note.n, 0, 40) * LANDING_NOISE);
+        break;
+      case 'slam':
+        this.noise(note.at, clamp(note.n, 0, 12) * 4);
+        break;
+      case 'reload':
+        this.seizeOpening('opening', RELOAD_OPENING, undefined, who.player);
+        break;
+      case 'hurt':
+        if (note.left < HURT_AT) this.seizeOpening('wounded', HURT_OPENING, undefined, who.player);
+        break;
+      default:
+        break;
+    }
+    this.commander.learn(who, note);
   }
 
   /** The map does not exist until after every system's init, so all of this waits for the first run. */
@@ -274,8 +350,9 @@ export class Outpost {
     this.commander.reset();
     this.captives.reset();
     this.suppression.reset();
-    this.track.reset();
-    this.stillFor = this.peakHostile = 0;
+    this.ownMind.reset();
+    this.minds.clear();
+    this.peakHostile = 0;
     for (const b of this.bangs) b.live = false;
   }
 
@@ -331,13 +408,31 @@ export class Outpost {
       const rested = w.now - (this.gateUsedAt.get(g) ?? -99) > GATE_REST;
       _a.copy(g);
       _a.y += 1.6;
-      const seen = w.director.clearLine(_a, w.player.eye);
+      const seen = this.seenByAny(_a);
       const score = (path >= GATE_MIN_PATH ? 40 : 0) + (rested ? 25 : 0) + (seen ? -60 : 0) + Math.random() * 30 - Math.max(0, path - 60) * 0.3;
       if (score > bestScore) {
         bestScore = score;
         best = g;
       }
     }
+    return best;
+  }
+
+  /** Has the player a clear line to `at`? In co-op, has any living player. */
+  seenByAny(at: THREE.Vector3): boolean {
+    const { w } = this;
+    const crowd = this.crowd?.players();
+    if (!crowd) return w.director.clearLine(at, w.player.eye);
+    for (let i = 0; i < crowd.length; i++) if (crowd[i]!.player.alive && w.director.clearLine(at, crowd[i]!.player.eye)) return true;
+    return false;
+  }
+
+  /** Metres on the flat from `at` to the player; in co-op, to the nearest living one. */
+  playerDistance(at: THREE.Vector3): number {
+    const crowd = this.crowd?.players();
+    if (!crowd) return this.w.player.position.distanceTo(at);
+    let best = Infinity;
+    for (let i = 0; i < crowd.length; i++) if (crowd[i]!.player.alive) best = Math.min(best, crowd[i]!.player.position.distanceTo(at));
     return best;
   }
 
@@ -431,8 +526,19 @@ export class Outpost {
     this.flushLeaving();
     this.comms.update();
     this.dread.update(dt);
-    this.track.update(dt, w.player.velocity);
-    this.watchPlayer(dt);
+    // Co-op host: every player has their own motion and their own stillness, and each man looks for the one he is after.
+    const crowd = this.crowd?.players() ?? null;
+    if (crowd) {
+      for (let i = 0; i < crowd.length; i++) {
+        const mind = this.mindOf(crowd[i]!.player);
+        mind.track.update(dt, crowd[i]!.player.velocity);
+        this.watchStill(mind, crowd[i]!.player.position, dt);
+      }
+    } else {
+      this.ownMind.track.update(dt, w.player.velocity);
+      this.watchStill(this.ownMind, w.player.position, dt);
+    }
+    this.peakHostile = Math.max(this.hostile, this.peakHostile - dt / 12);
     this.suppression.update(dt);
     this.captives.update(dt);
     this.routesLeft = ROUTES_PER_FRAME;
@@ -443,10 +549,12 @@ export class Outpost {
       s.e.flowUntil = 0;
       if (s.fighting && now >= s.senseAt) {
         s.senseAt = now + SENSE_INTERVAL;
+        if (crowd) this.manager.focus(s.e.quarry);
         sense(s, w, SENSE_INTERVAL);
       }
       if (s.hasOrder && now >= s.orderAt && this.routesLeft > 0) this.depart(s);
     }
+    if (crowd) this.manager.focus(null);
     this.wounds.update();
     this.updateRadio(now);
     if (this.intel.at >= 0) {
@@ -455,8 +563,12 @@ export class Outpost {
     }
     for (let i = 0; i < this.squads.length; i++) {
       const q = this.squads[i]!;
-      if (now >= q.thinkAt) q.think();
+      if (now < q.thinkAt) continue;
+      // A squad plans against the player it is fighting.
+      if (crowd) this.manager.focus(this.quarryOf(q));
+      q.think();
     }
+    if (crowd) this.manager.focus(null);
     if (now >= this.moraleAt) this.tickMorale(now);
     if (now >= this.aidAt) this.assignAid(now);
     if (now >= this.crossfireAt) this.spreadSectors(now);
@@ -466,20 +578,22 @@ export class Outpost {
     this.commander.update(dt);
   }
 
-  private watchPlayer(dt: number): void {
-    const p = this.w.player.position;
-    if (this.stillAt.distanceToSquared(p) > STILL_RADIUS * STILL_RADIUS) {
-      this.stillAt.copy(p);
-      this.stillFor = 0;
-    } else this.stillFor += dt;
-    this.peakHostile = Math.max(this.hostile, this.peakHostile - dt / 12);
+  private watchStill(mind: Mind, p: THREE.Vector3, dt: number): void {
+    if (mind.stillAt.distanceToSquared(p) > STILL_RADIUS * STILL_RADIUS) {
+      mind.stillAt.copy(p);
+      mind.stillFor = 0;
+    } else mind.stillFor += dt;
   }
 
-  /** The whole side hears it at once. The nearest man in the fight says so. */
-  seizeOpening(kind: 'opening' | 'wounded', seconds: number, flags?: Record<string, boolean>): void {
+  /**
+   * The whole side hears it at once. The nearest man in the fight says so. `whose` (co-op): the player who gave the opening,
+   * and only the squads fighting that player take it; a friend's reload is not a reason to rush the host.
+   */
+  seizeOpening(kind: 'opening' | 'wounded', seconds: number, flags?: Record<string, boolean>, whose?: PlayerSystem): void {
     let voice: Soldier | null = null;
     for (const q of this.squads) {
       if (!q.inContact || q.directed) continue;
+      if (whose && (this.quarryOf(q) ?? this.w.ctx.coop?.world?.me) !== whose) continue;
       q.opening(seconds);
       if (!voice) voice = q.leader;
     }
@@ -493,7 +607,7 @@ export class Outpost {
 
   private onPlayerHurt(): void {
     const { player } = this.w.ctx;
-    if (player.health < player.maxHealth * HURT_AT) this.seizeOpening('wounded', HURT_OPENING);
+    if (player.health < player.maxHealth * HURT_AT) this.seizeOpening('wounded', HURT_OPENING, undefined, this.own());
   }
 
   /**
@@ -630,12 +744,11 @@ export class Outpost {
   /** A released prisoner's way off the map, the nearest that does not lead past the player. */
   routeToGate(s: Soldier): boolean {
     const e = s.e;
-    const p = this.w.player.position;
     let best: THREE.Vector3 | null = null;
     let bestScore = Infinity;
     for (const g of this.gates) {
       const mine = e.position.distanceTo(g);
-      const theirs = p.distanceTo(g);
+      const theirs = this.playerDistance(g);
       const score = mine + (theirs < mine ? (mine - theirs) * 2.5 : 0);
       if (score < bestScore) {
         bestScore = score;
@@ -716,12 +829,26 @@ export class Outpost {
     this.nextFixAt = now + doctrine.fixAfter * 0.5;
     const a = rand(0, TAU);
     const r = rand(0.3, 1) * doctrine.fixError;
-    _a.set(w.player.position.x + Math.sin(a) * r, w.player.position.y, w.player.position.z + Math.cos(a) * r);
-    if (!w.ctx.world.nav.nearest(_a, 12, _a)) _a.copy(w.player.position);
+    // Co-op: one pass finds one player, any of them, so that nobody on the team can win by hiding.
+    const at = this.anyPlayer()?.position ?? w.player.position;
+    _a.set(at.x + Math.sin(a) * r, at.y, at.z + Math.cos(a) * r);
+    if (!w.ctx.world.nav.nearest(_a, 12, _a)) _a.copy(at);
     _a.y += 1;
     this.intel.report(_a, now, false);
     for (const q of this.squads) q.adopt(_a, now);
     if (!opening) this.comms.say('fix', null);
+  }
+
+  /** Co-op host: one living player, at random. Null alone (and no dice are thrown). */
+  private anyPlayer(): PlayerSystem | null {
+    const crowd = this.crowd?.players();
+    if (!crowd) return null;
+    let alive = 0;
+    for (let i = 0; i < crowd.length; i++) if (crowd[i]!.player.alive) alive++;
+    if (alive === 0) return null;
+    let pick = alive === 1 ? 0 : Math.floor(Math.random() * alive);
+    for (let i = 0; i < crowd.length; i++) if (crowd[i]!.player.alive && pick-- === 0) return crowd[i]!.player;
+    return null;
   }
 
   /** A squad got where it was going and found nobody. */
@@ -747,8 +874,20 @@ export class Outpost {
 
   private listenToFeet(now: number): void {
     this.noiseAt = now + NOISE_TICK;
-    const p = this.w.player;
-    if (p.grounded && p.speed > QUIET_SPEED) this.noise(p.position, p.speed * STEP_NOISE);
+    const crowd = this.crowd?.players();
+    if (!crowd) {
+      const p = this.w.player;
+      if (p.grounded && p.speed > QUIET_SPEED) this.noise(p.position, p.speed * STEP_NOISE);
+      return;
+    }
+    // Co-op host: a footstep is heard from whoever made it. The host's own are the real player's; a friend's are read off
+    // their body, as fast as it moves.
+    for (let i = 0; i < crowd.length; i++) {
+      const p = crowd[i]!.player;
+      if (!p.alive || !p.grounded) continue;
+      const speed = Math.hypot(p.velocity.x, p.velocity.y * 0.5, p.velocity.z);
+      if (speed > QUIET_SPEED) this.noise(p.position, speed * STEP_NOISE);
+    }
   }
 
   /** Somebody else has it pinned, which is all a flank needs. */
@@ -1050,8 +1189,7 @@ export class Outpost {
 
   /** A co-op guest: these men are copies of the host's, and nothing here decides for them. */
   private guest(): boolean {
-    const coop = this.w.ctx.coop;
-    return !!coop?.world && !coop.hosting;
+    return isGuest(this.w.ctx);
   }
 
   private onSevered(enemy: EnemyInstance): void {
@@ -1094,10 +1232,9 @@ export class Outpost {
 
   private assignAid(now: number): void {
     this.aidAt = now + AID_TICK;
-    const p = this.w.player.position;
     for (const hurt of this.soldiers) {
       if (!hurt.downed || hurt.rescuer || hurt.injuries.stabilised) continue;
-      if (hurt.e.position.distanceToSquared(p) < AID_DANGER * AID_DANGER) continue;
+      if (this.playerDistance(hurt.e.position) < AID_DANGER) continue;
       // A man calling out is heard further than a man lying quiet, and that is the whole of the bait.
       const reach = now - hurt.calledAt < CALLED_FOR ? WoundTuning.baitRange : AID_REACH;
       let best: Soldier | null = null;

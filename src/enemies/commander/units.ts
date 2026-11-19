@@ -179,6 +179,7 @@ export class Units {
   update(): void {
     const { c } = this;
     const now = c.w.now;
+    const shared = c.o.crowd !== null;
     for (let i = this.list.length - 1; i >= 0; i--) {
       // An ambush going off takes several men off this list at once, so the slot may already be empty.
       const u = this.list[i];
@@ -190,8 +191,11 @@ export class Units {
         this.drop(u.s);
         continue;
       }
+      // Co-op: a man with a job does it about the player he is after (where to watch from, whose back is turned).
+      if (shared) c.focus(u.s.e.quarry);
       this.tick(u, now);
     }
+    if (shared) c.focus(null);
     if (!this.released && c.o.waves.phase === 'clearing' && this.list.length > 0 && this.regulars() === 0) this.abandonPosts();
   }
 
