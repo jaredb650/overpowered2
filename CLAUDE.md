@@ -13,7 +13,8 @@ Defense, and Retraining (the tutorial; first launch goes there). Co-op for up to
 third-party art. A deadpan bureaucratic voice ("Galactic Council / Office of Societal Compliance") runs through the UI copy.
 
 **Stack:** TypeScript (tsc 7), Vite 8, three.js r187 (WebGL2), Rapier 3D compat 0.21, trystero 0.27 (WebRTC over Nostr), Vitest 5,
-playwright-core (screenshots). No other runtime deps without a strong reason.
+playwright-core (screenshots). No other runtime deps without a strong reason. Dev-only: pixelmatch, pngjs, fast-check, webgl-memory
+(`docs/notes/devtools.md`); never imported by game code.
 
 ## Setup on a fresh machine
 
@@ -162,6 +163,7 @@ No allocation in hot paths; pool everything with hard caps. Frame order and budg
 | `src/lab/` | Test Range and dev/cheat panel (`/?map=range`, `?dev=1`): mod rows (`mods.ts`), implants, spawn, settings; flags in `src/core/devflags.ts` | `docs/notes/lab.md` |
 | `src/sandbox/` | `/?sandbox=<name>` test pages | |
 | `tools/shot.mjs` | Headless screenshot harness (Playwright chromium) | header comment lists options |
+| `tools/diff.mjs`, `tools/sheet.mjs`, `tools/lib/` | Picture difference; motion contact sheet; their pure maths | `docs/notes/devtools.md` |
 | `tools/scripts/` | ~160 probe/bot scripts for shot.mjs; `coop-kit.mjs` (`startParty`, 2 to 4 page co-op proofs, loopback or WebRTC) | |
 | `tools/bake/` | Offline character model bake (`npm run bake`) → `public/assets/` | `docs/notes/characters.md` |
 | `tools/music/`, `tools/turn-worker/` | Soundtrack renderer; Cloudflare Worker for TURN relay + error log (not deployed) | `docs/notes/audio.md`, `docs/notes/coop.md` |
@@ -210,6 +212,18 @@ audio report if the catalog changes, run `src/audio/audio.test.ts`.
   `live`, `measure` and the rest; loopback (`?net=loop`, no WebRTC, no relays) is the default, `COOP_NET=rtc` is real WebRTC. Works
   on a fresh profile. `docs/notes/coop.md`, "Testing".
 - Page hooks: `window.__op2.game` (state, setState) for scripts.
+- **Dev-only helpers** (all in `docs/notes/devtools.md`; they run through `shot.mjs`, so pass your own `--port`):
+  - `node tools/diff.mjs before.png after.png --out tools/out/<you>/diff.png`: changed pixels, percent and the box around the
+    change as one JSON line, plus a difference picture, a before | after | difference strip and a zoom. `--max <percent>` fails.
+  - `node tools/sheet.mjs --port <yours> --url "/?sandbox=viewmodels&weapon=smg" --eval "window.__vm.rig.reload(1)" --out tools/out/<you>/reload.png`:
+    24 frames of motion on one image with the time under each (`--crop`, `--video out.mp4`, `--live` for co-op and menus).
+    **Use it for anything that moves** (reloads, recoil, ragdolls, blood): a single screenshot cannot show it.
+  - Repeatable pictures: `--wait 0 --script tools/scripts/steady-shot.mjs` (or `tools/scripts/lib/steady.mjs` in your own script)
+    freezes the page clock and seeds `Math.random`; two runs are pixel-identical. Single player only. A `shot.mjs` script may
+    export `before(page)`, run before the page loads.
+  - `tools/scripts/soak-memory.mjs` (leak soak over Crucible waves; `SOAK_MODE=fixed` tells a leak from a pool filling) and
+    `tools/scripts/perf-trace.mjs` (slowest frames and the functions in them).
+  - `fast-check` for property tests (`src/net/pose.property.test.ts` is the pattern).
 
 ## Current state
 

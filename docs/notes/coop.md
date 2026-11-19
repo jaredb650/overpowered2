@@ -960,6 +960,32 @@ export default async function (host, { sleep, outDir }) {
   (12 checks, also on real WebRTC), `coop-robust.mjs` (7), `coop-modes.mjs` (humans, defense, office), `coop-mission.mjs`,
   `coop-drops.mjs`, `coop-baseline.mjs`.
 
+### Property tests (fast-check)
+
+`fast-check` (dev-only) states a rule once and tries it on thousands of random cases, then shrinks a failure to the smallest
+one. In place today: `src/net/pose.property.test.ts` (pose codec and buffer) and `src/net/world/wire.property.test.ts` (event
+router, `validVec`, `packDamage`). **Not yet covered, on purpose:** `world/snapshot.ts`, `replicas.ts`, `hits.ts`, `claims.ts`
+were being rewritten when these were written. Whoever finishes them, or the verification pass, adds theirs like this:
+
+```ts
+import fc from 'fast-check';
+// 1. An arbitrary that builds only values the wire accepts (ranges from the codec's own limits). `enemy` is one more record.
+const frame = fc.record({ seq: fc.integer({ min: 0, max: 0xffffffff }), wave: fc.integer({ min: 0, max: 65535 }), enemies: fc.array(enemy, { maxLength: 48 }) });
+// 2. The rule, in a normal vitest `it`. `encode`, `decode` and `quantized` stand for your codec and its rounding.
+it('decode(encode(frame)) is the frame, to the precision the wire keeps', () => {
+  fc.assert(fc.property(frame, f => { expect(decode(encode(f))).toEqual(quantized(f)); }));
+});
+```
+
+Rules worth stating for this protocol: a round trip equals the input at the wire's precision (write the rounding down as a
+function, as the pose test does with `Math.fround`); junk, truncated and damaged bytes never throw and are either refused or a
+valid value (`fc.uint8Array`, or overwrite random bytes of a valid packet); applying a delta to the old state gives the new
+state; packets delivered twice or out of order leave the same state as once in order (generate an order with
+`fc.array(fc.integer(...))`, keep a small model of what should be accepted, compare); a rate bucket never goes negative; a
+clamp never raises a value. Keep each file under a few hundred milliseconds (the default 100 cases a rule is enough; raise
+`numRuns` only for a rule that has failed before). A failure prints a seed and the shrunk case: paste the case into an
+ordinary test so it stays fixed.
+
 ### Baseline (stage 0a, 2026-11-18)
 
 `tools/scripts/coop-baseline.mjs`: a pair in a live Crucible wave, the guest shooting an SMG by script, 20 s on a clean network and

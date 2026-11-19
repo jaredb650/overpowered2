@@ -1,0 +1,189 @@
+# Dev tools for agents: seeing change, motion, leaks and slow frames
+
+Built 2026-11-18 from the research in `docs/research/dev-tools.md` (its "Top 10"). Everything here is **dev-only**: four packages
+in `devDependencies`, tools under `tools/`, nothing imported by game code, nothing in the shipped build. Test files may import them.
+
+| Package | For | Size in `node_modules` |
+|---|---|---:|
+| `pixelmatch` 8.0 | comparing two pictures | 60 KB |
+| `pngjs` 7.0 | reading and writing PNGs (pixelmatch's own dependency) | 712 KB |
+| `fast-check` 4.10 (+ its `pure-rand`) | property tests | 1.5 MB + 280 KB |
+| `webgl-memory` 1.1 | GPU memory in bytes, injected by the test harness | 76 KB |
+
+About 2.6 MB in all. No agent skill pack and no MCP server was installed (the research found none worth installing whole).
+
+All browser tools run through `tools/shot.mjs`, so they share its GPU flags, its private Vite, and its machine-wide browser slots.
+**Always pass your own `--port`.**
+
+## 1. Picture difference: `tools/diff.mjs`
+
+```sh
+node tools/diff.mjs before.png after.png --out tools/out/<you>/diff.png
+```
+
+Writes the difference picture (`before` faded to grey, changed pixels red, ignored edge pixels yellow), `diff-strip.png`
+(before | after | difference, each panel 960 px wide) and, when something changed, `diff-zoom.png` (the same three cut to the
+box around the change at full size). Prints one JSON line:
+
+```json
+{"changed":3994,"exact":4000,"total":921600,"percent":0.4334,"bbox":{"x":600,"y":300,"w":100,"h":40},"width":1280,"height":720,...}
+```
+
+- `changed`: pixels that differ by more than `--threshold` (default 0.1; anti-aliased edge pixels are ignored unless `--aa`).
+- `exact`: pixels whose bytes differ at all. `--threshold 0 --aa` makes `changed` strict too.
+- `--max <percent>` exits 1 when more changed, so a script can fail on "this change was not supposed to touch the picture".
+- Two sizes: exit 2 with a message saying to take both at one `--w`, `--h`, `--dpr`.
+
+Use it with every visual change: before, after, the strip, and the one number ("0.4 % changed, all on the gun"). Two shots only
+compare cleanly when both were taken with the frozen clock (section 3): a live page differs in film grain on most pixels.
+
+## 2. Motion contact sheet: `tools/sheet.mjs`
+
+```sh
+node tools/sheet.mjs --port <yours> --url "/?sandbox=viewmodels&weapon=smg" --eval "window.__vm.rig.reload(1)" \
+  --frames 24 --every 64 --out tools/out/<you>/reload.png [--video tools/out/<you>/reload.mp4]
+```
+
+One PNG: 24 frames on a 6-column grid of 480 px tiles, the frame number and its time under each (`#12  +704 ms`). A reload, a
+recoil, a ragdoll or a blood puff can be judged from that one image. The trigger (`--script`, then `--eval`) runs first; frame 1
+is taken right after it.
+
+- **The clock is frozen by default** (section 3): the times are exact whatever the machine load, and the same command gives the
+  same sheet. Frames are whole 16 ms steps, so `--every 50` lands on 0, 48, 96, 144, 208...: the real time is what is printed.
+- `--crop x,y,w,h` (page pixels) captures only the gun or one body, so a tile shows detail. `--pick n` puts n evenly spaced frames
+  on the sheet while the video keeps them all. `--cols`, `--tile`, `--w/--h/--dpr`, `--wait`, `--seed`, `--until`, `--keep`.
+- `--video out.mp4` builds a true-speed video of the frames with `ffmpeg` (`--slow 4` for quarter speed). Where `ffmpeg` is
+  missing (the owner's Mac may not have it) the sheet is still written and a message says how to install it.
+- `--live` uses real time instead: needed for co-op, menus and anything else the frozen clock does not drive. Times are then
+  approximate and printed as measured.
+- A `--script` gets helpers whose `sleep`, `press` and `click` move the frozen clock. A script that waits with its own
+  `setTimeout` or `page.waitForTimeout` waits while the page stands still: use the helpers.
+
+The sheet is drawn by a second page in the same browser (it shrinks the frames and prints the text), so there is no font or
+scaling code to maintain. The layout maths is in `tools/lib/sheet-layout.mjs` (tested).
+
+## 3. Frozen time and fixed randomness: `tools/scripts/lib/steady.mjs`
+
+```sh
+node tools/shot.mjs --port <yours> --url "/?sandbox=gore" --wait 0 --script tools/scripts/steady-shot.mjs --out tools/out/<you>/a.png
+```
+
+(`STEADY_FRAMES`, `STEADY_SEED`, `STEADY_EVAL`, `STEADY_UNTIL` set it up; or import the helper in your own script: its header
+shows how.) It uses Playwright's Clock, already inside `playwright-core`: `Date`, `performance.now`, timers and
+`requestAnimationFrame` only move when the script steps them, one 16 ms frame at a time; and it replaces `Math.random` with a
+seeded generator before any page code runs. `tools/shot.mjs` scripts may now export `before(page)`, which runs before the page
+loads: that is the only change to `shot.mjs`.
+
+Two things had to be solved to get the same picture twice, and are worth knowing:
+
+- **Loading takes a different amount of real time each run** (downloads, and three.js polling its shader compiles every 10 ms
+  of page time). So page time stands still all through loading: `ready()` fires the short timers the page is waiting on (a
+  compile poll, a yield, a "next paint") without moving the clock, leaves long ones alone (the dev server's 30 s ping, the error
+  reporter's 5 s flush), and checks "ready?" and fires in one indivisible step, so the game loop's first frame can never slip in
+  early. Every run leaves loading with the clock at the same reading and the game at frame 0. A page that needs time to pass
+  before it is ready gets it after 400 such steps, and the result then says `advanced: true`.
+- **Late files.** A step is only taken while no request is in flight, so a download lands on the same frame every run.
+
+**Proof (2026-11-18):** `/?sandbox=gore` after 120 frames, twice: `tools/diff.mjs --threshold 0 --aa` reports 0 of 921,600 pixels
+changed, 0 bytes different. `/?sandbox=gore&scenario=explosion` as a 24-frame sheet at 1440x900 dpr 2 (blast, gibs, blood,
+smoke, ragdolls), twice: 0 of 3,944,700 pixels different. The control, the same sheet twice with `--live`: 17 % of pixels
+changed (71 % differ at all), and the frames asked for every 100 ms arrived at 0, 402, 548, 4106, 5228 ms on the loaded machine.
+Two earlier versions of the helper failed this proof (film grain everywhere, then one frame of drift): the cause each time was
+loading moving the clock by a different amount.
+
+Not frozen: sound, WebRTC, web workers, `crypto.getRandomValues`, and CSS animations in the DOM (HUD and menu fades run in real
+time; `page.screenshot({ animations: 'disabled' })` settles those). So this is for single-player look-checks, not co-op.
+
+A side effect worth having: a frozen page never sees a slow frame, so nothing that adapts to frame time can change the picture.
+
+## 4. Property tests: `fast-check`
+
+`src/net/pose.property.test.ts` and `src/net/world/wire.property.test.ts`: the pose codec round trip at 32-bit float precision,
+views at any offset, junk and truncated and damaged packets, the pose buffer under repeats and out-of-order delivery (with the
+sequence number wrapping), the event router for any registration and any arrival order, `validVec` and `packDamage`. 14 tests,
+about a third of a second. How to add one: `docs/notes/coop.md`, "Testing".
+
+One edge the tests found and now pin: a pitch of exactly ±π is refused by `encodePose` ("Invalid pose"), because π rounds
+upward as a 32-bit float and the decoder's limit is the 64-bit π. The game's pitch never gets near it, so nothing was changed.
+
+## 5. Leak soak: `tools/scripts/soak-memory.mjs`
+
+```sh
+node tools/shot.mjs --port <yours> --url "/?contract=crucible&autostart=1" --wait 2000 --timeout 600 \
+  --script tools/scripts/soak-memory.mjs --out tools/out/<you>/soak.png
+```
+
+Plays Crucible waves with a bot that kills everything alive every 250 ms (a head shot, a blast that gibs, a sword cut, in turn),
+rests 5 s after each wave, then reads: GPU bytes by kind and GPU object counts (from `webgl-memory`, injected by the harness
+before the page loads), three.js's `renderer.info` counts, and the JS heap after a forced collection. `SOAK_ROUNDS` (default 6),
+`SOAK_SETTLE`, `SOAK_WARM`. It writes every reading to `soak.json` and returns a table and a verdict per number:
+
+- `flat`: came back (within 2 % or 1 MB; counts within 2 % or 4).
+- `step`: rose, then held for the second half of the run: a pool or cache filling to its cap.
+- `grows`: still rising in the second half: a leak, or a pool that has not reached its cap yet. Run more rounds to tell.
+
+`holds` is true when nothing `grows`. The sampler and the verdict are in `tools/scripts/lib/glmem.mjs` for other scripts
+(a different mode, a mission, the gore sandbox).
+
+### What it showed (2026-11-18, RTX 4090, machine load 50 to 65)
+
+**No leak found.** Three runs:
+
+| Run | GPU memory | Textures | Buffers | JS heap |
+|---|---|---|---|---|
+| Real waves, 6 rounds, 214 kills | 452 MB after wave 2 → 569 MB after wave 6 | 146 → 249 | 1,673 → 2,037 | 50 → 57 MB |
+| Real waves, 9 rounds, 363 kills | 479 MB after wave 2 → 584 MB after wave 9 | 174 → 325 | 1,719 → 2,236 | 51 → 63 MB |
+| **Fixed crowd** (24 of husk, trooper, brute), 8 rounds, 192 kills | 503.9 MB after round 2, **504.4 → 504.5 MB over rounds 3 to 8** | 205 → 246, level from round 5 | **1,869 from round 3 on** | 52 → 57 MB, level in the last two rounds |
+
+In real waves memory rose every wave, with corpses and limbs at their caps (40 and 48) from wave 3. The by-size list named what
+multiplied: 16 more textures of 5.3 MB (1024 x 1024 with mips: +85 MB), 129 more of 4 KB (a body's bone texture,
+`src/characters/Character.ts` `makeSkeleton`), and mesh buffers. Those are the per-kind atlases and pooled bodies of
+`CharacterLibrary`, which are kept for the whole run. The fixed-crowd run settles it: with the same enemy kinds every round, GPU
+memory stops moving after two rounds. So the growth in real waves is new enemy kinds arriving and bigger crowds filling pools,
+not a leak in killing, gore, corpses or blood.
+
+Two things this does not prove: the JS heap rose about 5 MB over six fixed rounds and looked level only at the end (a longer run
+would say); and nothing here measured where the real-wave growth stops (16 enemy kinds, at most 48 alive: it is bounded, but the
+top was not reached in 9 waves, at 584 MB).
+
+## 6. Performance trace: `tools/scripts/perf-trace.mjs`
+
+```sh
+node tools/shot.mjs --port <yours> --url "/?contract=crucible&autostart=1" --wait 8000 \
+  --script tools/scripts/perf-trace.mjs --out tools/out/<you>/trace.png
+```
+
+Records a Chrome trace (`browser.startTracing`, already in Playwright) for `TRACE_MS` (default 5000), or while another script
+runs (`TRACE_SCRIPT`), and returns a summary small enough to read: frame rate, frame interval and work time (median, 95th, worst),
+the slowest frames each with its three hungriest functions and any garbage collection inside it, and the top functions by self
+time over the whole trace. `TRACE_KEEP=1` also writes the raw trace for Chrome's Performance tab. No new package: the research
+suggested Perfetto's trace processor for the summary, but a 130-line summariser (`tools/scripts/lib/trace.mjs`, tested) gives the
+two answers that matter, so nothing was installed for it.
+
+### What it showed (2026-11-18, load 77, so the timings are only an example)
+
+Five seconds of Crucible play: 189 frames in 4.3 s, frame interval median 16.9 ms, 95th 73 ms, worst 353 ms. The worst frame
+spent 342 of its 353 ms in `getProgramInfoLog` (a shader program linking in the middle of play, one second in); another frame
+had a 48 ms garbage collection in it. Both are worth a look on a quiet machine. One lesson built into the script: it waits for
+the game to be in play before recording, because on a busy machine a fixed `--wait` records the loading screen.
+
+## Decisions left to the owner (nothing installed)
+
+- **Rapier's SIMD build** (`@dimforge/rapier3d-simd-compat` 0.21.0): the same physics library, same version and API, built to
+  use the processor's vector instructions. It would **replace a runtime package**, so it changes what ships and is not a dev
+  tool. To decide it needs a measured A/B on a ragdoll-heavy scene (the gore sandbox's `stress` scenario prints physics times;
+  the trace helper above gives the rest). Two things to check with the measurement: that every browser the friends use
+  loads it (the research says all current ones support WebAssembly SIMD; not tested here), and that ragdolls still look the
+  same. Say the word and an agent measures it.
+- **A linter for house rules only** (`oxlint` or Biome): the repo has none, and several `CLAUDE.md` rules are mechanical (no
+  `performance.now()` or `setTimeout` in gameplay, only `core/Game.ts` and sandboxes import concrete classes). It was not installed
+  because turning it on is a decision about every agent's workflow: the first run will list existing breaks (`performance.now()`
+  is read in the renderer, gore and light-volume code today, for timing), and someone has to rule on each. Suggested, if wanted:
+  two or three "ban this name / ban this import" rules, no style rules, run on demand, not as a gate.
+
+## Not done from the research's Top 10
+
+- 7, Chrome's built-in packet loss for WebRTC: needs its own experiment in the co-op lane's test kit.
+- 8, the one-off dead-code report (`knip`): not run.
+- 9, drawing Rapier's `debugRender()` in the lab: that is game code (the lab), outside this job.
+- 10, `threejs-devtools-mcp`'s Playwright helper: not tried.

@@ -291,3 +291,9 @@ Shared files and contracts between lanes:
   `MeleeFx`, two events, three `ProjectileSpec` fields), `fx/layers/hose.ts` (the ribbon takes 148 points, was 74), `net/index.ts`
   (seat, torch pool, pose flags), `net/world.ts` (four pass-through methods), and the stand-ins in `world.test.ts`,
   `session.test.ts`, `router.test.ts`. Details: `docs/notes/coop.md`, "Weapons on other screens".
+- 2026-11-18, devtools (not a co-op lane; the dev-only finds of `docs/research/dev-tools.md`): `tools/diff.mjs` (picture
+  difference), `tools/sheet.mjs` (motion contact sheet, frozen clock by default), `tools/scripts/lib/steady.mjs` (frozen time and
+  seeded `Math.random`: two runs pixel-identical), `fast-check` property tests for `pose.ts`, `world/router.ts` and `world/wire.ts`
+  (how to add one for the lanes' files: `docs/notes/coop.md`, "Property tests"), `tools/scripts/soak-memory.mjs` (GPU memory per
+  wave: no leak found, real-wave growth is pools and per-kind caches) and `tools/scripts/perf-trace.mjs`. `tools/shot.mjs` changed
+  in one way: a script may export `before(page)`, run before the page loads. Everything in `docs/notes/devtools.md`.
