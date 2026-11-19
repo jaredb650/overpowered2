@@ -2160,13 +2160,19 @@ node tools/scripts/coop-all.mjs --port <your port> --lane team,session         #
 - **Suites:** `clean` (every proof, loopback), `bad` (the same under `lag:120,jitter:40,loss:0.05`, for proofs that take a
   network), `rtc` (each lane's main proof over real WebRTC and the public relays: never two at once, 45 s apart), `four` (each
   lane's main proof with four pages), `guest` (every mode from a guest's seat, `coop-guest-seat.mjs`, with pictures at 1440x900
-  dpr 2), `all`.
+  dpr 2), `legacy` (the four oldest proofs as they were written, their own pages over the relays), `all`.
+- **When the tip moves:** the table names the commit of every row. Do not run everything again: `--any-commit` keeps the
+  passes there are, and `--force --lane <lanes>` (or `--only`) runs again what the new commit touched. `--ledger` prints the
+  table for a document; `docs/notes/coop.md` "What is proven" is that printout. Two runners may write one results folder at
+  once (the real-WebRTC sweep beside a loopback one): each puts in only its own rows.
 - **The server:** it starts its own Vite on `--port` (HMR off) and stops it at the end, so it never serves modules from before
   an edit or a rebase. Never port 5173.
 - **Results:** `results.json` and `results.md` in `--out` (default `tools/out/coop/all/`): proof, players, mode, transport,
   network, pass or FAIL, checks passed / failed, seconds, the commit, the first failing check, and the run's folder. Each run's
-  folder holds the proof's own evidence JSON and screenshots, `report.json` (shot.mjs's), `log.txt` and `cost.json`
-  (`tools/proof-cost.mjs`: wall time, the wait for a slot, CPU, peak memory, the machine's load).
+  folder (one per run and commit, so a later run does not wipe an earlier failure's evidence) holds the proof's own evidence
+  JSON and screenshots, `report.json` (shot.mjs's), `log.txt` and `cost.json` (`tools/proof-cost.mjs`: wall time, the wait
+  for a slot, CPU, peak memory, the machine's load). The kit's evidence also keeps where each distinct page exception was
+  thrown (`stacks`).
 - **Resumable:** a run that passed on the same game (the tree of `src/` at HEAD plus uncommitted changes to it) with the same
   proof text is skipped, so stop it and start it again at will. `--force` runs everything again; `--any-commit` accepts an old
   pass. A commit that touches only docs or tools does not make the game new.
