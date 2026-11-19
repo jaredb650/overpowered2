@@ -130,6 +130,19 @@ Shared files and contracts between lanes:
   `hitfx`). **enemy-motion**'s move events cover clips with no hit behind them and must not restart a clip of the same kind that
   began in the last 400 ms. Attack clips, telegraphs and sounds belong to **enemy-attacks**.
 - `src/net/world/booms.ts` is **call-ins**'; other lanes that need a visible blast call its API.
+- **Clocks (from the time lane, landed).** `ctx.time.dt` is the world clock on every screen, and on a guest it now follows the
+  team's slow-mo: use it for everything cosmetic that must slow with the world (replica animation, enemy projectiles in flight,
+  gore, ragdolls, particles, blood). `ctx.time.playerDt` is the player's own clock and never slows (their body, guns, viewmodel).
+  `ctx.time.realDt` is for UI and for other players' bodies, which move at full speed. No new clocks. **Snapshots
+  (enemy-motion):** the header needs nothing from time. The shared scale travels as `slowstate` on the reliable lane (on change,
+  4 Hz while slow, every 2 s otherwise). Stamp snapshots with the host's wall clock (`performance.now()`), never
+  `ctx.time.elapsed` (it is scaled, and on a slow host it advances in several steps a frame); interpolate on the wall clock; give
+  replica animation `ctx.time.dt`. **Never call `ctx.time.share` or set `ctx.time.gate`** (they are the clock module's);
+  `pushScale`/`popScale`/`hitStop` stay what the game calls, and in co-op only Focus, SLOWMO, Time Warp and a boss's death get
+  through. **Host frames:** below 20 fps the host runs `Game.frame` several times a frame (`ctx.time.split`), so anything in a
+  module's `update` must be safe to run two to five times in one animation frame (rate-limit by `performance.now()`, as the
+  snapshot does). **Team timers (team):** bleed-out, revive hold and the end board stay on real time by decision (players act
+  at full speed in slow-mo, so a stretched bleed-out would be a free extension); waves and breaks are the world's and stretch.
 - Adding an event: declare it in your own module and add one line to the union, as the split's "Code layout" note in
   `docs/notes/coop.md` describes. Never renumber or rename another lane's wire fields.
 - `enemies/EnemyManager.ts`, `core/Game.ts`, `ui/Hud.ts` are touched by several lanes: keep edits small and local, rebase often.
@@ -181,3 +194,12 @@ Shared files and contracts between lanes:
   `window.__op2`. Not done: a hook inside `src/net/world/*` (none was needed: per-lane arrival gaps are counted in the transport);
   the five oldest self-contained proofs (`coop-stage1/2`, `coop-lobby`, `coop-picker`, `coop-dad`) only got the fresh-profile line
   and `coop-lobby` is stale against today's invite page; the baseline was taken on a busy machine and wants one quiet re-run.
+- 2026-11-18, time: landed. One shared time scale owned by the host (`world/slow.ts` rules, `world/clock.ts`, `world/slowNotice.ts`);
+  Focus works in co-op; every screen shows "NAME used Focus / earned SLOWMO / took Time Warp / killed the JUGGERNAUT" with the
+  world's speed and a bar to its end. Decisions: the deeper scale wins and both are named; asking again resets, never adds; caps
+  4.5 s Focus, 5.5 s perks, 9 s boss; a downed or dead player is refused; the team's budget is 12 s in a row, refilling 1 s per
+  second at full speed, with 3 s to be back before a new one; a boss's death is never refused and costs nothing; hit-stop, the
+  Judge's fan and the death beat stay off in co-op; a teammate's slow-mo plays `time_warp_in`/`out`. The scale is a periodic
+  `slowstate`, not a snapshot field. T1: the host cuts a frame over 1/20 s into world steps (`GameTime.split`), single player and
+  guests unchanged. T2: an enemy's blast on a remote player burns on the world clock. T3: bleed-out stays on real time (decision
+  above). Details: `docs/notes/coop.md`, "Time: the team's slow motion".
