@@ -307,3 +307,12 @@ Shared files and contracts between lanes:
   into the host's blast listeners; the attackers go for the deepest defender and each squad fights the nearest player it can reach;
   the Defense radio's box lines ride the enemy-attacks lane's `cmd` bark, only the garrison's squad-feed callouts are the fort's.
   Still to do in this lane: prisoners for guests, vehicle puppets, mounted-gun seats, flyable vehicles and allies from a guest's seat.
+- 2026-11-18, enemy-motion, measurement: **the 12-case smoothness table is not made, and is the verify phase's to make.** The box
+  stayed at load 50 to 100 all day and test pages were starved (0.1 to 30 fps), so by the lead's order the matrix stopped after two
+  tries a case: 1 of 7 cases tried got a clean run. Measured so far, 20 enemies on a clean network only: error p50 2.2 to 0.4 cm
+  and stalled frames 38 to 1 against the old lane, same bytes (the rows are in `docs/notes/coop.md`, "Enemy motion", Measured).
+  Not measured in the browser: 48 enemies, a 20 fps host, either bad network. One command makes the table on a quiet machine,
+  unattended: `node tools/scripts/coop-motion-matrix.mjs --baseline d9ecffb` (sets up the old build and both servers itself, one
+  run at a time through `shot.mjs`, throws away any run whose pages got under 40 fps and writes that case as not measured, saves
+  `motion-results.json` and `motion-table.md`, exit 3 if a case is missing). Also seen: `gore/knockdown.test.ts` "goes down on its
+  muscles, heading 0,1" fails about one run in four on `d9ecffb` too (a flaky test, not from any lane's change).

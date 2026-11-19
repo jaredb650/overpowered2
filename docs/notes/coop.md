@@ -271,27 +271,45 @@ two states; its turret is the buffer's yaw. The old per-frame `slerp(0.25)` turn
 
 `coop-motion-measure.mjs`, loopback transport, the Crucible, both players running in circles so the crowd (husks, troopers,
 stalkers) never stops. "Error" is the distance between where the guest draws an enemy and where the host had it at the moment
-being drawn; a "stall" is a frame an enemy stood still on the guest while its host twin moved faster than 0.5 m/s.
+being drawn (for the old lane, which has no such moment, at the one delay that fits the whole run best). A "stall" is a frame an
+enemy stood still on the guest while its host twin moved faster than 0.5 m/s.
 
-**First paired run** (2026-11-18; 20 enemies, clean network, 15 s, the old code and the new side by side on the same machine at
-the same time, both pages at 56 to 58 fps):
+**Only 20 enemies on a clean network has been measured.** The table the brief asked for (20 and 48 enemies; host uncapped and at
+20 fps; clean, `lag:80,jitter:30,loss:0.03` and `lag:150,jitter:60,loss:0.08`; old and new) could not be made on 2026-11-18:
+thirteen agents shared the machine, the load average stood between 50 and 100 on 32 cores, and test pages got anywhere from
+0.1 to 30 frames a second. A starved page measures the machine, so those runs were thrown away, not reported. The runner now
+refuses them itself. To make the table on a quiet machine: `node tools/scripts/coop-motion-matrix.mjs --baseline d9ecffb`.
 
-| | Old lane (`d9ecffb`) | New lane |
-|---|---:|---:|
-| Drawn behind the host, ms | 116 | 95 near (p95 237: the far tier) |
-| Error p50 / p95, cm | 2.2 / 20.6 | 0.4 / 7.6 |
-| Yaw error p50 / p95, degrees | 0.2 / 3.9 | 0.1 / 1.8 |
-| Frames stalled | 38 (0.24%) | 1 (0.01%) |
-| Stalls a minute, whole crowd / per enemy | 140.7 / 7.69 | 3.8 / 0.2 |
-| A frame's step against the host's, p95, cm | 9.8 | 4.1 |
-| Snapshot bytes a second to the guest | 8,328 | 8,250 |
+What did get a clean run (pages at 40 fps or more), 20 enemies, clean network:
 
-The same bytes buy twice the update rate for near enemies and remove almost every stall.
+| Run | Pages, fps (host / guest) | Drawn behind, ms | Error p50 / p95 / p99, cm | Yaw error p50 / p95, deg | Stalled frames | Stalls a minute per enemy | Snapshot B/s |
+|---|---|---:|---|---|---:|---:|---:|
+| Old lane (`d9ecffb`), side by side with the next row | 55.5 / 53.3 | 116 | 2.2 / 20.6 / 50.7 | 0.2 / 3.9 | 38 (0.24%) | 7.69 | 8,328 |
+| New lane, before the other lanes merged | 57.7 / 57.4 | 95 (p95 237) | 0.4 / 7.6 / 22.2 | 0.1 / 1.8 | 1 (0.01%) | 0.2 | 8,250 |
+| New lane, merged | 55.3 / 48.5 | 118 (p95 259) | 0.5 / 7.4 / 28.9 | 0.1 / 1.8 | 13 (0.09%) | 1.61 | 8,797 |
+| New lane, merged, on a busier machine | 42.6 / 45.2 | 126 (p95 285) | 1.3 / 17.0 / 60.5 | 0.1 / 2.2 | 9 (0.05%) | 0.89 | 7,774 |
 
-**The full table** (20 and 48 enemies; host uncapped and at 20 fps; clean, `lag:80,jitter:30,loss:0.03` and
-`lag:150,jitter:60,loss:0.08`; old and new) is not in yet: on the day this landed thirteen agents shared the machine, the load
-average stood near 100 on 32 cores, and a test page starved of frames measures the machine, not the netcode. Run it on a quiet
-box with `node tools/scripts/coop-motion-matrix.mjs --ports <old>,<new> --tags baseline,after` and paste its tables here.
+Reading it: on the one pair measured under the same conditions, the new lane draws enemies about five times closer to where the
+host had them at the median (0.4 against 2.2 cm) and nearly three times closer at the 95th percentile, with one stalled frame
+against 38, for the same bytes.
+
+**The two lanes are not measured with the same yardstick, and the difference matters.** The old lane draws every enemy the same
+distance in the past, so its error is taken at the one delay that fits best (116 ms). The new lane draws each enemy at its own
+playhead and says where that is, so its error is taken there. Put the new lane on the old yardstick, one delay for the whole
+crowd, and it reads worse than the old one (8.5 cm at the median, 94 cm at the 95th percentile, against 2.2 and 20.6): not because
+enemies jitter, but because far enemies are deliberately drawn further back than near ones. That is the cost of the far tier: an
+enemy more than 25 m away and out of the guest's view is shown about 240 ms in the past instead of about 115. Its motion is as
+smooth as a near one's; it is staler. If playtests show that hurts (a far sniper, a boss seen across the map; bosses are always
+near), raise the far tier's rate in `snapshot.ts` (`FAR_EVERY`): bytes are the only price. The last two rows are the same code with the pages running worse (a guest that hitches draws
+late whatever the netcode does); they are here so nobody takes the best row for the whole truth. The first three rows counted a
+stall as under half a millimetre of movement in a frame; the last counts by speed (under 0.03 m/s), which is the rule the
+script now uses. "p95 behind" is the far tier: enemies far from the guest and out of its view sit about 220 ms further back.
+
+Not measured, so not claimed: 48 enemies, a host at 20 fps, and both bad networks, in the browser. What stands behind those
+today is the unit tests: one packet in five lost without a jump or a step back and within 2 cm; half a second of nothing ridden
+out without a jump; chunks out of order, doubled and one in six lost drawing the same walk; one chunk in ten lost between a real
+host tick and a real guest with 30 enemies within 5 cm; a 12 fps host ticking every frame; and the byte budgets (under 17 KB/s
+at 20 near and 28 far, under 30 KB/s with all 48 near, against the research doc's 25 KB/s target and 64 KB/s ceiling).
 
 ## Enemy attacks on guests (overhaul lane "enemy-attacks")
 

@@ -79,7 +79,8 @@ async function serve(build) {
     }
   }
   log(`${build.tag}: starting Vite on port ${build.port}`);
-  const vite = spawn('npx', ['vite', '--port', String(build.port), '--strictPort'], { cwd: build.dir, env: { ...process.env, OP2_NO_HMR: '1' }, stdio: 'ignore' });
+  // Vite itself, not through npx: a signal sent to npx stops npx and leaves the server it started running.
+  const vite = spawn(process.execPath, [join(build.dir, 'node_modules/vite/bin/vite.js'), '--port', String(build.port), '--strictPort'], { cwd: build.dir, env: { ...process.env, OP2_NO_HMR: '1' }, stdio: 'ignore' });
   started.push(vite);
   for (let waited = 0; waited < 90_000; waited += 1000) { if (await answers(build.port)) return; await sleep(1000); }
   throw new Error(`Vite did not come up on port ${build.port}`);
