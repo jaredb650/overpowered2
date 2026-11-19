@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Enemy } from '../../enemies/Enemy';
 import type { WorldContext } from './context';
 import { RecentSet, Replicas, farEveryFor } from './replicas';
-import { BURNING, CEILING_BYTES, CHUNK_BYTES, FAR_EVERY, FAR_EVERY_TIGHT, FROZEN, FULL_BYTES, HEADER_BYTES, MOTION_BYTES, decodeChunk, encodeChunk, encodeRoster,
+import { BURNING, CEILING_BYTES, CHUNK_BYTES, FALL_BACK_TICKS, FAR_EVERY, FAR_EVERY_TIGHT, NEAR_HOLD_TICKS, FROZEN, FULL_BYTES, HEADER_BYTES, MOTION_BYTES, decodeChunk, encodeChunk, encodeRoster,
   type EnemyFrame } from './snapshot';
 import type { Targeting } from './targeting';
 
@@ -114,6 +114,46 @@ describe('the host\'s tick', () => {
     const worst = crowd.sent.reduce((sum, packet) => sum + packet.data.byteLength, 0);
     expect(worst).toBeLessThan(30_000);
     expect(worst).toBeGreaterThan(48 * MOTION_BYTES * 20);
+  });
+
+  it('an enemy that stops being near is still sent every tick for a second, and one at the edge does not flip between the tiers', () => {
+    const host = side(true);
+    host.root.position.set(0, 0, 0); host.root.rotation.y = 0;
+    // Five more behind the guest, so nobody is one of "the last few".
+    for (let index = 0; index < 5; index++) host.spawn('husk', new THREE.Vector3(index, 0, -50));
+    const leaver = host.spawn('husk', new THREE.Vector3(0, 0, -20));
+    const edge = host.spawn('husk', new THREE.Vector3(10, 0, -20));
+    const sentOn = (uid: number): number[] => host.sent.flatMap(packet => { const chunk = decodeChunk(packet.data)!; return chunk.enemies.some(enemy => enemy.uid === uid) ? [chunk.tick] : []; });
+    const tiers = (uid: number): number[] => host.sent.flatMap(packet => decodeChunk(packet.data)!.enemies.filter(enemy => enemy.uid === uid).map(enemy => enemy.tier ?? 0));
+    for (let now = 0; now < 500; now += 50) host.replicas.update(now);
+    host.sent.length = 0;
+    // One walks out of the ring behind the guest and stays out; the other steps over its edge and back every tick.
+    leaver.position.set(0, 0, -30);
+    for (let now = 500, step = 0; now < 3500; now += 50, step++) {
+      edge.position.set(10, 0, step % 2 ? -20 : -30);
+      host.replicas.update(now);
+    }
+    const out = sentOn(leaver.uid);
+    // It left on tick 11. Every tick for a second (11 to 30), then one in four (31 to 70).
+    expect(out.filter(tick => tick <= 30)).toHaveLength(NEAR_HOLD_TICKS);
+    expect(out.filter(tick => tick > 30)).toHaveLength(40 / FAR_EVERY);
+    // Its records say "near" for the first 8 of those ticks and "far" for the last 12, while they still come every tick.
+    const said = tiers(leaver.uid);
+    expect(said.slice(0, NEAR_HOLD_TICKS - FALL_BACK_TICKS).every(tier => tier === 0)).toBe(true);
+    expect(said.slice(NEAR_HOLD_TICKS - FALL_BACK_TICKS).every(tier => tier === 1)).toBe(true);
+    // The one at the edge never changes tier and never misses a tick.
+    expect(sentOn(edge.uid)).toHaveLength(60);
+    expect(tiers(edge.uid).every(tier => tier === 0)).toBe(true);
+    // A minute later a new one walks out: its hold is as long (nothing is left over from the first), and the map of who
+    // was near holds only the living.
+    host.sent.length = 0;
+    host.manager.withdraw(leaver);
+    const second = host.spawn('husk', new THREE.Vector3(0, 0, -20));
+    for (let now = 3500; now < 4000; now += 50) host.replicas.update(now);
+    second.position.set(0, 0, -30);
+    host.sent.length = 0;
+    for (let now = 4000; now < 6000; now += 50) host.replicas.update(now);
+    expect(sentOn(second.uid)).toHaveLength(NEAR_HOLD_TICKS + 20 / FAR_EVERY);
   });
 
   it('a far enemy that is new still goes out at once, and the roster goes twice a second', () => {

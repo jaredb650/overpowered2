@@ -114,7 +114,7 @@ function record(seconds) {
 /** Host: every living vehicle and garrison man, as the guests know them. Guest: its copies. For the end of each part. */
 const places = page => page.evaluate(() => {
   const { ctx } = window.__op2, world = ctx.coop.world;
-  const r = n => Math.round(n * 1000) / 1000;
+  const r = n => Math.round(n * 1e5) / 1e5;
   const out = { vehicles: {}, men: {} };
   if (ctx.coop.hosting) {
     for (const v of ctx.enemies.vehicles?.live ?? []) { const id = world.vehicles.ids.get(v); if (id !== undefined && v.alive) out.vehicles[id] = { at: v.position.toArray().map(r), q: v.quaternion.toArray().map(r), turret: r(v.turretYaw ?? 0) }; }
@@ -128,8 +128,8 @@ const places = page => page.evaluate(() => {
 
 const apart = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
 const turned = (a, b) => Math.abs(Math.atan2(Math.sin(a - b), Math.cos(a - b))) * 180 / Math.PI;
-/** Degrees between two attitudes. */
-const tilted = (p, q) => 2 * Math.acos(Math.min(1, Math.abs(p[0] * q[0] + p[1] * q[1] + p[2] * q[2] + p[3] * q[3]))) * 180 / Math.PI;
+/** Degrees between two attitudes (as read: rounded, so not quite unit length). */
+const tilted = (p, q) => 2 * Math.acos(Math.min(1, Math.abs(p[0] * q[0] + p[1] * q[1] + p[2] * q[2] + p[3] * q[3]) / (Math.hypot(...p) * Math.hypot(...q)))) * 180 / Math.PI;
 const order = (kind, x, z, route) => ({ kind, order: { x, y: 0, z, route, tag: null, crew: [], crewTag: null, holds: false, holdYaw: NaN, parked: false } });
 
 export default async function (host, { sleep, outDir }) {
@@ -186,14 +186,24 @@ export default async function (host, { sleep, outDir }) {
     await shot(guest, 'guest-garrison');
     judge('The garrison', out.garrison);
     await host.evaluate(() => { window.__stopCircles = true; });
-    // They close up on the host and stand; then each copy is where its man is.
-    await host.waitForFunction(() => window.__op2.ctx.allies.allies.every(a => a.state === 'dead' || Math.hypot(a.body.velocity.x, a.body.velocity.z) < 0.05), null, { timeout: 30000 }).catch(() => {});
+    // They close up on the host and stand; then each copy is where its man is. A man counts as standing when two looks at
+    // him a second apart are the same.
+    let standing = {};
+    for (const until = Date.now() + 45000; Date.now() < until;) {
+      const first = (await places(host)).men;
+      await sleep(1000);
+      const second = (await places(host)).men;
+      standing = Object.fromEntries(Object.keys(second).map(id => [id, !!first[id] && apart(first[id].at, second[id].at) < 0.01 && turned(first[id].yaw, second[id].yaw) < 0.5]));
+      if (Object.values(standing).every(Boolean)) break;
+    }
     await sleep(2500);
     const menEnd = { host: await places(host), guest: await places(guest) };
-    const menOff = Object.keys(menEnd.host.men).map(id => ({ id, m: menEnd.guest.men[id] ? apart(menEnd.host.men[id].at, menEnd.guest.men[id].at) : Infinity, deg: menEnd.guest.men[id] ? turned(menEnd.host.men[id].yaw, menEnd.guest.men[id].yaw) : 180 }));
+    const menOff = Object.keys(menEnd.host.men).map(id => ({ id, standing: !!standing[id], m: menEnd.guest.men[id] ? apart(menEnd.host.men[id].at, menEnd.guest.men[id].at) : Infinity, deg: menEnd.guest.men[id] ? turned(menEnd.host.men[id].yaw, menEnd.guest.men[id].yaw) : 180 }));
     out.garrisonEnd = menOff;
-    check(menOff.length >= 2 && menOff.every(o => o.m <= limits.endM), `Standing again, every man's copy is where the host's man is (within ${limits.endM * 100} cm)`, menOff);
-    check(menOff.every(o => o.deg <= 5), 'and faces the same way (within 5 degrees)', menOff);
+    const stood = menOff.filter(o => o.standing);
+    check(stood.length >= 2, 'The garrison has come to a stand (at least two of them)', menOff);
+    check(stood.every(o => o.m <= limits.endM), `Standing again, every man's copy is where the host's man is (within ${limits.endM * 100} cm)`, menOff);
+    check(stood.every(o => o.deg <= 5), 'and faces the same way (within 5 degrees)', menOff);
 
     // --- 2. A scout car and a tank on the north field ----------------------------------------------------------------------
     await host.evaluate(() => { const { ctx } = window.__op2; for (const a of [...ctx.allies.allies]) ctx.allies.dismiss?.(a); });
@@ -213,18 +223,29 @@ export default async function (host, { sleep, outDir }) {
     out.vehicles = await measure('vehicles', 25);
     await shot(guest, 'guest-vehicles');
     judge('The vehicles', out.vehicles);
-    // At the end of their roads they stop: each copy is then where the host's machine is, hull and turret.
-    await host.waitForFunction(() => window.__op2.ctx.enemies.vehicles.live.every(v => Math.abs(v.drive?.speed ?? 0) < 0.05), null, { timeout: 90000 }).catch(() => {});
-    const stoppedAll = await host.evaluate(() => window.__op2.ctx.enemies.vehicles.live.map(v => Math.abs(v.drive?.speed ?? 0)));
-    out.stopped = stoppedAll;
+    // At the end of their roads they stop: each copy is then where the host's machine is, hull and turret. A machine counts
+    // as stopped when two looks at it a second apart are the same (a tank that goes on hunting never is, and is only said so).
+    const still = (a, b) => apart(a.at, b.at) < 0.01 && tilted(a.q, b.q) < 0.2;
+    let rest = {};
+    for (const until = Date.now() + 60000; Date.now() < until;) {
+      const first = (await places(host)).vehicles;
+      await sleep(1000);
+      const second = (await places(host)).vehicles;
+      rest = Object.fromEntries(Object.keys(second).map(id => [id, !!first[id] && still(first[id], second[id])]));
+      if (Object.values(rest).every(Boolean)) break;
+    }
+    out.atRest = rest;
     await sleep(2500);
     // The two pages are read one after the other: a turret still tracking moves a little in between, so it gets more room.
     const end = { host: await places(host), guest: await places(guest) };
-    const off = Object.keys(end.host.vehicles).map(id => { const h = end.host.vehicles[id], g = end.guest.vehicles[id]; return { id, m: g ? apart(h.at, g.at) : Infinity, deg: g ? tilted(h.q, g.q) : 180, turretDeg: g ? turned(h.turret, g.turret) : 180 }; });
-    out.vehiclesEnd = off;
-    check(off.length === 2 && off.every(o => o.m <= limits.endM), `Stopped, each copy is where the host's machine is (within ${limits.endM * 100} cm)`, { off, stoppedAll });
-    check(off.every(o => o.deg <= limits.endDeg), `with its hull the same way up and round (within ${limits.endDeg} degrees)`, off);
-    check(off.every(o => o.turretDeg <= 12), 'and its turret round where the host\'s is (within 12 degrees)', off);
+    const off = Object.keys(end.host.vehicles).map(id => { const h = end.host.vehicles[id], g = end.guest.vehicles[id]; return { id, atRest: !!rest[id], m: g ? apart(h.at, g.at) : Infinity, deg: g ? tilted(h.q, g.q) : 180, turretDeg: g ? turned(h.turret, g.turret) : 180 }; });
+    out.vehiclesEnd = { off, end };
+    const rested = off.filter(o => o.atRest);
+    check(rested.length >= 1, 'At least the scout car has come to rest', off);
+    check(rested.every(o => o.m <= limits.endM), `Stopped, each copy is where the host's machine is (within ${limits.endM * 100} cm)`, off);
+    check(rested.every(o => o.deg <= limits.endDeg), `with its hull the same way up and round (within ${limits.endDeg} degrees)`, off);
+    check(rested.every(o => o.turretDeg <= 12), 'and its turret round where the host\'s is (within 12 degrees)', off);
+    for (const o of off.filter(o => !o.atRest)) progress(`vehicle ${o.id} never came to rest (it goes on hunting): it is ${Math.round(o.m * 100)} cm from the host's, which is ${Math.round((out.vehicles.lagMs.p50 || 0))} ms ahead of it`);
     check(out.errors.length === 0, 'No page exceptions', out.errors);
     return out;
   } catch (error) {

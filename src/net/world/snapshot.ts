@@ -64,6 +64,18 @@ export const CONE_M = 70;
 export const CONE_COS = 0.5;
 /** With this few enemies left, all of them are near. */
 export const LAST_FEW = 4;
+/**
+ * An enemy that stops being near is still sent every tick for this many ticks (one second). At the edge of the ring or of
+ * the cone an enemy would otherwise change tier every tick or two (measured: a tier change every 2 s per enemy, one in ten
+ * of them undone within a tick), and each change moves how far back a guest draws it.
+ */
+export const NEAR_HOLD_TICKS = 20;
+/**
+ * For the last this many of those ticks its records already say "far". A guest draws a far enemy further back, and gets
+ * there by running its playhead slow for about half a second: told while states still come every tick, it has fallen back
+ * before they thin out. Told only when they thin, its playhead ran past the newest state and the enemy slowed to a stop.
+ */
+export const FALL_BACK_TICKS = 12;
 
 export const HEADER_BYTES = 16;
 export const MOTION_BYTES = 27;

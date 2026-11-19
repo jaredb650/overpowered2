@@ -158,51 +158,66 @@ async function measureCase(build, c) {
 
 const cm = v => (Number.isFinite(v) ? (v * 100).toFixed(1) : '-');
 const ms = v => (Number.isFinite(v) ? String(Math.round(v)) : '-');
-const head = row => `| ${row.c.enemies} | ${row.c.hostFps ? `${row.c.hostFps} fps` : 'uncapped'} | ${row.c.net || 'clean'} | ${row.build} |`;
+const head = row => `| ${row.c.enemies} | ${row.c.hostFps ? `${row.c.hostFps} fps` : '60 fps'} | ${row.c.net || 'clean'} | ${row.build} |`;
+const measured = rows => rows.filter(row => row.status === 'measured');
 
-/** One yardstick for both builds: everything here comes from the two recordings, nothing from what a lane says of itself. */
-const CLASS_HEAD = ['Share | How old the picture is, ms (p50 / p95) | Off the host\'s true place now, cm (p50 / p95) | Off its path, cm (p50 / p95 / p99) | Speed error p95, m/s | Stood still, % of moving frames | Stalls a minute per enemy | Longest stall, ms | Jumps a minute per enemy | Back-steps a minute per enemy |',
-  '---:|---|---|---|---:|---:|---:|---:|---:|---:|'];
-const classCells = k => !k?.samples ? '0% | | | | | | | | | |'
-  : `${Math.round(k.share * 100)}% | ${ms(k.lagMs.p50)} / ${ms(k.lagMs.p95)} | ${cm(k.nowError.p50)} / ${cm(k.nowError.p95)} | ${cm(k.offPath.p50)} / ${cm(k.offPath.p95)} / ${cm(k.offPath.p99)} | ${k.speedError.p95.toFixed(2)} | ${k.stall.percent} | ${k.stall.perEnemyMinute} | ${ms(k.stall.ms.max)} | ${k.jumps.perEnemyMinute} | ${k.backsteps.perEnemyMinute} |`;
+// Every table but the last is the one yardstick (coop-motion-measure.mjs `common`): taken from the two recordings alone,
+// the same way for any build, nothing from what a lane says of itself.
 
-function tableCommon(rows) {
-  const lines = [`| Enemies | Host | Network | Build | Pages, fps (host / guest) | Load | ${CLASS_HEAD[0].replace('Share | ', '')} Snapshot B/s |`, `|---:|---|---|---|---|---:|${CLASS_HEAD[1].replace('---:|', '')}---:|`];
+/** What a player looks at: the enemies on the guest's screen. */
+function tableSeen(rows) {
+  const lines = ['| Enemies | Host | Network | Build | Picture is this old, ms (p50 / p95) | Off the host\'s path, cm (p50 / p95 / p99) | Speed error p95, m/s | Stood still, % of moving frames | Stalls a minute per enemy | Longest stall, ms | Jumps a minute per enemy |',
+    '|---:|---|---|---|---|---|---:|---:|---:|---:|---:|'];
   for (const row of rows) {
-    if (row.status !== 'measured') { lines.push(`${head(row)} not measured: ${row.why} | | | | | | | | | | | |`); continue; }
-    const r = row.result;
-    lines.push(`${head(row)} ${r.hostFps} / ${r.guestFps} | ${row.load?.before ?? '-'} | ${classCells(r.common.all).replace(/^\d+% \| /, '')} ${r.bytes.snapshotsPerSecond} |`);
+    if (row.status !== 'measured') { lines.push(`${head(row)} not measured: ${row.why} | | | | | | |`); continue; }
+    const k = row.result.common.seen;
+    lines.push(`${head(row)} ${ms(k.lagMs.p50)} / ${ms(k.lagMs.p95)} | ${cm(k.offPath.p50)} / ${cm(k.offPath.p95)} / ${cm(k.offPath.p99)} | ${k.speedError.p95.toFixed(2)} | ${k.stall.percent} | ${k.stall.perEnemyMinute} | ${ms(k.stall.ms.max)} | ${k.jumps.perEnemyMinute} |`);
   }
   return lines.join('\n');
 }
 
-/** The same columns for a part of the crowd: near and far by the host's rule, or on and off the guest's screen. */
-function tableClasses(rows, classes) {
-  const lines = [`| Enemies | Host | Network | Build | Which | ${CLASS_HEAD[0]}`, `|---:|---|---|---|---|${CLASS_HEAD[1]}`];
-  for (const row of rows) {
-    if (row.status !== 'measured') continue;
-    for (const key of classes) lines.push(`${head(row)} ${key} | ${classCells(row.result.common[key])}`);
+/** The whole crowd, and how each run went: the pages' frame rates, the machine's load, the bytes. */
+function tableCrowd(rows) {
+  const lines = ['| Enemies | Host | Network | Build | Pages, fps (host / guest) | Guest frame, ms (p95 / longest) | Load | Picture is this old, ms (p50 / p95) | Off the host\'s true place at that instant, cm (p50 / p95) | Off its path, cm (p50 / p95 / p99) | Stood still, % | Stalls a minute per enemy | Jumps a minute per enemy | Snapshot B/s | All lanes B/s |',
+    '|---:|---|---|---|---|---|---:|---|---|---|---:|---:|---:|---:|---:|'];
+  for (const row of measured(rows)) {
+    const r = row.result, k = r.common.all;
+    lines.push(`${head(row)} ${r.hostFps} / ${r.guestFps} | ${ms(r.frames.guestMs.p95)} / ${ms(r.frames.guestMs.max)} | ${row.load?.before ?? '-'} | ${ms(k.lagMs.p50)} / ${ms(k.lagMs.p95)} | ${cm(k.nowError.p50)} / ${cm(k.nowError.p95)} | ${cm(k.offPath.p50)} / ${cm(k.offPath.p95)} / ${cm(k.offPath.p99)} | ${k.stall.percent} | ${k.stall.perEnemyMinute} | ${k.jumps.perEnemyMinute} | ${r.bytes.snapshotsPerSecond} | ${r.bytes.hostAllLanesPerSecond} |`);
   }
   return lines.join('\n');
 }
 
-/** What each lane says of itself (the earlier table's columns): the new lane against its own playhead, the old at one best delay. */
+/** Parts of the crowd side by side, one line a run: each part's share, age, distance off the path and stalls. */
+function tableParts(rows, parts) {
+  const cell = k => (!k?.samples ? ' - | - | - | - |' : ` ${Math.round(k.share * 100)}% | ${ms(k.lagMs.p50)} / ${ms(k.lagMs.p95)} | ${cm(k.offPath.p50)} / ${cm(k.offPath.p95)} / ${cm(k.offPath.p99)} | ${k.stall.percent}% (${k.stall.perEnemyMinute}), ${k.jumps.perEnemyMinute} |`);
+  const lines = [`| Enemies | Host | Network | Build |${parts.map(([, name]) => ` ${name}: share | age, ms (p50 / p95) | off its path, cm (p50 / p95 / p99) | stood still (stalls a minute per enemy), jumps a minute per enemy |`).join('')}`,
+    `|---:|---|---|---|${parts.map(() => '---:|---|---|---|').join('')}`];
+  for (const row of measured(rows)) lines.push(`${head(row)}${parts.map(([key]) => cell(row.result.common[key])).join('')}`);
+  return lines.join('\n');
+}
+
+/** What each lane says of itself (the first table's columns): the new lane against its own playhead, the old at one best delay. */
 function tableOwn(rows) {
-  const lines = ['| Enemies | Host | Network | Build | Drawn behind, ms | Error p50 / p95 / p99, cm | Yaw error p50 / p95, deg | Stalled frames | Stalls a minute per enemy | Step p95, cm | Frame time p50 / p95 / max, ms (host; guest) | All lanes B/s |',
-    '|---:|---|---|---|---:|---|---|---:|---:|---:|---|---:|'];
-  for (const row of rows) {
-    if (row.status !== 'measured') continue;
+  const lines = ['| Enemies | Host | Network | Build | Drawn behind, ms | Error p50 / p95 / p99, cm | Yaw error p50 / p95, deg | Jitter the lane measured, ms |',
+    '|---:|---|---|---|---:|---|---|---:|'];
+  for (const row of measured(rows)) {
     const r = row.result;
     // Against the moment the guest says it is drawing, where it says (the new lane); else the one delay that fits best.
     const e = r.declared?.error ?? r.error, y = r.declared?.yaw ?? r.yaw;
     const behind = r.declared ? `${Math.round(r.declared.behindMs.p50)} (p95 ${Math.round(r.declared.behindMs.p95)})` : `${r.delay}`;
-    const f = r.frames ? `${ms(r.frames.hostMs.p50)} / ${ms(r.frames.hostMs.p95)} / ${ms(r.frames.hostMs.max)}; ${ms(r.frames.guestMs.p50)} / ${ms(r.frames.guestMs.p95)} / ${ms(r.frames.guestMs.max)}` : '-';
-    lines.push(`${head(row)} ${behind} | ${cm(e.p50)} / ${cm(e.p95)} / ${cm(e.p99)} | ${y.p50.toFixed(1)} / ${y.p95.toFixed(1)} | ${r.stalls.frames} (${r.stalls.percent}%) | ${r.stalls.perEnemyMinute} | ${cm(r.step.p95)} | ${f} | ${r.bytes.hostAllLanesPerSecond} |`);
+    lines.push(`${head(row)} ${behind} | ${cm(e.p50)} / ${cm(e.p95)} / ${cm(e.p99)} | ${y.p50.toFixed(1)} / ${y.p95.toFixed(1)} | ${r.jitterMs ? ms(r.jitterMs.p50) : '-'} |`);
   }
   return lines.join('\n');
 }
 
-const table = rows => `One yardstick for both builds, the whole crowd:\n\n${tableCommon(rows)}\n\nOn the guest's screen, just come onto it, and off it:\n\n${tableClasses(rows, ['seen', 'entered', 'unseen'])}\n\nNear and far by the host's rule:\n\n${tableClasses(rows, ['near', 'far'])}\n\nKnocked down (a ragdoll on each screen's own physics) and the 3 s after, kept out of the tables above:\n\n${tableClasses(rows, ['down', 'rising'])}\n\nWhat each lane says of itself:\n\n${tableOwn(rows)}`;
+const table = rows => [
+  `**On the guest's screen** (what a player looks at):\n\n${tableSeen(rows)}`,
+  `**The whole crowd, and how each run went:**\n\n${tableCrowd(rows)}`,
+  `**Near and far enemies apart** (by the host's rule at that moment):\n\n${tableParts(rows, [['near', 'Near'], ['far', 'Far']])}`,
+  `**Just come onto the screen** (on it for under a second), **and off it:**\n\n${tableParts(rows, [['entered', 'Just on screen'], ['unseen', 'Off screen']])}`,
+  `**Knocked down** (a ragdoll on each screen's own physics, by design) **and the 3 s after**, kept out of every table above:\n\n${tableParts(rows, [['down', 'Down'], ['rising', 'Getting up']])}`,
+  `**What each lane says of itself:**\n\n${tableOwn(rows)}`,
+].join('\n\n');
 
 if (args.includes('--reanalyse')) {
   const { analyse } = await import('./coop-motion-measure.mjs');

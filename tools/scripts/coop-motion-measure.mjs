@@ -195,13 +195,15 @@ export function analyse(hostRec, guestRec) {
       track.down.push(HF > 6 ? hostRec.data[at + 6] : 0);
     }
   }
-  // Where the host itself moved an enemy in one frame (a stranded one re-entering through a spawn point, a leap's landing
-  // correction): no netcode can draw that as motion, so half a second either side of it is left out of the comparison.
+  // Where the host itself moved an enemy in one frame (a stranded one re-entering through a spawn point, one set on a ledge
+  // 3 m up, a leap's landing correction): no netcode can draw that as motion, so half a second either side of it is left
+  // out of the comparison. Over 3 m in a frame, or over 1 m at more than 30 m/s (no enemy runs a third as fast).
   let teleports = 0;
   for (const track of truth.values()) {
     track.jumps = [];
     for (let i = 1; i < track.t.length; i++) {
-      if (Math.hypot(track.x[i] - track.x[i - 1], track.y[i] - track.y[i - 1], track.z[i] - track.z[i - 1]) > 3) { track.jumps.push(track.t[i]); teleports++; }
+      const step = Math.hypot(track.x[i] - track.x[i - 1], track.y[i] - track.y[i - 1], track.z[i] - track.z[i - 1]);
+      if (step > 3 || (step > 1 && step > 0.03 * (track.t[i] - track.t[i - 1]))) { track.jumps.push(track.t[i]); teleports++; }
     }
   }
   const scratch = { x: 0, y: 0, z: 0, yaw: 0, far: 0, down: 0 };
@@ -423,7 +425,9 @@ function common(drawn, where, crowdDelay) {
         }
         const p = i > 0 ? track[i - 1] : null;
         // Two frames a few milliseconds apart (a page catching up after a hitch) say nothing about standing still.
-        if (!p || s.t - p.t >= 120 || s.t - p.t < 4 || !twinMoves) { endStall(); continue; }
+        // Nor does the frame a ragdoll takes the body or hands it back: what is recorded changes there from the body's
+        // middle to its feet, which is no movement.
+        if (!p || s.t - p.t >= 120 || s.t - p.t < 4 || !twinMoves || p.down !== s.down) { endStall(); continue; }
         const dt = (s.t - p.t) / 1000;
         const gx = (s.x - p.x) / dt, gy = (s.y - p.y) / dt, gz = (s.z - p.z) / dt, guestSpeed = Math.hypot(gx, gy, gz);
         // The twin's fastest speed within 150 ms either side: what a frame's movement may fairly be.

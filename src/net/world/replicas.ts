@@ -3,7 +3,8 @@
  *
  * **Host.** A steady 20-a-second tick (`SendClock`, never tied to the frame rate). On each tick every guest gets the enemies
  * due to them: the near ones (within `NEAR_M`, or ahead of them, or a boss, or one of the last few) every tick, the far ones
- * every fourth. They go as chunks of at most `CHUNK_BYTES` on the unreliable `world` lane (snapshot.ts), each stamped with
+ * every fourth. One that stops being near is still sent every tick for a second, its records saying "far" for the last part
+ * of it, so the guest has fallen back to the far tier's delay before its states thin out. They go as chunks of at most `CHUNK_BYTES` on the unreliable `world` lane (snapshot.ts), each stamped with
  * the host's clock, and a guest whose connection is behind is skipped for that tick. Twice a second a roster names everyone
  * still alive.
  *
@@ -22,7 +23,7 @@ import { HELMET } from '../../enemies/wounds/armour';
 import { capturable } from './capture';
 import type { WorldContext, WorldModule } from './context';
 import { HostClock, MotionBuffer, SendClock, motionSample, type MotionSample } from './motion';
-import { AIRBORNE, BOSS_ENTRY, BURNING, CAPTURABLE, CEILING_BYTES, ChunkReader, ChunkWriter, DOWNED, FAR_EVERY, FAR_EVERY_TIGHT, FROZEN, FULL_TICKS,
+import { AIRBORNE, BOSS_ENTRY, BURNING, CAPTURABLE, CEILING_BYTES, ChunkReader, ChunkWriter, DOWNED, FALL_BACK_TICKS, FAR_EVERY, FAR_EVERY_TIGHT, FROZEN, FULL_TICKS, NEAR_HOLD_TICKS,
   POSTURES, ROSTER_EVERY, SHIELD, TICK_MS, WARD, WAVE_PHASES, dueOn, intervalOf, keyOn, tierOf, unwrap, wireEnemy, type PostureId, type WireEnemy } from './snapshot';
 import type { Targeting } from './targeting';
 import { ENEMY_IDS, REGIONS } from './wire';
@@ -99,8 +100,8 @@ const DEAD_MAX = 1024;
 
 /** Host: what was last sent in an enemy's full record, to know when it changed. */
 interface Sent { first: number; fullUntil: number; health: number; maxHealth: number; armor: number; rest: number; target: number }
-/** Host: one guest's lane. */
-interface Guest { windowAt: number; bytes: number; farEvery: number }
+/** Host: one guest's lane. `near`: the tick each enemy was last near this guest (it is held near a while after, `NEAR_HOLD_TICKS`). */
+interface Guest { windowAt: number; bytes: number; farEvery: number; near: Map<number, number> }
 
 const _eye = new THREE.Vector3();
 
@@ -442,7 +443,7 @@ export class Replicas implements WorldModule {
     const { ctx, manager, session } = this.w;
     const alive = manager.alive;
     let guest = this.guests.get(id);
-    if (!guest) this.guests.set(id, guest = { windowAt: now, bytes: 0, farEvery: FAR_EVERY });
+    if (!guest) this.guests.set(id, guest = { windowAt: now, bytes: 0, farEvery: FAR_EVERY, near: new Map() });
     if (now - guest.windowAt >= 1000) {
       guest.farEvery = farEveryFor(guest.bytes * 1000 / (now - guest.windowAt), guest.farEvery);
       guest.windowAt = now;
@@ -461,9 +462,15 @@ export class Replicas implements WorldModule {
       const enemy = alive[index]!;
       const sent = this.sent.get(enemy.uid)!;
       const tier = placed ? tierOf(enemy.position.x - gx, enemy.position.y - gy, enemy.position.z - gz, fx, fz, enemy.isBoss, alive.length) : 0;
-      const sentTier = tier === 0 ? 0 : guest.farEvery === FAR_EVERY ? 1 : 2;
+      // Near a moment ago is still sent every tick (no flipping between the tiers at the edge of the ring or of the cone),
+      // and for the last part of that its records say "far", so the guest falls back before the states thin out.
+      if (tier === 0) guest.near.set(enemy.uid, tick);
+      const left = tier === 0 ? 0 : tick - (guest.near.get(enemy.uid) ?? -Infinity);
+      // (Not while this guest is over the byte ceiling and the far tier is thinned: then nothing extra is sent.)
+      const held = tier !== 0 && left <= NEAR_HOLD_TICKS && guest.farEvery === FAR_EVERY;
+      const sentTier = tier === 0 || (held && left <= NEAR_HOLD_TICKS - FALL_BACK_TICKS) ? 0 : guest.farEvery === FAR_EVERY ? 1 : 2;
       // A new enemy goes to everyone on its first two ticks, wherever it is, so it appears on time.
-      if (!dueOn(enemy.uid, tick, tier, guest.farEvery) && tick > sent.first + 1) continue;
+      if (!held && !dueOn(enemy.uid, tick, tier, guest.farEvery) && tick > sent.first + 1) continue;
       this.fill(e, enemy, sentTier, tick <= sent.fullUntil || keyOn(enemy.uid, tick), sent.target);
       if (open && !writer.fits(e.full)) { this.flush(id, guest); open = false; }
       if (!open) { writer.begin(0, now, tick, waves.wave, waves.phase, waves.nextWaveIn, alive.length, tickMs); open = true; }
@@ -511,6 +518,7 @@ export class Replicas implements WorldModule {
     alive.clear();
     for (const enemy of this.w.manager.alive) alive.add(enemy.uid);
     for (const uid of this.sent.keys()) if (!alive.has(uid)) this.sent.delete(uid);
+    for (const guest of this.guests.values()) for (const uid of guest.near.keys()) if (!alive.has(uid)) guest.near.delete(uid);
     for (const id of this.guests.keys()) if (!this.w.session.lobby.players.some(player => player.id === id)) this.guests.delete(id);
     for (const sent of this.w.snapshotSent) sent(alive);
   }
