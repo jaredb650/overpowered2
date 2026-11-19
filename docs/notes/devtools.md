@@ -212,7 +212,8 @@ the first frame that differs with the numbers and events that differ there, and 
 **All of it in one command:** `node tools/solo-parity.mjs --old <port B> --new <port A> --out tools/out/<you>/parity` plays
 every scenario (36) on both builds, six to a browser run, and prints one line each (`same`, or the first difference). It knows the
 differences that are meant to be there (`EXPECTED` at its top) and exits 1 on any other. `--long` adds the three runs to the
-round-10 ending. About 25 minutes without the queue, 55 with `--long`. **Run it before merging anything that should not
+round-10 ending. `--serial` plays the old build's run and then the new one's, so the comparison holds one browser slot
+instead of two (twice as long). About 25 minutes without the queue, 55 with `--long`. **Run it before merging anything that should not
 change single player.**
 
 **What makes two builds comparable.**

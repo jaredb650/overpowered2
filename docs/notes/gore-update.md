@@ -120,6 +120,8 @@ Shared files and contracts:
 | `?messpush=0` (dev panel: "Corpses are pushed aside") | on | Off: nothing at rest is woken by the player or an enemy walking into it, or by a body landing on it: corpses are walked through untouched, as before | mess |
 | `?messfar=0` (dev panel: "Far corpses baked") | on | Off: no body is baked into the far batch, and every body kept stays a character, as in P1 | mess |
 | Settings, Video, "Mess" | Standard | Low / Clear at wave break / Standard / Everything: how many bodies, limbs, pieces and how much blood stay (`MESS` in `src/gore/mess.ts`) | mess |
+| Settings, Video, "Graphics quality" | High | Low and Medium: the decal sheet at half size (21 MB for 85), fewer or no floor tiles, fewer big stains, fewer struck parts on physics, fewer burning bodies' lights (`QualityPreset` in `src/render/quality.ts`). High and Ultra are the update as built | verify |
+| Dynamic resolution (`?drs=1` in a test; on for a player) | on | With it, the gore update's own step-down: when frames are missed and resolution is not the cause, heaps give up their capsules in order, fewer corpses are drawn as characters, still pieces shrink away, then fewer bodies simulate (`LoadGovernor` in `src/gore/load.ts`). `?drs=0` turns both off | verify |
 | `?bloodmap=0`, lab row "Blood: old stains kept on floors" | on | P2: dried floor stains kept in floor tiles after their decals are overwritten, against stains that go when the ring comes round | decals |
 | `?dryflesh=0`, dev panel "Flesh dries" | on | Torn faces, loose meat, and the blood and bared flesh on the dead dull over a minute and a half as the blood on the floor does, against flesh that stays as wet and bright as when it was made | fit |
 | `?onestep=1`, dev panel "Physics: one step a 60 Hz frame" | **off** (the lead's call: it changes the whole game's physics stepping, and the owner said the physics as it is "seems fundamental to the current feel") | A frame up to 6% over 1/60 s is one physics step. Off: every frame a hair over 1/60 s is cut in two steps, as it always was (1.57 world steps a frame at 60 Hz, each the cost of one). **Not gore's alone: it is the whole game's physics step** | fit |
@@ -479,3 +481,28 @@ red under the weapon light) have no switch: each replaces a fault, and the befor
     as nothing and thrown away rather than left as dead knobs.
   - **Pictures and what to look at:** `tools/out/gore-update/fit/LOOK.md` and `fit/pictures/`.
 - 2026-11-19, lead: agent gore-fit found that on a 60 Hz screen more than half of all frames ran two physics steps and made every such frame one step (about a third less physics time in a heavy fight). That changes how the WHOLE game's physics is stepped for a 60 Hz player (the owner's Mac), and on 2026-11-18 he pinned a change to the physics build with the words "the current physics build works well and seems fundamental to the current feel". So the switch is **off by default** (`?onestep=1` or the dev panel row turns it on); the cost tables in `docs/notes/gore.md` that quote the one-step figure are with it ON. For the owner to compare by playing.
+- 2026-11-19, verify, **the cost, the settings and a leak** (`docs/notes/gore.md`: "The whole update: what it costs",
+  "A laptop, reasoned", "What follows which setting"). On the final build against the old game (`d2e2f8a`), this machine,
+  1440x900 dpr 2, High, Standard:
+  - **Drawing is cheaper than the old game** (the heap fight 596 draw calls against 691, the same triangles) after
+    fit's baked limbs. **The physics step is the cost:** 1.6 ms to 5.1 ms in the heap fight (3.3 with `?onestep=1`),
+    and the whole frame's script 10.3 ms to 13.1 (12.1). An ordinary fight is the same or cheaper.
+  - **At half this processor's speed** (about the owner's M1, by its own figures in `render.md`): ordinary fight 58
+    frames a second before, 59 now; the heap fight 46 before, 29 now as the lanes built it, **53 with the step-down
+    added in this pass** (56 with `?onestep=1`). At a quarter speed 16, 13 and 21.
+  - **Tied to settings** (commit `19c82db`): Mess at Low does not heap; Low and Medium quality halve the decal sheet
+    (baked again live when the setting changes), drop floor tiles and big stains, swing fewer struck parts and light
+    fewer burning bodies; and an automatic step-down behind dynamic resolution. High and Standard are untouched.
+    Decided: the step-down never takes anything off the floor in view (no ring shortened, no piece retired): the heap
+    settles in order, and corpses are baked where they always were (out of sight or past 11 m).
+  - **A leak, fixed** (`cb9a461`): since fit's step 1 a trunk piece or a blade's half is an instanced mesh of one, and
+    nothing disposed it. The fixed-crowd soak (`soak-memory.mjs`, 12 rounds of 36 kills): 110 GPU buffers and 100
+    vertex arrays more every round on `00a6c7e` (4,431 to 6,221 buffers), level after the fix (4,940 to 4,970), as the
+    old game is (1,982). `verify/soak/`.
+  - **Memory, not fixed:** GPU 530 to 610 MB before, 660 to 780 now. Beside the sheet (+43) and the batches (+35), about
+    100 to 130 MB is every enemy type's skin being uploaded at load, because the pieces cut from each at load are
+    meshes in the scene from the first frame (the old game uploaded a type's skin when it first appeared). Hiding a
+    piece kind's mesh until its first piece would give it back and would move a texture upload and perhaps a compile
+    to the first gib of each type: a trade for the owner, written up and left.
+  - Not measured: anything on a laptop. The GPU's own time cannot be read on an RTX 4090 (it is never the limit).
+
