@@ -558,7 +558,8 @@ export default async function (host, { sleep, outDir }) {
           c.expect(s, w, ok, info);
           // What holds for every weapon: nothing of a friend's gun plays in the watcher's own head, the watcher sent nothing
           // of its own, and nothing drawn hurt or lit anything on the watcher's copy of the enemies.
-          const flat = w.log.flat.filter(id => !/^(ui_|music|hit_|kill_|headshot|loop:amb|amb_|step|foot|land|wind|heartbeat|loop:wind|loop:music)/.test(id));
+          // (Not a weapon's: the team's slow-mo coming and going, which Gun Kata starts, and the watcher's own perk running out.)
+          const flat = w.log.flat.filter(id => !/^(ui_|music|hit_|kill_|headshot|loop:amb|amb_|step|foot|land|wind|heartbeat|loop:wind|loop:music|time_warp_|perk_)/.test(id));
           ok(flat.length === 0, 'no sound of the friend\'s weapon is unplaced', flat);
           ok(sum(w.sent) - w.sent.bytes - w.sent.held === 0, 'the watcher sent nothing of its own', w.sent);
           result.watchers[name] = { drawn: w.drawn, watched: w.watched, fx: w.log.fx, decals: w.log.decals, sounds: w.log.sounds, loops: w.log.loops, lights: w.log.lights };

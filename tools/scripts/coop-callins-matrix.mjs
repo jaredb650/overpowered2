@@ -192,22 +192,25 @@ export default async function (host, { sleep, outDir }) {
         // ground: on a walkway over a drop (where this mark once fell) the men float over the pit, the Warthog's shells land
         // 6 to 8 m under them, and whether it kills anyone is the luck of its scatter. That was the "Warthog that dealt no
         // damage": no claim was lost, nothing was in reach of a blast on any screen.
-        let level = true;
+        // (4 m out, 25 points: the ring of men is 2.2 m and a blast 5 m. The spot with the fewest points off the level wins,
+        // and how many were off is written down with the mark.)
+        let off = 0;
         const down = new V(0, -1, 0);
-        for (let dx = -7; dx <= 7 && level; dx += 3.5) for (let dz = -7; dz <= 7; dz += 3.5) {
+        for (let dx = -4; dx <= 4; dx += 2) for (let dz = -4; dz <= 4; dz += 2) {
           const floor = ctx.physics.raycast(new V(snapped.x + dx, snapped.y + 12, snapped.z + dz), down, 40, WORLD);
-          if (!floor || Math.abs(snapped.y + 12 - floor.distance - snapped.y) > 0.7) { level = false; break; }
+          if (!floor || Math.abs(12 - floor.distance) > 0.7) off++;
         }
-        if (!level) continue;
         const to = new V(snapped.x, snapped.y + 1.2, snapped.z).sub(eye); const far = to.length();
         if (ctx.physics.raycast(eye, to.divideScalar(far), far - 0.5, WORLD)) continue;
-        const score = Math.abs(a) * 10 + Math.abs(d - 34);
-        if (score < bestScore) { bestScore = score; best = snapped.toArray(); }
+        const score = off * 100 + Math.abs(a) * 10 + Math.abs(d - 34);
+        if (score < bestScore) { bestScore = score; best = [...snapped.toArray(), off]; }
       }
       return best;
     }, [spawnAt, yaw]);
-    if (!mark) throw new Error('No open, level ground in sight of the spawn to put the mark on');
+    if (!mark) throw new Error('No open ground in sight of the spawn to put the mark on');
+    out.markOffLevel = mark.pop();
     out.mark = mark;
+    progress(`the mark is at ${mark.map(n => n.toFixed(1)).join(', ')}: ${out.markOffLevel} of 25 points within 4 m are off the level`);
     const side = [Math.cos(yaw), 0, -Math.sin(yaw)];
     // Everyone stands in a row at the spawn, two metres apart, looking at the mark.
     const stand = i => [spawnAt[0] + side[0] * (i - (pages.length - 1) / 2) * 2.5, spawnAt[1], spawnAt[2] + side[2] * (i - (pages.length - 1) / 2) * 2.5];
