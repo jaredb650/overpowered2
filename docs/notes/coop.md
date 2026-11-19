@@ -599,6 +599,10 @@ other page (same browser id) and a host on its way out to a map page are never r
 player: if its guests are under a new host it joins them, and if the new lobby is still empty and newer, that lobby's player
 joins the old host's new match instead.
 
+**A host answers a guest's hello with its own.** The hello a host sends as a connection comes up can be missed by a page that
+left the room and came straight back; a guest that hears no host's hello has no host and gives up with "lobby not found" (seen
+over real WebRTC, with the host that gave way). So every guest hello that is admitted is answered.
+
 **A guest takes back only the host it knew.** While "Reconnecting", a guest accepts a host's hello from a new connection only
 when it carries the browser id of the host it had (`hostBrowser`): its own host's new page or remade connection. Anyone else who
 says "host" on the code is ignored (it used to be taken as the host). The regroup's elected host needs no exception: by then the
@@ -748,9 +752,29 @@ lobby-page reload), `src/net/seatHooks.test.ts` (what a lost player lets go of, 
 | `coop-fixsession-return` | A guest's line dead for 20 s and more while every page runs (`sim.cut`), then back on the same page: the seat kept, its slow-mo let go, the wave event it missed replayed with the host's clock, the vote, no second seat; "I am down", Ghost, the kit and the gun in hand said again and in force on the host. The last one standing losing their link: no wipe for 10 s, none if back in time, the wipe at 10 s if not, and the board for the page that was away |
 | `coop-fixsession-reload` | `FIX_CASE=lobby`: a guest, then the host, reload on the lobby page and are back in the same room in the same seats, and a match starts from it. `defense`: a reload mid-match in Outpost Defense gives the kit back and opens no loadout screen. `hostlate`: a host whose page comes back after its guests regrouped gives way and joins their lobby; one room, one host, a match from it |
 
+| `coop-fixsession-callins` | Endless Humans, three players and a late fourth. The skyhook for the host's prisoner and for a guest's: every guest flies the drone and lifts its copy of the man. The jammer: a guest's call is held and says why, and goes when it lifts. A late joiner has the host's gunship and a guest's sentry on its screen at once, as old as their callers'. A screen stalled 3 s catches its copy up. An enemy's missile at the host's gunship flies and bursts on the watchers' screens. A caller whose line drops: its copy leaves the other screens with the seat and is back, as old as the caller's, when the page returns |
+
+Runs on 2026-11-19 (fast mode, 1280x720, the machine shared with nine other lanes' proofs):
+
+| Proof | Players | Network | Transport | Result |
+|---|---|---|---|---|
+| return | 3 | clean | loopback | 26 of 26. Seat lost after 20.9 s of silence, back 1.6 s after the line, everything said again within 1.8 s, wipe 10.06 s after the loss |
+| return | 3 | lag 120, jitter 40, loss 5% | loopback | 26 of 26. Lost 21.4 s, back 1.4 s, said again 2.0 s, back in time 2.0 s, wipe 10.05 s. (The first bad-network run found the wipe grace ending as the seat passed through `loading`: fixed, `LOST_BACK_MS`) |
+| reload, lobby | 3 | clean | loopback | 19 of 19. The host's lobby open again 9.2 s after its reload. (The first run found two guests swapping slots: fixed, slots are kept by seat) |
+| reload, defense | 2 | clean | loopback | 6 of 6 |
+| reload, host late | 3 | clean | loopback | 8 of 8. Regrouped 40.2 s after the host's page went, the old host in their lobby as a guest at 48.6 s |
+| call-ins | 3 + 1 late | clean | loopback | 24 of 24 (two runs: skyhook and jammer, then the rest). Late joiner's gunship 22.80 s old against the host's 22.83 s, 4 cm apart; after the stall the ages are 7 ms apart |
+| call-ins | 3 + 1 late | lag 120, jitter 40, loss 5% | loopback | 24 of 24 |
+| `coop-worldb-vehicles` (the vehicles' new lane) | 2 | clean | loopback | 27 checks, as before the lane changed |
+
+Real WebRTC, four players and the lobby case under the bad network: see the plan's log (`coop-overhaul.md`, fix-session) for
+what was run after this table was written.
+
 ### Not done
 
 - The one-tab takeover warning (above) is not proven in a browser: the loopback proofs switch the one-tab rule off.
+- A guest's own save recording a mission won in co-op is unit-tested only: on the loopback transport every page shares one
+  browser profile's storage, so a browser proof could not tell the guest's flag from the host's.
 - Two hosts that both have players on one code stay two rooms (it needs both to have gathered players apart; there is no merge).
 
 ## Gore on every screen
