@@ -5,6 +5,9 @@
 import * as THREE from 'three';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { REGROUP_SECONDS } from '../campaign/coop';
+// This browser's save (the campaign's unlock): a spy, so a test can see who wrote to it.
+const saved = vi.hoisted(() => ({ record: vi.fn(() => true) }));
+vi.mock('../contracts/unlocks', () => ({ recordCampaignBeaten: saved.record, campaignBeaten: () => false, isLocked: () => false, isShut: () => false }));
 import { MissionRunner } from '../campaign/runner';
 import { FakeHost } from '../campaign/testkit';
 import type { Mission, MissionHost } from '../campaign/types';
@@ -317,6 +320,28 @@ describe('a mission run by the host and played on every screen', () => {
     // Won: every screen has the mission's numbers for the board.
     expect(game.hc.host.finishedCount).toBe(1);
     expect(game.gw.mission.result).toMatchObject({ title: 'Test', deaths: 0 });
+    // This test mission opens nothing, so nothing is written to the guest's save.
+    expect(saved.record).not.toHaveBeenCalled();
+    game.hw.dispose(); game.gw.dispose();
+  });
+
+  it('a mission that opens something, won together, is recorded on the guest\'s own save as on the host\'s; a run begun part-way is not', () => {
+    saved.record.mockClear();
+    const game = pair();
+    game.start();
+    const runner = game.hc.runner as unknown as { mission: { unlocks?: boolean } };
+    const was = runner.mission.unlocks;
+    runner.mission.unlocks = true;
+    try {
+      (game.hc.host as unknown as { finished(): void }).finished(); game.relay.flush();
+      // The guest's browser writes its own flag (the stand-in says "first time": the board can tell this player so).
+      expect(saved.record).toHaveBeenCalledOnce();
+      expect(game.gw.mission.result).toMatchObject({ title: 'Test', unlocked: true });
+      // A word from a guest cannot write anyone's save.
+      saved.record.mockClear();
+      game.guestSays('finished', [{ title: 'x', counts: true }]);
+      expect(saved.record).not.toHaveBeenCalled();
+    } finally { runner.mission.unlocks = was; }
     game.hw.dispose(); game.gw.dispose();
   });
 

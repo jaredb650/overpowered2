@@ -31,7 +31,9 @@ import { CALLS, DOOR_SECONDS, EVENTS, REGROUP_METRES, REGROUP_SECONDS, arrivalZo
 import type { MissionResult } from '../campaign/events';
 import type { GameHost } from '../campaign/host';
 import type { Beat, Zone } from '../campaign/types';
+import { START_BEAT } from '../campaign/select';
 import { selectedStarter, starterLoadout } from '../contracts/starter';
+import { recordCampaignBeaten } from '../contracts/unlocks';
 import type { Ctx, GameEvents } from '../core/contracts';
 import type { WeaponId } from '../core/gameplay';
 import { WEAPONS } from '../weapons/data';
@@ -270,7 +272,10 @@ export class CoopMission {
     const finished = real('finished');
     parts.finished = () => {
       this.result = campaign.tally();
-      tell('finished', [this.result]);
+      // `counts`: this win opens what the mission opens (not a run begun part-way from a dev flag): the host's word, so every
+      // player's own save records it as the host's does (campaign/index.ts `complete`).
+      const counts = (campaign as unknown as { runner?: { mission?: { unlocks?: boolean } } }).runner?.mission?.unlocks === true && !START_BEAT;
+      tell('finished', [{ ...this.result, ...(counts ? { counts: true } : {}) }]);
       return finished();
     };
     // Any living player in a zone counts (watch.ts).
@@ -722,8 +727,11 @@ export class CoopMission {
       case 'cue': host.show(String(args[0]), args.slice(1)); return;
       case 'saved': host.saved(args[0] as Beat); return;
       case 'finished': {
-        const r = args[0] as Partial<MissionResult> | null;
-        if (r) this.result = { title: String(r.title ?? '').slice(0, 60), seconds: Number(r.seconds) || 0, deaths: Number(r.deaths) || 0, vehicles: Number(r.vehicles) || 0, unlocked: false };
+        const r = args[0] as (Partial<MissionResult> & { counts?: boolean }) | null;
+        // A mission won together is won by each player: this browser's own save gets the campaign's unlock, as the host's
+        // does, and the result says whether that opened something here (true the first time only).
+        if (r) this.result = { title: String(r.title ?? '').slice(0, 60), seconds: Number(r.seconds) || 0, deaths: Number(r.deaths) || 0, vehicles: Number(r.vehicles) || 0,
+          unlocked: r.counts === true && recordCampaignBeaten() };
         return;
       }
       default:
