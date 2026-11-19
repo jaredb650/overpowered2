@@ -1049,3 +1049,11 @@ Each: what fails, where, how many players, which network, the evidence, the caus
     behind "in a co-op match" or a guest-only path, read line by line (`Commander.onSpawn`, `Outpost.updateBangs`,
     `EnemyManager.remaining`, `WorldLayer.update`), and the whole suite is green; I did not re-run verify-solo's browser
     comparison.
+9. **OPEN, small, cosmetic. Under the bad network a watcher can see a friend's stake fly on to the wall when it stopped in a
+   body on the shooter's screen.** `coop-fx-matrix.mjs`, three players, `lag:120,jitter:40,loss:0.05`, case `stake-in-body`,
+   the host firing, the far watcher: of three stakes the shooter's screen stood one in the wall (two stayed in bodies), the
+   watcher's stood two (one blood hit fewer). 1 failed line of 1,844 in that run; the clean run and the real-WebRTC run
+   have it right. Checklist C15's item; nothing is decided by it (the host's damage is the same).
+10. Harness, fixed: under the bad network the kit's `startParty` pressed Start before the host had the guest's "ready"; the
+   host refuses that Start, the party stayed in the lobby, and the proof failed at its first wait with nothing checked
+   (`coop-session-blip` and `coop-team-endings` wipe in the bad-network sweep). The kit now waits for "Everyone is ready".
