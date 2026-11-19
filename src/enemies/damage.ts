@@ -28,7 +28,7 @@ import { AMMO, WEAPONS, type ArmourClass } from '../weapons/data';
 import type { WeaponId } from '../core/gameplay';
 import { say } from './attacks';
 import { finishAttack } from './brain';
-import { chooseReaction, mustFall, profileOf, type ReactionLevel, type ReactionProfile } from './reactions';
+import { chooseReaction, mustFall, profileOf, reactionSeed, type ReactionLevel, type ReactionProfile } from './reactions';
 import { dropOff } from './roles';
 import type { Enemy } from './Enemy';
 import type { Plate } from './armor';
@@ -1409,7 +1409,8 @@ export class DamageModel {
   /** The rule in reactions.ts, carried out. */
   private respond(e: Enemy, d: DamageInfo, profile: ReactionProfile, region: GoreRegion, amount: number, force: number, bone: number, armoured: boolean, throws: boolean, flinch: number): void {
     const anim = e.char.anim;
-    const r = chooseReaction(e, d, profile, region, amount, force, this.w.now);
+    // A co-op guest's own hit (drawn here now, or being decided on the host): both machines roll the same for it.
+    const r = chooseReaction(e, d, profile, region, amount, force, this.w.now, d.claim ? reactionSeed(d.claim, e.uid) : 0);
     // Only a head hit goes to the floor through the cooldown or a get-up (`chooseReaction`), where anything else flinches.
     const early = r.level === 'felled' && (this.w.now < e.reactAt || e.rising > 0);
     const must = this.m.outpost?.wounds.mustFall(e) || (throws && e.maim.legs > 0);

@@ -12,7 +12,7 @@ import { rigInfo } from '../gore/rigInfo';
 import type { GoreRegion } from '../characters/rig';
 import type { DamageInfo } from '../core/contracts';
 import type { EnemyId } from '../core/gameplay';
-import { chance, clamp, smoothstep } from '../core/math';
+import { clamp, smoothstep } from '../core/math';
 import type { Enemy } from './Enemy';
 import { HEAVY_ROUND } from './wounds/rules';
 
@@ -133,10 +133,30 @@ function legGone(e: Enemy, region: GoreRegion): number {
 }
 
 /**
- * Adds the hit to the body's shock and says what it does about it. `force` is what the hit pushes with, and `now` is
+ * One of a hit's rolls (`which`: 0 the trip, 1 the fall, 2 the stagger), 0 to 1. With no seed it is `Math.random`, as it
+ * always was. In co-op a guest's own hit carries a seed that both the guest (drawing the hit now) and the host (deciding it a
+ * moment later) get from the hit's own number (`reactionSeed`), so the two roll the same and the body does the same thing on
+ * both screens. With two sets of dice a guest's copy was on the floor whenever either machine rolled a fall, about twice as
+ * often as the host's body, and out of the line of fire that much longer: the same gun did less work for a guest.
+ */
+function dice(seed: number, which: number): number {
+  if (seed === 0) return Math.random();
+  let h = (seed ^ Math.imul(which + 1, 0x9e3779b1)) >>> 0;
+  h = Math.imul(h ^ (h >>> 16), 0x85ebca6b);
+  h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35);
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+}
+
+/** The seed of a claimed hit's rolls: from the hit's own number (`DamageInfo.claim`) and the enemy it is on. Never 0. */
+export function reactionSeed(claim: number, uid: number): number {
+  return (Math.imul(claim, 0x01000193) ^ Math.imul(uid, 0x9e3779b1)) >>> 0 || 1;
+}
+
+/**
+ * Adds the hit to the body's shock and says what it does about it. `seed`: see `dice` (0: this machine's own dice). `force` is what the hit pushes with, and `now` is
  * the world clock. A level above a flinch starts the cooldown, so the caller can take it at its word.
  */
-export function chooseReaction(e: Enemy, d: DamageInfo, profile: ReactionProfile, region: GoreRegion, amount: number, force: number, now: number): Reaction {
+export function chooseReaction(e: Enemy, d: DamageInfo, profile: ReactionProfile, region: GoreRegion, amount: number, force: number, now: number, seed = 0): Reaction {
   const area = d.type === 'explosive';
   const speed = force / rigInfo(e.char.rig).mass;
   const share = amount / e.maxHealth;
@@ -172,15 +192,15 @@ export function chooseReaction(e: Enemy, d: DamageInfo, profile: ReactionProfile
   if (isLeg(region)) {
     const running = Math.hypot(e.velocity.x, e.velocity.z);
     const trip = running >= TRIP_SPEED ? profile.trip : 0;
-    if (chance(Math.max(trip, legGone(e, region) * profile.trip))) {
+    if (dice(seed, 0) < Math.max(trip, legGone(e, region) * profile.trip)) {
       out.level = 'fall';
       out.tripped = running >= TRIP_SPEED;
       out.strength = Math.max(out.strength, 0.5);
       return out;
     }
   }
-  if (chance(smoothstep(profile.fall * 0.75, profile.fall * 1.25, e.shock))) out.level = 'fall';
+  if (dice(seed, 1) < smoothstep(profile.fall * 0.75, profile.fall * 1.25, e.shock)) out.level = 'fall';
   // A head hit that does not kill always rattles them.
-  else if (region === 'head' || chance(smoothstep(profile.stagger * 0.7, profile.stagger * 1.2, e.shock))) out.level = 'stagger';
+  else if (region === 'head' || dice(seed, 2) < smoothstep(profile.stagger * 0.7, profile.stagger * 1.2, e.shock)) out.level = 'stagger';
   return out;
 }

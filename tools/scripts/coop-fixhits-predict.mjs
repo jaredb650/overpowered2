@@ -19,7 +19,7 @@
 //   PREDICT_ROUNDS=12                         rounds of PREDICT_FOES enemies (default 12 x 10)
 //   PREDICT_TAG=noisy                         names the evidence file
 import { writeFileSync } from 'node:fs';
-import { ahead, calm, give, kit, live, shootLoop, startParty, state, stopShooting, teleport } from './coop-kit.mjs';
+import { ahead, calm, give, kit, live, startParty, state, stopShooting, teleport } from './coop-kit.mjs';
 
 const SIM = process.env.PREDICT_SIM === 'off' ? '' : process.env.PREDICT_SIM ?? 'lag:150,jitter:60,loss:0.08';
 const ROUNDS = Number(process.env.PREDICT_ROUNDS ?? 12);
@@ -28,6 +28,35 @@ const TAG = process.env.PREDICT_TAG ?? (SIM ? 'noisy' : 'clean');
 /** A gun a round, in turn: light rounds (many answers in the air), heavy single rounds, pellets, a blast. */
 const GUNS = ['smg', 'harrow', 'shotgun', 'judge', 'rivet', 'rocket'];
 const KINDS = ['husk', 'husk', 'trooper', 'husk', 'gunner', 'husk', 'trooper', 'husk', 'husk', 'stalker'];
+
+/** Guns whose trigger must be let go between shots: the scripted shooter works it, where an automatic's is held. */
+const SEMI = new Set(['shotgun', 'judge', 'rivet', 'rocket']);
+
+/**
+ * A scripted shooter (as the kit's `shootLoop`, which holds the trigger and so fires a semi-automatic once): until stopped
+ * the player keeps turning to the nearest living enemy and fires, the trigger held or pressed again and again.
+ */
+const shooter = (page, semi) => page.evaluate(semi => {
+  const { ctx, game } = window.__op2;
+  clearInterval(window.__coopShooter);
+  let tick = 0;
+  const aim = () => {
+    if (game.state !== 'playing') game.setState('playing');
+    let best = null, bestD = 3600;
+    for (const enemy of ctx.enemies.alive) {
+      const d = enemy.center.distanceToSquared(ctx.player.eye);
+      if (d < bestD) { best = enemy; bestD = d; }
+    }
+    tick++;
+    ctx.input.simulate('fire', !!best && (!semi || tick % 4 < 2));
+    if (!best) return;
+    const delta = best.center.clone().sub(ctx.player.eye);
+    ctx.player.yaw = Math.atan2(-delta.x, -delta.z); ctx.player.pitch = Math.atan2(delta.y, Math.hypot(delta.x, delta.z));
+    ctx.weapons.refillMagazines();
+  };
+  window.__coopShooter = setInterval(aim, 50);
+  aim();
+}, semi);
 
 /** Runs in each page: when this page called an enemy dead, when its body left its feet here, and whether any came back. */
 function record() {
@@ -119,7 +148,7 @@ export default async function (host, { sleep, outDir }) {
         return made;
       }, [FOES, KINDS, gun === 'rocket' ? 18 : gun === 'shotgun' ? 7 : 12]);
       for (const page of [one, two]) await page.waitForFunction(n => window.__op2.ctx.enemies.alive.length >= n, uids.length, { timeout: 30000 }).catch(() => {});
-      for (const page of [one, two]) { await give(page, gun); await shootLoop(page, { range: 60 }); }
+      for (const page of [one, two]) { await give(page, gun); await shooter(page, SEMI.has(gun)); }
       const cleared = await host.waitForFunction(() => window.__op2.ctx.enemies.alive.length === 0, null, { timeout: 60000 }).then(() => true, () => false);
       for (const page of [one, two]) await stopShooting(page);
       await sleep(SIM ? 1800 : 700);

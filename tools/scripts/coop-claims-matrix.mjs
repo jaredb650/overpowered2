@@ -173,11 +173,26 @@ const arm = (page, row, lane, shooting) => page.evaluate(([row, lane, shooting])
 }, [row, lane, shooting]);
 
 /** The shooter: works the trigger the row's way for its seconds, aiming at `aim`, then lets go. Returns shots fired. */
-const shoot = (page, row, aim) => page.evaluate(async ([row, aim]) => {
+const shoot = (page, row, aim, uids = []) => page.evaluate(async ([row, aim, uids]) => {
   const { ctx, game } = window.__op2, V = ctx.player.position.constructor;
   const w = ctx.weapons, input = ctx.input;
   let shots = 0;
   const off = ctx.events.on('weapon:fired', () => { shots++; });
+  // How the targets stand on the shooter's own screen, frame by frame: a body on the floor or getting up is out of the line
+  // of fire, and a guest whose copies lie longer than the host's bodies lands fewer rounds with the same gun.
+  const stood = { frames: 0, down: 0, rising: 0, off: 0, hitsOwn: 0 };
+  const places = new Map();
+  for (const e of ctx.enemies.alive) if (uids.includes(e.uid)) places.set(e.uid, e.position.clone());
+  const offHit = ctx.events.on('enemy:hit', e => { if (!ctx.coop.world.notMine?.(e.enemy)) stood.hitsOwn++; });
+  const sample = () => {
+    for (const e of ctx.enemies.alive) {
+      if (!places.has(e.uid)) continue;
+      stood.frames++;
+      if (e.downed) stood.down++;
+      else if (e.rising > 0) stood.rising++;
+      else if (e.position.distanceTo(places.get(e.uid)) > 0.5) stood.off++;
+    }
+  };
   const point = new V(...aim);
   // A grenade is thrown at their feet, so it stays among them.
   if (row.mode === 'grenade') point.y -= 1.1;
@@ -217,13 +232,15 @@ const shoot = (page, row, aim) => page.evaluate(async ([row, aim]) => {
     else if (row.mode === 'kata' && now - last > 2200) { last = now; w.kata(); }
     else if (row.mode === 'grenade') { w.grenades = 4; input.simulate('grenade', now - last > 900 ? (last = now, true) : false); }
     tick++;
+    sample();
     await frame();
   }
   for (const action of ['fire', 'aim', 'grenade']) input.simulate(action, false);
   delete ctx.player.update;
-  off();
-  return { shots, frames: tick, fps: Math.round(tick / ((performance.now() - began) / 1000)), state: game.state, focus: document.hasFocus(), hidden: document.hidden };
-}, [row, aim]);
+  off(); offHit();
+  const share = n => stood.frames ? Math.round(n / stood.frames * 1000) / 1000 : 0;
+  return { shots, stood: { down: share(stood.down), rising: share(stood.rising), off: share(stood.off), hitsOwn: stood.hitsOwn }, frames: tick, fps: Math.round(tick / ((performance.now() - began) / 1000)), state: game.state, focus: document.hasFocus(), hidden: document.hidden };
+}, [row, aim, uids]);
 
 /** Host: totals so far, and how the targets stand. */
 const read = host => host.evaluate(() => {
@@ -298,7 +315,7 @@ await guest.waitForFunction(([uids, last, truck]) => {
           await sleep(350);
           const before = await read(host), sentBefore = await sentBy(guest);
           if (who === 'guest' && process.env.CLAIMS_HITCH) await hitch(host, true);
-          const fired = await shoot(page, row, stood.aim), shots = fired.shots;
+          const fired = await shoot(page, row, stood.aim, stood.uids ?? []), shots = fired.shots;
           await sleep(settle + (row.mode === 'grenade' || row.weapon === 'kiln' ? 2500 : 0));
           // Every claim the guest sent is in the host's books (applied, refused, or on a man already dead) before they are read:
           // on a slow link and a starved page the last of them are still on their way.
@@ -314,7 +331,7 @@ await guest.waitForFunction(([uids, last, truck]) => {
           const perf = await page.evaluate(() => { const st = window.__op2.stats(), { ctx } = window.__op2; return { fps: st.fps, cpuMs: st.cpuMs, draws: st.drawCalls, tris: st.triangles, enemies: ctx.enemies.alive.length, dying: ctx.enemies.dying?.length, scene: ctx.render.scene.children.length }; });
           const d = delta(after, before), sent = delta(sentAfter, sentBefore);
           const dealt = row.target === 'truck' ? d.vehicle : d.dealt;
-          result[who] = { shots, frames: fired.frames, shooterFps: fired.fps, perf, dealt: Math.round(dealt), perShot: shots ? Math.round(dealt / shots * 10) / 10 : 0, hits: d.hits, blocked: d.blocked,
+          result[who] = { shots, stood: fired.stood, frames: fired.frames, shooterFps: fired.fps, perf, dealt: Math.round(dealt), perShot: shots ? Math.round(dealt / shots * 10) / 10 : 0, hits: d.hits, blocked: d.blocked,
             burning: d.burn, frozen: d.freeze, bolted: d.bolt, same: after.same, differ: after.differ,
             ...(who === 'guest' ? { sent, accepted: d.accepted, rejected: d.rejected, clamped: d.clamped, doubted: d.doubted,
               refused: Object.fromEntries(Object.entries(after.refused).map(([k, v]) => [k, v - (before.refused[k] ?? 0)]).filter(([, v]) => v)) } : {}) };
@@ -351,7 +368,7 @@ await guest.waitForFunction(([uids, last, truck]) => {
       if (result.problems?.length) failures++;
       if (result.problems) {
         const g = result.guest, h = result.host, problems = result.problems, claims = sum(g.sent);
-          progress(`${problems.length ? 'FAIL' : 'ok  '} ${row.name}: host ${h.shots} shots ${h.perShot}/shot, guest ${g.shots} shots ${g.perShot}/shot, ${claims} claims ${g.accepted} applied, ${g.same} kinds of hit compared${g.gone ? ` (${g.gone} on the dead)` : ''}${problems.length ? ` :: ${problems.join('; ')}` : ''}`);
+          progress(`${problems.length ? 'FAIL' : 'ok  '} ${row.name}: host ${h.shots} shots ${h.perShot}/shot, guest ${g.shots} shots ${g.perShot}/shot, ${claims} claims ${g.accepted} applied, ${g.same} kinds of hit compared${g.gone ? ` (${g.gone} on the dead)` : ''}; hits ${h.hits}/${g.hits}; targets down ${h.stood?.down}/${g.stood?.down}, rising ${h.stood?.rising}/${g.stood?.rising}${problems.length ? ` :: ${problems.join('; ')}` : ''}`);
       }
       out.rows.push(result);
     }

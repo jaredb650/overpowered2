@@ -465,3 +465,36 @@ describe('kill prediction: a guest starts a death it is sure of on the frame of 
     expect(events.kills).toBe(0);
   });
 });
+
+describe('a guest and the host roll the same for the same hit', () => {
+  /** How a body took `count` body hits of the same gun, one every `gap` seconds: each hit's reaction level, in order. */
+  const levels = (w: ReturnType<typeof world>, guest: boolean, count: number, numbered: boolean, gun: keyof typeof WEAPONS = 'harrow') => {
+    const e = w.spawn('trooper');
+    e.health = e.maxHealth = 1e7;
+    for (const region of [...e.limbHp.keys()]) e.limbHp.set(region, 1e9);
+    const out: string[] = [];
+    for (let i = 1; i <= count; i++) {
+      const d = round(gun, i % 3 === 0 ? 'legL' : 'chest', numbered ? { claim: i } : {});
+      if (guest) w.manager.predictDamage(e, d);
+      else w.manager.applyDamage(e, d);
+      out.push(w.manager.model.found.level);
+      // The next hit meets it on its feet again, as a still target is after it gets up: this compares the rolls.
+      e.downed = false; e.rising = 0; e.fallIn = 0; e.stagger = 0; e.reactAt = 0;
+    }
+    return out;
+  };
+
+  it('a hit with the guest\'s number on it does the same to the body on both machines, hit after hit', () => {
+    // `knock` false: gore takes no body down, so each machine's own physics is out of it and only the rule is compared.
+    const host = world(false), guest = world(false);
+    const there = levels(host, false, 120, true), here = levels(guest, true, 120, true);
+    expect(here).toEqual(there);
+    // And it is not all one answer: the gun does knock them about.
+    expect(new Set(there).size).toBeGreaterThan(1);
+  });
+
+  it('a hit with no number (single player, the host\'s own gun) is this machine\'s own dice, as it always was', () => {
+    const a = levels(world(false), false, 120, false), b = levels(world(false), false, 120, false);
+    expect(a).not.toEqual(b);
+  });
+});
