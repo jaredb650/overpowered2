@@ -104,7 +104,7 @@ export class CoopWorld {
     // After Credit: a boss's death names its killer, which Credit works out on the same `enemy:killed`.
     this.time = new Clock(w, uid => this.credit.slot(uid));
     new Chatter(w, this.enemies);
-    this.capture = new Capture(w, this.enemies);
+    this.capture = new Capture(w, this.enemies, this.targeting);
     this.enemyFire = new EnemyFire(w, this.targeting);
     this.attacks = new EnemyAttacks(w, this.enemies, this.targeting, this.enemyFire);
     this.warnings = new Warnings(w, this.enemyFire);
@@ -167,7 +167,7 @@ export class CoopWorld {
   /** Host: what lies in the shared world now, for a guest who was loading, joined late or came back: pods, dropped guns, what is broken. */
   private catchUp(id: string): void {
     // Each on its own: one that fails must not cost the guest the others.
-    for (const part of [this.pods, this.guns, this.props, this.fort, this.villainProps]) {
+    for (const part of [this.pods, this.guns, this.props, this.fort, this.villainProps, this.capture]) {
       try { part.catchUp(id); } catch (error) { console.warn('[coop] A catch-up for an arriving guest failed', error); }
     }
   }

@@ -95,7 +95,7 @@ the names the game used before).
 | `world/slow.ts` | The team's slow-mo rules with no game in them: the kinds, their scales and caps, the host's list and the team's budget (`SlowBoard`), the notice's words | |
 | `world/clock.ts` | The clock's gate (`ctx.time.gate`): every slow-mo request the game makes, on host and guest; the host's answer; `clock()` applies the list to this screen's clock; the host's long-frame steps | `slow`, `slowstate`, `slowno` |
 | `world/slowNotice.ts` | The notice every screen shows while the world is slow (its own element in the HUD root, `ui/css/cooptime.css`) | |
-| `world/capture.ts` | A guest capturing a prisoner (hold E, the host cuffs, the bounty comes back); `capturable` | `capture`, `credit` |
+| `world/capture.ts` | Prisoners for every player: a guest's tap (question, release) and 0.4 s hold (capture) carried out by the host, the reveal for the team, the bounty to the captor, the shield (off in the game). See "Prisoners for every player" | `capture`, `credit`, `prisoner` |
 | `world/guns.ts` | Carries the news of dropped guns for `weapons/dropped.ts` | `gun` |
 | `world/vehicles.ts` | The host's ground vehicles drawn on guests, 5 Hz, stamped with the host's clock and drawn through a `MotionBuffer` | `vehicles` |
 | `world/villainProps.ts` | The villain's devices, shutters and smoke on every screen; a guest's round on a device; a snare on a guest. See "The villain's props on every screen" | `dev`, `devshot`, `snared`, `shutter`, `smoke` |
@@ -1341,6 +1341,35 @@ sets (null alone, where nothing changed).
 Proof: `tools/scripts/coop-worldb-props.mjs` (a host and two guests in Endless Humans: 40 checks), unit tests
 `src/net/world/villainProps.test.ts` (9, his real `Devices`, `Barricades` and `Smoke` on every side).
 
+## Prisoners for every player (overhaul, lane world-b)
+
+`src/net/world/capture.ts`. A guest's E on a kneeling man is the designed key, read by the same `gesture()` and `holdFill()` the
+host's own key uses (`enemies/outpost/capture.ts`): **tap to question, tap again to release, hold 0.4 s to capture**, the prompt
+"Tap [E] to question · Hold [E] to capture" (then "Tap [E] to release · ..."), the fill ring. Reach 3.1 m and the 0.55 cone, as solo.
+
+- The guest sends `capture { uid, act: question | release | cuff }`. The host checks the sender is up and within 4.5 m of the man
+  (bodies, as the host sees them) and does it through `Prisoners.questionFor`, `releaseFor`, `cuffFor`: the same code the host's key
+  runs. Two players on one man are settled by arrival: a man already cuffed, questioned or gone refuses the second key. 20 keys a second.
+- **What he gives up is the team's.** `prisoner:questioned` now carries the marks his word put on the map; the host sends
+  `prisoner { op: 'questioned', marks, seconds, reveal }` and every guest gets the markers for 9 s and, when he told the truth,
+  every fighting man lit through the walls, exactly as the host's screen does. A lie puts "SQUAD?" on everyone's map.
+- Every screen's feed says who questioned, released or cuffed him; the captor's own reads PRISONER CUFFED as solo.
+- **The bounty** (250 to 450 by rank, about 300) goes to the captor when the drone lifts him: the host's purse is paid by the
+  drone and passes it on (`credit`), to the captor's seat if they reloaded (team.ts `payee`).
+- **A late or returning player** gets `prisoner { op: 'state' }`: who is already questioned and who holds whom.
+- **The skyhook drone** is the call-ins lane's (`world/airlift.ts` there hooks the host's `Airlift` directly). What this module
+  gives it: the host's `prisoner:cuffed` and `prisoner:secured` game events fire for a guest's capture as for the host's, and the
+  `prisoner` event names the captor's slot.
+- **The human shield is off in the game** (`HOSTAGES.on = false` in prisoners.ts, the owner's decision of 2026-11-15: hold E cuffs
+  at once). It is built for co-op for the day it returns, and proven with the switch on: `act: grab` puts the man in the guest's
+  hands (`Prisoners.grabFor`; the host keeps him in front of that guest's body, so every screen sees it), `drop` lets him go,
+  hold E 0.6 s cuffs him; on the holder's own screen rounds from the front stop on him (`shield`, applied to him on the host)
+  and the holder walks at his pace; his friends hold their fire for whoever they are after (`stopsFire`).
+
+Proof: `tools/scripts/coop-worldb-prisoners.mjs` (a host and two guests: prompt, question and reveal on every screen, release,
+capture with the ring, the bounty of 300 to the captor alone, two guests holding E on one man, the shield with its switch on:
+34 checks, clean and under `lag:120,jitter:40,loss:0.05`); unit tests `src/net/world/capture.test.ts` (7).
+
 ## Stage 5: the campaign together
 
 The lobby offers **Mission 1: The Outpost** and **Mission 2: Foreclosure**. The host runs the mission. Each guest's campaign host runs
@@ -1710,8 +1739,8 @@ guest's tab dying mid-wave, rejoining by link with credits back, and leaving to 
 - **Host migration:** see Failure cases.
 - **Four-player and multi-machine testing:** only two pages fit on the 8 GB machine; the 4-player numbers above are budgets, not runs.
 - **Aircraft drawn for the others:** a call-in's jet, gunship or helicopter is only on the caller's screen (its explosions are on all).
-- **Guest bullets on vehicles**, **grabbing a prisoner as a shield or questioning him** as a guest: the host's only. (Guest repairs
-  and Barracks hires in Outpost Defense are built: "Outpost Defense: one fort".)
+- Guest repairs and Barracks hires in Outpost Defense, questioning and releasing a prisoner as a guest, and the shield for a
+  guest (switched off in the game, as in single player) are built: "Outpost Defense: one fort", "Prisoners for every player".
 - **Per-muscle wound animation** on guests (a stage 2 limit) is unchanged. Living knockdowns and get-ups are done: "Enemy motion", Moves.
 - **Implant parts** on friends' bodies.
 - **Campaign:** mission 1's opening (briefing, cutscene, door-gunner ride) is proven in the browser; the rest of both missions has only
