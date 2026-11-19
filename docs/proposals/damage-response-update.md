@@ -550,6 +550,18 @@ These are decisions. Where they differ from a step above, the answer wins.
 9. **Fireballs: keep them exactly as they are, they are perfect.** G2 must show the break **without** thinning or shortening the
    fireball: throw the pieces out past it, hang them, brighten the torn faces, add mid-size pieces.
 
+Additions from the owner, same day:
+
+- **8, readable limb damage: yes.** Damage to a limb should show that it is about to break or come off (W1 is wanted, not
+  optional). It still must not change what shooting a limb does.
+- **9, how you see the gib:** the fireballs look good now; the gibs should be **thrown with force out of them**. That is how the
+  player gets to experience the gibbing. So G2's main lever is launch speed and direction out of the blast, not hang time.
+- **Intestines must come free.** Today intestines are always attached to a bigger piece. Guts may still spill from a living or
+  dying man, but on an **obliteration** (and in explosions) the guts **detach from the body**: thrown clear by the blast as
+  their own pieces, and **draped over the environment** where they land (over ledges, railings, props, corpses). Find where the
+  rope is anchored in `src/gore/` and add a free, unanchored rope (or one anchored only where it snags) to the trunk-crack and
+  obliterate paths. This belongs with O1 (organs you notice) and G1/G2.
+
 Status: not started. It is queued behind the co-op overhaul (the co-op gore lane is editing the same files); the owner says when.
 
 ## 11. Considered and rejected
