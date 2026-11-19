@@ -56,7 +56,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 // Browser slots, shared by every checkout and worktree on the machine. Many agents test at once, and each run holds
 // two to four game pages: without a limit, 25 runs at once filled 62 GB and the swap. A run waits here for a free slot.
-// OP2_SHOT_SLOTS sets the number (default 3 on Linux, 1 elsewhere: the owner's 8 GB Mac). Never bypass it.
+// OP2_SHOT_SLOTS sets the number (default 6 on Linux, 1 elsewhere: the owner's 8 GB Mac). Never bypass it.
 //
 // Why 3 (measured 2026-11-18 with tools/proof-cost.mjs, docs/notes/coop.md "What a proof costs"). The machine has 32 cores
 // and 62 GB and is shared: 8 cores and 16 GB are another person's, and the agents' own compilers, test runs and dev servers
@@ -74,7 +74,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 // - First come, first served: waiting runs queue by arrival (a ticket file each), and only the one at the head may take a free
 //   slot. Before this a run could wait 12 minutes while later ones went in (the wait was a random poll).
 setPriority(0, 19);
-const SLOTS = Math.max(1, Number(process.env.OP2_SHOT_SLOTS ?? (process.platform === 'linux' ? 3 : 1)));
+const SLOTS = Math.max(1, Number(process.env.OP2_SHOT_SLOTS ?? (process.platform === 'linux' ? 6 : 1)));
 const SLOT_DIR = process.env.OP2_SHOT_DIR ?? '/tmp/op2-shot-slots';
 const FREE_GB = Number(process.env.OP2_SHOT_FREE_GB ?? 20);
 const maxRunMs = Number(opt.timeout ?? 150) * 1000;
