@@ -62,13 +62,29 @@ interface Copy {
   n: number;
   id: CallInId;
   strike: Strike;
-  /** Seconds it has run here. */
+  /** Seconds of the strike's own clock it has been run through here. */
   age: number;
+  /** The order it was begun from, kept for a player who arrives while it runs. */
+  order: CallOrder;
+  /** When its caller's began, on this screen's wall clock (`performance.now()`): what `age` is kept up with. */
+  born: number;
 }
+
+/**
+ * A copy more than this far behind its caller's is run forward without being drawn or heard. Under it, an ordinary frame's
+ * own step is close enough.
+ */
+export const BEHIND_S = 0.25;
+/** The steps of that catching up, and the most strike time made up in one frame (a late joiner's gunship takes a few frames). */
+const CATCH_STEP = 1 / 30, CATCH_MOST = 20;
+/** An enemy's missile at a player's aircraft, as the watchers see it (antiAir.ts flies the caller's own). */
+interface AaMissile { n: number; body: THREE.Object3D; velocity: THREE.Vector3; age: number; end: THREE.Vector3 | null }
+const AA = ANTI_AIR.missile;
 
 /** One player's own set of what strikes borrow. Every part is built on first use. */
 class Hangar {
   readonly copies: Copy[] = [];
+  readonly missiles: AaMissile[] = [];
   private kitMade: StrikeKit | null = null;
   private gunshipMade: Ac130Rig | null = null;
   private harrowMade: Ride<AttackMount> | null = null;
@@ -109,9 +125,17 @@ class Hangar {
     this.frameMade?.update(dt);
   }
 
+  /** The rounds and missiles in flight alone, for a copy being run forward (they are the strike's, and it may wait on them). */
+  advance(world: number): void {
+    this.kitMade?.ordnance.update(world);
+    this.skyMade?.update(world);
+  }
+
   clear(): void {
     for (const copy of this.copies) copy.strike.dispose();
     this.copies.length = 0;
+    for (const m of this.missiles) this.real.render.scene.remove(m.body);
+    this.missiles.length = 0;
     this.kitMade?.ordnance.clear();
     this.skyMade?.clear();
     this.frameMade?.clear();
@@ -164,7 +188,16 @@ export class CallinMirror {
     const strike = this.launch(hangar, o, order);
     if (!strike) return;
     this.stats.orders++;
-    hangar.copies.push({ n: o.n, id: o.id, strike, age: 0 });
+    // `age`: its caller's has been running that long (this player arrived part-way, or the caller is saying it again):
+    // the copy is born in the past and `update` runs it forward to now.
+    const age = Number.isFinite(o.age) && o.age > 0 ? o.age : 0;
+    hangar.copies.push({ n: o.n, id: o.id, strike, age: 0, order: { ...o, at: [o.at[0], o.at[1], o.at[2]], age: 0 }, born: performance.now() - age * 1000 });
+  }
+
+  /** That player's copies as orders with their age now: what a player arriving on the host is sent (net/world/callins.ts). */
+  orders(slot: number): CallOrder[] {
+    const now = performance.now();
+    return (this.hangars[slot]?.copies ?? []).map(copy => ({ ...copy.order, age: Math.max(0, (now - copy.born) / 1000) }));
   }
 
   private launch(hangar: Hangar, o: CallOrder, order: StrikeOrder): Strike | null {
@@ -195,6 +228,8 @@ export class CallinMirror {
     const copy = hangar?.copies.find(c => c.n === news.n);
     if (!hangar || !copy) return;
     this.stats.news++;
+    // An enemy's missile at the caller's aircraft: flown here from the same spot at this screen's copy of it.
+    if (news.k === 'aa' || news.k === 'aax') return this.missile(hangar, copy, news.k === 'aa', news.v ?? []);
     // Shot down, and not an aircraft that falls: the caller's is simply gone, and so is this.
     if (news.k === 'down' && !isAircraft(copy.strike)) {
       copy.strike.dispose();
@@ -224,17 +259,94 @@ export class CallinMirror {
     }
   }
 
-  /** Every frame, on the strike clock (`dt`, real seconds) like the player's own strikes. */
+  /** The missile's launch (`from`), or its end (`at`): it has burst on the caller's screen. */
+  private missile(hangar: Hangar, copy: Copy, launch: boolean, v: readonly number[]): void {
+    if (v.length < 3 || !v.slice(0, 3).every(Number.isFinite)) return;
+    const { audio, fx, render } = this.ctx;
+    if (!launch) {
+      const m = hangar.missiles.find(missile => missile.n === copy.n && !missile.end);
+      if (m) m.end = new THREE.Vector3(v[0], v[1], v[2]);
+      return;
+    }
+    if (hangar.missiles.length >= 4) return;
+    const body = new THREE.Object3D();
+    body.position.set(v[0]!, v[1]!, v[2]!);
+    render.scene.add(body);
+    _v.subVectors(copy.strike.where, body.position).setY(0).normalize().add(_point.set(0, 1.6, 0)).normalize();
+    hangar.missiles.push({ n: copy.n, body, velocity: _v.clone().multiplyScalar(AA.boost), age: 0, end: null });
+    fx.attachEmitter(body, 'airstrikeTrail');
+    fx.muzzleFlash(body.position, _v, 'rocket');
+    fx.smoke(body.position, 0xb8bcc0, 2.2, 2.5);
+    audio.play('enemy_rocket_fire', { position: body.position, volume: 1 });
+  }
+
+  /** The watchers' missiles: each homes on this screen's copy of the aircraft until the caller says where its own burst. */
+  private flyMissiles(hangar: Hangar, dt: number): void {
+    const { audio, fx, render } = this.ctx;
+    for (let i = hangar.missiles.length - 1; i >= 0; i--) {
+      const m = hangar.missiles[i]!;
+      const p = m.body.position;
+      m.age += dt;
+      const copy = hangar.copies.find(c => c.n === m.n);
+      const aim = m.end ?? copy?.strike.where ?? null;
+      const speed = Math.min(AA.speed, AA.boost + AA.accel * m.age);
+      if (aim) {
+        _v.copy(m.velocity).normalize();
+        _point.subVectors(aim, p).normalize();
+        const angle = _v.angleTo(_point);
+        if (angle > 1e-4) _v.lerp(_point, Math.min(1, (AA.turn * (m.end ? 3 : 1) * dt) / angle)).normalize();
+        m.velocity.copy(_v).multiplyScalar(speed);
+      }
+      p.addScaledVector(m.velocity, dt);
+      // Burst where the caller's did; with no word of that, on reaching the copy, or spent.
+      const there = aim ? p.distanceTo(aim) <= (m.end ? Math.max(AA.reach, speed * dt * 1.5) : AA.reach) : false;
+      if (!there && aim && m.age < AA.life + 1) continue;
+      fx.explosion(p, { radius: 3, kind: 'rocket', scale: 0.9 });
+      fx.smoke(p, 0x3a3c40, 3, 3);
+      audio.play('rocket_explosion', { position: p, volume: 0.9 });
+      render.scene.remove(m.body);
+      hangar.missiles.splice(i, 1);
+    }
+  }
+
+  /**
+   * Every frame, on the strike clock (`dt`, real seconds) like the player's own strikes. A copy is kept up with the wall
+   * clock since its caller's began, not with the sum of this screen's frames: a screen that dropped frames, a tab that was
+   * hidden, or a player who arrived while it was running would otherwise fly it late for the rest of its life (only the
+   * gunship had a clock of its own to catch up by). What is skipped to get there is run without picture or sound.
+   */
   update(dt: number): void {
     const world = this.ctx.time.dt;
+    const now = performance.now();
     for (const hangar of this.hangars) {
       if (!hangar) continue;
       hangar.update(dt, world);
+      if (hangar.missiles.length) this.flyMissiles(hangar, dt);
       const { copies } = hangar;
       for (let i = copies.length - 1; i >= 0; i--) {
         const copy = copies[i]!;
-        copy.age += dt;
-        if (!copy.strike.update(dt)) continue;
+        let done = false;
+        const behind = (now - copy.born) / 1000 - copy.age - dt;
+        if (behind > BEHIND_S) {
+          this.stats.quiet = true;
+          try {
+            for (let left = Math.min(behind, CATCH_MOST); left > 1e-4 && !done; left -= CATCH_STEP) {
+              const step = Math.min(CATCH_STEP, left);
+              copy.age += step;
+              done = copy.strike.update(step);
+              hangar.advance(step);
+            }
+          } catch (error) {
+            // A strike that cannot be run forward blind is not shown part-way at all: the next one is seen whole.
+            console.warn('[coop] A call-in copy could not be caught up, and is dropped', copy.id, error);
+            done = true;
+          } finally { this.stats.quiet = false; }
+        }
+        if (!done) {
+          copy.age += dt;
+          done = copy.strike.update(dt);
+        }
+        if (!done) continue;
         copy.strike.dispose();
         copies.splice(i, 1);
       }

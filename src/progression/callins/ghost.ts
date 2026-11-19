@@ -44,6 +44,11 @@ export interface GhostStats {
   blasts: number;
   projectiles: number;
   rays: number;
+  /**
+   * Set while a copy is being run forward to where its caller's is (mirror.ts: a player who arrived part-way, a screen that
+   * fell behind): nothing of the stretch being skipped is drawn or heard. No blast, round, tracer, sound or shake.
+   */
+  quiet?: boolean;
 }
 
 export function ghostCtx(ctx: Ctx, stats: GhostStats): Ctx {
@@ -51,6 +56,7 @@ export function ghostCtx(ctx: Ctx, stats: GhostStats): Ctx {
   const result: ShotResult = { hitEnemy: false, headshot: false, killed: false, kills: 0, end: new THREE.Vector3() };
   const combat = over(real, {
     explode(position: THREE.Vector3, spec: ExplosionSpec): void {
+      if (stats.quiet) return;
       stats.blasts++;
       // The specs are shared constants: marked for this one call and put back.
       const was = spec.cosmetic;
@@ -58,12 +64,14 @@ export function ghostCtx(ctx: Ctx, stats: GhostStats): Ctx {
       try { real.explode(position, spec); } finally { spec.cosmetic = was; }
     },
     spawnProjectile(spec: ProjectileSpec): void {
+      if (stats.quiet) return;
       stats.projectiles++;
       const was = spec.ghost;
       spec.ghost = true;
       try { real.spawnProjectile(spec); } finally { spec.ghost = was; }
     },
     fireRay(origin: THREE.Vector3, dir: THREE.Vector3, spec: ShotSpec): ShotResult {
+      if (stats.quiet) { result.end.copy(origin).addScaledVector(_dir.copy(dir).normalize(), spec.maxDistance ?? MAX_RANGE); return result; }
       stats.rays++;
       const { audio, fx, physics } = ctx;
       const reach = spec.maxDistance ?? MAX_RANGE;
@@ -88,8 +96,11 @@ export function ghostCtx(ctx: Ctx, stats: GhostStats): Ctx {
   const hud = over(ctx.hud, { banner: () => undefined, feed: () => undefined } as Partial<Ctx['hud']>);
   const time = over(ctx.time, { hitStop: () => undefined } as Partial<Ctx['time']>);
   const input = over(ctx.input, { isDown: () => false, pressed: () => false, released: () => false } as Partial<Ctx['input']>);
+  const audio = over(ctx.audio, { play: (id: string, options?: Parameters<Ctx['audio']['play']>[1]) => { if (!stats.quiet) ctx.audio.play(id, options); } } as Partial<Ctx['audio']>);
+  const camera = over(ctx.camera, { addTrauma: (amount: number) => { if (!stats.quiet) ctx.camera.addTrauma(amount); } } as Partial<Ctx['camera']>);
   // Reads fall through to the live context, so a system set on it later (co-op itself) is seen here too.
   return Object.create(ctx, {
     combat: { value: combat }, enemies: { value: enemies }, hud: { value: hud }, time: { value: time }, input: { value: input },
+    audio: { value: audio }, camera: { value: camera },
   }) as Ctx;
 }

@@ -241,7 +241,7 @@ export class CoopWorld {
   /** Host: what lies in the shared world now, for a guest who was loading, joined late or came back: pods, dropped guns, what is broken. */
   private catchUp(id: string): void {
     // Each on its own: one that fails must not cost the guest the others.
-    for (const part of [this.pods, this.guns, this.props, this.fort, this.villainProps, this.capture, this.vehicles]) {
+    for (const part of [this.pods, this.guns, this.props, this.fort, this.villainProps, this.capture, this.vehicles, this.calls, this.hook]) {
       try { part.catchUp(id); } catch (error) { console.warn('[coop] A catch-up for an arriving guest failed', error); }
     }
   }

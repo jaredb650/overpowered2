@@ -29,7 +29,9 @@ import { validVec, type Vec } from './wire';
 /** Someone called a strike or an aircraft in: a feed line for the others. */
 export type CallinEvent = { t: 'callin'; id: string; slot?: number };
 /** The order: enough for every other screen to fly the same call-in. `q` is `ai` (sent in with its crew). */
-export type CallOrderEvent = { t: 'cin'; slot?: number; id: string; n: number; at: Vec; yaw: number; seed: number; q?: 1 };
+export type CallOrderEvent = { t: 'cin'; slot?: number; id: string; n: number; at: Vec; yaw: number; seed: number; q?: 1;
+  /** Seconds it has been running: told to a player who arrives part-way, or by a caller saying again what it still has up. */
+  age?: number };
 /** News of a running call-in: `k` indexes `NEWS_KINDS`. */
 export type CallNewsEvent = { t: 'cnews'; slot?: number; n: number; k: number; v?: number[] };
 /** A player's Frame: a pose, or (`k`, indexing `MECH_KINDS`) something it did, or neither as they leave it. */
@@ -42,6 +44,9 @@ export type CallinsEvent = CallinEvent | CallOrderEvent | CallNewsEvent | MechEv
 
 /** What one player may send a second, at most. A gunship's 25 mm is 18 rounds a second; two aircraft's poses are 20. */
 const ORDERS_PER_SECOND = 4;
+/** Orders said again with an age (a caller back after a drop says all it has running at once). */
+const AGED_PER_SECOND = 16;
+const AGE_MOST = 900;
 const NEWS_PER_SECOND = 90;
 const MECH_PER_SECOND = 40;
 const PERK_FX_PER_SECOND = 30;
@@ -74,7 +79,7 @@ export class Callins implements WorldModule {
    */
   measure = false;
   readonly cost: Record<string, { orders: number; news: number; bytes: number }> = {};
-  private readonly rates = new Map<string, { order: Rate; news: Rate; mech: Rate; perk: Rate }>();
+  private readonly rates = new Map<string, { order: Rate; news: Rate; mech: Rate; perk: Rate; aged: Rate }>();
   private readonly perkOut = new Rate();
   private readonly to = new THREE.Vector3();
   /** This player's running call-ins by number, to name the cost of their news. */
@@ -116,7 +121,7 @@ export class Callins implements WorldModule {
     link.send = {
       order: o => {
         this.mine.set(o.n, o.id);
-        this.out({ t: 'cin', slot: slot(), id: o.id, n: o.n, at: o.at.map(mm) as Vec, yaw: mm(o.yaw), seed: o.seed, ...(o.ai ? { q: 1 as const } : {}) }, o.id, true);
+        this.out(this.wire(o, slot()), o.id, true);
       },
       news: n => {
         const k = NEWS_KINDS.indexOf(n.k);
@@ -126,6 +131,38 @@ export class Callins implements WorldModule {
       mechNews: (kind, v) => this.out({ t: 'mech', slot: slot(), k: MECH_KINDS.indexOf(kind), ...(v ? { v: v.map(mm) } : {}) }, 'frame', false),
     };
     return link;
+  }
+
+  private wire(o: CallOrder, slot: number | undefined): CallOrderEvent {
+    return { t: 'cin', slot, id: o.id, n: o.n, at: o.at.map(mm) as Vec, yaw: mm(o.yaw), seed: o.seed, ...(o.ai ? { q: 1 as const } : {}),
+      ...(o.age > 0 ? { age: Math.min(AGE_MOST, Math.round(o.age * 100) / 100) } : {}) };
+  }
+
+  /**
+   * Host: a player's world is up (a late joiner, a new page, the same page back). Every call-in running now is told to them
+   * with its age, the host's own and its copies of the other players', so their screen flies each from where it is.
+   */
+  catchUp(id: string): void {
+    const link = this.plug();
+    const { w } = this;
+    const to = w.session.lobby.players.find(p => p.id === id);
+    if (!link || !w.hosting || !to) return;
+    for (const order of link.runningOrders()) w.send(this.wire(order, w.session.lobby.me?.slot), id);
+    for (const player of w.session.lobby.players) {
+      if (player.host || player.slot === to.slot) continue;
+      for (const order of link.copyOrders(player.slot)) w.send(this.wire(order, player.slot), id);
+    }
+  }
+
+  /**
+   * Guest: the host has this player back in the world (context.ts `resay`). The others dropped its copies when its line
+   * dropped; whatever it still has running is said again with its age, and a screen that still has a copy takes no notice.
+   */
+  resay(): void {
+    if (this.w.hosting || !this.w.ready) return;
+    const link = this.plug();
+    if (!link) return;
+    for (const order of link.runningOrders()) this.w.send(this.wire(order, this.w.session.lobby.me?.slot));
   }
 
   private out(event: CallinsEvent, id: string, order: boolean): void {
@@ -140,7 +177,7 @@ export class Callins implements WorldModule {
 
   private rate(from: string) {
     let rate = this.rates.get(from);
-    if (!rate) this.rates.set(from, rate = { order: new Rate(), news: new Rate(), mech: new Rate(), perk: new Rate() });
+    if (!rate) this.rates.set(from, rate = { order: new Rate(), news: new Rate(), mech: new Rate(), perk: new Rate(), aged: new Rate() });
     return rate;
   }
 
@@ -156,16 +193,18 @@ export class Callins implements WorldModule {
     const slot = this.slotOf(from, value.slot);
     if (slot === null || typeof value.id !== 'string' || !Object.hasOwn(CALLINS, value.id) || !Number.isInteger(value.n) || value.n < 0 || value.n > 255
       || !validVec(value.at) || !Number.isFinite(value.yaw) || Math.abs(value.yaw) > 100 || !Number.isFinite(value.seed)) return;
-    const clean: CallOrderEvent = { t: 'cin', slot, id: value.id, n: value.n, at: value.at, yaw: value.yaw, seed: Math.floor(Math.abs(value.seed)) % 0x100000000, ...(value.q === 1 ? { q: 1 as const } : {}) };
+    const age = typeof value.age === 'number' && Number.isFinite(value.age) && value.age > 0 ? Math.min(AGE_MOST, value.age) : 0;
+    const clean: CallOrderEvent = { t: 'cin', slot, id: value.id, n: value.n, at: value.at, yaw: value.yaw, seed: Math.floor(Math.abs(value.seed)) % 0x100000000,
+      ...(value.q === 1 ? { q: 1 as const } : {}), ...(age > 0 ? { age } : {}) };
     if (w.hosting) {
-      if (!this.rate(from).order.take(now, ORDERS_PER_SECOND)) return;
+      if (age > 0 ? !this.rate(from).aged.take(now, AGED_PER_SECOND) : !this.rate(from).order.take(now, ORDERS_PER_SECOND)) return;
       // A call-in's damage comes as claims for minutes afterwards: this is what lets them pass.
       w.validator.callIn(from, now);
       w.relay(clean, from);
-      // The Commander answers a teammate's aircraft as he answers the host's.
-      w.ctx.events.emit('callin:teammate', { id: clean.id as CallInId, slot, position: this.at.set(...clean.at) });
+      // The Commander answers a teammate's aircraft as he answers the host's: once, when it is called, not when it is said again.
+      if (age === 0) w.ctx.events.emit('callin:teammate', { id: clean.id as CallInId, slot, position: this.at.set(...clean.at) });
     }
-    const order: CallOrder = { n: clean.n, id: clean.id as CallInId, at: clean.at, yaw: clean.yaw, seed: clean.seed, ai: clean.q === 1, age: 0 };
+    const order: CallOrder = { n: clean.n, id: clean.id as CallInId, at: clean.at, yaw: clean.yaw, seed: clean.seed, ai: clean.q === 1, age };
     this.plug()?.order(slot, order);
   }
 

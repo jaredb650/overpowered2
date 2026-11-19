@@ -22,6 +22,8 @@ export class Skyhook implements WorldModule {
   private plugged = false;
   private readonly at = new THREE.Vector3();
   private readonly dir = new THREE.Vector3();
+  /** Host: the passes on their way to a man now, for a player who arrives before the hook does. */
+  private readonly passes = new Map<number, { at: Vec; dir: [number, number]; until: number }>();
 
   constructor(private readonly w: WorldContext) {
     w.router.guest('airlift', value => this.passIn(value));
@@ -40,8 +42,21 @@ export class Skyhook implements WorldModule {
     this.plugged = true;
     airlift.onPass = (uid, at, dir, lead) => {
       if (!this.w.ready) return;
+      if (at) this.passes.set(uid, { at: [mm(at.x), mm(at.y), mm(at.z)], dir: [mm(dir.x), mm(dir.z)], until: performance.now() + lead * 1000 });
+      else this.passes.delete(uid);
       this.w.send(at ? { t: 'airlift', uid, at: [mm(at.x), mm(at.y), mm(at.z)], dir: [mm(dir.x), mm(dir.z)], in: mm(lead) } : { t: 'airlift', uid });
     };
+  }
+
+  /** Host: a player's world is up. A drone still on its way to a man is flown on their screen too, with the seconds it has left. */
+  catchUp(id: string): void {
+    if (!this.w.hosting) return;
+    const now = performance.now();
+    for (const [uid, pass] of this.passes) {
+      const left = (pass.until - now) / 1000;
+      if (left <= 0.2) { this.passes.delete(uid); continue; }
+      this.w.send({ t: 'airlift', uid, at: pass.at, dir: pass.dir, in: mm(left) }, id);
+    }
   }
 
   private passIn(value: AirliftEvent): void {

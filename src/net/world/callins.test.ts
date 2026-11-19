@@ -53,7 +53,9 @@ class Room implements NetRoom {
 function fakeLink() {
   const log = { orders: [] as { slot: number; order: CallOrder }[], news: [] as { slot: number; news: CallNews }[],
     mech: [] as { slot: number; pose: number[] | null }[], mechNews: [] as { slot: number; kind: string; values: number[] }[],
-    dropped: [] as number[], shotDown: [] as string[] };
+    dropped: [] as number[], shotDown: [] as string[],
+    /** What this side has running of its own, and its copies of the others', as a test sets them. */
+    running: [] as CallOrder[], copies: new Map<number, CallOrder[]>() };
   const link: CallinLink = {
     send: null,
     order: (slot, order) => void log.orders.push({ slot, order }),
@@ -64,6 +66,8 @@ function fakeLink() {
     has: () => true,
     inFrame: () => false,
     shootDown: id => (log.shotDown.push(id), true),
+    runningOrders: () => log.running,
+    copyOrders: slot => log.copies.get(slot) ?? [],
   };
   return { link, log };
 }
@@ -96,6 +100,8 @@ function party() {
     remotes: new Map(lobbies.filter(other => other !== lobby).map(other => [i === 0 ? other.you : other.you, body()])) }) as unknown as CoopSession);
   const worlds = games.map((game, i) => new CoopWorld(game.ctx, sessions[i]!));
   for (const world of worlds) world.begin();
+  // Each guest's world says it is up (`worldsync`); the host settles its seat and catches it up before the test begins.
+  relay.flush();
   const slotOf = (i: number) => lobbies[i]!.me!.slot;
   return { relay, lobbies, games, worlds, slotOf, dispose: () => { for (const world of worlds) world.dispose(); } };
 }
@@ -267,6 +273,47 @@ describe('call-ins over the mocked lobby transport', () => {
     p.dispose();
   });
 
+  it('a player who arrives while call-ins are running is told each with its age: the host\'s own and its copies of the others\'', () => {
+    const p = party();
+    const [hostLog, aLog, bLog] = p.games.map(g => g.log) as [ReturnType<typeof fakeLink>['log'], ReturnType<typeof fakeLink>['log'], ReturnType<typeof fakeLink>['log']];
+    hostLog.running.push({ n: 3, id: 'ac130', at: [1, 0, 2], yaw: 0.5, seed: 77, ai: true, age: 41.239 });
+    hostLog.copies.set(p.slotOf(1), [{ n: 9, id: 'nuke', at: [5, 0, 5], yaw: 0, seed: 1, ai: false, age: 6 }]);
+    hostLog.copies.set(p.slotOf(2), [{ n: 2, id: 'warthog', at: [8, 0, 8], yaw: 1, seed: 4, ai: false, age: 2 }]);
+    aLog.orders.length = 0; bLog.orders.length = 0;
+    const calls = (p.worlds[0] as unknown as { calls: { catchUp(id: string): void } }).calls;
+    calls.catchUp(p.lobbies[2]!.you);
+    p.relay.flush();
+    // The arriving guest: the host's gunship 41 s in, and the other guest's nuke 6 s in. Not its own Warthog back.
+    expect(bLog.orders.map(o => [o.slot, o.order.id, o.order.n, o.order.age])).toEqual([[0, 'ac130', 3, 41.24], [p.slotOf(1), 'nuke', 9, 6]]);
+    expect(bLog.orders[0]!.order).toMatchObject({ at: [1, 0, 2], yaw: 0.5, seed: 77, ai: true });
+    // Nobody else is told anything again.
+    expect(aLog.orders).toEqual([]);
+    p.dispose();
+  });
+
+  it('a guest back after a drop says again what it still has running, with its age; the host passes it on once and wakes no one', () => {
+    const p = party();
+    const [hostLog, aLog, bLog] = p.games.map(g => g.log) as [ReturnType<typeof fakeLink>['log'], ReturnType<typeof fakeLink>['log'], ReturnType<typeof fakeLink>['log']];
+    const teammate = vi.fn();
+    p.games[0]!.ctx.events.on('callin:teammate', teammate);
+    aLog.running.push({ n: 5, id: 'attackChopper', at: [0, 0, 0], yaw: 0, seed: 0, ai: false, age: 12.5 },
+      { n: 6, id: 'sentry', at: [3, 0, 3], yaw: 1, seed: 2, ai: false, age: 30 });
+    hostLog.orders.length = 0; bLog.orders.length = 0;
+    (p.worlds[1] as unknown as { calls: { resay(): void } }).calls.resay();
+    p.relay.flush();
+    for (const log of [hostLog, bLog]) expect(log.orders.map(o => [o.slot, o.order.id, o.order.age])).toEqual([[p.slotOf(1), 'attackChopper', 12.5], [p.slotOf(1), 'sentry', 30]]);
+    // Said again is not called again: the Commander does not answer it a second time.
+    expect(teammate).not.toHaveBeenCalled();
+    // An age from another browser is bounded, and junk is no age at all.
+    const send = p.lobbies[1]!.gameplay<unknown>('action', () => {});
+    hostLog.orders.length = 0;
+    send({ t: 'cin', id: 'nuke', n: 7, at: [0, 0, 0], yaw: 0, seed: 1, age: 1e9 });
+    send({ t: 'cin', id: 'nuke', n: 8, at: [0, 0, 0], yaw: 0, seed: 1, age: 'old' });
+    p.relay.flush();
+    expect(hostLog.orders.map(o => o.order.age)).toEqual([900, 0]);
+    p.dispose();
+  });
+
   it("the skyhook: the host's pass starts the same pass on every guest, and its end calls it off", () => {
     const p = party();
     const begin = vi.spyOn(AirliftCopy.prototype, 'begin').mockImplementation(() => {});
@@ -291,11 +338,30 @@ describe('call-ins over the mocked lobby transport', () => {
     send({ t: 'airlift', uid: 9, at: [0, 0, 0], dir: [1, 0], in: 1 });
     p.relay.flush();
     expect(begin).toHaveBeenCalledTimes(2);
+    // A player who arrives while a drone is on its way gets that pass with the seconds it has left, and only they do.
+    vi.useFakeTimers({ toFake: ['performance'] });
+    try {
+      airlift.onPass!(11, new THREE.Vector3(1, 0.9, -4), new THREE.Vector3(1, 0, 0), 3);
+      p.relay.flush();
+      begin.mockClear();
+      vi.advanceTimersByTime(1000);
+      const hook = (p.worlds[0] as unknown as { hook: { catchUp(id: string): void } }).hook;
+      hook.catchUp(p.lobbies[2]!.you);
+      p.relay.flush();
+      expect(begin).toHaveBeenCalledOnce();
+      expect(begin.mock.calls[0]![0]).toBe(11);
+      expect(begin.mock.calls[0]![3]).toBeCloseTo(2, 1);
+      // Once the hook has taken him there is nothing left to tell.
+      vi.advanceTimersByTime(2500);
+      begin.mockClear();
+      hook.catchUp(p.lobbies[2]!.you); p.relay.flush();
+      expect(begin).not.toHaveBeenCalled();
+    } finally { vi.useRealTimers(); }
     const fromHost = p.lobbies[0]!.gameplay<unknown>('action', () => {});
     fromHost({ match: p.lobbies[0]!.match!.id, data: { t: 'airlift', uid: 9, at: [0, NaN, 0], dir: [1, 0], in: 1 } });
     fromHost({ match: p.lobbies[0]!.match!.id, data: { t: 'airlift', uid: 9, at: [0, 0, 0], dir: [0, 0], in: 1 } });
     p.relay.flush();
-    expect(begin).toHaveBeenCalledTimes(2);
+    expect(begin).not.toHaveBeenCalled();
     begin.mockRestore(); cancel.mockRestore();
     p.dispose();
   });

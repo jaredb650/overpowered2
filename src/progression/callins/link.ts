@@ -44,10 +44,12 @@ export interface CallOrder {
  * end      it is over early: taken back, or the run ended
  * clock    the gunship's own clock, `[seconds]`, once a second: its place on its circle is a function of it, and a copy on a
  *          screen that dropped frames would otherwise fall behind for the rest of the sortie
+ * aa       an enemy's anti-air missile left for this aircraft from `[x, y, z]`: the copies' screens fly one too
+ * aax      that missile burst at `[x, y, z]` (on the aircraft, on a flare, or spent)
  */
-export type NewsKind = 'steer' | 'release' | 'round' | 'bomb' | 'laser' | 'flares' | 'pose' | 'down' | 'end' | 'clock';
+export type NewsKind = 'steer' | 'release' | 'round' | 'bomb' | 'laser' | 'flares' | 'pose' | 'down' | 'end' | 'clock' | 'aa' | 'aax';
 /** By number on the wire. Add at the end only. */
-export const NEWS_KINDS: readonly NewsKind[] = ['steer', 'release', 'round', 'bomb', 'laser', 'flares', 'pose', 'down', 'end', 'clock'];
+export const NEWS_KINDS: readonly NewsKind[] = ['steer', 'release', 'round', 'bomb', 'laser', 'flares', 'pose', 'down', 'end', 'clock', 'aa', 'aax'];
 
 export interface CallNews {
   n: number;
@@ -65,6 +67,13 @@ export interface CallNews {
  */
 export type MechKind = 'shell' | 'missile' | 'stomp' | 'smoke' | 'swing';
 export const MECH_KINDS: readonly MechKind[] = ['shell', 'missile', 'stomp', 'smoke', 'swing'];
+
+/**
+ * Is the call-in uplink jammed for this player? Alone and on a co-op host it is the Commander's own word (his radio men are
+ * in this game). A co-op guest has no radio men of its own: it goes by what the host said (`commander:status`, flag
+ * `uplink`), so the jammer holds every player's call-ins alike.
+ */
+export const uplinkJammed = (guest: boolean, told: boolean, delay: number): boolean => (guest ? told : delay > 0);
 
 /** Most numbers a piece of news may carry. */
 export const NEWS_NUMBERS = 16;
@@ -87,6 +96,10 @@ export interface CallinLink {
   mechNews(slot: number, kind: MechKind, values: number[]): void;
   /** A player left: everything of theirs goes. */
   drop(slot: number): void;
+  /** This player's own call-ins that are running now, each as its order with `age` (seconds since it began). */
+  runningOrders(): CallOrder[];
+  /** The copies of that player's call-ins flying on this screen, as their orders with their `age` now. */
+  copyOrders(slot: number): CallOrder[];
   /** True while this screen is flying that player's call-in of this kind. */
   has(slot: number, id: CallInId): boolean;
   /** True while that player is in a Frame: the puppet is their body, and their own is not drawn. */

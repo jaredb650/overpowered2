@@ -52,7 +52,7 @@ describe('a lost player lets go of what they held in the world', () => {
   it('their call-in copies and their Frame\'s puppet go on every screen, at once, and not the copies of those still here', () => {
     const drops: number[][] = [[], []];
     const link = (i: number) => ({ send: null, order: vi.fn(), news: vi.fn(), mech: vi.fn(), mechNews: vi.fn(), drop: vi.fn((slot: number) => { drops[i]!.push(slot); }),
-      has: () => false, inFrame: () => false, shootDown: () => false });
+      has: () => false, inFrame: () => false, shootDown: () => false, runningOrders: () => [], copyOrders: () => [] });
     const progression = (i: number) => ({ kills: 0, score: 0, headshots: 0, resume: vi.fn(), callinLink: link(i) });
     const game = party(2, [{ progression: progression(0) }, undefined, { progression: progression(1) }]);
     const lost = game.guestLobbies[0]!;

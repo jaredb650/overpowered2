@@ -16,7 +16,7 @@ import { ModelMaterials } from '../modelkit';
 import { Airstrike } from './airstrike';
 import { ghostCtx, type GhostStats } from './ghost';
 import { GroundProbe } from './ground';
-import type { CallOrder, NewsKind } from './link';
+import { uplinkJammed, type CallOrder, type NewsKind } from './link';
 import { CallinMirror, MAX_COPIES } from './mirror';
 import type { NukeAftermath } from './nuke';
 import { Orbital } from './orbital';
@@ -291,6 +291,96 @@ describe('the mirror', () => {
     expect(m.copies(3)).toHaveLength(1);
     m.clear();
     expect(m.copies(3)).toHaveLength(0);
+  });
+
+  describe('a copy keeps up with the wall clock since its caller\'s began', () => {
+    beforeEach(() => vi.useFakeTimers({ toFake: ['performance'] }));
+    afterEach(() => vi.useRealTimers());
+    /** Frames with the wall clock moving with them, as on a screen that keeps time. */
+    const play = (m: CallinMirror, seconds: number): void => {
+      for (let i = 0; i < Math.round(seconds * 60); i++) { vi.advanceTimersByTime(1000 / 60); m.update(1 / 60); r.run(1 / 60); }
+    };
+    const copy = (m: CallinMirror, slot: number) => m.copies(slot)[0] as unknown as { age: number; strike: { where: THREE.Vector3 } } | undefined;
+
+    it('a player who arrives part-way gets it from where it is: the skipped stretch runs without picture or sound, the rest is drawn', () => {
+      const whole = mirror(), late = mirror();
+      whole.begin(1, call('warthog', 3));
+      play(whole, 2);
+      const sounds = r.record.sounds.length, blasts = whole.stats.blasts, rounds = whole.stats.projectiles;
+      // Told two seconds in (the order carries its age): one frame later it is where the other screen's is.
+      late.begin(1, { ...call('warthog', 3), age: 2 });
+      vi.advanceTimersByTime(1000 / 60); late.update(1 / 60); whole.update(1 / 60); r.run(1 / 60);
+      expect(copy(late, 1)!.age).toBeCloseTo(copy(whole, 1)!.age, 1);
+      expect(copy(late, 1)!.strike.where.distanceTo(copy(whole, 1)!.strike.where)).toBeLessThan(3);
+      // Nothing of the two seconds it skipped was drawn or heard.
+      expect(late.stats.blasts + late.stats.projectiles + late.stats.rays).toBeLessThanOrEqual((whole.stats.blasts - blasts) + (whole.stats.projectiles - rounds) + 2);
+      expect(r.record.sounds.length - sounds).toBeLessThan(12);
+      // And it is told on, with its age, to whoever arrives next.
+      expect(late.orders(1)[0]).toMatchObject({ id: 'warthog', n: 3 });
+      expect(late.orders(1)[0]!.age).toBeGreaterThan(2); expect(late.orders(1)[0]!.age).toBeLessThan(2.2);
+      // From there the two fly on together.
+      for (let i = 0; i < 60; i++) { vi.advanceTimersByTime(1000 / 60); whole.update(1 / 60); late.update(1 / 60); r.run(1 / 60); }
+      expect(copy(late, 1)!.strike.where.distanceTo(copy(whole, 1)!.strike.where)).toBeLessThan(3);
+    });
+
+    it('a short strike that is already over when a player arrives is never shown, and one in its last moments shows only what is left', () => {
+      const m = mirror();
+      m.begin(2, { ...call('airstrike', 8), age: AIRSTRIKE.finaleAt + 20 });
+      // Twenty seconds of a strike's time are made up a frame, so a long-gone one takes two.
+      for (let i = 0; i < 3; i++) { vi.advanceTimersByTime(1000 / 60); m.update(1 / 60); }
+      expect(m.copies(2)).toHaveLength(0);
+      expect(m.stats.projectiles).toBe(0); expect(m.stats.blasts).toBe(0);
+      const rest = mirror();
+      rest.begin(2, { ...call('airstrike', 9), age: AIRSTRIKE.finaleAt - 0.5 });
+      play(rest, 4);
+      expect(rest.stats.projectiles).toBeLessThan(AIRSTRIKE.rockets);
+      expect(rest.stats.blasts).toBe(1);
+    });
+
+    it('a screen that stood still for a while catches its copy up instead of flying it late for the rest of its life', () => {
+      const steady = mirror(), stalled = mirror();
+      steady.begin(1, call('warthog', 3)); stalled.begin(1, call('warthog', 3));
+      for (let i = 0; i < 30; i++) { vi.advanceTimersByTime(1000 / 60); steady.update(1 / 60); stalled.update(1 / 60); r.run(1 / 60); }
+      // One and a half seconds in which only the steady screen draws frames (a hidden tab, a long hitch).
+      for (let i = 0; i < 90; i++) { vi.advanceTimersByTime(1000 / 60); steady.update(1 / 60); r.run(1 / 60); }
+      expect(copy(steady, 1)!.age - copy(stalled, 1)!.age).toBeGreaterThan(1.4);
+      stalled.update(1 / 60); steady.update(1 / 60);
+      expect(Math.abs(copy(steady, 1)!.age - copy(stalled, 1)!.age)).toBeLessThan(0.1);
+      expect(copy(stalled, 1)!.strike.where.distanceTo(copy(steady, 1)!.strike.where)).toBeLessThan(6);
+    });
+
+    it("an enemy's missile at the caller's aircraft is flown on the watcher's screen from the same spot, and bursts where the caller's did", () => {
+      const m = mirror();
+      m.begin(1, call('airstrike', 4));
+      const before = scene.children.length;
+      m.news(1, { n: 4, k: 'aa', v: [40, 1, 40] });
+      const missiles = (m as unknown as { hangars: ({ missiles: { body: THREE.Object3D; end: THREE.Vector3 | null }[] } | null)[] }).hangars[1]!.missiles;
+      expect(missiles).toHaveLength(1);
+      expect(scene.children.length).toBe(before + 1);
+      const from = missiles[0]!.body.position.clone();
+      play(m, 0.6);
+      // It climbs and turns toward this screen's copy of the aircraft.
+      expect(missiles[0]!.body.position.y).toBeGreaterThan(from.y + 3);
+      // The caller's missile burst there (on the aircraft, on a flare): this one ends there too, and leaves nothing behind.
+      m.news(1, { n: 4, k: 'aax', v: [20, 30, 20] });
+      expect(missiles[0]!.end).not.toBeNull();
+      play(m, 4);
+      expect(missiles).toHaveLength(0);
+      expect(scene.children.length).toBeLessThanOrEqual(before);
+      // News for a call-in this screen has no copy of, or with no place in it, starts nothing.
+      m.news(1, { n: 99, k: 'aa', v: [0, 0, 0] });
+      m.news(3, { n: 4, k: 'aa', v: [0, 0, 0] });
+      expect(missiles).toHaveLength(0);
+    });
+  });
+
+  it('the uplink jammer holds a guest as it holds the host: a guest goes by the host\'s word, everyone else by their own radio men', () => {
+    // Alone, or hosting: the Commander's own count of radio men, whatever anyone said.
+    expect(uplinkJammed(false, false, 1)).toBe(true);
+    expect(uplinkJammed(false, true, 0)).toBe(false);
+    // A guest has no radio men of its own (its count is always 0): the host's word decides.
+    expect(uplinkJammed(true, true, 0)).toBe(true);
+    expect(uplinkJammed(true, false, 0)).toBe(false);
   });
 
   it("a strike the Commander shot down is gone from the copy's screen too", () => {

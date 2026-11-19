@@ -30,7 +30,7 @@ import { DoorGunner } from './doorGunner';
 import { FrameDrop } from './frameDrop';
 import { GroundProbe, groundMaterials } from './ground';
 import type { Ride } from './gunnerStrike';
-import type { CallinLink, CallinSend, CallNews, CallOrder, MechKind } from './link';
+import { uplinkJammed, type CallinLink, type CallinSend, type CallNews, type CallOrder, type MechKind } from './link';
 import { CallinMirror } from './mirror';
 import { Nuke, NukeAftermath, nukeFrontMaterial } from './nuke';
 import { Orbital, orbitalMaterials } from './orbital';
@@ -106,6 +106,10 @@ export class CallInManager implements CallinLink {
   private serial = 0;
   /** The number each running strike was told under, so its end can be told too. */
   private readonly told = new Map<Strike, number>();
+  /** Co-op: each told strike's order and when it began (`performance.now()`), for a player who arrives while it runs. */
+  private readonly orders = new Map<Strike, { order: CallOrder; at: number }>();
+  /** Co-op guest: the host's word that the call-in uplink is jammed (the radio men are the host's). */
+  private uplinkTold = false;
   /** The Orbital Lance keeps the designator up and the gun away until it finishes or the player lets go. */
   private steering: Orbital | null = null;
   private holstered = false;
@@ -141,6 +145,9 @@ export class CallInManager implements CallinLink {
     this.sentryRig = new SentryRig(materials, scene);
     this.mirror = new CallinMirror(ctx, materials, this.seats, this.aftermath);
     this.emplacements = new Emplacements(ctx, materials, this.seats, () => this.holster());
+    // Co-op guest: the uplink is jammed when the host says so, and clear again with a new run.
+    ctx.events.on('commander:status', e => { if (e.flag === 'uplink') this.uplinkTold = e.on; });
+    ctx.events.on('run:start', () => { this.uplinkTold = false; });
     // The map is built by the first run, and its guns stay for every run after.
     const unlisten = ctx.events.on('run:start', () => {
       unlisten();
@@ -191,6 +198,11 @@ export class CallInManager implements CallinLink {
   set send(send: CallinSend | null) {
     this.sender = send;
     this.linkFrame();
+    // An enemy's missile at one of this player's aircraft is told to the screens that fly a copy of it.
+    this.antiAir.net = send ? {
+      launch: (target, from) => { const n = this.told.get(target as unknown as Strike); if (n !== undefined) send.news({ n, k: 'aa', v: [from.x, from.y, from.z] }); },
+      burst: (target, at) => { const n = this.told.get(target as unknown as Strike); if (n !== undefined) send.news({ n, k: 'aax', v: [at.x, at.y, at.z] }); },
+    } : null;
   }
 
   /** The Frame tells the others of itself whenever the player is in it, however they got there. */
@@ -206,6 +218,11 @@ export class CallInManager implements CallinLink {
   mech(slot: number, pose: number[] | null): void { this.mirror.mech(slot, pose); }
   mechNews(slot: number, kind: MechKind, values: number[]): void { this.mirror.mechNews(slot, kind, values); }
   drop(slot: number): void { this.mirror.drop(slot); }
+  runningOrders(): CallOrder[] {
+    const now = performance.now();
+    return [...this.orders.values()].map(({ order, at }) => ({ ...order, age: Math.max(0, (now - at) / 1000) }));
+  }
+  copyOrders(slot: number): CallOrder[] { return this.mirror.orders(slot); }
   inFrame(slot: number): boolean { return this.mirror.inFrame(slot); }
   has(slot: number, id: CallInId): boolean { return this.mirror.copies(slot).some(copy => copy.id === id); }
 
@@ -223,12 +240,15 @@ export class CallInManager implements CallinLink {
     if (!send) return;
     const n = this.serial;
     this.told.set(strike, n);
-    send.order({ n, id, at: [at.x, at.y, at.z], yaw, seed: this.mark.seed ?? 0, ai, age: 0 });
+    const order: CallOrder = { n, id, at: [at.x, at.y, at.z], yaw, seed: this.mark.seed ?? 0, ai, age: 0 };
+    this.orders.set(strike, { order, at: performance.now() });
+    send.order(order);
   }
 
   /** A told strike is over: its copies that cannot know (an aircraft's, a waiting Frame's) are told. */
   private retire(strike: Strike): void {
     const n = this.told.get(strike);
+    this.orders.delete(strike);
     if (n === undefined) return;
     this.told.delete(strike);
     this.sender?.news({ n, k: 'end' });
@@ -349,7 +369,10 @@ export class CallInManager implements CallinLink {
   }
 
   private get uplinkDown(): boolean {
-    return ((this.ctx.enemies as unknown as Uplink).outpost?.commander.callInDelay ?? 0) > 0;
+    // Co-op guest: the jammer holds every player's call-ins alike. The radio men live on the host, which says so
+    // (`commander:status`, mirrored by net/world/villain.ts and told again to a player who arrives).
+    const coop = this.ctx.coop;
+    return uplinkJammed(!!coop?.world && !coop.hosting, this.uplinkTold, (this.ctx.enemies as unknown as Uplink).outpost?.commander.callInDelay ?? 0);
   }
 
   /** The call is made and paid for, and it goes the moment the jammer stops or the patience runs out. */

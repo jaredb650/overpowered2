@@ -138,6 +138,11 @@ export class AntiAir {
   private bulletsIn = 0;
   private friend: Aircraft | null = null;
   private readonly friendly: FriendlyAircraft = { position: new THREE.Vector3(), hit: seconds => this.friend?.struck?.(seconds) };
+  /**
+   * Co-op: told when a missile leaves for an aircraft, and where it burst, so the screens that fly a copy of that aircraft
+   * fly the missile too (manager.ts sets it; alone it is null and nothing is said).
+   */
+  net: { launch(target: Aircraft, from: THREE.Vector3): void; burst(target: Aircraft, at: THREE.Vector3): void } | null = null;
 
   constructor(private readonly ctx: Ctx, private readonly sky: Sky, private readonly prisoners: ReadonlySet<number>) {
     ctx.events.on('enemy:hit', e => this.pounded(e.enemy, e.damage.source));
@@ -290,6 +295,7 @@ export class AntiAir {
     fx.smoke(body.position, 0xb8bcc0, 2.2, 2.5);
     audio.play('enemy_rocket_fire', { position: body.position, volume: 1 });
     if (target.flown) audio.play('aa_launch');
+    this.net?.launch(target, body.position);
   }
 
   // --- Missiles -----------------------------------------------------------------------------------------------------
@@ -345,6 +351,7 @@ export class AntiAir {
   private burst(h: Hunt, m: Missile): void {
     const { audio, fx, render } = this.ctx;
     const p = m.body.position;
+    this.net?.burst(h.target, p);
     fx.explosion(p, { radius: 3, kind: 'rocket', scale: 0.9 });
     fx.smoke(p, 0x3a3c40, 3, 3);
     audio.play('rocket_explosion', { position: p, volume: 0.9 });
