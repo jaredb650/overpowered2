@@ -952,7 +952,36 @@ Unit: `src/net/world/pods.test.ts` (9), `src/weapons/dropped.test.ts` (9), `src/
 `handover.test.ts` and `progression/pickups/pods.test.ts` unchanged.
 
 Browser, each asserting on every page (`node tools/shot.mjs --port <port> --script tools/scripts/<name>.mjs ...`, options in each
-file's header): `coop-world-pods.mjs`, `coop-world-drops.mjs`, `coop-world-props.mjs`. Results: the overhaul log.
+file's header): `coop-world-pods.mjs`, `coop-world-drops.mjs`, `coop-world-props.mjs`, `coop-world-cache.mjs`.
+
+Runs of 2026-11-18, loopback transport, on a machine loaded by eleven other agents (load average 60 to 90, so frame rates and
+waits are worse than a quiet machine's). "Bad network" is the game's simulator at `lag:120,jitter:40,loss:0.05` on every page.
+"+ late" is a third page that joins mid-match.
+
+| Proof | Mode and map | Pages | Network | Checks passed |
+|---|---|---|---|---|
+| pods | Crucible | 2 + late | clean | 16 of 16 |
+| pods | Crucible | 3 | clean | 14 of 14 |
+| pods | Crucible | 2 + late | bad | 16 of 16 |
+| pods | Endless Humans, Office | 2 + late | clean | 16 of 16 |
+| pods | Endless Humans, Office | 3 | bad | 14 of 14 |
+| cache | Mission 1 | 2 | clean | 9 of 9 |
+| props (barrels) | Crucible | 2 + late | clean | 14 of 14 |
+| props (barrels) | Crucible | 2 + late | bad | 14 of 14 |
+| props (windows, monitors, the tank) | Crucible, Office | 2 + late | clean | 16 of 16 |
+| props (windows, monitors, the tank) | Crucible, Office | 2 + late | bad | 16 of 16 |
+| drops | Crucible | 3 | clean | 17 of 17 (before the last steps were added to the script) |
+| drops | Crucible | 2 + a guest still loading | clean | 21 of 21 |
+| drops | Crucible | 3 | bad | 18 of 18 |
+
+Numbers from those runs. Pods: each page's pod within 26 to 52 ms of the true clock since its call; the pages' pods began to fall,
+landed and opened 12 to 46 ms apart on a clean network and 242 to 280 ms apart on the bad one (the simulated delay itself).
+Windows: the shooter's own screen broke the pane 42 to 164 ms after the first round was fired (its own guess); the other pages
+within about 115 ms of that. Barrels: one explosion drawn per barrel that went off on every page, `world:explosion` raised on
+the host only (3, 0 and 2, 0 in the two-page runs), the guest's game sent 0 damage claims, the guest who shot from 5 m lost
+health and the host 22 m away lost none. Host refused 0 of the guests' hits.
+
+Not run: four pages and real WebRTC (`COOP_NET=rtc`), under the lead's limit of three pages and one browser a lane.
 
 ## How it works
 
