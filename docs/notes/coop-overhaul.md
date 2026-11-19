@@ -575,7 +575,7 @@ Work through all of it; write the outcome beside each item in the log (fixed wit
    a scripted fight with enemy attacks, kills by host and guest, a break with the shared pod, an ending.
 8. **Smoothness table on a quiet machine:** `node tools/scripts/coop-motion-matrix.mjs --baseline d9ecffb` (12 cases). Also
    vehicles and garrison on the buffer in the browser.
-   **Done 2026-11-19 (verify-motion): the table is made, 24 of 24 runs counted, and three faults it showed are fixed.**
+   **Done 2026-11-19 (verify-motion): the table is made, 24 of 24 runs counted, and two faults it showed are fixed.**
    The tables and what they mean are in `docs/notes/coop.md`, "Enemy motion", Measured; the outcome is in the log below.
 
 **C. Known gaps to close or decide**
@@ -901,16 +901,17 @@ Each: what fails, where, how many players, which network, the evidence, the caus
   `lag:80,jitter:30,loss:0.03`, 0.01 to 0.08% against 14 to 27% (and 0 to 0.3 darts a minute per enemy against 110 to 210);
   `lag:150,jitter:60,loss:0.08`, 0 to 0.13% against 29 to 37%, the picture 285 ms old against 315 to 330 with a tail to 600.
   48 enemies are as smooth as 20. The new lane costs more bytes with the guest in the fight, not the same: 26.6 KB/s of
-  snapshots at 48 enemies against 19.9 (11.2 against 8.3 at 20). **Three faults found and fixed** (`ade264c`, `60f3531` and
-  the commit after): (1) a knocked-down enemy getting up on a guest was drawn for one frame at the host's place and then
-  back where it lay, a pop of 0.9 to 1.3 m there and back on every get-up; (2) every change from the near tier to the far one
-  ran the guest's buffer dry (the enemy slowed to a stop until its next state), and enemies at the edge of the cone flipped
-  between the tiers: one that stops being near is now sent every tick for a second more, its last 12 ticks marked "far", so
-  the guest has fallen back before the states thin (about 1 KB/s); (3) vehicles and the garrison sized their delay from the
-  enemies' lane though they ride the reliable one, so a lost packet stalled them: they use their own lane's jitter now, at
-  the price of being drawn 60 to 130 ms further back on a bad link only. **Vehicles and the garrison in the browser**
-  (`coop-motion-vehicles.mjs`, new): 20 of 20 checks clean and under `lag:120,jitter:40,loss:0.05`; no copy stalls or darts,
-  within 5 to 9 cm of the host's path 95% of the time, and at rest within 0.5 cm and 0.3 degrees of the host's. **Far
+  snapshots at 48 enemies against 19.9 (11.2 against 8.3 at 20). **Two faults found and fixed:** (1) a knocked-down enemy
+  getting up on a guest was drawn for one frame at the host's place and then back where it lay, a pop of 0.9 to 1.3 m there
+  and back on every get-up; (2) every change from the near tier to the far one ran the guest's buffer dry (the enemy slowed
+  to a stop until its next state), and enemies at the edge of the cone flipped between the tiers: one that stops being near
+  is now sent every tick for a second more, its last 12 ticks marked "far", so the guest has fallen back before the states
+  thin (about 1 KB/s). A third, vehicles and the garrison stalling behind a lost packet on the reliable lane, I had fixed
+  by sizing their delay from their own lane; the fix-session lane moved them to the unreliable lane meanwhile, which is the
+  better cure, so mine was dropped at the rebase. **Vehicles and the garrison in the browser** (`coop-motion-vehicles.mjs`,
+  new), run on the tip with that change: 20 of 20 checks clean and under `lag:120,jitter:40,loss:0.05`; no copy darts, the
+  vehicles never stall and a garrison man slows for at most 116 ms about once in 5 s on the bad link, all within 4 to 7 cm
+  of the host's path 95% of the time, and at rest within 0.6 cm and 0.2 degrees of the host's. **Far
   enemies at 5 Hz** are about 150 ms staler than near ones (225 ms against 77 on a clean link) and 4 to 7 cm off at the 95th
   percentile, with no stalls or jumps; they are off the screen or over 70 m away at the default field of view. 10 Hz would
   cost 135 bytes a second per far enemy (0.8 KB/s in the fight measured, 6.5 at the most); `FAR_EVERY` is unchanged, the

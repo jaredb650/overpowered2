@@ -293,13 +293,6 @@ and carried on when one is late. A vehicle's attitude rides in the buffer's four
 two states; its turret is the buffer's yaw. The old per-frame `slerp(0.25)` turned faster at higher frame rates; this does not
 (`puppets.test.ts`: the same at 30 and 120 fps). An ally's gait comes from that velocity, not from the frame's step.
 
-**How far back they are drawn is sized by their own lane** (verify pass, 2026-11-19). The time is the enemies' clock (many
-more packets), but the jitter is the larger of that lane's and their own: `max(replicas.clock.jitter, own clock's jitter)`. The
-enemies ride the unreliable lane, where nothing waits; these ride the reliable one, where everything waits behind a lost
-packet (300 ms in the simulator). With the enemies' figure a held-up state came after the playhead had passed the last one, and
-the vehicle or the man slowed to a third of his speed and then hurried (`puppets.test.ts`, "keep moving when their lane holds
-states up"). With their own they are drawn further back on such a link and keep their pace. Numbers under "Measured" below.
-
 ### Proofs
 
 - Unit: `world/motion.test.ts` (the clock, the buffer, loss, outage, easing, tier change, the send clock), `worldProtocol.test.ts`
@@ -338,7 +331,9 @@ states up"). With their own they are drawn further back on such a link and keep 
 ### Measured (verify pass, 2026-11-19)
 
 `node tools/scripts/coop-motion-matrix.mjs --baseline d9ecffb`, 12 cases on the old lane (`d9ecffb`) and on the new, 30 s
-recorded each, loopback transport, the Crucible, both pages drawn at 1280x720. **All 24 runs counted on the first try**: the
+recorded each, loopback transport, the Crucible, both pages drawn at 1280x720. The new lane is this branch as it stood with
+the two fixes below in it; nothing in the enemy lane's code has changed at the tip since (`replicas.ts` gained one line at
+spawn, `motion.ts` and `snapshot.ts` none). **All 24 runs counted on the first try**: the
 guest page ran at 59.9 to 60 frames a second in every one, the host at 56.5 to 58.7 (19.6 to 22.9 with its cap), and the
 machine's 1-minute load before a run was 4.6 to 11.7 on 32 cores (other agents' proofs were running; the runner waits while
 it is over 12). The crowd is husks, troopers and stalkers; the host runs in circles and the guest stays 14 m from the host,
@@ -490,25 +485,20 @@ the host's place and on the next back where it had lain (two "jumps" of 0.9 to 1
 
 | What | Network | Pages, fps (host / guest) | Picture is this old, ms (p50 / p95) | Off the host's path, cm (p50 / p95 / p99) | Heading error p95, deg | Stood still | Jumps | At rest: copy from the host's |
 |---|---|---|---|---|---:|---|---:|---|
-| The garrison (6 men following the host for 20 s) | clean | 50.8 / 60.1 | 228 / 270 | 0.4 / 6.0 / 12.6 | 8.0 | 0% (none) | 0 | 0.2 to 0.5 cm, under 0.2 degrees (5 men standing) |
-| A scout car round a block and a tank, 25 s | clean | 59.8 / 60 | 227 / 233 | 0.3 / 4.9 / 8.7 | 0.7 | 0% (none) | 0 | the car: 0 cm, 0 degrees of hull and turret |
-| The garrison | `lag:120,jitter:40,loss:0.05` | 54.1 / 60.1 | 453 / 529 | 0.5 / 8.6 / 27.2 | 10.4 | 0% (none) | 0 | 0.4 to 0.5 cm, under 0.3 degrees |
-| The scout car and the tank | the same | 59.8 / 60 | 518 / 576 | 0.3 / 5.9 / 9.6 | 0.9 | 0% (none) | 0 | the car: 0 cm, 0 degrees |
-| Before the fix below: the garrison | the same | 56.3 / 60.1 | 392 / 446 | 0.4 / 8.1 / 25.8 | | 0.4% (two stalls, 101 and 234 ms) | 0 | 0.1 to 0.7 cm |
-| Before the fix below: the vehicles | the same | 59.8 / 60 | 385 / 402 | 0.3 / 5.7 / 15.4 | | 0% (none) | 0 | (the check was wrong in that run) |
+| The garrison (6 men following the host for 20 s) | clean | 52.7 / 60.1 | 228 / 268 | 0.7 / 7.0 / 14.1 | 9.1 | 0% (none) | 0 | 0.2 to 0.6 cm, 0.2 degrees (all 6 standing) |
+| A scout car round a block and a tank, 25 s | clean | 59.8 / 60 | 228 / 232 | 0.3 / 5.0 / 8.7 | 0.7 | 0% (none) | 0 | the car: 0 cm, 0 degrees of hull and turret |
+| The garrison | `lag:120,jitter:40,loss:0.05` | 48.6 / 60.1 | 404 / 454 | 0.3 / 4.1 / 20.8 | 19.2 | 0.21% (4 stalls, the longest 116 ms) | 0 | 0.3 to 0.5 cm, 0.2 degrees (5 standing) |
+| The scout car and the tank | the same | 59.8 / 60 | 383 / 390 | 0.3 / 5.0 / 9.2 | 0.9 | 0% (none) | 0 | the car: 0 cm, 0 degrees |
 
-20 of 20 checks on each network. Both move without steps and end where the host's are. The tank never comes to rest (it goes
-on hunting), so only the car's end is compared; a man still walking is left out the same way. **One weakness found and
-fixed:** these two ride the reliable lane, where a lost packet holds everything behind it for 300 ms, and they sized their
-delay from the enemies' lane, which never sees that. On the bad link a man of the six stood still twice in 20 s (101 and 234
-ms); a unit test with one state in five held up shows the mechanism plainly (the copy slowed to 36% of its speed, then
-hurried). They now use their own lane's jitter. **The price, on a bad link only:** they are drawn 60 to 130 ms further back
-(453 and 518 ms old instead of 392 and 385), near the buffer's 450 ms cap plus the link's lag; on a clean link nothing
-changes (228 ms). If that is the wrong trade, it is one line each in `vehicles.ts` and `allies.ts`. The better cure is to
-send their places on the unreliable lane as the enemies' are (not built: it is a new chunk kind). A garrison man's copy
-turns its body later and more loosely than an enemy's (heading 8 to 10 degrees off at the 95th percentile, its
-frame-to-frame speed up to 4.7 m/s from his): five states a second with the velocity worked out from the last two places
-is coarse for a man who weaves; he is on the path within 6 to 9 cm all the same.
+20 of 20 checks on each network, on the tip with their states on the unreliable lane (lane "fix-session", landed while this
+was measured). Both move without steps and end where the host's are. The tank never comes to rest (it goes on hunting), so
+only the car's end is compared; a man still walking is left out the same way. On the bad link a lost list leaves a 400 ms
+gap against a delay of about 270, so a man slows for a moment about once in 5 s among the six (never over 116 ms); the
+vehicles did not. The same proof run before that change, with the states still on the reliable lane, gave the same picture
+(392 and 385 ms old, two stalls of 101 and 234 ms among the men), so the move cost the motion nothing. A garrison man's copy
+turns its body later and more loosely than an enemy's (heading 9 degrees off at the 95th percentile, 19 on the bad link, its
+frame-to-frame speed up to 4.6 m/s from his): five states a second with the velocity worked out from the last two places
+is coarse for a man who weaves; he is on the host's path within 4 to 7 cm all the same.
 
 **Not measured, and why.** Real WebRTC (every run here is the loopback transport with the game's own simulator: the lane
 code is the same, the transport under it is not). More than one guest. Enemies other than husks, troopers and stalkers
