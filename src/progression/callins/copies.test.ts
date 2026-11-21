@@ -450,7 +450,7 @@ describe('the mirror', () => {
     expect(m.copies(1)[0]!.strike.where.distanceTo(new THREE.Vector3(10, 0, -20))).toBeLessThan(0.2);
     expect(m.copies(2)[0]!.strike.where.distanceTo(new THREE.Vector3(-12, 0, -18))).toBeLessThan(0.2);
     // It waits for its own pilot: nobody here is offered the seat, and it is not taken back on this screen's clock.
-    run(m, FRAME_DROP.wait + 2);
+    run(m, 35);
     expect(m.copies(2)).toHaveLength(1);
     // The pilot climbs in: the puppet is the Frame.
     const pose = [-12, 0, -18, 1.1, 1.1, 0, 0, 0, 0, -12, 2, -60, 0];

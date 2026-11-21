@@ -26,12 +26,14 @@ type Phase = 'warning' | 'falling' | 'waiting' | 'crewed';
 
 /**
  * What the drop needs of a Frame: the player's own (`Frame`, src/frame/seat.ts), or in co-op the stand-in drawn for another
- * player's (`FramePuppet`, src/frame/puppet.ts), which is `occupied` while that player is in it.
+ * player's (`FramePuppet`, src/frame/puppet.ts), which stays `deployed` until destroyed.
  */
 export interface DroppedFrame {
   readonly occupied: boolean;
+  readonly deployed?: boolean;
   readonly walker: { readonly feet: THREE.Vector3 };
   stand(feet: THREE.Vector3, yaw: number): void;
+  deploy?(feet: THREE.Vector3, yaw: number): void;
   board(feet: THREE.Vector3, yaw: number, seconds?: number): void;
   hide(): void;
 }
@@ -48,6 +50,8 @@ export class FrameDrop implements Strike {
   private flameIn = 0;
   private unmark: (() => void) | null = null;
   private unprompt: (() => void) | null = null;
+  /** True once `deploy()` handed permanent parked ownership to `Frame`. */
+  private handedOff = false;
   /** Co-op, on a copy: the caller's own is over. */
   private ended = false;
 
@@ -102,27 +106,31 @@ export class FrameDrop implements Strike {
       case 'waiting':
         // A copy of another player's (co-op) offers nobody a seat: it waits for its own pilot, whose word ends it.
         if (this.kit.cosmetic) {
-          if (this.frame.occupied) {
-            // Crewed: the marker that said where it landed has done its work, as on the pilot's own screen.
+          if (this.frame.occupied || this.frame.deployed) {
             this.unmark?.();
             this.unmark = null;
             this.next('crewed');
           } else this.frame.stand(this.feet, this.yaw);
           break;
         }
-        if (this.t >= D.wait) {
-          this.gone();
-          return true;
+        // Persistent Frame: once landed via deploy(), Frame owns the parked marker and [E] BOARD prompt indefinitely.
+        if (this.handedOff) {
+          this.where.copy(this.frame.walker.feet);
+          if (!this.frame.deployed) return true;
+          if (this.frame.occupied) this.next('crewed');
+          break;
         }
         this.offer();
         break;
-      case 'crewed':
+      case 'crewed': {
         this.where.copy(this.frame.walker.feet);
-        if (!this.frame.occupied) {
+        const alive = this.frame.deployed !== undefined ? (this.frame.deployed || this.frame.occupied) : this.frame.occupied;
+        if (!alive) {
           this.gone();
           return true;
         }
         break;
+      }
     }
     return false;
   }
@@ -156,7 +164,14 @@ export class FrameDrop implements Strike {
     const p = this.feet;
     this.next('waiting');
     this.where.copy(p);
-    this.frame.stand(p, this.yaw);
+    if (!this.kit.cosmetic && typeof this.frame.deploy === 'function') {
+      this.unmark?.();
+      this.unmark = null;
+      this.handedOff = true;
+      this.frame.deploy(p, this.yaw);
+    } else {
+      this.frame.stand(p, this.yaw);
+    }
     this.ring.hide();
     combat.explode(aboveFloor(p), {
       radius: D.impactRadius, damage: D.impactDamage, kind: 'rocket', source: 'drop_pod', team: 'player', selfDamage: 0, playerPush: 14, mirrored: true,
@@ -173,7 +188,7 @@ export class FrameDrop implements Strike {
     camera.addTrauma(Math.max(0, 0.8 - player.position.distanceTo(p) / 60));
   }
 
-  /** The prompt while the player is beside it, and E climbs in. */
+  /** Fallback prompt for test mocks that don't implement `deploy()`. */
   private offer(): void {
     const { hud, input, player } = this.kit.ctx;
     const near = player.alive && Math.hypot(player.position.x - this.feet.x, player.position.z - this.feet.z) < D.reach
@@ -193,7 +208,7 @@ export class FrameDrop implements Strike {
     this.next('crewed');
   }
 
-  /** Taken back: a cloud of smoke where it stood, and nothing in it. */
+  /** Gone: smoke puff and hide if no longer deployed. */
   private gone(): void {
     const { audio, fx } = this.kit.ctx;
     const p = this.frame.walker.feet;

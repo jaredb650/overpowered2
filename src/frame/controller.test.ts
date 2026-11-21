@@ -195,21 +195,21 @@ describe('the stomp', () => {
 });
 
 describe('the charge', () => {
-  it('goes about 11 m in 0.7 s, two charges, each back 4 s after', () => {
+  it('goes about 13.5 m in 0.75 s, two charges, each back 3.5 s after', () => {
     floor();
     const w = walker();
     const z0 = w.feet.z;
-    run(w, 0.7, { ...idle(), charge: true });
-    expect(z0 - w.feet.z).toBeGreaterThan(10.2);
-    expect(z0 - w.feet.z).toBeLessThan(11.8);
+    run(w, FRAME.charge.seconds, { ...idle(), charge: true });
+    expect(z0 - w.feet.z).toBeGreaterThan(12.2);
+    expect(z0 - w.feet.z).toBeLessThan(14.5);
     expect(w.charges).toBe(1);
     run(w, 0.1, { ...idle(), charge: true });
     expect(w.charges).toBe(0);
     run(w, 0.9, { ...idle(), charge: true });
     expect(w.said.charged).toBe(false);
-    run(w, 3.1, idle());
+    run(w, 2.7, idle());
     expect(w.charges).toBe(1);
-    run(w, 4, idle());
+    run(w, FRAME.charge.refill + 0.1, idle());
     expect(w.charges).toBe(2);
   });
 

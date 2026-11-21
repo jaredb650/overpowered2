@@ -5,33 +5,33 @@ import type { DamageInfo } from '../core/contracts';
 import type { EnemyInstance, EnemySystem, MissileTarget } from '../core/gameplay';
 import type { PaintCandidate } from '../weapons/swarm';
 import { FRAME } from './data';
-import { backhand, Cannon, crush, Pod, Rotary, shove, Smoke, stomp } from './weapons';
+import { backhand, Cannon, crush, Pod, Rotary, shove, Smoke, smokePulse, stomp, trample } from './weapons';
 
 const DT = 1 / 60;
 
 describe('the rotary', () => {
-  it('fires 20 a second once spun up, overheats in about 7 s, vents in about 2.5 s, and is locked out meanwhile', () => {
+  it('fires 24 a second once spun up, overheats in about 6.8 s, vents in about 2.2 s, and is locked out meanwhile', () => {
     const r = new Rotary();
     let rounds = 0;
     let t = 0;
     for (; !r.heat.overheated && t < 20; t += DT) rounds += r.update(DT, true);
-    expect(t).toBeGreaterThan(6.6);
-    expect(t).toBeLessThan(7.8);
-    // 140 rounds of heat, give or take the last one's rounding.
-    expect(rounds).toBeGreaterThanOrEqual(140);
-    expect(rounds).toBeLessThanOrEqual(141);
+    expect(t).toBeGreaterThan(6.3);
+    expect(t).toBeLessThan(7.4);
+    // 160 rounds of heat, give or take the last one's rounding.
+    expect(rounds).toBeGreaterThanOrEqual(160);
+    expect(rounds).toBeLessThanOrEqual(161);
     let locked = 0;
     for (; r.heat.overheated && locked < 10; locked += DT) expect(r.update(DT, true)).toBe(0);
-    expect(locked).toBeGreaterThan(2.2);
-    expect(locked).toBeLessThan(2.8);
+    expect(locked).toBeGreaterThan(1.9);
+    expect(locked).toBeLessThan(2.6);
   });
 
   it('spins up before it fires, and cools off the trigger', () => {
     const r = new Rotary();
     let first = -1;
     for (let t = 0; first < 0; t += DT) if (r.update(DT, true) > 0) first = t;
-    expect(first).toBeGreaterThan(0.25);
-    expect(first).toBeLessThan(0.35);
+    expect(first).toBeGreaterThan(0.14);
+    expect(first).toBeLessThan(0.28);
     for (let i = 0; i < 240; i++) r.update(DT, true);
     const hot = r.heat.value;
     for (let i = 0; i < 60; i++) r.update(DT, false);
@@ -40,23 +40,23 @@ describe('the rotary', () => {
 });
 
 describe('the 40 mm', () => {
-  it('has eight shells, then 4.5 s of reload on its own clock', () => {
+  it('has ten shells, then 3.8 s of reload on its own clock', () => {
     const c = new Cannon();
     let shots = 0;
     let last = 0;
     let t = 0;
-    for (; t < 3; t += DT) {
+    for (; t < 3.5; t += DT) {
       c.mag.update(DT);
       if (c.mag.take()) {
         shots++;
         last = t;
       }
     }
-    expect(shots).toBe(8);
-    expect(last).toBeGreaterThan(7 * FRAME.cannon.interval);
+    expect(shots).toBe(FRAME.cannon.magazine);
+    expect(last).toBeGreaterThan((FRAME.cannon.magazine - 1) * FRAME.cannon.interval);
     expect(c.mag.reloading).toBeGreaterThan(0);
     for (; c.mag.reloading >= 0; t += DT) c.mag.update(DT);
-    expect(c.mag.ammo).toBe(8);
+    expect(c.mag.ammo).toBe(FRAME.cannon.magazine);
     expect(t - last).toBeCloseTo(FRAME.cannon.reload, 1);
   });
 
@@ -79,13 +79,13 @@ describe('the pod', () => {
   const view: PaintCandidate[] = [{ target: a, angle: 0 }, { target: b, angle: 0.05 }, { target: c, angle: 0.08 }];
   const look = () => view;
 
-  it('paints while held, fires all six on release with spares on the marks, then reloads for 10 s', () => {
+  it('paints while held, fires all six on release with spares on the marks, then reloads', () => {
     const pod = new Pod();
     const fired: (MissileTarget | null)[] = [];
     let t = 0;
-    for (; t < 1.2; t += DT) pod.update(DT, true, look);
+    for (; t < 1.0; t += DT) pod.update(DT, true, look);
     expect(pod.painter.marks.length).toBe(6);
-    for (; t < 2; t += DT) {
+    for (; t < 1.8; t += DT) {
       pod.update(DT, false, look);
       fired.push(...pod.queue);
     }
@@ -94,9 +94,9 @@ describe('the pod', () => {
     expect(fired.every(f => f !== null)).toBe(true);
     expect(pod.ammo).toBe(0);
     // Held again while it reloads: nothing.
-    for (; t < 6; t += DT) pod.update(DT, true, look);
+    for (; t < 5; t += DT) pod.update(DT, true, look);
     expect(pod.painter.painting).toBe(false);
-    for (; t < 12.6; t += DT) pod.update(DT, false, look);
+    for (; t < 11.2; t += DT) pod.update(DT, false, look);
     expect(pod.ammo).toBe(6);
   });
 
@@ -113,7 +113,7 @@ describe('the pod', () => {
 });
 
 describe('smoke', () => {
-  it('pops three times a beat, never inside the lockout', () => {
+  it('pops three charges outside lockout, then regenerates charges over time', () => {
     const s = new Smoke();
     expect(s.pop()).toBe(true);
     expect(s.pop()).toBe(false);
@@ -123,8 +123,19 @@ describe('smoke', () => {
     expect(s.pop()).toBe(true);
     for (let t = 0; t < FRAME.smoke.lockout + 0.1; t += DT) s.update(DT);
     expect(s.pop()).toBe(false);
-    s.reset();
+    // Wait out the recharge clock and verify a charge refills automatically.
+    for (let t = 0; t < FRAME.smoke.refill; t += DT) s.update(DT);
+    expect(s.count).toBeGreaterThanOrEqual(1);
     expect(s.pop()).toBe(true);
+    s.reset();
+    expect(s.count).toBe(FRAME.smoke.count);
+  });
+
+  it('concussive pulse shoves enemies crowding within blastRadius', () => {
+    const { enemies, blows } = crowd([[0, -3], [4, 2], [0, -10]]);
+    expect(smokePulse(enemies, new THREE.Vector3())).toBe(2);
+    expect([...blows.keys()].map(e => e.uid).sort()).toEqual([0, 1]);
+    for (const d of blows.values()) expect(d.force).toBeGreaterThan(200);
   });
 });
 
@@ -152,40 +163,44 @@ function crowd(places: [number, number][]): { enemies: EnemySystem; blows: Map<E
 const ring = (r: number, n = 8): [number, number][] => Array.from({ length: n }, (_, i) => [Math.cos(i) * r, Math.sin(i) * r]);
 
 describe('the stomp', () => {
-  it('from 4 m knocks everyone in 10 m off their feet, and reaches 14 m, 160 at the middle falling to 40', () => {
+  it('from 4 m knocks everyone in 12 m off their feet, and reaches 16 m, 240 at the middle falling to 60', () => {
     const S = FRAME.stomp;
-    const { enemies, blows } = crowd([...ring(1), ...ring(5), ...ring(9.8), ...ring(13), ...ring(15)]);
+    const { enemies, blows } = crowd([...ring(1), ...ring(6), ...ring(11.5), ...ring(15), ...ring(17.5)]);
     const at = new THREE.Vector3();
     stomp(enemies, at, 4);
     expect(blows.size).toBe(32);
     for (const [e, d] of blows) {
       const r = Math.hypot(e.position.x, e.position.z);
       if (r < S.knock) {
-        // The big slam's knock, and more: enough to take a man off his feet.
         expect(d.force).toBeGreaterThanOrEqual(420);
         expect(d.dir.y).toBeGreaterThan(0.5);
       } else {
         expect(d.force).toBeLessThan(420);
       }
-      expect(d.amount).toBeCloseTo(160 + (40 - 160) * (r / S.radius), 3);
+      expect(d.amount).toBeCloseTo(S.center + (S.edge - S.center) * (r / S.radius), 3);
       expect(d.type).toBe('crush');
     }
   });
 
-  it('from lower is half of it', () => {
-    const { enemies, blows } = crowd([...ring(4), ...ring(6.5), ...ring(8)]);
+  it('from lower uses the small multiplier', () => {
+    const { enemies, blows } = crowd([...ring(4), ...ring(7.5), ...ring(10)]);
     stomp(enemies, new THREE.Vector3(), 3);
     expect(blows.size).toBe(16);
-    for (const [e, d] of blows) if (Math.hypot(e.position.x, e.position.z) > 5) expect(d.force).toBeLessThan(420);
+    for (const [e, d] of blows) if (Math.hypot(e.position.x, e.position.z) > FRAME.stomp.knock * FRAME.stomp.small) {
+      expect(d.force).toBeLessThan(420);
+    }
   });
 });
 
 describe('the blows', () => {
-  it('a backhand takes everyone in a 120 degree arc in front within reach, nobody behind or past it', () => {
-    const { enemies, blows } = crowd([[0, -3], [3, -3], [-3, -3], [0, 3], [0, -7], [5, 0.5]]);
-    expect(backhand(enemies, new THREE.Vector3(), 0)).toBe(3);
-    expect([...blows.keys()].map(e => e.uid).sort()).toEqual([0, 1, 2]);
+  it('a backhand sweeps a 190-degree front arc to 7.2 m PLUS a 360-degree 4 m close sweep around the legs', () => {
+    // 0: front 3 m, 1: front-right 5 m, 2: front-left 5 m, 3: behind 3 m (close 360 sweep!), 4: behind 5.2 m (miss), 5: front 8.5 m (miss).
+    const { enemies, blows } = crowd([[0, -3], [4, -3], [-4, -3], [0, 3], [0, 5.2], [0, -8.5]]);
+    expect(backhand(enemies, new THREE.Vector3(), 0)).toBe(4);
+    expect([...blows.keys()].map(e => e.uid).sort()).toEqual([0, 1, 2, 3]);
     for (const d of blows.values()) expect(d.amount).toBe(FRAME.backhand.damage);
+    // Close enemies get gibbed.
+    expect(blows.get(enemies.alive[3]!)!.gib).toBe(true);
   });
 
   it('a charge strikes each man once, however long he is in front of it', () => {
@@ -197,9 +212,14 @@ describe('the blows', () => {
     for (const d of blows.values()) expect(d.dir.z).toBeLessThan(-0.5);
   });
 
-  it('a foot crushes only who it lands on', () => {
-    const { enemies, blows } = crowd([[0, 0.5], [0, 2.5]]);
+  it('a foot crushes only who it lands on, and walking tramples enemies hugging the ankles on a cooldown', () => {
+    const { enemies, blows } = crowd([[0, 0.8], [0, 3.5]]);
     expect(crush(enemies, new THREE.Vector3())).toBe(1);
     expect([...blows.values()][0]!.gib).toBe(true);
+    blows.clear();
+    const last = new Map<number, number>();
+    expect(trample(enemies, new THREE.Vector3(), last, 1.0)).toBe(1);
+    expect(trample(enemies, new THREE.Vector3(), last, 1.2)).toBe(0);
+    expect(trample(enemies, new THREE.Vector3(), last, 1.6)).toBe(1);
   });
 });

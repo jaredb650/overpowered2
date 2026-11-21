@@ -204,7 +204,7 @@ export const CALLINS: Record<CallInId, CallInInfo> = {
   attackChopper: callIn('attackChopper', 'Attack Chopper', 'callinChopper', 'No mark needed. You take the gunner seat, the pilot finds the fight, and you have a cannon and rockets until they run out.'),
   orbital: callIn('orbital', 'Orbital Lance', 'callinOrbital', 'A burning beam you steer for 6 seconds.'),
   ac130: callIn('ac130', 'AC-130', 'callinAc130', 'A gunship circles the mark for two minutes and shells it while you fight.'),
-  frame: callIn('frame', 'Distraint Frame', 'callinFrame', 'No mark needed. A walking gun platform lands beside you; E climbs in. Rotary, 40 mm, rockets and a stomp, and nothing hurts it, for 45 seconds.'),
+  frame: callIn('frame', 'Distraint Frame', 'callinFrame', 'No mark needed. A heavy Bureau walker drops beside you and stays on the field until destroyed (4000 HP). E enters and exits at any time; rotary, 40 mm, lock-on pod, jump jets, stomp, and wide melee sweeps.'),
   blackSun: callIn('blackSun', 'Black Sun', 'callinBlackSun', 'Drags enemies and corpses in, then implodes.'),
   nuke: callIn('nuke', 'Tactical Nuke', 'callinNuke', 'Six seconds of siren, then it whites out the map.'),
 };

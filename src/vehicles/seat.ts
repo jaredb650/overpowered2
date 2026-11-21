@@ -181,6 +181,10 @@ export class GunnerSeat {
   boxes = true;
   /** A walking mount's legs against the view, radians, for the panel's tick. NaN on everything that does not walk. */
   legs = NaN;
+  /** Hull integrity 0..1 for armoured ground vehicles (Distraint Frame), or NaN when not shown. */
+  hull = NaN;
+  /** Numeric hull readout (e.g. "4000 / 4000"). */
+  hullText = '';
   /** A painting launcher's marks, as the panel draws them. */
   marks: readonly MissileTarget[] = [];
   readonly view: SeatView = { position: new THREE.Vector3(), yaw: 0, pitch: 0, roll: 0, shake: 1 };

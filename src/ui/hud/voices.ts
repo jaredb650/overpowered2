@@ -23,14 +23,21 @@ import type { CommsLine } from '../../enemies/outpost/events';
 import type { Settings } from '../settings';
 
 const BASE = 'audio/chatter/';
-export const VOICE_POOL = 3;
+export const VOICE_POOL = 5;
 /** Shouts are heard out to here, full level inside NEAR. */
-export const EARSHOT = 45;
-const NEAR = 8;
-const FAR_LEVEL = 0.3;
+export const EARSHOT = 65;
+const NEAR = 14;
+const FAR_LEVEL = 0.42;
 /** Other lines under a warning. */
-const UNDER_WARNING = 0.35;
+const UNDER_WARNING = 0.38;
 const CUT_FADE = 0.03;
+/** Voice clips peak around -7 dB while gunfire peaks near -1.5 dB; boost via Web Audio so callouts cut through combat. */
+const VOICE_GAIN = 1.65;
+/** Makeup gain on the 300–3200 Hz radio bandpass so radio traffic matches direct shouts. */
+const RADIO_MAKEUP = 1.35;
+/** Recovery guards so a stuck element never leaks a pool slot. */
+const LOAD_GRACE = 3.5;
+const MAX_PLAY_AGE = 9;
 
 export interface VoiceDeps {
   audio(): HTMLAudioElement;
@@ -68,6 +75,8 @@ interface Slot {
   playing: boolean;
   /** Seconds of fade left on a cut, or 0. */
   fade: number;
+  /** Monotonic generation counter so an aborted play() from a previous clip cannot kill a newly assigned clip. */
+  gen: number;
 }
 
 const _v = new THREE.Vector3();
@@ -78,25 +87,37 @@ export class ChatterVoices {
   private listed: Promise<void> | null = null;
   private ac: AudioContext | null = null;
   private wired = false;
+  private unlockBound = false;
   private clock = 0;
 
   constructor(private readonly ctx: Ctx, private readonly settings: Settings, private readonly deps: VoiceDeps = PAGE) {
     for (let i = 0; i < VOICE_POOL; i++) {
       const audio = deps.audio();
       audio.preload = 'auto';
-      const slot: Slot = { audio, gain: null, pan: null, dry: null, wet: null, enemy: null, rank: 0, radio: false, bornAt: 0, playing: false, fade: 0 };
-      audio.addEventListener('ended', () => this.free(slot));
-      audio.addEventListener('error', () => this.free(slot));
+      const slot: Slot = { audio, gain: null, pan: null, dry: null, wet: null, enemy: null, rank: 0, radio: false, bornAt: 0, playing: false, fade: 0, gen: 0 };
+      audio.addEventListener('ended', () => {
+        if (slot.playing) this.free(slot);
+      });
+      audio.addEventListener('error', () => {
+        if (slot.playing) this.free(slot);
+      });
       this.pool.push(slot);
     }
+    // Fetch the manifest up front so opening lines do not drop while the first request is in flight.
+    void this.load();
   }
 
-  /** The list of clips, fetched once, on the first line anybody says. */
+  /** The list of clips, fetched once (retried if an earlier fetch failed). */
   load(): Promise<void> {
-    return (this.listed ??= this.deps.list().then(m => {
+    if (this.listed) return this.listed;
+    const p = this.deps.list().then(m => {
       VOICED.ext = m.ext ?? 'mp3';
       for (const c of m.clips) VOICED.clips.add(c);
-    }, () => undefined));
+    }, () => {
+      if (this.listed === p) this.listed = null;
+    });
+    this.listed = p;
+    return p;
   }
 
   private get level(): number {
@@ -107,24 +128,32 @@ export class ChatterVoices {
   /** A line said aloud. Plays his take if there is one and he can be heard. */
   say(line: CommsLine): boolean {
     void this.load();
-    if (this.level <= 0 || line.row === undefined || line.row < 0 || !line.enemy) return false;
+    if (this.level <= 0 || line.row === undefined || line.row < 0) return false;
+    const row = RULES[line.row];
+    if (!row) return false;
+    const radio = row.radio;
+    if (!radio && !line.enemy) return false;
     const slots: Record<string, string> = { ...(line.slots ?? {}) };
     if (line.dead !== undefined && line.dead >= 0) slots.dead = NAME_LIST[line.dead]!;
-    const clip = clipFor(line.row, slots, line.voice ?? -1);
+    const voice = line.voice !== undefined && line.voice >= 0 ? line.voice : 0;
+    const clip = clipFor(line.row, slots, voice);
     if (!clip) return false;
-    const row = RULES[line.row]!;
-    const radio = row.radio;
-    if (!radio && this.distance(line.enemy) > EARSHOT) return false;
+    if (!radio && line.enemy && this.distance(line.enemy) > EARSHOT) return false;
     const rank = RANK[row.priority];
     // His own earlier line ends where the new one starts; otherwise a free element, or the lowest and oldest, never for a lower line.
-    let slot = this.pool.find(p => p.playing && p.enemy === line.enemy) ?? this.pool.find(p => !p.playing) ?? null;
+    let slot = (line.enemy
+      ? this.pool.find(p => p.playing && p.enemy === line.enemy)
+      : this.pool.find(p => p.playing && !p.enemy && p.radio))
+      ?? this.pool.find(p => !p.playing)
+      ?? null;
     if (!slot) {
       for (const p of this.pool) if (p.rank <= rank && (!slot || p.rank < slot.rank || (p.rank === slot.rank && p.bornAt < slot.bornAt))) slot = p;
     }
     if (!slot) return false;
     this.wire();
+    const gen = ++slot.gen;
     slot.audio.pause();
-    slot.enemy = line.enemy;
+    slot.enemy = line.enemy ?? null;
     slot.rank = rank;
     slot.radio = radio;
     slot.bornAt = this.clock;
@@ -133,11 +162,13 @@ export class ChatterVoices {
     slot.audio.src = `${BASE}${encodeURIComponent(clip)}.${VOICED.ext}`;
     if (slot.dry && slot.wet) {
       slot.dry.gain.value = radio ? 0 : 1;
-      slot.wet.gain.value = radio ? 1 : 0;
+      slot.wet.gain.value = radio ? RADIO_MAKEUP : 0;
     }
     this.mix();
-    void this.ac?.resume().catch(() => undefined);
-    slot.audio.play().catch(() => this.free(slot));
+    this.resumeContext();
+    slot.audio.play().catch(() => {
+      if (slot.gen === gen) this.free(slot);
+    });
     return true;
   }
 
@@ -152,11 +183,24 @@ export class ChatterVoices {
       if (!p.playing) continue;
       if (paused !== p.audio.paused && p.fade === 0) {
         if (paused) p.audio.pause();
-        else void p.audio.play().catch(() => this.free(p));
+        else {
+          const gen = p.gen;
+          void p.audio.play().catch(() => {
+            if (p.gen === gen) this.free(p);
+          });
+        }
       }
       if (p.fade > 0) {
         p.fade -= dt;
-        if (p.fade <= 0) this.free(p);
+        if (p.fade <= 0) {
+          this.free(p);
+          continue;
+        }
+      }
+      if (!paused) {
+        const age = this.clock - p.bornAt;
+        const stalled = age > LOAD_GRACE && typeof p.audio.currentTime === 'number' && p.audio.currentTime === 0;
+        if (age > MAX_PLAY_AGE || stalled) this.free(p);
       }
     }
     this.mix();
@@ -167,10 +211,11 @@ export class ChatterVoices {
     const warning = this.pool.some(p => p.playing && p.rank === RANK.critical);
     const camera = this.ctx.render.camera;
     for (const p of this.pool) {
-      if (!p.playing || !p.enemy) continue;
+      if (!p.playing) continue;
+      if (!p.radio && !p.enemy) continue;
       let level = this.level * (warning && p.rank < RANK.critical ? UNDER_WARNING : 1);
       let side = 0;
-      if (!p.radio) {
+      if (!p.radio && p.enemy) {
         const d = this.distance(p.enemy);
         level *= d <= NEAR ? 1 : Math.max(FAR_LEVEL, 1 - ((1 - FAR_LEVEL) * (d - NEAR)) / (EARSHOT - NEAR));
         if (camera instanceof THREE.Camera) {
@@ -179,7 +224,7 @@ export class ChatterVoices {
         }
       }
       if (p.fade > 0) level *= p.fade / CUT_FADE;
-      if (p.gain) p.gain.gain.value = level;
+      if (p.gain) p.gain.gain.value = level * VOICE_GAIN;
       else p.audio.volume = THREE.MathUtils.clamp(level, 0, 1);
       if (p.pan) p.pan.pan.value = side;
     }
@@ -189,6 +234,27 @@ export class ChatterVoices {
     const camera = this.ctx.render.camera;
     const at = camera instanceof THREE.Camera ? _eye.setFromMatrixPosition(camera.matrixWorld) : this.ctx.player.eye;
     return enemy.center.distanceTo(at);
+  }
+
+  private resumeContext(): void {
+    const ac = this.ac;
+    if (!ac) return;
+    if (ac.state === 'suspended') {
+      void ac.resume().catch(() => undefined);
+      if (!this.unlockBound && typeof window !== 'undefined') {
+        this.unlockBound = true;
+        const wake = () => {
+          void ac.resume().catch(() => undefined);
+          if (ac.state === 'running') {
+            window.removeEventListener('pointerdown', wake);
+            window.removeEventListener('keydown', wake);
+            this.unlockBound = false;
+          }
+        };
+        window.addEventListener('pointerdown', wake);
+        window.addEventListener('keydown', wake);
+      }
+    }
   }
 
   /** The graph, built once, on the first line played. */
@@ -222,6 +288,7 @@ export class ChatterVoices {
   }
 
   private free(p: Slot): void {
+    p.gen++;
     p.playing = false;
     p.enemy = null;
     p.fade = 0;

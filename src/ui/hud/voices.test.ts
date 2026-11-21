@@ -6,13 +6,14 @@ import { RULES } from '../../enemies/outpost/chatter/lines';
 import { VOICED, clipFor } from '../../enemies/outpost/chatter/voices';
 import type { CommsLine } from '../../enemies/outpost/events';
 import type { Settings } from '../settings';
-import { ChatterVoices, EARSHOT } from './voices';
+import { ChatterVoices, EARSHOT, VOICE_POOL } from './voices';
 
 class FakeAudio {
   src = '';
   preload = '';
   paused = true;
   volume = 1;
+  currentTime = 0.5;
   pause = vi.fn(() => { this.paused = true; });
   play = vi.fn(() => { this.paused = false; return Promise.resolve(); });
   addEventListener = vi.fn();
@@ -23,6 +24,7 @@ const FRAG = row('ch.garrison.frag.pro.1');
 const MOVING = row('ch.garrison.moving.pro.1');
 const HIT = row('ch.garrison.hit.pro.1');
 const RADIO = row('ch.garrison.radioCheck.all.1');
+const FIX = RULES.findIndex(r => r.concept === 'fix' && r.radio);
 
 function setup() {
   const camera = new THREE.PerspectiveCamera();
@@ -39,13 +41,13 @@ function setup() {
 }
 
 const man = (z: number) => ({ center: new THREE.Vector3(0, 1.6, -z) }) as unknown as EnemyInstance;
-const line = (r: number, enemy: EnemyInstance, voice: number, slots: Record<string, string> | null = null): CommsLine =>
+const line = (r: number, enemy: EnemyInstance | null, voice: number, slots: Record<string, string> | null = null): CommsLine =>
   ({ kind: RULES[r]!.concept, text: '', squad: 'Alpha', speaker: '', enemy, position: new THREE.Vector3(), row: r, dead: -1, slots, voice });
 
 beforeEach(() => {
   VOICED.clips.clear();
   VOICED.ext = 'mp3';
-  for (const r of [FRAG, MOVING, HIT]) for (const v of ['t2', 't3']) VOICED.clips.add(`${RULES[r]!.id}.${v}`);
+  for (const r of [FRAG, MOVING, HIT, FIX]) for (const v of ['t2', 't3']) VOICED.clips.add(`${RULES[r]!.id}.${v}`);
   VOICED.clips.add(`${RULES[RADIO]!.id}~Charlie.t2`);
 });
 
@@ -64,11 +66,13 @@ it('picks the take the voice pass made for a blank it rendered once', () => {
   expect(clipFor(report, { to: 'Bravo', squad: 'Alpha', range: '120 metres', cardinal: 'south' }, 0)).toBe(`${RULES[report]!.id}~south-50metres-Alpha-Allunits.t2`);
 });
 
-it('hears shouts out to earshot, and the radio from anywhere', () => {
+it('hears shouts out to earshot, and the radio from anywhere (including Command with no body)', () => {
   const { voices } = setup();
   expect(voices.say(line(MOVING, man(EARSHOT + 5), 0))).toBe(false);
   expect(voices.say(line(RADIO, man(EARSHOT + 50), 0, { squad: 'Charlie' }))).toBe(true);
   expect(voices.pool.find(p => p.playing)!.radio).toBe(true);
+  expect(voices.say(line(FIX, null, -1))).toBe(true);
+  expect(voices.pool.some(p => p.playing && !p.enemy && p.radio)).toBe(true);
 });
 
 it('stops a man cut off mid-word, in a fade too short to click', () => {
@@ -84,15 +88,36 @@ it('stops a man cut off mid-word, in a fade too short to click', () => {
 
 it('mixes a warning over the chatter, and a full pool gives way to a higher line, never to a lower one', () => {
   const { voices, audios } = setup();
-  for (let i = 0; i < 3; i++) voices.say(line(MOVING, man(5 + i), 0));
+  for (let i = 0; i < VOICE_POOL; i++) voices.say(line(MOVING, man(5 + i), 0));
   expect(voices.say(line(HIT, man(9), 0))).toBe(false);
   expect(voices.say(line(FRAG, man(4), 0))).toBe(true);
   voices.update(0, false);
   const frag = voices.pool.find(p => p.audio.src.includes('frag'))!;
   expect((frag.audio as unknown as FakeAudio).volume).toBe(1);
   const under = audios.filter(a => a.src.includes('moving') && !a.paused);
-  expect(under.length).toBe(2);
+  expect(under.length).toBe(VOICE_POOL - 1);
   for (const a of under) expect(a.volume).toBeLessThan(0.4);
+});
+
+it('does not let an aborted play() from a previous clip kill a newly assigned clip on the same slot', async () => {
+  const { voices, audios } = setup();
+  let rejectFirst!: (err: Error) => void;
+  audios[0]!.play
+    .mockImplementationOnce(() => {
+      audios[0]!.paused = false;
+      return new Promise<void>((_res, rej) => { rejectFirst = rej; });
+    })
+    .mockImplementationOnce(() => {
+      audios[0]!.paused = false;
+      return Promise.resolve();
+    });
+  const e = man(6);
+  expect(voices.say(line(MOVING, e, 0))).toBe(true);
+  expect(voices.say(line(FRAG, e, 0))).toBe(true);
+  rejectFirst(new DOMException('aborted', 'AbortError'));
+  await Promise.resolve();
+  expect(voices.pool[0]!.playing).toBe(true);
+  expect(audios[0]!.paused).toBe(false);
 });
 
 it('is silent with the enemy voices turned down', () => {

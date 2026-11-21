@@ -417,14 +417,14 @@ export const SENTRY = {
   impactRadius: 4, impactDamage: 120,
 } as const;
 
-/** The Distraint Frame as a call-in (callins/frameDrop.ts). */
+/** The Distraint Frame as a call-in (callins/frameDrop.ts). Stays on the map as a persistent vehicle until destroyed. */
 export const FRAME_DROP = {
   /** Metres ahead of the player it aims to land, and the fall. */
   ahead: 9, height: 140, speed: 70, warn: 1.6,
-  /** Seconds it stands open for the player before it is taken back, and seconds of the fight once in. */
-  wait: 30, seconds: 45,
+  /** No timer: the Frame stays deployed until its hull fails. */
+  wait: Infinity, seconds: Infinity,
   /** Metres from the hull at which E boards it. */
-  reach: 4.5,
+  reach: 5.2,
   impactRadius: 7, impactDamage: 220,
 } as const;
 

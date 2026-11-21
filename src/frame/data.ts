@@ -61,26 +61,44 @@ export const FRAME = {
     refill: 3,
     refillAfter: 0.25,
   },
+  /** Hull integrity, directional armor multipliers, and boarding/eject constants. */
+  hull: {
+    maxHealth: 4000,
+    /** Small-arms fire chips off heavy armor plates with sparks; snipers punch deeper; heavy ordnance deals full damage. */
+    bulletMult: 0.18,
+    sniperMult: 0.45,
+    heavyMult: 1.0,
+    /** Hits from behind into the dorsal reactor slats deal bonus damage. */
+    rearMult: 1.5,
+    /** Blast when the Frame's hull fails and explodes. */
+    explodeRadius: 12,
+    explodeDamage: 320,
+    /** Metres from a parked Frame at which E climbs back in. */
+    boardReach: 5.2,
+    /** Seconds of player invulnerability after an emergency eject on destruction. */
+    exitGrace: 1.5,
+  },
   stomp: {
-    speed: 30,
+    speed: 32,
     /** Below this over the ground a press does nothing: the stomp needs room to be one. */
-    minHeight: 1.5,
+    minHeight: 1.2,
     /** From this height or more it is the big one. */
     big: 4,
     /** The big slam's ring, twice the size: damage from `center` falling to `edge`, and everyone inside `knock` off their feet. */
-    radius: 14, knock: 10, center: 160, edge: 40,
+    radius: 16, knock: 12, center: 240, edge: 60,
     /** A push that takes a man off his feet: the big slam's 420, and more for a body this size. */
-    knockForce: 650,
+    knockForce: 850,
     /** A stomp from lower: this share of the ring, damage and push. */
-    small: 0.5,
-    recover: 0.6,
+    small: 0.55,
+    recover: 0.5,
     /** Of the speed it had, what the stomp keeps going sideways. */
-    carry: 0.3,
+    carry: 0.35,
   },
-  charge: { speed: 16, seconds: 0.7, count: 2, refill: 4, damage: 150, force: 900, reach: 2.4 },
-  backhand: { arc: 120 * DEG, reach: 5.5, damage: 200, force: 750, every: 1 },
-  /** A planted foot crushes anyone this close to it. */
-  crush: { radius: 1.4, damage: 400 },
+  charge: { speed: 18, seconds: 0.75, count: 2, refill: 3.5, damage: 240, force: 1150, reach: 3.2 },
+  /** Wide 190-degree front sweep PLUS a 4 m 360-degree close-proximity sweep so enemies crowding around the legs get flattened. */
+  backhand: { arc: 190 * DEG, reach: 7.2, closeRadius: 4.0, damage: 340, force: 1100, every: 0.72 },
+  /** A planted foot crushes anyone under it, and walking continuously tramples anyone hugging the ankles. */
+  crush: { radius: 2.0, damage: 450, trampleRadius: 1.85, trampleDamage: 160, trampleEvery: 0.45 },
   /** The view's own weight, all of it in the feet and the eye, none in the aim. */
   feel: {
     /** Eye dip at a plant (m), the kick down (rad), trauma, and the sway either side over a stride (m, rad). */
@@ -92,19 +110,18 @@ export const FRAME = {
     stompDip: 1.3,
   },
   rotary: {
-    /** The door gun's 20 mm round (heliData DOOR_GUN), at 20 a second. */
-    rate: 20, spinUp: 0.4, spinDown: 1.1, fireAt: 0.75, barrelRate: 46, spread: 0.008,
-    damage: 60, severMult: 3, force: 34, burst: { radius: 0.6, damage: 16, scale: 1.5 }, penetrate: 1.4, bodyCost: 0.3, impactScale: 1.6,
-    range: 420, tracerEvery: 2, flashEvery: 2, trauma: 0.05, kick: 0.0012,
-    /** The mounted gun's Heat: about 7 s to OVERHEAT at 20 a second, 2.5 s to vent. */
-    heatPerShot: 1 / 140, cool: 0.3, vent: 0.4,
+    /** Heavy 20 mm Vulcan: snappy spin-up, 24 rounds/s, about 6.7 s to overheat, 2.2 s to vent. */
+    rate: 24, spinUp: 0.25, spinDown: 0.9, fireAt: 0.65, barrelRate: 54, spread: 0.0075,
+    damage: 68, severMult: 3.2, force: 38, burst: { radius: 0.7, damage: 22, scale: 1.6 }, penetrate: 1.5, bodyCost: 0.28, impactScale: 1.65,
+    range: 420, tracerEvery: 2, flashEvery: 2, trauma: 0.045, kick: 0.0011,
+    heatPerShot: 1 / 160, cool: 0.35, vent: 0.45,
   },
-  /** The AC-130's 40 mm, its magazine and three rounds as they are (ac130Data bofors), fired flat from the arm. */
-  cannon: { magazine: 8, reload: 4.5, interval: 0.32, speed: 130, spread: 0.0015, trauma: 0.22, kick: 0.02 },
-  /** The Quiver's painter on a six-tube pod. One salvo empties it, then 10 s to reload. */
-  pod: { tubes: 6, reload: 10, paintEvery: 0.15, cone: 0.2, range: 180, gap: 0.09, damage: 110, blast: 90, radius: 3.5 },
-  /** The seats' flares, three a beat, with the gunship's lockout after each pop, and a wall of smoke round the Frame. */
-  smoke: { count: 3, lockout: 3, seconds: 9, size: 7 },
+  /** The 40 mm autocannon: 10-round magazine, three shell types (HE / AP / FLAK), punchy flat trajectory. */
+  cannon: { magazine: 10, reload: 3.8, interval: 0.28, speed: 145, spread: 0.0012, trauma: 0.24, kick: 0.022 },
+  /** The 6-tube lock-on missile pod: fast painting, wide cone, heavy salvo, 8.5 s reload. */
+  pod: { tubes: 6, reload: 8.5, paintEvery: 0.11, cone: 0.26, range: 200, gap: 0.08, damage: 145, blast: 115, radius: 4.2 },
+  /** Regenerating countermeasures: flares, smoke wall, and a close-range concussive blast that clears the ankles. */
+  smoke: { count: 3, lockout: 2.5, refill: 14, seconds: 9, size: 7, blastRadius: 6.5, blastDamage: 45, blastForce: 620 },
 } as const;
 
 /** The gunner's seat with a walking mount. Everything the seat does (arc, zoom, HUD, the way out) is the seat's. */

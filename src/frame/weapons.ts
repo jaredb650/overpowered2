@@ -150,25 +150,40 @@ export class Pod {
   }
 }
 
-/** Three pops a beat, and none within the lockout of the last. */
+/** Three pops on hand, never inside the lockout, and each spent charge regenerates over time. */
 export class Smoke {
   count: number = FRAME.smoke.count;
   private wait = 0;
+  private refillIn = 0;
+
+  get progress(): number {
+    return this.count < FRAME.smoke.count ? 1 - this.refillIn / FRAME.smoke.refill : -1;
+  }
 
   update(dt: number): void {
     this.wait = Math.max(0, this.wait - dt);
+    if (this.count < FRAME.smoke.count) {
+      this.refillIn -= dt;
+      if (this.refillIn <= 0) {
+        this.count++;
+        this.refillIn = this.count < FRAME.smoke.count ? FRAME.smoke.refill : 0;
+      }
+    }
   }
 
   pop(): boolean {
     if (this.count <= 0 || this.wait > 0) return false;
+    const wasFull = this.count === FRAME.smoke.count;
     this.count--;
     this.wait = FRAME.smoke.lockout;
+    if (wasFull) this.refillIn = FRAME.smoke.refill;
     return true;
   }
 
   reset(): void {
     this.count = FRAME.smoke.count;
     this.wait = 0;
+    this.refillIn = 0;
   }
 }
 
@@ -194,56 +209,80 @@ export function stomp(enemies: EnemySystem, at: THREE.Vector3, height: number): 
     blow.source = 'frame_stomp';
     blow.amount = lerp(S.center, S.edge, clamp(d / radius)) * k;
     blow.point.copy(e.center);
-    blow.dir.set(e.position.x - at.x, 0, e.position.z - at.z).normalize().setY(knocked ? 0.65 : 0.35).normalize();
+    blow.dir.set(e.position.x - at.x, 0, e.position.z - at.z);
+    if (blow.dir.lengthSq() < 1e-4) blow.dir.set(1, 0, 0);
+    blow.dir.normalize().setY(knocked ? 0.65 : 0.35).normalize();
     blow.force = knocked ? S.knockForce * (k < 1 ? 0.8 : 1) : S.knockForce * 0.3;
+    blow.gib = d < 3.5 * k;
     enemies.applyDamage(e, blow);
+    blow.gib = false;
   }
   return n;
 }
 
 /** Anyone in the way of a charge: flung on along it and up. `hit` keeps who has been struck, so each is once a charge. */
-export function shove(enemies: EnemySystem, front: THREE.Vector3, dir: THREE.Vector3, hit: Set<number>): number {
+export function shove(enemies: EnemySystem, front: THREE.Vector3, dir: THREE.Vector3, hit: Set<number>, center?: THREE.Vector3): number {
   const H = FRAME.charge;
-  const n = Math.min(enemies.query(front, H.reach, _hits) || 0, _hits.length);
   let struck = 0;
-  for (let i = 0; i < n; i++) {
-    const e = _hits[i]!;
-    if (!e.alive || hit.has(e.uid)) continue;
-    hit.add(e.uid);
-    blow.source = 'frame_charge';
-    blow.amount = H.damage;
-    blow.point.copy(e.center);
-    blow.dir.copy(dir).setY(0.55).normalize();
-    blow.force = H.force;
-    enemies.applyDamage(e, blow);
-    struck++;
-  }
+  const sweep = (origin: THREE.Vector3, radius: number): void => {
+    const n = Math.min(enemies.query(origin, radius, _hits) || 0, _hits.length);
+    for (let i = 0; i < n; i++) {
+      const e = _hits[i]!;
+      if (!e.alive || hit.has(e.uid)) continue;
+      hit.add(e.uid);
+      blow.source = 'frame_charge';
+      blow.amount = H.damage;
+      blow.point.copy(e.center);
+      blow.dir.copy(dir).setY(0.55).normalize();
+      blow.force = H.force;
+      blow.gib = true;
+      enemies.applyDamage(e, blow);
+      blow.gib = false;
+      struck++;
+    }
+  };
+  sweep(front, H.reach);
+  if (center) sweep(center, FRAME.body.radius + 1.1);
   return struck;
 }
 
 /**
- * The arm swept across the front: everyone in `arc` of the view and within `reach` of the hull's middle, thrown off to the
- * side the swing goes. Returns how many.
+ * Heavy arm sweep across the front: hits everyone inside the wide 190-degree front arc out to `reach`, PLUS everyone
+ * crowding within `closeRadius` in full 360 degrees around the mech's legs/body so enemies sitting around it get flattened.
+ * `swingDir` (+1 right-to-left backhand, -1 left-to-right forehand) aims the knockback with the arm's travel.
  */
-export function backhand(enemies: EnemySystem, at: THREE.Vector3, yaw: number): number {
+export function backhand(enemies: EnemySystem, at: THREE.Vector3, yaw: number, swingDir = 1): number {
   const H = FRAME.backhand;
   const n = Math.min(enemies.query(at, H.reach + 1, _hits) || 0, _hits.length);
   let struck = 0;
   const fx = -Math.sin(yaw);
   const fz = -Math.cos(yaw);
+  const s = swingDir >= 0 ? 1 : -1;
   for (let i = 0; i < n; i++) {
     const e = _hits[i]!;
     const dx = e.position.x - at.x;
     const dz = e.position.z - at.z;
     const d = Math.hypot(dx, dz);
-    if (!e.alive || d > H.reach || Math.abs(wrapAngle(Math.atan2(-dx, -dz) - yaw)) > H.arc / 2) continue;
+    if (!e.alive || d > H.reach) continue;
+    const inFrontArc = Math.abs(wrapAngle(Math.atan2(-dx, -dz) - yaw)) <= H.arc / 2;
+    const aroundLegs = d <= H.closeRadius;
+    if (!inFrontArc && !aroundLegs) continue;
     blow.source = 'frame_backhand';
     blow.amount = H.damage;
     blow.point.copy(e.center);
-    // From right to left across the front: out to the left and on away.
-    blow.dir.set(fz * 0.8 + fx * 0.4, 0.5, -fx * 0.8 + fz * 0.4).normalize();
+    if (inFrontArc) {
+      // Swept across the front in the direction of the arm swing, plus upward loft.
+      blow.dir.set(s * fz * 0.8 + fx * 0.45, 0.55, s * -fx * 0.8 + fz * 0.45).normalize();
+    } else {
+      // Enemies crowding behind/beside the ankles are blasted radially outward and upward.
+      blow.dir.set(dx, 0, dz);
+      if (blow.dir.lengthSq() < 1e-4) blow.dir.set(-fx, 0, -fz);
+      blow.dir.normalize().setY(0.6).normalize();
+    }
     blow.force = H.force;
+    blow.gib = aroundLegs;
     enemies.applyDamage(e, blow);
+    blow.gib = false;
     struck++;
   }
   return struck;
@@ -261,10 +300,63 @@ export function crush(enemies: EnemySystem, foot: THREE.Vector3): number {
     blow.amount = K.damage;
     blow.point.copy(e.center);
     blow.dir.set(0, -1, 0);
-    blow.force = 200;
+    blow.force = 260;
     blow.gib = true;
     enemies.applyDamage(e, blow);
     blow.gib = false;
+    struck++;
+  }
+  return struck;
+}
+
+/** Continuous walking ankle-trample: knocks aside and crushes enemies camping against the Frame's legs while moving. */
+export function trample(enemies: EnemySystem, feet: THREE.Vector3, lastHit: Map<number, number>, now: number): number {
+  const K = FRAME.crush;
+  const n = Math.min(enemies.query(feet, K.trampleRadius + 0.4, _hits) || 0, _hits.length);
+  let struck = 0;
+  for (let i = 0; i < n; i++) {
+    const e = _hits[i]!;
+    if (!e.alive) continue;
+    const dx = e.position.x - feet.x;
+    const dz = e.position.z - feet.z;
+    if (Math.hypot(dx, dz) > K.trampleRadius) continue;
+    const prev = lastHit.get(e.uid);
+    if (prev !== undefined && now - prev < K.trampleEvery) continue;
+    lastHit.set(e.uid, now);
+    blow.source = 'frame_foot';
+    blow.amount = K.trampleDamage;
+    blow.point.copy(e.center);
+    blow.dir.set(dx, 0, dz);
+    if (blow.dir.lengthSq() < 1e-4) blow.dir.set(1, 0, 0);
+    blow.dir.normalize().setY(0.45).normalize();
+    blow.force = 520;
+    blow.gib = true;
+    enemies.applyDamage(e, blow);
+    blow.gib = false;
+    struck++;
+  }
+  return struck;
+}
+
+/** Close-range concussive countermeasure pulse when popping Q smoke: shoves enemies off the ankles. */
+export function smokePulse(enemies: EnemySystem, at: THREE.Vector3): number {
+  const S = FRAME.smoke;
+  const n = Math.min(enemies.query(at, S.blastRadius, _hits) || 0, _hits.length);
+  let struck = 0;
+  for (let i = 0; i < n; i++) {
+    const e = _hits[i]!;
+    if (!e.alive) continue;
+    const dx = e.position.x - at.x;
+    const dz = e.position.z - at.z;
+    if (Math.hypot(dx, dz) > S.blastRadius) continue;
+    blow.source = 'frame_stomp';
+    blow.amount = S.blastDamage;
+    blow.point.copy(e.center);
+    blow.dir.set(dx, 0, dz);
+    if (blow.dir.lengthSq() < 1e-4) blow.dir.set(1, 0, 0);
+    blow.dir.normalize().setY(0.55).normalize();
+    blow.force = S.blastForce;
+    enemies.applyDamage(e, blow);
     struck++;
   }
   return struck;
@@ -482,6 +574,16 @@ export class FrameGuns {
     pod.reload = this.pod.progress;
     smoke.name = 'Q SMOKE';
     smoke.ammo = this.smoke.count;
+    smoke.reload = this.smoke.progress;
+  }
+
+  /** Passive cooling, reloads, smoke refill, and in-flight 40 mm shells while parked empty on the map. */
+  idleUpdate(dt: number): void {
+    this.rotary.update(dt, false);
+    this.cannon.mag.update(dt);
+    this.pod.update(dt, false, () => []);
+    this.smoke.update(dt);
+    this.rounds.update(dt);
   }
 
   // ---- the rotary ----
@@ -543,13 +645,17 @@ export class FrameGuns {
     this.onShell?.(round, _muzzle, _aim, reach / C.speed);
     this.rounds.flash(_muzzle, 1.6, 0.07, 9, 10, 5, 1.4);
     fx.muzzleFlash(_muzzle, _bore, 'autocannon');
+    // Heavy brass 40 mm shell casing kicked out to the right of the breech.
+    _v.set(-_bore.z, 0, _bore.x).multiplyScalar(2.6);
+    _v.y = rand(1.6, 3.0);
+    fx.shellCasing(_at.copy(_muzzle).addScaledVector(_bore, -2.1), _v, 'cannon');
     // A puff well out ahead of the brake: at the muzzle, a metre from the eye, it filled half the screen.
     fx.smoke(_v.copy(_muzzle).addScaledVector(_bore, 3), 0xb4bcc4, 0.5, 0.8);
     _play.volume = 1.4;
     _play.pitch = round === 'ap' ? 0.8 : 0.72;
     _play.position = undefined;
     audio.play('autocannon_fire', _play);
-    this.right.recoil(0.45);
+    this.right.recoil(0.48);
     camera.addTrauma(C.trauma);
     camera.kick(C.kick, rand(-0.004, 0.004));
   }
@@ -628,10 +734,12 @@ export class FrameGuns {
 
   // ---- smoke ----
 
-  /** Flares up and out of the back, and a ring of smoke round the legs that lasts. False when none went. */
+  /** Flares up and out of the back, smoke wall around the legs, and a concussive countermeasure pulse that clears close enemies. */
   popSmoke(at: THREE.Vector3, yaw: number): boolean {
     if (!this.smoke.pop()) return false;
     smokeScreen(this.ctx, this.rounds, at, yaw);
+    smokePulse(this.ctx.enemies, at);
+    this.ctx.fx.ring(_at.copy(at).setY(at.y + 1.2), UP, '#ffd080', FRAME.smoke.blastRadius);
     return true;
   }
 

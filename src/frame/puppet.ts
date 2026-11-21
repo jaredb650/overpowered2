@@ -27,20 +27,20 @@ import type { ModelMaterials } from '../progression/modelkit';
 import { Gun } from '../vehicles/guns';
 import { CANNON_ARM, FRAME_PLACES, ROTARY_ARM, StandIn } from './cockpit';
 import { FRAME } from './data';
-import { MECH_FIRING, MECH_JETS } from './seat';
+import { MECH_FIRING, MECH_JETS, MECH_PARKED } from './seat';
 import { podMissile, shellImpact, smokeScreen } from './weapons';
 
 /**
  * `[feetX, feetY, feetZ, legYaw, viewYaw, stride, walk, dip, sway, sightX, sightY, sightZ, flags]`: where it stands, where
  * the legs and the hull point, how far through its stride it is and how hard it is walking, the hull's sink and sway, the
- * spot its guns are on, and `MECH_FIRING | MECH_JETS`.
+ * spot its guns are on, and `MECH_FIRING | MECH_JETS | MECH_PARKED`.
  */
 export const MECH_POSE = 13;
 
 const R = FRAME.rotary;
 const UP = new THREE.Vector3(0, 1, 0);
 const DOWN = new THREE.Vector3(0, -1, 0);
-/** Seconds without a word from the pilot before the puppet is taken for empty. */
+/** Seconds without a word from the pilot before the puppet is taken for gone. */
 const LOST = 4;
 /** How fast the drawn pose closes on the told one, as a rate. */
 const FOLLOW = 14;
@@ -58,8 +58,10 @@ const _aim = new THREE.Vector3();
 export class FramePuppet implements DroppedFrame {
   /** Where it stands, as drawn. */
   readonly walker = { feet: new THREE.Vector3() };
-  /** A pilot is in it: poses are arriving. */
+  /** A pilot is currently seated inside it (false while parked empty, so the remote player's body reappears). */
   occupied = false;
+  /** Live on the map (either piloted or parked empty). */
+  deployed = false;
   private readonly body: StandIn;
   private readonly rotaryGun: Gun;
   private readonly cannonGun: Gun;
@@ -103,24 +105,29 @@ export class FramePuppet implements DroppedFrame {
     return this.walker.feet;
   }
 
-  /** The pilot's word: where the Frame is and what it is doing. Null as they leave it. */
+  /** The pilot's word: where the Frame is and what it is doing. Null when destroyed or cleared. */
   pose(values: readonly number[] | null): void {
     if (!values || values.length < MECH_POSE) {
-      if (this.occupied) this.empty();
+      if (this.deployed || this.occupied) this.empty();
       return;
     }
     for (let i = 0; i < MECH_POSE; i++) this.target[i] = values[i]!;
     this.quiet = 0;
-    if (this.occupied) return;
+    const parked = ((values[12]! | 0) & MECH_PARKED) !== 0;
+    this.occupied = !parked;
+    if (this.deployed) {
+      if (parked) this.silence();
+      return;
+    }
     // The first word: it is simply there.
-    this.occupied = true;
+    this.deployed = true;
     this.walker.feet.set(values[0]!, values[1]!, values[2]!);
     this.legYaw = values[3]!;
     this.viewYaw = values[4]!;
     this.stride = values[5]!;
     this.sight.set(values[9]!, values[10]!, values[11]!);
-    this.rotaryGun.snap(this.viewYaw, 0);
-    this.cannonGun.snap(this.viewYaw, 0);
+    this.rotaryGun.snap(this.viewYaw, parked ? -0.35 : 0);
+    this.cannonGun.snap(this.viewYaw, parked ? -0.35 : 0);
   }
 
   news(kind: MechKind, v: readonly number[]): void {
@@ -179,10 +186,10 @@ export class FramePuppet implements DroppedFrame {
 
   /** Standing empty on `feet`, facing `yaw`. */
   stand(feet: THREE.Vector3, yaw: number): void {
-    if (this.occupied) return;
+    if (this.deployed) return;
     this.walker.feet.copy(feet);
     this.legYaw = this.viewYaw = yaw;
-    this.body.pose(feet, yaw, yaw, 0, 0, 0, 0, false, _eye);
+    this.body.pose(feet, yaw, yaw, 0, 0, 0, 0, false, _eye, { parked: true });
     for (const [gun, place] of [[this.rotaryGun, FRAME_PLACES.rotary], [this.cannonGun, FRAME_PLACES.cannon]] as const) {
       this.body.place(place, _pivot);
       gun.snap(yaw, -0.35);
@@ -193,9 +200,9 @@ export class FramePuppet implements DroppedFrame {
   /** Nobody on this screen ever boards a puppet. */
   board(): void {}
 
-  /** An empty one gone from the scene. A crewed one stays until its pilot's word. */
+  /** An empty one gone from the scene. A deployed one stays until its pilot's word. */
   hide(): void {
-    if (this.occupied) return;
+    if (this.deployed) return;
     this.body.hide();
     this.rotaryGun.hide();
     this.cannonGun.hide();
@@ -208,6 +215,7 @@ export class FramePuppet implements DroppedFrame {
   }
 
   private empty(): void {
+    this.deployed = false;
     this.occupied = false;
     this.flags = 0;
     this.silence();
@@ -226,7 +234,7 @@ export class FramePuppet implements DroppedFrame {
   update(dt: number): void {
     // Shells already in the air land whether or not anyone is still in it.
     this.rounds.update(this.ctx.time.dt);
-    if (!this.occupied) return;
+    if (!this.deployed) return;
     this.quiet += dt;
     if (this.quiet > LOST) {
       this.empty();
@@ -250,9 +258,19 @@ export class FramePuppet implements DroppedFrame {
     this.sway += (t[8]! - this.sway) * k;
     this.sight.lerp(_to.set(t[9]!, t[10]!, t[11]!), k);
     this.flags = t[12]! | 0;
+    const parked = (this.flags & MECH_PARKED) !== 0;
+    const jets = (this.flags & MECH_JETS) !== 0;
 
-    this.body.pose(feet, this.legYaw, this.viewYaw, this.stride, this.walk, this.dip, this.sway, false, _eye);
-    if (Math.floor(this.stride) !== Math.floor(strideWas) && this.walk > 0.05) this.footfall();
+    this.body.pose(feet, this.legYaw, this.viewYaw, this.stride, this.walk, this.dip, this.sway, false, _eye, { parked, jets });
+    if (!parked && Math.floor(this.stride) !== Math.floor(strideWas) && this.walk > 0.05) this.footfall();
+    if (parked) {
+      for (const [gun, place] of [[this.rotaryGun, FRAME_PLACES.rotary], [this.cannonGun, FRAME_PLACES.cannon]] as const) {
+        this.body.place(place, _pivot);
+        gun.point(_pivot, this.viewYaw, -0.35, dt);
+      }
+      this.silence();
+      return;
+    }
     this.arms(dt);
     this.rotary(dt);
     this.jets(dt);

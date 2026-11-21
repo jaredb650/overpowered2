@@ -34,12 +34,15 @@ const keys = { down: new Set<string>(), pressed: new Set<string>() };
 const look = { x: 0, y: 0 };
 const log = { parked: [] as { feet: THREE.Vector3; exposed: boolean }[], carried: [] as THREE.Vector3[], unparked: 0, teleported: 0 };
 const player = {
-  position: new THREE.Vector3(), sensitivity: 0.002, lookScale: 1, invertY: false, grounded: true,
+  position: new THREE.Vector3(), alive: true, sensitivity: 0.002, lookScale: 1, invertY: false, grounded: true,
   interceptor: null as ((d: PlayerDamage) => boolean) | null,
   park: (feet: THREE.Vector3, exposed = false) => log.parked.push({ feet: feet.clone(), exposed }),
   unpark: () => log.unparked++,
   carry: (feet: THREE.Vector3) => log.carried.push(feet.clone()),
-  teleport: () => log.teleported++,
+  teleport: (at: THREE.Vector3) => {
+    player.position.copy(at);
+    log.teleported++;
+  },
 };
 
 beforeAll(async () => {
@@ -60,7 +63,10 @@ beforeAll(async () => {
     enemies: { alive: [], query: () => 0, vehicles: null },
     events: { on: () => () => undefined },
   });
-  rig = { seat: null, prisoners: new Set<number>(), shell: { show() {}, hide() {}, update() {} }, hud: { open() {} }, holdGrade() {} } as unknown as SeatRig;
+  rig = {
+    seat: null, get occupied() { return rig.seat !== null; },
+    prisoners: new Set<number>(), shell: { show() {}, hide() {}, update() {} }, hud: { open() {} }, holdGrade() {},
+  } as unknown as SeatRig;
   frame = new Frame(ctx, new ModelMaterials(ctx), rig, () => undefined);
 });
 
@@ -71,6 +77,7 @@ beforeEach(() => {
   look.x = look.y = 0;
   log.parked.length = log.carried.length = 0;
   log.unparked = log.teleported = 0;
+  player.position.set(0, 0, 0);
   frame.board(new THREE.Vector3(0, 0, 0), 0);
 });
 
@@ -79,14 +86,22 @@ const frames = (n: number) => {
 };
 
 describe('boarding', () => {
-  it('parks the body where the hits still reach it, and gives every one of them to the Frame', () => {
+  it('parks the body where the hits still reach it, and routes hits into the 4000 HP armored hull', () => {
     expect(log.parked).toHaveLength(1);
     expect(log.parked[0]!.exposed).toBe(true);
     expect(frame.occupied).toBe(true);
+    expect(frame.deployed).toBe(true);
     expect(rig.seat).not.toBeNull();
-    expect(rig.seat!.noWayOut).toBe(true);
+    expect(rig.seat!.noWayOut).toBe(false);
     expect(player.interceptor).not.toBeNull();
+    expect(frame.health).toBe(FRAME.hull.maxHealth);
+    // Small arms are heavily mitigated by the armor plates.
     expect(player.interceptor!({ amount: 500, type: 'bullet', source: 'test' })).toBe(true);
+    expect(frame.health).toBeCloseTo(FRAME.hull.maxHealth - 500 * FRAME.hull.bulletMult, 1);
+    // Hits from behind into the reactor slats deal 1.5x damage.
+    const beforeRear = frame.health;
+    expect(player.interceptor!({ amount: 200, type: 'explosive', source: 'rocket', from: new THREE.Vector3(0, 2, 10) })).toBe(true);
+    expect(beforeRear - frame.health).toBeCloseTo(200 * FRAME.hull.rearMult, 1);
   });
 
   it('carries the body in the cockpit every frame, the eye at 5.2 m over the feet, as it walks', () => {
@@ -119,12 +134,31 @@ describe('the view', () => {
   });
 });
 
-describe('the way out', () => {
-  it('has no key', () => {
+describe('the way out and re-boarding', () => {
+  it('E disembarks cleanly beside the parked mech and E beside it climbs back in with health preserved', () => {
+    // Take some hull damage first so we can verify persistence across exit/re-board.
+    player.interceptor!({ amount: 500, type: 'explosive', source: 'rocket' });
+    const damagedHp = frame.health;
+    expect(damagedHp).toBe(FRAME.hull.maxHealth - 500);
+    // Advance past the 0.25 s interact guard, then press E to disembark.
+    frames(20);
     keys.pressed.add('interact');
-    frames(5);
+    frames(1);
+    keys.pressed.clear();
+    expect(frame.occupied).toBe(false);
+    expect(frame.deployed).toBe(true);
+    expect(frame.parked).toBe(true);
+    expect(log.unparked).toBe(1);
+    expect(log.teleported).toBe(1);
+    expect(player.interceptor).toBeNull();
+    // Advance past guard and press E beside the parked mech to climb back in.
+    frames(20);
+    keys.pressed.add('interact');
+    frames(1);
+    keys.pressed.clear();
     expect(frame.occupied).toBe(true);
-    expect(log.unparked).toBe(0);
+    expect(frame.health).toBe(damagedHp);
+    expect(player.interceptor).not.toBeNull();
   });
 
   it('gives everything back when the seat is emptied from outside: death, a new run', () => {
@@ -137,20 +171,19 @@ describe('the way out', () => {
     expect(log.carried).toHaveLength(0);
   });
 
-  it('puts the player out beside it when a call-in\'s seconds run down', () => {
-    frame.board(new THREE.Vector3(0, 0, 0), 0, 1);
-    log.teleported = 0;
-    frames(50);
-    expect(frame.occupied).toBe(true);
-    frames(20);
+  it('explodes and safely ejects the pilot when hull health hits zero', () => {
+    player.interceptor!({ amount: FRAME.hull.maxHealth + 500, type: 'explosive', source: 'tank' });
+    expect(frame.health).toBe(0);
     expect(frame.occupied).toBe(false);
+    expect(frame.deployed).toBe(false);
     expect(log.teleported).toBe(1);
     expect(player.interceptor).toBeNull();
   });
 
-  it('leaves by a script with the body put down beside it', () => {
+  it('leaves by a script with the body put down beside it, keeping the Frame parked', () => {
     frame.leave();
     expect(frame.occupied).toBe(false);
+    expect(frame.deployed).toBe(true);
     expect(log.unparked).toBe(1);
     expect(log.teleported).toBe(1);
     expect(player.interceptor).toBeNull();

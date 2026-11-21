@@ -1,45 +1,43 @@
 # The Distraint Frame
 
-Stage 3 of `docs/proposals/mission-2-plan.md` (section 3 is the design): the Frame as a toy on the Test Range, on a stand-in body
-of boxes. Stage 4 bakes its body, stage 5 makes what it breaks and what breaks it. Files: `src/frame/`.
+Persistent Bureau heavy walker (`4000 HP`, no time limit) with sculpted bevelled armor, first-person cockpit with progressive canopy cracks,
+and full vehicle disembark/re-board (`E`). Files: `src/frame/`.
 
 **Try it:** `/?map=range&frame=1`. Every run starts in a Frame at the player's spawn. Add `&frameturn=free` to take the turn limit
-off and compare (question 2).
+off and compare.
 
 | Key | Does |
 |---|---|
-| WASD | Walk, relative to the view: 7 m/s ahead, 4.5 back, 5 sideways |
+| WASD | Walk, relative to the view: 7 m/s ahead, 4.5 back, 5 sideways (walking continuously tramples enemies hugging the ankles) |
 | Mouse | Look. Free within 80 degrees of the legs; past that the mouse drags the whole Frame round at 140 degrees a second |
 | Space | Jets: up about 7 m in 0.8 s, hold to hover up to 1.5 s. Fuel fills in 3 s on the ground. A launch with WASD held is thrown that way at 3 m/s, and the jets steer at full control while lit (half with them off) |
-| Crouch (Ctrl, C) in the air | Stomp: down at 30 m/s. From 4 m or more, the big slam at twice the size |
-| Shift | Charge: 0.7 s at 16 m/s, two charges, each back 4 s after. Re-plants the legs under the view |
-| F | Backhand: a 120 degree arc in front, 5.5 m from the hull's middle, 200, once a second |
-| LMB | Rotary cannon (left arm) |
-| RMB, R | 40 mm (right arm), and R for its round: HE, AP, FLAK |
-| G, held | Paint for the rocket pod; let go to fire all six |
-| Q | Smoke and flares, three a beat |
+| Crouch (Ctrl, C) in the air | Stomp: down at 32 m/s. From 4 m or more, the big slam (16 m ring, 240..60 damage, 12 m knockdown) |
+| Shift | Charge: 0.75 s at 18 m/s, two charges, each back 3.5 s after. Re-plants the legs under the view |
+| F | Alternating 2-arm melee sweep: 190 degree front arc to 7.2 m PLUS a 4 m 360 degree close-proximity sweep around the legs (340 damage, 1100 force, close gib, 0.72 s cooldown) |
+| LMB | 20 mm six-barrel Vulcan rotary cannon (left arm) |
+| RMB, R | 40 mm autocannon (right arm), and R cycles HE, AP, FLAK |
+| G, held | Paint for the 6-tube shoulder rocket pod; let go to fire all six |
+| Q | Regenerating smoke wall, flares, and a 6.5 m concussive pulse around the legs |
+| E | Disembark safely beside the Frame (leaving it parked with preserved HP and position) or climb back in within 5.2 m |
 | Wheel | Zoom x2 |
 
-There is no way out by key (`noWayOut`), as the plan's default has it. Death or a new run takes the player out.
-
-**As a call-in** (key K, combo 35, `progression/callins/frameDrop.ts`): it lands on its jets 9 m ahead of the player, stands empty
-(`Frame.stand`), and E within 4.5 m boards it with `board(feet, yaw, 45)`. When the seat's 45 s run down, `update` calls `leave()`,
-the player is put down beside it and the Frame is gone. See "The AA sentry and the Frame" in `docs/notes/progression.md`.
+**As a call-in** (key K, combo 35, `progression/callins/frameDrop.ts`): it lands on its jets 9 m ahead of the player and calls
+`Frame.deploy(feet, yaw)`. There is no call-in timer and no despawn timer: it remains parked with a HUD marker (`DISTRAINT 4 · XX%`)
+and `[E] BOARD` prompt until destroyed (`0 HP` triggers an explosion and safely ejects the pilot if inside).
 
 ## Files
 
 | File | Holds |
 |---|---|
-| `data.ts` | Every number (`FRAME`), the seat's plan (`framePlan`), the URL flags |
+| `data.ts` | Every number (`FRAME`), `FRAME.hull`, the seat's plan (`framePlan`), the URL flags |
 | `controller.ts` | `Walker`: the legs. A kinematic walker on Rapier, no physics body |
-| `seat.ts` | `Frame`: the gunner's seat on a walking mount. Keys to intent, the walker, the pose, the seat, the guns, the blows, the feel |
-| `weapons.ts` | The four clocks (`Rotary`, `Cannon`, `Pod`, `Smoke`), `FrameGuns` that fires them, and the blows (`stomp`, `shove`, `backhand`, `crush`) |
-| `cockpit.ts` | The stand-in: the cockpit near-model, the two arm guns' specs, the hull and legs, `FRAME_PLACES` |
-| `*.test.ts` | Controller on real Rapier, weapons' clocks and blows, the seat |
+| `seat.ts` | `Frame`: persistent vehicle lifecycle (`deploy`, `board`, `enter`, `leave`, `destroy`), hull armor (`4000 HP`, directional rear multiplier, canopy cracks), keys, walker, pose, guns, blows |
+| `weapons.ts` | The four clocks (`Rotary`, `Cannon`, `Pod`, `Smoke` with recharge), `FrameGuns` (plus `idleUpdate` while parked), and the blows (`stomp`, `shove`, `backhand`, `crush`, `trample`, `smokePulse`) |
+| `cockpit.ts` | Sculpted bevelled procedural Bureau mech (`prism()` hull, pauldrons, sensor mast, 6-tube missile pod, dorsal reactor slats, jet flame cones, reverse-jointed 3-toed legs, parked amber standby visor, first-person cockpit with 3 crack overlays, `ROTARY_ARM`, `CANNON_ARM` with melee strike-gauntlet) |
+| `*.test.ts` | Controller on real Rapier, weapons' clocks and blows, persistent seat/hull lifecycle |
 
-Outside `src/frame/`: the `frame` tone in `src/vehicles/hud.ts` and `gunner.css`, two fields on `GunnerSeat` (`legs`, `marks`),
-`Heat` takes any gun with the three heat numbers, `player.carry(feet)` (`contracts.ts`, `Player.ts`), and the call-in manager owns the
-Frame beside the mounted guns (`callIns.frame`, `progression.frame`).
+Outside `src/frame/`: the `frame` tone and Hull Integrity bar in `src/vehicles/hud.ts` and `gunner.css`, fields on `GunnerSeat`
+(`legs`, `marks`, `hull`, `hullText`), `Heat`, `player.carry(feet)`, and `callIns.frame` / `progression.frame`.
 
 ## How it works
 
@@ -47,56 +45,42 @@ Frame beside the mounted guns (`callIns.frame`, `progression.frame`).
 (6.2 m), so anything lower than a step is under it, not in its way. Walls stop the capsule and it slides along them; a contact on the
 round of the capsule's end pushes straight out from the axis, so a wall just over step height is a wall. The ground is five rays,
 under the middle and under four feet 0.95 m out, turned with the legs; the Frame stands on the highest walkable one. Each ray starts a
-step over the feet, which is over where the feet were a tick before, so no fall at any speed (the stomp's 30 m/s is 0.5 m a tick)
-passes a floor. Walking, the rays reach a step down as well, so it walks down stairs and off a 1.2 m ledge; past that it falls.
-Rising, a foot that catches a ledge lifts the Frame onto it and the climb goes on. Ticks are at most 1/60 s. `said` holds what
-happened in the last update (plants, a landing, a stomp, a charge into a wall, jets lit, how far the legs turned, a step's height).
+step over the feet, which is over where the feet were a tick before, so no fall at any speed passes a floor.
 
 **Turning.** The walker is given where the mouse would put the view, before the legs hold it. Inside the arc the legs stay planted;
-the mouse past the edge turns them at up to 140 degrees a second and anything it asks beyond that is lost, so the view never moves on
-its own. Walking, the legs also come round under the view at 70 degrees a second. The seat clamps the view to the same arc round the
-legs (`arcHalf`), so the two agree. `?frameturn=free`: no arc, the legs catch the view at once.
+the mouse past the edge turns them at up to 140 degrees a second. Walking, the legs also come round under the view at 70 degrees a second.
+`?frameturn=free`: no arc, the legs catch the view at once.
 
-**The seat** (`seat.ts`). A `GunnerSeat` with plan `framePlan()`: tone `frame`, `exposed`, `noWayOut`, `aimZooms: false` (RMB is a
-gun, the wheel zooms), its frame quaternion the legs' yaw. Every frame the walker moves, the stand-in is posed from it, and the seat
-takes its view from the eye in the cockpit, so the arc, the zoom, the sight ray, the HUD and every way out are the seat's. The parked
-body rides with its head in the cockpit (`player.carry`), where the enemy aims, and `player.interceptor` gives every hit on it to the
-Frame (stage 3: the plates take everything).
-
-**The feel.** The aim is never slowed or moved; the weight is in the feet and the eye. A plant every 0.7 s at a walk dips the hull
-9 cm on a critically damped spring, kicks the view down 0.01 rad, and plays `land_hard` at 0.48 under `juggernaut_step` at 0.7; the
-hull sways 7 cm side to side over a stride and the view rolls with it. Each plant pushes: the speed swells and sags 8% over a stride.
-Acceleration is 1.1 s to 7 m/s and 0.6 s to stop. A step up or down moves the feet at once and the eye eases over it. A landing
-sinks the hull by its speed; a stomp sinks it 1.3 m. The hip servos (`tank_turret_loop`) are heard while the legs come round.
+**The seat & hull** (`seat.ts`). A `GunnerSeat` with plan `framePlan()`: tone `frame`, `exposed`, `noWayOut: false`, `seconds: Infinity`,
+`aimZooms: false`. `player.interceptor` routes every hit while piloted into `Frame.health` (`4000 HP`): small arms take `0.18x`,
+snipers `0.45x`, heavy ordnance `1.0x`, and rear shots into the dorsal reactor slats take `1.5x`. Canopy cracks progress at 70%, 45%,
+and 20% HP; at 0 HP `destroy()` explodes the Frame (12 m, 320 damage to nearby enemies) and safely ejects the pilot with 1.5 s grace.
+Pressing `E` runs a multi-raycast `findExitSpot()` beside the mech and parks it in a standby crouch (amber visor, weapons cooling/reloading passively).
 
 **The weapons** (`weapons.ts`). Each gun has its own clock, so the juggle is the game, as in the gunship.
 
 | Gun | From | Numbers |
 |---|---|---|
-| Rotary, left arm | The door gun's 20 mm round (60, a 0.6 m burst of 16, through 1.4 m of wall), the mounted gun's `Heat` and the minigun's five sounds | 20 a second after 0.3 s of spin; 140 rounds (about 7 s) to `OVERHEAT`, 2.5 s to vent. Fired from the eye along the sight, the tracer from the real muzzle |
-| 40 mm, right arm | The gunship's `Magazine` and rounds (`Ac130Rounds`, its own instance), armed from the muzzle | 8 a magazine, 0.32 s apart, 4.5 s reload. HE 170 in 5 m; AP through 3 walls, then 320; FLAK bursts 2.5 m short and throws 14 pellets of 75. 130 m/s, so a shell is seen to fly |
-| Pod, right shoulder | The Quiver's `Painter` and missiles | Six tubes. Hold G: a mark every 0.15 s in a 0.2 rad cone to 180 m. Let go: all six leave, 0.09 s apart, spares on the marks; a tap fires six dumb. 110 direct, 90 in 3.5 m. Then 10 s to reload |
-| Smoke, Q | The gunship's flares (thrown from the back) and eight long clouds round the legs | Three a beat, 3 s lockout after each |
-
-Sources are `frame_rotary`, `frame_40mm`, `frame_40mm_ap`, `frame_flak`, `frame_pod`, so kills are the player's and pay. None of it
-hurts the player: the blasts take `selfDamage: 0` and `playerPush: 0`, and the interceptor takes the rest.
+| Rotary, left arm | 20 mm Vulcan (`68` damage, `0.7 m` burst of `22`, through `1.5 m` of wall), `Heat` | 24 a second after 0.25 s spin; 160 rounds (~6.7 s) to `OVERHEAT`, 2.2 s to vent |
+| 40 mm, right arm | `Magazine` and `Ac130Rounds`, brass casing ejection | 10 a magazine, 0.28 s apart, 3.8 s reload. HE / AP / FLAK at 145 m/s |
+| Pod, right shoulder | `Painter` and missiles | Six tubes. Hold G: a mark every 0.11 s in a 0.26 rad cone to 200 m. Release: all six fire 0.08 s apart (145 direct, 115 in 4.2 m). 8.5 s reload |
+| Smoke, Q | Flares, smoke wall, and close concussive pulse | 3 charges, 2.5 s lockout, 14 s per-charge recharge; clears enemies within 6.5 m (45 dmg, 620 force) |
 
 **The blows.** All `crush` damage on `enemies.applyDamage`.
 
 | Blow | What |
 |---|---|
-| Stomp from 4 m or more | 14 m ring, 160 at the middle falling to 40; everyone inside 10 m is pushed up and out at 650 (the big slam's knock is 420). `fx.slam` at 3.2 (the big slam's 1.6, doubled), two rings of dust, chips, an 11 m crack, a radial impulse, `titan_stomp` |
-| Stomp from lower | Half of all of it |
-| Charge | Anyone within 2.4 m of the front of the hull, once each a charge: 150, flung along it and up at 900. A wall square on stops it dead, 0.3 s to recover |
-| Backhand | 200 and a fling to the left at 750, with `fx.slash`; the right arm swings across |
-| A planted foot | 400 and a gib to anyone within 1.4 m of it |
+| Stomp from 4 m or more | 16 m ring, 240 at center falling to 60; everyone inside 12 m knocked off their feet (850 force) |
+| Stomp from lower | 0.55x ring, damage, and push |
+| Charge | Anyone within 3.2 m of front/hull, once per charge: 240, flung at 1150 |
+| Backhand (F) | Alternating 2-arm sweep: 190° front arc to 7.2 m PLUS 4 m 360° close-proximity sweep around the legs: 340 damage, 1100 force, close gib |
+| Foot / walking | Planted foot crushes within 2.0 m (450, gib); walking continuously tramples within 1.85 m (160 every 0.45 s) |
 
 ## Co-op: the Frame on other screens
 
 A player in a Frame is drawn on every other screen as a **puppet** of it (`src/frame/puppet.ts` `FramePuppet`): the same `StandIn`
-body and the two arm `Gun`s, seen from outside. Nothing has to ask for it. `Frame` (`seat.ts`) has a `net` hook that the call-in
-manager sets while there are other players (`CallInManager.linkFrame`); whenever a player is in a Frame, however they got there (a
-call-in's drop, a mission's beat through `progression.frame.board(...)`, `?frame=1`), it sends:
+body and the two arm `Gun`s, seen from outside. When a pilot disembarks, `MECH_PARKED` keeps the puppet standing in its parked pose
+while the remote pilot's body reappears on foot beside it (`occupied === false`, `deployed === true`). Sending `null` clears it on destruction.
 
 - its **pose** ten times a second (`MechPose`, 13 numbers: feet, leg yaw, view yaw, stride, walk, the hull's sink and sway, the
   spot the guns are on, and flags for the rotary firing and the jets lit), and `null` as the player leaves it;

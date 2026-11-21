@@ -140,6 +140,11 @@ export class GunnerHud implements SeatPanel {
   private readonly body: HTMLElement;
   private readonly legs: HTMLElement;
   private readonly legsShown: Shown;
+  private readonly hullShown: Shown;
+  private readonly hullBar: Meter;
+  private readonly hullText: Label;
+  private readonly hullLow: Flag;
+  private readonly hullCrit: Flag;
   private readonly rows: WeaponRow[] = [];
   private readonly reticleHost: HTMLElement;
   private readonly label: Label;
@@ -180,6 +185,9 @@ export class GunnerHud implements SeatPanel {
     const label = span('gn-label');
     const seconds = span('gn-sec');
     const timeFill = div('gn-tfill');
+    const hullFill = div('gn-hfill');
+    const hullVal = span('gn-hval');
+    const hull = div('gn-hull', span('gn-hkey', 'HULL'), div('gn-hbar', hullFill), hullVal);
     const range = span('gn-val');
     const altitude = span('gn-val');
     const heading = span('gn-val');
@@ -196,7 +204,7 @@ export class GunnerHud implements SeatPanel {
       tags,
       this.reticleHost,
       spin,
-      div('gn-top', label, div('gn-time', div('gn-tbar', timeFill), seconds), legs),
+      div('gn-top', label, div('gn-time', div('gn-tbar', timeFill), seconds), hull, legs),
       div('gn-arms', ...this.rows.map(r => r.el)),
       div('gn-read',
         div('gn-row', span('gn-key', 'RNG'), range),
@@ -215,6 +223,11 @@ export class GunnerHud implements SeatPanel {
     this.zoom = new Label(zoom);
     this.hint = new Label(hint);
     this.timeBar = new Meter(timeFill);
+    this.hullBar = new Meter(hullFill);
+    this.hullText = new Label(hullVal);
+    this.hullShown = new Shown(hull, 'grid');
+    this.hullLow = new Flag(this.el, 'hull-low');
+    this.hullCrit = new Flag(this.el, 'hull-crit');
     this.spin = new Meter(spinFill);
     this.spinShown = new Shown(spin, 'block');
     this.boarding = new Flag(this.el, 'boarding');
@@ -244,13 +257,13 @@ export class GunnerHud implements SeatPanel {
       this.reticleHost.replaceChildren(markup(RETICLES[plan.tone]));
     }
     this.label.set(plan.label);
-    const out = seat.noWayOut ? '' : ` // ${this.key('interact')} ${plan.tone === 'mount' ? 'LEAVE' : 'HAND TO AI'}`;
+    const out = seat.noWayOut ? '' : ` // ${this.key('interact')} ${plan.tone === 'mount' ? 'LEAVE' : plan.tone === 'frame' ? 'EXIT' : 'HAND TO AI'}`;
     // The door gunner's pilot throws his own; the chopper (thermal) and gunship seats have the key.
     const flares = plan.tone === 'gunship' || plan.tone === 'thermal' ? ` // ${this.key('jump')} FLARES` : '';
     this.hint.set(plan.tone === 'gunship'
       ? `${this.key('fire')} FIRE // 1-4 GUN, AGAIN FOR ROUND // ${this.key('aim')} ZOOM // ${this.key('reload')} VIEW${flares}${out}`
       : plan.tone === 'frame'
-        ? `${this.key('jump')} JETS // ${this.key('slide')} IN THE AIR STOMP // ${this.key('dash')} CHARGE // ${this.key('melee')} BACKHAND // WHEEL ZOOM${out}`
+        ? `${this.key('jump')} JETS // ${this.key('slide')} STOMP // ${this.key('dash')} CHARGE // ${this.key('melee')} MELEE // WHEEL ZOOM${out}`
       : plan.aimZooms
         ? `${this.key('fire')} FIRE // ${this.key('aim')} ZOOM${out}`
         : `${this.key('fire')} CANNON // ${this.key('aim')} ROCKETS // WHEEL ZOOM${flares}${out}`);
@@ -272,6 +285,17 @@ export class GunnerHud implements SeatPanel {
     this.seconds.set(Math.ceil(seat.left));
     this.timeBar.set(seat.left / plan.seconds);
     this.warning.set(seat.left <= 10);
+    const hasHull = Number.isFinite(seat.hull);
+    this.hullShown.set(hasHull);
+    if (hasHull) {
+      this.hullBar.set(seat.hull);
+      this.hullText.set(seat.hullText);
+      this.hullLow.set(seat.hull <= 0.35 && seat.hull > 0.2);
+      this.hullCrit.set(seat.hull <= 0.2);
+    } else {
+      this.hullLow.set(false);
+      this.hullCrit.set(false);
+    }
     this.range.set(Math.round(seat.range));
     this.altitude.set(Math.round(seat.altitude));
     this.heading.set(Math.round((((-seat.yaw * 180) / Math.PI) % 360 + 360) % 360));

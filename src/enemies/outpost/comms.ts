@@ -19,7 +19,7 @@ import { RULES } from './chatter/lines';
 import type { CommsKind, CommsLine } from './events';
 import type { OutpostSquad } from './squad';
 import { listener } from './chatter/radio';
-import { clipFor } from './chatter/voices';
+import { VOICED, clipFor } from './chatter/voices';
 import type { Soldier } from './soldier';
 import { isGuest } from '../../core/coop';
 
@@ -197,15 +197,18 @@ export class Comms {
     if (s) this.read(s);
     if (extra?.flags) Object.assign(facts.flags, extra.flags);
     // His pair, if still on his feet in the squad: the crawling man calls him by name.
+    // When recorded voice clips are active, only nicknames exist for {dead} and {buddy}; without a nickname, fall back to the plain voiced row.
+    const voiced = VOICED.clips.size > 0;
     const mate = s?.buddy;
-    const pal = !!s && !!mate && mate !== s && mate.e.alive && mate.fighting && s.squad.members.includes(mate);
+    const pal = !!s && !!mate && mate !== s && mate.e.alive && mate.fighting && s.squad.members.includes(mate) && (!voiced || mate.nick >= 0);
     facts.flags.buddyAlive = pal;
     facts.tier = TIER_OF[s?.state ?? 'steady'];
     facts.role = s?.role ?? null;
     facts.flags.leader = s?.isLeader ?? false;
     facts.flags.buddy = buddies;
     // A man nobody learned the name of goes down as "man down", unless it is his buddy or the leader saying it.
-    facts.flags.dead = !!dead && dead.name >= 0 && (dead.known || buddies || facts.flags.leader || dead.wasLeader);
+    const canNameDead = !!dead && dead.name >= 0 && (dead.known || buddies || facts.flags.leader || dead.wasLeader) && (!voiced || dead.nick >= 0);
+    facts.flags.dead = canNameDead;
     // Every row on its cooldown is silence, which keeps the kind's gap like a line would.
     const row = this.memory.pick(kind, facts, now);
     if (row < 0) return;
@@ -214,9 +217,9 @@ export class Comms {
     line.kind = kind;
     line.row = row;
     line.name = s ? (rule.radio && s.desig >= 0 ? s.desig : s.name) : -1;
-    line.dead = facts.flags.dead ? callName(dead!, rule.radio, buddies) : -1;
+    line.dead = canNameDead ? (voiced && dead!.nick >= 0 ? dead!.nick : callName(dead!, rule.radio, buddies)) : -1;
     if (extra?.slots) Object.assign(this.slots, extra.slots);
-    if (pal && rule.text.includes('{buddy}')) this.slots.buddy = NAME_LIST[callName(mate!, false, true)]!;
+    if (pal && rule.text.includes('{buddy}')) this.slots.buddy = NAME_LIST[voiced && mate!.nick >= 0 ? mate!.nick : callName(mate!, false, true)]!;
     // Everything but {dead} goes to co-op guests as words; {dead} goes as a name id.
     const sent: Record<string, string> = {};
     for (const k in this.slots) if (rule.text.includes(`{${k}}`)) sent[k] = this.slots[k]!;
