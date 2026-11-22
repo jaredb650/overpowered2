@@ -7,6 +7,7 @@ import type { Ac130Rounds } from '../../progression/callins/ac130Rounds';
 import type { MechKind } from '../../progression/callins/link';
 import { ModelBuilder } from '../../progression/modelkit';
 import type { GunnerWeapon } from '../../vehicles/hud';
+import { activeMegaBlastCount } from '../../fx/recipes/megaBlast';
 import { buildWireBomb, SHOULDER_WIRE } from '../models/shoulder-wire';
 import type { ShoulderUpdateContext } from './types';
 import { steerWireMissile, WIRE, WIRE_PLUGIN, WireShoulder } from './wire';
@@ -188,8 +189,8 @@ describe('Guided Heavy Missile', () => {
     expect(envWall.explosions[0]!.spec.source).toBe('wireBomb');
     expect(envWall.explosions[0]!.spec.radius).toBe(26);
     expect(envWall.explosions[0]!.spec.cosmetic).toBe(false);
-    // megaBlast also fires the 70 m shock ring.
-    expect(envWall.rings.some(r => r.size === 70)).toBe(true);
+    // Real megaBlast activates its wave-timed 70 m pressure-wave slot.
+    expect(activeMegaBlastCount(envWall.ctx)).toBe(1);
 
     // 2. Enemy hit detonates with megaBlast.
     const envEnemy = makeEnv();
@@ -310,12 +311,8 @@ describe('Guided Heavy Missile', () => {
     expect(peerEnv.spawned[0]!.size).toBeGreaterThan(2);
 
     WIRE_PLUGIN.remoteNews?.(peerEnv.ctx, 'wire', env.news[1]!.values);
-    expect(peerEnv.explosions).toHaveLength(1);
-    expect(peerEnv.explosions[0]!.spec.source).toBe('wireBomb');
-    expect(peerEnv.explosions[0]!.spec.cosmetic).toBe(true);
-    expect(peerEnv.explosions[0]!.spec.mirrored).toBe(true);
-    expect(peerEnv.explosions[0]!.spec.radius).toBe(26);
-    expect(peerEnv.rings.some(r => r.size === 70)).toBe(true);
+    expect(activeMegaBlastCount(peerEnv.ctx)).toBe(1);
+    expect(peerEnv.explosions).toHaveLength(0);
   });
 
   it('builds the Guided Heavy Missile 3D shoulder model with solid and glow geometry', () => {
