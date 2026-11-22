@@ -244,4 +244,67 @@ describe('RivalFrame (Harbourmaster Ironclad Mech Boss)', () => {
 
     rival.dispose();
   });
+
+  it('launches out of Old Mother wreck along a ~16m parabolic jump-jet arc and transitions cleanly into active combat on touchdown', () => {
+    const m = makeMockCtx();
+    const rival = new RivalFrame(m.ctx, null);
+    const origin = new THREE.Vector3(-94, 6.2, -16);
+    const landAt = new THREE.Vector3(-70, 0, -4);
+    const facingYaw = 0.55;
+
+    rival.launchFromWreck(origin, landAt, facingYaw);
+    expect(rival.phase).toBe('launching');
+    expect(rival.active).toBe(true);
+    expect(rival.alive).toBe(false);
+    expect(rival.barFraction()).toBe(1);
+    expect(rival.root.visible).toBe(true);
+    expect(rival.position.distanceTo(origin)).toBeLessThan(0.01);
+    expect(m.sounds).toContain('flame_ignite');
+    expect(m.sounds).toContain('steam_burst');
+    expect(m.ctx.audio.startLoop).toHaveBeenCalledWith('flame_loop', expect.anything());
+
+    // Step across the ~1.45 s flight arc and verify apex height & terrain non-clipping.
+    let maxY = 0;
+    let minY = Infinity;
+    for (let i = 0; i < 20; i++) {
+      m.ctx.time.elapsed += 0.05;
+      rival.update(0.05);
+      maxY = Math.max(maxY, rival.position.y);
+      minY = Math.min(minY, rival.position.y);
+      expect(rival.position.y).toBeGreaterThanOrEqual(0);
+    }
+    expect(rival.phase).toBe('launching');
+    expect(maxY).toBeGreaterThanOrEqual(14);
+    expect(maxY).toBeLessThanOrEqual(18.5);
+    expect(minY).toBeGreaterThanOrEqual(0);
+
+    // Finish the arc -> verify exact touchdown on landAt and immediate transition to active combat!
+    let touchdownPos: THREE.Vector3 | null = null;
+    for (let i = 0; i < 15; i++) {
+      m.ctx.time.elapsed += 0.05;
+      rival.update(0.05);
+      if (rival.phase === 'active' && !touchdownPos) {
+        touchdownPos = rival.position.clone();
+      }
+    }
+    expect(rival.phase).toBe('active');
+    expect(rival.alive).toBe(true);
+    expect(touchdownPos).not.toBeNull();
+    expect(touchdownPos!.y).toBe(0);
+    expect(touchdownPos!.x).toBeCloseTo(landAt.x, 2);
+    expect(touchdownPos!.z).toBeCloseTo(landAt.z, 2);
+    expect(m.sounds).toContain('titan_stomp');
+    expect(m.sounds).toContain('slam_impact');
+    expect(m.ctx.fx.ring).toHaveBeenCalled();
+    expect(m.ctx.fx.slam).toHaveBeenCalled();
+
+    // Hit zones are immediately live and damageable right after touchdown.
+    const torsoCol = rival.colliderFor('torso')!;
+    const hpBefore = rival.health;
+    expect(rival.direct(torsoCol, rival.position, 400, 'shell', 'frame_howitzer')).toBe(true);
+    expect(rival.health).toBeLessThan(hpBefore);
+
+    rival.dispose();
+  });
 });
+

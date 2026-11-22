@@ -19,7 +19,7 @@
  */
 import * as THREE from 'three';
 import type RAPIER from '@dimforge/rapier3d-compat';
-import type { Ctx, ExplosionKind } from '../../core/contracts';
+import type { Ctx, ExplosionKind, LoopHandle } from '../../core/contracts';
 import type { ExplosionSpec, MissileTarget } from '../../core/gameplay';
 import { clamp, damp, dampAngle, rand, wrapAngle } from '../../core/math';
 import { ModelBuilder, ModelMaterials } from '../../progression/modelkit';
@@ -27,7 +27,7 @@ import { EXPLOSIONS } from '../../weapons/data';
 import { PANS } from '../../world/map/holdfast/plan';
 import type { ExtraTarget, VehicleSystem } from './index';
 
-export type RivalFramePhase = 'idle' | 'active' | 'ejecting' | 'wrecked';
+export type RivalFramePhase = 'idle' | 'launching' | 'active' | 'ejecting' | 'wrecked';
 export type RivalAttackKind = 'none' | 'rotary' | 'cannon' | 'missile' | 'jump';
 export type RivalHitZoneId = 'torso' | 'cockpit' | 'legs';
 
@@ -70,6 +70,11 @@ export const RIVAL_FRAME = {
   jumpDistMax: 25,
   stompRadius: 11,
   stompDamage: 110,
+  // Dramatic Jump-Jet Launch Out of Old Mother's Wreck
+  launchDuration: 1.45,
+  launchPeakHeight: 16.0,
+  launchDistMin: 24,
+  launchDistMax: 32,
   // Stagger & Emergency Eject
   staggerDuration: 0.65,
   staggerThreshold: 220,
@@ -136,6 +141,7 @@ const _p2 = new THREE.Vector3();
 const _dir = new THREE.Vector3();
 const _q = new THREE.Quaternion();
 const _up = new THREE.Vector3(0, 1, 0);
+const _down = new THREE.Vector3(0, -1, 0);
 
 export class RivalFrame implements ExtraTarget {
   readonly root = new THREE.Group();
@@ -173,6 +179,7 @@ export class RivalFrame implements ExtraTarget {
   private cannonGlow!: THREE.Mesh;
   private missilePod!: THREE.Group;
   private jetFlames!: THREE.Group;
+  private jetLight!: THREE.PointLight;
   private ejectPod!: THREE.Group;
 
   // AI movement & attack timers
@@ -194,6 +201,14 @@ export class RivalFrame implements ExtraTarget {
   private jumpStart = new THREE.Vector3();
   private jumpEnd = new THREE.Vector3();
   private jumpInAir = false;
+
+  // Launch-out-of-wreck state
+  private launchStart = new THREE.Vector3();
+  private launchEnd = new THREE.Vector3();
+  private launchFacingYaw = 0;
+  private launchElapsed = 0;
+  private launchTrailIn = 0;
+  private jetLoop: LoopHandle | null = null;
 
   // Emergency eject state
   private ejectStart = new THREE.Vector3();
@@ -244,13 +259,13 @@ export class RivalFrame implements ExtraTarget {
     return this.phase === 'active' && this.health > 0;
   }
 
-  /** True while deployed on the Salt Flats (fighting, ejecting, or kneeling wreck). */
+  /** True while deployed on the Salt Flats (launching, fighting, ejecting, or kneeling wreck). */
   get active(): boolean {
     return this.phase !== 'idle';
   }
 
   barFraction(): number {
-    return this.phase === 'active' ? clamp(this.health / this.maxHealth) : 0;
+    return this.phase === 'active' || this.phase === 'launching' ? clamp(this.health / this.maxHealth) : 0;
   }
 
   barLabel(): string {
@@ -259,6 +274,7 @@ export class RivalFrame implements ExtraTarget {
 
   /** Spawns the Harbourmaster's Ironclad Frame onto the Salt Flats ready for Mech-vs-Mech combat. */
   spawn(pos: THREE.Vector3, yaw = 0): void {
+    this.stopJetLoop();
     this.position.set(clamp(pos.x, PANS_MIN_X, PANS_MAX_X), 0, clamp(pos.z, PANS_MIN_Z, PANS_MAX_Z));
     this.legYaw = yaw;
     this.torsoYaw = yaw;
@@ -284,6 +300,8 @@ export class RivalFrame implements ExtraTarget {
     this.canopy.visible = true;
     this.cannonGlow.visible = false;
     this.jetFlames.visible = false;
+    this.jetFlames.scale.set(1, 1, 1);
+    this.jetLight.intensity = 0;
     this.ejectPod.visible = false;
     this.resetPose();
     this.syncWorld();
@@ -296,8 +314,72 @@ export class RivalFrame implements ExtraTarget {
     this.ctx.hud.feed('HARBOURMASTER DEPLOYED — IRONCLAD FRAME ENGAGED!', '#ff5a30');
   }
 
+  /**
+   * Launches the Harbourmaster's Ironclad Frame on full jump-jets directly out of Old Mother's
+   * exploding hull along a dramatic parabolic arc (~16 m apex, ~1.45 s) to a clear Salt Flats
+   * landing spot, slamming down and immediately transitioning into active Mech-vs-Mech combat.
+   */
+  launchFromWreck(origin: THREE.Vector3, landAt: THREE.Vector3, facingYaw = 0): void {
+    const { audio, camera, fx, hud, render } = this.ctx;
+    this.stopJetLoop();
+
+    this.launchStart.set(origin.x, Math.max(origin.y, 4.5), origin.z);
+    this.launchEnd.set(clamp(landAt.x, PANS_MIN_X, PANS_MAX_X), 0, clamp(landAt.z, PANS_MIN_Z, PANS_MAX_Z));
+    this.launchFacingYaw = facingYaw;
+    this.launchElapsed = 0;
+    this.launchTrailIn = 0;
+
+    const travelYaw = Math.atan2(this.launchEnd.x - this.launchStart.x, this.launchEnd.z - this.launchStart.z);
+    this.position.copy(this.launchStart);
+    this.legYaw = travelYaw;
+    this.torsoYaw = facingYaw;
+    this.health = this.maxHealth;
+    this.phase = 'launching';
+    this.attack = 'none';
+    this.attackClock = 0;
+    this.staggerLeft = 0;
+    this.strafeDir = Math.random() < 0.5 ? 1 : -1;
+    this.strafeFlipIn = rand(3.5, 6.0);
+    this.stridePhase = 0;
+    this.lastStepIndex = 0;
+    this.rotaryCooldown = 1.6;
+    this.cannonCooldown = 3.2;
+    this.missileCooldown = 7.5;
+    this.jumpCooldown = 10.0;
+    this.rotarySpin = 0;
+    this.cannonRecoil = 0;
+    this.jumpInAir = false;
+    this.ejectElapsed = 0;
+
+    this.root.visible = true;
+    this.canopy.visible = true;
+    this.cannonGlow.visible = false;
+    this.ejectPod.visible = false;
+    this.jetFlames.visible = true;
+    this.jetFlames.scale.set(1.45, 1.85, 1.45);
+    this.jetLight.intensity = 42;
+    this.applyLaunchPose(0);
+    this.parkColliders();
+    this.syncWorld();
+
+    this.hudUnmark?.();
+    this.hudUnmark = hud.follow(this.paintCenter, 'HARBOURMASTER FRAME', '#ff3b30');
+
+    fx.explosion(this.launchStart, { radius: 6.5, kind: 'rocket', scale: 1.6 });
+    fx.smoke(this.launchStart, 0xffb868, 3.4, 2.2);
+    fx.embers(this.launchStart, 36, 4.5);
+    render.lights.flash(this.launchStart, 0xff8c28, 38, 72, 0.55);
+    audio.play('flame_ignite', { position: this.launchStart, pitch: 0.78, volume: 1 });
+    audio.play('steam_burst', { position: this.launchStart, pitch: 0.72, volume: 0.95 });
+    audio.play('rocket_fire', { position: this.launchStart, pitch: 0.85, volume: 0.95 });
+    this.jetLoop = audio.startLoop('flame_loop', { fadeIn: 0.05, pitch: 0.62, volume: 0.95, position: this.position });
+    camera.addTrauma(0.55);
+    hud.feed('HARBOURMASTER LAUNCHING FROM OLD MOTHER — IRONCLAD FRAME INBOUND!', '#ff5a30');
+  }
+
   /** Hides and resets the RivalFrame completely. */
   hide(): void {
+    this.stopJetLoop();
     this.phase = 'idle';
     this.health = this.maxHealth;
     this.attack = 'none';
@@ -306,6 +388,8 @@ export class RivalFrame implements ExtraTarget {
     this.root.visible = false;
     this.ejectPod.visible = false;
     this.jetFlames.visible = false;
+    this.jetFlames.scale.set(1, 1, 1);
+    this.jetLight.intensity = 0;
     this.cannonGlow.visible = false;
     this.hudUnmark?.();
     this.hudUnmark = null;
@@ -319,6 +403,11 @@ export class RivalFrame implements ExtraTarget {
 
   update(dt: number): void {
     if (this.phase === 'idle') return;
+
+    if (this.phase === 'launching') {
+      this.updateLaunch(dt);
+      return;
+    }
 
     if (this.phase === 'ejecting') {
       this.updateEject(dt);
@@ -705,10 +794,122 @@ export class RivalFrame implements ExtraTarget {
     }
   }
 
+  // ---- Dramatic Launch Out of Old Mother's Wreck -----------------------------------------------------------------
+
+  private updateLaunch(dt: number): void {
+    const { audio, camera, fx, hud, player, render } = this.ctx;
+    this.launchElapsed += dt;
+    const t = clamp(this.launchElapsed / RIVAL_FRAME.launchDuration);
+
+    // Parabolic jet-assisted arc: lifts cleanly to ~16 m apex above ground and never clips below terrain.
+    const x = THREE.MathUtils.lerp(this.launchStart.x, this.launchEnd.x, t);
+    const z = THREE.MathUtils.lerp(this.launchStart.z, this.launchEnd.z, t);
+    const baseY = THREE.MathUtils.lerp(this.launchStart.y, 0, t);
+    const peakExtra = Math.max(8, RIVAL_FRAME.launchPeakHeight - this.launchStart.y * 0.5);
+    const arcY = 4 * peakExtra * t * (1 - t);
+    this.position.set(x, Math.max(0, baseY + arcY), z);
+
+    // Pivot mid-air toward the player so she slams down facing the duel head-on.
+    const travelYaw = Math.atan2(this.launchEnd.x - this.launchStart.x, this.launchEnd.z - this.launchStart.z);
+    const livePlayerYaw = Math.atan2(player.position.x - this.position.x, player.position.z - this.position.z);
+    const desiredFacing = Number.isFinite(livePlayerYaw) ? livePlayerYaw : this.launchFacingYaw;
+    if (t > 0.4) {
+      this.legYaw = dampAngle(this.legYaw, this.launchFacingYaw, 7, dt);
+    } else {
+      this.legYaw = dampAngle(this.legYaw, travelYaw, 6, dt);
+    }
+    this.torsoYaw = dampAngle(this.torsoYaw, desiredFacing, 6.5, dt);
+
+    // Dramatic airborne tucked/braced pose + blazing twin jump-jet flame cones & thruster light.
+    this.applyLaunchPose(t);
+    const flicker = Math.sin(this.ctx.time.elapsed * 44);
+    const retroBoost = t > 0.72 ? 1.35 : 1.0;
+    this.jetFlames.visible = true;
+    this.jetFlames.scale.set(
+      (1.3 + flicker * 0.14) * retroBoost,
+      (1.75 + Math.cos(this.ctx.time.elapsed * 38) * 0.35) * retroBoost,
+      (1.3 + flicker * 0.14) * retroBoost,
+    );
+    this.jetLight.intensity = (36 + flicker * 10) * retroBoost;
+    this.jetLoop?.setPosition(this.position);
+
+    // Heavy smoke, flame, and glowing ember exhaust trails behind twin jump-jets.
+    this.launchTrailIn -= dt;
+    if (this.launchTrailIn <= 0) {
+      this.launchTrailIn = 0.035;
+      for (const sx of [-0.62, 0.62]) {
+        const nozzle = this.localTorsoToWorld(sx, 2.9, -1.68, _p);
+        fx.smoke(nozzle, t < 0.65 ? 0xffb464 : 0xe4e0d8, 2.2, 1.7);
+        fx.embers(nozzle, 7, 1.8);
+        fx.flame?.(nozzle, _down, 1.35);
+      }
+    }
+
+    this.syncWorld();
+
+    if (t >= 1) {
+      // Heavy cratering touchdown on the Salt Flats -> immediate Mech-vs-Mech combat!
+      this.position.copy(this.launchEnd);
+      this.position.y = 0;
+      this.legYaw = this.launchFacingYaw;
+      this.torsoYaw = this.launchFacingYaw;
+      this.stopJetLoop();
+      this.jetFlames.visible = false;
+      this.jetFlames.scale.set(1, 1, 1);
+      this.jetLight.intensity = 0;
+      this.resetPose();
+      this.phase = 'active';
+      this.syncWorld();
+
+      fx.slam(this.position, 4.0);
+      fx.ring(this.position, _up, '#ffbc5e', 14);
+      fx.dust(this.position, _up, 4.0);
+      fx.chips(this.position, 0xd8c8a0, 32);
+      fx.embers(this.position, 24, 3.2);
+      render.lights.flash(this.position, 0xff9a38, 28, 52, 0.35);
+      audio.play('titan_stomp', { position: this.position, pitch: 0.74, volume: 1 });
+      audio.play('slam_impact', { position: this.position, pitch: 0.85, volume: 0.95 });
+      audio.play('explosion_debris', { position: this.position, volume: 0.85 });
+      camera.addTrauma(0.75);
+      hud.feed('HARBOURMASTER IRONCLAD FRAME TOUCHDOWN — ENGAGE!', '#ff5a30');
+    }
+  }
+
+  private applyLaunchPose(t: number): void {
+    if (t < 0.68) {
+      // Boost ascent & mid-air flight: forward-leaning chest, tucked legs, arms swept back.
+      this.pelvis.position.y = 2.68;
+      this.torso.rotation.x = 0.24;
+      this.legL.rotation.x = -0.48;
+      this.shinL.rotation.x = 0.92;
+      this.legR.rotation.x = 0.24;
+      this.shinR.rotation.x = 0.56;
+      this.armL.rotation.x = -0.35;
+      this.armR.rotation.x = -0.28;
+    } else {
+      // Retro-jet brace right before slamming onto the Salt Flats.
+      const b = clamp((t - 0.68) / 0.32);
+      this.pelvis.position.y = THREE.MathUtils.lerp(2.68, 2.15, b);
+      this.torso.rotation.x = THREE.MathUtils.lerp(0.24, 0.14, b);
+      this.legL.rotation.x = THREE.MathUtils.lerp(-0.48, -0.32, b);
+      this.shinL.rotation.x = THREE.MathUtils.lerp(0.92, 0.62, b);
+      this.legR.rotation.x = THREE.MathUtils.lerp(0.24, -0.26, b);
+      this.shinR.rotation.x = THREE.MathUtils.lerp(0.56, 0.58, b);
+      this.armL.rotation.x = THREE.MathUtils.lerp(-0.35, 0.12, b);
+      this.armR.rotation.x = THREE.MathUtils.lerp(-0.28, 0.12, b);
+    }
+  }
+
+  private stopJetLoop(): void {
+    this.jetLoop?.stop(0.15);
+    this.jetLoop = null;
+  }
+
   // ---- Emergency Cockpit Eject -----------------------------------------------------------------------------------
 
   private triggerEject(): void {
     const { audio, camera, fx, hud, progression, render } = this.ctx;
+    this.stopJetLoop();
     this.phase = 'ejecting';
     this.health = 0;
     this.attack = 'none';
@@ -716,6 +917,8 @@ export class RivalFrame implements ExtraTarget {
     this.position.y = 0;
     this.cannonGlow.visible = false;
     this.jetFlames.visible = false;
+    this.jetFlames.scale.set(1, 1, 1);
+    this.jetLight.intensity = 0;
     this.hudUnmark?.();
     this.hudUnmark = null;
 
@@ -1026,7 +1229,7 @@ export class RivalFrame implements ExtraTarget {
     this.canopy.add(mat.group(canopyB));
     this.torso.add(this.canopy);
 
-    // Dorsal Jump-Jet Flame Cones (visible during jump-jet leaps).
+    // Dorsal Jump-Jet Flame Cones + bright thruster PointLight (visible during launch & jump-jet leaps).
     this.jetFlames = new THREE.Group();
     this.jetFlames.position.set(0, 0.3, -1.65);
     this.jetFlames.visible = false;
@@ -1036,6 +1239,9 @@ export class RivalFrame implements ExtraTarget {
       .glow(new THREE.ConeGeometry(0.24, 1.8, 8), '#fff2b2', 5.0, { at: [-0.62, -0.95, -0.15], rot: [Math.PI + 0.24, 0, 0] })
       .glow(new THREE.ConeGeometry(0.24, 1.8, 8), '#fff2b2', 5.0, { at: [0.62, -0.95, -0.15], rot: [Math.PI + 0.24, 0, 0] });
     this.jetFlames.add(mat.group(jetB));
+    this.jetLight = new THREE.PointLight(0xff7820, 0, 42, 1.5);
+    this.jetLight.position.set(0, -1.2, -0.3);
+    this.jetFlames.add(this.jetLight);
     this.torso.add(this.jetFlames);
 
     // Dorsal 4-tube Shoulder Missile Pod (peaks at y = 6.2 m world height).
@@ -1117,6 +1323,7 @@ export class RivalFrame implements ExtraTarget {
   }
 
   dispose(): void {
+    this.stopJetLoop();
     this.vehicles?.removeExtra(this);
     this.hudUnmark?.();
     this.hudUnmark = null;

@@ -80,7 +80,9 @@ describe('Holdfast', () => {
     expect(r.colliders as number).toBeLessThan(950);
     expect(r.lights as number).toBeLessThan(140);
     expect(world.objects.walls.root.children.length).toBeLessThan(40);
-    console.info('holdfast', JSON.stringify({ triangles: r.triangles, colliders: r.colliders, lights: r.lights, nav: nav().nodeCount, structures: world.objects.walls.all.length, clusters: world.objects.destruction.allClusters().length, chunks: world.objects.walls.root.children.length }));
+    const clusters = world.objects.destruction.allClusters();
+    const destructionNodes = clusters.reduce((sum, c) => sum + c.nodes.length, 0);
+    console.info('holdfast', JSON.stringify({ triangles: r.triangles, colliders: r.colliders, lights: r.lights, nav: nav().nodeCount, structures: world.objects.walls.all.length, clusters: clusters.length, destructionNodes, chunks: world.objects.walls.root.children.length }));
   });
 
   it('puts every mark on a floor, unburied, and every walking mark on the nav', () => {
@@ -255,9 +257,18 @@ describe('Holdfast', () => {
     openTown();
     const d = world.objects.destruction;
     const expectedTags = [
-      'barracks.flats', 'barracks.market', 'barracks.stacks', 'barracks.cannery', 'barracks.harbour',
+      // All 8 garrison barracks (4 outer shanties + market + stacks + cannery + harbour)
+      'barracks.flats', 'barracks.shantiesWest', 'barracks.shantiesEast', 'barracks.shantiesNorth',
+      'barracks.market', 'barracks.stacks', 'barracks.cannery', 'barracks.harbour',
+      // Original landmarks
       'marketHall.west', 'marketHall.east', 'emplacement.flats', 'emplacement.market',
       'catwalk.square', 'catwalk.eastMarket', 'cannery', 'quayCrane', 'gantryCrane',
+      // Newly converted Holdfast full-destruction landmarks & set pieces
+      'terrace.w3', 'terrace.w6', 'terrace.e6', 'tower.portOffice',
+      'gateTower.west', 'gateTower.east', 'wallGunPad.west', 'wallGunPad.east',
+      'firingStep.0', 'roofGunHouse.west', 'roofGunHouse.east', 'square.fountain',
+      'boatShed', 'stairs.stackE1', 'stairs.harbour.0', 'aisle.container',
+      'watchtower.west', 'munitions.west', 'pillbox.south', 'yard.dockShed',
     ];
     for (const tag of expectedTags) {
       expect(d.isClusterAlive(tag), tag).toBe(true);

@@ -68,11 +68,13 @@ const DYNAMIC_STILL_TIME = 1.1;
 /** Sources capable of penetrating Tier 3 (Reinforced Concrete / Heavy Steel). */
 const TIER3_SOURCES = new Set<string>([
   'frame_howitzer',
+  'ac130_105mm',
+  'ac130_bomb',
   'nuke',
   'hazard_chain',
 ]);
 
-/** Sources capable of penetrating Tier 2 (Heavy Industrial: Cannery, Market Hall, Heavy Pillars). */
+/** Sources capable of penetrating Tier 2 (Heavy Industrial: Cannery, Market Hall, Concrete Terraces, Heavy Pillars). */
 const TIER2_SOURCES = new Set<string>([
   'frame_40mm',
   'frame_40mm_ap',
@@ -82,6 +84,10 @@ const TIER2_SOURCES = new Set<string>([
   'frame_crush',
   'frame_backhand',
   'frame_pod',
+  'ac130_105mm',
+  'ac130_bomb',
+  'ac130_40mm',
+  'ac130_40mm_ap',
   'tank_cannon',
   'hazard_chain',
   'nuke',
@@ -113,7 +119,11 @@ const TIER1_SOURCES = new Set<string>([
   'orbital',
   'ac130',
   'ac130_105mm',
+  'ac130_bomb',
   'ac130_40mm',
+  'ac130_40mm_ap',
+  'ac130_25mm',
+  'ac130_wp',
   'black_sun',
   'warthog',
   'drop_pod',
@@ -140,12 +150,20 @@ const TIER2_NON_HOWITZER = new Set<string>([
   'frame_crush',
   'frame_backhand',
   'frame_pod',
+  'ac130_40mm',
+  'ac130_40mm_ap',
   'tank_cannon',
 ]);
 
 export const DESTRUCTION_SOURCE_MULT: Readonly<Record<string, number>> = {
   satchel: 3.2,
   frame_howitzer: 8.0,
+  ac130_105mm: 8.0,
+  ac130_bomb: 12.0,
+  ac130_40mm_ap: 2.5,
+  ac130_40mm: 2.2,
+  ac130_wp: 1.8,
+  ac130_25mm: 0.9,
   frame_40mm_ap: 2.5,
   frame_40mm: 2.2,
   frame_stomp: 4.5,
@@ -223,6 +241,8 @@ export interface StructuralClusterSpec {
   links?: readonly (readonly [string, string])[];
   /** Fraction of nodes non-intact required to collapse the cluster (defaults to 0.65). */
   collapseThreshold?: number;
+  /** Temporary static colliders placed before navGraph.build() for elevated walkable floors/stairs; removed when the cluster spawns. */
+  navProxies?: RAPIER.Collider[];
   onCollapse?: (cluster: StructuralCluster) => void;
 }
 
@@ -480,6 +500,12 @@ export class DestructionManager implements DestructionManagerLike {
 
   /** Registers and spawns a new structural cluster into the world. */
   addCluster(spec: StructuralClusterSpec): StructuralCluster {
+    if (spec.navProxies && spec.navProxies.length > 0) {
+      for (const proxy of spec.navProxies) {
+        this.ctx.physics.world.removeCollider(proxy, false);
+      }
+      spec.navProxies.length = 0;
+    }
     const id = spec.id ?? `cluster_${this.nextId++}`;
     const cluster = new StructuralCluster(spec, id);
     this.buildClusterRuntime(cluster);
@@ -1629,3 +1655,883 @@ export function buildEmplacementPlatformCluster(
     onCollapse: opts.onCollapse,
   };
 }
+
+// ---------------------------------------------------------------------------------------------
+// Stair & Nav-Proxy Helpers for Elevated Destructible Structures
+// ---------------------------------------------------------------------------------------------
+
+export type NavProxyPhysics = Pick<Ctx['physics'], 'addStaticBox'>;
+
+export interface StairSpan {
+  readonly ax: number;
+  readonly y0: number;
+  readonly az: number;
+  readonly bx: number;
+  readonly y1: number;
+  readonly bz: number;
+  readonly width: number;
+}
+
+/** Computes center, half-extents, yaw, and roll for a sloped walkable ramp node whose top surface connects A to B. */
+export function makeStairNode(
+  id: string,
+  span: StairSpan,
+  opts: {
+    mat?: Mat;
+    color?: number | readonly [number, number, number];
+    hp?: number;
+    tier?: DestructionTier;
+    anchored?: boolean;
+    thickness?: number;
+  } = {},
+): StructuralNodeSpec {
+  const th = opts.thickness ?? 0.2;
+  const dx = span.bx - span.ax;
+  const dy = span.y1 - span.y0;
+  const dz = span.bz - span.az;
+  const flat = Math.hypot(dx, dz);
+  const len = Math.hypot(flat, dy);
+  const yaw = Math.atan2(-dz, dx);
+  const roll = Math.atan2(dy, flat);
+  const cy = Math.cos(yaw);
+  const sy = Math.sin(yaw);
+  const sr = Math.sin(roll);
+  const cr = Math.cos(roll);
+  const mx = (span.ax + span.bx) * 0.5 + th * sr * cy;
+  const my = (span.y0 + span.y1) * 0.5 - th * cr;
+  const mz = (span.az + span.bz) * 0.5 - th * sr * sy;
+  return {
+    id,
+    pos: [mx, my, mz],
+    half: [len * 0.5, th, span.width * 0.5],
+    mat: opts.mat ?? 'concrete',
+    color: opts.color,
+    hp: opts.hp ?? 140,
+    tier: opts.tier ?? 1,
+    anchored: opts.anchored ?? true,
+    kind: 'catwalk',
+    yaw,
+    pitch: 0,
+    roll,
+  };
+}
+
+/** Creates a temporary static collider matching a StructuralNodeSpec so navGraph.build() samples elevated floors/stairs. */
+export function createNavNodeProxy(physics: NavProxyPhysics, node: StructuralNodeSpec): RAPIER.Collider | null {
+  const pos = toVec3(node.pos);
+  const half = toVec3(node.half);
+  const quat = new THREE.Quaternion().setFromEuler(
+    new THREE.Euler(node.pitch ?? 0, node.yaw ?? 0, node.roll ?? 0, 'YXZ'),
+  );
+  return physics.addStaticBox(pos, half, quat, surfaceForMat(node.mat));
+}
+
+function collectNavProxies(
+  physics: NavProxyPhysics | undefined,
+  nodes: readonly StructuralNodeSpec[],
+): RAPIER.Collider[] | undefined {
+  if (!physics) return undefined;
+  const out: RAPIER.Collider[] = [];
+  for (const n of nodes) {
+    const c = createNavNodeProxy(physics, n);
+    if (c) out.push(c);
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Holdfast Full-Destruction Builders
+// ---------------------------------------------------------------------------------------------
+
+export interface TerraceClusterOptions extends ClusterBuilderOptions {
+  readonly len: number;
+  readonly depth: number;
+  readonly height?: number;
+  readonly colors?: readonly (number | readonly [number, number, number])[];
+  readonly stair?: StairSpan;
+  readonly navPhysics?: NavProxyPhysics;
+}
+
+/**
+ * Concrete Market Terrace: 2–3 painted concrete wall/core bays (Tier 2), walkable roof slabs at exact `height`
+ * (`LEVEL.roof`), optional Tier 1 rear concrete stairs, and an optional rooftop water tank.
+ * 40mm / Frame weapons breach it; a single 105mm Howitzer shell flattens the whole block!
+ */
+export function buildTerraceCluster(
+  origin: Vec3Like,
+  opts: TerraceClusterOptions,
+): StructuralClusterSpec {
+  const tier: DestructionTier = opts.tier ?? 2;
+  const H = opts.height ?? 3.0;
+  const hx = opts.len / 2;
+  const hz = opts.depth / 2;
+  const t = makeTransform(origin, opts.yaw ?? 0);
+  const roofHalfY = 0.22;
+  const wallH = H - roofHalfY * 2;
+  const bays = opts.len >= 18 ? 3 : 2;
+  const bayW = opts.len / bays;
+  const palette = opts.colors && opts.colors.length > 0 ? opts.colors : [0xc87a56, 0x4b80a8, 0xd8b454];
+
+  const nodes: StructuralNodeSpec[] = [];
+  const links: [string, string][] = [];
+  const walkableNodes: StructuralNodeSpec[] = [];
+
+  for (let i = 0; i < bays; i++) {
+    const lx = -hx + bayW * (i + 0.5);
+    nodes.push({
+      id: `bay_${i}`,
+      pos: t.pt(lx, wallH / 2, 0),
+      half: [bayW / 2 - 0.04, wallH / 2, hz - 0.04],
+      mat: 'paintWhite',
+      color: palette[i % palette.length],
+      hp: 250,
+      tier,
+      anchored: true,
+      kind: 'wall',
+      yaw: t.yaw,
+    });
+  }
+
+  // Two walkable concrete roof slabs whose top face sits at exact y = H
+  const roofW: StructuralNodeSpec = {
+    id: 'roof_w',
+    pos: t.pt(-hx / 2, H - roofHalfY, 0),
+    half: [hx / 2 + 0.06, roofHalfY, hz + 0.06],
+    mat: 'concreteDark',
+    color: 0x6b6862,
+    hp: 240,
+    tier,
+    anchored: false,
+    kind: 'roof',
+    yaw: t.yaw,
+    impactRadius: 8.5,
+  };
+  const roofE: StructuralNodeSpec = {
+    id: 'roof_e',
+    pos: t.pt(hx / 2, H - roofHalfY, 0),
+    half: [hx / 2 + 0.06, roofHalfY, hz + 0.06],
+    mat: 'concreteDark',
+    color: 0x65625c,
+    hp: 240,
+    tier,
+    anchored: false,
+    kind: 'roof',
+    yaw: t.yaw,
+    impactRadius: 8.5,
+  };
+  nodes.push(roofW, roofE);
+  walkableNodes.push(roofW, roofE);
+
+  for (let i = 0; i < bays; i++) {
+    const lx = -hx + bayW * (i + 0.5);
+    if (lx <= 0.1) links.push([`bay_${i}`, 'roof_w']);
+    if (lx >= -0.1) links.push([`bay_${i}`, 'roof_e']);
+  }
+  links.push(['roof_w', 'roof_e']);
+
+  // Tier 1 rear concrete stairs (satchels/rockets/40mm/105mm can blow out rooftop access)
+  if (opts.stair) {
+    const stairNode = makeStairNode('stair_ramp', opts.stair, {
+      mat: 'concrete',
+      color: 0x8d887e,
+      hp: 140,
+      tier: 1,
+      anchored: true,
+      thickness: 0.2,
+    });
+    nodes.push(stairNode);
+    walkableNodes.push(stairNode);
+  }
+
+  return {
+    id: opts.id,
+    tag: opts.tag,
+    kind: 'terrace',
+    label: opts.label ?? 'MARKET TERRACE',
+    value: opts.value ?? 135_000,
+    nodes,
+    links,
+    collapseThreshold: 0.55,
+    navProxies: collectNavProxies(opts.navPhysics, walkableNodes),
+    onCollapse: opts.onCollapse,
+  };
+}
+
+export interface TowerClusterOptions extends ClusterBuilderOptions {
+  readonly w: number;
+  readonly d: number;
+  readonly h: number;
+  readonly color?: number | readonly [number, number, number];
+}
+
+/**
+ * Multi-story concrete Port Office Tower (Tier 2): anchored lower piers/core, unsupported upper story & roof cap,
+ * plus Tier 1 steel balcony slab. Crumbles violently when shelled by the 105mm Howitzer or Frame weapons.
+ */
+export function buildTowerCluster(
+  origin: Vec3Like,
+  opts: TowerClusterOptions,
+): StructuralClusterSpec {
+  const tier: DestructionTier = opts.tier ?? 2;
+  const t = makeTransform(origin, opts.yaw ?? 0);
+  const hw = opts.w / 2;
+  const hd = opts.d / 2;
+  const midH = opts.h * 0.5;
+  const upperH = opts.h - midH - 0.4;
+  const col = opts.color ?? 0xc97b54;
+
+  const nodes: StructuralNodeSpec[] = [
+    { id: 'base_w', pos: t.pt(-hw / 2, midH / 2, 0), half: [hw / 2 - 0.04, midH / 2, hd - 0.04], mat: 'paintWhite', color: col, hp: 320, tier, anchored: true, kind: 'column', yaw: t.yaw },
+    { id: 'base_e', pos: t.pt(hw / 2, midH / 2, 0), half: [hw / 2 - 0.04, midH / 2, hd - 0.04], mat: 'paintWhite', color: col, hp: 320, tier, anchored: true, kind: 'column', yaw: t.yaw },
+    { id: 'upper_w', pos: t.pt(-hw / 2, midH + upperH / 2, 0), half: [hw / 2 - 0.06, upperH / 2, hd - 0.06], mat: 'paintWhite', color: col, hp: 280, tier, anchored: false, kind: 'tower', yaw: t.yaw, impactRadius: 10 },
+    { id: 'upper_e', pos: t.pt(hw / 2, midH + upperH / 2, 0), half: [hw / 2 - 0.06, upperH / 2, hd - 0.06], mat: 'paintWhite', color: col, hp: 280, tier, anchored: false, kind: 'tower', yaw: t.yaw, impactRadius: 10 },
+    { id: 'roof_cap', pos: t.pt(0, opts.h - 0.2, 0), half: [hw + 0.16, 0.2, hd + 0.16], mat: 'concreteDark', color: 0x5c5852, hp: 260, tier, anchored: false, kind: 'roof', yaw: t.yaw, impactRadius: 11 },
+    { id: 'balcony', pos: t.pt(0, 3.05, hd + 0.55), half: [hw - 0.3, 0.1, 0.55], mat: 'rust', hp: 130, tier: 1, anchored: false, kind: 'catwalk', yaw: t.yaw },
+  ];
+
+  const links: [string, string][] = [
+    ['base_w', 'upper_w'],
+    ['base_e', 'upper_e'],
+    ['upper_w', 'upper_e'],
+    ['upper_w', 'roof_cap'],
+    ['upper_e', 'roof_cap'],
+    ['base_w', 'balcony'],
+    ['base_e', 'balcony'],
+  ];
+
+  return {
+    id: opts.id,
+    tag: opts.tag,
+    kind: 'tower',
+    label: opts.label ?? 'PORT OFFICE TOWER',
+    value: opts.value ?? 210_000,
+    nodes,
+    links,
+    collapseThreshold: 0.5,
+    onCollapse: opts.onCollapse,
+  };
+}
+
+/**
+ * Painted 7m concrete Main Gate Tower (Tier 2): anchored lower masonry base, upper shaft, and steel loudspeaker cap.
+ */
+export function buildGateTowerCluster(
+  origin: Vec3Like,
+  opts: ClusterBuilderOptions & { w?: number; d?: number; h?: number; color?: number | readonly [number, number, number] } = {},
+): StructuralClusterSpec {
+  const tier: DestructionTier = opts.tier ?? 2;
+  const hw = (opts.w ?? 3.0) / 2;
+  const hd = (opts.d ?? 3.95) / 2;
+  const H = opts.h ?? 7.0;
+  const midH = H * 0.5;
+  const t = makeTransform(origin, opts.yaw ?? 0);
+  const col = opts.color ?? 0xd16b47;
+
+  const nodes: StructuralNodeSpec[] = [
+    { id: 'base_w', pos: t.pt(-hw / 2, midH / 2, 0), half: [hw / 2 - 0.03, midH / 2, hd - 0.03], mat: 'paintWhite', color: col, hp: 300, tier, anchored: true, kind: 'column', yaw: t.yaw },
+    { id: 'base_e', pos: t.pt(hw / 2, midH / 2, 0), half: [hw / 2 - 0.03, midH / 2, hd - 0.03], mat: 'paintWhite', color: col, hp: 300, tier, anchored: true, kind: 'column', yaw: t.yaw },
+    { id: 'upper_w', pos: t.pt(-hw / 2, midH + midH / 2, 0), half: [hw / 2 - 0.04, midH / 2, hd - 0.04], mat: 'paintWhite', color: col, hp: 240, tier, anchored: false, kind: 'tower', yaw: t.yaw, impactRadius: 9 },
+    { id: 'upper_e', pos: t.pt(hw / 2, midH + midH / 2, 0), half: [hw / 2 - 0.04, midH / 2, hd - 0.04], mat: 'paintWhite', color: col, hp: 240, tier, anchored: false, kind: 'tower', yaw: t.yaw, impactRadius: 9 },
+    { id: 'cap', pos: t.pt(0, H + 0.16, 0), half: [Math.min(hw, 1.3), 0.16, Math.min(hd, 1.3)], mat: 'steelDark', hp: 140, tier: 1, anchored: false, kind: 'roof', yaw: t.yaw, impactRadius: 8 },
+  ];
+
+  const links: [string, string][] = [
+    ['base_w', 'upper_w'],
+    ['base_e', 'upper_e'],
+    ['upper_w', 'upper_e'],
+    ['upper_w', 'cap'],
+    ['upper_e', 'cap'],
+  ];
+
+  return {
+    id: opts.id,
+    tag: opts.tag,
+    kind: 'gateTower',
+    label: opts.label ?? 'GATE WATCH TOWER',
+    value: opts.value ?? 160_000,
+    nodes,
+    links,
+    collapseThreshold: 0.5,
+    onCollapse: opts.onCollapse,
+  };
+}
+
+export interface WallGunPadClusterOptions extends ClusterBuilderOptions {
+  readonly halfX: number;
+  readonly z0: number;
+  readonly z1: number;
+  readonly height: number;
+  readonly stair?: StairSpan;
+  readonly navPhysics?: NavProxyPhysics;
+}
+
+/**
+ * Tier 1 destructible Wall Gun Pad behind the south wall: timber piers, walkable top deck at exact `height` (`LEVEL.pad`),
+ * flanking sandbag cheeks, and rear access stairs.
+ */
+export function buildWallGunPadCluster(
+  x: number,
+  opts: WallGunPadClusterOptions,
+): StructuralClusterSpec {
+  const tier: DestructionTier = opts.tier ?? 1;
+  const { halfX, z0, z1, height } = opts;
+  const cz = (z0 + z1) / 2;
+  const hz = (z1 - z0) / 2;
+  const deckHalfY = 0.16;
+  const pierH = height - deckHalfY * 2;
+
+  const deck: StructuralNodeSpec = {
+    id: 'deck',
+    pos: [x, height - deckHalfY, cz],
+    half: [halfX, deckHalfY, hz],
+    mat: 'plywood',
+    color: 0x9e7552,
+    hp: 170,
+    tier,
+    anchored: false,
+    kind: 'slab',
+    impactRadius: 6,
+  };
+
+  const nodes: StructuralNodeSpec[] = [
+    { id: 'pier_w', pos: [x - halfX + 0.55, pierH / 2, cz], half: [0.5, pierH / 2, hz - 0.15], mat: 'plywood', color: 0x7d5c3e, hp: 150, tier, anchored: true, kind: 'column' },
+    { id: 'pier_e', pos: [x + halfX - 0.55, pierH / 2, cz], half: [0.5, pierH / 2, hz - 0.15], mat: 'plywood', color: 0x7d5c3e, hp: 150, tier, anchored: true, kind: 'column' },
+    deck,
+    { id: 'cheek_w', pos: [x - halfX + 0.3, height + 0.45, z1 - 0.8], half: [0.3, 0.45, 0.8], mat: 'dirt', color: 0x8f8266, hp: 110, tier, anchored: false, kind: 'wall' },
+    { id: 'cheek_e', pos: [x + halfX - 0.3, height + 0.45, z1 - 0.8], half: [0.3, 0.45, 0.8], mat: 'dirt', color: 0x8f8266, hp: 110, tier, anchored: false, kind: 'wall' },
+  ];
+
+  const links: [string, string][] = [
+    ['pier_w', 'deck'],
+    ['pier_e', 'deck'],
+    ['deck', 'cheek_w'],
+    ['deck', 'cheek_e'],
+  ];
+
+  const walkable: StructuralNodeSpec[] = [deck];
+  if (opts.stair) {
+    const stairNode = makeStairNode('stair', opts.stair, {
+      mat: 'concrete',
+      color: 0x8a8378,
+      hp: 120,
+      tier,
+      anchored: true,
+      thickness: 0.2,
+    });
+    nodes.push(stairNode);
+    walkable.push(stairNode);
+  }
+
+  return {
+    id: opts.id,
+    tag: opts.tag,
+    kind: 'wallGunPad',
+    label: opts.label ?? 'WALL GUN PLATFORM',
+    value: opts.value ?? 85_000,
+    nodes,
+    links,
+    collapseThreshold: 0.5,
+    navProxies: collectNavProxies(opts.navPhysics, walkable),
+    onCollapse: opts.onCollapse,
+  };
+}
+
+export interface FiringStepClusterOptions extends ClusterBuilderOptions {
+  readonly x0: number;
+  readonly x1: number;
+  readonly z0: number;
+  readonly z1: number;
+  readonly height: number;
+  readonly stair?: StairSpan;
+  readonly navPhysics?: NavProxyPhysics;
+}
+
+/**
+ * Tier 1 destructible timber Firing Step behind the south wall: steel trestle legs, walkable timber deck spans
+ * at exact `height` (`LEVEL.step`), and rear access stairs.
+ */
+export function buildFiringStepCluster(
+  opts: FiringStepClusterOptions,
+): StructuralClusterSpec {
+  const tier: DestructionTier = opts.tier ?? 1;
+  const { x0, x1, z0, z1, height } = opts;
+  const len = x1 - x0;
+  const cx = (x0 + x1) / 2;
+  const cz = (z0 + z1) / 2;
+  const hz = (z1 - z0) / 2;
+  const deckHalfY = 0.12;
+  const legH = height - deckHalfY * 2;
+  const halfLen = len / 2;
+
+  const deckW: StructuralNodeSpec = {
+    id: 'deck_w',
+    pos: [x0 + halfLen / 2, height - deckHalfY, cz],
+    half: [halfLen / 2, deckHalfY, hz],
+    mat: 'plywood',
+    color: 0x8c6b4c,
+    hp: 140,
+    tier,
+    anchored: false,
+    kind: 'catwalk',
+  };
+  const deckE: StructuralNodeSpec = {
+    id: 'deck_e',
+    pos: [x0 + halfLen * 1.5, height - deckHalfY, cz],
+    half: [halfLen / 2, deckHalfY, hz],
+    mat: 'plywood',
+    color: 0x8c6b4c,
+    hp: 140,
+    tier,
+    anchored: false,
+    kind: 'catwalk',
+  };
+
+  const nodes: StructuralNodeSpec[] = [
+    { id: 'leg_w', pos: [x0 + 1.0, legH / 2, cz], half: [0.22, legH / 2, hz - 0.15], mat: 'rust', hp: 120, tier, anchored: true, kind: 'column' },
+    { id: 'leg_m', pos: [cx, legH / 2, cz], half: [0.22, legH / 2, hz - 0.15], mat: 'rust', hp: 120, tier, anchored: true, kind: 'column' },
+    { id: 'leg_e', pos: [x1 - 1.0, legH / 2, cz], half: [0.22, legH / 2, hz - 0.15], mat: 'rust', hp: 120, tier, anchored: true, kind: 'column' },
+    deckW,
+    deckE,
+  ];
+
+  const links: [string, string][] = [
+    ['leg_w', 'deck_w'],
+    ['leg_m', 'deck_w'],
+    ['leg_m', 'deck_e'],
+    ['leg_e', 'deck_e'],
+    ['deck_w', 'deck_e'],
+  ];
+
+  const walkable: StructuralNodeSpec[] = [deckW, deckE];
+  if (opts.stair) {
+    const stairNode = makeStairNode('stair', opts.stair, {
+      mat: 'concrete',
+      color: 0x8a8378,
+      hp: 110,
+      tier,
+      anchored: true,
+      thickness: 0.2,
+    });
+    nodes.push(stairNode);
+    walkable.push(stairNode);
+  }
+
+  return {
+    id: opts.id,
+    tag: opts.tag,
+    kind: 'firingStep',
+    label: opts.label ?? 'WALL FIRING STEP',
+    value: opts.value ?? 75_000,
+    nodes,
+    links,
+    collapseThreshold: 0.5,
+    navProxies: collectNavProxies(opts.navPhysics, walkable),
+    onCollapse: opts.onCollapse,
+  };
+}
+
+export interface ShantyHouseClusterOptions extends ClusterBuilderOptions {
+  readonly w: number;
+  readonly d: number;
+  readonly h?: number;
+  readonly color?: number | readonly [number, number, number];
+  readonly stair?: StairSpan;
+  readonly sandbagFront?: boolean;
+  readonly navPhysics?: NavProxyPhysics;
+}
+
+/**
+ * Tier 1 destructible painted Shanty House (both Roof-Gun houses and scattered outer shanties).
+ * Roof sits at exact `h` (`LEVEL.roof` when walkable), collapses cleanly under 40mm, 105mm, satchels, or rockets.
+ */
+export function buildShantyHouseCluster(
+  origin: Vec3Like,
+  opts: ShantyHouseClusterOptions,
+): StructuralClusterSpec {
+  const tier: DestructionTier = opts.tier ?? 1;
+  const H = opts.h ?? 3.0;
+  const hw = opts.w / 2;
+  const hd = opts.d / 2;
+  const t = makeTransform(origin, opts.yaw ?? 0);
+  const roofHalfY = 0.18;
+  const wallH = H - roofHalfY * 2;
+  const col = opts.color ?? 0xc87a56;
+
+  const roof: StructuralNodeSpec = {
+    id: 'roof',
+    pos: t.pt(0, H - roofHalfY, 0),
+    half: [hw + 0.08, roofHalfY, hd + 0.08],
+    mat: 'concreteDark',
+    color: 0x6c6862,
+    hp: 150,
+    tier,
+    anchored: false,
+    kind: 'roof',
+    yaw: t.yaw,
+    impactRadius: 6.5,
+  };
+
+  const nodes: StructuralNodeSpec[] = [
+    { id: 'wall_w', pos: t.pt(-hw / 2, wallH / 2, 0), half: [hw / 2 - 0.04, wallH / 2, hd - 0.04], mat: 'paintWhite', color: col, hp: 140, tier, anchored: true, kind: 'wall', yaw: t.yaw },
+    { id: 'wall_e', pos: t.pt(hw / 2, wallH / 2, 0), half: [hw / 2 - 0.04, wallH / 2, hd - 0.04], mat: 'paintWhite', color: col, hp: 140, tier, anchored: true, kind: 'wall', yaw: t.yaw },
+    roof,
+  ];
+
+  const links: [string, string][] = [
+    ['wall_w', 'roof'],
+    ['wall_e', 'roof'],
+  ];
+
+  if (opts.sandbagFront) {
+    nodes.push({
+      id: 'sandbag_front',
+      pos: t.pt(0, H + 0.35, hd - 0.45),
+      half: [Math.min(2.4, hw - 0.3), 0.35, 0.3],
+      mat: 'dirt',
+      color: 0x8e8064,
+      hp: 100,
+      tier,
+      anchored: false,
+      kind: 'wall',
+      yaw: t.yaw,
+    });
+    links.push(['roof', 'sandbag_front']);
+  }
+
+  const walkable: StructuralNodeSpec[] = opts.navPhysics ? [roof] : [];
+  if (opts.stair) {
+    const stairNode = makeStairNode('stair', opts.stair, {
+      mat: 'concrete',
+      color: 0x8a8378,
+      hp: 110,
+      tier,
+      anchored: true,
+      thickness: 0.2,
+    });
+    nodes.push(stairNode);
+    if (opts.navPhysics) walkable.push(stairNode);
+  }
+
+  return {
+    id: opts.id,
+    tag: opts.tag,
+    kind: 'shantyHouse',
+    label: opts.label ?? 'SHANTY HOUSE',
+    value: opts.value ?? 75_000,
+    nodes,
+    links,
+    collapseThreshold: 0.5,
+    navProxies: collectNavProxies(opts.navPhysics, walkable),
+    onCollapse: opts.onCollapse,
+  };
+}
+
+/**
+ * Tier 1 Outer-Shanty / Dockyard Militia Watchtower: braced rust/timber stilts, elevated lookout deck,
+ * sandbag breastworks, tin roof canopy, and a volatile rooftop ammo box for dramatic AC-130 / rocket kills.
+ */
+export function buildWatchtowerCluster(
+  origin: Vec3Like,
+  opts: ClusterBuilderOptions & { height?: number } = {},
+): StructuralClusterSpec {
+  const tier: DestructionTier = opts.tier ?? 1;
+  const H = opts.height ?? 5.6;
+  const t = makeTransform(origin, opts.yaw ?? 0);
+  const W = 1.8;
+
+  const nodes: StructuralNodeSpec[] = [
+    { id: 'legs_w', pos: t.pt(-W, H / 2, 0), half: [0.24, H / 2, W], mat: 'rust', hp: 130, tier, anchored: true, kind: 'column', yaw: t.yaw },
+    { id: 'legs_e', pos: t.pt(W, H / 2, 0), half: [0.24, H / 2, W], mat: 'rust', hp: 130, tier, anchored: true, kind: 'column', yaw: t.yaw },
+    { id: 'deck', pos: t.pt(0, H + 0.16, 0), half: [W + 0.45, 0.16, W + 0.45], mat: 'plywood', color: 0x94704a, hp: 130, tier, anchored: false, kind: 'slab', yaw: t.yaw, impactRadius: 7 },
+    { id: 'parapet_s', pos: t.pt(0, H + 0.85, W + 0.25), half: [W + 0.3, 0.55, 0.2], mat: 'dirt', color: 0x8e8268, hp: 90, tier: 0, anchored: false, kind: 'wall', yaw: t.yaw },
+    { id: 'canopy', pos: t.pt(0, H + 2.55, 0), half: [W + 0.55, 0.12, W + 0.55], mat: 'rust', color: 0x7c4a32, hp: 80, tier: 0, anchored: false, kind: 'roof', yaw: t.yaw, impactRadius: 7 },
+    { id: 'ammo_box', pos: t.pt(0, H + 0.72, -0.7), half: [0.45, 0.4, 0.45], mat: 'paintRed', hp: 45, tier: 0, anchored: false, kind: 'hazard', yaw: t.yaw, hazardRadius: 9, hazardDamage: 220 },
+  ];
+
+  const links: [string, string][] = [
+    ['legs_w', 'deck'],
+    ['legs_e', 'deck'],
+    ['deck', 'parapet_s'],
+    ['deck', 'canopy'],
+    ['deck', 'ammo_box'],
+  ];
+
+  return {
+    id: opts.id,
+    tag: opts.tag,
+    kind: 'watchtower',
+    label: opts.label ?? 'MILITIA WATCHTOWER',
+    value: opts.value ?? 95_000,
+    nodes,
+    links,
+    collapseThreshold: 0.5,
+    onCollapse: opts.onCollapse,
+  };
+}
+
+/**
+ * Tier 1 Munitions / Fuel Pump Shed: corrugated walls, tin roof, and a central high-explosive munitions/fuel core
+ * (`kind: 'hazard'`) that chain-detonates dramatically under AC-130 or ground fire.
+ */
+export function buildMunitionsShedCluster(
+  origin: Vec3Like,
+  opts: ClusterBuilderOptions & { color?: number | readonly [number, number, number] } = {},
+): StructuralClusterSpec {
+  const tier: DestructionTier = opts.tier ?? 1;
+  const t = makeTransform(origin, opts.yaw ?? 0);
+  const W = 2.8;
+  const D = 2.2;
+  const H = 2.9;
+
+  const nodes: StructuralNodeSpec[] = [
+    { id: 'wall_w', pos: t.pt(-W, H / 2, 0), half: [0.22, H / 2, D], mat: 'panel', color: opts.color ?? 0x7a6a58, hp: 130, tier, anchored: true, kind: 'wall', yaw: t.yaw },
+    { id: 'wall_e', pos: t.pt(W, H / 2, 0), half: [0.22, H / 2, D], mat: 'panel', color: opts.color ?? 0x7a6a58, hp: 130, tier, anchored: true, kind: 'wall', yaw: t.yaw },
+    { id: 'wall_b', pos: t.pt(0, H / 2, -D), half: [W - 0.25, H / 2, 0.22], mat: 'rust', hp: 130, tier, anchored: true, kind: 'wall', yaw: t.yaw },
+    { id: 'roof', pos: t.pt(0, H + 0.14, 0), half: [W + 0.35, 0.14, D + 0.35], mat: 'rust', hp: 100, tier: 0, anchored: false, kind: 'roof', yaw: t.yaw, impactRadius: 7 },
+    { id: 'munitions_core', pos: t.pt(0, 0.85, -0.3), half: [0.95, 0.85, 0.8], mat: 'paintRed', hp: 50, tier: 0, anchored: true, kind: 'hazard', yaw: t.yaw, hazardRadius: 12, hazardDamage: 280 },
+  ];
+
+  const links: [string, string][] = [
+    ['wall_w', 'roof'],
+    ['wall_e', 'roof'],
+    ['wall_b', 'roof'],
+  ];
+
+  return {
+    id: opts.id,
+    tag: opts.tag,
+    kind: 'munitionsShed',
+    label: opts.label ?? 'MUNITIONS SHED',
+    value: opts.value ?? 105_000,
+    nodes,
+    links,
+    collapseThreshold: 0.5,
+    onCollapse: opts.onCollapse,
+  };
+}
+
+/**
+ * Tier 1 Sandbag & Timber Guard Pillbox: low fortified firing bunker with removable sandbag walls and timber/earth roof.
+ */
+export function buildPillboxCluster(
+  origin: Vec3Like,
+  opts: ClusterBuilderOptions = {},
+): StructuralClusterSpec {
+  const tier: DestructionTier = opts.tier ?? 1;
+  const t = makeTransform(origin, opts.yaw ?? 0);
+  const W = 2.4;
+  const D = 2.0;
+  const H = 2.2;
+
+  const nodes: StructuralNodeSpec[] = [
+    { id: 'wall_l', pos: t.pt(-W, H / 2, 0), half: [0.35, H / 2, D], mat: 'dirt', color: 0x8b7e62, hp: 140, tier, anchored: true, kind: 'wall', yaw: t.yaw },
+    { id: 'wall_r', pos: t.pt(W, H / 2, 0), half: [0.35, H / 2, D], mat: 'dirt', color: 0x8b7e62, hp: 140, tier, anchored: true, kind: 'wall', yaw: t.yaw },
+    { id: 'wall_f', pos: t.pt(0, 0.65, D), half: [W - 0.35, 0.65, 0.35], mat: 'concrete', color: 0x868178, hp: 160, tier, anchored: true, kind: 'wall', yaw: t.yaw },
+    { id: 'roof', pos: t.pt(0, H + 0.18, 0), half: [W + 0.4, 0.18, D + 0.35], mat: 'plywood', color: 0x7c6244, hp: 120, tier, anchored: false, kind: 'roof', yaw: t.yaw, impactRadius: 6 },
+    { id: 'ammo', pos: t.pt(0.8, 0.5, -0.5), half: [0.45, 0.45, 0.45], mat: 'paintRed', hp: 45, tier: 0, anchored: true, kind: 'hazard', yaw: t.yaw, hazardRadius: 8.5, hazardDamage: 200 },
+  ];
+
+  const links: [string, string][] = [
+    ['wall_l', 'roof'],
+    ['wall_r', 'roof'],
+  ];
+
+  return {
+    id: opts.id,
+    tag: opts.tag,
+    kind: 'pillbox',
+    label: opts.label ?? 'GUARD PILLBOX',
+    value: opts.value ?? 80_000,
+    nodes,
+    links,
+    collapseThreshold: 0.5,
+    onCollapse: opts.onCollapse,
+  };
+}
+
+/**
+ * Tier 1 destructible Square Dry Fountain & Anchor Monument.
+ */
+export function buildFountainCluster(
+  origin: Vec3Like,
+  opts: ClusterBuilderOptions = {},
+): StructuralClusterSpec {
+  const tier: DestructionTier = opts.tier ?? 1;
+  const t = makeTransform(origin, opts.yaw ?? 0);
+
+  const nodes: StructuralNodeSpec[] = [
+    { id: 'rim_n', pos: t.pt(0, 0.4, -1.7), half: [1.85, 0.4, 0.28], mat: 'concrete', color: 0xc2b8a4, hp: 140, tier, anchored: true, kind: 'wall' },
+    { id: 'rim_s', pos: t.pt(0, 0.4, 1.7), half: [1.85, 0.4, 0.28], mat: 'concrete', color: 0xc2b8a4, hp: 140, tier, anchored: true, kind: 'wall' },
+    { id: 'rim_w', pos: t.pt(-1.7, 0.4, 0), half: [0.28, 0.4, 1.45], mat: 'concrete', color: 0xc2b8a4, hp: 140, tier, anchored: true, kind: 'wall' },
+    { id: 'rim_e', pos: t.pt(1.7, 0.4, 0), half: [0.28, 0.4, 1.45], mat: 'concrete', color: 0xc2b8a4, hp: 140, tier, anchored: true, kind: 'wall' },
+    { id: 'anchor_shaft', pos: t.pt(0, 2.2, 0), half: [0.24, 2.2, 0.24], mat: 'rust', color: 0x7a4b34, hp: 180, tier, anchored: true, kind: 'column' },
+    { id: 'anchor_cross', pos: t.pt(0, 1.0, 0), half: [1.35, 0.18, 0.22], mat: 'rust', color: 0x7a4b34, hp: 120, tier, anchored: false, kind: 'wall' },
+  ];
+
+  const links: [string, string][] = [['anchor_shaft', 'anchor_cross']];
+
+  return {
+    id: opts.id,
+    tag: opts.tag,
+    kind: 'fountain',
+    label: opts.label ?? 'SQUARE FOUNTAIN',
+    value: opts.value ?? 65_000,
+    nodes,
+    links,
+    collapseThreshold: 0.5,
+    onCollapse: opts.onCollapse,
+  };
+}
+
+/**
+ * Tier 2 destructible North Yard Boat Shed steel frame & corrugated roof bays:
+ * knocking out the 6 anchored steel columns sends the massive 13m-high steel roof trusses crashing onto the slipway hull!
+ */
+export function buildBoatShedCluster(
+  x0: number,
+  z0: number,
+  x1: number,
+  z1: number,
+  h: number,
+  opts: ClusterBuilderOptions = {},
+): StructuralClusterSpec {
+  const tier: DestructionTier = opts.tier ?? 2;
+  const cx = (x0 + x1) / 2;
+  const cz = (z0 + z1) / 2;
+  const hx = (x1 - x0) / 2;
+  const hz = (z1 - z0) / 2;
+
+  const nodes: StructuralNodeSpec[] = [
+    // 6 anchored steel frame columns (3 west, 3 east)
+    { id: 'col_wn', pos: [x0, h / 2, z0 + 1], half: [0.38, h / 2, 0.38], mat: 'steelDark', hp: 360, tier, anchored: true, kind: 'column' },
+    { id: 'col_wm', pos: [x0, h / 2, cz], half: [0.38, h / 2, 0.38], mat: 'steelDark', hp: 360, tier, anchored: true, kind: 'column' },
+    { id: 'col_ws', pos: [x0, h / 2, z1 - 1], half: [0.38, h / 2, 0.38], mat: 'steelDark', hp: 360, tier, anchored: true, kind: 'column' },
+    { id: 'col_en', pos: [x1, h / 2, z0 + 1], half: [0.38, h / 2, 0.38], mat: 'steelDark', hp: 360, tier, anchored: true, kind: 'column' },
+    { id: 'col_em', pos: [x1, h / 2, cz], half: [0.38, h / 2, 0.38], mat: 'steelDark', hp: 360, tier, anchored: true, kind: 'column' },
+    { id: 'col_es', pos: [x1, h / 2, z1 - 1], half: [0.38, h / 2, 0.38], mat: 'steelDark', hp: 360, tier, anchored: true, kind: 'column' },
+    // 3 heavy steel truss & corrugated roof bays spanning the shed
+    { id: 'roof_n', pos: [cx, h + 0.45, z0 + (z1 - z0) / 6], half: [hx + 0.4, 0.45, (z1 - z0) / 6 - 0.2], mat: 'rust', color: 0x764c38, hp: 320, tier, anchored: false, kind: 'roof', impactRadius: 12, impactDamage: 320 },
+    { id: 'roof_m', pos: [cx, h + 0.45, cz], half: [hx + 0.4, 0.45, (z1 - z0) / 6 - 0.2], mat: 'steelDark', hp: 320, tier, anchored: false, kind: 'roof', impactRadius: 12, impactDamage: 320 },
+    { id: 'roof_s', pos: [cx, h + 0.45, z1 - (z1 - z0) / 6], half: [hx + 0.4, 0.45, (z1 - z0) / 6 - 0.2], mat: 'rust', color: 0x82543d, hp: 320, tier, anchored: false, kind: 'roof', impactRadius: 12, impactDamage: 320 },
+  ];
+
+  const links: [string, string][] = [
+    ['col_wn', 'roof_n'],
+    ['col_en', 'roof_n'],
+    ['col_wm', 'roof_m'],
+    ['col_em', 'roof_m'],
+    ['col_ws', 'roof_s'],
+    ['col_es', 'roof_s'],
+    ['roof_n', 'roof_m'],
+    ['roof_m', 'roof_s'],
+  ];
+
+  return {
+    id: opts.id,
+    tag: opts.tag,
+    kind: 'boatShed',
+    label: opts.label ?? 'NORTH YARD BOAT SHED',
+    value: opts.value ?? 280_000,
+    nodes,
+    links,
+    collapseThreshold: 0.5,
+    onCollapse: opts.onCollapse,
+  };
+}
+
+/**
+ * Tier 1 destructible standalone Staircase (for East Stack E1 access and Harbour Wall access) with optional top landing.
+ */
+export function buildStaircaseCluster(
+  span: StairSpan,
+  opts: ClusterBuilderOptions & {
+    mat?: Mat;
+    landing?: { pos: Vec3Like; half: Vec3Like; mat?: Mat };
+    navPhysics?: NavProxyPhysics;
+  } = {},
+): StructuralClusterSpec {
+  const tier: DestructionTier = opts.tier ?? 1;
+  const mat = opts.mat ?? 'steel';
+  const stairNode = makeStairNode('ramp', span, {
+    mat,
+    hp: 150,
+    tier,
+    anchored: true,
+    thickness: 0.2,
+  });
+
+  const nodes: StructuralNodeSpec[] = [stairNode];
+  const links: [string, string][] = [];
+  const walkable: StructuralNodeSpec[] = [stairNode];
+
+  // Mid support strut beneath the stairs
+  const mx = (span.ax + span.bx) * 0.5;
+  const mz = (span.az + span.bz) * 0.5;
+  const midH = Math.max(0.5, (span.y0 + span.y1) * 0.5 - 0.2);
+  nodes.push({
+    id: 'support',
+    pos: [mx, span.y0 + midH * 0.5, mz],
+    half: [0.22, midH * 0.5, Math.min(0.8, span.width * 0.4)],
+    mat: 'steelDark',
+    hp: 140,
+    tier,
+    anchored: true,
+    kind: 'column',
+  });
+
+  if (opts.landing) {
+    const landingNode: StructuralNodeSpec = {
+      id: 'landing',
+      pos: opts.landing.pos,
+      half: opts.landing.half,
+      mat: opts.landing.mat ?? 'grate',
+      hp: 150,
+      tier,
+      anchored: false,
+      kind: 'catwalk',
+    };
+    nodes.push(landingNode);
+    walkable.push(landingNode);
+    links.push(['ramp', 'landing']);
+  }
+
+  return {
+    id: opts.id,
+    tag: opts.tag,
+    kind: 'staircase',
+    label: opts.label ?? 'ACCESS STAIRWAY',
+    value: opts.value ?? 55_000,
+    nodes,
+    links,
+    collapseThreshold: 0.5,
+    navProxies: collectNavProxies(opts.navPhysics, walkable),
+    onCollapse: opts.onCollapse,
+  };
+}
+
+/**
+ * Tier 1 destructible standalone shipping container (for loose aisle/dockside cover containers).
+ */
+export function buildContainerCluster(
+  origin: Vec3Like,
+  opts: ClusterBuilderOptions & { color?: number | readonly [number, number, number] } = {},
+): StructuralClusterSpec {
+  const tier: DestructionTier = opts.tier ?? 1;
+  const t = makeTransform(origin, opts.yaw ?? 0);
+  const col = opts.color ?? 0x2c6694;
+  const nodes: StructuralNodeSpec[] = [
+    { id: 'half_a', pos: t.pt(-3.05, 1.3, 0), half: [3.02, 1.3, 1.25], mat: 'panel', color: col, hp: 180, tier, anchored: true, kind: 'wall', yaw: t.yaw },
+    { id: 'half_b', pos: t.pt(3.05, 1.3, 0), half: [3.02, 1.3, 1.25], mat: 'panel', color: col, hp: 180, tier, anchored: true, kind: 'wall', yaw: t.yaw },
+  ];
+  return {
+    id: opts.id,
+    tag: opts.tag,
+    kind: 'container',
+    label: opts.label ?? 'SHIPPING CONTAINER',
+    value: opts.value ?? 50_000,
+    nodes,
+    collapseThreshold: 0.5,
+    onCollapse: opts.onCollapse,
+  };
+}
+

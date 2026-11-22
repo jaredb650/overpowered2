@@ -275,4 +275,54 @@ describe('OldMother active combat, exposed Stern Engine & chain detonation', () 
 
     mother.dispose();
   });
+
+  it('explodes into 18-26 physical debris chunks, hides intact hull, clears colliders, and cleans up on hide/dispose', () => {
+    const m = makeMockCtx();
+    const mother = new OldMother(m.ctx, null);
+    mother.enterDeck(true);
+    mother.position.set(-90, 0, -10);
+    mother.yaw = 0.35;
+    mother.update(0.016);
+
+    const childrenBeforeKill = m.scene.children.length;
+    const engineCollider = { handle: 7 } as never;
+    const engWorld = mother.localToWorld(0, 7.6, -11.6);
+
+    // Destroy the exposed Stern Engine -> catastrophic breakup!
+    mother.direct(engineCollider, engWorld, CRAWLER.hp.engine * 2, 'shell', 'frame_howitzer');
+    expect(mother.state.phase).toBe('dead');
+    expect(mother.root.visible).toBe(false);
+
+    // Static hull and part colliders are parked far underground; deck colliders are removed.
+    expect(m.colliders.get(1)!.pos.y).toBeLessThan(-500);
+    for (let h = 2; h <= 7; h++) {
+      expect(m.colliders.get(h)!.pos.y).toBeLessThan(-500);
+    }
+    const deckColliders = [...m.colliders.values()].filter(c => c.handle > 7);
+    expect(deckColliders.length).toBeGreaterThan(0);
+    expect(deckColliders.every(c => c.removed)).toBe(true);
+
+    // 18-26 debris chunks spawned into the scene.
+    expect(mother.debrisCount).toBeGreaterThanOrEqual(18);
+    expect(mother.debrisCount).toBeLessThanOrEqual(26);
+    expect(m.scene.children.length).toBe(childrenBeforeKill + mother.debrisCount);
+
+    // Snapshot initial debris positions, then simulate 1.5s -> chunks must fly outward and tumble.
+    const debrisMeshes = m.scene.children.slice(childrenBeforeKill);
+    const initialPos = debrisMeshes.map(o => o.position.clone());
+    for (let i = 0; i < 30; i++) {
+      m.ctx.time.elapsed += 0.05;
+      mother.update(0.05);
+    }
+    const movedCount = debrisMeshes.filter((o, i) => o.position.distanceTo(initialPos[i]!) > 3).length;
+    expect(movedCount).toBeGreaterThanOrEqual(15);
+
+    // hide() cleanly removes and disposes every debris chunk from the scene.
+    mother.hide();
+    expect(mother.debrisCount).toBe(0);
+    expect(m.scene.children.length).toBe(childrenBeforeKill);
+
+    mother.dispose();
+  });
 });
+

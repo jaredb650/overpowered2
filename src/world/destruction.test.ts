@@ -11,11 +11,24 @@ import { noop } from '../core/stubs';
 import { Physics } from '../physics/Physics';
 import {
   buildBarracksCluster,
+  buildBoatShedCluster,
   buildCanneryCluster,
   buildCatwalkCluster,
+  buildContainerCluster,
   buildEmplacementPlatformCluster,
+  buildFiringStepCluster,
+  buildFountainCluster,
+  buildGateTowerCluster,
   buildMarketHallCluster,
+  buildMunitionsShedCluster,
+  buildPillboxCluster,
   buildQuayCraneCluster,
+  buildShantyHouseCluster,
+  buildStaircaseCluster,
+  buildTerraceCluster,
+  buildTowerCluster,
+  buildWallGunPadCluster,
+  buildWatchtowerCluster,
   canDamageTier,
   damageMultiplierFor,
   DestructionManager,
@@ -91,27 +104,27 @@ describe('armor tier gating and source multipliers', () => {
       expect(canDamageTier(0, src), `tier 0 vs ${src}`).toBe(true);
     }
 
-    // Tier 1: masonry — blocks small arms and rotary airburst, allows explosives & frame ordnance
+    // Tier 1: masonry — blocks small arms and rotary airburst, allows explosives & frame/AC-130 ordnance
     expect(canDamageTier(1, 'smg')).toBe(false);
     expect(canDamageTier(1, 'shotgun')).toBe(false);
     expect(canDamageTier(1, 'frame_rotary_airburst')).toBe(false);
-    for (const src of ['satchel', 'rocket', 'mgl', 'grenade', 'c4', 'frame_40mm', 'frame_40mm_ap', 'frame_stomp', 'frame_howitzer', 'tank_cannon', 'hazard_chain', 'nuke']) {
+    for (const src of ['satchel', 'rocket', 'mgl', 'grenade', 'c4', 'frame_40mm', 'frame_40mm_ap', 'frame_stomp', 'frame_howitzer', 'tank_cannon', 'ac130_25mm', 'ac130_wp', 'ac130_40mm', 'ac130_40mm_ap', 'ac130_105mm', 'ac130_bomb', 'hazard_chain', 'nuke']) {
       expect(canDamageTier(1, src), `tier 1 vs ${src}`).toBe(true);
     }
 
     // Tier 2: heavy industrial — blocks hand-held rockets/satchels/mgl/grenade/c4 and rotary airburst
-    for (const blocked of ['smg', 'rocket', 'satchel', 'mgl', 'grenade', 'c4', 'frame_rotary_airburst']) {
+    for (const blocked of ['smg', 'rocket', 'satchel', 'mgl', 'grenade', 'c4', 'frame_rotary_airburst', 'ac130_25mm']) {
       expect(canDamageTier(2, blocked), `tier 2 should block ${blocked}`).toBe(false);
     }
-    for (const allowed of ['frame_40mm', 'frame_40mm_ap', 'frame_howitzer', 'frame_stomp', 'frame_charge', 'frame_crush', 'frame_backhand', 'frame_pod', 'tank_cannon', 'hazard_chain', 'nuke']) {
+    for (const allowed of ['frame_40mm', 'frame_40mm_ap', 'frame_howitzer', 'frame_stomp', 'frame_charge', 'frame_crush', 'frame_backhand', 'frame_pod', 'tank_cannon', 'ac130_40mm', 'ac130_40mm_ap', 'ac130_105mm', 'ac130_bomb', 'hazard_chain', 'nuke']) {
       expect(canDamageTier(2, allowed), `tier 2 should allow ${allowed}`).toBe(true);
     }
 
-    // Tier 3: reinforced concrete — ONLY frame_howitzer, nuke, hazard_chain
-    for (const blocked of ['smg', 'rocket', 'satchel', 'frame_40mm', 'frame_40mm_ap', 'frame_stomp', 'frame_charge', 'frame_crush', 'frame_backhand', 'frame_pod', 'tank_cannon', 'frame_rotary_airburst']) {
+    // Tier 3: reinforced concrete — ONLY frame_howitzer, ac130_105mm, ac130_bomb, nuke, hazard_chain
+    for (const blocked of ['smg', 'rocket', 'satchel', 'frame_40mm', 'frame_40mm_ap', 'ac130_40mm', 'ac130_25mm', 'frame_stomp', 'frame_charge', 'frame_crush', 'frame_backhand', 'frame_pod', 'tank_cannon', 'frame_rotary_airburst']) {
       expect(canDamageTier(3, blocked), `tier 3 should block ${blocked}`).toBe(false);
     }
-    for (const allowed of ['frame_howitzer', 'nuke', 'hazard_chain']) {
+    for (const allowed of ['frame_howitzer', 'ac130_105mm', 'ac130_bomb', 'nuke', 'hazard_chain']) {
       expect(canDamageTier(3, allowed), `tier 3 should allow ${allowed}`).toBe(true);
     }
   });
@@ -120,8 +133,12 @@ describe('armor tier gating and source multipliers', () => {
     expect(damageMultiplierFor(1, 'satchel')).toBeCloseTo(3.2);
     expect(damageMultiplierFor(2, 'satchel')).toBe(0);
     expect(damageMultiplierFor(3, 'frame_howitzer')).toBeCloseTo(8.0);
+    expect(damageMultiplierFor(3, 'ac130_105mm')).toBeCloseTo(8.0);
+    expect(damageMultiplierFor(3, 'ac130_bomb')).toBeCloseTo(12.0);
     expect(damageMultiplierFor(2, 'frame_40mm_ap')).toBeCloseTo(2.5);
     expect(damageMultiplierFor(2, 'frame_40mm')).toBeCloseTo(2.2);
+    expect(damageMultiplierFor(2, 'ac130_40mm')).toBeCloseTo(2.2);
+    expect(damageMultiplierFor(2, 'ac130_40mm_ap')).toBeCloseTo(2.5);
     expect(damageMultiplierFor(2, 'frame_stomp')).toBeCloseTo(4.5);
     expect(damageMultiplierFor(2, 'frame_charge')).toBeCloseTo(4.5);
     expect(damageMultiplierFor(2, 'frame_crush')).toBeCloseTo(4.5);
@@ -362,6 +379,53 @@ describe('cluster lifecycle, liquidation events, helper builders, and nukeSweep'
     const crane = manager.getCluster('q1')!;
     expect(crane.getNode('base_fl')!.tier).toBe(3);
     expect(crane.getNode('boom_front')!.kind).toBe('craneBoom');
+    manager.clear();
+  });
+
+  it('builds all 13 new Holdfast architectural cluster types, cleans navProxies on addCluster, and crumbles to 105mm', () => {
+    const { manager } = makeEnv();
+    const baseColliders = physics.world.colliders.len();
+    const terraceSpec = buildTerraceCluster([-34, 0, 25], {
+      tag: 't1',
+      len: 12,
+      depth: 10,
+      height: 6,
+      navPhysics: physics,
+      stair: { ax: -40, y0: 0, az: 21, bx: -40, y1: 6, bz: 29, width: 2.2 },
+    });
+    const proxyCount = terraceSpec.navProxies?.length ?? 0;
+    expect(proxyCount).toBeGreaterThanOrEqual(3);
+    expect(physics.world.colliders.len()).toBe(baseColliders + proxyCount);
+
+    const terrace = manager.addCluster(terraceSpec);
+    // Proxy colliders must be removed before real destructible colliders are added (no double-stacking)
+    expect(physics.world.colliders.len()).toBe(baseColliders + terrace.nodes.length);
+    expect(terraceSpec.navProxies).toEqual([]);
+
+    const extraSpecs = [
+      buildTowerCluster([-10, 0, 20], { tag: 'tw1', w: 6, d: 6, h: 12 }),
+      buildGateTowerCluster([10, 0, 20], { tag: 'gt1' }),
+      buildWallGunPadCluster(25, { tag: 'wp1', halfX: 2.8, z0: 18, z1: 23, height: 3, navPhysics: physics, stair: { ax: 22, y0: 0, az: 18, bx: 22, y1: 3, bz: 22, width: 2 } }),
+      buildFiringStepCluster({ tag: 'fs1', x0: 35, x1: 47, z0: 19, z1: 22, height: 2, navPhysics: physics, stair: { ax: 35, y0: 0, az: 18, bx: 39, y1: 2, bz: 18, width: 2 } }),
+      buildShantyHouseCluster([60, 0, 20], { tag: 'sh1', w: 7, d: 6, h: 3, sandbagFront: true, navPhysics: physics, stair: { ax: 56, y0: 0, az: 18, bx: 56, y1: 3, bz: 22, width: 1.8 } }),
+      buildWatchtowerCluster([80, 0, 20], { tag: 'wt1' }),
+      buildMunitionsShedCluster([95, 0, 20], { tag: 'ms1' }),
+      buildPillboxCluster([110, 0, 20], { tag: 'pb1' }),
+      buildFountainCluster([125, 0, 20], { tag: 'fn1' }),
+      buildBoatShedCluster(135, 10, 155, 34, 12, { tag: 'bs1' }),
+      buildStaircaseCluster({ ax: 160, y0: 0, az: 20, bx: 168, y1: 4, bz: 20, width: 2.4 }, { tag: 'st1', navPhysics: physics, landing: { pos: [169, 3.9, 20], half: [1.2, 0.12, 1.2] } }),
+      buildContainerCluster([180, 0, 20], { tag: 'ct1' }),
+    ];
+
+    for (const spec of extraSpecs) {
+      const c = manager.addCluster(spec);
+      expect(c.nodes.length, spec.tag).toBeGreaterThanOrEqual(2);
+      expect(c.nodes.some(n => n.anchored), `${spec.tag} anchored`).toBe(true);
+    }
+
+    // AC-130 105mm (8.0x) shatters Tier-2 Market Terrace cleanly
+    manager.blast(V(-34, 2.5, 25), 14, 120, 'ac130_105mm');
+    expect(terrace.collapsed).toBe(true);
     manager.clear();
   });
 

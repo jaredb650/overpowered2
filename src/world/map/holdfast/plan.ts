@@ -297,11 +297,15 @@ export interface BarracksDef {
 }
 
 /**
- * Five enterable Tier-1 masonry garrison barracks across Holdfast: troops emerge from their doorways until flattened
- * with Satchel Charges, rockets, or the Distraint Frame. Clear of LZ, ROADS, ROUTES, TRENCH, FUEL, SLIP, and PLACES.
+ * Eight enterable Tier-1 masonry garrison barracks across Holdfast (four in the Outer Shanties/Flats for AC-130 & landing
+ * assaults, four inside the town/dockyard): troops emerge from their doorways until flattened with AC-130 ordnance,
+ * Satchel Charges, rockets, or the Distraint Frame. Clear of LZ, ROADS, ROUTES, TRENCH, FUEL, SLIP, and PLACES.
  */
 export const BARRACKS: readonly BarracksDef[] = [
   { tag: 'barracks.flats', x: 68, z: 92, yaw: -Math.PI / 2, spawn: [62, 0, 92], label: 'FLATS GARRISON BARRACKS' },
+  { tag: 'barracks.shantiesWest', x: 22, z: 98, yaw: Math.PI / 2, spawn: [28, 0, 98], label: 'WEST SHANTIES BARRACKS' },
+  { tag: 'barracks.shantiesEast', x: 96, z: 94, yaw: Math.PI, spawn: [96, 0, 88], label: 'EAST SHANTIES BARRACKS' },
+  { tag: 'barracks.shantiesNorth', x: 2, z: 76, yaw: 0, spawn: [2, 0, 82], label: 'DYKE SHANTY BARRACKS' },
   { tag: 'barracks.market', x: 132, z: 37.5, yaw: Math.PI, spawn: [132, 0, 31.5], label: 'MARKET GARRISON BARRACKS' },
   { tag: 'barracks.stacks', x: 102, z: 10.8, yaw: Math.PI / 2, spawn: [108, 0, 10.8], label: 'STACKS GARRISON BARRACKS' },
   { tag: 'barracks.cannery', x: 145, z: -35.5, yaw: -Math.PI / 2, spawn: [139, 0, -35.5], label: 'CANNERY GARRISON BARRACKS' },

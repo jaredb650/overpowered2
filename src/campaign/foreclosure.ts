@@ -23,13 +23,14 @@ import type { EnemyManager } from '../enemies/EnemyManager';
 import { pose, soldierOf } from '../enemies/outpost/soldier';
 import { FlakTower } from '../enemies/vehicles/flakTower';
 import { OldMother } from '../enemies/vehicles/crawler';
-import { RivalFrame } from '../enemies/vehicles/rivalFrame';
+import { RIVAL_FRAME, RivalFrame } from '../enemies/vehicles/rivalFrame';
 import type { VehicleSystem } from '../enemies/vehicles';
 import type { Frame } from '../frame/seat';
 import { ModelBuilder, ModelMaterials } from '../progression/modelkit';
 import { UpgradePod } from '../progression/pickups/upgradePod';
 import { div, Label, span } from '../ui/dom';
 import type { Emplacement, Emplacements } from '../vehicles/emplacement';
+import { PANS } from '../world/map/holdfast/plan';
 import type { GameHost } from './host';
 import type { CampaignHud } from './hud';
 import type { MissionRunner } from './runner';
@@ -576,8 +577,13 @@ export class Foreclosure {
     }
 
     if (this.bossMode === 'mother') {
-      if (!this.crawler || !this.crawler.root.visible) return;
+      if (!this.crawler) return;
       const st = this.crawler.state;
+      if (st.phase === 'dead') {
+        this.setBossMode('none');
+        return;
+      }
+      if (!this.crawler.root.visible) return;
       const pct = clamp(st.barFraction());
       this.bossPct.set(`${Math.round(pct * 100)}%`);
       this.bossFill.style.transform = `scaleX(${pct.toFixed(4)})`;
@@ -594,7 +600,6 @@ export class Foreclosure {
         el.classList.toggle('dead', broken);
         el.classList.toggle('hot', highlight && !broken);
       }
-      if (st.phase === 'dead') this.setBossMode('none');
       return;
     }
 
@@ -604,7 +609,8 @@ export class Foreclosure {
       this.bossPct.set(`${Math.round(pct * 100)}%`);
       this.bossFill.style.transform = `scaleX(${pct.toFixed(4)})`;
       const phaseLabel =
-        this.rivalFrame.phase === 'ejecting' ? 'PILOT EJECTING!'
+        this.rivalFrame.phase === 'launching' ? 'JUMP-JET LAUNCH!'
+        : this.rivalFrame.phase === 'ejecting' ? 'PILOT EJECTING!'
         : this.rivalFrame.phase === 'wrecked' ? 'DISABLED'
         : this.rivalFrame.staggerLeft > 0 ? 'STAGGERED!'
         : this.rivalFrame.attack === 'cannon' ? 'HEAVY CANNON LOCK'
@@ -615,7 +621,7 @@ export class Foreclosure {
       this.bossPhase.set(phaseLabel);
       this.bossPips.get('rotary')?.classList.toggle('hot', this.rivalFrame.attack === 'rotary');
       this.bossPips.get('cannon')?.classList.toggle('hot', this.rivalFrame.attack === 'cannon');
-      this.bossPips.get('jets')?.classList.toggle('hot', this.rivalFrame.attack === 'jump');
+      this.bossPips.get('jets')?.classList.toggle('hot', this.rivalFrame.attack === 'jump' || this.rivalFrame.phase === 'launching');
       if (this.rivalFrame.phase === 'wrecked' || this.rivalFrame.phase === 'idle') {
         this.setBossMode('none');
       }
@@ -879,6 +885,52 @@ export class Foreclosure {
     const mark = this.runner.mission.marks[markName] ?? PLACES.rivalSpawn;
     if (!mark || !this.rivalFrame) return;
     this.flak?.setActive(false);
+
+    if (this.crawler && this.crawler.state.phase === 'dead') {
+      // Keep Old Mother's breakup debris & chain detonations flying across the Salt Flats!
+      const origin = this.crawler.localToWorld(0, 6.2, -1.5, _from);
+      const playerPos = this.ctx.player.position;
+      const distPlayer = Math.hypot(playerPos.x - origin.x, playerPos.z - origin.z);
+      const toPlayerAngle = distPlayer > 1
+        ? Math.atan2(playerPos.z - origin.z, playerPos.x - origin.x)
+        : Math.atan2(PANS.loop.z - origin.z, PANS.loop.x - origin.x);
+
+      // Pick a clear Salt Flats landing spot 24–32 m from Old Mother's wreck, visible to the player and not on top of them.
+      const launchDist = rand(RIVAL_FRAME.launchDistMin, RIVAL_FRAME.launchDistMax);
+      const sideBias = distPlayer > 52 ? rand(-0.35, 0.35) : (Math.random() < 0.5 ? 1 : -1) * rand(0.85, 1.35);
+      const minX = PANS.x0 + 12;
+      const maxX = PANS.x1 - 12;
+      const minZ = PANS.z0 + 12;
+      const maxZ = PANS.z1 - 12;
+
+      let angle = toPlayerAngle + sideBias;
+      let lx = origin.x + Math.cos(angle) * launchDist;
+      let lz = origin.z + Math.sin(angle) * launchDist;
+      if (lx < minX || lx > maxX || lz < minZ || lz > maxZ) {
+        angle = Math.atan2(PANS.loop.z - origin.z, PANS.loop.x - origin.x) + rand(-0.4, 0.4);
+        lx = clamp(origin.x + Math.cos(angle) * launchDist, minX, maxX);
+        lz = clamp(origin.z + Math.sin(angle) * launchDist, minZ, maxZ);
+      }
+
+      // Guarantee safe clearance from player so RivalFrame doesn't land right on top of the player's Frame.
+      const landToPlayerX = lx - playerPos.x;
+      const landToPlayerZ = lz - playerPos.z;
+      const landDistPlayer = Math.hypot(landToPlayerX, landToPlayerZ);
+      if (landDistPlayer < 16) {
+        const pushAngle = landDistPlayer > 0.5
+          ? Math.atan2(landToPlayerZ, landToPlayerX)
+          : Math.atan2(PANS.loop.z - playerPos.z, PANS.loop.x - playerPos.x);
+        lx = clamp(playerPos.x + Math.cos(pushAngle) * 20, minX, maxX);
+        lz = clamp(playerPos.z + Math.sin(pushAngle) * 20, minZ, maxZ);
+      }
+
+      const landAt = _v.set(lx, 0, lz);
+      const facingYaw = Math.atan2(playerPos.x - landAt.x, playerPos.z - landAt.z);
+      this.rivalFrame.launchFromWreck(origin, landAt, facingYaw);
+      this.setBossMode('rival');
+      return;
+    }
+
     this.crawler?.hide();
     this.rivalFrame.spawn(_v.set(...mark.at), mark.yaw ?? 0);
     this.setBossMode('rival');

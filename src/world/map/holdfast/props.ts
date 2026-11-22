@@ -287,3 +287,244 @@ export function shanty(k: Kit, site: Site, x: number, z: number, yaw: number, w:
   const [ax, az] = at(w / 2 + 0.75, d / 2 + 1.4), [bx, bz] = at(w / 2 + 0.75, d / 2 - 3.6);
   site.stairs(ax, az, 0, bx, bz, LEVEL.roof, 1.4, 'concrete');
 }
+
+// -------------------------------------------------------------------------------------------------
+// Lived-in port & shanty dressing
+// -------------------------------------------------------------------------------------------------
+
+/** Timber/steel utility pole with crossarm, angled braces, and ceramic insulators. */
+export function utilityPole(k: Kit, x: number, z: number, h = 7.2, yaw = 0, lamp = false): void {
+  const g = k.geo;
+  k.push(x, 0, z, yaw);
+  g.use('plywood').tint(0.45, 0.36, 0.28).cyl(0, 0, 0, 0, h, 0, 0.14, 0.1, 6, false, true);
+  g.use('steelDark').tint(0.75);
+  g.box(0, h - 0.55, 0, 0.95, 0.06, 0.06, FACE.all);
+  g.box(0, h - 1.1, 0, 0.7, 0.05, 0.05, FACE.all);
+  // Insulator knobs
+  g.use('paintWhite').tint(0.7, 0.78, 0.82);
+  for (const ux of [-0.78, 0, 0.78]) g.box(ux, h - 0.44, 0, 0.05, 0.07, 0.05, FACE.all);
+  if (lamp) {
+    g.use('steelDark').box(0, h - 1.4, 0.45, 0.04, 0.04, 0.45, FACE.all);
+    g.use('emissiveOrange').box(0, h - 1.5, 0.85, 0.14, 0.06, 0.14, FACE.all);
+  }
+  g.tint(1);
+  k.pop();
+}
+
+/** Twin sagging overhead power lines between two utility poles. */
+export function wireSpan(k: Kit, ax: number, ay: number, az: number, bx: number, by: number, bz: number, sag = 0.9): void {
+  const dx = bx - ax, dz = bz - az, len = Math.hypot(dx, dz) || 1;
+  const nx = (-dz / len) * 0.55, nz = (dx / len) * 0.55;
+  cable(k, ax + nx, ay, az + nz, bx + nx, by, bz + nz, sag, 0.018);
+  cable(k, ax - nx, ay, az - nz, bx - nx, by, bz - nz, sag * 1.15, 0.018);
+}
+
+/** Overhead dyed sailcloth shade canopy on 4 slender poles (high clearance so walkways stay open). */
+export function marketCanopy(k: Kit, x: number, z: number, yaw: number, w: number, d: number, dye: Rgb): void {
+  const g = k.geo, hw = w / 2, hd = d / 2, h = 3.35;
+  k.push(x, 0, z, yaw);
+  g.use('rust').tint(0.68);
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+    g.cyl(sx * (hw - 0.1), 0, sz * (hd - 0.1), sx * (hw - 0.1), h, sz * (hd - 0.1), 0.04, 0.035, 5, false, true);
+  }
+  g.use('paintWhite').tint(dye[0] * 1.12, dye[1] * 1.12, dye[2] * 1.12);
+  // Two-panel slightly sagging sailcloth roof
+  g.quad(-hw, h, -hd, 0, h - 0.18, -hd, 0, h - 0.18, hd, -hw, h, hd);
+  g.quad(0, h - 0.18, -hd, hw, h, -hd, hw, h, hd, 0, h - 0.18, hd);
+  g.quad(0, h - 0.18, -hd, -hw, h, -hd, -hw, h, hd, 0, h - 0.18, hd);
+  g.quad(hw, h, -hd, 0, h - 0.18, -hd, 0, h - 0.18, hd, hw, h, hd);
+  g.tint(1);
+  k.pop();
+}
+
+/** Wooden A-frame salt-fish / dyed cloth drying rack for shanty yards & market alleys. */
+export function dryingRack(k: Kit, x: number, z: number, yaw: number, dye: Rgb): void {
+  const g = k.geo;
+  k.push(x, 0, z, yaw);
+  g.use('plywood').tint(0.55, 0.44, 0.32);
+  for (const sx of [-1.25, 1.25]) {
+    g.box(sx, 0.95, 0, 0.06, 0.95, 0.06, FACE.sides);
+    g.box(sx, 0.08, 0, 0.06, 0.06, 0.55, FACE.all);
+  }
+  g.box(0, 1.82, 0, 1.32, 0.04, 0.04, FACE.all);
+  g.box(0, 1.25, 0, 1.25, 0.03, 0.03, FACE.all);
+  // Hanging dyed cloth & dried fish strips
+  for (let i = -3; i <= 3; i++) {
+    const u = i * 0.34;
+    if (i % 2 === 0) {
+      g.use('paintWhite').tint(dye[0], dye[1], dye[2]).box(u, 1.48, 0.02, 0.13, 0.3, 0.015, FACE.all);
+    } else {
+      g.use('paintWhite').tint(0.76, 0.78, 0.8).box(u, 1.54, -0.02, 0.06, 0.24, 0.02, FACE.all);
+    }
+  }
+  g.tint(1);
+  k.pop();
+}
+
+/** Stacked wooden pallets with salt sacks / crates and partial dyed tarp. */
+export function palletStack(k: Kit, x: number, z: number, yaw: number, layers = 2, dye?: Rgb, collide = false): void {
+  const g = k.geo;
+  k.push(x, 0, z, yaw);
+  let y = 0;
+  for (let i = 0; i < layers; i++) {
+    g.use('plywood').tint(0.62 - i * 0.05, 0.48 - i * 0.04, 0.32 - i * 0.02);
+    g.box(0, y + 0.07, 0, 0.68, 0.07, 0.55, FACE.all);
+    // Crates / salt sacks on pallet
+    const c = dye && i === layers - 1 ? dye : ([0.84, 0.81, 0.74] as Rgb);
+    g.use('paintWhite').tint(c[0], c[1], c[2]);
+    g.box(-0.28, y + 0.36, 0, 0.3, 0.22, 0.42, FACE.noBottom);
+    g.use('plywood').tint(0.56, 0.44, 0.3);
+    g.box(0.32, y + 0.34, 0.04, 0.26, 0.2, 0.36, FACE.noBottom);
+    y += 0.58;
+  }
+  g.tint(1);
+  if (collide) k.collide(0, y / 2, 0, 0.7, y / 2, 0.56, 'dirt');
+  k.pop();
+}
+
+/** Heavy wooden/steel industrial cable spool. */
+export function cableSpool(k: Kit, x: number, z: number, r = 0.72, yaw = 0): void {
+  const g = k.geo;
+  k.push(x, 0, z, yaw);
+  g.use('plywood').tint(0.58, 0.45, 0.3);
+  g.cyl(-0.34, r, 0, -0.26, r, 0, r, r, 10, true, true);
+  g.cyl(0.26, r, 0, 0.34, r, 0, r, r, 10, true, true);
+  g.use('steelDark').tint(0.6).cyl(-0.26, r, 0, 0.26, r, 0, r * 0.74, r * 0.74, 10, false, false);
+  g.tint(1);
+  k.pop();
+}
+
+/** Tightly clustered rusted & painted oil drums tucked off-road. */
+export function drumCluster(k: Kit, x: number, z: number, count = 3): void {
+  const g = k.geo;
+  const offsets = [[0, 0], [0.68, 0.22], [0.24, -0.66], [-0.62, -0.28]] as const;
+  const cols: readonly Rgb[] = [[0.72, 0.36, 0.24], [0.26, 0.48, 0.64], [0.56, 0.52, 0.46], [0.78, 0.62, 0.24]];
+  for (let i = 0; i < Math.min(count, offsets.length); i++) {
+    const [ox, oz] = offsets[i]!;
+    const c = cols[i % cols.length]!;
+    g.use(i % 2 === 0 ? 'rust' : 'paintWhite').tint(c[0], c[1], c[2]);
+    g.cyl(x + ox, 0, z + oz, x + ox, 0.92, z + oz, 0.29, 0.29, 8, false, true);
+  }
+  g.tint(1);
+}
+
+/** Corrugated galvanized water tank on timber stilts — iconic squatters' port silhouette. */
+export function waterTankStilt(k: Kit, x: number, z: number, yaw = 0): void {
+  const g = k.geo, h = 2.6, s = 0.75;
+  k.push(x, 0, z, yaw);
+  g.use('plywood').tint(0.5, 0.38, 0.28);
+  for (const sx of [-s, s]) for (const sz of [-s, s]) {
+    g.box(sx, h / 2, sz, 0.08, h / 2, 0.08, FACE.sides);
+  }
+  g.box(0, h, 0, s + 0.2, 0.08, s + 0.2, FACE.all);
+  g.use('panel').tint(0.68, 0.74, 0.78).cyl(0, h + 0.08, 0, 0, h + 1.85, 0, 0.85, 0.85, 10, false, true);
+  g.use('steelDark').cyl(0.4, 0, 0.4, 0.4, h + 0.1, 0.4, 0.05, 0.05, 6, false, false);
+  g.tint(1);
+  k.pop();
+}
+
+/** Corrugated tin & plank squatters' lean-to shelter with stacked boxes underneath. */
+export function scrapLeanTo(k: Kit, x: number, z: number, yaw: number, dye: Rgb): void {
+  const g = k.geo;
+  k.push(x, 0, z, yaw);
+  g.use('plywood').tint(0.52, 0.4, 0.3);
+  g.box(-1.3, 1.15, -0.7, 0.07, 1.15, 0.07, FACE.sides);
+  g.box(1.3, 1.15, -0.7, 0.07, 1.15, 0.07, FACE.sides);
+  g.box(-1.3, 0.85, 0.7, 0.06, 0.85, 0.06, FACE.sides);
+  g.box(1.3, 0.85, 0.7, 0.06, 0.85, 0.06, FACE.sides);
+  // Sloped corrugated sheet roof
+  g.use('rust').tint(0.75, 0.65, 0.58);
+  g.quad(-1.5, 2.35, -0.85, 1.5, 2.35, -0.85, 1.5, 1.72, 0.88, -1.5, 1.72, 0.88);
+  g.quad(1.5, 2.35, -0.85, -1.5, 2.35, -0.85, -1.5, 1.72, 0.88, 1.5, 1.72, 0.88);
+  // Crate & dyed tarp goods underneath
+  g.use('paintWhite').tint(dye[0], dye[1], dye[2]).box(-0.45, 0.42, -0.1, 0.55, 0.42, 0.45, FACE.noBottom);
+  g.use('plywood').tint(0.62, 0.48, 0.32).box(0.58, 0.32, 0.05, 0.36, 0.32, 0.34, FACE.noBottom);
+  g.tint(1);
+  k.pop();
+}
+
+/** Weathered small wooden/tin fishing skiff propped on chocks along the quay or shanty yards. */
+export function rustedSkiff(k: Kit, x: number, z: number, yaw: number, dye: Rgb): void {
+  const g = k.geo;
+  k.push(x, 0, z, yaw);
+  // Timber chocks
+  g.use('plywood').tint(0.45, 0.36, 0.26);
+  g.box(-1.1, 0.14, 0, 0.14, 0.14, 0.55, FACE.all);
+  g.box(1.1, 0.14, 0, 0.14, 0.14, 0.55, FACE.all);
+  // Hull body
+  g.use('paintWhite').tint(dye[0] * 0.75, dye[1] * 0.75, dye[2] * 0.75);
+  g.box(0, 0.46, 0, 1.65, 0.24, 0.68, FACE.all);
+  // Tapered bow
+  g.box(1.95, 0.52, 0, 0.38, 0.22, 0.42, FACE.all);
+  // Interior thwart benches
+  g.use('plywood').tint(0.62, 0.48, 0.34);
+  g.box(-0.5, 0.62, 0, 0.16, 0.04, 0.62, FACE.all);
+  g.box(0.55, 0.62, 0, 0.16, 0.04, 0.62, FACE.all);
+  g.tint(1);
+  k.pop();
+}
+
+/** Two-wheeled wooden market handcart loaded with salt sacks and dyed cloth. */
+export function handcart(k: Kit, x: number, z: number, yaw: number, dye: Rgb): void {
+  const g = k.geo;
+  k.push(x, 0, z, yaw);
+  g.use('plywood').tint(0.6, 0.46, 0.32);
+  g.box(0, 0.56, 0, 0.85, 0.12, 0.52, FACE.all);
+  // Handles
+  g.box(1.22, 0.56, -0.34, 0.4, 0.04, 0.04, FACE.all);
+  g.box(1.22, 0.56, 0.34, 0.4, 0.04, 0.04, FACE.all);
+  // Wheels
+  g.use('steelDark').cyl(0, 0.38, -0.58, 0, 0.38, -0.5, 0.38, 0.38, 8, true, true);
+  g.cyl(0, 0.38, 0.5, 0, 0.38, 0.58, 0.38, 0.38, 8, true, true);
+  // Cargo sacks
+  g.use('paintWhite').tint(0.86, 0.84, 0.78).box(-0.22, 0.82, 0, 0.42, 0.18, 0.38, FACE.all);
+  g.use('paintWhite').tint(dye[0], dye[1], dye[2]).box(0.32, 0.8, 0, 0.32, 0.16, 0.34, FACE.all);
+  g.tint(1);
+  k.pop();
+}
+
+/** Heavy cast-iron harbour mooring bollard along quay rims and the Slip. */
+export function bollard(k: Kit, x: number, z: number, y = 0): void {
+  const g = k.geo;
+  g.use('steelDark').tint(0.55);
+  g.box(x, y + 0.08, z, 0.36, 0.08, 0.36, FACE.noBottom);
+  g.cyl(x, y + 0.14, z, x, y + 0.68, z, 0.18, 0.21, 8, false, true);
+  g.use('paintYellow').tint(0.72, 0.58, 0.18).cyl(x, y + 0.62, z, x, y + 0.74, z, 0.24, 0.22, 8, true, true);
+  g.tint(1);
+}
+
+/** Stacked wire/wood lobster & salt cages along the dockside and boat shed. */
+export function lobsterCages(k: Kit, x: number, z: number, yaw: number): void {
+  const g = k.geo;
+  k.push(x, 0, z, yaw);
+  for (let i = 0; i < 3; i++) {
+    const ox = i === 2 ? 0.1 : i * 0.86 - 0.42;
+    const oy = i === 2 ? 0.62 : 0;
+    const oz = i === 2 ? 0.05 : (i % 2) * 0.12;
+    g.use('grate').tint(0.68, 0.62, 0.52).box(ox, oy + 0.3, oz, 0.4, 0.3, 0.3, FACE.all);
+    g.use('plywood').tint(0.55, 0.44, 0.3).box(ox, oy + 0.58, oz, 0.42, 0.03, 0.32, FACE.py);
+  }
+  g.tint(1);
+  k.pop();
+}
+
+/** Stripped rusted pickup truck frame / chassis tucked off-road in shanty pockets. */
+export function rustedWreck(k: Kit, x: number, z: number, yaw: number): void {
+  const g = k.geo;
+  k.push(x, 0, z, yaw);
+  g.use('rust').tint(0.62, 0.46, 0.38);
+  // Chassis & truck bed
+  g.box(0, 0.52, 0, 2.1, 0.28, 0.92, FACE.all);
+  // Cab shell
+  g.box(0.35, 1.12, 0, 0.72, 0.38, 0.86, FACE.sides | FACE.py);
+  // Hood
+  g.box(1.45, 0.84, 0, 0.58, 0.18, 0.84, FACE.all);
+  // Wheel arches / rusted rims
+  g.use('rubber').tint(0.5);
+  for (const wx of [-1.25, 1.25]) for (const wz of [-0.9, 0.9]) {
+    g.cyl(wx, 0.34, wz - 0.1, wx, 0.34, wz + 0.1, 0.34, 0.34, 8, true, true);
+  }
+  g.tint(1);
+  k.pop();
+}
+

@@ -1,22 +1,30 @@
 /**
  * The shipyard: the stacks with their crane aisle, the gantry crane and its cab, the quay apron and road, the quay crane, the Slip, the
- * boat shed, the cannery, the harbour wall and the flak tower. Container stacks are one collider a block (the parkour lessons are
- * measured against these faces), drawn as painted boxes on the faces and the top only.
+ * destructible boat shed, the cannery, the harbour wall and the flak tower, plus lived-in dockside dressing. Container stacks are one
+ * collider a block (the parkour lessons are measured against these faces), drawn as painted boxes on the faces and the top only.
  */
 import { PLACES } from '../../../campaign/missions/foreclosure.places';
 import {
   buildBarracksCluster,
+  buildBoatShedCluster,
   buildCanneryCluster,
+  buildContainerCluster,
+  buildMunitionsShedCluster,
   buildQuayCraneCluster,
+  buildStaircaseCluster,
+  buildWatchtowerCluster,
   type StructuralClusterSpec,
 } from '../../destruction';
 import { FACE } from '../../kit/geo';
 import type { Kit } from '../../kit/kit';
-import { container, signPanel, truck } from '../../kit/props';
+import { container, pipe, signPanel, truck } from '../../kit/props';
 import { signId } from '../../kit/signs';
 import { Site } from '../outpost/site';
 import type { MapSpec } from '../spec';
-import { brazier, bulbs, flag, hull } from './props';
+import {
+  bollard, brazier, bulbs, cableSpool, drumCluster, flag, hull, lobsterCages, palletStack,
+  rustedSkiff, utilityPole, wireSpan,
+} from './props';
 import { clearOf } from './town';
 import {
   AISLE, APRON, BARRACKS, BOX, CANNERY, CHIMNEY, DYES, E1_STAIR, FLAK, GANTRY, HARBOUR, HARBOUR_STAIRS, LEVEL, QUAY_CRANE,
@@ -154,11 +162,23 @@ function stacks(k: Kit, site: Site): void {
   rg.tint(1);
   gantry(k, site);
   const g = k.geo;
-  // Stairs up E1's east face in the lane, and a landing onto its top.
+  // Destructible Tier-1 steel stairs up E1's east face in the lane, with landing onto E1's top (navProxy keeps sniper nests reachable).
   const top = stackTop(stack('E1')), sx = (E1_STAIR.x0 + E1_STAIR.x1) / 2;
-  k.stairs(sx, E1_STAIR.foot, 0, sx, E1_STAIR.top, top, E1_STAIR.x1 - E1_STAIR.x0, 'steel');
-  g.use('grate').box(sx - 0.05, top - 0.06, E1_STAIR.top - 1.25, (E1_STAIR.x1 - E1_STAIR.x0) / 2 + 0.05, 0.06, 1.25, FACE.py | FACE.ny);
-  k.collide(sx - 0.05, top - 0.15, E1_STAIR.top - 1.25, (E1_STAIR.x1 - E1_STAIR.x0) / 2 + 0.05, 0.15, 1.25, 'grate', false);
+  site.spec.cluster(buildStaircaseCluster(
+    { ax: sx, y0: 0, az: E1_STAIR.foot, bx: sx, y1: top, bz: E1_STAIR.top, width: E1_STAIR.x1 - E1_STAIR.x0 },
+    {
+      tag: 'stairs.stackE1',
+      mat: 'steel',
+      landing: {
+        pos: [sx - 0.05, top - 0.12, E1_STAIR.top - 1.25],
+        half: [(E1_STAIR.x1 - E1_STAIR.x0) / 2 + 0.05, 0.12, 1.25],
+        mat: 'grate',
+      },
+      navPhysics: k.physics,
+      tier: 1,
+      label: 'STACK E1 STAIRWAY',
+    },
+  ));
   // The snipers' nests on E1's edge over the aisle.
   for (const id of ['stacksSniperA', 'stacksSniperB'] as const) {
     const m = PLACES[id]!.at;
@@ -166,12 +186,17 @@ function stacks(k: Kit, site: Site): void {
   }
   flag(k, AISLE.x1 + 1, top, -2, 3.5, 0.3, DYES[0]!);
   flag(k, AISLE.x1 + 1, top, -40, 3.5, 0.3, DYES[2]!);
-  // The aisle: crane rails, a fallen container on its side, a forklift, light from lamps on the stacks.
+  // The aisle: crane rails, a destructible loose shipping container, a burnt truck, light from lamps on the stacks.
   g.use('steel').tint(0.5);
   for (const x of [AISLE.x0 + 1.2, AISLE.x1 - 1.2]) g.box(x, 0.06, (AISLE.z0 + AISLE.z1) / 2, 0.08, 0.06, (AISLE.z1 - AISLE.z0) / 2, FACE.py | FACE.px | FACE.nx);
   g.tint(1);
-  container(k, AISLE.x0 + 1.5, 0, -18, Math.PI / 2, BOXES[1], false);
-  k.collide(AISLE.x0 + 1.5, 1.3, -18, 1.3, 1.3, 6.1, 'metal');
+  site.spec.cluster(buildContainerCluster([AISLE.x0 + 1.5, 0, -18], {
+    tag: 'aisle.container',
+    yaw: Math.PI / 2,
+    color: BOXES[1],
+    tier: 1,
+    label: 'AISLE CONTAINER',
+  }));
   truck(k, AISLE.x1 - 1.3, 0, -32, Math.PI / 2);
   for (const z of [0, -16, -30]) k.light((AISLE.x0 + AISLE.x1) / 2, 8, z, 'white', 24, 16);
   bulbs(k, AISLE.x0, 8.6, 4, AISLE.x1, 7.8, 4, 'emissiveCyan', 0);
@@ -323,7 +348,20 @@ function harbour(k: Kit, site: Site): void {
   g.use('concreteDark').tint(0.5).box((x0 + x1) / 2, (SEA.y + 0) / 2, h.z0 - 0.01, (x1 - x0) / 2, -SEA.y / 2, 0.01, FACE.nz);
   g.tint(1);
   site.plan.walls.push({ ax: x0, az: (h.z0 + h.z1) / 2, bx: x1, bz: (h.z0 + h.z1) / 2, half: (h.z1 - h.z0) / 2 });
-  for (const sx of HARBOUR_STAIRS) site.stairs(sx, h.z1 + 1.3, 0, sx + 7, h.z1 + 1.3, h.walk, 2.6, 'concrete', true);
+  // Destructible Tier-1 concrete stairs up the Harbour Wall (navProxy keeps the harbour walk reachable).
+  for (let i = 0; i < HARBOUR_STAIRS.length; i++) {
+    const sx = HARBOUR_STAIRS[i]!;
+    site.spec.cluster(buildStaircaseCluster(
+      { ax: sx, y0: 0, az: h.z1 + 1.3, bx: sx + 7, y1: h.walk, bz: h.z1 + 1.3, width: 2.6 },
+      {
+        tag: `stairs.harbour.${i}`,
+        mat: 'concrete',
+        navPhysics: k.physics,
+        tier: 1,
+        label: 'HARBOUR WALL STAIRWAY',
+      },
+    ));
+  }
   for (let x = x0 + 8; x < x1; x += 22) {
     k.light(x, h.walk + 3, h.z1 + 1, 'white', 22, 14);
     if (x + 3 < f.x0 - 1 || x + 3 > f.x1 + 1) {
@@ -338,22 +376,14 @@ function harbour(k: Kit, site: Site): void {
   site.plan.blocks.push({ x0: f.x0, z0: f.z0, x1: f.x1, z1: f.z1 });
 }
 
-/** The boat shed: an open steel frame with half its roof gone, a rusting hull on its slipway. */
+/** The boat shed: Tier-2 destructible open steel frame & roof bays over a rusting hull on its slipway. */
 function shed(k: Kit, site: Site): void {
   const s = SHED, g = k.geo;
-  for (let z = s.z0; z <= s.z1 + 0.1; z += (s.z1 - s.z0) / 4) {
-    for (const x of [s.x0, s.x1]) {
-      g.use('steelDark').tint(0.8).box(x, s.h / 2, z, 0.3, s.h / 2, 0.3, FACE.sides);
-      k.collide(x, s.h / 2, z, 0.3, s.h / 2, 0.3, 'metal', false);
-    }
-    k.truss(s.x0, s.h, z, s.x1, s.h, z, 1.6, 0, 'steelDark', 0.12);
-  }
-  g.tint(1);
-  for (let x = s.x0; x < s.x1; x += 4) {
-    if (k.rng() < 0.4) continue;
-    g.use('rust').tint(0.6 + k.rng() * 0.3).box(x + 2, s.h + 0.9, (s.z0 + s.z1) / 2, 1.95, 0.04, (s.z1 - s.z0) / 2, FACE.py | FACE.ny);
-  }
-  g.tint(1);
+  site.spec.cluster(buildBoatShedCluster(s.x0, s.z0, s.x1, s.z1, s.h, {
+    tag: 'boatShed',
+    tier: 2,
+    label: 'NORTH YARD BOAT SHED',
+  }));
   hull(k, (s.x0 + s.x1) / 2, 0.4, (s.z0 + s.z1) / 2, Math.PI / 2, 24, 7.5, 0.05);
   for (const z of [-86, -78, -70]) g.use('plywood').tint(0.4, 0.32, 0.24).box((s.x0 + s.x1) / 2, 0.2, z, 1.2, 0.2, 0.8, FACE.noBottom);
   g.tint(1);
@@ -361,15 +391,106 @@ function shed(k: Kit, site: Site): void {
   site.plan.blocks.push({ x0: s.x0 + 6, z0: s.z0 + 2, x1: s.x1 - 6, z1: s.z1 - 2 });
 }
 
-/** Enterable Tier-1 masonry garrison barracks in the Stacks, Cannery yard, and Harbour apron. */
-function yardBarracks(site: Site): void {
+/** Enterable Tier-1 masonry garrison barracks & destructible dockside outbuildings in the Stacks, Cannery yard, and Harbour apron. */
+function yardClusters(site: Site): void {
   for (const b of BARRACKS) {
-    if (b.tag === 'barracks.flats' || b.tag === 'barracks.market') continue;
+    if (b.z >= 20) continue;
     site.spec.cluster(buildBarracksCluster([b.x, 0, b.z], { tag: b.tag, yaw: b.yaw, tier: 1, label: b.label }));
     const swapped = Math.abs(Math.sin(b.yaw)) > 0.5;
     const hx = swapped ? 4 : 5.4, hz = swapped ? 5.4 : 4;
     site.plan.blocks.push({ x0: b.x - hx, z0: b.z - hz, x1: b.x + hx, z1: b.z + hz });
   }
+  // Destructible Dockyard Tool/Munitions Shed south of the Boat Shed, with volatile barrels beside it.
+  site.spec.cluster(buildMunitionsShedCluster([42, 0, -60], {
+    tag: 'yard.dockShed', yaw: 0, color: 0x5c727a, tier: 1, label: 'BOATYARD PUMP SHED',
+  }));
+  site.spec.barrels(46, 0, -60, 3);
+  site.plan.blocks.push({ x0: 39, z0: -62.5, x1: 45, z1: -57.5 });
+
+  // Destructible Slip Control Shed north-west of the Slip rim.
+  site.spec.cluster(buildMunitionsShedCluster([86, 0, -98], {
+    tag: 'yard.slipBooth', yaw: 0, color: 0x86684c, tier: 1, label: 'DRY DOCK PUMP HOUSE',
+  }));
+  site.plan.blocks.push({ x0: 83, z0: -100.5, x1: 89, z1: -95.5 });
+
+  // Destructible Harbour Wall Watchtower overlooking the east Slip basin.
+  site.spec.cluster(buildWatchtowerCluster([132, 0, -98], {
+    tag: 'yard.harbourWatchtower', yaw: Math.PI, tier: 1, label: 'HARBOUR WATCHTOWER',
+  }));
+  site.plan.blocks.push({ x0: 129.5, z0: -100.5, x1: 134.5, z1: -95.5 });
+}
+
+/**
+ * Lived-in dockyard dressing: mooring bollards along the Slip and East Quay, overhead rusted brine pipes,
+ * utility poles & wires, stacked lobster/salt cages, weathered skiffs, heavy cable spools, cargo pallets, and bay signs.
+ */
+function livedInYard(k: Kit): void {
+  // 1. Cast-iron mooring bollards along the Slip rims, East Quay water edge, and Harbour Wall walk.
+  for (const x of [86, 94, 102, 108, 128, 136, 144, 150]) {
+    bollard(k, x, SLIP.z1 + 0.8);
+    bollard(k, x, SLIP.z0 - 0.8);
+  }
+  for (const z of [-98, -86, -72, -60, -40, -28, -16, -4, 6]) {
+    bollard(k, SEA.eastX - 1.1, z);
+  }
+  for (const x of [0, 44, 68, 92, 116, 152]) {
+    bollard(k, x, HARBOUR.z0 + 1.5, HARBOUR.walk);
+  }
+
+  // 2. Overhead rusted industrial brine pipe running along the Cannery's east side & Boat Shed apron.
+  pipe(k, [130, 5.2, -38, 130, 5.2, -4, 126, 5.2, -4, 126, 0, -4], 0.24, 'rust', 6, 8, false);
+  pipe(k, [62, 6.2, -66, 62, 6.2, -90, 58, 6.2, -90, 58, 0, -90], 0.22, 'steelDark', 6, 8, false);
+
+  // 3. Dockyard utility poles along the north apron edge (clear of roads & Frame routes).
+  const dockPoles: readonly (readonly [number, number, boolean])[] = [
+    [6, -56.8, true], [32, -56.8, false], [52, -56.8, true], [130, -56.8, true], [156, -56.8, false],
+  ];
+  const placed: [number, number][] = [];
+  for (const [px, pz, lamp] of dockPoles) {
+    if (!clearOf(px, pz, 0.8)) continue;
+    utilityPole(k, px, pz, 7.6, 0, lamp);
+    placed.push([px, pz]);
+  }
+  for (let i = 0; i + 1 < placed.length; i++) {
+    const [ax, az] = placed[i]!, [bx, bz] = placed[i + 1]!;
+    if (Math.hypot(bx - ax, bz - az) < 40) wireSpan(k, ax, 7.0, az, bx, 7.0, bz, 0.8);
+  }
+
+  // 4. Dockside clutter: lobster cages, skiffs, heavy cable spools, pallets, and oil drums strictly clear of roads/Frame routes.
+  const skiffs: readonly (readonly [number, number, number, number])[] = [
+    [60, -96, 0.25, 1], [157, -96, -1.2, 0], [8, -74, 1.4, 3], [128, -42, 0.3, 6],
+  ];
+  for (const [sx, sz, yaw, dyeIdx] of skiffs) {
+    if (clearOf(sx, sz, 2.2)) rustedSkiff(k, sx, sz, yaw, DYES[dyeIdx % DYES.length]!);
+  }
+
+  const cageSpots: readonly (readonly [number, number, number])[] = [
+    [52, -96, 0.3], [64, -76, 1.1], [78, -88, 0.4], [158, -74, -0.5], [128, -4, 0.2], [86, -42, 0.8],
+  ];
+  for (const [cx, cz, yaw] of cageSpots) {
+    if (clearOf(cx, cz, 1.3)) lobsterCages(k, cx, cz, yaw);
+  }
+
+  const spools: readonly (readonly [number, number])[] = [
+    [28, -60], [60, -60], [79, -62], [128, -32], [108, -16], [108, -34], [6, -64], [156, -44],
+  ];
+  for (const [sx, sz] of spools) {
+    if (clearOf(sx, sz, 1.2)) cableSpool(k, sx, sz, 0.85, k.rand(0, Math.PI));
+  }
+
+  const pallets: readonly (readonly [number, number])[] = [
+    [28, -74], [28, -86], [64, -84], [108, -4], [128, -12], [128, -26], [158, -56], [6, -86],
+  ];
+  for (let i = 0; i < pallets.length; i++) {
+    const [px, pz] = pallets[i]!;
+    if (!clearOf(px, pz, 1.3)) continue;
+    if (i % 2 === 0) palletStack(k, px, pz, k.rand(0, Math.PI), 2, DYES[i % DYES.length]!);
+    else drumCluster(k, px, pz, 3);
+  }
+
+  // 5. Industrial bay stencils on the east container stacks & quay wall.
+  signPanel(k, 108.5, 4.4, -22, Math.PI / 2, 3.6, 0.9, signId('CRANE 04'));
+  signPanel(k, 129.6, 5.8, -10, -Math.PI / 2, 4.0, 1.0, signId('CANNERY'));
 }
 
 export function authorYard(k: Kit, spec: MapSpec): void {
@@ -379,5 +500,7 @@ export function authorYard(k: Kit, spec: MapSpec): void {
   slip(k, site);
   harbour(k, site);
   shed(k, site);
-  yardBarracks(site);
+  yardClusters(site);
+  livedInYard(k);
 }
+

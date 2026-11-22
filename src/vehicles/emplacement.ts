@@ -10,15 +10,19 @@
  * `trigger(true)`, and gets off with `vacate(who)`. It stands at `standAt`. Heat, the arc and the rounds are the same
  * code the player goes through; nothing else about the AI lives here.
  *
- * The gun itself cannot be destroyed, for now. Enemy rounds stop on the shield (a steel collider that swings with the
- * gun) and hit the gunner above it; blasts reach him round it as they would anywhere.
+ * Emplacements are fully destructible: gunfire, heavy ordnance, blast radii, Frame blows, and structural support
+ * collapses can shatter the shield & tripod, eject/kill the gunner, leave a smoking twisted tripod wreck, emit
+ * `'world:liquidated'`, and permanently disable interaction until the run resets (`clear()`).
  */
 import * as THREE from 'three';
 import type RAPIER from '@dimforge/rapier3d-compat';
-import { CG, type Ctx, type LoopHandle, type MuzzleKind, type PlayOptions } from '../core/contracts';
-import type { ShotSpec } from '../core/gameplay';
+import { CG, type Ctx, type ExplosionKind, type LoopHandle, type MuzzleKind, type PlayOptions } from '../core/contracts';
+import type { EnemyInstance, ExplosionSpec, MissileTarget, ShotSpec } from '../core/gameplay';
 import { clamp, rand, randomInCone, wrapAngle } from '../core/math';
+import type { ExtraTarget, VehicleSystem } from '../enemies/vehicles';
+import { groups } from '../physics/Physics';
 import { ModelBuilder, type ModelMaterials } from '../progression/modelkit';
+import { EXPLOSIONS } from '../weapons/data';
 import { Gun, M134, type GunSpec } from './guns';
 import { GunnerSeat, type SeatPlan, type SeatRig } from './seat';
 
@@ -36,6 +40,8 @@ export interface EmplacementSpec {
 export interface MountLevel {
   name: string;
   gun: GunSpec;
+  /** Structural durability of this mount before it explodes into a charred wreck. */
+  maxHp: number;
   roundsPerSecond: number;
   damage: number;
   spread: number;
@@ -74,6 +80,8 @@ const GRIP = '#22262b';
 const BRASS = '#a4874c';
 const OLIVE = '#4a5038';
 const OLIVE_DARK = '#383d2b';
+const CHARRED = '#1d1c1b';
+const SCORCH = '#2b2622';
 const ALONG_Z: readonly [number, number, number] = [Math.PI / 2, 0, 0];
 
 /** A Browning-pattern .50 on its cradle. Pivot at the trunnion, barrel along -Z, grips toward the gunner. */
@@ -107,7 +115,7 @@ export const HMG: GunSpec = {
 };
 
 const HMG_LEVEL: MountLevel = {
-  name: 'M2 .50 // MOUNT I', gun: HMG,
+  name: 'M2 .50 // MOUNT I', gun: HMG, maxHp: 240,
   roundsPerSecond: 8, damage: 70, spread: 0.006, severMult: 4, force: 40, penetrate: 1.2, bodyCost: 0.3, impactScale: 1.6,
   heatPerShot: 1 / 64, cool: 0.25, vent: 0.33,
   spinUp: 0, spinDown: 0, shot: 'hmg_shot', pitch: 1, flash: 'hmg', flashEvery: 3, tracerEvery: 3,
@@ -120,13 +128,13 @@ export const MOUNT_LEVELS: readonly MountLevel[] = [
   HMG_LEVEL,
   // Faster, and a plate wide and tall enough to hide behind to the shoulders.
   {
-    ...HMG_LEVEL, name: 'M2A1 .50 // MOUNT II',
+    ...HMG_LEVEL, name: 'M2A1 .50 // MOUNT II', maxHp: 320,
     roundsPerSecond: 11, heatPerShot: 1 / 88, cool: 0.3, vent: 0.4, pitch: 1.1,
     shield: { width: 1.6, bottom: 0.35, top: 1.36 },
   },
   // The door gun's rotary: it spins up, then pours. Its own heat: about six seconds of fire.
   {
-    name: 'M134 ROTARY // MOUNT III', gun: M134,
+    name: 'M134 ROTARY // MOUNT III', gun: M134, maxHp: 450,
     roundsPerSecond: 33, damage: 32, spread: 0.012, severMult: 2.6, force: 30, penetrate: 0.4, bodyCost: 0.3, impactScale: 1.4,
     heatPerShot: 1 / 200, cool: 0.3, vent: 0.4,
     spinUp: 0.6, spinDown: 1.1, shot: null, pitch: 1, flash: 'rotary', flashEvery: 2, tracerEvery: 4,
@@ -229,6 +237,35 @@ function shield(b: ModelBuilder, s: MountLevel['shield']): void {
   for (const k of [1, -1]) b.box(0.03, 0.03, SHIELD_AHEAD, IRON, { at: [k * 0.14, -0.14, -SHIELD_AHEAD / 2] });
 }
 
+function charredWreck(b: ModelBuilder): void {
+  // Twisted, splayed charred tripod base + snapped pintle + bent barrel stub + scorched shield shard on the ground.
+  b.cyl(0.08, 0.1, 0.08, 8, CHARRED, { at: [0, 0.24, 0], rot: [0.35, 0.2, 0.28] });
+  b.cyl(0.045, 0.055, 0.36, 6, SCORCH, { at: [0.06, 0.38, -0.04], rot: [0.65, 0.1, -0.45] });
+  // Three bent/broken legs splayed flat onto the ground.
+  b.cyl(0.028, 0.032, 0.85, 6, CHARRED, { at: [-0.36, 0.12, -0.34], rot: [0.95, 0.3, 0.85] });
+  b.cyl(0.028, 0.032, 0.78, 6, CHARRED, { at: [0.38, 0.1, -0.26], rot: [1.1, -0.2, -0.95] });
+  b.cyl(0.028, 0.032, 0.92, 6, SCORCH, { at: [0.05, 0.09, 0.44], rot: [-1.25, 0.15, 0.2] });
+  // Bent barrel remnant & crumpled shield scrap lying beside the tripod.
+  b.cyl(0.026, 0.032, 0.72, 6, CHARRED, { at: [-0.28, 0.05, -0.58], rot: [Math.PI / 2 - 0.08, 0.55, 0.12] });
+  b.box(0.46, 0.04, 0.34, SCORCH, { at: [0.34, 0.03, -0.46], rot: [0.14, -0.4, 0.22] });
+}
+
+interface ScrapPiece {
+  readonly mesh: THREE.Group;
+  body: RAPIER.RigidBody | null;
+  readonly vel: THREE.Vector3;
+  readonly angVel: THREE.Vector3;
+  age: number;
+  readonly maxAge: number;
+}
+
+const SCRAP_MAX_AGE = 12;
+const SCRAP_FADE_TIME = 2.0;
+const _down = new THREE.Vector3(0, -1, 0);
+const _rayOrigin = new THREE.Vector3();
+const _euler = new THREE.Euler();
+const _stepQ = new THREE.Quaternion();
+
 /** Anything an AI uses to say it is the one on the gun. */
 export type Occupant = object;
 
@@ -250,6 +287,10 @@ export class Emplacement {
   /** The man on it is the enemy's. */
   hostile = false;
   level: MountLevel;
+  /** Structural durability of the mount; reaches 0 -> explodes into a charred unusable wreck. */
+  hp: number;
+  maxHp: number;
+  destroyed = false;
   readonly heat: Heat;
   /** Where the gun turns. */
   readonly pivot = new THREE.Vector3();
@@ -258,10 +299,13 @@ export class Emplacement {
   /** Over the gun, for the prompt. */
   readonly top = new THREE.Vector3();
   readonly root = new THREE.Group();
+  private readonly baseGroup: THREE.Group;
+  private readonly wreckGroup: THREE.Group;
   private readonly guns = new Map<GunSpec, Gun>();
   private gun: Gun;
   private readonly shieldPivot = new THREE.Group();
   private readonly shieldCollider: RAPIER.Collider;
+  private readonly bodyCollider: RAPIER.Collider;
   /** The gun's frame for the seat: its nose (+Z) points behind it, as an aircraft's does. */
   private readonly frame = new THREE.Quaternion();
   private seat: GunnerSeat | null = null;
@@ -284,6 +328,11 @@ export class Emplacement {
   private fireLoop: LoopHandle | null = null;
   private readonly shotSpec: ShotSpec;
   private readonly voice: PlayOptions = {};
+  private readonly scrap: ScrapPiece[] = [];
+  private wreckSmokeLeft = 0;
+  private wreckSmokeIn = 0;
+  private hadSupport = false;
+  private supportCheckIn = 0;
 
   constructor(private readonly ctx: Ctx, private readonly materials: ModelMaterials, readonly spec: EmplacementSpec) {
     const { pos, yaw } = spec;
@@ -293,20 +342,51 @@ export class Emplacement {
     this.top.set(pos.x, pos.y + PIVOT + 0.6, pos.z);
     this.frame.setFromAxisAngle(UP, yaw + Math.PI);
     this.root.name = 'emplacement';
+
     const legs = new ModelBuilder();
     tripod(legs);
-    const base = materials.group(legs, materials.solid);
-    base.position.copy(pos);
-    base.rotation.y = yaw;
+    this.baseGroup = materials.group(legs, materials.solid);
+    this.baseGroup.position.copy(pos);
+    this.baseGroup.rotation.y = yaw;
+
+    const wreck = new ModelBuilder();
+    charredWreck(wreck);
+    this.wreckGroup = materials.group(wreck, materials.solid);
+    this.wreckGroup.position.copy(pos);
+    this.wreckGroup.rotation.y = yaw;
+    this.wreckGroup.visible = false;
+
     this.shieldPivot.position.copy(this.pivot);
-    this.root.add(base, this.shieldPivot);
+    this.root.add(this.baseGroup, this.wreckGroup, this.shieldPivot);
     ctx.render.scene.add(this.root);
+
     this.shieldCollider = ctx.physics.addStaticBox(this.pivot, _v.set(0.5, 0.3, SHIELD_THICK / 2), null, 'metal');
+    // Tripod & receiver body hitbox: y in [pos.y + 0.10, pos.y + 1.26], strictly above support raycast origin and below gunner eye.
+    this.bodyCollider = ctx.physics.addStaticBox(
+      _v.set(pos.x, pos.y + 0.68, pos.z),
+      new THREE.Vector3(0.44, 0.58, 0.44),
+      null,
+      'metal',
+    );
+    this.placeBodyCollider();
+
     this.level = MOUNT_LEVELS[0]!;
+    this.maxHp = this.level.maxHp;
+    this.hp = this.maxHp;
     this.heat = new Heat(this.level);
     this.gun = this.gunFor(this.level);
     this.shotSpec = { damage: 0, source: 'emplacement', team: 'player', maxDistance: 300, tracerFrom: _muzzle };
     this.upgrade(spec.level ?? 1);
+  }
+
+  /** Collider handles owned by this emplacement (`shield`, `body`) for hitscan & ordnance routing. */
+  colliderHandles(): readonly [number, number] {
+    return [this.shieldCollider.handle, this.bodyCollider.handle];
+  }
+
+  /** Direct collider accessor (shield or body) for weapon routing and tests. */
+  colliderFor(part: 'shield' | 'body'): RAPIER.Collider {
+    return part === 'shield' ? this.shieldCollider : this.bodyCollider;
   }
 
   private gunFor(level: MountLevel): Gun {
@@ -321,9 +401,13 @@ export class Emplacement {
 
   /** Onto rung `level` of MOUNT_LEVELS, clamped to the ladder. Heat carries over as a share. */
   upgrade(level: number): void {
+    if (this.destroyed) return;
     const next = MOUNT_LEVELS[clamp(Math.round(level), 1, MOUNT_LEVELS.length) - 1]!;
+    const hpRatio = this.maxHp > 0 ? clamp(this.hp / this.maxHp) : 1;
     this.silence();
     this.level = this.heat.level = next;
+    this.maxHp = next.maxHp;
+    this.hp = Math.max(1, Math.round(next.maxHp * hpRatio));
     if (this.seat) {
       this.seat.plan.label = next.name;
       this.rig?.hud.open(this.seat);
@@ -349,11 +433,235 @@ export class Emplacement {
     return MOUNT_LEVELS.indexOf(this.level) + 1;
   }
 
+  // ---- destructibility & structural support -------------------------------------------------------------------
+
+  /**
+   * Applies weapon, blast, or crush damage to this emplacement.
+   * Returns `true` if this hit destroyed the emplacement.
+   */
+  damage(amount: number, source: string, at?: THREE.Vector3): boolean {
+    if (this.destroyed || amount <= 0) return false;
+    const { audio, fx, hud } = this.ctx;
+    const hitAt = at ?? this.pivot;
+    this.hp = Math.max(0, this.hp - amount);
+    const broke = this.hp <= 0;
+
+    fx.chips(hitAt, broke ? 0xff9430 : 0xffaa44, broke ? 16 : 6);
+    fx.sparks?.(hitAt, UP, broke ? 18 : 7);
+    hud.hitMarker(broke ? 'kill' : 'armor');
+    audio.play(broke ? 'plate_destroyed' : 'hit_marker', { position: hitAt, pitch: broke ? 0.95 : 1.08 });
+
+    if (broke) {
+      this.destroy(source, hitAt);
+      return true;
+    }
+    return false;
+  }
+
+  /** Shatters the emplacement into a charred smoking wreck, vacating/blasting any occupant and emitting `world:liquidated`. */
+  destroy(_source: string, at?: THREE.Vector3): void {
+    if (this.destroyed) return;
+    const { audio, camera, enemies, events, fx, hud, player, render } = this.ctx;
+    this.destroyed = true;
+    this.hp = 0;
+
+    // Eject/vacate whoever is on the gun.
+    const prevOccupant = this.occupant;
+    const wasHostile = this.hostile;
+    if (this.seat) {
+      this.seat.leave(true);
+      this.seat = null;
+    }
+    this.occupant = null;
+    this.hostile = false;
+    this.remote = false;
+    this.aimPoint = null;
+    this.held = false;
+    this.shooting = false;
+    this.spin = 0;
+    this.silence();
+
+    if (wasHostile && prevOccupant && prevOccupant !== 'player') {
+      const gunner = prevOccupant as EnemyInstance;
+      if (gunner.alive && typeof enemies?.applyDamage === 'function') {
+        _dir.set(Math.sin(this.yaw), 0.45, Math.cos(this.yaw)).normalize();
+        enemies.applyDamage(gunner, {
+          amount: 320,
+          type: 'explosive',
+          point: this.pivot,
+          dir: _dir,
+          force: 55,
+          source: 'emplacement_blast',
+          blastKind: 'grenade',
+        });
+      }
+    }
+
+    // Hide intact mount visuals & park colliders so nothing blocks movement or shots.
+    this.baseGroup.visible = false;
+    this.shieldPivot.visible = false;
+    this.gun.hide();
+    this.wreckGroup.visible = true;
+    this.wreckSmokeLeft = 18;
+    this.wreckSmokeIn = 0.08;
+    this.parkColliders();
+
+    // Explosion, metal sparks, smoke, flying scrap pieces, flash light, and audio.
+    const blastAt = at ?? this.pivot;
+    fx.explosion(this.pivot, { radius: 4.5, kind: 'grenade', scale: 1.15 });
+    fx.chips(this.pivot, 0xff9830, 26);
+    fx.embers(this.pivot, 22, 2.8);
+    fx.sparks?.(blastAt, UP, 24);
+    fx.smoke(this.pivot, 0x242220, 2.4, 2.6);
+    render.lights.flash(this.pivot, 0xff9a38, 18, 32, 0.35);
+    audio.play('vehicle_explode', { position: this.pivot, pitch: 1.25, volume: 0.85 });
+    audio.play('explosion_debris', { position: this.pivot, pitch: 1.1, volume: 0.8 });
+    if (player.position.distanceTo(this.pivot) <= 25) {
+      camera.addTrauma(0.38);
+    }
+    hud.feed('EMPLACED HMG DESTROYED', '#ff8c38');
+    this.spawnScrap();
+
+    events.emit('world:liquidated', {
+      label: 'EMPLACED HMG',
+      value: 12000,
+      kind: 'emplacement',
+      position: this.spec.pos.clone(),
+    });
+  }
+
+  /**
+   * Checks whether an elevated emplacement (`pos.y > 0.35`) still rests on solid geometry.
+   * When its supporting platform/tower collapses, destroys the emplacement with `'structural_collapse'`.
+   */
+  checkSupport(forceIfElevated = false): boolean {
+    if (this.destroyed || this.spec.pos.y <= 0.35) return false;
+    const physics = this.ctx.physics;
+    if (typeof physics?.raycast !== 'function') return false;
+    _rayOrigin.set(this.spec.pos.x, this.spec.pos.y + 0.06, this.spec.pos.z);
+    const hit = physics.raycast(_rayOrigin, _down, 0.85, CG.World);
+    if (hit) {
+      this.hadSupport = true;
+      return false;
+    }
+    if (this.hadSupport || forceIfElevated) {
+      this.destroy('structural_collapse', this.pivot);
+      return true;
+    }
+    return false;
+  }
+
+  private spawnScrap(): void {
+    this.clearScrap();
+    const { physics, render } = this.ctx;
+    const R = physics.R;
+    const world = physics.world;
+    const hasRapier = Boolean(R?.RigidBodyDesc && R?.ColliderDesc && typeof world?.createRigidBody === 'function');
+    const pieces: readonly { dims: readonly [number, number, number]; color: string; yOff: number }[] = [
+      { dims: [0.46, 0.34, 0.05], color: OLIVE, yOff: 1.05 },      // torn shield plate
+      { dims: [0.1, 0.1, 0.72], color: IRON, yOff: 1.22 },         // snapped barrel
+      { dims: [0.18, 0.22, 0.3], color: OLIVE_DARK, yOff: 1.15 },  // ammo box
+      { dims: [0.08, 0.08, 0.56], color: GUNMETAL, yOff: 0.72 },   // tripod strut
+      { dims: [0.22, 0.14, 0.32], color: CHARRED, yOff: 1.18 },    // receiver cradle
+    ];
+
+    for (let i = 0; i < pieces.length; i++) {
+      const p = pieces[i]!;
+      const b = new ModelBuilder().box(p.dims[0], p.dims[1], p.dims[2], p.color);
+      const mesh = this.materials.group(b, this.materials.solid);
+      const ang = (i / pieces.length) * Math.PI * 2 + rand(-0.4, 0.4);
+      const spawnPos = new THREE.Vector3(
+        this.spec.pos.x + Math.cos(ang) * 0.28,
+        this.spec.pos.y + p.yOff,
+        this.spec.pos.z + Math.sin(ang) * 0.28,
+      );
+      mesh.position.copy(spawnPos);
+      render.scene.add(mesh);
+
+      const speed = rand(5.5, 11.5);
+      const vel = new THREE.Vector3(Math.cos(ang) * speed, rand(5.5, 10.5), Math.sin(ang) * speed);
+      const angVel = new THREE.Vector3(rand(-7, 7), rand(-6, 6), rand(-7, 7));
+
+      let body: RAPIER.RigidBody | null = null;
+      if (hasRapier) {
+        const bd = R.RigidBodyDesc.dynamic()
+          .setTranslation(spawnPos.x, spawnPos.y, spawnPos.z)
+          .setLinearDamping(0.25)
+          .setAngularDamping(0.35);
+        body = world.createRigidBody(bd);
+        const cd = R.ColliderDesc.cuboid(p.dims[0] / 2, p.dims[1] / 2, p.dims[2] / 2)
+          .setDensity(1.8)
+          .setRestitution(0.3)
+          .setFriction(0.75)
+          .setCollisionGroups(groups(CG.Debris, CG.World | CG.Debris));
+        world.createCollider(cd, body);
+        body.setLinvel({ x: vel.x, y: vel.y, z: vel.z }, true);
+        body.setAngvel({ x: angVel.x, y: angVel.y, z: angVel.z }, true);
+      }
+
+      this.scrap.push({ mesh, body, vel, angVel, age: 0, maxAge: SCRAP_MAX_AGE + rand(-2, 2) });
+    }
+  }
+
+  private updateScrap(dt: number): void {
+    const world = this.ctx.physics.world;
+    const floorY = this.spec.pos.y + 0.08;
+    for (let i = this.scrap.length - 1; i >= 0; i--) {
+      const s = this.scrap[i]!;
+      s.age += dt;
+      if (s.age >= s.maxAge) {
+        this.retireScrap(s);
+        this.scrap.splice(i, 1);
+        continue;
+      }
+      if (s.body) {
+        const t = s.body.translation();
+        const r = s.body.rotation();
+        s.mesh.position.set(t.x, t.y, t.z);
+        s.mesh.quaternion.set(r.x, r.y, r.z, r.w);
+      } else {
+        s.vel.y -= 20 * dt;
+        s.mesh.position.addScaledVector(s.vel, dt);
+        _euler.set(s.angVel.x * dt, s.angVel.y * dt, s.angVel.z * dt);
+        _stepQ.setFromEuler(_euler);
+        s.mesh.quaternion.multiply(_stepQ);
+        if (s.mesh.position.y <= floorY) {
+          s.mesh.position.y = floorY;
+          s.vel.y = s.vel.y < -1.5 ? -s.vel.y * 0.25 : 0;
+          s.vel.x *= Math.max(0, 1 - 5 * dt);
+          s.vel.z *= Math.max(0, 1 - 5 * dt);
+          s.angVel.multiplyScalar(Math.max(0, 1 - 6 * dt));
+        }
+      }
+      const remaining = s.maxAge - s.age;
+      if (remaining < SCRAP_FADE_TIME) {
+        s.mesh.scale.setScalar(clamp(remaining / SCRAP_FADE_TIME, 0.01, 1));
+      }
+    }
+  }
+
+  private retireScrap(s: ScrapPiece): void {
+    const world = this.ctx.physics.world;
+    if (s.body && typeof world?.removeRigidBody === 'function') {
+      world.removeRigidBody(s.body);
+      s.body = null;
+    }
+    s.mesh.removeFromParent();
+    s.mesh.traverse(o => {
+      if ((o as THREE.Mesh).isMesh) (o as THREE.Mesh).geometry.dispose();
+    });
+  }
+
+  private clearScrap(): void {
+    for (const s of this.scrap) this.retireScrap(s);
+    this.scrap.length = 0;
+  }
+
   // ---- an AI on the gun ---------------------------------------------------------------------------------------
 
-  /** Takes the gun for `who`. False if someone is already on it. `hostile`: he is the enemy's (HOSTILE_GUN). */
+  /** Takes the gun for `who`. False if destroyed or someone is already on it. `hostile`: he is the enemy's (HOSTILE_GUN). */
   occupy(who: Occupant, hostile = false): boolean {
-    if (this.occupant) return false;
+    if (this.destroyed || this.occupant) return false;
     this.occupant = who;
     this.hostile = hostile;
     return true;
@@ -375,10 +683,12 @@ export class Emplacement {
 
   /** Where the AI wants the gun. It swings there at the gun's own rate, inside its arc. */
   aimAt(point: THREE.Vector3): void {
+    if (this.destroyed) return;
     this.aimPoint = (this.aimPoint ?? new THREE.Vector3()).copy(point);
   }
 
   trigger(held: boolean): void {
+    if (this.destroyed) return;
     this.held = held;
   }
 
@@ -386,6 +696,7 @@ export class Emplacement {
 
   /** The player takes the gun. The owner holsters the player's own weapon. */
   man(rig: SeatRig): void {
+    if (this.destroyed) return;
     const seat = new GunnerSeat(this.ctx, rig, seatPlan(this.level, this.spec.arc));
     seat.fixed(this.standAt);
     seat.noWayOut = false;
@@ -398,7 +709,7 @@ export class Emplacement {
     this.ctx.audio.play('weapon_draw_heavy');
   }
 
-  /** Off the gun, whoever is on it, quietly. For a new run. */
+  /** Off the gun, whoever is on it, quietly, and restores destroyed mounts intact. For a new run / checkpoint. */
   clear(): void {
     this.seat?.leave(true);
     this.seat = null;
@@ -407,13 +718,52 @@ export class Emplacement {
     this.remote = false;
     this.aimPoint = null;
     this.held = false;
+    this.shooting = false;
     this.heat.value = 0;
     this.heat.overheated = false;
     this.spin = 0;
     this.silence();
+    this.clearScrap();
+    this.destroyed = false;
+    this.hp = this.maxHp;
+    this.hadSupport = false;
+    this.supportCheckIn = 0;
+    this.wreckSmokeLeft = 0;
+    this.baseGroup.visible = true;
+    this.shieldPivot.visible = true;
+    this.wreckGroup.visible = false;
+    this.yaw = this.spec.yaw;
+    this.pitch = STOWED_PITCH;
+    this.gun.snap(this.yaw, this.pitch);
+    this.gun.point(this.pivot, this.yaw, this.pitch, 0);
+    this.placeBodyCollider();
+    this.placeShield();
   }
 
   update(dt: number): void {
+    if (this.destroyed) {
+      if (this.scrap.length > 0) this.updateScrap(dt);
+      if (this.wreckSmokeLeft > 0) {
+        this.wreckSmokeLeft -= dt;
+        this.wreckSmokeIn -= dt;
+        if (this.wreckSmokeIn <= 0) {
+          this.wreckSmokeIn = rand(0.28, 0.55);
+          _v.set(this.spec.pos.x, this.spec.pos.y + 0.35, this.spec.pos.z);
+          this.ctx.fx.smoke(_v, 0x1e1c1a, 1.3, 1.9);
+          if (Math.random() < 0.35) this.ctx.fx.embers(_v, 3, 1.2);
+        }
+      }
+      return;
+    }
+
+    if (this.spec.pos.y > 0.35) {
+      this.supportCheckIn -= dt;
+      if (this.supportCheckIn <= 0) {
+        this.supportCheckIn = 0.35;
+        if (this.checkSupport(false)) return;
+      }
+    }
+
     const { input } = this.ctx;
     const { seat } = this;
     let firing = false;
@@ -460,6 +810,13 @@ export class Emplacement {
     this.pitch += clamp(clamp(Math.atan2(_to.y, Math.hypot(_to.x, _to.z)), -0.15, 0.45) - this.pitch, -step, step);
   }
 
+  private placeBodyCollider(): void {
+    _q.setFromAxisAngle(UP, this.spec.yaw);
+    _v.set(this.spec.pos.x, this.spec.pos.y + 0.68, this.spec.pos.z);
+    this.bodyCollider.setTranslation(_v);
+    this.bodyCollider.setRotation(_q);
+  }
+
   private placeShield(): void {
     this.shieldPivot.rotation.y = this.yaw;
     const s = this.level.shield;
@@ -467,6 +824,12 @@ export class Emplacement {
     _v.set(0, (s.top + s.bottom) / 2 - PIVOT, -SHIELD_AHEAD).applyQuaternion(_q).add(this.pivot);
     this.shieldCollider.setTranslation(_v);
     this.shieldCollider.setRotation(_q);
+  }
+
+  private parkColliders(): void {
+    _v.set(0, -1000, 0);
+    this.shieldCollider.setTranslation(_v);
+    this.bodyCollider.setTranslation(_v);
   }
 
   private fire(dt: number, held: boolean, target: THREE.Vector3 | null): void {
@@ -580,21 +943,108 @@ export class Emplacement {
 }
 
 /** Every gun on the map, the key that gets the player onto one, and the prompt. Owned by the call-in manager, which owns the seat. */
-export class Emplacements {
+export class Emplacements implements ExtraTarget {
   readonly all: Emplacement[] = [];
+  private readonly byHandle = new Map<number, { emplacement: Emplacement; part: 'shield' | 'body' }>();
+  private registeredOn: VehicleSystem | null = null;
   private prompted: Emplacement | null = null;
   private unprompt: (() => void) | null = null;
 
-  constructor(private readonly ctx: Ctx, private readonly materials: ModelMaterials, private readonly rig: SeatRig, private readonly onMan: () => void) {}
+  constructor(private readonly ctx: Ctx, private readonly materials: ModelMaterials, private readonly rig: SeatRig, private readonly onMan: () => void) {
+    this.ensureRegistered();
+    ctx.events?.on?.('world:liquidated', e => {
+      if (e.kind === 'emplacement' || !e.position) return;
+      for (const emp of this.all) {
+        if (emp.destroyed || emp.spec.pos.y <= 0.35) continue;
+        const horiz = Math.hypot(emp.spec.pos.x - e.position.x, emp.spec.pos.z - e.position.z);
+        if (horiz <= 18) {
+          emp.checkSupport(true);
+        }
+      }
+    });
+  }
+
+  private ensureRegistered(): void {
+    const vs = (this.ctx.enemies as { vehicles?: VehicleSystem | null } | undefined)?.vehicles ?? null;
+    if (!vs || vs === this.registeredOn) return;
+    this.registeredOn?.removeExtra(this);
+    vs.addExtra(this);
+    this.registeredOn = vs;
+  }
 
   place(spec: EmplacementSpec): Emplacement {
+    this.ensureRegistered();
     const e = new Emplacement(this.ctx, this.materials, spec);
     this.all.push(e);
+    const [shieldH, bodyH] = e.colliderHandles();
+    this.byHandle.set(shieldH, { emplacement: e, part: 'shield' });
+    this.byHandle.set(bodyH, { emplacement: e, part: 'body' });
     return e;
+  }
+
+  // ---- ExtraTarget (gunfire, heavy ordnance, blast radii, Frame stomps/charges) -------------------------------
+
+  shot(collider: RAPIER.Collider, point: THREE.Vector3, amount: number, source: string): boolean {
+    const entry = this.byHandle.get(collider.handle);
+    if (!entry) return false;
+    const { emplacement, part } = entry;
+    if (emplacement.destroyed) return true;
+    // Don't let an enemy gunner's own muzzle clip damage their own mount.
+    if (source === HOSTILE_GUN.source && emplacement.hostile) return true;
+    const heavy = source.startsWith('frame_') || source === 'sabot' || source === 'autocannon' || amount >= 45;
+    const mult = part === 'shield' && !heavy ? 0.85 : 1.0;
+    emplacement.damage(amount * mult, source, point);
+    return true;
+  }
+
+  direct(collider: RAPIER.Collider, point: THREE.Vector3, amount: number, _kind: ExplosionKind, source: string): boolean {
+    const entry = this.byHandle.get(collider.handle);
+    if (!entry) return false;
+    const { emplacement } = entry;
+    if (emplacement.destroyed) return true;
+    const mult = source === 'frame_howitzer' ? 2.0 : 1.5;
+    emplacement.damage(amount * mult, source, point);
+    return true;
+  }
+
+  blast(center: THREE.Vector3, spec: ExplosionSpec): number {
+    const def = EXPLOSIONS[spec.kind];
+    let hit = 0;
+    for (const e of this.all) {
+      if (e.destroyed) continue;
+      const d = Math.max(0, e.pivot.distanceTo(center) - 0.8);
+      if (d > spec.radius) continue;
+      const falloff = 1 - (d / spec.radius) * (1 - def.edgeDamage);
+      const dealt = spec.instakill ? e.maxHp : spec.damage * falloff * 1.45;
+      e.damage(dealt, spec.source, center);
+      hit++;
+    }
+    return hit;
+  }
+
+  frameBlow(at: THREE.Vector3, radius: number, damage: number): number {
+    let hit = 0;
+    for (const e of this.all) {
+      if (e.destroyed) continue;
+      if (e.pivot.distanceTo(at) <= radius + 1.2) {
+        e.damage(damage * 1.5, 'frame_stomp', at);
+        hit++;
+      }
+    }
+    return hit;
+  }
+
+  paintable(_out: MissileTarget[]): void {
+    // Ground tripods do not steal Frame missile lock from vehicles and bosses.
+  }
+
+  highlightMeshes(_out: THREE.Object3D[]): void {
+    // No separate boss highlight needed.
   }
 
   /** `free` says the player may get on a gun this frame: not aiming a call-in, not already in a seat. */
   update(dt: number, free: boolean): void {
+    this.ensureRegistered();
     const { input, player } = this.ctx;
     // Read before the guns run, so the press that steps off one cannot also step onto it.
     const seated = this.rig.occupied;
@@ -615,7 +1065,7 @@ export class Emplacements {
     let best: Emplacement | null = null;
     let bestD = REACH;
     for (const e of this.all) {
-      if (e.occupant || Math.abs(p.y - e.standAt.y) > 1.2) continue;
+      if (e.destroyed || e.occupant || Math.abs(p.y - e.standAt.y) > 1.2) continue;
       const d = Math.min(Math.hypot(p.x - e.standAt.x, p.z - e.standAt.z), Math.hypot(p.x - e.pivot.x, p.z - e.pivot.z));
       if (d >= bestD) continue;
       best = e;

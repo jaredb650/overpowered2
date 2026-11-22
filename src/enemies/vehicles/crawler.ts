@@ -18,9 +18,10 @@
  */
 import * as THREE from 'three';
 import type RAPIER from '@dimforge/rapier3d-compat';
-import type { Ctx, ExplosionKind, LoopHandle } from '../../core/contracts';
+import { CG, type Ctx, type ExplosionKind, type LoopHandle } from '../../core/contracts';
 import type { ExplosionSpec, MissileTarget } from '../../core/gameplay';
-import { clamp, dampAngle, rand, wrapAngle } from '../../core/math';
+import { clamp, dampAngle, rand, TAU, wrapAngle } from '../../core/math';
+import { groups } from '../../physics/Physics';
 import { ModelBuilder, ModelMaterials } from '../../progression/modelkit';
 import { EXPLOSIONS } from '../../weapons/data';
 import { PANS } from '../../world/map/holdfast/plan';
@@ -244,10 +245,72 @@ interface ChainBlast {
   readonly scale: number;
 }
 
+type DebrisKind = 'paintedHull' | 'deckSlab' | 'bridge' | 'tread' | 'turret' | 'stack' | 'shroud' | 'cutterJaw' | 'beam';
+
+interface DebrisSpec {
+  readonly kind: DebrisKind;
+  readonly local: readonly [number, number, number];
+  readonly half: readonly [number, number, number];
+  readonly boost: number;
+}
+
+interface DebrisChunk {
+  readonly mesh: THREE.Group;
+  body: RAPIER.RigidBody | null;
+  readonly vel: THREE.Vector3;
+  readonly angVel: THREE.Vector3;
+  readonly halfY: number;
+  age: number;
+  still: number;
+  frozen: boolean;
+  trailIn: number;
+  readonly maxAge: number;
+  readonly smokeUntil: number;
+}
+
+const DEBRIS_MAX_AGE = 26;
+const DEBRIS_FADE_TIME = 2.4;
+
+/** 22 authentic Old Mother hull, tread, turret, stack, shroud, bow cutter, and steel beam chunks. */
+const DEBRIS_SPECS: readonly DebrisSpec[] = [
+  // 4 painted flank hull plates (ochre, sea-teal, magenta folk-art murals)
+  { kind: 'paintedHull', local: [-4.7, 4.6, 5.5], half: [0.45, 1.35, 2.8], boost: 1.15 },
+  { kind: 'paintedHull', local: [4.7, 4.6, 5.5], half: [0.45, 1.35, 2.8], boost: 1.15 },
+  { kind: 'paintedHull', local: [-4.7, 4.4, -5.5], half: [0.45, 1.35, 2.8], boost: 1.25 },
+  { kind: 'paintedHull', local: [4.7, 4.4, -5.5], half: [0.45, 1.35, 2.8], boost: 1.25 },
+  // 3 armored deck grating slabs
+  { kind: 'deckSlab', local: [0, 6.4, 7.2], half: [2.4, 0.32, 2.6], boost: 1.05 },
+  { kind: 'deckSlab', local: [-2.2, 6.4, -0.5], half: [2.1, 0.32, 2.5], boost: 1.1 },
+  { kind: 'deckSlab', local: [2.2, 6.4, -7.0], half: [2.1, 0.32, 2.5], boost: 1.3 },
+  // 2 aft bridge superstructure & armored roof chunks
+  { kind: 'bridge', local: [-1.1, 8.6, -1.8], half: [1.3, 1.25, 1.6], boost: 1.25 },
+  { kind: 'bridge', local: [1.2, 9.6, -1.6], half: [1.4, 0.75, 1.7], boost: 1.35 },
+  // 4 rusted treads & bogie wheel assemblies
+  { kind: 'tread', local: [-5.9, 1.8, 6.2], half: [1.25, 1.0, 2.4], boost: 0.95 },
+  { kind: 'tread', local: [5.9, 1.8, 6.2], half: [1.25, 1.0, 2.4], boost: 0.95 },
+  { kind: 'tread', local: [-5.9, 1.8, -6.4], half: [1.25, 1.0, 2.4], boost: 1.15 },
+  { kind: 'tread', local: [5.9, 1.8, -6.4], half: [1.25, 1.0, 2.4], boost: 1.15 },
+  // 2 deck turret domes & broken barrels
+  { kind: 'turret', local: [0, 7.8, 5.2], half: [1.15, 0.75, 1.35], boost: 1.3 },
+  { kind: 'turret', local: [0, 7.8, -5.2], half: [1.15, 0.75, 1.35], boost: 1.35 },
+  // 2 twin heavy diesel exhaust stacks
+  { kind: 'stack', local: [-2.4, 9.4, -7.2], half: [0.58, 2.1, 0.58], boost: 1.4 },
+  { kind: 'stack', local: [2.4, 9.4, -7.2], half: [0.58, 2.1, 0.58], boost: 1.4 },
+  // 2 armored stern reactor shroud doors
+  { kind: 'shroud', local: [-2.2, 8.2, -11.4], half: [1.2, 1.45, 1.5], boost: 1.45 },
+  { kind: 'shroud', local: [2.2, 8.2, -11.4], half: [1.2, 1.45, 1.5], boost: 1.45 },
+  // 2 bow salt-cutter jaw & toothed drum halves
+  { kind: 'cutterJaw', local: [-2.6, 2.4, 13.4], half: [2.1, 1.15, 1.15], boost: 1.0 },
+  { kind: 'cutterJaw', local: [2.6, 2.4, 13.4], half: [2.1, 1.15, 1.15], boost: 1.0 },
+  // 1 heavy steel structural I-beam / stern ramp spine
+  { kind: 'beam', local: [0, 4.2, -14.8], half: [1.5, 0.45, 3.0], boost: 1.2 },
+];
+
 const _p = new THREE.Vector3();
 const _p2 = new THREE.Vector3();
 const _q = new THREE.Quaternion();
 const _pitchQ = new THREE.Quaternion();
+const _euler = new THREE.Euler();
 const _v = new THREE.Vector3();
 const _dir = new THREE.Vector3();
 const _up = new THREE.Vector3(0, 1, 0);
@@ -297,6 +360,7 @@ export class OldMother implements ExtraTarget {
 
   private readonly mortars: MortarStrike[] = [];
   private readonly chainBlasts: ChainBlast[] = [];
+  private readonly debris: DebrisChunk[] = [];
   private readonly mortarRingGeo = new THREE.RingGeometry(0.84, 1.0, 28);
   private readonly mortarFillGeo = new THREE.CircleGeometry(0.84, 28);
 
@@ -368,12 +432,22 @@ export class OldMother implements ExtraTarget {
     return this.state.engineExposed;
   }
 
+  /** Number of active breakup debris chunks currently in the world. */
+  get debrisCount(): number {
+    return this.debris.length;
+  }
+
   barFraction(): number {
     return this.state.barFraction();
   }
 
   barLabel(): string {
     return this.state.barLabel();
+  }
+
+  /** Resets Old Mother and clears all active breakup debris. */
+  reset(): void {
+    this.hide();
   }
 
   /** Backward-compatible hook retained for mission scripts that listen to `seizing`. */
@@ -387,6 +461,7 @@ export class OldMother implements ExtraTarget {
     this.state.phase = 'dormant';
     this.clearDeckColliders();
     this.clearMortars();
+    this.clearDebris();
     this.chainBlasts.length = 0;
     this.restoreMeshes();
     this.loopAngle = -Math.PI * 0.45;
@@ -401,6 +476,7 @@ export class OldMother implements ExtraTarget {
     this.state.phase = 'hunt';
     this.clearDeckColliders();
     this.clearMortars();
+    this.clearDebris();
     this.chainBlasts.length = 0;
     this.restoreMeshes();
     if (!this.root.visible) {
@@ -434,6 +510,8 @@ export class OldMother implements ExtraTarget {
    * Retained with identical signature for checkpoint / `?beat=deck` compatibility.
    */
   enterDeck(snapToDefault = false): void {
+    this.clearDebris();
+    this.chainBlasts.length = 0;
     if (snapToDefault || !this.root.visible) {
       this.position.set(-90, 0, -2);
       this.yaw = 0;
@@ -501,6 +579,7 @@ export class OldMother implements ExtraTarget {
     this.alarmLoop = null;
     this.chainBlasts.length = 0;
     this.clearMortars();
+    this.clearDebris();
     this.clearMarkers();
     this.clearDeckColliders();
     this.parkColliders();
@@ -580,11 +659,20 @@ export class OldMother implements ExtraTarget {
   }
 
   update(dt: number): void {
-    if (!this.root.visible) return;
-    const phase = this.state.phase;
-
-    // Always advance active telegraphed mortar rings so rings never freeze mid-flight.
+    // Always advance active telegraphed mortar rings and breakup debris chunks even after the intact hull vanishes.
     this.updateMortars(dt);
+    this.updateDebris(dt);
+
+    const phase = this.state.phase;
+    if (phase === 'dead') {
+      this.updateChainDetonations(dt);
+      if (this.debris.length > 0 || this.chainBlasts.length > 0) {
+        this.emitWreckSmoke(dt);
+      }
+      return;
+    }
+
+    if (!this.root.visible) return;
 
     if (phase === 'dormant') {
       this.loopAngle += (4.5 / 65) * dt;
@@ -594,12 +682,6 @@ export class OldMother implements ExtraTarget {
       this.spinWheels(4.5 * dt);
       this.syncWorld();
       this.emitStacks(dt, 0.45);
-      return;
-    }
-
-    if (phase === 'dead') {
-      this.updateChainDetonations(dt);
-      this.emitStacks(dt, 0.28);
       return;
     }
 
@@ -1255,17 +1337,36 @@ export class OldMother implements ExtraTarget {
     this.alarmLoop?.stop(0.3);
     this.alarmLoop = null;
 
-    // Immediate primary Stern Engine detonation.
+    // Immediately vanish intact hull and clear/park every static collider so nothing blocks the Rival Frame duel.
+    this.root.visible = false;
+    this.clearDeckColliders();
+    this.parkColliders();
+
+    // Immediate primary Stern Engine detonation + central hull rupture.
     this.localToWorld(0, 8.2, -11.6, _p);
-    fx.explosion(_p, { radius: 10, kind: 'rocket', scale: 2.5 });
+    fx.explosion(_p, { radius: 11, kind: 'rocket', scale: 2.7 });
     fx.chips(_p, 0xff9830, 56);
-    fx.embers(_p, 48, 5.5);
-    render.lights.flash(_p, 0xffa840, 38, 80, 0.8);
+    fx.embers(_p, 52, 6.0);
+    fx.sparks?.(_p, _up, 42);
+    fx.heatShimmer(_p, 12, 4.5);
+    render.lights.flash(_p, 0xffa840, 42, 86, 0.9);
+
+    this.localToWorld(0, 4.6, 0, _p2);
+    fx.explosion(_p2, { radius: 13, kind: 'rocket', scale: 2.9 });
+    fx.ring(_p2, _up, '#ffb248', 22);
+    fx.slam(_p2, 4.4);
+    render.lights.flash(_p2, 0xff8828, 36, 76, 0.75);
+    render.decals?.add('scorch', new THREE.Vector3(this.position.x, 0.04, this.position.z), _up, 18);
+
     audio.play('vehicle_explode', { position: this.position, volume: 1 });
     audio.play('explosion_debris', { position: this.position, volume: 1 });
-    camera.addTrauma(0.95);
+    audio.play('plate_destroyed', { position: _p, pitch: 0.65, volume: 1 });
+    camera.addTrauma(1.0);
 
-    // Multi-stage chain detonation marching down Old Mother's hull.
+    // Spawn 22 physical debris chunks blasting outward and upward from Old Mother's world hull.
+    this.spawnBreakupDebris();
+
+    // Multi-stage secondary chain blasts rippling through the debris field.
     this.chainBlasts.length = 0;
     this.chainBlasts.push(
       { delay: 0.35, localX: -2.4, localY: 7.4, localZ: -6.0, scale: 2.0 },
@@ -1277,6 +1378,246 @@ export class OldMother implements ExtraTarget {
     hud.feed('OLD MOTHER DESTROYED!', '#7ee787');
     campaign.signal('mother:engine');
     campaign.signal('mother:destroyed');
+  }
+
+  private emitWreckSmoke(dt: number): void {
+    this.smokeIn -= dt;
+    if (this.smokeIn > 0) return;
+    this.smokeIn = 0.28;
+    const { fx } = this.ctx;
+    this.localToWorld(rand(-5, 5), rand(0.6, 2.4), rand(-10, 8), _p);
+    fx.smoke(_p, 0x1d1b19, 3.2, 3.4);
+    if (Math.random() < 0.55) fx.embers(_p, 10, 3.2);
+  }
+
+  private spawnBreakupDebris(): void {
+    this.clearDebris();
+    const { physics, render } = this.ctx;
+    const R = physics.R;
+    const world = physics.world;
+    const hasRapier = Boolean(R?.RigidBodyDesc && R?.ColliderDesc && typeof world?.createRigidBody === 'function');
+    const blastCenter = this.localToWorld(0, 3.2, -3.5, new THREE.Vector3());
+    const hullQuat = new THREE.Quaternion().setFromAxisAngle(_up, this.yaw);
+
+    for (let i = 0; i < DEBRIS_SPECS.length; i++) {
+      const spec = DEBRIS_SPECS[i]!;
+      const mesh = this.buildDebrisMesh(spec, i);
+      const spawnPos = this.localToWorld(spec.local[0], spec.local[1], spec.local[2], new THREE.Vector3());
+      mesh.position.copy(spawnPos);
+      mesh.quaternion.copy(hullQuat);
+      render.scene.add(mesh);
+
+      // Compute outward radial + dramatic upward blast velocity from Old Mother's core.
+      _dir.subVectors(spawnPos, blastCenter);
+      const horizLen = Math.hypot(_dir.x, _dir.z);
+      if (horizLen < 0.25) {
+        const ang = (i / DEBRIS_SPECS.length) * TAU + rand(-0.2, 0.2);
+        _dir.set(Math.cos(ang), 0, Math.sin(ang));
+      } else {
+        _dir.set(_dir.x / horizLen, 0, _dir.z / horizLen);
+      }
+
+      const radialSpeed = rand(11, 22) * spec.boost;
+      const upSpeed = rand(10, 20) * spec.boost;
+      const vel = new THREE.Vector3(
+        _dir.x * radialSpeed + rand(-3.5, 3.5),
+        upSpeed,
+        _dir.z * radialSpeed + rand(-3.5, 3.5),
+      );
+      const angVel = new THREE.Vector3(
+        rand(-3.8, 3.8),
+        rand(-3.4, 3.4),
+        rand(-3.8, 3.8),
+      );
+
+      let body: RAPIER.RigidBody | null = null;
+      if (hasRapier) {
+        const bd = R.RigidBodyDesc.dynamic()
+          .setTranslation(spawnPos.x, spawnPos.y, spawnPos.z)
+          .setRotation({ x: hullQuat.x, y: hullQuat.y, z: hullQuat.z, w: hullQuat.w })
+          .setLinearDamping(0.22)
+          .setAngularDamping(0.32);
+        body = world.createRigidBody(bd);
+        const cd = R.ColliderDesc.cuboid(spec.half[0], spec.half[1], spec.half[2])
+          .setDensity(2.2)
+          .setRestitution(0.28)
+          .setFriction(0.78)
+          .setCollisionGroups(groups(CG.Debris, CG.World | CG.Debris));
+        world.createCollider(cd, body);
+        body.setLinvel({ x: vel.x, y: vel.y, z: vel.z }, true);
+        body.setAngvel({ x: angVel.x, y: angVel.y, z: angVel.z }, true);
+      }
+
+      this.debris.push({
+        mesh,
+        body,
+        vel,
+        angVel,
+        halfY: Math.max(0.3, Math.min(spec.half[0], spec.half[1], spec.half[2])),
+        age: 0,
+        still: 0,
+        frozen: false,
+        trailIn: rand(0.02, 0.12),
+        maxAge: DEBRIS_MAX_AGE + rand(-3, 4),
+        smokeUntil: rand(4.5, 8.5),
+      });
+    }
+  }
+
+  private buildDebrisMesh(spec: DebrisSpec, index: number): THREE.Group {
+    const [hx, hy, hz] = spec.half;
+    const b = new ModelBuilder();
+    switch (spec.kind) {
+      case 'paintedHull':
+        b.solid(chamferBox(hx * 2, hy * 2, hz * 2, 0.08), '#353a3f')
+          .box(hx * 2 + 0.06, hy * 0.65, hz * 1.85, '#e09a26', { at: [0, hy * 0.22, 0] })
+          .box(hx * 2 + 0.08, hy * 0.45, hz * 1.55, index % 2 === 0 ? '#23879c' : '#b83c6a', { at: [0, -hy * 0.35, 0] });
+        break;
+      case 'deckSlab':
+        b.solid(chamferBox(hx * 2, hy * 2, hz * 2, 0.06), '#464b50')
+          .box(hx * 1.6, hy * 2 + 0.06, hz * 0.25, '#2b2e33', { at: [0, 0, -hz * 0.45] })
+          .box(hx * 1.6, hy * 2 + 0.06, hz * 0.25, '#2b2e33', { at: [0, 0, hz * 0.45] });
+        break;
+      case 'bridge':
+        b.solid(chamferBox(hx * 2, hy * 2, hz * 2, 0.1), '#3b4146')
+          .glow(new THREE.BoxGeometry(hx * 1.4, 0.24, 0.14), '#ff8c2c', 2.4, { at: [0, hy * 0.25, hz + 0.02] });
+        break;
+      case 'tread':
+        b.solid(chamferBox(hx * 1.8, hy * 1.5, hz * 2, 0.08), '#23262a')
+          .cyl(hy * 0.85, hy * 0.85, hx * 2.1, 8, '#3a342e', { at: [0, -hy * 0.1, -hz * 0.52], rot: [0, 0, Math.PI / 2] })
+          .cyl(hy * 0.85, hy * 0.85, hx * 2.1, 8, '#3a342e', { at: [0, -hy * 0.1, hz * 0.52], rot: [0, 0, Math.PI / 2] })
+          .box(hx * 1.9, 0.28, hz * 1.7, '#b57b22', { at: [0, hy * 0.65, 0] });
+        break;
+      case 'turret':
+        b.solid(chamferBox(hx * 2, hy * 1.8, hz * 1.8, 0.1), '#495344')
+          .cyl(0.14, 0.17, hz * 1.9, 8, '#1e2125', { at: [-0.36, 0.12, hz * 0.85], rot: [Math.PI / 2, 0, 0] })
+          .cyl(0.14, 0.17, hz * 1.6, 8, '#1e2125', { at: [0.36, 0.12, hz * 0.72], rot: [Math.PI / 2, 0, 0.18] });
+        break;
+      case 'stack':
+        b.cyl(hx * 0.92, hx * 1.1, hy * 2, 10, '#25282c')
+          .cyl(hx * 1.25, hx * 1.25, 0.35, 10, '#443a32', { at: [0, -hy * 0.55, 0] });
+        break;
+      case 'shroud':
+        b.solid(chamferBox(hx * 2, hy * 2, hz * 2, 0.1), '#3b4046')
+          .box(hx * 1.6, 0.38, 0.16, '#d98f22', { at: [0, 0.25, -hz - 0.02] })
+          .glow(new THREE.BoxGeometry(hx * 1.4, hy * 1.2, 0.14), '#ff6a18', 2.8, { at: [0, -0.1, hz + 0.02] });
+        break;
+      case 'cutterJaw':
+        b.cyl(hy * 0.95, hy * 0.95, hx * 2, 10, '#383c41', { rot: [0, 0, Math.PI / 2] })
+          .solid(chamferBox(hx * 0.7, 0.65, 0.34, 0.05), '#a85a24', { at: [-hx * 0.45, hy * 0.9, 0.2] })
+          .solid(chamferBox(hx * 0.7, 0.65, 0.34, 0.05), '#787e85', { at: [hx * 0.45, -hy * 0.85, -0.2] });
+        break;
+      case 'beam':
+        b.solid(chamferBox(hx * 1.6, hy * 1.6, hz * 2, 0.06), '#3a3e43')
+          .box(hx * 1.9, 0.16, hz * 1.9, '#574636', { at: [0, hy * 0.75, 0] });
+        break;
+    }
+    return this.materials.group(b);
+  }
+
+  private updateDebris(dt: number): void {
+    if (this.debris.length === 0) return;
+    const { fx, physics } = this.ctx;
+    const world = physics.world;
+
+    for (let i = this.debris.length - 1; i >= 0; i--) {
+      const c = this.debris[i]!;
+      c.age += dt;
+      if (c.age >= c.maxAge) {
+        this.retireDebris(c);
+        this.debris.splice(i, 1);
+        continue;
+      }
+
+      let speed = 0;
+      let angSpeed = 0;
+      if (c.body && !c.frozen) {
+        const t = c.body.translation();
+        const r = c.body.rotation();
+        c.mesh.position.set(t.x, t.y, t.z);
+        c.mesh.quaternion.set(r.x, r.y, r.z, r.w);
+        const lv = c.body.linvel();
+        const av = c.body.angvel();
+        speed = Math.hypot(lv.x, lv.y, lv.z);
+        angSpeed = Math.hypot(av.x, av.y, av.z);
+      } else if (!c.frozen) {
+        // Fallback ballistic integration when running without a live Rapier runtime (e.g. unit tests).
+        c.vel.y -= 22 * dt;
+        c.mesh.position.addScaledVector(c.vel, dt);
+        _euler.set(c.angVel.x * dt, c.angVel.y * dt, c.angVel.z * dt);
+        _pitchQ.setFromEuler(_euler);
+        c.mesh.quaternion.multiply(_pitchQ);
+        if (c.mesh.position.y <= c.halfY) {
+          c.mesh.position.y = c.halfY;
+          if (c.vel.y < -1.8) {
+            c.vel.y = -c.vel.y * 0.3;
+          } else {
+            c.vel.y = 0;
+          }
+          c.vel.x *= Math.max(0, 1 - 4.5 * dt);
+          c.vel.z *= Math.max(0, 1 - 4.5 * dt);
+          c.angVel.multiplyScalar(Math.max(0, 1 - 5.0 * dt));
+        }
+        speed = c.vel.length();
+        angSpeed = c.angVel.length();
+      }
+
+      // Freeze resting chunks so they stop consuming physics simulation budget.
+      if (!c.frozen && c.age > 1.2 && speed < 0.35 && angSpeed < 0.5 && c.mesh.position.y <= c.halfY + 1.4) {
+        c.still += dt;
+        if (c.still >= 0.9) {
+          c.frozen = true;
+          if (c.body && typeof world?.removeRigidBody === 'function') {
+            world.removeRigidBody(c.body);
+          }
+          c.body = null;
+        }
+      } else if (!c.frozen) {
+        c.still = 0;
+      }
+
+      // Fiery smoke & spark/ember trails while flying or freshly burning.
+      if (c.age < c.smokeUntil) {
+        c.trailIn -= dt;
+        if (c.trailIn <= 0) {
+          c.trailIn = c.frozen ? rand(0.28, 0.55) : rand(0.08, 0.16);
+          const hot = c.age < 2.2 && !c.frozen;
+          fx.smoke(c.mesh.position, hot ? 0x3b2a1e : 0x1e1c1a, hot ? 1.8 : 1.4, hot ? 1.5 : 2.1);
+          if (hot) {
+            fx.embers(c.mesh.position, 4, 1.8);
+          }
+        }
+      }
+
+      // Smoothly shrink/sink out during the final fade window before disposal.
+      const remaining = c.maxAge - c.age;
+      if (remaining < DEBRIS_FADE_TIME) {
+        const s = clamp(remaining / DEBRIS_FADE_TIME, 0.01, 1);
+        c.mesh.scale.setScalar(s);
+        c.mesh.position.y -= dt * 0.25;
+      }
+    }
+  }
+
+  private retireDebris(c: DebrisChunk): void {
+    const world = this.ctx.physics.world;
+    if (c.body && typeof world?.removeRigidBody === 'function') {
+      world.removeRigidBody(c.body);
+      c.body = null;
+    }
+    c.mesh.removeFromParent();
+    c.mesh.traverse(o => {
+      if ((o as THREE.Mesh).isMesh) {
+        (o as THREE.Mesh).geometry.dispose();
+      }
+    });
+  }
+
+  private clearDebris(): void {
+    for (const c of this.debris) {
+      this.retireDebris(c);
+    }
+    this.debris.length = 0;
   }
 
   // ---- Colliders & Markers ---------------------------------------------------------------------------------------
@@ -1583,6 +1924,7 @@ export class OldMother implements ExtraTarget {
     this.alarmLoop?.stop(0.2);
     this.alarmLoop = null;
     this.clearMortars();
+    this.clearDebris();
     this.mortarRingGeo.dispose();
     this.mortarFillGeo.dispose();
     this.clearMarkers();
