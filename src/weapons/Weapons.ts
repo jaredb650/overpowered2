@@ -1951,6 +1951,10 @@ export class Weapons implements WeaponSystem, Guard {
   }
 
   private shootShell(def: WeaponDef): void {
+    if (def.id === 'howitzer') {
+      this.shootHowitzer(def);
+      return;
+    }
     const t = TUNING.autocannon;
     const p = this.fillProjectile('shell', def, t.speed, def.damage, 'rings');
     p.killStop = HIT_STOP.heavyKill;
@@ -1963,6 +1967,37 @@ export class Weapons implements WeaponSystem, Guard {
       p.explosion = { radius: FLAK.radius, damage: FLAK.blast, kind: 'shell', selfDamage: 0, playerPush: 0 };
     }
     this.combat.spawnProjectile(p);
+    this.shoveBack(t.push, t.groundPush);
+  }
+
+  /** Shoulder-fired 105mm recoilless howitzer: supersonic artillery shell, shockwave ring, backblast, and heavy shove. */
+  private shootHowitzer(def: WeaponDef): void {
+    const c = this.ctx;
+    const t = TUNING.howitzer;
+    const m = this.modifiers;
+    const p = this.fillProjectile('shell', def, t.speed, def.damage * m.damage, 'howitzer');
+    p.gravity = t.gravity;
+    p.size = t.size;
+    p.gib = true;
+    p.severMult = this.modifiers.alwaysSever ? 1000 : def.severMult;
+    p.force = def.force;
+    p.killStop = def.killStop ?? HIT_STOP.heavyKill;
+    p.explosion = {
+      radius: t.radius * m.blastRadius,
+      damage: t.blast * m.damage,
+      kind: t.kind,
+      scale: t.blastScale,
+      shake: t.blastShake,
+      selfDamage: t.selfDamage,
+      playerPush: t.playerPush,
+    };
+    this.combat.spawnProjectile(p);
+    const fwd = c.player.forward;
+    c.fx.ring(this.muzzleAt, fwd, 0xffc864, 1.8);
+    c.fx.vaporRing?.(this.muzzleAt, fwd, 1.35);
+    c.fx.sparks(this.muzzleAt, fwd, 26, 0xffd27a);
+    c.render.lights.flash(this.muzzleAt, 0xffb84d, 48, 22, 0.14);
+    this.backblast();
     this.shoveBack(t.push, t.groundPush);
   }
 

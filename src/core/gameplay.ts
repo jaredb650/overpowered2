@@ -36,7 +36,9 @@ export type WeaponId =
   // The Milkor MGL 6-shot 40mm revolving grenade launcher on key 3, beside the Rocket and Quiver.
   | 'mgl'
   // Throw-and-stick demolition satchel charges with remote RMB clacker on key 3.
-  | 'satchel';
+  | 'satchel'
+  // Shoulder-fired 105mm recoilless artillery howitzer on key 3.
+  | 'howitzer';
 
 /**
  * A weapon mod (src/weapons/mods.ts): the SMG's suppressor, the Harrow's red dot and ACOG, the Sabot's Raufoss rounds, the
@@ -443,7 +445,7 @@ export interface ExplosionSpec {
  * Dotted smoke, Hellfire smoke, the heavy strike smoke, 30mm rings, a plasma spark line, a missile's thin quick smoke, or
  * the wake of the Lance's plasma ball: sparks with a ring pulse every few metres.
  */
-export type ProjectileTrail = 'none' | 'smoke' | 'big' | 'hellfire' | 'rings' | 'sparks' | 'swarm' | 'plasma';
+export type ProjectileTrail = 'none' | 'smoke' | 'big' | 'hellfire' | 'rings' | 'howitzer' | 'sparks' | 'swarm' | 'plasma';
 
 export interface ProjectileSpec {
   origin: THREE.Vector3;

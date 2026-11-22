@@ -1113,6 +1113,25 @@ export class Projectiles {
           fx.smoke(this.behind(p, 0.3, at), 0xaaaaaa, 0.1, 2);
         }
         break;
+      case 'howitzer': {
+        // Super-charged autocannon supersonic Mach vapor-ring tunnel: rapid expanding dual rings + crisp slipstream.
+        if (p.ringClock >= 0.024 && moved) {
+          const steps = Math.min(3, Math.floor(p.ringClock / 0.024));
+          const ringScale = Math.max(1.2, (p.size || 1) * 0.68);
+          for (let k = 1; k <= steps; k++) {
+            at.lerpVectors(p.lastTrail, p.position, k / steps);
+            if (fx.vaporRing) fx.vaporRing(at, p.velocity, ringScale);
+            else fx.ring(at, p.velocity, 0xfff4d6, 2.4 * ringScale);
+          }
+          p.ringClock -= steps * 0.024;
+          p.lastTrail.copy(p.position);
+        }
+        if (p.smokeClock >= 0.022) {
+          p.smokeClock = 0;
+          fx.smoke(this.behind(p, 0.35, at), 0xc8ccd0, 0.16, 0.55);
+        }
+        break;
+      }
       case 'swarm':
         if (p.helix) {
           const gap = p.lastTrail.distanceTo(p.position);

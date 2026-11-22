@@ -72,6 +72,8 @@ export class FxCore {
   readonly shockColor = hot(0xdfeeff, 0.22);
   readonly ringColor = hot(0xffff00, 3.5);
   readonly waveColor = hot(0xdfeeff, 2.2);
+  readonly vaporRingOuter = hot(0xfff4d6, 3.8);
+  readonly vaporRingInner = hot(0xffaa28, 5.2);
 
   /** Sub-frame remainder of the flame stream, so the emission rate is independent of frame rate. */
   flameAccum = 0;
@@ -107,8 +109,8 @@ export class FxCore {
     this.flashes = new FlashLayer(scene, u, 256, 'fx.flashes');
     const playerClock = { ...u, uTime: u.uTimePlayer };
     this.muzzle = new FlashLayer(scene, playerClock, 128, 'fx.muzzle');
-    this.trailRings = new RingLayer(scene, u, 8, 256, 'fx.trailRings');
-    this.waves = new RingLayer(scene, u, 48, 48, 'fx.waves');
+    this.trailRings = new RingLayer(scene, u, 16, 512, 'fx.trailRings');
+    this.waves = new RingLayer(scene, u, 48, 96, 'fx.waves');
     this.shock = new ShockLayer(scene, u);
     this.lines = new LineLayer(scene, u);
     this.arcs = new ArcLayer(scene, u);

@@ -12,10 +12,14 @@ const CAP = 64;
 
 /** Seconds between trail beats, from the first game. */
 const TRAIL_STEP = 0.06;
+/** Supersonic 105 mm shell beats: rapid tunnel of Mach vapor rings every ~4.5 m at 190 m/s. */
+const HOWITZER_STEP = 0.024;
+const HOWITZER_WAKE_STEP = 0.02;
 
 const HELLFIRE_CUBE = hot(0xff6600, 2.2);
 const HELLFIRE_CUBE_2 = hot(0xffaa00, 2.4);
 const EXHAUST = hot(0xff9030, 5);
+const HOWITZER_FLASH = hot(0xffe8b0, 5.5);
 
 interface Slot {
   preset: EmitterPreset;
@@ -134,6 +138,7 @@ export class EmitterPool {
         case 'fireTrail': this.fire(s, realDt, dt); break;
         case 'sparkTrail': this.spark(s, realDt); break;
         case 'shellTrail': this.shell(s, realDt); break;
+        case 'howitzerTrail': this.howitzer(s, realDt); break;
         case 'bloodTrail': this.bloodTrail(s, dt); break;
         case 'stumpSpray': this.stump(s, dt); break;
         case 'burning': this.burning(s, dt); break;
@@ -220,6 +225,40 @@ export class EmitterPool {
       s.acc2 -= TRAIL_STEP * 0.5;
       this.along(s.acc2, realDt, 0.3);
       core.puffs.add(_pt.x, _pt.y, _pt.z, rand(-0.25, 0.25), rand(0.5, 1.5), rand(-0.25, 0.25), SMOKE.shell, 0.6, core.birth, 2, 0.1);
+    }
+  }
+
+  /** Super-charged supersonic artillery trail: rapid tunnel of dual-layer Mach vapor rings, core flashes, and slipstream sparks. */
+  private howitzer(s: Slot, realDt: number): void {
+    const core = this.core;
+    this.travel(realDt);
+    s.acc += realDt;
+    while (s.acc >= HOWITZER_STEP) {
+      s.acc -= HOWITZER_STEP;
+      this.along(s.acc, realDt, 0.25);
+      // Outer white-gold Mach condensation ring + inner incandescent orange pressure ring.
+      core.trailRings.add(_pt.x, _pt.y, _pt.z, _dir.x, _dir.y, _dir.z, core.vaporRingOuter, 0.85, core.now, 0.25, 1.85, 0.14, 0.7, 1);
+      core.trailRings.add(_pt.x, _pt.y, _pt.z, _dir.x, _dir.y, _dir.z, core.vaporRingInner, 0.95, core.now, 0.14, 1.0, 0.22, 0.4, 1);
+      core.flashes.star(_pt.x, _pt.y, _pt.z, HOWITZER_FLASH, 0.55, core.now, 0.06, 6, 0.28, 0.55, 0.5, 10);
+    }
+    s.acc2 += realDt;
+    while (s.acc2 >= HOWITZER_WAKE_STEP) {
+      s.acc2 -= HOWITZER_WAKE_STEP;
+      this.along(s.acc2, realDt, 0.35);
+      const st = core.streaks.begin(SPARK.amber, core.birth, 0.18, -8, -1e6, 0.035, 1.6, 2.5);
+      for (let j = 0; j < 2; j++) {
+        st.add(
+          _pt.x + rand(-0.14, 0.14), _pt.y + rand(-0.14, 0.14), _pt.z + rand(-0.14, 0.14),
+          -_dir.x * rand(18, 30) + rand(-4, 4), -_dir.y * rand(18, 30) + rand(-4, 4), -_dir.z * rand(18, 30) + rand(-4, 4),
+          0.034,
+        );
+      }
+      // Crisp, fast-dissipating turbulent slipstream puffs rather than sluggish rocket smoke.
+      core.puffs.add(
+        _pt.x + rand(-0.1, 0.1), _pt.y + rand(-0.1, 0.1), _pt.z + rand(-0.1, 0.1),
+        -_dir.x * 4 + rand(-1.2, 1.2), -_dir.y * 4 + rand(-0.5, 1.5), -_dir.z * 4 + rand(-1.2, 1.2),
+        SMOKE.shell, 0.42, core.birth, 0.55, 0.18,
+      );
     }
   }
 

@@ -42,8 +42,8 @@ const LOOKS: Readonly<Record<RoundKind | 'flare', Look>> = {
   // AP is the cold white-blue streak, so a round punching a roof reads apart from the orange HE.
   ap: { width: 0.36, length: 12, minPx: 2.6, r: 6, g: 8, b: 13, trail: 0 },
   flak: { width: 0.46, length: 7, minPx: 2.8, r: 12, g: 2.2, b: 0.6, trail: 0 },
-  g105: { width: 0.8, length: 4.6, minPx: 4.5, r: 10, g: 7.5, b: 4.5, trail: 0.07 },
-  wp: { width: 0.8, length: 4.6, minPx: 4.5, r: 12, g: 12, b: 11, trail: 0.05 },
+  g105: { width: 0.95, length: 14.5, minPx: 5.5, r: 16, g: 11.5, b: 5.5, trail: 0.026 },
+  wp: { width: 0.95, length: 13.5, minPx: 5.5, r: 16, g: 15.5, b: 14.5, trail: 0.028 },
   flare: { width: 1.15, length: 2.3, minPx: 4, r: 15, g: 14, b: 12, trail: 0.11 },
 };
 
@@ -186,6 +186,9 @@ export class Ac130Rounds {
   private readonly budget: Budget = makeBudget();
   private readonly mesh: THREE.InstancedMesh;
   private readonly colors: Float32Array;
+  private readonly coneMesh: THREE.InstancedMesh;
+  private readonly coneColors: Float32Array;
+  private coneCount = 0;
   private readonly hit: RayHit = { point: new THREE.Vector3(), normal: new THREE.Vector3(), distance: 0, surface: 'concrete', collider: null };
 
   constructor(private readonly ctx: Ctx, materials: ModelMaterials) {
@@ -203,6 +206,20 @@ export class Ac130Rounds {
     // Always in the scene and always visible, at a count of zero. The shader warm-up's plain stand-ins would compile a
     // different program from an instanced one, and the load pass only walks what is visible.
     ctx.render.scene.add(this.mesh);
+
+    const coneMaterial = new THREE.MeshBasicMaterial({
+      color: 0xffffff, toneMapped: false, transparent: true, opacity: 0.24,
+      blending: THREE.AdditiveBlending, depthWrite: false,
+    });
+    this.coneMesh = new THREE.InstancedMesh(new THREE.ConeGeometry(1.15, 3.6, 12), coneMaterial, MAX_SPARKS);
+    this.coneMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.coneColors = new Float32Array(MAX_SPARKS * 3);
+    this.coneMesh.instanceColor = new THREE.InstancedBufferAttribute(this.coneColors, 3);
+    this.coneMesh.instanceColor.setUsage(THREE.DynamicDrawUsage);
+    this.coneMesh.frustumCulled = false;
+    this.coneMesh.count = 0;
+    this.coneMesh.name = 'ac130.cones';
+    ctx.render.scene.add(this.coneMesh);
 
     for (let i = 0; i < MAX_SPARKS; i++) {
       this.sparks.push({
@@ -304,6 +321,7 @@ export class Ac130Rounds {
     const camera = this.ctx.render.camera;
     const pixel = (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2)) / Math.max(this.ctx.render.renderer.domElement.clientHeight, 1);
     let count = 0;
+    this.coneCount = 0;
     for (const s of this.sparks) {
       if (!s.live) continue;
       s.age += dt;
@@ -319,17 +337,35 @@ export class Ac130Rounds {
     if (this.bomb.live) this.moveBomb(dt);
     if (this.laserOn) count = this.drawLaser(count, pixel, camera.position);
     this.mesh.count = count;
-    if (count === 0) return;
-    this.mesh.instanceMatrix.needsUpdate = true;
-    this.mesh.instanceColor!.needsUpdate = true;
+    if (count > 0) {
+      this.mesh.instanceMatrix.needsUpdate = true;
+      this.mesh.instanceColor!.needsUpdate = true;
+    }
+    this.coneMesh.count = this.coneCount;
+    if (this.coneCount > 0) {
+      this.coneMesh.instanceMatrix.needsUpdate = true;
+      this.coneMesh.instanceColor!.needsUpdate = true;
+    }
   }
 
   private puff(s: Spark, dt: number, size: number, seconds: number): void {
     if (s.trail <= 0) return;
     s.trailIn -= dt;
     if (s.trailIn > 0) return;
-    s.trailIn = s.trail;
-    this.ctx.fx.smoke(s.position, s.kind === 'wp' ? 0xf2f4f6 : SMOKE, size, seconds);
+    s.trailIn += s.trail;
+    if (s.trailIn < -s.trail) s.trailIn = 0;
+    if (s.kind === 'g105' || s.kind === 'wp') {
+      const fx = this.ctx.fx;
+      fx.vaporRing?.(s.position, _dir, s.kind === 'g105' ? 1.45 : 1.25);
+      if (Math.random() < 0.45) {
+        fx.smoke(s.position, s.kind === 'wp' ? 0xf2f4f6 : SMOKE, s.kind === 'wp' ? 0.95 : 0.65, s.kind === 'wp' ? 1.0 : 0.65);
+      }
+      if (Math.random() < 0.35) {
+        fx.sparks(s.position, _probe.copy(_dir).negate(), 2, s.kind === 'wp' ? 0xffffff : 0xffcc55);
+      }
+      return;
+    }
+    this.ctx.fx.smoke(s.position, SMOKE, size, seconds);
   }
 
   private land(s: Spark, point: THREE.Vector3, normal: THREE.Vector3 | null): void {
@@ -344,16 +380,15 @@ export class Ac130Rounds {
     _prev.copy(s.position);
     s.position.copy(s.origin).addScaledVector(s.velocity, t);
     s.position.y -= drop;
+    _dir.subVectors(s.position, _prev);
+    const step = _dir.length();
+    if (step > 1e-6) _dir.divideScalar(step);
     this.puff(s, dt, 1.5, 1.7);
     // On the round's own clock, not the audio clock, so it keeps time through SLOWMO and dies with the round on a reset.
     if (s.whistle > 0 && s.life - s.age <= s.whistle) {
       s.whistle = 0;
       this.ctx.audio.play('missile_incoming', { position: s.aim, pitch: s.kind === 'wp' ? 0.95 : 0.82 });
     }
-
-    _dir.subVectors(s.position, _prev);
-    const step = _dir.length();
-    if (step > 1e-6) _dir.divideScalar(step);
     // From where the step starts: testing where it ends would sweep straight back through the roof being skipped.
     const armed = step > 1e-4 && _prev.distanceToSquared(s.aim) < s.armRange * s.armRange;
     if (armed && s.kind === 'flak' && this.flak(s, step)) return;
@@ -473,6 +508,19 @@ export class Ac130Rounds {
       _dir.copy(s.velocity);
       _dir.y -= s.gravity * Math.min(s.age, s.life);
       _quat.setFromUnitVectors(Y, _dir.normalize());
+      if (s.kind === 'g105' || s.kind === 'wp') {
+        const coneScale = width / Math.max(s.width, 0.01);
+        // Trailing white-gold supersonic Mach bow-shock cone behind the giant 105 mm shell nose.
+        _mid.copy(s.position).addScaledVector(_dir, -1.8 * coneScale);
+        _matrix.compose(_mid, _quat, _scale.set(coneScale, coneScale * 1.15, coneScale));
+        if (s.kind === 'wp') this.putCone(2.6, 2.5, 2.35);
+        else this.putCone(2.6, 2.25, 1.55);
+        // Tighter blazing inner pressure cone right behind the shell tip.
+        _mid.copy(s.position).addScaledVector(_dir, -0.75 * coneScale);
+        _matrix.compose(_mid, _quat, _scale.set(coneScale * 0.56, coneScale * 0.68, coneScale * 0.56));
+        if (s.kind === 'wp') this.putCone(3.4, 3.3, 3.0);
+        else this.putCone(3.8, 2.4, 0.9);
+      }
     }
     _matrix.compose(s.position, _quat, _scale.set(width, length, width));
     return this.put(at, s.r, s.g, s.b);
@@ -500,10 +548,23 @@ export class Ac130Rounds {
     return at + 1;
   }
 
+  private putCone(r: number, g: number, b: number): void {
+    const at = this.coneCount;
+    if (at >= MAX_SPARKS) return;
+    this.coneMesh.setMatrixAt(at, _matrix);
+    const c = at * 3;
+    this.coneColors[c] = r;
+    this.coneColors[c + 1] = g;
+    this.coneColors[c + 2] = b;
+    this.coneCount = at + 1;
+  }
+
   clear(): void {
     for (const s of this.sparks) s.live = false;
     this.retire();
     this.laserOn = false;
     this.mesh.count = 0;
+    this.coneMesh.count = 0;
+    this.coneCount = 0;
   }
 }

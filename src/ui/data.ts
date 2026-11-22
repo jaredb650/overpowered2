@@ -88,6 +88,11 @@ export const WEAPONS: Record<WeaponId, WeaponInfo> = {
     role: `Demolition satchel charges. ${def.satchel.grenade!.blast} structural blast in ${def.satchel.grenade!.radius} m, always sticky`,
     note: 'Press 3 again to cycle to it. Left click tosses a heavy sticky charge onto walls, barracks, vehicles, or enemies. Right click squeezes the remote clacker to detonate every planted charge at once.',
   },
+  howitzer: {
+    name: '105mm Howitzer', key: '3',
+    role: `Shoulder-fired 105 mm recoilless artillery. ${def.howitzer.damage} direct, ${TUNING.howitzer.blast} blast in ${TUNING.howitzer.radius} m, one in the breech`,
+    note: 'Press 3 again to cycle to it. Fires a supersonic 105 mm shell that breaches Tier-3 reinforced concrete and tears through heavy armour. Right click raises the side artillery optic; brace for backblast and recoil.',
+  },
   awl: {
     name: 'Awl', key: '4',
     role: `Bolt-action scout. ${def.awl.damage} damage, ${def.awl.magSize} rounds, triple damage to the head`,

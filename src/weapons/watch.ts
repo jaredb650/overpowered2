@@ -64,6 +64,7 @@ export const REMOTE_FX: Readonly<Record<WeaponId, RemoteRow>> = {
   quiver: { kind: 'projectile', sees: 'each missile leaving, turning onto the same mark or braiding in the helix salvo' },
   mgl: { kind: 'projectile', sees: 'each 40 mm grenade arcing from the revolving drum; sticky bombs clamp onto surfaces or targets with a pulsing beacon until detonation' },
   satchel: { kind: 'projectile', sees: 'each lobbed demolition satchel charge clamping onto surfaces or targets with a pulsing red beacon until remote detonation' },
+  howitzer: { kind: 'projectile', sees: 'the 105 mm shell tearing through the air with supersonic vapor rings, rear venturi backblast, and a massive finisher detonation' },
   sabot: { kind: 'rounds', sees: 'the dart and its vapour wake, through walls and bodies with exit marks; Raufoss bursts and pellets when fitted' },
   awl: { kind: 'rounds', sees: 'the round and its wake, through cover' },
   autocannon: { kind: 'projectile', sees: 'the shell in flight with its rings; a flak shell bursts in the air with its ring, sparks and fragment tracers' },
@@ -353,8 +354,8 @@ export class Watcher {
         this.casingKind = def.casing;
       }
     } else if (def.casing) this.eject(def.casing);
-    // The Quiver's tubes vent behind the shoulder.
-    if (def.mode === 'paint') backblast(this.ctx, s.eye, s.forward);
+    // The Quiver's tubes and the 105mm Howitzer's recoilless venturi vent behind the shoulder.
+    if (def.mode === 'paint' || def.id === 'howitzer') backblast(this.ctx, s.eye, s.forward);
     void barrel;
     s.gesture('shoot');
   }

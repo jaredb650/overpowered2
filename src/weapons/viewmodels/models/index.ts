@@ -13,6 +13,7 @@ import { flailDef } from './flail';
 import { buzzsawDef } from './buzzsaw';
 import { buildDesignator, buildGrenade, buildStim, buildWalkie } from './devices';
 import { harrowDef } from './harrow';
+import { howitzerDef } from './howitzer';
 import { judgeDef } from './judge';
 import { knifeDef } from './knife';
 import { kilnDef } from './kiln';
@@ -51,7 +52,7 @@ export function buildDefs(kit: Kit): Record<string, ViewDef> {
     // Key 8: the Trommel wears the `buzzsaw` id. `?slot8=old` brings the Buzzsaw's own model back with its numbers.
     buzzsaw: SLOT8_OLD ? buzzsawDef(kit) : trommelDef(kit), piledriver: piledriverDef(kit), metalstorm: metalstormDef(kit),
     // Family members: the second weapon on a number key. One line here and one row in WEAPONS is the whole of adding one.
-    harrow: harrowDef(kit), rivet: rivetDef(kit), sabot: sabotDef(kit), awl: awlDef(kit), thresher: thresherDef(kit), quiver: quiverDef(kit), mgl: mglDef(kit), satchel: satchelDef(kit),
+    harrow: harrowDef(kit), rivet: rivetDef(kit), sabot: sabotDef(kit), awl: awlDef(kit), thresher: thresherDef(kit), quiver: quiverDef(kit), mgl: mglDef(kit), satchel: satchelDef(kit), howitzer: howitzerDef(kit),
     deuce: deuceDef(kit), ultramag: ultramagDef(kit), gimlet: gimletDef(kit), autoraffica: autorafficaDef(kit),
     flail: flailDef(kit),
     // Key 5 beside the sword. Their swings are one clip, models/melee.ts, with each one's own poses.

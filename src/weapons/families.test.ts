@@ -12,7 +12,7 @@ describe('family table', () => {
   it('groups by number key, base first', () => {
     expect(familyOfSlot(1)).toEqual(['smg', 'gimlet', 'harrow', 'flail']);
     expect(familyOfSlot(2)).toEqual(['shotgun', 'thresher', 'deuce']);
-    expect(familyOfSlot(3)).toEqual(['rocket', 'quiver', 'mgl', 'satchel']);
+    expect(familyOfSlot(3)).toEqual(['rocket', 'quiver', 'mgl', 'satchel', 'howitzer']);
     // The Sabot is first on key 4: the explosive autocannon is its upgrade.
     expect(familyOfSlot(4)).toEqual(['sabot', 'awl', 'autocannon']);
     expect(familyOfSlot(6)).toEqual(['judge', 'rivet', 'ultramag', 'autoraffica']);
@@ -34,7 +34,7 @@ describe('family table', () => {
     expect(membersOf('smg')).toEqual(['gimlet', 'harrow', 'flail']);
     expect(membersOf('judge')).toEqual(['rivet', 'ultramag', 'autoraffica']);
     expect(membersOf('shotgun')).toEqual(['thresher', 'deuce']);
-    expect(membersOf('rocket')).toEqual(['quiver', 'mgl', 'satchel']);
+    expect(membersOf('rocket')).toEqual(['quiver', 'mgl', 'satchel', 'howitzer']);
     // The autocannon is earned on its own, from a weapon cache: owning the Sabot does not bring it.
     expect(membersOf('sabot')).toEqual(['awl']);
     expect(WEAPONS.autocannon.base).toBeUndefined();

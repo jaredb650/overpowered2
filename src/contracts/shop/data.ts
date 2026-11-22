@@ -178,6 +178,10 @@ const WEAPON_CATALOGUE: Readonly<Partial<Record<WeaponId, Ware>>> = {
     price: 1400, wave: 3,
     lore: 'Canvas-wrapped demolition charges with a handheld clacker. Toss, stick, step back, and let the Council bill the structural repairs to the previous tenant.',
   },
+  howitzer: {
+    price: 2800, wave: 8,
+    lore: 'A 105 mm field piece cut down until one contractor can shoulder it, provided they do not stand behind anyone they like. Breaches reinforced concrete, heavy armour, and most municipal zoning bylaws.',
+  },
   flail: {
     price: 1600, wave: 7,
     lore: 'A light machine gun, light in the sense that one contractor can carry it and nobody else will. A hundred rounds a box. The Council bills the suppression separately.',

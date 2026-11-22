@@ -426,6 +426,19 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     drawSound: 'weapon_draw_heavy',
     recoil: 1.0, kick: 0.012, shake: 0.014, fovPunch: 0.8,
   },
+  // Shoulder-Fired 105mm Howitzer: recoilless single-shot portable artillery on key 3. Fires massive high-velocity 105mm
+  // HE shells with supersonic vapor rings, rear venturi backblast, shoulder-shoving recoil, and Tier-3 structural obliteration.
+  howitzer: {
+    ...BASE, id: 'howitzer', name: '105MM HOWITZER', slot: 3, base: 'rocket', mode: 'semi', round: 'shell',
+    magSize: 1, reserve: 8, maxReserve: 16, reloadTime: 2.35, drawTime: 0.36,
+    interval: 0.45, damage: 580, spread: 0, severMult: 3.5, force: 180,
+    muzzle: 'autocannon', tracer: 'heavy', casing: 'cannon',
+    sounds: [{ id: 'howitzer_shot', volume: 1.25 }],
+    reloadFoley: [[0.12, 'reload_bolt'], [0.55, 'reload_shell_in'], [0.84, 'metal_clang']],
+    drawSound: 'weapon_draw_heavy',
+    recoil: 1.5, kick: 0.085, shake: 0.55, fovPunch: 4.5, killStop: HEAVY_KILL_STOP, slow: 0.72,
+    ads: { zoom: 0.42, time: 0.22 },
+  },
   // First on the key: a slim anti-armour sniper rifle firing darts. No blast, so the round goes on through walls and
   // everyone in line.
   sabot: {
@@ -995,6 +1008,15 @@ export const TUNING = {
   satchel: {
     speed: 19, gravity: 22, lobUp: 3.5, life: 14, radius: 10.5, blast: 420,
     scale: 1.55, shake: 0.14, selfDamage: 0.35, playerPush: 24, beepInterval: 1.1,
+  },
+  /**
+   * Shoulder-Fired 105mm Howitzer: massive high-velocity recoilless artillery shell with gentle long-range ballistic arc,
+   * supersonic vapor rings (`trail: 'howitzer'`), finisher-class detonation (`radius` 13.5 m, `blast` 680), and heavy shove.
+   */
+  howitzer: {
+    speed: 195, gravity: 6.5, damage: 580, blast: 680, radius: 13.5,
+    kind: 'finisher' as ExplosionKind, blastScale: 1.65, blastShake: 0.85,
+    selfDamage: 0.25, playerPush: 18, size: 2.2, push: 6.5, groundPush: 0.55,
   },
 } as const;
 

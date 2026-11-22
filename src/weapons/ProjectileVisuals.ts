@@ -123,7 +123,7 @@ const Y = new THREE.Vector3(0, 1, 0);
 const WHITE = new THREE.Color(1, 1, 1);
 
 export class ProjectileVisuals {
-  private readonly layers: Record<ProjectileKind | 'cone' | 'flare' | 'blink' | 'sticky' | 'stickyLed' | 'satchel' | 'satchelLed', Layer>;
+  private readonly layers: Record<ProjectileKind | 'cone' | 'coneHot' | 'flare' | 'blink' | 'sticky' | 'stickyLed' | 'satchel' | 'satchelLed', Layer>;
   private readonly tints = new WeakMap<Projectile, THREE.Color>();
   private readonly stuck: StuckStake[] = [];
   private stuckHead = 0;
@@ -134,13 +134,15 @@ export class ProjectileVisuals {
   private readonly scale = new THREE.Vector3();
   private readonly pos = new THREE.Vector3();
   private readonly dir = new THREE.Vector3();
+  private readonly w = new THREE.Vector3();
 
   constructor(private readonly ctx: Ctx) {
     this.layers = {
       rocket: layer(rocketBody(), basic(hdr(0xc8d0d8, 0.9)), CAPACITY.rocket),
       flare: layer(new THREE.ConeGeometry(0.1, 0.5, 6), basic(hdr(0xffa030, 5), { blending: THREE.AdditiveBlending, transparent: true, depthWrite: false }), CAPACITY.rocket),
       shell: layer(new THREE.CylinderGeometry(0.05, 0.05, 1.5, 6), basic(hdr(0xffff00, 5)), CAPACITY.shell),
-      cone: layer(new THREE.ConeGeometry(0.3, 1.2, 8), basic(new THREE.Color(0xffffff), { transparent: true, opacity: 0.15, depthWrite: false }), CAPACITY.shell),
+      cone: layer(new THREE.ConeGeometry(0.3, 1.2, 12), basic(hdr(0xfff4d6, 1.8), { transparent: true, opacity: 0.2, blending: THREE.AdditiveBlending, depthWrite: false }), CAPACITY.shell),
+      coneHot: layer(new THREE.ConeGeometry(0.24, 1.0, 12), basic(hdr(0xffa828, 3.6), { transparent: true, opacity: 0.32, blending: THREE.AdditiveBlending, depthWrite: false }), CAPACITY.shell),
       grenade: layer(new THREE.IcosahedronGeometry(0.11, 1), basic(hdr(0x3a4a3a, 1)), CAPACITY.grenade),
       bullet: layer(new THREE.CapsuleGeometry(0.035, 1, 2, 6), basic(WHITE.clone()), CAPACITY.bullet),
       plasma: layer(new THREE.IcosahedronGeometry(0.2, 0), basic(WHITE.clone()), CAPACITY.plasma),
@@ -270,9 +272,18 @@ export class ProjectileVisuals {
           this.put(L.stickyLed, pos.addScaledVector(this.dir, 0.145), this.quat, ledScale, ledScale, ledScale);
           break;
         }
-        this.put(L.shell, pos, this.quat, 1, 1, 1);
-        // Bow shock: tip forward, base trailing, as in the first game.
-        this.put(L.cone, pos.addScaledVector(this.dir, -0.8), this.quat, 1, 1, 1);
+        {
+          const k = p.size || 1;
+          this.put(L.shell, pos, this.quat, k * 0.85, k * 1.35, k * 0.85);
+          if (k > 1.3) {
+            // Giant supersonic artillery shell: wide translucent outer white-gold Mach bow-shock cone + hot inner shock cone.
+            this.put(L.cone, this.w.copy(pos).addScaledVector(this.dir, -1.2 * k), this.quat, 2.6 * k, 2.4 * k, 2.6 * k);
+            this.put(L.coneHot, pos.addScaledVector(this.dir, -0.65 * k), this.quat, 1.35 * k, 1.55 * k, 1.35 * k);
+          } else {
+            // Bow shock: tip forward, base trailing, as in the first game.
+            this.put(L.cone, pos.addScaledVector(this.dir, -0.8 * k), this.quat, k, k, k);
+          }
+        }
         break;
       case 'grenade':
         p.spin += speed * dt * 2;

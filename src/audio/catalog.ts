@@ -241,6 +241,8 @@ const gunShots: SoundDef[] = [
   // rocket's blast (0.271), under the bigger explosions (0.3 and up) and the autocannon's 0.43.
   shot('sabot_shot', 'guns/sabot_shot.mp3', 'gunHeavy', 0.27, 0.219, { send: 0.32 }),
   shot('autocannon_blast', 'guns/autocannon_blast.mp3', 'gun', 0.43, 0.26, { send: 0.22 }),
+  // The 105 mm Howitzer (mech, AC-130, and shoulder-fired): heavy artillery report on top of the gun ladder.
+  shot('howitzer_shot', 'guns/howitzer_shot.mp3', 'gunHeavy', 0.48, 0.378, { send: 0.32, near: 20, far: 260, pitchJitter: 0.03 }),
   // The Stakegun (2026-11-15): its shot, the string drawn back after each shot and on a reload (foley, at the pump's
   // level), and an exploding bolt's countdown beep, 3D.
   shot('stakegun_shot', 'guns/stakegun_shot.mp3', 'gun', 0.24, 0.191, { send: 0.22 }),

@@ -67,6 +67,7 @@ const DYNAMIC_STILL_TIME = 1.1;
 
 /** Sources capable of penetrating Tier 3 (Reinforced Concrete / Heavy Steel). */
 const TIER3_SOURCES = new Set<string>([
+  'howitzer',
   'frame_howitzer',
   'ac130_105mm',
   'ac130_bomb',
@@ -76,6 +77,7 @@ const TIER3_SOURCES = new Set<string>([
 
 /** Sources capable of penetrating Tier 2 (Heavy Industrial: Cannery, Market Hall, Concrete Terraces, Heavy Pillars). */
 const TIER2_SOURCES = new Set<string>([
+  'howitzer',
   'frame_40mm',
   'frame_40mm_ap',
   'frame_howitzer',
@@ -95,6 +97,7 @@ const TIER2_SOURCES = new Set<string>([
 
 /** Sources capable of penetrating Tier 1 (Masonry, Barracks, Emplacement Platforms, Walls). */
 const TIER1_SOURCES = new Set<string>([
+  'howitzer',
   'satchel',
   'rocket',
   'mgl',
@@ -156,6 +159,7 @@ const TIER2_NON_HOWITZER = new Set<string>([
 ]);
 
 export const DESTRUCTION_SOURCE_MULT: Readonly<Record<string, number>> = {
+  howitzer: 8.0,
   satchel: 3.2,
   frame_howitzer: 8.0,
   ac130_105mm: 8.0,

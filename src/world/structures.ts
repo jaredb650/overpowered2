@@ -32,6 +32,7 @@ export const SHACK_BULLET = 0.25;
 export const SHACK_BLAST = 1.5;
 /** A tank shell, satchel, nuke or Distraint Frame blow is made for walls and fortifications: their blasts count multiple times over. */
 export const SOURCE_MULT: Readonly<Record<string, number>> = {
+  howitzer: 4.0,
   tank_cannon: 4,
   frame_stomp: 4.5,
   frame_charge: 4.5,

@@ -927,6 +927,8 @@ export class FrameGuns {
     this.onShell?.('g105', _muzzle, _aim, reach / H.speed);
     this.rounds.flash(_muzzle, 3.4, 0.12, 12, 8.5, 4, 2.2);
     fx.muzzleFlash(_muzzle, _bore, 'autocannon');
+    fx.vaporRing?.(_v.copy(_muzzle).addScaledVector(_bore, 1.0), _bore, 1.8);
+    fx.vaporRing?.(_v.copy(_muzzle).addScaledVector(_bore, 2.8), _bore, 1.35);
     fx.ring(_v.copy(_muzzle).addScaledVector(_bore, 0.8), _bore, '#ffaa44', 3.4);
     fx.smoke(_v.copy(_muzzle).addScaledVector(_bore, 3.6), 0x9aa0a6, 2.6, 1.8);
     fx.sparks(_v.copy(_muzzle).addScaledVector(_bore, 0.6), _bore, 24, '#ffcc66');
@@ -935,8 +937,7 @@ export class FrameGuns {
     _v.y = rand(2.2, 3.6);
     fx.shellCasing(_at.copy(_muzzle).addScaledVector(_bore, -2.8), _v, 'cannon');
     render?.lights?.flash?.(_muzzle, 0xffaa44, 9, 16, 0.14);
-    audio.play('tank_cannon', { volume: 1.35, pitch: 0.72 });
-    audio.play('autocannon_fire', { volume: 1.0, pitch: 0.48 });
+    audio.play('howitzer_shot', { volume: 1.35, pitch: 0.96 });
     this.right.recoil(1.15);
     camera.addTrauma(H.trauma);
     camera.kick(H.kick, rand(-0.012, 0.012));

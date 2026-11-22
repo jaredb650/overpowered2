@@ -539,7 +539,7 @@ export const DROP_POD = {
  * has had its run; the Autoraffica ninth (wave 18), its smart aim late enough to be a reward.
  */
 export const CACHE_ORDER: readonly WeaponId[] = (['judge', 'autocannon', 'deuce', 'lance', 'buzzsaw', 'kiln', 'ultramag', 'stakegun', 'autoraffica', 'rivet', 'piledriver', 'metalstorm', 'awl', 'flail'] as WeaponId[])
-  .concat(['gimlet', 'harrow', 'smg', 'thresher', 'rocket', 'sabot', 'quiver', 'mgl', 'satchel'])
+  .concat(['gimlet', 'harrow', 'smg', 'thresher', 'rocket', 'sabot', 'quiver', 'mgl', 'satchel', 'howitzer'])
   .filter(inPlay);
 
 export const PICKUP_LOOK: Readonly<Record<PickupKind, { label: string; color: string }>> = {

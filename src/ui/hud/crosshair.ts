@@ -120,6 +120,17 @@ const RETICLES: Record<WeaponId, Reticle> = {
     ],
     gap: 0, kick: 4, speedGap: 2,
   },
+  // 105mm Howitzer artillery sight: centre dot and range chevron with mil-tick stadia bars and ballistic drop ladder.
+  howitzer: {
+    core: DOT + poly('0,-10 9,-1 6.5,1 0,-5.5 -6.5,1 -9,-1'),
+    arms: [
+      poly('-1.1,-26 1.1,-26 1.1,-15 -1.1,-15'),
+      poly('14,-1.4 38,-1.4 38,1.4 14,1.4') + poly('22,-5 24,-5 24,5 22,5') + poly('32,-3.5 34,-3.5 34,3.5 32,3.5'),
+      turned(`${tick(2, 10, 12)}${tick(2, 7.5, 20)}${tick(2, 5, 28)}${tick(2, 3, 36)}`, 180),
+      poly('-14,-1.4 -38,-1.4 -38,1.4 -14,1.4') + poly('-22,-5 -24,-5 -24,5 -22,5') + poly('-32,-3.5 -34,-3.5 -34,3.5 -32,3.5'),
+    ],
+    gap: 0, kick: 10, speedGap: 2,
+  },
   autocannon: {
     core: '<path fill-rule="evenodd" d="M-5 -5H5V5H-5Z M-3 -3V3H3V-3Z"/>',
     arms: ['', poly('10,-1.5 40,-1.5 40,1.5 10,1.5'), turned(tick(10, 1.5, 10), 180), poly('-10,-1.5 -40,-1.5 -40,1.5 -10,1.5')],

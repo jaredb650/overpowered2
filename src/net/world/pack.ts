@@ -35,7 +35,7 @@ export const WORDS = new Words([
   'repair', 'repaired', 'fortbuy', 'fortsold', 'shell', 'fortsay', 'fortradio', 'gunseat', 'dev', 'devshot', 'snared', 'shutter', 'smoke', 'allies',
   'ashot', 'aorder', 'arefund', 'note', 'jam', 'revive', 'up', 'over', 'restore', 'vote', 'sync', 'mark', 'mission', 'gather',
   // Values: guns, enemies, kinds of damage, places on a body, states.
-  'smg', 'shotgun', 'rocket', 'autocannon', 'sword', 'judge', 'lance', 'buzzsaw', 'kiln', 'stakegun', 'harrow', 'rivet', 'sabot', 'quiver', 'mgl', 'thresher',
+  'smg', 'shotgun', 'rocket', 'autocannon', 'sword', 'judge', 'lance', 'buzzsaw', 'kiln', 'stakegun', 'harrow', 'rivet', 'sabot', 'quiver', 'mgl', 'satchel', 'howitzer', 'thresher',
   'knife', 'crowbar', 'shovel', 'baton', 'piledriver', 'metalstorm', 'deuce', 'ultramag', 'autoraffica', 'gimlet', 'awl', 'flail', 'grenade',
   'husk', 'trooper', 'gunner', 'brute', 'stalker', 'riot', 'sniper', 'rocketeer', 'leaper', 'bomber', 'burner', 'warden', 'skitter', 'drone', 'juggernaut', 'titan',
   'bullet', 'pellet', 'explosive', 'melee', 'slash', 'crush', 'true', 'burn', 'freeze', 'bolt',

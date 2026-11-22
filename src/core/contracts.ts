@@ -543,7 +543,7 @@ export type BeamKind = 'rail' | 'lance' | 'laser' | 'sniper' | 'heal';
 export type SlashKind = 'light' | 'heavy' | 'sweep' | 'finisher' | 'wave';
 export type EmitterPreset =
   | 'stumpSpray' | 'bloodTrail' | 'rocketTrail' | 'smokeTrail' | 'fireTrail' | 'sparkTrail'
-  | 'shellTrail' | 'hellfireTrail' | 'airstrikeTrail' | 'burning';
+  | 'shellTrail' | 'howitzerTrail' | 'hellfireTrail' | 'airstrikeTrail' | 'burning';
 
 export interface ExplosionOptions {
   radius: number;
@@ -568,6 +568,8 @@ export interface FxSystem extends GameSystem {
   explosion(position: THREE.Vector3, options: ExplosionOptions): void;
   /** Wireframe shock ring, the original's signature accent. */
   ring(position: THREE.Vector3, dir: THREE.Vector3, color: THREE.ColorRepresentation, size?: number): void;
+  /** Supersonic Mach condensation / pressure ring along a heavy shell's trajectory (105mm howitzer). */
+  vaporRing?(position: THREE.Vector3, dir: THREE.Vector3, scale?: number): void;
   sparks(position: THREE.Vector3, dir: THREE.Vector3, count: number, color?: THREE.ColorRepresentation): void;
   smoke(position: THREE.Vector3, color?: THREE.ColorRepresentation, size?: number, seconds?: number): void;
 

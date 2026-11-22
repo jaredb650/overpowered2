@@ -272,8 +272,7 @@ export class Battery {
       this.rounds.fire(kind, _from, aim, H.flight, H.gravity, this.armRange(aim, _d.x, _d.y, _d.z, 160));
       this.rounds.flash(_from, 6, 0.12, 22, 12, 8, 3);
       this.ctx.fx.smoke(_from, 0xb4bcc4, 3.2, 2.2);
-      this.report('rocket_fire', _from, 2, 0.5);
-      this.report('explosion_distant', _from, 0.5, 1.2);
+      this.report('howitzer_shot', _from, 1.45, kind === 'wp' ? 1.04 : 0.94);
       this.kick(0.45);
     } else {
       this.airframe.mount('gun40', _from);

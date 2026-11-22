@@ -14,7 +14,7 @@ import type {
 import { FxCore } from './core';
 import { EmitterPool } from './emitters';
 import { hotInto, type Rgb } from './layers/shared';
-import { CHIP } from './palette';
+import { CHIP, SPARK } from './palette';
 import { bloodDrip, bloodHit, bloodJet, bloodMist, bloodPuff, bloodSpray, gibBurst, gibTrail, headBurst } from './recipes/blood';
 import { chipBurst, hellfireBurst } from './recipes/bursts';
 import { burst as cannonBurst } from './recipes/cannon';
@@ -28,6 +28,7 @@ import { fireGlow, fireSpit, flameLick, smokeWisp } from './recipes/fire';
 
 const _c: Rgb = { r: 0, g: 0, b: 0 };
 const _eye = new THREE.Vector3();
+const _vdir = new THREE.Vector3();
 
 const CASINGS = {
   pistol: { size: 0.017, color: CHIP.brass, bounce: 0.44 },
@@ -127,6 +128,36 @@ class Fx implements FxSystem {
 
   ring(position: THREE.Vector3, dir: THREE.Vector3, color: THREE.ColorRepresentation, size?: number): void {
     misc.ring(this.core, position, dir, color, size);
+  }
+
+  vaporRing(position: THREE.Vector3, dir: THREE.Vector3, scale = 1): void {
+    const core = this.core;
+    const s = Math.max(scale, 0.25);
+    const lenSq = dir.lengthSq();
+    if (lenSq > 1e-8) _vdir.copy(dir).multiplyScalar(1 / Math.sqrt(lenSq));
+    else _vdir.set(0, 1, 0);
+    const { x, y, z } = position;
+    const { x: nx, y: ny, z: nz } = _vdir;
+    const now = core.now;
+    // Outer white-gold Mach condensation ring: high-segment waves layer for large artillery scales so it stays razor-smooth.
+    const outerLayer = s >= 1.2 ? core.waves : core.trailRings;
+    outerLayer.add(x, y, z, nx, ny, nz, core.vaporRingOuter, 0.85, now, 0.24, 1.65 * s, 0.13, 0.7, 1);
+    // Inner blazing golden-orange supersonic pressure core ring.
+    core.trailRings.add(x, y, z, nx, ny, nz, core.vaporRingInner, 0.95, now, 0.13, 0.92 * s, 0.22, 0.4, 1);
+    // Incandescent slipstream streaks whipped backward along -dir so the air feels torn apart at Mach speed.
+    const st = core.streaks.begin(SPARK.yellow, core.birth, 0.16, -6, -1e6, 0.032, 1.4, 2.5);
+    const kick = 18 + 8 * s;
+    const jitter = 2.6 * s;
+    const w = 0.026 * Math.min(s, 1.6);
+    for (let i = 0; i < 3; i++) {
+      st.add(
+        x + rand(-0.12 * s, 0.12 * s), y + rand(-0.12 * s, 0.12 * s), z + rand(-0.12 * s, 0.12 * s),
+        -nx * rand(kick * 0.75, kick * 1.25) + rand(-jitter, jitter),
+        -ny * rand(kick * 0.75, kick * 1.25) + rand(-jitter, jitter),
+        -nz * rand(kick * 0.75, kick * 1.25) + rand(-jitter, jitter),
+        w,
+      );
+    }
   }
 
   sparks(position: THREE.Vector3, dir: THREE.Vector3, count: number, color?: THREE.ColorRepresentation): void {

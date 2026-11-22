@@ -397,6 +397,10 @@ was a 1 s stereo WAV at 40 kHz inside an `.mp3` name with no lead-in to cut (a c
 160 kbit/s. On the `gun` mix at 0.1 on the ladder (loudness 0.243), under the suppressed SMG's 0.11 and the bare pistol's 0.138,
 since a pull is three of it in a tenth of a second; `send` 0.08 as the other suppressed shots.
 
+**The Howitzer's shot** (2026-11-22, `guns/howitzer_shot.mp3`): `howitzer_shot` is the 105 mm artillery report shared by the Mech's
+105 mm siege cannon, the AC-130's 105 mm gun (`g105` and `wp`), and the shoulder-fired Howitzer. 44.1 kHz stereo MP3, 2.0 s, measured
+loudness 0.378, on `gunHeavy` at 0.48 on the ladder (`send` 0.32, `near` 20 m, `far` 260 m, `pitchJitter` 0.03).
+
 ## Sample packs
 
 Real recordings from free libraries. Sources, authors and licences for every file are in `docs/CREDITS.md`. One id holds all its variants, and pitch
