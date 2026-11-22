@@ -9,7 +9,10 @@ import { wrapAngle } from '../core/math';
 import { Physics } from '../physics/Physics';
 import { ModelMaterials } from '../progression/modelkit';
 import type { SeatRig } from '../vehicles/seat';
+import { ROUND_KINDS } from '../progression/callins/ac130Rounds';
 import { FRAME } from './data';
+import { defaultLoadout, fitPart, kitIds } from './loadout';
+import { MECH_POSE } from './puppet';
 import { Frame } from './seat';
 
 const DT = 1 / 60;
@@ -187,5 +190,49 @@ describe('the way out and re-boarding', () => {
     expect(log.unparked).toBe(1);
     expect(log.teleported).toBe(1);
     expect(player.interceptor).toBeNull();
+  });
+});
+
+describe('the loadout', () => {
+  it('boards the standard Frame unless told otherwise: the rotary left, the 40 mm right, the pod on', () => {
+    expect(frame.loadout).toEqual(defaultLoadout());
+    expect(frame.guns.left.kind).toBe('rotary');
+    expect(frame.guns.right.kind).toBe('cannon40');
+    expect(frame.armWeapon).toBe('cannon40');
+    expect(frame.guns.podOnline).toBe(true);
+    expect(rig.seat!.status).toBe('ROTARY 20MM AP · 40MM HE');
+  });
+
+  it('builds a call-in from its loadout, each arm on its side, and tells the other players the parts with every pose', () => {
+    const poses: number[][] = [];
+    const shells: number[][] = [];
+    frame.net = { pose: v => { if (v) poses.push(v); }, news: (k, v) => { if (k === 'shell' && v) shells.push(v); } };
+    const kit = fitPart(fitPart(defaultLoadout(), 'cannonL'), 'howitzerR');
+    frame.board(new THREE.Vector3(0, 0, 0), 0, Infinity, false, kit);
+    expect(frame.loadout).toEqual(kit);
+    expect(frame.guns.left.kind).toBe('cannon40');
+    expect(frame.guns.right.kind).toBe('howitzer105');
+    // LMB: a 40 mm from the left arm, said as the left's.
+    keys.down.add('fire');
+    frames(2);
+    keys.down.delete('fire');
+    expect(shells).toHaveLength(1);
+    expect(shells[0]![8]).toBe(0);
+    // RMB: the 105 mm, from the right.
+    keys.down.add('aim');
+    frames(2);
+    keys.down.delete('aim');
+    expect(shells).toHaveLength(2);
+    expect(shells[1]![0]).toBe(ROUND_KINDS.indexOf('g105'));
+    expect(shells[1]![8]).toBe(1);
+    frames(30);
+    const last = poses[poses.length - 1]!;
+    expect(last.slice(MECH_POSE)).toEqual(kitIds(kit));
+    expect(rig.seat!.status).toBe('40MM HE · 105MM HOWITZER');
+    // Foreclosure's upgrade swaps only the right arm, and the next pose says so.
+    frame.installWeapon('cannon40', true);
+    expect(frame.loadout.rightArm).toBe('cannonR');
+    expect(frame.loadout.leftArm).toBe('cannonL');
+    frame.net = null;
   });
 });

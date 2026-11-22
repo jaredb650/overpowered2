@@ -8,8 +8,10 @@ import type { Ctx } from '../../core/contracts';
 import type { ExplosionSpec, ProjectileSpec } from '../../core/gameplay';
 import { noop } from '../../core/stubs';
 import { AirliftCopy } from '../../enemies/outpost/airlift';
-import { FramePuppet, MECH_POSE } from '../../frame/puppet';
-import { MECH_FIRING } from '../../frame/seat';
+import { FramePuppet, MECH_POSE, MECH_POSE_KIT } from '../../frame/puppet';
+import { defaultLoadout, fitPart, kitIds } from '../../frame/loadout';
+import { MECH_FIRING, MECH_FIRING_RIGHT } from '../../frame/seat';
+import { ROUND_KINDS } from './ac130Rounds';
 import { makeRange, type Range } from '../../weapons/testkit';
 import { AIRSTRIKE, CALLINS, FRAME_DROP, ORBITAL, WARTHOG } from '../data';
 import { ModelMaterials } from '../modelkit';
@@ -496,6 +498,31 @@ describe("another player's Frame", () => {
     // Nothing more is said: it is taken for empty.
     for (let i = 0; i < 60 * 5; i++) puppet.update(1 / 60);
     expect(puppet.occupied).toBe(false);
+  });
+
+  it('wears the loadout its pilot says: a rotary on the right fires on its own flag, the 105 mm flies, a bare pose is the standard Frame', () => {
+    const counted = stats();
+    const puppet = new FramePuppet(ghostCtx(r.ctx, counted), materials);
+    const kit = kitIds(fitPart(fitPart(defaultLoadout(), 'howitzerL'), 'rotaryR'));
+    const pose = (flags = 0) => [5, 0, -10, 0, 0, 0, 0, 0, 0, 5, 2, -60, flags, ...kit];
+    expect(pose()).toHaveLength(MECH_POSE_KIT);
+    puppet.pose(pose());
+    expect(puppet.armOf('left')).toBe('howitzer105');
+    expect(puppet.armOf('right')).toBe('rotary');
+    // The left flag means the left arm's rotary, and there is none: no tracers.
+    for (let i = 0; i < 30; i++) { puppet.pose(pose(MECH_FIRING)); puppet.update(1 / 60); }
+    expect(counted.rays).toBe(0);
+    for (let i = 0; i < 60; i++) { puppet.pose(pose(MECH_FIRING_RIGHT)); puppet.update(1 / 60); r.run(1 / 60); }
+    expect(counted.rays).toBeGreaterThan(10);
+    // A 105 mm from the left arm flies and bursts for the look.
+    const booms = r.record.explosions;
+    puppet.news('shell', [ROUND_KINDS.indexOf('g105'), -5, 3, -12, 5, 0.3, -40, 0.3, 0]);
+    for (let i = 0; i < 40; i++) { puppet.pose(pose()); puppet.update(1 / 60); r.run(1 / 60); }
+    expect(r.record.explosions).toBeGreaterThan(booms);
+    // A pose with no parts on it is the Frame as it always was.
+    puppet.pose([5, 0, -10, 0, 0, 0, 0, 0, 0, 5, 2, -60, 0]);
+    expect(puppet.armOf('left')).toBe('rotary');
+    expect(puppet.armOf('right')).toBe('cannon40');
   });
 });
 

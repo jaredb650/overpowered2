@@ -90,8 +90,10 @@ export class Walker {
   readonly said: WalkerSaid = { steps: 0, landed: 0, stomped: -1, bumped: 0, charged: false, lifted: false, turned: 0, shift: 0, rescued: false };
   /** The legs take the view with them at once and there is no arc. */
   free: boolean = FRAME_TURN_FREE;
-  /** Multiplier on walk speed from leg damage (1 intact, 0.62 one leg, 0.42 both legs). */
+  /** Multiplier on walk speed from leg damage (1 intact, 0.62 one leg, 0.42 both legs), times the loadout's legs and engine. */
   speedScale = 1;
+  /** Multiplier on the jets' launch from the loadout's legs (loadout.ts `frameStats`): 1 for the standard legs. */
+  jumpScale = 1;
 
   private readonly body: CapsuleWorld;
   private readonly hit = newSweepHit();
@@ -258,7 +260,7 @@ export class Walker {
     // A press off the ground launches; a key already down on landing does not, as a jump would not.
     const launch = intent.jet && !this.jetting && this.grounded && this.fuel >= J.launchMin && this.recover <= 0 && !this.stomping;
     if (launch) {
-      v.y = J.launch;
+      v.y = J.launch * this.jumpScale;
       this.boost = J.boostSeconds;
       this.grounded = false;
       this.said.lifted = true;

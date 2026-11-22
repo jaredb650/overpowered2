@@ -4,6 +4,9 @@
  * Then the seat puts the player out beside it and it is gone. Left alone for `wait` seconds, it is taken back.
  *
  * Everything the Frame does once crewed is the Frame's own: the guns, the blows, the seat and its way out.
+ *
+ * It is built from the caller's loadout (src/frame/loadout.ts, chosen on the Frame loadout screen and kept in this browser): it
+ * comes down already wearing it, and lands as it.
  */
 import * as THREE from 'three';
 import { lerp, rand, TAU } from '../../core/math';
@@ -11,6 +14,7 @@ import { CALLINS, FRAME_DROP as D } from '../data';
 import { GroundRing } from './ground';
 import type { NewsKind } from './link';
 import { aboveFloor, type Strike, type StrikeKit } from './shared';
+import { loadFrameLoadout, type FrameLoadout } from '../../frame/loadout';
 
 const COLOR = CALLINS.frame.color;
 /** Headroom a landing spot needs: the hull's top is 6.2 m over the feet. */
@@ -33,7 +37,9 @@ export interface DroppedFrame {
   readonly deployed?: boolean;
   readonly walker: { readonly feet: THREE.Vector3 };
   stand(feet: THREE.Vector3, yaw: number): void;
-  deploy?(feet: THREE.Vector3, yaw: number): void;
+  deploy?(feet: THREE.Vector3, yaw: number, loadout?: FrameLoadout): void;
+  /** Shows the loadout it will land as, on the way down. */
+  wear?(loadout: FrameLoadout): void;
   board(feet: THREE.Vector3, yaw: number, seconds?: number): void;
   hide(): void;
 }
@@ -54,6 +60,8 @@ export class FrameDrop implements Strike {
   private handedOff = false;
   /** Co-op, on a copy: the caller's own is over. */
   private ended = false;
+  /** The caller's loadout, read as the call goes out. A copy draws the caller's from what their Frame says. */
+  private readonly loadout: FrameLoadout | null;
 
   constructor(private readonly kit: StrikeKit, private readonly frame: DroppedFrame, at?: { feet: THREE.Vector3; yaw: number }) {
     const { ctx } = kit;
@@ -61,6 +69,8 @@ export class FrameDrop implements Strike {
     if (at) this.feet.copy(at.feet);
     else this.spot(this.feet);
     this.where.copy(this.feet).setY(this.feet.y + D.height);
+    this.loadout = kit.cosmetic ? null : loadFrameLoadout();
+    if (this.loadout && !frame.occupied) frame.wear?.(this.loadout);
     this.ring = new GroundRing(ctx);
     this.ring.setColor(COLOR, 2);
     this.unmark = ctx.hud.marker(_p.copy(this.feet).setY(this.feet.y + 7), CALLINS.frame.name, COLOR);
@@ -168,7 +178,7 @@ export class FrameDrop implements Strike {
       this.unmark?.();
       this.unmark = null;
       this.handedOff = true;
-      this.frame.deploy(p, this.yaw);
+      this.frame.deploy(p, this.yaw, this.loadout ?? undefined);
     } else {
       this.frame.stand(p, this.yaw);
     }

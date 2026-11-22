@@ -12,6 +12,9 @@
  * look, and its feet raise dust; the damage is all the pilot's own game's. Give it a context that hurts nothing
  * (callins/ghost.ts) and it cannot.
  *
+ * It wears the pilot's loadout (loadout.ts): the pose ends with its `kitIds`, so each arm carries what the pilot's does (a
+ * rotary on either side draws its tracers, the 105 mm fires its own shell), and a swap mid-mission shows on the next pose.
+ *
  * It also stands in for the Frame in a call-in's drop (`DroppedFrame`, callins/frameDrop.ts). Anything that puts a player in
  * a Frame gets a puppet on the other screens with no further work: a call-in, a mission's beat, `?frame=1`.
  */
@@ -24,10 +27,12 @@ import type { DroppedFrame } from '../progression/callins/frameDrop';
 import type { MechKind } from '../progression/callins/link';
 import { TELL_EVERY } from '../progression/callins/shared';
 import type { ModelMaterials } from '../progression/modelkit';
-import { Gun } from '../vehicles/guns';
-import { CANNON_ARM, FRAME_PLACES, ROTARY_ARM, StandIn } from './cockpit';
+import type { Gun } from '../vehicles/guns';
+import { ArmRack } from './arms';
+import { FRAME_PLACES, StandIn } from './cockpit';
 import { FRAME } from './data';
-import { MECH_FIRING, MECH_JETS, MECH_PARKED } from './seat';
+import { armsOf, defaultLoadout, KIT_LENGTH, kitFrom, type ArmKind, type ArmSide } from './loadout';
+import { MECH_FIRING, MECH_FIRING_RIGHT, MECH_JETS, MECH_PARKED } from './seat';
 import { podMissile, shellImpact, smokeScreen } from './weapons';
 
 /**
@@ -36,6 +41,8 @@ import { podMissile, shellImpact, smokeScreen } from './weapons';
  * spot its guns are on, and `MECH_FIRING | MECH_JETS | MECH_PARKED`.
  */
 export const MECH_POSE = 13;
+/** A pose with the pilot's loadout after it: `MECH_POSE` numbers, then `KIT_LENGTH` part numbers. A bare pose is the standard Frame. */
+export const MECH_POSE_KIT = MECH_POSE + KIT_LENGTH;
 
 const R = FRAME.rotary;
 const UP = new THREE.Vector3(0, 1, 0);
@@ -63,8 +70,11 @@ export class FramePuppet implements DroppedFrame {
   /** Live on the map (either piloted or parked empty). */
   deployed = false;
   private readonly body: StandIn;
-  private readonly rotaryGun: Gun;
-  private readonly cannonGun: Gun;
+  private readonly rack: ArmRack;
+  /** What each arm carries, from the pilot's last pose. */
+  private leftKind: ArmKind = 'rotary';
+  private rightKind: ArmKind = 'cannon40';
+  private readonly kit = new Float64Array(KIT_LENGTH).fill(Number.NaN);
   private readonly rounds: Ac130Rounds;
   private readonly missile: ProjectileSpec = podMissile();
   private readonly shot: ShotSpec = {
@@ -81,21 +91,21 @@ export class FramePuppet implements DroppedFrame {
   private readonly sight = new THREE.Vector3();
   private flags = 0;
   private quiet = 0;
-  private spin = 0;
-  private shotIn = 0;
-  private fired = 0;
+  /** Per arm, left then right: the rotary's spin, the next round, rounds fired and the fire loop. */
+  private readonly spin = [0, 0];
+  private readonly shotIn = [0, 0];
+  private readonly fired = [0, 0];
+  private readonly fireLoop: (LoopHandle | null)[] = [null, null];
   private flameIn = 0;
   /** Seconds left of the backhand's swing, or below zero. */
   private swing = -1;
-  private fireLoop: LoopHandle | null = null;
   private jetLoop: LoopHandle | null = null;
 
   /** `ctx` must be one that hurts nothing (callins/ghost.ts): the shells, missiles and tracers here go through its combat. */
   constructor(private readonly ctx: Ctx, materials: ModelMaterials) {
     const { scene } = ctx.render;
     this.body = new StandIn(materials, scene);
-    this.rotaryGun = new Gun(materials, scene, ROTARY_ARM);
-    this.cannonGun = new Gun(materials, scene, CANNON_ARM);
+    this.rack = new ArmRack(materials, scene, [['left', 'rotary'], ['right', 'cannon40']]);
     this.rounds = new Ac130Rounds(ctx, materials);
     this.rounds.onImpact = (kind, point, normal, dir) => shellImpact(ctx, kind, point, normal, dir);
   }
@@ -105,6 +115,41 @@ export class FramePuppet implements DroppedFrame {
     return this.walker.feet;
   }
 
+  /** What `side` carries, as the pilot last said. */
+  armOf(side: ArmSide): ArmKind {
+    return side === 'left' ? this.leftKind : this.rightKind;
+  }
+
+  private gunOf(side: ArmSide): Gun {
+    return this.rack.gun(side, this.armOf(side));
+  }
+
+  /** The two arm guns where they hang, every other one hidden. */
+  private armPlaces(): readonly (readonly [Gun, readonly [number, number, number]])[] {
+    const left = this.gunOf('left'), right = this.gunOf('right');
+    this.rack.only(left, right);
+    return [[left, FRAME_PLACES.rotary], [right, FRAME_PLACES.cannon]];
+  }
+
+  /** The pilot's loadout from the end of a pose; nothing changes unless a number did. A bare pose is the standard Frame. */
+  private wearKit(values: readonly number[]): void {
+    const has = values.length >= MECH_POSE_KIT;
+    let same = true;
+    for (let i = 0; i < KIT_LENGTH; i++) {
+      const v = has ? values[MECH_POSE + i]! : -2;
+      if (this.kit[i] !== v) same = false;
+      this.kit[i] = v;
+    }
+    if (same) return;
+    const arms = armsOf(has ? kitFrom(values.slice(MECH_POSE, MECH_POSE_KIT)) : defaultLoadout());
+    const yaw = this.viewYaw;
+    this.leftKind = arms.left;
+    this.rightKind = arms.right;
+    this.gunOf('left').snap(yaw, 0);
+    this.gunOf('right').snap(yaw, 0);
+    this.rack.only(this.gunOf('left'), this.gunOf('right'));
+  }
+
   /** The pilot's word: where the Frame is and what it is doing. Null when destroyed or cleared. */
   pose(values: readonly number[] | null): void {
     if (!values || values.length < MECH_POSE) {
@@ -112,6 +157,7 @@ export class FramePuppet implements DroppedFrame {
       return;
     }
     for (let i = 0; i < MECH_POSE; i++) this.target[i] = values[i]!;
+    this.wearKit(values);
     this.quiet = 0;
     const parked = ((values[12]! | 0) & MECH_PARKED) !== 0;
     this.occupied = !parked;
@@ -126,8 +172,8 @@ export class FramePuppet implements DroppedFrame {
     this.viewYaw = values[4]!;
     this.stride = values[5]!;
     this.sight.set(values[9]!, values[10]!, values[11]!);
-    this.rotaryGun.snap(this.viewYaw, parked ? -0.35 : 0);
-    this.cannonGun.snap(this.viewYaw, parked ? -0.35 : 0);
+    this.gunOf('left').snap(this.viewYaw, parked ? -0.35 : 0);
+    this.gunOf('right').snap(this.viewYaw, parked ? -0.35 : 0);
   }
 
   news(kind: MechKind, v: readonly number[]): void {
@@ -137,14 +183,25 @@ export class FramePuppet implements DroppedFrame {
     switch (kind) {
       case 'shell': {
         const round = ROUND_KINDS[v[0]!];
-        if (v.length < 8 || (round !== 'g40' && round !== 'ap' && round !== 'flak')) return;
+        if (v.length < 8 || (round !== 'g40' && round !== 'ap' && round !== 'flak' && round !== 'g105')) return;
+        // Which arm: the ninth number, 0 left and 1 right; a shell without it is the right arm's, as it always was.
+        const gun = this.gunOf(v[8] === 0 ? 'left' : 'right');
         _muzzle.set(v[1]!, v[2]!, v[3]!);
         _aim.set(v[4]!, v[5]!, v[6]!);
         this.rounds.fire(round, _muzzle, _aim, clamp(v[7]!, 0.01, 10), 0, Infinity);
-        this.rounds.flash(_muzzle, 1.6, 0.07, 9, 10, 5, 1.4);
         fx.muzzleFlash(_muzzle, _dir.subVectors(_aim, _muzzle).normalize(), 'autocannon');
-        audio.play('autocannon_fire', { position: _muzzle, volume: 1.4, pitch: round === 'ap' ? 0.8 : 0.72 });
-        this.cannonGun.recoil(0.45);
+        if (round === 'g105') {
+          // The 105 mm as its pilot hears it, from outside: the big flash, the rings and the boom (weapons.ts `howitzerShell`).
+          this.rounds.flash(_muzzle, 3.4, 0.12, 12, 8.5, 4, 2.2);
+          fx.ring(_v.copy(_muzzle).addScaledVector(_dir, 0.8), _dir, '#ffaa44', 3.4);
+          fx.smoke(_v.copy(_muzzle).addScaledVector(_dir, 3.6), 0x9aa0a6, 2.6, 1.8);
+          audio.play('howitzer_shot', { position: _muzzle, volume: 1.35, pitch: 0.96 });
+          gun.recoil(1.1);
+        } else {
+          this.rounds.flash(_muzzle, 1.6, 0.07, 9, 10, 5, 1.4);
+          audio.play('autocannon_fire', { position: _muzzle, volume: 1.4, pitch: round === 'ap' ? 0.8 : 0.72 });
+          gun.recoil(0.45);
+        }
         break;
       }
       case 'missile': {
@@ -190,7 +247,7 @@ export class FramePuppet implements DroppedFrame {
     this.walker.feet.copy(feet);
     this.legYaw = this.viewYaw = yaw;
     this.body.pose(feet, yaw, yaw, 0, 0, 0, 0, false, _eye, { parked: true });
-    for (const [gun, place] of [[this.rotaryGun, FRAME_PLACES.rotary], [this.cannonGun, FRAME_PLACES.cannon]] as const) {
+    for (const [gun, place] of this.armPlaces()) {
       this.body.place(place, _pivot);
       gun.snap(yaw, -0.35);
       gun.point(_pivot, yaw, -0.35, 0);
@@ -204,8 +261,7 @@ export class FramePuppet implements DroppedFrame {
   hide(): void {
     if (this.deployed) return;
     this.body.hide();
-    this.rotaryGun.hide();
-    this.cannonGun.hide();
+    this.rack.hideAll();
   }
 
   /** Gone, whoever was in it: the player left the match, or a new run. Shells in the air are dropped. */
@@ -220,13 +276,14 @@ export class FramePuppet implements DroppedFrame {
     this.flags = 0;
     this.silence();
     this.body.hide();
-    this.rotaryGun.hide();
-    this.cannonGun.hide();
+    this.rack.hideAll();
   }
 
   private silence(): void {
-    this.fireLoop?.stop(0.08);
-    this.fireLoop = null;
+    for (let i = 0; i < 2; i++) {
+      this.fireLoop[i]?.stop(0.08);
+      this.fireLoop[i] = null;
+    }
     this.jetLoop?.stop(0.2);
     this.jetLoop = null;
   }
@@ -264,7 +321,7 @@ export class FramePuppet implements DroppedFrame {
     this.body.pose(feet, this.legYaw, this.viewYaw, this.stride, this.walk, this.dip, this.sway, false, _eye, { parked, jets });
     if (!parked && Math.floor(this.stride) !== Math.floor(strideWas) && this.walk > 0.05) this.footfall();
     if (parked) {
-      for (const [gun, place] of [[this.rotaryGun, FRAME_PLACES.rotary], [this.cannonGun, FRAME_PLACES.cannon]] as const) {
+      for (const [gun, place] of this.armPlaces()) {
         this.body.place(place, _pivot);
         gun.point(_pivot, this.viewYaw, -0.35, dt);
       }
@@ -272,7 +329,8 @@ export class FramePuppet implements DroppedFrame {
       return;
     }
     this.arms(dt);
-    this.rotary(dt);
+    this.rotary(dt, 'left', MECH_FIRING);
+    this.rotary(dt, 'right', MECH_FIRING_RIGHT);
     this.jets(dt);
   }
 
@@ -283,8 +341,10 @@ export class FramePuppet implements DroppedFrame {
       sweep = this.swing < 1 ? -0.5 + 2.1 * this.swing : -1;
       if (this.swing >= 1) this.swing = -1;
     }
-    this.aim(this.rotaryGun, FRAME_PLACES.rotary, dt, 0);
-    this.aim(this.cannonGun, FRAME_PLACES.cannon, dt, this.swing >= 0 ? sweep : 0);
+    const left = this.gunOf('left'), right = this.gunOf('right');
+    this.rack.only(left, right);
+    this.aim(left, FRAME_PLACES.rotary, dt, 0);
+    this.aim(right, FRAME_PLACES.cannon, dt, this.swing >= 0 ? sweep : 0);
   }
 
   private aim(gun: Gun, place: readonly [number, number, number], dt: number, sweep: number): void {
@@ -296,35 +356,39 @@ export class FramePuppet implements DroppedFrame {
     gun.point(_pivot, yaw, pitch, dt);
   }
 
-  /** The left arm while the pilot holds the trigger: the barrels turn, and tracers go out to the sight at the gun's own rate. */
-  private rotary(dt: number): void {
+  /** A rotary arm while the pilot holds its trigger: the barrels turn, and tracers go out to the sight at the gun's own rate. */
+  private rotary(dt: number, side: ArmSide, flag: number): void {
     const { audio, combat, fx } = this.ctx;
-    const firing = (this.flags & MECH_FIRING) !== 0;
-    this.spin = clamp(this.spin + (firing ? dt / R.spinUp : -dt / R.spinDown));
-    this.rotaryGun.turn(this.spin * R.barrelRate * dt);
+    const i = side === 'left' ? 0 : 1;
+    const firing = this.armOf(side) === 'rotary' && (this.flags & flag) !== 0;
+    this.spin[i] = clamp(this.spin[i]! + (firing ? dt / R.spinUp : -dt / R.spinDown));
+    if (this.armOf(side) !== 'rotary' && this.spin[i] === 0 && !this.fireLoop[i]) return;
+    const gun = this.gunOf(side);
+    if (this.armOf(side) === 'rotary') gun.turn(this.spin[i]! * R.barrelRate * dt);
     if (!firing) {
-      if (this.fireLoop) {
-        this.fireLoop.stop(0.08);
-        this.fireLoop = null;
+      const loop = this.fireLoop[i];
+      if (loop) {
+        loop.stop(0.08);
+        this.fireLoop[i] = null;
         audio.play('minigun_fire', { position: this.walker.feet });
       }
-      this.shotIn = 0;
+      this.shotIn[i] = 0;
       return;
     }
-    this.rotaryGun.muzzle(_muzzle);
-    this.fireLoop ??= audio.startLoop('minigun_fire_loop', { fadeIn: 0.03, pitch: R.rate / 25, position: _muzzle });
-    this.fireLoop?.setPosition(_muzzle);
-    this.shotIn -= dt;
-    for (let i = 0; this.shotIn <= 0 && i < 3; i++) {
-      this.shotIn += 1 / R.rate;
-      this.fired++;
-      this.rotaryGun.bore(_bore);
+    gun.muzzle(_muzzle);
+    const loop = this.fireLoop[i] ??= audio.startLoop('minigun_fire_loop', { fadeIn: 0.03, pitch: R.rate / 25, position: _muzzle });
+    loop?.setPosition(_muzzle);
+    this.shotIn[i]! -= dt;
+    for (let k = 0; this.shotIn[i]! <= 0 && k < 3; k++) {
+      this.shotIn[i]! += 1 / R.rate;
+      const fired = ++this.fired[i]!;
+      gun.bore(_bore);
       randomInCone(_dir.subVectors(this.sight, _muzzle).normalize(), R.spread, _dir);
-      this.shot.tracer = this.fired % R.tracerEvery === 0 ? 'heavy' : undefined;
+      this.shot.tracer = fired % R.tracerEvery === 0 ? 'heavy' : undefined;
       combat.fireRay(_muzzle, _dir, this.shot);
-      if (this.fired % R.flashEvery === 0) fx.muzzleFlash(_muzzle, _bore, 'rotary');
+      if (fired % R.flashEvery === 0) fx.muzzleFlash(_muzzle, _bore, 'rotary');
     }
-    if (this.shotIn < 0) this.shotIn = 0;
+    if (this.shotIn[i]! < 0) this.shotIn[i] = 0;
   }
 
   private jets(dt: number): void {

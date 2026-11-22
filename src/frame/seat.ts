@@ -21,11 +21,16 @@ import type { ModelMaterials } from '../progression/modelkit';
 import { Gun } from '../vehicles/guns';
 import type { GunnerWeapon } from '../vehicles/hud';
 import { GunnerSeat, type SeatRig } from '../vehicles/seat';
-import { CANNON_ARM, FRAME_PLACES, HOWITZER_ARM, ROTARY_ARM, StandIn } from './cockpit';
+import { ArmRack } from './arms';
+import { FRAME_PLACES, StandIn } from './cockpit';
 import { Walker, type WalkerIntent } from './controller';
 import { FRAME, framePlan, type FrameArmWeapon } from './data';
+import {
+  armPart, armsOf, DEFAULT_FRAME_LOADOUT, defaultLoadout, frameStats, kitIds, normalizeLoadout,
+  type ArmKind, type ArmSide, type FrameLoadout, type FrameStats,
+} from './loadout';
 import { FrameParts } from './parts';
-import { backhand, crush, FrameGuns, ROUND_NAMES, shove, stomp, trample, type Arm } from './weapons';
+import { backhand, crush, FrameGuns, ROUND_NAMES, shove, stomp, trample, type Arm, type ArmMount } from './weapons';
 
 /**
  * Co-op: how the Frame is told to the other screens, which draw a stand-in of it (puppet.ts `FramePuppet`).
@@ -36,10 +41,14 @@ export interface FrameNet {
   news(kind: MechKind, values?: number[]): void;
 }
 
-/** The `flags` bitmask of a `MechPose`: rotary firing, jets lit, or parked empty on the field. */
+/**
+ * The `flags` bitmask of a `MechPose`: a rotary firing (the left arm's, or the right's), jets lit, or parked empty on the field.
+ * After the 13 numbers of the pose come the loadout's `kitIds` (loadout.ts), so the others draw the arms it really has.
+ */
 export const MECH_FIRING = 1;
 export const MECH_JETS = 2;
 export const MECH_PARKED = 4;
+export const MECH_FIRING_RIGHT = 8;
 
 const UP = new THREE.Vector3(0, 1, 0);
 const DOWN = new THREE.Vector3(0, -1, 0);
@@ -96,11 +105,11 @@ export class Frame {
   /** True while Old Mother is breaching the hull prior to canopy eject. */
   breach = false;
   private readonly body: StandIn;
-  private readonly rotaryGun: Gun;
-  private readonly cannonGun: Gun;
-  private readonly howitzerGun: Gun;
-  private readonly rightArm: Arm;
-  private installedWeapon: FrameArmWeapon = 'cannon40';
+  /** The arm guns, built per side and kind as the loadout wants them (arms.ts). */
+  private readonly rack: ArmRack;
+  /** The loadout this Frame is built from (loadout.ts), and what its parts add up to. */
+  private kitNow: FrameLoadout = defaultLoadout();
+  private stats: FrameStats = frameStats(this.kitNow);
   private seat: GunnerSeat | null = null;
   private readonly frame = new THREE.Quaternion();
   /** The eye, as posed this frame. */
@@ -146,32 +155,70 @@ export class Frame {
     const { scene } = ctx.render;
     this.walker = new Walker(ctx.physics, ctx.world.bounds?.min?.y ?? -Infinity);
     this.body = new StandIn(materials, scene);
-    this.rotaryGun = new Gun(materials, scene, ROTARY_ARM);
-    this.cannonGun = new Gun(materials, scene, CANNON_ARM);
-    this.howitzerGun = new Gun(materials, scene, HOWITZER_ARM);
-    this.howitzerGun.hide();
-    this.rightArm = {
-      muzzle: out => this.activeRightGun.muzzle(out),
-      bore: out => this.activeRightGun.bore(out),
-      turn: radians => this.activeRightGun.turn(radians),
-      recoil: metres => this.activeRightGun.recoil(metres),
-    };
-    this.guns = new FrameGuns(ctx, new Ac130Rounds(ctx, materials), this.rotaryGun, this.rightArm, out => this.body.place(TUBES, out));
-    this.guns.onShell = (round, from, aim, seconds) => this.net?.news('shell', [ROUND_KINDS.indexOf(round), from.x, from.y, from.z, aim.x, aim.y, aim.z, seconds]);
+    // The standard Frame's guns and Foreclosure's howitzer now; any other only when a loadout first wears it.
+    this.rack = new ArmRack(materials, scene, [['left', 'rotary'], ['right', 'cannon40'], ['right', 'howitzer105']]);
+    // Each arm is whichever gun its side carries now.
+    const arm = (side: ArmSide): Arm => ({
+      muzzle: out => this.armGun(side).muzzle(out),
+      bore: out => this.armGun(side).bore(out),
+      turn: radians => this.armGun(side).turn(radians),
+      recoil: metres => this.armGun(side).recoil(metres),
+    });
+    this.guns = new FrameGuns(ctx, new Ac130Rounds(ctx, materials), arm('left'), arm('right'), out => this.body.place(TUBES, out));
+    this.guns.onShell = (round, from, aim, seconds, side) =>
+      this.net?.news('shell', [ROUND_KINDS.indexOf(round), from.x, from.y, from.z, aim.x, aim.y, aim.z, seconds, side === 'left' ? 0 : 1]);
     this.guns.onMissile = (from, velocity) => this.net?.news('missile', [from.x, from.y, from.z, velocity.x, velocity.y, velocity.z]);
   }
 
-  /** Currently mounted right-arm modular weapon (`cannon40` or `howitzer105`). */
-  get armWeapon(): FrameArmWeapon {
-    return this.installedWeapon;
+  /** What the right arm carries now. */
+  get armWeapon(): ArmKind {
+    return this.guns.right.kind;
   }
 
-  private get activeRightGun(): Gun {
-    return this.installedWeapon === 'howitzer105' ? this.howitzerGun : this.cannonGun;
+  /** The loadout this Frame is built from now (Foreclosure's howitzer included). */
+  get loadout(): FrameLoadout {
+    return this.kitNow;
   }
 
-  private get inactiveRightGun(): Gun {
-    return this.installedWeapon === 'howitzer105' ? this.cannonGun : this.howitzerGun;
+  private mount(side: ArmSide): ArmMount {
+    return side === 'left' ? this.guns.left : this.guns.right;
+  }
+
+  private armGun(side: ArmSide): Gun {
+    return this.rack.gun(side, this.mount(side).kind);
+  }
+
+  private get leftGun(): Gun {
+    return this.armGun('left');
+  }
+
+  private get rightGun(): Gun {
+    return this.armGun('right');
+  }
+
+  /** The two arm guns where they hang, every other one hidden. */
+  private armPlaces(): readonly (readonly [Gun, readonly [number, number, number]])[] {
+    const left = this.leftGun, right = this.rightGun;
+    this.rack.only(left, right);
+    return [[left, FRAME_PLACES.rotary], [right, FRAME_PLACES.cannon]];
+  }
+
+  /** Builds it from `loadout`: the arms, their clocks full, and the stats the legs and engine give. */
+  private fit(loadout: FrameLoadout): void {
+    this.kitNow = normalizeLoadout(loadout);
+    this.stats = frameStats(this.kitNow);
+    const arms = armsOf(this.kitNow);
+    this.guns.fitArms(arms.left, arms.right);
+    this.rack.only(this.leftGun, this.rightGun);
+  }
+
+  /**
+   * A call-in's Frame on its way down shows the loadout it will land with (callins/frameDrop.ts). Never while someone is in it;
+   * `deploy` builds it for real.
+   */
+  wear(loadout: FrameLoadout): void {
+    if (this.occupied) return;
+    this.fit(loadout);
   }
 
   /**
@@ -179,11 +226,11 @@ export class Frame {
    * cannon mesh, updates HUD and ammo clocks, and plays heavy hydraulic install audio + callout unless `quiet`.
    */
   installWeapon(weapon: FrameArmWeapon, quiet = false): void {
-    this.installedWeapon = weapon;
+    this.kitNow = { ...this.kitNow, rightArm: armPart('right', weapon) };
     this.guns.installArmWeapon(weapon);
-    this.inactiveRightGun.hide();
+    this.rack.only(this.leftGun, this.rightGun);
     if (this.occupied && this.seat) {
-      this.aim(this.activeRightGun, FRAME_PLACES.cannon, this.seat, 0, 0);
+      this.aim(this.rightGun, FRAME_PLACES.cannon, this.seat, 0, 0);
       this.panel(this.seat);
     } else if (this.deployed) {
       this.poseParked();
@@ -212,11 +259,13 @@ export class Frame {
     const w = this.walker;
     const walk = w.grounded ? clamp(w.speed / FRAME.walk.forward) : 0;
     const sway = FRAME.feel.sway * Math.sin(w.stride * Math.PI) * walk;
-    const firing = this.guns.rotary.firing && this.ctx.input.isDown('fire');
+    const { input } = this.ctx;
+    const firing = (this.guns.left.spinning && input.isDown('fire') ? MECH_FIRING : 0)
+      | (this.guns.right.spinning && input.isDown('aim') ? MECH_FIRING_RIGHT : 0);
     if (seat.range > 6) _to.copy(seat.point);
     else _to.copy(seat.aim).multiplyScalar(GUN_REACH).add(seat.view.position);
     this.net!.pose([w.feet.x, w.feet.y, w.feet.z, w.legYaw, w.viewYaw, w.stride, walk, this.dip, sway, _to.x, _to.y, _to.z,
-      (firing ? MECH_FIRING : 0) | (w.jetting && !w.grounded ? MECH_JETS : 0)]);
+      firing | (w.jetting && !w.grounded ? MECH_JETS : 0), ...kitIds(this.kitNow)]);
   }
 
   private sayParked(dt: number): void {
@@ -227,7 +276,7 @@ export class Frame {
     this.told = true;
     const w = this.walker;
     _to.set(-Math.sin(w.viewYaw), -0.35, -Math.cos(w.viewYaw)).multiplyScalar(20).add(this.eye);
-    this.net.pose([w.feet.x, w.feet.y, w.feet.z, w.legYaw, w.viewYaw, w.stride, 0, 0, 0, _to.x, _to.y, _to.z, MECH_PARKED]);
+    this.net.pose([w.feet.x, w.feet.y, w.feet.z, w.legYaw, w.viewYaw, w.stride, 0, 0, 0, _to.x, _to.y, _to.z, MECH_PARKED, ...kitIds(this.kitNow)]);
   }
 
   /** The player is currently seated inside it. */
@@ -271,8 +320,11 @@ export class Frame {
     return Math.max(this.parts.cracks, hullCracks);
   }
 
-  /** Deploy a fresh 4000 HP Frame standing parked at `feet`, facing `yaw`. Replaces any previously deployed Frame. */
-  deploy(feet: THREE.Vector3, yaw: number, armWeapon: FrameArmWeapon = 'cannon40'): void {
+  /**
+   * Deploy a fresh 4000 HP Frame standing parked at `feet`, facing `yaw`, built from `loadout` (a call-in passes the player's;
+   * a mission's beat the standard Frame). Replaces any previously deployed Frame.
+   */
+  deploy(feet: THREE.Vector3, yaw: number, loadout: Readonly<FrameLoadout> = DEFAULT_FRAME_LOADOUT): void {
     if (this.seat) {
       this.seat.leave(true);
       this.releaseSeat();
@@ -287,10 +339,8 @@ export class Frame {
     this.walker.speedScale = 1;
     this.walker.place(feet, yaw);
     this.guns.reset();
-    this.installedWeapon = armWeapon;
-    if (armWeapon !== 'cannon40') this.guns.installArmWeapon(armWeapon);
-    this.inactiveRightGun.hide();
-    this.guns.podOnline = true;
+    this.fit(loadout);
+    this.guns.podOnline = this.stats.pod;
     this.deployed = true;
     this.dip = this.dipV = 0;
     this.swing = -1;
@@ -305,8 +355,8 @@ export class Frame {
   }
 
   /** Deploy a fresh Frame at `feet`, facing `yaw`, and climb straight in. */
-  board(feet: THREE.Vector3, yaw: number, seconds = Infinity, playBoot = false, armWeapon: FrameArmWeapon = 'cannon40'): void {
-    this.deploy(feet, yaw, armWeapon);
+  board(feet: THREE.Vector3, yaw: number, seconds = Infinity, playBoot = false, loadout: Readonly<FrameLoadout> = DEFAULT_FRAME_LOADOUT): void {
+    this.deploy(feet, yaw, loadout);
     this.boot = playBoot ? 0 : 1;
     this.enter(seconds);
     if (playBoot) this.ctx.audio.play('steam_burst', { pitch: 0.7, volume: 0.8 });
@@ -329,9 +379,9 @@ export class Frame {
     seat.board();
     player.interceptor = this.intercept;
     this.pose(0);
-    this.rotaryGun.snap(yaw, 0);
-    this.inactiveRightGun.hide();
-    this.activeRightGun.snap(yaw, 0);
+    this.rack.only(this.leftGun, this.rightGun);
+    this.leftGun.snap(yaw, 0);
+    this.rightGun.snap(yaw, 0);
     _to.set(-Math.sin(yaw), 0, -Math.cos(yaw)).multiplyScalar(30).add(this.eye);
     seat.sit(_to, this.eye);
     this.panel(seat);
@@ -449,8 +499,7 @@ export class Frame {
     if (this.seat) return;
     this.body.setPoseState(0, 0, 0, 0, false);
     this.body.pose(feet, yaw, yaw, 0, 0, 0, 0, false, this.eye, { parked: true });
-    this.inactiveRightGun.hide();
-    for (const [gun, place] of [[this.rotaryGun, FRAME_PLACES.rotary], [this.activeRightGun, FRAME_PLACES.cannon]] as const) {
+    for (const [gun, place] of this.armPlaces()) {
       this.body.place(place, _pivot);
       gun.snap(yaw, -0.35);
       gun.point(_pivot, yaw, -0.35, 0);
@@ -475,7 +524,8 @@ export class Frame {
     this.boot = 1;
     this.parts.reset();
     this.walker.speedScale = 1;
-    this.installedWeapon = 'cannon40';
+    this.kitNow = defaultLoadout();
+    this.stats = frameStats(this.kitNow);
     this.guns.podOnline = true;
     this.deployed = false;
     this.clearParkedUi();
@@ -499,8 +549,7 @@ export class Frame {
     if (!ks) return;
     this.body.setPoseState(kneel, 0, 0, 0, false);
     this.body.pose(ks.feet, ks.yaw, ks.yaw, 0, 0, 0, 0, false, this.eye, { parked: true });
-    this.inactiveRightGun.hide();
-    for (const [gun, place] of [[this.rotaryGun, FRAME_PLACES.rotary], [this.activeRightGun, FRAME_PLACES.cannon]] as const) {
+    for (const [gun, place] of this.armPlaces()) {
       this.body.place(place, _pivot);
       gun.snap(ks.yaw, -0.45);
       gun.point(_pivot, ks.yaw, -0.45, 0);
@@ -553,8 +602,9 @@ export class Frame {
       return;
     }
     const w = this.walker;
-    w.speedScale = this.parts.speedScale;
-    this.guns.podOnline = this.parts.podOnline;
+    w.speedScale = this.parts.speedScale * this.stats.walk;
+    w.jumpScale = this.stats.jump;
+    this.guns.podOnline = this.parts.podOnline && this.stats.pod;
     const it = this.intent;
     it.moveX = (input.isDown('right') ? 1 : 0) - (input.isDown('left') ? 1 : 0);
     it.moveZ = (input.isDown('forward') ? 1 : 0) - (input.isDown('back') ? 1 : 0);
@@ -704,8 +754,7 @@ export class Frame {
     const w = this.walker;
     this.body.setPoseState(0, 0, this.crackStage, this.parts.limpSide, !this.parts.podOnline);
     this.body.pose(w.feet, w.legYaw, w.viewYaw, 0, 0, 0, 0, false, this.eye, { parked: true, jets: false, cracks: this.crackStage });
-    this.inactiveRightGun.hide();
-    for (const [gun, place] of [[this.rotaryGun, FRAME_PLACES.rotary], [this.activeRightGun, FRAME_PLACES.cannon]] as const) {
+    for (const [gun, place] of this.armPlaces()) {
       this.body.place(place, _pivot);
       gun.snap(w.viewYaw, -0.35);
       gun.point(_pivot, w.viewYaw, -0.35, 0);
@@ -937,8 +986,9 @@ export class Frame {
     }
     const leftSweep = this.swing >= 0 && this.swingArm === -1 ? sweep : 0;
     const rightSweep = this.swing >= 0 && this.swingArm === 1 ? sweep : 0;
-    this.aim(this.rotaryGun, FRAME_PLACES.rotary, seat, dt, leftSweep);
-    this.aim(this.activeRightGun, FRAME_PLACES.cannon, seat, dt, rightSweep);
+    this.rack.only(this.leftGun, this.rightGun);
+    this.aim(this.leftGun, FRAME_PLACES.rotary, seat, dt, leftSweep);
+    this.aim(this.rightGun, FRAME_PLACES.cannon, seat, dt, rightSweep);
   }
 
   private aim(gun: Gun, place: readonly [number, number, number], seat: GunnerSeat, dt: number, sweep: number): void {
@@ -1063,9 +1113,9 @@ export class Frame {
     const key = (a: Parameters<Ctx['input']['labelFor']>[0]) => this.ctx.input.labelFor(a);
     this.jetRow.name = `${key('jump')} JETS // ${key('dash')} CHG:${w.charges}`;
     this.jetRow.ammo = Math.round((w.fuel / FRAME.jet.fuel) * 100);
-    const rotaryTag = rotary.mode === 'airburst' ? 'ROTARY AIRBURST' : 'ROTARY 20MM AP';
-    const armTag = this.installedWeapon === 'howitzer105' ? '105MM HOWITZER' : `40MM ${ROUND_NAMES[this.guns.cannon.round]}`;
-    seat.status = `${rotaryTag} · ${armTag}`;
+    const tag = (m: ArmMount): string => m.kind === 'rotary' ? (m.rotary.mode === 'airburst' ? 'ROTARY AIRBURST' : 'ROTARY 20MM AP')
+      : m.kind === 'howitzer105' ? '105MM HOWITZER' : `40MM ${ROUND_NAMES[m.cannon.round]}`;
+    seat.status = `${tag(this.guns.left)} · ${tag(this.guns.right)}`;
   }
 
   /**
@@ -1116,8 +1166,8 @@ export class Frame {
       audio.play('concrete_crumble', { pitch: 1.4, volume: 0.75 });
       this.body.setCracks(this.crackStage);
     }
-    this.walker.speedScale = this.parts.speedScale;
-    this.guns.podOnline = this.parts.podOnline;
+    this.walker.speedScale = this.parts.speedScale * this.stats.walk;
+    this.guns.podOnline = this.parts.podOnline && this.stats.pod;
     if (this.seat) this.panel(this.seat);
     if (res.killed || this.health <= 0) this.destroy();
     return true;
@@ -1174,9 +1224,7 @@ export class Frame {
 
   private hideMeshes(): void {
     this.body.hide();
-    this.rotaryGun.hide();
-    this.cannonGun.hide();
-    this.howitzerGun.hide();
+    this.rack.hideAll();
   }
 
   private clearNet(): void {

@@ -34,7 +34,8 @@ export class Gun {
   private pitch = 0;
   private slide = 0;
 
-  constructor(materials: ModelMaterials, scene: THREE.Scene, private readonly spec: GunSpec) {
+  /** `mirror`: the model flipped left to right, for an arm on the other side from the one it was drawn for (the Frame's loadout). */
+  constructor(materials: ModelMaterials, scene: THREE.Scene, private readonly spec: GunSpec, mirror = false) {
     const fixed = new ModelBuilder();
     spec.build(fixed);
     const moving = new ModelBuilder();
@@ -43,6 +44,7 @@ export class Gun {
     this.root.name = spec.name;
     this.root.rotation.order = 'YXZ';
     this.root.scale.setScalar(spec.scale ?? 1);
+    if (mirror) this.root.scale.x = -this.root.scale.x;
     this.root.add(materials.group(fixed, materials.nearby), this.moving);
     this.root.visible = false;
     scene.add(this.root);

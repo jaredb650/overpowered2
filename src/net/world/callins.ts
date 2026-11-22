@@ -25,6 +25,7 @@ import { CALLINS, EFFECTS, FROST } from '../../progression/data';
 import { MECH_KINDS, NEWS_KINDS, NEWS_NUMBERS, type CallinLink, type CallNews, type CallOrder, type MechKind } from '../../progression/callins/link';
 import type { WorldContext, WorldModule } from './context';
 import { validVec, type Vec } from './wire';
+import { KIT_LENGTH } from '../../frame/loadout';
 
 /** Someone called a strike or an aircraft in: a feed line for the others. */
 export type CallinEvent = { t: 'callin'; id: string; slot?: number };
@@ -51,6 +52,8 @@ const NEWS_PER_SECOND = 90;
 const MECH_PER_SECOND = 40;
 const PERK_FX_PER_SECOND = 30;
 const MECH_POSE = 13;
+/** A pose may carry the pilot's loadout after it (frame/loadout.ts `kitIds`): frame/puppet.ts `MECH_POSE_KIT`. */
+const MECH_POSE_KIT = MECH_POSE + KIT_LENGTH;
 
 const UP = new THREE.Vector3(0, 1, 0);
 const mm = (value: number): number => Math.round(value * 1000) / 1000;
@@ -226,7 +229,7 @@ export class Callins implements WorldModule {
     const slot = this.slotOf(from, value.slot);
     if (slot === null) return;
     const kind: MechKind | undefined = value.k === undefined ? undefined : MECH_KINDS[value.k];
-    if (value.p !== undefined && (!numbers(value.p, MECH_POSE) || value.p.length !== MECH_POSE)) return;
+    if (value.p !== undefined && (!numbers(value.p, MECH_POSE_KIT) || (value.p.length !== MECH_POSE && value.p.length !== MECH_POSE_KIT))) return;
     if (value.k !== undefined && (!kind || (value.v !== undefined && !numbers(value.v, NEWS_NUMBERS)))) return;
     if (w.hosting) {
       if (!this.rate(from).mech.take(now, MECH_PER_SECOND)) return;

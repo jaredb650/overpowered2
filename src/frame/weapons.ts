@@ -2,10 +2,14 @@
  * The Frame's three guns, its smoke, and the blows its body lands. The AC-130's idea brought down to the ground: every gun
  * has its own magazine and its own clock, so the juggle is the game.
  *
- *   Rotary   left arm, LMB. The door gun's 20 mm round at 20 a second, with the mounted gun's Heat: about 7 s to overheat
- *   Cannon   right arm, RMB, R for the round. The gunship's 40 mm, its Magazine and its three rounds, fired flat from the arm
- *   Pod      right shoulder, G held to paint and let go. The Quiver's Painter on six tubes, one salvo, then 10 s
+ *   Rotary   left arm by default, LMB. The door gun's 20 mm round at 24 a second, with the mounted gun's Heat: about 7 s to overheat
+ *   Cannon   right arm by default, RMB, R for the round. The gunship's 40 mm, its Magazine and its three rounds, fired flat from the arm
+ *   Howitzer the 105 mm, one shell at a time, on either arm (Foreclosure fits it to the right)
+ *   Pod      right shoulder, G held to paint and let go. The Quiver's Painter on six tubes, one salvo, then 8.5 s
  *   Smoke    Q. The seats' flares and a wall of smoke, three a beat
+ *
+ * Either arm carries any of the three (the loadout, loadout.ts): an `ArmMount` per side holds the kind and its own clocks, the
+ * left on the fire button (LMB) and the right on aim (RMB). Hold 1 changes every rotary's round, R every cannon's.
  *
  * The four clocks are plain classes with no world, for the tests. `FrameGuns` fires them into the world. The blows (stomp,
  * charge, backhand, a planted foot) are functions on the enemies alone, so a test can count who they knock down.
@@ -24,8 +28,10 @@ import { CG } from '../core/contracts';
 import { Painter, angleOff, type PaintCandidate } from '../weapons/swarm';
 import { TUNING } from '../weapons/data';
 import { FRAME, type FrameArmWeapon, type RotaryMode } from './data';
+import type { ArmKind, ArmSide } from './loadout';
 
 export type { FrameArmWeapon, RotaryMode } from './data';
+export type { ArmKind, ArmSide } from './loadout';
 
 const R = FRAME.rotary;
 const A = FRAME.rotaryAirburst;
@@ -615,25 +621,53 @@ const _rayHit: RayHit = { point: new THREE.Vector3(), normal: new THREE.Vector3(
 const _pellets = Array.from({ length: B.flak.pellets }, () => new THREE.Vector3());
 const _play: PlayOptions = {};
 
-export class FrameGuns {
+/**
+ * One arm and what it carries: the kind, and a clock for each kind so a swap needs nothing built. The left is on the fire button,
+ * the right on aim.
+ */
+export class ArmMount {
   readonly rotary = new Rotary();
   readonly cannon = new Cannon();
   readonly howitzer = new Howitzer();
+  /** Rounds this arm's rotary has fired, for the tracer and flash cadence. */
+  fired = 0;
+  spinLoop: LoopHandle | null = null;
+  fireLoop: LoopHandle | null = null;
+
+  constructor(readonly side: ArmSide, readonly trigger: 'fire' | 'aim', readonly arm: Arm, public kind: ArmKind) {}
+
+  /** The mouse button that fires it, for the panel. */
+  get button(): string {
+    return this.side === 'left' ? 'LMB' : 'RMB';
+  }
+
+  /** A rotary on this arm, spun up and firing. */
+  get spinning(): boolean {
+    return this.kind === 'rotary' && this.rotary.firing;
+  }
+
+  /** Every clock back to full: a fresh Frame or a fresh fit. */
+  resetClocks(): void {
+    this.rotary.reset();
+    this.cannon.reset();
+    this.howitzer.reset();
+  }
+}
+
+export class FrameGuns {
   readonly pod = new Pod();
   readonly smoke = new Smoke();
-  /** Modular right-arm ordnance fitted to the Frame (`cannon40` default, permanently upgraded to `howitzer105`). */
-  armWeapon: FrameArmWeapon = 'cannon40';
-  /** For the panel: rotary mode, right-arm cannon/howitzer, pod, smoke. The owner adds its jets/charge row after these. */
+  /** The left arm (LMB) and the right (RMB). The standard Frame: the rotary left, the 40 mm right. */
+  readonly left: ArmMount;
+  readonly right: ArmMount;
+  /** For the panel: the left arm, the right arm, pod, smoke. The owner adds its jets/charge row after these. */
   readonly rows: GunnerWeapon[] = [
     { name: '', ammo: 100, max: 100, reload: -1 },
     { name: '', ammo: 0, max: C.magazine, reload: -1 },
     { name: '', ammo: 0, max: P.tubes, reload: -1 },
     { name: '', ammo: 0, max: FRAME.smoke.count },
   ];
-  private fired = 0;
   private tube = 0;
-  private spinLoop: LoopHandle | null = null;
-  private fireLoop: LoopHandle | null = null;
   private readonly shot: ShotSpec = {
     damage: R.damage, source: 'frame_rotary', team: 'player', maxDistance: R.range, tracerFrom: _muzzle,
     force: R.force, severMult: R.severMult, impactScale: R.impactScale, burst: R.burst, penetrate: R.penetrate, bodyCost: R.bodyCost,
@@ -643,84 +677,88 @@ export class FrameGuns {
   private readonly paintables: MissileTarget[] = [];
   private sight: Sight | null = null;
   private readonly look = (): readonly PaintCandidate[] => this.gather();
-  /** Set false when the right-shoulder rocket pod has been knocked out. */
+  /** Set false when the right-shoulder rocket pod has been knocked out, or no pod is fitted. */
   podOnline = true;
   /**
-   * Co-op: told of each 40 mm / 105 mm shell as it leaves (its round, the muzzle, the exact spot it flies to and the
-   * seconds it takes) and of each missile (where from, and its velocity), so other screens' copy of this Frame fires too.
+   * Co-op: told of each 40 mm / 105 mm shell as it leaves (its round, the muzzle, the exact spot it flies to, the seconds it
+   * takes and the arm it left) and of each missile (where from, and its velocity), so other screens' copy of this Frame fires too.
    */
-  onShell: ((round: Round40 | 'g105', from: THREE.Vector3, aim: THREE.Vector3, seconds: number) => void) | null = null;
+  onShell: ((round: Round40 | 'g105', from: THREE.Vector3, aim: THREE.Vector3, seconds: number, side: ArmSide) => void) | null = null;
   onMissile: ((from: THREE.Vector3, velocity: THREE.Vector3) => void) | null = null;
 
   constructor(
     private readonly ctx: Ctx,
     private readonly rounds: Ac130Rounds,
-    private readonly left: Arm,
-    private readonly right: Arm,
+    leftArm: Arm,
+    rightArm: Arm,
     /** Where the pod's tubes are, in the world, this frame. */
     private readonly tubes: (out: THREE.Vector3) => THREE.Vector3,
   ) {
+    this.left = new ArmMount('left', 'fire', leftArm, 'rotary');
+    this.right = new ArmMount('right', 'aim', rightArm, 'cannon40');
     rounds.onImpact = (kind, point, normal, dir) => this.impact(kind, point, normal, dir);
     this.label();
   }
 
-  /** Permanently swaps the right-arm modular ordnance (`cannon40` or `howitzer105`) and loads a ready chamber. */
+  /** The arm carrying `kind`, the default's side first; null if neither does. */
+  private carrying(kind: ArmKind): ArmMount | null {
+    const [first, second] = kind === 'rotary' ? [this.left, this.right] : [this.right, this.left];
+    return first.kind === kind ? first : second.kind === kind ? second : null;
+  }
+
+  /** The rotary: the one an arm carries (the left first), else the left arm's idle clock. */
+  get rotary(): Rotary {
+    return (this.carrying('rotary') ?? this.left).rotary;
+  }
+
+  /** The 40 mm: the one an arm carries (the right first), else the right arm's idle clock. */
+  get cannon(): Cannon {
+    return (this.carrying('cannon40') ?? this.right).cannon;
+  }
+
+  get howitzer(): Howitzer {
+    return (this.carrying('howitzer105') ?? this.right).howitzer;
+  }
+
+  /** What the right arm carries. */
+  get armWeapon(): ArmKind {
+    return this.right.kind;
+  }
+
+  /** Both arms, from the loadout: each with a fresh clock. */
+  fitArms(left: ArmKind, right: ArmKind): void {
+    this.silence();
+    this.left.kind = left;
+    this.right.kind = right;
+    this.left.resetClocks();
+    this.right.resetClocks();
+    this.label();
+  }
+
+  /** Permanently swaps the right-arm ordnance (`cannon40` or `howitzer105`, Foreclosure's upgrade) and loads a ready chamber. */
   installArmWeapon(weapon: FrameArmWeapon): void {
-    this.armWeapon = weapon;
-    if (weapon === 'howitzer105') this.howitzer.reset();
-    else this.cannon.reset();
+    this.right.kind = weapon;
+    if (weapon === 'howitzer105') this.right.howitzer.reset();
+    else this.right.cannon.reset();
     this.label();
   }
 
   update(dt: number, sight: Sight): void {
     const { input, audio } = this.ctx;
     this.sight = sight;
-    // The rotary (hold 1 to toggle between 20 mm AP and proximity-fuzed airburst).
-    if (this.rotary.holdMode(dt, input.isDown('weapon1'))) {
-      audio.play('reload_bolt', { pitch: this.rotary.mode === 'airburst' ? 1.15 : 0.85, volume: 0.9 });
-      this.ctx.hud.callout?.(this.rotary.mode === 'airburst' ? 'ROTARY // AIRBURST' : 'ROTARY // 20MM AP');
+    // Hold 1 toggles every rotary between 20 mm AP and proximity-fuzed airburst.
+    const hold = input.isDown('weapon1');
+    let toggled: ArmMount | null = null;
+    for (const m of [this.left, this.right]) if (m.kind === 'rotary' && m.rotary.holdMode(dt, hold)) toggled = m;
+    if (toggled) {
+      audio.play('reload_bolt', { pitch: toggled.rotary.mode === 'airburst' ? 1.15 : 0.85, volume: 0.9 });
+      this.ctx.hud.callout?.(toggled.rotary.mode === 'airburst' ? 'ROTARY // AIRBURST' : 'ROTARY // 20MM AP');
     }
-    const n = this.rotary.update(dt, input.isDown('fire'));
-    this.left.turn(this.rotary.spin * R.barrelRate * dt);
-    this.spinSound(input.isDown('fire') && !this.rotary.heat.overheated);
-    if (this.rotary.firing && input.isDown('fire')) {
-      const loopPitch = this.rotary.rate / LOOP_RATE;
-      if (!this.fireLoop) {
-        this.fireLoop = audio.startLoop('minigun_fire_loop', { fadeIn: 0.03, pitch: loopPitch });
-      } else {
-        this.fireLoop.setPitch(loopPitch, 0.04);
-      }
-      for (let i = 0; i < n; i++) {
-        if (this.rotary.mode === 'airburst') this.airburstRound(sight);
-        else this.round(sight);
-      }
-    } else {
-      this.ceaseFire();
-    }
-    if (this.rotary.overheatedNow) audio.play('steam_burst', { volume: 0.9 });
-    if (input.pressed('fire') && this.rotary.heat.overheated) audio.play('weapon_dry');
-    // The right arm: either 105 mm Howitzer (single-shot, heavy auto-reload) or 40 mm Autocannon (R cycles HE/AP/FLAK).
-    if (this.armWeapon === 'howitzer105') {
-      const mag = this.howitzer.mag;
-      const loading = mag.reloading >= 0;
-      mag.update(dt);
-      if (loading && mag.reloading < 0) {
-        audio.play('reload_shell_in', { volume: 1.0, pitch: 0.52 });
-        audio.play('metal_clang', { volume: 0.85, pitch: 0.58 });
-      }
-      if (input.isDown('aim') && mag.ready) this.howitzerShell(sight);
-      else if (input.pressed('aim') && mag.ammo === 0) audio.play('weapon_dry', { pitch: 0.72 });
-    } else {
-      const mag = this.cannon.mag;
-      const loading = mag.reloading >= 0;
-      mag.update(dt);
-      if (loading && mag.reloading < 0) audio.play('reload_shell_in', { volume: 0.8, pitch: 0.8 });
-      if (input.pressed('reload')) {
-        this.cannon.cycle();
-        audio.play('reload_bolt', { pitch: 0.75 });
-      }
-      if (input.isDown('aim') && mag.ready) this.shell(sight);
-      else if (input.pressed('aim') && mag.ammo === 0) audio.play('weapon_dry');
+    let cycled = false;
+    for (const m of [this.left, this.right]) {
+      if (m.kind === 'rotary') this.rotaryArm(m, dt, sight);
+      else if (m.kind === 'howitzer105') this.howitzerArm(m, dt, sight);
+      else cycled = this.cannonArm(m, dt, sight, cycled);
     }
     // The pod.
     const pod = this.pod;
@@ -741,35 +779,99 @@ export class FrameGuns {
     this.label();
   }
 
+  /** A rotary on `m`: spin while its button is held, fire at the rate once spun, heat, the loops. */
+  private rotaryArm(m: ArmMount, dt: number, sight: Sight): void {
+    const { input, audio } = this.ctx;
+    const held = input.isDown(m.trigger);
+    const rotary = m.rotary;
+    const n = rotary.update(dt, held);
+    m.arm.turn(rotary.spin * R.barrelRate * dt);
+    this.spinSound(m, held && !rotary.heat.overheated);
+    if (rotary.firing && held) {
+      const loopPitch = rotary.rate / LOOP_RATE;
+      if (!m.fireLoop) {
+        m.fireLoop = audio.startLoop('minigun_fire_loop', { fadeIn: 0.03, pitch: loopPitch });
+      } else {
+        m.fireLoop.setPitch(loopPitch, 0.04);
+      }
+      for (let i = 0; i < n; i++) {
+        if (rotary.mode === 'airburst') this.airburstRound(m, sight);
+        else this.round(m, sight);
+      }
+    } else {
+      this.ceaseFire(m);
+    }
+    if (rotary.overheatedNow) audio.play('steam_burst', { volume: 0.9 });
+    if (input.pressed(m.trigger) && rotary.heat.overheated) audio.play('weapon_dry');
+  }
+
+  /** The 105 mm on `m`: single-shot, heavy auto-reload. */
+  private howitzerArm(m: ArmMount, dt: number, sight: Sight): void {
+    const { input, audio } = this.ctx;
+    const mag = m.howitzer.mag;
+    const loading = mag.reloading >= 0;
+    mag.update(dt);
+    if (loading && mag.reloading < 0) {
+      audio.play('reload_shell_in', { volume: 1.0, pitch: 0.52 });
+      audio.play('metal_clang', { volume: 0.85, pitch: 0.58 });
+    }
+    if (input.isDown(m.trigger) && mag.ready) this.howitzerShell(m, sight);
+    else if (input.pressed(m.trigger) && mag.ammo === 0) audio.play('weapon_dry', { pitch: 0.72 });
+  }
+
+  /** The 40 mm on `m`: R cycles HE, AP, FLAK (one bolt sound however many cannons). Returns whether the bolt has been heard. */
+  private cannonArm(m: ArmMount, dt: number, sight: Sight, heard: boolean): boolean {
+    const { input, audio } = this.ctx;
+    const mag = m.cannon.mag;
+    const loading = mag.reloading >= 0;
+    mag.update(dt);
+    if (loading && mag.reloading < 0) audio.play('reload_shell_in', { volume: 0.8, pitch: 0.8 });
+    if (input.pressed('reload')) {
+      m.cannon.cycle();
+      if (!heard) audio.play('reload_bolt', { pitch: 0.75 });
+      heard = true;
+    }
+    if (input.isDown(m.trigger) && mag.ready) this.shell(m, sight);
+    else if (input.pressed(m.trigger) && mag.ammo === 0) audio.play('weapon_dry');
+    return heard;
+  }
+
   /** The marks for the panel. */
   get marks(): readonly MissileTarget[] {
     return this.pod.painter.marks;
   }
 
+  /** One arm's panel row. */
+  private armRow(m: ArmMount, row: GunnerWeapon): void {
+    if (m.kind === 'rotary') {
+      const airburst = m.rotary.mode === 'airburst';
+      row.name = airburst ? `${m.button} ROTARY [AIRBURST] // HOLD 1` : `${m.button} ROTARY [STD] // HOLD 1`;
+      row.ammo = Math.round((1 - m.rotary.heat.value) * 100);
+      row.max = 100;
+      row.reload = m.rotary.heat.overheated ? 1 - m.rotary.heat.value : -1;
+      row.selected = airburst;
+    } else if (m.kind === 'howitzer105') {
+      const mag = m.howitzer.mag;
+      row.name = `${m.button} 105MM HOWITZER`;
+      row.ammo = mag.ammo;
+      row.max = H.magazine;
+      row.reload = mag.progress;
+      row.selected = true;
+    } else {
+      const mag = m.cannon.mag;
+      row.name = `${m.button} 40MM ${ROUND_NAMES[m.cannon.round]} // R`;
+      row.ammo = mag.ammo;
+      row.max = C.magazine;
+      row.reload = mag.progress;
+      row.selected = false;
+    }
+  }
+
   /** Syncs HUD weapon row names and ammo counts. */
   label(): void {
-    const [rotary, arm, pod, smoke] = this.rows as [GunnerWeapon, GunnerWeapon, GunnerWeapon, GunnerWeapon];
-    const airburst = this.rotary.mode === 'airburst';
-    rotary.name = airburst ? 'LMB ROTARY [AIRBURST] // HOLD 1' : 'LMB ROTARY [STD] // HOLD 1';
-    rotary.ammo = Math.round((1 - this.rotary.heat.value) * 100);
-    rotary.max = 100;
-    rotary.reload = this.rotary.heat.overheated ? 1 - this.rotary.heat.value : -1;
-    rotary.selected = airburst;
-    if (this.armWeapon === 'howitzer105') {
-      const mag = this.howitzer.mag;
-      arm.name = 'RMB 105MM HOWITZER';
-      arm.ammo = mag.ammo;
-      arm.max = H.magazine;
-      arm.reload = mag.progress;
-      arm.selected = true;
-    } else {
-      const mag = this.cannon.mag;
-      arm.name = `RMB 40MM ${ROUND_NAMES[this.cannon.round]} // R`;
-      arm.ammo = mag.ammo;
-      arm.max = C.magazine;
-      arm.reload = mag.progress;
-      arm.selected = false;
-    }
+    const [leftRow, rightRow, pod, smoke] = this.rows as [GunnerWeapon, GunnerWeapon, GunnerWeapon, GunnerWeapon];
+    this.armRow(this.left, leftRow);
+    this.armRow(this.right, rightRow);
     if (!this.podOnline) {
       pod.name = 'G POD // OFFLINE';
       pod.ammo = 0;
@@ -787,9 +889,11 @@ export class FrameGuns {
 
   /** Passive cooling, reloads, smoke refill, and in-flight shells while parked empty on the map. */
   idleUpdate(dt: number): void {
-    this.rotary.update(dt, false);
-    this.cannon.mag.update(dt);
-    this.howitzer.mag.update(dt);
+    for (const m of [this.left, this.right]) {
+      m.rotary.update(dt, false);
+      m.cannon.mag.update(dt);
+      m.howitzer.mag.update(dt);
+    }
     this.pod.update(dt, false, () => []);
     this.smoke.update(dt);
     this.rounds.update(dt);
@@ -798,16 +902,16 @@ export class FrameGuns {
   // ---- the rotary ----
 
   /** The door gun's way: from the eye along the sight, so the reticle is the truth, with the tracer from the real muzzle. */
-  private round(sight: Sight): void {
+  private round(m: ArmMount, sight: Sight): void {
     const { combat, fx, camera } = this.ctx;
-    this.fired++;
-    this.left.muzzle(_muzzle);
-    this.left.bore(_bore);
+    const fired = ++m.fired;
+    m.arm.muzzle(_muzzle);
+    m.arm.bore(_bore);
     randomInCone(sight.aim, R.spread, _dir);
-    this.shot.tracer = this.fired % R.tracerEvery === 0 ? 'heavy' : undefined;
+    this.shot.tracer = fired % R.tracerEvery === 0 ? 'heavy' : undefined;
     combat.fireRay(sight.view.position, _dir, this.shot);
-    if (this.fired % R.flashEvery === 0) fx.muzzleFlash(_muzzle, _bore, 'rotary');
-    if (this.fired % 2 === 0) {
+    if (fired % R.flashEvery === 0) fx.muzzleFlash(_muzzle, _bore, 'rotary');
+    if (fired % 2 === 0) {
       _v.set(-_bore.z, 0, _bore.x).multiplyScalar(-2);
       _v.y = rand(1, 2.5);
       fx.shellCasing(_muzzle.addScaledVector(_bore, -1.2), _v, 'cannon');
@@ -820,11 +924,11 @@ export class FrameGuns {
    * Proximity-fuzed mini-flak airburst round: stops at walls (zero penetration), bursts in mid-air ahead of infantry
    * with an orange/amber puff, crack sound, and shrapnel sparks. Shreds squads; 0 vs armour, 0.35x vs soft vehicles.
    */
-  private airburstRound(sight: Sight): void {
+  private airburstRound(m: ArmMount, sight: Sight): void {
     const { audio, combat, enemies, fx, physics, camera } = this.ctx;
-    this.fired++;
-    this.left.muzzle(_muzzle);
-    this.left.bore(_bore);
+    const fired = ++m.fired;
+    m.arm.muzzle(_muzzle);
+    m.arm.bore(_bore);
     randomInCone(sight.aim, A.spread, _dir);
     const hitWall = physics.raycastInto(sight.view.position, _dir, R.range, CG.World, _rayHit);
     const maxDist = hitWall ? _rayHit.distance : R.range;
@@ -838,19 +942,19 @@ export class FrameGuns {
     } else {
       _at.copy(sight.view.position).addScaledVector(_dir, R.range);
     }
-    if (this.fired % R.tracerEvery === 0) fx.tracer(_muzzle, _at, 'heavy');
+    if (fired % R.tracerEvery === 0) fx.tracer(_muzzle, _at, 'heavy');
     if (burst) {
       combat.explode(_at, AIRBURST_BLAST);
       fx.burst?.(_at, _dir, 1.35);
-      if (this.fired % 2 === 0) fx.ring(_at, _dir, '#ffb040', A.radius * 0.9);
+      if (fired % 2 === 0) fx.ring(_at, _dir, '#ffb040', A.radius * 0.9);
       fx.sparks(_at, _dir, 10, '#ff9830');
       fx.smoke(_at, 0x4a3b2c, 1.4, 0.55);
-      if (this.fired % 2 === 0) {
+      if (fired % 2 === 0) {
         audio.play('cannon_burst', { position: _at, volume: 0.48, pitch: 1.35, pitchJitter: 0.14 });
       }
     }
-    if (this.fired % R.flashEvery === 0) fx.muzzleFlash(_muzzle, _bore, 'rotary');
-    if (this.fired % 2 === 0) {
+    if (fired % R.flashEvery === 0) fx.muzzleFlash(_muzzle, _bore, 'rotary');
+    if (fired % 2 === 0) {
       _v.set(-_bore.z, 0, _bore.x).multiplyScalar(-2);
       _v.y = rand(1, 2.5);
       fx.shellCasing(_muzzle.addScaledVector(_bore, -1.2), _v, 'cannon');
@@ -859,42 +963,42 @@ export class FrameGuns {
     camera.kick(rand(0, A.kick), rand(-A.kick, A.kick));
   }
 
-  private spinSound(want: boolean): void {
+  private spinSound(m: ArmMount, want: boolean): void {
     const { audio } = this.ctx;
-    if (want && !this.spinLoop) {
+    if (want && !m.spinLoop) {
       audio.play('minigun_spinup');
-      this.spinLoop = audio.startLoop('minigun_spin_loop', { fadeIn: 0.1 });
-    } else if (!want && this.spinLoop) {
-      this.spinLoop.stop(0.2);
-      this.spinLoop = null;
-      audio.play('minigun_spindown', { offset: (1 - this.rotary.spin) * R.spinDown });
+      m.spinLoop = audio.startLoop('minigun_spin_loop', { fadeIn: 0.1 });
+    } else if (!want && m.spinLoop) {
+      m.spinLoop.stop(0.2);
+      m.spinLoop = null;
+      audio.play('minigun_spindown', { offset: (1 - m.rotary.spin) * R.spinDown });
     }
-    this.spinLoop?.setPitch(SPIN_PITCH + (1 - SPIN_PITCH) * this.rotary.spin, 0.04);
+    m.spinLoop?.setPitch(SPIN_PITCH + (1 - SPIN_PITCH) * m.rotary.spin, 0.04);
   }
 
-  private ceaseFire(): void {
-    if (!this.fireLoop) return;
-    this.fireLoop.stop(0.08);
-    this.fireLoop = null;
+  private ceaseFire(m: ArmMount): void {
+    if (!m.fireLoop) return;
+    m.fireLoop.stop(0.08);
+    m.fireLoop = null;
     this.ctx.audio.play('minigun_fire');
   }
 
   // ---- the 40 mm & 105 mm right-arm ordnance ----
 
   /** Flat from the arm to where the sight is, or on down the bore at something under the arm. Armed from the muzzle. */
-  private shell(sight: Sight): void {
+  private shell(m: ArmMount, sight: Sight): void {
     const { audio, camera, fx } = this.ctx;
-    if (!this.cannon.mag.take()) return;
-    const round = this.cannon.round;
-    this.right.muzzle(_muzzle);
-    this.right.bore(_bore);
+    if (!m.cannon.mag.take()) return;
+    const round = m.cannon.round;
+    m.arm.muzzle(_muzzle);
+    m.arm.bore(_bore);
     if (sight.range > NEAR_SIGHT) _aim.copy(sight.point);
     else _aim.copy(_muzzle).addScaledVector(_bore, 60);
     randomInCone(_dir.subVectors(_aim, _muzzle).normalize(), C.spread, _dir);
     const reach = _muzzle.distanceTo(_aim) + (round === 'ap' ? B.ap.beyond : 0);
     _aim.copy(_muzzle).addScaledVector(_dir, reach);
     this.rounds.fire(round, _muzzle, _aim, reach / C.speed, 0, Infinity);
-    this.onShell?.(round, _muzzle, _aim, reach / C.speed);
+    this.onShell?.(round, _muzzle, _aim, reach / C.speed, m.side);
     this.rounds.flash(_muzzle, 1.6, 0.07, 9, 10, 5, 1.4);
     fx.muzzleFlash(_muzzle, _bore, 'autocannon');
     // Heavy brass 40 mm shell casing kicked out to the right of the breech.
@@ -907,24 +1011,24 @@ export class FrameGuns {
     _play.pitch = round === 'ap' ? 0.8 : 0.72;
     _play.position = undefined;
     audio.play('autocannon_fire', _play);
-    this.right.recoil(0.48);
+    m.arm.recoil(0.48);
     camera.addTrauma(C.trauma);
     camera.kick(C.kick, rand(-0.004, 0.004));
   }
 
   /** Massive 105 mm siege howitzer round: booming artillery kick, heavy recoil, immediate 3.1 s breech reload. */
-  private howitzerShell(sight: Sight): void {
+  private howitzerShell(m: ArmMount, sight: Sight): void {
     const { audio, camera, fx, render } = this.ctx;
-    if (!this.howitzer.mag.take()) return;
-    this.right.muzzle(_muzzle);
-    this.right.bore(_bore);
+    if (!m.howitzer.mag.take()) return;
+    m.arm.muzzle(_muzzle);
+    m.arm.bore(_bore);
     if (sight.range > NEAR_SIGHT) _aim.copy(sight.point);
     else _aim.copy(_muzzle).addScaledVector(_bore, 80);
     randomInCone(_dir.subVectors(_aim, _muzzle).normalize(), H.spread, _dir);
     const reach = _muzzle.distanceTo(_aim);
     _aim.copy(_muzzle).addScaledVector(_dir, reach);
     this.rounds.fire('g105', _muzzle, _aim, reach / H.speed, 0, Infinity);
-    this.onShell?.('g105', _muzzle, _aim, reach / H.speed);
+    this.onShell?.('g105', _muzzle, _aim, reach / H.speed, m.side);
     this.rounds.flash(_muzzle, 3.4, 0.12, 12, 8.5, 4, 2.2);
     fx.muzzleFlash(_muzzle, _bore, 'autocannon');
     fx.vaporRing?.(_v.copy(_muzzle).addScaledVector(_bore, 1.0), _bore, 1.8);
@@ -938,7 +1042,7 @@ export class FrameGuns {
     fx.shellCasing(_at.copy(_muzzle).addScaledVector(_bore, -2.8), _v, 'cannon');
     render?.lights?.flash?.(_muzzle, 0xffaa44, 9, 16, 0.14);
     audio.play('howitzer_shot', { volume: 1.35, pitch: 0.96 });
-    this.right.recoil(1.15);
+    m.arm.recoil(1.15);
     camera.addTrauma(H.trauma);
     camera.kick(H.kick, rand(-0.012, 0.012));
   }
@@ -1028,17 +1132,19 @@ export class FrameGuns {
 
   /** Off the trigger, quietly: a new run or out of the seat. Shells and missiles in the air still land. */
   silence(): void {
-    this.ceaseFire();
-    this.spinLoop?.stop(0.2);
-    this.spinLoop = null;
+    for (const m of [this.left, this.right]) {
+      this.ceaseFire(m);
+      m.spinLoop?.stop(0.2);
+      m.spinLoop = null;
+    }
   }
 
   reset(): void {
     this.silence();
-    this.rotary.reset();
-    this.cannon.reset();
-    this.howitzer.reset();
-    this.armWeapon = 'cannon40';
+    this.left.resetClocks();
+    this.right.resetClocks();
+    this.left.kind = 'rotary';
+    this.right.kind = 'cannon40';
     this.pod.reset();
     this.smoke.reset();
     this.rounds.clear();

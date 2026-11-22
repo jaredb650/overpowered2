@@ -15,7 +15,7 @@ export const PLAYED_KEY = 'op2.played.v1';
  */
 const PROGRESS = [
   SEEN_KEY, PLAYED_KEY, 'op2_highscore', 'op2_campaign_beaten', 'op2_starter', 'op2.implants.worn', 'op2.crucible.rules.v1',
-  'op2_coop_match', 'op2.settings.v1', 'op2.bindings.v2', 'op2.bindings.v1', 'op2_adsZoom',
+  'op2_coop_match', 'op2.settings.v1', 'op2.bindings.v2', 'op2.bindings.v1', 'op2_adsZoom', 'op2.frame.loadout.v1',
 ] as const;
 
 type Store = Pick<Storage, 'length' | 'key' | 'getItem' | 'setItem'>;

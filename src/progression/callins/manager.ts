@@ -13,6 +13,7 @@ import type { Flight } from '../../vehicles/flight';
 import { Emplacements } from '../../vehicles/emplacement';
 import { FRAME_ASKED } from '../../frame/data';
 import { Frame } from '../../frame/seat';
+import { loadFrameLoadout } from '../../frame/loadout';
 import { CALLIN_HOLD } from '../../input/bindings';
 import { CHIN_CANNON, Gun, M134 } from '../../vehicles/guns';
 import { SeatRig } from '../../vehicles/seat';
@@ -161,7 +162,8 @@ export class CallInManager implements CallinLink {
     if (FRAME_ASKED) {
       ctx.events.on('run:start', () => {
         const spawn = ctx.world.playerSpawns[0];
-        if (spawn) this.frame.board(spawn.position, spawn.yaw);
+        // In the player's own loadout (frame/loadout.ts), as a call-in would be: the range is where a loadout is tried.
+        if (spawn) this.frame.board(spawn.position, spawn.yaw, Infinity, false, loadFrameLoadout());
       });
     }
     ctx.campaign.provide({
