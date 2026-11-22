@@ -11,7 +11,7 @@ import type { MapId } from '../world/map/maps';
  * `outpost` is Endless Humans. The id is older than the campaign, and URLs and score tables are keyed on it. `defense` is
  * Outpost Defense, Endless Humans' tower defense (docs/proposals/outpost-defense.md).
  */
-export type ContractId = 'campaign' | 'foreclosure' | 'quiet_title' | 'crucible' | 'outpost' | 'rooftop' | 'defense' | 'retraining';
+export type ContractId = 'campaign' | 'foreclosure' | 'quiet_title' | 'bank_run' | 'crucible' | 'outpost' | 'rooftop' | 'defense' | 'retraining';
 
 /** Who lives there. Section 15's faction rules hang off this: pain, fear, bleeding, gib thresholds. */
 export type FactionId = 'swarm' | 'humans';
@@ -180,6 +180,35 @@ export const CONTRACTS: readonly ContractDef[] = [
       ],
     },
     scoreKey: 'op2_highscore.quiet_title',
+  },
+  {
+    id: 'bank_run',
+    name: 'Bank Run',
+    map: 'bank',
+    faction: 'humans',
+    waves: 'squads',
+    ai: 'outpost',
+    wounds: 'anatomy',
+    rewards: { backShot: 1.5 },
+    mission: 'bank_run',
+    opensAfter: 'outpost',
+    noCommander: true,
+    briefing: {
+      ref: 'Form 7742-B',
+      subject: 'Governor Reginald Sterling, Chairman of the Brine Central Reserve, and all bullion reserves on deposit',
+      body: [
+        'With High Magistrate Vane\'s failure to execute Form 9-A prior to 06:00, the Stay of Liquidation has expired. The planetary bullion reserve is now past due.',
+        'Packmule 2-3 will fast-rope you onto the Reserve rooftop at 09:15. Breach the central atrium skylight, drill the Planetary Bullion Vault, and heave four mandatory recovery duffels into your waiting Bailiff Humvee.',
+        'Governor Sterling has requisitioned armoured air support for the Coastal Expressway. A roof-mounted M2 .50 cal has been bolted to your getaway vehicle. Bagging fees apply.',
+      ],
+      terms: [
+        ['Site', 'Brine Central Reserve -> Coastal Elevated Expressway'],
+        ['Principal', '4 mandatory gold duffels (+3 optional bonus pallets)'],
+        ['Opposition', 'Reserve SWAT, Tech Saboteurs, Interceptors, AUDITOR-1'],
+        ['Appeals', 'Shorted at market open'],
+      ],
+    },
+    scoreKey: 'op2_highscore.bank_run',
   },
   {
     id: 'crucible',

@@ -68,6 +68,7 @@ export class Portrait {
       g.restore();
     } else if (this.speaker === 'council') this.seal(talking);
     else if (this.speaker === 'harbourmaster') this.horn(talking);
+    else if (this.speaker === 'governor') this.governor(talking);
     else this.signal();
     this.scan();
     g.globalAlpha = 1;
@@ -284,6 +285,74 @@ export class Portrait {
     }
     // A lamp on the bracket that blinks on air.
     this.blob(26, 30, 3, 3, talking && f % 2 === 0 ? '#ff5a2a' : '#5a2a1a');
+  }
+
+  /** Governor Reginald Sterling: tailored pinstripe suit, brass monocle, Reserve bullion seal & red ticker behind him. */
+  private governor(talking: boolean): void {
+    const t = this.tone;
+    const f = this.frame;
+    const shake = t === 'cracked' ? ((f * 5) % 3) - 1 : 0;
+    const cx = 48 + shake;
+    // Mahogany boardroom wall with brass wainscot and crashing stock ticker.
+    this.rect(0, 0, SIZE, SIZE, t === 'cracked' ? '#241214' : '#1b1d26');
+    this.rect(0, 62, SIZE, 34, '#2a1d14');
+    this.rect(0, 60, SIZE, 2, '#d4a63a');
+    // Ticker tape line (green when smug, crashing red when rattled/cracked).
+    const tickCol = t === 'smug' ? '#3bd671' : '#e03e36';
+    this.line(tickCol, 1.5, 4, 24, 18, 22, 32, t === 'smug' ? 18 : 30, 64, t === 'smug' ? 16 : 36, 92, t === 'smug' ? 14 : 46);
+    // Reserve brass emblem behind head.
+    this.g.strokeStyle = '#c9a13e';
+    this.g.lineWidth = 1.5;
+    this.g.beginPath();
+    this.g.arc(48, 38, 28, 0, Math.PI * 2);
+    this.g.stroke();
+
+    // Tailored dark navy suit, crisp collar, crimson silk tie.
+    this.poly('#182233', 10, 96, 18, 70, 36, 63, 60, 63, 78, 70, 86, 96);
+    this.poly('#e8e4d8', 41, 63, 48, 77, 55, 63);
+    this.poly('#a82228', 46, 69, 50, 69, 51, 90, 48, 95, 45, 90);
+    // Gold pocket square.
+    this.poly('#e5b832', 24, 78, 31, 76, 30, 81, 24, 81);
+
+    // Neck & head.
+    this.rect(cx - 7, 55, 14, 10, '#a67b61');
+    this.blob(cx, 40, 17, 21, '#d3a588');
+    // Silver slicked hair (mussed when rattled/cracked).
+    this.poly('#b8bec4', cx - 17, 34, cx - 14, 18, cx, 15, cx + 14, 18, cx + 17, 34, cx + 12, 25, cx, 23, cx - 12, 25);
+    if (t === 'cracked') {
+      this.line('#b8bec4', 2, cx - 8, 18, cx - 14, 10);
+      this.line('#b8bec4', 2, cx + 6, 17, cx + 13, 11);
+    }
+
+    // Eyes + gold monocle on right eye (slips when cracked!).
+    const ey = 38;
+    const blink = f % 29 === 0 && t !== 'cracked';
+    for (const side of [-1, 1]) {
+      const ex = cx + side * 7;
+      if (blink) this.line('#3a2a22', 1.5, ex - 3.5, ey, ex + 3.5, ey);
+      else {
+        this.blob(ex, ey, 3.3, t === 'cracked' ? 4 : 2.3, '#f2ede2');
+        this.blob(ex, ey, 1.4, 1.5, '#12161c');
+      }
+      const bOff = t === 'irritated' || t === 'cracked' ? side * 2 : 0;
+      this.line('#8c9298', 2, ex - 4, ey - 6 - bOff, ex + 4, ey - 6 + bOff);
+    }
+    // Brass monocle + chain.
+    const monoY = t === 'cracked' ? ey + 6 : ey;
+    this.g.strokeStyle = '#e5b832';
+    this.g.lineWidth = 1.6;
+    this.g.beginPath();
+    this.g.arc(cx + 7, monoY, 5.2, 0, Math.PI * 2);
+    this.g.stroke();
+    this.line('#c9a13e', 1, cx + 12, monoY + 2, cx + 16, 62);
+
+    // Mouth & clipped aristocratic moustache.
+    const open = talking && f % 2 === 0 ? (t === 'cracked' ? 5 : 3) : 0;
+    this.blob(cx, 52, 5.5, 1 + open, open > 0 ? '#3a1414' : '#7a4b3f');
+    this.poly('#9da3a8', cx - 10, 49, cx - 2, 46.5, cx + 2, 46.5, cx + 10, 49, cx + 4, 50, cx - 4, 50);
+
+    // ON AIR red LED in corner.
+    this.blob(10, 10, 3, 3, talking && f % 2 === 0 ? '#ff3a2a' : '#4a1814');
   }
 
   /** A signal on a scope, which is all anyone knows about where this came from. */

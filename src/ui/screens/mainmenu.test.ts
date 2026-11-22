@@ -4,7 +4,7 @@ import { CAMPAIGN, SURVIVAL_MAPS, TRAINING, modeName, modesOn } from './mainmenu
 
 describe('the main menu tree', () => {
   it('lists the missions in order under Campaign', () => {
-    expect(CAMPAIGN.map(c => c.id)).toEqual(['campaign', 'foreclosure', 'quiet_title']);
+    expect(CAMPAIGN.map(c => c.id)).toEqual(['campaign', 'foreclosure', 'quiet_title', 'bank_run']);
   });
 
   it('puts each survival mode under its map', () => {

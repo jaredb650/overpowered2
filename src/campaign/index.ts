@@ -20,6 +20,7 @@ import { missionWithStarter } from './starter';
 import { setMissionCorpseCap } from '../ui/settings';
 import type { CampaignSystem, MissionResult } from './events';
 import './events';
+import { BankRun } from './bankRun';
 import { Chancery } from './chancery';
 import { Foreclosure } from './foreclosure';
 import { GameHost } from './host';
@@ -75,11 +76,14 @@ class Campaign implements CampaignSystem {
   private readonly foreclosure: Foreclosure | null = null;
   /** Quiet Title's Chancery Estate runtime director (chancery.ts): stealth systems, Vane, bunker breach, QRF. */
   private readonly chancery: Chancery | null = null;
+  /** Bank Run's Brine Central Reserve & Coastal Expressway runtime director (bankRun.ts). */
+  private readonly bankRun: BankRun | null = null;
   result: MissionResult | null = null;
 
   constructor(private readonly ctx: Ctx, id: string) {
     const source = MISSIONS[id];
-    const mission = source && (id === 'outpost' || id === 'foreclosure' ? missionWithStarter(source, selectedStarter(id === 'outpost' ? 'campaign' : 'foreclosure')) : source);
+    const starterContract = id === 'outpost' ? 'campaign' : id === 'foreclosure' ? 'foreclosure' : id === 'bank_run' ? 'bank_run' : null;
+    const mission = source && starterContract ? missionWithStarter(source, selectedStarter(starterContract)) : source;
     if (!mission) throw new Error(`no mission ${id}`);
     for (const problem of validateMission(mission)) console.warn(`[campaign] ${mission.id}: ${problem}`);
     this.ui = new CampaignHud(ctx);
@@ -96,6 +100,9 @@ class Campaign implements CampaignSystem {
     } else if (mission.id === 'quiet_title') {
       const ch = (this.chancery = new Chancery(ctx, this.runner, this.ui));
       this.host.chanceryCall = (name, arg) => ch.call(name, arg);
+    } else if (mission.id === 'bank_run') {
+      const bk = (this.bankRun = new BankRun(ctx, this.runner, this.ui));
+      this.host.bankRunCall = (name, arg) => bk.call(name, arg);
     }
     // A mission with Bailiffs in it (Foreclosure) loads their bodies now; on a cold load its first squad would land in enemy bodies.
     if (/"do":"(roster|battle)"/.test(JSON.stringify(mission.beats))) void ctx.allies?.preload();
@@ -191,6 +198,7 @@ class Campaign implements CampaignSystem {
     this.retraining?.update(dt);
     this.foreclosure?.update(dt);
     this.chancery?.update(dt);
+    this.bankRun?.update(dt);
     this.runner.update(dt);
     this.ui.beat(this.runner.beat?.title ?? '');
     this.ui.update(this.ctx.time.realDt);
@@ -205,6 +213,8 @@ class Campaign implements CampaignSystem {
     this.foreclosure?.clear();
     this.chancery?.ensureBuilt();
     this.chancery?.clear();
+    this.bankRun?.ensureBuilt();
+    this.bankRun?.clear();
     this.ui.reset();
     // Apply the mission's corpse cap for both hosts and co-op guests, and persist it so mid-run setting changes clamp to it.
     setMissionCorpseCap(this.runner.mission.corpses);
@@ -230,6 +240,7 @@ class Campaign implements CampaignSystem {
     this.retraining?.clear();
     this.foreclosure?.clear();
     this.chancery?.reset();
+    this.bankRun?.reset();
     this.ui.reset();
   }
 }

@@ -14,8 +14,8 @@ import { SLOT8_OLD } from '../../weapons/data';
 import { CALLSIGNS } from '../outpost/doctrine';
 import { ADAPTATIONS, TRICKS, type AdaptationId, type Tone, type TrickId } from './adaptations';
 
-/** `harbourmaster`: Holdfast's, over the port's loudspeakers (Foreclosure). */
-export type Speaker = 'commander' | 'council' | 'intercept' | 'radio' | 'harbourmaster';
+/** `harbourmaster`: Holdfast's PA (Foreclosure); `governor`: Governor Reginald Sterling over Reserve PA / AUDITOR-1 (Bank Run). */
+export type Speaker = 'commander' | 'council' | 'intercept' | 'radio' | 'harbourmaster' | 'governor';
 /** The arc's four, plus what the others sound like. */
 export type Emotion = Tone | 'orders' | 'deadpan' | 'urgent' | 'hushed';
 

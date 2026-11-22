@@ -530,6 +530,10 @@ export class GameHost implements MissionHost {
           this.chanceryCall?.(name, arg);
           return;
         }
+        if (name.startsWith('bk.')) {
+          this.bankRunCall?.(name, arg);
+          return;
+        }
         console.warn(`[campaign] nothing provides the call "${name}"`);
     }
   }
@@ -542,6 +546,8 @@ export class GameHost implements MissionHost {
   foreclosureCall?: (name: string, arg: string | undefined) => void;
   /** Quiet Title's Chancery Estate runtime handler (campaign/chancery.ts), wired by Campaign when running Quiet Title. */
   chanceryCall?: (name: string, arg: string | undefined) => void;
+  /** Bank Run's heist & highway chase runtime handler (campaign/bankRun.ts), wired by Campaign when running Bank Run. */
+  bankRunCall?: (name: string, arg: string | undefined) => void;
 
   /** Co-op: every living player's feet (types.ts). net/mission.ts provides it; alone it is unset. */
   crowd?: () => readonly { x: number; y: number; z: number }[];

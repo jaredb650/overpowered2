@@ -21,13 +21,17 @@ import {
   authorChancery, CHANCERY_BOUNDS, CHANCERY_HUB, CHANCERY_LEVELS,
   CHANCERY_LIGHT_BOUNDS, CHANCERY_LIGHT_CELL, CHANCERY_STAGES,
 } from './chancery';
+import {
+  authorBank, BANK_BOUNDS, BANK_HUB, BANK_LEVELS,
+  BANK_LIGHT_BOUNDS, BANK_LIGHT_CELL, BANK_STAGES,
+} from './bank';
 import { KH } from './killhouse/plan';
 import { LEVEL, RING } from './layout';
 import type { MapSpec } from './spec';
 import type { MapZone } from '../../core/contracts';
 import { ACTIVE } from '../../contracts/select';
 
-export type MapId = 'crucible' | 'killhouse' | 'outpost' | 'fort' | 'holdfast' | 'office' | 'range' | 'annex' | 'rooftop' | 'chancery';
+export type MapId = 'crucible' | 'killhouse' | 'outpost' | 'fort' | 'holdfast' | 'office' | 'range' | 'annex' | 'rooftop' | 'chancery' | 'bank';
 
 export interface MapDef {
   id: MapId;
@@ -210,7 +214,22 @@ const chancery: MapDef = {
   readyLabel: 'Dimming the chandeliers',
 };
 
-const MAPS: Record<MapId, MapDef> = { crucible, killhouse, outpost, fort, holdfast, office, range, annex, rooftop, chancery };
+const BK = BANK_BOUNDS;
+const BKL = BANK_LIGHT_BOUNDS;
+const bank: MapDef = {
+  id: 'bank',
+  bounds: box(BK.x0, BK.y0, BK.z0, BK.x1, BK.y1, BK.z1),
+  lightBounds: box(BKL.x0, BKL.y0, BKL.z0, BKL.x1, BKL.y1, BKL.z1),
+  lightCell: BANK_LIGHT_CELL,
+  minimapExtent: 68,
+  navHub: BANK_HUB,
+  nav: { mutual: true, levels: [...BANK_LEVELS] },
+  stages: BANK_STAGES,
+  author: authorBank,
+  readyLabel: 'Polishing the bullion',
+};
+
+const MAPS: Record<MapId, MapDef> = { crucible, killhouse, outpost, fort, holdfast, office, range, annex, rooftop, chancery, bank };
 
 /** The map of the page's contract, or whatever `?map=` names. contracts/select.ts has the rules. */
 export function selectMap(): MapDef {

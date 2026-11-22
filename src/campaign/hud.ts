@@ -24,6 +24,7 @@ const WHO: Record<Speaker, readonly [name: string, tag: string]> = {
   intercept: ['Intercepted transmission', 'Outpost command to all units'],
   radio: ['Packmule', 'Your ride'],
   harbourmaster: ['The Harbourmaster', 'Holdfast port address'],
+  governor: ['Governor Sterling', 'Brine Central Reserve / PA'],
 };
 
 const TONES: ReadonlySet<string> = new Set(['smug', 'irritated', 'rattled', 'cracked']);
@@ -182,6 +183,8 @@ export class CampaignHud {
     this.face.set(line.speaker, tone);
     if (line.speaker === 'harbourmaster') {
       this.ctx.audio.play('walkietalkie_fire', { pitch: 0.84, volume: 0.34, unaffectedByTime: true });
+    } else if (line.speaker === 'governor') {
+      this.ctx.audio.play('walkietalkie_fire', { pitch: 1.08, volume: 0.32, unaffectedByTime: true });
     }
     this.voice.say([line.id]);
     this.airtime.begin(line.text, done);
