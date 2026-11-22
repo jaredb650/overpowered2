@@ -1932,6 +1932,7 @@ export class DesertConvoy implements ConvoyController, ExtraTarget {
     if (shouldBoard && !this.exfilBoardedSignalled) {
       this.exfilBoardedSignalled = true;
       this.clearExfilPrompt();
+      this.ui?.hint?.('', 0);
       for (const t of this._trucks) {
         if (t.headlights) t.headlights.scale.setScalar(1);
       }

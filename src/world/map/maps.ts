@@ -53,6 +53,8 @@ export interface MapDef {
   stages: readonly MapStage[];
   author(k: Kit, spec: MapSpec): void;
   readyLabel: string;
+  /** Optional atmosphere preset ('night' default, 'dawn' for golden desert sunrise). */
+  atmosphere?: 'night' | 'dawn';
   zoneOverride?(position: THREE.Vector3, zones: readonly MapZone[]): MapZone | null;
 }
 
@@ -246,6 +248,7 @@ const desert: MapDef = {
   stages: DESERT_STAGES,
   author: authorDesert,
   readyLabel: 'Raising the dust',
+  atmosphere: 'dawn',
 };
 
 const MAPS: Record<MapId, MapDef> = { crucible, killhouse, outpost, fort, holdfast, office, range, annex, rooftop, chancery, bank, desert };

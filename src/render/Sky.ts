@@ -5,6 +5,7 @@ import type { EngineUniforms } from './engine';
 export const SKY_GLSL = /* glsl */ `
 uniform vec3 opMoonDir;
 uniform float uSkyTime;
+uniform float uDawn;
 uniform sampler2D opNoise;
 
 #define SKY_PI 3.14159265
@@ -23,6 +24,17 @@ float skyHash3(vec3 p) {
 
 vec3 skyGradient(vec3 d) {
   float h = max(d.y, 0.0);
+  if (uDawn > 0.5) {
+    // Golden desert dawn: warm sunlit ochre-amber horizon rising through dusty rose into clear pale dawn blue.
+    vec3 zenith = vec3(0.11, 0.175, 0.30);
+    vec3 mid = vec3(0.42, 0.28, 0.24);
+    vec3 horizon = vec3(0.84, 0.48, 0.23);
+    vec3 c = mix(horizon, mid, 1.0 - exp(-h * 7.5));
+    c = mix(c, zenith, 1.0 - exp(-h * 2.1));
+    float towardSun = max(dot(normalize(vec3(d.x, 0.0, d.z)), normalize(vec3(opMoonDir.x, 0.0, opMoonDir.z))), 0.0);
+    c += vec3(0.55, 0.26, 0.08) * exp(-h * 9.0) * pow(towardSun, 2.2);
+    return c;
+  }
   vec3 zenith = vec3(0.0085, 0.0145, 0.036);
   vec3 mid = vec3(0.028, 0.054, 0.102);
   vec3 horizon = vec3(0.115, 0.17, 0.225);
@@ -53,9 +65,9 @@ vec3 stars(vec3 d) {
   return sum;
 }
 
-// Moon. Maria and rays come from the noise texture, on a sphere so they curve toward the limb.
+// Moon (or low golden desert sunrise disc when uDawn > 0.5).
 vec3 moonDisc(vec3 d, out float cover) {
-  const float radius = 0.082;
+  float radius = uDawn > 0.5 ? 0.056 : 0.082;
   vec3 m = opMoonDir;
   vec3 up = abs(m.y) > 0.9 ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 1.0, 0.0);
   vec3 ax = normalize(cross(up, m));
@@ -63,8 +75,12 @@ vec3 moonDisc(vec3 d, out float cover) {
   vec2 q = vec2(dot(d, ax), dot(d, ay)) / radius;
   float r2 = dot(q, q);
   float facing = dot(d, m);
-  cover = facing > 0.0 ? 1.0 - smoothstep(0.985, 1.015, sqrt(r2)) : 0.0;
+  cover = facing > 0.0 ? 1.0 - smoothstep(0.96, 1.04, sqrt(r2)) : 0.0;
   if (cover <= 0.0) return vec3(0.0);
+  if (uDawn > 0.5) {
+    float core = pow(max(1.0 - r2, 0.0), 0.35);
+    return vec3(2.8, 1.75, 0.92) * (0.75 + core * 0.85);
+  }
   float z = sqrt(max(1.0 - r2, 0.0));
   vec2 s = q / (1.0 + z * 0.8);
   float maria = texture2D(opNoise, s * 0.19 + 0.31).r * 0.6 + texture2D(opNoise, s * 0.41 + 0.07).g * 0.4;
@@ -85,25 +101,49 @@ float cloudField(vec2 p, float t) {
   return n / 1.9375;
 }
 
-// Thin cirrus lit from behind by the moon, then a lower broken deck that shows dark against the glow.
+// Thin cirrus lit from behind by the moon/sun, then a lower broken deck that shows dark against the glow.
 vec3 clouds(vec3 d, vec3 base, float moonAmount) {
   if (d.y < 0.015) return base;
   float t = uSkyTime * 0.0009;
-  // The moon is the map's landmark, so the deck parts around it.
+  // The moon/sun is the map's landmark, so the deck parts around it.
   float clear = 1.0 - smoothstep(0.962, 0.992, dot(d, opMoonDir)) * 0.94;
   float fade = smoothstep(0.015, 0.14, d.y) * clear;
   vec2 high = d.xz / (d.y + 0.09) * vec2(0.7, 1.9);
   float hc = cloudField(high + 3.0, t);
   float cirrus = smoothstep(0.5, 0.74, hc) * fade;
-  vec3 lit = vec3(0.075, 0.105, 0.155) + vec3(0.5, 0.58, 0.72) * moonAmount;
-  vec3 c = mix(base, lit, cirrus * 0.42);
+  vec3 lit = uDawn > 0.5
+    ? vec3(0.62, 0.38, 0.24) + vec3(1.15, 0.72, 0.36) * moonAmount
+    : vec3(0.075, 0.105, 0.155) + vec3(0.5, 0.58, 0.72) * moonAmount;
+  vec3 c = mix(base, lit, cirrus * (uDawn > 0.5 ? 0.52 : 0.42));
 
   vec2 low = d.xz / (d.y + 0.2) * 1.7;
   float lc = cloudField(low + 9.0, t * 2.2);
   float deck = smoothstep(0.5, 0.7, lc) * fade;
   float rim = smoothstep(0.52, 0.6, lc) * (1.0 - smoothstep(0.6, 0.72, lc));
+  if (uDawn > 0.5) {
+    vec3 under = mix(vec3(0.24, 0.16, 0.15), vec3(0.36, 0.24, 0.21), smoothstep(0.1, 0.5, d.y));
+    return mix(c, under + vec3(1.25, 0.74, 0.34) * (0.25 + moonAmount) * rim * 2.0, deck * 0.65);
+  }
   vec3 under = mix(vec3(0.012, 0.02, 0.038), vec3(0.03, 0.045, 0.07), smoothstep(0.1, 0.5, d.y));
   return mix(c, under + vec3(0.42, 0.5, 0.64) * moonAmount * rim * 2.2, deck * 0.9);
+}
+
+// Distant sandstone desert mesas & dunes for the dawn desert horizon (replaces city skyline on desert map).
+vec3 desertMesas(vec3 d, vec3 c) {
+  if (d.y > 0.24 || d.y < -0.04) return c;
+  float a = atan(d.x, d.z);
+  float e = d.y;
+  vec3 haze = skyGradient(vec3(d.x, 0.015, d.z));
+  // Far hazy mesa ridge
+  float farWave = 0.028 + 0.024 * sin(a * 3.0 + 0.7) + 0.014 * sin(a * 7.0 - 1.2);
+  float farPlateau = clamp(farWave + 0.018 * smoothstep(0.35, 0.65, sin(a * 5.0 + 2.1)), 0.008, 0.078);
+  c = mix(c, mix(haze, vec3(0.36, 0.22, 0.16), 0.38), step(e, farPlateau));
+  // Nearer flat-topped buttes & sweeping dune line
+  float nearWave = 0.014 + 0.016 * sin(a * 4.0 - 0.5) + 0.010 * sin(a * 11.0 + 1.8);
+  float butte = step(0.55, sin(a * 6.0 + 0.9)) * 0.024 * (1.0 - smoothstep(0.7, 0.95, abs(fract(a * 0.95) - 0.5) * 2.0));
+  float nearTop = max(0.004, nearWave + butte);
+  c = mix(c, mix(haze, vec3(0.24, 0.14, 0.10), 0.62), step(e, nearTop));
+  return c;
 }
 
 // One row of the distant skyline. Returns the silhouette's top at azimuth a, in sine-of-elevation units.
@@ -181,16 +221,23 @@ vec3 skyline(vec3 d, vec3 c) {
 vec3 skyRadiance(vec3 d) {
   vec3 c = skyGradient(d);
   float moonCos = max(dot(d, opMoonDir), 0.0);
-  float halo = pow(moonCos, 180.0) * 0.32 + pow(moonCos, 28.0) * 0.05 + pow(moonCos, 6.0) * 0.012;
-  c += vec3(0.5, 0.64, 0.92) * halo;
-  c += stars(d) * smoothstep(0.03, 0.3, d.y) * (1.0 - min(pow(moonCos, 12.0) * 3.0, 1.0));
+  if (uDawn > 0.5) {
+    float halo = pow(moonCos, 120.0) * 0.9 + pow(moonCos, 20.0) * 0.24 + pow(moonCos, 4.0) * 0.09;
+    c += vec3(1.15, 0.64, 0.28) * halo;
+    c += stars(d) * smoothstep(0.35, 0.75, d.y) * 0.16;
+  } else {
+    float halo = pow(moonCos, 180.0) * 0.32 + pow(moonCos, 28.0) * 0.05 + pow(moonCos, 6.0) * 0.012;
+    c += vec3(0.5, 0.64, 0.92) * halo;
+    c += stars(d) * smoothstep(0.03, 0.3, d.y) * (1.0 - min(pow(moonCos, 12.0) * 3.0, 1.0));
+  }
   float cover;
   vec3 disc = moonDisc(d, cover);
   c = mix(c, disc, cover);
   c = clouds(d, c, pow(moonCos, 10.0) * 0.5 + pow(moonCos, 80.0) * 0.5);
-  c = skyline(d, c);
-  // Below the horizon is a dark ground haze the map hides.
-  if (d.y < 0.0) c = mix(c, vec3(0.02, 0.032, 0.05), clamp(-d.y * 8.0, 0.0, 1.0));
+  c = uDawn > 0.5 ? desertMesas(d, c) : skyline(d, c);
+  // Below the horizon is a ground haze the map hides.
+  vec3 groundHaze = uDawn > 0.5 ? vec3(0.34, 0.22, 0.14) : vec3(0.02, 0.032, 0.05);
+  if (d.y < 0.0) c = mix(c, groundHaze, clamp(-d.y * 8.0, 0.0, 1.0));
   return c;
 }
 `;
@@ -210,10 +257,10 @@ void main() {
   gl_FragColor = vec4(skyRadiance(normalize(vDir)), 1.0);
 }`;
 
-/** Procedural blue-hour dome plus the PMREM environment baked from it. */
+/** Procedural dome (blue-hour night default, golden dawn desert option) plus the PMREM environment baked from it. */
 export class Sky {
   readonly mesh: THREE.Mesh;
-  readonly environment: THREE.Texture;
+  environment: THREE.Texture;
   private readonly material: THREE.ShaderMaterial;
 
   constructor(renderer: THREE.WebGLRenderer, engine: EngineUniforms) {
@@ -224,6 +271,7 @@ export class Sky {
         opMoonDir: engine.opMoonDir,
         opNoise: engine.opNoise,
         uSkyTime: { value: 0 },
+        uDawn: { value: 0 },
       },
       side: THREE.BackSide,
       depthWrite: false,
@@ -238,13 +286,26 @@ export class Sky {
     this.mesh.castShadow = false;
     this.mesh.receiveShadow = false;
 
+    this.environment = this.bakeEnv(renderer);
+  }
+
+  private bakeEnv(renderer: THREE.WebGLRenderer): THREE.Texture {
     const pmrem = new THREE.PMREMGenerator(renderer);
     const envScene = new THREE.Scene();
     const envMesh = new THREE.Mesh(this.mesh.geometry, this.material);
     envMesh.frustumCulled = false;
     envScene.add(envMesh);
-    this.environment = pmrem.fromScene(envScene, 0, 0.1, 100, { size: 256 }).texture;
+    const tex = pmrem.fromScene(envScene, 0, 0.1, 100, { size: 256 }).texture;
     pmrem.dispose();
+    return tex;
+  }
+
+  setDawn(renderer: THREE.WebGLRenderer, on: boolean): void {
+    const target = on ? 1 : 0;
+    if (this.material.uniforms.uDawn!.value === target) return;
+    this.material.uniforms.uDawn!.value = target;
+    this.environment.dispose();
+    this.environment = this.bakeEnv(renderer);
   }
 
   update(time: number): void {

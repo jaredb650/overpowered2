@@ -347,8 +347,8 @@ export class DesertRaid {
         this.door2Opened = false;
         this.door2ClearClock = 0;
         if (!this.setpieces.gateBreached) this.setpieces.shatterMainGate();
-        if (!this.setpieces.towerDropped) this.setpieces.triggerWaterTowerDrop();
         this.setpieces.startPlaneChase(this.makeQuistHooks());
+        if (!this.setpieces.towerDropped) this.setpieces.triggerWaterTowerDrop();
         return;
 
       case 'dr.planeAdvanceTail':

@@ -1499,6 +1499,7 @@ export class DesertSetpieces implements SetpiecesController {
   }
 
   private activateSewerBeacon(): void {
+    if (this._quistState !== 'inactive') return;
     this.sewerBeaconOn = true;
     if (this.sewerBeaconGroup) this.sewerBeaconGroup.visible = true;
     if (this.sewerFlareLight) this.sewerFlareLight.intensity = 5.0;
@@ -1511,6 +1512,14 @@ export class DesertSetpieces implements SetpiecesController {
       );
     }
     this.ctx.hud?.feed?.('NORTH STREET BLOCKED — DROP INTO THE SEWER GRATE!', '#ff9c38');
+  }
+
+  private deactivateSewerBeacon(): void {
+    this.sewerBeaconOn = false;
+    if (this.sewerBeaconGroup) this.sewerBeaconGroup.visible = false;
+    if (this.sewerFlareLight) this.sewerFlareLight.intensity = 0;
+    this.sewerUnmark?.();
+    this.sewerUnmark = null;
   }
 
   private updateSewerBeacon(dt: number): void {
@@ -1531,6 +1540,7 @@ export class DesertSetpieces implements SetpiecesController {
 
   startPlaneChase(hooks: QuistHooks): void {
     this.ensureBuilt();
+    this.deactivateSewerBeacon();
     this.quistHooks = hooks;
     this.quistOutcome = null;
     this._quistState = 'wait_ramp';
