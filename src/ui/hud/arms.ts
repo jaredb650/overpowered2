@@ -8,7 +8,6 @@ import type { HudState } from '../state';
 import { TUNING, WEAPONS as WEAPON_DEFS } from '../../weapons/data';
 import { SLOT_ORDER, familyOf, familyOfSlot } from '../../weapons/families';
 import { LANCE_LOOK, LANCE_ON } from '../../weapons/lance';
-import { AMMO_GUNS, FLECHETTE_GUNS } from '../../weapons/mods';
 import { ROCKET_LASER } from '../../weapons/laser';
 
 const MAX_GRENADE_PIPS = TUNING.grenade.max;
@@ -158,9 +157,17 @@ export class Arms {
       this.magEl.animate(SLAM as unknown as Keyframe[], 140);
     }
     // The Lance wears its mode, which right click toggles, on its name.
-    if (s.weapon === 'lance' && LANCE_ON) this.name.set(`${WEAPONS.lance.name} · ${LANCE_LOOK.ball ? 'BALL' : 'BEAM'}`);
-    // The Rocket's laser sight, which right click toggles.
-    if (WEAPON_DEFS[s.weapon].laser) this.name.set(ROCKET_LASER.sight ? `${WEAPONS[s.weapon].name} · LASER` : WEAPONS[s.weapon].name);
+    if (s.weapon === 'lance' && LANCE_ON) {
+      this.name.set(`${WEAPONS.lance.name} · ${LANCE_LOOK.ball ? 'BALL' : 'BEAM'}`);
+    } else if (WEAPON_DEFS[s.weapon].laser) {
+      // The Rocket's laser sight (RMB toggle) stacks cleanly with WP alt-ammo mode.
+      const parts = [WEAPONS[s.weapon].name];
+      if (s.ammoMode) parts.push(s.ammoMode);
+      if (ROCKET_LASER.sight) parts.push('LASER');
+      this.name.set(parts.join(' · '));
+    } else {
+      this.name.set(s.ammoMode ? `${WEAPONS[s.weapon].name} · ${s.ammoMode}` : WEAPONS[s.weapon].name);
+    }
 
     const melee = s.magSize === 0;
     const count = s.bottomless && !melee ? '∞' : melee ? '–' : String(s.mag);
@@ -172,9 +179,6 @@ export class Arms {
     this.infinite.set(s.bottomless && !melee);
     this.empty.set(!s.bottomless && !melee && s.mag === 0);
     this.lowAmmo.set(!s.bottomless && !melee && s.mag > 0 && ratio <= 0.33);
-    // A gun with a second kind of round, selector, electronic RPM dial, or mod-granted alt ammo wears its active mode on its name.
-    if (WEAPON_DEFS[s.weapon].altAmmo || WEAPON_DEFS[s.weapon].select || WEAPON_DEFS[s.weapon].rateSelect || s.weapon === 'sabot' || s.weapon === 'mgl' || s.weapon === 'satchel' || AMMO_GUNS.includes(s.weapon)
-      || (FLECHETTE_GUNS as readonly WeaponId[]).includes(s.weapon)) this.name.set(s.ammoMode ? `${WEAPONS[s.weapon].name} · ${s.ammoMode}` : WEAPONS[s.weapon].name);
 
     this.reloadRow.set(s.reloading);
     if (s.reloading) this.reload.set(s.reloadProgress);
