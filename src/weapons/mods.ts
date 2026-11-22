@@ -7,7 +7,7 @@
 import type { AmmoLoad } from '../core/contracts';
 import type { ModId, WeaponId } from '../core/gameplay';
 import { ADS_ZOOM } from './adsZoom';
-import { AMMO, WEAPONS, breakLoad, type WeaponDef } from './data';
+import { AMMO, TUNING, WEAPONS, breakLoad, type WeaponDef } from './data';
 
 export interface ModDef {
   id: ModId;
@@ -17,7 +17,7 @@ export interface ModDef {
   /** What it changes in the gun's row. */
   patch: Partial<WeaponDef>;
   /** A gun takes one of each: an optic, and a kind of round. Fitting one takes off any other of its slot on the same gun. */
-  slot?: 'sight' | 'ammo' | 'mag' | 'barrel' | 'choke' | 'hammer' | 'grip' | 'loader' | 'muzzle';
+  slot?: 'sight' | 'ammo' | 'mag' | 'barrel' | 'length' | 'trigger' | 'choke' | 'hammer' | 'grip' | 'loader' | 'muzzle';
   /** What it changes worked out from the row as every fitted mod's `patch` left it: a mod that stacks with another on the same part. */
   adjust?: (def: WeaponDef) => Partial<WeaponDef>;
 }
@@ -47,7 +47,7 @@ const DOT = { zoom: 0.4, time: 0.2 } as const;
 export const AMMO_GUNS: readonly WeaponId[] = ['smg', 'gimlet', 'harrow', 'rivet', 'ultramag', 'autoraffica', 'judge', 'awl', 'flail'];
 
 /** AP and HP specialise in plates and flesh; +P multiplies damage and keeps ball penetration and plate rules. */
-function rounds(gun: WeaponId, load: Exclude<AmmoLoad, 'flechette' | 'api'>): ModDef {
+function rounds(gun: WeaponId, load: Exclude<AmmoLoad, 'flechette' | 'api' | 'dragon'>): ModDef {
   const row = WEAPONS[gun];
   const ap = load === 'ap';
   return {
@@ -64,12 +64,14 @@ function rounds(gun: WeaponId, load: Exclude<AmmoLoad, 'flechette' | 'api'>): Mo
  * The guns that take a weapon light: every rifle, shotgun and pistol, not the heavies or the Sabot. Always on while fitted (no key
  * for it), it is the rig's one spotlight (viewmodels/rig.ts `updateLight`) and changes nothing in the row.
  */
-export const LIGHT_GUNS = ['smg', 'gimlet', 'harrow', 'awl', 'shotgun', 'thresher', 'deuce', 'judge', 'rivet', 'ultramag', 'autoraffica'] as const satisfies readonly WeaponId[];
+export const LIGHT_GUNS = [
+  'smg', 'gimlet', 'harrow', 'bodkin', 'awl', 'shotgun', 'thresher', 'deuce', 'billhook', 'judge', 'rivet', 'ultramag', 'autoraffica',
+] as const satisfies readonly WeaponId[];
 export const lightOf = (gun: (typeof LIGHT_GUNS)[number]): ModId => `${gun}Light`;
 const light = (gun: (typeof LIGHT_GUNS)[number]): ModDef => ({ id: lightOf(gun), weapon: gun, name: 'Weapon light', patch: {} });
 
 /** The guns that take flechettes: every one that fires pellets. The Judge fires one slug, so it does not. */
-export const FLECHETTE_GUNS = ['shotgun', 'thresher', 'deuce'] as const satisfies readonly WeaponId[];
+export const FLECHETTE_GUNS = ['shotgun', 'thresher', 'deuce', 'billhook'] as const satisfies readonly WeaponId[];
 export const flechetteOf = (gun: (typeof FLECHETTE_GUNS)[number]): ModId => `${gun}Flechette`;
 /**
  * Flechettes, the shotguns' AP (AMMO.flechette): 3.5 times the pellets, each a quarter of one, in the gun's own cone, with a
@@ -87,7 +89,17 @@ function flechette(gun: (typeof FLECHETTE_GUNS)[number]): ModDef {
   };
 }
 
-/** The guns that take API rounds: the Harrow for now. Another gun takes them by joining this list (and ModId). */
+/** The guns that take Dragon's breath: the Thresher and the Billhook (Q9 default). */
+export const DRAGON_GUNS = ['thresher', 'billhook'] as const satisfies readonly WeaponId[];
+export const dragonOf = (gun: (typeof DRAGON_GUNS)[number]): ModId => `${gun}Dragon`;
+function dragon(gun: (typeof DRAGON_GUNS)[number]): ModDef {
+  return {
+    id: dragonOf(gun), weapon: gun, name: "Dragon's breath", slot: 'ammo',
+    patch: { load: 'dragon', tracer: 'dragon' },
+  };
+}
+
+/** The guns that take API rounds: the Harrow and the Flail. Another gun takes them by joining this list (and ModId). */
 export const API_GUNS = ['harrow', 'flail'] as const satisfies readonly WeaponId[];
 export const apiOf = (gun: (typeof API_GUNS)[number]): ModId => `${gun}Api`;
 /** API, armour-piercing incendiary: the gun's AP round (`rounds`), traced red, that sometimes sets the man alight (AMMO.api). */
@@ -95,6 +107,18 @@ function incendiary(gun: (typeof API_GUNS)[number]): ModDef {
   const ap = rounds(gun, 'ap');
   return { ...ap, id: apiOf(gun), name: 'API rounds', patch: { ...ap.patch, load: 'api', tracer: 'api' } };
 }
+
+/**
+ * Flared magwell: 15% faster reload (`adjust` runs last, so it stacks with extended magazines and with akimbo's doubled reload).
+ * Another gun joins by adding its id here (and ModId).
+ */
+export const MAGWELL_GUNS = ['harrow', 'gimlet', 'ultramag', 'rivet', 'bodkin'] as const satisfies readonly WeaponId[];
+export const magwellOf = (gun: (typeof MAGWELL_GUNS)[number]): ModId => `${gun}Magwell`;
+export const MAGWELL_SCALE = 0.85;
+const magwell = (gun: (typeof MAGWELL_GUNS)[number]): ModDef => ({
+  id: magwellOf(gun), weapon: gun, name: 'Flared magwell', slot: 'loader', patch: {},
+  adjust: d => ({ reloadTime: d.reloadTime * MAGWELL_SCALE }),
+});
 
 /**
  * The guns that take akimbo: the SMG and the four pistols. A second one in the left hand (viewmodels/models/index.ts `leftOf`), the
@@ -111,6 +135,17 @@ export const AKIMBO_ADS = { zoom: 0.3, time: 0.15 } as const;
 const akimbo = (gun: (typeof AKIMBO_GUNS)[number]): ModDef => ({
   id: akimboOf(gun), weapon: gun, name: 'Akimbo', slot: 'sight', patch: { akimbo: true, ads: AKIMBO_ADS },
   adjust: d => ({ magSize: d.magSize * 2, reloadTime: d.reloadTime * 2 }),
+});
+
+/**
+ * Riot shield: fits any of the four pistols in the `sight` slot (excludes akimbo). Always held up while the pistol is out;
+ * replaces ADS (and the Judge's fan) with a shield bash on right click.
+ */
+export const SHIELD_GUNS = ['rivet', 'ultramag', 'judge', 'autoraffica'] as const satisfies readonly WeaponId[];
+export const shieldOf = (gun: (typeof SHIELD_GUNS)[number]): ModId => `${gun}Shield`;
+const shield = (gun: (typeof SHIELD_GUNS)[number]): ModDef => ({
+  id: shieldOf(gun), weapon: gun, name: 'Riot shield', slot: 'sight',
+  patch: { shield: true, ads: undefined, altFan: undefined },
 });
 
 export const MODS: Readonly<Record<ModId, ModDef>> = {
@@ -142,6 +177,10 @@ export const MODS: Readonly<Record<ModId, ModDef>> = {
   reddot: { id: 'reddot', weapon: 'harrow', name: 'Red dot sight', patch: {}, slot: 'sight' },
   // The ACOG (viewmodels/models/optics.ts), the Gimlet's own, for the Harrow: the view narrows to it.
   harrowAcog: { id: 'harrowAcog', weapon: 'harrow', name: 'ACOG', patch: { ads: ACOG }, slot: 'sight' },
+  // Harrow wishlist: short barrel (+15% rate, 600→690 rpm), muzzle brake (+5%, stacks to ~725 rpm), 40-round magazine.
+  harrowShort: { id: 'harrowShort', weapon: 'harrow', name: 'Short barrel', slot: 'barrel', patch: { interval: WEAPONS.harrow.interval / 1.15 } },
+  harrowBrake: { id: 'harrowBrake', weapon: 'harrow', name: 'Muzzle brake', slot: 'muzzle', patch: {}, adjust: d => ({ interval: d.interval / 1.05 }) },
+  harrowMag: { id: 'harrowMag', weapon: 'harrow', name: 'Extended magazine', slot: 'mag', patch: { magSize: 40 } },
   // Every dart is a Raufoss round (raufoss.ts), as the Piledriver's held R loads. The Sabot's right click stays its scope.
   raufoss: { id: 'raufoss', weapon: 'sabot', name: 'Raufoss rounds', patch: { raufoss: true } },
   // A T-shaped brake on the dart's barrel: less kick to wait out, so the next dart is a quarter sooner (0.45 to 0.36 s).
@@ -158,6 +197,11 @@ export const MODS: Readonly<Record<ModId, ModDef>> = {
   // Every shell a proximity-fused air burst that throws a cone of shrapnel down its line (flak.ts), in place of the 5 m instakill.
   // The autocannon's one round, so no slot, as the Sabot's Raufoss.
   autocannonFlak: { id: 'autocannonFlak', weapon: 'autocannon', name: 'Flak shells', patch: { flak: true } },
+  // Autocannon longer barrel: 200→280 m/s shell velocity, and 900→1150 direct damage on bosses, vehicles and the mech.
+  autocannonBarrel: {
+    id: 'autocannonBarrel', weapon: 'autocannon', name: 'Longer barrel', slot: 'barrel',
+    patch: { shell: { speed: 280, bossDamage: 1150 } },
+  },
   // Optics on a short rail behind the Piledriver's feed cover; the ladder folds. The view narrows as the other guns' do.
   piledriverDot: { id: 'piledriverDot', weapon: 'piledriver', name: 'Red dot sight', slot: 'sight', patch: { ads: DOT } },
   piledriverAcog: { id: 'piledriverAcog', weapon: 'piledriver', name: 'ACOG', slot: 'sight', patch: { ads: ACOG } },
@@ -174,6 +218,17 @@ export const MODS: Readonly<Record<ModId, ModDef>> = {
   // A short barrel cut back to the launcher's mouth: the gas port nearer the muzzle cycles it 15% faster (800 to 920 a minute,
   // a short carbine's real gain). The can screws onto it and the launcher still fits, so it stacks with both.
   gimletShort: { id: 'gimletShort', weapon: 'gimlet', name: 'Short barrel', slot: 'barrel', patch: { interval: WEAPONS.gimlet.interval / 1.15 } },
+  // Gimlet long barrel: 800→760 rpm, 40→48 damage (scales ammo mods), +0.4 m penetration, full damage to 90 m, breaks plates;
+  // with AP rounds fitted, ignores armour plates entirely like the Awl's extended barrel.
+  gimletLong: {
+    id: 'gimletLong', weapon: 'gimlet', name: 'Long barrel', slot: 'barrel',
+    patch: { interval: 60 / 760, armour: 'medium', falloff: { from: 90, to: 140, floor: 0.75 }, tracer: 'scoutLong' },
+    adjust: d => ({
+      damage: d.damage * (48 / WEAPONS.gimlet.damage),
+      penetration: d.load === 'hp' ? 0 : d.penetration + AWL_BARREL.penetration,
+      ...(d.load === 'ap' ? { armorPiercing: true } : {}),
+    }),
+  },
   // Extended magazines: more rounds and nothing else. The Piledriver's is a box twice the size, 100 rounds of belt where it was 50;
   // the SMG's a 50-round stick where it was 30.
   smgMag: { id: 'smgMag', weapon: 'smg', name: 'Extended magazine', slot: 'mag', patch: { magSize: 50 } },
@@ -185,6 +240,17 @@ export const MODS: Readonly<Record<ModId, ModDef>> = {
   swordEnergy: { id: 'swordEnergy', weapon: 'sword', name: 'Energy blade', patch: {} },
   smgStock: { id: 'smgStock', weapon: 'smg', name: 'Stock', patch: { breath: { hold: ADS_ZOOM.hold * 1.6, cooldown: ADS_ZOOM.cooldown * 0.7 } } },
   rivetMag: { id: 'rivetMag', weapon: 'rivet', name: 'Extended magazine', slot: 'mag', patch: { magSize: 22 } },
+  // Rivet's new mods (mirroring the Ultramag's): suppressor, compensator, reflex sight, laser module.
+  rivetCan: {
+    id: 'rivetCan', weapon: 'rivet', name: 'Suppressor', slot: 'muzzle',
+    patch: { muzzle: 'suppressed', sounds: [{ id: 'rivet_suppressed_shot', pitchJitter: 0.04 }] },
+  },
+  rivetDot: { id: 'rivetDot', weapon: 'rivet', name: 'Reflex sight', patch: {} },
+  rivetLam: { id: 'rivetLam', weapon: 'rivet', name: 'Laser module', patch: { interval: WEAPONS.rivet.interval / 1.25 } },
+  rivetComp: {
+    id: 'rivetComp', weapon: 'rivet', name: 'Compensator', slot: 'muzzle', patch: {},
+    adjust: d => ({ interval: d.interval / COMP.rate, kick: d.kick * COMP.flip }),
+  },
   piledriverBox: { id: 'piledriverBox', weapon: 'piledriver', name: 'Extended box', slot: 'mag', patch: { magSize: 100 } },
   smgAp: rounds('smg', 'ap'), smgHp: rounds('smg', 'hp'),
   gimletAp: rounds('gimlet', 'ap'), gimletHp: rounds('gimlet', 'hp'),
@@ -217,25 +283,118 @@ export const MODS: Readonly<Record<ModId, ModDef>> = {
     id: 'deuceQuad', weapon: 'deuce', name: 'Quad barrels', slot: 'barrel',
     patch: { magSize: 4, ...breakLoad(4), altBoth: { ...WEAPONS.deuce.altBoth!, kick: 1.4, push: 3.5 } },
   },
+  // Deuce long barrel: stacks with Quad barrels (`length` slot); tightens spread 0.075→0.05 and holds damage out to 14 m.
+  deuceLong: {
+    id: 'deuceLong', weapon: 'deuce', name: 'Long barrel', slot: 'length',
+    patch: { spread: 0.05, falloff: { from: 14, to: 30, floor: 0.3 } },
+  },
   // Two shells a hand: the double loads in one go (1.26 s), the quad in two (1.5 s, the plain double's time).
   deuceLoader: { id: 'deuceLoader', weapon: 'deuce', name: 'Speed loader', slot: 'loader', patch: {}, adjust: d => breakLoad(d.magSize / 2) },
-  // The pump's: a tighter cone, 0.05 to 0.03, so the pellets stay together further out.
-  shotgunChoke: { id: 'shotgunChoke', weapon: 'shotgun', name: 'Choke', slot: 'choke', patch: { spread: 0.03 } },
+  // The pump's: a tighter cone, 0.05 to 0.03, so the pellets stay together further out. Excludes Sawed-off (`barrel` slot).
+  shotgunChoke: { id: 'shotgunChoke', weapon: 'shotgun', name: 'Choke', slot: 'barrel', patch: { spread: 0.03 } },
+  // Sawed-off barrel: 4 shells, wide 0.085 spread, 34 damage a pellet, Deuce's short reach. Excludes Choke.
+  shotgunSawedOff: {
+    id: 'shotgunSawedOff', weapon: 'shotgun', name: 'Sawed-off barrel', slot: 'barrel',
+    patch: { magSize: 4, spread: 0.085, falloff: { from: 9, to: 26, floor: 0.3 } },
+    adjust: d => ({ damage: d.damage * (34 / WEAPONS.shotgun.damage) }),
+  },
+  // Pump greased bolt: 75% cycle time (0.55 → 0.4125 s), matching Awl's GREASE.
+  shotgunBolt: {
+    id: 'shotgunBolt', weapon: 'shotgun', name: 'Greased bolt',
+    patch: {
+      interval: WEAPONS.shotgun.interval * GREASE,
+      cycleFoley: WEAPONS.shotgun.cycleFoley!.map(([at, id]) => [at * GREASE, id] as const),
+    },
+  },
   // The Judge's fanning: a bar every 0.28 s where it was 0.4, and up to six bars, a chamber each, where it was three.
-  judgeHammer: { id: 'judgeHammer', weapon: 'judge', name: 'Extended hammer', slot: 'hammer', patch: {}, adjust: d => ({ altFan: { ...d.altFan!, perBar: 0.28 } }) },
-  judgeGrip: { id: 'judgeGrip', weapon: 'judge', name: 'Comfort grip', slot: 'grip', patch: {}, adjust: d => ({ altFan: { ...d.altFan!, bars: 6 } }) },
-  smgLight: light('smg'), gimletLight: light('gimlet'), harrowLight: light('harrow'), awlLight: light('awl'),
-  shotgunLight: light('shotgun'), thresherLight: light('thresher'), deuceLight: light('deuce'),
+  judgeHammer: {
+    id: 'judgeHammer', weapon: 'judge', name: 'Extended hammer', slot: 'hammer', patch: {},
+    adjust: d => (d.altFan ? { altFan: { ...d.altFan, perBar: 0.28 } } : {}),
+  },
+  judgeGrip: {
+    id: 'judgeGrip', weapon: 'judge', name: 'Comfort grip', slot: 'grip', patch: {},
+    adjust: d => (d.altFan ? { altFan: { ...d.altFan, bars: 6 } } : {}),
+  },
+  // Judge extended barrel (120→150 damage) and compensator (fan charge 20% faster, stacks with hammer; 30% less kick).
+  judgeLong: {
+    id: 'judgeLong', weapon: 'judge', name: 'Extended barrel', slot: 'barrel', patch: {},
+    adjust: d => ({ damage: d.damage * (150 / WEAPONS.judge.damage) }),
+  },
+  judgeComp: {
+    id: 'judgeComp', weapon: 'judge', name: 'Compensator', slot: 'muzzle', patch: {},
+    adjust: d => ({ kick: d.kick * 0.7, ...(d.altFan ? { altFan: { ...d.altFan, perBar: d.altFan.perBar * 0.8 } } : {}) }),
+  },
+  // Launchers wishlist: Rocket longer tube & WP rockets; MGL long barrel & enhanced trigger; Howitzer cluster shell.
+  rocketTube: {
+    id: 'rocketTube', weapon: 'rocket', name: 'Longer tube', slot: 'barrel',
+    patch: { damage: 130, rocket: { speed: 56, laserTurn: TUNING.rocket.laserTurn * (56 / TUNING.rocket.speed) } },
+  },
+  rocketWp: {
+    id: 'rocketWp', weapon: 'rocket', name: 'WP rockets',
+    patch: { wp: true, altAmmo: { label: 'WP', hold: 0.3 } },
+  },
+  mglLong: {
+    id: 'mglLong', weapon: 'mgl', name: 'Long barrel', slot: 'barrel',
+    patch: { damage: 105, grenade: { ...WEAPONS.mgl.grenade!, speed: 70 } },
+  },
+  mglTrigger: {
+    id: 'mglTrigger', weapon: 'mgl', name: 'Enhanced trigger', slot: 'trigger',
+    patch: { interval: 0.27 },
+  },
+  howitzerCluster: {
+    id: 'howitzerCluster', weapon: 'howitzer', name: 'Cluster shell',
+    patch: { cluster: true, altAmmo: { label: 'CLUSTER', hold: 0.3 } },
+  },
+  smgLight: light('smg'), gimletLight: light('gimlet'), harrowLight: light('harrow'), bodkinLight: light('bodkin'), awlLight: light('awl'),
+  shotgunLight: light('shotgun'), thresherLight: light('thresher'), deuceLight: light('deuce'), billhookLight: light('billhook'),
   judgeLight: light('judge'), rivetLight: light('rivet'), ultramagLight: light('ultramag'), autorafficaLight: light('autoraffica'),
   // The Flail's: a red dot or an ACOG on the feed cover's rail, one or the other; a box of 200 where it was 100, a beat longer to
-  // swap; and the rifles' three kinds of round.
+  // swap; heavy M60/MG42-inspired barrel (880 rpm, 44 dmg, Harrow penetration/armour); enhanced stock; and the rifles' rounds.
   flailDot: { id: 'flailDot', weapon: 'flail', name: 'Red dot sight', slot: 'sight', patch: { ads: DOT } },
   flailAcog: { id: 'flailAcog', weapon: 'flail', name: 'ACOG', slot: 'sight', patch: { ads: ACOG } },
   flailBox: { id: 'flailBox', weapon: 'flail', name: 'Large box', slot: 'mag', patch: { magSize: 200, reloadTime: 3.1 } },
+  flailHeavy: {
+    id: 'flailHeavy', weapon: 'flail', name: 'Heavy barrel', slot: 'barrel',
+    patch: { interval: 60 / 880, armour: 'medium' },
+    adjust: d => ({
+      damage: d.damage * (44 / WEAPONS.flail.damage),
+      penetration: d.load === 'hp' ? 0 : d.penetration + 0.3,
+    }),
+  },
+  flailStock: {
+    id: 'flailStock', weapon: 'flail', name: 'Enhanced stock',
+    patch: { breath: { hold: ADS_ZOOM.hold * 1.6, cooldown: ADS_ZOOM.cooldown * 0.7 } },
+  },
   flailAp: rounds('flail', 'ap'), flailHp: rounds('flail', 'hp'), flailPlusP: rounds('flail', 'plusP'),
+  // Billhook mods: reflex sight, laser (faster ADS), extended 11-shell tube, slugs (1x200, spread 0, medium armour), plus light/flechette/dragon.
+  billhookDot: { id: 'billhookDot', weapon: 'billhook', name: 'Reflex sight', slot: 'sight', patch: { ads: DOT } },
+  billhookLam: {
+    id: 'billhookLam', weapon: 'billhook', name: 'Laser sight', patch: {},
+    adjust: d => (d.ads ? { ads: { ...d.ads, time: d.ads.time * 0.7 } } : {}),
+  },
+  billhookTube: { id: 'billhookTube', weapon: 'billhook', name: 'Extended tube', slot: 'mag', patch: { magSize: 11 } },
+  billhookSlug: {
+    id: 'billhookSlug', weapon: 'billhook', name: 'Slugs', slot: 'ammo',
+    patch: { pellets: 1, spread: 0, damage: 200, armour: 'medium', severMult: 2.8, force: 55, tracer: 'heavy', impactScale: 1.5 },
+  },
+  // Bodkin mods: 4x optic, 36-round clear mag, 5-round burst, tungsten darts (3.2 m pen, 65 dmg on bosses/vehicles), plus light/magwell.
+  bodkinAcog: { id: 'bodkinAcog', weapon: 'bodkin', name: '4x optic', slot: 'sight', patch: { ads: ACOG } },
+  bodkinMag: { id: 'bodkinMag', weapon: 'bodkin', name: 'Extended magazine', slot: 'mag', patch: { magSize: 36 } },
+  bodkinBurst5: {
+    id: 'bodkinBurst5', weapon: 'bodkin', name: '5-round burst',
+    patch: { select: { hold: 0.3, modes: ['burst', 'semi'], burst: { rounds: 5, recover: 0.38 } } },
+  },
+  bodkinTungsten: {
+    id: 'bodkinTungsten', weapon: 'bodkin', name: 'Tungsten darts', slot: 'ammo',
+    patch: { penetration: 3.2, bossDamage: 65, tracer: 'sabot' },
+  },
   smgAkimbo: akimbo('smg'), rivetAkimbo: akimbo('rivet'), ultramagAkimbo: akimbo('ultramag'), judgeAkimbo: akimbo('judge'),
   autorafficaAkimbo: akimbo('autoraffica'),
-  shotgunFlechette: flechette('shotgun'), thresherFlechette: flechette('thresher'), deuceFlechette: flechette('deuce'),
+  rivetShield: shield('rivet'), ultramagShield: shield('ultramag'), judgeShield: shield('judge'), autorafficaShield: shield('autoraffica'),
+  harrowMagwell: magwell('harrow'), gimletMagwell: magwell('gimlet'), ultramagMagwell: magwell('ultramag'),
+  rivetMagwell: magwell('rivet'), bodkinMagwell: magwell('bodkin'),
+  shotgunFlechette: flechette('shotgun'), thresherFlechette: flechette('thresher'), deuceFlechette: flechette('deuce'), billhookFlechette: flechette('billhook'),
+  thresherDragon: dragon('thresher'), billhookDragon: dragon('billhook'),
   harrowApi: incendiary('harrow'), flailApi: incendiary('flail'),
   // 40mm FireStorm: swaps Metal Storm's 36-barrel small-bore block for a stacked 40mm HE grenade matrix.
   metalstorm40mm: {
@@ -290,18 +449,27 @@ export const MODS: Readonly<Record<ModId, ModDef>> = {
 
 export const MOD_ORDER: readonly ModId[] = [
   'awlAcog', 'awl50', 'awlCan', 'awlAp', 'awlHp', 'awlPlusP', 'awlBarrel', 'awlBolt',
-  'suppressor', 'smgAp', 'smgHp', 'smgPlusP', 'gimletAcog', 'gimletDot', 'gimletCan', 'gimletGl', 'gimletAp', 'gimletHp', 'gimletPlusP',
-  'reddot', 'harrowAcog', 'harrowAp', 'harrowHp', 'harrowPlusP', 'raufoss', 'rivetAp', 'rivetHp', 'rivetPlusP', 'ultramagAp', 'ultramagHp', 'ultramagPlusP', 'judgeAp', 'judgeHp', 'judgePlusP',
+  'suppressor', 'smgAp', 'smgHp', 'smgPlusP', 'gimletAcog', 'gimletDot', 'gimletCan', 'gimletGl', 'gimletAp', 'gimletHp', 'gimletPlusP', 'gimletLong',
+  'reddot', 'harrowAcog', 'harrowAp', 'harrowHp', 'harrowPlusP', 'harrowShort', 'harrowBrake', 'harrowMag',
+  'bodkinAcog', 'bodkinMag', 'bodkinBurst5', 'bodkinTungsten',
+  'raufoss', 'rivetAp', 'rivetHp', 'rivetPlusP', 'ultramagAp', 'ultramagHp', 'ultramagPlusP', 'judgeAp', 'judgeHp', 'judgePlusP',
   'autorafficaAp', 'autorafficaHp', 'autorafficaPlusP', 'autorafficaMag',
-  'sabotBrake', 'trommel12', 'autocannonFlak', 'piledriverDot', 'piledriverAcog',
+  'sabotBrake', 'trommel12', 'autocannonFlak', 'autocannonBarrel', 'piledriverDot', 'piledriverAcog',
   'ultramagCan', 'ultramagDot', 'ultramagLam', 'ultramagMag', 'ultramagComp',
+  'rivetCan', 'rivetDot', 'rivetLam', 'rivetComp',
   'smgMag', 'smgTape', 'smgStock', 'swordEnergy', 'gimletShort', 'rivetMag', 'piledriverBox',
-  'deuceQuad', 'deuceLoader', 'shotgunChoke', 'judgeHammer', 'judgeGrip',
-  'flailDot', 'flailAcog', 'flailBox', 'flailAp', 'flailHp', 'flailPlusP',
+  'deuceQuad', 'deuceLong', 'deuceLoader', 'shotgunChoke', 'shotgunSawedOff', 'shotgunBolt',
+  'billhookDot', 'billhookLam', 'billhookTube', 'billhookSlug',
+  'judgeHammer', 'judgeGrip', 'judgeLong', 'judgeComp',
+  'rocketTube', 'rocketWp', 'mglLong', 'mglTrigger', 'howitzerCluster',
+  'flailDot', 'flailAcog', 'flailBox', 'flailAp', 'flailHp', 'flailPlusP', 'flailHeavy', 'flailStock',
   'metalstorm40mm', 'mglSticky',
   ...LIGHT_GUNS.map(lightOf),
   ...AKIMBO_GUNS.map(akimboOf),
+  ...SHIELD_GUNS.map(shieldOf),
+  ...MAGWELL_GUNS.map(magwellOf),
   ...FLECHETTE_GUNS.map(flechetteOf),
+  ...DRAGON_GUNS.map(dragonOf),
   ...API_GUNS.map(apiOf),
 ];
 

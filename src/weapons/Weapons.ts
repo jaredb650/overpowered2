@@ -1974,6 +1974,7 @@ export class Weapons implements WeaponSystem, Guard {
     p.headshotMult = def.headshotMult;
     p.killStop = 0;
     p.silent = false;
+    p.bossDamage = undefined;
     p.visualFrom = this.muzzleAt;
     unguided(p);
     return p;
@@ -1984,8 +1985,10 @@ export class Weapons implements WeaponSystem, Guard {
     const hell = m.instakillBlast;
     const kind: ExplosionKind = hell ? 'hellfire' : 'rocket';
     const damage = def.damage * m.damage;
-    const p = this.fillProjectile('rocket', def, TUNING.rocket.speed, damage, hell ? 'hellfire' : 'smoke');
+    const speed = def.rocket?.speed ?? TUNING.rocket.speed;
+    const p = this.fillProjectile('rocket', def, speed, damage, hell ? 'hellfire' : 'smoke');
     p.wired = def.laser === true;
+    if (def.rocket?.laserTurn) p.turnRate = def.rocket.laserTurn;
     p.gib = true;
     p.killStop = HIT_STOP.heavyKill;
     p.explosion = {
@@ -2000,14 +2003,17 @@ export class Weapons implements WeaponSystem, Guard {
       return;
     }
     const t = TUNING.autocannon;
-    const p = this.fillProjectile('shell', def, t.speed, def.damage, 'rings');
+    const speed = def.shell?.speed ?? t.speed;
+    const p = this.fillProjectile('shell', def, speed, def.damage, 'rings');
     p.killStop = HIT_STOP.heavyKill;
     p.gib = true;
+    p.bossDamage = def.shell?.bossDamage;
     p.explosion = { radius: t.radius, damage: def.damage, kind: 'shell', instakill: true, selfDamage: 0 };
     if (def.flak) {
       // Not the instakill shell: what it does is its burst's shrapnel (flak.ts), and a square hit is a hard knock, no more.
       p.flak = true;
       p.damage = FLAK.direct;
+      p.bossDamage = undefined;
       p.explosion = { radius: FLAK.radius, damage: FLAK.blast, kind: 'shell', selfDamage: 0, playerPush: 0 };
     }
     this.combat.spawnProjectile(p);

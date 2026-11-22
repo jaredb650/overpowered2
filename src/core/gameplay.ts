@@ -38,7 +38,10 @@ export type WeaponId =
   // Throw-and-stick demolition satchel charges with remote RMB clacker on key 3.
   | 'satchel'
   // Shoulder-fired 105mm recoilless artillery howitzer on key 3.
-  | 'howitzer';
+  | 'howitzer'
+  // Weapons wishlist (docs/proposals/weapons-wishlist.md): semi-auto combat shotgun (key 2), flechette bullpup (key 1),
+  // microwave gun (key 7), and harpoon cannon (key 0).
+  | 'billhook' | 'bodkin' | 'autoclave' | 'gaff';
 
 /**
  * A weapon mod (src/weapons/mods.ts): the SMG's suppressor, the Harrow's red dot and ACOG, the Sabot's Raufoss rounds, the
@@ -67,9 +70,9 @@ export type ModId = 'awlAcog' | 'awlCan' | 'awlAp' | 'awlHp' | 'suppressor' | 'r
   | 'swordEnergy'
   // The weapon light, one a gun: every rifle, shotgun and pistol (weapons/mods.ts LIGHT_GUNS).
   | 'smgLight' | 'gimletLight' | 'harrowLight' | 'awlLight' | 'shotgunLight' | 'thresherLight' | 'deuceLight'
-  | 'judgeLight' | 'rivetLight' | 'ultramagLight' | 'autorafficaLight'
+  | 'judgeLight' | 'rivetLight' | 'ultramagLight' | 'autorafficaLight' | 'billhookLight' | 'bodkinLight'
   // Flechettes for every shotgun and API rounds for the Harrow (weapons/mods.ts FLECHETTE_GUNS, API_GUNS).
-  | 'shotgunFlechette' | 'thresherFlechette' | 'deuceFlechette' | 'harrowApi' | 'flailApi'
+  | 'shotgunFlechette' | 'thresherFlechette' | 'deuceFlechette' | 'billhookFlechette' | 'harrowApi' | 'flailApi'
   // Akimbo: a second gun of the same in the left hand (weapons/mods.ts AKIMBO_GUNS).
   | 'smgAkimbo' | 'rivetAkimbo' | 'ultramagAkimbo' | 'judgeAkimbo' | 'autorafficaAkimbo'
   // The Flail's red dot and ACOG, its 200-round box, and AP, HP and +P rounds.
@@ -77,7 +80,22 @@ export type ModId = 'awlAcog' | 'awlCan' | 'awlAp' | 'awlHp' | 'suppressor' | 'r
   // Metal Storm's 40mm FireStorm grenade matrix conversion.
   | 'metalstorm40mm'
   // Milkor MGL's Sticky Bomb 40mm conversion.
-  | 'mglSticky';
+  | 'mglSticky'
+  // Rifles wishlist: Gimlet long barrel, Harrow short barrel/brake/40-rd mag, Flail heavy barrel/stock.
+  | 'gimletLong' | 'harrowShort' | 'harrowBrake' | 'harrowMag' | 'flailHeavy' | 'flailStock'
+  // Flared magwells (weapons/mods.ts MAGWELL_GUNS): 15% faster reload.
+  | 'harrowMagwell' | 'gimletMagwell' | 'ultramagMagwell' | 'rivetMagwell' | 'bodkinMagwell'
+  // Shotguns wishlist: pump sawed-off & greased bolt, Thresher & Billhook dragon's breath, Deuce long barrel.
+  | 'shotgunSawedOff' | 'shotgunBolt' | 'thresherDragon' | 'billhookDragon' | 'deuceLong'
+  // Launchers & key 4 wishlist: Rocket tube & WP, MGL long barrel & trigger, Howitzer cluster, Autocannon barrel.
+  | 'rocketTube' | 'rocketWp' | 'mglLong' | 'mglTrigger' | 'howitzerCluster' | 'autocannonBarrel'
+  // Pistols wishlist: Judge extended barrel & compensator; Rivet comp, suppressor, reflex, laser; Riot shield (SHIELD_GUNS).
+  | 'judgeLong' | 'judgeComp' | 'rivetComp' | 'rivetCan' | 'rivetDot' | 'rivetLam'
+  | 'rivetShield' | 'ultramagShield' | 'judgeShield' | 'autorafficaShield'
+  // Billhook mods: reflex, laser, extended tube, slugs (light, flechette, dragon above).
+  | 'billhookDot' | 'billhookLam' | 'billhookTube' | 'billhookSlug'
+  // Bodkin mods: 4x optic, extended mag, 5-round burst, tungsten darts (light, magwell above).
+  | 'bodkinAcog' | 'bodkinMag' | 'bodkinBurst5' | 'bodkinTungsten';
 
 export type Team = 'player' | 'enemy';
 
@@ -387,6 +405,8 @@ export interface ShotSpec {
    * is a real explosion, and which takes its place while both are set.
    */
   burst?: BurstSpec;
+  /** Damage override on bosses and vehicles (e.g. Bodkin tungsten darts). */
+  bossDamage?: number;
 }
 
 /**
@@ -462,6 +482,8 @@ export interface ProjectileSpec {
   kind: 'rocket' | 'shell' | 'grenade' | 'bullet' | 'plasma' | 'stake' | 'flame';
   team: Team;
   damage: number;
+  /** Damage override on bosses, vehicles and the mech (e.g. Autocannon longer barrel: 1150 vs 900). */
+  bossDamage?: number;
   source: string;
   /** Set for projectiles that explode. */
   explosion?: Omit<ExplosionSpec, 'team' | 'source'>;

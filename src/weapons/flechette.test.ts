@@ -33,10 +33,10 @@ function blast(pellets: number, damage: number, plates: number, hp: number, load
 
 describe('flechettes (AMMO.flechette)', () => {
   it('fit every pellet gun, three and a half times the pellets at a quarter each, in the same cone', () => {
-    expect(FLECHETTE_GUNS).toEqual(['shotgun', 'thresher', 'deuce']);
+    expect(FLECHETTE_GUNS).toEqual(['shotgun', 'thresher', 'deuce', 'billhook']);
     // The Judge fires one slug, not shells of pellets.
     expect(WEAPONS.judge.pellets).toBe(1);
-    const counts = { shotgun: 21, thresher: 14, deuce: 28 };
+    const counts = { shotgun: 21, thresher: 14, deuce: 28, billhook: 21 };
     for (const gun of FLECHETTE_GUNS) {
       const row = WEAPONS[gun];
       const def = moddedDef(gun, new Set([flechetteOf(gun)]));

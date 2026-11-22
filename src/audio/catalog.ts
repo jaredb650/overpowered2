@@ -221,6 +221,8 @@ const gunShots: SoundDef[] = [
   shot('gimlet_suppressed_shot', 'guns/gimlet_suppressed_shot.mp3', 'gun', 0.115, 0.118, { send: 0.08 }),
   // The Autoraffica (the owner's, 2026-11-16): a suppressed pistol fired three at a time, so under the suppressed SMG.
   shot('autoraffica_shot', 'guns/autoraffica_shot.mp3', 'gun', 0.1, 0.243, { send: 0.08 }),
+  // The Rivet through its suppressor mod (2026-11-22): reuses the suppressed 9 mm pistol sample at single-shot level.
+  shot('rivet_suppressed_shot', 'guns/autoraffica_shot.mp3', 'gun', 0.11, 0.243, { send: 0.08 }),
   // Its under-barrel launcher (the owner's, 2026-11-15): a heavier report than the rifle, under the shotguns.
   shot('launcher_thump', 'guns/launcher_thump.mp3', 'gun', 0.19, 0.27, { send: 0.2 }),
   // The Milkor MGL (the owner's, 2026-11-22): revolving 40 mm grenade-launcher thoomp, fuller than the under-barrel tube.

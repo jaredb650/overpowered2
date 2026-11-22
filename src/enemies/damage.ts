@@ -309,8 +309,9 @@ export function plateShatterChance(d: Pick<DamageInfo, 'amount' | 'type' | 'sour
 export const dartBleed = (load: AmmoLoad | undefined, amount: number): number => (load === 'flechette' ? amount * AMMO.flechette.bleed : 0);
 /** What of a flechette pool bleeds out over `dt`: 1 / AMMO.flechette.bleedSeconds of it a second, never under 1 hp a second, so it ends. */
 export const drainDarts = (pool: number, dt: number): number => Math.min(pool, Math.max(pool / AMMO.flechette.bleedSeconds, 1) * dt);
-/** Whether a round that reached flesh sets the man alight, for a roll in 0..1: an API round, AMMO.api.ignite of the time. */
-export const ignites = (load: AmmoLoad | undefined, roll: number): boolean => load === 'api' && roll < AMMO.api.ignite;
+/** Whether a round that reached flesh sets the man alight, for a roll in 0..1: API or Dragon's breath. */
+export const ignites = (load: AmmoLoad | undefined, roll: number): boolean =>
+  (load === 'api' && roll < AMMO.api.ignite) || (load === 'dragon' && roll < AMMO.dragon.ignite);
 export const STRAY_TANK_RADIUS = 0.8;
 /** Share of a shot tank's blast that reaches the player who shot it. Too close is a mistake, not a death sentence. */
 const TANK_SELF_DAMAGE = 0.35;

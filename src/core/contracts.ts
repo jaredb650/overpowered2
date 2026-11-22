@@ -88,7 +88,7 @@ export interface DamageInfo {
 }
 
 /** A gun's ammo mod: armour-piercing, hollow-point or +P (ball rules, more damage). Unset is standard ball. */
-export type AmmoLoad = 'ap' | 'hp' | 'plusP' | 'flechette' | 'api';
+export type AmmoLoad = 'ap' | 'hp' | 'plusP' | 'flechette' | 'api' | 'dragon';
 
 export interface RayHit {
   point: THREE.Vector3;
@@ -544,7 +544,7 @@ export interface CorpseHit {
 // ---------------------------------------------------------------------------------------------
 
 export type MuzzleKind = 'smg' | 'rifle' | 'shotgun' | 'rocket' | 'autocannon' | 'plasma' | 'railgun' | 'minigun' | 'revolver' | 'flame' | 'enemy' | 'carbine' | 'pistol' | 'sabot' | 'snipe' | 'quiver' | 'rotary' | 'hmg' | 'suppressed';
-export type TracerKind = 'scout' | 'bullet' | 'heavy' | 'hellfire' | 'bloodthirst' | 'berserk' | 'plasma' | 'rail' | 'enemy' | 'carbine' | 'pistol' | 'sabot' | 'snipe' | 'ap' | 'hp' | 'plusP' | 'flechette' | 'api' | 'raufoss' | 'scoutLong';
+export type TracerKind = 'scout' | 'bullet' | 'heavy' | 'hellfire' | 'bloodthirst' | 'berserk' | 'plasma' | 'rail' | 'enemy' | 'carbine' | 'pistol' | 'sabot' | 'snipe' | 'ap' | 'hp' | 'plusP' | 'flechette' | 'api' | 'raufoss' | 'scoutLong' | 'dragon';
 export type ExplosionKind = 'rocket' | 'grenade' | 'hellfire' | 'hellfireBullet' | 'shell' | 'plasma' | 'plasmaBurst' | 'enemy' | 'barrel' | 'nuke' | 'finisher';
 export type BeamKind = 'rail' | 'lance' | 'laser' | 'sniper' | 'heal';
 export type SlashKind = 'light' | 'heavy' | 'sweep' | 'finisher' | 'wave';

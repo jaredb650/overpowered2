@@ -130,8 +130,8 @@ describe('friends-only hit sanity checks', () => {
   it('knows each gun\'s fastest from the weapon table', () => {
     expect(limitsOf('smg')!.fastest).toBeCloseTo(Math.min(60 / (60 / WEAPONS.smg.interval + 100) / 2, KATA.step));
     expect(limitsOf('judge')!.fastest).toBeCloseTo(WEAPONS.judge.altFan!.gap / 2);
-    expect(limitsOf('rivet')!.fastest).toBeCloseTo(WEAPONS.rivet.interval / 2);
-    expect(limitsOf('shotgun')!.fastest).toBeCloseTo(WEAPONS.shotgun.interval);
+    expect(limitsOf('rivet')!.fastest).toBeCloseTo(Math.min(WEAPONS.rivet.interval / 1.25 / 1.15 / 2, KATA.step));
+    expect(limitsOf('shotgun')!.fastest).toBeCloseTo(WEAPONS.shotgun.interval * 0.75);
     expect(limitsOf('ultramag')!.fastest).toBeCloseTo(Math.min(WEAPONS.ultramag.interval / 1.25 / 1.15 / 2, KATA.step));
     expect(limitsOf('autocannon')!.instakill).toBe(true);
     expect(limitsOf('lance')!.pierces).toBe(true);

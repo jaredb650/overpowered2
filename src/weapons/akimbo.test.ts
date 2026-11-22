@@ -99,10 +99,10 @@ describe('akimbo on paper', () => {
     expect(r.weapons.fitted.has('ultramagAkimbo')).toBe(true);
     // The dot changes nothing in the row: akimbo's zoom with the guns at the hip, with it or without.
     expect(moddedDef('ultramag', new Set<ModId>(['ultramagAkimbo', 'ultramagDot']))).toEqual(moddedDef('ultramag', new Set<ModId>(['ultramagAkimbo'])));
-    // Akimbo still holds the optic slot, and on these five guns nothing else is in it.
+    // Akimbo shares the sight slot with the riot shield on pistols (so the two exclude each other), and holds it alone on the SMG.
     for (const gun of AKIMBO_GUNS) {
       const optics = MOD_ORDER.filter(m => MODS[m].weapon === gun && MODS[m].slot === 'sight');
-      expect(optics, gun).toEqual([`${gun}Akimbo`]);
+      expect(optics, gun).toEqual(gun === 'smg' ? ['smgAkimbo'] : [`${gun}Akimbo`, `${gun}Shield`]);
     }
   });
 });

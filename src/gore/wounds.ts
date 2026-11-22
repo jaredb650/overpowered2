@@ -63,6 +63,9 @@ const BITES: Record<string, Bite> = {
   piledriver: { ...REVOLVER, entry: 0.018, exit: 0.075, limbExit: 0.065, breaks: 2.2 },
   // The heaviest pistol round: the Judge's hole, a bigger way out, and it breaks what it hits.
   ultramag: { ...REVOLVER, entry: 0.016, exit: 0.068, limbExit: 0.06, breaks: 2 },
+  // Wishlist weapons: Bodkin flechette dart (small pinhole, clean exit, no limb breaks), Gaff heavy harpoon.
+  bodkin: { entry: 0.008, exit: 0.016, limbExit: 0.014, depth: 0.08, ragged: 0.25, breaks: 0 },
+  gaff: { entry: 0.036, exit: 0.072, limbExit: 0.068, depth: 0.14, ragged: 0.9, breaks: 2.4 },
 };
 
 const _dir = new THREE.Vector3();

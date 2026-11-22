@@ -34,6 +34,10 @@ import { thresherDef } from './thresher';
 import { trommelDef } from './trommel';
 import { ultramagDef } from './ultramag';
 import { autorafficaDef } from './autoraffica';
+import { autoclaveDef } from './autoclave';
+import { billhookDef } from './billhook';
+import { bodkinDef } from './bodkin';
+import { gaffDef } from './gaff';
 import { SLOT8_OLD } from '../../data';
 import { HANDS } from '../poses';
 
@@ -48,11 +52,11 @@ export function buildDefs(kit: Kit): Record<string, ViewDef> {
   const smg = smgDefs(kit);
   return {
     smg: smg.right, smgLeft: smg.left, shotgun: shotgunDef(kit), rocket: rocketDef(kit), autocannon: autocannonDef(kit), sword: swordDef(kit),
-    judge: judgeDef(kit), lance: lanceDef(kit), kiln: kilnDef(kit), stakegun: stakegunDef(kit),
+    judge: judgeDef(kit), lance: lanceDef(kit), autoclave: autoclaveDef(kit), kiln: kilnDef(kit), stakegun: stakegunDef(kit), gaff: gaffDef(kit),
     // Key 8: the Trommel wears the `buzzsaw` id. `?slot8=old` brings the Buzzsaw's own model back with its numbers.
     buzzsaw: SLOT8_OLD ? buzzsawDef(kit) : trommelDef(kit), piledriver: piledriverDef(kit), metalstorm: metalstormDef(kit),
     // Family members: the second weapon on a number key. One line here and one row in WEAPONS is the whole of adding one.
-    harrow: harrowDef(kit), rivet: rivetDef(kit), sabot: sabotDef(kit), awl: awlDef(kit), thresher: thresherDef(kit), quiver: quiverDef(kit), mgl: mglDef(kit), satchel: satchelDef(kit), howitzer: howitzerDef(kit),
+    harrow: harrowDef(kit), bodkin: bodkinDef(kit), rivet: rivetDef(kit), sabot: sabotDef(kit), awl: awlDef(kit), thresher: thresherDef(kit), billhook: billhookDef(kit), quiver: quiverDef(kit), mgl: mglDef(kit), satchel: satchelDef(kit), howitzer: howitzerDef(kit),
     deuce: deuceDef(kit), ultramag: ultramagDef(kit), gimlet: gimletDef(kit), autoraffica: autorafficaDef(kit),
     flail: flailDef(kit),
     // Key 5 beside the sword. Their swings are one clip, models/melee.ts, with each one's own poses.

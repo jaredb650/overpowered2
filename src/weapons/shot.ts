@@ -43,6 +43,7 @@ export function fillShot(s: ShotSpec, def: WeaponDef, damage: number, m: WeaponM
   s.armour = def.armour;
   s.falloff = REACH_ON ? def.falloff : undefined;
   s.cleave = 0;
+  s.bossDamage = def.bossDamage;
   return s;
 }
 

@@ -194,6 +194,27 @@ const RETICLES: Record<WeaponId, Reticle> = {
     arms: [poly('-1.25,-30 1.25,-30 1.25,-9 -1.25,-9'), poly('9,-1.25 15,-1.25 15,1.25 9,1.25'), poly('-1.25,9 1.25,9 1.25,30 -1.25,30'), poly('-9,-1.25 -15,-1.25 -15,1.25 -9,1.25')],
     gap: 0, kick: 5, speedGap: 1,
   },
+  // Bodkin: razor-fine needle arms for zero-spread flechette bursts.
+  bodkin: { core: DOT, arms: four(tick(10, 1.0)), gap: 4.5, kick: 1.5, speedGap: 2 },
+  // Billhook: semi-auto combat shotgun corner brackets matching the pump's true cone.
+  billhook: {
+    core: DOT,
+    arms: four(poly('3,-14 14,-14 14,-3 11.6,-3 11.6,-11.6 3,-11.6')),
+    diagonal: true, gap: 1, kick: 5.5, speedGap: 0, trueCone: true,
+  },
+  // Autoclave: open heat-emitter arcs framing the narrow microwave cone.
+  autoclave: { core: DOT, arms: ['', ARC_E, '', ARC_W], gap: -4, kick: 0.4, speedGap: 1.5 },
+  // Gaff: heavy harpoon diamond with barbed side flanges and long vertical lead post.
+  gaff: {
+    core: DIAMOND,
+    arms: [
+      poly('-1.4,-32 1.4,-32 1.4,-10 -1.4,-10'),
+      poly('10,-1.5 22,-1.5 26,-5 26,5 22,1.5 10,1.5'),
+      poly('-1.4,10 1.4,10 1.4,32 -1.4,32'),
+      poly('-10,-1.5 -22,-1.5 -26,-5 -26,5 -22,1.5 -10,1.5'),
+    ],
+    gap: 0, kick: 8, speedGap: 1,
+  },
 };
 
 /** About the strafing ceiling. */

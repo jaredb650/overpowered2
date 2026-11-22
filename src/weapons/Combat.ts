@@ -111,6 +111,8 @@ export interface StrikeOptions {
   load: AmmoLoad | undefined;
   /** The modded row's armour class (DamageInfo.armour). */
   armour: 'light' | 'medium' | 'heavy' | undefined;
+  /** Damage override on bosses (e.g. Autocannon longer barrel, Bodkin tungsten darts). */
+  bossDamage: number | undefined;
 }
 
 interface QueuedBlast {
@@ -166,7 +168,7 @@ export class Combat implements CombatSystem {
 
   private readonly opts: StrikeOptions = {
     type: 'bullet', source: '', force: 0, severMult: 1, headshotMult: 2, gib: false,
-    slicePlaneNormal: undefined, explosionId: undefined, killStop: 0, quiet: false, reach: undefined, blastKind: undefined, charge: undefined, pierces: false, vaporize: false, load: undefined, armour: undefined,
+    slicePlaneNormal: undefined, explosionId: undefined, killStop: 0, quiet: false, reach: undefined, blastKind: undefined, charge: undefined, pierces: false, vaporize: false, load: undefined, armour: undefined, bossDamage: undefined,
   };
 
   // Scratch. Each is used within one function and never held across a call that could re-enter it.
@@ -317,6 +319,7 @@ export class Combat implements CombatSystem {
     o.vaporize = false;
     o.load = undefined;
     o.armour = undefined;
+    o.bossDamage = undefined;
     return o;
   }
 
@@ -328,7 +331,7 @@ export class Combat implements CombatSystem {
     if (this.watching > 0) return NO_DAMAGE;
     const c = this.ctx;
     const d = this.nextDamage();
-    d.amount = bossHit(enemy.isBoss, amount);
+    d.amount = bossHit(enemy.isBoss, amount, o.bossDamage);
     d.type = o.type;
     d.point.copy(point);
     d.dir.copy(dir);
@@ -584,6 +587,7 @@ export class Combat implements CombatSystem {
         o.pierces = spec.armorPiercing ?? false;
         o.load = spec.load;
         o.armour = spec.armour;
+        o.bossDamage = spec.bossDamage;
         const splits = cleave > 0 && h.region !== 'head';
         // Vertical, through the line of the shot, so the two halves fall away either side of it.
         if (splits) o.slicePlaneNormal = this.vE.crossVectors(st.dir, UP).normalize();
@@ -659,7 +663,8 @@ export class Combat implements CombatSystem {
       if (spec.load === 'flechette') this.needles.stick(wall.point, st.dir);
       else if (spec.load === 'api') c.fx.sparks(wall.point, wall.normal, 5, 0xff5a1e);
       if (!watching) c.world.objects?.damageExplosive(wall.collider, atWall, spec.source);
-      const vehicle = !watching && c.enemies.vehicles?.shot(wall.collider, wall.point, atWall, spec.source) === true;
+      const vehicleDmg = spec.bossDamage ? spec.bossDamage * damageKept(budget) : atWall;
+      const vehicle = !watching && c.enemies.vehicles?.shot(wall.collider, wall.point, vehicleDmg, spec.source) === true;
       left -= wall.distance;
       flown += wall.distance;
 

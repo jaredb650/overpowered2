@@ -177,7 +177,7 @@ const CLOSE = 6;
 const DOUBT: readonly [rate: number, burst: number] = [1, 8];
 
 const TYPES = ['bullet', 'pellet', 'explosive', 'slash', 'melee', 'fire', 'shock', 'crush', 'true'];
-const LOADS = ['ap', 'hp', 'plusP', 'flechette', 'api'];
+const LOADS = ['ap', 'hp', 'plusP', 'flechette', 'api', 'dragon'];
 const ARMOURS = ['light', 'medium', 'heavy'];
 
 /** What the host knows about the two ends of a claim when it arrives. */

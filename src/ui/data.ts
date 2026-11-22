@@ -191,6 +191,26 @@ export const WEAPONS: Record<WeaponId, WeaponInfo> = {
     role: `Rebar stakes, ${def.stakegun.damage} damage`,
     note: 'Pins bodies and limbs to walls. Right click loads exploding bolts: one sticks in a wall or a man, beeps for a second and goes off.',
   },
+  bodkin: {
+    name: 'Bodkin', key: '1',
+    role: `Flechette bullpup. ${def.bodkin.damage} a dart, ${def.bodkin.magSize} rounds, 3-round burst at 1,200 RPM`,
+    note: 'Press 1 again to step to it. Steel darts ignore plates and riot shields, punch through cover and bleed flesh, with full damage at any range. Hold R toggles burst and semi.',
+  },
+  billhook: {
+    name: 'Billhook', key: '2',
+    role: `Semi-auto combat shotgun. ${def.billhook.pellets} pellets of ${def.billhook.damage}, ${def.billhook.magSize}-shell tube`,
+    note: 'Press 2 again to step to it. Pump damage without the pump cycle. Takes reflex, laser, extended tube, flechettes, dragon\'s breath or heavy slugs in Procurement.',
+  },
+  autoclave: {
+    name: 'Autoclave', key: '7',
+    role: 'Directed microwave emitter. Boils armoured targets from the inside out',
+    note: 'Press 7 again to swap with the Lance. Invisible cone bypasses plate armour: targets stagger and steam, drop their weapons and swell, then burst.',
+  },
+  gaff: {
+    name: 'Gaff', key: '0',
+    role: `Shoulder-fired harpoon cannon. ${def.gaff.damage} damage, steel tether winch`,
+    note: 'Press 0 again to swap with the Stakegun. Skewers a whole line of enemies to the far wall on one shaft. Hold right click to reel yourself in or pull a skewered target; tap to cut the rope.',
+  },
 };
 
 export const GRENADE_NOTE = `${TUNING.grenade.start} frags, up to ${TUNING.grenade.max}. Ammo pickups restock them. Hold to cook. Shoot one out of the air to set it off.`;

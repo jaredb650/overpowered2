@@ -46,7 +46,7 @@ function pelletAngles(shots: number): number[] {
 describe('aim down sights', () => {
   it('is on the guns whose right button does nothing else, and only them', () => {
     const ads = (Object.keys(WEAPONS) as WeaponId[]).filter(id => WEAPONS[id].ads);
-    expect(ads).toEqual(['smg', 'gimlet', 'harrow', 'flail', 'shotgun', 'thresher', 'rivet', 'ultramag', 'autoraffica', 'piledriver']);
+    expect(ads).toEqual(['smg', 'gimlet', 'harrow', 'bodkin', 'flail', 'shotgun', 'thresher', 'billhook', 'mgl', 'howitzer', 'rivet', 'ultramag', 'autoraffica', 'piledriver', 'metalstorm']);
     // The Deuce's right click is both barrels, the Judge's its fanning, the Rocket's its laser, the Stakegun's its other round
     // (the Piledriver's went to R held and it aims). The Rivet aims again since its burst went to the Autoraffica, whose burst is the trigger's.
     for (const id of ['rocket', 'sabot', 'autocannon', 'lance', 'buzzsaw', 'quiver', 'sword', 'knife', 'kiln', 'deuce', 'judge', 'stakegun'] as WeaponId[]) {

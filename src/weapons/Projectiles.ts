@@ -66,6 +66,7 @@ export interface Projectile {
   kind: ProjectileKind;
   team: Team;
   damage: number;
+  bossDamage: number | undefined;
   source: string;
   position: THREE.Vector3;
   velocity: THREE.Vector3;
@@ -165,7 +166,7 @@ export interface Projectile {
 
 function createProjectile(): Projectile {
   return {
-    live: false, serial: 0, kind: 'bullet', team: 'player', damage: 0, source: '',
+    live: false, serial: 0, kind: 'bullet', team: 'player', damage: 0, bossDamage: undefined, source: '',
     position: new THREE.Vector3(), velocity: new THREE.Vector3(), gravity: 0, life: 0, fuse: 0, homing: 0,
     trail: 'none', ringClock: 0, smokeClock: 0, lastTrail: new THREE.Vector3(),
     visualOffset: new THREE.Vector3(), visualHold: 0, whizzed: false, resting: false, spin: 0,
@@ -270,6 +271,7 @@ export class Projectiles {
     p.kind = kind;
     p.team = spec.team;
     p.damage = spec.damage;
+    p.bossDamage = spec.bossDamage;
     p.source = spec.source;
     p.position.copy(spec.origin);
     p.velocity.copy(spec.velocity);
@@ -490,7 +492,8 @@ export class Projectiles {
     const want = this.want.subVectors(p.laser.at, p.position);
     const dist = want.length();
     if (dist < 1e-3) return;
-    turnToward(p.velocity, want.divideScalar(dist), TUNING.rocket.laserTurn * dt);
+    const rate = p.turnRate > 0 ? p.turnRate : TUNING.rocket.laserTurn;
+    turnToward(p.velocity, want.divideScalar(dist), rate * dt);
   }
 
   /**
@@ -622,6 +625,7 @@ export class Projectiles {
     o.killStop = p.killStop;
     o.charge = p.explosive && !p.sticky ? SHAPED_CHARGE[p.blastKind] : undefined;
     o.pierces = p.armorPiercing;
+    o.bossDamage = p.bossDamage;
     return combat.strike(enemy, point, normal, dir, bone, region, p.damage, o);
   }
 
