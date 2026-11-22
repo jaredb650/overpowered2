@@ -635,6 +635,23 @@ function barrelEvacuatorAndBrake(m: Mesher): void {
     m.at([0, 0, -1.685], null, () =>
       m.lathe([[0.072, 0.012, 0], [0.080, 0.010], [0.080, -0.010], [0.072, -0.012, 0]], 36, { chamfer: 0.001 }),
     );
+    // Cluster Shell (`howitzerCluster`) muzzle-side inductive fuze-setter ring riding the recoiling barrel.
+    m.part('clusterBand', [0, 0, -1.685], () => {
+      m.use(F.parkerized);
+      m.lathe([[0.079, 0.024, 0], [0.093, 0.021], [0.093, -0.021], [0.079, -0.024, 0]], 36, { chamfer: 0.0014 });
+      m.use(F.yellow);
+      m.at([0, 0, -0.015], null, () => m.lathe([[0.092, 0.006, 0], [0.095, 0.005], [0.095, -0.005], [0.092, -0.006, 0]], 34, { chamfer: 0.0005 }));
+      // Four copper inductive programming coils around the barrel circumference.
+      for (let i = 0; i < 4; i++) {
+        const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
+        m.at([0, 0, 0], [0, 0, a], () => {
+          m.use(F.copperCoil);
+          m.at([0.094, 0, 0.004], null, () => m.box(0.012, 0.022, 0.032, 0.0015));
+          m.use(F.steelDark);
+          m.at([0.098, 0, -0.008], null, () => m.box(0.008, 0.014, 0.012, 0.001));
+        });
+      }
+    });
     // Subtle ordnance stripes on the camera-facing left side of the bore evacuator.
     m.at([-0.107, 0.012, -1.555], [0, -Math.PI / 2, 0], () => m.decal('he', 0.056, 0.022, 0xd8c35a));
     m.at([-0.107, -0.018, -1.555], [0, -Math.PI / 2, 0], () => m.decal('arrow', 0.044, 0.026, 0xd8d0a0));
@@ -772,6 +789,16 @@ function artilleryShellAndSpentCasing(m: Mesher): void {
     // Brushed steel point-detonating nose fuze.
     m.use(F.steel);
     m.lathe([[0.0092, -0.338, 0], [0.0076, -0.354], [0.003, -0.362], [0, -0.364, 0]], 18, { chamfer: 0 });
+
+    // Cluster submunition identification ring & electronic standoff nose cap (`howitzerCluster`, visible during reload).
+    m.part('clusterShell', [0, 0, 0], () => {
+      m.use(F.yellow);
+      m.lathe([[0.0462, -0.268, 0], [0.0472, -0.271], [0.0445, -0.289], [0.0432, -0.292, 0]], 28, { chamfer: 0 });
+      m.use(F.red);
+      m.lathe([[0.0492, -0.204, 0], [0.050, -0.206], [0.050, -0.215], [0.0492, -0.217, 0]], 28, { chamfer: 0 });
+      m.use(F.brass);
+      m.lathe([[0.011, -0.336, 0], [0.010, -0.356], [0.005, -0.366], [0, -0.368, 0]], 18, { chamfer: 0.0005 });
+    });
   });
 
   // Spent 105 mm brass casing kicked straight backward out of the open breech when the wedge drops.
@@ -960,6 +987,63 @@ function gripsAndControls(m: Mesher): void {
   m.at([fgX, -0.119, fgZ + 0.003], null, () => m.box(0.040, 0.008, 0.054, 0.0016, 0.003));
 }
 
+/**
+ * Cluster Shell (`howitzerCluster`) standoff-fuze electronics pod & induction range ring clamped onto the forward trunnion
+ * jacket (z = -0.25..-0.40), tucked cleanly below/right of the high left artillery optic so ADS stays 100% unobstructed.
+ */
+function clusterFuze(m: Mesher): void {
+  m.part('clusterFuze', [0, AXIS, 0], () => {
+    // Heavy machined parkerized induction collar wrapping the forward trunnion jacket mouth (z = -0.355).
+    m.use(F.parkerized);
+    m.at([0, 0, -0.355], null, () =>
+      m.lathe([[0.092, 0.022, 0], [0.103, 0.019], [0.103, -0.019], [0.092, -0.022, 0]], 36, { chamfer: 0.0014 }),
+    );
+    // Crisp amber-yellow ordnance cluster band & copper induction wire ring on the collar.
+    m.use(F.yellow);
+    m.at([0, 0, -0.370], null, () =>
+      m.lathe([[0.101, 0.006, 0], [0.105, 0.005], [0.105, -0.005], [0.101, -0.006, 0]], 36, { chamfer: 0.0005 }),
+    );
+    m.use(F.copperCoil);
+    m.at([0, 0, -0.342], null, () =>
+      m.lathe([[0.101, 0.007, 0], [0.1045, 0.006], [0.1045, -0.006], [0.101, -0.007, 0]], 36, { chamfer: 0.0005 }),
+    );
+
+    // Armored standoff-radar transceiver & electronic fuze-setter pod on the upper-left trunnion shoulder (visible in FP & shop).
+    m.at([-0.082, 0.072, -0.315], [0, 0, 0.42], () => {
+      m.use(F.anodized);
+      m.box(0.044, 0.036, 0.125, 0.0024);
+      m.use(F.steelDark);
+      for (const z of [-0.035, 0, 0.035]) {
+        m.at([0, 0.019, z], null, () => m.box(0.036, 0.006, 0.016, 0.001));
+      }
+      // Forward twin-aperture standoff rangefinder radar face + glass lens.
+      m.use(F.black);
+      m.at([-0.009, 0, -0.064], null, () => m.cyl(0.0085, 0.006, 16, 0.0006));
+      m.at([0.009, 0, -0.064], null, () => m.cyl(0.0085, 0.006, 16, 0.0006));
+      m.glass(() => {
+        m.at([-0.009, 0, -0.0672], null, () => m.cyl(0.007, 0.0008, 14, 0));
+        m.at([0.009, 0, -0.0672], null, () => m.cyl(0.007, 0.0008, 14, 0));
+      });
+      // Camera-facing amber hazard strip & glowing standoff-fuze sync LED bar.
+      m.at([-0.0228, -0.007, 0], [0, -Math.PI / 2, 0], () => m.decal('hazard', 0.088, 0.012, 0xf0c428));
+      m.use(F.black);
+      m.at([-0.0218, 0.008, 0.012], null, () => m.box(0.003, 0.008, 0.042, 0.0006));
+      m.glow('clusterLed', () => m.at([-0.0234, 0.008, 0.012], null, () => m.box(0.0014, 0.0046, 0.034, 0)));
+      // Brass range dial knob on the rear cap.
+      m.use(F.brass);
+      m.at([0, 0, 0.066], null, () => m.cyl(0.011, 0.01, 16, 0.0008));
+    });
+
+    // Armored braided telemetry cable from the standoff-fuze pod back to the breech crown.
+    m.use(F.rubber);
+    m.tube(
+      [[-0.072, 0.066, -0.252], [-0.078, 0.078, -0.205], [-0.068, 0.098, -0.155], [-0.048, 0.112, -0.115]],
+      0.0042,
+      { seg: 8, samples: 18 },
+    );
+  });
+}
+
 function buildHowitzer(kit: Kit): Model {
   const m = kit.mesher();
   m.bevel = 0.0018;
@@ -971,6 +1055,7 @@ function buildHowitzer(kit: Kit): Model {
   artilleryShellAndSpentCasing(m);
   artilleryRangefinder(m);
   gripsAndControls(m);
+  clusterFuze(m);
 
   m.part('trigger', [0, -0.016, -0.002], () => {
     m.use(F.steelDark);
@@ -985,6 +1070,7 @@ function buildHowitzer(kit: Kit): Model {
     glows: {
       reticle: [0xffa828, 2.5],
       breech: [0xff9e22, 2.2],
+      clusterLed: [0xffa420, 4.8],
     },
     screens: { range: [168, 76] },
   });
@@ -1033,6 +1119,9 @@ function clip(a: Anim): void {
   P.spent!.visible = false;
   a.glow('reticle', loaded ? 0.96 + 0.04 * Math.sin(a.time * 9) : 0.24);
   a.glow('breech', loaded && p < 0 ? 1.0 : 0.12);
+  if (a.mods?.has('howitzerCluster')) {
+    a.glow('clusterLed', 0.65 + 0.35 * Math.sin(a.time * 6.5));
+  }
 
   // Dramatic slow hydropneumatic artillery long-recoil: entire barrel + stepped thermal jacket + bore evacuator +
   // 4-baffle muzzle brake slam violently 0.42 m straight back in 0.055 s (crushing the twin 0.70 m coil springs down to
@@ -1166,6 +1255,9 @@ export function howitzerDef(kit: Kit): ViewDef {
     right: { socket: 'gripR', pose: HANDS.grip },
     left: { socket: 'gripL', pose: HANDS.foregrip },
     heatPerShot: 0.75,
+    mods: {
+      howitzerCluster: { part: 'clusterFuze', also: ['clusterBand', 'clusterShell'] },
+    },
     animate: clip,
     readout,
   };

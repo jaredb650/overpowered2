@@ -19,6 +19,9 @@ const PLASMA_FIRE: FirePalette = { outer: hot(0x1140ff, 1.1), mid: hot(0x22aaff,
 const ENEMY_FIRE: FirePalette = { outer: hot(0xee0030, 1.1), mid: hot(0xff2060, 1.15), inner: hot(0xffa0c0, 2.6), glow: hot(0xff1044, 0.3) };
 const WHITE_FIRE: FirePalette = { outer: hot(0x8899aa, 0.9), mid: hot(0xccddee, 1.2), inner: hot(0xffffff, 3), glow: hot(0xbfd8ff, 0.24) };
 
+export type ExplosionRecipeKind = ExplosionKind | 'howitzer';
+export const HOWITZER_EXPLOSION_KIND = 'howitzer' as const;
+
 interface Recipe {
   /** Blast radius the spec's numbers were authored against. */
   base: number;
@@ -33,6 +36,10 @@ interface Recipe {
   sparkColor: Rgb;
   fire: FirePalette | null;
   fireScale: number;
+  /** Optional fireball lifetime multiplier (1 = default crisp flash; >1 = rolling fireball). */
+  fireLife?: number;
+  /** Optional secondary lingering flame tongues emitted above the crater for a brief moment. */
+  lingerFlames?: number;
   smoke: number;
   debris: number;
   dust: boolean;
@@ -64,7 +71,7 @@ const ROCKET: Recipe = {
   flash: FIRE.core,
 };
 
-const RECIPES: Record<ExplosionKind, Recipe> = {
+const RECIPES: Record<ExplosionRecipeKind, Recipe> = {
   rocket: ROCKET,
   grenade: {
     ...ROCKET,
@@ -199,8 +206,40 @@ const RECIPES: Record<ExplosionKind, Recipe> = {
     light: 0xcfe4ff,
     lightGain: 1,
   },
+  /**
+   * 105 mm Howitzer (shoulder-fired & mech arm): rolling orange fireball, bright incandescent core, shower of burning debris
+   * and rising glowing embers, brief lingering flames above the crater, warm fiery light, and dark smoke/dust behind it —
+   * clearly punchier and fierier than `finisher` dust, yet smaller and quicker than the mech missile's `megaBlast`.
+   */
+  howitzer: {
+    ...ROCKET,
+    base: 13.5,
+    chips: [[CHIP.yellow, 80], [CHIP.amber, 70], [CHIP.orange, 65], [CHIP.red, 45]],
+    hellfire: false,
+    shockReach: 0.78,
+    shockLife: 0.14,
+    shockCut: 0.75,
+    sparks: 72,
+    sparkColor: SPARK.yellow,
+    fire: FLAME,
+    fireScale: 1.12,
+    fireLife: 1.85,
+    lingerFlames: 10,
+    smoke: 14,
+    debris: 36,
+    dust: true,
+    scorch: 0.55,
+    embers: 60,
+    light: 0xff7a22,
+    lightGain: 1.65,
+    flash: FIRE.core,
+  },
   nuke: { ...ROCKET, base: 60, hellfire: true },
 };
+
+export function hasExplosionRecipe(kind: string): kind is ExplosionRecipeKind {
+  return kind in RECIPES;
+}
 
 const RAY = hot(0xffd070, 5);
 /** Pulverised concrete, not bonfire smoke: lighter and more neutral than anything else in the game. */
@@ -314,13 +353,13 @@ function shockSphere(core: FxCore, x: number, y: number, z: number, radius: numb
   core.shock.add(x, y, z, white, core.now, r.shockLife, 0.4, radius * r.shockReach, 1, r.shockCut);
 }
 
-export function explosion(core: FxCore, position: THREE.Vector3, options: ExplosionOptions): void {
-  const kind = options.kind ?? 'rocket';
+export function explosion(core: FxCore, position: THREE.Vector3, options: Omit<ExplosionOptions, 'kind'> & { kind?: ExplosionRecipeKind }): void {
+  const kind: ExplosionRecipeKind = options.kind ?? 'rocket';
   if (kind === 'nuke') {
-    nuke(core, position, options);
+    nuke(core, position, options as ExplosionOptions);
     return;
   }
-  const r = RECIPES[kind];
+  const r = RECIPES[kind] ?? ROCKET;
   const R = options.radius;
   const scale = options.scale ?? 1;
   const { x, y, z } = position;
@@ -334,7 +373,28 @@ export function explosion(core: FxCore, position: THREE.Vector3, options: Explos
   if (r.fire) {
     // Hellfire's radius is huge, but the fireball should sit inside a chip storm, not swallow it.
     const fireR = (r.hellfire ? 0.5 : 1) * R * r.fireScale * Math.sqrt(scale);
-    fireball(core, x, y, z, fireR, r.fire, floor, scale);
+    fireball(core, x, y, z, fireR, r.fire, floor, scale, r.fireLife ?? 1);
+    if (r.lingerFlames) {
+      const s = core.smoke;
+      const birth = core.birth;
+      const count = Math.ceil(r.lingerFlames * Math.min(scale, 1.6));
+      for (let i = 0; i < count; i++) {
+        const t = i / count;
+        const pick = Math.random();
+        const col = pick < 0.55 ? r.fire.outer : r.fire.mid;
+        s.begin(col, 1, birth + 0.06 + t * 0.22, rand(0.45, 0.95), 0.08 * fireR, 0.17 * fireR, 2.4, 0.24 * fireR, 0.03, SmokeMode.Fire);
+        randomInBall(0.34 * fireR);
+        s.add(
+          x + _p.x,
+          Math.max(y + Math.abs(_p.y) * 0.5, floor + 0.12 * fireR),
+          z + _p.z,
+          _p.x * 1.35,
+          rand(0.55, 1.15) * fireR * 0.45,
+          _p.z * 1.35,
+          rand(-1.5, 1.5),
+        );
+      }
+    }
   }
 
   // Chips land where the blast happened; speed follows the radius, so reach still matches the blast.
@@ -363,15 +423,18 @@ export function explosion(core: FxCore, position: THREE.Vector3, options: Explos
   // Frame one: hard white core and thin rays. Gone in three frames, it is the "crack" of the envelope.
   const coreR = R * 0.27 * (r.hellfire ? 0.62 : 1) * Math.sqrt(scale);
   const b = core.now;
-  core.flashes.star(x, y, z, r.flash, coreR, b, 0.067, 0, 0, 0.45, 0.6, 30);
+  core.flashes.star(x, y, z, r.flash, coreR, b, r.lingerFlames ? 0.1 : 0.067, 0, 0, 0.45, 0.6, 30);
   core.flashes.star(x, y, z, RAY, coreR * 3.8, b, 0.05, 13, 0.07, 0.75, 0.3, 12);
+  if (r.lingerFlames) {
+    core.flashes.star(x, y, z, FIRE.amber, coreR * 2.2, b, 0.14, 10, 0.06, 0.65, 0.4, 18);
+  }
 
   if (r.shockReach > 0 && nearFloor) {
     core.waves.add(x, floor + 0.06, z, 0, 1, 0, core.waveColor, 0.28, b, r.shockLife * 1.6, R, 0.006, 1, 0);
   }
 
   const render = core.ctx.render;
-  render.lights.flash(position, r.light, 7 * r.lightGain, Math.max(R * 3, 6), 0.32);
+  render.lights.flash(position, r.light, 7 * r.lightGain, Math.max(R * 3, 6), r.lingerFlames ? 0.55 : 0.32);
 
   if (r.scorch > 0 && nearFloor && R > 1) {
     _p.set(x, floor + 0.02, z);

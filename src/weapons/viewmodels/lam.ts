@@ -13,8 +13,10 @@ import * as THREE from 'three';
 import type { RayHit } from '../../core/contracts';
 
 export const LAM = {
-  /** How far the ray looks, metres; a beam with nothing at its end fades out over it. */
+  /** How far a pistol/shotgun laser ray looks, metres; a beam with nothing at its end fades out over it. */
   range: 40,
+  /** Reach of the Rocket launcher's guided laser sight, metres (matches TUNING.rocket.laserRange). */
+  rocketRange: 400,
   /** Linear colour, past 1 for the bloom: the emitter's red. */
   color: [1.8, 0.16, 0.04],
   /** The beams' brightness, low so they read as a haze line, and the dot's. */
@@ -29,16 +31,20 @@ export const LAM = {
   overlayDepth: 0.5,
 } as const;
 
+export const ROCKET_LAM_RANGE = LAM.rocketRange;
+
 export type LaserCast = (from: THREE.Vector3, dir: THREE.Vector3, max: number, out: RayHit) => boolean;
 
-/** Where a ray from `from` along unit `dir` ends, into `end`: on the first surface within LAM.range (true: the dot shows), else at the range's end. */
-export function laserEnd(from: THREE.Vector3, dir: THREE.Vector3, cast: LaserCast, hit: RayHit, end: THREE.Vector3): boolean {
+/** Where a ray from `from` along unit `dir` ends, into `end`: on the first surface within `range` (true: the dot shows), else at the range's end. */
+export function laserEnd(
+  from: THREE.Vector3, dir: THREE.Vector3, cast: LaserCast, hit: RayHit, end: THREE.Vector3, range: number = LAM.range,
+): boolean {
   // A stand-in physics answers with a proxy, not a boolean: nothing hit.
-  if (cast(from, dir, LAM.range, hit) === true) {
+  if (cast(from, dir, range, hit) === true) {
     end.copy(hit.point);
     return true;
   }
-  end.copy(from).addScaledVector(dir, LAM.range);
+  end.copy(from).addScaledVector(dir, range);
   return false;
 }
 
@@ -184,12 +190,15 @@ export class LamBeams {
   cast: LaserCast | null = null;
   /** 0 to 1, how far the gun is up at the eye: the dot moves from the world to over the gun. */
   aim = 0;
+  /** Default laser reach, metres (40 m for pistol/shotgun LAMs; set to ROCKET_LAM_RANGE or pass `range` to `set()` for 400 m). */
+  range: number = LAM.range;
   /** Where the shot's ray ends this frame, whether something is there, and the dot (a touch back toward the eye). */
   readonly end = new THREE.Vector3();
   readonly dotAt = new THREE.Vector3();
   hit = false;
   private readonly sockets: (THREE.Object3D | null)[] = new Array<THREE.Object3D | null>(SLOTS).fill(null);
   private readonly strength = new Array<number>(SLOTS).fill(0);
+  private readonly slotRange: (number | undefined)[] = new Array<number | undefined>(SLOTS).fill(undefined);
   /** The world camera of this frame's world pass, for the view pass that follows it. */
   private camera: THREE.PerspectiveCamera | null = null;
 
@@ -225,11 +234,25 @@ export class LamBeams {
     this.overlay.onBeforeRender = (renderer, _scene, camera) => this.drawOverlay(renderer, camera as THREE.PerspectiveCamera);
   }
 
-  /** Slot `slot`'s emitter, a socket in the view scene facing down the bore, at `strength`; null or 0 takes its beam away. */
-  set(slot: number, socket: THREE.Object3D | null, strength: number): void {
+  /**
+   * Slot `slot`'s emitter, a socket in the view scene facing down the bore, at `strength`; null or 0 takes its beam away.
+   * Optional `range` overrides `this.range` for this slot (e.g. `ROCKET_LAM_RANGE` = 400 m for the Rocket launcher's guided laser).
+   */
+  set(slot: number, socket: THREE.Object3D | null, strength: number, range?: number): void {
     this.sockets[slot] = socket;
     this.strength[slot] = socket ? strength : 0;
+    this.slotRange[slot] = socket && strength > 0 ? range : undefined;
     this.mesh.visible = this.overlay.visible = this.active;
+  }
+
+  /** Active laser reach in metres: the longest explicit active slot range, or `this.range`. */
+  effectiveRange(): number {
+    let best = 0;
+    for (let i = 0; i < SLOTS; i++) {
+      const r = this.strength[i]! > 0 ? this.slotRange[i] : undefined;
+      if (r !== undefined && r > best) best = r;
+    }
+    return best > 0 ? best : this.range;
   }
 
   get active(): boolean {
@@ -237,17 +260,20 @@ export class LamBeams {
   }
 
   /** The shot's ray this frame, from `from` along unit `dir`: where the beams end, and the dot on what `cast` finds. */
-  target(from: THREE.Vector3, dir: THREE.Vector3, cast: LaserCast): void {
-    this.hit = laserEnd(from, dir, cast, _hit, this.end);
-    // Back along the ray a touch, so the surface does not cut the dot; still on the same pixel.
-    this.dotAt.copy(this.end).addScaledVector(dir, -0.02);
+  target(from: THREE.Vector3, dir: THREE.Vector3, cast: LaserCast, range: number = this.effectiveRange()): void {
+    this.hit = laserEnd(from, dir, cast, _hit, this.end, range);
+    // Back along the ray a touch, so the surface does not cut the dot (scales slightly at long 400 m distances); still on the same pixel.
+    const dist = this.hit ? _hit.distance : range;
+    const pull = Math.max(0.02, Math.min(0.15, dist * 0.0004));
+    this.dotAt.copy(this.end).addScaledVector(dir, -pull);
   }
 
   /** The world pass: each beam from its emitter, mapped from the view scene with this frame's cameras, to the ray's end. */
   draw(renderer: THREE.WebGLRenderer | null, camera: THREE.PerspectiveCamera): void {
     this.camera = camera;
+    const reach = this.effectiveRange();
     // The one ray a frame, down the centre of the camera as it is drawn.
-    if (this.cast && this.active) this.target(_o.setFromMatrixPosition(camera.matrixWorld), camera.getWorldDirection(_d), this.cast);
+    if (this.cast && this.active) this.target(_o.setFromMatrixPosition(camera.matrixWorld), camera.getWorldDirection(_d), this.cast, reach);
     const u = (this.mesh.material as THREE.ShaderMaterial).uniforms;
     if (renderer) pixelFloor(u, renderer, camera);
     const strength = vec3(u, 'uStrength');
@@ -258,7 +284,8 @@ export class LamBeams {
       if (!on) continue;
       const from = vec3(u, slot === 0 ? 'uFrom0' : 'uFrom1');
       viewToWorld(_p.setFromMatrixPosition(socket!.matrixWorld), camera, this.viewCamera!, from);
-      (u.uShare!.value as THREE.Vector2).setComponent(slot, Math.min(1, from.distanceTo(this.end) / LAM.range));
+      const slotReach = this.slotRange[slot] ?? reach;
+      (u.uShare!.value as THREE.Vector2).setComponent(slot, Math.min(1, from.distanceTo(this.end) / slotReach));
     }
     vec3(u, 'uEnd').copy(this.end);
     vec3(u, 'uDot').copy(this.dotAt);

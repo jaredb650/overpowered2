@@ -3,7 +3,7 @@
  * and co-op playback (`puppet.ts`). Re-exported from `src/frame/weapons.ts` for existing callers and tests.
  */
 import * as THREE from 'three';
-import type { Ctx, DamageInfo, PlayOptions } from '../../core/contracts';
+import type { Ctx, DamageInfo, ExplosionKind, PlayOptions } from '../../core/contracts';
 import type { EnemyInstance, EnemySystem, ExplosionSpec, ShotSpec } from '../../core/gameplay';
 import { clamp, lerp, rand, randomInCone } from '../../core/math';
 import { AC130 } from '../../progression/callins/ac130Data';
@@ -132,7 +132,7 @@ export function shellImpact(ctx: Ctx, kind: ImpactKind | 'howitzer', point: THRE
     _v.copy(dir).setY(0.75).normalize();
     enemies.vehicles?.frameBlow?.(_at, H.shockRadius, 280, _v, 'frame_howitzer');
     physics?.radialImpulse?.(_at, H.shockRadius, 280);
-    fx.explosion(point, { kind: 'finisher', radius: H.blastRadius, scale: 2.3, normal: normal ?? undefined });
+    fx.explosion(point, { kind: 'howitzer' as ExplosionKind, radius: H.blastRadius, scale: 1.5, normal: normal ?? undefined });
     fx.ring(point, n, '#ff9030', H.blastRadius * 2.1);
     fx.ring(point, UP, '#ffd8a0', H.shockRadius * 1.35);
     fx.sparks(point, n, 48, '#ffbb55');

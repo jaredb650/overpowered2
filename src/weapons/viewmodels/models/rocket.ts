@@ -8,7 +8,7 @@ import { Model } from '../kit/model';
 import { F } from '../kit/finishes';
 import type { Mesher, V3 } from '../kit/mesher';
 import { circle, curve, poly, rect, type V2 } from '../kit/shapes';
-import { clampBand, knurl, rail, rivet, screwX } from '../kit/details';
+import { clampBand, hexX, knurl, rail, rivet, screwX } from '../kit/details';
 import { bump, hold, inOut, inQuad, outCubic, seg, thud } from '../curves';
 import type { Anim, ViewDef } from '../def';
 import { HANDS } from '../poses';
@@ -20,6 +20,8 @@ const BREECH_Z0 = -0.015;
 const BREECH_Z1 = -0.245;
 /** How far the cover swings on its hinge. */
 const BREECH_OPEN = 2.1;
+/** Forward end of the extended launch tube (`rocketTube`). */
+const TUBE_LONG_END = -0.96;
 
 function arcShell(m: Mesher, r: number, z0: number, z1: number, a0: number, a1: number, thick: number): void {
   // A curved plate with a real thickness. Lathe arcs have no end caps, so the two cut faces are added by hand.
@@ -41,15 +43,17 @@ function tube(m: Mesher): void {
     // Forward section.
     m.use(F.olive);
     m.lathe([[R + 0.0015, BREECH_Z1 - 0.012, 0], [R + 0.0015, -0.3], [R + 0.0035, -0.304], [R + 0.0035, -0.335], [R + 0.0015, -0.339], [R + 0.0015, -0.52], [R + 0.0005, -0.585, 0]], 36, { chamfer: 0.0014 });
-    // Ribbed blast sleeve at the muzzle, soft where it meets the world.
-    m.use(F.rubber);
-    const prof: [number, number, number?][] = [[R + 0.0005, -0.575, 0], [R + 0.0045, -0.58]];
-    for (let i = 0; i < 6; i++) {
-      const z = -0.588 - i * 0.0125;
-      prof.push([R + 0.0066, z], [R + 0.0066, z - 0.006], [R + 0.0035, z - 0.0075], [R + 0.0035, z - 0.0115]);
-    }
-    prof.push([R + 0.009, -0.665], [R + 0.009, -0.685], [R + 0.0055, -0.69], [R - 0.0045, -0.69], [R - 0.0045, -0.64, 0]);
-    m.lathe(prof, 36, { chamfer: 0.0009, smooth: 20 });
+    // Ribbed blast sleeve at the muzzle, soft where it meets the world. Hidden while `rocketTube` replaces it.
+    m.part('muzzleStd', [0, 0, 0], () => {
+      m.use(F.rubber);
+      const prof: [number, number, number?][] = [[R + 0.0005, -0.575, 0], [R + 0.0045, -0.58]];
+      for (let i = 0; i < 6; i++) {
+        const z = -0.588 - i * 0.0125;
+        prof.push([R + 0.0066, z], [R + 0.0066, z - 0.006], [R + 0.0035, z - 0.0075], [R + 0.0035, z - 0.0115]);
+      }
+      prof.push([R + 0.009, -0.665], [R + 0.009, -0.685], [R + 0.0055, -0.69], [R - 0.0045, -0.69], [R - 0.0045, -0.64, 0]);
+      m.lathe(prof, 36, { chamfer: 0.0009, smooth: 20 });
+    });
     m.use(F.black);
     m.lathe([[R - 0.0045, -0.64, 0], [R - 0.006, -0.2, 0]], 28);
 
@@ -76,6 +80,91 @@ function tube(m: Mesher): void {
   onLeft(0.15, -0.4, () => m.decal('warn', 0.022, 0.022, 0xd8c35a));
 }
 
+/**
+ * Extended launch tube mod (`rocketTube`): bolted clamping collar, lengthened olive barrel sleeve with machined cooling ribs
+ * and reinforcing flange, and a slotted forward warhead blast shroud extending to TUBE_LONG_END (-0.96 m).
+ */
+function tubeLong(m: Mesher): void {
+  m.part('tubeLong', [0, AXIS, 0], () => {
+    // Heavy parkerized clamping collar joining the extension cleanly onto the forward olive tube.
+    m.use(F.parkerized);
+    m.lathe([
+      [R + 0.001, -0.545, 0], [R + 0.0085, -0.55], [R + 0.0085, -0.595], [R + 0.0045, -0.602, 0],
+    ], 36, { chamfer: 0.0014 });
+    m.mirror(() => {
+      hexX(m, R + 0.0082, 0.014, -0.572, 1, 0.003);
+      hexX(m, R + 0.0082, -0.014, -0.572, 1, 0.003);
+    });
+
+    // Extended olive-drab launch tube sleeve.
+    m.use(F.olive);
+    m.lathe([
+      [R + 0.0035, -0.595, 0], [R + 0.0035, -0.855], [R - 0.004, -0.86, 0],
+    ], 36, { chamfer: 0.0012 });
+
+    // Five machined dark-steel radial cooling ribs & reinforcing flange along the extended sleeve.
+    m.use(F.steelDark);
+    for (let i = 0; i < 5; i++) {
+      const z = -0.628 - i * 0.044;
+      m.at([0, 0, z], null, () => m.lathe([
+        [R + 0.003, 0.009, 0], [R + 0.0085, 0.008], [R + 0.0085, -0.008], [R + 0.003, -0.009, 0],
+      ], 34, { chamfer: 0.001 }));
+    }
+    m.at([0, 0, -0.845], null, () => clampBand(m, R + 0.004, 0.02, F.parkerized));
+
+    // Slotted forward warhead blast shroud & heavy flared muzzle crown (z = -0.855..-0.96).
+    m.use(F.parkerized);
+    for (let i = 0; i < 4; i++) {
+      const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
+      m.at([0, 0, -0.902], [0, 0, a], () => {
+        m.at([R + 0.004, 0, 0], null, () => m.box(0.01, 0.014, 0.1, 0.0014));
+      });
+    }
+    m.use(F.rubber);
+    m.lathe([
+      [R + 0.003, -0.935, 0], [R + 0.011, -0.94], [R + 0.011, TUBE_LONG_END + 0.004],
+      [R + 0.007, TUBE_LONG_END], [R - 0.0045, TUBE_LONG_END], [R - 0.0045, -0.935, 0],
+    ], 36, { chamfer: 0.001, smooth: 20 });
+    m.use(F.black);
+    m.lathe([[R - 0.0045, TUBE_LONG_END + 0.005, 0], [R - 0.0055, -0.58, 0]], 28);
+
+    // Subtle yellow ordnance stencil band on the camera-facing left side of the extension.
+    m.at([-(R + 0.0042), 0.016, -0.73], [0, -Math.PI / 2, 0], () => m.decal('hazard', 0.085, 0.015, 0xc9a227));
+  });
+}
+
+/**
+ * White Phosphorus rockets visual cue (`rocketWp`): matte-white chemical dispersion canister & hazard selector collar
+ * clamped to the upper-left forward tube (clearly readable in FP and shop turntable, even with `rocketTube` fitted).
+ */
+function wpKit(m: Mesher): void {
+  m.part('wpKit', [0, AXIS, 0], () => {
+    // Clamping saddle band wrapping the forward olive tube ahead of the optic.
+    m.at([0, 0, -0.375], null, () => clampBand(m, R + 0.002, 0.022, F.steelDark));
+    // Compact matte-white chemical agent pressure canister + hazard collar perched on the upper-left flank.
+    m.at([-(R + 0.012), 0.036, -0.375], [0, 0, 0.42], () => {
+      m.use(F.white);
+      m.lathe([
+        [0, 0.064, 0], [0.012, 0.062], [0.0155, 0.052], [0.0155, -0.052], [0.012, -0.062], [0, -0.064, 0],
+      ], 20, { chamfer: 0.0012, smooth: 24 });
+      // Crisp red & steel chemical hazard bands wrapping the white canister.
+      m.use(F.red);
+      for (const z of [-0.026, 0.026]) {
+        m.at([0, 0, z], null, () => m.cyl(0.0162, 0.01, 20, 0.0005));
+      }
+      m.use(F.steelDark);
+      m.at([0, 0, 0], null, () => m.cyl(0.0166, 0.016, 20, 0.0008));
+      m.at([0, 0, -0.068], null, () => m.cyl(0.007, 0.01, 14, 0.0008));
+      // Glowing white-amber armed WP selector indicator facing the shooter.
+      m.use(F.black);
+      m.at([-0.014, 0.006, 0.044], null, () => m.box(0.004, 0.009, 0.02, 0.0006));
+      m.glow('wpLed', () => m.at([-0.0162, 0.006, 0.044], null, () => m.box(0.0014, 0.0055, 0.015, 0)));
+    });
+    // Hazard stencil strip along the left shoulder of the forward tube.
+    m.at([-(R + 0.0028), 0.01, -0.375], [0, -Math.PI / 2, 0], () => m.decal('hazard', 0.072, 0.013, 0xe8ecee));
+  });
+}
+
 function optic(m: Mesher): void {
   m.at([-0.062, AXIS + 0.036, -0.2], null, () => {
     // Bracket reaching out from the tube.
@@ -96,6 +185,15 @@ function optic(m: Mesher): void {
       m.use(F.rubber);
       m.lathe([[0.021, 0.004, 0], [0.024, 0.0], [0.0245, -0.018], [0.0225, -0.03], [0.0195, -0.031], [0.0185, -0.02, 0]], 26);
       m.glass(() => m.at([0, 0, -0.0125], null, () => m.cyl(0.0184, 0.0006, 20, 0)));
+    });
+    // Integrated guided-laser emitter pod under the optic housing (aligned with `lam` socket).
+    m.at([0, -0.022, -0.048], null, () => {
+      m.use(F.anodized);
+      m.box(0.024, 0.016, 0.078, 0.0016);
+      m.use(F.black);
+      m.at([0, 0, -0.041], null, () => m.cyl(0.0056, 0.005, 16, 0.0005));
+      m.glass(() => m.at([0, 0, -0.0438], null, () => m.cyl(0.0044, 0.0006, 16, 0)));
+      m.glow('laser', () => m.at([0, 0, -0.0442], null, () => m.cyl(0.0014, 0.0003, 10, 0)));
     });
     m.at([0, 0.006, 0.075], null, () => {
       m.use(F.rubber);
@@ -236,6 +334,22 @@ function rocket(m: Mesher): void {
     m.lathe([[0.0348, -0.66, 0], [0.0312, -0.665], [0.0291, -0.685], [0.0288, -0.685, 0]], 26, { chamfer: 0 });
     m.use(F.steelDark);
     m.lathe([[0.0034, -0.79, 0], [0.0034, -0.822], [0.0022, -0.825], [0, -0.825, 0]], 10);
+    // White Phosphorus warhead ogive sleeve (`rocketWp`): matte-white chemical nose & red/white hazard bands peeking past the muzzle.
+    m.part('wpNose', [0, 0, 0], () => {
+      m.use(F.white);
+      const wp: [number, number, number?][] = [[0.0352, -0.602, 0]];
+      for (let i = 1; i <= 14; i++) {
+        const t = i / 14;
+        wp.push([0.0352 * (1 - t ** 1.7) + 0.004, -0.602 - t * 0.188, 0]);
+      }
+      m.lathe(wp, 26, { chamfer: 0, smooth: 40 });
+      m.use(F.red);
+      m.lathe([[0.0342, -0.648, 0], [0.0326, -0.652], [0.0302, -0.676], [0.0295, -0.678, 0]], 26, { chamfer: 0 });
+      m.use(F.yellow);
+      m.lathe([[0.0246, -0.708, 0], [0.0235, -0.711], [0.0212, -0.725], [0.0205, -0.726, 0]], 24, { chamfer: 0 });
+      m.use(F.steel);
+      m.lathe([[0.0044, -0.788, 0], [0.0048, -0.824], [0.0028, -0.832], [0, -0.832, 0]], 12);
+    });
   });
 }
 
@@ -243,6 +357,8 @@ function buildRocket(kit: Kit): Model {
   const m = kit.mesher();
   m.bevel = 0.0016;
   tube(m);
+  tubeLong(m);
+  wpKit(m);
   grips(m);
   optic(m);
   carry(m);
@@ -253,10 +369,18 @@ function buildRocket(kit: Kit): Model {
     m.side(poly([[-0.0035, 0.002], [0.0035, 0.002], [0.002, -0.009, 0.002], [0.0038, -0.0205, 0.0015], [0.0005, -0.0215, 0.001], [-0.0035, -0.0095, 0.003]], 0.001), 0.0065, { bevel: 0.0007 });
   });
   const model = new Model(m, kit.mats, {
-    glows: { reticle: [0xff3a22, 2.6] },
+    glows: {
+      reticle: [0xff3a22, 2.6],
+      laser: [0xff3020, 6],
+      wpLed: [0xfff2cc, 5.5],
+    },
     screens: { lock: [168, 76] },
   });
   model.socket('muzzle', [0, AXIS, -0.71]);
+  model.socket('muzzleLong', [0, AXIS, TUBE_LONG_END - 0.02]);
+  // Guided laser emitter sockets aligned with the optic's lower laser designator pod (hip) and objective axis (ADS).
+  model.socket('lam', [-0.062, AXIS + 0.014, -0.296]);
+  model.socket('lamAim', [-0.062, AXIS + 0.042, -0.296]);
   model.socket('eject', [0, AXIS + 0.05, 0.2]);
   model.hand('gripR', [0.018, -0.052, 0.07], [0, -0.96, 0.27], [-0.3, -0.25, -0.92]);
   model.foregrip('gripL', [-0.018, AXIS - R - 0.075, -0.3]);
@@ -297,6 +421,10 @@ function clip(a: Anim): void {
   const loaded = a.mag > 0;
   P.rocket!.visible = loaded;
   a.glow('reticle', loaded ? 0.95 + 0.05 * Math.sin(a.time * 11) : 0.25);
+  a.glow('laser', 0.85);
+  if (a.mods?.has('rocketWp')) {
+    a.glow('wpLed', 0.7 + 0.3 * Math.sin(a.time * 5.2));
+  }
 
   // Blast rocks the whole tube on the shoulder a moment after the shot.
   const rock = a.sinceFire < 0.5 ? bump(a.sinceFire, 0.02, 0.5) : 0;
@@ -362,6 +490,10 @@ export function rocketDef(kit: Kit): ViewDef {
     right: { socket: 'gripR', pose: HANDS.grip },
     left: { socket: 'gripL', pose: HANDS.foregrip },
     heatPerShot: 0.4,
+    mods: {
+      rocketTube: { part: 'tubeLong', hides: 'muzzleStd', muzzle: 'muzzleLong' },
+      rocketWp: { part: 'wpKit', also: 'wpNose' },
+    },
     animate: clip,
     readout,
   };
