@@ -1,4 +1,7 @@
-/** Pause. Esc tries to resume, but only a click or Enter can take the mouse back, so the hint says so when needed. */
+/**
+ * Pause. Esc resumes. After the player's own Esc the browser hands the mouse back only on a click or a key (Esc is not one), so
+ * then the menu goes and a one-line prompt waits for the next click or key (Hud.ts `awaitTouch`); Esc there opens this again.
+ */
 import { MISSION_ID } from '../../campaign/select';
 import { Label, Shown, div, span } from '../dom';
 import type { Hud } from '../Hud';

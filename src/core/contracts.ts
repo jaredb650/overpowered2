@@ -768,6 +768,8 @@ export interface InputSystem extends GameSystem {
   requestLock(): void;
   releaseLock(): void;
   readonly locked: boolean;
+  /** The lock can be asked back without a click or a key (input/index.ts). Absent: assume it cannot. */
+  readonly relockFree?: boolean;
   /** Bots and tests drive the game through these. They bypass pointer lock. */
   simulate(action: Action, down: boolean): void;
   simulateLook(dx: number, dy: number): void;

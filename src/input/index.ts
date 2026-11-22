@@ -51,6 +51,8 @@ export class Input implements InputSystem {
   private wheelPixels = 0;
   private wheelNotches = 0;
   private lockIntended = false;
+  /** The page let the lock go itself (a shop, the pause key with Escape kept by the keyboard lock), not the player's Esc. */
+  private pageReleased = false;
   private skipNextMove = false;
   private capture: ((code: string | null) => void) | null = null;
   private listeners: [EventTarget, string, EventListener, AddEventListenerOptions?][] = [];
@@ -74,6 +76,14 @@ export class Input implements InputSystem {
 
   get locked(): boolean {
     return document.pointerLockElement === this.canvas;
+  }
+
+  /**
+   * True when the lock can be asked back without a click or a key. Chrome wants a gesture to lock again after the player ended
+   * the lock (Esc, and Esc is never a gesture), but not after the page ended it itself, nor in the page's own fullscreen.
+   */
+  get relockFree(): boolean {
+    return !this.locked && (this.pageReleased || !!document.fullscreenElement);
   }
 
   isDown(action: Action): boolean {
@@ -118,7 +128,8 @@ export class Input implements InputSystem {
 
   releaseLock(): void {
     this.lockIntended = false;
-    this.keyboard()?.unlock();
+    // In the page's own fullscreen Escape stays with the page, so a second Esc can resume the run instead of leaving fullscreen.
+    if (!document.fullscreenElement) this.keyboard()?.unlock();
     if (document.pointerLockElement) document.exitPointerLock();
   }
 
@@ -327,7 +338,12 @@ export class Input implements InputSystem {
   }
 
   private onLockChange(): void {
-    if (this.locked) return;
+    if (this.locked) {
+      this.pageReleased = false;
+      return;
+    }
+    // releaseLock clears the intent before it lets go: anything else ending a lock that was wanted is the player, or the browser.
+    this.pageReleased = !this.lockIntended;
     this.clearPhysical();
     // Chrome swallows the Esc keydown that ends pointer lock, so losing the lock has to act as the pause key.
     if (this.lockIntended) {
@@ -336,7 +352,7 @@ export class Input implements InputSystem {
       this.pressedNow[i] = 1;
       this.releasedNow[i] = 1;
     }
-    this.keyboard()?.unlock();
+    if (!(this.pageReleased && document.fullscreenElement)) this.keyboard()?.unlock();
   }
 }
 

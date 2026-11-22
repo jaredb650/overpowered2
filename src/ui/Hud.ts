@@ -9,7 +9,7 @@ import * as THREE from 'three';
 import type { Ctx, GameState } from '../core/contracts';
 import type { HudSystem, PickupKind, SeatPanel } from '../core/gameplay';
 import { cheatsOn, onCheats } from '../core/cheats';
-import { div } from './dom';
+import { div, span } from './dom';
 import { HudState } from './state';
 import { RunReport } from './runreport';
 import { applyQuality, applySettings, CHATTER_BUBBLES, CHATTER_OFF, loadSettings, type Settings } from './settings';
@@ -139,6 +139,14 @@ export class Hud implements HudSystem {
   /** True while the last frame saw the lock, so any way of losing it can be noticed. */
   private lockHeld = false;
   private lockEverHeld = false;
+  /**
+   * Esc backed out of the pause menu or a shop, but the browser will not hand the mouse back without a click or a key: the menu
+   * is gone and the run waits under a one-line prompt for the next click or key, which takes the mouse back. Esc there opens
+   * the pause menu again. `touchArmed` keeps the press that got here from also answering it.
+   */
+  private touching = false;
+  private touchArmed = false;
+  private readonly touchHint: HTMLElement;
 
   constructor(private readonly ctx: Ctx) {
     this.report = new RunReport(ctx);
@@ -227,8 +235,24 @@ export class Hud implements HudSystem {
     // Last, so the track name shows over the menu as well as the HUD.
     this.root.append(this.nowPlaying.el);
     this.screens.show('loading');
+    this.touchHint = div('touch-hint', span('touch-t', 'Click or press any key to resume'), span('touch-s', 'Esc: pause menu'));
+    this.touchHint.style.display = 'none';
+    this.root.append(this.touchHint);
 
     addEventListener('resize', this.onResize);
+    addEventListener('keydown', e => {
+      if (!this.touching || !this.touchArmed || e.repeat) return;
+      e.preventDefault();
+      this.endTouch();
+      if (e.code === 'Escape') this.screens.show('pause');
+      else this.requestLock('resume');
+    });
+    // A click, not a mousedown: by the time the run is back the button is up, so the click cannot fire too.
+    addEventListener('click', () => {
+      if (!this.touching || !this.touchArmed) return;
+      this.endTouch();
+      this.requestLock('resume');
+    });
   }
 
   /** Game.ts publishes itself on window once systems exist. Sandboxes publish a stand-in the same way. */
@@ -430,13 +454,29 @@ export class Hud implements HudSystem {
     const game = this.game;
     if (!game || game.state !== 'paused') return false;
     this.pauseGuard = 2;
-    // Chrome does not count Esc as a gesture, so a request from it can only fail. Say so now rather than after the retries.
-    if (this.lockEverHeld && navigator.userActivation?.isActive === false) {
-      this.screens.pauseHint('The browser wants a click. Click Resume or press Enter.');
-      return false;
+    // Chrome does not count Esc as a gesture, and after the player's own Esc it wants one to take the mouse back, so a request
+    // from Esc can only fail. Then the menu still goes, as Esc means, and the next click or key resumes (`awaitTouch`). A lock the
+    // page let go itself (a shop opened with E) comes back without one.
+    if (this.lockEverHeld && navigator.userActivation?.isActive === false && this.ctx.input.relockFree !== true) {
+      this.awaitTouch();
+      return true;
     }
     this.requestLock('resume');
     return true;
+  }
+
+  /** The menu goes and the run waits for a click or a key (see `touching`). */
+  private awaitTouch(): void {
+    this.lockAfter = null;
+    this.touching = true;
+    this.touchArmed = false;
+    this.screens.show('none');
+    this.touchHint.style.display = '';
+  }
+
+  private endTouch(): void {
+    this.touching = this.touchArmed = false;
+    this.touchHint.style.display = 'none';
   }
 
   /** Outpost Defense's loadout or a shop: the run waits under it, as under pause, and Resume brings it back. */
@@ -532,8 +572,10 @@ export class Hud implements HudSystem {
       // A browser that will not hand over the mouse at all still gets a game on the second ask.
       if (after === 'resume' && !this.lockEverHeld) game?.setState('playing');
       else {
+        // Refused (Chrome's cooldown just after an Esc, or no gesture): wait for the next click or key rather than leave a menu up.
         this.pause();
-        this.screens.pauseHint('Click Resume to take the mouse back.');
+        if (this.lockEverHeld) this.awaitTouch();
+        else this.screens.pauseHint('Click Resume to take the mouse back.');
       }
       return;
     }
@@ -576,6 +618,11 @@ export class Hud implements HudSystem {
     this.flythrough.update(dt);
     this.screens.update(dt);
     this.updateLock(dt);
+    // The prompt answers presses from the next frame on, and lapses if anything else took over (a death, a screen, the run back).
+    if (this.touching) {
+      if (game?.state !== 'paused' || this.screens.name !== 'none') this.endTouch();
+      else this.touchArmed = true;
+    }
 
     const input = ctx.input;
     if (input.pressed?.('debugFps') === true) this.debug.toggleFps();

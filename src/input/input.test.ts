@@ -156,6 +156,26 @@ describe('look and wheel', () => {
     expect(input.isDown('forward')).toBe(false);
     input.dispose();
   });
+
+  it('knows who let the lock go: the page may take it back without a gesture, the player\'s Esc may not', async () => {
+    const { input } = await make();
+    input.requestLock();
+    expect(input.relockFree).toBe(false);
+    // The page lets go (a shop opened with E): no pause press, and the lock can come straight back.
+    input.releaseLock();
+    document.dispatchEvent(new Event('pointerlockchange'));
+    expect(input.pressed('pause')).toBe(false);
+    expect(input.relockFree).toBe(true);
+    input.requestLock();
+    document.dispatchEvent(new Event('pointerlockchange'));
+    expect(input.relockFree).toBe(false);
+    // The player's Esc ends it: the browser wants a click or a key before it hands the mouse back.
+    pointer.element = null;
+    document.dispatchEvent(new Event('pointerlockchange'));
+    expect(input.pressed('pause')).toBe(true);
+    expect(input.relockFree).toBe(false);
+    input.dispose();
+  });
 });
 
 describe('rebinding', () => {
