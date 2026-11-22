@@ -179,10 +179,31 @@ describe('Desert Raid (Mission 5)', () => {
 
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const placeMock = vi.fn(() => ({}) as unknown);
+    const scene = new THREE.Scene();
     const fakeCtx = {
-      progression: { callInsManager: { emplacements: { place: placeMock } } },
-      enemies: { alive: [] },
-      audio: { has: () => false, play: () => {} },
+      render: { scene, materials: { patch: <T>(m: T) => m } },
+      player: {
+        position: new THREE.Vector3(0, 0, 208),
+        velocity: new THREE.Vector3(),
+        yaw: 0,
+        pitch: 0,
+        teleport: () => {},
+        park: () => {},
+        unpark: () => {},
+        damage: () => {},
+      },
+      camera: { setSeat: () => {}, clearSeat: () => {}, setZoom: () => {}, setZoomFov: () => {}, addTrauma: () => {} },
+      hud: { seat: () => {}, setHint: () => {}, showPrompt: () => {} },
+      weapons: { holster: () => {} },
+      input: { isDown: () => false, wasPressed: () => false, consume: () => false },
+      physics: { addBox: () => null, remove: () => {}, raycast: () => null },
+      fx: { dust: () => {}, sparks: () => {}, burst: () => {}, tracer: () => {}, muzzleFlash: () => {}, explosion: () => {}, megaBlast: () => {}, smokeTrail: () => null },
+      world: { objects: { destruction: { damageAt: () => false, blast: () => {}, nukeSweep: () => {} } } },
+      allies: { spawn: () => null },
+      progression: { award: () => {}, callInsManager: { emplacements: { place: placeMock } } },
+      enemies: { alive: [], vehicles: { addExtra: () => {}, removeExtra: () => {} } },
+      audio: { has: () => false, play: () => {}, loop: () => ({ stop: () => {}, setVolume: () => {}, setPitch: () => {}, setPosition: () => {} }) },
+      events: { on: () => () => {}, emit: () => {} },
     } as unknown as Ctx;
     const host = new FakeHost();
     const runner = new MissionRunner(DESERT_RAID, host);
@@ -401,8 +422,12 @@ describe('Desert Raid (Mission 5)', () => {
 
   it('pulses loudspeakers when Quist speaks over CampaignHud', () => {
     const fakeCtx = {
-      enemies: { alive: [] },
-      audio: { has: () => false, play: () => {} },
+      render: { scene: new THREE.Scene(), materials: { patch: <T>(m: T) => m } },
+      player: { position: new THREE.Vector3(0, 0, 208), velocity: new THREE.Vector3(), yaw: 0, pitch: 0 },
+      physics: { addBox: () => null, remove: () => {}, raycast: () => null },
+      enemies: { alive: [], vehicles: { addExtra: () => {}, removeExtra: () => {} } },
+      audio: { has: () => false, play: () => {}, loop: () => ({ stop: () => {}, setVolume: () => {}, setPitch: () => {}, setPosition: () => {} }) },
+      events: { on: () => () => {}, emit: () => {} },
     } as unknown as Ctx;
     const host = new FakeHost();
     const runner = new MissionRunner(DESERT_RAID, host);

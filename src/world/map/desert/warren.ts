@@ -345,7 +345,7 @@ function buildMinigunNest(k: Kit, spec: MapSpec): void {
   });
 
   // Mount the optional M134 Minigun facing north (-Z, camera yaw = 0) with 140-deg (±1.22 rad) arc!
-  spec.emplacement(mx, my, mz, 0, 1.22, 1);
+  spec.emplacement(mx, my, mz, -0.32, 1.22, 3);
 
   // Subtle warm work lamp lighting the minigun platform so players spot it immediately from the street
   g.use('emissiveOrange').box(mx - 3.0, my + 2.5, mz - 2.35, 0.25, 0.14, 0.14, FACE.all);

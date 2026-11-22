@@ -54,6 +54,10 @@ export const DESERT_RAID_CALLS: ReadonlySet<string> = new Set([
 /** Fallback aliases for keys Lane 4 (`setpieces.ts`) might pass into `QuistHooks.onLine`. */
 const LINE_KEY_ALIASES: Readonly<Record<string, string>> = {
   'quist.pistol': 'quist.suicide',
+  'quist.end.pistol': 'quist.suicide',
+  'quist.end.grenade': 'quist.grenade',
+  'quist.chase.1': 'quist.door1',
+  'quist.chase.2': 'quist.door2',
   'quist.capture': 'quist.captured',
   'quist.speech1': 'quist.speech.1',
   'quist.speech2': 'quist.speech.2',
@@ -190,10 +194,18 @@ export class DesertRaid {
     if (this.warrenMinigun) return;
     const emplacements = this.emplacements;
     if (!emplacements) return;
+    const targetPos = new THREE.Vector3(WARREN_MINIGUN.pos[0], WARREN_MINIGUN.pos[1], WARREN_MINIGUN.pos[2]);
+    const existing = Array.isArray(emplacements.all)
+      ? emplacements.all.find(e => !e.destroyed && e.spec.pos.distanceTo(targetPos) <= 2.5)
+      : undefined;
+    if (existing) {
+      this.warrenMinigun = existing;
+      return;
+    }
     // Camera yaw 0 looks down -Z (north); angle slightly northeast (-0.32 rad) from x = -14 down the central Warren avenue.
     const aimNorthYaw = WARREN_MINIGUN.yaw === Math.PI ? -0.32 : WARREN_MINIGUN.yaw;
     this.warrenMinigun = emplacements.place({
-      pos: new THREE.Vector3(WARREN_MINIGUN.pos[0], WARREN_MINIGUN.pos[1], WARREN_MINIGUN.pos[2]),
+      pos: targetPos,
       yaw: aimNorthYaw,
       arc: (140 * Math.PI) / 360,
       level: 3,
