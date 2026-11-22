@@ -23,6 +23,7 @@ import { COMP } from '../../mods';
 import { pullTrigger, round } from './common';
 import { TORCH, weaponLight } from './light';
 import { OPTIC_GLOWS, openReflex } from './optics';
+import { animateRiotShield, attachRiotShieldHand, buildRiotShield } from './shield';
 
 const BORE = 0.036;
 const FRAME_TOP = 0.02;
@@ -570,7 +571,7 @@ function magwell(m: Mesher): void {
   }));
 }
 
-function buildRivet(kit: Kit): { model: Model; dotLook: ModLook } {
+function buildRivet(kit: Kit): { model: Model; dotLook: ModLook; shieldLook: ModLook } {
   const m = kit.mesher();
   m.bevel = 0.001;
   pistolBackHalf(m);
@@ -584,6 +585,7 @@ function buildRivet(kit: Kit): { model: Model; dotLook: ModLook } {
   laser(m);
   // Weapon light mounted cleanly on the dust cover's left flank so it never collides with the under-rail `rivetLam`.
   weaponLight(m, [-0.0235, 0.0055, -0.106], -Math.PI / 2, 0.78);
+  const shieldLook = buildRiotShield(m);
   const model = new Model(m, kit.mats, {
     glows: {
       sight: [0xff7a1a, 7], rear: [0xdce6f2, 1.8], laser: [0xff3020, 7],
@@ -599,7 +601,8 @@ function buildRivet(kit: Kit): { model: Model; dotLook: ModLook } {
   // The off hand wraps the shooting hand, thumbs forward under the slide.
   model.pistolSupport('gripL', [-0.0285, -0.068, 0.06]);
   model.hand('magHold', [-0.014, -0.1, 0.012], [-0.3, 0.1, -0.95], [0.9, -0.1, -0.35], 'mag');
-  return { model, dotLook };
+  attachRiotShieldHand(model);
+  return { model, dotLook, shieldLook };
 }
 
 function clip(a: Anim): void {
@@ -638,37 +641,38 @@ function clip(a: Anim): void {
     a.gunP.z += k * 0.07;
     a.gunR.x += k * 0.55;
   }
-  if (p < 0) return;
+  if (p >= 0) {
+    // Foley: out at 0.05, in at 0.5, slide at 0.82.
+    const mag = P.mag!;
+    const out = seg(p, 0.05, 0.2);
+    const inn = seg(p, 0.36, 0.5);
+    const away = inQuad(out) * (1 - outCubic(inn));
+    mag.position.y -= away * 0.3;
+    mag.position.z += away * 0.058;
+    if (p > 0.22 && p < 0.34) mag.visible = false;
+    const seat = p >= 0.5 ? thud(seg(p, 0.5, 0.62)) : 0;
 
-  // Foley: out at 0.05, in at 0.5, slide at 0.82.
-  const mag = P.mag!;
-  const out = seg(p, 0.05, 0.2);
-  const inn = seg(p, 0.36, 0.5);
-  const away = inQuad(out) * (1 - outCubic(inn));
-  mag.position.y -= away * 0.3;
-  mag.position.z += away * 0.058;
-  if (p > 0.22 && p < 0.34) mag.visible = false;
-  const seat = p >= 0.5 ? thud(seg(p, 0.5, 0.62)) : 0;
+    // Raised cleanly to seat the fresh magazine, then snapped level as the slide drops.
+    const present = hold(p, 0.0, 0.12, 0.74, 0.88);
+    const snap = bump(p, 0.8, 0.95);
+    a.gunR.x += present * 0.34 + seat * 0.07 - snap * 0.06;
+    a.gunR.y += present * 0.14;
+    a.gunP.x -= present * 0.045;
+    a.gunP.y += present * 0.095 + seat * 0.012;
+    a.gunP.z += present * 0.065 + snap * 0.012;
 
-  // Raised cleanly to seat the fresh magazine, then snapped level as the slide drops.
-  const present = hold(p, 0.0, 0.12, 0.74, 0.88);
-  const snap = bump(p, 0.8, 0.95);
-  a.gunR.x += present * 0.34 + seat * 0.07 - snap * 0.06;
-  a.gunR.y += present * 0.14;
-  a.gunP.x -= present * 0.045;
-  a.gunP.y += present * 0.095 + seat * 0.012;
-  a.gunP.z += present * 0.065 + snap * 0.012;
-
-  const h = a.left;
-  h.fingerRate = 44;
-  h.to('pouchL', inOut(seg(p, 0.04, 0.2)));
-  h.to('magHold', inOut(seg(p, 0.3, 0.42)));
-  h.to('gripL', inOut(seg(p, 0.64, 0.8)));
-  h.shape(HANDS.cup, hold(p, 0.24, 0.36, 0.56, 0.64));
+    const h = a.left;
+    h.fingerRate = 44;
+    h.to('pouchL', inOut(seg(p, 0.04, 0.2)));
+    h.to('magHold', inOut(seg(p, 0.3, 0.42)));
+    h.to('gripL', inOut(seg(p, 0.64, 0.8)));
+    h.shape(HANDS.cup, hold(p, 0.24, 0.36, 0.56, 0.64));
+  }
+  animateRiotShield(a, 'rivetShield');
 }
 
 export function rivetDef(kit: Kit): ViewDef {
-  const { model, dotLook } = buildRivet(kit);
+  const { model, dotLook, shieldLook } = buildRivet(kit);
   return {
     id: 'rivet',
     model,
@@ -681,6 +685,7 @@ export function rivetDef(kit: Kit): ViewDef {
     left: { socket: 'gripL', pose: HANDS.pistolSupport },
     heatPerShot: 0.02,
     mods: {
+      rivetShield: shieldLook,
       rivetMag: { part: 'magExt', hides: 'magStd' },
       rivetLight: { part: 'light' },
       rivetComp: { part: 'comp', muzzle: 'muzzleComp', flip: COMP.flip },

@@ -24,6 +24,7 @@ import { HANDS } from '../poses';
 import { pullTrigger, round } from './common';
 import { OPTIC_GLOWS, openReflex } from './optics';
 import { TORCH, weaponLight } from './light';
+import { animateRiotShield, attachRiotShieldHand, buildRiotShield } from './shield';
 import { COMP } from '../../mods';
 
 /** Built size against authored: the owner found it too big for the hands at full size. */
@@ -612,7 +613,7 @@ function laser(m: Mesher): void {
   }));
 }
 
-function buildUltramag(kit: Kit): { model: Model; dotLook: NonNullable<ViewDef['mods']>['ultramagDot'] } {
+function buildUltramag(kit: Kit): { model: Model; dotLook: NonNullable<ViewDef['mods']>['ultramagDot']; shieldLook: NonNullable<ViewDef['mods']>['ultramagShield'] } {
   const m = kit.mesher();
   m.bevel = 0.0012;
   frame(m);
@@ -642,6 +643,8 @@ function buildUltramag(kit: Kit): { model: Model; dotLook: NonNullable<ViewDef['
     m.side(poly([[-0.0035, 0.002], [0.004, 0.002], [0.0015, -0.012, 0.004], [0.006, -0.027, 0.002], [0.0025, -0.0285, 0.001], [-0.004, -0.014, 0.005]], 0.001), 0.0068, { bevel: 0.0008 });
   });
   shrink(m.tree, S);
+  // Built after `shrink` so the shared ballistic riot shield keeps its true 1:1 scale across all four pistols.
+  const shieldLook = buildRiotShield(m);
   const model = new Model(m, kit.mats, {
     glows: { sight: [0xff6a1a, 7], rear: [0xffe2c4, 2], accent: [0xff2a1c, 3.2], laser: [0xff3020, 7], dot: OPTIC_GLOWS.dot, torch: TORCH },
   });
@@ -655,7 +658,8 @@ function buildUltramag(kit: Kit): { model: Model; dotLook: NonNullable<ViewDef['
   model.pistolSupport('gripL', k([-0.034, -0.072, 0.07]));
   model.hand('magHold', k([-0.017, -0.1, 0.022]), [-0.3, 0.1, -0.95], [0.9, -0.1, -0.35], 'mag');
   model.hand('boltHold', k([-0.023, 0.0, 0.07]), [-0.5, -0.2, -0.8], [0.8, -0.3, -0.5], 'slide');
-  return { model, dotLook };
+  attachRiotShieldHand(model);
+  return { model, dotLook, shieldLook };
 }
 
 /** Scales a built mesh tree about the origin: every vertex and every part's pivot. Normals keep under a uniform scale. */
@@ -727,38 +731,41 @@ function clip(a: Anim): void {
     a.gunP.z += lower * 0.07;
     a.gunR.x += lower * 0.6;
   }
-  if (reload < 0) return;
-  const mag = parts.mag!;
-  const away = inQuad(seg(reload, 0.05, 0.2)) * (1 - outCubic(seg(reload, 0.4, 0.55)));
-  mag.position.y -= away * 0.34;
-  mag.position.z += away * 0.09;
-  if (reload > 0.22 && reload < 0.38) mag.visible = false;
-  const seat = reload >= 0.55 ? thud(seg(reload, 0.55, 0.66)) : 0;
-  const present = hold(reload, 0, 0.12, 0.91, 1);
-  a.gunR.z -= present * 0.48;
-  a.gunR.x += present * 0.16 + seat * 0.06;
-  a.gunR.y += present * 0.1;
-  a.gunP.x -= present * 0.04;
-  a.gunP.y += present * 0.044 + seat * 0.01;
-  a.gunP.z += present * 0.05;
-  const hand = a.left;
-  hand.fingerRate = 44;
-  hand.to('magHold', inOut(seg(reload, 0, 0.06)));
-  hand.to('pouchL', inOut(seg(reload, 0.12, 0.25)));
-  hand.to('magHold', inOut(seg(reload, 0.32, 0.46)));
-  hand.to('boltHold', inOut(seg(reload, 0.59, 0.68)));
-  hand.to('gripL', inOut(seg(reload, 0.81, 0.91)));
-  hand.shape(HANDS.cup, hold(reload, 0.26, 0.4, 0.56, 0.62));
-  hand.shape(HANDS.pinch, hold(reload, 0.6, 0.67, 0.78, 0.84));
+  if (reload >= 0) {
+    const mag = parts.mag!;
+    const away = inQuad(seg(reload, 0.05, 0.2)) * (1 - outCubic(seg(reload, 0.4, 0.55)));
+    mag.position.y -= away * 0.34;
+    mag.position.z += away * 0.09;
+    if (reload > 0.22 && reload < 0.38) mag.visible = false;
+    const seat = reload >= 0.55 ? thud(seg(reload, 0.55, 0.66)) : 0;
+    const present = hold(reload, 0, 0.12, 0.91, 1);
+    a.gunR.z -= present * 0.48;
+    a.gunR.x += present * 0.16 + seat * 0.06;
+    a.gunR.y += present * 0.1;
+    a.gunP.x -= present * 0.04;
+    a.gunP.y += present * 0.044 + seat * 0.01;
+    a.gunP.z += present * 0.05;
+    const hand = a.left;
+    hand.fingerRate = 44;
+    hand.to('magHold', inOut(seg(reload, 0, 0.06)));
+    hand.to('pouchL', inOut(seg(reload, 0.12, 0.25)));
+    hand.to('magHold', inOut(seg(reload, 0.32, 0.46)));
+    hand.to('boltHold', inOut(seg(reload, 0.59, 0.68)));
+    hand.to('gripL', inOut(seg(reload, 0.81, 0.91)));
+    hand.shape(HANDS.cup, hold(reload, 0.26, 0.4, 0.56, 0.62));
+    hand.shape(HANDS.pinch, hold(reload, 0.6, 0.67, 0.78, 0.84));
+  }
+  animateRiotShield(a, 'ultramagShield');
 }
 
 export function ultramagDef(kit: Kit): ViewDef {
-  const { model, dotLook } = buildUltramag(kit);
+  const { model, dotLook, shieldLook } = buildUltramag(kit);
   return {
     id: 'ultramag', model,
     pos: [0.13, -0.138, -0.41], rot: [0.02, 0.06, 0],
     sight: k([0, SIGHT_Y, POST_Z + 0.0042]), rear: k([0, SIGHT_Y, REAR_Z]), relief: 0.66,
     mods: {
+      ultramagShield: shieldLook,
       ultramagCan: { part: 'can', muzzle: 'muzzleCan' },
       // Level, low-profile open reflex dot on the eye line with clear unobstructed glass and lower-1/3 iron witness.
       ultramagDot: dotLook,

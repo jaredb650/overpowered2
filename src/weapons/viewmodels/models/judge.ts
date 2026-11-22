@@ -16,6 +16,7 @@ import type { Anim, ViewDef } from '../def';
 import { HANDS } from '../poses';
 import { pullTrigger, round } from './common';
 import { TORCH, weaponLight } from './light';
+import { animateRiotShield, attachRiotShieldHand, buildRiotShield } from './shield';
 
 const BORE = 0.05;
 /** Cylinder axis sits below the bore by the chamber circle's radius. */
@@ -324,7 +325,7 @@ function loader(m: Mesher, x: number, y: number, z: number): void {
   });
 }
 
-function buildJudge(kit: Kit): Model {
+function buildJudge(kit: Kit): { model: Model; shieldLook: NonNullable<ViewDef['mods']>['judgeShield'] } {
   const m = kit.mesher();
   m.bevel = 0.0012;
   frame(m);
@@ -354,6 +355,7 @@ function buildJudge(kit: Kit): Model {
   });
   // The shop's weapon light (weapons/mods.ts LIGHT_GUNS), hidden until fitted. Under the barrel, ahead of the cylinder.
   weaponLight(m, [0, -0.002, -0.278], 0, 0.85);
+  const shieldLook = buildRiotShield(m);
   const model = new Model(m, kit.mats, { glows: { sight: [0xff6a1a, 7], torch: TORCH } });
   model.socket('muzzle', [0, BORE, ZM - 0.013]);
   model.socket('muzzleLong', [0, BORE, ZM_LONG - 0.013]);
@@ -369,7 +371,8 @@ function buildJudge(kit: Kit): Model {
   // Fanning: the flat of the off hand held over the top strap, and swept back across the hammer spur on each shot.
   model.hand('fanHold', [-0.01, 0.088, 0.035], [0, 0, -1], [1, -0.25, 0]);
   model.hand('fanSlap', [-0.005, 0.072, 0.088], [0, 0, -1], [1, -0.35, 0]);
-  return model;
+  attachRiotShieldHand(model);
+  return { model, shieldLook };
 }
 
 /** The crane swings this far out, around its pin. */
@@ -382,14 +385,17 @@ function clip(a: Anim): void {
   pullTrigger(a, 0.09, 0.4);
   a.glow('sight', 1);
   const t = a.sinceFire;
+  // When `judgeShield` is fitted, `a.charge` carries shield fatigue (not fan-hammer state).
+  const shielded = a.mods?.has('judgeShield') === true;
+  const fanCharge = shielded ? 0 : a.charge;
   // Hammer falls on the shot, and the thumb brings it back through the refire, indexing the cylinder as it rises. Fanned,
   // the slap brings it back at once.
-  fanW = damp(fanW, a.charge, 16, a.dt);
-  const fanning = a.charge > 0.5;
+  fanW = damp(fanW, fanCharge, 16, a.dt);
+  const fanning = fanCharge > 0.5;
   const cock = fanning ? inOut(seg(t, 0.01, 0.06)) : t < 0.42 ? inOut(seg(t, 0.17, 0.36)) : 1;
   P.hammer!.rotation.x += cock * 0.72 - 0.72;
   P.cyl!.rotation.z += (a.shots + (t < 0.42 ? cock - 1 : 0)) * STEP;
-  a.gunR.z -= t < 0.36 ? bump(t, 0.15, 0.36) * 0.018 : 0;
+  if (!shielded) a.gunR.z -= t < 0.36 ? bump(t, 0.15, 0.36) * 0.018 : 0;
 
   P.loader!.visible = false;
   if (a.draw < 1) {
@@ -399,7 +405,7 @@ function clip(a: Anim): void {
     a.gunR.z += k * 0.5;
     P.cyl!.rotation.z += k * 5;
   }
-  if (fanW > 0.01) {
+  if (!shielded && fanW > 0.01) {
     const h = a.left;
     h.fingerRate = 50;
     h.to('fanHold', fanW);
@@ -407,64 +413,66 @@ function clip(a: Anim): void {
     h.shape(HANDS.open, fanW);
   }
   const p = a.reload;
-  if (p < 0) return;
+  if (p >= 0) {
+    const open = inOut(seg(p, 0.04, 0.12)) * (1 - inQuad(seg(p, 0.72, 0.76)));
+    const shut = p >= 0.76 ? thud(seg(p, 0.76, 0.86)) : 0;
+    P.crane!.rotation.z -= open * CRANE_OPEN + shut * 0.05;
+    P.latch!.position.z -= hold(p, 0.0, 0.03, 0.08, 0.12) * 0.005;
 
-  const open = inOut(seg(p, 0.04, 0.12)) * (1 - inQuad(seg(p, 0.72, 0.76)));
-  const shut = p >= 0.76 ? thud(seg(p, 0.76, 0.86)) : 0;
-  P.crane!.rotation.z -= open * CRANE_OPEN + shut * 0.05;
-  P.latch!.position.z -= hold(p, 0.0, 0.03, 0.08, 0.12) * 0.005;
+    // Rod slammed: the empties jump out and fall away with the muzzle up.
+    const eject = seg(p, 0.15, 0.2);
+    const cases = P.cases!;
+    cases.position.z += inQuad(eject) * 0.024;
+    if (p >= 0.2 && p < 0.34) cases.visible = false;
+    // The cylinder is thumbed round two chambers while it hangs open. Six-way symmetry keeps it lined up for the loader.
+    P.cyl!.rotation.z += inOut(seg(p, 0.2, 0.3)) * STEP * 2;
 
-  // Rod slammed: the empties jump out and fall away with the muzzle up.
-  const eject = seg(p, 0.15, 0.2);
-  const cases = P.cases!;
-  cases.position.z += inQuad(eject) * 0.024;
-  if (p >= 0.2 && p < 0.34) cases.visible = false;
-  // The cylinder is thumbed round two chambers while it hangs open. Six-way symmetry keeps it lined up for the loader.
-  P.cyl!.rotation.z += inOut(seg(p, 0.2, 0.3)) * STEP * 2;
+    // Speedloader from the belt, home at the foley's 0.34, a twist, and away.
+    const go = hold(p, 0.2, 0.34, 0.42, 0.52);
+    if (p > 0.2 && p < 0.52) {
+      const ld = P.loader!;
+      ld.visible = true;
+      ld.position.z += (1 - go) * 0.06;
+      ld.position.x += (1 - go) * -0.22;
+      ld.position.y += (1 - go) * -0.3;
+      ld.rotation.x += (1 - go) * 1.1;
+      ld.rotation.z += seg(p, 0.35, 0.42) * 0.5;
+    }
 
-  // Speedloader from the belt, home at the foley's 0.34, a twist, and away.
-  const go = hold(p, 0.2, 0.34, 0.42, 0.52);
-  if (p > 0.2 && p < 0.52) {
-    const ld = P.loader!;
-    ld.visible = true;
-    ld.position.z += (1 - go) * 0.06;
-    ld.position.x += (1 - go) * -0.22;
-    ld.position.y += (1 - go) * -0.3;
-    ld.rotation.x += (1 - go) * 1.1;
-    ld.rotation.z += seg(p, 0.35, 0.42) * 0.5;
+    // Muzzle up to dump, muzzle down to load, flick to close.
+    const up = hold(p, 0.08, 0.15, 0.2, 0.28);
+    const dn = hold(p, 0.24, 0.32, 0.66, 0.74);
+    const flick = bump(p, 0.7, 0.82);
+    a.gunR.x += up * 0.95 - dn * 0.34 + flick * 0.16;
+    a.gunR.z += hold(p, 0.03, 0.12, 0.72, 0.8) * 0.5;
+    a.gunP.x -= hold(p, 0.03, 0.12, 0.74, 0.88) * 0.06;
+    a.gunP.y += hold(p, 0.03, 0.12, 0.74, 0.88) * 0.025 + up * 0.045;
+    a.gunP.z += hold(p, 0.03, 0.12, 0.74, 0.88) * 0.09;
+
+    // Thumb cocks it to finish.
+    const cockEnd = hold(p, 0.88, 0.93, 0.95, 1);
+    P.hammer!.rotation.x += cockEnd * 0.1;
+
+    const h = a.left;
+    h.fingerRate = 40;
+    h.to('latchHold', inOut(seg(p, 0.0, 0.05)));
+    h.to('craneHold', inOut(seg(p, 0.08, 0.14)));
+    h.to('loaderHold', inOut(seg(p, 0.2, 0.28)));
+    h.to('craneHold', inOut(seg(p, 0.5, 0.6)));
+    h.to('gripL', inOut(seg(p, 0.8, 0.95)));
+    h.shape(HANDS.pinch, hold(p, 0.01, 0.05, 0.08, 0.12));
+    h.shape(HANDS.cup, hold(p, 0.09, 0.14, 0.19, 0.22));
+    h.shape(HANDS.cup, hold(p, 0.5, 0.6, 0.76, 0.82));
+    h.shape(HANDS.pinch, hold(p, 0.22, 0.28, 0.46, 0.5));
   }
-
-  // Muzzle up to dump, muzzle down to load, flick to close.
-  const up = hold(p, 0.08, 0.15, 0.2, 0.28);
-  const dn = hold(p, 0.24, 0.32, 0.66, 0.74);
-  const flick = bump(p, 0.7, 0.82);
-  a.gunR.x += up * 0.95 - dn * 0.34 + flick * 0.16;
-  a.gunR.z += hold(p, 0.03, 0.12, 0.72, 0.8) * 0.5;
-  a.gunP.x -= hold(p, 0.03, 0.12, 0.74, 0.88) * 0.06;
-  a.gunP.y += hold(p, 0.03, 0.12, 0.74, 0.88) * 0.025 + up * 0.045;
-  a.gunP.z += hold(p, 0.03, 0.12, 0.74, 0.88) * 0.09;
-
-  // Thumb cocks it to finish.
-  const cockEnd = hold(p, 0.88, 0.93, 0.95, 1);
-  P.hammer!.rotation.x += cockEnd * 0.1;
-
-  const h = a.left;
-  h.fingerRate = 40;
-  h.to('latchHold', inOut(seg(p, 0.0, 0.05)));
-  h.to('craneHold', inOut(seg(p, 0.08, 0.14)));
-  h.to('loaderHold', inOut(seg(p, 0.2, 0.28)));
-  h.to('craneHold', inOut(seg(p, 0.5, 0.6)));
-  h.to('gripL', inOut(seg(p, 0.8, 0.95)));
-  h.shape(HANDS.pinch, hold(p, 0.01, 0.05, 0.08, 0.12));
-  h.shape(HANDS.cup, hold(p, 0.09, 0.14, 0.19, 0.22));
-  h.shape(HANDS.cup, hold(p, 0.5, 0.6, 0.76, 0.82));
-  h.shape(HANDS.pinch, hold(p, 0.22, 0.28, 0.46, 0.5));
+  animateRiotShield(a, 'judgeShield');
 }
 
 export function judgeDef(kit: Kit): ViewDef {
+  const { model, shieldLook } = buildJudge(kit);
   return {
     id: 'judge',
-    model: buildJudge(kit),
+    model,
     pos: [0.135, -0.138, -0.42],
     rot: [0.02, 0.06, 0],
     // ADS: the glowing insert sat on the rear blade, whose notch is painted and not cut.
@@ -475,6 +483,7 @@ export function judgeDef(kit: Kit): ViewDef {
     heatPerShot: 0.05,
     animate: clip,
     mods: {
+      judgeShield: shieldLook,
       judgeHammer: { part: 'spurLong', hides: 'spur' },
       judgeGrip: { part: 'gripComfort', hides: 'gripStd' },
       judgeLight: { part: 'light' },

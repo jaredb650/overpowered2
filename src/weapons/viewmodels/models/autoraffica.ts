@@ -20,6 +20,7 @@ import type { Anim, ViewDef } from '../def';
 import { HANDS } from '../poses';
 import { pullTrigger, round } from './common';
 import { TORCH, weaponLight } from './light';
+import { animateRiotShield, attachRiotShieldHand, buildRiotShield } from './shield';
 
 const BORE = 0.036;
 const SLIDE_Z = 0;
@@ -340,7 +341,7 @@ function magazine(m: Mesher): void {
   });
 }
 
-function buildAutoraffica(kit: Kit): Model {
+function buildAutoraffica(kit: Kit): { model: Model; shieldLook: NonNullable<ViewDef['mods']>['autorafficaShield'] } {
   const m = kit.mesher();
   m.bevel = 0.0011;
   frame(m);
@@ -369,6 +370,7 @@ function buildAutoraffica(kit: Kit): Model {
 
   // Shop weapon light (`autorafficaLight`), hidden until fitted; mounted cleanly on the left flank of the weight block.
   weaponLight(m, [-0.0285, 0.004, -0.268], -Math.PI / 2, 0.85);
+  const shieldLook = buildRiotShield(m);
 
   const model = new Model(m, kit.mats, {
     glows: { sight: [0x6dff5c, 4.2], eye: [0xff2432, 5.5], torch: TORCH },
@@ -378,7 +380,8 @@ function buildAutoraffica(kit: Kit): Model {
   model.hand('gripR', [0.0205, -0.068, 0.067], [0, -0.96, 0.27], [-0.3, -0.25, -0.92]);
   model.pistolSupport('gripL', [-0.031, -0.072, 0.062]);
   model.hand('magHold', [-0.016, -0.11, 0.012], [-0.3, 0.1, -0.95], [0.9, -0.1, -0.35], 'mag');
-  return model;
+  attachRiotShieldHand(model);
+  return { model, shieldLook };
 }
 
 function clip(a: Anim): void {
@@ -412,38 +415,40 @@ function clip(a: Anim): void {
     a.gunP.z += k * 0.07;
     a.gunR.x += k * 0.55;
   }
-  if (p < 0) return;
+  if (p >= 0) {
+    // Reload foley: out at 0.05, in at 0.50, slide release at 0.84.
+    const mag = P.mag!;
+    const out = seg(p, 0.05, 0.2);
+    const inn = seg(p, 0.36, 0.5);
+    const away = inQuad(out) * (1 - outCubic(inn));
+    mag.position.y -= away * 0.34;
+    mag.position.z += away * 0.06;
+    if (p > 0.22 && p < 0.34) mag.visible = false;
+    const seat = p >= 0.5 ? thud(seg(p, 0.5, 0.62)) : 0;
 
-  // Reload foley: out at 0.05, in at 0.50, slide release at 0.84.
-  const mag = P.mag!;
-  const out = seg(p, 0.05, 0.2);
-  const inn = seg(p, 0.36, 0.5);
-  const away = inQuad(out) * (1 - outCubic(inn));
-  mag.position.y -= away * 0.34;
-  mag.position.z += away * 0.06;
-  if (p > 0.22 && p < 0.34) mag.visible = false;
-  const seat = p >= 0.5 ? thud(seg(p, 0.5, 0.62)) : 0;
+    const present = hold(p, 0.0, 0.12, 0.74, 0.88);
+    const snap = bump(p, 0.82, 0.96);
+    a.gunR.x += present * 0.22 + seat * 0.06 - snap * 0.05;
+    a.gunR.y += present * 0.14;
+    a.gunP.x -= present * 0.035;
+    a.gunP.y += present * 0.055 + seat * 0.01;
+    a.gunP.z += present * 0.045 + snap * 0.012;
 
-  const present = hold(p, 0.0, 0.12, 0.74, 0.88);
-  const snap = bump(p, 0.82, 0.96);
-  a.gunR.x += present * 0.22 + seat * 0.06 - snap * 0.05;
-  a.gunR.y += present * 0.14;
-  a.gunP.x -= present * 0.035;
-  a.gunP.y += present * 0.055 + seat * 0.01;
-  a.gunP.z += present * 0.045 + snap * 0.012;
-
-  const h = a.left;
-  h.fingerRate = 44;
-  h.to('pouchL', inOut(seg(p, 0.04, 0.2)));
-  h.to('magHold', inOut(seg(p, 0.3, 0.42)));
-  h.to('gripL', inOut(seg(p, 0.66, 0.8)));
-  h.shape(HANDS.cup, hold(p, 0.24, 0.36, 0.56, 0.66));
+    const h = a.left;
+    h.fingerRate = 44;
+    h.to('pouchL', inOut(seg(p, 0.04, 0.2)));
+    h.to('magHold', inOut(seg(p, 0.3, 0.42)));
+    h.to('gripL', inOut(seg(p, 0.66, 0.8)));
+    h.shape(HANDS.cup, hold(p, 0.24, 0.36, 0.56, 0.66));
+  }
+  animateRiotShield(a, 'autorafficaShield');
 }
 
 export function autorafficaDef(kit: Kit): ViewDef {
+  const { model, shieldLook } = buildAutoraffica(kit);
   return {
     id: 'autoraffica',
-    model: buildAutoraffica(kit),
+    model,
     pos: [0.13, -0.13, -0.38],
     rot: [0.02, 0.06, 0],
     // ADS: front post flush with the tall squared rear notch on `SIGHT_Y`, three green tritium dots aligned.
@@ -453,7 +458,7 @@ export function autorafficaDef(kit: Kit): ViewDef {
     left: { socket: 'gripL', pose: HANDS.pistolSupport },
     heatPerShot: 0.015,
     animate: clip,
-    // Extended magazine sleeve (`magExt`) and weapon light (`light`).
-    mods: { autorafficaMag: { part: 'magExt' }, autorafficaLight: { part: 'light' } },
+    // Riot shield (`shield`), extended magazine sleeve (`magExt`), and weapon light (`light`).
+    mods: { autorafficaShield: shieldLook, autorafficaMag: { part: 'magExt' }, autorafficaLight: { part: 'light' } },
   };
 }
