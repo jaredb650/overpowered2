@@ -41,6 +41,10 @@ const COMPLETION_COPY: Partial<Record<ContractId, CompletionCopy>> = {
     subject: 'Brine Central Reserve principal withdrawn in full. Account settled.',
     deductions: 'One atrium dome. Bagging fees. One Reserve gunship (write-off).',
   },
+  desert_raid: {
+    subject: 'Surplus has been levelled. Hadrek Quist is off the water.',
+    deductions: 'One shantytown. One water tower. Three open trucks (sandblasted).',
+  },
 };
 
 export class MissionComplete implements Screen {

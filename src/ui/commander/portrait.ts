@@ -69,6 +69,8 @@ export class Portrait {
     } else if (this.speaker === 'council') this.seal(talking);
     else if (this.speaker === 'harbourmaster') this.horn(talking);
     else if (this.speaker === 'governor') this.governor(talking);
+    else if (this.speaker === 'quist') this.quist(talking);
+    else if (this.speaker === 'marr') this.marr(talking);
     else this.signal();
     this.scan();
     g.globalAlpha = 1;
@@ -353,6 +355,91 @@ export class Portrait {
 
     // ON AIR red LED in corner.
     this.blob(10, 10, 3, 3, talking && f % 2 === 0 ? '#ff3a2a' : '#4a1814');
+  }
+
+  /** Hadrek Quist ("the Salt King"): calm, frightening desert warlord over loudspeaker PA. */
+  private quist(talking: boolean): void {
+    const f = this.frame;
+    const t = this.tone;
+    const cx = 48;
+    // Sun-baked ochre / rust shadow background behind a grated loudspeaker grille.
+    this.rect(0, 0, SIZE, SIZE, t === 'cracked' ? '#2c150c' : '#2a1d12');
+    for (let y = 6; y < 34; y += 6) this.line('#3f2917', 1, 4, y, 92, y);
+    // Welded scrap shoulder pauldrons & weathered desert coat.
+    this.poly('#3b2b20', 8, 96, 18, 66, 78, 66, 88, 96);
+    this.poly('#5a4636', 14, 70, 30, 65, 32, 78, 12, 82);
+    this.poly('#523f30', 82, 70, 66, 65, 64, 78, 84, 82);
+    // Heavy ochre scarf draped around collar.
+    this.poly('#9c7244', 24, 62, 72, 62, 75, 76, 48, 82, 21, 76);
+    this.line('#74512e', 1.5, 25, 68, 70, 69);
+    // Gaunt sun-weathered face + vertical cheek scar.
+    this.rect(cx - 7, 54, 14, 10, '#8d6448');
+    this.blob(cx, 40, 16, 20, '#b58460');
+    this.line('#6d3b2b', 1.6, cx - 10, 36, cx - 6, 51);
+    // Headwrap / desert hood & pushed-up brass dust goggles on forehead.
+    this.poly('#6c5238', cx - 18, 36, cx - 16, 16, cx, 12, cx + 16, 16, cx + 18, 36, cx + 12, 24, cx - 12, 24);
+    this.rect(cx - 16, 20, 32, 6, '#3a2d22');
+    this.blob(cx - 7, 23, 5.2, 4.2, '#2a2018');
+    this.blob(cx + 7, 23, 5.2, 4.2, '#2a2018');
+    this.blob(cx - 7, 23, 3.6, 2.8, '#c8832c');
+    this.blob(cx + 7, 23, 3.6, 2.8, '#c8832c');
+    // Calm, hard eyes — never blinks when rattled.
+    const ey = 38;
+    const blink = f % 43 === 0 && t === 'smug';
+    for (const side of [-1, 1]) {
+      const ex = cx + side * 6.5;
+      if (blink) this.line('#2c1c14', 1.5, ex - 3.5, ey, ex + 3.5, ey);
+      else {
+        this.blob(ex, ey, 3.1, 2.0, '#ece3d0');
+        this.blob(ex, ey, 1.4, 1.4, '#14100d');
+      }
+      this.line('#443122', 2, ex - 4.2, ey - 4.5, ex + 4.2, ey - 4.5);
+    }
+    // Thin calm mouth & salt-crusted beard stubble.
+    this.poly('#5c4636', cx - 12, 49, cx - 9, 57, cx, 60, cx + 9, 57, cx + 12, 49, cx + 7, 52, cx - 7, 52);
+    const open = talking && f % 2 === 0 ? 2.6 : 0;
+    this.blob(cx, 51, 5.2, 1 + open, open > 0 ? '#2b120e' : '#6c4234');
+    // PA loudspeaker pulse LED.
+    this.blob(10, 10, 3, 3, talking && f % 2 === 0 ? '#ff6a22' : '#4a2210');
+  }
+
+  /** Sergeant Marr: weathered desert raid squad leader on tactical radio. */
+  private marr(talking: boolean): void {
+    const f = this.frame;
+    const cx = 48;
+    // Dust-olive tactical backdrop.
+    this.rect(0, 0, SIZE, SIZE, '#18211b');
+    for (let x = 8; x < SIZE; x += 16) this.line('#233128', 1, x, 0, x, SIZE);
+    // Rig vest + desert shemagh scarf.
+    this.poly('#4c4738', 12, 96, 20, 66, 76, 66, 84, 96);
+    this.poly('#b59f77', 26, 62, 70, 62, 72, 74, 48, 79, 24, 74);
+    this.rect(cx - 7, 54, 14, 10, '#9c7356');
+    this.blob(cx, 40, 15.5, 19, '#c39776');
+    // Desert tactical helmet + pushed-up goggles + comms boom mic.
+    this.poly('#6c634b', cx - 18, 33, cx - 16, 15, cx, 11, cx + 16, 15, cx + 18, 33, cx + 14, 27, cx - 14, 27);
+    this.rect(cx - 14, 21, 28, 5, '#3b372c');
+    this.rect(cx - 12, 22, 10, 3.5, '#68787a');
+    this.rect(cx + 2, 22, 10, 3.5, '#68787a');
+    // Headset earcup & boom mic.
+    this.rect(cx - 19, 34, 5, 12, '#2a2e2c');
+    this.line('#222624', 2, cx - 16, 44, cx - 4, 52);
+    this.blob(cx - 3, 52, 2.2, 2.2, '#181a1a');
+    // Focused eyes.
+    const ey = 38;
+    const blink = f % 37 === 0;
+    for (const side of [-1, 1]) {
+      const ex = cx + side * 6;
+      if (blink) this.line('#34241a', 1.5, ex - 3, ey, ex + 3, ey);
+      else {
+        this.blob(ex, ey, 2.9, 2.1, '#eef0ea');
+        this.blob(ex, ey, 1.3, 1.4, '#151a18');
+      }
+      this.line('#4c3a2c', 1.8, ex - 3.8, ey - 4.5, ex + 3.8, ey - 4.5);
+    }
+    const open = talking && f % 2 === 0 ? 2.5 : 0;
+    this.blob(cx, 51, 4.8, 1 + open, open > 0 ? '#3a1a16' : '#7b5040');
+    // Green tactical net active LED.
+    this.blob(10, 10, 3, 3, talking && f % 2 === 0 ? '#55e07a' : '#1b3d24');
   }
 
   /** A signal on a scope, which is all anyone knows about where this came from. */

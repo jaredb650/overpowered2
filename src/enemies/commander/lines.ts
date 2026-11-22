@@ -14,8 +14,8 @@ import { SLOT8_OLD } from '../../weapons/data';
 import { CALLSIGNS } from '../outpost/doctrine';
 import { ADAPTATIONS, TRICKS, type AdaptationId, type Tone, type TrickId } from './adaptations';
 
-/** `harbourmaster`: Holdfast's PA (Foreclosure); `governor`: Governor Reginald Sterling over Reserve PA / AUDITOR-1 (Bank Run). */
-export type Speaker = 'commander' | 'council' | 'intercept' | 'radio' | 'harbourmaster' | 'governor';
+/** `harbourmaster`: Holdfast PA; `governor`: Reserve PA/gunship; `quist`: Hadrek Quist (Surplus PA); `marr`: Sgt Marr (Desert Raid). */
+export type Speaker = 'commander' | 'council' | 'intercept' | 'radio' | 'harbourmaster' | 'governor' | 'quist' | 'marr';
 /** The arc's four, plus what the others sound like. */
 export type Emotion = Tone | 'orders' | 'deadpan' | 'urgent' | 'hushed';
 
