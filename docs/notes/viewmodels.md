@@ -2,6 +2,23 @@
 
 First-person weapons, arms and off-hand items. `src/weapons/viewmodels/**`, sandbox at `/?sandbox=viewmodels`. `createViewmodels(ctx)` from `src/weapons/viewmodels/index.ts` returns the `Rig`, which implements `ViewmodelRig`. It never changes game state.
 
+## Weapons Wishlist Viewmodels (2026-11-22)
+
+- **Hero new viewmodels:**
+  - **Bodkin (`models/bodkin.ts`):** Steyr ACR-inspired bullpup flechette rifle with carry-handle optic, rear flush magwell, and all 6 mod geometries (`bodkinAcog`, `bodkinDot`, `bodkinLong`, `bodkinCan`, `bodkinMag`, `bodkinAuto`).
+  - **Billhook (`models/billhook.ts`):** SPAS-12-inspired combat shotgun with perforated top-folding skeleton stock and curved arm-brace hook, ventilated flat barrel heat shield, side shell-counter screen, and mod parts (`billhookChoke`, `billhookLong`, `billhookExt`, `billhookDot`, ammo colour coding).
+  - **Autoclave (`models/autoclave.ts`):** Industrial-sci-fi directed microwave emitter with off-white sterilizer ceramic and dark steel chassis, twin finned cooling arrays, copper waveguides/induction coils, magnetron heater vents (zero glow at rest, warm amber-red pulse while firing/hot), and open flared parabolic horn dish with brass dipole feed.
+  - **Gaff (`models/gaff.ts`):** Shoulder-fired harpoon cannon with dark parkerized body, machined steel twin-rail launch trough, oversized barbed spear (hidden while in flight), weathered brass underslung cable winch drum, and exposed chrome recoil buffer springs.
+- **Faithful pistol remodels (zero logos/trademarks):**
+  - **Autoraffica (`models/autoraffica.ts`):** Rebuilt in all-black matte / dark blued steel / charcoal finishes matching the 1987 film machine-pistol silhouette (open-top slide, exposed ring hammer, tucked folding foregrip, vented casket compensator shroud, raised tall sights, zero cyan stripes or LCD).
+  - **Rivet (`models/rivet.ts`):** Rebuilt matching the Beretta 92FS open-top slide silhouette with full mod suite (compensator, suppressor, low-deck `openReflex`, underbarrel LAM, flared magwell, extended mag).
+  - **Shared `openReflex` (`models/optics.ts`):** Ultra-low-deck open reflex hood used on Ultramag, Rivet, and Billhook.
+- **Weapon mod viewmodels added across existing guns:**
+  - **Rifles:** `gimlet.ts` (long DMR free-float barrel/rail, flared magwell), `harrow.ts` (short barrel, 3-chamber brake, 40-round extended mag, flared magwell), `flail.ts` (heavy M60/MG42 slotted shroud, enhanced cheek-rest stock).
+  - **Shotguns:** `shotgun.ts` (sawed-off barrel & stock, greased pump bolt), `deuce.ts` (long barrel extensions for both dual and quad configurations).
+  - **Launchers:** `rocket.ts` (extended launch tube, WP canister + white warhead nose, laser designator pod), `mgl.ts` (RGL long barrel, match trigger, zero-roll crane-swing cylinder reload), `howitzer.ts` (cluster fuze kit).
+  - **Key 4 & Pistols:** `autocannon.ts` (extended recoiling long barrel with `muzzleLong`), `ultramag.ts` (low-deck `openReflex` + sculpted magwell), `judge.ts` (extended barrel & compensator), plus the shared ballistic **Riot Shield (`models/shield.ts`)** mounted on all four pistols and raised via RMB behind a narrow armoured viewing slit.
+
 ## Flail viewmodel
 
 `models/flail.ts`: receiver, feed cover hinged at its front (part `cover`, carrying the rail, the rear flip-up `irons` and both
