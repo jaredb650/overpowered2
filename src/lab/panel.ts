@@ -13,6 +13,7 @@ import type { ModCheat } from './mods';
 import { CLASS_NAMES, IMPLANTS, IMPLANT_ORDER, type ImplantId } from '../progression/implants';
 import type { ImplantCheat } from './implants';
 import { CHIPS, CHIP_ORDER, type ChipId } from '../contracts/chips';
+import { byLabel } from './order';
 import type { AiMode, LabSettings } from './settings';
 
 /** Body animation for moves, its camera part, first-person legs, and vaulting cover with no key. */
@@ -23,7 +24,7 @@ const MOVE_SWITCHES: readonly (readonly [MoveSwitch, string])[] = [
 
 const VEHICLE_ORDER: readonly VehicleKind[] = ['humvee', 'truck', 'tank', 'chopper'];
 
-const ORDER: readonly EnemyId[] = [
+const ENEMY_LIST: readonly EnemyId[] = [
   'husk', 'trooper', 'gunner', 'brute', 'stalker', 'rocketeer', 'sniper', 'riot',
   'leaper', 'bomber', 'burner', 'warden', 'skitter', 'drone', 'juggernaut', 'titan',
 ];
@@ -32,6 +33,17 @@ const SPEEDS = [1, 0.5, 0.25, 0.1, 0.05] as const;
 const PERKS = (Object.keys(EFFECTS) as (PerkId | PowerupId)[]).filter(id => !POWERUPS.includes(id as PowerupId));
 /** Where the ladder pays out, so a tester can stand on any rung. */
 const COMBOS = [5, 15, 20, 30, 50] as const;
+
+// Every list of named things in alphabetical order of its buttons (order.ts). A weapon's button starts with its key, so they
+// stay in key order with a family side by side; a mod sorts by gun and then by name, so one gun's mods sit together.
+const ORDER = byLabel(ENEMY_LIST, id => ENEMIES[id].name);
+const WEAPON_LIST = (): WeaponId[] => byLabel(WEAPON_ORDER.filter(inPlay), id => [String(WEAPONS[id].slot), WEAPONS[id].name]);
+const MOD_LIST = byLabel(MOD_ORDER, id => [WEAPONS[MODS[id].weapon].name, MODS[id].name]);
+const CALLIN_LIST = byLabel(CALLIN_ORDER, id => CALLINS[id].name);
+const IMPLANT_LIST = byLabel(IMPLANT_ORDER, id => [CLASS_NAMES[IMPLANTS[id].class], implantLabel(id)]);
+const CHIP_LIST = byLabel(CHIP_ORDER, id => CHIPS[id].name);
+const PERK_LIST = byLabel(PERKS, id => EFFECTS[id].label);
+const POWERUP_LIST = byLabel(POWERUPS, id => EFFECTS[id].label);
 
 const CSS = `
 .lab-panel { position: fixed; top: 12px; right: 12px; bottom: 12px; width: 344px; box-sizing: border-box; overflow-y: auto;
@@ -252,7 +264,7 @@ export class LabPanel {
     // Every weapon by name, in key order: a family's members sit side by side.
     this.el.append(el('h2', '', 'DRAW A WEAPON'));
     const guns = el('div', 'lab-grid');
-    for (const id of WEAPON_ORDER.filter(inPlay)) this.button(guns, `${WEAPONS[id].slot} ${WEAPONS[id].name}`, () => this.on.weapon(id));
+    for (const id of WEAPON_LIST()) this.button(guns, `${WEAPONS[id].slot} ${WEAPONS[id].name}`, () => this.on.weapon(id));
     this.el.append(guns);
     const swarm = el('div', 'lab-row');
     this.button(swarm, 'Quiver: draw it, five targets ahead to paint', () => this.on.swarm());
@@ -273,7 +285,7 @@ export class LabPanel {
     this.el.append(heavy);
     // A row a mod: grant it, and fit or take it off, anywhere, so a mod is tried without the Crucible's shop.
     this.el.append(el('h2', '', 'WEAPON MODS'));
-    for (const id of MOD_ORDER) {
+    for (const id of MOD_LIST) {
       const row = el('div', 'lab-row');
       const grant = this.button(row, `${WEAPONS[MODS[id].weapon].name}: ${MODS[id].name}`, () => this.on.mod(id, 'grant'));
       const fit = this.button(row, 'Fit', () => this.on.mod(id, 'fit'));
@@ -309,10 +321,10 @@ export class LabPanel {
   private grantSection(): void {
     this.el.append(el('h2', '', 'CALL-INS TO INVENTORY'));
     const calls = el('div', 'lab-grid wide');
-    for (const id of CALLIN_ORDER) this.button(calls, CALLINS[id].name, () => this.on.grantCallIn(id));
+    for (const id of CALLIN_LIST) this.button(calls, CALLINS[id].name, () => this.on.grantCallIn(id));
     // A row an implant, as the mods have: the perk buttons below still grant any perk, fitted or not.
     this.el.append(calls, el('h2', '', 'IMPLANTS'));
-    for (const id of IMPLANT_ORDER) {
+    for (const id of IMPLANT_LIST) {
       const row = el('div', 'lab-row');
       const grant = this.button(row, `${CLASS_NAMES[IMPLANTS[id].class]}: ${implantLabel(id)}`, () => this.on.implant(id, 'grant'));
       const fit = this.button(row, 'Fit', () => this.on.implant(id, 'fit'));
@@ -321,7 +333,7 @@ export class LabPanel {
       this.el.append(row);
     }
     this.el.append(el('h2', '', 'BRAIN CHIPS (T)'));
-    for (const id of CHIP_ORDER) {
+    for (const id of CHIP_LIST) {
       const row = el('div', 'lab-row');
       const grant = this.button(row, `Brain chip: ${CHIPS[id].name}`, () => this.on.chip(id, 'grant'));
       const fit = this.button(row, 'Fit', () => this.on.chip(id, 'fit'));
@@ -333,10 +345,10 @@ export class LabPanel {
     this.chipSlotButton = this.button(slotRow, 'Open brain chip slot 2', () => this.on.chip('slot', 'fit'));
     this.el.append(slotRow, el('h2', '', 'PERKS'));
     const perks = el('div', 'lab-grid wide');
-    for (const id of PERKS) this.button(perks, EFFECTS[id].label, () => this.on.grant(id));
+    for (const id of PERK_LIST) this.button(perks, EFFECTS[id].label, () => this.on.grant(id));
     this.el.append(perks, el('h2', '', 'POWERUPS'));
     const powerups = el('div', 'lab-grid wide');
-    for (const id of POWERUPS) this.button(powerups, EFFECTS[id].label, () => this.on.grant(id));
+    for (const id of POWERUP_LIST) this.button(powerups, EFFECTS[id].label, () => this.on.grant(id));
     this.el.append(powerups, el('h2', '', 'COMBO'));
     const combo = el('div', 'lab-row');
     for (const value of COMBOS) this.button(combo, String(value), () => this.on.setCombo(value));
