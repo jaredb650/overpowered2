@@ -35,6 +35,12 @@ const MUZZLE = -0.578;
 /** The short barrel's: its muzzle level with the launcher's, so the two still fit together. */
 const HIDER_S = -0.446;
 const MUZZLE_S = -0.482;
+/** The long barrel & extended AR-15 free-float handguard (`gimletLong`): covers out to the launcher's mouth, longer heavy barrel ahead. */
+const GUARD_FRONT_L = -0.472;
+const RAIL_FRONT_L = -0.46;
+const GAS_L = -0.495;
+const HIDER_L = -0.63;
+const MUZZLE_L = -0.69;
 /** The irons' line, front post to rear aperture: level. */
 const IRONS = 0.106;
 /** Where an optic clamps on the rail, over the port. */
@@ -98,7 +104,6 @@ function furniture(m: Mesher): void {
   m.use(F.polymer);
   m.at([0, -0.1225, 0.075], null, () => m.box(0.03, 0.005, 0.056, 0.0013, 0.003));
 
-  handguard(m);
   // The barrel nut ring where the guard meets the upper.
   m.use(F.anodizedGrey);
   m.at([0, BORE, GUARD_REAR + 0.003], null, () => m.cyl(0.021, 0.006, 24));
@@ -173,12 +178,15 @@ function gasBlock(m: Mesher): void {
   m.at([0, 0.0615, (GAS + GUARD_FRONT + 0.01) / 2], null, () => m.cyl(0.0024, GUARD_FRONT + 0.01 - GAS, 10));
 }
 
-function barrel(m: Mesher): void {
+function barrelBreech(m: Mesher): void {
   m.at([0, BORE, 0], null, () => {
     m.use(F.barrel);
-    // Breech to the gas block, which both barrels share; the rest is the long barrel's part or the short one's.
+    // Breech to the gas block, which every barrel length shares; the rest is each barrel part's own.
     m.lathe([[0.0102, GUARD_REAR, 0], [0.0102, GAS + 0.004], [0.0092, GAS], [0.0092, GAS - 0.01, 0]], 20);
   });
+}
+
+function barrel(m: Mesher): void {
   m.part('barrel', [0, BORE, 0], () => {
     m.use(F.barrel);
     m.lathe([[0.0092, GAS - 0.006, 0], [0.0092, HIDER, 0]], 20);
@@ -220,6 +228,148 @@ function shortBarrel(m: Mesher): void {
   });
 }
 
+/**
+ * The shop's long barrel (`gimletLong`): a full-length AR-15 free-float rail handguard (reaching out over the launcher's mouth,
+ * keeping its floor clear of the sliding 40 mm tube), an extended low gas block, and a longer heavy fluted marksman barrel with
+ * a slotted DMR flash hider that the suppressor still threads over.
+ */
+function longBarrel(m: Mesher): void {
+  m.part('longBarrel', [0, 0, 0], () => {
+    const R = GUARD_REAR;
+    const N = GUARD_FRONT_L;
+    // Extended AR-15 side plates in burnt-orange anodizing, flat floor clear of the GL clamp and sliding tube, raked chisel nose.
+    const plate = poly([[R, 0.06], [N + 0.024, 0.06, 0.003], [N, 0.05, 0.002], [N, 0.038, 0.002], [N + 0.028, 0.025, 0.004], [R, 0.025]], 0.0015);
+    const lean = (z: number, len: number, y0 = 0.03, y1 = 0.053): P2[] => [[z, y0], [z - len, y0], [z - len - 0.008, y1], [z - 0.008, y1]];
+    const cuts = [
+      lean(-0.198, 0.03), lean(-0.244, 0.03), lean(-0.292, 0.03),
+      lean(-0.34, 0.03), lean(-0.388, 0.03), lean(-0.432, 0.016, 0.034),
+    ].map(c => poly(c, 0.0022));
+    m.use(ACCENT);
+    m.mirror(() => m.at([0.0215, 0, 0], null, () => m.side(plate, 0.004, { bevel: 0.0009, holes: cuts })));
+
+    // Faceted top spine running the full extended handguard length, plus the continued Picatinny rail ahead of RAIL_FRONT.
+    m.use(F.anodized);
+    const spine = poly([[-0.0125, 0.0745], [0.0125, 0.0745], [0.0236, 0.065], [0.0236, 0.0575], [-0.0236, 0.0575], [-0.0236, 0.065]], 0.0012);
+    m.at([0, 0, (R + RAIL_FRONT_L) / 2], null, () => m.front(spine, R - RAIL_FRONT_L + 0.002, { bevel: 0.0018 }));
+    // Continued top rail from RAIL_FRONT (-0.31) out to RAIL_FRONT_L (-0.46) at the exact RAIL height.
+    const railStart = RAIL_FRONT + 0.002;
+    const railMid = (railStart + RAIL_FRONT_L) / 2;
+    const railHalf = (railStart - RAIL_FRONT_L) / 2;
+    m.at([0, RAIL - 0.008, railMid], null, () => m.top(rect(-0.0105, -railHalf, 0.0105, railHalf, 0.0015), 0.008, { bevel: 0.0012 }));
+    m.use(F.black);
+    for (let z = RAIL_FRONT - 0.004; z > RAIL_FRONT_L + 0.004; z -= 0.01) {
+      m.at([0, RAIL + 0.0001, z], null, () => m.top(rect(-0.0105, -0.0021, 0.0105, 0.0021, 0.0003), 0.0012, { bevel: 0 }));
+    }
+
+    // Slotted floor plate at y = 0.026 (strictly above the GL clamp & sliding 40 mm barrel top at y = 0.0185).
+    m.use(F.anodized);
+    m.at([0, 0.026, 0], null, () => m.top(rect(-0.0196, N + 0.03, 0.0196, R, 0.002), 0.003, {
+      bevel: 0.0008,
+      holes: [rect(-0.008, -0.43, 0.008, -0.37, 0.002), rect(-0.008, -0.35, 0.008, -0.295, 0.002)],
+    }));
+
+    // Mid reinforcement bridge collar and chamfered forward nose collar, bolted into the side plates.
+    const collar = poly([[-0.012, 0.032], [0.012, 0.032], [0.0234, 0.041], [0.0234, 0.054], [0.013, 0.062], [-0.013, 0.062], [-0.0234, 0.054], [-0.0234, 0.041]], 0.0015);
+    const boreHole = poly([[-0.0088, BORE - 0.0115], [0.0088, BORE - 0.0115], [0.0125, BORE], [0.0088, BORE + 0.0115], [-0.0088, BORE + 0.0115], [-0.0125, BORE]], 0.002);
+    m.use(F.anodizedGrey);
+    m.at([0, 0, -0.322], null, () => m.front(collar, 0.008, { bevel: 0.0012, holes: [boreHole] }));
+    m.use(F.anodized);
+    m.at([0, 0, N - 0.001], null, () => m.front(collar, 0.01, { bevel: 0.0014, holes: [boreHole] }));
+    m.mirror(() => {
+      hexX(m, 0.0238, 0.046, -0.322, 1, 0.0024);
+      hexX(m, 0.0238, 0.045, N + 0.012, 1, 0.0026);
+    });
+
+    // Left: rear black armour plate + serial + extended cyan accent line stepping down into the long chisel nose.
+    m.use(F.anodized);
+    m.at([-0.0252, 0, 0], null, () => m.side(poly([[R - 0.003, 0.0275], [R - 0.003, 0.0535], [-0.198, 0.0535, 0.004], [-0.19, 0.0275, 0.003]], 0.002), 0.0034, { bevel: 0.0011 }));
+    m.use(F.black);
+    m.at([-0.0268, 0.0405, -0.174], [0, -Math.PI / 2, 0], () => m.decal('serial', 0.026, 0.0034, 0x8f949a));
+    for (const [y, z] of [[0.031, -0.157], [0.05, -0.157], [0.031, -0.188], [0.05, -0.198]] as const) screwX(m, -0.0269, y, z, -1, 0.0017);
+    const strip = (h: number): P2[] => [
+      [R - 0.008, 0.0566 + h], [N + 0.028 - h, 0.0566 + h], [N + 0.012 - h, 0.0496 + h],
+      [N + 0.012 + h, 0.0496 - h], [N + 0.028 + h, 0.0566 - h], [R - 0.008, 0.0566 - h],
+    ];
+    m.use(F.black);
+    m.at([-0.0236, 0, 0], null, () => m.side(poly(strip(0.0017), 0.0006), 0.0008, { bevel: 0.0002 }));
+    m.glow('guard', () => m.at([-0.0241, 0, 0], null, () => m.side(poly(strip(0.0008), 0.0003), 0.0006, { bevel: 0 })));
+
+    // Right: extended heat-sink fin array and forward QD sling cup.
+    m.use(F.black);
+    m.at([0.0238, 0, 0], null, () => m.side(rect(-0.193, 0.0285, -0.155, 0.0525, 0.001), 0.0012, { bevel: 0.0003 }));
+    m.use(F.anodizedGrey);
+    for (let i = 0; i < 7; i++) m.at([0.0252, 0.0405, -0.157 - i * 0.0055], null, () => m.front(rect(-0.0017, -0.011, 0.0017, 0.011, 0.0005), 0.0018, { bevel: 0.0004 }));
+    m.use(F.steelDark);
+    m.at([0.0238, 0.042, N + 0.028], [0, Math.PI / 2, 0], () => m.cyl(0.0054, 0.003, 14));
+    m.use(F.black);
+    m.at([0.0249, 0.042, N + 0.028], [0, Math.PI / 2, 0], () => m.cyl(0.003, 0.0012, 12));
+
+    // Extended rifle-length gas block ahead of the long handguard, with stainless gas tube back under the spine.
+    m.use(F.barrelBlack);
+    m.at([0, 0, GAS_L], null, () => m.front(poly([[-0.0124, BORE - 0.0132], [0.0124, BORE - 0.0132], [0.0134, BORE + 0.006], [0.0076, 0.067], [-0.0076, 0.067], [-0.0134, BORE + 0.006]], 0.002), 0.018, { bevel: 0.0014 }));
+    m.mirror(() => m.at([0.0134, BORE - 0.004, GAS_L], [0, Math.PI / 2, 0], () => m.cyl(0.0022, 0.0016, 10)));
+    m.use(F.steel);
+    m.at([0, 0.0615, (GAS_L + GUARD_REAR) / 2], null, () => m.cyl(0.0024, GUARD_REAR - GAS_L, 10));
+
+    // Heavy stepped & fluted marksman barrel extending cleanly past the handguard and gas block.
+    m.at([0, BORE, 0], null, () => {
+      m.use(F.barrel);
+      m.lathe([[0.0106, GAS - 0.006, 0], [0.0106, GAS_L + 0.01], [0.01, GAS_L - 0.012], [0.01, HIDER_L + 0.008], [0.0094, HIDER_L, 0]], 22);
+      // Six longitudinal barrel flutes along the exposed heavy section.
+      m.use(F.barrelBlack);
+      for (let i = 0; i < 6; i++) {
+        const a = (i / 6) * Math.PI * 2 + Math.PI / 6;
+        m.at([Math.cos(a) * 0.0098, Math.sin(a) * 0.0098, (GAS_L - 0.018 + HIDER_L + 0.014) / 2], [0, 0, a], () => {
+          m.front(rect(-0.0012, -0.0016, 0.0012, 0.0016, 0.0004), (GAS_L - 0.018) - (HIDER_L + 0.014), { bevel: 0.0004 });
+        });
+      }
+      // Burnt-orange machined jam nut + elongated 3-chamber DMR muzzle device.
+      m.use(ACCENT);
+      m.lathe([[0.0094, HIDER_L + 0.009, 0], [0.0122, HIDER_L + 0.008], [0.0126, HIDER_L + 0.004], [0.0126, HIDER_L + 0.001], [0.0094, HIDER_L, 0]], 6);
+      m.use(F.barrelBlack);
+      m.lathe([[0.0094, HIDER_L + 0.001, 0], [0.0118, HIDER_L], [0.0118, MUZZLE_L + 0.016], [0.0108, MUZZLE_L + 0.006], [0.0102, MUZZLE_L], [0.006, MUZZLE_L, 0]], 22);
+      // Four machined side/top recoil slots + recessed dark bore.
+      m.use(F.black);
+      for (const a of [-1.25, -0.5, 0.5, 1.25]) {
+        m.at([Math.sin(a) * 0.0114, Math.cos(a) * 0.0114, (HIDER_L + MUZZLE_L) / 2 - 0.002], [0, 0, -a], () => {
+          m.front(rect(-0.0016, -0.0008, 0.0016, 0.0008, 0.0002), 0.036, { bevel: 0 });
+        });
+      }
+      m.lathe([[0.006, MUZZLE_L + 0.0005, 0], [0.0052, MUZZLE_L + 0.034, 0], [0, MUZZLE_L + 0.035, 0]], 14);
+    });
+  });
+}
+
+/**
+ * The shop's flared magwell (`gimletMagwell`): a machined billet-grey bevelled competition funnel bolted round the bottom of
+ * the lower's magazine well, staying clear of the trigger guard behind it and framing the curved magazine cleanly.
+ */
+function magwell(m: Mesher): void {
+  m.part('magwell', [0, -0.03, -0.086], () => {
+    const throat = rect(-0.0126, -0.036, 0.0126, 0.035, 0.0025);
+    // Upper collar hugging the lower receiver's magwell lip in contrasting machined grey anodizing.
+    m.use(F.anodizedGrey);
+    m.at([0, 0.002, -0.001], null, () => m.top(rect(-0.0195, -0.048, 0.0195, 0.043, 0.003), 0.007, { bevel: 0.0012, holes: [throat] }));
+    // Mid chamfered transition shoulder.
+    m.at([0, -0.0045, -0.002], null, () => m.top(poly([
+      [-0.022, 0.043], [0.022, 0.043], [0.0235, -0.046], [0.016, -0.052], [-0.016, -0.052], [-0.0235, -0.046],
+    ], 0.003), 0.0065, { bevel: 0.0014, holes: [rect(-0.0145, -0.04, 0.0145, 0.036, 0.003)] }));
+    // Wide flared competition funnel skirt at the mouth.
+    m.at([0, -0.0115, -0.003], null, () => m.top(poly([
+      [-0.0255, 0.043], [0.0255, 0.043], [0.0275, -0.046], [0.019, -0.055], [-0.019, -0.055], [-0.0275, -0.046],
+    ], 0.0035), 0.0075, { bevel: 0.0016, holes: [rect(-0.0175, -0.045, 0.0175, 0.037, 0.0035)] }));
+    // Burnt-orange chamfered accent collar + dark steel side clamp bosses and recessed hex screws.
+    m.use(ACCENT);
+    m.at([0, 0.0055, -0.001], null, () => m.top(rect(-0.0185, -0.046, 0.0185, 0.042, 0.0025), 0.0022, { bevel: 0.0005, holes: [throat] }));
+    m.use(F.steelDark);
+    m.mirror(() => {
+      m.at([0.0215, -0.004, -0.004], null, () => m.side(poly([[0.028, 0.005], [-0.034, 0.005], [-0.038, -0.007], [0.026, -0.007]], 0.002), 0.0032, { bevel: 0.0008 }));
+      screwX(m, 0.0232, -0.001, 0.012, 1, 0.0018);
+      screwX(m, 0.0232, -0.001, -0.022, 1, 0.0018);
+    });
+  });
+}
+
 /** Flip-up irons on the rail, up: shown only with no optic fitted (`clip`). */
 function irons(m: Mesher): void {
   m.part('irons', [0, RAIL, 0], () => {
@@ -245,14 +395,17 @@ const CAN_AT = HIDER + 0.012;
 
 function suppressor(m: Mesher): void {
   m.part('can', [0, BORE, CAN_AT], () => {
-    m.use(F.anodized);
-    m.lathe([[0.0118, 0.004, 0], [0.0152, 0.004], [0.0152, -0.012], [0.0192, -0.019], [0.0195, -0.182], [0.0172, -0.19], [0.0064, -0.194, 0]], 26);
-    m.at([0, 0, -0.004], null, () => knurl(m, 0.0155, 0.014, F.steelDark, 22, 0.0005));
-    m.use(F.steelDark);
-    for (const z of [-0.035, -0.11, -0.175]) m.at([0, 0, z], null, () => m.cyl(0.0198, 0.003, 26));
-    m.use(F.black);
-    m.lathe([[0.0064, -0.1935, 0], [0.005, -0.198, 0], [0, -0.1985, 0]], 14);
-    m.at([-0.0195, 0, -0.1], [0, -Math.PI / 2, 0], () => m.decal('serial', 0.05, 0.0055, 0x8f949a));
+    // Nested shift carrier so `gimletShort` moves `can` back and `gimletLong` moves `canShift` forward without colliding in `dressModel`.
+    m.part('canShift', [0, 0, 0], () => {
+      m.use(F.anodized);
+      m.lathe([[0.0118, 0.004, 0], [0.0152, 0.004], [0.0152, -0.012], [0.0192, -0.019], [0.0195, -0.182], [0.0172, -0.19], [0.0064, -0.194, 0]], 26);
+      m.at([0, 0, -0.004], null, () => knurl(m, 0.0155, 0.014, F.steelDark, 22, 0.0005));
+      m.use(F.steelDark);
+      for (const z of [-0.035, -0.11, -0.175]) m.at([0, 0, z], null, () => m.cyl(0.0198, 0.003, 26));
+      m.use(F.black);
+      m.lathe([[0.0064, -0.1935, 0], [0.005, -0.198, 0], [0, -0.1985, 0]], 14);
+      m.at([-0.0195, 0, -0.1], [0, -Math.PI / 2, 0], () => m.decal('serial', 0.05, 0.0055, 0x8f949a));
+    });
   });
 }
 
@@ -328,9 +481,17 @@ function buildGimlet(kit: Kit): Built {
   upper(m);
   lower(m);
   furniture(m);
-  barrel(m);
+  barrelBreech(m);
+  // Standard fore-end (short handguard, standard gas block, standard barrel) wrapped so `gimletLong` swaps the whole front cleanly
+  // while `gimletShort` hides only `barrel` inside it, avoiding any `hides` clash in `dressModel`.
+  m.part('stdFront', [0, 0, 0], () => {
+    handguard(m);
+    gasBlock(m);
+    barrel(m);
+  });
   shortBarrel(m);
-  gasBlock(m);
+  longBarrel(m);
+  magwell(m);
   irons(m);
   magazine(m);
   suppressor(m);
@@ -360,9 +521,10 @@ function buildGimlet(kit: Kit): Built {
   const model = new Model(m, kit.mats, { glows: { sight: [0x7dff5a, 6], guard: [0x2ff0d0, 4], torch: TORCH, ...OPTIC_GLOWS } });
   acogShade(model);
   model.socket('muzzle', [0, BORE, MUZZLE - 0.004]);
-  // On the can, so it goes back with it onto the short barrel.
-  model.socket('muzzleCan', [0, 0, CAN_END - CAN_AT], [0, 0, 0], 'can');
+  // On `canShift` inside `can`, so it follows the suppressor onto both the short barrel and the long barrel.
+  model.socket('muzzleCan', [0, 0, CAN_END - CAN_AT], [0, 0, 0], 'canShift');
   model.socket('muzzleShort', [0, BORE, MUZZLE_S - 0.004]);
+  model.socket('muzzleLong', [0, BORE, MUZZLE_L - 0.004]);
   // The launcher's mouth: its shot is fired as barrel 1 (Weapons.shootGun).
   model.socket('muzzle1', [0, GL_Y, GL_MUZZLE]);
   model.socket('eject', [0.02, 0.054, -0.012]);
@@ -373,9 +535,20 @@ function buildGimlet(kit: Kit): Built {
   model.hand('glBreech', [-0.022, GL_Y - 0.01, GUARD_REAR - 0.12], [-0.5, -0.2, -0.8], [0.8, -0.3, -0.5]);
   model.hand('magHold', [-0.02, -0.07, -0.004], [-0.3, 0.1, -0.95], [0.9, -0.1, -0.35], 'mag');
   model.hand('chargeHold', [-0.02, 0.0, 0.006], [-0.5, -0.2, -0.8], [0.8, -0.3, -0.5], 'charge');
-  return { model, mods: { gimletAcog: scope, gimletDot: dot, gimletCan: { part: 'can', muzzle: 'muzzleCan' }, gimletGl: { part: 'gl' }, gimletLight: { part: 'light' },
-    // After the can, so with both on the flash leaves the can's mouth, and the can comes back onto the stub.
-    gimletShort: { part: 'shortBarrel', hides: 'barrel', muzzle: 'muzzleShort', moves: { part: 'can', z: HIDER_S - HIDER } } } };
+  return {
+    model,
+    mods: {
+      gimletAcog: scope,
+      gimletDot: dot,
+      gimletCan: { part: 'can', muzzle: 'muzzleCan' },
+      gimletGl: { part: 'gl' },
+      gimletLight: { part: 'light' },
+      gimletMagwell: { part: 'magwell' },
+      // After the can, so with both on the flash leaves the can's mouth, and the can shifts onto the short or long barrel.
+      gimletShort: { part: 'shortBarrel', hides: 'barrel', muzzle: 'muzzleShort', moves: { part: 'can', z: HIDER_S - HIDER } },
+      gimletLong: { part: 'longBarrel', hides: 'stdFront', muzzle: 'muzzleLong', moves: { part: 'canShift', z: HIDER_L - HIDER } },
+    },
+  };
 }
 
 const BOLT_TRAVEL = 0.05;
