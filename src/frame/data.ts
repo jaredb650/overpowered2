@@ -13,6 +13,11 @@ export const FRAME_TURN_FREE = query?.get('frameturn') === 'free';
 
 const DEG = Math.PI / 180;
 
+/** Right-arm modular ordnance fitted to the Distraint Frame. */
+export type FrameArmWeapon = 'cannon40' | 'howitzer105';
+/** Left-arm Vulcan fire mode: standard 20 mm AP or proximity-fuzed mini-flak airburst. */
+export type RotaryMode = 'standard' | 'airburst';
+
 export const FRAME = {
   /** The collision body: a capsule from `step` over the feet to `top`, so anything lower than a step is under it, not in its way. */
   body: { radius: 1.5, top: 6.2, step: 1.2, skin: 0.04, minWalkY: 0.62 },
@@ -116,8 +121,19 @@ export const FRAME = {
     range: 420, tracerEvery: 2, flashEvery: 2, trauma: 0.045, kick: 0.0011,
     heatPerShot: 1 / 160, cool: 0.35, vent: 0.45,
   },
+  /** Proximity-fuzed mini-flak mode for the left-arm Vulcan (hold 1): shreds infantry, zero armour/wall penetration. */
+  rotaryAirburst: {
+    rate: 16, prox: 2.6, standoff: 1.2, radius: 3.4, damage: 58, spread: 0.01,
+    penetrate: 0, force: 42, severMult: 2.6, trauma: 0.055, kick: 0.0014,
+    holdSeconds: 0.32,
+  },
   /** The 40 mm autocannon: 10-round magazine, three shell types (HE / AP / FLAK), punchy flat trajectory. */
   cannon: { magazine: 10, reload: 3.8, interval: 0.28, speed: 145, spread: 0.0012, trauma: 0.24, kick: 0.022 },
+  /** Permanent right-arm upgrade: single-shot 105 mm siege howitzer with massive blast and concussive shockwave. */
+  howitzer: {
+    magazine: 1, reload: 3.1, interval: 0.4, speed: 98, spread: 0.0008,
+    trauma: 0.72, kick: 0.068, blastRadius: 15, blastDamage: 680, shockRadius: 22,
+  },
   /** The 6-tube lock-on missile pod: fast painting, wide cone, heavy salvo, 8.5 s reload. */
   pod: { tubes: 6, reload: 8.5, paintEvery: 0.11, cone: 0.26, range: 200, gap: 0.08, damage: 145, blast: 115, radius: 4.2 },
   /** Regenerating countermeasures: flares, smoke wall, and a close-range concussive blast that clears the ankles. */

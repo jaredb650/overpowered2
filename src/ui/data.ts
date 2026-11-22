@@ -83,6 +83,11 @@ export const WEAPONS: Record<WeaponId, WeaponInfo> = {
     role: `Revolving 40 mm grenade launcher. ${def.mgl.magSize}-round drum, ${def.mgl.grenade!.blast} blast damage in ${def.mgl.grenade!.radius} m`,
     note: 'Press 3 again to cycle to it. Rapid semi-auto 40 mm HE grenades. Fit Sticky Bomb in Procurement: hold R to toggle HE or STICKY, and right-click to detonate every planted sticky at once.',
   },
+  satchel: {
+    name: 'Satchel Charge', key: '3',
+    role: `Demolition satchel charges. ${def.satchel.grenade!.blast} structural blast in ${def.satchel.grenade!.radius} m, always sticky`,
+    note: 'Press 3 again to cycle to it. Left click tosses a heavy sticky charge onto walls, barracks, vehicles, or enemies. Right click squeezes the remote clacker to detonate every planted charge at once.',
+  },
   awl: {
     name: 'Awl', key: '4',
     role: `Bolt-action scout. ${def.awl.damage} damage, ${def.awl.magSize} rounds, triple damage to the head`,

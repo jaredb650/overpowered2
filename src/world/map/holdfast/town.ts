@@ -4,6 +4,12 @@
  * the Square. Shacks are structures (structures.ts), painted, so a rocket or the Frame flattens them; the rest is static.
  */
 import { BATTLES, PLACES, ROUTES } from '../../../campaign/missions/foreclosure.places';
+import {
+  buildBarracksCluster,
+  buildCatwalkCluster,
+  buildEmplacementPlatformCluster,
+  buildMarketHallCluster,
+} from '../../destruction';
 import { FACE } from '../../kit/geo';
 import type { Kit } from '../../kit/kit';
 import { barrier, signPanel, tank, tyres } from '../../kit/props';
@@ -12,11 +18,13 @@ import { Site } from '../outpost/site';
 import type { MapSpec } from '../spec';
 import { banner, brazier, bulbs, bunting, flag, loudspeaker, shanty, terraceIn, tower } from './props';
 import {
-  BLOCKS, BREACH, DYES, FRAME, FUEL, FUEL_TANKS, HOLDFAST_SPAWNS, LEVEL, MAIN_GATE, PAD, PAINTS, ROADS, ROOF_GUNS, SQUARE,
-  STALLS, STEP, STEPS, TERRACE, TRENCH, TRENCH_W, WALL_GUNS, WALL_X0, WALL_X1, WALL_Z, WEST_GATE, WEST_X,
+  BARRACKS, BLOCKS, BREACH, DYES, FRAME, FUEL, FUEL_TANKS, HOLDFAST_SPAWNS, LEVEL, MAIN_GATE, PAD, PAINTS, ROADS, ROOF_GUNS,
+  SQUARE, STALLS, STEP, STEPS, TERRACE, TRENCH, TRENCH_W, WALL_GUNS, WALL_X0, WALL_X1, WALL_Z, WEST_GATE, WEST_X,
 } from './plan';
 
 const HARBOUR_FACE = -105;
+/** Market blocks replaced by physics-destructible Market Halls & Garrison Barracks clusters. */
+const CLUSTER_BLOCKS = new Set(['w2', 'e3', 'e7']);
 
 /** Distance from (x, z) to the segment a-b. */
 function toSegment(x: number, z: number, ax: number, az: number, bx: number, bz: number): number {
@@ -64,10 +72,14 @@ function walls(k: Kit, site: Site): void {
   spec.wall(WALL_X0, WALL_Z, MAIN_GATE.x - MAIN_GATE.half, WALL_Z);
   spec.wallGate(MAIN_GATE.x - MAIN_GATE.half, WALL_Z, MAIN_GATE.x + MAIN_GATE.half, WALL_Z);
   spec.wall(MAIN_GATE.x + MAIN_GATE.half, WALL_Z, WALL_X1, WALL_Z);
-  // West: from the dyke north to the harbour wall, the west gate in it. It lifts for the Frame and for friends.
-  spec.wall(WEST_X, WALL_Z, WEST_X, WEST_GATE.z + WEST_GATE.half);
-  spec.wallGate(WEST_X, WEST_GATE.z + WEST_GATE.half, WEST_X, WEST_GATE.z - WEST_GATE.half, 0, true);
-  spec.wall(WEST_X, WEST_GATE.z - WEST_GATE.half, WEST_X, HARBOUR_FACE);
+  // West: reinforced concrete curtain wall & blast gate (Tier 3 — 105mm Howitzer or Nuke ONLY).
+  spec.wall(WEST_X, WALL_Z, WEST_X, WEST_GATE.z + WEST_GATE.half, 0, { tier: 3, label: 'REINFORCED WEST WALL' });
+  spec.wallGate(WEST_X, WEST_GATE.z + WEST_GATE.half, WEST_X, WEST_GATE.z - WEST_GATE.half, 0, false, { tier: 3, label: 'REINFORCED WEST GATE' });
+  spec.wall(WEST_X, WEST_GATE.z - WEST_GATE.half, WEST_X, HARBOUR_FACE, 0, { tier: 3, label: 'REINFORCED WEST WALL' });
+  // Thin Tier-1 masonry courtyard flank walls: Satchel Charges blow flanking shortcuts through the Market & Shanties.
+  spec.wall(10.2, 25, 13.8, 25, 0, { tier: 1, label: 'COURTYARD FLANK WALL' });
+  spec.wall(98.2, 24.5, 101.8, 24.5, 0, { tier: 1, label: 'MARKET COURTYARD WALL' });
+  spec.wall(50, 76, 58, 76, 0, { tier: 1, label: 'SHANTY COMPOUND WALL' });
   site.plan.walls.push({ ax: WALL_X0, az: WALL_Z, bx: WALL_X1, bz: WALL_Z, half: 0.4 }, { ax: WEST_X, az: WALL_Z, bx: WEST_X, bz: HARBOUR_FACE, half: 0.4 });
   site.plan.gates.push({ x: MAIN_GATE.x, z: WALL_Z, yaw: 0, w: MAIN_GATE.half * 2, bay: true }, { x: WEST_X, z: WEST_GATE.z, yaw: Math.PI / 2, w: WEST_GATE.half * 2, bay: true });
 
@@ -189,6 +201,9 @@ function shanties(k: Kit, site: Site): void {
       if (TRENCH.some(([tx, tz]) => Math.abs(px - tx) < 6 && Math.abs(pz - tz) < 6)) continue;
       if (ROOF_GUNS.some(r => Math.abs(px - r.x) < 7 && Math.abs(pz - r.z) < 6)) continue;
       if (Math.abs(px - sn[0]) < 5 && Math.abs(pz - sn[2] - 2.6) < 4) continue;
+      if (BARRACKS.some(b => Math.abs(px - b.x) < 8 && Math.abs(pz - b.z) < 8)) continue;
+      if (Math.abs(px - 88) < 6 && Math.abs(pz - 67) < 6) continue;
+      if (px > 47 && px < 61 && Math.abs(pz - 76) < 4) continue;
       const yaw = k.rng() < 0.5 ? 0 : Math.PI / 2;
       if (k.rng() < 0.22) shanty(k, site, px, pz, yaw + (k.rng() < 0.5 ? 0 : Math.PI), 5, 4, false);
       else spec.shack(px, pz, yaw + k.rand(-0.15, 0.15), k.rng() < 0.5 ? 'planks' : 'sheet', 0, pick(k, PAINTS));
@@ -275,9 +290,66 @@ function square(k: Kit, site: Site): void {
   brazier(k, 59.5, 31, 0, 18);
 }
 
-function stalls(_k: Kit, site: Site): void {
+/** Extra Tier-0 stalls & market shacks so the Frame's rampage through the Market splinters everything in its path. */
+const EXTRA_STALLS: readonly (readonly [number, number, number, number])[] = [
+  [18, 28.8, 0, 2], [28, 28.8, Math.PI, 4], [39, 29, 0, 6], [4, 29, Math.PI, 1], [18, 14.2, Math.PI, 5],
+  [65, 36.8, 0, 1], [75, 36.8, 0, 3], [142, 14.2, Math.PI, 0], [152, 14.2, Math.PI, 2], [142, 43.2, 0, 5],
+];
+
+const EXTRA_MARKET_SHACKS: readonly (readonly [number, number, number, 'planks' | 'sheet'])[] = [
+  [126, 43.5, 0, 'planks'], [132, 43.5, 0, 'sheet'], [2, 43.8, 0, 'planks'], [155, 11.5, Math.PI, 'sheet'],
+];
+
+function stalls(k: Kit, site: Site): void {
   const spec = site.spec;
   for (const [x, z, yaw, dye] of STALLS) spec.stall(x, z, yaw, 0, DYES[dye % DYES.length]!);
+  for (const [x, z, yaw, dye] of EXTRA_STALLS) {
+    if (clearOf(x, z, 1.9)) spec.stall(x, z, yaw, 0, DYES[dye % DYES.length]!);
+  }
+  for (const [x, z, yaw, look] of EXTRA_MARKET_SHACKS) {
+    if (clearOf(x, z, 2.2)) spec.shack(x, z, yaw, look, 0, pick(k, PAINTS));
+  }
+}
+
+/** Physics-enabled destructible buildings, barracks, elevated gun platforms, and steel catwalks in the Town & Shanties. */
+function townClusters(k: Kit, site: Site): void {
+  const spec = site.spec;
+  // Enterable Tier-1 masonry garrison barracks in the Outer Shanties & East Market.
+  for (const b of BARRACKS) {
+    if (b.tag !== 'barracks.flats' && b.tag !== 'barracks.market') continue;
+    spec.cluster(buildBarracksCluster([b.x, 0, b.z], { tag: b.tag, yaw: b.yaw, tier: 1, label: b.label }));
+    const swapped = Math.abs(Math.sin(b.yaw)) > 0.5;
+    const hx = swapped ? 4 : 5.4, hz = swapped ? 5.4 : 4;
+    site.plan.blocks.push({ x0: b.x - hx, z0: b.z - hz, x1: b.x + hx, z1: b.z + hz });
+  }
+
+  // Two Tier-2 Heavy Industrial Market Halls (Frame weapons / stomp / charge ONLY) replacing static blocks w2 & e3.
+  spec.cluster(buildMarketHallCluster([22, 0, 22], { tag: 'marketHall.west', yaw: 0, tier: 2, label: 'WEST MARKET HALL' }));
+  site.plan.blocks.push({ x0: 14.5, z0: 17, x1: 29.5, z1: 27 });
+  k.light(22, 4.4, 22, 'orange', 34, 14);
+
+  spec.cluster(buildMarketHallCluster([132, 0, 21.0], { tag: 'marketHall.east', yaw: 0, tier: 2, label: 'EAST MARKET HALL' }));
+  site.plan.blocks.push({ x0: 124.5, z0: 16, x1: 139.5, z1: 26 });
+  k.light(132, 4.4, 21, 'orange', 34, 14);
+
+  // Two Tier-1 elevated militia emplacement platforms: knock out their piers to drop the deck & gunners.
+  spec.cluster(buildEmplacementPlatformCluster([88, 0, 67], {
+    tag: 'emplacement.flats', yaw: 0, tier: 1, height: 3.0, label: 'FLATS GUN PLATFORM',
+  }));
+  site.plan.blocks.push({ x0: 85, z0: 64, x1: 91, z1: 70 });
+
+  spec.cluster(buildEmplacementPlatformCluster([150, 0, 45.2], {
+    tag: 'emplacement.market', yaw: 0, tier: 1, height: 3.0, label: 'WALL FLANK PLATFORM',
+  }));
+  site.plan.blocks.push({ x0: 147, z0: 42.4, x1: 153, z1: 48 });
+
+  // Two collapsing steel catwalks overlooking the Square flank & East Crane Street.
+  spec.cluster(buildCatwalkCluster([56.5, 0, 28], {
+    tag: 'catwalk.square', yaw: Math.PI / 2, length: 12, height: 3.6, tier: 1, label: 'SQUARE OVERLOOK CATWALK',
+  }));
+  spec.cluster(buildCatwalkCluster([146, 0, 11.5], {
+    tag: 'catwalk.eastMarket', yaw: 0, length: 12, height: 3.8, tier: 1, label: 'CRANE STREET CATWALK',
+  }));
 }
 
 /** Crane Street: cover where the militia counter-attack and where the aisle opens, a burnt car, braziers, a sign over the aisle. */
@@ -299,7 +371,8 @@ export function authorTown(k: Kit, spec: MapSpec): void {
   trench(k, site);
   fuelFarm(k, site);
   shanties(k, site);
-  for (const b of BLOCKS) block(k, site, b);
+  for (const b of BLOCKS) if (!CLUSTER_BLOCKS.has(b.id)) block(k, site, b);
+  townClusters(k, site);
   square(k, site);
   stalls(k, site);
   craneStreet(k, site);

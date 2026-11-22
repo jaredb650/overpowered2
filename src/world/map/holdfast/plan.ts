@@ -287,3 +287,25 @@ export const HOLDFAST_SPAWNS = {
 /** The 3.6 m the Frame needs, and the height it stands to: a swept box this wide and tall must clear every route it walks. */
 export const FRAME = { width: 3.6, step: 1.2, height: 6.4 } as const;
 
+export interface BarracksDef {
+  readonly tag: string;
+  readonly x: number;
+  readonly z: number;
+  readonly yaw: number;
+  readonly spawn: Vec;
+  readonly label: string;
+}
+
+/**
+ * Five enterable Tier-1 masonry garrison barracks across Holdfast: troops emerge from their doorways until flattened
+ * with Satchel Charges, rockets, or the Distraint Frame. Clear of LZ, ROADS, ROUTES, TRENCH, FUEL, SLIP, and PLACES.
+ */
+export const BARRACKS: readonly BarracksDef[] = [
+  { tag: 'barracks.flats', x: 68, z: 92, yaw: -Math.PI / 2, spawn: [62, 0, 92], label: 'FLATS GARRISON BARRACKS' },
+  { tag: 'barracks.market', x: 132, z: 37.5, yaw: Math.PI, spawn: [132, 0, 31.5], label: 'MARKET GARRISON BARRACKS' },
+  { tag: 'barracks.stacks', x: 102, z: 10.8, yaw: Math.PI / 2, spawn: [108, 0, 10.8], label: 'STACKS GARRISON BARRACKS' },
+  { tag: 'barracks.cannery', x: 145, z: -35.5, yaw: -Math.PI / 2, spawn: [139, 0, -35.5], label: 'CANNERY GARRISON BARRACKS' },
+  { tag: 'barracks.harbour', x: 71, z: -94, yaw: 0, spawn: [71, 0, -88], label: 'HARBOUR GARRISON BARRACKS' },
+];
+
+

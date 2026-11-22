@@ -923,7 +923,7 @@ export class Projectiles {
     const out = this.w.copy(normal);
     if (out.lengthSq() < 1e-6) out.set(0, 1, 0);
     else out.normalize();
-    p.position.copy(point).addScaledVector(out, 0.045);
+    p.position.copy(point).addScaledVector(out, p.source === 'satchel' ? 0.055 : 0.045);
     p.velocity.copy(out).multiplyScalar(0.01);
     p.stuckNormal.copy(enemy ? this.v.set(0, 0, 0) : out);
     p.stuckEnemy = enemy && enemy.alive ? enemy : null;
@@ -938,11 +938,19 @@ export class Projectiles {
         p.stuckAxis.copy(out).transformDirection(inv);
       }
     }
-    c.audio.play('mgl_stick', { position: p.position });
-    c.fx.sparks(point, out, 3, 0xffaa44);
+    if (p.source === 'satchel') {
+      p.beeps = 0;
+      c.audio.play('body_thud', { position: p.position, volume: 0.65, pitch: 0.8 });
+      c.audio.play('mgl_stick', { position: p.position, pitch: 0.78 });
+      c.audio.play('stake_beep', { position: p.position, volume: 0.45, pitch: 1.15 });
+      c.fx.sparks(point, out, 4, 0xff5522);
+    } else {
+      c.audio.play('mgl_stick', { position: p.position });
+      c.fx.sparks(point, out, 3, 0xffaa44);
+    }
   }
 
-  /** Planted sticky bomb: tracks a live stuck enemy and pulses its armed red-amber LED until remote detonation. */
+  /** Planted sticky bomb or satchel charge: tracks a live stuck enemy and pulses its armed LED until remote detonation. */
   private stepSticky(p: Projectile, dt: number): void {
     const e = p.stuckEnemy;
     if (e) {
@@ -958,7 +966,16 @@ export class Projectiles {
       }
     }
     p.age += dt;
-    p.blink = (p.age * 2.2) % 1 < 0.38 ? 1 : 0;
+    if (p.source === 'satchel') {
+      const interval = TUNING.satchel.beepInterval;
+      p.blink = (p.age % interval) < 0.24 ? 1 : 0;
+      if (p.age >= (p.beeps + 1) * interval) {
+        p.beeps++;
+        if (!p.cosmetic) this.ctx.audio.play('stake_beep', { position: p.position, volume: 0.28, pitch: 1.15 });
+      }
+    } else {
+      p.blink = (p.age * 2.2) % 1 < 0.38 ? 1 : 0;
+    }
   }
 
   private stepGrenade(p: Projectile, dt: number): void {

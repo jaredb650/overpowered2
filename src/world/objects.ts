@@ -10,6 +10,7 @@ import type { Ctx, HazardKind, HazardState, ReactorState, Structure, WorldObject
 import { FACE, Geo, type Mat } from './kit/geo';
 import type { Kit } from './kit/kit';
 import { Breakables, type PropLink } from './breakables';
+import { DestructionManager } from './destruction';
 import { Structures } from './structures';
 import { ballistic, type CrusherSpec, type ElectricSpec, type GantrySpec, type LaunchRampSpec, type MapSpec, type PadSpec, type ReactorSpec } from './map/spec';
 
@@ -137,10 +138,12 @@ export class Objects implements WorldObjects {
   private reactor: { u: { uTime: { value: number }; uHeat: { value: number }; uPulse: { value: number } }; gyroA: THREE.Group; gyroB: THREE.Group } | null = null;
   private playerReal = false;
   private hazardTick = 0;
-  /** Walls, gates and shacks. They go up after the nav sample: World calls `walls.attach`. */
+  /** Walls, gates, shacks, stalls and pillars. They go up after the nav sample: World calls `walls.attach`. */
   readonly walls: Structures;
   /** Props that break and explode (MapSpec.breakables). Attached after the nav sample, as the walls are. */
   readonly props: Breakables;
+  /** Physics-enabled multi-node structural destruction engine (clusters, load-bearing collapses, nuke sweeps). */
+  readonly destruction: DestructionManager;
   private link: PropLink | null = null;
   /**
    * Co-op guest: seconds added to this game's clock for the machinery that runs on it (crushers, live plates, gantries, pads),
@@ -161,7 +164,11 @@ export class Objects implements WorldObjects {
     if (spec.reactor) this.buildReactor(spec.reactor);
     this.walls = new Structures(ctx, spec.structures, material);
     this.props = new Breakables(ctx, spec.breakables, material, (c, r, d, s) => this.damageExplosivesInRadius(c, r, d, s));
-    this.root.add(this.walls.root, this.walls.debris.root, this.props.root);
+    this.destruction = new DestructionManager(ctx, material, (c, r, d, s) => {
+      this.walls.blast(c, r, d, s);
+      this.blastOwn(c, r, d, s);
+    });
+    this.root.add(this.walls.root, this.walls.debris.root, this.props.root, this.destruction.root);
   }
 
   get structures(): readonly Structure[] {
@@ -361,7 +368,11 @@ export class Objects implements WorldObjects {
     if (!collider) return false;
     const e = this.byCollider.get(collider.handle);
     if (!e) {
-      if (!this.props.hit(collider, amount, source)) this.walls.hit(collider, amount);
+      if (!this.props.hit(collider, amount, source)) {
+        if (!this.destruction.damageCollider(collider, amount, source)) {
+          this.walls.hit(collider, amount, source);
+        }
+      }
       return false;
     }
     // Co-op guest: the host is told, and decides. If this hit sets it off here, that is a guess the host confirms.
@@ -372,9 +383,16 @@ export class Objects implements WorldObjects {
 
   damageExplosivesInRadius(center: THREE.Vector3, radius: number, amount: number, source: string): void {
     this.walls.blast(center, radius, amount, source);
+    this.destruction.blast(center, radius, amount, source);
     // Co-op guest: the host runs this blast against its own barrels and props; here it is the same guess as a hit.
     if (this.link?.guest) this.link.blast(center, radius, amount, source);
     this.blastOwn(center, radius, amount, source);
+  }
+
+  /** Launches an expanding shockwave ring that shatters structural clusters and walls/pillars/gates sequentially by distance. */
+  nukeSweep(center: THREE.Vector3, maxRadius = 340): void {
+    this.destruction.nukeSweep(center, maxRadius);
+    this.walls.nukeSweep(center, maxRadius);
   }
 
   /** A blast on the props and the explosives (not the walls). */
@@ -455,7 +473,9 @@ export class Objects implements WorldObjects {
     this.link?.broke('x', e.id, source);
     events.emit('world:explosion', { position: c, radius: spec.radius, damage: spec.damage, kind: e.kind, source });
     // Combat skips the world for a blast the world set off, so a barrel against a wall wears it here.
-    this.walls.blast(c, spec.radius, spec.damage, source);
+    const chainSource = barrel ? 'barrel' : 'hazard_chain';
+    this.walls.blast(c, spec.radius, spec.damage, chainSource);
+    this.destruction.blast(c, spec.radius, spec.damage, chainSource);
     this.props.blast(c, spec.radius, spec.damage, source);
 
     // Neighbours go a beat later, so a row of barrels ripples instead of popping at once.
@@ -833,6 +853,7 @@ export class Objects implements WorldObjects {
     this.tickReactor(dt, machine);
     this.walls.update(dt);
     this.props.update(dt);
+    this.destruction.update(dt);
     if (this.playerReal && this.ctx.player.alive) {
       this.triggerPads();
       this.triggerRamps(dt);
@@ -850,5 +871,10 @@ export class Objects implements WorldObjects {
     this.reactorHeat = 0;
     this.walls.reset();
     this.props.reset();
+    this.destruction.reset();
+  }
+
+  dispose(): void {
+    this.destruction.dispose();
   }
 }

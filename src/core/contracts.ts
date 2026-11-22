@@ -1025,10 +1025,10 @@ export type ReactorState = 'stable' | 'unstable' | 'critical';
 /** How far a wall has worn. Gates and shacks skip `damaged`: a gate is shut or blown, a shack standing or flat. */
 export type StructureStage = 'intact' | 'damaged' | 'breached';
 
-/** A wall segment, gate, shack or market stall that blasts wear down and repairs put back. src/world/structures.ts builds them. */
+/** A wall segment, gate, shack, market stall or pillar that blasts wear down and repairs put back. src/world/structures.ts builds them. */
 export interface Structure {
   readonly id: number;
-  readonly kind: 'wall' | 'gate' | 'shack' | 'stall';
+  readonly kind: 'wall' | 'gate' | 'shack' | 'stall' | 'pillar';
   readonly stage: StructureStage;
   /** Health left in this stage, and what the stage starts with. Zero once breached. */
   readonly health: number;
@@ -1039,6 +1039,35 @@ export interface Structure {
   repair(seconds?: number): boolean;
   /** Called on every change of stage, by damage or repair. Returns the unsubscribe. */
   onStageChange(fn: (stage: StructureStage, from: StructureStage) => void): () => void;
+}
+
+/** Material armor tier for structural destruction: 0 timber, 1 masonry, 2 heavy industrial, 3 reinforced concrete. */
+export type DestructionTier = 0 | 1 | 2 | 3;
+
+/** Structural cluster contract exposed via WorldObjects.destruction. Full runtime type lives in src/world/destruction.ts. */
+export interface StructuralClusterLike {
+  readonly id: string;
+  readonly tag?: string;
+  readonly kind: string;
+  readonly label: string;
+  readonly value: number;
+  readonly spawnPoint?: THREE.Vector3;
+  readonly collapsed: boolean;
+  readonly destroyedFraction: number;
+  readonly center: THREE.Vector3;
+}
+
+/** Physics-enabled structural destruction engine interface exposed on WorldObjects. */
+export interface DestructionManagerLike {
+  addCluster(spec: unknown): StructuralClusterLike;
+  isClusterAlive(tag: string): boolean;
+  getCluster(tag: string): StructuralClusterLike | undefined;
+  aliveClusters(kind?: string): StructuralClusterLike[];
+  nukeSweep(epicenter: THREE.Vector3, maxRadius?: number): void;
+  blast(center: THREE.Vector3, radius: number, amount: number, source: string): void;
+  damageCollider(collider: RAPIER.Collider | null, amount: number, source: string, hitPoint?: THREE.Vector3): boolean;
+  clear(): void;
+  reset(): void;
 }
 
 /**
@@ -1063,8 +1092,12 @@ export interface WorldObjects {
   platformVelocity(position: THREE.Vector3, out: THREE.Vector3): boolean;
   /** Reactor mood: stable cyan, unstable flicker, critical warm. For bosses and the last stand. */
   setReactorState(state: ReactorState): void;
-  /** Walls, gates and shacks, in the order the map placed them. Blasts wear them through `damageExplosivesInRadius`. */
+  /** Walls, gates, shacks, stalls and pillars, in the order the map placed them. Blasts wear them through `damageExplosivesInRadius`. */
   readonly structures?: readonly Structure[];
+  /** Physics-enabled multi-node structural destruction manager. */
+  readonly destruction?: DestructionManagerLike;
+  /** Expanding nuke shockwave that shatters structural clusters and structures sequentially by distance. */
+  nukeSweep?(center: THREE.Vector3, maxRadius?: number): void;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1094,6 +1127,8 @@ export interface GameEvents {
   /** An explosive went off. The combat system applies `damage` with falloff over `radius` to enemies and the player. */
   'world:explosion': { position: THREE.Vector3; radius: number; damage: number; kind: 'barrel' | 'tank'; source: string };
   'world:pad': { position: THREE.Vector3; velocity: THREE.Vector3 };
+  /** A structure or structural cluster collapsed and was liquidated for asset value. */
+  'world:liquidated': { label: string; value: number; position: THREE.Vector3; kind: string };
   /** A spent casing hit the floor. `strength` is 0..1, loudest on the first bounce. The payload object is reused. */
   'fx:casing': { position: THREE.Vector3; kind: 'pistol' | 'rifle' | 'shotgun' | 'cannon'; strength: number };
 }

@@ -416,3 +416,120 @@ describe('debris', () => {
     reset();
   });
 });
+
+describe('destructible pillars, armor tiers, liquidation, and nukeSweep', () => {
+  it('turns wall and gate pillars into destructible Tier 2 pieces that resist rockets and shatter under Frame ordnance', () => {
+    reset();
+    const pillars = walls.all.filter(p => p.kind === 'pillar');
+    expect(pillars.length).toBeGreaterThan(0);
+
+    // Pillar at x = -2, z = 0 sits between the west wall and mid wall
+    const pillar = pillars.find(p => Math.abs(p.spec.x - (-2)) < 0.2 && Math.abs(p.spec.z) < 0.2)!;
+    expect(pillar).toBeDefined();
+    expect(pillar.stage).toBe('intact');
+    expect(blocked(-2, 1.5)).toBe(true);
+
+    // Hand-held rockets & satchels bounce off Tier 2 pillars
+    walls.blast(V(-2, 1.5, -0.5), 4, 500, 'rocket');
+    walls.blast(V(-2, 1.5, -0.5), 4, 500, 'satchel');
+    expect(pillar.stage).toBe('intact');
+    expect(pillar.health).toBe(HEALTH.pillar[0]);
+
+    // Frame 40mm / Howitzer blows the pillar completely apart, removing its tall collider and throwing rubble
+    walls.blast(V(-2, 1.5, -0.5), 4, 250, 'frame_40mm');
+    expect(pillar.stage).toBe('breached');
+    flush();
+    expect(blocked(-2, 1.5)).toBe(false);
+    expect(blocked(-2, 0.1)).toBe(true);
+    expect(walls.debris.bodies).toBeGreaterThan(0);
+
+    reset();
+    expect(pillar.stage).toBe('intact');
+    expect(blocked(-2, 1.5)).toBe(true);
+  });
+
+  it('enforces Tier 3 reinforced concrete walls and emits world:liquidated on breach', async () => {
+    const { EventBus } = await import('../core/events');
+    const events = new EventBus<import('../core/contracts').GameEvents>();
+    const liquidated: { label: string; value: number; kind: string }[] = [];
+    events.on('world:liquidated', e => liquidated.push({ label: e.label, value: e.value, kind: e.kind }));
+
+    const p2 = await Physics.create();
+    p2.addStaticBox(V(0, -0.5, 0), V(40, 0.5, 40), null, 'concrete');
+    const ctx2 = {
+      physics: p2,
+      events,
+      fx: noop('fx'),
+      audio: noop('audio'),
+      player: { position: V(100, 0, 100), alive: true },
+      enemies: { query: () => 0 },
+    } as unknown as Ctx;
+
+    const reinforced = new Structures(
+      ctx2,
+      [
+        { kind: 'wall', x: 0, y: 0, z: 0, yaw: 0, length: 4, tier: 3, label: 'WEST BLAST WALL', value: 180_000 },
+        { kind: 'stall', x: 10, y: 0, z: 0, yaw: 0, length: 3.4 },
+      ],
+      () => new THREE.MeshBasicMaterial(),
+    );
+    reinforced.attach(null);
+    const wall = reinforced.all.find(p => p.kind === 'wall')!;
+    const pillar = reinforced.all.find(p => p.kind === 'pillar')!;
+    const stall = reinforced.all.find(p => p.kind === 'stall')!;
+
+    // Tier 3 wall and its attached pillars ignore 40mm, stomp, rockets, satchels
+    reinforced.blast(V(0, 1.5, 0), 5, 500, 'rocket');
+    reinforced.blast(V(0, 1.5, 0), 5, 500, 'frame_40mm');
+    reinforced.blast(V(0, 1.5, 0), 5, 500, 'frame_stomp');
+    expect(wall.stage).toBe('intact');
+    expect(pillar.stage).toBe('intact');
+
+    // 105mm Howitzer (8x) shatters Tier 3 wall & pillars and emits liquidation
+    reinforced.blast(V(0, 1.5, 0), 5, 120, 'frame_howitzer');
+    expect(wall.stage).toBe('breached');
+    expect(pillar.stage).toBe('breached');
+    expect(liquidated).toContainEqual({ label: 'WEST BLAST WALL', value: 180_000, kind: 'wall' });
+
+    // Stall emits default $18,000 liquidation when smashed
+    reinforced.blast(V(10, 1, 0), 4, 100, 'rocket');
+    expect(stall.stage).toBe('breached');
+    expect(liquidated).toContainEqual({ label: 'MARKET STALL', value: 18_000, kind: 'stall' });
+  });
+
+  it('nukeSweep progressively breaches structures outward by distance', async () => {
+    const p3 = await Physics.create();
+    p3.addStaticBox(V(0, -0.5, 0), V(220, 0.5, 40), null, 'concrete');
+    const ctx3 = {
+      physics: p3,
+      fx: noop('fx'),
+      audio: noop('audio'),
+      player: { position: V(0, 0, 50), alive: true },
+      enemies: { query: () => 0 },
+    } as unknown as Ctx;
+
+    const s = new Structures(
+      ctx3,
+      [
+        { kind: 'wall', x: 15, y: 0, z: 0, yaw: 0, length: 4, tier: 3 },
+        { kind: 'wall', x: 140, y: 0, z: 0, yaw: 0, length: 4, tier: 3 },
+      ],
+      () => new THREE.MeshBasicMaterial(),
+    );
+    s.attach(null);
+    const nearWall = s.all[0]!;
+    const farWall = s.all[1]!;
+
+    s.nukeSweep(V(0, 0, 0), 250);
+    // After 0.25s -> ~28.75m: near wall & its pillars breached, far wall (140m) still intact
+    s.update(0.25);
+    expect(nearWall.stage).toBe('breached');
+    expect(farWall.stage).toBe('intact');
+
+    // After another 1.1s -> ~155m: far wall and every pillar are breached
+    s.update(1.1);
+    expect(farWall.stage).toBe('breached');
+    expect(s.all.every(p => p.stage === 'breached')).toBe(true);
+  });
+});
+

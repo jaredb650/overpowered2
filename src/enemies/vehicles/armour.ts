@@ -7,13 +7,13 @@
 import type { ExplosionKind } from '../../core/contracts';
 import { SHAPED_CHARGE } from '../../weapons/data';
 import {
-  ARMOUR_BLAST_MOST, ARMOUR_BLAST_SHARE, COCKPIT_SHELL_SCALE, SABOT_ON_ARMOUR, SKIN_BULLETS, SKIN_PARTS, SOFT_BLAST_SCALE, SOURCE_SCALE,
+  ARMOUR_BLAST_MOST, ARMOUR_BLAST_SHARE, COCKPIT_SHELL_SCALE, SABOT_ON_ARMOUR, SKIN_BULLETS, SKIN_PARTS, SOFT_BLAST_SCALE, SOFT_SOURCE_SCALE, SOURCE_SCALE,
   type PartDef, type VehicleDef,
 } from './data';
 
 /** Bullets are anything that lands with no blast behind it. */
 export function bulletDamage(def: VehicleDef, part: PartDef, amount: number, source: string): number {
-  if (!def.armoured) return amount * part.scale;
+  if (!def.armoured) return amount * part.scale * (SOFT_SOURCE_SCALE[source] ?? 1);
   if (source === 'sabot') return amount * SABOT_ON_ARMOUR * part.scale;
   const skin = SKIN_BULLETS[source];
   return skin !== undefined && SKIN_PARTS.has(part.id) ? amount * skin * part.scale : 0;
@@ -21,18 +21,19 @@ export function bulletDamage(def: VehicleDef, part: PartDef, amount: number, sou
 
 /** A rocket or a shell landing on the part itself. The blast that follows is counted apart, by `splashDamage`. */
 export function directDamage(def: VehicleDef, part: PartDef, amount: number, kind: ExplosionKind, source: string): number {
-  if (!def.armoured) return amount * SOFT_BLAST_SCALE * part.scale;
+  if (!def.armoured) return amount * SOFT_BLAST_SCALE * part.scale * (SOFT_SOURCE_SCALE[source] ?? 1);
   const charge = SHAPED_CHARGE[kind];
   const hit = charge ? Math.min(amount, charge.most) * charge.direct : Math.min(amount, ARMOUR_BLAST_MOST) * ARMOUR_BLAST_SHARE;
   const perfect = part.id === 'cockpit' && kind === 'shell' ? COCKPIT_SHELL_SCALE : 1;
-  // A perfect round stays perfect whichever gun sent it, so the source's scale only applies to everything else.
-  const scale = perfect > 1 ? 1 : SOURCE_SCALE[source] ?? 1;
+  // A perfect round stays perfect whichever gun sent it, unless the round cannot penetrate armour at all (scale 0).
+  const baseScale = SOURCE_SCALE[source] ?? 1;
+  const scale = baseScale === 0 ? 0 : perfect > 1 ? 1 : baseScale;
   return hit * part.scale * perfect * scale;
 }
 
 /** A blast nearby, already scaled by how far it was. `instakill` weapons have a number here: nothing one-shots armour by accident. */
 export function splashDamage(def: VehicleDef, amount: number, kind: ExplosionKind, source: string): number {
-  if (!def.armoured) return amount * SOFT_BLAST_SCALE;
+  if (!def.armoured) return amount * SOFT_BLAST_SCALE * (SOFT_SOURCE_SCALE[source] ?? 1);
   const charge = SHAPED_CHARGE[kind];
   const hit = charge ? Math.min(amount, charge.most) * charge.splash : Math.min(amount, ARMOUR_BLAST_MOST) * ARMOUR_BLAST_SHARE;
   return hit * (SOURCE_SCALE[source] ?? 1);

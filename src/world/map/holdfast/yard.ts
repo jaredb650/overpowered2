@@ -4,17 +4,23 @@
  * measured against these faces), drawn as painted boxes on the faces and the top only.
  */
 import { PLACES } from '../../../campaign/missions/foreclosure.places';
+import {
+  buildBarracksCluster,
+  buildCanneryCluster,
+  buildQuayCraneCluster,
+  type StructuralClusterSpec,
+} from '../../destruction';
 import { FACE } from '../../kit/geo';
 import type { Kit } from '../../kit/kit';
 import { container, signPanel, truck } from '../../kit/props';
 import { signId } from '../../kit/signs';
 import { Site } from '../outpost/site';
 import type { MapSpec } from '../spec';
-import { banner, brazier, bulbs, flag, hull, loudspeaker } from './props';
+import { brazier, bulbs, flag, hull } from './props';
 import { clearOf } from './town';
 import {
-  AISLE, APRON, BOX, CANNERY, CHIMNEY, DYES, E1_STAIR, FLAK, GANTRY, HARBOUR, HARBOUR_STAIRS, LEVEL, QUAY_CRANE, QUAY_ROAD,
-  type Rgb, SEA, SHED, SLIP, SLIP_RAMPS, type Stack, STACKS, stack, stackTop, WEST_X,
+  AISLE, APRON, BARRACKS, BOX, CANNERY, CHIMNEY, DYES, E1_STAIR, FLAK, GANTRY, HARBOUR, HARBOUR_STAIRS, LEVEL, QUAY_CRANE,
+  QUAY_ROAD, type Rgb, SEA, SHED, SLIP, SLIP_RAMPS, type Stack, STACKS, stack, stackTop, WEST_X,
 } from './plan';
 
 /** Painted containers: the colours a port collects. */
@@ -65,10 +71,10 @@ function chimney(k: Kit): void {
   g.tint(1);
 }
 
-/** The gantry crane over the west stacks and the aisle: its west leg a chimney to the girder, the cab with the Sabot on top. */
+/** The gantry crane over the west stacks and the aisle: its west leg a static parkour chimney; girder, cab & east leg destructible. */
 function gantry(k: Kit, site: Site): void {
   const { z0, z1, x0, x1, under, deck, leg, east, cab } = GANTRY, g = k.geo, zc = (z0 + z1) / 2, hz = (z1 - z0) / 2;
-  // West leg: two plates from the ground to the girder's top, the slot between them open north and south.
+  // West leg: two static climbable plates from the ground to the girder's top, keeping the parkour chimney climb intact.
   for (const [a, b] of [[leg.x0, leg.gap0], [leg.gap1, leg.x1]] as const) {
     g.use('paintYellow').tint(0.62, 0.5, 0.2);
     g.box((a + b) / 2, deck / 2, zc, (b - a) / 2, deck / 2, hz, FACE.all);
@@ -76,47 +82,64 @@ function gantry(k: Kit, site: Site): void {
     k.collide((a + b) / 2, deck / 2, zc, (b - a) / 2, deck / 2, hz, 'metal');
   }
   g.use('hazard').box(leg.gap0 + 0.75, 2.2, z1 + 0.01, 0.75, 0.12, 0.01, FACE.pz);
-  // East leg: a column standing on E1's top.
+
+  // Destructible Gantry Crane superstructure (Tier 2 — Frame ordnance / Howitzer / Nuke topples it across the aisle).
   const e1 = stackTop(stack('E1'));
-  g.use('paintYellow').tint(0.62, 0.5, 0.2).box((east.x0 + east.x1) / 2, (e1 + under) / 2, zc, (east.x1 - east.x0) / 2, (under - e1) / 2, hz, FACE.sides);
-  g.tint(1);
-  k.collide((east.x0 + east.x1) / 2, (e1 + under) / 2, zc, (east.x1 - east.x0) / 2, (under - e1) / 2, hz, 'metal');
-  // The girder: a box truss, a deck on it, the slot through it over the west leg.
-  k.truss(leg.x1, under + 0.75, zc, x1, under + 0.75, zc, 1.5, 3.6, 'steelDark', 0.14);
-  k.truss(x0, under + 0.75, zc, leg.x0, under + 0.75, zc, 1.5, 3.6, 'steelDark', 0.14);
-  // A counterweight on the end over the west road.
-  g.use('concreteDark').tint(0.5).bevel(x0 + 2, under - 1.2, zc, 1.8, 1.4, 1.6, 0.1);
-  g.tint(1);
-  for (const [a, b] of [[x0, leg.gap0], [leg.gap1, x1]] as const) {
-    g.use('grate').box((a + b) / 2, deck - 0.05, zc, (b - a) / 2, 0.05, hz, FACE.py | FACE.ny);
-    k.collide((a + b) / 2, (under + deck) / 2, zc, (b - a) / 2, (deck - under) / 2, hz, 'grate', false);
-  }
-  k.rail([x0 + 0.2, deck, z0 + 0.15, x1, deck, z0 + 0.15]);
-  k.rail([x0 + 0.2, deck, z1 - 0.15, x1, deck, z1 - 0.15]);
-  // The cab: walls, a door at each end, glass on the long sides, a roof.
-  const cy = deck, ch = 3, t = 0.12;
-  g.use('paintWhite').tint(0.9, 0.62, 0.16);
-  for (const z of [cab.z0, cab.z1 - t]) {
-    g.box((cab.x0 + cab.x1) / 2, cy + 0.5, z + t / 2, (cab.x1 - cab.x0) / 2, 0.5, t / 2, FACE.all);
-    k.collide((cab.x0 + cab.x1) / 2, cy + 0.5, z + t / 2, (cab.x1 - cab.x0) / 2, 0.5, t / 2, 'metal');
-    g.use('glass').box((cab.x0 + cab.x1) / 2, cy + 1.9, z + t / 2, (cab.x1 - cab.x0) / 2 - 0.2, 0.9, 0.02, FACE.pz | FACE.nz);
-    g.use('paintWhite').tint(0.9, 0.62, 0.16);
-  }
-  for (const x of [cab.x0, cab.x1 - t]) {
-    for (const [za, zb] of [[cab.z0, zc - 0.8], [zc + 0.8, cab.z1]] as const) {
-      g.box(x + t / 2, cy + ch / 2, (za + zb) / 2, t / 2, ch / 2, (zb - za) / 2, FACE.all);
-      k.collide(x + t / 2, cy + ch / 2, (za + zb) / 2, t / 2, ch / 2, (zb - za) / 2, 'metal');
-    }
-  }
-  g.box((cab.x0 + cab.x1) / 2, cy + ch + 0.08, zc, (cab.x1 - cab.x0) / 2 + 0.2, 0.08, (cab.z1 - cab.z0) / 2 + 0.2, FACE.all);
-  k.collide((cab.x0 + cab.x1) / 2, cy + ch + 0.08, zc, (cab.x1 - cab.x0) / 2 + 0.2, 0.08, (cab.z1 - cab.z0) / 2 + 0.2, 'metal');
-  g.tint(1);
-  k.light((cab.x0 + cab.x1) / 2, cy + 2.4, zc, 'white', 10, 7);
-  // The hook block hanging over the aisle.
+  const eastX = (east.x0 + east.x1) / 2;
+  const eastHalfX = (east.x1 - east.x0) / 2;
+  const eastSpan = under - e1;
+  const girderY = (under + deck) / 2;
+  const girderHalfY = (deck - under) / 2;
+  const cabX = (cab.x0 + cab.x1) / 2;
+  const cabHalfX = (cab.x1 - cab.x0) / 2;
+  const cabH = 3.0;
   const hx = (AISLE.x0 + AISLE.x1) / 2;
-  g.use('steelDark').cyl(hx, under, zc, hx, 14, zc, 0.04, 0.04, 4, false, false);
-  g.use('paintYellow').tint(0.7, 0.55, 0.15).bevel(hx, 13.5, zc, 0.6, 0.6, 0.5, 0.08);
-  g.tint(1);
+
+  const cluster: StructuralClusterSpec = {
+    tag: 'gantryCrane',
+    kind: 'gantryCrane',
+    label: 'GANTRY CRANE',
+    value: 520_000,
+    collapseThreshold: 0.45,
+    nodes: [
+      // Anchored west collar on the west chimney leg & anchored east leg on stack E1.
+      { id: 'west_collar', pos: [leg.x1 + 0.9, under - 1.5, zc], half: [0.9, 1.5, hz], mat: 'paintYellow', hp: 420, tier: 2, anchored: true, kind: 'column' },
+      { id: 'east_leg_low', pos: [eastX, e1 + eastSpan * 0.25, zc], half: [eastHalfX, eastSpan * 0.25, hz], mat: 'paintYellow', hp: 420, tier: 2, anchored: true, kind: 'column' },
+      { id: 'east_leg_high', pos: [eastX, e1 + eastSpan * 0.75, zc], half: [eastHalfX, eastSpan * 0.25, hz], mat: 'paintYellow', hp: 420, tier: 2, anchored: false, kind: 'column' },
+
+      // West counterweight & tail girder over the west road.
+      { id: 'girder_tail', pos: [(x0 + leg.x0) / 2, girderY, zc], half: [(leg.x0 - x0) / 2, girderHalfY, hz], mat: 'steelDark', hp: 380, tier: 2, anchored: false, kind: 'craneBoom', impactRadius: 11, impactDamage: 320 },
+      { id: 'counterweight', pos: [x0 + 2.0, under - 1.4, zc], half: [1.8, 1.4, 1.6], mat: 'concreteDark', hp: 380, tier: 2, anchored: false, kind: 'slab', impactRadius: 10, impactDamage: 340 },
+
+      // Walkable girder deck spans (top at y = GANTRY.deck = 22 m for the parkour climb into the cab).
+      { id: 'girder_west', pos: [(leg.x1 + 29.9) / 2, girderY, zc], half: [(29.9 - leg.x1) / 2, girderHalfY, hz], mat: 'steelDark', hp: 450, tier: 2, anchored: false, kind: 'craneBoom', impactRadius: 12, impactDamage: 360 },
+      { id: 'girder_mid', pos: [(29.9 + 45.9) / 2, girderY, zc], half: [(45.9 - 29.9) / 2, girderHalfY, hz], mat: 'steelDark', hp: 450, tier: 2, anchored: false, kind: 'craneBoom', impactRadius: 13, impactDamage: 400 },
+      { id: 'girder_east', pos: [(45.9 + x1) / 2, girderY, zc], half: [(x1 - 45.9) / 2, girderHalfY, hz], mat: 'steelDark', hp: 450, tier: 2, anchored: false, kind: 'craneBoom', impactRadius: 14, impactDamage: 420, keyNode: true },
+
+      // Operator cab over the stacks (open east/west doorways so the player runs straight in for the Sabot).
+      { id: 'cab_north', pos: [cabX, deck + cabH / 2, cab.z0 + 0.14], half: [cabHalfX, cabH / 2, 0.14], mat: 'paintYellow', hp: 180, tier: 1, anchored: false, kind: 'wall' },
+      { id: 'cab_south', pos: [cabX, deck + cabH / 2, cab.z1 - 0.14], half: [cabHalfX, cabH / 2, 0.14], mat: 'paintYellow', hp: 180, tier: 1, anchored: false, kind: 'wall' },
+      { id: 'cab_roof', pos: [cabX, deck + cabH + 0.12, zc], half: [cabHalfX + 0.2, 0.12, (cab.z1 - cab.z0) / 2 + 0.2], mat: 'paintYellow', hp: 200, tier: 1, anchored: false, kind: 'roof', impactRadius: 7 },
+
+      // Hanging crane hook block suspended over the Crane Aisle.
+      { id: 'hook_block', pos: [hx, 14.0, zc], half: [0.65, 0.65, 0.55], mat: 'hazard', hp: 220, tier: 2, anchored: false, kind: 'craneBoom', impactRadius: 8, impactDamage: 280 },
+    ],
+    links: [
+      ['west_collar', 'girder_tail'],
+      ['girder_tail', 'counterweight'],
+      ['west_collar', 'girder_west'],
+      ['girder_west', 'girder_mid'],
+      ['girder_mid', 'cab_north'],
+      ['girder_mid', 'cab_south'],
+      ['cab_north', 'cab_roof'],
+      ['cab_south', 'cab_roof'],
+      ['east_leg_low', 'east_leg_high'],
+      ['east_leg_high', 'girder_east'],
+      ['girder_east', 'hook_block'],
+    ],
+  };
+  site.spec.cluster(cluster);
+  k.light(cabX, deck + 2.4, zc, 'white', 10, 7);
   site.plan.decks.push({ x0, z0, x1, z1 });
 }
 
@@ -164,7 +187,8 @@ function stacks(k: Kit, site: Site): void {
 
 function quay(k: Kit, site: Site): void {
   const g = k.geo;
-  // The quay crane: a deck on four legs, a roof over it on posts, stairs up from the apron, a boom out over the Slip.
+  // The quay crane: walkable checkpoint deck at y = LEVEL.quayDeck (6 m) stays intact for PLACES.quay & pickups,
+  // while its towering crane mast, cab, and cantilevered boom over the Slip are a destructible Tier-2/3 cluster.
   const c = QUAY_CRANE, d = c.deck, cx = (c.x0 + c.x1) / 2, cz = (c.z0 + c.z1) / 2;
   g.use('paintYellow').tint(0.7, 0.42, 0.12);
   for (const x of [c.x0 + 0.4, c.x1 - 0.4]) for (const z of [c.z0 + 0.4, c.z1 - 0.4]) {
@@ -178,12 +202,15 @@ function quay(k: Kit, site: Site): void {
   k.collide(cx, d - 0.2, cz, (c.x1 - c.x0) / 2, 0.2, (c.z1 - c.z0) / 2, 'grate', false);
   k.rail([c.x0, d, c.z0 + 0.1, c.x1, d, c.z0 + 0.1, c.x1, d, c.z1 - 0.1]);
   k.stairs(c.stair.foot, c.stair.z, 0, c.stair.top, c.stair.z, d, c.stair.w, 'steel');
-  k.truss(cx, 15, c.z1, cx, 15, SLIP.z0 - 6, 2.4, 2.4, 'steelDark', 0.14);
-  k.beam(c.x0 + 0.4, d + 3.3, c.z1 - 0.4, cx, 15, c.z1, 0.18, 0.18, 'steelDark');
-  k.beam(c.x1 - 0.4, d + 3.3, c.z1 - 0.4, cx, 15, c.z1, 0.18, 0.18, 'steelDark');
   k.light(cx, d + 2.6, cz, 'white', 18, 10);
   site.plan.decks.push({ x0: c.x0, z0: c.z0, x1: c.x1, z1: c.z1 });
   signPanel(k, c.x0 + 0.05, d + 1.6, cz, -Math.PI / 2, 3, 0.8, signId('QUAY'));
+
+  // Destructible Quay Crane tower & cantilevered boom cantilevered east over the Slip dockside (Frame/Howitzer ONLY).
+  site.spec.cluster(buildQuayCraneCluster([cx, 0, -68.5], {
+    tag: 'quayCrane', yaw: 0, tier: 3, label: 'QUAY CRANE',
+  }));
+  site.plan.blocks.push({ x0: cx - 3.6, z0: -72.1, x1: cx + 3.6, z1: -64.9 });
 
   // The apron: floods, bollards on the Slip's lip, a rail along it but for the ramp.
   for (const x of [20, 90, 140]) k.mast(x, APRON.z1 - 0.8, 0, 9, Math.PI, 'white', 70, 30);
@@ -192,20 +219,16 @@ function quay(k: Kit, site: Site): void {
   // The quay road: a barricade the militia hold, oil drums, a burnt technical on the verge.
   truck(k, QUAY_ROAD.x0 - 2.4, 0, -8, Math.PI / 2 + 0.2, 0.05);
   for (const z of [-40, -14, 6]) brazier(k, QUAY_ROAD.x1 + 1.6, z, 0, 14);
-  // The cannery: a long painted shed on the east quay, a mural of a fish on it.
+
+  // The cannery: Tier-2 physics-destructible hall with interior chain-reaction brine boilers facing Quay Road.
   const n = CANNERY;
-  g.use('paintWhite').tint(0.32, 0.56, 0.66);
-  k.block('paintWhite', n.x0, 0, n.z0, n.x1, n.h, n.z1, 0.08);
-  g.tint(0.9, 0.84, 0.72).box(n.x0 - 0.02, n.h / 2, (n.z0 + n.z1) / 2, 0.01, 2.4, 10, FACE.nx);
-  g.tint(0.92, 0.5, 0.2).box(n.x0 - 0.03, n.h / 2, (n.z0 + n.z1) / 2, 0.01, 1.4, 6.5, FACE.nx);
-  g.tint(1);
-  g.use('rust').tint(0.7).box((n.x0 + n.x1) / 2, n.h + 0.1, (n.z0 + n.z1) / 2, (n.x1 - n.x0) / 2 + 0.4, 0.1, (n.z1 - n.z0) / 2 + 0.4, FACE.all);
-  g.tint(1);
-  signPanel(k, n.x0 - 0.1, n.h - 1.4, (n.z0 + n.z1) / 2, -Math.PI / 2, 5, 1.1, signId('CANNERY'));
+  site.spec.cluster(buildCanneryCluster([144, 0, -18], {
+    tag: 'cannery', yaw: -Math.PI / 2, tier: 2, label: 'BRINE CANNERY',
+  }));
+  site.spec.barrels(137, 0, -14, 3);
+  site.spec.tank(137, 0, -24);
   site.plan.blocks.push({ x0: n.x0, z0: n.z0, x1: n.x1, z1: n.z1 });
   k.light(n.x0 - 3, 6, -20, 'orange', 26, 16);
-  // Fish racks and nets between the cannery and the market.
-  for (const z of [-6, -14]) bulbs(k, QUAY_ROAD.x1 + 0.5, 4.5, z, n.x0 - 0.2, 6, z, 'emissiveOrange', z === -6 ? 10 : 0);
 }
 
 // -------------------------------------------------------------------------------------------------
@@ -289,43 +312,28 @@ function slip(k: Kit, site: Site): void {
 // -------------------------------------------------------------------------------------------------
 
 function harbour(k: Kit, site: Site): void {
-  const g = k.geo, h = HARBOUR, x0 = WEST_X, x1 = SEA.eastX;
-  // The sea wall: a mass to the walk, a parapet on the sea side, its face to the water below.
+  const g = k.geo, h = HARBOUR, f = FLAK, x0 = WEST_X, x1 = SEA.eastX;
+  const fx = (f.x0 + f.x1) / 2, fz = (f.z0 + f.z1) / 2;
+  // The sea wall beside the Flak Tower: split cleanly around FLAK so the runtime physics FlakTower owns x: 12..28.
   g.use('concrete').tint(0.62, 0.6, 0.56);
-  k.mass('concrete', x0, 0, h.z0 + 0.8, x1, h.walk, h.z1, 4);
-  k.mass('concrete', x0, 0, h.z0, x1, h.walk + h.parapet, h.z0 + 0.8, 4);
+  for (const [ax, bx] of [[x0, f.x0], [f.x1, x1]] as const) {
+    k.mass('concrete', ax, 0, h.z0 + 0.8, bx, h.walk, h.z1, 4);
+    k.mass('concrete', ax, 0, h.z0, bx, h.walk + h.parapet, h.z0 + 0.8, 4);
+  }
   g.use('concreteDark').tint(0.5).box((x0 + x1) / 2, (SEA.y + 0) / 2, h.z0 - 0.01, (x1 - x0) / 2, -SEA.y / 2, 0.01, FACE.nz);
   g.tint(1);
   site.plan.walls.push({ ax: x0, az: (h.z0 + h.z1) / 2, bx: x1, bz: (h.z0 + h.z1) / 2, half: (h.z1 - h.z0) / 2 });
   for (const sx of HARBOUR_STAIRS) site.stairs(sx, h.z1 + 1.3, 0, sx + 7, h.z1 + 1.3, h.walk, 2.6, 'concrete', true);
   for (let x = x0 + 8; x < x1; x += 22) {
     k.light(x, h.walk + 3, h.z1 + 1, 'white', 22, 14);
-    flag(k, x + 3, h.walk + h.parapet, h.z0 + 0.4, 3.2, 0.5, DYES[Math.abs(Math.round(x)) % DYES.length]!);
+    if (x + 3 < f.x0 - 1 || x + 3 > f.x1 + 1) {
+      flag(k, x + 3, h.walk + h.parapet, h.z0 + 0.4, 3.2, 0.5, DYES[Math.abs(Math.round(x)) % DYES.length]!);
+    }
   }
-  // The flak tower: poured concrete stepped in at the top, painted in the town's colours by people who did not have much paint.
-  const f = FLAK, fx = (f.x0 + f.x1) / 2, fz = (f.z0 + f.z1) / 2;
-  g.use('concrete').tint(0.66, 0.64, 0.6);
-  k.mass('concrete', f.x0, 0, f.z0, f.x1, f.top - 2, f.z1, 4);
-  k.mass('concrete', f.x0 - 0.8, f.top - 2, f.z0 - 0.8, f.x1 + 0.8, f.top, f.z1 + 0.8, 3);
-  for (const [i, y] of [[0, 4], [2, 9], [5, 14]] as const) {
-    const c = DYES[i]!;
-    g.use('paintWhite').tint(c[0] * 0.8, c[1] * 0.8, c[2] * 0.8).box(fx, y, f.z1 + 0.02, (f.x1 - f.x0) / 2, 0.9, 0.01, FACE.pz);
-    g.box(f.x1 + 0.02, y, (f.z1 + HARBOUR.z1) / 2, 0.01, 0.9, (f.z1 - HARBOUR.z1) / 2, FACE.px);
-    g.box(f.x0 - 0.02, y, (f.z1 + HARBOUR.z1) / 2, 0.01, 0.9, (f.z1 - HARBOUR.z1) / 2, FACE.nx);
-  }
-  g.tint(1);
-  // Its parapet, and a slot window high up on the town side.
-  g.use('concreteDark').tint(0.6);
-  for (const [a, b, c2, d] of [[f.x0 - 0.8, f.z0 - 0.8, f.x1 + 0.8, f.z0 - 0.3], [f.x0 - 0.8, f.z1 + 0.3, f.x1 + 0.8, f.z1 + 0.8], [f.x0 - 0.8, f.z0 - 0.3, f.x0 - 0.3, f.z1 + 0.3], [f.x1 + 0.3, f.z0 - 0.3, f.x1 + 0.8, f.z1 + 0.3]] as const) {
-    g.box((a + c2) / 2, f.top + 0.5, (b + d) / 2, (c2 - a) / 2, 0.5, (d - b) / 2, FACE.all);
-  }
-  g.use('emissiveOrange').box(fx, f.top - 5, f.z1 + 0.03, 3, 0.25, 0.01, FACE.pz);
-  g.tint(1);
-  loudspeaker(k, f.x1 + 0.3, f.z1 + 0.3, 3, f.top);
-  banner(k, fx, f.top - 3, f.z1 + 0.02, 0, 6, 7, DYES[2]!);
+  // Flak Tower concrete mass & 4 AA guns are built at runtime by FlakTower (src/enemies/vehicles/flakTower.ts).
+  // Keep its lighting and minimap footprint here so the tower is dramatically lit until flattened.
   k.light(fx, f.top + 2, fz, 'red', 30, 16);
   k.light(fx, 8, f.z1 + 4, 'orange', 30, 16);
-  // Floods at its foot, up its faces: the target the Frame walks to.
   for (const [lx, lz] of [[f.x1 + 3, f.z1 + 3], [f.x0 - 3, f.z1 + 3]] as const) k.light(lx, 2, lz, 'white', 40, 22);
   site.plan.blocks.push({ x0: f.x0, z0: f.z0, x1: f.x1, z1: f.z1 });
 }
@@ -353,6 +361,17 @@ function shed(k: Kit, site: Site): void {
   site.plan.blocks.push({ x0: s.x0 + 6, z0: s.z0 + 2, x1: s.x1 - 6, z1: s.z1 - 2 });
 }
 
+/** Enterable Tier-1 masonry garrison barracks in the Stacks, Cannery yard, and Harbour apron. */
+function yardBarracks(site: Site): void {
+  for (const b of BARRACKS) {
+    if (b.tag === 'barracks.flats' || b.tag === 'barracks.market') continue;
+    site.spec.cluster(buildBarracksCluster([b.x, 0, b.z], { tag: b.tag, yaw: b.yaw, tier: 1, label: b.label }));
+    const swapped = Math.abs(Math.sin(b.yaw)) > 0.5;
+    const hx = swapped ? 4 : 5.4, hz = swapped ? 5.4 : 4;
+    site.plan.blocks.push({ x0: b.x - hx, z0: b.z - hz, x1: b.x + hx, z1: b.z + hz });
+  }
+}
+
 export function authorYard(k: Kit, spec: MapSpec): void {
   const site = new Site(k, spec);
   stacks(k, site);
@@ -360,4 +379,5 @@ export function authorYard(k: Kit, spec: MapSpec): void {
   slip(k, site);
   harbour(k, site);
   shed(k, site);
+  yardBarracks(site);
 }

@@ -63,6 +63,7 @@ export const REMOTE_FX: Readonly<Record<WeaponId, RemoteRow>> = {
   rocket: { kind: 'projectile', sees: 'the rocket in flight with its smoke, steering for their laser dot when the sight is on; the laser line itself' },
   quiver: { kind: 'projectile', sees: 'each missile leaving, turning onto the same mark or braiding in the helix salvo' },
   mgl: { kind: 'projectile', sees: 'each 40 mm grenade arcing from the revolving drum; sticky bombs clamp onto surfaces or targets with a pulsing beacon until detonation' },
+  satchel: { kind: 'projectile', sees: 'each lobbed demolition satchel charge clamping onto surfaces or targets with a pulsing red beacon until remote detonation' },
   sabot: { kind: 'rounds', sees: 'the dart and its vapour wake, through walls and bodies with exit marks; Raufoss bursts and pellets when fitted' },
   awl: { kind: 'rounds', sees: 'the round and its wake, through cover' },
   autocannon: { kind: 'projectile', sees: 'the shell in flight with its rings; a flak shell bursts in the air with its ring, sparks and fragment tracers' },

@@ -109,6 +109,17 @@ const RETICLES: Record<WeaponId, Reticle> = {
     ],
     gap: 0, kick: 5.5, speedGap: 2,
   },
+  // Demolition satchel lob sight: centre diamond with curved throw brackets and a drop tick below.
+  satchel: {
+    core: DIAMOND,
+    arms: [
+      '',
+      poly('14,-7 17,-7 17,7 14,7'),
+      turned(`${tick(2, 8, 12)}${tick(2, 5, 21)}`, 180),
+      poly('-14,-7 -17,-7 -17,7 -14,7'),
+    ],
+    gap: 0, kick: 4, speedGap: 2,
+  },
   autocannon: {
     core: '<path fill-rule="evenodd" d="M-5 -5H5V5H-5Z M-3 -3V3H3V-3Z"/>',
     arms: ['', poly('10,-1.5 40,-1.5 40,1.5 10,1.5'), turned(tick(10, 1.5, 10), 180), poly('-10,-1.5 -40,-1.5 -40,1.5 -10,1.5')],

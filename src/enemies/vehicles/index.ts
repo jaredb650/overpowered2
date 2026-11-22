@@ -49,6 +49,7 @@ import { Wreck } from './wreck';
 export { VEHICLES } from './data';
 export { EnemyDoorGunner } from './doorGunner';
 export { FastRopeHeli } from './transport';
+export { RIVAL_FRAME, RivalFrame, type RivalAttackKind, type RivalFramePhase, type RivalHitZoneId } from './rivalFrame';
 export type GroundVehicleKind = 'humvee' | 'truck' | 'tank';
 
 declare module '../../core/contracts' {

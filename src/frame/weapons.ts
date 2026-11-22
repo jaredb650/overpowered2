@@ -11,7 +11,7 @@
  * charge, backhand, a planted foot) are functions on the enemies alone, so a test can count who they knock down.
  */
 import * as THREE from 'three';
-import type { Ctx, DamageInfo, LoopHandle, PlayOptions } from '../core/contracts';
+import type { Ctx, DamageInfo, LoopHandle, PlayOptions, RayHit } from '../core/contracts';
 import type { EnemyInstance, EnemySystem, ExplosionSpec, MissileTarget, ProjectileSpec, ShotSpec } from '../core/gameplay';
 import { clamp, lerp, rand, randomInCone, wrapAngle } from '../core/math';
 import { Magazine, type Round40 } from '../progression/callins/ac130Guns';
@@ -23,33 +23,63 @@ import type { GunnerSeat } from '../vehicles/seat';
 import { CG } from '../core/contracts';
 import { Painter, angleOff, type PaintCandidate } from '../weapons/swarm';
 import { TUNING } from '../weapons/data';
-import { FRAME } from './data';
+import { FRAME, type FrameArmWeapon, type RotaryMode } from './data';
+
+export type { FrameArmWeapon, RotaryMode } from './data';
 
 const R = FRAME.rotary;
+const A = FRAME.rotaryAirburst;
 const C = FRAME.cannon;
+const H = FRAME.howitzer;
 const P = FRAME.pod;
 const B = AC130.bofors;
 
 // ---- the clocks -------------------------------------------------------------------------------------------------
 
-/** The rotary's spin and heat. `update` says how many rounds leave this frame. */
+/** The rotary's spin, heat, and standard/airburst mode. `update` says how many rounds leave this frame. */
 export class Rotary {
   readonly heat = new Heat(R);
   spin = 0;
+  mode: RotaryMode = 'standard';
   private roundIn = 0;
+  private holdTime = 0;
+  private holdToggled = false;
   /** True on the frame the heat locked the trigger. */
   overheatedNow = false;
+
+  get rate(): number {
+    return this.mode === 'airburst' ? A.rate : R.rate;
+  }
+
+  /**
+   * Tracks holding `1` (`Digit1`) for `>= 0.32s`: toggles between standard 20 mm AP and proximity-fuzed airburst
+   * once per hold, and will not re-toggle until the key is released. Returns true on the frame it toggled.
+   */
+  holdMode(dt: number, held: boolean): boolean {
+    if (!held) {
+      this.holdTime = 0;
+      this.holdToggled = false;
+      return false;
+    }
+    if (this.holdToggled) return false;
+    this.holdTime += dt;
+    if (this.holdTime < A.holdSeconds) return false;
+    this.holdToggled = true;
+    this.mode = this.mode === 'standard' ? 'airburst' : 'standard';
+    return true;
+  }
 
   update(dt: number, held: boolean): number {
     const want = held && !this.heat.overheated;
     this.spin = clamp(this.spin + (want ? dt / R.spinUp : -dt / R.spinDown));
     const shooting = want && this.spin >= R.fireAt;
+    const rate = this.rate;
     let n = 0;
     this.overheatedNow = false;
     if (shooting) {
       this.roundIn -= dt;
       while (this.roundIn <= 0 && n < 4) {
-        this.roundIn += 1 / R.rate;
+        this.roundIn += 1 / rate;
         n++;
         if (this.heat.shot()) {
           this.overheatedNow = true;
@@ -73,6 +103,9 @@ export class Rotary {
     this.heat.value = 0;
     this.heat.overheated = false;
     this.spin = this.roundIn = 0;
+    this.mode = 'standard';
+    this.holdTime = 0;
+    this.holdToggled = false;
   }
 }
 
@@ -92,6 +125,16 @@ export class Cannon {
     this.mag.ammo = this.mag.size;
     this.mag.reloading = -1;
     this.round = 'g40';
+  }
+}
+
+/** The permanent 105 mm siege howitzer right-arm upgrade: single massive round, weighty 3.1 s auto-reload. */
+export class Howitzer {
+  readonly mag = new Magazine(H.magazine, H.reload, H.interval);
+
+  reset(): void {
+    this.mag.ammo = this.mag.size;
+    this.mag.reloading = -1;
   }
 }
 
@@ -362,6 +405,66 @@ export function smokePulse(enemies: EnemySystem, at: THREE.Vector3): number {
   return struck;
 }
 
+/**
+ * Proximity-fuzed mini-flak airburst check along `(origin, dir)` up to `maxDist` (e.g. nearest wall).
+ * Returns true and writes the mid-air burst point slightly ahead of the closest enemy inside `A.prox`.
+ */
+export function airburstPoint(
+  origin: THREE.Vector3,
+  dir: THREE.Vector3,
+  maxDist: number,
+  enemies: Pick<EnemySystem, 'alive'>,
+  out: THREE.Vector3,
+): boolean {
+  const prox2 = A.prox * A.prox;
+  let bestT = Infinity;
+  const list = enemies.alive;
+  for (let i = 0; i < list.length; i++) {
+    const e = list[i]!;
+    if (!e.alive) continue;
+    const dx = e.center.x - origin.x;
+    const dy = e.center.y - origin.y;
+    const dz = e.center.z - origin.z;
+    const proj = dx * dir.x + dy * dir.y + dz * dir.z;
+    if (proj <= 0.5 || proj > maxDist || proj >= bestT) continue;
+    const px = dx - dir.x * proj;
+    const py = dy - dir.y * proj;
+    const pz = dz - dir.z * proj;
+    if (px * px + py * py + pz * pz <= prox2) bestT = proj;
+  }
+  if (bestT === Infinity) return false;
+  out.copy(origin).addScaledVector(dir, Math.max(0.8, bestT - A.standoff));
+  return true;
+}
+
+/** Concussive 22 m shockwave radiating out from a 105 mm howitzer detonation, flinging infantry off their feet. */
+export function howitzerShockwave(enemies: EnemySystem, at: THREE.Vector3): number {
+  const n = Math.min(enemies.query(at, H.shockRadius, _hits) || 0, _hits.length);
+  let struck = 0;
+  for (let i = 0; i < n; i++) {
+    const e = _hits[i]!;
+    if (!e.alive) continue;
+    const dx = e.position.x - at.x;
+    const dz = e.position.z - at.z;
+    const d = Math.hypot(dx, dz);
+    if (d > H.shockRadius) continue;
+    const t = clamp(d / H.shockRadius);
+    blow.type = 'explosive';
+    blow.source = 'frame_howitzer';
+    blow.amount = lerp(180, 45, t);
+    blow.point.copy(e.center);
+    if (d > 0.05) blow.dir.set(dx / d, 0.65, dz / d).normalize();
+    else blow.dir.set(0, 1, 0);
+    blow.force = lerp(1100, 380, t);
+    blow.gib = d < H.blastRadius * 0.6;
+    enemies.applyDamage(e, blow);
+    blow.gib = false;
+    blow.type = 'crush';
+    struck++;
+  }
+  return struck;
+}
+
 // ---- into the world -------------------------------------------------------------------------------------------------
 
 /** The arms the guns hang on, as the owner places them each frame. */
@@ -384,20 +487,61 @@ const BLASTS: Readonly<Record<Round40, ExplosionSpec>> = {
   ap: blast('frame_40mm_ap', B.ap.radius, B.ap.damage),
   flak: blast('frame_flak', B.flak.radius, B.flak.damage),
 };
+/** Proximity mini-flak airburst blast: lethal to infantry squads, zero structure penetration, zero armour damage. */
+const AIRBURST_BLAST: ExplosionSpec = {
+  kind: 'shell', source: 'frame_rotary_airburst', radius: A.radius, damage: A.damage,
+  shake: 0.008, team: 'player', selfDamage: 0, playerPush: 0, worldObject: true,
+};
+/** 105 mm siege howitzer detonation: glide-bomb scale finisher blast that obliterates tanks and structures. */
+const HOWITZER_BLAST: ExplosionSpec = {
+  kind: 'finisher', source: 'frame_howitzer', radius: H.blastRadius, damage: H.blastDamage,
+  shake: 0.14, team: 'player', selfDamage: 0, playerPush: 0, worldObject: true,
+};
 const PELLET: ShotSpec = {
   damage: B.flak.pelletDamage, source: 'frame_flak', team: 'player', maxDistance: B.flak.reach, force: 14, severMult: 2.2, impactScale: 1.4,
 };
 
 /**
- * A 40 mm round from the arm landing: the blast and its look. A function on the context alone, so the copy of another
- * player's Frame (co-op, puppet.ts) lands its shells through it too, on a context that hurts nothing.
+ * A 40 mm or 105 mm howitzer round from the arm landing: the blast and its look. A function on the context alone, so the
+ * copy of another player's Frame (co-op, puppet.ts) lands its shells through it too, on a context that hurts nothing.
  */
-export function shellImpact(ctx: Ctx, kind: ImpactKind, point: THREE.Vector3, normal: THREE.Vector3 | null, dir: THREE.Vector3): void {
+export function shellImpact(ctx: Ctx, kind: ImpactKind | 'howitzer', point: THREE.Vector3, normal: THREE.Vector3 | null, dir: THREE.Vector3): void {
+  if (kind === 'g105' || kind === 'howitzer') {
+    const { combat, fx, audio, enemies, physics, world, render, camera } = ctx;
+    const n = normal ?? UP;
+    _at.copy(point);
+    if (normal) _at.addScaledVector(normal, WALL_STANDOFF);
+    combat.explode(_at, HOWITZER_BLAST);
+    howitzerShockwave(enemies, _at);
+    world?.objects?.damageExplosivesInRadius?.(_at, H.shockRadius, H.blastDamage, 'frame_howitzer');
+    // Concussive vehicle-flipping shockwave: obliterates armour & tosses soft-skins skyward.
+    _v.copy(dir).setY(0.75).normalize();
+    enemies.vehicles?.frameBlow?.(_at, H.shockRadius, 280, _v, 'frame_howitzer');
+    physics?.radialImpulse?.(_at, H.shockRadius, 280);
+    // Glide-bomb scale multi-stage explosion VFX.
+    fx.explosion(point, { kind: 'finisher', radius: H.blastRadius, scale: 2.3, normal: normal ?? undefined });
+    fx.ring(point, n, '#ff9030', H.blastRadius * 2.1);
+    fx.ring(point, UP, '#ffd8a0', H.shockRadius * 1.35);
+    fx.sparks(point, n, 48, '#ffbb55');
+    fx.chips(point, 0x6a645d, 36);
+    fx.smoke(_w.copy(point).setY(point.y + 3.2), 0x2c2825, 11, 5.5);
+    fx.heatShimmer?.(point, H.blastRadius * 1.2, 1.8);
+    render?.lights?.flash?.(_at, 0xffaa44, 14, H.shockRadius * 1.4, 0.35);
+    render?.decals?.add?.('scorch', point, n, H.blastRadius * 1.15, rand(0, Math.PI * 2));
+    render?.post?.radialBlur?.(0.32, 0.25);
+    camera?.addTrauma?.(0.35);
+    audio.play('hellfirerocket_explode', { position: point, volume: 1.25, pitch: 0.62 });
+    audio.play('vehicle_explode', { position: point, volume: 1.1, pitch: 0.72 });
+    audio.play('explosion_debris', { position: point, volume: 1.0, pitch: 0.78 });
+    return;
+  }
   if (kind !== 'g40' && kind !== 'ap' && kind !== 'flak') return;
   const { combat, fx, audio } = ctx;
   _at.copy(point);
   if (normal) _at.addScaledVector(normal, WALL_STANDOFF);
-  combat.explode(_at, BLASTS[kind]);
+  const spec = BLASTS[kind];
+  combat.explode(_at, spec);
+  ctx.world?.objects?.damageExplosivesInRadius?.(_at, spec.radius, spec.damage, spec.source);
   if (kind === 'g40') {
     fx.explosion(point, { kind: 'shell', radius: B.he.radius, scale: 1, normal: normal ?? undefined });
     fx.ring(point, normal ?? UP, '#ffb040', B.he.radius * 1.5);
@@ -467,16 +611,21 @@ const _at = new THREE.Vector3();
 const _v = new THREE.Vector3();
 const _w = new THREE.Vector3();
 const _right = new THREE.Vector3();
+const _rayHit: RayHit = { point: new THREE.Vector3(), normal: new THREE.Vector3(), distance: 0, surface: 'concrete', collider: null };
 const _pellets = Array.from({ length: B.flak.pellets }, () => new THREE.Vector3());
 const _play: PlayOptions = {};
 
 export class FrameGuns {
   readonly rotary = new Rotary();
   readonly cannon = new Cannon();
+  readonly howitzer = new Howitzer();
   readonly pod = new Pod();
   readonly smoke = new Smoke();
-  /** For the panel: 40 mm, pod, smoke. The owner adds its own rows after these. */
+  /** Modular right-arm ordnance fitted to the Frame (`cannon40` default, permanently upgraded to `howitzer105`). */
+  armWeapon: FrameArmWeapon = 'cannon40';
+  /** For the panel: rotary mode, right-arm cannon/howitzer, pod, smoke. The owner adds its jets/charge row after these. */
   readonly rows: GunnerWeapon[] = [
+    { name: '', ammo: 100, max: 100, reload: -1 },
     { name: '', ammo: 0, max: C.magazine, reload: -1 },
     { name: '', ammo: 0, max: P.tubes, reload: -1 },
     { name: '', ammo: 0, max: FRAME.smoke.count },
@@ -497,10 +646,10 @@ export class FrameGuns {
   /** Set false when the right-shoulder rocket pod has been knocked out. */
   podOnline = true;
   /**
-   * Co-op: told of each 40 mm as it leaves (its round, the muzzle, the exact spot it flies to and the seconds it takes) and
-   * of each missile (where from, and its velocity), so the other screens' copy of this Frame fires the same ones.
+   * Co-op: told of each 40 mm / 105 mm shell as it leaves (its round, the muzzle, the exact spot it flies to and the
+   * seconds it takes) and of each missile (where from, and its velocity), so other screens' copy of this Frame fires too.
    */
-  onShell: ((round: Round40, from: THREE.Vector3, aim: THREE.Vector3, seconds: number) => void) | null = null;
+  onShell: ((round: Round40 | 'g105', from: THREE.Vector3, aim: THREE.Vector3, seconds: number) => void) | null = null;
   onMissile: ((from: THREE.Vector3, velocity: THREE.Vector3) => void) | null = null;
 
   constructor(
@@ -512,34 +661,67 @@ export class FrameGuns {
     private readonly tubes: (out: THREE.Vector3) => THREE.Vector3,
   ) {
     rounds.onImpact = (kind, point, normal, dir) => this.impact(kind, point, normal, dir);
+    this.label();
+  }
+
+  /** Permanently swaps the right-arm modular ordnance (`cannon40` or `howitzer105`) and loads a ready chamber. */
+  installArmWeapon(weapon: FrameArmWeapon): void {
+    this.armWeapon = weapon;
+    if (weapon === 'howitzer105') this.howitzer.reset();
+    else this.cannon.reset();
+    this.label();
   }
 
   update(dt: number, sight: Sight): void {
     const { input, audio } = this.ctx;
     this.sight = sight;
-    // The rotary.
+    // The rotary (hold 1 to toggle between 20 mm AP and proximity-fuzed airburst).
+    if (this.rotary.holdMode(dt, input.isDown('weapon1'))) {
+      audio.play('reload_bolt', { pitch: this.rotary.mode === 'airburst' ? 1.15 : 0.85, volume: 0.9 });
+      this.ctx.hud.callout?.(this.rotary.mode === 'airburst' ? 'ROTARY // AIRBURST' : 'ROTARY // 20MM AP');
+    }
     const n = this.rotary.update(dt, input.isDown('fire'));
     this.left.turn(this.rotary.spin * R.barrelRate * dt);
     this.spinSound(input.isDown('fire') && !this.rotary.heat.overheated);
     if (this.rotary.firing && input.isDown('fire')) {
-      this.fireLoop ??= audio.startLoop('minigun_fire_loop', { fadeIn: 0.03, pitch: R.rate / LOOP_RATE });
-      for (let i = 0; i < n; i++) this.round(sight);
+      const loopPitch = this.rotary.rate / LOOP_RATE;
+      if (!this.fireLoop) {
+        this.fireLoop = audio.startLoop('minigun_fire_loop', { fadeIn: 0.03, pitch: loopPitch });
+      } else {
+        this.fireLoop.setPitch(loopPitch, 0.04);
+      }
+      for (let i = 0; i < n; i++) {
+        if (this.rotary.mode === 'airburst') this.airburstRound(sight);
+        else this.round(sight);
+      }
     } else {
       this.ceaseFire();
     }
     if (this.rotary.overheatedNow) audio.play('steam_burst', { volume: 0.9 });
     if (input.pressed('fire') && this.rotary.heat.overheated) audio.play('weapon_dry');
-    // The 40 mm.
-    const mag = this.cannon.mag;
-    const loading = mag.reloading >= 0;
-    mag.update(dt);
-    if (loading && mag.reloading < 0) audio.play('reload_shell_in', { volume: 0.8, pitch: 0.8 });
-    if (input.pressed('reload')) {
-      this.cannon.cycle();
-      audio.play('reload_bolt', { pitch: 0.75 });
+    // The right arm: either 105 mm Howitzer (single-shot, heavy auto-reload) or 40 mm Autocannon (R cycles HE/AP/FLAK).
+    if (this.armWeapon === 'howitzer105') {
+      const mag = this.howitzer.mag;
+      const loading = mag.reloading >= 0;
+      mag.update(dt);
+      if (loading && mag.reloading < 0) {
+        audio.play('reload_shell_in', { volume: 1.0, pitch: 0.52 });
+        audio.play('metal_clang', { volume: 0.85, pitch: 0.58 });
+      }
+      if (input.isDown('aim') && mag.ready) this.howitzerShell(sight);
+      else if (input.pressed('aim') && mag.ammo === 0) audio.play('weapon_dry', { pitch: 0.72 });
+    } else {
+      const mag = this.cannon.mag;
+      const loading = mag.reloading >= 0;
+      mag.update(dt);
+      if (loading && mag.reloading < 0) audio.play('reload_shell_in', { volume: 0.8, pitch: 0.8 });
+      if (input.pressed('reload')) {
+        this.cannon.cycle();
+        audio.play('reload_bolt', { pitch: 0.75 });
+      }
+      if (input.isDown('aim') && mag.ready) this.shell(sight);
+      else if (input.pressed('aim') && mag.ammo === 0) audio.play('weapon_dry');
     }
-    if (input.isDown('aim') && mag.ready) this.shell(sight);
-    else if (input.pressed('aim') && mag.ammo === 0) audio.play('weapon_dry');
     // The pod.
     const pod = this.pod;
     const wasPainting = pod.painter.painting;
@@ -566,11 +748,28 @@ export class FrameGuns {
 
   /** Syncs HUD weapon row names and ammo counts. */
   label(): void {
-    const [cannon, pod, smoke] = this.rows as [GunnerWeapon, GunnerWeapon, GunnerWeapon];
-    const mag = this.cannon.mag;
-    cannon.name = `RMB 40MM ${ROUND_NAMES[this.cannon.round]} // R`;
-    cannon.ammo = mag.ammo;
-    cannon.reload = mag.progress;
+    const [rotary, arm, pod, smoke] = this.rows as [GunnerWeapon, GunnerWeapon, GunnerWeapon, GunnerWeapon];
+    const airburst = this.rotary.mode === 'airburst';
+    rotary.name = airburst ? 'LMB ROTARY [AIRBURST] // HOLD 1' : 'LMB ROTARY [STD] // HOLD 1';
+    rotary.ammo = Math.round((1 - this.rotary.heat.value) * 100);
+    rotary.max = 100;
+    rotary.reload = this.rotary.heat.overheated ? 1 - this.rotary.heat.value : -1;
+    rotary.selected = airburst;
+    if (this.armWeapon === 'howitzer105') {
+      const mag = this.howitzer.mag;
+      arm.name = 'RMB 105MM HOWITZER';
+      arm.ammo = mag.ammo;
+      arm.max = H.magazine;
+      arm.reload = mag.progress;
+      arm.selected = true;
+    } else {
+      const mag = this.cannon.mag;
+      arm.name = `RMB 40MM ${ROUND_NAMES[this.cannon.round]} // R`;
+      arm.ammo = mag.ammo;
+      arm.max = C.magazine;
+      arm.reload = mag.progress;
+      arm.selected = false;
+    }
     if (!this.podOnline) {
       pod.name = 'G POD // OFFLINE';
       pod.ammo = 0;
@@ -586,10 +785,11 @@ export class FrameGuns {
     smoke.reload = this.smoke.progress;
   }
 
-  /** Passive cooling, reloads, smoke refill, and in-flight 40 mm shells while parked empty on the map. */
+  /** Passive cooling, reloads, smoke refill, and in-flight shells while parked empty on the map. */
   idleUpdate(dt: number): void {
     this.rotary.update(dt, false);
     this.cannon.mag.update(dt);
+    this.howitzer.mag.update(dt);
     this.pod.update(dt, false, () => []);
     this.smoke.update(dt);
     this.rounds.update(dt);
@@ -616,6 +816,49 @@ export class FrameGuns {
     camera.kick(rand(0, R.kick), rand(-R.kick, R.kick));
   }
 
+  /**
+   * Proximity-fuzed mini-flak airburst round: stops at walls (zero penetration), bursts in mid-air ahead of infantry
+   * with an orange/amber puff, crack sound, and shrapnel sparks. Shreds squads; 0 vs armour, 0.35x vs soft vehicles.
+   */
+  private airburstRound(sight: Sight): void {
+    const { audio, combat, enemies, fx, physics, camera } = this.ctx;
+    this.fired++;
+    this.left.muzzle(_muzzle);
+    this.left.bore(_bore);
+    randomInCone(sight.aim, A.spread, _dir);
+    const hitWall = physics.raycastInto(sight.view.position, _dir, R.range, CG.World, _rayHit);
+    const maxDist = hitWall ? _rayHit.distance : R.range;
+    const prox = airburstPoint(sight.view.position, _dir, maxDist, enemies, _at);
+    let burst = false;
+    if (prox) {
+      burst = true;
+    } else if (hitWall) {
+      _at.copy(_rayHit.point).addScaledVector(_rayHit.normal, 0.35);
+      burst = true;
+    } else {
+      _at.copy(sight.view.position).addScaledVector(_dir, R.range);
+    }
+    if (this.fired % R.tracerEvery === 0) fx.tracer(_muzzle, _at, 'heavy');
+    if (burst) {
+      combat.explode(_at, AIRBURST_BLAST);
+      fx.burst?.(_at, _dir, 1.35);
+      if (this.fired % 2 === 0) fx.ring(_at, _dir, '#ffb040', A.radius * 0.9);
+      fx.sparks(_at, _dir, 10, '#ff9830');
+      fx.smoke(_at, 0x4a3b2c, 1.4, 0.55);
+      if (this.fired % 2 === 0) {
+        audio.play('cannon_burst', { position: _at, volume: 0.48, pitch: 1.35, pitchJitter: 0.14 });
+      }
+    }
+    if (this.fired % R.flashEvery === 0) fx.muzzleFlash(_muzzle, _bore, 'rotary');
+    if (this.fired % 2 === 0) {
+      _v.set(-_bore.z, 0, _bore.x).multiplyScalar(-2);
+      _v.y = rand(1, 2.5);
+      fx.shellCasing(_muzzle.addScaledVector(_bore, -1.2), _v, 'cannon');
+    }
+    camera.addTrauma(A.trauma);
+    camera.kick(rand(0, A.kick), rand(-A.kick, A.kick));
+  }
+
   private spinSound(want: boolean): void {
     const { audio } = this.ctx;
     if (want && !this.spinLoop) {
@@ -636,7 +879,7 @@ export class FrameGuns {
     this.ctx.audio.play('minigun_fire');
   }
 
-  // ---- the 40 mm ----
+  // ---- the 40 mm & 105 mm right-arm ordnance ----
 
   /** Flat from the arm to where the sight is, or on down the bore at something under the arm. Armed from the muzzle. */
   private shell(sight: Sight): void {
@@ -667,6 +910,36 @@ export class FrameGuns {
     this.right.recoil(0.48);
     camera.addTrauma(C.trauma);
     camera.kick(C.kick, rand(-0.004, 0.004));
+  }
+
+  /** Massive 105 mm siege howitzer round: booming artillery kick, heavy recoil, immediate 3.1 s breech reload. */
+  private howitzerShell(sight: Sight): void {
+    const { audio, camera, fx, render } = this.ctx;
+    if (!this.howitzer.mag.take()) return;
+    this.right.muzzle(_muzzle);
+    this.right.bore(_bore);
+    if (sight.range > NEAR_SIGHT) _aim.copy(sight.point);
+    else _aim.copy(_muzzle).addScaledVector(_bore, 80);
+    randomInCone(_dir.subVectors(_aim, _muzzle).normalize(), H.spread, _dir);
+    const reach = _muzzle.distanceTo(_aim);
+    _aim.copy(_muzzle).addScaledVector(_dir, reach);
+    this.rounds.fire('g105', _muzzle, _aim, reach / H.speed, 0, Infinity);
+    this.onShell?.('g105', _muzzle, _aim, reach / H.speed);
+    this.rounds.flash(_muzzle, 3.4, 0.12, 12, 8.5, 4, 2.2);
+    fx.muzzleFlash(_muzzle, _bore, 'autocannon');
+    fx.ring(_v.copy(_muzzle).addScaledVector(_bore, 0.8), _bore, '#ffaa44', 3.4);
+    fx.smoke(_v.copy(_muzzle).addScaledVector(_bore, 3.6), 0x9aa0a6, 2.6, 1.8);
+    fx.sparks(_v.copy(_muzzle).addScaledVector(_bore, 0.6), _bore, 24, '#ffcc66');
+    // Massive brass 105 mm shell casing kicked clear of the siege breech.
+    _v.set(-_bore.z, 0, _bore.x).multiplyScalar(3.4);
+    _v.y = rand(2.2, 3.6);
+    fx.shellCasing(_at.copy(_muzzle).addScaledVector(_bore, -2.8), _v, 'cannon');
+    render?.lights?.flash?.(_muzzle, 0xffaa44, 9, 16, 0.14);
+    audio.play('tank_cannon', { volume: 1.35, pitch: 0.72 });
+    audio.play('autocannon_fire', { volume: 1.0, pitch: 0.48 });
+    this.right.recoil(1.15);
+    camera.addTrauma(H.trauma);
+    camera.kick(H.kick, rand(-0.012, 0.012));
   }
 
   private impact(kind: ImpactKind, point: THREE.Vector3, normal: THREE.Vector3 | null, dir: THREE.Vector3): void {
@@ -763,8 +1036,11 @@ export class FrameGuns {
     this.silence();
     this.rotary.reset();
     this.cannon.reset();
+    this.howitzer.reset();
+    this.armWeapon = 'cannon40';
     this.pod.reset();
     this.smoke.reset();
     this.rounds.clear();
+    this.label();
   }
 }

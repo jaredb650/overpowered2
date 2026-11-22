@@ -393,8 +393,25 @@ export const SOFT_FIRE_AT = 0.28;
 export const SOFT_FIRE_SECONDS = 4.5;
 /** A round from an aimed autocannon into the cockpit, on top of everything else. One is enough. */
 export const COCKPIT_SHELL_SCALE = 5;
-/** The Harrow's cannon is 10 rounds a second, and full shaped-charge value on each would end a tank in under a second. */
-export const SOURCE_SCALE: Readonly<Record<string, number>> = { chopper_cannon: 0.14 };
+/**
+ * Per-source damage scaling against armoured vehicles:
+ * - Harrow autocannon is 10 rps (0.14)
+ * - Frame 40 mm FLAK and Rotary Airburst bounce harmlessly off heavy armour (0)
+ * - Frame 40 mm HE barely dents armour (0.18) while AP shreds it (1.9)
+ * - Frame 105 mm Howitzer obliterates tanks in 1-2 hits (3.4)
+ */
+export const SOURCE_SCALE: Readonly<Record<string, number>> = {
+  chopper_cannon: 0.14,
+  frame_flak: 0,
+  frame_40mm: 0.18,
+  frame_40mm_ap: 1.9,
+  frame_rotary_airburst: 0,
+  frame_howitzer: 3.4,
+};
+/** Per-source scaling against soft-skinned vehicles (airburst mini-flak is anti-infantry, weak vs metal hulls). */
+export const SOFT_SOURCE_SCALE: Readonly<Record<string, number>> = {
+  frame_rotary_airburst: 0.35,
+};
 /** The one bullet that counts: the Packmule's gun on a chopper's thin skin, so the Door Gunner has a fight to be in. */
 export const SKIN_BULLETS: Readonly<Record<string, number>> = { door_gun: 0.22 };
 /**

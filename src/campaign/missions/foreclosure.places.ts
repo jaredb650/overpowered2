@@ -68,6 +68,16 @@ export const PLACES: Readonly<Record<string, Mark>> = {
   mother: at(-90, 0, -10, S),
   deckCrew: at(-86, 0, 0, W),
   deckGun: at(-92, 0, 2, W),
+  satchelRack: at(54, 0, 82, N),
+  howitzerPod: at(35, 0, -96, W),
+  convoyTruck1: at(-66, 0, -44, E),
+  convoyTruck2: at(-78, 0, 12, E),
+  convoyTruck3: at(-94, 0, -16, E),
+  convoyTank1: at(-62, 0, -8, E),
+  convoyTank2: at(-84, 0, -34, E),
+  convoyLz1: at(-52, 0, -30, S),
+  convoyLz2: at(-56, 0, 18, N),
+  rivalSpawn: at(-96, 0, -14, E),
 
   // The gunship's targets in the overwatch, round the LZ.
   aaWest: at(10, 0, 88, E),
@@ -123,8 +133,8 @@ export const PLACES: Readonly<Record<string, Mark>> = {
 };
 
 export const ZONES: Readonly<Record<string, Zone>> = {
-  // Out of the west gate onto the salt.
-  westGate: box(-24, -1, -26, -12, 7, -14),
+  // Anywhere onto the Salt Flats past the reinforced West Wall (whether through the gate or blasted through the wall).
+  westGate: box(-164, -1, -112, -12, 18, 120),
   // Under the wall, from the painted segment to the gate: where the breaching charge goes on.
   wallFoot: box(44, -1, 50.5, 76, 6, 64),
 };
@@ -166,15 +176,16 @@ export const SKY_ROUTES: Readonly<Record<string, readonly string[]>> = {
 
 /** The names the skeleton's beats use. A beat that starts naming another place adds it here. */
 const NAMED = [
-  'lz', 'shanties', 'gate', 'square', 'quay', 'slip', 'frame', 'harbour', 'pans', 'deck', 'outerShacks', 'breachKit',
+  'lz', 'shanties', 'gate', 'square', 'quay', 'slip', 'frame', 'harbour', 'pans', 'outerShacks', 'breachKit',
   'eastBureau', 'eastMilitia', 'lanes', 'stacks', 'quayRoad', 'craneCab', 'thresherRack', 'quayHealth', 'quayArmour', 'slipNorth',
-  'slipEast', 'slipWest', 'backStreet', 'backTank', 'flakTower', 'mother', 'deckCrew', 'deckGun',
+  'slipEast', 'slipWest', 'backStreet', 'backTank', 'flakTower', 'mother', 'deckCrew',
   // Beats 1 to 6 (stage 9): the overwatch's targets, the wall, the market's roofs, the war's battles, the courier's wreck.
   'sniperShack', 'trench', 'fuelDepot', 'roofGunWest', 'roofGunEast', 'aaWest', 'aaEast', 'openGround', 'wallGunWest', 'wallGunEast',
   'breach', 'marketRoofWest', 'marketRoofEast', 'marketRoofNorth', 'courierWreck', 'flatsBureau', 'flatsMilitia', 'westBureau',
   'cornerBureau', 'cornerMilitia', 'squareBureau', 'counterMilitia', 'flakGun1', 'flakGun2', 'flakGun3', 'flakGun4',
-  // Beats 7 to 16: stacks twin snipers, quay road battle, and Slip torn-off door gun.
+  // Beats 7 to 16: stacks twin snipers, quay road battle, Slip door gun, satchel rack, howitzer pod, Salt Flats convoy, rival boss.
   'stacksSniperA', 'stacksSniperB', 'quayBureau', 'quayMilitia', 'doorGun',
+  'satchelRack', 'howitzerPod', 'convoyTruck1', 'convoyTruck2', 'convoyTruck3', 'convoyTank1', 'convoyTank2', 'convoyLz1', 'convoyLz2', 'rivalSpawn',
 ];
 
 /** The mission's marks: what its beats name and what its routes run through. */

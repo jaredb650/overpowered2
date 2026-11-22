@@ -142,6 +142,7 @@ export class World implements WorldSystem {
     this.report.navMs = Math.round(stats.ms);
     this.objects.walls.attach(this.navGraph);
     this.objects.props.attach(this.navGraph);
+    for (const c of spec.destructionClusters) this.objects.destruction.addCluster(c);
 
     this.zones = spec.zones;
     this.playerSpawns = spec.playerSpawns;

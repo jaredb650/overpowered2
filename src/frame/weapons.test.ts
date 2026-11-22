@@ -1,11 +1,15 @@
 /** The Frame's clocks (heat, magazines, the pod, smoke) and its blows, counted on a stand-in crowd. */
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
-import type { DamageInfo } from '../core/contracts';
+import type { Ctx, DamageInfo } from '../core/contracts';
 import type { EnemyInstance, EnemySystem, MissileTarget } from '../core/gameplay';
+import type { Ac130Rounds } from '../progression/callins/ac130Rounds';
 import type { PaintCandidate } from '../weapons/swarm';
 import { FRAME } from './data';
-import { backhand, Cannon, crush, Pod, Rotary, shove, Smoke, smokePulse, stomp, trample } from './weapons';
+import {
+  airburstPoint, backhand, Cannon, crush, FrameGuns, Howitzer, howitzerShockwave,
+  Pod, Rotary, shove, Smoke, smokePulse, stomp, trample, type Arm, type Sight,
+} from './weapons';
 
 const DT = 1 / 60;
 
@@ -36,6 +40,51 @@ describe('the rotary', () => {
     const hot = r.heat.value;
     for (let i = 0; i < 60; i++) r.update(DT, false);
     expect(r.heat.value).toBeCloseTo(hot - FRAME.rotary.cool, 2);
+  });
+
+  it('toggles between standard and airburst mode when holding 1 for >= 0.32 s, once per hold, and slows cadence to 16/s', () => {
+    const r = new Rotary();
+    expect(r.mode).toBe('standard');
+    expect(r.rate).toBe(FRAME.rotary.rate);
+    // Holding shorter than 0.32 s does not toggle.
+    let toggled = false;
+    for (let i = 0; i < 15; i++) toggled = toggled || r.holdMode(DT, true);
+    expect(toggled).toBe(false);
+    expect(r.mode).toBe('standard');
+    // Holding past 0.32 s toggles once, and continuing to hold does not re-toggle.
+    let toggles = 0;
+    for (let i = 0; i < 60; i++) if (r.holdMode(DT, true)) toggles++;
+    expect(toggles).toBe(1);
+    expect(r.mode).toBe('airburst');
+    expect(r.rate).toBe(FRAME.rotaryAirburst.rate);
+    // Airburst fire rate over 1 second after spin-up is ~16 rounds/s.
+    for (let i = 0; i < 30; i++) r.update(DT, true);
+    let burstRounds = 0;
+    for (let i = 0; i < 60; i++) burstRounds += r.update(DT, true);
+    expect(burstRounds).toBeGreaterThanOrEqual(15);
+    expect(burstRounds).toBeLessThanOrEqual(17);
+    // Releasing resets the latch; another hold >= 0.32 s toggles back to standard.
+    expect(r.holdMode(DT, false)).toBe(false);
+    let back = 0;
+    for (let i = 0; i < 30; i++) if (r.holdMode(DT, true)) back++;
+    expect(back).toBe(1);
+    expect(r.mode).toBe('standard');
+  });
+
+  it('airburst proximity fuse detonates ahead of infantry within prox radius and respects walls', () => {
+    const { enemies } = crowd([[0, -20], [5, -20]]);
+    const origin = new THREE.Vector3(0, 1.2, 0);
+    const dir = new THREE.Vector3(0, 0, -1);
+    const out = new THREE.Vector3();
+    // Triggers ahead of the on-axis enemy at z = -20.
+    expect(airburstPoint(origin, dir, 100, enemies, out)).toBe(true);
+    expect(out.z).toBeCloseTo(-(20 - FRAME.rotaryAirburst.standoff), 2);
+    // Does not penetrate a wall in front of the enemy (maxDist = 12 < 20).
+    expect(airburstPoint(origin, dir, 12, enemies, out)).toBe(false);
+    // Off-axis enemy outside prox (x = 5 > 2.6 m) does not trigger when aiming down x = 10.
+    expect(airburstPoint(new THREE.Vector3(10, 1.2, 0), dir, 100, enemies, out)).toBe(false);
+    // Off-axis enemy inside prox (x = 2.0 <= 2.6 m) still triggers.
+    expect(airburstPoint(new THREE.Vector3(2.0, 1.2, 0), dir, 100, enemies, out)).toBe(true);
   });
 });
 
@@ -68,6 +117,101 @@ describe('the 40 mm', () => {
       seen.push(c.round);
     }
     expect(seen).toEqual(['g40', 'ap', 'flak', 'g40']);
+  });
+});
+
+describe('the 105 mm howitzer upgrade', () => {
+  it('fires a single monolithic shell and auto-reloads in 3.1 s', () => {
+    const h = new Howitzer();
+    expect(h.mag.ammo).toBe(1);
+    expect(h.mag.ready).toBe(true);
+    expect(h.mag.take()).toBe(true);
+    expect(h.mag.ammo).toBe(0);
+    expect(h.mag.ready).toBe(false);
+    expect(h.mag.reloading).toBeCloseTo(FRAME.howitzer.reload, 3);
+    expect(h.mag.take()).toBe(false);
+    let t = 0;
+    for (; h.mag.reloading >= 0 && t < 5; t += DT) h.mag.update(DT);
+    expect(h.mag.ammo).toBe(1);
+    expect(h.mag.ready).toBe(true);
+    expect(t).toBeCloseTo(FRAME.howitzer.reload, 1);
+  });
+
+  it('shockwave flings everyone within 22 m and spares those beyond', () => {
+    const { enemies, blows } = crowd([[0, -5], [0, -18], [0, -26]]);
+    expect(howitzerShockwave(enemies, new THREE.Vector3())).toBe(2);
+    expect([...blows.keys()].map(e => e.uid).sort()).toEqual([0, 1]);
+    expect(blows.get(enemies.alive[0]!)!.gib).toBe(true);
+    expect(blows.get(enemies.alive[1]!)!.dir.y).toBeGreaterThan(0.45);
+    expect(blows.get(enemies.alive[1]!)!.source).toBe('frame_howitzer');
+  });
+
+  it('FrameGuns.installArmWeapon permanently replaces 40 mm with 105 mm Howitzer, ignores R cycling, and updates HUD labels', () => {
+    const down = new Set<string>();
+    const pressed = new Set<string>();
+    const firedRounds: string[] = [];
+    const callouts: string[] = [];
+    const ctx = {
+      input: { isDown: (a: string) => down.has(a), pressed: (a: string) => pressed.has(a) },
+      audio: { play: () => undefined, startLoop: () => ({ stop: () => undefined, setPitch: () => undefined }) },
+      hud: { callout: (t: string) => callouts.push(t) },
+      fx: { muzzleFlash: () => undefined, ring: () => undefined, smoke: () => undefined, sparks: () => undefined, shellCasing: () => undefined, tracer: () => undefined },
+      camera: { addTrauma: () => undefined, kick: () => undefined },
+      combat: { fireRay: () => undefined, explode: () => undefined, spawnProjectile: () => undefined },
+      enemies: { alive: [], query: () => 0, vehicles: null },
+      physics: { raycast: () => null, raycastInto: () => false },
+      render: { lights: { flash: () => undefined } },
+    } as unknown as Ctx;
+    const rounds = {
+      onImpact: null,
+      fire: (kind: string) => firedRounds.push(kind),
+      flash: () => undefined,
+      update: () => undefined,
+      clear: () => undefined,
+    } as unknown as Ac130Rounds;
+    const arm: Arm = {
+      muzzle: out => out.set(1, 3, 0),
+      bore: out => out.set(0, 0, -1),
+      turn: () => undefined,
+      recoil: () => undefined,
+    };
+    const sight: Sight = {
+      view: { position: new THREE.Vector3(0, 5, 0) } as Sight['view'],
+      aim: new THREE.Vector3(0, 0, -1),
+      point: new THREE.Vector3(0, 1, -40),
+      range: 40,
+    };
+    const guns = new FrameGuns(ctx, rounds, arm, arm, out => out.set(1, 5, 0));
+    expect(guns.rows[0]!.name).toBe('LMB ROTARY [STD] // HOLD 1');
+    expect(guns.rows[1]!.name).toContain('RMB 40MM HE');
+    // Hold 1 toggles rotary mode to airburst and updates HUD + callout.
+    down.add('weapon1');
+    for (let i = 0; i < 25; i++) guns.update(DT, sight);
+    down.delete('weapon1');
+    expect(guns.rotary.mode).toBe('airburst');
+    expect(guns.rows[0]!.name).toBe('LMB ROTARY [AIRBURST] // HOLD 1');
+    expect(callouts).toContain('ROTARY // AIRBURST');
+    // Install 105 mm Howitzer.
+    guns.installArmWeapon('howitzer105');
+    expect(guns.armWeapon).toBe('howitzer105');
+    expect(guns.rows[1]!.name).toBe('RMB 105MM HOWITZER');
+    expect(guns.rows[1]!.ammo).toBe(1);
+    expect(guns.rows[1]!.max).toBe(1);
+    // Pressing R does not cycle 40 mm rounds when 105 mm Howitzer is installed.
+    const roundBefore = guns.cannon.round;
+    pressed.add('reload');
+    guns.update(DT, sight);
+    pressed.clear();
+    expect(guns.cannon.round).toBe(roundBefore);
+    expect(guns.rows[1]!.name).toBe('RMB 105MM HOWITZER');
+    // Firing RMB launches 'g105' and immediately starts reload (ammo 0, reload >= 0).
+    down.add('aim');
+    guns.update(DT, sight);
+    down.delete('aim');
+    expect(firedRounds).toEqual(['g105']);
+    expect(guns.howitzer.mag.ammo).toBe(0);
+    expect(guns.rows[1]!.ammo).toBe(0);
+    expect(guns.rows[1]!.reload).toBeGreaterThanOrEqual(0);
   });
 });
 

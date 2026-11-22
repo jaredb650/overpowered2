@@ -318,7 +318,8 @@ export class Weapons implements WeaponSystem, Guard {
     events.on('player:died', () => {
       // A cooked grenade goes down with you, which is both fair and funny.
       if (this.cooking) this.throwGrenade(this.cookLeft, 0);
-      this.detonateStickies(true);
+      this.detonateStickies('mgl', true);
+      this.detonateStickies('satchel', true);
       this.stopEverything();
     });
     events.on('game:state', e => {
@@ -338,9 +339,9 @@ export class Weapons implements WeaponSystem, Guard {
     this.ctx.viewmodel.equip?.(this.current, 0.01);
   }
 
-  /** Detonates all live Milkor MGL sticky bombs (planted only on RMB, or including in-flight on weapon switch/death). */
-  private detonateStickies(includeInFlight = false): number {
-    const count = this.combat.projectiles.detonateStickies('mgl', includeInFlight);
+  /** Detonates all live sticky charges for `source` (planted only on RMB, or including in-flight on weapon drop/death). */
+  private detonateStickies(source: 'mgl' | 'satchel' = 'mgl', includeInFlight = false): number {
+    const count = this.combat.projectiles.detonateStickies(source, includeInFlight);
     if (count > 0) this.ctx.audio.play('mgl_detonate');
     return count;
   }
@@ -513,6 +514,10 @@ export class Weapons implements WeaponSystem, Guard {
       if (planted > 0) return `HE · ${planted}`;
       return alt ? 'HE' : '';
     }
+    if (this.current === 'satchel') {
+      const planted = this.combat.projectiles.stickyCount('satchel');
+      return planted > 0 ? `RMB DETONATE · ${planted}` : 'TOSS';
+    }
     // An ammo mod (AP or HP) comes first, beside the Gimlet's bursts.
     const load = def.load === 'plusP' ? '+P' : def.load ? def.load.toUpperCase() : '';
     const sel = this.selectOf(def);
@@ -634,7 +639,7 @@ export class Weapons implements WeaponSystem, Guard {
    */
   part(id: WeaponId): GunKit | null {
     if (!keepsAGun(this.owned, id)) return null;
-    if (id === 'mgl') this.detonateStickies(true);
+    if (id === 'mgl' || id === 'satchel') this.detonateStickies(id, true);
     const a = this.slots[id].ammo;
     const mods = MOD_ORDER.filter(m => MODS[m].weapon === id && this.mods.has(m));
     const kit: GunKit = { weapon: id, mods, fitted: mods.filter(m => this.fitted.has(m)), mag: a.mag, reserve: a.reserve };
@@ -716,7 +721,7 @@ export class Weapons implements WeaponSystem, Guard {
     if (this.holstered === holstered) return;
     this.holstered = holstered;
     if (holstered) {
-      if (this.current === 'mgl') this.detonateStickies(true);
+      if (this.current === 'mgl') this.detonateStickies('mgl', true);
       if (this.cooking) this.throwGrenade(this.cookLeft, 1);
       this.stopEverything();
       this.ctx.viewmodel.holster(0.18);
@@ -784,14 +789,25 @@ export class Weapons implements WeaponSystem, Guard {
     if (!this.smartL.on) this.smartL.drop();
     if (!this.smart.on) this.smart.drop();
     this.sword.tick(dt);
-    // RMB while holding MGL with planted stickies immediately detonates all of them and suppresses ADS on that click.
-    if (c.player.alive !== false && !this.holstered && this.occupied <= 0 && this.current === 'mgl'
-      && c.input.pressed('aim') && this.combat.projectiles.stickyCount('mgl') > 0) {
-      this.detonateStickies();
+    // RMB while holding MGL or Satchel Charge with planted charges immediately detonates all of them and suppresses ADS on that click.
+    if (c.player.alive !== false && !this.holstered && this.occupied <= 0
+      && (this.current === 'mgl' || this.current === 'satchel')
+      && c.input.pressed('aim') && this.combat.projectiles.stickyCount(this.current) > 0) {
+      this.detonateStickies(this.current);
+      if (this.current === 'satchel') {
+        c.viewmodel.fire(0.35, false);
+        const s = this.slots.satchel;
+        if (s.ammo.mag === 0 && s.ammo.reserve === 0 && !this.modifiers.bottomlessMag) {
+          this.drySwap = TUNING.ammo.swapDelay;
+        }
+      }
       this.aimOn = false;
       this.aimSuppress = true;
     } else if (!c.input.isDown('aim')) {
       this.aimSuppress = false;
+    }
+    if (this.current === 'satchel') {
+      c.viewmodel.setCharge(this.combat.projectiles.stickyCount('satchel') > 0 ? 1 : 0);
     }
     this.updateAim(dt);
     if (c.player.alive === false) return;
@@ -970,7 +986,7 @@ export class Weapons implements WeaponSystem, Guard {
       return;
     }
     const from = this.current;
-    if (from === 'mgl') this.detonateStickies(true);
+    if (from === 'mgl') this.detonateStickies('mgl', true);
     this.aimOn = false;
     this.aimSuppress = false;
     this.aimT = 0;
@@ -1236,6 +1252,11 @@ export class Weapons implements WeaponSystem, Guard {
     const { input } = this.ctx;
     if (!input.pressed('fire')) return;
     if (this.startReload()) return;
+    if (this.current === 'satchel' && this.combat.projectiles.stickyCount('satchel') > 0) {
+      this.ctx.audio.play('weapon_dry');
+      this.ctx.hud.callout?.('RMB DETONATE');
+      return;
+    }
     this.wentDry();
   }
 
@@ -1254,7 +1275,8 @@ export class Weapons implements WeaponSystem, Guard {
     if (s.ammo.reserve > 0) this.autoReload = Math.max(TUNING.autoReloadDelay, s.def.cycleTime ?? 0);
     // The last grenade gone: back on the rifle, which still has rounds.
     else if (s === this.glSlot) this.raiseLauncher(false);
-    else this.wentDry();
+    // Keep the clacker in hand after tossing the final satchel so RMB can still detonate planted charges.
+    else if (s.def.id !== 'satchel') this.wentDry();
   }
 
   private updateDrySwap(dt: number): void {
@@ -1675,7 +1697,9 @@ export class Weapons implements WeaponSystem, Guard {
     const { player } = c;
     const fwd = player.forward;
     const at = this.muzzle(left, barrel);
-    c.fx.muzzleFlash(this.flashPoint(at), this.flashDir.set(0, 0, -1).applyQuaternion(c.render.camera.quaternion), def.muzzle);
+    if (def.id !== 'satchel') {
+      c.fx.muzzleFlash(this.flashPoint(at), this.flashDir.set(0, 0, -1).applyQuaternion(c.render.camera.quaternion), def.muzzle);
+    }
     this.layerSounds(def.sounds);
     if (def.cycleFoley) {
       if (def.cycleTime) {
@@ -1942,23 +1966,37 @@ export class Weapons implements WeaponSystem, Guard {
     this.shoveBack(t.push, t.groundPush);
   }
 
-  /** A 40 mm grenade: an arcing round that goes off on whatever it touches, using `def.grenade` or `TUNING.launcher`. */
+  /** A 40 mm grenade or lobbed demolition satchel charge, using `def.grenade` or `TUNING.launcher`. */
   private shootGrenade(def: WeaponDef, spread = 0, speedScale = 1): void {
     const t = def.grenade ?? TUNING.launcher;
     const m = this.modifiers;
     const speed = t.speed * speedScale;
-    const sticky = def.id === 'mgl' && !!def.altAmmo && this.altLoaded.has('mgl');
-    const p = this.fillProjectile('shell', def, speed, (sticky ? 15 : def.damage) * m.damage, 'smoke');
+    const isSatchel = def.id === 'satchel';
+    const sticky = isSatchel || (def.id === 'mgl' && !!def.altAmmo && this.altLoaded.has('mgl'));
+    const p = this.fillProjectile('shell', def, speed, (sticky ? 15 : def.damage) * m.damage, isSatchel ? 'none' : 'smoke');
     if (spread > 0) {
       randomInCone(this.ctx.player.forward, spread, this.dir, Math.random);
       p.velocity.copy(this.dir).multiplyScalar(speed);
+    }
+    if (isSatchel) {
+      p.velocity.y += TUNING.satchel.lobUp;
     }
     p.gravity = t.gravity;
     p.lifetime = t.life;
     p.sticky = sticky;
     p.gib = true;
     p.killStop = HIT_STOP.heavyKill;
-    p.explosion = { radius: t.radius * m.blastRadius, damage: t.blast * m.damage, kind: 'grenade' };
+    p.explosion = isSatchel
+      ? {
+          radius: t.radius * m.blastRadius,
+          damage: t.blast * m.damage,
+          kind: 'barrel',
+          scale: TUNING.satchel.scale,
+          shake: TUNING.satchel.shake,
+          selfDamage: TUNING.satchel.selfDamage,
+          playerPush: TUNING.satchel.playerPush,
+        }
+      : { radius: t.radius * m.blastRadius, damage: t.blast * m.damage, kind: 'grenade' };
     this.combat.spawnProjectile(p);
   }
 

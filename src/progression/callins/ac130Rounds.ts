@@ -247,7 +247,7 @@ export class Ac130Rounds {
     s.life = seconds;
     s.gravity = gravity;
     s.armRange = armRange;
-    s.whistle = kind === 'g105' || kind === 'wp' ? A.howitzer.whistle : 0;
+    s.whistle = (kind === 'g105' || kind === 'wp') && seconds > A.howitzer.whistle ? A.howitzer.whistle : 0;
     s.walls = kind === 'ap' ? A.bofors.ap.walls : 0;
     s.velocity.subVectors(aim, from).divideScalar(seconds);
     s.velocity.y += 0.5 * gravity * seconds;

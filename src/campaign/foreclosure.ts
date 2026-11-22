@@ -2,24 +2,32 @@
  * Foreclosure's set pieces and director (`campaign/missions/foreclosure.ts`, `docs/proposals/mission-2-plan.md`):
  * everything specific to Holdfast that no general system owns, reached by `fc.*` calls from the mission script.
  *
- *   flak        Real 4-gun FlakTower (`enemies/vehicles/flakTower.ts`) on the harbour wall roof.
- *   mother      Old Mother (`enemies/vehicles/crawler.ts`), 30 m salt crawler across `pans`, `mother`, `deck`, `ending`.
- *   slip        Crashed courier fuselage + torn-off level-3 door gun emplacement + scrolling Council T&C boot bar.
- *   sappers     Militia sappers rushing the Frame's legs during `foreclosure` (`frame.attachSapper`).
- *   surrender   The Harbourmaster kneeling on Old Mother's stern deck after the engine breaks: cuff (`E`) or shoot.
+ *   flak        Physics-enabled 26-block destructible 4-gun FlakTower (`enemies/vehicles/flakTower.ts`).
+ *   mother      Old Mother (`enemies/vehicles/crawler.ts`), active 3-stage 30 m salt crawler boss.
+ *   rival       Harbourmaster's Ironclad RivalFrame (`enemies/vehicles/rivalFrame.ts`) Mech-vs-Mech duel.
+ *   upgradePod  Golden orbital 105mm Howitzer UpgradePod (`progression/pickups/upgradePod.ts`).
+ *   slip        Crashed courier fuselage + torn-off door gun + interactive `[E]` Frame boot & T&C ticker.
+ *   barracks    Live Holdfast garrison barracks spawners coupled to `world.objects.destruction` clusters.
+ *   rampage     Mech Rampage demolition tracker + Gantry/Quay Crane collapse Sabot Rifle drop.
+ *   surrender   Real Outpost surrendered Harbourmaster (native Hold-`E` cuffing + Bureau Extraction Drone +$5,000 bonus).
+ *   nuke        Council-authorised free Tactical Nuke (`[N]` from Frame or foot) targeted at Holdfast `[65, 0, -10]`.
+ *   ledger      Bureau Asset Liquidation HUD Ticker listening to `'world:liquidated'`.
  *   posters     Bureau red-goggles wanted posters placed along Holdfast's main route (story thread from `STORY.md`).
  */
 import * as THREE from 'three';
-import type { Ctx, EmitterHandle } from '../core/contracts';
+import type { Ctx, EmitterHandle, StructuralClusterLike } from '../core/contracts';
+import type { EnemyId } from '../core/gameplay';
 import { clamp, rand } from '../core/math';
 import type { Enemy } from '../enemies/Enemy';
 import type { EnemyManager } from '../enemies/EnemyManager';
 import { pose, soldierOf } from '../enemies/outpost/soldier';
 import { FlakTower } from '../enemies/vehicles/flakTower';
 import { OldMother } from '../enemies/vehicles/crawler';
+import { RivalFrame } from '../enemies/vehicles/rivalFrame';
 import type { VehicleSystem } from '../enemies/vehicles';
 import type { Frame } from '../frame/seat';
 import { ModelBuilder, ModelMaterials } from '../progression/modelkit';
+import { UpgradePod } from '../progression/pickups/upgradePod';
 import { div, Label, span } from '../ui/dom';
 import type { Emplacement, Emplacements } from '../vehicles/emplacement';
 import type { GameHost } from './host';
@@ -41,7 +49,7 @@ const BOOT_CLAUSES: readonly string[] = [
   'CLAUSE 38.0: THANK YOU FOR CONTRACTING WITH THE COUNCIL. PLEASE DO NOT BLEED ON THE LEATHERETTE.',
 ];
 
-/** Deck crew spawn offsets in Old Mother's local frame (on the walkable deck behind cover crates). */
+/** Deck crew spawn offsets in Old Mother's local frame (kept for legacy deck support). */
 const DECK_POSTS: readonly (readonly [number, number, number])[] = [
   [-2.6, 6.55, -5.0],
   [2.6, 6.55, -4.5],
@@ -53,7 +61,29 @@ const DECK_POSTS: readonly (readonly [number, number, number])[] = [
 
 const SAPPER_INTERVAL = 13;
 const SAPPER_REACH = 5.4;
+const SLIP_BOOT_REACH = 7.2;
 const CUFF_REACH = 4.2;
+const HARBOUR_CAPTURE_BONUS = 5000;
+const BARRACKS_SPAWN_MIN = 13;
+const BARRACKS_SPAWN_MAX = 18;
+const BARRACKS_POP_CAP = 16;
+const LEDGER_MAX_ITEMS = 5;
+const LEDGER_ITEM_TTL = 6.5;
+
+/** Heart of Holdfast (Market/Stacks/Quay nexus): Ground Zero for the final Tactical Nuke liquidation. */
+const NUKE_TARGET = new THREE.Vector3(65, 0, -10);
+
+/** Rampage target cluster tags tracked during the `foreclosure` Mech Rampage beat (Tier 1 & Tier 2 only, never Tier-3 quayCrane). */
+const RAMPAGE_TAGS: readonly string[] = [
+  'cannery',
+  'marketHall.west',
+  'marketHall.east',
+  'gantryCrane',
+  'barracks.cannery',
+  'barracks.stacks',
+  'barracks.market',
+];
+
 const WANTED_PLACES: readonly { at: readonly [number, number, number]; yaw: number }[] = [
   { at: [65.4, 2.2, 49.4], yaw: 0 },        // Main gate south face
   { at: [58.4, 2.1, 28.0], yaw: Math.PI / 2 }, // Market Square west face
@@ -61,20 +91,70 @@ const WANTED_PLACES: readonly { at: readonly [number, number, number]; yaw: numb
   { at: [75.8, 7.6, -59.0], yaw: Math.PI }, // Quay crane cab wall
 ];
 
+const FLAK_PIP_DEFS: readonly [string, string][] = [
+  ['gun0', 'FLAK 1'],
+  ['gun1', 'FLAK 2'],
+  ['gun2', 'FLAK 3'],
+  ['gun3', 'FLAK 4'],
+  ['core', 'CORE'],
+];
+
+const MOTHER_PIP_DEFS: readonly [string, string][] = [
+  ['trackL', 'PORT TRACK'],
+  ['trackR', 'STBD TRACK'],
+  ['turretF', 'FORE GUN'],
+  ['turretA', 'AFT GUN'],
+  ['launcher', 'POD'],
+  ['engine', 'ENGINE'],
+];
+
+const RIVAL_PIP_DEFS: readonly [string, string][] = [
+  ['rotary', 'ROTARY ARM'],
+  ['cannon', 'HEAVY CANNON'],
+  ['jets', 'JUMP JETS'],
+];
+
+type BossMode = 'none' | 'flak' | 'mother' | 'rival';
+
+interface BarracksSpawner {
+  tag: string;
+  timer: number;
+  unmark: (() => void) | null;
+}
+
+interface LedgerRow {
+  el: HTMLElement;
+  age: number;
+}
+
 const _v = new THREE.Vector3();
 const _v2 = new THREE.Vector3();
+const _from = new THREE.Vector3();
 
 interface CallinsAccess {
   callInsManager?: {
     frame: Frame;
     emplacements: Emplacements;
+    shut: boolean;
+    held: Set<string>;
+    targeting?: { exit(): void };
+    cooldowns?: Record<string, number>;
+    mark?: { point: THREE.Vector3; heading: THREE.Vector3; seed?: number };
+    fly?(id: string): void;
+    grant?(id: string): void;
   };
+}
+
+function formatDollars(amount: number): string {
+  return `$${Math.round(amount).toLocaleString('en-US')}`;
 }
 
 export class Foreclosure {
   private readonly materials: ModelMaterials;
   private flak: FlakTower | null = null;
   private crawler: OldMother | null = null;
+  private rivalFrame: RivalFrame | null = null;
+  private upgradePod: UpgradePod | null = null;
   private posters: THREE.Group | null = null;
   private wreckGroup: THREE.Group | null = null;
   private wreckLight: THREE.PointLight | null = null;
@@ -82,23 +162,46 @@ export class Foreclosure {
   private doorGun: Emplacement | null = null;
   private builtWorld = false;
 
-  // Slip boot progress HUD
+  // Slip interactive boot & progress HUD
   private readonly bootEl: HTMLElement;
   private readonly bootPct: Label;
   private readonly bootFill: HTMLElement;
   private readonly bootClause: Label;
-  private bootTotal = 0;
+  private bootTotal = 85;
   private bootElapsed = 0;
+  private bootWaiting = false;
   private bootActive = false;
+  private bootWave1Sent = false;
+  private bootWave2Sent = false;
   private bootDoneSignalled = false;
+  private bootUnprompt: (() => void) | null = null;
+  private bootUnmark: (() => void) | null = null;
 
-  // Boss integrity HUD (Old Mother)
+  // Unified Boss HUD (Flak Tower / Old Mother / Harbourmaster Rival Frame)
   private readonly bossEl: HTMLElement;
+  private readonly bossTitle: Label;
   private readonly bossPhase: Label;
   private readonly bossPct: Label;
   private readonly bossFill: HTMLElement;
-  private readonly bossPips: Map<string, HTMLElement>;
-  private bossVisible = false;
+  private readonly bossPipRow: HTMLElement;
+  private readonly bossPips = new Map<string, HTMLElement>();
+  private bossMode: BossMode = 'none';
+
+  // Bureau Asset Liquidation HUD Ticker
+  private readonly ledgerEl: HTMLElement;
+  private readonly ledgerTotal: Label;
+  private readonly ledgerItemsEl: HTMLElement;
+  private readonly ledgerRows: LedgerRow[] = [];
+  private ledgerTarget = 0;
+  private ledgerDisplay = 0;
+  private ledgerFlash = 0;
+
+  // Tactical Nuke Authorization Prompt
+  private readonly nukePromptEl: HTMLElement;
+  private readonly nukePromptText: Label;
+  private nukeAuthorized = false;
+  private nukeLaunched = false;
+  private nukeDetonated = false;
 
   // Sappers during `foreclosure`
   private sappersOn = false;
@@ -106,13 +209,24 @@ export class Foreclosure {
   private activeSapper: Enemy | null = null;
   private sapperUnmark: (() => void) | null = null;
 
-  // Deck relocation tracking
+  // Barracks garrison doorway spawners
+  private readonly barracksSpawners = new Map<string, BarracksSpawner>();
+
+  // Mech Rampage structural liquidation tracker + crane sabotage Sabot drop
+  private rampageActive = false;
+  private rampageDoneSignalled = false;
+  private readonly rampageTargets = new Set<string>();
+  private readonly rampageMarkers = new Map<string, () => void>();
+  private craneSabotDropped = false;
+
+  // Deck relocation tracking (legacy fallback)
   private deckActive = false;
   private deckPostIdx = 0;
   private readonly deckRelocated = new Set<number>();
 
-  // Harbourmaster surrender
+  // Harbourmaster surrender (native Outpost prisoner + airlift extraction drone)
   private harbourBody: Enemy | null = null;
+  private harbourUsesNativePrisoner = false;
   private harbourUnmark: (() => void) | null = null;
   private harbourUnprompt: (() => void) | null = null;
   private harbourResolved = false;
@@ -137,37 +251,44 @@ export class Foreclosure {
     this.bootPct = new Label(bootPctEl);
     this.bootClause = new Label(bootClauseEl);
 
-    // Build Old Mother Boss HUD bar
+    // Build unified Boss HUD bar (Flak Tower / Old Mother / Rival Frame)
+    const bossTitleEl = span('fc-title', 'OLD MOTHER // SALT CRAWLER');
     const bossPhaseEl = span('fc-phase', 'PHASE I — HUNT');
     const bossPctEl = span('fc-pct', '100%');
     this.bossFill = div('fc-fill boss');
-    this.bossPips = new Map<string, HTMLElement>();
-    const pipDefs: readonly [string, string][] = [
-      ['trackL', 'PORT TRACK'],
-      ['trackR', 'STBD TRACK'],
-      ['turretF', 'FORE GUN'],
-      ['turretA', 'AFT GUN'],
-      ['launcher', 'POD'],
-      ['engine', 'ENGINE'],
-    ];
-    const pipRow = div('fc-pips');
-    for (const [id, label] of pipDefs) {
-      const pip = span('fc-pip', label);
-      this.bossPips.set(id, pip);
-      pipRow.append(pip);
-    }
+    this.bossPipRow = div('fc-pips');
     this.bossEl = div(
       'fc-bar fc-boss',
-      div('fc-head', span('fc-title', 'OLD MOTHER // SALT CRAWLER'), bossPhaseEl, bossPctEl),
+      div('fc-head', bossTitleEl, bossPhaseEl, bossPctEl),
       div('fc-track', this.bossFill),
-      pipRow,
+      this.bossPipRow,
     );
+    this.bossTitle = new Label(bossTitleEl);
     this.bossPhase = new Label(bossPhaseEl);
     this.bossPct = new Label(bossPctEl);
 
-    this.ui.el.append(this.bootEl, this.bossEl);
+    // Build Bureau Asset Liquidation HUD Ticker
+    const ledgerTotalEl = span('fc-ledger-total', '$0');
+    this.ledgerItemsEl = div('fc-ledger-items');
+    this.ledgerEl = div(
+      'fc-ledger',
+      div('fc-ledger-head', span('fc-ledger-tag', 'BUREAU ASSET LIQUIDATION'), ledgerTotalEl),
+      this.ledgerItemsEl,
+    );
+    this.ledgerTotal = new Label(ledgerTotalEl);
 
-    // Track Harbourmaster kill or deck crew arrivals
+    // Build Tactical Nuke authorization prompt
+    const nukeTextEl = span('fc-nuke-text', 'PRESS [N] OR CALL IN NUKE — LIQUIDATE HOLDFAST');
+    this.nukePromptEl = div(
+      'fc-nuke-prompt',
+      span('fc-nuke-badge', 'COUNCIL FINAL AUTHORISATION'),
+      nukeTextEl,
+    );
+    this.nukePromptText = new Label(nukeTextEl);
+
+    this.ui.el.append(this.bootEl, this.bossEl, this.ledgerEl, this.nukePromptEl);
+
+    // Track Harbourmaster kill, native cuffing, escape fallback, and sapper deaths
     ctx.events.on('enemy:killed', e => {
       if (this.harbourBody && e.enemy.uid === this.harbourBody.uid && !this.harbourResolved) {
         this.resolveHarbour(false);
@@ -176,11 +297,39 @@ export class Foreclosure {
         this.clearSapperTrack();
       }
     });
+    ctx.events.on('prisoner:cuffed', e => {
+      if (this.harbourBody && e.enemy.uid === this.harbourBody.uid && !this.harbourResolved) {
+        this.resolveHarbour(true);
+      }
+    });
+    ctx.events.on('enemy:escaped', e => {
+      if (this.harbourBody && e.enemy.uid === this.harbourBody.uid && !this.harbourResolved) {
+        this.resolveHarbour(true);
+      }
+    });
     ctx.events.on('enemy:spawned', e => {
       if (this.deckActive && this.crawler?.root.visible && this.crawler.state.phase === 'deck') {
         this.relocateToDeck(e.enemy as Enemy);
       }
     });
+
+    // Bureau Asset Liquidation ticker + crane sabotage Sabot drop
+    ctx.events.on('world:liquidated', e => {
+      this.recordLiquidation(e.label, e.value);
+      this.onStructureLiquidated(e.label, e.kind, e.position);
+    });
+
+    // Nuke call-in & detonation wiring
+    ctx.events.on('callin:used', e => {
+      if (e.id === 'nuke' && this.nukeAuthorized) {
+        this.nukeLaunched = true;
+        this.nukePromptEl.classList.remove('on');
+      }
+    });
+    (ctx.events as unknown as { on(type: string, fn: (e: { position?: THREE.Vector3 }) => void): void }).on(
+      'nuke:detonated',
+      () => this.onNukeDetonated(),
+    );
   }
 
   private get manager(): EnemyManager {
@@ -201,7 +350,7 @@ export class Foreclosure {
 
   /**
    * Wraps `host.frame` so an `eject` step always lands the player squarely on Old Mother's real walkable deck
-   * wherever she halted on the salt pans, and activates Old Mother's deck colliders just before launch.
+   * if ever invoked directly.
    */
   wrapFrame(host: GameHost): void {
     const base = host.frame.bind(host);
@@ -217,7 +366,7 @@ export class Foreclosure {
     };
   }
 
-  /** Ensures persistent Holdfast entities (FlakTower, OldMother, Wanted posters) exist once the scene is open. */
+  /** Ensures persistent Holdfast entities (FlakTower, OldMother, RivalFrame, UpgradePod, Wanted posters) exist once open. */
   ensureBuilt(): void {
     if (this.builtWorld) return;
     this.builtWorld = true;
@@ -228,6 +377,11 @@ export class Foreclosure {
       if (f) f.breach = true;
       this.ctx.camera.addTrauma(0.95);
     });
+    this.rivalFrame = new RivalFrame(this.ctx, this.vehicles);
+    this.rivalFrame.onEjected = pos => {
+      this.spawnHarbourmasterAt(pos);
+    };
+    this.upgradePod = new UpgradePod(this.ctx, this.materials);
     this.buildWantedPosters();
     this.buildSlipWreck();
   }
@@ -244,9 +398,25 @@ export class Foreclosure {
         return;
       }
       case 'fc.slipWreck':
+        if (arg.startsWith('fastRope:')) {
+          this.spawnFastRopeHeli(arg.slice('fastRope:'.length));
+          return;
+        }
         this.showSlipWreck(true);
         return;
+      case 'fc.slipReady': {
+        const secs = Math.max(10, Number(arg) || 85);
+        this.showSlipWreck(true);
+        this.armSlipReady(secs);
+        return;
+      }
       case 'fc.slipBoot': {
+        if (arg.startsWith('ready:')) {
+          const secs = Math.max(10, Number(arg.slice('ready:'.length)) || 85);
+          this.showSlipWreck(true);
+          this.armSlipReady(secs);
+          return;
+        }
         const secs = Math.max(10, Number(arg) || 85);
         this.showSlipWreck(true);
         this.startSlipBoot(secs);
@@ -255,15 +425,54 @@ export class Foreclosure {
       case 'fc.slipBootOff':
         this.stopSlipBoot();
         return;
+      case 'fc.fastRope':
+        this.spawnFastRopeHeli(arg);
+        return;
+      case 'fc.barracksStart':
+        this.startBarracks(arg);
+        return;
+      case 'fc.barracksStop':
+        this.stopBarracks();
+        return;
       case 'fc.sappers':
+        if (arg === 'barracks:stop') {
+          this.stopBarracks();
+          return;
+        }
+        if (arg.startsWith('barracks:')) {
+          this.startBarracks(arg.slice('barracks:'.length));
+          return;
+        }
+        if (arg === 'rampage') {
+          this.startRampage();
+          return;
+        }
         this.sappersOn = arg !== 'off';
         if (!this.sappersOn) this.clearSapperTrack();
         else this.sapperIn = 6;
         return;
+      case 'fc.rampageStart':
+        this.startRampage();
+        return;
+      case 'fc.dropHowitzerPod':
+        this.dropHowitzerPod(arg || 'howitzerPod');
+        return;
+      case 'fc.equipHowitzer':
+        this.frame?.installWeapon('howitzer105', true);
+        return;
       case 'fc.flakStart':
+        if (arg.startsWith('pod:')) {
+          this.dropHowitzerPod(arg.slice('pod:'.length) || 'howitzerPod');
+          return;
+        }
+        if (arg === 'equip') {
+          this.frame?.installWeapon('howitzer105', true);
+          return;
+        }
         this.sappersOn = false;
         this.clearSapperTrack();
         this.flak?.setActive(true);
+        this.setBossMode('flak');
         return;
       case 'fc.motherReveal':
         this.flak?.setActive(false);
@@ -271,26 +480,413 @@ export class Foreclosure {
         return;
       case 'fc.motherFight':
         this.flak?.setActive(false);
+        this.rivalFrame?.hide();
         this.deckActive = false;
         this.deckRelocated.clear();
         this.crawler?.startFight();
-        this.bossVisible = true;
-        this.bossEl.classList.add('on');
+        this.setBossMode('mother');
         return;
       case 'fc.motherDeck':
+        if (arg.startsWith('rival:')) {
+          this.spawnRivalFrame(arg.slice('rival:'.length) || 'rivalSpawn');
+          return;
+        }
         this.enterDeckStage();
         return;
+      case 'fc.rivalSpawn':
+        this.spawnRivalFrame(arg || 'rivalSpawn');
+        return;
       case 'fc.surrender':
-        this.spawnHarbourmaster();
+        this.spawnHarbourmasterAt();
+        return;
+      case 'fc.nukeAuthorize':
+        this.authorizeNuke();
         return;
       case 'fc.hideBoss':
-        this.bossVisible = false;
-        this.bossEl.classList.remove('on');
+        if (arg === 'nuke') {
+          this.authorizeNuke();
+          return;
+        }
+        this.setBossMode('none');
         return;
       default:
         console.warn(`[foreclosure] unknown call ${name}`);
     }
   }
+
+  // -----------------------------------------------------------------------------------------------
+  // Unified Boss HUD (Flak Tower / Old Mother / Harbourmaster Ironclad Frame)
+  // -----------------------------------------------------------------------------------------------
+
+  private setBossMode(mode: BossMode): void {
+    this.bossMode = mode;
+    this.bossPips.clear();
+    this.bossPipRow.replaceChildren();
+    if (mode === 'none') {
+      this.bossEl.classList.remove('on');
+      return;
+    }
+    const defs = mode === 'flak' ? FLAK_PIP_DEFS : mode === 'mother' ? MOTHER_PIP_DEFS : RIVAL_PIP_DEFS;
+    for (const [id, label] of defs) {
+      const pip = span('fc-pip', label);
+      this.bossPips.set(id, pip);
+      this.bossPipRow.append(pip);
+    }
+    if (mode === 'flak') {
+      this.bossTitle.set('FLAK TOWER // HARBOUR WALL');
+    } else if (mode === 'mother') {
+      this.bossTitle.set('OLD MOTHER // SALT CRAWLER');
+    } else {
+      this.bossTitle.set('HARBOURMASTER // IRONCLAD FRAME');
+    }
+    this.bossEl.classList.add('on');
+    this.updateBossHud();
+  }
+
+  private updateBossHud(): void {
+    if (this.bossMode === 'none') return;
+
+    if (this.bossMode === 'flak') {
+      if (!this.flak) return;
+      const pct = clamp(this.flak.barFraction());
+      this.bossPct.set(`${Math.round(pct * 100)}%`);
+      this.bossFill.style.transform = `scaleX(${pct.toFixed(4)})`;
+      this.bossPhase.set(
+        this.flak.flattened ? 'RAZED'
+        : this.flak.collapsing ? 'STRUCTURAL COLLAPSE!'
+        : this.flak.aliveCount > 0 ? `${this.flak.aliveCount}/4 GUNS · ${Math.round(this.flak.towerIntegrity * 100)}% CORE`
+        : `CORE INTEGRITY ${Math.round(this.flak.towerIntegrity * 100)}%`,
+      );
+      for (let i = 0; i < 4; i++) {
+        const pip = this.bossPips.get(`gun${i}`);
+        if (pip) {
+          const dead = i >= this.flak.aliveCount;
+          pip.classList.toggle('dead', dead);
+          pip.classList.toggle('hot', !dead);
+        }
+      }
+      const corePip = this.bossPips.get('core');
+      if (corePip) {
+        const broken = this.flak.flattened || this.flak.collapsing;
+        corePip.classList.toggle('dead', broken);
+        corePip.classList.toggle('hot', !broken && this.flak.aliveCount === 0);
+      }
+      if (this.flak.flattened) this.setBossMode('none');
+      return;
+    }
+
+    if (this.bossMode === 'mother') {
+      if (!this.crawler || !this.crawler.root.visible) return;
+      const st = this.crawler.state;
+      const pct = clamp(st.barFraction());
+      this.bossPct.set(`${Math.round(pct * 100)}%`);
+      this.bossFill.style.transform = `scaleX(${pct.toFixed(4)})`;
+      const phaseLabel =
+        st.phase === 'hunt' ? 'PHASE I — HUNT'
+        : st.phase === 'drag' ? 'PHASE II — ENRAGED'
+        : st.phase === 'seizing' ? 'REACTOR OVERLOAD'
+        : st.phase === 'deck' ? 'PHASE III — STERN ENGINE EXPOSED'
+        : 'DESTROYED';
+      this.bossPhase.set(phaseLabel);
+      for (const [id, el] of this.bossPips) {
+        const broken = st.hp[id as keyof typeof st.hp] <= 0;
+        const highlight = st.phase === 'deck' && id === 'engine';
+        el.classList.toggle('dead', broken);
+        el.classList.toggle('hot', highlight && !broken);
+      }
+      if (st.phase === 'dead') this.setBossMode('none');
+      return;
+    }
+
+    if (this.bossMode === 'rival') {
+      if (!this.rivalFrame) return;
+      const pct = clamp(this.rivalFrame.barFraction());
+      this.bossPct.set(`${Math.round(pct * 100)}%`);
+      this.bossFill.style.transform = `scaleX(${pct.toFixed(4)})`;
+      const phaseLabel =
+        this.rivalFrame.phase === 'ejecting' ? 'PILOT EJECTING!'
+        : this.rivalFrame.phase === 'wrecked' ? 'DISABLED'
+        : this.rivalFrame.staggerLeft > 0 ? 'STAGGERED!'
+        : this.rivalFrame.attack === 'cannon' ? 'HEAVY CANNON LOCK'
+        : this.rivalFrame.attack === 'missile' ? 'MISSILE SALVO'
+        : this.rivalFrame.attack === 'jump' ? 'JUMP-JET STOMP'
+        : this.rivalFrame.attack === 'rotary' ? 'ROTARY SUPPRESSION'
+        : 'MECH DUEL';
+      this.bossPhase.set(phaseLabel);
+      this.bossPips.get('rotary')?.classList.toggle('hot', this.rivalFrame.attack === 'rotary');
+      this.bossPips.get('cannon')?.classList.toggle('hot', this.rivalFrame.attack === 'cannon');
+      this.bossPips.get('jets')?.classList.toggle('hot', this.rivalFrame.attack === 'jump');
+      if (this.rivalFrame.phase === 'wrecked' || this.rivalFrame.phase === 'idle') {
+        this.setBossMode('none');
+      }
+    }
+  }
+
+  // -----------------------------------------------------------------------------------------------
+  // Bureau Asset Liquidation HUD Ticker
+  // -----------------------------------------------------------------------------------------------
+
+  private recordLiquidation(label: string, value: number): void {
+    if (!Number.isFinite(value) || value <= 0) return;
+    this.ledgerTarget += value;
+    this.ledgerFlash = 0.55;
+    this.ledgerEl.classList.add('on', 'pulse');
+
+    const rowEl = div(
+      'fc-ledger-row',
+      span('fc-ledger-val', `+${formatDollars(value)}`),
+      span('fc-ledger-name', label.toUpperCase()),
+    );
+    this.ledgerItemsEl.prepend(rowEl);
+    this.ledgerRows.unshift({ el: rowEl, age: 0 });
+    while (this.ledgerRows.length > LEDGER_MAX_ITEMS) {
+      const oldest = this.ledgerRows.pop()!;
+      oldest.el.remove();
+    }
+  }
+
+  private updateLedger(dt: number): void {
+    if (this.ledgerDisplay < this.ledgerTarget) {
+      const gap = this.ledgerTarget - this.ledgerDisplay;
+      const step = Math.max(gap * Math.min(1, dt * 6.5), Math.min(gap, Math.max(25000, gap * 0.25) * dt * 4));
+      this.ledgerDisplay = Math.min(this.ledgerTarget, this.ledgerDisplay + step);
+      this.ledgerTotal.set(formatDollars(this.ledgerDisplay));
+    }
+    if (this.ledgerFlash > 0) {
+      this.ledgerFlash -= dt;
+      if (this.ledgerFlash <= 0) this.ledgerEl.classList.remove('pulse');
+    }
+    for (let i = this.ledgerRows.length - 1; i >= 0; i--) {
+      const row = this.ledgerRows[i]!;
+      row.age += dt;
+      if (row.age >= LEDGER_ITEM_TTL - 1.2) {
+        row.el.classList.add('fading');
+      }
+      if (row.age >= LEDGER_ITEM_TTL) {
+        row.el.remove();
+        this.ledgerRows.splice(i, 1);
+      }
+    }
+  }
+
+  private resetLedger(): void {
+    this.ledgerTarget = 0;
+    this.ledgerDisplay = 0;
+    this.ledgerFlash = 0;
+    this.ledgerTotal.set('$0');
+    this.ledgerEl.classList.remove('on', 'pulse');
+    for (const row of this.ledgerRows) row.el.remove();
+    this.ledgerRows.length = 0;
+  }
+
+  // -----------------------------------------------------------------------------------------------
+  // Barracks Garrison Doorway Spawners
+  // -----------------------------------------------------------------------------------------------
+
+  private startBarracks(arg: string): void {
+    const destruction = this.ctx.world.objects?.destruction;
+    if (!destruction) return;
+    const tags = arg.split(',').map(s => s.trim()).filter(Boolean);
+    for (const tag of tags) {
+      if (this.barracksSpawners.has(tag)) continue;
+      if (!destruction.isClusterAlive(tag)) continue;
+      const cluster = destruction.getCluster(tag);
+      const pos = cluster?.spawnPoint ?? cluster?.center;
+      const unmark = pos ? this.ctx.hud.marker(pos.clone().setY(pos.y + 4.2), 'BARRACKS', '#ff9f2e') : null;
+      this.barracksSpawners.set(tag, {
+        tag,
+        timer: rand(3.5, 6.5),
+        unmark,
+      });
+    }
+  }
+
+  private stopBarracks(): void {
+    for (const spawner of this.barracksSpawners.values()) {
+      spawner.unmark?.();
+    }
+    this.barracksSpawners.clear();
+  }
+
+  private updateBarracks(dt: number): void {
+    if (this.barracksSpawners.size === 0) return;
+    const destruction = this.ctx.world.objects?.destruction;
+    if (!destruction) {
+      this.stopBarracks();
+      return;
+    }
+    const livingEnemies = this.ctx.enemies.alive.length;
+    for (const [tag, spawner] of this.barracksSpawners) {
+      if (!destruction.isClusterAlive(tag)) {
+        spawner.unmark?.();
+        this.barracksSpawners.delete(tag);
+        this.ctx.hud.feed('GARRISON BARRACKS DEMOLISHED — REINFORCEMENTS CUT!', '#7ee787');
+        continue;
+      }
+      spawner.timer -= dt;
+      if (spawner.timer > 0) continue;
+      spawner.timer = rand(BARRACKS_SPAWN_MIN, BARRACKS_SPAWN_MAX);
+      if (livingEnemies >= BARRACKS_POP_CAP) continue;
+
+      const cluster = destruction.getCluster(tag);
+      const door = cluster?.spawnPoint ?? cluster?.center;
+      if (!door) continue;
+      const roster: readonly EnemyId[] = ['trooper', Math.random() < 0.45 ? 'rocketeer' : 'gunner'];
+      for (let i = 0; i < roster.length; i++) {
+        _v.set(door.x + (i === 0 ? -0.9 : 0.9), door.y, door.z + rand(-0.6, 0.6));
+        this.manager.spawn(roster[i]!, _v);
+      }
+    }
+  }
+
+  // -----------------------------------------------------------------------------------------------
+  // Mech Rampage Tracker & Crane Collapse Sabot Rifle Drop
+  // -----------------------------------------------------------------------------------------------
+
+  private startRampage(): void {
+    this.clearRampage();
+    this.rampageActive = true;
+    this.rampageDoneSignalled = false;
+    const destruction = this.ctx.world.objects?.destruction;
+    if (!destruction) {
+      this.rampageDoneSignalled = true;
+      this.runner.signal('fc:rampageDone');
+      return;
+    }
+
+    const candidates: StructuralClusterLike[] = [];
+    for (const tag of RAMPAGE_TAGS) {
+      if (destruction.isClusterAlive(tag)) {
+        const c = destruction.getCluster(tag);
+        if (c) candidates.push(c);
+      }
+    }
+    // Also discover Tier-2 rampage clusters registered by kind (never Tier-3 quayCrane, which requires the 105mm Howitzer).
+    for (const kind of ['cannery', 'marketHall', 'gantryCrane']) {
+      for (const c of destruction.aliveClusters(kind)) {
+        if (!candidates.includes(c)) candidates.push(c);
+      }
+    }
+
+    if (candidates.length === 0) {
+      this.rampageDoneSignalled = true;
+      this.runner.signal('fc:rampageDone');
+      return;
+    }
+
+    for (const c of candidates) {
+      const key = c.tag || c.id;
+      this.rampageTargets.add(key);
+      if (c.kind === 'cannery' || c.kind === 'marketHall' || c.kind === 'gantryCrane') {
+        const unmark = this.ctx.hud.marker(
+          c.center.clone().setY(c.center.y + 6),
+          c.kind === 'gantryCrane' ? 'GANTRY CRANE' : c.label.toUpperCase(),
+          '#ff6b3d',
+        );
+        this.rampageMarkers.set(key, unmark);
+      }
+    }
+  }
+
+  private onStructureLiquidated(label: string, kind: string, position: THREE.Vector3): void {
+    const isCrane = kind === 'gantryCrane' || kind === 'quayCrane' || /crane/i.test(label);
+    if (isCrane && !this.craneSabotDropped) {
+      this.craneSabotDropped = true;
+      const dropPos = _v.set(position.x, 0, position.z);
+      const host = this.runner.host as unknown as GameHost;
+      if (host.racks) {
+        host.racks.pull('sabot');
+        host.racks.add('sabot', { at: [dropPos.x, dropPos.y, dropPos.z] }, () => this.runner.signal('took:sabot'));
+      }
+      this.ctx.hud.feed('CRANE DOWN — SABOT RIFLE DROPPED IN WRECKAGE!', '#ffd447');
+      this.runner.signal('fc:craneDown');
+    }
+  }
+
+  private updateRampage(): void {
+    if (!this.rampageActive || this.rampageDoneSignalled) return;
+    const destruction = this.ctx.world.objects?.destruction;
+    if (!destruction) {
+      this.rampageDoneSignalled = true;
+      this.runner.signal('fc:rampageDone');
+      return;
+    }
+    let alive = 0;
+    for (const key of this.rampageTargets) {
+      const isUp = destruction.isClusterAlive(key);
+      if (isUp) {
+        alive++;
+      } else {
+        const unmark = this.rampageMarkers.get(key);
+        if (unmark) {
+          unmark();
+          this.rampageMarkers.delete(key);
+        }
+      }
+    }
+    if (alive === 0) {
+      this.rampageDoneSignalled = true;
+      this.ctx.hud.feed('HOLDFAST STRUCTURES LIQUIDATED — ADVANCE TO HARBOUR WALL', '#7ee787');
+      this.runner.signal('fc:rampageDone');
+    }
+  }
+
+  private clearRampage(): void {
+    this.rampageActive = false;
+    this.rampageDoneSignalled = false;
+    this.rampageTargets.clear();
+    for (const unmark of this.rampageMarkers.values()) unmark();
+    this.rampageMarkers.clear();
+  }
+
+  // -----------------------------------------------------------------------------------------------
+  // Fast-Roping Transport Helicopters
+  // -----------------------------------------------------------------------------------------------
+
+  private spawnFastRopeHeli(arg: string): void {
+    if (!this.vehicles) return;
+    const [fromName, lzName] = arg.split(':');
+    const lzMark = this.runner.mission.marks[lzName || fromName || 'doorGun'];
+    const fromMark = this.runner.mission.marks[fromName || lzName || 'slipNorth'];
+    if (!lzMark) return;
+    const lz = _v.set(...lzMark.at);
+    const dirX = fromMark ? fromMark.at[0] - lz.x : 0;
+    const dirZ = fromMark ? fromMark.at[2] - lz.z : -1;
+    const len = Math.hypot(dirX, dirZ);
+    const nx = len > 1 ? dirX / len : -0.35;
+    const nz = len > 1 ? dirZ / len : -0.94;
+    _from.set(lz.x + nx * 85, lz.y + 42, lz.z + nz * 85);
+    this.vehicles.spawnTransport(_from, lz, lz.y + 13, ['trooper', 'gunner', 'rocketeer', 'trooper'], null);
+  }
+
+  // -----------------------------------------------------------------------------------------------
+  // 105mm Howitzer Upgrade Pod & Rival Frame Boss
+  // -----------------------------------------------------------------------------------------------
+
+  private dropHowitzerPod(markName: string): void {
+    const mark = this.runner.mission.marks[markName] ?? PLACES.howitzerPod;
+    if (!mark || !this.upgradePod) return;
+    this.upgradePod.drop(_v.set(...mark.at), {
+      label: '105MM HOWITZER POD',
+      holdSeconds: 1.4,
+      onInstalled: () => {
+        this.frame?.installWeapon('howitzer105');
+      },
+    });
+  }
+
+  private spawnRivalFrame(markName: string): void {
+    const mark = this.runner.mission.marks[markName] ?? PLACES.rivalSpawn;
+    if (!mark || !this.rivalFrame) return;
+    this.flak?.setActive(false);
+    this.crawler?.hide();
+    this.rivalFrame.spawn(_v.set(...mark.at), mark.yaw ?? 0);
+    this.setBossMode('rival');
+  }
+
+  // -----------------------------------------------------------------------------------------------
+  // Legacy Old Mother deck fallback (if `fc.motherDeck` ever invoked directly)
+  // -----------------------------------------------------------------------------------------------
 
   private enterDeckStage(): void {
     this.deckActive = true;
@@ -299,14 +895,11 @@ export class Foreclosure {
     if (!this.crawler) return;
     const alreadyOnDeck = this.crawler.root.visible && this.crawler.state.phase === 'deck';
     if (!alreadyOnDeck) {
-      // Checkpoint / ?beat=deck start: place Old Mother at her default salt-pan position and put the player on deck.
       this.crawler.enterDeck(true);
       const land = this.crawler.deckLandingPoint(_v);
       this.ctx.player.teleport(land, this.crawler.yaw);
     }
-    this.bossVisible = true;
-    this.bossEl.classList.add('on');
-    // Place the autocannon rack squarely on Old Mother's deck so it matches wherever she stopped.
+    this.setBossMode('mother');
     const gunAt = this.crawler.deckGunPoint(_v2);
     const host = this.runner.host as unknown as GameHost;
     if (host.racks) {
@@ -328,7 +921,7 @@ export class Foreclosure {
   }
 
   // -----------------------------------------------------------------------------------------------
-  // Slip set piece: burning courier wreck + usable torn-off door gun + Bureau T&C boot ticker
+  // Slip set piece: burning courier wreck + door gun + interactive `[E]` Frame boot & T&C ticker
   // -----------------------------------------------------------------------------------------------
 
   private buildSlipWreck(): void {
@@ -380,14 +973,76 @@ export class Foreclosure {
     }
   }
 
+  private armSlipReady(seconds: number): void {
+    this.stopSlipBoot();
+    this.bootTotal = seconds;
+    this.bootElapsed = 0;
+    this.bootWaiting = true;
+    this.bootActive = false;
+    this.bootWave1Sent = false;
+    this.bootWave2Sent = false;
+    this.bootDoneSignalled = false;
+
+    const m = PLACES.frame!;
+    const f = this.frame;
+    if (f && !f.occupied) {
+      f.stand(_v.set(...m.at), m.yaw ?? Math.PI);
+    }
+    this.bootUnmark = this.ctx.hud.marker(
+      new THREE.Vector3(m.at[0], m.at[1] + 4.2, m.at[2]),
+      'DISTRAINT FRAME',
+      '#ffb400',
+    );
+  }
+
+  private updateSlipReady(): void {
+    if (!this.bootWaiting) return;
+    const m = PLACES.frame!;
+    const p = this.ctx.player.position;
+    const d = Math.hypot(p.x - m.at[0], p.z - m.at[2]);
+    const dy = Math.abs(p.y - m.at[1]);
+    if (d <= SLIP_BOOT_REACH && dy <= 5.5) {
+      if (!this.bootUnprompt) {
+        const key = this.ctx.input.labelFor?.('interact') ?? 'E';
+        this.bootUnprompt = this.ctx.hud.follow(
+          new THREE.Vector3(m.at[0], m.at[1] + 3.2, m.at[2]),
+          `PRESS [${key}] — INITIATE FRAME BOOT SEQUENCE`,
+          '#ffd447',
+        );
+      }
+      if (this.ctx.input.pressed('interact')) {
+        this.bootWaiting = false;
+        this.bootUnprompt?.();
+        this.bootUnprompt = null;
+        this.bootUnmark?.();
+        this.bootUnmark = null;
+        this.ctx.audio.play('steam_burst', { pitch: 0.9, volume: 0.85 });
+        this.ctx.audio.play('metal_groan', { pitch: 0.75, volume: 0.85 });
+        this.ctx.hud.feed('FRAME BOOT SEQUENCE INITIATED — HOLD THE SLIP!', '#ffb400');
+        this.startSlipBoot(this.bootTotal);
+        this.runner.signal('fc:bootStarted');
+      }
+    } else if (this.bootUnprompt) {
+      this.bootUnprompt();
+      this.bootUnprompt = null;
+    }
+  }
+
   private startSlipBoot(seconds: number): void {
+    this.bootWaiting = false;
+    this.bootUnprompt?.();
+    this.bootUnprompt = null;
+    this.bootUnmark?.();
+    this.bootUnmark = null;
     this.bootTotal = seconds;
     this.bootElapsed = 0;
     this.bootActive = true;
+    this.bootWave1Sent = false;
+    this.bootWave2Sent = false;
     this.bootDoneSignalled = false;
     this.bootEl.classList.add('on');
     this.updateBootHud();
-    // Pose the Distraint Frame kneeling/booting in the Slip so the player is defending the real machine.
+    // Pose the Distraint Frame standing/booting in the Slip so the player defends the real machine.
     const f = this.frame;
     if (f && !f.occupied) {
       const m = PLACES.frame!;
@@ -396,7 +1051,12 @@ export class Foreclosure {
   }
 
   private stopSlipBoot(): void {
+    this.bootWaiting = false;
     this.bootActive = false;
+    this.bootUnprompt?.();
+    this.bootUnprompt = null;
+    this.bootUnmark?.();
+    this.bootUnmark = null;
     this.bootEl.classList.remove('on');
   }
 
@@ -405,7 +1065,7 @@ export class Foreclosure {
     const whole = Math.floor(pct * 100);
     this.bootPct.set(`${whole}%`);
     this.bootFill.style.transform = `scaleX(${pct.toFixed(4)})`;
-    const idx = Math.floor((this.bootElapsed / 7.5)) % BOOT_CLAUSES.length;
+    const idx = Math.floor(this.bootElapsed / 7.5) % BOOT_CLAUSES.length;
     this.bootClause.set(BOOT_CLAUSES[idx]!);
   }
 
@@ -522,31 +1182,56 @@ export class Foreclosure {
   }
 
   // -----------------------------------------------------------------------------------------------
-  // Harbourmaster surrender on Old Mother's stern deck
+  // Harbourmaster surrender on the Salt Flats (real native Outpost prisoner + Bureau Extraction Drone)
   // -----------------------------------------------------------------------------------------------
 
-  private spawnHarbourmaster(): void {
-    if (this.harbourBody || this.harbourResolved || !this.crawler) return;
-    const at = this.crawler.harbourmasterPoint(_v);
+  private spawnHarbourmasterAt(pos?: THREE.Vector3): void {
+    if (this.harbourBody || this.harbourResolved) return;
+    const at = pos
+      ? _v.copy(pos)
+      : this.rivalFrame?.active
+        ? _v.copy(this.rivalFrame.ejectLandingPoint)
+        : this.crawler?.root.visible
+          ? this.crawler.harbourmasterPoint(_v)
+          : _v.set(...PLACES.rivalSpawn!.at);
+    at.y = Math.max(0, at.y);
+
     const e = this.manager.spawn('warden', at) as Enemy | null;
     if (!e) {
       this.resolveHarbour(true);
       return;
     }
-    e.attacks = [];
-    e.behaviours = [];
-    e.barkAt = Infinity;
-    e.mode = 'hold';
-    e.face = 'player';
-    e.dummy = true;
+
+    // Strip all armor/plates so she is an unarmored pilot, and DO NOT set e.dummy = true
+    // so native Outpost prisoner Hold-`E` cuffing and Airlift Extraction Drone work automatically.
     for (const plate of e.plates) plate.mesh.visible = false;
     e.plates = [];
     e.armor = 0;
     e.maxHealth = 120;
     e.health = 120;
+
     const s = soldierOf(e);
-    if (s) s.holdout = true;
-    pose(e, 'handsUp');
+    const outpost = this.manager.outpost;
+    if (s && outpost) {
+      this.harbourUsesNativePrisoner = true;
+      s.holdout = false;
+      outpost.collapse(s, 'surrender');
+      outpost.onSurrender(s);
+      // Keep her kneeling on the flats indefinitely so she never bolts or times out while the player disembarks.
+      s.judgeAt = Infinity;
+      s.watchedAt = Infinity;
+      pose(e, 'handsUp');
+    } else {
+      // Fallback when Outpost AI is inactive (e.g. proof/sandbox contexts)
+      this.harbourUsesNativePrisoner = false;
+      e.attacks = [];
+      e.behaviours = [];
+      e.barkAt = Infinity;
+      e.mode = 'hold';
+      e.face = 'player';
+      pose(e, 'handsUp');
+    }
+
     this.harbourBody = e;
     this.harbourUnmark = this.ctx.hud.marker(e.position, 'HARBOURMASTER', '#ffc14a');
   }
@@ -558,14 +1243,23 @@ export class Foreclosure {
       this.resolveHarbour(false);
       return;
     }
+    // When native Outpost prisoner system is active, prisoners.ts handles Hold-`E` cuffing & airlift.ts emits `prisoner:cuffed`.
+    if (this.harbourUsesNativePrisoner) {
+      const s = soldierOf(h);
+      if (s && s.cuffed) {
+        this.resolveHarbour(true);
+      }
+      return;
+    }
+    // Fallback interactive cuff when Outpost is not active
     const p = this.ctx.player.position;
     const d = p.distanceTo(h.position);
-    if (d <= CUFF_REACH) {
+    if (d <= CUFF_REACH && !this.ctx.player.parked) {
       if (!this.harbourUnprompt) {
         const key = this.ctx.input.labelFor?.('interact') ?? 'E';
         this.harbourUnprompt = this.ctx.hud.follow(
           _v.copy(h.position).setY(h.position.y + 2.0).clone(),
-          `${key} CUFF HARBOURMASTER`,
+          `HOLD [${key}] CUFF HARBOURMASTER (+$5,000)`,
           '#ffc14a',
         );
       }
@@ -587,7 +1281,8 @@ export class Foreclosure {
     this.harbourUnprompt = null;
     if (cuffed) {
       this.ctx.audio.play('metal_clang', { pitch: 1.35, volume: 0.65 });
-      this.ctx.hud.feed('HARBOURMASTER DETAINED — SCHEDULED FOR TALLOW', '#ffc14a');
+      this.ctx.progression.award(HARBOUR_CAPTURE_BONUS, 'HARBOURMASTER DETAINED', this.harbourBody?.position);
+      this.ctx.hud.feed('HARBOURMASTER CUFFED — EXTRACTION DRONE INBOUND (+$5,000 BONUS)', '#ffc14a');
       this.runner.signal('fc:cuffed');
     } else {
       this.ctx.hud.feed('HARBOURMASTER REMOVED — PROCESSING FEE ADJUSTED', '#e23a2c');
@@ -597,31 +1292,61 @@ export class Foreclosure {
   }
 
   // -----------------------------------------------------------------------------------------------
-  // Boss HUD update
+  // Final Tactical Nuke Authorization & Detonation (works in Frame OR on foot)
   // -----------------------------------------------------------------------------------------------
 
-  private updateBossHud(): void {
-    if (!this.bossVisible || !this.crawler || !this.crawler.root.visible) return;
-    const st = this.crawler.state;
-    const pct = clamp(st.barFraction());
-    this.bossPct.set(`${Math.round(pct * 100)}%`);
-    this.bossFill.style.transform = `scaleX(${pct.toFixed(4)})`;
-    const phaseLabel =
-      st.phase === 'hunt' ? 'PHASE I — HUNT'
-      : st.phase === 'drag' ? 'PHASE II — DRAG'
-      : st.phase === 'seizing' ? 'HULL BREACH'
-      : st.phase === 'deck' ? 'PHASE III — STERN ENGINE'
-      : 'DISABLED';
-    this.bossPhase.set(phaseLabel);
-    for (const [id, el] of this.bossPips) {
-      const broken = st.hp[id as keyof typeof st.hp] <= 0;
-      const highlight = st.phase === 'deck' && id === 'engine';
-      el.classList.toggle('dead', broken);
-      el.classList.toggle('hot', highlight && !broken);
+  private authorizeNuke(): void {
+    this.nukeAuthorized = true;
+    this.nukeLaunched = false;
+    this.nukeDetonated = false;
+
+    const cm = this.callins;
+    if (cm) {
+      cm.shut = false;
+      if (cm.cooldowns) cm.cooldowns.nuke = 0;
+      cm.grant?.('nuke');
     }
-    if (st.phase === 'dead') {
-      this.bossVisible = false;
-      this.bossEl.classList.remove('on');
+
+    const key = this.ctx.input.labelFor?.('callinNuke') ?? 'N';
+    this.nukePromptText.set(`PRESS [${key}] OR CALL IN NUKE — LIQUIDATE HOLDFAST`);
+    this.nukePromptEl.classList.add('on');
+    this.ctx.hud.feed(`TACTICAL NUKE AUTHORISED — PRESS [${key}] TO LIQUIDATE HOLDFAST`, '#ff5b4c');
+  }
+
+  private updateNukeAuth(): void {
+    if (!this.nukeAuthorized || this.nukeLaunched) return;
+    if (!this.ctx.input.pressed('callinNuke')) return;
+
+    // Launch real Tactical Nuke directly onto Holdfast Ground Zero [65, 0, -10] whether inside the Frame OR on foot.
+    const cm = this.callins;
+    if (cm && cm.fly && cm.mark) {
+      this.nukeLaunched = true;
+      this.nukePromptEl.classList.remove('on');
+      cm.targeting?.exit();
+      cm.held.delete('nuke');
+      cm.mark.point.copy(NUKE_TARGET);
+      cm.mark.heading.set(1, 0, 0);
+      cm.fly('nuke');
+      this.ctx.hud.feed('TACTICAL NUKE LAUNCHED — IMPACT ON HOLDFAST INBOUND!', '#ff5b4c');
+    }
+  }
+
+  private onNukeDetonated(): void {
+    if (this.nukeDetonated) return;
+    this.nukeDetonated = true;
+    this.nukeAuthorized = false;
+    this.nukeLaunched = true;
+    this.nukePromptEl.classList.remove('on');
+
+    if (this.flak && !this.flak.flattened) {
+      this.flak.nukeFlatten();
+    }
+
+    // Ensure the Bureau Asset Liquidation HUD Ledger rockets past $50M+ on Holdfast's total thermal liquidation.
+    if (this.ledgerTarget < 50_000_000) {
+      this.recordLiquidation('HOLDFAST HARBOUR INFRASTRUCTURE', 18_400_000);
+      this.recordLiquidation('HOLDFAST SALT WORKS & QUAYS', 14_200_000);
+      this.recordLiquidation('HOLDFAST MUNICIPAL REGISTER', 19_800_000);
     }
   }
 
@@ -631,12 +1356,29 @@ export class Foreclosure {
 
   update(dt: number): void {
     if (!this.builtWorld) return;
+
+    // Tick persistent Holdfast entities owned by Foreclosure
+    this.flak?.update(dt);
+    this.crawler?.update(dt);
+    this.rivalFrame?.update(dt);
+    this.upgradePod?.update(dt);
+
     if (this.wreckLight && this.wreckLight.intensity > 0) {
       this.wreckLight.intensity = 2.0 + Math.sin(this.ctx.time.elapsed * 9.3) * 0.45 + rand(-0.15, 0.15);
     }
+
+    this.updateSlipReady();
     if (this.bootActive) {
       this.bootElapsed += dt;
       this.updateBootHud();
+      if (!this.bootWave1Sent && this.bootElapsed >= 24) {
+        this.bootWave1Sent = true;
+        this.runner.signal('fc:slipWave1');
+      }
+      if (!this.bootWave2Sent && this.bootElapsed >= 50) {
+        this.bootWave2Sent = true;
+        this.runner.signal('fc:slipWave2');
+      }
       if (this.bootElapsed >= this.bootTotal && !this.bootDoneSignalled) {
         this.bootDoneSignalled = true;
         this.stopSlipBoot();
@@ -646,15 +1388,27 @@ export class Foreclosure {
         this.runner.signal('fc:booted');
       }
     }
+
+    this.updateBarracks(dt);
+    this.updateRampage();
     this.updateSappers(dt);
     this.updateHarbourmaster();
+    this.updateNukeAuth();
     this.updateBossHud();
+    this.updateLedger(dt);
   }
 
   clear(): void {
     this.stopSlipBoot();
-    this.bossVisible = false;
-    this.bossEl.classList.remove('on');
+    this.stopBarracks();
+    this.clearRampage();
+    this.craneSabotDropped = false;
+    this.setBossMode('none');
+    this.resetLedger();
+    this.nukeAuthorized = false;
+    this.nukeLaunched = false;
+    this.nukeDetonated = false;
+    this.nukePromptEl.classList.remove('on');
     this.sappersOn = false;
     this.clearSapperTrack();
     this.deckActive = false;
@@ -662,10 +1416,13 @@ export class Foreclosure {
     this.showSlipWreck(false);
     this.flak?.reset();
     this.crawler?.hide();
+    this.rivalFrame?.hide();
+    this.upgradePod?.reset();
     if (this.harbourBody) {
       if (this.harbourBody.alive) this.manager.withdraw(this.harbourBody);
       this.harbourBody = null;
     }
+    this.harbourUsesNativePrisoner = false;
     this.harbourUnmark?.();
     this.harbourUnmark = null;
     this.harbourUnprompt?.();

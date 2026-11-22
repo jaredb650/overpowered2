@@ -21,11 +21,11 @@ import type { ModelMaterials } from '../progression/modelkit';
 import { Gun } from '../vehicles/guns';
 import type { GunnerWeapon } from '../vehicles/hud';
 import { GunnerSeat, type SeatRig } from '../vehicles/seat';
-import { CANNON_ARM, FRAME_PLACES, ROTARY_ARM, StandIn } from './cockpit';
+import { CANNON_ARM, FRAME_PLACES, HOWITZER_ARM, ROTARY_ARM, StandIn } from './cockpit';
 import { Walker, type WalkerIntent } from './controller';
-import { FRAME, framePlan } from './data';
+import { FRAME, framePlan, type FrameArmWeapon } from './data';
 import { FrameParts } from './parts';
-import { backhand, crush, FrameGuns, shove, stomp, trample } from './weapons';
+import { backhand, crush, FrameGuns, ROUND_NAMES, shove, stomp, trample, type Arm } from './weapons';
 
 /**
  * Co-op: how the Frame is told to the other screens, which draw a stand-in of it (puppet.ts `FramePuppet`).
@@ -98,6 +98,9 @@ export class Frame {
   private readonly body: StandIn;
   private readonly rotaryGun: Gun;
   private readonly cannonGun: Gun;
+  private readonly howitzerGun: Gun;
+  private readonly rightArm: Arm;
+  private installedWeapon: FrameArmWeapon = 'cannon40';
   private seat: GunnerSeat | null = null;
   private readonly frame = new THREE.Quaternion();
   /** The eye, as posed this frame. */
@@ -121,7 +124,6 @@ export class Frame {
   private servo: LoopHandle | null = null;
   private servoQuiet = 0;
   private readonly jetRow: GunnerWeapon = { name: '', ammo: 0, max: 100 };
-  private readonly chargeRow: GunnerWeapon = { name: '', ammo: 0, max: FRAME.charge.count, reload: -1 };
   private readonly intercept = (damage: PlayerDamage): boolean => this.hit(damage);
   private unmark: (() => void) | null = null;
   private unprompt: (() => void) | null = null;
@@ -146,9 +148,54 @@ export class Frame {
     this.body = new StandIn(materials, scene);
     this.rotaryGun = new Gun(materials, scene, ROTARY_ARM);
     this.cannonGun = new Gun(materials, scene, CANNON_ARM);
-    this.guns = new FrameGuns(ctx, new Ac130Rounds(ctx, materials), this.rotaryGun, this.cannonGun, out => this.body.place(TUBES, out));
+    this.howitzerGun = new Gun(materials, scene, HOWITZER_ARM);
+    this.howitzerGun.hide();
+    this.rightArm = {
+      muzzle: out => this.activeRightGun.muzzle(out),
+      bore: out => this.activeRightGun.bore(out),
+      turn: radians => this.activeRightGun.turn(radians),
+      recoil: metres => this.activeRightGun.recoil(metres),
+    };
+    this.guns = new FrameGuns(ctx, new Ac130Rounds(ctx, materials), this.rotaryGun, this.rightArm, out => this.body.place(TUBES, out));
     this.guns.onShell = (round, from, aim, seconds) => this.net?.news('shell', [ROUND_KINDS.indexOf(round), from.x, from.y, from.z, aim.x, aim.y, aim.z, seconds]);
     this.guns.onMissile = (from, velocity) => this.net?.news('missile', [from.x, from.y, from.z, velocity.x, velocity.y, velocity.z]);
+  }
+
+  /** Currently mounted right-arm modular weapon (`cannon40` or `howitzer105`). */
+  get armWeapon(): FrameArmWeapon {
+    return this.installedWeapon;
+  }
+
+  private get activeRightGun(): Gun {
+    return this.installedWeapon === 'howitzer105' ? this.howitzerGun : this.cannonGun;
+  }
+
+  private get inactiveRightGun(): Gun {
+    return this.installedWeapon === 'howitzer105' ? this.cannonGun : this.howitzerGun;
+  }
+
+  /**
+   * Permanently installs a modular right-arm ordnance package (`cannon40` or `howitzer105`): swaps the 3D right-arm
+   * cannon mesh, updates HUD and ammo clocks, and plays heavy hydraulic install audio + callout unless `quiet`.
+   */
+  installWeapon(weapon: FrameArmWeapon, quiet = false): void {
+    this.installedWeapon = weapon;
+    this.guns.installArmWeapon(weapon);
+    this.inactiveRightGun.hide();
+    if (this.occupied && this.seat) {
+      this.aim(this.activeRightGun, FRAME_PLACES.cannon, this.seat, 0, 0);
+      this.panel(this.seat);
+    } else if (this.deployed) {
+      this.poseParked();
+    }
+    if (!quiet) {
+      const { audio, hud, camera } = this.ctx;
+      audio.play('metal_groan', { pitch: 0.62, volume: 0.95 });
+      audio.play('steam_burst', { pitch: 0.7, volume: 0.85 });
+      audio.play('tank_turret_stop', { pitch: 0.65, volume: 0.9 });
+      hud.callout?.(weapon === 'howitzer105' ? '105MM HOWITZER INSTALLED' : '40MM AUTOCANNON INSTALLED');
+      camera?.addTrauma?.(0.35);
+    }
   }
 
   /** Remaining hull hit points (0..4000), backed by `parts`. */
@@ -225,7 +272,7 @@ export class Frame {
   }
 
   /** Deploy a fresh 4000 HP Frame standing parked at `feet`, facing `yaw`. Replaces any previously deployed Frame. */
-  deploy(feet: THREE.Vector3, yaw: number): void {
+  deploy(feet: THREE.Vector3, yaw: number, armWeapon: FrameArmWeapon = 'cannon40'): void {
     if (this.seat) {
       this.seat.leave(true);
       this.releaseSeat();
@@ -240,6 +287,9 @@ export class Frame {
     this.walker.speedScale = 1;
     this.walker.place(feet, yaw);
     this.guns.reset();
+    this.installedWeapon = armWeapon;
+    if (armWeapon !== 'cannon40') this.guns.installArmWeapon(armWeapon);
+    this.inactiveRightGun.hide();
     this.guns.podOnline = true;
     this.deployed = true;
     this.dip = this.dipV = 0;
@@ -255,8 +305,8 @@ export class Frame {
   }
 
   /** Deploy a fresh Frame at `feet`, facing `yaw`, and climb straight in. */
-  board(feet: THREE.Vector3, yaw: number, seconds = Infinity, playBoot = false): void {
-    this.deploy(feet, yaw);
+  board(feet: THREE.Vector3, yaw: number, seconds = Infinity, playBoot = false, armWeapon: FrameArmWeapon = 'cannon40'): void {
+    this.deploy(feet, yaw, armWeapon);
     this.boot = playBoot ? 0 : 1;
     this.enter(seconds);
     if (playBoot) this.ctx.audio.play('steam_burst', { pitch: 0.7, volume: 0.8 });
@@ -274,13 +324,14 @@ export class Frame {
     const seat = new GunnerSeat(this.ctx, this.rig, { ...framePlan(), seconds });
     seat.fixed(this.walker.feet);
     seat.noWayOut = false;
-    seat.weapons.push(...this.guns.rows, this.jetRow, this.chargeRow);
+    seat.weapons.push(...this.guns.rows, this.jetRow);
     this.seat = seat;
     seat.board();
     player.interceptor = this.intercept;
     this.pose(0);
     this.rotaryGun.snap(yaw, 0);
-    this.cannonGun.snap(yaw, 0);
+    this.inactiveRightGun.hide();
+    this.activeRightGun.snap(yaw, 0);
     _to.set(-Math.sin(yaw), 0, -Math.cos(yaw)).multiplyScalar(30).add(this.eye);
     seat.sit(_to, this.eye);
     this.panel(seat);
@@ -398,7 +449,8 @@ export class Frame {
     if (this.seat) return;
     this.body.setPoseState(0, 0, 0, 0, false);
     this.body.pose(feet, yaw, yaw, 0, 0, 0, 0, false, this.eye, { parked: true });
-    for (const [gun, place] of [[this.rotaryGun, FRAME_PLACES.rotary], [this.cannonGun, FRAME_PLACES.cannon]] as const) {
+    this.inactiveRightGun.hide();
+    for (const [gun, place] of [[this.rotaryGun, FRAME_PLACES.rotary], [this.activeRightGun, FRAME_PLACES.cannon]] as const) {
       this.body.place(place, _pivot);
       gun.snap(yaw, -0.35);
       gun.point(_pivot, yaw, -0.35, 0);
@@ -423,6 +475,7 @@ export class Frame {
     this.boot = 1;
     this.parts.reset();
     this.walker.speedScale = 1;
+    this.installedWeapon = 'cannon40';
     this.guns.podOnline = true;
     this.deployed = false;
     this.clearParkedUi();
@@ -446,7 +499,8 @@ export class Frame {
     if (!ks) return;
     this.body.setPoseState(kneel, 0, 0, 0, false);
     this.body.pose(ks.feet, ks.yaw, ks.yaw, 0, 0, 0, 0, false, this.eye, { parked: true });
-    for (const [gun, place] of [[this.rotaryGun, FRAME_PLACES.rotary], [this.cannonGun, FRAME_PLACES.cannon]] as const) {
+    this.inactiveRightGun.hide();
+    for (const [gun, place] of [[this.rotaryGun, FRAME_PLACES.rotary], [this.activeRightGun, FRAME_PLACES.cannon]] as const) {
       this.body.place(place, _pivot);
       gun.snap(ks.yaw, -0.45);
       gun.point(_pivot, ks.yaw, -0.45, 0);
@@ -650,7 +704,8 @@ export class Frame {
     const w = this.walker;
     this.body.setPoseState(0, 0, this.crackStage, this.parts.limpSide, !this.parts.podOnline);
     this.body.pose(w.feet, w.legYaw, w.viewYaw, 0, 0, 0, 0, false, this.eye, { parked: true, jets: false, cracks: this.crackStage });
-    for (const [gun, place] of [[this.rotaryGun, FRAME_PLACES.rotary], [this.cannonGun, FRAME_PLACES.cannon]] as const) {
+    this.inactiveRightGun.hide();
+    for (const [gun, place] of [[this.rotaryGun, FRAME_PLACES.rotary], [this.activeRightGun, FRAME_PLACES.cannon]] as const) {
       this.body.place(place, _pivot);
       gun.snap(w.viewYaw, -0.35);
       gun.point(_pivot, w.viewYaw, -0.35, 0);
@@ -883,7 +938,7 @@ export class Frame {
     const leftSweep = this.swing >= 0 && this.swingArm === -1 ? sweep : 0;
     const rightSweep = this.swing >= 0 && this.swingArm === 1 ? sweep : 0;
     this.aim(this.rotaryGun, FRAME_PLACES.rotary, seat, dt, leftSweep);
-    this.aim(this.cannonGun, FRAME_PLACES.cannon, seat, dt, rightSweep);
+    this.aim(this.activeRightGun, FRAME_PLACES.cannon, seat, dt, rightSweep);
   }
 
   private aim(gun: Gun, place: readonly [number, number, number], seat: GunnerSeat, dt: number, sweep: number): void {
@@ -1006,11 +1061,11 @@ export class Frame {
     seat.marks = this.guns.marks;
     seat.altitude = w.grounded ? 0 : w.clearance();
     const key = (a: Parameters<Ctx['input']['labelFor']>[0]) => this.ctx.input.labelFor(a);
-    this.jetRow.name = `${key('jump')} JETS`;
+    this.jetRow.name = `${key('jump')} JETS // ${key('dash')} CHG:${w.charges}`;
     this.jetRow.ammo = Math.round((w.fuel / FRAME.jet.fuel) * 100);
-    this.chargeRow.name = `${key('dash')} CHARGE`;
-    this.chargeRow.ammo = w.charges;
-    this.chargeRow.reload = w.charges < FRAME.charge.count ? 1 - w.chargeIn / FRAME.charge.refill : -1;
+    const rotaryTag = rotary.mode === 'airburst' ? 'ROTARY AIRBURST' : 'ROTARY 20MM AP';
+    const armTag = this.installedWeapon === 'howitzer105' ? '105MM HOWITZER' : `40MM ${ROUND_NAMES[this.guns.cannon.round]}`;
+    seat.status = `${rotaryTag} · ${armTag}`;
   }
 
   /**
@@ -1121,6 +1176,7 @@ export class Frame {
     this.body.hide();
     this.rotaryGun.hide();
     this.cannonGun.hide();
+    this.howitzerGun.hide();
   }
 
   private clearNet(): void {

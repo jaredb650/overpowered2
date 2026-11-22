@@ -1,15 +1,18 @@
 /**
- * Old Mother: Holdfast's 30 m x 14 m x 12 m painted salt-harvesting crawler (stage 8 & stage 11 of
- * docs/proposals/mission-2-plan.md).
+ * Old Mother: Holdfast's 30 m x 14 m x 12 m painted salt-harvesting crawler (Foreclosure Boss).
  *
- * Three-phase boss fight:
- *   1. Hunt   — patrols the salt pans ellipse (`PANS.loop`). Break both tracks (1500 HP each) to stop her,
- *               dodge her telegraphed 20 m bow cutter sweep, and tear down her deck turrets (700 HP each)
- *               and dorsal missile pod (500 HP).
- *   2. Drag   — both tracks gone. She anchors on the salt, pivots toward the Frame, fires remaining ordnance
- *               and telegraphed cutter lunges, then seizes the Frame's leg (`mother:seized`) for the eject.
- *   3. Deck   — solid walkable Rapier deck + cover + stern ramp; player lands on her back with the Autocannon,
- *               clears the deck crew, and destroys the exposed glowing Stern Engine (1200 HP -> `mother:engine`).
+ * Active three-stage boss fight — dangerous from start to finish:
+ *   1. Hunt   — patrols the salt pans ellipse (`PANS.loop`), firing dual deck turrets, dorsal missile pod,
+ *               and telegraphed bow cutter sweeps. Break both tracks (1500 HP each) to cripple her drive.
+ *   2. Drag   — enraged! Even with tracks wrecked she fires auxiliary thruster-assisted lunges, high-arc
+ *               telegraphed red-ring mortar salvos, close-range superheated steam shockwaves, and recessed
+ *               hull autocannons until her remaining outer guns are stripped (or her reactor overheats).
+ *   3. Deck   — Stern Reactor armored shroud doors blow open immediately on the Salt Pans, revealing a massive
+ *               pulsing molten-orange Stern Engine (1600 HP) with heat fins, roaring vertical flame column,
+ *               intense orange PointLight, klaxon alarm, and HUD beacon. Destroyable from the Frame (105mm
+ *               Howitzer, 40mm, missiles, rotary) OR on foot via the walkable deck & stern ramp. Old Mother
+ *               keeps pivoting and firing desperate mortar rings, steam vents, and bow sweeps until she blows
+ *               apart in a multi-stage hull chain detonation (`mother:engine` + `mother:destroyed`).
  *
  * `CrawlerState` is pure state + phase math so unit tests can verify every transition and part pool directly.
  */
@@ -17,7 +20,7 @@ import * as THREE from 'three';
 import type RAPIER from '@dimforge/rapier3d-compat';
 import type { Ctx, ExplosionKind, LoopHandle } from '../../core/contracts';
 import type { ExplosionSpec, MissileTarget } from '../../core/gameplay';
-import { clamp, damp, dampAngle, rand, wrapAngle } from '../../core/math';
+import { clamp, dampAngle, rand, wrapAngle } from '../../core/math';
 import { ModelBuilder, ModelMaterials } from '../../progression/modelkit';
 import { EXPLOSIONS } from '../../weapons/data';
 import { PANS } from '../../world/map/holdfast/plan';
@@ -37,11 +40,13 @@ export const CRAWLER = {
     turretF: 700,
     turretA: 700,
     launcher: 500,
-    engine: 1200,
+    engine: 1600,
   },
   speedFull: 9.5,
   speedCrippled: 4.8,
   turnRate: 0.42,
+  dragTurnRate: 1.15,
+  deckTurnRate: 0.36,
   sweepReach: 21,
   sweepDamage: 320,
   sweepWindup: 1.25,
@@ -50,8 +55,27 @@ export const CRAWLER = {
   turretDamage: 48,
   missileEvery: 7.5,
   missileDamage: 165,
-  /** Seconds in Phase 2 before Old Mother automatically forces a cutter seize even if weapons survive. */
-  dragMaxSeconds: 42,
+  // Phase 2 enraged & Phase 3 exposed active attacks
+  lungeWindup: 1.0,
+  lungeDuration: 1.15,
+  lungeSpeed: 15.5,
+  lungeCooldown: 7.5,
+  lungeDamage: 240,
+  lungeReach: 16.5,
+  mortarEvery: 6.5,
+  mortarDeckEvery: 7.5,
+  mortarCount: 3,
+  mortarWarning: 1.65,
+  mortarRadius: 5.5,
+  mortarDamage: 145,
+  steamReach: 14.5,
+  steamWindup: 0.85,
+  steamCooldown: 5.5,
+  steamDamage: 125,
+  casemateEvery: 1.65,
+  casemateDamage: 34,
+  /** Seconds in Phase 2 before Old Mother's overloaded Stern Reactor hatches blow open automatically. */
+  dragMaxSeconds: 28,
   seizeSeconds: 1.6,
 } as const;
 
@@ -62,7 +86,7 @@ export interface CrawlerPartHit {
   phaseChanged: CrawlerPhase | null;
 }
 
-/** Pure state machine for Old Mother's parts and 3-phase boss fight. */
+/** Pure state machine for Old Mother's parts and active 3-stage boss fight. */
 export class CrawlerState {
   phase: CrawlerPhase = 'dormant';
   readonly hp: Record<CrawlerPartId, number> = { ...CRAWLER.hp };
@@ -87,6 +111,10 @@ export class CrawlerState {
     return (this.hp.turretF > 0 ? 1 : 0) + (this.hp.turretA > 0 ? 1 : 0) + (this.hp.launcher > 0 ? 1 : 0);
   }
 
+  get engineExposed(): boolean {
+    return this.phase === 'deck' && this.hp.engine > 0;
+  }
+
   get speed(): number {
     if (this.phase !== 'hunt') return 0;
     return this.tracksAlive === 2 ? CRAWLER.speedFull : this.tracksAlive === 1 ? CRAWLER.speedCrippled : 0;
@@ -104,9 +132,10 @@ export class CrawlerState {
   barLabel(): string {
     switch (this.phase) {
       case 'hunt': return this.tracksAlive === 2 ? 'OLD MOTHER — BREAK HER TRACKS' : 'OLD MOTHER — ONE TRACK LEFT';
-      case 'drag': return 'OLD MOTHER — IMMOBILIZED · STRIP HER WEAPONS';
-      case 'seizing': return 'OLD MOTHER — HULL BREACH!';
-      case 'deck': return 'OLD MOTHER — DESTROY THE STERN ENGINE';
+      case 'drag': return 'OLD MOTHER — ENRAGED · STRIP HER WEAPONS';
+      case 'seizing': return 'OLD MOTHER — REACTOR OVERLOAD!';
+      case 'deck': return 'OLD MOTHER — STERN ENGINE EXPOSED · DESTROY';
+      case 'dead': return 'OLD MOTHER — DESTROYED';
       default: return 'OLD MOTHER';
     }
   }
@@ -115,7 +144,7 @@ export class CrawlerState {
     if (amount <= 0 || this.phase === 'dead' || this.phase === 'dormant') {
       return { part, dealt: 0, broke: false, phaseChanged: null };
     }
-    // Engine is only vulnerable on the deck (Phase 3); external parts only in Hunt / Drag.
+    // Engine is vulnerable once its rear shroud blows open (`deck` phase); external parts in Hunt / Drag.
     if (part === 'engine' && this.phase !== 'deck') {
       return { part, dealt: 0, broke: false, phaseChanged: null };
     }
@@ -136,8 +165,9 @@ export class CrawlerState {
       phaseChanged = 'drag';
     }
     if (this.phase === 'drag' && this.weaponsAlive === 0) {
-      this.phase = 'seizing';
-      phaseChanged = 'seizing';
+      // Immediately blow open the Stern Reactor hatches — no forced-eject brick wall!
+      this.phase = 'deck';
+      phaseChanged = 'deck';
     }
     if (this.phase === 'deck' && this.hp.engine <= 0) {
       this.phase = 'dead';
@@ -150,7 +180,7 @@ export class CrawlerState {
     if (this.phase !== 'drag') return false;
     this.dragClock += dt;
     if (this.dragClock >= CRAWLER.dragMaxSeconds) {
-      this.phase = 'seizing';
+      this.phase = 'deck';
       return true;
     }
     return false;
@@ -189,11 +219,39 @@ interface HitBox {
   unmark: (() => void) | null;
 }
 
+interface DeckColliderEntry {
+  readonly collider: RAPIER.Collider;
+  readonly lx: number;
+  readonly ly: number;
+  readonly lz: number;
+  readonly pitch: number;
+}
+
+interface MortarStrike {
+  readonly pos: THREE.Vector3;
+  readonly radius: number;
+  readonly ringMesh: THREE.Mesh;
+  readonly fillMesh: THREE.Mesh;
+  elapsed: number;
+  readonly duration: number;
+}
+
+interface ChainBlast {
+  delay: number;
+  readonly localX: number;
+  readonly localY: number;
+  readonly localZ: number;
+  readonly scale: number;
+}
+
 const _p = new THREE.Vector3();
+const _p2 = new THREE.Vector3();
 const _q = new THREE.Quaternion();
+const _pitchQ = new THREE.Quaternion();
 const _v = new THREE.Vector3();
 const _dir = new THREE.Vector3();
 const _up = new THREE.Vector3(0, 1, 0);
+const _xAxis = new THREE.Vector3(1, 0, 0);
 
 const PART_SPECS: readonly { id: CrawlerPartId; local: readonly [number, number, number]; half: readonly [number, number, number]; label: string }[] = [
   { id: 'trackL', local: [-5.8, 1.8, 0], half: [1.7, 1.8, 11.5], label: 'PORT TRACK' },
@@ -201,8 +259,13 @@ const PART_SPECS: readonly { id: CrawlerPartId; local: readonly [number, number,
   { id: 'turretF', local: [0, 7.6, 5.2], half: [1.7, 1.2, 1.9], label: 'FORE TURRET' },
   { id: 'turretA', local: [0, 7.6, -5.2], half: [1.7, 1.2, 1.9], label: 'AFT TURRET' },
   { id: 'launcher', local: [0, 11.0, -1.5], half: [1.5, 1.0, 1.6], label: 'MISSILE POD' },
-  { id: 'engine', local: [0, 7.8, -11.4], half: [2.4, 1.6, 1.8], label: 'STERN ENGINE' },
+  { id: 'engine', local: [0, 7.6, -11.6], half: [3.4, 2.6, 2.6], label: 'STERN ENGINE' },
 ];
+
+const PANS_MIN_X = PANS.x0 + 18;
+const PANS_MAX_X = PANS.x1 - 18;
+const PANS_MIN_Z = PANS.z0 + 18;
+const PANS_MAX_Z = PANS.z1 - 18;
 
 export class OldMother implements ExtraTarget {
   readonly state = new CrawlerState();
@@ -214,7 +277,7 @@ export class OldMother implements ExtraTarget {
   private readonly boxes: HitBox[] = [];
   private readonly byHandle = new Map<number, HitBox>();
   private readonly hullCollider: RAPIER.Collider;
-  private readonly deckColliders: RAPIER.Collider[] = [];
+  private readonly deckColliders: DeckColliderEntry[] = [];
   private readonly highlightList: THREE.Object3D[] = [];
 
   private cutter!: THREE.Group;
@@ -223,8 +286,19 @@ export class OldMother implements ExtraTarget {
   private launcherMesh!: THREE.Group;
   private skirtL!: THREE.Group;
   private skirtR!: THREE.Group;
+  private engineShroudL!: THREE.Group;
+  private engineShroudR!: THREE.Group;
+  private engineCoreGroup!: THREE.Group;
   private engineGlow!: THREE.Mesh;
+  private engineFlame!: THREE.Mesh;
+  private engineLight!: THREE.PointLight;
+  private thrusterFlames!: THREE.Group;
   private readonly wheels: THREE.Object3D[] = [];
+
+  private readonly mortars: MortarStrike[] = [];
+  private readonly chainBlasts: ChainBlast[] = [];
+  private readonly mortarRingGeo = new THREE.RingGeometry(0.84, 1.0, 28);
+  private readonly mortarFillGeo = new THREE.CircleGeometry(0.84, 28);
 
   private loopAngle = -Math.PI * 0.45;
   private cutterAngle = 0;
@@ -233,12 +307,26 @@ export class OldMother implements ExtraTarget {
   private turretFIn = 2.0;
   private turretAIn = 3.1;
   private missileIn = 5.5;
+  private lungeWindup = -1;
+  private lungeLeft = 0;
+  private lungeCooldown = 4.5;
+  private lungeDealt = false;
+  private mortarIn = 4.0;
+  private steamWindup = -1;
+  private steamCooldown = 3.0;
+  private casemateIn = 1.4;
+  private casemateSide = 1;
   private seizeLeft = -1;
   private smokeIn = 0;
+  private engineFxIn = 0;
   private rumbleLoop: LoopHandle | null = null;
+  private alarmLoop: LoopHandle | null = null;
   private onSeizeHook: (() => void) | null = null;
 
   constructor(private readonly ctx: Ctx, private readonly vehicles: VehicleSystem | null) {
+    this.mortarRingGeo.rotateX(-Math.PI / 2);
+    this.mortarFillGeo.rotateX(-Math.PI / 2);
+
     this.materials = new ModelMaterials(ctx);
     this.buildModel();
     this.root.visible = false;
@@ -248,8 +336,10 @@ export class OldMother implements ExtraTarget {
     for (const spec of PART_SPECS) {
       const center = new THREE.Vector3();
       const collider = ctx.physics.addStaticBox(new THREE.Vector3(0, -1000, 0), new THREE.Vector3(...spec.half), null, 'metal');
-      const hpAlive = (): boolean =>
-        (this.state.phase === 'hunt' || this.state.phase === 'drag') && this.state.hp[spec.id] > 0;
+      const boxAlive = (): boolean => {
+        if (spec.id === 'engine') return this.state.phase === 'deck' && this.state.hp.engine > 0;
+        return (this.state.phase === 'hunt' || this.state.phase === 'drag') && this.state.hp[spec.id] > 0;
+      };
       const box: HitBox = {
         id: spec.id,
         local: spec.local,
@@ -261,11 +351,10 @@ export class OldMother implements ExtraTarget {
         target: {
           center,
           get alive() {
-            if (spec.id === 'engine') return false;
-            return hpAlive();
+            return boxAlive();
           },
-          aimLift: 0.4,
-          paintRadius: Math.max(spec.half[0], spec.half[2]),
+          aimLift: spec.id === 'engine' ? 0.8 : 0.4,
+          paintRadius: Math.max(spec.half[0], spec.half[1], spec.half[2]),
         },
       };
       this.boxes.push(box);
@@ -275,7 +364,19 @@ export class OldMother implements ExtraTarget {
     this.vehicles?.addExtra(this);
   }
 
-  /** Callback invoked when Old Mother enters `seizing` (lets the director trigger Frame hull breach flash). */
+  get engineExposed(): boolean {
+    return this.state.engineExposed;
+  }
+
+  barFraction(): number {
+    return this.state.barFraction();
+  }
+
+  barLabel(): string {
+    return this.state.barLabel();
+  }
+
+  /** Backward-compatible hook retained for mission scripts that listen to `seizing`. */
   setSeizeHook(fn: (() => void) | null): void {
     this.onSeizeHook = fn;
   }
@@ -285,6 +386,8 @@ export class OldMother implements ExtraTarget {
     this.state.reset();
     this.state.phase = 'dormant';
     this.clearDeckColliders();
+    this.clearMortars();
+    this.chainBlasts.length = 0;
     this.restoreMeshes();
     this.loopAngle = -Math.PI * 0.45;
     this.placeOnLoop();
@@ -297,6 +400,8 @@ export class OldMother implements ExtraTarget {
     this.state.reset();
     this.state.phase = 'hunt';
     this.clearDeckColliders();
+    this.clearMortars();
+    this.chainBlasts.length = 0;
     this.restoreMeshes();
     if (!this.root.visible) {
       this.loopAngle = Math.PI + 0.3;
@@ -307,15 +412,27 @@ export class OldMother implements ExtraTarget {
     this.seizeLeft = -1;
     this.sweepWindup = -1;
     this.sweepCooldown = 4;
+    this.lungeWindup = -1;
+    this.lungeLeft = 0;
+    this.lungeCooldown = 5.0;
+    this.mortarIn = 4.5;
+    this.steamWindup = -1;
+    this.steamCooldown = 3.0;
+    this.casemateIn = 1.6;
     this.turretFIn = 2.0;
     this.turretAIn = 3.2;
     this.missileIn = 5.5;
+    this.alarmLoop?.stop(0.2);
+    this.alarmLoop = null;
     this.syncWorld();
     this.refreshMarkers();
     this.rumbleLoop ??= this.ctx.audio.startLoop('tank_turret_loop', { position: this.position, volume: 0.65, pitch: 0.55 });
   }
 
-  /** Locks Old Mother stationary with solid walkable deck colliders and live Stern Engine (`deck` section). */
+  /**
+   * Opens the Stern Reactor housing, builds walkable deck colliders, and enters the exposed Stern Engine stage.
+   * Retained with identical signature for checkpoint / `?beat=deck` compatibility.
+   */
   enterDeck(snapToDefault = false): void {
     if (snapToDefault || !this.root.visible) {
       this.position.set(-90, 0, -2);
@@ -334,11 +451,16 @@ export class OldMother implements ExtraTarget {
     this.turretFMesh.visible = false;
     this.turretAMesh.visible = false;
     this.launcherMesh.visible = false;
-    this.engineGlow.visible = true;
-    this.rumbleLoop?.stop(0.8);
-    this.rumbleLoop = null;
-    this.syncWorld();
+    this.lungeWindup = -1;
+    this.lungeLeft = 0;
+    this.thrusterFlames.visible = false;
+    this.mortarIn = 4.2;
+    this.steamWindup = -1;
+    this.steamCooldown = 3.5;
+    this.casemateIn = 2.2;
     this.buildDeckColliders();
+    this.showExposedEngine(false);
+    this.syncWorld();
     this.refreshMarkers();
   }
 
@@ -368,8 +490,17 @@ export class OldMother implements ExtraTarget {
     this.root.visible = false;
     this.seizeLeft = -1;
     this.sweepWindup = -1;
+    this.lungeWindup = -1;
+    this.lungeLeft = 0;
+    this.steamWindup = -1;
+    this.thrusterFlames.visible = false;
+    this.engineLight.intensity = 0;
     this.rumbleLoop?.stop(0.3);
     this.rumbleLoop = null;
+    this.alarmLoop?.stop(0.3);
+    this.alarmLoop = null;
+    this.chainBlasts.length = 0;
+    this.clearMortars();
     this.clearMarkers();
     this.clearDeckColliders();
     this.parkColliders();
@@ -381,7 +512,61 @@ export class OldMother implements ExtraTarget {
     this.turretFMesh.visible = true;
     this.turretAMesh.visible = true;
     this.launcherMesh.visible = true;
+    this.engineShroudL.visible = true;
+    this.engineShroudR.visible = true;
+    this.engineCoreGroup.visible = false;
+    this.engineFlame.visible = false;
+    this.engineLight.intensity = 0;
+    this.thrusterFlames.visible = false;
+  }
+
+  private showExposedEngine(dramatic: boolean): void {
+    const { audio, campaign, fx, hud, render } = this.ctx;
+    this.engineShroudL.visible = false;
+    this.engineShroudR.visible = false;
+    this.engineCoreGroup.visible = true;
     this.engineGlow.visible = true;
+    this.engineFlame.visible = true;
+    this.engineLight.intensity = 26;
+
+    const engCenter = this.localToWorld(0, 7.6, -11.6, _p);
+    if (dramatic) {
+      // Blow armored rear shroud plates off in a shower of molten sparks.
+      fx.explosion(engCenter, { radius: 7.5, kind: 'rocket', scale: 1.9 });
+      fx.chips(engCenter, 0xff7820, 42);
+      fx.embers(engCenter, 36, 4.5);
+      render.lights.flash(engCenter, 0xff8024, 34, 64, 0.65);
+      audio.play('plate_destroyed', { position: engCenter, pitch: 0.72, volume: 1 });
+      audio.play('boss_alarm', { volume: 0.75 });
+      hud.feed('STERN ENGINE EXPOSED — BLAST THE GLOWING REAR CORE!', '#ffc14a');
+      campaign.signal('mother:exposed');
+    }
+    this.alarmLoop ??= audio.startLoop('alarm_klaxon', { position: engCenter, volume: 0.55, pitch: 1.12 });
+  }
+
+  /** Blows off any leftover outer turrets and opens the Stern Reactor hatches immediately. */
+  private exposeEngineNow(): void {
+    const { fx, audio } = this.ctx;
+    for (const id of ['turretF', 'turretA', 'launcher'] as const) {
+      if (this.state.hp[id] > 0) {
+        this.state.hp[id] = 0;
+        const b = this.boxes.find(x => x.id === id);
+        if (b) {
+          fx.explosion(b.center, { radius: 5, kind: 'rocket', scale: 1.3 });
+          audio.play('plate_destroyed', { position: b.center, volume: 0.75 });
+        }
+      }
+    }
+    this.turretFMesh.visible = false;
+    this.turretAMesh.visible = false;
+    this.launcherMesh.visible = false;
+    this.lungeWindup = -1;
+    this.lungeLeft = 0;
+    this.thrusterFlames.visible = false;
+    this.buildDeckColliders();
+    this.showExposedEngine(true);
+    this.syncWorld();
+    this.refreshMarkers();
   }
 
   private placeOnLoop(): void {
@@ -398,8 +583,10 @@ export class OldMother implements ExtraTarget {
     if (!this.root.visible) return;
     const phase = this.state.phase;
 
+    // Always advance active telegraphed mortar rings so rings never freeze mid-flight.
+    this.updateMortars(dt);
+
     if (phase === 'dormant') {
-      // Slow majestic patrol across the salt pans when glimpsed from the west gate.
       this.loopAngle += (4.5 / 65) * dt;
       this.placeOnLoop();
       this.cutterAngle += 1.5 * dt;
@@ -411,23 +598,27 @@ export class OldMother implements ExtraTarget {
     }
 
     if (phase === 'dead') {
-      this.emitStacks(dt, 0.35);
+      this.updateChainDetonations(dt);
+      this.emitStacks(dt, 0.28);
       return;
     }
 
-    if (phase === 'deck') {
-      // Engine core pulses visibly; light smoke rises from shattered turrets & tracks.
-      const pulse = 0.85 + Math.sin(this.ctx.time.elapsed * 5.5) * 0.25;
-      this.engineGlow.scale.setScalar(pulse);
-      this.cutterAngle += 0.45 * dt;
+    if (phase === 'seizing') {
+      this.seizeLeft -= dt;
+      this.cutterAngle += 12 * dt;
       this.cutter.rotation.x = this.cutterAngle;
-      this.emitStacks(dt, 0.3);
+      this.ctx.camera.addTrauma(0.25);
+      if (this.seizeLeft <= 0) {
+        this.seizeLeft = 999;
+        this.ctx.campaign.signal('mother:seized');
+      }
+      this.syncWorld();
       return;
     }
 
-    // Active boss combat (hunt / drag / seizing).
     const { player, audio, fx } = this.ctx;
     const speed = this.state.speed;
+
     if (phase === 'hunt' && speed > 0) {
       this.loopAngle += (speed / 65) * dt;
       const L = PANS.loop;
@@ -441,24 +632,23 @@ export class OldMother implements ExtraTarget {
       this.position.z += Math.cos(this.yaw) * speed * dt;
       this.spinWheels(speed * dt);
     } else if (phase === 'drag') {
-      // Tracks dead: pivot slowly to face the Frame with the bow cutter.
-      const wantYaw = Math.atan2(player.position.x - this.position.x, player.position.z - this.position.z);
-      this.yaw = dampAngle(this.yaw, wantYaw, CRAWLER.turnRate, dt);
-      if (this.state.tickDrag(dt)) this.beginSeize();
-    } else if (phase === 'seizing') {
-      this.seizeLeft -= dt;
-      this.cutterAngle += 12 * dt;
-      this.cutter.rotation.x = this.cutterAngle;
-      this.ctx.camera.addTrauma(0.25);
-      if (this.seizeLeft <= 0) {
-        this.seizeLeft = 999;
-        this.ctx.campaign.signal('mother:seized');
+      // Enraged Phase 2: aggressive thruster-assisted pivots + forward thruster lunges!
+      this.updateThrusterLunge(dt);
+      if (this.lungeLeft <= 0) {
+        const wantYaw = Math.atan2(player.position.x - this.position.x, player.position.z - this.position.z);
+        this.yaw = dampAngle(this.yaw, wantYaw, CRAWLER.dragTurnRate, dt);
       }
-      this.syncWorld();
-      return;
+      if (this.state.tickDrag(dt)) {
+        this.exposeEngineNow();
+      }
+    } else if (phase === 'deck') {
+      // Phase 3 (Stern Engine Exposed): still pivots slowly & stays lethal until destroyed!
+      const wantYaw = Math.atan2(player.position.x - this.position.x, player.position.z - this.position.z);
+      this.yaw = dampAngle(this.yaw, wantYaw, CRAWLER.deckTurnRate, dt);
+      this.updateExposedEngineVisuals(dt);
     }
 
-    // Cutter wheel spin & telegraphed bow sweep.
+    // Bow cutter wheel spin & telegraphed bow sweep (active across Hunt, Drag, AND Deck!).
     const bow = this.localToWorld(0, 2.2, 13.5, _p);
     const distBow = bow.distanceTo(player.position);
     this.sweepCooldown = Math.max(0, this.sweepCooldown - dt);
@@ -472,7 +662,7 @@ export class OldMother implements ExtraTarget {
         this.executeSweep(bow);
       }
     } else {
-      this.cutterAngle += 2.2 * dt;
+      this.cutterAngle += (phase === 'deck' ? 3.5 : 2.4) * dt;
       if (distBow < CRAWLER.sweepReach && this.sweepCooldown <= 0 && player.alive) {
         this.sweepWindup = CRAWLER.sweepWindup;
         audio.play('metal_groan', { position: bow, pitch: 0.55, volume: 1 });
@@ -482,11 +672,298 @@ export class OldMother implements ExtraTarget {
     }
     this.cutter.rotation.x = this.cutterAngle;
 
-    // Deck turrets & dorsal missile pod.
-    this.updateWeapons(dt);
+    // Deck turrets & dorsal missile pod (Phase 1 & 2).
+    if (phase === 'hunt' || phase === 'drag') {
+      this.updateWeapons(dt);
+    }
+
+    // Active enraged defenses (Phase 2 Drag & Phase 3 Exposed Stern Engine).
+    if (phase === 'drag' || phase === 'deck') {
+      this.updateMortarLauncher(dt, phase === 'deck' ? CRAWLER.mortarDeckEvery : CRAWLER.mortarEvery);
+      this.updateSteamVent(dt);
+      this.updateHullCasemates(dt, phase === 'deck' ? CRAWLER.casemateEvery * 1.4 : CRAWLER.casemateEvery);
+    }
+
     this.syncWorld();
     this.emitStacks(dt, 0.25);
     this.rumbleLoop?.setPosition(this.position);
+    if (this.alarmLoop) {
+      this.localToWorld(0, 7.6, -11.6, _p);
+      this.alarmLoop.setPosition(_p);
+    }
+  }
+
+  private updateThrusterLunge(dt: number): void {
+    const { player, audio, fx, hud, camera } = this.ctx;
+    if (this.lungeLeft > 0) {
+      this.lungeLeft -= dt;
+      this.thrusterFlames.visible = true;
+      const pulse = 0.85 + Math.sin(this.ctx.time.elapsed * 32) * 0.25;
+      this.thrusterFlames.scale.set(1, 1, pulse);
+      this.position.x = clamp(this.position.x + Math.sin(this.yaw) * CRAWLER.lungeSpeed * dt, PANS_MIN_X, PANS_MAX_X);
+      this.position.z = clamp(this.position.z + Math.cos(this.yaw) * CRAWLER.lungeSpeed * dt, PANS_MIN_Z, PANS_MAX_Z);
+      this.cutterAngle += 14 * dt;
+
+      // Exhaust & salt plow FX
+      this.localToWorld(0, 2.2, -13.5, _p);
+      fx.smoke(_p, 0xffb060, 2.4, 1.4);
+      this.localToWorld(0, 1.4, 13.5, _p2);
+      fx.dust(_p2, _up, 1.8);
+
+      // Impact damage if bow catches the player during the lunge.
+      if (!this.lungeDealt && player.alive && _p2.distanceTo(player.position) <= CRAWLER.lungeReach) {
+        this.lungeDealt = true;
+        player.takeDamage({ amount: CRAWLER.lungeDamage, from: _p2, type: 'crush', source: 'crawler_lunge' });
+        _dir.subVectors(player.position, this.position).setY(0.35).normalize().multiplyScalar(16);
+        player.push(_dir);
+        fx.slam(_p2, 3.0);
+        audio.play('titan_stomp', { position: _p2, pitch: 0.72, volume: 1 });
+        camera.addTrauma(0.85);
+      }
+
+      if (this.lungeLeft <= 0) {
+        this.thrusterFlames.visible = false;
+        this.lungeCooldown = CRAWLER.lungeCooldown;
+        fx.slam(this.localToWorld(0, 1.2, 12.0, _p), 2.4);
+      }
+      return;
+    }
+
+    if (this.lungeWindup >= 0) {
+      this.lungeWindup -= dt;
+      this.thrusterFlames.visible = true;
+      this.thrusterFlames.scale.set(0.65, 0.65, 0.65 + (1 - Math.max(0, this.lungeWindup) / CRAWLER.lungeWindup) * 0.7);
+      this.localToWorld(0, 2.4, -13.2, _p);
+      fx.smoke(_p, 0xe8d8c0, 1.8, 1.0);
+      if (this.lungeWindup <= 0) {
+        this.lungeWindup = -1;
+        this.lungeLeft = CRAWLER.lungeDuration;
+        this.lungeDealt = false;
+        audio.play('steam_burst', { position: _p, pitch: 0.58, volume: 1 });
+        audio.play('vehicle_explode', { position: _p, pitch: 0.65, volume: 0.55 });
+      }
+      return;
+    }
+
+    this.thrusterFlames.visible = false;
+    this.lungeCooldown = Math.max(0, this.lungeCooldown - dt);
+    const dist = this.position.distanceTo(player.position);
+    if (this.lungeCooldown <= 0 && player.alive && dist > 15 && dist < 72) {
+      this.lungeWindup = CRAWLER.lungeWindup;
+      audio.play('titan_charge', { position: this.position, pitch: 0.75, volume: 0.95 });
+      hud.feed('OLD MOTHER — AUXILIARY THRUSTER LUNGE!', '#ff6a28');
+    }
+  }
+
+  private updateMortarLauncher(dt: number, interval: number): void {
+    const { player, audio, fx, hud } = this.ctx;
+    if (!player.alive) return;
+    this.mortarIn -= dt;
+    if (this.mortarIn > 0) return;
+    this.mortarIn = interval + rand(-0.6, 0.9);
+    if (this.position.distanceTo(player.position) > 150) return;
+
+    const origin = this.localToWorld(0, 9.8, -4.5, _p);
+    audio.play('tank_cannon', { position: origin, pitch: 0.7, volume: 0.85 });
+    audio.play('missile_incoming', { volume: 0.55 });
+    fx.muzzleFlash(origin, _up, 'rocket');
+    fx.smoke(origin, 0xd4ccc0, 2.6, 2.4);
+    hud.feed('OLD MOTHER — MORTAR BARRAGE · CLEAR RED RINGS!', '#ff4430');
+
+    for (let i = 0; i < CRAWLER.mortarCount; i++) {
+      // First shell leads player's velocity; extra shells bracket flanking escape lanes.
+      const lead = i === 0 ? 0.65 : 0.25;
+      const spread = i === 0 ? 2.5 : 11.5;
+      const angle = (i / CRAWLER.mortarCount) * Math.PI * 2 + rand(-0.4, 0.4);
+      const tx = clamp(
+        player.position.x + player.velocity.x * lead + (i === 0 ? rand(-spread, spread) : Math.cos(angle) * rand(6, spread)),
+        PANS.x0 + 6,
+        PANS.x1 - 6,
+      );
+      const tz = clamp(
+        player.position.z + player.velocity.z * lead + (i === 0 ? rand(-spread, spread) : Math.sin(angle) * rand(6, spread)),
+        PANS.z0 + 6,
+        PANS.z1 - 6,
+      );
+      this.spawnMortarRing(new THREE.Vector3(tx, 0.08, tz), CRAWLER.mortarRadius, CRAWLER.mortarWarning + i * 0.22);
+    }
+  }
+
+  private spawnMortarRing(pos: THREE.Vector3, radius: number, duration: number): void {
+    const ringMat = new THREE.MeshBasicMaterial({
+      color: 0xff2b1c,
+      transparent: true,
+      opacity: 0.9,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    });
+    const fillMat = new THREE.MeshBasicMaterial({
+      color: 0xff4218,
+      transparent: true,
+      opacity: 0.22,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    });
+    const ringMesh = new THREE.Mesh(this.mortarRingGeo, ringMat);
+    const fillMesh = new THREE.Mesh(this.mortarFillGeo, fillMat);
+    ringMesh.position.copy(pos);
+    fillMesh.position.set(pos.x, pos.y + 0.01, pos.z);
+    ringMesh.scale.setScalar(radius);
+    fillMesh.scale.setScalar(0.1);
+    this.ctx.render.scene.add(ringMesh, fillMesh);
+    this.mortars.push({ pos, radius, ringMesh, fillMesh, elapsed: 0, duration });
+  }
+
+  private updateMortars(dt: number): void {
+    const { audio, camera, fx, player, render } = this.ctx;
+    for (let i = this.mortars.length - 1; i >= 0; i--) {
+      const m = this.mortars[i]!;
+      m.elapsed += dt;
+      const t = clamp(m.elapsed / m.duration);
+      const pulse = 0.72 + Math.sin(m.elapsed * 22) * 0.28;
+      m.fillMesh.scale.setScalar(Math.max(0.1, m.radius * t));
+      (m.ringMesh.material as THREE.MeshBasicMaterial).opacity = 0.55 + pulse * 0.4;
+      (m.fillMesh.material as THREE.MeshBasicMaterial).opacity = 0.14 + t * 0.34;
+
+      if (m.elapsed >= m.duration) {
+        m.ringMesh.removeFromParent();
+        m.fillMesh.removeFromParent();
+        (m.ringMesh.material as THREE.Material).dispose();
+        (m.fillMesh.material as THREE.Material).dispose();
+        this.mortars.splice(i, 1);
+
+        fx.explosion(m.pos, { radius: m.radius, kind: 'shell', scale: 1.55 });
+        fx.slam(m.pos, 2.2);
+        fx.embers(m.pos, 18, 3.0);
+        render.lights.flash(m.pos, 0xff7824, 18, 36, 0.32);
+        audio.play('rocket_explosion', { position: m.pos, volume: 0.9 });
+        const dist = Math.hypot(player.position.x - m.pos.x, player.position.z - m.pos.z);
+        if (player.alive && dist <= m.radius + 1.2) {
+          const falloff = clamp(1 - dist / (m.radius + 2.5), 0.45, 1);
+          player.takeDamage({ amount: CRAWLER.mortarDamage * falloff, from: m.pos, type: 'explosive', source: 'crawler_mortar' });
+          camera.addTrauma(0.65);
+        }
+      }
+    }
+  }
+
+  private clearMortars(): void {
+    for (const m of this.mortars) {
+      m.ringMesh.removeFromParent();
+      m.fillMesh.removeFromParent();
+      (m.ringMesh.material as THREE.Material).dispose();
+      (m.fillMesh.material as THREE.Material).dispose();
+    }
+    this.mortars.length = 0;
+  }
+
+  private updateSteamVent(dt: number): void {
+    const { audio, camera, fx, hud, player } = this.ctx;
+    this.steamCooldown = Math.max(0, this.steamCooldown - dt);
+    if (this.steamWindup >= 0) {
+      this.steamWindup -= dt;
+      for (const sx of [-4.8, 4.8]) {
+        this.localToWorld(sx, 3.6, rand(-7, 7), _p);
+        fx.smoke(_p, 0xeaeef0, 2.2, 1.0);
+      }
+      if (this.steamWindup <= 0) {
+        this.steamWindup = -1;
+        this.steamCooldown = CRAWLER.steamCooldown;
+        const center = this.localToWorld(0, 3.2, 0, _p);
+        fx.ring(center, _up, '#ffd8a8', CRAWLER.steamReach);
+        fx.heatShimmer(center, CRAWLER.steamReach, 2.2);
+        for (let k = 0; k < 8; k++) {
+          const a = (k / 8) * Math.PI * 2;
+          _p2.set(center.x + Math.cos(a) * 6.5, 2.6, center.z + Math.sin(a) * 6.5);
+          fx.smoke(_p2, 0xf2f4f6, 3.8, 2.2);
+        }
+        audio.play('steam_burst', { position: center, pitch: 0.65, volume: 1 });
+        audio.play('titan_stomp', { position: center, pitch: 0.9, volume: 0.7 });
+        // Only hits ground/Frame-height huggers around the hull (so players fighting ON the deck y>=6 aren't punished unfairly).
+        const horizDist = Math.hypot(player.position.x - center.x, player.position.z - center.z);
+        if (player.alive && horizDist <= CRAWLER.steamReach + 1.5 && player.position.y < CRAWLER.deckY - 1.2) {
+          player.takeDamage({ amount: CRAWLER.steamDamage, from: center, type: 'fire', source: 'crawler_steam' });
+          _dir.set(player.position.x - center.x, 0.25, player.position.z - center.z).normalize().multiplyScalar(14);
+          player.push(_dir);
+          camera.addTrauma(0.6);
+        }
+      }
+      return;
+    }
+
+    const horizDist = Math.hypot(player.position.x - this.position.x, player.position.z - this.position.z);
+    if (this.steamCooldown <= 0 && player.alive && horizDist <= CRAWLER.steamReach && player.position.y < CRAWLER.deckY - 1.2) {
+      this.steamWindup = CRAWLER.steamWindup;
+      audio.play('steam_burst', { position: this.position, pitch: 1.25, volume: 0.85 });
+      hud.feed('OLD MOTHER — SUPERHEATED STEAM VENT · BACK OFF!', '#ff9638');
+    }
+  }
+
+  private updateHullCasemates(dt: number, interval: number): void {
+    const { player, fx, audio } = this.ctx;
+    if (!player.alive) return;
+    this.casemateIn -= dt;
+    if (this.casemateIn > 0) return;
+    this.casemateIn = interval + rand(-0.25, 0.35);
+    this.casemateSide = -this.casemateSide;
+    const from = this.localToWorld(this.casemateSide * 4.7, 4.6, 5.5, _p);
+    const quarry = player.eye;
+    if (from.distanceTo(quarry) > 135) return;
+
+    _dir.subVectors(quarry, from).normalize();
+    const hitPoint = new THREE.Vector3(
+      quarry.x + rand(-2.4, 2.4),
+      Math.max(0.5, quarry.y + rand(-1.4, 1.5)),
+      quarry.z + rand(-2.4, 2.4),
+    );
+    fx.muzzleFlash(from, _dir, 'autocannon');
+    fx.tracer(from, hitPoint, 'heavy');
+    audio.play('cannon_burst', { position: from, pitch: 1.15 + rand(-0.08, 0.08), volume: 0.65 });
+    if (hitPoint.distanceTo(quarry) <= 4.0) {
+      player.takeDamage({ amount: CRAWLER.casemateDamage, from, type: 'bullet', source: 'crawler_casemate' });
+    }
+  }
+
+  private updateExposedEngineVisuals(dt: number): void {
+    const t = this.ctx.time.elapsed;
+    const pulse = 0.92 + Math.sin(t * 7.5) * 0.16;
+    this.engineGlow.scale.set(pulse, 0.95 + Math.sin(t * 9.0) * 0.1, pulse);
+    this.engineFlame.scale.set(0.85 + Math.sin(t * 17) * 0.2, 0.8 + Math.sin(t * 23) * 0.35, 0.85 + Math.cos(t * 15) * 0.2);
+    this.engineFlame.rotation.y += 4.2 * dt;
+    this.engineLight.intensity = 22 + Math.sin(t * 8.5) * 9;
+
+    this.engineFxIn -= dt;
+    if (this.engineFxIn <= 0) {
+      this.engineFxIn = 0.12;
+      const top = this.localToWorld(0, 9.6, -11.6, _p);
+      this.ctx.fx.embers(top, 10, 2.4);
+      this.ctx.fx.flame(top, _up, 1.35);
+      if (Math.random() < 0.4) {
+        this.ctx.fx.smoke(top, 0xff7a28, 2.2, 1.8);
+      }
+    }
+  }
+
+  private updateChainDetonations(dt: number): void {
+    if (this.chainBlasts.length === 0) return;
+    const { audio, camera, fx, render } = this.ctx;
+    for (let i = this.chainBlasts.length - 1; i >= 0; i--) {
+      const b = this.chainBlasts[i]!;
+      b.delay -= dt;
+      if (b.delay <= 0) {
+        this.chainBlasts.splice(i, 1);
+        this.localToWorld(b.localX, b.localY, b.localZ, _p);
+        fx.explosion(_p, { radius: 8.5, kind: 'rocket', scale: b.scale });
+        fx.chips(_p, 0xff9430, 32);
+        fx.embers(_p, 30, 4.5);
+        fx.heatShimmer(_p, 9, 4);
+        render.lights.flash(_p, 0xff9a38, 30, 68, 0.55);
+        audio.play('vehicle_explode', { position: _p, volume: 0.95 });
+        camera.addTrauma(0.55);
+      }
+    }
   }
 
   private executeSweep(bow: THREE.Vector3): void {
@@ -601,7 +1078,12 @@ export class OldMother implements ExtraTarget {
     const { fx } = this.ctx;
     for (const sx of [-2.4, 2.4]) {
       this.localToWorld(sx, 11.4, -7.2, _p);
-      fx.smoke(_p, this.state.phase === 'dead' ? 0x1e1d1b : 0x3b3936, 2.4, 3.2);
+      fx.smoke(_p, this.state.phase === 'dead' ? 0x1a1816 : 0x3b3936, this.state.phase === 'dead' ? 3.2 : 2.4, 3.4);
+    }
+    if (this.state.phase === 'dead') {
+      this.localToWorld(rand(-3, 3), 7.4, rand(-10, 4), _p);
+      fx.smoke(_p, 0x1f1d1b, 3.4, 3.6);
+      if (Math.random() < 0.5) fx.embers(_p, 10, 3.0);
     }
     if (this.state.hp.trackL <= 0) {
       this.localToWorld(-5.8, 2.8, 0, _p);
@@ -617,6 +1099,14 @@ export class OldMother implements ExtraTarget {
 
   shot(collider: RAPIER.Collider, point: THREE.Vector3, amount: number, source: string): boolean {
     if (collider.handle === this.hullCollider.handle) {
+      // When the Stern Engine is exposed, hits to the stern hull splash generously onto the engine core!
+      if (this.state.phase === 'deck' && this.state.hp.engine > 0) {
+        const eng = this.boxes.find(b => b.id === 'engine');
+        if (eng && eng.center.distanceTo(point) <= 7.5) {
+          this.applyPartDamage(eng, amount * 0.7, point);
+          return true;
+        }
+      }
       this.ctx.fx.chips(point, 0x8a8c90, 4);
       this.ctx.hud.hitMarker('armor');
       this.ctx.audio.play('armour_stopped', { volume: 0.45 });
@@ -624,21 +1114,28 @@ export class OldMother implements ExtraTarget {
     }
     const box = this.byHandle.get(collider.handle);
     if (!box) return false;
-    const mult = box.id === 'engine' ? 1.0 : (source.startsWith('frame_') || source === 'sabot' || source === 'autocannon' || amount >= 45 ? 1.0 : 0.4);
+    // Exposed Stern Engine takes full damage from ALL player weapons (on-foot rifles/autocannon AND Frame guns).
+    const mult = box.id === 'engine'
+      ? 1.0
+      : (source.startsWith('frame_') || source === 'sabot' || source === 'autocannon' || amount >= 45 ? 1.0 : 0.4);
     this.applyPartDamage(box, amount * mult, point);
     return true;
   }
 
-  direct(collider: RAPIER.Collider, point: THREE.Vector3, amount: number, _kind: ExplosionKind, _source: string): boolean {
+  direct(collider: RAPIER.Collider, point: THREE.Vector3, amount: number, _kind: ExplosionKind, source: string): boolean {
     if (collider.handle === this.hullCollider.handle) {
-      // Rockets/40mm hitting the hull splash onto the nearest live part at 50%.
+      // Direct ordnance (105mm Howitzer, 40mm, rockets, satchels) hitting the hull splashes onto the nearest live part!
       const nearest = this.nearestLiveBox(point);
-      if (nearest) this.applyPartDamage(nearest, amount * 0.5, point);
+      if (nearest) {
+        const ratio = nearest.id === 'engine' ? 0.75 : 0.5;
+        this.applyPartDamage(nearest, amount * ratio, point);
+      }
       return true;
     }
     const box = this.byHandle.get(collider.handle);
     if (!box) return false;
-    this.applyPartDamage(box, amount * 1.15, point);
+    const mult = source === 'frame_howitzer' ? 1.35 : box.id === 'engine' ? 1.2 : 1.15;
+    this.applyPartDamage(box, amount * mult, point);
     return true;
   }
 
@@ -650,29 +1147,32 @@ export class OldMother implements ExtraTarget {
       if (b.id === 'engine' && this.state.phase !== 'deck') continue;
       if (b.id !== 'engine' && this.state.phase !== 'hunt' && this.state.phase !== 'drag') continue;
       if (this.state.hp[b.id] <= 0) continue;
-      const reach = Math.max(b.half[0], b.half[2]);
+      const reach = Math.max(b.half[0], b.half[1], b.half[2]);
       const d = Math.max(0, b.center.distanceTo(center) - reach);
       if (d > spec.radius) continue;
       const falloff = 1 - (d / spec.radius) * (1 - def.edgeDamage);
-      this.applyPartDamage(b, spec.instakill ? 1500 : spec.damage * falloff, center);
+      const howitzerBoost = spec.source === 'frame_howitzer' ? 1.25 : 1.0;
+      this.applyPartDamage(b, spec.instakill ? 1600 : spec.damage * falloff * howitzerBoost, center);
       hit++;
     }
     return hit;
   }
 
   paintable(out: MissileTarget[]): void {
-    if (!this.root.visible || (this.state.phase !== 'hunt' && this.state.phase !== 'drag')) return;
+    if (!this.root.visible || this.state.phase === 'dormant' || this.state.phase === 'dead') return;
     for (const b of this.boxes) {
-      if (b.id !== 'engine' && this.state.hp[b.id] > 0) out.push(b.target);
+      if (b.target.alive) out.push(b.target);
     }
   }
 
   frameBlow(at: THREE.Vector3, radius: number, damage: number): number {
-    if (!this.root.visible || (this.state.phase !== 'hunt' && this.state.phase !== 'drag')) return 0;
+    if (!this.root.visible || this.state.phase === 'dormant' || this.state.phase === 'dead') return 0;
     let hit = 0;
     for (const b of this.boxes) {
-      if (b.id === 'engine' || this.state.hp[b.id] <= 0) continue;
-      const reach = Math.max(b.half[0], b.half[2]);
+      if (b.id === 'engine' && this.state.phase !== 'deck') continue;
+      if (b.id !== 'engine' && this.state.phase !== 'hunt' && this.state.phase !== 'drag') continue;
+      if (this.state.hp[b.id] <= 0) continue;
+      const reach = Math.max(b.half[0], b.half[1], b.half[2]);
       if (b.center.distanceTo(at) <= radius + reach) {
         this.applyPartDamage(b, damage, at);
         hit++;
@@ -707,7 +1207,7 @@ export class OldMother implements ExtraTarget {
       audio.play('armour_stopped', { volume: 0.4 });
       return;
     }
-    fx.chips(point, box.id === 'engine' ? 0xff7a20 : 0xffaa44, 7);
+    fx.chips(point, box.id === 'engine' ? 0xff7a20 : 0xffaa44, box.id === 'engine' ? 11 : 7);
     hud.hitMarker(res.broke ? 'kill' : box.id === 'engine' ? 'armorThrough' : 'body');
     audio.play(res.broke ? 'plate_destroyed' : 'hit_marker', { pitch: box.id === 'engine' ? 1.15 : 0.9 });
 
@@ -726,34 +1226,57 @@ export class OldMother implements ExtraTarget {
       if (box.id === 'turretA') this.turretAMesh.visible = false;
       if (box.id === 'launcher') this.launcherMesh.visible = false;
       if (box.id === 'engine') {
-        this.engineGlow.visible = false;
         this.destroyCrawler();
       }
     }
 
     if (res.phaseChanged === 'drag') {
       audio.play('metal_groan', { position: this.position, pitch: 0.5, volume: 1 });
-      hud.feed('OLD MOTHER IMMOBILIZED — STRIP HER WEAPONS', '#ffc14a');
+      hud.feed('OLD MOTHER ENRAGED — WATCH FOR THRUSTER LUNGES & MORTARS!', '#ffc14a');
       campaign.signal('mother:drag');
       this.refreshMarkers();
+    } else if (res.phaseChanged === 'deck') {
+      this.exposeEngineNow();
     } else if (res.phaseChanged === 'seizing') {
       this.beginSeize();
     }
   }
 
   private destroyCrawler(): void {
-    const { audio, campaign, fx, hud, render } = this.ctx;
+    const { audio, campaign, camera, fx, hud, render } = this.ctx;
     this.clearMarkers();
-    for (const z of [-10, -2, 6]) {
-      this.localToWorld(0, 8.2, z, _p);
-      fx.explosion(_p, { radius: 8, kind: 'rocket', scale: 2.1 });
-      fx.embers(_p, 28, 4);
-    }
-    render.lights.flash(this.localToWorld(0, 9, -8, _p), 0xffa840, 32, 70, 0.7);
+    this.clearMortars();
+    this.engineCoreGroup.visible = false;
+    this.engineFlame.visible = false;
+    this.engineLight.intensity = 0;
+    this.thrusterFlames.visible = false;
+    this.rumbleLoop?.stop(0.6);
+    this.rumbleLoop = null;
+    this.alarmLoop?.stop(0.3);
+    this.alarmLoop = null;
+
+    // Immediate primary Stern Engine detonation.
+    this.localToWorld(0, 8.2, -11.6, _p);
+    fx.explosion(_p, { radius: 10, kind: 'rocket', scale: 2.5 });
+    fx.chips(_p, 0xff9830, 56);
+    fx.embers(_p, 48, 5.5);
+    render.lights.flash(_p, 0xffa840, 38, 80, 0.8);
     audio.play('vehicle_explode', { position: this.position, volume: 1 });
     audio.play('explosion_debris', { position: this.position, volume: 1 });
-    hud.feed('OLD MOTHER ENGINE DESTROYED', '#7ee787');
+    camera.addTrauma(0.95);
+
+    // Multi-stage chain detonation marching down Old Mother's hull.
+    this.chainBlasts.length = 0;
+    this.chainBlasts.push(
+      { delay: 0.35, localX: -2.4, localY: 7.4, localZ: -6.0, scale: 2.0 },
+      { delay: 0.72, localX: 2.6, localY: 8.6, localZ: -1.5, scale: 2.3 },
+      { delay: 1.12, localX: -1.5, localY: 7.2, localZ: 4.5, scale: 2.1 },
+      { delay: 1.55, localX: 0, localY: 6.0, localZ: 10.5, scale: 2.6 },
+    );
+
+    hud.feed('OLD MOTHER DESTROYED!', '#7ee787');
     campaign.signal('mother:engine');
+    campaign.signal('mother:destroyed');
   }
 
   // ---- Colliders & Markers ---------------------------------------------------------------------------------------
@@ -770,6 +1293,16 @@ export class OldMother implements ExtraTarget {
       b.collider.setTranslation(b.center);
       b.collider.setRotation(_q);
     }
+    for (const d of this.deckColliders) {
+      this.localToWorld(d.lx, d.ly, d.lz, _p);
+      d.collider.setTranslation(_p);
+      if (d.pitch !== 0) {
+        _pitchQ.setFromAxisAngle(_xAxis, d.pitch);
+        d.collider.setRotation(_q.clone().multiply(_pitchQ));
+      } else {
+        d.collider.setRotation(_q);
+      }
+    }
   }
 
   private parkColliders(): void {
@@ -778,7 +1311,7 @@ export class OldMother implements ExtraTarget {
     for (const b of this.boxes) b.collider.setTranslation(_p);
   }
 
-  /** Solid walkable deck, bridge wall, waist-high cover blocks, and stern ramp for Phase 3. */
+  /** Solid walkable deck, bridge wall, waist-high cover blocks, and stern ramp for boarding / Phase 3. */
   private buildDeckColliders(): void {
     this.clearDeckColliders();
     const { physics } = this.ctx;
@@ -787,25 +1320,21 @@ export class OldMother implements ExtraTarget {
       const pos = this.localToWorld(lx, ly, lz, new THREE.Vector3());
       const c = physics.addStaticBox(pos, new THREE.Vector3(hx, hy, hz), null, 'metal');
       const rot = _q.clone();
-      if (pitch !== 0) rot.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), pitch));
+      if (pitch !== 0) rot.multiply(new THREE.Quaternion().setFromAxisAngle(_xAxis, pitch));
       c.setRotation(rot);
-      this.deckColliders.push(c);
+      this.deckColliders.push({ collider: c, lx, ly, lz, pitch });
     };
-    // Thick 1.4 m walkable upper deck slab (top surface sits cleanly at CRAWLER.deckY = 6.4 m) — zero slam fall-through!
     addBox(0, CRAWLER.deckY - 0.7, -0.5, 5.4, 0.7, 13.0);
-    // Aft bridge pilothouse superstructure (player can flank around either side to reach the stern engine).
     addBox(0, CRAWLER.deckY + 1.9, -1.8, 2.3, 1.9, 2.6);
-    // Waist-high deck cover crates (4 spots across foredeck & middeck).
     addBox(-3.0, CRAWLER.deckY + 0.65, 3.2, 0.9, 0.65, 0.9);
     addBox(3.0, CRAWLER.deckY + 0.65, 2.2, 0.9, 0.65, 0.9);
     addBox(-3.2, CRAWLER.deckY + 0.65, -4.2, 0.85, 0.65, 1.1);
     addBox(3.2, CRAWLER.deckY + 0.65, -4.2, 0.85, 0.65, 1.1);
-    // Solid stern access ramp from salt floor (y=0, z=-22.5) up to stern deck (y=6.4, z=-13.2) so falling off isn't a softlock.
     addBox(0, 3.1, -17.8, 2.6, 0.45, 5.8, -0.58);
   }
 
   private clearDeckColliders(): void {
-    for (const c of this.deckColliders) this.ctx.physics.world.removeCollider(c, true);
+    for (const d of this.deckColliders) this.ctx.physics.world.removeCollider(d.collider, true);
     this.deckColliders.length = 0;
   }
 
@@ -826,7 +1355,9 @@ export class OldMother implements ExtraTarget {
       }
     } else if (this.state.phase === 'deck') {
       const eng = this.boxes.find(b => b.id === 'engine');
-      if (eng && this.state.hp.engine > 0) eng.unmark = hud.follow(eng.center, 'STERN ENGINE', '#ff3b3b');
+      if (eng && this.state.hp.engine > 0) {
+        eng.unmark = hud.follow(eng.center, 'STERN ENGINE — DESTROY', '#ffaa20');
+      }
     }
   }
 
@@ -856,13 +1387,18 @@ export class OldMother implements ExtraTarget {
       .box(0.14, 1.4, 18.5, '#e09a26', { at: [4.68, 4.7, -0.5] })
       .box(0.14, 1.0, 15.0, '#23879c', { at: [4.72, 3.4, -0.5] })
       .box(0.14, 0.55, 11.0, '#b83c6a', { at: [4.75, 5.6, -0.5] })
+      // Recessed emergency flank casemate autocannon ports (visible muzzle stubs on bow cheeks).
+      .cyl(0.2, 0.24, 1.6, 8, '#1d2024', { at: [-4.7, 4.6, 5.5], rot: [Math.PI / 2, 0, 0] })
+      .cyl(0.2, 0.24, 1.6, 8, '#1d2024', { at: [4.7, 4.6, 5.5], rot: [Math.PI / 2, 0, 0] })
       // Aft bridge superstructure with slit windows & radar mast.
       .solid(chamferBox(4.8, 3.8, 5.4, 0.2), '#3e4449', { at: [0, CRAWLER.deckY + 1.9, -1.8] })
       .solid(chamferBox(5.2, 0.45, 5.8, 0.08), '#2c3035', { at: [0, CRAWLER.deckY + 3.9, -1.8] })
       .glow(new THREE.BoxGeometry(3.6, 0.42, 0.14), '#ffae42', 2.8, { at: [0, CRAWLER.deckY + 2.6, 0.92] })
-      // Twin heavy diesel smokestacks.
+      // Twin heavy diesel smokestacks + dorsal emergency mortar tubes.
       .cyl(0.55, 0.7, 5.2, 10, '#26292d', { at: [-2.4, CRAWLER.deckY + 2.4, -7.2] })
       .cyl(0.55, 0.7, 5.2, 10, '#26292d', { at: [2.4, CRAWLER.deckY + 2.4, -7.2] })
+      .cyl(0.32, 0.36, 2.2, 8, '#4a3d32', { at: [-1.1, CRAWLER.deckY + 2.6, -4.8], rot: [-0.35, 0, 0] })
+      .cyl(0.32, 0.36, 2.2, 8, '#4a3d32', { at: [1.1, CRAWLER.deckY + 2.6, -4.8], rot: [-0.35, 0, 0] })
       // Waist-high deck cover crates & stern ramp geometry.
       .solid(chamferBox(1.8, 1.3, 1.8, 0.08), '#6b563c', { at: [-3.0, CRAWLER.deckY + 0.65, 3.2] })
       .solid(chamferBox(1.8, 1.3, 1.8, 0.08), '#5a6354', { at: [3.0, CRAWLER.deckY + 0.65, 2.2] })
@@ -870,8 +1406,11 @@ export class OldMother implements ExtraTarget {
       .solid(chamferBox(1.7, 1.3, 2.2, 0.08), '#5a6354', { at: [3.2, CRAWLER.deckY + 0.65, -4.2] })
       // Stern access ramp (visual matching collider).
       .solid(chamferBox(5.0, 0.5, 11.4, 0.06), '#3c4045', { at: [0, 3.1, -17.8], rot: [-0.58, 0, 0] })
-      // Stern engine armoured housing cradle.
-      .solid(chamferBox(5.2, 2.6, 3.2, 0.14), '#2d3136', { at: [0, CRAWLER.deckY + 1.2, -11.4] })
+      // Stern engine armored cradle base.
+      .solid(chamferBox(6.4, 1.4, 4.4, 0.14), '#282c31', { at: [0, CRAWLER.deckY + 0.6, -11.6] })
+      // Rear auxiliary boost thruster nozzles.
+      .cyl(0.95, 1.3, 2.4, 10, '#22262b', { at: [-2.8, 2.4, -12.6], rot: [Math.PI / 2, 0, 0] })
+      .cyl(0.95, 1.3, 2.4, 10, '#22262b', { at: [2.8, 2.4, -12.6], rot: [Math.PI / 2, 0, 0] })
       // Fore & aft warm floodlights.
       .glow(new THREE.BoxGeometry(1.1, 0.45, 0.2), '#ffe2a4', 3.4, { at: [-3.6, 5.8, 11.6] })
       .glow(new THREE.BoxGeometry(1.1, 0.45, 0.2), '#ffe2a4', 3.4, { at: [3.6, 5.8, 11.6] })
@@ -891,8 +1430,7 @@ export class OldMother implements ExtraTarget {
     for (const sx of [-5.8, 5.8]) {
       hull.solid(chamferBox(2.4, 2.2, 23.0, 0.16), '#1f2226', { at: [sx, 1.5, 0] });
     }
-    const hullGroup = mat.group(hull);
-    this.root.add(hullGroup);
+    this.root.add(mat.group(hull));
 
     const wheelGeo = new THREE.CylinderGeometry(1.1, 1.1, 2.7, 10);
     wheelGeo.rotateZ(Math.PI / 2);
@@ -969,15 +1507,71 @@ export class OldMother implements ExtraTarget {
     this.launcherMesh.add(mat.group(podB));
     this.root.add(this.launcherMesh);
 
-    // Glowing exposed Stern Engine Core (Phase 3 target).
-    const engGeo = chamferBox(3.4, 1.8, 2.0, 0.14);
-    const engB = new ModelBuilder().glow(engGeo, '#ff7224', 3.6);
-    this.engineGlow = new THREE.Mesh(engB.glowGeometry()!, mat.glow);
-    this.engineGlow.position.set(0, CRAWLER.deckY + 1.5, -11.4);
-    this.root.add(this.engineGlow);
+    // Armored Rear Shroud Doors covering the Stern Reactor until Phase 3 (`deck`).
+    const makeShroud = (sx: number) => {
+      const b = new ModelBuilder()
+        .solid(chamferBox(2.9, 3.6, 4.2, 0.14), '#3d4248', { at: [sx * 1.55, CRAWLER.deckY + 2.1, -11.6] })
+        .box(2.2, 0.42, 0.18, '#d98f22', { at: [sx * 1.55, CRAWLER.deckY + 2.4, -13.72] });
+      const g = mat.group(b);
+      this.root.add(g);
+      return g;
+    };
+    this.engineShroudL = makeShroud(-1);
+    this.engineShroudR = makeShroud(1);
+
+    // Massive Pulsing Molten-Orange Stern Reactor Core + Radiating Heat Fins + Roaring Flame Column!
+    this.engineCoreGroup = new THREE.Group();
+    this.engineCoreGroup.position.set(0, CRAWLER.deckY + 2.3, -11.6);
+    this.engineCoreGroup.visible = false;
+
+    const coreB = new ModelBuilder()
+      .glow(new THREE.CylinderGeometry(1.75, 1.85, 3.6, 14), '#ff6214', 4.4)
+      .glow(new THREE.CylinderGeometry(1.15, 1.15, 3.9, 12), '#ffe082', 5.2)
+      .glow(new THREE.TorusGeometry(2.35, 0.16, 8, 22), '#ff8e24', 4.0, { at: [0, 0.6, 0], rot: [Math.PI / 2, 0, 0] })
+      .glow(new THREE.TorusGeometry(2.35, 0.16, 8, 22), '#ff5518', 3.8, { at: [0, -0.7, 0], rot: [Math.PI / 2, 0, 0] });
+    this.engineGlow = new THREE.Mesh(coreB.glowGeometry()!, mat.glow);
+    this.engineCoreGroup.add(this.engineGlow);
+
+    // 8 radiating dark-steel & heat-reddened cooling fins around the core.
+    const finB = new ModelBuilder();
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2;
+      finB.solid(chamferBox(0.28, 3.5, 1.05, 0.04), i % 2 === 0 ? '#2b2420' : '#7a3316', {
+        at: [Math.sin(a) * 2.1, 0, Math.cos(a) * 2.1],
+        rot: [0, a, 0],
+      });
+    }
+    this.engineCoreGroup.add(mat.group(finB));
+
+    // Roaring vertical flame column rising above the exposed core.
+    const flameB = new ModelBuilder()
+      .glow(new THREE.ConeGeometry(1.55, 4.6, 10), '#ff7818', 4.2, { at: [0, 4.1, 0] })
+      .glow(new THREE.ConeGeometry(0.85, 3.4, 8), '#fff0a0', 5.0, { at: [0, 3.5, 0] });
+    this.engineFlame = new THREE.Mesh(flameB.glowGeometry()!, mat.glow);
+    this.engineFlame.visible = false;
+    this.engineCoreGroup.add(this.engineFlame);
+
+    this.root.add(this.engineCoreGroup);
+
+    // Intense orange PointLight attached to the stern reactor so the whole rear glows across the Salt Pans.
+    this.engineLight = new THREE.PointLight(0xff6818, 0, 50, 1.6);
+    this.engineLight.position.set(0, CRAWLER.deckY + 3.8, -12.6);
+    this.root.add(this.engineLight);
+
+    // Rear Auxiliary Boost Thruster Flame Cones (active during Phase 2 lunges).
+    this.thrusterFlames = new THREE.Group();
+    this.thrusterFlames.position.set(0, 2.4, -14.2);
+    this.thrusterFlames.visible = false;
+    const thrustB = new ModelBuilder()
+      .glow(new THREE.ConeGeometry(1.15, 5.2, 10), '#ff7a20', 4.4, { at: [-2.8, 0, -2.6], rot: [-Math.PI / 2, 0, 0] })
+      .glow(new THREE.ConeGeometry(1.15, 5.2, 10), '#ff7a20', 4.4, { at: [2.8, 0, -2.6], rot: [-Math.PI / 2, 0, 0] })
+      .glow(new THREE.ConeGeometry(0.65, 3.6, 8), '#fff0b0', 5.0, { at: [-2.8, 0, -1.8], rot: [-Math.PI / 2, 0, 0] })
+      .glow(new THREE.ConeGeometry(0.65, 3.6, 8), '#fff0b0', 5.0, { at: [2.8, 0, -1.8], rot: [-Math.PI / 2, 0, 0] });
+    this.thrusterFlames.add(mat.group(thrustB));
+    this.root.add(this.thrusterFlames);
 
     // Collect key meshes for Frame gunner highlight.
-    for (const grp of [this.skirtL, this.skirtR, this.turretFMesh, this.turretAMesh, this.launcherMesh, this.cutter]) {
+    for (const grp of [this.skirtL, this.skirtR, this.turretFMesh, this.turretAMesh, this.launcherMesh, this.cutter, this.engineCoreGroup]) {
       grp.traverse(o => { if ((o as THREE.Mesh).isMesh) this.highlightList.push(o); });
     }
   }
@@ -986,6 +1580,11 @@ export class OldMother implements ExtraTarget {
     this.vehicles?.removeExtra(this);
     this.rumbleLoop?.stop(0.2);
     this.rumbleLoop = null;
+    this.alarmLoop?.stop(0.2);
+    this.alarmLoop = null;
+    this.clearMortars();
+    this.mortarRingGeo.dispose();
+    this.mortarFillGeo.dispose();
     this.clearMarkers();
     this.clearDeckColliders();
     this.ctx.physics.world.removeCollider(this.hullCollider, true);

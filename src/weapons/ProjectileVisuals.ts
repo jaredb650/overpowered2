@@ -85,6 +85,18 @@ function stickyBody(): THREE.BufferGeometry {
   ]);
 }
 
+/** Demolition satchel charge: flat backing at -Y, canvas-olive pack + twin charge blocks + straps + detonator puck at +Y. */
+function satchelBody(): THREE.BufferGeometry {
+  return merged([
+    rotated(new THREE.BoxGeometry(0.32, 0.11, 0.22), 0, 0.015, 0),
+    rotated(new THREE.BoxGeometry(0.11, 0.04, 0.17), -0.075, 0.08, 0),
+    rotated(new THREE.BoxGeometry(0.11, 0.04, 0.17), 0.075, 0.08, 0),
+    rotated(new THREE.BoxGeometry(0.34, 0.135, 0.032), 0, 0.02, -0.058),
+    rotated(new THREE.BoxGeometry(0.34, 0.135, 0.032), 0, 0.02, 0.058),
+    rotated(new THREE.CylinderGeometry(0.042, 0.048, 0.048, 8), 0, 0.105, 0),
+  ]);
+}
+
 interface Layer {
   mesh: THREE.InstancedMesh;
   count: number;
@@ -111,7 +123,7 @@ const Y = new THREE.Vector3(0, 1, 0);
 const WHITE = new THREE.Color(1, 1, 1);
 
 export class ProjectileVisuals {
-  private readonly layers: Record<ProjectileKind | 'cone' | 'flare' | 'blink' | 'sticky' | 'stickyLed', Layer>;
+  private readonly layers: Record<ProjectileKind | 'cone' | 'flare' | 'blink' | 'sticky' | 'stickyLed' | 'satchel' | 'satchelLed', Layer>;
   private readonly tints = new WeakMap<Projectile, THREE.Color>();
   private readonly stuck: StuckStake[] = [];
   private stuckHead = 0;
@@ -138,6 +150,9 @@ export class ProjectileVisuals {
       // Milkor MGL sticky bomb: chunky olive-steel 40mm canister + pulsing red-amber armed LED.
       sticky: layer(stickyBody(), basic(hdr(0x4b5642, 1.05)), CAPACITY.shell),
       stickyLed: layer(new THREE.IcosahedronGeometry(0.048, 1), basic(hdr(0xff4210, 5.5)), CAPACITY.shell),
+      // Demolition Satchel Charge: canvas-olive demolition pack + bright pulsing red armed beacon light.
+      satchel: layer(satchelBody(), basic(hdr(0x556242, 1.05)), CAPACITY.shell),
+      satchelLed: layer(new THREE.IcosahedronGeometry(0.058, 1), basic(hdr(0xff1e12, 7.5)), CAPACITY.shell),
     };
     for (const k of ['bullet', 'plasma'] as const) {
       this.layers[k].mesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(CAPACITY[k] * 3), 3);
@@ -233,6 +248,21 @@ export class ProjectileVisuals {
         break;
       }
       case 'shell':
+        if (p.sticky && p.source === 'satchel') {
+          if (p.resting) {
+            this.put(L.satchel, pos, this.quat, 1, 1, 1);
+            // Bright pulsing red armed beacon on top of the detonator puck so planted satchels stand out clearly.
+            const ledScale = p.blink > 0 ? 1.45 : 0.55;
+            this.put(L.satchelLed, pos.addScaledVector(this.dir, 0.145), this.quat, ledScale, ledScale, ledScale);
+          } else {
+            p.spin += dt * 7.5;
+            this.spin.setFromAxisAngle(this.dir.set(0.85, 0.2, 0.48).normalize(), p.spin);
+            this.put(L.satchel, pos, this.spin, 1, 1, 1);
+            this.dir.set(0, 0.145, 0).applyQuaternion(this.spin);
+            this.put(L.satchelLed, pos.add(this.dir), this.spin, 0.9, 0.9, 0.9);
+          }
+          break;
+        }
         if (p.sticky) {
           this.put(L.sticky, pos, this.quat, 1, 1, 1);
           // Pulsing red-amber armed LED on top of the canister: bright while blinking, dim ember between pulses.

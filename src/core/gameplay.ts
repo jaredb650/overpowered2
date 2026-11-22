@@ -34,7 +34,9 @@ export type WeaponId =
   // The light machine gun on key 1, after the Harrow: a belt-fed box of 100.
   | 'flail'
   // The Milkor MGL 6-shot 40mm revolving grenade launcher on key 3, beside the Rocket and Quiver.
-  | 'mgl';
+  | 'mgl'
+  // Throw-and-stick demolition satchel charges with remote RMB clacker on key 3.
+  | 'satchel';
 
 /**
  * A weapon mod (src/weapons/mods.ts): the SMG's suppressor, the Harrow's red dot and ACOG, the Sabot's Raufoss rounds, the

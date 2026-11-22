@@ -174,6 +174,10 @@ const WEAPON_CATALOGUE: Readonly<Partial<Record<WeaponId, Ware>>> = {
     price: 1900, wave: 6,
     lore: 'A six-chamber revolving 40 mm grenade launcher. Six hollow thoomps in quick succession, after which whatever was behind the wall is mostly on the ceiling.',
   },
+  satchel: {
+    price: 1400, wave: 3,
+    lore: 'Canvas-wrapped demolition charges with a handheld clacker. Toss, stick, step back, and let the Council bill the structural repairs to the previous tenant.',
+  },
   flail: {
     price: 1600, wave: 7,
     lore: 'A light machine gun, light in the sense that one contractor can carry it and nobody else will. A hundred rounds a box. The Council bills the suppression separately.',

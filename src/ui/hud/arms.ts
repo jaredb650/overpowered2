@@ -173,7 +173,7 @@ export class Arms {
     this.empty.set(!s.bottomless && !melee && s.mag === 0);
     this.lowAmmo.set(!s.bottomless && !melee && s.mag > 0 && ratio <= 0.33);
     // A gun with a second kind of round, selector, electronic RPM dial, or mod-granted alt ammo wears its active mode on its name.
-    if (WEAPON_DEFS[s.weapon].altAmmo || WEAPON_DEFS[s.weapon].select || WEAPON_DEFS[s.weapon].rateSelect || s.weapon === 'sabot' || s.weapon === 'mgl' || AMMO_GUNS.includes(s.weapon)
+    if (WEAPON_DEFS[s.weapon].altAmmo || WEAPON_DEFS[s.weapon].select || WEAPON_DEFS[s.weapon].rateSelect || s.weapon === 'sabot' || s.weapon === 'mgl' || s.weapon === 'satchel' || AMMO_GUNS.includes(s.weapon)
       || (FLECHETTE_GUNS as readonly WeaponId[]).includes(s.weapon)) this.name.set(s.ammoMode ? `${WEAPONS[s.weapon].name} · ${s.ammoMode}` : WEAPONS[s.weapon].name);
 
     this.reloadRow.set(s.reloading);

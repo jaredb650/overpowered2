@@ -408,6 +408,11 @@ export class Nuke implements Strike {
     this.front.position.copy(p);
     this.front.visible = true;
     this.aftermath.begin(p);
+    if (!this.kit.cosmetic) {
+      (this.kit.ctx.world?.objects as { nukeSweep?: (c: THREE.Vector3, r?: number) => void } | undefined)?.nukeSweep?.(this.zero, 360);
+      this.kit.ctx.campaign?.signal?.('nuke:detonated');
+      (this.kit.ctx.events as unknown as { emit?: (type: string, payload: unknown) => void })?.emit?.('nuke:detonated', { position: this.zero.clone() });
+    }
   }
 
   /** Drives the shock front. Everything dies as it arrives, not on the same frame. */

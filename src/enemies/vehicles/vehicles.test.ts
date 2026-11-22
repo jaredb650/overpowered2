@@ -118,6 +118,40 @@ describe('armour', () => {
     expect(splashDamage(TANK, Infinity, 'grenade', 'perk')).toBeLessThan(TANK.health);
     expect(splashDamage(TANK, Infinity, 'rocket', 'rocket')).toBeLessThan(TANK.health);
   });
+
+  it('Frame flak and rotary airburst deal 0 to armoured tanks, and airburst deals 0.35x to soft-skins', () => {
+    for (const p of TANK.parts) {
+      expect(bulletDamage(TANK, p, 120, 'frame_flak')).toBe(0);
+      expect(directDamage(TANK, p, 120, 'shell', 'frame_flak')).toBe(0);
+      expect(bulletDamage(TANK, p, 58, 'frame_rotary_airburst')).toBe(0);
+      expect(directDamage(TANK, p, 58, 'shell', 'frame_rotary_airburst')).toBe(0);
+    }
+    expect(splashDamage(TANK, 120, 'shell', 'frame_flak')).toBe(0);
+    expect(splashDamage(TANK, 58, 'shell', 'frame_rotary_airburst')).toBe(0);
+    // Soft-skin vehicles take 0.35x from rotary airburst compared to an unscaled shell of the same base damage.
+    const humveeBase = splashDamage(HUMVEE, 58, 'shell', 'frame_40mm');
+    const humveeAirburst = splashDamage(HUMVEE, 58, 'shell', 'frame_rotary_airburst');
+    expect(humveeAirburst).toBeCloseTo(humveeBase * 0.35, 3);
+    const truckBase = directDamage(TRUCK, part(TRUCK, 'cab'), 58, 'shell', 'frame_40mm');
+    const truckAirburst = directDamage(TRUCK, part(TRUCK, 'cab'), 58, 'shell', 'frame_rotary_airburst');
+    expect(truckAirburst).toBeCloseTo(truckBase * 0.35, 3);
+  });
+
+  it('40 mm HE barely scratches a tank (0.18x) while 40 mm AP punches hard (1.9x) and 105 mm Howitzer obliterates armour (3.4x)', () => {
+    const heTank = splashDamage(TANK, 180, 'shell', 'frame_40mm');
+    const apTank = splashDamage(TANK, 180, 'shell', 'frame_40mm_ap');
+    // AP deals ~10.5x HE against MBT armor.
+    expect(heTank).toBeLessThan(20);
+    expect(apTank / heTank).toBeCloseTo(1.9 / 0.18, 2);
+    // HE still wrecks soft-skins cleanly.
+    expect(splashDamage(HUMVEE, 180, 'shell', 'frame_40mm')).toBeGreaterThan(150);
+    // 105 mm Howitzer (680 dmg finisher blast * 3.4x armour scale) kills a 1000 HP MBT in 1-2 shots and vaporizes soft-skins in 1 shot.
+    const howitzerTank = splashDamage(TANK, 680, 'finisher', 'frame_howitzer');
+    expect(howitzerTank).toBeGreaterThanOrEqual(TANK.health * 0.5);
+    expect(Math.ceil(TANK.health / howitzerTank)).toBeLessThanOrEqual(2);
+    expect(splashDamage(HUMVEE, 680, 'finisher', 'frame_howitzer')).toBeGreaterThanOrEqual(HUMVEE.health);
+    expect(splashDamage(TRUCK, 680, 'finisher', 'frame_howitzer')).toBeGreaterThanOrEqual(TRUCK.health);
+  });
 });
 
 function drive(def: GroundDef, route: RoutePoint[], seconds: number, step: number, setup?: (d: Driver) => void): Driver {

@@ -413,6 +413,19 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     recoil: 1.15, kick: 0.026, shake: 0.032, fovPunch: 2.1,
     ads: { zoom: 0.28, time: 0.22 },
   },
+  // Satchel Charge: heavy canvas-wrapped demolition pack on key 3. Always sticks to surfaces, structures, vehicles,
+  // or enemies; right-click squeezes the remote clacker to detonate all planted charges with massive structural blast.
+  satchel: {
+    ...BASE, id: 'satchel', name: 'SATCHEL CHARGE', slot: 3, base: 'rocket', mode: 'semi', round: 'grenade',
+    magSize: 4, reserve: 12, maxReserve: 24, reloadTime: 2.0, drawTime: 0.28,
+    interval: 0.9, damage: 35, severMult: 2.2, force: 60, headshotMult: 1.5,
+    grenade: { speed: 19, gravity: 22, life: 14, radius: 10.5, blast: 420 },
+    muzzle: 'rocket', tracer: 'heavy', casing: null,
+    sounds: [{ id: 'grenade_throw', pitch: 0.78, pitchJitter: 0.04 }],
+    reloadFoley: [[0.14, 'reload_mag_out'], [0.58, 'reload_mag_in'], [0.85, 'fire_select']],
+    drawSound: 'weapon_draw_heavy',
+    recoil: 1.0, kick: 0.012, shake: 0.014, fovPunch: 0.8,
+  },
   // First on the key: a slim anti-armour sniper rifle firing darts. No blast, so the round goes on through walls and
   // everyone in line.
   sabot: {
@@ -973,6 +986,15 @@ export const TUNING = {
   grenade: {
     fuse: 2.6, throwSpeed: 25, throwUp: 6.5, inherit: 0.75, gravity: -22, restitution: 0.42, friction: 0.72,
     radius: 7, damage: 190, start: 3, max: 6, cookSound: 0.8,
+  },
+  /**
+   * Satchel Charges: heavy canvas-wrapped demolition charges lobbed in a weighty arc (`speed`, `gravity`, `lobUp`).
+   * Always stick to walls, structures, vehicles, or enemies and await RMB remote clacker detonation for a massive
+   * structural demolition blast (`radius` 10.5 m, `blast` 420, `source: 'satchel'`).
+   */
+  satchel: {
+    speed: 19, gravity: 22, lobUp: 3.5, life: 14, radius: 10.5, blast: 420,
+    scale: 1.55, shake: 0.14, selfDamage: 0.35, playerPush: 24, beepInterval: 1.1,
   },
 } as const;
 

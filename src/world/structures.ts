@@ -8,10 +8,11 @@
  */
 import * as THREE from 'three';
 import type RAPIER from '@dimforge/rapier3d-compat';
-import type { Ctx, Structure, StructureStage, SurfaceKind } from '../core/contracts';
+import type { Ctx, DestructionTier, Structure, StructureStage, SurfaceKind } from '../core/contracts';
 import type { EnemyInstance } from '../core/gameplay';
 import { mulberry32 } from '../core/math';
 import { Debris, type DebrisMat } from './debris';
+import { canDamageTier, NUKE_SWEEP_SPEED } from './destruction';
 import { Geo, type Mat } from './kit/geo';
 import type { NavGraph } from './nav';
 
@@ -25,19 +26,23 @@ export const SHACK = { width: 3.2, depth: 2.6, height: 2.3 } as const;
 export const STALL = { width: 3.4, depth: 2.0, height: 2.6 } as const;
 
 /** Health of each stage that has one, by kind. The last stage, breached, has none. */
-export const HEALTH = { wall: [300, 300], gate: [400], shack: [120], stall: [40] } as const;
-/** Small arms never wear a wall or a gate. On a shack or stall they count at this share, and a blast counts 1.5x. */
+export const HEALTH = { wall: [300, 300], gate: [400], shack: [120], stall: [40], pillar: [360] } as const;
+/** Small arms never wear a wall, gate or pillar. On a shack or stall they count at this share, and a blast counts 1.5x. */
 export const SHACK_BULLET = 0.25;
 export const SHACK_BLAST = 1.5;
-/** A tank shell or Distraint Frame blow is made for walls and fortifications: their blasts count multiple times over. */
+/** A tank shell, satchel, nuke or Distraint Frame blow is made for walls and fortifications: their blasts count multiple times over. */
 export const SOURCE_MULT: Readonly<Record<string, number>> = {
   tank_cannon: 4,
-  frame_stomp: 4,
-  frame_charge: 4,
-  frame_crush: 4,
+  frame_stomp: 4.5,
+  frame_charge: 4.5,
+  frame_crush: 4.5,
   frame_backhand: 3,
-  frame_40mm: 2,
+  frame_40mm: 2.2,
   frame_40mm_ap: 2.5,
+  frame_howitzer: 8,
+  frame_pod: 2.5,
+  hazard_chain: 2.5,
+  nuke: 100,
 };
 /** Share of a blast still felt by a piece at the edge of its radius. */
 export const EDGE = 0.4;
@@ -47,6 +52,25 @@ const RUBBLE = 0.22;
 
 export type StructureKind = Structure['kind'];
 const isLight = (kind: StructureKind): boolean => kind === 'shack' || kind === 'stall';
+
+export const LIQUIDATION_VALUE: Readonly<Record<StructureKind, number>> = {
+  stall: 18_000,
+  shack: 45_000,
+  wall: 65_000,
+  gate: 120_000,
+  pillar: 35_000,
+};
+
+const DEFAULT_LABEL: Readonly<Record<StructureKind, string>> = {
+  stall: 'MARKET STALL',
+  shack: 'TIMBER SHACK',
+  wall: 'PERIMETER WALL',
+  gate: 'SECURITY GATE',
+  pillar: 'WALL PILLAR',
+};
+
+const defaultTierFor = (kind: StructureKind): DestructionTier =>
+  kind === 'shack' || kind === 'stall' ? 0 : kind === 'pillar' ? 2 : 1;
 
 /**
  * How a wall is built when it is not the plain WALL. The fort's are 5.65 m with a battlement: a body up to `sill`, then a merlon either
@@ -80,6 +104,12 @@ export interface StructureSpec {
   opens?: boolean;
   /** A wall (or the pillars beside a gate) built to this instead of WALL. */
   style?: WallStyle;
+  /** Material armor tier: 0 timber/sheet, 1 masonry, 2 heavy industrial/pillars, 3 reinforced concrete. */
+  tier?: DestructionTier;
+  /** Asset liquidation dollar value emitted via 'world:liquidated' when breached. */
+  value?: number;
+  /** Human-readable label emitted via 'world:liquidated' when breached. */
+  label?: string;
 }
 
 /** A lift gate rises for a friend within this many metres of its middle, and drops when none is within `GATE_SHUT`. */
@@ -125,10 +155,14 @@ interface Part {
 }
 
 const STAGES: Record<StructureKind, readonly StructureStage[]> = {
-  wall: ['intact', 'damaged', 'breached'], gate: ['intact', 'breached'], shack: ['intact', 'breached'], stall: ['intact', 'breached'],
+  wall: ['intact', 'damaged', 'breached'],
+  gate: ['intact', 'breached'],
+  shack: ['intact', 'breached'],
+  stall: ['intact', 'breached'],
+  pillar: ['intact', 'breached'],
 };
-const SURFACE: Record<StructureKind, SurfaceKind> = { wall: 'concrete', gate: 'metal', shack: 'dirt', stall: 'dirt' };
-const CHIPS: Record<StructureKind, number> = { wall: 0x8c877d, gate: 0x4a4d52, shack: 0x8a6a45, stall: 0x9b7a4a };
+const SURFACE: Record<StructureKind, SurfaceKind> = { wall: 'concrete', gate: 'metal', shack: 'dirt', stall: 'dirt', pillar: 'concrete' };
+const CHIPS: Record<StructureKind, number> = { wall: 0x8c877d, gate: 0x4a4d52, shack: 0x8a6a45, stall: 0x9b7a4a, pillar: 0x8c877d };
 
 const box = (x: number, y: number, z: number, hx: number, hy: number, hz: number, mat: Mat, more: Partial<Part> = {}): Part =>
   ({ x, y, z, hx, hy, hz, mat, ...more });
@@ -328,9 +362,18 @@ function stallStages(rng: () => number): Part[][] {
   return [standing, flat];
 }
 
-function pillarParts(style?: WallStyle): Part[] {
+function pillarStages(rng: () => number, style?: WallStyle): Part[][] {
   const H = (style?.height ?? WALL.height) + 0.25, p = (style?.pillar ?? WALL.pillar) / 2;
-  return [box(0, H / 2, 0, p, H / 2, p, 'concrete', { solid: true, bevel: 0.05 }), box(0, H + 0.06, 0, p + 0.05, 0.06, p + 0.05, 'concrete', { tint: 0.62 })];
+  const intact: Part[] = [
+    box(0, H / 2, 0, p, H / 2, p, 'concrete', { solid: true, bevel: 0.05 }),
+    box(0, H + 0.06, 0, p + 0.05, 0.06, p + 0.05, 'concrete', { tint: 0.62 }),
+  ];
+  const breached: Part[] = [
+    box(0, RUBBLE / 2, 0, p + 0.12, RUBBLE / 2, p + 0.12, 'concreteDark', { solid: true, bevel: 0.06 }),
+    ...[0, 1, 2].map(i => box((i - 1) * p * 0.45, RUBBLE + 0.16, (i % 2 ? 1 : -1) * p * 0.35, 0.015, 0.22, 0.015, 'steelDark', { pitch: -0.45 - i * 0.15, roll: (i - 1) * 0.35 })),
+    ...chunks(rng, 6, p + 0.35, p + 0.35, 'concrete', 0.2),
+  ];
+  return [intact, breached];
 }
 
 const UP = new THREE.Vector3(0, 1, 0);
@@ -346,14 +389,20 @@ const _half = new THREE.Vector3();
 
 type Listener = (stage: StructureStage, from: StructureStage) => void;
 
-/** One square of the map's pieces and pillars, drawn as one mesh per material and redrawn when any of them changes. */
+/** One square of the map's pieces, drawn as one mesh per material and redrawn when any of them changes. */
 interface Chunk {
   readonly pieces: Piece[];
-  readonly pillars: StructureSpec[];
   group: THREE.Group | null;
 }
 
-/** One wall segment, gate, shack or market stall. The manager does the work; this is its state and the API a shop calls. */
+interface StructureSweep {
+  center: THREE.Vector3;
+  radius: number;
+  maxRadius: number;
+  speed: number;
+}
+
+/** One wall segment, gate, shack, market stall or pillar. The manager does the work; this is its state and the API a shop calls. */
 class Piece implements Structure {
   readonly stages: readonly StructureStage[];
   index = 0;
@@ -381,6 +430,10 @@ class Piece implements Structure {
   readonly height: number;
   /** Health against the plain 4 m segment's: a wall's scales with its length, so a breach costs the same whatever its height. */
   readonly scale: number;
+  /** Material armor tier (0 timber, 1 masonry, 2 heavy/pillars, 3 reinforced concrete). */
+  tier: DestructionTier;
+  readonly value: number;
+  readonly label: string;
 
   constructor(readonly id: number, readonly kind: StructureKind, readonly spec: StructureSpec, readonly parts: Part[][], readonly openParts: Part[] | null) {
     this.stages = STAGES[kind];
@@ -388,12 +441,17 @@ class Piece implements Structure {
     this.health = HEALTH[kind][0] * this.scale;
     this.ux = Math.cos(spec.yaw);
     this.uz = -Math.sin(spec.yaw);
+    this.tier = spec.tier ?? defaultTierFor(kind);
+    this.value = spec.value ?? LIQUIDATION_VALUE[kind];
+    this.label = spec.label ?? DEFAULT_LABEL[kind];
     const shack = kind === 'shack';
     const stall = kind === 'stall';
+    const pillar = kind === 'pillar';
     const st = spec.style;
-    this.halfLength = shack ? SHACK.width / 2 : stall ? STALL.width / 2 : (spec.length - (st?.pillar ?? WALL.pillar)) / 2;
-    this.halfDepth = shack ? SHACK.depth / 2 : stall ? STALL.depth / 2 : (kind === 'gate' ? GATE.thick : st?.thick ?? WALL.thick) / 2;
-    this.height = shack ? SHACK.height : stall ? STALL.height : kind === 'gate' ? GATE.height : st?.height ?? WALL.height;
+    const pHalf = (st?.pillar ?? WALL.pillar) / 2;
+    this.halfLength = shack ? SHACK.width / 2 : stall ? STALL.width / 2 : pillar ? pHalf : (spec.length - (st?.pillar ?? WALL.pillar)) / 2;
+    this.halfDepth = shack ? SHACK.depth / 2 : stall ? STALL.depth / 2 : pillar ? pHalf : (kind === 'gate' ? GATE.thick : st?.thick ?? WALL.thick) / 2;
+    this.height = shack ? SHACK.height : stall ? STALL.height : pillar ? (st?.height ?? WALL.height) + 0.25 : kind === 'gate' ? GATE.height : st?.height ?? WALL.height;
   }
 
   get stage(): StructureStage {
@@ -434,14 +492,15 @@ export class Structures {
   readonly root = new THREE.Group();
   readonly all: Piece[] = [];
   private readonly byCollider = new Map<number, Piece>();
-  private readonly pillars = new Map<string, StructureSpec>();
+  private readonly pillarByKey = new Map<string, Piece>();
   private readonly chunks = new Map<string, Chunk>();
   private readonly dirty = new Set<Chunk>();
   private readonly gates: Piece[] = [];
+  private readonly sweeps: StructureSweep[] = [];
   private nav: NavGraph | null = null;
   private attached = false;
   private readonly near: EnemyInstance[] = [];
-  /** What flies when a shack or a wall falls. */
+  /** What flies when a shack, wall or pillar falls. */
   readonly debris: Debris;
   /** The blast being dealt out now, if any: debris flies away from it. */
   private blastAt: THREE.Vector3 | null = null;
@@ -449,6 +508,8 @@ export class Structures {
   /** Co-op: who the pieces answer to (net/world/fort.ts). Null alone. */
   link: StructureLink | null = null;
   private readonly others: THREE.Vector3[] = [];
+  private time = 0;
+  private lastHintAt = -10;
 
   constructor(private readonly ctx: Ctx, private readonly specs: readonly StructureSpec[], private readonly material: (m: Mat) => THREE.Material) {
     this.root.name = 'structures';
@@ -460,7 +521,16 @@ export class Structures {
     if (this.attached) return;
     this.attached = true;
     this.nav = nav;
-    for (const s of this.specs) this.build(s);
+    const pendingPillars: { key: string; spec: StructureSpec }[] = [];
+    const seenKeys = new Map<string, { key: string; spec: StructureSpec }>();
+    // First pass: build all map specs in original order so piece indices stay stable.
+    for (const s of this.specs) this.build(s, pendingPillars, seenKeys);
+    // Second pass: append deduplicated destructible pillar pieces.
+    for (const entry of pendingPillars) {
+      if (this.pillarByKey.has(entry.key)) continue;
+      const pillarPiece = this.build(entry.spec);
+      this.pillarByKey.set(entry.key, pillarPiece);
+    }
     this.redraw();
   }
 
@@ -470,7 +540,18 @@ export class Structures {
       (this.specs as StructureSpec[]).push(spec);
       return null;
     }
-    const piece = this.build(spec);
+    const pendingPillars: { key: string; spec: StructureSpec }[] = [];
+    const seenKeys = new Map<string, { key: string; spec: StructureSpec }>();
+    const piece = this.build(spec, pendingPillars, seenKeys);
+    for (const entry of pendingPillars) {
+      const existing = this.pillarByKey.get(entry.key);
+      if (existing) {
+        if ((entry.spec.tier ?? 2) > existing.tier) existing.tier = entry.spec.tier!;
+        continue;
+      }
+      const pillarPiece = this.build(entry.spec);
+      this.pillarByKey.set(entry.key, pillarPiece);
+    }
     this.redraw();
     return piece;
   }
@@ -478,16 +559,21 @@ export class Structures {
   private chunkAt(x: number, z: number): Chunk {
     const key = `${Math.floor((x - CHUNK_MIN) / CHUNK)},${Math.floor((z - CHUNK_MIN) / CHUNK)}`;
     let c = this.chunks.get(key);
-    if (!c) this.chunks.set(key, (c = { pieces: [], pillars: [], group: null }));
+    if (!c) this.chunks.set(key, (c = { pieces: [], group: null }));
     this.dirty.add(c);
     return c;
   }
 
-  private build(s: StructureSpec): Piece {
+  private build(
+    s: StructureSpec,
+    pendingPillars?: { key: string; spec: StructureSpec }[],
+    seenKeys?: Map<string, { key: string; spec: StructureSpec }>,
+  ): Piece {
     const rng = mulberry32(0x5ca1 + this.all.length * 977);
     const gate = s.kind === 'gate' ? gateStages(s.length, s.opens === true, s.style) : null;
     const parts = s.kind === 'wall' ? wallStages(s.length, rng, s.style)
       : gate ? gate.stages
+      : s.kind === 'pillar' ? pillarStages(rng, s.style)
       : s.kind === 'stall' ? stallStages(rng)
       : shackStages(s.look ?? 'planks', rng);
     const piece = new Piece(this.all.length, s.kind, s, parts, s.opens && gate ? gate.open : null);
@@ -496,18 +582,34 @@ export class Structures {
     if (piece.openParts) this.gates.push(piece);
     piece.chunk = this.chunkAt(s.x, s.z);
     piece.chunk.pieces.push(piece);
-    if (!isLight(s.kind)) {
+    if (s.kind === 'wall' || s.kind === 'gate') {
+      const pillarTier: DestructionTier = s.tier === 3 ? 3 : 2;
       for (const end of [-1, 1]) {
         piece.toWorld((end * s.length) / 2, 0, 0, _p);
         const key = `${Math.round(_p.x * 10)},${Math.round(_p.y * 10)},${Math.round(_p.z * 10)}`;
-        if (this.pillars.has(key)) continue;
-        const pillar = { ...s, x: _p.x, z: _p.z };
-        this.pillars.set(key, pillar);
-        this.chunkAt(pillar.x, pillar.z).pillars.push(pillar);
-        this.addColliders(pillarParts(s.style), pillar, null);
-        // A body's width round the pillar, so the gap beside a breach starts where the stubs do.
-        const ph = (s.style?.pillar ?? WALL.pillar) / 2 + 0.6;
-        this.nav?.setBlocked(_p.x, _p.z, s.y, piece.ux, piece.uz, ph, ph, true);
+        const existing = this.pillarByKey.get(key);
+        if (existing) {
+          if (pillarTier > existing.tier) existing.tier = pillarTier;
+          continue;
+        }
+        const queued = seenKeys?.get(key);
+        if (queued) {
+          if (pillarTier > (queued.spec.tier ?? 2)) queued.spec.tier = pillarTier;
+          continue;
+        }
+        const pillarSpec: StructureSpec = {
+          kind: 'pillar',
+          x: _p.x,
+          y: s.y,
+          z: _p.z,
+          yaw: s.yaw,
+          length: s.style?.pillar ?? WALL.pillar,
+          style: s.style,
+          tier: pillarTier,
+        };
+        const entry = { key, spec: pillarSpec };
+        pendingPillars?.push(entry);
+        seenKeys?.set(key, entry);
       }
     }
     this.addColliders(parts[0]!, s, piece);
@@ -519,7 +621,6 @@ export class Structures {
   private redraw(): void {
     for (const c of this.dirty) {
       const geo = new Geo();
-      for (const p of c.pillars) this.draw(geo, pillarParts(p.style), p);
       for (const q of c.pieces) this.draw(geo, q.current, q.spec);
       if (c.group) {
         this.root.remove(c.group);
@@ -565,6 +666,12 @@ export class Structures {
     if (piece.blocking === on) return;
     piece.blocking = on;
     const s = piece.spec;
+    if (piece.kind === 'pillar') {
+      // A body's width round the pillar, so the gap beside a breach starts where the stubs do.
+      const ph = piece.halfLength + 0.6;
+      this.nav?.setBlocked(s.x, s.z, s.y, piece.ux, piece.uz, ph, ph, on);
+      return;
+    }
     const light = isLight(piece.kind);
     // Across: a cell either side of a thin wall, so no link can step over it, whichever way the wall runs.
     this.nav?.setBlocked(s.x, s.z, s.y, piece.ux, piece.uz, piece.halfLength + (light ? 0.3 : 0), light ? piece.halfDepth + 0.3 : Math.max(1, piece.halfDepth + 0.5), on);
@@ -575,15 +682,30 @@ export class Structures {
     return collider ? this.byCollider.get(collider.handle) ?? null : null;
   }
 
-  /** A round or a blade on a collider. Only a shack or stall feels it. */
-  hit(collider: RAPIER.Collider | null, amount: number): void {
+  /** A round, blade or direct hit on a collider. Tier 0 (shacks/stalls) takes small arms; higher tiers enforce armor gating. */
+  hit(collider: RAPIER.Collider | null, amount: number, source = ''): void {
     const piece = collider ? this.byCollider.get(collider.handle) : undefined;
-    if (!piece || !isLight(piece.kind)) return;
-    if (this.link?.guest) this.link.hit(piece, amount);
-    else this.damage(piece, amount * SHACK_BULLET);
+    if (!piece) return;
+    if (piece.tier === 0) {
+      if (this.link?.guest) this.link.hit(piece, amount);
+      else this.damage(piece, amount * SHACK_BULLET);
+      return;
+    }
+    if (!canDamageTier(piece.tier, source)) {
+      if (piece.tier >= 2 && source !== '') {
+        this.emitArmorBounce(piece, source);
+      }
+      return;
+    }
+    if (this.link?.guest) {
+      this.link.hit(piece, amount);
+      return;
+    }
+    const mult = SOURCE_MULT[source] ?? 1;
+    this.damage(piece, source === 'nuke' ? piece.health + 1e6 : amount * mult);
   }
 
-  /** A blast. Each piece takes `amount` by its distance to the nearest point of it, down to EDGE at `radius`. */
+  /** A blast. Each piece takes `amount` by its distance to the nearest point of it, down to EDGE at `radius`, gated by armor tier. */
   blast(center: THREE.Vector3, radius: number, amount: number, source: string): void {
     if (this.link?.guest) {
       if (amount > 0) this.link.blast(center, radius, amount, source);
@@ -591,17 +713,66 @@ export class Structures {
     }
     this.blastAt = center;
     this.blastPower = amount * (SOURCE_MULT[source] ?? 1);
+    let bounced: Piece | null = null;
     try {
       for (const piece of this.all) {
         if (piece.index === piece.stages.length - 1) continue;
         const d = this.distance(piece, center);
         if (d > radius) continue;
-        const scale = (1 - (d / radius) * (1 - EDGE)) * (SOURCE_MULT[source] ?? 1) * (isLight(piece.kind) ? SHACK_BLAST : 1);
-        this.damage(piece, amount * scale);
+        if (!canDamageTier(piece.tier, source)) {
+          if (piece.tier >= 2 && (!bounced || piece.tier > bounced.tier)) bounced = piece;
+          continue;
+        }
+        const mult = SOURCE_MULT[source] ?? 1;
+        const scale = (1 - (d / radius) * (1 - EDGE)) * mult * (isLight(piece.kind) ? SHACK_BLAST : 1);
+        this.damage(piece, source === 'nuke' ? piece.health + 1e6 : amount * scale);
       }
     } finally {
       this.blastAt = null;
     }
+    if (bounced) this.emitArmorBounce(bounced, source);
+  }
+
+  private emitArmorBounce(piece: Piece, source: string): void {
+    const mid = piece.toWorld(0, piece.height * 0.5, 0, _p);
+    const { fx, audio, hud } = this.ctx;
+    fx?.sparks?.(mid, UP, 12, piece.tier === 3 ? 0xdce4ee : 0xffc864);
+    audio?.play?.('metal_clang', { position: mid, volume: 0.6, pitch: piece.tier === 3 ? 0.85 : 1.3 });
+    const handheld = source === 'rocket' || source === 'satchel' || source === 'mgl' || source === 'grenade' || source === 'c4';
+    const heavyNonHowitzer = source === 'frame_40mm' || source === 'frame_40mm_ap' || source === 'frame_stomp' || source === 'frame_charge' || source === 'tank_cannon';
+    if (this.time - this.lastHintAt >= 3.5) {
+      if (piece.tier === 2 && handheld) {
+        this.lastHintAt = this.time;
+        hud?.hitMarker?.('armor');
+        hud?.feed?.('HEAVY ARMOR — FRAME ORDNANCE REQUIRED', '#f5a623');
+      } else if (piece.tier === 3 && (handheld || heavyNonHowitzer)) {
+        this.lastHintAt = this.time;
+        hud?.hitMarker?.('armor');
+        hud?.feed?.('REINFORCED CONCRETE — 105MM HOWITZER OR NUKE REQUIRED', '#ff6b4a');
+      }
+    }
+  }
+
+  /** Immediately breaches any structure piece outward from a Nuke epicenter. */
+  breachPieceByNuke(piece: Structure, center: THREE.Vector3): void {
+    const q = piece as Piece;
+    const last = q.stages.length - 1;
+    if (q.index === last || this.link?.guest) return;
+    this.blastAt = center;
+    this.blastPower = 1200;
+    try {
+      q.repairing = -1;
+      q.health = 0;
+      this.setStage(q, last, true);
+      q.health = 0;
+    } finally {
+      this.blastAt = null;
+    }
+  }
+
+  /** Starts an expanding nuke shockwave ring that sequentially breaches every wall, pillar, gate, shack and stall. */
+  nukeSweep(center: THREE.Vector3, maxRadius = 340, speed = NUKE_SWEEP_SPEED): void {
+    this.sweeps.push({ center: center.clone(), radius: 0, maxRadius, speed });
   }
 
   /** Metres from `p` to the nearest point of the piece's standing box. */
@@ -682,6 +853,15 @@ export class Structures {
     if (index > 0) q.open = q.hostOpen = q.nearOpen = false;
     this.refit(q);
     if (loud) this.effects(q, index > from);
+    if (loud && index === q.stages.length - 1 && from < index) {
+      const pos = q.toWorld(0, q.height * 0.5, 0, new THREE.Vector3());
+      this.ctx.events?.emit?.('world:liquidated', {
+        label: q.label,
+        value: q.value,
+        position: pos,
+        kind: q.kind,
+      });
+    }
     this.link?.changed(q, loud, this.blastAt, this.blastPower);
     for (const fn of q.listeners) fn(q.stage, was);
   }
@@ -705,12 +885,13 @@ export class Structures {
       audio.play('metal_groan', { position: mid, volume: 0.9 });
       audio.play('metal_clang', { position: mid, pitch: 0.6 });
     } else {
-      audio.play(q.kind === 'wall' ? 'concrete_crumble' : 'impact_metal', { position: mid, pitch: light ? 0.7 : 1 });
+      audio.play(q.kind === 'wall' || q.kind === 'pillar' ? 'concrete_crumble' : 'impact_metal', { position: mid, pitch: light ? 0.7 : 1 });
       audio.play('explosion_debris', { position: mid, volume: 0.8 });
     }
     // Last: these use the same scratch vectors as `mid`.
     if (light && q.index === q.stages.length - 1) this.throwShack(q);
     else if (q.kind === 'wall') this.throwLumps(q, q.index === q.stages.length - 1 ? 14 : 7);
+    else if (q.kind === 'pillar') this.throwLumps(q, 10);
   }
 
   /**
@@ -867,12 +1048,32 @@ export class Structures {
     return false;
   }
 
-  /** Call once per frame: runs repairs, lifts gates and redraws what changed. */
+  /** Call once per frame: runs nuke sweeps, repairs, lifts gates and redraws what changed. */
   update(dt: number): void {
+    this.time += dt;
+    this.updateSweeps(dt);
     this.tendGates();
     this.updateRepairs(dt);
     this.debris.update(dt);
     this.redraw();
+  }
+
+  private updateSweeps(dt: number): void {
+    if (this.sweeps.length === 0 || dt <= 0) return;
+    for (let i = this.sweeps.length - 1; i >= 0; i--) {
+      const sw = this.sweeps[i]!;
+      sw.radius += sw.speed * dt;
+      for (let j = 0; j < this.all.length; j++) {
+        const piece = this.all[j]!;
+        if (piece.index === piece.stages.length - 1) continue;
+        if (this.distance(piece, sw.center) <= sw.radius) {
+          this.breachPieceByNuke(piece, sw.center);
+        }
+      }
+      if (sw.radius >= sw.maxRadius) {
+        this.sweeps.splice(i, 1);
+      }
+    }
   }
 
   private updateRepairs(dt: number): void {
@@ -902,6 +1103,7 @@ export class Structures {
 
   /** A new run: everything back up, whole. */
   reset(): void {
+    this.sweeps.length = 0;
     for (const q of this.all) {
       q.repairing = -1;
       q.hostOpen = q.nearOpen = false;

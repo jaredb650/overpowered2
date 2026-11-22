@@ -70,20 +70,23 @@ const onNav = (p: THREE.Vector3, r = 1.2): boolean => {
 const mark = (id: string) => P(places.PLACES[id]!.at);
 /** Marks that are not walking ground on purpose: the parkour route's tops, the crane cab, the flak tower's guns. */
 const UNWALKED = /^(stacksClimbed|stacksTop|craneCab|flakGun\d)$/;
+/** Marks standing on the runtime physics-enabled FlakTower entity (not static map concrete). */
+const DYNAMIC_TOWER = /^flakGun\d$/;
 
 describe('Holdfast', () => {
   it('is inside its budget', () => {
     const r = world.report;
     expect(r.triangles as number).toBeLessThan(400000);
-    expect(r.colliders as number).toBeLessThan(800);
+    expect(r.colliders as number).toBeLessThan(950);
     expect(r.lights as number).toBeLessThan(140);
     expect(world.objects.walls.root.children.length).toBeLessThan(40);
-    console.info('holdfast', JSON.stringify({ triangles: r.triangles, colliders: r.colliders, lights: r.lights, nav: nav().nodeCount, structures: world.objects.walls.all.length, chunks: world.objects.walls.root.children.length }));
+    console.info('holdfast', JSON.stringify({ triangles: r.triangles, colliders: r.colliders, lights: r.lights, nav: nav().nodeCount, structures: world.objects.walls.all.length, clusters: world.objects.destruction.allClusters().length, chunks: world.objects.walls.root.children.length }));
   });
 
   it('puts every mark on a floor, unburied, and every walking mark on the nav', () => {
     const bad: string[] = [];
     for (const [id, m] of Object.entries(places.PLACES)) {
+      if (DYNAMIC_TOWER.test(id)) continue;
       const [x, y, z] = m.at;
       const f = floorUnder(x, y, z);
       if (f === null || Math.abs(f - y) > 0.12) { bad.push(`${id} floor ${f === null ? 'none' : r2(f)} at ${y}`); continue; }
@@ -218,6 +221,12 @@ describe('Holdfast', () => {
     const q = new THREE.Quaternion();
     const blocked: string[] = [];
     const walls = world.objects.walls;
+    const destructibles = new Set<number>();
+    for (const cluster of world.objects.destruction.allClusters()) {
+      for (const node of cluster.nodes) {
+        if (node.staticCollider) destructibles.add(node.staticCollider.handle);
+      }
+    }
     for (const id of places.FRAME_ROUTES) {
       const marks = places.ROUTES[id]!;
       for (let i = 0; i + 1 < marks.length; i++) {
@@ -233,13 +242,38 @@ describe('Holdfast', () => {
           last = f;
           const c = { x, y: f + step + 0.05 + (height - step - 0.05) / 2, z };
           physics.world.intersectionsWithShape(c, { x: q.x, y: q.y, z: q.z, w: q.w }, shape, col => {
-            if (!walls.pieceOf(col)) blocked.push(`${id} ${marks[i]}->${marks[i + 1]} at ${r2(s)} m (${r2(x)}, ${r2(z)})`);
+            if (!walls.pieceOf(col) && !destructibles.has(col.handle)) blocked.push(`${id} ${marks[i]}->${marks[i + 1]} at ${r2(s)} m (${r2(x)}, ${r2(z)})`);
             return true;
           }, undefined, ((0xffff << 16) | CG.World) >>> 0);
         }
       }
     }
     expect([...new Set(blocked)].slice(0, 30)).toEqual([]);
+  });
+
+  it('wires all Holdfast destruction clusters, enterable barracks spawns, and Tier-3 reinforced West Wall/Gate', () => {
+    openTown();
+    const d = world.objects.destruction;
+    const expectedTags = [
+      'barracks.flats', 'barracks.market', 'barracks.stacks', 'barracks.cannery', 'barracks.harbour',
+      'marketHall.west', 'marketHall.east', 'emplacement.flats', 'emplacement.market',
+      'catwalk.square', 'catwalk.eastMarket', 'cannery', 'quayCrane', 'gantryCrane',
+    ];
+    for (const tag of expectedTags) {
+      expect(d.isClusterAlive(tag), tag).toBe(true);
+    }
+    for (const b of plan.BARRACKS) {
+      const sp = P(b.spawn);
+      expect(floorUnder(sp.x, sp.y, sp.z), `${b.tag} spawn floor`).not.toBeNull();
+      expect(onNav(sp), `${b.tag} spawn on nav`).toBe(true);
+      expect(route(sp, mark('lz')), `${b.tag} spawn reaches lz`).toBeLessThan(900);
+    }
+    const westPieces = world.objects.walls.all.filter(p => Math.abs(p.spec.x - plan.WEST_X) < 0.2);
+    expect(westPieces.length).toBeGreaterThan(10);
+    for (const p of westPieces) {
+      expect(p.tier, `west ${p.kind} at z=${p.spec.z}`).toBe(3);
+      if (p.kind === 'gate') expect(p.spec.opens).not.toBe(true);
+    }
   });
 });
 

@@ -44,7 +44,7 @@ export interface Offer {
 }
 
 export interface PieceView {
-  kind: 'wall' | 'gate' | 'shack' | 'stall';
+  kind: 'wall' | 'gate' | 'shack' | 'stall' | 'pillar';
   stage: StructureStage;
   health: number;
   maxHealth: number;
@@ -209,7 +209,7 @@ function barracks(v: ShopView): Offer[] {
   }
   const counts = { wall: 0, gate: 0 };
   v.pieces.forEach((piece, index) => {
-    if (piece.kind === 'shack' || piece.kind === 'stall') return;
+    if (piece.kind !== 'wall' && piece.kind !== 'gate') return;
     const n = ++counts[piece.kind];
     const whole = piece.stage === 'intact' && piece.health >= piece.maxHealth;
     if (whole) return;

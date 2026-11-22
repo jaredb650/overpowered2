@@ -22,8 +22,8 @@ function zones(t: Trigger, out: string[]): void {
   if ('any' in t) for (const part of t.any) zones(part, out);
 }
 
-/** Signals the real game's systems raise (the war's breach, courier, Slip boot, flak tower, Old Mother, Harbourmaster), which a FakeHost has none of. */
-const EXTERNAL_SIGNALS = ['war:', 'fc:', 'flak:', 'mother:'] as const;
+/** Signals the real game's systems raise (the war's breach, courier, Slip boot, upgrade pod, flak tower, Old Mother, Rival Frame, Harbourmaster, Nuke), which a FakeHost has none of. */
+const EXTERNAL_SIGNALS = ['war:', 'fc:', 'flak:', 'mother:', 'upgrade:', 'harbour:', 'nuke:'] as const;
 function signals(t: Trigger, out: string[]): void {
   if ('signal' in t && EXTERNAL_SIGNALS.some(p => t.signal.startsWith(p))) out.push(t.signal);
   if ('all' in t) for (const part of t.all) signals(part, out);
@@ -85,6 +85,7 @@ describe('Foreclosure', () => {
 
   it('has the plan\'s sixteen beats, in its order', () => {
     expect(FORECLOSURE.beats.map(b => b.id)).toEqual(PLAN_BEATS);
+    expect(FORECLOSURE.beats.find(b => b.id === 'deck')?.title).toBe('The Harbourmaster');
   });
 
   it('keeps its own words under its own ids, and the Outpost\'s takes under theirs', () => {
@@ -102,7 +103,15 @@ describe('Foreclosure', () => {
     expect(beats).toEqual(PLAN_BEATS);
     expect(host.log).toContain('battle eastStreet 3v2');
     expect(host.log).toContain('stop eastStreet');
-    expect(host.log.filter(l => l.startsWith('frame '))).toEqual(['frame kneel', 'frame board', 'frame board', 'frame board', 'frame eject']);
+    expect(host.log.filter(l => l.startsWith('frame '))).toEqual([
+      'frame kneel',
+      'frame board',
+      'frame board',
+      'frame board',
+      'frame board',
+      'frame board',
+      'frame board',
+    ]);
   });
 
   it('can still be finished after dying once in every beat', () => {

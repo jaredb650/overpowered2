@@ -1,10 +1,21 @@
 /** Everything the authored map declares besides static geometry. Filled in by the zone files, read by World. */
 import * as THREE from 'three';
-import type { MapZone, SpawnPoint } from '../../core/contracts';
+import type { DestructionTier, MapZone, SpawnPoint } from '../../core/contracts';
 import type { EmplacementSpec } from '../../vehicles/emplacement';
+import type { StructuralClusterSpec } from '../destruction';
 import type { DesignatedLink } from '../nav';
 import { SHACK, STALL, WALL, type StructureSpec, type WallStyle } from '../structures';
 import { LEVEL } from './layout';
+
+export interface WallOptions {
+  style?: WallStyle;
+  tier?: DestructionTier;
+  value?: number;
+  label?: string;
+}
+
+const isWallStyle = (v: WallStyle | WallOptions | undefined): v is WallStyle =>
+  !!v && typeof v === 'object' && 'top' in v;
 
 export interface PadSpec {
   pos: THREE.Vector3;
@@ -136,6 +147,8 @@ export class MapSpec {
   readonly emplacements: EmplacementSpec[] = [];
   /** Walls, gates and shacks that blasts wear down: see src/world/structures.ts. */
   readonly structures: StructureSpec[] = [];
+  /** Multi-node physics-enabled destructible structures attached after the nav sample: see src/world/destruction.ts. */
+  readonly destructionClusters: StructuralClusterSpec[] = [];
   /** Props that break, spark and explode: world/breakables.ts. They go up after the nav sample, as walls do. */
   readonly breakables: BreakableSpec[] = [];
 
@@ -187,12 +200,13 @@ export class MapSpec {
   /**
    * A straight wall standing on `y` from pillar centre (ax, az) to pillar centre (bx, bz), cut into segments about
    * WALL.segment long with a pillar at every joint. Runs that share an end share its pillar, so a `wallGate` drops in between two.
-   * `style` builds it taller and thicker, with a battlement (structures.ts, WallStyle); without one it is the plain 3 m wall.
+   * `styleOrOpts` accepts either a `WallStyle` or `WallOptions` (`{ style, tier, value, label }`).
    */
-  wall(ax: number, az: number, bx: number, bz: number, y = 0, style?: WallStyle): void {
+  wall(ax: number, az: number, bx: number, bz: number, y = 0, styleOrOpts?: WallStyle | WallOptions, tier?: DestructionTier): void {
+    const opts = this.resolveWallOptions(styleOrOpts, tier);
     const n = Math.max(1, Math.round(Math.hypot(bx - ax, bz - az) / WALL.segment));
     for (let i = 0; i < n; i++) {
-      this.segment('wall', ax + ((bx - ax) * i) / n, az + ((bz - az) * i) / n, ax + ((bx - ax) * (i + 1)) / n, az + ((bz - az) * (i + 1)) / n, y, style);
+      this.segment('wall', ax + ((bx - ax) * i) / n, az + ((bz - az) * i) / n, ax + ((bx - ax) * (i + 1)) / n, az + ((bz - az) * (i + 1)) / n, y, opts);
     }
   }
 
@@ -200,9 +214,15 @@ export class MapSpec {
    * A steel gate between two pillar centres, in a wall. Shut or blown, nothing between. (`gate` is an enemy entrance.) With `opens`
    * it is a lift gate that rises for the player or an ally near it and drops behind them.
    */
-  wallGate(ax: number, az: number, bx: number, bz: number, y = 0, opens = false, style?: WallStyle): void {
-    this.segment('gate', ax, az, bx, bz, y, style);
+  wallGate(ax: number, az: number, bx: number, bz: number, y = 0, opens = false, styleOrOpts?: WallStyle | WallOptions, tier?: DestructionTier): void {
+    const opts = this.resolveWallOptions(styleOrOpts, tier);
+    this.segment('gate', ax, az, bx, bz, y, opts);
     if (opens) this.structures[this.structures.length - 1]!.opens = true;
+  }
+
+  /** Registers a physics-enabled multi-node structural destruction cluster (attached after nav sampling). */
+  cluster(cluster: StructuralClusterSpec): void {
+    this.destructionClusters.push(cluster);
   }
 
   /** A plank or sheet-metal hut, SHACK.width along `yaw` (the kit's: 0 runs along +X) and SHACK.depth across, door on its +Z side. */
@@ -215,9 +235,25 @@ export class MapSpec {
     this.structures.push({ kind: 'stall', x, y, z, yaw, length: STALL.width, ...(paint ? { paint } : {}) });
   }
 
-  private segment(kind: 'wall' | 'gate', ax: number, az: number, bx: number, bz: number, y: number, style?: WallStyle): void {
+  private resolveWallOptions(styleOrOpts?: WallStyle | WallOptions, tier?: DestructionTier): WallOptions {
+    if (isWallStyle(styleOrOpts)) return { style: styleOrOpts, ...(tier !== undefined ? { tier } : {}) };
+    return { ...(styleOrOpts ?? {}), ...(tier !== undefined ? { tier } : {}) };
+  }
+
+  private segment(kind: 'wall' | 'gate', ax: number, az: number, bx: number, bz: number, y: number, opts: WallOptions): void {
     const length = Math.hypot(bx - ax, bz - az);
-    this.structures.push({ kind, x: (ax + bx) / 2, y, z: (az + bz) / 2, yaw: Math.atan2(-(bz - az), bx - ax), length, ...(style ? { style } : {}) });
+    this.structures.push({
+      kind,
+      x: (ax + bx) / 2,
+      y,
+      z: (az + bz) / 2,
+      yaw: Math.atan2(-(bz - az), bx - ax),
+      length,
+      ...(opts.style ? { style: opts.style } : {}),
+      ...(opts.tier !== undefined ? { tier: opts.tier } : {}),
+      ...(opts.value !== undefined ? { value: opts.value } : {}),
+      ...(opts.label !== undefined ? { label: opts.label } : {}),
+    });
   }
 
   breakable(kind: BreakKind, x: number, y: number, z: number, yaw = 0, w?: number, h?: number, flat?: boolean): void {

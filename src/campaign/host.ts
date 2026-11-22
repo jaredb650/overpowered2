@@ -507,7 +507,6 @@ export class GameHost implements MissionHost {
         if (arg && Object.hasOwn(CHIPS, arg)) chips?.rack.fit(arg as ChipId, true);
         return;
       }
-      // Foreclosure's set pieces (campaign/foreclosure.ts): FlakTower, Old Mother, Slip wreck/boot, sappers, surrender.
       case 'fc.flakSalvo':
       case 'fc.slipWreck':
       case 'fc.slipBoot':
@@ -522,6 +521,10 @@ export class GameHost implements MissionHost {
         this.foreclosureCall?.(name, arg);
         return;
       default:
+        if (name.startsWith('fc.')) {
+          this.foreclosureCall?.(name, arg);
+          return;
+        }
         console.warn(`[campaign] nothing provides the call "${name}"`);
     }
   }

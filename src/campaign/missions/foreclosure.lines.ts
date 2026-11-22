@@ -38,6 +38,8 @@ export const FORECLOSURE_LINES: readonly Line[] = [
 
   // landing
   harbour('landing', 'They\'re on the flats, Holdfast. Mind the salt, lads. It gets in your boots.'),
+  council('satchel', 'Satchel charges issued at the landing zone. Structural demolition of garrison barracks is classified as preventative maintenance.'),
+  harbour('barracks.flats', 'Keep pouring out of the flats garrison, lads! Don\'t let the bailiffs near the masonry!'),
   council('revive', 'Stims are deducted from the contractor\'s fee. Bailiffs are deducted from the Office\'s. Revive at your discretion.'),
 
   // wall
@@ -46,6 +48,7 @@ export const FORECLOSURE_LINES: readonly Line[] = [
 
   // market
   harbour('market', 'Market\'s open. Everything\'s free today. Help yourselves.'),
+  harbour('barracks.market', 'Market garrison, hold the doors! If they blow the brickwork we lose the whole lane!'),
   council('prisoners', 'Detainees are billable. Please do not damage them.'),
   harbour('lost', 'That\'s one of yours, Bailiffs. We\'ll keep him warm.'),
 
@@ -57,6 +60,7 @@ export const FORECLOSURE_LINES: readonly Line[] = [
   // stacks (including the STORY.md clone/goggles reveal)
   harbour('stacks.goggles', 'Hold on. I saw your face off the cable boat. Red goggles. You were at Port Vell this morning. And Carrow. How are you in three places at once?'),
   harbour('stacks.grandad', 'Mind Grandad at the top of the aisle, love. He\'s deaf in one track and still hates bailiffs.'),
+  harbour('barracks.stacks', 'Stacks garrison, push them back down the aisle! Watch the crane legs!'),
   harbour('stacks.lost', 'Another black coat down in the stacks. That\'s four left, isn\'t it?'),
   harbour('grandad.down', 'Oh, you bastards. That tank hauled salt for thirty years.'),
 
@@ -65,34 +69,53 @@ export const FORECLOSURE_LINES: readonly Line[] = [
   harbour('quay.warn', 'Go on down to the dry dock, then. Everything we\'ve got left is waiting on the ramps.'),
 
   // slip, mount
+  council('slip.ready', 'Distraint Frame telemetry established. Approach the chassis and initiate the boot sequence manually.'),
   council('boot', 'By operating this Frame the contractor accepts liability for its contents. Please review the terms while diagnostics complete.'),
   harbour('slip.trucks', 'Bring the trucks round the east ramp! Don\'t let that tin man wake up!'),
+  harbour('slip.ropes', 'Fast-ropers over the dock! Drop straight into the Slip and bury that tin man!'),
   harbour('slip.bird', 'All right. Send the bird, and wake Big Pete. Tell him to wear the good flowers.'),
   harbour('boot', 'They\'ve sent a suit of armour after a town of fishwives. Mother. Wake up.'),
   council('replacement', 'Replacement Frame issued. The fee has been deducted.'),
 
   // foreclosure
+  council('foreclosure.rampage', 'Distraint Frame authorised for total structural liquidation. Level the cannery, the market halls, and the gantry crane.'),
   harbour('foreclosure.start', 'Watch the awnings! You\'re walking straight through Mrs. Hal\'s dried cod!'),
   council('foreclosure.stalls', 'Unregistered market structures cleared. Asset liquidation credit: zero.'),
+  harbour('foreclosure.crane', 'You dropped the gantry crane! Half the dock\'s buried under that iron!'),
+  council('foreclosure.crane', 'Gantry crane liquidated. Salvage scanner detects a heavy sabot rifle in the wreckage.'),
   harbour('foreclosure.sappers', 'Get under its knees! Stick a charge on its ankle before it reaches the quay!'),
   harbour('foreclosure.tank', 'Pull back to the harbour wall! Keep the flak guns fed!'),
 
   // flak, pans
+  council('flak.pod', 'Tier-three reinforced concrete detected on the harbour wall. Deploying one hundred and five millimetre Howitzer upgrade pod. Installation fee applies.'),
+  council('flak.howitzer', 'Howitzer module locked to right arm. Flatten the flak tower to its foundation.'),
   harbour('flak.start', 'You want your sky back? Come take it off the roof!'),
   harbour('flak.hit', 'That\'s a gun gone! Keep your heads down and reload the others!'),
+  harbour('flak.collapse', 'The tower\'s going! Clear the harbour wall! She\'s coming down!'),
   council('sky', 'Airspace restored. Call-ins are available again, at the usual rates.'),
+  council('pans.breach', 'Airspace cleared. Breach the reinforced west wall and advance onto the salt pans.'),
+  harbour('pans.convoy', 'Send the whole salt convoy! Trucks, armour, and birds—stop that bastard at the wall!'),
   harbour('mother', 'Mother\'s been pulling salt out of this flat since before your Office had a name.'),
 
   // mother
   harbour('mother.hunt', 'Thirty metres of salt iron, love. Let\'s see your little suit arm-wrestle her.'),
   harbour('mother.drag', 'Tracks are gone? Good. She doesn\'t need tracks to chew you up!'),
+  harbour('mother.exposed', 'Her stern shroud\'s blown! Keep the crawler turning—don\'t let that cannon line up on her reactor!'),
+  council('mother.destroyed', 'Primary salt harvester liquidated. Asset ledger updated.'),
   council('eject', 'Hull breach. The Frame is a write-off. The contractor is not, yet.'),
 
-  // deck & ending
+  // deck (The Harbourmaster) & ending
   harbour('deck.boarded', 'You climbed onto her? In those boots? Boys, sweep the deck!'),
+  harbour('rival.enter', 'You broke Old Mother? Fine. Let\'s see how your Bureau tin can likes Holdfast iron!'),
+  council('rival.detect', 'Unregistered heavy walker detected on the salt pans. Harbourmaster confirmed at the controls. Neutralise immediately.'),
+  harbour('rival.eject', 'Damned hydraulics! Canopy blowing—don\'t shoot, I\'m out! I\'m out!'),
+  council('rival.cuff', 'Harbourmaster ejected on the flats. Disembark to detain for compliance bonus, or terminate on sight.'),
   harbour('form', 'Go on, then. Fill in your form.'),
   council('end.cuffed', 'Detainee logged. Harbourmaster transfer to Tallow Rendering Works: compliance bonus applied.'),
+  council('end.cuffed.bonus', 'Harbourmaster cuffed. Extraction drone dispatched. Five thousand credit compliance bonus credited.'),
   council('end.killed', 'Harbourmaster removed on site. Salvage deduction applied to contractor account.'),
+  council('nuke.auth', 'Final foreclosure protocol authorised. Tactical nuclear device released at zero contractor surcharge. Liquidate Holdfast.'),
+  council('nuke.detonated', 'Thermal liquidation confirmed. Municipal valuation reduced to zero. Balance sheet reconciled.'),
   council('end.removed', 'Holdfast has been removed from the register.'),
   council('end.deductions', 'Deductions: one Distraint Frame, one courier, and the Bailiffs you lost.'),
   council('end.tallow', 'The residents are being shipped to Tallow for rendering. Tallow Rendering Works acknowledges receipt.'),
