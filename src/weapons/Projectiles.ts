@@ -1321,4 +1321,60 @@ export class Projectiles {
       if (p.sticky && (!source || p.source === source)) this.retire(i);
     }
   }
+
+  /**
+   * Active protection (Point Defence): intercepts up to `max` live enemy rockets, grenades, or shells within `radius` m
+   * of `center` (or heading toward the sphere within `radius * 1.5` m). Retires them without detonating.
+   * Allocation-free: `onIntercept` receives a scratch vector valid only during the callback.
+   */
+  interceptEnemyProjectiles(
+    center: THREE.Vector3,
+    radius: number,
+    max: number,
+    onIntercept?: (at: THREE.Vector3) => void,
+  ): number {
+    if (max <= 0 || radius <= 0) return 0;
+    const r2 = radius * radius;
+    const lookR2 = (radius * 1.5) * (radius * 1.5);
+    let count = 0;
+    for (let i = this.live.length - 1; i >= 0 && count < max; i--) {
+      const p = this.live[i]!;
+      if (!p.live || p.team !== 'enemy') continue;
+      if (p.kind !== 'rocket' && p.kind !== 'grenade' && p.kind !== 'shell') continue;
+      if (p.cosmetic && p.netId === 0) continue;
+      const to = this.w.subVectors(center, p.position);
+      const d2 = to.lengthSq();
+      let threat = d2 <= r2;
+      if (!threat && d2 <= lookR2) {
+        const v2 = p.velocity.lengthSq();
+        if (v2 > 1e-4) {
+          const dot = to.dot(p.velocity);
+          if (dot > 0) {
+            const perp2 = d2 - (dot * dot) / v2;
+            threat = perp2 <= r2;
+          }
+        }
+      }
+      if (!threat) continue;
+      this.end.copy(p.position);
+      if (p.cosmetic && p.netId) this.ctx.coop?.world?.projectileShot(p.netId);
+      this.retire(i);
+      onIntercept?.(this.end);
+      count++;
+    }
+    return count;
+  }
+
+  /** True when any live enemy rocket is within `radius` m of `center` (Countermeasure Rack auto-flares). */
+  hasIncomingEnemyMissile(center: THREE.Vector3, radius: number): boolean {
+    if (radius <= 0) return false;
+    const r2 = radius * radius;
+    for (let i = 0; i < this.live.length; i++) {
+      const p = this.live[i]!;
+      if (!p.live || p.team !== 'enemy' || p.kind !== 'rocket') continue;
+      if (p.cosmetic && p.netId === 0) continue;
+      if (p.position.distanceToSquared(center) <= r2) return true;
+    }
+    return false;
+  }
 }

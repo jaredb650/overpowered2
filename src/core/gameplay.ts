@@ -548,6 +548,19 @@ export interface CombatSystem extends GameSystem {
   killConfirm?(point: THREE.Vector3, headshot: boolean): void;
   /** Co-op guest: the host says the local player's hit took a limb. */
   severConfirm?(point: THREE.Vector3): void;
+  /**
+   * Active protection hook (Frame Point Defence): intercepts up to `max` live enemy rockets, grenades, or shells
+   * within `radius` m of `center` (or on a course entering `radius`), retiring them quietly without detonating.
+   * `onIntercept` receives a scratch vector valid only during the callback. Returns the number intercepted.
+   */
+  interceptEnemyProjectiles?(
+    center: THREE.Vector3,
+    radius: number,
+    max: number,
+    onIntercept?: (at: THREE.Vector3) => void,
+  ): number;
+  /** True when any live enemy rocket is within `radius` m of `center` (Frame Countermeasure Rack auto-flares). */
+  hasIncomingEnemyMissile?(center: THREE.Vector3, radius: number): boolean;
 }
 
 // ---------------------------------------------------------------------------------------------

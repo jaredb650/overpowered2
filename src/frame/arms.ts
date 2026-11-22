@@ -2,18 +2,40 @@
  * The arm guns a Frame can wear, as models: one `Gun` for each kind on each side, built when first worn and kept. Shared by the
  * Frame a player sits in (seat.ts) and another player's copy of it (puppet.ts), so both draw the same loadout.
  *
- * No new models: the rotary was drawn for the left arm and the 40 mm and 105 mm for the right, and on the other side each is the
- * same model mirrored, so its drum or its breech still faces out.
+ * Each model is drawn natively for one side and mirrored on the other so its drum, clip, or breech always faces outward.
  */
 import type * as THREE from 'three';
 import type { ModelMaterials } from '../progression/modelkit';
 import { Gun, type GunSpec } from '../vehicles/guns';
-import { CANNON_ARM, HOWITZER_ARM, ROTARY_ARM } from './cockpit';
 import type { ArmKind, ArmSide } from './loadout';
+import { ROTARY_ARM } from './models/rotary';
+import { CANNON_ARM } from './models/cannon40';
+import { HOWITZER_ARM } from './models/howitzer105';
+import { VULCAN30_ARM } from './models/vulcan30';
+import { BEAM_ARM } from './models/beam';
+import { CLUSTER_ARM } from './models/cluster';
+import { SHOTGUN_ARM } from './models/shotgun';
 
-const SPECS: Readonly<Record<ArmKind, GunSpec>> = { rotary: ROTARY_ARM, cannon40: CANNON_ARM, howitzer105: HOWITZER_ARM };
+const SPECS: Readonly<Record<ArmKind, GunSpec>> = {
+  rotary: ROTARY_ARM,
+  cannon40: CANNON_ARM,
+  howitzer105: HOWITZER_ARM,
+  vulcan30: VULCAN30_ARM,
+  beam: BEAM_ARM,
+  cluster: CLUSTER_ARM,
+  shotgun: SHOTGUN_ARM,
+};
+
 /** The side each model was drawn for. */
-const NATIVE: Readonly<Record<ArmKind, ArmSide>> = { rotary: 'left', cannon40: 'right', howitzer105: 'right' };
+const NATIVE: Readonly<Record<ArmKind, ArmSide>> = {
+  rotary: 'left',
+  cannon40: 'right',
+  howitzer105: 'right',
+  vulcan30: 'left',
+  beam: 'right',
+  cluster: 'right',
+  shotgun: 'right',
+};
 
 export class ArmRack {
   /** Per side, per kind; and every one built, for hiding without an iterator a frame. */

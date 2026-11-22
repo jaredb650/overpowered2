@@ -42,19 +42,11 @@ describe('the rotary', () => {
     expect(r.heat.value).toBeCloseTo(hot - FRAME.rotary.cool, 2);
   });
 
-  it('toggles between standard and airburst mode when holding 1 for >= 0.32 s, once per hold, and slows cadence to 16/s', () => {
+  it('cycles between standard and airburst mode on tap (1 left / 2 right) and slows cadence to 16/s', () => {
     const r = new Rotary();
     expect(r.mode).toBe('standard');
     expect(r.rate).toBe(FRAME.rotary.rate);
-    // Holding shorter than 0.32 s does not toggle.
-    let toggled = false;
-    for (let i = 0; i < 15; i++) toggled = toggled || r.holdMode(DT, true);
-    expect(toggled).toBe(false);
-    expect(r.mode).toBe('standard');
-    // Holding past 0.32 s toggles once, and continuing to hold does not re-toggle.
-    let toggles = 0;
-    for (let i = 0; i < 60; i++) if (r.holdMode(DT, true)) toggles++;
-    expect(toggles).toBe(1);
+    expect(r.cycle()).toBe('airburst');
     expect(r.mode).toBe('airburst');
     expect(r.rate).toBe(FRAME.rotaryAirburst.rate);
     // Airburst fire rate over 1 second after spin-up is ~16 rounds/s.
@@ -63,11 +55,7 @@ describe('the rotary', () => {
     for (let i = 0; i < 60; i++) burstRounds += r.update(DT, true);
     expect(burstRounds).toBeGreaterThanOrEqual(15);
     expect(burstRounds).toBeLessThanOrEqual(17);
-    // Releasing resets the latch; another hold >= 0.32 s toggles back to standard.
-    expect(r.holdMode(DT, false)).toBe(false);
-    let back = 0;
-    for (let i = 0; i < 30; i++) if (r.holdMode(DT, true)) back++;
-    expect(back).toBe(1);
+    expect(r.cycle()).toBe('standard');
     expect(r.mode).toBe('standard');
   });
 
@@ -182,24 +170,24 @@ describe('the 105 mm howitzer upgrade', () => {
       range: 40,
     };
     const guns = new FrameGuns(ctx, rounds, arm, arm, out => out.set(1, 5, 0));
-    expect(guns.rows[0]!.name).toBe('LMB ROTARY [STD] // HOLD 1');
+    expect(guns.rows[0]!.name).toBe('LMB ROTARY [STD] // 1');
     expect(guns.rows[1]!.name).toContain('RMB 40MM HE');
-    // Hold 1 toggles rotary mode to airburst and updates HUD + callout.
-    down.add('weapon1');
-    for (let i = 0; i < 25; i++) guns.update(DT, sight);
-    down.delete('weapon1');
+    // Tap 1 cycles left arm (rotary) to airburst and updates HUD + callout.
+    pressed.add('weapon1');
+    guns.update(DT, sight);
+    pressed.clear();
     expect(guns.rotary.mode).toBe('airburst');
-    expect(guns.rows[0]!.name).toBe('LMB ROTARY [AIRBURST] // HOLD 1');
-    expect(callouts).toContain('ROTARY // AIRBURST');
+    expect(guns.rows[0]!.name).toBe('LMB ROTARY [AIRBURST] // 1');
+    expect(callouts).toContain('LEFT ROTARY // AIRBURST');
     // Install 105 mm Howitzer.
     guns.installArmWeapon('howitzer105');
     expect(guns.armWeapon).toBe('howitzer105');
     expect(guns.rows[1]!.name).toBe('RMB 105MM HOWITZER');
     expect(guns.rows[1]!.ammo).toBe(1);
     expect(guns.rows[1]!.max).toBe(1);
-    // Pressing R does not cycle 40 mm rounds when 105 mm Howitzer is installed.
+    // Pressing 2 does not cycle 40 mm rounds when 105 mm Howitzer is installed on the right arm.
     const roundBefore = guns.cannon.round;
-    pressed.add('reload');
+    pressed.add('weapon2');
     guns.update(DT, sight);
     pressed.clear();
     expect(guns.cannon.round).toBe(roundBefore);

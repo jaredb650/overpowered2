@@ -29,10 +29,10 @@ export interface GunnerWeapon {
 
 /** One for every enemy the game allows at once. */
 const MAX_TAGS = 48;
-/** The Frame's pod has six tubes, and each mark is one. */
-const MAX_MARKS = 6;
-/** The gunship's four guns and its flares. */
-const MAX_WEAPONS = 5;
+/** The Frame's Metal Storm Pod paints up to eight targets (the six-tube pod paints six). */
+const MAX_MARKS = 8;
+/** The Frame can carry two arms, up to three shoulders, smoke, and jets (7 rows; gunship uses 5). */
+const MAX_WEAPONS = 8;
 /** The body's tag pins to this share of the half-screen, so it is findable when it is out of shot. */
 const EDGE = 0.92;
 

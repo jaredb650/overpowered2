@@ -72,12 +72,28 @@ const SNIPER_SOURCES = /sniper|sabot|rail/i;
 const HEAVY_TYPES = new Set<PlayerDamage['type']>(['explosive', 'crush', 'shock', 'true']);
 
 export class FrameParts {
+  maxHp: number = FRAME_PARTS.hull;
+  maxLeg: number = FRAME_PARTS.leg;
+  canopyScale = 1;
   hp: number = FRAME_PARTS.hull;
   leftLeg: number = FRAME_PARTS.leg;
   rightLeg: number = FRAME_PARTS.leg;
   pod: number = FRAME_PARTS.pod;
   cracks = 0;
   rearFlash = 0;
+
+  /** Configures hull HP, leg armour, and canopy strength from the active loadout (`frameStats`). */
+  configure(opts?: { hullScale?: number; legArmor?: number; canopyScale?: number }): void {
+    const prevMaxHp = this.maxHp;
+    const prevMaxLeg = this.maxLeg;
+    this.maxHp = Math.max(1, Math.round(FRAME_PARTS.hull * (opts?.hullScale ?? 1)));
+    this.maxLeg = Math.max(1, Math.round(FRAME_PARTS.leg * (opts?.legArmor ?? 1)));
+    this.canopyScale = Math.max(0, opts?.canopyScale ?? 1);
+    this.hp = this.hp >= prevMaxHp ? this.maxHp : Math.min(this.hp, this.maxHp);
+    this.leftLeg = this.leftLeg >= prevMaxLeg ? this.maxLeg : Math.min(this.leftLeg, this.maxLeg);
+    this.rightLeg = this.rightLeg >= prevMaxLeg ? this.maxLeg : Math.min(this.rightLeg, this.maxLeg);
+    if (this.canopyScale <= 0) this.cracks = 0;
+  }
 
   get alive(): boolean {
     return this.hp > 0;
@@ -108,9 +124,9 @@ export class FrameParts {
   }
 
   reset(): void {
-    this.hp = FRAME_PARTS.hull;
-    this.leftLeg = FRAME_PARTS.leg;
-    this.rightLeg = FRAME_PARTS.leg;
+    this.hp = this.maxHp;
+    this.leftLeg = this.maxLeg;
+    this.rightLeg = this.maxLeg;
     this.pod = FRAME_PARTS.pod;
     this.cracks = 0;
     this.rearFlash = 0;
@@ -153,10 +169,10 @@ export class FrameParts {
       localY = damage.from.y - feet.y;
     }
 
-    // Sniper round: cracks the front canopy glass and chips the hull.
+    // Sniper round: cracks the front canopy glass (when a canopy is fitted) and chips the hull.
     if (sniper && !HEAVY_TYPES.has(damage.type)) {
       let cracked = false;
-      if (localAhead > -0.1 && this.cracks < FRAME_PARTS.maxCracks) {
+      if (this.canopyScale > 0 && localAhead > -0.1 && this.cracks < FRAME_PARTS.maxCracks) {
         this.cracks++;
         cracked = true;
       }
@@ -186,8 +202,14 @@ export class FrameParts {
     } else if (localY < 2.6 || damage.type === 'crush') {
       // Low blast / shockwave / sweep hits the legs.
       part = localRight < 0 ? 'leftLeg' : 'rightLeg';
-    } else if (damage.type === 'explosive' && localAhead > 0.45 && damage.amount >= 180 && this.cracks < FRAME_PARTS.maxCracks) {
-      // Massive frontal explosive also spiders the canopy glass.
+    } else if (
+      this.canopyScale > 0
+      && damage.type === 'explosive'
+      && localAhead > 0.45
+      && damage.amount >= 180 * this.canopyScale
+      && this.cracks < FRAME_PARTS.maxCracks
+    ) {
+      // Massive frontal explosive also spiders the canopy glass (easier on thinner canopies like Twin-Mount).
       this.cracks++;
       cracked = true;
     }
@@ -215,11 +237,11 @@ export class FrameParts {
   snapshot(boot: number, breach: boolean, sapper: boolean): FrameHullHud {
     return {
       hp: Math.ceil(this.hp),
-      max: FRAME_PARTS.hull,
-      leftLeg: clamp(this.leftLeg / FRAME_PARTS.leg),
-      rightLeg: clamp(this.rightLeg / FRAME_PARTS.leg),
+      max: this.maxHp,
+      leftLeg: clamp(this.leftLeg / this.maxLeg),
+      rightLeg: clamp(this.rightLeg / this.maxLeg),
       pod: clamp(this.pod / FRAME_PARTS.pod),
-      cracks: this.cracks,
+      cracks: this.canopyScale > 0 ? this.cracks : 0,
       rearFlash: this.rearFlash,
       boot,
       breach,

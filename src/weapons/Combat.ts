@@ -1283,6 +1283,19 @@ export class Combat implements CombatSystem {
     v.y += Math.max(player.velocity.y, 0);
     player.launch(v);
   }
+
+  interceptEnemyProjectiles(
+    center: THREE.Vector3,
+    radius: number,
+    max: number,
+    onIntercept?: (at: THREE.Vector3) => void,
+  ): number {
+    return this.projectiles.interceptEnemyProjectiles(center, radius, max, onIntercept);
+  }
+
+  hasIncomingEnemyMissile(center: THREE.Vector3, radius: number): boolean {
+    return this.projectiles.hasIncomingEnemyMissile(center, radius);
+  }
 }
 
 /** True for a body the round that owns `list` has already struck. */

@@ -59,14 +59,35 @@ export interface CallNews {
 
 /**
  * The Frame's own news, apart from its pose.
- * shell    a 40 mm leaving the arm: `[kind, fromX, fromY, fromZ, aimX, aimY, aimZ, seconds]`
- * missile  the pod firing: `[fromX, fromY, fromZ, velX, velY, velZ]`
- * stomp    the slam landing: `[height]`
+ * shell    a 40 mm or 105 mm leaving the arm: `[kind, fromX, fromY, fromZ, aimX, aimY, aimZ, seconds]`
+ * missile  the six-tube pod firing: `[fromX, fromY, fromZ, velX, velY, velZ]`
+ * stomp    the slam landing: `[height]` (optional `[height, scale]`)
  * smoke    the smoke going
  * swing    the backhand
+ * vulcan30 30 mm rotary shell: `[round, fromX, fromY, fromZ, aimX, aimY, aimZ]`
+ * beam     Red Beam shot: `[fromX, fromY, fromZ, endX, endY, endZ]`
+ * cluster  Bomblet Cannon burst: `[atX, atY, atZ, dirX, dirY, dirZ]`
+ * shotgun  Mech Shotgun blast: `[fromX, fromY, fromZ, dirX, dirY, dirZ]`
+ * storm    Metal Storm Pod burst: `[fromX, fromY, fromZ, toX, toY, toZ]`
+ * mirv     MIRV launch / split: `[phase, x, y, z, tx, ty, tz]`
+ * wire     Guided Heavy Missile launch / megaBlast: `[phase, x, y, z, vx, vy, vz]`
+ * mortar   Mortar Rack launch / impact: `[round, x, y, z, tx, ty, tz]`
+ * fpv      FPV Drone launch / burst: `[phase, x, y, z, tx, ty, tz]`
+ * pointdef Point Defence intercept tracer: `[fromX, fromY, fromZ, atX, atY, atZ]`
+ * sweep    Spider Legs 360° leg sweep: `[x, y, z]`
  */
-export type MechKind = 'shell' | 'missile' | 'stomp' | 'smoke' | 'swing';
-export const MECH_KINDS: readonly MechKind[] = ['shell', 'missile', 'stomp', 'smoke', 'swing'];
+export type MechKind =
+  | 'shell' | 'missile' | 'stomp' | 'smoke' | 'swing'
+  | 'vulcan30' | 'beam' | 'cluster' | 'shotgun'
+  | 'storm' | 'mirv' | 'wire' | 'mortar' | 'fpv' | 'pointdef'
+  | 'sweep';
+/** Append-only wire order. Never insert, reorder or remove. */
+export const MECH_KINDS: readonly MechKind[] = [
+  'shell', 'missile', 'stomp', 'smoke', 'swing',
+  'vulcan30', 'beam', 'cluster', 'shotgun',
+  'storm', 'mirv', 'wire', 'mortar', 'fpv', 'pointdef',
+  'sweep',
+];
 
 /**
  * Is the call-in uplink jammed for this player? Alone and on a co-op host it is the Commander's own word (his radio men are

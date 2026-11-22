@@ -1,14 +1,16 @@
 /**
- * The Distraint Frame: a persistent heavy-armoured Bureau walker (`4000 HP`) that stays on the map until destroyed.
+ * The Distraint Frame: a persistent heavy-armoured Bureau walker (`4000 HP` standard) that stays on the map until destroyed.
  *
- *   Lifecycle     `deploy(feet, yaw)` parks a fresh 4000 HP Frame in the world; `board(feet, yaw)` deploys and climbs
+ *   Lifecycle     `deploy(feet, yaw)` parks a fresh Frame in the world; `board(feet, yaw)` deploys and climbs
  *                 straight in; `E` disembarks safely beside it (leaving it parked with preserved health and position)
  *                 and `E` beside a parked Frame climbs back in. At 0 HP it explodes, ejecting the pilot safely.
- *   Movement      WASD walk, mouse look (free within ±80° of the legs; dragging past turns them), Space jump-jets
- *                 (hold to hover), crouch in mid-air stomps, Shift charges, walking tramples anyone hugging the ankles.
- *   Weapons       LMB 20 mm six-barrel Vulcan (heat), RMB 40 mm autocannon (R cycles HE/AP/FLAK), G held paints for the
- *                 6-tube missile pod, Q regenerating smoke/flares + close concussive pulse, F alternating 2-arm melee
- *                 sweep (190° front arc + 4 m 360° close-proximity sweep around the legs), wheel zooms.
+ *   Movement      WASD walk, mouse look (free within ±80° of the legs; dragging past turns them), Space jump-jets /
+ *                 flight / hover, crouch in mid-air stomps (or Spider leg sweep), Shift charges / jet-mode / run,
+ *                 walking tramples (or Treads crush) anyone hugging the chassis.
+ *   Weapons       LMB left arm (tap `1` cycles left arm rounds/mode), RMB right arm (tap `2` cycles right arm
+ *                 rounds/mode), `R` manual reload only (never cycles ammo), `G` / `V` / `B` shoulder slots 1–3
+ *                 (`3` / `4` / `5` cycle shoulder rounds), `Q` smoke/flares + close concussive pulse, `F` alternating
+ *                 2-arm melee sweep (190° front arc + 4 m 360° close-proximity sweep), wheel zooms.
  */
 import * as THREE from 'three';
 import { CG, type Ctx, type LoopHandle, type PlayerDamage, type RayHit } from '../core/contracts';
@@ -23,14 +25,16 @@ import type { GunnerWeapon } from '../vehicles/hud';
 import { GunnerSeat, type SeatRig } from '../vehicles/seat';
 import { ArmRack } from './arms';
 import { FRAME_PLACES, StandIn } from './cockpit';
+import { FrameCockpitSensor } from './cockpitSensor';
 import { Walker, type WalkerIntent } from './controller';
 import { FRAME, framePlan, type FrameArmWeapon } from './data';
 import {
-  armPart, armsOf, DEFAULT_FRAME_LOADOUT, defaultLoadout, frameStats, kitIds, normalizeLoadout,
+  armPart, armsOf, DEFAULT_FRAME_LOADOUT, defaultLoadout, frameStats, kitIds, normalizeLoadout, shouldersOf,
   type ArmKind, type ArmSide, type FrameLoadout, type FrameStats,
 } from './loadout';
+import { routeOpenSeatHit } from './openSeat';
 import { FrameParts } from './parts';
-import { backhand, crush, FrameGuns, ROUND_NAMES, shove, stomp, trample, type Arm, type ArmMount } from './weapons';
+import { backhand, crush, FrameGuns, legSweep, ROUND_NAMES, shove, stomp, trample, treadCrush, type Arm, type ArmMount } from './weapons';
 
 /**
  * Co-op: how the Frame is told to the other screens, which draw a stand-in of it (puppet.ts `FramePuppet`).
@@ -42,13 +46,17 @@ export interface FrameNet {
 }
 
 /**
- * The `flags` bitmask of a `MechPose`: a rotary firing (the left arm's, or the right's), jets lit, or parked empty on the field.
- * After the 13 numbers of the pose come the loadout's `kitIds` (loadout.ts), so the others draw the arms it really has.
+ * The `flags` bitmask of a `MechPose`: continuous arm fire, jets/flight/jet-mode/hover/treads, or parked empty on the field.
+ * After the 13 numbers of the pose come the loadout's `kitIds` (loadout.ts), so the others draw the parts it really wears.
  */
 export const MECH_FIRING = 1;
 export const MECH_JETS = 2;
 export const MECH_PARKED = 4;
 export const MECH_FIRING_RIGHT = 8;
+export const MECH_FLYING = 16;
+export const MECH_JET_MODE = 32;
+export const MECH_TREADS = 64;
+export const MECH_HOVER = 128;
 
 const UP = new THREE.Vector3(0, 1, 0);
 const DOWN = new THREE.Vector3(0, -1, 0);
@@ -99,12 +107,12 @@ export class Frame {
   readonly walker: Walker;
   readonly guns: FrameGuns;
   readonly parts = new FrameParts();
-  readonly maxHealth: number = FRAME.hull.maxHealth;
   /** True while a live Frame stands in the world (either parked or piloted). */
   deployed = false;
   /** True while Old Mother is breaching the hull prior to canopy eject. */
   breach = false;
   private readonly body: StandIn;
+  private readonly sensor = new FrameCockpitSensor();
   /** The arm guns, built per side and kind as the loadout wants them (arms.ts). */
   private readonly rack: ArmRack;
   /** The loadout this Frame is built from (loadout.ts), and what its parts add up to. */
@@ -114,7 +122,7 @@ export class Frame {
   private readonly frame = new THREE.Quaternion();
   /** The eye, as posed this frame. */
   private readonly eye = new THREE.Vector3();
-  private readonly intent: WalkerIntent = { moveX: 0, moveZ: 0, viewYaw: 0, jet: false, stomp: false, charge: false };
+  private readonly intent: WalkerIntent = { moveX: 0, moveZ: 0, viewYaw: 0, jet: false, stomp: false, charge: false, chargeHeld: false, viewPitch: 0 };
   /** The hull sinking on its legs, metres (negative is down), and how fast: a critically damped spring back to 0. */
   private dip = 0;
   private dipV = 0;
@@ -164,10 +172,27 @@ export class Frame {
       turn: radians => this.armGun(side).turn(radians),
       recoil: metres => this.armGun(side).recoil(metres),
     });
-    this.guns = new FrameGuns(ctx, new Ac130Rounds(ctx, materials), arm('left'), arm('right'), out => this.body.place(TUBES, out));
+    const shoulderMount = (slot: number, out: THREE.Vector3): THREE.Vector3 => {
+      const p = FRAME_PLACES.shoulders[slot] ?? FRAME_PLACES.pod;
+      return this.body.place([p[0], p[1], p[2] - 0.7], out);
+    };
+    this.guns = new FrameGuns(
+      ctx,
+      new Ac130Rounds(ctx, materials),
+      arm('left'),
+      arm('right'),
+      out => this.body.place(TUBES, out),
+      shoulderMount,
+    );
     this.guns.onShell = (round, from, aim, seconds, side) =>
       this.net?.news('shell', [ROUND_KINDS.indexOf(round), from.x, from.y, from.z, aim.x, aim.y, aim.z, seconds, side === 'left' ? 0 : 1]);
     this.guns.onMissile = (from, velocity) => this.net?.news('missile', [from.x, from.y, from.z, velocity.x, velocity.y, velocity.z]);
+    this.guns.onNews = (kind, values) => this.net?.news(kind, values);
+  }
+
+  /** Maximum hull hit points for the active loadout (`4000` for standard legs + standard cockpit). */
+  get maxHealth(): number {
+    return this.parts.maxHp;
   }
 
   /** What the right arm carries now. */
@@ -203,13 +228,26 @@ export class Frame {
     return [[left, FRAME_PLACES.rotary], [right, FRAME_PLACES.cannon]];
   }
 
-  /** Builds it from `loadout`: the arms, their clocks full, and the stats the legs and engine give. */
+  /** Builds it from `loadout`: arms, shoulders, visual chassis, armour pools, and gait/drive plug-ins. */
   private fit(loadout: FrameLoadout): void {
     this.kitNow = normalizeLoadout(loadout);
     this.stats = frameStats(this.kitNow);
     const arms = armsOf(this.kitNow);
     this.guns.fitArms(arms.left, arms.right);
+    this.guns.fitShoulders(shouldersOf(this.kitNow));
+    this.body.setLoadout(this.kitNow);
+    this.parts.configure({
+      hullScale: this.stats.hullScale,
+      legArmor: this.stats.legArmor,
+      canopyScale: this.stats.canopyScale,
+    });
+    this.walker.fuelScale = this.stats.fuelScale;
+    this.walker.setMovement(this.stats.gait, this.stats.drive);
     this.rack.only(this.leftGun, this.rightGun);
+    if (this.seat) {
+      this.seat.weapons.length = 0;
+      this.seat.weapons.push(...this.guns.rows, this.jetRow);
+    }
   }
 
   /**
@@ -245,7 +283,7 @@ export class Frame {
     }
   }
 
-  /** Remaining hull hit points (0..4000), backed by `parts`. */
+  /** Remaining hull hit points (`0..maxHealth`), backed by `parts`. */
   get health(): number {
     return this.parts.hp;
   }
@@ -258,14 +296,21 @@ export class Frame {
     this.told = true;
     const w = this.walker;
     const walk = w.grounded ? clamp(w.speed / FRAME.walk.forward) : 0;
-    const sway = FRAME.feel.sway * Math.sin(w.stride * Math.PI) * walk;
+    const sway = this.stats.noSway ? 0 : FRAME.feel.sway * Math.sin(w.stride * Math.PI) * walk;
     const { input } = this.ctx;
-    const firing = (this.guns.left.spinning && input.isDown('fire') ? MECH_FIRING : 0)
-      | (this.guns.right.spinning && input.isDown('aim') ? MECH_FIRING_RIGHT : 0);
+    const leftFiring = this.guns.left.spinning && (this.guns.left.kind !== 'rotary' || input.isDown('fire'));
+    const rightFiring = this.guns.right.spinning && (this.guns.right.kind !== 'rotary' || input.isDown('aim'));
+    const flags = (leftFiring ? MECH_FIRING : 0)
+      | (rightFiring ? MECH_FIRING_RIGHT : 0)
+      | (w.jetting && !w.grounded ? MECH_JETS : 0)
+      | (w.flying ? MECH_FLYING : 0)
+      | (w.jetMode ? MECH_JET_MODE : 0)
+      | (this.stats.gait === 'treads' ? MECH_TREADS : 0)
+      | (w.hovering ? MECH_HOVER : 0);
     if (seat.range > 6) _to.copy(seat.point);
     else _to.copy(seat.aim).multiplyScalar(GUN_REACH).add(seat.view.position);
     this.net!.pose([w.feet.x, w.feet.y, w.feet.z, w.legYaw, w.viewYaw, w.stride, walk, this.dip, sway, _to.x, _to.y, _to.z,
-      firing | (w.jetting && !w.grounded ? MECH_JETS : 0), ...kitIds(this.kitNow)]);
+      flags, ...kitIds(this.kitNow)]);
   }
 
   private sayParked(dt: number): void {
@@ -275,8 +320,9 @@ export class Frame {
     this.tellIn = 0.5;
     this.told = true;
     const w = this.walker;
+    const flags = MECH_PARKED | (this.stats.gait === 'treads' ? MECH_TREADS : 0);
     _to.set(-Math.sin(w.viewYaw), -0.35, -Math.cos(w.viewYaw)).multiplyScalar(20).add(this.eye);
-    this.net.pose([w.feet.x, w.feet.y, w.feet.z, w.legYaw, w.viewYaw, w.stride, 0, 0, 0, _to.x, _to.y, _to.z, MECH_PARKED, ...kitIds(this.kitNow)]);
+    this.net.pose([w.feet.x, w.feet.y, w.feet.z, w.legYaw, w.viewYaw, w.stride, 0, 0, 0, _to.x, _to.y, _to.z, flags, ...kitIds(this.kitNow)]);
   }
 
   /** The player is currently seated inside it. */
@@ -313,15 +359,16 @@ export class Frame {
     return true;
   }
 
-  /** Progressive cockpit canopy crack stage (0..3) from hull wear and direct canopy hits. */
+  /** Progressive cockpit canopy crack stage (0..3) from hull wear and direct canopy hits (0 when no canopy). */
   get crackStage(): number {
+    if (this.stats.canopyScale <= 0) return 0;
     const ratio = this.health / this.maxHealth;
     const hullCracks = ratio <= 0.2 ? 3 : ratio <= 0.45 ? 2 : ratio <= 0.7 ? 1 : 0;
     return Math.max(this.parts.cracks, hullCracks);
   }
 
   /**
-   * Deploy a fresh 4000 HP Frame standing parked at `feet`, facing `yaw`, built from `loadout` (a call-in passes the player's;
+   * Deploy a fresh Frame standing parked at `feet`, facing `yaw`, built from `loadout` (a call-in passes the player's;
    * a mission's beat the standard Frame). Replaces any previously deployed Frame.
    */
   deploy(feet: THREE.Vector3, yaw: number, loadout: Readonly<FrameLoadout> = DEFAULT_FRAME_LOADOUT): void {
@@ -332,15 +379,15 @@ export class Frame {
     this.clearKneel();
     this.clearParkedUi();
     this.collapsedPose = null;
-    this.parts.reset();
     this.breach = false;
     this.sapperLeft = -1;
     this.boot = 1;
-    this.walker.speedScale = 1;
-    this.walker.place(feet, yaw);
     this.guns.reset();
     this.fit(loadout);
-    this.guns.podOnline = this.stats.pod;
+    this.parts.reset();
+    this.walker.speedScale = 1;
+    this.walker.place(feet, yaw);
+    this.guns.podOnline = this.parts.podOnline && this.stats.shoulders > 0;
     this.deployed = true;
     this.dip = this.dipV = 0;
     this.swing = -1;
@@ -498,7 +545,7 @@ export class Frame {
   stand(feet: THREE.Vector3, yaw: number): void {
     if (this.seat) return;
     this.body.setPoseState(0, 0, 0, 0, false);
-    this.body.pose(feet, yaw, yaw, 0, 0, 0, 0, false, this.eye, { parked: true });
+    this.body.pose(feet, yaw, yaw, 0, 0, 0, 0, false, this.eye, { parked: true, treads: this.stats.gait === 'treads' });
     for (const [gun, place] of this.armPlaces()) {
       this.body.place(place, _pivot);
       gun.snap(yaw, -0.35);
@@ -522,15 +569,20 @@ export class Frame {
     this.breach = false;
     this.sapperLeft = -1;
     this.boot = 1;
-    this.parts.reset();
-    this.walker.speedScale = 1;
     this.kitNow = defaultLoadout();
     this.stats = frameStats(this.kitNow);
+    this.parts.configure();
+    this.parts.reset();
+    this.walker.speedScale = 1;
+    this.walker.fuelScale = 1;
+    this.walker.setMovement('walker', 'jets');
+    this.body.setLoadout(this.kitNow);
     this.guns.podOnline = true;
     this.deployed = false;
     this.clearParkedUi();
     this.seat?.leave(true);
     this.releaseSeat();
+    this.sensor.clear();
     this.hideMeshes();
     this.clearNet();
     this.guns.reset();
@@ -602,9 +654,13 @@ export class Frame {
       return;
     }
     const w = this.walker;
-    w.speedScale = this.parts.speedScale * this.stats.walk;
+    w.speedScale = this.parts.speedScale * this.stats.walk * this.guns.walkSpeedMult;
     w.jumpScale = this.stats.jump;
-    this.guns.podOnline = this.parts.podOnline && this.stats.pod;
+    w.dashScale = this.stats.dash;
+    w.strafeScale = this.stats.strafe;
+    w.turnScale = this.stats.turnRate;
+    w.fuelScale = this.stats.fuelScale;
+    this.guns.podOnline = this.parts.podOnline && this.stats.shoulders > 0;
     const it = this.intent;
     it.moveX = (input.isDown('right') ? 1 : 0) - (input.isDown('left') ? 1 : 0);
     it.moveZ = (input.isDown('forward') ? 1 : 0) - (input.isDown('back') ? 1 : 0);
@@ -612,20 +668,28 @@ export class Frame {
     it.jet = input.isDown('jump');
     it.stomp = input.pressed('slide');
     it.charge = input.pressed('dash');
+    it.chargeHeld = input.isDown('dash');
+    it.viewPitch = seat.pitch;
     w.update(dt, it);
     this.feel(dt);
     this.pose(dt);
     this.frame.setFromAxisAngle(UP, w.legYaw + Math.PI);
     seat.update(dt, this.frame, this.eye);
-    seat.view.roll = FRAME.feel.roll * Math.sin(w.stride * Math.PI) * clamp(w.speed / FRAME.walk.forward) * (w.grounded ? 1 : 0);
+    seat.view.roll = this.stats.noSway ? 0
+      : FRAME.feel.roll * Math.sin(w.stride * Math.PI) * clamp(w.speed / FRAME.walk.forward) * (w.grounded ? 1 : 0);
     camera.syncSeat();
     this.aimGuns(dt, seat);
-    this.guns.update(dt, seat);
+    this.guns.update(dt, seat, {
+      recoilMult: this.stats.noRecoil ? 0 : 1,
+      feet: w.feet,
+      torsoYaw: w.viewYaw,
+    });
     if (this.net) this.say(dt, seat);
-    if (input.pressed('weaponLast')) {
+    if (input.pressed('weaponLast') || input.pressed('stim')) {
       if (this.guns.popSmoke(w.feet, w.viewYaw)) this.net?.news('smoke');
       else this.ctx.audio.play('weapon_dry');
     }
+    this.sensor.update(this.ctx, this.stats.sensorRange, w.feet, this.stats.sensorRange > 0);
     this.blows(dt);
     this.damageEffects(dt);
     this.panel(seat);
@@ -753,7 +817,9 @@ export class Frame {
   private poseParked(): void {
     const w = this.walker;
     this.body.setPoseState(0, 0, this.crackStage, this.parts.limpSide, !this.parts.podOnline);
-    this.body.pose(w.feet, w.legYaw, w.viewYaw, 0, 0, 0, 0, false, this.eye, { parked: true, jets: false, cracks: this.crackStage });
+    this.body.pose(w.feet, w.legYaw, w.viewYaw, 0, 0, 0, 0, false, this.eye, {
+      parked: true, jets: false, cracks: this.crackStage, treads: this.stats.gait === 'treads',
+    });
     for (const [gun, place] of this.armPlaces()) {
       this.body.place(place, _pivot);
       gun.snap(w.viewYaw, -0.35);
@@ -814,11 +880,18 @@ export class Frame {
   private pose(dt: number): void {
     const w = this.walker;
     const walk = w.grounded ? clamp(w.speed / FRAME.walk.forward) : 0;
-    const sway = FRAME.feel.sway * Math.sin(w.stride * Math.PI) * walk;
+    const sway = this.stats.noSway ? 0 : FRAME.feel.sway * Math.sin(w.stride * Math.PI) * walk;
     const kneel = this.boot < 1 ? (1 - this.boot) * 0.8 : 0;
     this.body.setPoseState(kneel, 0, this.crackStage, this.parts.limpSide, !this.parts.podOnline);
     this.body.pose(w.feet, w.legYaw, w.viewYaw, w.stride, walk, this.dip, sway, true, this.eye, {
-      parked: false, jets: w.jetting && !w.grounded, cracks: this.crackStage,
+      parked: false,
+      jets: w.jetting && !w.grounded,
+      cracks: this.crackStage,
+      flying: w.flying,
+      jetMode: w.jetMode,
+      hover: w.hovering,
+      treads: this.stats.gait === 'treads',
+      dt,
     });
     if (dt > 0) this.backhandIn = Math.max(0, this.backhandIn - dt);
   }
@@ -835,7 +908,8 @@ export class Frame {
     const { audio, camera } = this.ctx;
     this.dip = clamp(this.dip - s.shift, -2, 1.5);
     if (s.steps > 0) this.footfall();
-    if (s.stomped >= 0) this.stomped(s.stomped);
+    if (s.swept) this.swept();
+    if (s.stomped >= 0) this.stomped(s.stomped, s.stompMult);
     else if (s.landed > 3) {
       const k = clamp(s.landed / 18);
       this.sink(Math.min(F.landDipMax, s.landed * F.landDip));
@@ -865,6 +939,22 @@ export class Frame {
     this.dip += this.dipV * dt;
   }
 
+  /** Spider Legs 360° 5 m knockdown sweep around the chassis. */
+  private swept(): void {
+    const { audio, camera, fx, enemies, world } = this.ctx;
+    const at = this.walker.feet;
+    this.net?.news('sweep', [at.x, at.y, at.z]);
+    this.clearSapper();
+    legSweep(enemies, at);
+    world.objects?.damageExplosivesInRadius?.(at, 5, 110, 'frame_stomp');
+    fx.ring(_v.copy(at).setY(at.y + 0.8), UP, '#ffaa40', 5.2);
+    this.dustRing(at, 3.2, 12, 1.8);
+    audio.play('enemy_swing', { pitch: 0.48, volume: 1 });
+    audio.play('slam_impact', { pitch: 0.75, volume: 0.8 });
+    camera.addTrauma(0.4);
+    this.sink(0.28);
+  }
+
   /** A foot down: a thump in the eye, dust, and anyone or any market stall under it. */
   private footfall(): void {
     const F = FRAME.feel;
@@ -885,23 +975,25 @@ export class Frame {
     world.objects?.damageExplosivesInRadius?.(_at, 2.4, 60, 'frame_stomp');
   }
 
-  /** The big slam, twice the size, from `height`. */
-  private stomped(height: number): void {
+  /** The big slam, twice the size, from `height`, scaled by leg stomp stats and dive-bomb multiplier. */
+  private stomped(height: number, mult = 1): void {
     const S = FRAME.stomp;
     const { audio, camera, fx, physics, render, enemies, world } = this.ctx;
     const at = this.walker.feet;
+    const ringScale = this.stats.stomp * mult;
+    const powerScale = this.stats.stompPower * mult;
     const k = height >= S.big ? 1 : S.small;
     this.net?.news('stomp', [height]);
     this.clearSapper();
-    stomp(enemies, at, height);
-    world.objects?.damageExplosivesInRadius?.(at, S.radius * k, 160 * k, 'frame_stomp');
-    enemies.vehicles?.frameBlow?.(at, S.radius * k, 240 * k, null, 'frame_stomp');
-    fx.slam(at, 3.2 * k);
-    this.dustRing(at, 2.4 * k, 10, 2.4 * k);
-    this.dustRing(at, 5.2 * k, 16, 3 * k);
-    fx.chips(at, 0x6f6a63, Math.round(28 * k));
-    render.decals?.add('crack', at, UP, 11 * k, rand(0, Math.PI * 2));
-    physics.radialImpulse(_v.copy(at).setY(at.y + 0.5), S.radius * k, 90 * k);
+    stomp(enemies, at, height, ringScale, powerScale);
+    world.objects?.damageExplosivesInRadius?.(at, S.radius * k * ringScale, 160 * k * powerScale, 'frame_stomp');
+    enemies.vehicles?.frameBlow?.(at, S.radius * k * ringScale, 240 * k * powerScale, null, 'frame_stomp');
+    fx.slam(at, 3.2 * k * ringScale);
+    this.dustRing(at, 2.4 * k * ringScale, 10, 2.4 * k * ringScale);
+    this.dustRing(at, 5.2 * k * ringScale, 16, 3 * k * ringScale);
+    fx.chips(at, 0x6f6a63, Math.round(28 * k * ringScale));
+    render.decals?.add('crack', at, UP, 11 * k * ringScale, rand(0, Math.PI * 2));
+    physics.radialImpulse(_v.copy(at).setY(at.y + 0.5), S.radius * k * ringScale, 90 * k * powerScale);
     audio.play('titan_stomp', { pitch: 0.85 });
     audio.play('land_hard', { pitch: 0.42 });
     audio.play('slam_impact', { pitch: 0.55 });
@@ -993,6 +1085,10 @@ export class Frame {
 
   private aim(gun: Gun, place: readonly [number, number, number], seat: GunnerSeat, dt: number, sweep: number): void {
     this.body.place(place, _pivot);
+    if (this.walker.armsLockedForward) {
+      gun.point(_pivot, this.walker.viewYaw, seat.pitch, dt);
+      return;
+    }
     if (seat.range > 6) _to.subVectors(seat.point, _pivot);
     else _to.copy(seat.aim).multiplyScalar(GUN_REACH).add(seat.view.position).sub(_pivot);
     const yaw = Math.atan2(-_to.x, -_to.z) + sweep;
@@ -1009,7 +1105,10 @@ export class Frame {
     const { audio, camera, fx, enemies, input, render, world } = this.ctx;
     this.trampleClock += dt;
     if (w.grounded && w.speed > 1.5) {
-      if (trample(enemies, w.feet, this.trampleTimes, this.trampleClock) > 0) {
+      const crushed = this.stats.crushOnDrive
+        ? treadCrush(enemies, w.feet, this.trampleTimes, this.trampleClock)
+        : trample(enemies, w.feet, this.trampleTimes, this.trampleClock);
+      if (crushed > 0) {
         audio.play('gib_squelch', { position: w.feet, volume: 0.7 });
         camera.addTrauma(0.12);
       }
@@ -1099,7 +1198,7 @@ export class Frame {
     const w = this.walker;
     const { rotary } = this.guns;
     this.guns.label();
-    seat.heat = rotary.heat.value;
+    seat.heat = this.guns.heat || rotary.heat.value;
     seat.overheated = rotary.heat.overheated;
     seat.spin = rotary.spin;
     seat.legs = wrapAngle(w.legYaw - w.viewYaw);
@@ -1111,22 +1210,38 @@ export class Frame {
     seat.marks = this.guns.marks;
     seat.altitude = w.grounded ? 0 : w.clearance();
     const key = (a: Parameters<Ctx['input']['labelFor']>[0]) => this.ctx.input.labelFor(a);
-    this.jetRow.name = `${key('jump')} JETS // ${key('dash')} CHG:${w.charges}`;
-    this.jetRow.ammo = Math.round((w.fuel / FRAME.jet.fuel) * 100);
-    const tag = (m: ArmMount): string => m.kind === 'rotary' ? (m.rotary.mode === 'airburst' ? 'ROTARY AIRBURST' : 'ROTARY 20MM AP')
-      : m.kind === 'howitzer105' ? '105MM HOWITZER' : `40MM ${ROUND_NAMES[m.cannon.round]}`;
+    this.jetRow.name = `${key('jump')} ${w.driveHudLabel} // ${key('dash')} CHG:${w.charges}`;
+    this.jetRow.ammo = w.maxFuel > 0 ? Math.round((w.fuel / w.maxFuel) * 100) : 0;
+    const tag = (m: ArmMount): string => {
+      switch (m.kind) {
+        case 'rotary': return m.rotary.mode === 'airburst' ? 'ROTARY AIRBURST' : 'ROTARY 20MM AP';
+        case 'cannon40': return `40MM ${ROUND_NAMES[m.cannon.round]}`;
+        case 'howitzer105': return '105MM HOWITZER';
+        case 'vulcan30': return '30MM ROTARY';
+        case 'beam': return 'RED BEAM';
+        case 'cluster': return 'BOMBLET CANNON';
+        case 'shotgun': return 'MECH SHOTGUN';
+      }
+    };
     seat.status = `${tag(this.guns.left)} · ${tag(this.guns.right)}`;
   }
 
   /**
-   * Every hit while piloted routes through the Frame's 4000 HP armoured hull and locational parts (`parts.ts`):
+   * Every hit while piloted routes through the Frame's armoured hull and locational parts (`parts.ts`):
+   * Open Frame seat hits pass through directly to the pilot (`openSeat.ts`), Rotor Engine airborne hits take ×1.25,
    * light small-arms bounce cleanly with sparks, heavy bullets chip plates, snipers crack the canopy glass,
    * heavy ordnance damages legs/pod/hull, and hits from behind into the reactor vents deal bonus damage.
    */
   private hit(damage: PlayerDamage): boolean {
     if (!this.deployed || this.health <= 0) return false;
+    if (routeOpenSeatHit(damage, this.walker.feet, this.walker.viewYaw, this.stats.openSeat)) {
+      return false;
+    }
+    const effective = !this.walker.grounded && this.stats.airborneDamageMult !== 1
+      ? { ...damage, amount: damage.amount * this.stats.airborneDamageMult }
+      : damage;
     const prevCracks = this.crackStage;
-    const res = this.parts.hit(damage, this.walker.feet, this.walker.viewYaw);
+    const res = this.parts.hit(effective, this.walker.feet, this.walker.viewYaw);
     const { audio, camera, hud, render } = this.ctx;
     if (res.blocked) {
       audio.play('metal_clang', { pitch: rand(1.45, 1.85), volume: 0.24 });
@@ -1166,8 +1281,8 @@ export class Frame {
       audio.play('concrete_crumble', { pitch: 1.4, volume: 0.75 });
       this.body.setCracks(this.crackStage);
     }
-    this.walker.speedScale = this.parts.speedScale * this.stats.walk;
-    this.guns.podOnline = this.parts.podOnline && this.stats.pod;
+    this.walker.speedScale = this.parts.speedScale * this.stats.walk * this.guns.walkSpeedMult;
+    this.guns.podOnline = this.parts.podOnline && this.stats.shoulders > 0;
     if (this.seat) this.panel(this.seat);
     if (res.killed || this.health <= 0) this.destroy();
     return true;
@@ -1216,6 +1331,7 @@ export class Frame {
     this.seat = null;
     if (this.ctx.player.interceptor === this.intercept) this.ctx.player.interceptor = null;
     this.guns.silence();
+    this.sensor.clear();
     this.jetLoop?.stop(0.2);
     this.jetLoop = null;
     this.servo?.stop(0.1);

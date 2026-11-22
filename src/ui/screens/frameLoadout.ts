@@ -22,12 +22,12 @@ const SLOT_NAMES: Readonly<Record<FrameSlot, string>> = {
 };
 /** What each slot is for, on the card. */
 const SLOT_ROLE: Readonly<Record<FrameSlot, string>> = {
-  leftArm: 'Left arm weapon. Fires on the left mouse button.',
-  rightArm: 'Right arm weapon. Fires on the right mouse button.',
-  shoulder: 'Shoulder weapon. G, held. The cockpit decides how many shoulders there are.',
-  legs: 'Legs. Decide how it walks, jumps and stomps.',
-  cockpit: 'Cockpit. Decides how many shoulder slots there are.',
-  engine: 'Engine. Decides how it travels.',
+  leftArm: 'Left arm weapon. LMB fires; tap 1 to cycle ammo.',
+  rightArm: 'Right arm weapon. RMB fires; tap 2 to cycle ammo.',
+  shoulder: 'Shoulder weapon. Keys: G (slot 1), V (slot 2), B (slot 3); tap 3/4/5 to cycle shoulder rounds.',
+  legs: 'Legs. Decide how it walks, jumps, stomps and handles recoil.',
+  cockpit: 'Cockpit. Decides shoulder slots (1–3), canopy armour and sensors.',
+  engine: 'Engine. Decides speed, flight/hover mode and Shift drive.',
 };
 
 /** One row: a part, for one slot (a shoulder part for one shoulder slot). */

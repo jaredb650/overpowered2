@@ -14,9 +14,12 @@ off and compare.
 | Crouch (Ctrl, C) in the air | Stomp: down at 32 m/s. From 4 m or more, the big slam (16 m ring, 240..60 damage, 12 m knockdown) |
 | Shift | Charge: 0.75 s at 18 m/s, two charges, each back 3.5 s after. Re-plants the legs under the view |
 | F | Alternating 2-arm melee sweep: 190 degree front arc to 7.2 m PLUS a 4 m 360 degree close-proximity sweep around the legs (340 damage, 1100 force, close gib, 0.72 s cooldown) |
-| LMB | 20 mm six-barrel Vulcan rotary cannon (left arm; the loadout may fit another arm weapon) |
-| RMB, R | 40 mm autocannon (right arm; likewise), and R cycles HE, AP, FLAK |
-| G, held | Paint for the 6-tube shoulder rocket pod; let go to fire all six |
+| LMB | Left arm weapon (default: 20 mm six-barrel Vulcan rotary cannon) |
+| RMB | Right arm weapon (default: 40 mm autocannon) |
+| 1 / 2 | Tap to cycle ammo/fire mode for the left arm (`1`) or right arm (`2`) independently |
+| R | Manual reload for magazine/tube arm weapons (no longer cycles ammo) |
+| G / V / B | Shoulder weapons 1 (`G`), 2 (`V`), and 3 (`B`, unlocked by Twin-Mount / Open Frame cockpits) |
+| 3 / 4 / 5 | Tap to cycle shoulder ammo (e.g. Mortar Rack HE / WP / Cluster; `3` falls back to the first cycleable shoulder) |
 | Q | Regenerating smoke wall, flares, and a 6.5 m concussive pulse around the legs |
 | E | Disembark safely beside the Frame (leaving it parked with preserved HP and position) or climb back in within 5.2 m |
 | Wheel | Zoom x2 |

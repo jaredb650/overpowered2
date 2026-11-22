@@ -29,20 +29,27 @@ import { TELL_EVERY } from '../progression/callins/shared';
 import type { ModelMaterials } from '../progression/modelkit';
 import type { Gun } from '../vehicles/guns';
 import { ArmRack } from './arms';
+import { ARM_REGISTRY, dispatchArmRemoteNews } from './arms/registry';
+import type { Arm, ArmRemoteState } from './arms/types';
 import { FRAME_PLACES, StandIn } from './cockpit';
 import { FRAME } from './data';
-import { armsOf, defaultLoadout, KIT_LENGTH, kitFrom, type ArmKind, type ArmSide } from './loadout';
-import { MECH_FIRING, MECH_FIRING_RIGHT, MECH_JETS, MECH_PARKED } from './seat';
+import { armsOf, defaultLoadout, KIT_LENGTH, kitFrom, LEGACY_KIT_LENGTH, type ArmKind, type ArmSide } from './loadout';
+import {
+  MECH_FIRING, MECH_FIRING_RIGHT, MECH_FLYING, MECH_HOVER, MECH_JET_MODE, MECH_JETS, MECH_PARKED, MECH_TREADS,
+} from './seat';
+import { dispatchShoulderRemoteNews } from './shoulders/registry';
 import { podMissile, shellImpact, smokeScreen } from './weapons';
 
 /**
  * `[feetX, feetY, feetZ, legYaw, viewYaw, stride, walk, dip, sway, sightX, sightY, sightZ, flags]`: where it stands, where
  * the legs and the hull point, how far through its stride it is and how hard it is walking, the hull's sink and sway, the
- * spot its guns are on, and `MECH_FIRING | MECH_JETS | MECH_PARKED`.
+ * spot its guns are on, and `MECH_FIRING | MECH_JETS | MECH_PARKED | MECH_FIRING_RIGHT | MECH_FLYING | MECH_JET_MODE | MECH_TREADS | MECH_HOVER`.
  */
 export const MECH_POSE = 13;
-/** A pose with the pilot's loadout after it: `MECH_POSE` numbers, then `KIT_LENGTH` part numbers. A bare pose is the standard Frame. */
+/** A pose with the pilot's loadout after it: `MECH_POSE` numbers, then `KIT_LENGTH` (8) part numbers. A bare pose is the standard Frame. */
 export const MECH_POSE_KIT = MECH_POSE + KIT_LENGTH;
+/** Legacy 2-shoulder pose length (`MECH_POSE + 7`), accepted when decoding older peers. */
+export const MECH_POSE_LEGACY_KIT = MECH_POSE + LEGACY_KIT_LENGTH;
 
 const R = FRAME.rotary;
 const UP = new THREE.Vector3(0, 1, 0);
@@ -91,11 +98,13 @@ export class FramePuppet implements DroppedFrame {
   private readonly sight = new THREE.Vector3();
   private flags = 0;
   private quiet = 0;
-  /** Per arm, left then right: the rotary's spin, the next round, rounds fired and the fire loop. */
+  /** Per arm, left then right: the rotary's spin, the next round, rounds fired, fire loop, and plugin remote state. */
   private readonly spin = [0, 0];
   private readonly shotIn = [0, 0];
   private readonly fired = [0, 0];
   private readonly fireLoop: (LoopHandle | null)[] = [null, null];
+  private readonly remoteState: [ArmRemoteState, ArmRemoteState] = [{ accum: 0, fired: 0 }, { accum: 0, fired: 0 }];
+  private readonly armProxies: [Arm, Arm];
   private flameIn = 0;
   /** Seconds left of the backhand's swing, or below zero. */
   private swing = -1;
@@ -108,6 +117,13 @@ export class FramePuppet implements DroppedFrame {
     this.rack = new ArmRack(materials, scene, [['left', 'rotary'], ['right', 'cannon40']]);
     this.rounds = new Ac130Rounds(ctx, materials);
     this.rounds.onImpact = (kind, point, normal, dir) => shellImpact(ctx, kind, point, normal, dir);
+    const makeArm = (side: ArmSide): Arm => ({
+      muzzle: out => this.gunOf(side).muzzle(out),
+      bore: out => this.gunOf(side).bore(out),
+      turn: radians => this.gunOf(side).turn(radians),
+      recoil: metres => this.gunOf(side).recoil(metres),
+    });
+    this.armProxies = [makeArm('left'), makeArm('right')];
   }
 
   /** The hull's own position, for whoever needs to know where another player's Frame is. */
@@ -133,18 +149,22 @@ export class FramePuppet implements DroppedFrame {
 
   /** The pilot's loadout from the end of a pose; nothing changes unless a number did. A bare pose is the standard Frame. */
   private wearKit(values: readonly number[]): void {
-    const has = values.length >= MECH_POSE_KIT;
+    const kitLen = values.length >= MECH_POSE_KIT ? KIT_LENGTH
+      : values.length >= MECH_POSE_LEGACY_KIT ? LEGACY_KIT_LENGTH
+      : 0;
     let same = true;
     for (let i = 0; i < KIT_LENGTH; i++) {
-      const v = has ? values[MECH_POSE + i]! : -2;
+      const v = i < kitLen ? values[MECH_POSE + i]! : -2;
       if (this.kit[i] !== v) same = false;
       this.kit[i] = v;
     }
     if (same) return;
-    const arms = armsOf(has ? kitFrom(values.slice(MECH_POSE, MECH_POSE_KIT)) : defaultLoadout());
+    const loadout = kitLen > 0 ? kitFrom(values.slice(MECH_POSE, MECH_POSE + kitLen)) : defaultLoadout();
+    const arms = armsOf(loadout);
     const yaw = this.viewYaw;
     this.leftKind = arms.left;
     this.rightKind = arms.right;
+    this.body.setLoadout(loadout);
     this.gunOf('left').snap(yaw, 0);
     this.gunOf('right').snap(yaw, 0);
     this.rack.only(this.gunOf('left'), this.gunOf('right'));
@@ -228,6 +248,14 @@ export class FramePuppet implements DroppedFrame {
         camera.addTrauma(Math.max(0, (0.55 + 0.45 * k) * (1 - player.position.distanceTo(feet) / 40)));
         break;
       }
+      case 'sweep': {
+        const at = v.length >= 3 ? _at.set(v[0]!, v[1]!, v[2]!) : feet;
+        fx.ring(_v.copy(at).setY(at.y + 0.8), UP, '#ffaa40', 5.2);
+        this.dustRing(at, 3.2, 12, 1.8);
+        audio.play('enemy_swing', { position: at, pitch: 0.48, volume: 0.9 });
+        audio.play('slam_impact', { position: at, pitch: 0.75, volume: 0.7 });
+        break;
+      }
       case 'smoke':
         smokeScreen(ctx, this.rounds, feet, this.viewYaw, feet);
         break;
@@ -238,6 +266,13 @@ export class FramePuppet implements DroppedFrame {
         fx.slash(_at, UP, _v.set(Math.cos(this.viewYaw), 0, -Math.sin(this.viewYaw)), FRAME.backhand.arc, FRAME.backhand.reach, 'sweep');
         audio.play('enemy_swing', { position: _at, pitch: 0.45 });
         break;
+      default: {
+        const arr = v as number[];
+        if (!dispatchArmRemoteNews(ctx, kind, arr)) {
+          dispatchShoulderRemoteNews(ctx, kind, arr);
+        }
+        break;
+      }
     }
   }
 
@@ -317,8 +352,14 @@ export class FramePuppet implements DroppedFrame {
     this.flags = t[12]! | 0;
     const parked = (this.flags & MECH_PARKED) !== 0;
     const jets = (this.flags & MECH_JETS) !== 0;
+    const flying = (this.flags & MECH_FLYING) !== 0;
+    const jetMode = (this.flags & MECH_JET_MODE) !== 0;
+    const hover = (this.flags & MECH_HOVER) !== 0;
+    const treads = (this.flags & MECH_TREADS) !== 0;
 
-    this.body.pose(feet, this.legYaw, this.viewYaw, this.stride, this.walk, this.dip, this.sway, false, _eye, { parked, jets });
+    this.body.pose(feet, this.legYaw, this.viewYaw, this.stride, this.walk, this.dip, this.sway, false, _eye, {
+      parked, jets, flying, jetMode, hover, treads, dt,
+    });
     if (!parked && Math.floor(this.stride) !== Math.floor(strideWas) && this.walk > 0.05) this.footfall();
     if (parked) {
       for (const [gun, place] of this.armPlaces()) {
@@ -329,8 +370,8 @@ export class FramePuppet implements DroppedFrame {
       return;
     }
     this.arms(dt);
-    this.rotary(dt, 'left', MECH_FIRING);
-    this.rotary(dt, 'right', MECH_FIRING_RIGHT);
+    this.remoteFire(dt, 'left', MECH_FIRING);
+    this.remoteFire(dt, 'right', MECH_FIRING_RIGHT);
     this.jets(dt);
   }
 
@@ -356,15 +397,29 @@ export class FramePuppet implements DroppedFrame {
     gun.point(_pivot, yaw, pitch, dt);
   }
 
-  /** A rotary arm while the pilot holds its trigger: the barrels turn, and tracers go out to the sight at the gun's own rate. */
-  private rotary(dt: number, side: ArmSide, flag: number): void {
+  /** Continuous firing playback on an arm: standard rotary tracers/loop, or delegated to `ARM_REGISTRY[kind].remoteFiring`. */
+  private remoteFire(dt: number, side: ArmSide, flag: number): void {
     const { audio, combat, fx } = this.ctx;
     const i = side === 'left' ? 0 : 1;
-    const firing = this.armOf(side) === 'rotary' && (this.flags & flag) !== 0;
+    const kind = this.armOf(side);
+    const active = (this.flags & flag) !== 0;
+
+    if (kind !== 'rotary') {
+      if (this.fireLoop[i]) {
+        this.fireLoop[i]!.stop(0.08);
+        this.fireLoop[i] = null;
+      }
+      this.spin[i] = 0;
+      if (active) {
+        ARM_REGISTRY[kind].remoteFiring?.(this.ctx, this.armProxies[i]!, side, dt, this.remoteState[i]!);
+      }
+      return;
+    }
+
+    const firing = active;
     this.spin[i] = clamp(this.spin[i]! + (firing ? dt / R.spinUp : -dt / R.spinDown));
-    if (this.armOf(side) !== 'rotary' && this.spin[i] === 0 && !this.fireLoop[i]) return;
     const gun = this.gunOf(side);
-    if (this.armOf(side) === 'rotary') gun.turn(this.spin[i]! * R.barrelRate * dt);
+    gun.turn(this.spin[i]! * R.barrelRate * dt);
     if (!firing) {
       const loop = this.fireLoop[i];
       if (loop) {

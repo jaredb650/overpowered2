@@ -1,50 +1,43 @@
 /**
- * The Distraint Frame's procedural 3D chassis, first-person cockpit, and arm weapons — Bureau heavy-industrial silhouette
- * built from bevelled 2D profiles (`prism`) in obsidian, gunmetal, steel, brass, crimson optics, and amber standby lamps.
+ * The Distraint Frame's procedural 3D chassis, first-person cockpit, and modular part mount points — Bureau
+ * heavy-industrial silhouette built from bevelled 2D profiles (`prism`) in obsidian, gunmetal, steel, brass, crimson
+ * optics, and amber standby lamps.
  *
  *   The cockpit   near-view roll-cage, brow, sill, and angled side consoles round the eye, with open chin glass so
  *                 looking down shows the ground at the feet for stomps, plus 3 progressive canopy crack overlays.
- *   The arms      world-space `Gun`s (20 mm six-barrel Vulcan on the left, 40 mm autocannon with an armoured melee
- *                 strike-gauntlet on the right) visible in the bottom corners from inside and articulated from outside.
- *   The body      hunched bevelled torso, overhanging visor brow, layered shoulder pauldrons, sculpted 6-tube missile
- *                 pod with visible warheads, dorsal reactor cooling slats, twin thruster bells with live jet cones,
- *                 pelvis turntable, and reverse-jointed 3-toed legs.
+ *   The arms      world-space `Gun`s (see `src/frame/models/` and `arms.ts`), visible in the bottom corners from inside
+ *                 and articulated from outside.
+ *   The body      hunched bevelled torso, overhanging visor brow, layered shoulder pauldrons, up to 3 modular shoulder
+ *                 mounts (`FRAME_PLACES.shoulders`), dorsal reactor cooling slats, twin thruster bells with live jet
+ *                 cones, pelvis turntable, and reverse-jointed 3-toed legs (or custom leg/cockpit/engine visuals).
  *
- * Every place is in torso space: x right, y up from the hips, -z ahead. `FRAME_PLACES` keeps eye, arms, pod and jets
- * aligned between single-player (`Frame`) and co-op (`FramePuppet`).
+ * Every place is in torso space: x right, y up from the hips, -z ahead. `FRAME_PLACES` keeps eye, arms, shoulders and
+ * jets aligned between single-player (`Frame`) and co-op (`FramePuppet`).
  */
 import * as THREE from 'three';
-import { clamp, TAU } from '../core/math';
+import { clamp } from '../core/math';
 import { ModelBuilder, type ModelMaterials } from '../progression/modelkit';
-import type { GunSpec } from '../vehicles/guns';
 import { FRAME } from './data';
+import {
+  frameStats, shouldersOf, type DriveKind, type FrameLoadout, type FramePartId, type GaitKind, type ShoulderKind,
+} from './loadout';
+import {
+  ACROSS, ALONG_Z, AMBER, BRASS, DARK, FLAT, GUNMETAL, IRON, OBSIDIAN, PLATE, RED, STEEL,
+  ngon, prism, type CockpitVisual, type EngineVisual, type LegsVisual,
+} from './models/shared';
+import { SHOULDER_MODELS } from './models/shoulders';
+import { buildSprinterLegs } from './models/legs-sprinter';
+import { buildHeavyLegs } from './models/legs-heavy';
+import { buildTreadsLegs } from './models/legs-treads';
+import { buildSpiderLegs } from './models/legs-spider';
+import { buildTwinCockpit } from './models/cockpit-twin';
+import { buildOpenCockpit } from './models/cockpit-open';
+import { buildSensorCockpit } from './models/cockpit-sensor';
+import { buildEngineVisual } from './models/engine-kit';
 
-const OBSIDIAN = '#15181d';
-const GUNMETAL = '#2b313a';
-const PLATE = '#47505c';
-const STEEL = '#6b7582';
-const IRON = '#1e2228';
-const DARK = '#0b0d10';
-const BRASS = '#a5894b';
-const RED = '#ff2a1a';
-const AMBER = '#ffaa30';
-const ALONG_Z: readonly [number, number, number] = [Math.PI / 2, 0, 0];
-const ACROSS: readonly [number, number, number] = [0, Math.PI / 2, 0];
-const FLAT: readonly [number, number, number] = [-Math.PI / 2, 0, 0];
-
-/** A 2D outline extruded `depth` with a chamfer on every edge, centred on its depth. With `rot: ACROSS`, `[u, v]` maps to `z = -u, y = v`. */
-function prism(points: readonly (readonly [number, number])[], depth: number, bevel: number): THREE.BufferGeometry {
-  const shape = new THREE.Shape(points.map(([x, y]) => new THREE.Vector2(x, y)));
-  const core = Math.max(0.01, depth - bevel * 2);
-  const geo = new THREE.ExtrudeGeometry(shape, {
-    depth: core, bevelEnabled: true, bevelThickness: bevel, bevelSize: bevel, bevelSegments: 1, curveSegments: 4,
-  });
-  return geo.translate(0, 0, -core / 2);
-}
-
-function ngon(r: number, n: number, turn = 0): [number, number][] {
-  return Array.from({ length: n }, (_, i) => [Math.cos((i / n) * TAU + turn) * r, Math.sin((i / n) * TAU + turn) * r] as [number, number]);
-}
+export { ROTARY_ARM } from './models/rotary';
+export { CANNON_ARM } from './models/cannon40';
+export { HOWITZER_ARM } from './models/howitzer105';
 
 /** Hips over the feet, and the torso's places from there. */
 export const FRAME_PLACES = {
@@ -54,144 +47,17 @@ export const FRAME_PLACES = {
   /** Where each arm's gun turns. */
   rotary: [-1.75, 0.15, -1.15] as const,
   cannon: [1.75, 0.15, -1.15] as const,
-  /** The middle of the six tubes on the right shoulder. */
+  /** The middle of the six tubes on the right shoulder (also `shoulders[0]`). */
   pod: [1.55, 2.35, 0.2] as const,
+  /** Up to 3 shoulder mount points on the torso: slot 0 = right shoulder, slot 1 = left shoulder, slot 2 = dorsal top. */
+  shoulders: [
+    [1.55, 2.35, 0.2] as const,
+    [-1.55, 2.35, 0.2] as const,
+    [0, 2.65, 0.35] as const,
+  ] as const,
   /** Where the jets burn, on the back. */
   jets: [0, 1.0, 1.9] as const,
 } as const;
-
-/** The left arm: a 20 mm six-barrel Vulcan with an armoured forearm shroud, side ammo drum and brass feed chute. */
-export const ROTARY_ARM: GunSpec = {
-  name: 'frame-rotary',
-  build: b => {
-    // Chamfered main receiver housing (+u forward along -Z).
-    b.solid(prism([[-1.12, -0.34], [0.46, -0.32], [0.64, -0.14], [0.64, 0.22], [0.36, 0.42], [-0.95, 0.42], [-1.18, 0.18]], 0.78, 0.05), OBSIDIAN, { rot: ACROSS });
-    // Top angled armour cowling & cooling ribs.
-    b.solid(prism([[-0.88, 0.38], [0.42, 0.38], [0.58, 0.24], [0.22, 0.52], [-0.74, 0.52]], 0.74, 0.03), PLATE, { rot: ACROSS });
-    for (let i = 0; i < 4; i++) b.box(0.56, 0.04, 0.08, DARK, { at: [0, 0.51, -0.15 + i * 0.22] });
-    // Outer forearm shield plate.
-    b.solid(prism([[-0.9, -0.26], [0.52, -0.22], [0.62, 0.04], [0.36, 0.28], [-0.78, 0.3]], 0.18, 0.03), GUNMETAL, { at: [-0.46, 0.02, 0], rot: ACROSS });
-    // Underslung cylindrical ammo drum & brass feed chute.
-    b.cyl(0.32, 0.32, 0.62, 14, GUNMETAL, { at: [-0.52, -0.22, 0.32], rot: ALONG_Z });
-    b.cyl(0.24, 0.24, 0.66, 12, IRON, { at: [-0.52, -0.22, 0.32], rot: ALONG_Z });
-    b.box(0.26, 0.24, 0.36, BRASS, { at: [-0.26, -0.12, 0.28], rot: [0, 0, 0.45] });
-    // Front machined bearing collar + inner rotor drive housing.
-    b.cyl(0.34, 0.38, 0.28, 16, STEEL, { at: [0, 0, -0.66], rot: ALONG_Z });
-    b.cyl(0.28, 0.28, 0.14, 14, DARK, { at: [0, 0, -0.82], rot: ALONG_Z });
-    // Rear hydraulic elbow yoke.
-    b.cyl(0.28, 0.28, 0.52, 12, STEEL, { at: [0, 0.18, 0.96], rot: [0, 0, Math.PI / 2] });
-    // Thin Bureau crimson telemetry strip along the inboard cheek.
-    b.glow(new THREE.BoxGeometry(0.035, 0.035, 0.64), RED, 3.8, { at: [0.4, 0.22, 0.05] });
-    b.glow(new THREE.BoxGeometry(0.03, 0.12, 0.04), AMBER, 3, { at: [0.4, 0.04, -0.35] });
-  },
-  moving: b => {
-    // Central rotor shaft & six fluted barrels.
-    b.cyl(0.075, 0.075, 1.92, 10, IRON, { at: [0, 0, -1.62], rot: ALONG_Z });
-    for (let i = 0; i < 6; i++) {
-      const a = (i / 6) * TAU;
-      b.cyl(0.052, 0.056, 2.02, 8, i % 2 ? DARK : STEEL, { at: [Math.cos(a) * 0.165, Math.sin(a) * 0.165, -1.66], rot: ALONG_Z });
-    }
-    // Two perforated barrel stabilizer clamps + heavy slotted muzzle crown.
-    for (const z of [-1.08, -1.86]) {
-      b.cyl(0.255, 0.255, 0.09, 16, PLATE, { at: [0, 0, z], rot: ALONG_Z });
-      b.cyl(0.265, 0.265, 0.03, 16, IRON, { at: [0, 0, z + 0.04], rot: ALONG_Z });
-    }
-    b.cyl(0.265, 0.245, 0.18, 16, OBSIDIAN, { at: [0, 0, -2.56], rot: ALONG_Z });
-    b.cyl(0.23, 0.23, 0.05, 16, BRASS, { at: [0, 0, -2.46], rot: ALONG_Z });
-  },
-  muzzle: [0, 0, -2.68],
-  follow: 22,
-  return: 22,
-};
-
-/** The right arm: a 40 mm autocannon on hydraulic recoil rails with an armoured melee strike-gauntlet blade. */
-export const CANNON_ARM: GunSpec = {
-  name: 'frame-cannon',
-  build: b => {
-    // Heavy chamfered breech housing (+u forward along -Z).
-    b.solid(prism([[-1.18, -0.36], [0.54, -0.34], [0.76, -0.1], [0.72, 0.26], [0.34, 0.48], [-0.98, 0.48], [-1.24, 0.2]], 0.84, 0.05), OBSIDIAN, { rot: ACROSS });
-    // Sloped upper armour mantle & breech inspection hatch.
-    b.solid(prism([[-0.92, 0.42], [0.46, 0.42], [0.64, 0.28], [0.24, 0.58], [-0.8, 0.56]], 0.78, 0.035), PLATE, { rot: ACROSS });
-    // Side-mounted 40 mm clip box with exposed brass shell rims.
-    b.solid(prism([[-0.64, -0.24], [0.24, -0.24], [0.28, 0.22], [-0.56, 0.28]], 0.34, 0.03), GUNMETAL, { at: [0.56, -0.02, 0.2], rot: ACROSS });
-    for (let i = 0; i < 4; i++) b.cyl(0.042, 0.042, 0.14, 8, BRASS, { at: [0.44, 0.16, -0.02 + i * 0.14], rot: [0, 0, Math.PI / 2] });
-    // Twin hydraulic recoil recuperator tubes flanking the breech.
-    for (const s of [-1, 1]) {
-      b.cyl(0.085, 0.085, 1.05, 10, IRON, { at: [s * 0.28, -0.28, -0.68], rot: ALONG_Z });
-      b.cyl(0.055, 0.055, 0.48, 8, STEEL, { at: [s * 0.28, -0.28, -1.28], rot: ALONG_Z });
-      b.cyl(0.095, 0.095, 0.06, 10, BRASS, { at: [s * 0.28, -0.28, -1.12], rot: ALONG_Z });
-    }
-    // Armoured melee knuckle-ram strike blade along the outer forearm (visually reads during backhand sweeps!).
-    b.solid(prism([[-0.35, -0.44], [0.95, -0.42], [1.28, -0.18], [1.05, 0.12], [-0.25, 0.18]], 0.22, 0.035), PLATE, { at: [0.52, -0.12, -0.48], rot: ACROSS });
-    b.box(0.06, 0.34, 0.92, STEEL, { at: [0.64, -0.18, -0.82], rot: [0.1, 0, 0] });
-    // Rear elbow gimbal.
-    b.cyl(0.3, 0.3, 0.56, 12, STEEL, { at: [0, 0.18, 1.0], rot: [0, 0, Math.PI / 2] });
-    // Bureau red accent bar & ready lamp on the inboard face.
-    b.glow(new THREE.BoxGeometry(0.035, 0.035, 0.68), RED, 3.8, { at: [-0.43, 0.24, 0.02] });
-    b.glow(new THREE.BoxGeometry(0.03, 0.12, 0.04), AMBER, 3, { at: [-0.43, 0.06, -0.4] });
-  },
-  moving: b => {
-    // Heavy thermal-sleeved 40 mm barrel.
-    b.cyl(0.21, 0.24, 0.72, 12, GUNMETAL, { at: [0, 0.02, -0.78], rot: ALONG_Z });
-    b.cyl(0.145, 0.165, 1.98, 12, STEEL, { at: [0, 0.02, -1.96], rot: ALONG_Z });
-    b.cyl(0.18, 0.18, 0.12, 12, IRON, { at: [0, 0.02, -1.55], rot: ALONG_Z });
-    b.cyl(0.17, 0.17, 0.12, 12, IRON, { at: [0, 0.02, -2.35], rot: ALONG_Z });
-    // Sculpted dual-baffle muzzle brake.
-    b.solid(prism([[-0.22, -0.14], [0.28, -0.14], [0.34, -0.06], [0.34, 0.08], [0.28, 0.16], [-0.22, 0.16]], 0.48, 0.03), OBSIDIAN, { at: [0, 0.02, -3.12], rot: ACROSS });
-    for (const s of [-1, 1]) b.box(0.05, 0.18, 0.18, DARK, { at: [s * 0.23, 0.02, -3.12] });
-  },
-  muzzle: [0, 0.02, -3.42],
-  follow: 20,
-  return: 14,
-};
-
-/** The upgraded right arm: a chunky 105 mm siege howitzer with heavy recuperators, bore evacuator and dual-baffle muzzle brake. */
-export const HOWITZER_ARM: GunSpec = {
-  name: 'frame-howitzer',
-  build: b => {
-    // Reinforced siege breech housing (+u forward along -Z).
-    b.solid(prism([[-1.28, -0.44], [0.64, -0.42], [0.92, -0.14], [0.88, 0.34], [0.42, 0.58], [-1.06, 0.58], [-1.34, 0.24]], 1.02, 0.06), OBSIDIAN, { rot: ACROSS });
-    // Heavy sloped upper armour hood & breech-lock block.
-    b.solid(prism([[-1.0, 0.5], [0.54, 0.5], [0.78, 0.34], [0.3, 0.7], [-0.88, 0.68]], 0.94, 0.04), PLATE, { rot: ACROSS });
-    b.box(0.56, 0.24, 0.42, GUNMETAL, { at: [0, 0.42, 0.58] });
-    // Oversized twin hydraulic recoil recuperator cylinders under & beside the cradle.
-    for (const s of [-1, 1]) {
-      b.cyl(0.135, 0.135, 1.48, 12, IRON, { at: [s * 0.36, -0.34, -0.82], rot: ALONG_Z });
-      b.cyl(0.088, 0.088, 0.68, 10, STEEL, { at: [s * 0.36, -0.34, -1.62], rot: ALONG_Z });
-      b.cyl(0.15, 0.15, 0.09, 12, BRASS, { at: [s * 0.36, -0.34, -1.42], rot: ALONG_Z });
-    }
-    // Lower cradle sled under the barrel.
-    b.box(0.62, 0.18, 1.38, GUNMETAL, { at: [0, -0.32, -1.1] });
-    // Armoured melee knuckle-ram strike blade retained along the outer forearm.
-    b.solid(prism([[-0.35, -0.46], [1.0, -0.44], [1.34, -0.18], [1.1, 0.14], [-0.25, 0.2]], 0.24, 0.04), PLATE, { at: [0.62, -0.12, -0.52], rot: ACROSS });
-    b.box(0.07, 0.36, 0.98, STEEL, { at: [0.74, -0.18, -0.86], rot: [0.1, 0, 0] });
-    // Rear heavy elbow gimbal.
-    b.cyl(0.35, 0.35, 0.66, 12, STEEL, { at: [0, 0.2, 1.06], rot: [0, 0, Math.PI / 2] });
-    // Bureau siege amber/crimson status strips on the inboard face (visible from cockpit).
-    b.glow(new THREE.BoxGeometry(0.04, 0.055, 0.82), AMBER, 4.4, { at: [-0.52, 0.28, -0.02] });
-    b.glow(new THREE.BoxGeometry(0.04, 0.16, 0.06), RED, 4.0, { at: [-0.52, 0.06, -0.52] });
-  },
-  moving: b => {
-    // Massive thick-walled 105 mm cannon barrel & thermal shroud.
-    b.cyl(0.32, 0.36, 0.94, 14, GUNMETAL, { at: [0, 0.04, -0.92], rot: ALONG_Z });
-    b.cyl(0.245, 0.275, 2.38, 14, STEEL, { at: [0, 0.04, -2.3], rot: ALONG_Z });
-    // Prominent cylindrical bore evacuator mid-barrel + brass reinforcement bands.
-    b.cyl(0.34, 0.34, 0.66, 14, PLATE, { at: [0, 0.04, -2.05], rot: ALONG_Z });
-    b.cyl(0.35, 0.35, 0.06, 14, BRASS, { at: [0, 0.04, -1.72], rot: ALONG_Z });
-    b.cyl(0.35, 0.35, 0.06, 14, BRASS, { at: [0, 0.04, -2.38], rot: ALONG_Z });
-    // Dark recessed 105 mm muzzle bore.
-    b.cyl(0.18, 0.18, 0.18, 12, DARK, { at: [0, 0.04, -3.86], rot: ALONG_Z });
-    // Giant rectangular dual-baffle artillery muzzle brake.
-    b.solid(prism([[-0.38, -0.26], [0.46, -0.26], [0.54, -0.14], [0.54, 0.18], [0.46, 0.3], [-0.38, 0.3]], 0.78, 0.04), OBSIDIAN, { at: [0, 0.04, -3.56], rot: ACROSS });
-    for (const s of [-1, 1]) {
-      b.box(0.08, 0.32, 0.24, DARK, { at: [s * 0.38, 0.04, -3.42] });
-      b.box(0.08, 0.32, 0.24, DARK, { at: [s * 0.38, 0.04, -3.72] });
-    }
-  },
-  muzzle: [0, 0.04, -3.96],
-  follow: 14,
-  return: 5.5,
-};
 
 /**
  * First-person cockpit roll-cage around the eye (origin = eye). Wide unobstructed center field of view, bevelled angled
@@ -340,21 +206,6 @@ function hull(b: ModelBuilder): void {
   }
 }
 
-/** Right-shoulder 6-tube lock-on missile pod built in local space so it can slump when knocked offline. */
-function pod(b: ModelBuilder): void {
-  b.cyl(0.12, 0.14, 0.55, 10, STEEL, { at: [-0.12, -0.52, 0.06], rot: [0, 0, -0.22] });
-  b.solid(prism([[-0.72, -0.44], [0.68, -0.44], [0.76, -0.28], [0.76, 0.32], [0.58, 0.46], [-0.64, 0.46], [-0.76, 0.28]], 1.18, 0.05), OBSIDIAN, { rot: ACROSS });
-  b.solid(prism([[-0.56, 0.38], [0.58, 0.38], [0.46, 0.54], [-0.48, 0.54]], 1.06, 0.03), PLATE, { rot: ACROSS });
-  b.box(1.06, 0.72, 0.08, DARK, { at: [0, 0, -0.72] });
-  for (let i = 0; i < 6; i++) {
-    const tx = ((i % 3) - 1) * 0.31;
-    const ty = i < 3 ? 0.18 : -0.18;
-    b.cyl(0.115, 0.115, 0.12, 10, IRON, { at: [tx, ty, -0.75], rot: ALONG_Z });
-    b.cyl(0.03, 0.075, 0.14, 8, PLATE, { at: [tx, ty, -0.78], rot: ALONG_Z });
-    b.glow(new THREE.CylinderGeometry(0.028, 0.028, 0.03, 8), RED, 4.2, { at: [tx, ty, -0.85], rot: ALONG_Z });
-  }
-}
-
 /** Pelvis & waist turntable block on the legs group. */
 function pelvis(b: ModelBuilder): void {
   const y = FRAME_PLACES.hips - 0.16;
@@ -423,6 +274,16 @@ export interface StandInOptions {
   jets?: boolean;
   /** 0..3 progressive cockpit canopy crack overlay stage. */
   cracks?: number;
+  /** True while flying (Jump-Jet or Afterburner). */
+  flying?: boolean;
+  /** True while in Afterburner jet mode (legs fold back, wings deploy). */
+  jetMode?: boolean;
+  /** True while hovering (Rotor Engine). */
+  hover?: boolean;
+  /** True when rolling on Treads. */
+  treads?: boolean;
+  /** Frame delta time in seconds for animated attachments. */
+  dt?: number;
 }
 
 /** The Frame's full procedural exterior & cockpit rig, posed every frame. */
@@ -430,22 +291,37 @@ export class StandIn {
   readonly cockpit: THREE.Group;
   readonly torso: THREE.Group;
   readonly legs = new THREE.Group();
+  private readonly materials: ModelMaterials;
+  private readonly cockpitStandard: THREE.Group;
   private readonly hull: THREE.Group;
+  private readonly standardLegs: THREE.Group;
+  /** Slot 0..2 shoulder mount anchors on the hull; each holds cached shoulder weapon meshes. */
+  private readonly shoulderAnchors: THREE.Group[] = [];
+  private readonly shoulderCache: Partial<Record<ShoulderKind, THREE.Group>>[] = [{}, {}, {}];
   private readonly podGroup: THREE.Group;
   private readonly visorActive: THREE.Mesh;
   private readonly visorStandby: THREE.Mesh;
   private readonly jetCones: THREE.Mesh[] = [];
   private readonly cracks: THREE.LineSegments[] = [];
   private readonly sides: THREE.Group[] = [];
+  private readonly legsCache: Partial<Record<GaitKind, LegsVisual | null>> = {};
+  private activeLegs: LegsVisual | null = null;
+  private readonly cockpitCache: Partial<Record<FramePartId, CockpitVisual | null>> = {};
+  private activeCockpit: CockpitVisual | null = null;
+  private readonly engineCache: Partial<Record<DriveKind, EngineVisual | null>> = {};
+  private activeEngine: EngineVisual | null = null;
   private kneel = 0;
   private collapse = 0;
   private limpSide: -1 | 0 | 1 = 0;
 
   constructor(materials: ModelMaterials, scene: THREE.Scene) {
+    this.materials = materials;
+    this.cockpit = new THREE.Group();
+    this.cockpit.name = 'frame.cockpit';
     const c = new ModelBuilder();
     cockpit(c);
-    this.cockpit = materials.group(c, materials.nearby);
-    this.cockpit.name = 'frame.cockpit';
+    this.cockpitStandard = materials.group(c, materials.nearby);
+    this.cockpit.add(this.cockpitStandard);
     for (let i = 0; i < CRACK_SETS.length; i++) {
       const layer = makeCrackLayer(CRACK_SETS[i]!, 0.34 + i * 0.12);
       this.cockpit.add(layer);
@@ -456,11 +332,19 @@ export class StandIn {
     hull(h);
     this.hull = materials.group(h);
 
+    for (let i = 0; i < FRAME_PLACES.shoulders.length; i++) {
+      const anchor = new THREE.Group();
+      const pos = FRAME_PLACES.shoulders[i]!;
+      anchor.position.set(pos[0], pos[1], pos[2]);
+      this.hull.add(anchor);
+      this.shoulderAnchors.push(anchor);
+    }
+
     const pd = new ModelBuilder();
-    pod(pd);
+    SHOULDER_MODELS.pod6(pd);
     this.podGroup = materials.group(pd);
-    this.podGroup.position.set(FRAME_PLACES.pod[0], FRAME_PLACES.pod[1], FRAME_PLACES.pod[2]);
-    this.hull.add(this.podGroup);
+    this.shoulderAnchors[0]!.add(this.podGroup);
+    this.shoulderCache[0]!.pod6 = this.podGroup;
 
     // Dual-state glowing canopy visor slit (crimson when active, warm amber when parked/empty).
     const visorGeo = new THREE.BoxGeometry(1.36, 0.11, 0.06);
@@ -494,23 +378,117 @@ export class StandIn {
     this.torso.name = 'frame.torso';
     this.torso.add(this.hull);
 
+    this.standardLegs = new THREE.Group();
     const hips = new ModelBuilder();
     pelvis(hips);
-    this.legs.add(materials.group(hips));
+    this.standardLegs.add(materials.group(hips));
     for (const s of [-1, 1]) {
       const b = new ModelBuilder();
       leg(b, s);
       const side = new THREE.Group();
       side.add(materials.group(b));
       side.position.set(s * 1.05, FRAME_PLACES.hips - 0.25, 0.2);
-      this.legs.add(side);
+      this.standardLegs.add(side);
       this.sides.push(side);
     }
+    this.legs.add(this.standardLegs);
     this.legs.name = 'frame.legs';
     for (const g of [this.cockpit, this.torso, this.legs]) {
       g.visible = false;
       scene.add(g);
     }
+  }
+
+  /** Updates modular shoulder, leg, cockpit, and engine models to match `loadout` (lazy-cached; default is standard). */
+  setLoadout(loadout: FrameLoadout): void {
+    const fitted = shouldersOf(loadout);
+    for (let slot = 0; slot < this.shoulderAnchors.length; slot++) {
+      const kind = fitted[slot];
+      const cache = this.shoulderCache[slot]!;
+      for (const existing of Object.values(cache)) if (existing) existing.visible = false;
+      if (!kind) continue;
+      let group = cache[kind];
+      if (!group) {
+        const b = new ModelBuilder();
+        SHOULDER_MODELS[kind](b);
+        group = this.materials.group(b);
+        this.shoulderAnchors[slot]!.add(group);
+        cache[kind] = group;
+      }
+      group.visible = true;
+    }
+
+    const stats = frameStats(loadout);
+    // Legs visual swap.
+    const nextLegs = this.legsVisualFor(stats.gait);
+    if (this.activeLegs && this.activeLegs !== nextLegs) this.activeLegs.group.visible = false;
+    this.activeLegs = nextLegs;
+    this.standardLegs.visible = nextLegs === null;
+    if (nextLegs) nextLegs.group.visible = true;
+
+    // Cockpit visual swap.
+    const nextCockpit = this.cockpitVisualFor(loadout.cockpit);
+    if (this.activeCockpit && this.activeCockpit !== nextCockpit) {
+      if (this.activeCockpit.exterior) this.activeCockpit.exterior.visible = false;
+      if (this.activeCockpit.interior) this.activeCockpit.interior.visible = false;
+    }
+    this.activeCockpit = nextCockpit;
+    this.cockpitStandard.visible = !(nextCockpit?.hideStandardInterior);
+    if (nextCockpit?.exterior) nextCockpit.exterior.visible = true;
+    if (nextCockpit?.interior) nextCockpit.interior.visible = true;
+
+    // Engine visual swap.
+    const nextEngine = this.engineVisualFor(stats.drive);
+    if (this.activeEngine && this.activeEngine !== nextEngine) this.activeEngine.group.visible = false;
+    this.activeEngine = nextEngine;
+    if (nextEngine) nextEngine.group.visible = true;
+  }
+
+  private legsVisualFor(gait: GaitKind): LegsVisual | null {
+    if (gait === 'walker') return null;
+    if (Object.hasOwn(this.legsCache, gait)) return this.legsCache[gait] ?? null;
+    let built: LegsVisual | null = null;
+    if (gait === 'sprinter') built = buildSprinterLegs(this.materials, FRAME_PLACES.hips);
+    else if (gait === 'heavy') built = buildHeavyLegs(this.materials, FRAME_PLACES.hips);
+    else if (gait === 'treads') built = buildTreadsLegs(this.materials, FRAME_PLACES.hips);
+    else if (gait === 'spider') built = buildSpiderLegs(this.materials, FRAME_PLACES.hips);
+    if (built) {
+      built.group.visible = false;
+      this.legs.add(built.group);
+    }
+    this.legsCache[gait] = built;
+    return built;
+  }
+
+  private cockpitVisualFor(id: FramePartId): CockpitVisual | null {
+    if (id === 'cockpitStandard') return null;
+    if (Object.hasOwn(this.cockpitCache, id)) return this.cockpitCache[id] ?? null;
+    let built: CockpitVisual | null = null;
+    if (id === 'cockpitTwin') built = buildTwinCockpit(this.materials);
+    else if (id === 'cockpitOpen') built = buildOpenCockpit(this.materials);
+    else if (id === 'cockpitSensor') built = buildSensorCockpit(this.materials);
+    if (built?.exterior) {
+      built.exterior.visible = false;
+      this.hull.add(built.exterior);
+    }
+    if (built?.interior) {
+      built.interior.visible = false;
+      this.cockpit.add(built.interior);
+    }
+    this.cockpitCache[id] = built;
+    return built;
+  }
+
+  private engineVisualFor(drive: DriveKind): EngineVisual | null {
+    if (drive === 'jets') return null;
+    if (Object.hasOwn(this.engineCache, drive)) return this.engineCache[drive] ?? null;
+    const built = buildEngineVisual(drive, this.materials);
+    if (built) {
+      built.group.visible = false;
+      this.hull.add(built.group);
+    }
+    this.engineCache[drive] = built;
+    return built;
   }
 
   /** Sets non-stride mechanical poses: kneeling (0..1), collapse (0..1), canopy cracks (0..3), leg limp and pod damage. */
@@ -519,7 +497,7 @@ export class StandIn {
     this.collapse = clamp(collapse);
     this.limpSide = limpSide;
     this.setCracks(cracks);
-    this.podGroup.rotation.set(podDown ? 0.36 : 0, 0, podDown ? -0.4 : 0);
+    this.shoulderAnchors[0]!.rotation.set(podDown ? 0.36 : 0, 0, podDown ? -0.4 : 0);
   }
 
   /**
@@ -533,6 +511,9 @@ export class StandIn {
   ): void {
     const parked = options?.parked === true;
     const jets = options?.jets === true;
+    const flying = options?.flying === true;
+    const jetMode = options?.jetMode === true;
+    const hover = options?.hover === true;
     const standby = parked || this.kneel > 0.1 || this.collapse > 0.1;
     const effectiveSink = (parked ? sink - 0.42 : sink) - this.kneel * 1.35 - this.collapse * 1.9;
     const limpRoll = this.limpSide * 0.08 * (0.4 + 0.6 * Math.abs(Math.sin(stride * Math.PI)));
@@ -542,7 +523,7 @@ export class StandIn {
     this.legs.rotation.y = legYaw;
     this.torso.position.set(feet.x + Math.cos(viewYaw) * sway, feet.y + FRAME_PLACES.hips + effectiveSink, feet.z - Math.sin(viewYaw) * sway);
     this.torso.rotation.set(
-      (parked ? -0.1 : 0) + this.kneel * 0.22 + this.collapse * 0.42,
+      (parked ? -0.1 : 0) + (jetMode ? -0.55 : 0) + this.kneel * 0.22 + this.collapse * 0.42,
       viewYaw,
       limpRoll + this.collapse * 0.26,
       'YXZ',
@@ -554,17 +535,28 @@ export class StandIn {
     this.cockpit.position.copy(eye);
     this.cockpit.rotation.set(0, viewYaw, 0);
 
-    this.visorActive.visible = !standby;
-    this.visorStandby.visible = standby;
+    const hideVisor = this.activeCockpit?.hideStandardVisor === true;
+    this.visorActive.visible = !hideVisor && !standby;
+    this.visorStandby.visible = !hideVisor && standby;
+    const burn = jets || flying || jetMode;
     for (let i = 0; i < this.jetCones.length; i++) {
       const cone = this.jetCones[i]!;
-      cone.visible = jets && !inside;
-      if (jets) cone.scale.set(1, 0.85 + Math.abs(Math.sin(stride * 13 + i * 2.1)) * 0.45, 1);
+      cone.visible = burn && !inside;
+      if (burn) cone.scale.set(1, (jetMode ? 1.55 : 0.85) + Math.abs(Math.sin(stride * 13 + i * 2.1)) * 0.45, 1);
     }
     if (options?.cracks !== undefined) this.setCracks(options.cracks);
 
+    if (this.activeEngine) {
+      this.activeEngine.pose(options?.dt ?? 1 / 60, jets, flying, hover, jetMode, stride, inside);
+    }
+
+    if (this.activeLegs) {
+      this.activeLegs.pose(stride, walk, effectiveSink, this.kneel, this.collapse, this.limpSide, parked, jetMode);
+      return;
+    }
+
     const swing = 0.28 * clamp(walk);
-    const crouchFlex = this.kneel * 0.32 + this.collapse * 0.48;
+    const crouchFlex = this.kneel * 0.32 + this.collapse * 0.48 + (jetMode ? 0.95 : 0);
     for (let i = 0; i < 2; i++) {
       // Over two plants: planted and pushed back for one, lifted and carried forward for the next.
       const u = ((stride + i) % 2 + 2) % 2 / 2;
@@ -573,14 +565,15 @@ export class StandIn {
       const side = this.sides[i]!;
       const isLimping = (i === 0 ? -1 : 1) === this.limpSide;
       const strideRot = planted ? swing * (1 - 2 * k) : swing * (2 * k - 1);
-      side.rotation.x = parked ? 0.08 : strideRot * (isLimping ? 0.55 : 1) + crouchFlex;
-      side.position.y = FRAME_PLACES.hips - 0.25 + effectiveSink * 0.45 + (planted ? 0 : Math.sin(k * Math.PI) * 0.45 * clamp(walk * 2) * (isLimping ? 0.45 : 1));
+      side.rotation.x = parked ? 0.08 : (jetMode ? 0 : strideRot * (isLimping ? 0.55 : 1)) + crouchFlex;
+      side.position.y = FRAME_PLACES.hips - 0.25 + effectiveSink * 0.45 + (planted || jetMode ? 0 : Math.sin(k * Math.PI) * 0.45 * clamp(walk * 2) * (isLimping ? 0.45 : 1));
     }
   }
 
   /** Reveal 0..3 progressive crack layers on the inner cockpit glass. */
   setCracks(stage: number): void {
-    for (let i = 0; i < this.cracks.length; i++) this.cracks[i]!.visible = i < stage;
+    const suppress = this.activeCockpit?.hideStandardInterior === true;
+    for (let i = 0; i < this.cracks.length; i++) this.cracks[i]!.visible = !suppress && i < stage;
   }
 
   /** In torso space to the world, from the last `pose`. */

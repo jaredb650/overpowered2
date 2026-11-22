@@ -14,6 +14,10 @@ import { CG, type PhysicsSystem } from '../core/contracts';
 import { clamp, lerp, wrapAngle } from '../core/math';
 import { CapsuleWorld, newSweepHit } from '../player/collide';
 import { FRAME, FRAME_TURN_FREE } from './data';
+import type { DriveKind, GaitKind } from './loadout';
+import type { DrivePlugin } from './move/drive/types';
+import type { GaitPlugin, MoveState } from './move/gait/types';
+import { DRIVE_REGISTRY, GAIT_REGISTRY } from './move/registry';
 
 export interface WalkerIntent {
   /** -1..1 each, relative to the view: right and ahead. */
@@ -26,6 +30,10 @@ export interface WalkerIntent {
   /** Pressed this frame. */
   stomp: boolean;
   charge: boolean;
+  /** Held Shift (used by Afterburner jet mode and Long-Haul run). */
+  chargeHeld?: boolean;
+  /** Camera pitch in radians (used by Flight / Afterburner 3D steering). */
+  viewPitch?: number;
 }
 
 /** What happened in the last `update`. */
@@ -47,6 +55,10 @@ export interface WalkerSaid {
   shift: number;
   /** Put back on the last ground it stood on, having got lost below the world. Should never happen. */
   rescued: boolean;
+  /** True when Spider Legs triggered a 360° leg sweep instead of a stomp. */
+  swept: boolean;
+  /** Extra stomp power/radius multiplier (e.g. 1.5 for Afterburner dive-bomb, 1 normally). */
+  stompMult: number;
 }
 
 const DOWN = new THREE.Vector3(0, -1, 0);
@@ -65,7 +77,7 @@ const _dir = new THREE.Vector3();
 const _n = new THREE.Vector3();
 const _o = new THREE.Vector3();
 
-export class Walker {
+export class Walker implements MoveState {
   /** Bottom of the legs. */
   readonly feet = new THREE.Vector3();
   readonly velocity = new THREE.Vector3();
@@ -76,8 +88,15 @@ export class Walker {
   grounded = false;
   /** Seconds of thrust left. */
   fuel: number = FRAME.jet.fuel;
+  /** Current tank capacity in seconds (from the active drive plug-in). */
+  maxFuel: number = FRAME.jet.fuel;
   jetting = false;
+  flying = false;
+  hovering = false;
+  jetMode = false;
+  armsLockedForward = false;
   charges: number = FRAME.charge.count;
+  maxCharges: number = FRAME.charge.count;
   /** Seconds until the next charge is back. */
   chargeIn = 0;
   /** Seconds left of a charge. */
@@ -87,28 +106,61 @@ export class Walker {
   recover = 0;
   /** Plants so far: whole numbers are a foot coming down. */
   stride = 0;
-  readonly said: WalkerSaid = { steps: 0, landed: 0, stomped: -1, bumped: 0, charged: false, lifted: false, turned: 0, shift: 0, rescued: false };
+  boost = 0;
+  stompTop = 0;
+  onGround = 0;
+  readonly chargeDir = new THREE.Vector3();
+  readonly said: WalkerSaid = {
+    steps: 0, landed: 0, stomped: -1, bumped: 0, charged: false, lifted: false, turned: 0, shift: 0, rescued: false,
+    swept: false, stompMult: 1,
+  };
   /** The legs take the view with them at once and there is no arc. */
   free: boolean = FRAME_TURN_FREE;
   /** Multiplier on walk speed from leg damage (1 intact, 0.62 one leg, 0.42 both legs), times the loadout's legs and engine. */
   speedScale = 1;
   /** Multiplier on the jets' launch from the loadout's legs (loadout.ts `frameStats`): 1 for the standard legs. */
   jumpScale = 1;
+  /** Multiplier on Shift charge speed from the engine (`frameStats.dash`). */
+  dashScale = 1;
+  /** Multiplier on lateral strafe speed from the legs (`frameStats.strafe`). */
+  strafeScale = 1;
+  /** Multiplier on hull turn rate from the legs (`frameStats.turnRate`). */
+  turnScale = 1;
+  /** Multiplier on jet/flight fuel capacity from the engine (`frameStats.fuelScale`). */
+  fuelScale = 1;
 
   private readonly body: CapsuleWorld;
   private readonly hit = newSweepHit();
   private readonly ray = newSweepHit();
-  private readonly chargeDir = new THREE.Vector3();
   private readonly safe = new THREE.Vector3();
-  private boost = 0;
-  private stompTop = 0;
   private sinceGround = 0;
-  private onGround = 0;
   private stuck = 0;
-  private readonly intent: WalkerIntent = { moveX: 0, moveZ: 0, viewYaw: 0, jet: false, stomp: false, charge: false };
+  private groundNormalY = 1;
+  private gaitPlugin: GaitPlugin = GAIT_REGISTRY.walker;
+  private drivePlugin: DrivePlugin = DRIVE_REGISTRY.jets;
+  private readonly intent: WalkerIntent = { moveX: 0, moveZ: 0, viewYaw: 0, jet: false, stomp: false, charge: false, chargeHeld: false, viewPitch: 0 };
 
   constructor(physics: PhysicsSystem, private readonly floorY = -Infinity) {
     this.body = new CapsuleWorld(physics, FRAME.body.radius, CG.World | CG.Barrier);
+  }
+
+  /** Switches the active leg gait and engine drive plug-ins from the Frame's loadout. */
+  setMovement(gait: GaitKind, drive: DriveKind): void {
+    this.gaitPlugin = GAIT_REGISTRY[gait] ?? GAIT_REGISTRY.walker;
+    this.drivePlugin = DRIVE_REGISTRY[drive] ?? DRIVE_REGISTRY.jets;
+    this.gaitPlugin.reset?.();
+    this.drivePlugin.reset?.();
+    this.flying = this.hovering = this.jetMode = this.armsLockedForward = false;
+    this.maxFuel = this.drivePlugin.maxFuel(this);
+    this.maxCharges = this.drivePlugin.maxCharges(this);
+    this.fuel = this.maxFuel;
+    this.charges = this.maxCharges;
+    this.chargeIn = 0;
+  }
+
+  /** HUD label for the drive/jets row (e.g. `'JETS'`, `'FLIGHT'`, `'ROTOR'`). */
+  get driveHudLabel(): string {
+    return this.drivePlugin.hudLabel ?? 'JETS';
   }
 
   /** Stands it on `feet`, facing `yaw`, with everything full. */
@@ -118,11 +170,16 @@ export class Walker {
     this.velocity.set(0, 0, 0);
     this.legYaw = this.viewYaw = yaw;
     this.grounded = false;
-    this.fuel = FRAME.jet.fuel;
-    this.jetting = this.stomping = false;
-    this.charges = FRAME.charge.count;
+    this.gaitPlugin.reset?.();
+    this.drivePlugin.reset?.();
+    this.maxFuel = this.drivePlugin.maxFuel(this);
+    this.maxCharges = this.drivePlugin.maxCharges(this);
+    this.fuel = this.maxFuel;
+    this.jetting = this.flying = this.hovering = this.jetMode = this.armsLockedForward = this.stomping = false;
+    this.charges = this.maxCharges;
     this.chargeIn = this.charging = this.recover = this.boost = 0;
     this.stride = 0;
+    this.groundNormalY = 1;
     this.speedScale = 1;
     this.settle();
   }
@@ -158,8 +215,11 @@ export class Walker {
     const s = this.said;
     s.steps = s.landed = s.bumped = s.turned = s.shift = 0;
     s.stomped = -1;
-    s.charged = s.lifted = s.rescued = false;
+    s.charged = s.lifted = s.rescued = s.swept = false;
+    s.stompMult = 1;
     Object.assign(this.intent, intent);
+    this.intent.chargeHeld = intent.chargeHeld ?? false;
+    this.intent.viewPitch = intent.viewPitch ?? 0;
     const ticks = Math.max(1, Math.ceil(dt / TICK - 1e-6));
     for (let i = 0; i < ticks; i++) {
       this.tick(dt / ticks, this.intent);
@@ -171,8 +231,10 @@ export class Walker {
   private tick(h: number, intent: WalkerIntent): void {
     this.turn(h, intent);
     this.refill(h);
-    if (intent.charge) this.startCharge(intent);
-    if (intent.stomp) this.startStomp();
+    if (!this.drivePlugin.charge?.(this, h, intent) && intent.charge) this.startCharge(intent);
+    if (intent.stomp) {
+      if (!this.gaitPlugin.startStomp?.(this, intent)) this.startStomp();
+    }
     this.jets(h, intent);
     this.walk(h, intent);
     const startY = this.feet.y;
@@ -192,18 +254,22 @@ export class Walker {
    * whatever it asks beyond that is lost, so the view never moves on its own. Walking, the legs come round under it as well.
    */
   private turn(h: number, intent: WalkerIntent): void {
-    const T = FRAME.turn;
     const before = this.legYaw;
-    const off = wrapAngle(intent.viewYaw - this.legYaw);
-    if (this.free) {
-      this.legYaw = wrapAngle(this.legYaw + off * (1 - Math.exp(-T.free * h)));
-      this.viewYaw = intent.viewYaw;
-    } else {
-      const over = Math.abs(off) - T.arc;
-      const moving = this.grounded && (intent.moveX !== 0 || intent.moveZ !== 0);
-      const rate = over > 0 ? Math.min(over, T.rate * h) : moving ? Math.min(Math.abs(off), T.walking * h) : 0;
-      this.legYaw = wrapAngle(this.legYaw + Math.sign(off) * rate);
-      this.viewYaw = wrapAngle(this.legYaw + clamp(wrapAngle(intent.viewYaw - this.legYaw), -T.arc, T.arc));
+    if (!this.gaitPlugin.turn?.(this, h, intent)) {
+      const T = FRAME.turn;
+      const off = wrapAngle(intent.viewYaw - this.legYaw);
+      if (this.free) {
+        this.legYaw = wrapAngle(this.legYaw + off * (1 - Math.exp(-T.free * this.turnScale * h)));
+        this.viewYaw = intent.viewYaw;
+      } else {
+        const over = Math.abs(off) - T.arc;
+        const moving = this.grounded && (intent.moveX !== 0 || intent.moveZ !== 0);
+        const rate = over > 0
+          ? Math.min(over, T.rate * this.turnScale * h)
+          : moving ? Math.min(Math.abs(off), T.walking * this.turnScale * h) : 0;
+        this.legYaw = wrapAngle(this.legYaw + Math.sign(off) * rate);
+        this.viewYaw = wrapAngle(this.legYaw + clamp(wrapAngle(intent.viewYaw - this.legYaw), -T.arc, T.arc));
+      }
     }
     this.said.turned += Math.abs(wrapAngle(this.legYaw - before));
   }
@@ -211,13 +277,17 @@ export class Walker {
   // ---- the three moves ----------------------------------------------------------------------------------------
 
   private refill(h: number): void {
-    const C = FRAME.charge;
-    if (this.charges < C.count) {
+    this.maxFuel = this.drivePlugin.maxFuel(this);
+    this.maxCharges = this.drivePlugin.maxCharges(this);
+    const refillTime = this.drivePlugin.chargeRefill(this);
+    if (this.charges < this.maxCharges && refillTime > 0) {
       this.chargeIn -= h;
       if (this.chargeIn <= 0) {
         this.charges++;
-        this.chargeIn = this.charges < C.count ? C.refill : 0;
+        this.chargeIn = this.charges < this.maxCharges ? refillTime : 0;
       }
+    } else if (this.charges >= this.maxCharges) {
+      this.chargeIn = 0;
     }
     if (this.recover > 0) this.recover = Math.max(0, this.recover - h);
   }
@@ -225,9 +295,10 @@ export class Walker {
   /** Shoulder first along the keys held, or the view with none; the legs re-plant under the view at once. Cancels standing up. */
   private startCharge(intent: WalkerIntent): void {
     const C = FRAME.charge;
-    if (this.charges <= 0 || this.charging > 0 || this.stomping) return;
+    if (this.maxCharges <= 0 || this.charges <= 0 || this.charging > 0 || this.stomping) return;
     this.charges--;
-    if (this.chargeIn <= 0) this.chargeIn = C.refill;
+    const refillTime = this.drivePlugin.chargeRefill(this);
+    if (this.chargeIn <= 0 && refillTime > 0) this.chargeIn = refillTime;
     this.charging = C.seconds;
     this.recover = 0;
     this.legYaw = this.viewYaw;
@@ -249,16 +320,18 @@ export class Walker {
   }
 
   private jets(h: number, intent: WalkerIntent): void {
+    if (this.drivePlugin.jets?.(this, h, intent)) return;
     const J = FRAME.jet;
+    const maxFuel = this.maxFuel;
     const v = this.velocity;
     if (this.grounded) {
       this.onGround += h;
-      if (this.onGround > J.refillAfter) this.fuel = Math.min(J.fuel, this.fuel + (J.fuel / J.refill) * h);
+      if (this.onGround > J.refillAfter) this.fuel = Math.min(maxFuel, this.fuel + (maxFuel / J.refill) * h);
     } else {
       this.onGround = 0;
     }
     // A press off the ground launches; a key already down on landing does not, as a jump would not.
-    const launch = intent.jet && !this.jetting && this.grounded && this.fuel >= J.launchMin && this.recover <= 0 && !this.stomping;
+    const launch = intent.jet && !this.jetting && this.grounded && this.jumpScale > 0 && this.fuel >= J.launchMin && this.recover <= 0 && !this.stomping;
     if (launch) {
       v.y = J.launch * this.jumpScale;
       this.boost = J.boostSeconds;
@@ -290,7 +363,7 @@ export class Walker {
   }
 
   /** The keys as a velocity in the world: ahead and back and sideways each at its own speed. */
-  private wish(intent: WalkerIntent, out: THREE.Vector3): THREE.Vector3 {
+  wish(intent: WalkerIntent, out: THREE.Vector3): THREE.Vector3 {
     const W = FRAME.walk;
     let x = intent.moveX;
     let z = intent.moveZ;
@@ -302,16 +375,18 @@ export class Walker {
     const sy = Math.sin(this.viewYaw);
     const cy = Math.cos(this.viewYaw);
     const ahead = z * (z > 0 ? W.forward : W.back) * this.speedScale;
-    const side = x * W.side * this.speedScale;
+    const side = x * W.side * this.speedScale * this.strafeScale;
     return out.set(-sy * ahead + cy * side, 0, -cy * ahead - sy * side);
   }
 
   private walk(h: number, intent: WalkerIntent): void {
+    if (this.drivePlugin.airMove?.(this, h, intent)) return;
+    if (this.gaitPlugin.walk?.(this, h, intent, this.groundNormalY)) return;
     const W = FRAME.walk;
     const v = this.velocity;
     if (this.charging > 0) {
       this.charging -= h;
-      const speed = this.charging > 0 ? FRAME.charge.speed : W.forward;
+      const speed = this.charging > 0 ? FRAME.charge.speed * this.dashScale : W.forward;
       v.x = this.chargeDir.x * speed;
       v.z = this.chargeDir.z * speed;
       return;
@@ -342,12 +417,14 @@ export class Walker {
   /** Across, the body capsule against walls, sliding along them. A charge that meets one square on stops dead. */
   private slide(h: number): void {
     const B = FRAME.body;
+    const step = this.gaitPlugin.stepHeight;
     const v = this.velocity;
-    const height = B.top - B.step;
-    // Each plant pushes, so a walk swells and sags over a stride instead of gliding.
-    const surge = this.grounded && this.charging <= 0 ? 1 + FRAME.walk.surge * Math.cos(this.stride * Math.PI * 2) : 1;
+    const height = Math.max(0.5, B.top - step);
+    // Each plant pushes, so a walk swells and sags over a stride instead of gliding (suppressed on Treads).
+    const surge = !this.gaitPlugin.noSurge && this.grounded && this.charging <= 0
+      ? 1 + FRAME.walk.surge * Math.cos(this.stride * Math.PI * 2) : 1;
     _base.copy(this.feet);
-    _base.y += B.step;
+    _base.y += step;
     _motion.set(v.x * h * surge, 0, v.z * h * surge);
     for (let i = 0; i < MAX_SLIDES; i++) {
       const len = _motion.length();
@@ -368,7 +445,7 @@ export class Walker {
       const moved = Math.max(0, travel - back);
       _base.addScaledVector(_dir, moved);
       if (this.charging > 0 && into > 0.5) {
-        this.said.bumped = FRAME.charge.speed;
+        this.said.bumped = FRAME.charge.speed * this.dashScale;
         this.charging = 0;
         this.recover = 0.3;
         v.x = v.z = 0;
@@ -391,13 +468,14 @@ export class Walker {
   /** Up, the capsule against what is overhead; down is the ground's to stop. */
   private rise(h: number): void {
     const B = FRAME.body;
+    const step = this.gaitPlugin.stepHeight;
     const v = this.velocity;
     let dy = v.y * h;
     if (dy > 0) {
       _base.copy(this.feet);
-      _base.y += B.step;
+      _base.y += step;
       _motion.set(0, dy, 0);
-      if (this.body.sweep(_base, B.top - B.step, _motion, this.hit)) {
+      if (this.body.sweep(_base, Math.max(0.5, B.top - step), _motion, this.hit)) {
         dy = Math.max(0, this.hit.toi * dy - B.skin);
         v.y = 0;
         this.boost = 0;
@@ -412,24 +490,30 @@ export class Walker {
    * foot that catches a ledge lifts the Frame onto it and the climb goes on.
    */
   private ground(wasGrounded: boolean): void {
-    const B = FRAME.body;
+    const step = this.gaitPlugin.stepHeight;
+    const minWalkY = this.gaitPlugin.minWalkY;
     const v = this.velocity;
-    const reach = B.step + 0.05 + (wasGrounded ? B.step + 0.1 : 0.05);
+    const reach = step + 0.05 + (wasGrounded ? step + 0.1 : 0.05);
     const c = Math.cos(this.legYaw);
     const sn = Math.sin(this.legYaw);
     const r = FRAME.foot;
     let top = -Infinity;
+    let bestNormalY = 1;
     for (let i = 0; i < 5; i++) {
       // Middle, ahead, behind, left, right, in the legs' frame.
       const a = i === 0 ? 0 : r;
       const along = i === 1 ? -a : i === 2 ? a : 0;
       const across = i === 3 ? -a : i === 4 ? a : 0;
-      _o.set(this.feet.x + c * across + sn * along, this.feet.y + B.step + 0.05, this.feet.z - sn * across + c * along);
-      if (!this.body.castRay(_o, DOWN, reach, this.ray) || this.ray.toi < 0.01 || this.ray.normal.y < B.minWalkY) continue;
-      top = Math.max(top, this.ray.point.y);
+      _o.set(this.feet.x + c * across + sn * along, this.feet.y + step + 0.05, this.feet.z - sn * across + c * along);
+      if (!this.body.castRay(_o, DOWN, reach, this.ray) || this.ray.toi < 0.01 || this.ray.normal.y < minWalkY) continue;
+      if (this.ray.point.y > top) {
+        top = this.ray.point.y;
+        bestNormalY = this.ray.normal.y;
+      }
     }
     if (top === -Infinity) {
       if (wasGrounded) this.leave();
+      this.groundNormalY = 1;
       return;
     }
     if (wasGrounded || v.y <= 0) {
@@ -437,10 +521,12 @@ export class Walker {
       this.feet.y = top;
       v.y = 0;
       this.grounded = true;
+      this.groundNormalY = bestNormalY;
       this.sinceGround = 0;
       this.safe.copy(this.feet);
     } else if (top > this.feet.y) {
       this.feet.y = top;
+      this.groundNormalY = bestNormalY;
     }
   }
 
