@@ -100,7 +100,7 @@ export const REMOTE_MODS: Readonly<Record<ModId, { look: ModLook; sees: string }
   piledriverAcog: { look: 'none', sees: SIGHT }, ultramagDot: { look: 'none', sees: SIGHT }, flailDot: { look: 'none', sees: SIGHT },
   flailAcog: { look: 'none', sees: SIGHT },
   awlCan: { look: 'report', sees: 'the suppressed report and the small dim flash' },
-  awl50: { look: 'report', sees: 'the thunderous .50 Cal anti-materiel report, heavy sabot flash, and oversized cannon casing' },
+  awl50: { look: 'report', sees: 'the thunderous .50 Cal anti-materiel report (or suppressed .50 Cal report with a can), heavy sabot flash, and oversized cannon casing' },
   suppressor: { look: 'report', sees: 'the suppressed report and the small dim flash, at the faster rate' },
   gimletCan: { look: 'report', sees: 'the suppressed report and the small dim flash' },
   ultramagCan: { look: 'report', sees: 'the suppressed report and the small dim flash' },

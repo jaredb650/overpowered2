@@ -275,6 +275,7 @@ export const MODS: Readonly<Record<ModId, ModDef>> = {
       penetration: d.penetration > 0 ? d.penetration + 0.8 : 0,
       bodyCost: 0.16,
       ...(d.load !== 'hp' ? { armorPiercing: true } : {}),
+      ...(d.muzzle === 'suppressed' ? { sounds: [{ id: 'awl50_suppressed_shot', pitchJitter: 0.02 }] } : {}),
       interval: +(d.interval * 1.15).toFixed(3),
       cycleTime: d.cycleTime ? +(d.cycleTime * 1.15).toFixed(3) : undefined,
       cycleFoley: d.cycleFoley?.map(([at, id]) => [+(at * 1.15).toFixed(3), id] as const),

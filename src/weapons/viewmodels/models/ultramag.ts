@@ -59,10 +59,11 @@ const FEED_Y = 0.017;
 const FEED_Z = BREECH + TRAVEL - 0.002;
 const MAG_Y = 0.014;
 const MAG_Z = 0.056;
-/** The suppressor: from the muzzle face forward, its half width and half height round the bore (its top stays under SIGHT_Y). */
-const CAN_LEN = 0.165;
-const CAN_W = 0.0185;
-const CAN_H = 0.0182;
+/** The oversized offset-monolith suppressor: from the muzzle face forward, half width, height above bore (under SIGHT_Y) and deep belly below bore. */
+const CAN_LEN = 0.35;
+const CAN_W = 0.0265;
+const CAN_TOP = 0.0186;
+const CAN_BOT = 0.062;
 /** The reflex sight on the slide just ahead of the rear sight, as an optic cut has it: its centre along the slide, and its dot. */
 /** The compensator's length from the muzzle face forward. Its section is the slide's over the frame's. */
 const COMP_LEN = 0.08;
@@ -77,6 +78,9 @@ const RED: Finish = { color: 0xa8231c, rough: 0.4, metal: 0.55, wear: 0.55 };
 const RED_TEXTURE: Finish = { ...RED, rough: 0.62, kind: Kind.stipple };
 /** The compensator's nitride: the slide's, a shade darker, so it reads as a part of its own. */
 const COMP_NITRIDE: Finish = { ...NITRIDE, color: 0x5d646d };
+/** Suppressor outer shroud (matte dark carbon/anodized weave) and machined dark-titanium collar, clamps and muzzle hardware. */
+const CAN_SHROUD: Finish = { color: 0x23262c, rough: 0.42, metal: 0.38, wear: 0.35, kind: Kind.carbon };
+const CAN_TITANIUM: Finish = { color: 0x4c535e, rough: 0.29, metal: 0.92, wear: 0.22, kind: Kind.brushed };
 
 /** Slide section, seen from behind: flat sides, a steep facet, then a rounded top flat. */
 function slideSection(): V2[] {
@@ -313,38 +317,152 @@ function magazine(m: Mesher): void {
   });
 }
 
-/** A square suppressor in the slide's colours on a stub of barrel: black body, grey ends, vented flanks over a red line. */
+/**
+ * An oversized brutalist offset-monolith suppressor on a heavy barrel stub: eccentric chamfered carbon-weave body hanging deep
+ * below the bore so its top stays under the sight line, machined dark-titanium QD locking collar and mid-body structural clamp,
+ * vented armor flanks with fluted belly ribs over a recessed red inset line, anti-glare top sight channel, and recessed muzzle crown.
+ */
 function suppressor(m: Mesher): void {
   m.part('can', [0, BORE, MUZZLE], () => {
+    const section = (w: number, top: number, bot: number, cTop: number, cBot: number) => poly([
+      [-w + cBot, -bot], [w - cBot, -bot],
+      [w, -bot + cBot], [w, top - cTop],
+      [w - cTop, top], [-w + cTop, top],
+      [-w, top - cTop], [-w, -bot + cBot],
+    ], 0.0018, 2);
+
+    // Heavy threaded barrel adapter stub & stainless indexing shoulder emerging from the Ultramag muzzle.
     m.use(F.barrel);
-    m.at([0, 0, -0.006], null, () => m.cyl(0.0106, 0.014, 18, 0.0004));
-    const section = (w: number, h: number, c: number) => poly([[-w, -h], [w, -h], [w, h - c], [w - c, h], [-w + c, h], [-w, h - c]], 0.0016);
-    // Rear collar, ribbed for the hand that screws it on.
-    m.use(NITRIDE);
-    m.at([0, 0, -0.019], null, () => m.front(section(CAN_W - 0.0015, CAN_H - 0.0015, 0.006), 0.016, { bevel: 0.0014 }));
+    m.at([0, 0, -0.005], null, () => m.cyl(0.0114, 0.014, 18, 0.0004));
+    m.use(STAINLESS);
+    m.at([0, 0, -0.0055], null, () => m.cyl(0.014, 0.0036, 18, 0.0004));
+
+    // Rear quick-detach machined dark-titanium locking collar: stepped transition mating tightly to the Ultramag front face.
+    m.use(CAN_TITANIUM);
+    m.at([0, 0, -0.01], null, () => m.front(section(CAN_W - 0.0052, CAN_TOP - 0.0028, CAN_BOT - 0.018, 0.0075, 0.007), 0.009, { bevel: 0.0016 }));
+    m.at([0, 0, -0.0265], null, () => m.front(section(CAN_W - 0.0016, CAN_TOP - 0.0014, CAN_BOT - 0.0065, 0.009, 0.0085), 0.026, { bevel: 0.0016 }));
+    // Deep radial grip grooves milled around the locking collar flanks + stainless QD latch tab.
     m.use(F.black);
     m.mirror(() => {
-      for (let index = 0; index < 5; index++) m.at([CAN_W - 0.0014, 0, -0.0135 - index * 0.0028], null, () => m.box(0.0006, CAN_H * 1.3, 0.0012, 0.0002));
+      for (let i = 0; i < 5; i++) {
+        m.at([CAN_W - 0.0015, -0.018, -0.018 - i * 0.0042], null, () => m.box(0.0008, CAN_TOP + CAN_BOT - 0.028, 0.0016, 0));
+      }
     });
-    // Body: a dark core, flanks with slanted vents through to it, a flat top with a channel down its middle.
-    const z0 = -0.027;
-    const z1 = -CAN_LEN + 0.012;
+    m.use(STAINLESS);
+    m.mirror(() => m.at([CAN_W - 0.001, -0.036, -0.0265], null, () => m.box(0.0018, 0.0085, 0.014, 0.0006)));
+    m.mirror(() => screwX(m, CAN_W - 0.0014, -0.003, -0.0265, 1, 0.0022, F.steelDark));
+
+    // Continuous dark recessed pressure-vessel core spanning both baffle modules.
+    const zStart = -0.039;
+    const zEnd = -CAN_LEN + 0.038; // -0.312
+    const zMidA = -0.172;
+    const zMidB = -0.199;
     m.use(FRAME);
-    m.at([0, 0, (z0 + z1) / 2], null, () => m.front(section(CAN_W - 0.0032, CAN_H - 0.0006, 0.006), z0 - z1, { bevel: 0.0012 }));
-    m.use(NITRIDE);
-    m.mirror(() => m.at([CAN_W - 0.0016, 0, 0], null, () => m.side(poly([
-      [z0, -CAN_H + 0.002], [z0, CAN_H - 0.0075], [z1, CAN_H - 0.0075], [z1, -CAN_H + 0.002],
-    ], 0.0015), 0.0032, { bevel: 0.0008, holes: slotRow(z0 - 0.014, -0.002, z1 + 0.014, -0.002, 7, 0.016, 0.0042, 1.25) })));
+    m.at([0, 0, (zStart + zEnd) / 2], null, () => m.front(section(CAN_W - 0.0034, CAN_TOP - 0.0024, CAN_BOT - 0.0024, 0.0092, 0.009), zStart - zEnd + 0.002, { bevel: 0.0014 }));
+
+    // Twin chamfered matte carbon/anodized outer shroud modules (rear expansion chamber & forward baffle housing).
+    const moduleBody = (za: number, zb: number, vents: number) => {
+      const len = za - zb;
+      const zc = (za + zb) / 2;
+      m.use(CAN_SHROUD);
+      m.at([0, 0, zc], null, () => m.front(section(CAN_W - 0.0012, CAN_TOP - 0.0016, CAN_BOT - 0.0008, 0.0096, 0.0095), len, { bevel: 0.0018 }));
+      // Sculpted titanium flank armor plates with slanted cooling vents over a dark recessed chamber.
+      m.use(F.black);
+      m.mirror(() => m.at([CAN_W - 0.0022, -0.007, zc], null, () => m.box(0.0008, 0.026, len - 0.012, 0)));
+      m.use(CAN_TITANIUM);
+      m.mirror(() => m.at([CAN_W - 0.0008, 0, 0], null, () => m.side(poly([
+        [za - 0.004, -0.022], [za - 0.004, 0.0075], [zb + 0.004, 0.0075], [zb + 0.004, -0.022],
+      ], 0.0018, 2), 0.0026, { bevel: 0.0007, holes: slotRow(za - 0.018, -0.007, zb + 0.018, -0.007, vents, 0.0175, 0.0046, 1.22) })));
+      // Deep lower expansion-belly flute channel with twin machined cooling ribs and a thin glowing red accent line.
+      m.use(F.black);
+      m.mirror(() => m.at([CAN_W - 0.0014, -0.0375, zc], null, () => m.box(0.0008, 0.019, len - 0.01, 0)));
+      m.glow('accent', () => m.mirror(() => m.at([CAN_W - 0.001, -0.0375, zc], null, () => m.box(0.0004, 0.0012, len - 0.016, 0))));
+      m.use(CAN_TITANIUM);
+      m.mirror(() => {
+        for (const ry of [-0.0312, -0.0438]) {
+          m.at([CAN_W - 0.0004, ry, zc], null, () => m.box(0.0022, 0.0042, len - 0.01, 0.0007));
+        }
+      });
+      // Top spine twin chamfered side rails framing a dark anti-glare sight trough with milled anti-mirage cross-ribs.
+      m.use(CAN_TITANIUM);
+      m.mirror(() => m.at([0.0118, CAN_TOP - 0.001, zc], null, () => m.box(0.0068, 0.002, len - 0.004, 0.0006)));
+      m.use(F.black);
+      m.at([0, CAN_TOP - 0.0021, zc], null, () => m.box(0.0148, 0.0008, len - 0.004, 0));
+      m.use(CAN_SHROUD);
+      for (let i = 0; i < 4; i++) {
+        const rz = za - 0.016 - (i / 3) * (len - 0.032);
+        m.at([0, CAN_TOP - 0.0015, rz], null, () => m.box(0.0132, 0.0012, 0.0036, 0.0003));
+      }
+      // Heavy machined ventral keel skid bar with transverse cooling slots along the underside.
+      m.use(CAN_TITANIUM);
+      m.at([0, -CAN_BOT + 0.0002, zc], null, () => m.box(0.025, 0.0026, len - 0.006, 0.0008));
+      m.use(F.black);
+      for (let i = 0; i < 4; i++) {
+        const kz = za - 0.018 - (i / 3) * (len - 0.036);
+        m.at([0, -CAN_BOT - 0.0009, kz], null, () => m.box(0.022, 0.0008, 0.0036, 0));
+      }
+    };
+
+    moduleBody(zStart - 0.002, zMidA, 6);
+    moduleBody(zMidB, zEnd, 5);
+
+    // Mid-body machined dark-titanium structural clamp collar joining the two baffle modules.
+    const zMid = (zMidA + zMidB) / 2;
+    m.use(CAN_TITANIUM);
+    m.at([0, 0, zMid], null, () => m.front(section(CAN_W + 0.0004, CAN_TOP - 0.0004, CAN_BOT + 0.0006, 0.01, 0.0095), zMidA - zMidB + 0.004, { bevel: 0.0018 }));
     m.use(F.black);
-    m.mirror(() => m.at([CAN_W - 0.0034, -0.002, (z0 + z1) / 2], null, () => m.box(0.0006, 0.02, z0 - z1 - 0.01, 0.0002)));
-    m.glow('accent', () => m.mirror(() => m.at([CAN_W - 0.0033, -CAN_H + 0.0045, (z0 + z1) / 2], null, () => m.box(0.0004, 0.0011, z0 - z1 - 0.016, 0))));
-    m.use(NITRIDE);
-    m.mirror(() => m.at([0.0068, CAN_H - 0.0004, (z0 + z1) / 2], null, () => m.box(0.0072, 0.0016, z0 - z1, 0.0005)));
-    // Front cap and its bore.
-    m.at([0, 0, -CAN_LEN + 0.006], null, () => m.front(section(CAN_W, CAN_H, 0.0065), 0.012, { bevel: 0.0016, holes: [circle(0, 0, 0.0072, 18)] }));
+    m.mirror(() => m.at([CAN_W + 0.0005, -0.023, zMid], null, () => m.box(0.0006, 0.022, 0.016, 0)));
+    m.mirror(() => {
+      screwX(m, CAN_W + 0.0005, -0.004, zMid, 1, 0.0022, F.steelDark);
+      screwX(m, CAN_W + 0.0005, -0.042, zMid, 1, 0.0022, F.steelDark);
+    });
+
+    // Heavy stepped front end-cap, angled nose shroud, lower baffle plug detail, and recessed circular muzzle crown.
+    const zCap0 = zEnd; // -0.312
+    const zCap1 = -CAN_LEN + 0.015; // -0.335
+    const zNose = -CAN_LEN + 0.0055; // -0.3445
+    m.use(CAN_TITANIUM);
+    m.at([0, 0, (zCap0 + zCap1) / 2], null, () => m.front(section(CAN_W, CAN_TOP - 0.0004, CAN_BOT, 0.01, 0.0095), zCap0 - zCap1, { bevel: 0.0018, holes: [circle(0, 0, 0.0098, 20)] }));
+    m.mirror(() => {
+      screwX(m, CAN_W + 0.0001, -0.004, (zCap0 + zCap1) / 2, 1, 0.0022, F.steelDark);
+      screwX(m, CAN_W + 0.0001, -0.04, (zCap0 + zCap1) / 2, 1, 0.0022, F.steelDark);
+    });
+    m.use(CAN_SHROUD);
+    m.at([0, 0, (zCap1 + zNose) / 2 + 0.001], null, () => m.front(section(CAN_W - 0.0024, CAN_TOP - 0.002, CAN_BOT - 0.005, 0.0094, 0.009), zCap1 - zNose + 0.002, { bevel: 0.002, holes: [circle(0, 0, 0.0098, 20)] }));
+    // Lower front baffle-chamber plug detail on the deep monolith nose face.
     m.use(F.black);
-    m.at([0, 0, -CAN_LEN + 0.016], null, () => m.cyl(0.0074, 0.002, 18, 0));
-    m.mirror(() => screwX(m, CAN_W + 0.0001, CAN_H - 0.009, -CAN_LEN + 0.006, 1, 0.0018, F.steelDark));
+    m.at([0, -0.033, zNose - 0.0002], null, () => m.box(0.025, 0.019, 0.001, 0));
+    m.use(CAN_TITANIUM);
+    m.at([0, -0.033, zNose - 0.0009], null, () => m.box(0.02, 0.014, 0.0018, 0.0006));
+    m.use(F.steelDark);
+    m.at([0, -0.033, zNose - 0.0018], null, () => m.cyl(0.0042, 0.0014, 6, 0.0003));
+    // Machined circular muzzle aperture crown protruding cleanly to -CAN_LEN, with stainless inner chamfer and deep dark bore.
+    m.use(CAN_TITANIUM);
+    m.lathe([
+      [0.0136, zCap1 + 0.001, 0],
+      [0.0136, zNose - 0.0005, 0.0008],
+      [0.0118, -CAN_LEN + 0.0005, 0.0007],
+      [0.0094, -CAN_LEN + 0.0005, 0.0004],
+      [0.0094, zNose + 0.001, 0],
+    ], 22);
+    m.use(STAINLESS);
+    m.lathe([
+      [0.0094, -CAN_LEN + 0.0018, 0],
+      [0.0094, -CAN_LEN, 0.0004],
+      [0.0076, -CAN_LEN, 0.0004],
+      [0.0076, -CAN_LEN + 0.0025, 0],
+    ], 20);
+    m.use(F.black);
+    m.lathe([
+      [0.0076, -CAN_LEN + 0.0022, 0],
+      [0.0074, zCap0 + 0.004, 0],
+      [0, zCap0 + 0.005, 0],
+    ], 16);
+    // Four spanner-wrench relief notches around the muzzle crown face.
+    for (let i = 0; i < 4; i++) {
+      const a = Math.PI / 4 + (i * Math.PI) / 2;
+      m.at([Math.cos(a) * 0.0112, Math.sin(a) * 0.0112, -CAN_LEN + 0.0007], [0, 0, a], () => m.box(0.0028, 0.0016, 0.0018, 0));
+    }
   });
 }
 

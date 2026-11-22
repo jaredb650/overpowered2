@@ -4,13 +4,15 @@
  */
 import * as THREE from 'three';
 import { beforeEach, describe, expect, it } from 'vitest';
-import type { ModId, ProjectileSpec } from '../core/gameplay';
+import type { FireNote, ModId, ProjectileSpec } from '../core/gameplay';
+import { lookup } from '../audio/catalog';
 import { MOD_WARES, WEAPON_WARES } from '../contracts/shop/data';
 import { CACHE_ORDER } from '../progression/data';
 import { WEAPONS } from './data';
 import { familyOfSlot } from './families';
 import { AWL_BARREL, GREASE, MODS, MOD_ORDER, moddedDef } from './mods';
 import { makeRange, type Range } from './testkit';
+import { Watcher, plainNote, type Shooter } from './watch';
 import { Anim } from './viewmodels/def';
 import { Kit } from './viewmodels/kit/kit';
 import type { VmMaterials } from './viewmodels/kit/materials';
@@ -350,7 +352,7 @@ describe('Awl .50 Cal conversion mod (awl50)', () => {
     expect(stacked.tracer).toBe('scoutLong');
     expect(stacked.penetration).toBeCloseTo(WEAPONS.awl.penetration + 0.8 + AWL_BARREL.penetration, 3);
 
-    // Fires awl50_shot when unsuppressed; awlCan overrides sound with awl_suppressed_shot.
+    // Fires awl50_shot when unsuppressed; awlCan + awl50 switches to awl50_suppressed_shot.
     r.record.sounds.length = 0;
     r.tap('fire');
     expect(r.record.sounds).toContain('awl50_shot');
@@ -362,8 +364,13 @@ describe('Awl .50 Cal conversion mod (awl50)', () => {
     expect(r.weapons.fitted.has('awlCan')).toBe(true);
     r.record.sounds.length = 0;
     r.tap('fire');
-    expect(r.record.sounds).toContain('awl_suppressed_shot');
+    expect(r.record.sounds).toContain('awl50_suppressed_shot');
     expect(r.record.sounds).not.toContain('awl50_shot');
+    expect(r.record.sounds).not.toContain('awl_suppressed_shot');
+
+    // Removing awl50 while keeping awlCan restores the standard suppressed scout shot.
+    const plainCan = moddedDef('awl', new Set<ModId>(['awlCan']));
+    expect(plainCan.sounds[0]!.id).toBe('awl_suppressed_shot');
 
     // Stacks with awlBolt (GREASE * 1.15) and awlHp (HP disables penetration/AP while keeping damage boost).
     const greased50 = moddedDef('awl', new Set<ModId>(['awl50', 'awlBolt']));
@@ -433,5 +440,46 @@ describe('Awl .50 Cal conversion mod (awl50)', () => {
     def.animate(anim);
     expect(def.model.parts.bolt!.rotation.z).toBeCloseTo(1.12);
     expect(def.model.parts.bolt!.position.z).toBeCloseTo(0.14);
+  });
+
+  it('registers mgl_shot and awl50_suppressed_shot as gun samples and plays them for remote co-op shooters', () => {
+    const mglSample = lookup('mgl_shot');
+    expect(mglSample?.kind).toBe('sample');
+    expect(mglSample?.file).toBe('guns/mgl_shot.mp3');
+
+    const awl50CanSample = lookup('awl50_suppressed_shot');
+    expect(awl50CanSample?.kind).toBe('sample');
+    expect(awl50CanSample?.file).toBe('guns/awl50_suppressed_shot.mp3');
+
+    const at = new THREE.Vector3(0, 1, 0);
+    const shooter: Shooter = {
+      eye: at.clone(),
+      forward: new THREE.Vector3(0, 0, -1),
+      velocity: new THREE.Vector3(),
+      seat: 1,
+      muzzle: (out: THREE.Vector3) => out.copy(at).add(new THREE.Vector3(0.2, -0.2, -0.5)),
+      gesture() {},
+    };
+    const watcher = new Watcher(r.ctx, shooter);
+
+    // Remote MGL plays mgl_shot.
+    watcher.hold('mgl', []);
+    r.record.sounds.length = 0;
+    watcher.fire('mgl', at, new THREE.Vector3(0, 0, -1), plainNote({ to: new THREE.Vector3() } as FireNote));
+    expect(r.record.sounds).toContain('mgl_shot');
+
+    // Remote AWL + awl50 + awlCan plays awl50_suppressed_shot.
+    watcher.hold('awl', ['awl50', 'awlCan']);
+    r.record.sounds.length = 0;
+    watcher.fire('awl', at, new THREE.Vector3(0, 0, -1), { ...plainNote({ to: new THREE.Vector3() } as FireNote), rays: 1 });
+    expect(r.record.sounds).toContain('awl50_suppressed_shot');
+    expect(r.record.sounds).not.toContain('awl50_shot');
+    expect(r.record.sounds).not.toContain('awl_suppressed_shot');
+
+    // Remote plain AWL + awlCan keeps awl_suppressed_shot.
+    watcher.hold('awl', ['awlCan']);
+    r.record.sounds.length = 0;
+    watcher.fire('awl', at, new THREE.Vector3(0, 0, -1), { ...plainNote({ to: new THREE.Vector3() } as FireNote), rays: 1 });
+    expect(r.record.sounds).toContain('awl_suppressed_shot');
   });
 });

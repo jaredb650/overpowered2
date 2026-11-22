@@ -5,8 +5,8 @@ falls behind the catalogue, or if any call site in `src/` uses an id that does n
 
 ## How to call it
 
-The Awl scout fires the owner's own recordings, `awl_shot` bare and `awl_suppressed_shot` with `awlCan` (see "The Awl's shots"
-below). Its bolt still borrows existing samples: `reload_bolt` at 0.082 and 0.575 s for lift/lock, `pump_rack_back` at
+The Awl scout fires the owner's own recordings, `awl_shot` bare, `awl_suppressed_shot` with `awlCan`, and `awl50_suppressed_shot`
+when `awl50` and `awlCan` are fitted together (see "The Awl's shots" below). Its bolt still borrows existing samples: `reload_bolt` at 0.082 and 0.575 s for lift/lock, `pump_rack_back` at
 0.205 s for extraction/ejection, `pump_rack_forward` at 0.445 s for chambering (the 0.65 s bolt of 2026-11-16). These are stand-ins to replace with separate
 bolt lift/pull/push/lock recordings. Magazine reload uses the existing `reload_mag_out`, `reload_mag_in`, `reload_bolt`; the
 scope uses `autocannon_zoom`, the draw `weapon_draw`.
@@ -388,7 +388,10 @@ pitch 1. `scoutShot` was a 1 s stereo WAV at 40 kHz inside an `.mp3` name, `scou
 starts on the report: mixed to mono at 44.1 kHz, the bare one's 97 ms of lead-in cut, faded out from 0.6 s and cut at 0.9 s, peaks
 to -1 dB, 160 kbit/s. `awl_shot` is on the `gun` mix at 0.21 on the ladder (loudness 0.24), a sniper's crack over the Harrow's
 0.165 and under the Sabot's 0.246, with more of the room (`send` 0.26); `awl_suppressed_shot` at 0.155 (loudness 0.461), about
-2.6 dB under, as the Gimlet's can is, with `send` 0.08.
+2.6 dB under, as the Gimlet's can is, with `send` 0.08. On 2026-11-22 the suppressed .50 Cal Awl (`awl50` + `awlCan`) took its own
+owner-supplied recording, `awl50_suppressed_shot` (`guns/awl50_suppressed_shot.mp3`, trimmed of leading silence, 44.1 kHz stereo MP3
+at 192 kbps, 1.89 s, measured loudness 0.239), on the `gun` mix at 0.185 (`send` 0.1) — fuller than `awl_suppressed_shot` while
+clearly quieter than unsuppressed `awl50_shot`.
 
 **The Autoraffica's shot** (2026-11-16, the owner's `newAutoRafficaShot.mp3`, weapons-update plan section 14; the older
 `autoRafficaShotSuppressed.mp3` is not used). `autoraffica_shot` is every round of the machine pistol, which is always suppressed. It
@@ -396,6 +399,10 @@ was a 1 s stereo WAV at 40 kHz inside an `.mp3` name with no lead-in to cut (a c
 90 ms): mixed to mono at 44.1 kHz, faded out from 0.4 s and cut at 0.6 s (the tail is under -50 dB by then), peaks to -1 dB,
 160 kbit/s. On the `gun` mix at 0.1 on the ladder (loudness 0.243), under the suppressed SMG's 0.11 and the bare pistol's 0.138,
 since a pull is three of it in a tenth of a second; `send` 0.08 as the other suppressed shots.
+
+**The Milkor MGL's shot** (2026-11-22, `guns/mgl_shot.mp3`): `mgl_shot` replaces the synthesized 40 mm thoomp with the owner's
+own recording (trimmed of leading silence, 44.1 kHz stereo MP3 at 192 kbps, 1.97 s, measured loudness 0.342), on `gunHeavy` at
+0.22 on the ladder (`send` 0.22, `maxVoices` 4) — fuller than the Gimlet's under-barrel `launcher_thump` (0.19).
 
 **The Howitzer's shot** (2026-11-22, `guns/howitzer_shot.mp3`): `howitzer_shot` is the 105 mm artillery report shared by the Mech's
 105 mm siege cannon, the AC-130's 105 mm gun (`g105` and `wp`), and the shoulder-fired Howitzer. 44.1 kHz stereo MP3, 2.0 s, measured
@@ -457,7 +464,7 @@ Rendered at load. x4 means four rendered variants behind one id.
 - **Handling:** `weapon_dry`, `weapon_draw`, `weapon_draw_heavy`, `weapon_draw_blade`, `weapon_holster`
 - **Casings:** `casing_brass` x4, `casing_shotgun` x3, `casing_heavy` x3
 - **Sword extras:** `sword_block` (raise guard), `sword_deflect` x3 (bullet blocked), `sword_windup` (heavy charge), `sword_sweep` (RMB area sweep)
-- **Metalstorm, MGL, AWL-50:** `metalstorm_shot` x3 (single stacked-barrel discharge), `metalstorm_volley` x2 (salvo burst), `mgl_shot` x3 (40 mm grenade launch), `mgl_stick` x3 (sticky round attach), `mgl_detonate` (remote detonator click), `awl50_shot` x3 (.50 anti-materiel report)
+- **Metalstorm, MGL, AWL-50:** `metalstorm_shot` x3 (single stacked-barrel discharge), `metalstorm_volley` x2 (salvo burst), `mgl_stick` x3 (sticky round attach), `mgl_detonate` (remote detonator click), `awl50_shot` x3 (.50 anti-materiel report; `mgl_shot` and `awl50_suppressed_shot` now play the owner-supplied recordings above)
 
 ### Impacts and destruction
 

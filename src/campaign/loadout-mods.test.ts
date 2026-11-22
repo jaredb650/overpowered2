@@ -27,7 +27,12 @@ describe('moddedDef for stealth .50 Cal suppressed AWL', () => {
     expect(def.armour).toBe('heavy');
     expect(def.magSize).toBe(4);
     expect(def.damage).toBeGreaterThanOrEqual(240);
-    expect(def.sounds.some(s => s.id === 'awl_suppressed_shot')).toBe(true);
+    expect(def.sounds.some(s => s.id === 'awl50_suppressed_shot')).toBe(true);
+    expect(def.sounds.some(s => s.id === 'awl_suppressed_shot')).toBe(false);
+
+    // Plain Awl + awlCan without awl50 keeps its standard suppressed scout report.
+    const plainSuppressed = moddedDef('awl', new Set<ModId>(['awlCan']));
+    expect(plainSuppressed.sounds.some(s => s.id === 'awl_suppressed_shot')).toBe(true);
   });
 });
 

@@ -3,10 +3,11 @@
  * Completely distinct from the rocket launcher in scale, silhouette, and mechanism:
  * - Huge chamfered forged-iron artillery breech monolith (0.22 m wide x 0.23 m tall) with bolted olive trunnion
  *   cheeks, vertical sliding-wedge breech block, and left-flank brass-knobbed breech operating crank.
- * - Heavy reinforced steel recoil cradle with twin giant exposed coiled recoil springs and bright chrome hydraulic
- *   piston rods that compress synchronously as the 105 mm barrel slams 0.17 m backward on every shot.
- * - Massive stepped 105 mm ordnance barrel (r = 0.072..0.088, bore r = 0.054) extending to z = -1.34 with a chunky
- *   central bore evacuator (r = 0.104) and a gargantuan 4-baffle perforated tank/siege muzzle brake.
+ * - Heavy reinforced steel recoil cradle with fixed trunnion sleeve, twin giant exposed coiled recoil springs (0.70 m),
+ *   and continuous bright chrome hydraulic buffer rods that are dramatically exposed as the 105 mm barrel slams
+ *   0.42 m backward on every shot and slowly heaves back into battery over ~1.34 s.
+ * - Long menacing stepped 105 mm ordnance barrel (total weapon length ~2.44 m, extending to z = -2.08) with a ribbed
+ *   stepped thermal jacket, chunky central bore evacuator (r = 0.106), and a gargantuan 4-baffle tank/siege muzzle brake.
  * - Unique 3-stage artillery reload: crank open & drop the sliding wedge while kicking out the spent 105 mm brass
  *   casing, hoist & ram a forearm-thick fresh 105 mm HE shell straight into the rear breech, then slam the wedge up
  *   to lock the breech.
@@ -36,16 +37,18 @@ const BREECH_Z_FRONT = -0.16;
 const WEDGE_DROP = 0.145;
 /** Downward rotation of the left-flank breech operating crank (~95 degrees). */
 const CRANK_SWING = 1.65;
-/** Hydraulic long-recoil travel of the massive 105 mm barrel + bore evacuator + muzzle brake on fire. */
-const RECOIL_SLAM = 0.17;
-/** Twin exposed coiled recoil springs flanking the barrel beneath the bore. */
+/** Dramatic hydraulic long-recoil travel of the 105 mm barrel + thermal jacket + bore evacuator + muzzle brake on fire. */
+const RECOIL_SLAM = 0.42;
+/** Twin exposed coiled recoil springs and gleaming chrome hydraulic buffer rods flanking the barrel beneath the bore. */
 const SPRING_Z0 = -0.18;
-const SPRING_LEN = 0.50;
-const SPRING_X = 0.092;
-const SPRING_Y = AXIS - 0.062;
-/** Left-flank armored artillery optical rangefinder axis. */
-const OPTIC_X = -0.160;
-const OPTIC_Y = AXIS + 0.062;
+const SPRING_LEN = 0.70;
+const SPRING_X = 0.104;
+const SPRING_Y = AXIS - 0.072;
+/** Forward fixed bearing bulkhead yoke supporting the lengthened barrel and anchoring the twin chrome buffer rods. */
+const YOKE_Z = -0.96;
+/** Left-flank armored artillery optical rangefinder axis (high upper-left breech shoulder for 100% unobstructed ADS along the long barrel). */
+const OPTIC_X = -0.184;
+const OPTIC_Y = AXIS + 0.154;
 const OPTIC_Z = -0.115;
 
 function breechMonolith(m: Mesher): void {
@@ -139,7 +142,7 @@ function breechMonolith(m: Mesher): void {
       { chamfer: 0.0012 },
     );
     m.use(F.black);
-    m.lathe([[BORE_R + 0.002, 0.008, 0], [BORE_R, -0.32, 0]], 28);
+    m.lathe([[BORE_R + 0.002, 0.008, 0], [BORE_R, -0.44, 0]], 28);
   });
 
   // Bolted matte olive-drab armored side trunnion cheeks flanking the entire breech monolith.
@@ -213,16 +216,16 @@ function breechMonolith(m: Mesher): void {
     m.at([0.066, BREECH_TOP + 0.006, z], null, () => m.box(0.026, 0.01, 0.028, 0.0016, 0.003));
   }
 
-  // Huge machined brass hydraulic pressure ring around the barrel throat on the front breech face.
+  // Huge machined brass hydraulic pressure ring around the trunnion jacket throat on the front breech face.
   m.at([0, AXIS, BREECH_Z_FRONT - 0.012], null, () => {
     m.use(F.brass);
     m.lathe(
       [
         [0.088, 0.018, 0],
-        [0.104, 0.018],
-        [0.108, 0.010],
-        [0.108, -0.010],
-        [0.102, -0.018],
+        [0.097, 0.018],
+        [0.100, 0.010],
+        [0.100, -0.010],
+        [0.096, -0.018],
         [0.088, -0.018, 0],
       ],
       36,
@@ -402,9 +405,9 @@ function rearSaddle(m: Mesher): void {
 }
 
 function cradleAndRecoilSprings(m: Mesher): void {
-  // Reinforced steel recoil cradle girder running from breech front face (z = -0.16) to forward bearing yoke (z = -0.78).
-  const cradleZc = -0.47;
-  const cradleLen = 0.62;
+  // Extended reinforced steel recoil cradle girder running from breech front face (z = -0.16) to forward bearing yoke (z = -0.96).
+  const cradleLen = BREECH_Z_FRONT - YOKE_Z;
+  const cradleZc = (BREECH_Z_FRONT + YOKE_Z) / 2;
   m.use(F.parkerized);
   m.at([0, 0.044, cradleZc], null, () =>
     m.front(
@@ -412,179 +415,270 @@ function cradleAndRecoilSprings(m: Mesher): void {
         [
           [-0.088, -0.032],
           [0.088, -0.032],
-          [0.102, -0.014],
-          [0.102, 0.024],
-          [-0.102, 0.024],
-          [-0.102, -0.014],
+          [0.104, -0.016],
+          [0.104, -0.006],
+          [0.070, 0.004],
+          [0.070, 0.026],
+          [-0.070, 0.026],
+          [-0.070, 0.004],
+          [-0.104, -0.006],
+          [-0.104, -0.016],
         ],
-        0.004,
+        0.003,
       ),
       cradleLen,
-      { bevel: 0.0028 },
+      { bevel: 0.0026 },
     ),
   );
-  // Perforated olive-drab side skirt plates along the cradle beam + brushed steel slide rails.
+  // Perforated olive-drab lower side skirt plates along the extended cradle + gleaming brushed-steel slide guide rails.
   m.mirror(() => {
     m.use(F.olive);
-    m.at([0.104, 0.044, cradleZc], null, () =>
-      m.side(rect(-0.27, -0.024, 0.27, 0.022, 0.004), 0.007, {
-        bevel: 0.0014,
-        holes: slotRow(-0.21, -0.001, 0.21, -0.001, 5, 0.028, 0.012, Math.PI / 2),
+    m.at([0.106, 0.024, cradleZc], null, () =>
+      m.side(rect(-0.36, -0.012, 0.36, 0.011, 0.003), 0.006, {
+        bevel: 0.0012,
+        holes: slotRow(-0.29, -0.0005, 0.29, -0.0005, 7, 0.015, 0.010, Math.PI / 2),
       }),
     );
     m.use(F.black);
-    m.at([0.101, 0.043, cradleZc], null, () => m.box(0.002, 0.034, 0.48, 0));
+    m.at([0.103, 0.0235, cradleZc], null, () => m.box(0.002, 0.018, 0.66, 0));
+    // Machined brushed-steel recoil slide rails supporting the heavy recoiling barrel crosshead sled.
     m.use(F.steel);
-    m.at([0.072, 0.070, cradleZc], null, () => m.box(0.014, 0.012, cradleLen - 0.04, 0.0014));
+    m.at([0.062, 0.072, cradleZc], null, () => m.box(0.014, 0.012, cradleLen - 0.04, 0.0014));
   });
 
-  // Central under-barrel hydraulic buffer cylinder with machined brass end-caps.
-  m.at([0, AXIS - 0.106, -0.46], null, () => {
+  // Fixed reinforced trunnion barrel jacket extending forward from the breech (z = -0.16 to -0.42):
+  // the recoiling 105 mm barrel telescopes 0.42 m straight back inside this jacket without ever poking out the rear breech!
+  m.at([0, AXIS, 0], null, () => {
+    m.use(F.parkerized);
+    m.lathe(
+      [
+        [0.0835, -0.16, 0],
+        [0.092, -0.16],
+        [0.092, -0.416],
+        [0.0835, -0.416, 0],
+      ],
+      38,
+      { chamfer: 0.0014 },
+    );
+    // Machined reinforcing bands along the trunnion jacket.
     m.use(F.steelDark);
-    m.cyl(0.023, 0.58, 22);
+    for (const z of [-0.24, -0.31, -0.38]) {
+      m.at([0, 0, z], null, () =>
+        m.lathe([[0.091, 0.009, 0], [0.0945, 0.009], [0.0945, -0.009], [0.091, -0.009, 0]], 36, { chamfer: 0.001 }),
+      );
+    }
+    // Gleaming machined brass front dust-seal gland ring at the mouth of the trunnion jacket.
     m.use(F.brass);
-    m.at([0, 0, 0.285], null, () => m.cyl(0.027, 0.022, 22));
-    m.at([0, 0, -0.285], null, () => m.cyl(0.027, 0.022, 22));
+    m.at([0, 0, -0.420], null, () =>
+      m.lathe([[0.0835, 0.011, 0], [0.0945, 0.011], [0.0955, 0.005], [0.0955, -0.005], [0.092, -0.011], [0.0835, -0.011, 0]], 36, { chamfer: 0.0012 }),
+    );
   });
 
-  // Twin fixed hydraulic recuperator cylinders + rear spring cups flanking the barrel beneath the bore.
+  // Extended central under-barrel hydropneumatic recuperator cylinder with machined brass end-caps and mid-band.
+  m.at([0, AXIS - 0.108, cradleZc], null, () => {
+    m.use(F.steelDark);
+    m.cyl(0.024, cradleLen - 0.02, 22);
+    m.use(F.brass);
+    m.at([0, 0, cradleLen / 2 - 0.018], null, () => m.cyl(0.028, 0.022, 22));
+    m.at([0, 0, 0], null, () => m.cyl(0.027, 0.018, 22));
+    m.at([0, 0, -(cradleLen / 2 - 0.018)], null, () => m.cyl(0.028, 0.022, 22));
+  });
+
+  // Twin fixed rear spring cups, hydraulic damper sleeves, and continuous gleaming chrome hydraulic buffer rods
+  // running all the way from the breech face (z = -0.18) to the forward bearing yoke (z = -0.96).
+  // When the barrel slams 0.42 m back on fire, nearly half a meter of gleaming chrome rod is dramatically exposed!
+  const rodLen = SPRING_Z0 - YOKE_Z;
+  const rodZc = (SPRING_Z0 + YOKE_Z) / 2;
   m.mirror(() => {
     m.at([SPRING_X, SPRING_Y, 0], null, () => {
       // Heavy rear spring seat cup bolted to the front of the breech monolith.
       m.use(F.parkerized);
-      m.at([0, 0, SPRING_Z0 + 0.01], null, () => m.cyl(0.036, 0.026, 22));
+      m.at([0, 0, SPRING_Z0 + 0.01], null, () => m.cyl(0.034, 0.026, 22));
       m.use(F.brass);
-      m.at([0, 0, SPRING_Z0 - 0.004], null, () => m.cyl(0.038, 0.012, 22));
-      // Inner hydraulic recuperator cylinder sleeve that the chrome piston rod slides inside.
+      m.at([0, 0, SPRING_Z0 - 0.004], null, () => m.cyl(0.036, 0.012, 22));
+      // Rear dark-steel hydraulic damper cylinder sleeve tucked inside the rear of the coil spring.
       m.use(F.steelDark);
-      m.at([0, 0, -0.34], null, () => m.cyl(0.019, 0.34, 20));
+      m.at([0, 0, -0.305], null, () => m.cyl(0.018, 0.25, 20));
+      // Continuous bright machined chrome hydraulic buffer/guide rod exposed forward of the crosshead during recoil.
+      m.use(F.chrome);
+      m.at([0, 0, rodZc], null, () => m.cyl(0.0135, rodLen, 20));
     });
   });
 
-  // Heavy forward bearing bulkhead yoke at z = -0.76 bracing the barrel and recoil rails.
-  m.at([0, AXIS, -0.76], null, () => {
+  // Heavy forward bearing bulkhead yoke at z = -0.96 bracing the long barrel, guide rails, and twin chrome buffer rods.
+  m.at([0, AXIS, YOKE_Z], null, () => {
     m.use(F.parkerized);
     m.front(
       poly(
         [
-          [-0.108, -0.118],
-          [0.108, -0.118],
-          [0.118, -0.092],
-          [0.118, 0.052],
-          [0.072, 0.102],
-          [-0.072, 0.102],
-          [-0.118, 0.052],
-          [-0.118, -0.092],
+          [-0.128, -0.118],
+          [0.128, -0.118],
+          [0.136, -0.090],
+          [0.136, -0.040],
+          [0.098, 0.044],
+          [0.062, 0.096],
+          [-0.062, 0.096],
+          [-0.098, 0.044],
+          [-0.136, -0.040],
+          [-0.136, -0.090],
         ],
         0.006,
       ),
       0.044,
-      { bevel: 0.003, holes: [circle(0, 0, 0.084, 30)] },
+      { bevel: 0.003, holes: [circle(0, 0, 0.0845, 32)] },
     );
-    // Gleaming machined chrome barrel-slide bushing ring.
+    // Gleaming machined chrome barrel-slide bushing ring (inner r = 0.0835 clears the sliding barrel & ribbed thermal jacket).
     m.use(F.chrome);
-    m.lathe([[0.083, 0.024, 0], [0.089, 0.024], [0.089, -0.024], [0.083, -0.024, 0]], 32, { chamfer: 0.001 });
+    m.lathe([[0.0835, 0.024, 0], [0.090, 0.024], [0.090, -0.024], [0.0835, -0.024, 0]], 34, { chamfer: 0.001 });
     m.mirror(() => {
-      hexX(m, 0.118, -0.02, 0, 1, 0.006);
-      hexX(m, 0.118, -0.085, 0, 1, 0.006);
+      // Machined brass anchor glands clamping the forward ends of the twin chrome hydraulic buffer rods.
+      m.use(F.brass);
+      m.at([SPRING_X, SPRING_Y - AXIS, 0], null, () => m.cyl(0.022, 0.056, 20));
+      m.use(F.steelDark);
+      m.at([SPRING_X, SPRING_Y - AXIS, -0.030], null, () => m.cyl(0.015, 0.010, 16));
+      hexX(m, 0.136, -0.050, 0, 1, 0.0055);
+      hexX(m, 0.136, -0.086, 0, 1, 0.0055);
     });
   });
 
-  // Giant twin exposed coiled steel recoil springs: pivoted at their fixed rear seat (z = -0.18) so scaling
-  // scale.z compresses them smoothly in exact lockstep with the barrel's 0.17 m recoil travel!
+  // Giant twin exposed coiled steel recoil springs (0.70 m free length): pivoted at their fixed rear seat (z = -0.18)
+  // so scaling scale.z crushes them down to 40% length in exact lockstep with the barrel's 0.42 m recoil slam!
   m.part('springs', [0, SPRING_Y, SPRING_Z0], () => {
     m.mirror(() => {
-      m.at([SPRING_X, 0, -SPRING_LEN / 2], null, () => coil(m, 0.028, 0.0052, SPRING_LEN, 13, F.steel));
+      m.at([SPRING_X, 0, -SPRING_LEN / 2], null, () => coil(m, 0.026, 0.005, SPRING_LEN, 17, F.steel));
     });
   });
 }
 
 function barrelEvacuatorAndBrake(m: Mesher): void {
-  // Entire massive 105 mm recoiling ordnance assembly: slams 0.17 m straight back along +Z on every shot!
+  // Entire massive lengthened 105 mm recoiling ordnance assembly: slams 0.42 m straight back along +Z on every shot
+  // and slowly, powerfully heaves back into battery over ~1.34 s!
   m.part('barrel', [0, AXIS, 0], () => {
-    // Heavy stepped 105 mm turned ordnance barrel (r = 0.088 rear reinforce -> 0.078 mid -> 0.072 chase).
+    // Long menacing stepped 105 mm turned ordnance barrel extending all the way to the brake at z = -1.80.
+    // Rear starts at z = -0.40 (seated inside the fixed trunnion jacket) so +0.42 m recoil ends at z = +0.02 inside the chamber!
     m.use(F.barrel);
     m.lathe(
       [
-        [0.088, -0.10, 0],
-        [0.088, -0.45],
-        [0.082, -0.468],
-        [0.078, -0.472],
-        [0.078, -0.78],
-        [0.074, -0.80],
-        [0.072, -1.035],
-        [0.076, -1.045],
-        [0.076, -1.065],
-        [BORE_R, -1.065],
-        [BORE_R, -0.10, 0],
+        [0.082, -0.40, 0],
+        [0.082, -0.98],
+        [0.0785, -1.00],
+        [0.0785, -1.42],
+        [0.076, -1.44],
+        [0.076, -1.66],
+        [0.073, -1.685],
+        [0.0715, -1.775],
+        [0.076, -1.785],
+        [0.076, -1.805],
+        [BORE_R, -1.805],
+        [BORE_R, -0.40, 0],
       ],
       40,
       { chamfer: 0.0016, smooth: 28 },
     );
 
-    // Deep dark 105 mm bore interior.
+    // Deep dark 105 mm bore interior running the entire length of the barrel tube.
     m.use(F.black);
-    m.lathe([[BORE_R, -1.07, 0], [BORE_R - 0.0015, -0.12, 0]], 30);
+    m.lathe([[BORE_R, -1.81, 0], [BORE_R - 0.0015, -0.40, 0]], 30);
 
-    // Chunky central bore evacuator / fume extractor bulge (r = 0.104, z = -0.51 to -0.73), iconic 105 mm tank gun silhouette!
+    // Stepped ribbed thermal jacket (z = -1.00 to -1.41, max r = 0.0818 < 0.0835 yoke bushing):
+    // gives the long forward barrel an unmistakable heavy field-artillery thermal shroud AND slides cleanly through the yoke!
+    m.use(F.oliveDark);
+    m.lathe(
+      [
+        [0.0785, -1.00, 0],
+        [0.0812, -1.012],
+        [0.0812, -1.398],
+        [0.0785, -1.410, 0],
+      ],
+      38,
+      { chamfer: 0.0012 },
+    );
+    m.use(F.barrelBlack);
+    for (const z of [-1.04, -1.11, -1.18, -1.25, -1.32, -1.38]) {
+      m.at([0, 0, z], null, () =>
+        m.lathe([[0.0805, 0.011, 0], [0.0820, 0.011], [0.0820, -0.011], [0.0805, -0.011, 0]], 36, { chamfer: 0.0009 }),
+      );
+    }
+    m.use(F.brass);
+    m.at([0, 0, -1.402], null, () =>
+      m.lathe([[0.080, 0.008, 0], [0.0820, 0.008], [0.0820, -0.008], [0.080, -0.008, 0]], 36, { chamfer: 0.0008 }),
+    );
+
+    // Chunky central bore evacuator / fume extractor bulge (r = 0.106, z = -1.42 to -1.66):
+    // pushed proportionally forward along the long 105 mm barrel; on +0.42 m recoil it slams to z = -1.00 right before the yoke!
     m.use(F.olive);
     m.lathe(
       [
-        [0.078, -0.505, 0],
-        [0.098, -0.525],
-        [0.104, -0.545],
-        [0.104, -0.695],
-        [0.098, -0.715],
-        [0.078, -0.735, 0],
+        [0.078, -1.42, 0],
+        [0.099, -1.442],
+        [0.106, -1.462],
+        [0.106, -1.618],
+        [0.099, -1.638],
+        [0.076, -1.66, 0],
       ],
       40,
       { chamfer: 0.0018, smooth: 30 },
     );
     // Gunmetal clamp bands & machined brass purge collar ringing the bore evacuator.
     m.use(F.barrelBlack);
-    for (const z of [-0.545, -0.695]) {
-      m.at([0, 0, z], null, () => m.lathe([[0.103, 0.011, 0], [0.108, 0.011], [0.108, -0.011], [0.103, -0.011, 0]], 38, { chamfer: 0.0012 }));
+    for (const z of [-1.462, -1.618]) {
+      m.at([0, 0, z], null, () =>
+        m.lathe([[0.105, 0.011, 0], [0.110, 0.011], [0.110, -0.011], [0.105, -0.011, 0]], 38, { chamfer: 0.0012 }),
+      );
     }
     m.use(F.brass);
-    m.at([0, 0, -0.575], null, () => m.lathe([[0.1035, 0.009, 0], [0.107, 0.009], [0.107, -0.009], [0.1035, -0.009, 0]], 38, { chamfer: 0.001 }));
-    // Subtle ordnance stripes on the left side of the bore evacuator.
-    m.at([-0.105, 0.012, -0.635], [0, -Math.PI / 2, 0], () => m.decal('he', 0.056, 0.022, 0xd8c35a));
-    m.at([-0.105, -0.018, -0.635], [0, -Math.PI / 2, 0], () => m.decal('arrow', 0.044, 0.026, 0xd8d0a0));
+    m.at([0, 0, -1.495], null, () =>
+      m.lathe([[0.1055, 0.009, 0], [0.109, 0.009], [0.109, -0.009], [0.1055, -0.009, 0]], 38, { chamfer: 0.001 }),
+    );
+    // Forward stepped thermal reinforcement ring ahead of the bore evacuator.
+    m.use(F.barrelBlack);
+    m.at([0, 0, -1.685], null, () =>
+      m.lathe([[0.072, 0.012, 0], [0.080, 0.010], [0.080, -0.010], [0.072, -0.012, 0]], 36, { chamfer: 0.001 }),
+    );
+    // Subtle ordnance stripes on the camera-facing left side of the bore evacuator.
+    m.at([-0.107, 0.012, -1.555], [0, -Math.PI / 2, 0], () => m.decal('he', 0.056, 0.022, 0xd8c35a));
+    m.at([-0.107, -0.018, -1.555], [0, -Math.PI / 2, 0], () => m.decal('arrow', 0.044, 0.026, 0xd8d0a0));
 
-    // Recoiling front recoil-spring yoke crosshead at z = -0.68 & gleaming machined chrome hydraulic piston rods!
+    // Recoiling front recoil-spring yoke crosshead & sled at z = -0.88:
+    // rides the cradle guide rails, crushes the twin coil springs back to z = -0.46, and wipes along the gleaming chrome rods!
     m.at([0, 0, SPRING_Z0 - SPRING_LEN], null, () => {
       m.use(F.parkerized);
-      m.at([0, -0.048, -0.014], null, () =>
+      m.at([0, -0.056, -0.014], null, () =>
         m.front(
           poly(
             [
-              [-0.126, -0.048],
-              [0.126, -0.048],
-              [0.132, -0.016],
-              [0.118, 0.036],
-              [-0.118, 0.036],
-              [-0.132, -0.016],
+              [-0.136, -0.048],
+              [0.136, -0.048],
+              [0.142, -0.016],
+              [0.126, 0.038],
+              [-0.126, 0.038],
+              [-0.142, -0.016],
             ],
             0.005,
           ),
           0.028,
-          { bevel: 0.0024, holes: [circle(0, 0.048, 0.080, 28)] },
+          { bevel: 0.0024, holes: [circle(0, 0.056, 0.0825, 30)] },
         ),
       );
       m.mirror(() => {
-        // Front spring collar bearing on the coil spring.
+        // Rear-facing brass collar bearing directly on the front of the giant coil spring.
         m.use(F.brass);
-        m.at([SPRING_X, -0.062, 0.004], null, () => m.cyl(0.036, 0.014, 22));
-        // Bright machined chrome hydraulic piston rod sliding inside the coil spring and rear cylinder!
-        m.use(F.chrome);
-        m.at([SPRING_X, -0.062, 0.16], null, () => m.cyl(0.0135, 0.34, 18));
+        m.at([SPRING_X, SPRING_Y - AXIS, 0.004], null, () => m.cyl(0.034, 0.014, 22));
+        // Forward hydraulic wiper gland & brass seal sliding cleanly along the continuous gleaming chrome buffer rod.
+        m.use(F.steelDark);
+        m.at([SPRING_X, SPRING_Y - AXIS, -0.034], null, () => m.cyl(0.022, 0.020, 20));
+        m.use(F.brass);
+        m.at([SPRING_X, SPRING_Y - AXIS, -0.046], null, () => m.cyl(0.019, 0.008, 18));
+        // Heavy machined steel slide shoe riding along the cradle guide rail.
+        m.use(F.steelDark);
+        m.at([0.062, 0.072 - AXIS, -0.014], null, () => m.box(0.022, 0.018, 0.058, 0.0018, 0.003));
       });
     });
 
-    // Gargantuan 4-baffle tank / siege muzzle brake (z = -1.06 to -1.34, 0.22 m wide x 0.17 m tall x 0.28 m long!).
-    const brakeZ = -1.20;
+    // Gargantuan 4-baffle tank / siege muzzle brake (z = -1.80 to -2.08, 0.22 m wide x 0.17 m tall x 0.28 m long!).
+    const brakeZ = -1.94;
     m.at([0, 0, brakeZ], null, () => {
-      // Heavy machined brass mounting collar locking the brake to the barrel chase.
+      // Heavy machined brass mounting collar locking the brake to the lengthened barrel chase.
       m.use(F.brass);
       m.at([0, 0, 0.144], null, () =>
         m.lathe([[0.072, 0.014, 0], [0.086, 0.014], [0.088, 0.007], [0.088, -0.007], [0.084, -0.014], [0.072, -0.014, 0]], 34, { chamfer: 0.0014 }),
@@ -711,21 +805,39 @@ function artilleryShellAndSpentCasing(m: Mesher): void {
 }
 
 function artilleryRangefinder(m: Mesher): void {
-  // Armored left-flank artillery rangefinder & mechanical dial block bolted to the breech monolith.
+  // Armored left-flank artillery rangefinder & mechanical dial block on an upper-left breech cantilevered pedestal.
   m.at([OPTIC_X, OPTIC_Y, OPTIC_Z], null, () => {
-    // Heavy cantilevered parkerized bracket tying the sight into the left breech cheek.
+    // Rugged L-shaped cantilevered parkerized riser bracket tying the high sight solidly into the upper-left breech monolith.
     m.use(F.parkerized);
-    m.at([0.033, -0.030, 0.01], null, () =>
-      m.side(poly([[0.068, 0], [-0.068, 0], [-0.054, 0.030, 0.006], [0.054, 0.030, 0.006]], 0.003), 0.048, { bevel: 0.0018 }),
+    m.at([0, 0, 0.01], null, () =>
+      m.front(
+        poly(
+          [
+            [0.010, -0.018],
+            [0.046, -0.018],
+            [0.086, -0.044],
+            [0.086, -0.096],
+            [0.056, -0.096],
+            [0.056, -0.056],
+            [0.010, -0.036],
+          ],
+          0.004,
+        ),
+        0.128,
+        { bevel: 0.002 },
+      ),
     );
+    // Heavy bolted dark-steel clamp rail pinning the riser to the upper-left breech cheek.
     m.use(F.steelDark);
-    m.at([0.046, -0.030, 0.01], null, () => m.box(0.026, 0.014, 0.132, 0.0014));
+    m.at([0.066, -0.076, 0.01], null, () => m.box(0.024, 0.046, 0.136, 0.0018));
+    hexX(m, 0.054, -0.076, -0.032, -1, 0.0042);
+    hexX(m, 0.054, -0.076, 0.052, -1, 0.0042);
 
     // Hollow chamfered armored optical housing so ADS looks cleanly through the warm amber ballistic reticle.
     m.use(F.anodized);
     m.front(rect(-0.028, -0.024, 0.028, 0.036, 0.007), 0.175, {
       bevel: 0.002,
-      holes: [circle(0, 0.006, 0.019, 28)],
+      holes: [circle(0, 0.006, 0.0175, 28)],
     });
     // Olive-drab bolted armor cheek plates along the sight body.
     m.use(F.oliveDark);
@@ -877,7 +989,7 @@ function buildHowitzer(kit: Kit): Model {
     screens: { range: [168, 76] },
   });
 
-  model.socket('muzzle', [0, AXIS, -1.36]);
+  model.socket('muzzle', [0, AXIS, -2.10]);
   model.socket('eject', [0, AXIS, 0.22]);
   model.hand('gripR', [0.018, -0.056, 0.07], [0, -0.96, 0.27], [-0.3, -0.25, -0.92]);
   model.foregrip('gripL', [-0.076, -0.066, -0.34]);
@@ -922,16 +1034,29 @@ function clip(a: Anim): void {
   a.glow('reticle', loaded ? 0.96 + 0.04 * Math.sin(a.time * 9) : 0.24);
   a.glow('breech', loaded && p < 0 ? 1.0 : 0.12);
 
-  // Massive hydraulic long-recoil: barrel + evacuator + 4-baffle brake slam 0.17 m straight back while the giant twin
-  // coil springs compress synchronously, then slowly, powerfully run back into battery. Zero roll/twist on fire!
+  // Dramatic slow hydropneumatic artillery long-recoil: entire barrel + stepped thermal jacket + bore evacuator +
+  // 4-baffle muzzle brake slam violently 0.42 m straight back in 0.055 s (crushing the twin 0.70 m coil springs down to
+  // 40% length and exposing ~0.48 m of gleaming chrome hydraulic buffer rods!), pause for a heavy mechanical dwell
+  // (0.055 -> 0.175 s), then heave slowly and smoothly back into battery over ~1.165 s (1.34 s total travel).
   let barrelBack = 0;
-  if (a.sinceFire < 0.56) {
+  if (a.sinceFire < 1.46) {
     const t = a.sinceFire;
-    const slam = t < 0.045 ? outCubic(t / 0.045) : t < 0.10 ? 1 : 1 - inOut(seg(t, 0.10, 0.54));
+    let slam: number;
+    if (t < 0.055) {
+      slam = outCubic(t / 0.055);
+    } else if (t < 0.175) {
+      // Heavy mechanical bottom-out pause at full rearward travel with a subtle hydraulic buffer settle.
+      slam = 1 - bump(t, 0.055, 0.135) * 0.014;
+    } else {
+      // Slow, weighty damped hydropneumatic recuperator return back into battery.
+      slam = 1 - inOut(seg(t, 0.175, 1.34));
+    }
     barrelBack = slam * RECOIL_SLAM;
-    const rock = bump(t, 0.01, 0.50);
-    a.gunP.y -= rock * 0.014;
-    a.gunR.x += rock * 0.022;
+    const rock = bump(t, 0.01, 0.85);
+    const seat = t >= 1.30 ? thud(seg(t, 1.30, 1.45)) : 0;
+    a.gunP.y -= rock * 0.016;
+    a.gunP.z -= seat * 0.008;
+    a.gunR.x += rock * 0.024 - seat * 0.008;
   }
 
   // Unique heavy artillery draw: heaving the massive cannon up from low-right onto the shoulder while the barrel sleigh
@@ -1020,10 +1145,10 @@ function clip(a: Anim): void {
     h.shape(HANDS.ball, hold(p, 0.73, 0.76, 0.85, 0.89));
   }
 
-  // Apply barrel recoil & synchronous twin recoil-spring compression.
+  // Apply barrel recoil & synchronous twin recoil-spring compression (0.70 m -> 0.28 m = 0.40x at full 0.42 m slam).
   if (barrelBack !== 0) {
     P.barrel!.position.z += barrelBack;
-    P.springs!.scale.z *= Math.max(0.45, (SPRING_LEN - barrelBack) / SPRING_LEN);
+    P.springs!.scale.z *= Math.max(0.35, (SPRING_LEN - barrelBack) / SPRING_LEN);
   }
 }
 

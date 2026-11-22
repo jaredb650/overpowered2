@@ -223,10 +223,14 @@ const gunShots: SoundDef[] = [
   shot('autoraffica_shot', 'guns/autoraffica_shot.mp3', 'gun', 0.1, 0.243, { send: 0.08 }),
   // Its under-barrel launcher (the owner's, 2026-11-15): a heavier report than the rifle, under the shotguns.
   shot('launcher_thump', 'guns/launcher_thump.mp3', 'gun', 0.19, 0.27, { send: 0.2 }),
+  // The Milkor MGL (the owner's, 2026-11-22): revolving 40 mm grenade-launcher thoomp, fuller than the under-barrel tube.
+  shot('mgl_shot', 'guns/mgl_shot.mp3', 'gunHeavy', 0.22, 0.342, { send: 0.22, maxVoices: 4 }),
   // The Awl (the owner's, 2026-11-16): a scout rifle's crack over the Harrow's 0.165 and under the Sabot's 0.246, with more of
   // the room; through its can about 2.6 dB under, as the Gimlet's is.
   shot('awl_shot', 'guns/awl_shot.mp3', 'gun', 0.21, 0.24, { send: 0.26 }),
   shot('awl_suppressed_shot', 'guns/awl_suppressed_shot.mp3', 'gun', 0.155, 0.461, { send: 0.08 }),
+  // The .50 Cal Awl through its can (the owner's, 2026-11-22): fuller than awl_suppressed_shot (0.155), quieter than unsuppressed awl50_shot.
+  shot('awl50_suppressed_shot', 'guns/awl50_suppressed_shot.mp3', 'gun', 0.185, 0.239, { send: 0.1 }),
   shot('auto_shotgun_shot', 'guns/auto_shotgun_shot.mp3', 'gun', 0.204, 0.259, { send: 0.18 }),
   shot('pump_shotgun_shot', 'guns/pump_shotgun_shot.mp3', 'gun', 0.234, 0.3, { send: 0.2 }),
   shot('hmg_shot', 'guns/hmg_shot.mp3', 'gun', 0.225, 0.25, { send: 0.3 }),
@@ -407,8 +411,13 @@ const aliases: Record<string, string> = {
   knife_hit: 'stealth_takedown',
 };
 
+const gunShotIds = new Set(gunShots.map(d => d.id));
+
 export const CATALOG: ReadonlyMap<string, SoundDef> = new Map(
-  [...samples, ...armourSamples, ...woundSamples, ...gunShots, ...packs, ...groups, ...stacks, ...recipes.map(synth)].map(def => [def.id, def]),
+  [
+    ...samples, ...armourSamples, ...woundSamples, ...gunShots, ...packs, ...groups, ...stacks,
+    ...recipes.filter(rec => !gunShotIds.has(rec.id)).map(synth),
+  ].map(def => [def.id, def]),
 );
 
 export const ALIASES: Readonly<Record<string, string>> = aliases;
