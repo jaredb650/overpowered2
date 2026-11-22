@@ -267,14 +267,25 @@ export interface WeaponSystem extends GameSystem {
 /** What the Gun Kata brain chip got when it asked the guns: it went, or why it did not (and spent nothing). */
 export type KataResult = 'go' | 'noAkimbo' | 'noTargets' | 'busy';
 
+/** The Autoraffica smart aim's paint-then-snap phase. */
+export type SmartAimPhase = 'idle' | 'painting' | 'firing';
+
 /** The Autoraffica's smart aim (src/weapons/smartaim.ts), as the HUD and the viewmodel read it. */
 export interface SmartAimView {
   /** Switched on (hold R) with the gun in hand. */
   readonly on: boolean;
   /** Radians off the crosshair a head may be and take the lock: the circle the HUD draws. */
   readonly cone: number;
-  /** The middle of the locked man's head, kept up to date, or null with no lock. */
+  /** The middle of the locked or charging man's head, kept up to date, or null with no lock. */
   readonly lock: THREE.Vector3 | null;
+  /** Paint-then-snap phase: idle at rest, painting while charging marks, firing while drilling locked heads. */
+  readonly phase?: SmartAimPhase;
+  /** 0..1 charge progress toward locking the head currently being painted. */
+  readonly charge?: number;
+  /** Live world-space position of the head currently charging up to lock, or null when not charging. */
+  readonly chargingAt?: THREE.Vector3 | null;
+  /** Number of painted heads currently held. */
+  readonly markCount?: number;
 }
 
 /**

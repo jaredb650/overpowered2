@@ -132,7 +132,7 @@ const WEAPON_CATALOGUE: Readonly<Partial<Record<WeaponId, Ware>>> = {
   },
   autoraffica: {
     price: 2100, wave: 12,
-    lore: 'Three rounds a pull through a silencer it was born with. Hold R and it finds the head for you: the Council has been automating the contractor for years, and is pleased to report progress.',
+    lore: 'Three-round bursts through a shrouded, weighted barrel built for urban compliance. Hold R for smart mode, hold the trigger to paint every head in the ring, and let the pistol work its way through the list.',
   },
   ultramag: {
     price: 1200, wave: 4,

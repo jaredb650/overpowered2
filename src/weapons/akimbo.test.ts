@@ -193,41 +193,62 @@ describe('akimbo in the hand', () => {
     expect(camAim.at(-1)).toBeCloseTo(1 - AKIMBO_ADS.zoom);
   });
 
-  it('keeps the Autoraffica\'s smart aim, dual: each gun locks a head of its own and fires into it', () => {
+  it('keeps the Autoraffica smart aim dual: idle hides twin lock, painting claims alternate heads, and both guns drill simultaneously', () => {
     draw('autoraffica');
     const a = r.enemies.add(-0.6, -10);
     const b = r.enemies.add(0.6, -10);
     smartOn();
     expect(r.weapons.smartAim.on).toBe(true);
     expect(r.weapons.smartAimLeft.on).toBe(true);
+    // At rest: no passive lock on either gun, so the twin crosshair stays hidden in the center.
+    expect(r.weapons.smartAim.phase).toBe('idle');
+    expect(r.weapons.smartAim.lock).toBeNull();
+    expect(r.weapons.smartAimLeft.phase).toBe('idle');
+    expect(r.weapons.smartAimLeft.lock).toBeNull();
+
+    // Hold LMB to paint both heads (2 × 0.25 s = 0.50 s), then drill both simultaneously for 0.25 s.
+    r.input.simulate('fire', true);
+    r.run(0.55);
+    expect(r.weapons.smartAim.phase).toBe('firing');
+    expect(r.weapons.smartAimLeft.phase).toBe('firing');
+    expect(r.weapons.smartAim.lock).not.toBeNull();
+    expect(r.weapons.smartAimLeft.lock).not.toBeNull();
     const right = (r.weapons.smartAim as unknown as { target: unknown }).target;
     const left = (r.weapons.smartAimLeft as unknown as { target: unknown }).target;
-    expect(right).not.toBeNull();
-    expect(left).not.toBeNull();
     expect(left).not.toBe(right);
     expect(new Set([right, left])).toEqual(new Set([a, b]));
-    r.input.simulate('fire', true);
+
     r.run(0.2);
     r.input.simulate('fire', false);
+    r.run(1 / 60);
+    // Releasing stops firing and hides the twin lock cleanly.
+    expect(r.weapons.smartAim.phase).toBe('idle');
+    expect(r.weapons.smartAimLeft.lock).toBeNull();
     expect(a.hits.length).toBeGreaterThan(0);
     expect(b.hits.length).toBeGreaterThan(0);
     for (const h of [...a.hits, ...b.hits]) expect(h.region).toBe('head');
-    // Twice the one-gun smart rate, a gun at a time.
     const shots = a.hits.length + b.hits.length;
     expect(shots).toBeGreaterThanOrEqual(Math.floor(0.2 / (WEAPONS.autoraffica.smart!.interval / 2)) - 1);
     for (let i = 1; i < hands.length; i++) expect(hands[i]).toBe(!hands[i - 1]);
   });
 
-  it('puts both guns on the one head when there is only one, and splits them when a second walks in', () => {
+  it('drills a single painted head with both akimbo guns at twice the rate and stops when he dies', () => {
     draw('autoraffica');
-    const a = r.enemies.add(0, -10);
+    const a = r.enemies.add(0, -10, 500);
     smartOn();
+    expect(r.weapons.smartAimLeft.lock).toBeNull();
+
+    r.input.simulate('fire', true);
+    r.run(0.45);
     const target = (v: unknown) => (v as { target: unknown }).target;
+    expect(r.weapons.smartAim.phase).toBe('firing');
     expect(target(r.weapons.smartAim)).toBe(a);
     expect(target(r.weapons.smartAimLeft)).toBe(a);
-    const b = r.enemies.add(0.8, -10);
-    r.run(0.1);
-    expect(new Set([target(r.weapons.smartAim), target(r.weapons.smartAimLeft)])).toEqual(new Set([a, b]));
+    expect(hands.some(h => h)).toBe(true);
+    expect(hands.some(h => !h)).toBe(true);
+    r.input.simulate('fire', false);
+    r.run(1 / 60);
+    expect(r.weapons.smartAimLeft.lock).toBeNull();
   });
 
   it('keeps one smart aim and the plain semi trigger without akimbo', () => {

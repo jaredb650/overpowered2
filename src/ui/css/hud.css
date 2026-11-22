@@ -413,6 +413,14 @@
 .lk-label { position: absolute; left: -6rem; top: 2.6rem; width: 12rem; text-align: center; color: var(--blood); font-weight: 800;
   font-size: 0.8rem; letter-spacing: 0.08em; text-shadow: 0 0 2px #000, 0 0 2px #000; }
 .lk.full .lk-label { color: var(--amber); }
+/* Autoraffica smart-gun head-paint charge indicator: small crisp radial loading ring right on the charging head. */
+.lk-charge { position: absolute; left: -1.35rem; top: -1.35rem; width: 2.7rem; height: 2.7rem; pointer-events: none; will-change: transform; }
+.lk-charge-svg { display: block; width: 100%; height: 100%; overflow: visible; }
+.lk-charge-rim { fill: none; stroke: #000; stroke-width: 4.4; opacity: 0.55; }
+.lk-charge-track { fill: none; stroke: #fff; stroke-width: 2; opacity: 0.28; }
+.lk-charge-arc { fill: none; stroke: var(--amber); stroke-width: 2.6; stroke-linecap: round;
+  filter: drop-shadow(0 0 2px rgba(255, 200, 40, 0.7)); }
+.lk-charge-dot { fill: var(--amber); stroke: #000; stroke-width: 0.8; }
 .xh-heal { top: 6.4rem; animation: op-heal 1.4s ease-in-out infinite alternate; }
 @keyframes op-heal { from { opacity: 1; } to { opacity: 0.55; } }
 /* The held-breath zoom: a thin bar draining below and right of centre, clear of a scope's stadia, dim while it refills; its

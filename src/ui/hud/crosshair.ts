@@ -680,21 +680,31 @@ export class Crosshair {
     }
   }
 
-  /** The left gun's crosshair: at rest a little left of the middle, swung onto its own lock as the reticle is onto the right's. */
+  /** The left gun's crosshair: hidden at rest, shown only while actively marking or firing locks and snapped onto its head. */
   private updateTwin(v: SmartAimView | null, dt: number): void {
-    this.twinShown.set(v !== null);
-    if (!v) return;
+    const active = v !== null && v.lock !== null && (v.phase === 'painting' || v.phase === 'firing' || v.phase === undefined);
+    this.twinShown.set(active);
+    if (!active || !v || !v.lock) {
+      this.twinLocked.set(false);
+      this.twinX = 0;
+      this.twinY = 0;
+      if (this.twinQ !== '') {
+        this.twinQ = '';
+        this.twin.style.transform = '';
+      }
+      return;
+    }
     let x = -TWIN_REST;
     let y = 0;
     const camera = this.ctx.render.camera;
-    if (v.lock && camera instanceof THREE.PerspectiveCamera) {
+    if (camera instanceof THREE.PerspectiveCamera) {
       _head.copy(v.lock).project(camera);
       if (_head.z < 1) {
         x = _head.x * (innerWidth / 2);
         y = -_head.y * (innerHeight / 2);
       }
     }
-    this.twinLocked.set(v.lock != null);
+    this.twinLocked.set(true);
     this.twinX = damp(this.twinX, x, 34, dt);
     this.twinY = damp(this.twinY, y, 34, dt);
     const q = `translate3d(${this.twinX.toFixed(1)}px,${this.twinY.toFixed(1)}px,0)`;
