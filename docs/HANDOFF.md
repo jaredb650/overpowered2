@@ -25,6 +25,11 @@ Update this file when the state below changes.
   T&C boot HUD, red-goggles wanted posters, Boss Integrity HUD, Harbourmaster PA squelch and cuff/kill finale). Verified with
   `tsc`, production build, full Vitest suite (3,125 passed, 0 failed), and two live Playwright visual passes (1440×900 @ 2×).
   Details: `docs/campaign/FORECLOSURE.md` and `docs/notes/frame.md`.
+- **Local on `dev`, NOT pushed: the menu update (2026-11-22).** Shops list rows as buyable / short of credits / greyed, by name
+  with a gun's mods together; every purchase asks first; mouse hover selects a row like the arrow keys; the cheat panel is
+  alphabetical; Esc backs out of every menu (a one-line "click or press any key" prompt where the browser wants a gesture); the
+  Distraint Frame has a loadout (either arm any of rotary / 40 mm / 105 mm, the pod, standard legs, cockpit, engine) chosen on a new
+  screen (main menu Frame, pause menu, Procurement's Frame tab). `docs/notes/ui.md`, `docs/notes/frame.md` ("Loadout"), `docs/notes/lab.md`.
 - **Only on the owner's Mac, not in any clone:**
   - Uncommitted leftovers (19 lines, owner hasn't decided): `docs/notes/viewmodels.md` (a rewritten Ultramag description and an
     exposed-action reload write-up), `docs/notes/weapons.md` (Harrow 50/100 → 60/120 in the text), `src/core/gameplay.ts` and

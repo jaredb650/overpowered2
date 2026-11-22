@@ -94,6 +94,7 @@ export const PROOFS = [
 
   // call-ins ("Call-ins on every screen")
   P('callins-matrix', 'call-ins', 'coop-callins-matrix', { players: 3, sim: sim('CALLINS_SIM'), count: 'CALLINS_PLAYERS', tag: 'CALLINS_TAG', rtc: true, four: true, t: 1800 }),
+  P('frame-loadout', 'call-ins', 'coop-frame-loadout', { t: 400 }),
 
   // world-a: pods, dropped guns, things that break ("The shared world")
   P('world-pods', 'world-a', 'coop-world-pods', { count: 'COOP_PLAYERS', rtc: true, four: true }),

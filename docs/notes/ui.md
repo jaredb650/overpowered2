@@ -34,6 +34,7 @@ Play          Campaign      1 The Outpost, 2 Foreclosure       (the contracts wi
                             Outpost      Outpost Defense       ("Outpost" is the fort, map `fort`)
                             Office       The Crucible, Endless Humans   (both modes on map `office`: ContractDef.alsoOn)
               Multiplayer   the co-op lobby, its own screen (ui/screens/coop.ts, docs/notes/coop.md)
+Frame         the Distraint Frame's loadout (screens/frameLoadout.ts, "The Frame's loadout" below)
 Guide
 Settings
 ```
@@ -48,6 +49,38 @@ One still shut (Foreclosure, Endless Humans and Outpost Defense until the Outpos
 greyed, its notice says why, and choosing it only plays the error sound; a map whose modes are all shut is greyed too. The menu opens on
 the root each time, except back from the Crucible rules, which lands on their button. The URL flags are untouched (`contracts/select.ts`).
 `tools/scripts/menu-tree.mjs` walks every level by mouse and keys and screenshots each (`tools/out/menu/`).
+
+## The shops: order, hover, confirm (owner, 2026-11-22)
+
+Procurement (`screens/procurement.ts`, the Crucible and Endless Humans) and Outpost Defense's shops (`screens/shop.ts`).
+
+- **Order** (`screens/order.ts`, tested in `order.test.ts`). Every page of Procurement lists its rows in three groups, each under a small
+  heading: **Available now** (Enter does something: buy it with the credits there, or fit or take off something bought already),
+  **Insufficient funds** (only the credits are missing, a why-not of `Need N more`), **Not at this time** (everything else, greyed with
+  the `shut` class: locked to a later wave, a mod for a gun not owned, owned or issued already, full, no free slot). Inside a group the
+  rows of one kind stay together (resupply before guns; implant slots, implants, the brain chip slot, brain chips) and sort by name; a
+  mod sorts by its gun's name first, so one gun's mods sit side by side. "Needs its gun" is not short of credits (the old row colouring
+  read any why-not starting "Need" as poor; it now reads `standing()`). Outpost Defense keeps its sections in the economy's order and
+  sorts inside each the same way. After a purchase the focus stays on the row it was on if the bought thing stayed in its group (a mod
+  fitted), else on the same place in the list (a gun bought drops to the bottom; the focus does not chase it).
+- **Hover selects** (`screens/nav.ts`, `NavItem.hover`). On a shop row the mouse moving over it selects it exactly as the arrow keys do:
+  the card and the turning model (or the contractor) show the row under the mouse. A click lands on the row under it even if the
+  keyboard's focus was elsewhere (a list scrolled under a still mouse). Tabs and buttons keep the old rule: the mouse paints the focus
+  but does not open them.
+- **Confirm** (`screens/confirm.ts`, `ConfirmBox`). Enter or a click on anything that costs credits puts up "Form 7742-C · Confirmation
+  of intent": "Are you sure you'd like to buy the Flail?", the price, and one line of the Office's small print. Enter, Space or Buy
+  buys; Esc, Backspace, Cancel or a click outside the form drops it, and nothing is spent. While it is up it takes every key (a
+  capture listener on the window), so E, X and the arrows do nothing under it. Fitting or taking off something bought, and a row that
+  cannot be had (it says why), act at once with no form. The form closes if the screen closes or the page turns.
+
+## The Frame's loadout
+
+`screens/frameLoadout.ts`, the data in `src/frame/loadout.ts` (`docs/notes/frame.md`, "Loadout"). Reached from the main menu (Frame),
+the pause menu (Frame loadout) and Procurement's fourth tab, Frame (or right arrow on the Implants page); Back or Esc returns to
+whichever opened it (`Screens.back`, as the guide and settings). The six slots as boxes over the rows (left arm, right arm, the
+shoulders, legs, cockpit, engine), then each slot's parts under a heading, the card for the part in focus. Enter or a click fits a
+part, free (every part is issued), and saves at once (`op2.frame.loadout.v1`); the next Frame called in is built from it, one already
+standing keeps its own. Hover selects as in the shops.
 
 ## Main menu background
 
@@ -110,10 +143,29 @@ Under the crosshair, `xh-charge` in `hud/crosshair.ts`: the rotary cannon's spin
 | menu | A mission or mode, on another contract | page load, then splash | The splash reads `Click to deploy` and that click goes straight into the run. See `docs/notes/contracts.md` |
 | playing | Esc, or the lock going for any reason | paused | `updateLock` watches `input.locked`, so Alt-Tab and anything else counts, not only `pressed('pause')` |
 | paused | Resume, Enter | playing | Stays paused until the lock is really back. Retries for 1.7 s to get past Chrome's refusal right after Esc |
-| paused | Esc | playing, or a hint | Esc is not a gesture to Chrome. With no live gesture the hint says to click; with a recent click it resumes |
+| paused, a shop | Esc | playing, or the prompt | See "Esc" below. Never a menu left up with a "click" message |
+| the prompt | a click or any key but Esc | playing | The click or key is the gesture Chrome wants; the lock is asked for in it |
+| the prompt | Esc | paused | The pause menu again |
 | playing | death | gameover | 1.5 s beat at 0.3x, `run:end`, then the report. Input is ignored for 0.8 s so a jump or a burst at the moment of death cannot hit Run again |
 | gameover | Run again, Space | playing | Requests the lock, unlike the first game |
 | gameover, paused | Menu, Esc, Quit | menu | `Game.clearRun` empties the map and resets post, so no frozen enemy or red vignette stands in the flythrough |
+
+**Esc** (owner, 2026-11-22). In every menu Esc (or Backspace) goes back one level: a sub-menu to its parent, the guide, settings and the
+Frame's loadout to whatever opened them, the pause menu and the shops back to the fight. Why it used to stop on "The browser wants a
+click": Chrome ends pointer lock itself on the player's Esc, never counts Esc as a gesture, and after the player ended the lock it
+gives it back only inside a gesture (a click or a key press). But it gives a lock back without one to a page that let it go itself,
+and the shops (opened with E) let it go from the page. So `Input` remembers who ended the lock (`relockFree`: the page did, or the
+page is in its own fullscreen), and `Hud.resume`:
+
+- asks for the lock at once when there is a live gesture or `relockFree`: a shop's Esc goes straight back to the fight;
+- otherwise (the pause menu after the player's own Esc) closes the menu anyway and shows one line over the frozen run, "Click or press
+  any key to resume · Esc: pause menu" (`awaitTouch`, `.touch-hint`). The next click or key (Esc aside) asks for the lock inside that
+  gesture; Esc opens the pause menu again. The prompt ignores the press that put it up, and lapses if anything else takes over.
+  A refused request (Chrome's cooldown just after an Esc) lands on the same prompt, not on a menu with a hint.
+
+The Keyboard Lock API (`navigator.keyboard.lock(['Escape'])`) only works in the page's own fullscreen, which the game never asks for
+(F11 is the browser's fullscreen, not the page's). `Input` already locked Escape there; it now keeps it locked while paused in that
+fullscreen, so a second Esc resumes instead of leaving fullscreen. Untested: nothing in the game enters page fullscreen.
 
 If the first lock never lands, the run pauses with a hint. If a browser has never granted one, the second Resume plays on without it.
 A lock that lands after the player paused is released at once, so a pause screen can never swallow the cursor.
@@ -176,6 +228,10 @@ Stored in `op2.settings.v1`, sanitized on load. They apply and save the moment t
   corpse loses a limb). "Mess" is how much of it stays (bodies, limbs, pieces, blood, and whether the floor is swept at a wave break).
   Before the gore update the Gore level set both.
 - **Weapon keys 1 to 0 and the wheel's bindings are not all on the Keys page.** Next and previous are. Slots are listed as fixed in the guide.
+- **The Esc changes of 2026-11-22 are proven headless only.** `tools/scripts/menu-update.mjs` ran every path (shop Esc back to the fight
+  with the lock, the player's Esc to the pause menu, Esc to the prompt, Esc to the menu, W to the run) with real keys and clicks, but
+  headless Chrome grants the lock without a gesture, so "the page let it go, so it comes back without a click" is Chrome's documented
+  rule, not something this machine showed. The no-gesture state was forced by overriding `navigator.userActivation`.
 - **Esc in real Chrome is unproven.** Headless Chrome does grant pointer lock, and everything else in the table ran on real clicks and keys, but
   headless delivers the Esc keydown to the page, where desktop Chrome swallows it and ends the lock itself. That path was exercised by
   `document.exitPointerLock()`, which goes through the same `pointerlockchange`. Chrome's cooldown of about 1.25 s after a real Esc does not

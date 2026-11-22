@@ -36,6 +36,11 @@ the chest, out at death, a blood pool). `?fire=0` starts a page with it off and 
 
 **The piercing gallery** is behind the spawn on the range, along the +Z wall: five walls across a lane that runs down +X, with a bay behind each. Near to far they are 0.3 and 0.6 m of panel, 1.0 and 1.6 m of concrete, and a 0.1 m steel sheet, which are a thin partition, the two normal interior walls, an outer wall, and cover. Yellow ticks on the floor in front of each count its thickness in 10 cm. The lane is open on its -Z side, so the bays can be walked into and the far faces looked at. `GALLERY` in `range.ts` is the layout.
 
+**Order** (owner, 2026-11-22). Every list of named things is in alphabetical order of what its buttons say (`src/lab/order.ts`
+`byLabel`, tested in `order.test.ts`): spawns, call-ins, implants (by class, then name), brain chips, perks and powerups. A weapon's
+button starts with its key, so `Draw a weapon` stays in key order with a family side by side, then by name. A mod sorts by its gun's
+name and then its own, so all of one gun's mods sit together.
+
 **Weapon mods.** Under the weapons, `WEAPON MODS` has a row a mod (`src/weapons/mods.ts`): the first button grants it unfitted and is
 lit while it is held, the second fits it (granting it first if need be) or, reading `Remove`, takes it off. Anywhere and at any time,
 in a wave too: the rule that a mod never changes in a fight is the Crucible shop's, not the weapons'. A restart takes them back. The

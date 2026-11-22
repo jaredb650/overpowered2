@@ -14,8 +14,8 @@ off and compare.
 | Crouch (Ctrl, C) in the air | Stomp: down at 32 m/s. From 4 m or more, the big slam (16 m ring, 240..60 damage, 12 m knockdown) |
 | Shift | Charge: 0.75 s at 18 m/s, two charges, each back 3.5 s after. Re-plants the legs under the view |
 | F | Alternating 2-arm melee sweep: 190 degree front arc to 7.2 m PLUS a 4 m 360 degree close-proximity sweep around the legs (340 damage, 1100 force, close gib, 0.72 s cooldown) |
-| LMB | 20 mm six-barrel Vulcan rotary cannon (left arm) |
-| RMB, R | 40 mm autocannon (right arm), and R cycles HE, AP, FLAK |
+| LMB | 20 mm six-barrel Vulcan rotary cannon (left arm; the loadout may fit another arm weapon) |
+| RMB, R | 40 mm autocannon (right arm; likewise), and R cycles HE, AP, FLAK |
 | G, held | Paint for the 6-tube shoulder rocket pod; let go to fire all six |
 | Q | Regenerating smoke wall, flares, and a 6.5 m concussive pulse around the legs |
 | E | Disembark safely beside the Frame (leaving it parked with preserved HP and position) or climb back in within 5.2 m |
@@ -25,6 +25,48 @@ off and compare.
 `Frame.deploy(feet, yaw)`. There is no call-in timer and no despawn timer: it remains parked with a HUD marker (`DISTRAINT 4 · XX%`)
 and `[E] BOARD` prompt until destroyed (`0 HP` triggers an explosion and safely ejects the pilot if inside).
 
+## Loadout (owner, 2026-11-22)
+
+The Frame is built from parts, one per slot, as the contractor wears implants: `src/frame/loadout.ts` (data and rules, no three.js),
+tested in `loadout.test.ts`, `seat.test.ts` ("the loadout") and `progression/callins/copies.test.ts`. Chosen on the Frame loadout screen
+(`src/ui/screens/frameLoadout.ts`, `docs/notes/ui.md`) and kept in this browser (`op2.frame.loadout.v1`).
+
+| Slot | Parts today | What it decides |
+|---|---|---|
+| Left arm | `rotaryL`, `cannonL`, `howitzerL` | The weapon on LMB |
+| Right arm | `rotaryR`, `cannonR`, `howitzerR` | The weapon on RMB |
+| Shoulder (as many as the cockpit gives) | `pod6`, the six-tube pod | G. Today one shoulder; `frameStats().pod` turns the pod on |
+| Legs | `legsStandard` | `LegStats`: walk, jump, stomp multipliers, gait. Walk and jump are read; stomp and gait are not yet |
+| Cockpit | `cockpitStandard` | `CockpitStats.shoulders`: 1. A two-shoulder cockpit makes the loadout grow a shoulder slot (`shoulderSlots`) |
+| Engine | `engineStandard` | `EngineStats`: speed (read, times the legs' walk), drive (`jets`, later `hover`/`flight`), dash (not read yet) |
+
+**The default** (`DEFAULT_FRAME_LOADOUT`) is the Frame as it was: rotary left, 40 mm right, the pod, the standard legs, cockpit and
+engine; every stat is exactly 1 (`frameStats`), so nothing moves differently. A mission's beat (`board`, `kneel`) still builds the
+default; Foreclosure's `installWeapon('howitzer105')` swaps only the right arm of whatever is worn. A call-in (`frameDrop.ts`) reads the
+saved loadout as it is called, wears it on the way down (`Frame.wear`) and lands as it (`deploy(feet, yaw, loadout)`). `?frame=1` boards
+the saved loadout too, so the range is where one is tried.
+
+**The arms.** `FrameGuns` (weapons.ts) has an `ArmMount` per side: the kind, its own rotary, cannon and howitzer clocks, the left on
+`fire`, the right on `aim`. Hold 1 changes every rotary's round, R every cannon's (one bolt sound). The panel rows are per side
+(`LMB ...`, `RMB ...`), and so is the status line. `guns.rotary`, `guns.cannon`, `guns.howitzer` are the ones an arm carries (the default's
+side first). The models come from `ArmRack` (arms.ts): one `Gun` per side and kind, built on first wear; on the side it was not drawn
+for, a model is the same one mirrored (`new Gun(..., mirror)`), so no new models. The standard two and the right howitzer are built at
+once, as before.
+
+**Co-op.** The pose ends with `kitIds(loadout)`: seven part numbers (places in `FRAME_PART_ORDER`, five single slots and two shoulders,
+-1 for none), about 14 bytes more ten times a second. The puppet rebuilds its arms when a number changes; a bare 13-number pose is
+the default Frame. The rotary firing flag is per side (`MECH_FIRING`, `MECH_FIRING_RIGHT`), a shell's news carries its arm as a ninth
+number, and the puppet now flies the 105 mm too (before, a teammate's howitzer showed nothing). A teammate's call-in, while it is
+falling, still shows the default arms: its loadout arrives with the first pose after it lands.
+
+**Adding a part later.** 1. Append its id to `FRAME_PART_ORDER` (never reorder: the wire reads places). 2. Add its `FRAME_PARTS` row with
+slot, name, `does`, `lore` and its stats (`legs`, `engine`, `cockpit`, or `side` + `arm`). 3. If it is a new arm weapon, add an
+`ArmKind`, its clock and fire path in `FrameGuns` (`update`'s switch, `armRow`), its `GunSpec` in `arms.ts`, and the puppet's look
+(`news('shell')`, `rotary`). 4. A shoulder part beyond the pod needs its own fire path and a place on the body (`FRAME_PLACES`). 5.
+Legs or an engine that change movement: read the stat in `Walker` (as `speedScale` and `jumpScale` are), or add the gait. 6. Tests in
+`loadout.test.ts`. The loadout screen lists every part in `FRAME_PARTS` by itself. Every part is free today; a priced part would want a
+shop row (`contracts/shop/data.ts`) and an owned set, which do not exist yet.
+
 ## Files
 
 | File | Holds |
@@ -33,6 +75,8 @@ and `[E] BOARD` prompt until destroyed (`0 HP` triggers an explosion and safely 
 | `controller.ts` | `Walker`: the legs. A kinematic walker on Rapier, no physics body |
 | `seat.ts` | `Frame`: persistent vehicle lifecycle (`deploy`, `board`, `enter`, `leave`, `destroy`), hull armor (`4000 HP`, directional rear multiplier, canopy cracks), keys, walker, pose, guns, blows |
 | `weapons.ts` | The four clocks (`Rotary`, `Cannon`, `Pod`, `Smoke` with recharge), `FrameGuns` (plus `idleUpdate` while parked), and the blows (`stomp`, `shove`, `backhand`, `crush`, `trample`, `smokePulse`) |
+| `loadout.ts` | The loadout: parts, slots, stats, `normalizeLoadout`, `fitPart`, `kitIds`/`kitFrom`, storage |
+| `arms.ts` | `ArmRack`: the arm gun models per side and kind, mirrored on the other side |
 | `cockpit.ts` | Sculpted bevelled procedural Bureau mech (`prism()` hull, pauldrons, sensor mast, 6-tube missile pod, dorsal reactor slats, jet flame cones, reverse-jointed 3-toed legs, parked amber standby visor, first-person cockpit with 3 crack overlays, `ROTARY_ARM`, `CANNON_ARM` with melee strike-gauntlet) |
 | `*.test.ts` | Controller on real Rapier, weapons' clocks and blows, persistent seat/hull lifecycle |
 
