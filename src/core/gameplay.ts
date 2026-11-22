@@ -553,6 +553,10 @@ export interface ProjectileSpec {
   wired?: boolean;
   /** The autocannon's flak shell: a proximity fuze and an air burst of shrapnel (weapons/flak.ts). */
   flak?: boolean;
+  /** White phosphorus warhead (rocketWp): spawns a 6 m burning WP cloud for 12 s on detonation (weapons/wp.ts). */
+  wp?: boolean;
+  /** Howitzer standoff cluster shell (howitzerCluster): bursts ~7 m short into an 18-bomblet carpet (weapons/cluster.ts). */
+  cluster?: boolean;
   /** The laser a `wired` rocket steers for, when it is not the player's own: the friend's whose rocket it is. */
   laser?: { on: boolean; at: THREE.Vector3 };
   /**

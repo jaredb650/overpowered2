@@ -63,7 +63,7 @@ export type LoopEvent = { t: 'loop'; k: 'beam' | 'giant' | 'hose' | 'spin' | 'wh
  */
 export type ProjEvent = {
   t: 'round'; slot?: number; k: string; src: string; o: Vec; v: Vec; i?: number;
-  g?: number; l?: number; fu?: number; tr?: string; sz?: number; tc?: string; x?: 1; w?: 1; fk?: 1; st?: 1;
+  g?: number; l?: number; fu?: number; tr?: string; sz?: number; tc?: string; x?: 1; w?: 1; fk?: 1; st?: 1; wp?: 1; cl?: 1;
   tg?: number; q?: number[]; hx?: number[];
 };
 /** The gun a player holds and the mods fitted to it, in MOD_ORDER. `on`: bit 1 the rocket's laser sight is up. */
@@ -227,7 +227,7 @@ export class RemoteFire implements WorldModule {
     let tag = 0;
     // A round whose end the others must be told: one that goes off, and a stake, which stops in a body or flies on through
     // it by what it did to that body on this screen.
-    if (spec.explosion || spec.flak || spec.kind === 'stake' || spec.sticky) {
+    if (spec.explosion || spec.flak || spec.wp || spec.cluster || spec.kind === 'stake' || spec.sticky) {
       tag = this.nextTag = this.nextTag % 0xffff + 1;
       event.i = tag;
     }
@@ -241,6 +241,8 @@ export class RemoteFire implements WorldModule {
     if (spec.wired) event.w = 1;
     if (spec.flak) event.fk = 1;
     if (spec.sticky) event.st = 1;
+    if (spec.wp) event.wp = 1;
+    if (spec.cluster) event.cl = 1;
     if (spec.turnRate) {
       event.q = [mm(spec.turnRate), mm(spec.steerDelay ?? 0), mm(spec.weave ?? 0), mm(spec.accel ?? 0), mm(spec.topSpeed ?? 0)];
       const uid = (spec.target as { uid?: number } | null | undefined)?.uid;
@@ -436,6 +438,8 @@ export class RemoteFire implements WorldModule {
     spec.wired = event.w === 1;
     spec.flak = event.fk === 1;
     spec.sticky = event.st === 1;
+    spec.wp = event.wp === 1;
+    spec.cluster = event.cl === 1;
     const q = Array.isArray(event.q) && event.q.length === 5 && event.q.every(n => finite(n, 0, 1000)) ? event.q : null;
     spec.turnRate = q ? q[0] : undefined;
     spec.steerDelay = q ? q[1] : undefined;

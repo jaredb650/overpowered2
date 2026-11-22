@@ -128,8 +128,8 @@ describe('a claim\'s damage, by property', () => {
       if (d.slicePlaneNormal) expect(d.slicePlaneNormal.length()).toBeCloseTo(1, 5);
       for (const flag of [d.gib, d.pierces, d.armorPiercing, d.vaporize]) expect(flag === undefined || flag === true).toBe(true);
       for (const n of [d.severMult, d.headshotMult, d.reach]) expect(n === undefined || (Number.isFinite(n) && n >= 0 && n <= 1000)).toBe(true);
-      if (d.blastKind !== undefined) expect(['rocket', 'grenade', 'hellfire', 'hellfireBullet', 'shell', 'plasma', 'plasmaBurst', 'enemy', 'barrel', 'nuke', 'finisher']).toContain(d.blastKind);
-      if (d.load !== undefined) expect(['ap', 'hp', 'plusP', 'flechette', 'api']).toContain(d.load);
+      if (d.blastKind !== undefined) expect(['rocket', 'grenade', 'hellfire', 'hellfireBullet', 'shell', 'plasma', 'plasmaBurst', 'enemy', 'barrel', 'nuke', 'finisher', 'howitzer']).toContain(d.blastKind);
+      if (d.load !== undefined) expect(['ap', 'hp', 'plusP', 'flechette', 'api', 'dragon']).toContain(d.load);
       if (d.armour !== undefined) expect(['light', 'medium', 'heavy']).toContain(d.armour);
       if (d.claim !== undefined) expect(Number.isInteger(d.claim) && d.claim >= 1 && d.claim <= 0xffff).toBe(true);
       const loose = d as unknown as Record<string, unknown>;

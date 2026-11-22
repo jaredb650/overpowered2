@@ -1084,7 +1084,7 @@ export const TUNING = {
    */
   howitzer: {
     speed: 195, gravity: 6.5, damage: 580, blast: 680, radius: 13.5,
-    kind: 'finisher' as ExplosionKind, blastScale: 1.65, blastShake: 0.85,
+    kind: 'howitzer' as ExplosionKind, blastScale: 1.65, blastShake: 0.85,
     selfDamage: 0.25, playerPush: 18, size: 2.2, push: 6.5, groundPush: 0.55,
   },
 } as const;
@@ -1238,6 +1238,10 @@ export const EXPLOSIONS: Record<ExplosionKind, ExplosionDef> = {
     sounds: [{ id: 'explosion_barrel', pitchJitter: 0.06 }, { id: 'explosion_debris' }],
   },
   finisher: {
+    ...BLAST, shake: 0.15, shakeRange: 30, selfDamage: 0, selfCap: 0, playerPush: 0, impulse: 14,
+    sounds: [{ id: 'rocket_explosion' }], flash: 0, fovPunch: 3.5,
+  },
+  howitzer: {
     ...BLAST, shake: 0.15, shakeRange: 30, selfDamage: 0, selfCap: 0, playerPush: 0, impulse: 14,
     sounds: [{ id: 'rocket_explosion' }], flash: 0, fovPunch: 3.5,
   },

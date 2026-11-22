@@ -545,7 +545,7 @@ export interface CorpseHit {
 
 export type MuzzleKind = 'smg' | 'rifle' | 'shotgun' | 'rocket' | 'autocannon' | 'plasma' | 'railgun' | 'minigun' | 'revolver' | 'flame' | 'enemy' | 'carbine' | 'pistol' | 'sabot' | 'snipe' | 'quiver' | 'rotary' | 'hmg' | 'suppressed';
 export type TracerKind = 'scout' | 'bullet' | 'heavy' | 'hellfire' | 'bloodthirst' | 'berserk' | 'plasma' | 'rail' | 'enemy' | 'carbine' | 'pistol' | 'sabot' | 'snipe' | 'ap' | 'hp' | 'plusP' | 'flechette' | 'api' | 'raufoss' | 'scoutLong' | 'dragon';
-export type ExplosionKind = 'rocket' | 'grenade' | 'hellfire' | 'hellfireBullet' | 'shell' | 'plasma' | 'plasmaBurst' | 'enemy' | 'barrel' | 'nuke' | 'finisher';
+export type ExplosionKind = 'rocket' | 'grenade' | 'hellfire' | 'hellfireBullet' | 'shell' | 'plasma' | 'plasmaBurst' | 'enemy' | 'barrel' | 'nuke' | 'finisher' | 'howitzer';
 export type BeamKind = 'rail' | 'lance' | 'laser' | 'sniper' | 'heal';
 export type SlashKind = 'light' | 'heavy' | 'sweep' | 'finisher' | 'wave';
 export type EmitterPreset =

@@ -2081,6 +2081,8 @@ export class Weapons implements WeaponSystem, Guard {
     p.fuse = undefined;
     p.wired = undefined;
     p.sticky = undefined;
+    p.wp = undefined;
+    p.cluster = undefined;
     p.trail = trail;
     p.gib = false;
     p.severMult = this.modifiers.alwaysSever ? 1000 : def.canSever ? def.severMult : 0;
@@ -2106,6 +2108,7 @@ export class Weapons implements WeaponSystem, Guard {
     const p = this.fillProjectile('rocket', def, speed, damage, hell ? 'hellfire' : 'smoke');
     p.wired = def.laser === true;
     if (def.rocket?.laserTurn) p.turnRate = def.rocket.laserTurn;
+    p.wp = !!def.altAmmo && this.altLoaded.has('rocket');
     p.gib = true;
     p.killStop = HIT_STOP.heavyKill;
     p.explosion = {
@@ -2149,6 +2152,7 @@ export class Weapons implements WeaponSystem, Guard {
     p.severMult = this.modifiers.alwaysSever ? 1000 : def.severMult;
     p.force = def.force;
     p.killStop = def.killStop ?? HIT_STOP.heavyKill;
+    p.cluster = !!def.altAmmo && this.altLoaded.has('howitzer');
     p.explosion = {
       radius: t.radius * m.blastRadius,
       damage: t.blast * m.damage,
@@ -2700,10 +2704,9 @@ export class Weapons implements WeaponSystem, Guard {
     if (wall) reach = wall.distance;
     const body = c.enemies.raycast(eye, forward, reach);
     if (body) reach = body.distance;
-    // A hair short of the surface, so the dot is not inside it.
+    // A hair short of the surface, so the dot is not inside it. The thin 400 m beam is drawn by ViewmodelRig's LAM.
     L.at.copy(eye).addScaledVector(forward, Math.max(0, reach - 0.04));
     L.on = true;
-    c.fx.beam(this.muzzle(false), L.at, 'laser');
   }
 
   // -------------------------------------------------------------------------------------------
