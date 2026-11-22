@@ -28,60 +28,84 @@ off and compare.
 `Frame.deploy(feet, yaw)`. There is no call-in timer and no despawn timer: it remains parked with a HUD marker (`DISTRAINT 4 · XX%`)
 and `[E] BOARD` prompt until destroyed (`0 HP` triggers an explosion and safely ejects the pilot if inside).
 
-## Loadout (owner, 2026-11-22)
+## Loadout & Part Catalogue (2026-11-22)
 
-The Frame is built from parts, one per slot, as the contractor wears implants: `src/frame/loadout.ts` (data and rules, no three.js),
-tested in `loadout.test.ts`, `seat.test.ts` ("the loadout") and `progression/callins/copies.test.ts`. Chosen on the Frame loadout screen
-(`src/ui/screens/frameLoadout.ts`, `docs/notes/ui.md`) and kept in this browser (`op2.frame.loadout.v1`).
+The Frame is built from parts, one per slot (`src/frame/loadout.ts`, zero Three.js), chosen on the Frame Loadout screen (`src/ui/screens/frameLoadout.ts` + live rotating 3D preview in `src/ui/screens/framePreview.ts`) and saved in `op2.frame.loadout.v1`. All parts are currently free.
 
-| Slot | Parts today | What it decides |
+**The default** (`DEFAULT_FRAME_LOADOUT`) is the original Distraint Frame: 20 mm Rotary left, 40 mm Autocannon right, Six-tube Missile Pod, Standard Legs, Standard Cockpit, Standard Engine (`frameStats` multipliers all `1`). Campaign story beats (`board`, `kneel`) still build the default Frame; Foreclosure's `installWeapon('howitzer105')` swaps only the right arm. Call-ins (`frameDrop.ts`) and `/?map=range&frame=1` wear the saved loadout.
+
+### Arm Weapons (`LMB` left / `RMB` right · tap `1` left ammo / tap `2` right ammo · `R` reload)
+
+| Id | Name | Numbers & Behavior |
 |---|---|---|
-| Left arm | `rotaryL`, `cannonL`, `howitzerL` | The weapon on LMB |
-| Right arm | `rotaryR`, `cannonR`, `howitzerR` | The weapon on RMB |
-| Shoulder (as many as the cockpit gives) | `pod6`, the six-tube pod | G. Today one shoulder; `frameStats().pod` turns the pod on |
-| Legs | `legsStandard` | `LegStats`: walk, jump, stomp multipliers, gait. Walk and jump are read; stomp and gait are not yet |
-| Cockpit | `cockpitStandard` | `CockpitStats.shoulders`: 1. A two-shoulder cockpit makes the loadout grow a shoulder slot (`shoulderSlots`) |
-| Engine | `engineStandard` | `EngineStats`: speed (read, times the legs' walk), drive (`jets`, later `hover`/`flight`), dash (not read yet) |
+| `rotaryL/R` | **20 mm Vulcan Rotary** | 6 barrels; 0.25 s spin-up; 24 rds/s STD (`68` dmg, 0.7 m burst) / 16 rds/s AIRBURST (tap `1`/`2`); ~6.7 s to overheat, 2.2 s vent. |
+| `cannonL/R` | **40 mm Autocannon** | 10-shell mag, 0.28 s cadence, 3.8 s reload; HE / AP / FLAK cycled on tap `1`/`2` independently per arm. |
+| `howitzerL/R` | **105 mm Howitzer** | 1-shell breech, 3.1 s auto-reload; monolithic shell with 22 m shockwave knockdown. |
+| `vulcan30L/R` | **30 mm Rotary Cannon** | 3 barrels in rounded triangle; 0.35 s spin-up, 14 rds/s; ~5.0 s continuous fire to overheat, 2.5 s vent; HE (3.0 m, 76.5 dmg) / AP (145 dmg, penetrates 1 body) / FLAK (8 proximity airburst pellets) cycled on tap `1`/`2`. |
+| `beamL/R` | **Red Beam** | Hold 1.6 s to charge (walk slowed ×0.6; early release keeps half charge for 2.0 s). Release fires 1.0 s continuous 1.4 m red beam to 180 m piercing up to 3 walls: vaporizes enemies, scorches/ignites within 2.4 m edge, 900 dmg to bosses (`bossHit`), 9.0 s cooldown. |
+| `clusterL/R` | **Bomblet Cannon** | 1-shell breech, 3.6 s reload; bursts 7 m short of first enemy/wall, throwing 28 wall-bouncing bomblets across ~14 m × 9 m rippling over 0.7 s (2.4 m, 70 dmg each). |
+| `shotgunL/R` | **Mech Shotgun** | 6-shell tube, 0.42 s semi-auto, 26 heavy pellets in a 5.5° spread cone, 85 dmg/pellet up to 25 m (tapering to 25% at 85 m), heavy ragdoll push, 0.45 s shell-by-shell reload interruptible by firing. |
 
-**The default** (`DEFAULT_FRAME_LOADOUT`) is the Frame as it was: rotary left, 40 mm right, the pod, the standard legs, cockpit and
-engine; every stat is exactly 1 (`frameStats`), so nothing moves differently. A mission's beat (`board`, `kneel`) still builds the
-default; Foreclosure's `installWeapon('howitzer105')` swaps only the right arm of whatever is worn. A call-in (`frameDrop.ts`) reads the
-saved loadout as it is called, wears it on the way down (`Frame.wear`) and lands as it (`deploy(feet, yaw, loadout)`). `?frame=1` boards
-the saved loadout too, so the range is where one is tried.
+### Shoulder Weapons (`G` slot 1 / `V` slot 2 / `B` slot 3 · tap `3`/`4`/`5` cycle round)
 
-**The arms.** `FrameGuns` (weapons.ts) has an `ArmMount` per side: the kind, its own rotary, cannon and howitzer clocks, the left on
-`fire`, the right on `aim`. Hold 1 changes every rotary's round, R every cannon's (one bolt sound). The panel rows are per side
-(`LMB ...`, `RMB ...`), and so is the status line. `guns.rotary`, `guns.cannon`, `guns.howitzer` are the ones an arm carries (the default's
-side first). The models come from `ArmRack` (arms.ts): one `Gun` per side and kind, built on first wear; on the side it was not drawn
-for, a model is the same one mirrored (`new Gun(..., mirror)`), so no new models. The standard two and the right howitzer are built at
-once, as before.
+| Id | Name | Numbers & Behavior |
+|---|---|---|
+| `pod6` | **Six-tube Missile Pod** | Hold to paint up to 6 targets (0.11 s/mark to 200 m), release fires 6 homing missiles (145 direct, 115 in 4.2 m); tap fires 6 dumb; 8.5 s reload. |
+| `stormPod` | **Metal Storm Pod** | Hold to paint up to 8 targets (0.5 s/mark) + 0.7 s charge after first lock; release snaps through painted targets in order (0.25 s, 120 rds × 30 dmg each, skipping dead/occluded), 7.5 s reload. |
+| `mirv` | **MIRV Launcher** | Hold to place ground marker (up to 200 m); release launches straight up to +70 m, dives, and splits at 25 m into 8 homing sub-missiles targeting enemies within 22 m (5 m, 220 dmg each), 11 s reload. |
+| `wireBomb` | **Guided Heavy Missile** | Slow 16 m/s agile missile steered live to crosshair (walk freely while guiding), detonates via `megaBlast` (26 m kill radius, 70 m wave-timed shockwave, condensation dome, delayed shake/ragdoll push/breakable ring/delayed boom), 28 s reload. |
+| `mortarRack` | **Mortar Rack** | 6 rounds, 0.5 s cadence, 6.5 s reload; hold for landing circle (25–180 m, ~2.5 s flight at 100 m), release fires high arc. Tap `3`/`4`/`5` cycles **HE** (6 m, 260 dmg), **WP** (9 m white-hot burning patch for 14 s + white smoke plume), and **Cluster** (32 bomblets over 18 m circle). |
+| `fpvHive` | **FPV Drone Hive** | 4-drone stock (rebuilds 1 every 4 s; pooled cap 4/mech, 16/co-op); launches 0.15 s apart (holding prefers crosshair targets); 28 m/s, 60 m search, distinct targets, 4 m / 200 dmg blast, 20 HP shootable. |
+| `pointDefence` | **Point Defence** | Passive APS turret (no key): intercepts enemy rockets/grenades/mortars within 15 m (6 charges, 0.6 s cd, 3 s refill) + clips infantry within 6 m (12 dmg, 3/s). |
+| `flareRack` | **Countermeasure Rack** | Passive upgrade to `Q` smoke: 6 charges (was 3), 7 s refill (was 14 s), 1.5× smoke wall + auto-flares on incoming enemy missile lock once every 5 s (free). |
 
-**Co-op.** The pose ends with `kitIds(loadout)`: seven part numbers (places in `FRAME_PART_ORDER`, five single slots and two shoulders,
--1 for none), about 14 bytes more ten times a second. The puppet rebuilds its arms when a number changes; a bare 13-number pose is
-the default Frame. The rotary firing flag is per side (`MECH_FIRING`, `MECH_FIRING_RIGHT`), a shell's news carries its arm as a ninth
-number, and the puppet now flies the 105 mm too (before, a teammate's howitzer showed nothing). A teammate's call-in, while it is
-falling, still shows the default arms: its loadout arrives with the first pose after it lands.
+### Legs (`src/frame/move/gait/`)
 
-**Adding a part later.** 1. Append its id to `FRAME_PART_ORDER` (never reorder: the wire reads places). 2. Add its `FRAME_PARTS` row with
-slot, name, `does`, `lore` and its stats (`legs`, `engine`, `cockpit`, or `side` + `arm`). 3. If it is a new arm weapon, add an
-`ArmKind`, its clock and fire path in `FrameGuns` (`update`'s switch, `armRow`), its `GunSpec` in `arms.ts`, and the puppet's look
-(`news('shell')`, `rotary`). 4. A shoulder part beyond the pod needs its own fire path and a place on the body (`FRAME_PLACES`). 5.
-Legs or an engine that change movement: read the stat in `Walker` (as `speedScale` and `jumpScale` are), or add the gait. 6. Tests in
-`loadout.test.ts`. The loadout screen lists every part in `FRAME_PARTS` by itself. Every part is free today; a priced part would want a
-shop row (`contracts/shop/data.ts`) and an owned set, which do not exist yet.
+| Id | Name | Numbers & Behavior |
+|---|---|---|
+| `legsStandard` | **Standard Legs** | Baseline 7 m/s walker (`×1.0` all stats). |
+| `legsSprinter` | **Sprinter Legs** | Reverse-jointed light gait: walk ×1.30, jet launch ×1.6, stomp ×0.6, leg armour ×0.7. |
+| `legsHeavy` | **Pile-Driver Legs** | Heavy slow gait: walk ×0.75, jet launch ×0.5, stomp ring ×1.5 with damage/push ×2.2, leg armour ×1.6, knockback-immune. |
+| `legsTreads` | **Treads** | Tank base: flat ×1.25, slopes/rubble ×0.6, hull turn ×0.5 (free turret aim), no hop (except flying engines), no aim sway, no stomp — crushes enemies driven over (300 dmg), hull armour ×1.2. |
+| `legsSpider` | **Spider Legs** | 4-leg quadruped: walk ×1.0, strafe ×1.4, climbs 45° slopes and 2.2 m ledges, zero view recoil kick, replaces stomp with 360° 5 m leg sweep knockdown. |
+
+### Cockpits (`src/frame/models/cockpit-*.ts`)
+
+| Id | Name | Shoulders | Numbers & Behavior |
+|---|---|---|---|
+| `cockpitStandard` | **Standard Cockpit** | 1 | Standard armoured canopy (`×1.0`). |
+| `cockpitTwin` | **Twin-Mount Cockpit** | 2 | Unlocks Shoulder 2 (`V`); thinner canopy cracks at ×0.7 damage. |
+| `cockpitOpen` | **Open Frame** | 3 | Unlocks Shoulders 2 (`V`) & 3 (`B`); open roll-cage with no canopy — front/top hits on the exposed seat route directly to the pilot (`openSeat.ts`), hull ×0.9. |
+| `cockpitSensor` | **Sensor Cockpit** | 1 | Thermal brain chip wall-seeing enemy outlines within 70 m (`cockpitSensor.ts`), shared in co-op; hull ×0.9. |
+
+### Engines (`src/frame/move/drive/`)
+
+| Id | Name | Drive | Numbers & Behavior |
+|---|---|---|---|
+| `engineStandard` | **Standard Engine** | `jets` | 7 m hop, 1.5 s hover, 2.3 s fuel, 2 × 18 m/s Shift charges (3.5 s refill). |
+| `engineJet` | **Jump-Jet Engine** | `flight` | Walk ×1.2, unlimited-ceiling Space flight (14 m/s air), Shift 32 m/s 0.6 s omnidirectional jet blast (costs 1 s fuel), 4 s fuel (1.2 s delay, 3 s refill). |
+| `engineRotor` | **Rotor Engine** | `hover` | Walk ×0.9, Space climbs up to 14 m and hovers indefinitely at zero fuel cost (9 m/s omnidirectional strafe), no Shift charge, ×1.25 hull damage while airborne. |
+| `engineAfterburner` | **Afterburner** | `afterburner` | Normal walk/hop (no hover); Shift airborne enters 48 m/s jet mode (wings/legs folded, 70°/s turn cap, mouse pitch climb/dive, 7 s fuel, arms locked forward, crouch = ×1.5 dive-bomb stomp). |
+| `engineOvercharge` | **Overcharge Engine** | `overcharge` | Walk ×1.45, 3 × 26 m/s 0.7 s Shift charges (2.5 s refill), weak hop (×0.5 fuel). |
+| `engineDiesel` | **Long-Haul Engine** | `diesel` | Walk ×0.95, hold Shift for steady 11 m/s sustained run up to 12 s (tramples small enemies, refills in 4 s), normal hop (×1.3 fuel). |
+
+**Co-op wire.** `kitIds(loadout)` encodes 8 part indices into `FRAME_PART_ORDER` (5 single slots + 3 shoulders, `-1` for empty; legacy 7-id and bare 13-number poses still decode cleanly). `MechPose` carries `MECH_FIRING`, `MECH_FIRING_RIGHT`, `MECH_JETS`, `MECH_PARKED`, `MECH_FLYING`, `MECH_HOVERING`, `MECH_JETMODE`, and `MECH_ARMS_LOCKED`. New arm/shoulder weapon FX dispatch via `MechKind` wire notes (`vulcan30`, `beam`, `cluster`, `shotgun`, `storm`, `mirv`, `wire`, `mortar`, `fpv`, `pointdef`) to each plug-in's `remoteNews` / `remoteFiring`.
 
 ## Files
 
 | File | Holds |
 |---|---|
-| `data.ts` | Every number (`FRAME`), `FRAME.hull`, the seat's plan (`framePlan`), the URL flags |
-| `controller.ts` | `Walker`: the legs. A kinematic walker on Rapier, no physics body |
-| `seat.ts` | `Frame`: persistent vehicle lifecycle (`deploy`, `board`, `enter`, `leave`, `destroy`), hull armor (`4000 HP`, directional rear multiplier, canopy cracks), keys, walker, pose, guns, blows |
-| `weapons.ts` | The four clocks (`Rotary`, `Cannon`, `Pod`, `Smoke` with recharge), `FrameGuns` (plus `idleUpdate` while parked), and the blows (`stomp`, `shove`, `backhand`, `crush`, `trample`, `smokePulse`) |
-| `loadout.ts` | The loadout: parts, slots, stats, `normalizeLoadout`, `fitPart`, `kitIds`/`kitFrom`, storage |
-| `arms.ts` | `ArmRack`: the arm gun models per side and kind, mirrored on the other side |
-| `cockpit.ts` | Sculpted bevelled procedural Bureau mech (`prism()` hull, pauldrons, sensor mast, 6-tube missile pod, dorsal reactor slats, jet flame cones, reverse-jointed 3-toed legs, parked amber standby visor, first-person cockpit with 3 crack overlays, `ROTARY_ARM`, `CANNON_ARM` with melee strike-gauntlet) |
-| `*.test.ts` | Controller on real Rapier, weapons' clocks and blows, persistent seat/hull lifecycle |
+| `data.ts` | Core constants (`FRAME`), `FRAME.hull`, `framePlan`, URL flags |
+| `loadout.ts` | Full 37-part catalogue (`FRAME_PART_ORDER`, `FRAME_PARTS`), `MAX_SHOULDERS = 3`, `frameStats`, `kitIds`/`kitFrom`, storage |
+| `arms/` | Arm weapon plug-in registry (`registry.ts`, `types.ts`, `shared.ts`) + `rotary.ts`, `cannon40.ts`, `howitzer105.ts`, `vulcan30.ts`, `beam.ts`, `cluster.ts`, `shotgun.ts` |
+| `shoulders/` | Shoulder weapon plug-in registry (`registry.ts`, `types.ts`) + `pod6.ts`, `storm.ts`, `mirv.ts`, `wire.ts`, `mortar.ts`, `fpv.ts`, `pointdef.ts`, `flares.ts` |
+| `move/` | Movement plug-in registry (`registry.ts`), leg gaits (`gait/{walker,sprinter,heavy,treads,spider}.ts`), engine drives (`drive/{jets,flight,hover,afterburner,overcharge,diesel}.ts`) |
+| `models/` | Sculpted bevelled 3D models for every arm, shoulder, leg, cockpit, and engine (`shared.ts`, `shoulders.ts`, `engine-kit.ts`, per-part model files) |
+| `bomblets.ts` | Shared pooled wall-bouncing `bombletCarpet` used by Bomblet Cannon and Mortar Cluster |
+| `cockpitSensor.ts`, `openSeat.ts` | Sensor Cockpit 70 m Thermal outlines and Open Frame exposed seat hit routing |
+| `controller.ts`, `seat.ts`, `weapons.ts`, `parts.ts`, `arms.ts`, `cockpit.ts`, `puppet.ts` | Walker physics, persistent Frame vehicle, gun/shoulder coordinator, locational armour, model assembly, co-op puppet |
+| `src/fx/recipes/megaBlast.ts`, `megaBlastWave.ts`, `redBeam.ts` | Wave-timed 4-stage `megaBlast` explosion and pooled Red Beam FX |
+| `src/ui/screens/frameLoadout.ts`, `framePreview.ts` | Frame Loadout screen with live stats, keybinds, and rotating 3D custom mech preview |
 
 Outside `src/frame/`: the `frame` tone and Hull Integrity bar in `src/vehicles/hud.ts` and `gunner.css`, fields on `GunnerSeat`
 (`legs`, `marks`, `hull`, `hullText`), `Heat`, `player.carry(feet)`, and `callIns.frame` / `progression.frame`.
