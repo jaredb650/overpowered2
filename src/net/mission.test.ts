@@ -6,8 +6,8 @@ import * as THREE from 'three';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { REGROUP_SECONDS } from '../campaign/coop';
 // This browser's save (the campaign's unlock): a spy, so a test can see who wrote to it.
-const saved = vi.hoisted(() => ({ record: vi.fn(() => true) }));
-vi.mock('../contracts/unlocks', () => ({ recordCampaignBeaten: saved.record, campaignBeaten: () => false, isLocked: () => false, isShut: () => false }));
+const saved = vi.hoisted(() => ({ record: vi.fn(() => true), win: vi.fn(() => 1) }));
+vi.mock('../contracts/unlocks', () => ({ recordCampaignBeaten: saved.record, recordMissionWin: saved.win, missionModsUnlocked: () => false, campaignBeaten: () => false, isLocked: () => false, isShut: () => false }));
 import { MissionRunner } from '../campaign/runner';
 import { FakeHost } from '../campaign/testkit';
 import type { Mission, MissionHost } from '../campaign/types';

@@ -8,8 +8,10 @@ import { report, reportLobby, reportSolo } from '../../core/report';
  * An invite link (`?join=CODE`) skips the splash and opens on a page that only asks for the password.
  * Stage 1 starts an enemy-free match on the host's selected map.
  */
+import { CONTRACTS } from '../../contracts/data';
 import { STARTERS, defaultStarter, saveStarter, starterPreference } from '../../contracts/starter';
-import { starterCards } from './starter';
+import { missionModsUnlocked, missionWins } from '../../contracts/unlocks';
+import { starterCards, starterLobbyMods } from './starter';
 import type { Ctx } from '../../core/contracts';
 import { cheatsOn, onCheats } from '../../core/cheats';
 import {
@@ -131,6 +133,8 @@ export class CoopScreen implements Screen {
   private readyItem: NavItem;
   private lobbyPanel: HTMLElement;
   private modes: HTMLElement;
+  private starterMods = div('starter-lobby-mods-host');
+  private lobbyModsKey = '';
   private starter = div('starter-lobby');
 
   constructor(private readonly ctx: Ctx, private readonly hud: Hud) {
@@ -350,6 +354,19 @@ export class CoopScreen implements Screen {
       el.classList.toggle('selected', STARTERS[i] === mine);
       el.setAttribute('aria-pressed', String(STARTERS[i] === mine));
     });
+    const missionMode = Boolean(CONTRACTS.find(c => c.id === lobby.pick.mode)?.mission);
+    if (missionMode && missionModsUnlocked(lobby.pick.mode)) {
+      const wins = missionWins(lobby.pick.mode);
+      const key = `${lobby.pick.mode}:${mine}:${wins}`;
+      if (key !== this.lobbyModsKey) {
+        this.lobbyModsKey = key;
+        this.starterMods.replaceChildren(starterLobbyMods(mine, wins));
+      }
+      this.starterMods.style.display = '';
+    } else {
+      this.lobbyModsKey = '';
+      this.starterMods.style.display = 'none';
+    }
     this.players.replaceChildren(
       ...(lobby.phase === 'connecting'
         ? [div('co-note', this.regrouping ? `The host was lost. Looking for ${this.regrouping.names[0] ?? 'a teammate'}'s new lobby on the same code…` : 'Looking for the host. This can take up to half a minute.')]
@@ -479,7 +496,9 @@ export class CoopScreen implements Screen {
       card.el.addEventListener('click', card.activate!);
       card.el.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') e.stopPropagation(); });
     }
-    this.starter.replaceChildren(span('nt-k', 'Your weapon · already picked for you, change it if you like'), ...cards.map(card => card.el));
+    this.lobbyModsKey = '';
+    this.starterMods.style.display = 'none';
+    this.starter.replaceChildren(span('nt-k', 'Your weapon · already picked for you, change it if you like'), ...cards.map(card => card.el), this.starterMods);
     if (lobby.hosting) lobby.setPick(MODES[this.mode]!.mode, MODES[this.mode]!.map);
     this.roomPassword = password;
     // Joined: the invite code has done its work. Only it goes; the rest of the address stays.

@@ -32,11 +32,13 @@ import type { MissionResult } from '../campaign/events';
 import type { GameHost } from '../campaign/host';
 import type { Beat, Zone } from '../campaign/types';
 import { START_BEAT } from '../campaign/select';
-import { selectedStarter, starterLoadout } from '../contracts/starter';
-import { recordCampaignBeaten } from '../contracts/unlocks';
+import { CHIPS, type ChipId } from '../contracts/chips';
+import { hasStarter, isStarter, selectedStarter, selectedStarterMods, starterLoadout } from '../contracts/starter';
+import { missionModsUnlocked, recordCampaignBeaten, recordMissionWin } from '../contracts/unlocks';
 import type { Ctx, GameEvents } from '../core/contracts';
-import type { WeaponId } from '../core/gameplay';
+import type { ModId, WeaponId } from '../core/gameplay';
 import { WEAPONS } from '../weapons/data';
+import { MODS } from '../weapons/mods';
 import type { CoopSession } from './index';
 import type { WorldEvent } from './worldProtocol';
 import type { Team } from './team';
@@ -99,7 +101,7 @@ export class CoopMission {
   // Host: the state the mission is in, for a late joiner (`catchUp`). A checkpoint restart empties what a new run empties.
   private readonly doors = new Map<string, unknown[]>();
   private readonly latest = new Map<string, unknown[]>();
-  private kit: { weapons: string[]; grenades: number } | null = null;
+  private kit: { weapons: string[]; grenades: number; mods?: string[]; exclusiveMods?: boolean; chip?: string } | null = null;
   private readonly racks = new Map<string, unknown[]>();
   private drops: unknown[][] = [];
   private readonly chips = new Set<string>();
@@ -199,8 +201,14 @@ export class CoopMission {
     const deploy = real('deploy');
     parts.deploy = (...args: unknown[]) => {
       const wire = tell('deploy', args);
-      const kit = wire[1] as { weapons?: unknown; grenades?: unknown } | null;
-      this.kit = { weapons: Array.isArray(kit?.weapons) ? kit.weapons.map(String) : [], grenades: Number(kit?.grenades) || 0 };
+      const kit = wire[1] as { weapons?: unknown; grenades?: unknown; mods?: unknown; exclusiveMods?: unknown; chip?: unknown } | null;
+      this.kit = {
+        weapons: Array.isArray(kit?.weapons) ? kit.weapons.map(String) : [],
+        grenades: Number(kit?.grenades) || 0,
+        ...(Array.isArray(kit?.mods) ? { mods: kit.mods.map(String) } : {}),
+        ...(kit?.exclusiveMods === true ? { exclusiveMods: true } : {}),
+        ...(typeof kit?.chip === 'string' ? { chip: kit.chip } : {}),
+      };
       this.drops = [];
       if (args[0]) this.regroup = null;
       return deploy(...args);
@@ -278,9 +286,10 @@ export class CoopMission {
     parts.finished = () => {
       this.result = campaign.tally();
       // `counts`: this win opens what the mission opens (not a run begun part-way from a dev flag): the host's word, so every
-      // player's own save records it as the host's does (campaign/index.ts `complete`).
-      const counts = (campaign as unknown as { runner?: { mission?: { unlocks?: boolean } } }).runner?.mission?.unlocks === true && !START_BEAT;
-      tell('finished', [{ ...this.result, ...(counts ? { counts: true } : {}) }]);
+      // player's own save records it as the host's does (campaign/index.ts `complete`). `full`: any mission won from the start.
+      const full = !START_BEAT;
+      const counts = (campaign as unknown as { runner?: { mission?: { unlocks?: boolean } } }).runner?.mission?.unlocks === true && full;
+      tell('finished', [{ ...this.result, ...(counts ? { counts: true } : {}), ...(full ? { full: true } : {}) }]);
       return finished();
     };
     // Any living player in a zone counts (watch.ts).
@@ -695,12 +704,14 @@ export class CoopMission {
         host.place(marked(args[0]) as Parameters<GameHost['place']>[0]);
         return;
       case 'deploy': {
-        // Each player keeps the starter gun they picked in the lobby: the host's stands where theirs goes.
-        const kit = args[1] as { weapons?: unknown; grenades?: unknown } | null;
+        // Each player keeps the starter gun (and, once unlocked for this mission, the starter mods) they picked locally.
+        const kit = args[1] as { weapons?: unknown; grenades?: unknown; mods?: unknown; exclusiveMods?: unknown; chip?: unknown } | null;
         const weapons = (Array.isArray(kit?.weapons) ? kit.weapons : []).filter((w): w is WeaponId => typeof w === 'string' && Object.hasOwn(WEAPONS, w));
         if (weapons.length === 0) return;
         if (args[0]) this.regroup = null;
-        const mine = starterLoadout(weapons, selectedStarter(this.session.match.mode));
+        const mode = this.session.match.mode;
+        const gun = selectedStarter(mode);
+        const mine = starterLoadout(weapons, gun);
         // A catch-up (no mark) for a player who already holds a kit of their own adds what the mission has handed out and takes
         // nothing away: their seat has just given the kit back (a reload that rejoined), or this page was deployed before and
         // only its connection dropped. A friend's gift and a weapon cache's share are theirs, and the mission's kit knows neither.
@@ -710,7 +721,29 @@ export class CoopMission {
           return;
         }
         this.deployed = true;
-        host.deploy(args[0] ? marked(args[0]) as Parameters<GameHost['deploy']>[0] : null, { weapons: [...new Set(mine)], grenades: Math.max(0, Math.min(99, Number(kit?.grenades) || 0)) });
+        const wireMods = (Array.isArray(kit?.mods) ? kit.mods : []).filter((m): m is ModId => typeof m === 'string' && Object.hasOwn(MODS, m));
+        const chip = typeof kit?.chip === 'string' && Object.hasOwn(CHIPS, kit.chip) ? (kit.chip as ChipId) : undefined;
+        let mods: ModId[] | undefined;
+        let exclusiveMods: boolean | undefined;
+        if (hasStarter(mode)) {
+          const fixed = wireMods.filter(m => !isStarter(MODS[m].weapon));
+          if (missionModsUnlocked(mode)) {
+            mods = [...fixed, ...selectedStarterMods(gun)];
+            exclusiveMods = true;
+          } else if (fixed.length > 0) {
+            mods = fixed;
+          }
+        } else {
+          if (Array.isArray(kit?.mods)) mods = wireMods;
+          if (kit?.exclusiveMods === true) exclusiveMods = true;
+        }
+        host.deploy(args[0] ? marked(args[0]) as Parameters<GameHost['deploy']>[0] : null, {
+          weapons: [...new Set(mine)],
+          grenades: Math.max(0, Math.min(99, Number(kit?.grenades) || 0)),
+          ...(mods !== undefined ? { mods } : {}),
+          ...(exclusiveMods ? { exclusiveMods: true } : {}),
+          ...(chip ? { chip } : {}),
+        });
         return;
       }
       case 'give': if (Object.hasOwn(WEAPONS, String(args[0]))) host.give(args[0] as WeaponId); return;
@@ -744,11 +777,14 @@ export class CoopMission {
       case 'cue': host.show(String(args[0]), args.slice(1)); return;
       case 'saved': host.saved(args[0] as Beat); return;
       case 'finished': {
-        const r = args[0] as (Partial<MissionResult> & { counts?: boolean }) | null;
-        // A mission won together is won by each player: this browser's own save gets the campaign's unlock, as the host's
-        // does, and the result says whether that opened something here (true the first time only).
-        if (r) this.result = { title: String(r.title ?? '').slice(0, 60), seconds: Number(r.seconds) || 0, deaths: Number(r.deaths) || 0, vehicles: Number(r.vehicles) || 0,
-          unlocked: r.counts === true && recordCampaignBeaten() };
+        const r = args[0] as (Partial<MissionResult> & { counts?: boolean; full?: boolean }) | null;
+        // A mission won together is won by each player: this browser's own save gets the campaign's unlock and mission win,
+        // as the host's does, and the result says whether that opened something here (true the first time only).
+        if (r) {
+          if (r.full === true || r.counts === true) recordMissionWin(this.session.match.mode);
+          this.result = { title: String(r.title ?? '').slice(0, 60), seconds: Number(r.seconds) || 0, deaths: Number(r.deaths) || 0, vehicles: Number(r.vehicles) || 0,
+            unlocked: r.counts === true && recordCampaignBeaten() };
+        }
         return;
       }
       default:
