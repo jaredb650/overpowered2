@@ -1,8 +1,9 @@
 /**
  * Outpost Defense's buy menu (contracts/defense), on the settings sheet's rail and rows. One shop at a time, opened at its
  * counter with E. The run waits under it. Every row shows what it sells (the gun's silhouette, the troop, the call-in, the kit),
- * says its price, and a row that cannot be bought says why instead of what it is. Enter or a click buys; Esc, E or Close goes
- * back to the fight.
+ * says its price, and a row that cannot be bought says why instead of what it is. Inside each section the rows are in the shops'
+ * order (order.ts): what can be bought now, then what wants more credits, then the rest, each by name. Enter or a click asks
+ * (confirm.ts), and Enter again or Buy buys; Esc, E or Close goes back to the fight.
  */
 import type { Ctx } from '../../core/contracts';
 import { SHOPS, type ShopId } from '../../contracts/defense/data';
@@ -15,6 +16,8 @@ import {
 import { Label, div, markup, span } from '../dom';
 import type { Hud } from '../Hud';
 import type { Nav, NavItem } from './nav';
+import { ConfirmBox } from './confirm';
+import { byStanding, standing } from './order';
 import { menuButton } from './parts';
 import type { Screen } from './Screens';
 
@@ -50,7 +53,7 @@ function offerIcon(o: Offer): HTMLElement {
 function offerRow(o: Offer, buy: () => void): NavItem {
   const el = div('row sp-row sp-irow', offerIcon(o), span('row-k', o.label), span('sp-detail', o.why ?? o.detail), span('row-v', o.price > 0 ? credits(o.price) : ''));
   el.classList.toggle('off', o.why !== null);
-  el.classList.toggle('poor', o.why?.startsWith('Need') === true);
+  el.classList.toggle('poor', standing(o.why) === 1);
   return { el, activate: buy };
 }
 
@@ -65,8 +68,10 @@ export class ShopScreen implements Screen {
   private phase: Label;
   private note: Label;
   private close: NavItem;
+  private readonly confirm: ConfirmBox;
 
   constructor(private readonly ctx: Ctx, private readonly hud: Hud) {
+    this.confirm = new ConfirmBox(id => this.ctx.audio.play?.(id));
     const title = span('sh-title');
     const blurb = span('rl-hint');
     const wallet = span('rl-state-k');
@@ -78,6 +83,7 @@ export class ShopScreen implements Screen {
     this.el = div('scr scr-sheet scr-shop',
       div('sh-side', title, blurb, div('rl-state sp-wallet', span('rl-plan-k', 'Credits'), wallet, phase), div('fill'), note, this.close.el),
       div('sh-body', this.body),
+      this.confirm.el,
     );
     this.title = new Label(title);
     this.blurb = new Label(blurb);
@@ -93,7 +99,11 @@ export class ShopScreen implements Screen {
   private refresh(keep: number): void {
     const defense = this.ctx.contracts.defense;
     if (!defense) return;
-    const list = defense.offers(this.shop);
+    // The sections stay in the economy's order; inside each, the shops' order.
+    const raw = defense.offers(this.shop);
+    const sections = [...new Set(raw.map(o => o.section))];
+    const list = sections.flatMap(sec => byStanding(raw.filter(o => o.section === sec),
+      o => ({ standing: standing(o.why), kind: 0, group: '', name: o.label })));
     const items: NavItem[] = [];
     const kids: HTMLElement[] = [];
     let section = '';
@@ -102,7 +112,7 @@ export class ShopScreen implements Screen {
         section = o.section;
         kids.push(span('gd-h', section));
       }
-      const item = offerRow(o, () => this.buy(o));
+      const item = offerRow(o, () => this.choose(o));
       items.push(item);
       kids.push(item.el);
     }
@@ -114,6 +124,16 @@ export class ShopScreen implements Screen {
       ? `Break: wave ${waves.wave + 1} in ${Math.max(0, Math.ceil(waves.nextWaveIn))} s. Weapons on sale.`
       : `Wave ${waves.wave} under way. Weapons wait for the break.`);
     this.nav?.set(items, Math.min(keep, items.length - 1));
+  }
+
+  /** A row that costs credits and can be bought asks first; anything else goes straight to `buy`, which says why not. */
+  private choose(o: Offer): void {
+    if (o.why !== null || o.price <= 0) {
+      this.buy(o);
+      return;
+    }
+    this.ctx.audio.play?.('ui_click');
+    this.confirm.ask({ what: o.label, price: `${credits(o.price)} credits`, yes: () => this.buy(o) });
   }
 
   private buy(o: Offer): void {
@@ -132,6 +152,10 @@ export class ShopScreen implements Screen {
 
   private leave(): void {
     if (!this.hud.resume()) this.note.set('The browser wants a key or a click: press Enter on Close.');
+  }
+
+  closed(): void {
+    this.confirm.close();
   }
 
   open(nav: Nav): void {

@@ -343,3 +343,26 @@
 .pc-sell:hover:not(:disabled) { color: var(--amber); border-color: var(--amber); }
 .pc-sell.armed { color: var(--blood); border-color: var(--blood); }
 .pc-sell:disabled { color: var(--dim); cursor: default; font-weight: 400; }
+.pc-group { flex: none; margin: 0.5rem 1.4rem 0.1rem; color: var(--steel); font-size: 0.85rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+.pc-group:first-child { margin-top: 0; }
+/* The bottom group (order.ts): not to be had now, greyed. */
+.pc-row.shut .pc-k, .pc-row.shut .pc-ico { color: var(--dim); }
+.pc-row.shut:not(.fitted) .pc-v { color: var(--steel); }
+.pc-row.shut.focus .pc-k, .pc-row.shut.focus .pc-ico, .pc-row.shut.focus .pc-v { color: #3a434c; }
+
+/* --- The shops' "are you sure" (screens/confirm.ts): a small form over the screen; outside it is a no --- */
+
+.cf { position: absolute; inset: 0; z-index: 5; display: flex; align-items: center; justify-content: center; background: rgba(3, 5, 8, 0.55); cursor: default; }
+.cf-box { display: flex; flex-direction: column; gap: 0.5rem; width: 38rem; padding: 1.6rem 2rem 1.4rem; background: rgba(9, 13, 18, 0.97);
+  border-top: 0.25rem solid var(--amber); box-shadow: 0 1.2rem 3rem rgba(0, 0, 0, 0.6); }
+.cf-form { color: var(--dim); font-size: 0.9rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+.cf-q { font: 2.3rem/1.15 var(--display); color: var(--ink); text-shadow: var(--edge); }
+.cf-price { font: 3rem/1 var(--display); color: var(--amber); }
+.cf-small { color: var(--steel); font-size: 1rem; font-style: italic; line-height: 1.35; }
+.cf-btns { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-top: 0.8rem; }
+.cf-keys { color: var(--dim); font-size: 0.9rem; }
+.cf-btn { padding: 0.35rem 1.4rem; border: 0.0625rem solid rgba(157, 176, 189, 0.4); background: transparent; color: var(--steel);
+  font: 1.8rem/1.1 var(--display); cursor: pointer; }
+.cf-btn:hover { color: var(--ink); border-color: var(--ink); }
+.cf-yes { background: var(--amber); border-color: var(--amber); color: #000; }
+.cf-yes:hover { background: var(--hot); border-color: var(--hot); color: #000; }

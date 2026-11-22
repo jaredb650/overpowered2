@@ -6,8 +6,13 @@ export interface NavItem {
   activate?(): void;
   /** Left or right on this item. Returns false to let the key fall through. */
   adjust?(dir: -1 | 1): boolean;
-  /** Runs when the item gains focus, by keyboard or pointer. */
+  /** Runs when the item gains focus by keyboard, or by pointer too when `hover` is set. */
   focused?(): void;
+  /**
+   * The mouse over it selects it exactly as the arrow keys do, `focused` and all: a shop row, whose card and model must show
+   * what is under the cursor. Off for tabs and buttons, which should not open as the mouse passes.
+   */
+  hover?: boolean;
 }
 
 export class Nav {
@@ -49,10 +54,13 @@ export class Nav {
     // pointermove, not pointerenter: a mouse resting under the keyboard's focus should not steal it back.
     el.addEventListener('pointermove', () => {
       const i = this.items.indexOf(item);
-      if (i >= 0 && i !== this.index && !this.suspended) this.focus(i, false, true);
+      if (i >= 0 && i !== this.index && !this.suspended) this.focus(i, false, !item.hover);
     });
     el.addEventListener('click', () => {
       if (this.suspended || this.held > 0 || !this.items.includes(item)) return;
+      // A click is on what is under it, even with the keyboard's focus somewhere else (a list scrolled under a still mouse).
+      const i = this.items.indexOf(item);
+      if (item.hover && i !== this.index) this.focus(i, true);
       this.activate(item);
     });
   }

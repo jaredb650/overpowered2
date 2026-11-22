@@ -6,17 +6,21 @@
  * loadout with the implant in focus put on him, and the slots and the standard-issue core are listed over the rows. The brain
  * chips for key T (contracts/chips.ts) are sold under the implants on the same page: they are hardware in the head too.
  *
- * Keys: up and down pick a row, left and right turn the page, Enter or a click buys (or fits and takes off a mod bought), X or
- * Delete sells a gun owned back (twice: the first asks), Esc, E or Close goes back to the fight.
+ * Rows are in the shops' order (order.ts): what can be had now, then what wants more credits, then the rest greyed at the bottom,
+ * each group by name. The mouse over a row selects it as the arrow keys do: the card and the model are always the row under it.
+ *
+ * Keys: up and down pick a row, left and right turn the page, Enter or a click asks to buy (confirm.ts: Enter again or Buy goes
+ * ahead, Esc or a click outside does not) or fits and takes off what is bought already, X or Delete sells a gun owned back (twice:
+ * the first asks), Esc, E or Close goes back to the fight.
  */
 import type { Ctx } from '../../core/contracts';
 import type { ModId, WeaponId } from '../../core/gameplay';
 import { ACTIVE } from '../../contracts/select';
 import { SHOP_COPY, SUPPLY_WARES, lockWave, type SupplyId } from '../../contracts/shop/data';
-import { issued, type ShopOffer } from '../../contracts/shop/rules';
+import { issued, type ShopAct, type ShopOffer } from '../../contracts/shop/rules';
 import { WEAPONS as DEFS, type WeaponDef } from '../../weapons/data';
 import { MODS, MOD_ORDER, moddedDef } from '../../weapons/mods';
-import { EFFECTS, PICKUP_LOOK, implantColor, implantLabel } from '../../progression/data';
+import { PICKUP_LOOK, implantColor } from '../../progression/data';
 import { CLASS_NAMES, CLASS_REGION, CORE_COPY, IMPLANTS, SLOT_WARES, type ImplantId } from '../../progression/implants';
 import { CHIPS, CHIP_SLOTS } from '../../contracts/chips';
 import { BodyStage } from '../backdrop/bodystage';
@@ -26,6 +30,8 @@ import { Label, div, h, markup, span } from '../dom';
 import type { Hud } from '../Hud';
 import { weaponIcon } from '../icons';
 import type { Nav, NavItem } from './nav';
+import { ConfirmBox } from './confirm';
+import { implantName, offerName, orderOffers, standing, type Standing } from './order';
 import { menuButton } from './parts';
 import type { Screen } from './Screens';
 
@@ -35,9 +41,10 @@ const SHUT_AFTER = 0.75;
 type Page = 'weapons' | 'mods' | 'implants';
 const PAGES: readonly Page[] = ['weapons', 'mods', 'implants'];
 
-/** "BERSERK!" to "Berserk", "CHAIN STORM" to "Chain Storm". */
-const implantName = (id: ImplantId): string =>
-  implantLabel(id).replace(/!$/, '').toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
+/** The headings over the three groups of rows (order.ts). */
+const GROUP_NAMES: Readonly<Record<Standing, string>> = { 0: 'Available now', 1: 'Insufficient funds', 2: 'Not at this time' };
+
+const sameAct = (a: ShopAct, b: ShopAct): boolean => a.kind === b.kind && a.id === b.id;
 
 const LOCK_ICON = '<svg class="pc-lock" viewBox="0 0 12 14" aria-hidden="true"><path d="M3 6V4a3 3 0 0 1 6 0v2h1.5v8h-9V6Zm1.6 0h2.8V4a1.4 1.4 0 0 0-2.8 0Z"/></svg>';
 
@@ -90,8 +97,10 @@ export class ProcurementScreen implements Screen {
   private focused: ShopOffer | null = null;
   private sellArmed: WeaponId | null = null;
   private readonly sellBtn: HTMLButtonElement;
+  private readonly confirm: ConfirmBox;
 
   constructor(private readonly ctx: Ctx, private readonly hud: Hud) {
+    this.confirm = new ConfirmBox(id => this.ctx.audio.play?.(id));
     this.stage = new GunStage(ctx);
     this.body = new BodyStage(ctx);
     const tab = (p: Page, label: string): HTMLElement => {
@@ -135,6 +144,7 @@ export class ProcurementScreen implements Screen {
         this.close.el,
       ),
       div('pc-card', name, role, stats, lore, buy, this.sellBtn),
+      this.confirm.el,
     );
     this.wallet = new Label(wallet);
     this.phase = new Label(phase);
@@ -165,6 +175,7 @@ export class ProcurementScreen implements Screen {
   }
 
   closed(): void {
+    this.confirm.close();
     this.studio(false);
   }
 
@@ -214,25 +225,49 @@ export class ProcurementScreen implements Screen {
 
   private turn(p: Page): void {
     if (p === this.page) return;
+    this.confirm.close();
     this.page = p;
     this.ctx.audio.play?.('ui_hover');
     this.studio(true);
     this.refresh(0);
   }
 
-  private refresh(keep: number): void {
+  /**
+   * Rebuilds the page's rows in the shops' order. `keep` is the row to land on; with `follow`, the row that sells `follow`
+   * instead, if it is still in the same group as `wasIn` (a mod fitted stays put; a gun bought drops to the bottom, and the
+   * focus stays where it was rather than chase it).
+   */
+  private refresh(keep: number, follow?: ShopAct, wasIn?: Standing): void {
     const shop = this.shop;
     if (!shop) return;
     for (const p of PAGES) this.tabs[p].classList.toggle('on', p === this.page);
-    this.offers = this.page === 'weapons' ? [...shop.supplyOffers(), ...shop.weaponOffers()] : this.page === 'mods' ? shop.modOffers()
-      : [...shop.implantOffers(), ...shop.chipOffers()];
+    this.offers = orderOffers(this.page === 'weapons' ? [...shop.supplyOffers(), ...shop.weaponOffers()] : this.page === 'mods' ? shop.modOffers()
+      : [...shop.implantOffers(), ...shop.chipOffers()]);
     this.implantHead.style.display = this.page === 'implants' ? '' : 'none';
     if (this.page === 'implants') this.slots();
-    const items: NavItem[] = this.offers.map(o => this.row(o));
-    this.list.replaceChildren(...items.map(i => i.el));
+    const items: NavItem[] = [];
+    const kids: HTMLElement[] = [];
+    let group = -1;
+    for (const o of this.offers) {
+      const g = standing(o.why);
+      if (g !== group) {
+        group = g;
+        kids.push(span('pc-group', GROUP_NAMES[g]));
+      }
+      const item = this.row(o);
+      item.el.classList.toggle('shut', g === 2);
+      item.hover = true;
+      items.push(item);
+      kids.push(item.el);
+    }
+    this.list.replaceChildren(...kids);
     items.push(this.close);
     this.wallet.set(credits(shop.credits));
-    const at = Math.min(keep, this.offers.length - 1);
+    let at = Math.min(keep, this.offers.length - 1);
+    if (follow) {
+      const i = this.offers.findIndex(o => sameAct(o.act, follow));
+      if (i >= 0 && standing(this.offers[i]!.why) === wasIn) at = i;
+    }
     this.nav?.set(items, at);
     this.select(this.offers[at]!);
   }
@@ -279,8 +314,8 @@ export class ProcurementScreen implements Screen {
     el.classList.toggle('locked', o.locked);
     el.classList.toggle('owned', o.owned && !o.fitted);
     el.classList.toggle('fitted', o.fitted);
-    el.classList.toggle('poor', o.why?.startsWith('Need') === true);
-    return { el, activate: () => this.buy(o), focused: () => this.select(o) };
+    el.classList.toggle('poor', standing(o.why) === 1);
+    return { el, activate: () => this.choose(o), focused: () => this.select(o) };
   }
 
   /** A chip in focus: him as he is, and its card. */
@@ -300,7 +335,7 @@ export class ProcurementScreen implements Screen {
     c.state.set(o.why ?? `Enter: ${verb}`);
     c.buy.classList.toggle('locked', o.locked);
     c.buy.classList.toggle('ready', o.why === null);
-    c.buy.classList.toggle('poor', o.why?.startsWith('Need') === true);
+    c.buy.classList.toggle('poor', standing(o.why) === 1);
   }
 
   /** An implant's row or a slot's: its class in the icon's place, in the implant's colour. */
@@ -316,8 +351,8 @@ export class ProcurementScreen implements Screen {
     el.classList.toggle('locked', o.locked);
     el.classList.toggle('owned', o.owned && !o.fitted);
     el.classList.toggle('fitted', o.fitted);
-    el.classList.toggle('poor', o.why?.startsWith('Need') === true);
-    return { el, activate: () => this.buy(o), focused: () => this.select(o) };
+    el.classList.toggle('poor', standing(o.why) === 1);
+    return { el, activate: () => this.choose(o), focused: () => this.select(o) };
   }
 
   /** A resupply row: its tag in the pickup's colour, and the price, or Full. */
@@ -327,8 +362,8 @@ export class ProcurementScreen implements Screen {
     ico.style.color = color;
     const el = div('pc-row', ico, span('pc-k', SUPPLY_WARES[id].name), span('pc-v', o.why === 'Full' ? 'Full' : credits(o.ware.price)));
     el.classList.toggle('owned', o.why === 'Full');
-    el.classList.toggle('poor', o.why?.startsWith('Need') === true);
-    return { el, activate: () => this.buy(o), focused: () => this.select(o) };
+    el.classList.toggle('poor', standing(o.why) === 1);
+    return { el, activate: () => this.choose(o), focused: () => this.select(o) };
   }
 
   /** A resupply in focus: the contractor, what it does, and where he stands now. */
@@ -348,7 +383,7 @@ export class ProcurementScreen implements Screen {
     c.state.set(o.why ?? 'Enter: Buy');
     c.buy.classList.toggle('locked', false);
     c.buy.classList.toggle('ready', o.why === null);
-    c.buy.classList.toggle('poor', o.why?.startsWith('Need') === true);
+    c.buy.classList.toggle('poor', standing(o.why) === 1);
   }
 
   private row(o: ShopOffer): NavItem {
@@ -367,8 +402,8 @@ export class ProcurementScreen implements Screen {
     el.classList.toggle('locked', o.locked);
     el.classList.toggle('owned', o.owned && !o.fitted);
     el.classList.toggle('fitted', o.fitted);
-    el.classList.toggle('poor', o.why?.startsWith('Need') === true);
-    return { el, activate: () => this.buy(o), focused: () => this.select(o) };
+    el.classList.toggle('poor', standing(o.why) === 1);
+    return { el, activate: () => this.choose(o), focused: () => this.select(o) };
   }
 
   /** An implant in focus: put on him in the studio, and its card. A slot: him as he is. */
@@ -393,7 +428,7 @@ export class ProcurementScreen implements Screen {
     c.state.set(o.why ?? `Enter: ${verb}`);
     c.buy.classList.toggle('locked', o.locked);
     c.buy.classList.toggle('ready', o.why === null);
-    c.buy.classList.toggle('poor', o.why?.startsWith('Need') === true);
+    c.buy.classList.toggle('poor', standing(o.why) === 1);
   }
 
   /** The row in focus: its gun on the turntable, and its card. */
@@ -430,7 +465,7 @@ export class ProcurementScreen implements Screen {
     c.state.set(o.why ?? `Enter: ${verb}`);
     c.buy.classList.toggle('locked', o.locked);
     c.buy.classList.toggle('ready', o.why === null);
-    c.buy.classList.toggle('poor', o.why?.startsWith('Need') === true);
+    c.buy.classList.toggle('poor', standing(o.why) === 1);
   }
 
   /** The Sell button under a gun owned: what it pays, or why it cannot be sold. Hidden on any other row. */
@@ -473,8 +508,7 @@ export class ProcurementScreen implements Screen {
     const why = shop.sell(id);
     this.note.set(why ?? `Sold: ${name}, +${pay}`);
     this.ctx.audio.play?.(why ? 'ui_error' : 'ui_confirm');
-    const keep = this.offers.findIndex(x => x.act === this.focusAct);
-    this.refresh(Math.max(0, keep));
+    this.refresh(Math.max(0, this.offers.indexOf(o)), o.act, standing(o.why));
   }
 
   /** The bars for `now`, with what it adds over `base` lit. */
@@ -490,14 +524,28 @@ export class ProcurementScreen implements Screen {
     }));
   }
 
+  /**
+   * Enter or a click on a row. Anything that costs credits asks first (confirm.ts); fitting or taking off what is bought already
+   * is free and happens at once, and a row that cannot be had says why at once.
+   */
+  private choose(o: ShopOffer): void {
+    if (o.why !== null || o.owned || o.ware.price <= 0) {
+      this.buy(o);
+      return;
+    }
+    const act = o.act;
+    const what = act.kind === 'weapon' ? `the ${INFO[act.id].name}` : act.kind === 'mod' ? `${MODS[act.id].name} for the ${INFO[MODS[act.id].weapon].name}`
+      : offerName(o);
+    this.ctx.audio.play?.('ui_click');
+    this.confirm.ask({ what, price: `${credits(o.ware.price)} credits`, yes: () => this.buy(o) });
+  }
+
   private buy(o: ShopOffer): void {
     const shop = this.shop;
     if (!shop) return;
     const why = shop.buy(o.act);
     const act = o.act;
-    const name = act.kind === 'supply' ? SUPPLY_WARES[act.id].name : act.kind === 'weapon' ? INFO[act.id].name : act.kind === 'mod' ? MODS[act.id].name
-      : act.kind === 'implant' ? implantName(act.id) : act.kind === 'chip' ? `${CHIPS[act.id].name} brain chip`
-        : act.kind === 'chipSlot' ? 'Brain chip slot 2' : `Implant slot ${act.id}`;
+    const name = offerName(o);
     if (why) {
       this.note.set(why);
       this.ctx.audio.play?.('ui_error');
@@ -508,8 +556,7 @@ export class ProcurementScreen implements Screen {
       this.note.set(bought ? `Bought: ${name}` : fitted ? `Fitted: ${name}` : `Taken off: ${name}`);
       this.ctx.audio.play?.('ui_confirm');
     }
-    const keep = this.offers.findIndex(x => x.act === this.focusAct);
-    this.refresh(Math.max(0, keep));
+    this.refresh(Math.max(0, this.offers.indexOf(o)), act, standing(o.why));
   }
 
   private leave(): void {
