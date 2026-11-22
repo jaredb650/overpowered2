@@ -374,5 +374,45 @@
 .touch-t { font: 2.6rem/1.1 var(--display); color: var(--ink); text-shadow: var(--edge); }
 .touch-s { color: var(--steel); font-size: 1rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
 
-/* The Frame's loadout (screens/frameLoadout.ts): the implants page's slot boxes, six of them, inset as there. */
-.fl-slots { margin: 0 1.4rem 0.6rem; }
+/* The Frame's loadout (screens/frameLoadout.ts + framePreview.ts): scoped strictly to .scr-frame / .fl-*. */
+.scr-frame { background: #06090e; }
+.fl-slots { margin: 0 1.4rem 0.6rem; grid-template-columns: repeat(3, 1fr); }
+.fl-right { position: absolute; left: 36rem; right: 0; top: 0; bottom: 0; display: flex; flex-direction: column; min-width: 0; }
+.fl-stage { position: relative; flex: 1 1 auto; min-height: 18rem; overflow: hidden;
+  background: radial-gradient(circle at 48% 46%, #18212b 0%, #090e14 60%, #05070a 100%);
+  border-bottom: 0.0625rem solid rgba(157, 176, 189, 0.16); }
+.fl-viewport { position: absolute; inset: 0; }
+.fl-canvas { display: block; width: 100%; height: 100%; cursor: grab; touch-action: none; }
+.fl-canvas.dragging { cursor: grabbing; }
+.fl-stage-hint { position: absolute; left: 1.6rem; bottom: 1rem; color: var(--steel); font-size: 0.85rem; font-weight: 700;
+  letter-spacing: 0.08em; text-transform: uppercase; pointer-events: none; opacity: 0.82; }
+.fl-summary { position: absolute; top: 1.4rem; right: 1.6rem; width: 19.5rem; padding: 0.9rem 1.1rem;
+  background: rgba(7, 10, 14, 0.82); border: 0.0625rem solid rgba(157, 176, 189, 0.2); border-top: 0.2rem solid var(--amber);
+  pointer-events: none; }
+.fl-sum-h { display: block; margin-bottom: 0.5rem; color: var(--amber); font: 1.15rem/1 var(--display); letter-spacing: 0.08em; text-transform: uppercase; }
+.fl-sum-grid { display: grid; grid-template-columns: 1fr; gap: 0.24rem; }
+.fl-sum-row { display: flex; justify-content: space-between; align-items: baseline; gap: 0.8rem; font-size: 0.92rem; }
+.fl-sum-k { color: var(--steel); font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; font-size: 0.8rem; }
+.fl-sum-v { color: var(--ink); font-weight: 700; text-align: right; }
+.fl-sum-traits { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-top: 0.55rem; }
+.fl-sum-traits:empty { display: none; }
+.fl-trait { padding: 0.16rem 0.45rem; background: rgba(255, 170, 48, 0.14); border: 0.0625rem solid rgba(255, 170, 48, 0.4);
+  color: var(--amber); font-size: 0.78rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
+.scr-frame .fl-card { position: static; left: auto; right: auto; bottom: auto; flex: none; display: grid;
+  grid-template-columns: 1fr 25rem; column-gap: 2.2rem; row-gap: 0.9rem; padding: 1.25rem 1.8rem 1.1rem;
+  background: rgba(7, 10, 14, 0.94); border-top: 0.25rem solid var(--hot); }
+.fl-card-main { display: flex; flex-direction: column; min-width: 0; }
+.fl-card-side { display: flex; flex-direction: column; justify-content: space-between; }
+.scr-frame .fl-name { font-size: 2.9rem; }
+.scr-frame .fl-role { margin: 0.2rem 0 0.55rem; font-size: 0.98rem; }
+.fl-does { margin: 0 0 0.55rem; color: var(--ink); font-size: 1.02rem; line-height: 1.38; }
+.scr-frame .fl-lore { grid-column: auto; grid-row: auto; font-size: 1rem; line-height: 1.35; color: var(--steel); }
+.scr-frame .fl-stats { grid-column: auto; grid-row: auto; gap: 0.35rem; }
+.scr-frame .fl-card-side .pc-buy { grid-column: auto; grid-row: auto; margin-top: 0.75rem; padding-top: 0.65rem; }
+.scr-frame .fl-card-side .pc-price { font-size: 2.2rem; }
+.fl-keys { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 0.45rem 1.2rem; padding-top: 0.75rem;
+  border-top: 0.0625rem solid rgba(157, 176, 189, 0.16); }
+.fl-key { display: inline-flex; align-items: baseline; gap: 0.45rem; font-size: 0.86rem; }
+.fl-key-k { padding: 0.1rem 0.42rem; background: rgba(157, 176, 189, 0.15); border: 0.0625rem solid rgba(157, 176, 189, 0.32);
+  color: var(--ink); font-weight: 700; letter-spacing: 0.04em; }
+.fl-key-v { color: var(--steel); }
