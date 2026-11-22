@@ -100,6 +100,8 @@ export class Injuries {
   aidReadyAt = 0;
   /** A sidearm in his hand as he goes, or a grenade with the pin out. */
   lastStand: 'none' | 'sidearm' | 'grenade' = 'none';
+  /** Already rolled for a last act (mortal or downed), so collapsing from mortal does not roll a second time. */
+  lastStandRolled = false;
   /** Which labels he has already earned, as bits. */
   labelled = 0;
 
@@ -127,6 +129,7 @@ export class Injuries {
     this.dripX = this.dripZ = 0;
     this.rollAt = this.aidUntil = this.aidReadyAt = 0;
     this.lastStand = 'none';
+    this.lastStandRolled = false;
     this.labelled = 0;
   }
 

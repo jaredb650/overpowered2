@@ -102,6 +102,7 @@ export class WoundSystem {
   /** The contract's rule data can turn all of this off, and then a man dies when his health runs out. */
   private readonly anatomy = ACTIVE.def.wounds === 'anatomy' && FACTIONS[ACTIVE.def.faction].anatomy;
   private labelAt = -Infinity;
+  private lastGrenadeAt = -Infinity;
   private fallDue = false;
 
   constructor(private readonly w: AiWorld, private readonly o: Outpost, private readonly manager: EnemyManager) {
@@ -110,6 +111,12 @@ export class WoundSystem {
 
   init(): void {
     this.sidearms.init();
+  }
+
+  reset(): void {
+    this.labelAt = -Infinity;
+    this.lastGrenadeAt = -Infinity;
+    this.fallDue = false;
   }
 
   bodyOf(e: Enemy): Injuries | null {
@@ -390,9 +397,14 @@ export class WoundSystem {
 
   /** Some men have one more thing in them. */
   private rollLastStand(s: Soldier, b: Injuries): void {
-    if (b.lastStand !== 'none' || !chance(T.lastStand)) return;
-    if (s.grenades > 0 && !b.armless && chance(T.lastGrenade)) b.lastStand = 'grenade';
-    else if (s.def.sidearm && !b.armless) b.lastStand = 'sidearm';
+    if (b.lastStandRolled) return;
+    b.lastStandRolled = true;
+    if (!chance(T.lastStand)) return;
+    const ready = this.w.now - this.lastGrenadeAt >= T.lastGrenadeCooldown;
+    if (ready && s.grenades > 0 && !b.armless && chance(T.lastGrenade)) {
+      b.lastStand = 'grenade';
+      this.lastGrenadeAt = this.w.now;
+    } else if (s.def.sidearm && !b.armless) b.lastStand = 'sidearm';
   }
 
   /** He cannot go on standing. The fall itself is the damage model's: this makes him a man on the floor. */
@@ -460,7 +472,9 @@ export class WoundSystem {
   /** He had a grenade with the pin out, and now nobody is holding it. */
   onDeath(s: Soldier): void {
     const b = s.injuries;
-    if (b.lastStand === 'grenade' && s.grenades > 0) this.o.dropLiveGrenade(s);
+    if (b.lastStand !== 'grenade' || s.grenades <= 0) return;
+    this.lastGrenadeAt = this.w.now;
+    this.o.dropLiveGrenade(s);
   }
 
   /** Back on his feet, with a medic's work on him. Only ever called on a man who can stand. */
@@ -476,6 +490,7 @@ export class WoundSystem {
     b.floored = false;
     b.condition = 'wounded';
     b.bleedsOutAt = Infinity;
+    b.lastStand = 'none';
     e.health = Math.max(e.health, health);
     this.o.setDowned(e, false);
     this.manager.model.updateMaim(e);

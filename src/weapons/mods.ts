@@ -206,11 +206,11 @@ export const MODS: Readonly<Record<ModId, ModDef>> = {
   },
   judgeAp: rounds('judge', 'ap'), judgeHp: rounds('judge', 'hp'),
   autorafficaAp: rounds('autoraffica', 'ap'), autorafficaHp: rounds('autoraffica', 'hp'),
-  // A longer magazine out of the grip: 30 where it was 21, and a beat longer to change.
-  autorafficaMag: { id: 'autorafficaMag', weapon: 'autoraffica', name: 'Extended magazine', patch: { magSize: 30, reloadTime: 1.25 } },
   smgPlusP: rounds('smg', 'plusP'), gimletPlusP: rounds('gimlet', 'plusP'), harrowPlusP: rounds('harrow', 'plusP'),
   rivetPlusP: rounds('rivet', 'plusP'), ultramagPlusP: rounds('ultramag', 'plusP'), judgePlusP: rounds('judge', 'plusP'),
   autorafficaPlusP: rounds('autoraffica', 'plusP'), awlPlusP: rounds('awl', 'plusP'),
+  // A longer magazine out of the grip: 30 where it was 21, and a beat longer to change.
+  autorafficaMag: { id: 'autorafficaMag', weapon: 'autoraffica', name: 'Extended magazine', patch: { magSize: 30, reloadTime: 1.25 } },
   // The Deuce's: two more barrels over the first two, so four shells, a barrel a left click and every loaded one on a right
   // click; each barrel past the first adds `kick` - 1 to the recoil and `push` to the shove. Loaded a shell at a time, 1.98 s.
   deuceQuad: {
@@ -237,10 +237,58 @@ export const MODS: Readonly<Record<ModId, ModDef>> = {
   autorafficaAkimbo: akimbo('autoraffica'),
   shotgunFlechette: flechette('shotgun'), thresherFlechette: flechette('thresher'), deuceFlechette: flechette('deuce'),
   harrowApi: incendiary('harrow'), flailApi: incendiary('flail'),
+  // 40mm FireStorm: swaps Metal Storm's 36-barrel small-bore block for a stacked 40mm HE grenade matrix.
+  metalstorm40mm: {
+    id: 'metalstorm40mm', weapon: 'metalstorm', name: '40mm FireStorm', slot: 'barrel',
+    patch: {
+      round: 'grenade',
+      magSize: 36, reserve: 72, maxReserve: 108, reloadTime: 2.8,
+      damage: 55, spread: 0.032, force: 55,
+      muzzle: 'rotary',
+      sounds: [{ id: 'launcher_thump', pitchJitter: 0.06 }],
+      recoil: 1.1, kick: 0.014, shake: 0.032, fovPunch: 0.75,
+      grenade: { speed: 52, gravity: 11.5, life: 7, radius: 5.0, blast: 135 },
+    },
+  },
+  // Awl .50 Cal conversion: heavy anti-materiel chambering, massive damage/penetration/overkill jump, tank-brake boom.
+  // No slot so it stacks freely with awlBarrel (Extended barrel), awlCan, awlBolt, optics, and ammo mods.
+  awl50: {
+    id: 'awl50', weapon: 'awl', name: '.50 Cal conversion',
+    patch: {
+      armour: 'heavy',
+      casing: 'cannon',
+      muzzle: 'sabot',
+      sounds: [{ id: 'awl50_shot', pitchJitter: 0.02 }],
+      force: 85,
+      severMult: 3.5,
+      gib: 0.45,
+      killStop: 0.05,
+      impactScale: 1.9,
+      kick: 0.028,
+      shake: 0.028,
+      fovPunch: 2.4,
+      recoil: 1.45,
+      magSize: 4,
+    },
+    adjust: d => ({
+      damage: Math.round(d.damage * 1.75),
+      penetration: d.penetration > 0 ? d.penetration + 0.8 : 0,
+      bodyCost: 0.16,
+      ...(d.load !== 'hp' ? { armorPiercing: true } : {}),
+      interval: +(d.interval * 1.15).toFixed(3),
+      cycleTime: d.cycleTime ? +(d.cycleTime * 1.15).toFixed(3) : undefined,
+      cycleFoley: d.cycleFoley?.map(([at, id]) => [+(at * 1.15).toFixed(3), id] as const),
+    }),
+  },
+  // Milkor MGL Sticky Bomb conversion: hold R to toggle between HE and STICKY 40mm grenades; RMB detonates all planted stickies.
+  mglSticky: {
+    id: 'mglSticky', weapon: 'mgl', name: 'Sticky Bomb',
+    patch: { altAmmo: { label: 'STICKY', hold: 0.3 } },
+  },
 };
 
 export const MOD_ORDER: readonly ModId[] = [
-  'awlAcog', 'awlCan', 'awlAp', 'awlHp', 'awlPlusP', 'awlBarrel', 'awlBolt',
+  'awlAcog', 'awl50', 'awlCan', 'awlAp', 'awlHp', 'awlPlusP', 'awlBarrel', 'awlBolt',
   'suppressor', 'smgAp', 'smgHp', 'smgPlusP', 'gimletAcog', 'gimletDot', 'gimletCan', 'gimletGl', 'gimletAp', 'gimletHp', 'gimletPlusP',
   'reddot', 'harrowAcog', 'harrowAp', 'harrowHp', 'harrowPlusP', 'raufoss', 'rivetAp', 'rivetHp', 'rivetPlusP', 'ultramagAp', 'ultramagHp', 'ultramagPlusP', 'judgeAp', 'judgeHp', 'judgePlusP',
   'autorafficaAp', 'autorafficaHp', 'autorafficaPlusP', 'autorafficaMag',
@@ -249,6 +297,7 @@ export const MOD_ORDER: readonly ModId[] = [
   'smgMag', 'smgTape', 'smgStock', 'swordEnergy', 'gimletShort', 'rivetMag', 'piledriverBox',
   'deuceQuad', 'deuceLoader', 'shotgunChoke', 'judgeHammer', 'judgeGrip',
   'flailDot', 'flailAcog', 'flailBox', 'flailAp', 'flailHp', 'flailPlusP',
+  'metalstorm40mm', 'mglSticky',
   ...LIGHT_GUNS.map(lightOf),
   ...AKIMBO_GUNS.map(akimboOf),
   ...FLECHETTE_GUNS.map(flechetteOf),

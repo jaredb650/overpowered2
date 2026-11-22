@@ -121,7 +121,7 @@ export class MortarTeams {
       list.push({ x: e.position.x, z: e.position.z, vehicle: false });
     }
     const v = (this.ctx.enemies as EnemyManager).vehicles;
-    if (v) for (const x of v.live) if (x.alive && !x.retired && x.def.kind !== 'chopper') list.push({ x: x.position.x, z: x.position.z, vehicle: true });
+    if (v) for (const x of v.live) if (x.alive && !x.retired && x.def.kind !== 'chopper' && x.def.kind !== 'transport' && x.def.kind !== 'doorGunner') list.push({ x: x.position.x, z: x.position.z, vehicle: true });
   }
 
   /** An ally's blast (allies/fire.ts): on the enemy and his machines, never on the player or an ally. */

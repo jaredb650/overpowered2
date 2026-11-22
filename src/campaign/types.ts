@@ -58,7 +58,7 @@ export type SquadOrders =
   /** A held breath: holds through being seen and walked past, and only a bullet or a man at arm's length breaks it before `release`. */
   | 'ambush';
 
-export type VehicleKind = 'humvee' | 'truck' | 'tank' | 'chopper';
+export type VehicleKind = 'humvee' | 'truck' | 'tank' | 'chopper' | 'transport' | 'doorGunner';
 
 export type FrameAct = 'kneel' | 'board' | 'eject';
 

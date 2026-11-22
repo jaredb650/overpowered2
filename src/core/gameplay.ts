@@ -24,33 +24,35 @@ export type WeaponId =
   | 'harrow' | 'rivet' | 'sabot' | 'quiver' | 'thresher'
   // Key 5 beside the sword: knife, crowbar, shovel, baton. Swung by the same code, src/weapons/melee.
   | 'knife' | 'crowbar' | 'shovel' | 'baton'
-  // The heavy machine gun beside the rotary cannon on key 8.
-  | 'piledriver'
+  // The heavy machine gun and stacked-barrel volley gun beside the rotary cannon on key 8.
+  | 'piledriver' | 'metalstorm'
   // The double-barrel on key 2 and the heavy pistol on key 6 (docs/proposals/weapons-update.md section 8), and the machine
   // pistol with the smart aim beside it (section 14).
   | 'deuce' | 'ultramag' | 'autoraffica'
   // The carbine on key 1, between the SMG and the Harrow (docs/proposals/weapons-update.md section 11).
   | 'gimlet' | 'awl'
   // The light machine gun on key 1, after the Harrow: a belt-fed box of 100.
-  | 'flail';
+  | 'flail'
+  // The Milkor MGL 6-shot 40mm revolving grenade launcher on key 3, beside the Rocket and Quiver.
+  | 'mgl';
 
 /**
  * A weapon mod (src/weapons/mods.ts): the SMG's suppressor, the Harrow's red dot and ACOG, the Sabot's Raufoss rounds, the
  * Gimlet's ACOG, red dot, suppressor and under-barrel launcher, and AP and HP rounds for the SMG, the rifles and the pistols.
  */
 export type ModId = 'awlAcog' | 'awlCan' | 'awlAp' | 'awlHp' | 'suppressor' | 'reddot' | 'raufoss' | 'harrowAcog' | 'gimletAcog' | 'gimletDot' | 'gimletCan' | 'gimletGl'
+  // The heavy guns' mods: the Trommel's 12 mm rechamber and the Sabot's muzzle brake.
+  | 'trommel12' | 'sabotBrake'
   // The Ultramag's suppressor, reflex sight, laser module, extended magazine and compensator.
   | 'ultramagCan' | 'ultramagDot' | 'ultramagLam' | 'ultramagMag' | 'ultramagComp'
   // The Deuce's quad barrels and speed loader, the pump's choke, the Judge's extended hammer and comfort grip.
   | 'deuceQuad' | 'deuceLoader' | 'shotgunChoke' | 'judgeHammer' | 'judgeGrip'
-  // The heavy guns' mods: the Trommel's 12 mm rechamber and the Sabot's muzzle brake.
-  | 'trommel12' | 'sabotBrake'
   | 'smgAp' | 'smgHp' | 'gimletAp' | 'gimletHp' | 'harrowAp' | 'harrowHp'
   | 'rivetAp' | 'rivetHp' | 'ultramagAp' | 'ultramagHp' | 'judgeAp' | 'judgeHp' | 'autorafficaAp' | 'autorafficaHp'
   | 'smgPlusP' | 'gimletPlusP' | 'harrowPlusP' | 'rivetPlusP' | 'ultramagPlusP' | 'judgePlusP' | 'autorafficaPlusP' | 'awlPlusP'
   | 'autorafficaMag'
-  // The Awl's extended barrel and greased bolt.
-  | 'awlBarrel' | 'awlBolt'
+  // The Awl's extended barrel, greased bolt, and .50 Cal conversion.
+  | 'awlBarrel' | 'awlBolt' | 'awl50'
   // Extended magazines for the SMG, the Rivet and the Piledriver (a box), and the Gimlet's short barrel.
   | 'smgMag' | 'rivetMag' | 'piledriverBox' | 'gimletShort'
   // The SMG's mag tape and stock.
@@ -67,7 +69,11 @@ export type ModId = 'awlAcog' | 'awlCan' | 'awlAp' | 'awlHp' | 'suppressor' | 'r
   // Akimbo: a second gun of the same in the left hand (weapons/mods.ts AKIMBO_GUNS).
   | 'smgAkimbo' | 'rivetAkimbo' | 'ultramagAkimbo' | 'judgeAkimbo' | 'autorafficaAkimbo'
   // The Flail's red dot and ACOG, its 200-round box, and AP, HP and +P rounds.
-  | 'flailDot' | 'flailAcog' | 'flailBox' | 'flailAp' | 'flailHp' | 'flailPlusP';
+  | 'flailDot' | 'flailAcog' | 'flailBox' | 'flailAp' | 'flailHp' | 'flailPlusP'
+  // Metal Storm's 40mm FireStorm grenade matrix conversion.
+  | 'metalstorm40mm'
+  // Milkor MGL's Sticky Bomb 40mm conversion.
+  | 'mglSticky';
 
 export type Team = 'player' | 'enemy';
 
@@ -508,6 +514,8 @@ export interface ProjectileSpec {
    * shooter's own; a copy carries its shooter's, so it can be ended where and when the shooter's really went off.
    */
   tag?: number;
+  /** Milkor MGL sticky bomb: adheres to world geometry or struck enemies and awaits manual/swap detonation. */
+  sticky?: boolean;
 }
 
 export interface CombatSystem extends GameSystem {

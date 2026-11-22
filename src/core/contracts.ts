@@ -1009,7 +1009,7 @@ export interface WorldSystem extends GameSystem {
   readonly objects: WorldObjects;
 }
 
-export type HazardKind = 'lava' | 'crusher' | 'electric';
+export type HazardKind = 'lava' | 'crusher' | 'electric' | 'fall';
 
 /** What a position is standing in. Shared object, read it immediately. */
 export interface HazardState {
@@ -1047,6 +1047,8 @@ export interface Structure {
  * damage on their own; they raise 'world:explosion' and the combat system resolves it.
  */
 export interface WorldObjects {
+  /** Optional lethal fall plane Y; below this elevation players and falling enemies die immediately. */
+  readonly killY?: number | null;
   /** True when `collider` belongs to an explosive barrel or tank. */
   isExplosive(collider: RAPIER.Collider | null): boolean;
   /** Damages the explosive owning `collider`. Returns true if the collider was an explosive. */

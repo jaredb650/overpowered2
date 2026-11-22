@@ -3,6 +3,7 @@
  * ground through nav height. Every frame this does a little arithmetic per enemy; anything costlier is cached.
  */
 import * as THREE from 'three';
+import type { DamageInfo } from '../core/contracts';
 import { clamp, damp, dampAngle } from '../core/math';
 import { shout } from './attacks';
 import type { Enemy } from './Enemy';
@@ -36,6 +37,26 @@ const _p = new THREE.Vector3();
 const _q = new THREE.Vector3();
 const _pad = new THREE.Vector3();
 const UP = new THREE.Vector3(0, 1, 0);
+const _fallDamage: DamageInfo = {
+  amount: 0,
+  type: 'true',
+  source: 'fell',
+  point: new THREE.Vector3(),
+  dir: new THREE.Vector3(0, 1, 0),
+  force: 0,
+  gib: false,
+};
+
+/** Kills a falling enemy cleanly if the map defines a lethal kill-plane (`killY`). */
+function fellBelowKillPlane(e: Enemy, w: AiWorld): boolean {
+  const killY = w.ctx.world.objects?.killY;
+  if (killY == null || e.position.y > killY) return false;
+  if (!e.alive || e.def.id === 'drone') return false;
+  _fallDamage.amount = e.health + 1;
+  _fallDamage.point.copy(e.center);
+  w.enemies.applyDamage(e, _fallDamage);
+  return true;
+}
 
 /** Sets a ballistic arc that lands on `target` after `seconds`, with `apex` metres of extra rise. */
 export function leapTo(e: Enemy, target: THREE.Vector3, seconds: number, apex = 1): void {
@@ -204,6 +225,7 @@ function integrateAir(e: Enemy, w: AiWorld, dt: number): void {
       e.velocity.x = e.velocity.z = 0;
     }
   }
+  if (fellBelowKillPlane(e, w)) return;
   if (e.verticalSpeed > 0) return;
   const ground = w.ctx.world.nav.groundHeight(e.position.x, e.position.y + 1, e.position.z);
   if (Number.isNaN(ground)) {
@@ -246,6 +268,7 @@ export function updateMovement(e: Enemy, w: AiWorld, dt: number, alive: readonly
     updateFacing(e, w, dt);
     return;
   }
+  if (fellBelowKillPlane(e, w)) return;
   if (e.airborne) {
     integrateAir(e, w, dt);
     return;

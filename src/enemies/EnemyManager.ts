@@ -415,16 +415,16 @@ export class EnemyManager implements EnemySystem {
   }
 
   /** Bosses arrive where the player can see it, because the arrival is the point. */
-  spawnBoss(id: EnemyId): Enemy | null {
-    const point = this.spawner.pickArena(34, 64);
-    if (!point) return null;
-    const e = this.spawn(id, point.position);
+  spawnBoss(id: EnemyId, at?: THREE.Vector3): Enemy | null {
+    const landing = at ?? this.spawner.pickArena(34, 64)?.position;
+    if (!landing) return null;
+    const e = this.spawn(id, landing);
     if (!e) return null;
     e.entrance = 'boss';
     e.airborne = true;
     e.position.y += 42;
     e.verticalSpeed = -46;
-    this.telegraphs.zone(point.position, id === 'titan' ? 16 : 9, 0.9, 0xff5a1e);
+    this.telegraphs.zone(landing, id === 'titan' ? 16 : 9, 0.9, 0xff5a1e);
     return e;
   }
 

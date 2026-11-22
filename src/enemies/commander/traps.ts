@@ -35,8 +35,9 @@ const ROOM_RIPPLE = 0.3;
 const PICKUP_FUSE = 0.5;
 const PICKUP_REACH = 1.8;
 const DEADMAN_FUSE = 1.5;
-/** Share of the men who are carrying a switch. */
-const DEADMAN_SHARE = 0.34;
+/** Share of the men who are carrying a switch, and seconds between armed switches across the fight. */
+const DEADMAN_SHARE = 0.12;
+const DEADMAN_COOLDOWN = 25;
 const POSSUMS = 2;
 const CHATTER_GAP: readonly [number, number] = [24, 38];
 
@@ -51,6 +52,7 @@ export class Traps {
   private corpseAt = 0;
   private readonly rigged: Device[] = [];
   private readonly switches = new WeakSet<Soldier>();
+  private deadManAt = -Infinity;
   private roomGroup = 0;
   private room: { min: THREE.Vector3; max: THREE.Vector3; name: string } | null = null;
   private roomUntil = -1;
@@ -63,6 +65,7 @@ export class Traps {
     this.corpses.length = 0;
     this.corpseAt = 0;
     this.rigged.length = 0;
+    this.deadManAt = -Infinity;
     this.room = null;
     this.roomUntil = -1;
     this.roomGroup = this.roomStep = 0;
@@ -316,7 +319,9 @@ export class Traps {
 
   /** A man goes through the gate with a switch in his fist. */
   arm(s: Soldier): void {
-    if (!this.c.hasTrick('deadMan') || !chance(DEADMAN_SHARE)) return;
+    const now = this.c.w.now;
+    if (!this.c.hasTrick('deadMan') || now - this.deadManAt < DEADMAN_COOLDOWN || !chance(DEADMAN_SHARE)) return;
+    this.deadManAt = now;
     this.switches.add(s);
     this.c.props.fit(s.e.char, 'detonator');
   }
@@ -326,6 +331,7 @@ export class Traps {
     if (!this.switches.has(s)) return;
     this.switches.delete(s);
     const { c } = this;
+    this.deadManAt = c.w.now;
     const d = c.devices.charge(s.e.position, 'deadman', 0);
     c.devices.trigger(d, DEADMAN_FUSE);
     c.w.ctx.audio.play('bomber_beep', { position: s.e.position, pitch: 2, volume: 0.9 });

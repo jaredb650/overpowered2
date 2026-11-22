@@ -99,6 +99,37 @@ class PlateBuilder {
     g.computeVertexNormals();
     return g;
   }
+
+  /** Builds the geometry centered around its own vertex centroid so shards tumble cleanly around their center of mass. */
+  buildCentered(): { geometry: THREE.BufferGeometry; centroid: THREE.Vector3 } {
+    const count = this.pos.length / 3;
+    let cx = 0, cy = 0, cz = 0;
+    if (count > 0) {
+      for (let i = 0; i < this.pos.length; i += 3) {
+        cx += this.pos[i]!;
+        cy += this.pos[i + 1]!;
+        cz += this.pos[i + 2]!;
+      }
+      cx /= count;
+      cy /= count;
+      cz /= count;
+      for (let i = 0; i < this.pos.length; i += 3) {
+        this.pos[i] = this.pos[i]! - cx;
+        this.pos[i + 1] = this.pos[i + 1]! - cy;
+        this.pos[i + 2] = this.pos[i + 2]! - cz;
+      }
+    }
+    const geometry = this.build();
+    geometry.computeBoundingBox();
+    return { geometry, centroid: new THREE.Vector3(cx, cy, cz) };
+  }
+}
+
+function darkenHex(hex: number, factor: number): number {
+  const r = Math.round(((hex >> 16) & 0xff) * factor);
+  const g = Math.round(((hex >> 8) & 0xff) * factor);
+  const b = Math.round((hex & 0xff) * factor);
+  return (r << 16) | (g << 8) | b;
 }
 
 /** Point on a slab: u, v in -1..1. The rim sits at z = 0 and the crown at `depth`. */
@@ -153,6 +184,269 @@ export function plateGeometry(spec: PlateSpec): THREE.BufferGeometry {
   return g;
 }
 
+export interface ShardVariant {
+  readonly geometry: THREE.BufferGeometry;
+  /** Local centroid offset on the unbroken plate/helmet. */
+  readonly offset: THREE.Vector3;
+  /** Outward unit direction for diverging shatter velocity. */
+  readonly dir: THREE.Vector3;
+}
+
+export function isHelmetPlate(spec: PlateSpec): boolean {
+  return spec.regions.includes('head');
+}
+
+const shardCache = new WeakMap<PlateSpec, Map<number, readonly ShardVariant[]>>();
+
+/** Jagged azimuthal cut along a helmet dome, shared by adjacent shards so pieces mate cleanly. */
+function helmetCutAngle(cutIdx: number, count: number, t: number): number {
+  const base = (cutIdx / count) * TAU + 0.35;
+  const jag = (Math.sin(t * 9.3 + cutIdx * 2.1) * 0.14 + Math.cos(t * 15.7 + cutIdx * 1.3) * 0.08) * (0.25 + 0.75 * t);
+  return base + jag;
+}
+
+/** Builds 2–3 jagged curved dome shards with painted outer shell, darker matte liner underside, and fractured walls. */
+function buildHelmetShards(spec: PlateSpec, count: number): ShardVariant[] {
+  const [w, h, depth] = spec.size;
+  const rx = Math.max(w * 0.52, 0.13);
+  const ry = Math.max(h * 0.56, 0.14);
+  const rz = Math.max(w * 0.55, 0.14);
+  const thick = Math.max(0.016, Math.min(depth * 0.35, 0.03));
+  const ix = Math.max(0.65, 1 - thick / rx);
+  const iy = Math.max(0.65, 1 - thick / ry);
+  const iz = Math.max(0.65, 1 - thick / rz);
+
+  const { body, rib, edge, stripe } = spec.paint;
+  const liner = darkenHex(body, 0.24);
+  const fracture = darkenHex(edge, 0.45);
+
+  const SEG_A = 4;
+  const SEG_P = 4;
+  const variants: ShardVariant[] = [];
+
+  for (let k = 0; k < count; k++) {
+    const b = new PlateBuilder();
+    const outerGrid: number[][][] = [];
+    const innerGrid: number[][][] = [];
+
+    for (let j = 0; j <= SEG_P; j++) {
+      const t = j / SEG_P;
+      const a0 = helmetCutAngle(k, count, t);
+      const a1 = helmetCutAngle(k + 1, count, t);
+      const outerRow: number[][] = [];
+      const innerRow: number[][] = [];
+      for (let i = 0; i <= SEG_A; i++) {
+        const s = i / SEG_A;
+        const a = a0 + (a1 - a0) * s;
+        const crownPhi = 0.12 + 0.04 * Math.sin(a * 3 + k);
+        const brimPhi = Math.PI * 0.58 + 0.06 * Math.cos(a * 2 - 0.5) + (j === SEG_P ? 0.03 * Math.sin(s * 7.1 + k) : 0);
+        const phi = crownPhi + (brimPhi - crownPhi) * t;
+        const sp = Math.sin(phi);
+        const cp = Math.cos(phi);
+        const sa = Math.sin(a);
+        const ca = Math.cos(a);
+        const ox = rx * sp * sa;
+        const oy = ry * cp;
+        const oz = rz * sp * ca;
+        outerRow.push([ox, oy, oz]);
+        innerRow.push([ox * ix, oy * iy, oz * iz]);
+      }
+      outerGrid.push(outerRow);
+      innerGrid.push(innerRow);
+    }
+
+    for (let j = 0; j < SEG_P; j++) {
+      for (let i = 0; i < SEG_A; i++) {
+        const o00 = outerGrid[j]![i]!;
+        const o10 = outerGrid[j]![i + 1]!;
+        const o11 = outerGrid[j + 1]![i + 1]!;
+        const o01 = outerGrid[j + 1]![i]!;
+        const outerCol = j === SEG_P - 1 ? edge : j === 0 ? rib : (j === SEG_P - 2 && i === 1 ? stripe : body);
+        b.quad(o00, o01, o11, o10, outerCol);
+
+        // Darker matte liner underside (wound inward).
+        const i00 = innerGrid[j]![i]!;
+        const i10 = innerGrid[j]![i + 1]!;
+        const i11 = innerGrid[j + 1]![i + 1]!;
+        const i01 = innerGrid[j + 1]![i]!;
+        b.quad(i00, i10, i11, i01, liner);
+      }
+    }
+
+    // Closed fracture walls along left/right jagged meridian splits, crown, and brim.
+    for (let j = 0; j < SEG_P; j++) {
+      b.quad(outerGrid[j]![0]!, innerGrid[j]![0]!, innerGrid[j + 1]![0]!, outerGrid[j + 1]![0]!, fracture);
+      b.quad(outerGrid[j]![SEG_A]!, outerGrid[j + 1]![SEG_A]!, innerGrid[j + 1]![SEG_A]!, innerGrid[j]![SEG_A]!, fracture);
+    }
+    for (let i = 0; i < SEG_A; i++) {
+      b.quad(outerGrid[0]![i]!, outerGrid[0]![i + 1]!, innerGrid[0]![i + 1]!, innerGrid[0]![i]!, fracture);
+      b.quad(outerGrid[SEG_P]![i]!, innerGrid[SEG_P]![i]!, innerGrid[SEG_P]![i + 1]!, outerGrid[SEG_P]![i + 1]!, edge);
+    }
+
+    const { geometry, centroid } = b.buildCentered();
+    const midA = ((k + 0.5) / count) * TAU + 0.35;
+    const dir = new THREE.Vector3(Math.sin(midA), 0.35, Math.cos(midA)).normalize();
+    variants.push({ geometry, offset: centroid, dir });
+  }
+  return variants;
+}
+
+/** Crooked fracture seam curves across a plate in normalized (u, v) in [-1, 1]. */
+function seamU(v: number): number {
+  return 0.05 + 0.14 * Math.sin(v * 4.9 + 0.7) + 0.08 * Math.cos(v * 9.1 - 0.4);
+}
+function seamV(u: number): number {
+  return -0.04 + 0.14 * Math.sin(u * 4.5 - 0.5) + 0.08 * Math.cos(u * 8.7 + 0.9);
+}
+
+interface PatchBounds {
+  uMin: (v: number) => number;
+  uMax: (v: number) => number;
+  vMin: (u: number) => number;
+  vMax: (u: number) => number;
+  cutLeft: boolean;
+  cutRight: boolean;
+  cutBottom: boolean;
+  cutTop: boolean;
+}
+
+function platePatches(count: number, wide: boolean): PatchBounds[] {
+  const neg = () => -1;
+  const pos = () => 1;
+  if (count <= 2) {
+    if (wide) {
+      return [
+        { uMin: neg, uMax: seamU, vMin: neg, vMax: pos, cutLeft: false, cutRight: true, cutBottom: false, cutTop: false },
+        { uMin: seamU, uMax: pos, vMin: neg, vMax: pos, cutLeft: true, cutRight: false, cutBottom: false, cutTop: false },
+      ];
+    }
+    return [
+      { uMin: neg, uMax: pos, vMin: seamV, vMax: pos, cutLeft: false, cutRight: false, cutBottom: true, cutTop: false },
+      { uMin: neg, uMax: pos, vMin: neg, vMax: seamV, cutLeft: false, cutRight: false, cutBottom: false, cutTop: true },
+    ];
+  }
+  if (count === 3) {
+    return [
+      { uMin: neg, uMax: seamU, vMin: seamV, vMax: pos, cutLeft: false, cutRight: true, cutBottom: true, cutTop: false },
+      { uMin: seamU, uMax: pos, vMin: seamV, vMax: pos, cutLeft: true, cutRight: false, cutBottom: true, cutTop: false },
+      { uMin: neg, uMax: pos, vMin: neg, vMax: seamV, cutLeft: false, cutRight: false, cutBottom: false, cutTop: true },
+    ];
+  }
+  return [
+    { uMin: neg, uMax: seamU, vMin: seamV, vMax: pos, cutLeft: false, cutRight: true, cutBottom: true, cutTop: false },
+    { uMin: seamU, uMax: pos, vMin: seamV, vMax: pos, cutLeft: true, cutRight: false, cutBottom: true, cutTop: false },
+    { uMin: neg, uMax: seamU, vMin: neg, vMax: seamV, cutLeft: false, cutRight: true, cutBottom: false, cutTop: true },
+    { uMin: seamU, uMax: pos, vMin: neg, vMax: seamV, cutLeft: true, cutRight: false, cutBottom: false, cutTop: true },
+  ];
+}
+
+/** Builds 2–4 jagged faceted ceramic/steel armor shards matching the plate's outer vertex colors and curved silhouette. */
+function buildPlateShards(spec: PlateSpec, count: number): ShardVariant[] {
+  const [w, h, depth] = spec.size;
+  const sleeve = spec.shape === 'sleeve';
+  const outerFn = sleeve ? sleevePoint : slabPoint;
+  const thick = Math.max(0.015, Math.min(depth * 0.45, 0.032));
+  const { body, rib, edge, stripe } = spec.paint;
+  const core = darkenHex(body, 0.32);
+  const fracture = darkenHex(edge, 0.42);
+
+  const innerOf = (p: readonly number[]): number[] => {
+    if (!sleeve) return [p[0]!, p[1]!, p[2]! - thick];
+    const len = Math.hypot(p[0]!, p[2]!) || 1;
+    const f = Math.max(0.5, (len - thick) / len);
+    return [p[0]! * f, p[1]!, p[2]! * f];
+  };
+
+  const patches = platePatches(count, w >= h);
+  const SEG_U = 4;
+  const SEG_V = 3;
+  const variants: ShardVariant[] = [];
+
+  for (const patch of patches) {
+    const b = new PlateBuilder();
+    const outerGrid: number[][][] = [];
+    const innerGrid: number[][][] = [];
+    const uvGrid: [number, number][][] = [];
+
+    for (let j = 0; j <= SEG_V; j++) {
+      const tv = j / SEG_V;
+      const oRow: number[][] = [];
+      const iRow: number[][] = [];
+      const uvRow: [number, number][] = [];
+      for (let i = 0; i <= SEG_U; i++) {
+        const tu = i / SEG_U;
+        // Two-pass fixed-point evaluation so shared crooked seams meet cleanly at corners.
+        let v = -1 + 2 * tv;
+        let u = patch.uMin(v) + (patch.uMax(v) - patch.uMin(v)) * tu;
+        v = patch.vMin(u) + (patch.vMax(u) - patch.vMin(u)) * tv;
+        u = patch.uMin(v) + (patch.uMax(v) - patch.uMin(v)) * tu;
+        const op = outerFn(u, v, w, h, depth);
+        oRow.push(op);
+        iRow.push(innerOf(op));
+        uvRow.push([u, v]);
+      }
+      outerGrid.push(oRow);
+      innerGrid.push(iRow);
+      uvGrid.push(uvRow);
+    }
+
+    for (let j = 0; j < SEG_V; j++) {
+      for (let i = 0; i < SEG_U; i++) {
+        const [u0, v0] = uvGrid[j]![i]!;
+        const [u1, v1] = uvGrid[j + 1]![i + 1]!;
+        const um = (u0 + u1) * 0.5;
+        const vm = (v0 + v1) * 0.5;
+        const rim = Math.abs(um) > 0.78 || Math.abs(vm) > 0.72;
+        const middle = Math.abs(um) < 0.26;
+        const outerCol = rim ? edge : !middle ? body : (vm > -0.65 && vm < -0.15 ? stripe : rib);
+        b.quad(outerGrid[j]![i]!, outerGrid[j]![i + 1]!, outerGrid[j + 1]![i + 1]!, outerGrid[j + 1]![i]!, outerCol);
+        // Darker fractured ceramic/steel backing face.
+        b.quad(innerGrid[j]![i]!, innerGrid[j + 1]![i]!, innerGrid[j + 1]![i + 1]!, innerGrid[j]![i + 1]!, core);
+      }
+    }
+
+    // Perimeter walls: fractured core color on split seams, plate edge color on intact rims.
+    const leftCol = patch.cutLeft ? fracture : edge;
+    const rightCol = patch.cutRight ? fracture : edge;
+    const bottomCol = patch.cutBottom ? fracture : edge;
+    const topCol = patch.cutTop ? fracture : edge;
+
+    for (let j = 0; j < SEG_V; j++) {
+      b.quad(outerGrid[j]![0]!, outerGrid[j + 1]![0]!, innerGrid[j + 1]![0]!, innerGrid[j]![0]!, leftCol);
+      b.quad(outerGrid[j]![SEG_U]!, innerGrid[j]![SEG_U]!, innerGrid[j + 1]![SEG_U]!, outerGrid[j + 1]![SEG_U]!, rightCol);
+    }
+    for (let i = 0; i < SEG_U; i++) {
+      b.quad(outerGrid[0]![i]!, innerGrid[0]![i]!, innerGrid[0]![i + 1]!, outerGrid[0]![i + 1]!, bottomCol);
+      b.quad(outerGrid[SEG_V]![i]!, outerGrid[SEG_V]![i + 1]!, innerGrid[SEG_V]![i + 1]!, innerGrid[SEG_V]![i]!, topCol);
+    }
+
+    const { geometry, centroid } = b.buildCentered();
+    const dir = centroid.clone();
+    if (dir.lengthSq() < 1e-4) dir.set(0, 0.3, 1);
+    else dir.z += sleeve ? 0.1 : 0.25;
+    dir.normalize();
+    variants.push({ geometry, offset: centroid, dir });
+  }
+  return variants;
+}
+
+/** Cached jagged shard variants per PlateSpec and piece count (2–3 for helmets, 2–4 for armor plates). */
+export function plateShards(spec: PlateSpec, count: number): readonly ShardVariant[] {
+  const helmet = isHelmetPlate(spec);
+  const clamped = helmet ? Math.max(2, Math.min(3, Math.round(count))) : Math.max(2, Math.min(4, Math.round(count)));
+  let byCount = shardCache.get(spec);
+  if (!byCount) {
+    byCount = new Map();
+    shardCache.set(spec, byCount);
+  }
+  let shards = byCount.get(clamped);
+  if (!shards) {
+    shards = helmet ? buildHelmetShards(spec, clamped) : buildPlateShards(spec, clamped);
+    byCount.set(clamped, shards);
+  }
+  return shards;
+}
+
 let material: THREE.MeshStandardMaterial | null = null;
 
 /** One material for every plate. Local UVs would need a texture; vertex paint and flat facets carry it instead. */
@@ -166,49 +460,172 @@ export function plateMaterial(ctx: Ctx): THREE.Material {
 
 interface Flying {
   mesh: THREE.Mesh;
+  /** True for shard meshes owned & pooled by PlateDebris; false for intact enemy plate meshes. */
+  pooled: boolean;
+  baseScaleX: number;
+  baseScaleY: number;
+  baseScaleZ: number;
   vx: number;
   vy: number;
   vz: number;
   sx: number;
   sy: number;
+  sz: number;
   life: number;
 }
 
-const MAX_FLYING = 24;
+export const DEFAULT_SHATTER_CHANCE = 0.45;
+export const MAX_FLYING = 48;
 const GRAVITY = -28;
 
 export class PlateDebris {
   private flying: Flying[] = [];
+  private shardPool: THREE.Mesh[] = [];
   private pos = new THREE.Vector3();
   private quat = new THREE.Quaternion();
+  private scale = new THREE.Vector3();
+  private offset = new THREE.Vector3();
+  private outDir = new THREE.Vector3();
+  private boxSize = new THREE.Vector3();
 
   constructor(private readonly ctx: Ctx) {}
 
-  /** Takes the plate off its bone and throws it along `dir`. */
-  launch(plate: Plate, dir: THREE.Vector3): void {
+  get activeCount(): number {
+    return this.flying.length;
+  }
+
+  get pooledCount(): number {
+    return this.shardPool.length;
+  }
+
+  /**
+   * Takes the plate off its bone and either throws it intact or shatters it into jagged flying shards.
+   * `shatterChance` defaults to `DEFAULT_SHATTER_CHANCE` (~0.45); heavy/overkill/explosive/piercing hits pass higher.
+   */
+  launch(plate: Plate, dir: THREE.Vector3, shatterChance = DEFAULT_SHATTER_CHANCE): void {
     const { mesh } = plate;
     mesh.getWorldPosition(this.pos);
     mesh.getWorldQuaternion(this.quat);
+    mesh.getWorldScale(this.scale);
     mesh.parent?.remove(mesh);
+
+    if (shatterChance > 0 && Math.random() < shatterChance) {
+      // Detach and hide the enemy's pooled plate mesh cleanly without destroying it; fitPlates / release restores it.
+      mesh.visible = false;
+      this.shatter(plate, dir);
+      return;
+    }
+
     mesh.position.copy(this.pos);
     mesh.quaternion.copy(this.quat);
+    mesh.scale.copy(this.scale);
+    mesh.visible = true;
     this.ctx.render.scene.add(mesh);
-    if (this.flying.length >= MAX_FLYING) this.retire(this.flying.shift()!);
-    this.flying.push({
+    this.pushFlying({
       mesh,
+      pooled: false,
+      baseScaleX: this.scale.x || 1,
+      baseScaleY: this.scale.y || 1,
+      baseScaleZ: this.scale.z || 1,
       vx: dir.x * 7 + rand(-3, 3),
       vy: rand(6, 11),
       vz: dir.z * 7 + rand(-3, 3),
       sx: rand(4, 14) * (Math.random() < 0.5 ? 1 : -1),
       sy: rand(0, TAU),
+      sz: rand(-4, 4),
       life: rand(1.1, 1.7),
     });
   }
 
-  /** A pooled body takes its piece back while it is still in the air: it stops flying here and is never retired. */
+  /** Spawns 2–3 helmet dome shards or 2–4 jagged plate shards exploding outward from the broken plate. */
+  private shatter(plate: Plate, dir: THREE.Vector3): void {
+    const { spec, mesh } = plate;
+    const helmet = isHelmetPlate(spec);
+    const count = helmet ? (Math.random() < 0.5 ? 2 : 3) : 2 + Math.floor(Math.random() * 3);
+    const shards = plateShards(spec, count);
+    const mat = plateMaterial(this.ctx);
+
+    let sx = this.scale.x || 1;
+    let sy = this.scale.y || 1;
+    let sz = this.scale.z || 1;
+
+    // For worn props or custom meshes whose geometry bounds differ from spec.size, adapt shard scale gently.
+    if (plate.worn && mesh.geometry?.getAttribute('position')) {
+      if (!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox();
+      const bb = mesh.geometry.boundingBox;
+      if (bb && !bb.isEmpty()) {
+        bb.getSize(this.boxSize);
+        const [sw, sh] = spec.size;
+        if (sw > 1e-3 && this.boxSize.x > 1e-3) sx *= Math.max(0.65, Math.min(1.65, this.boxSize.x / sw));
+        if (sh > 1e-3 && this.boxSize.y > 1e-3) sy *= Math.max(0.65, Math.min(1.65, this.boxSize.y / sh));
+        if (sw > 1e-3 && this.boxSize.z > 1e-3) sz *= Math.max(0.65, Math.min(1.65, this.boxSize.z / sw));
+      }
+    }
+
+    for (let i = 0; i < shards.length; i++) {
+      const variant = shards[i]!;
+      const shardMesh = this.acquireShard(variant.geometry, mat);
+
+      this.offset.copy(variant.offset);
+      this.offset.x *= sx;
+      this.offset.y *= sy;
+      this.offset.z *= sz;
+      this.offset.applyQuaternion(this.quat);
+
+      shardMesh.position.copy(this.pos).add(this.offset);
+      shardMesh.quaternion.copy(this.quat);
+      shardMesh.scale.set(sx, sy, sz);
+      shardMesh.visible = true;
+      this.ctx.render.scene.add(shardMesh);
+
+      this.outDir.copy(variant.dir).applyQuaternion(this.quat).normalize();
+      const carry = rand(4.5, 8.5);
+      const burst = helmet ? rand(3.5, 6.5) : rand(2.8, 5.8);
+      const spinMax = helmet ? 18 : 16;
+
+      this.pushFlying({
+        mesh: shardMesh,
+        pooled: true,
+        baseScaleX: sx,
+        baseScaleY: sy,
+        baseScaleZ: sz,
+        vx: dir.x * carry + this.outDir.x * burst + rand(-1.2, 1.2),
+        vy: Math.max(dir.y * 5, 0) + this.outDir.y * 2.5 + rand(4.5, 9.5),
+        vz: dir.z * carry + this.outDir.z * burst + rand(-1.2, 1.2),
+        sx: rand(5, spinMax) * (Math.random() < 0.5 ? 1 : -1),
+        sy: rand(5, spinMax) * (Math.random() < 0.5 ? 1 : -1),
+        sz: rand(4, spinMax - 2) * (Math.random() < 0.5 ? 1 : -1),
+        life: rand(0.95, 1.55),
+      });
+    }
+  }
+
+  private acquireShard(geometry: THREE.BufferGeometry, mat: THREE.Material): THREE.Mesh {
+    const recycled = this.shardPool.pop();
+    if (recycled) {
+      recycled.geometry = geometry;
+      recycled.material = mat;
+      return recycled;
+    }
+    const mesh = new THREE.Mesh(geometry, mat);
+    mesh.castShadow = true;
+    return mesh;
+  }
+
+  private pushFlying(entry: Flying): void {
+    if (this.flying.length >= MAX_FLYING) this.retire(this.flying.shift()!);
+    this.flying.push(entry);
+  }
+
+  /** A pooled body takes its piece back: stop flying if airborne and restore visibility & unit scale cleanly. */
   release(mesh: THREE.Mesh): void {
-    const i = this.flying.findIndex(f => f.mesh === mesh);
-    if (i >= 0) this.flying.splice(i, 1);
+    const i = this.flying.findIndex(f => !f.pooled && f.mesh === mesh);
+    if (i >= 0) {
+      this.flying.splice(i, 1);
+      mesh.removeFromParent();
+    }
+    mesh.visible = true;
+    mesh.scale.setScalar(1);
   }
 
   update(dt: number): void {
@@ -221,7 +638,11 @@ export class PlateDebris {
       f.mesh.position.z += f.vz * dt;
       f.mesh.rotation.x += f.sx * dt;
       f.mesh.rotation.y += f.sy * dt;
-      if (f.life < 0.3) f.mesh.scale.setScalar(Math.max(f.life / 0.3, 0.01));
+      f.mesh.rotation.z += f.sz * dt;
+      if (f.life < 0.3) {
+        const k = Math.max(f.life / 0.3, 0.01);
+        f.mesh.scale.set(f.baseScaleX * k, f.baseScaleY * k, f.baseScaleZ * k);
+      }
       if (f.life <= 0) {
         this.retire(f);
         this.flying.splice(i, 1);
@@ -237,5 +658,7 @@ export class PlateDebris {
   private retire(f: Flying): void {
     f.mesh.removeFromParent();
     f.mesh.scale.setScalar(1);
+    f.mesh.visible = true;
+    if (f.pooled && this.shardPool.length < MAX_FLYING) this.shardPool.push(f.mesh);
   }
 }

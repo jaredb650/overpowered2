@@ -39,12 +39,17 @@ import { dropOff } from '../roles';
 import { bulletDamage, directDamage, splashDamage } from './armour';
 import { EnemyChopper, type GunshipRig } from './chopper';
 import { CHOPPER, MAX_LIVE, MAX_WRECKS, VEHICLES, type GroundDef, type WeakZone } from './data';
+import { EnemyDoorGunner } from './doorGunner';
 import { GroundVehicle, GunRack, type GroundOrder } from './ground';
 import { CHIN_GUN, Fleet, GUNSHIP_AIRFRAME, gunshipTailGroup } from './models';
+import { FastRopeHeli } from './transport';
 import { Vehicle, type PartState } from './vehicle';
 import { Wreck } from './wreck';
 
 export { VEHICLES } from './data';
+export { EnemyDoorGunner } from './doorGunner';
+export { FastRopeHeli } from './transport';
+export type GroundVehicleKind = 'humvee' | 'truck' | 'tank';
 
 declare module '../../core/contracts' {
   interface GameEvents {
@@ -163,6 +168,7 @@ export class VehicleSystem implements VehicleTargets {
   private roomFor(w: Waiting): boolean {
     if (w.order.state) return true;
     if (w.order.kind === 'chopper') return this.chopper === null;
+    if (w.order.kind === 'transport' || w.order.kind === 'doorGunner') return this.live.length < MAX_LIVE;
     if (this.live.length >= MAX_LIVE) return false;
     const [x, , z] = w.at.at;
     for (const v of this.live) if (Math.hypot(v.position.x - x, v.position.z - z) < ENTRY_GAP + v.def.halfLength) return false;
@@ -174,6 +180,16 @@ export class VehicleSystem implements VehicleTargets {
     const crewTag = order.crew && order.crew.length > 0 ? order.crewTag ?? order.tag : null;
     if (order.kind === 'chopper') {
       this.spawnChopper(_a.set(...at.at), route.map(m => new THREE.Vector3(...m.at)), order.tag);
+      return;
+    }
+    if (order.kind === 'transport') {
+      const lz = route[0] ? new THREE.Vector3(...route[0].at) : new THREE.Vector3(...at.at);
+      this.spawnTransport(_a.set(...at.at), lz, lz.y + 12, order.crew ?? [], order.tag);
+      return;
+    }
+    if (order.kind === 'doorGunner') {
+      const focus = route[0] ? new THREE.Vector3(...route[0].at) : new THREE.Vector3(...at.at);
+      this.spawnDoorGunner(_a.set(...at.at), focus, order.tag);
       return;
     }
     const hold = order.holds ? route[route.length - 1] : undefined;
@@ -206,7 +222,7 @@ export class VehicleSystem implements VehicleTargets {
     return best;
   }
 
-  spawnGround(kind: Exclude<VehicleKind, 'chopper'>, order: GroundOrder): GroundVehicle {
+  spawnGround(kind: GroundVehicleKind, order: GroundOrder): GroundVehicle {
     const v = new GroundVehicle(this, VEHICLES[kind] as GroundDef, this.fleet.ground(kind), order);
     this.live.push(v);
     this.flag(v);
@@ -220,6 +236,21 @@ export class VehicleSystem implements VehicleTargets {
     this.live.push(this.chopper);
     this.flag(this.chopper);
     return this.chopper;
+  }
+
+  spawnTransport(from: THREE.Vector3, lz: THREE.Vector3, hoverY: number, squadIds: readonly EnemyId[], tag: string | null = null): FastRopeHeli {
+    const heli = new FastRopeHeli(this, this.materials, from, lz, hoverY, squadIds, tag);
+    this.live.push(heli);
+    this.flag(heli);
+    return heli;
+  }
+
+  spawnDoorGunner(from: THREE.Vector3, focus: THREE.Vector3, tag: string | null = null): EnemyDoorGunner {
+    this.skyline ??= new Skyline(this.ctx, new GroundProbe(this.ctx));
+    const gunner = new EnemyDoorGunner(this, this.materials, this.skyline, from, focus, tag);
+    this.live.push(gunner);
+    this.flag(gunner);
+    return gunner;
   }
 
   private rig(): GunshipRig {
@@ -493,6 +524,16 @@ export class VehicleSystem implements VehicleTargets {
     v.quaternion.copy(root.quaternion);
     const colliders = v.wreckColliders();
     return new Wreck(this, root, colliders, CHOPPER.wreck, CHOPPER.halfWidth, CHOPPER.halfLength, v.tag);
+  }
+
+  wreckUtility(v: FastRopeHeli | EnemyDoorGunner): Wreck {
+    const root = this.fleet.utilityWreck();
+    root.position.copy(v.position);
+    root.position.y -= 0.2;
+    root.rotation.set(0.08, rand(0, 6.28), rand(-0.22, 0.22));
+    v.quaternion.copy(root.quaternion);
+    const colliders = v.wreckColliders();
+    return new Wreck(this, root, colliders, v.def.wreck, v.def.halfWidth, v.def.halfLength, v.tag);
   }
 
   /** On the map for good. Oldest out past the cap, except one the mission is standing on. */

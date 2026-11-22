@@ -154,6 +154,29 @@ export interface WeaponDef {
   select?: {
     readonly hold: number; readonly modes: readonly FireSelect[]; readonly burst?: { readonly rounds: number; readonly recover: number };
   };
+  /**
+   * Electronic multi-rate fire selector (hold R to cycle): steps through RPM settings, up to a hyper-volley mode
+   * that dumps up to `volley` stacked rounds instantaneously in a single trigger pull (Metal Storm).
+   */
+  rateSelect?: {
+    readonly hold: number;
+    readonly modes: readonly {
+      readonly label: string;
+      readonly rpm: number;
+      /** Instantaneous stacked hyper-volley count per pull. */
+      readonly volley?: number;
+      /** Cap on simultaneous projectile entities spawned in one hyper-volley burst (e.g. 40mm grenades). */
+      readonly maxProjectiles?: number;
+      /** Extra spread cone (radians) for high-RPM streams or hyper-volley fans. */
+      readonly spread?: number;
+      /** Optional roar sound id played on a hyper-volley pull. */
+      readonly sound?: string;
+    }[];
+  };
+  /** Optional grenade ballistics override when `round === 'grenade'` (e.g. 40mm FireStorm). */
+  grenade?: {
+    readonly speed: number; readonly gravity: number; readonly life: number; readonly radius: number; readonly blast: number;
+  };
   /** An under-barrel launcher is fitted (the Gimlet's mod): hold R raises it, and then it fires `LAUNCHER`'s round. */
   launcher?: boolean;
   /** Hit-stop on a kill, seconds. */
@@ -374,6 +397,22 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     drawSound: 'weapon_draw_heavy',
     recoil: 0.6, kick: 0.012, shake: 0.022, fovPunch: 1,
   },
+  // Milkor MGL: 6-shot revolving 40 mm grenade launcher on key 3. Rapid semi-auto drum thoomps; fits the Sticky Bomb shop mod.
+  mgl: {
+    ...BASE, id: 'mgl', name: 'MILKOR MGL', slot: 3, base: 'rocket', mode: 'semi', round: 'grenade',
+    magSize: 6, reserve: 18, maxReserve: 30, reloadTime: 2.35, drawTime: 0.28,
+    interval: 0.36, damage: 70, severMult: 2.5, force: 80, headshotMult: 1.5,
+    grenade: { speed: 52, gravity: 11.2, life: 8, radius: 5.5, blast: 175 },
+    muzzle: 'rocket', tracer: 'heavy', casing: null,
+    sounds: [{ id: 'mgl_shot', pitchJitter: 0.03 }],
+    reloadFoley: [
+      [0.06, 'revolver_open'], [0.24, 'reload_shell_in'], [0.42, 'reload_shell_in'],
+      [0.6, 'reload_shell_in'], [0.8, 'revolver_close'], [0.92, 'revolver_cock'],
+    ],
+    drawSound: 'weapon_draw_heavy',
+    recoil: 1.15, kick: 0.026, shake: 0.032, fovPunch: 2.1,
+    ads: { zoom: 0.28, time: 0.22 },
+  },
   // First on the key: a slim anti-armour sniper rifle firing darts. No blast, so the round goes on through walls and
   // everyone in line.
   sabot: {
@@ -559,6 +598,30 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     altAmmo: { label: 'RAUFOSS', hold: 0.3 },
     ads: { zoom: 0.3, time: 0.3 },
   },
+  // Metal Storm: 36-barrel electronically-fired stacked-projectile weapon (5 stacked rounds per barrel = 180 rounds).
+  // No moving bolt, no brass, pure solid-state ignition. Hold R cycles 4 electronic rates up to a 1,000,000 RPM hyper-volley.
+  metalstorm: {
+    ...BASE, id: 'metalstorm', name: 'METAL STORM', slot: 8, base: 'buzzsaw', mode: 'auto',
+    magSize: 180, reserve: 360, maxReserve: 540, reloadTime: 2.6, drawTime: 0.38,
+    interval: 0.1, damage: 24, spread: 0.012, severMult: 2.2, force: 16, headshotMult: 1.7,
+    penetration: 0.8, bodyCost: 0.4, gib: 0.15, slow: 0.65, impactScale: 1.1,
+    muzzle: 'hmg', tracer: 'heavy', casing: null,
+    sounds: [{ id: 'metalstorm_shot', pitchJitter: 0.04 }],
+    reloadFoley: [[0.06, 'reload_mag_out'], [0.52, 'reload_mag_in'], [0.82, 'reload_cell']],
+    drawSound: 'weapon_draw_heavy',
+    recoil: 0.65, kick: 0.0055, shake: 0.016, fovPunch: 0.3,
+    climb: { pitch: 0.0011, yaw: 0.0009 },
+    ads: { zoom: 0.22, time: 0.28 },
+    rateSelect: {
+      hold: 0.3,
+      modes: [
+        { label: '600 RPM', rpm: 600 },
+        { label: '3.6K RPM', rpm: 3600 },
+        { label: '60K RPM', rpm: 60000, spread: 0.022 },
+        { label: '1M RPM', rpm: 1000000, volley: 36, maxProjectiles: 14, spread: 0.045, sound: 'metalstorm_volley' },
+      ],
+    },
+  },
   kiln: {
     ...BASE, id: 'kiln', name: 'KILN', slot: 9, mode: 'stream',
     magSize: 150, reserve: 300, maxReserve: 600, reloadTime: 1.8, drawTime: 0.26,
@@ -608,6 +671,7 @@ if (SLOT8_OLD) {
     tracer: 'bullet', casing: 'rifle', recoil: 0.5, kick: 0.0009, shake: 0.0035, fovPunch: 0,
   });
   WEAPONS.piledriver.base = undefined;
+  WEAPONS.metalstorm.base = undefined;
 }
 if (LANCE_OLD) {
   Object.assign(WEAPONS.lance, {

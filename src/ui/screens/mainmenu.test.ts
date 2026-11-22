@@ -11,6 +11,7 @@ describe('the main menu tree', () => {
     expect(SURVIVAL_MAPS.map(({ name, map }) => [name, modesOn(map).map(c => c.id)])).toEqual([
       ['Crucible', ['crucible']],
       ['Kill House', ['outpost']],
+      ['Rooftop', ['rooftop']],
       ['Outpost', ['defense']],
       ['Office', ['crucible', 'outpost']],
     ]);

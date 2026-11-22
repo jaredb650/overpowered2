@@ -513,4 +513,63 @@ export const weapons = [
     whoosh(s, { from: 380, to: 2500, dur: 0.56, q: 0.9, peakAt: 0.45 });
     whoosh(s, { from: 1400, to: 5200, dur: 0.46, q: 1.4, level: 0.5, peakAt: 0.5, color: 'white' });
   }),
+
+  // Metal Storm: solid-state electronic ignition — razor-crisp snap with zero bolt clank, plus a tearing 1M RPM hyper-volley roar.
+  r('metalstorm_shot', { dur: 0.34, n: 3, mix: 'gun', over: { volume: 0.48, maxVoices: 6, perFrame: 2, send: 0.16 }, expect: { attackMs: [0, 6] } }, s => {
+    gunshot(s, {
+      crack: 1.6, crackHp: 2800, body: 1280, bodyDecay: 0.045, bodyLevel: 1.05, sub: 0.42, subFreq: 95, subDecay: 0.06,
+      tail: 0.14, tailDecay: 0.22, drive: 4.2, ring: 0.28, ringFreq: s.r(3100, 3700),
+    });
+    zap(s, 0.032, 0.28, 320);
+  }),
+  r('metalstorm_volley', { dur: 1.4, n: 2, mix: 'gunHeavy', over: { volume: 0.72, send: 0.3 }, expect: { attackMs: [0, 6], minSub: 0.05 } }, s => {
+    // Sub-millisecond electronic ripple train collapsing into a thunderous wall of sound.
+    for (let i = 0; i < 8; i++) {
+      s.at(i * 0.008, () => {
+        s.noise('white', 0.025).hp(1800).env(perc(0.02, 0.95 - i * 0.05, 0.0004)).drive(4).out(0.55);
+        zap(s, 0.035, 0.24, 240 + i * 24);
+      });
+    }
+    gunshot(s, {
+      crack: 2.0, crackHp: 2100, body: 640, bodyDecay: 0.18, bodyLevel: 1.35, sub: 1.0, subFreq: 52, subDecay: 0.32,
+      tail: 0.58, tailDecay: 0.95, drive: 5.0, ring: 0.34, ringFreq: s.r(1600, 2100),
+    });
+    s.at(0.015, () => s.noise('brown', 0.55).lp([[0, 1200], [0.4, 120]]).env(perc(0.42, 1)).gain(1.8).out(0.48));
+  }),
+
+  // Milkor MGL: unmistakable hollow 40mm grenade-launcher THOOMP — resonant low-mid tube pop + gas puff + drum pawl click.
+  r('mgl_shot', { dur: 0.62, n: 3, mix: 'gunHeavy', over: { volume: 0.78, send: 0.24 }, expect: { attackMs: [0, 10], minSub: 0.04 } }, s => {
+    // Hollow 40mm barrel resonance: pitched tube thoomp sweeping from ~245 Hz down to ~72 Hz.
+    s.osc('sine', [[0, s.r(230, 265)], [0.045, s.r(118, 138)], [0.22, 68]], 0.28).env(perc(0.24, 1.15, 0.002)).drive(2.2).out(0.95);
+    s.osc('triangle', [[0, s.r(340, 390)], [0.06, 175]], 0.14).bp(320, 1.8).env(perc(0.11, 0.72, 0.002)).out(0.75);
+    thump(s, s.r(74, 86), 0.18, 0.85, 2.4);
+    // Compressed propellant puff through a short wide 40mm bore.
+    s.noise('pink', 0.34).bp([[0, 780], [0.16, 290]], 1.1).env(perc(0.28, 0.85, 0.003)).drive(1.8).out(0.8);
+    // Short metallic cylinder pawl index right after ignition.
+    s.at(0.028, () => click(s, s.r(1950, 2350), 0.45, 0.007));
+    s.at(0.075, () => clank(s, s.r(740, 860), 0.35, 0.035));
+  }),
+  // Sticky bomb magnetic latch: heavy dampened metallic thunk + sharp armed-LED confirmation chirp.
+  r('mgl_stick', { dur: 0.28, n: 3, mix: 'impact', over: { volume: 0.58, near: 6, far: 65, maxVoices: 6 }, expect: { attackMs: [0, 8] } }, s => {
+    thump(s, s.r(105, 130), 0.08, 0.9, 2.2);
+    clank(s, s.r(620, 740), 0.65, 0.045);
+    s.at(0.04, () => s.osc('sine', [[0, 1480], [0.05, 1860]], 0.11).env(perc(0.09, 0.42, 0.002)).out(0.65));
+  }),
+  // Remote detonator trigger: crisp mechanical clacker snap + brief telemetry blip.
+  r('mgl_detonate', { dur: 0.18, mix: 'foley', over: { volume: 0.65, priority: 8 }, expect: { attackMs: [0, 6] } }, s => {
+    click(s, 3200, 1.0, 0.005);
+    s.at(0.018, () => click(s, 2100, 0.75, 0.006));
+    s.at(0.022, () => s.osc('square', 2400, 0.055).lp(5200).env(perc(0.048, 0.35, 0.001)).out(0.45));
+  }),
+
+  // Awl .50 Cal conversion: deep chest-thumping anti-materiel cannon boom + razor tank-brake crack + long cavernous tail.
+  r('awl50_shot', { dur: 1.9, n: 3, mix: 'gunHeavy', over: { volume: 0.96, send: 0.42, duck: [0.22, 0.35] }, expect: { attackMs: [0, 6], minSub: 0.08 } }, s => {
+    gunshot(s, {
+      crack: 2.35, crackHp: 1750, body: 390, bodyDecay: 0.22, bodyLevel: 1.65, sub: 1.35, subFreq: 46, subDecay: 0.42,
+      tail: 0.95, tailDecay: 1.45, drive: 6.2, ring: 0.36, ringFreq: s.r(1250, 1550),
+    });
+    // Heavy steel muzzle-brake concussion slam and sub-bass drop.
+    s.osc('sine', [[0, 145], [0.055, 52], [0.55, 26]], 0.65).env(perc(0.55, 1.1, 0.0008)).drive(3.0).out(0.95);
+    s.at(0.018, () => s.noise('brown', 1.4).lp([[0, 1400], [0.35, 360], [1.25, 95]]).env(perc(1.25, 0.9, 0.004)).gain(2.0).out(0.68));
+  }),
 ];

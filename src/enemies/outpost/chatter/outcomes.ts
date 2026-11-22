@@ -10,6 +10,7 @@
  *   taunts        when the player is hurt, a steady man taunts; a man with bravado talks big while his nerve is going ("Is that all
  *                 you got?"), which is the tell that he is about to crack
  */
+import { FAKE_COOLDOWN } from '../flight';
 import type { Outpost } from '../index';
 import type { Rank } from '../rank';
 import type { Soldier } from '../soldier';
@@ -17,7 +18,7 @@ import type { Soldier } from '../soldier';
 /** Chance, by rank, that a man about to break chooses to fight on instead. */
 const HOLDOUT: Record<Rank, number> = { conscript: 0.02, regular: 0.05, veteran: 0.12, elite: 0.2 };
 /** Chance a surrendered man with a grenade, close and in sight, tries it. Rolled once per man. */
-export const FAKE_SURRENDER = 0.06;
+export const FAKE_SURRENDER = 0.02;
 const FAKE_RANGE = 10;
 /** Chance a buddy's death turns into revenge, and how long the squad pushes for it. */
 export const REVENGE = 0.35;
@@ -62,7 +63,11 @@ export function tickOutcomes(o: Outpost, now: number): void {
     const e = s.e;
     if (s.surrendered && !s.fakeRolled && now - s.surrenderedAt > 2 && e.dist < FAKE_RANGE && e.hasLos) {
       s.fakeRolled = true;
-      if (s.grenades > 0 && !s.injuries.mute && Math.random() < FAKE_SURRENDER) s.fake = 'waiting';
+      const ready = now - (o.lastFakeAt ?? -Infinity) >= FAKE_COOLDOWN;
+      if (ready && s.grenades > 0 && !s.injuries.mute && Math.random() < FAKE_SURRENDER) {
+        s.fake = 'waiting';
+        o.lastFakeAt = now;
+      }
     }
     if (!taunter && s.fighting && s.sees && ((hurt && s.state === 'steady') || (s.bravado && (s.state === 'shaken' || s.state === 'panicked')))) taunter = s;
   }

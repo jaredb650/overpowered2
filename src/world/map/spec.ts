@@ -127,6 +127,8 @@ export class MapSpec {
   roads: readonly RoadSpec[] = [];
   /** Null on maps without one. */
   reactor: ReactorSpec | null = { floorY: 0, topY: 90 };
+  /** Optional lethal fall kill-plane elevation. Undefined leaves existing maps unaffected. */
+  killY?: number;
   plan: MapPlan | null = null;
   /** When set, ground and air spawns are these and nothing is derived from the nav graph. */
   spawns: SpawnPoint[] | null = null;

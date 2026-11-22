@@ -98,6 +98,17 @@ const RETICLES: Record<WeaponId, Reticle> = {
     arms: ['', poly('22,-1.25 30,-1.25 30,1.25 22,1.25'), '', poly('-22,-1.25 -30,-1.25 -30,1.25 -22,1.25')],
     gap: 0, kick: 4, speedGap: 2,
   },
+  // 40 mm grenade launcher sight: centre dot with drop ladder rungs below and short side stadia bars.
+  mgl: {
+    core: DOT,
+    arms: [
+      '',
+      poly('12,-1.3 26,-1.3 26,1.3 12,1.3'),
+      turned(`${tick(2, 9, 10)}${tick(2, 7, 17)}${tick(2, 5, 24)}${tick(2, 3, 31)}`, 180),
+      poly('-12,-1.3 -26,-1.3 -26,1.3 -12,1.3'),
+    ],
+    gap: 0, kick: 5.5, speedGap: 2,
+  },
   autocannon: {
     core: '<path fill-rule="evenodd" d="M-5 -5H5V5H-5Z M-3 -3V3H3V-3Z"/>',
     arms: ['', poly('10,-1.5 40,-1.5 40,1.5 10,1.5'), turned(tick(10, 1.5, 10), 180), poly('-10,-1.5 -40,-1.5 -40,1.5 -10,1.5')],
@@ -139,6 +150,17 @@ const RETICLES: Record<WeaponId, Reticle> = {
     core: DIAMOND,
     arms: [tick(8, 1.9, 12), poly('12,-1.9 31,-1.9 31,1.9 12,1.9'), turned(tick(8, 1.9, 12), 180), poly('-12,-1.9 -31,-1.9 -31,1.9 -12,1.9')],
     gap: 2, kick: 7, speedGap: 2,
+  },
+  // Metal Storm: four squared electronic matrix brackets around a centre dot, framing the 36-barrel salvo zone.
+  metalstorm: {
+    core: DOT,
+    arms: [
+      poly('-9,-12 9,-12 9,-9.6 -9,-9.6'),
+      poly('9.6,-9 12,-9 12,9 9.6,9'),
+      poly('-9,9.6 9,9.6 9,12 -9,12'),
+      poly('-12,-9 -9.6,-9 -9.6,9 -12,9'),
+    ],
+    gap: 4, kick: 4.5, speedGap: 2,
   },
   kiln: {
     core: DOT,

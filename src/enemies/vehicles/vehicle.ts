@@ -81,7 +81,8 @@ export abstract class Vehicle {
 
   /** For a missile painted on it: how far above `center` its hull is. A chopper's centre is already its middle. */
   get aimLift(): number {
-    return this.def.kind === 'chopper' ? 0 : this.def.roof * 0.5;
+    const k = this.def.kind;
+    return k === 'chopper' || k === 'transport' || k === 'doorGunner' ? 0 : this.def.roof * 0.5;
   }
 
   /** For a missile painted on it: its half size, so its own hull does not count as cover in front of it. */

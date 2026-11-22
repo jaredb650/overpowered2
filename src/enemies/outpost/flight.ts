@@ -49,6 +49,8 @@ const UNSEEN_SECONDS = 2.5;
 export const FAKE_RANGE = 4.5;
 export const FUMBLE_SECONDS = 0.9;
 const PIN_SECONDS = 1;
+/** Seconds across the whole fight between fake-surrender grenade plots. */
+export const FAKE_COOLDOWN = 45;
 /** Self: the pistol comes up, and stays at his head this long. */
 const DRAW_SECONDS = 0.7;
 const TEMPLE_SECONDS = 1.3;
@@ -59,7 +61,7 @@ export const SELF_EXECUTIONS = 2;
 /** Rank's share of each reaction. Veterans fight, conscripts cower. */
 const FIGHT: Record<Rank, number> = { conscript: 0.25, regular: 0.4, veteran: 0.65, elite: 0.9 };
 const COWER: Record<Rank, number> = { conscript: 0.6, regular: 0.45, veteran: 0.25, elite: 0.1 };
-const FAKE = 0.035;
+const FAKE = 0.012;
 const SELF = 0.07;
 
 export interface CornerFacts {
@@ -174,7 +176,7 @@ export function cornerFacts(o: Outpost, s: Soldier, timeout: boolean): CornerFac
     gives: s.rankDef.gives,
     canSurrender: o.doctrine.surrender && !s.refused && !s.holdout,
     armed: gunNear || (s.def.sidearm && !s.spentSidearm && (!b.armR || !b.armL)),
-    grenade: s.grenades > 0 && !b.mute,
+    grenade: s.grenades > 0 && !b.mute && o.w.now - (o.lastFakeAt ?? -Infinity) >= FAKE_COOLDOWN,
     pistol,
     wounded: b.condition === 'mortal' ? 1 : Math.max(0, Math.min(1, 1 - e.health / e.maxHealth)),
     bravado: s.bravado,
@@ -200,6 +202,7 @@ export function corner(o: Outpost, s: Soldier, timeout: boolean, roll = Math.ran
       s.fate = 'surrender';
       s.fakeRolled = true;
       s.fake = 'waiting';
+      o.lastFakeAt = now;
       break;
     case 'fight':
       fightOn(o, s);
@@ -269,6 +272,7 @@ export function plotting(o: Outpost, s: Soldier, now: number): void {
     s.fake = null;
     if (s.grenades <= 0) return;
     s.grenades--;
+    o.lastFakeAt = now;
     dropGrenade(e, o.w);
   }
 }

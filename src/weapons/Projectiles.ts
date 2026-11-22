@@ -102,9 +102,14 @@ export interface Projectile {
    * at `stuckLocal` along `stuckAxis` in its space. `stuckNormal` is the face of a wall it is in, zero in a body.
    */
   stuckBone: THREE.Object3D | null;
+  /** Enemy a sticky bomb is attached to (tracks position while alive; safely detaches when dead/despawned). */
+  stuckEnemy: EnemyInstance | null;
+  stuckOffset: THREE.Vector3;
   stuckLocal: THREE.Vector3;
   stuckAxis: THREE.Vector3;
   stuckNormal: THREE.Vector3;
+  /** Milkor MGL sticky bomb: adheres to world geometry or enemies and awaits remote/swap detonation. */
+  sticky: boolean;
   /** Beeps it has given, and seconds left of the light that blinks with each. */
   beeps: number;
   blink: number;
@@ -165,7 +170,7 @@ function createProjectile(): Projectile {
     trail: 'none', ringClock: 0, smokeClock: 0, lastTrail: new THREE.Vector3(),
     visualOffset: new THREE.Vector3(), visualHold: 0, whizzed: false, resting: false, spin: 0,
     gib: false, severMult: 1, force: 0, headshotMult: 2, killStop: 0,
-    stuckBone: null, stuckLocal: new THREE.Vector3(), stuckAxis: new THREE.Vector3(), stuckNormal: new THREE.Vector3(), beeps: 0, blink: 0,
+    stuckBone: null, stuckEnemy: null, stuckOffset: new THREE.Vector3(), stuckLocal: new THREE.Vector3(), stuckAxis: new THREE.Vector3(), stuckNormal: new THREE.Vector3(), sticky: false, beeps: 0, blink: 0,
     explosive: false, blastRadius: 0, blastDamage: 0, blastKind: 'rocket', blastInstakill: false,
     blastSelf: undefined, blastPush: undefined, pinned: false, lastHit: -1,
     budget: makeBudget(), baseDamage: 0, armorPiercing: false,
@@ -311,6 +316,11 @@ export class Projectiles {
     p.netId = netId;
     p.laser = spec.laser ?? ROCKET_LASER;
     p.tag = spec.tag ?? 0;
+    p.sticky = spec.sticky ?? false;
+    p.stuckEnemy = null;
+    p.stuckBone = null;
+    p.stuckOffset.set(0, 0, 0);
+    p.stuckNormal.set(0, 0, 0);
     p.visualHold = 0;
     p.visualOffset.set(0, 0, 0);
     if (spec.visualFrom) {
@@ -344,6 +354,8 @@ export class Projectiles {
     // A pooled missile must not keep a dead enemy reachable.
     p.target = null;
     p.stuckBone = null;
+    p.stuckEnemy = null;
+    p.sticky = false;
     p.laser = ROCKET_LASER;
     const last = this.live.pop()!;
     if (index < this.live.length) this.live[index] = last;
@@ -361,8 +373,10 @@ export class Projectiles {
       if (watched) this.combat.watching++;
       try {
         if (p.kind === 'grenade') this.stepGrenade(p, dt);
-        else if (p.resting) this.stepBomb(p, dt);
-        else this.step(p, dt);
+        else if (p.resting) {
+          if (p.sticky) this.stepSticky(p, dt);
+          else this.stepBomb(p, dt);
+        } else this.step(p, dt);
         if (p.live && p.life <= 0) this.expire(p);
       } finally {
         if (watched) this.combat.watching--;
@@ -633,6 +647,10 @@ export class Projectiles {
       p.lastHit = enemy.uid;
       return;
     }
+    if (p.sticky) {
+      this.stickCharge(p, point, normal, enemy, bone);
+      return;
+    }
     if (p.explosive) this.explode(p, undefined);
     p.live = false;
   }
@@ -771,6 +789,10 @@ export class Projectiles {
   private hitWorld(p: Projectile, wall: RayHit): void {
     const c = this.ctx;
     p.position.copy(wall.point);
+    if (p.sticky) {
+      this.stickCharge(p, wall.point, wall.normal, null, undefined);
+      return;
+    }
     // A stake's business with a wall is to stay in it.
     if (p.budget.left > 0 && p.kind !== 'stake' && this.goThrough(p, wall)) return;
     switch (p.kind) {
@@ -883,6 +905,60 @@ export class Projectiles {
     if (p.age < p.fuse) return;
     this.explode(p, p.stuckNormal.lengthSq() > 0 ? p.stuckNormal : undefined);
     p.live = false;
+  }
+
+  /**
+   * A Milkor MGL sticky bomb latches onto a world surface (flush to `normal`) or onto a struck enemy (tracking
+   * their bone/world position while alive and safely staying at the last world point if they die or despawn).
+   */
+  private stickCharge(
+    p: Projectile, point: THREE.Vector3, normal: THREE.Vector3, enemy: EnemyInstance | null, bone: number | undefined,
+  ): void {
+    const c = this.ctx;
+    p.resting = true;
+    p.age = 0;
+    p.blink = 1;
+    p.life = 600;
+    p.trail = 'none';
+    const out = this.w.copy(normal);
+    if (out.lengthSq() < 1e-6) out.set(0, 1, 0);
+    else out.normalize();
+    p.position.copy(point).addScaledVector(out, 0.045);
+    p.velocity.copy(out).multiplyScalar(0.01);
+    p.stuckNormal.copy(enemy ? this.v.set(0, 0, 0) : out);
+    p.stuckEnemy = enemy && enemy.alive ? enemy : null;
+    p.stuckBone = null;
+    if (p.stuckEnemy) {
+      p.stuckOffset.copy(p.position).sub(p.stuckEnemy.position);
+      const b = bone !== undefined ? p.stuckEnemy.char?.bones?.[bone] : undefined;
+      if (b && b.parent) {
+        p.stuckBone = b;
+        const inv = this.inverse.copy(b.matrixWorld).invert();
+        p.stuckLocal.copy(p.position).applyMatrix4(inv);
+        p.stuckAxis.copy(out).transformDirection(inv);
+      }
+    }
+    c.audio.play('mgl_stick', { position: p.position });
+    c.fx.sparks(point, out, 3, 0xffaa44);
+  }
+
+  /** Planted sticky bomb: tracks a live stuck enemy and pulses its armed red-amber LED until remote detonation. */
+  private stepSticky(p: Projectile, dt: number): void {
+    const e = p.stuckEnemy;
+    if (e) {
+      if (!e.alive) {
+        // Enemy died or despawned: cleanly detach and remain at the last known world position.
+        p.stuckEnemy = null;
+        p.stuckBone = null;
+      } else if (p.stuckBone) {
+        p.position.copy(p.stuckLocal).applyMatrix4(p.stuckBone.matrixWorld);
+        p.velocity.copy(p.stuckAxis).transformDirection(p.stuckBone.matrixWorld).multiplyScalar(0.01);
+      } else {
+        p.position.copy(e.position).add(p.stuckOffset);
+      }
+    }
+    p.age += dt;
+    p.blink = (p.age * 2.2) % 1 < 0.38 ? 1 : 0;
   }
 
   private stepGrenade(p: Projectile, dt: number): void {
@@ -1163,6 +1239,50 @@ export class Projectiles {
     for (let i = 0; i < this.live.length; i++) {
       const p = this.live[i]!;
       if (p.kind === 'grenade' && !p.cosmetic && p.fuse > 0.08 && p.position.distanceToSquared(center) < r2) p.fuse = 0.08;
+    }
+  }
+
+  /** Number of currently planted (stuck & armed) sticky bombs for `source` (or all sources if omitted). */
+  stickyCount(source?: string): number {
+    let n = 0;
+    for (let i = 0; i < this.live.length; i++) {
+      const p = this.live[i]!;
+      if (p.live && p.sticky && p.resting && !p.cosmetic && (!source || p.source === source)) n++;
+    }
+    return n;
+  }
+
+  /**
+   * Immediately detonates all sticky bombs for `source` (planted only, or including in-flight when `includeInFlight` is true).
+   * Returns how many stickies were detonated.
+   */
+  detonateStickies(source?: string, includeInFlight = false): number {
+    const targets: Projectile[] = [];
+    for (let i = 0; i < this.live.length; i++) {
+      const p = this.live[i]!;
+      if (p.live && p.sticky && !p.cosmetic && (includeInFlight || p.resting) && (!source || p.source === source)) {
+        targets.push(p);
+      }
+    }
+    let count = 0;
+    for (let i = 0; i < targets.length; i++) {
+      const p = targets[i]!;
+      if (!p.live) continue;
+      count++;
+      // Mark dead before exploding so re-entrant chain blasts cannot detonate this sticky twice.
+      p.live = false;
+      this.explode(p, p.stuckNormal.lengthSq() > 0 ? p.stuckNormal : undefined);
+      const at = this.live.indexOf(p);
+      if (at >= 0) this.retire(at);
+    }
+    return count;
+  }
+
+  /** Silently removes sticky bombs without detonating or dealing damage (used on match/weapon reset). */
+  clearStickies(source?: string): void {
+    for (let i = this.live.length - 1; i >= 0; i--) {
+      const p = this.live[i]!;
+      if (p.sticky && (!source || p.source === source)) this.retire(i);
     }
   }
 }

@@ -108,7 +108,9 @@ export const WoundTuning = {
   lastBlood: 0.05,
   /** Chance a mortal or downed man goes for a last act, and that it is a grenade if he has one. */
   lastStand: 0.45,
-  lastGrenade: 0.3,
+  lastGrenade: 0.08,
+  /** Seconds across the whole fight between last-stand grenade pins, so squads do not explode in a chain. */
+  lastGrenadeCooldown: 35,
   /** Seconds a concussed man stays stupid, and the share of health a blast must do to do it. */
   concussion: [3, 6] as const,
   concussionFrom: 0.05,

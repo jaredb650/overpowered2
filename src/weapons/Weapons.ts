@@ -25,12 +25,12 @@ import { Handling, holdSpeed } from './handling';
 import { backblast, fillShot } from './shot';
 import { Raufoss } from './raufoss';
 import { FLAK } from './flak';
-import { helixOffset } from './helix';
 import { Painter, angleOff, type PaintCandidate } from './swarm';
 import { isMelee } from './melee/data';
 import { Melee } from './melee/Melee';
 import { LANCE_ON, Lance } from './lance';
 import { ROCKET_LASER } from './laser';
+import { helixOffset } from './helix';
 import { SmartAim, type SmartHooks } from './smartaim';
 import { KATA, bearing, kataTargets } from './kata';
 import { soldierOf } from '../enemies/outpost/soldier';
@@ -148,6 +148,8 @@ export class Weapons implements WeaponSystem, Guard {
   readonly adsZoom = new AdsZoom();
   /** Aim held on a gun that aims, or its scope up: the dash key is the zoom's then, and the player does not dash. */
   aimHeld = false;
+  /** Suppresses ADS zoom on the RMB press that detonates MGL sticky bombs, until RMB is released. */
+  private aimSuppress = false;
 
   private cooking = false;
   private cookLeft = 0;
@@ -173,7 +175,11 @@ export class Weapons implements WeaponSystem, Guard {
   private glUp = false;
   /** What each `select` gun's selector is on (hold R), unset for its first mode. Kept across a switch, cleared by a reset. */
   private readonly selector = new Map<WeaponId, FireSelect>();
-  /** Seconds R has been held on a `select` or `smart` gun, or -1: a press shorter than its `hold` is a reload on the release. */
+  /** What each `rateSelect` gun's electronic RPM index is on (hold R), default 0. Kept across switches, cleared by reset. */
+  private readonly rateMode = new Map<WeaponId, number>();
+  /** Cycles through the 4 muzzle quadrant sockets on Metal Storm's 36-barrel matrix. */
+  private msBarrel = 0;
+  /** Seconds R has been held on a `select`, `smart`, `altAmmo` or `rateSelect` gun, or -1: a shorter press reloads on release. */
   private rHeld = -1;
   /** The Autoraffica's smart aim (hold R): switched on, kept across a switch, off at a reset; and its lock. See smartaim.ts. */
   private smartOn = false;
@@ -312,6 +318,7 @@ export class Weapons implements WeaponSystem, Guard {
     events.on('player:died', () => {
       // A cooked grenade goes down with you, which is both fair and funny.
       if (this.cooking) this.throwGrenade(this.cookLeft, 0);
+      this.detonateStickies(true);
       this.stopEverything();
     });
     events.on('game:state', e => {
@@ -331,7 +338,16 @@ export class Weapons implements WeaponSystem, Guard {
     this.ctx.viewmodel.equip?.(this.current, 0.01);
   }
 
+  /** Detonates all live Milkor MGL sticky bombs (planted only on RMB, or including in-flight on weapon switch/death). */
+  private detonateStickies(includeInFlight = false): number {
+    const count = this.combat.projectiles.detonateStickies('mgl', includeInFlight);
+    if (count > 0) this.ctx.audio.play('mgl_detonate');
+    return count;
+  }
+
   reset(): void {
+    this.combat.projectiles.clearStickies();
+    this.aimSuppress = false;
     this.stopEverything();
     this.owned.clear();
     this.slotLast.clear();
@@ -363,6 +379,8 @@ export class Weapons implements WeaponSystem, Guard {
     this.issueMods();
     this.glUp = this.smartOn = false;
     this.selector.clear();
+    this.rateMode.clear();
+    this.msBarrel = 0;
     this.smart.drop();
     this.smartL.drop();
     this.rHeld = -1;
@@ -457,14 +475,44 @@ export class Weapons implements WeaponSystem, Guard {
     return def.select && !def.launcher ? this.selector.get(def.id) ?? def.select.modes[0]! : 'auto';
   }
 
+  /** Electronic RPM selector index for a `rateSelect` gun (Metal Storm), defaulting to 0 (lowest RPM). */
+  private rateIndex(def: WeaponDef): number {
+    return this.rateMode.get(def.id) ?? 0;
+  }
+
+  /** Active electronic RPM mode for a `rateSelect` gun, or undefined. */
+  private rateOf(def: WeaponDef) {
+    const r = def.rateSelect;
+    return r ? r.modes[this.rateIndex(def)] ?? r.modes[0]! : undefined;
+  }
+
+  /** Pushes a `rateSelect` weapon's RPM tier (0..1) into the viewmodel charge channel to drive its LED strip & readout. */
+  private syncRateCharge(): void {
+    const def = this.slots[this.current].def;
+    if (!def.rateSelect) return;
+    const modes = def.rateSelect.modes;
+    const tier = modes.length > 1 ? this.rateIndex(def) / (modes.length - 1) : 0;
+    this.ctx.viewmodel.setCharge(tier);
+  }
+
   /**
    * The `altAmmo` label of the gun in hand while it is loaded, else '': the HUD wears it on the gun's name. The Gimlet's is
-   * its launcher or its bursts; an ammo mod's is AP or HP.
+   * its launcher or its bursts; an ammo mod's is AP or HP; Metal Storm's is its active electronic RPM setting.
    */
   get ammoMode(): string {
     const def = this.slots[this.current].def;
-    const alt = WEAPONS[this.current].altAmmo;
+    const alt = def.altAmmo;
     if (this.glUp) return 'LAUNCHER';
+    if (def.rateSelect) {
+      const label = this.rateOf(def)!.label;
+      return def.round === 'grenade' ? `40MM · ${label}` : label;
+    }
+    if (this.current === 'mgl') {
+      const planted = this.combat.projectiles.stickyCount('mgl');
+      if (alt && this.altLoaded.has('mgl')) return planted > 0 ? `${alt.label} · ${planted}` : alt.label;
+      if (planted > 0) return `HE · ${planted}`;
+      return alt ? 'HE' : '';
+    }
     // An ammo mod (AP or HP) comes first, beside the Gimlet's bursts.
     const load = def.load === 'plusP' ? '+P' : def.load ? def.load.toUpperCase() : '';
     const sel = this.selectOf(def);
@@ -495,18 +543,24 @@ export class Weapons implements WeaponSystem, Guard {
       if (slot) for (const m of MOD_ORDER) if (m !== id && MODS[m].weapon === weapon && MODS[m].slot === slot) this.fitted.delete(m);
       this.fitted.add(id);
     } else this.fitted.delete(id);
-    this.slots[weapon].def = moddedDef(weapon, this.fitted);
-    // A magazine mod changes what the gun holds: rounds over the new size go back to the reserve.
+    const nextDef = moddedDef(weapon, this.fitted);
+    this.slots[weapon].def = nextDef;
+    // A magazine or caliber conversion mod changes what the gun holds: overflow goes back to reserve, clamped to maxReserve.
     const a = this.slots[weapon].ammo;
-    if (a.magSize !== this.slots[weapon].def.magSize) {
-      a.magSize = this.slots[weapon].def.magSize;
+    if (a.magSize !== nextDef.magSize) {
+      a.magSize = nextDef.magSize;
       if (a.mag > a.magSize) {
         a.reserve += a.mag - a.magSize;
         a.mag = a.magSize;
       }
     }
+    if (a.maxReserve !== nextDef.maxReserve) {
+      a.maxReserve = nextDef.maxReserve;
+      if (a.reserve > a.maxReserve) a.reserve = a.maxReserve;
+    }
     // Fitting or taking off the launcher puts the rifle back on full auto.
     if (MODS[id].patch.launcher) this.selector.delete(weapon);
+    if (!nextDef.altAmmo) this.altLoaded.delete(weapon);
     if (weapon === this.current) this.clearScope(false);
     if (!this.slots[this.current].def.launcher) this.glUp = false;
     return this.fitted.has(id);
@@ -524,7 +578,7 @@ export class Weapons implements WeaponSystem, Guard {
     o.pitch = on ? 1.25 : 0.9;
     o.pitchJitter = 0;
     c.audio.play('reload_bolt', o);
-    c.hud.callout?.(on ? label : 'STANDARD');
+    c.hud.callout?.(on ? label : id === 'mgl' ? 'HE' : 'STANDARD');
   }
 
   /** The Quiver's marks while it is in hand, or the Judge's locks. */
@@ -556,6 +610,8 @@ export class Weapons implements WeaponSystem, Guard {
   }
 
   setLoadout(weapons: readonly WeaponId[], grenades: number): void {
+    this.combat.projectiles.clearStickies();
+    this.aimSuppress = false;
     this.stopEverything();
     this.owned.clear();
     this.slotLast.clear();
@@ -578,6 +634,7 @@ export class Weapons implements WeaponSystem, Guard {
    */
   part(id: WeaponId): GunKit | null {
     if (!keepsAGun(this.owned, id)) return null;
+    if (id === 'mgl') this.detonateStickies(true);
     const a = this.slots[id].ammo;
     const mods = MOD_ORDER.filter(m => MODS[m].weapon === id && this.mods.has(m));
     const kit: GunKit = { weapon: id, mods, fitted: mods.filter(m => this.fitted.has(m)), mag: a.mag, reserve: a.reserve };
@@ -593,6 +650,7 @@ export class Weapons implements WeaponSystem, Guard {
     if (this.lastWeapon === id) this.lastWeapon = this.current;
     if (this.lastGun === id) this.lastGun = this.current;
     this.selector.delete(id);
+    this.rateMode.delete(id);
     this.altLoaded.delete(id);
     return kit;
   }
@@ -658,6 +716,7 @@ export class Weapons implements WeaponSystem, Guard {
     if (this.holstered === holstered) return;
     this.holstered = holstered;
     if (holstered) {
+      if (this.current === 'mgl') this.detonateStickies(true);
       if (this.cooking) this.throwGrenade(this.cookLeft, 1);
       this.stopEverything();
       this.ctx.viewmodel.holster(0.18);
@@ -725,6 +784,15 @@ export class Weapons implements WeaponSystem, Guard {
     if (!this.smartL.on) this.smartL.drop();
     if (!this.smart.on) this.smart.drop();
     this.sword.tick(dt);
+    // RMB while holding MGL with planted stickies immediately detonates all of them and suppresses ADS on that click.
+    if (c.player.alive !== false && !this.holstered && this.occupied <= 0 && this.current === 'mgl'
+      && c.input.pressed('aim') && this.combat.projectiles.stickyCount('mgl') > 0) {
+      this.detonateStickies();
+      this.aimOn = false;
+      this.aimSuppress = true;
+    } else if (!c.input.isDown('aim')) {
+      this.aimSuppress = false;
+    }
     this.updateAim(dt);
     if (c.player.alive === false) return;
 
@@ -773,7 +841,7 @@ export class Weapons implements WeaponSystem, Guard {
       this.startQuickMelee();
       return;
     }
-    const alt = WEAPONS[this.current].altAmmo;
+    const alt = this.slots[this.current].def.altAmmo;
     if (alt && !alt.hold && c.input.pressed('aim')) this.toggleAmmo(this.current, alt.label);
     if (this.kataQueue.length > 0) {
       this.updateKata(dt);
@@ -902,7 +970,9 @@ export class Weapons implements WeaponSystem, Guard {
       return;
     }
     const from = this.current;
+    if (from === 'mgl') this.detonateStickies(true);
     this.aimOn = false;
+    this.aimSuppress = false;
     this.aimT = 0;
     this.kataQueue.length = 0;
     this.stopPaint();
@@ -937,6 +1007,7 @@ export class Weapons implements WeaponSystem, Guard {
     this.drawLeft = def.drawTime;
     if (def.mode === 'melee') this.sword.equip(id);
     this.ctx.viewmodel.equip(id, def.drawTime);
+    this.syncRateCharge();
     this.ctx.audio.play(def.drawSound);
   }
 
@@ -993,10 +1064,10 @@ export class Weapons implements WeaponSystem, Guard {
   private updateReload(dt: number): void {
     this.updateCycle(dt);
     const { input } = this.ctx;
-    const def = WEAPONS[this.current];
-    // A `select`, `smart` or held `altAmmo` gun reads R on its release: held past `hold` it switches (`select`), let go sooner it
-    // reloads.
-    const hold = (def.select ?? def.smart ?? def.altAmmo)?.hold;
+    const def = this.slots[this.current].def;
+    // A `select`, `smart`, `rateSelect` or held `altAmmo` gun reads R on its release: held past `hold` it switches
+    // (`select`), let go sooner it reloads.
+    const hold = (def.select ?? def.smart ?? def.altAmmo ?? def.rateSelect)?.hold;
     let tap = false;
     if (hold !== undefined) {
       if (input.pressed('reload') && !this.reloading) this.rHeld = 0;
@@ -1048,6 +1119,7 @@ export class Weapons implements WeaponSystem, Guard {
       a.mag += take;
       a.reserve -= take;
     }
+    this.syncRateCharge();
     this.ctx.events.emit('weapon:reload', { weapon: this.current, phase: 'end' });
   }
 
@@ -1064,11 +1136,11 @@ export class Weapons implements WeaponSystem, Guard {
   }
 
   /**
-   * R held on a `select` gun: with a launcher fitted it is raised or lowered, else the gun switches between bursts and full
-   * auto. A click, and the mode called out under the crosshair.
+   * R held on a `select`, `smart`, `altAmmo` or `rateSelect` gun: cycles mode, plays a tactile click, and announces
+   * the active setting under the crosshair.
    */
   private select(): void {
-    const alt = WEAPONS[this.current].altAmmo;
+    const alt = this.slots[this.current].def.altAmmo;
     if (alt) {
       this.toggleAmmo(this.current, alt.label);
       return;
@@ -1081,6 +1153,16 @@ export class Weapons implements WeaponSystem, Guard {
       return;
     }
     const def = this.slots[this.current].def;
+    if (def.rateSelect) {
+      const modes = def.rateSelect.modes;
+      const next = (this.rateIndex(def) + 1) % modes.length;
+      this.rateMode.set(def.id, next);
+      const mode = modes[next]!;
+      this.ctx.audio.play('fire_select', { pitch: 0.85 + next * 0.22 });
+      this.ctx.hud.callout?.(mode.label);
+      this.syncRateCharge();
+      return;
+    }
     if (def.launcher) {
       this.raiseLauncher(!this.glUp);
       return;
@@ -1211,6 +1293,45 @@ export class Weapons implements WeaponSystem, Guard {
   }
 
   private updateAuto(s: Slot, held: boolean): void {
+    const rate = this.rateOf(s.def);
+    if (rate) {
+      if (rate.volley) {
+        // 1,000,000 RPM electronic hyper-volley: fires a stacked salvo instantaneously in one pull.
+        if ((this.pressBuffer <= 0 && !held) || s.cooldown > 0) return;
+        this.pressBuffer = 0;
+        if (!this.canShoot(s)) {
+          this.dryFire();
+          return;
+        }
+        const maxVolley = s.def.round === 'grenade'
+          ? Math.min(rate.volley, rate.maxProjectiles ?? 14)
+          : rate.volley;
+        const available = this.modifiers.bottomlessMag ? Math.min(maxVolley, s.def.magSize) : s.ammo.mag;
+        const count = Math.min(maxVolley, available);
+        if (count <= 0) return;
+        this.shootRateSalvo(s, count, rate.spread ?? 0, true, rate.sound);
+        s.cooldown = 0.42 / Math.max(this.modifiers.fireRate, 0.01);
+        return;
+      }
+      if (!held) return;
+      if (!this.canShoot(s)) {
+        this.dryFire();
+        return;
+      }
+      const interval = (60 / rate.rpm) / Math.max(this.modifiers.fireRate, 0.01);
+      const maxPerFrame = s.def.round === 'grenade' ? 6 : 24;
+      const available = this.modifiers.bottomlessMag ? maxPerFrame : s.ammo.mag;
+      let count = 0;
+      while (s.cooldown <= 0 && count < available && count < maxPerFrame) {
+        count++;
+        s.cooldown += interval;
+      }
+      if (count === 0) return;
+      if (s.cooldown < 0) s.cooldown = 0;
+      if (count === 1 && !rate.spread) this.shootGun(s, false);
+      else this.shootRateSalvo(s, count, rate.spread ?? 0, false);
+      return;
+    }
     const sel = this.selectOf(s.def);
     if (sel === 'burst') {
       this.updateBurst(s, s.def.select!.burst!);
@@ -1606,8 +1727,14 @@ export class Weapons implements WeaponSystem, Guard {
   private shootGun(s: Slot, left: boolean, both = false): void {
     const def = s.def;
     // A break-open gun fires its barrels in turn, from the next one loaded; `both` fires every loaded one together (the
-    // Deuce's two, the quad's four). The launcher's flash leaves its own tube: the viewmodel's `muzzle1`.
-    const barrel = def.altBoth ? Math.max(0, def.magSize - s.ammo.mag) : def.round === 'grenade' ? 1 : 0;
+    // Deuce's two, the quad's four). Only an under-barrel launcher (`glSlot`) forces `muzzle1`.
+    const barrel = def.altBoth
+      ? Math.max(0, def.magSize - s.ammo.mag)
+      : s === this.glSlot
+        ? 1
+        : def.rateSelect && def.round !== 'grenade'
+          ? (this.msBarrel++ & 3)
+          : 0;
     const loaded = both && def.altBoth ? (this.modifiers.bottomlessMag ? def.magSize : s.ammo.mag) : 1;
     const two = loaded >= 2 ? def.altBoth : undefined;
     const barrels = two ? loaded : 1;
@@ -1639,7 +1766,7 @@ export class Weapons implements WeaponSystem, Guard {
       case 'rocket': this.shootRocket(def); return;
       case 'shell': this.shootShell(def); return;
       case 'stake': this.shootStake(def); return;
-      case 'grenade': this.shootGrenade(def); return;
+      case 'grenade': this.shootGrenade(def, cone); return;
     }
     const c = this.ctx;
     const eye = c.player.eye;
@@ -1666,6 +1793,61 @@ export class Weapons implements WeaponSystem, Guard {
       // The smart aim's lock: the round into his head, as the Judge's fanned shot (cover in the line takes it).
       else if (lock) this.combat.fireAtHead(eye, lock, shot);
       else this.combat.fireRay(eye, dir, shot);
+    }
+  }
+
+  /**
+   * Batched electronic salvo for high-RPM streams (60K RPM) and instantaneous 1M RPM hyper-volleys (Metal Storm & 40mm
+   * FireStorm): fires `count` stacked rounds in one frame with consolidated feedback, audio roar, and fanned spread.
+   */
+  private shootRateSalvo(s: Slot, count: number, extraSpread: number, volley: boolean, volleySound?: string): void {
+    const c = this.ctx;
+    const def = s.def;
+    const barrel = def.round === 'grenade' ? 0 : (this.msBarrel++ & 3);
+    this.consume(s, count);
+    const cone = Math.max(def.spread > 0 ? this.coneOf(def) : 0, extraSpread * lerp(1, TUNING.ads.spread, this.aim));
+    const strength = volley
+      ? clamp(1.3 + count * 0.06, 1.3, 3.2)
+      : clamp(0.85 + count * 0.05, 0.85, 1.8);
+    const note = this.note;
+    let random = Math.random;
+    if (!def.round) {
+      note.rays = count;
+      note.cone = cone;
+      note.alt = false;
+      if (cone > 0 && c.coop) {
+        note.seed = (Math.random() * 0xffffffff) >>> 0 || 1;
+        random = this.spreadRng.seed(note.seed);
+      }
+    } else note.alt = false;
+    this.shotFeedback(def, false, strength, barrel);
+    if (volley && volleySound) c.audio.play(volleySound, { pitchJitter: 0.03 });
+    if (volley && def.round !== 'grenade') {
+      // Flash an opposite quadrant barrel as well so the whole 6×6 matrix lights up on a 1M RPM hyper-volley.
+      const at = this.muzzle(false, (barrel + 2) & 3);
+      c.fx.muzzleFlash(this.flashPoint(at), this.flashDir.set(0, 0, -1).applyQuaternion(c.render.camera.quaternion), def.muzzle);
+    }
+    if (volley) this.shoveBack(def.round === 'grenade' ? 4.2 : 3.4, 0.55);
+    if (def.slow !== undefined) this.handling.shot();
+    if (def.climb && CLIMB_ON) {
+      this.climb(def.climb, lerp(1, TUNING.ads.climb, this.aim) * (volley ? Math.min(count * 0.25, 4) : Math.min(count * 0.15, 1.8)));
+    }
+    if (def.round === 'grenade') {
+      const fanSpread = volley ? Math.max(cone, 0.065) : cone;
+      for (let i = 0; i < count; i++) {
+        const speedScale = volley
+          ? 0.9 + (count > 1 ? (i / (count - 1)) * 0.2 : 0.1)
+          : 0.96 + Math.random() * 0.08;
+        this.shootGrenade(def, fanSpread, speedScale);
+      }
+      return;
+    }
+    const eye = c.player.eye;
+    const fwd = c.player.forward;
+    const shot = this.fillShot(def, def.damage * this.modifiers.damage);
+    for (let i = 0; i < count; i++) {
+      const dir = cone > 0 ? randomInCone(fwd, cone, this.dir, random) : fwd;
+      this.combat.fireRay(eye, dir, shot);
     }
   }
 
@@ -1713,6 +1895,7 @@ export class Weapons implements WeaponSystem, Guard {
     p.homing = undefined;
     p.fuse = undefined;
     p.wired = undefined;
+    p.sticky = undefined;
     p.trail = trail;
     p.gib = false;
     p.severMult = this.modifiers.alwaysSever ? 1000 : def.canSever ? def.severMult : 0;
@@ -1759,13 +1942,20 @@ export class Weapons implements WeaponSystem, Guard {
     this.shoveBack(t.push, t.groundPush);
   }
 
-  /** The launcher's 40 mm: an arcing round that goes off on whatever it touches, a hit on a man first. TUNING.launcher. */
-  private shootGrenade(def: WeaponDef): void {
-    const t = TUNING.launcher;
+  /** A 40 mm grenade: an arcing round that goes off on whatever it touches, using `def.grenade` or `TUNING.launcher`. */
+  private shootGrenade(def: WeaponDef, spread = 0, speedScale = 1): void {
+    const t = def.grenade ?? TUNING.launcher;
     const m = this.modifiers;
-    const p = this.fillProjectile('shell', def, t.speed, def.damage * m.damage, 'smoke');
+    const speed = t.speed * speedScale;
+    const sticky = def.id === 'mgl' && !!def.altAmmo && this.altLoaded.has('mgl');
+    const p = this.fillProjectile('shell', def, speed, (sticky ? 15 : def.damage) * m.damage, 'smoke');
+    if (spread > 0) {
+      randomInCone(this.ctx.player.forward, spread, this.dir, Math.random);
+      p.velocity.copy(this.dir).multiplyScalar(speed);
+    }
     p.gravity = t.gravity;
     p.lifetime = t.life;
+    p.sticky = sticky;
     p.gib = true;
     p.killStop = HIT_STOP.heavyKill;
     p.explosion = { radius: t.radius * m.blastRadius, damage: t.blast * m.damage, kind: 'grenade' };
@@ -2193,11 +2383,11 @@ export class Weapons implements WeaponSystem, Guard {
     const def = this.slots[this.current].def;
     const p = c.player;
     const busy = this.holstered || this.occupied > 0 || p.alive === false;
-    // A press while holstered is a call-in's cancel, not ours.
-    if (def.ads && !busy && !this.aimHold && c.input.pressed('aim')) this.aimOn = !this.aimOn;
+    // A press while holstered is a call-in's cancel, not ours; a press that detonated MGL stickies suppresses ADS.
+    if (def.ads && !busy && !this.aimHold && !this.aimSuppress && c.input.pressed('aim')) this.aimOn = !this.aimOn;
     const moving = p.dashing === true || p.sliding === true;
     if (moving) this.aimOn = false;
-    const wants = this.aimHold ? c.input.isDown('aim') : this.aimOn;
+    const wants = !this.aimSuppress && (this.aimHold ? c.input.isDown('aim') : this.aimOn);
     // The launcher is fired from the shoulder over its own leaf, not through the rifle's sight.
     const blocked = busy || moving || !def.ads || this.glUp || this.reloading || this.drawLeft > 0
       || this.sword.inQuickStrike || this.quickReturn > 0 || (!!def.cycleTime && this.held.cooldown > 0);

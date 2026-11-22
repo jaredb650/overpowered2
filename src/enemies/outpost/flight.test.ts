@@ -4,7 +4,7 @@ import { mulberry32 } from '../../core/math';
 import type { AiWorld } from '../aiWorld';
 import type { Enemy } from '../Enemy';
 import { SOLDIER_BEHAVIOURS } from './behaviours';
-import { bestRuns, corner, cornerWeights, FLEE_LIMIT, pickReaction, REACTIONS, SELF_EXECUTIONS, SELF_MORALE, type CornerFacts, type FleeCandidate, type Reaction } from './flight';
+import { bestRuns, corner, cornerFacts, cornerWeights, FAKE_COOLDOWN, FLEE_LIMIT, pickReaction, REACTIONS, SELF_EXECUTIONS, SELF_MORALE, type CornerFacts, type FleeCandidate, type Reaction } from './flight';
 import type { Outpost } from './index';
 import { enlist, Soldier } from './soldier';
 
@@ -65,7 +65,7 @@ describe('cornered', () => {
   });
 
   it('fakes a surrender rarely, and only with a grenade and a surrender to fake', () => {
-    expect(shares(facts()).fake).toBeLessThan(0.03);
+    expect(shares(facts()).fake).toBeLessThan(0.015);
     expect(shares(facts()).fake).toBeGreaterThan(0);
     expect(cornerWeights(facts({ grenade: false })).fake).toBe(0);
     expect(cornerWeights(facts({ canSurrender: false })).fake).toBe(0);
@@ -180,5 +180,10 @@ describe('running', () => {
     expect(corner(t.o as unknown as Outpost, t.s, false, (before + w.fake / 2) / total)).toBe('fake');
     expect(t.s.fate).toBe('surrender');
     expect(t.s.fake).toBe('waiting');
+    // Inside the cooldown another cornered soldier cannot plot a fake surrender; after it elapses he can.
+    t.w.now = FAKE_COOLDOWN - 1;
+    expect(cornerFacts(t.o as unknown as Outpost, t.s, false).grenade).toBe(false);
+    t.w.now = FAKE_COOLDOWN;
+    expect(cornerFacts(t.o as unknown as Outpost, t.s, false).grenade).toBe(true);
   });
 });

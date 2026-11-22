@@ -6,6 +6,7 @@ import { ACTIVE } from '../contracts/select';
 import type { Ctx } from '../core/contracts';
 import type { EnemySystem, WaveSystem } from '../core/gameplay';
 import { EnemyManager } from './EnemyManager';
+import { RooftopWaves } from './rooftop/waves';
 import { Waves } from './waves';
 
 export function createEnemies(ctx: Ctx): EnemySystem {
@@ -19,5 +20,6 @@ export function createWaves(ctx: Ctx): WaveSystem {
   const outpost = manager.outpost;
   // Outpost Defense on the fort runs its own director. Anywhere else (the Test Range stand-in) it borrows Endless Humans' waves.
   if (ACTIVE.def.economy && ACTIVE.map === 'fort' && outpost) return new DefenseDirector(ctx, outpost, manager);
+  if (ACTIVE.def.id === 'rooftop' && outpost) return new RooftopWaves(ctx, outpost, manager);
   return ACTIVE.def.waves === 'squads' && outpost ? outpost.waves : new Waves();
 }

@@ -71,8 +71,8 @@ export interface ModLook {
   part: string;
   /** A part of the gun's own that the mod takes the place of, hidden while it is fitted: the Trommel's six barrels. */
   hides?: string;
-  /** A second part shown with it, on another moving part of the gun than `part`: the Deuce's quad barrels and their breech. */
-  also?: string;
+  /** A second part (or parts) shown with it, on other moving/nested parts of the gun than `part`: e.g. the Deuce's quad breech or Awl .50 Cal barrel/bolt/mag kit. */
+  also?: string | readonly string[];
   /** Another part this mod moves along the bore while fitted, metres (+ is back): the Gimlet's short barrel brings its can back. */
   moves?: { readonly part: string; readonly z: number };
   /** Replace `sight`, `rear` (null for an optic: level) and `relief` while fitted. */

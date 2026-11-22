@@ -76,6 +76,15 @@ function stakeBody(): THREE.BufferGeometry {
   ]);
 }
 
+/** 40mm sticky bomb: flat magnetic base at -Y, chunky ribbed canister, dome nose at +Y. */
+function stickyBody(): THREE.BufferGeometry {
+  return merged([
+    rotated(new THREE.CylinderGeometry(0.095, 0.105, 0.035, 8), 0, -0.03, 0),
+    rotated(new THREE.CylinderGeometry(0.072, 0.082, 0.12, 8), 0, 0.045, 0),
+    rotated(new THREE.CylinderGeometry(0.052, 0.072, 0.04, 8), 0, 0.12, 0),
+  ]);
+}
+
 interface Layer {
   mesh: THREE.InstancedMesh;
   count: number;
@@ -102,7 +111,7 @@ const Y = new THREE.Vector3(0, 1, 0);
 const WHITE = new THREE.Color(1, 1, 1);
 
 export class ProjectileVisuals {
-  private readonly layers: Record<ProjectileKind | 'cone' | 'flare' | 'blink', Layer>;
+  private readonly layers: Record<ProjectileKind | 'cone' | 'flare' | 'blink' | 'sticky' | 'stickyLed', Layer>;
   private readonly tints = new WeakMap<Projectile, THREE.Color>();
   private readonly stuck: StuckStake[] = [];
   private stuckHead = 0;
@@ -126,6 +135,9 @@ export class ProjectileVisuals {
       stake: layer(stakeBody(), basic(hdr(0x9aa4ad, 1)), CAPACITY.stake + TUNING.stake.maxStuck),
       // An exploding bolt's light, on its tail, lit with each beep.
       blink: layer(new THREE.IcosahedronGeometry(0.07, 1), basic(hdr(0xff1008, 4)), CAPACITY.stake),
+      // Milkor MGL sticky bomb: chunky olive-steel 40mm canister + pulsing red-amber armed LED.
+      sticky: layer(stickyBody(), basic(hdr(0x4b5642, 1.05)), CAPACITY.shell),
+      stickyLed: layer(new THREE.IcosahedronGeometry(0.048, 1), basic(hdr(0xff4210, 5.5)), CAPACITY.shell),
     };
     for (const k of ['bullet', 'plasma'] as const) {
       this.layers[k].mesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(CAPACITY[k] * 3), 3);
@@ -221,6 +233,13 @@ export class ProjectileVisuals {
         break;
       }
       case 'shell':
+        if (p.sticky) {
+          this.put(L.sticky, pos, this.quat, 1, 1, 1);
+          // Pulsing red-amber armed LED on top of the canister: bright while blinking, dim ember between pulses.
+          const ledScale = p.resting ? (p.blink > 0 ? 1.15 : 0.48) : 0.85;
+          this.put(L.stickyLed, pos.addScaledVector(this.dir, 0.145), this.quat, ledScale, ledScale, ledScale);
+          break;
+        }
         this.put(L.shell, pos, this.quat, 1, 1, 1);
         // Bow shock: tip forward, base trailing, as in the first game.
         this.put(L.cone, pos.addScaledVector(this.dir, -0.8), this.quat, 1, 1, 1);

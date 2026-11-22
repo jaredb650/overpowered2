@@ -23,7 +23,7 @@ const query = typeof location === 'undefined' ? null : new URLSearchParams(locat
  * The endless survival games that sell their guns from a supply pod: the Crucible and Endless Humans. Outpost Defense
  * (`defense`) has its own shops, and the Campaign and Foreclosure are missions.
  */
-export const SHOP_CONTRACTS: readonly ContractId[] = ['crucible', 'outpost'];
+export const SHOP_CONTRACTS: readonly ContractId[] = ['crucible', 'outpost', 'rooftop'];
 
 /**
  * This page sells its guns: one of `SHOP_CONTRACTS`' own games, not a mission, the range or a sandbox. `?shop=0` brings the
@@ -55,9 +55,10 @@ export const ENDLESS_PAY = { kill: 20, headshot: 10, wave: 160 } as const;
 
 /** Credits for one kill in `contract`. */
 export const killPayIn = (contract: ContractId, headshot: boolean): number =>
-  contract === 'outpost' ? ENDLESS_PAY.kill + (headshot ? ENDLESS_PAY.headshot : 0) : killPay(headshot);
+  contract === 'outpost' || contract === 'rooftop' ? ENDLESS_PAY.kill + (headshot ? ENDLESS_PAY.headshot : 0) : killPay(headshot);
 /** Credits for clearing `wave` in `contract`. */
-export const wavePayIn = (contract: ContractId, wave: number): number => (contract === 'outpost' ? ENDLESS_PAY.wave * wave : wavePay(wave));
+export const wavePayIn = (contract: ContractId, wave: number): number =>
+  contract === 'outpost' || contract === 'rooftop' ? ENDLESS_PAY.wave * wave : wavePay(wave);
 
 /**
  * The wave a ware's catalogue lock lands on in `contract`. The Crucible is endless and keeps the catalogue's locks. Endless Humans
@@ -169,6 +170,10 @@ const WEAPON_CATALOGUE: Readonly<Partial<Record<WeaponId, Ware>>> = {
     price: 2400, wave: 8,
     lore: 'Four missiles that find their own way to the target, which is more than the Council expects of its contractors.',
   },
+  mgl: {
+    price: 1900, wave: 6,
+    lore: 'A six-chamber revolving 40 mm grenade launcher. Six hollow thoomps in quick succession, after which whatever was behind the wall is mostly on the ceiling.',
+  },
   flail: {
     price: 1600, wave: 7,
     lore: 'A light machine gun, light in the sense that one contractor can carry it and nobody else will. A hundred rounds a box. The Council bills the suppression separately.',
@@ -180,6 +185,10 @@ const WEAPON_CATALOGUE: Readonly<Partial<Record<WeaponId, Ware>>> = {
   sabot: {
     price: 1800, wave: 6,
     lore: 'Darts through armour, through walls and through whatever the walls were for. Supplied with the Council\'s condolences to the walls.',
+  },
+  metalstorm: {
+    price: 2600, wave: 12,
+    lore: 'Thirty-six stacked barrels, zero moving parts, and a dial that goes to a million rounds a minute. The Council bills the ammunition by the cubic metre.',
   },
   sword: {
     price: 250, wave: 0,
@@ -475,6 +484,18 @@ const MOD_CATALOGUE: Readonly<Record<ModId, Ware>> = {
   ultramagAkimbo: { price: 2000, wave: 10, lore: 'A second Ultramag. The reflex sights stay on both slides, aimed at nothing. Procurement lists them under morale.' },
   judgeAkimbo: { price: 1400, wave: 8, lore: 'Two Judges. The off hand is busy, so there is no fanning, only a second opinion every time the first one finishes.' },
   autorafficaAkimbo: { price: 2400, wave: 14, lore: 'Two Autorafficas, two smart aims, each finding a head of its own. The Council asked whether this was necessary and was shown the results.' },
+  metalstorm40mm: {
+    price: 1800, wave: 15,
+    lore: 'Converts Metal Storm\'s thirty-six stacked barrels into a 40 mm high-explosive grenade matrix. Retains the million-RPM electronic volley switch, against the strenuous advice of the Council\'s structural engineers.',
+  },
+  awl50: {
+    price: 1650, wave: 8,
+    lore: 'Rechambers the Awl to anti-materiel .50 Cal with a reinforced receiver, bull barrel, and rectangular tank brake. Stacks with the extended barrel; the Council recommends standing behind something heavier than concrete.',
+  },
+  mglSticky: {
+    price: 1100, wave: 7,
+    lore: 'Magnetic 40 mm sticky charges for the Milkor MGL. Hold R to switch between HE and Sticky; right-click to detonate every planted charge at once. Procurement considers this a controlled demolition.',
+  },
 };
 
 export const modWares = (contract: ContractId): Readonly<Record<ModId, Ware>> =>

@@ -13,13 +13,17 @@ import { authorOffice, OFFICE_BOUNDS, OFFICE_HUB, OFFICE_STAGES } from './office
 import { LV as OFFICE_LEVEL } from './office/plan';
 import { authorRange, RANGE, RANGE_STAGES } from '../../lab/range';
 import { ANNEX_BOUNDS, ANNEX_HUB, ANNEX_STAGES, authorAnnex } from './annex';
+import {
+  authorRooftop, ROOFTOP_BOUNDS, ROOFTOP_HUB, ROOFTOP_LEVELS,
+  ROOFTOP_LIGHT_BOUNDS, ROOFTOP_LIGHT_CELL, ROOFTOP_STAGES,
+} from './rooftop';
 import { KH } from './killhouse/plan';
 import { LEVEL, RING } from './layout';
 import type { MapSpec } from './spec';
 import type { MapZone } from '../../core/contracts';
 import { ACTIVE } from '../../contracts/select';
 
-export type MapId = 'crucible' | 'killhouse' | 'outpost' | 'fort' | 'holdfast' | 'office' | 'range' | 'annex';
+export type MapId = 'crucible' | 'killhouse' | 'outpost' | 'fort' | 'holdfast' | 'office' | 'range' | 'annex' | 'rooftop';
 
 export interface MapDef {
   id: MapId;
@@ -171,7 +175,23 @@ const annex: MapDef = {
   readyLabel: 'Issuing the contractor',
 };
 
-const MAPS: Record<MapId, MapDef> = { crucible, killhouse, outpost, fort, holdfast, office, range, annex };
+const RT = ROOFTOP_BOUNDS;
+const RTL = ROOFTOP_LIGHT_BOUNDS;
+const rooftop: MapDef = {
+  id: 'rooftop',
+  bounds: box(RT.x0, RT.y0, RT.z0, RT.x1, RT.y1, RT.z1),
+  // 168 m at 1.2 m is 140 <= 200; 40 m tall at 1.2 m is 34 <= 48.
+  lightBounds: box(RTL.x0, RTL.y0, RTL.z0, RTL.x1, RTL.y1, RTL.z1),
+  lightCell: ROOFTOP_LIGHT_CELL,
+  minimapExtent: Math.max(-RT.x0, RT.x1, -RT.z0, RT.z1),
+  navHub: ROOFTOP_HUB,
+  nav: { mutual: true, levels: ROOFTOP_LEVELS },
+  stages: ROOFTOP_STAGES,
+  author: authorRooftop,
+  readyLabel: 'Clearing the skyline',
+};
+
+const MAPS: Record<MapId, MapDef> = { crucible, killhouse, outpost, fort, holdfast, office, range, annex, rooftop };
 
 /** The map of the page's contract, or whatever `?map=` names. contracts/select.ts has the rules. */
 export function selectMap(): MapDef {

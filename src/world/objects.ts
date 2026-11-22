@@ -127,6 +127,7 @@ export class Objects implements WorldObjects {
   private readonly electric: Electric[] = [];
   private readonly gantries: Gantry[] = [];
   private lava: THREE.Box3[];
+  readonly killY: number | null;
   private ringMesh!: THREE.InstancedMesh;
   private readonly hazard: HazardState = { kind: 'lava', dps: 0, lethal: false };
   private reactorState: ReactorState = 'stable';
@@ -150,6 +151,7 @@ export class Objects implements WorldObjects {
   constructor(private readonly ctx: Ctx, spec: MapSpec, private readonly kit: Kit, private readonly material: (m: Mat) => THREE.Material) {
     this.root.name = 'world-objects';
     this.lava = spec.lava;
+    this.killY = spec.killY ?? null;
     this.ramps = spec.ramps.map(r => ({ ...r, cooldown: 0 }));
     this.buildPads(spec);
     this.buildExplosives(spec);
@@ -777,6 +779,7 @@ export class Objects implements WorldObjects {
   // ---- hazards -----------------------------------------------------------------------------------------------
 
   hazardAt(position: THREE.Vector3): HazardState | null {
+    if (this.killY !== null && position.y <= this.killY) return this.setHazard('fall', 0, true);
     for (const b of this.lava) if (b.containsPoint(position)) return this.setHazard('lava', 0, true);
     for (const c of this.crushers) {
       if (Math.abs(position.x - c.x) > c.halfX || Math.abs(position.z - c.z) > c.halfZ) continue;
@@ -799,8 +802,9 @@ export class Objects implements WorldObjects {
     const h = this.hazardAt(player.position);
     if (!h) return;
     if (h.lethal) {
-      player.takeDamage({ amount: 1e6, type: 'hazard', source: h.kind });
-      audio.play(h.kind === 'lava' ? 'lava_burn' : 'crusher_slam', { position: player.position });
+      player.takeDamage({ amount: 1e6, type: 'hazard', source: h.kind === 'fall' ? 'fell' : h.kind });
+      if (h.kind === 'fall') audio.play('crusher_slam', { position: player.position, volume: 0.45 });
+      else audio.play(h.kind === 'lava' ? 'lava_burn' : 'crusher_slam', { position: player.position });
       events.emit('world:hazard', { kind: h.kind, position: player.position.clone() });
       return;
     }

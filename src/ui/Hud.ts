@@ -171,7 +171,7 @@ export class Hud implements HudSystem {
     this.debug = new DebugOverlays(ctx);
     this.minimap = new Minimap(ctx, this.worldLayer);
     this.scoreboard = new Scoreboard(this.report);
-    this.commander = ACTIVE.def.ai === 'outpost' ? new CommanderHud(ctx, this.settings) : null;
+    this.commander = ACTIVE.def.ai === 'outpost' && !ACTIVE.def.noCommander ? new CommanderHud(ctx, this.settings) : null;
     this.defense = ACTIVE.def.economy ? new DefenseHud(ctx) : null;
     this.shop = SHOP_ON ? new ShopHud(ctx) : null;
     // A mission has an ending of its own to get through after he falls.

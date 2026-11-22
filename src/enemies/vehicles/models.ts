@@ -16,6 +16,7 @@ import type { AirframeSpec, RotorSpec } from '../../progression/callins/airframe
 import { ModelBuilder, type ModelMaterials } from '../../progression/modelkit';
 import type { GunSpec } from '../../vehicles/guns';
 import { hull } from '../../vehicles/loft';
+import { UTILITY_AIRFRAME } from '../../vehicles/utilityModel';
 import type { VehicleKind } from '../../campaign/types';
 
 export type ChopperMount = 'chin' | 'podLeft' | 'podRight' | 'exhaust';
@@ -551,6 +552,7 @@ export class Fleet {
   readonly burnt: THREE.MeshStandardMaterial;
   private readonly gunshipBody: THREE.Group;
   private readonly gunshipTail: THREE.Group;
+  private utilityBody: THREE.Group | null = null;
 
   constructor(private readonly materials: ModelMaterials, private readonly scene: THREE.Scene) {
     const b = new ModelBuilder();
@@ -601,6 +603,21 @@ export class Fleet {
     const root = new THREE.Group();
     root.add(this.gunshipBody.clone());
     if (withTail) root.add(this.gunshipTail.clone());
+    shadows(root);
+    this.scorch(root);
+    this.scene.add(root);
+    return root;
+  }
+
+  /** Scorched Packmule utility hull for shot-down SWAT transport or enemy door gunner helicopters. */
+  utilityWreck(): THREE.Group {
+    if (!this.utilityBody) {
+      const b = new ModelBuilder();
+      UTILITY_AIRFRAME.build(b);
+      this.utilityBody = this.materials.group(b);
+    }
+    const root = new THREE.Group();
+    root.add(this.utilityBody.clone());
     shadows(root);
     this.scorch(root);
     this.scene.add(root);

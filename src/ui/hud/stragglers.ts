@@ -11,7 +11,7 @@ export const REVEAL_AT = 3;
 export const REVEALS = !ACTIVE.def.training;
 const COLOR = '#ff3b3b';
 /** Among the humans the heavy suit has one man in it, and the boss bar already calls him by name. */
-const nameOf = (e: EnemyInstance): string => (e.id === 'juggernaut' && ACTIVE.def.ai === 'outpost' ? 'The Commander' : ENEMY_NAMES[e.id] ?? 'Hostile');
+const nameOf = (e: EnemyInstance): string => (e.id === 'juggernaut' && ACTIVE.def.ai === 'outpost' && !ACTIVE.def.noCommander ? 'The Commander' : ENEMY_NAMES[e.id] ?? 'Hostile');
 
 interface Slot {
   enemy: EnemyInstance | null;

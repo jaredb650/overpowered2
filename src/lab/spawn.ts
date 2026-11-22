@@ -223,6 +223,16 @@ export class LabSpawner {
       vehicles.spawnChopper(_p, [_at.clone().setY(CHOPPER_HEIGHT)], null);
       return;
     }
+    if (kind === 'transport') {
+      _p.copy(_at).add(new THREE.Vector3(45, 22, 0));
+      vehicles.spawnTransport(_p, _at.clone(), _at.y + 12, ai === 'on' ? ['trooper', 'gunner', 'trooper', 'trooper'] : [], null);
+      return;
+    }
+    if (kind === 'doorGunner') {
+      _p.copy(_at).add(new THREE.Vector3(38, 20, 0));
+      vehicles.spawnDoorGunner(_p, _at.clone(), null);
+      return;
+    }
     _flat.subVectors(_at, player.position).setY(0).normalize();
     const parked = ai !== 'on';
     const stop = _at.clone().addScaledVector(_flat, -DRIVE_IN);

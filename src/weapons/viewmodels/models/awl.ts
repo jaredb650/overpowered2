@@ -231,6 +231,33 @@ function fluted(r: number, depth: number, n = 48): V2[] {
   return out;
 }
 
+/** Chunky rectangular multi-chamber tank muzzle brake for the .50 Cal conversion (both standard and extended barrels). */
+function tankBrake(m: Mesher, rearZ: number, frontZ: number, chambers: number, width: number, height: number): void {
+  const hw = width / 2;
+  const hh = height / 2;
+  const bore = [circle(0, 0, 0.0074, 12)];
+  const wall = poly([[-hw, -hh], [hw, -hh], [hw, hh], [-hw, hh]], 0.0022, 1);
+  const len = rearZ - frontZ;
+  const walls = chambers + 1;
+  m.use(GUNMETAL);
+  for (let i = 0; i < walls; i++) {
+    const t = i / (walls - 1);
+    const thick = i === 0 ? 0.011 : 0.006;
+    const z = rearZ - thick / 2 - t * (len - thick);
+    m.at([0, 0, z], null, () => m.front(wall, thick, { bevel: 0.0008, holes: bore }));
+  }
+  // Heavy top and bottom structural plates spanning the blast chambers.
+  const midZ = (rearZ + frontZ) / 2;
+  for (const y of [hh - 0.0018, -hh + 0.0018]) {
+    m.at([0, y, midZ], null, () => m.box(width * 0.88, 0.0036, len - 0.002, 0.0006));
+  }
+  // Darkened heavy .50 bore and rear accent bar.
+  m.use(F.black);
+  m.lathe([[0.0074, frontZ + 0.0002, 0], [0.0068, frontZ + 0.024, 0], [0, frontZ + 0.025, 0]], 12);
+  m.mirror(() => m.at([hw + 0.0001, -hh + 0.0042, rearZ - 0.0055], null, () => m.box(0.0006, 0.0018, 0.008, 0.0002)));
+  m.glow('accent', () => m.mirror(() => m.at([hw + 0.0004, -hh + 0.0042, rearZ - 0.0055], null, () => m.box(0.0003, 0.0007, 0.0068, 0))));
+}
+
 function barrel(m: Mesher): void {
   const flutesFrom = -0.25;
   const flutesTo = -0.545;
@@ -249,6 +276,12 @@ function barrel(m: Mesher): void {
       for (const z of [MUZZLE + 0.011, MUZZLE + 0.022]) m.at([0.0101, 0, z], null, () => m.box(0.0018, 0.005, 0.0062, 0.0006));
     });
     m.lathe([[0.0052, MUZZLE + 0.0002, 0], [0.0046, MUZZLE + 0.03, 0], [0, MUZZLE + 0.031, 0]], 14);
+    // .50 Cal dual-chamber tank brake: child of crown so awlBarrel hides it automatically when switching to the long .50 brake.
+    m.part('cal50BrakeStd', [0, 0, 0], () => {
+      m.use(F.steelDark);
+      m.lathe([[0.0152, MUZZLE + 0.044, 0], [0.0172, MUZZLE + 0.041], [0.0172, MUZZLE + 0.032], [0.0158, MUZZLE + 0.03, 0]], 14);
+      tankBrake(m, MUZZLE + 0.031, MUZZLE - 0.012, 2, 0.038, 0.025);
+    });
   });
 }
 
@@ -274,6 +307,72 @@ function longBarrel(m: Mesher): void {
     m.glow('accent', () => m.mirror(() => m.at([0.0115, -0.0062, LONG + 0.043], null, () => m.box(0.0003, 0.0006, 0.013, 0))));
     // The bore, dark down its first few centimetres.
     m.lathe([[0.0052, LONG + 0.0002, 0], [0.0047, LONG + 0.03, 0], [0, LONG + 0.031, 0]], 12);
+    // .50 Cal extended bull barrel + 3-chamber tank brake: child of longBarrel so it shows only when BOTH awl50 and awlBarrel are fitted.
+    m.part('cal50Long', [0, 0, 0], () => {
+      m.use(BARREL);
+      m.lathe([[0.0152, MUZZLE + 0.042, 0], [0.0152, LONG + 0.068], [0.0144, LONG + 0.063, 0]], 16);
+      // Heavy machined cooling collar and longitudinal fluting ribs on the extended section.
+      m.use(F.steelDark);
+      m.at([0, 0, (MUZZLE + 0.04 + LONG + 0.066) / 2], null, () => m.cyl(0.0164, 0.014, 14, 0.0008));
+      m.use(F.black);
+      for (const ang of [0.45, 1.57, 2.69, -0.45, -1.57, -2.69]) {
+        m.at([Math.cos(ang) * 0.0149, Math.sin(ang) * 0.0149, (MUZZLE + 0.042 + LONG + 0.066) / 2], [0, 0, ang], () =>
+          m.box(0.0014, 0.0024, (MUZZLE + 0.042) - (LONG + 0.066) - 0.012, 0));
+      }
+      // Heavy hex jam nut and oversized 3-chamber .50 BMG tank brake.
+      m.use(F.steelDark);
+      m.lathe([[0.0144, LONG + 0.068, 0], [0.0178, LONG + 0.065], [0.0178, LONG + 0.056], [0.0164, LONG + 0.054, 0]], 12);
+      tankBrake(m, LONG + 0.055, LONG - 0.010, 3, 0.041, 0.027);
+    });
+  });
+}
+
+/**
+ * The shop's .50 Cal anti-materiel conversion (`awl50`): reinforced billet receiver armor shroud, beefed-up recoil lug,
+ * heavy fore-end heatshield shoulders, and thick bull-contour .50 barrel jacket. Paired with nested parts on `crown`,
+ * `longBarrel`, `bolt`, and `mag` so both standard and extended barrels transform cleanly.
+ */
+function cal50Kit(m: Mesher): void {
+  m.part('cal50Kit', [0, 0, 0], () => {
+    // Reinforced billet receiver armor plates flanking the front ring (widening the action visibly).
+    m.use(GUNMETAL);
+    m.mirror(() => {
+      m.at([REC_W + 0.0038, 0.044, -0.09], null, () => m.box(0.0076, 0.036, 0.104, 0.0018));
+      m.use(F.steelDark);
+      m.at([REC_W + 0.0075, 0.053, -0.125], [0, Math.PI / 2, 0], () => m.cyl(0.0028, 0.0016, 6, 0.0003));
+      m.at([REC_W + 0.0075, 0.035, -0.058], [0, Math.PI / 2, 0], () => m.cyl(0.0028, 0.0016, 6, 0.0003));
+      m.use(GUNMETAL);
+    });
+    // Left-side heavy receiver slab running back over the action (leaves right ejection port clear).
+    m.at([-REC_W - 0.0034, 0.046, 0.024], null, () => m.box(0.0068, 0.034, 0.148, 0.0016));
+    // Rear bridge armor cap and bold flank amber bars.
+    m.at([0, 0.046, REC_REAR - 0.005], null, () => m.box(0.042, 0.034, 0.016, 0.0016));
+    m.use(F.black);
+    m.mirror(() => m.at([REC_W + 0.0077, 0.044, -0.09], null, () => m.box(0.0007, 0.0046, 0.072, 0.0002)));
+    m.glow('accent', () => m.mirror(() => m.at([REC_W + 0.0081, 0.044, -0.09], null, () => m.box(0.0003, 0.0016, 0.068, 0))));
+    // Heavy fore-end chassis rails / side armor shoulders bulking up the slim scout fore-end.
+    m.use(F.steelDark);
+    m.mirror(() => {
+      m.at([0.0205, 0.024, -0.268], null, () => m.box(0.0055, 0.021, 0.242, 0.0014));
+      m.at([0.0226, 0.024, -0.35], null, () => m.box(0.0032, 0.012, 0.055, 0.0008));
+    });
+    // Heavy barrel recoil lug + thick stepped .50 BMG bull barrel jacket.
+    m.at([0, BORE, 0], null, () => {
+      m.use(F.steelDark);
+      m.lathe([[0.0195, REC_FRONT + 0.002, 0], [0.0212, REC_FRONT - 0.003], [0.0212, REC_FRONT - 0.024], [0.0185, REC_FRONT - 0.028, 0]], 12);
+      m.use(BARREL);
+      m.lathe([
+        [0.0182, REC_FRONT - 0.026, 0], [0.0174, -0.205], [0.0156, -0.235], [0.0152, MUZZLE + 0.042, 0],
+      ], 18);
+      // Heavy barrel clamp collar mid-span and dark machined fluting channels.
+      m.use(F.steelDark);
+      m.at([0, 0, -0.395], null, () => m.cyl(0.0172, 0.018, 14, 0.0009));
+      m.use(F.black);
+      for (const ang of [0.45, 1.57, 2.69, -0.45, -1.57, -2.69]) {
+        m.at([Math.cos(ang) * 0.0149, Math.sin(ang) * 0.0149, -0.405], [0, 0, ang], () =>
+          m.box(0.0014, 0.0025, 0.295, 0));
+      }
+    });
   });
 }
 
@@ -319,6 +418,20 @@ function bolt(m: Mesher): void {
       ball.push([Math.sin(a) * 0.0088, Math.cos(a) * 0.0094, 0]);
     }
     m.at([0.046, -0.029, 0.051], [0.55, 0.85, 0], () => m.lathe(ball, 22));
+    // .50 Cal heavy bolt shroud and oversized tactical cylindrical bolt knob (moves automatically with bolt).
+    m.part('cal50Bolt', [0, 0, 0], () => {
+      m.use(GUNMETAL);
+      m.lathe([[0, 0.094, 0], [0.011, 0.094], [0.0148, 0.088], [0.0148, 0.058], [0.013, 0.055, 0]], 16, { chamfer: 0.0008 });
+      m.use(F.red);
+      m.at([0, 0.005, 0.0955], null, () => m.cyl(0.0026, 0.005, 8, 0.0004));
+      m.use(F.steelDark);
+      m.at([0.012, 0, 0.035], [0, Math.PI / 2, 0], () => m.box(0.014, 0.014, 0.014, 0.0014));
+      m.at([0.048, -0.031, 0.053], [0.55, 0.85, 0], () => m.cyl(0.0124, 0.024, 14, 0.0014));
+      m.use(F.black);
+      for (const dy of [-0.005, 0.005]) {
+        m.at([0.048, -0.031, 0.053], [0.55, 0.85, 0], () => m.at([0, 0, dy], null, () => m.cyl(0.0127, 0.0022, 14, 0)));
+      }
+    });
   });
 }
 
@@ -338,6 +451,17 @@ function magazine(m: Mesher): void {
     m.side(poly([[-0.037, -0.006], [0.034, -0.006], [0.034, -0.0135, 0.003], [-0.031, -0.0135], [-0.038, -0.011, 0.002]], 0.002), 0.034, { bevel: 0.0016 });
     m.use(F.black);
     m.mirror(() => m.at([0.0151, -0.0035, 0], null, () => m.box(0.0006, 0.0018, 0.05, 0.0002)));
+    // .50 Cal heavy protruding stamped-steel box magazine (drops and inserts automatically with mag).
+    m.part('cal50Mag', [0, 0, 0], () => {
+      m.use(GUNMETAL);
+      m.side(poly([[-0.042, 0.042], [0.038, 0.042], [0.038, -0.048, 0.004], [-0.042, -0.044, 0.006]], 0.003), 0.039, { bevel: 0.0018 });
+      m.use(F.steelDark);
+      m.side(poly([[-0.046, -0.043], [0.042, -0.046], [0.042, -0.055, 0.003], [-0.046, -0.052, 0.003]], 0.002), 0.043, { bevel: 0.0016 });
+      m.use(F.black);
+      m.mirror(() => {
+        for (const z of [-0.018, 0.014]) m.at([0.0196, -0.012, z], null, () => m.box(0.001, 0.056, 0.007, 0.0003));
+      });
+    });
   });
 }
 
@@ -444,6 +568,7 @@ function build(kit: Kit): { model: Model; mods: ViewDef['mods'] } {
   receiver(m);
   barrel(m);
   longBarrel(m);
+  cal50Kit(m);
   bolt(m);
   grease(m);
   trigger(m);
@@ -471,13 +596,17 @@ function build(kit: Kit): { model: Model; mods: ViewDef['mods'] } {
       // After the can, so with both on the flash leaves the can's mouth, and the can goes on over the brake.
       awlBarrel: { part: 'longBarrel', hides: 'crown', muzzle: 'muzzleLong', moves: { part: 'can', z: CAN_SHIFT } },
       awlBolt: { part: 'grease' },
+      // Chunky .50 Cal kit: cal50BrakeStd is nested in crown (hidden when awlBarrel is fitted), cal50Long in longBarrel
+      // (visible only when both awl50 and awlBarrel are fitted), cal50Bolt in bolt, and cal50Mag in mag.
+      awl50: { part: 'cal50Kit', also: ['cal50BrakeStd', 'cal50Long', 'cal50Bolt', 'cal50Mag'] },
     },
   };
 }
 
 function clip(anim: Anim): void {
-  // The greased bolt runs the same pose sooner, on the row's shorter cycle (mods.ts GREASE).
-  const bolt = boltPose(anim.mods?.has('awlBolt') ? anim.sinceFire / GREASE : anim.sinceFire);
+  // The greased bolt runs sooner (GREASE); .50 Cal runs a deliberate 1.15x cycle (mods.ts awl50).
+  const cycleScale = (anim.mods?.has('awlBolt') ? GREASE : 1) * (anim.mods?.has('awl50') ? 1.15 : 1);
+  const bolt = boltPose(anim.sinceFire / cycleScale);
   anim.parts.bolt!.rotation.z += bolt.lift * 1.12;
   anim.parts.bolt!.position.z += bolt.back * 0.095;
   anim.parts.grease!.rotation.z = anim.parts.bolt!.rotation.z;

@@ -197,11 +197,17 @@ describe('injuries', () => {
     const b = new Injuries();
     hit(b, 'spine', 0);
     b.floored = true;
+    b.lastStand = 'grenade';
+    b.lastStandRolled = true;
     b.clear();
     expect(b.whole).toBe(true);
     expect(b.canStand).toBe(true);
     expect(b.count).toBe(0);
     expect(b.bleed).toBe(0);
+    expect(b.lastStand).toBe('none');
+    expect(b.lastStandRolled).toBe(false);
+    expect(WoundTuning.lastGrenade).toBeLessThanOrEqual(0.1);
+    expect(WoundTuning.lastGrenadeCooldown).toBeGreaterThanOrEqual(30);
   });
 
   it('spine and pelvis are a man who will not stand again', () => {

@@ -62,6 +62,7 @@ export const REMOTE_FX: Readonly<Record<WeaponId, RemoteRow>> = {
   deuce: { kind: 'pellets', sees: 'every pellet of each barrel, from the same seed; both barrels echo as the shooter hears them' },
   rocket: { kind: 'projectile', sees: 'the rocket in flight with its smoke, steering for their laser dot when the sight is on; the laser line itself' },
   quiver: { kind: 'projectile', sees: 'each missile leaving, turning onto the same mark or braiding in the helix salvo' },
+  mgl: { kind: 'projectile', sees: 'each 40 mm grenade arcing from the revolving drum; sticky bombs clamp onto surfaces or targets with a pulsing beacon until detonation' },
   sabot: { kind: 'rounds', sees: 'the dart and its vapour wake, through walls and bodies with exit marks; Raufoss bursts and pellets when fitted' },
   awl: { kind: 'rounds', sees: 'the round and its wake, through cover' },
   autocannon: { kind: 'projectile', sees: 'the shell in flight with its rings; a flak shell bursts in the air with its ring, sparks and fragment tracers' },
@@ -77,6 +78,7 @@ export const REMOTE_FX: Readonly<Record<WeaponId, RemoteRow>> = {
   lance: { kind: 'lance', sees: 'the rail with its bolt and a plasma burst at each body; the charged beam (column, sheath, shell, end sparks, scorch, light, its loop heard from the gun); the ball and the giant ball in flight and going off' },
   buzzsaw: { kind: 'rounds', sees: 'every 20 mm round and its burst where it lands, the barrage heard from their gun' },
   piledriver: { kind: 'rounds', sees: `${BULLET}, through walls with exit craters; Raufoss bursts when loaded` },
+  metalstorm: { kind: 'rounds', sees: 'electronic stacked-barrel tracers from the 36-barrel matrix, up to a 1M RPM hyper-volley; 40mm FireStorm grenades arc as projectiles' },
   kiln: { kind: 'hose', sees: 'the napalm stream from their nozzle, its splashes, burning pools and scorches' },
   stakegun: { kind: 'projectile', sees: 'the stake in flight and standing in the wall; an exploding bolt sticks, beeps and blinks' },
 };
@@ -96,6 +98,7 @@ export const REMOTE_MODS: Readonly<Record<ModId, { look: ModLook; sees: string }
   piledriverAcog: { look: 'none', sees: SIGHT }, ultramagDot: { look: 'none', sees: SIGHT }, flailDot: { look: 'none', sees: SIGHT },
   flailAcog: { look: 'none', sees: SIGHT },
   awlCan: { look: 'report', sees: 'the suppressed report and the small dim flash' },
+  awl50: { look: 'report', sees: 'the thunderous .50 Cal anti-materiel report, heavy sabot flash, and oversized cannon casing' },
   suppressor: { look: 'report', sees: 'the suppressed report and the small dim flash, at the faster rate' },
   gimletCan: { look: 'report', sees: 'the suppressed report and the small dim flash' },
   ultramagCan: { look: 'report', sees: 'the suppressed report and the small dim flash' },
@@ -119,6 +122,8 @@ export const REMOTE_MODS: Readonly<Record<ModId, { look: ModLook; sees: string }
   deuceQuad: { look: 'pellets', sees: 'four barrels\' worth of pellets and echoes on a right click' },
   trommel12: { look: 'round', sees: 'the heavy round through walls in place of the 20 mm burst, the barrage a step lower' },
   autocannonFlak: { look: 'shell', sees: 'the flak shell\'s air burst: ring, sparks, light and fragment tracers' },
+  metalstorm40mm: { look: 'shell', sees: 'stacked 40 mm HE grenades arcing from the FireStorm barrel matrix, with a heavy launcher thump' },
+  mglSticky: { look: 'shell', sees: '40 mm sticky bombs clamping onto surfaces or targets with a pulsing red-amber LED until remote detonation' },
   smgAkimbo: { look: 'second gun', sees: AKIMBO }, rivetAkimbo: { look: 'second gun', sees: AKIMBO },
   ultramagAkimbo: { look: 'second gun', sees: AKIMBO }, judgeAkimbo: { look: 'second gun', sees: AKIMBO },
   autorafficaAkimbo: { look: 'second gun', sees: AKIMBO },
@@ -271,8 +276,9 @@ export class Watcher {
    */
   fire(weapon: WeaponId, origin: THREE.Vector3, dir: THREE.Vector3, note: FireNote): void {
     const s = this.shooter;
-    // A rifle that fired no round fired its under-barrel launcher: that tube's thump and flash, not the rifle's.
-    const def = note.rays === 0 && note.kind === 'gun' && REMOTE_FX[weapon].kind === 'rounds' ? LAUNCHER : this.rowOf(weapon);
+    // A rifle with an under-barrel launcher that fired no hitscan rays fired its launcher tube, not the rifle.
+    const row = this.rowOf(weapon);
+    const def = note.rays === 0 && note.kind === 'gun' && (weapon === 'gimlet' || row.launcher) ? LAUNCHER : row;
     // Traced from where they stood and looked as they fired. Their body's own aim takes these back next frame.
     s.eye.copy(origin);
     s.forward.copy(dir);

@@ -557,6 +557,22 @@ describe('morale outcomes', () => {
     expect(spawnProjectile).not.toHaveBeenCalled();
   });
 
+  it('spaces fake surrenders apart by cooldown so multiple prisoners do not pull pins together', () => {
+    const { o, man } = setup();
+    const a = man();
+    const b = man();
+    for (const s of [a, b]) {
+      s.surrendered = true;
+      s.surrenderedAt = 0;
+      s.grenades = 1;
+    }
+    const random = vi.spyOn(Math, 'random').mockReturnValue(0.001);
+    tickOutcomes(o, 5);
+    random.mockRestore();
+    expect(a.fake).toBe('waiting');
+    expect(b.fake).toBe(null);
+  });
+
   it('takes a buddy\'s death out on the player, sometimes, and talks big while his nerve goes', () => {
     const { o, comms, squad, man } = setup();
     const a = man();

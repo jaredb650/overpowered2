@@ -196,6 +196,8 @@ export class Outpost {
   private noiseAt = 0;
   private shotHeardAt = 0;
   private nextFixAt = 0;
+  /** Last time any soldier initiated or completed a fake-surrender grenade plot. */
+  lastFakeAt = -Infinity;
   private radioAt = -1;
   private radioSeen = false;
   private readonly radioPosition = new THREE.Vector3();
@@ -218,10 +220,15 @@ export class Outpost {
     this.suppression = new Suppression(w);
   }
 
+  /** True on contracts that run Outpost SWAT squads without The Commander (e.g. Rooftop Mode). */
+  get commanderDisabled(): boolean {
+    return ACTIVE.def.noCommander === true;
+  }
+
   init(): void {
     const { ctx } = this.w;
     this.wounds.init();
-    this.commander.init();
+    if (!this.commanderDisabled) this.commander.init();
     this.captives.init();
     const { events } = ctx;
     events.on('enemy:killed', k => this.onKilled(k));
@@ -309,7 +316,7 @@ export class Outpost {
       default:
         break;
     }
-    this.commander.learn(who, note);
+    if (!this.commanderDisabled) this.commander.learn(who, note);
   }
 
   /** The map does not exist until after every system's init, so all of this waits for the first run. */
@@ -354,8 +361,10 @@ export class Outpost {
     this.dropped.clear();
     this.gateUsedAt.clear();
     this.nextFixAt = 0;
+    this.lastFakeAt = -Infinity;
     this.radioAt = -1;
     this.doctrine = defaultDoctrine();
+    this.wounds.reset();
     this.commander.reset();
     this.captives.reset();
     this.suppression.reset();
@@ -388,7 +397,7 @@ export class Outpost {
 
   onWaveStart(): void {
     this.fix(true);
-    this.commander.onWaveStart();
+    if (!this.commanderDisabled) this.commander.onWaveStart();
   }
 
   /** Opens a new squad at a gate of its own, out of the player's sight and a walk away. A mission names the spot with `at`. */
@@ -507,7 +516,7 @@ export class Outpost {
     e.yaw = Math.atan2(-e.position.x, -e.position.z);
     if (!e.def.plates && ARMOUR[role].length > 0) this.manager.fitPlates(e, ARMOUR[role]);
     this.wounds.onSpawn(s);
-    this.commander.onSpawn(s);
+    if (!this.commanderDisabled) this.commander.onSpawn(s);
   }
 
   /** What he is. The leader stands a step above his squad, and nobody is handed a belt on his first day. */
@@ -584,7 +593,7 @@ export class Outpost {
     if (now >= this.noiseAt) this.listenToFeet(now);
     this.updateBangs(now);
     this.dropped.update(dt);
-    this.commander.update(dt);
+    if (!this.commanderDisabled) this.commander.update(dt);
   }
 
   private watchStill(mind: Mind, p: THREE.Vector3, dt: number): void {
@@ -656,7 +665,7 @@ export class Outpost {
     this.captives.gone(s);
     s.wasLeader = s.squad.leader === s;
     s.squad.leave(s);
-    this.commander.onDetach(s);
+    if (!this.commanderDisabled) this.commander.onDetach(s);
     this.leaving.push(s);
   }
 
@@ -1005,7 +1014,7 @@ export class Outpost {
 
   /** He is finished as a soldier: the gun goes down and he runs, or he gives up. */
   collapse(s: Soldier, fate: 'surrender' | 'flee'): void {
-    if (!s.fighting || s.holdout || this.commander.feign(s)) return;
+    if (!s.fighting || s.holdout || (!this.commanderDisabled && this.commander.feign(s))) return;
     const { w } = this;
     const e = s.e;
     if (e.attack) finishAttack(e, w, true);

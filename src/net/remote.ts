@@ -31,8 +31,8 @@ export const AKIMBO_TAG = '-ak';
 /** Weapon id to prop. Anything new and unlisted is drawn as the SMG. */
 export function propFor(weapon: string): keyof typeof LOOKS {
   if (/^(shotgun|thresher|deuce)/.test(weapon)) return 'shotgun';
-  if (/^(rocket|quiver|sabot)/.test(weapon)) return 'launcher';
-  if (/^(autocannon|piledriver|buzzsaw)/.test(weapon)) return 'minigun';
+  if (/^(rocket|quiver|mgl|sabot)/.test(weapon)) return 'launcher';
+  if (/^(autocannon|piledriver|buzzsaw|metalstorm)/.test(weapon)) return 'minigun';
   if (/^(judge|ultramag|awl|pistol|revolver)/.test(weapon)) return 'pistol';
   if (/^(lance|stakegun|rivet)/.test(weapon)) return 'sniperRifle';
   if (/^(sword|knife|crowbar|shovel|baton)/.test(weapon)) return 'blade';

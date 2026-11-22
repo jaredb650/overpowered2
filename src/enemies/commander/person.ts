@@ -66,19 +66,21 @@ export class Person {
     this.fallTo = null;
   }
 
-  /** Called as the last wave starts. Outpost Defense has no last wave, so he never comes down there, and his death ends nothing. */
+  /** Called as the last wave starts. Outpost Defense and Rooftop have no Commander final wave, so he never comes down there. */
   arm(): void {
-    if (this.body || this.dead || ACTIVE.def.economy) return;
+    if (this.body || this.dead || ACTIVE.def.economy || ACTIVE.def.noCommander) return;
     this.dueAt = this.c.w.now + ENTRY_DELAY;
   }
 
   /** Straight in, for tests. */
   summon(): void {
+    if (ACTIVE.def.noCommander) return;
     this.dueAt = this.c.w.now;
   }
 
   /** A mission has him standing there already, behind his own glass. */
   stage(at: THREE.Vector3): void {
+    if (ACTIVE.def.noCommander) return;
     this.stagedAt = at;
     this.summon();
   }
@@ -95,10 +97,11 @@ export class Person {
   }
 
   get pending(): boolean {
-    return this.dueAt >= 0;
+    return !ACTIVE.def.noCommander && this.dueAt >= 0;
   }
 
   update(): void {
+    if (ACTIVE.def.noCommander) return;
     const { c } = this;
     const { w } = c;
     const now = w.now;

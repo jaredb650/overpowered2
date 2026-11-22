@@ -11,7 +11,7 @@ import type { MapId } from '../world/map/maps';
  * `outpost` is Endless Humans. The id is older than the campaign, and URLs and score tables are keyed on it. `defense` is
  * Outpost Defense, Endless Humans' tower defense (docs/proposals/outpost-defense.md).
  */
-export type ContractId = 'campaign' | 'foreclosure' | 'crucible' | 'outpost' | 'defense' | 'retraining';
+export type ContractId = 'campaign' | 'foreclosure' | 'crucible' | 'outpost' | 'rooftop' | 'defense' | 'retraining';
 
 /** Who lives there. Section 15's faction rules hang off this: pain, fear, bleeding, gib thresholds. */
 export type FactionId = 'swarm' | 'humans';
@@ -79,6 +79,8 @@ export interface ContractDef {
   economy?: boolean;
   /** The tutorial (docs/design/tutorial.md): reached from Play > Training and a first launch, never listed with the missions. */
   training?: boolean;
+  /** Disables The Commander entirely (no briefings, barks, adaptations, or boss spawn) for truly endless human survival modes like Rooftop. */
+  noCommander?: boolean;
   /** localStorage key of this contract's high score. */
   scoreKey: string;
   /**
@@ -237,6 +239,33 @@ export const CONTRACTS: readonly ContractDef[] = [
         ],
       },
     },
+  },
+  {
+    id: 'rooftop',
+    name: 'Rooftop',
+    map: 'rooftop',
+    faction: 'humans',
+    waves: 'squads',
+    ai: 'outpost',
+    wounds: 'anatomy',
+    rewards: { backShot: 1.5 },
+    noCommander: true,
+    briefing: {
+      ref: 'Form 7742-S',
+      subject: 'Tactical response squads deployed across the Skyline rooftops',
+      body: [
+        'The Skyline complex has been sealed at street level. Response teams are breaching from the stairwells, fast-roping from utility choppers, and dropping from overhead transport jets.',
+        'There is no Commander on this channel and no final wave. Expect heavy gunships and armored drop-ins every fifth wave.',
+        'Watch the drop between towers. Council insurance does not cover gravity.',
+      ],
+      terms: [
+        ['Site', 'Skyline Rooftops, seven towers and skybridges'],
+        ['Occupants', 'SWAT squads, airborne reinforcements, gunships'],
+        ['Duration', 'Endless'],
+        ['Appeals', 'Dropped over the parapet'],
+      ],
+    },
+    scoreKey: 'op2_highscore.rooftop',
   },
   {
     id: 'defense',

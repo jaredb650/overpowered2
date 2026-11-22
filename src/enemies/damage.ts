@@ -32,7 +32,7 @@ import { finishAttack } from './brain';
 import { chooseReaction, mustFall, profileOf, reactionSeed, shakenBy, SPOIL, type ReactionLevel, type ReactionProfile } from './reactions';
 import { dropOff } from './roles';
 import type { Enemy } from './Enemy';
-import type { Plate } from './armor';
+import { DEFAULT_SHATTER_CHANCE, type Plate } from './armor';
 import type { AiWorld } from './aiWorld';
 import type { EnemyManager } from './EnemyManager';
 
@@ -289,6 +289,21 @@ export function armourHit(cls: ArmourClass, plateHp: number, round: number, amou
   if (cls === 'medium') return { wear: plateHp, through: 0 };
   if (cls === 'light') return { wear: round * LIGHT_WEAR, through: 0 };
   return { wear: round * shred, through: amount * 0.5 };
+}
+
+/**
+ * How likely a breaking hit is to explode a plate into flying shards instead of popping it off intact.
+ * Light hits stay near `DEFAULT_SHATTER_CHANCE` (~0.45); heavy caliber, high damage, overkill, explosive,
+ * and piercing hits scale up to 0.9–1.0 so big impacts reliably shatter armor apart.
+ */
+export function plateShatterChance(d: Pick<DamageInfo, 'amount' | 'type' | 'source' | 'armour' | 'load' | 'pierces' | 'armorPiercing'>, plateMaxHp: number, overkill = 0): number {
+  if (d.type === 'explosive' || d.pierces || d.armorPiercing) return 0.95;
+  const cls = d.armour ?? classOf(d.source, d.amount);
+  let p = cls === 'heavy' ? 0.85 : cls === 'medium' ? 0.65 : DEFAULT_SHATTER_CHANCE;
+  if (d.load === 'ap' || d.load === 'api') p += 0.18;
+  if (d.amount >= HEAVY_ROUND) p += clamp((d.amount - HEAVY_ROUND) / 80, 0, 0.2);
+  if (overkill > 0) p += clamp(overkill / Math.max(plateMaxHp, 1), 0, 1) * 0.25;
+  return clamp(p, DEFAULT_SHATTER_CHANCE, 1);
 }
 /** Blood a hit of `amount` leaves to bleed on: a flechette's share (AMMO.flechette), none for any other round. */
 export const dartBleed = (load: AmmoLoad | undefined, amount: number): number => (load === 'flechette' ? amount * AMMO.flechette.bleed : 0);
@@ -1164,21 +1179,22 @@ export class DamageModel {
     return d.source === 'judge' && e.position.distanceTo(this.w.player.position) < JUDGE_BURST_RANGE;
   }
 
-  /** A burst head throws off the helmet still on it, so none is left over the neck. */
+  /** A burst head throws off or shatters the helmet still on it, so none is left over the neck. */
   private throwHelmet(e: Enemy, d: DamageInfo): void {
     for (const plate of e.plates) {
       if (plate.hp <= 0 || !plate.spec.regions.includes('head')) continue;
       plate.hp = 0;
-      this.m.debris.launch(plate, d.dir);
+      const shatterChance = Math.max(0.85, plateShatterChance(d, plate.spec.hp * e.maxHealth, d.amount));
+      this.m.debris.launch(plate, d.dir, shatterChance);
     }
   }
 
-  /** Every plate still on him flies off ahead of what is about to happen to the body under it. */
-  private platesOff(e: Enemy, dir: THREE.Vector3): void {
+  /** Every plate still on him flies off or shatters ahead of what is about to happen to the body under it. */
+  private platesOff(e: Enemy, dir: THREE.Vector3, shatterChance = DEFAULT_SHATTER_CHANCE): void {
     for (const plate of e.plates) {
       if (plate.hp <= 0) continue;
       plate.hp = 0;
-      this.m.debris.launch(plate, dir);
+      this.m.debris.launch(plate, dir, shatterChance);
     }
   }
 
@@ -1193,9 +1209,11 @@ export class DamageModel {
 
   private shootOff(e: Enemy, plate: Plate, d: DamageInfo): void {
     const { ctx } = this.w;
+    const overkill = Math.max(0, -plate.hp);
+    const shatterChance = plateShatterChance(d, plate.spec.hp * e.maxHealth, overkill);
     plate.hp = 0;
     plate.mesh.getWorldPosition(_v);
-    this.m.debris.launch(plate, _n.copy(d.dir).negate());
+    this.m.debris.launch(plate, _n.copy(d.dir).negate(), shatterChance);
     ctx.fx.sparks(_v, _n, 18, 0xffe0a0);
     ctx.fx.ring(_v, _n, 0xffd0a0, 1.1);
     ctx.audio.play('armor_plate_off', { position: _v, pitchJitter: 0.08 });
@@ -1333,7 +1351,7 @@ export class DamageModel {
       gibbed = true;
       if (shatter) ctx.fx.sparks(e.center, _n.set(0, 1, 0), 40, 0xa0e8ff);
       else if (!e.def.machine) ctx.audio.play('gib_squelch', { position: e.center, pitchJitter: 0.1 });
-      this.platesOff(e, _n.copy(e.center).sub(d.point).setY(0.4).normalize());
+      this.platesOff(e, _n.copy(e.center).sub(d.point).setY(0.4).normalize(), 0.95);
       ctx.gore.gib(e.char, e.center, force, d);
     } else if (d.slicePlaneNormal) {
       sliced = true;
@@ -1363,7 +1381,7 @@ export class DamageModel {
       // A big round through the trunk opens its far side (src/gore/torso.ts), by how far off the shooter stood. A co-op
       // guest shown the death does what the host did.
       if (!e.def.machine && !blast && DevFlags.gibbing && (facts ? blowsOut(d, e.position.distanceTo(player.position)) : d.torso === 'blowout')) {
-        this.platesOff(e, d.dir);
+        this.platesOff(e, d.dir, 0.9);
         ctx.gore.blowOut?.(e.char, d);
       }
       if (blast) this.blastDeath(e, d, res, blast);

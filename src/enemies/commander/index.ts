@@ -20,6 +20,7 @@
  * The Outpost owns this and calls it at a handful of points. Off the contract none of it exists.
  */
 import * as THREE from 'three';
+import { ACTIVE } from '../../contracts/select';
 import type { PlayerSystem } from '../../core/contracts';
 import { isGuest } from '../../core/coop';
 import { DEV_TOOLS } from '../../core/devflags';
@@ -156,7 +157,13 @@ export class Commander {
     this.orders = new RadioOrders(this);
   }
 
+  /** True when the active contract explicitly disables The Commander (e.g. Rooftop Mode). */
+  get disabled(): boolean {
+    return ACTIVE.def.noCommander === true;
+  }
+
   init(): void {
+    if (this.disabled) return;
     const { ctx } = this.w;
     const { events } = ctx;
     this.jam.init();
@@ -263,6 +270,7 @@ export class Commander {
 
   /** Takes the wave the Outpost would have sent and returns the one the Commander is sending. */
   compose(wave: number, base: EnemyId[][]): EnemyId[][] {
+    if (this.disabled) return base;
     this.wave = wave;
     this.applyForced();
     for (const t of TRICKS) if (t.from <= wave) this.tricks.add(t.id);
@@ -290,11 +298,13 @@ export class Commander {
   }
 
   onSquadFormed(index: number): void {
+    if (this.disabled) return;
     this.units.onSquadFormed(index);
   }
 
   /** Called with the wave open, once the banner is up. */
   onWaveStart(): void {
+    if (this.disabled) return;
     const { o } = this;
     if (this.has('mortars') || this.hasTrick('sacrifice') || this.hasTrick('dangerClose')) this.mortars.chooseSite();
     const phases: Phase[] = ['contact', 'adaptation', 'desperation', 'lastStand'];
@@ -308,6 +318,7 @@ export class Commander {
    * into, so with `inFight` he promises only what changes for men already out there: nothing he says may fail to happen.
    */
   intermission(wave: number, base: number, inFight = false): number {
+    if (this.disabled) return base;
     // Nothing comes after the last wave. The box is already saying goodbye.
     if (this.person.dead) return RUN_OVER;
     // Co-op: every player's round is closed, and a player who has left takes their habits along.
@@ -382,6 +393,7 @@ export class Commander {
   // -------------------------------------------------------------------------------------------
 
   onSpawn(s: Soldier): void {
+    if (this.disabled) return;
     this.props.strip(s.e.char);
     this.heavy.delete(s.e);
     this.units.onSpawn(s);
@@ -434,6 +446,7 @@ export class Commander {
   }
 
   onDetach(s: Soldier): void {
+    if (this.disabled) return;
     const u = unitOf(s);
     if (!s.e.alive && s.fate !== 'flee') {
       if (u?.kind === 'casualty') this.units.casualtyShot(s);
@@ -444,7 +457,8 @@ export class Commander {
 
   /** A broken man is about to drop his gun. True if the Commander has other plans for him. */
   feign(s: Soldier): boolean {
-    return this.has('falseSurrender') && this.units.feignFor(s, 0.55);
+    if (this.disabled) return false;
+    return this.has('falseSurrender') && this.units.feignFor(s, 0.18);
   }
 
   private onKilled(k: KillEvent): void {
@@ -486,6 +500,7 @@ export class Commander {
    * Each lands in that guest's own notebook, by the same calls the host's own events make.
    */
   learn(who: CrowdPlayer, note: Note): void {
+    if (this.disabled) return;
     const book = this.bookOf(who);
     switch (note.kind) {
       case 'shots':
@@ -641,6 +656,7 @@ export class Commander {
   // -------------------------------------------------------------------------------------------
 
   update(dt: number): void {
+    if (this.disabled) return;
     const { w } = this;
     const now = w.now;
     if (now >= this.watchAt) {
@@ -703,6 +719,7 @@ export class Commander {
 
   /** A line from lines.ts over the squad radio. */
   radio(id: string, s: Soldier | null, vars?: Readonly<Record<string, string>>): void {
+    if (this.disabled) return;
     const line = radioLine(id);
     if (!line) return;
     let text = line.text;
@@ -712,10 +729,12 @@ export class Commander {
 
   /** The Commander himself on the open channel. */
   bark(id: string): void {
+    if (this.disabled) return;
     this.w.ctx.events.emit('commander:bark', { id });
   }
 
   status(flag: StatusFlag, on: boolean): void {
+    if (this.disabled) return;
     if ((this.flags.get(flag) ?? false) === on) return;
     this.flags.set(flag, on);
     this.w.ctx.events.emit('commander:status', { flag, on });

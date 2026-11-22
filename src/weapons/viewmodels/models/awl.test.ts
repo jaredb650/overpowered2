@@ -41,8 +41,9 @@ describe('Awl viewmodel', () => {
     expect(def.model.sockets.boltHold!.parent).toBe(def.model.parts.bolt);
     expect(def.model.triangles).toBeGreaterThan(1000);
     // Every mod part is built in, hidden until fitted: the gun, the ACOG, the can and the weapon light came to about 32,600;
-    // the extended barrel and the greased bolt's film bring it to about 33,900.
-    expect(def.model.triangles).toBeLessThan(34000);
+    // the extended barrel, greased bolt film, and .50 Cal kit (standard & extended tank brakes, heavy barrel, shroud, bolt, mag)
+    // bring the total well under 42,000.
+    expect(def.model.triangles).toBeLessThan(42000);
   });
 
   it('rotates the bolt before drawing it back and follows it with the right hand', () => {

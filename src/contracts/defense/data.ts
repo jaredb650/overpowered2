@@ -92,11 +92,13 @@ export const WEAPON_PRICES: Partial<Record<WeaponId, WeaponPrice>> = {
   flail: { price: 1500, loadout: 'primary', ammo: 'basic', box: 150 },
   piledriver: { price: 1800, loadout: 'primary', ammo: 'specialty', box: 280 },
   buzzsaw: { price: 2600, loadout: 'primary', ammo: 'specialty', box: 260 },
+  metalstorm: { price: 2800, loadout: 'primary', ammo: 'specialty', box: 320 },
   rivet: { price: 400, loadout: 'secondary', ammo: 'basic', box: 50 },
   judge: { price: 650, loadout: 'secondary', ammo: 'basic', box: 60 },
   // The machine pistol with the smart aim: the dearest secondary.
   autoraffica: { price: 950, loadout: 'secondary', ammo: 'basic', box: 70 },
   quiver: { price: 1600, explosive: true, ammo: 'explosive', box: 260 },
+  mgl: { price: 1900, explosive: true, ammo: 'explosive', box: 290 },
   rocket: { price: 3000, explosive: true, ammo: 'explosive', box: 450 },
   autocannon: { price: 2600, explosive: true, ammo: 'explosive', box: 420 },
   lance: { price: 2400, explosive: true, ammo: 'explosive', box: 380 },

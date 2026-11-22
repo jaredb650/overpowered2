@@ -50,6 +50,8 @@ const SCREAM_EVERY = 3.4;
 const FEIGN_RANGE = 6;
 const PIN_SECONDS = 1;
 const FEIGN_LIMIT = 28;
+/** Seconds across the whole fight between Commander-ordered false surrenders. */
+const FEIGN_COOLDOWN = 35;
 
 const _a = new THREE.Vector3();
 const _b = new THREE.Vector3();
@@ -91,6 +93,7 @@ export class Units {
   private forming: SquadPlan | null = null;
   private seat = 0;
   private released = false;
+  private feignAt = -Infinity;
 
   constructor(private readonly c: Commander) {}
 
@@ -100,6 +103,7 @@ export class Units {
     this.forming = null;
     this.seat = 0;
     this.released = false;
+    this.feignAt = -Infinity;
   }
 
   /** `plans` lines up with the wave's squads: null for a squad that thinks for itself. */
@@ -486,6 +490,7 @@ export class Units {
     }
     if (now >= u.until) {
       s.grenades = Math.max(s.grenades, 1);
+      this.feignAt = now;
       c.o.dropLiveGrenade(s);
       c.tracker.trapped('falseSurrender', 0);
       this.leaveFeign(u);
@@ -525,7 +530,9 @@ export class Units {
 
   /** Called with a man whose nerve has gone. True if he is keeping the grenade. */
   feignFor(s: Soldier, odds: number): boolean {
-    if (!chance(odds) || UNITS.has(s) || s.weapon !== 'primary') return false;
+    const now = this.c.w.now;
+    if (now - this.feignAt < FEIGN_COOLDOWN || !chance(odds) || UNITS.has(s) || s.weapon !== 'primary') return false;
+    this.feignAt = now;
     s.squad.leave(s);
     if (s.spot) s.spot.claimedBy = 0;
     s.spot = null;

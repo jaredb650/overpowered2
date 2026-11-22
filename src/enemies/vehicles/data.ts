@@ -286,7 +286,98 @@ export const CHOPPER: ChopperDef = {
   diveFall: 7,
 };
 
-export const VEHICLES: Readonly<Record<VehicleKind, VehicleDef>> = { humvee: HUMVEE, truck: TRUCK, tank: TANK, chopper: CHOPPER };
+export interface TransportDef extends VehicleDef {
+  /** Flight speeds in m/s for ingress and egress. */
+  approachSpeed: number;
+  egressSpeed: number;
+  /** Downward rappel speed along the fast-rope in m/s. */
+  rappelSpeed: number;
+  /** Seconds between consecutive SWAT troopers dropping onto the rope. */
+  dropInterval: number;
+  /** Bonus score awarded when shot down with troops still onboard or rappelling. */
+  squadWipeBonus: number;
+  /** Fall physics when shot down. */
+  spinRate: number;
+  fallAccel: number;
+}
+
+export const TRANSPORT: TransportDef = {
+  kind: 'transport', name: 'SWAT TRANSPORT', armoured: false, health: 620, score: 900,
+  halfWidth: 1.5, halfLength: 6.2, roof: 3.1, surface: 'metal',
+  parts: [
+    { id: 'cockpit', at: [0, 0.2, 3.8], half: [1.1, 0.9, 1.4], scale: 1.5, pool: 0 },
+    { id: 'body', at: [0, 0.1, 0.2], half: [1.4, 1.15, 2.3], scale: 1, pool: 0 },
+    { id: 'tail', at: [0, 0.9, -5.8], half: [0.5, 0.75, 3.4], scale: 1.1, pool: 220 },
+    { id: 'rotor', at: [0, 2.5, 0.3], half: [4.2, 0.3, 4.2], scale: 1.1, pool: 300 },
+  ],
+  weak: [
+    { id: 'pilot', at: [0, 0.35, 3.8], half: [0.95, 0.55, 1.1], charge: 1, sabot: 0.7 },
+    { id: 'tailRotor', at: [0, 2.55, -9.8], half: [0.65, 0.85, 0.65], charge: 0.5, sabot: 0.5 },
+  ],
+  wreck: { blastRadius: 8.5, blastDamage: 120, blastScale: 1.8, burnSeconds: 26, burnReach: 1.5, cookOffs: [1.8], hop: 0 },
+  ram: { damage: 0, throw: 0 },
+  crew: [],
+  approachSpeed: 28,
+  egressSpeed: 34,
+  rappelSpeed: 6.5,
+  dropInterval: 0.7,
+  squadWipeBonus: 400,
+  spinRate: 3.4,
+  fallAccel: 11,
+};
+
+export interface DoorGunnerDef extends VehicleDef {
+  /** Orbit parameters around the rooftop fight (left-hand circle keeps open +X door aimed inward). */
+  orbit: {
+    radius: number;
+    altitude: number;
+    clearance: number;
+    rate: number;
+    bank: number;
+    cruise: number;
+    approachSpeed: number;
+  };
+  /** Side-mounted M134 rotary minigun tuning. */
+  gun: MountDef;
+  spinRate: number;
+  fallAccel: number;
+}
+
+export const DOOR_GUNNER: DoorGunnerDef = {
+  kind: 'doorGunner', name: 'DOOR GUNNER', armoured: false, health: 750, score: 1400,
+  halfWidth: 1.5, halfLength: 6.2, roof: 3.1, surface: 'metal',
+  parts: [
+    { id: 'cockpit', at: [0, 0.2, 3.8], half: [1.1, 0.9, 1.4], scale: 1.5, pool: 0 },
+    { id: 'body', at: [0, 0.1, 0.2], half: [1.4, 1.15, 2.3], scale: 1, pool: 0 },
+    { id: 'tail', at: [0, 0.9, -5.8], half: [0.5, 0.75, 3.4], scale: 1.1, pool: 260 },
+    { id: 'rotor', at: [0, 2.5, 0.3], half: [4.2, 0.3, 4.2], scale: 1.1, pool: 360 },
+  ],
+  weak: [
+    { id: 'pilot', at: [0, 0.35, 3.8], half: [0.95, 0.55, 1.1], charge: 1, sabot: 0.65 },
+    { id: 'tailRotor', at: [0, 2.55, -9.8], half: [0.65, 0.85, 0.65], charge: 0.45, sabot: 0.45 },
+  ],
+  wreck: { blastRadius: 8.5, blastDamage: 130, blastScale: 1.8, burnSeconds: 30, burnReach: 1.6, cookOffs: [1.5, 3.2], hop: 0 },
+  ram: { damage: 0, throw: 0 },
+  crew: [],
+  orbit: {
+    radius: 36,
+    altitude: 16,
+    clearance: 10,
+    rate: -0.32,
+    bank: 0.26,
+    cruise: 12,
+    approachSpeed: 30,
+  },
+  gun: {
+    damage: 5, rate: 16, burst: [18, 30], rest: [1.8, 2.8], spreadOpen: 0.045, spreadSettled: 0.02, settle: 10, range: 95, slew: 2.2, acquire: 0.85,
+  },
+  spinRate: 3.4,
+  fallAccel: 11,
+};
+
+export const VEHICLES: Readonly<Record<VehicleKind, VehicleDef>> = {
+  humvee: HUMVEE, truck: TRUCK, tank: TANK, chopper: CHOPPER, transport: TRANSPORT, doorGunner: DOOR_GUNNER,
+};
 
 /** How much of a blast the armour lets count when the blast has no shaped-charge row of its own, such as a grenade or a bomb. */
 export const ARMOUR_BLAST_SHARE = 0.4;
