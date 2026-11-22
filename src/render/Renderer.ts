@@ -205,6 +205,38 @@ export class Renderer implements RenderSystem {
     this.xray.clear();
   }
 
+  /** Switches sky dome, directional sun/moon, PMREM reflections, baked sky irradiance, and fog haze. */
+  setAtmosphere(preset: 'night' | 'dawn'): void {
+    if (preset === 'dawn') {
+      this.moon.color.setRGB(1.0, 0.79, 0.54);
+      this.moon.intensity = 3.2;
+      this.engine.opMoonDir.value.set(0.46, 0.32, -0.83).normalize();
+      this.volume.skyZenith = [0.22, 0.27, 0.38];
+      this.volume.skyHorizon = [0.68, 0.43, 0.24];
+      this.fog.density = 0.0044;
+      this.fog.bakedGain = 1.25;
+      this.fog.moonGain = 2.6;
+    } else {
+      this.moon.color.setRGB(0.7, 0.79, 1.0);
+      this.moon.intensity = 2.2;
+      this.engine.opMoonDir.value.set(-0.42, 0.56, -0.71).normalize();
+      this.volume.skyZenith = [0.05, 0.068, 0.108];
+      this.volume.skyHorizon = [0.135, 0.175, 0.225];
+      this.fog.density = 0.007;
+      this.fog.bakedGain = 1.6;
+      this.fog.moonGain = 3.5;
+    }
+    this.engine.opMoonColor.value.copy(this.moon.color).multiplyScalar(this.moon.intensity);
+    this.moon.position.copy(this.engine.opMoonDir.value).multiplyScalar(100);
+    this.viewMoon.color.copy(this.moon.color);
+    this.viewMoon.intensity = this.moon.intensity;
+    if (this.sky) {
+      this.sky.setDawn(this.renderer, preset === 'dawn');
+      this.scene.environment = this.sky.environment;
+      this.viewScene.environment = this.sky.environment;
+    }
+  }
+
   highlight(meshes: readonly THREE.Object3D[], color: THREE.ColorRepresentation, strength = 1, visibleFill = 0): void {
     this.xray.add(meshes, color, strength, visibleFill);
   }

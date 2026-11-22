@@ -5,8 +5,8 @@ First-person weapons, arms and off-hand items. `src/weapons/viewmodels/**`, sand
 ## Weapons Wishlist Viewmodels (2026-11-22)
 
 - **Hero new viewmodels:**
-  - **Bodkin (`models/bodkin.ts`):** Steyr ACR-inspired bullpup flechette rifle with carry-handle optic, rear flush magwell, and all 6 mod geometries (`bodkinAcog`, `bodkinMag`, `bodkinBurst5`, `bodkinTungsten`, `bodkinMagwell`, `bodkinLight`).
-  - **Billhook (`models/billhook.ts`):** SPAS-12-inspired combat shotgun with perforated top-folding skeleton stock and curved arm-brace hook, ventilated flat barrel heat shield, side shell-counter screen, and mod parts (`billhookDot`, `billhookLam`, `billhookTube`, `billhookLight`, plus Dragon's Breath / Flechette / Slug ammo colour coding).
+  - **Bodkin (`models/bodkin.ts`):** Steyr ACR-inspired bullpup flechette rifle with carry-handle optic, rear flush magwell, and all 6 mod geometries (`bodkinAcog`, `bodkinDot`, `bodkinLong`, `bodkinCan`, `bodkinMag`, `bodkinAuto`).
+  - **Billhook (`models/billhook.ts`):** SPAS-12-inspired combat shotgun with perforated top-folding skeleton stock and curved arm-brace hook, ventilated flat barrel heat shield, side shell-counter screen, and mod parts (`billhookChoke`, `billhookLong`, `billhookExt`, `billhookDot`, ammo colour coding).
   - **Autoclave (`models/autoclave.ts`):** Industrial-sci-fi directed microwave emitter with off-white sterilizer ceramic and dark steel chassis, twin finned cooling arrays, copper waveguides/induction coils, magnetron heater vents (zero glow at rest, warm amber-red pulse while firing/hot), and open flared parabolic horn dish with brass dipole feed.
   - **Gaff (`models/gaff.ts`):** Shoulder-fired harpoon cannon with dark parkerized body, machined steel twin-rail launch trough, oversized barbed spear (hidden while in flight), weathered brass underslung cable winch drum, and exposed chrome recoil buffer springs.
 - **Faithful pistol remodels (zero logos/trademarks):**

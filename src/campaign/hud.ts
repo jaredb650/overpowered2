@@ -25,6 +25,8 @@ const WHO: Record<Speaker, readonly [name: string, tag: string]> = {
   radio: ['Packmule', 'Your ride'],
   harbourmaster: ['The Harbourmaster', 'Holdfast port address'],
   governor: ['Governor Sterling', 'Brine Central Reserve / PA'],
+  quist: ['Hadrek Quist', 'Surplus loudspeaker / the Salt King'],
+  marr: ['Sergeant Marr', 'Raid column / tactical net'],
 };
 
 const TONES: ReadonlySet<string> = new Set(['smug', 'irritated', 'rattled', 'cracked']);

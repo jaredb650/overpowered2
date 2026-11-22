@@ -23,6 +23,7 @@ import type { CampaignSystem, MissionResult } from './events';
 import './events';
 import { BankRun } from './bankRun';
 import { Chancery } from './chancery';
+import { DesertRaid } from './desertRaid';
 import { Foreclosure } from './foreclosure';
 import { GameHost } from './host';
 import { CampaignHud } from './hud';
@@ -79,11 +80,13 @@ class Campaign implements CampaignSystem {
   private readonly chancery: Chancery | null = null;
   /** Bank Run's Brine Central Reserve & Coastal Expressway runtime director (bankRun.ts). */
   private readonly bankRun: BankRun | null = null;
+  /** Desert Raid's Surplus convoy, warren, water tower & Quist runtime director (desertRaid.ts). */
+  private readonly desertRaid: DesertRaid | null = null;
   result: MissionResult | null = null;
 
   constructor(private readonly ctx: Ctx, id: string) {
     const source = MISSIONS[id];
-    const starterContract = id === 'outpost' ? 'campaign' : id === 'foreclosure' ? 'foreclosure' : id === 'bank_run' ? 'bank_run' : null;
+    const starterContract = id === 'outpost' ? 'campaign' : id === 'foreclosure' ? 'foreclosure' : id === 'bank_run' ? 'bank_run' : id === 'desert_raid' ? 'desert_raid' : null;
     const starterGun = starterContract ? selectedStarter(starterContract) : null;
     const starterMods = starterContract && starterGun && missionModsUnlocked(starterContract) ? selectedStarterMods(starterGun) : undefined;
     const mission = source && starterGun ? missionWithStarter(source, starterGun, starterMods) : source;
@@ -106,9 +109,12 @@ class Campaign implements CampaignSystem {
     } else if (mission.id === 'bank_run') {
       const bk = (this.bankRun = new BankRun(ctx, this.runner, this.ui));
       this.host.bankRunCall = (name, arg) => bk.call(name, arg);
+    } else if (mission.id === 'desert_raid') {
+      const dr = (this.desertRaid = new DesertRaid(ctx, this.runner, this.ui));
+      this.host.desertRaidCall = (name, arg) => dr.call(name, arg);
     }
-    // A mission with Bailiffs in it (Foreclosure) loads their bodies now; on a cold load its first squad would land in enemy bodies.
-    if (/"do":"(roster|battle)"/.test(JSON.stringify(mission.beats))) void ctx.allies?.preload();
+    // A mission with friendly squads (Foreclosure, Desert Raid) loads their bodies now.
+    if (mission.id === 'desert_raid' || /"do":"(roster|battle)"/.test(JSON.stringify(mission.beats))) void ctx.allies?.preload();
   }
 
   init(): void {
@@ -203,6 +209,7 @@ class Campaign implements CampaignSystem {
     this.foreclosure?.update(dt);
     this.chancery?.update(dt);
     this.bankRun?.update(dt);
+    this.desertRaid?.update(dt);
     this.runner.update(dt);
     this.ui.beat(this.runner.beat?.title ?? '');
     this.ui.update(this.ctx.time.realDt);
@@ -219,6 +226,8 @@ class Campaign implements CampaignSystem {
     this.chancery?.clear();
     this.bankRun?.ensureBuilt();
     this.bankRun?.clear();
+    this.desertRaid?.ensureBuilt();
+    this.desertRaid?.clear();
     this.ui.reset();
     // Apply the mission's corpse cap for both hosts and co-op guests, and persist it so mid-run setting changes clamp to it.
     setMissionCorpseCap(this.runner.mission.corpses);
@@ -245,6 +254,7 @@ class Campaign implements CampaignSystem {
     this.foreclosure?.clear();
     this.chancery?.reset();
     this.bankRun?.reset();
+    this.desertRaid?.reset();
     this.ui.reset();
   }
 }

@@ -31,7 +31,16 @@ const FIRST_WORDS_AT = 3.5;
 const RADIO_SETTLE = 0.5;
 
 const BOSS_NAME = 'The Commander';
-const NAMES: Record<Speaker, string> = { commander: 'The Commander', council: 'The Council', intercept: 'Intercepted transmission', radio: 'Radio', harbourmaster: 'The Harbourmaster', governor: 'Governor Reginald Sterling' };
+const NAMES: Record<Speaker, string> = {
+  commander: 'The Commander',
+  council: 'The Council',
+  intercept: 'Intercepted transmission',
+  radio: 'Radio',
+  harbourmaster: 'The Harbourmaster',
+  governor: 'Governor Reginald Sterling',
+  quist: 'Hadrek Quist',
+  marr: 'Sergeant Marr',
+};
 const TAGS: Record<Speaker, string> = {
   commander: 'Outpost command / open channel',
   council: 'Office of Societal Compliance',
@@ -39,6 +48,8 @@ const TAGS: Record<Speaker, string> = {
   radio: '',
   harbourmaster: 'Holdfast port address',
   governor: 'Brine Central Reserve / PA & Gunship',
+  quist: 'Surplus loudspeaker / the Salt King',
+  marr: 'Raid column / tactical net',
 };
 const TONES: ReadonlySet<string> = new Set<Tone>(['smug', 'irritated', 'rattled', 'cracked']);
 const CHIPS: readonly [StatusFlag, string][] = [['painted', 'PAINTED'], ['jammed', 'SONAR JAMMED'], ['uplink', 'UPLINK JAMMED'], ['aaLock', 'AA LOCK']];

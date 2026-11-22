@@ -25,13 +25,17 @@ import {
   authorBank, BANK_BOUNDS, BANK_HUB, BANK_LEVELS,
   BANK_LIGHT_BOUNDS, BANK_LIGHT_CELL, BANK_STAGES,
 } from './bank';
+import {
+  authorDesert, DESERT_BOUNDS, DESERT_HUB, DESERT_LEVELS,
+  DESERT_LIGHT_BOUNDS, DESERT_LIGHT_CELL, DESERT_STAGES,
+} from './desert';
 import { KH } from './killhouse/plan';
 import { LEVEL, RING } from './layout';
 import type { MapSpec } from './spec';
 import type { MapZone } from '../../core/contracts';
 import { ACTIVE } from '../../contracts/select';
 
-export type MapId = 'crucible' | 'killhouse' | 'outpost' | 'fort' | 'holdfast' | 'office' | 'range' | 'annex' | 'rooftop' | 'chancery' | 'bank';
+export type MapId = 'crucible' | 'killhouse' | 'outpost' | 'fort' | 'holdfast' | 'office' | 'range' | 'annex' | 'rooftop' | 'chancery' | 'bank' | 'desert';
 
 export interface MapDef {
   id: MapId;
@@ -49,6 +53,8 @@ export interface MapDef {
   stages: readonly MapStage[];
   author(k: Kit, spec: MapSpec): void;
   readyLabel: string;
+  /** Optional atmosphere preset ('night' default, 'dawn' for golden desert sunrise). */
+  atmosphere?: 'night' | 'dawn';
   zoneOverride?(position: THREE.Vector3, zones: readonly MapZone[]): MapZone | null;
 }
 
@@ -229,7 +235,23 @@ const bank: MapDef = {
   readyLabel: 'Polishing the bullion',
 };
 
-const MAPS: Record<MapId, MapDef> = { crucible, killhouse, outpost, fort, holdfast, office, range, annex, rooftop, chancery, bank };
+const DR = DESERT_BOUNDS;
+const DRL = DESERT_LIGHT_BOUNDS;
+const desert: MapDef = {
+  id: 'desert',
+  bounds: box(DR.x0, DR.y0, DR.z0, DR.x1, DR.y1, DR.z1),
+  lightBounds: box(DRL.x0, DRL.y0, DRL.z0, DRL.x1, DRL.y1, DRL.z1),
+  lightCell: DESERT_LIGHT_CELL,
+  minimapExtent: 165,
+  navHub: DESERT_HUB,
+  nav: { mutual: true, levels: [...DESERT_LEVELS] },
+  stages: DESERT_STAGES,
+  author: authorDesert,
+  readyLabel: 'Raising the dust',
+  atmosphere: 'dawn',
+};
+
+const MAPS: Record<MapId, MapDef> = { crucible, killhouse, outpost, fort, holdfast, office, range, annex, rooftop, chancery, bank, desert };
 
 /** The map of the page's contract, or whatever `?map=` names. contracts/select.ts has the rules. */
 export function selectMap(): MapDef {

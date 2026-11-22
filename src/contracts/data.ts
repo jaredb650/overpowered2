@@ -11,7 +11,7 @@ import type { MapId } from '../world/map/maps';
  * `outpost` is Endless Humans. The id is older than the campaign, and URLs and score tables are keyed on it. `defense` is
  * Outpost Defense, Endless Humans' tower defense (docs/proposals/outpost-defense.md).
  */
-export type ContractId = 'campaign' | 'foreclosure' | 'quiet_title' | 'bank_run' | 'crucible' | 'outpost' | 'rooftop' | 'defense' | 'retraining';
+export type ContractId = 'campaign' | 'foreclosure' | 'quiet_title' | 'bank_run' | 'desert_raid' | 'crucible' | 'outpost' | 'rooftop' | 'defense' | 'retraining';
 
 /** Who lives there. Section 15's faction rules hang off this: pain, fear, bleeding, gib thresholds. */
 export type FactionId = 'swarm' | 'humans';
@@ -209,6 +209,35 @@ export const CONTRACTS: readonly ContractDef[] = [
       ],
     },
     scoreKey: 'op2_highscore.bank_run',
+  },
+  {
+    id: 'desert_raid',
+    name: 'Desert Raid',
+    map: 'desert',
+    faction: 'humans',
+    waves: 'squads',
+    ai: 'outpost',
+    wounds: 'anatomy',
+    rewards: { backShot: 1.5 },
+    mission: 'desert_raid',
+    opensAfter: 'outpost',
+    noCommander: true,
+    briefing: {
+      ref: 'Raid Order 09-S',
+      subject: 'Hadrek Quist ("the Salt King") and the Saltblood gang at Surplus',
+      body: [
+        'Hadrek Quist holds the only water well within forty miles and rules the shantytown of Surplus from a crashed cargo plane at its north end. He hangs prisoners off the outer wall and raids every caravan on the salt road.',
+        'Three open trucks with mounted heavy guns are rolling across the dunes at dawn under two escort gunships. You man the heavy gun on the middle truck: strip the outer sheet-metal wall and guard towers, then storm the shantytown on foot beside Sergeant Marr\'s assault squads.',
+        'Everything in Surplus breaks except the plane. Cut your own path through the shacks, corner Quist in his fuselage, and decide how he leaves. Air support flattens what is left on the way out.',
+      ],
+      terms: [
+        ['Site', 'Surplus — outer dunes, wall, the Warren, Pump Yard, and crashed cargo plane'],
+        ['Target', 'Hadrek Quist — kill or capture'],
+        ['Support', '3-truck convoy, friendly assault squads, scripted Warthog & gunship strikes'],
+        ['Gear', 'Mounted heavy gun, optional Warren minigun, Thermal brain chip for the sewer'],
+      ],
+    },
+    scoreKey: 'op2_highscore.desert_raid',
   },
   {
     id: 'crucible',

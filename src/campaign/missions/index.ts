@@ -1,6 +1,7 @@
 /** Every mission, by the id `?mission=` and a contract's `mission` field use. */
 import type { Mission } from '../types';
 import { BANK_RUN } from './bankRun';
+import { DESERT_RAID } from './desertRaid';
 import { FORECLOSURE } from './foreclosure';
 import { OUTPOST } from './outpost';
 import { QUIET_TITLE } from './quietTitle';
@@ -13,5 +14,6 @@ export const MISSIONS: Readonly<Record<string, Mission>> = {
   foreclosure: FORECLOSURE,
   quiet_title: QUIET_TITLE,
   bank_run: BANK_RUN,
+  desert_raid: DESERT_RAID,
   retraining: RETRAINING,
 };

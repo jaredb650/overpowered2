@@ -6,7 +6,7 @@ import type { ContractId } from './data';
 export const STARTERS = ['smg', 'gimlet', 'harrow'] as const;
 export type StarterGun = typeof STARTERS[number];
 export const STARTER_KEY = 'op2_starter';
-export const hasStarter = (mode: ContractId): boolean => ['crucible', 'outpost', 'rooftop', 'campaign', 'foreclosure', 'bank_run'].includes(mode);
+export const hasStarter = (mode: ContractId): boolean => ['crucible', 'outpost', 'rooftop', 'campaign', 'foreclosure', 'bank_run', 'desert_raid'].includes(mode);
 export const isStarter = (value: unknown): value is StarterGun => STARTERS.includes(value as StarterGun);
 export const defaultStarter = (mode: ContractId): StarterGun => mode === 'outpost' || mode === 'rooftop' ? 'harrow' : 'smg';
 
