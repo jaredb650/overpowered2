@@ -61,7 +61,7 @@ export const ReflexTuning = {
   lying: { arm: 0.55, leg: 0.3, spine: 0.14, head: 0.4 },
   gather: { arm: 0.8, leg: 0.6, spine: 0.4, head: 0.5 },
   /** How fast joint strength reaches what the phase wants, in 1/s. */
-  driveRate: 11,
+  driveRate: 14,
   /**
    * A body counts as down with its hips under this share of their standing height, moving slower than this, for this long.
    * Speeds here and in `stunThud` are at full gravity, and scale by `Rag.throwScale` under the tempo dial.
@@ -124,16 +124,16 @@ export const ReflexTuning = {
   koHead: 0.25,
   koArm: 0.1,
   koSeconds: 0.6,
-  koPlank: 0.25,
+  koPlank: 0.14,
   /** rad/s the round snaps the head back on its neck with, on the frame it lands (`MuscleState.whip`). */
   koWhip: 24,
   /** Hip and knee in radians, in the air. */
   tuckHip: 0.55,
   tuckKnee: 0.9,
-  /** Leg strength while a body tips over its feet, and how long that lasts. Slack, it folds at the knees and rolls over its head. */
-  plankLeg: 0.8,
-  plankSpine: 0.85,
-  plankSeconds: 0.42,
+  /** Brief organic knee/spine stiffness at knockdown entry instead of a rigid 0.42s plank lock. */
+  plankLeg: 0.42,
+  plankSpine: 0.45,
+  plankSeconds: 0.14,
   /** How much stronger than holding themselves up the arms are when they take a body's weight. */
   braceGain: 5,
   /** Spine and head in radians as a body goes down: curled going backward, chin up going forward. */
@@ -155,7 +155,7 @@ export const ReflexTuning = {
    * Strength of an arm whose hand is on the wound, lying. At the lying 0.55 it carried half its weight and a hand reaching up
    * onto the belly of a body on its back stopped 0.35 m short, on the floor beside it.
    */
-  clutchArm: 0.85,
+  clutchArm: 0.96,
   /**
    * On fire, down: it rolls over, then back, every `rollEvery` seconds, pushing for the first `rollPush` of each at `rollSpin`
    * rad/s about its trunk (`MuscleState.roll`).
@@ -1032,7 +1032,10 @@ export class Reflex {
         if (m.role === 'head' && this.age < t.koHead) m.drive = 0;
         else if (m.role === 'arm' && this.age < t.koSeconds) m.drive = Math.min(m.drive, t.koArm);
       }
-      if (this.phase !== 'fall') m.gain = fighting && (m.role === 'arm' || m.role === 'leg') ? t.pushGain : 1;
+      if (this.phase !== 'fall') {
+        const clutch = STRENGTH_PASS && m.role === 'arm' && this.phase === 'lying' && this.clutches(part);
+        m.gain = fighting && (m.role === 'arm' || m.role === 'leg') ? t.pushGain : clutch ? 1.25 : 1;
+      }
       // A working muscle carries its own weight, as in a collapse, or an arm on the floor cannot lift itself off it.
       // Falling, the legs keep theirs: feet need it on the floor to tip over. The arms and head keep `fallCarry` of it.
       const carry = this.phase === 'fall' ? t.fallCarry : 1;

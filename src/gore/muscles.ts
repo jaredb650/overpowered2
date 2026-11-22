@@ -21,6 +21,7 @@ import type { Rag, RagPart } from './rag';
 import type { Reflex, ReflexLift } from './reflex';
 import { StandTuning, type Stand } from './stand';
 import { HUMAN_HEIGHT } from './rigInfo';
+import type { DynamicBalancer } from './balancer';
 
 /**
  * What a body's wounds leave each limb to work with, 0..1, Euphoria's strength per limb. 1 is whole. A limb's joints are driven
@@ -543,6 +544,8 @@ export class CollapseDrive {
   alive = false;
   /** Alive and able to catch itself: what it has left to do it with (`stand.ts`). Null on a stumble that can only end in a fall. */
   stand: Stand | null = null;
+  /** Closed-loop Euphoria/RDR2 dynamic balancer (`balancer.ts`), replacing open-loop ghost animation playback. */
+  balancer: DynamicBalancer | null = null;
   /** Catching itself: where the animation has each foot and the chest (`MuscleState.readPins`), how fast it moves them, and whether each foot is in the air. */
   readonly pinAt: THREE.Vector3[] = [];
   readonly pinV: THREE.Vector3[] = [];
@@ -711,10 +714,10 @@ export class MuscleState {
   private jolting = 0;
   private readonly rng: () => number;
   private readonly slump: number;
-  private totalMass = 1;
+  totalMass = 1;
   private meanMass = 1;
   /** Inertia of the whole chain about its root, for holding the hips. */
-  private bodyInertia = 1;
+  bodyInertia = 1;
   /** The shins, and where each one's lower end is in its own frame: what a body stands on, for reading its balance. */
   private readonly feet: { part: RagPart; at: THREE.Vector3 }[] = [];
   /** The chest and its centre of mass: with the hips, what says which way the trunk leans. Null with no chest. */
@@ -1034,8 +1037,12 @@ export class MuscleState {
     if (this.twitch > 0) this.stepTwitch(dt);
     if (this.jolting > 0) this.stepJolts(dt);
     if (drive) {
-      this.holdHips(drive, dt);
-      if (drive.stand) this.pinBody(drive, drive.stand, dt);
+      if (drive.balancer) {
+        drive.balancer.stepForces(drive, dt);
+      } else {
+        this.holdHips(drive, dt);
+        if (drive.stand) this.pinBody(drive, drive.stand, dt);
+      }
     } else if (this.reflex && this.reflex.lift.force > 0) this.lift(this.reflex.lift, dt);
   }
 
@@ -1320,8 +1327,18 @@ export class MuscleState {
       b.lost = null;
       b.speed.copy(drive.drift);
     }
-    this.sampleStrengths(drive);
-    this.readPose(drive, 0);
+    if (drive.balancer) {
+      drive.support = drive.stand ? drive.stand.support : drive.cap;
+      drive.balancer.update(drive, 0);
+    } else {
+      this.sampleStrengths(drive);
+      this.readPose(drive, 0);
+    }
+  }
+
+  /** Forward an impact to the active DynamicBalancer for localized muscle shock, knee buckle, gut curl, and wound clutch. */
+  onBalancerHit(bone: number, point: THREE.Vector3, dir: THREE.Vector3, dv: number, region?: string): void {
+    this.collapse?.balancer?.onHit(bone, point, dir, dv, region);
   }
 
   /**
@@ -1345,7 +1362,12 @@ export class MuscleState {
     drive.time = seconds * MuscleTuning.supportFade[0] * 0.5;
     // It was waiting to take a living body's fall. There is none now.
     this.reflex = null;
-    this.sampleStrengths(drive);
+    if (drive.balancer) {
+      drive.support = Math.min(drive.cap, fade(MuscleTuning.supportFade, drive.time / drive.duration, 0));
+      drive.balancer.update(drive, 0);
+    } else {
+      this.sampleStrengths(drive);
+    }
     return true;
   }
 
@@ -1400,6 +1422,48 @@ export class MuscleState {
     const stand = drive.stand;
     const { rag, balance, feet } = this;
     const parts = rag.parts;
+    const balancer = drive.balancer;
+    if (balancer) {
+      balance.speed.copy(balancer.comVel);
+      if (!stand && drive.time >= drive.duration) return 'clock';
+      if (drive.anim.prone) return 'prone';
+      if (balancer.legs.length === 0) return 'sunk';
+      const scale = balancer.scale;
+      const h = Math.max(balancer.com.y - balancer.groundY, 0.05);
+      // True physical capture-point error relative to physical feet midpoint, normalized by stride reach.
+      const cpErr = Math.hypot(balancer.capturePoint.x - balancer.feetMid.x, balancer.capturePoint.z - balancer.feetMid.z);
+      balance.err = cpErr / ((stand ? s.stepReach : t.stepReach) * scale);
+      balance.height = h / this.standCom;
+      const chest = balancer.spine ?? parts[0]!;
+      _a.set(0, 1, 0).applyQuaternion(chest.q);
+      balance.tilt = Math.acos(clamp(_a.y, -1, 1));
+      balance.gap = Math.hypot(parts[0]!.p.x - balancer.feetMid.x, parts[0]!.p.z - balancer.feetMid.z);
+      if (!stand || dt <= s.slowFrame) {
+        // Plunged off a ledge or knocked airborne downward.
+        if (balancer.groundedCount === 0 && balancer.comVel.y < -1.8) return 'sunk';
+        // Give the first catch step (or a fresh mid-stance impact) a reaction launch window before declaring momentum unrecoverable.
+        const launchWindow = stand ? 0.08 : 0.22;
+        const inGrace = drive.time < launchWindow || balancer.hitGrace > 0;
+        const momentumLimit = (stand ? s.giveUp : t.balanceLost * 0.86) * (inGrace ? 1.65 : 1);
+        if (drive.time > 0.02 && balance.err > momentumLimit) return 'momentum';
+        if (!inGrace && balance.tilt > (stand ? s.abortTilt : t.tiltLost)) return 'tilt';
+        if (balance.height < t.sunkLost) return 'sunk';
+      }
+      if (!stand) return null;
+      if (stand.support < s.spent || stand.steps > s.maxSteps) return 'spent';
+      const still = Math.hypot(balance.speed.x, balance.speed.z) < s.stableSpeed
+        && chest.w.length() < s.stableSpin
+        && stand.balance(balance.err) > s.stableBalance
+        && balance.tilt < 0.38
+        && balancer.groundedCount >= 2
+        && balancer.swingLeg < 0;
+      stand.still = still ? stand.still + dt : 0;
+      const late = drive.time >= drive.duration;
+      if (late && !still) return 'clock';
+      if (late || (stand.still >= s.stableHold && drive.time > s.minStand)) stand.caught = true;
+      return null;
+    }
+
     let x = 0;
     let y = 0;
     let z = 0;
@@ -1659,6 +1723,22 @@ export class MuscleState {
     const t = MuscleTuning;
     drive.time += dt * drive.pace;
     const u = drive.time / drive.duration;
+
+    if (drive.balancer) {
+      if (!drive.alive) {
+        if (u >= 1) {
+          this.endCollapse();
+          return;
+        }
+        drive.support = Math.min(drive.cap, fade(t.supportFade, u, 0));
+      } else {
+        drive.stand?.advance(dt, this.balance.err);
+        drive.support = drive.stand ? drive.stand.support : Math.min(drive.cap, fade(t.standFade.support, u, 0));
+      }
+      drive.balancer.update(drive, dt);
+      return;
+    }
+
     // A living body's stumble ends in its Reflex, once the frame has been measured (`sampleReflex`), and until then it goes
     // on following the stumble its animator was given: no death stagger, and no topple but its own weight.
     if (!drive.alive) {
@@ -1859,6 +1939,7 @@ export class MuscleState {
       const v = (drive.pinV[i] ??= new THREE.Vector3());
       this.animPoint(drive, pin.part.bone, pin.at, _a);
       if (drive.pinned && dt > 0) v.copy(_a).sub(at).divideScalar(dt);
+      else if (i >= feet.length) v.set(drive.drift.x, 0, drive.drift.z);
       else v.set(0, 0, 0);
       at.copy(_a);
       if (i < feet.length) low = Math.min(low, at.y);

@@ -26,7 +26,11 @@ import { BodyFilter, fillVelocity, LimbFilter, measureAnimVelocity, Rag, SEED_ST
 import { boneRay, boneRayContact, nextCapsuleHit, rayBones, rayNearSphere } from './raycast';
 import { Reflex, ReflexTuning } from './reflex';
 import { Stand, StandTuning, strengthBudget } from './stand';
+import { DynamicBalancer } from './balancer';
 import { Crawler } from './crawl';
+
+/** Closed-loop Euphoria/RDR2 dynamic balancer. `?balancer=0` falls back to legacy ghost-pinned animation playback. */
+export const BALANCER_PASS = typeof location === 'undefined' || new URLSearchParams(location.search).get('balancer') !== '0';
 import { HUMAN_MASS, markSevered, markSubtree, MAX_BONES, rigInfo, type RigInfo } from './rigInfo';
 import { SliceField } from './sliced';
 import { WoundPlanner, WoundTuning } from './wounds';
@@ -98,21 +102,18 @@ export const GoreTuning = {
   maxCollapses: 8,
   maxCollapsesBefore: 4,
   /**
-   * Living bodies on physics at once. Past this a knockdown is refused and the caller staggers it instead. Sized for a grenade in
-   * a crowd of 12, which can leave 11 to throw: at 6, every survivor after the sixth stood still in the blast that threw his neighbours.
+   * Living bodies on physics at once. Past this a knockdown is refused and the caller staggers it instead.
    */
-  maxKnockdowns: 12,
+  maxKnockdowns: 14,
   /**
    * Living bodies losing their balance on their muscles at once (`KnockdownOptions.stumble`), counted inside `maxKnockdowns`.
-   * Past this a stumble is refused, and the caller staggers the body and knocks it down the old way. Each one is a chain
-   * that starts up to half a second before its knockdown would have.
    */
-  maxStumbles: 4,
+  maxStumbles: 8,
   /**
    * Living bodies catching their balance on their muscles at once (`KnockdownOptions.stumble.budget`), counted inside
-   * `maxKnockdowns` and apart from `maxStumbles`. Past this one is refused, and the caller's animated stagger stands.
+   * `maxKnockdowns` and apart from `maxStumbles`.
    */
-  maxStanding: 6,
+  maxStanding: 10,
   /** Seconds on the floor and seconds to rise, for a knockdown that does not say. */
   knockdownLie: 1.2,
   knockdownRise: 2.4,
@@ -760,7 +761,14 @@ export class Gore implements GoreSystem {
     const existing = this.owned.get(char);
     if (existing) {
       // Killed while it was on its feet on its muscles (R4): the same ragdoll goes on, dying on its feet.
-      if (existing.down && !(DevFlags.carry && this.dieStanding(existing, options))) this.endDown(existing);
+      if (existing.down && !(DevFlags.carry && this.dieStanding(existing, options))) {
+        this.endDown(existing);
+        if (options?.hit && existing.rag?.active) {
+          const h = options.hit;
+          this.push(existing.rag, h.bone, h.point, _v.copy(h.dir).multiplyScalar(h.force));
+          existing.rag.muscle?.jolt(h.bone, h.point, h.dir, joltOf(h.force, existing.info.mass));
+        }
+      }
       return;
     }
     const body = this.adopt(char);
@@ -791,15 +799,26 @@ export class Gore implements GoreSystem {
     body.holding = true;
     // Time it spent alive does not count against time to settle.
     rag.age = Math.min(rag.age, 1);
-    const natural = char.anim.play('deathStumble');
-    if (natural > 0) char.anim.play('deathStumble', natural / seconds);
+    if (!drive.balancer) {
+      const natural = char.anim.play('deathStumble');
+      if (natural > 0) char.anim.play('deathStumble', natural / seconds);
+    }
     if (options?.strength) muscle.strengthen(options.strength);
     const hit = options?.hit;
     if (hit) {
       const dv = (hit.force * DevFlags.force) / info.mass;
-      // Most of the round into where its feet are heading, as for any round on a body on its feet (`strikeDown`).
-      rag.applyImpulse(hit.bone, hit.point, _v.copy(hit.dir).multiplyScalar(hit.force * (1 - MuscleTuning.carryShare)));
-      drive.carry(hit.dir, dv);
+      if (drive.balancer) {
+        // Transmit part of the strike through the rigid ribcage/spine into whole-body CoM momentum while keeping
+        // strong local r x J recoil on the struck bone (100% of total linear impulse preserved in exact hit.dir).
+        const local = 0.45;
+        rag.applyImpulse(hit.bone, hit.point, _v.copy(hit.dir).multiplyScalar(hit.force * local));
+        rag.shove(_v.copy(hit.dir).multiplyScalar(hit.force * (1 - local)));
+        muscle.onBalancerHit(hit.bone, hit.point, hit.dir, dv);
+      } else {
+        // Legacy ghost-pinned fallback: most of the round into where its feet are heading.
+        rag.applyImpulse(hit.bone, hit.point, _v.copy(hit.dir).multiplyScalar(hit.force * (1 - MuscleTuning.carryShare)));
+        drive.carry(hit.dir, dv);
+      }
       drive.away.set(hit.dir.x, 0, hit.dir.z).normalize();
       const region = info.rig.bones[hit.bone]!.region;
       if (region.startsWith('leg') || region.startsWith('shin')) drive.shotLeg = drive.weakLeg = region.endsWith('L') ? 1 : -1;
@@ -814,11 +833,15 @@ export class Gore implements GoreSystem {
     const { char, info } = body;
     // Short of GoreTuning.maxSimTime, with time left over to land.
     const seconds = clamp(duration, 0.3, 5);
+    const ground = char.root.position.y;
+    const yaw = char.root.rotation.y;
     let drive: CollapseDrive | null = null;
     if (MuscleTuning.enabled && this.collapsing() < this.collapseRoom()) {
-      // A first call only asks how long the action runs, so it can be stretched over the whole collapse.
-      const natural = char.anim.play('deathStumble');
-      if (natural > 0) char.anim.play('deathStumble', natural / seconds);
+      if (!BALANCER_PASS) {
+        // A first call only asks how long the action runs, so it can be stretched over the whole collapse.
+        const natural = char.anim.play('deathStumble');
+        if (natural > 0) char.anim.play('deathStumble', natural / seconds);
+      }
       drive = new CollapseDrive(char.anim, char.root, char.bones, seconds, velocity);
     }
     this.startRag(body, { velocity, twitch });
@@ -828,6 +851,7 @@ export class Gore implements GoreSystem {
     if (!muscle) return;
     if (strength) muscle.strengthen(strength, true);
     if (drive && muscle.canStand()) {
+      if (BALANCER_PASS) drive.balancer = new DynamicBalancer(rag, muscle, this.ctx.physics, ground, yaw);
       // Its weaker leg goes first, unless a leg was shot just now.
       if (strength && strength.legL !== strength.legR) drive.shotLeg = strength.legL < strength.legR ? 1 : -1;
       if (hit) {
@@ -837,6 +861,7 @@ export class Gore implements GoreSystem {
         char.anim.holdWound?.(hit.bone, hit.point, seconds);
       }
       muscle.startCollapse(drive);
+      if (hit && drive.balancer) muscle.onBalancerHit(hit.bone, hit.point, hit.dir, (hit.force * DevFlags.force) / info.mass);
       body.holding = true;
     }
     if (hit) muscle.jolt(hit.bone, hit.point, hit.dir, joltOf(hit.force, info.mass));
@@ -854,20 +879,20 @@ export class Gore implements GoreSystem {
     const t = GoreTuning;
     const stumble = options?.stumble;
     // Losing its balance takes two feet to lose it on, and one of the few places for it. Refused, the caller has the old way.
-    // Catching it has places of its own, and takes level ground under both feet.
+    // Catching it has places of its own, and takes level ground under both feet when running legacy ghost playback.
     const catching = stumble?.budget !== undefined;
     if (stumble && (!STAND_PASS || this.feetOf(char, catching) < 2)) return false;
     if (stumble && (catching ? this.standing() >= t.maxStanding : this.stumbling() >= t.maxStumbles)) return false;
     const hurt = options?.hurt ?? 0.6;
     const ground = char.root.position.y;
-    // It reads the pose and the root, so before the ragdoll takes them over. The animator goes on with the stumble it was
-    // given, against a root that drifts on at the speed the body had.
+    const yaw = char.root.rotation.y;
+    // It reads the pose and the root, so before the ragdoll takes them over.
     const drive = stumble ? new CollapseDrive(char.anim, char.root, char.bones, clamp(stumble.seconds, 0.2, 3), options.velocity) : null;
     const strength = options?.strength;
     if (drive && catching) drive.stand = new Stand(stumble!.budget! * (strength ? strengthBudget(strength, hurt >= ReflexTuning.painFrom) : 1));
     const body = this.adopt(char);
     body.down = new Knockdown(options?.rise ?? t.knockdownRise, hurt);
-    // On its feet nothing throws the limbs: the animation is doing the flailing, and a kick would take its feet off the floor.
+    // On its feet nothing throws the limbs: the balancer/animator is handling balance, and a kick would take its feet off the floor.
     // Its feet are planted, so they start still, and its hips at the speed it was reeling.
     this.startRag(body, { velocity: options?.velocity, impact: drive ? undefined : options?.impact }, drive !== null);
     const rag = body.rag!;
@@ -879,7 +904,11 @@ export class Gore implements GoreSystem {
     const reflex = new Reflex(rag, muscle, char.anim, { lie: options?.lie ?? t.knockdownLie, hurt, groundY: ground, dir, plank, knockout: !drive && options?.knockout });
     muscle.startReflex(reflex);
     if (drive) {
-      // The Reflex waits (`MuscleState.sampleReflex`) while the same chain stumbles, held up less and less.
+      if (BALANCER_PASS) {
+        drive.balancer = new DynamicBalancer(rag, muscle, this.ctx.physics, ground, yaw);
+        if (options?.velocity) drive.balancer.seedVelocity(options.velocity);
+      }
+      // The Reflex waits (`MuscleState.sampleReflex`) while the same chain balances or stumbles.
       drive.alive = true;
       const wound = options?.wound;
       const struck = wound ? body.info.rig.bones[wound.bone]?.region : undefined;
@@ -896,7 +925,7 @@ export class Gore implements GoreSystem {
     return true;
   }
 
-  /** How many shins a character has left to stand on. With `level`, none if the ground under them is not level (stairs, a ledge). */
+  /** How many shins a character has left to stand on. With `level` (legacy ghost only), none if ground is uneven. */
   private feetOf(char: CharacterInstance, level = false): number {
     const info = rigInfo(char.rig);
     markSevered(info, char.severed, _skip);
@@ -905,7 +934,7 @@ export class Gore implements GoreSystem {
       const joint = info.rig.bones[i]!.joint;
       if (joint?.role !== 'leg' || joint.kind !== 'hinge' || _skip[i] === 1) continue;
       n++;
-      if (level && !this.levelUnder(_v.setFromMatrixPosition(char.bones[info.children[i]![0] ?? i]!.matrixWorld), char.root.position.y)) return 0;
+      if (!BALANCER_PASS && level && !this.levelUnder(_v.setFromMatrixPosition(char.bones[info.children[i]![0] ?? i]!.matrixWorld), char.root.position.y)) return 0;
     }
     return n;
   }
@@ -935,15 +964,18 @@ export class Gore implements GoreSystem {
   private strikeDown(body: DeadBody, rag: Rag, options: KnockdownOptions | undefined): void {
     const muscle = rag.muscle;
     if (options?.strength && rag.age > 0) muscle?.strengthen(options.strength);
-    // Still on its feet in a stumble, with its hips held: as for a body dying on them (`damageCorpse`), most of a round goes
-    // into where the feet are heading, or all of it on the bone only bends the body over the hold.
     const stumble = muscle?.collapse?.alive ? muscle.collapse : null;
     if (options?.impulses) {
       for (const i of options.impulses) {
         const force = i.impulse.length();
-        if (stumble?.stand && force > 0) {
-          // Catching its balance, all of it lands on the body, with no lift: it is standing. The hold gives way to a hit hard
-          // enough (`Stand.hit`), its feet go after it, and its budget pays for it.
+        if (stumble?.balancer && force > 0) {
+          // Closed-loop balancer: full ballistic impulse lands directly on the bone (lever-arm r x J + CoM momentum).
+          const dv = (force * DevFlags.force) / rag.info.mass;
+          this.push(rag, i.bone, i.point, i.impulse, 0);
+          stumble.stand?.hit(dv, options.cost ?? 0);
+          muscle?.onBalancerHit(i.bone, i.point, _v.copy(i.impulse).divideScalar(force), dv);
+        } else if (stumble?.stand && force > 0) {
+          // Legacy ghost-pinned balance: all of it lands on the body, with no lift.
           const dv = (force * DevFlags.force) / rag.info.mass;
           this.push(rag, i.bone, i.point, i.impulse, 0);
           stumble.stand.hit(dv, options.cost ?? 0);
@@ -957,7 +989,8 @@ export class Gore implements GoreSystem {
         muscle?.reflex?.struck(joltOf(force, HUMAN_MASS));
       }
     }
-    if (rag.age > 0) this.strike(rag, options, MuscleTuning.corpseImpact);
+    // Never fire limb-throw `muscle.kick` on a standing active ragdoll: it would kick the feet off the floor.
+    if (rag.age > 0 && !stumble) this.strike(rag, options, MuscleTuning.corpseImpact);
     const wound = options?.wound;
     if (wound && body.skip[wound.bone] !== 1) muscle?.reflex?.wound(wound.bone, wound.point);
   }
@@ -1144,7 +1177,7 @@ export class Gore implements GoreSystem {
     _v.set(0, 0, 0);
     for (const i of options.impulses) _v.add(i.impulse);
     const force = _v.length();
-    if (force > 1) muscle.kick(_v, impactStrength(force, rag.info.mass) * scale);
+    if (force > 1) muscle.kick(_v.divideScalar(force), impactStrength(force, rag.info.mass) * scale);
   }
 
   private adopt(char: CharacterInstance): DeadBody {
@@ -1839,8 +1872,14 @@ export class Gore implements GoreSystem {
       fx.bloodHit(damage.point, damage.dir, 1.2);
     }
 
-    // Nothing is left to sell it with. The body goes on this frame, with whatever momentum it had.
-    this.startRag(this.adopt(char), { velocity, limp: true });
+    // Nothing is left to sell it with. The body goes limp on this frame, with a realistic head-only snap if the head stayed on.
+    const body = this.adopt(char);
+    this.startRag(body, { velocity, limp: true });
+    if ((what === 'hole' || (what === 'partial' && partial)) && body.rag) {
+      const headBone = info.children[neck]![0] ?? neck;
+      const snapForce = clamp((damage.force || 12) * 0.45, 3, 14);
+      body.rag.applyImpulse(headBone, damage.point, _v.copy(damage.dir).normalize().multiplyScalar(snapForce));
+    }
     audio.play('enemy_die', { position: at, volume: 0.5 });
   }
 

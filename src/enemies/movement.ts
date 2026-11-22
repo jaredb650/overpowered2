@@ -211,9 +211,13 @@ function separate(e: Enemy, w: AiWorld, alive: readonly Enemy[]): void {
 }
 
 function integrateAir(e: Enemy, w: AiWorld, dt: number): void {
+  const pushDecay = Math.exp(-7 * dt);
+  const reelDecay = Math.exp(-2.6 * dt);
+  e.push.multiplyScalar(pushDecay);
+  e.reel.multiplyScalar(reelDecay);
   e.verticalSpeed += GRAVITY * dt;
-  e.position.x += e.velocity.x * dt;
-  e.position.z += e.velocity.z * dt;
+  e.position.x += (e.velocity.x + e.push.x + e.reel.x) * dt;
+  e.position.z += (e.velocity.z + e.push.z + e.reel.z) * dt;
   e.position.y += e.verticalSpeed * dt;
   if (e.flightLeft > 0) {
     e.flightLeft -= dt;

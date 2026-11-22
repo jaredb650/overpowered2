@@ -364,7 +364,7 @@ describe('room for it', () => {
     gore.clear();
   });
 
-  it('is refused with a foot on a 0.3 m step', () => {
+  it('handles catching balance with a foot on a 0.3 m step (DynamicBalancer terrain raycast)', () => {
     gore.clear();
     // Feet either side of the step's edge at z = 40: one on the floor, one 0.3 m up.
     const c = spawnLiving(40, 40);
@@ -372,11 +372,11 @@ describe('room for it', () => {
     for (let i = 0; i < 20; i++) stand(c);
     c.root.updateMatrixWorld(true);
     expect(Math.abs(at(c, B.footL).z - at(c, B.footR).z)).toBeGreaterThan(0.1);
-    expect(catchIt(c, v(1, 0, 0), 2.5, 0.5, 0.8)).toBe(false);
-    expect(gore.downed(c)).toBeNull();
-    // The same hit on level ground beside it is taken.
-    const d = spawnLiving(44, 44);
-    expect(catchIt(d, v(1, 0, 0), 2.5, 0.5, 0.8)).toBe(true);
+    expect(catchIt(c, v(1, 0, 0), 2.5, 0.5, 0.8)).toBe(true);
+    expect(gore.downed(c)?.standing).toBe(true);
+    // Run 30 frames to confirm terrain-raycasted stepping stays stable without exploding.
+    for (let f = 0; f < 30; f++) frame(c);
+    expect(Number.isFinite(at(c, B.hips).y)).toBe(true);
     gore.clear();
   });
 

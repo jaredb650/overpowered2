@@ -532,7 +532,7 @@ export class EnemyManager implements EnemySystem {
     if (e.shaken > 0) e.shaken = Math.max(0, e.shaken - dt / SPOIL.seconds);
     if (e.downed) {
       this.updateDowned(e);
-      if (e.downed || !e.alive) return;
+      return;
     }
 
     if (e.frozen > 0) {

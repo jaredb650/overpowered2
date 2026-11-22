@@ -749,6 +749,13 @@ export class HumanoidAnimator implements CharacterAnimation {
   }
 
   blendFrom(seconds: number): void {
+    this.reel = this.flail = this.flailW = this.buckle = this.buckleW = 0;
+    this.action = null;
+    this.stepAside = 0;
+    this.needsHome = true;
+    this.moveBlend = this.runBlend = 0;
+    this.vel.set(0, 0, 0);
+    this.speed = 0;
     this.matchPose(seconds);
   }
 
@@ -1305,7 +1312,9 @@ export class HumanoidAnimator implements CharacterAnimation {
           break;
       }
     }
-    x += this.posture.sway * L;
+    const dazed = this.dazeW * DAZE_SWAY;
+    const sway = Math.sin(this.time * 1.9 + this.seed);
+    x += this.posture.sway * L + sway * dazed * 0.25 * L;
     y -= this.posture.drop * L;
     z += this.posture.shift * L;
     // A hit shifts the hips over planted feet. On the floor there is nothing under them to sink into.
@@ -1315,9 +1324,6 @@ export class HumanoidAnimator implements CharacterAnimation {
     const yawP = Math.sin(ph) * lerp(0.1, 0.2, run) * mv * bounce * 0.8;
     const rollP = Math.cos(ph) * lerp(0.05, 0.03, run) * mv * bounce;
     const pitchP = 0.035 * mv + run * 0.08 + this.leanFwd * 0.5;
-    const dazed = this.dazeW * DAZE_SWAY;
-    const sway = Math.sin(this.time * 1.9 + this.seed);
-    x += sway * dazed * 0.25 * L;
     const ht = this.hitTrunk;
     qEuler(this.pelvisQ, pitchP, yawP + actYaw + ht.y * HitShape.hipsTurn, rollP + this.leanSide * 0.5 - this.buckleSide * this.buckleW * REEL.buckleRoll + sway * dazed * 0.5 + ht.z * HitShape.hipsTurn
       - Math.sign(this.limpW) * lurch * HurtShape.limpRoll);

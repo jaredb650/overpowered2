@@ -818,25 +818,32 @@ export class Rag {
     // Under less gravity the throw is slower and lasts longer, and lands as far.
     const throwScale = this.throwScale;
     const strength = blast * throwScale;
+    const pull = strength < 0;
     // One direction for the whole chain: pushed along their own lines, the limbs shoot out sideways from the joints.
     if (muscle) {
-      _b.set(this.center.x - center.x, this.center.y - center.y + RagTuning.blastLift, this.center.z - center.z);
-      _b.y = Math.max(_b.y, Math.hypot(_b.x, _b.z) * RagTuning.blastClimb);
-      _b.normalize();
+      if (pull) {
+        _b.set(this.center.x - center.x, this.center.y - center.y, this.center.z - center.z);
+      } else {
+        _b.set(this.center.x - center.x, this.center.y - center.y + RagTuning.blastLift, this.center.z - center.z);
+        _b.y = Math.max(_b.y, Math.hypot(_b.x, _b.z) * RagTuning.blastClimb);
+      }
+      if (_b.lengthSq() > 1e-6) _b.normalize();
+      else _b.set(0, pull ? -1 : 1, 0);
     }
     const top = RagTuning.maxBlastSpeed * throwScale * Math.max(DevFlags.force, 1);
+    const partLift = pull ? 0 : 0.5;
     // A chain shares one ceiling: capped part by part, the light ones would stop short and the body would tear along them.
     let total = 0;
     let mass = 0;
     for (const part of this.parts) {
       part.body.translation(part.p);
-      _a.set(part.p.x - center.x, part.p.y - center.y + 0.5, part.p.z - center.z);
+      _a.set(part.p.x - center.x, part.p.y - center.y + partLift, part.p.z - center.z);
       total += strength * Math.max(0, 1 - _a.length() / radius) * (muscle ? muscle.blastShare(part) : 1);
       mass += part.mass;
     }
     const limit = Math.abs(total) > top * mass ? (top * mass) / Math.abs(total) : 1;
     for (const part of this.parts) {
-      _a.set(part.p.x - center.x, part.p.y - center.y + 0.5, part.p.z - center.z);
+      _a.set(part.p.x - center.x, part.p.y - center.y + partLift, part.p.z - center.z);
       const d = _a.length();
       const push = strength * Math.max(0, 1 - d / radius) * limit;
       if (muscle) _a.copy(_b).multiplyScalar(push * muscle.blastShare(part));

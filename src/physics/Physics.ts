@@ -213,7 +213,8 @@ export class Physics implements PhysicsSystem {
     // Rapier loses impulses applied from inside its own query, so they go on once it has returned.
     for (const body of bodies) {
       const t = body.translation(scratch);
-      impulse.set(t.x - center.x, t.y - center.y + 0.5, t.z - center.z);
+      const liftY = strength >= 0 ? 0.5 : 0;
+      impulse.set(t.x - center.x, t.y - center.y + liftY, t.z - center.z);
       const d = impulse.length();
       const falloff = Math.max(0, 1 - d / radius);
       // Black Sun pulls with a negative strength, so the ceiling works on the size of the push.

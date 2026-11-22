@@ -38,7 +38,7 @@ import type { EnemyManager } from './EnemyManager';
 
 /** Metres per second of knockback on the living, per newton-second per point of health, and the most one hit gives. */
 const SHOVE_GAIN = 1.35;
-const SHOVE_MAX = 4;
+const SHOVE_MAX = 6.5;
 /** Seconds a stagger lasts, at no strength and at full. */
 const STAGGER_MIN = 0.45;
 const STAGGER_MAX = 1.05;
@@ -52,7 +52,7 @@ const FALL_LEAD_MAX = 0.42;
  * puts the timer back everywhere.
  */
 const STUMBLE_EXTRA = 0.35;
-const STUMBLE_RANGE = 20;
+const STUMBLE_RANGE = 35;
 /**
  * A stagger at least this strong, where a fall would be seen, is taken on the body's muscles too, and it may catch itself
  * (`KnockdownOptions.stumble.budget`, `gore/stand.ts`): it is gore's for up to `StandTuning.maxSeconds`, unable to attack,
@@ -62,12 +62,10 @@ const STAND_FROM = 0.35;
 /** What a head hit costs a body catching its balance, as a share of its health: at `StandTuning.hitCost`, any budget. */
 const HEAD_COST = 2;
 /**
- * Not faster than this, in m/s, with its stride, the reel and the knockback added up. A Trooper's hardest stagger from a
- * standstill is 4.05, which it catches in five steps; harder than that the body decides. Shot along its patrol at 2.5 m/s
- * it reels at 6.5, and on its muscles lost its feet to that six frames later without a step, every time: that is a trip,
- * and the rule asked for a stagger. Shot against its run the two cancel, and it is taken.
+ * Maximum combined entry speed (m/s) allowed into active balance recovery. Raised from 5 to 11 so heavy knockbacks
+ * enter active ragdoll dynamically instead of dropping back to stiff animation or plank falls.
  */
-const STAND_MAX_SPEED = 5;
+const STAND_MAX_SPEED = 11;
 /** What full strength adds to a catch step. */
 const REEL_GAIN = 1.4;
 /** Sideways push toward a weak leg added to a stagger's unit direction, times what its wounds took off it: up to 39°. */
@@ -105,6 +103,8 @@ interface Knock {
   budget?: number;
   /** On fire: seconds it rolls once down (`KnockdownOptions.roll`). */
   roll?: number;
+  /** Entry ballistic impulse magnitude (N*s) applied at `point` on Frame 0 so r x J torque and muscle shock fire. */
+  force?: number;
 }
 const _stumble: { seconds: number; budget?: number } = { seconds: 0 };
 /**
@@ -324,7 +324,7 @@ const UP = new THREE.Vector3(0, 1, 0);
 
 const _knock: Knock = {};
 /** The one `Knock` every caller fills, all of it each time. */
-function knockAs(topple: THREE.Vector3 | null | undefined, impact: number | undefined, knockout: boolean, point: THREE.Vector3 | undefined, stumble?: number, budget?: number, roll?: number): Knock {
+function knockAs(topple: THREE.Vector3 | null | undefined, impact: number | undefined, knockout: boolean, point: THREE.Vector3 | undefined, stumble?: number, budget?: number, roll?: number, force?: number): Knock {
   _knock.topple = topple;
   _knock.impact = impact;
   _knock.knockout = knockout;
@@ -332,6 +332,7 @@ function knockAs(topple: THREE.Vector3 | null | undefined, impact: number | unde
   _knock.stumble = stumble;
   _knock.budget = budget;
   _knock.roll = roll;
+  _knock.force = force;
   return _knock;
 }
 
@@ -1517,10 +1518,9 @@ export class DamageModel {
     const flinch = flinchSize(frac, e.def.machine === true, d.force || DEFAULT_FORCE[d.type], d.type);
     const profile = profileOf(e);
 
-    // A body with a profile, on its feet, flinches in `respond`, which knows first whether a head hit takes it to the floor.
-    // Not one on its feet on its muscles: gore has its root, the animator would read its yaw as 0, and the round lands on the
-    // body itself.
-    if (!profile || (e.downed && !this.w.ctx.gore.downed(char)?.standing)) char.anim.flinch(bone, d.dir, flinch, d.point);
+    // A body with a profile, on its feet, flinches in `respond`. A downed body is owned by ragdoll physics
+    // (`hitWhileDown`), so never fire `anim.flinch` onto its inactive animator.
+    if (!profile && !e.downed) char.anim.flinch(bone, d.dir, flinch, d.point);
     char.hitFlash(armoured ? 0.35 : clamp(0.55 + frac * 2, 0.55, 1));
     if (!armoured && d.type !== 'fire' && d.type !== 'shock' && !e.def.machine) {
       e.blood = Math.min(1, e.blood + 0.08 + frac * 1.1);
@@ -1535,10 +1535,14 @@ export class DamageModel {
       return;
     }
     // Getting up runs on keys from the root. Moved under it, the feet would slide.
+    // Normalize horizontal shot direction so elevated shots still knock back along the true shot heading.
     const shove = e.rising > 0 ? 0 : clamp((pushForce / e.def.hp) * SHOVE_GAIN, 0, SHOVE_MAX) * (e.isBoss ? 0.1 : 1);
-    e.push.x += d.dir.x * shove;
-    e.push.z += d.dir.z * shove;
-    unmoved(e, this.w.now, d.dir.x * shove, d.dir.z * shove);
+    const hLen = Math.hypot(d.dir.x, d.dir.z);
+    const hx = hLen > 1e-4 ? d.dir.x / hLen : 0;
+    const hz = hLen > 1e-4 ? d.dir.z / hLen : 0;
+    e.push.x += hx * shove;
+    e.push.z += hz * shove;
+    unmoved(e, this.w.now, hx * shove, hz * shove);
 
     if (e.pinned) dropOff(e);
 
@@ -1677,7 +1681,17 @@ export class DamageModel {
       // Only the rising rule drops it from the clip's pose with no topple. A head hit on a rising body goes over as any head
       // hit does, tipped along the round and, knocked cold, with legs and spine locked.
       const drops = riseDown && region !== 'head';
-      const how = r.knockout || drops ? knockAs(drops ? null : undefined, undefined, r.knockout, r.knockout ? d.point : undefined) : undefined;
+      const entryForce = AREA_TYPES.has(d.type) ? undefined : force;
+      // Heavy knockbacks (non-KO, non-rising, grounded, visible) enter active ragdoll dynamically so the enemy reels
+      // desperately on real physics with full r x J torque instead of falling like a stiff mannequin plank.
+      if (r.level === 'felled' && !r.knockout && !drops && this.seenStanding(e) && !AREA_TYPES.has(d.type)) {
+        const activeStumble = knockAs(null, undefined, false, d.point, lerp(0.55, 0.9, r.strength), undefined, undefined, entryForce);
+        if (this.knockDown(e, d.dir, r.strength, bone, profile, false, activeStumble)) {
+          e.shock = 0;
+          return;
+        }
+      }
+      const how = knockAs(drops ? null : undefined, undefined, r.knockout, d.point, undefined, undefined, undefined, entryForce);
       if (this.knockDown(e, d.dir, r.strength, bone, profile, r.level === 'thrown', how)) {
         e.shock = 0;
         return;
@@ -1699,6 +1713,7 @@ export class DamageModel {
       return;
     }
     const seconds = lerp(STAGGER_MIN, STAGGER_MAX, r.strength);
+    const entryForce = AREA_TYPES.has(d.type) ? undefined : force;
     if (r.tripped) {
       // Stopped short by its own leg, with the rest of the body still going.
       _v.copy(e.velocity);
@@ -1709,9 +1724,10 @@ export class DamageModel {
       this.stagger(e, seconds, d.dir, r.strength, bone, profile.reel);
     }
     e.shock *= SHOCK_AFTER_STAGGER;
-    // A trip goes the way it was running, which the stagger above left in `reel`.
-    if (r.level === 'fall') this.fallFrom(e, r.tripped ? e.reel : d.dir, r.strength, bone, profile);
-    else if (r.strength >= STAND_FROM) this.standFrom(e, d.dir, r.strength, bone, profile);
+    // Match `towardWeakLeg` direction that `stagger` just applied to `e.reel`.
+    const stumbleDir = r.tripped ? e.reel : this.towardWeakLeg(e, d.dir);
+    if (r.level === 'fall') this.fallFrom(e, stumbleDir, r.strength, bone, profile, undefined, d.point, entryForce);
+    else if (r.strength >= STAND_FROM) this.standFrom(e, stumbleDir, r.strength, bone, profile, d.point, entryForce);
   }
 
   /** Where a body on its muscles and on its feet reads, and can be: near, in view, at full detail, on the ground on two legs. */
@@ -1724,12 +1740,12 @@ export class DamageModel {
    * the stagger it was just given, and catches itself or does not. Refused, going too fast to catch, or already due to
    * fall, the stagger stands.
    */
-  private standFrom(e: Enemy, dir: THREE.Vector3, strength: number, bone: number, profile: ReactionProfile): void {
+  private standFrom(e: Enemy, dir: THREE.Vector3, strength: number, bone: number, profile: ReactionProfile, point?: THREE.Vector3, force?: number): void {
     if (!this.seenStanding(e) || e.fallIn > 0 || this.m.outpost?.wounds.bodyOf(e)?.floored) return;
     if (Math.hypot(e.velocity.x + e.reel.x + e.push.x, e.velocity.z + e.reel.z + e.push.z) > STAND_MAX_SPEED) return;
     _fall.copy(dir).setY(0);
     if (_fall.lengthSq() < 1e-6) return;
-    this.knockDown(e, _fall.normalize(), strength, bone, profile, false, knockAs(null, undefined, false, undefined, StandTuning.maxSeconds, standBudget(strength)));
+    this.knockDown(e, _fall.normalize(), strength, bone, profile, false, knockAs(null, undefined, false, point, StandTuning.maxSeconds, standBudget(strength), undefined, force));
   }
 
   /**
@@ -1737,12 +1753,12 @@ export class DamageModel {
    * just given, and loses its balance physically (`STUMBLE_EXTRA`); anywhere else, or if gore has no room, it staggers on
    * its animation and is knocked down `FALL_LEAD_MIN` to `FALL_LEAD_MAX` seconds later (`fall`), as before.
    */
-  private fallFrom(e: Enemy, dir: THREE.Vector3, strength: number, bone: number, profile: ReactionProfile | null, roll?: number): void {
+  private fallFrom(e: Enemy, dir: THREE.Vector3, strength: number, bone: number, profile: ReactionProfile | null, roll?: number, point?: THREE.Vector3, force?: number): void {
     const lead = rand(FALL_LEAD_MIN, FALL_LEAD_MAX);
     if (profile && this.seenStanding(e)) {
       _fall.copy(dir).setY(0);
       if (_fall.lengthSq() < 1e-6) _fall.set(Math.sin(e.yaw), 0, Math.cos(e.yaw));
-      if (this.knockDown(e, _fall.normalize(), strength, bone, profile, false, knockAs(null, undefined, false, undefined, lead + STUMBLE_EXTRA, undefined, roll))) return;
+      if (this.knockDown(e, _fall.normalize(), strength, bone, profile, false, knockAs(null, undefined, false, point, lead + STUMBLE_EXTRA, undefined, roll, force))) return;
     }
     e.fallIn = lead;
     e.fallStrength = strength;
@@ -1831,9 +1847,26 @@ export class DamageModel {
     // A blast throws it by itself, once this returns and the blast reaches Physics. Knocked down on its way up, it goes over
     // from the clip's pose under its own weight, at the speed the clip had it moving (`measureAnimVelocity`).
     if (thrown || how?.topple === null) o.topple = undefined;
-    else if (how?.topple) o.topple = m.knockTopple.copy(how.topple);
-    else o.topple = m.knockTopple.copy(dir).multiplyScalar(lerp(TOPPLE_MIN, TOPPLE_MAX, strength));
-    o.impulses = undefined;
+    else if (how?.topple) o.topple = m.knockTopple.copy(how.topple).setY(0);
+    else {
+      m.knockTopple.copy(dir).setY(0);
+      if (m.knockTopple.lengthSq() > 1e-6) m.knockTopple.normalize().multiplyScalar(lerp(TOPPLE_MIN, TOPPLE_MAX, strength));
+      o.topple = m.knockTopple;
+    }
+    const wound = m.knockWound;
+    wound.bone = bone;
+    // Knocked cold or struck at a point: preserve exact world hit location for r x J torque and wound clutching.
+    if (how?.point) wound.point.copy(how.point);
+    else wound.point.setFromMatrixPosition(e.char.bones[bone]!.matrixWorld);
+    o.wound = wound;
+    // Preserve Frame-0 ballistic impulse so knockdown & active ragdoll receive genuine r x J lever-arm torque and muscle shock.
+    if (how?.force && how.force > 0 && !thrown) {
+      const imp = m.knockImpulses[0]!;
+      imp.bone = bone;
+      imp.point.copy(wound.point);
+      imp.impulse.copy(dir).multiplyScalar(how.force);
+      o.impulses = m.knockImpulses;
+    } else o.impulses = undefined;
     o.knockout = cold;
     // Losing its balance on its muscles, in the stagger it was given this frame. Refused, the caller has the timer.
     if (how?.stumble) {
@@ -1857,12 +1890,6 @@ export class DamageModel {
     e.riseSeconds = floored ? 0 : profile.rise * (0.85 + strength * 0.4) * (pushes ? 1 - RISE_PUSHED : 1);
     e.dazeSeconds = floored ? 0 : profile.daze * (thrown || cold ? 1 : strength);
     o.rise = e.riseSeconds;
-    const wound = m.knockWound;
-    wound.bone = bone;
-    // Knocked cold, the head jolts back from where the round went in, and a hand goes there.
-    if (how?.point) wound.point.copy(how.point);
-    else wound.point.setFromMatrixPosition(e.char.bones[bone]!.matrixWorld);
-    o.wound = wound;
     if (!ctx.gore.knockdown(e.char, o)) {
       e.fallIn = 0;
       return false;
