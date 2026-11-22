@@ -36,6 +36,8 @@ import { KATA, bearing, kataTargets } from './kata';
 import { soldierOf } from '../enemies/outpost/soldier';
 import { DroppedGuns } from './dropped';
 import { keepsAGun, type GunKit } from './handover';
+import { Microwave } from './microwave';
+import { Harpoon } from './harpoon';
 
 interface Slot {
   def: WeaponDef;
@@ -251,6 +253,12 @@ export class Weapons implements WeaponSystem, Guard {
   private readonly spreadRng = new SeededRandom();
   private readonly playOptions = { position: undefined as THREE.Vector3 | undefined, volume: 1, pitch: 1, pitchJitter: 0 };
 
+  /** Directed microwave cone boiler (Autoclave) and tethered harpoon skewer/grapple controller (Gaff). */
+  readonly microwave: Microwave;
+  readonly harpoon: Harpoon;
+  private microwaveTicked = false;
+  private gaffAimHold = 0;
+
   constructor(private readonly ctx: Ctx) {
     const slots = {} as Record<WeaponId, Slot>;
     for (const id of WEAPON_ORDER) {
@@ -261,6 +269,8 @@ export class Weapons implements WeaponSystem, Guard {
     }
     this.slots = slots;
     this.sword = new Melee(ctx, this.combat, this.modifiers);
+    this.microwave = new Microwave(ctx);
+    this.harpoon = new Harpoon(ctx);
     // The Lance's trigger, its beams and its bursts are lance.ts. This is all it needs of the arsenal.
     this.lance = new Lance(ctx, {
       modifiers: this.modifiers,
@@ -371,6 +381,9 @@ export class Weapons implements WeaponSystem, Guard {
     this.occupied = 0;
     this.sword.reset();
     this.lance.reset();
+    this.microwave.reset();
+    this.harpoon.reset();
+    this.gaffAimHold = 0;
     this.altLoaded.clear();
     this.mods.clear();
     for (const id of MOD_ORDER) this.fitMod(id, false);
@@ -514,6 +527,9 @@ export class Weapons implements WeaponSystem, Guard {
     if (this.current === 'satchel') {
       const planted = this.combat.projectiles.stickyCount('satchel');
       return planted > 0 ? `RMB DETONATE · ${planted}` : 'TOSS';
+    }
+    if (this.current === 'gaff' && this.harpoon.ropeOut) {
+      return this.harpoon.reeling ? 'REELING' : 'RMB REEL · TAP CUT';
     }
     // An ammo mod (AP or HP) comes first, beside the Gimlet's bursts.
     const load = def.load === 'plusP' ? '+P' : def.load ? def.load.toUpperCase() : '';
@@ -786,6 +802,8 @@ export class Weapons implements WeaponSystem, Guard {
     this.quickReturn = 0;
     this.burstLeft = 0;
     this.rHeld = -1;
+    if (this.harpoon.ropeOut) this.harpoon.cut();
+    this.gaffAimHold = 0;
     this.ctx.viewmodel.setCharge(0);
   }
 
@@ -796,12 +814,56 @@ export class Weapons implements WeaponSystem, Guard {
   update(): void {
     // The bursts a Lance beam booked go off whatever is in hand now, dead or holstered included.
     this.lance.tick();
+    this.microwaveTicked = false;
     this.frame();
-    this.dropped.update(this.ctx.time.realDt);
     const p = this.ctx.player;
+    const dt = this.ctx.time.playerDt;
+    if (!this.microwaveTicked) this.microwave.update(dt, false, p.eye, p.forward, this.muzzleAt);
+    this.updateHarpoon(dt);
+    this.dropped.update(this.ctx.time.realDt);
     this.rigEye.copy(p.eye);
     this.rigYaw = p.yaw;
     this.rigPitch = p.pitch;
+  }
+
+  /** Ticks the Gaff harpoon flight, 3D steel rope, right-click grapple reel, and tap-to-cut/reload handoff. */
+  private updateHarpoon(dt: number): void {
+    const h = this.harpoon;
+    if (!h.ropeOut && !h.reloading && h.embeddedCount === 0 && this.current !== 'gaff') return;
+    const c = this.ctx;
+    const wasRopeOut = h.ropeOut;
+    let reelHeld = false;
+    let cutTapped = false;
+    const active = this.current === 'gaff' && c.player.alive !== false && !this.holstered && !this.reloading
+      && this.drawLeft <= 0 && this.occupied <= 0;
+    if (active && h.ropeOut) {
+      const aimDown = c.input.isDown('aim');
+      if (aimDown) {
+        this.gaffAimHold += dt;
+      } else if (this.gaffAimHold > 0) {
+        if (this.gaffAimHold < 0.22) cutTapped = true;
+        this.gaffAimHold = 0;
+      }
+      if (c.input.pressed('reload') || (c.input.pressed('fire') && h.state !== 'flying')) {
+        cutTapped = true;
+        this.gaffAimHold = 0;
+      }
+      reelHeld = aimDown && !cutTapped;
+    } else {
+      this.gaffAimHold = 0;
+    }
+    const muzzle = this.current === 'gaff' ? this.muzzle(false) : this.muzzleAt;
+    h.update(dt, reelHeld, cutTapped, muzzle, c.player.eye, c.player.forward);
+    if (this.current === 'gaff') {
+      c.viewmodel.setCharge(h.reeling ? 1 : 0);
+      if (wasRopeOut && !h.ropeOut) {
+        const s = this.slots.gaff;
+        if (s.ammo.mag === 0) {
+          if (s.ammo.reserve > 0) this.startReload();
+          else if (!this.modifiers.bottomlessMag) this.wentDry();
+        }
+      }
+    }
   }
 
   private frame(): void {
@@ -1006,6 +1068,8 @@ export class Weapons implements WeaponSystem, Guard {
     }
     const from = this.current;
     if (from === 'mgl') this.detonateStickies('mgl', true);
+    if (from === 'gaff' && this.harpoon.ropeOut) this.harpoon.cut();
+    this.gaffAimHold = 0;
     this.aimOn = false;
     this.aimSuppress = false;
     this.aimT = 0;
@@ -1153,6 +1217,7 @@ export class Weapons implements WeaponSystem, Guard {
       const take = Math.min(a.magSize - a.mag, a.reserve);
       a.mag += take;
       a.reserve -= take;
+      if (s.def.harpoon) this.harpoon.finishReload();
     }
     this.syncRateCharge();
     this.ctx.events.emit('weapon:reload', { weapon: this.current, phase: 'end' });
@@ -1294,6 +1359,8 @@ export class Weapons implements WeaponSystem, Guard {
     if (this.modifiers.bottomlessMag) return;
     s.ammo.mag = Math.max(0, s.ammo.mag - rounds);
     if (s.ammo.mag > 0) return;
+    // Keep the Gaff in hand while its steel tether is out so RMB can reel or tap-cut before reloading.
+    if (s.def.harpoon) return;
     if (s.ammo.reserve > 0) this.autoReload = Math.max(TUNING.autoReloadDelay, s.def.cycleTime ?? 0);
     // The last grenade gone: back on the rifle, which still has rounds.
     else if (s === this.glSlot) this.raiseLauncher(false);
@@ -1615,6 +1682,40 @@ export class Weapons implements WeaponSystem, Guard {
 
   private updateStream(s: Slot, dt: number, held: boolean): void {
     const c = this.ctx;
+    if (s.def.microwave) {
+      this.microwaveTicked = true;
+      const firing = held && this.canShoot(s);
+      const at = this.muzzle(false);
+      const active = this.microwave.update(dt, firing, c.player.eye, c.player.forward, at);
+      c.viewmodel.setCharge(active ? 1 : 0);
+      if (!firing) {
+        if (this.streamOn) {
+          this.streamOn = false;
+          HOSE_OFF.weapon = s.def.id;
+          c.events.emit('weapon:loop', HOSE_OFF);
+        }
+        if (held) this.dryFire();
+        if (s.cooldown < 0) s.cooldown = 0;
+        return;
+      }
+      this.streamOn = true;
+      const interval = this.interval(s.def);
+      while (s.cooldown <= 0 && this.canShoot(s)) {
+        this.consume(s);
+        c.viewmodel.fire(s.def.recoil, false);
+        this.combat.feel.shake(s.def.shake);
+        const e = this.firedEvent;
+        e.weapon = s.def.id;
+        e.origin.copy(c.player.eye);
+        e.dir.copy(c.player.forward);
+        e.suppressed = false;
+        this.note.kind = 'hose';
+        c.events.emit('weapon:fired', e);
+        this.note.kind = 'gun';
+        s.cooldown += interval;
+      }
+      return;
+    }
     if (!held || !this.canShoot(s)) {
       if (this.streamOn) {
         this.streamOn = false;
@@ -1665,10 +1766,14 @@ export class Weapons implements WeaponSystem, Guard {
   private barrage = false;
 
   private endContinuous(): void {
-    // Co-op: the others' copy of the Kiln's stream ends with it.
-    if (this.loopKind === 'flame_hose_loop') {
+    // Co-op: the others' copy of the Kiln's or Autoclave's stream ends with it.
+    if (this.loopKind === 'flame_hose_loop' || (this.streamOn && this.current === 'autoclave')) {
       HOSE_OFF.weapon = this.current;
       this.ctx.events.emit('weapon:loop', HOSE_OFF);
+    }
+    if (this.streamOn && this.current === 'autoclave') {
+      this.microwave.update(1e-4, false, this.ctx.player.eye, this.ctx.player.forward, this.muzzleAt);
+      this.ctx.viewmodel.setCharge(0);
     }
     // Everything that ends a loop ends a Lance charge too: a switch, a reload, a melee, a pause, a death.
     this.lance.cancel();
@@ -2098,6 +2203,10 @@ export class Weapons implements WeaponSystem, Guard {
   }
 
   private shootStake(def: WeaponDef): void {
+    if (def.harpoon) {
+      this.harpoon.fire(this.ctx.player.eye, this.ctx.player.forward, this.muzzleAt, def.id, false);
+      return;
+    }
     const t = TUNING.stake;
     const damage = def.damage * this.modifiers.damage;
     const p = this.fillProjectile('stake', def, t.speed, damage, 'none');

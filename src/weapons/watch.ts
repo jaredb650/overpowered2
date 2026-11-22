@@ -26,6 +26,8 @@ import { Lance, type LanceHolder, type LanceHost, type LanceShot } from './lance
 import { MODS, moddedDef } from './mods';
 import { ENERGY } from './melee/data';
 import { Raufoss } from './raufoss';
+import { Microwave } from './microwave';
+import { Harpoon } from './harpoon';
 import { backblast, fillShot } from './shot';
 
 // ---------------------------------------------------------------------------------------------
@@ -263,10 +265,13 @@ export class Watcher {
   readonly laser = { on: false, at: new THREE.Vector3() };
   /** True once they have said what they hold (`hold`). */
   held = false;
-  /** Their Kiln: seconds it still pours without another word, its sound, and the time owed toward the next glob. */
+  /** Their Kiln or Autoclave: seconds it still streams without another word, its sound, and napalm glob cadence. */
   private hoseLeft = 0;
   private hoseLoop: LoopHandle | null = null;
   private hoseOwed = 0;
+  private hoseWeapon: WeaponId = 'kiln';
+  private microwave: Microwave | null = null;
+  private harpoon: Harpoon | null = null;
   /** What their pose last said they were doing, to tell a start from more of the same. */
   private readonly was: Doing = { reload: false, stim: false, laser: false, charge: false, ball: false };
   /** Their weapon light: one of the session's spotlights (net/remote.ts hands it over), dark unless their gun has one fitted. */
@@ -329,7 +334,7 @@ export class Watcher {
         this.lanceShot(note.kind);
         return;
       case 'hose':
-        this.pour();
+        this.pour(weapon);
         return;
       case 'swing':
         this.swing(note);
@@ -338,6 +343,15 @@ export class Watcher {
     const kind = REMOTE_FX[weapon].kind;
     if (kind === 'melee' || kind === 'hose' || kind === 'lance') return;
     this.feedback(def, note.left, note.barrel);
+    if (weapon === 'gaff') {
+      const at = s.muzzle(this.muzzleAt, note.left);
+      const h = (this.harpoon ??= new Harpoon(this.ctx));
+      if (h.ropeOut) h.cut();
+      h.finishReload();
+      h.fire(origin, dir, at, 'gaff', true);
+      WATCHED.projectiles++;
+      return;
+    }
     if (note.rays <= 0) return;
     this.rounds(def, origin, dir, note);
   }
@@ -501,14 +515,20 @@ export class Watcher {
   // The Kiln
   // -------------------------------------------------------------------------------------------
 
-  /** Their Kiln is on: it lights if it was not, and pours on from their nozzle down their aim until they say it stopped. */
-  private pour(): void {
+  /** Their Kiln or Autoclave is on: it starts if it was not, and streams from their nozzle down their aim until they say it stopped. */
+  private pour(weapon: WeaponId): void {
     WATCHED.hose++;
-    if (this.hoseLeft <= 0) {
+    if (this.hoseLeft <= 0 || this.hoseWeapon !== weapon) {
+      this.hoseLoop?.stop(0.08);
+      this.hoseWeapon = weapon;
       this.shooter.muzzle(this.muzzleAt);
-      this.say('flame_ignite');
-      this.hoseLoop = this.ctx.audio.startLoop?.('flame_hose_loop', { position: this.muzzleAt, volume: REPORT }) ?? null;
-      this.hoseOwed = FRIEND_EVERY;
+      if (weapon === 'autoclave') {
+        this.hoseLoop = this.ctx.audio.startLoop?.('railgun_charge_loop', { position: this.muzzleAt, volume: REPORT * 0.65, pitch: 0.9 }) ?? null;
+      } else {
+        this.say('flame_ignite');
+        this.hoseLoop = this.ctx.audio.startLoop?.('flame_hose_loop', { position: this.muzzleAt, volume: REPORT }) ?? null;
+        this.hoseOwed = FRIEND_EVERY;
+      }
     }
     this.hoseLeft = HOSE_HOLD;
   }
@@ -518,11 +538,13 @@ export class Watcher {
     this.hoseLeft = 0;
     this.hoseLoop?.stop(0.1);
     this.hoseLoop = null;
-    this.shooter.muzzle(this.muzzleAt);
-    this.say('flame_stop');
+    if (this.hoseWeapon !== 'autoclave') {
+      this.shooter.muzzle(this.muzzleAt);
+      this.say('flame_stop');
+    }
   }
 
-  /** A frame of their stream: globs of the shooter's own napalm (Flames.friendGlob), a little fewer a second, that burn nobody. */
+  /** A frame of their stream: Autoclave heat shimmer cone, or Kiln napalm globs (Flames.friendGlob) that burn nobody. */
   private stream(dt: number): void {
     const s = this.shooter;
     this.hoseLeft -= dt;
@@ -530,9 +552,13 @@ export class Watcher {
       this.stopPour();
       return;
     }
-    const k = TUNING.napalm;
     const nozzle = s.muzzle(this.muzzleAt);
     this.hoseLoop?.setPosition(nozzle);
+    if (this.hoseWeapon === 'autoclave') {
+      (this.microwave ??= new Microwave(this.ctx)).emitShimmer(nozzle, s.forward, dt);
+      return;
+    }
+    const k = TUNING.napalm;
     this.hoseOwed += dt;
     while (this.hoseOwed >= FRIEND_EVERY) {
       this.hoseOwed -= FRIEND_EVERY;
@@ -762,6 +788,10 @@ export class Watcher {
   update(dt: number): void {
     this.puppet?.tick();
     if (this.hoseLeft > 0) this.stream(this.ctx.time.dt);
+    if (this.harpoon && (this.harpoon.ropeOut || this.harpoon.embeddedCount > 0)) {
+      const s = this.shooter;
+      this.harpoon.update(this.ctx.time.dt, false, false, s.muzzle(this.muzzleAt), s.eye, s.forward);
+    }
     if (this.casingIn > 0 && (this.casingIn -= this.ctx.time.dt) <= 0) this.eject(this.casingKind);
     if (this.barrage) {
       this.barrageLeft -= dt;
@@ -777,6 +807,10 @@ export class Watcher {
   dispose(): void {
     this.puppet?.dispose();
     this.puppet = null;
+    this.harpoon?.dispose();
+    this.harpoon = null;
+    this.microwave?.reset();
+    this.microwave = null;
     this.barrage?.stop(0.05);
     this.barrage = null;
     this.hoseLoop?.stop(0.05);
