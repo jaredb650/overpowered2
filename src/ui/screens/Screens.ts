@@ -21,6 +21,7 @@ import { LoadoutScreen } from './loadout';
 import type { ShopId } from '../../contracts/defense/data';
 import { SplashScreen } from './splash';
 import { CoopScreen } from './coop';
+import { FrameLoadoutScreen } from './frameLoadout';
 
 /**
  * 'rules' is the Crucible's, reached only from the main menu, and its Back goes straight there. 'loadout' and 'shop' are
@@ -28,7 +29,10 @@ import { CoopScreen } from './coop';
  */
 export type ScreenName =
   | 'loading' | 'splash' | 'menu' | 'pause' | 'gameover' | 'complete' | 'guide' | 'settings' | 'rules' | 'loadout' | 'shop' | 'procurement' | 'coop'
-  | 'none';
+  | 'frame' | 'none';
+
+/** Screens opened over another that Back returns to: the guide, settings and the Frame's loadout. */
+const ASIDE: readonly ScreenName[] = ['guide', 'settings', 'frame'];
 
 export interface Screen {
   readonly el: HTMLElement;
@@ -68,6 +72,7 @@ export class Screens {
       shop: this.shopScreen,
       procurement: new ProcurementScreen(ctx, hud),
       coop: new CoopScreen(ctx, hud),
+      frame: new FrameLoadoutScreen(ctx, hud),
     };
     this.el = div('screens');
     for (const s of Object.values(this.screens)) {
@@ -87,8 +92,8 @@ export class Screens {
   }
 
   show(name: ScreenName): void {
-    if (name === 'guide' || name === 'settings') {
-      if (this.current !== 'guide' && this.current !== 'settings') this.returnTo = this.current === 'none' ? 'menu' : this.current;
+    if (ASIDE.includes(name)) {
+      if (!ASIDE.includes(this.current)) this.returnTo = this.current === 'none' ? 'menu' : this.current;
     }
     if (this.current !== 'none') {
       this.screens[this.current].el.style.display = 'none';
@@ -133,7 +138,7 @@ export class Screens {
     this.show('shop');
   }
 
-  /** Back out of guide or settings to whichever screen opened it. */
+  /** Back out of guide, settings or the Frame's loadout to whichever screen opened it. */
   back(): void {
     this.show(this.returnTo);
   }

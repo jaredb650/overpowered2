@@ -34,6 +34,7 @@ export class PauseScreen implements Screen {
       menuButton('Resume', () => this.hud.resume()),
       menuButton('Guide', () => this.hud.screens.show('guide')),
       menuButton('Settings', () => this.hud.screens.show('settings')),
+      menuButton('Frame loadout', () => this.hud.screens.show('frame')),
       ...(MISSION_ID ? [this.checkpoint = menuButton('Restart from checkpoint', () => this.hud.restartCheckpoint())] : []),
       this.restart,
       this.quit,

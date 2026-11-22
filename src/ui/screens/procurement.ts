@@ -9,7 +9,9 @@
  * Rows are in the shops' order (order.ts): what can be had now, then what wants more credits, then the rest greyed at the bottom,
  * each group by name. The mouse over a row selects it as the arrow keys do: the card and the model are always the row under it.
  *
- * Keys: up and down pick a row, left and right turn the page, Enter or a click asks to buy (confirm.ts: Enter again or Buy goes
+ * A fourth tab, Frame, opens the Distraint Frame's loadout (frameLoadout.ts), whose Back comes back here.
+ *
+ * Keys: up and down pick a row, left and right turn the page (right from Implants is the Frame tab), Enter or a click asks to buy (confirm.ts: Enter again or Buy goes
  * ahead, Esc or a click outside does not) or fits and takes off what is bought already, X or Delete sells a gun owned back (twice:
  * the first asks), Esc, E or Close goes back to the fight.
  */
@@ -110,6 +112,13 @@ export class ProcurementScreen implements Screen {
       return t;
     };
     this.tabs = { weapons: tab('weapons', 'Weapons'), mods: tab('mods', 'Mods'), implants: tab('implants', 'Implants') };
+    // The Frame's loadout is its own screen (frameLoadout.ts); its Back comes back here.
+    const frameTab = h('button', 'tab pc-tab', 'Frame');
+    frameTab.type = 'button';
+    frameTab.addEventListener('click', () => {
+      this.ctx.audio.play?.('ui_hover');
+      this.hud.screens.show('frame');
+    });
     this.slotStrip = div('pc-slots');
     this.chipStrip = div('pc-slots pc-chips');
     this.implantHead = div('pc-imp-head', this.slotStrip, this.chipStrip, span('pc-core', CORE_COPY));
@@ -136,7 +145,7 @@ export class ProcurementScreen implements Screen {
         span('pc-title', SHOP_COPY.title),
         div('pc-cr', span('pc-cr-t', 'Credits'), wallet),
         phase,
-        div('pc-tabs', this.tabs.weapons, this.tabs.mods, this.tabs.implants),
+        div('pc-tabs', this.tabs.weapons, this.tabs.mods, this.tabs.implants, frameTab),
         this.implantHead,
         this.list,
         note,
@@ -169,7 +178,14 @@ export class ProcurementScreen implements Screen {
     nav.back = () => this.leave();
     const step = (by: number) => () => this.turn(PAGES[(PAGES.indexOf(this.page) + by + PAGES.length) % PAGES.length]!);
     nav.left = step(-1);
-    nav.right = step(1);
+    // Right from the last page is the Frame tab, which is its own screen.
+    nav.right = () => {
+      if (this.page !== PAGES[PAGES.length - 1]) step(1)();
+      else {
+        this.ctx.audio.play?.('ui_hover');
+        this.hud.screens.show('frame');
+      }
+    };
     this.studio(true);
     this.refresh(0);
   }

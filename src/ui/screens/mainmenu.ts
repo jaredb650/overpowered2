@@ -5,6 +5,7 @@
  *        > Training, the tutorial (docs/design/tutorial.md). A first launch's Play goes straight there; an invite link never does
  *        > Survival > a map > what plays on it
  *        > Multiplayer, the co-op lobby (coop.ts)
+ *   Frame, the Distraint Frame's loadout (frameLoadout.ts)
  *   Guide, Settings
  *
  * Esc, Backspace or Back goes up a level. A mission or mode shows the Council's notice for it while it has focus, and choosing
@@ -94,6 +95,7 @@ export class MainMenu implements Screen {
 
     this.root = this.makeLevel('', null, [
       [menuButton('Play', () => (!INVITE && isFirstLaunch() ? this.play(mode(TRAINING)) : this.enter(play))), null],
+      [menuButton('Frame', () => this.hud.screens.show('frame')), null],
       [menuButton('Guide', () => this.hud.screens.show('guide')), null],
       [menuButton('Settings', () => this.hud.screens.show('settings')), null],
     ]);
