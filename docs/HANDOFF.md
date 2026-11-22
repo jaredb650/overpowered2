@@ -104,6 +104,7 @@ wave break, wall pins for heavy rounds, throwable heads, more gore.
 ### 5. Weapon ideas backlog (stowed, not scheduled)
 `docs/proposals/weapon-ideas-backlog.md`: riot shield pistol mod, microwave emitter (the owner's favourite), Stakegun hold-R ammo
 cycling (tether bolt, sticky charge), shiv → throwing knives. Rejected: saw blades, arc gun.
+The owner's newer list (2026-11-22: attachments, fixes, new weapons, the smart-gun rework, suggestions, build order): `docs/proposals/weapons-wishlist.md`.
 
 ## Known broken or unclear
 
