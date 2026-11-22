@@ -237,7 +237,7 @@ describe('Shoulder-Fired 105mm Howitzer (Slot 3)', () => {
     expect(creditRule('howitzer')).toBe('player');
   });
 
-  it('builds a clean procedural viewmodel with recoil, breech reload animation, and restingModel support', () => {
+  it('builds a massive procedural artillery viewmodel with hydraulic spring recoil, sliding-wedge breech reload, and restingModel support', () => {
     const prevDoc = globalThis.document;
     const fakeCtx = {
       fillStyle: '',
@@ -255,18 +255,24 @@ describe('Shoulder-Fired 105mm Howitzer (Slot 3)', () => {
       const def = howitzerDef(kit);
       const { model } = def;
 
-      for (const socket of ['muzzle', 'eject', 'gripR', 'gripL', 'latch', 'shellHold', 'leverHold']) {
+      for (const socket of ['muzzle', 'eject', 'gripR', 'gripL', 'crankHold', 'shellHold', 'shellRam']) {
         expect(model.sockets[socket], `socket ${socket}`).toBeDefined();
       }
-      for (const part of ['barrel', 'breech', 'shell', 'trigger', 'lever']) {
+      for (const part of ['barrel', 'springs', 'wedge', 'crank', 'shell', 'spent', 'trigger']) {
         expect(model.parts[part], `part ${part}`).toBeDefined();
       }
       expect(model.glows.reticle).toBeDefined();
+      expect(model.glows.breech).toBeDefined();
       expect(model.screens.range).toBeDefined();
+      // Muzzle extends all the way out past z = -1.3 for true 105 mm artillery length.
+      expect(model.sockets.muzzle!.position.z).toBeLessThan(-1.3);
+      // Zero roll/twist on fire recoil.
+      expect(def.recoil.roll).toBe(0);
 
-      // Animate fire recoil: barrel slams back cleanly along +Z.
+      // Animate fire recoil: massive barrel slams back >= 0.14 m along +Z while twin coil springs compress synchronously.
       const a = new Anim();
       const barrel = model.parts.barrel!;
+      const springs = model.parts.springs!;
       const barrelRestZ = barrel.position.z;
       a.parts = model.parts;
       a.model = model;
@@ -276,24 +282,46 @@ describe('Shoulder-Fired 105mm Howitzer (Slot 3)', () => {
       a.reload = -1;
       a.sinceFire = 0.05;
       def.animate!(a);
-      expect(barrel.position.z).toBeGreaterThan(barrelRestZ + 0.05);
+      expect(barrel.position.z).toBeGreaterThan(barrelRestZ + 0.14);
+      expect(springs.scale.z).toBeLessThan(0.75);
       def.readout!(a);
 
-      // Animate mid-reload: breech swings open and fresh 105mm shell appears.
+      // Stage 1 reload (p = 0.20): crank swings down, sliding-wedge breech drops straight down, spent brass kicks back!
       model.resetParts();
+      const wedgeRestY = model.parts.wedge!.position.y;
+      const spentRestZ = model.parts.spent!.position.z;
       a.mag = 0;
       a.sinceFire = 5;
-      a.reload = 0.45;
+      a.reload = 0.20;
       def.animate!(a);
-      expect(model.parts.breech!.rotation.z).toBeLessThan(-1.5);
+      expect(model.parts.crank!.rotation.x).toBeLessThan(-1.2);
+      expect(model.parts.wedge!.position.y).toBeLessThan(wedgeRestY - 0.11);
+      expect(model.parts.spent!.visible).toBe(true);
+      expect(model.parts.spent!.position.z).toBeGreaterThan(spentRestZ + 0.12);
+
+      // Stage 2 reload (p = 0.52): wedge stays open while fresh 105 mm HE shell is lined up & ramming forward into the chamber.
+      model.resetParts();
+      a.reload = 0.52;
+      def.animate!(a);
+      expect(model.parts.wedge!.position.y).toBeLessThan(wedgeRestY - 0.12);
       expect(model.parts.shell!.visible).toBe(true);
+      expect(model.parts.spent!.visible).toBe(false);
       def.readout!(a);
 
-      // Gunstage / preview helper builds cleanly without NaN or zero bounds.
+      // Stage 3 reload (p = 0.88): crank & sliding wedge slammed back up into lock.
+      model.resetParts();
+      a.reload = 0.88;
+      def.animate!(a);
+      expect(Math.abs(model.parts.wedge!.position.y - wedgeRestY)).toBeLessThan(0.01);
+      expect(Math.abs(model.parts.crank!.rotation.x)).toBeLessThan(0.1);
+
+      // Gunstage / preview helper builds cleanly with massive artillery bounds (~1.7 m long).
       const rest = restingModel('howitzer', def);
       const box = new THREE.Box3().setFromObject(rest.root);
       const size = box.getSize(new THREE.Vector3());
-      expect(size.length()).toBeGreaterThan(0.5);
+      expect(size.z).toBeGreaterThan(1.55);
+      expect(size.x).toBeGreaterThan(0.24);
+      expect(size.y).toBeGreaterThan(0.32);
     } finally {
       if (prevDoc === undefined) delete (globalThis as { document?: unknown }).document;
       else (globalThis as { document?: unknown }).document = prevDoc;

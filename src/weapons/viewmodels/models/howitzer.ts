@@ -1,505 +1,891 @@
 /**
- * Shoulder-Fired 105mm Howitzer: recoilless single-shot portable field artillery on key 3.
- * Matte olive-drab & brushed ordnance steel, dark parkerized forged breech & heat-shield clamps, and machined brass
- * pressure rings, locking lugs, and 105 mm cartridge. Features a flared rear venturi, hinged breech cradle, hydraulic
- * long-recoil barrel with oversized 3-baffle artillery muzzle brake, side optical rangefinder, and twin pistol grips.
- * Origin sits at the top of the rear grip; the 105 mm bore rides above it on the shoulder.
+ * Shoulder-Fired 105mm Howitzer: massive shoulder-mounted field artillery / siege cannon on key 3.
+ * Completely distinct from the rocket launcher in scale, silhouette, and mechanism:
+ * - Huge chamfered forged-iron artillery breech monolith (0.22 m wide x 0.23 m tall) with bolted olive trunnion
+ *   cheeks, vertical sliding-wedge breech block, and left-flank brass-knobbed breech operating crank.
+ * - Heavy reinforced steel recoil cradle with twin giant exposed coiled recoil springs and bright chrome hydraulic
+ *   piston rods that compress synchronously as the 105 mm barrel slams 0.17 m backward on every shot.
+ * - Massive stepped 105 mm ordnance barrel (r = 0.072..0.088, bore r = 0.054) extending to z = -1.34 with a chunky
+ *   central bore evacuator (r = 0.104) and a gargantuan 4-baffle perforated tank/siege muzzle brake.
+ * - Unique 3-stage artillery reload: crank open & drop the sliding wedge while kicking out the spent 105 mm brass
+ *   casing, hoist & ram a forearm-thick fresh 105 mm HE shell straight into the rear breech, then slam the wedge up
+ *   to lock the breech.
+ * Origin sits at the top of the rear firing grip; the massive 105 mm bore rides high above it on the shoulder.
  */
 import { Kit } from '../kit/kit';
 import { Model } from '../kit/model';
 import { F } from '../kit/finishes';
 import type { Mesher, V3 } from '../kit/mesher';
-import { circle, curve, ngon, poly, rect, slotRow, type V2 } from '../kit/shapes';
-import { clampBand, hexX, knurl, rail, rivet, screwX } from '../kit/details';
+import { circle, curve, poly, rect, slotRow, type V2 } from '../kit/shapes';
+import { coil, hexX, knurl, rail, rivet, screwX } from '../kit/details';
 import { bump, hold, inOut, inQuad, outCubic, seg, thud } from '../curves';
 import type { Anim, ViewDef } from '../def';
 import { HANDS } from '../poses';
 import { pullTrigger } from './common';
 
-const AXIS = 0.088;
-const R = 0.056;
-const BREECH_Z0 = -0.005;
-const BREECH_Z1 = -0.245;
-/** How far the hinged breech cover swings open to the right during reload. */
-const BREECH_OPEN = 2.05;
-/** Hydraulic recoil travel of the 105 mm barrel and muzzle brake on each shot. */
-const RECOIL_SLAM = 0.095;
+const AXIS = 0.138;
+const BORE_R = 0.054;
+/** Half-width and vertical bounds of the forged rectangular artillery breech monolith (0.22 m W x 0.23 m H). */
+const BREECH_HALF = 0.11;
+const BREECH_BOT = 0.022;
+const BREECH_TOP = 0.252;
+const BREECH_Z_REAR = 0.18;
+const BREECH_Z_MID = 0.04;
+const BREECH_Z_FRONT = -0.16;
+/** Vertical travel of the sliding-wedge breech block when opened. */
+const WEDGE_DROP = 0.145;
+/** Downward rotation of the left-flank breech operating crank (~95 degrees). */
+const CRANK_SWING = 1.65;
+/** Hydraulic long-recoil travel of the massive 105 mm barrel + bore evacuator + muzzle brake on fire. */
+const RECOIL_SLAM = 0.17;
+/** Twin exposed coiled recoil springs flanking the barrel beneath the bore. */
+const SPRING_Z0 = -0.18;
+const SPRING_LEN = 0.50;
+const SPRING_X = 0.092;
+const SPRING_Y = AXIS - 0.062;
+/** Left-flank armored artillery optical rangefinder axis. */
+const OPTIC_X = -0.160;
+const OPTIC_Y = AXIS + 0.062;
+const OPTIC_Z = -0.115;
 
-function arcShell(m: Mesher, r: number, z0: number, z1: number, a0: number, a1: number, thick: number): void {
-  const zc = (z0 + z1) / 2;
-  const n = 18;
-  const pts: V2[] = [];
-  for (let i = 0; i <= n; i++) {
-    const a = a0 + ((a1 - a0) * i) / n;
-    pts.push([Math.cos(a) * r, Math.sin(a) * r]);
-  }
-  for (let i = n; i >= 0; i--) {
-    const a = a0 + ((a1 - a0) * i) / n;
-    pts.push([Math.cos(a) * (r - thick), Math.sin(a) * (r - thick)]);
-  }
-  m.at([0, 0, zc], null, () => m.prism(pts, Math.abs(z1 - z0), { bevel: 0.0014, smooth: 30 }));
-}
+function breechMonolith(m: Mesher): void {
+  const bhBot = BREECH_BOT - AXIS;
+  const bhTop = BREECH_TOP - AXIS;
+  const ch = 0.028;
 
-function venturiAndBreech(m: Mesher): void {
-  m.at([0, AXIS, 0], null, () => {
-    // Flared recoilless venturi exhaust cone behind the breech.
+  // Forward forged breech ring & chamber monolith (z = -0.16 to +0.04) with real 105 mm bore punched through.
+  m.at([0, AXIS, (BREECH_Z_FRONT + BREECH_Z_MID) / 2], null, () => {
     m.use(F.parkerized);
-    m.lathe(
-      [
-        [R - 0.004, 0.37, 0],
-        [0.076, 0.362],
-        [0.080, 0.336],
-        [0.066, 0.275],
-        [R + 0.003, 0.235],
-        [R + 0.003, 0.16],
-        [R + 0.006, 0.155],
-        [R + 0.006, 0.132],
-        [R + 0.003, 0.128],
-        [R + 0.003, BREECH_Z0 + 0.014, 0],
-      ],
-      36,
-      { chamfer: 0.0016, smooth: 24 },
+    m.front(
+      poly(
+        [
+          [-BREECH_HALF + ch, bhBot],
+          [BREECH_HALF - ch, bhBot],
+          [BREECH_HALF, bhBot + ch],
+          [BREECH_HALF, bhTop - ch],
+          [BREECH_HALF - ch, bhTop],
+          [-BREECH_HALF + ch, bhTop],
+          [-BREECH_HALF, bhTop - ch],
+          [-BREECH_HALF, bhBot + ch],
+        ],
+        0.005,
+      ),
+      BREECH_Z_MID - BREECH_Z_FRONT,
+      { bevel: 0.0036, holes: [circle(0, 0, BORE_R + 0.003, 32)] },
     );
-    // Machined brass pressure collar around the venturi throat.
+  });
+
+  // Rear sliding-wedge breech mortise housing (z = +0.04 to +0.18): heavy left/right armored cheeks + top crown arch,
+  // leaving the center bore mouth and vertical wedge path completely open so the wedge drops straight down!
+  const mortiseLen = BREECH_Z_REAR - BREECH_Z_MID;
+  const mortiseZc = (BREECH_Z_REAR + BREECH_Z_MID) / 2;
+  m.at([0, AXIS, mortiseZc], null, () => {
+    m.use(F.parkerized);
+    // Massive left & right vertical mortise cheeks framing the 0.144 m-wide sliding-wedge slot.
+    m.mirror(() => {
+      m.at([0.091, 0, 0], null, () =>
+        m.front(
+          poly(
+            [
+              [-0.019, bhBot],
+              [0.019 - ch * 0.45, bhBot],
+              [0.019, bhBot + ch * 0.6],
+              [0.019, bhTop - ch * 0.6],
+              [0.019 - ch * 0.45, bhTop],
+              [-0.019, bhTop],
+            ],
+            0.004,
+          ),
+          mortiseLen,
+          { bevel: 0.0032 },
+        ),
+      );
+      // Machined brushed-steel vertical wedge guide tracks lining the inner mortise slot.
+      m.use(F.steel);
+      m.at([0.070, -0.005, 0], null, () => m.box(0.006, 0.19, 0.088, 0.0012));
+      m.use(F.parkerized);
+    });
+    // Heavy armored top crown bridge tying both cheeks above the chamber.
+    m.at([0, bhTop - 0.022, 0], null, () =>
+      m.front(
+        poly(
+          [
+            [-BREECH_HALF, -0.022],
+            [BREECH_HALF, -0.022],
+            [BREECH_HALF, 0.004],
+            [BREECH_HALF - ch, 0.022],
+            [-BREECH_HALF + ch, 0.022],
+            [-BREECH_HALF, 0.004],
+          ],
+          0.004,
+        ),
+        mortiseLen,
+        { bevel: 0.003 },
+      ),
+    );
+  });
+
+  // Machined brass chamber-seal ring & dark rifled 105 mm chamber throat visible whenever the wedge drops.
+  m.at([0, AXIS, BREECH_Z_MID], null, () => {
     m.use(F.brass);
     m.lathe(
       [
-        [0.068, 0.278, 0],
-        [0.0725, 0.274],
-        [0.0725, 0.252],
-        [0.060, 0.246, 0],
+        [BORE_R + 0.003, 0.011, 0],
+        [BORE_R + 0.013, 0.011],
+        [BORE_R + 0.013, -0.004],
+        [BORE_R + 0.003, -0.004, 0],
       ],
-      36,
-      { chamfer: 0.001 },
+      34,
+      { chamfer: 0.0012 },
     );
-    // Dark exhaust bore interior.
     m.use(F.black);
-    m.lathe([[R - 0.004, 0.37, 0], [0, 0.29, 0]], 24);
-
-    // Lower forged breech cradle: stays fixed while the hinged upper cover swings open.
-    m.use(F.steelDark);
-    arcShell(m, R + 0.003, BREECH_Z0 + 0.014, BREECH_Z1 - 0.014, Math.PI * 1.02, Math.PI * 1.98, 0.0075);
-    m.use(F.black);
-    arcShell(m, R - 0.006, BREECH_Z0 + 0.012, BREECH_Z1 - 0.012, Math.PI * 1.0, Math.PI * 2.0, 0.0025);
-
-    // Heavy octagonal breech bulkheads fore and aft of the loading port.
-    for (const z of [BREECH_Z0 + 0.016, BREECH_Z1 - 0.016]) {
-      m.use(F.parkerized);
-      m.at([0, 0, z], null, () => {
-        m.front(ngon(0, 0, R + 0.013, 8, Math.PI / 8), 0.022, {
-          bevel: 0.0016,
-          holes: [circle(0, 0, R - 0.006, 28)],
-        });
-      });
-      // Brass locking lug collars flanking each bulkhead.
-      m.use(F.brass);
-      m.at([0, 0, z], null, () => {
-        m.mirror(() => {
-          m.at([R + 0.011, 0, 0], null, () => m.box(0.008, 0.018, 0.014, 0.0012));
-        });
-      });
-    }
-
-    // Perforated olive-drab heat jacket ahead of the breech.
-    m.use(F.olive);
-    m.at([0, 0, -0.39], null, () => {
-      m.front(ngon(0, 0, R + 0.008, 8, Math.PI / 8), 0.26, {
-        bevel: 0.0018,
-        holes: [circle(0, 0, R - 0.003, 28)],
-      });
-    });
-    // Recessed cooling vent plates along the left and right flanks of the heat shield.
-    m.use(F.oliveDark);
-    m.mirror(() => {
-      m.at([R + 0.0065, 0, -0.39], null, () => {
-        m.side(rect(-0.105, -0.024, 0.105, 0.024, 0.003), 0.004, {
-          bevel: 0.0009,
-          holes: slotRow(-0.088, 0, 0.088, 0, 5, 0.032, 0.009, Math.PI / 2),
-        });
-      });
-    });
-    m.use(F.black);
-    m.mirror(() => {
-      m.at([R + 0.0042, 0, -0.39], null, () => m.box(0.0014, 0.036, 0.196, 0));
-    });
-
-    // Heavy forged clamp bands binding the heat jacket and rear venturi.
-    for (const z of [0.09, -0.295, -0.49]) {
-      m.at([0, 0, z], null, () => clampBand(m, R + 0.008, 0.018, F.steelDark));
-    }
-    // Hydraulic recuperator cylinders tucked beneath the lower flanks of the heat jacket.
-    m.mirror(() => {
-      m.at([0.042, -(R + 0.006), -0.405], null, () => {
-        m.use(F.parkerized);
-        m.cyl(0.014, 0.25, 18);
-        m.use(F.brass);
-        m.at([0, 0, -0.128], null, () => m.cyl(0.0155, 0.014, 18));
-        m.at([0, 0, 0.128], null, () => m.cyl(0.0155, 0.012, 18));
-      });
-    });
-
-    // Top hazard stencil along the heat jacket.
-    m.at([0, R + 0.0095, -0.39], [-Math.PI / 2, 0, -Math.PI / 2], () => m.decal('hazard', 0.11, 0.018, 0xc9a227));
+    m.lathe([[BORE_R + 0.002, 0.008, 0], [BORE_R, -0.32, 0]], 28);
   });
 
-  // Ordnance stencils along the camera-facing left flank.
-  const onLeft = (a: number, z: number, fn: () => void) =>
-    m.at([-Math.cos(a) * (R + 0.009), AXIS + Math.sin(a) * (R + 0.009), z], [0, -Math.PI / 2, 0], () =>
-      m.at([0, 0, 0], [a, 0, 0], fn),
+  // Bolted matte olive-drab armored side trunnion cheeks flanking the entire breech monolith.
+  const cheek = poly(
+    [
+      [BREECH_Z_REAR - 0.014, BREECH_BOT + 0.024],
+      [BREECH_Z_REAR - 0.014, BREECH_TOP - 0.032],
+      [BREECH_Z_REAR - 0.034, BREECH_TOP - 0.016],
+      [BREECH_Z_FRONT + 0.024, BREECH_TOP - 0.016],
+      [BREECH_Z_FRONT + 0.01, BREECH_TOP - 0.034],
+      [BREECH_Z_FRONT + 0.01, BREECH_BOT + 0.032],
+      [BREECH_Z_FRONT + 0.028, BREECH_BOT + 0.016],
+      [BREECH_Z_REAR - 0.03, BREECH_BOT + 0.016],
+    ],
+    0.005,
+  );
+  m.mirror(() => {
+    m.use(F.olive);
+    m.at([BREECH_HALF + 0.005, 0, 0], null, () =>
+      m.side(cheek, 0.012, {
+        bevel: 0.0022,
+        holes: slotRow(-0.125, AXIS - 0.055, -0.035, AXIS - 0.055, 3, 0.044, 0.012, Math.PI / 2),
+      }),
     );
-  onLeft(0.35, -0.44, () => m.decal('he', 0.044, 0.016, 0xd8c35a));
-  onLeft(0.35, -0.34, () => m.decal('arrow', 0.032, 0.02, 0xd8d0a0));
-  onLeft(0.45, 0.06, () => m.decal('crucible', 0.095, 0.013, 0xc8c4a0));
-  onLeft(0.12, 0.08, () => m.decal('serial', 0.09, 0.01, 0xb0ad90));
-  onLeft(0.12, -0.41, () => m.decal('warn', 0.022, 0.022, 0xd8c35a));
+    m.use(F.black);
+    m.at([BREECH_HALF + 0.001, AXIS - 0.055, -0.08], null, () => m.box(0.002, 0.052, 0.11, 0));
+
+    // Heavy circular forged trunnion boss & machined brass cap on both breech flanks.
+    m.at([BREECH_HALF + 0.012, AXIS + 0.008, -0.052], [0, Math.PI / 2, 0], () => {
+      m.use(F.steelDark);
+      m.lathe([[0, 0.016, 0], [0.038, 0.016], [0.044, 0.009], [0.044, 0, 0]], 24, { chamfer: 0.0016 });
+      m.use(F.brass);
+      m.lathe([[0, 0.021, 0], [0.022, 0.021], [0.025, 0.016], [0.025, 0.012, 0]], 20, { chamfer: 0.0012 });
+    });
+
+    // Big structural hex bolts pinning the trunnion plates to the breech core.
+    for (const [y, z] of [
+      [BREECH_TOP - 0.034, 0.145],
+      [BREECH_TOP - 0.034, 0.025],
+      [BREECH_TOP - 0.034, -0.125],
+      [BREECH_BOT + 0.034, 0.145],
+      [BREECH_BOT + 0.034, 0.025],
+      [BREECH_BOT + 0.034, -0.125],
+    ] as const) {
+      hexX(m, BREECH_HALF + 0.011, y, z, 1, 0.0058);
+    }
+  });
+
+  // Heavy top armor rib deck, brass pressure cap, and rear accessory rail on the breech crown.
+  m.use(F.oliveDark);
+  m.at([0, BREECH_TOP + 0.004, -0.01], null, () => m.box(0.146, 0.012, 0.28, 0.0024, 0.005));
+  m.use(F.steelDark);
+  for (const z of [-0.12, -0.02, 0.08]) {
+    m.at([0, BREECH_TOP + 0.011, z], null, () => m.box(0.156, 0.01, 0.022, 0.0018, 0.003));
+  }
+  m.at([0, BREECH_TOP + 0.010, -0.06], null, () => rail(m, 0.055, -0.075, 0.024, F.anodized));
+  // Heavy offset artillery lifting handle along the top-right crown edge.
+  m.use(F.steelDark);
+  const handlePath: V3[] = [
+    [0.068, BREECH_TOP + 0.005, -0.135],
+    [0.076, BREECH_TOP + 0.044, -0.115],
+    [0.076, BREECH_TOP + 0.048, 0.01],
+    [0.076, BREECH_TOP + 0.044, 0.125],
+    [0.068, BREECH_TOP + 0.005, 0.145],
+  ];
+  m.tube(handlePath, 0.0072, { seg: 10, samples: 28, tension: 0.4 });
+  m.use(F.rubber);
+  m.tube([[0.076, BREECH_TOP + 0.048, -0.055], [0.076, BREECH_TOP + 0.048, 0.065]], 0.0115, { seg: 12, samples: 4 });
+  m.use(F.brass);
+  for (const z of [-0.135, 0.145]) {
+    m.at([0.066, BREECH_TOP + 0.006, z], null, () => m.box(0.026, 0.01, 0.028, 0.0016, 0.003));
+  }
+
+  // Huge machined brass hydraulic pressure ring around the barrel throat on the front breech face.
+  m.at([0, AXIS, BREECH_Z_FRONT - 0.012], null, () => {
+    m.use(F.brass);
+    m.lathe(
+      [
+        [0.088, 0.018, 0],
+        [0.104, 0.018],
+        [0.108, 0.010],
+        [0.108, -0.010],
+        [0.102, -0.018],
+        [0.088, -0.018, 0],
+      ],
+      36,
+      { chamfer: 0.0016 },
+    );
+  });
+
+  // Ordnance stencils on the camera-facing left armored breech cheek & top crown.
+  const sx = -BREECH_HALF - 0.012;
+  m.at([sx, BREECH_TOP - 0.056, 0.085], [0, -Math.PI / 2, 0], () => m.decal('crucible', 0.115, 0.016, 0xd4d0b0));
+  m.at([sx, BREECH_TOP - 0.078, 0.085], [0, -Math.PI / 2, 0], () => m.decal('serial', 0.11, 0.012, 0xb8b498));
+  m.at([sx, AXIS - 0.082, 0.09], [0, -Math.PI / 2, 0], () => m.decal('hazard', 0.115, 0.018, 0xc9a227));
+  m.at([sx, AXIS + 0.056, -0.052], [0, -Math.PI / 2, 0], () => m.decal('he', 0.048, 0.018, 0xd8c35a));
+  m.at([sx, AXIS - 0.082, -0.05], [0, -Math.PI / 2, 0], () => m.decal('warn', 0.026, 0.026, 0xd8c35a));
+  m.at([0, BREECH_TOP + 0.0115, 0.08], [-Math.PI / 2, 0, -Math.PI / 2], () => m.decal('hazard', 0.11, 0.022, 0xc9a227));
 }
 
-function barrelAndBrake(m: Mesher): void {
-  // Recoiling assembly: heavy turned 105 mm ordnance barrel, recuperator rods, and 3-baffle rectangular artillery brake.
+function slidingWedgeAndCrank(m: Mesher): void {
+  // Vertical sliding-wedge breech block: fits snugly in the rear mortise and drops straight down on reload.
+  m.part('wedge', [0, AXIS, 0.11], () => {
+    // Forged steel wedge monolith with a top loading trough bevel.
+    m.use(F.steelDark);
+    m.front(
+      poly(
+        [
+          [-0.066, -0.074],
+          [0.066, -0.074],
+          [0.066, 0.064],
+          [0.046, 0.072],
+          [-0.046, 0.072],
+          [-0.066, 0.064],
+        ],
+        0.004,
+      ),
+      0.104,
+      { bevel: 0.0028 },
+    );
+    // Brushed steel rear breech-plate face & machined brass firing-pin striker assembly.
+    m.use(F.steel);
+    m.at([0, -0.004, 0.053], null, () => m.box(0.116, 0.122, 0.012, 0.002, 0.004));
+    // Heavy machined brass striker nut, firing-pin collar, and lock indicator recess.
+    m.at([0, -0.004, 0.059], null, () => {
+      m.use(F.brass);
+      m.lathe([[0, 0.016, 0], [0.022, 0.016], [0.028, 0.008], [0.028, 0, 0]], 24, { chamfer: 0.0014 });
+      m.use(F.steelDark);
+      m.lathe([[0, 0.020, 0], [0.011, 0.020], [0.013, 0.015], [0.013, 0.012, 0]], 16, { chamfer: 0.0008 });
+    });
+    // Corner bolts on the rear face of the sliding wedge.
+    m.mirror(() => {
+      for (const sy of [-1, 1]) {
+        m.at([0.044, sy * 0.046, 0.060], null, () => rivet(m, 0.0045, F.brass));
+      }
+    });
+    // Recessed horizontal amber breech-locked status bar across the upper-rear bevel.
+    m.use(F.black);
+    m.at([0, 0.054, 0.057], null, () => m.box(0.084, 0.009, 0.004, 0.0008));
+    m.glow('breech', () => {
+      m.at([0, 0.054, 0.0595], null, () => m.box(0.076, 0.0042, 0.0014, 0));
+    });
+  });
+
+  // Left-flank rotating artillery breech operating crank: sits cleanly below the optical rangefinder so ADS is 100%
+  // unobstructed, and yanks sharply downward (~95 deg) to drop the sliding wedge and slammed back up to seal.
+  m.part('crank', [-BREECH_HALF - 0.012, AXIS - 0.056, 0.112], () => {
+    // Toothed machined brass gear collar & heavy pivot boss on the lower-left breech cheek.
+    m.at([0, 0, 0], [0, -Math.PI / 2, 0], () => {
+      m.use(F.brass);
+      m.lathe([[0, 0.022, 0], [0.023, 0.022], [0.027, 0.015], [0.027, 0, 0]], 22, { chamfer: 0.0014 });
+      m.use(F.parkerized);
+      m.lathe([[0, 0.029, 0], [0.014, 0.029], [0.016, 0.022], [0.016, 0.018, 0]], 18, { chamfer: 0.001 });
+    });
+    // Thick forged steel crank arm reaching forward to the grooved brass operating handle.
+    m.use(F.steelDark);
+    m.at([-0.024, 0, 0], null, () =>
+      m.side(
+        poly(
+          [
+            [0.014, -0.014],
+            [-0.082, -0.008],
+            [-0.086, 0.016],
+            [-0.064, 0.020],
+            [0.016, 0.014],
+          ],
+          0.005,
+        ),
+        0.014,
+        { bevel: 0.0022 },
+      ),
+    );
+    // Watertight turned & grooved machined brass operating handle + heavy rounded ball knob projecting to -X.
+    m.at([-0.026, 0.004, -0.074], [0, -Math.PI / 2, 0], () => {
+      m.use(F.steelDark);
+      m.lathe([[0, 0, 0], [0.015, 0], [0.015, 0.008], [0.0115, 0.009, 0]], 20, { chamfer: 0.0008 });
+      m.use(F.brass);
+      m.lathe(
+        [
+          [0.0115, 0.009, 0],
+          [0.0135, 0.011],
+          [0.0135, 0.016],
+          [0.0118, 0.0175],
+          [0.0138, 0.019],
+          [0.0138, 0.024],
+          [0.0118, 0.0255],
+          [0.0138, 0.027],
+          [0.0138, 0.032],
+          [0.0118, 0.0335],
+          [0.0138, 0.035],
+          [0.0138, 0.040],
+          [0.0175, 0.044],
+          [0.0195, 0.050],
+          [0.0185, 0.057],
+          [0.0135, 0.062],
+          [0.006, 0.0645],
+          [0, 0.065, 0],
+        ],
+        24,
+        { chamfer: 0.0007, smooth: 28 },
+      );
+    });
+  });
+}
+
+function rearSaddle(m: Mesher): void {
+  // Heavy padded artillery recoil saddle & twin angled blast-diffuser pods beneath the open rear breech.
+  // Sits cleanly below y = AXIS - 0.068 so the rear breech mortise above remains 100% open for loading & ejection!
+  m.use(F.parkerized);
+  m.at([0, 0.036, 0.255], null, () =>
+    m.side(
+      poly(
+        [
+          [-0.08, 0.028],
+          [0.095, 0.016],
+          [0.105, -0.018],
+          [0.078, -0.042],
+          [-0.08, -0.032],
+        ],
+        0.006,
+      ),
+      0.168,
+      { bevel: 0.0032 },
+    ),
+  );
+  // Contoured thick ribbed rubber shoulder saddle pad cradling the shooter's shoulder.
+  m.use(F.rubber);
+  m.at([0, -0.004, 0.268], null, () =>
+    m.side(
+      poly(
+        [
+          [0.095, 0.012],
+          [0.095, -0.016, 0.008],
+          [0.068, -0.036, 0.012],
+          [-0.068, -0.036, 0.012],
+          [-0.092, -0.014, 0.008],
+          [-0.092, 0.012],
+        ],
+        0.004,
+      ),
+      0.156,
+      { bevel: 0.005 },
+    ),
+  );
+  // Twin angled steel recoil buffer / diffuser pods flanking the rear saddle cheeks.
+  m.mirror(() => {
+    m.at([0.092, 0.028, 0.242], [0, 0.16, 0], () => {
+      m.use(F.steelDark);
+      m.box(0.034, 0.056, 0.118, 0.003, 0.006);
+      m.use(F.black);
+      m.at([0.016, 0, 0.008], null, () => m.box(0.004, 0.036, 0.076, 0));
+      m.use(F.steelDark);
+      for (const dz of [-0.02, 0.008, 0.036]) {
+        m.at([0.017, 0, dz], [0, 0.35, 0], () => m.box(0.005, 0.038, 0.01, 0.0008));
+      }
+      m.use(F.brass);
+      m.at([0, 0, -0.062], null, () => m.cyl(0.014, 0.012, 16));
+    });
+  });
+}
+
+function cradleAndRecoilSprings(m: Mesher): void {
+  // Reinforced steel recoil cradle girder running from breech front face (z = -0.16) to forward bearing yoke (z = -0.78).
+  const cradleZc = -0.47;
+  const cradleLen = 0.62;
+  m.use(F.parkerized);
+  m.at([0, 0.044, cradleZc], null, () =>
+    m.front(
+      poly(
+        [
+          [-0.088, -0.032],
+          [0.088, -0.032],
+          [0.102, -0.014],
+          [0.102, 0.024],
+          [-0.102, 0.024],
+          [-0.102, -0.014],
+        ],
+        0.004,
+      ),
+      cradleLen,
+      { bevel: 0.0028 },
+    ),
+  );
+  // Perforated olive-drab side skirt plates along the cradle beam + brushed steel slide rails.
+  m.mirror(() => {
+    m.use(F.olive);
+    m.at([0.104, 0.044, cradleZc], null, () =>
+      m.side(rect(-0.27, -0.024, 0.27, 0.022, 0.004), 0.007, {
+        bevel: 0.0014,
+        holes: slotRow(-0.21, -0.001, 0.21, -0.001, 5, 0.028, 0.012, Math.PI / 2),
+      }),
+    );
+    m.use(F.black);
+    m.at([0.101, 0.043, cradleZc], null, () => m.box(0.002, 0.034, 0.48, 0));
+    m.use(F.steel);
+    m.at([0.072, 0.070, cradleZc], null, () => m.box(0.014, 0.012, cradleLen - 0.04, 0.0014));
+  });
+
+  // Central under-barrel hydraulic buffer cylinder with machined brass end-caps.
+  m.at([0, AXIS - 0.106, -0.46], null, () => {
+    m.use(F.steelDark);
+    m.cyl(0.023, 0.58, 22);
+    m.use(F.brass);
+    m.at([0, 0, 0.285], null, () => m.cyl(0.027, 0.022, 22));
+    m.at([0, 0, -0.285], null, () => m.cyl(0.027, 0.022, 22));
+  });
+
+  // Twin fixed hydraulic recuperator cylinders + rear spring cups flanking the barrel beneath the bore.
+  m.mirror(() => {
+    m.at([SPRING_X, SPRING_Y, 0], null, () => {
+      // Heavy rear spring seat cup bolted to the front of the breech monolith.
+      m.use(F.parkerized);
+      m.at([0, 0, SPRING_Z0 + 0.01], null, () => m.cyl(0.036, 0.026, 22));
+      m.use(F.brass);
+      m.at([0, 0, SPRING_Z0 - 0.004], null, () => m.cyl(0.038, 0.012, 22));
+      // Inner hydraulic recuperator cylinder sleeve that the chrome piston rod slides inside.
+      m.use(F.steelDark);
+      m.at([0, 0, -0.34], null, () => m.cyl(0.019, 0.34, 20));
+    });
+  });
+
+  // Heavy forward bearing bulkhead yoke at z = -0.76 bracing the barrel and recoil rails.
+  m.at([0, AXIS, -0.76], null, () => {
+    m.use(F.parkerized);
+    m.front(
+      poly(
+        [
+          [-0.108, -0.118],
+          [0.108, -0.118],
+          [0.118, -0.092],
+          [0.118, 0.052],
+          [0.072, 0.102],
+          [-0.072, 0.102],
+          [-0.118, 0.052],
+          [-0.118, -0.092],
+        ],
+        0.006,
+      ),
+      0.044,
+      { bevel: 0.003, holes: [circle(0, 0, 0.084, 30)] },
+    );
+    // Gleaming machined chrome barrel-slide bushing ring.
+    m.use(F.chrome);
+    m.lathe([[0.083, 0.024, 0], [0.089, 0.024], [0.089, -0.024], [0.083, -0.024, 0]], 32, { chamfer: 0.001 });
+    m.mirror(() => {
+      hexX(m, 0.118, -0.02, 0, 1, 0.006);
+      hexX(m, 0.118, -0.085, 0, 1, 0.006);
+    });
+  });
+
+  // Giant twin exposed coiled steel recoil springs: pivoted at their fixed rear seat (z = -0.18) so scaling
+  // scale.z compresses them smoothly in exact lockstep with the barrel's 0.17 m recoil travel!
+  m.part('springs', [0, SPRING_Y, SPRING_Z0], () => {
+    m.mirror(() => {
+      m.at([SPRING_X, 0, -SPRING_LEN / 2], null, () => coil(m, 0.028, 0.0052, SPRING_LEN, 13, F.steel));
+    });
+  });
+}
+
+function barrelEvacuatorAndBrake(m: Mesher): void {
+  // Entire massive 105 mm recoiling ordnance assembly: slams 0.17 m straight back along +Z on every shot!
   m.part('barrel', [0, AXIS, 0], () => {
+    // Heavy stepped 105 mm turned ordnance barrel (r = 0.088 rear reinforce -> 0.078 mid -> 0.072 chase).
     m.use(F.barrel);
     m.lathe(
       [
-        [R - 0.006, -0.26, 0],
-        [R - 0.005, -0.52],
-        [R - 0.008, -0.526],
-        [R - 0.008, -0.56],
-        [0.046, -0.568],
-        [0.043, -0.715],
-        [0.048, -0.72],
-        [0.048, -0.742],
-        [0.037, -0.742],
-        [0.037, -0.26, 0],
+        [0.088, -0.10, 0],
+        [0.088, -0.45],
+        [0.082, -0.468],
+        [0.078, -0.472],
+        [0.078, -0.78],
+        [0.074, -0.80],
+        [0.072, -1.035],
+        [0.076, -1.045],
+        [0.076, -1.065],
+        [BORE_R, -1.065],
+        [BORE_R, -0.10, 0],
       ],
-      36,
-      { chamfer: 0.0012 },
+      40,
+      { chamfer: 0.0016, smooth: 28 },
     );
-    // Dark rifled bore interior.
-    m.use(F.black);
-    m.lathe([[0.037, -0.745, 0], [0.0355, -0.26, 0]], 28);
 
-    // Brushed steel recuperator piston rods coupling the barrel collar to the lower cylinders.
-    m.mirror(() => {
-      m.use(F.steel);
-      m.at([0.042, -(R + 0.006), -0.585], null, () => m.cyl(0.0072, 0.13, 14));
+    // Deep dark 105 mm bore interior.
+    m.use(F.black);
+    m.lathe([[BORE_R, -1.07, 0], [BORE_R - 0.0015, -0.12, 0]], 30);
+
+    // Chunky central bore evacuator / fume extractor bulge (r = 0.104, z = -0.51 to -0.73), iconic 105 mm tank gun silhouette!
+    m.use(F.olive);
+    m.lathe(
+      [
+        [0.078, -0.505, 0],
+        [0.098, -0.525],
+        [0.104, -0.545],
+        [0.104, -0.695],
+        [0.098, -0.715],
+        [0.078, -0.735, 0],
+      ],
+      40,
+      { chamfer: 0.0018, smooth: 30 },
+    );
+    // Gunmetal clamp bands & machined brass purge collar ringing the bore evacuator.
+    m.use(F.barrelBlack);
+    for (const z of [-0.545, -0.695]) {
+      m.at([0, 0, z], null, () => m.lathe([[0.103, 0.011, 0], [0.108, 0.011], [0.108, -0.011], [0.103, -0.011, 0]], 38, { chamfer: 0.0012 }));
+    }
+    m.use(F.brass);
+    m.at([0, 0, -0.575], null, () => m.lathe([[0.1035, 0.009, 0], [0.107, 0.009], [0.107, -0.009], [0.1035, -0.009, 0]], 38, { chamfer: 0.001 }));
+    // Subtle ordnance stripes on the left side of the bore evacuator.
+    m.at([-0.105, 0.012, -0.635], [0, -Math.PI / 2, 0], () => m.decal('he', 0.056, 0.022, 0xd8c35a));
+    m.at([-0.105, -0.018, -0.635], [0, -Math.PI / 2, 0], () => m.decal('arrow', 0.044, 0.026, 0xd8d0a0));
+
+    // Recoiling front recoil-spring yoke crosshead at z = -0.68 & gleaming machined chrome hydraulic piston rods!
+    m.at([0, 0, SPRING_Z0 - SPRING_LEN], null, () => {
       m.use(F.parkerized);
-      m.at([0.042, -(R + 0.006) * 0.52, -0.648], null, () => m.box(0.018, 0.068, 0.022, 0.0018, 0.003));
+      m.at([0, -0.048, -0.014], null, () =>
+        m.front(
+          poly(
+            [
+              [-0.126, -0.048],
+              [0.126, -0.048],
+              [0.132, -0.016],
+              [0.118, 0.036],
+              [-0.118, 0.036],
+              [-0.132, -0.016],
+            ],
+            0.005,
+          ),
+          0.028,
+          { bevel: 0.0024, holes: [circle(0, 0.048, 0.080, 28)] },
+        ),
+      );
+      m.mirror(() => {
+        // Front spring collar bearing on the coil spring.
+        m.use(F.brass);
+        m.at([SPRING_X, -0.062, 0.004], null, () => m.cyl(0.036, 0.014, 22));
+        // Bright machined chrome hydraulic piston rod sliding inside the coil spring and rear cylinder!
+        m.use(F.chrome);
+        m.at([SPRING_X, -0.062, 0.16], null, () => m.cyl(0.0135, 0.34, 18));
+      });
     });
 
-    // Oversized 3-baffle perforated rectangular artillery muzzle brake (z = -0.742 to -0.928).
-    const brakeZ = -0.835;
+    // Gargantuan 4-baffle tank / siege muzzle brake (z = -1.06 to -1.34, 0.22 m wide x 0.17 m tall x 0.28 m long!).
+    const brakeZ = -1.20;
     m.at([0, 0, brakeZ], null, () => {
-      // Heavy chamfered top and bottom brake rails framing the 3 blast chambers.
+      // Heavy machined brass mounting collar locking the brake to the barrel chase.
+      m.use(F.brass);
+      m.at([0, 0, 0.144], null, () =>
+        m.lathe([[0.072, 0.014, 0], [0.086, 0.014], [0.088, 0.007], [0.088, -0.007], [0.084, -0.014], [0.072, -0.014, 0]], 34, { chamfer: 0.0014 }),
+      );
+      // Massive chamfered top & bottom armored blast rails spanning all 4 chambers.
       m.use(F.barrelBlack);
       for (const sy of [-1, 1]) {
-        m.at([0, sy * 0.047, 0], null, () => m.box(0.134, 0.022, 0.186, 0.0024, 0.005));
+        m.at([0, sy * 0.072, 0], null, () => m.box(0.220, 0.028, 0.280, 0.0036, 0.008));
       }
-      // Perforated side baffle cheeks with three big rectangular blast vents cut cleanly through.
+      // Perforated brushed-steel side baffle cheeks with 4 huge blast chambers cut cleanly through.
       m.use(F.barrel);
       m.mirror(() => {
-        m.at([0.061, 0, 0], null, () => {
-          m.side(rect(-0.093, -0.056, 0.093, 0.056, 0.006), 0.014, {
-            bevel: 0.0018,
+        m.at([0.100, 0, 0], null, () => {
+          m.side(rect(-0.140, -0.084, 0.140, 0.084, 0.008), 0.020, {
+            bevel: 0.0024,
             holes: [
-              rect(-0.074, -0.034, -0.034, 0.034, 0.004),
-              rect(-0.020, -0.034, 0.020, 0.034, 0.004),
-              rect(0.034, -0.034, 0.074, 0.034, 0.004),
+              rect(-0.120, -0.052, -0.074, 0.052, 0.005),
+              rect(-0.056, -0.052, -0.010, 0.052, 0.005),
+              rect(0.010, -0.052, 0.056, 0.052, 0.005),
+              rect(0.074, -0.052, 0.120, 0.052, 0.005),
             ],
           });
         });
       });
-      // Thick internal baffle divider plates with the 105 mm bore punched straight through them.
+      // Five heavy internal baffle divider plates with the gaping 105 mm bore punched straight through them.
       m.use(F.steelDark);
-      for (const dz of [-0.084, -0.027, 0.027, 0.084]) {
+      for (const dz of [-0.130, -0.065, 0.0, 0.065, 0.130]) {
         m.at([0, 0, dz], null, () => {
-          m.front(rect(-0.062, -0.052, 0.062, 0.052, 0.005), 0.014, {
-            bevel: 0.0014,
-            holes: [circle(0, 0, 0.039, 28)],
+          m.front(rect(-0.102, -0.076, 0.102, 0.076, 0.006), 0.018, {
+            bevel: 0.0018,
+            holes: [circle(0, 0, BORE_R + 0.003, 30)],
           });
         });
       }
-      // Corner rivets and brass lock collar on the brake body.
+      // Dark interior muzzle throat liner inside the front crown.
+      m.use(F.black);
+      m.at([0, 0, 0], null, () => m.lathe([[BORE_R + 0.002, 0.14, 0], [BORE_R + 0.002, -0.14, 0]], 26));
+      // Heavy rivets lining the side baffle cheeks along top and bottom rails.
       m.mirror(() => {
-        for (const dz of [-0.084, -0.027, 0.027, 0.084]) {
-          m.at([0.068, 0.044, dz], [0, Math.PI / 2, 0], () => rivet(m, 0.0022));
-          m.at([0.068, -0.044, dz], [0, Math.PI / 2, 0], () => rivet(m, 0.0022));
+        for (const dz of [-0.130, -0.065, 0.0, 0.065, 0.130]) {
+          m.at([0.111, 0.070, dz], [0, Math.PI / 2, 0], () => rivet(m, 0.0036));
+          m.at([0.111, -0.070, dz], [0, Math.PI / 2, 0], () => rivet(m, 0.0036));
         }
       });
-      m.use(F.brass);
-      m.at([0, 0, 0.094], null, () => m.cyl(0.051, 0.011, 30));
     });
   });
 }
 
-function breechCover(m: Mesher): void {
-  // Hinged on the right so opening it clears the shooter's view into the 105 mm loading cradle.
-  m.part('breech', [R + 0.005, AXIS + 0.004, 0], () => {
-    m.at([-(R + 0.005), -0.004, 0], null, () => {
-      m.use(F.olive);
-      arcShell(m, R + 0.0045, BREECH_Z0, BREECH_Z1, -0.04, Math.PI * 1.02, 0.0075);
-      // Heavy transverse stiffening ribs.
-      m.use(F.oliveDark);
-      for (const z of [-0.045, -0.125, -0.205]) {
-        m.at([0, 0, z], null, () =>
-          m.lathe(
-            [
-              [R + 0.004, 0.008, 0],
-              [R + 0.0085, 0.008],
-              [R + 0.0085, -0.008],
-              [R + 0.004, -0.008, 0],
-            ],
-            30,
-            { a0: 0, a1: Math.PI, chamfer: 0.0012 },
-          ),
-        );
-      }
-      for (let i = 0; i < 5; i++) {
-        const a = 0.58 + i * 0.48;
-        m.at([Math.cos(a) * (R + 0.005), Math.sin(a) * (R + 0.005), -0.012], [0, Math.PI / 2, a], () => rivet(m, 0.002));
-        m.at([Math.cos(a) * (R + 0.005), Math.sin(a) * (R + 0.005), -0.238], [0, Math.PI / 2, a], () => rivet(m, 0.002));
-      }
-      // Left-side heavy breech latch with red release bar.
-      m.use(F.steelDark);
-      m.at([-(R + 0.014), 0.012, -0.125], null, () => m.box(0.014, 0.014, 0.056, 0.0018, 0.003));
-      m.use(F.red);
-      m.at([-(R + 0.022), 0.012, -0.125], null, () => m.box(0.0034, 0.008, 0.04, 0.0009));
-    });
-    // Machined brass hinge pin running the full breech length.
-    m.use(F.brass);
-    m.at([0, 0, -0.125], null, () => m.cyl(0.005, 0.245, 14));
-  });
-}
-
-function artilleryShell(m: Mesher): void {
-  // Huge 105 mm brass-and-steel artillery shell: base at z = 0, pointed HE ogive forward along -Z.
-  m.part('shell', [0, AXIS, -0.015], () => {
-    // Turned brass cartridge casing with rimmed extractor flange.
+function artilleryShellAndSpentCasing(m: Mesher): void {
+  // Gigantic forearm-thick 105 mm brass-cased HE artillery shell (r = 0.052, length 0.362 m!).
+  // Rest position is cleanly seated inside the 105 mm chamber (base at z = +0.04, nose at z = -0.322).
+  m.part('shell', [0, AXIS, BREECH_Z_MID], () => {
+    // Gleaming turned brass cartridge case with heavy rimmed extractor flange.
     m.use(F.brass);
     m.lathe(
       [
         [0, 0.002, 0],
-        [0.045, 0.002],
-        [0.045, -0.008],
-        [0.041, -0.012],
-        [0.042, -0.018],
-        [0.0415, -0.145],
-        [0.039, -0.16, 0],
+        [0.0545, 0.002],
+        [0.0545, -0.010],
+        [0.0505, -0.014],
+        [0.052, -0.022],
+        [0.051, -0.165],
+        [0.049, -0.180, 0],
       ],
-      30,
-      { chamfer: 0.0008 },
+      34,
+      { chamfer: 0.001 },
     );
+    // Detailed rear percussion primer boss visible right as the shell rams home.
+    m.use(F.copper);
+    m.lathe([[0, 0.004, 0], [0.015, 0.004], [0.016, 0.001, 0]], 18, { chamfer: 0.0005 });
+    m.use(F.steelDark);
+    m.lathe([[0.016, 0.003, 0], [0.023, 0.003], [0.023, 0.001, 0]], 18);
+
     // Copper driving band.
     m.use(F.copper);
-    m.lathe([[0.039, -0.16, 0], [0.0405, -0.163], [0.0405, -0.175], [0.0385, -0.178, 0]], 30, { chamfer: 0.0004 });
+    m.lathe([[0.049, -0.180, 0], [0.0508, -0.184], [0.0508, -0.198], [0.0485, -0.202, 0]], 32, { chamfer: 0.0006 });
+
     // Olive-drab HE projectile body & ogive.
     m.use({ ...F.olive, color: 0x5c6642 });
-    const ogive: [number, number, number?][] = [[0.0385, -0.178, 0], [0.0385, -0.235]];
+    const ogive: [number, number, number?][] = [[0.0485, -0.202, 0], [0.0485, -0.252]];
     for (let i = 1; i <= 12; i++) {
       const t = i / 12;
-      ogive.push([0.0385 * (1 - t ** 1.65) + 0.007, -0.235 - t * 0.115, 0]);
+      ogive.push([0.0485 * (1 - t ** 1.65) + 0.009, -0.252 - t * 0.086, 0]);
     }
-    m.lathe(ogive, 28, { chamfer: 0, smooth: 40 });
-    // Yellow high-explosive identification band.
+    m.lathe(ogive, 30, { chamfer: 0, smooth: 40 });
+
+    // Bright yellow high-explosive identification band.
     m.use(F.yellow);
-    m.lathe([[0.0389, -0.215, 0], [0.0393, -0.218], [0.0393, -0.234], [0.0388, -0.236, 0]], 28, { chamfer: 0 });
+    m.lathe([[0.0489, -0.218, 0], [0.0494, -0.221], [0.0494, -0.244], [0.0488, -0.246, 0]], 30, { chamfer: 0 });
+
     // Brushed steel point-detonating nose fuze.
     m.use(F.steel);
-    m.lathe([[0.0072, -0.35, 0], [0.006, -0.372], [0.0025, -0.382], [0, -0.384, 0]], 16, { chamfer: 0 });
+    m.lathe([[0.0092, -0.338, 0], [0.0076, -0.354], [0.003, -0.362], [0, -0.364, 0]], 18, { chamfer: 0 });
+  });
+
+  // Spent 105 mm brass casing kicked straight backward out of the open breech when the wedge drops.
+  // Rests inside the chamber (hidden at idle) so restingModel bounds stay clean.
+  m.part('spent', [0, AXIS, BREECH_Z_MID], () => {
+    m.use(F.brass);
+    m.lathe(
+      [
+        [0, 0.002, 0],
+        [0.0545, 0.002],
+        [0.0545, -0.010],
+        [0.0505, -0.014],
+        [0.052, -0.022],
+        [0.0505, -0.155],
+        [0.0485, -0.192],
+        [0.0445, -0.192],
+        [0.0445, -0.03, 0],
+      ],
+      30,
+      { chamfer: 0.0009 },
+    );
+    // Scorched neck & hollow smoked brass interior.
+    m.use(F.barrelBlack);
+    m.lathe([[0.0505, -0.155, 0], [0.050, -0.190], [0.0485, -0.193, 0]], 26);
+    m.use(F.black);
+    m.lathe([[0.0445, -0.192, 0], [0.043, -0.04, 0]], 22);
+    // Struck central primer dimple on the rear base.
+    m.use(F.steelDark);
+    m.lathe([[0, 0.003, 0], [0.015, 0.003], [0.016, 0.001, 0]], 16);
   });
 }
 
-function optic(m: Mesher): void {
-  // Side-mounted artillery optical rangefinder on the left flank so ADS aligns cleanly down the bore.
-  m.at([-0.068, AXIS + 0.04, -0.17], null, () => {
-    // Forged bracket out from the left breech wall.
+function artilleryRangefinder(m: Mesher): void {
+  // Armored left-flank artillery rangefinder & mechanical dial block bolted to the breech monolith.
+  m.at([OPTIC_X, OPTIC_Y, OPTIC_Z], null, () => {
+    // Heavy cantilevered parkerized bracket tying the sight into the left breech cheek.
     m.use(F.parkerized);
-    m.at([0.024, -0.032, 0], null, () =>
-      m.side(poly([[0.058, 0], [-0.058, 0], [-0.046, 0.022, 0.006], [0.046, 0.022, 0.006]], 0.002), 0.034, { bevel: 0.0014 }),
+    m.at([0.033, -0.030, 0.01], null, () =>
+      m.side(poly([[0.068, 0], [-0.068, 0], [-0.054, 0.030, 0.006], [0.054, 0.030, 0.006]], 0.003), 0.048, { bevel: 0.0018 }),
     );
-    m.at([0.034, -0.032, 0], null, () => {
-      m.use(F.steelDark);
-      m.box(0.026, 0.009, 0.115, 0.0012);
-    });
-    // Hollow optical body so the eye looks cleanly through the bore during ADS.
+    m.use(F.steelDark);
+    m.at([0.046, -0.030, 0.01], null, () => m.box(0.026, 0.014, 0.132, 0.0014));
+
+    // Hollow chamfered armored optical housing so ADS looks cleanly through the warm amber ballistic reticle.
     m.use(F.anodized);
-    m.front(rect(-0.024, -0.02, 0.024, 0.032, 0.006), 0.16, {
-      bevel: 0.0016,
-      holes: [circle(0, 0.006, 0.017, 26)],
+    m.front(rect(-0.028, -0.024, 0.028, 0.036, 0.007), 0.175, {
+      bevel: 0.002,
+      holes: [circle(0, 0.006, 0.019, 28)],
     });
-    m.use(F.polymerGrey);
+    // Olive-drab bolted armor cheek plates along the sight body.
+    m.use(F.oliveDark);
     m.mirror(() =>
-      m.at([0.0248, 0, 0], null, () =>
-        m.side(rect(-0.064, -0.013, 0.064, 0.023, 0.003), 0.0024, {
-          bevel: 0.0008,
-          holes: [rect(-0.052, -0.006, -0.012, 0.016, 0.0018), rect(0.0, -0.006, 0.052, 0.016, 0.0018)],
+      m.at([0.029, 0.004, 0], null, () =>
+        m.side(rect(-0.072, -0.016, 0.072, 0.024, 0.003), 0.0034, {
+          bevel: 0.001,
+          holes: [rect(-0.058, -0.008, -0.014, 0.016, 0.002), rect(0.004, -0.008, 0.058, 0.016, 0.002)],
         }),
       ),
     );
     m.mirror(() => {
-      screwX(m, 0.0258, 0.019, 0.058, 1, 0.0018);
-      screwX(m, 0.0258, -0.009, -0.058, 1, 0.0018);
+      screwX(m, 0.031, 0.022, 0.066, 1, 0.0022);
+      screwX(m, 0.031, -0.010, -0.066, 1, 0.0022);
     });
+
     // Objective bell & coated glass lens forward.
-    m.at([0, 0.006, -0.08], null, () => {
+    m.at([0, 0.006, -0.088], null, () => {
       m.use(F.rubber);
-      m.lathe([[0.022, 0.004, 0], [0.0255, 0], [0.026, -0.02], [0.024, -0.032], [0.0205, -0.033], [0.0195, -0.02, 0]], 26);
-      m.glass(() => m.at([0, 0, -0.013], null, () => m.cyl(0.0194, 0.0006, 20, 0)));
+      m.lathe([[0.024, 0.004, 0], [0.0285, 0], [0.029, -0.024], [0.026, -0.036], [0.022, -0.037], [0.021, -0.022, 0]], 26);
+      m.glass(() => m.at([0, 0, -0.014], null, () => m.cyl(0.0212, 0.0006, 22, 0)));
     });
-    // Rubber eyecup and thin warm-amber inset reticle at the rear.
-    m.at([0, 0.006, 0.08], null, () => {
+
+    // Rear rubber eyecup & crisp warm-amber artillery stadia reticle (at z = +0.080 relative -> OPTIC_Z + 0.080 = -0.035).
+    m.at([0, 0.006, 0.086], null, () => {
       m.use(F.rubber);
-      m.lathe([[0.0195, 0.032, 0], [0.0235, 0.032], [0.0245, 0.012], [0.0215, 0], [0.0185, 0, 0]], 24);
+      m.lathe([[0.021, 0.034, 0], [0.0255, 0.034], [0.027, 0.014], [0.0235, 0], [0.020, 0, 0]], 26);
       m.glow('reticle', () =>
-        m.at([0, 0, 0.0052], null, () => {
-          m.prism(rect(-0.0085, -0.00032, 0.0085, 0.00032, 0), 0.0002, { bevel: 0 });
-          m.prism(rect(-0.00032, -0.0085, 0.00032, 0.006, 0), 0.0002, { bevel: 0 });
-          // Two subtle ballistic stadia ticks below center.
-          m.prism(rect(-0.004, -0.0036, 0.004, -0.003, 0), 0.0002, { bevel: 0 });
-          m.prism(rect(-0.0025, -0.0064, 0.0025, -0.0058, 0), 0.0002, { bevel: 0 });
+        m.at([0, 0, 0.004], null, () => {
+          m.prism(rect(-0.0095, -0.00032, 0.0095, 0.00032, 0), 0.0002, { bevel: 0 });
+          m.prism(rect(-0.00032, -0.0095, 0.00032, 0.0065, 0), 0.0002, { bevel: 0 });
+          // Descending ballistic drop stadia ticks below the main crosshair.
+          m.prism(rect(-0.0048, -0.0034, 0.0048, -0.0028, 0), 0.0002, { bevel: 0 });
+          m.prism(rect(-0.0032, -0.0062, 0.0032, -0.0056, 0), 0.0002, { bevel: 0 });
+          m.prism(rect(-0.0018, -0.0086, 0.0018, -0.0080, 0), 0.0002, { bevel: 0 });
         }),
       );
     });
-    // Left-flank ballistic readout screen.
-    m.at([-0.0256, 0.004, 0.02], [0, -Math.PI / 2, 0], () => {
-      m.use(F.polymerGrey);
-      m.prism(rect(-0.028, -0.014, 0.028, 0.014, 0.002), 0.0018, { bevel: 0.0006 });
+
+    // Left-facing recessed artillery status display (`105MM` readiness & reserve readout).
+    m.at([-0.030, 0.004, 0.022], [0, -Math.PI / 2, 0], () => {
+      m.use(F.parkerized);
+      m.prism(rect(-0.032, -0.016, 0.032, 0.016, 0.0024), 0.0024, { bevel: 0.0008 });
       m.use(F.black);
-      m.at([0, 0, 0.0008], null, () => m.prism(rect(-0.0256, -0.0118, 0.0256, 0.0118, 0.0012), 0.0008, { bevel: 0 }));
-      m.at([0, 0, 0.0014], null, () => m.screen('range', 0.048, 0.022));
+      m.at([0, 0, 0.001], null, () => m.prism(rect(-0.029, -0.0135, 0.029, 0.0135, 0.0014), 0.001, { bevel: 0 }));
+      m.at([0, 0, 0.0018], null, () => m.screen('range', 0.054, 0.025));
     });
-    // Knurled elevation drum with brass vernier cap on top of the optic.
-    m.at([0, 0.032, -0.012], [Math.PI / 2, 0, 0], () => {
-      knurl(m, 0.0105, 0.011, F.steelDark, 22, 0.0005);
+
+    // Heavy knurled elevation range drum with machined brass vernier cap on top of the sight.
+    m.at([0, 0.036, -0.012], [Math.PI / 2, 0, 0], () => {
+      knurl(m, 0.013, 0.014, F.steelDark, 24, 0.0006);
       m.use(F.brass);
-      m.at([0, 0, -0.006], null, () => m.cyl(0.0108, 0.0022, 20));
+      m.at([0, 0, -0.008], null, () => m.cyl(0.0136, 0.0032, 22));
     });
   });
 
-  // Braided fire-control conduit down from the optic to the trigger box.
+  // Armored fire-control conduit running from the sight bracket down to the trigger box.
   m.use(F.rubber);
   m.tube(
-    [[-0.052, AXIS + 0.02, -0.10], [-0.062, AXIS - 0.018, -0.04], [-0.054, AXIS - 0.062, 0.025], [-0.024, -0.002, 0.05], [-0.018, 0.002, 0.062]],
-    0.0026,
-    { seg: 8, samples: 26 },
+    [
+      [OPTIC_X + 0.024, OPTIC_Y - 0.022, OPTIC_Z + 0.055],
+      [OPTIC_X + 0.018, OPTIC_Y - 0.082, 0.005],
+      [-0.082, 0.016, 0.042],
+      [-0.028, 0.004, 0.058],
+    ],
+    0.0036,
+    { seg: 8, samples: 24 },
   );
   m.use(F.brass);
-  m.at([-0.018, 0.0, 0.062], [0.9, 0, 0], () => m.cyl(0.0044, 0.012, 12));
+  m.at([-0.028, 0.004, 0.058], [0, Math.PI / 2, 0], () => m.cyl(0.0058, 0.012, 12));
 }
 
 function curveGrip(): V2[] {
-  const f = curve([[-0.018, 0], [-0.021, -0.032], [-0.022, -0.064], [-0.018, -0.102]], 4);
-  const b = curve([[0.022, -0.102], [0.024, -0.064], [0.022, -0.032], [0.018, 0]], 4);
+  const f = curve([[-0.021, 0], [-0.025, -0.032], [-0.026, -0.066], [-0.021, -0.108]], 4);
+  const b = curve([[0.025, -0.108], [0.027, -0.066], [0.025, -0.032], [0.021, 0]], 4);
   return [...f, ...b];
 }
 
-function gripsAndHardware(m: Mesher): void {
-  // Rear fire-control housing and trigger grip under the breech.
+function gripsAndControls(m: Mesher): void {
+  // Rear firing housing & heavy pistol grip anchored firmly beneath the forged breech monolith.
   m.use(F.parkerized);
-  m.side(poly([[0.105, 0.032], [0.105, 0, 0.006], [0.09, -0.012, 0.006], [-0.078, -0.012, 0.006], [-0.105, 0.032]], 0.003), 0.048, { bevel: 0.002 });
+  m.side(
+    poly([[0.115, 0.028], [0.112, -0.008, 0.006], [0.092, -0.016, 0.006], [-0.068, -0.016, 0.006], [-0.088, 0.028]], 0.003),
+    0.058,
+    { bevel: 0.0022 },
+  );
   m.use(F.polymerStipple);
-  const front = curve([[0.02, -0.01], [0.021, -0.036], [0.028, -0.06], [0.036, -0.082], [0.044, -0.112]], 4);
-  const back = curve([[0.098, -0.112], [0.094, -0.08], [0.086, -0.045], [0.08, -0.01]], 4);
-  m.side([...front, [0.046, -0.118], [0.096, -0.118], ...back], 0.033, { bevel: 0.0036, smooth: 50 });
+  const front = curve([[0.02, -0.014], [0.021, -0.04], [0.028, -0.064], [0.036, -0.086], [0.044, -0.118]], 4);
+  const back = curve([[0.1, -0.118], [0.096, -0.084], [0.088, -0.048], [0.082, -0.014]], 4);
+  m.side([...front, [0.046, -0.124], [0.098, -0.124], ...back], 0.035, { bevel: 0.0038, smooth: 50 });
   m.use(F.anodized);
-  m.at([0, -0.1205, 0.071], null, () => m.box(0.033, 0.006, 0.056, 0.0014, 0.003));
-  // Heavy trigger guard.
+  m.at([0, -0.1265, 0.073], null, () => m.box(0.036, 0.007, 0.06, 0.0016, 0.003));
+  // Heavy oversized gloved trigger guard.
   m.use(F.steelDark);
   m.side(
-    poly([[-0.038, -0.012], [-0.042, -0.03, 0.006], [-0.024, -0.044, 0.008], [0.03, -0.044, 0.008], [0.05, -0.016, 0.004], [0.05, -0.012]], 0.002),
-    0.013,
+    poly([[-0.042, -0.014], [-0.046, -0.034, 0.006], [-0.028, -0.050, 0.008], [0.032, -0.050, 0.008], [0.052, -0.020, 0.004], [0.052, -0.014]], 0.002),
+    0.015,
     {
-      bevel: 0.0013,
-      holes: [poly([[-0.032, -0.014], [-0.034, -0.028, 0.005], [-0.021, -0.038, 0.005], [0.022, -0.038, 0.005], [0.041, -0.0155, 0.003], [0.042, -0.014]], 0.002)],
+      bevel: 0.0015,
+      holes: [poly([[-0.036, -0.016], [-0.038, -0.032, 0.005], [-0.024, -0.044, 0.005], [0.023, -0.044, 0.005], [0.042, -0.0195, 0.003], [0.043, -0.016]], 0.002)],
     },
   );
-  m.at([0, 0.032, 0], null, () => {
-    m.use(F.steelDark);
-    m.box(0.054, 0.014, 0.22, 0.0014);
-  });
   m.mirror(() => {
-    hexX(m, 0.0245, 0.01, 0.078, 1, 0.0036);
-    hexX(m, 0.0245, 0.01, -0.056, 1, 0.0036);
+    hexX(m, 0.0295, 0.008, 0.08, 1, 0.0042);
+    hexX(m, 0.0295, 0.008, -0.044, 1, 0.0042);
   });
 
-  // Brass-and-red arming selector lever on the left side.
-  m.part('lever', [-0.0255, 0.012, 0.012], () => {
-    m.use(F.brass);
-    m.at([0, 0, 0], [0, Math.PI / 2, 0], () => m.cyl(0.0065, 0.0034, 14));
-    m.use(F.red);
-    m.at([-0.002, 0, -0.013], null, () => m.box(0.003, 0.0054, 0.026, 0.0009));
-  });
-
-  // Forward support grip clamped to the front of the heat jacket.
+  // Chunky forward support handle clamped to the lower-left side of the massive recoil cradle (zero clipping with springs).
+  const fgX = -0.056;
   const fgZ = -0.34;
-  m.at([0, AXIS, fgZ], null, () => {
-    m.use(F.parkerized);
-    m.lathe([[R + 0.007, 0.018, 0], [R + 0.012, 0.018], [R + 0.012, -0.018], [R + 0.007, -0.018, 0]], 36, { chamfer: 0.0014 });
-  });
   m.use(F.parkerized);
-  m.at([0, AXIS - R - 0.016, fgZ], null, () => m.box(0.034, 0.018, 0.04, 0.002, 0.004));
+  m.at([fgX, 0.006, fgZ], null, () => m.box(0.048, 0.024, 0.072, 0.0024, 0.005));
+  m.use(F.brass);
+  m.at([fgX - 0.025, 0.006, fgZ], [0, -Math.PI / 2, 0], () => m.cyl(0.008, 0.006, 14));
   m.use(F.polymerStipple);
-  m.at([0, AXIS - R - 0.024, fgZ], null, () => {
-    m.side(curveGrip(), 0.031, { bevel: 0.0036, smooth: 50 });
+  m.at([fgX, -0.008, fgZ], null, () => {
+    m.side(curveGrip(), 0.036, { bevel: 0.0038, smooth: 50 });
   });
   m.use(F.anodized);
-  m.at([0, AXIS - R - 0.132, fgZ + 0.006], null, () => m.box(0.035, 0.006, 0.048, 0.0014, 0.003));
-
-  // Heavy contoured rubber shoulder rest under the rear tube.
-  m.use(F.rubber);
-  m.at([0, AXIS - R - 0.009, 0.135], null, () =>
-    m.side(poly([[0.095, 0.006], [0.095, -0.01, 0.006], [0.078, -0.026, 0.008], [-0.078, -0.026, 0.008], [-0.095, -0.01, 0.006], [-0.095, 0.006]], 0.002), 0.056, {
-      bevel: 0.003,
-    }),
-  );
-
-  // Top-right steel carry handle with rubber grip sleeve, plus short rear accessory rail.
-  m.use(F.steelDark);
-  const path: V3[] = [
-    [0.036, AXIS + R + 0.004, -0.34],
-    [0.042, AXIS + R + 0.034, -0.315],
-    [0.042, AXIS + R + 0.038, -0.22],
-    [0.042, AXIS + R + 0.034, -0.12],
-    [0.036, AXIS + R + 0.004, -0.09],
-  ];
-  m.tube(path, 0.0052, { seg: 10, samples: 28, tension: 0.4 });
-  m.use(F.rubber);
-  m.tube([[0.042, AXIS + R + 0.038, -0.265], [0.042, AXIS + R + 0.038, -0.165]], 0.008, { seg: 12, samples: 4 });
-  m.use(F.parkerized);
-  for (const z of [-0.34, -0.09]) {
-    m.at([0.034, AXIS + R + 0.002, z], null, () => m.box(0.024, 0.007, 0.024, 0.0014, 0.003));
-  }
-  m.at([0, AXIS + R + 0.004, 0.14], null, () => rail(m, 0.055, -0.055, 0.0212, F.anodized));
+  m.at([fgX, -0.119, fgZ + 0.003], null, () => m.box(0.040, 0.008, 0.054, 0.0016, 0.003));
 }
 
 function buildHowitzer(kit: Kit): Model {
   const m = kit.mesher();
-  m.bevel = 0.0016;
-  venturiAndBreech(m);
-  barrelAndBrake(m);
-  breechCover(m);
-  artilleryShell(m);
-  optic(m);
-  gripsAndHardware(m);
-  m.part('trigger', [0, -0.0125, -0.002], () => {
+  m.bevel = 0.0018;
+  breechMonolith(m);
+  slidingWedgeAndCrank(m);
+  rearSaddle(m);
+  cradleAndRecoilSprings(m);
+  barrelEvacuatorAndBrake(m);
+  artilleryShellAndSpentCasing(m);
+  artilleryRangefinder(m);
+  gripsAndControls(m);
+
+  m.part('trigger', [0, -0.016, -0.002], () => {
     m.use(F.steelDark);
     m.side(
-      poly([[-0.0035, 0.002], [0.0035, 0.002], [0.002, -0.009, 0.002], [0.0038, -0.0205, 0.0015], [0.0005, -0.0215, 0.001], [-0.0035, -0.0095, 0.003]], 0.001),
-      0.0065,
-      { bevel: 0.0007 },
+      poly([[-0.004, 0.002], [0.004, 0.002], [0.0024, -0.010, 0.002], [0.0042, -0.022, 0.0016], [0.0005, -0.023, 0.001], [-0.004, -0.0105, 0.003]], 0.001),
+      0.0075,
+      { bevel: 0.0008 },
     );
   });
 
   const model = new Model(m, kit.mats, {
-    glows: { reticle: [0xffa828, 2.4] },
+    glows: {
+      reticle: [0xffa828, 2.5],
+      breech: [0xff9e22, 2.2],
+    },
     screens: { range: [168, 76] },
   });
-  model.socket('muzzle', [0, AXIS, -0.94]);
-  model.socket('eject', [0.05, AXIS + 0.045, -0.10]);
-  model.hand('gripR', [0.018, -0.052, 0.07], [0, -0.96, 0.27], [-0.3, -0.25, -0.92]);
-  model.foregrip('gripL', [-0.018, AXIS - R - 0.08, -0.34]);
-  model.hand('latch', [-0.084, AXIS + 0.024, -0.125], [-0.1, 0.3, -0.95], [0.9, -0.3, -0.25], 'breech');
-  model.hand('shellHold', [-0.032, -0.038, -0.16], [-0.1, 0.1, -0.98], [0.75, 0.55, -0.1], 'shell');
-  model.hand('leverHold', [-0.036, 0.014, 0.0], [-0.5, -0.2, -0.8], [0.8, -0.3, -0.5], 'lever');
+
+  model.socket('muzzle', [0, AXIS, -1.36]);
+  model.socket('eject', [0, AXIS, 0.22]);
+  model.hand('gripR', [0.018, -0.056, 0.07], [0, -0.96, 0.27], [-0.3, -0.25, -0.92]);
+  model.foregrip('gripL', [-0.076, -0.066, -0.34]);
+  // Overhand grip on the grooved brass operating crank handle (parented to `crank` so the hand rides the throw!).
+  model.hand('crankHold', [-0.054, 0.004, -0.074], [1, 0, 0], [0, 0.45, -0.89], 'crank');
+  // Cradling under the forearm-thick 105 mm shell belly during the hoist, then pushing the brass base home into the bore.
+  model.hand('shellHold', [-0.044, -0.036, -0.14], [-0.05, 0.25, -0.96], [0.78, 0.56, -0.08], 'shell');
+  model.hand('shellRam', [-0.018, -0.014, 0.068], [0.92, -0.35, 0.05], [0.15, 0.45, -0.88], 'shell');
   return model;
 }
 
@@ -528,83 +914,133 @@ function readout(a: Anim): void {
 
 function clip(a: Anim): void {
   const P = a.parts;
-  pullTrigger(a, 0.11);
+  pullTrigger(a, 0.12);
   const p = a.reload;
   const loaded = a.mag > 0;
   P.shell!.visible = loaded;
-  a.glow('reticle', loaded ? 0.96 + 0.04 * Math.sin(a.time * 9) : 0.25);
+  P.spent!.visible = false;
+  a.glow('reticle', loaded ? 0.96 + 0.04 * Math.sin(a.time * 9) : 0.24);
+  a.glow('breech', loaded && p < 0 ? 1.0 : 0.12);
 
-  // Hydraulic barrel recoil: slams straight back into the recuperators, then runs smoothly forward.
-  if (a.sinceFire < 0.45) {
-    const back = outCubic(seg(a.sinceFire, 0, 0.055)) * (1 - inOut(seg(a.sinceFire, 0.075, 0.42)));
-    P.barrel!.position.z += back * RECOIL_SLAM;
-    const rock = bump(a.sinceFire, 0.015, 0.45);
-    a.gunR.z -= rock * 0.045;
-    a.gunP.y -= rock * 0.012;
+  // Massive hydraulic long-recoil: barrel + evacuator + 4-baffle brake slam 0.17 m straight back while the giant twin
+  // coil springs compress synchronously, then slowly, powerfully run back into battery. Zero roll/twist on fire!
+  let barrelBack = 0;
+  if (a.sinceFire < 0.56) {
+    const t = a.sinceFire;
+    const slam = t < 0.045 ? outCubic(t / 0.045) : t < 0.10 ? 1 : 1 - inOut(seg(t, 0.10, 0.54));
+    barrelBack = slam * RECOIL_SLAM;
+    const rock = bump(t, 0.01, 0.50);
+    a.gunP.y -= rock * 0.014;
+    a.gunR.x += rock * 0.022;
   }
 
+  // Unique heavy artillery draw: heaving the massive cannon up from low-right onto the shoulder while the barrel sleigh
+  // settles with a solid hydraulic thud. Zero rolling or twisting.
   if (a.draw < 1) {
-    // Heaved smoothly onto the shoulder without rolling or twisting.
     const d = 1 - outCubic(a.draw);
-    a.gunP.x += d * 0.065;
-    a.gunP.y -= d * 0.04;
-    a.gunR.y -= d * 0.26;
-    P.lever!.rotation.x -= bump(a.draw, 0.55, 1) * 0.75;
+    a.gunP.x += d * 0.095;
+    a.gunP.y -= d * 0.135;
+    a.gunP.z += d * 0.075;
+    a.gunR.x -= d * 0.13;
+    a.gunR.y -= d * 0.18;
+    const settle = thud(seg(a.draw, 0.65, 1.0));
+    barrelBack += settle * 0.028;
+    a.gunP.y -= settle * 0.012;
   }
-  if (p < 0) return;
 
-  // Timed to reloadFoley: [[0.12, 'reload_bolt'], [0.55, 'reload_shell_in'], [0.84, 'metal_clang']].
-  const open = outCubic(seg(p, 0.07, 0.17)) * (1 - inQuad(seg(p, 0.74, 0.84)));
-  const slam = p >= 0.84 ? thud(seg(p, 0.84, 0.94)) : 0;
-  P.breech!.rotation.z -= (open + slam * 0.03) * BREECH_OPEN;
+  if (p >= 0) {
+    // Timed to reloadFoley: [[0.12, 'reload_bolt'], [0.55, 'reload_shell_in'], [0.84, 'metal_clang']].
+    // Stage 1 (0.00 -> 0.24): crank yanks down ~100 deg, sliding-wedge breech drops straight down, spent brass kicks out!
+    // Stage 2 (0.26 -> 0.68): hoist forearm-thick 105 mm HE shell behind open breech and ram straight forward (-Z) home!
+    // Stage 3 (0.70 -> 0.96): slam crank up, driving the sliding wedge straight up into lock with a violent jolt!
+    const crankDown = inOut(seg(p, 0.08, 0.21)) * (1 - inQuad(seg(p, 0.75, 0.84)));
+    const wedgeOpen = outCubic(seg(p, 0.10, 0.21)) * (1 - inQuad(seg(p, 0.76, 0.84)));
+    const unlockJolt = bump(p, 0.10, 0.19);
+    const seatThump = p >= 0.64 ? thud(seg(p, 0.64, 0.72)) : 0;
+    const lockSlam = p >= 0.84 ? thud(seg(p, 0.84, 0.95)) : 0;
 
-  // Fresh 105 mm brass shell lifted from the hip, laid in the cradle, and shoved forward into the chamber.
-  const rise = inOut(seg(p, 0.22, 0.48));
-  const shove = inOut(seg(p, 0.50, 0.66));
-  P.shell!.visible = p > 0.20;
-  const sh = P.shell!;
-  sh.position.y += (1 - rise) * -0.40 + (1 - shove) * 0.055;
-  sh.position.x += (1 - rise) * -0.19;
-  sh.position.z += (1 - shove) * 0.20 + (1 - rise) * 0.04;
-  sh.rotation.x += (1 - rise) * 0.55;
-  sh.rotation.z += (1 - rise) * 0.6;
+    P.crank!.rotation.x -= crankDown * CRANK_SWING - lockSlam * 0.05;
+    P.wedge!.position.y -= wedgeOpen * WEDGE_DROP - lockSlam * 0.005;
 
-  // Subtle tilt toward the left hand during loading, settling cleanly on the breech slam.
-  const present = hold(p, 0, 0.14, 0.82, 0.96);
-  a.gunR.z += present * 0.24;
-  a.gunR.x += present * 0.05 + slam * 0.022;
-  a.gunP.x -= present * 0.06;
-  a.gunP.y -= present * 0.042 - slam * 0.012;
-  a.gunP.z += present * 0.075;
+    // Breech-locked amber status light snaps bright the instant the sliding wedge seals home at p = 0.84.
+    a.glow('breech', p >= 0.84 ? 1.0 + lockSlam * 0.5 : 0.12);
+    a.glow('reticle', p >= 0.84 ? 0.96 : 0.24);
 
-  const lever = bump(p, 0.86, 0.97);
-  P.lever!.rotation.x -= lever * 0.9;
+    // Spent 105 mm brass casing kicks straight backward (+Z) out of the open breech and tumbles down away.
+    const ejecting = p >= 0.12 && p <= 0.36;
+    P.spent!.visible = ejecting;
+    if (ejecting) {
+      const e = seg(p, 0.12, 0.35);
+      const kick = outCubic(Math.min(1, e * 1.6));
+      const drop = inQuad(Math.max(0, (e - 0.16) / 0.84));
+      P.spent!.position.z += kick * 0.34;
+      P.spent!.position.y -= drop * 0.52;
+      P.spent!.position.x -= drop * 0.08;
+      P.spent!.rotation.x += drop * 1.15;
+    }
 
-  const h = a.left;
-  h.fingerRate = 36;
-  h.to('latch', inOut(seg(p, 0.0, 0.08)));
-  h.to('shellHold', inOut(seg(p, 0.11, 0.26)));
-  h.to('latch', inOut(seg(p, 0.70, 0.76)));
-  h.to('leverHold', inOut(seg(p, 0.84, 0.89)));
-  h.to('gripL', inOut(seg(p, 0.93, 1)));
-  h.shape(HANDS.cup, hold(p, 0.20, 0.27, 0.65, 0.70));
-  h.shape(HANDS.foregrip, hold(p, 0.02, 0.06, 0.08, 0.12));
-  h.shape(HANDS.foregrip, hold(p, 0.72, 0.76, 0.93, 0.98));
+    // Fresh 105 mm brass-and-olive HE shell hoisted up behind the open breech, aligned with the bore, and rammed
+    // straight forward (-Z) into the chamber in a weighty two-beat shove!
+    P.shell!.visible = p > 0.25;
+    if (p > 0.25) {
+      const hoist = inOut(seg(p, 0.26, 0.47));
+      const beat1 = inOut(seg(p, 0.49, 0.57));
+      const beat2 = inOut(seg(p, 0.58, 0.67));
+      const ramRemain = 1 - (beat1 * 0.58 + beat2 * 0.42);
+      const sh = P.shell!;
+      sh.position.z += 0.34 * ramRemain + (1 - hoist) * 0.04;
+      sh.position.y += (1 - hoist) * -0.44;
+      sh.position.x += (1 - hoist) * -0.18;
+      sh.rotation.x += (1 - hoist) * 0.42;
+      sh.rotation.y += (1 - hoist) * -0.22;
+    }
+
+    // Shift cannon forward and slightly left with a subtle tilt so the open rear breech, crank, and 105 mm shell ram
+    // are framed prominently in first-person without wild rolling.
+    const present = hold(p, 0.0, 0.12, 0.86, 0.98);
+    a.gunP.z -= present * 0.23 + seatThump * 0.018;
+    a.gunP.x -= present * 0.13;
+    a.gunP.y -= present * 0.035 + unlockJolt * 0.012 - lockSlam * 0.022;
+    a.gunR.y += present * 0.16;
+    a.gunR.x -= present * 0.06 - lockSlam * 0.032;
+    a.gunR.z += present * 0.13;
+    barrelBack += lockSlam * 0.018;
+
+    // Left hand choreography: crank down -> hoist 105 mm shell -> shift to brass base & ram -> crank slam up -> gripL.
+    const h = a.left;
+    h.fingerRate = 36;
+    h.to('crankHold', inOut(seg(p, 0.0, 0.08)));
+    h.to('shellHold', inOut(seg(p, 0.21, 0.30)));
+    h.to('shellRam', inOut(seg(p, 0.46, 0.52)));
+    h.to('crankHold', inOut(seg(p, 0.68, 0.75)));
+    h.to('gripL', inOut(seg(p, 0.86, 0.97)));
+    h.shape(HANDS.ball, hold(p, 0.05, 0.09, 0.20, 0.24));
+    h.shape(HANDS.cup, hold(p, 0.25, 0.31, 0.46, 0.50));
+    h.shape(HANDS.foregrip, hold(p, 0.49, 0.54, 0.67, 0.71));
+    h.shape(HANDS.ball, hold(p, 0.73, 0.76, 0.85, 0.89));
+  }
+
+  // Apply barrel recoil & synchronous twin recoil-spring compression.
+  if (barrelBack !== 0) {
+    P.barrel!.position.z += barrelBack;
+    P.springs!.scale.z *= Math.max(0.45, (SPRING_LEN - barrelBack) / SPRING_LEN);
+  }
 }
 
 export function howitzerDef(kit: Kit): ViewDef {
   return {
     id: 'howitzer',
     model: buildHowitzer(kit),
-    pos: [0.26, -0.22, -0.37],
-    rot: [0.01, 0.07, 0],
-    // ADS: eye aligned cleanly through the side optical rangefinder's amber reticle.
-    sight: [-0.068, AXIS + 0.046, -0.0848],
-    relief: 0.1,
-    recoil: { back: 0.105, lift: 0.022, pitch: 0.095, yaw: 0.014, roll: 0.032, omega: 20, zeta: 0.54 },
+    pos: [0.32, -0.275, -0.37],
+    rot: [0.008, 0.055, 0],
+    // ADS: eye aligned cleanly through the left-flank armored artillery rangefinder's warm amber stadia reticle.
+    sight: [OPTIC_X, OPTIC_Y + 0.006, OPTIC_Z + 0.090],
+    relief: 0.11,
+    // Heavy straight-back artillery shove into the shoulder: zero rolling/twisting on fire.
+    recoil: { back: 0.145, lift: 0.026, pitch: 0.095, yaw: 0.012, roll: 0.0, omega: 18, zeta: 0.52 },
     right: { socket: 'gripR', pose: HANDS.grip },
     left: { socket: 'gripL', pose: HANDS.foregrip },
-    heatPerShot: 0.65,
+    heatPerShot: 0.75,
     animate: clip,
     readout,
   };
