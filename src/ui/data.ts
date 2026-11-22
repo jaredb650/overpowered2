@@ -79,7 +79,7 @@ export const WEAPONS: Record<WeaponId, WeaponInfo> = {
     note: `Press 3 again to swap with the rocket. A tap fires all four straight; right click braids all four in a helix onto the aim point. Each blast is ${TUNING.quiver.radius} m; all four on one target is a lot.`,
   },
   mgl: {
-    name: 'Milkor MGL', key: '3',
+    name: 'RGL', key: '3',
     role: `Revolving 40 mm grenade launcher. ${def.mgl.magSize}-round drum, ${def.mgl.grenade!.blast} blast damage in ${def.mgl.grenade!.radius} m`,
     note: 'Press 3 again to cycle to it. Rapid semi-auto 40 mm HE grenades. Fit Sticky Bomb in Procurement: hold R to toggle HE or STICKY, and right-click to detonate every planted sticky at once.',
   },
@@ -177,7 +177,7 @@ export const WEAPONS: Record<WeaponId, WeaponInfo> = {
     note: `Press 8 again to swap with the ${def.buzzsaw.name.charAt(0) + def.buzzsaw.name.slice(1).toLowerCase()}. Goes through walls, ${def.piledriver.penetration} m of them in all, and everyone in line. Takes limbs off and can burst what it kills. It kicks, and it slows you a little. Hold R for Raufoss rounds, and again for ball: each bursts where it hits and throws a cone of fragments out of the far side, through cover or through the man it hit. Tap R reloads. Right click aims.`,
   },
   metalstorm: {
-    name: 'Metal Storm', key: '8',
+    name: 'Iron Storm', key: '8',
     role: `36-barrel stacked-projectile volley gun. ${def.metalstorm.magSize} caseless rounds, electronic ignition from 600 to 1,000,000 RPM`,
     note: 'Press 8 again to cycle to it. Hold R to step the electronic fire rate: 600 RPM, 3.6K RPM, 60K RPM, or a 1M RPM hyper-volley that dumps up to 36 stacked rounds in one roar. Tap R reloads. Fit the 40mm FireStorm mod to convert the matrix to stacked 40 mm HE grenades.',
   },

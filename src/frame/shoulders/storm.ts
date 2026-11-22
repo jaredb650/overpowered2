@@ -606,21 +606,21 @@ export class StormShoulder implements FrameShoulderWeapon {
     row.max = STORM.maxTargets;
     row.selected = false;
     if (!online) {
-      row.name = `${keyLabel} METAL STORM // OFFLINE`;
+      row.name = `${keyLabel} IRON STORM // OFFLINE`;
       row.ammo = 0;
       row.reload = -1;
       return;
     }
     const clock = this.clock;
     if (clock.reloading >= 0) {
-      row.name = `${keyLabel} METAL STORM // RELOAD`;
+      row.name = `${keyLabel} IRON STORM // RELOAD`;
       row.ammo = 0;
       row.reload = clock.reloadProgress;
       return;
     }
     if (clock.phase === 'firing') {
       const left = clock.remainingTargets;
-      row.name = `${keyLabel} METAL STORM // SWEEPING ${left}`;
+      row.name = `${keyLabel} IRON STORM // SWEEPING ${left}`;
       row.ammo = left;
       row.reload = -1;
       row.selected = true;
@@ -629,23 +629,23 @@ export class StormShoulder implements FrameShoulderWeapon {
     if (clock.phase === 'painting') {
       const count = clock.painter.marks.length;
       if (count === 0) {
-        row.name = `${keyLabel} METAL STORM // LOCKING`;
+        row.name = `${keyLabel} IRON STORM // LOCKING`;
         row.ammo = 0;
         row.reload = -1;
       } else if (!clock.charged) {
-        row.name = `${keyLabel} METAL STORM // CHARGING ${count}`;
+        row.name = `${keyLabel} IRON STORM // CHARGING ${count}`;
         row.ammo = count;
         row.reload = clock.chargeProgress;
         row.selected = true;
       } else {
-        row.name = `${keyLabel} METAL STORM // LOCKED ${count} [RELEASE]`;
+        row.name = `${keyLabel} IRON STORM // LOCKED ${count} [RELEASE]`;
         row.ammo = count;
         row.reload = -1;
         row.selected = true;
       }
       return;
     }
-    row.name = `${keyLabel} METAL STORM // READY`;
+    row.name = `${keyLabel} IRON STORM // READY`;
     row.ammo = STORM.maxTargets;
     row.reload = -1;
   }

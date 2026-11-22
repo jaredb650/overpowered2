@@ -615,40 +615,21 @@ work. Hiring Freeze last, because of the colour.
 
 ---
 
-## 5. Open questions for the owner
+## 5. Open questions — Owner decisions (2026-11-22)
 
-Only where two readings lead to different work. Each has the reading the builder takes if there is no answer.
+All questions have been answered by the owner and are now binding build decisions:
 
-1. **How close to the real guns?** You asked for the Rivet to look like a Beretta 92FS and the Autoraffica "as much
-   like the original RoboCop gun as possible". The game's own rule says original content, real guns as inspiration
-   only, no logos or brands. *Default:* the same shapes and proportions as closely as we can, in black, with no name,
-   logo, marking or text from the maker or the film, and our own shop names. Is that the line you want?
-2. **Reference photos.** None are in the repo or on this machine. Please send the photos of the film gun and of the
-   92FS again. They would be kept in the repo this time (for example `docs/reference/`).
-3. **Smart gun, letting go.** (a) If you let go while it is still painting: does it cancel, or fire at what it has
-   painted so far? *Default:* cancel. (b) Once it is firing, does letting go stop it? *Default:* yes. (c) Does hold R
-   still switch between the plain three-round burst and the smart mode? *Default:* yes, as today.
-4. **Howitzer cluster shell.** Is every shell a cluster shell once fitted (like the autocannon's flak), or does hold R
-   switch between the standard shell and cluster (like the WP rockets)? *Default:* hold R.
-5. **Autocannon long barrel.** A direct hit already kills anything normal in one shot. The "more direct-hit damage" can
-   only show on bosses, vehicles and the mech. Is that what you meant, or should the barrel do something else for the
-   common case (for example a bigger blast)? *Default:* bosses, vehicles and the mech only.
-6. **Missions beaten twice.** (a) There is no point limit on mission loadouts today, because there is no mod choice at
-   all. Did you mean a first stage with a point budget (say after the first win) and no budget after the second? Or
-   simply: after two wins, every mod is free? *Default:* the simple one. (b) Twice per mission, or any two mission wins?
-   *Default:* per mission. (c) Are all of that gun's mods open, or only ones the player has bought somewhere before?
-   *Default:* all of them.
-7. **Riot shield.** Is the shield always up while that pistol is out, or raised with right click? *Default:* always up,
-   and right click is the shield bash.
-8. **Microwave gun.** Truly invisible, or a faint heat shimmer so you can see where it points? *Default:* shimmer only,
-   no beam and no light. And is it a narrow beam on one man or a cone on several? *Default:* a narrow cone, two or
-   three men.
-9. **Shotgun rounds.** Dragon's breath on the Thresher and the new shotgun only, as you said, or on the pump and the
-   Deuce too? Slugs on the new shotgun only, or on all of them? *Default:* exactly as you said.
-10. **Names.** Billhook, Bodkin, Autoclave and Gaff: yes, or your own? Also, two names in today's shop are real company
-    names: "MILKOR MGL" and "METAL STORM". Rename them to match the rule, or leave them?
-11. **Harpoon rope and the Stakegun's tether bolt** are the same movement tool. Both, or does the harpoon take it and
-    the Stakegun keep only the sticky charge? *Default:* the harpoon takes it.
+1. **How close to the real guns (Rivet = Beretta 92FS, Autoraffica = RoboCop film gun)?** **Decision:** Make each look as close to the real gun as you can (Autoraffica in black). The only limit is names: no real or trademarked names.
+2. **Reference photos.** None in repo; proceed from shapes and proportions.
+3. **Smart gun, letting go & charging indicator.** **Decision:** (a) Letting go of the mouse at any point — while marking or while firing — cancels everything; you must hold through the whole sequence (mark, then auto burst). (b) Each mark has a short charge-up (a fraction of a second) with **a small loading indicator on the head**. (c) Holding R switches between smart fire and burst fire.
+4. **Howitzer cluster shell.** **Decision:** Alternate ammo type; hold R switches between standard and cluster shells.
+5. **Autocannon long barrel.** **Decision:** Yes — faster shells, and extra direct-hit damage applies to bosses, vehicles, and the mech.
+6. **Missions beaten twice.** **Decision:** Count wins per mission. Once a mission is beaten twice, the primary stays limited to SMG, Gimlet, or Harrow, and every mod for that gun is free with no limit.
+7. **Riot shield.** **Decision:** **Raised with right click, not always up.**
+8. **Microwave gun (Autoclave).** **Decision:** Faint heat shimmer (not fully invisible, no beam/light), in a narrow cone hitting 2–3 men.
+9. **Shotgun rounds.** **Decision:** Only where the plan says — Dragon's breath on Thresher and Billhook only; flechettes and slugs on Billhook only (not on every shotgun).
+10. **Names & shop renames.** **Decision:** Use Billhook, Bodkin, Autoclave, and Gaff. Rename **"MILKOR MGL"** to **RGL** (Revolving Grenade Launcher) and **"METAL STORM"** to **IRON STORM** in every player-facing text; internal ids (`mgl`, `metalstorm`) stay.
+11. **Harpoon rope vs Stakegun tether bolt.** **Decision:** Remove the Stakegun's planned tether bolt from the backlog. The rope and grapple belong exclusively to the harpoon cannon (Gaff).
 
 ---
 

@@ -445,7 +445,7 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
   },
   // Milkor MGL: 6-shot revolving 40 mm grenade launcher on key 3. Rapid semi-auto drum thoomps; fits the Sticky Bomb shop mod.
   mgl: {
-    ...BASE, id: 'mgl', name: 'MILKOR MGL', slot: 3, base: 'rocket', mode: 'semi', round: 'grenade',
+    ...BASE, id: 'mgl', name: 'RGL', slot: 3, base: 'rocket', mode: 'semi', round: 'grenade',
     magSize: 6, reserve: 18, maxReserve: 30, reloadTime: 2.35, drawTime: 0.28,
     interval: 0.36, damage: 70, severMult: 2.5, force: 80, headshotMult: 1.5,
     grenade: { speed: 52, gravity: 11.2, life: 8, radius: 5.5, blast: 175 },
@@ -684,7 +684,7 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
   // Metal Storm: 36-barrel electronically-fired stacked-projectile weapon (5 stacked rounds per barrel = 180 rounds).
   // No moving bolt, no brass, pure solid-state ignition. Hold R cycles 4 electronic rates up to a 1,000,000 RPM hyper-volley.
   metalstorm: {
-    ...BASE, id: 'metalstorm', name: 'METAL STORM', slot: 8, base: 'buzzsaw', mode: 'auto',
+    ...BASE, id: 'metalstorm', name: 'IRON STORM', slot: 8, base: 'buzzsaw', mode: 'auto',
     magSize: 180, reserve: 360, maxReserve: 540, reloadTime: 2.6, drawTime: 0.38,
     interval: 0.1, damage: 24, spread: 0.012, severMult: 2.2, force: 16, headshotMult: 1.7,
     penetration: 0.8, bodyCost: 0.4, gib: 0.15, slow: 0.65, impactScale: 1.1,

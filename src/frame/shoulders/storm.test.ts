@@ -477,13 +477,13 @@ describe('StormShoulder & STORM_PLUGIN — Combat.fireRay batching, HUD, audio, 
 
     // Offline
     weapon.fillRow(row, 'V', '4', false);
-    expect(row.name).toBe('V METAL STORM // OFFLINE');
+    expect(row.name).toBe('V IRON STORM // OFFLINE');
     expect(row.ammo).toBe(0);
     expect(row.reload).toBe(-1);
 
     // Ready
     weapon.fillRow(row, 'G', '3', true);
-    expect(row.name).toContain('G METAL STORM');
+    expect(row.name).toContain('G IRON STORM');
     expect(row.ammo).toBe(8);
     expect(row.max).toBe(8);
     expect(row.reload).toBe(-1);
@@ -491,7 +491,7 @@ describe('StormShoulder & STORM_PLUGIN — Combat.fireRay batching, HUD, audio, 
     // Locking (before first lock)
     weapon.update(0.2, h.makeCtx([{ target: t1, angle: 0 }], true, true));
     weapon.fillRow(row, 'G', '3', true);
-    expect(row.name).toContain('G METAL STORM');
+    expect(row.name).toContain('G IRON STORM');
     expect(row.name).toContain('LOCKING');
 
     // Charging (locked 1, charging 0.35 / 0.7 s)

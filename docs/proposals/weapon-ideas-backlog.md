@@ -19,8 +19,8 @@ Rejected in the same brainstorm, don't propose again: saw-blade launcher (clich√
 - **Ammo types, cycled with hold R:**
   1. Regular stake (existing).
   2. Exploding bolt (existing).
-  3. **Tether bolt (mod):** fire it into a surface and it reels YOU in. It's a movement tool: tether to a wall, stick to it, then wall-climb up. It can reach places the parkour alone can't, which makes it a big movement changer. Check how it fits wall cling, climb and Jump Jet.
-  4. **Sticky charge (mod):** reuses the exploding-bolt logic, but the stakes stick and don't go off. **Right click detonates them all while the Stakegun is out.** Switching away from the Stakegun detonates them automatically, so remote control only works while it's in your hands.
+  3. **Sticky charge (mod):** reuses the exploding-bolt logic, but the stakes stick and don't go off. **Right click detonates them all while the Stakegun is out.** Switching away from the Stakegun detonates them automatically, so remote control only works while it's in your hands.
+  *(Owner decision, 2026-11-22: the tether bolt was removed from the Stakegun; rope and grapple belong exclusively to the Gaff harpoon cannon.)*
 - Each new ammo is a shop mod with the usual row, cheat row and test.
 
 ## 4. Throwing knives (rework the shiv)
