@@ -282,7 +282,7 @@ export class Siege {
   }
 
   reset(): void {
-    this.pieces = (this.walls?.all ?? []).filter(p => p.kind !== 'shack') as Piece[];
+    this.pieces = (this.walls?.all ?? []).filter(p => p.kind !== 'shack' && p.kind !== 'stall') as Piece[];
     this.jobs.clear();
     this.squads.clear();
     for (const p of this.pads) p.mesh.removeFromParent();

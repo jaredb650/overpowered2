@@ -3,50 +3,49 @@
 Mission 2 of the campaign, after the Outpost. The plan is `docs/proposals/mission-2-plan.md`; this file says what exists. Updated as
 each stage lands.
 
-## Where it stands (stages 6, 7 and 9: the plumbing, the map, beats 1 to 6)
+## Where it stands (all 16 sections built: stages 4, 5, 6, 7, 8, 9, 10, 11)
 
-All sixteen beats run end to end on Holdfast. Beats 1 to 6 are built (stage 9, below): the gunship fight over the landing, the Flats,
-the wall, the market and the courier, with the war beside the player all the way. Beats 7 to 16 are still the skeleton's stand-ins. No
-Old Mother yet; the Frame is stage 3's.
+All sixteen sections run nose to tail on Holdfast with zero stand-ins: the AC-130 overwatch, the Flats, the breach at the wall, the
+market, the courier shot down into the Slip, the crane stacks and Grandad, the Quay breather, the three-wave Slip boot hold with the
+torn-off door gun and scrolling Bureau Terms & Conditions, the kneeling Distraint Frame board and rampage back through the town with
+leg sappers and breakable stalls, the four-gun breakable Flak Tower on the harbour wall, the Pans reveal, the three-phase Old Mother
+salt crawler boss fight culminating in hull-breach eject onto her walkable stern deck, and the Harbourmaster cuff-or-kill finale.
 
-- **Play it:** `/?contract=foreclosure` on the dev server, or the menu's Foreclosure tab. From a beat: `&beat=<id>`, or the dev panel's
-  **MISSION: FORECLOSURE, FROM A BEAT** buttons (F1), which reload the page on that beat with its checkpoint's kit.
-- **Where:** Holdfast (stage 7, `docs/notes/holdfast.md`), the contract row's `map: 'holdfast'`. Every place is in
-  `src/campaign/missions/foreclosure.places.ts`: `PLACES` names them all, `MARKS` is what the beats name today (plus every route's marks),
-  and `BATTLES`, `OVERWATCH`, `ROUTES` (`technicalWest`, `technicalEast`, the Frame's `frameStacks`, `frameMarket`, `frameHarbour`,
-  `frameWest`, `framePans`) are there for the beats to come. A beat that names a new place adds it to `NAMED` in that file.
-- **Lock:** the row is shut in the menu until the Outpost is won (`opensAfter: 'outpost'`, `isShut` in `src/contracts/unlocks.ts`), and
-  open on the dev server, as every lock is there. It is not `locked: true`, because that flag means "after the campaign" and
-  `contracts.test.ts` pins the rows that carry it.
-- **Words:** `foreclosure.lines.ts`, rows only, ids `mission.foreclosure.<council|harbour|radio>.<key>`. The Council's recorded
-  `mission.council.brief.line` and its two redeploy takes are the Outpost's rows, by id. The Harbourmaster is her own speaker,
-  `harbourmaster`: "The Harbourmaster, Holdfast port address" in the box, in amber on aubergine, her portrait the port's loudspeaker on
-  its pole under bunting, rings coming off the horn while she talks (`ui/commander/portrait.ts`, `horn`). No PA tone under her yet.
-  The war's call-outs are `CALLS`, ids `mission.foreclosure.call.<bureau|militia>.<kind>.<n>`, feed text only. Nothing is recorded.
-- **Form numbers:** Foreclosure is 7742-F. Outpost Defense's notice, which also said 7742-F, is now 7742-G.
+- **Play it:** `/?contract=foreclosure` on the dev server, or the menu's Foreclosure tab. From a section: `&beat=<id>`, or the dev
+  panel's **MISSION: FORECLOSURE, FROM A BEAT** buttons (F1), which reload the page on that section with its checkpoint's kit.
+- **Where:** Holdfast (`docs/notes/holdfast.md`), the contract row's `map: 'holdfast'`. Every place is in
+  `src/campaign/missions/foreclosure.places.ts`: `PLACES`, `MARKS`, `BATTLES`, `OVERWATCH`, `ROUTES`, `SKY`, `SKY_ROUTES`.
+- **Lock:** shut in the menu until the Outpost is won (`opensAfter: 'outpost'`, `isShut` in `src/contracts/unlocks.ts`), open on the
+  dev server.
+- **Words & PA:** `foreclosure.lines.ts`, ids `mission.foreclosure.<council|harbour|radio>.<key>`. The Harbourmaster speaks as
+  `harbourmaster` ("The Harbourmaster, Holdfast port address", amber on aubergine, loudspeaker horn portrait) with a port-PA squelch
+  (`walkietalkie_fire`, pitch `0.84`) before each transmission (`src/campaign/hud.ts`).
+- **Story thread:** four Bureau red-goggles Wanted posters mounted along Holdfast's route (Main Gate, Market Square, Crane Aisle,
+  Quay crane cab), paired with the Harbourmaster's `stacks.goggles` line connecting the contractor across eleven ports on Day 1.
+- **Form numbers:** Foreclosure is 7742-F. Outpost Defense's notice is 7742-G.
 
-## The beats
+## The sections
 
-| # | Beat | Checkpoint | What runs now | Ends on |
+| # | Section | Checkpoint | What runs | Ends on |
 |---|---|---|---|---|
-| 1 | `briefing` | none | The Council reads Form 7742-F over a stand-in film of Holdfast | the film |
-| 2 | `overwatch` | `lz`, issued kit | **Built.** The gunship fight over the landing (below) | the lease running out |
-| 3 | `landing` | `lz` | **Built.** The Flats on foot: E taught, a man sniped down and revived, two technicals, the shack sniper | shacks, sniper and both technicals |
-| 4 | `wall` | `shanties` | **Built.** Enemy gunners on both wall guns, the breaching charge or the gate, the launcher on the kit | both gunners and a breach |
-| 5 | `market` | `gate`, launcher | **Built.** Riot shields and a Warden in the lane, riflemen on three roofs, a brute, prisoners, a Bailiff lost | lane and roofs cleared |
-| 6 | `courier` | none | **Built.** The fees, the courier shot down by the flak tower into the Slip, **call-ins held** | the courier in the ground |
-| 7 | `stacks` | `square` | Five Bailiffs, snipers, a tank for Grandad, the optional Sabot | squad and tank cleared |
-| 8 | `quay` | `quay` | Four Bailiffs, health and armour, the Thresher rack | the Thresher taken |
-| 9 | `slip` | `slip`, + Thresher | Three small squads, one per side | 30 s and all three cleared |
-| 10 | `mount` | `slip` | `frame kneel` | boarded |
-| 11 | `foreclosure` | `frame`, in the Frame | Squad off, a technical and a tank | all cleared |
-| 12 | `flak` | `harbour`, in the Frame | The tower's men | cleared |
-| 13 | `pans` | none | **Call-ins open**, the Harbourmaster on Mother | the west gate zone |
-| 14 | `mother` | `pans`, in the Frame | A tank stands in for Old Mother, two deck crew | Mother dead or 75 s: `frame eject` onto the deck |
-| 15 | `deck` | `deck`, on foot | The autocannon rack, the crew | crew cleared |
-| 16 | `ending` | `deck`, + autocannon | The Harbourmaster's last line, the Council's deductions, a film | finish |
+| 1 | `briefing` | none | The Council reads Form 7742-F over the Holdfast flyover film | the film |
+| 2 | `overwatch` | `lz`, issued kit | AC-130 gunship over the landing, technicals, roof guns, trench, fuel farm, AA hunters | the lease running out |
+| 3 | `landing` | `lz` | The Flats on foot: E taught, rocketeer wounded and revived, two technicals, shack sniper | shacks, sniper and both technicals |
+| 4 | `wall` | `shanties` | Enemy gunners on both wall guns, breaching charge or gate launcher | both gunners and a breach |
+| 5 | `market` | `gate`, launcher | Riot shields, Warden, roof riflemen, brute, prisoners, shotgunner lost | lane and roofs cleared |
+| 6 | `courier` | none | Fees, courier shot down by flak into the Slip, **call-ins held** | courier downed |
+| 7 | `stacks` | `square` | Crane aisle & quay road Bailiffs, red-goggles reveal, twin stack snipers, Grandad tank, optional Sabot rack | aisle, snipers and Grandad cleared |
+| 8 | `quay` | `quay` | Four Bailiffs, quay breather & resupply, Thresher rack | Thresher taken |
+| 9 | `slip` | `slip`, + Thresher | Burning Packmule wreck, torn-off Lv.3 door gun emplacement, booting Frame + scrolling Bureau T&C HUD (85 s), 3 escalating waves (troopers → technical+truck → chopper+juggernaut) | `fc:booted` (100%) |
+| 10 | `mount` | `slip` | Kneeling Distraint Frame (`frame kneel`) with open hatch; press E to climb in and play hydraulic rise + cockpit boot | boarded |
+| 11 | `foreclosure` | `frame`, in Frame | Rampage back through stacks & market smashing destructible stalls, tossing wrecks, stomping/backhanding militia leg sappers (`fc.sappers:on`), technical, truck, tank | all cleared |
+| 12 | `flak` | `harbour`, in Frame | Four articulated breakable twin-88 mm flak turrets (`FlakTower`, 500 HP each, G-paintable, live airburst salvos) + tower guard | `flak:cleared` (all 4 guns destroyed) |
+| 13 | `pans` | none | **Call-ins open**, Old Mother revealed patrolling the salt pans (`fc.motherReveal`), Harbourmaster dares you out | `westGate` zone |
+| 14 | `mother` | `pans`, in Frame | Three-phase Old Mother (`OldMother`): Phase 1 Hunt (break both 1500 HP tracks, dodge 20 m cutter sweeps, strip 700 HP turrets & 500 HP dorsal pod) → Phase 2 Drag → cutter seizes leg (`mother:seized`) → slow-mo 25 m `frame eject` onto deck | eject onto deck |
+| 15 | `deck` | `deck`, on foot | Real walkable Rapier stern deck, cover crates, single Autocannon rack, deck crew, glowing 1200 HP Stern Engine (`mother:engine`) → unarmed Harbourmaster kneels on stern deck: press E to cuff (`fc:cuffed`) or shoot (`fc:killed`) | `fc:harbourDone` |
+| 16 | `ending` | `deck`, + autocannon | Choice-aware Council response, deductions, Tallow notice, closing film | finish |
 
-Frame beats say `mission.foreclosure.council.replacement` after a restart ("Replacement Frame issued. The fee has been deducted.").
+Frame sections say `mission.foreclosure.council.replacement` after a restart ("Replacement Frame issued. The fee has been deducted.").
 
 ## Beats 1 to 6 (stage 9)
 
@@ -148,30 +147,30 @@ gunship's view of the whole town with 18 men in it is still 30 over 450 at its w
 `callins`, and a battle that should still be going says it again with `ensure`. `foreclosure.test.ts` checks this: starting at each
 checkpoint gives the squad and sky a play from the top had there.
 
-## Tests
+## Tests & verification
 
-`src/campaign/missions/foreclosure.test.ts`: no dangling names; the plan's sixteen beats in order; line ids; a bot plays it from the top,
-after a death in every beat, and from every beat (raising the `war:` signals the real game's systems raise); the squad and the sky at
-every checkpoint. `src/campaign/war.test.ts`: the breach watch, a front's contact call-out under its squad name and out of earshot, every
-call-out's id. `allies.test.ts`: a held E orders the player's own and leaves a detached man to his battle.
+- `src/campaign/missions/foreclosure.test.ts`: no dangling names; all sixteen sections in order; line ids; bot playthrough from the top,
+  after a death in every section, and from every section (raising `war:`, `fc:`, `flak:`, `mother:` signals); squad & sky parity at every
+  checkpoint.
+- `src/frame/parts.test.ts`: locational damage routing, small-arms immunity, rear reactor 2.5× criticals, leg crippling, pod destruction,
+  canopy crack stages, hull destruction.
+- `src/enemies/vehicles/crawler.test.ts`: Old Mother's 3-phase state machine (`dormant` → `hunt` → `drag` → `seizing` → `deck` → `dead`).
+- `src/campaign/coop.test.ts` & `src/net/world/credit.test.ts`: co-op classification for all 11 `fc.*` calls and damage credit rules for
+  all 6 new enemy/boss sources.
+- Full repository suite: **3,125 passed, 0 failed** (`npx vitest run --testTimeout=60000`), `tsc --noEmit` clean, `npm run build` green,
+  and two headless GPU Playwright visual passes (`1440×900 @ 2×`, 0 uncaught errors) across `slip`, `mount`, `foreclosure`, `flak`,
+  `mother`, and `deck`.
 
-Live: `node tools/shot.mjs --url "/?contract=foreclosure&beat=overwatch&autostart=1" --script tools/scripts/foreclosure-live.mjs --out
-tools/out/foreclosure1/f.png --wait 500 --timeout 800 --dpr 2 --w 1440 --h 900` (add `--port 5198` for a private server with no reloads):
-the seat flown (guns cycled on the thickest knot, the glide bomb on the fuel farm, flares on every launch), then each beat watched and
-cleared, the frame sampled every 2 s, the feed kept.
+## Mission-specific set pieces (`src/campaign/foreclosure.ts`)
 
-## For the next stages
-
-- **Holdfast (7): built.** The marks are on the map; the films fly over it (still stand-in shots). For stage 9: `OVERWATCH` lists the
-  gunship's targets round the LZ and the anti-air teams' spots (`aaWest`, `aaEast`); `BATTLES` the war's other fights, each with a firing
-  line and cover proved; the wall guns are `spec.emplacements` 0 and 1, the roof guns 2 and 3; the technicals have routes. For stage 10:
-  the parkour route's marks (`stacksFoot` to `stacksEnd`), Grandad at `quayRoad` (the aisle's north mouth), `doorGun`, `courierWreck`. For
-  stage 8: `PANS.loop` and the deck marks, which stand on the salt until Old Mother exists. For stage 11: the flak tower's guns are drawn
-  static (`flakGuns()` in `yard.ts`) at `flakGun1..4`.
-- **The Frame (3 to 5):** provide `frame(act, at, done)` through `campaign.provide`. `board` must cope with the player already in one:
-  `mount` boards by `kneel`, then `foreclosure` opens with `board`. A death in the Frame is the player's death; the checkpoint's `board`
-  gives the fresh one.
-- **Beats 1 to 6 (9): built** (above). For stage 10: `stacks` stops `squareCounter` and lights the wreck's smoke; the courier's
-  flight is `SKY` and `SKY_ROUTES` in `foreclosure.places.ts` (out of `ROUTES`, which the map keeps its dressing off); the war's
-  `battle`, `counter`, `posted` and `gunner` helpers in `foreclosure.ts` and the `call`s `crew`, `charge`, `watch`, `wound`, `lose`,
-  `courier`, `wreck` in `host.ts` are there for the quay road and the Slip.
+- **Flak Tower (`src/enemies/vehicles/flakTower.ts`):** four articulated breakable twin-88 mm turrets at `FLAK_GUNS` (500 HP each,
+  G-pod paintable, live airburst salvos, `flak:gun` / `flak:cleared` signals + roof cook-off). Static placeholder in `yard.ts` removed.
+- **Old Mother (`src/enemies/vehicles/crawler.ts`):** 30 m × 14 m × 12 m painted salt crawler patrolling `PANS.loop` in `pans`,
+  hunting in `mother` (break both 1,500 HP tracks, dodge 20 m bow cutter sweeps, strip 700 HP turrets & 500 HP dorsal pod), dragging and
+  seizing the Frame (`mother:seized`) for a 25 m slow-motion eject onto her real walkable Rapier deck (`CRAWLER.deckY = 6.4`) with cover
+  crates, a single live Autocannon rack, deck crew, and the glowing 1,200 HP Stern Engine (`mother:engine`).
+- **The Slip (`fc.slipWreck`, `fc.slipBoot`, `fc.slipBootOff`):** burning crashed Packmule fuselage, usable Level-3 Minigun torn-off
+  door gun emplacement at `doorGun`, posed booting Distraint Frame, and scrolling Bureau Terms & Conditions boot HUD (`fc:booted`).
+- **Sappers & Harbourmaster (`fc.sappers`, `fc.surrender`):** militia sappers rush the Frame's legs during `foreclosure` with 5 s
+  satchel charges cleared by stomp or backhand; once Old Mother's Stern Engine blows, the unarmed Harbourmaster kneels on the stern deck
+  (`handsUp`) for `[E] CUFF HARBOURMASTER` (`fc:cuffed`) or lethal removal (`fc:killed`), driving choice-aware closing lines.

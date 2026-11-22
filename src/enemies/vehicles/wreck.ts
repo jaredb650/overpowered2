@@ -48,9 +48,12 @@ export class Wreck {
   private fireTick = 0;
   private smokeIn = 0;
   private velocityY: number;
+  private readonly velXZ = new THREE.Vector2();
   private readonly tumble = new THREE.Vector3();
   private readonly rest: THREE.Euler;
-  private readonly restY: number;
+  private restY: number;
+  private tossed = false;
+  private readonly colliderOffsets: { pos: THREE.Vector3; rot: THREE.Quaternion }[] = [];
   private readonly flung: Flung[] = [];
 
   constructor(
@@ -85,6 +88,25 @@ export class Wreck {
     this.flung.push(piece);
   }
 
+  /** Sends the whole wreck tumbling across the ground (a Distraint Frame charge or backhand). */
+  toss(velocity: THREE.Vector3): void {
+    if (!this.tossed) {
+      this.sys.closeGround(this.root.position, this.rest.y, this.halfWidth, this.halfLength, false);
+      const inv = this.root.quaternion.clone().invert();
+      for (const c of this.colliders) {
+        const t = c.translation();
+        const r = c.rotation();
+        const pos = new THREE.Vector3(t.x, t.y, t.z).sub(this.root.position).applyQuaternion(inv);
+        const rot = inv.clone().multiply(new THREE.Quaternion(r.x, r.y, r.z, r.w));
+        this.colliderOffsets.push({ pos, rot });
+      }
+      this.tossed = true;
+    }
+    this.velXZ.set(velocity.x, velocity.z);
+    this.velocityY = Math.max(this.velocityY, velocity.y);
+    this.tumble.set(rand(-3.2, 3.2), rand(-2.2, 2.2), rand(-3.2, 3.2));
+  }
+
   /**
    * Co-op host: how it left the ground and what was thrown clear, so a guest's copy does the same (net/world/vehicles.ts):
    * the hop still to come, the tumble, and the flung piece's velocity, spin and floor, or where it lies once it has landed.
@@ -99,27 +121,55 @@ export class Wreck {
     this.tumble.copy(tumble);
   }
 
+  private syncColliders(): void {
+    const { root, colliders, colliderOffsets } = this;
+    const q = new THREE.Quaternion();
+    for (let i = 0; i < colliders.length && i < colliderOffsets.length; i++) {
+      const off = colliderOffsets[i]!;
+      _p.copy(off.pos).applyQuaternion(root.quaternion).add(root.position);
+      q.copy(root.quaternion).multiply(off.rot);
+      colliders[i]!.setTranslation(_p);
+      colliders[i]!.setRotation(q);
+    }
+  }
+
   /** The part of the update that only a wreck in the air needs. */
   private fall(dt: number): void {
     const { root } = this;
-    if (this.velocityY === 0 && root.position.y === this.restY) return;
+    const movingXZ = this.velXZ.lengthSq() > 0.04;
+    if (this.velocityY === 0 && !movingXZ && root.position.y === this.restY) return;
+    if (movingXZ) {
+      root.position.x += this.velXZ.x * dt;
+      root.position.z += this.velXZ.y * dt;
+      this.restY = this.sys.groundUnder(root.position);
+    }
     this.velocityY -= GRAVITY * dt;
     root.position.y += this.velocityY * dt;
     root.rotation.x += this.tumble.x * dt;
     root.rotation.y += this.tumble.y * dt;
     root.rotation.z += this.tumble.z * dt;
+    if (this.tossed) this.syncColliders();
     if (root.position.y > this.restY) return;
     root.position.y = this.restY;
     const hard = -this.velocityY;
     if (hard > 2.2) {
       // One small bounce, and a slump into the rest pose it will keep.
       this.velocityY = hard * BOUNCE;
+      this.velXZ.multiplyScalar(0.35);
       this.tumble.multiplyScalar(-BOUNCE);
       this.thud(root.position, hard);
       return;
     }
     this.velocityY = 0;
-    root.rotation.copy(this.rest);
+    this.velXZ.set(0, 0);
+    if (this.tossed) {
+      this.rest.set(rand(-0.12, 0.12), root.rotation.y, rand(-0.2, 0.2));
+      root.rotation.copy(this.rest);
+      this.syncColliders();
+      this.sys.closeGround(root.position, this.rest.y, this.halfWidth, this.halfLength, true);
+    } else {
+      root.rotation.copy(this.rest);
+    }
   }
 
   private thud(at: THREE.Vector3, hard: number): void {

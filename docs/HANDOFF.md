@@ -17,6 +17,14 @@ Update this file when the state below changes.
   `tools/out/gore-update/LOOK.md` on the dev machine (not in git). Open for the owner: "a hit spoils his aim" has almost no
   effect as tuned (0.35 s against a 0.8 s burst gap); the one-step physics change is off by default (`?onestep=1`); a tie-break
   fix in `src/player/collide.ts` (the Office start no longer hangs in the desk); GPU memory is up about 150 MB.
+- **Local on `dev`, NOT pushed:** Campaign Mission 2 (**Foreclosure**, `/?contract=foreclosure`) is now complete nose-to-tail
+  across all 16 sections (Stages 4, 5, 8, 10, 11): upgraded Distraint Frame (bevelled hull/cockpit, 3-stage canopy cracks,
+  locational `FrameParts` + HUD diagram, destructible stalls, wreck tossing, vehicle stagger, `kneel`/`board`/`eject`, leg
+  sappers, anti-air top-attack lock/smoke, standing dread), breakable 4-gun `FlakTower`, 3-phase 30 m `OldMother` salt crawler
+  boss fight with walkable Rapier stern deck & Stern Engine, `Foreclosure` mission director (Slip wreck + door gun + Bureau
+  T&C boot HUD, red-goggles wanted posters, Boss Integrity HUD, Harbourmaster PA squelch and cuff/kill finale). Verified with
+  `tsc`, production build, full Vitest suite (3,125 passed, 0 failed), and two live Playwright visual passes (1440×900 @ 2×).
+  Details: `docs/campaign/FORECLOSURE.md` and `docs/notes/frame.md`.
 - **Only on the owner's Mac, not in any clone:**
   - Uncommitted leftovers (19 lines, owner hasn't decided): `docs/notes/viewmodels.md` (a rewritten Ultramag description and an
     exposed-action reload write-up), `docs/notes/weapons.md` (Harrow 50/100 → 60/120 in the text), `src/core/gameplay.ts` and

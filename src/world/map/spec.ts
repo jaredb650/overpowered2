@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import type { MapZone, SpawnPoint } from '../../core/contracts';
 import type { EmplacementSpec } from '../../vehicles/emplacement';
 import type { DesignatedLink } from '../nav';
-import { SHACK, WALL, type StructureSpec, type WallStyle } from '../structures';
+import { SHACK, STALL, WALL, type StructureSpec, type WallStyle } from '../structures';
 import { LEVEL } from './layout';
 
 export interface PadSpec {
@@ -208,6 +208,11 @@ export class MapSpec {
   /** A plank or sheet-metal hut, SHACK.width along `yaw` (the kit's: 0 runs along +X) and SHACK.depth across, door on its +Z side. */
   shack(x: number, z: number, yaw = 0, look: 'planks' | 'sheet' = 'planks', y = 0, paint?: readonly [number, number, number]): void {
     this.structures.push({ kind: 'shack', x, y, z, yaw, length: SHACK.width, look, ...(paint ? { paint } : {}) });
+  }
+
+  /** A timber-and-awning market stall (40 HP): blasts, bullets and the Distraint Frame smash it to splinters. */
+  stall(x: number, z: number, yaw = 0, y = 0, paint?: readonly [number, number, number]): void {
+    this.structures.push({ kind: 'stall', x, y, z, yaw, length: STALL.width, ...(paint ? { paint } : {}) });
   }
 
   private segment(kind: 'wall' | 'gate', ax: number, az: number, bx: number, bz: number, y: number, style?: WallStyle): void {

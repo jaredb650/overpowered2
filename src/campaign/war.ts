@@ -169,7 +169,7 @@ export class War {
       this.host.signal('war:breached');
     };
     for (const piece of this.ctx.world.objects.structures ?? []) {
-      if (piece.kind === 'shack') continue;
+      if (piece.kind === 'shack' || piece.kind === 'stall') continue;
       const { x, z } = (piece as unknown as { spec: { x: number; z: number } }).spec;
       if (!marks.some(m => Math.hypot(m.at[0] - x, m.at[2] - z) < WATCH)) continue;
       if (piece.stage === 'breached') breached();

@@ -376,10 +376,11 @@ export class AntiAir {
   /** Decoys out of `a`, drawn unless it draws its own, and every missile on it still far enough out turns onto one. */
   flared(a: Aircraft): void {
     const fresh: Decoy[] = [];
+    const low = a.position.y < 14;
     for (let i = 0; i < D.count; i++) {
       const velocity = randomUnit(new THREE.Vector3()).setY(0).normalize().multiplyScalar(D.speed * rand(0.6, 1.1));
-      velocity.y = -rand(3, 9);
-      const decoy = { position: a.position.clone().setY(a.position.y - D.under), velocity, life: D.life * rand(0.85, 1.1) };
+      velocity.y = low ? rand(4, 8) : -rand(3, 9);
+      const decoy = { position: a.position.clone().setY(a.position.y - (low ? 0.5 : D.under)), velocity, life: D.life * rand(0.85, 1.1) };
       fresh.push(decoy);
       this.decoys.push(decoy);
       if (!a.drawsFlares) this.sky.flare(decoy.position, velocity, decoy.life);

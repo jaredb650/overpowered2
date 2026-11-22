@@ -96,27 +96,26 @@ it (`RemotePlayer.hidden`). On the wire it is the `mech` event (`src/net/world/c
 For another system that needs to know where a teammate's Frame is: `ctx.progression.callinLink.mirror.frameOf(slot)` (its
 `position`, `occupied`), and `inFrame(slot)`.
 
-## For stage 4 (the body)
+## Stage 4 & Stage 5: body, damage, destruction, and mission hooks (built)
 
-- Replace `StandIn` in `cockpit.ts`. Keep `pose(feet, legYaw, viewYaw, stride, walk, sink, sway, inside, eye)` or its equivalent:
-  `stride` is in plants (left foot down on even, right on odd; `Walker.said.steps` counts them), `walk` is 0..1 of 7 m/s, `sink` the
-  hull on its legs (the eye spring), `sway` along the torso's right. The legs turn with `legYaw`, the torso with `viewYaw`.
-- `FRAME_PLACES` is where the eye (5.2 m over the feet, 0.9 m ahead of the hips), the two gun pivots, the pod's tubes and the jets
-  are in torso space. The guns are world objects (`Gun`, `ROTARY_ARM`, `CANNON_ARM`), aimed at the sight each frame.
-- The hull is hidden from inside (`inside`); the cockpit near-model is what the player sees. The canopy cracks belong in it.
-- Boarding: `Frame.board(feet, yaw)` puts the player straight in. The kneel, the hatch, the climb and the camera tween go in front
-  of it; the eject is `Frame.leave()` then `player.launch`. The campaign host's `frame` step (`campaign/host.ts`) is still a banner;
-  `board` is `ctx.progression.frame.board(at, yaw)`.
-
-## For stage 5 (breaking things)
-
-- Hits: `Frame.hit` (the interceptor) returns true for everything and counts nothing. Map `PlayerDamage.from` and `type` to the
-  parts there, and give the Frame its 4000 health. Part colliders must not be in `CG.World`: the sight, the rotary's rays and the
-  walker's own casts are all on it.
-- `crush` on structures: the stomp, the charge (`said.charged`, `charging`, `said.bumped`) and the foot (`crush`) are where to call
-  `Combat.blast` with the new kind. A tank stopping a charge for 0.8 s is a `recover` on the walker.
-- Smoke: `FrameGuns.smoke` counts the pops; anti-air needs the Frame as a ground `Aircraft` and a pop to break its lock.
-- Dread: the Frame is a position (`walker.feet`) to put in `outpost/morale.ts`.
+- **Bevelled body & cockpit (`cockpit.ts`):** chamfered Bureau obsidian/slate hull with crimson stripes, reverse-joint legs with
+  hydraulics, dual-state visor slit (crimson active / amber standby), dorsal jump-jet thruster cones, kneeling & collapse poses
+  (`setPoseState`), slumping right-shoulder pod on damage, and a three-stage canopy crack overlay (`crackStage` 0–3) inside the cockpit.
+- **Persistent Frame & locational armour (`parts.ts`, `parts.test.ts`, `seat.ts`):** persistent 4,000 HP vehicle you can exit and
+  re-enter with `E` (preserving health, parts, and position), exploding with a safe emergency eject at 0 HP. Light small arms (`< 34`
+  bullet) bounce harmlessly off the plate; heavy bullets chip armour (`0.18×`), snipers crack the canopy (`0.45×`), and directional
+  routing resolves heavy ordnance onto `leftLeg` / `rightLeg` (900 HP each → `0.62×` speed + limp roll; both crippled → `0.42×`), `pod`
+  (500 HP → shoulder rocket pod knocked offline), `canopy` (3 crack stages), and rear `reactor` (`1.5×` bonus damage). Live status
+  renders on the Frame HUD schematic (`src/vehicles/{seat.ts,hud.ts,gunner.css}`).
+- **Destruction & blows:** Frame stomp, charge, alternating 2-arm 360° melee, and foot crush smash Holdfast's destructible `'stall'`
+  structures (`src/world/structures.ts`), stagger ground vehicles (`GroundVehicle.stagger`), toss vehicle wrecks (`Wreck.toss`), and
+  stop charges against heavy tanks (`Walker.stopCharge`).
+- **Kneel, board, eject, sappers & anti-air (`seat.ts`, `callins/antiAir.ts`):** `kneel(feet, yaw, done)` poses the crouching Frame for
+  interactive `[E]` boarding with hydraulic rise + cockpit boot diagnostics; `ejectTo(dest, done)` launches a 25 m slow-motion apex arc
+  onto Old Mother's deck; `attachSapper(5)` arms a beeping leg satchel cleared by stomp or backhand; `asAircraft()` lets enemy anti-air
+  hunters lock the Frame with top-attack missiles broken by `Q` smoke/flares.
+- **Standing dread (`enemies/outpost/index.ts`):** enemy morale reads the standing Frame's position and accelerates rout/surrender
+  among nearby Holdfast militia.
 
 ## Measured
 

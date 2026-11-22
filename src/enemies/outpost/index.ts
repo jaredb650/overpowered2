@@ -989,7 +989,9 @@ export class Outpost {
       const fire = this.watchingBurn(s, now);
       if (fire > 0) this.scare(s, fire * MORALE_TICK);
       if (e.pressure > 0.25) s.morale -= FEAR.underFire * e.pressure * MORALE_TICK * s.rankDef.fear;
-      if (e.dist < MONSTER_RANGE && e.hasLos) this.scare(s, FEAR.monsterClose * MORALE_TICK * (1 + dread / 50));
+      const inFrame = this.w.ctx.player.parked && this.w.ctx.player.interceptor !== null;
+      if (inFrame && e.dist < 40 && e.hasLos) this.scare(s, FEAR.monsterClose * 1.45 * MORALE_TICK * (1 + dread / 40));
+      else if (e.dist < MONSTER_RANGE && e.hasLos) this.scare(s, FEAR.monsterClose * MORALE_TICK * (1 + dread / 50));
       if (now - s.scaredAt > RECOVER_AFTER) {
         const lead = s.squad.leader;
         const near = lead !== null && lead !== s && lead.e.position.distanceToSquared(e.position) < 225;

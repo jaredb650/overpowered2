@@ -157,7 +157,7 @@ export class HandRepair {
   finishFor(piece: Structure, from: number): number | 'blocked' | null {
     const walls = this.walls;
     const q = piece as Piece;
-    if (!walls || q.kind === 'shack' || q.repairing >= 0 || (q.stage === 'intact' && q.health >= q.maxHealth)) return null;
+    if (!walls || q.kind === 'shack' || q.kind === 'stall' || q.repairing >= 0 || (q.stage === 'intact' && q.health >= q.maxHealth)) return null;
     const index = stageIndex(q);
     if (index !== from) return null;
     if (index === (q.kind === 'wall' ? 2 : 1) && walls.occupied(q)) return 'blocked';
@@ -172,7 +172,7 @@ export class HandRepair {
     let best: Piece | null = null;
     let bestD: number = ECONOMY.handReach;
     for (const q of walls.all as unknown as Piece[]) {
-      if (q.kind === 'shack' || q.repairing >= 0 || (q.stage === 'intact' && q.health >= q.maxHealth)) continue;
+      if (q.kind === 'shack' || q.kind === 'stall' || q.repairing >= 0 || (q.stage === 'intact' && q.health >= q.maxHealth)) continue;
       const d = walls.distance(q, p);
       if (d >= bestD) continue;
       best = q;

@@ -97,10 +97,20 @@ interface Waiting {
   route: readonly Mark[];
 }
 
+export interface ExtraTarget {
+  shot(collider: RAPIER.Collider, point: THREE.Vector3, amount: number, source: string): boolean;
+  direct(collider: RAPIER.Collider, point: THREE.Vector3, amount: number, kind: ExplosionKind, source: string): boolean;
+  blast(center: THREE.Vector3, spec: ExplosionSpec): number;
+  paintable?(out: MissileTarget[]): void;
+  frameBlow?(at: THREE.Vector3, radius: number, damage: number, dir: THREE.Vector3 | null, source: string): number;
+  highlightMeshes?(out: THREE.Object3D[]): void;
+}
+
 export class VehicleSystem implements VehicleTargets {
   readonly ctx: Ctx;
   readonly manager: EnemyManager;
   readonly colliders = new Map<number, PartState>();
+  readonly extras: ExtraTarget[] = [];
   readonly live: Vehicle[] = [];
   readonly wrecks: Wreck[] = [];
   readonly guns: GunRack;
@@ -293,10 +303,21 @@ export class VehicleSystem implements VehicleTargets {
     this.friendly = aircraft;
   }
 
+  /** Registers an extra destructible war-machine target (FlakTower, OldMother) with vehicle hit/blast/paint pipelines. */
+  addExtra(target: ExtraTarget): void {
+    if (!this.extras.includes(target)) this.extras.push(target);
+  }
+
+  removeExtra(target: ExtraTarget): void {
+    const i = this.extras.indexOf(target);
+    if (i >= 0) this.extras.splice(i, 1);
+  }
+
   /** Every live vehicle and the chopper, for a launcher that paints targets. A Vehicle is a MissileTarget as it stands. */
   paintable(out: MissileTarget[]): number {
     out.length = 0;
     for (const v of this.live) if (v.alive && !v.retired) out.push(v);
+    for (const x of this.extras) x.paintable?.(out);
     return out.length;
   }
 
@@ -372,7 +393,10 @@ export class VehicleSystem implements VehicleTargets {
     // A co-op guest has only the shapes of the host's vehicles: its round is a claim (net/world/vehicleHits.ts).
     if (this.ctx.coop?.world?.vehicleShot(collider, point, amount, source)) return true;
     const part = this.part(collider);
-    if (!part) return false;
+    if (!part) {
+      if (collider) for (const x of this.extras) if (x.shot(collider, point, amount, source)) return true;
+      return false;
+    }
     const v = part.owner;
     let dealt = bulletDamage(v.def, part.def, amount, source);
     if (dealt > 0 && part.def.id === 'cab' && v instanceof GroundVehicle) v.shotDriver(dealt, point);
@@ -388,7 +412,10 @@ export class VehicleSystem implements VehicleTargets {
   direct(collider: RAPIER.Collider | null, point: THREE.Vector3, amount: number, kind: ExplosionKind, source: string, quiet = false): boolean {
     if (this.ctx.coop?.world?.vehicleShot(collider, point, amount, source, kind)) return true;
     const part = this.part(collider);
-    if (!part) return false;
+    if (!part) {
+      if (collider) for (const x of this.extras) if (x.direct(collider, point, amount, kind, source)) return true;
+      return false;
+    }
     const v = part.owner;
     let dealt = directDamage(v.def, part.def, amount, kind, source);
     const weak = SHAPED_CHARGE[kind] ? v.weakAt(part, point) : null;
@@ -432,7 +459,81 @@ export class VehicleSystem implements VehicleTargets {
       v.take(splashDamage(v.def, amount, spec.kind, spec.source), _near.part, spec.source, center);
       caught++;
     }
+    for (const x of this.extras) caught += x.blast(center, spec);
     return caught;
+  }
+
+  /**
+   * A Distraint Frame charging into ground vehicles: technicals and trucks are destroyed outright and tossed clear; a tank
+   * takes heavy impact damage, staggers, and stops the charge.
+   */
+  frameCharge(at: THREE.Vector3, dir: THREE.Vector3): 'soft' | 'tank' | null {
+    for (let i = this.live.length - 1; i >= 0; i--) {
+      const v = this.live[i]!;
+      if (!v.alive || !(v instanceof GroundVehicle)) continue;
+      const dx = v.position.x - at.x;
+      const dz = v.position.z - at.z;
+      const reach = v.def.halfLength + 2.4;
+      if (dx * dx + dz * dz > reach * reach || Math.abs(v.position.y - at.y) > 4) continue;
+      if (v.def.kind === 'tank') {
+        v.take(320, null, 'frame_charge', at);
+        if (v.alive) {
+          v.stagger(1.1);
+          this.callout(v.position, 'STAGGERED');
+        }
+        return 'tank';
+      }
+      const before = this.wrecks.length;
+      v.take(Infinity, null, 'frame_charge', at);
+      if (this.wrecks.length > before) {
+        const w = this.wrecks[this.wrecks.length - 1]!;
+        w.toss(_a.set(dir.x * 14, 7.5, dir.z * 14));
+      }
+      return 'soft';
+    }
+    // Already-wrecked light vehicles can be punted out of the way too.
+    for (const w of this.wrecks) {
+      if (w.halfLength >= 3.5) continue;
+      const dx = w.root.position.x - at.x;
+      const dz = w.root.position.z - at.z;
+      const reach = w.halfLength + 2.4;
+      if (dx * dx + dz * dz <= reach * reach && Math.abs(w.root.position.y - at.y) <= 4) {
+        w.toss(_a.set(dir.x * 13, 6.5, dir.z * 13));
+        return 'soft';
+      }
+    }
+    for (const x of this.extras) {
+      if (x.frameBlow?.(at, 4.5, 320, dir, 'frame_charge')) return 'tank';
+    }
+    return null;
+  }
+
+  /** A Frame stomp or backhand against nearby vehicles (and light wrecks if `dir` is given). */
+  frameBlow(at: THREE.Vector3, radius: number, damage: number, dir: THREE.Vector3 | null, source: string): number {
+    let hit = 0;
+    for (let i = this.live.length - 1; i >= 0; i--) {
+      const v = this.live[i]!;
+      if (!v.alive || !(v instanceof GroundVehicle)) continue;
+      v.nearest(at, _near);
+      if (_near.distance > radius) continue;
+      const before = this.wrecks.length;
+      v.take(damage, _near.part, source, at);
+      hit++;
+      if (dir && v.def.kind !== 'tank' && this.wrecks.length > before) {
+        this.wrecks[this.wrecks.length - 1]!.toss(_a.set(dir.x * 11, 5.5, dir.z * 11));
+      }
+    }
+    if (dir) {
+      for (const w of this.wrecks) {
+        if (w.halfLength >= 3.5) continue;
+        if (w.root.position.distanceTo(at) <= radius + w.halfLength * 0.5) {
+          w.toss(_a.set(dir.x * 11, 5.5, dir.z * 11));
+          hit++;
+        }
+      }
+    }
+    for (const x of this.extras) hit += x.frameBlow?.(at, radius, damage, dir, source) ?? 0;
+    return hit;
   }
 
   // -------------------------------------------------------------------------------------------
@@ -552,7 +653,7 @@ export class VehicleSystem implements VehicleTargets {
   // -------------------------------------------------------------------------------------------
 
   update(dt: number): void {
-    if (this.live.length === 0 && this.wrecks.length === 0 && this.waiting.length === 0) return;
+    if (this.live.length === 0 && this.wrecks.length === 0 && this.waiting.length === 0 && this.extras.length === 0) return;
     this.traffic(dt);
     for (let i = 0; i < this.live.length; i++) this.live[i]!.update(dt);
     for (let i = this.live.length - 1; i >= 0; i--) if (this.live[i]!.retired) this.live.splice(i, 1);
@@ -567,7 +668,8 @@ export class VehicleSystem implements VehicleTargets {
     const { lit } = this;
     lit.length = 0;
     for (const v of this.live) for (let i = 0; i < v.meshes.length; i++) lit.push(v.meshes[i]!);
-    this.ctx.render.highlight(lit, SEAT_MARK, SEAT_MARK_STRENGTH);
+    for (const x of this.extras) x.highlightMeshes?.(lit);
+    if (lit.length > 0) this.ctx.render.highlight(lit, SEAT_MARK, SEAT_MARK_STRENGTH);
   }
 
   /** What is in the road, for everything on it. A few times a second: nothing here moves fast enough to need more. */

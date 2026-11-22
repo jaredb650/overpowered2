@@ -180,6 +180,9 @@ export class CampaignHud {
     this.tag.set(tag);
     this.text.set(line.text);
     this.face.set(line.speaker, tone);
+    if (line.speaker === 'harbourmaster') {
+      this.ctx.audio.play('walkietalkie_fire', { pitch: 0.84, volume: 0.34, unaffectedByTime: true });
+    }
     this.voice.say([line.id]);
     this.airtime.begin(line.text, done);
   }

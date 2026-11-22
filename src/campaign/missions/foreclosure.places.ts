@@ -173,6 +173,8 @@ const NAMED = [
   'sniperShack', 'trench', 'fuelDepot', 'roofGunWest', 'roofGunEast', 'aaWest', 'aaEast', 'openGround', 'wallGunWest', 'wallGunEast',
   'breach', 'marketRoofWest', 'marketRoofEast', 'marketRoofNorth', 'courierWreck', 'flatsBureau', 'flatsMilitia', 'westBureau',
   'cornerBureau', 'cornerMilitia', 'squareBureau', 'counterMilitia', 'flakGun1', 'flakGun2', 'flakGun3', 'flakGun4',
+  // Beats 7 to 16: stacks twin snipers, quay road battle, and Slip torn-off door gun.
+  'stacksSniperA', 'stacksSniperB', 'quayBureau', 'quayMilitia', 'doorGun',
 ];
 
 /** The mission's marks: what its beats name and what its routes run through. */

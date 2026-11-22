@@ -12,10 +12,10 @@
  */
 import * as THREE from 'three';
 import { CG, type Ctx, type LoopHandle, type PlayerDamage, type RayHit } from '../core/contracts';
-import { clamp, rand, wrapAngle } from '../core/math';
+import { clamp, lerp, rand, wrapAngle } from '../core/math';
 import { Ac130Rounds, ROUND_KINDS } from '../progression/callins/ac130Rounds';
 import type { MechKind } from '../progression/callins/link';
-import { TELL_EVERY } from '../progression/callins/shared';
+import { TELL_EVERY, type Aircraft } from '../progression/callins/shared';
 import { CALLINS } from '../progression/data';
 import type { ModelMaterials } from '../progression/modelkit';
 import { Gun } from '../vehicles/guns';
@@ -24,6 +24,7 @@ import { GunnerSeat, type SeatRig } from '../vehicles/seat';
 import { CANNON_ARM, FRAME_PLACES, ROTARY_ARM, StandIn } from './cockpit';
 import { Walker, type WalkerIntent } from './controller';
 import { FRAME, framePlan } from './data';
+import { FrameParts } from './parts';
 import { backhand, crush, FrameGuns, shove, stomp, trample } from './weapons';
 
 /**
@@ -49,6 +50,27 @@ const SWING = 0.28;
 const GUN_REACH = 60;
 const INTERACT_GUARD = 0.25;
 const FRAME_COLOR = CALLINS.frame.color;
+/** Seconds for the kneeling-to-standing cockpit startup self-test. */
+const BOOT_SECONDS = 2.4;
+/** Seconds for Old Mother's 25 m emergency canopy eject arc. */
+const EJECT_SECONDS = 1.65;
+
+interface KneelState {
+  feet: THREE.Vector3;
+  yaw: number;
+  done: () => void;
+  unprompt: (() => void) | null;
+  unmark: (() => void) | null;
+  standing: number;
+}
+
+interface EjectState {
+  from: THREE.Vector3;
+  to: THREE.Vector3;
+  t: number;
+  done: () => void;
+  slowed: boolean;
+}
 
 /** Candidate local (right, forward) exit offsets around the mech when disembarking (metres). */
 const EXIT_OFFSETS: readonly (readonly [number, number])[] = [
@@ -67,10 +89,12 @@ const _hit: RayHit = { point: new THREE.Vector3(), normal: new THREE.Vector3(), 
 export class Frame {
   readonly walker: Walker;
   readonly guns: FrameGuns;
+  readonly parts = new FrameParts();
   readonly maxHealth: number = FRAME.hull.maxHealth;
-  health: number = FRAME.hull.maxHealth;
   /** True while a live Frame stands in the world (either parked or piloted). */
   deployed = false;
+  /** True while Old Mother is breaching the hull prior to canopy eject. */
+  breach = false;
   private readonly body: StandIn;
   private readonly rotaryGun: Gun;
   private readonly cannonGun: Gun;
@@ -103,6 +127,14 @@ export class Frame {
   private unprompt: (() => void) | null = null;
   private readonly markerPos = new THREE.Vector3();
   private readonly promptPos = new THREE.Vector3();
+  private boot = 1;
+  private sapperLeft = -1;
+  private sapperBeepIn = 0;
+  private sapperSide: -1 | 1 = 1;
+  private kneelState: KneelState | null = null;
+  private ejectState: EjectState | null = null;
+  private collapsedPose: { feet: THREE.Vector3; yaw: number } | null = null;
+  private aircraftAdapter: Aircraft | null = null;
   /** Co-op: set while there are other players to tell (callins/manager.ts). */
   net: FrameNet | null = null;
   private tellIn = 0;
@@ -117,6 +149,11 @@ export class Frame {
     this.guns = new FrameGuns(ctx, new Ac130Rounds(ctx, materials), this.rotaryGun, this.cannonGun, out => this.body.place(TUBES, out));
     this.guns.onShell = (round, from, aim, seconds) => this.net?.news('shell', [ROUND_KINDS.indexOf(round), from.x, from.y, from.z, aim.x, aim.y, aim.z, seconds]);
     this.guns.onMissile = (from, velocity) => this.net?.news('missile', [from.x, from.y, from.z, velocity.x, velocity.y, velocity.z]);
+  }
+
+  /** Remaining hull hit points (0..4000), backed by `parts`. */
+  get health(): number {
+    return this.parts.hp;
   }
 
   /** Co-op: this frame's pose for the other screens, `TELL_EVERY` seconds apart. */
@@ -156,13 +193,35 @@ export class Frame {
     return this.deployed && !this.occupied;
   }
 
-  /** Progressive cockpit canopy crack stage (0..3) based on remaining hull integrity. */
+  /** True while a sapper explosive is ticking on one of the Frame's legs. */
+  get hasSapper(): boolean {
+    return this.sapperLeft >= 0;
+  }
+
+  /** Arms a sapper charge on a leg. Stomp or backhand knocks it loose before detonation. */
+  attachSapper(seconds = 5, side?: -1 | 1): void {
+    if (!this.occupied || this.sapperLeft >= 0) return;
+    this.sapperLeft = seconds;
+    this.sapperBeepIn = 0;
+    this.sapperSide = side ?? (Math.random() < 0.5 ? -1 : 1);
+    this.ctx.audio.play('metal_clang', { pitch: 1.4, volume: 0.7 });
+    this.ctx.hud.feed('CHARGE ON LEG — STOMP OR BACKHAND', FRAME_COLOR);
+  }
+
+  /** Clears an active sapper charge safely (stomp or backhand). */
+  clearSapper(): boolean {
+    if (this.sapperLeft < 0) return false;
+    this.sapperLeft = -1;
+    this.ctx.audio.play('metal_clang', { pitch: 0.9, volume: 0.8 });
+    this.ctx.hud.feed('SAPPER CHARGE KNOCKED FREE', '#7ee787');
+    return true;
+  }
+
+  /** Progressive cockpit canopy crack stage (0..3) from hull wear and direct canopy hits. */
   get crackStage(): number {
     const ratio = this.health / this.maxHealth;
-    if (ratio <= 0.2) return 3;
-    if (ratio <= 0.45) return 2;
-    if (ratio <= 0.7) return 1;
-    return 0;
+    const hullCracks = ratio <= 0.2 ? 3 : ratio <= 0.45 ? 2 : ratio <= 0.7 ? 1 : 0;
+    return Math.max(this.parts.cracks, hullCracks);
   }
 
   /** Deploy a fresh 4000 HP Frame standing parked at `feet`, facing `yaw`. Replaces any previously deployed Frame. */
@@ -171,10 +230,17 @@ export class Frame {
       this.seat.leave(true);
       this.releaseSeat();
     }
+    this.clearKneel();
     this.clearParkedUi();
+    this.collapsedPose = null;
+    this.parts.reset();
+    this.breach = false;
+    this.sapperLeft = -1;
+    this.boot = 1;
+    this.walker.speedScale = 1;
     this.walker.place(feet, yaw);
     this.guns.reset();
-    this.health = this.maxHealth;
+    this.guns.podOnline = true;
     this.deployed = true;
     this.dip = this.dipV = 0;
     this.swing = -1;
@@ -189,9 +255,11 @@ export class Frame {
   }
 
   /** Deploy a fresh Frame at `feet`, facing `yaw`, and climb straight in. */
-  board(feet: THREE.Vector3, yaw: number, seconds = Infinity): void {
+  board(feet: THREE.Vector3, yaw: number, seconds = Infinity, playBoot = false): void {
     this.deploy(feet, yaw);
+    this.boot = playBoot ? 0 : 1;
     this.enter(seconds);
+    if (playBoot) this.ctx.audio.play('steam_burst', { pitch: 0.7, volume: 0.8 });
   }
 
   /** Climb into the already-deployed parked Frame, preserving its health, position, and weapon state. */
@@ -219,6 +287,85 @@ export class Frame {
     this.onBoard();
     audio.play('metal_groan', { pitch: 0.7 });
     audio.play('tank_turret_stop', { pitch: 0.7 });
+  }
+
+  /**
+   * Campaign `mount`: the Frame kneels on `feet`, waiting for the player to press E beside it.
+   * Boarding plays the hydraulic rise + cockpit boot diagnostic and fires `done()`.
+   */
+  kneel(feet: THREE.Vector3, yaw: number, done: () => void): void {
+    if (this.seat) this.leave(true);
+    this.clearKneel();
+    this.clearParkedUi();
+    this.deployed = false;
+    this.collapsedPose = null;
+    const f = feet.clone();
+    const unmark = this.ctx.hud.marker(_at.copy(f).setY(f.y + 4.5).clone(), 'DISTRAINT FRAME', FRAME_COLOR);
+    this.kneelState = { feet: f, yaw, done, unprompt: null, unmark, standing: -1 };
+    this.poseKneeling(1);
+    this.ctx.audio.play('steam_burst', { position: f, pitch: 0.65, volume: 0.8 });
+  }
+
+  /**
+   * Campaign `mother` -> `deck`: Old Mother's cutter wheel breaches the hull; the canopy blows, the Frame collapses smoking,
+   * and the player arcs 25 m through the air onto `target` with a brief slow-mo slam window.
+   */
+  ejectTo(target: THREE.Vector3, done: () => void): void {
+    const { audio, camera, fx, player, render } = this.ctx;
+    const from = this.occupied ? this.eye.clone() : player.position.clone().setY(player.position.y + 2);
+    const feet = this.walker.feet.clone();
+    const yaw = this.walker.legYaw;
+    this.deployed = false;
+    this.clearParkedUi();
+    if (this.seat) {
+      this.seat.leave(true);
+      this.releaseSeat();
+    }
+    this.collapsedPose = { feet, yaw };
+    this.body.setPoseState(0, 1, 3, 0, true);
+    this.body.pose(feet, yaw, yaw, 0, 0, -0.4, 0, false, this.eye, { parked: true });
+    fx.explosion(from, { radius: 4, kind: 'rocket', scale: 1.1 });
+    fx.chips(from, 0x8a9aa8, 22);
+    audio.play('glass_break', { volume: 1 });
+    audio.play('explosion_debris', { volume: 0.9 });
+    audio.play('titan_stomp', { pitch: 0.7 });
+    camera.addTrauma(0.9);
+    render.post.radialBlur(0.65, 0.5);
+    player.teleport(from);
+    this.ejectState = { from, to: target.clone(), t: 0, done, slowed: false };
+    this.ctx.hud.feed('EJECTED — HOLD CROUCH TO SLAM ONTO THE DECK', '#ffc14a');
+  }
+
+  /** Adapter handed to `AntiAir` while the Frame is crewed so rocketeers can lock top-attack missiles onto it. */
+  asAircraft(): Aircraft {
+    if (!this.aircraftAdapter) {
+      const self = this;
+      this.aircraftAdapter = {
+        get position() { return self.eye; },
+        get where() { return self.walker.feet; },
+        sources: 'frame_',
+        hits: 99,
+        get flares() { return self.guns.smoke.count; },
+        set flares(_v: number) {},
+        rounds: 0,
+        get flown() { return self.occupied; },
+        autoFlares: false,
+        get huntable() { return self.occupied; },
+        drawsFlares: false,
+        hit() {
+          self.hit({ amount: 420, type: 'explosive', source: 'aa_top_attack', from: _at.copy(self.eye).setY(self.eye.y + 18) });
+          self.ctx.audio.play('rocket_explosion', { volume: 1 });
+          self.ctx.camera.addTrauma(0.75);
+          return !self.parts.alive;
+        },
+        shot() { return false; },
+        popFlares() { return self.guns.popSmoke(self.walker.feet, self.walker.viewYaw); },
+        down() {},
+        update() { return !self.occupied; },
+        dispose() {},
+      };
+    }
+    return this.aircraftAdapter;
   }
 
   /** Disembark beside the Frame cleanly, leaving it parked where you stood with its health preserved. */
@@ -249,6 +396,7 @@ export class Frame {
   /** Standing empty on `feet`, facing `yaw`, seen from outside (during drop-pod descent before landing). */
   stand(feet: THREE.Vector3, yaw: number): void {
     if (this.seat) return;
+    this.body.setPoseState(0, 0, 0, 0, false);
     this.body.pose(feet, yaw, yaw, 0, 0, 0, 0, false, this.eye, { parked: true });
     for (const [gun, place] of [[this.rotaryGun, FRAME_PLACES.rotary], [this.cannonGun, FRAME_PLACES.cannon]] as const) {
       this.body.place(place, _pivot);
@@ -259,13 +407,24 @@ export class Frame {
 
   /** An empty Frame gone from the scene (if not deployed and not occupied). */
   hide(): void {
+    this.clearKneel();
+    this.collapsedPose = null;
     if (!this.seat && !this.deployed) this.hideMeshes();
   }
 
   /** A new run: out and gone, nothing left on the map or in the air. */
   clear(): void {
+    this.clearKneel();
+    if (this.ejectState?.slowed) this.ctx.time.popScale('frame_eject');
+    this.ejectState = null;
+    this.collapsedPose = null;
+    this.breach = false;
+    this.sapperLeft = -1;
+    this.boot = 1;
+    this.parts.reset();
+    this.walker.speedScale = 1;
+    this.guns.podOnline = true;
     this.deployed = false;
-    this.health = this.maxHealth;
     this.clearParkedUi();
     this.seat?.leave(true);
     this.releaseSeat();
@@ -275,10 +434,40 @@ export class Frame {
     this.trampleTimes.clear();
   }
 
+  private clearKneel(): void {
+    if (!this.kneelState) return;
+    this.kneelState.unprompt?.();
+    this.kneelState.unmark?.();
+    this.kneelState = null;
+  }
+
+  private poseKneeling(kneel: number): void {
+    const ks = this.kneelState;
+    if (!ks) return;
+    this.body.setPoseState(kneel, 0, 0, 0, false);
+    this.body.pose(ks.feet, ks.yaw, ks.yaw, 0, 0, 0, 0, false, this.eye, { parked: true });
+    for (const [gun, place] of [[this.rotaryGun, FRAME_PLACES.rotary], [this.cannonGun, FRAME_PLACES.cannon]] as const) {
+      this.body.place(place, _pivot);
+      gun.snap(ks.yaw, -0.45);
+      gun.point(_pivot, ks.yaw, -0.45, 0);
+    }
+  }
+
   update(dt: number): void {
     if (this.interactGuard > 0) this.interactGuard = Math.max(0, this.interactGuard - dt);
+    if (this.ejectState) this.updateEject(dt);
+    if (this.kneelState) {
+      this.updateKneel(dt);
+      return;
+    }
     const seat = this.seat;
     if (!seat) {
+      if (this.collapsedPose) {
+        const c = this.collapsedPose;
+        this.body.setPoseState(0, 1, 3, 0, true);
+        this.body.pose(c.feet, c.yaw, c.yaw, 0, 0, -0.4, 0, false, this.eye, { parked: true });
+        return;
+      }
       if (this.deployed) this.updateParked(dt);
       return;
     }
@@ -298,6 +487,11 @@ export class Frame {
       this.leave();
       return;
     }
+    if (this.boot < 1) {
+      this.boot = Math.min(1, this.boot + dt / BOOT_SECONDS);
+    }
+    this.parts.tick(dt);
+    this.tickSapper(dt);
     const { input, player, camera } = this.ctx;
     // E disembarks cleanly like a vehicle, leaving the mech parked on the map.
     if (!seat.noWayOut && this.interactGuard <= 0 && input.pressed('interact')) {
@@ -305,6 +499,8 @@ export class Frame {
       return;
     }
     const w = this.walker;
+    w.speedScale = this.parts.speedScale;
+    this.guns.podOnline = this.parts.podOnline;
     const it = this.intent;
     it.moveX = (input.isDown('right') ? 1 : 0) - (input.isDown('left') ? 1 : 0);
     it.moveZ = (input.isDown('forward') ? 1 : 0) - (input.isDown('back') ? 1 : 0);
@@ -334,6 +530,100 @@ export class Frame {
     player.carry(_at);
   }
 
+  private updateKneel(dt: number): void {
+    const ks = this.kneelState;
+    if (!ks) return;
+    const { hud, input, player } = this.ctx;
+    if (ks.standing >= 0) {
+      ks.standing = Math.min(1, ks.standing + dt / 0.85);
+      this.poseKneeling(1 - ks.standing);
+      if (ks.standing >= 1) {
+        const { feet, yaw, done } = ks;
+        this.clearKneel();
+        this.board(feet, yaw, Infinity, true);
+        done();
+      }
+      return;
+    }
+    this.poseKneeling(1);
+    const near = player.alive
+      && Math.hypot(player.position.x - ks.feet.x, player.position.z - ks.feet.z) < FRAME.hull.boardReach
+      && Math.abs(player.position.y - ks.feet.y) < 4;
+    if (near && !ks.unprompt) {
+      ks.unprompt = hud.follow(_at.copy(ks.feet).setY(ks.feet.y + 2.4).clone(), `${input.labelFor?.('interact') ?? 'E'} BOARD DISTRAINT FRAME`, FRAME_COLOR);
+    } else if (!near && ks.unprompt) {
+      ks.unprompt();
+      ks.unprompt = null;
+    }
+    if (near && input.pressed('interact')) {
+      ks.unprompt?.();
+      ks.unprompt = null;
+      ks.unmark?.();
+      ks.unmark = null;
+      this.ctx.audio.play('metal_groan', { pitch: 0.72, volume: 0.9 });
+      this.ctx.audio.play('steam_burst', { pitch: 0.65, volume: 0.85 });
+      const { feet, yaw, done } = ks;
+      this.clearKneel();
+      this.board(feet, yaw, Infinity, true);
+      done();
+    }
+  }
+
+  private updateEject(dt: number): void {
+    const ej = this.ejectState;
+    if (!ej) return;
+    const realDt = this.ctx.time.realDt || dt;
+    ej.t += realDt;
+    const u = clamp(ej.t / EJECT_SECONDS, 0, 1);
+    // Dramatic 25 m apex arc onto the target deck.
+    const apex = Math.max(ej.from.y, ej.to.y) + 25;
+    const x = lerp(ej.from.x, ej.to.x, u);
+    const z = lerp(ej.from.z, ej.to.z, u);
+    const base = lerp(ej.from.y, ej.to.y, u);
+    const y = base + 4 * (apex - base) * u * (1 - u);
+    _at.set(x, y, z);
+    this.ctx.player.teleport(_at);
+    // Brief slow-motion peak over Old Mother's deck so the player reads the slam opportunity.
+    if (u >= 0.42 && u <= 0.82 && !ej.slowed) {
+      ej.slowed = true;
+      this.ctx.time.pushScale('frame_eject', 0.35, 0.08, 0.3);
+    } else if (u > 0.82 && ej.slowed) {
+      ej.slowed = false;
+      this.ctx.time.popScale('frame_eject');
+    }
+    if (u >= 1) {
+      if (ej.slowed) this.ctx.time.popScale('frame_eject');
+      const done = ej.done;
+      this.ejectState = null;
+      this.ctx.player.teleport(ej.to);
+      this.ctx.audio.play('slam_impact', { volume: 0.8 });
+      this.ctx.camera.addTrauma(0.55);
+      done();
+    }
+  }
+
+  private tickSapper(dt: number): void {
+    if (this.sapperLeft < 0) return;
+    this.sapperLeft -= dt;
+    this.sapperBeepIn -= dt;
+    if (this.sapperBeepIn <= 0) {
+      this.sapperBeepIn = lerp(0.1, 0.42, clamp(this.sapperLeft / 5));
+      this.ctx.audio.play('aa_lock', { pitch: 1.35, volume: 0.8 });
+    }
+    if (this.sapperLeft <= 0) {
+      this.sapperLeft = -1;
+      const w = this.walker;
+      _at.set(
+        w.feet.x + Math.cos(w.viewYaw) * this.sapperSide * 1.4,
+        w.feet.y + 1.2,
+        w.feet.z - Math.sin(w.viewYaw) * this.sapperSide * 1.4,
+      );
+      this.ctx.fx.explosion(_at, { radius: 4, kind: 'rocket', scale: 1.2 });
+      this.ctx.audio.play('rocket_explosion', { position: _at, volume: 1 });
+      this.hit({ amount: 650, type: 'explosive', source: 'sapper_charge', from: _at });
+    }
+  }
+
   /** Parked empty on the map: cool/reload weapons passively, show board prompt when near, E climbs back in. */
   private updateParked(dt: number): void {
     this.guns.idleUpdate(dt);
@@ -358,6 +648,7 @@ export class Frame {
 
   private poseParked(): void {
     const w = this.walker;
+    this.body.setPoseState(0, 0, this.crackStage, this.parts.limpSide, !this.parts.podOnline);
     this.body.pose(w.feet, w.legYaw, w.viewYaw, 0, 0, 0, 0, false, this.eye, { parked: true, jets: false, cracks: this.crackStage });
     for (const [gun, place] of [[this.rotaryGun, FRAME_PLACES.rotary], [this.cannonGun, FRAME_PLACES.cannon]] as const) {
       this.body.place(place, _pivot);
@@ -420,6 +711,8 @@ export class Frame {
     const w = this.walker;
     const walk = w.grounded ? clamp(w.speed / FRAME.walk.forward) : 0;
     const sway = FRAME.feel.sway * Math.sin(w.stride * Math.PI) * walk;
+    const kneel = this.boot < 1 ? (1 - this.boot) * 0.8 : 0;
+    this.body.setPoseState(kneel, 0, this.crackStage, this.parts.limpSide, !this.parts.podOnline);
     this.body.pose(w.feet, w.legYaw, w.viewYaw, w.stride, walk, this.dip, sway, true, this.eye, {
       parked: false, jets: w.jetting && !w.grounded, cracks: this.crackStage,
     });
@@ -468,11 +761,11 @@ export class Frame {
     this.dip += this.dipV * dt;
   }
 
-  /** A foot down: a thump in the eye, dust, and anyone under it. */
+  /** A foot down: a thump in the eye, dust, and anyone or any market stall under it. */
   private footfall(): void {
     const F = FRAME.feel;
     const w = this.walker;
-    const { audio, camera, fx, enemies } = this.ctx;
+    const { audio, camera, fx, enemies, world } = this.ctx;
     const k = clamp(w.speed / FRAME.walk.forward, 0.4, 1);
     const side = Math.floor(w.stride) % 2 === 0 ? -1 : 1;
     const c = Math.cos(w.legYaw);
@@ -485,16 +778,20 @@ export class Frame {
     audio.play('juggernaut_step', { pitch: 0.7, volume: 0.6 * k, pitchJitter: 0.05 });
     fx.dust(_at, UP, 1.1 * k);
     if (crush(enemies, _at) > 0) audio.play('gib_squelch', { position: _at });
+    world.objects?.damageExplosivesInRadius?.(_at, 2.4, 60, 'frame_stomp');
   }
 
   /** The big slam, twice the size, from `height`. */
   private stomped(height: number): void {
     const S = FRAME.stomp;
-    const { audio, camera, fx, physics, render, enemies } = this.ctx;
+    const { audio, camera, fx, physics, render, enemies, world } = this.ctx;
     const at = this.walker.feet;
     const k = height >= S.big ? 1 : S.small;
     this.net?.news('stomp', [height]);
+    this.clearSapper();
     stomp(enemies, at, height);
+    world.objects?.damageExplosivesInRadius?.(at, S.radius * k, 160 * k, 'frame_stomp');
+    enemies.vehicles?.frameBlow?.(at, S.radius * k, 240 * k, null, 'frame_stomp');
     fx.slam(at, 3.2 * k);
     this.dustRing(at, 2.4 * k, 10, 2.4 * k);
     this.dustRing(at, 5.2 * k, 16, 3 * k);
@@ -604,7 +901,7 @@ export class Frame {
   private blows(dt: number): void {
     const w = this.walker;
     const s = w.said;
-    const { audio, camera, fx, enemies, input, render } = this.ctx;
+    const { audio, camera, fx, enemies, input, render, world } = this.ctx;
     this.trampleClock += dt;
     if (w.grounded && w.speed > 1.5) {
       if (trample(enemies, w.feet, this.trampleTimes, this.trampleClock) > 0) {
@@ -631,11 +928,29 @@ export class Frame {
           audio.play('bone_crack');
           camera.addTrauma(0.25);
         }
+        world.objects?.damageExplosivesInRadius?.(_at, FRAME.body.radius + 1.5, 180, 'frame_charge');
+        const hit = enemies.vehicles?.frameCharge?.(_at, _v);
+        if (hit === 'tank') {
+          w.stopCharge(0.8);
+          audio.play('metal_clang', { pitch: 0.55, volume: 1 });
+          audio.play('land_hard', { pitch: 0.42 });
+          fx.chips(_at, 0xffa040, 24);
+          camera.addTrauma(0.8);
+          camera.kick(0.06, 0, 0);
+          this.sink(0.3);
+        } else if (hit === 'soft') {
+          audio.play('metal_clang', { pitch: 0.7, volume: 0.9 });
+          audio.play('explosion_debris', { volume: 0.8 });
+          fx.chips(_at, 0xffa040, 18);
+          camera.addTrauma(0.5);
+          this.sink(0.18);
+        }
       }
     }
     if (s.bumped > 0) {
       _at.copy(w.feet).addScaledVector(_v.set(-Math.sin(w.viewYaw), 0, -Math.cos(w.viewYaw)), FRAME.body.radius);
       _at.y += 2;
+      world.objects?.damageExplosivesInRadius?.(_at, 3.2, 220, 'frame_charge');
       audio.play('land_hard', { pitch: 0.45 });
       audio.play('metal_clang', { pitch: 0.6 });
       audio.play('concrete_crumble');
@@ -650,18 +965,23 @@ export class Frame {
       this.swingArm = this.swingArm === 1 ? -1 : 1;
       this.swing = 0;
       this.net?.news('swing');
+      this.clearSapper();
       const n = backhand(enemies, w.feet, w.viewYaw, this.swingArm);
       _at.copy(w.feet);
       _at.y += 2.2;
+      _v.set(-Math.sin(w.viewYaw), 0, -Math.cos(w.viewYaw));
       _right.set(Math.cos(w.viewYaw) * this.swingArm, 0, -Math.sin(w.viewYaw) * this.swingArm);
+      const ahead = _at.clone().addScaledVector(_v, 3.2);
+      world.objects?.damageExplosivesInRadius?.(ahead, FRAME.backhand.reach, 110, 'frame_backhand');
+      const vHit = enemies.vehicles?.frameBlow?.(ahead, FRAME.backhand.reach, 160, _v, 'frame_backhand') ?? 0;
       fx.slash(_at, UP, _right, FRAME.backhand.arc, FRAME.backhand.reach, 'sweep');
       fx.ring(_v.copy(w.feet).setY(w.feet.y + 0.8), UP, '#ffaa40', FRAME.backhand.closeRadius * 1.15);
       audio.play('enemy_swing', { pitch: 0.42, volume: 1 });
       camera.kick(0.015, 0.028 * this.swingArm, -0.022 * this.swingArm);
-      if (n > 0) {
+      if (n > 0 || vHit > 0) {
         audio.play('hit_punch', { pitch: 0.52, volume: 1 });
         audio.play('metal_clang', { pitch: 0.72, volume: 0.75 });
-        audio.play('bone_crack');
+        if (n > 0) audio.play('bone_crack');
         fx.sparks(_at, _right, 14, '#ffcc66');
         camera.addTrauma(0.35);
       }
@@ -673,12 +993,16 @@ export class Frame {
   private panel(seat: GunnerSeat): void {
     const w = this.walker;
     const { rotary } = this.guns;
+    this.guns.label();
     seat.heat = rotary.heat.value;
     seat.overheated = rotary.heat.overheated;
     seat.spin = rotary.spin;
     seat.legs = wrapAngle(w.legYaw - w.viewYaw);
     seat.hull = clamp(this.health / this.maxHealth);
     seat.hullText = `${Math.ceil(this.health)} / ${this.maxHealth}`;
+    const snap = this.parts.snapshot(this.boot, this.breach, this.sapperLeft >= 0);
+    snap.cracks = this.crackStage;
+    seat.frameHud = snap;
     seat.marks = this.guns.marks;
     seat.altitude = w.grounded ? 0 : w.clearance();
     const key = (a: Parameters<Ctx['input']['labelFor']>[0]) => this.ctx.input.labelFor(a);
@@ -690,45 +1014,57 @@ export class Frame {
   }
 
   /**
-   * Every hit while piloted goes to the Frame's 4000 HP hull: small-arms fire chips off heavy armor plates with sparks,
-   * snipers punch deeper, heavy ordnance deals full damage, and hits from behind into the reactor vents deal 1.5x.
+   * Every hit while piloted routes through the Frame's 4000 HP armoured hull and locational parts (`parts.ts`):
+   * light small-arms bounce cleanly with sparks, heavy bullets chip plates, snipers crack the canopy glass,
+   * heavy ordnance damages legs/pod/hull, and hits from behind into the reactor vents deal bonus damage.
    */
   private hit(damage: PlayerDamage): boolean {
     if (!this.deployed || this.health <= 0) return false;
-    const H = FRAME.hull;
-    const src = damage.source ?? '';
-    let mult: number = H.heavyMult;
-    if (damage.type === 'bullet') mult = src.includes('sniper') ? H.sniperMult : H.bulletMult;
-    if (damage.from) {
-      const feet = this.walker.feet;
-      const dx = damage.from.x - feet.x;
-      const dz = damage.from.z - feet.z;
-      const len = Math.hypot(dx, dz);
-      if (len > 0.1) {
-        const fx = -Math.sin(this.walker.viewYaw);
-        const fz = -Math.cos(this.walker.viewYaw);
-        if ((dx * fx + dz * fz) / len < -0.45) mult *= H.rearMult;
-      }
-    }
     const prevCracks = this.crackStage;
-    const dealt = Math.max(1, damage.amount * mult);
-    this.health = Math.max(0, this.health - dealt);
-    const { audio, camera, render } = this.ctx;
-    if (dealt >= 40) {
+    const res = this.parts.hit(damage, this.walker.feet, this.walker.viewYaw);
+    const { audio, camera, hud, render } = this.ctx;
+    if (res.blocked) {
+      audio.play('metal_clang', { pitch: rand(1.45, 1.85), volume: 0.24 });
+      camera.addTrauma(0.015);
+      return true;
+    }
+    if (res.cracked) {
+      audio.play('glass_break', { pitch: 1.15, volume: 0.7 });
+      camera.kick(0.02, rand(-0.015, 0.015), 0);
+      hud.feed('CANOPY GLASS FRACTURED', '#ff7a30');
+    }
+    if (res.part === 'reactor') {
+      audio.play('plate_destroyed', { pitch: 0.75, volume: 0.9 });
+      camera.addTrauma(0.45);
+      render.post.chromatic(0.24, 0.16);
+      hud.feed('REAR REACTOR HIT', FRAME_COLOR);
+    } else if (res.dealt >= 40) {
       audio.play('metal_clang', { pitch: rand(0.6, 0.85), volume: 0.85 });
       audio.play('metal_groan', { pitch: rand(0.7, 0.95), volume: 0.55 });
-      camera.addTrauma(clamp(dealt / 180, 0.12, 0.42));
+      camera.addTrauma(clamp(res.dealt / 180, 0.12, 0.42));
       render.post.chromatic(0.22, 0.14);
     } else {
       audio.play('metal_clang', { pitch: rand(0.95, 1.3), volume: 0.38 });
       camera.addTrauma(0.035);
     }
+    if (res.broke === 'leftLeg' || res.broke === 'rightLeg') {
+      audio.play('metal_groan', { pitch: 0.55, volume: 0.9 });
+      audio.play('explosion_debris', { volume: 0.65 });
+      camera.addTrauma(0.65);
+      hud.feed(res.broke === 'leftLeg' ? 'LEFT LEG CRIPPLED' : 'RIGHT LEG CRIPPLED', FRAME_COLOR);
+    } else if (res.broke === 'pod') {
+      audio.play('plate_destroyed', { pitch: 0.65, volume: 0.9 });
+      camera.addTrauma(0.5);
+      hud.feed('SHOULDER POD DESTROYED', FRAME_COLOR);
+    }
     if (this.crackStage > prevCracks) {
       audio.play('concrete_crumble', { pitch: 1.4, volume: 0.75 });
       this.body.setCracks(this.crackStage);
     }
+    this.walker.speedScale = this.parts.speedScale;
+    this.guns.podOnline = this.parts.podOnline;
     if (this.seat) this.panel(this.seat);
-    if (this.health <= 0) this.destroy();
+    if (res.killed || this.health <= 0) this.destroy();
     return true;
   }
 
@@ -739,7 +1075,7 @@ export class Frame {
     const H = FRAME.hull;
     const wasOccupied = this.occupied;
     this.deployed = false;
-    this.health = 0;
+    this.parts.hp = 0;
     this.clearParkedUi();
 
     _at.copy(this.walker.feet);

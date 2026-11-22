@@ -95,7 +95,7 @@ export class Fort implements WorldModule {
     router.host('wallblast', (value, from) => this.blastIn(value, from));
     router.host('wallhit', (value, from) => {
       const piece = this.find().walls?.all[value.i];
-      if (!piece || piece.kind !== 'shack' || !Number.isFinite(value.amount) || value.amount <= 0 || !this.spend(from)) return;
+      if (!piece || (piece.kind !== 'shack' && piece.kind !== 'stall') || !Number.isFinite(value.amount) || value.amount <= 0 || !this.spend(from)) return;
       this.walls!.hit(piece.colliders[0] ?? null, Math.min(2000, value.amount));
     });
     router.host('repair', (value, from, now) => this.repairIn(value, from, now));

@@ -90,6 +90,8 @@ export class Walker {
   readonly said: WalkerSaid = { steps: 0, landed: 0, stomped: -1, bumped: 0, charged: false, lifted: false, turned: 0, shift: 0, rescued: false };
   /** The legs take the view with them at once and there is no arc. */
   free: boolean = FRAME_TURN_FREE;
+  /** Multiplier on walk speed from leg damage (1 intact, 0.62 one leg, 0.42 both legs). */
+  speedScale = 1;
 
   private readonly body: CapsuleWorld;
   private readonly hit = newSweepHit();
@@ -119,7 +121,15 @@ export class Walker {
     this.charges = FRAME.charge.count;
     this.chargeIn = this.charging = this.recover = this.boost = 0;
     this.stride = 0;
+    this.speedScale = 1;
     this.settle();
+  }
+
+  /** Stops an active charge dead (e.g. slamming a tank or crawler) and holds the legs in recovery. */
+  stopCharge(recover = 0.8): void {
+    this.charging = 0;
+    this.recover = Math.max(this.recover, recover);
+    this.velocity.x = this.velocity.z = 0;
   }
 
   /** Down onto whatever is under it, so a Frame placed over the floor starts standing. */
@@ -289,8 +299,8 @@ export class Walker {
     }
     const sy = Math.sin(this.viewYaw);
     const cy = Math.cos(this.viewYaw);
-    const ahead = z * (z > 0 ? W.forward : W.back);
-    const side = x * W.side;
+    const ahead = z * (z > 0 ? W.forward : W.back) * this.speedScale;
+    const side = x * W.side * this.speedScale;
     return out.set(-sy * ahead + cy * side, 0, -cy * ahead - sy * side);
   }
 

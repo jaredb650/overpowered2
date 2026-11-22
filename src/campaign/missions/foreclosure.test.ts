@@ -22,9 +22,10 @@ function zones(t: Trigger, out: string[]): void {
   if ('any' in t) for (const part of t.any) zones(part, out);
 }
 
-/** Signals the real game's systems raise (the war's breach, the courier's fall), which a FakeHost has none of. */
+/** Signals the real game's systems raise (the war's breach, courier, Slip boot, flak tower, Old Mother, Harbourmaster), which a FakeHost has none of. */
+const EXTERNAL_SIGNALS = ['war:', 'fc:', 'flak:', 'mother:'] as const;
 function signals(t: Trigger, out: string[]): void {
-  if ('signal' in t && t.signal.startsWith('war:')) out.push(t.signal);
+  if ('signal' in t && EXTERNAL_SIGNALS.some(p => t.signal.startsWith(p))) out.push(t.signal);
   if ('all' in t) for (const part of t.all) signals(part, out);
   if ('any' in t) for (const part of t.any) signals(part, out);
 }

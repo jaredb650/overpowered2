@@ -54,20 +54,45 @@ export const FORECLOSURE_LINES: readonly Line[] = [
   radio('courier', 'Courier is hit! Flak off the harbour wall! Going in by the dock!'),
   harbour('iron', 'That\'s a lot of iron to drop on a town that\'s behind on its rent.'),
 
+  // stacks (including the STORY.md clone/goggles reveal)
+  harbour('stacks.goggles', 'Hold on. I saw your face off the cable boat. Red goggles. You were at Port Vell this morning. And Carrow. How are you in three places at once?'),
+  harbour('stacks.grandad', 'Mind Grandad at the top of the aisle, love. He\'s deaf in one track and still hates bailiffs.'),
+  harbour('stacks.lost', 'Another black coat down in the stacks. That\'s four left, isn\'t it?'),
+  harbour('grandad.down', 'Oh, you bastards. That tank hauled salt for thirty years.'),
+
+  // quay
+  council('quay.meter', 'The Distraint Frame is intact in the Slip. Standby diagnostics are already accruing at the standard hourly rate.'),
+  harbour('quay.warn', 'Go on down to the dry dock, then. Everything we\'ve got left is waiting on the ramps.'),
+
   // slip, mount
-  council('boot', 'By operating this Frame the contractor accepts liability for its contents.'),
+  council('boot', 'By operating this Frame the contractor accepts liability for its contents. Please review the terms while diagnostics complete.'),
+  harbour('slip.trucks', 'Bring the trucks round the east ramp! Don\'t let that tin man wake up!'),
+  harbour('slip.bird', 'All right. Send the bird, and wake Big Pete. Tell him to wear the good flowers.'),
   harbour('boot', 'They\'ve sent a suit of armour after a town of fishwives. Mother. Wake up.'),
   council('replacement', 'Replacement Frame issued. The fee has been deducted.'),
 
+  // foreclosure
+  harbour('foreclosure.start', 'Watch the awnings! You\'re walking straight through Mrs. Hal\'s dried cod!'),
+  council('foreclosure.stalls', 'Unregistered market structures cleared. Asset liquidation credit: zero.'),
+  harbour('foreclosure.sappers', 'Get under its knees! Stick a charge on its ankle before it reaches the quay!'),
+  harbour('foreclosure.tank', 'Pull back to the harbour wall! Keep the flak guns fed!'),
+
   // flak, pans
+  harbour('flak.start', 'You want your sky back? Come take it off the roof!'),
+  harbour('flak.hit', 'That\'s a gun gone! Keep your heads down and reload the others!'),
   council('sky', 'Airspace restored. Call-ins are available again, at the usual rates.'),
   harbour('mother', 'Mother\'s been pulling salt out of this flat since before your Office had a name.'),
 
   // mother
+  harbour('mother.hunt', 'Thirty metres of salt iron, love. Let\'s see your little suit arm-wrestle her.'),
+  harbour('mother.drag', 'Tracks are gone? Good. She doesn\'t need tracks to chew you up!'),
   council('eject', 'Hull breach. The Frame is a write-off. The contractor is not, yet.'),
 
-  // ending
+  // deck & ending
+  harbour('deck.boarded', 'You climbed onto her? In those boots? Boys, sweep the deck!'),
   harbour('form', 'Go on, then. Fill in your form.'),
+  council('end.cuffed', 'Detainee logged. Harbourmaster transfer to Tallow Rendering Works: compliance bonus applied.'),
+  council('end.killed', 'Harbourmaster removed on site. Salvage deduction applied to contractor account.'),
   council('end.removed', 'Holdfast has been removed from the register.'),
   council('end.deductions', 'Deductions: one Distraint Frame, one courier, and the Bailiffs you lost.'),
   council('end.tallow', 'The residents are being shipped to Tallow for rendering. Tallow Rendering Works acknowledges receipt.'),

@@ -507,6 +507,20 @@ export class GameHost implements MissionHost {
         if (arg && Object.hasOwn(CHIPS, arg)) chips?.rack.fit(arg as ChipId, true);
         return;
       }
+      // Foreclosure's set pieces (campaign/foreclosure.ts): FlakTower, Old Mother, Slip wreck/boot, sappers, surrender.
+      case 'fc.flakSalvo':
+      case 'fc.slipWreck':
+      case 'fc.slipBoot':
+      case 'fc.slipBootOff':
+      case 'fc.sappers':
+      case 'fc.flakStart':
+      case 'fc.motherReveal':
+      case 'fc.motherFight':
+      case 'fc.motherDeck':
+      case 'fc.surrender':
+      case 'fc.hideBoss':
+        this.foreclosureCall?.(name, arg);
+        return;
       default:
         console.warn(`[campaign] nothing provides the call "${name}"`);
     }
@@ -515,6 +529,9 @@ export class GameHost implements MissionHost {
   // ---------------------------------------------------------------------------------------------
   // Co-op (campaign/coop.ts has the table; net/mission.ts does the carrying)
   // ---------------------------------------------------------------------------------------------
+
+  /** Foreclosure's set-piece call handler (campaign/foreclosure.ts), wired by Campaign when running Foreclosure. */
+  foreclosureCall?: (name: string, arg: string | undefined) => void;
 
   /** Co-op: every living player's feet (types.ts). net/mission.ts provides it; alone it is unset. */
   crowd?: () => readonly { x: number; y: number; z: number }[];

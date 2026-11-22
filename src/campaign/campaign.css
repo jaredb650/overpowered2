@@ -47,4 +47,61 @@
 .hud:has(.ms-cinema) .ms-radio .cmd-text { font-size: 1.4rem; line-height: 1.3; color: #fff; text-shadow: 0 0 0.4rem #000, 0.09rem 0.09rem 0 #000; }
 
 /* A cutscene has no use for any of this. */
-.hud:has(.ms-cinema) .col-left, .hud:has(.ms-cinema) .col-right, .hud:has(.ms-cinema) .xh-reticle, .hud:has(.ms-cinema) .ms-objs, .hud:has(.ms-cinema) .ms-hint { display: none; }
+.hud:has(.ms-cinema) .col-left, .hud:has(.ms-cinema) .col-right, .hud:has(.ms-cinema) .xh-reticle, .hud:has(.ms-cinema) .ms-objs, .hud:has(.ms-cinema) .ms-hint, .hud:has(.ms-cinema) .fc-bar { display: none; }
+
+/* Foreclosure: Distraint Frame Slip boot ticker & Old Mother boss integrity bar. */
+.fc-bar {
+  position: absolute;
+  left: 50%;
+  top: 3.4rem;
+  width: 38rem;
+  margin-left: -19rem;
+  padding: 0.45rem 0.85rem 0.5rem;
+  background: var(--plate);
+  border-top: 0.16rem solid var(--amber);
+  box-shadow: 0.18rem 0.18rem 0 #000;
+  font: 600 0.95rem/1.25 var(--mono);
+  color: var(--ink);
+  opacity: 0;
+  transform: translateY(-0.5rem);
+  transition: opacity 0.25s, transform 0.25s;
+  z-index: 4;
+}
+.fc-bar.on { opacity: 1; transform: translateY(0); }
+.fc-bar.fc-boss { border-top-color: #e23a2c; }
+/* Drop below the gunner/Frame seat title banner and leg-yaw compass so neither overlaps. */
+.hud:has(.gn) .fc-bar { top: 11.2rem; }
+
+.fc-head { display: flex; align-items: baseline; gap: 0.7rem; margin-bottom: 0.32rem; }
+.fc-title { font: 1.2rem/1 var(--display); letter-spacing: 0.05em; color: var(--amber); text-shadow: var(--edge); }
+.fc-boss .fc-title { color: #ff5b4c; }
+.fc-phase { font-size: 0.82rem; letter-spacing: 0.08em; color: var(--steel); }
+.fc-pct { margin-left: auto; font: 1.25rem/1 var(--display); color: var(--ink); }
+
+.fc-track { height: 0.48rem; background: rgba(0, 0, 0, 0.65); border: 0.08rem solid rgba(255, 255, 255, 0.12); overflow: hidden; }
+.fc-fill { height: 100%; width: 100%; background: var(--amber); transform-origin: 0 50%; transform: scaleX(0); transition: transform 0.12s linear; }
+.fc-fill.boss { background: linear-gradient(90deg, #c92a22, #ff6b3d); }
+
+.fc-clause {
+  margin-top: 0.34rem;
+  font-size: 0.78rem;
+  line-height: 1.3;
+  color: rgba(230, 240, 236, 0.78);
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.fc-pips { display: flex; flex-wrap: wrap; gap: 0.32rem; margin-top: 0.38rem; }
+.fc-pip {
+  padding: 0.08rem 0.42rem;
+  background: rgba(255, 255, 255, 0.07);
+  border: 0.08rem solid rgba(255, 255, 255, 0.22);
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  color: var(--ink);
+}
+.fc-pip.dead { opacity: 0.35; text-decoration: line-through; border-color: rgba(255, 255, 255, 0.08); }
+.fc-pip.hot { background: rgba(226, 58, 44, 0.28); border-color: #ff6b3d; color: #ffd4b8; }
+

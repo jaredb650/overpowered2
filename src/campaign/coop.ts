@@ -89,6 +89,17 @@ export const CALLS: Readonly<Record<string, OpRule>> = {
   courier: shared('The courier\'s flight and the flak round it, on every screen'),
   wreck: shared('The smoke over the wreck'),
   chip: shared('A brain chip fitted for the mission, for every player'),
+  'fc.flakSalvo': mirrored('A flak airburst salvo over a Holdfast landmark, on every screen'),
+  'fc.slipWreck': shared('The crashed Bureau Packmule, fire, door gun and booting Frame at the Slip'),
+  'fc.slipBoot': shared('The Slip Frame boot countdown bar and scrolling Bureau terms'),
+  'fc.slipBootOff': shared('Clears the Slip boot HUD bar and static Frame prop once mounted'),
+  'fc.sappers': host('Orders nearby Holdfast militia to rush the Frame\'s legs with satchel charges'),
+  'fc.flakStart': shared('Activates the four breakable twin-88 mm flak turrets on the yard tower'),
+  'fc.motherReveal': shared('Spawns Old Mother patrolling the salt flats beyond the town'),
+  'fc.motherFight': shared('Starts Old Mother\'s combat phases and boss integrity bar'),
+  'fc.motherDeck': shared('Grounds Old Mother into her walkable stern deck and glowing Stern Engine'),
+  'fc.surrender': host('Spawns the unarmed Harbourmaster on Old Mother\'s deck for cuff or kill'),
+  'fc.hideBoss': shared('Hides Old Mother\'s boss integrity HUD bar'),
 };
 
 /** A set piece's look on a guest (`GameHost.show`). The host has already drawn its own. */

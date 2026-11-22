@@ -145,6 +145,19 @@ export class GunnerHud implements SeatPanel {
   private readonly hullText: Label;
   private readonly hullLow: Flag;
   private readonly hullCrit: Flag;
+  private readonly fHullBox: Shown;
+  private readonly fHullHp: Num;
+  private readonly fHullBar: Meter;
+  private readonly fHullLow: Flag;
+  private readonly partTorso: SVGElement;
+  private readonly partLeftLeg: SVGElement;
+  private readonly partRightLeg: SVGElement;
+  private readonly partPod: SVGElement;
+  private readonly hullWarn: Label;
+  private readonly hullWarnShown: Shown;
+  private readonly bootEl: HTMLElement;
+  private readonly bootShown: Shown;
+  private readonly bootLabel: Label;
   private readonly rows: WeaponRow[] = [];
   private readonly reticleHost: HTMLElement;
   private readonly label: Label;
@@ -199,12 +212,38 @@ export class GunnerHud implements SeatPanel {
     this.legs = div('gn-legtick');
     const legs = div('gn-legs', this.legs);
 
+    // Distraint Frame hull integrity + schematic diagram + warnings + boot sequence.
+    const fHullHp = span('gn-hull-num');
+    const fHullFill = div('gn-hull-fill');
+    const hullWarn = div('gn-hull-warn');
+    const mechSvg = markup(
+      `<svg class="gn-mech" viewBox="0 0 80 96" aria-hidden="true">`
+      + `<polygon class="gn-p-pod" points="54,8 72,8 72,22 54,22"/>`
+      + `<polygon class="gn-p-torso" points="22,16 58,16 64,28 56,50 24,50 16,28"/>`
+      + `<rect class="gn-p-visor" x="28" y="26" width="24" height="4"/>`
+      + `<polygon class="gn-p-lleg" points="20,54 34,54 30,74 34,90 16,90 18,72"/>`
+      + `<polygon class="gn-p-rleg" points="46,54 60,54 62,72 64,90 46,90 50,74"/>`
+      + `</svg>`,
+    );
+    const hullEl = div('gn-fhull',
+      mechSvg,
+      div('gn-hull-meta',
+        div('gn-hull-head', span('gn-key', 'HULL'), fHullHp),
+        div('gn-hull-bar', fHullFill),
+      ),
+    );
+    const bootLabel = div('gn-boot-line');
+    this.bootEl = div('gn-boot', div('gn-boot-title', 'DISTRAINT 4 // BUREAU COMPLIANCE'), bootLabel);
+
     this.el = div('gn',
       div('gn-corner gn-tl'), div('gn-corner gn-tr'), div('gn-corner gn-bl'), div('gn-corner gn-br'),
       tags,
       this.reticleHost,
       spin,
       div('gn-top', label, div('gn-time', div('gn-tbar', timeFill), seconds), hull, legs),
+      hullEl,
+      hullWarn,
+      this.bootEl,
       div('gn-arms', ...this.rows.map(r => r.el)),
       div('gn-read',
         div('gn-row', span('gn-key', 'RNG'), range),
@@ -235,6 +274,21 @@ export class GunnerHud implements SeatPanel {
     this.hot = new Flag(this.el, 'hot');
     this.inverted = new Flag(this.el, 'inverted');
     this.legsShown = new Shown(legs, 'block');
+    this.fHullBox = new Shown(hullEl, 'flex');
+    this.fHullHp = new Num(fHullHp);
+    this.fHullBar = new Meter(fHullFill);
+    this.fHullLow = new Flag(hullEl, 'low');
+    this.partTorso = hullEl.querySelector('.gn-p-torso') as SVGElement;
+    this.partLeftLeg = hullEl.querySelector('.gn-p-lleg') as SVGElement;
+    this.partRightLeg = hullEl.querySelector('.gn-p-rleg') as SVGElement;
+    this.partPod = hullEl.querySelector('.gn-p-pod') as SVGElement;
+    this.hullWarn = new Label(hullWarn);
+    this.hullWarnShown = new Shown(hullWarn, 'block');
+    this.bootShown = new Shown(this.bootEl, 'flex');
+    this.bootLabel = new Label(bootLabel);
+    this.fHullBox.set(false);
+    this.hullWarnShown.set(false);
+    this.bootShown.set(false);
     addEventListener('resize', this.measure);
   }
 
@@ -286,8 +340,8 @@ export class GunnerHud implements SeatPanel {
     this.timeBar.set(seat.left / plan.seconds);
     this.warning.set(seat.left <= 10);
     const hasHull = Number.isFinite(seat.hull);
-    this.hullShown.set(hasHull);
-    if (hasHull) {
+    this.hullShown.set(hasHull && !seat.frameHud);
+    if (hasHull && !seat.frameHud) {
       this.hullBar.set(seat.hull);
       this.hullText.set(seat.hullText);
       this.hullLow.set(seat.hull <= 0.35 && seat.hull > 0.2);
@@ -307,7 +361,50 @@ export class GunnerHud implements SeatPanel {
     this.legsShown.set(Number.isFinite(seat.legs));
     // The legs against the view: the middle of the strip is where the view looks, its ends the arc either side.
     if (Number.isFinite(seat.legs)) this.legs.style.transform = `translateX(${(-seat.legs / plan.arcHalf) * 8}rem)`;
+    this.updateHull(seat);
     this.markTargets(seat.marks);
+  }
+
+  private updateHull(seat: GunnerSeat): void {
+    const h = seat.frameHud;
+    this.fHullBox.set(h !== null);
+    if (!h) {
+      this.hullWarnShown.set(false);
+      this.bootShown.set(false);
+      return;
+    }
+    const frac = h.hp / h.max;
+    this.fHullHp.set(h.hp);
+    this.fHullBar.set(frac);
+    this.fHullLow.set(frac < 0.3);
+    const state = (v: number) => (v <= 0 ? 'dead' : v < 0.55 ? 'dmg' : 'ok');
+    this.partTorso.setAttribute('data-s', h.rearFlash > 0.1 ? 'dead' : state(frac));
+    this.partLeftLeg.setAttribute('data-s', state(h.leftLeg));
+    this.partRightLeg.setAttribute('data-s', state(h.rightLeg));
+    this.partPod.setAttribute('data-s', state(h.pod));
+
+    // Urgent cockpit warning line: breach > sapper > reactor hit > crippled leg.
+    const warn = h.breach ? 'HULL BREACH // EJECT SEQUENCE ARMED'
+      : h.sapper ? 'CHARGE ON LEG // STOMP OR BACKHAND TO CLEAR'
+      : h.rearFlash > 0.15 ? 'REAR REACTOR HIT // CRITICAL EXPOSURE'
+      : h.leftLeg <= 0 && h.rightLeg <= 0 ? 'BOTH LEGS CRIPPLED // PACE REDUCED'
+      : h.leftLeg <= 0 ? 'LEFT LEG CRIPPLED'
+      : h.rightLeg <= 0 ? 'RIGHT LEG CRIPPLED'
+      : '';
+    this.hullWarnShown.set(warn.length > 0);
+    if (warn) this.hullWarn.set(warn);
+
+    // Cockpit startup self-test overlay while kneeling-to-standing boot completes.
+    const booting = h.boot < 0.99;
+    this.bootShown.set(booting);
+    if (booting) {
+      this.bootLabel.set(
+        h.boot < 0.28 ? 'HYDRAULICS PRESSURIZING...'
+        : h.boot < 0.56 ? '20MM ROTARY // 40MM CANNON // 6-TUBE POD OK'
+        : h.boot < 0.82 ? 'COMPLIANCE TELEMETRY LINKED'
+        : 'ALL SYSTEMS ONLINE // WALK',
+      );
+    }
   }
 
   private markTargets(marks: readonly MissileTarget[]): void {

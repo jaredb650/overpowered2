@@ -402,7 +402,7 @@ export class DefenseRadio {
     if (this.watching || !pieces?.length) return;
     this.watching = true;
     for (const piece of pieces) {
-      if (piece.kind === 'shack') continue;
+      if (piece.kind === 'shack' || piece.kind === 'stall') continue;
       piece.onStageChange((stage, from) => this.onStage(piece, stage, from));
     }
   }

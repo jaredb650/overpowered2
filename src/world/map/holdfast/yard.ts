@@ -13,7 +13,7 @@ import type { MapSpec } from '../spec';
 import { banner, brazier, bulbs, flag, hull, loudspeaker } from './props';
 import { clearOf } from './town';
 import {
-  AISLE, APRON, BOX, CANNERY, CHIMNEY, DYES, E1_STAIR, FLAK, FLAK_GUNS, GANTRY, HARBOUR, HARBOUR_STAIRS, LEVEL, QUAY_CRANE, QUAY_ROAD,
+  AISLE, APRON, BOX, CANNERY, CHIMNEY, DYES, E1_STAIR, FLAK, GANTRY, HARBOUR, HARBOUR_STAIRS, LEVEL, QUAY_CRANE, QUAY_ROAD,
   type Rgb, SEA, SHED, SLIP, SLIP_RAMPS, type Stack, STACKS, stack, stackTop, WEST_X,
 } from './plan';
 
@@ -321,7 +321,6 @@ function harbour(k: Kit, site: Site): void {
   }
   g.use('emissiveOrange').box(fx, f.top - 5, f.z1 + 0.03, 3, 0.25, 0.01, FACE.pz);
   g.tint(1);
-  flakGuns(k);
   loudspeaker(k, f.x1 + 0.3, f.z1 + 0.3, 3, f.top);
   banner(k, fx, f.top - 3, f.z1 + 0.02, 0, 6, 7, DYES[2]!);
   k.light(fx, f.top + 2, fz, 'red', 30, 16);
@@ -329,20 +328,6 @@ function harbour(k: Kit, site: Site): void {
   // Floods at its foot, up its faces: the target the Frame walks to.
   for (const [lx, lz] of [[f.x1 + 3, f.z1 + 3], [f.x0 - 3, f.z1 + 3]] as const) k.light(lx, 2, lz, 'white', 40, 22);
   site.plan.blocks.push({ x0: f.x0, z0: f.z0, x1: f.x1, z1: f.z1 });
-}
-
-/**
- * The four guns on the tower: a turret ring and twin barrels each, pointing up. Drawn here so the tower reads from the air and the
- * street; stage 11 makes them breakable parts and takes this out.
- */
-function flakGuns(k: Kit): void {
-  const g = k.geo;
-  for (const [x, y, z] of FLAK_GUNS) {
-    g.use('steelDark').cyl(x, y, z, x, y + 0.7, z, 1.3, 1.2, 14, false, true);
-    g.use('paintWhite').tint(0.36, 0.42, 0.3).bevel(x, y + 1.3, z, 0.9, 0.6, 1.0, 0.1);
-    g.tint(1);
-    for (const s of [-0.35, 0.35]) g.use('steelDark').cyl(x + s, y + 1.4, z - 0.6, x + s, y + 4.2, z - 3.2, 0.1, 0.08, 6, false, true);
-  }
 }
 
 /** The boat shed: an open steel frame with half its roof gone, a rusting hull on its slipway. */

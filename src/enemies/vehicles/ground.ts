@@ -242,6 +242,14 @@ export class GroundVehicle extends Vehicle {
     return this.drive.done && Math.abs(this.drive.speed) < STOPPED;
   }
 
+  /** Hit head-on by a charging Distraint Frame: shakes the hull and knocks the gunner off his lay. */
+  stagger(seconds: number): void {
+    this.endLay();
+    this.stage = 'loading';
+    this.reloadLeft = Math.max(this.reloadLeft, seconds);
+    this.drive.speed *= -0.25;
+  }
+
   update(dt: number): void {
     const { drive, order } = this;
     if (!this.alive) return;

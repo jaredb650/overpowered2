@@ -291,11 +291,11 @@ export class Defense {
     if (!ON_FORT || !pieces || this.watching) return;
     this.watching = true;
     for (const piece of pieces) {
-      if (piece.kind === 'shack') continue;
+      if (piece.kind === 'shack' || piece.kind === 'stall') continue;
       piece.onStageChange((stage, from) => {
         if (stage !== 'intact' && from === 'intact') this.hint();
         if (stage === 'breached') this.markBreach(piece);
-        else if (this.breach === piece) this.markBreach(pieces.find(p => p.kind !== 'shack' && p.stage === 'breached') ?? null);
+        else if (this.breach === piece) this.markBreach(pieces.find(p => p.kind !== 'shack' && p.kind !== 'stall' && p.stage === 'breached') ?? null);
       });
     }
   }

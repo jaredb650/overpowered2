@@ -494,6 +494,8 @@ export class FrameGuns {
   private readonly paintables: MissileTarget[] = [];
   private sight: Sight | null = null;
   private readonly look = (): readonly PaintCandidate[] => this.gather();
+  /** Set false when the right-shoulder rocket pod has been knocked out. */
+  podOnline = true;
   /**
    * Co-op: told of each 40 mm as it leaves (its round, the muzzle, the exact spot it flies to and the seconds it takes) and
    * of each missile (where from, and its velocity), so the other screens' copy of this Frame fires the same ones.
@@ -542,7 +544,7 @@ export class FrameGuns {
     const pod = this.pod;
     const wasPainting = pod.painter.painting;
     const wasLoading = pod.reloading >= 0;
-    const marked = pod.update(dt, input.isDown('grenade'), this.look);
+    const marked = pod.update(dt, this.podOnline && input.isDown('grenade'), this.look);
     if (!wasPainting && pod.painter.painting) audio.play('quiver_arm');
     if (marked) {
       audio.play('quiver_lock', { pitch: 1 + (pod.painter.marks.length - 1) * 0.12 });
@@ -550,7 +552,7 @@ export class FrameGuns {
     }
     for (const target of pod.queue) this.missile(target, sight);
     if (wasLoading && pod.reloading < 0) audio.play('reload_rocket', { volume: 0.8 });
-    if (input.pressed('grenade') && pod.ammo < P.tubes) audio.play('weapon_dry');
+    if (input.pressed('grenade') && (!this.podOnline || pod.ammo < P.tubes)) audio.play('weapon_dry');
     // Smoke.
     this.smoke.update(dt);
     this.rounds.update(dt);
@@ -562,16 +564,23 @@ export class FrameGuns {
     return this.pod.painter.marks;
   }
 
-  private label(): void {
+  /** Syncs HUD weapon row names and ammo counts. */
+  label(): void {
     const [cannon, pod, smoke] = this.rows as [GunnerWeapon, GunnerWeapon, GunnerWeapon];
     const mag = this.cannon.mag;
     cannon.name = `RMB 40MM ${ROUND_NAMES[this.cannon.round]} // R`;
     cannon.ammo = mag.ammo;
     cannon.reload = mag.progress;
-    const painting = this.pod.painter.painting;
-    pod.name = painting ? `G POD // PAINTING ${this.pod.painter.marks.length}` : 'G POD // HOLD TO PAINT';
-    pod.ammo = painting ? this.pod.painter.marks.length : this.pod.ammo;
-    pod.reload = this.pod.progress;
+    if (!this.podOnline) {
+      pod.name = 'G POD // OFFLINE';
+      pod.ammo = 0;
+      pod.reload = -1;
+    } else {
+      const painting = this.pod.painter.painting;
+      pod.name = painting ? `G POD // PAINTING ${this.pod.painter.marks.length}` : 'G POD // HOLD TO PAINT';
+      pod.ammo = painting ? this.pod.painter.marks.length : this.pod.ammo;
+      pod.reload = this.pod.progress;
+    }
     smoke.name = 'Q SMOKE';
     smoke.ammo = this.smoke.count;
     smoke.reload = this.smoke.progress;

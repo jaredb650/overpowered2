@@ -22,14 +22,23 @@ export const WALL = {
 } as const;
 export const GATE = { height: 2.9, thick: 0.2 } as const;
 export const SHACK = { width: 3.2, depth: 2.6, height: 2.3 } as const;
+export const STALL = { width: 3.4, depth: 2.0, height: 2.6 } as const;
 
 /** Health of each stage that has one, by kind. The last stage, breached, has none. */
-export const HEALTH = { wall: [300, 300], gate: [400], shack: [120] } as const;
-/** Small arms never wear a wall or a gate. On a shack they count at this share, and a blast counts double. */
+export const HEALTH = { wall: [300, 300], gate: [400], shack: [120], stall: [40] } as const;
+/** Small arms never wear a wall or a gate. On a shack or stall they count at this share, and a blast counts 1.5x. */
 export const SHACK_BULLET = 0.25;
 export const SHACK_BLAST = 1.5;
-/** A tank shell is made for walls: its blast counts this many times over on one. */
-export const SOURCE_MULT: Readonly<Record<string, number>> = { tank_cannon: 4 };
+/** A tank shell or Distraint Frame blow is made for walls and fortifications: their blasts count multiple times over. */
+export const SOURCE_MULT: Readonly<Record<string, number>> = {
+  tank_cannon: 4,
+  frame_stomp: 4,
+  frame_charge: 4,
+  frame_crush: 4,
+  frame_backhand: 3,
+  frame_40mm: 2,
+  frame_40mm_ap: 2.5,
+};
 /** Share of a blast still felt by a piece at the edge of its radius. */
 export const EDGE = 0.4;
 export const REPAIR_SECONDS = 4;
@@ -37,6 +46,7 @@ export const REPAIR_SECONDS = 4;
 const RUBBLE = 0.22;
 
 export type StructureKind = Structure['kind'];
+const isLight = (kind: StructureKind): boolean => kind === 'shack' || kind === 'stall';
 
 /**
  * How a wall is built when it is not the plain WALL. The fort's are 5.65 m with a battlement: a body up to `sill`, then a merlon either
@@ -115,10 +125,10 @@ interface Part {
 }
 
 const STAGES: Record<StructureKind, readonly StructureStage[]> = {
-  wall: ['intact', 'damaged', 'breached'], gate: ['intact', 'breached'], shack: ['intact', 'breached'],
+  wall: ['intact', 'damaged', 'breached'], gate: ['intact', 'breached'], shack: ['intact', 'breached'], stall: ['intact', 'breached'],
 };
-const SURFACE: Record<StructureKind, SurfaceKind> = { wall: 'concrete', gate: 'metal', shack: 'dirt' };
-const CHIPS: Record<StructureKind, number> = { wall: 0x8c877d, gate: 0x4a4d52, shack: 0x8a6a45 };
+const SURFACE: Record<StructureKind, SurfaceKind> = { wall: 'concrete', gate: 'metal', shack: 'dirt', stall: 'dirt' };
+const CHIPS: Record<StructureKind, number> = { wall: 0x8c877d, gate: 0x4a4d52, shack: 0x8a6a45, stall: 0x9b7a4a };
 
 const box = (x: number, y: number, z: number, hx: number, hy: number, hz: number, mat: Mat, more: Partial<Part> = {}): Part =>
   ({ x, y, z, hx, hy, hz, mat, ...more });
@@ -283,6 +293,41 @@ function shackStages(look: 'planks' | 'sheet', rng: () => number): Part[][] {
   return [standing, flat];
 }
 
+/** A timber-and-awning market stall: counter, goods crates, four corner posts and a dyed sloped canopy. 40 HP -> splinters. */
+function stallStages(rng: () => number): Part[][] {
+  const { width: W, depth: D, height: H } = STALL;
+  const w = W / 2, d = D / 2;
+  const standing: Part[] = [
+    // Low counter collider: bullets, explosives and the Frame's feet/charge smash straight into it.
+    box(0, 0.55, 0, w, 0.55, d * 0.85, 'plywood', { solid: true, hidden: true }),
+    // Countertop & front apron boards.
+    box(0, 0.94, 0, w, 0.05, d * 0.72, 'plywood', { tint: 0.72 }),
+    box(0, 0.45, d * 0.64, w - 0.06, 0.45, 0.04, 'plywood', { tint: 0.62 }),
+    // Four timber corner posts.
+    ...[-1, 1].flatMap(sx => [-1, 1].map(sz =>
+      box(sx * (w - 0.1), H / 2, sz * (d - 0.12), 0.065, H / 2, 0.065, 'plywood', { tint: 0.52 }),
+    )),
+    // Dyed pitched awning roof + front valance.
+    box(0, H + 0.06, 0, w + 0.14, 0.04, d + 0.16, 'paintWhite', { painted: true, pitch: 0.14 }),
+    box(0, H - 0.22, d + 0.12, w + 0.14, 0.18, 0.03, 'paintWhite', { painted: true, tint: 0.88 }),
+    // Goods crates on the counter.
+    box(-w * 0.45, 1.18, 0, 0.36, 0.2, 0.34, 'plywood', { tint: 0.86, yaw: (rng() - 0.5) * 0.3 }),
+    box(w * 0.38, 1.16, -0.06, 0.42, 0.18, 0.32, 'rust', { tint: 0.82, yaw: (rng() - 0.5) * 0.4 }),
+  ];
+  const flat: Part[] = [
+    box(0, 0.06, 0, w - 0.1, 0.04, d * 0.7, 'plywood', { tint: 0.45 }),
+    box(-w + 0.12, 0.32, -d + 0.12, 0.065, 0.32, 0.065, 'plywood', { tint: 0.48, pitch: 0.28 }),
+    box(0.15, 0.07, 0.25, w * 0.65, 0.025, d * 0.55, 'paintWhite', { painted: true, tint: 0.65, yaw: 0.22 }),
+  ];
+  for (let i = 0; i < 4; i++) {
+    const l = 0.55 + rng() * 0.9;
+    flat.push(box((rng() * 2 - 1) * w, 0.07 + rng() * 0.08, (rng() * 2 - 1) * d, l / 2, 0.025, 0.1, 'plywood', {
+      yaw: rng() * 3.1, pitch: (rng() - 0.5) * 0.25, tint: 0.65 + rng() * 0.25,
+    }));
+  }
+  return [standing, flat];
+}
+
 function pillarParts(style?: WallStyle): Part[] {
   const H = (style?.height ?? WALL.height) + 0.25, p = (style?.pillar ?? WALL.pillar) / 2;
   return [box(0, H / 2, 0, p, H / 2, p, 'concrete', { solid: true, bevel: 0.05 }), box(0, H + 0.06, 0, p + 0.05, 0.06, p + 0.05, 'concrete', { tint: 0.62 })];
@@ -308,7 +353,7 @@ interface Chunk {
   group: THREE.Group | null;
 }
 
-/** One wall segment, gate or shack. The manager does the work; this is its state and the API a shop calls. */
+/** One wall segment, gate, shack or market stall. The manager does the work; this is its state and the API a shop calls. */
 class Piece implements Structure {
   readonly stages: readonly StructureStage[];
   index = 0;
@@ -344,10 +389,11 @@ class Piece implements Structure {
     this.ux = Math.cos(spec.yaw);
     this.uz = -Math.sin(spec.yaw);
     const shack = kind === 'shack';
+    const stall = kind === 'stall';
     const st = spec.style;
-    this.halfLength = shack ? SHACK.width / 2 : (spec.length - (st?.pillar ?? WALL.pillar)) / 2;
-    this.halfDepth = shack ? SHACK.depth / 2 : (kind === 'gate' ? GATE.thick : st?.thick ?? WALL.thick) / 2;
-    this.height = shack ? SHACK.height : kind === 'gate' ? GATE.height : st?.height ?? WALL.height;
+    this.halfLength = shack ? SHACK.width / 2 : stall ? STALL.width / 2 : (spec.length - (st?.pillar ?? WALL.pillar)) / 2;
+    this.halfDepth = shack ? SHACK.depth / 2 : stall ? STALL.depth / 2 : (kind === 'gate' ? GATE.thick : st?.thick ?? WALL.thick) / 2;
+    this.height = shack ? SHACK.height : stall ? STALL.height : kind === 'gate' ? GATE.height : st?.height ?? WALL.height;
   }
 
   get stage(): StructureStage {
@@ -440,14 +486,17 @@ export class Structures {
   private build(s: StructureSpec): Piece {
     const rng = mulberry32(0x5ca1 + this.all.length * 977);
     const gate = s.kind === 'gate' ? gateStages(s.length, s.opens === true, s.style) : null;
-    const parts = s.kind === 'wall' ? wallStages(s.length, rng, s.style) : gate ? gate.stages : shackStages(s.look ?? 'planks', rng);
+    const parts = s.kind === 'wall' ? wallStages(s.length, rng, s.style)
+      : gate ? gate.stages
+      : s.kind === 'stall' ? stallStages(rng)
+      : shackStages(s.look ?? 'planks', rng);
     const piece = new Piece(this.all.length, s.kind, s, parts, s.opens && gate ? gate.open : null);
     piece.notify = () => this.link?.changed(piece, false, null, 0);
     this.all.push(piece);
     if (piece.openParts) this.gates.push(piece);
     piece.chunk = this.chunkAt(s.x, s.z);
     piece.chunk.pieces.push(piece);
-    if (s.kind !== 'shack') {
+    if (!isLight(s.kind)) {
       for (const end of [-1, 1]) {
         piece.toWorld((end * s.length) / 2, 0, 0, _p);
         const key = `${Math.round(_p.x * 10)},${Math.round(_p.y * 10)},${Math.round(_p.z * 10)}`;
@@ -516,9 +565,9 @@ export class Structures {
     if (piece.blocking === on) return;
     piece.blocking = on;
     const s = piece.spec;
-    const shack = piece.kind === 'shack';
+    const light = isLight(piece.kind);
     // Across: a cell either side of a thin wall, so no link can step over it, whichever way the wall runs.
-    this.nav?.setBlocked(s.x, s.z, s.y, piece.ux, piece.uz, piece.halfLength + (shack ? 0.3 : 0), shack ? piece.halfDepth + 0.3 : Math.max(1, piece.halfDepth + 0.5), on);
+    this.nav?.setBlocked(s.x, s.z, s.y, piece.ux, piece.uz, piece.halfLength + (light ? 0.3 : 0), light ? piece.halfDepth + 0.3 : Math.max(1, piece.halfDepth + 0.5), on);
   }
 
   /** The collider of a piece, if `collider` is one. */
@@ -526,10 +575,10 @@ export class Structures {
     return collider ? this.byCollider.get(collider.handle) ?? null : null;
   }
 
-  /** A round or a blade on a collider. Only a shack feels it. */
+  /** A round or a blade on a collider. Only a shack or stall feels it. */
   hit(collider: RAPIER.Collider | null, amount: number): void {
     const piece = collider ? this.byCollider.get(collider.handle) : undefined;
-    if (piece?.kind !== 'shack') return;
+    if (!piece || !isLight(piece.kind)) return;
     if (this.link?.guest) this.link.hit(piece, amount);
     else this.damage(piece, amount * SHACK_BULLET);
   }
@@ -547,7 +596,7 @@ export class Structures {
         if (piece.index === piece.stages.length - 1) continue;
         const d = this.distance(piece, center);
         if (d > radius) continue;
-        const scale = (1 - (d / radius) * (1 - EDGE)) * (SOURCE_MULT[source] ?? 1) * (piece.kind === 'shack' ? SHACK_BLAST : 1);
+        const scale = (1 - (d / radius) * (1 - EDGE)) * (SOURCE_MULT[source] ?? 1) * (isLight(piece.kind) ? SHACK_BLAST : 1);
         this.damage(piece, amount * scale);
       }
     } finally {
@@ -650,27 +699,28 @@ export class Structures {
       audio.play('metal_clang', { position: mid, volume: 0.6, pitch: 0.8 });
       return;
     }
-    fx.smoke(mid, 0x8a8478, q.kind === 'shack' ? 2.5 : 3.5, 2.5);
+    const light = isLight(q.kind);
+    fx.smoke(mid, 0x8a8478, light ? 2.5 : 3.5, 2.5);
     if (q.kind === 'gate') {
       audio.play('metal_groan', { position: mid, volume: 0.9 });
       audio.play('metal_clang', { position: mid, pitch: 0.6 });
     } else {
-      audio.play(q.kind === 'wall' ? 'concrete_crumble' : 'impact_metal', { position: mid, pitch: q.kind === 'shack' ? 0.7 : 1 });
+      audio.play(q.kind === 'wall' ? 'concrete_crumble' : 'impact_metal', { position: mid, pitch: light ? 0.7 : 1 });
       audio.play('explosion_debris', { position: mid, volume: 0.8 });
     }
     // Last: these use the same scratch vectors as `mid`.
-    if (q.kind === 'shack' && q.index === q.stages.length - 1) this.throwShack(q);
+    if (light && q.index === q.stages.length - 1) this.throwShack(q);
     else if (q.kind === 'wall') this.throwLumps(q, q.index === q.stages.length - 1 ? 14 : 7);
   }
 
   /**
-   * The shack comes apart: every board, sheet, post and the roof of its standing stage is thrown as a real body from where it stood.
+   * The shack or stall comes apart: every board, sheet, post and the roof of its standing stage is thrown as a real body from where it stood.
    * Boards go in pairs and some break in two, so a shack is about forty pieces. A blast throws them away from it, harder the closer
    * and bigger it was; a shack shot to pieces just falls in.
    */
   private throwShack(q: Piece): void {
     const parts = q.parts[0]!;
-    const centre = q.toWorld(0, SHACK.height / 2, 0, _c).clone();
+    const centre = q.toWorld(0, q.height / 2, 0, _c).clone();
     const at = this.blastAt;
     const power = at ? Math.min(1.4, 0.5 + this.blastPower / 200) : 0;
     // Two neighbouring boards of one face fly as one piece.
@@ -696,13 +746,14 @@ export class Structures {
       // Some boards break across, for shorter pieces.
       const split = board(p) && Math.random() < 0.55;
       const cut = split ? 0.35 + Math.random() * 0.3 : 1;
+      const dMat: DebrisMat = p.mat === 'rust' || p.mat === 'steelDark' || p.mat === 'concrete' ? p.mat : 'plywood';
       for (const [y0, y1] of split ? [[0, cut], [cut, 1]] : [[0, 1]]) {
         const hy = p.hy * (y1! - y0!);
         _pq.setFromEuler(_e.set(p.pitch ?? 0, (p.yaw ?? 0) + q.spec.yaw, p.roll ?? 0, 'YXZ'));
         q.toWorld(p.x, p.y - p.hy + p.hy * 2 * y0! + hy, p.z, _p);
         _half.set(p.hx, hy, p.hz);
         this.fling(_p, centre, at, power, _v);
-        this.debris.throw(p.mat as DebrisMat, _p, _pq, _half, _v, at ? 14 : 5, p.tint ?? 1);
+        this.debris.throw(dMat, _p, _pq, _half, _v, at ? 14 : 5, p.tint ?? 1);
       }
     }
   }

@@ -20,6 +20,7 @@ import { missionWithStarter } from './starter';
 import { GoreTuning } from '../gore';
 import type { CampaignSystem, MissionResult } from './events';
 import './events';
+import { Foreclosure } from './foreclosure';
 import { GameHost } from './host';
 import { CampaignHud } from './hud';
 import { MISSIONS } from './missions';
@@ -69,6 +70,8 @@ class Campaign implements CampaignSystem {
   private vehicles = 0;
   /** The tutorial's own parts (retraining.ts), on its page only. */
   private readonly retraining: Retraining | null = null;
+  /** Foreclosure's set pieces (foreclosure.ts): FlakTower, Old Mother, Slip wreck/boot, sappers, surrender. */
+  private readonly foreclosure: Foreclosure | null = null;
   result: MissionResult | null = null;
 
   constructor(private readonly ctx: Ctx, id: string) {
@@ -84,6 +87,9 @@ class Campaign implements CampaignSystem {
       const tut = (this.retraining = new Retraining(ctx, this.runner, this.ui));
       const call = this.host.call.bind(this.host);
       this.host.call = (name, arg) => (name.startsWith('tut.') ? tut.call(name, arg) : call(name, arg));
+    } else if (mission.id === 'foreclosure') {
+      const fc = (this.foreclosure = new Foreclosure(ctx, this.runner, this.ui));
+      this.host.foreclosureCall = (name, arg) => fc.call(name, arg);
     }
     // A mission with Bailiffs in it (Foreclosure) loads their bodies now; on a cold load its first squad would land in enemy bodies.
     if (/"do":"(roster|battle)"/.test(JSON.stringify(mission.beats))) void ctx.allies?.preload();
@@ -110,6 +116,7 @@ class Campaign implements CampaignSystem {
 
   provide(parts: Partial<MissionHost>): void {
     Object.assign(this.host, parts);
+    if (parts.frame && this.foreclosure) this.foreclosure.wrapFrame(this.host);
   }
 
   signal(name: string): void {
@@ -176,6 +183,7 @@ class Campaign implements CampaignSystem {
     if (this.opening) this.open();
     this.host.update(dt);
     this.retraining?.update(dt);
+    this.foreclosure?.update(dt);
     this.runner.update(dt);
     this.ui.beat(this.runner.beat?.title ?? '');
     this.ui.update(this.ctx.time.realDt);
@@ -186,6 +194,8 @@ class Campaign implements CampaignSystem {
     this.opening = null;
     this.host.clear();
     this.retraining?.clear();
+    this.foreclosure?.ensureBuilt();
+    this.foreclosure?.clear();
     this.ui.reset();
     // A co-op guest's mission is the host's (net/mission.ts): its own runner never starts.
     if (isGuest(this.ctx)) {
@@ -210,6 +220,7 @@ class Campaign implements CampaignSystem {
     this.runner.hush();
     this.host.clear();
     this.retraining?.clear();
+    this.foreclosure?.clear();
     this.ui.reset();
   }
 }

@@ -164,6 +164,22 @@ export class CallInManager implements CallinLink {
         if (spawn) this.frame.board(spawn.position, spawn.yaw);
       });
     }
+    ctx.campaign.provide({
+      frame: (act, at, done) => {
+        const pos = new THREE.Vector3(...at.at);
+        const yaw = at.yaw ?? 0;
+        if (act === 'kneel') {
+          this.frame.kneel(pos, yaw, done);
+        } else if (act === 'board') {
+          if (!this.frame.occupied) this.frame.board(pos, yaw, Infinity, false);
+          done();
+        } else if (act === 'eject') {
+          this.frame.ejectTo(pos, done);
+        } else {
+          done();
+        }
+      },
+    });
     this.warmShaders(materials);
   }
 
@@ -307,6 +323,7 @@ export class CallInManager implements CallinLink {
     this.mirror.update(dt);
     this.aircraft.length = 0;
     for (const strike of this.strikes) if (isAircraft(strike)) this.aircraft.push(strike);
+    if (this.frameRig?.occupied) this.aircraft.push(this.frameRig.asAircraft());
     this.antiAir.update(dt, this.aircraft);
     if (this.steering && this.ctx.input.pressed('aim')) {
       this.steering.release();
@@ -522,7 +539,6 @@ export class CallInManager implements CallinLink {
   }
 
   private holster(): void {
-    if (this.holstered) return;
     this.holstered = true;
     this.ctx.weapons.setHolstered(true);
   }

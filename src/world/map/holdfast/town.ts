@@ -10,7 +10,7 @@ import { barrier, signPanel, tank, tyres } from '../../kit/props';
 import { signId } from '../../kit/signs';
 import { Site } from '../outpost/site';
 import type { MapSpec } from '../spec';
-import { banner, brazier, bulbs, bunting, flag, loudspeaker, shanty, stall, terraceIn, tower } from './props';
+import { banner, brazier, bulbs, bunting, flag, loudspeaker, shanty, terraceIn, tower } from './props';
 import {
   BLOCKS, BREACH, DYES, FRAME, FUEL, FUEL_TANKS, HOLDFAST_SPAWNS, LEVEL, MAIN_GATE, PAD, PAINTS, ROADS, ROOF_GUNS, SQUARE,
   STALLS, STEP, STEPS, TERRACE, TRENCH, TRENCH_W, WALL_GUNS, WALL_X0, WALL_X1, WALL_Z, WEST_GATE, WEST_X,
@@ -275,8 +275,9 @@ function square(k: Kit, site: Site): void {
   brazier(k, 59.5, 31, 0, 18);
 }
 
-function stalls(k: Kit, site: Site): void {
-  for (const [x, z, yaw, dye] of STALLS) stall(k, site, x, z, yaw, DYES[dye % DYES.length]!);
+function stalls(_k: Kit, site: Site): void {
+  const spec = site.spec;
+  for (const [x, z, yaw, dye] of STALLS) spec.stall(x, z, yaw, 0, DYES[dye % DYES.length]!);
 }
 
 /** Crane Street: cover where the militia counter-attack and where the aisle opens, a burnt car, braziers, a sign over the aisle. */

@@ -15,6 +15,7 @@ import type { MissileTarget } from '../core/gameplay';
 import type { Point } from '../progression/callins/airframe';
 import type { GroundProbe } from '../progression/callins/ground';
 import { GunnerHud, type GunnerTone, type GunnerWeapon } from './hud';
+import type { FrameHullHud } from '../frame/parts';
 import { Skyline } from './skyline';
 
 export interface SeatPlan {
@@ -185,6 +186,8 @@ export class GunnerSeat {
   hull = NaN;
   /** Numeric hull readout (e.g. "4000 / 4000"). */
   hullText = '';
+  /** The Distraint Frame's locational parts diagram, warnings and boot overlay. Null on aircraft seats. */
+  frameHud: FrameHullHud | null = null;
   /** A painting launcher's marks, as the panel draws them. */
   marks: readonly MissileTarget[] = [];
   readonly view: SeatView = { position: new THREE.Vector3(), yaw: 0, pitch: 0, roll: 0, shake: 1 };

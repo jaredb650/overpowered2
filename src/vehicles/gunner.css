@@ -132,3 +132,66 @@
 .gn-legs::before { content: ''; position: absolute; left: calc(50% - 0.07rem); bottom: 0; width: 0.14rem; height: 1rem; background: var(--gn); }
 .gn-legtick { position: absolute; left: calc(50% - 0.55rem); bottom: -0.75rem; width: 1.1rem; height: 0.65rem; background: var(--gn-hot); clip-path: polygon(50% 0, 100% 100%, 0 100%); }
 .gn-mark { position: absolute; left: -0.9rem; top: -0.9rem; width: 1.8rem; height: 1.8rem; border: 0.2rem solid var(--gn-hot); }
+
+/* Distraint Frame hull integrity, mech parts diagram, cockpit alerts and startup sequence. */
+.gn-fhull {
+  display: none;
+  position: absolute;
+  right: 8rem;
+  bottom: 20rem;
+  align-items: center;
+  gap: 1.2rem;
+  padding: 0.8rem 1.2rem;
+  background: rgba(12, 13, 16, 0.55);
+  border: 0.12rem solid rgba(255, 74, 58, 0.4);
+}
+.gn-mech { width: 4.8rem; height: 5.6rem; overflow: visible; }
+.gn-mech polygon { fill: rgba(255, 228, 222, 0.18); stroke: var(--gn); stroke-width: 2.2; transition: fill 0.15s, stroke 0.15s; }
+.gn-mech .gn-p-visor { fill: #ff3b2a; stroke: none; }
+.gn-mech polygon[data-s="dmg"] { fill: rgba(255, 174, 58, 0.35); stroke: #ffae3a; }
+.gn-mech polygon[data-s="dead"] { fill: rgba(255, 42, 26, 0.52); stroke: #ff2a1a; }
+.gn-hull-meta { display: flex; flex-direction: column; gap: 0.35rem; width: 11.5rem; }
+.gn-hull-head { display: flex; justify-content: space-between; align-items: baseline; }
+.gn-hull-num { font: 2.2rem/1 var(--display); color: var(--gn); }
+.gn-hull-bar { height: 0.45rem; background: rgba(0, 0, 0, 0.65); }
+.gn-hull-fill { height: 100%; background: var(--gn); transform-origin: 0 50%; }
+.gn-fhull.low { border-color: #ff2a1a; }
+.gn-fhull.low .gn-hull-num { color: #ff3b2a; }
+.gn-fhull.low .gn-hull-fill { background: #ff2a1a; }
+
+.gn-hull-warn {
+  display: none;
+  position: absolute;
+  left: 50%;
+  top: 13.5rem;
+  transform: translateX(-50%);
+  padding: 0.45rem 1.4rem;
+  background: rgba(140, 16, 12, 0.82);
+  border: 0.14rem solid #ff4a3a;
+  color: #fff2ee;
+  font: 700 1.25rem/1.2 var(--mono);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.gn-boot {
+  display: none;
+  position: absolute;
+  inset: 0;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.9rem;
+  background: radial-gradient(circle at center, rgba(25, 10, 10, 0.45), rgba(8, 9, 11, 0.84));
+}
+.gn-boot-title {
+  font: 2.2rem/1 var(--display);
+  letter-spacing: 0.18em;
+  color: #ff4a3a;
+}
+.gn-boot-line {
+  font: 600 1.25rem/1.2 var(--mono);
+  letter-spacing: 0.12em;
+  color: #ffe4de;
+}
+

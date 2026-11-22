@@ -636,6 +636,10 @@ export interface VehicleTargets {
   paintable?(out: MissileTarget[]): number;
   /** The player's aircraft has come on station, or with null, left. */
   setFriendly(aircraft: FriendlyAircraft | null): void;
+  /** Distraint Frame charge against vehicles: destroys & tosses soft vehicles, staggers tanks. */
+  frameCharge?(at: THREE.Vector3, dir: THREE.Vector3): 'soft' | 'tank' | null;
+  /** Distraint Frame stomp or backhand against nearby vehicles & wrecks. */
+  frameBlow?(at: THREE.Vector3, radius: number, damage: number, dir: THREE.Vector3 | null, source: string): number;
 }
 
 export interface EnemySystem extends GameSystem {

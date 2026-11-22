@@ -277,20 +277,6 @@ function hull(b: ModelBuilder): void {
   b.cyl(0.025, 0.035, 0.85, 8, IRON, { at: [-1.36, 2.9, 0.42], rot: [-0.1, 0, -0.06] });
   b.glow(new THREE.BoxGeometry(0.06, 0.06, 0.06), RED, 5, { at: [-1.6, 3.72, 0.56] });
 
-  // Right-shoulder 6-tube lock-on missile pod with bevelled shroud, hydraulic mount & visible warhead tips.
-  const [px, py, pz] = FRAME_PLACES.pod;
-  b.cyl(0.12, 0.14, 0.55, 10, STEEL, { at: [px - 0.12, py - 0.52, pz + 0.06], rot: [0, 0, -0.22] });
-  b.solid(prism([[-0.72, -0.44], [0.68, -0.44], [0.76, -0.28], [0.76, 0.32], [0.58, 0.46], [-0.64, 0.46], [-0.76, 0.28]], 1.18, 0.05), OBSIDIAN, { at: [px, py, pz], rot: ACROSS });
-  b.solid(prism([[-0.56, 0.38], [0.58, 0.38], [0.46, 0.54], [-0.48, 0.54]], 1.06, 0.03), PLATE, { at: [px, py, pz], rot: ACROSS });
-  b.box(1.06, 0.72, 0.08, DARK, { at: [px, py, pz - 0.72] });
-  for (let i = 0; i < 6; i++) {
-    const tx = px + ((i % 3) - 1) * 0.31;
-    const ty = py + (i < 3 ? 0.18 : -0.18);
-    b.cyl(0.115, 0.115, 0.12, 10, IRON, { at: [tx, ty, pz - 0.75], rot: ALONG_Z });
-    b.cyl(0.03, 0.075, 0.14, 8, PLATE, { at: [tx, ty, pz - 0.78], rot: ALONG_Z });
-    b.glow(new THREE.CylinderGeometry(0.028, 0.028, 0.03, 8), RED, 4.2, { at: [tx, ty, pz - 0.85], rot: ALONG_Z });
-  }
-
   // Rear dorsal reactor pack: louvered cooling slats + glowing internal core seams (visual cue for rear weakspot!).
   b.solid(prism([[-0.56, 0.2], [0.35, 0.15], [0.35, 1.95], [-0.34, 2.02], [-0.64, 1.56]], 2.1, 0.06), GUNMETAL, { at: [0, 0, 1.72], rot: ACROSS });
   for (let i = 0; i < 5; i++) {
@@ -303,6 +289,21 @@ function hull(b: ModelBuilder): void {
     b.cyl(0.24, 0.36, 0.56, 14, IRON, { at: [s * 1.18, 0.76, 1.92], rot: [0.22, 0, s * -0.1] });
     b.cyl(0.32, 0.36, 0.08, 14, STEEL, { at: [s * 1.2, 0.5, 1.98], rot: [0.22, 0, s * -0.1] });
     b.glow(new THREE.CylinderGeometry(0.18, 0.24, 0.06, 12), AMBER, 4.5, { at: [s * 1.19, 0.56, 1.96], rot: [0.22, 0, s * -0.1] });
+  }
+}
+
+/** Right-shoulder 6-tube lock-on missile pod built in local space so it can slump when knocked offline. */
+function pod(b: ModelBuilder): void {
+  b.cyl(0.12, 0.14, 0.55, 10, STEEL, { at: [-0.12, -0.52, 0.06], rot: [0, 0, -0.22] });
+  b.solid(prism([[-0.72, -0.44], [0.68, -0.44], [0.76, -0.28], [0.76, 0.32], [0.58, 0.46], [-0.64, 0.46], [-0.76, 0.28]], 1.18, 0.05), OBSIDIAN, { rot: ACROSS });
+  b.solid(prism([[-0.56, 0.38], [0.58, 0.38], [0.46, 0.54], [-0.48, 0.54]], 1.06, 0.03), PLATE, { rot: ACROSS });
+  b.box(1.06, 0.72, 0.08, DARK, { at: [0, 0, -0.72] });
+  for (let i = 0; i < 6; i++) {
+    const tx = ((i % 3) - 1) * 0.31;
+    const ty = i < 3 ? 0.18 : -0.18;
+    b.cyl(0.115, 0.115, 0.12, 10, IRON, { at: [tx, ty, -0.75], rot: ALONG_Z });
+    b.cyl(0.03, 0.075, 0.14, 8, PLATE, { at: [tx, ty, -0.78], rot: ALONG_Z });
+    b.glow(new THREE.CylinderGeometry(0.028, 0.028, 0.03, 8), RED, 4.2, { at: [tx, ty, -0.85], rot: ALONG_Z });
   }
 }
 
@@ -382,11 +383,15 @@ export class StandIn {
   readonly torso: THREE.Group;
   readonly legs = new THREE.Group();
   private readonly hull: THREE.Group;
+  private readonly podGroup: THREE.Group;
   private readonly visorActive: THREE.Mesh;
   private readonly visorStandby: THREE.Mesh;
   private readonly jetCones: THREE.Mesh[] = [];
   private readonly cracks: THREE.LineSegments[] = [];
   private readonly sides: THREE.Group[] = [];
+  private kneel = 0;
+  private collapse = 0;
+  private limpSide: -1 | 0 | 1 = 0;
 
   constructor(materials: ModelMaterials, scene: THREE.Scene) {
     const c = new ModelBuilder();
@@ -402,6 +407,12 @@ export class StandIn {
     const h = new ModelBuilder();
     hull(h);
     this.hull = materials.group(h);
+
+    const pd = new ModelBuilder();
+    pod(pd);
+    this.podGroup = materials.group(pd);
+    this.podGroup.position.set(FRAME_PLACES.pod[0], FRAME_PLACES.pod[1], FRAME_PLACES.pod[2]);
+    this.hull.add(this.podGroup);
 
     // Dual-state glowing canopy visor slit (crimson when active, warm amber when parked/empty).
     const visorGeo = new THREE.BoxGeometry(1.36, 0.11, 0.06);
@@ -454,6 +465,15 @@ export class StandIn {
     }
   }
 
+  /** Sets non-stride mechanical poses: kneeling (0..1), collapse (0..1), canopy cracks (0..3), leg limp and pod damage. */
+  setPoseState(kneel: number, collapse: number, cracks: number, limpSide: -1 | 0 | 1, podDown: boolean): void {
+    this.kneel = clamp(kneel);
+    this.collapse = clamp(collapse);
+    this.limpSide = limpSide;
+    this.setCracks(cracks);
+    this.podGroup.rotation.set(podDown ? 0.36 : 0, 0, podDown ? -0.4 : 0);
+  }
+
   /**
    * `stride` is in plants: the left foot is down on even ones, the right on odd. `walk` is 0..1 of a full walk, which sets
    * how far the legs swing. `sink` lowers the hull on its legs and `sway` moves it along its right, the eye with it.
@@ -465,14 +485,20 @@ export class StandIn {
   ): void {
     const parked = options?.parked === true;
     const jets = options?.jets === true;
-    const effectiveSink = parked ? sink - 0.42 : sink;
+    const standby = parked || this.kneel > 0.1 || this.collapse > 0.1;
+    const effectiveSink = (parked ? sink - 0.42 : sink) - this.kneel * 1.35 - this.collapse * 1.9;
+    const limpRoll = this.limpSide * 0.08 * (0.4 + 0.6 * Math.abs(Math.sin(stride * Math.PI)));
 
     this.legs.visible = this.torso.visible = true;
     this.legs.position.copy(feet);
     this.legs.rotation.y = legYaw;
     this.torso.position.set(feet.x + Math.cos(viewYaw) * sway, feet.y + FRAME_PLACES.hips + effectiveSink, feet.z - Math.sin(viewYaw) * sway);
-    this.torso.rotation.y = viewYaw;
-    this.torso.rotation.x = parked ? -0.1 : 0;
+    this.torso.rotation.set(
+      (parked ? -0.1 : 0) + this.kneel * 0.22 + this.collapse * 0.42,
+      viewYaw,
+      limpRoll + this.collapse * 0.26,
+      'YXZ',
+    );
     this.place(FRAME_PLACES.eye, eye);
 
     this.hull.visible = !inside;
@@ -480,8 +506,8 @@ export class StandIn {
     this.cockpit.position.copy(eye);
     this.cockpit.rotation.set(0, viewYaw, 0);
 
-    this.visorActive.visible = !parked;
-    this.visorStandby.visible = parked;
+    this.visorActive.visible = !standby;
+    this.visorStandby.visible = standby;
     for (let i = 0; i < this.jetCones.length; i++) {
       const cone = this.jetCones[i]!;
       cone.visible = jets && !inside;
@@ -490,14 +516,17 @@ export class StandIn {
     if (options?.cracks !== undefined) this.setCracks(options.cracks);
 
     const swing = 0.28 * clamp(walk);
+    const crouchFlex = this.kneel * 0.32 + this.collapse * 0.48;
     for (let i = 0; i < 2; i++) {
       // Over two plants: planted and pushed back for one, lifted and carried forward for the next.
       const u = ((stride + i) % 2 + 2) % 2 / 2;
       const planted = u < 0.5;
       const k = planted ? u * 2 : (u - 0.5) * 2;
       const side = this.sides[i]!;
-      side.rotation.x = parked ? 0.08 : (planted ? swing * (1 - 2 * k) : swing * (2 * k - 1));
-      side.position.y = FRAME_PLACES.hips - 0.25 + effectiveSink * 0.45 + (planted ? 0 : Math.sin(k * Math.PI) * 0.45 * clamp(walk * 2));
+      const isLimping = (i === 0 ? -1 : 1) === this.limpSide;
+      const strideRot = planted ? swing * (1 - 2 * k) : swing * (2 * k - 1);
+      side.rotation.x = parked ? 0.08 : strideRot * (isLimping ? 0.55 : 1) + crouchFlex;
+      side.position.y = FRAME_PLACES.hips - 0.25 + effectiveSink * 0.45 + (planted ? 0 : Math.sin(k * Math.PI) * 0.45 * clamp(walk * 2) * (isLimping ? 0.45 : 1));
     }
   }
 

@@ -1025,10 +1025,10 @@ export type ReactorState = 'stable' | 'unstable' | 'critical';
 /** How far a wall has worn. Gates and shacks skip `damaged`: a gate is shut or blown, a shack standing or flat. */
 export type StructureStage = 'intact' | 'damaged' | 'breached';
 
-/** A wall segment, gate or shack that blasts wear down and repairs put back. src/world/structures.ts builds them. */
+/** A wall segment, gate, shack or market stall that blasts wear down and repairs put back. src/world/structures.ts builds them. */
 export interface Structure {
   readonly id: number;
-  readonly kind: 'wall' | 'gate' | 'shack';
+  readonly kind: 'wall' | 'gate' | 'shack' | 'stall';
   readonly stage: StructureStage;
   /** Health left in this stage, and what the stage starts with. Zero once breached. */
   readonly health: number;
