@@ -194,9 +194,10 @@ function cannonReceiver(m: Mesher): void {
 /** The barrel's own part: everything on it rides back into the receiver on a shot. */
 function cannonBarrel(m: Mesher): void {
   m.part('barrel', [0, C_BORE, C_FRONT], () => {
+    const zSplit = -0.42;
     const zEnd = -0.66;
     m.use(F.barrel);
-    m.lathe([[0.032, 0.12, 0], [0.032, -0.2], [0.0305, -0.22], [0.029, zEnd, 0]], 28);
+    m.lathe([[0.032, 0.12, 0], [0.032, -0.2], [0.0305, -0.22], [0.0298, zSplit, 0]], 28);
     // Collar the spring bears on, with a lug down to the buffer rod.
     m.use(F.steelDark);
     m.at([0, 0, -SPRING - 0.01], null, () => {
@@ -205,25 +206,173 @@ function cannonBarrel(m: Mesher): void {
     });
     m.use(F.chrome);
     m.at([0, -0.05, -0.095], null, () => m.cyl(0.0095, 0.15, 16));
-    // Muzzle brake: a heavy block of three baffles.
-    m.use(F.barrelBlack);
-    m.lathe([[0.029, zEnd + 0.02, 0], [0.037, zEnd + 0.014], [0.037, zEnd - 0.016], [0.029, zEnd - 0.02, 0]], 26);
-    const baffle = (w: number, h: number, depth: number) => {
-      m.front(poly([[-w, -h * 0.55], [w, -h * 0.55], [w + 0.007, 0], [w, h * 0.55], [-w, h * 0.55], [-w - 0.007, 0]], 0.003), depth, { bevel: 0.0022, holes: [circle(0, 0, 0.026, 24)] });
-    };
-    for (let i = 0; i < 3; i++) m.at([0, 0, zEnd - 0.05 - i * 0.05], null, () => baffle(0.056 - i * 0.003, 0.066, 0.018));
-    m.use(F.parkerized);
-    for (const y of [-0.035, 0.035]) m.at([0, y, zEnd - 0.1], null, () => m.box(0.056, 0.013, 0.17, 0.002, 0.004));
-    m.mirror(() => {
-      for (let i = 0; i < 3; i++) m.at([0.02, 0.0418, zEnd - 0.05 - i * 0.05], [-Math.PI / 2, 0, 0], () => rivet(m, 0.003));
+
+    // Standard barrel nose and 3-baffle brake. Its own part so `autocannonBarrel` hides it cleanly.
+    m.part('stdBrake', [0, 0, 0], () => {
+      m.use(F.barrel);
+      m.lathe([[0.0298, zSplit, 0], [0.029, zEnd, 0]], 28);
+      m.use(F.barrelBlack);
+      m.lathe([[0.029, zEnd + 0.02, 0], [0.037, zEnd + 0.014], [0.037, zEnd - 0.016], [0.029, zEnd - 0.02, 0]], 26);
+      const baffle = (w: number, h: number, depth: number) => {
+        m.front(poly([[-w, -h * 0.55], [w, -h * 0.55], [w + 0.007, 0], [w, h * 0.55], [-w, h * 0.55], [-w - 0.007, 0]], 0.003), depth, { bevel: 0.0022, holes: [circle(0, 0, 0.026, 24)] });
+      };
+      for (let i = 0; i < 3; i++) m.at([0, 0, zEnd - 0.05 - i * 0.05], null, () => baffle(0.056 - i * 0.003, 0.066, 0.018));
+      m.use(F.parkerized);
+      for (const y of [-0.035, 0.035]) m.at([0, y, zEnd - 0.1], null, () => m.box(0.056, 0.013, 0.17, 0.002, 0.004));
+      m.mirror(() => {
+        for (let i = 0; i < 3; i++) m.at([0.02, 0.0418, zEnd - 0.05 - i * 0.05], [-Math.PI / 2, 0, 0], () => rivet(m, 0.003));
+      });
+      m.use(F.black);
+      m.at([0, 0, zEnd - 0.1], null, () => m.lathe([[0.026, 0.09, 0], [0.026, -0.09, 0]], 20));
+      m.use(F.barrelBlack);
+      m.lathe([[0.032, zEnd - 0.18, 0], [0.036, zEnd - 0.184], [0.036, zEnd - 0.2], [0.032, zEnd - 0.204], [0.026, zEnd - 0.204, 0]], 26);
     });
-    m.use(F.black);
-    m.at([0, 0, zEnd - 0.1], null, () => m.lathe([[0.026, 0.09, 0], [0.026, -0.09, 0]], 20));
-    m.use(F.barrelBlack);
-    m.lathe([[0.032, zEnd - 0.18, 0], [0.036, zEnd - 0.184], [0.036, zEnd - 0.2], [0.032, zEnd - 0.204], [0.026, zEnd - 0.204, 0]], 26);
+
+    cannonLongBarrel(m, zSplit);
   });
   // The spring between the receiver and the collar. Its own part, so the clip can squash it as the barrel comes back.
   m.part('spring', [0, C_BORE, C_FRONT], () => m.at([0, 0, -SPRING / 2], null, () => coil(m, 0.039, 0.0036, SPRING, 9, F.steel)));
+}
+
+/**
+ * The `autocannonBarrel` mod: a lengthened heavy 20 mm cannon barrel extension with a quick-change locking collar,
+ * finned radiator jacket, deep 8-flute barrel run, harmonic stabilizer sleeve, and a beefy 4-baffle muzzle brake.
+ * Rides inside `barrel` so the whole assembly recoils cleanly through the cradle (starts ahead of recoil clearance).
+ */
+function cannonLongBarrel(m: Mesher, zSplit: number): void {
+  const zLong = -0.9;
+  m.part('longBarrel', [0, 0, 0], () => {
+    // Core tube from the split joint through the cooling radiator jacket.
+    m.use(F.barrel);
+    m.lathe([[0.0298, zSplit + 0.004, 0], [0.0338, zSplit - 0.004], [0.0338, -0.606, 0]], 28, { chamfer: 0.0008 });
+
+    // Chrome witness ring and octagonal quick-change locking collar at the breech-extension seam.
+    m.use(F.chrome);
+    m.lathe([[0.0336, zSplit - 0.002, 0], [0.0358, zSplit - 0.004], [0.0358, zSplit - 0.009], [0.0336, zSplit - 0.011, 0]], 28, { chamfer: 0.0004 });
+    m.use(F.steelDark);
+    m.at([0, 0, -0.443], null, () => m.front(ngon(0, 0, 0.0455, 8, Math.PI / 8), 0.028, { bevel: 0.0024, holes: [circle(0, 0, 0.032, 24)] }));
+    for (const a of [0, Math.PI / 2, Math.PI, -Math.PI / 2]) {
+      m.at([0, 0, -0.443], [0, 0, a], () => hexX(m, 0.042, 0, 0, 1, 0.0036, F.steel));
+    }
+    m.use(F.parkerized);
+    m.lathe([[0.0338, -0.456, 0], [0.042, -0.458], [0.042, -0.474], [0.0365, -0.481], [0.0338, -0.481, 0]], 28, { chamfer: 0.001 });
+    m.at([0, 0, -0.466], null, () => knurl(m, 0.0426, 0.013, F.steel, 28, 0.0009));
+
+    // Finned radial cooling jacket (6 heavy chamfered cooling ribs tied by contoured upper/lower parkerized spines).
+    m.use(F.barrelBlack);
+    for (let i = 0; i < 6; i++) {
+      const zf = -0.491 - i * 0.0185;
+      const rf = i === 5 ? 0.042 : 0.044;
+      m.lathe([
+        [0.0336, zf + 0.0052, 0], [rf, zf + 0.0042], [rf, zf - 0.0042], [0.0336, zf - 0.0052, 0],
+      ], 28, { chamfer: 0.0011 });
+    }
+    const spineProf = poly([[-0.009, 0.033], [0.009, 0.033], [0.0062, 0.0462], [-0.0062, 0.0462]], 0.0018);
+    m.use(F.parkerized);
+    m.at([0, 0, -0.538], null, () => m.front(spineProf, 0.114, { bevel: 0.0018 }));
+    m.at([0, 0, -0.538], [0, 0, Math.PI], () => m.front(spineProf, 0.114, { bevel: 0.0018 }));
+    // Forward radiator transition cone into the fluted barrel section.
+    m.use(F.steelDark);
+    m.lathe([[0.0336, -0.594, 0], [0.0398, -0.596], [0.0398, -0.606], [0.0348, -0.614], [0.0338, -0.614, 0]], 28, { chamfer: 0.001 });
+
+    // Heavy 8-flute 20 mm cannon barrel run with smooth machined runout ends.
+    const zFlute0 = -0.608;
+    const zFlute1 = zLong + 0.012;
+    const flutes = 8;
+    m.use(F.barrel);
+    m.surface(flutes * 8, 28, (u, v, out) => {
+      const a = u * Math.PI * 2;
+      const runout = Math.min(1, v / 0.07, (1 - v) / 0.07);
+      const cut = Math.max(0, (Math.cos(a * flutes) - 0.12) / 0.88);
+      const baseR = 0.0346 - v * 0.0028;
+      const r = baseR - 0.0044 * Math.sqrt(cut) * runout;
+      out.set(Math.cos(a) * r, Math.sin(a) * r, zFlute0 + v * (zFlute1 - zFlute0));
+    }, {
+      wrapU: true,
+      flip: true,
+      edge: (u, v) => {
+        const runout = Math.min(1, v / 0.07, (1 - v) / 0.07);
+        const crest = Math.max(0, -Math.cos(u * Math.PI * 2 * flutes));
+        return crest > 0.7 ? 0.55 * runout : 0;
+      },
+    });
+
+    // Mid-barrel harmonic stabilizer sleeve with brushed steel retaining rings and top gas-block rib.
+    const zMid = -0.748;
+    m.use(F.parkerized);
+    m.at([0, 0, zMid], null, () => m.front(ngon(0, 0, 0.04, 8, Math.PI / 8), 0.036, { bevel: 0.0022, holes: [circle(0, 0, 0.03, 24)] }));
+    m.use(F.steel);
+    for (const dz of [0.021, -0.021]) {
+      m.at([0, 0, zMid + dz], null, () => m.lathe([[0.031, 0.0045, 0], [0.038, 0.0038], [0.038, -0.0038], [0.031, -0.0045, 0]], 26, { chamfer: 0.0007 }));
+    }
+    m.mirror(() => hexX(m, 0.037, 0, zMid, 1, 0.0036));
+    m.use(F.steelDark);
+    m.side(poly([
+      [zMid + 0.017, 0.034], [zMid + 0.012, 0.0465, 0.003], [zMid - 0.013, 0.0465, 0.003], [zMid - 0.018, 0.034],
+    ], 0.002), 0.022, { bevel: 0.0018 });
+
+    // Heavy 4-baffle multi-chamber artillery muzzle brake.
+    m.use(F.barrelBlack);
+    m.lathe([[0.0316, zLong + 0.022, 0], [0.0405, zLong + 0.015], [0.0405, zLong - 0.022], [0.032, zLong - 0.026, 0]], 28, { chamfer: 0.0012 });
+    m.use(F.steel);
+    m.lathe([[0.0405, zLong + 0.011, 0], [0.042, zLong + 0.01], [0.042, zLong + 0.004], [0.0405, zLong + 0.003, 0]], 28, { chamfer: 0.0004 });
+    m.use(F.steelDark);
+    m.at([0, 0, zLong - 0.008], null, () => m.front(ngon(0, 0, 0.0445, 8, Math.PI / 8), 0.018, { bevel: 0.002, holes: [circle(0, 0, 0.031, 24)] }));
+    m.mirror(() => hexX(m, 0.0412, 0, zLong - 0.008, 1, 0.0034));
+
+    const longBaffle = (w: number, h: number, depth: number) => {
+      m.front(poly([
+        [-w, -h * 0.54], [w, -h * 0.54], [w + 0.01, -h * 0.14], [w + 0.01, h * 0.14],
+        [w, h * 0.54], [-w, h * 0.54], [-w - 0.01, h * 0.14], [-w - 0.01, -h * 0.14],
+      ], 0.0036), depth, { bevel: 0.0024, holes: [circle(0, 0, 0.026, 24)] });
+    };
+    m.use(F.barrelBlack);
+    for (let i = 0; i < 4; i++) {
+      m.at([0, 0, zLong - 0.048 - i * 0.05], null, () => longBaffle(0.064 - i * 0.0025, 0.072, 0.02));
+    }
+
+    // Contoured top and bottom tie-straps (bevelled profiles, no box primitives) pinning all 4 baffles.
+    const topStrap = poly([
+      [zLong - 0.022, 0.0315], [zLong - 0.032, 0.0455, 0.004], [zLong - 0.214, 0.0455, 0.004], [zLong - 0.224, 0.0315],
+    ], 0.0025);
+    const botStrap = poly([
+      [zLong - 0.022, -0.0315], [zLong - 0.224, -0.0315], [zLong - 0.214, -0.0455, 0.004], [zLong - 0.032, -0.0455, 0.004],
+    ], 0.0025);
+    m.use(F.parkerized);
+    m.side(topStrap, 0.062, { bevel: 0.0024 });
+    m.side(botStrap, 0.062, { bevel: 0.0024 });
+
+    // Raised bevelled center stiffener ribs along top and bottom straps + steel rivets over every baffle.
+    const topRib = poly([
+      [zLong - 0.036, 0.044], [zLong - 0.044, 0.0505, 0.003], [zLong - 0.202, 0.0505, 0.003], [zLong - 0.21, 0.044],
+    ], 0.002);
+    const botRib = poly([
+      [zLong - 0.036, -0.044], [zLong - 0.21, -0.044], [zLong - 0.202, -0.0505, 0.003], [zLong - 0.044, -0.0505, 0.003],
+    ], 0.002);
+    m.use(F.steelDark);
+    m.side(topRib, 0.022, { bevel: 0.0016 });
+    m.side(botRib, 0.022, { bevel: 0.0016 });
+    m.mirror(() => {
+      for (let i = 0; i < 4; i++) {
+        const zb = zLong - 0.048 - i * 0.05;
+        m.at([0.022, 0.0458, zb], [-Math.PI / 2, 0, 0], () => rivet(m, 0.0032, F.steel));
+        m.at([0.022, -0.0458, zb], [Math.PI / 2, 0, 0], () => rivet(m, 0.0032, F.steel));
+      }
+    });
+
+    // Dark inner bore sleeve through the chambers + heavy stepped muzzle crown with brushed steel accent band.
+    m.use(F.black);
+    m.at([0, 0, zLong - 0.128], null, () => m.lathe([[0.026, 0.112, 0], [0.026, -0.118, 0]], 22));
+    m.use(F.barrelBlack);
+    m.lathe([
+      [0.032, zLong - 0.214, 0], [0.04, zLong - 0.22], [0.04, zLong - 0.244],
+      [0.035, zLong - 0.254], [0.026, zLong - 0.254, 0],
+    ], 28, { chamfer: 0.0012 });
+    m.use(F.steel);
+    m.lathe([[0.04, zLong - 0.225, 0], [0.0414, zLong - 0.226], [0.0414, zLong - 0.236], [0.04, zLong - 0.237, 0]], 28, { chamfer: 0.0004 });
+    m.use(F.black);
+    m.lathe([[0.0258, zLong - 0.2538, 0], [0.0252, zLong - 0.215, 0], [0, zLong - 0.19, 0]], 20);
+  });
 }
 
 /**
@@ -303,6 +452,7 @@ function buildCannon(kit: Kit): Model {
     screens: { ammo: [176, 88] },
   });
   model.socket('muzzle', [0, C_BORE, C_FRONT - 0.87]);
+  model.socket('muzzleLong', [0, C_BORE, C_FRONT - 1.164]);
   model.socket('eject', [C_HALF, 0.1, 0.0]);
   model.hand('gripR', [0.018, -0.056, 0.07], [0, -0.96, 0.27], [-0.3, -0.25, -0.92]);
   model.foregrip('gripL', [-0.02, -0.088, -0.24]);
@@ -652,7 +802,10 @@ export function autocannonDef(kit: Kit): ViewDef {
     heatPerShot: 0.22,
     animate: cannonAnim,
     readout: a => drawCount(a, 'ammo', 1, 3, '#ffb43a'),
-    mods: { autocannonFlak: { part: 'flakRounds', hides: 'heRounds' } },
+    mods: {
+      autocannonFlak: { part: 'flakRounds', hides: 'heRounds' },
+      autocannonBarrel: { part: 'longBarrel', hides: 'stdBrake', muzzle: 'muzzleLong' },
+    },
   };
 }
 

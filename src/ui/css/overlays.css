@@ -44,7 +44,12 @@
 }
 .scope[data-reticle="autocannon"] .sc-ret { color: #ff5a2a; }
 .scope[data-reticle="sabot"] .sc-ret { color: #9fe0ff; }
-.scope[data-reticle="awl"] .sc-ret { color: #e0e6cb; }
+.scope[data-reticle="awl"] .sc-ret {
+  color: #060708;
+  border-radius: 50%;
+  overflow: hidden;
+  filter: drop-shadow(0 0 0.05rem rgba(205, 220, 235, 0.36));
+}
 /* The Sabot's glass is round where the cannon's is a sighting port. */
 .scope:is([data-reticle="sabot"], [data-reticle="awl"]) .sc-mask {
   clip-path: none;

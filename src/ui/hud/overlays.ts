@@ -14,13 +14,13 @@ const RANGE_RATE = 1 / 10;
  * A scoped gun with a reticle of its own; any other keeps the plain red cross. Drawn in a 600-unit box over the 60rem
  * port, so 10 units are 1rem.
  */
-const RETICLES: Partial<Record<WeaponId, { tag: string; svg: string }>> = {
+export const RETICLES: Partial<Record<WeaponId, { tag: string; svg: string }>> = {
+  // Simple Counter-Strike-style black duplex: razor-thin crosshairs meeting cleanly at centre, thick outer posts at the rim.
   awl: {
     tag: 'scout',
     svg: `<svg class="sc-ret" viewBox="-300 -300 600 600" fill="none" stroke="currentColor">
-      <path stroke-width="1.5" d="M-210 0H-8M8 0H210M0 -210V-8M0 8V210"/>
-      <path stroke-width="5" d="M-300 0H-210M210 0H300M0 210V300"/>
-      <path stroke-width="2" d="M-8 48H8M-12 96H12M-16 144H16"/><circle r="2" fill="currentColor" stroke="none"/>
+      <path stroke-width="1.25" d="M-300 0H300M0 -300V300"/>
+      <path stroke-width="6.5" d="M-300 0H-180M180 0H300M0 -300V-180M0 180V300"/>
     </svg>`,
   },
   // Heavy and simple for a lobbed shell: thick posts, a chevron to lay on the target, and a drop ladder under it.
