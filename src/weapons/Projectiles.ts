@@ -618,9 +618,9 @@ export class Projectiles {
     o.force = p.force;
     o.severMult = p.severMult;
     o.headshotMult = p.headshotMult;
-    o.gib = p.gib;
+    o.gib = p.sticky ? false : p.gib;
     o.killStop = p.killStop;
-    o.charge = p.explosive ? SHAPED_CHARGE[p.blastKind] : undefined;
+    o.charge = p.explosive && !p.sticky ? SHAPED_CHARGE[p.blastKind] : undefined;
     o.pierces = p.armorPiercing;
     return combat.strike(enemy, point, normal, dir, bone, region, p.damage, o);
   }

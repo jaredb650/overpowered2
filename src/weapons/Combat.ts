@@ -268,6 +268,10 @@ export class Combat implements CombatSystem {
     d.vaporize = undefined;
     d.load = undefined;
     d.armour = undefined;
+    d.torso = undefined;
+    d.spill = undefined;
+    d.from = undefined;
+    d.claim = undefined;
     return d;
   }
 
@@ -770,14 +774,19 @@ export class Combat implements CombatSystem {
       if (!hit) return;
       const d = this.nextDamage();
       d.amount = damage;
-      d.type = spec.type ?? 'bullet';
+      d.type = spec.type ?? (spec.source === 'shotgun' || spec.source === 'deuce' || spec.source === 'thresher' ? 'pellet' : 'bullet');
       d.point.copy(hit.point);
       d.dir.copy(st.dir);
       d.force = spec.force ?? 0;
       d.source = spec.source;
       d.severMult = spec.severMult ?? 1;
+      d.gib = spec.gib || undefined;
+      d.load = spec.load;
+      d.from = st.origin;
+      if (spec.cleave && spec.cleave > 0 && hit.region !== 'head') {
+        d.slicePlaneNormal = this.vE.crossVectors(st.dir, UP).normalize();
+      }
       c.gore.damageCorpse(hit, d);
-      c.fx.bloodHit(hit.point, st.dir, 0.6);
       left -= hit.distance + 0.25;
       if (left <= 0) return;
       from.addScaledVector(st.dir, hit.distance + 0.25);
@@ -825,7 +834,10 @@ export class Combat implements CombatSystem {
     o.severMult = spec.severMult ?? 1;
     o.headshotMult = spec.headshotMult ?? 2;
     o.killStop = spec.killStop ?? 0;
+    o.gib = spec.gib ?? false;
+    o.pierces = spec.armorPiercing ?? false;
     o.load = spec.load;
+    o.armour = spec.armour;
     this.strike(target, head, this.vA.copy(dir).negate(), dir, this.boneIndex(target, 'head'), 'head', spec.damage, o);
   }
 
@@ -852,7 +864,10 @@ export class Combat implements CombatSystem {
       o.force = spec.force ?? 0;
       o.severMult = spec.severMult ?? 1;
       o.headshotMult = spec.headshotMult ?? 2;
+      o.gib = spec.gib ?? false;
+      o.pierces = spec.armorPiercing ?? false;
       o.load = spec.load;
+      o.armour = spec.armour;
       this.strike(target, head, this.vA.copy(dir).negate(), dir, this.boneIndex(target, 'head'), 'head', dealt, o);
       this.feel.stop(HIT_STOP.judgeHeadshot, true);
       at.copy(head);

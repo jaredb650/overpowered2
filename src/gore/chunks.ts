@@ -94,6 +94,8 @@ interface Chunk {
   /** Non-uniform stretch, so instances of one shape do not look alike. */
   sx: number; sy: number; sz: number;
   born: number;
+  /** World time this piece's current physics body started simulating (spawn, unsettle, or kick). */
+  simAt: number;
   still: number;
   /** When it stopped, or -1 while moving. */
   restedAt: number;
@@ -208,7 +210,10 @@ function craniumThird(): { g: THREE.BufferGeometry; at: THREE.Vector3 } {
     idx.setX(i + 2, a);
   }
   paint(inner, 19, 0.06, (_x, _y, _z, k, c) => c.copy(GORE).lerp(RAW, k));
-  return centred(mergeGeometries([outer, inner])!);
+  const merged = mergeGeometries([outer, inner])!;
+  outer.dispose();
+  inner.dispose();
+  return centred(merged);
 }
 
 function jawHalf(): { g: THREE.BufferGeometry; at: THREE.Vector3 } {
@@ -351,13 +356,6 @@ export class ChunkField {
     const splinter = wet(0.45, 0.3);
     (splinter as THREE.MeshPhysicalMaterial).flatShading = false;
     make('bone', flesh.get('bone')!, splinter);
-    // Organs, flesh and ribs rest on boxes of their own bounds (most of them: a round thing sits a little into a box).
-    for (const kind of [...ORGANS, ...RIB_KINDS, 'meat', 'viscera', 'bone'] as ChunkKind[]) {
-      const g = this.meshes.get(kind)?.geometry;
-      if (!g) continue;
-      g.computeBoundingBox();
-      this.extent.set(kind, g.boundingBox!.getSize(new THREE.Vector3()).multiplyScalar(RIB_KINDS.includes(kind as RibKind) ? 0.45 : 0.4));
-    }
     const kit = buildKit();
     this.kit = kit.pieces;
     const shell = wet(0.5, 0.2);
@@ -378,6 +376,13 @@ export class ChunkField {
       this.ribAt.set(kind, c.at);
       make(kind, c.g, ribs);
     }
+    // Organs, flesh and ribs rest on boxes of their own bounds (most of them: a round thing sits a little into a box).
+    for (const kind of [...ORGANS, ...RIB_KINDS, 'meat', 'viscera', 'bone'] as ChunkKind[]) {
+      const g = this.meshes.get(kind)?.geometry;
+      if (!g) continue;
+      g.computeBoundingBox();
+      this.extent.set(kind, g.boundingBox!.getSize(new THREE.Vector3()).multiplyScalar(RIB_KINDS.includes(kind as RibKind) ? 0.45 : 0.4));
+    }
   }
 
   private make(kind: ChunkKind, geometry: THREE.BufferGeometry, material: THREE.Material | THREE.Material[], cap: number): THREE.InstancedMesh {
@@ -393,7 +398,7 @@ export class ChunkField {
     this.meshes.set(kind, mesh);
     this.ring.set(kind, 0);
     const slots: Chunk[] = Array.from({ length: cap }, (_, slot) => ({
-      kind, slot, body: null, size: 0, bulk: 0, sx: 1, sy: 1, sz: 1, born: 0, still: 0, restedAt: -1, speed: 0, splats: 0, nextThud: 0, wob: 0, wobV: 0, sag: 0, kickAt: 0, floorY: 0, trailAt: 0, ribbon: null, dry: false, hx: 0, hy: 0, hz: 0, perched: false, roused: false, alive: false,
+      kind, slot, body: null, size: 0, bulk: 0, sx: 1, sy: 1, sz: 1, born: 0, simAt: 0, still: 0, restedAt: -1, speed: 0, splats: 0, nextThud: 0, wob: 0, wobV: 0, sag: 0, kickAt: 0, floorY: 0, trailAt: 0, ribbon: null, dry: false, hx: 0, hy: 0, hz: 0, perched: false, roused: false, alive: false,
       p: new THREE.Vector3(), q: new THREE.Quaternion(), v: new THREE.Vector3(),
     }));
     this.slots.set(kind, slots);
@@ -442,8 +447,8 @@ export class ChunkField {
     for (const kind of kinds) {
       const local = this.ribAt.get(kind)!;
       const p = _p.copy(local).multiplyScalar(scale).applyQuaternion(turn);
-      // Out from the cage's middle, a little above the chest bone.
-      const out = _o.set(p.x, (local.y - 0.1) * scale * 0.6, p.z).normalize();
+      // Out from the cage's middle, a little above the chest bone, rotated with the torso.
+      const out = _o.set(local.x, (local.y - 0.1) * 0.6, local.z).applyQuaternion(turn).normalize();
       p.add(at);
       const out2 = rand(2, 3.6) * pop;
       out.set(out.x * out2 + dir.x * push * rand(0.6, 1), out.y * out2 + dir.y * push + rand(1.5, 3.5) * pop, out.z * out2 + dir.z * push * rand(0.6, 1));
@@ -536,6 +541,7 @@ export class ChunkField {
     c.size = size;
     c.bulk = own !== undefined && extent ? Math.max(extent.x, extent.y, extent.z) * 0.6 : box === undefined ? size : hx;
     c.born = this.ctx.time.elapsed;
+    c.simAt = c.born;
     c.still = 0;
     c.restedAt = -1;
     c.speed = Math.hypot(vx, vy, vz);
@@ -596,7 +602,7 @@ export class ChunkField {
       c.restedAt = -1;
       c.perched = false;
       c.roused = true;
-      c.born = this.ctx.time.elapsed;
+      c.simAt = this.ctx.time.elapsed;
       c.still = 0;
       c.speed = 0;
       c.v.set(0, 0, 0);
@@ -606,7 +612,7 @@ export class ChunkField {
         if (this.ctx.physics.raycastInto(_o, _downward, 40, CG.World, _floor) && p.y > _floor.point.y + 0.1) {
           c.floorY = _floor.point.y + Math.min(0.08, c.bulk * 0.6);
           this.ghosts.push(c);
-        } else c.restedAt = c.born;
+        } else c.restedAt = c.simAt;
         continue;
       }
       this.embody(c, 0, 0, 0, 0);
@@ -743,7 +749,7 @@ export class ChunkField {
       this.write(c, 1);
       if (speed < 0.25) c.still += dt;
       else c.still = 0;
-      if (c.still > t.settle || now - c.born > 7) this.dropBody(c);
+      if (c.still > t.settle || now - c.simAt > 7) this.dropBody(c);
     }
     const g = this.ctx.physics.world.gravity.y;
     for (let i = this.ghosts.length - 1; i >= 0; i--) {
@@ -830,21 +836,21 @@ export class ChunkField {
       c.body.setLinvel({ x: vx, y: vy, z: vz }, true);
       return;
     }
-    const kind = c.kind;
-    const size = c.size;
-    const sx = c.sx, sy = c.sy, sz = c.sz;
-    c.alive = false;
-    const ring = this.ring.get(kind)!;
-    // The same slot, thrown again: its shape and size are kept.
-    this.ring.set(kind, c.slot);
-    this.spawn(kind, c.p.x, c.p.y + 0.03, c.p.z, vx, vy, vz, size, c.q, 14);
-    this.ring.set(kind, ring);
-    c.sx = sx;
-    c.sy = sy;
-    c.sz = sz;
-    c.ribbon = null;
-    c.born = this.ctx.time.elapsed - TrailTuning.seconds;
+    const flying = this.ghosts.indexOf(c);
+    if (flying >= 0) this.ghosts.splice(flying, 1);
+    if (this.live.length >= ChunkTuning.maxBodies) this.ghost(this.live[0]!);
+    c.p.y += 0.03;
+    c.restedAt = -1;
+    c.still = 0;
+    c.perched = false;
+    c.roused = true;
+    c.simAt = this.ctx.time.elapsed;
+    c.speed = Math.hypot(vx, vy, vz);
+    c.sag = 0;
     c.wobV = 6;
+    c.ribbon = null;
+    this.embody(c, vx, vy, vz, 14);
+    this.live.push(c);
   }
 
   /** Shakes every organ within reach of `at`, by `strength` 0..1: something landed there. */

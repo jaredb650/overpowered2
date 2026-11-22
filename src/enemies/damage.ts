@@ -238,7 +238,7 @@ const HEAD_BURST_DAMAGE = 40;
 /** Severe headshots on these get a partial head wound (docs/proposals/partial-head-wounds.md); gore says which are built. */
 const PARTIAL_HEADS: ReadonlySet<string> = new Set(['trooper', 'gunner', 'husk', 'brute']);
 /** Rounds that burst any head they kill: the very damaging tier, with four pellets of a blast and the Judge up close. */
-const HEAD_BURSTERS: ReadonlySet<string> = new Set(['autocannon', 'sabot']);
+const HEAD_BURSTERS: ReadonlySet<string> = new Set(['autocannon', 'sabot', 'awl', 'ultramag', 'stakegun', 'piledriver', 'lance']);
 const JUDGE_BURST_RANGE = 8;
 
 /**
@@ -541,6 +541,8 @@ export class DamageModel {
     const c = e.char;
     if (c.isFractured(B.thighL) || c.isFractured(B.shinL)) _strength.legL = Math.min(_strength.legL, FRACTURED);
     if (c.isFractured(B.thighR) || c.isFractured(B.shinR)) _strength.legR = Math.min(_strength.legR, FRACTURED);
+    if (c.isFractured(B.upperArmL) || c.isFractured(B.foreArmL)) _strength.armL = Math.min(_strength.armL, FRACTURED);
+    if (c.isFractured(B.upperArmR) || c.isFractured(B.foreArmR)) _strength.armR = Math.min(_strength.armR, FRACTURED);
     return _strength;
   }
 

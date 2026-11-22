@@ -145,9 +145,11 @@ export class Booms {
       this.w.relay({ t: 'boom', at: value.at, kind: value.kind, radius: value.radius, slot, ...(scale !== undefined ? { scale } : {}) }, from);
     }
     const kind = value.kind as ExplosionKind;
+    const def = EXPLOSIONS[kind as keyof typeof EXPLOSIONS];
     // What a guest's blast does to the host's vehicles is a claim of its own (claims.ts `vhit`), not this drawing.
     ctx.fx.explosion(at, { radius: value.radius, kind, scale });
-    for (const sound of EXPLOSIONS[kind as keyof typeof EXPLOSIONS].sounds) ctx.audio.play(sound.id, { ...sound, position: at });
+    for (const sound of def.sounds) ctx.audio.play(sound.id, { ...sound, position: at });
+    ctx.physics?.radialImpulse?.(at, value.radius * 1.35, def.impulse * value.radius);
     const near = ctx.player.eye.distanceTo(at);
     if (near < value.radius * 4) ctx.camera.addTrauma(0.35 * (1 - near / (value.radius * 4)));
   }

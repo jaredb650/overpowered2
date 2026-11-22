@@ -796,7 +796,13 @@ export class MuscleState {
     const t = MuscleTuning;
     this.burstLeft = 0;
     this.burstCount = 0;
-    for (const j of this.jolts) j.left = 0;
+    this.burstParts.fill(null);
+    this.jolting = 0;
+    for (const j of this.jolts) {
+      j.left = 0;
+      j.part = null;
+    }
+    if (this.collapse?.balancer?.hasRemovedParts()) this.endCollapse();
     this.reflex?.bind();
 
     let total = 0;
@@ -963,8 +969,11 @@ export class MuscleState {
       _a.copy(part.p).sub(_b);
       _d.crossVectors(_axis, _a).add(part.v);
       body.setLinvel(_d, true);
-      const w = body.angvel();
-      body.setAngvel({ x: w.x + _axis.x, y: w.y + _axis.y, z: w.z + _axis.z }, true);
+      body.angvel(part.w);
+      _vec.x = part.w.x + _axis.x;
+      _vec.y = part.w.y + _axis.y;
+      _vec.z = part.w.z + _axis.z;
+      body.setAngvel(_vec, true);
     }
     this.rag.pushed = true;
   }
@@ -1338,7 +1347,11 @@ export class MuscleState {
 
   /** Forward an impact to the active DynamicBalancer for localized muscle shock, knee buckle, gut curl, and wound clutch. */
   onBalancerHit(bone: number, point: THREE.Vector3, dir: THREE.Vector3, dv: number, region?: string): void {
-    this.collapse?.balancer?.onHit(bone, point, dir, dv, region);
+    const drive = this.collapse;
+    const bal = drive?.balancer;
+    if (!drive || !bal) return;
+    bal.onHit(bone, point, dir, dv, region);
+    if (bal.age === 0 || (!drive.alive && bal.dyingAge === 0)) bal.reupdate(drive);
   }
 
   /**
@@ -1572,6 +1585,7 @@ export class MuscleState {
     for (let i = 0; i < parts.length; i++) {
       const part = parts[i]!;
       const m = part.muscle!;
+      m.gain = 1;
       if (!part.parent) m.drive = 0;
       // The hold has gone and the trunk's weight is its own again. The Reflex writes gravity for arms and head, and for
       // legs once the body is down; never for the hips or the chest.
@@ -2046,7 +2060,11 @@ export class MuscleState {
     const g = this.rag.gravity;
     for (let i = 0; i < parts.length; i++) {
       const part = parts[i]!;
-      part.muscle!.drive = 0;
+      const m = part.muscle;
+      if (m) {
+        m.drive = 0;
+        m.gain = 1;
+      }
       part.body.setGravityScale(g, true);
     }
     this.collapse = null;

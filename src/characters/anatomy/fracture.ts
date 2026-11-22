@@ -44,6 +44,7 @@ class Break {
   mode = 0;
   /** Sign of a rotation about the hinge axis that goes the wrong way. The bone turns against its rig limits. */
   wrong = 1;
+  readonly axis = new THREE.Vector3(1, 0, 0);
   length = 0.3;
   /** A little sideways too. No joint breaks exactly in its own plane. */
   skew = 0;
@@ -84,7 +85,11 @@ export class FracturePose {
     b.placed = false;
     const hinge = def.joint?.kind === 'hinge';
     b.mode = !hinge ? 0 : style === 'hyper' ? 1 : -1;
-    // Limits say which way it does bend, so the wrong way is the side of zero they never reach.
+    const ax = def.joint?.axis;
+    if (ax) b.axis.set(ax[0], ax[1], ax[2]).normalize();
+    else b.axis.copy(_x);
+    // Rig limits are child-to-parent while Three.js bone.quaternion is parent-to-child (opposite sign), so a hinge
+    // with max > 0.1 (elbow) bends negatively in Three.js and hyperextends positively (+1); vice versa for knees (-1).
     b.wrong = (def.joint?.max ?? 0) > 0.1 ? 1 : -1;
     if (style === 'limp' && !hinge) {
       const child = this.rig.bones[kids]!;
@@ -134,9 +139,12 @@ export class FracturePose {
       } else {
         // The rotation about the hinge that carries the bind direction nearest to where the limb has swung.
         const r = b.rest;
-        const swing = Math.atan2(r.y * _local.z - r.z * _local.y, r.y * _local.y + r.z * _local.z) * b.wrong;
+        const a = b.axis;
+        const sin = a.dot(_step.crossVectors(r, _local));
+        const cos = r.dot(_local) - r.dot(a) * _local.dot(a);
+        const swing = Math.atan2(sin, cos) * b.wrong;
         const held = b.mode === 1 ? clamp(swing, HYPER_MIN, HYPER_MAX) : clamp(swing, -SLACK_BEND, 0.02);
-        bone.quaternion.setFromAxisAngle(_x, held * b.wrong);
+        bone.quaternion.setFromAxisAngle(a, held * b.wrong);
         if (b.skew !== 0) bone.quaternion.premultiply(_twist.setFromAxisAngle(_z, b.skew));
       }
       // The swing goes on from where the joint let it get to, so what was held back is not stored up.

@@ -154,10 +154,11 @@ export class WoundBook {
   private write(i: number, w: WoundSpec): void {
     const d = this.data;
     const o = this.at(i);
+    const ragged = Math.min(Math.max(w.ragged, 0), 1);
     d[o] = w.cx; d[o + 1] = w.cy; d[o + 2] = w.cz; d[o + 3] = reachOf(w.radius, Math.hypot(w.hx, w.hy, w.hz));
     d[o + 4] = w.hx; d[o + 5] = w.hy; d[o + 6] = w.hz; d[o + 7] = w.radius;
     d[o + 8] = w.nx * w.depth; d[o + 9] = w.ny * w.depth; d[o + 10] = w.nz * w.depth;
-    d[o + 11] = w.kind + w.regions * 8 + w.ragged * RAGGED_SCALE;
+    d[o + 11] = w.kind + w.regions * 8 + ragged * RAGGED_SCALE;
   }
 
   /** Whether wound `i` takes `kind` into itself. */
@@ -210,7 +211,7 @@ export class WoundBook {
     const l = 1 / (Math.hypot(ax, ay, az) || 1);
     ax *= l; ay *= l; az *= l;
     const code = Math.floor(d[o + 11]!);
-    const ragged = Math.max(d[o + 11]! - code, ragged2 * RAGGED_SCALE);
+    const ragged = Math.max(d[o + 11]! - code, Math.min(Math.max(ragged2, 0), 1) * RAGGED_SCALE);
     let kind = code & 7;
     if (cuts(kind) && (radius >= CRATER_FROM || kind2 === WoundKind.crater)) kind = WoundKind.crater;
     const regions = (code >> 3) | regions2;
@@ -236,22 +237,38 @@ export class WoundBook {
       this.remove(faint);
       return;
     }
-    let best = Infinity;
-    let keep = -1;
-    let drop = -1;
+    let bestSame = Infinity;
+    let keepSame = -1;
+    let dropSame = -1;
+    let bestAny = Infinity;
+    let keepAny = -1;
+    let dropAny = -1;
     for (let i = 0; i < this.count; i++) {
       for (let j = i + 1; j < this.count; j++) {
         if (!this.accepts(i, this.kind(j))) continue;
         const a = this.at(i);
         const b = this.at(j);
         const gap = Math.hypot(d[a]! - d[b]!, d[a + 1]! - d[b + 1]!, d[a + 2]! - d[b + 2]!) - d[a + 7]! - d[b + 7]!;
-        if (gap < best) {
-          best = gap;
-          keep = this.radius(i) >= this.radius(j) ? i : j;
-          drop = keep === i ? j : i;
+        const regA = Math.floor(d[a + 11]!) >> 3;
+        const regB = Math.floor(d[b + 11]!) >> 3;
+        const dA = Math.hypot(d[a + 8]!, d[a + 9]!, d[a + 10]!) || 1;
+        const dB = Math.hypot(d[b + 8]!, d[b + 9]!, d[b + 10]!) || 1;
+        const facing = (d[a + 8]! * d[b + 8]! + d[a + 9]! * d[b + 9]! + d[a + 10]! * d[b + 10]!) / (dA * dB);
+        if ((regA & regB) !== 0 && facing >= MERGE_FACING) {
+          if (gap < bestSame) {
+            bestSame = gap;
+            keepSame = this.radius(i) >= this.radius(j) ? i : j;
+            dropSame = keepSame === i ? j : i;
+          }
+        } else if (gap < bestAny) {
+          bestAny = gap;
+          keepAny = this.radius(i) >= this.radius(j) ? i : j;
+          dropAny = keepAny === i ? j : i;
         }
       }
     }
+    const keep = keepSame >= 0 ? keepSame : keepAny;
+    const drop = keepSame >= 0 ? dropSame : dropAny;
     if (keep < 0) {
       // Nothing can merge: all gashes, say. The smallest is the one that will be missed least.
       let small = 0;

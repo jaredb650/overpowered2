@@ -141,7 +141,7 @@ function placeWound(a: ArchetypeData, book: WoundBook, bone: THREE.Bone, boneInd
   spec.reach = hit.reach ?? 0;
   spec.regions = woundRegions(a, boneIndex, hit.radius);
   const def = a.rig.bones[boneIndex]!;
-  spec.limit = (def.hit?.radius ?? 0.06) * (boneIndex === H.head ? 0.8 : 1.5);
+  spec.limit = (def.hit?.radius ?? 0.06) * (def.region === 'head' ? 0.8 : 1.5);
   if (hit.along && hit.length) {
     // Square to the axis, so the slot's two ends lie in one plane across the body.
     u.copy(hit.along).transformDirection(m).addScaledVector(n, -u.dot(n)).normalize().multiplyScalar(hit.length);
@@ -431,10 +431,11 @@ function bakeSkin(s: FarSkin, out: FarBuffers, vertex: number, index: number, ma
         if (reg < 0) continue;
         const v = d[wearAt + (reg >> 2) * 4 + (reg & 3)]!;
         const kd = Math.floor(v * 0.5);
+        if (kd === WearKind.burn) continue;
         const a = (v - kd * 2) * smooth(0.04, 0.3, w);
         if (a > amount) { amount = a; kind = kd; own = b; region = reg; }
       }
-      if (amount > 0.01 && kind !== WearKind.burn) {
+      if (amount > 0.01) {
         let parent = 0;
         for (let j = 0; j < 4; j++) {
           const b = si[i * 4 + j]!;
@@ -695,6 +696,7 @@ export class Character implements CharacterInstance {
     if (!this.inside) {
       this.inside = makeInside(this.a, this.skeleton);
       this.backing = makeBacking(this.a, this.mesh.geometry, this.skeleton);
+      this.backing.castShadow = this.mesh.castShadow;
       Object.defineProperty(this.inside, 'boundingSphere', this.cullSphere);
       Object.defineProperty(this.backing, 'boundingSphere', this.cullSphere);
       this.root.add(this.inside, this.backing);
@@ -705,10 +707,12 @@ export class Character implements CharacterInstance {
   /** Past `INSIDE_LOD` a hole is a few pixels of dark, which the backing alone gives it. */
   private showInside(lod: number): void {
     const open = lod < FAR_LOD;
+    const casts = this.mesh.castShadow || this.backing!.castShadow;
     this.inside!.visible = lod < INSIDE_LOD;
     this.backing!.visible = open;
     this.backing!.geometry = this.mesh.geometry;
-    this.mesh.castShadow = !open;
+    this.mesh.castShadow = casts && !open;
+    this.backing!.castShadow = casts && open;
   }
 
   /**
@@ -936,11 +940,15 @@ export class Character implements CharacterInstance {
     this.book.load(snap.wounds);
     this.worn.adopt(snap.worn as WearBook);
     this.stress.set(snap.stress);
+    this.kitCharred = this.burn >= KIT_CHARS_AT;
     // Its own gear is whatever the last enemy to wear this instance left on it. The body's own is carried in the snapshot.
     for (const p of this.props) p.object.visible = false;
     for (const g of snap.gear) this.attachProp(g.bone, g.object, true);
     for (const g of snap.standIns) {
       if (!g.folds || !this.standIn(g.bone, g.object)) this.attachProp(g.bone, g.object, true);
+    }
+    if (this.kitCharred) {
+      for (const p of this.props) if (p.object.parent === this.bones[p.bone] && p.object.visible) charKit(p.object, true);
     }
     this.showWounds();
     this.root.updateMatrixWorld(true);
@@ -1060,17 +1068,20 @@ export class Character implements CharacterInstance {
     this.worn.clear();
     this.breaks.reset();
     this.stress.fill(0);
+    this.mesh.castShadow = true;
     if (this.inside) this.showInside(FAR_LOD);
     this.data.fill(0, this.extras, this.extras + EXTRA_TEXELS * 4);
     this.data[this.extras + EXTRA_INFO * 4 + 1] = Math.random() * 64;
     this.kitCharred = false;
     for (let i = this.props.length - 1; i >= 0; i--) {
       const p = this.props[i]!;
+      if (p.untilReset) {
+        p.object.removeFromParent();
+        this.props.splice(i, 1);
+        continue;
+      }
       charKit(p.object, false);
       p.object.visible = true;
-      if (!p.untilReset) continue;
-      p.object.removeFromParent();
-      this.props.splice(i, 1);
     }
     this.mesh.geometry = this.a.model.lods[0]!;
     this.mesh.material = this.a.material;
@@ -1106,6 +1117,7 @@ export class SeveredPart implements SeveredLimb {
   private inside: THREE.SkinnedMesh | null = null;
   private backing: THREE.SkinnedMesh | null = null;
   private clones: THREE.Object3D[] = [];
+  private kitCharred = false;
 
   constructor(private readonly a: ArchetypeData) {
     this.allBones = makeBones(a);
@@ -1146,6 +1158,7 @@ export class SeveredPart implements SeveredLimb {
     if (!this.inside) {
       this.inside = makeInside(this.a, this.skeleton);
       this.backing = makeBacking(this.a, this.mesh.geometry, this.skeleton);
+      this.backing.castShadow = this.mesh.castShadow;
       this.inside.frustumCulled = false;
       this.backing.frustumCulled = false;
       this.root.add(this.inside, this.backing);
@@ -1154,15 +1167,21 @@ export class SeveredPart implements SeveredLimb {
   }
 
   private showInside(on: boolean): void {
+    const casts = this.mesh.castShadow || this.backing!.castShadow;
     this.inside!.visible = on;
     this.backing!.visible = on;
     this.backing!.geometry = this.mesh.geometry;
-    this.mesh.castShadow = !on;
+    this.mesh.castShadow = casts && !on;
+    this.backing!.castShadow = casts && on;
   }
 
   /** As the body's: the limb goes on burning after it has left it. */
   setBurn(amount: number): void {
     this.data[this.extras + EXTRA_PARAMS * 4 + 2] = amount;
+    const kit = amount >= KIT_CHARS_AT;
+    if (kit === this.kitCharred) return;
+    this.kitCharred = kit;
+    for (const c of this.clones) charKit(c, kit);
   }
 
   get burn(): number {
@@ -1287,6 +1306,7 @@ export class SeveredPart implements SeveredLimb {
     src.copySurfaceTo(this.data, this.extras, this.book, this.worn);
     // A limb has nothing fading its flash, so a value copied mid-hit would stay lit for good.
     this.data[this.extras + EXTRA_PARAMS * 4 + 1] = 0;
+    this.kitCharred = this.burn >= KIT_CHARS_AT;
     this.showWounds();
     for (const p of src.props) {
       // A prop that has already left the bone (a helmet shot off) stays where it went; one out of sight stays so.
@@ -1294,6 +1314,7 @@ export class SeveredPart implements SeveredLimb {
       // A clone, because the limb can outlive the instance that shed it.
       const clone = p.object.clone();
       clone.visible = true;
+      if (this.kitCharred) charKit(clone, true);
       this.bones[p.bone]!.add(clone);
       this.clones.push(clone);
       p.object.visible = false;
@@ -1307,9 +1328,11 @@ export class SeveredPart implements SeveredLimb {
   release(): void {
     for (const c of this.clones) c.removeFromParent();
     this.clones.length = 0;
+    this.kitCharred = false;
     this.book.clear();
     this.worn.clear();
     this.mesh.material = this.a.material;
+    this.mesh.castShadow = true;
     if (this.inside) this.showInside(false);
     this.root.removeFromParent();
     this.releaseHook?.(this);

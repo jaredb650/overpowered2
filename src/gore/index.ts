@@ -286,9 +286,15 @@ const machines = new Set(ARCHETYPES.filter(a => a.stumps === 'machine').map(a =>
 /** Drones and skitters spark where everything else bleeds. */
 const isMachine = (char: CharacterInstance): boolean => machines.has(char.archetype);
 const humanoidBones = Object.entries(HumanoidBone);
+const isHumanoidRig = (info: RigInfo): boolean => humanoidBones.every(([name, bone]) => info.rig.bones[bone]?.name === name);
 /** Regions are shared by every rig; only flesh humanoids have a torso that can crawl. */
 const canCrawl = (char: CharacterInstance): boolean => !isMachine(char)
   && humanoidBones.every(([name, bone]) => char.rig.bones[bone]?.name === name);
+/** Extracts heading yaw directly from a world quaternion, avoiding Euler XYZ gimbal wrap past +/-90 deg. */
+const yawOf = (q: THREE.Quaternion): number => {
+  _v.set(0, 0, 1).applyQuaternion(q);
+  return _v.x * _v.x + _v.z * _v.z > 1e-6 ? Math.atan2(_v.x, _v.z) : 0;
+};
 
 /** Which limbs a gib throws as real parts, in order. */
 const GIB_REGIONS: readonly GoreRegion[] = ['head', 'armL', 'armR', 'legL', 'legR'];
@@ -446,6 +452,7 @@ type PinTarget = DeadBody | LooseLimb;
 interface Stake {
   bone: number;
   anchor: THREE.Vector3;
+  joint?: ReturnType<Ctx['physics']['world']['createImpulseJoint']>;
 }
 
 interface PendingPin {
@@ -526,6 +533,7 @@ export class Gore implements GoreSystem {
   private farBodies: FarBody[] = [];
   /** World time the baked bodies began to sink with the rest of the floor (`sweep`), or -1. */
   private farSweep = -1;
+  private farLimbSweep = -1;
   /** Baked bodies stood up on this frame for a round or a blast, and the frame. */
   private stoodFrame = -1;
   private stood = 0;
@@ -624,17 +632,48 @@ export class Gore implements GoreSystem {
    * couple of seconds. The living, down or up, are left alone.
    */
   sweep(): void {
-    for (const b of this.bodies) if (b.sinking < 0 && !b.down && b.vapor < 0) this.sinkBody(b);
-    for (const l of this.limbs) if (l.sinking < 0) this.sinkLimb(l);
+    const now = this.ctx.time.elapsed;
+    for (const b of this.bodies) {
+      if (b.sinking < 0 && !b.down && b.vapor < 0) {
+        this.fire.forget(b.char);
+        this.sinkBody(b);
+      }
+    }
+    let hasBakedLimbs = false;
+    for (const l of this.limbs) {
+      if (l.sinking >= 0) continue;
+      this.fire.forget(l.piece);
+      if (l.slot >= 0) {
+        // Baked limbs sink together as one batch mesh instead of popping back into individual SkinnedMeshes.
+        l.rag.freeze();
+        l.rag.dropRest();
+        this.mess.woke(l.piece as never);
+        this.mess.forgetLimb(l);
+        this.stopLimbEmitters(l);
+        l.sinking = now;
+        hasBakedLimbs = true;
+      } else {
+        this.sinkLimb(l);
+      }
+    }
+    if (hasBakedLimbs) this.farLimbSweep = now;
     this.chunks.dismiss();
     this.sliced.dismiss();
     this.ropes.clear();
+    // Clear active blood pools/wet spots/tracks/queued stains so the cleaned floor isn't re-stained or walked through.
+    this.blood.sweep();
+    this.tracks.clear();
+    (this.ctx.fx as unknown as { core?: { stains?: { clear?(): void } } })?.core?.stains?.clear?.();
     // The baked ones sink together, as one mesh.
     if (this.farBodies.length > 0) {
-      this.farSweep = this.ctx.time.elapsed;
+      this.farSweep = now;
       for (const f of this.farBodies) {
         f.sinking = this.farSweep;
         f.rag.dropRest();
+        if (f.fire) {
+          this.fire.forget(f.fire);
+          f.fire = null;
+        }
       }
     }
     (this.ctx.render.decals as { fadeOut?(seconds: number): void }).fadeOut?.(GoreTuning.sinkSeconds);
@@ -709,19 +748,19 @@ export class Gore implements GoreSystem {
     }
     // An organ on the floor is shot before what lies behind it: it bursts (`damageCorpse`).
     const organ = this.chunks.raycastOrgan(origin, dir, best);
-    if (organ >= 0 && !this.sliced.raycast(origin, dir, organ, out.point, out.normal)) {
-      out.distance = organ;
-      out.point.copy(origin).addScaledVector(dir, organ);
-      out.normal.copy(dir).negate();
-      out.handle = this.chunks.organHit;
+    const slice = this.sliced.raycast(origin, dir, organ >= 0 ? organ : best, out.point, out.normal);
+    if (slice) {
+      out.distance = this.sliced.lastDistance;
+      out.handle = slice;
       out.bone = -1;
       out.region = 'chest';
       return out;
     }
-    const slice = this.sliced.raycast(origin, dir, best, out.point, out.normal);
-    if (slice) {
-      out.distance = this.sliced.lastDistance;
-      out.handle = slice;
+    if (organ >= 0) {
+      out.distance = organ;
+      out.point.copy(origin).addScaledVector(dir, organ);
+      out.normal.copy(dir).negate();
+      out.handle = this.chunks.organHit;
       out.bone = -1;
       out.region = 'chest';
       return out;
@@ -814,6 +853,7 @@ export class Gore implements GoreSystem {
         rag.applyImpulse(hit.bone, hit.point, _v.copy(hit.dir).multiplyScalar(hit.force * local));
         rag.shove(_v.copy(hit.dir).multiplyScalar(hit.force * (1 - local)));
         muscle.onBalancerHit(hit.bone, hit.point, hit.dir, dv);
+        drive.balancer.update(drive, 0);
       } else {
         // Legacy ghost-pinned fallback: most of the round into where its feet are heading.
         rag.applyImpulse(hit.bone, hit.point, _v.copy(hit.dir).multiplyScalar(hit.force * (1 - MuscleTuning.carryShare)));
@@ -834,24 +874,36 @@ export class Gore implements GoreSystem {
     // Short of GoreTuning.maxSimTime, with time left over to land.
     const seconds = clamp(duration, 0.3, 5);
     const ground = char.root.position.y;
-    const yaw = char.root.rotation.y;
+    const yaw = yawOf(char.root.quaternion);
+    const useBalancer = BALANCER_PASS && isHumanoidRig(info);
     let drive: CollapseDrive | null = null;
     if (MuscleTuning.enabled && this.collapsing() < this.collapseRoom()) {
-      if (!BALANCER_PASS) {
+      if (!useBalancer) {
         // A first call only asks how long the action runs, so it can be stretched over the whole collapse.
         const natural = char.anim.play('deathStumble');
         if (natural > 0) char.anim.play('deathStumble', natural / seconds);
       }
       drive = new CollapseDrive(char.anim, char.root, char.bones, seconds, velocity);
     }
-    this.startRag(body, { velocity, twitch });
+    this.startRag(body, { velocity, twitch }, useBalancer && drive !== null);
     const rag = body.rag!;
-    if (hit) rag.applyImpulse(hit.bone, hit.point, _v.copy(hit.dir).multiplyScalar(hit.force));
+    if (hit) {
+      if (useBalancer && drive) {
+        const local = 0.45;
+        rag.applyImpulse(hit.bone, hit.point, _v.copy(hit.dir).multiplyScalar(hit.force * local));
+        rag.shove(_v.copy(hit.dir).multiplyScalar(hit.force * (1 - local)));
+      } else {
+        rag.applyImpulse(hit.bone, hit.point, _v.copy(hit.dir).multiplyScalar(hit.force));
+      }
+    }
     const muscle = rag.muscle;
     if (!muscle) return;
     if (strength) muscle.strengthen(strength, true);
     if (drive && muscle.canStand()) {
-      if (BALANCER_PASS) drive.balancer = new DynamicBalancer(rag, muscle, this.ctx.physics, ground, yaw);
+      if (useBalancer) {
+        drive.balancer = new DynamicBalancer(rag, muscle, this.ctx.physics, ground, yaw);
+        if (velocity) drive.balancer.seedVelocity(velocity);
+      }
       // Its weaker leg goes first, unless a leg was shot just now.
       if (strength && strength.legL !== strength.legR) drive.shotLeg = strength.legL < strength.legR ? 1 : -1;
       if (hit) {
@@ -860,8 +912,8 @@ export class Gore implements GoreSystem {
         if (region.startsWith('leg') || region.startsWith('shin')) drive.shotLeg = region.endsWith('L') ? 1 : -1;
         char.anim.holdWound?.(hit.bone, hit.point, seconds);
       }
+      if (hit && drive.balancer) drive.balancer.onHit(hit.bone, hit.point, hit.dir, (hit.force * DevFlags.force) / info.mass);
       muscle.startCollapse(drive);
-      if (hit && drive.balancer) muscle.onBalancerHit(hit.bone, hit.point, hit.dir, (hit.force * DevFlags.force) / info.mass);
       body.holding = true;
     }
     if (hit) muscle.jolt(hit.bone, hit.point, hit.dir, joltOf(hit.force, info.mass));
@@ -885,7 +937,7 @@ export class Gore implements GoreSystem {
     if (stumble && (catching ? this.standing() >= t.maxStanding : this.stumbling() >= t.maxStumbles)) return false;
     const hurt = options?.hurt ?? 0.6;
     const ground = char.root.position.y;
-    const yaw = char.root.rotation.y;
+    const yaw = yawOf(char.root.quaternion);
     // It reads the pose and the root, so before the ragdoll takes them over.
     const drive = stumble ? new CollapseDrive(char.anim, char.root, char.bones, clamp(stumble.seconds, 0.2, 3), options.velocity) : null;
     const strength = options?.strength;
@@ -904,7 +956,7 @@ export class Gore implements GoreSystem {
     const reflex = new Reflex(rag, muscle, char.anim, { lie: options?.lie ?? t.knockdownLie, hurt, groundY: ground, dir, plank, knockout: !drive && options?.knockout });
     muscle.startReflex(reflex);
     if (drive) {
-      if (BALANCER_PASS) {
+      if (BALANCER_PASS && isHumanoidRig(body.info)) {
         drive.balancer = new DynamicBalancer(rag, muscle, this.ctx.physics, ground, yaw);
         if (options?.velocity) drive.balancer.seedVelocity(options.velocity);
       }
@@ -917,6 +969,7 @@ export class Gore implements GoreSystem {
       muscle.startCollapse(drive);
     }
     this.strikeDown(body, rag, options);
+    if (drive?.balancer && options?.impulses && options.impulses.length > 0) drive.balancer.update(drive, 0);
     if (!drive && options?.topple) muscle.tip(options.topple);
     if (reflex.knockout && dir && options?.wound) this.knockOut(rag, options.wound.point, dir);
     if (options?.roll && STRENGTH_PASS) reflex.roll(options.roll);
@@ -1456,15 +1509,23 @@ export class Gore implements GoreSystem {
       if (f.sinking >= 0) continue;
       const c = f.rag.center;
       if (!rayNearSphere(ox, oy, oz, dx, dy, dz, c.x, c.y, c.z, f.info.reach[0]!, best)) continue;
-      if (rayBox(ox, oy, oz, dx, dy, dz, f.rag.restMin, f.rag.restMax) < 0) continue;
+      const boxT = rayBox(ox, oy, oz, dx, dy, dz, f.rag.restMin, f.rag.restMax);
+      if (boxT < 0 || boxT >= best) continue;
       // The box is loose. The round has to pass through the body itself: within a limb's width of where a capsule lies.
       const p = f.rag.restPoints;
+      if (p.length === 0) {
+        best = boxT;
+        found = f;
+        continue;
+      }
+      const r = Math.max(0.14, 0.14 * (f.info.rig.height / 1.85) * 1.35);
+      const r2 = r * r;
       for (let k = 0; k < p.length; k += 3) {
         const px = p[k]! - ox, py = p[k + 1]! - oy, pz = p[k + 2]! - oz;
         const t = px * dx + py * dy + pz * dz;
         if (t < 0 || t >= best) continue;
         const ex = px - dx * t, ey = py - dy * t, ez = pz - dz * t;
-        if (ex * ex + ey * ey + ez * ez > 0.14 * 0.14) continue;
+        if (ex * ex + ey * ey + ez * ez > r2) continue;
         best = t;
         found = f;
       }
@@ -1488,7 +1549,7 @@ export class Gore implements GoreSystem {
    * cannot be: it moves, burns or smokes, trails guts, is staked, or what it carries does not fit a slot.
    */
   private bakeLimb(l: LooseLimb): boolean {
-    if (l.slot >= 0 || l.rag.active || l.sinking >= 0 || l.stakes.length > 0 || this.farSweep >= 0) return false;
+    if (l.slot >= 0 || l.rag.active || l.sinking >= 0 || l.stakes.length > 0 || this.farSweep >= 0 || this.farLimbSweep >= 0) return false;
     if (l.crawler?.alive || this.fire.has(l.piece) || this.ropes.hangingFrom(l.piece.root) > 0) return false;
     const source = l.piece as unknown as Partial<FarBakeable>;
     if (typeof source.bakeFar !== 'function' || !source.farMaterial) return false;
@@ -1582,8 +1643,12 @@ export class Gore implements GoreSystem {
     markSubtree(info, bone, _mask);
     if (body?.rag) {
       this.wake(body);
-      // A limb gone mid-stumble, the body is off its feet: its animator is about to change how it stands.
-      body.rag.muscle?.loseFooting('limb');
+      // A limb gone mid-stumble or dying-on-feet collapse: abort balance/collapse BEFORE removing Rapier bodies in cut()
+      // so DynamicBalancer can never touch freed rigidbody handles.
+      if (!body.rag.muscle?.loseFooting('limb') && body.rag.muscle?.collapse) {
+        body.rag.goLimp();
+        body.holding = false;
+      }
       body.rag.cut(_mask);
     }
     // Cut from a chain in flight, the limb falls as that chain does: its seed is that chain's speed, already on the dial.
@@ -1592,7 +1657,8 @@ export class Gore implements GoreSystem {
     const limb = this.addLimb(char, piece, bone, _mask, _seeds, body?.rag?.active ? body.rag.killedInAir : undefined, dry);
     char.hideLimb(bone);
     this.fire.split(char, piece, _mask);
-    const torso = region === 'abdomen' && !body && canCrawl(char) ? this.startCrawl(limb) : undefined;
+    const living = !body || body.down !== null;
+    const torso = region === 'abdomen' && living && canCrawl(char) ? this.startCrawl(limb) : undefined;
     if (region === 'abdomen' && canCrawl(char) && !dry) {
       // Guts out of both halves: the top half drags its own behind it as it crawls.
       const scale = char.rig.height / 1.85;
@@ -1838,14 +1904,31 @@ export class Gore implements GoreSystem {
     const down = this.owned.get(char);
     // A body standing in a collapse keeps its head to a blast, as it always has; told what to do, it does it.
     if (down && neck !== undefined && !char.severed.has('head') && (down.down || outcome !== undefined)) {
-      // Down, rising or dead already: nothing comes off whole, and a burst comes apart where the head lies.
-      if (down.down) {
-        this.endDown(down);
-        down.rag?.goLimp();
+      const wasDown = down.down !== null;
+      const at = this.headAt(char, neck);
+      // Down, rising or dying on feet: abort balance/collapse BEFORE cutting head bodies out of Rapier.
+      if (down.down) this.endDown(down);
+      if (down.rag) {
+        down.rag.goLimp();
+        down.holding = false;
+      }
+      if (wasDown) {
+        const { audio, time } = this.ctx;
+        audio.play('enemy_headshot', { position: at, volume: 0.75 });
+        audio.play('enemy_headshot2', { position: at, volume: 0.5625 });
+        audio.play('enemy_headshot3', { position: at, volume: 0.75 });
+        time.hitStop(GoreTuning.hitStopSeconds, GoreTuning.hitStopScale);
       }
       if (burst) this.burstHead(char, neck, damage);
       else if (partial) this.partialHead(char, neck, damage);
       else if (what === 'off') this.sever(char, 'head', damage);
+      else this.ctx.fx.bloodHit(damage.point, damage.dir, 1.2);
+      if ((what === 'hole' || (what === 'partial' && partial)) && down.rag?.active) {
+        const headBone = info.children[neck]![0] ?? neck;
+        const snapForce = clamp((damage.force || 12) * 0.45, 3, 14);
+        down.rag.applyImpulse(headBone, damage.point, _v.copy(damage.dir).normalize().multiplyScalar(snapForce));
+      }
+      if (wasDown) this.ctx.audio.play('enemy_die', { position: at, volume: 0.5 });
       return;
     }
     if (neck === undefined || down || char.severed.has('head')) {
@@ -2603,7 +2686,16 @@ export class Gore implements GoreSystem {
     body.lifted = false;
     body.bare = false;
     body.ashAt = 0;
+    for (const stake of body.stakes) {
+      if (stake.joint) {
+        try { this.ctx.physics.world.removeImpulseJoint(stake.joint, true); } catch { /* body already gone */ }
+        stake.joint = undefined;
+      }
+    }
     body.stakes.length = 0;
+    for (let i = this.pins.length - 1; i >= 0; i--) {
+      if (this.pins[i]!.target === body) this.pins.splice(i, 1);
+    }
     const { fx, render, audio } = this.ctx;
     fx.sparks(rag.center, _up, 18, 0xbfeeff);
     render.lights.flash(rag.center, 0x9fe0ff, 6, 6, 0.35);
@@ -2669,16 +2761,19 @@ export class Gore implements GoreSystem {
 
   slice(char: CharacterInstance, point: THREE.Vector3, normal: THREE.Vector3, damage: DamageInfo): void {
     const body = this.owned.get(char);
+    const machine = isMachine(char);
     // A body with char on it is cut into halves as burnt, and one cut while it burns is two burning halves: the fire
     // was on the skin, and the skin is on both of them.
     const burn = damage.vaporize ? 0 : this.burnOf(char);
-    const halves = this.sliced.cut(char, point, normal, damage, burn);
-    if (burn > 0) for (const half of halves) this.fire.pieceOf(char, half, 0.6);
+    const halves = this.sliced.cut(char, point, normal, damage, burn, machine);
+    if (burn > 0 && !machine) for (const half of halves) this.fire.pieceOf(char, half, 0.6);
     this.fire.forget(char);
-    this.ctx.audio.play('sword_flesh', { position: point, pitchJitter: 0.04 });
-    // A cauterized cut does not spill: its halves hiss as they burn away. Nor does a body burnt through.
-    if (damage.vaporize) this.ctx.audio.play('lance_vaporize', { position: point, pitchJitter: 0.08 });
-    else if (burn < FireTuning.sootFrom) this.ctx.audio.play('blood_spill', { position: point, volume: 0.8 });
+    if (!machine) {
+      this.ctx.audio.play('sword_flesh', { position: point, pitchJitter: 0.04 });
+      // A cauterized cut does not spill: its halves hiss as they burn away. Nor does a body burnt through.
+      if (damage.vaporize) this.ctx.audio.play('lance_vaporize', { position: point, pitchJitter: 0.08 });
+      else if (burn < FireTuning.sootFrom) this.ctx.audio.play('blood_spill', { position: point, volume: 0.8 });
+    }
     if (body) this.dropBody(body);
     char.release();
   }
@@ -2706,7 +2801,7 @@ export class Gore implements GoreSystem {
     if (target instanceof DeadBody) {
       const { char } = target;
       if (damage.gib) {
-        this.gib(char, hit.point, forceOf(damage));
+        this.gib(char, hit.point, forceOf(damage), damage);
         return;
       }
       // Fresh blood on it: wet again, and it dries from now.
@@ -2731,36 +2826,47 @@ export class Gore implements GoreSystem {
         target.rag!.goLimp();
         drive = null;
       }
-      // On its feet the hips are held, so all of a round on the chest only bends it backward over them. Most of it goes
-      // into where the feet are heading instead, and under sustained fire the body is walked back by it.
-      const onBone = drive ? 1 - MuscleTuning.carryShare : 1;
-      if (target.rag) this.push(target.rag, hit.bone, hit.point, _v.copy(damage.dir).multiplyScalar(forceOf(damage) * onBone));
-      if (drive) drive.carry(damage.dir, (forceOf(damage) * DevFlags.force) / target.info.mass);
-      const jolt = joltOf(forceOf(damage), target.info.mass);
-      muscle?.struck(impactStrength(forceOf(damage), target.info.mass));
-      muscle?.kick(damage.dir, impactStrength(forceOf(damage), target.info.mass) * MuscleTuning.corpseImpact);
-      muscle?.jolt(hit.bone, hit.point, damage.dir, jolt);
-      // Still on its feet, the animation it is following flinches too, and the muscles carry that as well. The animator
-      // sizes a flinch by build itself (`HumanoidAnimator.flinch`), so this one is not scaled by mass again.
-      muscle?.collapse?.flinch(hit.bone, damage.dir, MuscleTuning.collapseFlinch * joltOf(forceOf(damage), HUMAN_MASS));
+      const force = forceOf(damage);
+      const dv = (force * DevFlags.force) / target.info.mass;
+      if (drive?.balancer && target.rag) {
+        // Dying on feet under DynamicBalancer: deliver 100% of impulse (45% local r x J + 55% whole-body momentum, no lift)
+        // and notify balancer for localized neuromuscular shock, leg buckle, gut curl, and wound clutch.
+        const local = 0.45;
+        target.rag.applyImpulse(hit.bone, hit.point, _v.copy(damage.dir).multiplyScalar(force * local));
+        target.rag.shove(_v.copy(damage.dir).multiplyScalar(force * (1 - local)));
+        muscle?.onBalancerHit(hit.bone, hit.point, damage.dir, dv, hit.region);
+        muscle?.struck(impactStrength(force, target.info.mass));
+        muscle?.jolt(hit.bone, hit.point, damage.dir, joltOf(force, target.info.mass));
+      } else {
+        // Legacy ghost-pinned collapse or limp ragdoll.
+        const onBone = drive ? 1 - MuscleTuning.carryShare : 1;
+        if (target.rag) this.push(target.rag, hit.bone, hit.point, _v.copy(damage.dir).multiplyScalar(force * onBone));
+        if (drive) drive.carry(damage.dir, dv);
+        const jolt = joltOf(force, target.info.mass);
+        muscle?.struck(impactStrength(force, target.info.mass));
+        muscle?.kick(damage.dir, impactStrength(force, target.info.mass) * MuscleTuning.corpseImpact);
+        muscle?.jolt(hit.bone, hit.point, damage.dir, jolt);
+        muscle?.collapse?.flinch(hit.bone, damage.dir, MuscleTuning.collapseFlinch * joltOf(force, HUMAN_MASS));
+      }
       this.wounds.onBody(char, damage, damage.amount / CORPSE_HEALTH, hit.bone, hit.point);
       if (!machine && !dry) this.blood.onHit(char, damage, damage.amount / CORPSE_HEALTH, hit.bone, hit.point);
       this.corpseSound(hit.point, damage, machine, false);
-      target.damage[hit.bone] = target.damage[hit.bone]! + damage.amount * (damage.severMult ?? 1);
       // Damage on a bone counts toward the nearest severable joint at or above it.
       const defs = char.rig.bones;
       let b = hit.bone;
       while (b >= 0 && !defs[b]!.severable) b = defs[b]!.parent;
+      const dmgSlot = b >= 0 ? b : hit.bone;
+      target.damage[dmgSlot] = target.damage[dmgSlot]! + damage.amount * (damage.severMult ?? 1);
       const lasts = b >= 0 && defs[b]!.region === 'abdomen' ? GoreTuning.corpseTrunkHealth : GoreTuning.corpseLimbHealth;
       const head = b >= 0 && defs[b]!.region === 'head';
       // A shotgun's blast is one hit on a head: four of its pellets there, counting any that killed him, burst it. A head
       // worn through by pellets bursts too; anything else that wears it through shoots it off.
       const volley = head ? this.headPellets(char, damage) : 0;
-      if (head && (volley >= HEAD_VOLLEY || (volley > 0 && target.damage[hit.bone]! >= lasts))) {
-        target.damage[hit.bone] = 0;
+      if (head && (volley >= HEAD_VOLLEY || (volley > 0 && target.damage[dmgSlot]! >= lasts))) {
+        target.damage[dmgSlot] = 0;
         this.headshot(char, damage, undefined, 'burst');
-      } else if (b >= 0 && target.damage[hit.bone]! >= lasts) {
-        target.damage[hit.bone] = 0;
+      } else if (b >= 0 && target.damage[dmgSlot]! >= lasts) {
+        target.damage[dmgSlot] = 0;
         this.sever(char, defs[b]!.region, damage);
       }
     } else if (target instanceof LooseLimb) {
@@ -2930,6 +3036,7 @@ export class Gore implements GoreSystem {
       physics.R.JointData.spherical(_v2, stake.anchor), part.body, physics.anchorBody, true,
     );
     joint.setContactsEnabled(false);
+    stake.joint = joint;
   }
 
   /** The stake is on its way: drag the struck bone to the anchor, then lock it there. */
@@ -3051,6 +3158,7 @@ export class Gore implements GoreSystem {
     const { time } = this.ctx;
     const dt = time.dt;
     const now = time.elapsed;
+    this.blood.resetBudget();
     tickFlesh(now);
     this.dryTheDead(now);
     this.impacts.frame();
@@ -3062,6 +3170,7 @@ export class Gore implements GoreSystem {
       if (reclaimed(b)) {
         // Never release it: the instance may already be somebody else's enemy. It must not keep a corpse's still skeleton.
         b.rag?.destroy();
+        this.fire.forget(b.char);
         this.mess.forget(b);
         this.owned.delete(b.char);
         this.bodies.splice(i, 1);
@@ -3070,6 +3179,7 @@ export class Gore implements GoreSystem {
       if (b.sinking >= 0) {
         const k = (now - b.sinking) / t.sinkSeconds;
         if (k >= 1) {
+          this.fire.forget(b.char);
           this.mess.forget(b);
           this.owned.delete(b.char);
           this.bodies.splice(i, 1);
@@ -3090,8 +3200,9 @@ export class Gore implements GoreSystem {
       }
       if (!rag?.active) continue;
       // Catching its balance, the ground has to go on being there, where its animation is walking it.
+      // DynamicBalancer tracks per-foot ground height directly, so only the legacy kinematic ghost needs levelUnder.
       const walked = rag.muscle?.collapse;
-      if (walked?.stand && !this.levelUnder(walked.ghost, rag.muscle!.reflex?.groundY ?? walked.ghost.y)) rag.muscle!.loseFooting('sunk');
+      if (walked?.stand && !walked.balancer && !this.levelUnder(walked.ghost, rag.muscle!.reflex?.groundY ?? walked.ghost.y)) rag.muscle!.loseFooting('sunk');
       rag.muscle?.sampleCollapse(dt);
       if (b.holding) this.fallen(b, now);
       rag.drive();
@@ -3128,6 +3239,7 @@ export class Gore implements GoreSystem {
     for (let i = this.limbs.length - 1; i >= 0; i--) {
       const l = this.limbs[i]!;
       if (l.sinking >= 0) {
+        if (l.slot >= 0) continue; // Baked limbs sink together in `farLimbSweep` below.
         const k = (now - l.sinking) / t.sinkSeconds;
         if (k >= 1) {
           this.fire.forget(l.piece);
@@ -3151,6 +3263,25 @@ export class Gore implements GoreSystem {
         this.farSweep = -1;
         this.far.lower(0);
       } else this.far.lower(t.sinkDepth * k * k);
+    }
+    if (this.farLimbSweep >= 0) {
+      const k = (now - this.farLimbSweep) / t.sinkSeconds;
+      if (k >= 1) {
+        for (let i = this.limbs.length - 1; i >= 0; i--) {
+          const l = this.limbs[i]!;
+          if (l.slot >= 0 && l.sinking >= 0) {
+            this.farLimbs.remove(l.slot);
+            l.slot = -1;
+            l.parent = null;
+            this.fire.forget(l.piece);
+            l.rag.destroy();
+            l.piece.release();
+            this.limbs.splice(i, 1);
+          }
+        }
+        this.farLimbSweep = -1;
+        this.farLimbs.lower(0);
+      } else this.farLimbs.lower(0.6 * k * k);
     }
     this.mess.update();
     stepLoad(this.ctx, this.mess);
@@ -3278,9 +3409,19 @@ export class Gore implements GoreSystem {
     this.farBodies = [];
     this.far.clear();
     this.farSweep = -1;
+    this.farLimbSweep = -1;
+    this.dryAt = 0;
+    this.gibFrame = -1;
+    this.gibsThisFrame = 0;
+    this.headVolleyAt = -1;
+    this.headVolley.clear();
+    this.stoodFrame = -1;
+    this.stood = 0;
+    this.lastKnock = -1;
     this.mess.clear();
     this.pins = [];
     for (const s of this.stumps) {
+      s.owner = null;
       s.target = null;
       s.emitter?.stop();
       s.emitter = null;

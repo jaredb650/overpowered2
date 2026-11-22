@@ -63,12 +63,14 @@ class Spurt {
   hasLast = false;
   drops = 0;
   nextStain = 0;
+  phase = 0;
 }
 
 const _a = new THREE.Vector3();
 const _d = new THREE.Vector3();
 const _o = new THREE.Vector3();
 const _r = new THREE.Vector3();
+const _vel = new THREE.Vector3();
 const _q = new THREE.Quaternion();
 const _down = new THREE.Vector3(0, -1, 0);
 const _hit: RayHit = { point: new THREE.Vector3(), normal: new THREE.Vector3(), distance: 0, surface: 'concrete', collider: null };
@@ -109,6 +111,7 @@ export class SpurtField {
       for (const o of this.spurts) if (o.serial < s.serial) s = o;
     }
     s.alive = true;
+    s.emitting = true;
     s.serial = ++this.serial;
     s.target = target;
     s.owner = owner;
@@ -125,6 +128,7 @@ export class SpurtField {
     s.hasLast = false;
     s.drops = 0;
     s.nextStain = 0;
+    s.phase = 0;
     for (let i = 0; i < SpurtTuning.globs; i++) s.globs[i * G + 7] = 0;
   }
 
@@ -155,11 +159,15 @@ export class SpurtField {
     let count = 0;
     const c = this.chain;
     let rays = t.raysPerFrame;
+    let activeLeft = 0;
+    for (const s of this.spurts) if (s.alive) activeLeft++;
     // Each frame a different spurt asks first, so the ray budget is shared out over them.
     this.firstSpurt = (this.firstSpurt + 1) % this.spurts.length;
     for (let si = 0; si < this.spurts.length; si++) {
       const s = this.spurts[(si + this.firstSpurt) % this.spurts.length]!;
       if (!s.alive) continue;
+      let spurtRays = activeLeft > 0 ? Math.ceil(rays / activeLeft) : 0;
+      activeLeft--;
       const gone = s.owner !== null && s.owner.parent === null;
       const life = clamp((now - s.started) / Math.max(1e-3, s.ends - s.started));
       const pressure = (1 - life) ** 1.3;
@@ -181,8 +189,8 @@ export class SpurtField {
         s.lastNozzle.copy(s.nozzle);
         s.hasLast = true;
         const period = t.beat * (1 + life * t.stretch);
-        const phase = ((now - s.started) / period) % 1;
-        const speed = (t.slow + (t.fast - t.slow) * pressure) * heartbeat(phase) * s.power;
+        if (dt > 0) s.phase = (s.phase + dt / period) % 1;
+        const speed = (t.slow + (t.fast - t.slow) * pressure) * heartbeat(s.phase) * s.power;
         s.acc += dt * t.rate;
         while (s.acc >= 1) {
           s.acc -= 1;
@@ -205,10 +213,11 @@ export class SpurtField {
         _a.y += 0.3;
         if (this.ctx.physics.raycastInto(_a, _down, 4, CG.World, _hit)) s.floor = _hit.point.y;
       }
-      // Fly, and land.
+      // Fly, and land. Walk oldest-first so globs nearing walls or the floor are raycasted before brand-new nozzle globs.
       let any = false;
       s.drops = 0;
-      for (let i = 0; i < t.globs; i++) {
+      for (let k = 0; k < t.globs; k++) {
+        const i = (s.head + k) % t.globs;
         const g = i * G;
         if (s.globs[g + 7] === 0) continue;
         _o.set(s.globs[g]!, s.globs[g + 1]!, s.globs[g + 2]!);
@@ -218,18 +227,22 @@ export class SpurtField {
         s.globs[g + 2] = s.globs[g + 2]! + s.globs[g + 5]! * dt;
         s.globs[g + 6] = s.globs[g + 6]! + dt;
         // Along this frame's step: what the jet hits, it stains, and that glob is spent.
-        if (rays > 0) {
-          rays--;
+        if (spurtRays > 0 && rays > 0) {
           _r.set(s.globs[g]! - _o.x, s.globs[g + 1]! - _o.y, s.globs[g + 2]! - _o.z);
           const len = _r.length();
-          if (len > 1e-4 && this.ctx.physics.raycastInto(_o, _r.multiplyScalar(1 / len), len + 0.03, CG.World, _hit)) {
-            s.globs[g + 7] = 0;
-            if (now >= s.nextStain) {
-              s.nextStain = now + t.stainEvery;
-              this.blood.bleedAt(_hit.point, _hit.normal, 0.1 + 0.45 * pressure * s.power);
-              this.stains++;
+          if (len > 1e-4) {
+            rays--;
+            spurtRays--;
+            if (this.ctx.physics.raycastInto(_o, _r.multiplyScalar(1 / len), len + 0.03, CG.World, _hit)) {
+              s.globs[g + 7] = 0;
+              if (now >= s.nextStain) {
+                s.nextStain = now + t.stainEvery;
+                _vel.set(s.globs[g + 3]!, s.globs[g + 4]!, s.globs[g + 5]!);
+                this.blood.bleedAt(_hit.point, _hit.normal, 0.1 + 0.45 * pressure * s.power, _vel);
+                this.stains++;
+              }
+              continue;
             }
-            continue;
           }
         }
         if (s.globs[g + 1]! <= s.floor) {
@@ -246,6 +259,8 @@ export class SpurtField {
       }
       if (!any && !s.emitting) {
         s.alive = false;
+        s.target = null;
+        s.owner = null;
         continue;
       }
       // The chain, newest first: the nozzle, then each glob in the order it left.
@@ -298,7 +313,16 @@ export class SpurtField {
   }
 
   clear(): void {
-    for (const s of this.spurts) s.alive = false;
+    for (const s of this.spurts) {
+      s.alive = false;
+      s.emitting = false;
+      s.target = null;
+      s.owner = null;
+    }
+    this.serial = 0;
+    this.stains = 0;
+    this.warming = 0;
+    this.firstSpurt = 0;
     if (this.drawn) this.ctx.fx.bloodHose?.(this.chain, 0);
     this.drawn = false;
   }

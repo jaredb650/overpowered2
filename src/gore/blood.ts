@@ -195,6 +195,7 @@ export class BloodField {
   }));
   private poolAt = 0;
   private rays = 0;
+  private budgetReset = false;
   raysUsed = 0;
   private readonly bleeders: Bleeder[] = Array.from({ length: BloodTuning.maxBleeders }, () => ({
     target: null, owner: null, local: new THREE.Vector3(), until: 0, next: 0, every: 1, start: 0, lx: 0, lz: 0, far: true,
@@ -230,6 +231,12 @@ export class BloodField {
   private readonly n = new THREE.Vector3();
 
   constructor(private readonly ctx: Ctx) {}
+
+  /** Resets the per-frame raycast budget before pre-update blood raycasts run. */
+  resetBudget(): void {
+    this.rays = 0;
+    this.budgetReset = true;
+  }
 
   private cast(ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, maxDist: number): boolean {
     this.rays++;
@@ -523,10 +530,11 @@ export class BloodField {
    * Leaves blood on a surface at once, no ray: `point` on it, `normal` its normal, `amount` 0..1+ about how much (1 is
    * a hand-sized stain). A wall stain this big runs down the wall (`decals.run`).
    */
-  bleedAt(point: THREE.Vector3, normal: THREE.Vector3, amount: number): void {
+  bleedAt(point: THREE.Vector3, normal: THREE.Vector3, amount: number, velocity?: THREE.Vector3): void {
     if (!(amount > 0)) return;
-    // Arriving straight in: a round mark. The size curve keeps a trickle a spot and a gush a splash.
-    _splat.copy(normal).multiplyScalar(-1);
+    // Arriving straight in when no velocity is given: a round mark. With velocity, stretches along impact direction.
+    if (velocity && velocity.lengthSq() > 1e-6) _splat.copy(velocity);
+    else _splat.copy(normal).multiplyScalar(-1);
     this.ctx.render.decals.splat(point, normal, 0.12 + 0.3 * Math.sqrt(amount), _splat);
   }
 
@@ -628,7 +636,8 @@ export class BloodField {
   }
 
   update(dt: number): void {
-    this.rays = 0;
+    if (!this.budgetReset) this.rays = 0;
+    this.budgetReset = false;
     const budget = BloodTuning.raysPerFrame;
 
     while (this.queueLen > 0 && this.rays < budget) {
@@ -640,10 +649,13 @@ export class BloodField {
         const fall = 1 - 0.55 * Math.min(1, this.hit.distance / q.maxDist);
         const v = BloodTuning.queuedSpeed;
         // Blood flew down the ray to get here, so it stretches along it and can run down a wall.
-        if (q.kind === 'blood') this.ctx.render.decals.splat(this.hit.point, this.hit.normal, q.size * fall, _splat.set(q.dx * v, q.dy * v, q.dz * v));
-        // Enough of it on a ceiling comes back down, a drop at a time.
-        if (this.hit.normal.y < -0.6 && q.size * fall > 0.3) this.dripFrom(_at.copy(this.hit.point).addScaledVector(this.hit.normal, 0.02), 6 + 8 * Math.random(), 0.7);
-        else this.ctx.render.decals.add(q.kind, this.hit.point, this.hit.normal, q.size * fall, Math.random() * TAU);
+        if (q.kind === 'blood') {
+          this.ctx.render.decals.splat(this.hit.point, this.hit.normal, q.size * fall, _splat.set(q.dx * v, q.dy * v, q.dz * v));
+          // Enough of it on a ceiling comes back down, a drop at a time.
+          if (this.hit.normal.y < -0.6 && q.size * fall > 0.3) this.dripFrom(_at.copy(this.hit.point).addScaledVector(this.hit.normal, 0.02), 6 + 8 * Math.random(), 0.7);
+        } else {
+          this.ctx.render.decals.add(q.kind, this.hit.point, this.hit.normal, q.size * fall, Math.random() * TAU);
+        }
       }
     }
 
@@ -752,6 +764,7 @@ export class BloodField {
       if (!b.target) continue;
       if (now >= b.until || (b.owner && (!b.owner.parent || !b.owner.visible))) {
         b.target = null;
+        b.owner = null;
         continue;
       }
       _at.copy(b.local).applyMatrix4(b.target.matrixWorld);
@@ -838,18 +851,43 @@ export class BloodField {
     }
   }
 
-  clear(): void {
+  /** Stops transient in-flight droplets, queues, bleeders, drippers, wet spots, and growing pools without resetting counters. */
+  sweep(): void {
     this.life.fill(0);
+    this.queueHead = 0;
     this.queueLen = 0;
-    for (const b of this.bleeders) b.target = null;
-    this.dripped = 0;
     this.bigLen = 0;
+    for (const b of this.bleeders) {
+      b.target = null;
+      b.owner = null;
+    }
+    for (const d of this.drippers) d.until = -1;
+    for (const w of this.wetSpots) w.until = -1;
+    for (const p of this.pools) p.stage = POOL_STAGES;
+    this.burstAt = -1;
+    this.burstCount = 0;
+  }
+
+  clear(): void {
+    this.sweep();
+    this.dropletAt = 0;
+    this.poolAt = 0;
+    this.dripperAt = 0;
+    this.wetSpotAt = 0;
+    this.bleederAt = 0;
+    this.rays = 0;
+    this.raysUsed = 0;
+    this.budgetReset = false;
+    this.drips = 0;
+    this.sprays = 0;
+    this.sheets = 0;
+    this.splashes = 0;
+    this.sprayChar = null;
+    this.sprayAt = -1;
+    this.pelletPuffs = 0;
+    this.dripped = 0;
     this.bigLaid = 0;
     this.splashed = 0;
     this.printed = 0;
-    for (const d of this.drippers) d.until = -1;
-    for (const w of this.wetSpots) w.until = -1;
-    this.burstAt = -1;
-    for (const p of this.pools) p.stage = POOL_STAGES;
   }
 }

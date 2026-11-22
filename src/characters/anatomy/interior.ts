@@ -15,6 +15,7 @@ varying vec3 vTint;
 varying vec3 vSk0;
 varying vec3 vSk1;
 varying vec3 vSk2;
+varying float vWoundNear;
 flat varying int vPart;
 flat varying int vRegion;
 `;
@@ -32,6 +33,13 @@ const VERT_MAIN = /* glsl */ `
   vTint = aTint.rgb / 255.0;
   vSk0 = skinMatrix[0].xyz; vSk1 = skinMatrix[1].xyz; vSk2 = skinMatrix[2].xyz;
   vRegion = op2Region();
+  vWoundNear = -1.0;
+  int op2Count = int(op2Extra(OP2_INFO).x);
+  for (int i = 0; i < OP2_MAX_WOUNDS; i++) {
+    if (i >= op2Count) break;
+    vec4 t0 = op2Extra(OP2_WOUND_BASE + i * OP2_WOUND_TEXELS);
+    vWoundNear = max(vWoundNear, t0.w + 0.32 - op2Run(position - t0.xyz));
+  }
   int code = int(aTint.a + 0.5);
   vPart = code & 7;
   // Collapsed to one point until the joint it belongs to has gone.
@@ -48,6 +56,7 @@ varying vec3 vTint;
 varying vec3 vSk0;
 varying vec3 vSk1;
 varying vec3 vSk2;
+varying float vWoundNear;
 flat varying int vPart;
 flat varying int vRegion;
 uniform mat3 normalMatrix;
@@ -68,6 +77,7 @@ vec3 op2Bump(vec3 pos, vec3 n, float h, float face) {
 `;
 
 const FRAG_SURFACE = /* glsl */ `
+if (vWoundNear <= 0.0 && vPart != ${Part.shard}) discard;
 vec3 sN = normalize(vBindN);
 vec3 tw = pow(abs(sN), vec3(4.0));
 tw /= tw.x + tw.y + tw.z;
@@ -84,36 +94,40 @@ float sCore = 1.0;
 float sGore = 0.0;
 // Whether this is under a hole at all. Nothing here is fitted so closely that it never comes through the skin.
 float sHole = 1.0;
-int count = int(op2Extra(OP2_INFO).x);
-for (int i = 0; i < OP2_MAX_WOUNDS; i++) {
-  if (i >= count) break;
-  int base = OP2_WOUND_BASE + i * OP2_WOUND_TEXELS;
-  vec4 t0 = op2Extra(base), t1 = op2Extra(base + 1), t2 = op2Extra(base + 2);
-  int code = int(t2.w);
-  float ragged = fract(t2.w);
-  int kind = code & 7;
-  if (kind == OP2_BURN || kind == OP2_GRAZE || kind == OP2_DENT) continue;
-  float depth = length(t2.xyz);
-  vec3 axis = t2.xyz / max(depth, 1e-4);
-  float along, radius;
-  vec3 off;
-  float dist = op2Slot(vBind, t0, t1, axis, along, off, radius);
-  float under = max(along, 0.0);
-  // A hit point is on a capsule, and on a thin body the capsule stands well clear of the flesh, so the wound starts late.
-  float past = op2SlotEnds(along, OP2_SKIN_ABOVE, depth + t1.w + 0.1);
-  float open = smoothstep(radius * 1.15, radius * 0.45, dist);
-  // Never all the way down to nothing, or a small hole shows as a black dot with no flesh in it.
-  sLight = max(sLight, open * (0.8 + 0.5 * exp(-under / (radius * 1.5 + 0.015))));
-  // Layers go by how far the wound reached. A gash only opens what it passes through.
-  // A crater as wide as a partial head wound breaks the skull open most of the way out to its edge.
-  float reachShare = vPart == ${Part.bone} ? mix(0.3, 0.62, smoothstep(0.035, 0.055, radius) * float(kind == OP2_CRATER)) : kind == OP2_CRATER || kind == OP2_EXIT ? 0.72 : 0.4;
-  float enough = vPart == ${Part.muscle} && kind != OP2_GASH ? step(0.03, depth) : vPart == ${Part.bone} && kind == OP2_CRATER ? step(0.075, depth) : 0.0;
-  if (((code >> 3) & vRegion) != 0 && enough > 0.5) {
-    float m = dist + past * 3.0 - radius * reachShare * (1.0 + tear * mix(0.15, 0.45, ragged));
-    sCore = min(sCore, m);
+if (vWoundNear > 0.0) {
+  int count = int(op2Extra(OP2_INFO).x);
+  for (int i = 0; i < OP2_MAX_WOUNDS; i++) {
+    if (i >= count) break;
+    int base = OP2_WOUND_BASE + i * OP2_WOUND_TEXELS;
+    vec4 t0 = op2Extra(base);
+    if (op2Run(vBind - t0.xyz) > t0.w + 0.26) continue;
+    vec4 t1 = op2Extra(base + 1), t2 = op2Extra(base + 2);
+    int code = int(t2.w);
+    float ragged = fract(t2.w);
+    int kind = code & 7;
+    if (kind == OP2_BURN || kind == OP2_GRAZE || kind == OP2_DENT) continue;
+    float depth = length(t2.xyz);
+    vec3 axis = t2.xyz / max(depth, 1e-4);
+    float along, radius;
+    vec3 off;
+    float dist = op2Slot(vBind, t0, t1, axis, along, off, radius);
+    float under = max(along, 0.0);
+    // A hit point is on a capsule, and on a thin body the capsule stands well clear of the flesh, so the wound starts late.
+    float past = op2SlotEnds(along, OP2_SKIN_ABOVE, depth + t1.w + 0.1);
+    float open = smoothstep(radius * 1.15, radius * 0.45, dist);
+    // Never all the way down to nothing, or a small hole shows as a black dot with no flesh in it.
+    sLight = max(sLight, open * (0.8 + 0.5 * exp(-under / (radius * 1.5 + 0.015))));
+    // Layers go by how far the wound reached. A gash only opens what it passes through.
+    // A crater as wide as a partial head wound breaks the skull open most of the way out to its edge.
+    float reachShare = vPart == ${Part.bone} ? mix(0.3, 0.62, smoothstep(0.035, 0.055, radius) * float(kind == OP2_CRATER)) : kind == OP2_CRATER || kind == OP2_EXIT ? 0.72 : 0.4;
+    float enough = vPart == ${Part.muscle} && kind != OP2_GASH ? step(0.03, depth) : vPart == ${Part.bone} && kind == OP2_CRATER ? step(0.075, depth) : 0.0;
+    if (((code >> 3) & vRegion) != 0 && enough > 0.5) {
+      float m = dist + past * 3.0 - radius * reachShare * (1.0 + tear * mix(0.15, 0.45, ragged));
+      sCore = min(sCore, m);
+    }
+    sGore = max(sGore, smoothstep(radius * 2.2, radius * 0.6, dist + past));
+    if (((code >> 3) & vRegion) != 0) sHole = min(sHole, dist + past * 2.0 - radius * 1.5);
   }
-  sGore = max(sGore, smoothstep(radius * 2.2, radius * 0.6, dist + past));
-  if (((code >> 3) & vRegion) != 0) sHole = min(sHole, dist + past * 2.0 - radius * 1.5);
 }
 if (sCore < 0.0 || (sHole > 0.0 && vPart != ${Part.shard})) discard;
 // Bone that has come out through the skin is in the open air.

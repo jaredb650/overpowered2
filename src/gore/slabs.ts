@@ -437,6 +437,7 @@ function assemble(
     area += Math.hypot(e1y * e2z - e1z * e2y, e1z * e2x - e1x * e2z, e1x * e2y - e1y * e2x) * 0.5;
   }
 
+  let rawUV: Float32Array | null = null;
   for (let k = 0; k < names.length; k++) {
     const a = attrs[k]!;
     if (names[k] === 'position') {
@@ -452,23 +453,26 @@ function assemble(
     }
     if (names[k] === 'uv') {
       // The meat's fibres run along the slab: the cut face's texture, laid by where a vertex is on the patch.
-      const scale = a.normalized ? 65535 : 1;
-      const wrap = (t: number) => (scale === 1 ? t : (t - Math.floor(t)) * scale);
+      if (a.normalized) rawUV = new Float32Array(n * 2);
       for (let i = 0; i < n; i++) {
         if (kind[i] === 0) continue;
         const x = outPos[i * 3]! + at.x - P.x, y = outPos[i * 3 + 1]! + at.y - P.y, z = outPos[i * 3 + 2]! + at.z - P.z;
         // Down the wall as well as across the slab, or the lip's fibres would be one texel pulled into streaks.
         const down = (x * N.x + y * N.y + z * N.z) * 3.5;
-        dst[i * 2] = wrap((x * U.x + y * U.y + z * U.z) * 3.5 + down);
-        dst[i * 2 + 1] = wrap((x * W.x + y * W.y + z * W.z) * 3.5 + down * 0.7);
+        const uVal = (x * U.x + y * U.y + z * U.z) * 3.5 + down;
+        const vVal = (x * W.x + y * W.y + z * W.z) * 3.5 + down * 0.7;
+        if (rawUV) {
+          rawUV[i * 2] = uVal;
+          rawUV[i * 2 + 1] = vVal;
+        } else {
+          dst[i * 2] = uVal;
+          dst[i * 2 + 1] = vVal;
+        }
       }
     }
     g.setAttribute(names[k]!, new THREE.BufferAttribute(dst, a.itemSize, a.normalized));
   }
   g.setAttribute('color', new THREE.BufferAttribute(color, 3));
-  g.setIndex([...skinIdx, ...meatIdx]);
-  g.addGroup(0, skinIdx.length, 0);
-  g.addGroup(skinIdx.length, meatIdx.length, 1);
 
   // The meat's and the lip's normals from their own faces; the skin keeps the body's.
   const outNor = g.getAttribute('normal').array as Float32Array;
@@ -498,6 +502,73 @@ function assemble(
     outNor[i * 3 + 1] = acc[i * 3 + 1]! * l;
     outNor[i * 3 + 2] = acc[i * 3 + 2]! * l;
   }
+
+  // Pack normalized UVs per triangle by shifting all 3 corners by floor(minU)/floor(minV) together so
+  // triangles straddling 0/1 never wrap backwards across the texture.
+  if (rawUV && meatIdx.length > 0) {
+    const uvAttr = g.getAttribute('uv') as THREE.BufferAttribute;
+    const uvArr = uvAttr.array as THREE.TypedArray;
+    const assigned = new Uint8Array(n);
+    const shiftU = new Int32Array(n);
+    const shiftV = new Int32Array(n);
+    const dupMap = new Map<string, number>();
+    const dups: { src: number; u: number; v: number }[] = [];
+    for (let t = 0; t < meatIdx.length; t += 3) {
+      const i0 = meatIdx[t]!, i1 = meatIdx[t + 1]!, i2 = meatIdx[t + 2]!;
+      const u0 = rawUV[i0 * 2]!, v0 = rawUV[i0 * 2 + 1]!;
+      const u1 = rawUV[i1 * 2]!, v1 = rawUV[i1 * 2 + 1]!;
+      const u2 = rawUV[i2 * 2]!, v2 = rawUV[i2 * 2 + 1]!;
+      const su = Math.floor(Math.min(u0, u1, u2));
+      const sv = Math.floor(Math.min(v0, v1, v2));
+      const corners = [[i0, u0, v0], [i1, u1, v1], [i2, u2, v2]] as const;
+      for (let corner = 0; corner < 3; corner++) {
+        const [vIdx, ru, rv] = corners[corner]!;
+        const pu = Math.round(Math.min(1, Math.max(0, ru - su)) * 65535);
+        const pv = Math.round(Math.min(1, Math.max(0, rv - sv)) * 65535);
+        if (!assigned[vIdx]) {
+          assigned[vIdx] = 1;
+          shiftU[vIdx] = su;
+          shiftV[vIdx] = sv;
+          uvArr[vIdx * 2] = pu;
+          uvArr[vIdx * 2 + 1] = pv;
+        } else if (shiftU[vIdx] !== su || shiftV[vIdx] !== sv) {
+          const key = `${vIdx}:${su}:${sv}`;
+          let dstIdx = dupMap.get(key);
+          if (dstIdx === undefined) {
+            dstIdx = n + dups.length;
+            dups.push({ src: vIdx, u: pu, v: pv });
+            dupMap.set(key, dstIdx);
+          }
+          meatIdx[t + corner] = dstIdx;
+        }
+      }
+    }
+    if (dups.length > 0) {
+      const totalV = n + dups.length;
+      for (const [attrName, attrObj] of Object.entries(g.attributes)) {
+        const a = attrObj as THREE.BufferAttribute;
+        const prev = a.array as THREE.TypedArray;
+        const next = new (prev.constructor as new (len: number) => THREE.TypedArray)(totalV * a.itemSize);
+        next.set(prev);
+        for (let j = 0; j < dups.length; j++) {
+          const d = dups[j]!;
+          const dstOff = (n + j) * a.itemSize;
+          if (attrName === 'uv') {
+            next[dstOff] = d.u;
+            next[dstOff + 1] = d.v;
+          } else {
+            const srcOff = d.src * a.itemSize;
+            for (let comp = 0; comp < a.itemSize; comp++) next[dstOff + comp] = prev[srcOff + comp]!;
+          }
+        }
+        g.setAttribute(attrName, new THREE.BufferAttribute(next, a.itemSize, a.normalized));
+      }
+    }
+  }
+
+  g.setIndex([...skinIdx, ...meatIdx]);
+  g.addGroup(0, skinIdx.length, 0);
+  g.addGroup(skinIdx.length, meatIdx.length, 1);
   g.computeBoundingBox();
   g.computeBoundingSphere();
   return {

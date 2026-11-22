@@ -205,6 +205,15 @@ export function loadFor(mess: MessLevel, quality: number, ease: number): Load {
   };
 }
 
+/** Optional upper bound on corpses imposed by the active campaign mission. Null when uncapped. */
+let missionCorpseCap: number | null = null;
+
+/** Sets (or clears) a mission-level corpse cap that Mess/Quality setting changes will not exceed. */
+export function setMissionCorpseCap(cap: number | undefined | null): void {
+  missionCorpseCap = cap !== undefined && cap !== null ? cap : null;
+  if (missionCorpseCap !== null) GoreTuning.maxCorpses = Math.min(GoreTuning.maxCorpses, missionCorpseCap);
+}
+
 /**
  * Writes every cap to the system that keeps it, from `GoreLoad` (the Mess setting, the quality level, the automatic
  * step). `trim`: the player changed a setting, so what is over the new caps goes now (a decal ring shortened, pieces past
@@ -224,7 +233,7 @@ export function applyLoad(ctx: Ctx, trim: boolean): void {
   FireTuning.lights = load.fireLights;
   GoreLoad.changed = () => applyLoad(ctx, false);
   if (!trim) return;
-  GoreTuning.maxCorpses = b.corpses;
+  GoreTuning.maxCorpses = missionCorpseCap !== null ? Math.min(b.corpses, missionCorpseCap) : b.corpses;
   GoreTuning.maxLimbs = b.limbs;
   SliceTuning.maxHalves = b.halves;
   SliceTuning.hardCap = b.halvesHard;

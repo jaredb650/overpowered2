@@ -17,7 +17,7 @@ import type { EnemyInstance } from '../core/gameplay';
 import { recordCampaignBeaten } from '../contracts/unlocks';
 import { selectedStarter } from '../contracts/starter';
 import { missionWithStarter } from './starter';
-import { GoreTuning } from '../gore';
+import { setMissionCorpseCap } from '../ui/settings';
 import type { CampaignSystem, MissionResult } from './events';
 import './events';
 import { Chancery } from './chancery';
@@ -206,14 +206,13 @@ class Campaign implements CampaignSystem {
     this.chancery?.ensureBuilt();
     this.chancery?.clear();
     this.ui.reset();
+    // Apply the mission's corpse cap for both hosts and co-op guests, and persist it so mid-run setting changes clamp to it.
+    setMissionCorpseCap(this.runner.mission.corpses);
     // A co-op guest's mission is the host's (net/mission.ts): its own runner never starts.
     if (isGuest(this.ctx)) {
       if (redeploying && this.banked) this.ctx.progression.resume(this.banked.score, this.banked.kills, this.banked.headshots);
       return;
     }
-    // shortcut: a mission's corpse cap under the gore setting's, applied each run; a settings change mid-run lifts it until the next.
-    const { corpses } = this.runner.mission;
-    if (corpses !== undefined) GoreTuning.maxCorpses = Math.min(GoreTuning.maxCorpses, corpses);
     if (redeploying) {
       const { score, kills, headshots } = this.banked!;
       this.ctx.progression.resume(score, kills, headshots);

@@ -170,6 +170,7 @@ vec4 op2Wear() {
     int r = OP2_REGION_OF[b];
     float v = op2Extra(OP2_WEAR + (r >> 2))[r & 3];
     float kd = floor(v * 0.5);
+    if (kd == ${WearKind.burn}.0) continue;
     float a = (v - kd * 2.0) * smoothstep(0.04, 0.3, skinWeight[k]);
     if (a > amount) { amount = a; kind = kd; own = skinIndex[k]; region = r; }
   }
@@ -181,6 +182,6 @@ vec4 op2Wear() {
     if (b < ${REGION_OF.length} && skinIndex[k] < own - 0.5 && OP2_REGION_OF[b] != region) parent += skinWeight[k];
   }
   float joint = smoothstep(0.08, 0.42, parent) * smoothstep(0.5, 1.0, amount);
-  return vec4(amount, joint, float(kind == ${WearKind.cut}.0), float(kind == ${WearKind.strip}.0)) * float(kind != ${WearKind.burn}.0);
+  return vec4(amount, joint, float(kind == ${WearKind.cut}.0), float(kind == ${WearKind.strip}.0));
 }
 `;

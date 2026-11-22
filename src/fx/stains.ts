@@ -62,6 +62,7 @@ export class StainQueue {
 
   clear(): void {
     for (const s of this.stains) s.live = false;
+    this.head = 0;
     this.booked = 0;
   }
 }

@@ -58,12 +58,12 @@ export type LoopEvent = { t: 'loop'; k: 'beam' | 'giant' | 'hose' | 'spin' | 'wh
  * A projectile left a player's gun: every other screen flies its own copy, which hurts nothing. `k` its kind, `src` the
  * weapon (or `grenade`), `o` and `v` where it starts and how fast, `i` its number if it explodes (a `loop` of kind `proj` ends
  * its copies). The rest only when set: `g` gravity, `l` seconds to live,
- * `fu` fuse, `tr` trail, `sz` size, `tc` tracer tint, `x` it explodes, `w` it steers for the laser, `fk` a flak shell, `tg` the
+ * `fu` fuse, `tr` trail, `sz` size, `tc` tracer tint, `x` it explodes, `w` it steers for the laser, `fk` a flak shell, `st` a sticky charge, `tg` the
  * enemy a missile is after, `q` its turn rate, steer delay, weave, acceleration and top speed, `hx` a helix salvo's six numbers.
  */
 export type ProjEvent = {
   t: 'round'; slot?: number; k: string; src: string; o: Vec; v: Vec; i?: number;
-  g?: number; l?: number; fu?: number; tr?: string; sz?: number; tc?: string; x?: 1; w?: 1; fk?: 1;
+  g?: number; l?: number; fu?: number; tr?: string; sz?: number; tc?: string; x?: 1; w?: 1; fk?: 1; st?: 1;
   tg?: number; q?: number[]; hx?: number[];
 };
 /** The gun a player holds and the mods fitted to it, in MOD_ORDER. `on`: bit 1 the rocket's laser sight is up. */
@@ -72,7 +72,7 @@ export type KitEvent = { t: 'held'; weapon: string; mods: string[]; slot?: numbe
 export type KataEvent = { t: 'kata' };
 
 const PROJECTILES: readonly ProjectileSpec['kind'][] = ['rocket', 'shell', 'grenade', 'bullet', 'plasma', 'stake'];
-const TRAILS: readonly ProjectileTrail[] = ['none', 'smoke', 'big', 'hellfire', 'rings', 'sparks', 'swarm', 'plasma'];
+const TRAILS: readonly ProjectileTrail[] = ['none', 'smoke', 'big', 'hellfire', 'rings', 'howitzer', 'sparks', 'swarm', 'plasma'];
 /**
  * What a guest may send in a second, by kind, each with its own count (they shared one of 40 once: a fast explosive gun's
  * launches and landings together ran it out, and copies went untold where they ended). `end` is a round's landing: one for
@@ -227,7 +227,7 @@ export class RemoteFire implements WorldModule {
     let tag = 0;
     // A round whose end the others must be told: one that goes off, and a stake, which stops in a body or flies on through
     // it by what it did to that body on this screen.
-    if (spec.explosion || spec.flak || spec.kind === 'stake') {
+    if (spec.explosion || spec.flak || spec.kind === 'stake' || spec.sticky) {
       tag = this.nextTag = this.nextTag % 0xffff + 1;
       event.i = tag;
     }
@@ -240,6 +240,7 @@ export class RemoteFire implements WorldModule {
     if (spec.explosion) event.x = 1;
     if (spec.wired) event.w = 1;
     if (spec.flak) event.fk = 1;
+    if (spec.sticky) event.st = 1;
     if (spec.turnRate) {
       event.q = [mm(spec.turnRate), mm(spec.steerDelay ?? 0), mm(spec.weave ?? 0), mm(spec.accel ?? 0), mm(spec.topSpeed ?? 0)];
       const uid = (spec.target as { uid?: number } | null | undefined)?.uid;
@@ -434,6 +435,7 @@ export class RemoteFire implements WorldModule {
     spec.explosion = event.x === 1 ? { radius: 1, damage: 0, kind: 'rocket' } : undefined;
     spec.wired = event.w === 1;
     spec.flak = event.fk === 1;
+    spec.sticky = event.st === 1;
     const q = Array.isArray(event.q) && event.q.length === 5 && event.q.every(n => finite(n, 0, 1000)) ? event.q : null;
     spec.turnRate = q ? q[0] : undefined;
     spec.steerDelay = q ? q[1] : undefined;

@@ -114,9 +114,13 @@ export class LoadGovernor {
     this.smoothed += (realDt * 1000 - this.smoothed) * (1 - Math.exp(-realDt * 3));
     this.cooldown -= realDt;
     this.sinceUp += realDt;
+    if (this.cooldown > 0) {
+      this.overFor = 0;
+      this.underFor = 0;
+      return false;
+    }
     this.overFor = this.smoothed > t.missMs ? this.overFor + realDt : 0;
-    this.underFor = this.smoothed < t.holdMs ? this.underFor + realDt : 0;
-    if (this.cooldown > 0) return false;
+    this.underFor = this.smoothed < t.holdMs && resolution.scale >= 0.99 ? this.underFor + realDt : 0;
     const spent = resolution.starved || resolution.scale <= t.resolutionSpent;
     if (this.overFor > t.downAfter && spent && this.ease < EASE_STEPS) {
       if (this.sinceUp < t.tooSoon) this.upWait = Math.min(this.upWait * 2, t.upMax);
@@ -125,7 +129,7 @@ export class LoadGovernor {
       this.cooldown = t.cooldown;
       return true;
     }
-    if (this.underFor > this.upWait && this.ease > 0) {
+    if (this.underFor > this.upWait && this.ease > 0 && resolution.scale >= 0.99) {
       this.ease--;
       this.underFor = 0;
       this.cooldown = t.cooldown;

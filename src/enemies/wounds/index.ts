@@ -40,8 +40,8 @@ import { resolveZone, type ZoneHit } from './zones';
 const LABEL_COLOR = '#ff5040';
 /** Seconds between labels on screen, across every man, so a burst in a crowd stays readable. */
 const LABEL_GAP = 0.45;
-/** Hits that have a place on the body. A blast, a flame or a boot lands on the whole man. */
-const PLACED: ReadonlySet<DamageType> = new Set<DamageType>(['bullet', 'pellet', 'slash']);
+/** Hits that have a place on the body. A blast or flame lands on the whole man. */
+const PLACED: ReadonlySet<DamageType> = new Set<DamageType>(['bullet', 'pellet', 'slash', 'melee']);
 /** Multiplies a hit to the neck, which the rig counts as head. */
 const NECK_DAMAGE = 1.2;
 const GLANCE_DAMAGE = 0.4;
@@ -117,6 +117,7 @@ export class WoundSystem {
     this.labelAt = -Infinity;
     this.lastGrenadeAt = -Infinity;
     this.fallDue = false;
+    this.sidearms.clear();
   }
 
   bodyOf(e: Enemy): Injuries | null {
@@ -371,7 +372,7 @@ export class WoundSystem {
     s.sidearmLeft = !right;
     s.mag = SIDEARM_MAG;
     s.reloadUntil = this.w.now + SIDEARM_DRAW;
-    this.sidearms.draw(s.e, right);
+    this.sidearms.draw(s.e, right, () => s.weapon === 'sidearm');
     pose(s.e, 'stand');
   }
 
@@ -529,6 +530,7 @@ export class WoundSystem {
     const e = s.e;
     if (b.concussedUntil > 0 && now >= b.concussedUntil) b.concussedUntil = 0;
     if (b.ringingUntil > 0 && now >= b.ringingUntil) b.ringingUntil = 0;
+    if (s.weapon === 'sidearm' && this.sidearms.isPending(e)) s.reloadUntil = Math.max(s.reloadUntil, now + 0.1);
     if (b.floored) this.tickFloored(s, b, now);
     else this.tickStanding(s, b, now);
     if (!e.alive) return;
@@ -584,9 +586,10 @@ export class WoundSystem {
     const beat = Math.sin(e.gaitPhase) > 0;
     if (beat === b.limpBeat) return;
     b.limpBeat = beat;
-    if (!beat || Math.hypot(e.velocity.x, e.velocity.z) < 0.5) return;
+    if ((!beat && !b.bilateralLimp) || Math.hypot(e.velocity.x, e.velocity.z) < 0.5) return;
     _dir.set(e.velocity.x, 0, e.velocity.z).normalize();
-    e.char.anim.stumble?.(_dir, 0.08, b.limp > 0 ? B.thighL : B.thighR);
+    const bone = b.bilateralLimp ? (beat ? B.thighL : B.thighR) : (b.limp > 0 ? B.thighL : B.thighR);
+    e.char.anim.stumble?.(_dir, 0.08, bone);
   }
 
   private tickFloored(s: Soldier, b: Injuries, now: number): void {
@@ -611,7 +614,7 @@ export class WoundSystem {
     }
     if (s.weapon === 'sidearm') {
       s.sees = e.hasLos;
-      if (s.reloadUntil > 0 && now >= s.reloadUntil) s.reloadUntil = 0;
+      if (s.reloadUntil > 0 && now >= s.reloadUntil && !this.sidearms.isPending(e)) s.reloadUntil = 0;
     }
   }
 
@@ -689,7 +692,13 @@ export class WoundSystem {
   }
 
   private stumpBleed(e: Enemy): number {
-    return (4 - e.maim.legs - e.maim.arms) * STUMP_BLEED;
+    const s = e.char.severed;
+    let stumps = 0;
+    if (s.has('legL') || s.has('shinL')) stumps++;
+    if (s.has('legR') || s.has('shinR')) stumps++;
+    if (s.has('armL') || s.has('forearmL')) stumps++;
+    if (s.has('armR') || s.has('forearmR')) stumps++;
+    return stumps * STUMP_BLEED;
   }
 
   /** A limb came off, which is the worst thing that can happen to one. */

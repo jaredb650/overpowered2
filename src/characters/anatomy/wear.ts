@@ -67,8 +67,12 @@ export class WearBook {
     const was = wearAmount(this.data[this.base + i]!);
     const now = Math.min(Math.max(spent, was), 1);
     this.by[i * KINDS + kind] = this.by[i * KINDS + kind]! + Math.max(now - was, 0.0001);
-    let top = 0;
-    for (let k = 1; k < KINDS; k++) if (this.by[i * KINDS + k]! > this.by[i * KINDS + top]!) top = k;
+    let top = -1;
+    for (let k = 0; k < WearKind.burn; k++) {
+      const v = this.by[i * KINDS + k]!;
+      if (v > 0 && (top < 0 || v > this.by[i * KINDS + top]!)) top = k;
+    }
+    if (top < 0) top = WearKind.burn;
     this.data[this.base + i] = packWear(now, top);
     if (now > this.most) this.onMost(this.most = now);
   }

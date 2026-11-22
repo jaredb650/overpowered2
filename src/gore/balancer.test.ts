@@ -210,7 +210,7 @@ describe('DynamicBalancer (Euphoria / RDR2 active ragdoll)', () => {
     gore.clear();
   });
 
-  it('gut shot triggers forward abdominal curl & wound clutch', () => {
+  it('gut shot triggers forward abdominal curl & wound clutch and propagates shock to spine', () => {
     gore.clear();
     const c = spawnLiving(0, 0, 0);
     const gutPt = at(c, B.spine);
@@ -223,6 +223,76 @@ describe('DynamicBalancer (Euphoria / RDR2 active ragdoll)', () => {
     const bal = ragOf(c).muscle!.collapse!.balancer!;
     expect(bal.gutCurl).toBeGreaterThan(0.5);
     expect(bal.woundRegion).toBe('abdomen');
+    expect(bal.spineIdx).toBeGreaterThanOrEqual(0);
+    expect(bal.partShock[bal.spineIdx]!).toBeGreaterThan(0.2);
+    gore.clear();
+  });
+
+  it('severing a limb while dying-on-feet cleanly aborts DynamicBalancer without Rapier crash', () => {
+    for (const [region, bone] of [['armL', B.upperArmL], ['legL', B.thighL]] as const) {
+      gore.clear();
+      const c = spawnLiving(0, 0, 0);
+      gore.collapse(c, { duration: 1.5 });
+      const rag = ragOf(c);
+      expect(rag.muscle?.collapse?.balancer).not.toBeNull();
+      for (let f = 0; f < 5; f++) frame();
+      const dmg: DamageInfo = {
+        amount: 90,
+        type: 'slash',
+        point: at(c, bone),
+        dir: v(1, 0, 0),
+        force: 20,
+        source: 'test',
+        bone,
+        region,
+      };
+      gore.sever(c, region, dmg);
+      expect(rag.muscle!.collapse).toBeNull();
+      for (const part of rag.parts) {
+        expect(part.muscle!.gain).toBe(1);
+      }
+      // Step 30 frames after severing — must never dereference freed Rapier rigidbody handles.
+      expect(() => {
+        for (let f = 0; f < 30; f++) frame();
+      }).not.toThrow();
+    }
+    gore.clear();
+  });
+
+  it('fallOver() resets elevated balancer muscle gains back to 1 on legs and spine', () => {
+    gore.clear();
+    const c = spawnLiving(0, 0, 0);
+    expect(gore.knockdown(c, {
+      velocity: v(0, 0, -1.5),
+      stumble: { seconds: 1.0, budget: 0.7 },
+    })).toBe(true);
+    const rag = ragOf(c);
+    frame(c);
+    const maxGainBefore = Math.max(...rag.parts.map(p => p.muscle!.gain));
+    expect(maxGainBefore).toBeGreaterThan(1.5);
+    expect(rag.muscle!.loseFooting('momentum')).toBe(true);
+    expect(rag.muscle!.collapse).toBeNull();
+    for (const part of rag.parts) {
+      expect(part.muscle!.gain).toBe(1);
+    }
+    gore.clear();
+  });
+
+  it('backward arm clamp holds z >= -0.5 for straight-back world direction (0, 0, -1)', () => {
+    gore.clear();
+    const c = spawnLiving(0, 0, 0);
+    gore.collapse(c, { duration: 1.5 });
+    const rag = ragOf(c);
+    const bal = rag.muscle!.collapse!.balancer!;
+    const chest = bal.spine ?? rag.parts[0]!;
+    chest.q.identity();
+    const arm = bal.arms[0]!;
+    (bal as unknown as { aimArm(a: typeof arm, ch: typeof chest, d: THREE.Vector3, bend: number): void })
+      .aimArm(arm, chest, v(0, 0, -1), 0.5);
+    const aimed = arm.rest.clone().applyQuaternion(arm.shoulder.muscle!.pose);
+    expect(Number.isFinite(aimed.x + aimed.y + aimed.z)).toBe(true);
+    expect(aimed.length()).toBeCloseTo(1, 4);
+    expect(aimed.z).toBeGreaterThanOrEqual(-0.5 - 1e-4);
     gore.clear();
   });
 });

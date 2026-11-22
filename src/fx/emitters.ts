@@ -23,9 +23,11 @@ const HOWITZER_FLASH = hot(0xffe8b0, 5.5);
 
 interface Slot {
   preset: EmitterPreset;
-  target: THREE.Object3D;
+  target: THREE.Object3D | null;
   hasOffset: boolean;
   offset: THREE.Vector3;
+  hasDir: boolean;
+  dir: THREE.Vector3;
   last: THREE.Vector3;
   /** 0 = runs until stopped. */
   duration: number;
@@ -46,7 +48,10 @@ class Handle implements EmitterHandle {
   constructor(private readonly slot: Slot, private readonly generation: number) {}
 
   stop(): void {
-    if (this.alive) this.slot.live = false;
+    if (this.alive) {
+      this.slot.live = false;
+      this.slot.target = null;
+    }
   }
 
   get alive(): boolean {
@@ -61,6 +66,12 @@ const _dir = new THREE.Vector3();
 const _pt = new THREE.Vector3();
 const _q = new THREE.Quaternion();
 
+function isAttachedToScene(obj: THREE.Object3D, scene?: THREE.Object3D | null): boolean {
+  let r: THREE.Object3D = obj;
+  while (r.parent) r = r.parent;
+  return r === scene || !!(r as THREE.Scene).isScene;
+}
+
 export class EmitterPool {
   private readonly slots: Slot[] = [];
   private cursor = 0;
@@ -68,14 +79,15 @@ export class EmitterPool {
   constructor(private readonly core: FxCore) {
     for (let i = 0; i < CAP; i++) {
       this.slots.push({
-        preset: 'smokeTrail', target: null as unknown as THREE.Object3D, hasOffset: false,
-        offset: new THREE.Vector3(), last: new THREE.Vector3(), duration: 0, age: 0, acc: 0, acc2: 0,
+        preset: 'smokeTrail', target: null, hasOffset: false,
+        offset: new THREE.Vector3(), hasDir: false, dir: new THREE.Vector3(),
+        last: new THREE.Vector3(), duration: 0, age: 0, acc: 0, acc2: 0,
         beat: 0, floor: -1e6, primed: false, parented: false, generation: 0, live: false,
       });
     }
   }
 
-  attach(target: THREE.Object3D, preset: EmitterPreset, offset?: THREE.Vector3, seconds?: number): EmitterHandle {
+  attach(target: THREE.Object3D, preset: EmitterPreset, offset?: THREE.Vector3, seconds?: number, dir?: THREE.Vector3): EmitterHandle {
     let slot: Slot | undefined;
     for (let i = 0; i < CAP; i++) {
       const s = this.slots[(this.cursor + i) % CAP]!;
@@ -94,30 +106,35 @@ export class EmitterPool {
     slot.target = target;
     slot.hasOffset = !!offset;
     if (offset) slot.offset.copy(offset);
+    slot.hasDir = !!dir && dir.lengthSq() > 1e-8;
+    if (slot.hasDir && dir) slot.dir.copy(dir).normalize();
     slot.duration = seconds ?? 0;
     slot.age = 0;
     slot.acc = TRAIL_STEP;
     slot.acc2 = 0;
     slot.beat = 0;
     slot.primed = false;
-    slot.parented = target.parent !== null;
+    slot.parented = target.parent !== null && isAttachedToScene(target, this.core.ctx.render?.scene);
     return new Handle(slot, slot.generation);
   }
 
   update(): void {
     const { dt, realDt, paused } = this.core.ctx.time;
     if (paused) return;
+    const scene = this.core.ctx.render?.scene;
     for (let i = 0; i < CAP; i++) {
       const s = this.slots[i]!;
       if (!s.live) continue;
-      if (s.parented && s.target.parent === null) {
-        // A despawned target stops its emitter, so nobody needs to remember to.
+      if (!s.target || (s.parented && !isAttachedToScene(s.target, scene))) {
+        // A despawned target (or detached root ancestor) stops its emitter, so nobody needs to remember to.
         s.live = false;
+        s.target = null;
         continue;
       }
       s.age += dt;
       if (s.duration > 0 && s.age >= s.duration) {
         s.live = false;
+        s.target = null;
         continue;
       }
       s.target.updateWorldMatrix(true, false);
@@ -286,10 +303,11 @@ export class EmitterPool {
    * local +Y.
    */
   private stump(s: Slot, dt: number): void {
-    if (dt <= 0) return;
+    if (dt <= 0 || !s.target) return;
     const core = this.core;
     s.target.getWorldQuaternion(_q);
-    if (s.hasOffset) _dir.copy(s.offset).normalize();
+    if (s.hasDir) _dir.copy(s.dir);
+    else if (s.hasOffset && s.offset.lengthSq() > 1e-8) _dir.copy(s.offset).normalize();
     else _dir.set(0, 1, 0);
     _dir.applyQuaternion(_q);
 
@@ -359,7 +377,10 @@ export class EmitterPool {
   }
 
   stopAll(): void {
-    for (const s of this.slots) s.live = false;
+    for (const s of this.slots) {
+      s.live = false;
+      s.target = null;
+    }
   }
 
   get count(): number {

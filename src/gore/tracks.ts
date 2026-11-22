@@ -52,7 +52,7 @@ const _at = new THREE.Vector3();
 const _dir = new THREE.Vector3();
 
 export class Tracks {
-  private readonly walkers = new WeakMap<object, Walker>();
+  private walkers = new WeakMap<object, Walker>();
   private readonly me: Walker = { left: 0, leftFoot: false };
   private lastStride = 0;
   private readonly slideFrom = new THREE.Vector3();
@@ -107,6 +107,7 @@ export class Tracks {
       const p = this.ctx.player.position;
       if (this.allowance < 1 || (p && Math.hypot(p.x - x, p.z - z) > TrackTuning.reach)) {
         // Too many or too far: the step dries the foot all the same.
+        w.leftFoot = !w.leftFoot;
         w.left--;
         return;
       }
@@ -130,7 +131,7 @@ export class Tracks {
       if (moved >= t.slideEvery) {
         if (me.left > 0 && !this.blood.wetAt(p.position.x, p.position.y, p.position.z)) {
           _at.copy(this.slideFrom).lerp(p.position, 0.5);
-          this.blood.smear(_at, p.position.x - this.slideFrom.x, p.position.z - this.slideFrom.z, moved * 1.5, printFade(me.left));
+          this.blood.smear(_at, p.position.x - this.slideFrom.x, p.position.z - this.slideFrom.z, Math.min(moved * 1.5, 1.2), printFade(me.left));
           me.left = Math.max(0, me.left - t.slideCost);
           this.laid++;
         }
@@ -149,8 +150,12 @@ export class Tracks {
   }
 
   clear(): void {
+    this.walkers = new WeakMap();
     this.me.left = 0;
+    this.me.leftFoot = false;
+    this.lastStride = 0;
     this.wasSliding = false;
+    this.allowance = TrackTuning.perSecond;
     this.laid = 0;
   }
 }

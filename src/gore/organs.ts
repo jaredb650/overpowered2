@@ -191,7 +191,10 @@ function vertebrae(seed: number): THREE.BufferGeometry {
     wings.translate(0, y + 0.004, -0.094);
     parts.push(body, spinous, wings);
   }
-  const g = mergeGeometries(parts.map(p => p.toNonIndexed()))!;
+  const nonIndexed = parts.map(p => p.toNonIndexed());
+  const g = mergeGeometries(nonIndexed)!;
+  for (const p of parts) p.dispose();
+  for (const p of nonIndexed) p.dispose();
   g.computeVertexNormals();
   return tinted(g, seed, (_x, _y, _z, k, out) => bloodied(BONE, k, 0.08, out));
 }
@@ -219,8 +222,20 @@ export function buildRibcage(seed = 71): Map<RibKind, THREE.BufferGeometry> {
   }
   const out = new Map<RibKind, THREE.BufferGeometry>();
   for (const [k, b] of Object.entries(lateral)) out.set(k as RibKind, b.build());
-  out.set('spine', mergeGeometries([spine.build(), mergeVertices(vertebrae(seed + 1))])!);
-  out.set('sternum', mergeGeometries([front.build(), mergeVertices(sternum(seed + 2))])!);
+  const spineBands = spine.build();
+  const rawVerts = vertebrae(seed + 1);
+  const weldedVerts = mergeVertices(rawVerts);
+  out.set('spine', mergeGeometries([spineBands, weldedVerts])!);
+  spineBands.dispose();
+  rawVerts.dispose();
+  weldedVerts.dispose();
+  const frontBands = front.build();
+  const rawSternum = sternum(seed + 2);
+  const weldedSternum = mergeVertices(rawSternum);
+  out.set('sternum', mergeGeometries([frontBands, weldedSternum])!);
+  frontBands.dispose();
+  rawSternum.dispose();
+  weldedSternum.dispose();
   return out;
 }
 
@@ -237,6 +252,7 @@ function blob(seed: number, rough: number, shape: (p: THREE.Vector3) => void, pi
   base.deleteAttribute('uv');
   base.deleteAttribute('normal');
   const g = mergeVertices(base);
+  base.dispose();
   const rnd = mulberry32(seed);
   const pos = g.getAttribute('position');
   const colors = new Float32Array(pos.count * 3);

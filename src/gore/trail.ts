@@ -10,8 +10,8 @@
  * Fixed pools. A ribbon belongs to whoever opened it last (`owner`): past `TrailTuning.max` the oldest is taken, and the
  * piece that had it just stops trailing.
  */
-import type * as THREE from 'three';
-import type { Ctx } from '../core/contracts';
+import * as THREE from 'three';
+import { CG, type Ctx, type RayHit } from '../core/contracts';
 
 export const TrailTuning = {
   /** Ribbons at once, and globs in each. Two bodies burst at once is about forty. */
@@ -28,12 +28,18 @@ export const TrailTuning = {
   /** Strands a frame, over every small piece in flight, and the seconds between one piece's. */
   perFrame: 5,
   strandEvery: 0.09,
+  /** Globs further apart than this are two strands, so frame spikes or teleports do not stretch a ribbon across the map. */
+  gap: 1.8,
 };
 
 /** x y z vx vy vz age alive. */
 const G = 8;
 /** One point of the hose's chain: x y z age serial break. */
 const STRIDE = 6;
+
+const _o = new THREE.Vector3();
+const _down = new THREE.Vector3(0, -1, 0);
+const _hit: RayHit = { point: new THREE.Vector3(), normal: new THREE.Vector3(), distance: 0, surface: 'concrete', collider: null };
 
 export class Ribbon {
   owner: object | null = null;
@@ -46,6 +52,8 @@ export class Ribbon {
   x = 0; y = 0; z = 0;
   vx = 0; vy = 0; vz = 0;
   fedAt = -1;
+  floor = -1e4;
+  nextGround = 0;
   live = false;
 }
 
@@ -77,6 +85,8 @@ export class GibTrail {
     r.fired = 0;
     r.acc = TrailTuning.every;
     r.fedAt = -1;
+    r.floor = -1e4;
+    r.nextGround = 0;
     r.globs.fill(0);
     this.opened++;
     return r;
@@ -119,17 +129,25 @@ export class GibTrail {
     if (dt <= 0) return;
     const t = TrailTuning;
     const now = this.ctx.time.elapsed;
+    let groundRays = 8;
+    const physics = this.ctx.physics;
     for (const r of this.ribbons) {
       if (!r.live) continue;
       const fed = r.fedAt === now;
       if (fed) {
+        if (now >= r.nextGround && groundRays > 0 && physics?.raycastInto) {
+          groundRays--;
+          r.nextGround = now + 0.35;
+          _o.set(r.x, r.y + 0.3, r.z);
+          if (physics.raycastInto(_o, _down, 12, CG.World, _hit)) r.floor = _hit.point.y;
+        }
         r.acc += dt;
         if (r.acc >= t.every) {
           r.acc = 0;
           const g = r.head * G;
           r.head = (r.head + 1) % t.globs;
           r.globs[g] = r.x;
-          r.globs[g + 1] = r.y;
+          r.globs[g + 1] = Math.max(r.y, r.floor + 0.01);
           r.globs[g + 2] = r.z;
           r.globs[g + 3] = r.vx * t.keep;
           r.globs[g + 4] = r.vy * t.keep;
@@ -140,16 +158,28 @@ export class GibTrail {
         }
       }
       let any = fed;
+      const minY = r.floor + 0.01;
       for (let i = 0; i < t.globs; i++) {
         const g = i * G;
         if (r.globs[g + 7] === 0) continue;
-        r.globs[g + 4] = r.globs[g + 4]! - t.gravity * dt;
-        r.globs[g] = r.globs[g]! + r.globs[g + 3]! * dt;
-        r.globs[g + 1] = r.globs[g + 1]! + r.globs[g + 4]! * dt;
-        r.globs[g + 2] = r.globs[g + 2]! + r.globs[g + 5]! * dt;
         r.globs[g + 6] = r.globs[g + 6]! + dt;
-        if (r.globs[g + 6]! > t.life) r.globs[g + 7] = 0;
-        else any = true;
+        if (r.globs[g + 6]! > t.life) {
+          r.globs[g + 7] = 0;
+          continue;
+        }
+        if (r.globs[g + 1]! > minY) {
+          r.globs[g + 4] = r.globs[g + 4]! - t.gravity * dt;
+          r.globs[g] = r.globs[g]! + r.globs[g + 3]! * dt;
+          r.globs[g + 1] = r.globs[g + 1]! + r.globs[g + 4]! * dt;
+          r.globs[g + 2] = r.globs[g + 2]! + r.globs[g + 5]! * dt;
+          if (r.globs[g + 1]! < minY) {
+            r.globs[g + 1] = minY;
+            r.globs[g + 3] = 0;
+            r.globs[g + 4] = 0;
+            r.globs[g + 5] = 0;
+          }
+        }
+        any = true;
       }
       if (!any) {
         r.live = false;
@@ -169,15 +199,20 @@ export class GibTrail {
     for (const r of this.ribbons) {
       if (!r.live) continue;
       let first = true;
+      let lx = 0, ly = 0, lz = 0;
       const put = (x: number, y: number, z: number, age: number, serial: number): void => {
         if (count >= room) return;
         const o = count * STRIDE;
+        const split = !first && Math.hypot(x - lx, y - ly, z - lz) > t.gap;
         chain[o] = x;
         chain[o + 1] = y;
         chain[o + 2] = z;
         chain[o + 3] = age;
         chain[o + 4] = serial * 0.35;
-        chain[o + 5] = first ? 1 : 0;
+        chain[o + 5] = first || split ? 1 : 0;
+        lx = x;
+        ly = y;
+        lz = z;
         first = false;
         count++;
       };

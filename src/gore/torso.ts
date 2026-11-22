@@ -21,7 +21,7 @@ import { buildSlabs, SlabTuning, type Slab } from './slabs';
 export type TorsoBreak = 'crack' | 'waist' | 'blowout';
 
 /** Rounds big enough to blow a trunk out through its back. The shotgun's point blank is `POINT_BLANK`. */
-export const BLOWOUT_ROUNDS: ReadonlySet<string> = new Set(['sabot', 'awl', 'ultramag', 'piledriver']);
+export const BLOWOUT_ROUNDS: ReadonlySet<string> = new Set(['sabot', 'awl', 'ultramag', 'piledriver', 'judge', 'stakegun', 'lance']);
 /** Metres from the muzzle at which a shotgun's pellets blow a trunk out. */
 export const POINT_BLANK = 3;
 
@@ -227,6 +227,8 @@ function split(sides: readonly CutSide[], plane: Plane, discs: readonly BoneCros
     // One rigid piece a side: a trunk's caps and kit are islands of its mesh, and they go where the piece goes.
     const r = cutMesh(side.geometry, p, plane.n, local, null, 1);
     if (r.above.length === 0 || r.below.length === 0) {
+      for (const s of r.above) s.geometry.dispose();
+      for (const s of r.below) s.geometry.dispose();
       (side.origin.dot(plane.n) - plane.p.dot(plane.n) > 0 ? above : below).push(side);
       continue;
     }
@@ -284,18 +286,69 @@ function roughen(side: CutSide, planes: readonly Plane[], amount: number): void 
   const pos = side.geometry.getAttribute('position') as THREE.BufferAttribute;
   const a = pos.array as Float32Array;
   const o = side.origin;
+  let moved = false;
   for (const { p, n } of planes) {
     const off = p.dot(n);
     for (let i = 0; i < a.length; i += 3) {
       const x = a[i]! + o.x, y = a[i + 1]! + o.y, z = a[i + 2]! + o.z;
-      if (Math.abs(x * n.x + y * n.y + z * n.z - off) > 4e-4) continue;
+      // 3 mm catches bone discs lifted 1.5 mm off the plane so they displace together with surrounding flesh.
+      if (Math.abs(x * n.x + y * n.y + z * n.z - off) > 3e-3) continue;
       const k = jagNoise(x, y, z) * amount;
       a[i] = a[i]! + n.x * k;
       a[i + 1] = a[i + 1]! + n.y * k;
       a[i + 2] = a[i + 2]! + n.z * k;
+      moved = true;
     }
   }
   pos.needsUpdate = true;
+  if (moved) {
+    const nrm = side.geometry.getAttribute('normal') as THREE.BufferAttribute | undefined;
+    const idx = side.geometry.getIndex();
+    const capGroup = side.geometry.groups[1];
+    if (nrm && idx && capGroup && capGroup.count > 0) {
+      const na = nrm.array as Float32Array;
+      const ia = idx.array as ArrayLike<number>;
+      const start = capGroup.start;
+      const end = start + capGroup.count;
+      const touched = new Set<number>();
+      for (let t = start; t < end; t += 3) {
+        const i0 = ia[t]!, i1 = ia[t + 1]!, i2 = ia[t + 2]!;
+        if (!touched.has(i0)) { touched.add(i0); na[i0 * 3] = na[i0 * 3 + 1] = na[i0 * 3 + 2] = 0; }
+        if (!touched.has(i1)) { touched.add(i1); na[i1 * 3] = na[i1 * 3 + 1] = na[i1 * 3 + 2] = 0; }
+        if (!touched.has(i2)) { touched.add(i2); na[i2 * 3] = na[i2 * 3 + 1] = na[i2 * 3 + 2] = 0; }
+        const ax = a[i0 * 3]!, ay = a[i0 * 3 + 1]!, az = a[i0 * 3 + 2]!;
+        const e1x = a[i1 * 3]! - ax, e1y = a[i1 * 3 + 1]! - ay, e1z = a[i1 * 3 + 2]! - az;
+        const e2x = a[i2 * 3]! - ax, e2y = a[i2 * 3 + 1]! - ay, e2z = a[i2 * 3 + 2]! - az;
+        const fx = e1y * e2z - e1z * e2y;
+        const fy = e1z * e2x - e1x * e2z;
+        const fz = e1x * e2y - e1y * e2x;
+        na[i0 * 3] = na[i0 * 3]! + fx; na[i0 * 3 + 1] = na[i0 * 3 + 1]! + fy; na[i0 * 3 + 2] = na[i0 * 3 + 2]! + fz;
+        na[i1 * 3] = na[i1 * 3]! + fx; na[i1 * 3 + 1] = na[i1 * 3 + 1]! + fy; na[i1 * 3 + 2] = na[i1 * 3 + 2]! + fz;
+        na[i2 * 3] = na[i2 * 3]! + fx; na[i2 * 3 + 1] = na[i2 * 3 + 1]! + fy; na[i2 * 3 + 2] = na[i2 * 3 + 2]! + fz;
+      }
+      for (const v of touched) {
+        const l = Math.hypot(na[v * 3]!, na[v * 3 + 1]!, na[v * 3 + 2]!);
+        if (l > 1e-8) {
+          na[v * 3] = na[v * 3]! / l;
+          na[v * 3 + 1] = na[v * 3 + 1]! / l;
+          na[v * 3 + 2] = na[v * 3 + 2]! / l;
+        }
+      }
+      nrm.needsUpdate = true;
+    }
+    side.min.set(Infinity, Infinity, Infinity);
+    side.max.set(-Infinity, -Infinity, -Infinity);
+    for (let i = 0; i < a.length; i += 3) {
+      const x = a[i]!, y = a[i + 1]!, z = a[i + 2]!;
+      if (x < side.min.x) side.min.x = x;
+      if (y < side.min.y) side.min.y = y;
+      if (z < side.min.z) side.min.z = z;
+      if (x > side.max.x) side.max.x = x;
+      if (y > side.max.y) side.max.y = y;
+      if (z > side.max.z) side.max.z = z;
+    }
+  }
+  side.geometry.computeBoundingBox();
   side.geometry.computeBoundingSphere();
 }
 
@@ -340,7 +393,9 @@ export function buildKit(char: CharacterInstance): TorsoKit {
   const slabs = buildSlabs(geometry, char, hips.y, chest.y);
   const byWaist = split([whole], waist, [spineDisc(waist.p.y)]);
   // Kept whole for the waist tear, and cut on for the rest: `split` disposes what it cuts, so the waist keeps copies.
-  const keep = (sides: CutSide[]): CutSide[] => sides.map(c => ({ ...c, geometry: c.geometry.clone(), origin: c.origin.clone() }));
+  const keep = (sides: CutSide[]): CutSide[] => sides.map(c => ({
+    ...c, geometry: c.geometry.clone(), origin: c.origin.clone(), min: c.min.clone(), max: c.max.clone(),
+  }));
   const upper = keep(byWaist.above);
   const lower = keep(byWaist.below);
   const halves = split(byWaist.above, middle, column);
@@ -348,7 +403,7 @@ export function buildKit(char: CharacterInstance): TorsoKit {
   const right = keep(halves.below);
   const leftRibs = split(halves.above, ribL, ring(ribL.p.y));
   const rightRibs = split(halves.below, ribR, ring(ribR.p.y));
-  const pelvisHalves = split(keep(lower), pelvis, [{ x: 0, y: hips.y, z: spineZ, radius: 0.02 * s }]);
+  const pelvisHalves = split(byWaist.below, pelvis, [{ x: 0, y: hips.y, z: spineZ, radius: 0.02 * s }]);
 
   const all = [waist, middle, ribL, ribR, pelvis];
   const split2 = (y: number) => (y > (spine.y + chest.y) / 2 ? B.chest : B.hips);
@@ -391,7 +446,10 @@ export function buildKit(char: CharacterInstance): TorsoKit {
 export function buildWreck(char: CharacterInstance): TorsoPiece[] {
   const rnd = mulberry32([...char.archetype].reduce((h, c) => Math.imul(h ^ c.charCodeAt(0), 16777619) >>> 0, 2166136261));
   const geometry = compact(char.bakePose(true));
-  if (geometry.getAttribute('position').count < 12) return [];
+  if (geometry.getAttribute('position').count < 12) {
+    geometry.dispose();
+    return [];
+  }
   geometry.computeBoundingBox();
   const box = geometry.boundingBox!;
   const centre = box.getCenter(new THREE.Vector3());

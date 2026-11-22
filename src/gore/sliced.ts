@@ -16,6 +16,9 @@ import { sear, type Sear } from './sear';
 import { TrailTuning, type GibTrail, type Ribbon } from './trail';
 import { burnTint, FireTuning, type BurningPiece } from './fire';
 import { cookable } from './cooked';
+import { ARCHETYPES } from '../characters/archetypes';
+
+const MACHINES = new Set(ARCHETYPES.filter(a => a.stumps === 'machine').map(a => a.id));
 
 export const SliceTuning = {
   /**
@@ -241,7 +244,7 @@ export class SliceField {
    * Cuts `char` in two (or more) along the plane and returns the pieces. `burn` is the char on the body, 0..1: its
    * halves are as burnt, and one burnt past the soot line spills no blood.
    */
-  cut(char: CharacterInstance, point: THREE.Vector3, normal: THREE.Vector3, damage: DamageInfo, burn = 0): Half[] {
+  cut(char: CharacterInstance, point: THREE.Vector3, normal: THREE.Vector3, damage: DamageInfo, burn = 0, machine = MACHINES.has(char.archetype)): Half[] {
     const { fx } = this.ctx;
     const made = this.halves.length;
     const geometry = char.bakePose();
@@ -252,12 +255,12 @@ export class SliceField {
       this.welds.set(char.rig, weld);
     }
     const started = performance.now();
-    let result = cutMesh(geometry, point, n, this.crossings(char, point, n), weld);
+    let result = cutMesh(geometry, point, n, machine ? [] : this.crossings(char, point, n), weld);
     if (result.above.length === 0 || result.below.length === 0) {
       // The swing plane missed the mesh. A sword kill must still cut, so move the plane onto the body.
       const hips = _o.setFromMatrixPosition(char.bones[0]!.matrixWorld).clone();
       hips.y += char.rig.height * 0.1;
-      result = cutMesh(geometry, hips, n, this.crossings(char, hips, n), weld);
+      result = cutMesh(geometry, hips, n, machine ? [] : this.crossings(char, hips, n), weld);
     }
     this.lastCutMs = performance.now() - started;
     geometry.dispose();
@@ -271,12 +274,17 @@ export class SliceField {
     const aboveIsUpper = result.above[0]!.origin.y >= result.below[0]!.origin.y;
 
     const skin = char.skinMaterial;
-    result.above.forEach((side, i) => this.spawn(side, skin, slide, n, 1, damage, aboveIsUpper && i === 0, burn));
-    result.below.forEach((side, i) => this.spawn(side, skin, slide, n, -1, damage, !aboveIsUpper && i === 0, burn));
+    result.above.forEach((side, i) => this.spawn(side, skin, slide, n, 1, damage, aboveIsUpper && i === 0, burn, machine));
+    result.below.forEach((side, i) => this.spawn(side, skin, slide, n, -1, damage, !aboveIsUpper && i === 0, burn, machine));
     const pieces = this.halves.slice(made);
 
     const at = _o.copy(point);
-    if (burn >= FireTuning.sootFrom && !damage.vaporize) {
+    if (machine) {
+      fx.sparks(at, n, 14, 0xffd080);
+      fx.sparks(at, _d.copy(n).negate(), 14, 0xffd080);
+      if (damage.vaporize) this.ctx.render.lights?.flash(at, 0xffa860, 4, 5, 0.25);
+      this.ctx.audio?.play('impact_armor', { position: at, volume: 0.9, pitch: 0.85 });
+    } else if (burn >= FireTuning.sootFrom && !damage.vaporize) {
       // Cooked through: the blade opens dry, dark meat. A breath of ash where it passed, and nothing runs.
       fx.embers(at, 4, 0.3);
     } else if (damage.vaporize) {
@@ -296,11 +304,12 @@ export class SliceField {
     return pieces;
   }
 
-  private spawn(side: CutSide, skin: THREE.Material, slide: THREE.Vector3, n: THREE.Vector3, sign: number, damage: DamageInfo, upper: boolean, char = 0): void {
+  private spawn(side: CutSide, skin: THREE.Material, slide: THREE.Vector3, n: THREE.Vector3, sign: number, damage: DamageInfo, upper: boolean, char = 0, machine = false): void {
     const { R, world } = this.ctx.physics;
+    const cap = machine ? this.wreckCap() : this.cap();
     // A half is placed unturned at its origin, so the cut lies through its cap's centre along `n` in its own frame too.
-    const burn = damage.vaporize ? sear(skin, this.cap(), n, side.capCenter) : null;
-    const mesh = burn ? new THREE.Mesh(side.geometry, burn.materials) : this.meshFor(side, skin, char);
+    const burn = damage.vaporize ? sear(skin, cap, n, side.capCenter) : null;
+    const mesh = burn ? new THREE.Mesh(side.geometry, burn.materials) : machine ? new THREE.Mesh(side.geometry, [skin, cap]) : this.meshFor(side, skin, char);
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     mesh.position.copy(side.origin);
@@ -316,7 +325,7 @@ export class SliceField {
         .setCcdEnabled(true),
     );
     const collider = R.ColliderDesc.convexHull(side.hull)
-      ?? R.ColliderDesc.cuboid(side.max.x, side.max.y, side.max.z);
+      ?? R.ColliderDesc.cuboid(Math.max(side.max.x, 0.015), Math.max(side.max.y, 0.015), Math.max(side.max.z, 0.015));
     world.createCollider(
       collider
         .setDensity(SliceTuning.density)
@@ -329,6 +338,7 @@ export class SliceField {
     half.born = this.ctx.time.elapsed;
     half.body = body;
     half.burn = burn ? 0 : char;
+    half.scrap = machine;
     half.releaseAt = this.ctx.time.elapsed + SliceTuning.holdSeconds;
     if (upper) half.slide.copy(slide).multiplyScalar(SliceTuning.slideSpeed);
     half.slide.addScaledVector(n, sign * SliceTuning.partSpeed);
@@ -339,6 +349,9 @@ export class SliceField {
       half.vaporFor = rand(SliceTuning.vapor.seconds[0], SliceTuning.vapor.seconds[1]);
       // It burns away before it would bleed or pool.
       half.pooled = true;
+    } else if (machine) {
+      half.pooled = true;
+      half.emitter = this.ctx.fx.attachEmitter(mesh, 'sparkTrail', side.capCenter, 2.2) ?? null;
     } else if (half.dry) half.pooled = true;
     else half.emitter = this.ctx.fx.attachEmitter(mesh, 'stumpSpray', side.capCenter, 3.5) ?? null;
     this.halves.push(half);
@@ -368,7 +381,8 @@ export class SliceField {
         .setAngularDamping(0.6)
         .setCcdEnabled(true),
     );
-    const collider = R.ColliderDesc.convexHull(side.hull) ?? R.ColliderDesc.cuboid(side.max.x, side.max.y, side.max.z);
+    const collider = R.ColliderDesc.convexHull(side.hull)
+      ?? R.ColliderDesc.cuboid(Math.max(side.max.x, 0.015), Math.max(side.max.y, 0.015), Math.max(side.max.z, 0.015));
     world.createCollider(
       collider.setDensity(SliceTuning.density).setFriction(0.7).setRestitution(0.05)
         .setCollisionGroups(groups(CG.Ragdoll, CG.World | CG.Ragdoll | CG.Gib)),
@@ -397,15 +411,17 @@ export class SliceField {
   warm(side: CutSide, skin: THREE.Material): void {
     // And the burning copies (sear.ts), so the energy blade's first cut does not compile them mid-swing.
     const burn = sear(skin, this.cap(), _up, side.capCenter);
-    for (const materials of [[skin, this.cap()], burn.materials]) {
-      const mesh = new THREE.Mesh(side.geometry, materials);
+    const meshes: THREE.Mesh[] = [this.meshFor(side, skin, 0), new THREE.Mesh(side.geometry, burn.materials)];
+    for (const mesh of meshes) {
+      const isBurn = mesh.material === burn.materials;
       mesh.position.y = -500;
       mesh.frustumCulled = false;
       mesh.onAfterRender = () => {
         mesh.onAfterRender = () => {};
         queueMicrotask(() => {
           mesh.removeFromParent();
-          if (materials === burn.materials) for (const m of materials) m.dispose();
+          (mesh as Partial<THREE.InstancedMesh>).dispose?.();
+          if (isBurn) for (const m of burn.materials) m.dispose();
         });
       };
       this.ctx.render.scene.add(mesh);
@@ -417,13 +433,13 @@ export class SliceField {
 
   private enforce(): void {
     let live = 0;
-    for (const h of this.halves) if (h.sinking < 0) live++;
+    for (const h of this.halves) if (h.sinking < 0 && h.vapor < 0) live++;
     const now = this.ctx.time.elapsed;
     // Out of sight first, and those go at once: there is nothing to watch.
     if (this.inView) {
       for (let i = 0; i < this.halves.length && live > SliceTuning.maxHalves; i++) {
         const h = this.halves[i]!;
-        if (h.sinking >= 0 || h.body || this.inView(h.mesh.position, 1)) continue;
+        if (h.sinking >= 0 || h.vapor >= 0 || h.body || this.inView(h.mesh.position, 1)) continue;
         this.remove(h);
         this.halves.splice(i--, 1);
         live--;
@@ -431,7 +447,7 @@ export class SliceField {
     }
     for (let i = 0; i < this.halves.length && live > SliceTuning.maxHalves; i++) {
       const h = this.halves[i]!;
-      if (h.sinking >= 0) continue;
+      if (h.sinking >= 0 || h.vapor >= 0) continue;
       if (now - h.born < SliceTuning.minShown && live <= SliceTuning.hardCap) break;
       this.freeze(h);
       h.sinking = this.ctx.time.elapsed;
@@ -494,7 +510,7 @@ export class SliceField {
       body.rotation(h.q);
       body.linvel(h.v);
       const speed = h.v.length();
-      h.nextThud = this.impacts.land('body', (h.speed - speed) * heard, h.speed * heard, h.p, h.nextThud);
+      if (!h.scrap) h.nextThud = this.impacts.land('body', (h.speed - speed) * heard, h.speed * heard, h.p, h.nextThud);
       h.speed = speed;
       // From its torn face, which is where a piece of a trunk bleeds.
       if (h.ribbon && speed > TrailTuning.minSpeed && now - h.born < TrailTuning.seconds) {
@@ -582,12 +598,13 @@ export class SliceField {
       R.RigidBodyDesc.dynamic()
         .setTranslation(h.mesh.position.x, h.mesh.position.y, h.mesh.position.z)
         .setRotation(h.mesh.quaternion)
+        .setGravityScale(RagTuning.gravityScale)
         .setLinearDamping(0.1)
         .setAngularDamping(0.6)
         .setCcdEnabled(true),
     );
     const collider = R.ColliderDesc.convexHull(h.side.hull)
-      ?? R.ColliderDesc.cuboid(h.side.max.x, h.side.max.y, h.side.max.z);
+      ?? R.ColliderDesc.cuboid(Math.max(h.side.max.x, 0.015), Math.max(h.side.max.y, 0.015), Math.max(h.side.max.z, 0.015));
     world.createCollider(
       collider.setDensity(SliceTuning.density).setFriction(0.7).setRestitution(0.03)
         .setCollisionGroups(groups(CG.Ragdoll, CG.World | CG.Ragdoll | CG.Gib)),
@@ -668,7 +685,7 @@ export class SliceField {
   }
 
   pin(handle: unknown, point: THREE.Vector3, anchor: THREE.Vector3): void {
-    if (!(handle instanceof Half)) return;
+    if (!(handle instanceof Half) || handle.vapor >= 0 || handle.sinking >= 0) return;
     this.wake(handle);
     const body = handle.body;
     if (!body) return;
@@ -680,6 +697,7 @@ export class SliceField {
   clear(): void {
     for (const h of this.halves) this.remove(h);
     this.halves = [];
+    this.nextEnforce = 0;
   }
 }
 

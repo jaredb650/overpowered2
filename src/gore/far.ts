@@ -201,6 +201,22 @@ export class FarBatch {
     };
   }
 
+  private scratch: FarBuffers | null = null;
+
+  private getScratch(): FarBuffers {
+    if (!this.scratch) {
+      const t = this.shape;
+      this.scratch = {
+        position: new Float32Array(t.slotVerts * 3),
+        normal: new Int8Array(t.slotVerts * 4),
+        color: new Uint8Array(t.slotVerts * 4),
+        mat: new Uint8Array(t.slotVerts * 4),
+        index: new Uint32Array(t.slotIndices),
+      };
+    }
+    return this.scratch;
+  }
+
   /** Bakes `source` as it lies into a free slot. -1 with no slot free. */
   add(source: FarBakeable): number {
     let slot = -1;
@@ -211,13 +227,28 @@ export class FarBatch {
       }
     }
     if (slot < 0) return -1;
-    const buffers = this.ensure(source.farMaterial, slot + 1);
     const t = this.shape;
     const v0 = slot * t.slotVerts;
     const i0 = slot * t.slotIndices;
-    const wrote = source.bakeFar(buffers, v0, i0, t.slotVerts, t.slotIndices);
-    // Too big for a slot (a Titan): it stays a character.
-    if (wrote.indices === 0) return -1;
+    let buffers: FarBuffers;
+    let wrote: { verts: number; indices: number };
+    if (slot >= this.room) {
+      // Avoid allocating/growing the shared GPU buffers if the source does not fit a slot.
+      const scratch = this.getScratch();
+      wrote = source.bakeFar(scratch, 0, 0, t.slotVerts, t.slotIndices);
+      if (wrote.indices === 0) return -1;
+      buffers = this.ensure(source.farMaterial, slot + 1);
+      buffers.position.set(scratch.position.subarray(0, wrote.verts * 3), v0 * 3);
+      buffers.normal.set(scratch.normal.subarray(0, wrote.verts * 4), v0 * 4);
+      buffers.color.set(scratch.color.subarray(0, wrote.verts * 4), v0 * 4);
+      buffers.mat.set(scratch.mat.subarray(0, wrote.verts * 4), v0 * 4);
+      for (let k = 0; k < wrote.indices; k++) buffers.index[i0 + k] = scratch.index[k]! + v0;
+    } else {
+      buffers = this.buffers!;
+      wrote = source.bakeFar(buffers, v0, i0, t.slotVerts, t.slotIndices);
+      // Too big for a slot (a Titan): it stays a character.
+      if (wrote.indices === 0) return -1;
+    }
     // The rest of the slot draws nothing.
     buffers.index.fill(v0, i0 + wrote.indices, i0 + t.slotIndices);
     this.used[slot] = 1;
@@ -261,7 +292,20 @@ export class FarBatch {
 
   clear(): void {
     if (!this.buffers) return;
-    for (let i = 0; i < this.slots; i++) if (this.used[i]) this.remove(i);
+    if (this.high > 0) {
+      const count = this.high * this.shape.slotIndices;
+      this.buffers.index.fill(0, 0, count);
+      const index = this.attrs!.index;
+      index.clearUpdateRanges();
+      index.addUpdateRange(0, count);
+      index.needsUpdate = true;
+      this.high = 0;
+      this.mesh!.geometry.setDrawRange(0, 0);
+    }
+    this.used.fill(0);
+    this.tris.fill(0);
+    this.count = 0;
+    this.triangles = 0;
     this.lower(0);
   }
 

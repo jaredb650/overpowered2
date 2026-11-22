@@ -161,6 +161,7 @@ const percentile = (values: number[], p: number): number => {
 function limbRadius(pos: ArrayLike<number>, owner: Uint8Array, bone: number, a: V3, b: V3): number {
   const ab = sub(b, a);
   const ab2 = dot(ab, ab);
+  if (ab2 <= 1e-8) return 0;
   const out: number[] = [];
   for (let i = 0; i < owner.length; i++) {
     if (owner[i] !== bone) continue;
@@ -220,7 +221,7 @@ function addTrunk(g: Builder, slices: readonly Slice[], y0: number, y1: number, 
       const a = (k / sides) * Math.PI * 2;
       const c = Math.cos(a);
       const d = Math.sin(a);
-      g.vertex([c * rx, y, cz + d * rz], unit([c / rx, 0, d / rz]), bind, Part.muscle, RED_MEAT);
+      g.vertex([c * rx, y, cz + d * rz], unit([rx > 1e-5 ? c / rx : c, 0, rz > 1e-5 ? d / rz : d]), bind, Part.muscle, RED_MEAT);
     }
   }
   for (let r = 0; r + 1 < rings; r++) {

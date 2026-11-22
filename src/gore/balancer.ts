@@ -130,10 +130,14 @@ const _ray: RayHit = { point: new THREE.Vector3(), normal: new THREE.Vector3(), 
 
 export class DynamicBalancer {
   readonly scale: number;
+  private readonly scaleSq: number;
+  private readonly vScale: number;
   readonly standHipY: number;
+  private readonly hips: RagPart;
   readonly legs: LegRig[] = [];
   readonly arms: ArmRig[] = [];
   readonly spine: RagPart | null = null;
+  readonly spineIdx: number = -1;
   readonly head: RagPart | null = null;
 
   /** Live physical Center of Mass & velocity in world space. */
@@ -180,10 +184,15 @@ export class DynamicBalancer {
   totalSteps = 0;
   /** Short reaction launch grace (seconds) after a fresh bullet impact so legs have time to launch a catch step. */
   hitGrace = 0;
+  /** Cumulative cap on hitGrace per stumble so rapid fire cannot keep a body upright indefinitely. */
+  private hitGraceBudget = 0.28;
+  private hasHit = false;
   /** Exact total mass * (gravityScale / rag.gravity) currently experiencing gravity in Rapier. */
   private activeGravityMass = 0;
-  private age = 0;
-  private dyingAge = 0;
+  private readonly partLegIdx: Int8Array;
+  private readonly lastGrav: Float32Array;
+  age = 0;
+  dyingAge = 0;
 
   constructor(
     private readonly rag: Rag,
@@ -195,23 +204,30 @@ export class DynamicBalancer {
     const info = rag.info;
     const bind = info.bind;
     this.scale = rag.source.rig.height / HUMAN_HEIGHT;
+    this.scaleSq = this.scale * this.scale;
+    this.vScale = Math.sqrt(Math.max(this.scale, 1e-3));
     this.groundY = initialGroundY;
     this.facingYaw = initialYaw;
     this.partShock = new Float32Array(rag.parts.length);
+    this.lastGrav = new Float32Array(rag.parts.length).fill(NaN);
     this.crumpleSide = 1;
 
     this.readCenterOfMass();
     const hips0 = rag.parts[0]!;
+    this.hips = hips0;
     // Match exact initial standing pelvis height so Frame 0 has zero vertical pop or yank.
     this.standHipY = clamp(hips0.p.y - initialGroundY, bind[1]! * 0.78, bind[1]! * 1.02);
     this.activeGravityMass = muscle.totalMass;
 
     const parts = rag.parts;
-    for (const part of parts) {
+    for (let i = 0; i < parts.length; i++) {
+      const part = parts[i]!;
       const m = part.muscle;
       if (!m || !part.parent) continue;
-      if (m.role === 'spine') (this as { spine: RagPart | null }).spine = part;
-      else if (m.role === 'head') (this as { head: RagPart | null }).head = part;
+      if (m.role === 'spine') {
+        (this as { spine: RagPart | null }).spine = part;
+        (this as { spineIdx: number }).spineIdx = i;
+      } else if (m.role === 'head') (this as { head: RagPart | null }).head = part;
       else if (!part.hinge && m.role === 'leg') {
         const side: 1 | -1 = bind[part.bone * 3]! >= 0 ? 1 : -1;
         const knee = parts.find(k => k.parent === part && k.hinge) ?? null;
@@ -248,7 +264,8 @@ export class DynamicBalancer {
           const eo = elbow.bone * 3;
           rest.set(bind[eo]! - bind[o]!, bind[eo + 1]! - bind[o + 1]!, bind[eo + 2]! - bind[o + 2]!);
           upperLen = rest.length();
-          rest.normalize();
+          if (upperLen > 1e-5) rest.multiplyScalar(1 / upperLen);
+          else rest.set(side * 0.25, -1, 0).normalize();
           const handBone = info.children[elbow.bone]?.[0];
           if (handBone !== undefined) {
             const ho = handBone * 3;
@@ -260,6 +277,16 @@ export class DynamicBalancer {
     }
     // Keep left leg at index 0, right leg at index 1 to match `MuscleState.feet` ordering.
     this.legs.sort((a, b) => b.side - a.side);
+    this.partLegIdx = new Int8Array(parts.length).fill(-1);
+    for (let li = 0; li < this.legs.length; li++) {
+      const leg = this.legs[li]!;
+      const hi = parts.indexOf(leg.hip);
+      if (hi >= 0) this.partLegIdx[hi] = li;
+      if (leg.knee) {
+        const ki = parts.indexOf(leg.knee);
+        if (ki >= 0) this.partLegIdx[ki] = li;
+      }
+    }
     if (this.legs.length > 0) {
       let fx = 0, fz = 0;
       for (const leg of this.legs) {
@@ -270,6 +297,34 @@ export class DynamicBalancer {
     } else {
       this.feetMid.set(this.com.x, initialGroundY, this.com.z);
     }
+  }
+
+  /** True if any rigidbody part referenced by this balancer has been removed from the ragdoll (e.g. via `rag.cut()`). */
+  hasRemovedParts(): boolean {
+    const parts = this.rag.parts;
+    if (parts.length === 0 || !parts.includes(this.hips)) return true;
+    if (this.spine && !parts.includes(this.spine)) return true;
+    if (this.head && !parts.includes(this.head)) return true;
+    if (this.woundPart && !parts.includes(this.woundPart)) return true;
+    for (let i = 0; i < this.legs.length; i++) {
+      const leg = this.legs[i]!;
+      if (!parts.includes(leg.hip)) return true;
+      if (leg.knee && !parts.includes(leg.knee)) return true;
+    }
+    for (let i = 0; i < this.arms.length; i++) {
+      const arm = this.arms[i]!;
+      if (!parts.includes(arm.shoulder)) return true;
+      if (arm.elbow && !parts.includes(arm.elbow)) return true;
+    }
+    return false;
+  }
+
+  /** Immediately refreshes joint targets, shock reductions, and gravity scales after an impact without advancing timers. */
+  reupdate(drive: CollapseDrive): void {
+    const dying = !drive.alive;
+    this.readCenterOfMass();
+    this.writeJointTargets(drive, dying);
+    this.writeStrengthsAndGravity(drive, dying);
   }
 
   /**
@@ -299,7 +354,6 @@ export class DynamicBalancer {
 
   /** Called whenever a shot or impact lands on the active balanced body. */
   onHit(bone: number, point: THREE.Vector3, dir: THREE.Vector3, dv: number, region?: string): void {
-    const t = BalancerTuning;
     const part = this.rag.partFor(bone);
     const idx = this.rag.parts.indexOf(part);
     const mag = clamp((dv - 0.12) / 0.85, 0, 1);
@@ -310,6 +364,12 @@ export class DynamicBalancer {
     }
 
     const reg = region ?? this.rag.source.rig.bones[bone]?.region ?? '';
+    // Gut shots land on hips (merged spine bone); propagate shock to spine so the trunk actually softens/buckles.
+    if ((reg === 'abdomen' || part === this.rag.parts[0]) && this.spineIdx >= 0) {
+      this.partShock[this.spineIdx] = Math.max(this.partShock[this.spineIdx]!, mag);
+    }
+
+    this.hasHit = true;
     this.woundRegion = reg;
     if (reg.startsWith('leg') || reg.startsWith('shin')) {
       const side = reg.endsWith('L') ? 1 : -1;
@@ -328,10 +388,16 @@ export class DynamicBalancer {
       const sideDot = dir.x * Math.cos(this.facingYaw) - dir.z * Math.sin(this.facingYaw);
       if (Math.abs(sideDot) > 0.2) this.crumpleSide = sideDot > 0 ? 1 : -1;
     }
-    // Immediately allow a catch step to respond to the new impulse, and give moderate hits a brief launch grace window.
+    // Immediately allow a catch step to respond to the new impulse, and give moderate hits a capped launch grace window.
     this.stepCooldown = Math.min(this.stepCooldown, 0.03);
-    if (dv > 0.25 && dv < 1.35) this.hitGrace = Math.max(this.hitGrace, 0.12);
-    void t;
+    if (dv > 0.25 && dv < 1.35 && this.hitGraceBudget > 0) {
+      const want = Math.max(0, 0.12 - this.hitGrace);
+      const grant = Math.min(want, this.hitGraceBudget);
+      if (grant > 0) {
+        this.hitGrace += grant;
+        this.hitGraceBudget -= grant;
+      }
+    }
   }
 
   setWound(part: RagPart, worldPoint: THREE.Vector3): void {
@@ -363,7 +429,7 @@ export class DynamicBalancer {
 
     // 1. Live physical Center of Mass & foot positions.
     this.readCenterOfMass();
-    this.updateFeetAndTerrain();
+    this.updateFeetAndTerrain(dt);
 
     // Update facing yaw gently toward physical pelvis forward (+Z local).
     const hips = this.rag.parts[0]!;
@@ -392,7 +458,7 @@ export class DynamicBalancer {
     // 4. Advance closed-loop capture-point stepping state machine.
     this.updateStepping(drive, dt, dying);
 
-    if (this.age === 0 && drive.weakLeg !== 0) this.crumpleSide = drive.weakLeg > 0 ? 1 : -1;
+    if (this.age === 0 && !this.hasHit && drive.weakLeg !== 0) this.crumpleSide = drive.weakLeg > 0 ? 1 : -1;
     // 5. Sync drive telemetry so `handStanding` has zero hip pop (`root.xz === hips.xz`) and balance readout stays exact.
     drive.ghost.set(hips.p.x, this.groundY, hips.p.z);
     drive.facing.setFromAxisAngle(Y_AXIS, this.facingYaw);
@@ -417,34 +483,38 @@ export class DynamicBalancer {
     if (support <= 0.001) return;
 
     const hips = this.rag.parts[0]!;
+    // `part.q` and `part.w` are already populated by `Rag.preStep()` for every part before `muscle.step(dt)`.
     hips.body.translation(hips.p);
-    hips.body.rotation(hips.q);
     hips.body.linvel(hips.v);
-    hips.body.angvel(hips.w);
 
     const gEff = WEIGHT * this.rag.gravity;
     const totalMass = this.muscle.totalMass;
     const stand = drive.stand;
     const yielded = stand?.yielded ?? 0;
     const dying = !drive.alive;
+    const vScale = this.vScale;
+    const scaleSq = this.scaleSq;
 
     // Contact-gated support: drops to 0 the instant both feet leave the floor!
-    const grounded = this.groundedCount > 0 ? 1 : 0;
-    if (grounded === 0) return;
+    if (this.groundedCount === 0) return;
 
-    // Effective stance leg power (drops sharply if the supporting leg was just shot or fractured).
+    // Effective stance leg power: only grounded stance legs grant full vertical support.
     let legPower = 0;
-    let legCount = 0;
+    let stanceGrounded = 0;
     for (let i = 0; i < this.legs.length; i++) {
       const leg = this.legs[i]!;
-      if (this.swingLeg === i) continue;
+      if (this.swingLeg === i || !leg.grounded) continue;
       const m = leg.hip.muscle!;
       const localPower = m.strength * (1 - 0.78 * leg.shock);
       legPower += localPower;
-      legCount++;
+      stanceGrounded++;
     }
-    if (legCount === 0) legPower = 0.5;
-    else legPower /= legCount;
+    if (stanceGrounded === 0) {
+      const sw = this.swingLeg >= 0 ? this.legs[this.swingLeg] : null;
+      legPower = sw && sw.grounded ? 0.35 * sw.hip.muscle!.strength * (1 - 0.78 * sw.shock) : 0;
+    } else {
+      legPower /= stanceGrounded;
+    }
 
     const effSupport = support * legPower;
     if (effSupport <= 0.01) return;
@@ -454,12 +524,13 @@ export class DynamicBalancer {
 
     // --- A. Vertical Leg-Extension Support (Real Gravity ON, strictly matched to actual active downward weight) ---
     const horizSpeed = Math.hypot(this.comVel.x, this.comVel.z);
+    const normSpeed = horizSpeed / vScale;
     let legShockMax = 0;
     for (const leg of this.legs) legShockMax = Math.max(legShockMax, leg.shock);
     const dyingU = dying ? drive.time / Math.max(drive.duration, 0.05) : 0;
     const dyingRamp = dying ? smoothstep(0, 0.2, this.dyingAge) : 0;
     const dyingSlump = dying ? (smoothstep(0.0, 0.45, dyingU) * 0.22 + (1 - support) * 0.22) * dyingRamp : 0;
-    const crouchDrop = clamp(horizSpeed * 0.02 + legShockMax * 0.18 + this.gutCurl * 0.09 + dyingSlump, 0, 0.44) * this.scale;
+    const crouchDrop = clamp(normSpeed * 0.02 + legShockMax * 0.18 + this.gutCurl * 0.09 + dyingSlump, 0, 0.44) * this.scale;
     const wantY = this.groundY + this.standHipY - crouchDrop;
 
     const ky = totalMass * t.hipYRate * t.hipYRate * vertSupport;
@@ -476,17 +547,17 @@ export class DynamicBalancer {
     const traction = (1 - yielded * 0.92) * effSupport;
     if (traction > 0.01) {
       const maxFriction = t.shoeFriction * totalMass * gEff * traction * dt;
-      const inAnkleStrategy = this.groundedCount >= 2 && this.swingLeg < 0 && horizSpeed < 0.55 && yielded < 0.2;
+      const inAnkleStrategy = this.groundedCount >= 2 && this.swingLeg < 0 && horizSpeed < 0.55 * vScale && yielded < 0.2;
       // Ankle strategy strongly resists minor bumps without drifting hips; stepping strategy scales braking smoothly with speed.
-      const speedScale = inAnkleStrategy ? 2.4 : (0.65 + 0.23 * horizSpeed);
+      const speedScale = inAnkleStrategy ? 2.4 : (0.65 + 0.23 * normSpeed);
       const brakeK = t.brakeRate * speedScale * traction * (this.groundedCount >= 2 ? 1.25 : 0.75);
       let fx = -this.comVel.x * totalMass * brakeK * dt;
       let fz = -this.comVel.z * totalMass * brakeK * dt;
 
       // When nearly still on both feet, center hips over real physical feet midpoint (ankle/hip strategy).
-      if (this.groundedCount >= 2 && horizSpeed < 0.85 && yielded < 0.2) {
+      if (this.groundedCount >= 2 && horizSpeed < 0.85 * vScale && yielded < 0.2) {
         const ankleW = inAnkleStrategy ? 18.0 : t.settleRate;
-        const settleW = (1 - smoothstep(0.35, 0.85, horizSpeed)) * ankleW * traction;
+        const settleW = (1 - smoothstep(0.35 * vScale, 0.85 * vScale, horizSpeed)) * ankleW * traction;
         fx += (this.feetMid.x - hips.p.x) * totalMass * settleW * dt;
         fz += (this.feetMid.z - hips.p.z) * totalMass * settleW * dt;
       }
@@ -524,8 +595,8 @@ export class DynamicBalancer {
     const fwdZ = Math.cos(this.facingYaw);
     const leftX = Math.cos(this.facingYaw);
     const leftZ = -Math.sin(this.facingYaw);
-    const vFwd = this.comVel.x * fwdX + this.comVel.z * fwdZ;
-    const vLeft = this.comVel.x * leftX + this.comVel.z * leftZ;
+    const vFwd = (this.comVel.x * fwdX + this.comVel.z * fwdZ) / vScale;
+    const vLeft = (this.comVel.x * leftX + this.comVel.z * leftZ) / vScale;
 
     // Pitch gently with velocity, forward when tripped or gut-curled.
     let targetPitch = clamp(vFwd * 0.065, -t.maxVelLean, t.maxVelLean) + this.gutCurl * 0.28 + (this.trippingOverCover ? 0.35 : 0);
@@ -558,7 +629,7 @@ export class DynamicBalancer {
       const orientStrength = effSupport * (1 - yielded * 0.75);
       const ki = this.muscle.bodyInertia * t.uprightRate * t.uprightRate * orientStrength;
       const di = this.muscle.bodyInertia * 2 * t.uprightDamping * t.uprightRate * orientStrength;
-      const invI = 1 / Math.max(hips.mass * 0.018, 0.025);
+      const invI = 1 / Math.max(hips.mass * 0.018 * scaleSq, 0.025);
       const spinScale = (0.75 * dt) / (1 + (di * dt + ki * dt * dt) * invI);
       hips.tau.x += (ki * ax * ang - di * hips.w.x) * spinScale;
       hips.tau.y += (ki * ay * ang - di * hips.w.y) * spinScale * 0.55; // softer yaw so shoulder shots twist naturally!
@@ -568,12 +639,9 @@ export class DynamicBalancer {
     // --- D. Soft Chest Vestibular Stabilization (prevents braking deceleration from flinging torso over hips, yields on hit) ---
     if (this.spine) {
       const sp = this.spine;
-      const spIdx = this.rag.parts.indexOf(sp);
-      const spShock = spIdx >= 0 ? this.partShock[spIdx]! : 0;
+      const spShock = this.spineIdx >= 0 ? this.partShock[this.spineIdx]! : 0;
       const spAuth = sp.muscle!.drive * effSupport * (1 - yielded * 0.85) * (1 - 0.85 * spShock);
       if (spAuth > 0.05) {
-        sp.body.rotation(sp.q);
-        sp.body.angvel(sp.w);
         // Target world chest orientation = hips target * spine local pose.
         _q2.copy(_q0).multiply(sp.muscle!.pose);
         _q1.copy(sp.q).conjugate().premultiply(_q2);
@@ -582,9 +650,10 @@ export class DynamicBalancer {
         if (sH > 1e-5) {
           const ang = 2 * Math.atan2(sH, _q1.w);
           const rate = 11.5;
-          const k = sp.mass * 0.16 * rate * rate * spAuth;
-          const d = sp.mass * 0.16 * 2.1 * rate * spAuth;
-          const invI = 1 / Math.max(sp.mass * 0.08, 0.08);
+          const spI = sp.mass * 0.16 * scaleSq;
+          const k = spI * rate * rate * spAuth;
+          const d = spI * 2.1 * rate * spAuth;
+          const invI = 1 / Math.max(sp.mass * 0.08 * scaleSq, 0.08);
           const sc = (0.85 * dt) / (1 + (d * dt + k * dt * dt) * invI);
           sp.tau.x += (k * (_q1.x / sH) * ang - d * sp.w.x) * sc;
           sp.tau.y += (k * (_q1.y / sH) * ang - d * sp.w.y) * sc * 0.35;
@@ -608,9 +677,7 @@ export class DynamicBalancer {
         const tz = lerp(this.swingStart.z, this.swingTarget.z, s);
 
         part.body.translation(part.p);
-        part.body.rotation(part.q);
         part.body.linvel(part.v);
-        part.body.angvel(part.w);
         // World position & velocity of ankle point on shin.
         _v2.copy(leg.footAt).sub(part.com).applyQuaternion(part.q);
         _v3.copy(part.w).cross(_v2).add(part.v);
@@ -634,17 +701,15 @@ export class DynamicBalancer {
       const grip = leg.hip.muscle!.drive * (1 - leg.shock * 0.75) * effSupport;
       if (grip <= 0.08) continue;
       part.body.translation(part.p);
-      part.body.rotation(part.q);
       part.body.linvel(part.v);
-      part.body.angvel(part.w);
       _v2.copy(leg.footAt).sub(part.com).applyQuaternion(part.q);
       _v3.copy(part.w).cross(_v2).add(part.v);
       _v4.copy(leg.footAt).applyQuaternion(part.q).add(part.p);
       const footSlip = Math.hypot(_v3.x, _v3.z);
       if (footSlip > 0.015) {
-        const footMass = part.mass * 0.85;
+        const footMass = part.mass * 0.52;
         const maxGrip = t.shoeFriction * totalMass * 0.9 * gEff * grip * dt;
-        const dampK = Math.min(footMass * 55 * grip * dt, footMass * 0.95);
+        const dampK = Math.min(footMass * 55 * grip * dt, footMass * 0.9);
         let gx = -_v3.x * dampK;
         let gz = -_v3.z * dampK;
         const gLen = Math.hypot(gx, gz);
@@ -693,11 +758,10 @@ export class DynamicBalancer {
     return null;
   }
 
-  private updateFeetAndTerrain(): void {
+  private updateFeetAndTerrain(dt: number): void {
     const t = BalancerTuning;
     const hips = this.rag.parts[0]!;
     let fx = 0, fz = 0, gSum = 0, gCount = 0;
-    let lowestGrounded = Infinity;
 
     for (let i = 0; i < this.legs.length; i++) {
       const leg = this.legs[i]!;
@@ -708,11 +772,11 @@ export class DynamicBalancer {
       const hitY = this.raycastGround(leg.footPos.x, probeY, leg.footPos.z, 1.5 * this.scale);
       if (hitY !== null) {
         leg.groundY = hitY;
-        leg.grounded = leg.footPos.y <= hitY + t.groundTol * this.scale;
+        leg.grounded = leg.footPos.y <= hitY + t.groundTol * this.scale
+          && leg.footPos.y >= hitY - 0.35 * this.scale;
         if (leg.grounded) {
           gCount++;
           gSum += hitY;
-          lowestGrounded = Math.min(lowestGrounded, hitY);
         }
       } else {
         leg.grounded = false;
@@ -728,9 +792,9 @@ export class DynamicBalancer {
     }
     this.groundedCount = gCount;
     if (gCount > 0) {
-      // Smoothly track terrain height (supports stairs/ramps without jitter).
+      // Smoothly track terrain height (dt-independent across frame rates; supports stairs/ramps without jitter).
       const targetG = gSum / gCount;
-      this.groundY = lerp(this.groundY, targetG, 0.35);
+      this.groundY = lerp(this.groundY, targetG, 1 - Math.exp(-20 * Math.max(dt, 1 / 60)));
     } else {
       const underHips = this.raycastGround(hips.p.x, hips.p.y, hips.p.z, 2.0 * this.scale);
       if (underHips !== null) this.groundY = underHips;
@@ -743,7 +807,7 @@ export class DynamicBalancer {
     this.trippingOverCover = false;
     if (!this.physics) return;
     const speed = Math.hypot(this.comVel.x, this.comVel.z);
-    if (speed < t.probeMinSpeed) return;
+    if (speed < t.probeMinSpeed * this.vScale) return;
 
     const dirX = this.comVel.x / speed;
     const dirZ = this.comVel.z / speed;
@@ -806,7 +870,7 @@ export class DynamicBalancer {
 
     // Double support: decide if CoM capture point requires a new catch step.
     if (this.stepCooldown > 0 || drive.support < 0.12) return;
-    const needsStep = cpDist > t.stepTrigger * this.scale || speed > t.stepSpeedTrigger;
+    const needsStep = cpDist > t.stepTrigger * this.scale || speed > t.stepSpeedTrigger * this.vScale;
     if (!needsStep) return;
 
     // Choose swing leg: prefer alternating gait, biased toward the side of momentum & healthier leg.
@@ -831,7 +895,7 @@ export class DynamicBalancer {
     this.swingOverLedge = !this.computeStepTarget(pick, this.swingTarget);
 
     // Faster steps for faster momentum, slower & heavier when dying or leg-wounded.
-    const speedFactor = lerp(1.1, 0.72, clamp(speed / 4.5));
+    const speedFactor = lerp(1.1, 0.72, clamp(speed / (4.5 * this.vScale)));
     const fatigueFactor = dying ? lerp(1.45, 1.0, drive.support) : 1 + leg.shock * 0.35;
     this.swingDuration = t.swingSeconds * speedFactor * fatigueFactor;
 
@@ -854,7 +918,7 @@ export class DynamicBalancer {
     // Base target: Capture Point + slight overshoot along travel + anatomical lateral stance width.
     let tx = this.capturePoint.x + leftX * leg.side * 0.14 * this.scale;
     let tz = this.capturePoint.z + leftZ * leg.side * 0.14 * this.scale;
-    if (speed > 0.2) {
+    if (speed > 0.2 * this.vScale) {
       tx += (this.comVel.x / speed) * t.stepOvershoot * this.scale;
       tz += (this.comVel.z / speed) * t.stepOvershoot * this.scale;
     }
@@ -883,7 +947,9 @@ export class DynamicBalancer {
 
     const hitY = this.raycastGround(tx, hips.p.y + 0.35 * this.scale, tz, 1.55 * this.scale);
     if (hitY !== null) {
-      out.set(tx, hitY + 0.04 * this.scale, tz);
+      // Prevent stepping onto waist-high crates or low overhangs.
+      const targetY = Math.min(hitY + 0.04 * this.scale, this.groundY + 0.45 * this.scale);
+      out.set(tx, targetY, tz);
       return true;
     }
     // No ground ahead (ledge/balcony drop): foot reaches into empty air.
@@ -948,7 +1014,7 @@ export class DynamicBalancer {
     const chestFwd = _v3.set(0, 0, 1).applyQuaternion(chest.q);
     const chestLeft = _v4.set(1, 0, 0).applyQuaternion(chest.q);
     const speed = Math.hypot(this.comVel.x, this.comVel.z);
-    const urgency = clamp(speed / 2.5 + chest.w.length() * 0.28, 0, 1);
+    const urgency = clamp(speed / (2.5 * this.vScale) + chest.w.length() * 0.28, 0, 1);
 
     let clutched = false;
     for (let i = 0; i < this.arms.length; i++) {
@@ -980,6 +1046,7 @@ export class DynamicBalancer {
       _v0.addScaledVector(chestFwd, (0.25 + wB * 0.35 * urgency));
       _v0.addScaledVector(_v5, -0.45 * urgency);
       if (_v0.lengthSq() > 1e-6) _v0.normalize();
+      else _v0.copy(chestLeft).multiplyScalar(arm.side * 0.4).addScaledVector(chestUp, -0.9).normalize();
       this.aimArm(arm, chest, _v0, lerp(0.45, 0.85 + wA * 0.25, urgency));
     }
   }
@@ -988,13 +1055,14 @@ export class DynamicBalancer {
   private solveLegIK(leg: LegRig, hipsP: THREE.Vector3, invHipsQ: THREE.Quaternion, targetWorld: THREE.Vector3, shock: number): void {
     const L1 = leg.upperLen;
     const L2 = leg.lowerLen;
+    if (L1 <= 1e-5 || L2 <= 1e-5) return;
 
     // Foot target relative to hip socket in pelvis local space.
     _v1.copy(targetWorld).sub(hipsP).applyQuaternion(invHipsQ).sub(leg.hipOffset);
     const rawDist = _v1.length();
     const minD = Math.abs(L1 - L2) + 0.04 * this.scale;
     const maxD = L1 + L2 - 0.015 * this.scale;
-    const d = clamp(rawDist, minD, maxD);
+    const d = Math.max(clamp(rawDist, minD, maxD), 1e-4);
     if (rawDist > 1e-5) _v1.multiplyScalar(1 / rawDist);
     else _v1.set(0, -1, 0);
 
@@ -1010,16 +1078,27 @@ export class DynamicBalancer {
     _v2.set(leg.side * 0.14, 0, 1).normalize();
     // Orthogonalize pole against foot direction _v1.
     _v2.addScaledVector(_v1, -_v2.dot(_v1));
-    if (_v2.lengthSq() < 1e-6) _v2.set(0, 0, 1);
-    else _v2.normalize();
+    if (_v2.lengthSq() < 1e-6) {
+      _v2.set(leg.side, 0, 0).addScaledVector(_v1, -leg.side * _v1.x);
+      if (_v2.lengthSq() < 1e-6) _v2.set(0, 1, 0);
+    }
+    _v2.normalize();
 
     // Thigh unit direction (-Y local axis of thigh bone).
-    _v3.copy(_v1).multiplyScalar(Math.cos(hipLift)).addScaledVector(_v2, Math.sin(hipLift)).normalize();
+    _v3.copy(_v1).multiplyScalar(Math.cos(hipLift)).addScaledVector(_v2, Math.sin(hipLift));
+    if (_v3.lengthSq() > 1e-8) _v3.normalize();
+    else _v3.set(0, -1, 0);
     // Local +Y = -thighDir; Local +Z = knee-bend forward vector perpendicular to thighDir.
     _v4.copy(_v3).negate(); // yAxis
-    _v5.copy(_v2).multiplyScalar(Math.cos(hipLift)).addScaledVector(_v1, -Math.sin(hipLift)).normalize(); // zAxis
-    _v6.crossVectors(_v4, _v5).normalize(); // xAxis (exact knee hinge axis!)
-    _v5.crossVectors(_v6, _v4).normalize();
+    _v5.copy(_v2).multiplyScalar(Math.cos(hipLift)).addScaledVector(_v1, -Math.sin(hipLift)); // zAxis
+    if (_v5.lengthSq() > 1e-8) _v5.normalize();
+    else _v5.set(0, 0, 1);
+    _v6.crossVectors(_v4, _v5); // xAxis (exact knee hinge axis!)
+    if (_v6.lengthSq() > 1e-8) _v6.normalize();
+    else _v6.set(1, 0, 0);
+    _v5.crossVectors(_v6, _v4);
+    if (_v5.lengthSq() > 1e-8) _v5.normalize();
+    else _v5.set(0, 0, 1);
 
     _m0.makeBasis(_v6, _v4, _v5);
     leg.hip.muscle!.pose.setFromRotationMatrix(_m0);
@@ -1029,9 +1108,20 @@ export class DynamicBalancer {
 
   private aimArm(arm: ArmRig, chest: RagPart, worldDir: THREE.Vector3, elbowBend: number): void {
     _v1.copy(worldDir).applyQuaternion(_q0.copy(chest.q).conjugate());
+    if (_v1.lengthSq() < 1e-8) _v1.copy(arm.rest);
+    else _v1.normalize();
     if (_v1.z < -0.5) {
+      const xyLen = Math.hypot(_v1.x, _v1.y);
+      const xyTarget = Math.sqrt(1 - 0.25);
       _v1.z = -0.5;
-      _v1.normalize();
+      if (xyLen > 1e-5) {
+        const s = xyTarget / xyLen;
+        _v1.x *= s;
+        _v1.y *= s;
+      } else {
+        _v1.x = arm.side * xyTarget * 0.6;
+        _v1.y = -xyTarget * 0.8;
+      }
     }
     arm.shoulder.muscle!.pose.setFromUnitVectors(arm.rest, _v1);
     const em = arm.elbow?.muscle;
@@ -1041,16 +1131,26 @@ export class DynamicBalancer {
   private solveArmReach(arm: ArmRig, chest: RagPart, left: THREE.Vector3, fwd: THREE.Vector3, up: THREE.Vector3, target: THREE.Vector3): void {
     const L1 = arm.upperLen;
     const L2 = arm.lowerLen;
+    if (L1 <= 1e-5 || L2 <= 1e-5) return;
     _v1.copy(target).sub(arm.shoulder.p);
-    const d = clamp(_v1.length(), Math.abs(L1 - L2) + 0.02, L1 + L2 - 0.01);
-    if (_v1.lengthSq() > 1e-6) _v1.normalize();
+    const rawD = _v1.length();
+    const d = Math.max(clamp(rawD, Math.abs(L1 - L2) + 0.02, L1 + L2 - 0.01), 1e-4);
+    if (rawD > 1e-5) _v1.multiplyScalar(1 / rawD);
     else _v1.copy(fwd);
     const bend = Math.PI - Math.acos(clamp((L1 * L1 + L2 * L2 - d * d) / (2 * L1 * L2), -1, 1));
     const lean = Math.acos(clamp((L1 * L1 + d * d - L2 * L2) / (2 * L1 * d), -1, 1));
     _v6.copy(left).multiplyScalar(arm.side * 0.7).addScaledVector(fwd, -0.5).addScaledVector(up, -0.35);
     _v6.addScaledVector(_v1, -_v6.dot(_v1));
     if (_v6.lengthSq() > 1e-6) _v6.normalize();
-    _v5.copy(_v1).multiplyScalar(Math.cos(lean)).addScaledVector(_v6, Math.sin(lean)).normalize();
+    else {
+      _v6.crossVectors(_v1, up);
+      if (_v6.lengthSq() < 1e-6) _v6.crossVectors(_v1, left);
+      if (_v6.lengthSq() > 1e-6) _v6.normalize();
+      else _v6.set(0, -1, 0);
+    }
+    _v5.copy(_v1).multiplyScalar(Math.cos(lean)).addScaledVector(_v6, Math.sin(lean));
+    if (_v5.lengthSq() > 1e-8) _v5.normalize();
+    else _v5.copy(_v1);
     this.aimArm(arm, chest, _v5, bend);
   }
 
@@ -1065,6 +1165,7 @@ export class DynamicBalancer {
     const upperBase = stand ? stand.upper : clamp(support * 1.1, 0, 0.85);
 
     let root: RagPart | null = null;
+    let rootIdx = -1;
     let carriedOnHips = 0;
     let activeMass = 0;
 
@@ -1074,13 +1175,14 @@ export class DynamicBalancer {
       const shockCut = 1 - t.shockDrop * this.partShock[i]!;
       if (!part.parent) {
         root = part;
+        rootIdx = i;
         m.drive = support;
         continue;
       }
 
       let gFactor = 1;
+      const legIdx = this.partLegIdx[i]!;
       if (m.role === 'leg') {
-        const legIdx = this.legs.findIndex(l => l.hip === part || l.knee === part);
         const leg = legIdx >= 0 ? this.legs[legIdx]! : null;
         const isSwinging = legIdx >= 0 && legIdx === this.swingLeg;
         const legShockCut = leg ? 1 - 0.82 * leg.shock : 1;
@@ -1120,15 +1222,23 @@ export class DynamicBalancer {
           gFactor = 1 - 0.75 * m.drive;
         }
       }
-      part.body.setGravityScale(g * gFactor, false);
-      const isGroundedLeg = m.role === 'leg' && this.legs.some((l, idx) => (l.hip === part || l.knee === part) && idx !== this.swingLeg && l.grounded);
+      const grav = g * gFactor;
+      if (!(Math.abs(grav - this.lastGrav[i]!) <= 1e-4)) {
+        part.body.setGravityScale(grav, false);
+        this.lastGrav[i] = grav;
+      }
+      const isGroundedLeg = legIdx >= 0 && legIdx !== this.swingLeg && this.legs[legIdx]!.grounded;
       if (!isGroundedLeg) activeMass += part.mass * gFactor;
     }
 
-    if (root) {
+    if (root && rootIdx >= 0) {
       // Pelvis carries its own real gravity PLUS vertical trunk compression transmitted down the spine.
       const hipFactor = 1 + carriedOnHips / Math.max(root.mass, 0.5);
-      root.body.setGravityScale(g * hipFactor, false);
+      const grav = g * hipFactor;
+      if (!(Math.abs(grav - this.lastGrav[rootIdx]!) <= 1e-4)) {
+        root.body.setGravityScale(grav, false);
+        this.lastGrav[rootIdx] = grav;
+      }
       activeMass += root.mass * hipFactor;
     }
     this.activeGravityMass = activeMass;

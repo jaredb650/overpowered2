@@ -40,6 +40,7 @@ interface Bite {
 }
 
 const SMALL: Bite = { entry: 0.0125, exit: 0, limbExit: 0.018, depth: 0.05, ragged: 0.35, breaks: 0.35 };
+const RIFLE: Bite = { entry: 0.014, exit: 0.036, limbExit: 0.032, depth: 0.075, ragged: 0.65, breaks: 0.9 };
 const REVOLVER: Bite = { entry: 0.0145, exit: 0.055, limbExit: 0.05, depth: 0.09, ragged: 0.95, breaks: 1.6 };
 const STAKE: Bite = { entry: 0.022, exit: 0.04, limbExit: 0.04, depth: 0.1, ragged: 0.7, breaks: 1 };
 const CANNON: Bite = { entry: 0.045, exit: 0.115, limbExit: 0.09, depth: 0.13, ragged: 1, breaks: 3 };
@@ -51,6 +52,13 @@ const BITES: Record<string, Bite> = {
   judge: REVOLVER, stakegun: STAKE, autocannon: CANNON, lance: LANCE,
   // Family members (src/weapons/families.ts). The Harrow's rifle round tears like the Judge's; the Sabot's dart goes through like the Lance.
   harrow: REVOLVER, rivet: SMALL, sabot: LANCE,
+  gimlet: RIFLE, flail: RIFLE,
+  autoraffica: { ...SMALL, ragged: 0.45, breaks: 0.45 },
+  metalstorm: { entry: 0.0135, exit: 0.028, limbExit: 0.024, depth: 0.065, ragged: 0.6, breaks: 0.7 },
+  awl: { entry: 0.032, exit: 0.068, limbExit: 0.048, depth: 0.14, ragged: 0.85, breaks: 0.9 },
+  howitzer: { entry: 0.065, exit: 0.15, limbExit: 0.12, depth: 0.16, ragged: 1, breaks: 4 },
+  mgl: { entry: 0.036, exit: 0, limbExit: 0.045, depth: 0.1, ragged: 0.9, breaks: 2.2 },
+  satchel: { entry: 0.04, exit: 0, limbExit: 0.05, depth: 0.1, ragged: 0.85, breaks: 2.4 },
   // Key 8's second gun: a heavy machine gun round goes in bigger than the Judge's and comes out bigger still.
   piledriver: { ...REVOLVER, entry: 0.018, exit: 0.075, limbExit: 0.065, breaks: 2.2 },
   // The heaviest pistol round: the Judge's hole, a bigger way out, and it breaks what it hits.
@@ -78,6 +86,9 @@ interface Flesh {
 
 const isArmBone = (b: number): boolean => b >= B.upperArmL && b <= B.handR;
 const isLegBone = (b: number): boolean => b >= B.thighL && b <= B.footR;
+const isHumanoidRig = (rig: RigInfo['rig']): boolean =>
+  rig.bones.length > B.footR && rig.bones[B.upperArmL]?.name === 'upperArmL' && rig.bones[B.footR]?.name === 'footR';
+const isShotgunSource = (source: string): boolean => source === 'shotgun' || source === 'deuce' || source === 'thresher';
 
 /** The hinge that goes when a hit lands on this bone, or the ball joint above a long bone. */
 function jointFor(bone: number): number {
@@ -202,7 +213,7 @@ export class WoundPlanner {
     const o = _from.copy(d.point).addScaledVector(d.dir, -3);
     markSevered(info, char.severed, _skip);
     // A blast is as wide as the body, so an arm held across the chest does not take it all for the chest.
-    if (!machine) _skip.fill(1, B.upperArmL, B.footR + 1);
+    if (!machine && isHumanoidRig(char.rig)) _skip.fill(1, B.upperArmL, B.footR + 1);
     if (!rayBones(info, char.bones, _skip, o.x, o.y, o.z, d.dir.x, d.dir.y, d.dir.z, 6)) return;
     const bone = boneRay.bone;
     boneRayContact(o.x, o.y, o.z, d.dir.x, d.dir.y, d.dir.z, _p, _n);
@@ -240,7 +251,7 @@ export class WoundPlanner {
 
   /** Works a limb toward breaking, and breaks it. */
   private strain(char: CharacterInstance, info: RigInfo, bone: number, load: number, size: number): void {
-    if (WoundTuning.level === 0 || !(isArmBone(bone) || isLegBone(bone))) return;
+    if (WoundTuning.level === 0 || !isHumanoidRig(char.rig) || !(isArmBone(bone) || isLegBone(bone))) return;
     const joint = jointFor(bone);
     if (char.isFractured(joint)) return;
     char.stress[joint] = char.stress[joint]! + load;
@@ -308,7 +319,7 @@ export class WoundPlanner {
     } else if (d.type === 'melee' || d.type === 'crush') {
       this.cut(char, WoundKind.graze, bone, point, this.inward(info, char.bones, bone, point, _n), lerp(0.05, 0.12, clamp(severity, 0, 1)) * size, 0.03, 0.4);
       if (!machine) this.strain(char, info, bone, d.amount * (d.type === 'crush' ? 2 : 1), size);
-    } else if (d.type === 'pellet' || d.source === 'shotgun') {
+    } else if (d.type === 'pellet' || isShotgunSource(d.source)) {
       const load = this.pellet(char, bone, point, d.dir, size, d.from);
       if (!machine) this.strain(char, info, bone, d.amount * load, size);
     } else {
@@ -325,7 +336,7 @@ export class WoundPlanner {
     limb.bones[bone]!.updateWorldMatrix(true, false);
     if (d.type === 'slash') this.gash(limb, info, d, bone, point, 0.4, size);
     else if (d.type === 'melee' || d.type === 'crush') return;
-    else if (d.type === 'pellet' || d.source === 'shotgun') this.pellet(limb, bone, point, d.dir, size, d.from);
+    else if (d.type === 'pellet' || isShotgunSource(d.source)) this.pellet(limb, bone, point, d.dir, size, d.from);
     else this.bullet(limb, info, BITES[d.source] ?? SMALL, bone, point, d.dir, size, false);
   }
 }

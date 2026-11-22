@@ -50,6 +50,13 @@ const RADIAL = 7;
 /** Two rings a point: one full, one pinched between, so it reads as bowel and not as a hose. */
 const RINGS = RopeTuning.points * 2 - 1;
 const VERTS = RINGS * RADIAL;
+const RING_COS = new Float32Array(RADIAL);
+const RING_SIN = new Float32Array(RADIAL);
+for (let q = 0; q < RADIAL; q++) {
+  const ang = (q / RADIAL) * Math.PI * 2;
+  RING_COS[q] = Math.cos(ang);
+  RING_SIN[q] = Math.sin(ang);
+}
 
 class Rope {
   alive = false;
@@ -73,6 +80,9 @@ class Rope {
   thick = 1;
   trail = 0;
   still = 0;
+  /** Previous simulation step, for time-corrected Verlet integration across variable frame rates. */
+  prevDt = 1 / 60;
+  dirty = false;
   /** 1 for each point caught on an edge: it holds where it is, and the strand hangs from it. */
   readonly held = new Uint8Array(RopeTuning.points);
   snags = 0;
@@ -99,6 +109,7 @@ export class RopeField {
   private mesh: THREE.Mesh | null = null;
   private pos: Float32Array | null = null;
   private nor: Float32Array | null = null;
+  private dirty = false;
 
   constructor(private readonly ctx: Ctx, private readonly blood: BloodField) {}
 
@@ -173,6 +184,9 @@ export class RopeField {
     r.thick = scale;
     r.trail = 0;
     r.still = 0;
+    r.prevDt = 1 / 60;
+    r.dirty = true;
+    this.dirty = true;
     r.held.fill(0);
     r.snags = 0;
     r.wallAt = 0;
@@ -254,8 +268,11 @@ export class RopeField {
       r.looped = false;
       r.restAt = -1;
       r.born = this.ctx.time.elapsed;
+      r.dirty = true;
+      this.dirty = true;
       n++;
       if (!v) continue;
+      r.prevDt = 1 / 60;
       for (let i = 0; i < RopeTuning.points; i++) {
         // Each point a little differently, so it whips and unrolls as it goes.
         const k = (0.7 + 0.6 * ((i * 7 + r.serial * 3) % 10) / 10) / 60;
@@ -308,15 +325,27 @@ export class RopeField {
       if (r.owner && r.owner.parent === null) {
         // The body has gone (sunk, released, pooled): its strand goes with it.
         r.alive = false;
+        r.dirty = true;
+        this.dirty = true;
         continue;
       }
       const loose = r.target === null;
       const age = now - r.born;
       if (loose && age > t.linger + t.shrink) {
         r.alive = false;
+        r.dirty = true;
+        this.dirty = true;
         continue;
       }
-      if (r.restAt >= 0) continue;
+      if (r.restAt >= 0) {
+        if (loose && age > t.linger) {
+          r.dirty = true;
+          this.dirty = true;
+        }
+        continue;
+      }
+      r.dirty = true;
+      this.dirty = true;
       const x = r.x, px = r.px;
       // From above the strand's highest point, so a point already pushed under a floor still finds that floor.
       let top = -Infinity;
@@ -337,18 +366,19 @@ export class RopeField {
           const o = i * 3;
           _t.set(x[o]! - px[o]!, x[o + 1]! - px[o + 1]!, x[o + 2]! - px[o + 2]!);
           const step = _t.length();
-          if (step < t.wallSpeed * h) continue;
+          if (step < t.wallSpeed * r.prevDt) continue;
           _p.set(px[o]!, px[o + 1]!, px[o + 2]!);
           if (!this.ctx.physics.raycastInto(_p, _t.multiplyScalar(1 / step), step + t.radius, CG.World, _hit) || Math.abs(_hit.normal.y) > 0.6) continue;
           // Off the wall by its own thickness, with no speed into it left; and the wall is wet where it landed.
           x[o] = px[o] = _hit.point.x + _hit.normal.x * t.radius * r.thick;
           x[o + 2] = px[o + 2] = _hit.point.z + _hit.normal.z * t.radius * r.thick;
           x[o + 1] = _hit.point.y;
-          px[o + 1] = x[o + 1]! + 0.01;
+          px[o + 1] = x[o + 1]! + 0.6 * r.prevDt;
           if (age < t.trailFor) this.blood.bleedAt(_hit.point, _hit.normal, 0.35 * r.thick);
         }
       }
       const g = t.gravity * h * h;
+      const velScale = (h / r.prevDt) * Math.pow(t.damping, h * 60);
       // Something hanging off a body never hangs dead still: a slow sway, strongest at the bottom of the loop.
       const swayX = r.target ? Math.sin(now * 1.3 + r.serial * 1.7) * t.sway * h * h : 0;
       const swayZ = r.target ? Math.cos(now * 0.9 + r.serial) * t.sway * 0.6 * h * h : 0;
@@ -357,7 +387,7 @@ export class RopeField {
       let motion = 0;
       for (let i = 0; i < P; i++) {
         const o = i * 3;
-        const vx = (x[o]! - px[o]!) * t.damping, vy = (x[o + 1]! - px[o + 1]!) * t.damping, vz = (x[o + 2]! - px[o + 2]!) * t.damping;
+        const vx = (x[o]! - px[o]!) * velScale, vy = (x[o + 1]! - px[o + 1]!) * velScale, vz = (x[o + 2]! - px[o + 2]!) * velScale;
         px[o] = x[o]!;
         px[o + 1] = x[o + 1]!;
         px[o + 2] = x[o + 2]!;
@@ -368,21 +398,22 @@ export class RopeField {
         x[o + 2] = x[o + 2]! + vz + swayZ * reach;
         motion += Math.abs(vx) + Math.abs(vy) + Math.abs(vz);
       }
+      const e0 = (P - 1) * 3;
+      let pinX = 0, pinY = 0, pinZ = 0;
+      let endX = 0, endY = 0, endZ = 0;
       if (r.target) {
         r.target.updateWorldMatrix(true, false);
         _a.copy(r.offset).applyMatrix4(r.target.matrixWorld);
-        x[0] = _a.x;
-        x[1] = _a.y;
-        x[2] = _a.z;
+        pinX = x[0] = _a.x;
+        pinY = x[1] = _a.y;
+        pinZ = x[2] = _a.z;
+        if (r.looped) {
+          _a.copy(r.endOffset).applyMatrix4(r.target.matrixWorld);
+          endX = x[e0] = _a.x;
+          endY = x[e0 + 1] = _a.y;
+          endZ = x[e0 + 2] = _a.z;
+        }
       }
-      const e0 = (P - 1) * 3;
-      const pinEnd = () => {
-        _a.copy(r.endOffset).applyMatrix4(r.target!.matrixWorld);
-        x[e0] = _a.x;
-        x[e0 + 1] = _a.y;
-        x[e0 + 2] = _a.z;
-      };
-      if (r.looped && r.target) pinEnd();
       for (let it = 0; it < t.iterations; it++) {
         for (let i = 0; i < P - 1; i++) {
           const a = i * 3, b = a + 3;
@@ -431,8 +462,15 @@ export class RopeField {
           px[o] = x[o]! + (px[o]! - x[o]!) * t.floorKeep;
           px[o + 2] = x[o + 2]! + (px[o + 2]! - x[o + 2]!) * t.floorKeep;
         }
+        // Keep anchored ends pinned to their bone after the floor clamp too.
+        if (r.target) {
+          x[0] = pinX; x[1] = pinY; x[2] = pinZ;
+          if (r.looped) {
+            x[e0] = endX; x[e0 + 1] = endY; x[e0 + 2] = endZ;
+          }
+        }
       }
-      if (r.looped && r.target) pinEnd();
+      r.prevDt = h;
       // The free end (a loop's bottom) paints the floor it is dragged over.
       const e = (r.looped ? P >> 1 : P - 1) * 3;
       _p.set(x[e]!, x[e + 1]!, x[e + 2]!);
@@ -444,11 +482,11 @@ export class RopeField {
       }
       // A loose strand that has stopped is left where it lies.
       if (loose) {
-        r.still = motion < 0.002 * P ? r.still + h : 0;
+        r.still = motion < 0.12 * h * P ? r.still + h : 0;
         if (r.still > 0.6) r.restAt = now;
       }
     }
-    this.draw(now);
+    if (this.dirty) this.draw(now);
   }
 
   /**
@@ -484,6 +522,8 @@ export class RopeField {
       r.restAt = -1;
       r.still = 0;
       r.snags = 0;
+      r.dirty = true;
+      this.dirty = true;
       r.held.fill(0);
       // Every point looks again for its floor, at once: the old ones were the body's.
       r.floors.fill(-1e4);
@@ -496,11 +536,14 @@ export class RopeField {
   }
 
   private draw(now: number): void {
+    this.dirty = false;
     const pos = this.pos!, nor = this.nor!;
     const t = RopeTuning;
     const P = t.points;
     for (let k = 0; k < this.ropes.length; k++) {
       const r = this.ropes[k]!;
+      if (!r.dirty) continue;
+      r.dirty = false;
       const base = k * VERTS * 3;
       if (!r.alive) {
         pos.fill(0, base, base + VERTS * 3);
@@ -535,8 +578,7 @@ export class RopeField {
         const swell = mid ? 0.62 : 0.88 + 0.3 * Math.abs(Math.sin(j * 2.3 + k));
         const radius = t.radius * r.thick * fade * (r.looped ? 1 : end) * swell;
         for (let q = 0; q < RADIAL; q++) {
-          const ang = (q / RADIAL) * Math.PI * 2;
-          const c = Math.cos(ang), s = Math.sin(ang);
+          const c = RING_COS[q]!, s = RING_SIN[q]!;
           const v = base + (i * RADIAL + q) * 3;
           const nx = _n.x * c + _b.x * s, ny = _n.y * c + _b.y * s, nz = _n.z * c + _b.z * s;
           pos[v] = _p.x + nx * radius;
@@ -554,7 +596,11 @@ export class RopeField {
   }
 
   clear(): void {
-    for (const r of this.ropes) r.alive = false;
+    for (const r of this.ropes) {
+      r.alive = false;
+      r.dirty = true;
+    }
+    this.dirty = true;
     if (this.mesh) this.draw(0);
   }
 }

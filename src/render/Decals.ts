@@ -349,6 +349,9 @@ export class Decals implements DecalSystem {
     if (r.live > next) {
       if (r === this.bloodRing) for (let i = next; i < r.live; i++) this.unsoak(i);
       this.matrices.fill(0, (r.base + next) * 16, (r.base + r.live) * 16);
+      if (ring === 'blood' || ring === 'big') {
+        for (let i = next; i < r.live; i++) this.floor.retire(r.base + i);
+      }
       r.flush = Math.max(r.flush, r.live);
       r.live = next;
     }

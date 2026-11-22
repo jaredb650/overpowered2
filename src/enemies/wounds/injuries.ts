@@ -62,8 +62,10 @@ export class Injuries {
   mute = false;
   breathless = false;
   hunched = false;
-  /** 1 or -1 for the bad leg. */
+  /** 1 or -1 for the bad leg (the worse one when both are wounded). */
   limp: 1 | -1 | 0 = 0;
+  /** Both legs have limping wounds. */
+  bilateralLimp = false;
   /** Seconds between screams. Zero for a man with nothing to scream about or no way to do it. */
   screams = 0;
 
@@ -117,6 +119,7 @@ export class Injuries {
     this.bleed = 0;
     this.mute = this.breathless = this.hunched = false;
     this.limp = 0;
+    this.bilateralLimp = false;
     this.screams = 0;
     this.mortalFrom = 0;
     this.dyingFrom = Infinity;
@@ -200,7 +203,7 @@ export class Injuries {
   refresh(): void {
     let speed = 1, aim = 1, bleed = 0, screams = 0;
     let mute = false, breathless = false, hunched = false;
-    let limp: 1 | -1 | 0 = 0;
+    let limpL = false, limpR = false;
     for (let i = 0; i < this.count; i++) {
       const w = this.wounds[i]!;
       const rule = ZONES[w.zone];
@@ -213,16 +216,22 @@ export class Injuries {
       breathless ||= rule.breathless === true;
       hunched ||= rule.hunches === true;
       if (rule.screams && (screams === 0 || rule.screams < screams)) screams = rule.screams;
-      if (rule.limps && limp === 0) limp = w.side === 0 ? 1 : w.side;
+      if (rule.limps) {
+        if (w.side < 0) limpR = true;
+        else limpL = true;
+      }
     }
     if (this.held) aim *= WoundTuning.holdAim;
+    const bilateral = limpL && limpR;
+    if (bilateral) speed *= 0.8;
     this.speed = speed;
     this.aim = Math.min(aim, WoundTuning.aimCap);
     this.bleed = bleed;
     this.mute = mute;
     this.breathless = breathless;
     this.hunched = hunched;
-    this.limp = limp;
+    this.bilateralLimp = bilateral;
+    this.limp = bilateral ? (this.legR > this.legL ? -1 : 1) : limpL ? 1 : limpR ? -1 : 0;
     this.screams = mute ? 0 : screams;
   }
 

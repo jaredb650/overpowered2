@@ -957,10 +957,21 @@ export class Reflex {
   private aim(arm: Arm, dir: THREE.Vector3, bend: number): void {
     const chest = arm.shoulder.parent!;
     _a.copy(dir).applyQuaternion(_inv.copy(chest.q).conjugate());
+    if (_a.lengthSq() < 1e-8) _a.copy(arm.rest);
+    else _a.normalize();
     // A shoulder reaches behind the body much less than in front of it.
-    if (_a.z < -0.45) {
-      _a.z = -0.45;
-      _a.normalize();
+    if (_a.z < -0.5) {
+      const xyLen = Math.hypot(_a.x, _a.y);
+      const xyTarget = Math.sqrt(0.75);
+      _a.z = -0.5;
+      if (xyLen > 1e-5) {
+        const s = xyTarget / xyLen;
+        _a.x *= s;
+        _a.y *= s;
+      } else {
+        _a.x = arm.side * xyTarget * 0.6;
+        _a.y = -xyTarget * 0.8;
+      }
     }
     arm.shoulder.muscle!.pose.setFromUnitVectors(arm.rest, _a);
     const e = arm.elbow?.muscle;

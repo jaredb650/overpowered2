@@ -140,7 +140,7 @@ class Side {
     if (srcColor) gatherAttribute(this.capColor, srcColor, 3, this.source, n, this.edgeA, this.edgeB, this.edgeT);
     this.attrs = list.map(a => {
       const dst = new (a.src.constructor as new (n: number) => THREE.TypedArray)(total * a.size);
-      gatherAttribute(dst, a.src, a.size, this.source, n, this.edgeA, this.edgeB, this.edgeT);
+      gatherAttribute(dst, a.src, a.size, this.source, n, this.edgeA, this.edgeB, this.edgeT, a.name);
       return dst;
     });
   }
@@ -148,8 +148,10 @@ class Side {
 
 function gatherAttribute(
   dst: THREE.TypedArray, src: THREE.TypedArray, size: number, source: Int32Array, count: number,
-  edgeA: Int32Array, edgeB: Int32Array, edgeT: Float32Array,
+  edgeA: Int32Array, edgeB: Int32Array, edgeT: Float32Array, name = '',
 ): void {
+  const isMat = name === 'aMat' && size === 4;
+  const isQuat = name === 'aSkinQuat' && size === 4;
   for (let o = 0; o < count; o++) {
     const s = source[o]!;
     const d = o * size;
@@ -161,9 +163,33 @@ function gatherAttribute(
       const a = edgeA[k]! * size;
       const b = edgeB[k]! * size;
       const t = edgeT[k]!;
-      for (let c = 0; c < size; c++) {
-        const x = src[a + c]!;
-        dst[d + c] = x + (src[b + c]! - x) * t;
+      if (isQuat) {
+        const ax = src[a]!, ay = src[a + 1]!, az = src[a + 2]!, aw = src[a + 3]!;
+        let bx = src[b]!, by = src[b + 1]!, bz = src[b + 2]!, bw = src[b + 3]!;
+        if (ax * bx + ay * by + az * bz + aw * bw < 0) {
+          bx = -bx; by = -by; bz = -bz; bw = -bw;
+        }
+        const qx = ax + (bx - ax) * t;
+        const qy = ay + (by - ay) * t;
+        const qz = az + (bz - az) * t;
+        const qw = aw + (bw - aw) * t;
+        const inv = 1 / (Math.hypot(qx, qy, qz, qw) || 1);
+        dst[d] = qx * inv;
+        dst[d + 1] = qy * inv;
+        dst[d + 2] = qz * inv;
+        dst[d + 3] = qw * inv;
+      } else if (isMat) {
+        for (let c = 0; c < 3; c++) {
+          const x = src[a + c]!;
+          dst[d + c] = x + (src[b + c]! - x) * t;
+        }
+        // Categorical material ID must not interpolate across a seam.
+        dst[d + 3] = t < 0.5 ? src[a + 3]! : src[b + 3]!;
+      } else {
+        for (let c = 0; c < size; c++) {
+          const x = src[a + c]!;
+          dst[d + c] = x + (src[b + c]! - x) * t;
+        }
       }
     }
   }
@@ -405,6 +431,13 @@ function traceLoops(
       chain.push(at);
       at = next[at]!;
     }
+    // Reject open chains instead of closing them across empty air; if a stem entered a cycle, keep only the closed cycle.
+    if (at < 0) continue;
+    if (at !== start) {
+      const cycleAt = chain.indexOf(at);
+      if (cycleAt < 0) continue;
+      chain.splice(0, cycleAt);
+    }
     if (chain.length < 3) continue;
     const n = chain.length;
     const x = new Float64Array(n);
@@ -445,6 +478,8 @@ interface CapInfo {
   nx: number; ny: number; nz: number;
   /** Pairs of vertices that belong together though no triangle joins them: a cap and the skin it closes. */
   ties: number[];
+  /** Unwrapped float UVs for newly emitted cap vertices when the source UV attribute is normalized (packed Uint16). */
+  rawUV: Float32Array | null;
 }
 
 /**
@@ -459,6 +494,8 @@ function buildCap(
   const posAttr = list.findIndex(a => a.name === 'position');
   const nrmAttr = list.findIndex(a => a.name === 'normal');
   const uvAttr = list.findIndex(a => a.name === 'uv');
+  const packedUV = uvAttr >= 0 && list[uvAttr]!.normalized;
+  const rawUV = packedUV ? new Float32Array(side.attrs[uvAttr]!.length) : null;
   const capColor = side.capColor;
   const fx = plane.nx * facing;
   const fy = plane.ny * facing;
@@ -480,12 +517,15 @@ function buildCap(
       n[o * 3 + 2] = fz;
     }
     if (uvAttr >= 0) {
-      // Packed UVs cannot go past 1, so the cap wraps here and the texture repeats anyway.
-      const u = side.attrs[uvAttr]!;
-      const scale = list[uvAttr]!.normalized ? 65535 : 1;
-      const wrap = (t: number) => (scale === 1 ? t : (t - Math.floor(t)) * scale);
-      u[o * 2] = wrap(x * CAP_UV);
-      u[o * 2 + 1] = wrap(y * CAP_UV);
+      if (rawUV) {
+        // Packed UVs are shifted per triangle in finish() so triangles straddling 0/1 never wrap backwards.
+        rawUV[o * 2] = x * CAP_UV;
+        rawUV[o * 2 + 1] = y * CAP_UV;
+      } else {
+        const u = side.attrs[uvAttr]!;
+        u[o * 2] = x * CAP_UV;
+        u[o * 2 + 1] = y * CAP_UV;
+      }
     }
     capColor[o * 3] = tint.r;
     capColor[o * 3 + 1] = tint.g;
@@ -509,6 +549,20 @@ function buildCap(
     // Inset along each corner's bisector. Material is to the left of a loop for outers and holes alike.
     const { x, y } = loop;
     const n = x.length;
+    let cx = 0, cy = 0;
+    for (let i = 0; i < n; i++) {
+      cx += x[i]!;
+      cy += y[i]!;
+    }
+    cx /= n;
+    cy /= n;
+    let minRadius = Infinity;
+    for (let i = 0; i < n; i++) {
+      const r = Math.hypot(x[i]! - cx, y[i]! - cy);
+      if (r < minRadius) minRadius = r;
+    }
+    // Scale the inset down on thin limbs (wrists, ankles) so the inner ring never crosses itself.
+    const inset = Math.min(RIM, minRadius * 0.45);
     const xs = new Array<number>(n);
     const ys = new Array<number>(n);
     const first = side.vertexCount;
@@ -530,8 +584,8 @@ function buildCap(
       const ml = Math.hypot(mx, my) || 1;
       mx /= ml;
       my /= ml;
-      xs[i] = x[i]! + mx * RIM;
-      ys[i] = y[i]! + my * RIM;
+      xs[i] = x[i]! + mx * inset;
+      ys[i] = y[i]! + my * inset;
       add(x[i]!, y[i]!, RIM_COLOR, 0);
     }
     const inner = side.vertexCount;
@@ -576,14 +630,17 @@ function buildCap(
     const dz = c.z - plane.pz;
     const x = dx * plane.ux + dy * plane.uy + dz * plane.uz;
     const y = dx * plane.vx + dy * plane.vy + dz * plane.vz;
-    const lift = 0.0015;
-    const centre = add(x, y, MARROW, lift);
+    let host: Loop | null = null;
     for (let o = 0; o < outers.length; o++) {
       if (contains(outers[o]!, x, y)) {
-        ties.push(centre, skin[outers[o]!.node]!);
+        host = outers[o]!;
         break;
       }
     }
+    if (!host || (holes.get(host)?.some(h => contains(h, x, y)) ?? false)) continue;
+    const lift = 0.0015;
+    const centre = add(x, y, MARROW, lift);
+    ties.push(centre, skin[host.node]!);
     const inner: number[] = [];
     const outer: number[] = [];
     const n = 8;
@@ -600,7 +657,7 @@ function buildCap(
     }
   }
 
-  return { start, nx: fx, ny: fy, nz: fz, ties };
+  return { start, nx: fx, ny: fy, nz: fz, ties, rawUV };
 }
 
 function find(parent: Int32Array, i: number): number {
@@ -695,17 +752,22 @@ function finish(
     return m;
   };
   let write = 0;
-  // Two passes, skin then cap, since a piece cut a second time has old cap triangles among its skin.
-  for (let pass = 0; pass < 2; pass++) {
+  let newCapStart = 0;
+  // Three passes: skin, prior cuts' caps, then this cut's cap. Old and new caps stay in group 1, while capCenter/capArea
+  // and packed UV shifting operate only on the newly emitted cap triangles starting at `newCapStart`.
+  for (let pass = 0; pass < 3; pass++) {
+    if (pass === 2) newCapStart = write;
     for (let t = 0; t < total; t += 3) {
       if (slot && slot[rootOf[src[t]!]!] !== which) continue;
-      const isCap = t >= cap.start || side.capTri[t / 3] === 1;
-      if (isCap !== (pass === 1)) continue;
+      const isNewCap = t >= cap.start;
+      const isOldCap = !isNewCap && side.capTri[t / 3] === 1;
+      const bucket = isNewCap ? 2 : isOldCap ? 1 : 0;
+      if (bucket !== pass) continue;
       index[write++] = use(src[t]!);
       index[write++] = use(src[t + 1]!);
       index[write++] = use(src[t + 2]!);
-      if (isCap) capCount += 3;
-      else skinCount += 3;
+      if (bucket === 0) skinCount += 3;
+      else capCount += 3;
     }
   }
   if (!local) vertexCount = side.vertexCount;
@@ -753,12 +815,12 @@ function finish(
     pos[o + 2] = pos[o + 2]! - oz;
   }
 
-  // Area and centre of this piece's cut face, straight from its triangles.
+  // Area and centre of this cut's newly emitted face only, not averaged with prior cuts' caps.
   let area = 0;
   let cx = 0;
   let cy = 0;
   let cz = 0;
-  for (let t = skinCount; t < skinCount + capCount; t += 3) {
+  for (let t = newCapStart; t < skinCount + capCount; t += 3) {
     const a = index[t]! * 3;
     const b = index[t + 1]! * 3;
     const c = index[t + 2]! * 3;
@@ -771,6 +833,83 @@ function finish(
     cz += ((pos[a + 2]! + pos[b + 2]! + pos[c + 2]!) / 3) * w;
   }
   const inv = area > 0 ? 1 / area : 0;
+
+  // Pack normalized UVs per triangle by shifting all 3 corners by floor(minU)/floor(minV) together so
+  // triangles straddling an integer UV boundary never wrap backwards across the texture.
+  const uvIndex = list.findIndex(a => a.name === 'uv');
+  if (cap.rawUV && uvIndex >= 0 && newCapStart < skinCount + capCount) {
+    const raw = cap.rawUV;
+    const uvArr = attrs[uvIndex]!;
+    const assigned = new Uint8Array(n);
+    const shiftU = new Int32Array(n);
+    const shiftV = new Int32Array(n);
+    const dupMap = new Map<string, number>();
+    const dups: { src: number; u: number; v: number }[] = [];
+    for (let t = newCapStart; t < skinCount + capCount; t += 3) {
+      const i0 = index[t]!, i1 = index[t + 1]!, i2 = index[t + 2]!;
+      const o0 = (order ? order[i0]! : i0) * 2;
+      const o1 = (order ? order[i1]! : i1) * 2;
+      const o2 = (order ? order[i2]! : i2) * 2;
+      const u0 = raw[o0]!, v0 = raw[o0 + 1]!;
+      const u1 = raw[o1]!, v1 = raw[o1 + 1]!;
+      const u2 = raw[o2]!, v2 = raw[o2 + 1]!;
+      const su = Math.floor(Math.min(u0, u1, u2));
+      const sv = Math.floor(Math.min(v0, v1, v2));
+      const corners = [[i0, u0, v0], [i1, u1, v1], [i2, u2, v2]] as const;
+      for (let c = 0; c < 3; c++) {
+        const [vIdx, ru, rv] = corners[c]!;
+        const pu = Math.round(Math.min(1, Math.max(0, ru - su)) * 65535);
+        const pv = Math.round(Math.min(1, Math.max(0, rv - sv)) * 65535);
+        if (!assigned[vIdx]) {
+          assigned[vIdx] = 1;
+          shiftU[vIdx] = su;
+          shiftV[vIdx] = sv;
+          uvArr[vIdx * 2] = pu;
+          uvArr[vIdx * 2 + 1] = pv;
+        } else if (shiftU[vIdx] !== su || shiftV[vIdx] !== sv) {
+          const key = `${vIdx}:${su}:${sv}`;
+          let dstIdx = dupMap.get(key);
+          if (dstIdx === undefined) {
+            dstIdx = n + dups.length;
+            dups.push({ src: vIdx, u: pu, v: pv });
+            dupMap.set(key, dstIdx);
+          }
+          index[t + c] = dstIdx;
+        }
+      }
+    }
+    if (dups.length > 0) {
+      const totalV = n + dups.length;
+      for (let k = 0; k < list.length; k++) {
+        const a = list[k]!;
+        const prev = attrs[k]!;
+        const next = new (a.src.constructor as new (len: number) => THREE.TypedArray)(totalV * a.size);
+        next.set(prev);
+        for (let j = 0; j < dups.length; j++) {
+          const d = dups[j]!;
+          const dstOff = (n + j) * a.size;
+          if (k === uvIndex) {
+            next[dstOff] = d.u;
+            next[dstOff + 1] = d.v;
+          } else {
+            const srcOff = d.src * a.size;
+            for (let c = 0; c < a.size; c++) next[dstOff + c] = prev[srcOff + c]!;
+          }
+        }
+        attrs[k] = next;
+      }
+      const nextColor = new Float32Array(totalV * 3);
+      nextColor.set(color);
+      for (let j = 0; j < dups.length; j++) {
+        const s3 = dups[j]!.src * 3;
+        const d3 = (n + j) * 3;
+        nextColor[d3] = color[s3]!;
+        nextColor[d3 + 1] = color[s3 + 1]!;
+        nextColor[d3 + 2] = color[s3 + 2]!;
+      }
+      color = nextColor;
+    }
+  }
 
   const g = new THREE.BufferGeometry();
   for (let k = 0; k < list.length; k++) {

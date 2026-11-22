@@ -246,6 +246,7 @@ interface Pending {
   y: number;
   z: number;
   until: number;
+  retries: number;
 }
 
 /** What a still skeleton needs, read off a character or a severed part without asking the library for anything. */
@@ -348,23 +349,61 @@ export class MessField {
     }
   }
 
+  /** True when resting chain `top` lies on top of resting chain `bottom`. */
+  private restsOn(top: Rag, bottom: Rag): boolean {
+    const lo = bottom.restMin;
+    const hi = bottom.restMax;
+    if (top.restMin.x > hi.x || top.restMax.x < lo.x || top.restMin.z > hi.z || top.restMax.z < lo.z) return false;
+    // On it, not beside it. A body draped over another still has a hand or a foot on the floor, so its lowest point
+    // says nothing: it lies on this one if its hips are higher, or if some part of it reaches higher than this one does.
+    if (top.restMin.y > hi.y + 0.1) return false;
+    return top.center.y >= bottom.center.y + MessTuning.onTop
+      || top.restMax.y >= hi.y + MessTuning.onTop
+      || top.restMin.y >= lo.y + MessTuning.onTop
+      || top.center.y >= lo.y + 0.22;
+  }
+
+  /** Resting chains waiting to fall, plus anything stacked transitively on top of them. */
+  private shedBlocked(): Set<Rag> | null {
+    if (this.pending.length === 0) return null;
+    const blocked = new Set<Rag>();
+    for (const p of this.pending) if (p.on.rag) blocked.add(p.on.rag);
+    let grew = true;
+    while (grew) {
+      grew = false;
+      for (const r of this.rests) {
+        if (blocked.has(r)) continue;
+        for (const under of blocked) {
+          if (this.restsOn(r, under)) {
+            blocked.add(r);
+            grew = true;
+            break;
+          }
+        }
+      }
+    }
+    return blocked;
+  }
+
   /**
    * Takes the capsules of up to `count` chains at rest away, the longest at rest first: they are ghosts again. For when
    * heaps are turned off under the dead already lying (the Mess setting at Low, the automatic step-down). What lay on one
    * is woken as when any support goes (`unrested`), falls, and comes to rest without capsules; so a chain that is waiting
-   * to fall is passed over here, or it would be left hanging where it lay. Returns how many are still at rest.
+   * to fall — or resting on top of one that is — is passed over here, or it would be left hanging where it lay. Returns
+   * how many are still at rest.
    */
   shed(count: number): number {
+    let blocked = this.shedBlocked();
     let done = 0;
     for (let i = 0; i < this.rests.length && done < count; i++) {
       const rag = this.rests[i]!;
-      let waiting = false;
-      for (const p of this.pending) waiting ||= p.on.rag === rag;
-      if (waiting) continue;
+      if (blocked?.has(rag)) continue;
+      const beforePending = this.pending.length;
       this.count.ghosted++;
       rag.dropRest();
       done++;
       i--;
+      if (this.pending.length !== beforePending) blocked = this.shedBlocked();
     }
     return this.rests.length;
   }
@@ -386,19 +425,24 @@ export class MessField {
     const hi = rag.restMax;
     this.host.unsettled?.(lo, hi);
     const all = this.host.bodies as readonly MessChain[];
+    const ghosted = !leavesCapsules();
     for (let pass = 0; pass < 3; pass++) {
       const list = pass === 0 ? all : pass === 1 ? this.host.limbs : this.host.far;
       for (let i = 0; i < list.length; i++) {
         const other = list[i]!;
         const o = other.rag;
-        if (!o || o === rag || !o.resting || other.sinking >= 0) continue;
-        if (o.restMin.x > hi.x || o.restMax.x < lo.x || o.restMin.z > hi.z || o.restMax.z < lo.z) continue;
-        // On it, not beside it. A body draped over another still has a hand or a foot on the floor, so its lowest point
-        // says nothing: it lies on this one if its hips are higher, or if some part of it reaches higher than this one does.
-        if (o.restMin.y > hi.y + 0.1) continue;
-        if (o.center.y < rag.center.y + t.onTop && o.restMax.y < hi.y + t.onTop) continue;
-        if (this.pending.length >= 64) return;
-        this.pending.push({ on: other, under: rag, x: rag.center.x, y: rag.center.y, z: rag.center.z, until: now + t.supportWait });
+        if (!o || o === rag || o.active || other.sinking >= 0) continue;
+        if (o.resting) {
+          if (!this.restsOn(o, rag)) continue;
+        } else if (ghosted) {
+          // While heaps are off, a body that fell onto a still-resting body froze without capsules (`!o.resting`).
+          // Wake it when its support sheds so it cannot stay suspended in mid-air.
+          const r = o.info.reach[o.build.chainRoot] ?? 0.9;
+          if (o.center.x < lo.x - r || o.center.x > hi.x + r || o.center.z < lo.z - r || o.center.z > hi.z + r) continue;
+          if ((o.center.y < rag.center.y + t.onTop && o.center.y < lo.y + 0.22) || o.center.y > hi.y + 0.6) continue;
+        } else continue;
+        if (this.pending.length >= 192) return;
+        this.pending.push({ on: other, under: rag, x: rag.center.x, y: rag.center.y, z: rag.center.z, until: now + t.supportWait, retries: 0 });
       }
     }
   }
@@ -431,10 +475,11 @@ export class MessField {
   private settleSupports(): void {
     const now = this.ctx.time.elapsed;
     const t = MessTuning;
+    const ghosted = !leavesCapsules();
     for (let i = this.pending.length - 1; i >= 0; i--) {
       const p = this.pending[i]!;
       const on = p.on.rag;
-      let drop = !on || !on.resting || p.on.sinking >= 0;
+      let drop = !on || on.active || (!on.resting && !ghosted) || p.on.sinking >= 0;
       if (!drop) {
         const u = p.under;
         const gone = !u.active && !u.resting;
@@ -442,9 +487,13 @@ export class MessField {
         if (moved) {
           // Falling is not optional: it may run over the budget as far as the player's own push may.
           if (!this.room(t.playerOver)) continue;
-          this.count.slipWakes++;
           this.wake(p.on);
-          drop = true;
+          if (!on || on.active || (!on.resting && !ghosted)) {
+            this.count.slipWakes++;
+            drop = true;
+          } else if (++p.retries >= 16) {
+            drop = true;
+          }
         } else if (u.resting || now > p.until) drop = true;
       }
       if (drop) {
@@ -522,7 +571,8 @@ export class MessField {
     const bodies = this.host.bodies as readonly MessChain[];
     for (let pass = 0; pass < 3; pass++) {
       const list = pass === 0 ? bodies : pass === 1 ? this.host.limbs : this.host.far;
-      for (let i = 0; i < list.length; i++) {
+      const reverse = pass === 2;
+      for (let i = reverse ? list.length - 1 : 0; reverse ? i >= 0 : i < list.length; reverse ? i-- : i++) {
         const target = list[i]!;
         const rag = target.rag;
         if (!rag || target.sinking >= 0) continue;
@@ -532,6 +582,7 @@ export class MessField {
         const dx = c.x - at.x;
         const dz = c.z - at.z;
         if (dx * dx + dz * dz > reach * reach || c.y < at.y - 2.5 || c.y > at.y + height + 2.5) continue;
+        let shoveTarget = target;
         if (!rag.active) {
           // At rest it takes someone moving to wake it: standing on a heap does not stir it.
           if (speed < 0.5 || target.stakes.length > 0 || !rag.resting) continue;
@@ -547,8 +598,11 @@ export class MessField {
           this.count.pushWakes++;
           this.wake(target);
           if (!rag.active) continue;
+          if (pass === 2) {
+            shoveTarget = (bodies[0]?.rag === rag ? bodies[0] : bodies.find(b => b.rag === rag)) ?? target;
+          }
         }
-        this.shove(target, rag, at, vel, speed, radius, height, strength);
+        this.shove(shoveTarget, rag, at, vel, speed, radius, height, strength);
       }
     }
   }
@@ -634,7 +688,14 @@ export class MessField {
     this.limbPolicy(seen);
     if (MessTuning.far) this.farPolicy(budget, corpses, seen);
     const far = this.host.far;
-    let over = corpses + far.length - this.host.maxCorpses();
+    let liveBodies = 0;
+    for (let i = 0; i < bodies.length; i++) {
+      const b = bodies[i]!;
+      if (b.sinking < 0 && !b.down && b.vapor < 0) liveBodies++;
+    }
+    let liveFar = 0;
+    for (let i = 0; i < far.length; i++) if (far[i]!.sinking < 0) liveFar++;
+    let over = liveBodies + liveFar - this.host.maxCorpses();
     if (over <= 0) return;
     // The baked ones are the oldest of all: out of sight, they go first.
     for (let i = 0; i < far.length && over > 0; i++) {
@@ -655,8 +716,17 @@ export class MessField {
       i--;
       over--;
     }
-    // In sight, the oldest sink only far past the cap (or always, where there is no camera to ask: a test).
+    // In sight, the oldest go only far past the cap (or always, where there is no camera to ask: a test).
+    // Evict oldest baked far bodies before sinking drawn bodies so far batches cannot pin the cap forever.
     over -= seen ? MessTuning.hardOver : 0;
+    for (let i = 0; i < far.length && over > 0; i++) {
+      const f = far[i]!;
+      if (f.sinking >= 0) continue;
+      this.count.removed++;
+      this.host.removeFar(f);
+      i--;
+      over--;
+    }
     for (let i = 0; i < bodies.length && over > 0; i++) {
       const b = bodies[i]!;
       if (b.sinking >= 0 || b.down || b.vapor >= 0) continue;
@@ -820,8 +890,11 @@ export class MessField {
     // Far off: any time.
     for (let i = 0; i < limbs.length && left > 0 && eye; i++) {
       const l = limbs[i]!;
-      if (!this.limbBakeable(l, now) || l.rag!.center.distanceToSquared(eye) < far2) continue;
-      if (!host.bakeLimb(l)) continue;
+      if (!this.limbBakeable(l, now) || this.limbRefused.has(l) || l.rag!.center.distanceToSquared(eye) < far2) continue;
+      if (!host.bakeLimb(l)) {
+        this.limbRefused.add(l);
+        continue;
+      }
       this.count.bakedLimbs++;
       drawn--;
       left--;
@@ -937,6 +1010,7 @@ export class MessField {
     this.pending.length = 0;
     this.rests.length = 0;
     this.shapes = 0;
+    this.policyAt = 0;
     this.enemyWakeAt = 0;
     this.crowd = 0;
     for (const l of [...this.limbShade.keys()]) this.forgetLimb(l);

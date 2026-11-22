@@ -27,15 +27,12 @@ ${WOUND_REGION}
 
 const VERT_MAIN = /* glsl */ `
 vBind = position;
-vWoundNear = -1.0;
 vRegion = op2Region();
-if (isOrthographic) {
-  vec3 op2Push = vec3(0.0), op2Tilt = vec3(0.0);
-  float op2Near = -1.0;
-  ${WOUND_VERTEX_LOOP}
-  vWoundNear = op2Near;
-  transformed += op2Push;
-}
+vec3 op2Push = vec3(0.0), op2Tilt = vec3(0.0);
+float op2Near = -1.0;
+${WOUND_VERTEX_LOOP}
+vWoundNear = op2Near;
+transformed += op2Push;
 `;
 
 const VERT_FACING = /* glsl */ `

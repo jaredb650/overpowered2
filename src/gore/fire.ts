@@ -106,6 +106,8 @@ export interface BurningPiece {
 export class ParkedFire {
   readonly root: THREE.Object3D;
   burn = 1;
+  readonly hips = new THREE.Vector3();
+  yaw = 0;
   constructor(root: THREE.Object3D, readonly points: Float32Array) {
     this.root = root;
   }
@@ -197,6 +199,7 @@ function capSkin(info: RigInfo, c: number): number {
  * `lay`): from its first bone to its last. Anything with no bones lies no particular way.
  */
 function lieOf(source: Burnable): number {
+  if (source instanceof ParkedFire) return source.yaw;
   const bones = (source as Skinned).bones;
   if (!bones || bones.length < 2) return rand(0, Math.PI * 2);
   const a = bones[0]!.matrixWorld.elements;
@@ -310,6 +313,7 @@ export class FireField {
     f.heat = from.heat;
     if (from.phase === Phase.Smoulder) {
       f.phase = Phase.Smoulder;
+      f.dead = true;
       f.since = from.since;
       f.lasts = from.lasts;
       f.charFrom = piece.burn ?? 0;
@@ -351,6 +355,14 @@ export class FireField {
     if (!f || f.phase !== Phase.Smoulder || points.length < 3) return null;
     const parked = new ParkedFire(root, points);
     parked.burn = char.burn ?? 1;
+    const hip = char.bones?.[0];
+    if (hip) {
+      const e = hip.matrixWorld.elements;
+      parked.hips.set(e[12]!, e[13]!, e[14]!);
+    } else {
+      parked.hips.set(points[0]!, points[1]!, points[2]!);
+    }
+    parked.yaw = lieOf(char);
     this.by.delete(char);
     this.by.set(parked, f);
     f.source = parked;
@@ -646,8 +658,7 @@ export class FireField {
       if (f.piece) {
         f.at.addVectors(f.piece.min, f.piece.max).multiplyScalar(0.5).applyMatrix4(f.piece.root.matrixWorld);
       } else if (f.parked) {
-        const pts = f.parked.points;
-        f.at.set(pts[0]!, pts[1]!, pts[2]!);
+        f.at.copy(f.parked.hips);
       } else {
         const first = skin!.bones[f.info!.capBone[f.caps[0]!]!]!.matrixWorld.elements;
         f.at.set(first[12]!, first[13]!, first[14]!);
@@ -672,10 +683,11 @@ export class FireField {
       f.curling = draws;
       if (draws) this.drawUp(f);
       if (flaming && rank < t.lights && now >= f.nextLight) {
-        f.nextLight = now + rand(0.11, 0.2);
+        const gap = rand(0.11, 0.2);
+        f.nextLight = now + gap;
         const size = Math.sqrt(f.amount);
         _p.copy(f.at).addScaledVector(_up, 0.35 * f.scale);
-        render.lights.flash(_p, LIGHT, rand(t.light[0], t.light[1]) * f.heat * size, t.lightRadius * (0.6 + 0.4 * size), 0.26);
+        render.lights.flash(_p, LIGHT, rand(t.light[0], t.light[1]) * f.heat * size, t.lightRadius * (0.6 + 0.4 * size), gap);
       }
       if (flaming && rank < t.shimmers && f.heat > 0.4 && now >= f.nextShimmer) {
         f.nextShimmer = now + 0.45;
@@ -730,6 +742,21 @@ export class FireField {
 
   private floorUnder(at: THREE.Vector3): number {
     return this.ctx.physics.raycastInto(_o.set(at.x, at.y + 0.3, at.z), _down, 2, CG.World, _hit) ? _hit.point.y : -Infinity;
+  }
+
+  /** Drops all fires parked on baked far-batch corpses. */
+  forgetParked(): void {
+    for (const f of this.fires) if (f.live && f.parked) this.drop(f);
+  }
+
+  /** Extinguishes dead fires (and optionally living ones too), clearing ember glow on skinned sources. */
+  extinguishAll(includeLiving = true): void {
+    for (const f of this.fires) {
+      if (!f.live) continue;
+      if (!includeLiving && !f.dead && f.phase === Phase.Alive) continue;
+      if (!f.piece && !f.parked) (f.source as Skinned | null)?.setEmber?.(0);
+      this.drop(f);
+    }
   }
 
   clear(): void {

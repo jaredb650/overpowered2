@@ -583,6 +583,17 @@ function copyDamage(out: DamageInfo, d: DamageInfo): void {
   out.pierces = d.pierces;
   out.armorPiercing = d.armorPiercing;
   out.severMult = d.severMult;
+  out.gib = d.gib;
+  out.vaporize = d.vaporize;
+  if (d.slicePlaneNormal) {
+    if (out.slicePlaneNormal) out.slicePlaneNormal.copy(d.slicePlaneNormal);
+    else out.slicePlaneNormal = d.slicePlaneNormal.clone();
+  } else out.slicePlaneNormal = undefined;
+  out.reach = d.reach;
+  out.blastKind = d.blastKind;
+  out.armour = d.armour;
+  out.torso = d.torso;
+  out.spill = d.spill;
 }
 
 /** For a peer that is behind: which of this module's events may be left out (net/pressure.ts). A fact never is. */
