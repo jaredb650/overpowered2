@@ -138,8 +138,8 @@ const akimbo = (gun: (typeof AKIMBO_GUNS)[number]): ModDef => ({
 });
 
 /**
- * Riot shield: fits any of the four pistols in the `sight` slot (excludes akimbo). Always held up while the pistol is out;
- * replaces ADS (and the Judge's fan) with a shield bash on right click.
+ * Riot shield: fits any of the four pistols in the `sight` slot (excludes akimbo). Carried on the off-arm;
+ * replaces ADS (and the Judge's fan) with raising the shield on right click.
  */
 export const SHIELD_GUNS = ['rivet', 'ultramag', 'judge', 'autoraffica'] as const satisfies readonly WeaponId[];
 export const shieldOf = (gun: (typeof SHIELD_GUNS)[number]): ModId => `${gun}Shield`;

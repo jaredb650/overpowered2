@@ -212,7 +212,7 @@ const WEAPON_CATALOGUE: Readonly<Partial<Record<WeaponId, Ware>>> = {
   },
   autoclave: {
     price: 3400, wave: 14,
-    lore: 'An invisible directed-microwave emitter that boils armoured targets from the inside out. No flash, no beam, just rising steam and an eventual housekeeping claim.',
+    lore: 'A directed-microwave emitter that ripples the air in a faint heat shimmer and boils armoured targets from the inside out. No flash, no beam, just rising steam and an eventual housekeeping claim.',
   },
   gaff: {
     price: 2600, wave: 13,
@@ -510,7 +510,7 @@ const MOD_CATALOGUE: Readonly<Record<ModId, Ware>> = {
   autorafficaAkimbo: { price: 2400, wave: 14, lore: 'Two Autorafficas, two smart aims, each finding a head of its own. The Council asked whether this was necessary and was shown the results.' },
   metalstorm40mm: {
     price: 1800, wave: 15,
-    lore: 'Converts Metal Storm\'s thirty-six stacked barrels into a 40 mm high-explosive grenade matrix. Retains the million-RPM electronic volley switch, against the strenuous advice of the Council\'s structural engineers.',
+    lore: 'Converts Iron Storm\'s thirty-six stacked barrels into a 40 mm high-explosive grenade matrix. Retains the million-RPM electronic volley switch, against the strenuous advice of the Council\'s structural engineers.',
   },
   awl50: {
     price: 1650, wave: 8,
@@ -518,7 +518,7 @@ const MOD_CATALOGUE: Readonly<Record<ModId, Ware>> = {
   },
   mglSticky: {
     price: 1100, wave: 7,
-    lore: 'Magnetic 40 mm sticky charges for the Milkor MGL. Hold R to switch between HE and Sticky; right-click to detonate every planted charge at once. Procurement considers this a controlled demolition.',
+    lore: 'Magnetic 40 mm sticky charges for the RGL. Hold R to switch between HE and Sticky; right-click to detonate every planted charge at once. Procurement considers this a controlled demolition.',
   },
   // Wishlist mods: rifles, shotguns, launchers, key 4, pistols, riot shields, flared magwells, and new weapons (billhook, bodkin).
   gimletLong: {
@@ -571,11 +571,11 @@ const MOD_CATALOGUE: Readonly<Record<ModId, Ware>> = {
   },
   mglLong: {
     price: 800, wave: 8,
-    lore: 'An extended 40 mm barrel for the Milkor MGL, flattening the grenade arc to seventy metres a second and boosting direct impact damage to one hundred five.',
+    lore: 'An extended 40 mm barrel for the RGL, flattening the grenade arc to seventy metres a second and boosting direct impact damage to one hundred five.',
   },
   mglTrigger: {
     price: 700, wave: 7,
-    lore: 'A tuned double-action trigger group for the Milkor MGL, cycling the six-chamber drum a quarter faster so all six grenades arrive before the first echo settles.',
+    lore: 'A tuned double-action trigger group for the RGL, cycling the six-chamber drum a quarter faster so all six grenades arrive before the first echo settles.',
   },
   howitzerCluster: {
     price: 2000, wave: 11,
@@ -631,19 +631,19 @@ const MOD_CATALOGUE: Readonly<Record<ModId, Ware>> = {
   },
   rivetShield: {
     price: 1200, wave: 6,
-    lore: 'A ballistic riot shield carried on the off-arm with the Rivet firing past its edge. Stops frontal fire until arm fatigue forces a drop; right click bashes.',
+    lore: 'A ballistic riot shield carried on the off-arm. Hold right click to raise it and peer through the armoured slit, stopping frontal fire until arm fatigue forces a drop while the Rivet fires past its edge.',
   },
   ultramagShield: {
     price: 1400, wave: 7,
-    lore: 'A ballistic riot shield paired with the Ultramag. Narrow armoured viewport, frontal protection until fatigue builds, and a heavy steel bash on right click.',
+    lore: 'A ballistic riot shield paired with the Ultramag. Hold right click to raise the narrow armoured viewport and stop frontal fire until fatigue builds, firing heavy rounds round the steel rim.',
   },
   judgeShield: {
     price: 1300, wave: 6,
-    lore: 'A ballistic riot shield carried beside the Judge. Trades fanning and aiming for frontal bullet protection and a shield bash until the arm gives out.',
+    lore: 'A ballistic riot shield carried beside the Judge. Trades fanning and aiming for a right-click shield raise that stops frontal fire until the arm gives out.',
   },
   autorafficaShield: {
     price: 1600, wave: 10,
-    lore: 'A ballistic riot shield paired with the Autoraffica. Holds off frontal gunfire through the armoured slit while the machine pistol paints heads round the rim.',
+    lore: 'A ballistic riot shield paired with the Autoraffica. Hold right click to raise the steel face and hold off frontal gunfire through the armoured slit while the machine pistol paints heads round the rim.',
   },
   billhookDot: {
     price: 450, wave: 9,

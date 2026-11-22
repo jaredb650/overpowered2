@@ -152,8 +152,8 @@ export const WEAPONS: Record<WeaponId, WeaponInfo> = {
   },
   autoraffica: {
     name: 'Autoraffica', key: '6',
-    role: `Machine pistol. Three rounds of ${def.autoraffica.damage} a pull, ${def.autoraffica.magSize} in the magazine, always suppressed`,
-    note: 'Press 6 again to step to it. Hold R for smart aim: a head inside the circle takes the crosshair, and holding the trigger is full auto into every head in it; with none, one round a pull. Tap R reloads. Right click aims.',
+    role: `Machine pistol. Three rounds of ${def.autoraffica.damage} a pull, ${def.autoraffica.magSize} in the magazine`,
+    note: 'Press 6 again to step to it. Hold R to switch between burst and smart fire. In smart mode, hold left click to paint up to six heads in the cone and snap an automatic burst through each; letting go at any point cancels. Tap R reloads. Right click aims.',
   },
   lance: {
     name: 'Lance', key: '7',
@@ -204,7 +204,7 @@ export const WEAPONS: Record<WeaponId, WeaponInfo> = {
   autoclave: {
     name: 'Autoclave', key: '7',
     role: 'Directed microwave emitter. Boils armoured targets from the inside out',
-    note: 'Press 7 again to swap with the Lance. Invisible cone bypasses plate armour: targets stagger and steam, drop their weapons and swell, then burst.',
+    note: 'Press 7 again to swap with the Lance. Faint heat-shimmer cone bypasses plate armour: targets stagger and steam, drop their weapons and swell, then burst.',
   },
   gaff: {
     name: 'Gaff', key: '0',
