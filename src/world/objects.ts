@@ -150,6 +150,10 @@ export class Objects implements WorldObjects {
    * so every screen has them in the host's phase: a friend riding a gantry is on it on every screen. 0 solo and on the host.
    */
   clockSkew = 0;
+  /** Optional mission/runtime hook invoked on non-explosive collider hits (e.g. shootable lights, cameras, breakers, alarms). */
+  colliderHitHandler: ((collider: RAPIER.Collider, amount: number, source: string) => boolean) | null = null;
+  /** Optional mission/runtime hook invoked on radial blasts (e.g. satchels breaking lights/cameras/bunker hooks). */
+  blastHandler: ((center: THREE.Vector3, radius: number, amount: number, source: string) => void) | null = null;
 
   constructor(private readonly ctx: Ctx, spec: MapSpec, private readonly kit: Kit, private readonly material: (m: Mat) => THREE.Material) {
     this.root.name = 'world-objects';
@@ -368,6 +372,7 @@ export class Objects implements WorldObjects {
     if (!collider) return false;
     const e = this.byCollider.get(collider.handle);
     if (!e) {
+      if (this.colliderHitHandler?.(collider, amount, source)) return false;
       if (!this.props.hit(collider, amount, source)) {
         if (!this.destruction.damageCollider(collider, amount, source)) {
           this.walls.hit(collider, amount, source);
@@ -384,6 +389,7 @@ export class Objects implements WorldObjects {
   damageExplosivesInRadius(center: THREE.Vector3, radius: number, amount: number, source: string): void {
     this.walls.blast(center, radius, amount, source);
     this.destruction.blast(center, radius, amount, source);
+    this.blastHandler?.(center, radius, amount, source);
     // Co-op guest: the host runs this blast against its own barrels and props; here it is the same guess as a hit.
     if (this.link?.guest) this.link.blast(center, radius, amount, source);
     this.blastOwn(center, radius, amount, source);
@@ -476,6 +482,7 @@ export class Objects implements WorldObjects {
     const chainSource = barrel ? 'barrel' : 'hazard_chain';
     this.walls.blast(c, spec.radius, spec.damage, chainSource);
     this.destruction.blast(c, spec.radius, spec.damage, chainSource);
+    this.blastHandler?.(c, spec.radius, spec.damage, chainSource);
     this.props.blast(c, spec.radius, spec.damage, source);
 
     // Neighbours go a beat later, so a row of barrels ripples instead of popping at once.

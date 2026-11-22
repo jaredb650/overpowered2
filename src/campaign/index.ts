@@ -20,6 +20,7 @@ import { missionWithStarter } from './starter';
 import { GoreTuning } from '../gore';
 import type { CampaignSystem, MissionResult } from './events';
 import './events';
+import { Chancery } from './chancery';
 import { Foreclosure } from './foreclosure';
 import { GameHost } from './host';
 import { CampaignHud } from './hud';
@@ -72,6 +73,8 @@ class Campaign implements CampaignSystem {
   private readonly retraining: Retraining | null = null;
   /** Foreclosure's set pieces (foreclosure.ts): FlakTower, Old Mother, Slip wreck/boot, sappers, surrender. */
   private readonly foreclosure: Foreclosure | null = null;
+  /** Quiet Title's Chancery Estate runtime director (chancery.ts): stealth systems, Vane, bunker breach, QRF. */
+  private readonly chancery: Chancery | null = null;
   result: MissionResult | null = null;
 
   constructor(private readonly ctx: Ctx, id: string) {
@@ -90,6 +93,9 @@ class Campaign implements CampaignSystem {
     } else if (mission.id === 'foreclosure') {
       const fc = (this.foreclosure = new Foreclosure(ctx, this.runner, this.ui));
       this.host.foreclosureCall = (name, arg) => fc.call(name, arg);
+    } else if (mission.id === 'quiet_title') {
+      const ch = (this.chancery = new Chancery(ctx, this.runner, this.ui));
+      this.host.chanceryCall = (name, arg) => ch.call(name, arg);
     }
     // A mission with Bailiffs in it (Foreclosure) loads their bodies now; on a cold load its first squad would land in enemy bodies.
     if (/"do":"(roster|battle)"/.test(JSON.stringify(mission.beats))) void ctx.allies?.preload();
@@ -184,6 +190,7 @@ class Campaign implements CampaignSystem {
     this.host.update(dt);
     this.retraining?.update(dt);
     this.foreclosure?.update(dt);
+    this.chancery?.update(dt);
     this.runner.update(dt);
     this.ui.beat(this.runner.beat?.title ?? '');
     this.ui.update(this.ctx.time.realDt);
@@ -196,6 +203,8 @@ class Campaign implements CampaignSystem {
     this.retraining?.clear();
     this.foreclosure?.ensureBuilt();
     this.foreclosure?.clear();
+    this.chancery?.ensureBuilt();
+    this.chancery?.clear();
     this.ui.reset();
     // A co-op guest's mission is the host's (net/mission.ts): its own runner never starts.
     if (isGuest(this.ctx)) {
@@ -221,6 +230,7 @@ class Campaign implements CampaignSystem {
     this.host.clear();
     this.retraining?.clear();
     this.foreclosure?.clear();
+    this.chancery?.reset();
     this.ui.reset();
   }
 }

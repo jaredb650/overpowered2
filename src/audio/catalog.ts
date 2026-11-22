@@ -14,6 +14,7 @@ import { enemyGear, voices } from './synth/recipes/enemies';
 import { callIns, perks, pickups, powerups, progress, ui } from './synth/recipes/rewards';
 import { vehicles } from './synth/recipes/vehicles';
 import { world } from './synth/recipes/world';
+import { stealth } from './synth/recipes/stealth';
 
 export type SoundKind = 'sample' | 'synth' | 'group' | 'stack';
 
@@ -374,7 +375,7 @@ const stacks: SoundDef[] = [
 
 const recipes: Recipe[] = [
   ...weapons, ...impacts, ...bodies, ...player, ...voices, ...enemyGear, ...perks, ...callIns, ...powerups,
-  ...pickups, ...progress, ...ui, ...world, ...vehicles,
+  ...pickups, ...progress, ...ui, ...world, ...vehicles, ...stealth,
 ];
 
 function synth(recipe: Recipe): SoundDef {
@@ -403,6 +404,7 @@ const aliases: Record<string, string> = {
   pickup_ricochet: 'powerup_ricochet', pickup_shock: 'powerup_shock', pickup_ghost: 'powerup_ghost',
   pickup_magnet: 'powerup_magnet', pickup_regen: 'powerup_regen', pickup_frostNova: 'powerup_frostNova',
   pickup_timeWarp: 'powerup_timeWarp',
+  knife_hit: 'stealth_takedown',
 };
 
 export const CATALOG: ReadonlyMap<string, SoundDef> = new Map(
@@ -421,7 +423,7 @@ const RENDER_TIERS: readonly RegExp[] = [
   /^(ui_|hit_marker|wave_|footstep_|impact_|ricochet|casing_|weapon_|reload_|dash|double_jump|wall_kick|slide_|wallrun_|slam_|mantle|hand_plant|boot_scuff|vault_over|gear_rustle|land_hard|jump_pad$|speed_wind|amb_)/,
   // The first kills: gore, enemy voices, and what a player feels getting hurt or picking something up. `machine_clang` is
   // a drone or skitter being shot, and `metal_clang` its wreck.
-  /^(limb_|bone_|gib_|blood_|head_pop|body_|flesh_|vox_(grunt|pain|death|husk|radio)|enemy_|player_|heartbeat|low_health|armor_|heal_|pickup_|combo_|multikill|style_|grenade_|bullet_|machine_clang|metal_clang)/,
+  /^(limb_|bone_|gib_|blood_|head_pop|body_|flesh_|vox_(grunt|pain|death|husk|radio)|enemy_|player_|heartbeat|low_health|armor_|heal_|pickup_|combo_|multikill|style_|grenade_|bullet_|machine_clang|metal_clang|stealth_|breaker_|camera_|shutter_|bunker_)/,
   // The first streaks and the first weapon cache.
   /^(perk_|powerup_|callin_|cache_|missile_|explosion_|vox_|revolver_|stake_|flame_|minigun_|cannon_|piledriver_|metalstorm_|mgl_|awl50_|railgun_|lance_|plasma_|sword_|lightning_)/,
 ];

@@ -8,9 +8,9 @@
 import * as THREE from 'three';
 import { ACTIVE } from '../contracts/select';
 import { survivalLoadout } from '../contracts/loadouts';
-import { CG, type Ctx, type ExplosionKind, type LoopHandle } from '../core/contracts';
+import { CG, type Ctx, type ExplosionKind, type LoopHandle, type RayHit, type SurfaceKind } from '../core/contracts';
 import type {
-  AmmoState, EnemyInstance, FireKind, FireNote, KataResult, MissileTarget, ModId, PaintView, ProjectileSpec, ProjectileTrail, ShotSpec, SmartAimView,
+  AmmoState, EnemyInstance, FireKind, FireNote, KataResult, LoadoutOptions, MissileTarget, ModId, PaintView, ProjectileSpec, ProjectileTrail, ShotResult, ShotSpec, SmartAimView,
   WeaponId, WeaponModifiers, WeaponSystem,
 } from '../core/gameplay';
 import { SeededRandom, clamp, damp, invLerp, lerp, randomInCone, smoothstep, wrapAngle } from '../core/math';
@@ -249,7 +249,13 @@ export class Weapons implements WeaponSystem, Guard {
   private readonly shot: ShotSpec = { damage: 0, source: '', team: 'player' };
   /** Co-op: what each shot adds for the other players' screens (FireNote). Filled before a shot's feedback, cleared after it. */
   private readonly note: FireNote = { kind: 'gun', left: false, barrel: 0, rays: 0, cone: 0, seed: 0, alt: false, aimed: false, to: new THREE.Vector3() };
-  private readonly firedEvent = { weapon: 'smg' as WeaponId, origin: new THREE.Vector3(), dir: new THREE.Vector3(), note: this.note };
+  private readonly firedEvent = { weapon: 'smg' as WeaponId, origin: new THREE.Vector3(), dir: new THREE.Vector3(), note: this.note, suppressed: false };
+  private readonly impactHit: RayHit = {
+    point: new THREE.Vector3(), normal: new THREE.Vector3(), distance: 0, surface: 'concrete', collider: null,
+  };
+  private readonly impactEvent = {
+    position: new THREE.Vector3(), surface: 'concrete' as SurfaceKind, weapon: 'smg' as WeaponId, suppressed: false,
+  };
   /** Co-op: a scatter gun's spread is drawn from a seed the others are sent, so they see the same pellets land. */
   private readonly spreadRng = new SeededRandom();
   private readonly playOptions = { position: undefined as THREE.Vector3 | undefined, volume: 1, pitch: 1, pitchJitter: 0 };
@@ -540,7 +546,7 @@ export class Weapons implements WeaponSystem, Guard {
    * Fits a mod held (`on`) or takes it off, and the gun fires its patched row (mods.ts) from the next shot. Returns whether it is
    * fitted now. The rule that it never changes in a fight is the shop's: the lab fits one anywhere.
    */
-  fitMod(id: ModId, on: boolean): boolean {
+  fitMod(id: ModId, on = true): boolean {
     const weapon = MODS[id].weapon;
     if (on && this.mods.has(id)) {
       // One optic and one kind of round to a gun: fitting one takes the other of its slot off.
@@ -614,19 +620,40 @@ export class Weapons implements WeaponSystem, Guard {
     }
   }
 
-  setLoadout(weapons: readonly WeaponId[], grenades: number): void {
+  setLoadout(weapons: readonly WeaponId[], grenades?: number | LoadoutOptions, opts?: LoadoutOptions): void {
+    const options = typeof grenades === 'object' && grenades !== null ? grenades : opts;
+    const grenadeCount = typeof grenades === 'number' ? grenades : undefined;
     this.combat.projectiles.clearStickies();
     this.aimSuppress = false;
     this.stopEverything();
     this.owned.clear();
     this.slotLast.clear();
     for (const id of weapons) this.own(id);
-    this.grenades = grenades;
+    if (grenadeCount !== undefined) this.grenades = grenadeCount;
     const first = weapons[0]!;
     const gun = weapons.find(id => WEAPONS[id].mode !== 'melee') ?? first;
     this.current = first;
     this.lastWeapon = weapons[1] ?? first;
     this.lastGun = gun;
+    if (options?.exclusiveMods) {
+      this.mods.clear();
+      for (const id of [...this.fitted]) this.fitMod(id, false);
+    }
+    if (options?.mods) {
+      for (const id of options.mods) {
+        this.grantMod(id);
+        this.fitMod(id, true);
+      }
+    }
+    if (options?.exclusiveMods || (options?.mods && options.mods.length > 0)) {
+      for (const id of weapons) {
+        const s = this.slots[id];
+        s.ammo.magSize = s.def.magSize;
+        s.ammo.mag = s.def.magSize;
+        s.ammo.reserve = s.def.reserve;
+        s.ammo.maxReserve = s.def.maxReserve;
+      }
+    }
     // A key draws the first weapon the loadout names on it, so a mission that hands out the autocannon gets the
     // autocannon on 4, not the Sabot that now comes first there.
     for (const id of weapons) if (!this.slotLast.has(WEAPONS[id].slot)) this.slotLast.set(WEAPONS[id].slot, id);
@@ -1725,6 +1752,7 @@ export class Weapons implements WeaponSystem, Guard {
     e.weapon = def.id;
     e.origin.copy(player.eye);
     e.dir.copy(dir ?? fwd);
+    e.suppressed = def.muzzle === 'suppressed';
     const note = this.note;
     note.kind = kind;
     note.left = left;
@@ -1732,6 +1760,18 @@ export class Weapons implements WeaponSystem, Guard {
     c.events.emit('weapon:fired', e);
     note.rays = note.cone = note.seed = 0;
     note.alt = note.aimed = false;
+  }
+
+  /** Emits `weapon:impact` when a hitscan ray strikes world geometry (non-enemy), using pooled scratch structs. */
+  private emitWorldImpact(origin: THREE.Vector3, dir: THREE.Vector3, def: WeaponDef, res: ShotResult, maxDist = 800): void {
+    if (res.hitEnemy) return;
+    if (!this.ctx.physics.raycastInto?.(origin, dir, maxDist, CG.World, this.impactHit)) return;
+    const ev = this.impactEvent;
+    ev.position.copy(this.impactHit.point);
+    ev.surface = this.impactHit.surface;
+    ev.weapon = def.id;
+    ev.suppressed = def.muzzle === 'suppressed';
+    this.ctx.events.emit('weapon:impact', ev);
   }
 
   private eject(def: WeaponDef): void {
@@ -1816,7 +1856,10 @@ export class Weapons implements WeaponSystem, Guard {
       if (def.raufoss || this.altLoaded.has(def.id)) (this.raufossRounds ??= new Raufoss(c, this.combat)).fire(eye, dir, shot);
       // The smart aim's lock: the round into his head, as the Judge's fanned shot (cover in the line takes it).
       else if (lock) this.combat.fireAtHead(eye, lock, shot);
-      else this.combat.fireRay(eye, dir, shot);
+      else {
+        const res = this.combat.fireRay(eye, dir, shot);
+        this.emitWorldImpact(eye, dir, def, res, shot.maxDistance);
+      }
     }
   }
 
@@ -1871,7 +1914,8 @@ export class Weapons implements WeaponSystem, Guard {
     const shot = this.fillShot(def, def.damage * this.modifiers.damage);
     for (let i = 0; i < count; i++) {
       const dir = cone > 0 ? randomInCone(fwd, cone, this.dir, random) : fwd;
-      this.combat.fireRay(eye, dir, shot);
+      const res = this.combat.fireRay(eye, dir, shot);
+      this.emitWorldImpact(eye, dir, def, res, shot.maxDistance);
     }
   }
 
@@ -2069,6 +2113,7 @@ export class Weapons implements WeaponSystem, Guard {
     e.weapon = def.id;
     e.origin.copy(c.player.eye);
     e.dir.copy(c.player.forward);
+    e.suppressed = def.muzzle === 'suppressed';
     this.note.kind = 'hose';
     c.events.emit('weapon:fired', e);
     this.note.kind = 'gun';
@@ -2097,6 +2142,7 @@ export class Weapons implements WeaponSystem, Guard {
     shot.cleave = level >= 1 ? t.cleave : 0;
     shot.impactScale = 1.4;
     const end = this.combat.fireRay(c.player.eye, c.player.forward, shot);
+    this.emitWorldImpact(c.player.eye, c.player.forward, def, end, shot.maxDistance);
     if (end.kills > 1) {
       this.combat.feel.stop(Math.min(HIT_STOP.lanceKill + (end.kills - 1) * HIT_STOP.lancePerExtraKill, HIT_STOP.lanceMax), true);
     }
@@ -2427,7 +2473,11 @@ export class Weapons implements WeaponSystem, Guard {
     const shot = this.fillShot(def, def.damage * this.modifiers.damage);
     const eye = c.player.eye;
     if (lock) this.combat.fireAtHead(eye, lock.enemy, shot);
-    else this.combat.fireRay(eye, cone > 0 ? randomInCone(c.player.forward, cone, this.dir, random) : c.player.forward, shot);
+    else {
+      const dir = cone > 0 ? randomInCone(c.player.forward, cone, this.dir, random) : c.player.forward;
+      const res = this.combat.fireRay(eye, dir, shot);
+      this.emitWorldImpact(eye, dir, def, res, shot.maxDistance);
+    }
   }
 
   /** The fan is over, fired or let go of: the slow motion and the tension end here, whatever ended it. */

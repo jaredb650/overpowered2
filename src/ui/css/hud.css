@@ -583,3 +583,269 @@
 .hr.done .hr-tick { opacity: 1; }
 .hr.done { animation: op-hold-done 0.35s ease-out; }
 @keyframes op-hold-done { from { transform: scale(1.25); } to { transform: scale(1); } }
+
+/* --- Stealth HUD (Mission 3 "Quiet Title", hud/stealth.ts) --- */
+
+.stealth-hud {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  contain: layout style;
+}
+
+/* Light / Shadow Visibility Gem: bottom-left-center, clear of vitals and center tach. */
+.stealth-gem {
+  --lum: 0;
+  --gem-hi: #4f7396;
+  --gem-mid: #2a4663;
+  --gem-lo: #152638;
+  --gem-core: #6e94b8;
+  --gem-text: #8eb0cf;
+  position: absolute;
+  left: calc(50% - 14.8rem);
+  bottom: 2.4rem;
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.32rem 0.72rem 0.32rem 0.45rem;
+  background: var(--plate-solid);
+  border: 1px solid rgba(157, 176, 189, 0.28);
+  border-left: 0.24rem solid var(--gem-hi);
+  box-shadow: 0 0 0 0.1rem #000;
+  transition: border-color 140ms ease-out;
+}
+.stealth-gem-svg {
+  display: block;
+  width: 2.15rem;
+  height: 2.15rem;
+  flex: none;
+  overflow: visible;
+  filter: drop-shadow(0 0 1px #000);
+}
+.stealth-gem-rim {
+  fill: #05080c;
+  stroke: #000;
+  stroke-width: 2.4;
+}
+.stealth-gem-facet-tl {
+  fill: var(--gem-hi);
+  transition: fill 140ms ease-out;
+}
+.stealth-gem-facet-tr {
+  fill: var(--gem-mid);
+  transition: fill 140ms ease-out;
+}
+.stealth-gem-facet-bl {
+  fill: var(--gem-mid);
+  opacity: 0.85;
+  transition: fill 140ms ease-out;
+}
+.stealth-gem-facet-br {
+  fill: var(--gem-lo);
+  transition: fill 140ms ease-out;
+}
+.stealth-gem-core {
+  fill: var(--gem-core);
+  opacity: calc(0.45 + var(--lum) * 0.55);
+  transition: fill 140ms ease-out, opacity 120ms ease-out;
+}
+.stealth-gem-label {
+  min-width: 4.9rem;
+  font: 800 0.92rem/1 var(--mono);
+  letter-spacing: 0.14em;
+  color: var(--gem-text);
+  text-shadow: var(--edge);
+}
+
+.stealth-gem.vis-shadow {
+  --gem-hi: #486b8c;
+  --gem-mid: #27415c;
+  --gem-lo: #132132;
+  --gem-core: #678eb3;
+  --gem-text: #95b5d4;
+}
+.stealth-gem.vis-dim {
+  --gem-hi: #9aaec2;
+  --gem-mid: #5b748c;
+  --gem-lo: #314354;
+  --gem-core: #d1e0ec;
+  --gem-text: #c8dae8;
+}
+.stealth-gem.vis-lit {
+  --gem-hi: #ffd17a;
+  --gem-mid: #ffb84a;
+  --gem-lo: #a66914;
+  --gem-core: #fff0c4;
+  --gem-text: #ffb84a;
+}
+.stealth-gem.vis-exposed {
+  --gem-hi: #ffffff;
+  --gem-mid: #ffe8b5;
+  --gem-lo: #c9a86a;
+  --gem-core: #ffffff;
+  --gem-text: #ffffff;
+  border-color: rgba(255, 255, 255, 0.7);
+}
+
+/* Radial Directional Awareness Arcs: 120px ring around center reticle. */
+.stealth-arcs {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+.stealth-arc {
+  position: absolute;
+  left: -156px;
+  top: -156px;
+  width: 312px;
+  height: 312px;
+  transform-origin: 50% 50%;
+  will-change: transform, opacity;
+}
+.stealth-arc-svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+.stealth-arc-rim {
+  fill: none;
+  stroke: rgba(0, 0, 0, 0.85);
+  stroke-width: 9px;
+  stroke-linecap: butt;
+}
+.stealth-arc-stroke {
+  fill: none;
+  stroke: #eef4f7;
+  stroke-width: 4.5px;
+  stroke-linecap: butt;
+}
+.stealth-arc.st-unaware .stealth-arc-stroke { stroke: #eef4f7; }
+.stealth-arc.st-suspicious .stealth-arc-stroke { stroke: #ffb84a; }
+.stealth-arc.st-alert .stealth-arc-stroke { stroke: #ff3830; }
+.stealth-arc.calling .stealth-arc-stroke {
+  stroke: #ff3830;
+  stroke-width: 5.5px;
+  animation: op-stealth-pulse 0.42s ease-in-out infinite alternate;
+}
+
+.stealth-arc-radio {
+  display: none;
+}
+.stealth-arc.calling .stealth-arc-radio {
+  display: block;
+  animation: op-stealth-pulse 0.36s ease-in-out infinite alternate;
+}
+.stealth-arc-radio-ring {
+  fill: rgba(11, 17, 24, 0.92);
+  stroke: #ff3830;
+  stroke-width: 2.2px;
+}
+.stealth-arc-radio-dot {
+  fill: #ff3830;
+}
+.stealth-arc-radio-wave {
+  fill: none;
+  stroke: #ff3830;
+  stroke-width: 1.8px;
+  stroke-linecap: round;
+}
+
+/* Alert / Lockdown / Camera Lock Status Banner: top-center industrial pill. */
+.stealth-status {
+  --st-c: #ffb84a;
+  position: absolute;
+  left: 50%;
+  top: 2rem;
+  transform: translateX(-50%);
+  min-width: 14rem;
+  padding: 0.36rem 1.05rem 0.4rem;
+  background: var(--plate-solid);
+  border: 1px solid rgba(0, 0, 0, 0.95);
+  border-left: 0.28rem solid var(--st-c);
+  border-right: 0.28rem solid var(--st-c);
+  box-shadow: 0 0 0 0.1rem #000;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.3rem;
+}
+.stealth-status-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 0.65rem;
+  white-space: nowrap;
+}
+.stealth-status-text {
+  font: 800 1.02rem/1.1 var(--mono);
+  letter-spacing: 0.14em;
+  color: var(--st-c);
+  text-transform: uppercase;
+  text-shadow: var(--edge);
+}
+.stealth-status-time {
+  font: 800 1.02rem/1.1 var(--mono);
+  letter-spacing: 0.06em;
+  color: var(--ink);
+  text-shadow: var(--edge);
+}
+.stealth-status-bar {
+  width: 100%;
+  height: 0.28rem;
+  background: rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+}
+.stealth-status-bar-fill {
+  width: 100%;
+  height: 100%;
+  background: var(--st-c);
+  transform-origin: 0 50%;
+  transform: scaleX(0);
+}
+
+.stealth-status.mode-suspicious { --st-c: #ffb84a; }
+.stealth-status.mode-camera { --st-c: #ffb84a; }
+.stealth-status.mode-alert { --st-c: #ff3830; }
+.stealth-status.mode-caller {
+  --st-c: #ff3830;
+  animation: op-stealth-pulse 0.45s ease-in-out infinite alternate;
+}
+.stealth-status.mode-lockdown {
+  --st-c: #ff3830;
+  animation: op-stealth-pulse 0.55s ease-in-out infinite alternate;
+}
+.stealth-status.mode-overridden {
+  --st-c: var(--cold);
+  border-right-color: #ffb84a;
+}
+
+/* Contextual [E] Interact Prompt: below center reticle. */
+.stealth-prompt {
+  position: absolute;
+  left: 50%;
+  top: calc(50% + 5.6rem);
+  transform: translateX(-50%);
+  padding: 0.34rem 0.9rem;
+  background: var(--plate-solid);
+  border: 1px solid rgba(157, 176, 189, 0.35);
+  border-left: 0.26rem solid var(--amber);
+  box-shadow: 0 0 0 0.1rem #000;
+  white-space: nowrap;
+}
+.stealth-prompt-text {
+  font: 800 0.96rem/1.15 var(--mono);
+  letter-spacing: 0.1em;
+  color: var(--ink);
+  text-transform: uppercase;
+  text-shadow: var(--edge);
+}
+
+@keyframes op-stealth-pulse {
+  from { opacity: 1; }
+  to { opacity: 0.68; }
+}
+

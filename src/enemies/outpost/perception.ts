@@ -5,7 +5,7 @@
  */
 import * as THREE from 'three';
 import { CG, type PhysicsSystem, type RayHit } from '../../core/contracts';
-import { clamp, TAU, wrapAngle } from '../../core/math';
+import { clamp, lerp, TAU, wrapAngle } from '../../core/math';
 import type { AiWorld } from '../aiWorld';
 import type { Exposure } from './routes';
 import type { Soldier } from './soldier';
@@ -27,6 +27,41 @@ const TRACK_MEMORY = 0.5;
 /** A heard position is off by this share of the distance. */
 const HEARING_ERROR = 0.18;
 
+/** Stealth light-aware sight tuning constants. */
+export const STEALTH_SIGHT = {
+  darkThreshold: 0.12,
+  dimThreshold: 0.5,
+  brightThreshold: 0.8,
+  darkRange: 7.5,
+  dimRange: 24,
+  brightRange: 45,
+  darkFillScale: 0.25,
+  dimFillScale: 0.75,
+  brightFillScale: 1.15,
+  flashlightRange: 16,
+  flashlightHalfAngle: 0.32,
+  flashlightCos: Math.cos(0.32),
+  crouchRangeMult: 0.82,
+  crouchFillMult: 0.78,
+  crouchTouch: 1.1,
+} as const;
+
+export interface PerceptionOptions {
+  /** Local light level on the player (0 = pitch dark, 1 = floodlight). Omit for legacy non-stealth perception. */
+  lightLevel?: number;
+  /** True while the player is crouched: scales sight range by 0.82x and notice fill rate by 0.78x. */
+  crouched?: boolean;
+  /** True if this guard carries an active narrow-beam flashlight (extends dark sight up to 16 m within +/-0.32 rad). */
+  flashlight?: boolean;
+  /** When true, updates `s.notice` and `s.sees` without auto-reporting directly to `s.squad`. */
+  suppressSquadReport?: boolean;
+}
+
+export interface StealthSightProfile {
+  range: number;
+  fillScale: number;
+}
+
 /** One sweep of rays around the threat, so "can it see that?" costs a lookup and not a ray. */
 const FAN = 72;
 const FAN_RANGE = 60;
@@ -35,6 +70,48 @@ const FAN_INTERVAL = 0.9;
 
 const _dir = new THREE.Vector3();
 const _hit: RayHit = { point: new THREE.Vector3(), normal: new THREE.Vector3(), distance: 0, surface: 'concrete', collider: null };
+const _profile: StealthSightProfile = { range: 45, fillScale: 1 };
+
+/**
+ * Computes stealth sight range and notice fill-rate multiplier for a given light level, crouch state,
+ * and facing cosine. Writes into `out` when provided to avoid allocations on hot paths.
+ */
+export function stealthSightProfile(
+  lightLevel: number,
+  crouched = false,
+  facing = 0,
+  flashlight = false,
+  out: StealthSightProfile = { range: 45, fillScale: 1 },
+): StealthSightProfile {
+  const L = clamp(lightLevel, 0, 1);
+  let range: number;
+  let fillScale: number;
+  if (L <= STEALTH_SIGHT.darkThreshold) {
+    range = STEALTH_SIGHT.darkRange;
+    fillScale = STEALTH_SIGHT.darkFillScale;
+  } else if (L < STEALTH_SIGHT.dimThreshold) {
+    const t = (L - STEALTH_SIGHT.darkThreshold) / (STEALTH_SIGHT.dimThreshold - STEALTH_SIGHT.darkThreshold);
+    range = lerp(STEALTH_SIGHT.darkRange, STEALTH_SIGHT.dimRange, t);
+    fillScale = lerp(STEALTH_SIGHT.darkFillScale, STEALTH_SIGHT.dimFillScale, t);
+  } else if (L < STEALTH_SIGHT.brightThreshold) {
+    const t = (L - STEALTH_SIGHT.dimThreshold) / (STEALTH_SIGHT.brightThreshold - STEALTH_SIGHT.dimThreshold);
+    range = lerp(STEALTH_SIGHT.dimRange, STEALTH_SIGHT.brightRange, t);
+    fillScale = lerp(STEALTH_SIGHT.dimFillScale, STEALTH_SIGHT.brightFillScale, t);
+  } else {
+    range = STEALTH_SIGHT.brightRange;
+    fillScale = STEALTH_SIGHT.brightFillScale;
+  }
+  if (flashlight && facing >= STEALTH_SIGHT.flashlightCos && range < STEALTH_SIGHT.flashlightRange) {
+    range = STEALTH_SIGHT.flashlightRange;
+  }
+  if (crouched) {
+    range *= STEALTH_SIGHT.crouchRangeMult;
+    fillScale *= STEALTH_SIGHT.crouchFillMult;
+  }
+  out.range = range;
+  out.fillScale = fillScale;
+  return out;
+}
 
 /** The side's shared picture of the player. Every squad falls back on it when it has nothing fresher of its own. */
 export class Intel implements Exposure {
@@ -82,7 +159,7 @@ export class Intel implements Exposure {
 }
 
 /** Sight, on his own staggered clock. */
-export function sense(s: Soldier, w: AiWorld, dt: number): void {
+export function sense(s: Soldier, w: AiWorld, dt: number, options?: PerceptionOptions): void {
   const e = s.e;
   const p = w.player;
   const dx = p.position.x - e.position.x, dz = p.position.z - e.position.z;
@@ -90,18 +167,32 @@ export function sense(s: Soldier, w: AiWorld, dt: number): void {
   const facing = (dx * Math.sin(e.yaw) + dz * Math.cos(e.yaw)) / flat;
   // A man with his head down behind a wall sees nothing, however good his line would be. One in an ambush is doing nothing but look.
   const looking = s.stage === 'peek' || s.task === 'move' || !s.spot || s.silent;
-  const visible = e.hasLos && p.alive && (flat < TOUCH || (looking && facing > VIEW_COS && !w.enemies.outpost!.commander.smoke.blocks(e.position, p.position)));
+  const smokeBlocked = w.enemies.outpost?.commander?.smoke?.blocks(e.position, p.position) ?? false;
+
+  const lightLevel = options?.lightLevel;
+  let visible: boolean;
+  let fillScale = 1;
+  if (lightLevel !== undefined) {
+    const crouched = options?.crouched === true;
+    stealthSightProfile(lightLevel, crouched, facing, options?.flashlight === true, _profile);
+    fillScale = _profile.fillScale;
+    const touch = crouched ? STEALTH_SIGHT.crouchTouch : TOUCH;
+    visible = e.hasLos && p.alive && (flat < touch || (flat <= _profile.range && looking && facing > VIEW_COS && !smokeBlocked));
+  } else {
+    visible = e.hasLos && p.alive && (flat < TOUCH || (looking && facing > VIEW_COS && !smokeBlocked));
+  }
+
   if (visible) {
     const seconds = (NOTICE_BASE + flat * NOTICE_PER_METRE) / s.rankDef.eyes;
     const gain = (p.speed > 6 ? MOVING_GAIN : 1) * (w.now < s.alertUntil ? ALERT_GAIN : 1);
-    s.notice = clamp(s.notice + (dt / seconds) * gain);
+    s.notice = clamp(s.notice + (dt / seconds) * gain * fillScale);
   } else {
     s.notice = clamp(s.notice - NOTICE_DECAY * dt);
   }
   if (visible && s.notice >= 1) {
     s.sees = true;
     s.knownAt = w.now;
-    s.squad.report(s, p.chest, true);
+    if (!options?.suppressSquadReport) s.squad.report(s, p.chest, true);
   } else if (s.sees && w.now - s.knownAt > TRACK_MEMORY) {
     s.sees = false;
   }

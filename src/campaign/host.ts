@@ -6,7 +6,7 @@ import { CHIPS, type ChipId, type ChipRack } from '../contracts/chips';
 import * as THREE from 'three';
 import type { Ally, AllyType } from '../allies';
 import type { Ctx, GameEvents, MusicState } from '../core/contracts';
-import type { CallInId, EnemyId, EnemyInstance, PickupKind, WeaponId } from '../core/gameplay';
+import type { CallInId, EnemyId, EnemyInstance, ModId, PickupKind, WeaponId } from '../core/gameplay';
 import type { AdaptationId } from '../enemies/commander/adaptations';
 import type { Rank } from '../enemies/outpost/rank';
 import type { Line } from '../enemies/commander/lines';
@@ -107,6 +107,7 @@ export class GameHost implements MissionHost {
     events.on('enemy:surrendered', e => this.gone(e.enemy, false, ''));
     events.on('enemy:escaped', e => this.gone(e.enemy, false, ''));
     events.on('enemy:hit', e => {
+      if (this.runner?.mission.stealth) return;
       const tag = this.tagOf.get(e.enemy.uid);
       if (tag) this.release(tag);
     });
@@ -302,8 +303,8 @@ export class GameHost implements MissionHost {
     this.ctx.weapons.addGrenades(count);
   }
 
-  rack(weapon: WeaponId, at: Mark, took: () => void): void {
-    this.racks.add(weapon, at, took);
+  rack(weapon: WeaponId, at: Mark, took: () => void, mods?: readonly ModId[], label?: string): void {
+    this.racks.add(weapon, at, took, mods, label);
   }
 
   drop(item: PickupKind, at: Mark): void {
@@ -525,6 +526,10 @@ export class GameHost implements MissionHost {
           this.foreclosureCall?.(name, arg);
           return;
         }
+        if (name.startsWith('qt.')) {
+          this.chanceryCall?.(name, arg);
+          return;
+        }
         console.warn(`[campaign] nothing provides the call "${name}"`);
     }
   }
@@ -535,6 +540,8 @@ export class GameHost implements MissionHost {
 
   /** Foreclosure's set-piece call handler (campaign/foreclosure.ts), wired by Campaign when running Foreclosure. */
   foreclosureCall?: (name: string, arg: string | undefined) => void;
+  /** Quiet Title's Chancery Estate runtime handler (campaign/chancery.ts), wired by Campaign when running Quiet Title. */
+  chanceryCall?: (name: string, arg: string | undefined) => void;
 
   /** Co-op: every living player's feet (types.ts). net/mission.ts provides it; alone it is unset. */
   crowd?: () => readonly { x: number; y: number; z: number }[];
@@ -619,7 +626,12 @@ export class GameHost implements MissionHost {
       player.park(_v);
       player.unpark(DEPLOY_GRACE);
     }
-    weapons.setLoadout(loadout.weapons, loadout.grenades);
+    if (loadout.mods !== undefined || loadout.exclusiveMods) {
+      weapons.setLoadout(loadout.weapons, loadout.grenades, { mods: loadout.mods, exclusiveMods: loadout.exclusiveMods });
+    } else {
+      weapons.setLoadout(loadout.weapons, loadout.grenades);
+    }
+    if (loadout.chip) this.call('chip', loadout.chip);
   }
 
   saved(_beat?: Beat): void {

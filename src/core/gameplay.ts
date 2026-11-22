@@ -11,7 +11,7 @@ import type { GoreRegion } from '../characters/rig';
 import type { ContractDef } from '../contracts/data';
 import type { Flight } from '../vehicles/flight';
 import type { HelixSpec } from '../weapons/helix';
-import type { AmmoLoad, CharacterInstance, DamageInfo, DamageType, ExplosionKind, GameSystem, MuzzleKind, TracerKind } from './contracts';
+import type { AmmoLoad, CharacterInstance, DamageInfo, DamageType, ExplosionKind, GameSystem, MuzzleKind, SurfaceKind, TracerKind } from './contracts';
 
 // ---------------------------------------------------------------------------------------------
 // Weapons and combat
@@ -183,6 +183,11 @@ export interface AmmoState {
   maxReserve: number;
 }
 
+export interface LoadoutOptions {
+  mods?: readonly ModId[];
+  exclusiveMods?: boolean;
+}
+
 export interface WeaponSystem extends GameSystem {
   /** 0..1 Lance charge or Buzzsaw spin, for the HUD. */
   readonly charge: number;
@@ -216,7 +221,11 @@ export interface WeaponSystem extends GameSystem {
    */
   occupy?(seconds: number): void;
   /** A mission's kit: these guns and no others, with the first drawn. */
-  setLoadout(weapons: readonly WeaponId[], grenades: number): void;
+  setLoadout(weapons: readonly WeaponId[], grenades?: number | LoadoutOptions, opts?: LoadoutOptions): void;
+  /** Hands over a weapon mod, unfitted. Optional so stand-in weapon systems need not carry it. */
+  grantMod?(id: ModId): void;
+  /** Fits or removes a held weapon mod. Optional so stand-in weapon systems need not carry it. */
+  fitMod?(id: ModId, on?: boolean): boolean;
   /** The member of a slot's family that its number key draws: the one last held there. */
   slotMember?(slot: number): WeaponId;
   /** What a painting launcher has marked so far, for the HUD. Unset on a weapon system that has none. */
@@ -865,7 +874,9 @@ declare module './contracts' {
     'run:end': { score: number; wave: number; kills: number };
 
     /** `note`: what the shot adds for the other players' screens in co-op (FireNote). The object is reused: read it at once. */
-    'weapon:fired': { weapon: WeaponId; origin: THREE.Vector3; dir: THREE.Vector3; note?: FireNote };
+    'weapon:fired': { weapon: WeaponId; origin: THREE.Vector3; dir: THREE.Vector3; note?: FireNote; suppressed?: boolean };
+    /** Hitscan world geometry impact (non-enemy), for stealth bullet-impact acoustics. `position` is reused: copy it to keep it. */
+    'weapon:impact': { position: THREE.Vector3; surface: SurfaceKind; weapon: WeaponId; suppressed: boolean };
     /** A melee swing drew this (MeleeFx), for the other players' screens in co-op. The object is reused: read it at once. */
     'melee:fx': MeleeFx;
     /**

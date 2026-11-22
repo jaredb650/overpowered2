@@ -11,7 +11,7 @@ import type { MapId } from '../world/map/maps';
  * `outpost` is Endless Humans. The id is older than the campaign, and URLs and score tables are keyed on it. `defense` is
  * Outpost Defense, Endless Humans' tower defense (docs/proposals/outpost-defense.md).
  */
-export type ContractId = 'campaign' | 'foreclosure' | 'crucible' | 'outpost' | 'rooftop' | 'defense' | 'retraining';
+export type ContractId = 'campaign' | 'foreclosure' | 'quiet_title' | 'crucible' | 'outpost' | 'rooftop' | 'defense' | 'retraining';
 
 /** Who lives there. Section 15's faction rules hang off this: pain, fear, bleeding, gib thresholds. */
 export type FactionId = 'swarm' | 'humans';
@@ -151,6 +151,35 @@ export const CONTRACTS: readonly ContractDef[] = [
       ],
     },
     scoreKey: 'op2_highscore.foreclosure',
+  },
+  {
+    id: 'quiet_title',
+    name: 'Quiet Title',
+    map: 'chancery',
+    faction: 'humans',
+    waves: 'squads',
+    ai: 'outpost',
+    wounds: 'anatomy',
+    rewards: { backShot: 1.5 },
+    mission: 'quiet_title',
+    opensAfter: 'outpost',
+    noCommander: true,
+    briefing: {
+      ref: 'Form 7742-X',
+      subject: 'High Magistrate Aldous Vane, Comptroller of Civil Continuity, and his personal security detail',
+      body: [
+        'High Magistrate Vane is scheduled to sign a Form 9-A Stay of Liquidation at 06:00. A stay would freeze regional collections and require a second meeting. His signature must be rendered unavailable before dawn.',
+        'The Chancery Estate is covered by the Diplomatic Arbitration Charter. Deploying a Distraint Frame, an AC-130, or Bailiffs incurs a 400% Jurisdictional Surcharge payable by the contractor. You are therefore entering alone and at reasonable volume.',
+        'Active Sonar pulses are suspended in quiet zones. A Thermal Vision brain chip has been fitted in its place, together with suppressed sidearms. A previous contractor left equipment in the east bell tower; his invoice has been settled.',
+      ],
+      terms: [
+        ['Site', 'The Chancery Estate, grounds, bureau, and sub-level vault'],
+        ['Target', 'High Magistrate Aldous Vane, before 06:00'],
+        ['Equipment', 'Suppressed sidearms, Thermal Vision chip; heavy support surcharged'],
+        ['Appeals', 'Form 9-A, unsigned'],
+      ],
+    },
+    scoreKey: 'op2_highscore.quiet_title',
   },
   {
     id: 'crucible',

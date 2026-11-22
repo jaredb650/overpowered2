@@ -49,14 +49,15 @@ export const GRADES: Record<GradeName, Grade> = {
     shadowTint: [0.6, 0.42, 0.4], highlightTint: [0.6, 0.45, 0.42],
     vignette: 0.7, vignetteTint: [0.02, 0, 0], bloom: 0.8, grain: 0.05,
   },
-  // A gunner's sensor. The world drains to cold grey and only fire keeps its colour, so what is hot is what the player did.
+  // Modern FLIR thermal optics: deep cool midnight-indigo/slate shadows with lifted blacks so pitch-black
+  // architecture and doorways remain navigable, while warm white/amber heat signatures pop dramatically.
   thermal: {
     ...base,
-    exposure: 1.32, contrast: 1.3, saturation: 0.08,
-    lift: [0.012, 0.014, 0.014], gain: [0.98, 1.02, 1],
-    shadowTint: [0.5, 0.5, 0.5], highlightTint: [0.5, 0.5, 0.5],
-    isolate: 0.85, keepHue: [1, 0.55, 0.12],
-    vignette: 0.44, vignetteTint: [0, 0.006, 0.004], bloom: 1.15, grain: 0.06,
+    exposure: 1.42, contrast: 1.14, saturation: 0.22,
+    lift: [0.012, 0.022, 0.044], gain: [0.88, 0.96, 1.14],
+    shadowTint: [0.34, 0.46, 0.72], highlightTint: [0.64, 0.54, 0.38],
+    isolate: 0.88, keepHue: [1, 0.52, 0.12],
+    vignette: 0.42, vignetteTint: [0.004, 0.014, 0.036], edgeGlow: 0.08, bloom: 1.25, grain: 0.042,
   },
   // Hot orange: the world goes to embers, shadows stay red rather than black.
   hellfire: {

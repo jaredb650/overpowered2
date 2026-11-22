@@ -10,8 +10,8 @@ import * as THREE from 'three';
 import { VIEW_DEPTH_MAX } from './engine';
 import { FullscreenPass } from './fullscreen';
 
-/** One pass each. Sonar and a gunner's HUD are two. */
-const MAX_BATCHES = 4;
+/** One pass each. Sonar, gunner HUDs, and multi-tier FLIR thermal heat bands share this budget. */
+const MAX_BATCHES = 8;
 /** Metres a body must be behind what the depth buffer holds to count as hidden. Its own surface sits at zero. */
 const HIDDEN_BIAS = 0.15;
 
@@ -33,14 +33,16 @@ void main() {
 }`;
 
 /**
- * Hidden pixels get the full silhouette. Pixels in plain sight only get an edge, so the wounds on a body in the open stay
- * readable. Output is premultiplied, and the fill is near opaque, so a body reads the same over a dark wall and a lit one.
+ * Hidden pixels get the full silhouette. Pixels in plain sight only get an edge when `uVisibleFill == 0`, so wounds on
+ * a body in the open stay readable for Sonar and gunner HUDs. When `uVisibleFill > 0` (FLIR thermal), unoccluded pixels
+ * also receive a 3D-shaded heat-core fill so bodies glow unmistakably even in pitch-black rooms. Output is premultiplied.
  */
 const SILHOUETTE_FRAG = /* glsl */ `
 uniform highp sampler2D tDepth;
 uniform vec2 uClip;
 uniform vec3 uColor;
 uniform float uStrength;
+uniform float uVisibleFill;
 varying vec3 vNormalView;
 varying vec3 vToEye;
 
@@ -54,9 +56,11 @@ void main() {
   float hidden = step(eyeDepth(scene) + ${HIDDEN_BIAS.toFixed(2)}, eyeDepth(gl_FragCoord.z));
   float facing = abs(dot(normalize(vNormalView), normalize(vToEye)));
   float rim = pow(1.0 - facing, 2.5);
-  float cover = mix(rim * 0.6, 0.85, hidden);
+  float visCover = max(rim * 0.6, uVisibleFill * (0.55 + 0.45 * facing));
+  float cover = mix(visCover, 0.85, hidden);
+  float coreBoost = (1.0 - hidden) * uVisibleFill * facing * 0.35;
   vec3 edge = uColor * rim * mix(1.1, 5.0, hidden) + rim * hidden * 0.3;
-  gl_FragColor = vec4((uColor * cover * 0.8 + edge) * uStrength, cover * uStrength);
+  gl_FragColor = vec4((uColor * (cover * 0.8 + coreBoost) + edge) * uStrength, cover * uStrength);
 }`;
 
 /**
@@ -91,13 +95,14 @@ interface Batch {
   readonly lit: Set<THREE.Object3D>;
   readonly color: THREE.Color;
   strength: number;
+  visibleFill: number;
 }
 
 export class XRay {
   readonly material: THREE.ShaderMaterial;
   /** The meshes of the batch being drawn, for the render list filter. */
   current: ReadonlySet<THREE.Object3D> | null = null;
-  private readonly batches: Batch[] = Array.from({ length: MAX_BATCHES }, () => ({ lit: new Set(), color: new THREE.Color(), strength: 1 }));
+  private readonly batches: Batch[] = Array.from({ length: MAX_BATCHES }, () => ({ lit: new Set(), color: new THREE.Color(), strength: 1, visibleFill: 0 }));
   private count = 0;
   private cursor = 0;
 
@@ -116,6 +121,7 @@ export class XRay {
         uClip: { value: new THREE.Vector2() },
         uColor: { value: new THREE.Color() },
         uStrength: { value: 1 },
+        uVisibleFill: { value: 0 },
       },
       depthTest: false,
       depthWrite: false,
@@ -147,12 +153,13 @@ export class XRay {
     return this.count > 0 || this.sweeping;
   }
 
-  add(meshes: readonly THREE.Object3D[], color: THREE.ColorRepresentation, strength: number): void {
+  add(meshes: readonly THREE.Object3D[], color: THREE.ColorRepresentation, strength: number, visibleFill = 0): void {
     if (meshes.length === 0 || strength <= 0 || this.count === MAX_BATCHES) return;
     const batch = this.batches[this.count++]!;
     for (let i = 0; i < meshes.length; i++) batch.lit.add(meshes[i]!);
     batch.color.set(color);
     batch.strength = strength;
+    batch.visibleFill = visibleFill;
   }
 
   sweep(origin: THREE.Vector3, color: THREE.ColorRepresentation, speed: number, reach: number): void {
@@ -195,6 +202,7 @@ export class XRay {
     (u.uClip!.value as THREE.Vector2).set(camera.near, camera.far);
     (u.uColor!.value as THREE.Color).copy(batch.color);
     u.uStrength!.value = batch.strength;
+    u.uVisibleFill!.value = batch.visibleFill;
     this.current = batch.lit;
     return true;
   }

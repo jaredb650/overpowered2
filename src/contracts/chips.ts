@@ -8,7 +8,7 @@
  * `ctx.contracts.chips`: the key, Sonar's clock (sonar.ts, unchanged), the thermal view and the focus meter. Purchases last one
  * run, as guns and implants do. A mission gets Sonar only, unless it calls `chip` (campaign/host.ts).
  */
-import type * as THREE from 'three';
+import * as THREE from 'three';
 import type { Ctx, GradeName } from '../core/contracts';
 import type { EnemyInstance } from '../core/gameplay';
 import type { Sonar } from './sonar';
@@ -30,17 +30,50 @@ export interface ChipDef {
   lore: string;
 }
 
-/** Thermal: the AC-130's black-hot sensor (callins/ac130.ts VIEWS), worn on foot. No limit: T turns it on and off. */
+/** Maximum thermal detection range in metres (smooth falloff from 26 m to 32 m). */
+export const THERMAL_RANGE = 32;
+/** Distance in metres where thermal signal begins fading smoothly to 0 at `THERMAL_RANGE`. */
+export const THERMAL_FALLOFF_START = 26;
+/** Seconds a killed enemy's corpse stays visible on thermal while cooling down. */
+export const THERMAL_CORPSE_COOL = 20;
+
+const MAX_THERMAL_CORPSES = 24;
+const _pos = new THREE.Vector3();
+
+/** Environmental heat sources registered by stealth maps or systems (bulbs, breakers, cameras, alarm panels). */
+export interface ThermalSources {
+  readonly hot: readonly THREE.Object3D[];
+  readonly warm: readonly THREE.Object3D[];
+}
+
+export type ThermalSourceProvider = () => ThermalSources;
+
+/** Thermal: modern FLIR thermal optics, worn on foot. No limit: T turns it on and off. */
 export const THERMAL = {
-  /**
-   * The AC-130's black-hot picture, over the canvas only, so the HUD keeps its colours. Dimmed: from the ground the night sky
-   * inverts to white, and the HUD's white text has to read over it.
-   */
-  filter: 'grayscale(1) invert(1) brightness(0.6) contrast(1.3)',
-  /** Bodies glow this through the filter: white, inverted to black. Black is hot. */
-  enemyColor: '#ffffff',
+  /** Empty: FLIR optics are driven by the 'thermal' post grade and XRay visibleFill, never CSS invert(1). */
+  filter: '',
+  /** Living bodies glow white-hot with warm gold edges. */
+  enemyColor: '#fff2cc',
+  /** Distant living bodies in the 26..32 m falloff band cool slightly toward amber. */
+  enemyFarColor: '#ffaa33',
+  /** Visible-surface heat fill for unoccluded living bodies in pitch-black rooms. */
+  visibleFill: 0.88,
+  /** Fresh cooling corpses glow hot orange-red. */
+  corpseHotColor: '#ff6622',
+  /** Older cooling corpses fade toward dull ember red before going cold. */
+  corpseCoolColor: '#b82814',
+  /** Hot environmental heat sources (live bulbs, heaters, hot machinery). */
+  sourceHotColor: '#ffaa33',
+  /** Warm environmental heat sources (powered breaker boxes, security cameras, alarm panels). */
+  sourceWarmColor: '#44c8e8',
   /** Metres it reads heat at, through cover too. Past it Sonar is still the chip for the whole map. */
-  range: 40,
+  range: THERMAL_RANGE,
+  /** Metres at which thermal signal begins fading smoothly to zero at `range`. */
+  falloffStart: THERMAL_FALLOFF_START,
+  /** Seconds a corpse stays visible on thermal while cooling down. */
+  corpseCool: THERMAL_CORPSE_COOL,
+  /** Post-processing grade crossfade duration in seconds when toggling thermal. */
+  gradeBlend: 0.14,
 } as const;
 
 /** Focus: on-demand slow motion, on a meter that drains while it runs and fills again after. */
@@ -70,8 +103,8 @@ export const CHIPS: Readonly<Record<ChipId, ChipDef>> = {
   },
   thermal: {
     id: 'thermal', name: 'Thermal', price: 1400, wave: 3, color: '#ff6a2c',
-    does: `Tap: the gunship's black-hot view, on or off, for as long as you like. Bodies read black through cover out to ${THERMAL.range} m.`,
-    lore: 'The gunship\'s sensor, refitted behind the eyes. The world goes grey and everyone in it goes black. The Council insists this is not a metaphor.',
+    does: `Tap: FLIR thermal vision, on or off, for as long as you like. Living targets glow white-hot and cooling bodies and powered hardware show through cover out to ${THERMAL.range} m.`,
+    lore: 'Military FLIR microbolometers fitted behind the optic nerve. Cold concrete drops to midnight slate while every pulse, filament and fresh corpse burns white-orange.',
   },
   focus: {
     id: 'focus', name: 'Focus', price: 2200, wave: 6, color: '#ffc14a',
@@ -101,6 +134,7 @@ export class ChipRack {
   /** In slot order. Never longer than `slots`. */
   readonly fitted: ChipId[] = [];
   slots = 1;
+  private thermalSourcesProvider: ThermalSourceProvider | null = null;
 
   constructor() {
     this.reset();
@@ -112,6 +146,15 @@ export class ChipRack {
     this.fitted.length = 0;
     this.fitted.push('sonar');
     this.slots = 1;
+  }
+
+  /** Registers (or clears) a provider of environmental thermal heat sources (live bulbs, breakers, cameras, alarms). */
+  setThermalSources(provider: ThermalSourceProvider | null): void {
+    this.thermalSourcesProvider = provider;
+  }
+
+  get thermalSources(): ThermalSourceProvider | null {
+    return this.thermalSourcesProvider;
   }
 
   grant(id: ChipId): void {
@@ -162,6 +205,35 @@ export interface ChipBadge {
 /** Progression's grade hold (perks.ts), which the interface does not carry. Seats use the same hold. */
 type Grades = { holdGrade?(grade: GradeName | null): void };
 
+interface ThermalCorpse {
+  mesh: THREE.Object3D | null;
+  diedAt: number;
+  readonly pos: THREE.Vector3;
+  active: boolean;
+}
+
+/** Smoothstep distance attenuation: 1 out to `falloffStart`, fading cleanly to 0 at `range`. */
+function thermalFalloff(dist: number): number {
+  if (dist <= THERMAL.falloffStart) return 1;
+  if (dist >= THERMAL.range) return 0;
+  const u = (dist - THERMAL.falloffStart) / (THERMAL.range - THERMAL.falloffStart);
+  return 1 - u * u * (3 - 2 * u);
+}
+
+/** Pushes a mesh (or a Group's visible child meshes, or a bare Object3D) into `out` without allocating. */
+function pushThermalObject(obj: THREE.Object3D, out: THREE.Object3D[]): void {
+  if ((obj as THREE.Mesh).isMesh || obj.children.length === 0) {
+    out.push(obj);
+    return;
+  }
+  const before = out.length;
+  for (let i = 0; i < obj.children.length; i++) {
+    const child = obj.children[i]!;
+    if (child.visible && (child as THREE.Mesh).isMesh) out.push(child);
+  }
+  if (out.length === before) out.push(obj);
+}
+
 export class Chips {
   readonly rack: ChipRack;
   /** The slot in hand. */
@@ -189,15 +261,32 @@ export class Chips {
   /** Thermal's grade is held on progression's hold, until the view goes. */
   private graded = false;
   private readonly lit: THREE.Object3D[] = [];
+  private readonly litMid: THREE.Object3D[] = [];
+  private readonly litFar: THREE.Object3D[] = [];
+  private readonly corpseWarm: THREE.Object3D[] = [];
+  private readonly corpseCold: THREE.Object3D[] = [];
+  private readonly sourceHot: THREE.Object3D[] = [];
+  private readonly sourceWarm: THREE.Object3D[] = [];
+  private readonly aliveMeshes = new Set<THREE.Object3D>();
+  private readonly corpses: ThermalCorpse[] = Array.from({ length: MAX_THERMAL_CORPSES }, () => ({
+    mesh: null, diedAt: 0, pos: new THREE.Vector3(), active: false,
+  }));
+  private corpseCursor = 0;
   readonly badge: ChipBadge = { name: 'Sonar', color: CHIPS.sonar.color, lit: true, text: '', fill: 0, count: 1, index: 0 };
 
   constructor(private readonly ctx: Ctx, readonly sonar: Sonar, rack = new ChipRack()) {
     this.rack = rack;
     ctx.events.on('player:died', () => this.drop());
+    ctx.events.on('enemy:killed', e => this.recordCorpse(e));
     // The shop's studio and the menus draw on the same canvas: they get it back clean, and the next frame of play puts it up again.
     ctx.events.on('game:state', e => {
       if (e.to !== 'playing') this.view(false);
     });
+  }
+
+  /** Convenience passthrough to `rack.setThermalSources`. */
+  setThermalSources(provider: ThermalSourceProvider | null): void {
+    this.rack.setThermalSources(provider);
   }
 
   get current(): ChipId | null {
@@ -255,6 +344,7 @@ export class Chips {
   setThermal(on: boolean): void {
     if (on && !this.ctx.player.alive) return;
     this.thermal = on;
+    if (!on) this.view(false);
     this.ctx.audio.play('ui_toggle');
   }
 
@@ -382,32 +472,186 @@ export class Chips {
     this.ctx.events.emit('chip:kata', {});
   }
 
-  /** The canvas filter and the grade while on, and on foot; bodies in range lit. A gunner's seat has its own view. */
-  private updateThermal(): void {
-    const { player, render } = this.ctx;
-    if (!this.view(this.thermal && player.alive && !player.parked)) return;
-    const { lit } = this;
-    lit.length = 0;
-    const r2 = THERMAL.range * THERMAL.range;
-    for (const e of this.ctx.enemies.alive) if (e.position.distanceToSquared(player.position) <= r2) lit.push(e.char.mesh);
-    render.highlight(lit, THERMAL.enemyColor, 1);
+  /** Records a non-gibbed enemy corpse into the 24-slot ring buffer for thermal cooling decay. */
+  private recordCorpse(e: { enemy?: EnemyInstance; gibbed?: boolean; sliced?: boolean }): void {
+    if (e.gibbed || e.sliced) return;
+    const enemy = e.enemy;
+    const mesh = enemy?.char?.mesh;
+    if (!mesh) return;
+    const slot = this.corpses[this.corpseCursor]!;
+    this.corpseCursor = (this.corpseCursor + 1) % MAX_THERMAL_CORPSES;
+    slot.mesh = mesh;
+    slot.diedAt = this.ctx.time.elapsed;
+    if (enemy.position) slot.pos.copy(enemy.position);
+    else mesh.getWorldPosition(slot.pos);
+    slot.active = true;
   }
 
-  /** Puts the black-hot picture up or takes it down. Returns `on`. */
+  private clearCorpses(): void {
+    for (let i = 0; i < MAX_THERMAL_CORPSES; i++) {
+      const slot = this.corpses[i]!;
+      slot.active = false;
+      slot.mesh = null;
+      slot.diedAt = 0;
+    }
+    this.corpseCursor = 0;
+  }
+
+  /** FLIR grade while active and on foot; highlights living enemies, cooling corpses, and registered heat sources. */
+  private updateThermal(): void {
+    const { player, render, time } = this.ctx;
+    if (!this.view(this.thermal && player.alive && !player.parked)) return;
+
+    const origin = player.position ?? player.eye;
+    const { lit, litMid, litFar, corpseWarm, corpseCold, sourceHot, sourceWarm, aliveMeshes } = this;
+    lit.length = 0;
+    litMid.length = 0;
+    litFar.length = 0;
+    corpseWarm.length = 0;
+    corpseCold.length = 0;
+    sourceHot.length = 0;
+    sourceWarm.length = 0;
+    aliveMeshes.clear();
+
+    const r2 = THERMAL.range * THERMAL.range;
+    const falloff2 = THERMAL.falloffStart * THERMAL.falloffStart;
+    let midFadeSum = 0;
+    let farFadeSum = 0;
+
+    for (const e of this.ctx.enemies.alive) {
+      aliveMeshes.add(e.char.mesh);
+      const d2 = e.position.distanceToSquared(origin);
+      if (d2 >= r2) continue;
+      if (d2 <= falloff2) {
+        lit.push(e.char.mesh);
+      } else {
+        const fade = thermalFalloff(Math.sqrt(d2));
+        if (fade >= 0.5) {
+          litMid.push(e.char.mesh);
+          midFadeSum += fade;
+        } else if (fade > 0) {
+          litFar.push(e.char.mesh);
+          farFadeSum += fade;
+        }
+      }
+    }
+
+    if (lit.length > 0) render.highlight(lit, THERMAL.enemyColor, 1, THERMAL.visibleFill);
+    if (litMid.length > 0) {
+      const fade = midFadeSum / litMid.length;
+      render.highlight(litMid, THERMAL.enemyColor, fade, THERMAL.visibleFill * fade);
+    }
+    if (litFar.length > 0) {
+      const fade = farFadeSum / litFar.length;
+      render.highlight(litFar, THERMAL.enemyFarColor, fade, THERMAL.visibleFill * fade);
+    }
+
+    // Cooling corpses (fading orange-red over THERMAL_CORPSE_COOL seconds)
+    const now = time.elapsed;
+    let corpseWarmSum = 0;
+    let corpseColdSum = 0;
+    for (let i = 0; i < MAX_THERMAL_CORPSES; i++) {
+      const slot = this.corpses[i]!;
+      if (!slot.active || !slot.mesh) continue;
+      const age = now - slot.diedAt;
+      if (age < 0 || age >= THERMAL.corpseCool) {
+        slot.active = false;
+        slot.mesh = null;
+        continue;
+      }
+      if (aliveMeshes.has(slot.mesh)) {
+        // Pooled character recycled for a live enemy after roster flush.
+        if (age > 0.5) {
+          slot.active = false;
+          slot.mesh = null;
+        }
+        continue;
+      }
+      if (!slot.mesh.visible) continue;
+      if (slot.mesh.parent) slot.mesh.getWorldPosition(_pos);
+      else _pos.copy(slot.pos);
+      const d2 = _pos.distanceToSquared(origin);
+      if (d2 >= r2) continue;
+      const distFade = d2 <= falloff2 ? 1 : thermalFalloff(Math.sqrt(d2));
+      if (distFade <= 0) continue;
+      const cool = 1 - age / THERMAL.corpseCool;
+      const heat = Math.pow(cool, 1.3) * distFade;
+      if (cool > 0.45) {
+        corpseWarm.push(slot.mesh);
+        corpseWarmSum += heat;
+      } else {
+        corpseCold.push(slot.mesh);
+        corpseColdSum += heat;
+      }
+    }
+
+    if (corpseWarm.length > 0) {
+      const heat = corpseWarmSum / corpseWarm.length;
+      render.highlight(corpseWarm, THERMAL.corpseHotColor, heat * 0.85, 0.65 * heat);
+    }
+    if (corpseCold.length > 0) {
+      const heat = corpseColdSum / corpseCold.length;
+      render.highlight(corpseCold, THERMAL.corpseCoolColor, heat * 0.7, 0.45 * heat);
+    }
+
+    // Registered environmental heat sources (bulbs, breakers, security cameras, alarm panels)
+    const sources = this.rack.thermalSources?.();
+    if (sources) {
+      let hotFadeSum = 0;
+      for (let i = 0; i < sources.hot.length; i++) {
+        const obj = sources.hot[i]!;
+        if (!obj.visible) continue;
+        obj.getWorldPosition(_pos);
+        const d2 = _pos.distanceToSquared(origin);
+        if (d2 >= r2) continue;
+        const fade = d2 <= falloff2 ? 1 : thermalFalloff(Math.sqrt(d2));
+        if (fade <= 0) continue;
+        const before = sourceHot.length;
+        pushThermalObject(obj, sourceHot);
+        hotFadeSum += fade * (sourceHot.length - before);
+      }
+      if (sourceHot.length > 0) {
+        const fade = hotFadeSum / sourceHot.length;
+        render.highlight(sourceHot, THERMAL.sourceHotColor, 0.85 * fade, 0.72 * fade);
+      }
+
+      let warmFadeSum = 0;
+      for (let i = 0; i < sources.warm.length; i++) {
+        const obj = sources.warm[i]!;
+        if (!obj.visible) continue;
+        obj.getWorldPosition(_pos);
+        const d2 = _pos.distanceToSquared(origin);
+        if (d2 >= r2) continue;
+        const fade = d2 <= falloff2 ? 1 : thermalFalloff(Math.sqrt(d2));
+        if (fade <= 0) continue;
+        const before = sourceWarm.length;
+        pushThermalObject(obj, sourceWarm);
+        warmFadeSum += fade * (sourceWarm.length - before);
+      }
+      if (sourceWarm.length > 0) {
+        const fade = warmFadeSum / sourceWarm.length;
+        render.highlight(sourceWarm, THERMAL.sourceWarmColor, 0.65 * fade, 0.52 * fade);
+      }
+    }
+  }
+
+  /** Puts the FLIR thermal grade up or takes it down. Never uses CSS invert(1). Returns `on`. */
   private view(on: boolean): boolean {
-    const style = this.ctx.render.renderer.domElement.style;
+    const style = this.ctx.render.renderer?.domElement?.style;
     if (on) {
-      if (style.filter !== THERMAL.filter) style.filter = THERMAL.filter;
-      if (!this.graded) this.grades.holdGrade?.('thermal');
-      this.graded = true;
+      if (style && style.filter !== THERMAL.filter) style.filter = THERMAL.filter;
+      if (!this.graded) {
+        this.ctx.render.post?.setGrade('thermal', THERMAL.gradeBlend);
+        this.grades?.holdGrade?.('thermal');
+        this.graded = true;
+      }
       return true;
     }
-    // Only our own filter: a seat's view sets its own.
-    if (style.filter === THERMAL.filter) style.filter = '';
     // A dead man's screen is the death grade's; the hold goes when he is back, or at the next run.
     if (this.graded && this.ctx.player.alive) {
       this.graded = false;
-      this.grades.holdGrade?.(null);
+      this.ctx.render.post?.setGrade('default', THERMAL.gradeBlend);
+      this.grades?.holdGrade?.(null);
     }
     return false;
   }
@@ -490,8 +734,12 @@ export class Chips {
     this.held = 0;
     this.switched = false;
     this.view(false);
-    if (this.graded) this.grades.holdGrade?.(null);
+    if (this.graded) {
+      this.ctx.render.post?.setGrade('default', THERMAL.gradeBlend);
+      this.grades?.holdGrade?.(null);
+    }
     this.graded = false;
+    this.clearCorpses();
     this.sonar.reset();
   }
 

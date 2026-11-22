@@ -43,6 +43,8 @@ export const SOURCE_MULT: Readonly<Record<string, number>> = {
   frame_howitzer: 8,
   frame_pod: 2.5,
   hazard_chain: 2.5,
+  breach_charge: 2.5,
+  hydraulic_overload: 3.0,
   nuke: 100,
 };
 /** Share of a blast still felt by a piece at the edge of its radius. */

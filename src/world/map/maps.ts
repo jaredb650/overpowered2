@@ -17,13 +17,17 @@ import {
   authorRooftop, ROOFTOP_BOUNDS, ROOFTOP_HUB, ROOFTOP_LEVELS,
   ROOFTOP_LIGHT_BOUNDS, ROOFTOP_LIGHT_CELL, ROOFTOP_STAGES,
 } from './rooftop';
+import {
+  authorChancery, CHANCERY_BOUNDS, CHANCERY_HUB, CHANCERY_LEVELS,
+  CHANCERY_LIGHT_BOUNDS, CHANCERY_LIGHT_CELL, CHANCERY_STAGES,
+} from './chancery';
 import { KH } from './killhouse/plan';
 import { LEVEL, RING } from './layout';
 import type { MapSpec } from './spec';
 import type { MapZone } from '../../core/contracts';
 import { ACTIVE } from '../../contracts/select';
 
-export type MapId = 'crucible' | 'killhouse' | 'outpost' | 'fort' | 'holdfast' | 'office' | 'range' | 'annex' | 'rooftop';
+export type MapId = 'crucible' | 'killhouse' | 'outpost' | 'fort' | 'holdfast' | 'office' | 'range' | 'annex' | 'rooftop' | 'chancery';
 
 export interface MapDef {
   id: MapId;
@@ -191,7 +195,22 @@ const rooftop: MapDef = {
   readyLabel: 'Clearing the skyline',
 };
 
-const MAPS: Record<MapId, MapDef> = { crucible, killhouse, outpost, fort, holdfast, office, range, annex, rooftop };
+const CH = CHANCERY_BOUNDS;
+const CHL = CHANCERY_LIGHT_BOUNDS;
+const chancery: MapDef = {
+  id: 'chancery',
+  bounds: box(CH.x0, CH.y0, CH.z0, CH.x1, CH.y1, CH.z1),
+  lightBounds: box(CHL.x0, CHL.y0, CHL.z0, CHL.x1, CHL.y1, CHL.z1),
+  lightCell: CHANCERY_LIGHT_CELL,
+  minimapExtent: Math.max(-CH.x0, CH.x1, -CH.z0, CH.z1),
+  navHub: CHANCERY_HUB,
+  nav: { mutual: true, levels: [...CHANCERY_LEVELS] },
+  stages: CHANCERY_STAGES,
+  author: authorChancery,
+  readyLabel: 'Dimming the chandeliers',
+};
+
+const MAPS: Record<MapId, MapDef> = { crucible, killhouse, outpost, fort, holdfast, office, range, annex, rooftop, chancery };
 
 /** The map of the page's contract, or whatever `?map=` names. contracts/select.ts has the rules. */
 export function selectMap(): MapDef {

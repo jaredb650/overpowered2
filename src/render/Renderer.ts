@@ -205,8 +205,8 @@ export class Renderer implements RenderSystem {
     this.xray.clear();
   }
 
-  highlight(meshes: readonly THREE.Object3D[], color: THREE.ColorRepresentation, strength = 1): void {
-    this.xray.add(meshes, color, strength);
+  highlight(meshes: readonly THREE.Object3D[], color: THREE.ColorRepresentation, strength = 1, visibleFill = 0): void {
+    this.xray.add(meshes, color, strength, visibleFill);
   }
 
   sweep(origin: THREE.Vector3, color: THREE.ColorRepresentation, speed: number, reach: number): void {

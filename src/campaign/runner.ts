@@ -10,10 +10,10 @@
  * replays the saved beat from its top with the doors and objectives it was saved with. Restarting from a clean run is the point:
  * every system already knows how to clear itself, and nothing has to be undone by hand.
  */
-import type { WeaponId } from '../core/gameplay';
+import type { ModId, WeaponId } from '../core/gameplay';
 import type { Line } from '../enemies/commander/lines';
 import { arm, type Watch, type WatchFacts } from './watch';
-import type { Beat, Cue, Mark, Mission, MissionHost, ObjectiveState, Script, Step, Zone } from './types';
+import type { Beat, Cue, Loadout, Mark, Mission, MissionHost, ObjectiveState, Script, Step, Zone } from './types';
 
 export type RunnerState = 'idle' | 'running' | 'down' | 'won';
 
@@ -76,6 +76,8 @@ export class MissionRunner implements WatchFacts {
   private readonly heard = new Set<string>();
   /** Taken from racks, kept through every restart, so a gun found off the path is not lost to a checkpoint that never promised it. */
   private readonly taken = new Set<WeaponId>();
+  /** Mods carried on racks already taken, kept alongside `taken` across checkpoint restarts. */
+  private readonly takenMods = new Set<ModId>();
   private readonly lines = new Map<string, Line>();
   /** Lines waiting their turn, and the one being said. */
   private readonly radio: Spoken[] = [];
@@ -138,6 +140,7 @@ export class MissionRunner implements WatchFacts {
     this.tags.clear();
     this.heard.clear();
     this.taken.clear();
+    this.takenMods.clear();
     this.hush();
     this.objectiveList = [];
     this.elapsed = 0;
@@ -317,7 +320,17 @@ export class MissionRunner implements WatchFacts {
     }
     const weapons = [...kit.weapons];
     for (const w of this.taken) if (!weapons.includes(w)) weapons.push(w);
-    this.host.deploy(at, { weapons, grenades: kit.grenades });
+    const baseMods = kit.mods ?? loadout.mods;
+    const mods = this.takenMods.size > 0
+      ? [...(baseMods ?? []), ...[...this.takenMods].filter(m => !baseMods?.includes(m))]
+      : baseMods;
+    const exclusiveMods = kit.exclusiveMods ?? loadout.exclusiveMods;
+    const chip = kit.chip ?? loadout.chip;
+    const deployed: Loadout = { weapons, grenades: kit.grenades };
+    if (mods !== undefined) deployed.mods = mods;
+    if (exclusiveMods !== undefined) deployed.exclusiveMods = exclusiveMods;
+    if (chip !== undefined) deployed.chip = chip;
+    this.host.deploy(at, deployed);
   }
 
   /** What a door would be doing by this beat, from every step that came before. */
@@ -463,13 +476,14 @@ export class MissionRunner implements WatchFacts {
         host.grenades(step.count);
         return;
       case 'rack': {
-        const { weapon } = step;
+        const { weapon, mods, label } = step;
         const took = (): void => {
           this.taken.add(weapon);
+          if (mods) for (const m of mods) this.takenMods.add(m);
           this.signal(`took:${weapon}`);
         };
         if (this.taken.has(weapon)) took();
-        else host.rack(weapon, this.mark(step.at), took);
+        else host.rack(weapon, this.mark(step.at), took, mods, label);
         return;
       }
       case 'drop':

@@ -154,6 +154,12 @@ export interface PostFx {
 export interface DynamicLights {
   /** A short-lived point light from a pool. The brightest few are live at once. */
   flash(position: THREE.Vector3, color: THREE.ColorRepresentation, intensity: number, radius: number, seconds: number): void;
+  /** Persistent fixture lights (ceiling lamps, sconces, emergency beacons) that can be toggled or shot out. */
+  addFixture?(spec: { position: THREE.Vector3; color: THREE.ColorRepresentation; intensity: number; radius: number; enabled?: boolean }): number;
+  setFixtureEnabled?(id: number, enabled: boolean): void;
+  setFixtureIntensity?(id: number, intensity: number): void;
+  removeFixture?(id: number): void;
+  clearFixtures?(): void;
 }
 
 /** `exit` is where a round came out of a wall: a pale spall crater, the one light mark among dark ones. */
@@ -221,9 +227,10 @@ export interface RenderSystem extends GameSystem {
   settle?(): void;
   /**
    * X-ray: draws these meshes as silhouettes through anything in front of them, for the next rendered frame only.
-   * Call it every frame they should show, so a pooled character can never stay lit. `strength` 0..1 fades them.
+   * Call it every frame they should show, so a pooled character can never stay lit. `strength` 0..1 fades them;
+   * `visibleFill` 0..1 adds 3D-shaded visible-surface fill (used by FLIR thermal vision in dark rooms).
    */
-  highlight(meshes: readonly THREE.Object3D[], color: THREE.ColorRepresentation, strength?: number): void;
+  highlight(meshes: readonly THREE.Object3D[], color: THREE.ColorRepresentation, strength?: number, visibleFill?: number): void;
   /** A ring that sweeps out from `origin` at `speed` m/s over every surface in view, and dies out at `reach` metres. */
   sweep(origin: THREE.Vector3, color: THREE.ColorRepresentation, speed: number, reach: number): void;
   /** Quality preset 0 (low) to 3 (ultra). */
@@ -1100,6 +1107,10 @@ export interface WorldObjects {
   readonly destruction?: DestructionManagerLike;
   /** Expanding nuke shockwave that shatters structural clusters and structures sequentially by distance. */
   nukeSweep?(center: THREE.Vector3, maxRadius?: number): void;
+  /** Optional runtime hook invoked when a shot/hit strikes a non-explosive collider. Return true if handled. */
+  colliderHitHandler?: ((collider: RAPIER.Collider, amount: number, source: string) => boolean) | null;
+  /** Optional runtime hook invoked when a radial blast occurs. */
+  blastHandler?: ((center: THREE.Vector3, radius: number, amount: number, source: string) => void) | null;
 }
 
 // ---------------------------------------------------------------------------------------------

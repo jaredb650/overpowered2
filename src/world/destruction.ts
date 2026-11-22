@@ -73,6 +73,8 @@ const TIER3_SOURCES = new Set<string>([
   'ac130_bomb',
   'nuke',
   'hazard_chain',
+  'breach_charge',
+  'hydraulic_overload',
 ]);
 
 /** Sources capable of penetrating Tier 2 (Heavy Industrial: Cannery, Market Hall, Concrete Terraces, Heavy Pillars). */
@@ -93,6 +95,8 @@ const TIER2_SOURCES = new Set<string>([
   'tank_cannon',
   'hazard_chain',
   'nuke',
+  'breach_charge',
+  'hydraulic_overload',
 ]);
 
 /** Sources capable of penetrating Tier 1 (Masonry, Barracks, Emplacement Platforms, Walls). */
@@ -106,6 +110,8 @@ const TIER1_SOURCES = new Set<string>([
   'tank_cannon',
   'nuke',
   'hazard_chain',
+  'breach_charge',
+  'hydraulic_overload',
   // Frame ordnance & melee
   'frame_40mm',
   'frame_40mm_ap',
@@ -177,6 +183,8 @@ export const DESTRUCTION_SOURCE_MULT: Readonly<Record<string, number>> = {
   frame_pod: 2.5,
   tank_cannon: 4.0,
   hazard_chain: 2.5,
+  breach_charge: 2.5,
+  hydraulic_overload: 3.0,
   nuke: 100,
 };
 

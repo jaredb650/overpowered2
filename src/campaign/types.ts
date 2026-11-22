@@ -5,8 +5,9 @@
  * Coordinates are the map's: x east, y up, z south. A yaw of 0 looks north, along -z, as `player.teleport` takes it.
  */
 import type { AllyType } from '../allies/data';
+import type { ChipId } from '../contracts/chips';
 import type { GameEvents, MusicState, WorldMaterialName } from '../core/contracts';
-import type { CallInId, EnemyId, PickupKind, WeaponId } from '../core/gameplay';
+import type { CallInId, EnemyId, ModId, PickupKind, WeaponId } from '../core/gameplay';
 import type { AdaptationId } from '../enemies/commander/adaptations';
 import type { Line } from '../enemies/commander/lines';
 import type { ActionId } from '../enemies/outpost/planner';
@@ -67,6 +68,12 @@ export interface Loadout {
   /** In hand order. The first is drawn. */
   weapons: readonly WeaponId[];
   grenades: number;
+  /** Mods granted and fitted on deploy. */
+  mods?: readonly ModId[];
+  /** When true, clear default ISSUED mods before fitting `mods`. */
+  exclusiveMods?: boolean;
+  /** Brain chip fitted on deploy. */
+  chip?: ChipId;
 }
 
 export interface Checkpoint {
@@ -177,7 +184,7 @@ export type Step =
   | { do: 'give'; weapon: WeaponId }
   | { do: 'grenades'; count: number }
   /** A weapon lying on the map, to be walked over. Raises `took:<weapon>`. `optional` is off the path: no checkpoint has to promise it. */
-  | { do: 'rack'; weapon: WeaponId; at: string; optional?: boolean }
+  | { do: 'rack'; weapon: WeaponId; at: string; optional?: boolean; mods?: readonly ModId[]; label?: string }
   | { do: 'drop'; item: PickupKind; at: string }
   | { do: 'wait'; seconds: number }
   | { do: 'until'; when: Trigger }
@@ -286,6 +293,8 @@ export interface Mission {
   calls?: readonly Callout[];
   /** Each battle's squad name on the feed and the word for where it is, by battle id. */
   fronts?: Readonly<Record<string, { name: string; place: string }>>;
+  /** Stealth mission: skip automatic tag-wide squad release on a single `enemy:hit` so stealth AI handles local squad alerts. */
+  stealth?: boolean;
 }
 
 // -------------------------------------------------------------------------------------------------
@@ -340,7 +349,7 @@ export interface MissionHost {
 
   give(weapon: WeaponId): void;
   grenades(count: number): void;
-  rack(weapon: WeaponId, at: Mark, took: () => void): void;
+  rack(weapon: WeaponId, at: Mark, took: () => void, mods?: readonly ModId[], label?: string): void;
   drop(item: PickupKind, at: Mark): void;
   /** `skipped` says the player pressed through it. */
   cutscene(id: string, scene: Cutscene, done: (skipped: boolean) => void): void;

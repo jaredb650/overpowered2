@@ -457,6 +457,7 @@ Rendered at load. x4 means four rendered variants behind one id.
 - **Handling:** `weapon_dry`, `weapon_draw`, `weapon_draw_heavy`, `weapon_draw_blade`, `weapon_holster`
 - **Casings:** `casing_brass` x4, `casing_shotgun` x3, `casing_heavy` x3
 - **Sword extras:** `sword_block` (raise guard), `sword_deflect` x3 (bullet blocked), `sword_windup` (heavy charge), `sword_sweep` (RMB area sweep)
+- **Metalstorm, MGL, AWL-50:** `metalstorm_shot` x3 (single stacked-barrel discharge), `metalstorm_volley` x2 (salvo burst), `mgl_shot` x3 (40 mm grenade launch), `mgl_stick` x3 (sticky round attach), `mgl_detonate` (remote detonator click), `awl50_shot` x3 (.50 anti-materiel report)
 
 ### Impacts and destruction
 
@@ -511,6 +512,11 @@ Rendered at load. x4 means four rendered variants behind one id.
 ### World
 
 `jump_pad_idle_loop`, `barrel_hiss_loop`, `crusher_slam`, `crusher_rise`, `electric_floor_loop`, `electric_zap` x3, `lava_loop`, `lava_burn`, `steam_burst`, `metal_groan` x3, `alarm_klaxon`, `amb_core`, `amb_foundry`, `amb_refinery`, `amb_scrapyard`, `amb_transit`, `amb_ring`. The `amb_*` beds run themselves.
+
+### Stealth (`synth/recipes/stealth.ts`)
+
+- **Awareness & lockdown:** `stealth_suspicious` (subtle low metallic tension sting), `stealth_alert` (sharp brassy discovery sting), `stealth_lockdown` (two-tone industrial estate klaxon alarm burst)
+- **Close quarters & estate security:** `stealth_takedown` x3 (tight muffled blade/cloth impact; alias `knife_hit`), `breaker_flip` x2 (heavy electrical switch clunk and power-down hum), `camera_beep` (sharp electronic surveillance chirp), `shutter_slam` (heavy ferro-steel blast shutter drop and lock thud), `bunker_overload` (rising hydraulic capacitor whine and pressure surge burst)
 
 ## Music
 
