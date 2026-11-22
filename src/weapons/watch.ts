@@ -381,6 +381,7 @@ export class Watcher {
     const s = this.shooter;
     const at = s.muzzle(this.muzzleAt, left);
     fx.muzzleFlash(at, s.forward, def.muzzle);
+    if (def.load === 'dragon') fx.dragonBreath?.(at, s.forward);
     WATCHED.flashes++;
     this.layers(def.sounds);
     if (def.mode === 'spin') this.rattle(def);

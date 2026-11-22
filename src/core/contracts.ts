@@ -577,6 +577,8 @@ export interface FxSystem extends GameSystem {
   ring(position: THREE.Vector3, dir: THREE.Vector3, color: THREE.ColorRepresentation, size?: number): void;
   /** Supersonic Mach condensation / pressure ring along a heavy shell's trajectory (105mm howitzer). */
   vaporRing?(position: THREE.Vector3, dir: THREE.Vector3, scale?: number): void;
+  /** Dragon's breath magnesium shotgun blast: fire tongue, wide bouncing spark shower, and room flash. */
+  dragonBreath?(position: THREE.Vector3, dir: THREE.Vector3): void;
   sparks(position: THREE.Vector3, dir: THREE.Vector3, count: number, color?: THREE.ColorRepresentation): void;
   smoke(position: THREE.Vector3, color?: THREE.ColorRepresentation, size?: number, seconds?: number): void;
 

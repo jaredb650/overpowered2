@@ -23,6 +23,7 @@ import { impact } from './recipes/impacts';
 import * as misc from './recipes/misc';
 import { listen } from './recipes/movement';
 import { muzzleFlash, tracer } from './recipes/muzzle';
+import { dragonBreath } from './recipes/dragon';
 import { hose, napalm, napalmSplash } from './recipes/napalm';
 import { fireGlow, fireSpit, flameLick, smokeWisp } from './recipes/fire';
 
@@ -158,6 +159,10 @@ class Fx implements FxSystem {
         w,
       );
     }
+  }
+
+  dragonBreath(position: THREE.Vector3, dir: THREE.Vector3): void {
+    dragonBreath(this.core, position, dir);
   }
 
   sparks(position: THREE.Vector3, dir: THREE.Vector3, count: number, color?: THREE.ColorRepresentation): void {

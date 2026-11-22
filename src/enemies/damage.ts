@@ -736,7 +736,9 @@ export class DamageModel {
       e.health -= amount;
       // A dart's hole bleeds on (EnemyManager drains it); an incendiary round sometimes lights him. Not a boss or a machine.
       if (!e.isBoss && !e.def.machine) e.darts += dartBleed(d.load, amount);
-      if (e.health > 0 && !e.def.fireproof && ignites(d.load, Math.random())) this.ignite(e, AMMO.api.burn);
+      if (e.health > 0 && !e.def.fireproof && ignites(d.load, Math.random())) {
+        this.ignite(e, d.load === 'dragon' ? AMMO.dragon.burn : AMMO.api.burn);
+      }
     }
     // Fire chars by what it takes as well as by the clock (EnemyManager.burnLook), on every screen: a man the flamethrower
     // kills in a quarter of a second is as burnt as one who burned for four.

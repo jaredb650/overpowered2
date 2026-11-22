@@ -386,6 +386,10 @@ export class Combat implements CombatSystem {
       // A dart through a plate flashes white off it; an incendiary round spits fire where it goes in.
       if (d.load === 'flechette' && armour) c.fx.sparks(point, normal, 2, 0xf2f8ff);
       else if (d.load === 'api') c.fx.sparks(point, normal, 3, 0xff5a1e);
+      else if (d.load === 'dragon') {
+        c.fx.sparks(point, normal, 6, 0xff9228);
+        c.fx.flameLick?.(point, 0.24, 1);
+      }
       // A co-op guest's enemy dies on the host's word; what tells the shooter of the kill goes by its own guess, at once.
       const killed = toldKill(result);
       if (result.headshot) {
@@ -437,6 +441,10 @@ export class Combat implements CombatSystem {
     }
     if (d.load === 'flechette' && result.armour) c.fx.sparks(point, normal, 2, 0xf2f8ff);
     else if (d.load === 'api') c.fx.sparks(point, normal, 3, 0xff5a1e);
+    else if (d.load === 'dragon') {
+      c.fx.sparks(point, normal, 6, 0xff9228);
+      c.fx.flameLick?.(point, 0.24, 1);
+    }
     if (result.headshot) return;
     c.fx.bloodHit(point, d.dir, d.load === 'flechette' ? 0.35 : 1);
     this.play(enemy.machine ? 'machine_hit' : 'bullet_body', point, 1, 0.06);
@@ -662,6 +670,10 @@ export class Combat implements CombatSystem {
       this.impact(wall.point, wall.normal, wall.surface, scale);
       if (spec.load === 'flechette') this.needles.stick(wall.point, st.dir);
       else if (spec.load === 'api') c.fx.sparks(wall.point, wall.normal, 5, 0xff5a1e);
+      else if (spec.load === 'dragon') {
+        c.fx.sparks(wall.point, wall.normal, 8, 0xff9a28);
+        c.render.decals.add('scorch', wall.point, wall.normal, rand(0.32, 0.52), rand(0, 6.2832));
+      }
       if (!watching) c.world.objects?.damageExplosive(wall.collider, atWall, spec.source);
       const vehicleDmg = spec.bossDamage ? spec.bossDamage * damageKept(budget) : atWall;
       const vehicle = !watching && c.enemies.vehicles?.shot(wall.collider, wall.point, vehicleDmg, spec.source) === true;
