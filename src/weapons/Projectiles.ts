@@ -497,22 +497,47 @@ export class Projectiles {
     p.position.addScaledVector(dir, len);
   }
 
-  /** Enemy team homes on the player, player team on the closest enemy. */
+  /** Enemy team homes on the player (unless spoofed by vehicle IR flares/smoke!), player team on the closest enemy or vehicle. */
   private steer(p: Projectile, dt: number): void {
     const c = this.ctx;
     const to = this.w;
     if (p.team === 'enemy') {
-      to.copy(c.player.eye);
+      // If the player is in a vehicle that popped IR Flares or IR Smoke, spoof the seeker head so it veers wide!
+      const driveables = (c.progression as unknown as { callInsManager?: { driveables?: { active?: { isCountermeasureActive?: boolean; position?: THREE.Vector3 } } } })?.callInsManager?.driveables;
+      const activeVeh = driveables?.active;
+      if (activeVeh?.isCountermeasureActive) {
+        p.homing = 0;
+        p.velocity.x += (Math.random() - 0.5) * 14;
+        p.velocity.y += 6;
+        p.velocity.z += (Math.random() - 0.5) * 14;
+        return;
+      }
+      if (activeVeh?.position) {
+        to.copy(activeVeh.position);
+        to.y += 1.4;
+      } else {
+        to.copy(c.player.eye);
+      }
     } else {
-      const n = c.enemies.query(p.position, 40, this.nearby) || 0;
-      if (n === 0) return;
       let best = Infinity;
+      const n = c.enemies.query(p.position, 90, this.nearby) || 0;
       for (let i = 0; i < n; i++) {
         const e = this.nearby[i]!;
         const d = e.center.distanceToSquared(p.position);
         if (e.alive && d < best) {
           best = d;
           to.copy(e.center);
+        }
+      }
+      // Player homing missiles also track live enemy vehicles & helicopters!
+      const vTargets: import('../core/gameplay').VehicleRadarTarget[] = [];
+      c.enemies.vehicles?.listTargets?.(vTargets);
+      for (let i = 0; i < vTargets.length; i++) {
+        const vt = vTargets[i]!;
+        const d = vt.position.distanceToSquared(p.position) * 0.45; // Strongly prioritize vehicles/aircraft!
+        if (d < best) {
+          best = d;
+          to.copy(vt.position);
         }
       }
       if (best === Infinity) return;

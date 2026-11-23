@@ -330,14 +330,21 @@ export class EnemyChopper extends Vehicle {
     this.destroy(this.source, _pos);
   }
 
-  /** Called with the books already open by `take`: an aircraft out of health in the air has further to go. */
+  /** Called with the books already open by `take`: an aircraft out of health in the air has further to go, unless massively overkilled. */
   override take(amount: number, part: PartState | null, source: string, point: THREE.Vector3): void {
     if (!this.alive || amount <= 0) return;
     if (this.fate !== 'flying') {
       this.source = source;
+      // Another heavy blast while spinning down shatters it right out of the sky!
+      if (amount >= 220) this.destroyMidAir(source, point);
       return;
     }
     if (this.health - amount <= 0) {
+      const overkill = amount - this.health;
+      if (overkill >= this.def.health * 0.4 || amount >= 360) {
+        this.destroyMidAir(source, point);
+        return;
+      }
       this.health = 1;
       this.source = source;
       this.sys.airburst(this.position);
@@ -346,6 +353,18 @@ export class EnemyChopper extends Vehicle {
       return;
     }
     super.take(amount, part, source, point);
+  }
+
+  private destroyMidAir(source: string, point: THREE.Vector3): void {
+    const { sys, rig } = this;
+    this.alive = false;
+    this.retired = true;
+    this.teardown();
+    sys.airburst(this.position);
+    sys.callout(point, 'MID-AIR DETONATION');
+    const wreck = sys.wreckGunship(this, false);
+    sys.shatterAirborne(wreck, this.position, this.pilot.velocity);
+    sys.bury(this, wreck, source, point);
   }
 
   protected destroy(source: string, point: THREE.Vector3): void {

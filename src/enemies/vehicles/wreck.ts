@@ -108,6 +108,28 @@ export class Wreck {
     this.tumble.set(rand(-3.2, 3.2), rand(-2.2, 2.2), rand(-3.2, 3.2));
   }
 
+  /** Physically shoves a wreck along the ground when bumped by a player vehicle, sliding & spinning with realistic weight. */
+  shove(pushVel: THREE.Vector3, lift = 1.4, yawSpin = 0): void {
+    if (!this.tossed) {
+      this.sys.closeGround(this.root.position, this.rest.y, this.halfWidth, this.halfLength, false);
+      const inv = this.root.quaternion.clone().invert();
+      for (const c of this.colliders) {
+        const t = c.translation();
+        const r = c.rotation();
+        const pos = new THREE.Vector3(t.x, t.y, t.z).sub(this.root.position).applyQuaternion(inv);
+        const rot = inv.clone().multiply(new THREE.Quaternion(r.x, r.y, r.z, r.w));
+        this.colliderOffsets.push({ pos, rot });
+      }
+      this.tossed = true;
+    }
+    this.velXZ.x += pushVel.x;
+    this.velXZ.y += pushVel.z;
+    const maxPush = this.halfLength >= 3.5 ? 11 : 22;
+    if (this.velXZ.length() > maxPush) this.velXZ.setLength(maxPush);
+    this.velocityY = Math.max(this.velocityY, lift);
+    this.tumble.set(rand(-0.45, 0.45), yawSpin + rand(-1.2, 1.2), rand(-0.45, 0.45));
+  }
+
   /**
    * Co-op host: how it left the ground and what was thrown clear, so a guest's copy does the same (net/world/vehicles.ts):
    * the hop still to come, the tumble, and the flung piece's velocity, spin and floor, or where it lies once it has landed.
@@ -133,7 +155,7 @@ export class Wreck {
     }
   }
 
-  /** The part of the update that only a wreck in the air needs. */
+  /** The part of the update that only a wreck in the air or sliding across the sand needs. */
   private fall(dt: number): void {
     const { root } = this;
     const movingXZ = this.velXZ.lengthSq() > 0.04;
@@ -142,12 +164,20 @@ export class Wreck {
       root.position.x += this.velXZ.x * dt;
       root.position.z += this.velXZ.y * dt;
       this.restY = this.sys.groundUnder(root.position);
+      if (root.position.y <= this.restY + 0.12) {
+        const drag = Math.exp(-3.4 * dt);
+        this.velXZ.multiplyScalar(drag);
+        this.tumble.multiplyScalar(drag);
+        root.rotation.y += this.tumble.y * dt;
+      }
     }
-    this.velocityY -= GRAVITY * dt;
-    root.position.y += this.velocityY * dt;
-    root.rotation.x += this.tumble.x * dt;
-    root.rotation.y += this.tumble.y * dt;
-    root.rotation.z += this.tumble.z * dt;
+    if (root.position.y > this.restY || this.velocityY > 0.01) {
+      this.velocityY -= GRAVITY * dt;
+      root.position.y += this.velocityY * dt;
+      root.rotation.x += this.tumble.x * dt;
+      root.rotation.y += this.tumble.y * dt;
+      root.rotation.z += this.tumble.z * dt;
+    }
     if (this.tossed) this.syncColliders();
     if (root.position.y > this.restY) return;
     root.position.y = this.restY;
@@ -155,13 +185,15 @@ export class Wreck {
     if (hard > 2.2) {
       // One small bounce, and a slump into the rest pose it will keep.
       this.velocityY = hard * BOUNCE;
-      this.velXZ.multiplyScalar(0.35);
+      this.velXZ.multiplyScalar(0.5);
       this.tumble.multiplyScalar(-BOUNCE);
       this.thud(root.position, hard);
       return;
     }
     this.velocityY = 0;
+    if (this.velXZ.lengthSq() > 0.09) return;
     this.velXZ.set(0, 0);
+    this.tumble.set(0, 0, 0);
     if (this.tossed) {
       this.rest.set(rand(-0.12, 0.12), root.rotation.y, rand(-0.2, 0.2));
       root.rotation.copy(this.rest);

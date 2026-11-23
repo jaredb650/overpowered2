@@ -253,9 +253,15 @@ export class EnemyDoorGunner extends Vehicle {
     if (!this.alive || amount <= 0) return;
     if (this.crashing) {
       this.source = source;
+      if (amount >= 200) this.destroyMidAir(source, point);
       return;
     }
     if (this.health - amount <= 0) {
+      const overkill = amount - this.health;
+      if (overkill >= this.def.health * 0.4 || amount >= 340) {
+        this.destroyMidAir(source, point);
+        return;
+      }
       this.health = 1;
       this.source = source;
       this.sys.airburst(this.position);
@@ -264,6 +270,17 @@ export class EnemyDoorGunner extends Vehicle {
       return;
     }
     super.take(amount, part, source, point);
+  }
+
+  private destroyMidAir(source: string, point: THREE.Vector3): void {
+    this.alive = false;
+    this.retired = true;
+    this.teardownVisuals();
+    this.sys.airburst(this.position);
+    this.sys.callout(point, 'MID-AIR DETONATION');
+    const wreck = this.sys.wreckUtility(this);
+    this.sys.shatterAirborne(wreck, this.position, this.vel);
+    this.sys.bury(this, wreck, source, point);
   }
 
   private fall(dt: number): void {

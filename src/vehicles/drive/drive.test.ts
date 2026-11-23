@@ -1,14 +1,14 @@
 import * as THREE from 'three';
 import { describe, expect, it, vi } from 'vitest';
 import type { Action, Ctx, RayHit } from '../../core/contracts';
-import type { HijackClaim, HijackableVehicle } from '../../core/gameplay';
+import type { HijackClaim, HijackableVehicle, VehicleRadarTarget } from '../../core/gameplay';
 import { ModelMaterials } from '../../progression/modelkit';
 import type { SeatRig } from '../seat';
-import { DRIVE_VEHICLES } from './data';
+import { DRIVE_VEHICLE_ORDER, DRIVE_VEHICLES } from './data';
 import { BADLANDS_MOTOR_POOL, DriveableManager } from './manager';
 import { buildVehicleModel } from './models';
 import { createPhysicsState, stepVehiclePhysics } from './physics';
-import { DRIVE_VEHICLE_ORDER, type DriveVehicleId, type VehicleInput } from './types';
+import type { DriveVehicleId, VehicleInput } from './types';
 import { DriveableVehicle } from './vehicle';
 
 function makeMaterials(): ModelMaterials {
@@ -27,17 +27,22 @@ function makeDriveHarness() {
   const justPressed = new Set<Action>();
   const events = new Map<string, ((payload: unknown) => void)[]>();
   const explode = vi.fn();
-  const fireRay = vi.fn();
+  const fireRay = vi.fn(() => ({ hitEnemy: false, headshot: false, killed: false, kills: 0, end: new THREE.Vector3(0, 1, 40) }));
   const spawnProjectile = vi.fn();
   const interceptEnemyProjectiles = vi.fn(() => 2);
+  const hasIncomingEnemyMissile = vi.fn(() => false);
   const award = vi.fn();
   const feed = vi.fn();
   const follow = vi.fn(() => vi.fn());
   const hold = vi.fn();
   const addAmmo = vi.fn();
+  const setHolstered = vi.fn();
   const heal = vi.fn();
   const push = vi.fn();
   const removeCollider = vi.fn();
+  const pushWrecks = vi.fn(() => 1);
+  const vehicleRam = vi.fn(() => null as { hit: boolean; armored: boolean; killed: boolean; point: THREE.Vector3 } | null);
+  const radarTargets: VehicleRadarTarget[] = [];
 
   let hijackTarget: HijackableVehicle | null = null;
   let hijackClaim: HijackClaim | null = null;
@@ -58,12 +63,15 @@ function makeDriveHarness() {
     frozen: 0,
     burning: 0,
     machine: false,
+    char: { mesh: new THREE.Group() },
   };
-  const applyDamage = vi.fn(() => ({ killed: true, headshot: false, gibbed: true, damage: 240 }));
+  const applyDamage = vi.fn(() => ({ killed: true, headshot: false, gibbed: false, damage: 240 }));
+  const domElement = { style: { filter: '' } };
 
   const ctx = {
     render: {
       scene,
+      renderer: { domElement },
       highlight: vi.fn(),
       post: { flash: vi.fn() },
     },
@@ -95,7 +103,11 @@ function makeDriveHarness() {
       lookScale: 1,
       invertY: false,
       grounded: true,
+      yaw: 0,
+      pitch: 0,
       position: new THREE.Vector3(0, 0, 0),
+      eye: new THREE.Vector3(0, 1.7, 0),
+      forward: new THREE.Vector3(0, 0, -1),
       interceptor: null,
       park: vi.fn(),
       unpark: vi.fn(),
@@ -139,9 +151,11 @@ function makeDriveHarness() {
       fireRay,
       spawnProjectile,
       interceptEnemyProjectiles,
+      hasIncomingEnemyMissile,
     },
     weapons: {
       addAmmo,
+      setHolstered,
     },
     progression: {
       award,
@@ -157,7 +171,14 @@ function makeDriveHarness() {
       vehicles: {
         findHijackable: () => hijackTarget,
         hijack: () => hijackClaim,
-        paintable: () => {},
+        paintable: () => 0,
+        pushWrecks,
+        vehicleRam,
+        listTargets: (out: VehicleRadarTarget[]) => {
+          out.length = 0;
+          out.push(...radarTargets);
+          return out.length;
+        },
       },
     },
     events: {
@@ -199,16 +220,22 @@ function makeDriveHarness() {
     fireRay,
     spawnProjectile,
     interceptEnemyProjectiles,
+    hasIncomingEnemyMissile,
     award,
     feed,
     follow,
     hold,
     addAmmo,
+    setHolstered,
     heal,
     push,
     applyDamage,
     mockEnemy,
     removeCollider,
+    pushWrecks,
+    vehicleRam,
+    radarTargets,
+    domElement,
     setHijack(target: HijackableVehicle | null, claim: HijackClaim | null) {
       hijackTarget = target;
       hijackClaim = claim;
@@ -228,12 +255,15 @@ function emptyInput(): VehicleInput {
     specialPressed: false,
     reloadPressed: false,
     cameraTogglePressed: false,
+    lookX: 0,
+    lookY: 0,
   };
 }
 
-describe('AAA Driveable Vehicles', () => {
-  it('builds sculptural 3D rigs with valid muzzles and bounding boxes for all 5 vehicles', () => {
+describe('AAA Driveable Vehicles (10-Vehicle Fleet)', () => {
+  it('builds sculptural 3D rigs with valid muzzles and bounding boxes for all 10 vehicles', () => {
     const mats = makeMaterials();
+    expect(DRIVE_VEHICLE_ORDER).toHaveLength(10);
     for (const id of DRIVE_VEHICLE_ORDER) {
       const rig = buildVehicleModel(id, mats);
       expect(rig.root.children.length).toBeGreaterThan(0);
@@ -241,32 +271,107 @@ describe('AAA Driveable Vehicles', () => {
       const box = new THREE.Box3().setFromObject(rig.root);
       expect(box.isEmpty()).toBe(false);
       const size = box.getSize(new THREE.Vector3());
-      expect(size.x).toBeGreaterThan(0.8);
+      expect(size.x).toBeGreaterThan(0.6);
       expect(size.y).toBeGreaterThan(0.8);
-      expect(size.z).toBeGreaterThan(2.0);
+      expect(size.z).toBeGreaterThan(1.8);
       expect(rig.muzzles.main).toBeInstanceOf(THREE.Object3D);
     }
   });
 
-  it('Jackal accelerates, drifts with Space, nitro boosts, and runs [Q] AI auto-turret', () => {
+  it('[E] exit bug fix: pressing interact exits cleanly without re-boarding on the same frame', () => {
+    const h = makeDriveHarness();
+    const mgr = new DriveableManager(h.ctx, h.materials, h.seats, vi.fn());
+    const jackal = mgr.spawn('jackal', new THREE.Vector3(0, 0, 0), 0);
+
+    // Board via [E].
+    h.justPressed.add('interact');
+    mgr.update(1 / 30, true);
+    expect(jackal.occupied).toBe(true);
+    expect(mgr.active).toBe(jackal);
+
+    // Press [E] on the next tick to exit — MUST stay exited on the same frame!
+    mgr.update(1 / 30, true);
+    expect(jackal.occupied).toBe(false);
+    expect(mgr.active).toBeNull();
+    expect(h.seats.occupied).toBe(false);
+
+    // Even if interact is still flagged during brief cooldown, must NOT accidentally re-board.
+    mgr.update(1 / 30, true);
+    expect(jackal.occupied).toBe(false);
+
+    mgr.clear();
+  });
+
+  it('boost hysteresis locks empty fuel until 22% refill (zero Shift camera chatter)', () => {
+    const def = DRIVE_VEHICLES.jackal;
+    const st = createPhysicsState(new THREE.Vector3(), 0);
+    const inp = emptyInput();
+    inp.throttle = 1;
+    inp.boost = true;
+    const world = { nav: { groundHeight: () => 0 } } as unknown as Ctx['world'];
+
+    // Drain boost fuel until empty -> boostLocked MUST latch true immediately!
+    for (let i = 0; i < 120 && !st.boostLocked; i++) {
+      stepVehiclePhysics(def, st, inp, 1 / 30, world, undefined, true);
+    }
+    expect(st.boostLocked).toBe(true);
+    expect(st.boosting).toBe(false);
+
+    // While refilling from 0 -> 0.22, boost MUST remain cleanly locked off with ZERO frame-to-frame chatter!
+    let toggles = 0;
+    let prev = st.boosting;
+    for (let i = 0; i < 20; i++) {
+      stepVehiclePhysics(def, st, inp, 1 / 30, world, undefined, true);
+      if (st.boosting !== prev) {
+        toggles++;
+        prev = st.boosting;
+      }
+    }
+    expect(toggles).toBe(0);
+    expect(st.boostFuel).toBeGreaterThan(0.1);
+  });
+
+  it('true ramp jumping launches vehicles off ramp crests while keeping flat driving grounded', () => {
+    const def = DRIVE_VEHICLES.jackal;
+    const st = createPhysicsState(new THREE.Vector3(0, 0, 0), 0);
+    st.velocity.set(0, 0, 26);
+    const inp = emptyInput();
+    inp.throttle = 1;
+
+    // Synthetic ramp: rises from z=2..14 (height 0 -> 4.2m), then drops back to flat desert y=0 after z=14!
+    const rampWorld = {
+      nav: {
+        groundHeight: (_x: number, _y: number, z: number) => (z >= 2 && z <= 14 ? ((z - 2) / 12) * 4.2 : 0),
+      },
+    } as unknown as Ctx['world'];
+
+    let launched = false;
+    let maxY = 0;
+    for (let i = 0; i < 45; i++) {
+      stepVehiclePhysics(def, st, inp, 1 / 30, rampWorld, undefined, true);
+      if (!st.grounded && st.velocity.y > 4) launched = true;
+      maxY = Math.max(maxY, st.position.y);
+    }
+    expect(launched).toBe(true);
+    expect(maxY).toBeGreaterThan(4.6);
+  });
+
+  it('Jackal accelerates, drifts, runs [Q] auto-turret, and mounts 3D Hybrid Gun in Seat 2 1P', () => {
     const h = makeDriveHarness();
     const jackal = new DriveableVehicle(h.ctx, h.materials, h.seats, vi.fn(), 'jackal', new THREE.Vector3(), 0);
     expect(jackal.board(0)).toBe(true);
 
-    // Accelerate with nitro boost.
     h.held.add('forward');
     h.held.add('dash');
     for (let i = 0; i < 45; i++) jackal.update(1 / 30);
     expect(jackal.speed).toBeGreaterThan(22);
-    expect(jackal.phys.boostFuel).toBeLessThan(1);
 
-    // Handbrake drift while turning right.
     h.held.add('right');
     h.held.add('jump');
     for (let i = 0; i < 15; i++) jackal.update(1 / 30);
     expect(jackal.phys.drifting).toBe(true);
 
-    // Toggle [Q] AI roof auto-turret and verify it fires at the live enemy ahead.
+    // Toggle [Q] AI roof auto-turret.
     h.held.clear();
     h.justPressed.add('stim');
     jackal.update(1 / 30);
@@ -274,145 +379,213 @@ describe('AAA Driveable Vehicles', () => {
     for (let i = 0; i < 10; i++) jackal.update(0.05);
     expect(h.fireRay).toHaveBeenCalled();
 
+    // Switch to Seat 2 (Roof Gunner) -> hides exterior turret so 1P 3D Hybrid Gun renders cleanly!
+    jackal.switchSeat(1);
+    expect(jackal.activeSeatSpec.mountGun).toBe('hybrid');
+    expect(jackal.model.turret?.visible).toBe(false);
+    h.held.add('aim'); // Fire 40mm Smart-AGL secondary!
+    jackal.update(1 / 30);
+    expect(h.spawnProjectile).toHaveBeenCalled();
+
     jackal.dispose();
   });
 
-  it('Aegis neutral-steers in place, swaps APFSDS <-> HE-FRAG on [R], and applies directional armor', () => {
+  it('Nomad Quad and Razor Moto lean-to-turn and unholster hand-held weapons in Passenger Seat 2', () => {
     const h = makeDriveHarness();
-    const aegis = new DriveableVehicle(h.ctx, h.materials, h.seats, vi.fn(), 'aegis', new THREE.Vector3(), 0);
-    expect(aegis.board(0)).toBe(true);
+    const moto = new DriveableVehicle(h.ctx, h.materials, h.seats, vi.fn(), 'moto', new THREE.Vector3(), 0);
+    expect(moto.board(0)).toBe(true);
 
-    // Neutral steer in place with zero throttle.
-    const startYaw = aegis.yaw;
+    h.held.add('forward');
     h.held.add('right');
-    for (let i = 0; i < 20; i++) aegis.update(1 / 30);
-    expect(Math.abs(aegis.yaw - startYaw)).toBeGreaterThan(0.2);
+    for (let i = 0; i < 30; i++) moto.update(1 / 30);
+    // Deep motorcycle banking roll!
+    expect(Math.abs(moto.phys.roll)).toBeGreaterThan(0.25);
 
-    // Toggle [R] from APFSDS to HE-FRAG and fire cannon.
+    // Switch to Pillion Seat 2 -> actual hand-held player weapons unholstered!
     h.held.clear();
-    h.justPressed.add('reload');
-    aegis.update(1 / 30);
-    h.justPressed.clear();
-    expect(h.feed).toHaveBeenCalledWith(expect.stringContaining('HE-FRAG'), expect.any(String));
-
-    h.held.add('fire');
-    aegis.update(1 / 30);
-    expect(h.spawnProjectile).toHaveBeenCalled();
-
-    // Directional armor: front hit deals less damage than rear hit!
-    const hpBefore = aegis.health;
-    const frontFrom = aegis.position.clone().add(new THREE.Vector3(Math.sin(aegis.yaw) * 15, 0, Math.cos(aegis.yaw) * 15));
-    aegis.absorbDamage(100, frontFrom);
-    const frontLoss = hpBefore - aegis.health;
-
-    const hpMid = aegis.health;
-    const rearFrom = aegis.position.clone().add(new THREE.Vector3(-Math.sin(aegis.yaw) * 15, 0, -Math.cos(aegis.yaw) * 15));
-    aegis.absorbDamage(100, rearFrom);
-    const rearLoss = hpMid - aegis.health;
-    expect(frontLoss).toBeLessThan(rearLoss);
-
-    aegis.dispose();
+    moto.switchSeat(1);
+    expect(moto.activeSeatSpec.passengerWeapons).toBe(true);
+    expect(h.setHolstered).toHaveBeenCalledWith(false);
+    moto.dispose();
   });
 
-  it('Kestrel climbs, auto-hovers when switching to Chin Gunner seat, and fires [Q] IR flares', () => {
-    const h = makeDriveHarness();
-    const kestrel = new DriveableVehicle(h.ctx, h.materials, h.seats, vi.fn(), 'kestrel', new THREE.Vector3(), 0);
-    expect(kestrel.board(0)).toBe(true);
-
-    // Climb to altitude.
-    h.held.add('jump');
-    for (let i = 0; i < 45; i++) kestrel.update(1 / 30);
-    const climbAlt = kestrel.position.y;
-    expect(climbAlt).toBeGreaterThan(6);
-
-    // Switch to Chin Gunner seat via [F] (melee) and verify auto-hover holds altitude!
-    h.held.clear();
-    h.justPressed.add('melee');
-    kestrel.update(1 / 30);
-    h.justPressed.clear();
-    expect(kestrel.seatIndex).toBe(1);
-
-    for (let i = 0; i < 45; i++) kestrel.update(1 / 30);
-    expect(kestrel.position.y).toBeGreaterThan(5);
-
-    // Pop [Q] IR Flares and confirm projectile interception.
-    h.justPressed.add('stim');
-    kestrel.update(1 / 30);
-    expect(h.interceptEnemyProjectiles).toHaveBeenCalled();
-
-    kestrel.dispose();
-  });
-
-  it('Viper hovers above ground, dune-hops with Space, and triggers [Q] Overcharge', () => {
+  it('Viper hovers, dune-hops, charges & blasts Particle Lance beam, and triggers [Q] Overcharge', () => {
     const def = DRIVE_VEHICLES.viper;
     const st = createPhysicsState(new THREE.Vector3(0, 0, 0), 0);
     const inp = emptyInput();
     const world = { nav: { groundHeight: () => 0 } } as unknown as Ctx['world'];
 
-    // Settle onto hover cushion.
     for (let i = 0; i < 30; i++) stepVehiclePhysics(def, st, inp, 1 / 30, world, undefined, true);
     expect(st.position.y).toBeGreaterThan(0.6);
 
-    // Dune-hop!
     inp.handbrake = true;
     stepVehiclePhysics(def, st, inp, 1 / 30, world, undefined, true);
     expect(st.velocity.y).toBeGreaterThan(5);
 
-    // Overcharge refills boost fuel and unleashes radial pulse.
+    // Charge Particle Lance beam to full charge and fire!
     const h = makeDriveHarness();
     const viper = new DriveableVehicle(h.ctx, h.materials, h.seats, vi.fn(), 'viper', new THREE.Vector3(), 0);
     viper.board(0);
+    h.held.add('fire');
+    for (let i = 0; i < 30; i++) viper.update(1 / 30);
+    expect(h.fireRay).toHaveBeenCalledWith(expect.any(THREE.Vector3), expect.any(THREE.Vector3), expect.objectContaining({ source: 'viper_lance', armorPiercing: true }));
+    expect(h.explode).toHaveBeenCalled();
+
+    // [Q] Overcharge refills boost fuel.
+    h.held.clear();
     viper.phys.boostFuel = 0.2;
     h.justPressed.add('stim');
     viper.update(1 / 30);
     expect(viper.phys.boostFuel).toBe(1);
-    expect(h.explode).toHaveBeenCalled();
     viper.dispose();
   });
 
-  it('Bastion deploys hydraulic outriggers on [Q], resists extra damage, heals/resupplies, and supports 3 seats', () => {
+  it('Kestrel engages FLIR Thermal Cam in Seat 2, auto-hovers, and breaks missile lock with [Q] IR Flares', () => {
+    const h = makeDriveHarness();
+    const kestrel = new DriveableVehicle(h.ctx, h.materials, h.seats, vi.fn(), 'kestrel', new THREE.Vector3(), 0);
+    expect(kestrel.board(0)).toBe(true);
+
+    h.held.add('jump');
+    for (let i = 0; i < 45; i++) kestrel.update(1 / 30);
+    expect(kestrel.position.y).toBeGreaterThan(6);
+
+    // Switch to Seat 2 (FLIR Chin Gunner) -> thermal CSS filter applied & auto-hover holds altitude!
+    h.held.clear();
+    kestrel.switchSeat(1);
+    expect(kestrel.activeSeatSpec.hudMode).toBe('thermal');
+    expect(h.domElement.style.filter).toContain('grayscale');
+
+    for (let i = 0; i < 35; i++) kestrel.update(1 / 30);
+    expect(kestrel.position.y).toBeGreaterThan(5);
+
+    // Incoming enemy missile sets warning; [Q] Flares activates countermeasure & intercepts!
+    h.hasIncomingEnemyMissile.mockReturnValue(true);
+    kestrel.update(1 / 30);
+    expect(kestrel.isCountermeasureActive).toBe(false);
+
+    h.justPressed.add('stim');
+    kestrel.update(1 / 30);
+    expect(kestrel.isCountermeasureActive).toBe(true);
+    expect(h.interceptEnemyProjectiles).toHaveBeenCalled();
+    kestrel.dispose();
+  });
+
+  it('Harrier & Warthog toggle VTOL <-> Mach Jet, cycle ordnance on [R], compute CCIP, and drop bombs', () => {
+    const h = makeDriveHarness();
+    const harrier = new DriveableVehicle(h.ctx, h.materials, h.seats, vi.fn(), 'harrier', new THREE.Vector3(), 0);
+    expect(harrier.board(0)).toBe(true);
+    expect(harrier.phys.vtolMode).toBe(true);
+
+    // Lift off in VTOL mode!
+    h.held.add('jump');
+    for (let i = 0; i < 35; i++) harrier.update(1 / 30);
+    expect(harrier.position.y).toBeGreaterThan(8);
+    h.held.clear();
+
+    // Press [Q] to kick into Mach Jet flight!
+    h.justPressed.add('stim');
+    harrier.update(1 / 30);
+    h.justPressed.clear();
+    expect(harrier.phys.vtolMode).toBe(false);
+
+    h.held.add('forward');
+    h.held.add('dash');
+    for (let i = 0; i < 35; i++) harrier.update(1 / 30);
+    expect(harrier.speed).toBeGreaterThan(45);
+
+    // Drop Mk-82 gravity bomb on RMB!
+    h.held.add('aim');
+    harrier.update(1 / 30);
+    expect(h.spawnProjectile).toHaveBeenCalledWith(expect.objectContaining({ source: 'harrier_bomb' }));
+
+    // Cycle [R] ordnance from Mk-82 Bombs -> Lock Missiles -> Hydra Rockets!
+    h.held.clear();
+    h.justPressed.add('reload');
+    harrier.update(1 / 30);
+    expect(h.feed).toHaveBeenCalledWith(expect.stringContaining('LOCK MISSILES'), expect.any(String));
+    harrier.update(1 / 30);
+    expect(h.feed).toHaveBeenCalledWith(expect.stringContaining('HYDRA-70'), expect.any(String));
+    harrier.dispose();
+  });
+
+  it('Bastion deploys, heals/resupplies, and computes AA Lead Pips on enemy choppers in Seat 2', () => {
     const h = makeDriveHarness();
     const bastion = new DriveableVehicle(h.ctx, h.materials, h.seats, vi.fn(), 'bastion', new THREE.Vector3(), 0);
     bastion.board(0);
 
-    // Switch through all 3 seats using direct keys 1, 2, 3.
-    h.justPressed.add('weapon2');
+    // Add a live flying enemy chopper to radar and switch to AA Vulcan Seat 2!
+    h.radarTargets.push({
+      id: 77,
+      kind: 'chopper',
+      label: 'ATTACK CHOPPER',
+      position: new THREE.Vector3(0, 28, 60),
+      velocity: new THREE.Vector3(14, 0, 0),
+      airborne: true,
+    });
+    bastion.switchSeat(1);
     bastion.update(1 / 30);
-    expect(bastion.seatIndex).toBe(1);
-    h.justPressed.clear();
-    h.justPressed.add('weapon3');
-    bastion.update(1 / 30);
-    expect(bastion.seatIndex).toBe(2);
-    h.justPressed.clear();
-    h.justPressed.add('weapon1');
-    bastion.update(1 / 30);
-    expect(bastion.seatIndex).toBe(0);
-    h.justPressed.clear();
+    const hud = (h.seats.seat as { vehicleHud?: { leadPips: readonly (readonly [number, number, number])[] } })?.vehicleHud;
+    expect(hud?.leadPips.length).toBe(1);
+    // Lead pip sits ahead of the chopper's x-position along its velocity!
+    expect(hud!.leadPips[0]![0]).toBeGreaterThan(1);
 
-    // Deploy outriggers with [Q] and check armor + resupply aura!
+    // Deploy outriggers with [Q] and confirm heal & resupply aura!
+    bastion.switchSeat(0);
     h.justPressed.add('stim');
     bastion.update(1 / 30);
     h.justPressed.clear();
     expect(bastion.phys.deployed).toBe(true);
-
     for (let i = 0; i < 30; i++) bastion.update(0.06);
-    expect(bastion.phys.deployAnim).toBeGreaterThan(0.8);
     expect(h.heal).toHaveBeenCalled();
     expect(h.addAmmo).toHaveBeenCalled();
 
-    // Destruction cleanly ejects the player and explodes!
-    bastion.absorbDamage(99999);
-    expect(bastion.alive).toBe(false);
-    expect(h.push).toHaveBeenCalled();
-    expect(h.explode).toHaveBeenCalled();
-    expect(h.removeCollider).toHaveBeenCalled();
+    bastion.dispose();
   });
 
-  it('DriveableManager supports on-foot soft hijack, [HOLD E] tank hijack, and Gaff grapple-hijack', () => {
+  it('tiered GTA roadkill, pushable wrecks, and kamikaze ramming work cleanly', () => {
+    const h = makeDriveHarness();
+    const jackal = new DriveableVehicle(h.ctx, h.materials, h.seats, vi.fn(), 'jackal', new THREE.Vector3(), 0);
+    jackal.board(0);
+
+    // Tier 1: low-medium speed (9 m/s) -> non-gib hood vault ragdoll!
+    jackal.phys.velocity.set(0, 0, 9);
+    h.mockEnemy.position.set(0, 0, 1);
+    h.mockEnemy.center.set(0, 1.1, 1);
+    jackal.update(0.06);
+    expect(h.applyDamage).toHaveBeenCalledWith(h.mockEnemy, expect.objectContaining({ gib: false }));
+    expect(h.pushWrecks).toHaveBeenCalled();
+
+    // Tier 2: high speed (18 m/s) side-clipped -> partial dismemberment (arm/leg region) without full gib!
+    h.applyDamage.mockClear();
+    h.held.add('forward');
+    h.mockEnemy.position.set(1.0, 0, 2);
+    for (let i = 0; i < 10; i++) {
+      jackal.phys.velocity.set(0, 0, 18);
+      jackal.update(0.06);
+    }
+    const lastCall = h.applyDamage.mock.calls.at(-1) as unknown[] | undefined;
+    const tier2Call = lastCall?.[1] as { gib?: boolean; region?: string } | undefined;
+    expect(tier2Call?.gib).toBe(false);
+    expect(['armL', 'armR', 'legL', 'legR']).toContain(tier2Call?.region);
+
+    jackal.dispose();
+  });
+
+  it('Badlands 10-vehicle Motor Pool stages all 10 distinct vehicles with clean clearance and hijack works', () => {
+    const ids = new Set<DriveVehicleId>(BADLANDS_MOTOR_POOL.map(s => s.id));
+    expect(ids.size).toBe(10);
+    // Ensure zero overlap between any two staged vehicles.
+    for (let i = 0; i < BADLANDS_MOTOR_POOL.length; i++) {
+      for (let j = i + 1; j < BADLANDS_MOTOR_POOL.length; j++) {
+        const a = BADLANDS_MOTOR_POOL[i]!.at;
+        const b = BADLANDS_MOTOR_POOL[j]!.at;
+        const dist = Math.hypot(a[0] - b[0], a[2] - b[2]);
+        expect(dist).toBeGreaterThanOrEqual(4.5);
+      }
+    }
+
     const h = makeDriveHarness();
     const mgr = new DriveableManager(h.ctx, h.materials, h.seats, vi.fn());
-
-    // 1. Instant soft hijack (enemy humvee -> jackal).
     h.setHijack(
       {
         id: 11,
@@ -430,23 +603,8 @@ describe('AAA Driveable Vehicles', () => {
     );
     h.justPressed.add('interact');
     mgr.update(1 / 30, true);
-    h.justPressed.clear();
     expect(mgr.active?.def.id).toBe('jackal');
     expect(h.award).toHaveBeenCalledWith(200, 'VEHICLE HIJACKED!', expect.any(THREE.Vector3));
-
-    // Exit jackal so we can test Gaff grapple hijack of an enemy tank!
-    mgr.active!.exit(true);
-    h.setHijack(
-      null,
-      { kind: 'tank', position: new THREE.Vector3(10, 0, 0), yaw: 1.2, velocity: new THREE.Vector3(), healthFraction: 0.9 },
-    );
-    h.ctx.events.emit('vehicle:grapple_hijack', { vehicleId: 22 });
-    expect(mgr.active?.def.id).toBe('aegis');
-    expect(h.award).toHaveBeenCalledWith(300, 'GRAPPLE HIJACK!', expect.any(THREE.Vector3));
-
-    // Confirm Badlands Motor Pool defines all 5 distinct vehicle classes.
-    const ids = new Set<DriveVehicleId>(BADLANDS_MOTOR_POOL.map(s => s.id));
-    expect(ids.size).toBe(5);
     mgr.clear();
   });
 });

@@ -1,7 +1,7 @@
 /**
  * Manages all player-driveable vehicles on the map, world boarding prompts, live enemy vehicle
  * hijacking (both on-foot `[E]` / `[HOLD E]` on tanks AND mid-air Gaff harpoon grapple-hijacking),
- * Badlands 5-vehicle Motor Pool staging, Test Range showcase vehicles, and `?vehicle=` quick-launch.
+ * Badlands 10-vehicle Motor Pool & Airbase Apron staging, Test Range showcase vehicles, and `?vehicle=`.
  */
 import * as THREE from 'three';
 import type { Ctx } from '../../core/contracts';
@@ -14,7 +14,7 @@ import { DRIVE_VEHICLES, VEHICLE_ASKED } from './data';
 import { HIJACK_MAP, type DriveVehicleId } from './types';
 import { DriveableVehicle } from './vehicle';
 
-/** Badlands 5-vehicle Motor Pool staged cleanly around the wide central desert apron (clear of roads & Frame pad). */
+/** Badlands 10-vehicle Motor Pool & Airbase Apron (West ground/bikes crescent + East armor/airfield apron, zero overlap). */
 export interface MotorPoolSlot {
   readonly slot: string;
   readonly id: DriveVehicleId;
@@ -23,28 +23,41 @@ export interface MotorPoolSlot {
 }
 
 export const BADLANDS_MOTOR_POOL: readonly MotorPoolSlot[] = [
-  { slot: 'pool.viper',   id: 'viper',   at: [-4.8, 0, 5.2],   yaw: -2.65 },
-  { slot: 'pool.jackal',  id: 'jackal',  at: [-11.5, 0, 0.5],  yaw: -2.55 },
-  { slot: 'pool.aegis',   id: 'aegis',   at: [-15.5, 0, -10.5], yaw: -2.35 },
-  { slot: 'pool.bastion', id: 'bastion', at: [11.5, 0, -11.5], yaw: 2.45 },
-  { slot: 'pool.kestrel', id: 'kestrel', at: [14.5, 0, 2.5],   yaw: 2.65 },
+  // West Light & Armored Crescent
+  { slot: 'pool.viper',    id: 'viper',    at: [-3.0, 0, 6.4],    yaw: -2.68 },
+  { slot: 'pool.moto',     id: 'moto',     at: [-9.2, 0, 2.0],    yaw: -2.55 },
+  { slot: 'pool.quad',     id: 'quad',     at: [-12.8, 0, -2.5],  yaw: -2.48 },
+  { slot: 'pool.jackal',   id: 'jackal',   at: [-15.2, 0, -7.8],  yaw: -2.42 },
+  { slot: 'pool.aegis',    id: 'aegis',    at: [-19.5, 0, -15.5], yaw: -2.25 },
+  // East Heavy Guntruck, Rotorcraft & VTOL/Attack Jet Apron
+  { slot: 'pool.kestrel',  id: 'kestrel',  at: [14.5, 0, 3.2],    yaw: 2.68 },
+  { slot: 'pool.bastion',  id: 'bastion',  at: [11.8, 0, -9.2],   yaw: 2.48 },
+  { slot: 'pool.valkyrie', id: 'valkyrie', at: [22.8, 0, -4.5],   yaw: 2.55 },
+  { slot: 'pool.harrier',  id: 'harrier',  at: [19.0, 0, -20.5],  yaw: 2.35 },
+  { slot: 'pool.warthog',  id: 'warthog',  at: [4.5, 0, -25.0],   yaw: 2.85 },
 ];
 
-/** Test Range open-apron vehicle showcase lineup (south-east of player spawn, clear of target lanes). */
+/** Test Range open-apron 10-vehicle showcase lineup. */
 const RANGE_MOTOR_POOL: readonly MotorPoolSlot[] = [
-  { slot: 'range.jackal',  id: 'jackal',  at: [-10, 0, -8],  yaw: 0.35 },
-  { slot: 'range.viper',   id: 'viper',   at: [-5, 0, -11],  yaw: 0.25 },
-  { slot: 'range.aegis',   id: 'aegis',   at: [-17, 0, -13], yaw: 0.45 },
-  { slot: 'range.bastion', id: 'bastion', at: [12, 0, -11],  yaw: -0.35 },
-  { slot: 'range.kestrel', id: 'kestrel', at: [18, 0, -6],   yaw: -0.55 },
+  { slot: 'range.viper',    id: 'viper',    at: [-5, 0, -10],   yaw: 0.25 },
+  { slot: 'range.moto',     id: 'moto',     at: [-9, 0, -10],   yaw: 0.3 },
+  { slot: 'range.quad',     id: 'quad',     at: [-13, 0, -10],  yaw: 0.35 },
+  { slot: 'range.jackal',   id: 'jackal',   at: [-18, 0, -12],  yaw: 0.42 },
+  { slot: 'range.aegis',    id: 'aegis',    at: [-24, 0, -16],  yaw: 0.5 },
+  { slot: 'range.bastion',  id: 'bastion',  at: [11, 0, -11],   yaw: -0.35 },
+  { slot: 'range.kestrel',  id: 'kestrel',  at: [18, 0, -8],    yaw: -0.52 },
+  { slot: 'range.valkyrie', id: 'valkyrie', at: [26, 0, -14],   yaw: -0.62 },
+  { slot: 'range.harrier',  id: 'harrier',  at: [15, 0, -22],   yaw: -0.25 },
+  { slot: 'range.warthog',  id: 'warthog',  at: [0, 0, -24],    yaw: 0.05 },
 ];
 
-const BOARD_REACH = 5.6;
+const BOARD_REACH = 5.8;
 const HIJACK_REACH = 6.4;
 const TANK_HOLD_SECONDS = 0.45;
 const HIJACK_BONUS = 200;
 const GRAPPLE_HIJACK_BONUS = 300;
-const MAX_PLAYER_VEHICLES = 12;
+const MAX_PLAYER_VEHICLES = 18;
+const EXIT_REBOARD_COOLDOWN = 0.24;
 
 const _pos = new THREE.Vector3();
 
@@ -52,6 +65,7 @@ export class DriveableManager {
   readonly vehicles: DriveableVehicle[] = [];
   private hijackHoldId = -1;
   private hijackHoldElapsed = 0;
+  private reboardCooldown = 0;
   private unprompt: (() => void) | null = null;
   private promptKey = '';
   private readonly promptPos = new THREE.Vector3();
@@ -62,12 +76,10 @@ export class DriveableManager {
     private readonly seats: SeatRig,
     private readonly holster: () => void,
   ) {
-    // Gaff harpoon grapple-hijack event: reel right into a moving enemy truck/tank/chopper and take the wheel!
     ctx.events.on('vehicle:grapple_hijack', ({ vehicleId }) => {
       this.performHijack(vehicleId, true);
     });
 
-    // Stage Badlands Motor Pool, Range fleet, or `?vehicle=` instant-board on every run start.
     ctx.events.on('run:start', () => {
       this.clear();
       if (VEHICLE_ASKED) {
@@ -85,7 +97,6 @@ export class DriveableManager {
       }
     });
 
-    // Replace destroyed Badlands Motor Pool vehicles between waves so the garage stays stocked!
     ctx.events.on('wave:clear', () => {
       if (ACTIVE.def.id !== 'badlands') return;
       let replaced = 0;
@@ -188,7 +199,10 @@ export class DriveableManager {
 
   /** Ticks all live vehicles and evaluates on-foot boarding & enemy hijacking prompts. */
   update(dt: number, canInteract: boolean): void {
-    // Prune dead vehicles.
+    if (this.reboardCooldown > 0) this.reboardCooldown = Math.max(0, this.reboardCooldown - dt);
+    const wasOccupied = this.seats.occupied;
+
+    // Prune dead vehicles and tick live vehicles.
     for (let i = this.vehicles.length - 1; i >= 0; i--) {
       const v = this.vehicles[i]!;
       if (!v.alive) {
@@ -198,7 +212,17 @@ export class DriveableManager {
       v.update(dt);
     }
 
-    if (!canInteract || this.seats.occupied || !this.ctx.player.alive) {
+    // CRITICAL FIX: If the player JUST exited a vehicle on this tick, arm a brief re-board cooldown
+    // and return immediately so the same `[E]` press NEVER re-boards the vehicle on the exact same frame!
+    if (wasOccupied && !this.seats.occupied) {
+      this.reboardCooldown = EXIT_REBOARD_COOLDOWN;
+      this.clearPrompt();
+      this.hijackHoldId = -1;
+      this.hijackHoldElapsed = 0;
+      return;
+    }
+
+    if (!canInteract || this.seats.occupied || this.reboardCooldown > 0 || !this.ctx.player.alive) {
       this.clearPrompt();
       this.hijackHoldId = -1;
       this.hijackHoldElapsed = 0;
@@ -233,7 +257,6 @@ export class DriveableManager {
         return;
       }
 
-      // Soft ground vehicles & rotorcraft hijack instantaneously on [E]!
       this.setPrompt(hijackTarget.position, 2.5, `${key} HIJACK ${hijackTarget.label}`, '#ffd166');
       if (input.pressed('interact')) {
         this.performHijack(hijackTarget.id, false);
@@ -246,7 +269,7 @@ export class DriveableManager {
 
     // 2. Check for nearest parked friendly/player driveable vehicle to board!
     let best: DriveableVehicle | null = null;
-    let bestDist = BOARD_REACH;
+    let bestDist = Infinity;
     for (const v of this.vehicles) {
       if (!v.alive || v.occupied) continue;
       const d = v.position.distanceTo(player.position);
@@ -257,7 +280,8 @@ export class DriveableManager {
       }
     }
     if (best) {
-      const verb = best.def.category === 'helicopter' ? 'FLY' : best.def.category === 'hover' ? 'RIDE' : 'DRIVE';
+      const cat = best.def.category;
+      const verb = cat === 'helicopter' || cat === 'jet' ? 'FLY' : cat === 'hover' || cat === 'moto' ? 'RIDE' : 'DRIVE';
       this.setPrompt(best.position, best.def.halfHeight * 2 + 1.1, `${key} ${verb} ${best.def.name}`, best.def.color);
       if (input.pressed('interact')) {
         this.clearPrompt();
@@ -274,6 +298,7 @@ export class DriveableManager {
     this.vehicles.length = 0;
     this.hijackHoldId = -1;
     this.hijackHoldElapsed = 0;
+    this.reboardCooldown = 0;
   }
 
   describe(): Record<string, unknown> {

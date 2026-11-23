@@ -243,11 +243,15 @@ export class LabPanel {
       for (const kind of VEHICLE_ORDER) this.button(vehicles, kind.toUpperCase(), () => this.on.vehicle(kind));
       this.el.appendChild(vehicles);
     }
-    const driveRow = el('div', 'lab-row');
-    for (const id of ['jackal', 'aegis', 'kestrel', 'viper', 'bastion'] as const) {
-      this.button(driveRow, id.toUpperCase(), () => this.on.driveable(id));
+    const driveRow1 = el('div', 'lab-row');
+    for (const id of ['jackal', 'quad', 'moto', 'viper', 'aegis'] as const) {
+      this.button(driveRow1, id.toUpperCase(), () => this.on.driveable(id));
     }
-    this.el.appendChild(driveRow);
+    const driveRow2 = el('div', 'lab-row');
+    for (const id of ['bastion', 'kestrel', 'valkyrie', 'harrier', 'warthog'] as const) {
+      this.button(driveRow2, id.toUpperCase(), () => this.on.driveable(id));
+    }
+    this.el.append(driveRow1, driveRow2);
     const clear = el('div', 'lab-row');
     this.button(clear, 'Mounted gun', () => this.on.emplacement());
     this.button(clear, 'Wall segment', () => this.on.wall());

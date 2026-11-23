@@ -100,8 +100,13 @@
 .gn.boarding .gn-reticle, .gn.boarding .gn-spin, .gn.boarding .gn-read, .gn.boarding .gn-arms, .gn.boarding .gn-hint, .gn.boarding .gn-time { display: none; }
 
 /* What the seat replaces. Score, kill feed, combo, banners and hit markers stay: this is still the player's run. */
-.hud.seated:not(:has(> .gn.tone-mount)) .vitals, .hud.seated .arms, .hud.seated .tach, .hud.seated .callins, .hud.seated .ci.sn,
-.hud.seated .lowframe, .hud.seated .xh-reticle, .hud.seated .xh-tick, .hud.seated .xh-prompt, .hud.seated .xh-charge { display: none; }
+.hud.seated:not(:has(> .gn.tone-mount)) .vitals,
+.hud.seated:not(:has(> .gn[data-vmode="passenger"])) .arms,
+.hud.seated .tach, .hud.seated .callins, .hud.seated .ci.sn,
+.hud.seated .lowframe,
+.hud.seated:not(:has(> .gn[data-vmode="passenger"])) .xh-reticle,
+.hud.seated:not(:has(> .gn[data-vmode="passenger"])) .xh-tick,
+.hud.seated .xh-prompt, .hud.seated .xh-charge { display: none; }
 
 /* A gun on the ground. The body is out in the open, so health stays up (above), and nothing here is a sensor's. */
 .gn.tone-mount .gn-corner, .gn.tone-mount .gn-tags, .gn.tone-mount .gn-time, .gn.tone-mount .gn-read { display: none; }
@@ -199,9 +204,9 @@
 .gn.tone-vehicle { --gn: #f3f7fa; --gn-dim: rgba(243, 247, 250, 0.62); }
 .gn.tone-vehicle .gn-corner, .gn.tone-vehicle .gn-time, .gn.tone-vehicle .gn-body { display: none; }
 .gn.tone-vehicle .gn-top { top: 4.4rem; }
-.gn.tone-vehicle .gn-arms { left: 5.5rem; bottom: 8.5rem; gap: 0.55rem; width: 22rem; }
+.gn.tone-vehicle .gn-arms { left: 3.5rem; bottom: 11.8rem; gap: 0.55rem; width: 22rem; }
 .gn.tone-vehicle .gn-wammo { font-size: 2.1rem; }
-.gn.tone-vehicle .gn-read { right: 5.5rem; bottom: 8.5rem; }
+.gn.tone-vehicle .gn-read { right: 3.5rem; bottom: 11.8rem; }
 .gn.tone-vehicle .gn-spin { top: calc(50% + 5.6rem); }
 .gn.tone-vehicle .gn-spin::before { content: 'HEAT'; position: absolute; left: 0; right: 0; bottom: 0.65rem; text-align: center; font-size: 0.9rem; color: var(--gn-dim); }
 .gn.tone-vehicle.hot .gn-spin::before { content: 'OVERHEAT'; color: var(--blood); }
@@ -239,5 +244,219 @@
 }
 .gn-veh-pill.active { background: rgba(34, 197, 94, 0.24); border-color: #22c55e; color: #86efac; }
 .gn-veh-pill.cool { opacity: 0.55; }
+
+/* Dedicated 1P Vehicle Optics & Reticle Themes */
+.gn.tone-vehicle[data-vmode="fighter"] {
+  --gn: #52ff88;
+  --gn-dim: rgba(82, 255, 136, 0.62);
+  --gn-hot: #52ff88;
+  text-shadow: 0 0 0.55rem rgba(82, 255, 136, 0.55);
+}
+.gn.tone-vehicle[data-vmode="fighter"] .gn-veh {
+  border-color: rgba(82, 255, 136, 0.45);
+  background: rgba(4, 18, 10, 0.58);
+}
+.gn.tone-vehicle[data-vmode="fighter"] .gn-veh-num { color: #52ff88; }
+.gn.tone-vehicle[data-vmode="fighter"] .gn-ret { stroke-width: 1.8; }
+
+.gn.tone-vehicle[data-vmode="tank"] {
+  --gn: #ffd570;
+  --gn-dim: rgba(255, 213, 112, 0.58);
+}
+.gn.tone-vehicle[data-vmode="tank"] .gn-reticle { width: 28rem; height: 28rem; margin: -14rem 0 0 -14rem; }
+.gn.tone-vehicle[data-vmode="tank"] .gn-corner { display: block; border-color: rgba(255, 213, 112, 0.38); }
+
+.gn.tone-vehicle[data-vmode="aa"] {
+  --gn: #6ef29e;
+  --gn-dim: rgba(110, 242, 158, 0.58);
+}
+.gn.tone-vehicle[data-vmode="aa"] .gn-reticle { width: 22rem; height: 22rem; margin: -11rem 0 0 -11rem; }
+
+.gn.tone-vehicle[data-vmode="mortar"] {
+  --gn: #a5e6ff;
+  --gn-dim: rgba(165, 230, 255, 0.6);
+}
+.gn.tone-vehicle[data-vmode="mortar"] .gn-reticle { width: 24rem; height: 24rem; margin: -12rem 0 0 -12rem; }
+
+.gn.tone-vehicle[data-vmode="thermal"] .gn-corner { display: block; border-color: rgba(230, 242, 236, 0.5); }
+.gn.tone-vehicle[data-vmode="thermal"] .gn-reticle { width: 20rem; height: 20rem; margin: -10rem 0 0 -10rem; }
+
+.gn.tone-vehicle[data-vmode="passenger"] .gn-arms,
+.gn.tone-vehicle[data-vmode="passenger"] .gn-spin { display: none; }
+
+/* Green Military Fighter Jet HUD (Harrier & Warthog) */
+.gn-jet { display: none; position: absolute; inset: 0; pointer-events: none; }
+.gn-jet-clip {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 34rem;
+  height: 28rem;
+  margin: -14rem 0 0 -17rem;
+  overflow: hidden;
+  border-left: 0.12rem solid rgba(82, 255, 136, 0.35);
+  border-right: 0.12rem solid rgba(82, 255, 136, 0.35);
+}
+.gn-jet-ladder {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 30rem;
+  height: 30rem;
+  margin: -15rem 0 0 -15rem;
+  will-change: transform;
+}
+.gn-jet-svg { width: 100%; height: 100%; fill: none; stroke: #52ff88; stroke-width: 1.8; opacity: 0.85; }
+.gn-jet-tape {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.65rem 0.9rem;
+  border: 0.14rem solid rgba(82, 255, 136, 0.65);
+  background: rgba(4, 22, 12, 0.46);
+  color: #52ff88;
+}
+.gn-jet-spd { left: calc(50% - 25.5rem); min-width: 6.4rem; }
+.gn-jet-alt { right: calc(50% - 25.5rem); min-width: 6.4rem; }
+.gn-jet-tag { font-size: 0.85rem; letter-spacing: 0.12em; opacity: 0.72; }
+.gn-jet-num { font: 2.35rem/1 var(--display); color: #52ff88; }
+.gn-jet-mode {
+  position: absolute;
+  left: 50%;
+  top: calc(50% - 17.5rem);
+  transform: translateX(-50%);
+  padding: 0.28rem 1.05rem;
+  border: 0.12rem solid #52ff88;
+  background: rgba(4, 24, 12, 0.62);
+  color: #52ff88;
+  font: 700 1.05rem/1.1 var(--mono);
+  letter-spacing: 0.16em;
+}
+
+/* Projected 3D Tactical Reticles: CCIP Bomb Impact, Missile Lock Diamond, AA Lead Pips */
+.gn-ccip {
+  display: none;
+  position: absolute;
+  left: -1.6rem;
+  top: -1.6rem;
+  width: 3.2rem;
+  height: 3.2rem;
+  border: 0.18rem solid #52ff88;
+  border-radius: 50%;
+  box-shadow: 0 0 0.8rem rgba(82, 255, 136, 0.65);
+}
+.gn-ccip::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 0.42rem;
+  height: 0.42rem;
+  margin: -0.21rem 0 0 -0.21rem;
+  background: #52ff88;
+  border-radius: 50%;
+}
+.gn-ccip-lbl {
+  position: absolute;
+  left: 50%;
+  top: 3.5rem;
+  transform: translateX(-50%);
+  font-size: 0.85rem;
+  letter-spacing: 0.12em;
+  color: #52ff88;
+  white-space: nowrap;
+}
+
+.gn-lock {
+  display: none;
+  position: absolute;
+  left: -1.8rem;
+  top: -1.8rem;
+  width: 3.6rem;
+  height: 3.6rem;
+  border: 0.2rem solid #ff5a3a;
+  box-shadow: 0 0 1rem rgba(255, 90, 58, 0.65);
+}
+.gn-lock::before {
+  content: '';
+  position: absolute;
+  inset: 0.4rem;
+  border: 0.12rem solid #ffd166;
+  transform: rotate(45deg);
+}
+.gn-lock-lbl {
+  position: absolute;
+  left: 50%;
+  top: -1.65rem;
+  transform: translateX(-50%);
+  font-size: 0.85rem;
+  letter-spacing: 0.1em;
+  color: #ffd166;
+  white-space: nowrap;
+}
+
+.gn-lead {
+  display: none;
+  position: absolute;
+  left: -1.15rem;
+  top: -1.15rem;
+  width: 2.3rem;
+  height: 2.3rem;
+  border: 0.16rem solid #6ef29e;
+  border-radius: 50%;
+  box-shadow: 0 0 0.7rem rgba(110, 242, 158, 0.65);
+}
+.gn-lead::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 0.34rem;
+  height: 0.34rem;
+  margin: -0.17rem 0 0 -0.17rem;
+  background: #6ef29e;
+  border-radius: 50%;
+}
+
+/* Viper Particle Lance Charge Bar */
+.gn-charge {
+  display: none;
+  position: absolute;
+  left: 50%;
+  top: calc(50% + 7.4rem);
+  transform: translateX(-50%);
+  flex-direction: column;
+  align-items: center;
+  gap: 0.3rem;
+  width: 14rem;
+}
+.gn-charge-lbl { font-size: 0.9rem; letter-spacing: 0.14em; color: #38e8ff; }
+.gn-charge-bar { width: 100%; height: 0.48rem; background: rgba(6, 16, 26, 0.72); border: 0.1rem solid rgba(56, 232, 255, 0.55); }
+.gn-charge-fill { height: 100%; background: linear-gradient(90deg, #38e8ff, #ffffff); box-shadow: 0 0 0.9rem #38e8ff; transform-origin: 0 50%; }
+
+/* Pulsing Incoming Homing Missile Lock Warning */
+@keyframes gnMslPulse {
+  0%, 100% { opacity: 1; transform: translateX(-50%) scale(1); }
+  50% { opacity: 0.45; transform: translateX(-50%) scale(1.04); }
+}
+.gn-msl-warn {
+  display: none;
+  position: absolute;
+  left: 50%;
+  top: 10.6rem;
+  transform: translateX(-50%);
+  padding: 0.5rem 1.5rem;
+  background: rgba(155, 16, 14, 0.88);
+  border: 0.16rem solid #ff4a3a;
+  color: #fff4f2;
+  font: 700 1.25rem/1.1 var(--mono);
+  letter-spacing: 0.14em;
+  animation: gnMslPulse 0.42s ease-in-out infinite;
+}
+
 
 

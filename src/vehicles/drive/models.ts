@@ -10,6 +10,8 @@
  */
 import * as THREE from 'three';
 import { ModelBuilder, type ModelMaterials } from '../../progression/modelkit';
+import { warthogModel } from '../../progression/callins/warthog';
+import { UTILITY_AIRFRAME } from '../utilityModel';
 import { hull } from '../loft';
 import type { DriveVehicleId } from './types';
 
@@ -29,6 +31,10 @@ export interface VehicleModelRig {
   readonly resupplyRing: THREE.Mesh | null;
   readonly muzzles: Readonly<Record<'main' | 'coax' | 'podLeft' | 'podRight' | 'roof' | 'front' | 'rear', THREE.Object3D>>;
   readonly meshes: THREE.Object3D[];
+  /** Exterior canopy/turret parts hidden while in 1P so the camera never clips into vehicle geometry. */
+  readonly fpHideParts?: THREE.Object3D[];
+  /** Downward VTOL thruster cones visible when hovering in VTOL mode (Harrier / Warthog). */
+  readonly vtolGlow?: THREE.Object3D[];
 }
 
 const ALONG_X: readonly [number, number, number] = [0, 0, Math.PI / 2];
@@ -349,6 +355,7 @@ function buildAegis(materials: ModelMaterials): VehicleModelRig {
     resupplyRing: null,
     muzzles: { main: mMain, coax: mCoax, podLeft: mMain, podRight: mMain, roof: mRoof, front: mMain, rear: mRoof },
     meshes: collectMeshes(root),
+    fpHideParts: [barrel],
   };
 }
 
@@ -477,6 +484,7 @@ function buildKestrel(materials: ModelMaterials): VehicleModelRig {
     resupplyRing: null,
     muzzles: { main: mMain, coax: mMain, podLeft: mPodLeft, podRight: mPodRight, roof: mMain, front: mMain, rear: mMain },
     meshes: collectMeshes(root),
+    fpHideParts: [turret],
   };
 }
 
@@ -738,12 +746,422 @@ function buildBastion(materials: ModelMaterials): VehicleModelRig {
   };
 }
 
+// =============================================================================
+// 6. NOMAD — Unarmed 4WD Combat Quad ATV (Nimble Jumper + Rear Passenger Seat)
+// =============================================================================
+function buildQuad(materials: ModelMaterials): VehicleModelRig {
+  const root = new THREE.Group();
+  const body = new THREE.Group();
+  root.add(body);
+
+  const b = new ModelBuilder();
+  const OLIVE = '#4d5d3d';
+  const TAN = '#b69c6d';
+  const ACCENT = '#9cff57';
+
+  // Rugged tubular chassis & bash skidplate
+  b.box(0.86, 0.24, 1.85, STEEL, { at: [0, 0.56, 0] });
+  b.box(0.74, 0.14, 0.65, GUNMETAL, { at: [0, 0.48, 1.05], rot: [-0.42, 0, 0] });
+  // Sculpted angular fenders & fuel tank
+  b.box(1.18, 0.16, 0.82, OLIVE, { at: [0, 0.86, 0.68], rot: [0.1, 0, 0] });
+  b.box(1.18, 0.16, 0.85, OLIVE, { at: [0, 0.88, -0.72], rot: [-0.08, 0, 0] });
+  b.box(0.56, 0.34, 0.72, TAN, { at: [0, 0.96, 0.24] });
+  // Two-up ribbed rider + rear passenger saddle + steel rear grab-rack
+  b.box(0.5, 0.18, 1.08, '#1f2226', { at: [0, 0.94, -0.45] });
+  b.box(0.92, 0.08, 0.42, STEEL, { at: [0, 1.02, -1.04] });
+  b.box(0.84, 0.08, 0.34, STEEL, { at: [0, 1.0, 0.96] });
+  // Steering column, handlebars & LED headlights
+  b.cyl(0.035, 0.04, 0.48, 8, STEEL, { at: [0, 1.12, 0.6], rot: [-0.32, 0, 0] });
+  b.cyl(0.025, 0.025, 0.82, 8, CHROME, { at: [0, 1.28, 0.52], rot: ALONG_X });
+  for (const s of [-1, 1]) {
+    b.glow(new THREE.BoxGeometry(0.18, 0.1, 0.06), '#f0ffe0', 3.4, { at: [s * 0.3, 0.92, 1.12] });
+    b.glow(new THREE.BoxGeometry(0.14, 0.07, 0.05), '#ff3428', 2.4, { at: [s * 0.32, 0.92, -1.16] });
+    // Twin rear exhaust cans
+    b.cyl(0.055, 0.065, 0.46, 8, GUNMETAL, { at: [s * 0.24, 0.68, -1.02], rot: ALONG_Z });
+  }
+  b.glow(new THREE.BoxGeometry(0.24, 0.04, 0.04), ACCENT, 2.2, { at: [0, 1.14, 0.42] });
+  body.add(materials.group(b));
+
+  const boostGlow: THREE.Object3D[] = [];
+  for (const s of [-1, 1]) {
+    const flame = new THREE.Mesh(
+      new THREE.ConeGeometry(0.11, 0.65, 8),
+      new THREE.MeshBasicMaterial({ color: 0x9cff57, transparent: true, opacity: 0.85, toneMapped: false }),
+    );
+    flame.rotation.x = -Math.PI / 2;
+    flame.position.set(s * 0.24, 0.68, -1.52);
+    flame.visible = false;
+    body.add(flame);
+    boostGlow.push(flame);
+  }
+
+  // 4 chunky knobby ATV wheels
+  const wheelsFront: THREE.Group[] = [];
+  const wheelsRear: THREE.Group[] = [];
+  const wRad = 0.38;
+  for (const s of [-1, 1]) {
+    const wf = makeWheelGroup(materials, wRad, 0.3, TAN);
+    wf.position.set(s * 0.68, wRad, 0.78);
+    root.add(wf);
+    wheelsFront.push(wf);
+    const wr = makeWheelGroup(materials, wRad * 1.05, 0.34, TAN);
+    wr.position.set(s * 0.7, wRad * 1.05, -0.78);
+    root.add(wr);
+    wheelsRear.push(wr);
+  }
+
+  const mFront = makeMarker(body, 0, 1.0, 1.2);
+  return {
+    root,
+    body,
+    turret: null,
+    barrel: null,
+    barrelBaseZ: 0,
+    subTurret: null,
+    wheelsFront,
+    wheelsRear,
+    rotorMain: null,
+    rotorTail: null,
+    outriggers: [],
+    boostGlow,
+    resupplyRing: null,
+    muzzles: { main: mFront, coax: mFront, podLeft: mFront, podRight: mFront, roof: mFront, front: mFront, rear: mFront },
+    meshes: collectMeshes(root),
+  };
+}
+
+// =============================================================================
+// 7. RAZOR — Unarmed Combat Dirtbike / Motorcycle (Deep Lean Banking + Wheelie!)
+// =============================================================================
+function buildMoto(materials: ModelMaterials): VehicleModelRig {
+  const root = new THREE.Group();
+  const body = new THREE.Group();
+  root.add(body);
+
+  const b = new ModelBuilder();
+  const FAIRING = '#2b313a';
+  const CRIMSON = '#e0355d';
+
+  // Spine frame, V-twin engine block, fuel tank & aggressive front cowl
+  b.box(0.32, 0.42, 0.78, GUNMETAL, { at: [0, 0.62, 0.05] });
+  b.box(0.36, 0.26, 0.64, CRIMSON, { at: [0, 0.95, 0.25], rot: [-0.14, 0, 0] });
+  b.box(0.34, 0.16, 0.88, '#1a1d22', { at: [0, 0.9, -0.44], rot: [0.06, 0, 0] });
+  b.box(0.32, 0.3, 0.52, FAIRING, { at: [0, 1.04, 0.76], rot: [-0.36, 0, 0] });
+  // Raked telescopic front forks & handlebars
+  for (const s of [-1, 1]) {
+    b.cyl(0.032, 0.035, 0.92, 8, CHROME, { at: [s * 0.14, 0.78, 0.78], rot: [0.42, 0, 0] });
+    b.cyl(0.045, 0.055, 0.62, 8, STEEL, { at: [s * 0.2, 0.64, -0.78], rot: [Math.PI / 2 - 0.18, 0, 0] });
+  }
+  b.cyl(0.022, 0.022, 0.74, 8, STEEL, { at: [0, 1.18, 0.56], rot: ALONG_X });
+  b.glow(new THREE.BoxGeometry(0.2, 0.12, 0.06), '#fff4e0', 4.0, { at: [0, 1.02, 1.02] });
+  b.glow(new THREE.BoxGeometry(0.18, 0.07, 0.05), '#ff2a4a', 2.8, { at: [0, 0.96, -0.92] });
+  b.glow(new THREE.BoxGeometry(0.16, 0.04, 0.04), '#ff4f7a', 2.4, { at: [0, 1.14, 0.5] });
+  body.add(materials.group(b));
+
+  const boostGlow: THREE.Object3D[] = [];
+  for (const s of [-1, 1]) {
+    const flame = new THREE.Mesh(
+      new THREE.ConeGeometry(0.09, 0.78, 8),
+      new THREE.MeshBasicMaterial({ color: 0xff5a82, transparent: true, opacity: 0.9, toneMapped: false }),
+    );
+    flame.rotation.x = -Math.PI / 2;
+    flame.position.set(s * 0.2, 0.7, -1.42);
+    flame.visible = false;
+    body.add(flame);
+    boostGlow.push(flame);
+  }
+
+  // Front & rear oversized knobby motorcycle wheels (mounted on body so wheels lean WITH the bike!)
+  const wf = makeWheelGroup(materials, 0.42, 0.18, CRIMSON);
+  wf.position.set(0, 0.42, 0.96);
+  body.add(wf);
+  const wr = makeWheelGroup(materials, 0.42, 0.22, CRIMSON);
+  wr.position.set(0, 0.42, -0.92);
+  body.add(wr);
+
+  const mFront = makeMarker(body, 0, 0.95, 1.1);
+  return {
+    root,
+    body,
+    turret: null,
+    barrel: null,
+    barrelBaseZ: 0,
+    subTurret: null,
+    wheelsFront: [wf],
+    wheelsRear: [wr],
+    rotorMain: null,
+    rotorTail: null,
+    outriggers: [],
+    boostGlow,
+    resupplyRing: null,
+    muzzles: { main: mFront, coax: mFront, podLeft: mFront, podRight: mFront, roof: mFront, front: mFront, rear: mFront },
+    meshes: collectMeshes(root),
+  };
+}
+
+// =============================================================================
+// 8. VALKYRIE — Pilotable Door-Gunner Utility Chopper (Reuses Packmule Airframe!)
+// =============================================================================
+function buildValkyrie(materials: ModelMaterials): VehicleModelRig {
+  const root = new THREE.Group();
+  const body = new THREE.Group();
+  body.position.y = 1.65;
+  root.add(body);
+
+  const hb = new ModelBuilder();
+  UTILITY_AIRFRAME.build(hb);
+  const hullGroup = materials.group(hb);
+  body.add(hullGroup);
+
+  // Main & tail rotors from UTILITY_AIRFRAME spec
+  const rMainSpec = UTILITY_AIRFRAME.rotors[0]!;
+  const rmb = new ModelBuilder();
+  rMainSpec.build(rmb);
+  const rotorMain = materials.group(rmb);
+  rotorMain.position.set(rMainSpec.at[0], rMainSpec.at[1], rMainSpec.at[2]);
+  body.add(rotorMain);
+
+  const rTailSpec = UTILITY_AIRFRAME.rotors[1]!;
+  const rtb = new ModelBuilder();
+  rTailSpec.build(rtb);
+  const rotorTail = materials.group(rtb);
+  rotorTail.position.set(rTailSpec.at[0], rTailSpec.at[1], rTailSpec.at[2]);
+  body.add(rotorTail);
+
+  const boostGlow: THREE.Object3D[] = [];
+  for (const s of [-1, 1]) {
+    const flame = new THREE.Mesh(
+      new THREE.ConeGeometry(0.18, 1.1, 8),
+      new THREE.MeshBasicMaterial({ color: 0xff9c3b, transparent: true, opacity: 0.85, toneMapped: false }),
+    );
+    flame.rotation.x = -Math.PI / 2;
+    flame.position.set(s * 0.62, 1.5, -2.7);
+    flame.visible = false;
+    body.add(flame);
+    boostGlow.push(flame);
+  }
+
+  const mDoor = makeMarker(body, 1.55, -0.1, 0.2);
+  const mNose = makeMarker(body, 0, -0.2, 4.8);
+  return {
+    root,
+    body,
+    turret: null,
+    barrel: null,
+    barrelBaseZ: 0,
+    subTurret: null,
+    wheelsFront: [],
+    wheelsRear: [],
+    rotorMain,
+    rotorTail,
+    outriggers: [],
+    boostGlow,
+    resupplyRing: null,
+    muzzles: { main: mNose, coax: mDoor, podLeft: mDoor, podRight: mDoor, roof: mDoor, front: mNose, rear: mDoor },
+    meshes: collectMeshes(root),
+  };
+}
+
+// =============================================================================
+// 9. HARRIER — VTOL Jump-Jet Fighter (Swept Wings + Swivel Nozzles + Ordnance)
+// =============================================================================
+function buildHarrier(materials: ModelMaterials): VehicleModelRig {
+  const root = new THREE.Group();
+  const body = new THREE.Group();
+  body.position.y = 1.45;
+  root.add(body);
+
+  const b = new ModelBuilder();
+  const JET_GREY = '#4c5762';
+  const DARK_GREY = '#2c343d';
+  const LIGHT_GREY = '#73808c';
+
+  // Sleek tapered fuselage
+  b.solid(hull([
+    { z: -5.4, w: 0.24, top: 0.42, bottom: -0.22 },
+    { z: -2.4, w: 0.78, top: 0.82, bottom: -0.58 },
+    { z: 0.8, w: 0.94, top: 0.88, bottom: -0.66 },
+    { z: 3.4, w: 0.68, top: 0.56, bottom: -0.52 },
+    { z: 5.6, w: 0.14, top: -0.06, bottom: -0.28 },
+  ]), JET_GREY);
+
+  // Bubble fighter canopy (tagged in separate group so 1P cockpit never clips glass!)
+  const canopyB = new ModelBuilder();
+  canopyB.solid(hull([
+    { z: 0.6, w: 0.56, top: 1.32, bottom: 0.78 },
+    { z: 2.2, w: 0.52, top: 1.42, bottom: 0.68 },
+    { z: 3.4, w: 0.34, top: 0.95, bottom: 0.45 },
+  ]), GLASS);
+  canopyB.box(0.05, 0.06, 2.5, DARK_GREY, { at: [0, 1.36, 1.9], rot: [0.16, 0, 0] });
+  const canopyGroup = materials.group(canopyB);
+  body.add(canopyGroup);
+
+  // Side Pegasus turbofan intakes & 4 vectored-thrust VTOL nozzles
+  for (const s of [-1, 1]) {
+    b.box(0.56, 0.92, 2.4, DARK_GREY, { at: [s * 0.98, 0.12, 1.1] });
+    b.box(0.46, 0.78, 0.15, '#0d1014', { at: [s * 0.98, 0.12, 2.32] });
+    // High swept anhedral delta wings
+    b.box(4.2, 0.15, 2.4, JET_GREY, { at: [s * 2.55, 0.42, -0.35], rot: [0, s * -0.46, s * -0.14] });
+    b.box(1.4, 0.12, 1.2, LIGHT_GREY, { at: [s * 4.55, 0.18, -1.55], rot: [0, s * -0.52, s * -0.16] });
+    // Tailplanes
+    b.box(1.9, 0.11, 1.1, JET_GREY, { at: [s * 1.1, 0.14, -4.6], rot: [0, s * -0.35, s * -0.12] });
+    // Underwing ordnance pylons: Mk-82 bombs & Sidewinder missiles
+    for (const wx of [1.85, 3.15]) {
+      b.box(0.1, 0.28, 0.65, DARK_GREY, { at: [s * wx, 0.18, -0.35] });
+      b.cyl(0.14, 0.14, 1.85, 8, '#3d4a35', { at: [s * wx, -0.04, -0.25], rot: ALONG_Z });
+      b.solid(new THREE.ConeGeometry(0.14, 0.38, 8), '#e6c24a', { at: [s * wx, -0.04, 0.85], rot: ALONG_Z });
+    }
+    // Vectored nozzles (front + rear per side)
+    for (const nz of [0.45, -1.25]) {
+      b.cyl(0.22, 0.26, 0.42, 10, STEEL, { at: [s * 0.96, -0.32, nz], rot: [0.35, 0, s * 0.25] });
+    }
+    // Wingtip nav lights
+    b.glow(new THREE.SphereGeometry(0.1, 6, 6), s > 0 ? '#ff2020' : '#24ff6a', 5, { at: [s * 5.2, 0.08, -1.9] });
+  }
+  // Vertical stabilizer fin + GAU-12 ventral gun pod
+  b.box(0.16, 2.25, 1.85, JET_GREY, { at: [0, 1.48, -4.35], rot: [-0.32, 0, 0] });
+  b.box(0.18, 0.45, 0.72, '#46ff9a', { at: [0, 2.42, -4.72] });
+  b.cyl(0.16, 0.18, 2.2, 8, STEEL, { at: [0, -0.72, 1.45], rot: ALONG_Z });
+  // Landing gear struts
+  b.box(0.14, 0.92, 0.16, STEEL, { at: [0, -0.95, 2.1] });
+  b.box(0.16, 0.88, 0.22, STEEL, { at: [0, -0.92, -1.2] });
+  b.cyl(0.24, 0.24, 0.18, 10, TYRE, { at: [0, -1.32, 2.1], rot: ALONG_X });
+  b.cyl(0.28, 0.28, 0.24, 10, TYRE, { at: [0, -1.3, -1.2], rot: ALONG_X });
+  body.add(materials.group(b));
+
+  const boostGlow: THREE.Object3D[] = [];
+  const vtolGlow: THREE.Object3D[] = [];
+  for (const s of [-1, 1]) {
+    // Aft supersonic afterburner flames
+    const aft = new THREE.Mesh(
+      new THREE.ConeGeometry(0.26, 2.6, 10),
+      new THREE.MeshBasicMaterial({ color: 0x5ae8ff, transparent: true, opacity: 0.9, toneMapped: false }),
+    );
+    aft.rotation.x = -Math.PI / 2;
+    aft.position.set(s * 0.92, -0.22, -2.7);
+    aft.visible = false;
+    body.add(aft);
+    boostGlow.push(aft);
+
+    // Downward VTOL hover thruster plumes
+    for (const nz of [0.45, -1.25]) {
+      const vt = new THREE.Mesh(
+        new THREE.ConeGeometry(0.22, 1.65, 8),
+        new THREE.MeshBasicMaterial({ color: 0xffa640, transparent: true, opacity: 0.82, toneMapped: false }),
+      );
+      vt.rotation.x = Math.PI;
+      vt.position.set(s * 0.96, -1.18, nz);
+      vt.visible = false;
+      body.add(vt);
+      vtolGlow.push(vt);
+    }
+  }
+
+  const mNose = makeMarker(body, 0, -0.72, 3.2);
+  const mLeft = makeMarker(body, 2.2, -0.25, 0.2);
+  const mRight = makeMarker(body, -2.2, -0.25, 0.2);
+  return {
+    root,
+    body,
+    turret: null,
+    barrel: null,
+    barrelBaseZ: 0,
+    subTurret: null,
+    wheelsFront: [],
+    wheelsRear: [],
+    rotorMain: null,
+    rotorTail: null,
+    outriggers: [],
+    boostGlow,
+    vtolGlow,
+    resupplyRing: null,
+    fpHideParts: [canopyGroup],
+    muzzles: { main: mNose, coax: mNose, podLeft: mLeft, podRight: mRight, roof: mNose, front: mNose, rear: mNose },
+    meshes: collectMeshes(root),
+  };
+}
+
+// =============================================================================
+// 10. WARTHOG — Flyable A-10 Thunderbolt II (Reuses Iconic warthogModel!)
+// =============================================================================
+function buildWarthog(materials: ModelMaterials): VehicleModelRig {
+  const root = new THREE.Group();
+  const body = new THREE.Group();
+  body.position.y = 1.65;
+  root.add(body);
+
+  const jet = warthogModel(materials);
+  jet.scale.setScalar(0.68);
+  body.add(jet);
+
+  // Landing gear pods so it rests cleanly on the Badlands tarmac!
+  const gb = new ModelBuilder();
+  gb.cyl(0.24, 0.24, 0.18, 10, TYRE, { at: [0, -1.42, 3.5], rot: ALONG_X });
+  for (const s of [-1, 1]) {
+    gb.cyl(0.3, 0.3, 0.22, 10, TYRE, { at: [s * 1.8, -1.38, 0.3], rot: ALONG_X });
+    gb.box(0.14, 0.72, 0.18, STEEL, { at: [s * 1.8, -1.0, 0.3] });
+  }
+  gb.box(0.14, 0.78, 0.16, STEEL, { at: [0, -1.04, 3.5] });
+  body.add(materials.group(gb));
+
+  const boostGlow: THREE.Object3D[] = [];
+  const vtolGlow: THREE.Object3D[] = [];
+  for (const s of [-1, 1]) {
+    const aft = new THREE.Mesh(
+      new THREE.ConeGeometry(0.32, 2.8, 10),
+      new THREE.MeshBasicMaterial({ color: 0xff9b4a, transparent: true, opacity: 0.9, toneMapped: false }),
+    );
+    aft.rotation.x = -Math.PI / 2;
+    aft.position.set(s * 0.98, 0.72, -5.1);
+    aft.visible = false;
+    body.add(aft);
+    boostGlow.push(aft);
+
+    const vt = new THREE.Mesh(
+      new THREE.ConeGeometry(0.24, 1.6, 8),
+      new THREE.MeshBasicMaterial({ color: 0xffa640, transparent: true, opacity: 0.78, toneMapped: false }),
+    );
+    vt.rotation.x = Math.PI;
+    vt.position.set(s * 1.4, -0.95, 0.2);
+    vt.visible = false;
+    body.add(vt);
+    vtolGlow.push(vt);
+  }
+
+  const mGun = makeMarker(body, 0.08, -0.22, 6.2);
+  const mLeft = makeMarker(body, 2.8, -0.68, 0.6);
+  const mRight = makeMarker(body, -2.8, -0.68, 0.6);
+  return {
+    root,
+    body,
+    turret: null,
+    barrel: null,
+    barrelBaseZ: 0,
+    subTurret: null,
+    wheelsFront: [],
+    wheelsRear: [],
+    rotorMain: null,
+    rotorTail: null,
+    outriggers: [],
+    boostGlow,
+    vtolGlow,
+    resupplyRing: null,
+    muzzles: { main: mGun, coax: mGun, podLeft: mLeft, podRight: mRight, roof: mGun, front: mGun, rear: mGun },
+    meshes: collectMeshes(root),
+  };
+}
+
 export function buildVehicleModel(id: DriveVehicleId, materials: ModelMaterials): VehicleModelRig {
   switch (id) {
     case 'jackal': return buildJackal(materials);
+    case 'quad': return buildQuad(materials);
+    case 'moto': return buildMoto(materials);
     case 'aegis': return buildAegis(materials);
     case 'kestrel': return buildKestrel(materials);
     case 'viper': return buildViper(materials);
     case 'bastion': return buildBastion(materials);
+    case 'valkyrie': return buildValkyrie(materials);
+    case 'harrier': return buildHarrier(materials);
+    case 'warthog': return buildWarthog(materials);
   }
 }

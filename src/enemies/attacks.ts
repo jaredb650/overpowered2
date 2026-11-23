@@ -419,15 +419,18 @@ export function rocket(t: RocketTuning): AttackDef {
     },
     fire(e, w) {
       muzzleOf(e, _muzzle);
-      // Rockets aim at the feet, so a miss still splashes near a player on the ground.
-      _target.copy(w.player.position).addScaledVector(w.player.velocity, (e.dist / t.speed) * 0.5);
+      const inVehicle = Boolean(w.ctx.player.parked && w.ctx.player.interceptor !== null);
+      // Rockets aim at the feet on foot, or center-mass + lead with lock-on homing when tracking a player vehicle!
+      const lead = inVehicle ? 0.8 : 0.5;
+      _target.copy(w.player.position).addScaledVector(w.player.velocity, (e.dist / t.speed) * lead);
+      if (inVehicle) _target.y += 1.4;
       _dir.subVectors(_target, _muzzle).normalize();
       shake(e, _dir);
       _vel.copy(_dir).multiplyScalar(t.speed);
       w.ctx.combat.spawnProjectile({
         origin: _muzzle, velocity: _vel, kind: 'rocket', team: 'enemy', damage: t.damage * e.damageMul, source: e.id,
         explosion: { radius: t.radius, damage: t.damage * e.damageMul, kind: 'enemy', selfDamage: 1 },
-        lifetime: 6, homing: t.homing ?? 0,
+        lifetime: 6.5, homing: inVehicle ? Math.max(t.homing ?? 0, 1.95) : (t.homing ?? 0),
       });
       w.ctx.combat.enemyMuzzle(_muzzle, _dir, 'rocket');
       w.ctx.audio.play('enemy_rocket_fire', { position: _muzzle, pitchJitter: 0.08 });

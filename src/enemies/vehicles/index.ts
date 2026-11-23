@@ -21,7 +21,7 @@ import { ON_RANGE } from '../../core/devflags';
 import { MISSION_ID } from '../../campaign/select';
 import type { ExplosionKind, RayHit } from '../../core/contracts';
 import { CG, type Ctx, type PlayerSystem } from '../../core/contracts';
-import type { EnemyId, ExplosionSpec, FriendlyAircraft, HijackClaim, HijackableVehicle, MissileTarget, VehicleGrappleHit, VehicleTargets } from '../../core/gameplay';
+import type { EnemyId, ExplosionSpec, FriendlyAircraft, HijackClaim, HijackableVehicle, MissileTarget, VehicleGrappleHit, VehicleRadarTarget, VehicleTargets } from '../../core/gameplay';
 import { rand } from '../../core/math';
 import { Airframe } from '../../progression/callins/airframe';
 import { GroundProbe } from '../../progression/callins/ground';
@@ -635,6 +635,129 @@ export class VehicleSystem implements VehicleTargets {
     if (v.tag !== null) this.ctx.campaign.unitGone(v.tag, true, 'hijack');
 
     return { kind, position, yaw, velocity, healthFraction };
+  }
+
+  /** Physically shoves any destroyed enemy wrecks in front of a moving player vehicle so wrecks never permanently block roads. */
+  pushWrecks(center: THREE.Vector3, radius: number, velocity: THREE.Vector3, mass: number): number {
+    const speed = Math.hypot(velocity.x, velocity.z);
+    if (speed < 3.5) return 0;
+    let pushed = 0;
+    for (let i = 0; i < this.wrecks.length; i++) {
+      const w = this.wrecks[i]!;
+      const dx = w.root.position.x - center.x;
+      const dz = w.root.position.z - center.z;
+      const reach = radius + Math.max(w.halfWidth, w.halfLength) * 0.9;
+      if (dx * dx + dz * dz > reach * reach) continue;
+      if (Math.abs(w.root.position.y - center.y) > 3.6) continue;
+      const wreckMass = w.halfLength >= 3.5 ? 6.5 : 2.2;
+      const ratio = Math.min(1.4, (mass / wreckMass) * 0.65);
+      if (ratio < 0.14 && speed < 14) continue;
+      const dist = Math.max(0.25, Math.hypot(dx, dz));
+      const pushX = velocity.x * 0.55 * ratio + (dx / dist) * speed * 0.35 * ratio;
+      const pushZ = velocity.z * 0.55 * ratio + (dz / dist) * speed * 0.35 * ratio;
+      const cross = (dx * velocity.z - dz * velocity.x) / (dist * Math.max(1, speed));
+      w.shove(_a.set(pushX, 0, pushZ), Math.min(4.2, speed * 0.12 * ratio), cross * speed * 0.18);
+      pushed++;
+    }
+    return pushed;
+  }
+
+  /** Resolves a high-speed collision / kamikaze ram between a player-driven vehicle and any live enemy vehicle. */
+  vehicleRam(
+    center: THREE.Vector3,
+    radius: number,
+    velocity: THREE.Vector3,
+    mass: number,
+    source: string,
+  ): { hit: boolean; armored: boolean; killed: boolean; point: THREE.Vector3 } | null {
+    const speed = velocity.length();
+    if (speed < 7.5) return null;
+    for (let i = this.live.length - 1; i >= 0; i--) {
+      const v = this.live[i]!;
+      if (!v.alive || v.retired) continue;
+      v.nearest(center, _near);
+      if (_near.distance > radius + 1.2) continue;
+      // Kinetic impact damage scales with mass * speed^1.35 so fast/heavy rams smash trucks & damage tanks!
+      const kinetic = mass * Math.pow(speed, 1.35) * 0.65;
+      const dmg = v.def.armoured ? kinetic * 0.72 : kinetic * 1.45;
+      const beforeWrecks = this.wrecks.length;
+      const hitPt = v.position.clone();
+      v.take(dmg, _near.part, source, hitPt);
+      const killed = !v.alive;
+      if (killed && this.wrecks.length > beforeWrecks) {
+        const w = this.wrecks[this.wrecks.length - 1]!;
+        w.shove(_a.set(velocity.x * 0.7, 0, velocity.z * 0.7), Math.min(6, speed * 0.18), rand(-2.5, 2.5));
+      } else if (v instanceof GroundVehicle && v.alive && dmg > 120) {
+        v.stagger(0.8);
+      }
+      return { hit: true, armored: v.def.armoured, killed, point: hitPt };
+    }
+    return null;
+  }
+
+  /** Appends live enemy vehicle radar tracks for AA lead-computing reticles and fighter jet missile lock-on. */
+  listTargets(out: VehicleRadarTarget[]): number {
+    let added = 0;
+    for (let i = 0; i < this.live.length; i++) {
+      const v = this.live[i]!;
+      if (!v.alive || v.retired) continue;
+      const airborne = v.def.kind === 'chopper' || v.def.kind === 'transport' || v.def.kind === 'doorGunner';
+      const vel = new THREE.Vector3();
+      if (v instanceof GroundVehicle) {
+        vel.set(Math.sin(v.drive.yaw) * v.drive.speed, 0, Math.cos(v.drive.yaw) * v.drive.speed);
+      } else if ('vel' in v && (v as unknown as { vel: THREE.Vector3 }).vel instanceof THREE.Vector3) {
+        vel.copy((v as unknown as { vel: THREE.Vector3 }).vel);
+      } else if (v instanceof EnemyChopper) {
+        _dir.set(0, 0, 1).applyQuaternion(v.quaternion);
+        vel.copy(_dir).multiplyScalar(20);
+      }
+      out.push({
+        id: v.uid,
+        kind: v.def.kind,
+        label: v.def.name,
+        position: v.center.clone(),
+        velocity: vel,
+        airborne,
+      });
+      added++;
+    }
+    return added;
+  }
+
+  /** Shatters an overkilled airborne helicopter into flaming tumbling hull chunks that rain onto the desert floor. */
+  shatterAirborne(wreck: Wreck, at: THREE.Vector3, baseVel: THREE.Vector3): void {
+    const { fx, render } = this.ctx;
+    const groundY = this.groundUnder(at);
+    // Drop main scorched fuselage onto the desert floor from altitude with tumbling momentum.
+    wreck.toss(_a.set(baseVel.x * 0.45 + rand(-6, 6), rand(2, 6), baseVel.z * 0.45 + rand(-6, 6)));
+    // Spawn 5 fiery spinning debris chunks (rotor hub, tail boom, wing stub, engine cowling, armored panel).
+    const chunkMat = new THREE.MeshStandardMaterial({ color: 0x25282c, roughness: 0.9, metalness: 0.35 });
+    const sizes: readonly [number, number, number][] = [
+      [1.8, 0.35, 0.7],
+      [0.6, 0.55, 2.4],
+      [1.2, 0.22, 1.1],
+      [0.85, 0.85, 1.3],
+      [2.6, 0.12, 0.35],
+    ];
+    for (let i = 0; i < sizes.length; i++) {
+      const [sx, sy, sz] = sizes[i]!;
+      const mesh = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), chunkMat);
+      mesh.position.copy(at);
+      render.scene.add(mesh);
+      fx.attachEmitter(mesh, 'fireTrail', new THREE.Vector3(0, 0, 0), 5.5);
+      wreck.fling({
+        mesh,
+        velocity: new THREE.Vector3(
+          baseVel.x * 0.4 + rand(-18, 18),
+          rand(5, 16),
+          baseVel.z * 0.4 + rand(-18, 18),
+        ),
+        spin: new THREE.Vector3(rand(-9, 9), rand(-9, 9), rand(-9, 9)),
+        floor: groundY + sy * 0.5,
+        collider: null,
+        flying: true,
+      });
+    }
   }
 
   // -------------------------------------------------------------------------------------------

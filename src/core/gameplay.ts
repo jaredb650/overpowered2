@@ -758,6 +758,15 @@ export interface VehicleGrappleHit {
   readonly distance: number;
 }
 
+export interface VehicleRadarTarget {
+  readonly id: number;
+  readonly kind: 'humvee' | 'truck' | 'tank' | 'chopper' | 'transport' | 'doorGunner';
+  readonly label: string;
+  readonly position: THREE.Vector3;
+  readonly velocity: THREE.Vector3;
+  readonly airborne: boolean;
+}
+
 /** Enemy vehicles, for whatever resolves a hit. A collider that is not a live vehicle's answers false, and the caller carries on as for any wall. */
 export interface VehicleTargets {
   /** Anything with no blast behind it. */
@@ -784,6 +793,12 @@ export interface VehicleTargets {
   resolveGrapple?(collider: RAPIER.Collider | null, point: THREE.Vector3, normal: THREE.Vector3, distance: number): VehicleGrappleHit | null;
   /** Ejects enemy crew cleanly (updating wave queues safely), retires the enemy vehicle, and returns its transform for takeover. */
   hijack?(vehicleId: number): HijackClaim | null;
+  /** Physically shoves destroyed enemy wrecks in front of a moving player vehicle so wrecks can be pushed aside. */
+  pushWrecks?(center: THREE.Vector3, radius: number, velocity: THREE.Vector3, mass: number): number;
+  /** Resolves a high-speed ram or kamikaze collision between a player vehicle and live enemy vehicles. */
+  vehicleRam?(center: THREE.Vector3, radius: number, velocity: THREE.Vector3, mass: number, source: string): { hit: boolean; armored: boolean; killed: boolean; point: THREE.Vector3 } | null;
+  /** Writes live enemy vehicle radar tracks (position + velocity + airborne flag) for AA lead pips & jet missile lock-on. */
+  listTargets?(out: VehicleRadarTarget[]): number;
 }
 
 export interface EnemySystem extends GameSystem {
