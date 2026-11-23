@@ -44,6 +44,8 @@ export const DESERT_RAID_CALLS: ReadonlySet<string> = new Set([
   'dr.dismount',
   'dr.warrenStart',
   'dr.pumpStart',
+  'dr.terracesStart',
+  'dr.caveStart',
   'dr.planeStart',
   'dr.planeAdvanceTail',
   'dr.exfilArrive',
@@ -73,7 +75,18 @@ interface CallinsAccess {
   };
 }
 
-type DirectorPhase = 'idle' | 'approach' | 'wall' | 'warren' | 'pump' | 'plane' | 'exfil_arrive' | 'exfil_chase' | 'ending';
+type DirectorPhase =
+  | 'idle'
+  | 'approach'
+  | 'wall'
+  | 'warren'
+  | 'pump'
+  | 'terraces'
+  | 'cave'
+  | 'plane'
+  | 'exfil_arrive'
+  | 'exfil_chase'
+  | 'ending';
 
 const _v = new THREE.Vector3();
 
@@ -231,7 +244,18 @@ export class DesertRaid {
           this.emitOnce('dr:door2_slam');
         }
       },
+      onEscortLost: (reason: 'crushed' | 'shot') => {
+        this.handleEscortLost(reason);
+      },
     };
+  }
+
+  private handleEscortLost(reason: 'crushed' | 'shot'): void {
+    if (!this.quistCaptured) return;
+    this.quistCaptured = false;
+    this.convoy.setQuistCaptured?.(false);
+    this.speakDirectorLine(reason === 'crushed' ? 'marr.escort.crushed' : 'marr.escort.shot', true);
+    this.emitOnce('dr:escort_lost');
   }
 
   private handleQuistOutcome(outcome: QuistOutcome): void {
@@ -289,7 +313,7 @@ export class DesertRaid {
 
       case 'dr.banditsApproach': {
         const count = Number(arg);
-        this.convoy.spawnBanditWave('approach', Number.isFinite(count) && count > 0 ? count : 3);
+        this.convoy.spawnBanditWave('approach', Number.isFinite(count) && count > 0 ? count : 4);
         return;
       }
 
@@ -336,6 +360,20 @@ export class DesertRaid {
         this.airAndSquads.advanceSquads('pumpyard');
         return;
 
+      case 'dr.terracesStart':
+        this.phase = 'terraces';
+        if (!this.setpieces.gateBreached) this.setpieces.shatterMainGate();
+        if (!this.setpieces.towerDropped) this.setpieces.triggerWaterTowerDrop();
+        this.airAndSquads.advanceSquads('terraces');
+        return;
+
+      case 'dr.caveStart':
+        this.phase = 'cave';
+        if (!this.setpieces.gateBreached) this.setpieces.shatterMainGate();
+        if (!this.setpieces.towerDropped) this.setpieces.triggerWaterTowerDrop();
+        this.airAndSquads.advanceSquads('cave');
+        return;
+
       case 'dr.planeStart':
         this.phase = 'plane';
         this.quistCaptured = false;
@@ -357,30 +395,45 @@ export class DesertRaid {
 
       case 'dr.exfilArrive':
         this.phase = 'exfil_arrive';
+        if (!this.setpieces.gateBreached) this.setpieces.shatterMainGate();
+        if (!this.setpieces.towerDropped) this.setpieces.triggerWaterTowerDrop();
         this.convoy.arriveForExfil(this.quistCaptured);
+        if (this.quistCaptured) {
+          this.emitOnce('dr:escort_active');
+        }
         return;
 
       case 'dr.exfilChase': {
         this.phase = 'exfil_chase';
+        this.setpieces.boardCapturedQuistToConvoy?.();
+        this.convoy.setQuistCaptured?.(this.quistCaptured);
         this.convoy.startExfilChase(this.quistCaptured);
         const count = Number(arg);
-        this.convoy.spawnBanditWave('exfil', Number.isFinite(count) && count > 0 ? count : 4);
+        this.convoy.spawnBanditWave('exfil', Number.isFinite(count) && count > 0 ? count : 6);
         return;
       }
 
-      case 'dr.endingCutscene':
+      case 'dr.endingCutscene': {
         this.phase = 'ending';
+        this.convoy.enterEndingCruise?.();
         if (this.quistCaptured) {
           this.emitOnce('dr:ending_quist_captured');
         }
+        const getQuistBedPos = this.convoy.getQuistBedPosition
+          ? (out: THREE.Vector3) => this.convoy.getQuistBedPosition!(out)
+          : undefined;
+        const getTruckYaw = () => this.convoy.getTruckYaw();
         this.airAndSquads.startEndingCutscene(
           (out: THREE.Vector3) => this.convoy.getTruckPosition(out),
           this.quistCaptured,
           () => {
             this.emitDeferred('dr:ending_done');
           },
+          getQuistBedPos,
+          getTruckYaw,
         );
         return;
+      }
 
       default:
         console.warn(`[desertRaid] unknown call "${name}"`);
