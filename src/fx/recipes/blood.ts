@@ -133,74 +133,74 @@ export function bloodPuff(
   const b = core.blood.begin(core.bloodNow, -1e6, null, kind === 'headshot' || major ? BLOOD_TONE.arterial : BLOOD_TONE.wound);
 
   if (kind === 'gib') {
-    // GIGANTIC whole-body gib / pasted detonation: sweeping 5-6 m asymmetric billowing dark-oxblood mist cloud
+    // Big whole-body gib / pasted detonation: sweeping ~3.5-4.5 m asymmetric billowing dark-oxblood mist cloud
     // with torn liquid blood webs ripping outward, discrete teardrop splatter cones, and frame-0 kinetic needles.
-    const gScale = clamp(scale, 1.0, 2.2);
+    const gScale = clamp(scale, 0.85, 1.45);
     // 1) Central & radial torn liquid blood webs (sharp dark tendrils shattering into crisp flying droplets).
-    b.splash(position.x, position.y, position.z, dir.x * 3.2, 1.25, dir.z * 3.2, 1.32 * gScale, 0.54, 3.6, 0.96, 0);
-    for (let i = 0; i < 7; i++) {
-      _v.set(rand(-1, 1), rand(-0.18, 0.92), rand(-1, 1)).normalize();
-      const spd = rand(3.6, 8.2);
+    b.splash(position.x, position.y, position.z, dir.x * 2.6, 0.95, dir.z * 2.6, 0.90 * gScale, 0.46, 4.0, 0.96, 0);
+    for (let i = 0; i < 5; i++) {
+      _v.set(rand(-1, 1), rand(-0.18, 0.85), rand(-1, 1)).normalize();
+      const spd = rand(2.4, 5.4);
       b.setTone(i % 2 === 0 ? BLOOD_TONE.arterial : BLOOD_TONE.venous);
       b.splash(
-        position.x + _v.x * rand(0.18, 0.72),
-        position.y + _v.y * rand(0.10, 0.56),
-        position.z + _v.z * rand(0.18, 0.72),
-        _v.x * spd + dir.x * 2.4, _v.y * spd + 1.05, _v.z * spd + dir.z * 2.4,
-        rand(0.95, 1.65) * gScale, rand(0.42, 0.74), rand(3.4, 5.0), rand(0.86, 0.98), i * 0.007,
+        position.x + _v.x * rand(0.10, 0.40),
+        position.y + _v.y * rand(0.06, 0.34),
+        position.z + _v.z * rand(0.10, 0.40),
+        _v.x * spd + dir.x * 1.8, _v.y * spd + 0.75, _v.z * spd + dir.z * 1.8,
+        rand(0.58, 0.96) * gScale, rand(0.36, 0.60), rand(3.8, 5.2), rand(0.86, 0.98), i * 0.007,
       );
     }
     // 2) Inner dark oxblood core billows — low per-puff opacity so overlapping 3D folds stay sculpted and velvety.
-    for (let i = 0; i < 4; i++) {
-      _v.set(rand(-1, 1), rand(-0.08, 0.75), rand(-1, 1)).normalize();
-      const spd = rand(1.4, 3.2);
-      b.setTone(i < 2 ? BLOOD_TONE.venous : BLOOD_TONE.wound);
+    for (let i = 0; i < 3; i++) {
+      _v.set(rand(-1, 1), rand(-0.08, 0.70), rand(-1, 1)).normalize();
+      const spd = rand(1.0, 2.2);
+      b.setTone(i === 0 ? BLOOD_TONE.venous : BLOOD_TONE.wound);
       b.puff(
-        position.x + _v.x * rand(0.22, 0.70),
-        position.y + _v.y * rand(0.12, 0.52),
-        position.z + _v.z * rand(0.22, 0.70),
-        _v.x * spd + dir.x * 1.6, _v.y * spd + 0.95, _v.z * spd + dir.z * 1.6,
-        rand(1.25, 1.85) * gScale, rand(1.65, 2.35), rand(2.0, 2.8), rand(0.36, 0.48), i * 0.014,
+        position.x + _v.x * rand(0.12, 0.36),
+        position.y + _v.y * rand(0.08, 0.32),
+        position.z + _v.z * rand(0.12, 0.36),
+        _v.x * spd + dir.x * 1.2, _v.y * spd + 0.55, _v.z * spd + dir.z * 1.2,
+        rand(0.72, 1.04) * gScale, rand(1.25, 1.75), rand(2.4, 3.2), rand(0.36, 0.48), i * 0.014,
       );
     }
-    // 3) Huge sweeping mid billowing crimson plumes expanding outward into a massive 5-6 m cloud.
-    for (let i = 0; i < 8; i++) {
-      _v.set(rand(-1, 1), rand(-0.12, 0.88), rand(-1, 1)).normalize();
-      const spd = rand(4.0, 8.8);
+    // 3) Mid billowing crimson plumes expanding outward into a full ~3.5-4.5 m pasted cloud.
+    for (let i = 0; i < 6; i++) {
+      _v.set(rand(-1, 1), rand(-0.10, 0.80), rand(-1, 1)).normalize();
+      const spd = rand(2.2, 5.0);
       b.setTone(i % 3 === 0 ? BLOOD_TONE.arterial : BLOOD_TONE.wound);
       b.puff(
-        position.x + _v.x * rand(0.45, 1.35),
-        position.y + _v.y * rand(0.22, 0.95),
-        position.z + _v.z * rand(0.45, 1.35),
-        _v.x * spd + dir.x * 3.2, _v.y * spd + 1.35, _v.z * spd + dir.z * 3.2,
-        rand(1.25, 2.05) * gScale, rand(1.85, 2.65), rand(1.9, 2.9), rand(0.32, 0.46), 0.01 + i * 0.015,
+        position.x + _v.x * rand(0.22, 0.65),
+        position.y + _v.y * rand(0.12, 0.48),
+        position.z + _v.z * rand(0.22, 0.65),
+        _v.x * spd + dir.x * 2.0, _v.y * spd + 0.75, _v.z * spd + dir.z * 2.0,
+        rand(0.76, 1.16) * gScale, rand(1.35, 1.95), rand(2.4, 3.4), rand(0.30, 0.44), 0.01 + i * 0.015,
       );
     }
-    // 4) Towering outer wispy vapor arms curling upward and lingering into atmospheric oxblood smoke.
-    for (let i = 0; i < 6; i++) {
-      _v.set(rand(-1, 1), rand(0.16, 1.0), rand(-1, 1)).normalize();
-      const spd = rand(3.4, 6.8);
+    // 4) Outer wispy vapor plumes curling upward without towering over corridors.
+    for (let i = 0; i < 4; i++) {
+      _v.set(rand(-1, 1), rand(0.14, 0.92), rand(-1, 1)).normalize();
+      const spd = rand(1.8, 3.8);
       b.setTone(i % 2 === 0 ? BLOOD_TONE.wound : BLOOD_TONE.venous);
       b.puff(
-        position.x + _v.x * rand(0.75, 1.85),
-        position.y + rand(0.35, 1.25),
-        position.z + _v.z * rand(0.75, 1.85),
-        _v.x * spd + dir.x * 2.2, _v.y * spd + rand(1.8, 3.8), _v.z * spd + dir.z * 2.2,
-        rand(1.45, 2.25) * gScale, rand(2.10, 3.00), rand(1.6, 2.4), rand(0.26, 0.38), 0.02 + i * 0.018,
+        position.x + _v.x * rand(0.34, 0.82),
+        position.y + rand(0.18, 0.60),
+        position.z + _v.z * rand(0.34, 0.82),
+        _v.x * spd + dir.x * 1.4, _v.y * spd + rand(0.75, 1.65), _v.z * spd + dir.z * 1.4,
+        rand(0.84, 1.24) * gScale, rand(1.50, 2.20), rand(2.2, 3.0), rand(0.24, 0.34), 0.02 + i * 0.018,
       );
     }
     // 5) Discrete directional droplet splatter cones & razor-sharp frame-0 radial kinetic blood needles.
     b.setTone(BLOOD_TONE.arterial);
-    for (let i = 0; i < 6; i++) {
-      _v.set(rand(-1, 1), rand(-0.15, 0.78), rand(-1, 1)).normalize().addScaledVector(dir, 0.55).normalize();
-      const spd = rand(8.5, 14.5);
+    for (let i = 0; i < 5; i++) {
+      _v.set(rand(-1, 1), rand(-0.15, 0.75), rand(-1, 1)).normalize().addScaledVector(dir, 0.55).normalize();
+      const spd = rand(7.5, 12.2);
       b.mist(
-        position.x + _v.x * 0.35, position.y + 0.15 + _v.y * 0.35, position.z + _v.z * 0.35,
-        _v.x * spd, _v.y * spd + 0.85, _v.z * spd,
-        rand(0.42, 0.65) * gScale, rand(0.42, 0.68), rand(3.8, 5.0), rand(0.82, 0.94), i * 0.006,
+        position.x + _v.x * 0.22, position.y + 0.10 + _v.y * 0.22, position.z + _v.z * 0.22,
+        _v.x * spd, _v.y * spd + 0.65, _v.z * spd,
+        rand(0.28, 0.46) * gScale, rand(0.34, 0.54), rand(4.2, 5.4), rand(0.82, 0.94), i * 0.006,
       );
     }
-    burstStreaks(core, position.x, position.y + 0.15, position.z, dir.x * 0.35, 0.32, dir.z * 0.35, 28, 19.0, 16.0, 0.0075, 6.2, 0.15, 0.28, 0.020);
+    burstStreaks(core, position.x, position.y + 0.12, position.z, dir.x * 0.35, 0.28, dir.z * 0.35, 20, 16.0, 12.0, 0.0068, 6.8, 0.13, 0.24, 0.016);
     return;
   }
 
@@ -338,8 +338,8 @@ export function bloodMist(core: FxCore, position: THREE.Vector3, size = 1): void
 export function gibBurst(core: FxCore, position: THREE.Vector3, dir: THREE.Vector3, force: number): void {
   const { x, y, z } = position;
   const f = Math.sqrt(clamp(force / 10, 0.45, 1.8));
-  // Gigantic multi-layered dark-crimson blood cloud + liquid webs that chunks burst out of.
-  bloodPuff(core, position, dir, 1, clamp(1.15 + f * 0.42, 1.25, 1.90), 'gib');
+  // Multi-layered dark-crimson blood cloud + liquid webs that chunks burst out of.
+  bloodPuff(core, position, dir, 1, clamp(0.95 + f * 0.22, 1.0, 1.35), 'gib');
   const b = core.blood.begin(core.bloodNow, core.floorAt(x, y, z), core.wallAlong(x, y, z, dir.x, dir.y, dir.z), BLOOD_TONE.arterial);
   for (let i = 0; i < 4; i++) {
     _v.set(dir.x + rand(-0.45, 0.45), dir.y + rand(0, 0.45), dir.z + rand(-0.45, 0.45)).normalize();

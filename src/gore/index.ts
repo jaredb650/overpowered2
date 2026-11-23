@@ -3125,8 +3125,8 @@ export class Gore implements GoreSystem {
     }
     if (dry) this.ashPuff(c, 2);
     else if (!limb.machine && limb.rag.mask[CHEST] === 1 && limb.skip[CHEST] !== 1) {
-      // A severed crawling torso totally gibbed: full gigantic billowing blood detonation like a pasted body.
-      this.ctx.fx.bloodPuff?.(c, damage.dir, 1, 1.5, 'gib');
+      // A severed crawling torso totally gibbed: full billowing blood detonation like a pasted body.
+      this.ctx.fx.bloodPuff?.(c, damage.dir, 1, 1.15, 'gib');
       this.ctx.fx.bloodHit(c, damage.dir, 1.8);
     } else if (!limb.machine) {
       this.ctx.fx.bloodPuff?.(c, damage.dir, 0.75, 1.05, 'headshot');
