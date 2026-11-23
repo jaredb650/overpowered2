@@ -1,23 +1,30 @@
 /**
- * Surplus — Desert Raid (Mission 5, `map: 'desert'`) map orchestrator.
+ * Surplus — Desert Raid 2.0 (Mission 5, `map: 'desert'`) map orchestrator.
  *
- * Composes 5 modular architectural stages:
- *   1. `dunes.ts`    — 7-band desert floor with sewer pit cutouts, sculpted dawn dunes, sandstone mesas,
- *                      convoy tracks, and 4 Tier-0 Saltblood lookout posts at APPROACH_POSTS.
- *   2. `wall.ts`     — 32 Tier-0 corrugated scrap wall panels, 2 side-gate barricades, 6 Tier-0 tipping
- *                      watchtowers at WALL_TOWERS, elevated rear walkways (y = 3.4), and Main Gate frame.
- *   3. `warren.ts`   — 20 Tier-0 destructible 1- and 2-storey shacks, 4 rooftop catwalks, 3 solid
- *                      cistern/rock landmarks, and the elevated Optional Minigun Nest at [-14, 4.2, 22].
- *   4. `pumpyard.ts` — 4 colossal solid water cisterns, overhead pipes, tower foundation pad at [0,0,-40],
- *                      North Dividing Wall arch at z = -56, and the Vaulted Dark Storm Sewer (y = -5.5).
- *   5. `plane.ts`    — 100% solid crashed Cargo Plane (open rear ramp, 3-compartment interior at y = 1.5
- *                      with plane.door1/door2 frames, ±28 m wings, 4 nacelles, 18.5 m tail) + Tier-0
- *                      forecourt cover nests.
+ * Composes 7 modular architectural stages:
+ *   1. `dunes.ts`    — 10-band desert floor with surgical Sewer & Salt Cave cutouts, sculpted dawn
+ *                      dunes, sandstone mesas, convoy tracks, and 4 Tier-0 Approach lookout posts.
+ *   2. `wall.ts`     — 32 sturdy corrugated metal wall panels (fractureGrid 2x2), waist-high firing
+ *                      embrasures, widened y=3.6 battlements, 6 wood-legged watchtowers, 3 isolated drums.
+ *   3. `warren.ts`   — 20 Tier-0 destructible wood/metal shacks (h = 3.6 / 7.2), 4 rooftop catwalks,
+ *                      3 solid cistern/rock landmarks, and the Optional Minigun Nest at [-14, 3.6, 22].
+ *   4. `pumpyard.ts` — 4 colossal water cisterns, overhead pipes, tower foundation pad at [0,0,-40],
+ *                      North Dividing Wall arch, and Extended 50 m 3-Chamber Dark Storm Sewer (y = -5.5).
+ *   5. `terraces.ts` — NEW Section 5: The High Terraces ("The Perches", y = 0 / 3.6 / 7.2) vertical
+ *                      village with 6 timber-stilt guard towers, 6 stilted tents, 4 overhead catwalks,
+ *                      switchback ramps, and flat Eastern Convoy Bypass Road.
+ *   6. `cave.ts`     — NEW Section 6: The Salt Cave ("The Cistern Tunnels", y = -2.5) carved sandstone
+ *                      cavern with crystalline salt boulders, 4 destructible timber mine-shoring gantries,
+ *                      and hanging amber miner lamps.
+ *   7. `plane.ts`    — 100% solid relocated Crashed Cargo Plane (z = -212..-275, floor y = 1.5, open
+ *                      rear ramp, 3 interior compartments, ±28 m wings, 18.5 m tail) framed by sandstone
+ *                      canyon cliffs with a wide eastern exfil breach onto the bypass road.
  */
 import * as THREE from 'three';
 import type { SpawnPoint } from '../../../core/contracts';
 import type { Kit } from '../../kit/kit';
 import type { MapSpec } from '../spec';
+import { authorDesertCave } from './cave';
 import { authorDesertDunes } from './dunes';
 import {
   CARGO_PLANE,
@@ -28,11 +35,14 @@ import {
   DESERT_LIGHT_BOUNDS,
   DESERT_LIGHT_CELL,
   DESERT_Z,
+  HIGH_TERRACES,
   PUMP_YARD,
+  SALT_CAVE,
   WARREN_MINIGUN,
 } from './plan';
 import { authorDesertPlane } from './plane';
 import { authorDesertPumpYard } from './pumpyard';
+import { authorDesertTerraces } from './terraces';
 import { authorDesertWall } from './wall';
 import { authorDesertWarren } from './warren';
 
@@ -62,9 +72,12 @@ function start(spec: MapSpec): void {
       fill(DESERT_BOUNDS.x0, DESERT_Z.wallLine, DESERT_BOUNDS.x1, DESERT_BOUNDS.z1, [0.44, 0.35, 0.22], 'APPROACH DUNES'),
       fill(-76, 55, 76, 66, [0.46, 0.27, 0.16], 'THE WALL'),
       fill(-64, -14, 64, 55, [0.34, 0.27, 0.20], 'THE WARREN'),
-      fill(-52, -60, 52, -14, [0.24, 0.26, 0.28], 'PUMP YARD'),
-      fill(-4, -79, 4, -27, [0.14, 0.17, 0.22], 'STORM SEWER'),
-      fill(-36, -142, 36, -60, [0.28, 0.31, 0.27], 'THE PLANE'),
+      fill(-52, -56, 52, -14, [0.24, 0.26, 0.28], 'PUMP YARD'),
+      fill(-7, -83, 7, -26, [0.14, 0.17, 0.22], 'STORM SEWER'),
+      fill(-40, -148, 40, -80, [0.42, 0.29, 0.20], 'HIGH TERRACES'),
+      fill(42, -206, 60, -56, [0.36, 0.30, 0.22], 'BYPASS ROAD'),
+      fill(-13, -203, 13, -148, [0.22, 0.20, 0.24], 'SALT CAVE'),
+      fill(-44, -278, 44, -203, [0.28, 0.31, 0.27], 'THE PLANE'),
     ],
     walls: [],
     blocks: [],
@@ -114,6 +127,14 @@ export const DESERT_STAGES = [
     run: authorDesertPumpYard,
   },
   {
+    label: 'Raising the High Terraces vertical village',
+    run: authorDesertTerraces,
+  },
+  {
+    label: 'Carving the Salt Cave cistern tunnels',
+    run: authorDesertCave,
+  },
+  {
     label: 'Grounding the Crashed Cargo Plane',
     run: authorDesertPlane,
   },
@@ -123,9 +144,11 @@ export const DESERT_STAGES = [
 function zones(spec: MapSpec): void {
   const sky = DESERT_BOUNDS.y1;
 
-  spec.zone('desert-plane', 'CRASHED CARGO PLANE', -30, 0.6, -142, 30, 22, -79);
-  spec.zone('desert-sewer', 'DARK STORM SEWER', -15, -7.0, -80, 14, -0.4, -26);
-  spec.zone('desert-forecourt', 'PLANE FORECOURT', -54, -1.0, -84, 54, sky, -56);
+  spec.zone('desert-plane', 'CRASHED CARGO PLANE', -30, 0.6, -276, 30, 22, -211);
+  spec.zone('desert-cave', 'THE SALT CAVE', -14, -4.0, -203, 14, 6.5, -148);
+  spec.zone('desert-sewer', 'DARK STORM SEWER', -15, -7.0, -84, 14, -0.4, -25);
+  spec.zone('desert-forecourt', 'PLANE FORECOURT', -48, -1.0, -216, 48, sky, -200);
+  spec.zone('desert-terraces', 'THE HIGH TERRACES', -44, -1.0, -148, 44, sky, -78);
   spec.zone('desert-pumpyard', 'THE PUMP YARD', -56, -1.0, -56, 56, sky, -14);
   spec.zone('desert-warren', 'THE WARREN', -76, -1.0, -14, 76, sky, 56);
   spec.zone('desert-wall', 'THE WALL', -82, -1.0, 56, 82, sky, 74);
@@ -149,11 +172,11 @@ const GROUND_SPAWNS: readonly (readonly [number, number, number, string])[] = [
   [18, 0, 144, 'desert-approach'],
   [-18, 0, 118, 'desert-approach'],
   [16, 0, 96, 'desert-approach'],
-  // The Wall walkways (y = 3.4) & gate floor
-  [-36, 3.4, DESERT_Z.wallWalkway, 'desert-wall'],
-  [-18, 3.4, DESERT_Z.wallWalkway, 'desert-wall'],
-  [18, 3.4, DESERT_Z.wallWalkway, 'desert-wall'],
-  [36, 3.4, DESERT_Z.wallWalkway, 'desert-wall'],
+  // The Wall widened battlements (y = 3.6) & gate floor
+  [-36, 3.6, DESERT_Z.wallWalkway, 'desert-wall'],
+  [-18, 3.6, DESERT_Z.wallWalkway, 'desert-wall'],
+  [18, 3.6, DESERT_Z.wallWalkway, 'desert-wall'],
+  [36, 3.6, DESERT_Z.wallWalkway, 'desert-wall'],
   [0, 0, 54, 'desert-wall'],
   // The Warren streets & alleys
   [0, 0, 44, 'desert-warren'],
@@ -167,20 +190,35 @@ const GROUND_SPAWNS: readonly (readonly [number, number, number, string])[] = [
   // The Pump Yard
   [-8, 0, -22, 'desert-pumpyard'],
   [10, 0, -22, 'desert-pumpyard'],
-  [-14, 0, -30, 'desert-pumpyard'],
+  [-14, 0, -28, 'desert-pumpyard'],
   [10, 0, -46, 'desert-pumpyard'],
   [-10, 0, -52, 'desert-pumpyard'],
-  // Dark Storm Sewer (y = -5.5)
-  [0, PUMP_YARD.sewerFloorY, -36, 'desert-sewer'],
-  [0, PUMP_YARD.sewerFloorY, -54, 'desert-sewer'],
+  // Extended Multi-Chamber Dark Storm Sewer (y = -5.5)
+  [0, PUMP_YARD.sewerFloorY, -34, 'desert-sewer'],
+  [-5, PUMP_YARD.sewerFloorY, -49, 'desert-sewer'],
+  [5, PUMP_YARD.sewerFloorY, -53, 'desert-sewer'],
   [0, PUMP_YARD.sewerFloorY, -70, 'desert-sewer'],
-  // Plane Forecourt & Solid Cargo Plane Interior (y = 1.5)
-  [0, 0, -70, 'desert-forecourt'],
-  [-12, 0, -72, 'desert-forecourt'],
-  [12, 0, -72, 'desert-forecourt'],
-  [0, CARGO_PLANE.floorY, -92, 'desert-plane'],
-  [0, CARGO_PLANE.floorY, -108, 'desert-plane'],
-  [0, CARGO_PLANE.floorY, -124, 'desert-plane'],
+  // Section 5: The High Terraces (Tier 1 y=0, Tier 2 y=3.6, Tier 3 y=7.2)
+  [-18, 0, -86, 'desert-terraces'],
+  [18, 0, -86, 'desert-terraces'],
+  [0, HIGH_TERRACES.tier2Y, -110, 'desert-terraces'],
+  [-16, HIGH_TERRACES.tier2Y, -110, 'desert-terraces'],
+  [16, HIGH_TERRACES.tier2Y, -110, 'desert-terraces'],
+  [0, HIGH_TERRACES.tier2Y, -122, 'desert-terraces'],
+  [-30, HIGH_TERRACES.tier3Y, -141, 'desert-terraces'],
+  [30, HIGH_TERRACES.tier3Y, -141, 'desert-terraces'],
+  [0, 0, -144, 'desert-terraces'],
+  // Section 6: The Salt Cave (y = -2.5)
+  [0, SALT_CAVE.floorY, -162, 'desert-cave'],
+  [0, SALT_CAVE.floorY, -176, 'desert-cave'],
+  [0, SALT_CAVE.floorY, -190, 'desert-cave'],
+  // Section 7: Plane Forecourt & Solid Cargo Plane Interior (y = 1.5)
+  [0, 0, -206, 'desert-forecourt'],
+  [-16, 0, -206, 'desert-forecourt'],
+  [16, 0, -204, 'desert-forecourt'],
+  [0, CARGO_PLANE.floorY, -224, 'desert-plane'],
+  [0, CARGO_PLANE.floorY, -240, 'desert-plane'],
+  [0, CARGO_PLANE.floorY, -256, 'desert-plane'],
 ];
 
 const AIR_SPAWNS: readonly (readonly [number, number, number])[] = [
@@ -192,7 +230,9 @@ const AIR_SPAWNS: readonly (readonly [number, number, number])[] = [
   [72, 54, 10],
   [-68, 56, -54],
   [68, 56, -54],
-  [0, 62, -120],
+  [-64, 58, -120],
+  [64, 58, -120],
+  [0, 62, -230],
 ];
 
 const PICKUP_SPOTS: readonly (readonly [number, number, number])[] = [
@@ -205,12 +245,17 @@ const PICKUP_SPOTS: readonly (readonly [number, number, number])[] = [
   // Pump Yard (near sewer drop)
   [-16, 0, -28],
   [12, 0, -34],
-  // Dark Storm Sewer (ammo/medkit resupply before plane assault)
-  [0, PUMP_YARD.sewerFloorY, -52],
-  [0, PUMP_YARD.sewerFloorY, -68],
+  // Extended Dark Storm Sewer (ammo/medkit resupply inside Central Gallery & north exit)
+  [-5, PUMP_YARD.sewerFloorY, -52],
+  [0, PUMP_YARD.sewerFloorY, -70],
+  // High Terraces (Tier 1 & Tier 2 resupply)
+  [-14, 0, -84],
+  [0, HIGH_TERRACES.tier2Y, -114],
+  // Salt Cave (mid-cavern ammo & medkit resupply)
+  [-3, SALT_CAVE.floorY, -176],
   // Plane Forecourt (final ammo & medkits before Quist chase)
-  [-10, 0, -72],
-  [10, 0, -72],
+  [-15, 0, -204],
+  [15, 0, -204],
 ];
 
 function spawns(spec: MapSpec): void {
@@ -233,7 +278,9 @@ function spawns(spec: MapSpec): void {
     { position: new THREE.Vector3(0, 0.1, DESERT_Z.approachStart), yaw: 0 },
     { position: new THREE.Vector3(DESERT_HUB_PT[0], DESERT_HUB_PT[1] + 0.1, DESERT_HUB_PT[2]), yaw: 0 },
     { position: new THREE.Vector3(0, 0.1, -22), yaw: 0 },
-    { position: new THREE.Vector3(0, 0.1, -72), yaw: 0 },
+    { position: new THREE.Vector3(0, 0.1, -81), yaw: 0 },
+    { position: new THREE.Vector3(0, SALT_CAVE.floorY + 0.1, -176), yaw: 0 },
+    { position: new THREE.Vector3(0, 0.1, -206), yaw: 0 },
   );
 }
 
@@ -242,16 +289,18 @@ function views(spec: MapSpec): void {
   const look = (name: string, x: number, y: number, z: number, lx: number, ly: number, lz: number) =>
     spec.view(name, x, y + eye, z, lx, ly, lz);
 
-  spec.view('overview', 110, 92, 165, 0, 4, -10);
+  spec.view('overview', 120, 102, 165, 0, 4, -60);
   look('approach', 0, 2.2, 200, 0, 6, 62);
   spec.view('wall', -38, 12, 92, 0, 4, 62);
   look('warren', 0, 0, 46, 0, 2.5, 4);
   look('minigun', WARREN_MINIGUN.pos[0], WARREN_MINIGUN.pos[1], WARREN_MINIGUN.pos[2], 6, 2.5, -10);
   look('pumpyard', 0, 0, -18, 0, 4, -48);
   look('sewer', 0, PUMP_YARD.sewerFloorY, -34, 0, PUMP_YARD.sewerFloorY + 1.4, -70);
-  look('forecourt', 0, 0, -68, 0, 5, -102);
-  spec.view('plane', 38, 16, -64, 0, 5, -108);
-  look('planeInterior', 0, CARGO_PLANE.floorY, -88, 0, CARGO_PLANE.floorY + 1.5, -124);
+  look('terraces', 0, 0, -83, 0, 6.5, -130);
+  look('cave', 0, SALT_CAVE.floorY, -158, 0, SALT_CAVE.floorY + 1.5, -192);
+  look('forecourt', 0, 0, -204, 0, 5, -238);
+  spec.view('plane', 38, 16, -196, 0, 5, -240);
+  look('planeInterior', 0, CARGO_PLANE.floorY, -220, 0, CARGO_PLANE.floorY + 1.5, -256);
 }
 
 /**

@@ -1,11 +1,14 @@
 /**
  * Surplus — Dawn Desert Floor, Flanking Sand Dunes, Sandstone Mesas & Section 1 Approach Posts.
  *
- * Covers the full DESERT_BOUNDS (-180..180, -165..230) with a 7-band ground slab that cleanly
- * leaves cutouts for the Pump Yard storm sewer entry shaft and Plane forecourt exit shaft.
- * Keeps CONVOY_PATHS.approach and CONVOY_PATHS.wallLoop wide open for the 3-truck convoy,
- * flanks the corridor with sculpted golden dunes and red-sandstone mesas, and places 4 Tier-0
- * destructible Saltblood lookout posts at APPROACH_POSTS.
+ * Covers the full expanded DESERT_BOUNDS (-180..180, -285..240) with a 10-band ground slab that
+ * leaves surgical cutouts for:
+ *   - Pump Yard storm sewer entry drop pit (`SEWER_DROP_PIT`, centered at z = -28)
+ *   - Storm sewer exit shaft (`SEWER_EXIT_PIT`, emerging at HIGH_TERRACES.sewerExitTop [0, 0, -81])
+ *   - Salt Cave subterranean corridor (`SALT_CAVE_PIT`, z = -201.5..-148.5, x = -13..+13)
+ * Keeps CONVOY_PATHS.approach, CONVOY_PATHS.wallLoop, and the Eastern Convoy Bypass Road
+ * (`x = +44..+56`, `y = 0`) flat and unobstructed while flanking the valley with sculpted dunes,
+ * monumental red-sandstone mesas, and 4 Tier-0 Saltblood lookout posts at APPROACH_POSTS.
  */
 import type { StructuralClusterSpec, StructuralNodeSpec } from '../../destruction';
 import { FACE, type Mat } from '../../kit/geo';
@@ -16,9 +19,10 @@ import { APPROACH_POSTS, CONVOY_PATHS, DESERT_BOUNDS, DESERT_Z } from './plan';
 
 export type Rgb = readonly [number, number, number];
 
-/** Shared cutout rectangles in the y = 0 ground slab for the Dark Storm Sewer entry & exit shafts. */
-export const SEWER_DROP_PIT = { x0: -13.0, x1: -4.8, z0: -32.2, z1: -27.8 } as const;
-export const SEWER_EXIT_PIT = { x0: 0.0, x1: 8.2, z0: -78.9, z1: -75.1 } as const;
+/** Shared cutout rectangles in the y = 0 ground slab for Sewer shafts and Salt Cave corridor. */
+export const SEWER_DROP_PIT = { x0: -13.0, x1: -4.8, z0: -30.2, z1: -25.8 } as const;
+export const SEWER_EXIT_PIT = { x0: 0.5, x1: 9.1, z0: -82.9, z1: -79.1 } as const;
+export const SALT_CAVE_PIT = { x0: -13.0, x1: 13.0, z0: -201.5, z1: -148.5 } as const;
 
 /** Warm golden dawn desert palette shared across Surplus modules. */
 export const DESERT_PALETTE = {
@@ -70,30 +74,37 @@ function groundPatch(
   g.tint(1);
 }
 
-/** 7-band ground floor & matching box colliders covering DESERT_BOUNDS with surgical cutouts for sewer pits. */
+/** 10-band ground floor & matching box colliders covering DESERT_BOUNDS with surgical cutouts. */
 function buildGround(k: Kit): void {
   const { x0, x1, z0, z1 } = DESERT_BOUNDS;
   const dp = SEWER_DROP_PIT;
   const ep = SEWER_EXIT_PIT;
+  const cp = SALT_CAVE_PIT;
 
   const bands: readonly [number, number, number, number][] = [
-    // Band 1: Approach, Wall, Warren, South Pump Yard (z = -27.8 .. 230)
+    // Band 1: Approach, Wall, Warren, South Pump Yard (z = -25.8 .. 240)
     [x0, dp.z1, x1, z1],
-    // Band 2: Sewer Drop Pit strip (z = -32.2 .. -27.8)
+    // Band 2: Sewer Drop Pit strip (z = -30.2 .. -25.8)
     [x0, dp.z0, dp.x0, dp.z1],
     [dp.x1, dp.z0, x1, dp.z1],
-    // Band 3: Pump Yard North & Plane Forecourt South (z = -75.1 .. -32.2)
+    // Band 3: Pump Yard North & South Terrace Buffer (z = -79.1 .. -30.2)
     [x0, ep.z1, x1, dp.z0],
-    // Band 4: Sewer Exit Pit strip (z = -78.9 .. -75.1)
+    // Band 4: Sewer Exit Pit strip (z = -82.9 .. -79.1)
     [x0, ep.z0, ep.x0, ep.z1],
     [ep.x1, ep.z0, x1, ep.z1],
-    // Band 5: Crashed Plane North Plateau (z = -165 .. -78.9)
-    [x0, z0, x1, ep.z0],
+    // Band 5: High Terraces Ground Floor & Eastern Bypass (z = -148.5 .. -82.9)
+    [x0, cp.z1, x1, ep.z0],
+    // Band 6: Salt Cave Corridor strip (z = -201.5 .. -148.5) — leaves Eastern Bypass (x = 44..56) flat at y = 0!
+    [x0, cp.z0, cp.x0, cp.z1],
+    [cp.x1, cp.z0, x1, cp.z1],
+    // Band 7: Plane Canyon Forecourt & Crashed Plane North Plateau (z = -285 .. -201.5)
+    [x0, z0, x1, cp.z0],
   ];
 
   for (const [bx0, bz0, bx1, bz1] of bands) {
-    // Visual golden sand base
-    const step = bz1 - bz0 > 30 ? 8 : 4;
+    // Visual golden sand base (generous grid step keeps tri budget lean across 525 m span)
+    const span = Math.max(bx1 - bx0, bz1 - bz0);
+    const step = span > 80 ? 14 : span > 30 ? 10 : 6;
     groundPatch(k, 'dirt', DESERT_PALETTE.sandLight, bx0, bz0, bx1, bz1, 0, step);
     // Single clean static ground collider per band (top exact y = 0, bottom y = -0.8)
     k.collide(
@@ -108,34 +119,37 @@ function buildGround(k: Kit): void {
   }
 
   // Sun-bleached salt-flat alkali patches on the outer flanks
-  groundPatch(k, 'paintWhite', DESERT_PALETTE.sandSalt, -178, 86, -64, 224, 0.012, 12);
-  groundPatch(k, 'paintWhite', DESERT_PALETTE.sandSalt, 64, 86, 178, 224, 0.012, 12);
+  groundPatch(k, 'paintWhite', DESERT_PALETTE.sandSalt, -178, 86, -64, 232, 0.012, 20);
+  groundPatch(k, 'paintWhite', DESERT_PALETTE.sandSalt, 64, 86, 178, 232, 0.012, 20);
 
   // Dusty shantytown floor inside The Warren (z = -14 .. 62, x = -76 .. 76)
-  groundPatch(k, 'dirt', DESERT_PALETTE.townDust, -76, -14, 76, DESERT_Z.wallLine, 0.014, 6);
+  groundPatch(k, 'dirt', DESERT_PALETTE.townDust, -76, -14, 76, DESERT_Z.wallLine, 0.014, 10);
 
   // Industrial concrete apron across Pump Yard (respecting drop pit cutout!)
-  groundPatch(k, 'concrete', DESERT_PALETTE.concreteDust, -50, dp.z1, 50, -14, 0.018, 5);
-  groundPatch(k, 'concrete', DESERT_PALETTE.concreteDust, -50, dp.z0, dp.x0, dp.z1, 0.018, 4);
-  groundPatch(k, 'concrete', DESERT_PALETTE.concreteDust, dp.x1, dp.z0, 50, dp.z1, 0.018, 4);
-  groundPatch(k, 'concrete', DESERT_PALETTE.concreteDust, -50, -56, 50, dp.z0, 0.018, 5);
+  groundPatch(k, 'concrete', DESERT_PALETTE.concreteDust, -50, dp.z1, 50, -14, 0.018, 8);
+  groundPatch(k, 'concrete', DESERT_PALETTE.concreteDust, -50, dp.z0, dp.x0, dp.z1, 0.018, 6);
+  groundPatch(k, 'concrete', DESERT_PALETTE.concreteDust, dp.x1, dp.z0, 50, dp.z1, 0.018, 6);
+  groundPatch(k, 'concrete', DESERT_PALETTE.concreteDust, -50, -56, 50, dp.z0, 0.018, 8);
 
-  // Plane forecourt compacted hardpan apron (respecting exit pit cutout!)
-  groundPatch(k, 'dirt', DESERT_PALETTE.townDust, -44, ep.z1, 44, -56, 0.016, 5);
-  groundPatch(k, 'dirt', DESERT_PALETTE.townDust, -44, ep.z0, ep.x0, ep.z1, 0.016, 4);
-  groundPatch(k, 'dirt', DESERT_PALETTE.townDust, ep.x1, ep.z0, 44, ep.z1, 0.016, 4);
+  // High Terraces Tier-1 compacted sandstone courtyard floor (respecting exit pit cutout!)
+  groundPatch(k, 'dirt', DESERT_PALETTE.townDust, -40, ep.z0, ep.x0, ep.z1, 0.016, 6);
+  groundPatch(k, 'dirt', DESERT_PALETTE.townDust, ep.x1, ep.z0, 40, ep.z1, 0.016, 6);
+  groundPatch(k, 'dirt', DESERT_PALETTE.townDust, -40, -104, 40, ep.z0, 0.016, 8);
 
-  // Convoy dirt track ruts along approach & wall broadside loop (visual only, flush at y = 0.022)
+  // Plane Canyon Forecourt compacted hardpan apron (z = -274 .. -201.5)
+  groundPatch(k, 'dirt', DESERT_PALETTE.townDust, -44, -274, 44, cp.z0, 0.016, 10);
+
+  // Convoy dirt track ruts along approach, wall broadside loop, and Eastern Convoy Bypass Road (flush at y = 0.022)
   drawConvoyTrack(k, CONVOY_PATHS.approach, 10.5);
   drawConvoyTrack(k, CONVOY_PATHS.wallLoop, 9.5);
-  drawConvoyTrack(k, CONVOY_PATHS.exfil.slice(0, 6), 7.5);
+  drawConvoyTrack(k, CONVOY_PATHS.exfil.slice(0, 9), 8.0);
 
   // Endless golden dawn desert skirt past DESERT_BOUNDS to the horizon (visual only)
-  const FAR = 880;
-  groundPatch(k, 'dirt', DESERT_PALETTE.sandMid, -FAR, -FAR, FAR, z0, -0.04, 140);
-  groundPatch(k, 'dirt', DESERT_PALETTE.sandMid, -FAR, z1, FAR, FAR, -0.04, 140);
-  groundPatch(k, 'dirt', DESERT_PALETTE.sandMid, -FAR, z0, x0, z1, -0.04, 140);
-  groundPatch(k, 'dirt', DESERT_PALETTE.sandMid, x1, z0, FAR, z1, -0.04, 140);
+  const FAR = 960;
+  groundPatch(k, 'dirt', DESERT_PALETTE.sandMid, -FAR, -FAR, FAR, z0, -0.04, 180);
+  groundPatch(k, 'dirt', DESERT_PALETTE.sandMid, -FAR, z1, FAR, FAR, -0.04, 180);
+  groundPatch(k, 'dirt', DESERT_PALETTE.sandMid, -FAR, z0, x0, z1, -0.04, 180);
+  groundPatch(k, 'dirt', DESERT_PALETTE.sandMid, x1, z0, FAR, z1, -0.04, 180);
 }
 
 /** Paints a compacted desert convoy track & twin wheel-rut bands along a polyline. */
@@ -171,15 +185,13 @@ function sandDune(
   const g = k.geo;
   const hl = len / 2;
   const hw = w / 2;
-  const crest = w * 0.12; // asymmetrical wind-carved dune ridge
+  const crest = w * 0.12;
   k.push(x, 0, z, yaw);
 
-  // Windward gentle golden slope & steeper shadow leeward slope
   g.use('dirt').tint(DESERT_PALETTE.sandLight[0], DESERT_PALETTE.sandLight[1], DESERT_PALETTE.sandLight[2]);
   g.quad(-hl, 0, hw, hl, 0, hw, hl * 0.72, h, crest, -hl * 0.72, h, crest);
   g.use('dirt').tint(DESERT_PALETTE.sandMid[0] * 0.88, DESERT_PALETTE.sandMid[1] * 0.86, DESERT_PALETTE.sandMid[2] * 0.84);
   g.quad(hl, 0, -hw, -hl, 0, -hw, -hl * 0.72, h, crest, hl * 0.72, h, crest);
-  // Tapered nose & tail cones
   g.use('dirt').tint(DESERT_PALETTE.sandMid[0], DESERT_PALETTE.sandMid[1], DESERT_PALETTE.sandMid[2]);
   g.tri(-hl, 0, -hw, -hl, 0, hw, -hl * 0.72, h, crest);
   g.tri(hl, 0, hw, hl, 0, -hw, hl * 0.72, h, crest);
@@ -197,7 +209,7 @@ function sandDune(
 }
 
 /** Layered red-sandstone desert mesa / rocky outcrop landmark (100% solid). */
-function sandstoneMesa(
+export function sandstoneMesa(
   k: Kit,
   spec: MapSpec,
   x: number,
@@ -211,13 +223,10 @@ function sandstoneMesa(
   const g = k.geo;
   k.push(x, 0, z, yaw);
 
-  // Tier 1 broad talus base
   g.use('concrete').tint(DESERT_PALETTE.mesaDark[0], DESERT_PALETTE.mesaDark[1], DESERT_PALETTE.mesaDark[2]);
   g.bevel(0, h * 0.22, 0, rx, h * 0.22, rz, Math.min(rx, rz) * 0.18);
-  // Tier 2 main cliff stratum
   g.use('concrete').tint(DESERT_PALETTE.mesaLight[0], DESERT_PALETTE.mesaLight[1], DESERT_PALETTE.mesaLight[2]);
   g.bevel(rx * 0.05, h * 0.58, -rz * 0.04, rx * 0.78, h * 0.34, rz * 0.78, Math.min(rx, rz) * 0.14);
-  // Tier 3 flat wind-scoured caprock
   g.use('concreteDark').tint(DESERT_PALETTE.mesaDark[0] * 1.1, DESERT_PALETTE.mesaDark[1] * 1.1, DESERT_PALETTE.mesaDark[2] * 1.05);
   g.bevel(-rx * 0.04, h * 0.90, rz * 0.03, rx * 0.62, h * 0.14, rz * 0.60, Math.min(rx, rz) * 0.12);
   g.tint(1);
@@ -245,7 +254,6 @@ function desertScrubPole(k: Kit, x: number, z: number, h: number, yaw: number, w
     g.quad(1.35, -0.08, 0.08, 0, 0, 0, 0, -0.78, 0, 1.25, -0.68, 0.12);
     k.pop();
   }
-  // Low desert scrub twigs around base
   g.use('plywood').tint(0.62, 0.54, 0.36);
   for (let i = 0; i < 3; i++) {
     const a = yaw + i * 2.1;
@@ -257,7 +265,7 @@ function desertScrubPole(k: Kit, x: number, z: number, h: number, yaw: number, w
 /**
  * Builds one Tier-0 destructible Saltblood desert lookout post:
  * 4 timber stilts, elevated deck, corrugated shelter walls, slanted roof,
- * ground-level sandbag bunker, and a red fuel drum hazard so heavy truck fire blows it apart.
+ * ground-level sandbag bunker, and a red fuel drum hazard so convoy heavy fire blows it apart.
  */
 function buildApproachPostCluster(id: string, x: number, z: number, yaw: number): StructuralClusterSpec {
   const c = Math.cos(yaw);
@@ -267,27 +275,21 @@ function buildApproachPostCluster(id: string, x: number, z: number, yaw: number)
     ly,
     z - lx * s + lz * c,
   ];
-  const H = 3.2; // deck elevation
+  const H = 3.2;
   const W = 1.9;
   const D = 1.6;
 
   const nodes: StructuralNodeSpec[] = [
-    // 4 Tier-0 timber/rust stilts (anchored)
-    { id: 'stilt_fl', pos: pt(-W, H / 2, D), half: [0.18, H / 2, 0.18], mat: 'plywood', color: 0x7c5b3b, hp: 70, tier: 0, anchored: true, kind: 'column', yaw },
-    { id: 'stilt_fr', pos: pt(W, H / 2, D), half: [0.18, H / 2, 0.18], mat: 'plywood', color: 0x7c5b3b, hp: 70, tier: 0, anchored: true, kind: 'column', yaw },
-    { id: 'stilt_bl', pos: pt(-W, H / 2, -D), half: [0.18, H / 2, 0.18], mat: 'rust', color: 0x7d4c32, hp: 70, tier: 0, anchored: true, kind: 'column', yaw },
-    { id: 'stilt_br', pos: pt(W, H / 2, -D), half: [0.18, H / 2, 0.18], mat: 'rust', color: 0x7d4c32, hp: 70, tier: 0, anchored: true, kind: 'column', yaw },
-    // Elevated lookout deck
-    { id: 'deck', pos: pt(0, H + 0.14, 0), half: [W + 0.4, 0.14, D + 0.4], mat: 'plywood', color: 0x9b764c, hp: 80, tier: 0, anchored: false, kind: 'slab', yaw, impactRadius: 6.5 },
-    // Corrugated shelter back & side shields
-    { id: 'wall_back', pos: pt(0, H + 1.25, -D), half: [W + 0.2, 1.0, 0.12], mat: 'rust', color: 0x9b5a3c, hp: 75, tier: 0, anchored: false, kind: 'wall', yaw },
-    { id: 'parapet_front', pos: pt(0, H + 0.72, D + 0.1), half: [W + 0.25, 0.48, 0.18], mat: 'dirt', color: 0x9c8864, hp: 75, tier: 0, anchored: false, kind: 'wall', yaw },
-    // Corrugated sunshade roof
-    { id: 'roof', pos: pt(0, H + 2.38, 0), half: [W + 0.55, 0.1, D + 0.55], mat: 'panel', color: 0xb58d52, hp: 70, tier: 0, anchored: false, kind: 'roof', yaw, impactRadius: 6.5 },
-    // Ground-level sandbag bunker wall
-    { id: 'sandbags_base', pos: pt(0, 0.6, D + 0.9), half: [W + 0.6, 0.6, 0.38], mat: 'dirt', color: 0x9b8660, hp: 85, tier: 0, anchored: true, kind: 'wall', yaw },
-    // Red explosive fuel drum (chain-detonates the whole post!)
-    { id: 'fuel_drum', pos: pt(W + 0.85, 0.55, D + 0.35), half: [0.42, 0.55, 0.42], mat: 'paintRed', color: 0xc82820, hp: 35, tier: 0, anchored: true, kind: 'hazard', yaw, hazardRadius: 9.5, hazardDamage: 240 },
+    { id: 'stilt_fl', pos: pt(-W, H / 2, D), half: [0.18, H / 2, 0.18], mat: 'plywood', color: 0x7c5b3b, hp: 90, tier: 0, anchored: true, kind: 'column', yaw, materialClass: 'wood' },
+    { id: 'stilt_fr', pos: pt(W, H / 2, D), half: [0.18, H / 2, 0.18], mat: 'plywood', color: 0x7c5b3b, hp: 90, tier: 0, anchored: true, kind: 'column', yaw, materialClass: 'wood' },
+    { id: 'stilt_bl', pos: pt(-W, H / 2, -D), half: [0.18, H / 2, 0.18], mat: 'plywood', color: 0x7d4c32, hp: 90, tier: 0, anchored: true, kind: 'column', yaw, materialClass: 'wood' },
+    { id: 'stilt_br', pos: pt(W, H / 2, -D), half: [0.18, H / 2, 0.18], mat: 'plywood', color: 0x7d4c32, hp: 90, tier: 0, anchored: true, kind: 'column', yaw, materialClass: 'wood' },
+    { id: 'deck', pos: pt(0, H + 0.14, 0), half: [W + 0.4, 0.14, D + 0.4], mat: 'plywood', color: 0x9b764c, hp: 105, tier: 0, anchored: false, kind: 'slab', yaw, impactRadius: 6.5, materialClass: 'wood' },
+    { id: 'wall_back', pos: pt(0, H + 1.25, -D), half: [W + 0.2, 1.0, 0.12], mat: 'rust', color: 0x9b5a3c, hp: 110, tier: 0, anchored: false, kind: 'wall', yaw, materialClass: 'metal', fractureGrid: [2, 2] },
+    { id: 'parapet_front', pos: pt(0, H + 0.72, D + 0.1), half: [W + 0.25, 0.48, 0.18], mat: 'dirt', color: 0x9c8864, hp: 95, tier: 0, anchored: false, kind: 'wall', yaw, materialClass: 'stone' },
+    { id: 'roof', pos: pt(0, H + 2.38, 0), half: [W + 0.55, 0.1, D + 0.55], mat: 'panel', color: 0xb58d52, hp: 100, tier: 0, anchored: false, kind: 'roof', yaw, impactRadius: 6.5, materialClass: 'metal', fractureGrid: [2, 2] },
+    { id: 'sandbags_base', pos: pt(0, 0.6, D + 0.9), half: [W + 0.6, 0.6, 0.38], mat: 'dirt', color: 0x9b8660, hp: 100, tier: 0, anchored: true, kind: 'wall', yaw, materialClass: 'stone' },
+    { id: 'fuel_drum', pos: pt(W + 0.85, 0.55, D + 0.35), half: [0.42, 0.55, 0.42], mat: 'paintRed', color: 0xc82820, hp: 35, tier: 0, anchored: true, kind: 'hazard', yaw, hazardRadius: 8.5, hazardDamage: 220, materialClass: 'metal' },
   ];
 
   const links: [string, string][] = [
@@ -330,37 +332,39 @@ function buildContainment(k: Kit): void {
 export function authorDesertDunes(k: Kit, spec: MapSpec): void {
   buildGround(k);
 
-  // Flanking golden sand dunes along the Approach corridor (keeping |x| < 36 open for convoy & posts!)
+  // Flanking golden sand dunes along the Approach corridor & outer desert flanks (well clear of Eastern Bypass x = 44..56!)
   const duneSpecs: readonly [number, number, number, number, number, number][] = [
-    [-72, 198, 46, 22, 7.5, 0.25],
-    [76, 192, 48, 24, 8.2, -0.22],
-    [-82, 146, 52, 24, 8.8, -0.18],
-    [80, 138, 44, 22, 7.2, 0.30],
+    [-72, 204, 46, 22, 7.5, 0.25],
+    [76, 198, 48, 24, 8.2, -0.22],
+    [-82, 148, 52, 24, 8.8, -0.18],
+    [80, 140, 44, 22, 7.2, 0.30],
     [-98, 96, 48, 24, 7.8, 0.15],
     [102, 98, 46, 24, 7.6, -0.20],
     [-124, 20, 56, 26, 9.0, 1.35],
     [126, 12, 56, 26, 9.2, 1.65],
-    [-116, -98, 54, 24, 8.4, 0.45],
-    [118, -102, 54, 24, 8.6, -0.40],
+    [-112, -112, 54, 24, 8.4, 0.45],
+    [118, -116, 54, 24, 8.6, -0.40],
   ];
   for (const [dx, dz, len, w, h, yaw] of duneSpecs) {
     sandDune(k, spec, dx, dz, len, w, h, yaw, true);
   }
 
-  // Monumental red-sandstone mesas & rocky outcrops (solid landmarks framing the valley!)
+  // Monumental red-sandstone mesas & rocky outcrops framing the valley & north plane canyon
   const mesaSpecs: readonly [number, number, number, number, number, number, boolean][] = [
-    [-132, 178, 24, 18, 22, 0.2, true],
-    [136, 166, 26, 20, 26, -0.35, true],
+    [-132, 182, 24, 18, 22, 0.2, true],
+    [136, 170, 26, 20, 26, -0.35, true],
     [-138, 108, 22, 16, 19, -0.15, true],
     [138, 114, 24, 18, 21, 0.25, true],
     [-136, -42, 26, 24, 24, 0.1, true],
     [138, -46, 28, 22, 25, -0.18, true],
-    [-96, -142, 28, 18, 20, 0.12, true],
-    [98, -140, 30, 18, 22, -0.15, true],
+    [-98, -172, 28, 22, 24, 0.12, true],
+    [106, -176, 30, 22, 26, -0.15, true],
+    [-96, -248, 28, 22, 25, 0.22, true],
+    [98, -252, 30, 22, 27, -0.2, true],
     // Massive distant dawn horizon mesas (visual backdrop past playable bounds)
-    [-260, -210, 68, 42, 54, 0.2, false],
-    [250, -225, 76, 46, 62, -0.25, false],
-    [10, -260, 88, 38, 48, 0.05, false],
+    [-260, -320, 72, 46, 58, 0.2, false],
+    [255, -330, 78, 48, 64, -0.25, false],
+    [12, -370, 92, 42, 54, 0.05, false],
     [-275, 110, 58, 48, 46, 0.4, false],
     [285, 95, 62, 44, 50, -0.3, false],
   ];
@@ -368,7 +372,7 @@ export function authorDesertDunes(k: Kit, spec: MapSpec): void {
     sandstoneMesa(k, spec, mx, mz, rx, rz, h, yaw, col);
   }
 
-  // Smaller rocky sandstone boulders lining the approach flanks (solid cover outside convoy lane)
+  // Smaller rocky sandstone boulders lining the approach flanks (outside convoy lane)
   for (const [rx, rz, r, h] of [
     [-46, 188, 3.4, 2.8],
     [48, 176, 3.8, 3.2],
@@ -380,7 +384,7 @@ export function authorDesertDunes(k: Kit, spec: MapSpec): void {
     sandstoneMesa(k, spec, rx, rz, r, r * 0.82, h, rx * 0.1, true);
   }
 
-  // 4 Tier-0 Destructible Saltblood Lookout Posts at exact APPROACH_POSTS
+  // 4 Tier-0 Destructible Saltblood Lookout Posts at exact APPROACH_POSTS (4 baked lights)
   for (const post of APPROACH_POSTS) {
     spec.cluster(buildApproachPostCluster(post.id, post.x, post.z, post.yaw));
     spec.plan?.blocks.push({
@@ -389,14 +393,12 @@ export function authorDesertDunes(k: Kit, spec: MapSpec): void {
       x1: post.x + 2.6,
       z1: post.z + 2.6,
     });
-    // Warm amber lantern glow at each lookout post so it pops against the dawn haze
     k.light(post.x, 4.2, post.z, DESERT_PALETTE.dawnAmber, 30, 18);
-    // Flanking tyres & marker rag beside each lookout
     tyres(k, post.x - Math.sign(post.x) * 3.4, 0, post.z + 1.8, 3, false);
     desertScrubPole(k, post.x + Math.sign(post.x) * 3.2, post.z - 2.0, 3.6, post.yaw, true);
   }
 
-  // Rusted burnt-out desert convoy hulks flanking the approach dunes (outside convoy lane!)
+  // Rusted burnt-out desert convoy hulks flanking the approach dunes
   truck(k, -48, 0, 162, 0.55, 0.08);
   truck(k, 48, 0, 134, -0.75, -0.06);
   truck(k, -78, 0, 82, 1.3, 0.05);
@@ -436,8 +438,8 @@ export function authorDesertDunes(k: Kit, spec: MapSpec): void {
     desertScrubPole(k, mx, mz, 2.8, yaw, true);
   }
 
-  // Broad warm golden dawn sunlight wash over the approach & convoy loop
-  k.light(0, 18, 150, DESERT_PALETTE.dawnWarm, 72, 48);
+  // Broad warm golden dawn sunlight wash over the approach & convoy loop (2 baked lights; total 6 in dunes)
+  k.light(0, 18, 154, DESERT_PALETTE.dawnWarm, 72, 48);
   k.light(0, 16, 96, DESERT_PALETTE.dawnWarm, 68, 44);
 
   buildContainment(k);

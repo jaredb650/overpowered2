@@ -1,19 +1,17 @@
 /**
  * Surplus — The Warren (z = +50 -> -12, x = -58 .. +58).
  *
- * Cut-your-own-way destructible shantytown:
- *   - 20 distinct Tier-0 destructible shacks (14 single-storey h = 3.4 m + 6 two-storey h = 6.6 m)
- *     arranged in dense West, Center-Flank, and East avenues. Every shack uses Tier-0 posts and
- *     walls (hp: 75–110) so bullets & explosives punch walk-through holes straight through shacks
- *     or snap corner posts to drop roofs onto bandits inside!
- *   - 4 Tier-0 elevated rooftop catwalks bridging alleys at y = 3.4, overhead sagging washing lines,
- *     power cables, dyed bunting, Tier-0 street sandbag/crate barricades & fuel drums (kind: 'hazard').
- *   - 3 solid weathered concrete cistern / sandstone rock landmarks so navigation never gets lost
- *     even after the entire shantytown is leveled!
- *   - Elevated Optional Minigun Nest at exact WARREN_MINIGUN.pos ([-14, 4.2, 22]) with wide street
- *     stairs, Tier-0 destructible front sandbag cover + sunshade, and mounted M134 emplacement facing
- *     north (-Z) down the central Warren avenue!
- *   - Clear ~10–12 m central rubble-corridor along CONVOY_PATHS.exfil for Section 6 exfil trucks.
+ * Cut-your-own-way destructible shantytown (Desert Raid 2.0):
+ *   - 20 distinct Tier-0 destructible shacks (14 single-storey h = 3.6 m + 6 two-storey h = 7.2 m,
+ *     aligned exactly with DESERT_LEVELS!). Timber posts/beams/roofs carry `materialClass: 'wood'`
+ *     (`hp: 125..155`) and corrugated sheet siding carries `materialClass: 'metal'` + `fractureGrid: [2, 2]`
+ *     (`hp: 155..185`) so shooting/blasting shacks bends wood, punches jagged holes in walls, and collapses roofs!
+ *   - 4 Tier-0 elevated rooftop catwalks bridging alleys at y = 3.6, overhead sagging washing lines,
+ *     power cables, dyed bunting, Tier-0 street sandbag/crate barricades & only 5 well-spaced tactical
+ *     fuel drums across the whole shantytown so stray blasts never pre-clear the Warren.
+ *   - 3 solid weathered concrete cistern / sandstone rock landmarks so navigation never gets lost.
+ *   - Elevated Optional Minigun Nest at exact WARREN_MINIGUN.pos ([-14, 3.6, 22]) with wide street
+ *     stairs, Tier-0 destructible front sandbag cover + sunshade, and mounted M134 emplacement.
  */
 import {
   createNavNodeProxy,
@@ -27,8 +25,8 @@ import type { MapSpec } from '../spec';
 import { DESERT_PALETTE, type Rgb } from './dunes';
 import { WARREN_MINIGUN } from './plan';
 
-const SINGLE_H = 3.4; // Exact match with DESERT_LEVELS = 3.4
-const DOUBLE_H = 6.6; // Exact match with DESERT_LEVELS = 6.6
+const SINGLE_H = 3.6; // Exact match with DESERT_LEVELS[4] = 3.6
+const DOUBLE_H = 7.2; // Exact match with DESERT_LEVELS[5] = 7.2
 
 interface ShackSpec {
   readonly id: string;
@@ -46,44 +44,39 @@ interface ShackSpec {
 
 /**
  * 20 distinct Tier-0 shacks across West, Center-Flank, and East avenues.
- * All positions verified clear of:
- *   - Central exfil corridor: (0, 50) -> (4, 16) -> (12, -14) (width ~11 m)
- *   - DESERT_HUB_PT: [0, 0, 44]
- *   - WARREN_MINIGUN platform & stairs: x in [-18, -10], z in [18.5, 33]
- *   - LOUDSPEAKER_POLES: [-22,56], [22,56], [-20,26], [20,14], [-12,-4]
- *   - 3 Solid landmarks: (-36, 32), (34, 18), (-26, -2)
+ * Only 2 widely spaced shacks carry an internal fuel drum (plus 3 isolated street drums = 5 total in Warren!).
  */
 const WARREN_SHACKS: readonly ShackSpec[] = [
   // West Avenue (x = -52 .. -22)
-  { id: 'warren.shack.0', x: -46, z: 44, w: 6.4, d: 5.0, stories: 1, yaw: 0, color: 0xc97b4b, hasHazard: true, hasAwning: true },
+  { id: 'warren.shack.0', x: -46, z: 44, w: 6.4, d: 5.0, stories: 1, yaw: 0, color: 0xc97b4b, hasHazard: false, hasAwning: true },
   { id: 'warren.shack.1', x: -30, z: 44, w: 6.2, d: 4.8, stories: 2, yaw: 0.08, color: 0xb58d52, hasHazard: false, hasAwning: true },
   { id: 'warren.shack.2', x: -48, z: 30, w: 6.0, d: 5.2, stories: 1, yaw: Math.PI / 2, color: 0x6e8c82, hasHazard: true, hasAwning: false },
-  { id: 'warren.shack.3', x: -46, z: 16, w: 6.6, d: 5.0, stories: 2, yaw: 0, color: 0x9b5a3c, hasHazard: true, hasAwning: true },
+  { id: 'warren.shack.3', x: -46, z: 16, w: 6.6, d: 5.0, stories: 2, yaw: 0, color: 0x9b5a3c, hasHazard: false, hasAwning: true },
   { id: 'warren.shack.4', x: -30, z: 14, w: 5.8, d: 4.8, stories: 1, yaw: -0.06, color: 0xc4a472, hasHazard: false, hasAwning: true, walkableRoof: true },
-  { id: 'warren.shack.5', x: -44, z: 2, w: 6.4, d: 5.0, stories: 1, yaw: 0.05, color: 0xa84836, hasHazard: true, hasAwning: false },
+  { id: 'warren.shack.5', x: -44, z: 2, w: 6.4, d: 5.0, stories: 1, yaw: 0.05, color: 0xa84836, hasHazard: false, hasAwning: false },
   { id: 'warren.shack.6', x: -42, z: -8, w: 6.2, d: 4.6, stories: 2, yaw: Math.PI, color: 0x7c7668, hasHazard: false, hasAwning: true },
 
   // Center-West Flank (x = -18 .. -8)
-  { id: 'warren.shack.7', x: -16, z: 42, w: 5.8, d: 4.6, stories: 1, yaw: Math.PI / 2, color: 0xb58d52, hasHazard: true, hasAwning: true, walkableRoof: true },
-  { id: 'warren.shack.8', x: -14, z: 8, w: 5.8, d: 4.8, stories: 1, yaw: Math.PI / 2, color: 0xc97b4b, hasHazard: true, hasAwning: true, walkableRoof: true },
+  { id: 'warren.shack.7', x: -16, z: 42, w: 5.8, d: 4.6, stories: 1, yaw: Math.PI / 2, color: 0xb58d52, hasHazard: false, hasAwning: true, walkableRoof: true },
+  { id: 'warren.shack.8', x: -14, z: 8, w: 5.8, d: 4.8, stories: 1, yaw: Math.PI / 2, color: 0xc97b4b, hasHazard: false, hasAwning: true, walkableRoof: true },
   { id: 'warren.shack.9', x: -4, z: -4, w: 5.6, d: 4.6, stories: 1, yaw: 0, color: 0x8e6b46, hasHazard: false, hasAwning: false },
 
   // Center-East Flank (x = +12 .. +26)
-  { id: 'warren.shack.10', x: 16, z: 42, w: 6.2, d: 4.8, stories: 1, yaw: -Math.PI / 2, color: 0x6e8c82, hasHazard: true, hasAwning: true },
-  { id: 'warren.shack.11', x: 16, z: 28, w: 6.0, d: 5.0, stories: 2, yaw: -Math.PI / 2, color: 0xc97b4b, hasHazard: true, hasAwning: true },
+  { id: 'warren.shack.10', x: 16, z: 42, w: 6.2, d: 4.8, stories: 1, yaw: -Math.PI / 2, color: 0x6e8c82, hasHazard: false, hasAwning: true },
+  { id: 'warren.shack.11', x: 16, z: 28, w: 6.0, d: 5.0, stories: 2, yaw: -Math.PI / 2, color: 0xc97b4b, hasHazard: false, hasAwning: true },
   { id: 'warren.shack.12', x: 22, z: 4, w: 5.8, d: 4.6, stories: 1, yaw: 0, color: 0xa84836, hasHazard: false, hasAwning: true },
-  { id: 'warren.shack.13', x: 24, z: -7, w: 6.0, d: 4.6, stories: 1, yaw: Math.PI, color: 0xc4a472, hasHazard: true, hasAwning: false },
+  { id: 'warren.shack.13', x: 24, z: -7, w: 6.0, d: 4.6, stories: 1, yaw: Math.PI, color: 0xc4a472, hasHazard: false, hasAwning: false },
 
   // East Avenue (x = +30 .. +52)
   { id: 'warren.shack.14', x: 32, z: 44, w: 6.4, d: 4.8, stories: 1, yaw: 0, color: 0x9b5a3c, hasHazard: false, hasAwning: true },
-  { id: 'warren.shack.15', x: 48, z: 42, w: 6.2, d: 5.0, stories: 2, yaw: -0.08, color: 0x7c7668, hasHazard: true, hasAwning: true },
-  { id: 'warren.shack.16', x: 34, z: 32, w: 6.0, d: 4.8, stories: 1, yaw: 0.04, color: 0xb58d52, hasHazard: true, hasAwning: false, walkableRoof: true },
+  { id: 'warren.shack.15', x: 48, z: 42, w: 6.2, d: 5.0, stories: 2, yaw: -0.08, color: 0x7c7668, hasHazard: false, hasAwning: true },
+  { id: 'warren.shack.16', x: 34, z: 32, w: 6.0, d: 4.8, stories: 1, yaw: 0.04, color: 0xb58d52, hasHazard: false, hasAwning: false, walkableRoof: true },
   { id: 'warren.shack.17', x: 48, z: 26, w: 6.4, d: 5.0, stories: 1, yaw: -Math.PI / 2, color: 0x6e8c82, hasHazard: false, hasAwning: true },
   { id: 'warren.shack.18', x: 48, z: 10, w: 6.2, d: 5.2, stories: 2, yaw: 0, color: 0xc97b4b, hasHazard: true, hasAwning: true },
-  { id: 'warren.shack.19', x: 44, z: -5, w: 6.4, d: 4.8, stories: 1, yaw: Math.PI, color: 0x8e6b46, hasHazard: true, hasAwning: true },
+  { id: 'warren.shack.19', x: 44, z: -5, w: 6.4, d: 4.8, stories: 1, yaw: Math.PI, color: 0x8e6b46, hasHazard: false, hasAwning: true },
 ];
 
-/** Builds a cut-your-own-way Tier-0 destructible shack (1-storey 3.4 m or 2-storey 6.6 m). */
+/** Builds a cut-your-own-way Tier-0 destructible shack (1-storey 3.6 m or 2-storey 7.2 m). */
 function buildWarrenShackCluster(k: Kit, s: ShackSpec): StructuralClusterSpec {
   const c = Math.cos(s.yaw);
   const sn = Math.sin(s.yaw);
@@ -95,38 +88,40 @@ function buildWarrenShackCluster(k: Kit, s: ShackSpec): StructuralClusterSpec {
   const hw = s.w / 2;
   const hd = s.d / 2;
   const roofHalfY = 0.14;
-  const wallH = SINGLE_H - roofHalfY * 2; // 3.12 m -> roof top exact 3.4 m
+  const wallH = SINGLE_H - roofHalfY * 2; // 3.32 m -> roof top exact 3.6 m
   const matWall: Mat = s.color === 0x7c7668 ? 'panel' : 'paintWhite';
 
   const nodes: StructuralNodeSpec[] = [
-    // 4 corner Tier-0 timber/rust posts (anchored, hp 90) — snapping them drops the roof!
-    { id: 'post_fl', pos: pt(-hw + 0.15, wallH / 2, hd - 0.15), half: [0.16, wallH / 2, 0.16], mat: 'plywood', color: 0x6e4e32, hp: 90, tier: 0, anchored: true, kind: 'column', yaw: s.yaw },
-    { id: 'post_fr', pos: pt(hw - 0.15, wallH / 2, hd - 0.15), half: [0.16, wallH / 2, 0.16], mat: 'plywood', color: 0x6e4e32, hp: 90, tier: 0, anchored: true, kind: 'column', yaw: s.yaw },
-    { id: 'post_bl', pos: pt(-hw + 0.15, wallH / 2, -hd + 0.15), half: [0.16, wallH / 2, 0.16], mat: 'rust', color: 0x6e422c, hp: 90, tier: 0, anchored: true, kind: 'column', yaw: s.yaw },
-    { id: 'post_br', pos: pt(hw - 0.15, wallH / 2, -hd + 0.15), half: [0.16, wallH / 2, 0.16], mat: 'rust', color: 0x6e422c, hp: 90, tier: 0, anchored: true, kind: 'column', yaw: s.yaw },
+    // 4 corner Tier-0 timber posts (materialClass: 'wood', hp: 135) — snapping them bends & drops the roof!
+    { id: 'post_fl', pos: pt(-hw + 0.15, wallH / 2, hd - 0.15), half: [0.16, wallH / 2, 0.16], mat: 'plywood', color: 0x6e4e32, hp: 135, tier: 0, anchored: true, kind: 'column', yaw: s.yaw, materialClass: 'wood' },
+    { id: 'post_fr', pos: pt(hw - 0.15, wallH / 2, hd - 0.15), half: [0.16, wallH / 2, 0.16], mat: 'plywood', color: 0x6e4e32, hp: 135, tier: 0, anchored: true, kind: 'column', yaw: s.yaw, materialClass: 'wood' },
+    { id: 'post_bl', pos: pt(-hw + 0.15, wallH / 2, -hd + 0.15), half: [0.16, wallH / 2, 0.16], mat: 'plywood', color: 0x64462c, hp: 135, tier: 0, anchored: true, kind: 'column', yaw: s.yaw, materialClass: 'wood' },
+    { id: 'post_br', pos: pt(hw - 0.15, wallH / 2, -hd + 0.15), half: [0.16, wallH / 2, 0.16], mat: 'plywood', color: 0x64462c, hp: 135, tier: 0, anchored: true, kind: 'column', yaw: s.yaw, materialClass: 'wood' },
 
-    // Thin breakable corrugated/plywood side & back walls (hp 75–85, tier 0) -> blast walk-through holes right through!
-    { id: 'wall_w', pos: pt(-hw, wallH / 2, 0), half: [0.14, wallH / 2, hd - 0.32], mat: matWall, color: s.color, hp: 80, tier: 0, anchored: true, kind: 'wall', yaw: s.yaw },
-    { id: 'wall_e', pos: pt(hw, wallH / 2, 0), half: [0.14, wallH / 2, hd - 0.32], mat: matWall, color: s.color, hp: 80, tier: 0, anchored: true, kind: 'wall', yaw: s.yaw },
-    { id: 'wall_b', pos: pt(0, wallH / 2, -hd), half: [hw - 0.32, wallH / 2, 0.14], mat: 'rust', color: s.color, hp: 85, tier: 0, anchored: true, kind: 'wall', yaw: s.yaw },
-    // Front wall split around a 1.8 m doorway so you can run inside OR shoot the cheeks out
-    { id: 'wall_fl', pos: pt(-hw * 0.58, wallH / 2, hd), half: [hw * 0.34, wallH / 2, 0.14], mat: matWall, color: s.color, hp: 75, tier: 0, anchored: true, kind: 'wall', yaw: s.yaw },
-    { id: 'wall_fr', pos: pt(hw * 0.58, wallH / 2, hd), half: [hw * 0.34, wallH / 2, 0.14], mat: matWall, color: s.color, hp: 75, tier: 0, anchored: true, kind: 'wall', yaw: s.yaw },
+    // Sheet-metal siding panels (`materialClass: 'metal'`, `fractureGrid: [2, 2]`, hp: 160-185) -> blast jagged walk-through holes!
+    { id: 'wall_w', pos: pt(-hw, wallH / 2, 0), half: [0.14, wallH / 2, hd - 0.32], mat: matWall, color: s.color, hp: 170, tier: 0, anchored: true, kind: 'wall', yaw: s.yaw, materialClass: 'metal', fractureGrid: [2, 2] },
+    { id: 'wall_e', pos: pt(hw, wallH / 2, 0), half: [0.14, wallH / 2, hd - 0.32], mat: matWall, color: s.color, hp: 170, tier: 0, anchored: true, kind: 'wall', yaw: s.yaw, materialClass: 'metal', fractureGrid: [2, 2] },
+    { id: 'wall_b', pos: pt(0, wallH / 2, -hd), half: [hw - 0.32, wallH / 2, 0.14], mat: 'rust', color: s.color, hp: 185, tier: 0, anchored: true, kind: 'wall', yaw: s.yaw, materialClass: 'metal', fractureGrid: [2, 2] },
+    // Front wall cheeks framing a 1.8 m doorway
+    { id: 'wall_fl', pos: pt(-hw * 0.58, wallH / 2, hd), half: [hw * 0.34, wallH / 2, 0.14], mat: matWall, color: s.color, hp: 155, tier: 0, anchored: true, kind: 'wall', yaw: s.yaw, materialClass: 'metal', fractureGrid: [2, 2] },
+    { id: 'wall_fr', pos: pt(hw * 0.58, wallH / 2, hd), half: [hw * 0.34, wallH / 2, 0.14], mat: matWall, color: s.color, hp: 155, tier: 0, anchored: true, kind: 'wall', yaw: s.yaw, materialClass: 'metal', fractureGrid: [2, 2] },
   ];
 
-  // First-floor roof / deck slab (top exact y = 3.4)
+  // First-floor timber/corrugated roof deck (top exact y = 3.6, materialClass: 'wood')
   const roof1: StructuralNodeSpec = {
     id: 'roof_1',
     pos: pt(0, SINGLE_H - roofHalfY, 0),
     half: [hw + 0.25, roofHalfY, hd + 0.25],
-    mat: 'rust',
+    mat: 'plywood',
     color: 0x7b563c,
-    hp: 95,
+    hp: 155,
     tier: 0,
     anchored: false,
     kind: 'roof',
     yaw: s.yaw,
     impactRadius: 7.5,
+    materialClass: 'wood',
+    fractureGrid: [2, 2],
   };
   nodes.push(roof1);
 
@@ -141,14 +136,14 @@ function buildWarrenShackCluster(k: Kit, s: ShackSpec): StructuralClusterSpec {
   ];
 
   if (s.stories === 2) {
-    const upperWallH = DOUBLE_H - SINGLE_H - roofHalfY * 2; // 2.92 m -> top roof exact 6.6 m
+    const upperWallH = DOUBLE_H - SINGLE_H - roofHalfY * 2; // 3.32 m -> top roof exact 7.2 m
     const yMid = SINGLE_H + upperWallH / 2;
     nodes.push(
-      { id: 'up_wall_w', pos: pt(-hw + 0.12, yMid, 0), half: [0.14, upperWallH / 2, hd - 0.25], mat: 'panel', color: s.color, hp: 80, tier: 0, anchored: false, kind: 'wall', yaw: s.yaw },
-      { id: 'up_wall_e', pos: pt(hw - 0.12, yMid, 0), half: [0.14, upperWallH / 2, hd - 0.25], mat: 'panel', color: s.color, hp: 80, tier: 0, anchored: false, kind: 'wall', yaw: s.yaw },
-      { id: 'up_wall_b', pos: pt(0, yMid, -hd + 0.12), half: [hw - 0.25, upperWallH / 2, 0.14], mat: 'rust', color: 0x86543a, hp: 80, tier: 0, anchored: false, kind: 'wall', yaw: s.yaw },
-      { id: 'up_parapet_f', pos: pt(0, SINGLE_H + 0.65, hd - 0.12), half: [hw - 0.25, 0.65, 0.14], mat: 'plywood', color: 0x9b764e, hp: 75, tier: 0, anchored: false, kind: 'wall', yaw: s.yaw },
-      { id: 'roof_2', pos: pt(0, DOUBLE_H - roofHalfY, 0), half: [hw + 0.35, roofHalfY, hd + 0.35], mat: 'rust', color: 0x6f4b34, hp: 105, tier: 0, anchored: false, kind: 'roof', yaw: s.yaw, impactRadius: 9.0 },
+      { id: 'up_wall_w', pos: pt(-hw + 0.12, yMid, 0), half: [0.14, upperWallH / 2, hd - 0.25], mat: 'panel', color: s.color, hp: 165, tier: 0, anchored: false, kind: 'wall', yaw: s.yaw, materialClass: 'metal', fractureGrid: [2, 2] },
+      { id: 'up_wall_e', pos: pt(hw - 0.12, yMid, 0), half: [0.14, upperWallH / 2, hd - 0.25], mat: 'panel', color: s.color, hp: 165, tier: 0, anchored: false, kind: 'wall', yaw: s.yaw, materialClass: 'metal', fractureGrid: [2, 2] },
+      { id: 'up_wall_b', pos: pt(0, yMid, -hd + 0.12), half: [hw - 0.25, upperWallH / 2, 0.14], mat: 'rust', color: 0x86543a, hp: 170, tier: 0, anchored: false, kind: 'wall', yaw: s.yaw, materialClass: 'metal', fractureGrid: [2, 2] },
+      { id: 'up_parapet_f', pos: pt(0, SINGLE_H + 0.62, hd - 0.12), half: [hw - 0.25, 0.62, 0.14], mat: 'plywood', color: 0x9b764e, hp: 130, tier: 0, anchored: false, kind: 'wall', yaw: s.yaw, materialClass: 'wood' },
+      { id: 'roof_2', pos: pt(0, DOUBLE_H - roofHalfY, 0), half: [hw + 0.35, roofHalfY, hd + 0.35], mat: 'plywood', color: 0x6f4b34, hp: 160, tier: 0, anchored: false, kind: 'roof', yaw: s.yaw, impactRadius: 9.0, materialClass: 'wood', fractureGrid: [2, 2] },
     );
     links.push(
       ['roof_1', 'up_wall_w'],
@@ -164,16 +159,17 @@ function buildWarrenShackCluster(k: Kit, s: ShackSpec): StructuralClusterSpec {
   if (s.hasAwning) {
     nodes.push({
       id: 'awning',
-      pos: pt(0, 2.55, hd + 0.85),
+      pos: pt(0, 2.65, hd + 0.85),
       half: [hw * 0.72, 0.08, 0.85],
-      mat: 'rust',
+      mat: 'plywood',
       color: 0xb2683e,
-      hp: 55,
+      hp: 120,
       tier: 0,
       anchored: false,
       kind: 'roof',
       yaw: s.yaw,
       pitch: 0.18,
+      materialClass: 'wood',
     });
     links.push(['post_fl', 'awning'], ['post_fr', 'awning']);
   }
@@ -185,13 +181,14 @@ function buildWarrenShackCluster(k: Kit, s: ShackSpec): StructuralClusterSpec {
       half: [0.42, 0.56, 0.42],
       mat: 'paintRed',
       color: 0xcc2820,
-      hp: 35,
+      hp: 38,
       tier: 0,
       anchored: true,
       kind: 'hazard',
       yaw: s.yaw,
-      hazardRadius: 9.0,
-      hazardDamage: 225,
+      hazardRadius: 7.5,
+      hazardDamage: 200,
+      materialClass: 'metal',
     });
   }
 
@@ -212,7 +209,7 @@ function buildWarrenShackCluster(k: Kit, s: ShackSpec): StructuralClusterSpec {
   };
 }
 
-/** Builds a Tier-0 destructible rooftop catwalk bridge at y = 3.4 between alley shacks. */
+/** Builds a Tier-0 destructible rooftop catwalk bridge at y = 3.6 between alley shacks. */
 function buildRooftopCatwalkCluster(
   k: Kit,
   idx: number,
@@ -235,19 +232,20 @@ function buildRooftopCatwalkCluster(
     id: 'catwalk_deck',
     pos: [mx, SINGLE_H - deckHalfY, mz],
     half: [len / 2, deckHalfY, 1.1],
-    mat: 'grate',
-    color: 0x6b6a64,
-    hp: 85,
+    mat: 'plywood',
+    color: 0x7b5c3e,
+    hp: 140,
     tier: 0,
     anchored: false,
     kind: 'catwalk',
     yaw,
     impactRadius: 6,
+    materialClass: 'wood',
   };
 
   const nodes: StructuralNodeSpec[] = [
-    { id: 'leg_a', pos: [ax, legH / 2, az], half: [0.18, legH / 2, 0.85], mat: 'rust', color: 0x764c34, hp: 85, tier: 0, anchored: true, kind: 'column', yaw },
-    { id: 'leg_b', pos: [bx, legH / 2, bz], half: [0.18, legH / 2, 0.85], mat: 'rust', color: 0x764c34, hp: 85, tier: 0, anchored: true, kind: 'column', yaw },
+    { id: 'leg_a', pos: [ax, legH / 2, az], half: [0.18, legH / 2, 0.85], mat: 'plywood', color: 0x6f4d32, hp: 130, tier: 0, anchored: true, kind: 'column', yaw, materialClass: 'wood' },
+    { id: 'leg_b', pos: [bx, legH / 2, bz], half: [0.18, legH / 2, 0.85], mat: 'plywood', color: 0x6f4d32, hp: 130, tier: 0, anchored: true, kind: 'column', yaw, materialClass: 'wood' },
     deck,
   ];
 
@@ -271,7 +269,7 @@ function buildRooftopCatwalkCluster(
   };
 }
 
-/** Builds a Tier-0 street sandbag/crate barricade cluster with explosive fuel drum. */
+/** Builds a Tier-0 street sandbag/crate barricade cluster (no chained fuel drums!). */
 function buildStreetCoverCluster(idx: number, x: number, z: number, yaw: number): StructuralClusterSpec {
   const c = Math.cos(yaw);
   const s = Math.sin(yaw);
@@ -288,40 +286,37 @@ function buildStreetCoverCluster(idx: number, x: number, z: number, yaw: number)
     label: 'STREET BARRICADE',
     value: 18_000,
     nodes: [
-      { id: 'sandbags', pos: pt(0, 0.56, 0), half: [1.9, 0.56, 0.42], mat: 'dirt', color: 0x9b8660, hp: 80, tier: 0, anchored: true, kind: 'wall', yaw },
-      { id: 'crate', pos: pt(-1.6, 0.52, -0.7), half: [0.55, 0.52, 0.55], mat: 'plywood', color: 0x9a7549, hp: 65, tier: 0, anchored: true, kind: 'wall', yaw },
-      { id: 'drum', pos: pt(1.5, 0.55, -0.55), half: [0.4, 0.55, 0.4], mat: 'paintRed', color: 0xcc2820, hp: 35, tier: 0, anchored: true, kind: 'hazard', yaw, hazardRadius: 8.5, hazardDamage: 210 },
+      { id: 'sandbags', pos: pt(0, 0.56, 0), half: [1.9, 0.56, 0.42], mat: 'dirt', color: 0x9b8660, hp: 135, tier: 0, anchored: true, kind: 'wall', yaw, materialClass: 'stone' },
+      { id: 'crate_l', pos: pt(-1.6, 0.52, -0.7), half: [0.55, 0.52, 0.55], mat: 'plywood', color: 0x9a7549, hp: 120, tier: 0, anchored: true, kind: 'wall', yaw, materialClass: 'wood' },
+      { id: 'crate_r', pos: pt(1.5, 0.52, -0.55), half: [0.52, 0.52, 0.52], mat: 'plywood', color: 0x8a6640, hp: 120, tier: 0, anchored: true, kind: 'wall', yaw, materialClass: 'wood' },
     ],
     collapseThreshold: 0.5,
   };
 }
 
 /**
- * Elevated Optional Minigun Nest at exact WARREN_MINIGUN.pos ([-14, 4.2, 22]).
+ * Elevated Optional Minigun Nest at exact WARREN_MINIGUN.pos ([-14, 3.6, 22]).
  * Solid concrete/steel platform & street stairs ensure rock-solid NavGraph + gun footing,
  * while its front sandbag breastwork and corrugated sunshade canopy are Tier-0 destructible!
  */
 function buildMinigunNest(k: Kit, spec: MapSpec): void {
-  const [mx, my, mz] = WARREN_MINIGUN.pos; // [-14, 4.2, 22]
+  const [mx, my, mz] = WARREN_MINIGUN.pos; // [-14, 3.6, 22]
   const g = k.geo;
 
-  // Solid elevated scaffold deck (top surface exact y = 4.2, footprint x: -17.4..-10.6, z: 19.2..24.8)
+  // Solid elevated scaffold deck (top surface exact y = 3.6, footprint x: -17.4..-10.6, z: 19.2..24.8)
   k.floor('steel', mx - 3.4, mz - 2.8, mx + 3.4, mz + 2.8, my, 0.36, 3, 'metal');
-  // 4 solid corner concrete/steel scaffold columns supporting the deck
   for (const sx of [-3.0, 3.0]) {
     for (const sz of [-2.4, 2.4]) {
       k.column(mx + sx, mz + sz, 0, my - 0.36, 0.56, 'concreteDark');
     }
   }
-  // Cross-bracing I-beams beneath the deck for authentic salvage-tower silhouette
   k.beam(mx - 3.0, 0.4, mz - 2.4, mx + 3.0, my - 0.5, mz - 2.4, 0.1, 0.1, 'rust');
   k.beam(mx + 3.0, 0.4, mz - 2.4, mx - 3.0, my - 0.5, mz - 2.4, 0.1, 0.1, 'rust');
-  // Safety rail along west edge (north & east have Tier-0 sandbag cover; south has stairs!)
   k.rail([mx - 3.3, my, mz + 2.7, mx - 3.3, my, mz - 2.7], 1.05, 1.8);
 
-  // Wide walkable stairs ascending from south street (-14, 0, 31.8) up to deck south edge (-14, 4.2, 24.8)
-  // Run = 7.0 m, rise = 4.2 m -> slope = 0.60, ny = 0.857 >> 0.68!
-  k.stairs(mx, mz + 9.8, 0, mx, mz + 2.8, my, 2.6, 'steel', true);
+  // Wide walkable stairs ascending from south street (-14, 0, 31.2) up to deck south edge (-14, 3.6, 24.8)
+  // Run = 6.4 m, rise = 3.6 m -> ny = 0.872 >> 0.68!
+  k.stairs(mx, mz + 9.2, 0, mx, mz + 2.8, my, 2.6, 'steel', true);
 
   // Tier-0 destructible front sandbag cover & overhead corrugated sunshade canopy on the minigun deck
   spec.cluster({
@@ -331,11 +326,11 @@ function buildMinigunNest(k: Kit, spec: MapSpec): void {
     label: 'MINIGUN NEST PARAPET',
     value: 35_000,
     nodes: [
-      { id: 'bags_north', pos: [mx, my + 0.48, mz - 2.5], half: [2.9, 0.48, 0.32], mat: 'dirt', color: 0x9b8660, hp: 90, tier: 0, anchored: true, kind: 'wall' },
-      { id: 'bags_east', pos: [mx + 3.1, my + 0.48, mz - 0.4], half: [0.32, 0.48, 2.1], mat: 'dirt', color: 0x937e5a, hp: 90, tier: 0, anchored: true, kind: 'wall' },
-      { id: 'post_nw', pos: [mx - 3.0, my + 1.35, mz - 2.4], half: [0.12, 1.35, 0.12], mat: 'rust', color: 0x764c34, hp: 70, tier: 0, anchored: true, kind: 'column' },
-      { id: 'post_ne', pos: [mx + 3.0, my + 1.35, mz - 2.4], half: [0.12, 1.35, 0.12], mat: 'rust', color: 0x764c34, hp: 70, tier: 0, anchored: true, kind: 'column' },
-      { id: 'sunshade', pos: [mx, my + 2.75, mz - 1.1], half: [3.3, 0.08, 1.6], mat: 'rust', color: 0x9a5638, hp: 70, tier: 0, anchored: false, kind: 'roof' },
+      { id: 'bags_north', pos: [mx, my + 0.48, mz - 2.5], half: [2.9, 0.48, 0.32], mat: 'dirt', color: 0x9b8660, hp: 140, tier: 0, anchored: true, kind: 'wall', materialClass: 'stone' },
+      { id: 'bags_east', pos: [mx + 3.1, my + 0.48, mz - 0.4], half: [0.32, 0.48, 2.1], mat: 'dirt', color: 0x937e5a, hp: 140, tier: 0, anchored: true, kind: 'wall', materialClass: 'stone' },
+      { id: 'post_nw', pos: [mx - 3.0, my + 1.35, mz - 2.4], half: [0.12, 1.35, 0.12], mat: 'plywood', color: 0x764c34, hp: 130, tier: 0, anchored: true, kind: 'column', materialClass: 'wood' },
+      { id: 'post_ne', pos: [mx + 3.0, my + 1.35, mz - 2.4], half: [0.12, 1.35, 0.12], mat: 'plywood', color: 0x764c34, hp: 130, tier: 0, anchored: true, kind: 'column', materialClass: 'wood' },
+      { id: 'sunshade', pos: [mx, my + 2.75, mz - 1.1], half: [3.3, 0.08, 1.6], mat: 'rust', color: 0x9a5638, hp: 145, tier: 0, anchored: false, kind: 'roof', materialClass: 'metal', fractureGrid: [2, 2] },
     ],
     links: [
       ['post_nw', 'sunshade'],
@@ -344,10 +339,9 @@ function buildMinigunNest(k: Kit, spec: MapSpec): void {
     collapseThreshold: 0.5,
   });
 
-  // Mount the optional M134 Minigun facing north (-Z, camera yaw = 0) with 140-deg (±1.22 rad) arc!
+  // Mount the optional M134 Minigun facing north (-Z) with 140-deg (±1.22 rad) arc!
   spec.emplacement(mx, my, mz, -0.32, 1.22, 3);
 
-  // Subtle warm work lamp lighting the minigun platform so players spot it immediately from the street
   g.use('emissiveOrange').box(mx - 3.0, my + 2.5, mz - 2.35, 0.25, 0.14, 0.14, FACE.all);
   k.light(mx, my + 2.2, mz, DESERT_PALETTE.lanternWarm, 28, 14);
   spec.plan?.decks.push({ x0: mx - 3.4, z0: mz - 2.8, x1: mx + 3.4, z1: mz + 2.8 });
@@ -357,11 +351,9 @@ function buildMinigunNest(k: Kit, spec: MapSpec): void {
 function buildWarrenLandmarks(k: Kit, spec: MapSpec): void {
   const g = k.geo;
 
-  // 1. West Weathered Concrete Water Cistern at (-36, 0, 32)
-  tank(k, -36, 32, 0, 3.2, 4.6, 'concrete', { ladder: true, bands: 2, seg: 16 });
+  tank(k, -36, 32, 0, 3.2, 4.6, 'concrete', { ladder: true, bands: 2, seg: 14 });
   spec.plan?.blocks.push({ x0: -39.4, z0: 28.6, x1: -32.6, z1: 35.4 });
 
-  // 2. East Red-Sandstone Outcrop / Shrine Rock at (34, 0, 18)
   k.push(34, 0, 18, 0.35);
   g.use('concrete').tint(DESERT_PALETTE.mesaDark[0], DESERT_PALETTE.mesaDark[1], DESERT_PALETTE.mesaDark[2]);
   g.bevel(0, 1.5, 0, 3.3, 1.5, 2.5, 0.45);
@@ -373,8 +365,7 @@ function buildWarrenLandmarks(k: Kit, spec: MapSpec): void {
   k.light(34, 5.4, 18, DESERT_PALETTE.lanternWarm, 22, 13);
   spec.plan?.blocks.push({ x0: 30.6, z0: 15.2, x1: 37.4, z1: 20.8 });
 
-  // 3. North-West Weathered Concrete Wellhouse Cistern at (-26, 0, -2)
-  tank(k, -26, -2, 0, 3.0, 4.2, 'concreteDark', { ladder: true, bands: 2, seg: 16 });
+  tank(k, -26, -2, 0, 3.0, 4.2, 'concreteDark', { ladder: true, bands: 2, seg: 14 });
   spec.plan?.blocks.push({ x0: -29.2, z0: -5.2, x1: -22.8, z1: 1.2 });
 }
 
@@ -384,7 +375,7 @@ function washingLine(k: Kit, ax: number, ay: number, az: number, bx: number, by:
   const sag = 0.75;
   cable(k, ax, ay, az, bx, by, bz, sag, 0.015);
   const len = Math.hypot(bx - ax, bz - az);
-  const count = Math.max(4, Math.round(len / 1.4));
+  const count = Math.max(4, Math.round(len / 1.8));
   for (let i = 1; i < count; i++) {
     const t = i / count;
     const x = ax + (bx - ax) * t;
@@ -397,13 +388,13 @@ function washingLine(k: Kit, ax: number, ay: number, az: number, bx: number, by:
   g.tint(1);
 }
 
-/** Burning oil-drum brazier casting warm desert night/dawn amber pools down shanty alleys. */
-function streetBrazier(k: Kit, x: number, z: number): void {
+/** Burning oil-drum brazier casting warm desert dawn amber pools down shanty alleys. */
+function streetBrazier(k: Kit, x: number, z: number, lit: boolean): void {
   const g = k.geo;
   g.use('rust').cyl(x, 0, z, x, 0.9, z, 0.3, 0.3, 8, false, false);
   g.use('emissiveOrange').cyl(x, 0.86, z, x, 0.9, z, 0.26, 0.26, 8, false, true);
   k.collide(x, 0.45, z, 0.32, 0.45, 0.32, 'metal', false);
-  k.light(x, 1.8, z, DESERT_PALETTE.dawnAmber, 22, 13);
+  if (lit) k.light(x, 1.8, z, DESERT_PALETTE.dawnAmber, 22, 13);
 }
 
 export function authorDesertWarren(k: Kit, spec: MapSpec): void {
@@ -415,20 +406,17 @@ export function authorDesertWarren(k: Kit, spec: MapSpec): void {
     spec.plan?.blocks.push({ x0: s.x - hw, z0: s.z - hd, x1: s.x + hw, z1: s.z + hd });
   }
 
-  // 2. Walkable steel access stairs up to 2 single-storey shanty roofs so players & enemies can fight on roofs
-  // Shack 7 (-16, 42) stair from south (-16, 0, 50.8) -> (-16, 3.4, 44.8)
-  k.stairs(-16, 50.8, 0, -16, 44.8, SINGLE_H, 1.8, 'steel', true);
-  // Shack 4 (-30, 14) stair from south (-30, 0, 22.4) -> (-30, 3.4, 16.4)
-  k.stairs(-30, 22.4, 0, -30, 16.4, SINGLE_H, 1.8, 'steel', true);
-  // Shack 16 (34, 32) stair from south (34, 0, 40.4) -> (34, 3.4, 34.4)
-  k.stairs(34, 40.4, 0, 34, 34.4, SINGLE_H, 1.8, 'steel', true);
+  // 2. Walkable steel access stairs up to 3 single-storey shanty roofs (y = 3.6)
+  k.stairs(-16, 51.0, 0, -16, 44.8, SINGLE_H, 1.8, 'steel', true);
+  k.stairs(-30, 22.8, 0, -30, 16.4, SINGLE_H, 1.8, 'steel', true);
+  k.stairs(34, 40.8, 0, 34, 34.4, SINGLE_H, 1.8, 'steel', true);
 
-  // 3. 4 Tier-0 Destructible Rooftop Catwalks bridging shanty alleys at y = 3.4
+  // 3. 4 Tier-0 Destructible Rooftop Catwalks bridging shanty alleys at y = 3.6
   const catwalks: readonly [number, number, number, number, boolean][] = [
-    [-27.0, 14.0, -17.0, 8.0, true], // West alley bridge from Shack 4 roof to Shack 8 roof
-    [-44.0, 44.0, -33.2, 44.0, false], // South-West alley catwalk between Shack 0 and Shack 1
-    [34.0, 34.5, 34.0, 41.6, true], // East alley catwalk connecting Shack 16 & Shack 14
-    [19.2, 28.0, 30.8, 31.0, false], // Center-East alley catwalk
+    [-27.0, 14.0, -17.0, 8.0, true],
+    [-44.0, 44.0, -33.2, 44.0, false],
+    [34.0, 34.5, 34.0, 41.6, true],
+    [19.2, 28.0, 30.8, 31.0, false],
   ];
   for (let i = 0; i < catwalks.length; i++) {
     const [ax, az, bx, bz, navProxy] = catwalks[i]!;
@@ -441,13 +429,13 @@ export function authorDesertWarren(k: Kit, spec: MapSpec): void {
     });
   }
 
-  // 4. Elevated Optional Minigun Nest at exact WARREN_MINIGUN.pos ([-14, 4.2, 22])
+  // 4. Elevated Optional Minigun Nest at exact WARREN_MINIGUN.pos ([-14, 3.6, 22]) (1 baked light)
   buildMinigunNest(k, spec);
 
-  // 5. 3 Solid Weathered Concrete Cistern / Rock Landmarks
+  // 5. 3 Solid Weathered Concrete Cistern / Rock Landmarks (1 baked light)
   buildWarrenLandmarks(k, spec);
 
-  // 6. 6 Tier-0 Street Sandbag & Crate Barricade Clusters (flanking the central exfil corridor, never blocking it!)
+  // 6. 6 Tier-0 Street Sandbag & Crate Barricade Clusters (flanking the central exfil corridor)
   const streetCovers: readonly [number, number, number][] = [
     [-7.5, 36, 0.25],
     [9.5, 34, -0.3],
@@ -461,33 +449,32 @@ export function authorDesertWarren(k: Kit, spec: MapSpec): void {
     spec.cluster(buildStreetCoverCluster(i, cx, cz, cyaw));
   }
 
-  // Extra red fuel barrel clusters tucked in alley ambush corners
-  spec.barrels(-8, 0, 26, 2);
-  spec.barrels(12, 0, 10, 2);
-  spec.barrels(-34, 0, 6, 3);
-  spec.barrels(36, 0, 24, 3);
+  // Only 3 well-spaced single tactical fuel drums in Warren streets (plus 2 shack drums = 5 total!)
+  spec.barrels(-24, 0, 22, 1);
+  spec.barrels(14, 0, 32, 1);
+  spec.barrels(12, 0, 2, 1);
 
-  // 7. Overhead washing lines, sagging power cables, tyres & warm alley braziers
-  washingLine(k, -16, 4.5, 42, 16, 4.5, 42);
-  washingLine(k, -30, 5.2, 44, -16, 4.4, 42);
-  washingLine(k, 16, 5.2, 28, 34, 4.4, 32);
-  washingLine(k, -46, 5.2, 16, -30, 4.4, 14);
-  washingLine(k, -14, 4.5, 8, 22, 4.5, 4);
-  cable(k, -30, 6.4, 44, 16, 6.4, 28, 1.5, 0.035);
-  cable(k, 16, 6.4, 28, 48, 6.4, 10, 1.8, 0.035);
-  cable(k, -46, 6.4, 16, -42, 6.4, -8, 1.6, 0.035);
+  // 7. Overhead washing lines, sagging power cables, tyres & warm alley braziers (4 lit braziers)
+  washingLine(k, -16, 4.7, 42, 16, 4.7, 42);
+  washingLine(k, -30, 5.4, 44, -16, 4.6, 42);
+  washingLine(k, 16, 5.4, 28, 34, 4.6, 32);
+  washingLine(k, -46, 5.4, 16, -30, 4.6, 14);
+  washingLine(k, -14, 4.7, 8, 22, 4.7, 4);
+  cable(k, -30, 6.8, 44, 16, 6.8, 28, 1.5, 0.035);
+  cable(k, 16, 6.8, 28, 48, 6.8, 10, 1.8, 0.035);
+  cable(k, -46, 6.8, 16, -42, 6.8, -8, 1.6, 0.035);
 
-  for (const [bx, bz] of [
-    [-8, 46],
-    [9, 46],
-    [-24, 36],
-    [26, 36],
-    [-22, 14],
-    [24, 18],
-    [-8, 2],
-    [22, -2],
+  for (const [bx, bz, lit] of [
+    [-8, 46, true],
+    [9, 46, false],
+    [-24, 36, false],
+    [26, 36, true],
+    [-22, 14, true],
+    [24, 18, false],
+    [-8, 2, true],
+    [22, -2, false],
   ] as const) {
-    streetBrazier(k, bx, bz);
+    streetBrazier(k, bx, bz, lit);
   }
 
   for (const [tx, tz] of [
@@ -500,7 +487,7 @@ export function authorDesertWarren(k: Kit, spec: MapSpec): void {
     tyres(k, tx, 0, tz, 3, false);
   }
 
-  // Warm dawn skylight washes over the central Warren avenue
+  // Warm dawn skylight washes over the central Warren avenue (2 baked lights; total 8 in warren.ts)
   k.light(0, 14, 32, DESERT_PALETTE.dawnWarm, 55, 36);
   k.light(4, 14, 4, DESERT_PALETTE.dawnWarm, 52, 34);
 }
