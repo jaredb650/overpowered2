@@ -21,9 +21,23 @@ import {
 import type { EnemyInstance } from '../core/gameplay';
 import { clamp } from '../core/math';
 import { groups } from '../physics/Physics';
-import { Geo, type Mat } from './kit/geo';
+import type { Mat } from './kit/geo';
+import {
+  applyBreakFractureDeform,
+  buildFractureCellGeometry,
+  buildSubdividedBoxGeometry,
+  deformNodeGeometry,
+  inferMaterialClass,
+  MAX_SPLINTERS,
+  planPanelFracture,
+  resolveFractureGrid,
+  SplinterPool,
+  type MaterialClass,
+  type SplinterKind,
+} from './fracture';
 
-export type { DestructionTier };
+export type { DestructionTier, MaterialClass };
+export { MAX_SPLINTERS };
 
 export type DestructionTierName = 'timber' | 'masonry' | 'heavy' | 'reinforced';
 
@@ -264,26 +278,42 @@ export interface StructuralClusterSpec {
 
 export interface StructuralNode {
   readonly id: string;
+  /** Original spec node ID (equals `id` unless this node is a subdivided fracture cell `${origId}#k`). */
+  readonly origId: string;
   readonly clusterId: string;
   readonly spec: StructuralNodeSpec;
   readonly basePos: THREE.Vector3;
   readonly half: THREE.Vector3;
   readonly baseQuat: THREE.Quaternion;
   readonly mat: Mat;
+  readonly materialClass: MaterialClass;
+  readonly isFractureCell: boolean;
   readonly tier: DestructionTier;
   readonly anchored: boolean;
   readonly kind: StructuralNodeKind;
   readonly maxHp: number;
   readonly keyNode: boolean;
+  /** Cached pristine rest vertex positions for zero-allocation in-place DMM deformation. */
+  readonly restPositions: Float32Array;
+  /** Cached pristine rest RGBA vertex colors for crack/crease darkening. */
+  readonly restColors: Uint8Array;
   hp: number;
   state: StructuralNodeState;
+  deformStrain: number;
+  deformStage: number;
+  readonly bendDirLocal: THREE.Vector3;
+  readonly lastImpactLocal: THREE.Vector3;
   mesh: THREE.Mesh | null;
   staticCollider: RAPIER.Collider | null;
   dynamicBody: RAPIER.RigidBody | null;
-  // Tilt warning state
+  // Gradual hinged sagging state
   tiltElapsed: number;
   tiltDuration: number;
+  tiltMaxAngle: number;
+  tiltFxTimer: number;
+  tiltBendApplied: boolean;
   readonly tiltAxis: THREE.Vector3;
+  readonly tiltHingeOffset: THREE.Vector3;
   tiltBlastOrigin: THREE.Vector3 | null;
   tiltIsNuke: boolean;
 }
@@ -299,6 +329,8 @@ export class StructuralCluster implements StructuralClusterLike {
   readonly onCollapse?: (cluster: StructuralCluster) => void;
   readonly nodes: StructuralNode[] = [];
   readonly byId = new Map<string, StructuralNode>();
+  /** Maps original spec node ID -> its cell nodes (1 entry if unsubdivided, cols*rows if fractured). */
+  readonly cellGroups = new Map<string, StructuralNode[]>();
   readonly adjacency = new Map<string, Set<string>>();
   readonly center = new THREE.Vector3();
   collapsed = false;
@@ -328,8 +360,27 @@ export class StructuralCluster implements StructuralClusterLike {
     return (this.nodes.length - this.intactCount) / this.nodes.length;
   }
 
+  /**
+   * Matches an exact node ID (including `${origId}#k`), or returns the first surviving intact cell
+   * (or first cell if none are intact) when queried by a subdivided parent's original ID.
+   */
   getNode(id: string): StructuralNode | undefined {
-    return this.byId.get(id);
+    const exact = this.byId.get(id);
+    if (exact) return exact;
+    const group = this.cellGroups.get(id);
+    if (!group || group.length === 0) return undefined;
+    for (let i = 0; i < group.length; i++) {
+      if (group[i]!.state === 'intact') return group[i]!;
+    }
+    return group[0];
+  }
+
+  /** Returns all fracture cells (or the single node) originating from `origId`. */
+  getNodes(origId: string): readonly StructuralNode[] {
+    const group = this.cellGroups.get(origId);
+    if (group) return group;
+    const exact = this.byId.get(origId);
+    return exact ? [exact] : [];
   }
 }
 
@@ -367,6 +418,8 @@ interface NukeSweepState {
 const UP = new THREE.Vector3(0, 1, 0);
 const _v = new THREE.Vector3();
 const _v2 = new THREE.Vector3();
+const _v3 = new THREE.Vector3();
+const _v4 = new THREE.Vector3();
 const _vel = new THREE.Vector3();
 const _q = new THREE.Quaternion();
 const _q2 = new THREE.Quaternion();
@@ -439,28 +492,10 @@ function defaultImpactRadius(node: StructuralNode): number {
   return 0;
 }
 
-function buildNodeGeometry(half: THREE.Vector3, mat: Mat, color?: number | readonly [number, number, number]): THREE.BufferGeometry {
-  const geo = new Geo();
-  geo.use(mat);
-  if (typeof color === 'number') {
-    _c.setHex(color);
-    geo.tint(_c.r, _c.g, _c.b);
-  } else if (Array.isArray(color)) {
-    geo.tint(color[0], color[1], color[2]);
-  }
-  const minH = Math.min(half.x, half.y, half.z);
-  const bevel = Math.min(0.06, minH * 0.22);
-  if (bevel >= 0.015) geo.bevel(0, 0, 0, half.x, half.y, half.z, bevel);
-  else geo.box(0, 0, 0, half.x, half.y, half.z);
-  const b = [...geo.buckets.values()][0]!;
-  const g = new THREE.BufferGeometry();
-  g.setAttribute('position', new THREE.BufferAttribute(b.p.slice(0, b.nv * 3), 3));
-  g.setAttribute('normal', new THREE.BufferAttribute(b.n.slice(0, b.nv * 3), 3));
-  g.setAttribute('uv', new THREE.BufferAttribute(b.uv.slice(0, b.nv * 2), 2));
-  g.setAttribute('color', new THREE.BufferAttribute(b.c.slice(0, b.nv * 4), 4, true));
-  g.setIndex(new THREE.BufferAttribute(b.idx.slice(0, b.ni), 1));
-  g.computeBoundingSphere();
-  return g;
+function splinterKindFor(materialClass: MaterialClass): SplinterKind {
+  if (materialClass === 'wood') return 'wood';
+  if (materialClass === 'metal') return 'metal';
+  return 'concrete';
 }
 
 function distanceToOrientedBox(
@@ -478,6 +513,13 @@ function distanceToOrientedBox(
   return Math.hypot(ex, ey, ez);
 }
 
+/** Approximate surface-to-surface distance between two structural nodes for linking subdivided cell groups. */
+function pairNodeDistance(a: StructuralNode, b: StructuralNode): number {
+  const dAB = distanceToOrientedBox(a.basePos, b.basePos, b.half, b.baseQuat);
+  const dBA = distanceToOrientedBox(b.basePos, a.basePos, a.half, a.baseQuat);
+  return Math.min(dAB, dBA);
+}
+
 // ---------------------------------------------------------------------------------------------
 // DestructionManager
 // ---------------------------------------------------------------------------------------------
@@ -486,6 +528,7 @@ export type SecondaryBlastHook = (center: THREE.Vector3, radius: number, amount:
 
 export class DestructionManager implements DestructionManagerLike {
   readonly root = new THREE.Group();
+  readonly splinters = new SplinterPool(MAX_SPLINTERS);
   private readonly clusters: StructuralCluster[] = [];
   private readonly byTag = new Map<string, StructuralCluster>();
   private readonly byCollider = new Map<number, { cluster: StructuralCluster; node: StructuralNode }>();
@@ -507,11 +550,17 @@ export class DestructionManager implements DestructionManagerLike {
     private readonly onSecondaryBlast?: SecondaryBlastHook,
   ) {
     this.root.name = 'destruction';
+    this.root.add(this.splinters.root);
   }
 
   /** Number of currently active falling dynamic rigid bodies (always <= MAX_DYNAMIC_BODIES). */
   get activeDynamicBodies(): number {
     return this.dynamicPool.length;
+  }
+
+  /** Number of currently active pooled 3D splinters / shards (always <= MAX_SPLINTERS). */
+  get activeSplinters(): number {
+    return this.splinters.activeCount;
   }
 
   /** Registers and spawns a new structural cluster into the world. */
@@ -530,23 +579,66 @@ export class DestructionManager implements DestructionManagerLike {
     return cluster;
   }
 
+  private createStaticCellCollider(
+    geom: THREE.BufferGeometry,
+    basePos: THREE.Vector3,
+    half: THREE.Vector3,
+    baseQuat: THREE.Quaternion,
+    surface: SurfaceKind,
+  ): RAPIER.Collider | null {
+    const { R, world } = this.ctx.physics;
+    const posAttr = geom.getAttribute('position') as THREE.BufferAttribute | undefined;
+    const idxAttr = geom.getIndex();
+    if (R?.ColliderDesc?.trimesh && posAttr && idxAttr) {
+      const verts = posAttr.array as Float32Array;
+      const idx = idxAttr.array instanceof Uint32Array ? idxAttr.array : new Uint32Array(idxAttr.array);
+      const desc = R.ColliderDesc.trimesh(verts, idx)
+        .setTranslation(basePos.x, basePos.y, basePos.z)
+        .setRotation(baseQuat)
+        .setCollisionGroups(groups(CG.World, 0xffff))
+        .setFriction(0.8);
+      const col = world.createCollider(desc);
+      (this.ctx.physics as { register?: (c: RAPIER.Collider, s: SurfaceKind) => RAPIER.Collider }).register?.(
+        col,
+        surface,
+      );
+      return col;
+    }
+    return this.ctx.physics.addStaticBox(basePos, half, baseQuat, surface);
+  }
+
   private buildClusterRuntime(cluster: StructuralCluster): void {
     const { spec } = cluster;
     cluster.nodes.length = 0;
     cluster.byId.clear();
+    cluster.cellGroups.clear();
     cluster.adjacency.clear();
     cluster.collapsed = false;
     cluster.lastGroanAt = -10;
     cluster.center.set(0, 0, 0);
 
-    for (const ns of spec.nodes) {
-      const basePos = toVec3(ns.pos);
-      const half = toVec3(ns.half);
-      const baseQuat = new THREE.Quaternion().setFromEuler(
-        _e.set(ns.pitch ?? 0, ns.yaw ?? 0, ns.roll ?? 0, 'YXZ'),
-      );
+    const linkExact = (a: string, b: string) => {
+      if (a === b) return;
+      const sa = cluster.adjacency.get(a);
+      const sb = cluster.adjacency.get(b);
+      if (sa && sb) {
+        sa.add(b);
+        sb.add(a);
+      }
+    };
 
-      const geom = buildNodeGeometry(half, ns.mat, ns.color);
+    const registerNode = (
+      ns: StructuralNodeSpec,
+      nodeId: string,
+      basePos: THREE.Vector3,
+      half: THREE.Vector3,
+      baseQuat: THREE.Quaternion,
+      anchored: boolean,
+      geom: THREE.BufferGeometry,
+      materialClass: MaterialClass,
+      isFractureCell: boolean,
+      staticCollider: RAPIER.Collider | null,
+    ): StructuralNode => {
       this.geometries.push(geom);
       const mesh = new THREE.Mesh(geom, this.material(ns.mat));
       mesh.position.copy(basePos);
@@ -555,34 +647,45 @@ export class DestructionManager implements DestructionManagerLike {
       mesh.receiveShadow = true;
       this.root.add(mesh);
 
-      const staticCollider = this.ctx.physics.addStaticBox(
-        basePos,
-        half,
-        baseQuat,
-        surfaceForMat(ns.mat),
-      );
+      const posAttr = geom.getAttribute('position') as THREE.BufferAttribute;
+      const colAttr = geom.getAttribute('color') as THREE.BufferAttribute;
+      const restPositions = new Float32Array(posAttr.array as Float32Array);
+      const restColors = new Uint8Array(colAttr.array as Uint8Array);
 
       const node: StructuralNode = {
-        id: ns.id,
+        id: nodeId,
+        origId: ns.id,
         clusterId: cluster.id,
         spec: ns,
         basePos,
         half,
         baseQuat,
         mat: ns.mat,
+        materialClass,
+        isFractureCell,
         tier: ns.tier,
-        anchored: ns.anchored,
+        anchored,
         kind: ns.kind,
         maxHp: ns.hp,
         keyNode: ns.keyNode === true,
+        restPositions,
+        restColors,
         hp: ns.hp,
         state: 'intact',
+        deformStrain: 0,
+        deformStage: 0,
+        bendDirLocal: new THREE.Vector3(),
+        lastImpactLocal: new THREE.Vector3(),
         mesh,
         staticCollider,
         dynamicBody: null,
         tiltElapsed: 0,
         tiltDuration: 0,
+        tiltMaxAngle: 0.48,
+        tiltFxTimer: 0,
+        tiltBendApplied: false,
         tiltAxis: new THREE.Vector3(1, 0, 0),
+        tiltHingeOffset: new THREE.Vector3(),
         tiltBlastOrigin: null,
         tiltIsNuke: false,
       };
@@ -595,28 +698,110 @@ export class DestructionManager implements DestructionManagerLike {
       if (staticCollider) {
         this.byCollider.set(staticCollider.handle, { cluster, node });
       }
+      return node;
+    };
+
+    for (const ns of spec.nodes) {
+      const parentPos = toVec3(ns.pos);
+      const parentHalf = toVec3(ns.half);
+      const parentQuat = new THREE.Quaternion().setFromEuler(
+        _e.set(ns.pitch ?? 0, ns.yaw ?? 0, ns.roll ?? 0, 'YXZ'),
+      );
+      const materialClass = inferMaterialClass(ns.mat, ns.materialClass);
+      const surface = surfaceForMat(ns.mat);
+      const gridPlan = resolveFractureGrid(ns, parentHalf);
+
+      if (gridPlan) {
+        const cells = planPanelFracture(ns, parentHalf, gridPlan);
+        const created: StructuralNode[] = [];
+        for (const cell of cells) {
+          const cellWorldPos = cell.localOffset.clone().applyQuaternion(parentQuat).add(parentPos);
+          const geom = buildFractureCellGeometry(cell, ns.color, materialClass);
+          const col = this.createStaticCellCollider(geom, cellWorldPos, cell.half, parentQuat, surface);
+          const node = registerNode(
+            ns,
+            cell.id,
+            cellWorldPos,
+            cell.half,
+            parentQuat.clone(),
+            cell.anchored,
+            geom,
+            materialClass,
+            true,
+            col,
+          );
+          created.push(node);
+        }
+
+        // Wire intra-panel orthogonal neighbor graph so adjacent jagged cells share structural load
+        const { cols, rows } = gridPlan;
+        for (let r = 0; r < rows; r++) {
+          for (let c = 0; c < cols; c++) {
+            const idx = r * cols + c;
+            const curr = created[idx]!;
+            if (c + 1 < cols) linkExact(curr.id, created[idx + 1]!.id);
+            if (r + 1 < rows) linkExact(curr.id, created[idx + cols]!.id);
+          }
+        }
+        cluster.cellGroups.set(ns.id, created);
+      } else {
+        const geom = buildSubdividedBoxGeometry(parentHalf, ns.color);
+        const col = this.ctx.physics.addStaticBox(parentPos, parentHalf, parentQuat, surface);
+        const node = registerNode(
+          ns,
+          ns.id,
+          parentPos,
+          parentHalf,
+          parentQuat,
+          ns.anchored,
+          geom,
+          materialClass,
+          false,
+          col,
+        );
+        cluster.cellGroups.set(ns.id, [node]);
+      }
     }
 
     if (cluster.nodes.length > 0) {
       cluster.center.multiplyScalar(1 / cluster.nodes.length);
     }
 
-    const link = (a: string, b: string) => {
-      if (a === b) return;
-      const sa = cluster.adjacency.get(a);
-      const sb = cluster.adjacency.get(b);
-      if (sa && sb) {
-        sa.add(b);
-        sb.add(a);
+    const linkGroups = (origA: string, origB: string) => {
+      if (origA === origB) return;
+      const groupA = cluster.cellGroups.get(origA);
+      const groupB = cluster.cellGroups.get(origB);
+      if (!groupA || !groupB || groupA.length === 0 || groupB.length === 0) return;
+
+      if (groupA.length === 1 && groupB.length === 1) {
+        linkExact(groupA[0]!.id, groupB[0]!.id);
+        return;
+      }
+
+      // Connect the spatially closest touching boundary cells between the two groups
+      let minDist = Infinity;
+      for (let i = 0; i < groupA.length; i++) {
+        for (let j = 0; j < groupB.length; j++) {
+          const d = pairNodeDistance(groupA[i]!, groupB[j]!);
+          if (d < minDist) minDist = d;
+        }
+      }
+      const threshold = minDist + 0.85;
+      for (let i = 0; i < groupA.length; i++) {
+        for (let j = 0; j < groupB.length; j++) {
+          if (pairNodeDistance(groupA[i]!, groupB[j]!) <= threshold) {
+            linkExact(groupA[i]!.id, groupB[j]!.id);
+          }
+        }
       }
     };
 
     if (spec.links) {
-      for (const [a, b] of spec.links) link(a, b);
+      for (const [a, b] of spec.links) linkGroups(a, b);
     }
     for (const ns of spec.nodes) {
       if (ns.supports) {
-        for (const other of ns.supports) link(ns.id, other);
+        for (const other of ns.supports) linkGroups(ns.id, other);
       }
     }
   }
@@ -780,12 +965,99 @@ export class DestructionManager implements DestructionManagerLike {
     origin: THREE.Vector3,
     source: string,
   ): void {
+    // Transform impact point and push direction into node local space
+    _q.copy(node.baseQuat).invert();
+    _v.subVectors(origin, node.basePos).applyQuaternion(_q);
+    _v.set(
+      clamp(_v.x, -node.half.x, node.half.x),
+      clamp(_v.y, -node.half.y, node.half.y),
+      clamp(_v.z, -node.half.z, node.half.z),
+    );
+    node.lastImpactLocal.copy(_v);
+
+    _v2.subVectors(node.basePos, origin).applyQuaternion(_q);
+    if (_v2.lengthSq() < 1e-4) {
+      // Direct centered hit: push along thinnest axis
+      if (node.half.x <= node.half.y && node.half.x <= node.half.z) _v2.set(1, 0, 0);
+      else if (node.half.y <= node.half.x && node.half.y <= node.half.z) _v2.set(0, -1, 0);
+      else _v2.set(0, 0, 1);
+    } else {
+      _v2.normalize();
+    }
+
     node.hp -= damage;
     if (node.hp > 0) {
-      this.ctx.fx?.chips?.(node.basePos, chipColorFor(node.mat, node.spec.color), 6);
+      const maxHp = Math.max(1, node.maxHp);
+      const hpRatio = clamp(node.hp / maxHp, 0, 1);
+      const damageFrac = clamp(1 - hpRatio, 0, 1);
+      const hitFrac = clamp(damage / maxHp, 0.05, 1);
+      const stage = hpRatio <= 0.35 ? 3 : hpRatio <= 0.6 ? 2 : hpRatio <= 0.85 ? 1 : 0;
+      const crossedThreshold = stage > node.deformStage;
+      node.deformStrain = Math.max(node.deformStrain, damageFrac);
+
+      // Progressive DMM vertex deformation in place (only on this hit node, zero idle cost)
+      if (node.mesh) {
+        deformNodeGeometry({
+          geom: node.mesh.geometry,
+          restPos: node.restPositions,
+          restCol: node.restColors,
+          half: node.half,
+          materialClass: node.materialClass,
+          localHit: node.lastImpactLocal,
+          localDir: _v2,
+          damageFrac,
+          hitFrac,
+          bendDirAccum: node.bendDirLocal,
+        });
+      }
+
+      // Compute world impact point & outward splatter direction for FX & pooled 3D splinters
+      _v3.copy(node.lastImpactLocal).applyQuaternion(node.baseQuat).add(node.basePos);
+      _v4.subVectors(origin, node.basePos);
+      if (_v4.lengthSq() < 1e-4) _v4.copy(UP);
+      else _v4.normalize();
+
+      const { fx, audio } = this.ctx;
+      const chipCol = chipColorFor(node.mat, node.spec.color);
+      fx?.chips?.(_v3, chipCol, 5 + stage * 2);
+
+      if (node.materialClass === 'wood') {
+        const splinterCount = 2 + Math.max(1, stage);
+        this.splinters.spawnBurst(_v3, _v4, 'wood', splinterCount, chipCol, 6.8 + stage * 1.1);
+        audio?.play?.('bone_snap', {
+          position: _v3,
+          volume: crossedThreshold ? 0.65 : 0.45,
+          pitch: 0.72 + Math.random() * 0.14,
+          pitchJitter: 0.08,
+        });
+        if (crossedThreshold) {
+          audio?.play?.('impact_dirt', { position: _v3, volume: 0.42, pitch: 1.2 });
+        }
+      } else if (node.materialClass === 'metal') {
+        fx?.sparks?.(_v3, _v4, 6 + stage * 4, 0xffcc66);
+        if (crossedThreshold || hitFrac >= 0.15) {
+          this.splinters.spawnBurst(_v3, _v4, 'metal', 1 + stage, chipCol, 7.5);
+          audio?.play?.('metal_clang', {
+            position: _v3,
+            volume: 0.48,
+            pitch: 1.18 + Math.random() * 0.18,
+            pitchJitter: 0.08,
+          });
+        }
+      } else {
+        fx?.dust?.(_v3, _v4, 0.9 + stage * 0.35);
+        this.splinters.spawnBurst(_v3, _v4, 'concrete', 2 + stage, chipCol, 5.8);
+        if (crossedThreshold || hitFrac >= 0.15) {
+          audio?.play?.('impact_concrete', { position: _v3, volume: 0.5, pitch: 0.92, pitchJitter: 0.1 });
+        }
+      }
+
+      if (crossedThreshold) node.deformStage = stage;
       return;
     }
+
     node.hp = 0;
+    node.deformStrain = Math.max(node.deformStrain, 0.85);
     this.breakNode(cluster, node, origin, source === 'nuke');
   }
 
@@ -798,19 +1070,54 @@ export class DestructionManager implements DestructionManagerLike {
     if (node.state !== 'intact') return;
     this.removeStaticCollider(node);
 
-    // Emit immediate shatter FX & audio
+    // Apply jagged split-end tear (wood) or curled edge warp (metal) right before detaching
+    if (node.mesh) {
+      applyBreakFractureDeform(node.mesh.geometry, node.half, node.materialClass);
+    }
+
+    // Emit immediate shatter FX, pooled 3D splinters/shards & material-specific audio
     const { fx, audio } = this.ctx;
     const chipCol = chipColorFor(node.mat, node.spec.color);
     fx?.chips?.(node.basePos, chipCol, isNuke ? 22 : 16);
     fx?.dust?.(node.basePos, UP, isNuke ? 3.0 : 2.0);
     fx?.smoke?.(node.basePos, 0x8a8478, isNuke ? 4.2 : 2.8, isNuke ? 3.2 : 2.2);
 
-    const isMetal = surfaceForMat(node.mat) === 'metal' || surfaceForMat(node.mat) === 'grate';
-    audio?.play?.(isMetal ? 'metal_clang' : 'concrete_crumble', {
-      position: node.basePos,
-      volume: isNuke ? 0.9 : 0.72,
-      pitchJitter: 0.14,
-    });
+    if (blastOrigin) {
+      _v4.subVectors(node.basePos, blastOrigin);
+      if (_v4.lengthSq() < 1e-4) _v4.copy(UP);
+      else _v4.normalize();
+    } else {
+      _v4.copy(UP);
+    }
+
+    if (node.materialClass === 'wood') {
+      // Burst of 6-10 elongated 3D jagged wood splinters + snapping timber audio
+      const count = isNuke ? 6 : 6 + Math.floor(Math.random() * 5);
+      this.splinters.spawnBurst(node.basePos, _v4, 'wood', count, chipCol, isNuke ? 13 : 9.5);
+      audio?.play?.('bone_snap', {
+        position: node.basePos,
+        volume: isNuke ? 0.85 : 0.78,
+        pitch: 0.64,
+        pitchJitter: 0.12,
+      });
+    } else if (node.materialClass === 'metal') {
+      const count = isNuke ? 4 : 4 + Math.floor(Math.random() * 4);
+      this.splinters.spawnBurst(node.basePos, _v4, 'metal', count, chipCol, isNuke ? 14 : 9.0);
+      fx?.sparks?.(node.basePos, _v4, isNuke ? 22 : 14, 0xffc864);
+      audio?.play?.('metal_clang', {
+        position: node.basePos,
+        volume: isNuke ? 0.9 : 0.72,
+        pitchJitter: 0.14,
+      });
+    } else {
+      const count = isNuke ? 5 : 5 + Math.floor(Math.random() * 4);
+      this.splinters.spawnBurst(node.basePos, _v4, 'concrete', count, chipCol, isNuke ? 12 : 7.8);
+      audio?.play?.('concrete_crumble', {
+        position: node.basePos,
+        volume: isNuke ? 0.9 : 0.72,
+        pitchJitter: 0.14,
+      });
+    }
     audio?.play?.('explosion_debris', { position: node.basePos, volume: 0.78, pitchJitter: 0.1 });
 
     // Chain-reaction hazard scheduling (brine boilers, fuel silos, ammo crates)
@@ -892,25 +1199,43 @@ export class DestructionManager implements DestructionManagerLike {
     }
 
     const spanY = Math.max(0.01, maxY - minY);
+    let anyWood = false;
     for (let i = 0; i < detached.length; i++) {
       const n = detached[i]!;
+      if (n.materialClass === 'wood') anyWood = true;
       const hFrac = detached.length > 1 ? (n.basePos.y - minY) / spanY : 0;
       n.state = 'tilting';
       n.tiltElapsed = 0;
-      // Lower unsupported slabs release slightly before upper roofs so roofs never bounce off static floors below
-      n.tiltDuration = isNuke ? 0.06 : 0.18 + hFrac * 0.10 + Math.random() * 0.04;
+      // Gradual 0.55-0.90s groan-and-sag phase ("The Finals" intermediate collapse layer);
+      // lower unsupported slabs shear free slightly ahead of upper roofs.
+      n.tiltDuration = isNuke ? 0.06 : 0.55 + hFrac * 0.22 + Math.random() * 0.13;
+      n.tiltMaxAngle = 0.42 + Math.random() * 0.16;
+      n.tiltFxTimer = 0.08;
+      n.tiltBendApplied = false;
       n.tiltBlastOrigin = blastOrigin ? blastOrigin.clone() : null;
       n.tiltIsNuke = isNuke;
 
-      // Pick a horizontal hinge axis perpendicular to the outward direction from blast / cluster center
+      // Pick asymmetric hinge edge OPPOSITE the broken support side so the unsupported side sags downward
       if (blastOrigin) {
-        _v.subVectors(n.basePos, blastOrigin).setY(0);
+        _v.subVectors(blastOrigin, n.basePos).setY(0);
       } else {
-        _v.subVectors(n.basePos, cluster.center).setY(0);
+        _v.subVectors(cluster.center, n.basePos).setY(0);
       }
-      if (_v.lengthSq() < 0.01) _v.set(1, 0, 0);
-      else _v.normalize();
-      n.tiltAxis.set(-_v.z, 0, _v.x).normalize();
+      if (_v.lengthSq() < 0.02) {
+        // Centered break: lean outward from cluster center or deterministic fallback
+        _v.subVectors(n.basePos, cluster.center).setY(0);
+        if (_v.lengthSq() < 0.02) _v.set(1, 0, 0);
+      }
+      _v.normalize();
+
+      // Project node's horizontal half-extents onto the collapse direction for true edge-hinge pivot
+      _q.copy(n.baseQuat).invert();
+      _v2.copy(_v).applyQuaternion(_q);
+      const projHalf = Math.abs(_v2.x) * n.half.x + Math.abs(_v2.z) * n.half.z;
+      const hingeDist = clamp(projHalf * 0.85, 0.35, 3.2);
+      n.tiltHingeOffset.copy(_v).multiplyScalar(-hingeDist);
+      // tiltAxis = UP x toBroken -> positive rotation swings the unsupported side DOWNWARD in Y
+      n.tiltAxis.set(_v.z, 0, -_v.x).normalize();
 
       this.tilting.push({ cluster, node: n });
     }
@@ -924,6 +1249,14 @@ export class DestructionManager implements DestructionManagerLike {
         volume: 0.85,
         pitchJitter: 0.12,
       });
+      if (anyWood) {
+        this.ctx.audio?.play?.('bone_snap', {
+          position: cluster.center,
+          volume: 0.7,
+          pitch: 0.58,
+          pitchJitter: 0.1,
+        });
+      }
     }
   }
 
@@ -958,7 +1291,7 @@ export class DestructionManager implements DestructionManagerLike {
     const pos = node.mesh.position;
     const quat = node.mesh.quaternion;
 
-    // Compute launch velocity outward from blast (or gentle tumble if detached by collapse)
+    // Compute launch velocity outward from blast (or smooth hinge release if detached by collapse)
     if (isNuke && blastOrigin) {
       _vel.subVectors(pos, blastOrigin);
       const dist = Math.max(1, _vel.length());
@@ -985,18 +1318,36 @@ export class DestructionManager implements DestructionManagerLike {
       const speed = clamp(12 / Math.sqrt(dist), 4.5, 16) + Math.random() * 4;
       _vel.multiplyScalar(speed);
       _vel.y += 1.5 + Math.random() * 2.5;
+
+      // Stored elastic wood whip velocity when a bent timber snaps free!
+      if (node.materialClass === 'wood' && node.deformStrain > 0.1 && node.bendDirLocal.lengthSq() > 0.01) {
+        _v3.copy(node.bendDirLocal).applyQuaternion(node.baseQuat);
+        _vel.addScaledVector(_v3, 3.8 * node.deformStrain);
+        _vel.y += 1.2 * node.deformStrain;
+      }
     } else {
-      // Gravity collapse from tilt: small outward kick + downward momentum
-      _vel.subVectors(pos, blastOrigin ?? cluster.center).setY(0);
-      if (_vel.lengthSq() > 0.01) _vel.normalize().multiplyScalar(1.8 + Math.random() * 2.2);
-      else _vel.set((Math.random() - 0.5) * 2, 0, (Math.random() - 0.5) * 2);
-      _vel.y = -1.2;
+      // Seamless handoff from hinged sagging: carry hinge tangential swing velocity downward
+      const omegaMag = (2.2 * node.tiltMaxAngle) / Math.max(0.12, node.tiltDuration);
+      // Tangential velocity = (omega * tiltAxis) x (-tiltHingeOffset)
+      _v3.copy(node.tiltAxis).multiplyScalar(omegaMag);
+      _v4.copy(node.tiltHingeOffset).negate();
+      _vel.crossVectors(_v3, _v4);
+      _vel.y = Math.min(_vel.y - 1.2, -1.8);
+      if (Math.hypot(_vel.x, _vel.z) < 0.8) {
+        _v3.subVectors(pos, blastOrigin ?? cluster.center).setY(0);
+        if (_v3.lengthSq() > 0.01) _v3.normalize().multiplyScalar(1.4 + Math.random() * 1.4);
+        else _v3.set((Math.random() - 0.5) * 1.6, 0, (Math.random() - 0.5) * 1.6);
+        _vel.x += _v3.x;
+        _vel.z += _v3.z;
+      }
     }
 
-    const spin = isNuke ? 5.5 : fromTilt ? 2.4 : 3.8;
-    const angX = (Math.random() - 0.5) * spin + (fromTilt ? node.tiltAxis.x * 1.4 : 0);
+    const woodWhipSpin = node.materialClass === 'wood' && node.deformStrain > 0.1 ? 2.4 * node.deformStrain : 0;
+    const spin = (isNuke ? 5.5 : fromTilt ? 1.8 : 3.8) + woodWhipSpin;
+    const tiltOmega = fromTilt ? clamp((2.2 * node.tiltMaxAngle) / Math.max(0.15, node.tiltDuration), 1.0, 3.2) : 0;
+    const angX = (Math.random() - 0.5) * spin + (fromTilt ? node.tiltAxis.x * tiltOmega : 0);
     const angY = (Math.random() - 0.5) * spin * 0.7;
-    const angZ = (Math.random() - 0.5) * spin + (fromTilt ? node.tiltAxis.z * 1.4 : 0);
+    const angZ = (Math.random() - 0.5) * spin + (fromTilt ? node.tiltAxis.z * tiltOmega : 0);
 
     // Directly blasted nodes fracture slightly smaller so columns/walls clear their mortar joints
     // instead of jamming floor-to-ceiling under still-tilting upper slabs.
@@ -1015,8 +1366,19 @@ export class DestructionManager implements DestructionManagerLike {
         .setLinearDamping(0.08)
         .setAngularDamping(0.4),
     );
+
+    let colDesc: RAPIER.ColliderDesc | null = null;
+    if (node.isFractureCell && R?.ColliderDesc?.convexHull) {
+      const posAttr = node.mesh.geometry.getAttribute('position') as THREE.BufferAttribute | undefined;
+      if (posAttr) {
+        colDesc = R.ColliderDesc.convexHull(posAttr.array as Float32Array);
+      }
+    }
+    if (!colDesc) {
+      colDesc = R.ColliderDesc.cuboid(hx, hy, hz);
+    }
     world.createCollider(
-      R.ColliderDesc.cuboid(hx, hy, hz)
+      colDesc
         .setDensity(densityFor(node.tier, node.mat))
         .setFriction(fromTilt ? 0.65 : 0.45)
         .setRestitution(0.14)
@@ -1085,10 +1447,35 @@ export class DestructionManager implements DestructionManagerLike {
     }
   }
 
-  /** Advance tilting nodes, dynamic falling physics, kinetic crush, hazard chains, and nuke sweeps. */
+  /** Kinetic crush check for falling structural debris against living enemies (passes type: 'crush'). */
+  private checkCrush(entry: DynamicEntry, pos: THREE.Vector3, vel: THREE.Vector3, speed: number): void {
+    if (speed <= CRUSH_SPEED || !this.ctx.enemies?.query) return;
+    const { node } = entry;
+    const crushRadius = Math.max(node.half.x, node.half.y, node.half.z) + 1.0;
+    const n = this.ctx.enemies.query(pos, crushRadius, this.nearEnemies);
+    for (let ei = 0; ei < n; ei++) {
+      const e = this.nearEnemies[ei]!;
+      if (!e.alive || entry.crushedUids.has(e.uid)) continue;
+      entry.crushedUids.add(e.uid);
+      this.ctx.enemies.applyDamage(e, {
+        amount: CRUSH_DAMAGE,
+        type: 'crush',
+        point: e.center.clone(),
+        dir: vel.clone().normalize(),
+        force: 220,
+        source: 'structural_collapse',
+        gib: true,
+      });
+    }
+  }
+
+  /** Advance splinters, sagging nodes, dynamic falling physics, kinetic crush, hazard chains, and nuke sweeps. */
   update(dt: number): void {
     if (dt <= 0) return;
     this.time += dt;
+
+    // 0. Advance pooled 3D splinters / shards / masonry chunks (O(1) when idle)
+    this.splinters.update(dt);
 
     // 1. Expanding Nuke shockwave sweeps
     for (let i = this.sweeps.length - 1; i >= 0; i--) {
@@ -1122,27 +1509,80 @@ export class DestructionManager implements DestructionManagerLike {
       this.detonateHazard(h);
     }
 
-    // 3. Dramatic hinge/tilt warning phase before releasing detached nodes
+    // 3. Gradual hinged sagging ("The Finals Season 12" intermediate groan-and-sag phase)
     for (let i = this.tilting.length - 1; i >= 0; i--) {
       const item = this.tilting[i]!;
       const { cluster, node } = item;
       node.tiltElapsed += dt;
       const t = clamp(node.tiltElapsed / Math.max(0.01, node.tiltDuration), 0, 1);
       if (node.mesh) {
-        const ease = t * t;
-        const angle = ease * 0.3;
+        // Gravity-accelerated sag curve t^2.2 hinging asymmetrically around the tearing support edge
+        const ease = Math.pow(t, 2.2);
+        const angle = ease * node.tiltMaxAngle;
         _q2.setFromAxisAngle(node.tiltAxis, angle);
         node.mesh.quaternion.multiplyQuaternions(_q2, node.baseQuat);
-        const jitter = (1 - t) * 0.04;
+
+        // Rotate center around hingeWorld = basePos + tiltHingeOffset, plus shear slip & groan tremor
+        _v.copy(node.tiltHingeOffset).negate().applyQuaternion(_q2).add(node.tiltHingeOffset).add(node.basePos);
+        const jitter = (1 - t * 0.65) * 0.035;
         node.mesh.position.set(
-          node.basePos.x + (Math.random() - 0.5) * jitter,
-          node.basePos.y - ease * 0.25,
-          node.basePos.z + (Math.random() - 0.5) * jitter,
+          _v.x + (Math.random() - 0.5) * jitter,
+          _v.y - ease * 0.24,
+          _v.z + (Math.random() - 0.5) * jitter,
         );
+
+        // Mid-sag structural flex deformation as beams/roofs bend before shearing loose
+        if (!node.tiltBendApplied && !node.tiltIsNuke && t >= 0.4) {
+          node.tiltBendApplied = true;
+          _q.copy(node.baseQuat).invert();
+          _v3.set(0, -1, 0).applyQuaternion(_q);
+          _v4.set(0, 0, 0);
+          deformNodeGeometry({
+            geom: node.mesh.geometry,
+            restPos: node.restPositions,
+            restCol: node.restColors,
+            half: node.half,
+            materialClass: node.materialClass,
+            localHit: _v4,
+            localDir: _v3,
+            damageFrac: Math.max(node.deformStrain, 0.55),
+            hitFrac: 0.35,
+            bendDirAccum: node.bendDirLocal,
+          });
+        }
+
+        // Continuous joint-tearing dust, wood splinters, and sparks while groaning & sagging
+        node.tiltFxTimer -= dt;
+        if (!node.tiltIsNuke && node.tiltFxTimer <= 0) {
+          node.tiltFxTimer = 0.13 + Math.random() * 0.06;
+          _v3.copy(node.basePos).add(node.tiltHingeOffset);
+          const chipCol = chipColorFor(node.mat, node.spec.color);
+          this.ctx.fx?.dust?.(_v3, UP, 0.85);
+          if (node.materialClass === 'wood') {
+            this.splinters.spawnBurst(_v3, UP, 'wood', 2, chipCol, 4.5);
+          } else if (node.materialClass === 'metal') {
+            this.ctx.fx?.sparks?.(_v3, UP, 6, 0xffcc66);
+            this.splinters.spawnBurst(_v3, UP, 'metal', 1, chipCol, 4.8);
+          } else {
+            this.splinters.spawnBurst(_v3, UP, 'concrete', 2, chipCol, 4.0);
+          }
+        }
       }
       if (node.tiltElapsed >= node.tiltDuration) {
         this.tilting.splice(i, 1);
         this.removeStaticCollider(node);
+        if (node.mesh) {
+          applyBreakFractureDeform(node.mesh.geometry, node.half, node.materialClass);
+        }
+        const chipCol = chipColorFor(node.mat, node.spec.color);
+        this.splinters.spawnBurst(
+          node.mesh ? node.mesh.position : node.basePos,
+          UP,
+          splinterKindFor(node.materialClass),
+          node.materialClass === 'wood' ? 5 : 3,
+          chipCol,
+          6.5,
+        );
         this.spawnDynamicBody(cluster, node, node.tiltBlastOrigin, node.tiltIsNuke, true);
       }
     }
@@ -1166,24 +1606,7 @@ export class DestructionManager implements DestructionManagerLike {
       }
 
       // Kinetic crush check against living enemies
-      if (speed > CRUSH_SPEED && this.ctx.enemies?.query) {
-        const crushRadius = Math.max(node.half.x, node.half.y, node.half.z) + 1.0;
-        const n = this.ctx.enemies.query(_v2, crushRadius, this.nearEnemies);
-        for (let ei = 0; ei < n; ei++) {
-          const e = this.nearEnemies[ei]!;
-          if (!e.alive || entry.crushedUids.has(e.uid)) continue;
-          entry.crushedUids.add(e.uid);
-          this.ctx.enemies.applyDamage(e, {
-            amount: CRUSH_DAMAGE,
-            type: 'crush',
-            point: e.center.clone(),
-            dir: _vel.clone().normalize(),
-            force: 220,
-            source: 'structural_collapse',
-            gib: true,
-          });
-        }
-      }
+      this.checkCrush(entry, _v2, _vel, speed);
 
       // Domino kinetic impact when heavy falling structural sections slam into the ground/structures
       if (entry.impactRadius > 0 && !entry.impactTriggered) {
@@ -1264,7 +1687,7 @@ export class DestructionManager implements DestructionManagerLike {
     }
   }
 
-  /** Removes all clusters, meshes, colliders, dynamic bodies, pending hazards, and active sweeps. */
+  /** Removes all clusters, meshes, colliders, dynamic bodies, splinters, pending hazards, and active sweeps. */
   clear(): void {
     for (const entry of this.dynamicPool) {
       this.ctx.physics.world.removeRigidBody(entry.body);
@@ -1274,6 +1697,7 @@ export class DestructionManager implements DestructionManagerLike {
     this.tilting.length = 0;
     this.pendingHazards.length = 0;
     this.sweeps.length = 0;
+    this.splinters.clear();
 
     for (const cluster of this.clusters) {
       for (const node of cluster.nodes) {
@@ -1297,6 +1721,7 @@ export class DestructionManager implements DestructionManagerLike {
 
   dispose(): void {
     this.clear();
+    this.splinters.dispose();
   }
 }
 
