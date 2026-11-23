@@ -523,6 +523,7 @@ export class Gore implements GoreSystem {
   /** Next body to look at for its level of detail. One a frame is plenty for things that lie still. */
   private lodAt = 0;
   private lastKnock = -1;
+  private lastLongSpray = -10;
   /** Simulated bodies were over `maxRagdolls` with nothing yet fit to freeze, at the last look. */
   private over = false;
   private ready = false;
@@ -1923,7 +1924,10 @@ export class Gore implements GoreSystem {
       this.spurts.start(parent, s.offset, s.axis, char.root, (s.ends - s.started) * 0.75, Math.min(1.35, power));
       parent.updateWorldMatrix(true, false);
       _v.copy(s.offset).applyMatrix4(parent.matrixWorld);
-      this.ctx.audio.play('blood_spray_long', { position: _v, volume: clamp(0.75 + power * 0.25, 0.75, 1.05), pitchJitter: 0.08 });
+      if (s.started - this.lastLongSpray >= 3.5) {
+        this.lastLongSpray = s.started;
+        this.ctx.audio.play('blood_spray_long', { position: _v, volume: clamp(0.5 + power * 0.2, 0.5, 0.72), pitchJitter: 0.08 });
+      }
       this.surfaceBlood.bleedWound(char, {
         bone: def.parent,
         point: _v,
@@ -2668,7 +2672,7 @@ export class Gore implements GoreSystem {
       this.blood.splatterAround(chest, blastDir, 10, 7, 1.15);
       this.blood.spray(chest, blastDir, 14, 12, 0.7, 0.14);
       this.blood.pool(hips, rand(1.4, 2.1), 1.6);
-      audio.play('blood_spray_long', { position: chest, volume: 0.9, pitchJitter: 0.08, delay: 0.04 });
+      audio.play('blood_spray_short', { position: chest, volume: 0.65, pitchJitter: 0.08, delay: 0.04 });
       audio.play('blood_splash', { position: chest, volume: 1, pitchJitter: 0.1, delay: 0.07 });
     }
     // Loud visceral ribcage/torso gib crunch directly from the pasted body.
@@ -3553,6 +3557,7 @@ export class Gore implements GoreSystem {
     this.stoodFrame = -1;
     this.stood = 0;
     this.lastKnock = -1;
+    this.lastLongSpray = -10;
     this.mess.clear();
     this.pins = [];
     for (const s of this.stumps) {

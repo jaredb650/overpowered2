@@ -235,9 +235,9 @@ const bodyGoreSamples: SoundDef[] = [
     'flesh', 0.14, 'blood_spurt',
     { priority: 3, maxVoices: 3, perFrame: 1, near: 3.5, far: 22, send: 0.04, pitchJitter: 0.08 },
   ),
-  // Sustained arterial jet / severed stump blood spray.
-  shot('blood_spray_long', 'gore3/blood_spray_long.mp3', 'gore', 0.18, 0.135, {
-    priority: 5, maxVoices: 2, perFrame: 1, near: 6, far: 50, send: 0.06, pitchJitter: 0.08,
+  // Sustained arterial jet / severed stump blood spray (kept subtle and limited to one active voice).
+  shot('blood_spray_long', 'gore3/blood_spray_long.mp3', 'gore', 0.095, 0.135, {
+    priority: 4, maxVoices: 1, perFrame: 1, near: 4, far: 28, send: 0.05, pitchJitter: 0.08,
   }),
   // Short pressurized blood spray burst (heavy wound opening, blowout fan, arterial beat).
   shot('blood_spray_short', 'gore3/blood_spray_short.mp3', 'gore', 0.16, 0.163, {

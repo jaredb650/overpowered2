@@ -777,11 +777,8 @@ export class Character implements CharacterInstance {
     return this.data[this.extras + EXTRA_BLOOD_MAP * 4]! | 0;
   }
 
-  hitFlash(intensity: number): void {
-    const now = this.a.time.elapsed;
-    this.flash = Math.max(this.flash - (now - this.flashAt) * FLASH_DECAY, intensity);
-    this.flashAt = now;
-    this.data[this.extras + EXTRA_PARAMS * 4 + 1] = this.flash;
+  hitFlash(_intensity: number): void {
+    // Whole-body red impact flash disabled: it hid the blood mist puff and looked cartoony.
   }
 
   /** 0..1 char from fire. Embers crawl across as it rises. Past `KIT_CHARS_AT` what it carries is burnt too. */

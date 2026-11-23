@@ -446,17 +446,17 @@ export class SurfaceBloodField {
     }
 
     // Positional 3D wound bleeding sound from the wound itself (rate-limited so bursts never stack).
-    if (now - this.lastWoundAudioAt >= 0.12 && (!wasActive || upgrade)) {
+    if (now - this.lastWoundAudioAt >= 0.35 && (!wasActive || upgrade)) {
       const audio = this.ctx.audio;
       if (startedSpurt) {
         this.lastWoundAudioAt = now;
-        audio?.play('blood_spray_long', { position: opts.point, volume: 0.95, pitchJitter: 0.08 });
+        audio?.play('blood_spray_short', { position: opts.point, volume: 0.65, pitchJitter: 0.08 });
       } else if (keepTier === 2) {
         this.lastWoundAudioAt = now;
-        audio?.play('blood_spray_short', { position: opts.point, volume: 0.8, pitchJitter: 0.1 });
+        audio?.play('blood_spray_short', { position: opts.point, volume: 0.5, pitchJitter: 0.1 });
       } else if (keepTier === 1 && opts.withSpurt !== false && !track.dead) {
         this.lastWoundAudioAt = now;
-        audio?.play('blood_spritz', { position: opts.point, volume: 0.5, pitchJitter: 0.12 });
+        audio?.play('blood_spritz', { position: opts.point, volume: 0.45, pitchJitter: 0.12 });
       }
     }
 
