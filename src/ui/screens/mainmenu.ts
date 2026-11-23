@@ -43,6 +43,7 @@ export const SURVIVAL_MAPS: readonly { name: string; map: MapId }[] = [
   { name: 'Crucible', map: 'crucible' },
   { name: 'Kill House', map: 'killhouse' },
   { name: 'Rooftop', map: 'rooftop' },
+  { name: 'Badlands', map: 'badlands' },
   { name: 'Outpost', map: 'fort' },
   { name: 'Office', map: 'office' },
 ];

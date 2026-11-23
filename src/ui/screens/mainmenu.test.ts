@@ -12,6 +12,7 @@ describe('the main menu tree', () => {
       ['Crucible', ['crucible']],
       ['Kill House', ['outpost']],
       ['Rooftop', ['rooftop']],
+      ['Badlands', ['badlands']],
       ['Outpost', ['defense']],
       ['Office', ['crucible', 'outpost']],
     ]);

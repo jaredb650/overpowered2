@@ -40,6 +40,10 @@ export interface GroundOrder {
   holdYaw: number;
   /** No one in it. It sits there. */
   parked: boolean;
+  /** Optional simultaneous-hostile ceiling for dismounting crew (defaults to Outpost MAX_HOSTILE). */
+  maxHostile?: number;
+  /** When true, dismounting/spilling/writing-off passengers decrements `manager.queued` for endless waves. */
+  waveQueued?: boolean;
 }
 
 /** Seconds between looks at the player, and between readings of the ground. */
@@ -159,7 +163,7 @@ export class GroundVehicle extends Vehicle {
       if (!Number.isNaN(order.holdYaw)) this.drive.face(order.holdYaw);
     }
     this.shuffleIn = rand(SHUFFLE_EVERY[0], SHUFFLE_EVERY[1]);
-    this.crew = new Crew(sys, order.crew, order.crewTag);
+    this.crew = new Crew(sys, order.crew, order.crewTag, order.maxHostile, order.waveQueued);
     this.engine = new EngineSound(sys.ctx, GROUND_ENGINES[def.kind as 'humvee' | 'truck' | 'tank']);
     for (const w of model.steered) w.rotation.order = 'YXZ';
     this.mount = order.parked ? null : this.fitGun();
@@ -240,6 +244,17 @@ export class GroundVehicle extends Vehicle {
 
   get settled(): boolean {
     return this.drive.done && Math.abs(this.drive.speed) < STOPPED;
+  }
+
+  /** Passengers still inside the vehicle waiting to dismount. */
+  get crewAboard(): number {
+    return this.crew.aboard;
+  }
+
+  /** True while the vehicle is intact, mobile, and not crippled by lost tracks or coasting fire. */
+  get canDrive(): boolean {
+    return this.alive && !this.retired && !this.order.parked && !this.drive.coasting
+      && !this.broken('trackLeft') && !this.broken('trackRight');
   }
 
   /** Hit head-on by a charging Distraint Frame: shakes the hull and knocks the gunner off his lay. */

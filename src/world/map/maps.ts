@@ -29,13 +29,17 @@ import {
   authorDesert, DESERT_BOUNDS, DESERT_HUB, DESERT_LEVELS,
   DESERT_LIGHT_BOUNDS, DESERT_LIGHT_CELL, DESERT_STAGES,
 } from './desert';
+import {
+  authorBadlands, BADLANDS_BOUNDS, BADLANDS_HUB, BADLANDS_LEVELS,
+  BADLANDS_LIGHT_BOUNDS, BADLANDS_LIGHT_CELL, BADLANDS_STAGES,
+} from './badlands';
 import { KH } from './killhouse/plan';
 import { LEVEL, RING } from './layout';
 import type { MapSpec } from './spec';
 import type { MapZone } from '../../core/contracts';
 import { ACTIVE } from '../../contracts/select';
 
-export type MapId = 'crucible' | 'killhouse' | 'outpost' | 'fort' | 'holdfast' | 'office' | 'range' | 'annex' | 'rooftop' | 'chancery' | 'bank' | 'desert';
+export type MapId = 'crucible' | 'killhouse' | 'outpost' | 'fort' | 'holdfast' | 'office' | 'range' | 'annex' | 'rooftop' | 'chancery' | 'bank' | 'desert' | 'badlands';
 
 export interface MapDef {
   id: MapId;
@@ -251,7 +255,23 @@ const desert: MapDef = {
   atmosphere: 'dawn',
 };
 
-const MAPS: Record<MapId, MapDef> = { crucible, killhouse, outpost, fort, holdfast, office, range, annex, rooftop, chancery, bank, desert };
+const BD = BADLANDS_BOUNDS;
+const BDL = BADLANDS_LIGHT_BOUNDS;
+const badlands: MapDef = {
+  id: 'badlands',
+  bounds: box(BD.x0, BD.y0, BD.z0, BD.x1, BD.y1, BD.z1),
+  lightBounds: box(BDL.x0, BDL.y0, BDL.z0, BDL.x1, BDL.y1, BDL.z1),
+  lightCell: BADLANDS_LIGHT_CELL,
+  minimapExtent: 176,
+  navHub: BADLANDS_HUB,
+  nav: { mutual: true, levels: [...BADLANDS_LEVELS] },
+  stages: BADLANDS_STAGES,
+  author: authorBadlands,
+  readyLabel: 'Opening the Badlands',
+  atmosphere: 'dawn',
+};
+
+const MAPS: Record<MapId, MapDef> = { crucible, killhouse, outpost, fort, holdfast, office, range, annex, rooftop, chancery, bank, desert, badlands };
 
 /** The map of the page's contract, or whatever `?map=` names. contracts/select.ts has the rules. */
 export function selectMap(): MapDef {

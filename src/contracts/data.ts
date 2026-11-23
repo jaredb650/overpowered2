@@ -11,7 +11,7 @@ import type { MapId } from '../world/map/maps';
  * `outpost` is Endless Humans. The id is older than the campaign, and URLs and score tables are keyed on it. `defense` is
  * Outpost Defense, Endless Humans' tower defense (docs/proposals/outpost-defense.md).
  */
-export type ContractId = 'campaign' | 'foreclosure' | 'quiet_title' | 'bank_run' | 'desert_raid' | 'crucible' | 'outpost' | 'rooftop' | 'defense' | 'retraining';
+export type ContractId = 'campaign' | 'foreclosure' | 'quiet_title' | 'bank_run' | 'desert_raid' | 'crucible' | 'outpost' | 'rooftop' | 'badlands' | 'defense' | 'retraining';
 
 /** Who lives there. Section 15's faction rules hang off this: pain, fear, bleeding, gib thresholds. */
 export type FactionId = 'swarm' | 'humans';
@@ -353,6 +353,33 @@ export const CONTRACTS: readonly ContractDef[] = [
       ],
     },
     scoreKey: 'op2_highscore.rooftop',
+  },
+  {
+    id: 'badlands',
+    name: 'Badlands',
+    map: 'badlands',
+    faction: 'humans',
+    waves: 'squads',
+    ai: 'outpost',
+    wounds: 'anatomy',
+    rewards: { backShot: 1.5 },
+    noCommander: true,
+    briefing: {
+      ref: 'Form 7742-D',
+      subject: 'Combined-arms Saltblood warbands and armoured convoys converging on the Surplus salt basin',
+      body: [
+        'The open salt basin beyond Surplus is wide, flat, and clear to the ceiling. Your customized Distraint Frame is staged on the concrete pad at deployment; press E beside it to board and take to the sky.',
+        'Every motorised asset in the theatre is rolling in: technicals, troop trucks, battle tanks, fast-roping utility helicopters, paratrooper transport jets, door gunners, and attack choppers, carrying full warbands from the first wave.',
+        'There is no Commander and no final wave. Replacement Frames are delivered to the pad after each cleared wave if yours is written off. Fuel and ammunition remain billable.',
+      ],
+      terms: [
+        ['Site', 'The Badlands — 352 m open dawn desert basin'],
+        ['Occupants', 'Large human warbands, technicals, trucks, tanks, helis, gunships'],
+        ['Equipment', 'Distraint Frame staged on pad at deployment'],
+        ['Duration', 'Endless'],
+      ],
+    },
+    scoreKey: 'op2_highscore.badlands',
   },
   {
     id: 'defense',

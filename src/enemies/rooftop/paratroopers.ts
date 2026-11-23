@@ -17,7 +17,6 @@ import type { EnemyId } from '../../core/gameplay';
 import { clamp, rand } from '../../core/math';
 import { ModelMaterials } from '../../progression/modelkit';
 import { warthogModel } from '../../progression/callins/warthog';
-import type { ParatrooperZone } from '../../world/map/rooftop/plan';
 import type { Enemy } from '../Enemy';
 import type { EnemyManager } from '../EnemyManager';
 import type { Outpost } from '../outpost';
@@ -34,12 +33,19 @@ const CANOPY_COLLAPSE_AIR = 1.4;
 const CANOPY_COLLAPSE_LAND = 0.55;
 const FEED_COLOR = '#6ec8ff';
 
+export interface DropZone {
+  readonly x: number;
+  readonly y: number;
+  readonly z: number;
+  readonly radius: number;
+}
+
 interface JetDrop {
   jet: THREE.Group;
   origin: THREE.Vector3;
   dir: THREE.Vector3;
   along: number;
-  zone: ParatrooperZone;
+  zone: DropZone;
   remaining: EnemyId[];
   squad: OutpostSquad | null;
   dropIn: number;
@@ -164,7 +170,7 @@ export class ParatrooperSystem {
   }
 
   /** Launches a transport jet flyover that drops `squadIds` (typically 3–5 SWAT) above `zone`. */
-  launchDrop(zone: ParatrooperZone, squadIds: readonly EnemyId[], bearing = rand(0, Math.PI * 2)): void {
+  launchDrop(zone: DropZone, squadIds: readonly EnemyId[], bearing = rand(0, Math.PI * 2)): void {
     if (squadIds.length === 0) return;
     const { audio, hud, render } = this.ctx;
     this.materials ??= new ModelMaterials(this.ctx);

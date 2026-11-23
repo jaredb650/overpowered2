@@ -31,7 +31,13 @@ export class Crew {
   private exitIn = 0;
   private squad: OutpostSquad | null = null;
 
-  constructor(private readonly sys: VehicleSystem, men: readonly EnemyId[], private readonly tag: string | null) {
+  constructor(
+    private readonly sys: VehicleSystem,
+    men: readonly EnemyId[],
+    private readonly tag: string | null,
+    private readonly maxHostile: number = MAX_HOSTILE,
+    private readonly waveQueued: boolean = false,
+  ) {
     this.men = [...men];
   }
 
@@ -42,6 +48,7 @@ export class Crew {
   private next(at: THREE.Vector3): Enemy | null {
     const { manager, ctx } = this.sys;
     const id = this.men[this.seat++]!;
+    if (this.waveQueued) manager.queued = Math.max(0, manager.queued - 1);
     const o = manager.outpost;
     if (o && !this.squad) this.squad = o.muster(this.aboard + 1, at);
     const e = o && this.squad ? o.enlistInto(this.squad, id, at) : manager.spawn(id, at);
@@ -59,7 +66,7 @@ export class Crew {
     if (this.exitIn > 0) return;
     const o = this.sys.manager.outpost;
     // The same rule as the waves: they sit tight until there is room in the fight.
-    if (o && !this.squad && o.hostile + this.aboard > MAX_HOSTILE) return;
+    if (o && !this.squad && o.hostile + this.aboard > this.maxHostile) return;
     this.exitIn = EXIT_GAP;
     exit(this.seat, _on, _away);
     const e = this.next(_on);
@@ -98,6 +105,7 @@ export class Crew {
   writeOff(): void {
     while (this.aboard > 0) {
       this.seat++;
+      if (this.waveQueued) this.sys.manager.queued = Math.max(0, this.sys.manager.queued - 1);
       if (this.tag !== null) this.sys.ctx.campaign.unitGone(this.tag, false, '');
     }
   }

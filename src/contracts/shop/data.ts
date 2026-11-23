@@ -23,7 +23,7 @@ const query = typeof location === 'undefined' ? null : new URLSearchParams(locat
  * The endless survival games that sell their guns from a supply pod: the Crucible and Endless Humans. Outpost Defense
  * (`defense`) has its own shops, and the Campaign and Foreclosure are missions.
  */
-export const SHOP_CONTRACTS: readonly ContractId[] = ['crucible', 'outpost', 'rooftop'];
+export const SHOP_CONTRACTS: readonly ContractId[] = ['crucible', 'outpost', 'rooftop', 'badlands'];
 
 /**
  * This page sells its guns: one of `SHOP_CONTRACTS`' own games, not a mission, the range or a sandbox. `?shop=0` brings the

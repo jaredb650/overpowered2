@@ -11,12 +11,14 @@ import type { CallInId } from '../../core/gameplay';
 import { ATTACK_AIRFRAME, type AttackMount } from '../../vehicles/attackModel';
 import type { Flight } from '../../vehicles/flight';
 import { Emplacements } from '../../vehicles/emplacement';
+import { ACTIVE } from '../../contracts/select';
 import { FRAME_ASKED } from '../../frame/data';
 import { Frame } from '../../frame/seat';
 import { loadFrameLoadout } from '../../frame/loadout';
 import { CALLIN_HOLD } from '../../input/bindings';
 import { CHIN_CANNON, Gun, M134 } from '../../vehicles/guns';
 import { SeatRig } from '../../vehicles/seat';
+import { BADLANDS_FRAME_PAD } from '../../world/map/badlands/plan';
 import type { MapSpec } from '../../world/map/spec';
 import { UTILITY_AIRFRAME, type UtilityMount } from '../../vehicles/utilityModel';
 import { ModelMaterials } from '../modelkit';
@@ -164,6 +166,18 @@ export class CallInManager implements CallinLink {
         const spawn = ctx.world.playerSpawns[0];
         // In the player's own loadout (frame/loadout.ts), as a call-in would be: the range is where a loadout is tried.
         if (spawn) this.frame.board(spawn.position, spawn.yaw, Infinity, false, loadFrameLoadout());
+      });
+    } else if (ACTIVE.def.id === 'badlands') {
+      // Badlands stages the player's customized Distraint Frame on the desert pad at start and replaces it between waves if lost.
+      const padPos = new THREE.Vector3(BADLANDS_FRAME_PAD[0], BADLANDS_FRAME_PAD[1], BADLANDS_FRAME_PAD[2]);
+      ctx.events.on('run:start', () => {
+        this.frame.deploy(padPos, -2.65, loadFrameLoadout());
+      });
+      ctx.events.on('wave:clear', () => {
+        if (!this.frame.deployed && !this.frame.occupied) {
+          this.frame.deploy(padPos, -2.65, loadFrameLoadout());
+          ctx.hud.feed('REPLACEMENT DISTRAINT FRAME DELIVERED AT PAD', CALLINS.frame.color);
+        }
       });
     }
     ctx.campaign.provide({
