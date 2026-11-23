@@ -154,6 +154,39 @@ describe('Bodkin firing range behaviour', () => {
     expect(r.weapons.ammo('bodkin').mag).toBe(18);
   });
 
+  it('converts burst to sustained full-auto with bodkinAuto fitted, shares trigger slot with bodkinBurst5, and still toggles semi-auto', () => {
+    expect(MODS.bodkinAuto.weapon).toBe('bodkin');
+    expect(MODS.bodkinAuto.slot).toBe('trigger');
+    expect(MODS.bodkinBurst5.slot).toBe('trigger');
+
+    r.weapons.grantMod('bodkinBurst5');
+    r.weapons.grantMod('bodkinAuto');
+    r.weapons.fitMod('bodkinBurst5', true);
+    r.weapons.fitMod('bodkinAuto', true);
+    expect(r.weapons.fitted.has('bodkinAuto')).toBe(true);
+    expect(r.weapons.fitted.has('bodkinBurst5')).toBe(false);
+
+    drawBodkin();
+    expect(r.weapons.ammoMode).toBe('FLECHETTE');
+    const target = r.enemies.add(0, -10, 2000);
+    r.input.simulate('fire', true);
+    r.run(0.8);
+    r.input.simulate('fire', false);
+    // Sustained full-auto fires well past a 3-round or 5-round burst on one trigger hold.
+    expect(target.hits.length).toBeGreaterThanOrEqual(8);
+    expect(r.weapons.ammo('bodkin').mag).toBe(24 - target.hits.length);
+
+    // Hold R switches full-auto to semi-auto (1 round per pull) and back.
+    holdR(WEAPONS.bodkin.select!.hold + 0.05);
+    expect(r.weapons.ammoMode).toBe('FLECHETTE · SEMI');
+    const magBefore = r.weapons.ammo('bodkin').mag;
+    r.input.simulate('fire', true);
+    r.run(0.4);
+    r.input.simulate('fire', false);
+    expect(r.weapons.ammo('bodkin').mag).toBe(magBefore - 1);
+  });
+
+
   it('applies bodkinMag (36 rounds), bodkinMagwell (-15% reload time), and bodkinTungsten (3.2 m pen & 65 bossDamage)', () => {
     // Extended magazine: 24 -> 36 rounds.
     r.weapons.grantMod('bodkinMag');
@@ -169,8 +202,8 @@ describe('Bodkin firing range behaviour', () => {
 
     drawBodkin();
     expect(r.weapons.ammo('bodkin').magSize).toBe(36);
-    r.weapons.ammo('bodkin').mag = 6;
-    // Tap R to start reload; verify it finishes right after 1.02 s (before the unmodded 1.2 s).
+    // Empty reload finishes right after 1.02 s (before unmodded 1.2 s).
+    r.weapons.ammo('bodkin').mag = 0;
     r.input.simulate('reload', true);
     r.run(0.05);
     r.input.simulate('reload', false);
@@ -179,6 +212,15 @@ describe('Bodkin firing range behaviour', () => {
     r.run(0.95);
     expect(r.weapons.reloading).toBe(true);
     r.run(0.12);
+    expect(r.weapons.reloading).toBe(false);
+    expect(r.weapons.ammo('bodkin').mag).toBe(36);
+
+    // Tactical reload (round already chambered) skips bolt rack and finishes faster (~0.80 s).
+    r.weapons.ammo('bodkin').mag = 6;
+    r.input.simulate('reload', true);
+    r.run(0.05);
+    r.input.simulate('reload', false);
+    r.run(0.84);
     expect(r.weapons.reloading).toBe(false);
     expect(r.weapons.ammo('bodkin').mag).toBe(36);
 

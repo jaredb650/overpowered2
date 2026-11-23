@@ -325,6 +325,11 @@ const gunShots: SoundDef[] = [
   shot('awl_mag_in', 'guns/awl_mag_in.mp3', 'foley', 0.125, 0.195),
   shot('awl_bolt_open', 'guns/awl_bolt_open.mp3', 'foley', 0.125, 0.288),
   shot('awl_bolt_close', 'guns/awl_bolt_close.mp3', 'foley', 0.125, 0.263),
+  shot('billhook_bolt_release', 'guns/billhook_bolt_release.mp3', 'foley', 0.13, 0.19),
+  shot('gimlet_bolt_release', 'guns/gimlet_bolt_release.mp3', 'foley', 0.13, 0.163),
+  shot('deuce_open', 'guns/deuce_open.mp3', 'foley', 0.13, 0.172),
+  shot('deuce_shell_in', 'guns/deuce_shell_in.mp3', 'foley', 0.125, 0.144, { pitchJitter: 0.05 }),
+  shot('deuce_close', 'guns/deuce_close.mp3', 'foley', 0.13, 0.192),
   shot('smg_shot', 'guns/smg_shot.mp3', 'gun', 0.143, 0.105),
   // The SMG with its suppressor (the owner's, 2026-11-15): about 2 dB under the bare SMG, and less of it in the room.
   shot('smg_suppressed_shot', 'guns/smg_suppressed_shot.mp3', 'gun', 0.11, 0.17, { send: 0.08 }),
@@ -334,8 +339,8 @@ const gunShots: SoundDef[] = [
   // the bare SMG, with less of it in the room, as the SMG's suppressor is.
   shot('gimlet_shot', 'guns/gimlet_shot.mp3', 'gun', 0.155, 0.206, { send: 0.2 }),
   shot('gimlet_suppressed_shot', 'guns/gimlet_suppressed_shot.mp3', 'gun', 0.115, 0.118, { send: 0.08 }),
-  // The Bodkin flechette rifle (the owner's, 2026-11-23): crisp burst report at the Gimlet's rung on the ladder.
-  shot('bodkin_shot', 'guns/bodkin_shot.mp3', 'gun', 0.155, 0.24, { send: 0.2 }),
+  // The Bodkin flechette rifle (the owner's, 2026-11-23): crisp high-velocity flechette crack, boosted to cut through burst/auto fire.
+  shot('bodkin_shot', 'guns/bodkin_shot.mp3', 'gun', 0.22, 0.367, { send: 0.2 }),
   // The Autoraffica (the owner's, 2026-11-16): a suppressed pistol fired three at a time, so under the suppressed SMG.
   shot('autoraffica_shot', 'guns/autoraffica_shot.mp3', 'gun', 0.1, 0.243, { send: 0.08 }),
   // The Rivet through its suppressor mod (2026-11-22): reuses the suppressed 9 mm pistol sample at single-shot level.

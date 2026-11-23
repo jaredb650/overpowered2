@@ -141,7 +141,7 @@ describe('akimbo in the hand', () => {
     const a = r.weapons.ammo('smg');
     expect(a.magSize).toBe(60);
     expect(a.mag).toBe(60);
-    a.mag = 10;
+    a.mag = 0;
     r.tap('reload');
     expect(reloadSeconds.at(-1)).toBeCloseTo(WEAPONS.smg.reloadTime * 2);
     r.run(WEAPONS.smg.reloadTime * 1.5);
@@ -155,7 +155,7 @@ describe('akimbo in the hand', () => {
     draw('smg');
     r.weapons.grantMod('smgTape');
     r.weapons.fitMod('smgTape', true);
-    r.weapons.ammo('smg').mag = 5;
+    r.weapons.ammo('smg').mag = 0;
     r.tap('reload');
     expect(reloadSeconds.at(-1)).toBeCloseTo(WEAPONS.smg.reloadTime * 2 * 0.7);
   });

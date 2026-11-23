@@ -16,6 +16,7 @@ import { HANDS } from '../poses';
 import { drawCount, pullTrigger, shell12 } from './common';
 import { TORCH, weaponLight } from './light';
 import { LASER_GLOW, lamSocket, weaponLam } from './laser';
+import { OPTIC_GLOWS, openReflex } from './optics';
 
 const BORE = 0.03;
 const TUBE = 0.0;
@@ -41,8 +42,8 @@ function receiver(m: Mesher): void {
   });
   m.use(F.parkerized);
   m.at([0, 0.0535, -0.05], null, () => rail(m, 0.04, -0.15, 0.0212, F.anodized));
-  // Ghost ring on two ears at the back of the rail.
-  m.at([0, 0.0615, 0.04], null, () => {
+  // Ghost ring on two ears at the back of the rail (hidden when shotgunDot is fitted).
+  m.part('rearSight', [0, 0.0615, 0.04], () => {
     m.use(F.anodized);
     m.at([0, 0.0015, 0], null, () => m.box(0.028, 0.006, 0.03, 0.0012, 0.002));
     m.use(F.steelDark);
@@ -329,7 +330,7 @@ function pump(m: Mesher): void {
   });
 }
 
-function buildShotgun(kit: Kit): Model {
+function buildShotgun(kit: Kit): { model: Model; dotLook: NonNullable<ViewDef['mods']>['shotgunDot'] } {
   const m = kit.mesher();
   m.bevel = 0.0014;
   receiver(m);
@@ -343,6 +344,16 @@ function buildShotgun(kit: Kit): Model {
   sawedOff(m);
   saddle(m);
   pump(m);
+
+  // Low-profile open reflex sight (`shotgunDot`) on a slim rail clamp riser over the receiver Picatinny rail.
+  m.part('rmrBase', [0, 0.0615, -0.055], () => {
+    m.use(F.anodized);
+    m.at([0, 0.0022, 0], null, () => m.box(0.028, 0.0052, 0.044, 0.001));
+    m.mirror(() => screwX(m, 0.0146, 0.0022, 0.004, 1, 0.0022, F.steelDark));
+  });
+  const dotLook = openReflex(m, [0, 0.0657, -0.055], {
+    name: 'rmr', scale: 1.18, relief: 0.25, finish: F.anodized, accent: F.steelDark,
+  });
 
   m.part('bolt', [0.0, BORE - 0.002, -0.068], () => {
     m.use(F.steel);
@@ -369,7 +380,7 @@ function buildShotgun(kit: Kit): Model {
   weaponLam(m, [0.0315, 0.022, -0.5], Math.PI / 2);
 
   const model = new Model(m, kit.mats, {
-    glows: { sight: [0x9cff3a, 6], torch: TORCH, laser: LASER_GLOW },
+    glows: { sight: [0x9cff3a, 6], dot: OPTIC_GLOWS.dot, torch: TORCH, laser: LASER_GLOW },
     screens: { ammo: [240, 22] },
   });
   lamSocket(model);
@@ -382,7 +393,7 @@ function buildShotgun(kit: Kit): Model {
   model.hand('gripR', [0.019, -0.06, 0.07], [0, -0.96, 0.27], [-0.3, -0.25, -0.92]);
   model.support('pumpL', [-0.002, -0.0235, -0.012], 'pump');
   model.hand('shellHold', [-0.017, 0.0, -0.03], [-0.3, 0.1, -0.95], [0.9, -0.1, -0.35], 'shell');
-  return model;
+  return { model, dotLook: { ...dotLook, also: 'rmrBase' } };
 }
 
 /** Time to get one shell from the pouch to the port, as a fraction of the reload. */
@@ -402,6 +413,7 @@ function clip(a: Anim): void {
   a.gunR.z -= rack * 0.035;
   a.gunR.x += rack * 0.012;
   a.glow('sight', 1);
+  a.glow('dot', 1);
 
   if (a.draw < 1) rack = Math.max(rack, hold(a.draw, 0.3, 0.58, 0.62, 0.95));
 
@@ -463,9 +475,11 @@ function clip(a: Anim): void {
 }
 
 export function shotgunDef(kit: Kit): ViewDef {
+  const { model, dotLook } = buildShotgun(kit);
   return {
     id: 'shotgun',
-    model: buildShotgun(kit),
+    model,
+    irons: 'rearSight',
     pos: [0.142, -0.112, -0.395],
     rot: [0.03, 0.08, 0],
     // ADS: the bead through the ghost ring.
@@ -477,7 +491,9 @@ export function shotgunDef(kit: Kit): ViewDef {
     animate: clip,
     readout: a => drawCount(a, 'ammo', 0, a.magSize, '#9cff3a'),
     mods: {
-      // Suppressor first so its muzzle socket (`muzzleCan`, parented to `can`) wins whenever fitted, and rides along
+      // Reflex sight before sawed-off so fitting both uses the red dot's ADS sight picture.
+      shotgunDot: dotLook,
+      // Suppressor first among muzzle mods so its muzzle socket (`muzzleCan`, parented to `can`) wins whenever fitted, and rides along
       // when `shotgunSawedOff` pulls `can` back onto the sawn-off crown or `shotgunChoke` extends it to the choke tip.
       shotgunCan: { part: 'can', hides: 'breacher', muzzle: 'muzzleCan' },
       shotgunChoke: { part: 'choke', hides: 'breacher', muzzle: 'muzzleChoke', moves: { part: 'can', z: -0.118 } },

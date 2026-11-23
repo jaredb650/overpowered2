@@ -386,8 +386,12 @@ export const MODS: Readonly<Record<ModId, ModDef>> = {
     patch: { breath: { hold: ADS_ZOOM.hold * 1.6, cooldown: ADS_ZOOM.cooldown * 0.7 } },
   },
   flailAp: rounds('flail', 'ap'), flailHp: rounds('flail', 'hp'), flailPlusP: rounds('flail', 'plusP'),
-  // Billhook mods: reflex sight, laser (faster ADS), extended 11-shell tube, slugs (1x200, spread 0, medium armour), plus light/flechette/dragon.
+  // Billhook & shotgun reflex sights: low-profile pistol reflex optic available across every shotgun.
   billhookDot: { id: 'billhookDot', weapon: 'billhook', name: 'Reflex sight', slot: 'sight', patch: { ads: DOT } },
+  shotgunDot: { id: 'shotgunDot', weapon: 'shotgun', name: 'Reflex sight', slot: 'sight', patch: { ads: DOT } },
+  thresherDot: { id: 'thresherDot', weapon: 'thresher', name: 'Reflex sight', slot: 'sight', patch: { ads: DOT } },
+  // Deuce keeps RMB for firing both barrels (`altBoth`), so its reflex sight tightens pattern spread without overriding RMB.
+  deuceDot: { id: 'deuceDot', weapon: 'deuce', name: 'Reflex sight', slot: 'sight', patch: {}, adjust: d => ({ spread: d.spread * 0.88 }) },
   billhookLam: laserSight('billhook'),
   gimletLam: laserSight('gimlet'), harrowLam: laserSight('harrow'), bodkinLam: laserSight('bodkin'), flailLam: laserSight('flail'),
   awlLam: laserSight('awl'), sabotLam: laserSight('sabot'), shotgunLam: laserSight('shotgun'), thresherLam: laserSight('thresher'), deuceLam: laserSight('deuce'),
@@ -396,12 +400,16 @@ export const MODS: Readonly<Record<ModId, ModDef>> = {
     id: 'billhookSlug', weapon: 'billhook', name: 'Slugs', slot: 'ammo',
     patch: { pellets: 1, spread: 0, damage: 200, armour: 'medium', severMult: 2.8, force: 55, tracer: 'heavy', impactScale: 1.5 },
   },
-  // Bodkin mods: 4x optic, 36-round clear mag, 5-round burst, tungsten darts (3.2 m pen, 65 dmg on bosses/vehicles), plus light/magwell.
+  // Bodkin mods: 4x optic, 36-round clear mag, 5-round burst or full-auto trigger pack, tungsten darts (3.2 m pen, 65 dmg on bosses/vehicles), plus light/magwell.
   bodkinAcog: { id: 'bodkinAcog', weapon: 'bodkin', name: '4x optic', slot: 'sight', patch: { ads: ACOG } },
   bodkinMag: { id: 'bodkinMag', weapon: 'bodkin', name: 'Extended magazine', slot: 'mag', patch: { magSize: 36 } },
   bodkinBurst5: {
-    id: 'bodkinBurst5', weapon: 'bodkin', name: '5-round burst',
+    id: 'bodkinBurst5', weapon: 'bodkin', name: '5-round burst', slot: 'trigger',
     patch: { select: { hold: 0.3, modes: ['burst', 'semi'], burst: { rounds: 5, recover: 0.38 } } },
+  },
+  bodkinAuto: {
+    id: 'bodkinAuto', weapon: 'bodkin', name: 'Full-auto sear', slot: 'trigger',
+    patch: { select: { hold: 0.3, modes: ['auto', 'semi'] } },
   },
   bodkinTungsten: {
     id: 'bodkinTungsten', weapon: 'bodkin', name: 'Tungsten darts', slot: 'ammo',
@@ -470,14 +478,14 @@ export const MOD_ORDER: readonly ModId[] = [
   'awlAcog', 'awl50', 'awlCan', 'awlAp', 'awlHp', 'awlPlusP', 'awlBarrel', 'awlBolt',
   'suppressor', 'smgAp', 'smgHp', 'smgPlusP', 'gimletAcog', 'gimletDot', 'gimletCan', 'gimletGl', 'gimletAp', 'gimletHp', 'gimletPlusP', 'gimletLong',
   'reddot', 'harrowAcog', 'harrowAp', 'harrowHp', 'harrowPlusP', 'harrowShort', 'harrowBrake', 'harrowMag',
-  'bodkinAcog', 'bodkinMag', 'bodkinBurst5', 'bodkinTungsten',
+  'bodkinAcog', 'bodkinMag', 'bodkinBurst5', 'bodkinAuto', 'bodkinTungsten',
   'raufoss', 'rivetAp', 'rivetHp', 'rivetPlusP', 'ultramagAp', 'ultramagHp', 'ultramagPlusP', 'judgeAp', 'judgeHp', 'judgePlusP',
   'autorafficaAp', 'autorafficaHp', 'autorafficaPlusP', 'autorafficaMag',
   'sabotBrake', 'trommel12', 'autocannonFlak', 'autocannonBarrel', 'piledriverDot', 'piledriverAcog',
   'ultramagCan', 'ultramagDot', 'ultramagLam', 'ultramagMag', 'ultramagComp',
   'rivetCan', 'rivetDot', 'rivetLam', 'rivetComp',
   'smgMag', 'smgTape', 'smgStock', 'swordEnergy', 'gimletShort', 'rivetMag', 'piledriverBox',
-  'deuceQuad', 'deuceLong', 'deuceLoader', 'shotgunChoke', 'shotgunSawedOff', 'shotgunBolt', 'shotgunCan',
+  'deuceQuad', 'deuceLong', 'deuceLoader', 'deuceDot', 'shotgunChoke', 'shotgunSawedOff', 'shotgunBolt', 'shotgunCan', 'shotgunDot', 'thresherDot',
   'billhookDot', 'billhookTube', 'billhookSlug',
   'judgeHammer', 'judgeGrip', 'judgeLong', 'judgeComp',
   'rocketTube', 'rocketWp', 'mglLong', 'mglTrigger', 'howitzerCluster',

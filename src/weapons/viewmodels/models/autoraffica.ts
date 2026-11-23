@@ -66,9 +66,12 @@ function frame(m: Mesher): void {
     [0.058, 0.004], [0.081, 0.0045, 0.006], [0.094, 0.011, 0.005], [0.096, 0.017, 0.003], [0.09, 0.0198, 0.003], [0.075, 0.0178, 0.005], [0.062, 0.0188],
   ], 0.002), 0.022, { bevel: 0.0022, smooth: 50 });
 
-  // Controls: slide stop, takedown latch, mag release button, frame cross-pins, and 93R burst selector lever on left.
+  // Controls: slide stop (animates on empty reload), takedown latch, mag release button, frame cross-pins, and 93R burst selector lever on left.
+  m.part('slideStop', [-0.013, 0.0122, 0.012], () => {
+    m.use(STEEL_CHARCOAL);
+    m.side(poly([[0.026, -0.0025], [0.024, 0.0025, 0.001], [-0.012, 0.003, 0.0015], [-0.014, -0.002, 0.001]], 0.0005), 0.0024, { bevel: 0.0006 });
+  });
   m.use(STEEL_CHARCOAL);
-  m.at([-0.013, 0.0122, 0.012], null, () => m.side(poly([[0.026, -0.0025], [0.024, 0.0025, 0.001], [-0.012, 0.003, 0.0015], [-0.014, -0.002, 0.001]], 0.0005), 0.0024, { bevel: 0.0006 }));
   m.at([-0.0128, 0.0082, -0.032], null, () => m.side(poly([[0.0045, -0.0042], [0.0045, 0.0042, 0.002], [-0.0065, 0.0032, 0.002], [-0.0065, -0.0022]], 0.0005), 0.0022, { bevel: 0.0005 }));
   m.at([-0.014, -0.022, 0.026], [0, 0, Math.PI / 2], () => m.cyl(0.0036, 0.003, 12));
   m.at([-0.016, 0.0045, 0.05], [0.46, 0, 0], () => m.box(0.003, 0.004, 0.022, 0.0008));
@@ -380,6 +383,7 @@ function buildAutoraffica(kit: Kit): { model: Model; shieldLook: NonNullable<Vie
   model.hand('gripR', [0.0205, -0.068, 0.067], [0, -0.96, 0.27], [-0.3, -0.25, -0.92]);
   model.pistolSupport('gripL', [-0.031, -0.072, 0.062]);
   model.hand('magHold', [-0.016, -0.11, 0.012], [-0.3, 0.1, -0.95], [0.9, -0.1, -0.35], 'mag');
+  model.hand('slideReleaseHold', [-0.034, -0.024, 0.044], [-0.25, -0.42, -0.87], [0.95, 0, -0.3]);
   attachRiotShieldHand(model);
   return { model, shieldLook };
 }
@@ -390,10 +394,12 @@ function clip(a: Anim): void {
   a.glow('sight', 1);
   const t = a.sinceFire;
   const p = a.reload;
+  const fromEmpty = a.reloadFromEmpty || a.mag <= 0;
 
-  // Crisp linear slide cycle (zero roll/twist): back in 12 ms, home by 40 ms; locks open on empty mag.
-  let back = t < 0.012 ? outQuad(t / 0.012) : t < 0.04 ? 1 - inOut(seg(t, 0.012, 0.04)) : 0;
-  if (a.mag <= 0) back = p >= 0.82 ? 1 - seg(p, 0.82, 0.86) : 1;
+  // Crisp linear slide cycle (zero roll/twist): back in 12 ms, home by 40 ms; locks open on empty mag until slide release drops it.
+  const cycle = t < 0.012 ? outQuad(t / 0.012) : t < 0.04 ? 1 - inOut(seg(t, 0.012, 0.04)) : 0;
+  let back = p < 0 ? (a.mag <= 0 ? 1 : cycle) : 0;
+  if (p >= 0 && fromEmpty) back = p >= 0.8 ? 1 - outCubic(seg(p, 0.8, 0.85)) : 1;
   P.slide!.position.z += back * SLIDE_TRAVEL;
   P.hammer!.rotation.x += back * 0.38;
 
@@ -416,30 +422,60 @@ function clip(a: Anim): void {
     a.gunR.x += k * 0.55;
   }
   if (p >= 0) {
-    // Reload foley: out at 0.05, in at 0.50, slide release at 0.84.
     const mag = P.mag!;
-    const out = seg(p, 0.05, 0.2);
-    const inn = seg(p, 0.36, 0.5);
-    const away = inQuad(out) * (1 - outCubic(inn));
-    mag.position.y -= away * 0.34;
-    mag.position.z += away * 0.06;
-    if (p > 0.22 && p < 0.34) mag.visible = false;
-    const seat = p >= 0.5 ? thud(seg(p, 0.5, 0.62)) : 0;
-
-    const present = hold(p, 0.0, 0.12, 0.74, 0.88);
-    const snap = bump(p, 0.82, 0.96);
-    a.gunR.x += present * 0.22 + seat * 0.06 - snap * 0.05;
-    a.gunR.y += present * 0.14;
-    a.gunP.x -= present * 0.035;
-    a.gunP.y += present * 0.055 + seat * 0.01;
-    a.gunP.z += present * 0.045 + snap * 0.012;
-
     const h = a.left;
     h.fingerRate = 44;
-    h.to('pouchL', inOut(seg(p, 0.04, 0.2)));
-    h.to('magHold', inOut(seg(p, 0.3, 0.42)));
-    h.to('gripL', inOut(seg(p, 0.66, 0.8)));
-    h.shape(HANDS.cup, hold(p, 0.24, 0.36, 0.56, 0.66));
+    if (fromEmpty) {
+      // Empty reload: swap mag while slide is locked open, then thumb the left slide release to send the slide home.
+      // Foley: out at 0.05, in at 0.50, slide release at 0.80.
+      const out = seg(p, 0.05, 0.2);
+      const inn = seg(p, 0.36, 0.5);
+      const away = inQuad(out) * (1 - outCubic(inn));
+      mag.position.y -= away * 0.34;
+      mag.position.z += away * 0.06;
+      if (p > 0.22 && p < 0.34) mag.visible = false;
+      const seat = p >= 0.5 ? thud(seg(p, 0.5, 0.62)) : 0;
+      const click = bump(p, 0.74, 0.84);
+      P.slideStop!.position.y -= click * 0.0026;
+
+      const present = hold(p, 0.0, 0.12, 0.82, 0.96);
+      const snap = bump(p, 0.8, 0.94);
+      a.gunR.z -= present * 0.2;
+      a.gunR.x += present * 0.22 + seat * 0.06 - snap * 0.05;
+      a.gunR.y += present * 0.14;
+      a.gunP.x -= present * 0.035;
+      a.gunP.y += present * 0.055 + seat * 0.01;
+      a.gunP.z += present * 0.045 + snap * 0.014;
+
+      h.to('pouchL', inOut(seg(p, 0.04, 0.2)));
+      h.to('magHold', inOut(seg(p, 0.3, 0.42)));
+      h.to('slideReleaseHold', inOut(seg(p, 0.6, 0.74)));
+      h.to('gripL', inOut(seg(p, 0.84, 0.98)));
+      h.shape(HANDS.cup, hold(p, 0.24, 0.36, 0.55, 0.62));
+      h.shape(HANDS.radio, hold(p, 0.66, 0.74, 0.82, 0.88));
+    } else {
+      // Tactical reload (round already chambered): quick magazine swap only, slide stays closed.
+      // Foley: out at 0.06, in at 0.64.
+      const out = seg(p, 0.06, 0.24);
+      const inn = seg(p, 0.44, 0.64);
+      const away = inQuad(out) * (1 - outCubic(inn));
+      mag.position.y -= away * 0.34;
+      mag.position.z += away * 0.06;
+      if (p > 0.26 && p < 0.41) mag.visible = false;
+      const seat = p >= 0.64 ? thud(seg(p, 0.64, 0.78)) : 0;
+
+      const present = hold(p, 0.0, 0.14, 0.78, 0.96);
+      a.gunR.x += present * 0.2 + seat * 0.06;
+      a.gunR.y += present * 0.12;
+      a.gunP.x -= present * 0.032;
+      a.gunP.y += present * 0.05 + seat * 0.01;
+      a.gunP.z += present * 0.04;
+
+      h.to('pouchL', inOut(seg(p, 0.04, 0.22)));
+      h.to('magHold', inOut(seg(p, 0.36, 0.5)));
+      h.to('gripL', inOut(seg(p, 0.72, 0.96)));
+      h.shape(HANDS.cup, hold(p, 0.3, 0.44, 0.68, 0.76));
+    }
   }
   animateRiotShield(a, 'autorafficaShield');
 }

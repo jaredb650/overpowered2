@@ -653,6 +653,18 @@ const MOD_CATALOGUE: Readonly<Record<ModId, Ware>> = {
     price: 450, wave: 9,
     lore: 'A low-profile reflex sight mounted on the Billhook\'s top rail, giving a clean red dot over the slotted heat shield when aimed.',
   },
+  shotgunDot: {
+    price: 350, wave: 1,
+    lore: 'A low-profile open reflex sight clamped onto the Breacher\'s receiver rail, replacing the ghost ring with a crisp red dot for fast room work.',
+  },
+  thresherDot: {
+    price: 400, wave: 4,
+    lore: 'A low-profile open reflex sight perched atop the Thresher\'s carry handle, clearing the rear aperture for a bright red dot through drum dumps.',
+  },
+  deuceDot: {
+    price: 400, wave: 5,
+    lore: 'A low-profile open reflex sight bridged onto the Deuce\'s rib, painting a bright aiming point over both barrels and tightening the pattern.',
+  },
   billhookLam: {
     price: 700, wave: 9,
     lore: 'A rail laser sight under the Billhook\'s tube, projecting a steady red point and bringing the shotgun to the eye thirty percent faster.',
@@ -688,6 +700,10 @@ const MOD_CATALOGUE: Readonly<Record<ModId, Ware>> = {
   bodkinBurst5: {
     price: 800, wave: 9,
     lore: 'A five-round burst cam for the Bodkin, firing five darts at twelve hundred rounds a minute per pull with a slightly longer recovery pause.',
+  },
+  bodkinAuto: {
+    price: 1100, wave: 9,
+    lore: 'A machined full-auto sear replacing the Bodkin\'s burst ratchet, letting the flechette rifle run continuous twelve-hundred-RPM streams while the trigger stays down.',
   },
   bodkinTungsten: {
     price: 950, wave: 10,

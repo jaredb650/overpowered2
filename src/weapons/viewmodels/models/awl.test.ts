@@ -92,4 +92,56 @@ describe('Awl viewmodel', () => {
     expect(def.model.parts.bolt!.rotation.z).toBeCloseTo(0);
     expect(def.mods!.awlBolt!.part).toBe('grease');
   });
+
+  it('gives the .50 Cal standard brake on crown and an elongated heavy barrel when paired with awlBarrel', () => {
+    expect(def.model.parts.cal50BrakeStd).toBeDefined();
+    expect(def.model.parts.cal50Long).toBeDefined();
+    expect(def.model.parts.cal50BrakeStd!.parent).toBe(def.model.parts.crown);
+    expect(def.model.parts.cal50Long!.parent).toBe(def.model.parts.longBarrel);
+
+    def.model.resetParts();
+    def.model.root.updateMatrixWorld(true);
+    const stdLongBox = new THREE.Box3().setFromObject(def.model.parts.longBarrel!);
+    const cal50LongBox = new THREE.Box3().setFromObject(def.model.parts.cal50Long!);
+    // cal50Long extends noticeably farther forward (-Z) than the stock longBarrel crown.
+    expect(cal50LongBox.min.z).toBeLessThan(stdLongBox.min.z + 0.01);
+    expect(cal50LongBox.getSize(new THREE.Vector3()).z).toBeGreaterThan(0.25);
+
+    // With both awl50 and awlBarrel fitted, clip() pushes muzzleLong and can further forward than standard awlBarrel.
+    pose(99, false, 'awlBarrel');
+    const stdMuzzleLongZ = def.model.sockets.muzzleLong!.position.z;
+    const stdCanZ = def.model.parts.can!.position.z;
+    pose(99, false, 'awl50', 'awlBarrel');
+    expect(def.model.sockets.muzzleLong!.position.z).toBeLessThan(stdMuzzleLongZ - 0.15);
+    expect(def.model.parts.can!.position.z).toBeLessThan(stdCanZ - 0.15);
+  });
+
+  it('cycles the bolt only on empty reloads and swaps only the mag on tactical reloads', () => {
+    const runReload = (progress: number, fromEmpty: boolean) => {
+      const anim = new Anim();
+      anim.model = def.model;
+      anim.parts = def.model.parts;
+      anim.sinceFire = 99;
+      anim.reload = progress;
+      anim.reloadFromEmpty = fromEmpty;
+      anim.mag = fromEmpty ? 0 : 3;
+      anim.magSize = 5;
+      anim.left.begin(def.left);
+      anim.right.begin(def.right);
+      def.model.resetParts();
+      def.animate(anim);
+      return anim;
+    };
+
+    const empty = runReload(0.76, true);
+    expect(def.model.parts.bolt!.rotation.z).toBeGreaterThan(0.5);
+    expect(def.model.parts.bolt!.position.z).toBeGreaterThan(0.1);
+    expect(empty.right.names.slice(0, empty.right.steps)).toContain('boltHold');
+
+    const tac = runReload(0.76, false);
+    expect(def.model.parts.bolt!.rotation.z).toBeCloseTo(0, 5);
+    expect(def.model.parts.bolt!.position.z).toBeCloseTo(0.045, 5);
+    expect(tac.right.names.slice(0, tac.right.steps)).not.toContain('boltHold');
+  });
 });
+

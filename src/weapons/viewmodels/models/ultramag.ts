@@ -214,12 +214,15 @@ function frame(m: Mesher): void {
   // Magwell mouth under the slide, where the next round comes up.
   m.use(F.black);
   m.at([0, SY0 + 0.0002, FEED_Z - 0.026], null, () => m.box(0.017, 0.0006, 0.056, 0.0002));
-  // Controls in bright steel: slide stop on the left, an ambidextrous safety, a takedown pin head on the right.
+  // Controls in bright steel: slide stop on the left (animates on empty reload), an ambidextrous safety, a takedown pin head on the right.
+  m.part('slideStop', [0, 0, 0], () => {
+    m.use(STAINLESS);
+    m.at([-FW - 0.0014, 0, 0], null, () => m.side(poly([
+      [-0.08, 0.0145, 0.003], [-0.074, 0.023, 0.002], [-0.034, 0.0235, 0.004], [-0.016, 0.019, 0.003], [-0.02, 0.0115, 0.003], [-0.062, 0.012, 0.004],
+    ], 0.001), 0.0028, { bevel: 0.0008 }));
+    m.at([-FW - 0.0026, 0.0175, -0.022], [0, Math.PI / 2, 0], () => m.cyl(0.0042, 0.0018, 14, 0.0005));
+  });
   m.use(STAINLESS);
-  m.at([-FW - 0.0014, 0, 0], null, () => m.side(poly([
-    [-0.08, 0.0145, 0.003], [-0.074, 0.023, 0.002], [-0.034, 0.0235, 0.004], [-0.016, 0.019, 0.003], [-0.02, 0.0115, 0.003], [-0.062, 0.012, 0.004],
-  ], 0.001), 0.0028, { bevel: 0.0008 }));
-  m.at([-FW - 0.0026, 0.0175, -0.022], [0, Math.PI / 2, 0], () => m.cyl(0.0042, 0.0018, 14, 0.0005));
   m.mirror(() => {
     m.at([FW + 0.0012, 0, 0], null, () => m.side(poly([
       [0.07, 0.0105, 0.003], [0.074, 0.0215, 0.003], [0.094, 0.0225, 0.003], [0.1, 0.017, 0.002], [0.088, 0.012, 0.003],
@@ -658,6 +661,7 @@ function buildUltramag(kit: Kit): { model: Model; dotLook: NonNullable<ViewDef['
   model.pistolSupport('gripL', k([-0.034, -0.072, 0.07]));
   model.hand('magHold', k([-0.017, -0.1, 0.022]), [-0.3, 0.1, -0.95], [0.9, -0.1, -0.35], 'mag');
   model.hand('boltHold', k([-0.023, 0.0, 0.07]), [-0.5, -0.2, -0.8], [0.8, -0.3, -0.5], 'slide');
+  model.hand('slideReleaseHold', k([-0.038, -0.022, 0.018]), [-0.2, -0.35, -0.92], [0.95, 0, -0.3]);
   attachRiotShieldHand(model);
   return { model, dotLook, shieldLook };
 }
@@ -678,28 +682,35 @@ function clip(a: Anim): void {
   const parts = a.parts;
   const time = a.sinceFire;
   const reload = a.reload;
+  const fromEmpty = a.reloadFromEmpty || a.mag <= 0;
   const fired = a.shots > 0 && time < HOME_END + 0.04 && reload < 0;
   // Slide position, 0 home to 1 at full travel, and how far the round has been stripped forward (0 in the magazine).
   let back = fired ? outQuad(seg(time, 0.004, BACK_END)) * (1 - inOut(seg(time, HOME_START, HOME_END))) : 0;
   let lift = inOut(seg(time, BACK_END + 0.01, 0.11));
   let feeding = fired && a.mag > 0 && time >= BACK_END && time < HOME_END;
-  // The last shot locks it back.
-  if (a.mag <= 0 && a.shots > 0) back = time < BACK_END ? outQuad(seg(time, 0.004, BACK_END)) : 1;
+  // An empty magazine locks the slide open.
+  if (a.mag <= 0 && reload < 0) back = a.shots > 0 && time < BACK_END ? outQuad(seg(time, 0.004, BACK_END)) : 1;
   if (reload >= 0) {
-    const locked = a.mag <= 0;
-    const charging = locked ? 1 : inOut(seg(reload, 0.66, 0.76));
-    const closing = inOut(seg(reload, 0.8, 0.92));
-    back = charging * (1 - closing);
-    lift = inOut(seg(reload, 0.76, 0.8));
-    feeding = reload >= 0.76 && reload < 0.92;
+    if (fromEmpty) {
+      // Locked open until the off hand clicks the slide release at 0.80, stripping the top round into the chamber.
+      const closing = inOut(seg(reload, 0.8, 0.91));
+      back = 1 - closing;
+      lift = inOut(seg(reload, 0.72, 0.8));
+      feeding = reload >= 0.72 && reload < 0.91;
+    } else {
+      // Tactical reload (round already chambered): slide stays closed, no racking.
+      back = 0;
+      feeding = false;
+    }
   }
   parts.slide!.position.z += back * TRAVEL * S;
   parts.weight!.position.z -= back * 0.026 * S;
   parts.hammer!.rotation.x += back * 0.42;
   const cartridge = parts.feedRound!;
   // At rest the slide covers the top round, so it can always show while there is one.
-  cartridge.visible = reload >= 0.2 ? reload >= 0.52 : a.mag > 0;
-  parts.stack!.visible = reload >= 0.2 ? reload >= 0.52 : a.mag > 1;
+  const reloadShown = fromEmpty ? reload >= 0.5 : reload >= 0.44;
+  cartridge.visible = reload >= 0.2 ? reloadShown : a.mag > 0;
+  parts.stack!.visible = reload >= 0.2 ? reloadShown : a.mag > 1;
   if (feeding) {
     // The spring throws it up a touch over the bore line, nose high, while the slide hangs, where the eye sees it through the
     // open top with the gun held level; then the breech face strips it forward, down onto the line and home.
@@ -733,27 +744,58 @@ function clip(a: Anim): void {
   }
   if (reload >= 0) {
     const mag = parts.mag!;
-    const away = inQuad(seg(reload, 0.05, 0.2)) * (1 - outCubic(seg(reload, 0.4, 0.55)));
-    mag.position.y -= away * 0.34;
-    mag.position.z += away * 0.09;
-    if (reload > 0.22 && reload < 0.38) mag.visible = false;
-    const seat = reload >= 0.55 ? thud(seg(reload, 0.55, 0.66)) : 0;
-    const present = hold(reload, 0, 0.12, 0.91, 1);
-    a.gunR.z -= present * 0.48;
-    a.gunR.x += present * 0.16 + seat * 0.06;
-    a.gunR.y += present * 0.1;
-    a.gunP.x -= present * 0.04;
-    a.gunP.y += present * 0.044 + seat * 0.01;
-    a.gunP.z += present * 0.05;
     const hand = a.left;
     hand.fingerRate = 44;
-    hand.to('magHold', inOut(seg(reload, 0, 0.06)));
-    hand.to('pouchL', inOut(seg(reload, 0.12, 0.25)));
-    hand.to('magHold', inOut(seg(reload, 0.32, 0.46)));
-    hand.to('boltHold', inOut(seg(reload, 0.59, 0.68)));
-    hand.to('gripL', inOut(seg(reload, 0.81, 0.91)));
-    hand.shape(HANDS.cup, hold(reload, 0.26, 0.4, 0.56, 0.62));
-    hand.shape(HANDS.pinch, hold(reload, 0.6, 0.67, 0.78, 0.84));
+    if (fromEmpty) {
+      // Empty reload: swap mag while slide is locked open, then thumb the stainless slide stop to chamber the top round.
+      // Foley: out at 0.05, in at 0.50, slide release at 0.80.
+      const away = inQuad(seg(reload, 0.05, 0.2)) * (1 - outCubic(seg(reload, 0.36, 0.51)));
+      mag.position.y -= away * 0.34;
+      mag.position.z += away * 0.09;
+      if (reload > 0.22 && reload < 0.34) mag.visible = false;
+      const seat = reload >= 0.505 ? thud(seg(reload, 0.505, 0.62)) : 0;
+      const click = hold(reload, 0.74, 0.79, 0.81, 0.86);
+      parts.slideStop!.position.y -= click * 0.003 * S;
+      const drop = reload >= 0.8 ? thud(seg(reload, 0.8, 0.92)) : 0;
+
+      const present = hold(reload, 0, 0.12, 0.88, 1);
+      a.gunR.z -= present * 0.44;
+      a.gunR.x += present * 0.16 + seat * 0.06 - drop * 0.05;
+      a.gunR.y += present * 0.1;
+      a.gunP.x -= present * 0.04;
+      a.gunP.y += present * 0.044 + seat * 0.01;
+      a.gunP.z += present * 0.05 + drop * 0.014;
+
+      hand.to('magHold', inOut(seg(reload, 0, 0.06)));
+      hand.to('pouchL', inOut(seg(reload, 0.12, 0.24)));
+      hand.to('magHold', inOut(seg(reload, 0.3, 0.44)));
+      hand.to('slideReleaseHold', inOut(seg(reload, 0.6, 0.74)));
+      hand.to('gripL', inOut(seg(reload, 0.84, 0.97)));
+      hand.shape(HANDS.cup, hold(reload, 0.26, 0.38, 0.55, 0.62));
+      hand.shape(HANDS.radio, hold(reload, 0.66, 0.74, 0.82, 0.88));
+    } else {
+      // Tactical reload (round already chambered): quick magazine swap only, slide stays closed.
+      // Foley: out at 0.06, in at 0.64.
+      const away = inQuad(seg(reload, 0.06, 0.24)) * (1 - outCubic(seg(reload, 0.44, 0.64)));
+      mag.position.y -= away * 0.34;
+      mag.position.z += away * 0.09;
+      if (reload > 0.26 && reload < 0.41) mag.visible = false;
+      const seat = reload >= 0.64 ? thud(seg(reload, 0.64, 0.78)) : 0;
+
+      const present = hold(reload, 0, 0.14, 0.8, 0.98);
+      a.gunR.z -= present * 0.42;
+      a.gunR.x += present * 0.15 + seat * 0.06;
+      a.gunR.y += present * 0.08;
+      a.gunP.x -= present * 0.036;
+      a.gunP.y += present * 0.04 + seat * 0.01;
+      a.gunP.z += present * 0.045;
+
+      hand.to('magHold', inOut(seg(reload, 0, 0.07)));
+      hand.to('pouchL', inOut(seg(reload, 0.14, 0.28)));
+      hand.to('magHold', inOut(seg(reload, 0.36, 0.52)));
+      hand.to('gripL', inOut(seg(reload, 0.72, 0.96)));
+      hand.shape(HANDS.cup, hold(reload, 0.32, 0.46, 0.68, 0.76));
+    }
   }
   animateRiotShield(a, 'ultramagShield');
 }

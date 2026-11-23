@@ -65,6 +65,7 @@ attribute float aSlot;
 uniform vec3 uFrom0;
 uniform vec3 uFrom1;
 uniform vec3 uEnd;
+uniform vec3 uEnd1;
 uniform vec3 uDot;
 uniform vec3 uStrength;
 uniform vec2 uShare;
@@ -96,7 +97,7 @@ void main() {
   }
   // A beam: a screen-facing strip from its emitter to the end, a pixel or so wide however far (as fx/layers/lines.ts).
   vec4 va = viewMatrix * vec4(aSlot < 0.5 ? uFrom0 : uFrom1, 1.0);
-  vec4 vb = viewMatrix * vec4(uEnd, 1.0);
+  vec4 vb = viewMatrix * vec4(aSlot < 0.5 ? uEnd : uEnd1, 1.0);
   const float nearZ = -0.05;
   if (vb.z > nearZ) vb = mix(vb, va, (nearZ - vb.z) / (va.z - vb.z));
   vec4 ca = projectionMatrix * va;
@@ -154,12 +155,17 @@ const _p = new THREE.Vector3();
 const _o = new THREE.Vector3();
 const _d = new THREE.Vector3();
 const _v = new THREE.Vector3();
+const _e = new THREE.Vector3();
+const _cd = new THREE.Vector3();
+const _dir = new THREE.Vector3();
+const _freeDot = new THREE.Vector3();
 
 function lamMaterial(overlay: boolean): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
     vertexShader: VERT, fragmentShader: FRAG,
     uniforms: {
-      uFrom0: { value: new THREE.Vector3() }, uFrom1: { value: new THREE.Vector3() }, uEnd: { value: new THREE.Vector3() },
+      uFrom0: { value: new THREE.Vector3() }, uFrom1: { value: new THREE.Vector3() },
+      uEnd: { value: new THREE.Vector3() }, uEnd1: { value: new THREE.Vector3() },
       uDot: { value: new THREE.Vector3() }, uStrength: { value: new THREE.Vector3() }, uShare: { value: new THREE.Vector2() },
       uRadius: { value: LAM.radius }, uRes: { value: new THREE.Vector2(1280, 720) }, uPixelWorld: { value: 0.002 },
       uColor: { value: new THREE.Vector3(...LAM.color) },
@@ -190,6 +196,8 @@ export class LamBeams {
   cast: LaserCast | null = null;
   /** 0 to 1, how far the gun is up at the eye: the dot moves from the world to over the gun. */
   aim = 0;
+  /** 0 = locked to crosshair; 1 = projects straight along each emitter's bore axis (used during reloads, draws, and off-axis anims). */
+  free = 0;
   /** Default laser reach, metres (40 m for pistol/shotgun LAMs; set to ROCKET_LAM_RANGE or pass `range` to `set()` for 400 m). */
   range: number = LAM.range;
   /** Where the shot's ray ends this frame, whether something is there, and the dot (a touch back toward the eye). */
@@ -277,20 +285,66 @@ export class LamBeams {
     const u = (this.mesh.material as THREE.ShaderMaterial).uniforms;
     if (renderer) pixelFloor(u, renderer, camera);
     const strength = vec3(u, 'uStrength');
+    const free = Math.min(1, Math.max(0, this.free));
+    const k = this.viewCamera ? Math.tan((camera.fov * Math.PI) / 360) / Math.tan((this.viewCamera.fov * Math.PI) / 360) : 1;
+    let dotHit = this.hit;
+    let dotPos = this.dotAt;
+    let dotStr = Math.max(this.strength[0]!, this.strength[1]!);
+    if (free <= 0.001) {
+      vec3(u, 'uEnd').copy(this.end);
+      vec3(u, 'uEnd1').copy(this.end);
+    }
     for (let slot = 0; slot < SLOTS; slot++) {
       const socket = this.sockets[slot];
       const on = socket && this.viewCamera ? this.strength[slot]! : 0;
-      strength.setComponent(slot, on * LAM.beam);
-      if (!on) continue;
+      if (!on) {
+        strength.setComponent(slot, 0);
+        continue;
+      }
       const from = vec3(u, slot === 0 ? 'uFrom0' : 'uFrom1');
       viewToWorld(_p.setFromMatrixPosition(socket!.matrixWorld), camera, this.viewCamera!, from);
       const slotReach = this.slotRange[slot] ?? reach;
-      (u.uShare!.value as THREE.Vector2).setComponent(slot, Math.min(1, from.distanceTo(this.end) / slotReach));
+      const endU = vec3(u, slot === 0 ? 'uEnd' : 'uEnd1');
+      if (free <= 0.001) {
+        strength.setComponent(slot, on * LAM.beam);
+        (u.uShare!.value as THREE.Vector2).setComponent(slot, Math.min(1, from.distanceTo(this.end) / slotReach));
+        continue;
+      }
+      // Project emitter's local -Z axis through the same diag(k, k, 1) FOV mapping as viewToWorld so the beam leaves
+      // the 3D housing straight along its bore with zero screen-space bend during reloads or off-axis gun motion.
+      _e.set(0, 0, -1).transformDirection(socket!.matrixWorld).transformDirection(this.viewCamera!.matrixWorldInverse);
+      const fwd = Math.min(1, Math.max(0, (-_e.z - 0.05) / 0.2));
+      const vis = 1 + (fwd - 1) * free;
+      strength.setComponent(slot, on * vis * LAM.beam);
+      _e.x *= k;
+      _e.y *= k;
+      _e.transformDirection(camera.matrixWorld);
+      _cd.copy(this.end).sub(from);
+      if (_cd.lengthSq() > 1e-6) _cd.normalize();
+      else _cd.copy(_d);
+      _dir.copy(_cd).lerp(_e, free);
+      if (_dir.lengthSq() > 1e-6) _dir.normalize();
+      else _dir.copy(_e);
+      if (this.cast) {
+        const slotHit = laserEnd(from, _dir, this.cast, _hit, endU, slotReach);
+        if (slot === 0) {
+          dotHit = slotHit && vis > 0.05;
+          if (dotHit) {
+            const pull = Math.max(0.02, Math.min(0.15, _hit.distance * 0.0004));
+            _freeDot.copy(endU).addScaledVector(_dir, -pull);
+            dotPos = _freeDot;
+            dotStr = on * vis;
+          }
+        }
+      } else {
+        endU.copy(from).addScaledVector(_dir, slotReach);
+        if (slot === 0) dotHit = false;
+      }
+      (u.uShare!.value as THREE.Vector2).setComponent(slot, Math.min(1, from.distanceTo(endU) / slotReach));
     }
-    vec3(u, 'uEnd').copy(this.end);
-    vec3(u, 'uDot').copy(this.dotAt);
+    vec3(u, 'uDot').copy(dotPos);
     u.uRadius!.value = LAM.radius;
-    strength.z = this.hit ? Math.max(this.strength[0]!, this.strength[1]!) * LAM.dot * (1 - this.aim) : 0;
+    strength.z = dotHit ? dotStr * LAM.dot * (1 - this.aim * (1 - free)) : 0;
   }
 
   /** The view pass, aimed: the dot on the pixel the world's falls on, in front of the view camera, the same size on screen. */
@@ -299,7 +353,8 @@ export class LamBeams {
     const strength = vec3(u, 'uStrength');
     strength.set(0, 0, 0);
     const camera = this.camera;
-    if (!camera || !this.hit || this.aim <= 0.01) return;
+    const free = Math.min(1, Math.max(0, this.free));
+    if (!camera || !this.hit || this.aim <= 0.01 || free >= 0.99) return;
     if (renderer) pixelFloor(u, renderer, viewCamera);
     _v.copy(this.dotAt).applyMatrix4(camera.matrixWorldInverse);
     const depth = -_v.z;
@@ -308,7 +363,7 @@ export class LamBeams {
     const s = LAM.overlayDepth / depth;
     vec3(u, 'uDot').set((_v.x * s) / k, (_v.y * s) / k, -LAM.overlayDepth).applyMatrix4(viewCamera.matrixWorld);
     u.uRadius!.value = (LAM.radius * s) / k;
-    strength.z = Math.max(this.strength[0]!, this.strength[1]!) * LAM.dot * this.aim;
+    strength.z = Math.max(this.strength[0]!, this.strength[1]!) * LAM.dot * this.aim * (1 - free);
   }
 
   /** Whether the dot shows this frame: something in range on the centre ray and a beam on. For tests. */

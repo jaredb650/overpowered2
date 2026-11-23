@@ -85,8 +85,8 @@ export type ModId = 'awlAcog' | 'awlCan' | 'awlAp' | 'awlHp' | 'suppressor' | 'r
   | 'gimletLong' | 'harrowShort' | 'harrowBrake' | 'harrowMag' | 'flailHeavy' | 'flailStock'
   // Flared magwells (weapons/mods.ts MAGWELL_GUNS): 15% faster reload.
   | 'harrowMagwell' | 'gimletMagwell' | 'ultramagMagwell' | 'rivetMagwell' | 'bodkinMagwell'
-  // Shotguns wishlist: pump sawed-off & greased bolt, Thresher & Billhook dragon's breath, Deuce long barrel.
-  | 'shotgunSawedOff' | 'shotgunBolt' | 'shotgunCan' | 'thresherDragon' | 'billhookDragon' | 'deuceLong'
+  // Shotguns wishlist: pump sawed-off & greased bolt, Thresher & Billhook dragon's breath, Deuce long barrel, shotgun reflex sights.
+  | 'shotgunSawedOff' | 'shotgunBolt' | 'shotgunCan' | 'shotgunDot' | 'thresherDragon' | 'thresherDot' | 'billhookDragon' | 'deuceLong' | 'deuceDot'
   // Launchers & key 4 wishlist: Rocket tube & WP, MGL long barrel & trigger, Howitzer cluster, Autocannon barrel.
   | 'rocketTube' | 'rocketWp' | 'mglLong' | 'mglTrigger' | 'howitzerCluster' | 'autocannonBarrel'
   // Pistols wishlist: Judge extended barrel & compensator; Rivet comp, suppressor, reflex, laser; Riot shield (SHIELD_GUNS).
@@ -94,8 +94,8 @@ export type ModId = 'awlAcog' | 'awlCan' | 'awlAp' | 'awlHp' | 'suppressor' | 'r
   | 'rivetShield' | 'ultramagShield' | 'judgeShield' | 'autorafficaShield'
   // Billhook mods: reflex, laser, extended tube, slugs (light, flechette, dragon above).
   | 'billhookDot' | 'billhookLam' | 'billhookTube' | 'billhookSlug'
-  // Bodkin mods: 4x optic, extended mag, 5-round burst, tungsten darts (light, magwell above).
-  | 'bodkinAcog' | 'bodkinMag' | 'bodkinBurst5' | 'bodkinTungsten'
+  // Bodkin mods: 4x optic, extended mag, 5-round burst, full-auto conversion, tungsten darts (light, magwell above).
+  | 'bodkinAcog' | 'bodkinMag' | 'bodkinBurst5' | 'bodkinAuto' | 'bodkinTungsten'
   // Tactical rail laser sights for every rifle and shotgun (weapons/mods.ts LAM_GUNS; billhookLam above).
   | 'gimletLam' | 'harrowLam' | 'bodkinLam' | 'flailLam' | 'awlLam' | 'sabotLam' | 'shotgunLam' | 'thresherLam' | 'deuceLam';
 
@@ -329,16 +329,16 @@ export interface PaintView {
  */
 export type SwordMove = 'light1' | 'light2' | 'light3' | 'windup' | 'block' | 'heavy' | 'stab' | 'cleave' | 'spin' | 'wave' | 'flurry';
 
-/** Optional shell-by-shell reload timing metadata for tubular-magazine shotguns. */
+/** Reload metadata passed to the viewmodel (empty vs tactical reload, plus tubular-magazine shell timings). */
 export interface ReloadMeta {
-  /** Exact number of shells being inserted during this reload. */
-  readonly shells: number;
-  /** True when reloading from an empty magazine (ends with a pump/bolt rack). */
+  /** True when reloading from an empty magazine (ends with slide release / bolt drop / rack). */
   readonly fromEmpty: boolean;
+  /** Exact number of shells being inserted during a tubular-magazine shell-by-shell reload. */
+  readonly shells?: number;
   /** Reload fraction (0..1) where the first shell begins fetching. */
-  readonly startFrac: number;
+  readonly startFrac?: number;
   /** Reload fraction (0..1) allocated to each shell insertion. */
-  readonly stepFrac: number;
+  readonly stepFrac?: number;
 }
 
 /** First-person arms and weapons. WeaponSystem drives it; it never changes game state. */
@@ -353,8 +353,8 @@ export interface ViewmodelRig extends GameSystem {
   cycle?(): void;
   /** Plays the reload animation over `seconds`. */
   reload(seconds: number, meta?: ReloadMeta): void;
-  /** Cancels any active reload animation immediately (e.g. interrupting a shell-by-shell shotgun reload to fire). */
-  cancelReload?(): void;
+  /** Cancels any active reload animation immediately (or smoothly over `fadeSeconds` on a shotgun interrupt). */
+  cancelReload?(fadeSeconds?: number): void;
   swing(move: SwordMove, seconds: number): void;
   /** 0..1 charge or spin level, for the Lance and Buzzsaw. */
   setCharge(amount: number): void;

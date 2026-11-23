@@ -17,6 +17,7 @@ import { HANDS } from '../poses';
 import { drawCount, fill, pullTrigger } from './common';
 import { TORCH, weaponLight } from './light';
 import { LASER_GLOW, lamSocket, weaponLam } from './laser';
+import { OPTIC_GLOWS, openReflex } from './optics';
 
 const BORE = 0.05;
 const FRONT = -0.2;
@@ -86,12 +87,13 @@ function furniture(m: Mesher): void {
   // Carry handle with the rear aperture on it and a front post on its own tower.
   m.use(F.polymer);
   m.side(poly([[0.11, 0.086], [0.1, 0.124, 0.01], [-0.12, 0.124, 0.01], [-0.13, 0.086], [-0.1, 0.086], [-0.09, 0.108, 0.006], [0.08, 0.108, 0.006], [0.09, 0.086]], 0.002), 0.018, { bevel: 0.002 });
-  m.use(F.steelDark);
-  m.at([0, 0.13, 0.085], null, () => {
+  m.part('rearSight', [0, 0.13, 0.085], () => {
+    m.use(F.steelDark);
     m.box(0.02, 0.012, 0.014, 0.0012);
     m.at([0, 0.008, 0], null, () => m.pipe(0.0064, 0.003, 0.004, 16));
   });
   // Front post on a tower clamped to the barrel, at the same height as the rear aperture.
+  m.use(F.steelDark);
   m.at([0, BORE + 0.016, -0.47], null, () => m.box(0.028, 0.014, 0.024, 0.002, 0.004));
   m.at([0, 0.106, -0.47], null, () => {
     m.side(poly([[0.012, -0.036], [0.007, 0.022, 0.002], [-0.007, 0.022, 0.002], [-0.012, -0.036]], 0.001), 0.008, { bevel: 0.0008 });
@@ -169,13 +171,23 @@ function drum(m: Mesher): void {
   });
 }
 
-function buildThresher(kit: Kit): Model {
+function buildThresher(kit: Kit): { model: Model; dotLook: NonNullable<ViewDef['mods']>['thresherDot'] } {
   const m = kit.mesher();
   m.bevel = 0.0016;
   receiver(m);
   furniture(m);
   barrel(m);
   drum(m);
+  // Low-profile open reflex sight (`thresherDot`) on a saddle mount atop the carry handle.
+  m.part('rmrBase', [0, 0.124, -0.02], () => {
+    m.use(F.anodized);
+    m.at([0, 0.0022, 0], null, () => m.box(0.024, 0.0052, 0.044, 0.001));
+    m.mirror(() => screwX(m, 0.0126, 0.0022, 0.004, 1, 0.002, F.steelDark));
+  });
+  const dotLook = openReflex(m, [0, 0.1282, -0.02], {
+    name: 'rmr', scale: 1.18, relief: 0.25, finish: F.anodized, accent: F.steelDark,
+  });
+
   m.part('bolt', [0.0228, 0.06, -0.06], () => {
     m.use(F.steel);
     m.box(0.004, 0.018, 0.074, 0.0008);
@@ -193,7 +205,10 @@ function buildThresher(kit: Kit): Model {
   // The shop's weapon light and laser sight (weapons/mods.ts), hidden until fitted. Opposite flanks at the handguard's front.
   weaponLight(m, [-0.037, 0.035, -0.3395], -Math.PI / 2);
   weaponLam(m, [0.037, 0.035, -0.3395], Math.PI / 2);
-  const model = new Model(m, kit.mats, { glows: { sight: [0xff6a2a, 6], torch: TORCH, laser: LASER_GLOW }, screens: { ammo: [240, 28] } });
+  const model = new Model(m, kit.mats, {
+    glows: { sight: [0xff6a2a, 6], dot: OPTIC_GLOWS.dot, torch: TORCH, laser: LASER_GLOW },
+    screens: { ammo: [240, 28] },
+  });
   lamSocket(model);
   model.socket('muzzle', [0, BORE, MUZZLE - 0.004]);
   model.socket('eject', [0.026, 0.062, -0.06]);
@@ -202,7 +217,7 @@ function buildThresher(kit: Kit): Model {
   // The palm on the drum's left rim, fingers forward round it.
   model.grasp('drumHold', [-DRUM_R - 0.006, DRUM_Y + 0.01, 0.0], [1, 0.15, 0], [0, -0.3, -0.95], 'drum');
   model.hand('chargeHold', [-0.022, 0.0, 0.004], [-0.5, -0.2, -0.8], [0.8, -0.3, -0.5], 'charge');
-  return model;
+  return { model, dotLook: { ...dotLook, also: 'rmrBase' } };
 }
 
 function clip(a: Anim): void {
@@ -214,6 +229,7 @@ function clip(a: Anim): void {
   P.bolt!.position.z += run;
   pullTrigger(a, 0.1, 0.3);
   a.glow('sight', 1);
+  a.glow('dot', 1);
   // The muzzle hops and twists a little on each shell, on top of the spring.
   if (a.sinceFire < 0.14) {
     const k = bump(a.sinceFire, 0, 0.14) * a.strength;
@@ -232,9 +248,9 @@ function clip(a: Anim): void {
 
   const p = a.reload;
   if (p < 0) return;
-  // Foley: drum_out at 0.04, drum_in at 0.52, bolt at 0.84.
-  const out = seg(p, 0.06, 0.22);
-  const inn = seg(p, 0.36, 0.52);
+  const empty = a.reloadFromEmpty || a.mag <= 0;
+  const out = empty ? seg(p, 0.06, 0.22) : seg(p, 0.06, 0.28);
+  const inn = empty ? seg(p, 0.36, 0.52) : seg(p, 0.44, 0.64);
   const d = P.drum!;
   const away = inQuad(out) * (1 - outCubic(inn));
   // It tips forward off the catch, then drops; the new one comes up the same way.
@@ -242,15 +258,15 @@ function clip(a: Anim): void {
   d.position.y -= away * 0.4;
   d.position.z += away * 0.04;
   d.position.x -= away * 0.06;
-  if (p > 0.24 && p < 0.34) d.visible = false;
+  if (empty ? p > 0.24 && p < 0.34 : p > 0.3 && p < 0.42) d.visible = false;
   P.latch!.rotation.x -= bump(p, 0.02, 0.1) * 0.5;
-  const seat = p >= 0.52 ? thud(seg(p, 0.52, 0.64)) : 0;
-  const rack = bump(p, 0.74, 0.9);
+  const seat = empty ? (p >= 0.52 ? thud(seg(p, 0.52, 0.64)) : 0) : (p >= 0.64 ? thud(seg(p, 0.64, 0.78)) : 0);
+  const rack = empty ? bump(p, 0.74, 0.9) : 0;
   P.charge!.position.z += rack * BOLT_TRAVEL;
   P.bolt!.position.z += rack * BOLT_TRAVEL;
 
   // Rolled onto its right side so the drum is shown to the shooter.
-  const present = hold(p, 0.0, 0.12, 0.88, 1);
+  const present = hold(p, 0.0, 0.12, empty ? 0.88 : 0.78, 1);
   a.gunR.z -= present * 0.5 + seat * 0.05;
   a.gunR.x += present * 0.2 + seat * 0.06 - rack * 0.06;
   a.gunR.y += present * 0.08;
@@ -260,23 +276,34 @@ function clip(a: Anim): void {
 
   const h = a.left;
   h.fingerRate = 36;
-  h.to('drumHold', inOut(seg(p, 0.0, 0.06)));
-  h.to('pouchL', inOut(seg(p, 0.2, 0.3)));
-  h.to('drumHold', inOut(seg(p, 0.34, 0.44)));
-  h.to('chargeHold', inOut(seg(p, 0.66, 0.74)));
-  h.to('gripL', inOut(seg(p, 0.92, 1)));
-  h.shape(HANDS.cup, hold(p, 0.0, 0.06, 0.56, 0.62));
-  h.shape(HANDS.pinch, hold(p, 0.68, 0.74, 0.9, 0.94));
+  if (empty) {
+    h.to('drumHold', inOut(seg(p, 0.0, 0.06)));
+    h.to('pouchL', inOut(seg(p, 0.2, 0.3)));
+    h.to('drumHold', inOut(seg(p, 0.34, 0.44)));
+    h.to('chargeHold', inOut(seg(p, 0.66, 0.74)));
+    h.to('gripL', inOut(seg(p, 0.92, 1)));
+    h.shape(HANDS.cup, hold(p, 0.0, 0.06, 0.56, 0.62));
+    h.shape(HANDS.pinch, hold(p, 0.68, 0.74, 0.9, 0.94));
+  } else {
+    h.to('drumHold', inOut(seg(p, 0.0, 0.08)));
+    h.to('pouchL', inOut(seg(p, 0.26, 0.38)));
+    h.to('drumHold', inOut(seg(p, 0.42, 0.54)));
+    h.to('gripL', inOut(seg(p, 0.74, 0.96)));
+    h.shape(HANDS.cup, hold(p, 0.0, 0.08, 0.7, 0.78));
+  }
 }
 
 export function thresherDef(kit: Kit): ViewDef {
+  const { model, dotLook } = buildThresher(kit);
   return {
     mods: {
+      thresherDot: dotLook,
       thresherLight: { part: 'light' },
       thresherLam: { part: 'lam', laser: 'lam' },
     },
     id: 'thresher',
-    model: buildThresher(kit),
+    model,
+    irons: 'rearSight',
     pos: [0.15, -0.14, -0.42],
     rot: [0.026, 0.08, 0],
     // ADS: the front post's tip through the carry handle's aperture.

@@ -138,4 +138,37 @@ describe('laser beam', () => {
     const b = ndc(p, view);
     expect(Math.hypot(a.x - b.x, a.y - b.y)).toBeLessThan(1e-6);
   });
+
+  it('projects straight along each emitter bore when free = 1 instead of bending to the crosshair', () => {
+    const [camera, view] = cameras();
+    const beams = new LamBeams();
+    beams.viewCamera = view;
+    beams.cast = wall(12);
+    // Emitter tilted 40 deg to the right (as during a reload cant), positioned in front of the view camera.
+    const emitter = new THREE.Object3D();
+    emitter.position.copy(eye).addScaledVector(look, 0.45).add(new THREE.Vector3(0.12, -0.1, 0));
+    emitter.quaternion.copy(view.quaternion).multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), -0.7));
+    emitter.updateMatrixWorld();
+
+    beams.set(0, emitter, 1);
+    beams.aim = 1;
+    beams.free = 1;
+    beams.draw(null, camera);
+
+    const from0 = uniform(beams.mesh, 'uFrom0') as THREE.Vector3;
+    const end0 = uniform(beams.mesh, 'uEnd') as THREE.Vector3;
+    // Beam end diverges far from the crosshair impact (`beams.end`) because it follows the emitter's canted bore.
+    expect(end0.distanceTo(beams.end)).toBeGreaterThan(2.0);
+    // Projected into view/camera screen space, the beam leaves the emitter along the emitter's -Z axis.
+    const tipInView = emitter.position.clone().add(new THREE.Vector3(0, 0, -1).applyQuaternion(emitter.quaternion).multiplyScalar(0.3));
+    const tipWorld = viewToWorld(tipInView, camera, view, new THREE.Vector3());
+    const expectedDir = tipWorld.sub(from0).normalize();
+    const actualDir = end0.clone().sub(from0).normalize();
+    expect(actualDir.dot(expectedDir)).toBeGreaterThan(0.95);
+
+    // Overlay crosshair dot is hidden while free = 1 so it does not float detached over the gun.
+    beams.drawOverlay(null, view);
+    expect((uniform(beams.overlay, 'uStrength') as THREE.Vector3).z).toBe(0);
+  });
 });
+

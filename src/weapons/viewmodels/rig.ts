@@ -276,6 +276,8 @@ export class Rig implements ViewmodelRig {
   private readonly torch = new THREE.SpotLight(TORCH_BEAM.color, 0, TORCH_BEAM.range, TORCH_BEAM.cone, TORCH_BEAM.soft, TORCH_BEAM.decay);
   /** A fitted laser module's beams and dot (lam.ts), and the one ray a frame it costs: down the camera's centre, walls then men. */
   private readonly lam = new LamBeams();
+  /** 0 = crosshair-locked laser; 1 = bore-following laser during reloads, draws, holsters, and off-axis gun animations. */
+  private lamFree = 0;
   private readonly lamCast: LaserCast = (from, dir, max, out) => {
     const wall = this.ctx.physics.raycastInto(from, dir, max, CG.World, out) === true;
     const man = this.ctx.enemies?.raycast(from, dir, wall ? out.distance : max);
@@ -413,6 +415,8 @@ export class Rig implements ViewmodelRig {
     this.akimbo = false;
     this.akimboW = 0;
     this.leftAway = 0;
+    this.lamFree = 0;
+    this.lam.free = 0;
     this.perkHeat = 0;
     this.perkHeatOn = false;
     this.rage = 0;
@@ -532,7 +536,15 @@ export class Rig implements ViewmodelRig {
     this.reloadLeft = this.a.reloadSeconds;
   }
 
-  cancelReload(): void {
+  cancelReload(fadeSeconds?: number): void {
+    if (fadeSeconds && fadeSeconds > 0 && this.a.reload >= 0 && this.a.reloadShells > 0) {
+      const tailStart = clamp(this.a.reloadStart + this.a.reloadShells * this.a.reloadStep, 0, 0.95);
+      const span = Math.max(0.05, 1 - tailStart);
+      this.a.reloadSeconds = fadeSeconds / span;
+      this.reloadLeft = fadeSeconds;
+      this.a.reload = tailStart;
+      return;
+    }
     this.a.reload = -1;
     this.a.reloadShells = 0;
     this.a.reloadFromEmpty = false;
@@ -841,6 +853,12 @@ export class Rig implements ViewmodelRig {
     this.updateLam(def, 0, a.draw);
     this.updateLam(dl && akimboOn ? dl : null, 1, this.akimboW);
     this.lam.aim = this.aimW;
+    const restX = def.rot[0] * (1 - this.aimW);
+    const restY = def.rot[1] * (1 - this.aimW);
+    const offAxis = Math.hypot(this.gunRot.x - restX, this.gunRot.y - restY) > 0.16;
+    const freeTarget = a.reload >= 0 || a.draw < 0.98 || this.holsterW > 0.01 || a.swing !== null || this.akDrop > 0.01 || offAxis ? 1 : 0;
+    this.lamFree = damp(this.lamFree, freeTarget, freeTarget > this.lamFree ? 28 : 16, dt);
+    this.lam.free = this.lamFree;
   }
 
   /** Slot `slot`'s laser: its fitted module's emitter while its gun shows, at `strength` (400 m for the Rocket's guided laser). */

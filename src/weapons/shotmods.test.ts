@@ -13,7 +13,7 @@ import { makeRange, type Range } from './testkit';
 
 const NEW: readonly ModId[] = ['deuceQuad', 'deuceLoader', 'shotgunChoke', 'judgeHammer', 'judgeGrip'];
 const D = WEAPONS.deuce;
-const shellsIn = (def: { reloadFoley: readonly (readonly [number, string])[] }) => def.reloadFoley.filter(c => c[1] === 'reload_shell_in').length;
+const shellsIn = (def: { reloadFoley: readonly (readonly [number, string])[] }) => def.reloadFoley.filter(c => c[1] === 'deuce_shell_in').length;
 
 let r: Range;
 beforeEach(async () => {

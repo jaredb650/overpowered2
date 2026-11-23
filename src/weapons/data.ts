@@ -228,12 +228,19 @@ export interface WeaponDef {
   /** A spun gun's barrage and drive loops are heard at this pitch, under what its rate sets: the Trommel's 12 mm rechamber. */
   loopPitch?: number;
   reloadFoley: readonly ReloadCue[];
+  /** Faster magazine-only reload when at least one round remains in the chamber (skips bolt/slide operation). */
+  tacticalReload?: {
+    readonly scale: number;
+    readonly foley: readonly ReloadCue[];
+  };
   /** Shell-by-shell tubular magazine reload timings (shotgun / billhook): inserts only the missing shells. */
   shellReload?: {
     readonly start: number;
     readonly perShell: number;
     readonly end: number;
     readonly emptyRack: number;
+    /** Minimum recovery delay (seconds) when fire interrupts a shell-by-shell reload mid-load. */
+    readonly interrupt?: number;
     readonly shellSound?: string;
     readonly rackCues: readonly ReloadCue[];
   };
@@ -264,9 +271,9 @@ export const BREAK = { lever: 0.075, open: 0.39, insert: 0.24, close: 0.63 } as 
 /** The reload of a break-open gun loaded in `inserts` goes: 1.5 s for the plain Deuce's two shells. */
 export function breakLoad(inserts: number): Pick<WeaponDef, 'reloadTime' | 'reloadFoley'> {
   const t = BREAK.open + BREAK.insert * inserts + BREAK.close;
-  const cues: ReloadCue[] = [[BREAK.lever / t, 'revolver_open']];
-  for (let i = 1; i <= inserts; i++) cues.push([(BREAK.open + BREAK.insert * i) / t, 'reload_shell_in']);
-  cues.push([(t - 0.3) / t, 'revolver_close']);
+  const cues: ReloadCue[] = [[BREAK.lever / t, 'deuce_open']];
+  for (let i = 1; i <= inserts; i++) cues.push([(BREAK.open + BREAK.insert * i) / t, 'deuce_shell_in']);
+  cues.push([(t - 0.3) / t, 'deuce_close']);
   return { reloadTime: t, reloadFoley: cues };
 }
 
@@ -309,6 +316,7 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     muzzle: 'smg', tracer: 'bullet', casing: 'pistol',
     sounds: [{ id: 'smg_shot', pitchJitter: 0.03 }],
     reloadFoley: [[0.02, 'smg_reload']],
+    tacticalReload: { scale: 0.78, foley: [[0.06, 'reload_mag_out'], [0.62, 'reload_mag_in']] },
     recoil: 1, kick: 0.0016, shake: 0.004,
     ads: { zoom: 0.35, time: 0.16 },
   },
@@ -324,7 +332,8 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     falloff: { from: 60, to: 140, floor: 0.75 },
     muzzle: 'rifle', tracer: 'carbine', casing: 'rifle',
     sounds: [{ id: 'gimlet_shot', pitchJitter: 0.03 }],
-    reloadFoley: [[0.05, 'gimlet_mag_out'], [0.5, 'gimlet_mag_in'], [0.74, 'gimlet_rack_bolt']],
+    reloadFoley: [[0.05, 'gimlet_mag_out'], [0.5, 'gimlet_mag_in'], [0.76, 'gimlet_bolt_release']],
+    tacticalReload: { scale: 0.78, foley: [[0.06, 'gimlet_mag_out'], [0.62, 'gimlet_mag_in']] },
     recoil: 0.9, kick: 0.0034, shake: 0.007, fovPunch: 0.3, impactScale: 1.1,
     // A climb the SMG does not have: a held magazine walks up about 4 degrees, a burst a third of one.
     climb: { pitch: 0.0022, yaw: 0.0012 },
@@ -341,6 +350,7 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     muzzle: 'carbine', tracer: 'carbine', casing: 'rifle',
     sounds: [{ id: 'harrow_shot', pitchJitter: 0.03 }],
     reloadFoley: [[0.05, 'harrow_mag_out'], [0.5, 'harrow_mag_in'], [0.75, 'harrow_rack_bolt']],
+    tacticalReload: { scale: 0.78, foley: [[0.06, 'harrow_mag_out'], [0.62, 'harrow_mag_in']] },
     recoil: 1, kick: 0.0058, shake: 0.01, fovPunch: 0.5, impactScale: 1.25,
     ads: { zoom: 0.4, time: 0.2 },
     // Hold R: full auto or one round a pull.
@@ -355,6 +365,7 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     penetration: 1.6, bodyCost: 0.35, armorPiercing: true, load: 'flechette',
     muzzle: 'carbine', tracer: 'flechette', casing: 'rifle',
     sounds: [{ id: 'bodkin_shot', pitchJitter: 0.03 }],
+    tacticalReload: { scale: 0.78, foley: [[0.06, 'reload_mag_out'], [0.62, 'reload_mag_in']] },
     recoil: 0.55, kick: 0.0022, shake: 0.0045, fovPunch: 0.15, impactScale: 0.5,
     ads: { zoom: 0.45, time: 0.18 },
     select: { hold: 0.3, modes: ['burst', 'semi'], burst: { rounds: 3, recover: 0.25 } },
@@ -387,7 +398,7 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     cycleFoley: [[0.26, 'pump_rack_back'], [0.45, 'pump_rack_forward']],
     reloadFoley: [[0.1, 'shotgun_shell_in'], [0.32, 'shotgun_shell_in'], [0.54, 'shotgun_shell_in'], [0.82, 'pump_rack_back'], [0.94, 'pump_rack_forward']],
     shellReload: {
-      start: 0.16, perShell: 0.28, end: 0.16, emptyRack: 0.36,
+      start: 0.16, perShell: 0.28, end: 0.16, emptyRack: 0.36, interrupt: 0.26,
       shellSound: 'shotgun_shell_in',
       rackCues: [[0.12, 'pump_rack_back'], [0.64, 'pump_rack_forward']],
     },
@@ -403,7 +414,9 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     interval: 0.2, damage: 22, pellets: 4, spread: 0.056, severMult: 2.4, force: 18,
     muzzle: 'shotgun', tracer: 'bullet', casing: 'shotgun',
     sounds: [{ id: 'auto_shotgun_shot', pitchJitter: 0.04 }],
-    reloadFoley: [[0.04, 'drum_out'], [0.52, 'drum_in'], [0.84, 'reload_bolt']], drawSound: 'weapon_draw_heavy',
+    reloadFoley: [[0.04, 'drum_out'], [0.52, 'drum_in'], [0.84, 'reload_bolt']],
+    tacticalReload: { scale: 0.8, foley: [[0.05, 'drum_out'], [0.64, 'drum_in']] },
+    drawSound: 'weapon_draw_heavy',
     recoil: 0.85, kick: 0.011, shake: 0.016, fovPunch: 1.1,
     climb: { pitch: 0.011, yaw: 0.0035 },
     ads: { zoom: 0.35, time: 0.25 },
@@ -432,12 +445,12 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     sounds: [{ id: 'billhook_shot', pitchJitter: 0.03 }],
     reloadFoley: [
       [0.08, 'shotgun_shell_in'], [0.24, 'shotgun_shell_in'], [0.4, 'shotgun_shell_in'],
-      [0.56, 'shotgun_shell_in'], [0.72, 'shotgun_shell_in'], [0.88, 'reload_bolt'],
+      [0.56, 'shotgun_shell_in'], [0.72, 'shotgun_shell_in'], [0.88, 'billhook_bolt_release'],
     ],
     shellReload: {
-      start: 0.14, perShell: 0.22, end: 0.14, emptyRack: 0.3,
+      start: 0.14, perShell: 0.22, end: 0.14, emptyRack: 0.3, interrupt: 0.24,
       shellSound: 'shotgun_shell_in',
-      rackCues: [[0.45, 'reload_bolt']],
+      rackCues: [[0.45, 'billhook_bolt_release']],
     },
     recoil: 0.95, kick: 0.013, shake: 0.019, fovPunch: 1.4,
     ads: { zoom: 0.34, time: 0.2 },
@@ -515,6 +528,7 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     penetration: 5, bodyCost: 0.12, armorPiercing: true,
     muzzle: 'sabot', tracer: 'sabot', casing: 'cannon',
     sounds: [{ id: 'sabot_shot', pitchJitter: 0.02 }],
+    tacticalReload: { scale: 0.78, foley: [[0.06, 'reload_mag_out'], [0.64, 'reload_mag_in']] },
     drawSound: 'weapon_draw_heavy', scope: true,
     recoil: 1.1, kick: 0.034, shake: 0.034, fovPunch: 3.4, killStop: HEAVY_KILL_STOP, impactScale: 2.2,
   },
@@ -530,6 +544,7 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     cycleTime: 0.65, cycleEject: 1,
     cycleFoley: [[0.068, 'awl_bolt_open'], [0.205, ''], [0.355, 'awl_bolt_close']],
     reloadFoley: [[0.06, 'awl_mag_out'], [0.5, 'awl_mag_in'], [0.66, 'awl_bolt_open'], [0.84, 'awl_bolt_close']],
+    tacticalReload: { scale: 0.72, foley: [[0.08, 'awl_mag_out'], [0.65, 'awl_mag_in']] },
     recoil: 1, kick: 0.014, shake: 0.014, fovPunch: 1.1, impactScale: 1.3,
   },
   // The upgrade on key 4: a shoulder-fired 20 mm-class cannon fed by a clip of three shells from the top. Not owned with
@@ -608,7 +623,8 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     falloff: { from: 25, to: 55, floor: 0.5 },
     muzzle: 'pistol', tracer: 'pistol', casing: 'pistol',
     sounds: [{ id: 'pistol_shot', pitchJitter: 0.04 }],
-    reloadFoley: [[0.05, 'reload_mag_out'], [0.5, 'reload_mag_in'], [0.82, 'reload_bolt']],
+    reloadFoley: [[0.05, 'reload_mag_out'], [0.5, 'reload_mag_in'], [0.8, 'reload_bolt']],
+    tacticalReload: { scale: 0.78, foley: [[0.06, 'reload_mag_out'], [0.64, 'reload_mag_in']] },
     recoil: 1, kick: 0.0062, shake: 0.006, fovPunch: 0.3,
     // A plain pistol: right click aims. Its three-round burst went to the Autoraffica (2026-11-15).
     ads: { zoom: 0.34, time: 0.15 },
@@ -622,6 +638,8 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     killStop: HEAVY_KILL_STOP, impactScale: 1.8,
     muzzle: 'revolver', tracer: 'heavy', casing: 'pistol',
     sounds: [{ id: 'ultramag_shot', pitchJitter: 0.02 }],
+    reloadFoley: [[0.05, 'reload_mag_out'], [0.5, 'reload_mag_in'], [0.8, 'reload_bolt']],
+    tacticalReload: { scale: 0.78, foley: [[0.06, 'reload_mag_out'], [0.64, 'reload_mag_in']] },
     recoil: 1.2, kick: 0.04, shake: 0.036, fovPunch: 2.8,
     ads: { zoom: 0.38, time: 0.2 },
   },
@@ -634,7 +652,8 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     falloff: { from: 30, to: 65, floor: 0.5 },
     muzzle: 'suppressed', tracer: 'pistol', casing: 'pistol',
     sounds: [{ id: 'autoraffica_shot', pitchJitter: 0.03 }],
-    reloadFoley: [[0.05, 'reload_mag_out'], [0.5, 'reload_mag_in'], [0.84, 'reload_bolt']],
+    reloadFoley: [[0.05, 'reload_mag_out'], [0.5, 'reload_mag_in'], [0.8, 'reload_bolt']],
+    tacticalReload: { scale: 0.78, foley: [[0.06, 'reload_mag_out'], [0.64, 'reload_mag_in']] },
     recoil: 0.7, kick: 0.0045, shake: 0.004, fovPunch: 0.2,
     // A burst walks up about a third of a degree, for the player to pull down; a locked burst goes to the head regardless.
     climb: { pitch: 0.002, yaw: 0.0008 },

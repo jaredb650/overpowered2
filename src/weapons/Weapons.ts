@@ -115,6 +115,10 @@ export class Weapons implements WeaponSystem, Guard {
   private reloadFoley: readonly ReloadCue[] = [];
   /** True while running a shell-by-shell tube reload that credits one shell per shell-insert cue. */
   private reloadPerShell = false;
+  /** True when the current reload began from an empty magazine/chamber. */
+  private reloadFromEmpty = false;
+  /** True while winding down an interrupted shell-by-shell reload before firing. */
+  private reloadInterrupting = false;
   private reloadShellSound = 'reload_shell_in';
   private reloadShellsLeft = 0;
   /** Seconds since the last shot of a hand-cycled gun, and its next `cycleFoley` cue. Negative when nothing is due. */
@@ -496,7 +500,9 @@ export class Weapons implements WeaponSystem, Guard {
 
   /** A gun's selector: its first mode until hold R steps it on; full auto with a launcher fitted, whose hold R raises it. */
   private selectOf(def: WeaponDef): FireSelect {
-    return def.select && !def.launcher ? this.selector.get(def.id) ?? def.select.modes[0]! : 'auto';
+    if (!def.select || def.launcher) return 'auto';
+    const saved = this.selector.get(def.id);
+    return saved !== undefined && def.select.modes.includes(saved) ? saved : def.select.modes[0]!;
   }
 
   /** Electronic RPM selector index for a `rateSelect` gun (Metal Storm), defaulting to 0 (lowest RPM). */
@@ -597,8 +603,11 @@ export class Weapons implements WeaponSystem, Guard {
       a.maxReserve = nextDef.maxReserve;
       if (a.reserve > a.maxReserve) a.reserve = a.maxReserve;
     }
-    // Fitting or taking off the launcher puts the rifle back on full auto.
-    if (MODS[id].patch.launcher) this.selector.delete(weapon);
+    // Fitting or taking off the launcher or a trigger mod that changes fire modes resets stale selector state.
+    const savedSelect = this.selector.get(weapon);
+    if (MODS[id].patch.launcher || (savedSelect !== undefined && !nextDef.select?.modes.includes(savedSelect))) {
+      this.selector.delete(weapon);
+    }
     if (!nextDef.altAmmo) this.altLoaded.delete(weapon);
     if (weapon === this.current) this.clearScope(false);
     if (!this.slots[this.current].def.launcher) this.glUp = false;
@@ -1169,9 +1178,11 @@ export class Weapons implements WeaponSystem, Guard {
     this.reloadCue = 0;
     this.autoReload = -1;
     const sr = s.def.shellReload;
+    const fromEmpty = a.mag === 0;
+    this.reloadFromEmpty = fromEmpty;
+    this.reloadInterrupting = false;
     if (sr) {
       const shells = Math.min(a.magSize - a.mag, a.reserve);
-      const fromEmpty = a.mag === 0;
       const tail = fromEmpty ? sr.emptyRack : sr.end;
       const raw = sr.start + shells * sr.perShell + tail;
       const startFrac = sr.start / raw;
@@ -1192,12 +1203,13 @@ export class Weapons implements WeaponSystem, Guard {
       this.reloadShellsLeft = shells;
       this.ctx.viewmodel.reload(this.reloadTotal, { shells, fromEmpty, startFrac, stepFrac });
     } else {
-      this.reloadTotal = this.reloadLeft = s.def.reloadTime / boost;
-      this.reloadFoley = s.def.reloadFoley;
+      const tac = !fromEmpty ? s.def.tacticalReload : undefined;
+      this.reloadTotal = this.reloadLeft = (tac ? s.def.reloadTime * tac.scale : s.def.reloadTime) / boost;
+      this.reloadFoley = tac ? tac.foley : s.def.reloadFoley;
       this.reloadPerShell = false;
       this.reloadShellSound = 'reload_shell_in';
       this.reloadShellsLeft = 0;
-      this.ctx.viewmodel.reload(this.reloadTotal);
+      this.ctx.viewmodel.reload(this.reloadTotal, { fromEmpty });
     }
     this.ctx.events.emit('weapon:reload', { weapon: this.current, phase: 'start' });
     return true;
@@ -1248,8 +1260,8 @@ export class Weapons implements WeaponSystem, Guard {
         this.endReload(true);
         return;
       }
-      // If the player interrupts a shell-by-shell reload with fire on this frame, let updateGun cancel and shoot cleanly.
-      if (this.reloadPerShell && input.pressed('fire') && this.held.ammo.mag > 0) return;
+      // If the player interrupts a shell-by-shell reload with fire on this frame, let updateGun start the recovery delay cleanly.
+      if (this.reloadPerShell && !this.reloadInterrupting && input.pressed('fire') && this.held.ammo.mag > 0) return;
       this.reloadLeft -= dt;
       const progress = this.reloadProgress;
       while (this.reloadCue < this.reloadFoley.length && progress >= this.reloadFoley[this.reloadCue]![0]) {
@@ -1264,7 +1276,7 @@ export class Weapons implements WeaponSystem, Guard {
           }
         }
       }
-      if (this.reloadLeft <= 0) this.endReload(true);
+      if (this.reloadLeft <= 0) this.endReload(!this.reloadInterrupting);
       return;
     }
     if (tap) {
@@ -1280,11 +1292,36 @@ export class Weapons implements WeaponSystem, Guard {
     }
   }
 
+  /** Interrupts a shell-by-shell tube reload with a brief recovery delay (or bolt rack if started empty) before firing. */
+  private interruptShellReload(sr: NonNullable<WeaponDef['shellReload']>): void {
+    const boost = clamp(this.modifiers.fireRate, 1, MAX_RELOAD_BOOST);
+    this.reloadInterrupting = true;
+    this.reloadPerShell = false;
+    this.reloadShellsLeft = 0;
+    const rackWindow = sr.emptyRack / boost;
+    if (this.reloadFromEmpty) {
+      if (this.reloadLeft > rackWindow) {
+        this.reloadTotal = this.reloadLeft = rackWindow;
+        this.reloadCue = 0;
+        this.reloadFoley = sr.rackCues;
+        this.ctx.viewmodel.cancelReload?.(rackWindow);
+      }
+      return;
+    }
+    const delay = Math.min(this.reloadLeft, (sr.interrupt ?? sr.end) / boost);
+    this.reloadTotal = this.reloadLeft = delay;
+    this.reloadCue = 0;
+    this.reloadFoley = [];
+    this.ctx.viewmodel.cancelReload?.(delay);
+  }
+
   private endReload(fill: boolean): void {
     const s = this.held;
     this.reloadLeft = 0;
     this.reloadFoley = [];
     this.reloadPerShell = false;
+    this.reloadFromEmpty = false;
+    this.reloadInterrupting = false;
     this.reloadShellsLeft = 0;
     if (fill) {
       const a = s.ammo;
@@ -1302,6 +1339,8 @@ export class Weapons implements WeaponSystem, Guard {
       this.reloadLeft = 0;
       this.reloadFoley = [];
       this.reloadPerShell = false;
+      this.reloadFromEmpty = false;
+      this.reloadInterrupting = false;
       this.reloadShellsLeft = 0;
       this.ctx.viewmodel.cancelReload?.();
     }
@@ -1384,18 +1423,16 @@ export class Weapons implements WeaponSystem, Guard {
     const held = input.isDown('fire');
     // A press stays live for as long as the button is held, so a click during a reload fires on its first legal frame.
     if (input.pressed('fire')) this.pressBuffer = TUNING.pressBuffer;
-    else if (this.pressBuffer > 0 && !held) this.pressBuffer -= dt;
+    else if (this.pressBuffer > 0 && !held && !this.reloadInterrupting) this.pressBuffer -= dt;
 
     if (this.reloading) {
-      // Shell-by-shell shotguns can interrupt reload at any time once at least one shell is in the tube.
-      if (def.shellReload && (input.pressed('fire') || this.pressBuffer > 0) && s.ammo.mag > 0) {
-        this.endReload(false);
-        this.ctx.viewmodel.cancelReload?.();
-      } else {
-        // Keep the barrels turning down through a reload, so the Buzzsaw does not feel like it hit a wall.
-        if (def.mode === 'spin') this.spinDown(dt);
-        return;
+      // Shell-by-shell shotguns can interrupt reload once at least one shell is in the tube, with a brief recovery delay.
+      if (def.shellReload && !this.reloadInterrupting && (input.pressed('fire') || this.pressBuffer > 0) && s.ammo.mag > 0) {
+        this.interruptShellReload(def.shellReload);
       }
+      // Keep the barrels turning down through a reload, so the Buzzsaw does not feel like it hit a wall.
+      if (def.mode === 'spin') this.spinDown(dt);
+      return;
     }
 
     // Akimbo: the off hand has its own gun, not the hammer, and right click is the zoom.

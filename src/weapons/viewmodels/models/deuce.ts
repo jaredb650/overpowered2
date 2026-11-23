@@ -20,6 +20,7 @@ import { pullTrigger, shell12 } from './common';
 import { stock } from './shotgun';
 import { TORCH, weaponLight } from './light';
 import { LAM_CLAMP_TOP, LASER_GLOW, lamSocket, weaponLam } from './laser';
+import { OPTIC_GLOWS, openReflex } from './optics';
 
 const BORE = 0.034;
 /** Each barrel's axis sits this far either side of the middle: the two touch along the rib. */
@@ -204,6 +205,15 @@ function barrels(m: Mesher): void {
     quad(m);
     barrelTips(m, 'shortTips', 'quadShort', MUZZLE, false);
     barrelTips(m, 'longTips', 'quadLong', LONG_MUZZLE, true);
+    // Low-profile open reflex sight (`deuceDot`) clamped to the sighting rib so it breaks open cleanly with the barrels.
+    m.part('rmrBase', [0, y + R + 0.0008, z(-0.14)], () => {
+      m.use(F.anodized);
+      m.at([0, 0.0022, 0], null, () => m.box(0.024, 0.0052, 0.044, 0.001));
+      m.mirror(() => screwX(m, 0.0126, 0.0022, 0.004, 1, 0.002, F.steelDark));
+    });
+    openReflex(m, [0, y + R + 0.005, z(-0.14)], {
+      name: 'rmr', scale: 1.15, relief: 0.25, finish: F.anodized, accent: F.steelDark,
+    });
     // The shell in the hand during a reload, in the barrels' frame so it lands in a chamber however far they hang, and the
     // speed loader's clip of two, its middle on the lower pair's.
     m.part('shellIn', [BX, BORE - HY, BREECH - HZ], () => shell12(m, F.red));
@@ -340,7 +350,7 @@ function buildDeuce(kit: Kit): Model {
     m.side(poly([[-0.0035, 0.002], [0.0035, 0.002], [0.002, -0.009, 0.002], [0.0038, -0.0205, 0.0015], [0.0005, -0.0215, 0.001], [-0.0035, -0.0095, 0.003]], 0.001), 0.0065, { bevel: 0.0007 });
   });
 
-  const model = new Model(m, kit.mats, { glows: { sight: [0xffb43a, 5], torch: TORCH, laser: LASER_GLOW } });
+  const model = new Model(m, kit.mats, { glows: { sight: [0xffb43a, 5], dot: OPTIC_GLOWS.dot, torch: TORCH, laser: LASER_GLOW } });
   lamSocket(model);
   // Right barrel first, on the front trigger; the left on the rear. Weapons asks for `muzzle1` on the second shot, and on
   // the quad `muzzle2` and `muzzle3`, the upper pair's.
@@ -363,6 +373,7 @@ function clip(a: Anim): void {
   const P = a.parts;
   pullTrigger(a);
   a.glow('sight', 1);
+  a.glow('dot', 1);
   const mz = (a.mods?.has('deuceLong') ? LONG_MUZZLE : MUZZLE) - 0.002;
   const sockets = a.model?.sockets;
   if (sockets) for (const name of MUZZLE_SOCKETS) if (sockets[name]) sockets[name]!.position.z = mz;
@@ -476,7 +487,11 @@ export function deuceDef(kit: Kit): ViewDef {
     heatPerShot: 0.05,
     animate: clip,
     mods: {
-      deuceQuad: { part: 'quad', also: ['quadTop', 'quadShort', 'quadLong'], hides: 'top' },
+      deuceDot: { part: 'rmr', also: 'rmrBase' },
+      deuceQuad: {
+        part: 'quad', also: ['quadTop', 'quadShort', 'quadLong'], hides: 'top',
+        alsoMoves: [{ part: 'rmrBase', y: UP - BORE }, { part: 'rmr', y: UP - BORE }],
+      },
       deuceLong: {
         part: 'longTips', hides: 'shortTips', muzzle: 'muzzleLong',
         moves: { part: 'light', z: -0.14 },

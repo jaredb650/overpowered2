@@ -345,7 +345,7 @@ places on the ladder (0.246 and 0.285), remeasured. On 2026-11-16 the owner had 
 (`smg_fire`, `shotgun_fire`, `thresher_fire`, `harrow_fire`, `rivet_fire`, `revolver_fire`, `piledriver_fire`) stay in
 the catalog.
 
-**Recorded weapon reload foley** (2026-11-23, `reloadSounds.zip` + Awl mag/bolt recordings, owner's recordings; all mixed to mono at 44.1 kHz, trimmed of dead air with short fade-out, peak-normalised under -1 dB, and encoded at 160 kbit/s in `sfx/guns/`, levelled on the `foley` mix at ~0.125 to match synth reload foley): `shotgun_shell_in` (0.115, used for shell-by-shell loading on the pump shotgun and Billhook, while the pump shotgun's empty-reload rack reuses `pump_rack_back` and `pump_rack_forward`), `gimlet_mag_out`, `gimlet_mag_in`, `gimlet_rack_bolt` (Gimlet reload), `harrow_mag_out`, `harrow_mag_in`, `harrow_rack_bolt` (Harrow reload), and `awl_mag_out`, `awl_mag_in`, `awl_bolt_open`, `awl_bolt_close` (Awl reload and bolt cycle).
+**Recorded weapon reload foley** (2026-11-23, `reloadSounds.zip` + Awl/Billhook/Gimlet/Deuce recordings, owner's recordings; all mixed to mono at 44.1 kHz, trimmed of dead air with short fade-out, peak-normalised under -1 dB, and encoded at 160 kbit/s in `sfx/guns/`, levelled on the `foley` mix at ~0.125–0.13 to match synth reload foley): `shotgun_shell_in` (0.115, used for shell-by-shell loading on the pump shotgun and Billhook, while the pump shotgun's empty-reload rack reuses `pump_rack_back` and `pump_rack_forward`), `billhook_bolt_release` (0.13, Billhook bolt operation / release), `gimlet_mag_out`, `gimlet_mag_in`, `gimlet_rack_bolt`, `gimlet_bolt_release` (0.13, Gimlet bolt-release paddle drop on empty reload), `harrow_mag_out`, `harrow_mag_in`, `harrow_rack_bolt` (Harrow reload), `awl_mag_out`, `awl_mag_in`, `awl_bolt_open`, `awl_bolt_close` (Awl reload and bolt cycle), and `deuce_open`, `deuce_shell_in`, `deuce_close` (Deuce break-open, shell insertion, and close).
 
 **The Deuce's newer shot** (2026-11-17): `dbshotgun_shot` took the owner's `newDBShotgunSound.mp3` (2 s of 16-bit 40 kHz stereo WAV inside
 an `.mp3` name), same id and file: mixed to mono at 44.1 kHz, the first 15 ms cut (a low scrap ahead of the blast, which now starts
@@ -428,10 +428,9 @@ own recording (trimmed of leading silence, 44.1 kHz stereo MP3 at 192 kbps, 1.97
 105 mm siege cannon, the AC-130's 105 mm gun (`g105` and `wp`), and the shoulder-fired Howitzer. 44.1 kHz stereo MP3, 2.0 s, measured
 loudness 0.378, on `gunHeavy` at 0.48 on the ladder (`send` 0.32, `near` 20 m, `far` 260 m, `pitchJitter` 0.03).
 
-**The Bodkin's shot** (2026-11-23, `guns/bodkin_shot.mp3`, the owner's `bodkinShot.mp3`): `bodkin_shot` replaces the stand-in
-pitched `gimlet_shot` + `bullet_flyby` layer on the flechette rifle. Source was a 2 s stereo WAV at 40 kHz inside an `.mp3` name:
-averaged to mono at 44.1 kHz, 98 ms lead-in cut, faded out from 0.65 s to 0.95 s, peak at -1.4 dB (0 clipped), 160 kbit/s, measured
-loudness 0.24, on the `gun` mix at 0.155 on the ladder (`send` 0.2).
+**The Bodkin's shot** (2026-11-23, `guns/bodkin_shot.mp3`, the owner's `newBodkinShot.mp3`): `bodkin_shot` replaces the earlier
+flechette rifle recording. Source was a 2.01 s stereo 320 kbps MP3 at 44.1 kHz: averaged to mono at 44.1 kHz, 48 ms lead-in cut,
+faded out from 1.10 s to 1.402 s, peak at -0.85 dB (0 clipped), 160 kbit/s, measured loudness 0.367, on the `gun` mix at 0.22 on the ladder (`send` 0.2).
 
 **The Pump Shotgun's suppressed shot** (2026-11-23, `guns/pump_shotgun_suppressed_shot.mp3`, the owner's `suppressorPump.mp3`):
 `pump_shotgun_suppressed_shot` plays when `shotgunCan` is fitted on the pump shotgun (full barrel, choke, or sawn-off). Source was a

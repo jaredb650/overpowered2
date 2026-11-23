@@ -145,11 +145,14 @@ export function pistolBackHalf(m: Mesher, opts: PistolBackOpts = {}): void {
 
   // Signature 92FS mechanical controls in dark parkerized steel:
   m.use(ctrlFin);
-  // Left contoured slide stop lever with serrated thumb pad & forward pin boss.
-  m.at([-FRAME_W / 2 - 0.0012, 0.0115, 0.007], null, () => m.side(poly([
-    [-0.023, -0.0024], [0.025, -0.0018], [0.028, 0.004, 0.0014], [0.015, 0.0046, 0.0014],
-    [-0.006, 0.0026, 0.0012], [-0.021, 0.003, 0.0012],
-  ], 0.0006), 0.0023, { bevel: 0.0005 }));
+  // Left contoured slide stop lever with serrated thumb pad & forward pin boss (animates on empty reload slide release).
+  m.part('slideStop', [-FRAME_W / 2 - 0.0012, 0.0115, 0.007], () => {
+    m.use(ctrlFin);
+    m.side(poly([
+      [-0.023, -0.0024], [0.025, -0.0018], [0.028, 0.004, 0.0014], [0.015, 0.0046, 0.0014],
+      [-0.006, 0.0026, 0.0012], [-0.021, 0.003, 0.0012],
+    ], 0.0006), 0.0023, { bevel: 0.0005 });
+  });
   // Left rotating takedown lever (pivot boss + curved thumb wing) & right circular disassembly release button.
   m.at([-FRAME_W / 2 - 0.0012, 0.0095, -0.044], [0, Math.PI / 2, 0], () => m.cyl(0.0044, 0.0024, 14, 0.0005));
   m.at([-FRAME_W / 2 - 0.0016, 0.0095, -0.052], null, () => m.side(poly([
@@ -601,6 +604,7 @@ function buildRivet(kit: Kit): { model: Model; dotLook: ModLook; shieldLook: Mod
   // The off hand wraps the shooting hand, thumbs forward under the slide.
   model.pistolSupport('gripL', [-0.0285, -0.068, 0.06]);
   model.hand('magHold', [-0.014, -0.1, 0.012], [-0.3, 0.1, -0.95], [0.9, -0.1, -0.35], 'mag');
+  model.hand('slideReleaseHold', [-0.032, -0.024, 0.042], [-0.25, -0.45, -0.85], [0.95, 0, -0.3]);
   attachRiotShieldHand(model);
   return { model, dotLook, shieldLook };
 }
@@ -615,11 +619,12 @@ function clip(a: Anim): void {
 
   const t = a.sinceFire;
   const p = a.reload;
+  const fromEmpty = a.reloadFromEmpty || a.mag <= 0;
   // Crisp blowback inside 70 ms so rapid fire never catches the slide halfway.
   const cycle = t < 0.07 ? Math.sin((t / 0.07) * Math.PI) : 0;
-  // Locked open on an empty magazine until the reload's slide release drops it.
-  let back = cycle;
-  if (a.mag <= 0) back = p >= 0.8 ? 1 - seg(p, 0.8, 0.84) : 1;
+  // Locked open on an empty magazine until the reload's slide release clicks it home.
+  let back = p < 0 ? (a.mag <= 0 ? 1 : cycle) : 0;
+  if (p >= 0 && fromEmpty) back = p >= 0.8 ? 1 - outCubic(seg(p, 0.8, 0.85)) : 1;
   P.slide!.position.z += back * SLIDE_TRAVEL;
 
   // Exposed ring hammer falls forward on the shot, then gets pushed back to cocked by the reciprocating slide.
@@ -642,31 +647,61 @@ function clip(a: Anim): void {
     a.gunR.x += k * 0.55;
   }
   if (p >= 0) {
-    // Foley: out at 0.05, in at 0.5, slide at 0.82.
     const mag = P.mag!;
-    const out = seg(p, 0.05, 0.2);
-    const inn = seg(p, 0.36, 0.5);
-    const away = inQuad(out) * (1 - outCubic(inn));
-    mag.position.y -= away * 0.3;
-    mag.position.z += away * 0.058;
-    if (p > 0.22 && p < 0.34) mag.visible = false;
-    const seat = p >= 0.5 ? thud(seg(p, 0.5, 0.62)) : 0;
-
-    // Raised cleanly to seat the fresh magazine, then snapped level as the slide drops.
-    const present = hold(p, 0.0, 0.12, 0.74, 0.88);
-    const snap = bump(p, 0.8, 0.95);
-    a.gunR.x += present * 0.34 + seat * 0.07 - snap * 0.06;
-    a.gunR.y += present * 0.14;
-    a.gunP.x -= present * 0.045;
-    a.gunP.y += present * 0.095 + seat * 0.012;
-    a.gunP.z += present * 0.065 + snap * 0.012;
-
     const h = a.left;
     h.fingerRate = 44;
-    h.to('pouchL', inOut(seg(p, 0.04, 0.2)));
-    h.to('magHold', inOut(seg(p, 0.3, 0.42)));
-    h.to('gripL', inOut(seg(p, 0.64, 0.8)));
-    h.shape(HANDS.cup, hold(p, 0.24, 0.36, 0.56, 0.64));
+    if (fromEmpty) {
+      // Empty reload: swap mag while slide is locked open, then thumb the left slide release to send the slide home.
+      // Foley: out at 0.05, in at 0.50, slide release at 0.80.
+      const out = seg(p, 0.05, 0.2);
+      const inn = seg(p, 0.36, 0.5);
+      const away = inQuad(out) * (1 - outCubic(inn));
+      mag.position.y -= away * 0.3;
+      mag.position.z += away * 0.058;
+      if (p > 0.22 && p < 0.34) mag.visible = false;
+      const seat = p >= 0.5 ? thud(seg(p, 0.5, 0.62)) : 0;
+      const click = bump(p, 0.74, 0.84);
+      P.slideStop!.position.y -= click * 0.0026;
+
+      // Tilted slightly so the locked breech and left slide stop read clearly, then snapped level as the slide drops.
+      const present = hold(p, 0.0, 0.12, 0.82, 0.96);
+      const snap = bump(p, 0.8, 0.94);
+      a.gunR.z -= present * 0.22;
+      a.gunR.x += present * 0.3 + seat * 0.07 - snap * 0.06;
+      a.gunR.y += present * 0.14;
+      a.gunP.x -= present * 0.045;
+      a.gunP.y += present * 0.09 + seat * 0.012;
+      a.gunP.z += present * 0.065 + snap * 0.014;
+
+      h.to('pouchL', inOut(seg(p, 0.04, 0.2)));
+      h.to('magHold', inOut(seg(p, 0.3, 0.42)));
+      h.to('slideReleaseHold', inOut(seg(p, 0.6, 0.74)));
+      h.to('gripL', inOut(seg(p, 0.84, 0.98)));
+      h.shape(HANDS.cup, hold(p, 0.24, 0.36, 0.55, 0.62));
+      h.shape(HANDS.radio, hold(p, 0.66, 0.74, 0.82, 0.88));
+    } else {
+      // Tactical reload (round already chambered): swap magazine only, no slide movement.
+      // Foley: out at 0.06, in at 0.64.
+      const out = seg(p, 0.06, 0.24);
+      const inn = seg(p, 0.44, 0.64);
+      const away = inQuad(out) * (1 - outCubic(inn));
+      mag.position.y -= away * 0.3;
+      mag.position.z += away * 0.058;
+      if (p > 0.26 && p < 0.41) mag.visible = false;
+      const seat = p >= 0.64 ? thud(seg(p, 0.64, 0.78)) : 0;
+
+      const present = hold(p, 0.0, 0.14, 0.78, 0.96);
+      a.gunR.x += present * 0.32 + seat * 0.07;
+      a.gunR.y += present * 0.12;
+      a.gunP.x -= present * 0.04;
+      a.gunP.y += present * 0.085 + seat * 0.012;
+      a.gunP.z += present * 0.06;
+
+      h.to('pouchL', inOut(seg(p, 0.04, 0.22)));
+      h.to('magHold', inOut(seg(p, 0.36, 0.5)));
+      h.to('gripL', inOut(seg(p, 0.72, 0.96)));
+      h.shape(HANDS.cup, hold(p, 0.3, 0.44, 0.68, 0.76));
+    }
   }
   animateRiotShield(a, 'rivetShield');
 }

@@ -576,6 +576,27 @@ function modParts(m: Mesher): void {
     });
   });
 
+  // Full-auto sear pack & selector housing (`bodkinAuto`), mutually exclusive with `bodkinBurst5`.
+  m.part('autoSear', [0, 0, 0], () => {
+    m.mirror(() => {
+      m.use(F.steelDark);
+      m.at([0.0232, 0.022, 0.026], null, () => {
+        m.side(poly([
+          [0.024, 0.012, 0.003], [0.024, -0.011, 0.003], [-0.022, -0.012, 0.003], [-0.026, 0.004, 0.003], [-0.016, 0.013, 0.003],
+        ], 0.002), 0.0052, { bevel: 0.0011 });
+      });
+      // Exposed steel auto-sear pivot & swept full-auto selector lever with red firing indicator bar.
+      m.use(F.steel);
+      m.at([0.0264, 0.023, 0.022], [0, Math.PI / 2, 0], () => m.cyl(0.0064, 0.0034, 14, 0.0006));
+      m.use(F.anodized);
+      m.at([0.0278, 0.022, 0.01], [-0.08, 0, 0], () => m.box(0.003, 0.0042, 0.018, 0.0008));
+      m.use(F.bureauRed);
+      m.at([0.0261, 0.0155, 0.028], null, () => m.box(0.0012, 0.0034, 0.022, 0.0002));
+      hexX(m, 0.0258, 0.0305, 0.041, 1, 0.0016);
+      hexX(m, 0.0258, 0.0145, 0.007, 1, 0.0016);
+    });
+  });
+
   // Tungsten darts heavy muzzle collar (`bodkinTungsten`).
   m.part('tungstenMuzzle', [0, BORE, 0], () => {
     m.use(TUNGSTEN);
@@ -707,6 +728,7 @@ function buildBodkin(kit: Kit): Built {
     bodkinAcog: scope,
     bodkinMag: { part: 'magExt', hides: 'magStd' },
     bodkinBurst5: { part: 'burstCam' },
+    bodkinAuto: { part: 'autoSear' },
     bodkinTungsten: { part: 'tungstenMuzzle', also: ['tungstenBreech', 'tungstenMagStd', 'tungstenMagExt'] },
     bodkinLight: { part: 'light' },
     bodkinLam: { part: 'lam', laser: 'lam', laserRange: RIFLE_LAM_RANGE },
@@ -757,7 +779,8 @@ function clip(a: Anim): void {
 
   // Clear rear magazine: stacked flechette cartridges visibly count down; fresh mag enters full mid-reload.
   const p = a.reload;
-  const shownFill = p > 0.36 ? 1 : fill(a);
+  const empty = a.reloadFromEmpty || a.mag <= 0;
+  const shownFill = p > (empty ? 0.36 : 0.4) ? 1 : fill(a);
   updateClearMag(P, 'dartStd', STD_TIERS, 'followerStd', 'springStd', STD_FOOT, shownFill);
   updateClearMag(P, 'dartExt', EXT_TIERS, 'followerExt', 'springExt', EXT_FOOT, shownFill);
 
@@ -770,39 +793,45 @@ function clip(a: Anim): void {
 
   if (p < 0) return;
 
-  // Bullpup rear-magazine reload synchronized to MAG_RELOAD foley: out at 0.05, in at 0.55, bolt rack at 0.82.
-  // Strictly ZERO roll (gunR.z === 0) and ZERO yaw twist (gunR.y === 0): smooth forward/upward shift & gentle nose-up pitch
-  // brings the rear bullpup magazine cleanly into view while the left hand swaps it and racks the forward charging handle.
-  const out = seg(p, 0.05, 0.22);
-  const inn = seg(p, 0.40, 0.555);
+  // Bullpup rear-magazine reload: full empty reload racks forward charging handle; tactical reload swaps mag only.
+  // Strictly ZERO roll (gunR.z === 0) and ZERO yaw twist (gunR.y === 0).
+  const out = empty ? seg(p, 0.05, 0.22) : seg(p, 0.06, 0.26);
+  const inn = empty ? seg(p, 0.40, 0.555) : seg(p, 0.44, 0.62);
   const away = inQuad(out) * (1 - outCubic(inn));
   const mag = P.mag!;
   mag.position.y -= away * 0.30;
   mag.position.z += away * 0.015;
-  if (p > 0.24 && p < 0.37) mag.visible = false;
+  if (empty ? p > 0.24 && p < 0.37 : p > 0.28 && p < 0.41) mag.visible = false;
 
-  const seat = p >= 0.55 ? thud(seg(p, 0.55, 0.67)) : 0;
-  const rack = bump(p, 0.76, 0.90);
+  const seat = empty ? (p >= 0.55 ? thud(seg(p, 0.55, 0.67)) : 0) : (p >= 0.62 ? thud(seg(p, 0.62, 0.76)) : 0);
+  const rack = empty ? bump(p, 0.76, 0.90) : 0;
   P.charge!.position.z += rack * 0.066;
   P.chamber!.position.y += rack * 0.006;
 
-  const present = hold(p, 0.0, 0.14, 0.88, 1);
+  const present = hold(p, 0.0, 0.14, empty ? 0.88 : 0.78, 1);
   // Zero roll (gunR.z untouched), zero yaw twist (gunR.y untouched).
   a.gunR.x += present * 0.14 + seat * 0.045 - rack * 0.03;
   a.gunP.x -= present * 0.025;
   a.gunP.y += present * 0.042 + seat * 0.012;
   a.gunP.z -= present * 0.095 - rack * 0.012;
 
-  // Left hand choreography: fore-end -> rear bullpup mag -> pouch -> fresh mag seat -> forward charging handle -> fore-end.
   const h = a.left;
   h.fingerRate = 38;
-  h.to('magHold', inOut(seg(p, 0.0, 0.07)));
-  h.to('pouchL', inOut(seg(p, 0.21, 0.32)));
-  h.to('magHold', inOut(seg(p, 0.38, 0.47)));
-  h.to('chargeHold', inOut(seg(p, 0.66, 0.75)));
-  h.to('gripL', inOut(seg(p, 0.91, 1)));
-  h.shape(HANDS.cup, hold(p, 0.02, 0.07, 0.58, 0.64));
-  h.shape(HANDS.pinch, hold(p, 0.71, 0.76, 0.89, 0.94));
+  if (empty) {
+    h.to('magHold', inOut(seg(p, 0.0, 0.07)));
+    h.to('pouchL', inOut(seg(p, 0.21, 0.32)));
+    h.to('magHold', inOut(seg(p, 0.38, 0.47)));
+    h.to('chargeHold', inOut(seg(p, 0.66, 0.75)));
+    h.to('gripL', inOut(seg(p, 0.91, 1)));
+    h.shape(HANDS.cup, hold(p, 0.02, 0.07, 0.58, 0.64));
+    h.shape(HANDS.pinch, hold(p, 0.71, 0.76, 0.89, 0.94));
+  } else {
+    h.to('magHold', inOut(seg(p, 0.0, 0.08)));
+    h.to('pouchL', inOut(seg(p, 0.25, 0.38)));
+    h.to('magHold', inOut(seg(p, 0.43, 0.54)));
+    h.to('gripL', inOut(seg(p, 0.72, 0.96)));
+    h.shape(HANDS.cup, hold(p, 0.02, 0.08, 0.66, 0.74));
+  }
 }
 
 export function bodkinDef(kit: Kit): ViewDef {

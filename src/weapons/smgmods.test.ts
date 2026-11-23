@@ -73,10 +73,10 @@ describe('in the range', () => {
     r.weapons.grantMod(id);
     r.weapons.fitMod(id, true);
   }
-  /** The magazine after `seconds` of a reload from one round. */
+  /** The magazine after `seconds` of a full reload from empty. */
   function reloadFor(id: WeaponId, seconds: number): number {
     const a = r.weapons.ammo(id);
-    a.mag = 1;
+    a.mag = 0;
     r.tap('reload');
     r.run(seconds);
     return a.mag;
@@ -84,7 +84,7 @@ describe('in the range', () => {
 
   it('with tape, the SMG is full while the Gimlet is still changing', () => {
     draw('gimlet');
-    expect(reloadFor('gimlet', 0.85)).toBe(1);
+    expect(reloadFor('gimlet', 0.85)).toBe(0);
     r.reset();
     draw('smg');
     fit('smgTape');

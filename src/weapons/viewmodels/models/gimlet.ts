@@ -84,6 +84,14 @@ function lower(m: Mesher): void {
     m.at([0, 0, 0], [0, Math.PI / 2, 0], () => m.cyl(0.0052, 0.003, 12));
     m.at([-0.0016, 0.0, -0.009], null, () => m.box(0.0026, 0.0044, 0.018, 0.0008));
   });
+  // Left-receiver AR-15 bolt catch / ping-pong release paddle above the magwell.
+  m.part('boltCatch', [-0.016, 0.022, -0.052], () => {
+    m.use(F.steelDark);
+    m.at([0, 0, 0], null, () => m.box(0.0032, 0.016, 0.0082, 0.0007));
+    m.at([-0.001, 0.0045, 0], null, () => m.box(0.0026, 0.0075, 0.01, 0.0008));
+    m.use(F.black);
+    for (let i = 0; i < 3; i++) m.at([-0.0024, 0.0025 + i * 0.0022, 0], null, () => m.box(0.0005, 0.0008, 0.0085, 0));
+  });
   m.at([-0.0148, 0.0045, 0.062], [0, -Math.PI / 2, 0], () => m.decal('fire', 0.024, 0.0045, 0xd8d8d8));
   m.mirror(() => {
     screwX(m, 0.0146, 0.018, 0.088, 1, 0.0022);
@@ -538,6 +546,7 @@ function buildGimlet(kit: Kit): Built {
   model.hand('glBreech', [-0.022, GL_Y - 0.01, GUARD_REAR - 0.12], [-0.5, -0.2, -0.8], [0.8, -0.3, -0.5]);
   model.hand('magHold', [-0.02, -0.07, -0.004], [-0.3, 0.1, -0.95], [0.9, -0.1, -0.35], 'mag');
   model.hand('chargeHold', [-0.02, 0.0, 0.006], [-0.5, -0.2, -0.8], [0.8, -0.3, -0.5], 'charge');
+  model.hand('boltReleaseHold', [-0.032, 0.018, -0.044], [-0.25, 0.35, -0.9], [0.92, -0.15, -0.35]);
   return {
     model,
     mods: {
@@ -568,10 +577,14 @@ function clip(a: Anim): void {
   P.glRound!.visible = false;
   raised = damp(raised, a.alt ? 1 : 0, 12, a.dt);
 
+  const p = a.reload;
   if (!a.alt) {
     const cycle = 0.06;
     const c = a.sinceFire < cycle ? a.sinceFire / cycle : 1;
-    P.bolt!.position.z += Math.sin(c * Math.PI) * BOLT_TRAVEL;
+    let boltBack = Math.sin(c * Math.PI);
+    // Lock bolt open on an empty magazine until the bolt release paddle drops it during reload.
+    if (a.mag <= 0 && p < 0) boltBack = 1;
+    if (p < 0) P.bolt!.position.z += boltBack * BOLT_TRAVEL;
     pullTrigger(a, 0.06, 0.3);
   }
   P.follower!.position.y -= fill(a) * 0.12;
@@ -592,43 +605,76 @@ function clip(a: Anim): void {
     a.gunR.z -= k * 0.2;
   }
 
-  const p = a.reload;
   if (p < 0) return;
   if (a.alt) {
     launcherReload(a, p);
     return;
   }
-  // Foley: out at 0.05, in at 0.55, bolt at 0.82.
-  const out = seg(p, 0.05, 0.22);
-  const inn = seg(p, 0.4, 0.56);
+  const fromEmpty = a.reloadFromEmpty || a.mag <= 0;
   const mag = P.mag!;
-  const away = inQuad(out) * (1 - outCubic(inn));
-  mag.rotation.x -= Math.min(1, away * 3) * 0.2;
-  mag.position.y -= away * 0.36;
-  mag.position.z -= away * 0.03;
-  if (p > 0.24 && p < 0.38) mag.visible = false;
-  const seat = p >= 0.555 ? thud(seg(p, 0.555, 0.68)) : 0;
-  const rack = bump(p, 0.76, 0.9);
-  P.charge!.position.z += rack * 0.07;
-  P.bolt!.position.z += rack * BOLT_TRAVEL;
-
-  const present = hold(p, 0.0, 0.14, 0.88, 1);
-  a.gunR.z -= present * 0.38 + seat * 0.04;
-  a.gunR.x += present * 0.14 + seat * 0.06 - rack * 0.05;
-  a.gunR.y += present * 0.05;
-  a.gunP.x -= present * 0.035;
-  a.gunP.y += present * 0.03 + seat * 0.014;
-  a.gunP.z += present * 0.05 + rack * 0.015;
-
   const h = a.left;
   h.fingerRate = 38;
-  h.to('magHold', inOut(seg(p, 0.0, 0.07)));
-  h.to('pouchL', inOut(seg(p, 0.2, 0.32)));
-  h.to('magHold', inOut(seg(p, 0.38, 0.48)));
-  h.to('chargeHold', inOut(seg(p, 0.66, 0.75)));
-  h.to(gl ? 'glHold' : 'gripL', inOut(seg(p, 0.92, 1)));
-  h.shape(HANDS.cup, hold(p, 0.01, 0.07, 0.6, 0.66));
-  h.shape(HANDS.pinch, hold(p, 0.7, 0.75, 0.9, 0.94));
+
+  if (fromEmpty) {
+    // Empty reload: bolt stays locked open until the off hand slaps the left bolt release paddle (`gimlet_bolt_release` at 0.76).
+    // Foley: out at 0.05, in at 0.50, bolt release at 0.76.
+    const out = seg(p, 0.05, 0.21);
+    const inn = seg(p, 0.36, 0.51);
+    const away = inQuad(out) * (1 - outCubic(inn));
+    mag.rotation.x -= Math.min(1, away * 3) * 0.2;
+    mag.position.y -= away * 0.36;
+    mag.position.z -= away * 0.03;
+    if (p > 0.23 && p < 0.35) mag.visible = false;
+    const seat = p >= 0.505 ? thud(seg(p, 0.505, 0.62)) : 0;
+
+    // Bolt locked open until slapped home at 0.76 (charging handle stays stationary).
+    const boltOpen = 1 - outCubic(seg(p, 0.76, 0.81));
+    P.bolt!.position.z += boltOpen * BOLT_TRAVEL;
+    const press = bump(p, 0.72, 0.83);
+    P.boltCatch!.position.x += press * 0.0026;
+    const drop = p >= 0.76 ? thud(seg(p, 0.76, 0.88)) : 0;
+
+    const present = hold(p, 0.0, 0.14, 0.86, 1);
+    a.gunR.z -= present * 0.38 + seat * 0.04 - drop * 0.05;
+    a.gunR.x += present * 0.14 + seat * 0.06 - drop * 0.04;
+    a.gunR.y += present * 0.05;
+    a.gunP.x -= present * 0.035 - drop * 0.008;
+    a.gunP.y += present * 0.03 + seat * 0.014;
+    a.gunP.z += present * 0.05 + drop * 0.01;
+
+    h.to('magHold', inOut(seg(p, 0.0, 0.07)));
+    h.to('pouchL', inOut(seg(p, 0.19, 0.3)));
+    h.to('magHold', inOut(seg(p, 0.35, 0.46)));
+    h.to('boltReleaseHold', inOut(seg(p, 0.6, 0.72)));
+    h.to(gl ? 'glHold' : 'gripL', inOut(seg(p, 0.84, 0.98)));
+    h.shape(HANDS.cup, hold(p, 0.01, 0.07, 0.56, 0.62));
+    h.shape(HANDS.open, hold(p, 0.66, 0.73, 0.81, 0.86));
+  } else {
+    // Tactical reload (round already chambered): quick magazine swap only, no bolt release or charging handle.
+    // Foley: out at 0.06, in at 0.62.
+    const out = seg(p, 0.06, 0.26);
+    const inn = seg(p, 0.44, 0.63);
+    const away = inQuad(out) * (1 - outCubic(inn));
+    mag.rotation.x -= Math.min(1, away * 3) * 0.2;
+    mag.position.y -= away * 0.36;
+    mag.position.z -= away * 0.03;
+    if (p > 0.28 && p < 0.42) mag.visible = false;
+    const seat = p >= 0.625 ? thud(seg(p, 0.625, 0.76)) : 0;
+
+    const present = hold(p, 0.0, 0.14, 0.8, 1);
+    a.gunR.z -= present * 0.36 + seat * 0.04;
+    a.gunR.x += present * 0.13 + seat * 0.06;
+    a.gunR.y += present * 0.04;
+    a.gunP.x -= present * 0.032;
+    a.gunP.y += present * 0.028 + seat * 0.014;
+    a.gunP.z += present * 0.045;
+
+    h.to('magHold', inOut(seg(p, 0.0, 0.08)));
+    h.to('pouchL', inOut(seg(p, 0.24, 0.36)));
+    h.to('magHold', inOut(seg(p, 0.42, 0.54)));
+    h.to(gl ? 'glHold' : 'gripL', inOut(seg(p, 0.72, 0.96)));
+    h.shape(HANDS.cup, hold(p, 0.02, 0.08, 0.68, 0.76));
+  }
 }
 
 /** The launcher's: the barrel forward, the empty case out, a round from the pouch into the breech, the barrel home. */

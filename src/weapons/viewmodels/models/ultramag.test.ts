@@ -110,21 +110,25 @@ describe('Ultramag viewmodel', () => {
     }
   });
 
-  it('drops the slide on a fresh magazine and chambers its top round', () => {
+  it('clicks the slide release on an empty reload to drop the slide and chamber its top round', () => {
     expect(pose(99, 0, 0.3).parts.mag!.visible).toBe(false);
     expect(pose(99, 0, 0.6).parts.feedRound!.visible).toBe(true);
-    expect(pose(99, 0, 0.78).parts.slide!.position.z).toBeCloseTo(TRAVEL);
+    const releasing = pose(99, 0, 0.78);
+    expect(releasing.parts.slide!.position.z).toBeCloseTo(TRAVEL);
+    expect(releasing.left.names.slice(0, releasing.left.steps)).toContain('slideReleaseHold');
+    expect(releasing.parts.slideStop!.position.y).toBeLessThan(0);
     pose(99, 0, 0.86);
     expect(position('feedRound').z).toBeLessThan(0.07 * S);
     const closed = pose(99, 0, 0.95);
     expect(closed.parts.slide!.position.z).toBeCloseTo(0);
   });
 
-  it('racks with the off hand on a tactical reload', () => {
+  it('swaps only the magazine on a tactical reload without racking the slide', () => {
     expect(pose(99, 3, 0.5).parts.slide!.position.z).toBeCloseTo(0);
     const anim = pose(99, 3, 0.78);
-    expect(anim.parts.slide!.position.z).toBeCloseTo(TRAVEL);
-    expect(anim.left.names).toContain('boltHold');
+    expect(anim.parts.slide!.position.z).toBeCloseTo(0);
+    expect(anim.left.names.slice(0, anim.left.steps)).not.toContain('boltHold');
+    expect(anim.left.names.slice(0, anim.left.steps)).not.toContain('slideReleaseHold');
     expect(pose(99, 3, 0.98).parts.slide!.position.z).toBeCloseTo(0);
   });
 

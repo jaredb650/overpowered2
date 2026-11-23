@@ -412,40 +412,68 @@ function clip(a: Anim, left: boolean): void {
 
   const p = a.reload;
   if (p < 0) return;
-  // The first game's beats: drop to 0.3, insert to 0.7, rack to 1.0.
-  const out = seg(p, 0.1, 0.3);
-  const inn = seg(p, 0.42, 0.66);
+  const fromEmpty = a.reloadFromEmpty || a.mag <= 0;
   const mag = parts.mag!;
-  const off = inQuad(out) * (1 - outCubic(inn));
-  mag.position.y -= off * 0.34;
-  mag.position.z -= off * 0.03;
-  mag.rotation.x += off * 0.5;
-  if (p > 0.3 && p < 0.42) mag.visible = false;
-  // The empty mag is dropped, not carried: the hand peels off while it falls.
-  const seat = thud(seg(p, 0.655, 0.78));
-  const seated = p >= 0.655 ? seat : 0;
-  const rack = bump(p, 0.74, 0.92);
-  parts.charge!.position.z += rack * 0.062;
-  parts.bolt!.position.z += rack * 0.062;
-
-  // The gun rolls over to bring the magwell to the off hand, kicks up as the mag seats, then rocks with the rack.
-  const present = hold(p, 0.0, 0.14, 0.86, 1);
-  a.gunR.z -= present * 0.46 + seated * 0.03;
-  a.gunR.x += present * 0.12 + seated * 0.05 - rack * 0.05;
-  a.gunR.y += present * 0.04;
-  a.gunP.x -= present * 0.035;
-  a.gunP.y += present * 0.03 + seated * 0.012;
-  a.gunP.z += present * 0.05 + rack * 0.012;
-
   const hand = a.left;
   hand.fingerRate = 40;
-  hand.to('magHold', inOut(seg(p, 0.02, 0.12)));
-  hand.to('pouchL', inOut(seg(p, 0.22, 0.36)));
-  hand.to('magHold', inOut(seg(p, 0.4, 0.5)));
-  hand.to('chargeHold', inOut(seg(p, 0.68, 0.76)));
-  hand.to('gripL', inOut(seg(p, 0.9, 1)));
-  hand.shape(HANDS.cup, hold(p, 0.03, 0.1, 0.62, 0.68));
-  hand.shape(HANDS.pinch, hold(p, 0.7, 0.75, 0.88, 0.93));
+  if (fromEmpty) {
+    // Empty reload beats: drop to 0.3, insert to 0.7, rack to 1.0.
+    const out = seg(p, 0.1, 0.3);
+    const inn = seg(p, 0.42, 0.66);
+    const off = inQuad(out) * (1 - outCubic(inn));
+    mag.position.y -= off * 0.34;
+    mag.position.z -= off * 0.03;
+    mag.rotation.x += off * 0.5;
+    if (p > 0.3 && p < 0.42) mag.visible = false;
+    // The empty mag is dropped, not carried: the hand peels off while it falls.
+    const seat = thud(seg(p, 0.655, 0.78));
+    const seated = p >= 0.655 ? seat : 0;
+    const rack = bump(p, 0.74, 0.92);
+    parts.charge!.position.z += rack * 0.062;
+    parts.bolt!.position.z += rack * 0.062;
+
+    // The gun rolls over to bring the magwell to the off hand, kicks up as the mag seats, then rocks with the rack.
+    const present = hold(p, 0.0, 0.14, 0.86, 1);
+    a.gunR.z -= present * 0.46 + seated * 0.03;
+    a.gunR.x += present * 0.12 + seated * 0.05 - rack * 0.05;
+    a.gunR.y += present * 0.04;
+    a.gunP.x -= present * 0.035;
+    a.gunP.y += present * 0.03 + seated * 0.012;
+    a.gunP.z += present * 0.05 + rack * 0.012;
+
+    hand.to('magHold', inOut(seg(p, 0.02, 0.12)));
+    hand.to('pouchL', inOut(seg(p, 0.22, 0.36)));
+    hand.to('magHold', inOut(seg(p, 0.4, 0.5)));
+    hand.to('chargeHold', inOut(seg(p, 0.68, 0.76)));
+    hand.to('gripL', inOut(seg(p, 0.9, 1)));
+    hand.shape(HANDS.cup, hold(p, 0.03, 0.1, 0.62, 0.68));
+    hand.shape(HANDS.pinch, hold(p, 0.7, 0.75, 0.88, 0.93));
+  } else {
+    // Tactical reload (round already chambered): swap magazine only, skip bolt rack.
+    // Foley: out at 0.06, in at 0.62.
+    const out = seg(p, 0.06, 0.26);
+    const inn = seg(p, 0.44, 0.63);
+    const off = inQuad(out) * (1 - outCubic(inn));
+    mag.position.y -= off * 0.34;
+    mag.position.z -= off * 0.03;
+    mag.rotation.x += off * 0.5;
+    if (p > 0.28 && p < 0.42) mag.visible = false;
+    const seated = p >= 0.625 ? thud(seg(p, 0.625, 0.76)) : 0;
+
+    const present = hold(p, 0.0, 0.14, 0.8, 1);
+    a.gunR.z -= present * 0.44 + seated * 0.03;
+    a.gunR.x += present * 0.11 + seated * 0.05;
+    a.gunR.y += present * 0.04;
+    a.gunP.x -= present * 0.032;
+    a.gunP.y += present * 0.028 + seated * 0.012;
+    a.gunP.z += present * 0.045;
+
+    hand.to('magHold', inOut(seg(p, 0.02, 0.1)));
+    hand.to('pouchL', inOut(seg(p, 0.24, 0.36)));
+    hand.to('magHold', inOut(seg(p, 0.42, 0.54)));
+    hand.to('gripL', inOut(seg(p, 0.72, 0.96)));
+    hand.shape(HANDS.cup, hold(p, 0.03, 0.1, 0.68, 0.76));
+  }
 }
 
 const SMG_MODS: ViewDef['mods'] = {

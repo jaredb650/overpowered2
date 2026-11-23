@@ -477,6 +477,10 @@ describe('Shell-by-shell exact-count shotgun reload', () => {
     expect(midMag).toBeGreaterThanOrEqual(2);
     expect(midMag).toBeLessThan(6);
     r.tap('fire');
+    // Interrupting a reload has a brief recovery/rack delay (no instant 0-frame fire).
+    expect(r.weapons.reloading).toBe(true);
+    expect(r.weapons.ammo('shotgun').mag).toBe(midMag);
+    r.run(0.42);
     expect(r.weapons.reloading).toBe(false);
     expect(r.weapons.ammo('shotgun').mag).toBe(midMag - 1);
 
@@ -497,7 +501,7 @@ describe('Shell-by-shell exact-count shotgun reload', () => {
     expect(r.record.sounds).toContain('pump_rack_forward');
   });
 
-  it('inserts exact missing shells on the Billhook (2 spent -> 2 shells, empty -> 8 shells + bolt rack)', async () => {
+  it('inserts exact missing shells on the Billhook (2 spent -> 2 shells, empty -> 8 shells + bolt release)', async () => {
     const r = await makeRange();
     r.reset();
     r.weapons.give('billhook');
@@ -505,7 +509,7 @@ describe('Shell-by-shell exact-count shotgun reload', () => {
     r.run(0.6);
     expect(r.weapons.ammo('billhook').mag).toBe(8);
 
-    // Fire 2 shells (6/8) -> exactly 2 shell-in cues, no bolt rack.
+    // Fire 2 shells (6/8) -> exactly 2 shell-in cues, no bolt release.
     r.tap('fire');
     r.run(0.35);
     r.tap('fire');
@@ -517,9 +521,9 @@ describe('Shell-by-shell exact-count shotgun reload', () => {
     expect(r.weapons.reloading).toBe(false);
     expect(r.weapons.ammo('billhook').mag).toBe(8);
     expect(r.record.sounds.filter(s => s === 'shotgun_shell_in')).toHaveLength(2);
-    expect(r.record.sounds).not.toContain('reload_bolt');
+    expect(r.record.sounds).not.toContain('billhook_bolt_release');
 
-    // Empty all 8 shells -> exactly 8 shell-in cues + reload_bolt.
+    // Empty all 8 shells -> exactly 8 shell-in cues + billhook_bolt_release.
     for (let i = 0; i < 8; i++) {
       r.tap('fire');
       if (i < 7) r.run(0.35);
@@ -531,29 +535,47 @@ describe('Shell-by-shell exact-count shotgun reload', () => {
     expect(r.weapons.reloading).toBe(false);
     expect(r.weapons.ammo('billhook').mag).toBe(8);
     expect(r.record.sounds.filter(s => s === 'shotgun_shell_in')).toHaveLength(8);
-    expect(r.record.sounds).toContain('reload_bolt');
+    expect(r.record.sounds).toContain('billhook_bolt_release');
   });
 
-  it('plays recorded reload foley on Gimlet and Harrow', async () => {
+  it('plays tactical mag-only vs empty bolt-release/rack foley on Gimlet and Harrow', async () => {
     const r = await makeRange();
     r.reset();
     r.weapons.give('gimlet');
     r.weapons.switchTo('gimlet');
     r.run(0.4);
+    // Tactical reload (round in chamber): mag out + mag in only, no bolt release.
     r.tap('fire');
     r.run(0.15);
+    r.record.sounds.length = 0;
+    r.tap('reload');
+    r.run(1.0);
+    expect(r.record.sounds).toContain('gimlet_mag_out');
+    expect(r.record.sounds).toContain('gimlet_mag_in');
+    expect(r.record.sounds).not.toContain('gimlet_bolt_release');
+    // Empty reload: plays gimlet_bolt_release (drops locked bolt via bolt release button).
+    r.weapons.ammo('gimlet').mag = 0;
     r.record.sounds.length = 0;
     r.tap('reload');
     r.run(1.3);
     expect(r.record.sounds).toContain('gimlet_mag_out');
     expect(r.record.sounds).toContain('gimlet_mag_in');
-    expect(r.record.sounds).toContain('gimlet_rack_bolt');
+    expect(r.record.sounds).toContain('gimlet_bolt_release');
 
     r.weapons.give('harrow');
     r.weapons.switchTo('harrow');
     r.run(0.4);
+    // Tactical reload: mag out + mag in only, no bolt rack.
     r.tap('fire');
     r.run(0.15);
+    r.record.sounds.length = 0;
+    r.tap('reload');
+    r.run(1.2);
+    expect(r.record.sounds).toContain('harrow_mag_out');
+    expect(r.record.sounds).toContain('harrow_mag_in');
+    expect(r.record.sounds).not.toContain('harrow_rack_bolt');
+    // Empty reload: plays harrow_rack_bolt.
+    r.weapons.ammo('harrow').mag = 0;
     r.record.sounds.length = 0;
     r.tap('reload');
     r.run(1.6);
@@ -561,5 +583,53 @@ describe('Shell-by-shell exact-count shotgun reload', () => {
     expect(r.record.sounds).toContain('harrow_mag_in');
     expect(r.record.sounds).toContain('harrow_rack_bolt');
   });
+
+  it('plays deuce_open, deuce_shell_in, and deuce_close during a Deuce break-action reload', async () => {
+    const r = await makeRange();
+    r.reset();
+    r.weapons.give('deuce');
+    r.weapons.switchTo('deuce');
+    r.run(0.5);
+    r.tap('fire');
+    r.run(0.35);
+    r.tap('fire');
+    r.run(0.1);
+    r.record.sounds.length = 0;
+    if (!r.weapons.reloading) r.tap('reload');
+    r.run(1.5);
+    expect(r.weapons.reloading).toBe(false);
+    expect(r.record.sounds).toContain('deuce_open');
+    expect(r.record.sounds).toContain('deuce_shell_in');
+    expect(r.record.sounds).toContain('deuce_close');
+  });
+
+  it('offers the pistol reflex sight on every shotgun (Pump, Thresher, Deuce, Billhook)', async () => {
+    const { thresherDef } = await import('./viewmodels/models/thresher');
+    const kit = makeKit();
+    const checks = [
+      ['shotgunDot', 'shotgun', shotgunDef(kit)],
+      ['thresherDot', 'thresher', thresherDef(kit)],
+      ['deuceDot', 'deuce', deuceDef(kit)],
+      ['billhookDot', 'billhook', billhookDef(kit)],
+    ] as const;
+    for (const [modId, weapon, def] of checks) {
+      expect(MODS[modId].weapon, modId).toBe(weapon);
+      expect(MODS[modId].slot, modId).toBe('sight');
+      const look = def.mods?.[modId];
+      expect(look, modId).toBeDefined();
+      expect(look!.part, modId).toBe('rmr');
+      if (weapon === 'deuce') {
+        expect(moddedDef('deuce', new Set<ModId>(['deuceDot'])).spread).toBeCloseTo(WEAPONS.deuce.spread * 0.88, 6);
+      } else {
+        expect(look!.sight, modId).toBeDefined();
+        expect(look!.rear, modId).toBeNull();
+      }
+      expect(def.model.parts.rmr, modId).toBeDefined();
+      const { root } = restingModel(weapon, def);
+      dressModel(root, def, new Set<ModId>([modId]));
+      expect(root.getObjectByName('rmr')!.visible, modId).toBe(true);
+    }
+  });
 });
+
 

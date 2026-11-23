@@ -398,38 +398,66 @@ function clip(a: Anim): void {
 
   const p = a.reload;
   if (p < 0) return;
-  // Foley: out at 0.05, in at 0.55, bolt at 0.82.
-  const out = seg(p, 0.05, 0.22);
-  const inn = seg(p, 0.4, 0.56);
+  const fromEmpty = a.reloadFromEmpty || a.mag <= 0;
   const mag = P.mag!;
-  const away = inQuad(out) * (1 - outCubic(inn));
-  // It rocks forward out of the catch before it drops, and comes back the same way.
-  mag.rotation.x -= Math.min(1, away * 3) * 0.34;
-  mag.position.y -= away * 0.36;
-  mag.position.z -= away * 0.05;
-  if (p > 0.24 && p < 0.38) mag.visible = false;
-  const seat = p >= 0.555 ? thud(seg(p, 0.555, 0.68)) : 0;
-  const rack = bump(p, 0.76, 0.93);
-  P.charge!.position.z += rack * BOLT_TRAVEL;
-  P.bolt!.position.z += rack * BOLT_TRAVEL;
-
-  const present = hold(p, 0.0, 0.14, 0.88, 1);
-  a.gunR.z -= present * 0.4 + seat * 0.04;
-  a.gunR.x += present * 0.16 + seat * 0.06 - rack * 0.07;
-  a.gunR.y += present * 0.05;
-  a.gunP.x -= present * 0.04;
-  a.gunP.y += present * 0.035 + seat * 0.014;
-  a.gunP.z += present * 0.06 + rack * 0.02;
-
   const h = a.left;
   h.fingerRate = 38;
-  h.to('magHold', inOut(seg(p, 0.0, 0.07)));
-  h.to('pouchL', inOut(seg(p, 0.2, 0.32)));
-  h.to('magHold', inOut(seg(p, 0.38, 0.48)));
-  h.to('chargeHold', inOut(seg(p, 0.66, 0.75)));
-  h.to('gripL', inOut(seg(p, 0.92, 1)));
-  h.shape(HANDS.cup, hold(p, 0.01, 0.07, 0.6, 0.66));
-  h.shape(HANDS.pinch, hold(p, 0.7, 0.75, 0.9, 0.94));
+  if (fromEmpty) {
+    // Empty reload foley: out at 0.05, in at 0.50, bolt at 0.75.
+    const out = seg(p, 0.05, 0.22);
+    const inn = seg(p, 0.36, 0.52);
+    const away = inQuad(out) * (1 - outCubic(inn));
+    // It rocks forward out of the catch before it drops, and comes back the same way.
+    mag.rotation.x -= Math.min(1, away * 3) * 0.34;
+    mag.position.y -= away * 0.36;
+    mag.position.z -= away * 0.05;
+    if (p > 0.24 && p < 0.35) mag.visible = false;
+    const seat = p >= 0.515 ? thud(seg(p, 0.515, 0.64)) : 0;
+    const rack = bump(p, 0.72, 0.91);
+    P.charge!.position.z += rack * BOLT_TRAVEL;
+    P.bolt!.position.z += rack * BOLT_TRAVEL;
+
+    const present = hold(p, 0.0, 0.14, 0.88, 1);
+    a.gunR.z -= present * 0.4 + seat * 0.04;
+    a.gunR.x += present * 0.16 + seat * 0.06 - rack * 0.07;
+    a.gunR.y += present * 0.05;
+    a.gunP.x -= present * 0.04;
+    a.gunP.y += present * 0.035 + seat * 0.014;
+    a.gunP.z += present * 0.06 + rack * 0.02;
+
+    h.to('magHold', inOut(seg(p, 0.0, 0.07)));
+    h.to('pouchL', inOut(seg(p, 0.2, 0.3)));
+    h.to('magHold', inOut(seg(p, 0.35, 0.46)));
+    h.to('chargeHold', inOut(seg(p, 0.62, 0.72)));
+    h.to('gripL', inOut(seg(p, 0.9, 1)));
+    h.shape(HANDS.cup, hold(p, 0.01, 0.07, 0.56, 0.62));
+    h.shape(HANDS.pinch, hold(p, 0.66, 0.72, 0.88, 0.94));
+  } else {
+    // Tactical reload (round already chambered): rock magazine out and in only, skip bolt rack.
+    // Foley: out at 0.06, in at 0.62.
+    const out = seg(p, 0.06, 0.26);
+    const inn = seg(p, 0.44, 0.63);
+    const away = inQuad(out) * (1 - outCubic(inn));
+    mag.rotation.x -= Math.min(1, away * 3) * 0.34;
+    mag.position.y -= away * 0.36;
+    mag.position.z -= away * 0.05;
+    if (p > 0.28 && p < 0.42) mag.visible = false;
+    const seat = p >= 0.625 ? thud(seg(p, 0.625, 0.76)) : 0;
+
+    const present = hold(p, 0.0, 0.14, 0.8, 1);
+    a.gunR.z -= present * 0.38 + seat * 0.04;
+    a.gunR.x += present * 0.14 + seat * 0.06;
+    a.gunR.y += present * 0.04;
+    a.gunP.x -= present * 0.036;
+    a.gunP.y += present * 0.032 + seat * 0.014;
+    a.gunP.z += present * 0.05;
+
+    h.to('magHold', inOut(seg(p, 0.0, 0.08)));
+    h.to('pouchL', inOut(seg(p, 0.24, 0.36)));
+    h.to('magHold', inOut(seg(p, 0.42, 0.54)));
+    h.to('gripL', inOut(seg(p, 0.72, 0.96)));
+    h.shape(HANDS.cup, hold(p, 0.02, 0.08, 0.68, 0.76));
+  }
 }
 
 export function harrowDef(kit: Kit): ViewDef {

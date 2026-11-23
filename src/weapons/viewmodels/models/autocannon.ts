@@ -747,11 +747,13 @@ function sabotAnim(a: Anim): void {
   a.glow('scope', 1);
 
   const p = a.reload;
+  const fromEmpty = a.reloadFromEmpty || a.mag <= 0;
   const spent = Math.max(0, a.magSize - a.mag);
   // The stack climbs one dart on each shot.
   const lag = 1 - outCubic(seg(t, 0.02, 0.1));
   let lift = (spent - lag * (spent > 0 ? 1 : 0)) * S_PITCH;
-  for (let i = 0; i < DARTS.length; i++) P[DARTS[i]!]!.visible = p >= 0.32 || i >= spent;
+  const swapAt = fromEmpty ? 0.32 : 0.36;
+  for (let i = 0; i < DARTS.length; i++) P[DARTS[i]!]!.visible = p >= swapAt || i >= spent;
 
   if (a.draw < 1) {
     const k = 1 - outCubic(a.draw);
@@ -760,33 +762,58 @@ function sabotAnim(a: Anim): void {
     P.charge!.position.z += bump(a.draw, 0.3, 1) * 0.07;
   }
   if (p >= 0) {
-    const coverUp = inOut(seg(p, 0.1, 0.2)) * (1 - inQuad(seg(p, 0.6, 0.66)));
-    const slam = p >= 0.66 ? thud(seg(p, 0.66, 0.78)) : 0;
-    P.cover!.rotation.z -= coverUp * 1.2 + slam * 0.05;
-    if (p < 0.32) lift -= inQuad(seg(p, 0.14, 0.3)) * 0.35;
-    else lift = -(1 - outCubic(seg(p, 0.32, 0.56))) * 0.35;
-
-    const rack = hold(p, 0.74, 0.84, 0.86, 0.9);
-    P.charge!.position.z += rack * 0.08;
-
-    const present = hold(p, 0.0, 0.12, 0.84, 1);
-    a.gunR.z -= present * 0.32;
-    a.gunR.x += present * 0.14 + slam * 0.03;
-    a.gunR.y += present * 0.06;
-    a.gunP.x -= present * 0.06;
-    a.gunP.y += present * 0.03;
-    a.gunP.z += present * 0.08 + rack * 0.012;
-
     const h = a.left;
     h.fingerRate = 36;
-    h.to('coverHold', inOut(seg(p, 0.01, 0.09)));
-    h.to('beltHold', inOut(seg(p, 0.14, 0.34)));
-    h.to('coverHold', inOut(seg(p, 0.52, 0.59)));
-    h.to('chargeHold', inOut(seg(p, 0.67, 0.74)));
-    h.to('gripL', inOut(seg(p, 0.9, 1)));
-    h.shape(HANDS.pinch, hold(p, 0.02, 0.08, 0.12, 0.17));
-    h.shape(HANDS.cup, hold(p, 0.26, 0.34, 0.5, 0.55));
-    h.shape(HANDS.foregrip, hold(p, 0.68, 0.74, 0.9, 0.95));
+    if (fromEmpty) {
+      const coverUp = inOut(seg(p, 0.1, 0.2)) * (1 - inQuad(seg(p, 0.6, 0.66)));
+      const slam = p >= 0.66 ? thud(seg(p, 0.66, 0.78)) : 0;
+      P.cover!.rotation.z -= coverUp * 1.2 + slam * 0.05;
+      if (p < 0.32) lift -= inQuad(seg(p, 0.14, 0.3)) * 0.35;
+      else lift = -(1 - outCubic(seg(p, 0.32, 0.56))) * 0.35;
+
+      const rack = hold(p, 0.74, 0.84, 0.86, 0.9);
+      P.charge!.position.z += rack * 0.08;
+
+      const present = hold(p, 0.0, 0.12, 0.84, 1);
+      a.gunR.z -= present * 0.32;
+      a.gunR.x += present * 0.14 + slam * 0.03;
+      a.gunR.y += present * 0.06;
+      a.gunP.x -= present * 0.06;
+      a.gunP.y += present * 0.03;
+      a.gunP.z += present * 0.08 + rack * 0.012;
+
+      h.to('coverHold', inOut(seg(p, 0.01, 0.09)));
+      h.to('beltHold', inOut(seg(p, 0.14, 0.34)));
+      h.to('coverHold', inOut(seg(p, 0.52, 0.59)));
+      h.to('chargeHold', inOut(seg(p, 0.67, 0.74)));
+      h.to('gripL', inOut(seg(p, 0.9, 1)));
+      h.shape(HANDS.pinch, hold(p, 0.02, 0.08, 0.12, 0.17));
+      h.shape(HANDS.cup, hold(p, 0.26, 0.34, 0.5, 0.55));
+      h.shape(HANDS.foregrip, hold(p, 0.68, 0.74, 0.9, 0.95));
+    } else {
+      // Tactical reload (dart already chambered): swap side stack and close cover, skip charging handle rack.
+      // Foley: out at 0.06, in at 0.64.
+      const coverUp = inOut(seg(p, 0.08, 0.18)) * (1 - inQuad(seg(p, 0.66, 0.74)));
+      const slam = p >= 0.74 ? thud(seg(p, 0.74, 0.86)) : 0;
+      P.cover!.rotation.z -= coverUp * 1.2 + slam * 0.05;
+      if (p < 0.36) lift -= inQuad(seg(p, 0.14, 0.33)) * 0.35;
+      else lift = -(1 - outCubic(seg(p, 0.36, 0.63))) * 0.35;
+
+      const present = hold(p, 0.0, 0.14, 0.8, 0.98);
+      a.gunR.z -= present * 0.3;
+      a.gunR.x += present * 0.13 + slam * 0.03;
+      a.gunR.y += present * 0.05;
+      a.gunP.x -= present * 0.055;
+      a.gunP.y += present * 0.028;
+      a.gunP.z += present * 0.07;
+
+      h.to('coverHold', inOut(seg(p, 0.01, 0.09)));
+      h.to('beltHold', inOut(seg(p, 0.14, 0.36)));
+      h.to('coverHold', inOut(seg(p, 0.58, 0.66)));
+      h.to('gripL', inOut(seg(p, 0.78, 0.96)));
+      h.shape(HANDS.pinch, hold(p, 0.02, 0.08, 0.12, 0.18));
+      h.shape(HANDS.cup, hold(p, 0.28, 0.36, 0.56, 0.62));
+    }
   }
   P.belt!.position.y += lift;
 }

@@ -27,6 +27,8 @@ const BORE = 0.047;
 const MUZZLE = -0.61;
 /** The extended barrel's muzzle (`awlBarrel`), 12 cm on, and how far the can goes forward with it to sit over its brake. */
 const LONG = MUZZLE - 0.12;
+/** The .50 Cal extended barrel's muzzle (`awl50` + `awlBarrel`): 30 cm past the standard muzzle (18 cm longer than regular extended). */
+const LONG_50 = MUZZLE - 0.3;
 const CAN_SHIFT = LONG + 0.072 - (MUZZLE + 0.036);
 /** Receiver ends, and the integral rail: its base and top, and how far forward it runs past the action. */
 const REC_FRONT = -0.135;
@@ -277,11 +279,11 @@ function barrel(m: Mesher): void {
       for (const z of [MUZZLE + 0.011, MUZZLE + 0.022]) m.at([0.0101, 0, z], null, () => m.box(0.0018, 0.005, 0.0062, 0.0006));
     });
     m.lathe([[0.0052, MUZZLE + 0.0002, 0], [0.0046, MUZZLE + 0.03, 0], [0, MUZZLE + 0.031, 0]], 14);
-    // .50 Cal dual-chamber tank brake: child of crown so awlBarrel hides it automatically when switching to the long .50 brake.
+    // .50 Cal 3-chamber tank brake: child of crown so awlBarrel hides it automatically when switching to the long .50 barrel.
     m.part('cal50BrakeStd', [0, 0, 0], () => {
       m.use(F.steelDark);
-      m.lathe([[0.0152, MUZZLE + 0.044, 0], [0.0172, MUZZLE + 0.041], [0.0172, MUZZLE + 0.032], [0.0158, MUZZLE + 0.03, 0]], 14);
-      tankBrake(m, MUZZLE + 0.031, MUZZLE - 0.012, 2, 0.038, 0.025);
+      m.lathe([[0.0152, MUZZLE + 0.044, 0], [0.0178, MUZZLE + 0.041], [0.0178, MUZZLE + 0.032], [0.0164, MUZZLE + 0.03, 0]], 12);
+      tankBrake(m, MUZZLE + 0.031, MUZZLE - 0.034, 3, 0.041, 0.027);
     });
   });
 }
@@ -311,19 +313,19 @@ function longBarrel(m: Mesher): void {
     // .50 Cal extended bull barrel + 3-chamber tank brake: child of longBarrel so it shows only when BOTH awl50 and awlBarrel are fitted.
     m.part('cal50Long', [0, 0, 0], () => {
       m.use(BARREL);
-      m.lathe([[0.0152, MUZZLE + 0.042, 0], [0.0152, LONG + 0.068], [0.0144, LONG + 0.063, 0]], 16);
-      // Heavy machined cooling collar and longitudinal fluting ribs on the extended section.
+      m.lathe([[0.0152, MUZZLE + 0.042, 0], [0.0152, LONG_50 + 0.068], [0.0144, LONG_50 + 0.063, 0]], 16);
+      // Twin machined cooling collars and long fluting ribs along the extended anti-materiel barrel.
       m.use(F.steelDark);
-      m.at([0, 0, (MUZZLE + 0.04 + LONG + 0.066) / 2], null, () => m.cyl(0.0164, 0.014, 14, 0.0008));
+      for (const cz of [-0.655, -0.765]) m.at([0, 0, cz], null, () => m.cyl(0.0164, 0.014, 14, 0.0008));
       m.use(F.black);
       for (const ang of [0.45, 1.57, 2.69, -0.45, -1.57, -2.69]) {
-        m.at([Math.cos(ang) * 0.0149, Math.sin(ang) * 0.0149, (MUZZLE + 0.042 + LONG + 0.066) / 2], [0, 0, ang], () =>
-          m.box(0.0014, 0.0024, (MUZZLE + 0.042) - (LONG + 0.066) - 0.012, 0));
+        m.at([Math.cos(ang) * 0.0149, Math.sin(ang) * 0.0149, (MUZZLE + 0.042 + LONG_50 + 0.066) / 2], [0, 0, ang], () =>
+          m.box(0.0014, 0.0024, (MUZZLE + 0.042) - (LONG_50 + 0.066) - 0.012, 0));
       }
-      // Heavy hex jam nut and oversized 3-chamber .50 BMG tank brake.
+      // Heavy hex jam nut and oversized 3-chamber .50 BMG tank brake out at LONG_50.
       m.use(F.steelDark);
-      m.lathe([[0.0144, LONG + 0.068, 0], [0.0178, LONG + 0.065], [0.0178, LONG + 0.056], [0.0164, LONG + 0.054, 0]], 12);
-      tankBrake(m, LONG + 0.055, LONG - 0.010, 3, 0.041, 0.027);
+      m.lathe([[0.0144, LONG_50 + 0.068, 0], [0.0178, LONG_50 + 0.065], [0.0178, LONG_50 + 0.056], [0.0164, LONG_50 + 0.054, 0]], 12);
+      tankBrake(m, LONG_50 + 0.055, LONG_50 - 0.010, 3, 0.041, 0.027);
     });
   });
 }
@@ -608,14 +610,17 @@ function build(kit: Kit): { model: Model; mods: ViewDef['mods'] } {
 }
 
 function clip(anim: Anim): void {
+  // Extended .50 Cal barrel runs out to LONG_50: push the suppressor and muzzle socket forward with it.
+  const long50 = anim.mods?.has('awl50') === true && anim.mods?.has('awlBarrel') === true;
+  if (long50) anim.parts.can!.position.z += LONG_50 - LONG;
+  if (anim.model?.sockets.muzzleLong) anim.model.sockets.muzzleLong.position.z = long50 ? LONG_50 : LONG;
+
   // The greased bolt runs sooner (GREASE); .50 Cal runs a deliberate 1.15x cycle (mods.ts awl50).
   const cycleScale = (anim.mods?.has('awlBolt') ? GREASE : 1) * (anim.mods?.has('awl50') ? 1.15 : 1);
   const boltTime = anim.sinceCycle >= 0 ? anim.sinceCycle : anim.sinceFire;
   const bolt = boltPose(boltTime / cycleScale);
   anim.parts.bolt!.rotation.z += bolt.lift * 1.12;
   anim.parts.bolt!.position.z += bolt.back * 0.095;
-  anim.parts.grease!.rotation.z = anim.parts.bolt!.rotation.z;
-  anim.parts.grease!.position.z = anim.parts.bolt!.position.z;
   anim.parts.scoutScope!.visible = !anim.mods?.has('awlAcog');
   anim.glow('accent', 1);
   anim.right.to('boltHold', bolt.hand);
@@ -630,17 +635,44 @@ function clip(anim: Anim): void {
     anim.gunR.x -= down * 0.35;
   }
   const progress = anim.reload;
-  if (progress < 0) return;
-  const away = inOut(seg(progress, 0.05, 0.22)) * (1 - inOut(seg(progress, 0.4, 0.55)));
-  anim.parts.mag!.position.y -= away * 0.28;
-  anim.parts.mag!.visible = !(progress > 0.24 && progress < 0.37);
-  const present = hold(progress, 0, 0.12, 0.86, 1);
-  anim.gunR.z -= present * 0.32;
-  anim.gunR.x += present * 0.12;
-  anim.left.to('magHold', inOut(seg(progress, 0, 0.06)));
-  anim.left.to('pouchL', inOut(seg(progress, 0.2, 0.3)));
-  anim.left.to('magHold', inOut(seg(progress, 0.37, 0.48)));
-  anim.left.to('gripL', inOut(seg(progress, 0.65, 0.9)));
+  if (progress >= 0) {
+    const fromEmpty = anim.reloadFromEmpty || anim.mag <= 0;
+    if (fromEmpty) {
+      // Empty reload foley: mag out 0.06, mag in 0.50, bolt open 0.66, bolt close 0.84.
+      const away = inOut(seg(progress, 0.05, 0.22)) * (1 - inOut(seg(progress, 0.36, 0.5)));
+      anim.parts.mag!.position.y -= away * 0.28;
+      anim.parts.mag!.visible = !(progress > 0.23 && progress < 0.35);
+      const present = hold(progress, 0, 0.12, 0.88, 1);
+      anim.gunR.z -= present * 0.32;
+      anim.gunR.x += present * 0.12;
+      anim.left.to('magHold', inOut(seg(progress, 0, 0.06)));
+      anim.left.to('pouchL', inOut(seg(progress, 0.2, 0.3)));
+      anim.left.to('magHold', inOut(seg(progress, 0.35, 0.46)));
+      anim.left.to('gripL', inOut(seg(progress, 0.54, 0.66)));
+      const rLift = inOut(seg(progress, 0.65, 0.71)) * (1 - inOut(seg(progress, 0.87, 0.93)));
+      const rBack = inOut(seg(progress, 0.71, 0.77)) * (1 - inOut(seg(progress, 0.8, 0.87)));
+      const rHand = hold(progress, 0.6, 0.66, 0.92, 0.98);
+      anim.parts.bolt!.rotation.z += rLift * 1.12;
+      anim.parts.bolt!.position.z += rBack * 0.095;
+      anim.right.to('boltHold', rHand);
+      anim.right.shape(HANDS.grip, rHand);
+    } else {
+      // Tactical reload (round already chambered): quick magazine swap only, no bolt operation.
+      // Foley: mag out 0.08, mag in 0.65.
+      const away = inOut(seg(progress, 0.07, 0.28)) * (1 - inOut(seg(progress, 0.48, 0.66)));
+      anim.parts.mag!.position.y -= away * 0.28;
+      anim.parts.mag!.visible = !(progress > 0.3 && progress < 0.45);
+      const present = hold(progress, 0, 0.14, 0.82, 1);
+      anim.gunR.z -= present * 0.3;
+      anim.gunR.x += present * 0.11;
+      anim.left.to('magHold', inOut(seg(progress, 0, 0.08)));
+      anim.left.to('pouchL', inOut(seg(progress, 0.26, 0.38)));
+      anim.left.to('magHold', inOut(seg(progress, 0.45, 0.58)));
+      anim.left.to('gripL', inOut(seg(progress, 0.72, 0.96)));
+    }
+  }
+  anim.parts.grease!.rotation.z = anim.parts.bolt!.rotation.z;
+  anim.parts.grease!.position.z = anim.parts.bolt!.position.z;
 }
 
 export function awlDef(kit: Kit): ViewDef {
