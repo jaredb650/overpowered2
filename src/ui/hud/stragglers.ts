@@ -11,7 +11,7 @@ export const REVEAL_AT = 3;
 export const REVEALS = !ACTIVE.def.training;
 const COLOR = '#ff3b3b';
 /** Among the humans the heavy suit has one man in it, and the boss bar already calls him by name. */
-const nameOf = (e: EnemyInstance): string => (e.id === 'juggernaut' && ACTIVE.def.ai === 'outpost' && !ACTIVE.def.noCommander ? 'The Commander' : ENEMY_NAMES[e.id] ?? 'Hostile');
+const nameOf = (e: EnemyInstance): string => (e.displayName ?? (e.id === 'juggernaut' && ACTIVE.def.ai === 'outpost' && !ACTIVE.def.noCommander ? 'The Commander' : ENEMY_NAMES[e.id] ?? 'Hostile'));
 
 interface Slot {
   enemy: EnemyInstance | null;
@@ -32,11 +32,11 @@ export class Stragglers {
   update(s: HudState): void {
     const reveal = REVEALS && s.phase !== 'intermission' && s.remaining <= REVEAL_AT && s.enemies.length >= s.remaining;
     for (const slot of this.slots) {
-      if (slot.enemy && (!reveal || !slot.enemy.alive)) this.clear(slot);
+      if (slot.enemy && (!reveal || !slot.enemy.alive || slot.enemy.scriptedNpc)) this.clear(slot);
     }
     if (!reveal) return;
     for (const e of s.enemies) {
-      if (!e.alive || this.slots.some(slot => slot.enemy === e)) continue;
+      if (!e.alive || e.scriptedNpc || this.slots.some(slot => slot.enemy === e)) continue;
       const slot = this.slots.find(x => x.enemy === null);
       if (!slot) break;
       slot.enemy = e;

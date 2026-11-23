@@ -263,6 +263,8 @@ export class Enemy implements EnemyInstance {
   scriptedNpc = false;
   /** Optional per-hit filter; returning false drops the hit before any damage, wounds, or reactions. */
   damageFilter: ((d: DamageInfo) => boolean) | null = null;
+  /** Optional HUD display name overriding ENEMY_NAMES[id] (e.g. 'HADREK QUIST'). */
+  displayName?: string;
 
   reset(): void {
     this.position.set(0, 0, 0);
@@ -347,5 +349,6 @@ export class Enemy implements EnemyInstance {
     this.nonHostile = false;
     this.scriptedNpc = false;
     this.damageFilter = null;
+    this.displayName = undefined;
   }
 }

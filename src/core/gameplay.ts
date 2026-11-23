@@ -642,6 +642,10 @@ export interface EnemyInstance {
   readonly machine: boolean;
   /** World time an exploding bolt stuck in him goes off, while it is in him. He runs to his friends. */
   bolted?: number;
+  /** Optional HUD display name overriding the default archetype label (e.g. scripted boss NPCs). */
+  displayName?: string;
+  /** True for scripted story NPCs that manage their own HUD markers and skip normal AI ticks. */
+  scriptedNpc?: boolean;
 }
 
 export interface EnemyRayHit {

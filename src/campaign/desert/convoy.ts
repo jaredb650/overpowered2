@@ -151,7 +151,7 @@ export const DESERT_CONVOY_CONSTANTS = {
   dismountPos: [0, 0, 68] as Pt3,
   leadOffset: [-11, 0, -10] as Pt3,
   rearOffset: [11, 0, 10] as Pt3,
-  quistBedLocal: [0.55, 1.55, 1.35] as Pt3,
+  quistBedLocal: [0.54, 1.58, 2.16] as Pt3,
   maxHull: 500,
   phasePatchHeal: 160,
   /** Mk 19 belt-fed 40mm automatic grenade launcher (~4.8 rounds/sec, 0.208s interval). */
@@ -554,7 +554,7 @@ function buildRaidTruckVisual(
   let quistMesh: THREE.Group | null = null;
   if (role === 'player') {
     quistMesh = buildCapturedQuist(materials);
-    quistMesh.position.set(0.55, 1.05, 1.35);
+    quistMesh.position.set(0.54, 1.08, 2.16);
     quistMesh.rotation.y = 0;
     body.add(quistMesh);
   }

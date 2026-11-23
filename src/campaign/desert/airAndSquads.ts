@@ -1602,38 +1602,40 @@ export class DesertAirAndSquads implements AirAndSquadsController {
 
     if (e.quistCaptured) {
       const quistBed = this.resolveQuistBedWorld(convoy, _quistBed);
-      const sideSign = quistBed.x >= convoy.x ? -1 : 1;
+      // Place camera on Quist's own outer side of the truck bed (never across the central Mk 19 shield)
+      // and slightly above the 2.34 m roll-cage bar so cuffed Quist + burning Surplus are 100% unobstructed.
+      const outSide = quistBed.x >= convoy.x ? 1 : -1;
       const phase1End = ENDING_CUTSCENE.capturedPhase1End;
-      const bob = Math.sin(t * 7.2) * 0.045 + Math.cos(t * 4.1) * 0.025;
-      const p1Y = Math.max(convoy.y + 2.45, quistBed.y + 0.78);
+      const bob = Math.sin(t * 7.2) * 0.035 + Math.cos(t * 4.1) * 0.018;
+      const p1Y = Math.max(convoy.y + 2.55, quistBed.y + 0.96);
 
       if (t <= phase1End) {
-        // Phase 1 (0 -> 4.8 s): Close-up over-the-bed shot of cuffed Hadrek Quist looking north (-Z)
-        // with Warthogs and the opening Surplus airstrike erupting directly behind his shoulder.
+        // Phase 1 (0 -> 4.8 s): Close-up over-the-shoulder shot of cuffed Hadrek Quist looking north (-Z)
+        // positioned cleanly forward of the exhaust stack & above the roll-cage bar so burning Surplus & Warthogs fill the skyline.
         const p1 = smoothstep(0, phase1End, t);
         this.cutView.position.set(
-          quistBed.x + sideSign * lerp(1.85, 2.25, p1),
+          quistBed.x + outSide * lerp(0.38, 0.62, p1),
           p1Y + bob,
-          quistBed.z + lerp(2.65, 3.1, p1),
+          quistBed.z + lerp(1.25, 1.65, p1),
         );
-        _look.set(quistBed.x, quistBed.y + 0.16, quistBed.z - lerp(0.15, 0.75, p1));
+        _look.set(quistBed.x, quistBed.y + 0.34, quistBed.z - lerp(1.4, 2.2, p1));
         this.ctx.camera?.setZoom?.(lerp(42, 45, p1));
 
         if (this.quistFillLight) {
           const fade = 1 - smoothstep(phase1End - 0.85, phase1End, t);
           this.quistFillLight.visible = fade > 0.02;
           this.quistFillLight.intensity = 2.8 * fade;
-          this.quistFillLight.position.set(quistBed.x + sideSign * 0.9, quistBed.y + 1.35, quistBed.z + 1.1);
+          this.quistFillLight.position.set(quistBed.x + outSide * 0.85, quistBed.y + 1.35, quistBed.z + 1.0);
         }
       } else {
         // Phase 2 (4.8 -> 11.8 s): C1-smooth crane-out from the truck bed to panoramic aerial chase,
         // framing Wall, Warren, Pump Yard, High Terraces & intact Cargo Plane on the far north ridge.
         const p2 = smoothstep(phase1End, duration, t);
-        _p1EndPos.set(quistBed.x + sideSign * 2.25, p1Y, quistBed.z + 3.1);
+        _p1EndPos.set(quistBed.x + outSide * 0.62, p1Y, quistBed.z + 1.65);
         _p2EndPos.set(convoy.x + 3.5, convoy.y + 16.0, convoy.z + 27.0);
         this.cutView.position.lerpVectors(_p1EndPos, _p2EndPos, p2);
 
-        _p1EndLook.set(quistBed.x, quistBed.y + 0.16, quistBed.z - 0.75);
+        _p1EndLook.set(quistBed.x, quistBed.y + 0.34, quistBed.z - 2.2);
         _p2EndLook.set(0, 12.0, -80);
         _look.lerpVectors(_p1EndLook, _p2EndLook, smoothstep(0, 0.65, p2));
         this.ctx.camera?.setZoom?.(lerp(45, 62, p2));

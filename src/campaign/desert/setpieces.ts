@@ -735,6 +735,7 @@ export class DesertSetpieces implements SetpiecesController {
   private sewerFlareLight: THREE.PointLight | null = null;
   private sewerRingMesh: THREE.Mesh | null = null;
   private sewerBeaconOn = false;
+  private sewerBeaconSuppressed = false;
   private sewerUnmark: (() => void) | null = null;
 
   // Hadrek Quist ("the Salt King") — real goreable Enemy NPC with custom Salt King bone gear + headless fallback rig
@@ -1352,6 +1353,7 @@ export class DesertSetpieces implements SetpiecesController {
 
   armWaterTower(): void {
     this.ensureBuilt();
+    this.sewerBeaconSuppressed = false;
     if (this.towerDropped) return;
     this.towerArmed = true;
   }
@@ -1437,10 +1439,12 @@ export class DesertSetpieces implements SetpiecesController {
       PUMP_YARD.blockedStreetCenter[2],
     );
 
-    // Huge screen shake & thunderous metallic crash + rushing water audio
-    this.ctx.camera?.addTrauma?.(1.0);
-    this.ctx.render.post?.chromatic?.(0.35, 0.45);
-    this.ctx.render.post?.radialBlur?.(0.28, 0.35);
+    // Huge screen shake & thunderous metallic crash + rushing water audio (skip full-screen jolt if player already passed Pump Yard)
+    if (!this.sewerBeaconSuppressed) {
+      this.ctx.camera?.addTrauma?.(1.0);
+      this.ctx.render.post?.chromatic?.(0.35, 0.45);
+      this.ctx.render.post?.radialBlur?.(0.28, 0.35);
+    }
     this.ctx.audio?.play?.('crusher_slam', { position: impactAt, volume: 1.0 });
     this.ctx.audio?.play?.('wreck_land', { position: impactAt, volume: 1.0 });
     this.ctx.audio?.play?.('explosion_debris', { position: impactAt, volume: 0.95 });
@@ -1556,8 +1560,16 @@ export class DesertSetpieces implements SetpiecesController {
     }
   }
 
+  clearSewerBeacon(): void {
+    this.sewerBeaconSuppressed = true;
+    this.deactivateSewerBeacon();
+  }
+
   private activateSewerBeacon(): void {
-    if (this._quistState !== 'inactive') return;
+    if (this._quistState !== 'inactive' || this.sewerBeaconSuppressed) return;
+    const pz = this.ctx.player?.position?.z;
+    const py = this.ctx.player?.position?.y;
+    if (pz !== undefined && py !== undefined && pz <= -76 && py >= -1.5) return;
     this.sewerBeaconOn = true;
     if (this.sewerBeaconGroup) this.sewerBeaconGroup.visible = true;
     if (this.sewerFlareLight) this.sewerFlareLight.intensity = 5.0;
@@ -1581,6 +1593,11 @@ export class DesertSetpieces implements SetpiecesController {
   }
 
   private updateSewerBeacon(dt: number): void {
+    const p = this.ctx.player?.position;
+    if (p && p.z <= -76 && p.y >= -1.5) {
+      this.deactivateSewerBeacon();
+      return;
+    }
     const t = this.ctx.time?.elapsed ?? 0;
     const pulse = 0.65 + 0.35 * Math.sin(t * 7.5 + dt);
     if (this.sewerFlareLight) {
@@ -1627,6 +1644,7 @@ export class DesertSetpieces implements SetpiecesController {
     enemy.damageFilter = null;
     enemy.scriptedNpc = false;
     enemy.nonHostile = false;
+    enemy.displayName = undefined;
     stripQuistGear(enemy);
 
     if (enemy.alive) {
@@ -1748,6 +1766,7 @@ export class DesertSetpieces implements SetpiecesController {
       spawned.scriptedNpc = true;
       spawned.nonHostile = true;
       spawned.isBoss = true;
+      spawned.displayName = 'HADREK QUIST';
       spawned.health = QUIST_NPC_MAX_HP;
       spawned.maxHealth = QUIST_NPC_MAX_HP;
       spawned.armor = 0;
@@ -2844,6 +2863,7 @@ export class DesertSetpieces implements SetpiecesController {
 
     this.floodActive = false;
     this.sewerBeaconOn = false;
+    this.sewerBeaconSuppressed = false;
     this.towerArmed = false;
     this.towerCollapsing = false;
     this._quistState = 'inactive';
@@ -2872,6 +2892,7 @@ export class DesertSetpieces implements SetpiecesController {
     if (this.floodWaveGroup) this.floodWaveGroup.visible = false;
 
     this.sewerBeaconOn = false;
+    this.sewerBeaconSuppressed = false;
     if (this.sewerBeaconGroup) this.sewerBeaconGroup.visible = false;
     if (this.sewerFlareLight) this.sewerFlareLight.intensity = 0;
     this.sewerUnmark?.();

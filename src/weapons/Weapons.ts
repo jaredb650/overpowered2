@@ -675,7 +675,11 @@ export class Weapons implements WeaponSystem, Guard {
     // A key draws the first weapon the loadout names on it, so a mission that hands out the autocannon gets the
     // autocannon on 4, not the Sabot that now comes first there.
     for (const id of weapons) if (!this.slotLast.has(WEAPONS[id].slot)) this.slotLast.set(WEAPONS[id].slot, id);
-    this.ctx.viewmodel.equip?.(first, 0.01);
+    if (this.holstered) {
+      this.ctx.viewmodel.holster?.(0.01);
+    } else {
+      this.ctx.viewmodel.equip?.(first, 0.01);
+    }
   }
 
   /**

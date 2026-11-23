@@ -364,6 +364,7 @@ export class DesertRaid {
         this.phase = 'terraces';
         if (!this.setpieces.gateBreached) this.setpieces.shatterMainGate();
         if (!this.setpieces.towerDropped) this.setpieces.triggerWaterTowerDrop();
+        this.setpieces.clearSewerBeacon?.();
         this.airAndSquads.advanceSquads('terraces');
         return;
 
@@ -371,6 +372,7 @@ export class DesertRaid {
         this.phase = 'cave';
         if (!this.setpieces.gateBreached) this.setpieces.shatterMainGate();
         if (!this.setpieces.towerDropped) this.setpieces.triggerWaterTowerDrop();
+        this.setpieces.clearSewerBeacon?.();
         this.airAndSquads.advanceSquads('cave');
         return;
 
@@ -385,6 +387,7 @@ export class DesertRaid {
         this.door2Opened = false;
         this.door2ClearClock = 0;
         if (!this.setpieces.gateBreached) this.setpieces.shatterMainGate();
+        this.setpieces.clearSewerBeacon?.();
         this.setpieces.startPlaneChase(this.makeQuistHooks());
         if (!this.setpieces.towerDropped) this.setpieces.triggerWaterTowerDrop();
         return;
@@ -397,6 +400,7 @@ export class DesertRaid {
         this.phase = 'exfil_arrive';
         if (!this.setpieces.gateBreached) this.setpieces.shatterMainGate();
         if (!this.setpieces.towerDropped) this.setpieces.triggerWaterTowerDrop();
+        this.setpieces.clearSewerBeacon?.();
         this.convoy.arriveForExfil(this.quistCaptured);
         if (this.quistCaptured) {
           this.emitOnce('dr:escort_active');

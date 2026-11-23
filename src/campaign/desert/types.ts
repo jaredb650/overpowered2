@@ -86,6 +86,8 @@ export interface SetpiecesController {
   armWaterTower(): void;
   /** Execute the dramatic Water Tower collapse + flood knockback + street rubble block. */
   triggerWaterTowerDrop(): void;
+  /** Deactivate the Pump Yard sewer grate drop beacon once the player advances past the sewer. */
+  clearSewerBeacon?(): void;
   /** Spawn Hadrek Quist inside the Cargo Plane for the chase & 5-outcome speech. */
   startPlaneChase(hooks: QuistHooks): void;
   /** Advance Quist from mid-hull to tail cornered state when player reaches the aft bulkhead. */

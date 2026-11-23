@@ -61,7 +61,7 @@ export class BossBar {
       this.target = boss;
       this.lagValue = 1;
       if (boss) {
-        this.name.set(ENEMY_NAMES[boss.id] ?? boss.id);
+        this.name.set(boss.displayName ?? ENEMY_NAMES[boss.id] ?? boss.id);
         this.limbsRow.set(boss.id === 'titan');
       }
     }
