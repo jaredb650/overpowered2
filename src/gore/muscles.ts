@@ -1058,7 +1058,7 @@ export class MuscleState {
       const p = c.parent;
       if (!p) continue;
       const m = c.muscle!;
-      if (m.broken) continue;
+      if (m.broken || c.fixed) continue;
       const q = _q.copy(p.q).conjugate().multiply(c.q);
       const rel = _rel.copy(c.w).sub(p.w);
       const free = 1 - m.drive;
@@ -1287,8 +1287,8 @@ export class MuscleState {
         }
         continue;
       }
-      // Hinges ride along with the joint above them.
-      if (role === null || role === 'spine' || part.hinge) continue;
+      // Hinges and fixed stand-in joints ride along with the joint above them.
+      if (role === null || role === 'spine' || part.hinge || part.fixed) continue;
       const side = role === 'leg' ? -1 : 1;
       const spin = (role === 'arm' ? t.armSpin : role === 'leg' ? t.legSpin : t.headSpin) * strength * side * lerp(t.spinMin, t.spinMax, rng());
       const off = Math.abs(spin) * t.spinOffAxis;
@@ -1726,6 +1726,7 @@ export class MuscleState {
   }
 
   private addJolt(part: RagPart, axis: THREE.Vector3, spin: number): void {
+    if (part.fixed) return;
     const t = MuscleTuning;
     const j = this.jolts[this.joltAt = (this.joltAt + 1) % MAX_JOLTS]!;
     j.part = part;
@@ -1744,7 +1745,7 @@ export class MuscleState {
       j.left -= dt;
       const c = j.part!;
       const p = c.parent;
-      if (!p) continue;
+      if (!p || c.fixed) continue;
       const wave = Math.sin(Math.PI * clamp(1 - j.left / j.length));
       const impulse = j.size * wave * wave * dt;
       c.tau.addScaledVector(j.axis, impulse);
@@ -2126,6 +2127,7 @@ export class MuscleState {
     const size = this.burstTorque * this.twitch * lerp(t.twitchFade, 1, life) * wave * wave * dt;
     for (let i = 0; i < this.burstCount; i++) {
       const c = this.burstParts[i]!;
+      if (c.fixed) continue;
       const p = c.parent!;
       const axis = _axis.copy(this.burstAxes[i]!).applyQuaternion(p.q);
       const impulse = size * c.muscle!.load;
@@ -2153,7 +2155,7 @@ export class MuscleState {
       for (let i = 0; i < parts.length && this.burstCount < MAX_BURST; i++) {
         const part = parts[i]!;
         const m = part.muscle!;
-        if (!part.parent || !m.hasRelax) continue;
+        if (!part.parent || part.fixed || !m.hasRelax) continue;
         const axis = this.burstAxes[this.burstCount]!;
         if (part.hinge) axis.copy(m.hingeAxis).multiplyScalar(m.relaxAngle > 0 ? -1 : 1);
         else axis.set(-m.relax.x, -m.relax.y, -m.relax.z).normalize();

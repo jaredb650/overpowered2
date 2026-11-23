@@ -225,8 +225,21 @@ export class TestDummy implements CharacterInstance {
     if (this.burnOrigin < 0) this.burnOrigin = bone;
   }
 
+  private readonly standIns = new Set<number>();
+
   attachProp(boneIndex: number, prop: THREE.Object3D): void {
     this.bones[boneIndex]!.add(prop);
+  }
+
+  standIn(boneIndex: number, prop: THREE.Object3D): boolean {
+    if (this.hidden[boneIndex] || this.standIns.has(boneIndex)) return false;
+    this.standIns.add(boneIndex);
+    this.attachProp(boneIndex, prop);
+    return true;
+  }
+
+  hasStandIn(boneIndex: number): boolean {
+    return this.standIns.has(boneIndex);
   }
 
   spawnSevered(boneIndex: number): SeveredLimb {

@@ -24,6 +24,8 @@ export interface RagSource {
   readonly bones: readonly THREE.Bone[];
   /** Joints snapped before this ragdoll existed. */
   isFractured?(bone: number): boolean;
+  /** True when `bone` carries a rigid stand-in prop (e.g. a baked partial head) instead of skinned geometry. */
+  hasStandIn?(bone: number): boolean;
 }
 
 /** Six floats per bone: linear then angular velocity, world space. */
@@ -164,6 +166,8 @@ export class RagPart {
   parent: RagPart | null = null;
   joint: RAPIER.ImpulseJoint | null = null;
   hinge = false;
+  /** Welded rigidly to its parent (a partial-head stand-in seated inside the neck collar). */
+  fixed = false;
   cone = 0;
   twist = 0;
   shape: SwingShape | null = null;
@@ -191,6 +195,15 @@ export class RagPart {
   readonly push = new THREE.Vector3();
 }
 
+/**
+ * Seating limits for a rigid stand-in prop (partial head) welded onto the neck: keeps the flat cut bottom tucked inside
+ * the collar so it never rolls loosely or exposes its underside, while still preserving a slight natural head angle.
+ */
+const STAND_IN_SEAT_CONE = 0.22;
+const STAND_IN_SEAT_TWIST = 0.24;
+const STAND_IN_HARD_CONE = 0.30;
+const STAND_IN_HARD_TWIST = 0.32;
+
 const _pos: THREE.Vector3[] = Array.from({ length: MAX_BONES }, () => new THREE.Vector3());
 const _rot: THREE.Quaternion[] = Array.from({ length: MAX_BONES }, () => new THREE.Quaternion());
 const _lpos: THREE.Vector3[] = Array.from({ length: MAX_BONES }, () => new THREE.Vector3());
@@ -205,10 +218,13 @@ const _c = new THREE.Vector3();
 const _d = new THREE.Vector3();
 const _q = new THREE.Quaternion();
 const _q2 = new THREE.Quaternion();
+const _q3 = new THREE.Quaternion();
+const _q4 = new THREE.Quaternion();
 const _inv = new THREE.Quaternion();
 const _up = new THREE.Vector3(0, 1, 0);
 const _vec = { x: 0, y: 0, z: 0 };
 const _zero = { x: 0, y: 0, z: 0 };
+const _id = { x: 0, y: 0, z: 0, w: 1 };
 
 function readPose(src: RagSource, count: number, chainMask: Uint8Array | null): void {
   src.root.updateMatrixWorld(true);
@@ -499,12 +515,25 @@ export class Rag {
         if (!hit) continue;
         // What the body rests on. Its mass is still the share of the hit capsule's volume, so a foot keeps its weight.
         const shape = (RagTuning.heelFeet ? defs[b]!.collider : undefined) ?? hit;
-        // Capsule ends in this body's frame, through the bone that owns them.
-        _a.set(shape.from[0], shape.from[1], shape.from[2]).applyQuaternion(_rot[b]!).add(_pos[b]!).sub(p).applyQuaternion(_inv);
-        _b.set(shape.to[0], shape.to[1], shape.to[2]).applyQuaternion(_rot[b]!).add(_pos[b]!).sub(p).applyQuaternion(_inv);
+        const stump = source.hasStandIn?.(b) === true;
+        // Capsule ends in this body's frame, through the bone that owns them. A partial-head stand-in gets a compact
+        // stump collider so the missing top of the skull does not lever against the floor.
+        if (stump) {
+          _a.set(shape.from[0] * 0.45, shape.from[1] * 0.45, shape.from[2] * 0.45);
+          _b.set(
+            shape.from[0] + (shape.to[0] - shape.from[0]) * 0.25,
+            shape.from[1] + (shape.to[1] - shape.from[1]) * 0.25,
+            shape.from[2] + (shape.to[2] - shape.from[2]) * 0.25,
+          );
+        } else {
+          _a.set(shape.from[0], shape.from[1], shape.from[2]);
+          _b.set(shape.to[0], shape.to[1], shape.to[2]);
+        }
+        _a.applyQuaternion(_rot[b]!).add(_pos[b]!).sub(p).applyQuaternion(_inv);
+        _b.applyQuaternion(_rot[b]!).add(_pos[b]!).sub(p).applyQuaternion(_inv);
         _c.copy(_b).sub(_a);
         const len = _c.length();
-        const radius = shape.radius * RagTuning.colliderScale;
+        const radius = shape.radius * RagTuning.colliderScale * (stump ? 0.72 : 1);
         const mass = Math.max((info.volume[b]! / Math.max(volume, 1e-6)) * totalMass, 0.05);
         const col = R.ColliderDesc.capsule(Math.max(len * 0.5, 1e-3), radius)
           .setTranslation((_a.x + _b.x) * 0.5, (_a.y + _b.y) * 0.5, (_a.z + _b.z) * 0.5)
@@ -564,7 +593,28 @@ export class Rag {
       part.anchor.copy(_a);
       const axisIndex = part.bone * 3;
       part.axis.set(info.axis[axisIndex]!, info.axis[axisIndex + 1]!, info.axis[axisIndex + 2]!);
-      if (joint?.kind === 'hinge') {
+      if (source.hasStandIn?.(part.bone) === true) {
+        // A partial-head stand-in is a rigid prop cut flat at the neck base over a collapsed skin funnel: weld it
+        // securely into the neck collar at a clamped seated angle so it never rolls loosely or exposes its bottom.
+        part.fixed = true;
+        part.cone = STAND_IN_SEAT_CONE;
+        part.twist = STAND_IN_SEAT_TWIST;
+        part.shape = null;
+        _q.copy(_rot[parent.bone]!).invert().multiply(_rot[part.bone]!);
+        clampRelSwingTwist(_q, part.axis, STAND_IN_SEAT_CONE, STAND_IN_SEAT_TWIST, _q2);
+        _q3.copy(_rot[parent.bone]!).multiply(_q2);
+        part.body.setRotation(_q3, false);
+        if (seeds) {
+          parent.body.angvel(parent.w);
+          _vec.x = parent.w.x;
+          _vec.y = parent.w.y;
+          _vec.z = parent.w.z;
+          part.body.setAngvel(_vec, false);
+        }
+        const fixed = world.createImpulseJoint(R.JointData.fixed(_a, _q2, _zero, _id), parent.body, part.body, true);
+        fixed.setContactsEnabled(false);
+        part.joint = fixed;
+      } else if (joint?.kind === 'hinge') {
         part.hinge = true;
         const ax = joint.axis ?? [1, 0, 0];
         // The animation may hold this joint slightly off its hinge axis. Using the child's own view of the
@@ -613,10 +663,85 @@ export class Rag {
     this.age = 0;
   }
 
+  /**
+   * Welds a bone carrying a rigid stand-in prop (a partial head mounted on an already-active ragdoll) cleanly into its
+   * parent collar, shrinking its collider to match the remaining stump so it cannot roll loosely or expose its underside.
+   */
+  lockStandIn(bone: number): void {
+    const part = this.partOf[bone];
+    if (!this.active || !part?.parent || part.fixed) return;
+    const parent = part.parent;
+    const { R, world } = this.physics;
+    if (part.joint) {
+      world.removeImpulseJoint(part.joint, true);
+      part.joint = null;
+    }
+    const def = this.source.rig.bones[bone]!;
+    const hit = def.hit;
+    if (hit && part.body.numColliders() > 0) {
+      const prev = part.body.collider(0);
+      const mass = part.mass;
+      const friction = prev.friction();
+      const restitution = prev.restitution();
+      const collisionGroups = prev.collisionGroups();
+      const solverGroups = prev.solverGroups();
+      while (part.body.numColliders() > 0) world.removeCollider(part.body.collider(0), false);
+      _a.set(hit.from[0] * 0.45, hit.from[1] * 0.45, hit.from[2] * 0.45);
+      _b.set(
+        hit.from[0] + (hit.to[0] - hit.from[0]) * 0.25,
+        hit.from[1] + (hit.to[1] - hit.from[1]) * 0.25,
+        hit.from[2] + (hit.to[2] - hit.from[2]) * 0.25,
+      );
+      _c.copy(_b).sub(_a);
+      const len = _c.length();
+      const radius = hit.radius * RagTuning.colliderScale * 0.72;
+      const col = R.ColliderDesc.capsule(Math.max(len * 0.5, 1e-3), radius)
+        .setTranslation((_a.x + _b.x) * 0.5, (_a.y + _b.y) * 0.5, (_a.z + _b.z) * 0.5)
+        .setRotation(_q.setFromUnitVectors(_up, len > 1e-5 ? _c.divideScalar(len) : _up))
+        .setMass(mass)
+        .setFriction(friction)
+        .setRestitution(restitution)
+        .setCollisionGroups(collisionGroups)
+        .setSolverGroups(solverGroups);
+      world.createCollider(col, part.body);
+      part.mass = part.body.mass();
+      part.body.localCom(part.com);
+      const inv = part.body.invPrincipalInertia();
+      part.invI.set(inv.x, inv.y, inv.z);
+      const frame = part.body.principalInertiaLocalFrame();
+      part.frame.set(frame.x, frame.y, frame.z, frame.w);
+    }
+    parent.body.translation(parent.p);
+    parent.body.rotation(parent.q);
+    parent.body.angvel(parent.w);
+    part.body.rotation(part.q);
+    _q.copy(parent.q).conjugate().multiply(part.q);
+    clampRelSwingTwist(_q, part.axis, STAND_IN_SEAT_CONE, STAND_IN_SEAT_TWIST, _q2);
+    _q3.copy(parent.q).multiply(_q2);
+    _a.copy(part.anchor).applyQuaternion(parent.q).add(parent.p);
+    part.body.setTranslation(_a, true);
+    part.body.setRotation(_q3, true);
+    _vec.x = parent.w.x;
+    _vec.y = parent.w.y;
+    _vec.z = parent.w.z;
+    part.body.setAngvel(_vec, true);
+    const fixed = world.createImpulseJoint(R.JointData.fixed(part.anchor, _q2, _zero, _id), parent.body, part.body, true);
+    fixed.setContactsEnabled(false);
+    part.joint = fixed;
+    part.fixed = true;
+    part.hinge = false;
+    part.cone = STAND_IN_SEAT_CONE;
+    part.twist = STAND_IN_SEAT_TWIST;
+    part.shape = null;
+    this.poseFresh = false;
+    this.velFresh = false;
+    this.droveSleeping = false;
+  }
+
   /** Opens a joint for good: it hangs by its own weight, past where it should stop. Nothing is left to hold it. */
   breakJoint(bone: number): void {
     const part = this.partOf[bone];
-    if (!part?.parent) return;
+    if (!part?.parent || part.fixed) return;
     if (part.hinge) {
       const joint = this.source.rig.bones[bone]!.joint!;
       const open = RagTuning.brokenHinge;
@@ -703,8 +828,15 @@ export class Rag {
       const part = partOf[b];
       const pq = _wq[defs[b]!.parent]!;
       if (part) {
-        _wq[b]!.copy(part.q);
-        bones[b]!.quaternion.copy(pq).invert().multiply(part.q);
+        if (part.fixed && part.parent) {
+          _q.copy(pq).conjugate().multiply(part.q);
+          clampRelSwingTwist(_q, part.axis, STAND_IN_HARD_CONE, STAND_IN_HARD_TWIST, _q2);
+          _wq[b]!.copy(pq).multiply(_q2);
+          bones[b]!.quaternion.copy(_q2);
+        } else {
+          _wq[b]!.copy(part.q);
+          bones[b]!.quaternion.copy(pq).invert().multiply(part.q);
+        }
       } else {
         _wq[b]!.copy(pq).multiply(bones[b]!.quaternion);
       }
@@ -750,7 +882,7 @@ export class Rag {
         }
       }
       const p = c.parent;
-      if (!p) continue;
+      if (!p || c.fixed) continue;
       const rel = _a.copy(c.w).sub(p.w);
       const mag = rel.length();
       if (mag > 1e-4) {
@@ -1110,6 +1242,28 @@ function wholeVolume(info: RigInfo): number {
   let v = 0;
   for (let i = 0; i < info.count; i++) v += info.volume[i]!;
   return v;
+}
+
+function clampRelSwingTwist(
+  rel: THREE.Quaternion,
+  axis: THREE.Vector3,
+  maxSwing: number,
+  maxTwist: number,
+  out: THREE.Quaternion,
+): THREE.Quaternion {
+  splitSwing(rel, axis);
+  const { angle, twist, x, y, z, hasSwing } = swingTwist;
+  const clampedTwist = clamp(twist, -maxTwist, maxTwist);
+  const clampedSwing = Math.min(angle, maxSwing);
+  if (Math.abs(clampedTwist) > 1e-6) _q4.setFromAxisAngle(axis, clampedTwist);
+  else _q4.identity();
+  if (hasSwing && clampedSwing > 1e-6) {
+    _d.set(x, y, z);
+    out.setFromAxisAngle(_d, clampedSwing).multiply(_q4);
+  } else {
+    out.copy(_q4);
+  }
+  return out;
 }
 
 function hingeAngle(parent: THREE.Quaternion, child: THREE.Quaternion, axis: THREE.Vector3): number {

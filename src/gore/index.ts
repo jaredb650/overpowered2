@@ -2197,7 +2197,11 @@ export class Gore implements GoreSystem {
     // Baked with his left (+X) side gone: the side the round came in by, so a round travelling toward +X mirrors it.
     if (sideways && along.x > 0) mesh.scale.x = -mesh.scale.x;
     // A head already stood in for, or gone, keeps what it has.
-    char.standIn?.(headBone, mesh);
+    const stood = char.standIn?.(headBone, mesh) ?? false;
+    if (stood || char.hasStandIn?.(headBone)) {
+      const owned = this.owned.get(char);
+      if (owned?.rag?.active) owned.rag.lockStandIn(headBone);
+    }
     // Back out of the wound the way the round came, and up: what it blew out of the head.
     _v3.copy(damage.dir).negate().multiplyScalar(0.6).add(_up).normalize();
     for (const [kind, size] of PARTIAL_PIECES) {

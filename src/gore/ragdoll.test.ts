@@ -925,3 +925,84 @@ describe('the ragdoll budget, again', () => {
     }
   }, 60000);
 });
+
+describe('partial head stand-in seating', () => {
+  const headTiltDeg = (c: TestDummy): number => {
+    const q = c.bones[B.head]!.quaternion;
+    return (2 * Math.acos(Math.min(1, Math.abs(q.w))) * 180) / Math.PI;
+  };
+
+  it('welds a head stand-in into the neck collar so it never rolls loose on headshot or floor impact', () => {
+    gore.clear();
+    const c = spawn();
+    expect(c.standIn(B.head, new THREE.Object3D())).toBe(true);
+    gore.ragdoll(c, shot(B.head, c, 320));
+    const rag = chainOf(c)!;
+    const headPart = rag.partFor(B.head);
+    expect(headPart.bone).toBe(B.head);
+    expect(headPart.fixed).toBe(true);
+
+    let worstDeg = 0;
+    let frames = 0;
+    while (gore.stats().ragdolls > 0 && frames < 60 * 5) {
+      frame();
+      worstDeg = Math.max(worstDeg, headTiltDeg(c));
+      frames++;
+    }
+    expect(frames).toBeLessThan(60 * 5);
+    expect(worstDeg).toBeLessThan(20);
+    expect(headTiltDeg(c)).toBeLessThan(20);
+  });
+
+  it('lockStandIn seats a heavily rolled head on an already-active ragdoll and holds it through impacts', () => {
+    gore.clear();
+    const c = spawn();
+    gore.ragdoll(c, shot(B.head, c, 280));
+    run(20);
+    const rag = chainOf(c)!;
+    const headPart = rag.partFor(B.head);
+    expect(headPart.fixed).toBe(false);
+
+    // Force an exaggerated head roll as happens when an intact head slams the floor before a follow-up shot.
+    const neckPart = rag.partFor(B.neck);
+    neckPart.body.rotation(neckPart.q);
+    const rolled = neckPart.q.clone().multiply(new THREE.Quaternion().setFromAxisAngle(v(1, 0, 0), 1.7));
+    headPart.body.setRotation(rolled, true);
+    rag.poseFresh = false;
+    rag.drive();
+    expect(headTiltDeg(c)).toBeGreaterThan(60);
+
+    expect(c.standIn(B.head, new THREE.Object3D())).toBe(true);
+    rag.lockStandIn(B.head);
+    expect(headPart.fixed).toBe(true);
+    rag.drive();
+    expect(headTiltDeg(c)).toBeLessThan(20);
+
+    // Further impact and settling keep the stump firmly seated.
+    rag.applyImpulse(B.head, new THREE.Vector3().setFromMatrixPosition(c.bones[B.head]!.matrixWorld), v(80, 0, -120));
+    let worstDeg = 0;
+    let frames = 0;
+    while (gore.stats().ragdolls > 0 && frames < 60 * 5) {
+      frame();
+      worstDeg = Math.max(worstDeg, headTiltDeg(c));
+      frames++;
+    }
+    expect(frames).toBeLessThan(60 * 5);
+    expect(worstDeg).toBeLessThan(20);
+  });
+
+  it('still allows severing a welded head stand-in cleanly', () => {
+    gore.clear();
+    const c = spawn();
+    c.standIn(B.head, new THREE.Object3D());
+    gore.ragdoll(c, shot(B.chest, c, 120));
+    run(10);
+    const headPos = new THREE.Vector3().setFromMatrixPosition(c.bones[B.head]!.matrixWorld);
+    expect(gore.sever(c, 'head', damage(headPos, 20))).not.toBeNull();
+    expect(c.severed.has('head')).toBe(true);
+    expect(gore.stats().limbs).toBe(1);
+    run(30);
+    for (const b of c.bones) expect(Number.isFinite(b.matrixWorld.elements[13]!)).toBe(true);
+  });
+});
+

@@ -973,6 +973,10 @@ export class Character implements CharacterInstance {
     return true;
   }
 
+  hasStandIn(boneIndex: number): boolean {
+    return this.skeleton.boneInverses[boneIndex] !== this.a.bindInverses[boneIndex];
+  }
+
   attachProp(boneIndex: number, prop: THREE.Object3D, untilReset = false): void {
     this.bones[boneIndex]!.add(prop);
     this.props.push({ bone: boneIndex, object: prop, untilReset });
