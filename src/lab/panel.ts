@@ -80,6 +80,7 @@ export interface PanelActions {
   changed(): void;
   spawn(count: number): void;
   vehicle(kind: VehicleKind): void;
+  driveable(id: import('../vehicles/drive').DriveVehicleId): void;
   /** A mounted gun at the crosshair, or the next level for the one already there. */
   emplacement(): void;
   /** A destructible wall segment across the crosshair. */
@@ -242,6 +243,11 @@ export class LabPanel {
       for (const kind of VEHICLE_ORDER) this.button(vehicles, kind.toUpperCase(), () => this.on.vehicle(kind));
       this.el.appendChild(vehicles);
     }
+    const driveRow = el('div', 'lab-row');
+    for (const id of ['jackal', 'aegis', 'kestrel', 'viper', 'bastion'] as const) {
+      this.button(driveRow, id.toUpperCase(), () => this.on.driveable(id));
+    }
+    this.el.appendChild(driveRow);
     const clear = el('div', 'lab-row');
     this.button(clear, 'Mounted gun', () => this.on.emplacement());
     this.button(clear, 'Wall segment', () => this.on.wall());

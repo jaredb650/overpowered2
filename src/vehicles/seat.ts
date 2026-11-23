@@ -188,6 +188,10 @@ export class GunnerSeat {
   hullText = '';
   /** The Distraint Frame's locational parts diagram, warnings and boot overlay. Null on aircraft seats. */
   frameHud: FrameHullHud | null = null;
+  /** Live telemetry snapshot for player-driveable vehicles (src/vehicles/drive). Null on non-vehicle seats. */
+  vehicleHud: import('./drive/types').VehicleHudData | null = null;
+  /** Optional custom key-hint footer written by the active seat owner (e.g. driveable vehicles). */
+  hintText = '';
   /** A painting launcher's marks, as the panel draws them. */
   marks: readonly MissileTarget[] = [];
   readonly view: SeatView = { position: new THREE.Vector3(), yaw: 0, pitch: 0, roll: 0, shake: 1 };

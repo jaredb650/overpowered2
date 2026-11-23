@@ -38,6 +38,7 @@ import { Stragglers } from './hud/stragglers';
 import { NowPlaying } from './hud/nowplaying';
 import { Callout } from './hud/callout';
 import { HoldRing } from './hud/holdRing';
+import { GrenadeWarn } from './hud/grenadeWarn';
 import { Screens, type ScreenName } from './screens/Screens';
 import { Flythrough } from './screens/flythrough';
 import { MenuBackdrop } from './backdrop/MenuBackdrop';
@@ -107,6 +108,7 @@ export class Hud implements HudSystem {
   private holdRing = new HoldRing();
   private worldLayer: WorldLayer;
   private bubbles: Bubbles;
+  private grenadeWarn: GrenadeWarn;
   private voices: ChatterVoices;
   private boss: BossBar;
   private bannerLanes: Banner;
@@ -155,6 +157,7 @@ export class Hud implements HudSystem {
 
     this.worldLayer = new WorldLayer(ctx);
     this.bubbles = new Bubbles(ctx);
+    this.grenadeWarn = new GrenadeWarn(ctx);
     this.voices = new ChatterVoices(ctx, this.settings);
     this.stragglers = new Stragglers(this.worldLayer);
     this.vitals = new Vitals(ctx);
@@ -219,6 +222,7 @@ export class Hud implements HudSystem {
       this.lowFrame.el,
       this.worldLayer.el,
       this.bubbles.el,
+      this.grenadeWarn.el,
       this.scope.el,
       this.targeting.el,
       this.crosshair.el,
@@ -702,6 +706,7 @@ export class Hud implements HudSystem {
     this.seatPanel?.update();
     this.worldLayer.update(dt);
     this.bubbles.update(playing ? dt : 0);
+    this.grenadeWarn.update(playing);
     this.voices.update(dt, !playing);
     this.boss.update(s, dt);
     this.commander?.nameBoss(this.boss.el);

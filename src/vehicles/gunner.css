@@ -195,3 +195,49 @@
   color: #ffe4de;
 }
 
+/* Driveable vehicles (src/vehicles/drive). Speedometer, boost gauge, seat badge & special ability pill. */
+.gn.tone-vehicle { --gn: #f3f7fa; --gn-dim: rgba(243, 247, 250, 0.62); }
+.gn.tone-vehicle .gn-corner, .gn.tone-vehicle .gn-time, .gn.tone-vehicle .gn-body { display: none; }
+.gn.tone-vehicle .gn-top { top: 4.4rem; }
+.gn.tone-vehicle .gn-arms { left: 5.5rem; bottom: 8.5rem; gap: 0.55rem; width: 22rem; }
+.gn.tone-vehicle .gn-wammo { font-size: 2.1rem; }
+.gn.tone-vehicle .gn-read { right: 5.5rem; bottom: 8.5rem; }
+.gn.tone-vehicle .gn-spin { top: calc(50% + 5.6rem); }
+.gn.tone-vehicle .gn-spin::before { content: 'HEAT'; position: absolute; left: 0; right: 0; bottom: 0.65rem; text-align: center; font-size: 0.9rem; color: var(--gn-dim); }
+.gn.tone-vehicle.hot .gn-spin::before { content: 'OVERHEAT'; color: var(--blood); }
+.gn.tone-vehicle.hot .gn-sfill { background: var(--blood); }
+
+.gn-veh {
+  display: none;
+  position: absolute;
+  left: 50%;
+  bottom: 6.4rem;
+  transform: translateX(-50%);
+  align-items: center;
+  gap: 1.6rem;
+  padding: 0.7rem 1.5rem;
+  background: rgba(8, 12, 18, 0.62);
+  border: 0.12rem solid rgba(255, 255, 255, 0.22);
+  backdrop-filter: blur(4px);
+}
+.gn-veh-spd { display: flex; align-items: baseline; gap: 0.4rem; min-width: 7.5rem; }
+.gn-veh-num { font: 3rem/0.95 var(--display); color: #ffffff; }
+.gn-veh-unit { font-size: 0.95rem; color: var(--gn-dim); letter-spacing: 0.08em; }
+.gn-veh-boost { display: flex; flex-direction: column; gap: 0.28rem; width: 10rem; }
+.gn-veh-bbar { height: 0.45rem; background: rgba(255, 255, 255, 0.14); }
+.gn-veh-bfill { height: 100%; background: #38e8ff; transform-origin: 0 50%; }
+.gn-veh.boosting .gn-veh-bfill { background: #ffae3a; box-shadow: 0 0 0.8rem #ffae3a; }
+.gn-veh-meta { display: flex; align-items: center; gap: 0.8rem; }
+.gn-veh-pill {
+  padding: 0.28rem 0.65rem;
+  font-size: 0.95rem;
+  letter-spacing: 0.06em;
+  background: rgba(255, 255, 255, 0.08);
+  border: 0.1rem solid rgba(255, 255, 255, 0.22);
+  color: var(--gn);
+  white-space: nowrap;
+}
+.gn-veh-pill.active { background: rgba(34, 197, 94, 0.24); border-color: #22c55e; color: #86efac; }
+.gn-veh-pill.cool { opacity: 0.55; }
+
+

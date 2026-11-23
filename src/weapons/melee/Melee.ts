@@ -967,6 +967,16 @@ export class Melee {
       this.fillShape(swing, swing.reach);
       this.scan(damage, source);
     }
+    // Baseball-bat any live grenade in the swing arc back down the crosshair.
+    const batted = this.combat.batGrenade?.(this.ctx.player.eye, this.ctx.player.forward, Math.max(3.6, swing.reach + 1.4));
+    if (batted) {
+      this.ctx.audio.play('metal_clang', { position: batted, pitch: 1.28, volume: 0.95 });
+      this.ctx.fx.sparks(batted, this.ctx.player.forward, 18);
+      this.ctx.camera.kick(-0.028, 0.015, -0.02);
+      this.combat.feel.stop(0.045, true);
+      this.ctx.hud.hitMarker('armor');
+      this.ctx.hud.callout?.('GRENADE DEFLECTED');
+    }
     if (this.hitCount === n) return;
     const kills = this.killCount - k;
     const extra = this.hitCount - n - 1;

@@ -15,7 +15,7 @@ import './gunner.css';
  * AC-130's fire control: four guns on number keys, each with its own magazine. `frame` is the Distraint Frame's cockpit
  * (src/frame): heat under the sight, a row a clock, where the legs point, and the pod's marks.
  */
-export type GunnerTone = 'thermal' | 'door' | 'mount' | 'gunship' | 'frame';
+export type GunnerTone = 'thermal' | 'door' | 'mount' | 'gunship' | 'frame' | 'vehicle';
 
 export interface GunnerWeapon {
   name: string;
@@ -42,6 +42,7 @@ const RETICLES: Readonly<Record<GunnerTone, string>> = {
   door: `<svg class="gn-ret" viewBox="-100 -100 200 200" aria-hidden="true"><circle r="34"/><path d="M-46 0h-14M46 0h14M0-46v-14M0 46v14"/><rect x="-1.6" y="-1.6" width="3.2" height="3.2"/></svg>`,
   mount: `<svg class="gn-ret" viewBox="-100 -100 200 200" aria-hidden="true"><path d="M-30 0h-18M30 0h18M0 30v18"/><rect x="-1.6" y="-1.6" width="3.2" height="3.2"/></svg>`,
   frame: `<svg class="gn-ret" viewBox="-100 -100 200 200" aria-hidden="true"><path d="M-44-20v-12h12M44-20v-12h-12M-44 20v12h12M44 20v12h-12M-22 0h-10M22 0h10M0 14v10"/><rect x="-1.6" y="-1.6" width="3.2" height="3.2"/></svg>`,
+  vehicle: `<svg class="gn-ret" viewBox="-100 -100 200 200" aria-hidden="true"><circle r="24" stroke-dasharray="10 8"/><path d="M-42 0h-14M42 0h14M0-42v-14M0 42v14"/><rect x="-1.8" y="-1.8" width="3.6" height="3.6"/></svg>`,
 };
 
 const _p = new THREE.Vector3();
@@ -158,6 +159,15 @@ export class GunnerHud implements SeatPanel {
   private readonly bootEl: HTMLElement;
   private readonly bootShown: Shown;
   private readonly bootLabel: Label;
+  private readonly vehBox: Shown;
+  private readonly vehSpd: Num;
+  private readonly vehBoost: Meter;
+  private readonly vehBoosting: Flag;
+  private readonly vehSeat: Label;
+  private readonly vehSpecial: Label;
+  private readonly vehSpecialActive: Flag;
+  private readonly vehSpecialCool: Flag;
+  private readonly vehCam: Label;
   private readonly rows: WeaponRow[] = [];
   private readonly reticleHost: HTMLElement;
   private readonly label: Label;
@@ -235,6 +245,18 @@ export class GunnerHud implements SeatPanel {
     const bootLabel = div('gn-boot-line');
     this.bootEl = div('gn-boot', div('gn-boot-title', 'DISTRAINT 4 // BUREAU COMPLIANCE'), bootLabel);
 
+    // Driveable vehicle telemetry strip (speedometer, boost bar, seat badge, special ability pill, camera badge).
+    const vehSpdNum = span('gn-veh-num');
+    const vehBoostFill = div('gn-veh-bfill');
+    const vehSeatEl = span('gn-veh-pill');
+    const vehSpecialEl = span('gn-veh-pill');
+    const vehCamEl = span('gn-veh-pill');
+    const vehEl = div('gn-veh',
+      div('gn-veh-spd', vehSpdNum, span('gn-veh-unit', 'KM/H')),
+      div('gn-veh-boost', span('gn-key', 'BOOST'), div('gn-veh-bbar', vehBoostFill)),
+      div('gn-veh-meta', vehSeatEl, vehSpecialEl, vehCamEl),
+    );
+
     this.el = div('gn',
       div('gn-corner gn-tl'), div('gn-corner gn-tr'), div('gn-corner gn-bl'), div('gn-corner gn-br'),
       tags,
@@ -244,6 +266,7 @@ export class GunnerHud implements SeatPanel {
       hullEl,
       hullWarn,
       this.bootEl,
+      vehEl,
       div('gn-arms', ...this.rows.map(r => r.el)),
       div('gn-read',
         div('gn-row', span('gn-key', 'RNG'), range),
@@ -286,9 +309,19 @@ export class GunnerHud implements SeatPanel {
     this.hullWarnShown = new Shown(hullWarn, 'block');
     this.bootShown = new Shown(this.bootEl, 'flex');
     this.bootLabel = new Label(bootLabel);
+    this.vehBox = new Shown(vehEl, 'flex');
+    this.vehSpd = new Num(vehSpdNum);
+    this.vehBoost = new Meter(vehBoostFill);
+    this.vehBoosting = new Flag(vehEl, 'boosting');
+    this.vehSeat = new Label(vehSeatEl);
+    this.vehSpecial = new Label(vehSpecialEl);
+    this.vehSpecialActive = new Flag(vehSpecialEl, 'active');
+    this.vehSpecialCool = new Flag(vehSpecialEl, 'cool');
+    this.vehCam = new Label(vehCamEl);
     this.fHullBox.set(false);
     this.hullWarnShown.set(false);
     this.bootShown.set(false);
+    this.vehBox.set(false);
     addEventListener('resize', this.measure);
   }
 
@@ -311,16 +344,20 @@ export class GunnerHud implements SeatPanel {
       this.reticleHost.replaceChildren(markup(RETICLES[plan.tone]));
     }
     this.label.set(plan.label);
-    const out = seat.noWayOut ? '' : ` // ${this.key('interact')} ${plan.tone === 'mount' ? 'LEAVE' : plan.tone === 'frame' ? 'EXIT' : 'HAND TO AI'}`;
+    const out = seat.noWayOut ? '' : ` // ${this.key('interact')} ${plan.tone === 'mount' ? 'LEAVE' : plan.tone === 'frame' || plan.tone === 'vehicle' ? 'EXIT' : 'HAND TO AI'}`;
     // The door gunner's pilot throws his own; the chopper (thermal) and gunship seats have the key.
     const flares = plan.tone === 'gunship' || plan.tone === 'thermal' ? ` // ${this.key('jump')} FLARES` : '';
-    this.hint.set(plan.tone === 'gunship'
-      ? `${this.key('fire')} FIRE // 1-4 GUN, AGAIN FOR ROUND // ${this.key('aim')} ZOOM // ${this.key('reload')} VIEW${flares}${out}`
-      : plan.tone === 'frame'
-        ? `${this.key('jump')} JETS // ${this.key('slide')} STOMP // ${this.key('dash')} CHARGE // ${this.key('melee')} MELEE // WHEEL ZOOM${out}`
-      : plan.aimZooms
-        ? `${this.key('fire')} FIRE // ${this.key('aim')} ZOOM${out}`
-        : `${this.key('fire')} CANNON // ${this.key('aim')} ROCKETS // WHEEL ZOOM${flares}${out}`);
+    this.hint.set(seat.hintText
+      ? seat.hintText
+      : plan.tone === 'gunship'
+        ? `${this.key('fire')} FIRE // 1-4 GUN, AGAIN FOR ROUND // ${this.key('aim')} ZOOM // ${this.key('reload')} VIEW${flares}${out}`
+        : plan.tone === 'frame'
+          ? `${this.key('jump')} JETS // ${this.key('slide')} STOMP // ${this.key('dash')} CHARGE // ${this.key('melee')} MELEE // WHEEL ZOOM${out}`
+          : plan.tone === 'vehicle'
+            ? `WASD DRIVE // SHIFT BOOST // F SEAT // C VIEW // Q SPECIAL${out}`
+            : plan.aimZooms
+              ? `${this.key('fire')} FIRE // ${this.key('aim')} ZOOM${out}`
+              : `${this.key('fire')} CANNON // ${this.key('aim')} ROCKETS // WHEEL ZOOM${flares}${out}`);
     this.el.style.setProperty('--gn-hot', plan.enemyColor);
     this.spinShown.set(plan.tone !== 'thermal' && plan.tone !== 'gunship');
   }
@@ -336,6 +373,7 @@ export class GunnerHud implements SeatPanel {
     if (seat.stage !== 'seated') return;
     const { plan } = seat;
     this.label.set(seat.status ? `${plan.label} // ${seat.status}` : plan.label);
+    if (seat.hintText) this.hint.set(seat.hintText);
     this.seconds.set(Math.ceil(seat.left));
     this.timeBar.set(seat.left / plan.seconds);
     this.warning.set(seat.left <= 10);
@@ -354,7 +392,7 @@ export class GunnerHud implements SeatPanel {
     this.altitude.set(Math.round(seat.altitude));
     this.heading.set(Math.round((((-seat.yaw * 180) / Math.PI) % 360 + 360) % 360));
     this.zoom.set(seat.zoomed ? `x${(plan.fov / plan.zoomFov).toFixed(1)}` : 'x1.0');
-    this.spin.set(plan.tone === 'mount' || plan.tone === 'frame' ? seat.heat : seat.spin);
+    this.spin.set(plan.tone === 'mount' || plan.tone === 'frame' || plan.tone === 'vehicle' ? seat.heat : seat.spin);
     this.hot.set(seat.overheated);
     this.inverted.set(seat.inverted);
     for (let i = 0; i < MAX_WEAPONS; i++) this.rows[i]!.update(seat.weapons[i]);
@@ -362,7 +400,22 @@ export class GunnerHud implements SeatPanel {
     // The legs against the view: the middle of the strip is where the view looks, its ends the arc either side.
     if (Number.isFinite(seat.legs)) this.legs.style.transform = `translateX(${(-seat.legs / plan.arcHalf) * 8}rem)`;
     this.updateHull(seat);
+    this.updateVehicle(seat);
     this.markTargets(seat.marks);
+  }
+
+  private updateVehicle(seat: GunnerSeat): void {
+    const v = seat.vehicleHud;
+    this.vehBox.set(v !== null);
+    if (!v) return;
+    this.vehSpd.set(Math.round(v.speedKmh));
+    this.vehBoost.set(v.boost);
+    this.vehBoosting.set(v.boosting);
+    this.vehSeat.set(`SEAT ${v.seatIndex + 1}/${v.seatCount} ${v.seatName}`);
+    this.vehSpecial.set(v.specialActive ? `[Q] ${v.specialLabel} ON` : v.specialReady ? `[Q] ${v.specialLabel}` : `[Q] ${Math.ceil(v.specialFraction * 100)}%`);
+    this.vehSpecialActive.set(v.specialActive);
+    this.vehSpecialCool.set(!v.specialReady && !v.specialActive);
+    this.vehCam.set(v.ammoMode ? `${v.ammoMode} // ${v.cameraLabel}` : `CAM ${v.cameraLabel}`);
   }
 
   private updateHull(seat: GunnerSeat): void {

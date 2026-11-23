@@ -30,7 +30,10 @@ const _up = new THREE.Vector3(0, 1, 0);
 const _pivot = new THREE.Vector3();
 const UP = new THREE.Vector3(0, 1, 0);
 
+let nextVehicleUid = 1;
+
 export abstract class Vehicle {
+  readonly uid = nextVehicleUid++;
   readonly position = new THREE.Vector3();
   readonly quaternion = new THREE.Quaternion();
   readonly parts: PartState[] = [];

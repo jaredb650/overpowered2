@@ -19,6 +19,7 @@ import { Needles } from './needles';
 import { closestOnSegment, closestSegmentPoints } from './geometry';
 import { damageKept, loadBudget, makeBudget, passBody, passWall, perWall, type Budget } from './penetration';
 import { Projectiles } from './Projectiles';
+import { THROWBACK, isThrowbackSource, type IncomingGrenade, type ThrowbackResult } from './throwback';
 import { CAPS, IMPLANTS_ON } from '../progression/implants';
 
 const MAX_RANGE = 800;
@@ -1221,6 +1222,11 @@ export class Combat implements CombatSystem {
     if (def.flash > 0 && closeness > 0.2) c.render.post.flash(0xffcc88, def.flash * closeness, 0.14);
 
     if (hit.count > 0) c.hud.hitMarker(hit.kills > 0 ? 'kill' : 'body');
+    if (hit.kills > 0 && spec.team === 'player' && isThrowbackSource(spec.source)) {
+      c.hud.callout?.('RETURN TO SENDER');
+      c.hud.feed(`RETURN TO SENDER (+${THROWBACK.bonusScore})`, '#ffb347');
+      c.progression?.award?.(THROWBACK.bonusScore, 'RETURN TO SENDER', center);
+    }
     const near = closeness > 0.5 && def.fovPunch > 0 ? HIT_STOP.explosionNear : 0;
     const stop = Math.min(HIT_STOP.explosionMax, near + hit.kills * HIT_STOP.explosionKills);
     if (stop > 0 && spec.team === 'player' && !def.noKillStop) this.feel.stop(stop);
@@ -1353,6 +1359,38 @@ export class Combat implements CombatSystem {
 
   hasIncomingEnemyMissile(center: THREE.Vector3, radius: number): boolean {
     return this.projectiles.hasIncomingEnemyMissile(center, radius);
+  }
+
+  listIncomingGrenades(center: THREE.Vector3, maxDist: number, out: IncomingGrenade[]): number {
+    return this.projectiles.listIncomingGrenades(center, maxDist, out);
+  }
+
+  throwBackGrenade(
+    eye: THREE.Vector3,
+    forward: THREE.Vector3,
+    playerVel: THREE.Vector3,
+    damageMult = 1,
+  ): ThrowbackResult | null {
+    return this.projectiles.throwBackGrenade(eye, forward, playerVel, damageMult);
+  }
+
+  batGrenade(
+    eye: THREE.Vector3,
+    forward: THREE.Vector3,
+    reach?: number,
+    speed?: number,
+    includeOwn?: boolean,
+  ): THREE.Vector3 | null {
+    return this.projectiles.batGrenade(eye, forward, reach, speed, includeOwn);
+  }
+
+  puntEnemyGrenades(
+    center: THREE.Vector3,
+    radius: number,
+    awayFrom: THREE.Vector3,
+    speed?: number,
+  ): number {
+    return this.projectiles.puntEnemyGrenades(center, radius, awayFrom, speed);
   }
 }
 

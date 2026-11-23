@@ -2971,15 +2971,26 @@ export class Weapons implements WeaponSystem, Guard {
   // -------------------------------------------------------------------------------------------
 
   private updateGrenade(dt: number): void {
-    const { audio, input } = this.ctx;
+    const { audio, camera, hud, input, player } = this.ctx;
     const t = TUNING.grenade;
     if (!this.cooking) {
-      if (input.pressed('grenade') && this.grenades > 0) {
-        this.cooking = true;
-        this.cookLeft = t.fuse;
-        this.cookCue = 0;
-        this.grenades--;
-        audio.play('grenade_pin');
+      if (input.pressed('grenade')) {
+        // Priority 1: snatch & hurl back any live enemy grenade within arm's reach (works even at 0 grenades!).
+        const caught = this.combat.throwBackGrenade?.(player.eye, player.forward, player.velocity, this.modifiers.damage);
+        if (caught) {
+          audio.play('grenade_pin', { pitch: 1.32, volume: 0.75 });
+          audio.play('grenade_throw', { pitch: 1.14, volume: 0.95 });
+          camera.kick(-0.045, 0, -0.025);
+          hud.callout?.(caught.flash ? 'FLASH RETURNED' : 'THROW BACK');
+          return;
+        }
+        if (this.grenades > 0) {
+          this.cooking = true;
+          this.cookLeft = t.fuse;
+          this.cookCue = 0;
+          this.grenades--;
+          audio.play('grenade_pin');
+        }
       }
       return;
     }

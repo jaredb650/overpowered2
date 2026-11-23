@@ -18,6 +18,7 @@ import { ProjectileVisuals } from './ProjectileVisuals';
 import { flakBurst, flakFuze, nearestAhead } from './flak';
 import { WpCloud } from './wp';
 import { checkClusterStandoff, detonateCluster } from './cluster';
+import { THROWBACK, safeThrowbackFuse, throwbackPriority, type IncomingGrenade, type ThrowbackResult } from './throwback';
 import { isGuest } from '../core/coop';
 
 const MAX_PROJECTILES = 256;
@@ -169,6 +170,10 @@ export interface Projectile {
   laser: { on: boolean; at: THREE.Vector3 };
   /** Co-op: the number a player's own round goes by between screens (ProjectileSpec.tag), 0 for none. */
   tag: number;
+  /** Initial fuse seconds at spawn (for normalized grenade warning countdown rings). */
+  initialFuse: number;
+  /** True once the player has snatched or batted this enemy grenade back. */
+  thrownBack: boolean;
 }
 
 function createProjectile(): Projectile {
@@ -184,6 +189,7 @@ function createProjectile(): Projectile {
     budget: makeBudget(), baseDamage: 0, armorPiercing: false,
     target: null, turnRate: 0, line: new THREE.Vector3(), steerDelay: 0, weave: 0, weavePhase: 0, accel: 0, topSpeed: 0, age: 0, size: 1, wired: false,
     blastScale: undefined, blastShake: undefined, flak: false, wp: false, cluster: false, cosmetic: false, netId: 0, laser: ROCKET_LASER, tag: 0, ghost: false, blastMirrored: false,
+    initialFuse: 0, thrownBack: false,
     helix: null, helixData: { phase: 0, reach: 0, radius: 0, pitch: 0, startRadius: 0, convergence: 0 }, helixTravel: 0, helixRight: new THREE.Vector3(), helixUp: new THREE.Vector3(), helixOffset: new THREE.Vector3(),
   };
 }
@@ -289,6 +295,8 @@ export class Projectiles {
     p.gravity = spec.gravity === undefined ? 0 : Math.abs(spec.gravity);
     p.life = spec.lifetime ?? DEFAULT_LIFE[kind];
     p.fuse = spec.fuse ?? 0;
+    p.initialFuse = p.fuse;
+    p.thrownBack = false;
     p.homing = spec.homing ?? 0;
     p.trail = spec.trail ?? DEFAULT_TRAIL[kind];
     p.ringClock = p.smokeClock = 0;
@@ -1430,5 +1438,200 @@ export class Projectiles {
       if (p.position.distanceToSquared(center) <= r2) return true;
     }
     return false;
+  }
+
+  /**
+   * Fills `out` with up to `out.length` live enemy grenades within `maxDist` m of `center`, sorted nearest first.
+   * Zero allocations; used by the directional grenade danger HUD and throwback prompt.
+   */
+  listIncomingGrenades(center: THREE.Vector3, maxDist: number, out: IncomingGrenade[]): number {
+    if (out.length === 0 || maxDist <= 0) return 0;
+    const maxD2 = maxDist * maxDist;
+    let count = 0;
+    for (let i = 0; i < this.live.length; i++) {
+      const p = this.live[i]!;
+      if (!p.live || p.kind !== 'grenade' || p.team !== 'enemy' || p.fuse <= 0) continue;
+      if (p.cosmetic && p.netId === 0) continue;
+      const d2 = p.position.distanceToSquared(center);
+      if (d2 > maxD2) continue;
+      const dist = Math.sqrt(d2);
+      // Insert sorted by distance into fixed-size `out`.
+      let slot = count < out.length ? count++ : -1;
+      if (slot < 0) {
+        if (dist >= out[out.length - 1]!.distance) continue;
+        slot = out.length - 1;
+      }
+      while (slot > 0 && dist < out[slot - 1]!.distance) {
+        const prev = out[slot - 1]!;
+        const dst = out[slot]!;
+        dst.position.copy(prev.position);
+        dst.fuse = prev.fuse;
+        dst.maxFuse = prev.maxFuse;
+        dst.distance = prev.distance;
+        dst.flash = prev.flash;
+        dst.inReach = prev.inReach;
+        slot--;
+      }
+      const dst = out[slot]!;
+      dst.position.copy(p.position);
+      dst.fuse = p.fuse;
+      dst.maxFuse = Math.max(p.initialFuse, p.fuse, 0.5);
+      dst.distance = dist;
+      dst.flash = p.source === 'flashbang';
+      dst.inReach = dist <= THROWBACK.grabReach;
+    }
+    return count;
+  }
+
+  /** Converts a caught or batted enemy grenade into a live player-owned projectile with safe fuse & lethal player-scale blast. */
+  private convertToPlayerGrenade(p: Projectile, damageMult: number): boolean {
+    const flash = p.source === 'flashbang';
+    if (p.cosmetic && p.netId) this.ctx.coop?.world?.projectileShot(p.netId);
+    p.cosmetic = false;
+    p.team = 'player';
+    p.resting = false;
+    p.thrownBack = true;
+    p.fuse = safeThrowbackFuse(p.fuse);
+    p.initialFuse = Math.max(p.initialFuse, p.fuse);
+    p.life = p.fuse + 1;
+    p.source = flash ? THROWBACK.flashSource : THROWBACK.fragSource;
+    p.explosive = true;
+    if (flash) {
+      // Returned flashbang becomes a concussive shock burst that staggers & hurts nearby enemies.
+      p.blastRadius = 7.5;
+      p.blastDamage = 95 * damageMult;
+      p.blastKind = 'grenade';
+      p.blastScale = 0.7;
+    } else {
+      p.blastRadius = Math.max(p.blastRadius, TUNING.grenade.radius);
+      p.blastDamage = Math.max(p.blastDamage, TUNING.grenade.damage) * damageMult;
+      p.blastKind = 'grenade';
+      p.blastScale = 1.1;
+    }
+    p.blastSelf = 0.25;
+    this.visuals.tint(p, 'heavy');
+    return flash;
+  }
+
+  /**
+   * Snatches the best live enemy grenade within `THROWBACK.grabReach` and hurls it straight down `forward`.
+   * Returns metadata on success or null when no enemy grenade is in reach.
+   */
+  throwBackGrenade(
+    eye: THREE.Vector3,
+    forward: THREE.Vector3,
+    playerVel: THREE.Vector3,
+    damageMult = 1,
+  ): ThrowbackResult | null {
+    const maxR2 = THROWBACK.grabReach * THROWBACK.grabReach;
+    let best: Projectile | null = null;
+    let bestScore = Infinity;
+    let bestDist = 0;
+
+    for (let i = 0; i < this.live.length; i++) {
+      const p = this.live[i]!;
+      if (!p.live || p.kind !== 'grenade' || p.team !== 'enemy' || p.fuse <= 0) continue;
+      if (p.cosmetic && p.netId === 0) continue;
+      const to = this.w.subVectors(p.position, eye);
+      const d2 = to.lengthSq();
+      if (d2 > maxR2) continue;
+      const dist = Math.sqrt(d2);
+      const dot = dist > 1e-4 ? to.dot(forward) / dist : 1;
+      const score = throwbackPriority(dist, dot);
+      if (score < bestScore) {
+        bestScore = score;
+        best = p;
+        bestDist = dist;
+      }
+    }
+    if (!best) return null;
+
+    const flash = this.convertToPlayerGrenade(best, damageMult);
+    // Start safely in front of the player without clipping past thin cover.
+    const wall = this.ctx.physics.raycast(eye, forward, 0.75, CG.World);
+    best.position.copy(eye).addScaledVector(forward, wall ? Math.max(wall.distance - 0.16, 0.1) : 0.6);
+    best.position.y -= 0.12;
+    best.velocity.copy(forward).multiplyScalar(THROWBACK.throwSpeed);
+    best.velocity.y += THROWBACK.throwUp;
+    best.velocity.addScaledVector(playerVel, TUNING.grenade.inherit);
+    best.gravity = Math.abs(TUNING.grenade.gravity);
+
+    return { flash, fuse: best.fuse, distance: bestDist };
+  }
+
+  /**
+   * Baseball-bats a live grenade within `reach` m in front of `eye` along `forward`.
+   * Works on enemy grenades (and optionally player grenades for trick-shot batting!).
+   * Returns a scratch world position of impact (valid immediately), or null if none hit.
+   */
+  batGrenade(
+    eye: THREE.Vector3,
+    forward: THREE.Vector3,
+    reach: number = THROWBACK.batReach,
+    speed: number = THROWBACK.batSpeed,
+    includeOwn = true,
+  ): THREE.Vector3 | null {
+    const r2 = reach * reach;
+    let best: Projectile | null = null;
+    let bestD2 = r2;
+    for (let i = 0; i < this.live.length; i++) {
+      const p = this.live[i]!;
+      if (!p.live || p.kind !== 'grenade' || p.fuse <= 0) continue;
+      if (p.team !== 'enemy' && (!includeOwn || p.age < 0.14)) continue;
+      if (p.cosmetic && p.netId === 0) continue;
+      const to = this.w.subVectors(p.position, eye);
+      const d2 = to.lengthSq();
+      if (d2 > bestD2) continue;
+      if (d2 > 0.36) {
+        const dot = to.dot(forward) / Math.sqrt(d2);
+        if (dot < THROWBACK.batConeCos) continue;
+      }
+      bestD2 = d2;
+      best = p;
+    }
+    if (!best) return null;
+
+    this.end.copy(best.position);
+    if (best.team === 'enemy') {
+      this.convertToPlayerGrenade(best, this.ctx.weapons?.modifiers.damage ?? 1);
+    } else {
+      best.resting = false;
+      best.fuse = safeThrowbackFuse(best.fuse);
+      best.life = best.fuse + 1;
+    }
+    best.velocity.copy(forward).multiplyScalar(speed);
+    best.velocity.y += THROWBACK.batUp;
+    best.gravity = Math.abs(TUNING.grenade.gravity);
+    return this.end;
+  }
+
+  /**
+   * Punts all live enemy grenades within `radius` m of `center` away from `awayFrom` (used by Distraint Frame backhand/stomp).
+   * Returns number of grenades punted.
+   */
+  puntEnemyGrenades(
+    center: THREE.Vector3,
+    radius: number,
+    awayFrom: THREE.Vector3,
+    speed: number = THROWBACK.framePuntSpeed,
+  ): number {
+    const r2 = radius * radius;
+    let punted = 0;
+    for (let i = 0; i < this.live.length; i++) {
+      const p = this.live[i]!;
+      if (!p.live || p.kind !== 'grenade' || p.team !== 'enemy' || p.fuse <= 0) continue;
+      if (p.cosmetic && p.netId === 0) continue;
+      if (p.position.distanceToSquared(center) > r2) continue;
+      this.convertToPlayerGrenade(p, 1.35);
+      const dir = this.w.subVectors(p.position, awayFrom);
+      dir.y = 0;
+      if (dir.lengthSq() < 1e-4) dir.set(0, 0, -1);
+      else dir.normalize();
+      p.velocity.copy(dir).multiplyScalar(speed);
+      p.velocity.y = 7.5;
+      p.gravity = Math.abs(TUNING.grenade.gravity);
+      punted++;
+    }
+    return punted;
   }
 }

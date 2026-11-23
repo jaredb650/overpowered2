@@ -988,6 +988,8 @@ export class Frame {
     this.net?.news('stomp', [height]);
     this.clearSapper();
     stomp(enemies, at, height, ringScale, powerScale);
+    const punted = this.ctx.combat.puntEnemyGrenades?.(at, S.radius * k * ringScale, at) ?? 0;
+    if (punted > 0) this.ctx.hud.callout?.('GRENADE PUNTED');
     world.objects?.damageExplosivesInRadius?.(at, S.radius * k * ringScale, 160 * k * powerScale, 'frame_stomp');
     enemies.vehicles?.frameBlow?.(at, S.radius * k * ringScale, 240 * k * powerScale, null, 'frame_stomp');
     fx.slam(at, 3.2 * k * ringScale);
@@ -1178,6 +1180,11 @@ export class Frame {
       _v.set(-Math.sin(w.viewYaw), 0, -Math.cos(w.viewYaw));
       _right.set(Math.cos(w.viewYaw) * this.swingArm, 0, -Math.sin(w.viewYaw) * this.swingArm);
       const ahead = _at.clone().addScaledVector(_v, 3.2);
+      const punted = this.ctx.combat.puntEnemyGrenades?.(ahead, FRAME.backhand.reach + 1.5, w.feet, 40) ?? 0;
+      if (punted > 0) {
+        audio.play('metal_clang', { pitch: 1.15, volume: 0.9 });
+        this.ctx.hud.callout?.('GRENADE PUNTED');
+      }
       world.objects?.damageExplosivesInRadius?.(ahead, FRAME.backhand.reach, 110, 'frame_backhand');
       const vHit = enemies.vehicles?.frameBlow?.(ahead, FRAME.backhand.reach, 160, _v, 'frame_backhand') ?? 0;
       fx.slash(_at, UP, _right, FRAME.backhand.arc, FRAME.backhand.reach, 'sweep');

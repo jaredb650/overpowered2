@@ -21,7 +21,7 @@ import { ON_RANGE } from '../../core/devflags';
 import { MISSION_ID } from '../../campaign/select';
 import type { ExplosionKind, RayHit } from '../../core/contracts';
 import { CG, type Ctx, type PlayerSystem } from '../../core/contracts';
-import type { EnemyId, ExplosionSpec, FriendlyAircraft, MissileTarget, VehicleTargets } from '../../core/gameplay';
+import type { EnemyId, ExplosionSpec, FriendlyAircraft, HijackClaim, HijackableVehicle, MissileTarget, VehicleGrappleHit, VehicleTargets } from '../../core/gameplay';
 import { rand } from '../../core/math';
 import { Airframe } from '../../progression/callins/airframe';
 import { GroundProbe } from '../../progression/callins/ground';
@@ -56,6 +56,8 @@ declare module '../../core/contracts' {
   interface GameEvents {
     /** A vehicle is dead. Its wreck is on the map. */
     'vehicle:destroyed': { kind: VehicleKind; source: string; position: THREE.Vector3 };
+    /** Player reeled into a live enemy vehicle with the Gaff harpoon and triggered an instant grapple hijack. */
+    'vehicle:grapple_hijack': { vehicleId: number };
   }
 }
 
@@ -535,6 +537,104 @@ export class VehicleSystem implements VehicleTargets {
     }
     for (const x of this.extras) hit += x.frameBlow?.(at, radius, damage, dir, source) ?? 0;
     return hit;
+  }
+
+  /** Nearest live enemy vehicle within `maxDist` m that can be hijacked on foot or mid-air. */
+  findHijackable(point: THREE.Vector3, maxDist: number): HijackableVehicle | null {
+    let best: Vehicle | null = null;
+    let bestDist = maxDist;
+    for (let i = 0; i < this.live.length; i++) {
+      const v = this.live[i]!;
+      if (!v.alive || v.retired) continue;
+      v.nearest(point, _near);
+      if (_near.distance <= bestDist) {
+        bestDist = _near.distance;
+        best = v;
+      }
+    }
+    if (!best) return null;
+    const kind = best.def.kind;
+    return {
+      id: best.uid,
+      kind,
+      label: best.def.name,
+      position: best.position,
+      quaternion: best.quaternion,
+      health: best.health,
+      maxHealth: best.def.health,
+      armored: kind === 'tank',
+      airborne: kind === 'chopper' || kind === 'transport' || kind === 'doorGunner',
+      distance: bestDist,
+    };
+  }
+
+  /** Resolves a Gaff harpoon ray hit on a collider into a live vehicle grapple anchor in hull-local space. */
+  resolveGrapple(
+    collider: RAPIER.Collider | null,
+    point: THREE.Vector3,
+    normal: THREE.Vector3,
+    distance: number,
+  ): VehicleGrappleHit | null {
+    const part = this.part(collider);
+    if (!part) return null;
+    const v = part.owner;
+    if (!v.alive || v.retired) return null;
+    const invQ = new THREE.Quaternion().copy(v.quaternion).invert();
+    const localOffset = new THREE.Vector3().subVectors(point, v.position).applyQuaternion(invQ);
+    return {
+      vehicleId: v.uid,
+      kind: v.def.kind,
+      point: point.clone(),
+      localOffset,
+      normal: normal.clone(),
+      distance,
+    };
+  }
+
+  /** Updates world-space anchor position for a harpoon lodged into a moving enemy vehicle. */
+  grappleAnchor(vehicleId: number, localOffset: THREE.Vector3, outPos: THREE.Vector3): boolean {
+    for (let i = 0; i < this.live.length; i++) {
+      const v = this.live[i]!;
+      if (v.uid !== vehicleId) continue;
+      if (!v.alive || v.retired) return false;
+      outPos.copy(localOffset).applyQuaternion(v.quaternion).add(v.position);
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * Cleanly commandeers a live enemy vehicle: writes off/ejects enemy crew without softlocking endless waves,
+   * retires the enemy hull, and returns its transform + velocity + health fraction for player takeover.
+   */
+  hijack(vehicleId: number): HijackClaim | null {
+    const idx = this.live.findIndex(v => v.uid === vehicleId);
+    if (idx < 0) return null;
+    const v = this.live[idx]!;
+    if (!v.alive || v.retired) return null;
+
+    const kind = v.def.kind;
+    const position = v.position.clone();
+    let yaw = 0;
+    const velocity = new THREE.Vector3();
+    if (v instanceof GroundVehicle) {
+      yaw = v.drive.yaw;
+      velocity.set(Math.sin(yaw) * v.drive.speed, 0, Math.cos(yaw) * v.drive.speed);
+    } else {
+      _dir.set(0, 0, 1).applyQuaternion(v.quaternion);
+      yaw = Math.atan2(_dir.x, _dir.z);
+    }
+    const healthFraction = Math.max(0.35, Math.min(1, v.health / Math.max(1, v.def.health)));
+
+    this.unflag(v);
+    v.alive = false;
+    v.retired = true;
+    v.remove();
+    this.live.splice(idx, 1);
+    if (this.chopper === v) this.chopper = null;
+    if (v.tag !== null) this.ctx.campaign.unitGone(v.tag, true, 'hijack');
+
+    return { kind, position, yaw, velocity, healthFraction };
   }
 
   // -------------------------------------------------------------------------------------------

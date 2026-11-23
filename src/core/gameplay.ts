@@ -11,6 +11,7 @@ import type { GoreRegion } from '../characters/rig';
 import type { ContractDef } from '../contracts/data';
 import type { Flight } from '../vehicles/flight';
 import type { HelixSpec } from '../weapons/helix';
+import type { IncomingGrenade, ThrowbackResult } from '../weapons/throwback';
 import type { AmmoLoad, CharacterInstance, DamageInfo, DamageType, ExplosionKind, GameSystem, MuzzleKind, SurfaceKind, TracerKind } from './contracts';
 
 // ---------------------------------------------------------------------------------------------
@@ -625,6 +626,14 @@ export interface CombatSystem extends GameSystem {
   ): number;
   /** True when any live enemy rocket is within `radius` m of `center` (Frame Countermeasure Rack auto-flares). */
   hasIncomingEnemyMissile?(center: THREE.Vector3, radius: number): boolean;
+  /** Fills `out` with up to `out.length` live enemy grenades within `maxDist` m of `center`. Returns count. */
+  listIncomingGrenades?(center: THREE.Vector3, maxDist: number, out: IncomingGrenade[]): number;
+  /** Grabs the best live enemy grenade within reach and hurls it down `forward` as a player grenade. */
+  throwBackGrenade?(eye: THREE.Vector3, forward: THREE.Vector3, playerVel: THREE.Vector3, damageMult?: number): ThrowbackResult | null;
+  /** Bats a live grenade within a melee swing cone straight down `forward`; returns hit world point or null. */
+  batGrenade?(eye: THREE.Vector3, forward: THREE.Vector3, reach?: number, speed?: number, includeOwn?: boolean): THREE.Vector3 | null;
+  /** Punts all live enemy grenades within `radius` m of `center` away from `awayFrom` (Distraint Frame melee/stomp). */
+  puntEnemyGrenades?(center: THREE.Vector3, radius: number, awayFrom: THREE.Vector3, speed?: number): number;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -716,6 +725,39 @@ export interface FriendlyAircraft {
   hit(seconds: number): void;
 }
 
+export interface HijackableVehicle {
+  readonly id: number;
+  readonly kind: 'humvee' | 'truck' | 'tank' | 'chopper' | 'transport' | 'doorGunner';
+  readonly label: string;
+  readonly position: THREE.Vector3;
+  readonly quaternion: THREE.Quaternion;
+  readonly health: number;
+  readonly maxHealth: number;
+  /** True for armored vehicles (tanks) that require a quick hatch-rip hold instead of instant board. */
+  readonly armored: boolean;
+  /** True for airborne rotorcraft (hijacked mid-air via Gaff grapple or jet-jump). */
+  readonly airborne: boolean;
+  /** Distance from the query point in meters. */
+  readonly distance: number;
+}
+
+export interface HijackClaim {
+  readonly kind: 'humvee' | 'truck' | 'tank' | 'chopper' | 'transport' | 'doorGunner';
+  readonly position: THREE.Vector3;
+  readonly yaw: number;
+  readonly velocity: THREE.Vector3;
+  readonly healthFraction: number;
+}
+
+export interface VehicleGrappleHit {
+  readonly vehicleId: number;
+  readonly kind: 'humvee' | 'truck' | 'tank' | 'chopper' | 'transport' | 'doorGunner';
+  readonly point: THREE.Vector3;
+  readonly localOffset: THREE.Vector3;
+  readonly normal: THREE.Vector3;
+  readonly distance: number;
+}
+
 /** Enemy vehicles, for whatever resolves a hit. A collider that is not a live vehicle's answers false, and the caller carries on as for any wall. */
 export interface VehicleTargets {
   /** Anything with no blast behind it. */
@@ -734,6 +776,14 @@ export interface VehicleTargets {
   frameCharge?(at: THREE.Vector3, dir: THREE.Vector3): 'soft' | 'tank' | null;
   /** Distraint Frame stomp or backhand against nearby vehicles & wrecks. */
   frameBlow?(at: THREE.Vector3, radius: number, damage: number, dir: THREE.Vector3 | null, source: string): number;
+  /** Finds the nearest live enemy vehicle within `maxDist` m that the player can hijack right now. */
+  findHijackable?(point: THREE.Vector3, maxDist: number): HijackableVehicle | null;
+  /** Looks up a live enemy vehicle by id and writes its current world anchor given a local hull offset (for Gaff rope). */
+  grappleAnchor?(vehicleId: number, localOffset: THREE.Vector3, outPos: THREE.Vector3): boolean;
+  /** Tests whether a collider belongs to a live hijackable enemy vehicle (for Gaff harpoon latching). */
+  resolveGrapple?(collider: RAPIER.Collider | null, point: THREE.Vector3, normal: THREE.Vector3, distance: number): VehicleGrappleHit | null;
+  /** Ejects enemy crew cleanly (updating wave queues safely), retires the enemy vehicle, and returns its transform for takeover. */
+  hijack?(vehicleId: number): HijackClaim | null;
 }
 
 export interface EnemySystem extends GameSystem {

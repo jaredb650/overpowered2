@@ -46,7 +46,7 @@ const _at = new THREE.Vector3();
 const MELEE_LINE: readonly number[] = [1.5, 2.5, 3.5, 5, 8];
 
 /** Panel actions that act on the shared world, which a co-op match leaves to the host's own waves. */
-const WORLD_ACTIONS = ['spawn', 'vehicle', 'emplacement', 'wall', 'killAll', 'breakNerve', 'clearBodies', 'togglePause', 'step', 'setSpeed', 'swarm', 'melee',
+const WORLD_ACTIONS = ['spawn', 'vehicle', 'driveable', 'emplacement', 'wall', 'killAll', 'breakNerve', 'clearBodies', 'togglePause', 'step', 'setSpeed', 'swarm', 'melee',
   'lance', 'gallery', 'heavy', 'doorGun', 'parkour', 'jump'] as const;
 
 const isField = (t: EventTarget | null): boolean => t instanceof HTMLElement && /^(INPUT|SELECT|TEXTAREA)$/.test(t.tagName);
@@ -80,6 +80,7 @@ export class Lab {
       changed: () => this.changed(),
       spawn: n => this.spawn(n),
       vehicle: kind => this.spawner.vehicle(kind, this.settings.ai),
+      driveable: id => this.spawner.driveable(id),
       emplacement: () => this.spawner.emplacement(),
       wall: () => this.spawner.wall(),
       killAll: () => this.spawner.killAll(),

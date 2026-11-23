@@ -886,6 +886,112 @@
   to { opacity: 0.68; }
 }
 
+/* --- Live enemy grenade directional danger ring & throwback prompt (ui/hud/grenadeWarn.ts) --- */
+.gw-layer {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 26;
+}
+.gw-mark {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 44px;
+  height: 44px;
+  margin-left: -22px;
+  margin-top: -22px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  will-change: transform;
+  --gw-c: #ff9c38;
+}
+.gw-mark.urgent {
+  --gw-c: #ff3830;
+  animation: op-gw-pulse 0.28s ease-in-out infinite alternate;
+}
+.gw-mark.flash {
+  --gw-c: #74d4ff;
+}
+.gw-svg {
+  width: 40px;
+  height: 40px;
+  filter: drop-shadow(0 0 6px rgba(0, 0, 0, 0.85));
+}
+.gw-bg {
+  fill: rgba(10, 14, 18, 0.72);
+  stroke: rgba(255, 255, 255, 0.22);
+  stroke-width: 2.5;
+}
+.gw-fuse {
+  fill: none;
+  stroke: var(--gw-c);
+  stroke-width: 3.4;
+  stroke-linecap: butt;
+  transform: rotate(-90deg);
+  transform-origin: 20px 20px;
+}
+.gw-icon {
+  fill: var(--gw-c);
+}
+.gw-dist {
+  margin-top: -2px;
+  padding: 0 4px;
+  font: 800 0.72rem/1.15 var(--mono);
+  letter-spacing: 0.05em;
+  color: #fff;
+  background: rgba(8, 10, 14, 0.78);
+  text-shadow: 0 1px 2px #000;
+}
+.gw-arrow {
+  position: absolute;
+  inset: -11px;
+  display: none;
+  pointer-events: none;
+}
+.gw-mark.off .gw-arrow {
+  display: block;
+}
+.gw-arrow::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 0;
+  margin-left: -5px;
+  width: 0;
+  height: 0;
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-bottom: 9px solid var(--gw-c);
+  filter: drop-shadow(0 0 3px #000);
+}
+.gw-prompt {
+  position: absolute;
+  left: 50%;
+  top: calc(50% + 4.2rem);
+  transform: translateX(-50%);
+  padding: 0.36rem 0.95rem;
+  background: rgba(12, 14, 18, 0.88);
+  border: 1px solid rgba(255, 168, 56, 0.7);
+  border-left: 0.28rem solid #ff5638;
+  box-shadow: 0 0 16px rgba(255, 86, 56, 0.35), 0 0 0 1px #000;
+  animation: op-gw-pulse 0.35s ease-in-out infinite alternate;
+  white-space: nowrap;
+}
+.gw-prompt-text {
+  font: 900 0.96rem/1.15 var(--mono);
+  letter-spacing: 0.12em;
+  color: #fff3dc;
+  text-transform: uppercase;
+  text-shadow: 0 1px 3px #000;
+}
+@keyframes op-gw-pulse {
+  from { opacity: 1; }
+  to { opacity: 0.68; }
+}
+
 /* --- User HUD visibility toggles (ui/settings.ts) --- */
 .hud.hud-off > :not(.scope),
 .hud.hud-no-crosshair [data-hud-part="crosshair"],

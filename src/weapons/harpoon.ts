@@ -19,7 +19,7 @@ import { toldKill, type EnemyInstance } from '../core/gameplay';
 import type { GoreRegion } from '../characters/rig';
 import { clamp } from '../core/math';
 
-export type HarpoonState = 'ready' | 'flying' | 'anchored_wall' | 'anchored_enemy';
+export type HarpoonState = 'ready' | 'flying' | 'anchored_wall' | 'anchored_enemy' | 'anchored_vehicle';
 
 export interface HarpoonUpdateResult {
   /** Velocity delta applied to the player this step (null when not reeling or in cosmetic mode). */
@@ -51,6 +51,12 @@ export const HARPOON = {
   pullMaxSpeed: 36,
   /** Auto-release distance from wall anchor in meters. */
   pullMinDist: 2.2,
+  /** High-speed reel acceleration when slingshotting into a moving enemy vehicle to hijack it. */
+  vehiclePullAccel: 78,
+  /** Target sling speed cap when reeling onto a moving enemy vehicle in m/s. */
+  vehiclePullMaxSpeed: 46,
+  /** Distance from a grappled enemy vehicle hull at which grapple-hijack triggers automatically. */
+  vehicleHijackDist: 5.8,
   /** Reel speed for regular living enemies pulled toward the player in m/s. */
   enemyPullSpeed: 24,
   /** Reel speed for heavy/boss enemies pulled toward the player in m/s. */
@@ -296,6 +302,7 @@ export class Harpoon {
   private readonly visualPos = new THREE.Vector3();
 
   private anchoredEnemy: EnemyInstance | null = null;
+  private anchoredVehicleId = -1;
   private flown = 0;
   private flightElapsed = 0;
   private reelTickTimer = 0;
@@ -475,6 +482,7 @@ export class Harpoon {
     this.source = source;
     this.cosmetic = cosmetic;
     this.anchoredEnemy = null;
+    this.anchoredVehicleId = -1;
     this._reeling = false;
     this.flown = 0;
     this.flightElapsed = 0;
@@ -501,7 +509,7 @@ export class Harpoon {
 
   /**
    * Advance harpoon flight (both tethered and untethered), multi-body skewer, wall pinning,
-   * enemy/wall grapple reeling, and 3D spear/rope visuals. Zero per-frame heap allocations.
+   * enemy/wall/vehicle grapple reeling, and 3D spear/rope visuals. Zero per-frame heap allocations.
    */
   update(
     dt: number,
@@ -543,6 +551,8 @@ export class Harpoon {
       this.stepWallGrapple(dt, reelHeld, eye);
     } else if (this._state === 'anchored_enemy') {
       this.stepEnemyGrapple(dt, reelHeld, eye);
+    } else if (this._state === 'anchored_vehicle') {
+      this.stepVehicleGrapple(dt, reelHeld, eye);
     }
 
     this.syncVisuals(muzzle);
@@ -645,6 +655,24 @@ export class Harpoon {
     if (hitStopped) return;
 
     if (wall) {
+      const vh = this.ctx.enemies?.vehicles?.resolveGrapple?.(wall.collider, wall.point, wall.normal, wall.distance) ?? null;
+      if (vh) {
+        this.anchoredVehicleId = vh.vehicleId;
+        this.anchorLocalOffset.copy(vh.localOffset);
+        this.pos.copy(vh.point);
+        this.anchorPos.copy(vh.point);
+        this.anchorNormal.copy(vh.normal);
+        this._state = 'anchored_vehicle';
+        this.ropeTension = 0.72;
+        if (!this.cosmetic) {
+          this.ctx.fx?.sparks?.(vh.point, vh.normal, 18, 0xffd066);
+          this.ctx.audio?.play('metal_clang', { position: vh.point, volume: 1.0, pitch: 0.92 });
+          this.ctx.audio?.play('stake_twang', { position: vh.point, volume: 0.95, pitch: 1.05 });
+          this.ctx.hud?.floatText?.(vh.point, 'GRAPPLED — REEL TO HIJACK', '#ffd166');
+        }
+        return;
+      }
+
       this.pos.copy(wall.point);
       this.anchorPos.copy(wall.point);
       this.anchorNormal.copy(wall.normal);
@@ -960,6 +988,57 @@ export class Harpoon {
     this.tickReelSound(dt, eye);
   }
 
+  private stepVehicleGrapple(dt: number, reelHeld: boolean, eye: THREE.Vector3): void {
+    const vehicles = this.ctx.enemies?.vehicles;
+    if (this.anchoredVehicleId < 0 || !vehicles?.grappleAnchor?.(this.anchoredVehicleId, this.anchorLocalOffset, this.anchorPos)) {
+      this.detach(true);
+      return;
+    }
+
+    this.pos.copy(this.anchorPos);
+    const toAnchor = this.tmpA.subVectors(this.anchorPos, eye);
+    const dist = toAnchor.length();
+
+    // Allow manual [E] hijack while reeling within generous reach, or automatic grapple-hijack on arrival.
+    const wantsHijack = !this.cosmetic && (
+      dist <= HARPOON.vehicleHijackDist
+      || (reelHeld && dist <= HARPOON.vehicleHijackDist + 3.2 && Boolean(this.ctx.input?.pressed?.('interact')))
+    );
+    if (wantsHijack) {
+      const targetId = this.anchoredVehicleId;
+      this.detach(false);
+      this.ctx.events?.emit?.('vehicle:grapple_hijack', { vehicleId: targetId });
+      return;
+    }
+
+    if (!reelHeld) {
+      this.ropeTension = Math.max(0.25, this.ropeTension - dt * 3.5);
+      return;
+    }
+
+    this._reeling = true;
+    this.ropeTension = Math.min(1, this.ropeTension + dt * 9);
+    if (this.cosmetic || dist < 1e-4) return;
+
+    const pullDir = toAnchor.divideScalar(dist);
+    const player = this.ctx.player;
+    const currentAlong = player ? player.velocity.dot(pullDir) : 0;
+    const accelStep = currentAlong < HARPOON.vehiclePullMaxSpeed
+      ? Math.min(HARPOON.vehiclePullAccel * dt, HARPOON.vehiclePullMaxSpeed - currentAlong)
+      : 0;
+
+    this.outDelta.copy(pullDir).multiplyScalar(accelStep);
+    if (pullDir.y > -0.6) {
+      const currentVy = player ? player.velocity.y : 0;
+      const liftScale = clamp(1 - Math.max(0, currentVy) / 18, 0, 1);
+      this.outDelta.y += (HARPOON.pullLift + 6) * liftScale * dt;
+    }
+
+    if (player) player.push(this.outDelta);
+    this.outResult.velocityDelta = this.outDelta;
+    this.tickReelSound(dt, eye);
+  }
+
   private tickReelSound(dt: number, eye: THREE.Vector3): void {
     this.reelTickTimer -= dt;
     if (this.reelTickTimer <= 0) {
@@ -972,6 +1051,7 @@ export class Harpoon {
     this._state = 'ready';
     this._reeling = false;
     this.anchoredEnemy = null;
+    this.anchoredVehicleId = -1;
     this.ropeTension = 0;
     this.clearSkewered();
     this.hitEnemyUids.clear();

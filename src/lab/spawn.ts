@@ -242,6 +242,15 @@ export class LabSpawner {
     });
   }
 
+  /** Spawns a player-driveable vehicle right under the crosshair facing away from the player. */
+  driveable(id: import('../vehicles/drive').DriveVehicleId): void {
+    const { player, progression } = this.ctx;
+    const driveables = (progression as unknown as { callInsManager: CallInManager }).callInsManager.driveables;
+    this.aimPoint(3.4, _at);
+    const yaw = Math.atan2(player.forward.x, player.forward.z);
+    driveables.spawn(id, _at.clone(), yaw);
+  }
+
   /** A mounted gun on the floor under the crosshair, facing away from the player. Pressed again on the same gun, it goes up a level. */
   emplacement(): void {
     const { player, progression } = this.ctx;

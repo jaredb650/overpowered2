@@ -11,6 +11,7 @@ import type { CallInId } from '../../core/gameplay';
 import { ATTACK_AIRFRAME, type AttackMount } from '../../vehicles/attackModel';
 import type { Flight } from '../../vehicles/flight';
 import { Emplacements } from '../../vehicles/emplacement';
+import { DriveableManager } from '../../vehicles/drive';
 import { ACTIVE } from '../../contracts/select';
 import { FRAME_ASKED } from '../../frame/data';
 import { Frame } from '../../frame/seat';
@@ -99,6 +100,8 @@ export class CallInManager implements CallinLink {
   private readonly seats: SeatRig;
   /** Mounted guns. Here because they seat the player through the same rig as the aircraft. */
   readonly emplacements: Emplacements;
+  /** Player-driveable vehicles (Jackal, Aegis, Kestrel, Viper, Bastion) & live enemy vehicle hijacking. */
+  readonly driveables: DriveableManager;
   /** The Distraint Frame, here for the same reason. Built the first time it is asked for. */
   private frameRig: Frame | null = null;
   private readonly harrow: Ride<AttackMount>;
@@ -152,6 +155,7 @@ export class CallInManager implements CallinLink {
     this.sentryRig = new SentryRig(materials, scene);
     this.mirror = new CallinMirror(ctx, materials, this.seats, this.aftermath);
     this.emplacements = new Emplacements(ctx, materials, this.seats, () => this.holster());
+    this.driveables = new DriveableManager(ctx, materials, this.seats, () => this.holster());
     // Co-op guest: the uplink is jammed when the host says so, and clear again with a new run.
     ctx.events.on('commander:status', e => { if (e.flag === 'uplink') this.uplinkTold = e.on; });
     ctx.events.on('run:start', () => { this.uplinkTold = false; });
@@ -347,6 +351,7 @@ export class CallInManager implements CallinLink {
     }
 
     this.frameRig?.update(this.ctx.time.playerDt);
+    this.driveables.update(this.ctx.time.playerDt, !this.steering && !this.targeting.id);
     this.emplacements.update(dt, !this.steering && !this.targeting.id);
     if (this.holstered && !this.aiming && !this.seats.occupied) {
       this.gunBackIn -= dt;
@@ -629,6 +634,7 @@ export class CallInManager implements CallinLink {
   clear(): void {
     this.shut = false;
     this.frameRig?.clear();
+    this.driveables.clear();
     this.emplacements.clear();
     if (this.targeting.id) this.targeting.exit();
     this.steering = null;
