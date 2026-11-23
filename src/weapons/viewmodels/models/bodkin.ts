@@ -21,6 +21,7 @@ import type { Anim, ViewDef } from '../def';
 import { HANDS } from '../poses';
 import { OPTIC_GLOWS, acog, acogShade } from './optics';
 import { TORCH, weaponLight } from './light';
+import { LASER_GLOW, RIFLE_LAM_RANGE, lamSocket, weaponLam } from './laser';
 
 /** Bore axis height above origin. */
 const BORE = 0.042;
@@ -170,9 +171,10 @@ function bullpupShell(m: Mesher): void {
     screwX(m, 0.0222, 0.022, -0.345, 1, 0.0019);
   });
 
-  // Left-side recessed mini-rail pad for the weapon light mod (`bodkinLight`), tucked low on the fore-end nose.
+  // Recessed mini-rail pads on both fore-end flanks for the weapon light (`bodkinLight`) and laser sight (`bodkinLam`).
   m.use(F.anodized);
   m.at([-0.0205, 0.016, -0.312], [0, 0, Math.PI / 2], () => rail(m, -0.024, 0.024, 0.014, F.anodized));
+  m.at([0.0205, 0.016, -0.312], [0, 0, -Math.PI / 2], () => rail(m, -0.024, 0.024, 0.014, F.anodized));
 
   // Ultra-thin recessed cyan chamber-status glow line on the left upper flank (CLAUDE.md: thin inset line only).
   m.use(F.black);
@@ -679,14 +681,16 @@ function buildBodkin(kit: Kit): Built {
     ], 0.001), 0.0068, { bevel: 0.0007 });
   });
 
-  // Weapon light (`bodkinLight`, part MUST be named `'light'` for light.test.ts), tucked low on the left fore-end rail
+  // Weapon light and laser sight (`bodkinLight`, `bodkinLam`), tucked low on opposite fore-end rails
   // well below the 4x ACOG sight circle.
   weaponLight(m, [-0.0355, 0.016, -0.312], -Math.PI / 2);
+  weaponLam(m, [0.0355, 0.016, -0.312], Math.PI / 2);
 
   const model = new Model(m, kit.mats, {
-    glows: { reticle: [0xff4a1c, 7], status: [0x2ff0d0, 4], torch: TORCH, ...OPTIC_GLOWS },
+    glows: { reticle: [0xff4a1c, 7], status: [0x2ff0d0, 4], torch: TORCH, laser: LASER_GLOW, ...OPTIC_GLOWS },
   });
   acogShade(model);
+  lamSocket(model);
 
   model.socket('muzzle', [0, BORE, MUZZLE - 0.004]);
   model.socket('eject', [0, -0.018, 0.085]);
@@ -705,6 +709,7 @@ function buildBodkin(kit: Kit): Built {
     bodkinBurst5: { part: 'burstCam' },
     bodkinTungsten: { part: 'tungstenMuzzle', also: ['tungstenBreech', 'tungstenMagStd', 'tungstenMagExt'] },
     bodkinLight: { part: 'light' },
+    bodkinLam: { part: 'lam', laser: 'lam', laserRange: RIFLE_LAM_RANGE },
     bodkinMagwell: { part: 'magwell' },
   };
   return { model, mods };

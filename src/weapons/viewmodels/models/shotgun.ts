@@ -15,6 +15,7 @@ import { GREASE } from '../../mods';
 import { HANDS } from '../poses';
 import { drawCount, pullTrigger, shell12 } from './common';
 import { TORCH, weaponLight } from './light';
+import { LASER_GLOW, lamSocket, weaponLam } from './laser';
 
 const BORE = 0.03;
 const TUBE = 0.0;
@@ -286,13 +287,15 @@ function buildShotgun(kit: Kit): Model {
   // The shell in the hand during a reload. Its part origin is the head of the shell.
   m.part('shell', [0, -0.03, -0.1], () => shell12(m, F.red));
 
-  // The shop's weapon light (weapons/mods.ts LIGHT_GUNS), hidden until fitted. A barrel clamp on the left, ahead of the pump's travel.
+  // The shop's weapon light and laser sight (weapons/mods.ts), hidden until fitted. Opposite barrel clamps ahead of the pump's travel.
   weaponLight(m, [-0.0315, 0.022, -0.5], -Math.PI / 2);
+  weaponLam(m, [0.0315, 0.022, -0.5], Math.PI / 2);
 
   const model = new Model(m, kit.mats, {
-    glows: { sight: [0x9cff3a, 6], torch: TORCH },
+    glows: { sight: [0x9cff3a, 6], torch: TORCH, laser: LASER_GLOW },
     screens: { ammo: [240, 22] },
   });
+  lamSocket(model);
   model.socket('muzzle', [0, BORE, -0.702]);
   model.socket('muzzleChoke', [0, BORE, -0.756]);
   model.socket('muzzleSawed', [0, BORE, -0.46]);
@@ -400,9 +403,11 @@ export function shotgunDef(kit: Kit): ViewDef {
         part: 'sawedOff', hides: 'barrelFull', muzzle: 'muzzleSawed',
         sight: [0, 0.054, -0.444], rear: [0, 0.0795, 0.0421], relief: 0.65,
         moves: { part: 'light', z: 0.072 },
+        alsoMoves: [{ part: 'lam', z: 0.072 }],
       },
       shotgunBolt: { part: 'greaseBolt', also: 'greaseBars' },
       shotgunLight: { part: 'light' },
+      shotgunLam: { part: 'lam', laser: 'lam' },
     },
   };
 }

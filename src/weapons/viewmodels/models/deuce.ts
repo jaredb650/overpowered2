@@ -19,6 +19,7 @@ import { HANDS } from '../poses';
 import { pullTrigger, shell12 } from './common';
 import { stock } from './shotgun';
 import { TORCH, weaponLight } from './light';
+import { LAM_CLAMP_TOP, LASER_GLOW, lamSocket, weaponLam } from './laser';
 
 const BORE = 0.034;
 /** Each barrel's axis sits this far either side of the middle: the two touch along the rib. */
@@ -175,8 +176,9 @@ function barrels(m: Mesher): void {
   m.part('barrels', [0, HY, HZ], () => {
     const y = BORE - HY;
     const z = (v: number) => v - HZ;
-    // The shop's weapon light (weapons/mods.ts LIGHT_GUNS), hidden until fitted: clamped under the barrels, so it drops with them.
+    // The shop's weapon light and laser sight (weapons/mods.ts), hidden until fitted: clamped to the barrels, so they drop with them.
     weaponLight(m, [0, 0.005 - HY, z(-0.41)]);
+    weaponLam(m, [BX + R_SPLIT + LAM_CLAMP_TOP - 0.0005, y, z(-0.41)], Math.PI / 2);
     tubeRearAt(m, BX, y);
     tubeRearAt(m, -BX, y);
     // Monoblock: the two breeches in one block, with the lump that locks into the water table.
@@ -338,7 +340,8 @@ function buildDeuce(kit: Kit): Model {
     m.side(poly([[-0.0035, 0.002], [0.0035, 0.002], [0.002, -0.009, 0.002], [0.0038, -0.0205, 0.0015], [0.0005, -0.0215, 0.001], [-0.0035, -0.0095, 0.003]], 0.001), 0.0065, { bevel: 0.0007 });
   });
 
-  const model = new Model(m, kit.mats, { glows: { sight: [0xffb43a, 5], torch: TORCH } });
+  const model = new Model(m, kit.mats, { glows: { sight: [0xffb43a, 5], torch: TORCH, laser: LASER_GLOW } });
+  lamSocket(model);
   // Right barrel first, on the front trigger; the left on the rear. Weapons asks for `muzzle1` on the second shot, and on
   // the quad `muzzle2` and `muzzle3`, the upper pair's.
   model.socket('muzzle', [BX, BORE, MUZZLE - 0.002]);
@@ -474,9 +477,14 @@ export function deuceDef(kit: Kit): ViewDef {
     animate: clip,
     mods: {
       deuceQuad: { part: 'quad', also: ['quadTop', 'quadShort', 'quadLong'], hides: 'top' },
-      deuceLong: { part: 'longTips', hides: 'shortTips', muzzle: 'muzzleLong', moves: { part: 'light', z: -0.14 } },
+      deuceLong: {
+        part: 'longTips', hides: 'shortTips', muzzle: 'muzzleLong',
+        moves: { part: 'light', z: -0.14 },
+        alsoMoves: [{ part: 'lam', z: -0.14 }],
+      },
       deuceLoader: { part: 'carrier' },
       deuceLight: { part: 'light' },
+      deuceLam: { part: 'lam', laser: 'lam' },
     },
   };
 }

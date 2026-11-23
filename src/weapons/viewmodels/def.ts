@@ -75,6 +75,8 @@ export interface ModLook {
   also?: string | readonly string[];
   /** Another part this mod moves along the bore while fitted, metres (+ is back): the Gimlet's short barrel brings its can back. */
   moves?: { readonly part: string; readonly z: number };
+  /** Additional parts shifted in X/Y/Z while this mod is fitted (e.g. shifting a side laser onto a sawed-off clamp or heavy shroud). */
+  alsoMoves?: readonly { readonly part: string; readonly x?: number; readonly y?: number; readonly z?: number }[];
   /** Replace `sight`, `rear` (null for an optic: level) and `relief` while fitted. */
   sight?: Tuple3;
   rear?: Tuple3 | null;
@@ -85,6 +87,8 @@ export interface ModLook {
   flip?: number;
   /** A laser module's emitter, a socket facing down the bore: while fitted a visible beam leaves it (viewmodels/lam.ts). */
   laser?: string;
+  /** Optional laser beam & dot reach in metres; unset uses LAM.range (40 m). */
+  laserRange?: number;
   /**
    * A part of the optic hidden once the gun is up at the eye (past `INNER_AT` of the aim): a magnified sight's tube and
    * objective, which would show through its eyepiece as a tunnel. Aimed, the eyepiece frames the picture and nothing else.

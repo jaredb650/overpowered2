@@ -850,12 +850,13 @@ export class Rig implements ViewmodelRig {
       this.lam.set(0, socket, strength, ROCKET_LAM_RANGE);
       return;
     }
-    const id = def && this.holsterW < 1 ? this.look(def, 'laser')?.laser : undefined;
+    const look = def && this.holsterW < 1 ? this.look(def, 'laser') : undefined;
+    const id = look?.laser;
     let s: THREE.Object3D | null | undefined = id ? def!.model.sockets[id] : undefined;
     const socket = s ?? null;
     // Every part over it shown: the module is fitted and its gun is in shot.
     for (; s; s = s.parent) if (!s.visible) break;
-    this.lam.set(slot, s ? null : socket, strength);
+    this.lam.set(slot, s ? null : socket, strength, look?.laserRange);
   }
 
   /** From the muzzle to the point 20 m down the line of sight, while the gun in hand has its light fitted. */
@@ -1517,6 +1518,15 @@ export class Rig implements ViewmodelRig {
       if (own) own.visible = false;
       const moved = look.moves && on ? def.model.parts[look.moves.part] : undefined;
       if (moved) moved.position.z += look.moves!.z;
+      if (look.alsoMoves && on) {
+        for (const mv of look.alsoMoves) {
+          const target = def.model.parts[mv.part];
+          if (!target) continue;
+          if (mv.x !== undefined) target.position.x += mv.x;
+          if (mv.y !== undefined) target.position.y += mv.y;
+          if (mv.z !== undefined) target.position.z += mv.z;
+        }
+      }
       const inner = look.inner ? def.model.parts[look.inner] : undefined;
       if (inner) inner.visible = this.aimW < INNER_AT;
     }

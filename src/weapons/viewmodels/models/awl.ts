@@ -20,6 +20,7 @@ import { HANDS } from '../poses';
 import { pullTrigger } from './common';
 import { acog, acogShade, OPTIC_GLOWS } from './optics';
 import { TORCH, weaponLight } from './light';
+import { LASER_GLOW, SNIPER_LAM_RANGE, lamSocket, weaponLam } from './laser';
 import { GREASE } from '../../mods';
 
 const BORE = 0.047;
@@ -577,10 +578,12 @@ function build(kit: Kit): { model: Model; mods: ViewDef['mods'] } {
   scoutScope(m);
   const optic = acog(m, [0, RAIL_TOP, -0.105]);
   suppressor(m);
-  // The shop's weapon light (weapons/mods.ts LIGHT_GUNS), hidden until fitted. The fore-end's left, at its tip.
+  // The shop's weapon light and laser sight (weapons/mods.ts), hidden until fitted. Opposite flanks at the fore-end tip.
   weaponLight(m, [-0.0332, 0.012, -0.3615], -Math.PI / 2);
-  const model = new Model(m, kit.mats, { glows: { ...OPTIC_GLOWS, accent: [0xff9a2e, 3], torch: TORCH } });
+  weaponLam(m, [0.0332, 0.012, -0.3615], Math.PI / 2);
+  const model = new Model(m, kit.mats, { glows: { ...OPTIC_GLOWS, accent: [0xff9a2e, 3], torch: TORCH, laser: LASER_GLOW } });
   acogShade(model);
+  lamSocket(model);
   model.socket('muzzle', [0, BORE, MUZZLE]);
   // On the can, so it goes forward with it onto the extended barrel.
   model.socket('muzzleCan', [0, 0, -0.178], [0, 0, 0], 'can');
@@ -593,6 +596,7 @@ function build(kit: Kit): { model: Model; mods: ViewDef['mods'] } {
   return {
     model, mods: {
       awlAcog: optic, awlCan: { part: 'can', muzzle: 'muzzleCan' }, awlLight: { part: 'light' },
+      awlLam: { part: 'lam', laser: 'lam', laserRange: SNIPER_LAM_RANGE },
       // After the can, so with both on the flash leaves the can's mouth, and the can goes on over the brake.
       awlBarrel: { part: 'longBarrel', hides: 'crown', muzzle: 'muzzleLong', moves: { part: 'can', z: CAN_SHIFT } },
       awlBolt: { part: 'grease' },

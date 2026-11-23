@@ -59,6 +59,15 @@ export function dressModel(root: THREE.Object3D, def: ViewDef, mods: ReadonlySet
     if (own) own.visible = !on;
     const moved = look.moves ? root.getObjectByName(look.moves.part) : undefined;
     if (moved) moved.position.z = (moved.userData.restZ ??= moved.position.z) + (on ? look.moves!.z : 0);
+    if (look.alsoMoves) {
+      for (const mv of look.alsoMoves) {
+        const target = root.getObjectByName(mv.part);
+        if (!target) continue;
+        if (mv.x !== undefined) target.position.x = (target.userData.restX ??= target.position.x) + (on ? mv.x : 0);
+        if (mv.y !== undefined) target.position.y = (target.userData.restY ??= target.position.y) + (on ? mv.y : 0);
+        if (mv.z !== undefined) target.position.z = (target.userData.restZ ??= target.position.z) + (on ? mv.z : 0);
+      }
+    }
   }
   const irons = def.irons ? root.getObjectByName(def.irons) : undefined;
   if (irons) irons.visible = ironsUp(def, mods);

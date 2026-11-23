@@ -18,6 +18,7 @@ import type { Anim, ViewDef } from '../def';
 import { HANDS } from '../poses';
 import { OPTIC_GLOWS, acog, acogShade, redDot } from './optics';
 import { TORCH, weaponLight } from './light';
+import { LASER_GLOW, RIFLE_LAM_RANGE, lamSocket, weaponLam } from './laser';
 
 const BORE = 0.046;
 /** The top of the rail, which runs from the back of the upper to the front of the handguard. */
@@ -516,10 +517,12 @@ function buildGimlet(kit: Kit): Built {
     m.side(poly([[-0.0035, 0.002], [0.0035, 0.002], [0.002, -0.009, 0.002], [0.0038, -0.0225, 0.0015], [0.0005, -0.0235, 0.001], [-0.0035, -0.0095, 0.003]], 0.001), 0.0062, { bevel: 0.0007 });
   });
 
-  // The shop's weapon light (weapons/mods.ts LIGHT_GUNS), hidden until fitted. The left rail at the handguard's front, clear of the launcher.
+  // The shop's weapon light and laser sight (weapons/mods.ts), hidden until fitted. Opposite flanks at the handguard's front, clear of the launcher.
   weaponLight(m, [-0.0385, 0.034, -0.2815], -Math.PI / 2);
-  const model = new Model(m, kit.mats, { glows: { sight: [0x7dff5a, 6], guard: [0x2ff0d0, 4], torch: TORCH, ...OPTIC_GLOWS } });
+  weaponLam(m, [0.0385, 0.034, -0.2815], Math.PI / 2);
+  const model = new Model(m, kit.mats, { glows: { sight: [0x7dff5a, 6], guard: [0x2ff0d0, 4], torch: TORCH, laser: LASER_GLOW, ...OPTIC_GLOWS } });
   acogShade(model);
+  lamSocket(model);
   model.socket('muzzle', [0, BORE, MUZZLE - 0.004]);
   // On `canShift` inside `can`, so it follows the suppressor onto both the short barrel and the long barrel.
   model.socket('muzzleCan', [0, 0, CAN_END - CAN_AT], [0, 0, 0], 'canShift');
@@ -543,6 +546,7 @@ function buildGimlet(kit: Kit): Built {
       gimletCan: { part: 'can', muzzle: 'muzzleCan' },
       gimletGl: { part: 'gl' },
       gimletLight: { part: 'light' },
+      gimletLam: { part: 'lam', laser: 'lam', laserRange: RIFLE_LAM_RANGE },
       gimletMagwell: { part: 'magwell' },
       // After the can, so with both on the flash leaves the can's mouth, and the can shifts onto the short or long barrel.
       gimletShort: { part: 'shortBarrel', hides: 'barrel', muzzle: 'muzzleShort', moves: { part: 'can', z: HIDER_S - HIDER } },

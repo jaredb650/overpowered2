@@ -95,7 +95,9 @@ export type ModId = 'awlAcog' | 'awlCan' | 'awlAp' | 'awlHp' | 'suppressor' | 'r
   // Billhook mods: reflex, laser, extended tube, slugs (light, flechette, dragon above).
   | 'billhookDot' | 'billhookLam' | 'billhookTube' | 'billhookSlug'
   // Bodkin mods: 4x optic, extended mag, 5-round burst, tungsten darts (light, magwell above).
-  | 'bodkinAcog' | 'bodkinMag' | 'bodkinBurst5' | 'bodkinTungsten';
+  | 'bodkinAcog' | 'bodkinMag' | 'bodkinBurst5' | 'bodkinTungsten'
+  // Tactical rail laser sights for every rifle and shotgun (weapons/mods.ts LAM_GUNS; billhookLam above).
+  | 'gimletLam' | 'harrowLam' | 'bodkinLam' | 'flailLam' | 'awlLam' | 'sabotLam' | 'shotgunLam' | 'thresherLam' | 'deuceLam';
 
 export type Team = 'player' | 'enemy';
 

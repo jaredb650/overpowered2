@@ -15,6 +15,7 @@ import type { Anim, ViewDef } from '../def';
 import { OPTIC_GLOWS, acog, acogShade, redDot } from './optics';
 import { HANDS } from '../poses';
 import { TORCH, weaponLight } from './light';
+import { LASER_GLOW, RIFLE_LAM_RANGE, lamSocket, weaponLam } from './laser';
 
 const BORE = 0.046;
 const GUARD_REAR = -0.165;
@@ -338,10 +339,12 @@ function buildHarrow(kit: Kit): { model: Model; mods: ViewDef['mods'] } {
     m.side(poly([[-0.0035, 0.002], [0.0035, 0.002], [0.002, -0.009, 0.002], [0.0038, -0.0225, 0.0015], [0.0005, -0.0235, 0.001], [-0.0035, -0.0095, 0.003]], 0.001), 0.0068, { bevel: 0.0007 });
   });
 
-  // The shop's weapon light (weapons/mods.ts LIGHT_GUNS), hidden until fitted. The handguard's left, at its front.
+  // The shop's weapon light and laser sight (weapons/mods.ts), hidden until fitted. Opposite flanks at the handguard's front.
   weaponLight(m, [-0.037, 0.044, -0.3595], -Math.PI / 2);
-  const model = new Model(m, kit.mats, { glows: { sight: [0x7dff5a, 6], torch: TORCH, ...OPTIC_GLOWS } });
+  weaponLam(m, [0.037, 0.044, -0.3595], Math.PI / 2);
+  const model = new Model(m, kit.mats, { glows: { sight: [0x7dff5a, 6], torch: TORCH, laser: LASER_GLOW, ...OPTIC_GLOWS } });
   acogShade(model);
+  lamSocket(model);
   model.socket('muzzle', [0, BORE, MUZZLE - 0.004]);
   model.socket('muzzleShort', [0, BORE, MUZZLE_S - 0.004]);
   // Parented to `brake` inside `muzzleMount`, so it automatically shifts back when both `harrowBrake` and `harrowShort` are fitted.
@@ -357,6 +360,7 @@ function buildHarrow(kit: Kit): { model: Model; mods: ViewDef['mods'] } {
       reddot: dot,
       harrowAcog: scope,
       harrowLight: { part: 'light' },
+      harrowLam: { part: 'lam', laser: 'lam', laserRange: RIFLE_LAM_RANGE },
       // Brake before short barrel so when both are fitted, the flash leaves the shifted brake's mouth (`muzzleBrake`).
       harrowBrake: { part: 'brake', hides: 'muzzleStd', muzzle: 'muzzleBrake' },
       harrowShort: { part: 'barrelShort', hides: 'barrelStd', muzzle: 'muzzleShort', moves: { part: 'muzzleMount', z: SHORT_SHIFT } },

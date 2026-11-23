@@ -16,6 +16,7 @@ import type { Anim, ViewDef } from '../def';
 import { HANDS } from '../poses';
 import { drawCount, fill, pullTrigger } from './common';
 import { TORCH, weaponLight } from './light';
+import { LASER_GLOW, lamSocket, weaponLam } from './laser';
 
 const BORE = 0.05;
 const FRONT = -0.2;
@@ -189,9 +190,11 @@ function buildThresher(kit: Kit): Model {
     m.side(poly([[-0.0035, 0.002], [0.0035, 0.002], [0.002, -0.009, 0.002], [0.0038, -0.0225, 0.0015], [0.0005, -0.0235, 0.001], [-0.0035, -0.0095, 0.003]], 0.001), 0.0068, { bevel: 0.0007 });
   });
 
-  // The shop's weapon light (weapons/mods.ts LIGHT_GUNS), hidden until fitted. The handguard's left, at its front.
+  // The shop's weapon light and laser sight (weapons/mods.ts), hidden until fitted. Opposite flanks at the handguard's front.
   weaponLight(m, [-0.037, 0.035, -0.3395], -Math.PI / 2);
-  const model = new Model(m, kit.mats, { glows: { sight: [0xff6a2a, 6], torch: TORCH }, screens: { ammo: [240, 28] } });
+  weaponLam(m, [0.037, 0.035, -0.3395], Math.PI / 2);
+  const model = new Model(m, kit.mats, { glows: { sight: [0xff6a2a, 6], torch: TORCH, laser: LASER_GLOW }, screens: { ammo: [240, 28] } });
+  lamSocket(model);
   model.socket('muzzle', [0, BORE, MUZZLE - 0.004]);
   model.socket('eject', [0.026, 0.062, -0.06]);
   model.hand('gripR', [0.018, -0.054, 0.072], [0, -0.96, 0.27], [-0.3, -0.25, -0.92]);
@@ -268,7 +271,10 @@ function clip(a: Anim): void {
 
 export function thresherDef(kit: Kit): ViewDef {
   return {
-    mods: { thresherLight: { part: 'light' } },
+    mods: {
+      thresherLight: { part: 'light' },
+      thresherLam: { part: 'lam', laser: 'lam' },
+    },
     id: 'thresher',
     model: buildThresher(kit),
     pos: [0.15, -0.14, -0.42],

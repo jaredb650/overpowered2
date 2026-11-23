@@ -693,6 +693,43 @@ const MOD_CATALOGUE: Readonly<Record<ModId, Ware>> = {
     price: 150, wave: 0,
     lore: 'A compact weapon light tucked into the Bodkin\'s pale polymer fore-end, always on so the dart bursts find every dark corner.',
   },
+  // Tactical rail laser sights (weapons/mods.ts LAM_GUNS; billhookLam above): every rifle and shotgun.
+  shotgunLam: {
+    price: 450, wave: 1,
+    lore: 'A barrel-clamp laser sight on the pump\'s right side, painting a red point downrange and bringing the bead to the eye thirty percent faster.',
+  },
+  gimletLam: {
+    price: 500, wave: 1,
+    lore: 'A rail-mounted laser aiming module on the Gimlet\'s right handguard, clear of the launcher and cutting aim time by thirty percent.',
+  },
+  harrowLam: {
+    price: 550, wave: 2,
+    lore: 'A side-rail laser sight on the Harrow\'s fore-end. Marks the target before the round introduces itself to the wall behind them, and aims thirty percent faster.',
+  },
+  awlLam: {
+    price: 550, wave: 2,
+    lore: 'A long-reach laser module on the Awl\'s right fore-end tip for quick hip work between scope shots, speeding ACOG sight acquisition by thirty percent.',
+  },
+  thresherLam: {
+    price: 600, wave: 3,
+    lore: 'A right-flank laser sight on the Thresher\'s handguard, holding a bright red reference while the drum climbs and raising the sights thirty percent faster.',
+  },
+  deuceLam: {
+    price: 600, wave: 6,
+    lore: 'A barrel-mounted laser sight on the Deuce\'s right tube, tilting open with the action and marking the centre of the blast before both barrels answer.',
+  },
+  sabotLam: {
+    price: 650, wave: 6,
+    lore: 'A long-reach tactical laser clamped to the Sabot\'s free-float handguard, letting contractors line up hip-fired anti-armour darts without waiting on the scope.',
+  },
+  flailLam: {
+    price: 650, wave: 7,
+    lore: 'A rail laser sight on the Flail\'s right flank, keeping the first round of a hundred-round belt on target and bringing the sights up thirty percent sooner.',
+  },
+  bodkinLam: {
+    price: 650, wave: 8,
+    lore: 'A low-profile laser sight tucked on the Bodkin\'s right fore-end opposite the light, marking zero-spread flechette bursts and aiming thirty percent faster.',
+  },
 };
 
 export const modWares = (contract: ContractId): Readonly<Record<ModId, Ware>> =>

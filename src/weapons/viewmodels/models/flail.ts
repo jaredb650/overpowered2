@@ -20,6 +20,7 @@ import { fill, pullTrigger } from './common';
 import type { Anim, ModLook, ViewDef } from '../def';
 import { HANDS } from '../poses';
 import { OPTIC_GLOWS, acog, acogShade, redDot } from './optics';
+import { LASER_GLOW, RIFLE_LAM_RANGE, lamSocket, weaponLam } from './laser';
 
 const BORE = 0.044;
 /** Half width of the receiver. */
@@ -744,8 +745,12 @@ function buildFlail(kit: Kit): { model: Model; mods: ViewDef['mods'] } {
     m.side(poly([[-0.0035, 0.002], [0.0035, 0.002], [0.002, -0.009, 0.002], [0.0038, -0.0225, 0.0015], [0.0005, -0.0235, 0.001], [-0.0035, -0.0095, 0.003]], 0.001), 0.0068, { bevel: 0.0007 });
   });
 
-  const model = new Model(m, kit.mats, { glows: { line: [0x38d6ff, 5], vent: [0xff7a1e, 4], sight: [0x7dff5a, 6], ...OPTIC_GLOWS } });
+  // The shop's laser sight (weapons/mods.ts LAM_GUNS), hidden until fitted. Right handguard flank; shifts outboard on `flailHeavy`.
+  weaponLam(m, [0.0355, 0.028, -0.34], Math.PI / 2);
+
+  const model = new Model(m, kit.mats, { glows: { line: [0x38d6ff, 5], vent: [0xff7a1e, 4], sight: [0x7dff5a, 6], laser: LASER_GLOW, ...OPTIC_GLOWS } });
   acogShade(model, 'acog');
+  lamSocket(model);
   model.socket('muzzle', [0, BORE, MUZZLE - 0.004]);
   model.socket('muzzleHeavy', [0, BORE, MUZZLE_HEAVY - 0.004]);
   // Cases go down out of the chute.
@@ -762,8 +767,9 @@ function buildFlail(kit: Kit): { model: Model; mods: ViewDef['mods'] } {
       flailDot: dot,
       flailAcog: scope,
       flailBox: { part: 'boxExt', hides: 'boxStd' },
-      flailHeavy: { part: 'frontHeavy', hides: 'frontStd', muzzle: 'muzzleHeavy' },
+      flailHeavy: { part: 'frontHeavy', hides: 'frontStd', muzzle: 'muzzleHeavy', alsoMoves: [{ part: 'lam', x: 0.0115 }] },
       flailStock: { part: 'stockEnh', hides: 'stockStd' },
+      flailLam: { part: 'lam', laser: 'lam', laserRange: RIFLE_LAM_RANGE },
     },
   };
 }

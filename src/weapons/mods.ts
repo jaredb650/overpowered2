@@ -70,6 +70,19 @@ export const LIGHT_GUNS = [
 export const lightOf = (gun: (typeof LIGHT_GUNS)[number]): ModId => `${gun}Light`;
 const light = (gun: (typeof LIGHT_GUNS)[number]): ModDef => ({ id: lightOf(gun), weapon: gun, name: 'Weapon light', patch: {} });
 
+/**
+ * The guns that take a tactical rail laser sight: every rifle and shotgun. Projects a crosshair-aligned red beam and dot
+ * (viewmodels/lam.ts) and, where the gun aims down sights, brings it to the eye 30% faster (matching `billhookLam`).
+ */
+export const LAM_GUNS = [
+  'gimlet', 'harrow', 'bodkin', 'flail', 'awl', 'sabot', 'shotgun', 'thresher', 'deuce', 'billhook',
+] as const satisfies readonly WeaponId[];
+export const lamOf = (gun: (typeof LAM_GUNS)[number]): ModId => `${gun}Lam`;
+const laserSight = (gun: (typeof LAM_GUNS)[number]): ModDef => ({
+  id: lamOf(gun), weapon: gun, name: 'Laser sight', patch: {},
+  adjust: d => (d.ads ? { ads: { ...d.ads, time: d.ads.time * 0.7 } } : {}),
+});
+
 /** The guns that take flechettes: every one that fires pellets. The Judge fires one slug, so it does not. */
 export const FLECHETTE_GUNS = ['shotgun', 'thresher', 'deuce', 'billhook'] as const satisfies readonly WeaponId[];
 export const flechetteOf = (gun: (typeof FLECHETTE_GUNS)[number]): ModId => `${gun}Flechette`;
@@ -368,10 +381,9 @@ export const MODS: Readonly<Record<ModId, ModDef>> = {
   flailAp: rounds('flail', 'ap'), flailHp: rounds('flail', 'hp'), flailPlusP: rounds('flail', 'plusP'),
   // Billhook mods: reflex sight, laser (faster ADS), extended 11-shell tube, slugs (1x200, spread 0, medium armour), plus light/flechette/dragon.
   billhookDot: { id: 'billhookDot', weapon: 'billhook', name: 'Reflex sight', slot: 'sight', patch: { ads: DOT } },
-  billhookLam: {
-    id: 'billhookLam', weapon: 'billhook', name: 'Laser sight', patch: {},
-    adjust: d => (d.ads ? { ads: { ...d.ads, time: d.ads.time * 0.7 } } : {}),
-  },
+  billhookLam: laserSight('billhook'),
+  gimletLam: laserSight('gimlet'), harrowLam: laserSight('harrow'), bodkinLam: laserSight('bodkin'), flailLam: laserSight('flail'),
+  awlLam: laserSight('awl'), sabotLam: laserSight('sabot'), shotgunLam: laserSight('shotgun'), thresherLam: laserSight('thresher'), deuceLam: laserSight('deuce'),
   billhookTube: { id: 'billhookTube', weapon: 'billhook', name: 'Extended tube', slot: 'mag', patch: { magSize: 11 } },
   billhookSlug: {
     id: 'billhookSlug', weapon: 'billhook', name: 'Slugs', slot: 'ammo',
@@ -459,12 +471,13 @@ export const MOD_ORDER: readonly ModId[] = [
   'rivetCan', 'rivetDot', 'rivetLam', 'rivetComp',
   'smgMag', 'smgTape', 'smgStock', 'swordEnergy', 'gimletShort', 'rivetMag', 'piledriverBox',
   'deuceQuad', 'deuceLong', 'deuceLoader', 'shotgunChoke', 'shotgunSawedOff', 'shotgunBolt',
-  'billhookDot', 'billhookLam', 'billhookTube', 'billhookSlug',
+  'billhookDot', 'billhookTube', 'billhookSlug',
   'judgeHammer', 'judgeGrip', 'judgeLong', 'judgeComp',
   'rocketTube', 'rocketWp', 'mglLong', 'mglTrigger', 'howitzerCluster',
   'flailDot', 'flailAcog', 'flailBox', 'flailAp', 'flailHp', 'flailPlusP', 'flailHeavy', 'flailStock',
   'metalstorm40mm', 'mglSticky',
   ...LIGHT_GUNS.map(lightOf),
+  ...LAM_GUNS.map(lamOf),
   ...AKIMBO_GUNS.map(akimboOf),
   ...SHIELD_GUNS.map(shieldOf),
   ...MAGWELL_GUNS.map(magwellOf),

@@ -19,6 +19,7 @@ import { bump, hold, inOut, inQuad, outCubic, seg, thud } from '../curves';
 import type { Anim, ViewDef } from '../def';
 import { HANDS } from '../poses';
 import { drawCount, pullTrigger } from './common';
+import { LASER_GLOW, SNIPER_LAM_RANGE, lamSocket, weaponLam } from './laser';
 
 const AP_BLUE: Finish = { color: 0x1d4f93, rough: 0.42, metal: 0.1, wear: 0.9 };
 
@@ -718,10 +719,13 @@ function buildSabot(kit: Kit): Model {
   sabotMagazine(m);
   sabotCover(m);
   sabotCharge(m);
+  // The shop's laser sight (weapons/mods.ts LAM_GUNS), hidden until fitted. Right flank of the octagonal handguard.
+  weaponLam(m, [0.0395, S_BORE, -0.52], Math.PI / 2);
   const model = new Model(m, kit.mats, {
-    glows: { scope: [0x39b8ff, 2.4] },
+    glows: { scope: [0x39b8ff, 2.4], laser: LASER_GLOW },
     screens: { ammo: [176, 88] },
   });
+  lamSocket(model);
   model.socket('muzzle', [0, S_BORE, S_FRONT - 1.06]);
   model.socket('muzzleBrake', [0, S_BORE, S_FRONT - 1.14]);
   model.socket('eject', [S_HALF, 0.05, -0.02]);
@@ -823,6 +827,9 @@ export function sabotDef(kit: Kit): ViewDef {
     heatPerShot: 0.2,
     animate: sabotAnim,
     readout: a => drawCount(a, 'ammo', 1, 5, '#5ac8ff'),
-    mods: { sabotBrake: { part: 'brake', hides: 'slimBrake', muzzle: 'muzzleBrake' } },
+    mods: {
+      sabotBrake: { part: 'brake', hides: 'slimBrake', muzzle: 'muzzleBrake' },
+      sabotLam: { part: 'lam', laser: 'lam', laserRange: SNIPER_LAM_RANGE },
+    },
   };
 }
