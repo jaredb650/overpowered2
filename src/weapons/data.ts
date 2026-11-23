@@ -234,7 +234,8 @@ export interface WeaponDef {
     readonly perShell: number;
     readonly end: number;
     readonly emptyRack: number;
-    readonly rackSound: string;
+    readonly shellSound?: string;
+    readonly rackCues: readonly ReloadCue[];
   };
   /** Sounds after each shot, at seconds after it, for a gun that is cycled by hand between shots. */
   cycleFoley?: readonly ReloadCue[];
@@ -323,6 +324,7 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     falloff: { from: 60, to: 140, floor: 0.75 },
     muzzle: 'rifle', tracer: 'carbine', casing: 'rifle',
     sounds: [{ id: 'gimlet_shot', pitchJitter: 0.03 }],
+    reloadFoley: [[0.05, 'gimlet_mag_out'], [0.5, 'gimlet_mag_in'], [0.74, 'gimlet_rack_bolt']],
     recoil: 0.9, kick: 0.0034, shake: 0.007, fovPunch: 0.3, impactScale: 1.1,
     // A climb the SMG does not have: a held magazine walks up about 4 degrees, a burst a third of one.
     climb: { pitch: 0.0022, yaw: 0.0012 },
@@ -338,6 +340,7 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     penetration: 0.5,
     muzzle: 'carbine', tracer: 'carbine', casing: 'rifle',
     sounds: [{ id: 'harrow_shot', pitchJitter: 0.03 }],
+    reloadFoley: [[0.05, 'harrow_mag_out'], [0.5, 'harrow_mag_in'], [0.75, 'harrow_rack_bolt']],
     recoil: 1, kick: 0.0058, shake: 0.01, fovPunch: 0.5, impactScale: 1.25,
     ads: { zoom: 0.4, time: 0.2 },
     // Hold R: full auto or one round a pull.
@@ -382,8 +385,12 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     sounds: [{ id: 'pump_shotgun_shot', pitchJitter: 0.04 }],
     // On the viewmodel's pump (shotgun.ts clip): back by 0.27 s after the shot, home again by 0.47 s.
     cycleFoley: [[0.26, 'pump_rack_back'], [0.45, 'pump_rack_forward']],
-    reloadFoley: [[0.1, 'reload_shell_in'], [0.32, 'reload_shell_in'], [0.54, 'reload_shell_in'], [0.86, 'reload_pump']],
-    shellReload: { start: 0.16, perShell: 0.28, end: 0.16, emptyRack: 0.34, rackSound: 'reload_pump' },
+    reloadFoley: [[0.1, 'shotgun_shell_in'], [0.32, 'shotgun_shell_in'], [0.54, 'shotgun_shell_in'], [0.82, 'pump_rack_back'], [0.94, 'pump_rack_forward']],
+    shellReload: {
+      start: 0.16, perShell: 0.28, end: 0.16, emptyRack: 0.36,
+      shellSound: 'shotgun_shell_in',
+      rackCues: [[0.12, 'pump_rack_back'], [0.64, 'pump_rack_forward']],
+    },
     recoil: 1, kick: 0.014, shake: 0.02, fovPunch: 1.6,
     ads: { zoom: 0.34, time: 0.2 },
   },
@@ -424,10 +431,14 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     muzzle: 'shotgun', tracer: 'bullet', casing: 'shotgun',
     sounds: [{ id: 'pump_shotgun_shot', pitch: 1.04, pitchJitter: 0.04 }],
     reloadFoley: [
-      [0.08, 'reload_shell_in'], [0.24, 'reload_shell_in'], [0.4, 'reload_shell_in'],
-      [0.56, 'reload_shell_in'], [0.72, 'reload_shell_in'], [0.88, 'reload_bolt'],
+      [0.08, 'shotgun_shell_in'], [0.24, 'shotgun_shell_in'], [0.4, 'shotgun_shell_in'],
+      [0.56, 'shotgun_shell_in'], [0.72, 'shotgun_shell_in'], [0.88, 'reload_bolt'],
     ],
-    shellReload: { start: 0.14, perShell: 0.22, end: 0.14, emptyRack: 0.3, rackSound: 'reload_bolt' },
+    shellReload: {
+      start: 0.14, perShell: 0.22, end: 0.14, emptyRack: 0.3,
+      shellSound: 'shotgun_shell_in',
+      rackCues: [[0.45, 'reload_bolt']],
+    },
     recoil: 0.95, kick: 0.013, shake: 0.019, fovPunch: 1.4,
     ads: { zoom: 0.34, time: 0.2 },
   },

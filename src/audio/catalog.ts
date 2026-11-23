@@ -312,6 +312,14 @@ const gunShots: SoundDef[] = [
   // The first game's pump, cut out of its shotgun shot into its two strokes, so they land on the viewmodel's pump.
   { ...sample('guns/pump_rack_back.mp3', 'foley', 0.16), id: 'pump_rack_back' },
   { ...sample('guns/pump_rack_forward.mp3', 'foley', 0.16), id: 'pump_rack_forward' },
+  // Recorded reload foley (owner, 2026-11-23): Gimlet, Harrow, and 12-gauge shell insertion, on the foley mix at the pump's level (~0.058).
+  shot('shotgun_shell_in', 'guns/shotgun_shell_in.mp3', 'foley', 0.058, 0.19, { pitchJitter: 0.05 }),
+  shot('gimlet_mag_out', 'guns/gimlet_mag_out.mp3', 'foley', 0.058, 0.194),
+  shot('gimlet_mag_in', 'guns/gimlet_mag_in.mp3', 'foley', 0.058, 0.263),
+  shot('gimlet_rack_bolt', 'guns/gimlet_rack_bolt.mp3', 'foley', 0.058, 0.312),
+  shot('harrow_mag_out', 'guns/harrow_mag_out.mp3', 'foley', 0.058, 0.247),
+  shot('harrow_mag_in', 'guns/harrow_mag_in.mp3', 'foley', 0.058, 0.226),
+  shot('harrow_rack_bolt', 'guns/harrow_rack_bolt.mp3', 'foley', 0.058, 0.277),
   shot('smg_shot', 'guns/smg_shot.mp3', 'gun', 0.143, 0.105),
   // The SMG with its suppressor (the owner's, 2026-11-15): about 2 dB under the bare SMG, and less of it in the room.
   shot('smg_suppressed_shot', 'guns/smg_suppressed_shot.mp3', 'gun', 0.11, 0.17, { send: 0.08 }),

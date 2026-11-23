@@ -345,6 +345,8 @@ places on the ladder (0.246 and 0.285), remeasured. On 2026-11-16 the owner had 
 (`smg_fire`, `shotgun_fire`, `thresher_fire`, `harrow_fire`, `rivet_fire`, `revolver_fire`, `piledriver_fire`) stay in
 the catalog.
 
+**Recorded weapon reload foley** (2026-11-23, `reloadSounds.zip`, owner's recordings; all seven were stereo WAV inside `.mp3` names, mixed to mono at 44.1 kHz, trimmed of dead air with short fade-in/fade-out, peak-normalised to -1 dB, and encoded at 160 kbit/s in `sfx/guns/`, levelled on the `foley` mix at 0.058 to match `pump_rack_back`/`pump_rack_forward`): `shotgun_shell_in` (used for shell-by-shell loading on the pump shotgun and Billhook, while the pump shotgun's empty-reload rack reuses `pump_rack_back` and `pump_rack_forward`), `gimlet_mag_out`, `gimlet_mag_in`, `gimlet_rack_bolt` (Gimlet reload), and `harrow_mag_out`, `harrow_mag_in`, `harrow_rack_bolt` (Harrow reload).
+
 **The Deuce's newer shot** (2026-11-17): `dbshotgun_shot` took the owner's `newDBShotgunSound.mp3` (2 s of 16-bit 40 kHz stereo WAV inside
 an `.mp3` name), same id and file: mixed to mono at 44.1 kHz, the first 15 ms cut (a low scrap ahead of the blast, which now starts
 within 5 ms) under a 2 ms fade-in, faded out from 0.85 s and cut at 1.2 s, peaks at -1 dB, 160 kbit/s. Loudness 0.342 (the old file's

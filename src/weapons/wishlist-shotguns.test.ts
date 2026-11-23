@@ -390,8 +390,9 @@ describe('Shell-by-shell exact-count shotgun reload', () => {
     r.run(0.8);
     expect(r.weapons.reloading).toBe(false);
     expect(r.weapons.ammo('shotgun').mag).toBe(6);
-    expect(r.record.sounds.filter(s => s === 'reload_shell_in')).toHaveLength(1);
-    expect(r.record.sounds).not.toContain('reload_pump');
+    expect(r.record.sounds.filter(s => s === 'shotgun_shell_in')).toHaveLength(1);
+    expect(r.record.sounds).not.toContain('pump_rack_back');
+    expect(r.record.sounds).not.toContain('pump_rack_forward');
 
     // Empty the magazine (0/6): reloading inserts shells one by one and firing mid-reload interrupts cleanly.
     for (let i = 0; i < 6; i++) {
@@ -410,7 +411,7 @@ describe('Shell-by-shell exact-count shotgun reload', () => {
     expect(r.weapons.reloading).toBe(false);
     expect(r.weapons.ammo('shotgun').mag).toBe(midMag - 1);
 
-    // Drain to 0/6 and let a full empty reload finish: inserts all 6 shells + pump rack.
+    // Drain to 0/6 and let a full empty reload finish: inserts all 6 shells + between-shot pump rack.
     const left = r.weapons.ammo('shotgun').mag;
     for (let i = 0; i < left; i++) {
       r.run(0.65);
@@ -422,8 +423,9 @@ describe('Shell-by-shell exact-count shotgun reload', () => {
     r.run(2.5);
     expect(r.weapons.reloading).toBe(false);
     expect(r.weapons.ammo('shotgun').mag).toBe(6);
-    expect(r.record.sounds.filter(s => s === 'reload_shell_in')).toHaveLength(6);
-    expect(r.record.sounds).toContain('reload_pump');
+    expect(r.record.sounds.filter(s => s === 'shotgun_shell_in')).toHaveLength(6);
+    expect(r.record.sounds).toContain('pump_rack_back');
+    expect(r.record.sounds).toContain('pump_rack_forward');
   });
 
   it('inserts exact missing shells on the Billhook (2 spent -> 2 shells, empty -> 8 shells + bolt rack)', async () => {
@@ -445,7 +447,7 @@ describe('Shell-by-shell exact-count shotgun reload', () => {
     r.run(1.0);
     expect(r.weapons.reloading).toBe(false);
     expect(r.weapons.ammo('billhook').mag).toBe(8);
-    expect(r.record.sounds.filter(s => s === 'reload_shell_in')).toHaveLength(2);
+    expect(r.record.sounds.filter(s => s === 'shotgun_shell_in')).toHaveLength(2);
     expect(r.record.sounds).not.toContain('reload_bolt');
 
     // Empty all 8 shells -> exactly 8 shell-in cues + reload_bolt.
@@ -459,8 +461,36 @@ describe('Shell-by-shell exact-count shotgun reload', () => {
     r.run(2.6);
     expect(r.weapons.reloading).toBe(false);
     expect(r.weapons.ammo('billhook').mag).toBe(8);
-    expect(r.record.sounds.filter(s => s === 'reload_shell_in')).toHaveLength(8);
+    expect(r.record.sounds.filter(s => s === 'shotgun_shell_in')).toHaveLength(8);
     expect(r.record.sounds).toContain('reload_bolt');
+  });
+
+  it('plays recorded reload foley on Gimlet and Harrow', async () => {
+    const r = await makeRange();
+    r.reset();
+    r.weapons.give('gimlet');
+    r.weapons.switchTo('gimlet');
+    r.run(0.4);
+    r.tap('fire');
+    r.run(0.15);
+    r.record.sounds.length = 0;
+    r.tap('reload');
+    r.run(1.3);
+    expect(r.record.sounds).toContain('gimlet_mag_out');
+    expect(r.record.sounds).toContain('gimlet_mag_in');
+    expect(r.record.sounds).toContain('gimlet_rack_bolt');
+
+    r.weapons.give('harrow');
+    r.weapons.switchTo('harrow');
+    r.run(0.4);
+    r.tap('fire');
+    r.run(0.15);
+    r.record.sounds.length = 0;
+    r.tap('reload');
+    r.run(1.6);
+    expect(r.record.sounds).toContain('harrow_mag_out');
+    expect(r.record.sounds).toContain('harrow_mag_in');
+    expect(r.record.sounds).toContain('harrow_rack_bolt');
   });
 });
 

@@ -113,8 +113,9 @@ export class Weapons implements WeaponSystem, Guard {
   private reloadCue = 0;
   /** Active foley cues for the reload in progress (static or generated per missing shell). */
   private reloadFoley: readonly ReloadCue[] = [];
-  /** True while running a shell-by-shell tube reload that credits one shell per `reload_shell_in` cue. */
+  /** True while running a shell-by-shell tube reload that credits one shell per shell-insert cue. */
   private reloadPerShell = false;
+  private reloadShellSound = 'reload_shell_in';
   private reloadShellsLeft = 0;
   /** Seconds since the last shot of a hand-cycled gun, and its next `cycleFoley` cue. Negative when nothing is due. */
   private cycleAt = -1;
@@ -1184,18 +1185,26 @@ export class Weapons implements WeaponSystem, Guard {
       const raw = sr.start + shells * sr.perShell + tail;
       const startFrac = sr.start / raw;
       const stepFrac = sr.perShell / raw;
+      const shellSound = sr.shellSound ?? 'reload_shell_in';
       const cues: ReloadCue[] = [];
-      for (let i = 0; i < shells; i++) cues.push([startFrac + (i + 0.72) * stepFrac, 'reload_shell_in']);
-      if (fromEmpty) cues.push([(sr.start + shells * sr.perShell + sr.emptyRack * 0.45) / raw, sr.rackSound]);
+      for (let i = 0; i < shells; i++) cues.push([startFrac + (i + 0.72) * stepFrac, shellSound]);
+      if (fromEmpty) {
+        const rackBase = sr.start + shells * sr.perShell;
+        for (const [frac, sound] of sr.rackCues) {
+          cues.push([(rackBase + sr.emptyRack * frac) / raw, sound]);
+        }
+      }
       this.reloadTotal = this.reloadLeft = raw / boost;
       this.reloadFoley = cues;
       this.reloadPerShell = true;
+      this.reloadShellSound = shellSound;
       this.reloadShellsLeft = shells;
       this.ctx.viewmodel.reload(this.reloadTotal, { shells, fromEmpty, startFrac, stepFrac });
     } else {
       this.reloadTotal = this.reloadLeft = s.def.reloadTime / boost;
       this.reloadFoley = s.def.reloadFoley;
       this.reloadPerShell = false;
+      this.reloadShellSound = 'reload_shell_in';
       this.reloadShellsLeft = 0;
       this.ctx.viewmodel.reload(this.reloadTotal);
     }
@@ -1254,7 +1263,7 @@ export class Weapons implements WeaponSystem, Guard {
       while (this.reloadCue < this.reloadFoley.length && progress >= this.reloadFoley[this.reloadCue]![0]) {
         const sound = this.reloadFoley[this.reloadCue++]![1];
         this.ctx.audio.play(sound);
-        if (this.reloadPerShell && sound === 'reload_shell_in' && this.reloadShellsLeft > 0) {
+        if (this.reloadPerShell && sound === this.reloadShellSound && this.reloadShellsLeft > 0) {
           const a = this.held.ammo;
           if (a.mag < a.magSize && a.reserve > 0) {
             a.mag++;
