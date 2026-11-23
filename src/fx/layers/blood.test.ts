@@ -34,49 +34,57 @@ describe('crossing', () => {
 });
 
 describe('the impact puff', () => {
-  const layer = () => new BloodLayer(new THREE.Scene(), makeUniforms(), { patch: () => null } as unknown as MaterialLibrary, 256);
+  const layer = () => new BloodLayer(new THREE.Scene(), makeUniforms(), { patch: () => null } as unknown as MaterialLibrary, 512);
   const core = (blood: BloodLayer, now = 1) => ({ blood, bloodNow: now } as unknown as FxCore);
   const at = new THREE.Vector3(0, 1.2, 0);
   const dir = new THREE.Vector3(0, 0, -1);
 
-  it('emits an immediate translucent mist pop plus snappy spritz droplets that expire cleanly', () => {
+  it('emits an immediate liquid splash web, billowing mist, splatter plume and fast streaks that expire cleanly', () => {
     const blood = layer();
     bloodPuff(core(blood), at, dir, 0.3);
-    // Primary mist pop + spritz droplets are live just after birth and gone once the puff's lifetime ends.
-    expect(blood.ring.countLive(1.02)).toBe(4);
-    expect(blood.ring.countLive(1 + PUFF.life + PUFF.lifeHeavy + 0.05)).toBe(0);
+    // 1 splash web + 1 billowing puff + 5 kinetic streaks + 1 directional mist cone = 8 records.
+    expect(blood.ring.countLive(1.02)).toBe(8);
+    expect(blood.ring.countLive(1 + (PUFF.life + PUFF.lifeHeavy) * 1.3 + 0.05)).toBe(0);
     const d = blood.ring.data;
-    // Record 0 is marked as a puff (negative trail and opacity), born now, standing off the skin toward the gun.
-    expect(d[10]).toBeLessThan(0);
+    // Record 0 is the liquid splash web (aC.z = -2, negative opacity), born now, standing off the skin toward the gun.
+    expect(d[10]).toBeLessThan(-1.5);
     expect(d[11]).toBeLessThan(0);
     expect(d[3]).toBe(1);
     expect(d[2]).toBeGreaterThan(at.z);
+    // Record 1 is the billowing mist cloud (aC.z = -1, negative opacity).
+    expect(d[16 + 10]).toBe(-1);
+    expect(d[16 + 11]).toBeLessThan(0);
   });
 
-  it('is bigger, lasts longer, and scales mist volume for heavier rounds and major gore bursts', () => {
+  it('scales dramatically from light rounds to heavy hits, torso blowouts, and gigantic pasted gib clouds', () => {
     const light = layer();
     const heavy = layer();
+    const blowout = layer();
     const gib = layer();
     bloodPuff(core(light), at, dir, 0.2);
     bloodPuff(core(heavy), at, dir, 0.9);
-    bloodPuff(core(gib), at, dir, 1, 1.4, 'gib');
+    bloodPuff(core(blowout), at, dir, 1, 1.85, 'blowout');
+    bloodPuff(core(gib), at, dir, 1, 1.5, 'gib');
     expect(heavy.ring.data[9]).toBeGreaterThan(light.ring.data[9]! * 1.5);
     expect(heavy.ring.data[7]).toBeGreaterThan(light.ring.data[7]!);
-    expect(gib.ring.data[9]).toBeGreaterThan(heavy.ring.data[9]! * 1.5);
-    expect(gib.ring.countLive(1.1)).toBeGreaterThan(heavy.ring.countLive(1.1));
+    expect(blowout.ring.data[9]).toBeGreaterThan(heavy.ring.data[9]! * 1.8);
+    expect(gib.ring.data[9]).toBeGreaterThan(heavy.ring.data[9]! * 2.5);
+    expect(gib.ring.countLive(1.1)).toBeGreaterThan(heavy.ring.countLive(1.1) * 3);
+    // Gigantic gib cloud hangs as a billowing crimson mist for over a second.
+    expect(gib.ring.countLive(2.2)).toBeGreaterThanOrEqual(12);
   });
 
   it('has a hard cap a frame, and a new frame has its own', () => {
     const blood = layer();
     for (let i = 0; i < 40; i++) bloodPuff(core(blood, 2), at, dir, 0.3);
     const capped = blood.ring.countLive(2.02);
-    // Only PUFF.perFrame bullet pops are admitted on the same frame (4 records each: 1 mist + 3 spritz).
-    expect(capped).toBe(PUFF.perFrame * 4);
+    // Only PUFF.perFrame bullet pops are admitted on the same frame (8 records each).
+    expect(capped).toBe(PUFF.perFrame * 8);
     bloodPuff(core(blood, 2.016), at, dir, 0.3);
-    expect(blood.ring.countLive(2.03)).toBe(capped + 4);
+    expect(blood.ring.countLive(2.03)).toBe(capped + 8);
   });
 
-  it('compiles puff vertex and fragment shaders without pow(0, y) NaN traps', () => {
+  it('compiles splash, puff and mist vertex/fragment shaders without pow(0, y) NaN traps', () => {
     const blood = layer();
     const mat = (blood.ring.object as THREE.Mesh).material as THREE.MeshStandardMaterial;
     const fake = {
@@ -87,11 +95,12 @@ describe('the impact puff', () => {
     mat.onBeforeCompile(fake as unknown as THREE.WebGLProgramParametersWithUniforms, {} as THREE.WebGLRenderer);
     const stripComments = (s: string) => s.replace(/\/\/[^\n]*/g, '');
     expect(stripComments(fake.vertexShader)).not.toContain('pow(');
-    // Extract the puff branch of FRAG_COVER and verify it never calls pow() (pow(0, y) is NaN in GLSL ES).
-    const puffBranch = stripComments(fake.fragmentShader.slice(
-      fake.fragmentShader.indexOf('if (vStrand.z < -1.5)'),
-      fake.fragmentShader.indexOf('} else if (vStrand.z < 0.0)'),
+    // Extract the splash, puff, and mist branches of FRAG_COVER and verify none call pow().
+    const nonStrand = stripComments(fake.fragmentShader.slice(
+      fake.fragmentShader.indexOf('if (vStrand.z < -2.5)'),
+      fake.fragmentShader.indexOf('float beads = max(vStrand.z, 1.0);'),
     ));
-    expect(puffBranch).not.toContain('pow(');
+    expect(nonStrand.length).toBeGreaterThan(200);
+    expect(nonStrand).not.toContain('pow(');
   });
 });

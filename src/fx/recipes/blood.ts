@@ -81,25 +81,33 @@ export function bloodHit(core: FxCore, position: THREE.Vector3, dir: THREE.Vecto
   b.mist(x, y, z, -dir.x * 2.0, 0.45 - dir.y * 2.0, -dir.z * 2.0, 0.18 * p, 0.32, 6.5, 0.68);
 }
 
-/** High-drag micro-droplets that snap outward fast and brake in midair — the "spritz" half of a bullet impact pop. */
-function spritz(
+/**
+ * High-speed razor-thin blood needles flung outward on frames 0-3 (the initial ballistic whip ahead of a
+ * real blood mist burst). Pre-led slightly along flight so they whip clearly past the splash silhouette on
+ * frame 1 and brake midair under high drag.
+ */
+function burstStreaks(
   core: FxCore, x: number, y: number, z: number, dx: number, dy: number, dz: number,
-  count: number, speed: number, spread: number, half: number, drag: number,
+  count: number, speed: number, spread: number, half: number, drag: number, lifeMin = 0.12, lifeMax = 0.22, lead = 0.012,
 ): void {
   const b = core.blood;
   for (let i = 0; i < count; i++) {
-    const v = speed * rand(0.6, 1.25);
+    const v = speed * rand(0.65, 1.35);
     const vx = dx * v + rand(-spread, spread);
-    const vy = dy * v + rand(-spread * 0.65, spread * 0.95);
+    const vy = dy * v + rand(-spread * 0.55, spread * 0.88);
     const vz = dz * v + rand(-spread, spread);
-    b.add(x, y, z, vx, vy, vz, half * rand(0.75, 1.35), rand(0.026, 0.052), drag * rand(0.8, 1.25), i * 0.004, rand(0.18, 0.28));
+    const dtLead = lead * rand(0.5, 1.2);
+    b.add(
+      x + vx * dtLead, y + vy * dtLead, z + vz * dtLead, vx, vy, vz,
+      half * rand(0.70, 1.25), rand(0.032, 0.058), drag * rand(0.85, 1.25), i * 0.001, rand(lifeMin, lifeMax),
+    );
   }
 }
 
 /**
- * The impact Pop + Spritz: what a round, headshot, shotgun blast, torso blowout, or gib knocks out of flesh on the
- * frame of impact. Combines a fast-expanding semi-transparent turbulent crimson aerosol cloud with snappy high-drag
- * wet spritz droplets so every hit reads as a physical liquid pop scaled to the trauma class.
+ * The impact blood burst: sharp liquid tendrils tearing outward and breaking into droplets, fast frame-0 kinetic
+ * needles, velocity-stretched directional splatter cones, and sculpted billowing dark-crimson mist clouds scaled to
+ * the trauma class (`bullet`, `shotgun`, `headshot`, `blowout`, or a gigantic pasted `gib` cloud).
  */
 export function bloodPuff(
   core: FxCore, position: THREE.Vector3, dir: THREE.Vector3, weight = 0.3, scale = 1, kind: BloodPuffKind = 'bullet',
@@ -115,9 +123,9 @@ export function bloodPuff(
   const w = clamp(weight, 0, 1);
   const half = (PUFF.half + PUFF.heavy * w) * scale;
   const life = PUFF.life + PUFF.lifeHeavy * w;
-  const opacity = clamp((0.76 + 0.16 * w) * clamp(scale, 0.8, 1.15), 0.62, 0.92);
-  // Stand slightly off the skin toward the gun so the body mesh never clips half of the entry pop.
-  const off = PUFF.off + half * 0.24;
+  const mistOpacity = clamp((0.44 + 0.14 * w) * clamp(scale, 0.85, 1.15), 0.36, 0.60);
+  // Stand slightly off the skin toward the gun so the body mesh never clips half of the entry burst.
+  const off = PUFF.off + half * 0.22;
   const x = position.x - dir.x * off;
   const y = position.y - dir.y * off;
   const z = position.z - dir.z * off;
@@ -125,76 +133,181 @@ export function bloodPuff(
   const b = core.blood.begin(core.bloodNow, -1e6, null, kind === 'headshot' || major ? BLOOD_TONE.arterial : BLOOD_TONE.wound);
 
   if (kind === 'gib') {
-    // Whole-body explosion: massive 3D billowing red mist cloud that chunks burst out of.
-    b.puff(position.x, position.y, position.z, dir.x * 1.4, 0.95, dir.z * 1.4, 0.92 * scale, 1.05, 3.6, 0.88, 0);
-    for (let i = 0; i < 6; i++) {
-      _v.set(rand(-1, 1), rand(-0.2, 0.85), rand(-1, 1)).normalize();
-      const ox = position.x + _v.x * rand(0.14, 0.40);
-      const oy = position.y + _v.y * rand(0.08, 0.36);
-      const oz = position.z + _v.z * rand(0.14, 0.40);
-      const spd = rand(1.8, 4.0);
-      b.puff(ox, oy, oz, _v.x * spd + dir.x * 1.2, _v.y * spd + 0.65, _v.z * spd + dir.z * 1.2, rand(0.64, 1.05) * scale, rand(0.82, 1.30), rand(3.2, 4.8), rand(0.68, 0.86), i * 0.018);
+    // GIGANTIC whole-body gib / pasted detonation: sweeping 5-6 m asymmetric billowing dark-oxblood mist cloud
+    // with torn liquid blood webs ripping outward, discrete teardrop splatter cones, and frame-0 kinetic needles.
+    const gScale = clamp(scale, 1.0, 2.2);
+    // 1) Central & radial torn liquid blood webs (sharp dark tendrils shattering into crisp flying droplets).
+    b.splash(position.x, position.y, position.z, dir.x * 3.2, 1.25, dir.z * 3.2, 1.32 * gScale, 0.54, 3.6, 0.96, 0);
+    for (let i = 0; i < 7; i++) {
+      _v.set(rand(-1, 1), rand(-0.18, 0.92), rand(-1, 1)).normalize();
+      const spd = rand(3.6, 8.2);
+      b.setTone(i % 2 === 0 ? BLOOD_TONE.arterial : BLOOD_TONE.venous);
+      b.splash(
+        position.x + _v.x * rand(0.18, 0.72),
+        position.y + _v.y * rand(0.10, 0.56),
+        position.z + _v.z * rand(0.18, 0.72),
+        _v.x * spd + dir.x * 2.4, _v.y * spd + 1.05, _v.z * spd + dir.z * 2.4,
+        rand(0.95, 1.65) * gScale, rand(0.42, 0.74), rand(3.4, 5.0), rand(0.86, 0.98), i * 0.007,
+      );
     }
-    spritz(core, position.x, position.y, position.z, dir.x * 0.5, 0.45, dir.z * 0.5, 12, 8.0, 6.8, 0.010, 5.8);
+    // 2) Inner dark oxblood core billows — low per-puff opacity so overlapping 3D folds stay sculpted and velvety.
+    for (let i = 0; i < 4; i++) {
+      _v.set(rand(-1, 1), rand(-0.08, 0.75), rand(-1, 1)).normalize();
+      const spd = rand(1.4, 3.2);
+      b.setTone(i < 2 ? BLOOD_TONE.venous : BLOOD_TONE.wound);
+      b.puff(
+        position.x + _v.x * rand(0.22, 0.70),
+        position.y + _v.y * rand(0.12, 0.52),
+        position.z + _v.z * rand(0.22, 0.70),
+        _v.x * spd + dir.x * 1.6, _v.y * spd + 0.95, _v.z * spd + dir.z * 1.6,
+        rand(1.25, 1.85) * gScale, rand(1.65, 2.35), rand(2.0, 2.8), rand(0.36, 0.48), i * 0.014,
+      );
+    }
+    // 3) Huge sweeping mid billowing crimson plumes expanding outward into a massive 5-6 m cloud.
+    for (let i = 0; i < 8; i++) {
+      _v.set(rand(-1, 1), rand(-0.12, 0.88), rand(-1, 1)).normalize();
+      const spd = rand(4.0, 8.8);
+      b.setTone(i % 3 === 0 ? BLOOD_TONE.arterial : BLOOD_TONE.wound);
+      b.puff(
+        position.x + _v.x * rand(0.45, 1.35),
+        position.y + _v.y * rand(0.22, 0.95),
+        position.z + _v.z * rand(0.45, 1.35),
+        _v.x * spd + dir.x * 3.2, _v.y * spd + 1.35, _v.z * spd + dir.z * 3.2,
+        rand(1.25, 2.05) * gScale, rand(1.85, 2.65), rand(1.9, 2.9), rand(0.32, 0.46), 0.01 + i * 0.015,
+      );
+    }
+    // 4) Towering outer wispy vapor arms curling upward and lingering into atmospheric oxblood smoke.
+    for (let i = 0; i < 6; i++) {
+      _v.set(rand(-1, 1), rand(0.16, 1.0), rand(-1, 1)).normalize();
+      const spd = rand(3.4, 6.8);
+      b.setTone(i % 2 === 0 ? BLOOD_TONE.wound : BLOOD_TONE.venous);
+      b.puff(
+        position.x + _v.x * rand(0.75, 1.85),
+        position.y + rand(0.35, 1.25),
+        position.z + _v.z * rand(0.75, 1.85),
+        _v.x * spd + dir.x * 2.2, _v.y * spd + rand(1.8, 3.8), _v.z * spd + dir.z * 2.2,
+        rand(1.45, 2.25) * gScale, rand(2.10, 3.00), rand(1.6, 2.4), rand(0.26, 0.38), 0.02 + i * 0.018,
+      );
+    }
+    // 5) Discrete directional droplet splatter cones & razor-sharp frame-0 radial kinetic blood needles.
+    b.setTone(BLOOD_TONE.arterial);
+    for (let i = 0; i < 6; i++) {
+      _v.set(rand(-1, 1), rand(-0.15, 0.78), rand(-1, 1)).normalize().addScaledVector(dir, 0.55).normalize();
+      const spd = rand(8.5, 14.5);
+      b.mist(
+        position.x + _v.x * 0.35, position.y + 0.15 + _v.y * 0.35, position.z + _v.z * 0.35,
+        _v.x * spd, _v.y * spd + 0.85, _v.z * spd,
+        rand(0.42, 0.65) * gScale, rand(0.42, 0.68), rand(3.8, 5.0), rand(0.82, 0.94), i * 0.006,
+      );
+    }
+    burstStreaks(core, position.x, position.y + 0.15, position.z, dir.x * 0.35, 0.32, dir.z * 0.35, 28, 19.0, 16.0, 0.0075, 6.2, 0.15, 0.28, 0.020);
     return;
   }
 
   if (kind === 'blowout') {
-    // Torso blowout: huge directional aerosol plume erupting out the exit cavity.
-    b.puff(position.x + dir.x * 0.1, position.y + dir.y * 0.1, position.z + dir.z * 0.1, dir.x * 3.8, dir.y * 3.8 + 0.6, dir.z * 3.8, 0.72 * scale, 0.88, 4.0, 0.90, 0);
-    for (let i = 0; i < 4; i++) {
-      const spd = rand(2.2, 5.0);
-      b.puff(
-        position.x + dir.x * rand(0.1, 0.34) + rand(-0.16, 0.16),
-        position.y + dir.y * rand(0.08, 0.28) + rand(-0.12, 0.18),
-        position.z + dir.z * rand(0.1, 0.34) + rand(-0.16, 0.16),
-        dir.x * spd + rand(-1.5, 1.5), dir.y * spd + rand(0.15, 1.6), dir.z * spd + rand(-1.5, 1.5),
-        rand(0.48, 0.80) * scale, rand(0.65, 1.05), rand(3.6, 5.2), rand(0.68, 0.85), i * 0.02,
+    // Torso blowout: huge directional arterial liquid rupture + billowing exit cloud erupting out the cavity.
+    const bScale = clamp(scale, 1.0, 2.1);
+    b.splash(position.x + dir.x * 0.12, position.y + dir.y * 0.12, position.z + dir.z * 0.12, dir.x * 5.6, dir.y * 5.6 + 0.65, dir.z * 5.6, 0.82 * bScale, 0.44, 4.0, 0.96, 0);
+    for (let i = 0; i < 3; i++) {
+      const spd = rand(4.0, 8.2);
+      b.setTone(i === 0 ? BLOOD_TONE.arterial : BLOOD_TONE.venous);
+      b.splash(
+        position.x + dir.x * rand(0.16, 0.54) + rand(-0.22, 0.22),
+        position.y + dir.y * rand(0.10, 0.38) + rand(-0.16, 0.22),
+        position.z + dir.z * rand(0.16, 0.54) + rand(-0.22, 0.22),
+        dir.x * spd + rand(-2.4, 2.4), dir.y * spd + rand(-0.4, 1.8), dir.z * spd + rand(-2.4, 2.4),
+        rand(0.56, 0.98) * bScale, rand(0.36, 0.58), rand(3.8, 5.2), rand(0.86, 0.96), i * 0.010,
       );
     }
-    spritz(core, position.x, position.y, position.z, dir.x, dir.y + 0.15, dir.z, 10, 9.2, 4.5, 0.009, 6.0);
+    for (let i = 0; i < 8; i++) {
+      const spd = rand(2.8, 7.2);
+      b.setTone(i < 2 ? BLOOD_TONE.venous : i < 5 ? BLOOD_TONE.wound : BLOOD_TONE.arterial);
+      b.puff(
+        position.x + dir.x * rand(0.18, 0.82) + rand(-0.30, 0.30),
+        position.y + dir.y * rand(0.12, 0.60) + rand(-0.22, 0.36),
+        position.z + dir.z * rand(0.18, 0.82) + rand(-0.30, 0.30),
+        dir.x * spd + rand(-2.4, 2.4), dir.y * spd + rand(0.15, 2.4), dir.z * spd + rand(-2.4, 2.4),
+        rand(0.70, 1.32) * bScale, rand(1.15, 1.85), rand(2.2, 3.4), rand(0.32, 0.48), i * 0.015,
+      );
+    }
+    b.setTone(BLOOD_TONE.arterial);
+    for (let i = 0; i < 4; i++) {
+      const spd = rand(8.5, 13.5);
+      b.mist(
+        position.x + dir.x * 0.32, position.y + dir.y * 0.32, position.z + dir.z * 0.32,
+        dir.x * spd + rand(-2.4, 2.4), dir.y * spd + rand(-0.7, 1.5), dir.z * spd + rand(-2.4, 2.4),
+        rand(0.32, 0.50) * bScale, rand(0.34, 0.56), rand(3.8, 5.0), rand(0.82, 0.94), i * 0.008,
+      );
+    }
+    burstStreaks(core, position.x, position.y, position.z, dir.x, dir.y + 0.14, dir.z, 16, 17.5, 7.5, 0.0068, 6.2, 0.14, 0.24, 0.016);
     return;
   }
 
-  // Primary snap-open translucent mist pop (always emitted first).
-  b.puff(x, y, z, -dir.x * v + rand(-0.3, 0.3), 0.38 - dir.y * v, -dir.z * v + rand(-0.3, 0.3), half, life, PUFF.drag, opacity);
+  // Primary entry burst: crisp liquid blood tendrils tearing outward (Record 0) + wispy dark-oxblood mist behind it.
+  b.splash(x, y, z, -dir.x * (v * 1.15) + rand(-0.5, 0.5), 0.35 - dir.y * v, -dir.z * (v * 1.15) + rand(-0.5, 0.5), half * 1.05, life * 0.72, PUFF.drag * 0.9, 0.94);
+  b.setTone(BLOOD_TONE.wound);
+  b.puff(x, y, z, -dir.x * (v * 0.85) + rand(-0.35, 0.35), 0.38 - dir.y * (v * 0.85), -dir.z * (v * 0.85) + rand(-0.35, 0.35), half * 1.18, life * 1.25, PUFF.drag * 0.70, mistOpacity, 0.006);
 
   if (kind === 'headshot') {
-    // Headshots get a distinct billowing arterial crown plume + snappy radial spritz halo.
-    b.puff(
-      position.x + dir.x * 0.1, position.y + 0.08, position.z + dir.z * 0.1,
-      dir.x * (v * 1.45) + rand(-0.6, 0.6), 1.15 + rand(0, 0.55), dir.z * (v * 1.45) + rand(-0.6, 0.6),
-      half * 1.28, life * 1.38, 5.0, opacity * 0.90, 0.015,
+    // Headshots erupt in a sharp arterial tendril crown + billowing oxblood mist + punchy directional exit cone.
+    b.setTone(BLOOD_TONE.arterial);
+    b.splash(
+      position.x + dir.x * 0.14, position.y + 0.08, position.z + dir.z * 0.14,
+      dir.x * (v * 2.2) + rand(-0.8, 0.8), 1.35 + rand(0, 0.7), dir.z * (v * 2.2) + rand(-0.8, 0.8),
+      half * 1.30, life * 0.88, 4.4, 0.96, 0.008,
     );
-    spritz(core, x, y, z, -dir.x * 0.55, 0.6 - dir.y * 0.35, -dir.z * 0.55, 6, 6.5 + 2.6 * w, 4.0, 0.0075, 6.8);
+    for (let i = 0; i < 2; i++) {
+      b.setTone(i === 0 ? BLOOD_TONE.arterial : BLOOD_TONE.venous);
+      b.puff(
+        position.x + dir.x * rand(0.08, 0.28) + rand(-0.12, 0.12), position.y + 0.08 + rand(0, 0.16), position.z + dir.z * rand(0.08, 0.28) + rand(-0.12, 0.12),
+        dir.x * (v * 1.6) + rand(-1.0, 1.0), 1.15 + rand(0.1, 0.85), dir.z * (v * 1.6) + rand(-1.0, 1.0),
+        half * rand(1.18, 1.52), life * rand(1.45, 1.85), 3.4, mistOpacity * 0.88, 0.012 + i * 0.015,
+      );
+    }
+    b.setTone(BLOOD_TONE.arterial);
+    b.mist(position.x + dir.x * 0.24, position.y + 0.06, position.z + dir.z * 0.24, dir.x * 10.5 + rand(-1.2, 1.2), 1.5 + dir.y * 5.5, dir.z * 10.5 + rand(-1.2, 1.2), half * 0.56, 0.36, 4.4, 0.90, 0.005);
+    burstStreaks(core, x, y, z, dir.x * 0.65, 0.55 + dir.y * 0.25, dir.z * 0.65, 11, 13.5 + 3.0 * w, 6.2, 0.0055, 7.2, 0.12, 0.20, 0.012);
     return;
   }
 
   if (kind === 'shotgun') {
-    // Shotgun blasts erupt as a broad multi-lobe vapor cloud + wide wet spritz sheet.
+    // Shotgun blasts tear out a broad multi-lobe liquid splash crown, wide exit splatter cone, and billowing mist.
     if (scale >= 0.9) {
       for (let i = 0; i < 2; i++) {
+        b.setTone(i === 0 ? BLOOD_TONE.arterial : BLOOD_TONE.venous);
+        b.splash(
+          x + rand(-0.16, 0.16), y + rand(-0.12, 0.16), z + rand(-0.16, 0.16),
+          -dir.x * (v * 0.95) + rand(-1.6, 1.6), 0.45 + rand(-0.4, 0.9), -dir.z * (v * 0.95) + rand(-1.6, 1.6),
+          half * rand(0.98, 1.32), life * rand(0.75, 1.0), 4.8, 0.92, 0.008 * (i + 1),
+        );
         b.puff(
-          x + rand(-0.14, 0.14), y + rand(-0.12, 0.14), z + rand(-0.14, 0.14),
-          -dir.x * (v * 0.85) + rand(-1.2, 1.2), 0.45 + rand(-0.35, 0.75), -dir.z * (v * 0.85) + rand(-1.2, 1.2),
-          half * rand(0.82, 1.12), life * rand(1.1, 1.4), 5.6, opacity * 0.86, 0.014 * (i + 1),
+          x + rand(-0.18, 0.18), y + rand(-0.14, 0.18), z + rand(-0.18, 0.18),
+          -dir.x * (v * 0.85) + rand(-1.5, 1.5), 0.48 + rand(-0.35, 0.85), -dir.z * (v * 0.85) + rand(-1.5, 1.5),
+          half * rand(1.05, 1.44), life * rand(1.35, 1.75), 3.6, mistOpacity * 0.86, 0.014 * (i + 1),
         );
       }
-      spritz(core, x, y, z, -dir.x * 0.7, 0.32 - dir.y * 0.5, -dir.z * 0.7, 7, 7.2, 4.4, 0.008, 7.0);
+      b.setTone(BLOOD_TONE.arterial);
+      b.mist(position.x + dir.x * 0.26, position.y, position.z + dir.z * 0.26, dir.x * 10.2 + rand(-1.6, 1.6), 0.55 + dir.y * 5.0, dir.z * 10.2 + rand(-1.6, 1.6), half * 0.58, 0.36, 4.5, 0.88, 0.005);
+      burstStreaks(core, x, y, z, dir.x * 0.55, 0.32 + dir.y * 0.2, dir.z * 0.55, 11, 13.5, 6.8, 0.0056, 7.2, 0.12, 0.20, 0.012);
     }
     return;
   }
 
-  // Standard bullet hit: crisp high-drag back-spritz + exit mist bloom for penetrating / heavy rounds.
-  const spritzCount = w >= 0.5 ? 5 : 3;
-  spritz(core, x, y, z, -dir.x * 0.85, 0.35 - dir.y * 0.5, -dir.z * 0.85, spritzCount, 5.0 + 3.4 * w, 2.3 + 1.8 * w, 0.0065 + 0.0025 * w, 7.6);
+  // Standard / heavy bullet hit: frame-0 kinetic needles + directional teardrop splatter cone + exit bloom on heavier rounds.
+  b.setTone(BLOOD_TONE.arterial);
+  const streakCount = w >= 0.5 ? 8 : 5;
+  burstStreaks(core, position.x, position.y, position.z, dir.x * 0.65, 0.32 + dir.y * 0.30, dir.z * 0.65, streakCount, 11.5 + 4.0 * w, 4.8 + 2.8 * w, 0.0046 + 0.0018 * w, 7.6, 0.11, 0.19, 0.012);
+  b.mist(position.x + dir.x * 0.18, position.y + dir.y * 0.18, position.z + dir.z * 0.18, dir.x * (7.2 + 3.2 * w), 0.35 + dir.y * 4.5, dir.z * (7.2 + 3.2 * w), half * 0.54, 0.28 + 0.12 * w, 4.8, 0.86, 0.004);
   if (w >= 0.45) {
-    // Heavy / rifle rounds push a secondary translucent mist bloom out the far side.
-    b.puff(
-      position.x + dir.x * 0.16, position.y + dir.y * 0.16, position.z + dir.z * 0.16,
-      dir.x * (v * 1.5), dir.y * (v * 1.5) + 0.4, dir.z * (v * 1.5),
-      half * 1.18, life * 1.32, 5.2, opacity * 0.88, 0.016,
-    );
+    // Heavy / rifle rounds punch a directional liquid splash + billowing mist + wide teardrop spray cone out the far side.
+    const ex = position.x + dir.x * 0.20;
+    const ey = position.y + dir.y * 0.20;
+    const ez = position.z + dir.z * 0.20;
+    b.splash(ex, ey, ez, dir.x * (v * 2.3), dir.y * (v * 2.3) + 0.45, dir.z * (v * 2.3), half * 1.24, life * 0.85, 4.4, 0.94, 0.008);
+    b.setTone(BLOOD_TONE.venous);
+    b.puff(ex, ey, ez, dir.x * (v * 1.7), dir.y * (v * 1.7) + 0.45, dir.z * (v * 1.7), half * 1.38, life * 1.48, 3.4, mistOpacity * 0.90, 0.014);
+    b.setTone(BLOOD_TONE.arterial);
+    b.mist(ex + dir.x * 0.18, ey + dir.y * 0.18, ez + dir.z * 0.18, dir.x * 11.2, dir.y * 11.2 + 0.45, dir.z * 11.2, half * 0.62, 0.36, 4.2, 0.90, 0.006);
   }
 }
 
@@ -203,51 +316,53 @@ export function bloodPuff(
  * adds. `life`, `lifeHeavy`: seconds. `off`: metres it stands off the skin. `drift`, `drag`: how fast it leaves the wound
  * back toward the gun, and how soon the air stops it. `perFrame`: the hard cap.
  */
-export const PUFF = { half: 0.24, heavy: 0.34, life: 0.38, lifeHeavy: 0.26, off: 0.09, drift: 1.65, drag: 6.2, perFrame: 12 };
+export const PUFF = { half: 0.22, heavy: 0.30, life: 0.42, lifeHeavy: 0.28, off: 0.08, drift: 1.75, drag: 5.4, perFrame: 12 };
 let puffFrame = -1;
 let puffs = 0;
 
-/** A soft breath of fine suspended drops. Gone inside three quarters of a second so it never hangs like fog. */
+/** A soft breath of fine suspended drops. Gone inside a second so it never hangs like fog. */
 export function bloodMist(core: FxCore, position: THREE.Vector3, size = 1): void {
   const { x, y, z } = position;
   const b = core.blood.begin(core.bloodNow, -1e6, null, BLOOD_TONE.wound);
   for (let i = 0; i < 3; i++) {
-    _v.set(rand(-1, 1), rand(-0.2, 0.65), rand(-1, 1)).normalize().multiplyScalar(rand(0.9, 2.3));
-    b.mist(x, y, z, _v.x, _v.y, _v.z, 0.24 * size, rand(0.46, 0.72), 5.0, 0.62);
+    _v.set(rand(-1, 1), rand(-0.2, 0.65), rand(-1, 1)).normalize().multiplyScalar(rand(0.9, 2.4));
+    b.puff(x, y, z, _v.x, _v.y, _v.z, 0.28 * size, rand(0.55, 0.88), 3.6, 0.40, i * 0.012);
   }
 }
 
 /**
- * Whole-body burst. The meat, bone and viscera are real bodies in gore, and gore fires three jets on top
- * of this, so what is left to do here is the massive crimson mist pop and sheets of blood thrown off by the blast.
+ * Whole-body burst / pasted detonation. The meat, bone and viscera are real bodies in gore, and gore fires three jets
+ * on top of this, so here we detonate a gigantic billowing dark-crimson mist cloud with torn liquid webs and radial
+ * blood sheets thrown off by the blast.
  */
 export function gibBurst(core: FxCore, position: THREE.Vector3, dir: THREE.Vector3, force: number): void {
   const { x, y, z } = position;
-  const f = Math.sqrt(clamp(force / 10, 0.4, 1.6));
-  // Big multi-layered translucent blood cloud that chunks burst out of.
-  bloodPuff(core, position, dir, 1, clamp(0.95 + f * 0.35, 1.05, 1.55), 'gib');
+  const f = Math.sqrt(clamp(force / 10, 0.45, 1.8));
+  // Gigantic multi-layered dark-crimson blood cloud + liquid webs that chunks burst out of.
+  bloodPuff(core, position, dir, 1, clamp(1.15 + f * 0.42, 1.25, 1.90), 'gib');
   const b = core.blood.begin(core.bloodNow, core.floorAt(x, y, z), core.wallAlong(x, y, z, dir.x, dir.y, dir.z), BLOOD_TONE.arterial);
-  for (let i = 0; i < 3; i++) {
-    _v.set(dir.x + rand(-0.3, 0.3), dir.y + rand(0, 0.35), dir.z + rand(-0.3, 0.3)).normalize();
-    stream(core, x, y, z, _v.x, _v.y, _v.z, 5, 11 * f, 2.2, 0.012, 0.1, 1.6, i * 0.02, 3);
+  for (let i = 0; i < 4; i++) {
+    _v.set(dir.x + rand(-0.45, 0.45), dir.y + rand(0, 0.45), dir.z + rand(-0.45, 0.45)).normalize();
+    stream(core, x, y, z, _v.x, _v.y, _v.z, 5, 12 * f, 2.5, 0.013, 0.11, 1.5, i * 0.018, 3);
   }
   b.setTone(BLOOD_TONE.venous);
-  for (let i = 0; i < 6; i++) {
-    _v.set(dir.x + rand(-0.8, 0.8), dir.y + rand(0, 0.9), dir.z + rand(-0.8, 0.8)).normalize();
-    drops(core, x, y, z, _v.x, _v.y, _v.z, 1, rand(4, 8) * f, i * 0.02);
+  for (let i = 0; i < 8; i++) {
+    _v.set(dir.x + rand(-0.9, 0.9), dir.y + rand(0, 0.95), dir.z + rand(-0.9, 0.9)).normalize();
+    drops(core, x, y, z, _v.x, _v.y, _v.z, 1, rand(4.5, 9.0) * f, i * 0.018);
   }
-  for (let i = 0; i < 2; i++) b.mist(x, y, z, dir.x * 4 + rand(-1.5, 1.5), dir.y * 4 + rand(0.2, 2.2), dir.z * 4 + rand(-1.5, 1.5), 0.38, 0.45, 5.5, 0.55);
   spatter(core, position, 1);
 }
 
 /**
- * A head going: an explosive crimson aerosol cloud, a geyser and a crown of thin strands; the skull itself is gore's.
+ * A head going: sharp explosive arterial liquid crown, billowing crimson mist, a geyser and a crown of thin strands;
+ * the skull itself is gore's.
  */
 export function headBurst(core: FxCore, position: THREE.Vector3, dir: THREE.Vector3): void {
   const { x, y, z } = position;
-  bloodPuff(core, position, dir, 1, 1.45, 'headshot');
+  bloodPuff(core, position, dir, 1, 1.5, 'headshot');
   const mist = core.blood.begin(core.bloodNow, -1e6, null, BLOOD_TONE.arterial);
-  mist.puff(x, y + 0.06, z, dir.x * 1.2, 1.6, dir.z * 1.2, 0.46, 0.52, 5.2, 0.72, 0.01);
+  mist.splash(x, y + 0.08, z, dir.x * 2.2, 2.4, dir.z * 2.2, 0.58, 0.42, 4.4, 0.94, 0.008);
+  mist.puff(x, y + 0.1, z, dir.x * 1.4, 1.8, dir.z * 1.4, 0.62, 0.78, 3.4, 0.42, 0.014);
   bloodJet(core, position, UP, 1.3);
   core.blood.setTone(BLOOD_TONE.arterial);
   for (let i = 0; i < 6; i++) {

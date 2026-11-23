@@ -3111,8 +3111,12 @@ export class Gore implements GoreSystem {
       if (!dry) this.ctx.audio.play('blood_splash', { position: c, volume: 0.85, pitchJitter: 0.1, delay: 0.04 });
     }
     if (dry) this.ashPuff(c, 2);
-    else {
-      this.ctx.fx.bloodMist(c, 0.25);
+    else if (!limb.machine && limb.rag.mask[CHEST] === 1 && limb.skip[CHEST] !== 1) {
+      // A severed crawling torso totally gibbed: full gigantic billowing blood detonation like a pasted body.
+      this.ctx.fx.bloodPuff?.(c, damage.dir, 1, 1.5, 'gib');
+      this.ctx.fx.bloodHit(c, damage.dir, 1.8);
+    } else if (!limb.machine) {
+      this.ctx.fx.bloodPuff?.(c, damage.dir, 0.75, 1.05, 'headshot');
       this.ctx.fx.bloodHit(c, damage.dir, 1.4);
     }
     this.chunks.char = burn;

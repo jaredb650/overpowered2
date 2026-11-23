@@ -12,7 +12,7 @@ the world (`Renderer.backdrop`), and these layers live in the world scene and re
 | Class | Draw calls | Cap | What it is |
 |---|---|---|---|
 | `chips` | 6, one per shape | 15,500 | Opaque faceted chips. Exact ballistics with up to 4 floor bounces |
-| `blood` | 1 | 1,200 | Lit strands, mist and impact puffs. One record is a whole curved strand, not a droplet. See Blood below |
+| `blood` | 1 | 2,048 | Lit strands, directional droplet cones (`mist`), billowing oxblood aerosol (`puff`) and torn liquid webs (`splash`). See Blood below |
 | `streaks` | 1 | 5,000 | Sparks, debris streaks, embers. Screen-aligned slivers along the velocity |
 | `smoke` | 1 | 2,000 | Smoke, dust, mist, fire. Premultiplied, so fire and smoke share a draw call |
 | `puffs` | 1 | 1,500 | The original's dotted trail: unrotated translucent cubes |
@@ -56,35 +56,36 @@ Faceted chips stay for explosions. The 20 yellow headshot chips and their flash 
 - **Decals.** `decals.splat(position, normal, size, velocity, how?)` is added by module augmentation in `render/Decals.ts`. Length over width is one over the sine of the impact angle, capped at 4.5, and the shape is chosen by how the drop arrived (`chooseSplat`, `render/decalSheet.ts`): round and clean if it fell, scalloped or crowned with spines if it hit hard, an oval with its tail along the travel if it glanced, a whole burst or fan if it is a splash. Blood is drawn from fields the sheet stores (outline, thickness, haze), not from pictures: `docs/notes/render.md`, "The decal sheet". Thin blood dries in seconds and a pool's middle in a minute and a half. `StainQueue.book(at, landing, size, how?)` passes `how` on. The old emissive floor is gone: blood must not glow.
 - Gore's `meat`, `viscera`, `bone`, `skull` and `brain` are real bodies, so `gibBurst` and `headBurst` no longer throw FX giblets or chunks.
 
-### The impact puff (2026-11-18)
+### The impact puff (updated 2026-11-23)
 
 (Since the gore update's fit pass a body burnt past the soot line gives no puff, spray or strand: gore knocks ash out
 of it instead, `Gore.ashPuff`: a few embers and a wisp of smoke, from the effects already here. `docs/notes/gore.md`,
 "Fire on bodies".)
 
-The owner: "enemies just spurt blood, but they don't have a puff that makes it feel like you're impacting them". Before this, the
-frame a round landed showed no blood at all: the strands were a frame old and a few pixels long, and `bloodHit`'s mist flies back
-along the shot, so from the gun it is seen edge on. The body's red hit flash was the only answer.
+Originally added (2026-11-18) so every hit had immediate frame-1 blood feedback; overhauled in 2026-11-23 to replace
+the bright flat-banded "poof" with multi-layered realistic blood & mist across four GPU primitives in the single
+`BloodLayer` draw call (ring cap raised from 1,200 to 2,048):
 
-- **`bloodPuff(position, dir, weight, scale?)`** (`recipes/blood.ts`, `fx.bloodPuff`): the cloud a round knocks out of flesh, on
-  the side it came from. One record in the blood ring, a third kind beside strands and mist (`BloodLayer.puff`, marked by a negative
-  trail). **Whole on the frame it is added, never faded:** it is eaten from its outline inward over its life (the smoke's erosion),
-  breaking into islands, while a ring of round drops runs out ahead of it. A square that faces the eye.
-- **Look** (`PUFF_LOOK`, `layers/blood.ts`): a lobed cloud with tongues along its radii and a hard torn edge, in three flat bands:
-  a dark rim (0.7 of the blood's albedo), the bright spray (4.6) and the thick heart (2.9). The rim is what parts it from a body
-  that is flashing red from the same hit. Lit by the scene like all blood, capped under the bloom, and never drawn under less
-  than 16% light (`floor`), so a hit in a dark corner is still seen.
-- **Size** (`PUFF`): half width `0.12 + 0.22 x weight` metres, `weight` the body-hit sounds' `hitWeight`: an SMG round 0.17 (a
-  hand and a half across), the Rivet 0.19, the Harrow 0.24, a shotgun blast 0.32, a Sabot dart 0.34. Life 0.17 to 0.27 s. Past
-  6 m from the eye it grows 5% a metre (2.2 times at 30 m) and is never under 7 pixels half across, so it reads at range; inside
-  half a metre of the eye it is not drawn.
-- **Who fires it:** gore, from every bullet and pellet wound on flesh (`BloodField.onHit`, `puffOf`): the living, the dying and
-  corpses, in single player and on every co-op screen. A shotgun blast on one body is one big puff (1.15) and up to three small
-  ones (0.62) at its other pellets. Nothing else knocks one out: a blade opens, a blast bursts, and a round a plate stopped
-  sparks (the damage model never wounds for it). Machines have no blood.
-- **Budget:** at most 12 a frame (`PUFF.perFrame`), the rest dropped; with the longest life that is under 200 of the ring's 1,200.
-- **Captures:** `tools/scripts/blood-puff-shots.mjs` pulls a real trigger once on a standing Trooper and writes the frames, for
-  any guns and ranges; `BP_PUFF=0` is the same build with the puff left out. Gallery: `bloodPuff`, `bloodPuffHeavy`.
+- **`BloodLayer.splash`** (`aC.z = -2`, `vStrand.z = -3`): crisp gnarled dark-crimson liquid tendrils (power-8 ridged
+  domain-warped fBM via pure multiplies, zero `pow()`) with wide open air gaps that pinch via surface tension and
+  shatter into 3-scale detached droplets by mid-life.
+- **`BloodLayer.puff`** (`aC.z = -1`, `vStrand.z = -2`): velvety billowing dark-oxblood aerosol mist driven by 2-stage
+  domain-warped 3-octave rotated fBM with directional self-shadowing fold relief (`PUFF_LOOK = { rim: 0.94, edge: 1.14,
+  core: 0.36, floor: 0.42 }`) and soft feathered dissolution, capped well under bloom (`vec3(0.27, 0.075, 0.08)`).
+- **`BloodLayer.mist`** (`aC.z = 0`, `vStrand.z = -1`): directional splatter cone of discrete varied-size cellular
+  teardrop droplets widening along the exit axis over a faint base wake.
+- **Kinetic streaks** (`burstStreaks`, `recipes/blood.ts`): fast thin ballistic blood needles launched outward on
+  frames 0-3 and braked midair by high drag.
+- **Trauma classes** (`bloodPuff(position, dir, weight, scale?, kind?)`): scales from light rounds (`bullet`: 1 splash,
+  1 puff, 5 streaks, 1 exit cone) through heavy rounds (adds exit splash + puff + cone), `shotgun`, `headshot`,
+  torso `blowout` (4 splashes, 8 billowing puffs, 4 exit cones, 16 needles), up to a gigantic `gib` detonation (8 torn
+  liquid webs, 18 low-per-puff-opacity billowing mist plumes expanding to ~5-6 m and hanging 1.6-3.0 s, 6 splatter
+  cones, 28 needles). Fired on whole-body gibs (`gibBurst`), torso blowouts (`Gore.blowOut`), and gibbed severed top-half
+  torsos (`Gore.burstLimb`).
+- **Budget:** at most 12 standard bullet/shotgun/headshot bursts a frame (`PUFF.perFrame`); `blowout` and `gib` bypass
+  the per-frame cap so major detonations never drop.
+- **Captures:** `tools/scripts/blood-puff-shots.mjs` pulls a real trigger once on a standing Trooper; gallery presets
+  `bloodPuff`, `bloodPuffHeavy`, `bloodPuffShotgun`, `bloodPuffHeadshot`, `bloodPuffBlowout`, `gibBurst`.
 
 ### Sprays, drips, runs and pools (2026-11-16)
 

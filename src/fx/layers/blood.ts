@@ -31,10 +31,10 @@ const ATTRS = ['aP', 'aV', 'aC', 'aF'] as const;
 const SEGMENTS = 7;
 /** An impact puff grows with distance from the eye past this many metres, by this much a metre, to this much more at most. */
 const PUFF_FAR_FROM = 5;
-const PUFF_FAR_GAIN = 0.065;
-const PUFF_FAR_MOST = 1.6;
+const PUFF_FAR_GAIN = 0.06;
+const PUFF_FAR_MOST = 1.3;
 /** Never smaller than this many pixels, half across. */
-const PUFF_MIN_PX = 10;
+const PUFF_MIN_PX = 9;
 /** Room around the strand for the antialiased edge. */
 const PAD = 1.4;
 
@@ -54,7 +54,9 @@ const VERT_NORMAL = /* glsl */ `
 float bAge = uTime - aP.w;
 bool bDead = bAge < 0.0 || bAge >= aV.w;
 bool bMist = aC.w < 0.0;
-bool bPuff = aC.z < 0.0;
+bool bSplash = bMist && aC.z <= -1.5;
+bool bPuff = bMist && aC.z < -0.5 && aC.z > -1.5;
+bool bCloud = bPuff || bSplash;
 vec3 bGravity = vec3(0.0, aF.x, 0.0);
 float bU = position.y;
 float bTime = bMist ? min(bAge, aF.z) : clamp(bAge - bU * aC.z, 0.0, aF.z);
@@ -73,37 +75,70 @@ float bFloor = uPixelWorld * bDepth * uMinPx;
 float bHalf = aC.y;
 float bK = clamp(bAge / max(aV.w, 0.001), 0.0, 1.0);
 float bOpacity = abs(aC.w);
-if (bPuff) {
-  // Immediate snap-open on frame 1 (0.68 -> 1.12 in ~50 ms) using pure multiply (no pow(0, y) NaN),
-  // then a billowy outward coast as air drag brakes the aerosol cloud.
-  float bS = 1.0 - min(bK * 6.0, 1.0);
+// Small bullet hits get a distance boost so they read at range; already-huge gib clouds keep true world scale.
+float bFarScale = 1.0 + clamp((bDepth - ${PUFF_FAR_FROM.toFixed(1)}) * ${PUFF_FAR_GAIN.toFixed(3)}, 0.0, ${PUFF_FAR_MOST.toFixed(2)}) * clamp(0.55 / max(aC.y, 0.2), 0.18, 1.0);
+if (bSplash) {
+  // Fast violent snap-open on frame 1 (0.50 -> 1.24), then coasting outward as tendrils tear into droplets.
+  float bS = 1.0 - min(bK * 3.6, 1.0);
   float bSnap = 1.0 - bS * bS * bS;
-  bHalf *= (0.68 + 0.44 * bSnap + 0.56 * bK) * (1.0 + clamp((bDepth - ${PUFF_FAR_FROM.toFixed(1)}) * ${PUFF_FAR_GAIN.toFixed(3)}, 0.0, ${PUFF_FAR_MOST.toFixed(2)}));
-  bOpacity *= clamp((bDepth - 0.35) / 0.65, 0.0, 1.0);
+  bHalf *= (0.50 + 0.74 * bSnap + 0.30 * bK) * bFarScale;
+  bOpacity *= clamp((bDepth - 0.42) / 0.65, 0.0, 1.0);
+} else if (bPuff) {
+  // Billowing crimson aerosol: blooms rapidly then swells broadly as turbulent folds curl and dissolve.
+  float bS = 1.0 - min(bK * 4.5, 1.0);
+  float bSnap = 1.0 - bS * bS * bS;
+  bHalf *= (0.46 + 0.62 * bSnap + 1.05 * bK) * bFarScale;
+  bOpacity *= clamp((bDepth - 0.35) / 0.75, 0.0, 1.0);
 } else if (bMist) {
-  // Spreads as it thins. Gone before it can sit on the player's face, where it would cost a full screen.
-  // At range the strands fall under a pixel, so the puff grows to carry the hit on its own.
-  bHalf *= (1.0 + 1.5 * bK) * (1.0 + clamp((bDepth - 5.0) * 0.14, 0.0, 2.0));
-  bOpacity *= (1.0 - bK * 0.88) * clamp((bDepth - 0.55) / 1.0, 0.0, 1.0);
+  // Velocity-stretched directional splatter cone of discrete droplets + fine mist wake.
+  bHalf *= (0.78 + 0.95 * bK) * bFarScale;
+  bOpacity *= (1.0 - bK * 0.78) * clamp((bDepth - 0.45) / 0.85, 0.0, 1.0);
 }
 // Thinner than the pixel floor it gets paler, not fatter: a far spurt stays fine instead of turning to confetti.
-float bWidth = max(bHalf, bPuff ? uPixelWorld * bDepth * ${PUFF_MIN_PX.toFixed(1)} : bFloor);
-if (!bPuff) bOpacity *= sqrt(bHalf / bWidth);
+float bWidth = max(bHalf, bCloud ? uPixelWorld * bDepth * ${PUFF_MIN_PX.toFixed(1)} : bFloor);
+if (!bCloud) bOpacity *= sqrt(bHalf / bWidth);
 
 vec3 objectNormal = bToEye;
 `;
 
 const VERT_POSITION = /* glsl */ `
 vec3 transformed = bPos + bSide * (position.x * bWidth * ${PAD.toFixed(2)});
-if (bPuff) {
-  // A square that faces the eye whichever way the puff drifts: along its own velocity, mist seen from the gun is edge on.
+float bShear = 0.0;
+if (bSplash) {
+  // Orient liquid splash crown along its screen-projected flight vector when moving fast so tendrils whip forward.
+  vec3 pFlat = aV.xyz - bToEye * dot(aV.xyz, bToEye);
+  float pFlatLen = length(pFlat);
+  vec3 pRight;
+  if (pFlatLen > 0.25) {
+    pRight = pFlat / pFlatLen;
+    bShear = clamp((pFlatLen - 0.25) * 0.14, 0.0, 0.80);
+  } else {
+    pRight = cross(vec3(0.0, 1.0, 0.0), bToEye);
+    float pLen = length(pRight);
+    pRight = pLen > 0.001 ? pRight / pLen : vec3(1.0, 0.0, 0.0);
+  }
+  vec3 pUp = cross(bToEye, pRight);
+  float stretch = 1.0 + bShear * 0.32;
+  transformed = bPos + (pRight * (position.x * stretch) + pUp * (bU * 2.0 - 1.0)) * bWidth;
+} else if (bPuff) {
+  // Camera-facing billowing mist plane, gently stretched along its drift so plumes look wind-sheared, never round.
+  vec3 pFlat = aV.xyz - bToEye * dot(aV.xyz, bToEye);
+  float pFlatLen = length(pFlat);
   vec3 pRight = cross(vec3(0.0, 1.0, 0.0), bToEye);
   float pLen = length(pRight);
   pRight = pLen > 0.001 ? pRight / pLen : vec3(1.0, 0.0, 0.0);
-  transformed = bPos + (pRight * position.x + cross(bToEye, pRight) * (bU * 2.0 - 1.0)) * bWidth;
-} else if (bMist) transformed += bAlong * (bU * 2.0 - 1.0) * bWidth * (1.0 + min(bSpeed * 0.16, 1.6));
-vStrand = vec4(bPuff ? position.x : position.x * ${PAD.toFixed(2)}, bU, bPuff ? -2.0 : bMist ? -1.0 : aC.z * length(aV.xyz) / max(aC.y * 7.0, 0.01), aF.w);
-vLook = vec4(aC.x, bOpacity, bK, 0.0);
+  if (pFlatLen > 0.35) {
+    pRight = pFlat / pFlatLen;
+    bShear = clamp((pFlatLen - 0.35) * 0.10, 0.0, 0.48);
+  }
+  vec3 pUp = cross(bToEye, pRight);
+  transformed = bPos + (pRight * (position.x * (1.0 + bShear * 0.30)) + pUp * (bU * 2.0 - 1.0)) * bWidth;
+} else if (bMist) {
+  // Moderate elongation (max ~2.1x) so splatter droplets read as teardrops, never flat paint stripes.
+  transformed += bAlong * (bU * 2.0 - 1.0) * bWidth * (1.05 + min(bSpeed * 0.09, 1.05));
+}
+vStrand = vec4(bCloud ? position.x : position.x * ${PAD.toFixed(2)}, bU, bSplash ? -3.0 : bPuff ? -2.0 : bMist ? -1.0 : aC.z * length(aV.xyz) / max(aC.y * 7.0, 0.01), aF.w);
+vLook = vec4(aC.x, bOpacity, bK, bShear);
 vSide = mat3(viewMatrix) * bSide;
 `;
 
@@ -125,8 +160,17 @@ uniform float uPuffEdge;
 uniform float uPuffCore;
 uniform float uPuffFloor;
 
-float bloodSpeck(vec2 p) { return fract(sin(dot(floor(p), vec2(127.1, 311.7))) * 43758.5453); }
-/** Smooth value noise, 0..1: the ragged edge of a puff, and what eats it. */
+float bloodSpeck(vec2 p) {
+  vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+  p3 += dot(p3, p3.yzx + 33.33);
+  return fract((p3.x + p3.y) * p3.z);
+}
+vec2 bloodHash2(vec2 p) {
+  vec3 p3 = fract(vec3(p.xyx) * vec3(0.1031, 0.1030, 0.0973));
+  p3 += dot(p3, p3.yzx + 33.33);
+  return fract((p3.xx + p3.yz) * p3.zy);
+}
+/** Smooth value noise, 0..1. */
 float bloodCloud(vec2 p) {
   vec2 i = floor(p);
   vec2 f = fract(p);
@@ -137,6 +181,27 @@ float bloodCloud(vec2 p) {
   float d = bloodSpeck(i + vec2(1.0, 1.0));
   return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
 }
+/** 3-octave rotated fBM, 0..1: organic fluid turbulence with zero grid alignment. */
+float bloodFbm(vec2 p) {
+  float v = 0.0;
+  mat2 m = mat2(0.80, -0.60, 0.60, 0.80);
+  v += 0.54 * bloodCloud(p); p = m * p * 2.07 + vec2(13.1, 7.7);
+  v += 0.27 * bloodCloud(p); p = m * p * 2.03 + vec2(5.3, 19.4);
+  v += 0.135 * bloodCloud(p);
+  return v / 0.945;
+}
+/** Jittered cellular droplet field: returns crisp oval/teardrop splatter mask (0..1) with open air between drops. */
+float bloodDrops(vec2 p, float density, float stretchY, float radiusScale) {
+  vec2 i = floor(p);
+  vec2 f = fract(p);
+  vec2 rnd = bloodHash2(i);
+  float live = step(1.0 - density, bloodSpeck(i + vec2(31.7, 17.3)));
+  vec2 center = 0.22 + 0.56 * rnd;
+  vec2 d = f - center;
+  d.y *= stretchY;
+  float rad = (0.14 + 0.19 * rnd.x) * radiusScale;
+  return live * (1.0 - smoothstep(rad * 0.72, rad, length(d)));
+}
 `;
 
 const FRAG_COVER = /* glsl */ `
@@ -146,50 +211,127 @@ float bSeed = vStrand.w;
 float bHalf = 1.0;
 float bAlpha;
 float bCore = 0.0;
-if (vStrand.z < -1.5) {
-  // Impact Pop + Spritz: semi-transparent turbulent aerosol mist cloud expanding outward, layered with crisp
-  // radially-streaked micro-droplets bursting ahead of the mist core. Strictly pow-free so k=0 / k=1 never NaN.
+float bLiquid = 0.0;
+if (vStrand.z < -2.5) {
+  // Sharp liquid blood splash web & tendrils: sparse, razor-crisp gnarled branching filaments with wide open
+  // air gaps between whips, pinching via surface tension into scattered crisp droplets and flecks.
   vec2 q = vec2(bAcross, bU * 2.0 - 1.0);
   float k = clamp(vLook.z, 0.0, 1.0);
   float rem = 1.0 - k;
-  float r = length(q);
-  float th = atan(q.y, q.x + 1e-5);
-  float rot = bSeed * 6.2831 + k * (bSeed > 0.5 ? 0.38 : -0.38);
+  float shear = vLook.w;
+  vec2 qc = vec2(q.x + shear * 0.18, q.y);
+  float rot = mix(bSeed * 6.2831, (bSeed - 0.5) * 0.95, clamp(shear * 1.2, 0.0, 1.0)) + k * (bSeed > 0.5 ? 0.12 : -0.12);
+  float cs = cos(rot), sn = sin(rot);
+  vec2 qr = vec2(qc.x * cs - qc.y * sn, qc.x * sn + qc.y * cs);
+  float r = length(qr);
+  float rEll = length(vec2(qc.x * (1.0 - shear * 0.20), qc.y * (1.0 + shear * 0.16)));
+  vec2 sOff = vec2(bSeed * 37.3, bSeed * 71.9);
+  // Outward radial tear + fluid domain warp so liquid filaments bend, whip, and fork organically.
+  vec2 qOut = qr * (1.16 - 0.34 * k);
+  vec2 warp = vec2(
+    bloodCloud(qOut * 2.6 + sOff),
+    bloodCloud(qOut * 2.6 + sOff + vec2(19.3, 41.7))
+  ) - 0.5;
+  vec2 qw = qOut + warp * (0.48 + 0.24 * k);
+  // Thin, high-contrast gnarled branching veins (power 8 via pure multiply -> open lacy blood webs, never a solid blob).
+  float n1 = bloodFbm(qw * 3.3 + sOff * 0.5);
+  float rg1 = 1.0 - abs(2.0 * n1 - 1.0);
+  float r2 = rg1 * rg1;
+  float r4 = r2 * r2;
+  float veins = r4 * r4;
+  float n2 = bloodCloud(qw * 6.8 + sOff + vec2(8.1, 3.7));
+  float rg2 = 1.0 - abs(2.0 * n2 - 1.0);
+  float f2 = rg2 * rg2;
+  float f4 = f2 * f2;
+  float fineVeins = f4 * f4;
+  // Asymmetric whipping radial spokes reaching irregular torn tips.
+  float th = atan(qr.y, qr.x + 1e-5);
+  float spoke = bloodCloud(vec2(th * 4.2 + bSeed * 17.0, r * 1.6 - k * 1.0 + bSeed * 9.0));
+  float reach = 0.54 + 0.44 * spoke;
+  // Compact ragged torn liquid core on early frames ONLY, hollowing quickly into whipping crown filaments.
+  float coreCut = bloodCloud(qw * 5.8 + sOff * 1.1);
+  float coreMask = (1.0 - smoothstep(0.04, 0.22 + 0.14 * spoke, rEll)) * smoothstep(0.36 + 0.35 * k, 0.64 + 0.24 * k, coreCut) * (1.0 - smoothstep(0.06, 0.40, k));
+  float crownEnv = 1.0 - smoothstep(0.14, reach, rEll);
+  // Continuous tendrils tear apart and dissolve by mid-life so late frames are pure scattered droplets (never smooth lingering hooks).
+  float tendrilLife = 1.0 - smoothstep(0.24, 0.66, k);
+  float filaments = max(veins * 1.28, fineVeins * 1.08) * crownEnv * (0.30 + 0.98 * spoke) * tendrilLife;
+  // Surface-tension pinch: two-scale breakup snaps bridges cleanly into jagged beads as k advances.
+  float pinch = bloodCloud(qw * 11.5 + sOff * 1.3) * (0.45 + 0.55 * bloodCloud(qw * 6.4 + sOff * 2.1 + vec2(3.1, 7.4)));
+  float breakup = mix(1.0, smoothstep(0.26, 0.68, pinch), smoothstep(0.08, 0.52, k));
+  float webField = max(coreMask * 1.12, filaments) * breakup;
+  float webThresh = 0.26 + 0.36 * k;
+  float webAlpha = smoothstep(webThresh, webThresh + 0.04, webField);
+  // Crisp detached cellular splatter droplets flung outward and hanging after the tendrils snap (3 scales for organic spray).
+  vec2 qDrop1 = (qr * (1.0 - 0.34 * k) + warp * 0.22) * 5.4 + sOff * 1.3;
+  vec2 qDrop2 = (qr * (1.0 - 0.44 * k) + warp * 0.18) * 9.8 + sOff * 2.7;
+  vec2 qDrop3 = (qr * (1.0 - 0.52 * k) + warp * 0.14) * 14.5 + sOff * 4.1;
+  float dEnv = (1.0 - smoothstep(0.26, 0.96, rEll)) * smoothstep(0.04, 0.22, rEll + 0.16 * k);
+  float dMed = bloodDrops(qDrop1, 0.42 - 0.18 * k, 0.84, 1.02 - 0.34 * k);
+  float dFine = bloodDrops(qDrop2, 0.54 - 0.20 * k, 0.88, 0.94 - 0.28 * k);
+  float dSpec = bloodDrops(qDrop3, 0.58 - 0.22 * k, 0.92, 0.88 - 0.24 * k);
+  float dropAlpha = max(max(dMed, dFine), dSpec) * dEnv * smoothstep(0.0, 0.40, rem);
+  bAlpha = clamp(max(webAlpha, dropAlpha), 0.0, 1.0) * smoothstep(0.0, 0.22, rem);
+  bLiquid = max(webField, dropAlpha * 0.82);
+  bCore = clamp(bLiquid * 1.35, 0.0, 1.0);
+} else if (vStrand.z < -1.5) {
+  // Billowing volumetric blood aerosol mist: 2-stage domain-warped fBM with directional self-shadowing
+  // relief so every turbulent fold has velvety lit crimson crests and deep dark-oxblood cavities.
+  vec2 q = vec2(bAcross, bU * 2.0 - 1.0);
+  float k = clamp(vLook.z, 0.0, 1.0);
+  float rem = 1.0 - k;
+  float shear = vLook.w;
+  float rot = bSeed * 6.2831 + k * (bSeed > 0.5 ? 0.50 : -0.50);
   float cs = cos(rot), sn = sin(rot);
   vec2 qr = vec2(q.x * cs - q.y * sn, q.x * sn + q.y * cs);
-  // Outward-blown turbulent aerosol wisps (reads as a real liquid mist burst, never a hard circle or smoke ball).
-  float radialDrift = r - k * 0.30;
-  float tongue = bloodCloud(vec2(th * 2.4 + bSeed * 11.0, radialDrift * 2.2 + bSeed * 5.0));
-  float cloud = bloodCloud(qr * 2.8 + bSeed * 31.0);
-  float fine = bloodCloud(qr * 7.6 + bSeed * 73.0);
-  float wisp = cloud * 0.62 + fine * 0.38;
-  float reach = 0.74 + 0.16 * tongue + 0.10 * (cloud - 0.5);
-  // Soft feathered translucent mist holding full visibility through the pop, then dissolving into wispy tendrils.
-  float env = 1.0 - smoothstep(0.05, reach, r);
-  float erode = smoothstep(0.08 + k * 0.62, 0.44 + k * 0.42, env + (wisp - 0.34) * 0.64);
-  float fade = smoothstep(0.0, 0.55, rem);
-  float mistAlpha = erode * fade * (0.78 + 0.22 * env);
-  // Radially-streaked wet spritz micro-droplets flung outward ahead of the vapor core.
-  float front = 0.32 + 0.62 * sqrt(k);
-  float band = smoothstep(front - 0.34, front - 0.08, r) * (1.0 - smoothstep(front - 0.02, min(front + 0.14, 1.0), r));
-  vec2 pCell = vec2(th * 9.0 + bSeed * 43.0, (r - front * 0.42) * 10.5 + bSeed * 29.0);
-  vec2 pFrac = fract(pCell) - 0.5 - (vec2(bloodSpeck(pCell + 7.0), bloodSpeck(pCell + 19.0)) - 0.5) * 0.36;
-  float speckDist = length(vec2(pFrac.x * 1.35, pFrac.y * 0.70));
-  float drop = step(0.62 + 0.24 * k, bloodSpeck(pCell)) * smoothstep(0.38, 0.14, speckDist);
-  float spritzAlpha = band * drop * rem;
-  bAlpha = clamp(max(mistAlpha, spritzAlpha * 0.95), 0.0, 1.0);
-  // Smooth volumetric density (0 = backlit translucent crimson haze / spritz, 1 = deep dark blood heart).
-  bCore = clamp(env * erode * (1.0 - k * 0.4), 0.0, 1.0);
-  if (spritzAlpha > mistAlpha) bCore = 0.28;
+  vec2 sOff = vec2(bSeed * 43.7, bSeed * 89.3);
+  // 2-stage fluid domain warp creates authentic billowing smoke-like arms & deep hollow bays.
+  vec2 adv = vec2(k * 0.40, -k * 0.24);
+  vec2 w1 = vec2(
+    bloodFbm(qr * 1.85 + sOff - adv),
+    bloodFbm(qr * 1.85 + sOff + vec2(17.4, 31.2) + adv * 0.85)
+  ) - 0.5;
+  vec2 qw = qr + w1 * (0.76 + 0.48 * k);
+  float fbmMain = bloodFbm(qw * 2.25 + sOff * 0.6 - adv * 0.60);
+  // Directional sample offset toward upper-left light -> sculpted 3D billowing fold relief.
+  float fbmLit = bloodFbm(qw * 2.25 + vec2(0.24, 0.30) + sOff * 0.6 - adv * 0.60);
+  float fbmFine = bloodCloud(qw * 5.8 + sOff * 1.4 + w1 * 1.5);
+  float billow = fbmMain * 0.68 + fbmFine * 0.32;
+  // Asymmetric domain-warped silhouette with deep ragged inlets (never a round cotton ball).
+  vec2 qEnv = vec2(q.x * (1.0 - shear * 0.14), q.y) + w1 * 0.66;
+  float rWarp = length(qEnv);
+  float env = 1.0 - smoothstep(0.04, 0.96, rWarp);
+  // Velvety smoky aerosol folds: dense curling ridges feathering smoothly into wispy atmospheric vapor.
+  float density = env * (billow * 1.50 - 0.18) - (0.10 + 0.40 * k);
+  float mist = smoothstep(0.0, 0.50 + 0.22 * k, density);
+  float softAlpha = mist * (0.34 + 0.66 * mist);
+  float fade = smoothstep(0.0, 0.82, rem);
+  bAlpha = clamp(softAlpha * fade, 0.0, 1.0);
+  // Sculpted volumetric shading: velvety lit crimson crests (bCore low) vs deep dark-oxblood cavities (bCore high).
+  float relief = clamp((fbmMain - fbmLit) * 2.2 + 0.5, 0.0, 1.0);
+  float topCue = clamp(q.y * 0.32 + 0.56, 0.24, 1.0);
+  bCore = clamp(density * 0.78 + (1.0 - relief) * 0.46 + (1.0 - topCue) * 0.16 - 0.08, 0.0, 1.0);
 } else if (vStrand.z < 0.0) {
-  // Fine hanging aerosol mist: wispy turbulent plumes rather than a stippled disc.
+  // Velocity-stretched directional splatter cone: bold varied-size teardrop blood droplets flying along +bU
+  // over a whisper-thin directional mist wake (zero flat brush-stripe artifacts).
   vec2 q = vec2(bAcross / ${PAD.toFixed(2)}, bU * 2.0 - 1.0);
-  float r = length(q);
-  float cloud = bloodCloud(q * 3.2 + bSeed * 41.0);
-  float fine = bloodCloud(q * 8.8 + bSeed * 91.0);
-  float env = 1.0 - smoothstep(0.05, 0.95, r);
-  float wisp = smoothstep(0.16 + vLook.z * 0.42, 0.68, env + (cloud * 0.65 + fine * 0.35 - 0.34) * 0.68);
-  bAlpha = wisp * (0.76 + 0.24 * fine);
+  float k = clamp(vLook.z, 0.0, 1.0);
+  float rem = 1.0 - k;
+  float coneHalf = 0.20 + 0.78 * smoothstep(0.0, 0.82, bU);
+  float ax = abs(q.x) / coneHalf;
+  float coneMask = (1.0 - smoothstep(0.45, 1.02, ax)) * smoothstep(0.0, 0.10, bU) * (1.0 - smoothstep(0.76, 1.0, bU));
+  vec2 sOff = vec2(bSeed * 41.3, bSeed * 91.7);
+  // Two cellular droplet scales: larger oval splatters near the wound, fine flying mist drops further downstream.
+  vec2 pBig = vec2(q.x * 4.8, (bU - k * 0.62) * 4.0) + sOff;
+  vec2 pSmall = vec2(q.x * 8.8, (bU - k * 0.92) * 7.6) + sOff * 1.9;
+  float dBig = bloodDrops(pBig, 0.50 - 0.20 * k, 0.54, (1.28 - 0.42 * bU) * (1.0 - 0.26 * k));
+  float dSmall = bloodDrops(pSmall, 0.62 - 0.22 * k, 0.48, 1.04 - 0.24 * k);
+  float drops = max(dBig, dSmall) * coneMask;
+  // Subtle translucent aerosol wake only near the wound base (never solid bars).
+  float wakeNoise = bloodFbm(vec2(q.x * 3.0, bU * 2.6 - k * 0.45) + sOff * 0.5);
+  float wakeEnv = (1.0 - smoothstep(0.15, 0.88, ax)) * smoothstep(0.0, 0.14, bU) * (1.0 - smoothstep(0.28, 0.72, bU));
+  float wake = smoothstep(0.30 + 0.34 * k, 0.78, wakeEnv * (0.35 + 0.95 * wakeNoise)) * 0.28;
+  bAlpha = clamp(max(drops * 0.96, wake), 0.0, 1.0) * smoothstep(0.0, 0.45, rem);
+  bCore = clamp(drops * 0.78 + wake * 0.42, 0.0, 1.0);
 } else {
   float beads = max(vStrand.z, 1.0);
   // The head is a round cap about as long as the strand is wide.
@@ -204,11 +346,12 @@ if (vStrand.z < -1.5) {
   bAlpha = clamp((bHalf - abs(bAcross)) / edge + 0.5, 0.0, 1.0);
 }
 bAlpha *= vLook.y;
-if (bAlpha < 0.006) discard;
+if (bAlpha < 0.008) discard;
 vec3 bTint = mix(uVenous, uArterial, vLook.x);
-// Thin backlit aerosol scatters light and reads brighter crimson; thick core stays rich dark blood.
-if (vStrand.z < -1.5) bTint *= mix(uPuffEdge, uPuffCore, smoothstep(0.15, 0.82, bCore)) * mix(uPuffRim, 1.0, smoothstep(0.0, 0.22, bAlpha));
-else if (vStrand.z < 0.0) bTint *= 5.2;
+// Deep glossy dark crimson liquid tendrils vs velvety dark-oxblood billowing aerosol mist — never neon cherry red.
+if (vStrand.z < -2.5) bTint *= mix(1.04, 0.42, smoothstep(0.16, 0.88, bCore));
+else if (vStrand.z < -1.5) bTint = (bTint + vec3(0.012, 0.0042, 0.0046)) * mix(uPuffEdge, uPuffCore, smoothstep(0.10, 0.88, bCore)) * mix(uPuffRim, 1.0, smoothstep(0.0, 0.22, bAlpha));
+else if (vStrand.z < 0.0) bTint *= mix(1.16, 0.50, smoothstep(0.15, 0.85, bCore));
 diffuseColor = vec4(vec3(1.0), bAlpha);
 `;
 
@@ -221,34 +364,38 @@ const FRAG_LIGHT = /* glsl */ `
 #include <lights_fragment_end>
 {
   float bLight = dot(reflectedLight.directDiffuse + reflectedLight.indirectDiffuse, vec3(0.2126, 0.7152, 0.0722));
-  // Hit feedback has to be seen: a puff keeps a clear crimson read in dark corners and preserves core/edge depth in full sun.
-  if (vStrand.z < -1.5) bLight = clamp(bLight, uPuffFloor, 0.72);
-  else if (vStrand.z < 0.0) bLight = max(bLight, uPuffFloor * 0.65);
+  // Hit feedback and kinetic streaks stay legible in dark rooms while preserving deep crimson contrast in full sun.
+  if (vStrand.z < -2.5) bLight = clamp(bLight, uPuffFloor * 0.90, 0.74);
+  else if (vStrand.z < -1.5) bLight = clamp(bLight, uPuffFloor, 0.72);
+  else if (vStrand.z < 0.0) bLight = clamp(bLight, uPuffFloor * 0.90, 0.74);
+  else bLight = max(bLight, 0.34);
   reflectedLight.directDiffuse = vec3(0.0);
   reflectedLight.indirectDiffuse = bTint * bLight * uLift;
 }
 `;
 
-/** A strand is a thin cylinder seen side on, so the normal rolls across its width and the highlight is a line. */
+/** A strand is a thin cylinder seen side on; wet liquid splash webs tilt their normal across thickness ridges. */
 const FRAG_NORMAL = /* glsl */ `
 if (vStrand.z >= 0.0) {
   float bRoll = clamp(bAcross / bHalf, -1.0, 1.0);
   normal = normalize(normalize(vSide) * bRoll + normal * sqrt(1.0 - bRoll * bRoll));
+} else if (vStrand.z < -2.5) {
+  vec2 bGrad = vec2(dFdx(bLiquid), dFdy(bLiquid));
+  normal = normalize(normal + vec3(bGrad * 2.0, 0.0));
 }
 `;
 
-/** Strands stay under the bloom knee; translucent crimson puffs get a little more red headroom so hits read cleanly. */
+/** Strands and clouds stay well under the bloom knee so blood reads as realistic deep oxblood/crimson, never neon. */
 const FRAG_LIMIT = /* glsl */ `
-gl_FragColor.rgb = min(gl_FragColor.rgb, vStrand.z < 0.0 ? vec3(0.76, 0.42, 0.42) : vec3(0.5));
+gl_FragColor.rgb = min(gl_FragColor.rgb, vStrand.z < -2.5 ? vec3(0.28, 0.045, 0.048) : vStrand.z < 0.0 ? vec3(0.27, 0.075, 0.080) : vec3(0.45, 0.08, 0.08));
 #include <tonemapping_fragment>
 `;
 
 /**
- * How an impact puff is shaded, from the backlit translucent edge to the rich dark crimson heart: a subtle
- * `rim` that parts it from bright backgrounds, bright backlit spray (`edge`) and deeper `core`. `floor` is
- * the least light it is drawn under, as a share of full daylight.
+ * How billowing blood mist is shaded from velvety lit crimson crests (`edge`) to deep oxblood cavities (`core`),
+ * with a soft `rim` feather and `floor` minimum lighting share in dark rooms.
  */
-export const PUFF_LOOK = { rim: 0.78, edge: 5.6, core: 2.1, floor: 0.38 };
+export const PUFF_LOOK = { rim: 0.94, edge: 1.14, core: 0.36, floor: 0.42 };
 
 function strip(): THREE.BufferGeometry {
   const position: number[] = [];
@@ -323,7 +470,7 @@ export class BloodLayer {
   private wall: BloodWall | null = null;
   private tone = 0;
 
-  constructor(scene: THREE.Scene, uniforms: FxUniforms, materials: MaterialLibrary, cap = 1200) {
+  constructor(scene: THREE.Scene, uniforms: FxUniforms, materials: MaterialLibrary, cap = 2048) {
     this.ring = new InstanceRing(strip(), cap, ATTRS);
     const material = new THREE.MeshStandardMaterial({
       name: 'fx.blood', roughness: 0.16, metalness: 0, transparent: true, depthWrite: false, side: THREE.DoubleSide,
@@ -482,7 +629,34 @@ export class BloodLayer {
     d[o + 9] = half;
     d[o + 10] = -1;
     d[o + 11] = -opacity;
-    d[o + 12] = this.gravity * 0.12;
+    d[o + 12] = this.gravity * 0.07;
+    d[o + 13] = drag;
+    d[o + 14] = life;
+    d[o + 15] = Math.random();
+  }
+
+  /**
+   * A sharp liquid blood splash web & tendrils (`aC.z = -2`): jagged branching fluid filaments that tear
+   * outward on frame 1 and pinch via surface tension into crisp scattered droplets. One record.
+   */
+  splash(x: number, y: number, z: number, vx: number, vy: number, vz: number, half: number, life: number, drag: number, opacity = 1, delay = 0): void {
+    const ring = this.ring;
+    const d = ring.data;
+    const birth = this.birth + delay;
+    const o = ring.alloc(birth + life);
+    d[o] = x;
+    d[o + 1] = y;
+    d[o + 2] = z;
+    d[o + 3] = birth;
+    d[o + 4] = vx;
+    d[o + 5] = vy;
+    d[o + 6] = vz;
+    d[o + 7] = life;
+    d[o + 8] = this.tone;
+    d[o + 9] = half;
+    d[o + 10] = -2;
+    d[o + 11] = -opacity;
+    d[o + 12] = this.gravity * 0.22;
     d[o + 13] = drag;
     d[o + 14] = life;
     d[o + 15] = Math.random();
