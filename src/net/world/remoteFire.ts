@@ -95,6 +95,16 @@ const mm = (n: number): number => Math.round(n * 1000) / 1000;
 const unit = (n: number): number => Math.round(n * 10000) / 10000;
 const point = (v: THREE.Vector3): Vec => [mm(v.x), mm(v.y), mm(v.z)];
 const finite = (n: unknown, lo: number, hi: number): n is number => typeof n === 'number' && Number.isFinite(n) && n >= lo && n <= hi;
+/** Allocation-free byte estimate for the FX stats counter (replaces hot-path JSON.stringify on every shot). */
+function wireEstimate(event: FireEvent | LoopEvent | ProjEvent | KitEvent | MeleeFxEvent): number {
+  switch (event.t) {
+    case 'fire': return 76 + (event.k ? 12 : 0) + (event.n ? 8 : 0) + (event.snd ? 16 : 0);
+    case 'round': return 96 + (event.q ? 36 : 0) + (event.hx ? 24 : 0);
+    case 'loop': return 44 + (event.at ? 24 : 0) + (event.n ? 24 : 0);
+    case 'mfx': return 92;
+    case 'held': return 28 + (event.mods?.length ?? 0) * 4;
+  }
+}
 
 export class RemoteFire implements WorldModule {
   /** Events sent and drawn, by kind, since the world began: for the proofs and the bandwidth numbers. */
@@ -161,7 +171,7 @@ export class RemoteFire implements WorldModule {
     const slot = this.w.session.lobby.me?.slot;
     const out = this.w.hosting ? { ...event, slot } : event;
     this.sent[event.t]++;
-    this.sent.bytes += JSON.stringify(out).length;
+    this.sent.bytes += wireEstimate(out);
     this.w.send(out);
   }
 
