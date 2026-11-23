@@ -16,7 +16,9 @@
  */
 import * as THREE from 'three';
 import type RAPIER from '@dimforge/rapier3d-compat';
-import type { Ctx } from '../../core/contracts';
+import type { PostureName } from '../../characters/animation/postures';
+import { HumanoidBone } from '../../characters/rig';
+import type { Ctx, DamageInfo, DamageType } from '../../core/contracts';
 import { clamp, lerp, rand, TAU } from '../../core/math';
 import type { Enemy } from '../../enemies/Enemy';
 import { ModelBuilder, ModelMaterials } from '../../progression/modelkit';
@@ -29,6 +31,7 @@ import {
 } from '../../world/map/desert/plan';
 import type { CampaignHud } from '../hud';
 import type { MissionRunner } from '../runner';
+import { stripQuistGear, styleQuistNpc, type QuistNpcProps } from './saltbloods';
 import type { QuistHooks, QuistOutcome, SetpiecesController } from './types';
 
 // -------------------------------------------------------------------------------------------------
@@ -39,9 +42,10 @@ export const TOWER_TRIGGER_Z = -28;
 export const TOWER_FALL_DURATION = 1.8;
 export const TOWER_FLOOD_DURATION = 2.6;
 
-export const QUIST_RAMP_TRIGGER_Z = -88;
-export const QUIST_DOOR2_TRIGGER_Z = -108;
-export const QUIST_TAIL_TRIGGER_Z = -117;
+/** Cargo Plane chase trigger Z thresholds derived directly from `CARGO_PLANE` in `plan.ts`. */
+export const QUIST_RAMP_TRIGGER_Z = CARGO_PLANE.rampZ - 2;
+export const QUIST_DOOR2_TRIGGER_Z = CARGO_PLANE.door1Z - 6;
+export const QUIST_TAIL_TRIGGER_Z = CARGO_PLANE.door2Z - 1;
 
 export const QUIST_SPEECH_DURATION = 17.5;
 export const QUIST_SPEECH_BEATS: readonly { readonly at: number; readonly key: string }[] = [
@@ -51,8 +55,15 @@ export const QUIST_SPEECH_BEATS: readonly { readonly at: number; readonly key: s
   { at: 13.2, key: 'quist.speech.4' },
 ];
 
+export const QUIST_REPLY_KEYS: readonly string[] = [
+  'quist.reply.1',
+  'quist.reply.2',
+  'quist.reply.3',
+];
+
+export const QUIST_NPC_MAX_HP = 160;
 export const QUIST_CAPTURE_RANGE = 3.8;
-export const QUIST_CAPTURE_HOLD = 1.5;
+export const QUIST_CAPTURE_HOLD = 1.2;
 export const QUIST_CAPTURE_BONUS = 2500;
 export const QUIST_TALK_RANGE = 14.0;
 export const QUIST_TAP_MAX = 0.4;
@@ -61,6 +72,11 @@ export const QUIST_GRENADE_WINDOW = 1.5;
 export const QUIST_GRENADE_RADIUS = 7.5;
 export const QUIST_SUICIDE_DRAW = 0.55;
 export const QUIST_SUICIDE_TEMPLE = 0.85;
+
+export const QUIST_ESCORT_STOP_DIST = 2.8;
+export const QUIST_ESCORT_TRAIL_DIST = 3.2;
+export const QUIST_ESCORT_JOG_DIST = 6.0;
+export const QUIST_ESCORT_TELEPORT_DIST = 32.0;
 
 export type QuistState =
   | 'inactive'
@@ -73,8 +89,32 @@ export type QuistState =
   | 'grenade_warning'
   | 'suicide_draw'
   | 'suicide_temple'
+  | 'captured_escort'
   | 'captured'
   | 'dead';
+
+/** Enemy weapon / role damage sources blocked by Quist's damageFilter so strays never steal kill/capture. */
+const ENEMY_DAMAGE_SOURCES: ReadonlySet<string> = new Set([
+  'husk', 'trooper', 'gunner', 'brute', 'stalker', 'rocketeer', 'sniper', 'riot',
+  'leaper', 'bomber', 'burner', 'warden', 'skitter', 'drone', 'juggernaut', 'titan',
+  'tank_cannon', 'flak_gun', 'rival_rotary', 'enemy', 'bandit', 'saltblood',
+]);
+
+function isAllyDamageSource(source: string): boolean {
+  return source.startsWith('ally');
+}
+
+function isEnemyDamageSource(source: string): boolean {
+  if (!source) return false;
+  if (ENEMY_DAMAGE_SOURCES.has(source)) return true;
+  return (
+    source.startsWith('enemy_') ||
+    source.startsWith('bandit_') ||
+    source.startsWith('saltblood_') ||
+    source.startsWith('rival_') ||
+    source.startsWith('chopper_')
+  );
+}
 
 // -------------------------------------------------------------------------------------------------
 // Scratch objects (zero per-frame heap allocations)
@@ -697,7 +737,10 @@ export class DesertSetpieces implements SetpiecesController {
   private sewerBeaconOn = false;
   private sewerUnmark: (() => void) | null = null;
 
-  // Hadrek Quist ("the Salt King")
+  // Hadrek Quist ("the Salt King") — real goreable Enemy NPC with custom Salt King bone gear + headless fallback rig
+  private quistEnemy: Enemy | null = null;
+  private quistNpcProps: QuistNpcProps | null = null;
+  private lastAllowedDamageType: DamageType = 'bullet';
   private quistRig: QuistRig | null = null;
   private quistCollider: RAPIER.Collider | null = null;
   private quistHooks: QuistHooks | null = null;
@@ -741,6 +784,17 @@ export class DesertSetpieces implements SetpiecesController {
 
   get quistPosition(): THREE.Vector3 {
     return this.quistPos;
+  }
+
+  /** Whether the escorted cuffed Quist NPC is currently alive and walking with the player. */
+  get quistEscortAlive(): boolean {
+    if (this._quistState !== 'captured_escort') return false;
+    return this.quistEnemy ? this.quistEnemy.alive : true;
+  }
+
+  /** Underlying real Enemy NPC instance for Hadrek Quist (null in headless fallback tests without `enemies.spawn`). */
+  get quistNpc(): Enemy | null {
+    return this.quistEnemy;
   }
 
   get speechElapsed(): number {
@@ -1036,6 +1090,8 @@ export class DesertSetpieces implements SetpiecesController {
     }
     if (this.ctx.events?.on && !this.unsubImpact) {
       this.unsubImpact = this.ctx.events.on('weapon:impact', e => {
+        // When real Enemy NPC is spawned, bullets hit his real bone hitboxes directly.
+        if (this.quistEnemy) return;
         if (!this.isQuistKillableState()) return;
         const dx = e.position.x - this.quistPos.x;
         const dy = e.position.y - (this.quistPos.y + 0.95);
@@ -1070,7 +1126,7 @@ export class DesertSetpieces implements SetpiecesController {
       this.onMainGateRicochet();
       return true;
     }
-    // Hadrek Quist target collider: registers bullets, projectiles, melee, flamethrower
+    // Hadrek Quist fallback target collider (only present when running headless without `enemies.spawn`)
     if (this.quistCollider && collider.handle === this.quistCollider.handle) {
       this.damageQuist(amount, source);
       return true;
@@ -1081,6 +1137,8 @@ export class DesertSetpieces implements SetpiecesController {
   private readonly onBlast = (center: THREE.Vector3, radius: number, amount: number, source: string): void => {
     this.prevBlastHandler?.(center, radius, amount, source);
     if (radius <= 0 || amount <= 0) return;
+    // Real Enemy NPC takes blast damage directly through Combat.explode -> EnemyManager.applyDamage
+    if (this.quistEnemy) return;
     if (!this.quistRig?.root.visible) return;
     if (this.quistOutcome !== null || this._quistState === 'inactive') return;
     if (source === 'quist_grenade') return;
@@ -1535,15 +1593,130 @@ export class DesertSetpieces implements SetpiecesController {
   }
 
   // -----------------------------------------------------------------------------------------------
-  // 4. Hadrek Quist ("the Salt King") — Chase & 5-Outcome Cornered Finale
+  // 4. Hadrek Quist ("the Salt King") — Real Goreable NPC, 5-Outcome Finale & Live Cuffed Follower
   // -----------------------------------------------------------------------------------------------
+
+  private applyEnemyDamage(enemy: Enemy, info: DamageInfo): void {
+    const enemies = this.ctx.enemies as
+      | (typeof this.ctx.enemies & { damage?: (e: Enemy, d: DamageInfo) => unknown })
+      | undefined;
+    if (!enemies) return;
+    if (typeof enemies.applyDamage === 'function') {
+      enemies.applyDamage(enemy, info);
+    } else if (typeof enemies.damage === 'function') {
+      enemies.damage(enemy, info);
+    }
+  }
+
+  private setQuistPosture(posture: PostureName): void {
+    const anim = this.quistEnemy?.char?.anim as
+      | { setPosture?: (p: PostureName) => void }
+      | undefined;
+    anim?.setPosture?.(posture);
+  }
+
+  private retireQuistEnemy(): void {
+    const enemy = this.quistEnemy;
+    if (!enemy) {
+      this.quistNpcProps = null;
+      return;
+    }
+    this.quistEnemy = null;
+    this.quistNpcProps = null;
+
+    enemy.damageFilter = null;
+    enemy.scriptedNpc = false;
+    enemy.nonHostile = false;
+    stripQuistGear(enemy);
+
+    if (enemy.alive) {
+      const mgr = this.ctx.enemies as unknown as { withdraw?: (e: Enemy) => void; alive?: Enemy[] } | undefined;
+      if (typeof mgr?.withdraw === 'function') {
+        mgr.withdraw(enemy);
+      } else {
+        enemy.alive = false;
+        if (enemy.char?.root) enemy.char.root.visible = false;
+        if (Array.isArray(mgr?.alive)) {
+          const idx = mgr.alive.indexOf(enemy);
+          if (idx >= 0) mgr.alive.splice(idx, 1);
+        }
+      }
+    }
+  }
+
+  private filterQuistDamage(d: DamageInfo): boolean {
+    // Always allow Quist's own scripted suicide headshot or grenade detonation even as state transitions to 'dead'.
+    if (d.source === 'quist_suicide' || d.source === 'quist_grenade') {
+      this.lastAllowedDamageType = d.type;
+      return true;
+    }
+
+    if (this._quistState === 'inactive' || this._quistState === 'dead' || this._quistState === 'captured') {
+      return false;
+    }
+
+    // Allies must NEVER steal the player's kill/capture or shoot cuffed Quist.
+    if (isAllyDamageSource(d.source)) {
+      return false;
+    }
+
+    // Phase A cowardly retreat through bulkhead doors: shots glance off pauldrons & hurry him along
+    // so the bulkhead chase always plays out cleanly until he reaches the tail bay.
+    if (
+      this._quistState === 'wait_ramp' ||
+      this._quistState === 'sprint_mid' ||
+      this._quistState === 'wait_mid' ||
+      this._quistState === 'sprint_tail'
+    ) {
+      _v.set(this.quistPos.x, this.quistPos.y + 1.45, this.quistPos.z);
+      this.ctx.fx?.sparks?.(_v, _south, 8, 0xffd27a);
+      this.ctx.audio?.play?.('impact_metal', { position: _v, volume: 0.7, pitchJitter: 0.1 });
+      if (this._quistState === 'wait_ramp') {
+        this.triggerBulkhead1Retreat();
+      } else if (this._quistState === 'wait_mid') {
+        this.triggerBulkhead2Retreat();
+      }
+      return false;
+    }
+
+    // Live cuffed escort mode:
+    //   - Immune to ally gunfire & enemy gunfire/stray blasts
+    //   - Vulnerable to world structural crushes (`type === 'crush'`, e.g. falling tower/shack!)
+    //   - Vulnerable to deliberate player weapon/melee hits
+    if (this._quistState === 'captured_escort') {
+      if (d.type === 'crush') {
+        this.lastAllowedDamageType = 'crush';
+        return true;
+      }
+      if (isEnemyDamageSource(d.source)) {
+        return false;
+      }
+      this.lastAllowedDamageType = d.type;
+      return true;
+    }
+
+    // Tail bay vulnerable states (`wait_tail`, `speech`, `grenade_warning`, `suicide_draw`, `suicide_temple`):
+    // Block stray enemy gunfire; ALLOW all player weapon damage & world crush for full gore/headshots!
+    if (this.isQuistKillableState()) {
+      if (isEnemyDamageSource(d.source)) {
+        return false;
+      }
+      this.lastAllowedDamageType = d.type;
+      return true;
+    }
+
+    return false;
+  }
 
   startPlaneChase(hooks: QuistHooks): void {
     this.ensureBuilt();
     this.deactivateSewerBeacon();
+    this.retireQuistEnemy();
+
     this.quistHooks = hooks;
     this.quistOutcome = null;
     this._quistState = 'wait_ramp';
+    this.lastAllowedDamageType = 'bullet';
     this.quistDoor1Slammed = false;
     this.quistDoor2Slammed = false;
     this._speechElapsed = 0;
@@ -1564,18 +1737,55 @@ export class DesertSetpieces implements SetpiecesController {
     );
     this.quistYaw = 0; // Facing south (+Z) toward the cargo ramp
 
-    if (this.quistRig) {
-      this.quistRig.root.visible = true;
-      this.quistRig.root.position.copy(this.quistPos);
-      this.quistRig.root.rotation.set(0, this.quistYaw, 0);
-      this.quistRig.pistolInHand.visible = false;
-      this.quistRig.pistolHolstered.visible = true;
-      this.quistRig.grenadeInHand.visible = false;
-      this.quistRig.redGlint.visible = false;
-      this.quistRig.zipTie.visible = false;
+    // Spawn a REAL goreable Enemy NPC via ctx.enemies.spawn('trooper', pos);
+    // fall back to static QuistRig ONLY in headless unit tests where enemies.spawn is unavailable.
+    const spawned =
+      typeof this.ctx.enemies?.spawn === 'function'
+        ? (this.ctx.enemies.spawn('trooper', this.quistPos) as Enemy | null)
+        : null;
+
+    if (spawned) {
+      spawned.scriptedNpc = true;
+      spawned.nonHostile = true;
+      spawned.isBoss = true;
+      spawned.health = QUIST_NPC_MAX_HP;
+      spawned.maxHealth = QUIST_NPC_MAX_HP;
+      spawned.armor = 0;
+      if (Array.isArray(spawned.plates)) spawned.plates = [];
+      spawned.shield = false;
+      spawned.ward = 0;
+      spawned.mode = 'hold';
+      spawned.face = 'lock';
+      spawned.yaw = this.quistYaw;
+      spawned.groundY = CARGO_PLANE.floorY;
+      spawned.footbound = true;
+      spawned.position?.copy?.(this.quistPos);
+      spawned.velocity?.set?.(0, 0, 0);
+      spawned.center?.set?.(this.quistPos.x, this.quistPos.y + 1.1, this.quistPos.z);
+      spawned.damageFilter = (d: DamageInfo) => this.filterQuistDamage(d);
+
+      this.quistEnemy = spawned;
+      this.quistNpcProps = styleQuistNpc(spawned, this.ctx);
+      this.setQuistPosture('stand');
+
+      if (this.quistRig) this.quistRig.root.visible = false;
+      this.removeQuistCollider();
+    } else {
+      this.quistEnemy = null;
+      this.quistNpcProps = null;
+      if (this.quistRig) {
+        this.quistRig.root.visible = true;
+        this.quistRig.root.position.copy(this.quistPos);
+        this.quistRig.root.rotation.set(0, this.quistYaw, 0);
+        this.quistRig.pistolInHand.visible = false;
+        this.quistRig.pistolHolstered.visible = true;
+        this.quistRig.grenadeInHand.visible = false;
+        this.quistRig.redGlint.visible = false;
+        this.quistRig.zipTie.visible = false;
+      }
+      this.syncQuistCollider();
     }
 
-    this.syncQuistCollider();
     this.hideQuistHud();
     this.quistUnmark?.();
     this.quistUnmark = this.ctx.hud?.follow
@@ -1600,21 +1810,67 @@ export class DesertSetpieces implements SetpiecesController {
       CARGO_PLANE.quistCornerPos[2],
     );
     this.quistYaw = 0;
-    if (this.quistRig) {
+
+    if (this.quistEnemy && this.quistEnemy.alive) {
+      this.quistEnemy.position.copy(this.quistPos);
+      this.quistEnemy.center?.set?.(this.quistPos.x, this.quistPos.y + 1.1, this.quistPos.z);
+      this.quistEnemy.groundY = CARGO_PLANE.floorY;
+      this.quistEnemy.yaw = 0;
+      this.quistEnemy.mode = 'hold';
+      this.quistEnemy.face = 'player';
+      this.quistEnemy.velocity?.set?.(0, 0, 0);
+      this.setQuistPosture('stand');
+    } else if (this.quistRig) {
       this.quistRig.root.visible = true;
       this.quistRig.root.position.copy(this.quistPos);
       this.quistRig.root.rotation.set(0, 0, 0);
+      this.syncQuistCollider();
     }
-    this.syncQuistCollider();
+
     this.enterCorneredSpeech();
   }
 
   /**
-   * Direct damage entry point for Quist (invoked by Rapier collider hits, blasts, proximity fallback, or tests).
-   * Once cornered (speech / grenade warning / suicide sequence), ANY damage kills Quist immediately!
+   * Direct damage entry point for Quist.
+   * Forwards into `ctx.enemies.applyDamage` when the real goreable `Enemy` NPC exists, or
+   * handles headless fallback rigs in unit tests without `enemies.spawn`.
    */
-  damageQuist(amount: number, _source = 'weapon'): void {
-    if (amount <= 0 || this.quistOutcome !== null || this._quistState === 'inactive') return;
+  damageQuist(amount: number, source = 'weapon'): void {
+    if (amount <= 0 || this._quistState === 'inactive' || this._quistState === 'dead' || this._quistState === 'captured') {
+      return;
+    }
+
+    if (this.quistEnemy && this.quistEnemy.alive) {
+      const hitPt = _v.set(this.quistPos.x, this.quistPos.y + 1.25, this.quistPos.z).clone();
+      this.applyEnemyDamage(this.quistEnemy, {
+        amount,
+        type: 'bullet',
+        point: hitPt,
+        dir: new THREE.Vector3(0, 0, -1),
+        force: 30,
+        source,
+        region: 'chest',
+      });
+      if (!this.quistEnemy.alive) {
+        if (this.quistOutcome === null) {
+          this.onRealQuistKilled();
+        } else if (this._quistState === 'captured_escort') {
+          this.onEscortedQuistDied();
+        }
+      }
+      return;
+    }
+
+    // Headless fallback path (when `ctx.enemies.spawn` is absent)
+    if (this._quistState === 'captured_escort') {
+      if (isAllyDamageSource(source) || isEnemyDamageSource(source)) return;
+      this.lastAllowedDamageType = source === 'structural_collapse' ? 'crush' : 'bullet';
+      this.onEscortedQuistDied();
+      return;
+    }
+
+    if (this.quistOutcome !== null) return;
+    if (isAllyDamageSource(source) || isEnemyDamageSource(source)) return;
 
     if (this.isQuistKillableState()) {
       this.killQuist();
@@ -1629,6 +1885,23 @@ export class DesertSetpieces implements SetpiecesController {
       this.triggerBulkhead1Retreat();
     } else if (this._quistState === 'wait_mid') {
       this.triggerBulkhead2Retreat();
+    }
+  }
+
+  /**
+   * Cleanly retires/hides the live walking cuffed Quist NPC when the player boards the exfil truck
+   * (the middle convoy truck bed now carries cuffed Quist for the exfil chase & ending cutscene).
+   */
+  boardCapturedQuistToConvoy(): void {
+    if (this._quistState !== 'captured_escort') return;
+    this._quistState = 'captured';
+    this.quistUnmark?.();
+    this.quistUnmark = null;
+    this.hideQuistHud();
+    this.removeQuistCollider();
+    this.retireQuistEnemy();
+    if (this.quistRig) {
+      this.quistRig.root.visible = false;
     }
   }
 
@@ -1675,6 +1948,7 @@ export class DesertSetpieces implements SetpiecesController {
     if (this.quistDoor1Slammed) return;
     this.quistDoor1Slammed = true;
     this._quistState = 'sprint_mid';
+    this.setQuistPosture('flee');
     this.quistHooks?.onLine('quist.chase.1', { now: true });
     this.ctx.audio?.play?.('shutter_slam', {
       position: _v.set(0, CARGO_PLANE.floorY + 1.5, CARGO_PLANE.door1Z),
@@ -1687,6 +1961,7 @@ export class DesertSetpieces implements SetpiecesController {
     if (this.quistDoor2Slammed) return;
     this.quistDoor2Slammed = true;
     this._quistState = 'sprint_tail';
+    this.setQuistPosture('flee');
     this.quistHooks?.onLine('quist.chase.2', { now: true });
     this.ctx.audio?.play?.('shutter_slam', {
       position: _v.set(0, CARGO_PLANE.floorY + 1.5, CARGO_PLANE.door2Z),
@@ -1704,6 +1979,12 @@ export class DesertSetpieces implements SetpiecesController {
     this.interactHoldTime = 0;
     this.captureHoldTime = 0;
     this.quistYaw = 0;
+    if (this.quistEnemy && this.quistEnemy.alive) {
+      this.quistEnemy.mode = 'hold';
+      this.quistEnemy.face = 'player';
+      this.quistEnemy.velocity?.set?.(0, 0, 0);
+      this.setQuistPosture('stand');
+    }
     this.showSpeechHud();
     this.emitDueSpeechBeats();
   }
@@ -1721,17 +2002,35 @@ export class DesertSetpieces implements SetpiecesController {
     if (this._quistState === 'inactive') return;
     this.quistAnimPhase += dt;
 
+    // Monitor real Enemy NPC liveness every frame so headshots, dismemberment, blasts, or crushes resolve immediately!
+    if (this.quistEnemy) {
+      if (!this.quistEnemy.alive) {
+        if (this.quistOutcome === null && this._quistState !== 'dead') {
+          this.onRealQuistKilled();
+        } else if (this._quistState === 'captured_escort') {
+          this.onEscortedQuistDied();
+        }
+        return;
+      }
+      if (this._quistState === 'captured_escort') {
+        this.quistPos.copy(this.quistEnemy.position);
+      }
+    }
+
     const player = this.ctx.player;
     const pz = player ? player.position.z : 0;
 
     switch (this._quistState) {
       case 'wait_ramp':
+        this.syncQuistEnemyPose(0, 0);
         if (pz < QUIST_RAMP_TRIGGER_Z) {
           this.triggerBulkhead1Retreat();
         }
         break;
 
       case 'sprint_mid': {
+        const prevX = this.quistPos.x;
+        const prevZ = this.quistPos.z;
         const arrived = this.moveQuistToward(
           CARGO_PLANE.quistMidPos[0],
           CARGO_PLANE.quistMidPos[1],
@@ -1739,22 +2038,28 @@ export class DesertSetpieces implements SetpiecesController {
           7.2,
           dt,
         );
+        this.syncQuistEnemyPose((this.quistPos.x - prevX) / dt, (this.quistPos.z - prevZ) / dt);
         if (pz < QUIST_DOOR2_TRIGGER_Z) {
           this.triggerBulkhead2Retreat();
         } else if (arrived) {
           this._quistState = 'wait_mid';
           this.quistYaw = 0;
+          this.setQuistPosture('stand');
+          this.syncQuistEnemyPose(0, 0);
         }
         break;
       }
 
       case 'wait_mid':
+        this.syncQuistEnemyPose(0, 0);
         if (pz < QUIST_DOOR2_TRIGGER_Z) {
           this.triggerBulkhead2Retreat();
         }
         break;
 
       case 'sprint_tail': {
+        const prevX = this.quistPos.x;
+        const prevZ = this.quistPos.z;
         const arrived = this.moveQuistToward(
           CARGO_PLANE.quistCornerPos[0],
           CARGO_PLANE.quistCornerPos[1],
@@ -1762,21 +2067,26 @@ export class DesertSetpieces implements SetpiecesController {
           6.5,
           dt,
         );
+        this.syncQuistEnemyPose((this.quistPos.x - prevX) / dt, (this.quistPos.z - prevZ) / dt);
         if (pz < QUIST_TAIL_TRIGGER_Z) {
           this.quistPos.set(
             CARGO_PLANE.quistCornerPos[0],
             CARGO_PLANE.quistCornerPos[1],
             CARGO_PLANE.quistCornerPos[2],
           );
+          this.syncQuistEnemyPose(0, 0);
           this.enterCorneredSpeech();
         } else if (arrived) {
           this._quistState = 'wait_tail';
           this.quistYaw = 0;
+          this.setQuistPosture('stand');
+          this.syncQuistEnemyPose(0, 0);
         }
         break;
       }
 
       case 'wait_tail':
+        this.syncQuistEnemyPose(0, 0);
         if (pz < QUIST_TAIL_TRIGGER_Z) {
           this.enterCorneredSpeech();
         }
@@ -1784,15 +2094,22 @@ export class DesertSetpieces implements SetpiecesController {
 
       case 'speech':
         this.updateQuistSpeech(dt);
+        this.syncQuistEnemyPose(0, 0);
         break;
 
       case 'grenade_warning':
         this.updateQuistGrenadeWarning(dt);
+        this.syncQuistEnemyPose(0, 0);
         break;
 
       case 'suicide_draw':
       case 'suicide_temple':
         this.updateQuistSuicide(dt);
+        this.syncQuistEnemyPose(0, 0);
+        break;
+
+      case 'captured_escort':
+        this.updateCapturedEscort(dt);
         break;
 
       case 'captured':
@@ -1800,9 +2117,97 @@ export class DesertSetpieces implements SetpiecesController {
         break;
     }
 
-    this.syncQuistVisuals();
-    if (this.quistCollider) {
-      this.syncQuistCollider();
+    if (!this.quistEnemy) {
+      this.syncQuistVisuals();
+      if (this.quistCollider) {
+        this.syncQuistCollider();
+      }
+    }
+  }
+
+  private syncQuistEnemyPose(vx: number, vz: number): void {
+    const e = this.quistEnemy;
+    if (!e || !e.alive) return;
+    e.mode = 'hold';
+    e.position.copy(this.quistPos);
+    e.groundY = this.quistPos.y;
+    e.yaw = this.quistYaw;
+    e.velocity?.set?.(vx, 0, vz);
+    e.center?.set?.(this.quistPos.x, this.quistPos.y + 1.1, this.quistPos.z);
+  }
+
+  private updateCapturedEscort(dt: number): void {
+    const player = this.ctx.player;
+    if (!player) return;
+
+    const e = this.quistEnemy;
+    const curX = e ? e.position.x : this.quistPos.x;
+    const curY = e ? e.position.y : this.quistPos.y;
+    const curZ = e ? e.position.z : this.quistPos.z;
+
+    const dx = curX - player.position.x;
+    const dy = curY - player.position.y;
+    const dz = curZ - player.position.z;
+    const horizDist = Math.hypot(dx, dz);
+    const totalDist = Math.hypot(dx, dy, dz);
+
+    // Teleport catch-up ONLY if > 32 m stuck behind geometry
+    if (totalDist > QUIST_ESCORT_TELEPORT_DIST) {
+      const fwd = player.forward;
+      const backX = fwd ? -fwd.x : 0;
+      const backZ = fwd ? -fwd.z : -1;
+      const len = Math.hypot(backX, backZ) || 1;
+      _v.set(
+        player.position.x + (backX / len) * QUIST_ESCORT_TRAIL_DIST,
+        player.position.y,
+        player.position.z + (backZ / len) * QUIST_ESCORT_TRAIL_DIST,
+      );
+      const nav = this.ctx.world?.nav;
+      if (nav && typeof nav.nearest === 'function' && nav.nearest(_v, 8, _v2)) {
+        _v.copy(_v2);
+      }
+      this.quistPos.copy(_v);
+      if (e) {
+        e.position.copy(_v);
+        e.groundY = _v.y;
+        e.velocity?.set?.(0, 0, 0);
+        e.center?.set?.(_v.x, _v.y + 1.1, _v.z);
+        e.mode = 'hold';
+        e.face = 'player';
+      }
+      return;
+    }
+
+    if (horizDist > QUIST_ESCORT_STOP_DIST) {
+      // Smoothly trail behind player (~3.2 m), jogging faster if > 6 m away
+      const nx = horizDist > 1e-4 ? dx / horizDist : 0;
+      const nz = horizDist > 1e-4 ? dz / horizDist : -1;
+      const targetX = player.position.x + nx * (QUIST_ESCORT_TRAIL_DIST * 0.78);
+      const targetZ = player.position.z + nz * (QUIST_ESCORT_TRAIL_DIST * 0.78);
+      const targetY = player.position.y;
+
+      if (e) {
+        e.mode = 'point';
+        e.face = 'move';
+        e.pace = horizDist > QUIST_ESCORT_JOG_DIST ? 1.15 : 0.72;
+        e.moveTarget.set(targetX, targetY, targetZ);
+        this.setQuistPosture('cuffed');
+      } else {
+        const speed = horizDist > QUIST_ESCORT_JOG_DIST ? 6.4 : 4.0;
+        this.moveQuistToward(targetX, targetY, targetZ, speed, dt);
+      }
+    } else {
+      // Close enough: stop smoothly and face player
+      const faceYaw = Math.atan2(player.position.x - curX, player.position.z - curZ);
+      this.quistYaw = faceYaw;
+      if (e) {
+        e.mode = 'hold';
+        e.face = 'player';
+        e.pace = 0;
+        e.yaw = faceYaw;
+        e.velocity?.set?.(0, 0, 0);
+        this.setQuistPosture('cuffed');
+      }
     }
   }
 
@@ -1896,23 +2301,39 @@ export class DesertSetpieces implements SetpiecesController {
   }
 
   private triggerQuistReply(): void {
-    const key = this.quistReplyIndex % 2 === 0 ? 'quist.reply.1' : 'quist.reply.2';
+    let key = QUIST_REPLY_KEYS[this.quistReplyIndex % QUIST_REPLY_KEYS.length]!;
     this.quistReplyIndex++;
+    // If mission lines don't define `quist.reply.3`, fall back cleanly to `quist.reply.2`.
+    const lines = this.runner?.mission?.lines;
+    if (key === 'quist.reply.3' && Array.isArray(lines) && !lines.some(l => l.id === 'mission.desert_raid.quist.reply.3')) {
+      key = 'quist.reply.2';
+    }
     this.quistHooks?.onLine(key, { now: true });
   }
 
   private captureQuist(): void {
     if (this.quistOutcome !== null) return;
     this.quistOutcome = 'captured';
-    this._quistState = 'captured';
+    this._quistState = 'captured_escort';
     this.interactHeld = false;
     this.captureHoldTime = QUIST_CAPTURE_HOLD;
     this.ctx.hud?.hold?.(0);
     this.hideQuistHud();
     this.removeQuistCollider();
-    this.quistUnmark?.();
-    this.quistUnmark = null;
 
+    // Keep Quist ALIVE in the world as a cuffed follower NPC!
+    if (this.quistEnemy && this.quistEnemy.alive) {
+      this.quistEnemy.nonHostile = true;
+      this.quistEnemy.scriptedNpc = true;
+      this.quistEnemy.damageFilter = (d: DamageInfo) => this.filterQuistDamage(d);
+      this.setQuistPosture('cuffed');
+    }
+    if (this.quistNpcProps) {
+      this.quistNpcProps.setCuffed(true);
+      this.quistNpcProps.pistolInHand.visible = false;
+      this.quistNpcProps.grenadeInHand.visible = false;
+      this.quistNpcProps.redGlint.visible = false;
+    }
     if (this.quistRig) {
       this.quistRig.zipTie.visible = true;
       this.quistRig.pistolInHand.visible = false;
@@ -1920,15 +2341,72 @@ export class DesertSetpieces implements SetpiecesController {
       this.quistRig.redGlint.visible = false;
     }
 
+    // Update floating HUD marker to live escort status
+    this.quistUnmark?.();
+    this.quistUnmark = this.ctx.hud?.follow
+      ? this.ctx.hud.follow(this.quistPos, 'CAPTURED: HADREK QUIST [ESCORTING]', '#5ce08a')
+      : null;
+
     this.ctx.audio?.play?.('cuff_click', { position: this.quistPos, volume: 0.9 });
     this.ctx.audio?.play?.('style_bonus', { volume: 0.7 });
     this.quistHooks?.onLine('quist.captured', { now: true });
     this.ctx.progression?.award?.(QUIST_CAPTURE_BONUS, 'HADREK QUIST CAPTURED', this.quistPos);
-    this.ctx.hud?.feed?.(`HADREK QUIST CAPTURED ALIVE (+$${QUIST_CAPTURE_BONUS.toLocaleString('en-US')} BONUS)`, '#ffc14a');
+    this.ctx.hud?.feed?.(`HADREK QUIST CAPTURED ALIVE (+$${QUIST_CAPTURE_BONUS.toLocaleString('en-US')} BONUS) — ESCORT TO EXFIL`, '#5ce08a');
     this.quistHooks?.onOutcome('captured');
     this.runner.signal('dr:quist_done');
   }
 
+  /** Called immediately when the real goreable Quist Enemy NPC dies during the tail bay confrontation. */
+  private onRealQuistKilled(): void {
+    if (this.quistOutcome !== null) return;
+    this.quistOutcome = 'killed';
+    this._quistState = 'dead';
+    this.interactHeld = false;
+    this.captureHoldTime = 0;
+    this.ctx.hud?.hold?.(0);
+    this.hideQuistHud();
+    this.removeQuistCollider();
+    this.quistUnmark?.();
+    this.quistUnmark = null;
+
+    // Cut off his speech mid-word!
+    this.ui?.hush?.();
+
+    if (this.quistNpcProps) {
+      this.quistNpcProps.grenadeInHand.visible = false;
+      this.quistNpcProps.redGlint.visible = false;
+      this.quistNpcProps.pistolInHand.visible = false;
+    }
+    this.ctx.hud?.hitMarker?.('kill');
+    this.quistHooks?.onOutcome('killed');
+    this.runner.signal('dr:quist_killed');
+    this.runner.signal('dr:quist_done');
+  }
+
+  /** Called if cuffed Quist is killed (crushed by falling debris or shot by the player) during escort to exfil. */
+  private onEscortedQuistDied(): void {
+    if (this._quistState !== 'captured_escort') return;
+    const reason: 'crushed' | 'shot' = this.lastAllowedDamageType === 'crush' ? 'crushed' : 'shot';
+    this._quistState = 'dead';
+    this.hideQuistHud();
+    this.removeQuistCollider();
+    this.quistUnmark?.();
+    this.quistUnmark = null;
+
+    if (this.quistNpcProps) {
+      this.quistNpcProps.setCuffed(false);
+    }
+
+    if (reason === 'crushed') {
+      this.ctx.hud?.feed?.('HADREK QUIST CRUSHED BY FALLING DEBRIS!', '#ff6b4a');
+    } else {
+      this.ctx.hud?.feed?.('PRISONER HADREK QUIST KILLED IN CUSTODY', '#ff6b4a');
+    }
+    this.quistHooks?.onEscortLost?.(reason);
+    this.runner.signal('dr:quist_escort_lost');
+  }
+
+  /** Headless fallback kill handler (used only when `ctx.enemies.spawn` was unavailable). */
   private killQuist(): void {
     if (this.quistOutcome !== null) return;
     this.quistOutcome = 'killed';
@@ -1961,6 +2439,7 @@ export class DesertSetpieces implements SetpiecesController {
     this.ctx.hud?.hitMarker?.('kill');
 
     this.quistHooks?.onOutcome('killed');
+    this.runner.signal('dr:quist_killed');
     this.runner.signal('dr:quist_done');
   }
 
@@ -1969,6 +2448,11 @@ export class DesertSetpieces implements SetpiecesController {
     this.grenadeElapsed = 0;
     this.grenadeFlashTick = 0;
 
+    this.setQuistPosture('fumble');
+    if (this.quistNpcProps) {
+      this.quistNpcProps.grenadeInHand.visible = true;
+      this.quistNpcProps.redGlint.visible = true;
+    }
     if (this.quistRig) {
       this.quistRig.grenadeInHand.visible = true;
       this.quistRig.redGlint.visible = true;
@@ -1989,8 +2473,12 @@ export class DesertSetpieces implements SetpiecesController {
     this.grenadeElapsed += dt;
     this.grenadeFlashTick -= dt;
 
+    const pulse = 0.6 + 0.4 * Math.sin(this.grenadeElapsed * 28);
+    if (this.quistNpcProps) {
+      this.quistNpcProps.redGlint.scale.setScalar(0.85 + pulse * 0.95);
+      this.quistNpcProps.redGlintMat.opacity = 0.65 + pulse * 0.35;
+    }
     if (this.quistRig) {
-      const pulse = 0.6 + 0.4 * Math.sin(this.grenadeElapsed * 28);
       this.quistRig.redGlint.scale.setScalar(0.85 + pulse * 0.95);
       this.quistRig.redGlintMat.opacity = 0.65 + pulse * 0.35;
     }
@@ -2014,12 +2502,16 @@ export class DesertSetpieces implements SetpiecesController {
     this.quistUnmark?.();
     this.quistUnmark = null;
 
+    if (this.quistNpcProps) {
+      this.quistNpcProps.grenadeInHand.visible = false;
+      this.quistNpcProps.redGlint.visible = false;
+    }
     if (this.quistRig) {
       this.quistRig.grenadeInHand.visible = false;
       this.quistRig.redGlint.visible = false;
     }
 
-    const blastAt = _v.set(this.quistPos.x, this.quistPos.y + 0.4, this.quistPos.z);
+    const blastAt = _v.set(this.quistPos.x, this.quistPos.y + 0.4, this.quistPos.z).clone();
     this.ctx.fx?.explosion?.(blastAt, { radius: QUIST_GRENADE_RADIUS, kind: 'grenade', scale: 1.35 });
     this.ctx.fx?.smoke?.(blastAt, 0x26201c, 3.6, 2.8);
     this.ctx.fx?.embers?.(blastAt, 28, 3.5);
@@ -2029,6 +2521,20 @@ export class DesertSetpieces implements SetpiecesController {
     this.ctx.audio?.play?.('grenade_explode', { position: blastAt, volume: 1.0 });
     this.ctx.audio?.play?.('explosion_debris', { position: blastAt, volume: 0.9 });
     this.ctx.audio?.play?.('enemy_die', { position: blastAt, volume: 0.85 });
+
+    // Blast & gib the real Quist Enemy NPC via real Enemy gore!
+    if (this.quistEnemy && this.quistEnemy.alive) {
+      this.applyEnemyDamage(this.quistEnemy, {
+        amount: 9999,
+        type: 'explosive',
+        point: blastAt.clone(),
+        dir: new THREE.Vector3(0, 1, 0),
+        force: 220,
+        source: 'quist_grenade',
+        gib: true,
+        region: 'chest',
+      });
+    }
 
     // Apply lethal close-range blast damage & knockback to player within 7.5 m
     const player = this.ctx.player;
@@ -2065,6 +2571,11 @@ export class DesertSetpieces implements SetpiecesController {
     this.suicideElapsed = 0;
     this.hideQuistHud();
 
+    this.setQuistPosture('pistol');
+    if (this.quistNpcProps) {
+      this.quistNpcProps.pistolHolstered.visible = false;
+      this.quistNpcProps.pistolInHand.visible = true;
+    }
     if (this.quistRig) {
       this.quistRig.pistolHolstered.visible = false;
       this.quistRig.pistolInHand.visible = true;
@@ -2078,6 +2589,7 @@ export class DesertSetpieces implements SetpiecesController {
     this.suicideElapsed += dt;
     if (this._quistState === 'suicide_draw' && this.suicideElapsed + 1e-6 >= QUIST_SUICIDE_DRAW) {
       this._quistState = 'suicide_temple';
+      this.setQuistPosture('temple');
     }
     if (this.suicideElapsed + 1e-6 >= QUIST_SUICIDE_DRAW + QUIST_SUICIDE_TEMPLE) {
       this.executePistolSuicide();
@@ -2093,24 +2605,38 @@ export class DesertSetpieces implements SetpiecesController {
     this.quistUnmark = null;
 
     // Through the temple, left to right (matching src/enemies/outpost/flight.ts `shootSelf`)
-    const headPos = _v.set(this.quistPos.x, this.quistPos.y + 1.66, this.quistPos.z);
-    _dir.set(-Math.cos(this.quistYaw), 0, Math.sin(this.quistYaw));
+    const headPos = _v.set(this.quistPos.x, this.quistPos.y + 1.66, this.quistPos.z).clone();
+    const shotDir = _dir.set(-Math.cos(this.quistYaw), 0, Math.sin(this.quistYaw)).clone();
 
     this.ctx.audio?.play?.('enemy_pistol', { position: headPos, volume: 1.1 });
     this.ctx.audio?.play?.('head_pop', { position: headPos, volume: 0.75 });
     this.ctx.audio?.play?.('body_thud', { position: this.quistPos, volume: 0.85 });
-    this.ctx.fx?.muzzleFlash?.(headPos, _dir, 'pistol');
+    this.ctx.fx?.muzzleFlash?.(headPos, shotDir, 'pistol');
     this.ctx.render.lights?.flash?.(headPos, 0xffd27a, 4.5, 9, 0.09);
-    this.ctx.fx?.bloodHit?.(headPos, _dir, 1.5);
+    this.ctx.fx?.bloodHit?.(headPos, shotDir, 1.5);
     this.ctx.fx?.bloodMist?.(headPos, 1.1);
     this.ctx.render.decals?.add?.('blood', _v2.set(this.quistPos.x, this.quistPos.y + 0.02, this.quistPos.z), _up, 1.3);
+
+    // Fire a real lethal headshot through EnemySystem so his head splatters & ragdolls!
+    if (this.quistEnemy && this.quistEnemy.alive) {
+      this.applyEnemyDamage(this.quistEnemy, {
+        amount: 9999,
+        type: 'bullet',
+        region: 'head',
+        bone: HumanoidBone.head,
+        point: headPos,
+        dir: shotDir,
+        force: 55,
+        source: 'quist_suicide',
+      });
+    }
 
     this.quistHooks?.onOutcome('suicide');
     this.runner.signal('dr:quist_done');
   }
 
   // -----------------------------------------------------------------------------------------------
-  // Quist Articulated Poses & Animations
+  // Quist Fallback Articulated Poses & Animations (headless test rig only)
   // -----------------------------------------------------------------------------------------------
 
   private syncQuistVisuals(): void {
@@ -2159,7 +2685,6 @@ export class DesertSetpieces implements SetpiecesController {
       }
 
       case 'speech': {
-        // Lowered composed stance backed against the tail bulkhead
         rig.pelvis.position.y = 0.9;
         rig.torso.rotation.x = 0.08;
         rig.head.rotation.y = Math.sin(t * 1.4) * 0.1;
@@ -2171,7 +2696,6 @@ export class DesertSetpieces implements SetpiecesController {
       }
 
       case 'grenade_warning': {
-        // Fumble & pin pull crouch: hand raises grenade with flashing red glint
         const tremble = Math.sin(t * 42) * 0.05;
         rig.pelvis.position.y = 0.84;
         rig.torso.rotation.x = 0.2;
@@ -2184,7 +2708,6 @@ export class DesertSetpieces implements SetpiecesController {
       }
 
       case 'suicide_draw': {
-        // 0.55 s draw sidearm cleanly from hip toward temple
         const u = clamp(this.suicideElapsed / QUIST_SUICIDE_DRAW);
         rig.pelvis.position.y = 0.92;
         rig.torso.rotation.x = 0.08;
@@ -2195,7 +2718,6 @@ export class DesertSetpieces implements SetpiecesController {
       }
 
       case 'suicide_temple': {
-        // Exact 'temple' pose matching flight.ts & postures.ts: head bowed, left pistol pressed to left temple, subtle tremble
         const tremble = Math.sin(t * 36) * 0.025;
         rig.pelvis.position.y = 0.92;
         rig.torso.rotation.set(0.12, 0, 0.05);
@@ -2206,8 +2728,22 @@ export class DesertSetpieces implements SetpiecesController {
         break;
       }
 
+      case 'captured_escort': {
+        // Walking cuffed behind player with hands zip-tied
+        const stride = Math.sin(t * 9);
+        rig.pelvis.position.y = 0.94;
+        rig.torso.rotation.x = 0.06;
+        rig.head.rotation.x = 0.12;
+        rig.legL.rotation.x = stride * 0.45;
+        rig.legR.rotation.x = -stride * 0.45;
+        rig.armL.rotation.set(0.42, 0, -0.2);
+        rig.forearmL.rotation.set(-0.4, 0, -0.4);
+        rig.armR.rotation.set(0.42, 0, 0.2);
+        rig.forearmR.rotation.set(-0.4, 0, 0.4);
+        break;
+      }
+
       case 'captured': {
-        // Kneeling zip-tied behind back, head bowed
         rig.pelvis.position.y = 0.44;
         rig.torso.rotation.x = 0.14;
         rig.head.rotation.x = 0.38;
@@ -2221,7 +2757,6 @@ export class DesertSetpieces implements SetpiecesController {
       }
 
       case 'dead': {
-        // Collapsed supine on cargo plane floor
         rig.pelvis.position.set(0, 0.18, -0.35);
         rig.pelvis.rotation.set(-Math.PI * 0.48, 0.18, 0.12);
         rig.armL.rotation.set(-0.4, 0, 0.65);
@@ -2290,6 +2825,7 @@ export class DesertSetpieces implements SetpiecesController {
     this.removeTowerLegColliders();
     this.removeStreetRubbleColliders();
     this.removeQuistCollider();
+    this.retireQuistEnemy();
     this.sewerUnmark?.();
     this.sewerUnmark = null;
     this.quistUnmark?.();
@@ -2311,6 +2847,7 @@ export class DesertSetpieces implements SetpiecesController {
     this.towerArmed = false;
     this.towerCollapsing = false;
     this._quistState = 'inactive';
+    this.lastAllowedDamageType = 'bullet';
     this.quistHooks = null;
     this.detachWorldHooks();
   }
@@ -2357,6 +2894,7 @@ export class DesertSetpieces implements SetpiecesController {
 
     this.quistOutcome = null;
     this._quistState = 'inactive';
+    this.lastAllowedDamageType = 'bullet';
     this.quistHooks = null;
     this.quistDoor1Slammed = false;
     this.quistDoor2Slammed = false;
@@ -2369,6 +2907,7 @@ export class DesertSetpieces implements SetpiecesController {
     this.grenadeElapsed = 0;
     this.suicideElapsed = 0;
     this.removeQuistCollider();
+    this.retireQuistEnemy();
     this.quistUnmark?.();
     this.quistUnmark = null;
     this.hideQuistHud();

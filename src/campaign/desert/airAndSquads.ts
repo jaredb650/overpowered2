@@ -68,12 +68,15 @@ export const DROP_ZONE = {
 
 /** Section 6 scenic town-flattening ending cutscene timing (seconds). */
 export const ENDING_CUTSCENE = {
-  duration: 11.0,
+  duration: 10.5,
+  capturedDuration: 11.8,
+  capturedPhase1End: 4.8,
   wave1End: 3.0,
-  wave2End: 7.0,
-  nukeSweepAt: 5.8,
-  nukeSweepCenter: [0, 0, 4] as const,
-  nukeSweepRadius: 115,
+  wave2End: 7.4,
+  nukeSweepAt: 6.2,
+  /** Sweeps Wall (z=+62), Warren, Pump Yard & High Terraces (z=-80..-144) while keeping Cargo Plane (z=-208..-266) intact. */
+  nukeSweepCenter: [0, 0, -35] as const,
+  nukeSweepRadius: 125,
 } as const;
 
 /** Gunship engine audio plan (uses existing helicopter rotor & turbine loops). */
@@ -247,9 +250,10 @@ const DESERT_GUNSHIP_AIRFRAME: AirframeSpec<GunshipMount> = {
 };
 
 // ---------------------------------------------------------------------------------------------
-// Squad Rosters & Lane Waypoints
+// Balanced 4-Man Tactical Fireteam Roster & Stage Waypoints
 // ---------------------------------------------------------------------------------------------
 
+export type SquadStage = 'warren' | 'pumpyard' | 'terraces' | 'cave';
 type SquadLane = 'west' | 'center' | 'east';
 
 interface SquadBlueprint {
@@ -259,31 +263,64 @@ interface SquadBlueprint {
   readonly dropOffset: readonly [number, number];
   readonly warrenPost: readonly [number, number];
   readonly pumpyardPost: readonly [number, number];
+  readonly terracesPost: readonly [number, number];
+  readonly cavePost: readonly [number, number];
 }
 
 /**
- * 2 friendly assault squads (10 soldiers total) pushed across 3 lanes:
- *   - West Alley (3): rifleman, shotgunner, rifleman
- *   - Center Street (4): rifleman, medic, rifleman, gunner
- *   - East Alley (3): rifleman, shotgunner, rifleman
+ * Balanced 4-soldier tactical fireteam (2 Alpha + 2 Bravo) providing flank/rear fire support
+ * without solo-clearing the Warren, Pump Yard, or High Terraces. Holds outside the Salt Cave
+ * perimeter during Section 6 so allies never enter the subterranean tunnels or Cargo Plane.
  */
+export const SQUAD_POST_RADIUS = 8;
+
 const SQUAD_BLUEPRINT: readonly SquadBlueprint[] = [
   // Squad Alpha (Gunship 1 — port drop at (-12, 0, 52))
-  { squad: 'alpha', lane: 'west', type: 'rifleman', dropOffset: [-2.4, -1.0], warrenPost: [-24, 30], pumpyardPost: [-18, -14] },
-  { squad: 'alpha', lane: 'west', type: 'shotgunner', dropOffset: [-0.8, -2.5], warrenPost: [-22, 22], pumpyardPost: [-14, -17] },
-  { squad: 'alpha', lane: 'west', type: 'rifleman', dropOffset: [-3.2, 1.2], warrenPost: [-25, 14], pumpyardPost: [-10, -13] },
-  { squad: 'alpha', lane: 'center', type: 'rifleman', dropOffset: [1.8, -1.8], warrenPost: [-6, 26], pumpyardPost: [-5, -15] },
-  { squad: 'alpha', lane: 'center', type: 'medic', dropOffset: [0.6, 1.6], warrenPost: [-4, 34], pumpyardPost: [-2, -12] },
+  {
+    squad: 'alpha',
+    lane: 'west',
+    type: 'rifleman',
+    dropOffset: [-2.2, -1.0],
+    warrenPost: [-22, 34],
+    pumpyardPost: [-16, -14],
+    terracesPost: [-18, -86],
+    cavePost: [-16, -130],
+  },
+  {
+    squad: 'alpha',
+    lane: 'center',
+    type: 'shotgunner',
+    dropOffset: [1.4, -1.6],
+    warrenPost: [-8, 30],
+    pumpyardPost: [-6, -16],
+    terracesPost: [-8, -90],
+    cavePost: [-8, -134],
+  },
 
   // Squad Bravo (Gunship 2 — starboard drop at (+12, 0, 52))
-  { squad: 'bravo', lane: 'center', type: 'rifleman', dropOffset: [-1.8, -1.8], warrenPost: [6, 26], pumpyardPost: [4, -15] },
-  { squad: 'bravo', lane: 'center', type: 'gunner', dropOffset: [-0.6, 1.4], warrenPost: [4, 20], pumpyardPost: [8, -17] },
-  { squad: 'bravo', lane: 'east', type: 'rifleman', dropOffset: [2.4, -1.0], warrenPost: [24, 30], pumpyardPost: [12, -13] },
-  { squad: 'bravo', lane: 'east', type: 'shotgunner', dropOffset: [0.8, -2.5], warrenPost: [22, 22], pumpyardPost: [16, -16] },
-  { squad: 'bravo', lane: 'east', type: 'rifleman', dropOffset: [3.2, 1.2], warrenPost: [25, 14], pumpyardPost: [20, -14] },
+  {
+    squad: 'bravo',
+    lane: 'center',
+    type: 'medic',
+    dropOffset: [-1.4, -1.6],
+    warrenPost: [8, 36],
+    pumpyardPost: [6, -13],
+    terracesPost: [8, -84],
+    cavePost: [8, -128],
+  },
+  {
+    squad: 'bravo',
+    lane: 'east',
+    type: 'rifleman',
+    dropOffset: [2.2, -1.0],
+    warrenPost: [22, 32],
+    pumpyardPost: [16, -15],
+    terracesPost: [18, -88],
+    cavePost: [16, -132],
+  },
 ];
 
-/** Carpet-bombing targets across Surplus during Ending Cutscene Wave 2 (3.0 -> 7.0 s). */
+/** Carpet-bombing targets across Surplus (Wall, Warren, Pump Yard & High Terraces) during Wave 2. */
 interface BombEvent {
   readonly at: number;
   readonly pos: readonly [number, number, number];
@@ -294,7 +331,7 @@ interface BombEvent {
 }
 
 const ENDING_BOMBS: readonly BombEvent[] = [
-  // Rolling airstrike bombs across wall watchtowers & outer Warren
+  // Rolling airstrike bombs across Wall watchtowers & outer Warren
   { at: 3.15, pos: [-56, 0, 60], radius: 28, damage: 4500, kind: 'bomb', scale: 2.0 },
   { at: 3.45, pos: [56, 0, 60], radius: 28, damage: 4500, kind: 'bomb', scale: 2.0 },
   // MegaBlast #1: West Wall & West Warren
@@ -306,16 +343,21 @@ const ENDING_BOMBS: readonly BombEvent[] = [
   { at: 4.85, pos: [-46, 0, 18], radius: 32, damage: 4800, kind: 'bomb', scale: 2.3 },
   { at: 5.15, pos: [44, 0, 12], radius: 32, damage: 4800, kind: 'bomb', scale: 2.3 },
   // MegaBlast #3: Central Warren heart
-  { at: 5.45, pos: [0, 0, 12], radius: 62, damage: 99999, kind: 'mega', scale: 1.15 },
-  { at: 5.75, pos: [-26, 0, -18], radius: 34, damage: 5000, kind: 'bomb', scale: 2.2 },
-  { at: 6.0, pos: [26, 0, -20], radius: 34, damage: 5000, kind: 'bomb', scale: 2.2 },
+  { at: 5.4, pos: [0, 0, 12], radius: 62, damage: 99999, kind: 'mega', scale: 1.15 },
+  { at: 5.65, pos: [-26, 0, -20], radius: 34, damage: 5000, kind: 'bomb', scale: 2.2 },
+  { at: 5.9, pos: [26, 0, -24], radius: 34, damage: 5000, kind: 'bomb', scale: 2.2 },
   // MegaBlast #4: Pump Yard tanks & pipes
-  { at: 6.25, pos: [0, 0, -34], radius: 58, damage: 99999, kind: 'mega', scale: 1.1 },
-  { at: 6.6, pos: [-32, 0, -48], radius: 32, damage: 5000, kind: 'bomb', scale: 2.1 },
-  { at: 6.85, pos: [32, 0, -48], radius: 32, damage: 5000, kind: 'bomb', scale: 2.1 },
+  { at: 6.15, pos: [0, 0, -38], radius: 58, damage: 99999, kind: 'mega', scale: 1.1 },
+  // High Terraces ("The Perches") vertical watchtowers & canopy tiers — stays well south of Cargo Plane (z = -208..-266)
+  { at: 6.45, pos: [-26, 3.6, -94], radius: 32, damage: 5000, kind: 'bomb', scale: 2.2 },
+  { at: 6.7, pos: [26, 3.6, -96], radius: 32, damage: 5000, kind: 'bomb', scale: 2.2 },
+  // MegaBlast #5: High Terraces central perch collapse
+  { at: 6.95, pos: [0, 3.6, -118], radius: 52, damage: 99999, kind: 'mega', scale: 1.1 },
+  { at: 7.22, pos: [-20, 3.6, -134], radius: 30, damage: 5000, kind: 'bomb', scale: 2.1 },
+  { at: 7.36, pos: [20, 3.6, -134], radius: 30, damage: 5000, kind: 'bomb', scale: 2.1 },
 ];
 
-/** Smoldering ruins columns emitted during Wave 3 (7.0 -> 11.0 s). */
+/** Smoldering ruins columns emitted across Wall, Warren, Pump Yard & High Terraces during Wave 3. */
 const RUIN_PLUMES: readonly (readonly [number, number, number])[] = [
   [-44, 0.5, 54],
   [44, 0.5, 54],
@@ -325,6 +367,9 @@ const RUIN_PLUMES: readonly (readonly [number, number, number])[] = [
   [-18, 0.5, -14],
   [20, 0.5, -24],
   [0, 0.5, -40],
+  [-24, 3.8, -96],
+  [24, 3.8, -116],
+  [0, 4.0, -132],
 ];
 
 // ---------------------------------------------------------------------------------------------
@@ -368,8 +413,11 @@ interface GateStrikeState {
 interface EndingState {
   active: boolean;
   clock: number;
+  duration: number;
   quistCaptured: boolean;
   getConvoyPos: ((out: THREE.Vector3) => THREE.Vector3) | null;
+  getQuistBedPos: ((out: THREE.Vector3) => THREE.Vector3) | null;
+  getTruckYaw: (() => number) | null;
   onDone: (() => void) | null;
   nextStrafeAt: number;
   strafeStep: number;
@@ -393,6 +441,11 @@ const _nose = new THREE.Vector3();
 const _impact = new THREE.Vector3();
 const _look = new THREE.Vector3();
 const _convoy = new THREE.Vector3();
+const _quistBed = new THREE.Vector3();
+const _p1EndPos = new THREE.Vector3();
+const _p2EndPos = new THREE.Vector3();
+const _p1EndLook = new THREE.Vector3();
+const _p2EndLook = new THREE.Vector3();
 const _navPt = new THREE.Vector3();
 
 // ---------------------------------------------------------------------------------------------
@@ -405,6 +458,7 @@ export class DesertAirAndSquads implements AirAndSquadsController {
   private gunships: GunshipUnit[] = [];
   private warthogA: THREE.Group | null = null;
   private warthogB: THREE.Group | null = null;
+  private quistFillLight: THREE.PointLight | null = null;
   private readonly trails: EmitterHandle[] = [];
   private engineSound: EngineSound | null = null;
   private engineActive = false;
@@ -417,9 +471,9 @@ export class DesertAirAndSquads implements AirAndSquadsController {
 
   private readonly squadMembers: SquadMember[] = [];
   private squadsDropped = false;
-  private squadStage: 'warren' | 'pumpyard' | null = null;
+  private squadStage: SquadStage | null = null;
   private warrenPaceTimer = 0;
-  private warrenPaceZ = 34;
+  private warrenPaceZ = 40;
 
   // Camera & letterbox override state (always cleanly restored on finish, clear, or reset).
   private readonly cutView: SeatView = {
@@ -449,8 +503,11 @@ export class DesertAirAndSquads implements AirAndSquadsController {
   private readonly ending: EndingState = {
     active: false,
     clock: 0,
+    duration: ENDING_CUTSCENE.duration,
     quistCaptured: false,
     getConvoyPos: null,
+    getQuistBedPos: null,
+    getTruckYaw: null,
     onDone: null,
     nextStrafeAt: 0.25,
     strafeStep: 0,
@@ -561,7 +618,7 @@ export class DesertAirAndSquads implements AirAndSquadsController {
     this.updateGateStrikeCamera(0);
   }
 
-  /** Hover gunships over the breached gate and drop friendly assault squads into the Warren. */
+  /** Hover gunships over the breached gate and drop the 4-man friendly fireteam into the Warren. */
   dropWarrenSquads(): void {
     this.ensureBuilt();
     if (this._gunshipMode === 'idle') {
@@ -586,16 +643,17 @@ export class DesertAirAndSquads implements AirAndSquadsController {
       const rawSpawn = _v1.set(zone[0] + bp.dropOffset[0], 0, zone[2] + bp.dropOffset[1]);
       const spawnPos = this.snapToNav(rawSpawn, _v2).clone();
 
-      const rawStage = _v3.set(bp.warrenPost[0], 0, Math.min(44, bp.warrenPost[1] + 12));
+      const rawStage = _v3.set(bp.warrenPost[0], 0, Math.min(46, bp.warrenPost[1] + 10));
       const postPos = this.snapToNav(rawStage, _navPt).clone();
 
-      const ally = allies.spawn(bp.type, spawnPos, postPos, bp.type === 'shotgunner' ? 5 : 7, Math.PI);
+      const ally = allies.spawn(bp.type, spawnPos, postPos, SQUAD_POST_RADIUS, Math.PI);
       if (!ally) continue;
 
-      // Detached so a stray squad toggle never pulls the invasion lanes off their assault axes.
+      // Detached so a stray squad toggle never pulls the fireteam off their flank cover posts.
       ally.detached = true;
       ally.order = 'post';
-      // Slightly lean HP so squads contribute fire and suffer authentic casualties without solo-clearing.
+      ally.postRadius = SQUAD_POST_RADIUS;
+      // Slightly lean HP so squads contribute flank fire and suffer authentic casualties without solo-clearing.
       if (ally.maxHealth > 0) {
         ally.maxHealth = Math.round(ally.maxHealth * 0.85);
         ally.health = ally.maxHealth;
@@ -611,12 +669,12 @@ export class DesertAirAndSquads implements AirAndSquadsController {
     }
 
     this.squadStage = 'warren';
-    this.warrenPaceZ = 34;
+    this.warrenPaceZ = 42;
     this.warrenPaceTimer = 0;
   }
 
-  /** Advance friendly assault squads northward into the Warren / Pump Yard. */
-  advanceSquads(stage: 'warren' | 'pumpyard'): void {
+  /** Advance friendly fireteam across Warren, Pump Yard, High Terraces, and Salt Cave perimeter overwatch. */
+  advanceSquads(stage: SquadStage): void {
     this.squadStage = stage;
     const allies = this.ctx.allies;
 
@@ -624,13 +682,18 @@ export class DesertAirAndSquads implements AirAndSquadsController {
       const m = this.squadMembers[i]!;
       if (m.ally.state === 'dead' || m.ally.body?.alive === false) continue;
 
-      const coords = stage === 'warren' ? m.blueprint.warrenPost : m.blueprint.pumpyardPost;
+      let coords: readonly [number, number];
+      if (stage === 'warren') coords = m.blueprint.warrenPost;
+      else if (stage === 'pumpyard') coords = m.blueprint.pumpyardPost;
+      else if (stage === 'terraces') coords = m.blueprint.terracesPost;
+      else coords = m.blueprint.cavePost;
+
       const rawTarget = _v1.set(coords[0], 0, coords[1]);
       const snapped = this.snapToNav(rawTarget, _v2);
       m.currentPost.copy(snapped);
 
       m.ally.post.copy(snapped);
-      m.ally.postRadius = stage === 'warren' ? 7 : 6;
+      m.ally.postRadius = SQUAD_POST_RADIUS;
       m.ally.postYaw = Math.PI;
       m.ally.order = 'post';
       m.ally.thinkAt = 0;
@@ -639,16 +702,18 @@ export class DesertAirAndSquads implements AirAndSquadsController {
     }
 
     if (stage === 'warren') {
-      this.warrenPaceZ = 28;
+      this.warrenPaceZ = 38;
       this.warrenPaceTimer = 0;
     }
   }
 
-  /** Run the Section 6 scenic town-flattening ending cutscene behind the retreating convoy. */
+  /** Run the scenic town-flattening ending cutscene behind the retreating convoy (with cuffed Quist close-up if captured). */
   startEndingCutscene(
     getConvoyPos: (out: THREE.Vector3) => THREE.Vector3,
     quistCaptured: boolean,
     onDone: () => void,
+    getQuistBedPos?: (out: THREE.Vector3) => THREE.Vector3,
+    getTruckYaw?: () => number,
   ): void {
     this.ensureBuilt();
     if (this.gateStrike.active) this.finishGateStrike(false);
@@ -657,8 +722,11 @@ export class DesertAirAndSquads implements AirAndSquadsController {
     const e = this.ending;
     e.active = true;
     e.clock = 0;
+    e.duration = quistCaptured ? ENDING_CUTSCENE.capturedDuration : ENDING_CUTSCENE.duration;
     e.quistCaptured = quistCaptured;
     e.getConvoyPos = getConvoyPos;
+    e.getQuistBedPos = getQuistBedPos ?? null;
+    e.getTruckYaw = getTruckYaw ?? null;
     e.onDone = onDone;
     e.nextStrafeAt = 0.28;
     e.strafeStep = 0;
@@ -686,7 +754,7 @@ export class DesertAirAndSquads implements AirAndSquadsController {
     const caption = quistCaptured
       ? 'SURPLUS // QUIST SECURED — LEVEL THE SITE'
       : 'SURPLUS // TARGET NEUTRALIZED — LEVEL THE SITE';
-    this.acquireCameraCut(caption, 54);
+    this.acquireCameraCut(caption, quistCaptured ? 42 : 54);
 
     if (this.warthogA) {
       this.positionEndingWarthog(0, 0, this.warthogA);
@@ -732,7 +800,14 @@ export class DesertAirAndSquads implements AirAndSquadsController {
     this.gateStrike.onBreached = null;
     this.ending.active = false;
     this.ending.getConvoyPos = null;
+    this.ending.getQuistBedPos = null;
+    this.ending.getTruckYaw = null;
     this.ending.onDone = null;
+
+    if (this.quistFillLight) {
+      this.quistFillLight.intensity = 0;
+      this.quistFillLight.visible = false;
+    }
 
     this._gunshipMode = 'idle';
     this.escortClock = 0;
@@ -823,6 +898,11 @@ export class DesertAirAndSquads implements AirAndSquadsController {
     this.warthogB = warthogModel(this.materials);
     this.warthogB.visible = false;
     scene.add(this.warthogB);
+
+    // Warm golden key light over the convoy truck bed during the captured Quist close-up phase.
+    this.quistFillLight = new THREE.PointLight('#ffbe6b', 0, 9, 2);
+    this.quistFillLight.visible = false;
+    scene.add(this.quistFillLight);
   }
 
   private createMaterials(): ModelMaterials {
@@ -963,34 +1043,35 @@ export class DesertAirAndSquads implements AirAndSquadsController {
   /** Scripted Section 6 ending strike: gunships swoop low during Wave 2 firing rockets, then peel up in Wave 3. */
   private flyEndingGunship(g: GunshipUnit, dt: number): void {
     const t = this.ending.clock;
+    const totalDur = Math.max(ENDING_CUTSCENE.wave2End + 0.5, this.ending.duration);
     if (t < ENDING_CUTSCENE.wave1End) {
       // Holding high on flanks waiting for Warthogs to clear.
       const waitK = smoothstep(0, ENDING_CUTSCENE.wave1End, t);
       g.target.set(g.side * lerp(72, 54, waitK), lerp(34, 24, waitK), lerp(52, 42, waitK));
       this.steerGunship(g, dt, 2.2, true);
     } else if (t < ENDING_CUTSCENE.wave2End) {
-      // Wave 2 (3 -> 7 s): sweeping low rocket runs along Surplus flanks!
+      // Wave 2 (3 -> 7.4 s): sweeping low rocket runs along Surplus & High Terraces flanks!
       const u = clamp((t - ENDING_CUTSCENE.wave1End) / (ENDING_CUTSCENE.wave2End - ENDING_CUTSCENE.wave1End), 0, 1);
       g.target.set(
         g.side * lerp(52, 34, Math.sin(u * Math.PI)),
         lerp(22, 19, Math.sin(u * Math.PI)),
-        lerp(56, -44, u),
+        lerp(56, -118, u),
       );
       this.steerGunship(g, dt, 2.6, true);
 
-      // Scripted rocket salvos into Surplus!
+      // Scripted rocket salvos into Surplus & High Terraces (staying south of Cargo Plane)!
       g.rocketTimer -= dt;
       if (g.rocketTimer <= 0) {
         g.rocketTimer = 0.42;
         this.fireEndingGunshipRocket(g, u);
       }
     } else {
-      // Wave 3 (7 -> 11 s): triumphant peel-out climb over the smoking ruins & Cargo Plane silhouette.
-      const u = clamp((t - ENDING_CUTSCENE.wave2End) / (ENDING_CUTSCENE.duration - ENDING_CUTSCENE.wave2End), 0, 1);
+      // Wave 3 (7.4 -> end): triumphant peel-out climb over the smoking ruins & intact Cargo Plane silhouette.
+      const u = clamp((t - ENDING_CUTSCENE.wave2End) / (totalDur - ENDING_CUTSCENE.wave2End), 0, 1);
       g.target.set(
         g.side * lerp(48, 125, u),
         lerp(22, 58, u),
-        lerp(-44, -95, u),
+        lerp(-118, -165, u),
       );
       this.steerGunship(g, dt, 1.9, true);
     }
@@ -999,9 +1080,9 @@ export class DesertAirAndSquads implements AirAndSquadsController {
   private fireEndingGunshipRocket(g: GunshipUnit, progress: number): void {
     g.leftPodNext = !g.leftPodNext;
     g.frame.mount(g.leftPodNext ? 'podLeft' : 'podRight', _v1);
-    const targetZ = lerp(52, -46, progress) + rand(-10, 10);
+    const targetZ = lerp(52, -124, progress) + rand(-10, 10);
     const targetX = g.side * rand(4, 38);
-    _impact.set(targetX, 0.5, targetZ);
+    _impact.set(targetX, targetZ < -75 ? 3.6 : 0.5, targetZ);
     _dir.subVectors(_impact, _v1).normalize();
 
     this.ctx.fx?.muzzleFlash?.(_v1, _dir, 'rocket');
@@ -1267,20 +1348,21 @@ export class DesertAirAndSquads implements AirAndSquadsController {
     const playerZ = this.ctx.player?.position?.z;
     if (playerZ === undefined) return;
 
-    // Gently advance squad posts northward with the player through the Warren, never outpacing by > 6 m.
-    const desiredZ = clamp(playerZ - 5, 4, 34);
+    // Hold rear/flank cover ~10 m behind the player's northward advance so the fireteam supports without solo-clearing.
+    const desiredZ = clamp(playerZ + 10, 8, 44);
     if (desiredZ >= this.warrenPaceZ - 3) return;
     this.warrenPaceZ = desiredZ;
 
     for (let i = 0; i < this.squadMembers.length; i++) {
       const m = this.squadMembers[i]!;
       if (m.ally.state !== 'up') continue;
-      const laneOffset = (i % 3) * 4 - 4;
-      const z = clamp(this.warrenPaceZ + laneOffset, -4, 42);
+      const laneOffset = i % 2 === 0 ? 2 : -2;
+      const z = clamp(this.warrenPaceZ + laneOffset, 4, 46);
       const raw = _v1.set(m.blueprint.warrenPost[0], 0, z);
       const snapped = this.snapToNav(raw, _v2);
       m.currentPost.copy(snapped);
       m.ally.post.copy(snapped);
+      m.ally.postRadius = SQUAD_POST_RADIUS;
       m.ally.thinkAt = 0;
     }
   }
@@ -1326,7 +1408,7 @@ export class DesertAirAndSquads implements AirAndSquadsController {
         e.nextStrafeAt += 0.095;
       }
     } else if (t <= ENDING_CUTSCENE.wave2End + 0.5) {
-      // Wave 2 high-altitude bomber pass sweeping south-to-north over Surplus.
+      // Wave 2 high-altitude bomber pass sweeping south-to-north over Surplus & High Terraces.
       if (this.warthogA) this.positionEndingBomber(t, 0, this.warthogA);
       if (this.warthogB) this.positionEndingBomber(t, 1, this.warthogB);
     } else {
@@ -1334,13 +1416,13 @@ export class DesertAirAndSquads implements AirAndSquadsController {
       if (this.warthogB) this.warthogB.visible = false;
     }
 
-    // Wave 2 (3 -> 7 s): Airstrike bombers & Gunships carpet-bombing + megaBlast pressure waves.
+    // Wave 2 (3 -> 7.4 s): Airstrike bombers & Gunships carpet-bombing + megaBlast pressure waves.
     while (e.bombIdx < ENDING_BOMBS.length && t >= ENDING_BOMBS[e.bombIdx]!.at) {
       this.detonateEndingBomb(ENDING_BOMBS[e.bombIdx]!);
       e.bombIdx++;
     }
 
-    // Sweeping structural collapse wave across all of Surplus (Cargo Plane is static & remains standing!).
+    // Sweeping structural collapse wave across Wall, Warren, Pump Yard & High Terraces (Cargo Plane stays intact!).
     if (!e.nukeSwept && t >= ENDING_CUTSCENE.nukeSweepAt) {
       e.nukeSwept = true;
       _v1.set(
@@ -1359,7 +1441,7 @@ export class DesertAirAndSquads implements AirAndSquadsController {
       this.ctx.render?.post?.chromatic?.(0.55, 0.4);
     }
 
-    // Wave 3 (7 -> 11 s): Smoke columns & embers rising across levelled ruins.
+    // Wave 3 (7.4 s -> end): Smoke columns & embers rising across levelled ruins.
     if (t >= ENDING_CUTSCENE.wave2End - 0.4) {
       e.plumeTimer -= dt;
       if (e.plumeTimer <= 0) {
@@ -1378,7 +1460,7 @@ export class DesertAirAndSquads implements AirAndSquadsController {
 
     this.updateEndingCamera(t);
 
-    if (t >= ENDING_CUTSCENE.duration) {
+    if (t >= e.duration) {
       this.finishEndingCutscene(true);
     }
   }
@@ -1406,14 +1488,14 @@ export class DesertAirAndSquads implements AirAndSquadsController {
 
   private positionEndingBomber(t: number, idx: 0 | 1, jet: THREE.Group): void {
     const startT = ENDING_CUTSCENE.wave1End + 0.35 + idx * 0.45;
-    const span = 3.5;
+    const span = 3.8;
     const u = clamp((t - startT) / span, 0, 1);
     const laneX = idx === 0 ? -24 : 24;
 
     const pt = (s: number, out: THREE.Vector3): THREE.Vector3 => {
       const x = laneX + Math.sin(s * Math.PI) * (idx === 0 ? -10 : 10);
-      const z = lerp(115, -135, s);
-      const climb = smoothstep(0.65, 1, s) * 26;
+      const z = lerp(115, -165, s);
+      const climb = smoothstep(0.65, 1, s) * 28;
       const y = 38 + idx * 5 + climb;
       return out.set(x, y, z);
     };
@@ -1488,27 +1570,95 @@ export class DesertAirAndSquads implements AirAndSquadsController {
     }
   }
 
+  private resolveQuistBedWorld(convoy: THREE.Vector3, out: THREE.Vector3): THREE.Vector3 {
+    const e = this.ending;
+    if (e.getQuistBedPos) {
+      return e.getQuistBedPos(out);
+    }
+    const yaw = e.getTruckYaw ? e.getTruckYaw() : Math.PI;
+    // Matches middle convoy truck bed mount (0.56, 1.05, 2.22) + seated chest/head height (+0.50).
+    const lx = 0.56;
+    const ly = 1.55;
+    const lz = 2.22;
+    const sinY = Math.sin(yaw);
+    const cosY = Math.cos(yaw);
+    return out.set(
+      convoy.x + lx * cosY + lz * sinY,
+      convoy.y + ly,
+      convoy.z - lx * sinY + lz * cosY,
+    );
+  }
+
   private updateEndingCamera(t: number): void {
-    const u = smoothstep(0, 1, clamp(t / ENDING_CUTSCENE.duration, 0, 1));
-    const convoy = this.ending.getConvoyPos
-      ? this.ending.getConvoyPos(_convoy)
+    const e = this.ending;
+    const duration = Math.max(1, e.duration);
+    const u = smoothstep(0, 1, clamp(t / duration, 0, 1));
+    const convoy = e.getConvoyPos
+      ? e.getConvoyPos(_convoy)
       : _convoy.set(0, 0, lerp(DESERT_Z.convoyLoop + 10, DESERT_Z.approachStart, u));
 
-    // Pull smoothly behind (+Z south) and above the retreating 3-truck convoy looking back north over Surplus.
-    this.cutView.position.set(
-      convoy.x + lerp(11, 4, u),
-      convoy.y + lerp(9.5, 16.5, u),
-      convoy.z + lerp(24, 34, u),
-    );
+    // Re-enforce camera seat ownership every frame so convoy/turret systems can never fight the cutscene camera.
+    this.ctx.camera?.setSeat?.(this.cutView);
 
-    // Frame the collapsing town with the solid crashed Cargo Plane silhouetted on the north ridge against dawn sky.
-    _look.set(
-      lerp(0, 0, u),
-      lerp(7.0, 11.5, u),
-      lerp(24, -26, u),
-    );
+    if (e.quistCaptured) {
+      const quistBed = this.resolveQuistBedWorld(convoy, _quistBed);
+      const sideSign = quistBed.x >= convoy.x ? -1 : 1;
+      const phase1End = ENDING_CUTSCENE.capturedPhase1End;
+      const bob = Math.sin(t * 7.2) * 0.045 + Math.cos(t * 4.1) * 0.025;
+      const p1Y = Math.max(convoy.y + 2.45, quistBed.y + 0.78);
 
-    this.ctx.camera?.setZoom?.(lerp(54, 62, u));
+      if (t <= phase1End) {
+        // Phase 1 (0 -> 4.8 s): Close-up over-the-bed shot of cuffed Hadrek Quist looking north (-Z)
+        // with Warthogs and the opening Surplus airstrike erupting directly behind his shoulder.
+        const p1 = smoothstep(0, phase1End, t);
+        this.cutView.position.set(
+          quistBed.x + sideSign * lerp(1.85, 2.25, p1),
+          p1Y + bob,
+          quistBed.z + lerp(2.65, 3.1, p1),
+        );
+        _look.set(quistBed.x, quistBed.y + 0.16, quistBed.z - lerp(0.15, 0.75, p1));
+        this.ctx.camera?.setZoom?.(lerp(42, 45, p1));
+
+        if (this.quistFillLight) {
+          const fade = 1 - smoothstep(phase1End - 0.85, phase1End, t);
+          this.quistFillLight.visible = fade > 0.02;
+          this.quistFillLight.intensity = 2.8 * fade;
+          this.quistFillLight.position.set(quistBed.x + sideSign * 0.9, quistBed.y + 1.35, quistBed.z + 1.1);
+        }
+      } else {
+        // Phase 2 (4.8 -> 11.8 s): C1-smooth crane-out from the truck bed to panoramic aerial chase,
+        // framing Wall, Warren, Pump Yard, High Terraces & intact Cargo Plane on the far north ridge.
+        const p2 = smoothstep(phase1End, duration, t);
+        _p1EndPos.set(quistBed.x + sideSign * 2.25, p1Y, quistBed.z + 3.1);
+        _p2EndPos.set(convoy.x + 3.5, convoy.y + 16.0, convoy.z + 27.0);
+        this.cutView.position.lerpVectors(_p1EndPos, _p2EndPos, p2);
+
+        _p1EndLook.set(quistBed.x, quistBed.y + 0.16, quistBed.z - 0.75);
+        _p2EndLook.set(0, 12.0, -80);
+        _look.lerpVectors(_p1EndLook, _p2EndLook, smoothstep(0, 0.65, p2));
+        this.ctx.camera?.setZoom?.(lerp(45, 62, p2));
+
+        if (this.quistFillLight) {
+          this.quistFillLight.intensity = 0;
+          this.quistFillLight.visible = false;
+        }
+      }
+    } else {
+      if (this.quistFillLight) {
+        this.quistFillLight.intensity = 0;
+        this.quistFillLight.visible = false;
+      }
+
+      // Uncaptured ending (10.5 s): Smooth aerial chase behind the retreating convoy looking north over flattening Surplus.
+      this.cutView.position.set(
+        convoy.x + lerp(11, 4, u),
+        convoy.y + lerp(9.5, 16.5, u),
+        convoy.z + lerp(22, 32, u),
+      );
+      _look.set(0, lerp(7.0, 12.0, u), lerp(20, -80, u));
+      this.ctx.camera?.setZoom?.(lerp(54, 62, u));
+    }
+
     this.aimCameraViewAt(_look);
   }
 
@@ -1539,8 +1689,15 @@ export class DesertAirAndSquads implements AirAndSquadsController {
     const done = e.onDone;
     e.active = false;
     e.getConvoyPos = null;
+    e.getQuistBedPos = null;
+    e.getTruckYaw = null;
     e.onDone = null;
     this._gunshipMode = 'overwatch';
+
+    if (this.quistFillLight) {
+      this.quistFillLight.intensity = 0;
+      this.quistFillLight.visible = false;
+    }
 
     if (this.warthogA) this.warthogA.visible = false;
     if (this.warthogB) this.warthogB.visible = false;
@@ -1610,8 +1767,10 @@ export class DesertAirAndSquads implements AirAndSquadsController {
 
   private aimCameraViewAt(target: THREE.Vector3): void {
     _dir.subVectors(target, this.cutView.position);
-    this.cutView.yaw = Math.atan2(-_dir.x, -_dir.z);
-    this.cutView.pitch = Math.atan2(_dir.y, Math.hypot(_dir.x, _dir.z));
+    if (_dir.lengthSq() > 1e-8) {
+      this.cutView.yaw = Math.atan2(-_dir.x, -_dir.z);
+      this.cutView.pitch = Math.atan2(_dir.y, Math.hypot(_dir.x, _dir.z));
+    }
     this.cutView.roll = 0;
     this.ctx.camera?.syncSeat?.();
   }

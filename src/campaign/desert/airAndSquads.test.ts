@@ -11,12 +11,13 @@ import type { Ally, AllyType } from '../../allies';
 import type { Ctx, SeatView } from '../../core/contracts';
 import type { CampaignHud } from '../hud';
 import type { MissionRunner } from '../runner';
-import { DESERT_Z, MAIN_GATE } from '../../world/map/desert/plan';
+import { CARGO_PLANE, DESERT_Z, HIGH_TERRACES, MAIN_GATE } from '../../world/map/desert/plan';
 import {
   DesertAirAndSquads,
   DROP_ZONE,
   ENDING_CUTSCENE,
   GATE_STRIKE,
+  SQUAD_POST_RADIUS,
 } from './airAndSquads';
 
 interface FakeAlly {
@@ -433,8 +434,8 @@ describe('DesertAirAndSquads', () => {
     });
   });
 
-  describe('Friendly assault squads (dropWarrenSquads & advanceSquads)', () => {
-    it('hovers gunships low with dust & fast-ropes, spawns 10 friendly soldiers across 3 lanes, advances & cleans up cleanly', () => {
+  describe('Balanced 4-man friendly fireteam (dropWarrenSquads & advanceSquads)', () => {
+    it('hovers gunships low with dust & fast-ropes, spawns 4 balanced soldiers (2 Alpha + 2 Bravo), paces behind player, advances through 4 stages & cleans up', () => {
       const env = makeFakeEnv();
       const air = new DesertAirAndSquads(env.ctx, env.runner, env.ui);
 
@@ -442,17 +443,18 @@ describe('DesertAirAndSquads', () => {
       air.dropWarrenSquads();
 
       expect(air.gunshipMode).toBe('drop');
-      expect(env.spawnedAllies.length).toBeGreaterThanOrEqual(8);
-      expect(env.spawnedAllies.length).toBeLessThanOrEqual(10);
-      expect(env.spawnedAllies).toHaveLength(10);
-      expect(air.aliveFriendlies).toBe(10);
+      expect(env.spawnedAllies).toHaveLength(4);
+      expect(air.aliveFriendlies).toBe(4);
 
-      // Verify soldiers spawned near west (-12, 52) & east (+12, 52) drop zones and are detached.
+      // Verify 2 Alpha (west drop) + 2 Bravo (east drop), detached, postRadius = 8, lean HP.
       const westDrops = env.spawnedAllies.filter(a => a.body.position.x < 0);
       const eastDrops = env.spawnedAllies.filter(a => a.body.position.x > 0);
-      expect(westDrops).toHaveLength(5);
-      expect(eastDrops).toHaveLength(5);
+      expect(westDrops).toHaveLength(2);
+      expect(eastDrops).toHaveLength(2);
+      expect(env.spawnedAllies.map(a => a.type)).toEqual(['rifleman', 'shotgunner', 'medic', 'rifleman']);
       expect(env.spawnedAllies.every(a => a.detached)).toBe(true);
+      expect(env.spawnedAllies.every(a => a.postRadius === SQUAD_POST_RADIUS)).toBe(true);
+      expect(env.spawnedAllies.every(a => a.maxHealth === Math.round(150 * 0.85))).toBe(true);
       expect(env.spawnedAllies.every(a => Math.abs(a.body.position.z - DROP_ZONE.west[2]) < 5)).toBe(true);
 
       // Step into fast-rope hover window: gunships descend near y = 9 m, deploy ropes & kick up dust wash, still zero attacks.
@@ -475,101 +477,157 @@ describe('DesertAirAndSquads', () => {
       expect(air.gunshipMode).toBe('overwatch');
       expect(ropeMeshes.every(r => !r.visible)).toBe(true);
 
-      // Advance squads into Warren across 3 lanes (West Alley, Center Street, East Alley).
+      // Advance squads into Warren across west/center/east flank posts.
       air.advanceSquads('warren');
-      const westLane = env.spawnedAllies.filter(a => a.post.x <= -18);
-      const centerLane = env.spawnedAllies.filter(a => Math.abs(a.post.x) < 12);
-      const eastLane = env.spawnedAllies.filter(a => a.post.x >= 18);
-      expect(westLane).toHaveLength(3);
-      expect(centerLane).toHaveLength(4);
-      expect(eastLane).toHaveLength(3);
-      expect(env.spawnedAllies.every(a => a.post.z >= 10 && a.post.z <= 36)).toBe(true);
+      expect(env.spawnedAllies.every(a => a.postRadius === SQUAD_POST_RADIUS)).toBe(true);
+      expect(env.spawnedAllies.every(a => a.post.z >= 28 && a.post.z <= 38)).toBe(true);
 
-      // Simulate authentic casualties: aliveFriendlies tracks living count accurately.
+      // Player pushes north to z = 10 -> Warren pacing holds fireteam ~10 m BEHIND player (+Z south), never outpacing.
+      env.player.position.set(0, 0, 10);
+      env.step(air, 2.0, 0.1);
+      expect(env.spawnedAllies.every(a => a.post.z > env.player.position.z)).toBe(true);
+      expect(env.spawnedAllies.every(a => a.post.z >= 16 && a.post.z <= 24)).toBe(true);
+
+      // Simulate authentic casualty: aliveFriendlies tracks living count accurately.
       env.spawnedAllies[0]!.state = 'dead';
-      env.spawnedAllies[1]!.state = 'dead';
-      env.spawnedAllies[2]!.body.alive = false;
-      expect(air.aliveFriendlies).toBe(7);
+      expect(air.aliveFriendlies).toBe(3);
 
-      // Advance surviving squads to Pump Yard southern entrance.
+      // Stage 2: Pump Yard southern entrance.
       air.advanceSquads('pumpyard');
       const alive = env.spawnedAllies.filter(a => a.state !== 'dead' && a.body.alive);
-      expect(alive).toHaveLength(7);
+      expect(alive).toHaveLength(3);
       for (const a of alive) {
         expect(a.post.z).toBeLessThanOrEqual(-10);
         expect(a.post.z).toBeGreaterThanOrEqual(-20);
+        expect(a.postRadius).toBe(SQUAD_POST_RADIUS);
+      }
+
+      // Stage 3: High Terraces south flank posts (z = -80..-96).
+      air.advanceSquads('terraces');
+      for (const a of alive) {
+        expect(a.post.z).toBeLessThanOrEqual(-80);
+        expect(a.post.z).toBeGreaterThanOrEqual(-96);
+      }
+
+      // Stage 4: Salt Cave perimeter overwatch — strictly south of Salt Cave entrance (z = -148) & Cargo Plane (-208).
+      air.advanceSquads('cave');
+      for (const a of alive) {
+        expect(a.post.z).toBeGreaterThan(HIGH_TERRACES.caveEntrancePos[2] + 8);
+        expect(a.post.z).toBeLessThanOrEqual(-124);
       }
 
       // Calling dropWarrenSquads again does not duplicate squads.
       air.dropWarrenSquads();
-      expect(env.spawnedAllies).toHaveLength(10);
+      expect(env.spawnedAllies).toHaveLength(4);
 
       // Cleanup dismisses every squad member and zeroes aliveFriendlies.
       air.reset();
-      expect(env.dismissedAllies).toHaveLength(10);
+      expect(env.dismissedAllies).toHaveLength(4);
       expect(air.aliveFriendlies).toBe(0);
     });
   });
 
   describe('Scenic ending cutscene (startEndingCutscene)', () => {
-    it('frames retreating convoy, executes 3 waves flattening all of Surplus, restores camera & signals dr:ending_done', () => {
+    it('captured ending (11.8s): frames cuffed Quist < 6m in Phase 1, enforces setSeat every frame, cranes out in Phase 2, flattens Wall/Warren/PumpYard/HighTerraces while sparing Cargo Plane', () => {
       const env = makeFakeEnv({ playerParked: true });
       const air = new DesertAirAndSquads(env.ctx, env.runner, env.ui);
       const onDone = vi.fn();
 
       let convoyZ = 88;
       const getConvoyPos = vi.fn((out: THREE.Vector3) => out.set(0, 0, convoyZ));
+      const getQuistBedPos = vi.fn((out: THREE.Vector3) => out.set(-0.56, 1.55, convoyZ - 2.22));
+      const getTruckYaw = vi.fn(() => Math.PI);
 
       air.startEscort();
-      air.startEndingCutscene(getConvoyPos, true, onDone);
+      air.startEndingCutscene(getConvoyPos, true, onDone, getQuistBedPos, getTruckYaw);
 
       expect(air.isEndingCutsceneActive).toBe(true);
       expect(air.hasCameraOverride).toBe(true);
       expect(env.getState().activeHudSeat).toBe(env.cinemaPanel);
       expect(env.getState().lastCaption).toContain('QUIST SECURED');
 
-      // Camera starts behind (+Z south) and above the convoy, looking north (-Z, yaw near 0).
-      const seat = env.getState().activeSeat!;
-      expect(seat.position.z).toBeGreaterThan(convoyZ + 15);
-      expect(seat.position.y).toBeGreaterThan(7);
-      expect(Math.abs(seat.yaw)).toBeLessThan(0.5);
+      // Phase 1 (0 .. 4.8 s): Close-up over the open truck bed framed tightly on cuffed Quist (< 6 m) looking north (-Z).
+      const fillLights = env.scene.children.filter((c): c is THREE.PointLight => c instanceof THREE.PointLight);
+      expect(fillLights).toHaveLength(1);
 
-      // Wave 1 (0..3 s): Twin Warthog gun runs strafe Warren & outer wall.
-      for (let i = 0; i < 60; i++) {
-        convoyZ += 0.6;
+      const bedNow = new THREE.Vector3();
+      const seatStart = env.getState().activeSeat!;
+      getQuistBedPos(bedNow);
+      expect(seatStart.position.distanceTo(bedNow)).toBeLessThan(6);
+      expect(Number.isFinite(seatStart.position.x)).toBe(true);
+      expect(Number.isFinite(seatStart.yaw)).toBe(true);
+      expect(Number.isFinite(seatStart.pitch)).toBe(true);
+      expect(Math.abs(seatStart.yaw)).toBeLessThan(0.75);
+      expect(env.getState().activeZoom).toBeLessThanOrEqual(46);
+      expect(fillLights[0]!.visible).toBe(true);
+      expect(fillLights[0]!.intensity).toBeGreaterThan(1.5);
+
+      const seatsBeforeWave1 = env.seatHistory.length;
+
+      // Step through Wave 1 & Phase 1 (t = 0 -> 4.6 s): Warthogs strafe while camera stays tightly on Quist & re-asserts setSeat.
+      for (let i = 0; i < 92; i++) {
+        convoyZ += 0.55;
         env.step(air, 0.05, 0.05);
+        const s = env.getState().activeSeat!;
+        getQuistBedPos(bedNow);
+        expect(s.position.distanceTo(bedNow)).toBeLessThan(6);
+        expect(Number.isFinite(s.yaw)).toBe(true);
+        expect(Number.isFinite(s.pitch)).toBe(true);
       }
+
+      // setSeat was re-enforced every single frame (zero seat fighting).
+      expect(env.seatHistory.length - seatsBeforeWave1).toBeGreaterThanOrEqual(92);
       expect(env.tracers.some(t => t.kind === 'heavy')).toBe(true);
       expect(env.sounds.some(s => s.id === 'warthog_flyby')).toBe(true);
       expect(env.damageBlasts.some(b => b.source === 'airstrike')).toBe(true);
       expect(onDone).not.toHaveBeenCalled();
 
-      // Wave 2 (3..7 s): Carpet-bombing + gunship rockets + megaBlasts + nukeSweep flatten Surplus.
-      for (let i = 0; i < 80; i++) {
-        convoyZ += 0.6;
+      // Step through Wave 2 & Phase 2 crane-out (t = 4.6 -> 8.2 s): camera cranes smoothly back/up & bombs sweep High Terraces.
+      for (let i = 0; i < 72; i++) {
+        convoyZ += 0.55;
         env.step(air, 0.05, 0.05);
       }
+      const seatMidPhase2 = env.getState().activeSeat!;
+      expect(seatMidPhase2.position.y).toBeGreaterThan(7);
+      expect(seatMidPhase2.position.z).toBeGreaterThan(convoyZ + 6);
+      expect(fillLights[0]!.intensity).toBe(0);
+
       expect(env.tracers.some(t => t.kind === 'hellfire')).toBe(true);
       expect(env.napalmCalls.length).toBeGreaterThanOrEqual(6);
       expect(env.damageBlasts.some(b => b.source === 'nuke' && b.radius >= 50)).toBe(true);
       expect(env.nukeSweeps).toHaveLength(1);
+      expect(env.nukeSweeps[0]!.center.z).toBe(ENDING_CUTSCENE.nukeSweepCenter[2]);
       expect(env.nukeSweeps[0]!.maxRadius).toBe(ENDING_CUTSCENE.nukeSweepRadius);
 
-      // Verify destruction sweep covers Wall (z ~ 60), Warren (z ~ 12..42), and Pump Yard (z ~ -34..-48).
+      // Verify destruction sweep hits Wall (z >= 50), Warren (0..45), Pump Yard (-20..-50) AND High Terraces (z <= -90).
       expect(env.damageBlasts.some(b => b.center.z >= 50)).toBe(true);
       expect(env.damageBlasts.some(b => b.center.z >= 0 && b.center.z <= 45)).toBe(true);
-      expect(env.damageBlasts.some(b => b.center.z <= -30)).toBe(true);
+      expect(env.damageBlasts.some(b => b.center.z <= -20 && b.center.z >= -50)).toBe(true);
+      expect(env.damageBlasts.some(b => b.center.z <= -90)).toBe(true);
 
-      // Wave 3 (7..11 s): Smoke columns & embers rise across ruins, then cutscene finishes cleanly.
+      // CRITICAL INVARIANT: Cargo Plane (z = -208..-266) remains 100% clear of nukeSweep and every bomb radius!
+      const nukeNorthEdge = env.nukeSweeps[0]!.center.z - env.nukeSweeps[0]!.maxRadius;
+      expect(nukeNorthEdge).toBeGreaterThan(DESERT_Z.planeForecourt);
+      for (const b of env.damageBlasts) {
+        expect(b.center.z - b.radius).toBeGreaterThan(CARGO_PLANE.rampZ);
+      }
+
+      // Still active at t = 11.2 s (capturedDuration is 11.8 s), smoke & embers rising across ruins.
       const smokeBeforeWave3 = env.smokeCalls.length;
       const embersBeforeWave3 = env.emberCalls.length;
-      for (let i = 0; i < 84; i++) {
+      for (let i = 0; i < 60; i++) {
         convoyZ += 0.4;
         env.step(air, 0.05, 0.05);
       }
-
+      expect(air.isEndingCutsceneActive).toBe(true);
       expect(env.smokeCalls.length).toBeGreaterThan(smokeBeforeWave3 + 10);
       expect(env.emberCalls.length).toBeGreaterThan(embersBeforeWave3 + 10);
+
+      // Complete remaining 0.8 s to pass 11.8 s -> finishes cleanly.
+      for (let i = 0; i < 16; i++) {
+        convoyZ += 0.4;
+        env.step(air, 0.05, 0.05);
+      }
       expect(air.isEndingCutsceneActive).toBe(false);
       expect(air.hasCameraOverride).toBe(false);
       expect(env.getState().activeSeat).toBeNull();
@@ -580,14 +638,46 @@ describe('DesertAirAndSquads', () => {
       expect(env.signals).toEqual(['dr:ending_done']);
     });
 
-    it('restores camera, stops loops/trails & cancels callback if clear() is called mid-ending', () => {
+    it('uncaptured ending (10.5s): starts in aerial chase camera behind convoy and completes at 10.5s', () => {
+      const env = makeFakeEnv({ playerParked: true });
+      const air = new DesertAirAndSquads(env.ctx, env.runner, env.ui);
+      const onDone = vi.fn();
+
+      let convoyZ = 92;
+      air.startEscort();
+      air.startEndingCutscene(out => out.set(0, 0, convoyZ), false, onDone);
+
+      expect(env.getState().lastCaption).toContain('TARGET NEUTRALIZED');
+      const seat = env.getState().activeSeat!;
+      expect(seat.position.z).toBeGreaterThan(convoyZ + 15);
+      expect(seat.position.y).toBeGreaterThan(7);
+      expect(Math.abs(seat.yaw)).toBeLessThan(0.5);
+
+      // Still active at 10.2 s
+      for (let i = 0; i < 204; i++) {
+        convoyZ += 0.35;
+        env.step(air, 0.05, 0.05);
+      }
+      expect(air.isEndingCutsceneActive).toBe(true);
+
+      // Completes by 10.6 s (> 10.5 s duration)
+      for (let i = 0; i < 8; i++) {
+        convoyZ += 0.35;
+        env.step(air, 0.05, 0.05);
+      }
+      expect(air.isEndingCutsceneActive).toBe(false);
+      expect(onDone).toHaveBeenCalledTimes(1);
+      expect(env.signals).toEqual(['dr:ending_done']);
+    });
+
+    it('restores camera, turns off fill light, stops loops/trails & cancels callback if clear() is called mid-ending', () => {
       const env = makeFakeEnv({ playerParked: false });
       const air = new DesertAirAndSquads(env.ctx, env.runner, env.ui);
       const onDone = vi.fn();
 
-      air.startEndingCutscene(out => out.set(0, 0, 100), false, onDone);
-      expect(env.getState().lastCaption).toContain('TARGET NEUTRALIZED');
-      env.step(air, 4.0, 0.05);
+      air.startEndingCutscene(out => out.set(0, 0, 100), true, onDone);
+      expect(env.getState().lastCaption).toContain('QUIST SECURED');
+      env.step(air, 2.0, 0.05);
       expect(air.isEndingCutsceneActive).toBe(true);
 
       air.clear();
@@ -598,6 +688,9 @@ describe('DesertAirAndSquads', () => {
       expect(env.getState().unparkCount).toBe(1);
       expect(env.loopStops.length).toBeGreaterThanOrEqual(1);
       expect(env.emitterStops.length).toBeGreaterThanOrEqual(1);
+
+      const fillLights = env.scene.children.filter((c): c is THREE.PointLight => c instanceof THREE.PointLight);
+      expect(fillLights.every(l => !l.visible && l.intensity === 0)).toBe(true);
 
       env.step(air, 10.0, 0.05);
       expect(onDone).not.toHaveBeenCalled();
