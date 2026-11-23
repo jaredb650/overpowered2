@@ -406,9 +406,9 @@ pitch 1. `scoutShot` was a 1 s stereo WAV at 40 kHz inside an `.mp3` name, `scou
 starts on the report: mixed to mono at 44.1 kHz, the bare one's 97 ms of lead-in cut, faded out from 0.6 s and cut at 0.9 s, peaks
 to -1 dB, 160 kbit/s. `awl_shot` is on the `gun` mix at 0.21 on the ladder (loudness 0.24), a sniper's crack over the Harrow's
 0.165 and under the Sabot's 0.246, with more of the room (`send` 0.26); `awl_suppressed_shot` at 0.155 (loudness 0.461), about
-2.6 dB under, as the Gimlet's can is, with `send` 0.08. On 2026-11-22 the suppressed .50 Cal Awl (`awl50` + `awlCan`) took its own
-owner-supplied recording, `awl50_suppressed_shot` (`guns/awl50_suppressed_shot.mp3`, trimmed of leading silence, 44.1 kHz stereo MP3
-at 192 kbps, 1.89 s, measured loudness 0.239), on the `gun` mix at 0.185 (`send` 0.1) — fuller than `awl_suppressed_shot` while
+2.6 dB under, as the Gimlet's can is, with `send` 0.08. On 2026-11-23 the suppressed .50 Cal Awl (`awl50` + `awlCan`) moved to
+`awl50silence.mp3` (`guns/awl50_suppressed_shot.mp3`, 40 kHz stereo WAV mixed to mono 44.1 kHz 160 kbps MP3, 138 ms lead-in cut,
+faded out 1.05–1.312 s, measured loudness 0.18), on the `gun` mix at 0.21 (`send` 0.1) — fuller than `awl_suppressed_shot` while
 clearly quieter than unsuppressed `awl50_shot`. On 2026-11-23 unsuppressed `awl50_shot` also moved to the owner's own recording
 (`50_cal_shot__3_.mp3`, `guns/awl50_shot.mp3`, 40 kHz stereo WAV mixed to mono 44.1 kHz 160 kbps MP3, faded out 1.55–1.88 s,
 measured loudness 0.314), on `gunHeavy` at 0.28 (`send` 0.36, `duck` [0.22, 0.35]).
@@ -433,10 +433,20 @@ pitched `gimlet_shot` + `bullet_flyby` layer on the flechette rifle. Source was 
 averaged to mono at 44.1 kHz, 98 ms lead-in cut, faded out from 0.65 s to 0.95 s, peak at -1.4 dB (0 clipped), 160 kbit/s, measured
 loudness 0.24, on the `gun` mix at 0.155 on the ladder (`send` 0.2).
 
-**The Pump Shotgun's suppressed shot** (2026-11-23, `guns/pump_shotgun_suppressed_shot.mp3`, the owner's `beefy_silencer__4_.mp3`):
+**The Pump Shotgun's suppressed shot** (2026-11-23, `guns/pump_shotgun_suppressed_shot.mp3`, the owner's `suppressorPump.mp3`):
 `pump_shotgun_suppressed_shot` plays when `shotgunCan` is fitted on the pump shotgun (full barrel, choke, or sawn-off). Source was a
-2 s stereo WAV at 40 kHz inside an `.mp3` name: averaged to mono at 44.1 kHz, 72 ms lead-in cut, faded out from 0.82 s to 1.078 s,
-peak at -2.0 dB (0 clipped), 160 kbit/s, measured loudness 0.246, on the `gun` mix at 0.18 on the ladder (`send` 0.1).
+2 s stereo WAV at 40 kHz inside an `.mp3` name: averaged to mono at 44.1 kHz, 0 ms lead-in, faded out from 0.80 s to 1.05 s,
+peak at -2.0 dB (0 clipped), 160 kbit/s, measured loudness 0.259, on the `gun` mix at 0.25 on the ladder (`send` 0.1).
+
+**The Billhook's shot** (2026-11-23, `guns/billhook_shot.mp3`, the owner's `billhookShot.mp3`): `billhook_shot` replaces the
+borrowed pitched `pump_shotgun_shot` on the semi-auto SPAS-12. Source was a 2 s stereo WAV at 40 kHz inside an `.mp3` name:
+averaged to mono at 44.1 kHz, 104 ms lead-in cut, scaled -2.85 dB to avoid MP3 overshoot, faded out from 1.15 s to 1.45 s,
+peak at -0.3 dB (0 clipped), 160 kbit/s, measured loudness 0.376, on the `gun` mix at 0.234 on the ladder (`send` 0.2).
+
+**The Gaff's shot** (2026-11-23, `guns/gaff_shot.mp3`, the owner's `gaffShot.mp3`): `gaff_shot` replaces the borrowed pitched
+`stakegun_shot` on the Gaff harpoon cannon. Source was a 2 s stereo WAV at 40 kHz inside an `.mp3` name: averaged to mono at
+44.1 kHz, 141 ms lead-in cut, scaled -2.4 dB to avoid MP3 overshoot, faded out from 1.45 s to 1.709 s, peak at -0.5 dB (0 clipped),
+160 kbit/s, measured loudness 0.375, on `gunHeavy` at 0.25 on the ladder (`send` 0.26).
 
 ## Sample packs
 

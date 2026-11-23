@@ -97,8 +97,10 @@ function flechette(gun: (typeof FLECHETTE_GUNS)[number]): ModDef {
     patch: {
       load: 'flechette', tracer: 'flechette', pellets: Math.round(row.pellets * AMMO.flechette.pellets),
       damage: row.damage * AMMO.flechette.flesh, impactScale: 0.4,
-      sounds: [...row.sounds, { id: 'bullet_flyby', volume: 0.55, pitch: 1.45, pitchJitter: 0.08 }],
     },
+    adjust: d => ({
+      sounds: [...d.sounds, { id: 'bullet_flyby', volume: 0.55, pitch: 1.45, pitchJitter: 0.08 }],
+    }),
   };
 }
 

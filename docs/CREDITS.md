@@ -44,7 +44,7 @@ owner's own AI-generated sounds as well (`m4Shot.mp3` and `suppressedM4Shot.mp3`
 (`glShot.mp3`), trimmed, mixed down to mono and faded out.
 `awl_shot.mp3` and `awl_suppressed_shot.mp3` (the Awl scout rifle, bare and suppressed) in `public/audio/sfx/guns` are the
 owner's own sounds as well (`scoutShot.mp3` and `scoutSuppressedShot.mp3`), trimmed, mixed down to mono and faded out.
-`awl50_shot.mp3` (the .50 Cal Awl conversion, `50_cal_shot__3_.mp3`, 2026-11-23), `awl50_suppressed_shot.mp3` (the .50 Cal Awl conversion through its suppressor) and `mgl_shot.mp3` (the Milkor MGL 40 mm
+`awl50_shot.mp3` (the .50 Cal Awl conversion, `50_cal_shot__3_.mp3`, 2026-11-23), `awl50_suppressed_shot.mp3` (the .50 Cal Awl conversion through its suppressor, `awl50silence.mp3`, 2026-11-23), `pump_shotgun_suppressed_shot.mp3` (the Breacher pump shotgun through its suppressor, `suppressorPump.mp3`, 2026-11-23), `billhook_shot.mp3` (the Billhook SPAS-12, `billhookShot.mp3`, 2026-11-23), `gaff_shot.mp3` (the Gaff harpoon cannon, `gaffShot.mp3`, 2026-11-23), and `mgl_shot.mp3` (the Milkor MGL 40 mm
 revolving grenade launcher) in `public/audio/sfx/guns` are the owner's own sounds too, trimmed and encoded to 44.1 kHz MP3.
 `autoraffica_shot.mp3` (the Autoraffica machine pistol, always suppressed) in `public/audio/sfx/guns` is the owner's own sound too
 (`newAutoRafficaShot.mp3`), mixed down to mono, faded out and cut short.

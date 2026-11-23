@@ -90,6 +90,7 @@ export const HARPOON = {
 } as const;
 
 const MAX_SWEEP_SLOTS = 16;
+const MAX_FREE_SPEARS = 4;
 const UP = new THREE.Vector3(0, 1, 0);
 const ALT_UP = new THREE.Vector3(1, 0, 0);
 
@@ -119,6 +120,49 @@ interface EmbeddedHarpoon {
   position: THREE.Vector3;
   rotation: THREE.Quaternion;
   until: number;
+}
+
+/** An untethered harpoon in free flight (LMB fire, or a tethered shot released mid-flight). */
+interface FreeSpear {
+  active: boolean;
+  source: string;
+  cosmetic: boolean;
+  pos: THREE.Vector3;
+  vel: THREE.Vector3;
+  embedDir: THREE.Vector3;
+  originPos: THREE.Vector3;
+  visualStart: THREE.Vector3;
+  flown: number;
+  flightElapsed: number;
+  skeweredCount: number;
+  skewered: SkeweredSlot[];
+  hitEnemyUids: Set<number>;
+  mesh: THREE.Mesh | null;
+}
+
+function makeSkeweredPool(): SkeweredSlot[] {
+  const pool: SkeweredSlot[] = [];
+  for (let i = 0; i < HARPOON.maxSkewer; i++) {
+    pool.push({
+      active: false,
+      enemy: null,
+      killPoint: new THREE.Vector3(),
+      killDir: new THREE.Vector3(),
+      headshot: false,
+      hasCorpse: false,
+      pinned: false,
+      corpse: {
+        distance: 0,
+        point: new THREE.Vector3(),
+        normal: new THREE.Vector3(),
+        handle: null,
+        bone: 0,
+        region: 'chest',
+      },
+      pinAnchor: new THREE.Vector3(),
+    });
+  }
+  return pool;
 }
 
 function isHeavyEnemy(enemy: EnemyInstance): boolean {
@@ -260,8 +304,10 @@ export class Harpoon {
 
   private readonly hitEnemyUids = new Set<number>();
   private readonly sweptHits: SweptHitSlot[] = [];
-  private readonly skewered: SkeweredSlot[] = [];
+  private readonly skewered: SkeweredSlot[];
   private readonly embedded: EmbeddedHarpoon[] = [];
+  private readonly freeSpears: FreeSpear[] = [];
+  private freeHead = 0;
   private embeddedHead = 0;
 
   // Preallocated scratch vectors/matrices/damage structs (zero per-frame allocations).
@@ -313,24 +359,23 @@ export class Harpoon {
         region: 'chest',
       });
     }
-    for (let i = 0; i < HARPOON.maxSkewer; i++) {
-      this.skewered.push({
+    this.skewered = makeSkeweredPool();
+    for (let i = 0; i < MAX_FREE_SPEARS; i++) {
+      this.freeSpears.push({
         active: false,
-        enemy: null,
-        killPoint: new THREE.Vector3(),
-        killDir: new THREE.Vector3(),
-        headshot: false,
-        hasCorpse: false,
-        pinned: false,
-        corpse: {
-          distance: 0,
-          point: new THREE.Vector3(),
-          normal: new THREE.Vector3(),
-          handle: null,
-          bone: 0,
-          region: 'chest',
-        },
-        pinAnchor: new THREE.Vector3(),
+        source: 'gaff',
+        cosmetic: false,
+        pos: new THREE.Vector3(),
+        vel: new THREE.Vector3(),
+        embedDir: new THREE.Vector3(0, 0, -1),
+        originPos: new THREE.Vector3(),
+        visualStart: new THREE.Vector3(),
+        flown: 0,
+        flightElapsed: 0,
+        skeweredCount: 0,
+        skewered: makeSkeweredPool(),
+        hitEnemyUids: new Set<number>(),
+        mesh: null,
       });
     }
     for (let i = 0; i < HARPOON.maxEmbedded; i++) {
@@ -362,6 +407,19 @@ export class Harpoon {
     return this._state !== 'ready';
   }
 
+  get freeFlightCount(): number {
+    let n = 0;
+    for (let i = 0; i < this.freeSpears.length; i++) {
+      if (this.freeSpears[i]!.active) n++;
+    }
+    return n;
+  }
+
+  /** True when either the tethered grapple harpoon or any untethered free-flight harpoon is active. */
+  get active(): boolean {
+    return this._state !== 'ready' || this.freeFlightCount > 0;
+  }
+
   get reloading(): boolean {
     return this.reloadRemaining > 0;
   }
@@ -387,8 +445,11 @@ export class Harpoon {
   }
 
   /**
-   * Launch the harpoon. Only one harpoon can be out at a time; returns false if one is already
-   * flying/anchored or if the winch is still reloading after a rope cut.
+   * Launch a harpoon.
+   * - `tethered = true` (RMB click-and-hold): launches the single tethered harpoon with 3D steel rope;
+   *   returns false if a tethered harpoon is already out or reloading.
+   * - `tethered = false` (LMB regular fire): launches an untethered free-flight harpoon that skewers
+   *   and pins bodies to walls without attaching a rope or blocking reloads.
    */
   fire(
     origin: THREE.Vector3,
@@ -396,7 +457,15 @@ export class Harpoon {
     muzzle: THREE.Vector3,
     source = 'gaff',
     cosmetic = false,
+    tethered = true,
   ): boolean {
+    if (!tethered) {
+      this.ensureVisuals();
+      this.spawnFreeSpear(origin, dir, muzzle, source, cosmetic);
+      this.syncFreeVisuals();
+      return true;
+    }
+
     if (this._state !== 'ready' || this.reloadRemaining > 0) return false;
 
     this.ensureVisuals();
@@ -424,7 +493,6 @@ export class Harpoon {
     this._state = 'flying';
 
     if (!cosmetic) {
-      this.ctx.audio?.play('stakegun_shot', { position: muzzle, volume: 1.0, pitch: 0.84 });
       this.ctx.audio?.play('stakegun_string', { position: muzzle, volume: 0.85, pitch: 0.92 });
     }
     this.syncVisuals(muzzle);
@@ -432,8 +500,8 @@ export class Harpoon {
   }
 
   /**
-   * Advance harpoon flight, multi-body skewer, wall pinning, enemy/wall grapple reeling, and rope visuals.
-   * Zero per-frame heap allocations.
+   * Advance harpoon flight (both tethered and untethered), multi-body skewer, wall pinning,
+   * enemy/wall grapple reeling, and 3D spear/rope visuals. Zero per-frame heap allocations.
    */
   update(
     dt: number,
@@ -457,11 +525,13 @@ export class Harpoon {
       this.reloadRemaining = Math.max(0, this.reloadRemaining - dt);
     }
 
-    // Expire old embedded wall harpoons.
+    // Expire old embedded wall harpoons and advance any untethered free-flight harpoons.
     this.updateEmbedded();
+    this.stepFreeSpears(dt);
 
     if (cutTapped && this._state !== 'ready') {
       this.cut();
+      this.syncFreeVisuals();
       this.outResult.reloading = this.reloadRemaining > 0;
       return this.outResult;
     }
@@ -476,17 +546,22 @@ export class Harpoon {
     }
 
     this.syncVisuals(muzzle);
+    this.syncFreeVisuals();
     this.outResult.reloading = this.reloadRemaining > 0;
     return this.outResult;
   }
 
   /**
-   * Cleanly cut the steel rope, leaving any wall-anchored harpoon embedded, clearing the active
-   * anchor without touching player momentum, and starting the next harpoon reload.
+   * Cleanly cut the steel rope:
+   * - If still in flight, detaches the rope and lets the harpoon finish flying untethered.
+   * - If anchored in a wall, leaves the harpoon embedded without touching player momentum.
+   * Starts the next harpoon reload.
    */
   cut(): void {
     if (this._state === 'ready') return;
-    if (this._state === 'anchored_wall') {
+    if (this._state === 'flying') {
+      this.handoffTetheredToFree();
+    } else if (this._state === 'anchored_wall') {
       this.leaveEmbedded(this.anchorPos, this.embedDir);
     }
     if (!this.cosmetic) {
@@ -500,12 +575,16 @@ export class Harpoon {
     this.reloadRemaining = 0;
   }
 
-  /** Clear all active state, embedded harpoons, reload timer, and scene meshes. */
+  /** Clear all active state, untethered spears, embedded harpoons, reload timer, and scene meshes. */
   reset(): void {
     this.detach(false);
     this.reloadRemaining = 0;
     this.clock = 0;
     this.embeddedHead = 0;
+    this.freeHead = 0;
+    for (let i = 0; i < this.freeSpears.length; i++) {
+      this.deactivateFree(this.freeSpears[i]!);
+    }
     for (let i = 0; i < this.embedded.length; i++) {
       this.embedded[i]!.active = false;
     }
@@ -523,6 +602,13 @@ export class Harpoon {
       if (this.spearMesh) scene.remove(this.spearMesh);
       if (this.ropeMesh) scene.remove(this.ropeMesh);
       if (this.embeddedMesh) scene.remove(this.embeddedMesh);
+      for (let i = 0; i < this.freeSpears.length; i++) {
+        const m = this.freeSpears[i]!.mesh;
+        if (m) scene.remove(m);
+      }
+    }
+    for (let i = 0; i < this.freeSpears.length; i++) {
+      this.freeSpears[i]!.mesh = null;
     }
     this.spearGeo?.dispose();
     this.ropeGeo?.dispose();
@@ -909,6 +995,239 @@ export class Harpoon {
   }
 
   // -------------------------------------------------------------------------------------------
+  // Untethered free-flight harpoons (LMB regular fire & mid-flight RMB release)
+  // -------------------------------------------------------------------------------------------
+
+  private allocFreeSlot(): FreeSpear {
+    for (let i = 0; i < this.freeSpears.length; i++) {
+      const s = this.freeSpears[i]!;
+      if (!s.active) return s;
+    }
+    const oldest = this.freeSpears[this.freeHead]!;
+    this.freeHead = (this.freeHead + 1) % this.freeSpears.length;
+    this.deactivateFree(oldest);
+    return oldest;
+  }
+
+  private deactivateFree(s: FreeSpear): void {
+    s.active = false;
+    s.skeweredCount = 0;
+    s.hitEnemyUids.clear();
+    for (let i = 0; i < s.skewered.length; i++) {
+      const sk = s.skewered[i]!;
+      sk.active = false;
+      sk.enemy = null;
+      sk.hasCorpse = false;
+      sk.pinned = false;
+      sk.corpse.handle = null;
+    }
+    if (s.mesh) s.mesh.visible = false;
+  }
+
+  private spawnFreeSpear(
+    origin: THREE.Vector3,
+    dir: THREE.Vector3,
+    muzzle: THREE.Vector3,
+    source: string,
+    cosmetic: boolean,
+  ): void {
+    const s = this.allocFreeSlot();
+    this.deactivateFree(s);
+    s.active = true;
+    s.source = source;
+    s.cosmetic = cosmetic;
+    s.originPos.copy(origin);
+    s.pos.copy(origin);
+    s.visualStart.copy(muzzle);
+    s.embedDir.copy(dir);
+    if (s.embedDir.lengthSq() < 1e-8) s.embedDir.set(0, 0, -1);
+    else s.embedDir.normalize();
+    s.vel.copy(s.embedDir).multiplyScalar(HARPOON.speed);
+    s.flown = 0;
+    s.flightElapsed = 0;
+  }
+
+  /** Transfer a mid-flight tethered harpoon into an untethered slot when RMB is released early. */
+  private handoffTetheredToFree(): void {
+    const s = this.allocFreeSlot();
+    this.deactivateFree(s);
+    s.active = true;
+    s.source = this.source;
+    s.cosmetic = this.cosmetic;
+    s.pos.copy(this.pos);
+    s.vel.copy(this.vel);
+    s.embedDir.copy(this.embedDir);
+    s.originPos.copy(this.originPos);
+    s.visualStart.copy(this.visualStart);
+    s.flown = this.flown;
+    s.flightElapsed = this.flightElapsed;
+    s.skeweredCount = this._skeweredCount;
+    for (const uid of this.hitEnemyUids) s.hitEnemyUids.add(uid);
+    for (let i = 0; i < this._skeweredCount; i++) {
+      const src = this.skewered[i]!;
+      const dst = s.skewered[i]!;
+      dst.active = src.active;
+      dst.enemy = src.enemy;
+      dst.killPoint.copy(src.killPoint);
+      dst.killDir.copy(src.killDir);
+      dst.headshot = src.headshot;
+      dst.hasCorpse = src.hasCorpse;
+      dst.pinned = src.pinned;
+      dst.corpse.distance = src.corpse.distance;
+      dst.corpse.point.copy(src.corpse.point);
+      dst.corpse.normal.copy(src.corpse.normal);
+      dst.corpse.handle = src.corpse.handle;
+      dst.corpse.bone = src.corpse.bone;
+      dst.corpse.region = src.corpse.region;
+      dst.pinAnchor.copy(src.pinAnchor);
+    }
+  }
+
+  private stepFreeSpears(dt: number): void {
+    for (let i = 0; i < this.freeSpears.length; i++) {
+      const s = this.freeSpears[i]!;
+      if (!s.active) continue;
+
+      s.vel.y -= HARPOON.gravity * dt;
+      this.stepVec.copy(s.vel).multiplyScalar(dt);
+      const stepDist = this.stepVec.length();
+      if (stepDist < 1e-6) continue;
+
+      this.stepDir.copy(this.stepVec).divideScalar(stepDist);
+      s.embedDir.copy(this.stepDir);
+
+      const wall = this.ctx.physics?.raycast(s.pos, this.stepDir, stepDist, CG.World) ?? null;
+      const enemyLimit = wall ? wall.distance : stepDist;
+
+      if (this.sweepFreeEnemies(s, this.stepDir, enemyLimit)) {
+        this.deactivateFree(s);
+        continue;
+      }
+
+      if (wall) {
+        if (!s.cosmetic) {
+          this.pinFreeToWall(s, wall.point);
+          this.ctx.fx?.impact?.(wall.point, wall.normal, wall.surface, 1.3);
+          this.ctx.render?.decals?.add('crack', wall.point, wall.normal, 0.34);
+          this.ctx.audio?.play('stake_twang', { position: wall.point, volume: 1.0, pitch: 0.88 });
+          this.ctx.audio?.play('impact_metal', { position: wall.point, volume: 0.9, pitch: 0.85 });
+        }
+        this.leaveEmbedded(wall.point, s.embedDir);
+        this.deactivateFree(s);
+        continue;
+      }
+
+      s.pos.addScaledVector(this.stepDir, stepDist);
+      s.flown += stepDist;
+      s.flightElapsed += dt;
+
+      if (s.flown >= HARPOON.maxRange || s.flightElapsed >= HARPOON.flightLife) {
+        this.deactivateFree(s);
+      }
+    }
+  }
+
+  private sweepFreeEnemies(s: FreeSpear, dir: THREE.Vector3, limit: number): boolean {
+    const enemies = this.ctx.enemies;
+    if (!enemies?.raycastAll) return false;
+    const rawHits = enemies.raycastAll(s.pos, dir, limit, MAX_SWEEP_SLOTS);
+    if (!rawHits || rawHits.length === 0) return false;
+
+    const count = Math.min(rawHits.length, MAX_SWEEP_SLOTS);
+    for (let i = 0; i < count; i++) {
+      const src = rawHits[i]!;
+      const dst = this.sweptHits[i]!;
+      dst.enemy = src.enemy;
+      dst.distance = src.distance;
+      dst.point.copy(src.point);
+      dst.normal.copy(src.normal);
+      dst.bone = src.bone;
+      dst.region = src.region;
+    }
+
+    for (let i = 0; i < count; i++) {
+      const h = this.sweptHits[i]!;
+      const enemy = h.enemy;
+      if (!enemy || !enemy.alive || s.hitEnemyUids.has(enemy.uid)) continue;
+
+      if (s.cosmetic) {
+        s.hitEnemyUids.add(enemy.uid);
+        continue;
+      }
+
+      if (s.skeweredCount >= HARPOON.maxSkewer) break;
+      s.hitEnemyUids.add(enemy.uid);
+
+      const dmg = this.damageScratch;
+      dmg.amount = HARPOON.damage;
+      dmg.type = 'bullet';
+      dmg.point.copy(h.point);
+      dmg.dir.copy(dir);
+      dmg.force = HARPOON.force;
+      dmg.source = s.source;
+      dmg.region = h.region;
+      dmg.bone = h.bone;
+      dmg.severMult = HARPOON.severMult;
+      dmg.headshotMult = HARPOON.headshotMult;
+      dmg.armorPiercing = true;
+      dmg.pierces = enemy.armor > 0 ? true : undefined;
+
+      const res = enemies.applyDamage(enemy, dmg);
+      const killed = (res != null && toldKill(res)) || !enemy.alive;
+      const headshot = Boolean(res?.headshot || h.region === 'head');
+
+      if (killed) {
+        const slot = s.skewered[s.skeweredCount++]!;
+        slot.active = true;
+        slot.enemy = enemy;
+        slot.killPoint.copy(h.point);
+        slot.killDir.copy(dir);
+        slot.headshot = headshot;
+        slot.hasCorpse = false;
+        slot.pinned = false;
+        this.captureCorpse(slot);
+
+        this.ctx.audio?.play('stake_hit_flesh', { position: h.point, volume: 1.0, pitch: 0.92 });
+        if (enemy.machine) {
+          this.ctx.fx?.sparks?.(h.point, dir, 10, 0xffee88);
+        } else {
+          this.ctx.fx?.bloodHit?.(h.point, dir, 1.5);
+        }
+        continue;
+      }
+
+      // Surviving heavy/boss enemy stops an untethered harpoon without attaching a rope.
+      this.ctx.audio?.play('stake_hit_flesh', { position: h.point, volume: 1.0, pitch: 0.82 });
+      if (enemy.machine || res?.blocked) {
+        this.ctx.audio?.play('metal_clang', { position: h.point, volume: 0.9, pitch: 0.9 });
+        this.ctx.fx?.sparks?.(h.point, h.normal, 12, 0xffd9a0);
+      } else {
+        this.ctx.fx?.bloodHit?.(h.point, dir, 1.2);
+      }
+      return true;
+    }
+
+    return false;
+  }
+
+  private pinFreeToWall(s: FreeSpear, wallPoint: THREE.Vector3): void {
+    const gore = this.ctx.gore;
+    if (!gore?.pin) return;
+    for (let i = 0; i < s.skeweredCount; i++) {
+      const slot = s.skewered[i]!;
+      if (!slot.active || slot.pinned) continue;
+      if (!slot.hasCorpse) this.captureCorpse(slot);
+      if (!slot.hasCorpse) continue;
+
+      slot.pinAnchor
+        .copy(wallPoint)
+        .addScaledVector(s.embedDir, -(0.06 + i * HARPOON.pinStackStep));
+      gore.pin(slot.corpse, slot.pinAnchor);
+      slot.pinned = true;
+    }
+  }
+
+  // -------------------------------------------------------------------------------------------
   // 3D Harpoon spear, embedded wall harpoons, and metallic steel rope visuals
   // -------------------------------------------------------------------------------------------
 
@@ -929,6 +1248,14 @@ export class Harpoon {
     this.spearMesh.frustumCulled = false;
     this.spearMesh.visible = false;
     scene.add(this.spearMesh);
+
+    for (let i = 0; i < this.freeSpears.length; i++) {
+      const m = new THREE.Mesh(this.spearGeo, this.spearMat);
+      m.frustumCulled = false;
+      m.visible = false;
+      scene.add(m);
+      this.freeSpears[i]!.mesh = m;
+    }
 
     this.embeddedMesh = new THREE.InstancedMesh(this.spearGeo, this.spearMat, HARPOON.maxEmbedded);
     this.embeddedMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
@@ -1027,6 +1354,30 @@ export class Harpoon {
     this.tailPos.copy(this.visualPos).addScaledVector(this.embedDir, -0.82);
     this.updateRopeGeometry(muzzle, this.tailPos);
     this.ropeMesh.visible = true;
+  }
+
+  private syncFreeVisuals(): void {
+    if (!this.visualsReady) return;
+    for (let i = 0; i < this.freeSpears.length; i++) {
+      const s = this.freeSpears[i]!;
+      const m = s.mesh;
+      if (!m) continue;
+      if (!s.active) {
+        m.visible = false;
+        continue;
+      }
+      if (s.flightElapsed < HARPOON.visualBlendSeconds) {
+        const alpha = clamp(s.flightElapsed / HARPOON.visualBlendSeconds, 0, 1);
+        this.tmpA.subVectors(s.visualStart, s.originPos).multiplyScalar(1 - alpha);
+        this.visualPos.copy(s.pos).add(this.tmpA);
+      } else {
+        this.visualPos.copy(s.pos);
+      }
+      this.orientFromDir(s.embedDir, this.tmpQuat);
+      m.position.copy(this.visualPos);
+      m.quaternion.copy(this.tmpQuat);
+      m.visible = true;
+    }
   }
 
   private updateRopeGeometry(start: THREE.Vector3, end: THREE.Vector3): void {

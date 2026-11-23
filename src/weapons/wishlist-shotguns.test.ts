@@ -242,6 +242,10 @@ describe('Pump Shotgun sawed-off and greased bolt', () => {
     expect(both.spread).toBe(0.085);
     expect(isWeaponSuppressed('shotgun', r.weapons.fitted)).toBe(true);
 
+    // Pairing flechettes with the suppressor keeps the suppressed shot sound and layers the flechette hiss over it.
+    const flechetteCan = moddedDef('shotgun', new Set<ModId>(['shotgunCan', 'shotgunFlechette']));
+    expect(flechetteCan.sounds.map(s => s.id)).toEqual(['pump_shotgun_suppressed_shot', 'bullet_flyby']);
+
     const def = shotgunDef(makeKit());
     const { root } = restingModel('shotgun', def);
     const can = root.getObjectByName('can')!;

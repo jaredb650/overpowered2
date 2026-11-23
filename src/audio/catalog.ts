@@ -350,12 +350,14 @@ const gunShots: SoundDef[] = [
   shot('awl_suppressed_shot', 'guns/awl_suppressed_shot.mp3', 'gun', 0.155, 0.461, { send: 0.08 }),
   // The .50 Cal Awl bare (the owner's, 2026-11-23): anti-materiel .50 BMG report on top of the small-arms ladder beside the Sabot.
   shot('awl50_shot', 'guns/awl50_shot.mp3', 'gunHeavy', 0.28, 0.314, { send: 0.36, duck: [0.22, 0.35] }),
-  // The .50 Cal Awl through its can (the owner's, 2026-11-22): fuller than awl_suppressed_shot (0.155), quieter than unsuppressed awl50_shot.
-  shot('awl50_suppressed_shot', 'guns/awl50_suppressed_shot.mp3', 'gun', 0.185, 0.239, { send: 0.1 }),
+  // The .50 Cal Awl through its can (the owner's, 2026-11-23): deep suppressed .50 BMG thump, fuller than awl_suppressed_shot (0.155), under bare awl50_shot (0.28).
+  shot('awl50_suppressed_shot', 'guns/awl50_suppressed_shot.mp3', 'gun', 0.21, 0.18, { send: 0.1 }),
   shot('auto_shotgun_shot', 'guns/auto_shotgun_shot.mp3', 'gun', 0.204, 0.259, { send: 0.18 }),
   shot('pump_shotgun_shot', 'guns/pump_shotgun_shot.mp3', 'gun', 0.234, 0.3, { send: 0.2 }),
-  // The Breacher pump shotgun through its oversized 12-gauge suppressor (owner, 2026-11-23): beefy low-end thump, ~2.3 dB under bare.
-  shot('pump_shotgun_suppressed_shot', 'guns/pump_shotgun_suppressed_shot.mp3', 'gun', 0.18, 0.246, { send: 0.1 }),
+  // The Breacher pump shotgun through its oversized 12-gauge suppressor (owner, 2026-11-23): beefy low-end thump, boosted so the heavy can punches through.
+  shot('pump_shotgun_suppressed_shot', 'guns/pump_shotgun_suppressed_shot.mp3', 'gun', 0.25, 0.259, { send: 0.1 }),
+  // The Billhook SPAS-12 (owner, 2026-11-23): heavy semi-auto 12-gauge boom right beside the pump shotgun.
+  shot('billhook_shot', 'guns/billhook_shot.mp3', 'gun', 0.234, 0.376, { send: 0.2 }),
   shot('hmg_shot', 'guns/hmg_shot.mp3', 'gun', 0.225, 0.25, { send: 0.3 }),
   shot('revolver_shot', 'guns/revolver_shot.mp3', 'gunHeavy', 0.24, 0.254),
   // The Deuce's barrel (the owner's newer shot, 2026-11-17). Both barrels at once is this played twice, a hair apart: 0.24 keeps
@@ -374,6 +376,8 @@ const gunShots: SoundDef[] = [
   // The Stakegun (2026-11-15): its shot, the string drawn back after each shot and on a reload (foley, at the pump's
   // level), and an exploding bolt's countdown beep, 3D.
   shot('stakegun_shot', 'guns/stakegun_shot.mp3', 'gun', 0.24, 0.191, { send: 0.22 }),
+  // The Gaff harpoon cannon (owner, 2026-11-23): heavy pneumatic launch + barbed spear zing over the Stakegun.
+  shot('gaff_shot', 'guns/gaff_shot.mp3', 'gunHeavy', 0.25, 0.375, { send: 0.26 }),
   shot('stakegun_string', 'guns/stakegun_string.mp3', 'foley', 0.054, 0.072),
   shot('stake_beep', 'guns/stake_beep.mp3', 'enemyFx', 0.08, 0.373, { priority: 7, maxVoices: 4, perFrame: 2, near: 6, far: 60, pitchJitter: 0 }),
   // A Raufoss round bursting, up to eight a second from the Piledriver: three voices, one start a frame, oldest out.

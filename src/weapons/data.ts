@@ -429,7 +429,7 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     magSize: 8, reserve: 48, maxReserve: 96, reloadTime: 1.5, drawTime: 0.22,
     interval: 0.26, damage: 26, pellets: 6, spread: 0.05, severMult: 2.4, force: 20,
     muzzle: 'shotgun', tracer: 'bullet', casing: 'shotgun',
-    sounds: [{ id: 'pump_shotgun_shot', pitch: 1.04, pitchJitter: 0.04 }],
+    sounds: [{ id: 'billhook_shot', pitchJitter: 0.03 }],
     reloadFoley: [
       [0.08, 'shotgun_shell_in'], [0.24, 'shotgun_shell_in'], [0.4, 'shotgun_shell_in'],
       [0.56, 'shotgun_shell_in'], [0.72, 'shotgun_shell_in'], [0.88, 'reload_bolt'],
@@ -750,14 +750,14 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     altAmmo: { label: 'EXPLODING BOLTS' },
   },
   // The harpoon cannon, beside the Stakegun on key 0: shoulder-fired, 550 damage, no explosion, skewers a line of men
-  // onto the wall behind them, and stays tethered by a steel rope for reeling or grappling (right click).
+  // onto the wall behind them. LMB fires untethered; click-and-hold RMB launches tethered and reels until released.
   gaff: {
     ...BASE, id: 'gaff', name: 'GAFF', slot: 0, base: 'stakegun', mode: 'semi', round: 'stake', harpoon: true,
     magSize: 1, reserve: 12, maxReserve: 24, reloadTime: 1.9, drawTime: 0.3,
     interval: 0.5, damage: 550, severMult: 3.2, force: 160, headshotMult: 2,
     penetration: 2.4, bodyCost: 0.3, armorPiercing: true,
     muzzle: 'rifle', tracer: 'heavy',
-    sounds: [{ id: 'stakegun_shot', pitch: 0.72, pitchJitter: 0.03 }],
+    sounds: [{ id: 'gaff_shot', pitchJitter: 0.03 }],
     reloadFoley: [[0.14, 'stake_reload'], [0.68, 'stakegun_string'], [0.88, 'reload_bolt']], drawSound: 'weapon_draw_heavy',
     recoil: 1.3, kick: 0.042, shake: 0.04, fovPunch: 2.8, killStop: HEAVY_KILL_STOP,
   },

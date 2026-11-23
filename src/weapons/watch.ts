@@ -357,9 +357,11 @@ export class Watcher {
     if (weapon === 'gaff') {
       const at = s.muzzle(this.muzzleAt, note.left);
       const h = (this.harpoon ??= new Harpoon(this.ctx));
-      if (h.ropeOut) h.cut();
-      h.finishReload();
-      h.fire(origin, dir, at, 'gaff', true);
+      if (note.alt) {
+        if (h.ropeOut) h.cut();
+        h.finishReload();
+      }
+      h.fire(origin, dir, at, 'gaff', true, note.alt);
       WATCHED.projectiles++;
       return;
     }
@@ -799,7 +801,7 @@ export class Watcher {
   update(dt: number): void {
     this.puppet?.tick();
     if (this.hoseLeft > 0) this.stream(this.ctx.time.dt);
-    if (this.harpoon && (this.harpoon.ropeOut || this.harpoon.embeddedCount > 0)) {
+    if (this.harpoon && (this.harpoon.active || this.harpoon.embeddedCount > 0)) {
       const s = this.shooter;
       this.harpoon.update(this.ctx.time.dt, false, false, s.muzzle(this.muzzleAt), s.eye, s.forward);
     }

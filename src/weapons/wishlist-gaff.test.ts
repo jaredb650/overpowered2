@@ -8,6 +8,9 @@ import { gaffDef } from './viewmodels/models/gaff';
 import { HANDS } from './viewmodels/poses';
 import { Anim } from './viewmodels/def';
 import { HARPOON, Harpoon } from './harpoon';
+import { WEAPONS } from './data';
+import { lookup } from '../audio/catalog';
+import { makeRange } from './testkit';
 
 function makeKit(): Kit {
   const material = new THREE.MeshStandardMaterial();
@@ -573,5 +576,106 @@ describe('Harpoon controller (src/weapons/harpoon.ts)', () => {
     expect(harpoon.state).toBe('ready');
     expect(harpoon.embeddedCount).toBe(0);
     expect(harpoon.reloading).toBe(false);
+  });
+
+  it('fires untethered harpoons without rope or reeling while still skewering, pinning, and embedding in walls', () => {
+    const e1 = makeEnemy(11, 0, 0.6, -8, 200);
+    const e2 = makeEnemy(12, 0, 0.6, -14, 200);
+    const h = makeHarness([e1, e2], -24);
+    const harpoon = new Harpoon(h.ctx);
+
+    expect(harpoon.fire(origin, forward, muzzle, 'gaff', false, false)).toBe(true);
+    expect(harpoon.state).toBe('ready');
+    expect(harpoon.ropeOut).toBe(false);
+    expect(harpoon.freeFlightCount).toBe(1);
+
+    for (let i = 0; i < 30 && harpoon.freeFlightCount > 0; i++) {
+      const res = harpoon.update(1 / 60, true, false, muzzle, h.playerEye, forward);
+      expect(res.velocityDelta).toBeNull();
+    }
+
+    expect(harpoon.freeFlightCount).toBe(0);
+    expect(harpoon.ropeOut).toBe(false);
+    expect(e1.alive).toBe(false);
+    expect(e2.alive).toBe(false);
+    expect(h.pinSpy).toHaveBeenCalledTimes(2);
+    expect(harpoon.embeddedCount).toBe(1);
+    expect(h.pushSpy).not.toHaveBeenCalled();
+  });
+
+  it('releases the rope cleanly mid-flight and lets the harpoon finish flying untethered', () => {
+    const e1 = makeEnemy(21, 0, 0.6, -18, 200);
+    const h = makeHarness([e1], -26);
+    const harpoon = new Harpoon(h.ctx);
+
+    expect(harpoon.fire(origin, forward, muzzle, 'gaff', false, true)).toBe(true);
+    harpoon.update(0.05, true, false, muzzle, h.playerEye, forward);
+    expect(harpoon.state).toBe('flying');
+
+    // Release RMB mid-flight -> rope detaches, reload begins, spear keeps flying to skewer & embed.
+    const cutRes = harpoon.update(1 / 60, false, true, muzzle, h.playerEye, forward);
+    expect(harpoon.ropeOut).toBe(false);
+    expect(cutRes.reloading).toBe(true);
+    expect(harpoon.freeFlightCount).toBe(1);
+
+    for (let i = 0; i < 40 && harpoon.freeFlightCount > 0; i++) {
+      harpoon.update(1 / 60, false, false, muzzle, h.playerEye, forward);
+    }
+    expect(e1.alive).toBe(false);
+    expect(h.pinSpy).toHaveBeenCalledTimes(1);
+    expect(harpoon.embeddedCount).toBe(1);
+  });
+});
+
+describe('Gaff Weapons integration (gaff_shot, LMB untethered, RMB hold-to-reel)', () => {
+  it('wires gaff_shot sample and separates untethered LMB fire from RMB click-and-hold grapple', async () => {
+    const def = lookup('gaff_shot');
+    expect(def?.kind).toBe('sample');
+    expect(def?.file).toBe('guns/gaff_shot.mp3');
+    expect(WEAPONS.gaff.sounds[0]!.id).toBe('gaff_shot');
+
+    const r = await makeRange();
+    r.wall(-18, 2);
+    r.weapons.give('gaff');
+    r.weapons.switchTo('gaff');
+    r.run(0.6);
+
+    // 1) Regular LMB fire: plays gaff_shot, launches untethered (no rope), auto-reloads normally.
+    r.record.sounds.length = 0;
+    r.input.simulate('fire', true);
+    r.run(1 / 60);
+    r.input.simulate('fire', false);
+    expect(r.record.sounds).toContain('gaff_shot');
+    expect(r.weapons.harpoon.ropeOut).toBe(false);
+    expect(r.weapons.harpoon.freeFlightCount).toBe(1);
+
+    // Wait for reload to finish (0.2s auto-reload delay + 1.9s reload).
+    r.run(2.4);
+    expect(r.weapons.ammo().mag).toBe(1);
+    expect(r.weapons.harpoon.embeddedCount).toBe(1);
+
+    // 2) Click-and-hold RMB: plays gaff_shot, launches WITH rope, reels player once anchored until released.
+    const pushSpy = vi.fn((dv: THREE.Vector3) => {
+      r.player.velocity.add(dv);
+    });
+    r.ctx.player.push = pushSpy;
+    r.record.sounds.length = 0;
+    r.input.simulate('aim', true);
+    r.run(1 / 60);
+    expect(r.record.sounds).toContain('gaff_shot');
+    expect(r.weapons.harpoon.ropeOut).toBe(true);
+
+    // Hold RMB while harpoon flies 18 m (~0.2 s) and reels for several frames.
+    r.run(0.4);
+    expect(r.weapons.harpoon.state).toBe('anchored_wall');
+    expect(r.weapons.harpoon.reeling).toBe(true);
+    expect(pushSpy).toHaveBeenCalled();
+
+    // Release RMB: immediately cuts the rope, embeds the harpoon, and starts reloading.
+    r.input.simulate('aim', false);
+    r.run(1 / 60);
+    expect(r.weapons.harpoon.ropeOut).toBe(false);
+    expect(r.weapons.harpoon.reeling).toBe(false);
+    expect(r.weapons.reloading).toBe(true);
   });
 });

@@ -271,7 +271,6 @@ export class Weapons implements WeaponSystem, Guard {
   readonly microwave: Microwave;
   readonly harpoon: Harpoon;
   private microwaveTicked = false;
-  private gaffAimHold = 0;
 
   constructor(private readonly ctx: Ctx) {
     const slots = {} as Record<WeaponId, Slot>;
@@ -398,7 +397,6 @@ export class Weapons implements WeaponSystem, Guard {
     this.lance.reset();
     this.microwave.reset();
     this.harpoon.reset();
-    this.gaffAimHold = 0;
     this.altLoaded.clear();
     this.mods.clear();
     for (const id of MOD_ORDER) this.fitMod(id, false);
@@ -543,8 +541,9 @@ export class Weapons implements WeaponSystem, Guard {
       const planted = this.combat.projectiles.stickyCount('satchel');
       return planted > 0 ? `RMB DETONATE · ${planted}` : 'TOSS';
     }
-    if (this.current === 'gaff' && this.harpoon.ropeOut) {
-      return this.harpoon.reeling ? 'REELING' : 'RMB REEL · TAP CUT';
+    if (this.current === 'gaff') {
+      if (this.harpoon.ropeOut) return this.harpoon.reeling ? 'REELING · RELEASE CUT' : 'HOLD RMB TO REEL';
+      return 'RMB GRAPPLE';
     }
     // An ammo mod (AP or HP) comes first, beside the Gimlet's bursts.
     const load = def.load === 'plusP' ? '+P' : def.load ? def.load.toUpperCase() : '';
@@ -842,7 +841,6 @@ export class Weapons implements WeaponSystem, Guard {
     this.burstLeft = 0;
     this.rHeld = -1;
     if (this.harpoon.ropeOut) this.harpoon.cut();
-    this.gaffAimHold = 0;
     this.ctx.viewmodel.setCharge(0);
   }
 
@@ -865,10 +863,10 @@ export class Weapons implements WeaponSystem, Guard {
     this.rigPitch = p.pitch;
   }
 
-  /** Ticks the Gaff harpoon flight, 3D steel rope, right-click grapple reel, and tap-to-cut/reload handoff. */
+  /** Ticks the Gaff harpoon flight (free & tethered), 3D steel rope, and RMB hold-to-reel / release-to-cut handoff. */
   private updateHarpoon(dt: number): void {
     const h = this.harpoon;
-    if (!h.ropeOut && !h.reloading && h.embeddedCount === 0 && this.current !== 'gaff') return;
+    if (!h.active && !h.reloading && h.embeddedCount === 0 && this.current !== 'gaff') return;
     const c = this.ctx;
     const wasRopeOut = h.ropeOut;
     let reelHeld = false;
@@ -877,19 +875,13 @@ export class Weapons implements WeaponSystem, Guard {
       && this.drawLeft <= 0 && this.occupied <= 0;
     if (active && h.ropeOut) {
       const aimDown = c.input.isDown('aim');
-      if (aimDown) {
-        this.gaffAimHold += dt;
-      } else if (this.gaffAimHold > 0) {
-        if (this.gaffAimHold < 0.22) cutTapped = true;
-        this.gaffAimHold = 0;
-      }
-      if (c.input.pressed('reload') || (c.input.pressed('fire') && h.state !== 'flying')) {
+      if (!aimDown || c.input.pressed('reload')) {
         cutTapped = true;
-        this.gaffAimHold = 0;
+      } else {
+        reelHeld = true;
       }
-      reelHeld = aimDown && !cutTapped;
-    } else {
-      this.gaffAimHold = 0;
+    } else if (h.ropeOut) {
+      cutTapped = true;
     }
     const muzzle = this.current === 'gaff' ? this.muzzle(false) : this.muzzleAt;
     h.update(dt, reelHeld, cutTapped, muzzle, c.player.eye, c.player.forward);
@@ -1109,7 +1101,6 @@ export class Weapons implements WeaponSystem, Guard {
     this.flushBoltPending();
     if (from === 'mgl') this.detonateStickies('mgl', true);
     if (from === 'gaff' && this.harpoon.ropeOut) this.harpoon.cut();
-    this.gaffAimHold = 0;
     this.aimOn = false;
     this.aimSuppress = false;
     this.aimT = 0;
@@ -1450,12 +1441,12 @@ export class Weapons implements WeaponSystem, Guard {
     this.drySwap = TUNING.ammo.swapDelay;
   }
 
-  private consume(s: Slot, rounds = 1): void {
+  private consume(s: Slot, rounds = 1, holdReload = false): void {
     if (this.modifiers.bottomlessMag) return;
     s.ammo.mag = Math.max(0, s.ammo.mag - rounds);
     if (s.ammo.mag > 0) return;
-    // Keep the Gaff in hand while its steel tether is out so RMB can reel or tap-cut before reloading.
-    if (s.def.harpoon) return;
+    // Keep the Gaff in hand while its steel tether is out so RMB can reel until released before reloading.
+    if (holdReload) return;
     if (s.ammo.reserve > 0) {
       if (!this.shouldHoldBolt(s.def)) this.autoReload = Math.max(TUNING.autoReloadDelay, s.def.cycleTime ?? 0);
     }
@@ -1593,22 +1584,27 @@ export class Weapons implements WeaponSystem, Guard {
       this.updateBurst(s, s.def.pullBurst);
       return;
     }
-    // Right click on a double gun pulls both triggers. On the Deuce's last shell it is one barrel, as a left click.
+    if (s.def.harpoon && this.harpoon.ropeOut) {
+      this.pressBuffer = 0;
+      return;
+    }
+    // Right click on a double gun pulls both triggers; on the Gaff it launches the tethered harpoon and reels while held.
     const both = s.def.altBoth !== undefined && this.ctx.input.pressed('aim');
+    const grapple = s.def.harpoon === true && this.ctx.input.pressed('aim');
     if (this.boltPending === s.def.id) {
       this.pressBuffer = 0;
       return;
     }
-    if ((this.pressBuffer <= 0 && !both) || s.cooldown > 0) return;
+    if ((this.pressBuffer <= 0 && !both && !grapple) || s.cooldown > 0) return;
     if (!this.canShoot(s)) {
-      if (both) {
+      if (both || grapple) {
         if (!this.startReload()) this.wentDry();
       } else this.dryFire();
       this.pressBuffer = 0;
       return;
     }
     this.pressBuffer = 0;
-    this.shootGun(s, this.akimboOn && this.leftNext, both);
+    this.shootGun(s, this.akimboOn && this.leftNext, both, grapple);
     if (this.akimboOn) this.leftNext = !this.leftNext;
     s.cooldown = this.boltPending === s.def.id ? 0 : this.interval(s.def) / this.ak;
   }
@@ -2031,7 +2027,7 @@ export class Weapons implements WeaponSystem, Guard {
     return fillShot(this.shot, def, damage, this.modifiers, this.muzzleAt);
   }
 
-  private shootGun(s: Slot, left: boolean, both = false): void {
+  private shootGun(s: Slot, left: boolean, both = false, grapple = false): void {
     const def = s.def;
     // A break-open gun fires its barrels in turn, from the next one loaded; `both` fires every loaded one together (the
     // Deuce's two, the quad's four). Only an under-barrel launcher (`glSlot`) forces `muzzle1`.
@@ -2045,7 +2041,7 @@ export class Weapons implements WeaponSystem, Guard {
     const loaded = both && def.altBoth ? (this.modifiers.bottomlessMag ? def.magSize : s.ammo.mag) : 1;
     const two = loaded >= 2 ? def.altBoth : undefined;
     const barrels = two ? loaded : 1;
-    this.consume(s, barrels);
+    this.consume(s, barrels, grapple);
     const scatter = def.pellets > 1;
     const pellets = Math.round(def.pellets * barrels * (scatter ? this.modifiers.pellets : 1));
     const cone = def.spread > 0 ? this.coneOf(def) : 0;
@@ -2064,7 +2060,7 @@ export class Weapons implements WeaponSystem, Guard {
         note.seed = (Math.random() * 0xffffffff) >>> 0 || 1;
         random = this.spreadRng.seed(note.seed);
       }
-    } else note.alt = this.altLoaded.has(def.id);
+    } else note.alt = grapple || this.altLoaded.has(def.id);
     this.shotFeedback(def, left, two ? 1 + (two.kick - 1) * (barrels - 1) : 1, barrel);
     if (def.slow !== undefined) this.handling.shot();
     if (def.climb && CLIMB_ON) this.climb(def.climb, lerp(1, TUNING.ads.climb, this.aim));
@@ -2072,7 +2068,7 @@ export class Weapons implements WeaponSystem, Guard {
     switch (def.round) {
       case 'rocket': this.shootRocket(def); return;
       case 'shell': this.shootShell(def); return;
-      case 'stake': this.shootStake(def); return;
+      case 'stake': this.shootStake(def, grapple); return;
       case 'grenade': this.shootGrenade(def, cone); return;
     }
     const c = this.ctx;
@@ -2321,9 +2317,10 @@ export class Weapons implements WeaponSystem, Guard {
     this.combat.spawnProjectile(p);
   }
 
-  private shootStake(def: WeaponDef): void {
+  private shootStake(def: WeaponDef, tethered = false): void {
     if (def.harpoon) {
-      this.harpoon.fire(this.ctx.player.eye, this.ctx.player.forward, this.muzzleAt, def.id, false);
+      if (tethered) this.harpoon.finishReload();
+      this.harpoon.fire(this.ctx.player.eye, this.ctx.player.forward, this.muzzleAt, def.id, false, tethered);
       return;
     }
     const t = TUNING.stake;
