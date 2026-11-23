@@ -342,6 +342,10 @@ export interface CharacterInstance {
   readonly stress: Float32Array;
   /** 0..1 overall blood coverage on the skin. */
   setBloodiness(amount: number): void;
+  /** 1-based pooled dynamic UV blood layer, or 0 when clean / unassigned. */
+  readonly bloodMapLayer?: number;
+  /** True when the most recent `wound()` call promoted a merged hole into a crater. */
+  readonly lastWoundPromoted?: boolean;
   /**
    * Wear you can see: `region` stands at `spent` of its health pool, 0 to 1, after a hit that wears as `kind`
    * (characters/anatomy/wear.ts `wearKindOf`): its skin is drawn torn that far through. `addWear` is for a region with no
@@ -418,6 +422,8 @@ export interface WoundHit {
   length?: number;
   /** Metres past touching at which this merges with a wound already there. */
   reach?: number;
+  /** Optional ceiling (metres) on how wide this wound may grow through merging. */
+  maxRadius?: number;
 }
 
 export interface CharacterLibrary extends GameSystem {
@@ -586,6 +592,8 @@ export interface EmitterHandle {
   readonly alive: boolean;
 }
 
+export type BloodPuffKind = 'bullet' | 'headshot' | 'shotgun' | 'blowout' | 'gib';
+
 export interface FxSystem extends GameSystem {
   /** `view` draws it in the view scene with the weapon. Pass the muzzle in view-scene coordinates then. */
   muzzleFlash(position: THREE.Vector3, dir: THREE.Vector3, kind: MuzzleKind, view?: boolean): void;
@@ -625,10 +633,10 @@ export interface FxSystem extends GameSystem {
    */
   gibTrail?(position: THREE.Vector3, velocity: THREE.Vector3, size?: number): void;
   /**
-   * The impact puff of a round on flesh, whole on the frame it lands and gone in a fifth of a second: hit feedback. `dir` is
-   * the round's; `weight` 0..1 as for `bloodSpray`; `scale` sizes it. Gore fires it from every bullet and pellet wound.
+   * The impact puff + spritz of a round or gore burst on flesh. `dir` is the round's or blast's; `weight` 0..1 sizes it;
+   * `scale` multipliers size; `kind` chooses silhouette ('bullet', 'headshot', 'shotgun', 'blowout', 'gib').
    */
-  bloodPuff?(position: THREE.Vector3, dir: THREE.Vector3, weight?: number, scale?: number): void;
+  bloodPuff?(position: THREE.Vector3, dir: THREE.Vector3, weight?: number, scale?: number, kind?: BloodPuffKind): void;
 
   /** Continuous emitter that follows `target`. `preset` picks the look. */
   attachEmitter(target: THREE.Object3D, preset: EmitterPreset, offset?: THREE.Vector3, seconds?: number): EmitterHandle;

@@ -81,10 +81,67 @@ const _skip = new Uint8Array(MAX_BONES);
 
 const _hit: WoundHit = { kind: WoundKind.hole, bone: 0, point: _p, dir: _dir, radius: 0.02, depth: 0.05, ragged: 0 };
 
+/** True for small-caliber bullets (9mm pistol, SMG, autoraffica, flechette darts) that punch clean holes rather than flaying skin. */
+export function isSmallArm(d: Pick<DamageInfo, 'type' | 'source'>): boolean {
+  if (d.type !== 'bullet') return false;
+  const bite = BITES[d.source] ?? SMALL;
+  return bite.entry <= 0.013 && bite.exit <= 0.018;
+}
+
+/**
+ * Proportional skin-wear multiplier (0..1) by weapon class and body part.
+ * Small arms leave crisp bullet holes and let clustered bursts merge into craters instead of flaying region-wide
+ * `SKIN_GONE` patches; shotguns, blades, cannons, and blasts still tear and strip skin dramatically.
+ */
+export function wearScaleOf(d: Pick<DamageInfo, 'type' | 'source'>, part: 'trunk' | 'head' | 'limb'): number {
+  switch (d.type) {
+    case 'fire':
+    case 'shock':
+    case 'true':
+      return 0;
+    case 'explosive':
+      return 1;
+    case 'slash':
+      return part === 'trunk' ? 0.75 : 1;
+    case 'pellet':
+      return part === 'trunk' ? 0.85 : 1;
+    case 'melee':
+    case 'crush':
+      return part === 'trunk' ? 0.25 : 0.45;
+    default:
+      break;
+  }
+  if (isShotgunSource(d.source)) return part === 'trunk' ? 0.85 : 1;
+  const bite = BITES[d.source] ?? SMALL;
+  // Small arms (9mm pistol, SMG, autoraffica, bodkin): zero torso flaying, subtle early limb/head wear.
+  if (bite.entry <= 0.013 && bite.exit <= 0.018) return part === 'trunk' ? 0 : part === 'head' ? 0.15 : 0.3;
+  // Medium rifles / metalstorm: slight torso tearing, moderate limb wear.
+  if (bite.entry < 0.0145 && bite.exit < 0.04) return part === 'trunk' ? 0.18 : part === 'head' ? 0.35 : 0.65;
+  // Heavy revolvers, battle rifles, stakes: noticeable tearing.
+  if (bite.entry < 0.028) return part === 'trunk' ? 0.45 : part === 'head' ? 0.65 : 0.9;
+  // Cannons, rail lances, heavy harpoons, grenades: full skin destruction.
+  return part === 'trunk' ? 0.9 : 1;
+}
+
+/**
+ * Dynamic surface blood emitter tier (1 = tight pinhole trickle, 2 = wide heavy ooze, 3 = arterial spurt),
+ * driven by actual wound trauma and anatomy rather than raw `% of max HP`.
+ */
+export function woundBloodTier(d: Pick<DamageInfo, 'type' | 'source' | 'load' | 'bone'>, openedHeavy: boolean): 1 | 2 | 3 {
+  if (d.bone === B.neck) return 3;
+  if (d.type === 'slash' || d.type === 'explosive' || d.load === 'flechette' || openedHeavy) return 2;
+  if (d.type === 'bullet') {
+    const bite = BITES[d.source] ?? SMALL;
+    if (bite.entry >= 0.02 || bite.exit >= 0.04) return 2;
+  }
+  return 1;
+}
+
 /** What can take a wound: a body, or a limb that has left one. */
 interface Flesh {
   wound(hit: WoundHit): void;
   readonly bones: readonly THREE.Object3D[];
+  readonly lastWoundPromoted?: boolean;
 }
 
 const isArmBone = (b: number): boolean => b >= B.upperArmL && b <= B.handR;
@@ -105,6 +162,8 @@ function jointFor(bone: number): number {
 export class WoundPlanner {
   /** Whether the last hit on a body broke a limb. */
   broke = false;
+  /** Whether the last hit opened a heavy wound (crater, large exit, gash, fracture, or merged small-arms crater). */
+  openedHeavy = false;
 
   constructor(
     private readonly ctx: Ctx,
@@ -114,13 +173,17 @@ export class WoundPlanner {
     private readonly onBreak: (char: CharacterInstance, bone: number) => void,
   ) {}
 
-  private cut(on: Flesh, kind: number, bone: number, point: THREE.Vector3, dir: THREE.Vector3, radius: number, depth: number, ragged: number, length = 0): void {
+  private cut(
+    on: Flesh, kind: number, bone: number, point: THREE.Vector3, dir: THREE.Vector3,
+    radius: number, depth: number, ragged: number, length = 0, maxRadius?: number,
+  ): void {
     if (WoundTuning.level === 0 && kind !== WoundKind.burn) {
       kind = WoundKind.graze;
       radius = Math.max(radius * 1.8, 0.03);
     } else if (WoundTuning.level === 2) {
       radius *= WoundTuning.excessiveScale;
       depth *= WoundTuning.excessiveScale;
+      if (maxRadius !== undefined) maxRadius *= WoundTuning.excessiveScale;
     }
     _hit.kind = kind;
     _hit.bone = bone;
@@ -132,7 +195,17 @@ export class WoundPlanner {
     // A gash that level 0 turned into paint is only a mark.
     _hit.along = length > 0 && kind === WoundKind.gash ? _along : undefined;
     _hit.length = length;
+    _hit.maxRadius = maxRadius;
     on.wound(_hit);
+    _hit.maxRadius = undefined;
+    if (
+      kind === WoundKind.crater
+      || kind === WoundKind.gash
+      || (kind === WoundKind.exit && radius >= 0.025)
+      || on.lastWoundPromoted === true
+    ) {
+      this.openedHeavy = true;
+    }
   }
 
   /** Writes where a line through `point` leaves the capsule of `bone`. False if that bone has no capsule. */
@@ -175,7 +248,8 @@ export class WoundPlanner {
 
   private bullet(on: Flesh, info: RigInfo, bite: Bite, bone: number, point: THREE.Vector3, dir: THREE.Vector3, size: number, machine: boolean): void {
     const limb = isArmBone(bone) || isLegBone(bone);
-    this.cut(on, bite.entry >= 0.03 ? WoundKind.crater : WoundKind.hole, bone, point, dir, bite.entry * size, bite.depth, Math.max(0.35, bite.ragged * 0.6));
+    const smallCap = bite.entry <= 0.013 && bite.exit <= 0.018 ? 0.052 * size : undefined;
+    this.cut(on, bite.entry >= 0.03 ? WoundKind.crater : WoundKind.hole, bone, point, dir, bite.entry * size, bite.depth, Math.max(0.35, bite.ragged * 0.6), 0, smallCap);
     const exit = limb ? bite.limbExit : bite.exit;
     if (exit <= 0 || !this.exitOf(info, on.bones, bone, point, dir, _q)) return;
     // Inward from the far side, so the slot starts at the skin it comes out of.
@@ -298,6 +372,7 @@ export class WoundPlanner {
   /** A hit on a body, alive or dead. `bone` and `point` default to the ones in the damage. */
   onBody(char: CharacterInstance, d: DamageInfo, severity: number, bone = d.bone ?? -1, point = d.point): void {
     this.broke = false;
+    this.openedHeavy = false;
     const info = rigInfo(char.rig);
     const size = (char.rig.height / 1.85) ** 0.7;
     const machine = this.isMachine(char);

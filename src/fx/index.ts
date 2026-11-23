@@ -8,7 +8,7 @@
 import * as THREE from 'three';
 import { clamp, rand } from '../core/math';
 import type {
-  BeamKind, Ctx, EmitterHandle, EmitterPreset, ExplosionOptions, FxSystem, GameEvents, MuzzleKind, SlashKind,
+  BeamKind, BloodPuffKind, Ctx, EmitterHandle, EmitterPreset, ExplosionOptions, FxSystem, GameEvents, MuzzleKind, SlashKind,
   SurfaceKind, TracerKind,
 } from '../core/contracts';
 import { FxCore } from './core';
@@ -185,8 +185,8 @@ class Fx implements FxSystem {
     bloodMist(this.core, position, size);
   }
 
-  bloodPuff(position: THREE.Vector3, dir: THREE.Vector3, weight?: number, scale?: number): void {
-    bloodPuff(this.core, position, dir, weight, scale);
+  bloodPuff(position: THREE.Vector3, dir: THREE.Vector3, weight?: number, scale?: number, kind?: BloodPuffKind): void {
+    bloodPuff(this.core, position, dir, weight, scale, kind);
   }
 
   headBurst(position: THREE.Vector3, dir: THREE.Vector3): void {

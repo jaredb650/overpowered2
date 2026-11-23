@@ -316,6 +316,18 @@ the mean take lands:
 - Wet steps: for 6 s after a body is gibbed, the player's steps within 3.5 m of where it happened add `wet_squelch`
   (`src/player/feedback.ts`)
 
+**Positional body-gore & blood update** (`sfx/gore3`, 2026-11-22, the owner's own recordings; deduplicated, mixed down to mono
+at 44.1 kHz / 160 kbps MP3, level-matched). Every id plays in **3D from the body/wound itself**, never globally in 2D:
+- Flesh bullet impacts (living enemies, corpses, loose limbs, and sliced torso pieces): `flesh_bullet_impact` (9 takes, level 0.22,
+  near 10 m, far 95 m, outside the `flesh` family so corpses stay crisp under fire) and `flesh_bullet_hard` (heavy rounds/pellets,
+  level 0.28, near 14 m, far 120 m)
+- Torso blowout, limb burst & total gib: `torso_gib` (3 takes, level 0.42, near 16 m, far 160 m, priority 8) — loud ribcage/flesh
+  crunch played from the body on total `gib()`, `blowOut()`, and `burstLimb()`
+- Bleeding, arterial sprays, splashes & squishes from the body: `blood_spritz` (wound hit spritz), `blood_dribble` (intimate 3D
+  trickling from actively bleeding wounds & fresh corpses within 18 m), `blood_spray_long` (Tier 3 arterial jet & severed stump),
+  `blood_spray_short` (heavy wound opening, blowout fan, arterial stump pulse, partial head burst), `blood_splash` (pools, drips,
+  blowouts, gibs, evisceration spill), and `blood_squish` (evisceration/intestines spilling out, organ bursts, wet corpse/organ hits)
+
 **The gun sound update** (`sfx/guns`, the owner's own generated recordings). Every player gun now fires a recording.
 Each is set by how loud it lands, not by its file's level: `shot()` in the catalog divides its place on one ladder by the
 file's measured loudness. The ladder runs about 6 dB from the bottom to the top: `smg_shot` (SMG) and `pistol_shot`

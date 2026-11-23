@@ -74,10 +74,11 @@ float bHalf = aC.y;
 float bK = bAge / aV.w;
 float bOpacity = abs(aC.w);
 if (bPuff) {
-  // Whole on its first frame: it opens the last tenth in a few frames and never fades. Bigger with distance, so a hit
-  // reads at 30 m as it does at 3, and never under a few pixels. Gone before it can sit on the player's face.
-  bHalf *= (0.9 + 0.1 * min(bK * 5.0, 1.0)) * (1.0 + clamp((bDepth - ${PUFF_FAR_FROM.toFixed(1)}) * ${PUFF_FAR_GAIN.toFixed(3)}, 0.0, ${PUFF_FAR_MOST.toFixed(2)}));
-  bOpacity *= clamp((bDepth - 0.5) / 0.8, 0.0, 1.0);
+  // Explosive snap-open on impact (0.42 -> 1.0 in ~40 ms), then billowy coast as air drag brakes it.
+  // Grows modestly with distance so hits read clearly at range while staying translucent and crisp up close.
+  float bSnap = 1.0 - pow(1.0 - min(bK * 5.0, 1.0), 3.0);
+  bHalf *= (0.42 + 0.58 * bSnap + 0.48 * bK) * (1.0 + clamp((bDepth - ${PUFF_FAR_FROM.toFixed(1)}) * ${PUFF_FAR_GAIN.toFixed(3)}, 0.0, ${PUFF_FAR_MOST.toFixed(2)}));
+  bOpacity *= clamp((bDepth - 0.45) / 0.75, 0.0, 1.0);
 } else if (bMist) {
   // Spreads as it thins. Gone before it can sit on the player's face, where it would cost a full screen.
   // At range the strands fall under a pixel, so the puff grows to carry the hit on its own.
@@ -145,40 +146,48 @@ float bHalf = 1.0;
 float bAlpha;
 float bCore = 0.0;
 if (vStrand.z < -1.5) {
-  // The impact puff: a lobed cloud with a hard, torn edge. It starts whole and is eaten from the outline inward as it
-  // ages, breaking into islands on the way, while a ring of flung drops runs out ahead of it.
+  // Impact Pop + Spritz: semi-transparent turbulent aerosol mist cloud expanding outward, layered with crisp
+  // radially-streaked micro-droplets bursting ahead of the mist core.
   vec2 q = vec2(bAcross, bU * 2.0 - 1.0);
   float k = vLook.z;
   float r = length(q);
   float th = atan(q.y, q.x);
-  float lobes = 0.5 + 0.5 * sin(th * 3.0 + bSeed * 40.0);
-  // Tongues thrown out along its radii, so it reads as something struck and not as a ball of fog.
-  float tongue = bloodCloud(vec2(th * 2.4 + bSeed * 9.0, r * 0.9 + bSeed * 3.0));
-  float reach = 0.4 + 0.16 * lobes + 0.36 * tongue * tongue;
-  float cloud = bloodCloud(q * 3.3 + bSeed * 31.0);
-  float fine = bloodCloud(q * 9.0 + bSeed * 73.0);
-  float eaten = pow(k, 0.85);
-  float body = reach * (1.0 - 0.72 * eaten) - r - (cloud - 0.5) * 0.3 - (fine - 0.5) * 0.1 - eaten * cloud * 0.55;
-  float edge = max(fwidth(body), 0.004);
-  bAlpha = clamp(body / edge + 0.5, 0.0, 1.0);
-  // Three flat bands, as the fire's are: a dark torn rim, the bright spray inside it, and the thick heart.
-  bCore = step(0.055, body) + step(0.2, body);
-  float flung = bAlpha;
-  // Drops thrown clear of it: a band that runs outward and thins.
-  float front = 0.42 + 0.56 * sqrt(k);
-  float band = step(front - 0.3, r) * step(r, front) * step(r, 0.98);
-  vec2 cell = q * 13.0 + bSeed * 57.0;
-  // Round drops, each a little off the middle of its cell so they do not line up.
-  float drop = step(0.8 + 0.17 * k, bloodSpeck(cell)) * step(length(fract(cell) - 0.5 - (vec2(bloodSpeck(cell + 7.0), bloodSpeck(cell + 19.0)) - 0.5) * 0.3), 0.36);
-  bAlpha = max(bAlpha, band * drop * (1.0 - k * k));
-  // A drop is the bright spray, not rim.
-  if (flung < 0.5 && bAlpha > 0.0) bCore = 1.0;
+  float rot = bSeed * 6.2831 + k * (bSeed > 0.5 ? 0.35 : -0.35);
+  float cs = cos(rot), sn = sin(rot);
+  vec2 qr = vec2(q.x * cs - q.y * sn, q.x * sn + q.y * cs);
+  // Outward-blown turbulent aerosol wisps (reads as a liquid burst, never a static smoke ball).
+  float radialDrift = r - k * 0.28;
+  float tongue = bloodCloud(vec2(th * 2.6 + bSeed * 11.0, radialDrift * 2.1 + bSeed * 5.0));
+  float cloud = bloodCloud(qr * 3.1 + bSeed * 31.0);
+  float fine = bloodCloud(qr * 8.4 + bSeed * 73.0);
+  float wisp = cloud * 0.62 + fine * 0.38;
+  float reach = 0.60 + 0.24 * tongue + 0.14 * (cloud - 0.5);
+  // Soft feathered translucent mist dissolving from the outside in into wispy tendrils.
+  float env = 1.0 - smoothstep(0.06, reach, r);
+  float erode = smoothstep(0.14 + k * 0.56, 0.58 + k * 0.34, env + (wisp - 0.38) * 0.62);
+  float fade = pow(clamp(1.0 - k, 0.0, 1.0), 0.72);
+  float mistAlpha = erode * fade * (0.76 + 0.24 * env);
+  // Radially-streaked wet spritz micro-droplets flung outward ahead of the vapor core.
+  float front = 0.28 + 0.68 * pow(k, 0.52);
+  float band = smoothstep(front - 0.32, front - 0.08, r) * (1.0 - smoothstep(front - 0.04, min(front + 0.12, 1.0), r));
+  vec2 pCell = vec2(th * 9.5 + bSeed * 43.0, (r - front * 0.45) * 11.0 + bSeed * 29.0);
+  vec2 pFrac = fract(pCell) - 0.5 - (vec2(bloodSpeck(pCell + 7.0), bloodSpeck(pCell + 19.0)) - 0.5) * 0.36;
+  float speckDist = length(vec2(pFrac.x * 1.35, pFrac.y * 0.72));
+  float drop = step(0.68 + 0.22 * k, bloodSpeck(pCell)) * smoothstep(0.36, 0.14, speckDist);
+  float spritzAlpha = band * drop * pow(clamp(1.0 - k, 0.0, 1.0), 0.95);
+  bAlpha = clamp(max(mistAlpha, spritzAlpha * 0.92), 0.0, 1.0);
+  // Smooth volumetric density (0 = backlit translucent haze / spritz, 1 = dense dark crimson heart).
+  bCore = clamp(env * erode * (1.0 - k * 0.45), 0.0, 1.0);
+  if (spritzAlpha > mistAlpha) bCore = 0.32;
 } else if (vStrand.z < 0.0) {
-  // Mist is a spray of very fine drops, so a soft body with grain in it, never a smooth gel.
+  // Fine hanging aerosol mist: wispy turbulent plumes rather than a stippled disc.
   vec2 q = vec2(bAcross / ${PAD.toFixed(2)}, bU * 2.0 - 1.0);
-  float body = 1.0 - smoothstep(0.1, 1.0, length(q));
-  float grain = bloodSpeck(q * 26.0 + bSeed * 91.0);
-  bAlpha = body * (0.45 + 0.55 * step(0.6, grain));
+  float r = length(q);
+  float cloud = bloodCloud(q * 3.4 + bSeed * 41.0);
+  float fine = bloodCloud(q * 9.5 + bSeed * 91.0);
+  float env = 1.0 - smoothstep(0.05, 0.92, r);
+  float wisp = smoothstep(0.22 + vLook.z * 0.35, 0.78, env + (cloud * 0.65 + fine * 0.35 - 0.35) * 0.65);
+  bAlpha = wisp * (0.72 + 0.28 * fine);
 } else {
   float beads = max(vStrand.z, 1.0);
   // The head is a round cap about as long as the strand is wide.
@@ -195,9 +204,8 @@ if (vStrand.z < -1.5) {
 bAlpha *= vLook.y;
 if (bAlpha < 0.006) discard;
 vec3 bTint = mix(uVenous, uArterial, vLook.x);
-// A fine spray scatters what a solid drop absorbs, so it reads paler than the blood it came from. A puff is thick at its
-// heart and thin at its torn edge: two flat bands, as the fire's are.
-if (vStrand.z < -1.5) bTint *= bCore < 0.5 ? uPuffRim : bCore < 1.5 ? uPuffEdge : uPuffCore;
+// Thin backlit aerosol scatters light and reads brighter crimson; thick core stays rich dark blood.
+if (vStrand.z < -1.5) bTint *= mix(uPuffEdge, uPuffCore, smoothstep(0.15, 0.82, bCore)) * mix(uPuffRim, 1.0, smoothstep(0.0, 0.25, bAlpha));
 else if (vStrand.z < 0.0) bTint *= 4.0;
 diffuseColor = vec4(vec3(1.0), bAlpha);
 `;
@@ -237,7 +245,7 @@ gl_FragColor.rgb = min(gl_FragColor.rgb, vec3(0.5));
  * dark `rim` that parts it from whatever is behind (a body flashing red from the same hit included), the bright spray
  * (`edge`) and the thick `core`. `floor` is the least light it is drawn under, as a share of full daylight.
  */
-export const PUFF_LOOK = { rim: 0.7, edge: 4.6, core: 2.9, floor: 0.16 };
+export const PUFF_LOOK = { rim: 0.82, edge: 4.5, core: 2.3, floor: 0.18 };
 
 function strip(): THREE.BufferGeometry {
   const position: number[] = [];
@@ -371,14 +379,14 @@ export class BloodLayer {
    */
   add(
     x: number, y: number, z: number, vx: number, vy: number, vz: number,
-    half: number, trail: number, drag: number, delay = 0,
+    half: number, trail: number, drag: number, delay = 0, maxLife = MAX_FLIGHT,
   ): Landing {
     const l = this.landing;
     const g = this.gravity;
     const k = Math.max(drag, 0.001);
-    let stop = crossing(y - this.floor, vy, g, k, MAX_FLIGHT);
+    let stop = crossing(y - this.floor, vy, g, k, maxLife);
     l.nx = 0;
-    l.ny = stop < MAX_FLIGHT ? 1 : 0;
+    l.ny = stop < maxLife ? 1 : 0;
     l.nz = 0;
     const w = this.wall;
     if (w) {

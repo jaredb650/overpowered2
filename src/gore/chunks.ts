@@ -891,6 +891,10 @@ export class ChunkField {
       this.blood.stainBelow(_o, 0.45 + size * 4.5, 'blood', 1.3);
     }
     audio.play('gib_squelch', { position: _o, volume: 0.45, pitch: 1.25, pitchJitter: 0.15 });
+    if (!c.dry) {
+      audio.play('blood_squish', { position: _o, volume: 0.9, pitch: 1.05, pitchJitter: 0.12 });
+      audio.play('blood_splash', { position: _o, volume: 0.65, pitchJitter: 0.12, delay: 0.03 });
+    }
     for (let i = 0; i < 4; i++) {
       this.spawn(
         i === 0 ? 'viscera' : 'meat', _o.x, _o.y + 0.04, _o.z,

@@ -33,7 +33,7 @@ import { Crawler } from './crawl';
 export const BALANCER_PASS = typeof location === 'undefined' || new URLSearchParams(location.search).get('balancer') !== '0';
 import { HUMAN_MASS, markSevered, markSubtree, MAX_BONES, rigInfo, type RigInfo } from './rigInfo';
 import { SliceField } from './sliced';
-import { WoundPlanner, WoundTuning } from './wounds';
+import { woundBloodTier, WoundPlanner, WoundTuning } from './wounds';
 import { RopeField } from './rope';
 import { SpurtField } from './spurt';
 import { SurfaceBloodField } from './surfaceBlood';
@@ -1800,14 +1800,11 @@ export class Gore implements GoreSystem {
       this.surfaceBlood.stopBleeding(char);
       if (damage.type !== 'fire' && damage.type !== 'shock' && damage.type !== 'true') this.ashPuff(damage.point, 1);
     } else {
-      this.blood.onHit(char, damage, severity);
       if (
         damage.bone !== undefined && damage.bone >= 0
         && (damage.type === 'bullet' || damage.type === 'pellet' || damage.type === 'slash' || damage.type === 'melee' || damage.type === 'explosive')
       ) {
-        const tier: BloodTier = damage.bone === HumanoidBone.neck && severity >= 0.12
-          ? 3
-          : (damage.type === 'slash' || damage.load === 'flechette' || severity >= 0.34 ? 2 : 1);
+        const tier: BloodTier = woundBloodTier(damage, this.wounds.openedHeavy || char.lastWoundPromoted === true);
         this.surfaceBlood.bleedWound(char, {
           bone: damage.bone,
           point: damage.point,
@@ -1815,6 +1812,7 @@ export class Gore implements GoreSystem {
           tier,
         });
       }
+      this.blood.onHit(char, damage, severity);
     }
     return broke;
   }
@@ -1855,6 +1853,9 @@ export class Gore implements GoreSystem {
     this.ropes.hang(spine, _v4, char.root, scale, _v3);
     // `dir` may be one of the scratch vectors just used: the spray goes out and down whatever it was.
     this.blood.spray(at, _down, 6, 2, 0.6, 0.08);
+    // Intestines spilling out of an opened belly: wet squish and splash right from the gut.
+    this.ctx.audio.play('blood_squish', { position: at, volume: 1, pitch: 0.92, pitchJitter: 0.08 });
+    this.ctx.audio.play('blood_splash', { position: at, volume: 0.85, pitchJitter: 0.1, delay: 0.08 });
   }
 
   private woundEffects(char: CharacterInstance, bone: number, at: THREE.Vector3, damage: DamageInfo, dry = false): void {
@@ -1922,6 +1923,7 @@ export class Gore implements GoreSystem {
       this.spurts.start(parent, s.offset, s.axis, char.root, (s.ends - s.started) * 0.75, Math.min(1.35, power));
       parent.updateWorldMatrix(true, false);
       _v.copy(s.offset).applyMatrix4(parent.matrixWorld);
+      this.ctx.audio.play('blood_spray_long', { position: _v, volume: clamp(0.75 + power * 0.25, 0.75, 1.05), pitchJitter: 0.08 });
       this.surfaceBlood.bleedWound(char, {
         bone: def.parent,
         point: _v,
@@ -1935,7 +1937,7 @@ export class Gore implements GoreSystem {
 
   private updateStumps(): void {
     const now = this.ctx.time.elapsed;
-    const { fx } = this.ctx;
+    const { fx, audio } = this.ctx;
     for (let i = 0; i < this.stumps.length; i++) {
       const s = this.stumps[i]!;
       if (!s.target) continue;
@@ -1962,7 +1964,12 @@ export class Gore implements GoreSystem {
       _v2.add(_v3).normalize();
       // The first beat is the artery letting go at full pressure. After that the emitter carries the rhythm.
       if (s.beat === 1) fx.bloodJet(_v, _v2, 0.5 * s.power);
-      if (strong) this.blood.spray(_v, _v2, 3, 7 * (0.5 + pressure), 0.16, 0.1);
+      if (strong) {
+        this.blood.spray(_v, _v2, 3, 7 * (0.5 + pressure), 0.16, 0.1);
+        if (s.beat === 3 || s.beat === 7) {
+          audio.play('blood_spray_short', { position: _v, volume: clamp(0.45 + pressure * 0.4, 0.35, 0.8), pitchJitter: 0.1 });
+        }
+      }
     }
   }
 
@@ -2138,7 +2145,10 @@ export class Gore implements GoreSystem {
       this.chunks.spawn(kind, at.x, at.y, at.z, _v.x, _v.y, _v.z, r * size, _q, 14);
     }
     fx.bloodHit(at, _v3, 1.4);
-    fx.bloodMist(at, 0.22);
+    fx.bloodPuff?.(at, damage.dir, 0.9, 1.55, 'headshot');
+    fx.bloodMist(at, 0.38);
+    this.ctx.audio.play('blood_spray_short', { position: at, volume: 0.9, pitchJitter: 0.08 });
+    this.ctx.audio.play('blood_squish', { position: at, volume: 0.8, pitchJitter: 0.1, delay: 0.04 });
     // What is left of the head pumps out of the wound, up and back the way the round came.
     head.updateWorldMatrix(true, false);
     head.getWorldQuaternion(_q2).invert();
@@ -2592,16 +2602,22 @@ export class Gore implements GoreSystem {
     this.chunks.char = 0;
     if (dry) {
       this.ashPuff(exit, 3);
+      this.ctx.audio.play('torso_gib', { position: exit, volume: 0.85, pitchJitter: 0.07 });
       return;
     }
     if (belly && this.ropes.hangingFrom(char.root) === 0) this.eviscerate(char, exit, _v3.copy(dir).negate());
     fx.bloodHit(exit, dir, 1.8);
-    fx.bloodMist(exit, 0.35);
+    fx.bloodPuff?.(exit, dir, 1, 1.85, 'blowout');
+    fx.bloodMist(exit, 0.65);
     fx.bloodSpray?.(exit, dir, 1);
     this.blood.fan(exit, dir, 2.1);
     this.blood.splatterAlong(exit, dir, 7, 9, 0.75);
     this.blood.spray(exit, dir, 12, 9, 0.35, 0.14);
     char.setBloodiness(0.6);
+    // Loud visceral torso blowout crunch + blood fan directly from the body.
+    this.ctx.audio.play('torso_gib', { position: exit, volume: 1.05, pitchJitter: 0.07 });
+    this.ctx.audio.play('blood_spray_short', { position: exit, volume: 0.95, pitchJitter: 0.08, delay: 0.03 });
+    this.ctx.audio.play('blood_splash', { position: exit, volume: 0.85, pitchJitter: 0.1, delay: 0.08 });
   }
 
   /** Torn meat, gut and bone off a trunk, `meat` lumps of it, with the blood. The trunk's own pieces are `breakTrunk`'s. */
@@ -2652,8 +2668,12 @@ export class Gore implements GoreSystem {
       this.blood.splatterAround(chest, blastDir, 10, 7, 1.15);
       this.blood.spray(chest, blastDir, 14, 12, 0.7, 0.14);
       this.blood.pool(hips, rand(1.4, 2.1), 1.6);
+      audio.play('blood_spray_long', { position: chest, volume: 0.9, pitchJitter: 0.08, delay: 0.04 });
+      audio.play('blood_splash', { position: chest, volume: 1, pitchJitter: 0.1, delay: 0.07 });
     }
-    audio.play('enemy_explode', { position: chest, volume: 0.6, pitchJitter: 0.06 });
+    // Loud visceral ribcage/torso gib crunch directly from the pasted body.
+    audio.play('torso_gib', { position: chest, volume: 1.15, pitchJitter: 0.06 });
+    audio.play('enemy_explode', { position: chest, volume: 0.45, pitchJitter: 0.06 });
   }
 
   /** The wreck kit for this machine: `char` with every limb that leaves on its own folded away. Empty if it cannot be cut. */
@@ -2928,8 +2948,11 @@ export class Gore implements GoreSystem {
         muscle?.collapse?.flinch(hit.bone, damage.dir, MuscleTuning.collapseFlinch * joltOf(force, HUMAN_MASS));
       }
       this.wounds.onBody(char, damage, damage.amount / CORPSE_HEALTH, hit.bone, hit.point);
-      if (!machine && !dry) this.blood.onHit(char, damage, damage.amount / CORPSE_HEALTH, hit.bone, hit.point);
-      this.corpseSound(hit.point, damage, machine, false);
+      if (!machine && !dry) {
+        this.surfaceBlood.bleedWound(char, { bone: hit.bone, point: hit.point, tier: 1, duration: 4.5, withSpurt: false });
+        this.blood.onHit(char, damage, damage.amount / CORPSE_HEALTH, hit.bone, hit.point);
+      }
+      this.corpseSound(hit.point, damage, machine, false, dry);
       // Damage on a bone counts toward the nearest severable joint at or above it.
       const defs = char.rig.bones;
       let b = hit.bone;
@@ -2955,22 +2978,38 @@ export class Gore implements GoreSystem {
       target.crawler?.kill();
       this.wounds.onLimb(target.piece, target.info, damage, hit.bone, hit.point);
       target.health -= damage.amount * (damage.severMult ?? 1);
-      this.corpseSound(hit.point, damage, machine, true);
+      this.corpseSound(hit.point, damage, machine, true, dry);
       if (target.health <= 0 && DevFlags.gibbing) this.burstLimb(target, damage);
     } else {
       this.sliced.damage(target, hit.point, _v.copy(damage.dir).multiplyScalar(forceOf(damage)));
+      this.corpseSound(hit.point, damage, machine, true, dry);
     }
   }
 
   /**
-   * A round into the dead: a living body's hit, lower and without the 2D confirmation, because a corpse is something hit,
-   * not a hit that counted. Its ids are its own, so it never takes a living hit's start on the frame or its voices. Flesh
-   * keeps its wet on every round, as before hits had layers. The knock under it, a punch or a wreck's clank, is spaced
-   * like a living hit, and the punch is the player's guns' alone, as it is on the living.
+   * A round into the dead (corpse, loose limb, or sliced torso piece): always played strictly in 3D from the body itself,
+   * never globally in 2D. Uses the new flesh bullet impacts (outside the crowded `flesh` landing family) so shooting dead
+   * bodies stays crisp and meaty at any distance, with heavy impacts and wet spritz/squish when not burnt dry.
    */
-  private corpseSound(at: THREE.Vector3, damage: DamageInfo, machine: boolean, limb: boolean): void {
+  private corpseSound(at: THREE.Vector3, damage: DamageInfo, machine: boolean, limb: boolean, dry = false): void {
     const { audio, time } = this.ctx;
-    if (!machine) audio.play('corpse_body', { position: at, volume: limb ? 0.3 : 0.4, pitchJitter: limb ? 0.12 : 0.1 });
+    const heavy = damage.type === 'pellet' || damage.amount >= 55 || damage.force >= 25;
+    if (!machine) {
+      audio.play(heavy ? 'flesh_bullet_hard' : 'flesh_bullet_impact', {
+        position: at,
+        volume: limb ? 0.85 : 1,
+        pitch: limb ? 1.08 : 0.96,
+        pitchJitter: limb ? 0.1 : 0.08,
+      });
+      if (!dry) {
+        audio.play(limb || Math.random() < 0.35 ? 'blood_squish' : 'blood_spritz', {
+          position: at,
+          volume: limb ? 0.55 : 0.65,
+          pitchJitter: 0.1,
+        });
+      }
+      audio.play('corpse_body', { position: at, volume: limb ? 0.25 : 0.35, pitchJitter: limb ? 0.12 : 0.1 });
+    }
     const now = time.realElapsed;
     if (now - this.lastKnock < CORPSE_KNOCK_GAP || (!machine && !Object.hasOwn(WEAPONS, damage.source))) return;
     this.lastKnock = now;
@@ -2991,6 +3030,12 @@ export class Gore implements GoreSystem {
     // A burnt limb comes apart into burnt pieces, dry.
     const burn = limb.machine || !DevFlags.fire ? 0 : clamp(limb.piece.burn ?? 0);
     const dry = burn >= FireTuning.sootFrom;
+    if (limb.machine) {
+      this.ctx.audio.play('impact_armor', { position: c, volume: 0.85, pitch: 0.9, pitchJitter: 0.08 });
+    } else {
+      this.ctx.audio.play('torso_gib', { position: c, volume: 0.95, pitch: 1.08, pitchJitter: 0.08 });
+      if (!dry) this.ctx.audio.play('blood_splash', { position: c, volume: 0.85, pitchJitter: 0.1, delay: 0.04 });
+    }
     if (dry) this.ashPuff(c, 2);
     else {
       this.ctx.fx.bloodMist(c, 0.25);

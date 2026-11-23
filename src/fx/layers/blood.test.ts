@@ -34,39 +34,45 @@ describe('crossing', () => {
 });
 
 describe('the impact puff', () => {
-  const layer = () => new BloodLayer(new THREE.Scene(), makeUniforms(), { patch: () => null } as unknown as MaterialLibrary, 64);
+  const layer = () => new BloodLayer(new THREE.Scene(), makeUniforms(), { patch: () => null } as unknown as MaterialLibrary, 256);
   const core = (blood: BloodLayer, now = 1) => ({ blood, bloodNow: now } as unknown as FxCore);
   const at = new THREE.Vector3(0, 1.2, 0);
   const dir = new THREE.Vector3(0, 0, -1);
 
-  it('is one record, alive on the frame it is added and gone inside a third of a second', () => {
+  it('emits an immediate translucent mist pop plus snappy spritz droplets that expire cleanly', () => {
     const blood = layer();
     bloodPuff(core(blood), at, dir, 0.3);
-    expect(blood.ring.countLive(1)).toBe(1);
-    expect(blood.ring.countLive(1 + PUFF.life + PUFF.lifeHeavy)).toBe(0);
+    // Primary mist pop + spritz droplets are live just after birth and gone once the puff's lifetime ends.
+    expect(blood.ring.countLive(1.02)).toBe(4);
+    expect(blood.ring.countLive(1 + PUFF.life + PUFF.lifeHeavy + 0.05)).toBe(0);
     const d = blood.ring.data;
-    // Marked as a puff (a negative trail and opacity), born now, standing off the skin toward the gun.
+    // Record 0 is marked as a puff (negative trail and opacity), born now, standing off the skin toward the gun.
     expect(d[10]).toBeLessThan(0);
     expect(d[11]).toBeLessThan(0);
     expect(d[3]).toBe(1);
     expect(d[2]).toBeGreaterThan(at.z);
   });
 
-  it('is bigger and lasts longer for a heavier round', () => {
+  it('is bigger, lasts longer, and scales mist volume for heavier rounds and major gore bursts', () => {
     const light = layer();
     const heavy = layer();
+    const gib = layer();
     bloodPuff(core(light), at, dir, 0.2);
     bloodPuff(core(heavy), at, dir, 0.9);
+    bloodPuff(core(gib), at, dir, 1, 1.4, 'gib');
     expect(heavy.ring.data[9]).toBeGreaterThan(light.ring.data[9]! * 1.5);
     expect(heavy.ring.data[7]).toBeGreaterThan(light.ring.data[7]!);
+    expect(gib.ring.data[9]).toBeGreaterThan(heavy.ring.data[9]! * 1.5);
+    expect(gib.ring.countLive(1.1)).toBeGreaterThan(heavy.ring.countLive(1.1));
   });
 
   it('has a hard cap a frame, and a new frame has its own', () => {
     const blood = layer();
     for (let i = 0; i < 40; i++) bloodPuff(core(blood, 2), at, dir, 0.3);
-    expect(blood.ring.countLive(2)).toBe(PUFF.perFrame);
+    const capped = blood.ring.countLive(2.02);
+    // Only PUFF.perFrame bullet pops are admitted on the same frame (4 records each: 1 mist + 3 spritz).
+    expect(capped).toBe(PUFF.perFrame * 4);
     bloodPuff(core(blood, 2.016), at, dir, 0.3);
-    // Counted a moment later: the ring keeps births as 32-bit floats.
-    expect(blood.ring.countLive(2.02)).toBe(PUFF.perFrame + 1);
+    expect(blood.ring.countLive(2.03)).toBe(capped + 4);
   });
 });

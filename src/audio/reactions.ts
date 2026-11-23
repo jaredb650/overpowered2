@@ -399,7 +399,8 @@ export class Reactions {
         if (wet) this.play('wet_squelch', position, volume * 0.6, pitch, 0.02);
         break;
       case 'organ':
-        this.play(wet ? (Math.random() < 0.5 ? 'gore_splat' : 'organ_splat') : 'wet_squelch', position, volume, pitch);
+        this.play(wet ? (Math.random() < 0.5 ? 'gore_splat' : 'organ_splat') : 'blood_squish', position, volume, pitch);
+        if (wet) this.play('blood_splash', position, volume * 0.75, pitch, 0.02);
         if (Math.random() < DRIP_CHANCE) this.play('blood_drip', position, volume * 0.8, 1, rand(0.15, 0.4));
         break;
     }

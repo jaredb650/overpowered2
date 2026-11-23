@@ -21,6 +21,7 @@ import { STRUGGLE_PASS } from '../gore/reflex';
 import { bursts, HEAVY_ROUND } from './wounds/rules';
 import type { ZoneHit } from './wounds/zones';
 import { blowsOut } from '../gore/torso';
+import { isSmallArm, wearScaleOf } from '../gore/wounds';
 import { BLAST, OUTCOME_COUNT, OUTCOMES, rollBlast, tearsWaist, type BlastBody, type BlastOutcome, type BlastRoll, type OutcomeRule } from './blast';
 import { CHECK_CARRY, CHECK_MIN, CHECK_TOPPLE_MAX, CHECK_TOPPLE_MIN, checkStrength, SLIDE_KICK, SLIDE_TOPPLE } from './contact';
 import { ENEMIES, LIMB_SIZE, REGION_DAMAGE } from './data';
@@ -768,7 +769,10 @@ export class DamageModel {
       if (blast) this.blastShown(e, d, blast);
       else if (!area && region !== 'head') this.spendLimb(e, region, d, res);
       // The head's pool is the host's to spend. What this screen shows of it is its own count, kept on the skin alone.
-      else if (!area && DevFlags.wear) e.char.addWear?.('head', amount / wholePool(e, 'head'), wearKindOf(d.type));
+      else if (!area && DevFlags.wear) {
+        const scale = wearScaleOf(d, 'head');
+        if (scale > 0) e.char.addWear?.('head', (amount / wholePool(e, 'head')) * scale, wearKindOf(d.type));
+      }
       // Sure of the kill: it goes down limp now, in place of the flinch a living body would give (the whole death, when it is
       // beyond doubt, is the caller's to start: `predictKill`). With no room on the floor it reacts as it would have.
       if (res.sure === 'fall' && !this.fellForDead(e, d, region, amount)) res.sure = undefined;
@@ -777,7 +781,7 @@ export class DamageModel {
       return res;
     }
 
-    const headPool = region === 'head' ? this.spendPool(e, 'head', amount, d.type) : Infinity;
+    const headPool = region === 'head' ? this.spendPool(e, 'head', amount, d) : Infinity;
     const spent = e.health <= 0 || headPool <= 0;
     if (blast?.fatal || (body ? wounds!.take(e, body, placed, d, amount, spent) : spent)) return this.lethal(e, d, res, region, true, blast);
 
@@ -787,12 +791,15 @@ export class DamageModel {
       && (d.type === 'bullet' || d.type === 'pellet' || d.type === 'slash' || d.type === 'melee' || d.type === 'explosive')
       && (e.health / e.maxHealth < 0.35 || e.darts > 0 || e.bleed > 0)
     ) {
+      const heavyWound = !isSmallArm(d) || e.char.lastWoundPromoted === true;
       const arterial = d.bone === B.neck
-        || (e.health / e.maxHealth < 0.25 && (d.bone === B.chest || d.bone === B.thighL || d.bone === B.thighR));
-      this.w.ctx.gore.bleedWound?.(e.char, d.bone, d.point, arterial ? 3 : 2, {
-        normal: _v.copy(d.dir).negate(),
-        spurtPower: arterial ? 0.68 : undefined,
-      });
+        || (heavyWound && e.health / e.maxHealth < 0.25 && (d.bone === B.chest || d.bone === B.thighL || d.bone === B.thighR));
+      if (arterial || heavyWound || e.darts > 0 || e.bleed > 0) {
+        this.w.ctx.gore.bleedWound?.(e.char, d.bone, d.point, arterial ? 3 : 2, {
+          normal: _v.copy(d.dir).negate(),
+          spurtPower: arterial ? 0.68 : undefined,
+        });
+      }
     }
 
     if (blast) this.blastWound(e, d, res, blast);
@@ -990,26 +997,36 @@ export class DamageModel {
     return res;
   }
 
-  private spendPool(e: Enemy, region: GoreRegion, amount: number, by: DamageType): number {
+  private spendPool(e: Enemy, region: GoreRegion, amount: number, d: DamageInfo): number {
     const left = (e.limbHp.get(region) ?? Infinity) - amount;
     e.limbHp.set(region, left);
-    this.showWear(e, region, left, by);
+    this.showWear(e, region, left, d);
     return left;
   }
 
-  /** Wear you can see: the region's skin is drawn as far through as its pool is spent (`WearTuning`). */
-  private showWear(e: Enemy, region: GoreRegion, left: number, by: DamageType): void {
+  /** Wear you can see: proportional to weapon class, ramping up as a limb approaches severing (`WearTuning`). */
+  private showWear(e: Enemy, region: GoreRegion, left: number, d: DamageInfo): void {
     const char = e.char;
     if (!DevFlags.wear || !char.setWear || !Number.isFinite(left)) return;
-    const spent = 1 - left / wholePool(e, region);
-    char.setWear(region, Math.min(spent, (char.wearOf?.(region) ?? 0) + WearTuning.step), wearKindOf(by));
+    const part = region === 'head' ? 'head' : 'limb';
+    const scale = wearScaleOf(d, part);
+    if (scale <= 0) return;
+    const spent = clamp(1 - left / wholePool(e, region), 0, 1);
+    const target = scale >= 0.99
+      ? spent
+      : part === 'head'
+        ? spent * scale
+        : Math.max(spent * scale, smoothstep(0.65, 1, spent));
+    char.setWear(region, Math.min(target, (char.wearOf?.(region) ?? 0) + WearTuning.step), wearKindOf(d.type));
   }
 
-  /** The trunk has no pool of its own: a hit on it wears it by the share of the body's health it took. */
+  /** The trunk has no pool of its own: heavy rounds, blades, shotguns and blasts wear it; small arms leave clean holes. */
   private wearTrunk(e: Enemy, region: GoreRegion, d: DamageInfo, amount: number, area: boolean): void {
     const char = e.char;
     if (!DevFlags.wear || !char.addWear || e.def.machine || !(amount > 0)) return;
-    const share = amount / e.maxHealth * WearTuning.trunk;
+    const scale = wearScaleOf(d, 'trunk');
+    if (scale <= 0) return;
+    const share = amount / e.maxHealth * WearTuning.trunk * scale;
     const kind = wearKindOf(d.type);
     if (area) {
       // A blast takes the whole front of him. Fire, shock and the rest of what lands everywhere are not wear.
@@ -1024,7 +1041,7 @@ export class DamageModel {
     const hit = d.amount * (d.severMult ?? 1) * SEVER_FACTOR[d.type] * this.rules(e).limbWear;
     if (hit <= 0) return;
     // A guest keeps count and cuts nothing: the limb comes off when the host says it did.
-    if (this.spendPool(e, region, hit, d.type) <= 0 && this.facts) this.sever(e, region, d, res);
+    if (this.spendPool(e, region, hit, d) <= 0 && this.facts) this.sever(e, region, d, res);
   }
 
   /** An explosive hit with no ring to answer to, a rocket's own contact or a boss in a blast, works the limb pools. */
@@ -1034,7 +1051,7 @@ export class DamageModel {
     const region = pick(BLAST_LIMBS);
     if (e.limbHp.has(region) && !e.char.severed.has(region)) {
       const hit = d.amount * (d.severMult ?? 1) * SEVER_FACTOR.explosive * rules.limbWear;
-      if (this.spendPool(e, region, hit, d.type) <= 0) this.sever(e, region, d, res);
+      if (this.spendPool(e, region, hit, d) <= 0) this.sever(e, region, d, res);
     }
   }
 
@@ -1281,7 +1298,7 @@ export class DamageModel {
     e.char.anim.flinch(B.upperArmL, d.dir, 0.3);
     if (d.type === 'explosive' || d.amount >= 40) e.char.anim.play('block', 1.4);
     // Sustained fire batters the arm behind the shield: enough of it and the arm goes, shield and all.
-    const left = this.spendPool(e, 'armL', d.amount * (d.type === 'explosive' ? 0.35 : 0.22), d.type);
+    const left = this.spendPool(e, 'armL', d.amount * (d.type === 'explosive' ? 0.35 : 0.22), d);
     if (left <= 0 && this.facts) this.sever(e, 'armL', d, res);
     this.emitHit(e, d, res);
   }
@@ -1543,8 +1560,14 @@ export class DamageModel {
     if (!profile && !e.downed) char.anim.flinch(bone, d.dir, flinch, d.point);
     char.hitFlash(armoured ? 0.35 : clamp(0.55 + frac * 2, 0.55, 1));
     if (!armoured && d.type !== 'fire' && d.type !== 'shock' && !e.def.machine) {
-      e.blood = Math.min(1, e.blood + 0.08 + frac * 1.1);
-      char.setBloodiness(e.blood);
+      const hasMap = (char.bloodMapLayer ?? 0) > 0;
+      const add = hasMap
+        ? (d.type === 'explosive' ? 0.32 : d.type === 'pellet' ? 0.1 : isSmallArm(d) ? 0 : 0.05 * frac)
+        : (0.04 + frac * 0.45);
+      if (add > 0) {
+        e.blood = Math.min(1, e.blood + add);
+        char.setBloodiness(e.blood);
+      }
     }
 
     const pushForce = d.force || DEFAULT_FORCE[d.type];

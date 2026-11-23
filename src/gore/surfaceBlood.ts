@@ -65,39 +65,39 @@ interface TierSpec {
 
 const TIERS: Record<BloodTier, TierSpec> = {
   1: {
-    initRadius: 0.038,
-    maxRadius: 0.078,
-    growPerSec: 0.006,
-    dropEvery: [0.85, 1.35],
-    dropSpeed: [0.12, 0.19],
-    dropWidth: [1.35, 1.75],
-    dropVolume: [0.55, 0.78],
-    collarAmount: 0.65,
-    fresh: 0.66,
-    duration: [8, 13],
+    initRadius: 0.022,
+    maxRadius: 0.056,
+    growPerSec: 0.0045,
+    dropEvery: [0.55, 0.95],
+    dropSpeed: [0.14, 0.22],
+    dropWidth: [1.15, 1.55],
+    dropVolume: [0.52, 0.76],
+    collarAmount: 0.72,
+    fresh: 0.76,
+    duration: [9, 14],
     spurtPower: 0,
   },
   2: {
-    initRadius: 0.068,
-    maxRadius: 0.21,
-    growPerSec: 0.018,
-    dropEvery: [0.22, 0.40],
+    initRadius: 0.046,
+    maxRadius: 0.145,
+    growPerSec: 0.014,
+    dropEvery: [0.22, 0.38],
     dropSpeed: [0.21, 0.34],
-    dropWidth: [1.9, 2.7],
-    dropVolume: [1.05, 1.45],
+    dropWidth: [1.75, 2.45],
+    dropVolume: [1.0, 1.38],
     collarAmount: 0.88,
     fresh: 0.92,
-    duration: [16, 26],
+    duration: [15, 24],
     spurtPower: 0,
   },
   3: {
-    initRadius: 0.088,
-    maxRadius: 0.28,
-    growPerSec: 0.026,
+    initRadius: 0.068,
+    maxRadius: 0.22,
+    growPerSec: 0.022,
     dropEvery: [0.12, 0.22],
     dropSpeed: [0.28, 0.44],
-    dropWidth: [2.25, 3.15],
-    dropVolume: [1.25, 1.65],
+    dropWidth: [2.1, 2.9],
+    dropVolume: [1.2, 1.6],
     collarAmount: 0.98,
     fresh: 1.0,
     duration: [14, 24],
@@ -167,6 +167,8 @@ interface BodyTrack {
   layer: number;
   soakLevel: number;
   lastSoakAt: number;
+  nextDribbleAt: number;
+  nextSquishAt: number;
   dead: boolean;
   readonly emitters: BleedEmitter[];
 }
@@ -202,7 +204,7 @@ function makeEmitter(): BleedEmitter {
 function makeBody(): BodyTrack {
   return {
     active: false, char: null, mesh: null, bindPositions: null,
-    layer: -1, soakLevel: 0, lastSoakAt: -10, dead: false,
+    layer: -1, soakLevel: 0, lastSoakAt: -10, nextDribbleAt: 0, nextSquishAt: -10, dead: false,
     emitters: Array.from({ length: SurfaceBloodTuning.maxEmittersPerBody }, makeEmitter),
   };
 }
@@ -232,6 +234,9 @@ export class SurfaceBloodField {
   private dropCursor = 0;
   private pool: BloodSurfacePool | null = null;
   private poolWired = false;
+  private lastWoundAudioAt = -10;
+  private lastDribbleAudioAt = -10;
+  private lastSplashAudioAt = -10;
 
   /** Counters for unit tests and diagnostics. */
   dropletsSpawned = 0;
@@ -309,6 +314,8 @@ export class SurfaceBloodField {
     t.layer = layer;
     t.soakLevel = 0;
     t.lastSoakAt = -10;
+    t.nextDribbleAt = now + rand(0.35, 1.1);
+    t.nextSquishAt = -10;
     t.dead = false;
     for (const em of t.emitters) {
       em.active = false;
@@ -383,8 +390,9 @@ export class SurfaceBloodField {
       em.spurtId = -1;
     }
 
-    const upgrade = em.active && opts.tier > em.tier;
-    const keepTier = em.active ? (Math.max(em.tier, opts.tier) as BloodTier) : opts.tier;
+    const wasActive = em.active;
+    const upgrade = wasActive && opts.tier > em.tier;
+    const keepTier = wasActive ? (Math.max(em.tier, opts.tier) as BloodTier) : opts.tier;
     const effSpec = TIERS[keepTier];
 
     em.active = true;
@@ -418,7 +426,8 @@ export class SurfaceBloodField {
     }
 
     // Tier 3 arterial spurt rope (unless caller suppressed it or one is already running on this emitter).
-    if (keepTier === 3 && opts.withSpurt !== false && (em.spurtId <= 0 || upgrade)) {
+    const startedSpurt = keepTier === 3 && opts.withSpurt !== false && (em.spurtId <= 0 || upgrade);
+    if (startedSpurt) {
       if (em.spurtId > 0) this.spurts.stop(em.spurtId);
       if (opts.normal && opts.normal.lengthSq() > 1e-6) {
         bone.getWorldQuaternion(_qInv).invert();
@@ -434,6 +443,21 @@ export class SurfaceBloodField {
       const effPower = em.held ? power * SurfaceBloodTuning.clutchSpurtScale : power;
       em.spurtId = this.spurts.start(bone, _localOff, _localAxis, char.root, Math.min(dur, 18), effPower, 0.22);
       this.spurtsStarted++;
+    }
+
+    // Positional 3D wound bleeding sound from the wound itself (rate-limited so bursts never stack).
+    if (now - this.lastWoundAudioAt >= 0.12 && (!wasActive || upgrade)) {
+      const audio = this.ctx.audio;
+      if (startedSpurt) {
+        this.lastWoundAudioAt = now;
+        audio?.play('blood_spray_long', { position: opts.point, volume: 0.95, pitchJitter: 0.08 });
+      } else if (keepTier === 2) {
+        this.lastWoundAudioAt = now;
+        audio?.play('blood_spray_short', { position: opts.point, volume: 0.8, pitchJitter: 0.1 });
+      } else if (keepTier === 1 && opts.withSpurt !== false && !track.dead) {
+        this.lastWoundAudioAt = now;
+        audio?.play('blood_spritz', { position: opts.point, volume: 0.5, pitchJitter: 0.12 });
+      }
     }
 
     track.char?.setBloodMapLayer?.(track.layer + 1, this.maxActiveTier(track) / 3, track.soakLevel);
@@ -529,6 +553,17 @@ export class SurfaceBloodField {
     if (soaked) {
       track.soakLevel = Math.min(1, track.soakLevel + amount * 0.45);
       track.char?.setBloodMapLayer?.(track.layer + 1, this.maxActiveTier(track) / 3, track.soakLevel);
+      if (now >= track.nextSquishAt) {
+        const hip = char.bones[0];
+        if (hip) {
+          _worldPos.setFromMatrixPosition(hip.matrixWorld);
+          const listener = this.ctx.player?.position;
+          if (!listener || _worldPos.distanceToSquared(listener) <= 14 * 14) {
+            track.nextSquishAt = now + rand(1.3, 2.2);
+            this.ctx.audio?.play('blood_squish', { position: _worldPos, volume: 0.48, pitchJitter: 0.12 });
+          }
+        }
+      }
     }
     return soaked;
   }
@@ -620,6 +655,7 @@ export class SurfaceBloodField {
       }
 
       let anyActive = false;
+      let loudest: BleedEmitter | null = null;
       for (const em of t.emitters) {
         if (!em.active) continue;
         if (now >= em.ends || char.isHidden?.(em.bone)) {
@@ -631,6 +667,7 @@ export class SurfaceBloodField {
           continue;
         }
         anyActive = true;
+        if (!loudest || em.tier > loudest.tier) loudest = em;
 
         // Creeping soak collar around the active wound.
         if (now >= em.nextSoak) {
@@ -656,6 +693,25 @@ export class SurfaceBloodField {
           triBarycentric(t.mesh!, em.tri, em.bx, em.by, em.bz, _bary);
           clampBarycentric(_bary);
           this.spawnDroplet(i, em.tri, _bary, em.tier, em.fresh * (1 - life * 0.3));
+        }
+      }
+
+      // Intimate 3D blood trickling/dribbling right from actively bleeding wounds within earshot.
+      if (loudest && now >= t.nextDribbleAt && now - this.lastDribbleAudioAt >= 0.8) {
+        const bone = char.bones[loudest.bone];
+        const bindPos = t.bindPositions?.[loudest.bone];
+        if (bone && bindPos) {
+          _v.set(loudest.bx - bindPos.x, loudest.by - bindPos.y, loudest.bz - bindPos.z);
+          _worldPos.copy(_v).applyMatrix4(bone.matrixWorld);
+          const listener = this.ctx.player?.position;
+          if (!listener || _worldPos.distanceToSquared(listener) <= 18 * 18) {
+            this.lastDribbleAudioAt = now;
+            t.nextDribbleAt = now + rand(4.5, 7.5);
+            const vol = loudest.tier === 3 ? 1 : loudest.tier === 2 ? 0.82 : 0.62;
+            this.ctx.audio?.play('blood_dribble', { position: _worldPos, volume: vol, pitchJitter: 0.08 });
+          } else {
+            t.nextDribbleAt = now + 1.0;
+          }
         }
       }
 
@@ -871,6 +927,14 @@ export class SurfaceBloodField {
     _worldVel.set(rand(-0.18, 0.18), -0.4, rand(-0.18, 0.18));
     this.blood.drip(_worldPos, _worldVel, d.detachedDropSize);
     this.blood.droplet(_worldPos.x, _worldPos.y, _worldPos.z, _worldVel.x, _worldVel.y, _worldVel.z, 0.045 + 0.04 * d.detachedDropSize);
+    const now = this.ctx.time.elapsed;
+    if (d.detachedDropSize >= 1 && now - this.lastSplashAudioAt >= 0.45) {
+      const listener = this.ctx.player?.position;
+      if (!listener || _worldPos.distanceToSquared(listener) <= 14 * 14) {
+        this.lastSplashAudioAt = now;
+        this.ctx.audio?.play('blood_splash', { position: _worldPos, volume: 0.42, pitch: rand(1.05, 1.25), delay: 0.18 });
+      }
+    }
     this.dropletsDetached++;
   }
 
@@ -896,6 +960,9 @@ export class SurfaceBloodField {
     this.dropletsSpawned = 0;
     this.dropletsDetached = 0;
     this.spurtsStarted = 0;
+    this.lastWoundAudioAt = -10;
+    this.lastDribbleAudioAt = -10;
+    this.lastSplashAudioAt = -10;
     this.pool?.clear();
   }
 }

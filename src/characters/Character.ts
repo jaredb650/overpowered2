@@ -146,7 +146,8 @@ function placeWound(a: ArchetypeData, book: WoundBook, bone: THREE.Bone, boneInd
   spec.reach = hit.reach ?? 0;
   spec.regions = woundRegions(a, boneIndex, hit.radius);
   const def = a.rig.bones[boneIndex]!;
-  spec.limit = (def.hit?.radius ?? 0.06) * (def.region === 'head' ? 0.8 : 1.5);
+  const boneLimit = (def.hit?.radius ?? 0.06) * (def.region === 'head' ? 0.8 : 1.5);
+  spec.limit = hit.maxRadius !== undefined ? Math.min(boneLimit, hit.maxRadius) : boneLimit;
   if (hit.along && hit.length) {
     // Square to the axis, so the slot's two ends lie in one plane across the body.
     u.copy(hit.along).transformDirection(m).addScaledVector(n, -u.dot(n)).normalize().multiplyScalar(hit.length);
@@ -671,6 +672,10 @@ export class Character implements CharacterInstance {
     if (!bone || this.hidden[hit.bone]) return;
     placeWound(this.a, this.book, bone, hit.bone, hit);
     this.showWounds();
+  }
+
+  get lastWoundPromoted(): boolean {
+    return this.book.lastPromoted;
   }
 
   /**

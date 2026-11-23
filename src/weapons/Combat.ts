@@ -399,19 +399,29 @@ export class Combat implements CombatSystem {
       }
       // A co-op guest's enemy dies on the host's word; what tells the shooter of the kill goes by its own guess, at once.
       const killed = toldKill(result);
+      const heavyFlesh = d.type === 'pellet' || d.amount >= 55 || d.force >= 25;
       if (result.headshot) {
         // You can hear whether it killed: the old headshot and a 2D puff over a little red mist, or a dry crack and nothing to see.
         if (killed) {
           c.fx.bloodMist(point, HEADSHOT_MIST);
           this.play('headshot');
           this.play('headshot_puff');
-        } else this.play('headshot_crack');
+        } else {
+          this.play('headshot_crack');
+          if (!enemy.machine) this.play(heavyFlesh ? 'flesh_bullet_hard' : 'flesh_bullet_impact', point, 0.9, 0.08);
+        }
         c.hud.hitMarker(killed ? 'kill' : armour ?? 'head');
         this.feel.stop(killed ? HIT_STOP.headshotKill : HIT_STOP.headshot);
       } else {
         c.fx.bloodHit(point, dir, d.load === 'flechette' ? 0.35 : 1);
-        // The material of the hit. Its weight by round, and the 2D confirmation, are layered by audio from the same enemy:hit.
-        this.play(enemy.machine ? 'machine_hit' : 'bullet_body', point, 1, 0.06);
+        // The material of the hit, played strictly 3D from the body itself.
+        if (enemy.machine) {
+          this.play('machine_hit', point, 1, 0.06);
+        } else {
+          this.play('bullet_body', point, 0.45, 0.06);
+          this.play(heavyFlesh ? 'flesh_bullet_hard' : 'flesh_bullet_impact', point, 1, 0.08);
+          this.play('blood_spritz', point, heavyFlesh ? 0.85 : 0.65, 0.1);
+        }
         c.hud.hitMarker(killed ? 'kill' : armour ?? 'body');
       }
       if (killed && killStop > 0) this.feel.stop(killStop);
@@ -454,7 +464,14 @@ export class Combat implements CombatSystem {
     }
     if (result.headshot) return;
     c.fx.bloodHit(point, d.dir, d.load === 'flechette' ? 0.35 : 1);
-    this.play(enemy.machine ? 'machine_hit' : 'bullet_body', point, 1, 0.06);
+    if (enemy.machine) {
+      this.play('machine_hit', point, 1, 0.06);
+    } else {
+      const heavyFlesh = d.type === 'pellet' || d.amount >= 55 || d.force >= 25;
+      this.play('bullet_body', point, 0.45, 0.06);
+      this.play(heavyFlesh ? 'flesh_bullet_hard' : 'flesh_bullet_impact', point, 1, 0.08);
+      this.play('blood_spritz', point, heavyFlesh ? 0.85 : 0.65, 0.1);
+    }
   }
 
   /** Co-op guest: the host says the local player's hit killed and the gun did not say so when it fired. The kill's marker and, for a head, its sound and mist. */

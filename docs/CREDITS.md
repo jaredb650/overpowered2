@@ -59,6 +59,13 @@ The sounds in `public/audio/sfx/gore2` are the owner's own AI-generated sounds t
 `gore_splat_3.mp3`, `ragdoll_bump_1.mp3`, `ragdoll_bump_2.mp3`,
 `ragdoll_bump_3.mp3`, `ragdoll_bump_4.mp3`, `ragdoll_bump_5.mp3`, `ragdoll_bump_6.mp3`, `ragdoll_bump_7.mp3`.
 
+The sounds in `public/audio/sfx/gore3` are the owner's own positional gore, blood, and flesh-impact sounds (2026-11-22), deduplicated,
+mixed down to mono, level-matched, and encoded to 44.1 kHz MP3 at 160 kbps. Nothing in them is third-party material:
+`bullet_impact_1.mp3`, `bullet_impact_2.mp3`, `bullet_impact_3.mp3`, `bullet_impact_4.mp3`, `bullet_impact_5.mp3`,
+`bullet_impact_6.mp3`, `bullet_impact_7.mp3`, `bullet_impact_8.mp3`, `bullet_impact_9.mp3`, `bullet_impact_hard.mp3`,
+`torso_gib_1.mp3`, `torso_gib_2.mp3`, `torso_gib_3.mp3`, `blood_spritz_1.mp3`, `blood_spritz_2.mp3`, `blood_dribble_1.mp3`,
+`blood_dribble_2.mp3`, `blood_spray_long.mp3`, `blood_spray_short.mp3`, `blood_splash_short.mp3`, `blood_squish_short.mp3`.
+
 ## Squad comms voices
 
 `public/audio/chatter/` holds the enemy soldiers' spoken lines: every row of `src/enemies/outpost/chatter/lines.json`, with its blanks

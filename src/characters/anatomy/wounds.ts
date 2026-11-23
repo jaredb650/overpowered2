@@ -58,17 +58,17 @@ export const newWoundSpec = (): WoundSpec => ({
   kind: WoundKind.hole, cx: 0, cy: 0, cz: 0, hx: 0, hy: 0, hz: 0, nx: 0, ny: 0, nz: 1, radius: 0.02, depth: 0.05, ragged: 0, regions: WoundRegion.all, limit: 0.2, reach: 0,
 });
 
-/** Radius a merged hole has to reach before it counts as tissue gone. */
-const CRATER_FROM = 0.03;
+/** Radius a merged hole has to reach before it counts as tissue gone (3–4 clustered 9mm/SMG rounds). */
+const CRATER_FROM = 0.024;
 /** Holes this much closer than their combined radii are one hole. */
-const MERGE_REACH = 0.85;
-const MERGE_SLACK = 0.006;
+const MERGE_REACH = 0.92;
+const MERGE_SLACK = 0.008;
 /** Share of a new wound's area that a merge adds. Under 1, because most of it lands on what is already gone. */
-const MERGE_AREA = 0.8;
+const MERGE_AREA = 0.85;
 /** The two sides of a limb lie close together in bind space. A wound on the far side must stay its own. */
 const MERGE_FACING = -0.15;
 /** Each merge digs deeper by this share of what it added. */
-const MERGE_DIG = 0.3;
+const MERGE_DIG = 0.35;
 const MAX_DEPTH = 0.2;
 /** Blood spreads this many radii from a wound, and a little more. The shaders stop looking past it. */
 export const STAIN_RADII = 2.2;
@@ -84,6 +84,8 @@ export class WoundBook {
   count = 0;
   /** Wounds that took something away, so that there is an inside to draw. */
   open = 0;
+  /** True when the most recent `add()` merged into or promoted a crater. */
+  lastPromoted = false;
   private readonly limits = new Float32Array(MAX_WOUNDS);
 
   /**
@@ -111,6 +113,7 @@ export class WoundBook {
   }
 
   add(w: WoundSpec): void {
+    this.lastPromoted = false;
     if (this.mergeInto(w)) return;
     if (this.count === MAX_WOUNDS) this.makeRoom();
     this.write(this.count, w);
@@ -123,12 +126,14 @@ export class WoundBook {
   adopt(from: WoundBook): void {
     this.count = from.count;
     this.open = from.open;
+    this.lastPromoted = false;
     this.limits.set(from.limits);
   }
 
   clear(): void {
     this.count = 0;
     this.open = 0;
+    this.lastPromoted = false;
   }
 
   /** The book's own state, apart from the texels, for a body set aside and stood up again later (gore/far.ts). */
@@ -140,6 +145,7 @@ export class WoundBook {
   load(saved: { count: number; open: number; limits: Float32Array }): void {
     this.count = saved.count;
     this.open = saved.open;
+    this.lastPromoted = false;
     this.limits.set(saved.limits);
     this.onCount(this.count);
   }
@@ -180,7 +186,7 @@ export class WoundBook {
       if (dist > (r + w.radius) * MERGE_REACH + MERGE_SLACK + w.reach) continue;
       const depth = Math.hypot(d[o + 8]!, d[o + 9]!, d[o + 10]!) || 1;
       if ((d[o + 8]! * w.nx + d[o + 9]! * w.ny + d[o + 10]! * w.nz) / depth < MERGE_FACING) continue;
-      this.merge(i, w.cx, w.cy, w.cz, w.radius, w.depth, w.ragged, w.nx, w.ny, w.nz, w.kind, w.regions);
+      this.merge(i, w.cx, w.cy, w.cz, w.radius, w.depth, w.ragged, w.nx, w.ny, w.nz, w.kind, w.regions, w.limit);
       this.recount();
       return true;
     }
@@ -188,10 +194,11 @@ export class WoundBook {
   }
 
   /** Grows wound `i` over another. The wound keeps its slot, so nothing new has to be found for it. */
-  private merge(i: number, x: number, y: number, z: number, r2: number, depth2: number, ragged2: number, nx: number, ny: number, nz: number, kind2: number, regions2: number): void {
+  private merge(i: number, x: number, y: number, z: number, r2: number, depth2: number, ragged2: number, nx: number, ny: number, nz: number, kind2: number, regions2: number, limit2?: number): void {
     const d = this.data;
     const o = this.at(i);
     const r1 = d[o + 7]!;
+    if (limit2 !== undefined && limit2 > this.limits[i]!) this.limits[i] = limit2;
     const limit = this.limits[i]!;
     const w1 = r1 * r1;
     const w2 = r2 * r2;
@@ -213,7 +220,10 @@ export class WoundBook {
     const code = Math.floor(d[o + 11]!);
     const ragged = Math.max(d[o + 11]! - code, Math.min(Math.max(ragged2, 0), 1) * RAGGED_SCALE);
     let kind = code & 7;
-    if (cuts(kind) && (radius >= CRATER_FROM || kind2 === WoundKind.crater)) kind = WoundKind.crater;
+    if (cuts(kind) && (radius >= CRATER_FROM || kind2 === WoundKind.crater)) {
+      kind = WoundKind.crater;
+      this.lastPromoted = true;
+    }
     const regions = (code >> 3) | regions2;
     d[o] = cx; d[o + 1] = cy; d[o + 2] = cz; d[o + 3] = reachOf(radius, 0);
     d[o + 7] = radius;
