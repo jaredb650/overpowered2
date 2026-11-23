@@ -16,6 +16,7 @@ import type { MuzzleKind, TracerKind } from '../../core/contracts';
 import type { ProjectileSpec, ProjectileTrail } from '../../core/gameplay';
 import { CATALOG } from '../../audio/catalog';
 import { closestSegmentPoints } from '../../weapons/geometry';
+import { checkTeammateShieldHit } from '../../weapons/shield';
 import type { WorldContext } from './context';
 import type { PlayerTarget, Targeting } from './targeting';
 import { validVec, type Vec } from './wire';
@@ -85,6 +86,8 @@ export class EnemyFire {
   private readonly a = new THREE.Vector3();
   private readonly b = new THREE.Vector3();
   private readonly c = new THREE.Vector3();
+  private readonly shieldDir = new THREE.Vector3();
+  private readonly shieldPoint = new THREE.Vector3();
   private readonly spec: ProjectileSpec = { origin: new THREE.Vector3(), velocity: new THREE.Vector3(), kind: 'bullet', team: 'enemy', damage: 0, source: 'coop', cosmetic: true };
   private readonly blast = { radius: 1, damage: 0, kind: 'enemy' as const };
 
@@ -129,22 +132,56 @@ export class EnemyFire {
   // Host: what enemies fire
   // ---------------------------------------------------------------------------------------------
 
-  /** Host: an enemy's ray from `from` to `to`. Returns where it stopped on a remote player, or null if it hit none. */
-  enemyRay(from: THREE.Vector3, to: THREE.Vector3, damage: number, source: string, trace = true, tracer?: TracerKind, whizz?: string): THREE.Vector3 | null {
+  /** Host: an enemy's ray from `from` to `to`. Returns where it stopped on a remote player (or raised teammate shield), or null if it hit none. */
+  enemyRay(from: THREE.Vector3, to: THREE.Vector3, damage: number, source: string, trace = true, tracer?: TracerKind, whizz?: string, armorPiercing?: boolean): THREE.Vector3 | null {
     if (!this.w.hosting) return null;
+    const rayDir = this.shieldDir.subVectors(to, from);
+    const rayLen = rayDir.length();
+    if (rayLen > 1e-6) rayDir.multiplyScalar(1 / rayLen);
+
     let nearest = 2;
     let target: PlayerTarget | undefined;
+    let shieldBlocked = false;
+    const shieldPoint = this.shieldPoint;
+
     for (const candidate of this.targeting.players()) {
       if (!candidate.player.alive) continue;
+      // Check raised riot shield on remote teammates first (protects the carrier AND teammates standing behind them).
+      const remote = candidate.id !== this.w.session.lobby.you ? this.w.session.remotes.get(candidate.id) : undefined;
+      if (!armorPiercing && remote?.shieldActive && rayLen > 1e-6) {
+        const sh = checkTeammateShieldHit(
+          from, rayDir, rayLen,
+          candidate.player.position, remote.forward,
+          true,
+        );
+        if (sh && sh.hit) {
+          const s = sh.distance / rayLen;
+          if (s < nearest) {
+            nearest = s;
+            target = candidate;
+            shieldBlocked = true;
+            shieldPoint.copy(sh.point);
+          }
+        }
+      }
       const hit = closestSegmentPoints(from, to, candidate.player.position, candidate.player.eye);
-      if (hit.dist2 < 0.4 * 0.4 && hit.s < nearest) { nearest = hit.s; target = candidate; }
+      if (hit.dist2 < 0.4 * 0.4 && hit.s < nearest) {
+        nearest = hit.s;
+        target = candidate;
+        shieldBlocked = false;
+      }
     }
-    const end = target ? from.clone().lerp(to, nearest) : to;
+    const end = shieldBlocked ? shieldPoint.clone() : target ? from.clone().lerp(to, nearest) : to;
     if (trace) {
       const tr = tracer && tracer !== 'enemy' ? tracer : undefined;
       if (this.shots) {
         if (this.shots.length < MAX_SHOTS) this.shots.push({ o: pack(from), e: pack(end), ...(tr ? { tr } : {}), ...(whizz ? { wz: whizz } : {}) });
       } else if (this.spend('ray')) this.w.send({ t: 'ray', from: pack(from), to: pack(end), ...(tr ? { tr } : {}), ...(whizz ? { wz: whizz } : {}) });
+    }
+    if (shieldBlocked) {
+      this.w.ctx.fx.sparks(end, this.shieldDir.negate(), 10, 0xfff2cc);
+      this.sound('sword_deflect', end, 0.85, 1.0);
+      return end;
     }
     if (!target || target.id === this.w.session.lobby.you) return null;
     this.targeting.hurt(target.id, { amount: damage, from, type: 'bullet', source });

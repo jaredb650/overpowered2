@@ -23,7 +23,7 @@ export interface Pose {
   flags?: number;
 }
 /** The bits of `Pose.flags`. New ones go on the end. */
-export const DOING = { reload: 1, stim: 2, laser: 4, charge: 8, ball: 16 } as const;
+export const DOING = { reload: 1, stim: 2, laser: 4, charge: 8, ball: 16, shield: 32 } as const;
 const VERSION = 2;
 const HEADER = 41;
 const encoder = new TextEncoder();

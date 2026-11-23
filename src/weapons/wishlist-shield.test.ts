@@ -8,6 +8,8 @@
 import * as THREE from 'three';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { ModId } from '../core/gameplay';
+import { DOING } from '../net/pose';
+import { HudState } from '../ui/state';
 import { MODS, SHIELD_GUNS, shieldOf } from './mods';
 import { RIOT_SHIELD, RiotShield, checkTeammateShieldHit } from './shield';
 import { Anim, type ViewDef } from './viewmodels/def';
@@ -372,3 +374,49 @@ describe('Wishlist Lane F — Co-op teammate shield blocking geometry', () => {
     expect(checkTeammateShieldHit(rearOrigin, rearDir, 20, matePos, mateFwd, true)).toBeNull();
   });
 });
+
+describe('Wishlist Lane F — HUD telemetry & co-op DOING bit integration', () => {
+  it('assigns a dedicated non-overlapping DOING.shield wire bit', () => {
+    const others = DOING.reload | DOING.stim | DOING.laser | DOING.charge | DOING.ball;
+    expect(DOING.shield).toBeGreaterThan(0);
+    expect(DOING.shield & others).toBe(0);
+  });
+
+  it('populates HudState shield fields cleanly from WeaponSystem.shield', () => {
+    const state = new HudState();
+    const shield = new RiotShield();
+    shield.update(0.4, true, true, false);
+    shield.tryBlock(new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, 0, -1), 40);
+
+    const mockCtx = {
+      player: { health: 100, maxHealth: 100, armor: 0, velocity: { x: 0, y: 0, z: 0 }, alive: true },
+      weapons: {
+        current: 'rivet',
+        ammo: () => ({ mag: 15, magSize: 15, reserve: 90, maxReserve: 90 }),
+        shield: shield.getState(),
+      },
+      progression: {},
+      waves: {},
+      enemies: {},
+      time: { scale: 1 },
+      settings: {},
+    };
+
+    state.read(mockCtx as unknown as Parameters<HudState['read']>[0]);
+    expect(state.shieldFitted).toBe(true);
+    expect(state.shieldActive).toBe(true);
+    expect(state.shieldFatigue).toBeCloseTo(40 * RIOT_SHIELD.fatiguePerDamage, 5);
+    expect(state.shieldExhausted).toBe(false);
+    expect(state.shieldCooldown).toBe(0);
+
+    // Exhaust shield and verify HudState tracks exhausted + cooldown.
+    for (let i = 0; i < 6; i++) {
+      shield.tryBlock(new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, 0, -1), 40);
+    }
+    state.read(mockCtx as unknown as Parameters<HudState['read']>[0]);
+    expect(state.shieldActive).toBe(false);
+    expect(state.shieldExhausted).toBe(true);
+    expect(state.shieldCooldown).toBeCloseTo(RIOT_SHIELD.exhaustCooldown, 4);
+  });
+});
+

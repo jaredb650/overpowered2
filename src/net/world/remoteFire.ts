@@ -481,6 +481,7 @@ export class RemoteFire implements WorldModule {
     if (performance.now() < this.stimUntil) flags |= DOING.stim;
     if (ROCKET_LASER.sight && WEAPONS[w.current].laser === true) flags |= DOING.laser;
     if (w.current === 'lance' && w.charge > 0) flags |= DOING.charge | (LANCE_LOOK.ball ? DOING.ball : 0);
+    if (w.shield?.active) flags |= DOING.shield;
     return flags;
   }
 

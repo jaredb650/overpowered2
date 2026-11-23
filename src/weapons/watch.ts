@@ -213,6 +213,7 @@ export interface Doing {
   laser: boolean;
   charge: boolean;
   ball: boolean;
+  shield?: boolean;
 }
 
 /** A friend's perks are not known here, and their look is the shooter's own to send: every round is filled plain. */

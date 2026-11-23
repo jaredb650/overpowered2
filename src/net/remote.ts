@@ -69,7 +69,9 @@ export class RemotePlayer implements Shooter {
   readonly velocity = new THREE.Vector3();
   /** Their weapons, as this screen shows them. */
   readonly watcher: Watcher;
-  private readonly doing: Doing = { reload: false, stim: false, laser: false, charge: false, ball: false };
+  private readonly doing: Doing = { reload: false, stim: false, laser: false, charge: false, ball: false, shield: false };
+  /** True while this teammate currently has their riot shield actively raised. */
+  get shieldActive(): boolean { return this.doing.shield === true; }
   private removeTag: () => void;
   private material: THREE.Material;
   private original: THREE.Material | THREE.Material[];
@@ -214,6 +216,7 @@ export class RemotePlayer implements Shooter {
     d.laser = (flags & DOING.laser) !== 0;
     d.charge = (flags & DOING.charge) !== 0;
     d.ball = (flags & DOING.ball) !== 0;
+    d.shield = (flags & DOING.shield) !== 0;
     this.watcher.doing(d, dt);
     this.watcher.update(dt);
   }

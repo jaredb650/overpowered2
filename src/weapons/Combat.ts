@@ -128,9 +128,16 @@ interface QueuedBlast {
 /** Deflection result reported by the sword. */
 export type GuardResult = 'none' | 'block' | 'parry';
 
+/** Optional metadata describing an incoming attack for shield/guard interception. */
+export interface GuardOptions {
+  armorPiercing?: boolean;
+  explosive?: boolean;
+  melee?: boolean;
+}
+
 /** Implemented by WeaponSystem. Combat asks before an enemy shot lands. */
 export interface Guard {
-  guard(incoming: THREE.Vector3): GuardResult;
+  guard(incoming: THREE.Vector3, damage?: number, opts?: GuardOptions): GuardResult;
 }
 
 const UP = new THREE.Vector3(0, 1, 0);
@@ -973,7 +980,7 @@ export class Combat implements CombatSystem {
     const limit = wall ? wall.distance : max;
     st.end.copy(st.origin).addScaledVector(st.dir, limit);
 
-    const remoteHit = c.coop?.world?.enemyRay(st.origin, st.end, spec.damage, spec.source, true, spec.tracer, spec.whizz);
+    const remoteHit = c.coop?.world?.enemyRay(st.origin, st.end, spec.damage, spec.source, true, spec.tracer, spec.whizz, spec.armorPiercing);
     if (remoteHit) {
       st.end.copy(remoteHit);
       r.hitEnemy = true;
@@ -988,7 +995,7 @@ export class Combat implements CombatSystem {
       if (hit.dist2 < PLAYER_RADIUS * PLAYER_RADIUS) {
         st.end.copy(st.origin).addScaledVector(st.dir, limit * hit.s);
         r.hitEnemy = true;
-        const guard = this.guard(st.dir);
+        const guard = this.guard(st.dir, spec.damage, { armorPiercing: spec.armorPiercing });
         if (spec.tracer) c.fx.tracer(st.from, st.end, spec.tracer);
         if (guard !== 'none') {
           this.deflected(st.end, st.dir, spec.damage, guard);
@@ -1009,10 +1016,10 @@ export class Combat implements CombatSystem {
     }
   }
 
-  /** Asks the sword whether it took the shot. */
-  guard(incoming: THREE.Vector3): GuardResult {
+  /** Asks the sword or raised riot shield whether it took the shot. */
+  guard(incoming: THREE.Vector3, damage?: number, opts?: GuardOptions): GuardResult {
     const g = this.ctx.weapons as unknown as Partial<Guard>;
-    return g.guard?.(incoming) ?? 'none';
+    return g.guard?.(incoming, damage, opts) ?? 'none';
   }
 
   /**

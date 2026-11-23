@@ -15,7 +15,7 @@ import type {
 } from '../core/gameplay';
 import { SeededRandom, clamp, damp, invLerp, lerp, randomInCone, smoothstep, wrapAngle } from '../core/math';
 import { MOVE } from '../player/tuning';
-import type { Combat, Guard, GuardResult } from './Combat';
+import type { Combat, Guard, GuardOptions, GuardResult } from './Combat';
 import { AdsZoom } from './adsZoom';
 import { ISSUED, MODS, MOD_ORDER, moddedDef } from './mods';
 import { HIT_STOP, LAUNCHER, SWORD, TUNING, WEAPONS, WEAPON_ORDER, type FireSelect, type SoundLayer, type WeaponDef } from './data';
@@ -38,6 +38,7 @@ import { DroppedGuns } from './dropped';
 import { keepsAGun, type GunKit } from './handover';
 import { Microwave } from './microwave';
 import { Harpoon } from './harpoon';
+import { RiotShield, type RiotShieldState } from './shield';
 
 interface Slot {
   def: WeaponDef;
@@ -152,6 +153,8 @@ export class Weapons implements WeaponSystem, Guard {
   aimHeld = false;
   /** Suppresses ADS zoom on the RMB press that detonates MGL sticky bombs, until RMB is released. */
   private aimSuppress = false;
+  /** Riot shield state machine for shielded pistols (rivet/ultramag/judge/autoraffica). */
+  readonly riotShield = new RiotShield();
 
   private cooking = false;
   private cookLeft = 0;
@@ -356,6 +359,7 @@ export class Weapons implements WeaponSystem, Guard {
   reset(): void {
     this.combat.projectiles.clearStickies();
     this.aimSuppress = false;
+    this.riotShield.reset();
     this.stopEverything();
     this.owned.clear();
     this.slotLast.clear();
@@ -777,8 +781,26 @@ export class Weapons implements WeaponSystem, Guard {
     this.occupied = seconds;
   }
 
-  guard(incoming: THREE.Vector3): GuardResult {
-    return this.bladeOut ? this.sword.guard(incoming) : 'none';
+  /** Riot shield state snapshot for HUD arm-fatigue meter and co-op sync. */
+  get shield(): Readonly<RiotShieldState> {
+    return this.riotShield.getState();
+  }
+
+  guard(incoming: THREE.Vector3, damage = 20, opts?: GuardOptions): GuardResult {
+    if (this.bladeOut) return this.sword.guard(incoming);
+    if (this.riotShield.active) {
+      const res = this.riotShield.tryBlock(incoming, this.ctx.player.forward, damage, opts);
+      if (res.blocked) {
+        // Straight-back metallic impact jolt on the shield viewmodel (zero roll/yaw).
+        this.ctx.viewmodel.swing('block', 0.16);
+        if (res.exhaustedNow) {
+          this.ctx.audio.play('weapon_draw_heavy', { pitch: 0.72, volume: 0.85 });
+          this.ctx.hud.callout?.('SHIELD FATIGUED');
+        }
+        return 'block';
+      }
+    }
+    return 'none';
   }
 
   /** Stops every continuous thing. Called on death, pause and holster, so nothing keeps roaring in a menu. */
@@ -2289,8 +2311,8 @@ export class Weapons implements WeaponSystem, Guard {
   private applyHandling(dt: number): void {
     const def = WEAPONS[this.current];
     const cap = this.handling.cap(dt, def, def.mode === 'spin' ? this.spin : 0);
-    // Aimed, the player walks. The same clamp, so a dash, a slide or a wall run is never cut by it.
-    holdSpeed(this.ctx.player, Math.min(cap, lerp(1, TUNING.ads.speed, this.aim)), dt, this.handling);
+    // Aimed or holding the riot shield up, the player walks. The same clamp, so dashes/slides/wall-runs are never cut.
+    holdSpeed(this.ctx.player, Math.min(cap, lerp(1, TUNING.ads.speed, this.aim), this.riotShield.moveSpeedMult), dt, this.handling);
   }
 
   /**
@@ -2662,9 +2684,28 @@ export class Weapons implements WeaponSystem, Guard {
     const def = this.slots[this.current].def;
     const p = c.player;
     const busy = this.holstered || this.occupied > 0 || p.alive === false;
+    const moving = p.dashing === true || p.sliding === true;
+    // Riot shield (owner Q6): held down at rest, raised while holding right click behind the narrow armoured viewing slit.
+    if (def.shield) {
+      const wantRaise = !this.aimSuppress && c.input.isDown('aim');
+      const shieldBusy = busy || moving || this.reloading || this.drawLeft > 0
+        || this.sword.inQuickStrike || this.quickReturn > 0;
+      const st = this.riotShield.update(dt, true, wantRaise, shieldBusy);
+      this.aimOn = false;
+      this.aimT = 0;
+      this.aimHeld = st.active;
+      this.adsZoom.update(c.time.realDt, false, false, undefined);
+      c.camera.setAim?.(1, 1, 1);
+      c.viewmodel.setAim?.(st.raise);
+      c.viewmodel.setCharge(st.exhausted ? 1 : st.fatigue);
+      return;
+    }
+    if (this.riotShield.fitted) {
+      this.riotShield.update(dt, false, false, false);
+      c.viewmodel.setCharge(0);
+    }
     // A press while holstered is a call-in's cancel, not ours; a press that detonated MGL stickies suppresses ADS.
     if (def.ads && !busy && !this.aimHold && !this.aimSuppress && c.input.pressed('aim')) this.aimOn = !this.aimOn;
-    const moving = p.dashing === true || p.sliding === true;
     if (moving) this.aimOn = false;
     const wants = !this.aimSuppress && (this.aimHold ? c.input.isDown('aim') : this.aimOn);
     // The launcher is fired from the shoulder over its own leaf, not through the rifle's sight.

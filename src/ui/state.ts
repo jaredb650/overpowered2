@@ -61,6 +61,12 @@ export class HudState {
   swordStep = 0;
   /** The second kind of round loaded in the gun in hand, by its name, or ''. */
   ammoMode = '';
+  /** Riot shield state for the HUD arm-fatigue meter (hidden unless fitted). */
+  shieldFitted = false;
+  shieldActive = false;
+  shieldFatigue = 0;
+  shieldExhausted = false;
+  shieldCooldown = 0;
 
   score = 0;
   kills = 0;
@@ -133,6 +139,12 @@ export class HudState {
     this.spread = WEAPONS[this.weapon].spread;
     this.swordStep = num(w.swordStep, 0);
     this.ammoMode = str<string>(w.ammoMode, '');
+    const sh = (w.shield ?? null) as Record<string, unknown> | null;
+    this.shieldFitted = bool(sh?.fitted);
+    this.shieldActive = bool(sh?.active);
+    this.shieldFatigue = num(sh?.fatigue, 0);
+    this.shieldExhausted = bool(sh?.exhausted);
+    this.shieldCooldown = num(sh?.cooldown, 0);
 
     const g = ctx.progression as unknown as Record<string, unknown>;
     this.score = num(g.score, 0);

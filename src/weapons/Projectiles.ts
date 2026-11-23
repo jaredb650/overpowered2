@@ -785,7 +785,7 @@ export class Projectiles {
         p.live = false;
         return true;
       }
-      const guard = this.combat.guard(dir);
+      const guard = this.combat.guard(dir, p.damage, { armorPiercing: p.armorPiercing, explosive: p.explosive });
       if (guard !== 'none') {
         this.combat.deflected(p.position, dir, p.damage, guard);
         p.live = false;

@@ -254,6 +254,15 @@ export interface WeaponSystem extends GameSystem {
   readonly launcherUp?: boolean;
   /** The Autoraffica's smart aim, for the HUD's circle and the gun turning to the head. Unset on a weapon system that has none. */
   readonly smartAim?: SmartAimView;
+  /** Riot shield state (src/weapons/shield.ts), for the HUD arm-fatigue meter and co-op sync. */
+  readonly shield?: Readonly<{
+    raise: number;
+    fatigue: number;
+    exhausted: boolean;
+    cooldown: number;
+    active: boolean;
+    fitted: boolean;
+  }>;
   /** The left gun's smart aim with the Autoraffica akimbo (a lock a gun): the HUD's second crosshair. Unset on a system that has none. */
   readonly smartAimLeft?: SmartAimView;
   /** Two guns in hand now: the akimbo mod or Berserk's SMGs. Unset on a weapon system that has none. */

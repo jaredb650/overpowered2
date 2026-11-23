@@ -316,8 +316,8 @@ export class CoopWorld {
   isRemoteTarget(): boolean { return this.targeting.isRemoteTarget(); }
   allowsLocalDamage(damage: PlayerDamage): boolean { return this.props.feeling || this.targeting.allowsLocalDamage(damage); }
   steer(enemy: Enemy, direction: THREE.Vector3): boolean { return this.targeting.steer(enemy, direction); }
-  enemyRay(from: THREE.Vector3, to: THREE.Vector3, damage: number, source: string, trace = true, tracer?: TracerKind, whizz?: string): THREE.Vector3 | null {
-    return this.enemyFire.enemyRay(from, to, damage, source, trace, tracer, whizz);
+  enemyRay(from: THREE.Vector3, to: THREE.Vector3, damage: number, source: string, trace = true, tracer?: TracerKind, whizz?: string, armorPiercing?: boolean): THREE.Vector3 | null {
+    return this.enemyFire.enemyRay(from, to, damage, source, trace, tracer, whizz, armorPiercing);
   }
   /** Host: an enemy launched a projectile; guests fly a copy. Returns its number if its end must be told, else 0. */
   projectile(spec: ProjectileSpec): number { return this.enemyFire.projectile(spec); }
