@@ -1,29 +1,31 @@
 /**
- * Lane 2: Ally-Driven 3-Truck Desert Raid Convoy, Player Heavy `.50 cal` Turret Seat,
- * and Saltblood Bandit Vehicles (Dirt-Bikes & Armed Scrap Technicals) for Mission 5: DESERT RAID.
+ * Lane B: Ally-Driven 3-Truck Desert Raid Convoy, Player Sculpted Mk 19 Belt-Fed 40mm Grenade Launcher,
+ * and Saltblood Bandit Vehicles (Motorcycles & Armed Scrap Technicals) for Mission 5: DESERT RAID.
  *
  * The player NEVER drives. Allies steer the 3-truck column along `CONVOY_PATHS`:
- *   - Section 1 (`startApproach`): Dawn dune run from z = +208 -> +84; raises `dr:approach_done`.
+ *   - Section 1 (`startApproach`): Dawn dune run from z = +222 -> +84; raises `dr:approach_done`.
  *   - Section 2 (`startWallLoop`): Slow broadside shooting-gallery loop along Surplus's outer wall;
  *     raises `dr:wall_loop_ready` after the first pass or heavy wall/bandit damage, looping until dismount.
  *   - Section 3 (`dismountAtGate`): Parks all 3 trucks at the breached Main Gate (z ≈ 74) and releases
  *     the player cleanly on foot at `(0, 0, 68)` facing north (yaw = 0).
- *   - Section 6 (`arriveForExfil` -> `startExfilChase`): Smashes into the Plane forecourt with pulsing
+ *   - Section 8 (`arriveForExfil` -> `startExfilChase`): Sweeps into the Plane forecourt (z = -206) with pulsing
  *     `[E] Board Exfil Truck` prompt (auto-boards <= 4.5 m or E), optionally displaying zip-tied Hadrek Quist
- *     in the middle truck bed, raises `dr:exfil_boarded`, then rockets south through Surplus while pursuing
- *     Saltblood bikes & technicals attack; raises `dr:exfil_clear` once `z >= 125` while rolling onward.
+ *     in the middle truck bed, raises `dr:exfil_boarded`, then rockets south along the eastern bypass road while
+ *     pursuing Saltblood bikes & technicals attack; raises `dr:exfil_clear` once clear of the outer wall (z >= 108).
+ *   - Ending (`enterEndingCruise`): Cleanly hands camera ownership to the ending cutscene, hides turret HUD,
+ *     and keeps all 3 trucks cruising smoothly south along the desert approach road (capped at z = 185).
  */
 import * as THREE from 'three';
 import type RAPIER from '@dimforge/rapier3d-compat';
 import { CG, type Ctx, type ExplosionKind, type LoopHandle, type PlayerDamage, type SeatView } from '../../core/contracts';
 import { isGuest } from '../../core/coop';
-import type { ExplosionSpec, MissileTarget, ShotSpec } from '../../core/gameplay';
+import type { EnemyInstance, ExplosionSpec, MissileTarget } from '../../core/gameplay';
 import { clamp, damp, dampAngle, lerp, rand, randomInCone, wrapAngle } from '../../core/math';
 import type { ExtraTarget, VehicleSystem } from '../../enemies/vehicles';
 import { ModelBuilder, ModelMaterials } from '../../progression/modelkit';
 import { div, Label, span } from '../../ui/dom';
-import { Heat, HMG } from '../../vehicles/emplacement';
-import { Gun } from '../../vehicles/guns';
+import { Heat } from '../../vehicles/emplacement';
+import { Gun, type GunSpec } from '../../vehicles/guns';
 import { EXPLOSIONS } from '../../weapons/data';
 import { CARGO_PLANE, CONVOY_PATHS, DESERT_Z, SIDE_GATES, type Pt3 } from '../../world/map/desert/plan';
 import type { CampaignHud } from '../hud';
@@ -41,7 +43,8 @@ export type ConvoyPhase =
   | 'parkedGate'
   | 'exfilArriving'
   | 'exfilWaiting'
-  | 'exfilChase';
+  | 'exfilChase'
+  | 'endingCruise';
 
 export type BanditVehicleKind = 'bike' | 'truck';
 export type BanditHitZoneKind = 'rider' | 'gunner' | 'engine' | 'tire' | 'chassis';
@@ -102,6 +105,16 @@ export interface BanditWreck {
   smokeTimer: number;
 }
 
+export interface Mk19Projectile {
+  readonly id: number;
+  readonly mesh: THREE.Group;
+  readonly position: THREE.Vector3;
+  readonly velocity: THREE.Vector3;
+  age: number;
+  readonly maxAge: number;
+  smokeTimer: number;
+}
+
 export interface RaidTruck {
   readonly role: 'lead' | 'player' | 'rear';
   readonly root: THREE.Group;
@@ -124,30 +137,42 @@ export interface RaidTruck {
 }
 
 export const DESERT_CONVOY_CONSTANTS = {
-  approachSpeed: 11,
-  wallLoopSpeed: 6.5,
+  approachSpeed: 15.2,
+  wallLoopSpeed: 8.0,
   exfilArriveSpeed: 13,
-  exfilSpeed: 15,
-  exfilClearZ: 125,
+  exfilSpeed: 18,
+  endingCruiseSpeed: 7.5,
+  endingCruiseMinZ: 115,
+  endingCruiseMaxZ: 185,
+  exfilClearZ: 108,
   exfilAutoBoardRadius: 4.5,
   exfilPromptRadius: 8.5,
   gateParkZ: 74,
   dismountPos: [0, 0, 68] as Pt3,
   leadOffset: [-11, 0, -10] as Pt3,
   rearOffset: [11, 0, 10] as Pt3,
+  quistBedLocal: [0.55, 1.55, 1.35] as Pt3,
   maxHull: 500,
   phasePatchHeal: 160,
-  turretRps: 11,
-  turretDamage: 55,
-  turretSpread: 0.0055,
-  turretMaxRange: 280,
+  /** Mk 19 belt-fed 40mm automatic grenade launcher (~4.8 rounds/sec, 0.208s interval). */
+  turretRps: 4.8,
+  turretDamage: 210,
+  turretSpread: 0.008,
+  turretMaxRange: 300,
+  grenadeSpeed: 110,
+  grenadeGravity: 14,
+  grenadeBlastRadius: 4.8,
+  grenadeStructDamage: 95,
+  grenadeStructRadius: 3.4,
+  grenadeDirectBanditDamage: 125,
   turretFov: 74,
   turretZoomFov: 44,
   pitchMin: (-25 * Math.PI) / 180,
   pitchMax: (45 * Math.PI) / 180,
-  heatPerShot: 1 / 78,
-  heatCool: 0.3,
-  heatVent: 0.42,
+  /** Generous sustained fire (~30 rounds before brief cooling vent). */
+  heatPerShot: 1 / 30,
+  heatCool: 0.34,
+  heatVent: 0.55,
   wallLoopReadyHits: 12,
   bikeMaxHp: 75,
   truckMaxHp: 240,
@@ -171,6 +196,10 @@ const _casing = new THREE.Vector3();
 const _hitPt = new THREE.Vector3();
 const _tmp = new THREE.Vector3();
 const _tmp2 = new THREE.Vector3();
+const _segPrev = new THREE.Vector3();
+const _segNext = new THREE.Vector3();
+const _segDir = new THREE.Vector3();
+const _hitNorm = new THREE.Vector3();
 const _impact = new THREE.Vector3();
 const _tan = new THREE.Vector3();
 const _localOrigin = new THREE.Vector3();
@@ -328,30 +357,50 @@ function buildCapturedQuist(materials: ModelMaterials): THREE.Group {
   const g = new THREE.Group();
   g.name = 'desert.convoy.quistCaptured';
   const b = new ModelBuilder();
-  const COAT = '#c7b897';
-  const VEST = '#5a4636';
+  const COAT = '#cbb992';
+  const COAT_SHADE = '#a99672';
+  const VEST = '#523e2e';
+  const SCARF = '#c82820';
   const SKIN = '#d6aa84';
-  const HAIR = '#4a433c';
-  const PANTS = '#484038';
-  const ZIP = '#f2f6fa';
+  const HAIR = '#463f38';
+  const PANTS = '#463e36';
+  const BOOT = '#27211d';
+  const ZIP = '#f4f8fc';
+  const BENCH = '#4a4339';
 
-  // Seated legs folded forward in truck bed
+  // Rear cargo bench plank under Quist (facing +Z, looking aft back toward burning Surplus)
+  b.box(0.68, 0.08, 0.42, BENCH, { at: [0, 0.04, -0.02] });
+  // Seated thighs & booted shins planted forward toward the rear tailgate (+Z)
   for (const s of [-1, 1]) {
-    b.box(0.18, 0.16, 0.56, PANTS, { at: [s * 0.14, 0.12, -0.24], rot: [0.15, 0, 0] });
-    b.box(0.14, 0.22, 0.18, '#2c2622', { at: [s * 0.14, 0.06, -0.52] });
+    b.box(0.17, 0.16, 0.48, PANTS, { at: [s * 0.14, 0.15, 0.22], rot: [-0.1, 0, 0] });
+    b.box(0.15, 0.34, 0.16, PANTS, { at: [s * 0.14, 0.02, 0.44] });
+    b.box(0.15, 0.12, 0.22, BOOT, { at: [s * 0.14, -0.08, 0.5] });
   }
-  // Slumped torso + salt-stained khaki coat
-  b.box(0.46, 0.58, 0.3, COAT, { at: [0, 0.44, 0.02], rot: [0.18, 0, 0] });
-  b.box(0.42, 0.34, 0.32, VEST, { at: [0, 0.48, 0.01], rot: [0.18, 0, 0] });
-  // Arms pinned behind his back + bright white zip-tie cuff!
+  // Upright torso + desert duster coat tails & dark leather tactical vest
+  b.box(0.48, 0.62, 0.3, COAT, { at: [0, 0.48, -0.02], rot: [-0.06, 0, 0] });
+  b.box(0.52, 0.24, 0.34, COAT_SHADE, { at: [0, 0.18, -0.05] });
+  b.box(0.44, 0.38, 0.33, VEST, { at: [0, 0.52, -0.01], rot: [-0.06, 0, 0] });
+  // Signature crimson Saltblood scarf wrapped around neck with draped chest tail
+  b.box(0.44, 0.14, 0.34, SCARF, { at: [0, 0.78, 0.0] });
+  b.box(0.15, 0.32, 0.08, SCARF, { at: [0.1, 0.6, 0.16], rot: [0.08, 0, -0.14] });
+  // Arms pulled tightly together in front over his lap + bright white zip-tie wrist cuffs!
   for (const s of [-1, 1]) {
-    b.box(0.14, 0.42, 0.14, COAT, { at: [s * 0.22, 0.42, 0.16], rot: [-0.45, 0, s * 0.22] });
+    b.box(0.13, 0.36, 0.13, COAT, { at: [s * 0.24, 0.54, 0.08], rot: [0.42, 0, -s * 0.22] });
+    b.box(0.11, 0.11, 0.26, COAT_SHADE, { at: [s * 0.12, 0.36, 0.24], rot: [0.1, -s * 0.45, 0] });
+    b.box(0.09, 0.08, 0.09, SKIN, { at: [s * 0.05, 0.35, 0.34] });
   }
-  b.box(0.24, 0.08, 0.08, ZIP, { at: [0, 0.28, 0.24] });
-  // Head & scruffy salt-king beard/hair
-  b.solid(new THREE.SphereGeometry(0.15, 8, 6), SKIN, { at: [0, 0.85, -0.02] });
-  b.box(0.24, 0.1, 0.24, HAIR, { at: [0, 0.94, 0.01] });
-  b.box(0.18, 0.08, 0.12, HAIR, { at: [0, 0.77, -0.09] });
+  // Crisp white zip-ties clearly binding both wrists together (plus short tail tab)
+  b.box(0.22, 0.075, 0.085, ZIP, { at: [0, 0.36, 0.31] });
+  b.box(0.03, 0.12, 0.025, ZIP, { at: [0.06, 0.31, 0.36], rot: [0.35, 0, -0.25] });
+  // Head, weathered beard/hair & iconic amber desert dust goggles facing +Z!
+  b.solid(new THREE.SphereGeometry(0.155, 10, 8), SKIN, { at: [0, 0.96, 0.02] });
+  b.box(0.25, 0.11, 0.25, HAIR, { at: [0, 1.06, -0.01] });
+  b.box(0.19, 0.1, 0.12, HAIR, { at: [0, 0.87, 0.09] });
+  // Goggle strap + dark frames + glowing amber lenses
+  b.box(0.32, 0.06, 0.24, '#242220', { at: [0, 0.98, 0.01] });
+  for (const s of [-1, 1]) {
+    b.glow(new THREE.BoxGeometry(0.1, 0.065, 0.05), '#ffaa28', 2.4, { at: [s * 0.068, 0.98, 0.16] });
+  }
   g.add(materials.group(b));
   g.visible = false;
   return g;
@@ -501,44 +550,161 @@ function buildRaidTruckVisual(
     body.add(allyTurret);
   }
 
-  // Middle (player) truck carries optional captured zip-tied Hadrek Quist in the bed!
+  // Middle (player) truck carries optional captured zip-tied Hadrek Quist seated on the rear bench facing Surplus (+Z)!
   let quistMesh: THREE.Group | null = null;
   if (role === 'player') {
     quistMesh = buildCapturedQuist(materials);
-    quistMesh.position.set(0.56, 1.05, 2.22);
-    quistMesh.rotation.y = -0.45;
+    quistMesh.position.set(0.55, 1.05, 1.35);
+    quistMesh.rotation.y = 0;
     body.add(quistMesh);
   }
 
   return { root, body, wheels, antenna, headlights, allyTurret, quistMesh };
 }
 
-function buildDesertTurretShield(materials: ModelMaterials): { pivot: THREE.Group; heatSleeve: THREE.Mesh } {
-  const pivot = new THREE.Group();
-  pivot.name = 'desert.turretShield';
-  const b = new ModelBuilder();
-  const PLATE = '#545b42';
+/**
+ * Sculpted Mk 19 Belt-Fed 40mm Automatic Grenade Launcher (`GunSpec`):
+ * - Heavy boxy olive-drab & gunmetal receiver, hinged top cover with feed-tray latches
+ * - Twin side cocking handles, rear twin spade grips & brass butterfly trigger
+ * - Side-mounted olive 40mm ammo box with yellow ordnance stripe
+ * - Thick fluted 40mm barrel + heavy flared muzzle/flash collar that recoils back on every THUMP
+ */
+export const MK19: GunSpec = {
+  name: 'mk19-40mm',
+  build: b => {
+    const OLIVE = '#4d563b';
+    const OLIVE_HI = '#5c6646';
+    const OLIVE_DARK = '#39402b';
+    const GUNMETAL = '#394047';
+    const IRON = '#2c3137';
+    const WORN = '#66707a';
+    const GRIP = '#1e2125';
+    const BRASS = '#c89e40';
+    const STRIPE = '#dfa832';
+
+    // Heavy pintle post & trunnion cradle
+    b.cyl(0.056, 0.068, 0.34, 10, IRON, { at: [0, -0.28, 0.04] });
+    b.box(0.24, 0.08, 0.36, IRON, { at: [0, -0.11, 0.04] });
+    for (const s of [-1, 1]) {
+      b.box(0.035, 0.14, 0.24, IRON, { at: [s * 0.125, -0.02, 0.04] });
+    }
+
+    // Boxy Mk 19 olive-drab & gunmetal receiver body
+    b.box(0.24, 0.22, 0.74, OLIVE, { at: [0, 0.02, 0.02] });
+    b.box(0.27, 0.14, 0.44, GUNMETAL, { at: [0, 0.01, -0.04] });
+    // Hinged top cover with feed-tray latches & hinge pins
+    b.box(0.22, 0.045, 0.54, OLIVE_HI, { at: [0, 0.152, 0.01] });
+    for (const s of [-1, 1]) {
+      b.box(0.045, 0.035, 0.08, IRON, { at: [s * 0.075, 0.175, 0.22] }); // rear feed-tray latches
+      b.box(0.022, 0.06, 0.024, IRON, { at: [s * 0.08, 0.185, -0.18] }); // open-frame sight ears (unobstructed center!)
+    }
+    b.cyl(0.016, 0.016, 0.25, 8, WORN, { at: [0, 0.16, -0.26], rot: ALONG_X }); // top cover hinge pin
+
+    // Twin side cocking handles / charging slides on both flanks
+    for (const s of [-1, 1]) {
+      b.box(0.045, 0.055, 0.2, GUNMETAL, { at: [s * 0.15, 0.045, 0.14] });
+      b.cyl(0.022, 0.022, 0.09, 8, WORN, { at: [s * 0.195, 0.045, 0.19], rot: ALONG_X });
+    }
+
+    // Twin rear spade grips + crossbar + brass butterfly trigger
+    b.box(0.28, 0.038, 0.05, IRON, { at: [0, -0.02, 0.44] });
+    for (const s of [-1, 1]) {
+      b.box(0.03, 0.035, 0.09, IRON, { at: [s * 0.115, -0.02, 0.4] });
+      b.cyl(0.022, 0.022, 0.16, 8, GRIP, { at: [s * 0.115, 0.055, 0.46] });
+    }
+    b.box(0.07, 0.042, 0.026, BRASS, { at: [0, 0.02, 0.42] });
+
+    // Side-mounted heavy olive 40mm ammo box + yellow ordnance stencil band
+    b.box(0.22, 0.28, 0.38, OLIVE_DARK, { at: [-0.32, -0.14, 0.04] });
+    b.box(0.23, 0.045, 0.36, STRIPE, { at: [-0.32, -0.08, 0.04] });
+    b.box(0.04, 0.09, 0.22, IRON, { at: [-0.2, -0.06, 0.04] }); // feed bracket
+  },
+  moving: b => {
+    const GUNMETAL = '#394047';
+    const IRON = '#2c3137';
+    const WORN = '#5e6872';
+    // Heavy barrel shroud collar
+    b.cyl(0.064, 0.07, 0.28, 12, GUNMETAL, { at: [0, 0.02, -0.44], rot: ALONG_Z });
+    // Thick fluted 40mm barrel
+    b.cyl(0.048, 0.05, 0.84, 12, IRON, { at: [0, 0.02, -0.92], rot: ALONG_Z });
+    for (let i = 0; i < 4; i++) {
+      const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
+      b.box(0.016, 0.016, 0.72, WORN, {
+        at: [Math.cos(a) * 0.048, 0.02 + Math.sin(a) * 0.048, -0.92],
+      });
+    }
+    // Flared 40mm flash/muzzle collar & wide dark bore
+    b.cyl(0.066, 0.054, 0.16, 12, GUNMETAL, { at: [0, 0.02, -1.36], rot: ALONG_Z });
+    b.cyl(0.036, 0.036, 0.04, 10, '#111316', { at: [0, 0.02, -1.44], rot: ALONG_Z });
+  },
+  muzzle: [0, 0.02, -1.48],
+  follow: 18,
+  return: 18,
+};
+
+/**
+ * Builds the Mk 19's armored gunshield (with a wide, unobstructed central viewing slot),
+ * animated linked brass/gold 40mm grenade belt feeding from the side ammo can,
+ * and pitch/yaw-aligned thermal barrel glow sleeve.
+ */
+function buildTurretGun(materials: ModelMaterials): {
+  shieldPivot: THREE.Group;
+  beltPivot: THREE.Group;
+  beltStrip: THREE.Group;
+  heatSleeve: THREE.Mesh;
+} {
+  // 1. Armored gunshield with wide clean viewing slot downrange (yaws with turret ring)
+  const shieldPivot = new THREE.Group();
+  shieldPivot.name = 'desert.mk19.shield';
+  const sb = new ModelBuilder();
+  const PLATE = '#50583e';
   const TAN_TRIM = '#b59668';
-  const STEEL = '#30353b';
-  const BRASS = '#c49d46';
+  const STEEL = '#2d3238';
 
-  // Welded desert-olive steel gunshield framing clear U-shaped barrel sightline
-  b.box(0.46, 0.58, 0.055, PLATE, { at: [-0.39, -0.02, -0.48], rot: [0, 0.18, 0] });
-  b.box(0.46, 0.58, 0.055, PLATE, { at: [0.39, -0.02, -0.48], rot: [0, -0.18, 0] });
-  b.box(0.38, 0.24, 0.055, PLATE, { at: [0, -0.19, -0.48] });
-  b.box(0.46, 0.05, 0.065, TAN_TRIM, { at: [-0.39, 0.28, -0.48], rot: [0, 0.18, 0] });
-  b.box(0.46, 0.05, 0.065, TAN_TRIM, { at: [0.39, 0.28, -0.48], rot: [0, -0.18, 0] });
-  // Side ammo belt box & brass links
-  b.box(0.18, 0.24, 0.34, '#434a34', { at: [-0.28, -0.14, 0.02] });
-  for (let i = 0; i < 4; i++) {
-    b.box(0.08, 0.028, 0.05, BRASS, { at: [-0.2 + i * 0.03, -0.01 + i * 0.025, 0.02], rot: [0, 0, -0.45] });
+  // Left & right angled armored cheek plates leaving a generous 0.52m wide unobstructed sight channel
+  sb.box(0.42, 0.56, 0.055, PLATE, { at: [-0.46, -0.02, -0.46], rot: [0, 0.2, 0] });
+  sb.box(0.42, 0.56, 0.055, PLATE, { at: [0.46, -0.02, -0.46], rot: [0, -0.2, 0] });
+  // Lower armor apron below receiver
+  sb.box(0.52, 0.22, 0.055, PLATE, { at: [0, -0.22, -0.46] });
+  // Tan desert trim rails on shield wings
+  sb.box(0.42, 0.045, 0.065, TAN_TRIM, { at: [-0.46, 0.27, -0.46], rot: [0, 0.2, 0] });
+  sb.box(0.42, 0.045, 0.065, TAN_TRIM, { at: [0.46, 0.27, -0.46], rot: [0, -0.2, 0] });
+  // Shield mounting struts
+  sb.box(0.05, 0.05, 0.42, STEEL, { at: [-0.22, -0.18, -0.24] });
+  sb.box(0.05, 0.05, 0.42, STEEL, { at: [0.22, -0.18, -0.24] });
+  shieldPivot.add(materials.group(sb, materials.nearby));
+
+  // 2. Pitch + yaw aligned turret sub-assembly (animated linked 40mm belt + thermal barrel glow)
+  const beltPivot = new THREE.Group();
+  beltPivot.name = 'desert.mk19.beltPivot';
+  beltPivot.rotation.order = 'YXZ';
+
+  // Angled chute of 7 linked brass/gold 40mm HEDP grenade cartridges feeding into the left feed throat
+  const bb = new ModelBuilder();
+  const LINK = '#2b2f35';
+  const BRASS = '#caa244';
+  const OGIVE = '#ebb738';
+  const BODY = '#4a5238';
+  for (let i = 0; i < 7; i++) {
+    const u = i / 6;
+    const x = lerp(-0.29, -0.125, u);
+    const y = lerp(-0.04, 0.065, u) + Math.sin(u * Math.PI) * 0.025;
+    const z = lerp(0.06, -0.02, u);
+    const tilt = -0.58 + u * 0.38;
+    // Steel belt link clip
+    bb.box(0.036, 0.024, 0.05, LINK, { at: [x, y, z + 0.01], rot: [0, 0, tilt] });
+    // Brass 40mm cartridge case
+    bb.cyl(0.017, 0.017, 0.068, 8, BRASS, { at: [x, y, z + 0.03], rot: ALONG_Z });
+    // Olive-drab grenade body + bright gold HEDP warhead nose pointing forward (-Z)
+    bb.cyl(0.016, 0.017, 0.044, 8, BODY, { at: [x, y, z - 0.024], rot: ALONG_Z });
+    bb.cyl(0.006, 0.0155, 0.032, 8, OGIVE, { at: [x, y, z - 0.06], rot: ALONG_Z });
   }
-  b.box(0.05, 0.05, 0.42, STEEL, { at: [-0.18, -0.18, -0.25] });
-  b.box(0.05, 0.05, 0.42, STEEL, { at: [0.18, -0.18, -0.25] });
-  pivot.add(materials.group(b, materials.nearby));
+  const beltStrip = materials.group(bb, materials.nearby);
+  beltStrip.name = 'desert.mk19.beltStrip';
+  beltPivot.add(beltStrip);
 
-  // Glowing additive thermal barrel sleeve along -Z
-  const sleeveGeo = new THREE.CylinderGeometry(0.04, 0.04, 0.92, 10);
+  // Glowing additive thermal barrel sleeve wrapping the thick 40mm barrel
+  const sleeveGeo = new THREE.CylinderGeometry(0.058, 0.058, 0.78, 12);
   sleeveGeo.rotateX(Math.PI / 2);
   const sleeveMat = new THREE.MeshBasicMaterial({
     color: new THREE.Color('#ff5514'),
@@ -549,10 +715,34 @@ function buildDesertTurretShield(materials: ModelMaterials): { pivot: THREE.Grou
     toneMapped: false,
   });
   const heatSleeve = new THREE.Mesh(sleeveGeo, sleeveMat);
-  heatSleeve.position.set(0, 0.02, -0.94);
-  pivot.add(heatSleeve);
+  heatSleeve.position.set(0, 0.02, -0.92);
+  beltPivot.add(heatSleeve);
 
-  return { pivot, heatSleeve };
+  return { shieldPivot, beltPivot, beltStrip, heatSleeve };
+}
+
+function buildMk19GrenadeMesh(): THREE.Group {
+  const g = new THREE.Group();
+  g.name = 'desert.mk19.grenade';
+  const bodyGeo = new THREE.CylinderGeometry(0.045, 0.055, 0.24, 6);
+  bodyGeo.rotateX(Math.PI / 2);
+  const bodyMat = new THREE.MeshBasicMaterial({
+    color: 0xffc448,
+    toneMapped: false,
+  });
+  g.add(new THREE.Mesh(bodyGeo, bodyMat));
+
+  const glowGeo = new THREE.SphereGeometry(0.11, 6, 6);
+  const glowMat = new THREE.MeshBasicMaterial({
+    color: 0xff8820,
+    transparent: true,
+    opacity: 0.78,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    toneMapped: false,
+  });
+  g.add(new THREE.Mesh(glowGeo, glowMat));
+  return g;
 }
 
 function buildBanditBikeVisual(materials: ModelMaterials): {
@@ -566,34 +756,47 @@ function buildBanditBikeVisual(materials: ModelMaterials): {
   const RUST = '#84482a';
   const FRAME = '#2e2b28';
   const TANK = '#b03a24';
-  const SCARF = '#c92e24';
-  const CLOTH = '#584c3d';
+  const SCARF = '#d22d22';
+  const CLOTH = '#5d4e3d';
+  const LEATHER = '#3a3028';
+  const SKIN = '#d1a47e';
   const HELMET = '#36322e';
 
   // Welded scrap dirt-bike frame (facing -Z)
-  b.box(0.32, 0.34, 1.48, FRAME, { at: [0, 0.64, 0] });
+  b.box(0.32, 0.34, 1.52, FRAME, { at: [0, 0.64, 0] });
   b.box(0.38, 0.24, 0.56, TANK, { at: [0, 0.92, -0.22], rot: [-0.12, 0, 0] }); // fuel tank
-  b.box(0.32, 0.14, 0.62, '#24201c', { at: [0, 0.88, 0.34] }); // saddle
+  b.box(0.32, 0.14, 0.64, '#24201c', { at: [0, 0.88, 0.34] }); // saddle
   // Front fork & wide handlebars
   for (const s of [-1, 1]) {
     b.cyl(0.032, 0.032, 0.92, 6, '#565a60', { at: [s * 0.16, 0.72, -0.72], rot: [0.38, 0, 0] });
   }
-  b.cyl(0.025, 0.025, 0.86, 6, FRAME, { at: [0, 1.12, -0.56], rot: ALONG_X });
+  b.cyl(0.025, 0.025, 0.9, 6, FRAME, { at: [0, 1.12, -0.56], rot: ALONG_X });
   // Cyclops glowing headlight + spiked scrap front fender
   b.glow(new THREE.CylinderGeometry(0.11, 0.11, 0.1, 8), '#ffe49c', 3.4, { at: [0, 0.98, -0.74], rot: ALONG_Z });
   b.box(0.24, 0.06, 0.44, RUST, { at: [0, 0.76, -0.84], rot: [0.22, 0, 0] });
   // Exhaust pipe
   b.cyl(0.045, 0.055, 0.85, 6, RUST, { at: [0.22, 0.56, 0.42], rot: [Math.PI / 2 - 0.16, 0, 0] });
 
-  // Sculpted scarfed Saltblood rider leaning forward
-  b.box(0.42, 0.54, 0.28, CLOTH, { at: [0, 1.24, 0.16], rot: [-0.36, 0, 0] });
-  b.solid(new THREE.SphereGeometry(0.15, 8, 6), HELMET, { at: [0, 1.56, 0.04] });
-  b.box(0.18, 0.07, 0.06, '#ff6828', { at: [0, 1.56, -0.1] }); // orange goggles
-  // Fluttering crimson desert scarf trailing back (+Z)
-  b.box(0.16, 0.1, 0.52, SCARF, { at: [0.06, 1.44, 0.36], rot: [0.18, 0.15, 0] });
+  // Clearly visible sculpted human Saltblood motorcycle rider straddling the saddle
+  // Straddled legs & boots on footpegs
   for (const s of [-1, 1]) {
-    b.box(0.12, 0.12, 0.48, CLOTH, { at: [s * 0.24, 1.18, -0.22], rot: [0.1, s * 0.18, 0] });
+    b.box(0.15, 0.38, 0.18, LEATHER, { at: [s * 0.22, 0.84, 0.14], rot: [0.42, 0, s * 0.14] });
+    b.box(0.14, 0.34, 0.16, '#26211d', { at: [s * 0.24, 0.56, 0.04], rot: [-0.2, 0, 0] });
   }
+  // Leaning torso + scrap leather shoulder vest
+  b.box(0.46, 0.58, 0.3, CLOTH, { at: [0, 1.28, 0.16], rot: [-0.32, 0, 0] });
+  b.box(0.48, 0.32, 0.32, LEATHER, { at: [0, 1.32, 0.14], rot: [-0.32, 0, 0] });
+  // Head, desert helmet, bright amber goggles & crimson face-wrap scarf
+  b.solid(new THREE.SphereGeometry(0.16, 8, 6), SKIN, { at: [0, 1.62, 0.04] });
+  b.box(0.26, 0.16, 0.28, HELMET, { at: [0, 1.7, 0.05] });
+  b.glow(new THREE.BoxGeometry(0.2, 0.075, 0.06), '#ff7828', 2.8, { at: [0, 1.63, -0.11] }); // glowing goggles
+  // Fluttering crimson Saltblood scarf wrapped round neck & streaming back (+Z)
+  b.box(0.38, 0.12, 0.28, SCARF, { at: [0, 1.5, 0.06] });
+  b.box(0.18, 0.1, 0.58, SCARF, { at: [0.06, 1.48, 0.42], rot: [0.16, 0.18, 0] });
+  // Left arm gripping handlebar; right arm brandishing scrap SMG firing forward!
+  b.box(0.12, 0.12, 0.52, CLOTH, { at: [-0.26, 1.22, -0.22], rot: [0.12, -0.2, 0] });
+  b.box(0.12, 0.12, 0.44, CLOTH, { at: [0.28, 1.24, -0.12], rot: [0.04, 0.12, 0] });
+  b.box(0.08, 0.12, 0.42, '#24272c', { at: [0.34, 1.24, -0.44] }); // rider SMG
 
   const body = materials.group(b);
   root.add(body);
@@ -638,14 +841,22 @@ function buildBanditTruckVisual(materials: ModelMaterials): {
     b.glow(new THREE.BoxGeometry(0.28, 0.16, 0.06), '#ffd480', 3.2, { at: [s * 0.76, 1.14, -2.54] });
     b.glow(new THREE.BoxGeometry(0.28, 0.14, 0.06), '#ff2214', 2.6, { at: [s * 0.78, 1.12, 2.58] });
   }
-  // Welded cage cab with bolted armor slats
-  b.box(2.12, 0.94, 1.54, RUST_HI, { at: [0, 1.52, -0.14] });
-  b.box(1.94, 0.12, 1.56, PLATE, { at: [0, 2.02, -0.14] });
-  b.box(1.88, 0.38, 0.08, '#1b1d20', { at: [0, 1.72, -0.92], rot: [0.18, 0, 0] });
-  // Armored slat bars across windshield
-  for (const yOff of [-0.08, 0.08]) {
-    b.box(1.92, 0.045, 0.04, SPIKE, { at: [0, 1.72 + yOff, -0.98] });
+  // Open-window welded cage cab so the Saltblood human driver is clearly visible inside!
+  b.box(2.12, 0.56, 1.54, RUST_HI, { at: [0, 1.26, -0.14] });
+  for (const s of [-1, 1]) {
+    b.box(0.11, 0.62, 0.11, PLATE, { at: [s * 0.98, 1.72, -0.86], rot: [0.18, 0, 0] });
+    b.box(0.11, 0.62, 0.11, PLATE, { at: [s * 0.98, 1.72, 0.54] });
   }
+  b.box(1.98, 0.12, 1.56, PLATE, { at: [0, 2.04, -0.14] });
+  // Armored slat bars across open windshield
+  for (const yOff of [-0.08, 0.1]) {
+    b.box(1.92, 0.045, 0.04, SPIKE, { at: [0, 1.72 + yOff, -0.94] });
+  }
+  // Visible human Saltblood cab driver with crimson scarf & amber goggles
+  b.box(0.42, 0.5, 0.28, '#544638', { at: [-0.42, 1.56, -0.18] });
+  b.box(0.4, 0.12, 0.28, SCARF, { at: [-0.42, 1.78, -0.18] });
+  b.solid(new THREE.SphereGeometry(0.15, 8, 6), '#34302c', { at: [-0.42, 1.9, -0.2] });
+  b.glow(new THREE.BoxGeometry(0.17, 0.06, 0.05), '#ff5a22', 2.4, { at: [-0.42, 1.9, -0.34] });
   // Open rear pickup bed with jagged scrap side armor plates
   b.box(2.06, 0.1, 1.98, SCRAP, { at: [0, 1.0, 1.56] });
   for (const s of [-1, 1]) {
@@ -666,11 +877,14 @@ function buildBanditTruckVisual(materials: ModelMaterials): {
   gb.box(0.68, 0.42, 0.05, PLATE, { at: [0, 0.06, -0.34] });
   gb.box(0.2, 0.2, 0.58, '#2c2f34', { at: [0, 0.05, -0.08] });
   gb.cyl(0.032, 0.032, 1.08, 8, '#23262a', { at: [0, 0.05, -0.78], rot: ALONG_Z });
-  // Standing Saltblood bed gunner with crimson scarf
-  gb.box(0.42, 0.64, 0.28, '#544638', { at: [0, -0.14, 0.46] });
-  gb.box(0.44, 0.14, 0.3, SCARF, { at: [0, 0.16, 0.46] });
-  gb.solid(new THREE.SphereGeometry(0.16, 8, 6), '#34302c', { at: [0, 0.32, 0.44] });
-  gb.glow(new THREE.BoxGeometry(0.18, 0.06, 0.05), '#ff4a20', 2.8, { at: [0, 0.32, 0.3] });
+  // Standing Saltblood bed gunner with crimson scarf & arms gripping weapon
+  gb.box(0.44, 0.68, 0.28, '#544638', { at: [0, -0.12, 0.46] });
+  gb.box(0.46, 0.14, 0.3, SCARF, { at: [0, 0.18, 0.46] });
+  gb.solid(new THREE.SphereGeometry(0.165, 8, 6), '#34302c', { at: [0, 0.34, 0.44] });
+  gb.glow(new THREE.BoxGeometry(0.18, 0.065, 0.05), '#ff4a20', 2.8, { at: [0, 0.34, 0.3] });
+  for (const s of [-1, 1]) {
+    gb.box(0.12, 0.12, 0.36, '#544638', { at: [s * 0.2, 0.06, 0.28] });
+  }
   gunnerPivot.add(materials.group(gb));
   body.add(gunnerPivot);
 
@@ -690,7 +904,7 @@ function buildBanditTruckVisual(materials: ModelMaterials): {
 }
 
 // -------------------------------------------------------------------------------------------------
-// Desert Convoy Heavy Gunner HUD
+// Desert Convoy Mk 19 40mm Heavy Gunner HUD
 // -------------------------------------------------------------------------------------------------
 
 const CONVOY_HUD_CSS = `
@@ -710,7 +924,7 @@ const CONVOY_HUD_CSS = `
 .dr-cv-fill.heat { background: linear-gradient(90deg, #e0a624, #ff4420); }
 .dr-cv-fill.heat.hot { background: #ff2818; animation: dr-cv-blink 0.25s infinite alternate; }
 .dr-cv-overheat { color: #ff4228; font-weight: 800; }
-.dr-cv-xh { position: absolute; left: 50%; top: 50%; width: 28px; height: 28px; margin: -14px 0 0 -14px; border: 1.5px solid rgba(255, 224, 136, 0.88); border-radius: 50%; box-shadow: 0 0 8px rgba(255, 176, 48, 0.35); transition: transform 0.12s; }
+.dr-cv-xh { position: absolute; left: 50%; top: 50%; width: 32px; height: 32px; margin: -16px 0 0 -16px; border: 1.5px solid rgba(255, 224, 136, 0.88); border-radius: 50%; box-shadow: 0 0 8px rgba(255, 176, 48, 0.35); transition: transform 0.12s; }
 .dr-cv-xh.zoom { transform: scale(0.66); border-color: #ff7048; }
 .dr-cv-xh::after { content: ''; position: absolute; left: 50%; top: 50%; width: 4px; height: 4px; margin: -2px 0 0 -2px; background: #ffcf6e; border-radius: 50%; }
 @keyframes dr-cv-blink { from { opacity: 0.55; } to { opacity: 1; } }
@@ -736,7 +950,7 @@ function createConvoyHud(): ConvoyHudRefs | null {
     document.head?.append(style);
   }
   const stageEl = span('dr-cv-stage', 'APPROACH — OPEN DUNES');
-  const speedEl = span('dr-cv-speed', '40 KM/H');
+  const speedEl = span('dr-cv-speed', '55 KM/H');
   const hullTextEl = span('', '500 / 500');
   const hullFill = div('dr-cv-fill hull');
   const heatTextEl = span('', '0%');
@@ -745,12 +959,12 @@ function createConvoyHud(): ConvoyHudRefs | null {
 
   const root = div(
     'dr-cv-hud',
-    div('dr-cv-top', span('dr-cv-title', 'RAID CONVOY // M2 .50 CAL HEAVY GUN'), stageEl, speedEl),
+    div('dr-cv-top', span('dr-cv-title', 'RAID CONVOY // MK 19 40MM BELT-FED'), stageEl, speedEl),
     reticle,
     div(
       'dr-cv-bot',
       div('dr-cv-gauge', div('dr-cv-ghead', span('', 'TRUCK ARMOR'), hullTextEl), div('dr-cv-track', hullFill)),
-      div('dr-cv-gauge', div('dr-cv-ghead', span('', 'BARREL HEAT'), heatTextEl), div('dr-cv-track', heatFill)),
+      div('dr-cv-gauge', div('dr-cv-ghead', span('', '40MM BELT HEAT'), heatTextEl), div('dr-cv-track', heatFill)),
     ),
   );
   const host = document.querySelector('.hud') ?? document.body;
@@ -785,12 +999,16 @@ export class DesertConvoy implements ConvoyController, ExtraTarget {
   private readonly _trucks: RaidTruck[] = [];
   private playerTruck: RaidTruck | null = null;
 
-  // Player heavy `.50 cal` turret rig
+  // Player sculpted Mk 19 belt-fed 40mm automatic grenade launcher rig
   private gun: Gun | null = null;
   private shieldPivot: THREE.Group | null = null;
+  private beltPivot: THREE.Group | null = null;
+  private beltStrip: THREE.Group | null = null;
   private heatSleeve: THREE.Mesh | null = null;
-  private readonly _turretPivot = new THREE.Vector3(0, 2.24, 208);
-  private readonly _turretMuzzle = new THREE.Vector3(0, 2.26, 206.46);
+  private beltPhase = 0;
+  private beltFeedKick = 0;
+  private readonly _turretPivot = new THREE.Vector3(0, 2.24, DESERT_Z.approachStart);
+  private readonly _turretMuzzle = new THREE.Vector3(0, 2.26, DESERT_Z.approachStart - 1.48);
   private readonly seatView: SeatView = {
     position: new THREE.Vector3(),
     yaw: 0,
@@ -814,6 +1032,7 @@ export class DesertConvoy implements ConvoyController, ExtraTarget {
   });
 
   private pathDist = 0;
+  private endingCruiseZ: number = DESERT_CONVOY_CONSTANTS.endingCruiseMinZ;
   private currentSpeed = 0;
   private _quistCaptured = false;
   private _banditVehiclesDestroyed = 0;
@@ -829,7 +1048,11 @@ export class DesertConvoy implements ConvoyController, ExtraTarget {
   // Exfil forecourt arrival & boarding prompt
   private exfilArriveElapsed = 0;
   private exfilArriveDuration = 1.6;
-  private readonly exfilArriveStart = new THREE.Vector3(0, 0, -48);
+  private readonly exfilArriveStart = new THREE.Vector3(
+    CARGO_PLANE.forecourtExfilPos[0] + 20,
+    0,
+    CARGO_PLANE.forecourtExfilPos[2] + 14,
+  );
   private readonly exfilTargetPos = new THREE.Vector3(
     CARGO_PLANE.forecourtExfilPos[0],
     CARGO_PLANE.forecourtExfilPos[1],
@@ -840,11 +1063,13 @@ export class DesertConvoy implements ConvoyController, ExtraTarget {
   private exfilPulseClock = 0;
   private exfilAutoSpawnTimer = 0;
 
-  // Firing & audio
+  // Firing, arcing 40mm HEDP projectiles & audio
   private roundCooldown = 0;
   private shotsFired = 0;
   private engineLoop: LoopHandle | null = null;
-  private readonly shotSpec: ShotSpec;
+  private nextProjectileId = 1;
+  private readonly _projectiles: Mk19Projectile[] = [];
+  private skipBlastBanditId = -1;
 
   // Saltblood bandit vehicles & wrecks
   private nextBanditId = 1;
@@ -864,20 +1089,6 @@ export class DesertConvoy implements ConvoyController, ExtraTarget {
     this.materials = new ModelMaterials(ctx);
     this.root.name = 'desert.convoy.root';
     this.root.visible = false;
-    this.shotSpec = {
-      damage: DESERT_CONVOY_CONSTANTS.turretDamage,
-      source: 'emplacement',
-      team: 'player',
-      maxDistance: DESERT_CONVOY_CONSTANTS.turretMaxRange,
-      tracer: 'heavy',
-      tracerFrom: _muzzle,
-      force: 55,
-      severMult: 4.0,
-      penetrate: 1.4,
-      bodyCost: 0.3,
-      impactScale: 1.8,
-      armorPiercing: true,
-    };
   }
 
   // -----------------------------------------------------------------------------------------------
@@ -932,6 +1143,10 @@ export class DesertConvoy implements ConvoyController, ExtraTarget {
     return this._wrecks;
   }
 
+  get projectiles(): readonly Mk19Projectile[] {
+    return this._projectiles;
+  }
+
   get turretMuzzle(): THREE.Vector3 {
     return this._turretMuzzle;
   }
@@ -952,6 +1167,7 @@ export class DesertConvoy implements ConvoyController, ExtraTarget {
     this.ensureBuilt();
     this.ensureRegistered();
     this.clearBanditsAndWrecks();
+    this.clearProjectiles();
     this.clearExfilPrompt();
 
     this.root.visible = true;
@@ -964,6 +1180,8 @@ export class DesertConvoy implements ConvoyController, ExtraTarget {
     this.heat.value = 0;
     this.heat.overheated = false;
     this.roundCooldown = 0;
+    this.beltPhase = 0;
+    this.beltFeedKick = 0;
     this.approachDoneSignalled = false;
     this.wallLoopReadySignalled = false;
     this.exfilBoardedSignalled = false;
@@ -971,7 +1189,7 @@ export class DesertConvoy implements ConvoyController, ExtraTarget {
     this._wallLoopPasses = 0;
     this._wallLoopHitScore = 0;
 
-    // Place convoy at Approach start (0, 0, 208) heading North (yaw ≈ 0)
+    // Place convoy at Approach start (0, 0, 222) heading North (yaw ≈ 0)
     this.approachPath.sample(0, _tmp, _tan);
     const startYaw = Math.atan2(-_tan.x, -_tan.z);
     this.placeConvoy(_tmp, startYaw, 1, 0, true);
@@ -1003,6 +1221,7 @@ export class DesertConvoy implements ConvoyController, ExtraTarget {
   dismountAtGate(): void {
     this.ensureBuilt();
     this.clearExfilPrompt();
+    this.clearProjectiles();
     this.root.visible = true;
     this._phase = 'parkedGate';
     this.currentSpeed = 0;
@@ -1053,8 +1272,7 @@ export class DesertConvoy implements ConvoyController, ExtraTarget {
     this.clearExfilPrompt();
 
     this.root.visible = true;
-    this._quistCaptured = quistCaptured;
-    this.setQuistVisible(quistCaptured);
+    this.setQuistCaptured(quistCaptured);
     this._phase = 'exfilArriving';
     this.exfilBoardedSignalled = false;
     this.exfilClearSignalled = false;
@@ -1063,9 +1281,9 @@ export class DesertConvoy implements ConvoyController, ExtraTarget {
     this.exfilPulseClock = 0;
     this.currentSpeed = DESERT_CONVOY_CONSTANTS.exfilArriveSpeed;
 
-    // Roll in from south of forecourt smashing into CARGO_PLANE.forecourtExfilPos
-    this.exfilArriveStart.set(this.exfilTargetPos.x, 0, this.exfilTargetPos.z + 24);
-    this.placeConvoy(this.exfilArriveStart, 0, 0.65, 0, true);
+    // Sweep in from the eastern bypass approach into CARGO_PLANE.forecourtExfilPos (0, 0, -206)
+    this.exfilArriveStart.set(this.exfilTargetPos.x + 20, 0, this.exfilTargetPos.z + 14);
+    this.placeConvoy(this.exfilArriveStart, 0.96, 0.65, 0, true);
     this.stowGunOnParkedTruck();
     this.startEngineLoop(1.18);
     this.ctx.audio?.play?.('vehicle_horn', { position: this.exfilTargetPos, volume: 0.85 });
@@ -1076,10 +1294,10 @@ export class DesertConvoy implements ConvoyController, ExtraTarget {
     this.ensureBuilt();
     this.ensureRegistered();
     this.clearExfilPrompt();
+    this.clearBoardingHint();
 
     this.root.visible = true;
-    this._quistCaptured = quistCaptured;
-    this.setQuistVisible(quistCaptured);
+    this.setQuistCaptured(quistCaptured);
     this._phase = 'exfilChase';
     this.pathDist = 0;
     this.currentSpeed = DESERT_CONVOY_CONSTANTS.exfilSpeed;
@@ -1098,6 +1316,75 @@ export class DesertConvoy implements ConvoyController, ExtraTarget {
     this.startEngineLoop(1.32);
     this.ctx.hud?.feed?.('EXFIL UNDERWAY — BLAST PURSUING SALTBLOODS!', '#ffcf6e');
     this.updateHud();
+  }
+
+  setQuistCaptured(captured: boolean): void {
+    this._quistCaptured = captured;
+    this.setQuistVisible(captured);
+  }
+
+  getQuistBedPosition(out: THREE.Vector3): THREE.Vector3 {
+    const [lx, ly, lz] = DESERT_CONVOY_CONSTANTS.quistBedLocal;
+    const pt = this.playerTruck;
+    if (!pt) {
+      return out.set(lx, ly, CONVOY_PATHS.approach[0]![2] + lz);
+    }
+    const cy = Math.cos(pt.yaw);
+    const sy = Math.sin(pt.yaw);
+    return out.set(
+      pt.position.x + lx * cy + lz * sy,
+      pt.root.position.y + ly,
+      pt.position.z - lx * sy + lz * cy,
+    );
+  }
+
+  enterEndingCruise(): void {
+    this.ensureBuilt();
+    this.clearExfilPrompt();
+    this.clearBoardingHint();
+    this.clearProjectiles();
+
+    // Remove live hostile bandits so they do not interrupt the scenic ending cutscene
+    for (const bv of this._bandits) {
+      this.removeBanditCollider(bv);
+      bv.root.removeFromParent();
+    }
+    this._bandits.length = 0;
+    this.banditByCollider.clear();
+
+    // Unmount turret input/HUD WITHOUT touching camera.setSeat(null), player.unpark(), or player.teleport()
+    // so the ending cutscene maintains uninterrupted camera ownership.
+    this._mounted = false;
+    this._zoomed = false;
+    if (this.ctx.player) {
+      this.ctx.player.interceptor = null;
+    }
+    this.hideHud();
+
+    this.root.visible = true;
+    this._phase = 'endingCruise';
+    this.currentSpeed = DESERT_CONVOY_CONSTANTS.endingCruiseSpeed;
+
+    if (this.playerTruck) {
+      const clampedZ = clamp(
+        this.playerTruck.position.z,
+        DESERT_CONVOY_CONSTANTS.endingCruiseMinZ,
+        DESERT_CONVOY_CONSTANTS.endingCruiseMaxZ,
+      );
+      this.endingCruiseZ = clampedZ;
+      if (this.playerTruck.position.z < DESERT_CONVOY_CONSTANTS.endingCruiseMinZ) {
+        _tmp.set(0, 0, clampedZ);
+        this.placeConvoy(_tmp, Math.PI, 1.0, 0, true);
+      } else if (this.playerTruck.position.z > DESERT_CONVOY_CONSTANTS.endingCruiseMaxZ) {
+        _tmp.set(this.playerTruck.position.x, 0, clampedZ);
+        this.placeConvoy(_tmp, Math.PI, 1.0, 0, true);
+      }
+    } else {
+      this.endingCruiseZ = DESERT_CONVOY_CONSTANTS.endingCruiseMinZ;
+    }
+
+    this.stowGunOnParkedTruck();
+    this.startEngineLoop(0.88);
   }
 
   spawnSideGateTruck(side: 'west' | 'east'): void {
@@ -1123,22 +1410,22 @@ export class DesertConvoy implements ConvoyController, ExtraTarget {
 
     const mid = this.getTruckPosition(_tmp);
     for (let i = 0; i < n; i++) {
-      // Mix agile dirt-bikes (~65%) and scrap pickup technicals (~35%)
+      // Rich mix of Saltblood motorcycles (~65%) and armed scrap technicals (~35%)
       const isTruck = n >= 2 && (i % 3 === 1);
       const kind: BanditVehicleKind = isTruck ? 'truck' : 'bike';
       const side = i % 2 === 0 ? -1 : 1;
-      const spreadX = side * rand(14, 34) + rand(-4, 4);
+      const spreadX = side * rand(13, 30) + rand(-3.5, 3.5);
 
       if (phase === 'approach') {
-        const spawnZ = Math.max(DESERT_Z.wallLine + 14, mid.z - rand(38, 66) - i * 5);
+        const spawnZ = Math.max(DESERT_Z.wallLine + 14, mid.z - rand(34, 58) - i * 4.5);
         const spawnPos = new THREE.Vector3(clamp(mid.x + spreadX, -76, 76), 0, spawnZ);
         const bv = this.spawnBanditVehicle(kind, spawnPos, Math.PI, 'approach');
         bv.preferredSide = side;
-        bv.preferredLead = rand(14, 32);
+        bv.preferredLead = rand(16, 34);
       } else {
         // Exfil pursuers emerge behind/flanking the southbound convoy (lower Z, chasing +Z)
-        const spawnZ = mid.z - rand(24, 48) - i * 6;
-        const spawnPos = new THREE.Vector3(clamp(mid.x + spreadX * 0.7, -55, 55), 0, spawnZ);
+        const spawnZ = mid.z - rand(24, 46) - i * 5.5;
+        const spawnPos = new THREE.Vector3(clamp(mid.x + spreadX * 0.72, -62, 62), 0, spawnZ);
         const bv = this.spawnBanditVehicle(kind, spawnPos, Math.PI, 'exfil');
         bv.preferredSide = side;
         bv.preferredLead = rand(-18, -8);
@@ -1173,6 +1460,8 @@ export class DesertConvoy implements ConvoyController, ExtraTarget {
       this.updateExfilWaiting(step);
     } else if (this._phase === 'exfilChase') {
       this.updateExfilChase(step);
+    } else if (this._phase === 'endingCruise') {
+      this.updateEndingCruise(step);
     }
 
     if (this._phase !== 'idle') {
@@ -1182,6 +1471,10 @@ export class DesertConvoy implements ConvoyController, ExtraTarget {
 
     if (this._mounted) {
       this.updateTurretControl(step);
+    }
+
+    if (this._projectiles.length > 0) {
+      this.updateProjectiles(step);
     }
 
     if (this._bandits.length > 0) {
@@ -1200,6 +1493,8 @@ export class DesertConvoy implements ConvoyController, ExtraTarget {
     this.dismountTurret(false, false);
     this.stopEngineLoop();
     this.clearExfilPrompt();
+    this.clearBoardingHint();
+    this.clearProjectiles();
     this.clearBanditsAndWrecks();
 
     if (this.registeredOn) {
@@ -1209,6 +1504,7 @@ export class DesertConvoy implements ConvoyController, ExtraTarget {
 
     this._phase = 'idle';
     this.pathDist = 0;
+    this.endingCruiseZ = DESERT_CONVOY_CONSTANTS.endingCruiseMinZ;
     this.currentSpeed = 0;
     this._hull = this.maxHull;
     this._quistCaptured = false;
@@ -1218,6 +1514,8 @@ export class DesertConvoy implements ConvoyController, ExtraTarget {
     this.heat.value = 0;
     this.heat.overheated = false;
     this.roundCooldown = 0;
+    this.beltPhase = 0;
+    this.beltFeedKick = 0;
     this.approachDoneSignalled = false;
     this.wallLoopReadySignalled = false;
     this.exfilBoardedSignalled = false;
@@ -1227,7 +1525,8 @@ export class DesertConvoy implements ConvoyController, ExtraTarget {
     this.root.visible = false;
     this.gun?.hide();
     if (this.shieldPivot) this.shieldPivot.visible = false;
-    if (this.hud) this.hud.root.classList.remove('on');
+    if (this.beltPivot) this.beltPivot.visible = false;
+    this.hideHud();
   }
 
   reset(): void {
@@ -1258,7 +1557,7 @@ export class DesertConvoy implements ConvoyController, ExtraTarget {
     const def = EXPLOSIONS[spec.kind];
     let hit = 0;
     for (const bv of [...this._bandits]) {
-      if (!bv.alive) continue;
+      if (!bv.alive || bv.id === this.skipBlastBanditId) continue;
       const d = Math.max(0, bv.position.distanceTo(center) - 1.2);
       if (d > spec.radius) continue;
       const falloff = 1 - (d / spec.radius) * (1 - (def?.edgeDamage ?? 0.35));
@@ -1344,11 +1643,11 @@ export class DesertConvoy implements ConvoyController, ExtraTarget {
   }
 
   /**
-   * Fires a single heavy `.50 cal` round from the player's truck turret:
-   * - Tests generous OBB hitboxes on all live Saltblood bikes & technicals.
-   * - Calls `ctx.combat.fireRay` (`source: 'emplacement'`, `damage: 55`) to shred Tier-0 sheet-metal
-   *   wall panels, topple watchtowers, blow fuel drums, and punch through gaps into Saltbloods behind!
-   * - Also drives localized Tier-0 structural blast & impact sparks/dust when hitting world surfaces.
+   * Launches a single 40mm HEDP grenade from the player's sculpted Mk 19 belt-fed automatic grenade launcher:
+   * - Flies on a high-velocity ballistic arc (`110 m/s`, gravity `-14 m/s²`) with a visible golden warhead & trail.
+   * - On impact with bandits, human Saltbloods, wall panels, watchtowers, or desert ground, detonates with
+   *   `210` explosive damage in `4.8m` radius (`source: 'mgl'`, `kind: 'grenade'`) for chunky gore/paste
+   *   plus controlled `95` structural damage in `3.4m` radius (`source: 'mgl'`) to dent/punch walls & topple towers!
    */
   fireSingleShot(originOverride?: THREE.Vector3, dirOverride?: THREE.Vector3): boolean {
     const gun = this.gun;
@@ -1368,102 +1667,287 @@ export class DesertConvoy implements ConvoyController, ExtraTarget {
       randomInCone(_bore, DESERT_CONVOY_CONSTANTS.turretSpread, _dir);
     }
 
-    const maxRange = DESERT_CONVOY_CONSTANTS.turretMaxRange;
-    const worldHit = this.ctx.physics?.raycast?.(_muzzle, _dir, maxRange, CG.World) ?? null;
-    const hitOwnBanditCollider =
-      worldHit?.collider != null && this.banditByCollider.has(worldHit.collider.handle);
-    const solidWallDist = worldHit && !hitOwnBanditCollider ? worldHit.distance : maxRange;
+    const mesh = buildMk19GrenadeMesh();
+    const pos = _muzzle.clone();
+    const vel = _dir.clone().multiplyScalar(DESERT_CONVOY_CONSTANTS.grenadeSpeed);
+    mesh.position.copy(pos);
+    mesh.lookAt(pos.x + _dir.x, pos.y + _dir.y, pos.z + _dir.z);
+    this.ctx.render.scene.add(mesh);
 
-    // 1. Check Saltblood bandit vehicle locational OBB hitboxes
-    let bestBanditDist = solidWallDist;
-    let hitBandit: BanditVehicle | null = null;
-    let hitZone: BanditHitZone | null = null;
+    this._projectiles.push({
+      id: this.nextProjectileId++,
+      mesh,
+      position: pos,
+      velocity: vel,
+      age: 0,
+      maxAge: 3.4,
+      smokeTimer: 0,
+    });
 
-    for (let i = 0; i < this._bandits.length; i++) {
-      const bv = this._bandits[i]!;
-      if (!bv.alive) continue;
-      _invQ.copy(bv.root.quaternion).invert();
-      _localOrigin.copy(_muzzle).sub(bv.position).applyQuaternion(_invQ);
-      _localDir.copy(_dir).applyQuaternion(_invQ);
+    // Visuals, brass 40mm casing ejection, animated belt feed kick, heavy recoil & punchy Mk 19 THUMP audio
+    this.shotsFired++;
+    this.beltPhase += 1.85;
+    this.beltFeedKick = 1.0;
 
-      for (let zIdx = 0; zIdx < bv.zones.length; zIdx++) {
-        const z = bv.zones[zIdx]!;
-        if (z.destroyed && z.kind !== 'chassis') continue;
-        const d = rayLocalBoxDist(_localOrigin, _localDir, z.offset, z.halfExtents, bestBanditDist);
-        if (d >= 0 && d < bestBanditDist) {
-          bestBanditDist = d;
-          hitBandit = bv;
-          hitZone = z;
+    this.ctx.fx?.muzzleFlash?.(_muzzle, _dir, 'autocannon');
+    if (gun) {
+      _casing.set(-_dir.z, rand(1.1, 2.0), _dir.x).multiplyScalar(1.65);
+      this.ctx.fx?.shellCasing?.(gun.root.position, _casing, 'cannon');
+    }
+    gun?.recoil(0.085);
+    this.ctx.audio?.play?.('mgl_shot', { position: _muzzle, volume: 0.92, pitch: 0.92, pitchJitter: 0.05 });
+    this.ctx.audio?.play?.('autocannon_fire', { position: _muzzle, volume: 0.34, pitch: 0.72, pitchJitter: 0.04 });
+    if (this.shotsFired % 2 === 0) {
+      this.ctx.audio?.play?.('reload_bolt', { position: _muzzle, volume: 0.28, pitch: 1.28, pitchJitter: 0.06 });
+    }
+    this.ctx.camera?.kick?.(rand(0.005, 0.011), rand(-0.005, 0.005));
+    this.ctx.camera?.addTrauma?.(0.055);
+
+    return true;
+  }
+
+  private updateProjectiles(dt: number): void {
+    const gravity = DESERT_CONVOY_CONSTANTS.grenadeGravity;
+
+    for (let i = this._projectiles.length - 1; i >= 0; i--) {
+      const p = this._projectiles[i]!;
+      p.age += dt;
+      _segPrev.copy(p.position);
+      p.velocity.y -= gravity * dt;
+      _segNext.copy(p.position).addScaledVector(p.velocity, dt);
+      _segDir.subVectors(_segNext, _segPrev);
+      const segLen = _segDir.length();
+      if (segLen > 1e-5) {
+        _segDir.divideScalar(segLen);
+      } else {
+        _segDir.set(0, -1, 0);
+      }
+
+      let bestDist = segLen;
+      let hitBandit: BanditVehicle | null = null;
+      let hitZone: BanditHitZone | null = null;
+      let hitEnemy: EnemyInstance | null = null;
+      let hitCollider: RAPIER.Collider | null = null;
+      let hitWorld = false;
+      let hitGround = false;
+      _hitNorm.copy(UP);
+
+      // 1. World solid surfaces (ignore our own bandit static colliders so OBB hitboxes resolve riders/gunners)
+      if (segLen > 1e-5) {
+        const worldHit = this.ctx.physics?.raycast?.(_segPrev, _segDir, segLen, CG.World) ?? null;
+        const isBanditCol =
+          worldHit?.collider != null && this.banditByCollider.has(worldHit.collider.handle);
+        if (worldHit && !isBanditCol && worldHit.distance <= bestDist) {
+          bestDist = worldHit.distance;
+          hitWorld = true;
+          hitCollider = worldHit.collider ?? null;
+          _hitNorm.copy(worldHit.normal);
         }
       }
+
+      // 2. Saltblood bandit vehicle locational OBB hitboxes
+      for (let bIdx = 0; bIdx < this._bandits.length; bIdx++) {
+        const bv = this._bandits[bIdx]!;
+        if (!bv.alive) continue;
+        _invQ.copy(bv.root.quaternion).invert();
+        _localOrigin.copy(_segPrev).sub(bv.position).applyQuaternion(_invQ);
+        _localDir.copy(_segDir).applyQuaternion(_invQ);
+
+        for (let zIdx = 0; zIdx < bv.zones.length; zIdx++) {
+          const z = bv.zones[zIdx]!;
+          if (z.destroyed && z.kind !== 'chassis') continue;
+          const d = rayLocalBoxDist(_localOrigin, _localDir, z.offset, z.halfExtents, bestDist);
+          if (d >= 0 && d <= bestDist) {
+            bestDist = d;
+            hitBandit = bv;
+            hitZone = z;
+            hitEnemy = null;
+            hitCollider = null;
+            hitWorld = false;
+            _hitNorm.copy(_segDir).negate();
+          }
+        }
+      }
+
+      // 3. Living human Saltblood enemies (generous 0.85m envelope for satisfying direct impacts on wall/towers)
+      const aliveEnemies = this.ctx.enemies?.alive;
+      if (aliveEnemies) {
+        for (let eIdx = 0; eIdx < aliveEnemies.length; eIdx++) {
+          const e = aliveEnemies[eIdx]!;
+          if (!e.alive) continue;
+          _tmp.subVectors(e.center, _segPrev);
+          const projT = _tmp.dot(_segDir);
+          if (projT < -0.6 || projT > bestDist + 0.6) continue;
+          const clampedT = clamp(projT, 0, bestDist);
+          _tmp2.copy(_segPrev).addScaledVector(_segDir, clampedT);
+          if (_tmp2.distanceToSquared(e.center) <= 0.85 * 0.85) {
+            bestDist = clampedT;
+            hitEnemy = e;
+            hitBandit = null;
+            hitZone = null;
+            hitCollider = null;
+            hitWorld = false;
+            _hitNorm.copy(_segDir).negate();
+          }
+        }
+      }
+
+      // 4. Desert floor fallback plane (y <= 0.05)
+      if (!hitBandit && !hitEnemy && !hitWorld && _segNext.y <= 0.05) {
+        if (_segPrev.y > 0.05) {
+          const frac = clamp((_segPrev.y - 0.05) / Math.max(1e-5, _segPrev.y - _segNext.y), 0, 1);
+          bestDist = segLen * frac;
+        } else {
+          bestDist = 0;
+        }
+        hitGround = true;
+        _hitNorm.copy(UP);
+      }
+
+      if (hitBandit || hitEnemy || hitWorld || hitGround || p.age >= p.maxAge) {
+        _hitPt.copy(_segPrev).addScaledVector(_segDir, bestDist);
+        if (segLen > 0.25) {
+          this.ctx.fx?.tracer?.(_segPrev, _hitPt, 'heavy');
+        }
+        p.mesh.removeFromParent();
+        this._projectiles.splice(i, 1);
+        this.detonateGrenade(_hitPt, _hitNorm, hitBandit, hitZone, hitEnemy, hitCollider);
+        continue;
+      }
+
+      // Advance in-flight grenade with visible amber-gold tracer arc & light smoke wisp
+      p.position.copy(_segNext);
+      p.mesh.position.copy(p.position);
+      p.mesh.lookAt(
+        p.position.x + p.velocity.x,
+        p.position.y + p.velocity.y,
+        p.position.z + p.velocity.z,
+      );
+      if (segLen > 0.2) {
+        this.ctx.fx?.tracer?.(_segPrev, _segNext, 'heavy');
+      }
+      p.smokeTimer -= dt;
+      if (p.smokeTimer <= 0) {
+        p.smokeTimer = 0.045;
+        this.ctx.fx?.smoke?.(p.position, 0xd8cdb8, 0.34, 0.38);
+      }
     }
+  }
 
-    let hitSomething = false;
+  private detonateGrenade(
+    pos: THREE.Vector3,
+    normal: THREE.Vector3,
+    hitBandit: BanditVehicle | null,
+    hitZone: BanditHitZone | null,
+    hitEnemy: EnemyInstance | null,
+    hitCollider: RAPIER.Collider | null,
+  ): void {
+    const blastRadius = DESERT_CONVOY_CONSTANTS.grenadeBlastRadius;
+    const blastDamage = DESERT_CONVOY_CONSTANTS.turretDamage;
+    const structDamage = DESERT_CONVOY_CONSTANTS.grenadeStructDamage;
+    const structRadius = DESERT_CONVOY_CONSTANTS.grenadeStructRadius;
 
-    if (hitBandit && hitZone) {
-      hitSomething = true;
-      _hitPt.copy(_muzzle).addScaledVector(_dir, bestBanditDist);
-      this.damageBanditZone(hitBandit, hitZone, DESERT_CONVOY_CONSTANTS.turretDamage, _hitPt);
-      this.ctx.fx?.tracer?.(_muzzle, _hitPt, 'heavy');
+    // 1. Direct bandit vehicle hit (skip same vehicle during radial splash below to avoid double-counting)
+    if (hitBandit && hitZone && hitBandit.alive) {
+      this.skipBlastBanditId = hitBandit.id;
+      this.damageBanditZone(
+        hitBandit,
+        hitZone,
+        DESERT_CONVOY_CONSTANTS.grenadeDirectBanditDamage,
+        pos,
+        'mgl',
+      );
       if (this._phase === 'wallLoop') {
         this.recordWallLoopHit(2);
       }
+    }
+
+    // 2. Direct human enemy hit — punchy immediate gore burst before radial blast finishes pasting them
+    if (hitEnemy && hitEnemy.alive) {
+      this.ctx.fx?.gibBurst?.(pos, normal, 18);
+      this.ctx.fx?.bloodMist?.(pos, 1.35);
+      this.ctx.audio?.play?.('gore_splat', { position: pos, volume: 0.78, pitchJitter: 0.1 });
+      if (this._phase === 'wallLoop') {
+        this.recordWallLoopHit(3);
+      }
+    }
+
+    // 3. Radial 40mm HEDP blast via CombatSystem (`source: 'mgl'`, `kind: 'grenade'`, 210 dmg, 4.8m radius)
+    //    `worldObject: true` lets Combat.explode resolve full enemy gore/paste, vehicle splash & impulses
+    //    while we emit crisp 40mm FX/audio and exact controlled structural damage below.
+    const explodeSpec: ExplosionSpec = {
+      radius: blastRadius,
+      damage: blastDamage,
+      kind: 'grenade',
+      source: 'mgl',
+      team: 'player',
+      selfDamage: 0,
+      playerPush: 0,
+      normal: normal.clone(),
+      scale: 0.95,
+      worldObject: true,
+    };
+    if (typeof this.ctx.combat?.explode === 'function') {
+      this.ctx.combat.explode(pos, explodeSpec);
     } else {
-      // 2. Fire through CombatSystem (`source: 'emplacement'`, `damage: 55`) for enemies, explosives, & Tier-0 panels!
-      const shotResult = this.ctx.combat?.fireRay?.(_muzzle, _dir, this.shotSpec);
-      if (shotResult) {
-        if (shotResult.hitEnemy) {
-          hitSomething = true;
-          if (this._phase === 'wallLoop') this.recordWallLoopHit(shotResult.killed ? 3 : 1);
-        }
-        _hitPt.copy(shotResult.end);
-      } else {
-        _hitPt.copy(_muzzle).addScaledVector(_dir, solidWallDist);
-        this.ctx.fx?.tracer?.(_muzzle, _hitPt, 'heavy');
-      }
-
-      // 3. Structural destruction oomph against Tier-0 wall panels, watchtowers & fuel drums
-      if (worldHit && !hitOwnBanditCollider) {
-        hitSomething = true;
-        if (!shotResult && worldHit.collider) {
-          this.ctx.world?.objects?.damageExplosive?.(
-            worldHit.collider,
-            DESERT_CONVOY_CONSTANTS.turretDamage,
-            'emplacement',
-          );
-          this.ctx.world?.objects?.destruction?.damageCollider?.(
-            worldHit.collider,
-            DESERT_CONVOY_CONSTANTS.turretDamage,
-            'emplacement',
-            worldHit.point,
-          );
-        }
-        // Localized Tier-0 structural splash rips adjacent corrugated panels & watchtower legs cleanly
-        this.ctx.world?.objects?.destruction?.blast?.(worldHit.point, 1.35, 30, 'emplacement');
-        this.ctx.fx?.sparks?.(worldHit.point, worldHit.normal, 7, 0xffc864);
-        this.ctx.fx?.dust?.(worldHit.point, worldHit.normal, 1.25);
-
-        if (this._phase === 'wallLoop' && Math.abs(worldHit.point.z - DESERT_Z.wallLine) <= 14) {
-          this.recordWallLoopHit(1);
+      // Fallback for minimal mock environments without full CombatSystem.explode
+      if (this.ctx.enemies?.alive) {
+        for (const e of [...this.ctx.enemies.alive]) {
+          if (!e.alive) continue;
+          const d = e.center.distanceTo(pos);
+          if (d > blastRadius) continue;
+          const falloff = 1 - (d / blastRadius) * 0.65;
+          this.ctx.enemies.applyDamage?.(e, {
+            amount: blastDamage * falloff,
+            type: 'explosive',
+            source: 'mgl',
+            point: e.center.clone(),
+            dir: _tmp2.subVectors(e.center, pos).normalize().clone(),
+            force: 24,
+            gib: true,
+          });
         }
       }
+      this.blast(pos, explodeSpec);
+    }
+    this.skipBlastBanditId = -1;
+
+    // 4. Crisp 40mm detonation FX, sparks, dust plume & grenade_explode audio
+    this.ctx.fx?.explosion?.(pos, { radius: blastRadius, kind: 'grenade', scale: 0.95, normal });
+    this.ctx.fx?.sparks?.(pos, normal, 11, 0xffc854);
+    this.ctx.fx?.dust?.(pos, normal, 1.45);
+    this.ctx.fx?.smoke?.(pos, 0x3b352d, 1.15, 0.95);
+    this.ctx.render?.lights?.flash?.(pos, 0xff9830, 18, 22, 0.22);
+    this.ctx.audio?.play?.('grenade_explode', { position: pos, volume: 0.78, pitch: 1.06, pitchJitter: 0.08 });
+    this.ctx.camera?.addTrauma?.(0.08);
+
+    // 5. Controlled localized structural damage (`source: 'mgl'`, 95 dmg in 3.4m) so walls dent/punch
+    //    through in 2-3 hits and watchtowers topple in 2-3 thumps, plus direct fuel barrel detonations
+    if (hitCollider) {
+      this.ctx.world?.objects?.damageExplosive?.(hitCollider, structDamage, 'mgl');
+      this.ctx.world?.objects?.destruction?.damageCollider?.(
+        hitCollider,
+        Math.round(structDamage * 0.45),
+        'mgl',
+        pos,
+      );
+    }
+    if (typeof this.ctx.world?.objects?.damageExplosivesInRadius === 'function') {
+      this.ctx.world.objects.damageExplosivesInRadius(pos, structRadius, structDamage, 'mgl');
+    } else {
+      this.ctx.world?.objects?.destruction?.blast?.(pos, structRadius, structDamage, 'mgl');
     }
 
-    // Visuals, brass ejection, recoil kick & punchy .50 cal audio
-    this.shotsFired++;
-    if (this.shotsFired % 2 === 1) {
-      this.ctx.fx?.muzzleFlash?.(_muzzle, _dir, 'hmg');
+    if (this._phase === 'wallLoop' && Math.abs(pos.z - DESERT_Z.wallLine) <= 16) {
+      this.recordWallLoopHit(2);
     }
-    if (this.shotsFired % 2 === 0 && gun) {
-      _casing.set(-_dir.z, rand(1.1, 2.0), _dir.x).multiplyScalar(1.55);
-      this.ctx.fx?.shellCasing?.(gun.root.position, _casing, 'cannon');
-    }
-    gun?.recoil(0.055);
-    this.ctx.audio?.play?.('hmg_shot', { pitch: 0.96, pitchJitter: 0.04 });
-    this.ctx.camera?.kick?.(rand(0.002, 0.006), rand(-0.004, 0.004));
-    this.ctx.camera?.addTrauma?.(0.038);
+  }
 
-    return hitSomething;
+  private clearProjectiles(): void {
+    for (const p of this._projectiles) {
+      p.mesh.removeFromParent();
+    }
+    this._projectiles.length = 0;
   }
 
   /** Spawns a single Saltblood bandit vehicle (public for deterministic testing). */
@@ -1599,7 +2083,7 @@ export class DesertConvoy implements ConvoyController, ExtraTarget {
       yaw,
       roll: 0,
       pitch: 0,
-      speed: kind === 'bike' ? 16 : 11,
+      speed: kind === 'bike' ? 19 : 14,
       hp: maxHp,
       maxHp,
       alive: true,
@@ -1610,7 +2094,7 @@ export class DesertConvoy implements ConvoyController, ExtraTarget {
       weaveAmp: kind === 'bike' ? rand(5, 10) : rand(2, 4.5),
       weaveFreq: kind === 'bike' ? rand(1.4, 2.2) : rand(0.65, 1.05),
       preferredSide: Math.random() < 0.5 ? -1 : 1,
-      preferredLead: behavior === 'exfil' ? rand(-18, -9) : rand(14, 28),
+      preferredLead: behavior === 'exfil' ? rand(-18, -9) : rand(16, 34),
       fireCooldown: rand(0.9, 1.8),
       smokeTimer: 0,
       dustTimer: rand(0, 0.12),
@@ -1630,7 +2114,7 @@ export class DesertConvoy implements ConvoyController, ExtraTarget {
     zone: BanditHitZone,
     amount: number,
     hitPt?: THREE.Vector3,
-    source = 'emplacement',
+    source = 'mgl',
   ): boolean {
     if (!bv.alive || amount <= 0) return false;
     const pt = hitPt ?? bv.center;
@@ -1640,6 +2124,10 @@ export class DesertConvoy implements ConvoyController, ExtraTarget {
     bv.hp = Math.max(0, bv.hp - amount * hullMult);
 
     const isWeak = zone.kind !== 'chassis';
+    const isCrew = zone.kind === 'rider' || zone.kind === 'gunner';
+    if (isCrew) {
+      this.ctx.fx?.bloodHit?.(pt, UP, 1.0);
+    }
     this.ctx.fx?.sparks?.(pt, UP, isWeak ? 12 : 6, isWeak ? 0xffbb33 : 0xffaa55);
     this.ctx.fx?.chips?.(pt, 0xff9a38, isWeak ? 8 : 5);
     this.ctx.hud?.hitMarker?.(bv.hp <= 0 || zone.hp <= 0 ? 'kill' : isWeak ? 'armorThrough' : 'armor');
@@ -1648,6 +2136,10 @@ export class DesertConvoy implements ConvoyController, ExtraTarget {
     if (zone.hp <= 0 && !zone.destroyed) {
       zone.destroyed = true;
       if (zone.kind === 'rider') {
+        this.ctx.fx?.gibBurst?.(pt, UP, 20);
+        this.ctx.fx?.bloodMist?.(pt, 1.4);
+        this.ctx.audio?.play?.('gore_splat', { position: pt, volume: 0.82, pitchJitter: 0.1 });
+        this.ctx.audio?.play?.('gib_rain', { position: pt, volume: 0.62 });
         this.destroyBandit(bv, 'rider_flip', source);
         return true;
       }
@@ -1658,7 +2150,10 @@ export class DesertConvoy implements ConvoyController, ExtraTarget {
       if (zone.kind === 'gunner') {
         bv.gunnerAlive = false;
         if (bv.gunnerPivot) bv.gunnerPivot.visible = false;
-        this.ctx.hud?.feed?.('TECHNICAL GUNNER ELIMINATED!', '#ffcf6e');
+        this.ctx.fx?.gibBurst?.(pt, UP, 18);
+        this.ctx.fx?.bloodMist?.(pt, 1.3);
+        this.ctx.audio?.play?.('gore_splat', { position: pt, volume: 0.8, pitchJitter: 0.1 });
+        this.ctx.hud?.feed?.('TECHNICAL GUNNER OBLITERATED!', '#ffcf6e');
       } else if (zone.kind === 'tire') {
         this.ctx.audio?.play?.('plate_destroyed', { position: pt, volume: 0.8 });
         bv.speed *= 0.72;
@@ -1721,13 +2216,17 @@ export class DesertConvoy implements ConvoyController, ExtraTarget {
 
     this.ctx.render.scene.add(this.root);
 
-    // Player's heavy .50 cal gun & desert gunshield
-    this.gun = new Gun(this.materials, this.ctx.render.scene, HMG);
-    const sh = buildDesertTurretShield(this.materials);
-    this.shieldPivot = sh.pivot;
-    this.heatSleeve = sh.heatSleeve;
+    // Player's sculpted Mk 19 belt-fed 40mm grenade launcher, wide-slot gunshield & animated 40mm belt
+    this.gun = new Gun(this.materials, this.ctx.render.scene, MK19);
+    const rig = buildTurretGun(this.materials);
+    this.shieldPivot = rig.shieldPivot;
+    this.beltPivot = rig.beltPivot;
+    this.beltStrip = rig.beltStrip;
+    this.heatSleeve = rig.heatSleeve;
     this.shieldPivot.visible = false;
+    this.beltPivot.visible = false;
     this.ctx.render.scene.add(this.shieldPivot);
+    this.ctx.render.scene.add(this.beltPivot);
 
     this.hud = createConvoyHud();
   }
@@ -1743,6 +2242,20 @@ export class DesertConvoy implements ConvoyController, ExtraTarget {
   private setQuistVisible(visible: boolean): void {
     if (this.playerTruck?.quistMesh) {
       this.playerTruck.quistMesh.visible = visible;
+    }
+  }
+
+  private hideHud(): void {
+    this.hud?.root.classList.remove('on');
+  }
+
+  private clearBoardingHint(): void {
+    const ui = this.ui as (CampaignHud & { clearHint?: () => void }) | undefined;
+    if (typeof ui?.clearHint === 'function') {
+      ui.clearHint();
+    } else if (ui) {
+      ui.hint?.('', 0.01);
+      ui.el?.querySelector?.('.ms-hint')?.classList.remove('on');
     }
   }
 
@@ -1771,6 +2284,7 @@ export class DesertConvoy implements ConvoyController, ExtraTarget {
 
     this.gun?.snap(this._yaw, this._pitch);
     if (this.shieldPivot) this.shieldPivot.visible = true;
+    if (this.beltPivot) this.beltPivot.visible = true;
     this.syncTurretTransforms(0);
 
     audio?.play?.('weapon_draw_heavy', { volume: 0.78 });
@@ -1782,6 +2296,7 @@ export class DesertConvoy implements ConvoyController, ExtraTarget {
       if (!keepGunStowed) {
         this.gun?.hide();
         if (this.shieldPivot) this.shieldPivot.visible = false;
+        if (this.beltPivot) this.beltPivot.visible = false;
       }
       return;
     }
@@ -1798,8 +2313,9 @@ export class DesertConvoy implements ConvoyController, ExtraTarget {
     if (!keepGunStowed) {
       this.gun?.hide();
       if (this.shieldPivot) this.shieldPivot.visible = false;
+      if (this.beltPivot) this.beltPivot.visible = false;
     }
-    this.hud?.root.classList.remove('on');
+    this.hideHud();
   }
 
   private stowGunOnParkedTruck(): void {
@@ -1808,6 +2324,7 @@ export class DesertConvoy implements ConvoyController, ExtraTarget {
     this._pitch = -0.1;
     this.gun?.snap(this._yaw, this._pitch);
     if (this.shieldPivot) this.shieldPivot.visible = true;
+    if (this.beltPivot) this.beltPivot.visible = true;
     this.syncTurretTransforms(0);
   }
 
@@ -1887,10 +2404,10 @@ export class DesertConvoy implements ConvoyController, ExtraTarget {
   private updateExfilArriving(dt: number): void {
     this.exfilArriveElapsed += dt;
     const t = clamp(this.exfilArriveElapsed / this.exfilArriveDuration, 0, 1);
-    // Ease-out slide into the Cargo Plane forecourt and swing around facing South (Math.PI)
+    // Ease-out sweep in from the eastern bypass into the Plane forecourt, swinging South (Math.PI)
     const ease = 1 - (1 - t) * (1 - t);
     _tmp.lerpVectors(this.exfilArriveStart, this.exfilTargetPos, ease);
-    const yaw = lerp(0, Math.PI, clamp((t - 0.45) / 0.55, 0, 1));
+    const yaw = lerp(0.96, Math.PI, clamp((t - 0.35) / 0.65, 0, 1));
     this.currentSpeed = (1 - t) * DESERT_CONVOY_CONSTANTS.exfilArriveSpeed;
     this.placeConvoy(_tmp, yaw, 0.65, dt, false);
     this.stowGunOnParkedTruck();
@@ -1932,7 +2449,7 @@ export class DesertConvoy implements ConvoyController, ExtraTarget {
     if (shouldBoard && !this.exfilBoardedSignalled) {
       this.exfilBoardedSignalled = true;
       this.clearExfilPrompt();
-      this.ui?.hint?.('', 0);
+      this.clearBoardingHint();
       for (const t of this._trucks) {
         if (t.headlights) t.headlights.scale.setScalar(1);
       }
@@ -1944,31 +2461,33 @@ export class DesertConvoy implements ConvoyController, ExtraTarget {
 
   private updateExfilChase(dt: number): void {
     const speed = DESERT_CONVOY_CONSTANTS.exfilSpeed;
-    this.currentSpeed = speed;
     this.pathDist += speed * dt;
 
     if (this.pathDist <= this.exfilPath.length) {
       this.exfilPath.sample(this.pathDist, _tmp, _tan);
     } else {
-      // Keep cruising south across the open desert after path end for the scenic ending cutscene!
+      // Smoothly cruise south after path end, capped cleanly at endingCruiseMaxZ (185)
       this.exfilPath.sample(this.exfilPath.length, _tmp, _tan);
       const extra = this.pathDist - this.exfilPath.length;
-      _tmp.z += extra;
+      _tmp.z = Math.min(DESERT_CONVOY_CONSTANTS.endingCruiseMaxZ, _tmp.z + extra);
       _tan.set(0, 0, 1);
     }
 
+    const capped = _tmp.z >= DESERT_CONVOY_CONSTANTS.endingCruiseMaxZ - 0.05;
+    this.currentSpeed = capped ? 0 : speed;
+
     const yaw = Math.atan2(-_tan.x, -_tan.z);
-    // Tighten lateral formation inside Surplus (z < 64), widen smoothly back to full desert column past wall!
+    // Tighten lateral formation along the eastern bypass (z < 64), widen smoothly back to full desert column past wall
     const spreadScale = _tmp.z < DESERT_Z.wallLine + 4 ? 0.58 : 1.0;
     this.placeConvoy(_tmp, yaw, spreadScale, dt, false);
 
-    // Raise `dr:exfil_clear` once clear of the outer wall (z >= 125)
+    // Raise `dr:exfil_clear` once clear of the outer wall (z >= 108)
     if (!this.exfilClearSignalled && _tmp.z >= DESERT_CONVOY_CONSTANTS.exfilClearZ) {
       this.exfilClearSignalled = true;
       this.runner?.signal?.('dr:exfil_clear');
     }
 
-    // Keep pursuing Saltbloods trickling in while racing out through Surplus (until clear)
+    // Keep pursuing Saltbloods trickling in while racing south along the eastern bypass (until clear)
     if (!this.exfilClearSignalled) {
       this.exfilAutoSpawnTimer -= dt;
       if (this.exfilAutoSpawnTimer <= 0) {
@@ -1978,6 +2497,29 @@ export class DesertConvoy implements ConvoyController, ExtraTarget {
         }
       }
     }
+  }
+
+  private updateEndingCruise(dt: number): void {
+    const pt = this.playerTruck;
+    if (!pt) return;
+    const maxZ = DESERT_CONVOY_CONSTANTS.endingCruiseMaxZ;
+    const remaining = Math.max(0, maxZ - this.endingCruiseZ);
+    const speed =
+      remaining > 0.05
+        ? DESERT_CONVOY_CONSTANTS.endingCruiseSpeed * clamp(remaining / 14, 0.15, 1)
+        : 0;
+    this.currentSpeed = speed;
+
+    this.endingCruiseZ = Math.min(maxZ, this.endingCruiseZ + speed * dt);
+    const nextX = damp(pt.position.x, 0, 2.2, dt);
+    _tmp.set(nextX, 0, this.endingCruiseZ);
+    this.placeConvoy(_tmp, Math.PI, 1.0, dt, false);
+
+    // Keep stowed Mk 19 synced on the rolling truck bed & carry parked player without touching camera
+    this._yaw = pt.yaw;
+    this._pitch = -0.1;
+    this.syncTurretTransforms(dt);
+    this.ctx.player?.carry?.(pt.position);
   }
 
   private placeConvoy(
@@ -2245,6 +2787,19 @@ export class DesertConvoy implements ConvoyController, ExtraTarget {
       this.shieldPivot.rotation.set(0, this._yaw, 0);
     }
 
+    if (this.beltPivot) {
+      this.beltPivot.position.copy(this._turretPivot);
+      this.beltPivot.rotation.set(this._pitch, this._yaw, 0);
+    }
+    this.beltFeedKick = Math.max(0, this.beltFeedKick - dt * 7.5);
+    if (this.beltStrip) {
+      const kick = this.beltFeedKick;
+      const sway = kick > 0.01 ? Math.sin(this.beltPhase * 3.1) * 0.018 * kick : 0;
+      const climb = kick > 0.01 ? Math.abs(Math.sin(this.beltPhase * 1.9)) * 0.016 * kick : 0;
+      this.beltStrip.position.set(climb * 0.65, climb, sway * 0.5);
+      this.beltStrip.rotation.set(sway * 1.5, 0, sway * 2.4);
+    }
+
     if (!this._mounted) return;
 
     const cp = Math.cos(this._pitch);
@@ -2277,9 +2832,10 @@ export class DesertConvoy implements ConvoyController, ExtraTarget {
 
       let targetX: number;
       let targetZ: number;
-      let cruiseSpeed = bv.kind === 'bike' ? 17.5 : 11.5;
+      let cruiseSpeed = bv.kind === 'bike' ? 21 : 17.5;
 
       if (bv.behavior === 'sideGate') {
+        cruiseSpeed = bv.kind === 'bike' ? 19 : 13.5;
         // Burst south out of the side gate (z=62 -> 76) then flank the convoy outside the wall!
         if (bv.position.z < DESERT_Z.wallLine + 13) {
           targetX = bv.position.x;
@@ -2290,7 +2846,7 @@ export class DesertConvoy implements ConvoyController, ExtraTarget {
         }
       } else if (bv.behavior === 'exfil') {
         // High-speed pursuit chasing the southbound convoy from behind/flanks
-        cruiseSpeed = bv.kind === 'bike' ? 21 : 17.5;
+        cruiseSpeed = bv.kind === 'bike' ? 23 : 19;
         targetX = mid.x + bv.preferredSide * (10 + Math.sin(bv.weavePhase) * bv.weaveAmp);
         targetZ = mid.z + bv.preferredLead;
       } else {
@@ -2421,6 +2977,7 @@ export class DesertConvoy implements ConvoyController, ExtraTarget {
     source: string,
   ): void {
     if (!bv.alive) return;
+    const hadCrew = bv.kind === 'bike' || bv.gunnerAlive;
     bv.alive = false;
     bv.gunnerAlive = false;
     if (bv.gunnerPivot) bv.gunnerPivot.visible = false;
@@ -2431,6 +2988,13 @@ export class DesertConvoy implements ConvoyController, ExtraTarget {
 
     this._banditVehiclesDestroyed++;
     const pos = bv.position.clone();
+    const crewPos = _tmp2.set(pos.x, bv.kind === 'bike' ? 1.3 : 1.85, pos.z);
+
+    if (hadCrew && mode !== 'rider_flip') {
+      this.ctx.fx?.gibBurst?.(crewPos, UP, bv.kind === 'bike' ? 18 : 22);
+      this.ctx.fx?.bloodMist?.(crewPos, 1.4);
+      this.ctx.audio?.play?.('gore_splat', { position: crewPos, volume: 0.78, pitchJitter: 0.1 });
+    }
 
     if (bv.kind === 'bike') {
       this.ctx.fx?.explosion?.(pos, { radius: 4.2, kind: 'barrel', scale: 0.95 });
