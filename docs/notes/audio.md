@@ -318,14 +318,14 @@ the mean take lands:
 
 **Positional body-gore & blood update** (`sfx/gore3`, 2026-11-22, the owner's own recordings; deduplicated, mixed down to mono
 at 44.1 kHz / 160 kbps MP3, level-matched). Every id plays in **3D from the body/wound itself**, never globally in 2D:
-- Flesh bullet impacts (living enemies, corpses, loose limbs, and sliced torso pieces): `flesh_bullet_impact` (9 takes, level 0.22,
+- Flesh bullet impacts (living enemies, corpses, loose limbs, and sliced torso pieces): `flesh_bullet_impact` (7 active takes — takes 1 & 5 disabled, level 0.22,
   near 10 m, far 95 m, outside the `flesh` family so corpses stay crisp under fire) and `flesh_bullet_hard` (heavy rounds/pellets,
   level 0.28, near 14 m, far 120 m)
 - Torso blowout, limb burst & total gib: `torso_gib` (3 takes, level 0.42, near 16 m, far 160 m, priority 8) — loud ribcage/flesh
   crunch played from the body on total `gib()`, `blowOut()`, and `burstLimb()`, joined by `head_burst` (5 takes, level 0.34,
   near 14 m, far 130 m, priority 7) and `skull_fragments` (level 0.22, near 10 m, far 90 m) on head bursts, partial head blowouts,
   violent limb severs, loose limb gibs, and total body gibs
-- Bleeding, arterial sprays, splashes & squishes from the body: `blood_spritz` (wound hit spritz), `blood_dribble` (6 takes, intimate
+- Bleeding, arterial sprays, splashes & squishes from the body: `blood_spritz` (wound hit spritz, `blood_spritz_1` only — `blood_spritz_2` disabled), `blood_dribble` (6 takes, intimate
   3D trickling from actively bleeding wounds & fresh corpses within 18 m), `blood_spray_jet` (4 takes, level 0.085, primary severed
   stump and arterial jet spray), `blood_spray_long` (rare sustained arterial jet, lowered to level 0.06 at measured loudness 0.199
   and gated on a 12 s cooldown so `blood_spray_jet` and `blood_spray_short` carry most stumps), `blood_spray_short` (heavy wound

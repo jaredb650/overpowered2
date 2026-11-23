@@ -203,10 +203,18 @@ function gore3Pack(
 }
 
 const bodyGoreSamples: SoundDef[] = [
-  // 9 unique wet flesh bullet impacts for both living and dead bodies, outside the `flesh` family so corpses stay audible.
+  // 7 active wet flesh bullet impacts (takes 1 and 5 disabled) for living and dead bodies, outside the `flesh` family so corpses stay audible.
   gore3Pack(
     'flesh_bullet_impact',
-    Array.from({ length: 9 }, (_, i) => `gore3/bullet_impact_${i + 1}.mp3`),
+    [
+      'gore3/bullet_impact_2.mp3',
+      'gore3/bullet_impact_3.mp3',
+      'gore3/bullet_impact_4.mp3',
+      'gore3/bullet_impact_6.mp3',
+      'gore3/bullet_impact_7.mp3',
+      'gore3/bullet_impact_8.mp3',
+      'gore3/bullet_impact_9.mp3',
+    ],
     'gore', 0.22, 'blood_splat',
     { priority: 6, maxVoices: 4, perFrame: 1, family: undefined, familyMax: undefined, near: 10, far: 95, send: 0.08, pitchJitter: 0.08 },
   ),
@@ -221,13 +229,10 @@ const bodyGoreSamples: SoundDef[] = [
     'gore', 0.42, 'gib_squelch',
     { priority: 8, maxVoices: 3, perFrame: 1, family: undefined, familyMax: undefined, near: 16, far: 160, send: 0.2, pitchJitter: 0.06 },
   ),
-  // Crisp wet blood spritz bursting off a wound on hit.
-  gore3Pack(
-    'blood_spritz',
-    ['gore3/blood_spritz_1.mp3', 'gore3/blood_spritz_2.mp3', 'gore3/blood_spritz_1.mp3'],
-    'gore', 0.13, 'blood_spurt',
-    { priority: 4, maxVoices: 3, perFrame: 1, near: 5, far: 45, send: 0.06, pitchJitter: 0.1 },
-  ),
+  // Crisp wet blood spritz bursting off a wound on hit (blood_spritz_2 disabled).
+  shot('blood_spritz', 'gore3/blood_spritz_1.mp3', 'gore', 0.13, 0.1819, {
+    priority: 4, maxVoices: 3, perFrame: 1, near: 5, far: 45, send: 0.06, pitchJitter: 0.1,
+  }),
   // Intimate 3D blood trickling/dribbling from actively bleeding bodies and fresh corpses (6 takes).
   gore3Pack(
     'blood_dribble',

@@ -34,7 +34,12 @@ describe('positional gore3 body sounds', () => {
       expect(def!.near, id).toBeGreaterThan(0);
       expect(def!.far, id).toBeGreaterThan(def!.near);
     }
-    expect(lookup('flesh_bullet_impact')!.files!.length).toBe(9);
+    const impactFiles = lookup('flesh_bullet_impact')!.files!;
+    expect(impactFiles.length).toBe(7);
+    expect(impactFiles).not.toContain('gore3/bullet_impact_1.mp3');
+    expect(impactFiles).not.toContain('gore3/bullet_impact_5.mp3');
+    expect(lookup('blood_spritz')!.file).toBe('gore3/blood_spritz_1.mp3');
+    expect(lookup('blood_spritz')!.files).toBeUndefined();
     expect(lookup('torso_gib')!.files!.length).toBe(3);
     expect(lookup('head_burst')!.files!.length).toBe(5);
     expect(lookup('blood_spray_jet')!.files!.length).toBe(4);
