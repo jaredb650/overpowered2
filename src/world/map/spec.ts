@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import type { DestructionTier, MapZone, SpawnPoint } from '../../core/contracts';
 import type { EmplacementSpec } from '../../vehicles/emplacement';
 import type { StructuralClusterSpec } from '../destruction';
+import { Geo } from '../kit/geo';
 import type { DesignatedLink } from '../nav';
 import { SHACK, STALL, WALL, type StructureSpec, type WallStyle } from '../structures';
 import { LEVEL } from './layout';
@@ -151,6 +152,8 @@ export class MapSpec {
   readonly destructionClusters: StructuralClusterSpec[] = [];
   /** Props that break, spark and explode: world/breakables.ts. They go up after the nav sample, as walls do. */
   readonly breakables: BreakableSpec[] = [];
+  /** Optional fragile set-piece dressing kept in its own scene group so scripted events (like the Annex nuke) can vaporize it cleanly. */
+  fragile: Geo | null = null;
 
   zone(id: string, name: string, x0: number, y0: number, z0: number, x1: number, y1: number, z1: number): void {
     this.zones.push({ id, name, bounds: new THREE.Box3(new THREE.Vector3(x0, y0, z0), new THREE.Vector3(x1, y1, z1)) });

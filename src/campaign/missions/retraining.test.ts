@@ -6,6 +6,7 @@ import { MissionRunner } from '../runner';
 import { FakeHost } from '../testkit';
 import type { Trigger } from '../types';
 import { validateMission } from '../validate';
+import { SHACKS, TOWN, TOWN_HOUSES, TOWN_SUBJECTS } from '../../world/map/annex/plan';
 import { RETRAINING } from './retraining';
 import { RETRAINING_LINES } from './retraining.lines';
 
@@ -61,8 +62,31 @@ describe('Retraining', () => {
     expect(playThrough()).toEqual(ORDER);
   });
 
-  it('starts cold at any station', () => {
-    for (const id of ['lane', 'blade', 'sonar', 'surrender', 'balcony']) expect(playThrough(id)[0]).toBe(id);
+  it('starts cold at every checkpointed station', () => {
+    const checkpoints = RETRAINING.beats.filter(b => b.checkpoint).map(b => b.id);
+    expect(checkpoints).toEqual(['intake', 'dash', 'rocket', 'lane', 'blade', 'sonar', 'surrender', 'balcony']);
+    for (const id of checkpoints) expect(playThrough(id)[0]).toBe(id);
+  });
+
+  it('places all 20 shantytown subjects inside town bounds and clear of buildings', () => {
+    expect(TOWN_SUBJECTS).toHaveLength(20);
+    for (const [sx, sz] of TOWN_SUBJECTS) {
+      expect(sx).toBeGreaterThan(TOWN.x0);
+      expect(sx).toBeLessThan(TOWN.x1);
+      expect(sz).toBeGreaterThan(TOWN.z0);
+      expect(sz).toBeLessThan(TOWN.z1);
+      // Clear of central fountain at (TOWN.cx, TOWN.cz)
+      expect(Math.hypot(sx - TOWN.cx, sz - TOWN.cz)).toBeGreaterThan(3.2);
+      // Clear of every multi-piece shanty house
+      for (const [hx, hz, hw, hd] of TOWN_HOUSES) {
+        const inside = Math.abs(sx - hx) < hw / 2 + 0.5 && Math.abs(sz - hz) < hd / 2 + 0.5;
+        expect(inside, `subject (${sx},${sz}) clips house (${hx},${hz})`).toBe(false);
+      }
+      // Clear of every shack
+      for (const [kx, kz] of SHACKS) {
+        expect(Math.hypot(sx - kx, sz - kz), `subject (${sx},${sz}) too close to shack (${kx},${kz})`).toBeGreaterThan(2.6);
+      }
+    }
   });
 });
 
