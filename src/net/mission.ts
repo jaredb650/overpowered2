@@ -95,14 +95,16 @@ export class CoopMission {
   mirrored = 0;
   /** The mission's numbers once it is won, on every screen, for the team board. */
   result: MissionResult | null = null;
+  private resultWire: Record<string, unknown> | null = null;
   /** The beat's title over the objectives: the host's runner's, shown on every screen. */
   private beatTitle = '';
 
   // Host: the state the mission is in, for a late joiner (`catchUp`). A checkpoint restart empties what a new run empties.
   private readonly doors = new Map<string, unknown[]>();
   private readonly latest = new Map<string, unknown[]>();
+  private readonly fcCalls = new Map<string, [string, string | null]>();
   private kit: { weapons: string[]; grenades: number; mods?: string[]; exclusiveMods?: boolean; chip?: string } | null = null;
-  private readonly racks = new Map<string, unknown[]>();
+  private readonly racks = new Map<string, unknown[][]>();
   private drops: unknown[][] = [];
   private readonly chips = new Set<string>();
   private wreck: string | null = null;
@@ -225,13 +227,16 @@ export class CoopMission {
     };
     // A rack is the team's. Whoever reaches their copy first takes it: the runner hears `took`, and everyone is issued the gun.
     const rack = real('rack');
-    parts.rack = (weapon: unknown, at: unknown, took: unknown) => {
+    parts.rack = (weapon: unknown, at: unknown, took: unknown, mods?: unknown, label?: unknown) => {
       const id = String(weapon);
-      this.racks.set(id, tell('rack', [weapon, at]));
+      const wireArgs = mods !== undefined || label !== undefined ? [weapon, at, mods ?? null, label ?? null] : [weapon, at];
+      const list = this.racks.get(id) ?? [];
+      list.push(tell('rack', wireArgs));
+      this.racks.set(id, list);
       return rack(weapon, at, () => {
         (took as () => void)();
         this.rackTaken(id, this.takingFor ?? this.session.lobby.you);
-      });
+      }, mods, label);
     };
     // Everyone sees the film, rides the ride and flies the sortie: whoever is down or dead is got up for it.
     const cutscene = real('cutscene');
@@ -275,7 +280,7 @@ export class CoopMission {
     parts.saved = (...args: unknown[]) => {
       const leader = this.arrivalLeader() ?? this.session.lobby.you;
       const at = this.where(leader);
-      if (at) this.team.respawnAll(at, this.ctx.player.yaw);
+      if (at) this.team.respawnAll(at, this.yawOf(leader));
       else this.team.respawnAll();
       const beat = args[0] as Beat | undefined;
       tell('saved', [{ id: beat?.id ?? '', title: beat?.title ?? '' }]);
@@ -289,7 +294,8 @@ export class CoopMission {
       // player's own save records it as the host's does (campaign/index.ts `complete`). `full`: any mission won from the start.
       const full = !START_BEAT;
       const counts = (campaign as unknown as { runner?: { mission?: { unlocks?: boolean } } }).runner?.mission?.unlocks === true && full;
-      tell('finished', [{ ...this.result, ...(counts ? { counts: true } : {}), ...(full ? { full: true } : {}) }]);
+      this.resultWire = { ...this.result, ...(counts ? { counts: true } : {}), ...(full ? { full: true } : {}) };
+      tell('finished', [this.resultWire]);
       return finished();
     };
     // Any living player in a zone counts (watch.ts).
@@ -356,15 +362,60 @@ export class CoopMission {
     else if (name === 'chip' && arg) this.chips.add(arg);
     else if (name === 'wreck') this.wreck = arg;
     else if (name === 'comeAbout' && this.ride) this.ride.about = arg;
+    else if (name === 'fc.slipWreck') {
+      if (!arg?.startsWith('fastRope:')) this.fcCalls.set(name, [name, arg]);
+    } else if (name === 'fc.slipBoot') {
+      this.fcCalls.delete('fc.slipBootOff');
+      this.fcCalls.set(name, [name, arg]);
+    } else if (name === 'fc.slipBootOff') {
+      this.fcCalls.delete('fc.slipBoot');
+      this.fcCalls.set(name, [name, arg]);
+    } else if (name === 'fc.flakStart') {
+      const key = arg?.startsWith('pod:') || arg === 'equip' ? `${name}:${arg}` : name;
+      this.fcCalls.set(key, [name, arg]);
+    } else if (name === 'fc.motherReveal' || name === 'fc.motherFight') {
+      this.fcCalls.delete('fc.flakStart');
+      this.fcCalls.set(name, [name, arg]);
+    } else if (name === 'fc.motherDeck') {
+      const key = arg?.startsWith('rival:') ? `${name}:rival` : name;
+      this.fcCalls.set(key, [name, arg]);
+    } else if (name === 'fc.hideBoss') {
+      const key = arg === 'nuke' ? `${name}:nuke` : name;
+      this.fcCalls.set(key, [name, arg]);
+    }
     // The courier is in the air for a quarter of a minute and its smoke is `wreck`: a player arriving in that time misses the flight.
   }
 
+  private applyMods(weapon: WeaponId, raw: unknown): void {
+    if (!Array.isArray(raw)) return;
+    let fitted = false;
+    for (const m of raw) {
+      if (typeof m !== 'string' || !Object.hasOwn(MODS, m)) continue;
+      this.ctx.weapons.grantMod?.(m as ModId);
+      this.ctx.weapons.fitMod?.(m as ModId, true);
+      fitted = true;
+    }
+    if (fitted) {
+      const a = this.ctx.weapons.ammo(weapon);
+      a.mag = a.magSize;
+    }
+  }
+
   private rackTaken(weapon: string, by: string): void {
-    this.racks.delete(weapon);
+    const list = this.racks.get(weapon);
+    const entry = list?.shift();
+    if (!list || list.length === 0) this.racks.delete(weapon);
+    const mods = Array.isArray(entry?.[2]) ? entry[2] : undefined;
     this.issued(weapon);
+    if (mods && this.kit) {
+      const have = new Set(this.kit.mods ?? []);
+      for (const m of mods) if (typeof m === 'string') have.add(m);
+      this.kit.mods = [...have];
+    }
     const player = this.session.lobby.players.find(p => p.id === by);
-    this.send({ t: 'mission', op: 'taken', args: [weapon, player?.slot ?? 0] });
+    this.send({ t: 'mission', op: 'taken', args: mods ? [weapon, player?.slot ?? 0, mods] : [weapon, player?.slot ?? 0] });
     if (by !== this.session.lobby.you && Object.hasOwn(WEAPONS, weapon)) {
+      if (mods) this.applyMods(weapon as WeaponId, mods);
       this.ctx.hud.feed(`${player?.name ?? 'A teammate'} took the ${WEAPONS[weapon as WeaponId].name}: one issued to you`, '#ffc14a');
     }
   }
@@ -376,17 +427,22 @@ export class CoopMission {
   restarting(): void {
     if (!this.wrapped) return;
     this.send({ t: 'mission', op: 'reset', args: [] });
+    this.doors.clear();
+    this.latest.clear();
+    this.fcCalls.clear();
+    this.kit = null;
     this.racks.clear();
     this.drops = [];
     this.chips.clear();
     this.wreck = null;
     this.film = null;
     this.ride = null;
+    this.result = null;
+    this.resultWire = null;
+    this.beatTitle = '';
+    this.lastBeat = null;
     this.skips.clear();
     this.votesShown = '';
-    // A new run opens the sky and puts the lights back (Renderer.reset), on every screen.
-    this.latest.delete('callins');
-    this.latest.delete('call:lights');
     this.regroup = null;
     this.restarted = true;
     this.ctx.hud.feed('BACK TO THE CHECKPOINT · the whole team', '#ffc14a');
@@ -408,7 +464,7 @@ export class CoopMission {
     const lead = this.team.life(this.session.lobby.you).state === 'up' ? this.session.lobby.you
       : this.session.lobby.players.find(p => !p.away && p.id !== id && this.team.life(p.id).state === 'up')?.id ?? this.session.lobby.you;
     const at = this.where(lead) ?? this.ctx.player.position;
-    this.send({ t: 'gather', at: [at.x, at.y, at.z], yaw: this.ctx.player.yaw }, id);
+    this.send({ t: 'gather', at: [at.x, at.y, at.z], yaw: this.yawOf(lead) }, id);
     to('beat', [this.beatTitle]);
     for (const args of this.doors.values()) to('door', args);
     for (const [key, args] of this.latest) to(key.startsWith('call:') ? 'call' : key, args);
@@ -416,14 +472,16 @@ export class CoopMission {
     if (this.kit) to('deploy', [null, this.kit]);
     for (const chip of this.chips) to('call', ['chip', chip]);
     if (this.wreck) to('call', ['wreck', this.wreck]);
-    for (const args of this.racks.values()) to('rack', args);
+    for (const args of this.fcCalls.values()) to('call', args);
+    for (const list of this.racks.values()) for (const args of list) to('rack', args);
     for (const args of this.drops) to('drop', args);
     if (this.film) to('cutscene', [...this.film.args, (performance.now() - this.film.at) / 1000]);
     else if (this.ride) {
       to(this.ride.op, this.ride.args);
       if (this.ride.about) to('call', ['comeAbout', this.ride.about]);
     }
-    if (this.result) to('finished', [this.result]);
+    if (this.resultWire) to('finished', [this.resultWire]);
+    else if (this.result) to('finished', [this.result]);
   }
 
   // ---------------------------------------------------------------------------------------------
@@ -435,6 +493,14 @@ export class CoopMission {
     if (id === this.session.lobby.you) return this.ctx.player.position;
     const remote = this.session.remotes.get(id);
     return remote?.char.root.visible ? remote.char.root.position : null;
+  }
+
+  /** Which way this player is facing (host's yaw as fallback). */
+  private yawOf(id: string): number {
+    if (id === this.session.lobby.you) return this.ctx.player.yaw;
+    const remote = this.session.remotes.get(id) as { buffer?: { latest?: { yaw?: number } } } | undefined;
+    const yaw = remote?.buffer?.latest?.yaw;
+    return Number.isFinite(yaw) ? yaw! : this.ctx.player.yaw;
   }
 
   private living(): { id: string; slot: number; at: THREE.Vector3 }[] {
@@ -504,7 +570,7 @@ export class CoopMission {
     const player = leader ? this.session.lobby.players.find(p => p.id === leader) : null;
     const at = leader ? this.where(leader) : null;
     if (!player || !at) return;
-    const event: Extract<MissionEvent, { t: 'gather' }> = { t: 'gather', at: [at.x, at.y, at.z], yaw: this.ctx.player.yaw, in: seconds, slot: player.slot, ...(zone ? { zone } : {}) };
+    const event: Extract<MissionEvent, { t: 'gather' }> = { t: 'gather', at: [at.x, at.y, at.z], yaw: this.yawOf(leader!), in: seconds, slot: player.slot, ...(zone ? { zone } : {}) };
     this.send(event);
     this.gathered(event);
   }
@@ -686,7 +752,10 @@ export class CoopMission {
         const by = this.session.lobby.players.find(p => p.slot === args[1]);
         this.standing.delete(weapon);
         this.taking.delete(weapon);
-        if (Object.hasOwn(WEAPONS, weapon) && by?.id !== this.session.lobby.you) host.issue(weapon as WeaponId, by?.name ?? 'A teammate');
+        if (Object.hasOwn(WEAPONS, weapon) && by?.id !== this.session.lobby.you) {
+          host.issue(weapon as WeaponId, by?.name ?? 'A teammate');
+          if (args[2]) this.applyMods(weapon as WeaponId, args[2]);
+        }
         return;
       }
       // The mission host's.
@@ -751,11 +820,19 @@ export class CoopMission {
       case 'drop': host.drop(args[0] as Parameters<GameHost['drop']>[0], args[1] as Parameters<GameHost['drop']>[1]); return;
       case 'rack': {
         const weapon = String(args[0]);
+        const mods = Array.isArray(args[2]) ? args[2].filter((m): m is ModId => typeof m === 'string' && Object.hasOwn(MODS, m)) : undefined;
+        const label = typeof args[3] === 'string' ? args[3].slice(0, 60) : undefined;
         // Sent again (a catch-up that crossed it), it is the one already standing.
-        if (!Object.hasOwn(WEAPONS, weapon) || this.ctx.weapons.owned.has(weapon as WeaponId) || this.standing.has(weapon)) return;
+        if (!Object.hasOwn(WEAPONS, weapon) || (!mods?.length && this.ctx.weapons.owned.has(weapon as WeaponId)) || this.standing.has(weapon)) return;
         this.standing.add(weapon);
         // This player's own copy of the rack. Walking over it takes it for the team.
-        host.rack(weapon as WeaponId, args[1] as Parameters<GameHost['rack']>[1], () => { this.taking.add(weapon); this.send({ t: 'mission', op: 'took', args: [weapon] }); });
+        host.rack(
+          weapon as WeaponId,
+          args[1] as Parameters<GameHost['rack']>[1],
+          () => { this.taking.add(weapon); this.send({ t: 'mission', op: 'took', args: [weapon] }); },
+          mods?.length ? mods : undefined,
+          label,
+        );
         return;
       }
       case 'cutscene':

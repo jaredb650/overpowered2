@@ -132,6 +132,8 @@ export class MotionBuffer {
    * a full buffer, is dropped (false). `tags` are up to four whole numbers kept with the state (flags, posture) for `tag`.
    */
   push(t: number, x: number, y: number, z: number, yaw: number, vx: number, vy: number, vz: number, tag0 = 0, tag1 = 0, tag2 = 0, tag3 = 0): boolean {
+    if (!Number.isFinite(t) || !Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)
+      || !Number.isFinite(yaw) || !Number.isFinite(vx) || !Number.isFinite(vy) || !Number.isFinite(vz)) return false;
     const s = this.s;
     let at = this.count;
     while (at > 0 && s[(at - 1) * STRIDE + T]! > t) at--;
@@ -198,10 +200,13 @@ export class MotionBuffer {
       // A state landed. Where the old states had this thing a frame ago, against where the new set has it at that same
       // moment: the difference is carried as an offset and eased away, so nothing steps when a late state fills in.
       this.dirty = false;
-      if (this.lastMode !== 0) {
-        const now = this.read(previous, this.after);
-        const was = this.before;
-        if (now.mode !== 2 && was.mode !== 2 && Math.hypot(was.x - now.x, was.y - now.y, was.z - now.z) < TELEPORT_M) {
+      const now = this.read(previous, this.after);
+      const was = this.before;
+      if (now.mode !== 2 && was.mode !== 2) {
+        const d = Math.hypot(was.x - now.x, was.y - now.y, was.z - now.z);
+        if (d >= TELEPORT_M) {
+          this.ox = this.oy = this.oz = this.oyaw = 0;
+        } else if (d > 1e-4 || Math.abs(wrap(was.yaw - now.yaw)) > 1e-4) {
           this.ox += was.x - now.x; this.oy += was.y - now.y; this.oz += was.z - now.z;
           this.oyaw = wrap(this.oyaw + was.yaw - now.yaw);
         }

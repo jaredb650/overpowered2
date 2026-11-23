@@ -78,16 +78,26 @@ function watchedPeers(onFast: (frame: Uint8Array, peer: WatchedPeer) => void): {
         if (state !== 'connected' && state !== 'failed') return;
         (state === 'failed' ? console.warn : console.info)(`[coop] Peer connection ${state}. Our candidates: ${kinds(this.report.ours)}. Theirs: ${kinds(this.report.theirs)}.`);
       });
-      this.addEventListener('datachannel', e => { this.data = e.channel; });
+      this.addEventListener('datachannel', e => {
+        if (e.channel.label !== FAST_CHANNEL_LABEL && !e.channel.negotiated) this.data = e.channel;
+      });
       // Only once connected: by then the data section is agreed, so the new channel asks for no renegotiation (which
       // trystero's answering side would turn into an offer of its own).
       this.addEventListener('connectionstatechange', () => {
-        if (this.connectionState === 'connected') this.openFast();
-        else if (this.connectionState === 'closed' || this.connectionState === 'failed') this.fast?.close();
+        if (this.connectionState === 'connected') {
+          met.delete(this);
+          this.openFast();
+        } else if (this.connectionState === 'closed' || this.connectionState === 'failed') {
+          met.delete(this);
+          this.fast?.close();
+          this.fast = null;
+        }
       });
     }
     private openFast(): void {
-      if (this.fast) return;
+      if (this.fast?.alive) return;
+      this.fast?.close();
+      this.fast = null;
       try {
         const channel = super.createDataChannel(FAST_CHANNEL_LABEL, FAST_CHANNEL_INIT);
         this.fast = new FastLink(channel as unknown as FastChannel, frame => onFast(frame, this));
@@ -98,7 +108,7 @@ function watchedPeers(onFast: (frame: Uint8Array, peer: WatchedPeer) => void): {
     }
     override createDataChannel(label: string, init?: RTCDataChannelInit): RTCDataChannel {
       const channel = super.createDataChannel(label, init);
-      if (label !== FAST_CHANNEL_LABEL) this.data = channel;
+      if (label !== FAST_CHANNEL_LABEL && !init?.negotiated) this.data = channel;
       return channel;
     }
     // shortcut: candidates inside the SDP itself are not counted; trystero trickles them all, so none are there.

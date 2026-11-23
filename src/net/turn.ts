@@ -20,10 +20,14 @@ export const TURN_TIMEOUT_MS = 4000;
 const CACHE_KEY = 'op2_coop_turn';
 /** Credentials live for a day; an hour of reuse, kept across the match's page reload, saves asking again. */
 const CACHE_MS = 3_600_000;
-let cached: { at: number; servers: IceServer[] } | null = null;
+let cached: { url: string; at: number; servers: IceServer[] } | null = null;
+const inflight = new Map<string, Promise<IceServer[]>>();
 try {
-  const stored = JSON.parse(globalThis.sessionStorage?.getItem(CACHE_KEY) ?? 'null') as { at?: unknown; servers?: unknown } | null;
-  if (stored && typeof stored.at === 'number' && Date.now() - stored.at < CACHE_MS) cached = { at: stored.at, servers: parseIce(stored.servers) };
+  const stored = JSON.parse(globalThis.sessionStorage?.getItem(CACHE_KEY) ?? 'null') as { url?: unknown; at?: unknown; servers?: unknown } | null;
+  const now = Date.now();
+  if (stored && typeof stored.url === 'string' && typeof stored.at === 'number' && now >= stored.at && now - stored.at < CACHE_MS) {
+    cached = { url: stored.url, at: stored.at, servers: parseIce(stored.servers) };
+  }
 } catch { /* blocked or corrupt storage: ask the Worker */ }
 
 /** The Worker's answer, cleaned: Cloudflare's `{ iceServers: [...] }` or a bare list. Port 53 hangs browsers without trickle, so it goes. */
@@ -47,24 +51,36 @@ export function parseIce(data: unknown): IceServer[] {
 /** The relay servers, or [] when none is set up or the Worker does not answer in time. Never throws, never hangs. */
 export async function fetchTurn(url = TURN_URL, fetcher: typeof fetch = globalThis.fetch?.bind(globalThis)): Promise<IceServer[]> {
   if (!url || !fetcher) return [];
-  if (cached && cached.servers.length && Date.now() - cached.at < CACHE_MS) return cached.servers;
-  const abort = new AbortController();
-  const timer = setTimeout(() => abort.abort(), TURN_TIMEOUT_MS);
-  try {
-    const response = await fetcher(url, { method: 'POST', signal: abort.signal });
-    if (!response.ok) throw new Error(`TURN worker answered ${response.status}`);
-    const servers = parseIce(await response.json());
-    if (servers.length) {
-      cached = { at: Date.now(), servers };
-      try { sessionStorage.setItem(CACHE_KEY, JSON.stringify(cached)); } catch { /* fine without */ }
-    }
-    return servers;
-  } catch (error) {
-    console.warn('[coop] No TURN relay this time; direct connections only.', error);
-    return [];
-  } finally {
-    clearTimeout(timer);
+  const now = Date.now();
+  if (cached && cached.url === url && cached.servers.length && now >= cached.at && now - cached.at < CACHE_MS) return cached.servers;
+  // Deduplicate concurrent fetches for the same URL (using the default fetcher; custom test fetchers run independently).
+  const isDefault = fetcher === globalThis.fetch;
+  if (isDefault) {
+    const existing = inflight.get(url);
+    if (existing) return existing;
   }
+  const run = (async (): Promise<IceServer[]> => {
+    const abort = new AbortController();
+    const timer = setTimeout(() => abort.abort(), TURN_TIMEOUT_MS);
+    try {
+      const response = await fetcher(url, { method: 'POST', signal: abort.signal });
+      if (!response.ok) throw new Error(`TURN worker answered ${response.status}`);
+      const servers = parseIce(await response.json());
+      if (servers.length) {
+        cached = { url, at: Date.now(), servers };
+        try { sessionStorage.setItem(CACHE_KEY, JSON.stringify(cached)); } catch { /* fine without */ }
+      }
+      return servers;
+    } catch (error) {
+      console.warn('[coop] No TURN relay this time; direct connections only.', error);
+      return [];
+    } finally {
+      clearTimeout(timer);
+      if (isDefault) inflight.delete(url);
+    }
+  })();
+  if (isDefault) inflight.set(url, run);
+  return run;
 }
 
 export const turnConfigured = (): boolean => !!TURN_URL;

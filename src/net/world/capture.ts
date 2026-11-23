@@ -97,7 +97,10 @@ export class Capture implements WorldModule {
         const to = w.team.payee(captor, e.bounty);
         if (to === undefined) return;
         const wallet = ctx.contracts?.wallet as { credits?: number; earned?: number } | null | undefined;
-        if (wallet && typeof wallet.credits === 'number') { wallet.credits -= e.bounty; if (typeof wallet.earned === 'number') wallet.earned -= e.bounty; }
+        if (wallet && typeof wallet.credits === 'number') {
+          wallet.credits = Math.max(0, wallet.credits - e.bounty);
+          if (typeof wallet.earned === 'number') wallet.earned = Math.max(0, wallet.earned - e.bounty);
+        }
         if (to) w.send({ t: 'credit', amount: e.bounty, why: 'PRISONER BOUNTY' }, to);
       });
       // What becomes of a prisoner on the host, by anyone's key, is news for every screen.
@@ -185,10 +188,16 @@ export class Capture implements WorldModule {
     }
   }
 
-  /** Host: a lost player lets go of the man in their hands (`hostHolds` tells the others he was dropped). */
-  lostSeat(id: string): void {
+  /** Host: a lost player lets go of the man in their hands (`dropped` is sent to the others at once). */
+  lostSeat(id: string, slot?: number): void {
     const holder = this.targeting.standIn(id);
     if (holder) this.prisoners?.dropFor(holder);
+    const held = this.holds.get(id);
+    if (held !== undefined) {
+      this.holds.delete(id);
+      const s = slot ?? this.w.session.lobby.players.find(p => p.id === id)?.slot ?? 0;
+      this.tell({ t: 'prisoner', op: 'dropped', uid: held, slot: s });
+    }
   }
 
   forgetPeer(id: string): void { this.spent.delete(id); }
@@ -197,7 +206,9 @@ export class Capture implements WorldModule {
   private hostHolds(): void {
     const prisoners = this.prisoners;
     if (!prisoners) return;
+    const active = new Set<string>();
     for (const target of this.targeting.players()) {
+      active.add(target.id);
       const uid = prisoners.heldBy(target.player)?.e.uid ?? -1;
       const was = this.holds.get(target.id) ?? -1;
       if (uid === was) continue;
@@ -205,6 +216,12 @@ export class Capture implements WorldModule {
       if (was >= 0) this.tell({ t: 'prisoner', op: 'dropped', uid: was, slot });
       if (uid >= 0) this.holds.set(target.id, uid);
       else this.holds.delete(target.id);
+    }
+    for (const [id, uid] of [...this.holds]) {
+      if (active.has(id)) continue;
+      this.holds.delete(id);
+      const slot = this.w.session.lobby.players.find(p => p.id === id)?.slot ?? 0;
+      this.tell({ t: 'prisoner', op: 'dropped', uid, slot });
     }
   }
 

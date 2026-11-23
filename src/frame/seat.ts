@@ -632,6 +632,8 @@ export class Frame {
       if (this.deployed && this.health > 0) {
         this.poseParked();
         this.showParkedMarker();
+        this.tellIn = 0;
+        this.sayParked(0);
       } else {
         this.hideMeshes();
         this.clearNet();

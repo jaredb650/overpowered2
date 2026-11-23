@@ -146,5 +146,12 @@ describe('every player, for the enemy side', () => {
     (g.host.seat.world as unknown as { w: { send(event: unknown): void } }).w.send({ t: 'jam', on: true, ops: ['x'], cold: [], floor: [] });
     g.relay.flush();
     for (const guest of g.guests) expect(guest.jams).toHaveLength(1);
+    // Late joiner catchUp replays the active jam state only to that guest.
+    const late = g.guests[1]!;
+    late.jams.length = 0;
+    (g.host.seat.world as unknown as { crowd: { catchUp(id: string): void } }).crowd.catchUp(late.lobby.you);
+    g.relay.flush();
+    expect(late.jams).toEqual([{ on: true, ops: [3], cold: [7, 8], floor: [4] }]);
+    expect(g.guests[0]!.jams).toHaveLength(1);
   });
 });

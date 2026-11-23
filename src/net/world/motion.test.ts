@@ -253,6 +253,24 @@ describe('the playhead', () => {
     buffer.advance(16, 60500, 0, s);
     expect(60500 - buffer.playhead).toBeLessThan(200);
   });
+  it('ignores non-finite states without poisoning interpolation, and clears residual offset on teleport cuts', () => {
+    const buffer = new MotionBuffer();
+    buffer.interval = 50;
+    const s = motionSample();
+    buffer.push(0, 1, 0, 0, 0, 0, 0, 0);
+    buffer.push(50, NaN, 0, 0, 0, 0, 0, 0);
+    buffer.push(100, 2, 0, Infinity, 0, 0, 0, 0);
+    buffer.advance(16, 100, 0, s);
+    expect(Number.isFinite(s.x) && Number.isFinite(s.z)).toBe(true);
+    expect(s.x).toBeCloseTo(1, 3);
+    // Give the buffer a non-zero correction offset, then teleport far away: the residual offset must vanish on the cut.
+    buffer.drawnAt(3, 0, 0, 0.5, s);
+    buffer.push(200, 50, 0, 0, 0, 0, 0, 0);
+    buffer.push(250, 50, 0, 0, 0, 0, 0, 0);
+    for (let now = 116; now <= 350; now += 16) buffer.advance(16, now, 0, s);
+    expect(s.x).toBeCloseTo(50, 2);
+    expect(s.yaw).toBeCloseTo(0, 2);
+  });
 });
 
 describe('the send clock', () => {

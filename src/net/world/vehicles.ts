@@ -29,7 +29,7 @@ import { Wreck, type Flung } from '../../enemies/vehicles/wreck';
 import type { WorldContext, WorldModule } from './context';
 import { ListParts, SIDE, sendList } from './sideList';
 import { HostClock, MotionBuffer, motionSample } from './motion';
-import type { Replicas } from './replicas';
+import { RecentSet, type Replicas } from './replicas';
 import { validVec, type Vec } from './wire';
 
 type Quat = [number, number, number, number];
@@ -104,8 +104,11 @@ export class Vehicles implements WorldModule {
   private readonly ids = new WeakMap<Vehicle, number>();
   private serial = 0;
   private next = 0;
-  private sent = false;
+  /** How many empty-list clears to send after the last live vehicle leaves so one dropped unreliable packet cannot leave a ghost. */
+  private emptyLeft = 0;
   private readonly puppets = new Map<number, Puppet>();
+  /** Guest: vehicle ids already wrecked, so a late unreliable `vehicles` packet cannot resurrect a live copy on top of the wreck. */
+  private readonly dead = new RecentSet(256);
   /** Host: each vehicle's id by its model, and each wreck's number; guest: the wrecks standing here. */
   private readonly roots = new WeakMap<THREE.Object3D, { id: number; kind: string }>();
   private readonly wreckIds = new Map<Wreck, number>();
@@ -169,9 +172,14 @@ export class Vehicles implements WorldModule {
   /** Host: where every truck, humvee and tank is, for the guests to draw. */
   private send(): void {
     const live = (this.w.ctx.enemies.vehicles as unknown as { live?: Vehicle[] } | undefined)?.live;
-    if (!live?.length && !this.sent) return;
-    this.sent = !!live?.length;
-    const list = (live ?? []).filter(v => v.alive && (GROUND.includes(v.def.kind) || v.def.kind === 'chopper')).slice(0, 16).map(v => {
+    const active = (live ?? []).filter(v => v.alive && (GROUND.includes(v.def.kind) || v.def.kind === 'chopper'));
+    if (active.length === 0) {
+      if (this.emptyLeft <= 0) return;
+      this.emptyLeft--;
+    } else {
+      this.emptyLeft = 5;
+    }
+    const list = active.slice(0, 16).map(v => {
       let id = this.ids.get(v);
       if (id === undefined) this.ids.set(v, id = ++this.serial);
       const g = v as unknown as Partial<GroundVehicle> & Partial<EnemyChopper>;
@@ -193,8 +201,9 @@ export class Vehicles implements WorldModule {
     const fleet = (this.w.ctx.enemies.vehicles as unknown as { fleet?: { ground(kind: string): GroundModel } } | undefined)?.fleet;
     const seen = new Set<number>();
     let flying = false;
+    const bound = (n: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, n));
     for (const v of value.list.slice(0, 16)) {
-      if (!v || !Number.isInteger(v.id) || !validVec(v.p) || !Array.isArray(v.q) || v.q.length !== 4 || !v.q.every(Number.isFinite)) continue;
+      if (!v || !Number.isInteger(v.id) || this.dead.has(v.id) || !validVec(v.p) || !Array.isArray(v.q) || v.q.length !== 4 || !v.q.every(Number.isFinite)) continue;
       if (v.kind === 'chopper') { flying = this.fly(v, t) || flying; continue; }
       if (!GROUND.includes(v.kind)) continue;
       seen.add(v.id);
@@ -212,9 +221,13 @@ export class Vehicles implements WorldModule {
         this.puppets.set(v.id, puppet);
       }
       if (Array.isArray(v.x) && v.x.length === 8 && v.x.every(Number.isFinite)) {
+        const clamped = [
+          bound(v.x[0]!, -50, 50), bound(v.x[1]!, -1.2, 1.2), bound(v.x[2]!, -1.2, 1.2), bound(v.x[3]!, -1.2, 1.2),
+          bound(v.x[4]!, -1, 1.5), bound(v.x[5]!, -10, 10), bound(v.x[6]!, -1.5, 1.5), v.x[7]! | 0,
+        ];
         // A copy that has just appeared stands as the host's does, without easing in from nothing.
-        if (puppet.want.length === 0) [puppet.speed, puppet.wheel, puppet.pitch, puppet.roll, puppet.lift, puppet.gunYaw, puppet.gunPitch] = v.x as [number, number, number, number, number, number, number];
-        puppet.want = v.x;
+        if (puppet.want.length === 0) [puppet.speed, puppet.wheel, puppet.pitch, puppet.roll, puppet.lift, puppet.gunYaw, puppet.gunPitch] = clamped as [number, number, number, number, number, number, number];
+        puppet.want = clamped;
       }
       // Where it is, its turret as the buffer's yaw (turned the short way), and its attitude in the four tags.
       puppet.motion.place(t, v.p[0], v.p[1], v.p[2], Number.isFinite(v.turret) ? v.turret : 0, v.q[0], v.q[1], v.q[2], v.q[3]);
@@ -241,8 +254,12 @@ export class Vehicles implements WorldModule {
     }
     h.motion.place(t, v.p[0], v.p[1], v.p[2], 0, v.q[0], v.q[1], v.q[2], v.q[3]);
     if (Array.isArray(v.x) && v.x.length === 4 && v.x.every(Number.isFinite)) {
-      if (h.want.length === 0) { h.gunYaw = v.x[1]!; h.gunPitch = v.x[2]!; }
-      h.want = v.x;
+      const clamped = [
+        Math.max(0, Math.min(3, v.x[0]!)), Math.max(-10, Math.min(10, v.x[1]!)),
+        Math.max(-1.5, Math.min(1.5, v.x[2]!)), v.x[3]! | 0,
+      ];
+      if (h.want.length === 0) { h.gunYaw = clamped[1]!; h.gunPitch = clamped[2]!; }
+      h.want = clamped;
     }
     return true;
   }
@@ -259,7 +276,7 @@ export class Vehicles implements WorldModule {
   }
 
   /** Guest, each frame: the helicopter where its playhead has it, rotors turning at the host's rate, as damaged as the host's. */
-  private hover(h: Heli, dt: number, hostNow: number, jitter: number): void {
+  private hover(h: Heli, dt: number, seconds: number, hostNow: number, jitter: number): void {
     const s = h.motion.advance(dt, hostNow, jitter, this.sample);
     if (s.mode === 2) return;
     const { rig, motion, want } = h;
@@ -269,7 +286,6 @@ export class Vehicles implements WorldModule {
     root.quaternion.set(motion.tag(s.at, 0), motion.tag(s.at, 1), motion.tag(s.at, 2), motion.tag(s.at, 3));
     if (s.k > 0) root.quaternion.slerp(_q.set(motion.tag(s.at + 1, 0), motion.tag(s.at + 1, 1), motion.tag(s.at + 1, 2), motion.tag(s.at + 1, 3)), s.k);
     root.quaternion.normalize();
-    const seconds = dt / 1000;
     const flags = want.length === 4 ? want[3]! : CHOPPER_WIRE.tail | CHOPPER_WIRE.rotor;
     rig.tail.visible = (flags & CHOPPER_WIRE.tail) !== 0;
     rig.frame.setRotor(TAIL_ROTOR, (flags & CHOPPER_WIRE.tail) !== 0);
@@ -364,27 +380,29 @@ export class Vehicles implements WorldModule {
 
   /** Guest, each frame before the enemies draw: every vehicle where its playhead has it, between two of the host's states. */
   animate(now: number): void {
-    const dt = Math.max(0, Math.min(250, now - this.lastFrame));
+    const dt = this.lastFrame === 0 ? 16 : Math.max(0, Math.min(250, now - this.lastFrame));
     this.lastFrame = now;
+    const simDt = typeof this.w.ctx.time?.dt === 'number' && Number.isFinite(this.w.ctx.time.dt)
+      ? Math.max(0, Math.min(0.25, this.w.ctx.time.dt)) : dt / 1000;
     const clock = this.replicas.clock.empty ? this.clock : this.replicas.clock;
-    if (clock.empty) return;
-    const hostNow = clock.now(now), jitter = clock.jitter;
-    for (const puppet of this.puppets.values()) {
-      const motion = puppet.motion;
-      const s = motion.advance(dt, hostNow, jitter, this.sample);
-      if (s.mode === 2) continue;
-      const root = puppet.model.root;
-      root.position.set(s.x, s.y, s.z);
-      root.quaternion.set(motion.tag(s.at, 0), motion.tag(s.at, 1), motion.tag(s.at, 2), motion.tag(s.at, 3));
-      if (s.k > 0) root.quaternion.slerp(_q.set(motion.tag(s.at + 1, 0), motion.tag(s.at + 1, 1), motion.tag(s.at + 1, 2), motion.tag(s.at + 1, 3)), s.k);
-      root.quaternion.normalize();
-      if (puppet.model.turret) puppet.model.turret.rotation.y = s.yaw;
-      this.work(puppet, dt / 1000);
+    if (!clock.empty) {
+      const hostNow = clock.now(now), jitter = clock.jitter;
+      for (const puppet of this.puppets.values()) {
+        const motion = puppet.motion;
+        const s = motion.advance(dt, hostNow, jitter, this.sample);
+        if (s.mode === 2) continue;
+        const root = puppet.model.root;
+        root.position.set(s.x, s.y, s.z);
+        root.quaternion.set(motion.tag(s.at, 0), motion.tag(s.at, 1), motion.tag(s.at, 2), motion.tag(s.at, 3));
+        if (s.k > 0) root.quaternion.slerp(_q.set(motion.tag(s.at + 1, 0), motion.tag(s.at + 1, 1), motion.tag(s.at + 1, 2), motion.tag(s.at + 1, 3)), s.k);
+        root.quaternion.normalize();
+        if (puppet.model.turret) puppet.model.turret.rotation.y = s.yaw;
+        this.work(puppet, simDt);
+      }
+      if (this.heli) this.hover(this.heli, dt, simDt, hostNow, jitter);
     }
-    if (this.heli) this.hover(this.heli, dt, hostNow, jitter);
     if (this.wrecks.size > 0) {
-      const seconds = this.w.ctx.time.dt;
-      for (const w of this.wrecks.values()) w.wreck.update(seconds);
+      for (const w of this.wrecks.values()) w.wreck.update(simDt);
     }
   }
 
@@ -434,6 +452,7 @@ export class Vehicles implements WorldModule {
     const system = this.system;
     const { ctx } = this.w;
     if (!system || !Number.isInteger(value.wid) || this.wrecks.has(value.wid) || ![value.p, value.r, value.body].every(validVec)) return;
+    if (Number.isInteger(value.id) && value.id > 0) this.dead.add(value.id);
     if (value.kind === 'chopper') return this.heliWreck(system, value);
     if (!GROUND.includes(value.kind)) return;
     const kind = value.kind as Ground;
@@ -547,9 +566,11 @@ export class Vehicles implements WorldModule {
   dispose(): void {
     for (const puppet of this.puppets.values()) this.retire(puppet, true);
     this.puppets.clear();
+    this.dead.clear();
     this.land();
     for (const w of this.wrecks.values()) w.wreck.dispose();
     this.wrecks.clear();
+    this.lastFrame = 0;
   }
 }
 

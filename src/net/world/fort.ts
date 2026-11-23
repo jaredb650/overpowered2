@@ -81,8 +81,8 @@ export class Fort implements WorldModule {
   private healthAt = 0;
   private stateAt = 0;
   private stateSent = '';
-  /** Host: per guest, blasts this second and the last repair. */
-  private readonly spent = new Map<string, { second: number; blasts: number; repairAt: number }>();
+  /** Host: per guest, blasts/buys this second and the last repair. */
+  private readonly spent = new Map<string, { second: number; blasts: number; buys: number; repairAt: number }>();
   /** Guest: shack hits not sent yet, by piece. */
   private readonly hits = new Map<number, number>();
   private hitsAt = 0;
@@ -118,7 +118,12 @@ export class Fort implements WorldModule {
       if (!this.w.hosting) { if (value.on === false) defense.unseat(value.gun); return; }
       const slot = this.w.session.lobby.players.find(p => p.id === from)?.slot;
       const num = (n: unknown) => (typeof n === 'number' && Number.isFinite(n) ? Math.max(-7, Math.min(7, n)) : 0);
-      if (slot === undefined || this.w.life(from).down && value.on) return;
+      if (slot === undefined) return;
+      if (this.w.life(from).down && value.on) {
+        defense.leftSeats(slot);
+        this.w.send({ t: 'gunseat', gun: value.gun, on: false }, from);
+        return;
+      }
       if (!defense.seatFor(slot, value.gun, value.on === true, num(value.yaw), num(value.pitch), value.firing === true)) this.w.send({ t: 'gunseat', gun: value.gun, on: false }, from);
     });
     router.guest('fortradio', value => this.radioIn(value));
@@ -250,11 +255,16 @@ export class Fort implements WorldModule {
     if (value.full === true) for (const piece of walls.all) if (!told.has(piece.id)) walls.apply(piece.id, 0, piece.maxHealth, false, -1, 1, false, null, 0);
   }
 
-  private spend(from: string): { second: number; blasts: number; repairAt: number } | null {
+  private bucket(from: string): { second: number; blasts: number; buys: number; repairAt: number } {
     let s = this.spent.get(from);
-    if (!s) this.spent.set(from, s = { second: 0, blasts: 0, repairAt: -Infinity });
+    if (!s) this.spent.set(from, s = { second: 0, blasts: 0, buys: 0, repairAt: -Infinity });
     const second = Math.floor(performance.now() / 1000);
-    if (second !== s.second) { s.second = second; s.blasts = 0; }
+    if (second !== s.second) { s.second = second; s.blasts = 0; s.buys = 0; }
+    return s;
+  }
+
+  private spend(from: string): { second: number; blasts: number; buys: number; repairAt: number } | null {
+    const s = this.bucket(from);
     return ++s.blasts <= BLASTS_PER_SECOND ? s : null;
   }
 
@@ -276,8 +286,8 @@ export class Fort implements WorldModule {
     const { walls, defense } = this.find();
     const piece = walls?.all[value.i];
     const remote = this.w.sender(from, now);
-    const s = this.spend(from);
-    if (!walls || !defense || !piece || !remote || !s) return;
+    if (!walls || !defense || !piece || !remote) return;
+    const s = this.bucket(from);
     const refuse = (blocked = false) => this.w.send({ t: 'repaired', i: value.i, pay: 0, blocked }, from);
     if (this.w.life(from).down || now - s.repairAt < REPAIR_MS || walls.distance(piece, remote.char.root.position) > REPAIR_REACH) return refuse();
     const result = defense.repair.finishFor(piece, value.from);
@@ -290,7 +300,12 @@ export class Fort implements WorldModule {
   /** Host: a guest bought something that is the fort's. They have paid; a refusal sends the price back. */
   private buyIn(value: Extract<FortEvent, { t: 'fortbuy' }>, from: string): void {
     const defense = this.find().defense;
-    if (!defense || !Number.isInteger(value.n) || !this.spend(from)) return;
+    if (!defense || !Number.isInteger(value.n)) return;
+    const s = this.bucket(from);
+    if (++s.buys > BLASTS_PER_SECOND) {
+      this.w.send({ t: 'fortsold', n: value.n, why: 'Too fast' }, from);
+      return;
+    }
     const shop = (SHOP_ORDER as readonly string[]).includes(value.shop) ? value.shop : null;
     const act = value.act;
     let why: string | null = 'Not sold here';

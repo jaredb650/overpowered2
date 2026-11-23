@@ -139,6 +139,22 @@ describe('friends-only hit sanity checks', () => {
     expect(limitsOf('smg')!.pierces).toBe(false);
     expect(limitsOf('deuce')!.pellets).toBeGreaterThanOrEqual(WEAPONS.deuce.pellets * 4 * 3.5);
     expect(limitsOf('__proto__')).toBeNull();
+    // Rate-selected weapons (Metal Storm) use their fastest rateSelect RPM and volley count, not only the base interval.
+    const storm = WEAPONS.metalstorm;
+    const maxRpm = Math.max(...storm.rateSelect!.modes.map(m => m.rpm));
+    const maxVolley = Math.max(...storm.rateSelect!.modes.map(m => m.volley ?? 1));
+    expect(limitsOf('metalstorm')!.fastest).toBeCloseTo(Math.max(0.004, 60 / maxRpm));
+    expect(limitsOf('metalstorm')!.pellets).toBeGreaterThanOrEqual(maxVolley);
+  });
+  it('allows Autoclave Stage-3 true-damage pop through the instakill check', () => {
+    const validator = new ClaimValidator();
+    const pop: HitClaim = {
+      ...claim(1, 200),
+      weapon: 'autoclave',
+      damage: { amount: 1e6, type: 'true', source: 'autoclave', force: 0, region: 'chest', point: target, dir: [0, 0, -1] },
+    };
+    expect(validator.check('guest', pop, 220, scene()).ok).toBe(true);
+    expect(pop.damage.amount).toBe(INSTAKILL);
   });
 });
 

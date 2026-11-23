@@ -187,8 +187,8 @@ export class Game {
     let windowStart = last;
     let frames = 0;
     const step = (now: number) => {
-      const raw = (now - last) / 1000;
-      last = now;
+      const raw = Math.max(0, (now - last) / 1000);
+      last = Math.max(last, now);
       const t0 = performance.now();
       // One step, except on a co-op host below 20 fps: its world is everyone's, so a long frame is played out in several steps
       // and drawn once, instead of being clamped (which would run the world slow on every screen). The first step takes the

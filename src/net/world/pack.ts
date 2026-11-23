@@ -42,6 +42,7 @@ export const WORDS = new Words([
   'chest', 'abdomen', 'armL', 'forearmL', 'armR', 'forearmR', 'legL', 'shinL', 'legR', 'shinR',
   'down', 'respawn', 'start', 'clear', 'intermission', 'active', 'rail', 'beam', 'ball', 'giant', 'hose', 'swing', 'spin',
   'stagger', 'stumble', 'daze', 'roar', 'land', 'leap', 'block', 'getUp', 'crucible', 'outpost', 'defense', 'campaign', 'foreclosure',
+  'dragon', 'wp', 'cl', 'rocket_wp', 'howitzer_cluster',
 ]);
 
 /** Every world event as a packed tree. An event the tree cannot carry exactly as JSON would (none today) goes as JSON. */

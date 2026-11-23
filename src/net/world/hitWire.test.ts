@@ -21,6 +21,8 @@ describe('a hit on the wire', () => {
     expect(got.point.distanceTo(sent.point)).toBeLessThan(0.001);
     expect(got.dir.angleTo(sent.dir)).toBeLessThan(0.01);
     expect(got.dir.length()).toBeCloseTo(1, 6);
+    const dragon = unpackHit(JSON.parse(JSON.stringify(packHit(round({ load: 'dragon', source: 'rocket_wp', type: 'explosive' })))))!;
+    expect(dragon).toMatchObject({ load: 'dragon', source: 'rocket_wp', type: 'explosive' });
   });
 
   it('breaks a trunk the same way on every screen: the pieces are seeded from the point as sent', () => {

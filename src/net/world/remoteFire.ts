@@ -365,7 +365,9 @@ export class RemoteFire implements WorldModule {
   /** True when `origin` is not where the host has that guest's body, by more than lag and a dash explain (`originSlack`). */
   private far(remote: RemotePlayer, origin: Vec, from: string): boolean {
     const p = remote.char.root.position;
-    return Math.hypot(origin[0] - p.x, origin[1] - (p.y + 1.6), origin[2] - p.z) >= originSlack(this.w.session.lobby.pingOf?.(from));
+    const reye = remote.eye;
+    const ey = reye && Math.abs(reye.x - p.x) < 0.05 && Math.abs(reye.z - p.z) < 0.05 && reye.y > p.y + 0.1 ? reye.y : p.y + 1.6;
+    return Math.hypot(origin[0] - p.x, origin[1] - ey, origin[2] - p.z) >= originSlack(this.w.session.lobby.pingOf?.(from));
   }
 
   // -------------------------------------------------------------------------------------------

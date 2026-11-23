@@ -32,7 +32,7 @@ export function endCopy(ending: Ending, wave: number): { big: string; sub: strin
   switch (ending) {
     case 'fulfilled': return { big: 'CONTRACT FULFILLED', won: true, sub: 'The Commander is deceased. The Council thanks you all for your service. Payment is under review.' };
     case 'mission': return { big: 'MISSION COMPLETE', won: true, sub: 'The Council thanks you all for your service.' };
-    default: return { big: 'TEAM WIPED', won: false, sub: `The run ended on wave ${wave}. The Council notes the outcome and regrets nothing.` };
+    default: return { big: 'TEAM WIPED', won: false, sub: wave > 0 ? `The run ended on wave ${wave}. The Council notes the outcome and regrets nothing.` : 'The squad was lost. The Council notes the outcome and regrets nothing.' };
   }
 }
 
@@ -51,6 +51,7 @@ export class CoopHud {
   private nextPaint = 0;
   private lastFrame = 0;
   private endAt = 0;
+  private endFired = false;
   private buttons: { el: HTMLButtonElement; run: () => void }[] = [];
   private focus = 0;
   private readonly off: (() => void)[] = [];
@@ -177,7 +178,10 @@ export class CoopHud {
       const left = Math.max(0, Math.ceil((this.endAt - now) / 1000));
       const foot = this.end.querySelector('.cq-foot');
       if (foot) foot.textContent = this.session.hosting ? `Everyone goes back to the lobby in ${left} s.` : 'The host decides what comes next. You may leave on your own.';
-      if (this.session.hosting && now >= this.endAt) this.onEndDone();
+      if (this.session.hosting && !this.endFired && now >= this.endAt) {
+        this.endFired = true;
+        this.onEndDone();
+      }
     }
     if (now < this.nextPaint) return;
     this.nextPaint = now + 250;
@@ -234,6 +238,7 @@ export class CoopHud {
    */
   showEnd(rows: Row[], wave: number, now: number, ending: Ending = 'wipe'): void {
     this.endAt = now + END_SECONDS * 1000;
+    this.endFired = false;
     this.closeChat();
     const copy = endCopy(ending, wave);
     const big = div(`cq-big${copy.won ? ' won' : ''}`, copy.big);

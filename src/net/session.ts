@@ -21,6 +21,8 @@ interface Handoff {
   roster?: SeatRecord[];
   /** Host: every seat this room has given out (browser id, seat id). */
   seats?: [string, string][];
+  /** Host: the slot each seat had (seat id, slot). */
+  slots?: [string, number][];
   /** A map page has already been built from this handoff: finding it again means the page was reloaded. */
   used?: boolean;
 }
@@ -73,7 +75,12 @@ export function deployMatch(code: string, password: string, lobby: Lobby, match:
     starter: lobby.starter ?? lobby.me?.starter ?? selectedStarter(match.mode),
     ...(lobby.hosting ? lobby.seatRecords() : {}) };
   // If storage is blocked, fail on the lobby page rather than reloading into an unrelated single-player run.
-  sessionStorage.setItem(KEY, JSON.stringify(handoff));
+  try { sessionStorage.setItem(KEY, JSON.stringify(handoff)); }
+  catch (error) {
+    console.warn('[coop] Cannot deploy match: tab storage is unavailable.', error);
+    resumeFailed = 'Co-op needs tab storage to load the map, and this browser is blocking it.';
+    return;
+  }
   const params = new URLSearchParams(location.search);
   for (const flag of ['map', 'join', 'deploy', 'autostart', 'sandbox']) params.delete(flag);
   params.set('contract', match.mode);
@@ -115,14 +122,19 @@ export async function reconnectMatch(): Promise<void> {
     resumedRoom = { code: data.code, password: data.password };
     const roster = Array.isArray(data.roster) ? data.roster.filter(r => r && typeof r.browser === 'string' && typeof r.seat === 'string' && Number.isInteger(r.slot)) : [];
     const seats = Array.isArray(data.seats) ? data.seats.filter(s => Array.isArray(s) && typeof s[0] === 'string' && typeof s[1] === 'string') : [];
+    const slots = Array.isArray(data.slots) ? data.slots.filter(s => Array.isArray(s) && typeof s[0] === 'string' && Number.isInteger(s[1])) : [];
     const lobby = resumedLobby = new Lobby(await openLobby(data.code, data.password), data.hosting, data.name, BUILD,
-      { page: match.id, roster, seats }, isStarter(data.starter) ? data.starter : selectedStarter(data.match.mode));
+      { page: match.id, roster, seats, slots }, isStarter(data.starter) ? data.starter : selectedStarter(data.match.mode));
     lobby.onEnd = () => { whileLoading.ended = true; };
     // The host moved on to another match while this page loaded (or reloaded): go there.
     lobby.onMatch = next => { if (next.id !== match.id) deployMatch(data.code, data.password, lobby, next); };
     if (data.hosting) lobby.startMatch(match.mode, match.id, match.map);
     resumeFailed = '';
   } catch (error) {
+    resumedLobby?.leave();
+    resumedLobby = null;
+    resumedMatch = null;
+    resumedRoom = null;
     report('COOP_DISCONNECTED', { error, stage: 'reconnect' });
     console.warn('[coop] Could not resume the room', error);
     resumeFailed = 'Could not reconnect to the co-op room on this page. Check you are online, then join the lobby again.';
@@ -153,6 +165,9 @@ export function clearSession(): void {
   resumedMatch = null;
   resumedRoom = null;
   consumed = null;
+  reloaded = false;
+  deploying = false;
+  whileLoading.ended = false;
   try { sessionStorage.removeItem(KEY); } catch { /* blocked storage */ }
 }
 

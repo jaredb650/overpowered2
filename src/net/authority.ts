@@ -115,6 +115,12 @@ export function limitsOf(weapon: string): GunLimits | null {
   let fastest = Infinity, damage = 0, pellets = 1, pierces = id === 'lance', instakill = false, akimbo = id === 'smg';
   for (const row of rows) {
     fastest = Math.min(fastest, row.interval, row.smart?.interval ?? Infinity, row.altFan?.gap ?? Infinity);
+    if (row.rateSelect) {
+      for (const m of row.rateSelect.modes) {
+        if (m.rpm > 0) fastest = Math.min(fastest, 60 / m.rpm);
+        if (m.volley && m.volley > 1) pellets = Math.max(pellets, m.volley);
+      }
+    }
     damage = Math.max(damage, row.damage);
     pellets = Math.max(pellets, row.pellets * (row.altBoth ? row.magSize : 1));
     // AP and API rounds are known from the claim's `load`; this is the gun going through walls on its own.
@@ -398,6 +404,7 @@ export class ClaimValidator {
       if (!Object.hasOwn(CALLIN_KILLS, damage.source) || CALLIN_KILLS[damage.source] !== (damage.blastKind ?? damage.type)) return undefined;
       return damage.source === 'nuke' ? NUKE : INSTAKILL;
     }
+    if (kind === 'gun' && damage.source === 'autoclave' && damage.type === 'true') return Math.min(damage.amount, INSTAKILL);
     if (kind !== 'blast' || !Object.hasOwn(WEAPONS, damage.source)) return undefined;
     const gun = WEAPONS[damage.source as WeaponId];
     const hits = gun.round === 'shell' ? gun.damage >= INSTAKILL && damage.blastKind === 'shell' : gun.round === 'rocket' && damage.blastKind === 'hellfire';

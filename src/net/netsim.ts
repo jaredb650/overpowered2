@@ -106,6 +106,14 @@ export class NetSim implements SimSettings {
     else this.peerKbps.delete(peer);
   }
 
+  /** A peer disconnected: drop its per-peer link/rate state so maps cannot leak. */
+  forget(peer: string): void {
+    this.reliableFree.delete(peer);
+    this.linkFree.delete(peer);
+    this.linkRate.delete(peer);
+    this.peerKbps.delete(peer);
+  }
+
   private speed(peer: string): number {
     return this.peerKbps.get(peer) ?? this.kbps;
   }
@@ -123,8 +131,11 @@ export class NetSim implements SimSettings {
   private link(peer: string, bytes: number, now: number): number {
     const kbps = this.speed(peer);
     if (!(kbps > 0)) return now;
-    const start = Math.max(now, this.linkFree.get(peer) ?? 0);
-    const end = start + (bytes * 8) / kbps;
+    const prevFree = this.linkFree.get(peer) ?? 0;
+    const prevRate = this.linkRate.get(peer) ?? kbps;
+    const remainMs = Math.max(0, prevFree - now);
+    const remainBytes = prevRate > 0 ? (remainMs * prevRate) / 8 : 0;
+    const end = now + ((remainBytes + bytes) * 8) / kbps;
     this.linkFree.set(peer, end);
     this.linkRate.set(peer, kbps);
     return end;

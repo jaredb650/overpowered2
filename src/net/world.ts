@@ -117,7 +117,7 @@ export class CoopWorld {
     this.calls = new Callins(w);
     this.hook = new Skyhook(w);
     // Sonar is shared; Thermal is each player's own and never sent. Focus slows the world for everyone (world/clock.ts).
-    new SharedSonar(w);
+    const sonar = new SharedSonar(w);
     this.credit = new Credit(w, this.claims);
     this.hits = new Hits(w, this.enemies, this.credit, this.claims);
     // After Credit: a boss's death names its killer, which Credit works out on the same `enemy:killed`.
@@ -144,7 +144,7 @@ export class CoopWorld {
     // Moves and identities ride the reliable lane beside the enemies' unreliable states (replicas.ts).
     const moves = new Moves(w, this.enemies), identity = new Identity(w, this.enemies);
     this.modules = [this.late, this.capture, this.vehicles, this.garrison, this.fort, this.villainProps, this.crowd, this.targeting, this.claims, this.credit, this.hits, this.shots, this.props, this.attacks, this.warnings, this.calls, this.hook, w.later, this.time, moves, identity, this.enemies];
-    this.parts = [...this.modules, this.booms, this.pods];
+    this.parts = [...this.modules, this.booms, this.pods, sonar];
     // Guest: the host's `sync` means it has this player in the world: everything said once is said again (context.ts `resay`).
     this.team.onSynced = () => {
       this.mission.resay();
@@ -248,7 +248,7 @@ export class CoopWorld {
   /** Host: what lies in the shared world now, for a guest who was loading, joined late or came back: pods, dropped guns, what is broken. */
   private catchUp(id: string): void {
     // Each on its own: one that fails must not cost the guest the others.
-    for (const part of [this.pods, this.guns, this.props, this.fort, this.villainProps, this.capture, this.vehicles, this.calls, this.hook]) {
+    for (const part of [this.pods, this.guns, this.props, this.fort, this.villainProps, this.crowd, this.capture, this.vehicles, this.calls, this.hook, this.time]) {
       try { part.catchUp(id); } catch (error) { console.warn('[coop] A catch-up for an arriving guest failed', error); }
     }
   }

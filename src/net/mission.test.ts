@@ -460,4 +460,34 @@ describe('a mission run by the host and played on every screen', () => {
     expect(game.gc.host.deployed).toEqual({ at: '101.3,0,100', weapons: 'smg,shotgun,sword' });
     game.hw.dispose(); game.gw.dispose();
   });
+
+  it('replays Foreclosure shared fc.* calls on catchUp, preserves rack mods/label, and clears them on restart', () => {
+    const game = pair();
+    game.start();
+    // Simulate a registered shared Foreclosure call and a modded rack with label on the host.
+    game.hc.host.call('fc.flakStart', 'yard');
+    (game.hc.host as unknown as MissionHost).rack('smg', { at: [2, 0, 3] }, () => {}, ['suppressor'], 'SUPPRESSED');
+    game.relay.flush();
+    expect(game.gc.host.calls).toContainEqual(['fc.flakStart', 'yard']);
+    const rackPackets = game.sent('rack');
+    const modded = rackPackets.find(r => r.args[0] === 'smg');
+    expect(modded?.args[2]).toEqual(['suppressor']);
+    expect(modded?.args[3]).toBe('SUPPRESSED');
+    // Catch-up replays the Foreclosure call to a late joiner.
+    const mark = game.relay.packets.length;
+    game.hw.mission.catchUp(game.guestLobby.you);
+    const replayed = game.relay.packets.slice(mark)
+      .map(p => eventOf<WorldEvent>(p.data))
+      .filter((d): d is Extract<WorldEvent, { t: 'mission' }> => d.t === 'mission');
+    expect(replayed.some(d => d.op === 'call' && d.args[0] === 'fc.flakStart' && d.args[1] === 'yard')).toBe(true);
+    // Restarting clears stale Foreclosure calls so catchUp after restart does not replay pre-restart state.
+    (game.hw.mission as unknown as { restarting(): void }).restarting();
+    const afterRestart = game.relay.packets.length;
+    game.hw.mission.catchUp(game.guestLobby.you);
+    const replayedAfter = game.relay.packets.slice(afterRestart)
+      .map(p => eventOf<WorldEvent>(p.data))
+      .filter((d): d is Extract<WorldEvent, { t: 'mission' }> => d.t === 'mission');
+    expect(replayedAfter.some(d => d.op === 'call' && d.args[0] === 'fc.flakStart')).toBe(false);
+    game.hw.dispose(); game.gw.dispose();
+  });
 });

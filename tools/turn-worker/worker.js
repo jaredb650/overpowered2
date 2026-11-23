@@ -33,15 +33,23 @@ async function limitedBody(request) {
   for (const chunk of chunks) { all.set(chunk, offset); offset += chunk.length; }
   return new TextDecoder().decode(all);
 }
-async function rateLimited(request) {
+function timingSafeEqualStr(a, b) {
+  const enc = new TextEncoder();
+  const ab = enc.encode(a), bb = enc.encode(b);
+  const len = Math.max(ab.length, bb.length);
+  let diff = ab.length ^ bb.length;
+  for (let i = 0; i < len; i++) diff |= (ab[i] ?? 0) ^ (bb[i] ?? 0);
+  return diff === 0;
+}
+async function rateLimited(request, bucket = 'log', maxPerMin = 30) {
   const now = Date.now();
   for (const [key, value] of counters) if (now >= value.until) counters.delete(key);
-  // Bound isolate memory under attacks; no raw IP ever enters this map or D1.
-  if (counters.size >= 4096) return true;
-  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`${Math.floor(now / 60000)}:${request.headers.get('CF-Connecting-IP') || 'unknown'}`));
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`${bucket}:${Math.floor(now / 60000)}:${request.headers.get('CF-Connecting-IP') || 'unknown'}`));
   const key = Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, '0')).join('');
+  // Bound isolate memory via FIFO eviction rather than locking out all legitimate players globally.
+  while (counters.size >= 4096 && !counters.has(key)) counters.delete(counters.keys().next().value);
   const value = counters.get(key) || { n: 0, until: now + 60000 };
-  value.n++; counters.set(key, value); return value.n > 30;
+  value.n++; counters.set(key, value); return value.n > maxPerMin;
 }
 export async function handleRequest(request, env) {
   const origin = request.headers.get('Origin') || '';
@@ -56,7 +64,8 @@ export async function handleRequest(request, env) {
   try {
     if (url.pathname === '/logs') {
       if (request.method !== 'GET') return respond({ error: 'Method' }, 405);
-      if (!env.LOG_READ_KEY || request.headers.get('Authorization') !== `Bearer ${env.LOG_READ_KEY}`) return respond({ error: 'Unauthorized' }, 401);
+      const auth = request.headers.get('Authorization') || '';
+      if (!env.LOG_READ_KEY || !timingSafeEqualStr(auth, `Bearer ${env.LOG_READ_KEY}`)) return respond({ error: 'Unauthorized' }, 401);
       if (!env.LOG_DB) return respond({ error: 'LOG_DB is not bound' }, 503);
       const since = url.searchParams.get('since');
       const time = since ? (/^\d+$/.test(since) ? Number(since) : Date.parse(since)) : Date.now() - 86400000;
@@ -68,7 +77,7 @@ export async function handleRequest(request, env) {
     }
     if (url.pathname === '/log') {
       if (request.method !== 'POST') return respond({ error: 'Method' }, 405);
-      if (await rateLimited(request)) return respond({ error: 'Rate limit' }, 429);
+      if (await rateLimited(request, 'log', 30)) return respond({ error: 'Rate limit' }, 429);
       let body;
       try { body = JSON.parse(await limitedBody(request)); }
       catch (error) { return respond({ error: error instanceof RangeError ? 'Request too large' : 'Invalid JSON' }, error instanceof RangeError ? 413 : 400); }
@@ -83,6 +92,7 @@ export async function handleRequest(request, env) {
     }
     if (url.pathname !== '/') return respond({ error: 'Not found' }, 404);
     if (!['GET', 'POST'].includes(request.method)) return respond({ error: 'Method' }, 405);
+    if (await rateLimited(request, 'turn', 20)) return respond({ error: 'Rate limit' }, 429);
     if (!env.TURN_KEY_ID || !env.TURN_KEY_API_TOKEN) return json({ error: 'TURN_KEY_ID or TURN_KEY_API_TOKEN is not set' }, 500, cors);
     const answer = await fetch(`https://rtc.live.cloudflare.com/v1/turn/keys/${env.TURN_KEY_ID}/credentials/generate-ice-servers`, {
       method: 'POST',

@@ -95,15 +95,19 @@ export class FastLink {
     this.stopProbing();
   }
 
-  /** False when the link is not up: the caller sends by the reliable path instead. */
+  /** False when the link is not up or the send failed: the caller sends by the reliable path instead. */
   send(frame: Uint8Array): boolean {
     if (!this.up) return false;
     if (this.channel.readyState !== 'open') {
       this.down();
       return false;
     }
-    this.raw(frame);
-    return true;
+    return this.raw(frame);
+  }
+
+  /** True while the underlying channel has not closed. */
+  get alive(): boolean {
+    return this.channel.readyState === 'open' || this.channel.readyState === 'connecting';
   }
 
   get buffered(): number {

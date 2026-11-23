@@ -14,13 +14,14 @@ export const noKinds = (): IceKinds => ({ host: 0, mdns: 0, srflx: 0, relay: 0, 
 export function addCandidate(kinds: IceKinds, line: string | undefined | null): void {
   const match = line && /candidate:\S+ \d+ \S+ \d+ (\S+) \d+ typ (\w+)/i.exec(line);
   if (!match) return;
-  const [, address, type] = match;
+  const [, address, rawType] = match;
+  const type = rawType!.toLowerCase();
   if (type === 'host') {
     kinds.host++;
-    if (address.endsWith('.local')) kinds.mdns++;
+    if (address!.toLowerCase().endsWith('.local')) kinds.mdns++;
   } else if (type === 'srflx' || type === 'prflx') {
     kinds.srflx++;
-    if (!kinds.publicIps.includes(address)) kinds.publicIps.push(address);
+    if (!kinds.publicIps.includes(address!)) kinds.publicIps.push(address!);
   } else if (type === 'relay') kinds.relay++;
 }
 

@@ -40,7 +40,7 @@ const NO_WORDS = new Words([]);
 const MAX_DEPTH = 32;
 const POW = [1, 10, 100, 1000, 10000];
 const encoder = new TextEncoder();
-const decoder = new TextDecoder('utf-8', { fatal: true });
+const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
 const float = new DataView(new ArrayBuffer(8));
 const has = Object.prototype.hasOwnProperty;
 

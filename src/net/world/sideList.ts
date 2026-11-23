@@ -40,8 +40,13 @@ export class ListParts {
     const part = value as Partial<Part> | null;
     if (!part || typeof part.at !== 'number' || !Number.isFinite(part.at) || !Number.isInteger(part.i) || !Number.isInteger(part.n) || !Array.isArray(part.list)) return null;
     const { at, i, n, list } = part as Part;
-    if (n < 1 || n > MOST_PARTS || i < 0 || i >= n || at < this.at) return null;
-    if (at > this.at) { this.at = at; this.got = 0; this.rows = []; }
+    if (n < 1 || n > MOST_PARTS || i < 0 || i >= n) return null;
+    if (at < this.at) {
+      if (this.at - at <= 30_000) return null;
+      this.at = at; this.got = 0; this.rows = [];
+    } else if (at > this.at) {
+      this.at = at; this.got = 0; this.rows = [];
+    }
     const bit = 1 << i;
     if (this.got & bit) return null;
     this.got |= bit;

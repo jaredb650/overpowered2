@@ -152,6 +152,11 @@ export class VillainProps implements WorldModule {
     parts.smoke.update(dt);
   }
 
+  forgetPeer(id: string): void {
+    this.shots.delete(id);
+    this.walkers.delete(id);
+  }
+
   /** Guest: the host's devices. */
   private devIn(value: Extract<VillainPropsEvent, { t: 'dev' }>): void {
     const devices = this.find()?.devices;
@@ -167,8 +172,8 @@ export class VillainProps implements WorldModule {
       if (!name || !Number.isInteger(id) || !validVec([x, y, z]) || !validVec([ex, ey, ez])) continue;
       devices.put(id!, name, new THREE.Vector3(x, y, z), new THREE.Vector3(ex, ey, ez), new THREE.Vector3(fx, 0, fz), yaw!, fuse!);
     }
-    if (Array.isArray(value.lit) && value.lit.every(Number.isFinite)) devices.light(value.lit[0], Math.max(0, Math.min(1e4, value.lit[1])));
-    if (Array.isArray(value.gone) && value.gone.every(Number.isFinite)) devices.take(value.gone[0], value.gone[1]);
+    if (Array.isArray(value.lit) && value.lit.length === 2 && value.lit.every(Number.isFinite)) devices.light(value.lit[0], Math.max(0, Math.min(1e4, value.lit[1])));
+    if (Array.isArray(value.gone) && value.gone.length === 2 && value.gone.every(Number.isFinite)) devices.take(value.gone[0], value.gone[1]);
   }
 
   /** Host: a guest's round on a device. Theirs if the device is live, in range of their body, and nothing of the world is between. */

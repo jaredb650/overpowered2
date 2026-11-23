@@ -353,12 +353,25 @@ export class CoopSession implements GameSystem {
       : this.localPaused ? (p.crouched ? 'crouch' : p.grounded ? 'walk' : 'airborne')
       : p.wallRunning ? (p.wallSide > 0 ? 'wallrunR' : 'wallrun') : p.mantling || p.vaulting ? 'mantle' : p.sliding ? 'slide' : p.jetting ? 'jet' : !p.grounded ? 'airborne'
       : p.crouched ? 'crouch' : p.speed > 8 ? 'sprint' : 'walk';
-    this.lobby.sendPose({ seq: this.seq++ >>> 0, position: p.position.toArray(), velocity: this.localPaused ? [0, 0, 0] : p.velocity.toArray(),
-      yaw: Math.atan2(Math.sin(p.yaw), Math.cos(p.yaw)), pitch: p.pitch, move,
-      // `-ak`: two of it in hand (the akimbo mod), drawn so on the others' screens (remote.ts).
-      weapon: this.ctx.weapons.akimbo ? `${this.ctx.weapons.current}${AKIMBO_TAG}` : this.ctx.weapons.current,
-      // What they are doing with the gun besides firing it: a reload, a stim, the laser up, a charge (pose.ts DOING).
-      flags: this.world?.doing() ?? 0 });
+    const clamp = (n: number, bound: number) => (Number.isFinite(n) ? Math.max(-bound, Math.min(bound, n)) : 0);
+    const rawWeapon = this.ctx.weapons.akimbo ? `${this.ctx.weapons.current}${AKIMBO_TAG}` : this.ctx.weapons.current;
+    const weapon = /^[a-zA-Z0-9_-]{1,32}$/.test(rawWeapon) ? rawWeapon : 'smg';
+    try {
+      this.lobby.sendPose({
+        seq: this.seq++ >>> 0,
+        position: [clamp(p.position.x, 9999), clamp(p.position.y, 9999), clamp(p.position.z, 9999)],
+        velocity: this.localPaused ? [0, 0, 0] : [clamp(p.velocity.x, 999), clamp(p.velocity.y, 999), clamp(p.velocity.z, 999)],
+        yaw: clamp(Math.atan2(Math.sin(p.yaw), Math.cos(p.yaw)), Math.PI * 2),
+        pitch: clamp(p.pitch, Math.PI),
+        move,
+        // `-ak`: two of it in hand (the akimbo mod), drawn so on the others' screens (remote.ts).
+        weapon,
+        // What they are doing with the gun besides firing it: a reload, a stim, the laser up, a charge (pose.ts DOING).
+        flags: this.world?.doing() ?? 0,
+      });
+    } catch (error) {
+      console.warn('[coop] Dropped invalid local pose', error);
+    }
   }
 
   /** Host: the match is over for everyone, and they all land on the lobby page. */

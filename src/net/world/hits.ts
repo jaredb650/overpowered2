@@ -48,7 +48,7 @@ export type HitEvent =
   | { t: 'sever'; uid: number; region: GoreRegion; by?: number; d: WireHit };
 
 /** A guest's own hits still unanswered. A ring this long: an answer older than that many hits is not waited for. */
-const PENDING = 256;
+const PENDING = 1024;
 /** An unanswered hit is forgotten after this long: the host dropped the claim. */
 const PENDING_MS = 2500;
 /** A death is only started ahead of the host's word on an enemy whose state is no older than this, ms. */
@@ -386,8 +386,14 @@ export class Hits implements WorldModule {
     const player = lobby.players.find(p => p.slot === slot);
     const remote = player ? remotes.get(player.id) : undefined;
     if (!remote) return null;
-    this.eye.copy(remote.char.root.position);
-    this.eye.y += EYE;
+    const root = remote.char.root.position;
+    const reye = remote.eye;
+    if (reye && Math.abs(reye.x - root.x) < 0.05 && Math.abs(reye.z - root.z) < 0.05 && reye.y > root.y + 0.1) {
+      this.eye.copy(reye);
+    } else {
+      this.eye.copy(root);
+      this.eye.y += EYE;
+    }
     return this.eye;
   }
 
@@ -465,7 +471,7 @@ export class Hits implements WorldModule {
         this.ownKill(standIn(foretold, value), damage, value.gib === true, value.head === true);
       }
     } finally {
-      ctx.events.emit('coop:kill', { by: Number.isInteger(value.by) ? value.by! : -1, id: value.id, boss: false, head: value.head === true });
+      ctx.events.emit('coop:kill', { by: Number.isInteger(value.by) ? value.by! : -1, id: value.id, boss: foretold.boss === true, head: value.head === true });
       this.toldKill.delete(value.uid);
       this.onKill.delete(value.uid);
     }
