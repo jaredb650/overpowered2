@@ -268,7 +268,8 @@ const selfAid: Behaviour = {
     if (b.aidUntil > 0 && w.now >= b.aidUntil) {
       b.aidUntil = 0;
       b.aidReadyAt = w.now + WoundTuning.selfAidRest;
-      b.dressWorst();
+      const dressed = b.worst();
+      if (b.dressWorst() && dressed) w.ctx.gore.stopBleed?.(e.char, `${dressed.zone}:${dressed.side}`);
     }
   },
   exit(e, w) {

@@ -3,7 +3,8 @@ import * as THREE from 'three';
 import type { CharacterInstance, SeveredLimb, WoundHit } from '../core/contracts';
 import { HumanoidBone as H, type GoreRegion, type RigDef } from './rig';
 import type { LoadedModel } from './model';
-import { BONE_TEXTURE_SIZE, EXTRA_FIRE, EXTRA_INFO, EXTRA_PARAMS, EXTRA_TEXELS, EXTRA_WEAR, EXTRA_WOUNDS, REGION_OF } from './anatomy/glsl';
+import { BONE_TEXTURE_SIZE, EXTRA_BLOOD_MAP, EXTRA_FIRE, EXTRA_INFO, EXTRA_PARAMS, EXTRA_TEXELS, EXTRA_WEAR, EXTRA_WOUNDS, REGION_OF } from './anatomy/glsl';
+import type { BloodSurfacePool, WalkMesh } from './anatomy/bloodSurface';
 import { WearBook, WearKind, type WearKindId } from './anatomy/wear';
 import { Organ } from './anatomy/build';
 import { FracturePose, type FractureStyle } from './anatomy/fracture';
@@ -58,6 +59,10 @@ export interface ArchetypeData {
   farMaterial: THREE.Material;
   /** What is under the skin, shared by every body of this archetype. Null for machines, which get dents. */
   interior: THREE.BufferGeometry | null;
+  /** Surface-walking topology for Overgrowth-style dynamic blood dripping (null for machines or UV-less models). */
+  walkMesh?: WalkMesh | null;
+  /** Shared pooled DataArrayTexture for dynamic character blood stains. */
+  bloodPool?: BloodSurfacePool;
   interiorMaterial: THREE.Material | null;
   /** The inside of an opened body's skin, which is also what it casts its shadow with. */
   backingMaterial: THREE.Material | null;
@@ -333,6 +338,9 @@ function bakeSkin(s: FarSkin, out: FarBuffers, vertex: number, index: number, ma
   const dry = Math.min(1, Math.max(0, d[fire + 7]!));
   const worn = s.a.interior && d[s.extras + EXTRA_INFO * 4 + 3]! > 0;
   const wearAt = s.extras + EXTRA_WEAR * 4;
+  const bmLayer = s.a.interior && s.a.bloodPool && A.uv ? (d[s.extras + EXTRA_BLOOD_MAP * 4]! | 0) - 1 : -1;
+  const uvArr = bmLayer >= 0 ? (A.uv!.array as Uint16Array | Float32Array) : null;
+  const uvScale = uvArr instanceof Uint16Array ? 1 / 65535 : 1;
   const wounds = s.a.interior ? s.wounds : 0;
   const w0 = s.extras + EXTRA_WOUNDS * 4;
   const n = far.verts.length;
@@ -391,7 +399,7 @@ function bakeSkin(s: FarSkin, out: FarBuffers, vertex: number, index: number, ma
     out.normal[c] = ox * l; out.normal[c + 1] = oy * l; out.normal[c + 2] = oz * l; out.normal[c + 3] = 0;
 
     // Blood, in the vertex: how near the nearest wound is (its stain runs out to twice its size and a way down the
-    // body), and the body's overall wet in patches.
+    // body), dynamic UV surface stains, and the body's overall wet in patches.
     let stain = 0;
     let hole = 0;
     for (let q = 0; q < wounds; q++) {
@@ -405,8 +413,12 @@ function bakeSkin(s: FarSkin, out: FarBuffers, vertex: number, index: number, ma
       if (dist < reach) stain = Math.max(stain, 1 - dist / reach);
       if (dist < r) hole = Math.max(hole, 1 - dist / r);
     }
+    let mapBlood = 0;
+    if (uvArr && s.a.bloodPool) {
+      mapBlood = s.a.bloodPool.sampleUv(bmLayer, uvArr[i * 2]! * uvScale, uvArr[i * 2 + 1]! * uvScale)[0] * 0.92;
+    }
     // A stain is strong at the wound and thins out; a wet body is only a little darker and redder all over.
-    const blood = Math.min(0.9, stain * stain * 1.6 + wet * 0.06);
+    const blood = Math.min(0.95, Math.max(stain * stain * 1.6 + wet * 0.06, mapBlood));
     let r8 = col[i * 4]!, g8 = col[i * 4 + 1]!, b8 = col[i * 4 + 2]!;
     // Dried, it is darker and browner (the skin shader's own drying: a baked body is an old one).
     r8 += (104 - 36 * dry - r8) * blood; g8 += (7 + 3 * dry - g8) * blood; b8 += (9 - b8) * blood;
@@ -740,6 +752,26 @@ export class Character implements CharacterInstance {
     this.data[this.extras + EXTRA_PARAMS * 4] = this.a.interior ? amount : 0;
   }
 
+  /** Sets the pooled dynamic UV blood layer (`layer` is 1-based; 0 = clean/skip). Machines stay clean. */
+  setBloodMapLayer(layer: number, active = 0, soak = 0): void {
+    const o = this.extras + EXTRA_BLOOD_MAP * 4;
+    if (!this.a.interior || layer <= 0) {
+      this.data[o] = 0;
+      this.data[o + 1] = 0;
+      this.data[o + 2] = 0;
+      this.data[o + 3] = 0;
+      return;
+    }
+    this.data[o] = layer;
+    this.data[o + 1] = active;
+    this.data[o + 2] = soak;
+  }
+
+  /** 1-based dynamic blood map layer index, or 0 if clean. */
+  get bloodMapLayer(): number {
+    return this.data[this.extras + EXTRA_BLOOD_MAP * 4]! | 0;
+  }
+
   hitFlash(intensity: number): void {
     const now = this.a.time.elapsed;
     this.flash = Math.max(this.flash - (now - this.flashAt) * FLASH_DECAY, intensity);
@@ -875,6 +907,8 @@ export class Character implements CharacterInstance {
   /** Copies this instance's surface state onto a severed part, so wounds and burn follow the limb. */
   copySurfaceTo(dst: Float32Array, dstOffset: number, book: WoundBook, worn: WearBook): void {
     dst.set(this.data.subarray(this.extras, this.extras + EXTRA_TEXELS * 4), dstOffset);
+    // Pooled blood-map layers belong to the body and may be recycled after it resets.
+    dst[dstOffset + EXTRA_BLOOD_MAP * 4] = 0;
     book.adopt(this.book);
     worn.adopt(this.worn);
   }
@@ -934,8 +968,9 @@ export class Character implements CharacterInstance {
     }
     for (const bone of snap.cut) this.hideLimb(bone);
     this.data.set(snap.surface, this.extras);
-    // Nothing fades a flash on a body nobody is hitting.
+    // Nothing fades a flash on a body nobody is hitting, and the old pooled blood layer may now belong to someone else.
     this.data[this.extras + EXTRA_PARAMS * 4 + 1] = 0;
+    this.data[this.extras + EXTRA_BLOOD_MAP * 4] = 0;
     this.flash = 0;
     this.book.load(snap.wounds);
     this.worn.adopt(snap.worn as WearBook);
@@ -1070,6 +1105,7 @@ export class Character implements CharacterInstance {
     this.stress.fill(0);
     this.mesh.castShadow = true;
     if (this.inside) this.showInside(FAR_LOD);
+    this.a.bloodPool?.release(this);
     this.data.fill(0, this.extras, this.extras + EXTRA_TEXELS * 4);
     this.data[this.extras + EXTRA_INFO * 4 + 1] = Math.random() * 64;
     this.kitCharred = false;

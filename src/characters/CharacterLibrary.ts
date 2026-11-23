@@ -4,6 +4,7 @@ import type { CharacterInstance, CharacterLibrary, Ctx } from '../core/contracts
 import { CAST, archetypeById, rigFor, type ArchetypeDef } from './archetypes';
 import { Character, FAR_LOD, SeveredPart, type ArchetypeData } from './Character';
 import { buildInterior } from './anatomy/build';
+import { BloodSurfacePool, buildWalkMesh } from './anatomy/bloodSurface';
 import { createInteriorMaterial } from './anatomy/interior';
 import { createBackingMaterial } from './anatomy/backing';
 import { WoundKind } from './anatomy/wounds';
@@ -63,6 +64,7 @@ async function loadTexture(url: string, srgb: boolean): Promise<THREE.Texture> {
 }
 
 export class CharacterLibraryImpl implements CharacterLibrary {
+  readonly bloodPool = new BloodSurfacePool();
   private readonly entries = new Map<string, Entry>();
   private readonly loading = new Map<string, Promise<void>>();
   private readonly models = new Map<string, Promise<Loaded>>();
@@ -91,9 +93,13 @@ export class CharacterLibraryImpl implements CharacterLibrary {
         const [atlasA, atlasB] = atlas
           ? await Promise.all([loadTexture(dir + atlas.albedo, true), loadTexture(dir + atlas.normal, false)])
           : [null, null];
-        const surface = { detail: this.detail, atlasA, atlasB, extraBase: model.meta.skeleton.length * 4 };
-        const material = createCharacterMaterial(this.ctx, surface);
         const character = model.meta.kind === 'character';
+        const surface: SurfaceOptions = {
+          detail: this.detail, atlasA, atlasB,
+          bloodMap: character ? this.bloodPool.texture : null,
+          extraBase: model.meta.skeleton.length * 4,
+        };
+        const material = createCharacterMaterial(this.ctx, surface);
         const farMaterial = character ? createCharacterMaterial(this.ctx, { ...surface, far: true }) : material;
         const woundMaterial = character ? createCharacterMaterial(this.ctx, { ...surface, wounds: true }) : material;
         return { model, material, woundMaterial, farMaterial, surface, plain: null };
@@ -171,10 +177,11 @@ export class CharacterLibraryImpl implements CharacterLibrary {
     // Flesh on a person's skeleton. Anything else takes dents, not holes.
     const fleshy = def.rig === 'humanoid' && def.stumps === 'flesh';
     const interior = fleshy ? buildInterior(model, rig, bindPositions, id.length * 977 + n) : null;
+    const walkMesh = fleshy ? buildWalkMesh(model) : null;
     const interiorMaterial = fleshy ? createInteriorMaterial(this.ctx, this.detail!, n * 4) : null;
     const backingMaterial = fleshy ? createBackingMaterial(n * 4) : null;
     const entry: Entry = {
-      id, def, rig, model, material, woundMaterial, farMaterial, interior, interiorMaterial, backingMaterial, time: this.ctx.time, boneCount: n, bindInverses, bindPositions, children,
+      id, def, rig, model, material, woundMaterial, farMaterial, interior, walkMesh, bloodPool: this.bloodPool, interiorMaterial, backingMaterial, time: this.ctx.time, boneCount: n, bindInverses, bindPositions, children,
       free: [], active: new Set(), freeLimbs: [], activeLimbs: [],
       acquireLimb: () => this.acquireLimb(entry),
     };

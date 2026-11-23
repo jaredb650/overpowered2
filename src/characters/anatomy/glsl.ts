@@ -21,10 +21,12 @@ export const EXTRA_FIRE = 2;
 export const EXTRA_WOUNDS = 4;
 /** Wear, three texels after the wounds: how far through its skin each region is (wear.ts). */
 export const EXTRA_WEAR = EXTRA_WOUNDS + MAX_WOUNDS * WOUND_TEXELS;
-export const EXTRA_TEXELS = EXTRA_WEAR + WEAR_TEXELS;
+/** Dynamic UV blood stain layer: x = 1-based DataArrayTexture layer (0 = clean), y = active bleed tier, z = floor soak, w = spare. */
+export const EXTRA_BLOOD_MAP = EXTRA_WEAR + WEAR_TEXELS;
+export const EXTRA_TEXELS = EXTRA_BLOOD_MAP + 1;
 /**
- * One size for every rig. 37 bones, the two fire texels, all the wounds and the wear take 251 of its 256 texels. The last
- * 5 are free: a new block goes after the wear (`EXTRA_TEXELS`), and `makeSkeleton` refuses a rig it does not fit.
+ * One size for every rig. 37 bones, the two fire texels, all the wounds, wear and blood map take 252 of its 256 texels.
+ * The last 4 are free: a new block goes after `EXTRA_TEXELS`, and `makeSkeleton` refuses a rig it does not fit.
  */
 export const BONE_TEXTURE_SIZE = 16;
 

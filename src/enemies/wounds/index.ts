@@ -257,6 +257,7 @@ export class WoundSystem {
 
   private burn(s: Soldier, b: Injuries): void {
     b.cauterise();
+    this.w.ctx.gore.stopBleed?.(s.e.char);
     if (b.condition === 'healthy') {
       b.condition = 'wounded';
       this.announce(s.e, 'wounded');
@@ -278,7 +279,18 @@ export class WoundSystem {
     if (object) object.worldToLocal(_v.copy(d.point));
     else _v.set(0, 0, 0);
     const before = b.condition;
-    b.add(zone, side, bone, _v.x, _v.y, _v.z, share, d.type, amount);
+    const w = b.add(zone, side, bone, _v.x, _v.y, _v.z, share, d.type, amount);
+    const tier: 1 | 2 | 3 = zone === 'carotid' || zone === 'innerThigh' || w.bleed >= 0.08
+      ? 3
+      : (zone === 'lung' || zone === 'gut' || zone === 'pelvis' || w.bleed >= 0.03 ? 2 : 1);
+    if (d.dir.lengthSq() > 1e-4) _n.copy(d.dir).negate().normalize();
+    else if (object) _n.set(w.x, 0.15, w.z).normalize().transformDirection(object.matrixWorld);
+    else _n.set(0, 0.2, 1).normalize();
+    this.w.ctx.gore.bleedWound?.(e.char, bone, d.point, tier, {
+      normal: _n,
+      zone: `${zone}:${side}`,
+      spurtPower: zone === 'carotid' ? 0.76 : zone === 'innerThigh' ? 0.62 : undefined,
+    });
     if (before !== b.condition) this.announce(e, b.condition);
   }
 
@@ -391,6 +403,18 @@ export class WoundSystem {
     b.mortalFrom = now;
     b.dyingFrom = Math.min(b.dyingFrom, now);
     b.mortalUntil = now + rand(T.mortal[0], T.mortal[1]);
+    const worst = b.worst();
+    const bone = worst ? s.e.char.bones[worst.bone] : undefined;
+    if (worst && bone) {
+      bone.updateWorldMatrix(true, false);
+      _v.set(worst.x, worst.y, worst.z).applyMatrix4(bone.matrixWorld);
+      _n.set(worst.x, 0.15, worst.z).normalize().transformDirection(bone.matrixWorld);
+      const tier: 2 | 3 = worst.zone === 'carotid' || worst.zone === 'innerThigh' || worst.bleed >= SPURT_FROM ? 3 : 2;
+      this.w.ctx.gore.bleedWound?.(s.e.char, worst.bone, _v, tier, {
+        normal: _n,
+        zone: `${worst.zone}:${worst.side}`,
+      });
+    }
     this.rollLastStand(s, b);
     this.announce(s.e, 'mortal');
     this.o.comms.say('dying', s);
@@ -483,6 +507,8 @@ export class WoundSystem {
     const e = s.e;
     const b = s.injuries;
     b.dressAll();
+    this.w.ctx.gore.stopBleed?.(e.char);
+    this.w.ctx.gore.clutchWound?.(e.char, null);
     if (!b.canStand) {
       b.stabilised = true;
       b.bleedsOutAt += T.stabilised;
@@ -616,6 +642,11 @@ export class WoundSystem {
       s.sees = e.hasLos;
       if (s.reloadUntil > 0 && now >= s.reloadUntil && !this.sidearms.isPending(e)) s.reloadUntil = 0;
     }
+    const ground = this.w.ctx.world.nav.groundHeight(e.position.x, e.position.y + 0.5, e.position.z);
+    const floorY = Number.isNaN(ground) ? e.position.y : ground;
+    if (this.w.ctx.gore.wetAt?.(e.position.x, floorY, e.position.z)) {
+      this.w.ctx.gore.soakPool?.(e.char, floorY, 0.5);
+    }
   }
 
   private holdWorst(s: Soldier, b: Injuries, now: number): void {
@@ -629,9 +660,14 @@ export class WoundSystem {
       b.held = w;
       b.refresh();
     }
-    if (!w || e.downed) return;
+    if (!w || e.downed) {
+      this.w.ctx.gore.clutchWound?.(e.char, null);
+      return;
+    }
     const bone = e.char.bones[w.bone];
     if (!bone) return;
+    const useRight = s.weapon === 'sidearm' ? s.sidearmLeft : (b.armL || b.handL);
+    this.w.ctx.gore.clutchWound?.(e.char, w.bone, useRight ? B.handR : B.handL, useRight ? B.foreArmR : B.foreArmL);
     e.char.anim.holdWound?.(w.bone, _v.set(w.x, w.y, w.z).applyMatrix4(bone.matrixWorld), HOLD_SECONDS);
   }
 
@@ -657,6 +693,7 @@ export class WoundSystem {
       _n.set(0, -0.15, 1).transformDirection(head.matrixWorld);
       _v.addScaledVector(_n, 0.12);
       fx.bloodJet(_v, _n, 0.25);
+      this.w.ctx.gore.bleedWound?.(e.char, B.chest, _v, 1, { zone: 'cough', duration: 4 });
       shout(e, this.w, 'vox_choke', 0.55);
     }
   }

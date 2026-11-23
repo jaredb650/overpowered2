@@ -780,6 +780,20 @@ export class DamageModel {
     const spent = e.health <= 0 || headPool <= 0;
     if (blast?.fatal || (body ? wounds!.take(e, body, placed, d, amount, spent) : spent)) return this.lethal(e, d, res, region, true, blast);
 
+    if (
+      !body && !e.def.machine && !e.isBoss
+      && d.bone !== undefined && d.bone >= 0
+      && (d.type === 'bullet' || d.type === 'pellet' || d.type === 'slash' || d.type === 'melee' || d.type === 'explosive')
+      && (e.health / e.maxHealth < 0.35 || e.darts > 0 || e.bleed > 0)
+    ) {
+      const arterial = d.bone === B.neck
+        || (e.health / e.maxHealth < 0.25 && (d.bone === B.chest || d.bone === B.thighL || d.bone === B.thighR));
+      this.w.ctx.gore.bleedWound?.(e.char, d.bone, d.point, arterial ? 3 : 2, {
+        normal: _v.copy(d.dir).negate(),
+        spurtPower: arterial ? 0.68 : undefined,
+      });
+    }
+
     if (blast) this.blastWound(e, d, res, blast);
     else if (area) this.blastLimb(e, d, res);
     else this.spendLimb(e, region, d, res);
