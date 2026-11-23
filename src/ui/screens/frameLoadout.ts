@@ -79,7 +79,7 @@ const ARM_SPECS: Readonly<Record<ArmKind, readonly PartStatRow[]>> = {
     { label: 'Shockwave', value: `${FRAME.howitzer.shockRadius} m knockdown` },
   ],
   vulcan30: [
-    { label: 'Fire rate', value: '14 shells/s (0.35 s spin)' },
+    { label: 'Fire rate', value: '24.5 shells/s (0.35 s spin)' },
     { label: 'Thermal', value: '~5.0 s burst · 2.5 s vent' },
     { label: 'Rounds', value: '30 mm HE / AP / Flak (tap 1 or 2)' },
   ],

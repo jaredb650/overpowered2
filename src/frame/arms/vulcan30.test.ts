@@ -1,6 +1,6 @@
 /**
  * Unit tests for the 30 mm three-barrel Explosive Rotary Cannon (`vulcan30.ts` & `models/vulcan30.ts`):
- * spin-up, 14 rds/s cadence, overheat & vent lockout, independent per-arm HE/AP/FLAK cycling,
+ * spin-up, 24.5 rds/s cadence, overheat & vent lockout, independent per-arm HE/AP/FLAK cycling,
  * zero-spread round mechanics, silence/reset, co-op remote playback, and 3D model build sanity.
  */
 import * as THREE from 'three';
@@ -232,7 +232,7 @@ function makeUpdateCtx(
 }
 
 describe('Vulcan30 clock', () => {
-  it('spins up for 0.35 s before firing, then maintains 14 rounds/s cadence', () => {
+  it('spins up for 0.35 s before firing, then maintains 24.5 rounds/s cadence', () => {
     const v = new Vulcan30();
     let firstAt = -1;
     for (let step = 1; step <= 60; step++) {
@@ -248,11 +248,11 @@ describe('Vulcan30 clock', () => {
     expect(firstAt).toBeLessThanOrEqual(0.37);
     expect(v.firing).toBe(true);
 
-    // Measure 1 full second of steady firing after spin-up: 14 rounds/s.
+    // Measure 1 full second of steady firing after spin-up: 24.5 rounds/s.
     let roundsInSecond = 0;
     for (let i = 0; i < 60; i++) roundsInSecond += v.update(DT, true);
-    expect(roundsInSecond).toBeGreaterThanOrEqual(13);
-    expect(roundsInSecond).toBeLessThanOrEqual(15);
+    expect(roundsInSecond).toBeGreaterThanOrEqual(23);
+    expect(roundsInSecond).toBeLessThanOrEqual(26);
 
     // Releasing trigger stops firing and spins barrels down.
     expect(v.update(DT, false)).toBe(0);
@@ -284,8 +284,8 @@ describe('Vulcan30 clock', () => {
     expect(v.heat.overheated).toBe(true);
     expect(fireTime).toBeGreaterThan(4.6);
     expect(fireTime).toBeLessThan(5.4);
-    expect(totalRounds).toBeGreaterThanOrEqual(69);
-    expect(totalRounds).toBeLessThanOrEqual(72);
+    expect(totalRounds).toBeGreaterThanOrEqual(122);
+    expect(totalRounds).toBeLessThanOrEqual(125);
 
     // Locked out for 2.5 s vent even while holding trigger.
     let ventTime = 0;

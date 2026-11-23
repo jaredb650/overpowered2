@@ -1,7 +1,7 @@
 /**
  * 30 mm three-barrel Explosive Rotary Cannon arm weapon plug-in (`vulcan30L/R`).
  *
- *   Spin-up   0.35 s, 14 rounds/s, overheats after ~5.0 s of continuous fire, vents in 2.5 s.
+ *   Spin-up   0.35 s, 24.5 rounds/s, overheats after ~5.0 s of continuous fire, vents in 2.5 s.
  *   Rounds    HE (60% of 40 mm blast radius, 45% of 40 mm damage),
  *             AP (high-velocity armor-piercing round, penetrates 1 body: `penetrate: 2`, `bodyCost: 1`),
  *             FLAK (proximity-fuzed airburst ahead of enemies, 60% of 40 mm flak pellets).
@@ -26,16 +26,16 @@ const B = AC130.bofors;
 
 /** Tuning constants for the 30 mm three-barrel rotary cannon. */
 export const VULCAN30 = {
-  rate: 14,
+  rate: 24.5,
   spinUp: 0.35,
   spinDown: 1.0,
   /** Trigger fires right at 0.35 s spin-up without floating-point boundary slip. */
   fireAt: 0.99,
-  /** ~4.77 rev/s across 3 barrels (~14.3 barrels/s past the breech). */
-  barrelRate: 30,
+  /** ~8.36 rev/s across 3 barrels (~25.1 barrels/s past the breech). */
+  barrelRate: 52.5,
   range: 420,
-  /** 70 rounds at 14 rds/s = 5.0 s of continuous fire; 1 / 2.5 = 0.4/s vent lockout. */
-  heatPerShot: 1 / 70,
+  /** 123 rounds at 24.5 rds/s ≈ 5.0 s of continuous fire; 1 / 2.5 = 0.4/s vent lockout. */
+  heatPerShot: 1 / 123,
   cool: 0.3,
   vent: 1 / 2.5,
   armRecoil: 0.16,
@@ -74,7 +74,7 @@ export const VULCAN30 = {
 
 const SPIN_PITCH_MIN = 0.34;
 const SPIN_PITCH_SPAN = 0.44;
-/** `minigun_fire_loop` is synthesized at 25 rounds/s; pitching by 14/25 gives a heavy 30 mm thump. */
+/** `minigun_fire_loop` is synthesized at 25 rounds/s; pitching by rate/25 matches the 24.5 rds/s cadence. */
 const LOOP_BASE_RATE = 25;
 const REMOTE_FLAK_TRACERS = 3;
 
@@ -143,7 +143,7 @@ const FLAK_PELLET_SHOT: ShotSpec = {
   type: 'pellet',
 };
 
-/** Pure clock for the 30 mm rotary cannon: spin-up, 14 rds/s cadence, heat/vent, and HE/AP/FLAK selection. */
+/** Pure clock for the 30 mm rotary cannon: spin-up, 24.5 rds/s cadence, heat/vent, and HE/AP/FLAK selection. */
 export class Vulcan30 {
   readonly heat = new Heat(VULCAN30);
   spin = 0;

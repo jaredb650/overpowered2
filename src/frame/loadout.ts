@@ -135,7 +135,7 @@ const HOWITZER = {
 };
 const VULCAN30 = {
   name: '30 mm Rotary Cannon',
-  does: 'Three heavy barrels firing 14 explosive shells a second after a 0.35 s spin; overheats in ~5 s (2.5 s vent). Tap 1 (left) or 2 (right) to cycle HE, AP and flak.',
+  does: 'Three heavy barrels firing 24.5 explosive shells a second after a 0.35 s spin; overheats in ~5 s (2.5 s vent). Tap 1 (left) or 2 (right) to cycle HE, AP and flak.',
   lore: 'The compromise between the 20 mm and the 40 mm was to fire the 40 mm as fast as the 20 mm.',
 };
 const BEAM = {
