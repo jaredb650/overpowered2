@@ -242,7 +242,7 @@ const desert: MapDef = {
   bounds: box(DR.x0, DR.y0, DR.z0, DR.x1, DR.y1, DR.z1),
   lightBounds: box(DRL.x0, DRL.y0, DRL.z0, DRL.x1, DRL.y1, DRL.z1),
   lightCell: DESERT_LIGHT_CELL,
-  minimapExtent: 165,
+  minimapExtent: 220,
   navHub: DESERT_HUB,
   nav: { mutual: true, levels: [...DESERT_LEVELS] },
   stages: DESERT_STAGES,
