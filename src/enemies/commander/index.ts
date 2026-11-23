@@ -724,7 +724,8 @@ export class Commander {
     if (!line) return;
     let text = line.text;
     if (vars) for (const key in vars) text = text.replaceAll(`{${key}}`, vars[key]!);
-    this.o.comms.relay(text, s, null);
+    const clip = vars?.room ? `${id}~${vars.room}` : id;
+    this.o.comms.relay(text, s, null, clip, true);
   }
 
   /** The Commander himself on the open channel. */

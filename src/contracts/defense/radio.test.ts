@@ -165,7 +165,7 @@ describe('the Commander on the fort', () => {
     expect(lineById('cmd.def.armour.bitch')?.text).toBe('I\'m putting armour on your bitch ass.');
   });
 
-  it('has dozens of lines, every one text with no take yet, and only slots a session could record', () => {
+  it('has dozens of lines, voiced for single-slot Council calls and only slots a session could record', () => {
     const fort = LINES.filter(l => isDefenseLine(l.id));
     const his = fort.filter(l => l.speaker === 'commander');
     expect(his.length).toBeGreaterThanOrEqual(60);
@@ -175,11 +175,17 @@ describe('the Commander on the fort', () => {
       const slots = slotsOf(l.text);
       expect(l.text.length, l.id).toBeLessThan(140);
       expect(textOnly(l) || slots.every(s => s === 'dir'), l.id).toBe(true);
-      for (const dir of [undefined, ...DIR_WORDS]) {
+      const wantVoiced = l.speaker === 'council' && !textOnly(l);
+      const dirs = slots.length === 0 ? [undefined] : l.id.startsWith('council.def.reinforce.') ? DIR_WORDS : ['north', 'east', 'south', 'west'];
+      for (const dir of dirs) {
         const clip = spoken(l, { n: 4, dir }, null).clip;
-        expect(clip === null || !clips.has(clip), l.id).toBe(true);
+        if (wantVoiced) {
+          expect(clip !== null && clips.has(clip), `${l.id} (${dir ?? 'fixed'})`).toBe(true);
+        } else {
+          expect(clip === null || !clips.has(clip), l.id).toBe(true);
+        }
       }
-      expect([...clips].some(c => c.startsWith(l.id)), l.id).toBe(false);
+      if (!wantVoiced) expect([...clips].some(c => c.startsWith(l.id)), l.id).toBe(false);
     }
   });
 });

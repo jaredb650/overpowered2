@@ -47,3 +47,11 @@ export function clipFor(row: number, slots: Readonly<Record<string, string>>, vo
   const near = `${clipKey(row, lean)}.${v}`;
   return VOICED.clips.has(near) ? near : null;
 }
+
+/** The file for a relayed clip key (without voice suffix), or null if none was rendered. */
+export function relayClip(key: string | null | undefined, voice: number): string | null {
+  const v = VOICES[voice];
+  if (!key || !v) return null;
+  const exact = `${key}.${v}`;
+  return VOICED.clips.has(exact) ? exact : null;
+}

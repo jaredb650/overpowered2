@@ -18,7 +18,7 @@ import type { EnemyInstance } from '../../core/gameplay';
 import { RULES } from '../../enemies/outpost/chatter/lines';
 import { NAME_LIST } from '../../enemies/outpost/chatter/names';
 import { RANK } from '../../enemies/outpost/chatter/rules';
-import { VOICED, clipFor } from '../../enemies/outpost/chatter/voices';
+import { VOICED, clipFor, relayClip } from '../../enemies/outpost/chatter/voices';
 import type { CommsLine } from '../../enemies/outpost/events';
 import type { Settings } from '../settings';
 
@@ -128,18 +128,30 @@ export class ChatterVoices {
   /** A line said aloud. Plays his take if there is one and he can be heard. */
   say(line: CommsLine): boolean {
     void this.load();
-    if (this.level <= 0 || line.row === undefined || line.row < 0) return false;
-    const row = RULES[line.row];
-    if (!row) return false;
-    const radio = row.radio;
-    if (!radio && !line.enemy) return false;
-    const slots: Record<string, string> = { ...(line.slots ?? {}) };
-    if (line.dead !== undefined && line.dead >= 0) slots.dead = NAME_LIST[line.dead]!;
+    if (this.level <= 0) return false;
     const voice = line.voice !== undefined && line.voice >= 0 ? line.voice : 0;
-    const clip = clipFor(line.row, slots, voice);
+    let radio: boolean;
+    let clip: string | null;
+    let rank: number;
+    if (line.row !== undefined && line.row >= 0) {
+      const row = RULES[line.row];
+      if (!row) return false;
+      radio = row.radio;
+      if (!radio && !line.enemy) return false;
+      const slots: Record<string, string> = { ...(line.slots ?? {}) };
+      if (line.dead !== undefined && line.dead >= 0) slots.dead = NAME_LIST[line.dead]!;
+      clip = clipFor(line.row, slots, voice);
+      rank = RANK[row.priority];
+    } else if (line.clip) {
+      radio = line.radio === true;
+      if (!radio && !line.enemy) return false;
+      clip = relayClip(line.clip, voice);
+      rank = RANK.tactical;
+    } else {
+      return false;
+    }
     if (!clip) return false;
     if (!radio && line.enemy && this.distance(line.enemy) > EARSHOT) return false;
-    const rank = RANK[row.priority];
     // His own earlier line ends where the new one starts; otherwise a free element, or the lowest and oldest, never for a lower line.
     let slot = (line.enemy
       ? this.pool.find(p => p.playing && p.enemy === line.enemy)
