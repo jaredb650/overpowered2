@@ -86,7 +86,7 @@ export type ModId = 'awlAcog' | 'awlCan' | 'awlAp' | 'awlHp' | 'suppressor' | 'r
   // Flared magwells (weapons/mods.ts MAGWELL_GUNS): 15% faster reload.
   | 'harrowMagwell' | 'gimletMagwell' | 'ultramagMagwell' | 'rivetMagwell' | 'bodkinMagwell'
   // Shotguns wishlist: pump sawed-off & greased bolt, Thresher & Billhook dragon's breath, Deuce long barrel.
-  | 'shotgunSawedOff' | 'shotgunBolt' | 'thresherDragon' | 'billhookDragon' | 'deuceLong'
+  | 'shotgunSawedOff' | 'shotgunBolt' | 'shotgunCan' | 'thresherDragon' | 'billhookDragon' | 'deuceLong'
   // Launchers & key 4 wishlist: Rocket tube & WP, MGL long barrel & trigger, Howitzer cluster, Autocannon barrel.
   | 'rocketTube' | 'rocketWp' | 'mglLong' | 'mglTrigger' | 'howitzerCluster' | 'autocannonBarrel'
   // Pistols wishlist: Judge extended barrel & compensator; Rivet comp, suppressor, reflex, laser; Riot shield (SHIELD_GUNS).

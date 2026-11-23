@@ -319,6 +319,11 @@ export const MODS: Readonly<Record<ModId, ModDef>> = {
       cycleFoley: WEAPONS.shotgun.cycleFoley!.map(([at, id]) => [at * GREASE, id] as const),
     },
   },
+  // Oversized 12-gauge suppressor (`muzzle` slot): suppresses report and flash; stacks freely with `shotgunSawedOff` and `shotgunChoke`.
+  shotgunCan: {
+    id: 'shotgunCan', weapon: 'shotgun', name: 'Suppressor', slot: 'muzzle',
+    patch: { muzzle: 'suppressed', sounds: [{ id: 'pump_shotgun_suppressed_shot', pitchJitter: 0.025 }] },
+  },
   // The Judge's fanning: a bar every 0.28 s where it was 0.4, and up to six bars, a chamber each, where it was three.
   judgeHammer: {
     id: 'judgeHammer', weapon: 'judge', name: 'Extended hammer', slot: 'hammer', patch: {},
@@ -470,7 +475,7 @@ export const MOD_ORDER: readonly ModId[] = [
   'ultramagCan', 'ultramagDot', 'ultramagLam', 'ultramagMag', 'ultramagComp',
   'rivetCan', 'rivetDot', 'rivetLam', 'rivetComp',
   'smgMag', 'smgTape', 'smgStock', 'swordEnergy', 'gimletShort', 'rivetMag', 'piledriverBox',
-  'deuceQuad', 'deuceLong', 'deuceLoader', 'shotgunChoke', 'shotgunSawedOff', 'shotgunBolt',
+  'deuceQuad', 'deuceLong', 'deuceLoader', 'shotgunChoke', 'shotgunSawedOff', 'shotgunBolt', 'shotgunCan',
   'billhookDot', 'billhookTube', 'billhookSlug',
   'judgeHammer', 'judgeGrip', 'judgeLong', 'judgeComp',
   'rocketTube', 'rocketWp', 'mglLong', 'mglTrigger', 'howitzerCluster',

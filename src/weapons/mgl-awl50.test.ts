@@ -442,10 +442,14 @@ describe('Awl .50 Cal conversion mod (awl50)', () => {
     expect(def.model.parts.bolt!.position.z).toBeCloseTo(0.14);
   });
 
-  it('registers mgl_shot and awl50_suppressed_shot as gun samples and plays them for remote co-op shooters', () => {
+  it('registers mgl_shot, awl50_shot, and awl50_suppressed_shot as gun samples and plays them for remote co-op shooters', () => {
     const mglSample = lookup('mgl_shot');
     expect(mglSample?.kind).toBe('sample');
     expect(mglSample?.file).toBe('guns/mgl_shot.mp3');
+
+    const awl50Sample = lookup('awl50_shot');
+    expect(awl50Sample?.kind).toBe('sample');
+    expect(awl50Sample?.file).toBe('guns/awl50_shot.mp3');
 
     const awl50CanSample = lookup('awl50_suppressed_shot');
     expect(awl50CanSample?.kind).toBe('sample');

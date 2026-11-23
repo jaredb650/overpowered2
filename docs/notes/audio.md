@@ -409,7 +409,9 @@ to -1 dB, 160 kbit/s. `awl_shot` is on the `gun` mix at 0.21 on the ladder (loud
 2.6 dB under, as the Gimlet's can is, with `send` 0.08. On 2026-11-22 the suppressed .50 Cal Awl (`awl50` + `awlCan`) took its own
 owner-supplied recording, `awl50_suppressed_shot` (`guns/awl50_suppressed_shot.mp3`, trimmed of leading silence, 44.1 kHz stereo MP3
 at 192 kbps, 1.89 s, measured loudness 0.239), on the `gun` mix at 0.185 (`send` 0.1) — fuller than `awl_suppressed_shot` while
-clearly quieter than unsuppressed `awl50_shot`.
+clearly quieter than unsuppressed `awl50_shot`. On 2026-11-23 unsuppressed `awl50_shot` also moved to the owner's own recording
+(`50_cal_shot__3_.mp3`, `guns/awl50_shot.mp3`, 40 kHz stereo WAV mixed to mono 44.1 kHz 160 kbps MP3, faded out 1.55–1.88 s,
+measured loudness 0.314), on `gunHeavy` at 0.28 (`send` 0.36, `duck` [0.22, 0.35]).
 
 **The Autoraffica's shot** (2026-11-16, the owner's `newAutoRafficaShot.mp3`, weapons-update plan section 14; the older
 `autoRafficaShotSuppressed.mp3` is not used). `autoraffica_shot` is every round of the machine pistol, which is always suppressed. It
@@ -430,6 +432,11 @@ loudness 0.378, on `gunHeavy` at 0.48 on the ladder (`send` 0.32, `near` 20 m, `
 pitched `gimlet_shot` + `bullet_flyby` layer on the flechette rifle. Source was a 2 s stereo WAV at 40 kHz inside an `.mp3` name:
 averaged to mono at 44.1 kHz, 98 ms lead-in cut, faded out from 0.65 s to 0.95 s, peak at -1.4 dB (0 clipped), 160 kbit/s, measured
 loudness 0.24, on the `gun` mix at 0.155 on the ladder (`send` 0.2).
+
+**The Pump Shotgun's suppressed shot** (2026-11-23, `guns/pump_shotgun_suppressed_shot.mp3`, the owner's `beefy_silencer__4_.mp3`):
+`pump_shotgun_suppressed_shot` plays when `shotgunCan` is fitted on the pump shotgun (full barrel, choke, or sawn-off). Source was a
+2 s stereo WAV at 40 kHz inside an `.mp3` name: averaged to mono at 44.1 kHz, 72 ms lead-in cut, faded out from 0.82 s to 1.078 s,
+peak at -2.0 dB (0 clipped), 160 kbit/s, measured loudness 0.246, on the `gun` mix at 0.18 on the ladder (`send` 0.1).
 
 ## Sample packs
 
@@ -487,7 +494,7 @@ Rendered at load. x4 means four rendered variants behind one id.
 - **Handling:** `weapon_dry`, `weapon_draw`, `weapon_draw_heavy`, `weapon_draw_blade`, `weapon_holster`
 - **Casings:** `casing_brass` x4, `casing_shotgun` x3, `casing_heavy` x3
 - **Sword extras:** `sword_block` (raise guard), `sword_deflect` x3 (bullet blocked), `sword_windup` (heavy charge), `sword_sweep` (RMB area sweep)
-- **Metalstorm, MGL, AWL-50:** `metalstorm_shot` x3 (single stacked-barrel discharge), `metalstorm_volley` x2 (salvo burst), `mgl_stick` x3 (sticky round attach), `mgl_detonate` (remote detonator click), `awl50_shot` x3 (.50 anti-materiel report; `mgl_shot` and `awl50_suppressed_shot` now play the owner-supplied recordings above)
+- **Metalstorm, MGL, AWL-50:** `metalstorm_shot` x3 (single stacked-barrel discharge), `metalstorm_volley` x2 (salvo burst), `mgl_stick` x3 (sticky round attach), `mgl_detonate` (remote detonator click); `mgl_shot`, `awl50_shot`, and `awl50_suppressed_shot` now play the owner-supplied recordings above
 
 ### Impacts and destruction
 

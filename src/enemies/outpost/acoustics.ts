@@ -54,6 +54,7 @@ const SUPPRESSOR_MOD_BY_WEAPON: Partial<Record<WeaponId, ModId>> = {
   gimlet: 'gimletCan',
   ultramag: 'ultramagCan',
   rivet: 'rivetCan',
+  shotgun: 'shotgunCan',
 };
 
 /** Scratch vectors/hit for zero-allocation occlusion raycasts. */

@@ -6,7 +6,8 @@ import * as THREE from 'three';
 import { describe, expect, it, vi } from 'vitest';
 import type { FireNote, ModId } from '../core/gameplay';
 import { AMMO, WEAPONS } from './data';
-import { GREASE, moddedDef } from './mods';
+import { GREASE, MODS, moddedDef } from './mods';
+import { isWeaponSuppressed } from '../enemies/outpost/acoustics';
 import { makeRange } from './testkit';
 import { Watcher, plainNote, type Shooter } from './watch';
 import { Anim, ironsUp } from './viewmodels/def';
@@ -217,6 +218,70 @@ describe('Pump Shotgun sawed-off and greased bolt', () => {
     a.mods = new Set<ModId>(['shotgunBolt']);
     def.animate(a);
     expect(a.parts.pump!.position.z).toBeCloseTo(restZ, 5);
+  });
+
+  it('mounts the oversized suppressor on full, sawn-off, and choke barrels without colliding slots or blocking sights', async () => {
+    // Muzzle slot is separate from barrel slot so shotgunCan stacks freely with shotgunSawedOff and shotgunChoke.
+    expect(MODS.shotgunCan.slot).toBe('muzzle');
+    expect(MODS.shotgunSawedOff.slot).toBe('barrel');
+
+    const r = await makeRange();
+    r.weapons.give('shotgun');
+    r.weapons.switchTo('shotgun');
+    r.weapons.grantMod('shotgunSawedOff');
+    r.weapons.grantMod('shotgunCan');
+    r.weapons.fitMod('shotgunSawedOff', true);
+    r.weapons.fitMod('shotgunCan', true);
+    expect(r.weapons.fitted.has('shotgunSawedOff')).toBe(true);
+    expect(r.weapons.fitted.has('shotgunCan')).toBe(true);
+
+    const both = moddedDef('shotgun', r.weapons.fitted);
+    expect(both.muzzle).toBe('suppressed');
+    expect(both.sounds[0]!.id).toBe('pump_shotgun_suppressed_shot');
+    expect(both.magSize).toBe(4);
+    expect(both.spread).toBe(0.085);
+    expect(isWeaponSuppressed('shotgun', r.weapons.fitted)).toBe(true);
+
+    const def = shotgunDef(makeKit());
+    const { root } = restingModel('shotgun', def);
+    const can = root.getObjectByName('can')!;
+    const canRestZ = can.position.z;
+
+    // Oversized silhouette: > 320 mm long, > 55 mm wide, > 65 mm tall, while staying below both sight beads in gun space.
+    def.model.root.updateMatrixWorld(true);
+    const gunCanBox = new THREE.Box3().setFromObject(def.model.parts.can!);
+    const size = gunCanBox.getSize(new THREE.Vector3());
+    expect(size.z).toBeGreaterThan(0.32);
+    expect(size.x).toBeGreaterThan(0.055);
+    expect(size.y).toBeGreaterThan(0.065);
+    // Top of the eccentric can stays below both full (0.058) and sawn-off (0.054) sight beads.
+    expect(gunCanBox.max.y).toBeLessThan(0.052);
+
+    const muzzleCan = root.getObjectByName('muzzleCan')!;
+    dressModel(root, def, new Set<ModId>(['shotgunCan']));
+    expect(can.visible).toBe(true);
+    expect(root.getObjectByName('breacher')!.visible).toBe(false);
+    root.updateMatrixWorld(true);
+    const muzzleCanFullZ = new THREE.Vector3().setFromMatrixPosition(muzzleCan.matrixWorld).z;
+
+    // Paired with sawn-off: shifts back onto the cut crown, and muzzleCan rides along as a child of can.
+    dressModel(root, def, new Set<ModId>(['shotgunSawedOff', 'shotgunCan']));
+    expect(can.visible).toBe(true);
+    expect(root.getObjectByName('sawedOff')!.visible).toBe(true);
+    expect(root.getObjectByName('barrelFull')!.visible).toBe(false);
+    expect(can.position.z).toBeCloseTo(canRestZ + 0.178, 5);
+    root.updateMatrixWorld(true);
+    const muzzleCanSawedZ = new THREE.Vector3().setFromMatrixPosition(muzzleCan.matrixWorld).z;
+    expect(muzzleCanSawedZ).toBeCloseTo(muzzleCanFullZ + 0.178, 4);
+
+    // Paired with choke: shifts forward onto the choke tip, and muzzleCan rides along.
+    dressModel(root, def, new Set<ModId>(['shotgunChoke', 'shotgunCan']));
+    expect(can.visible).toBe(true);
+    expect(root.getObjectByName('choke')!.visible).toBe(true);
+    expect(can.position.z).toBeCloseTo(canRestZ - 0.118, 5);
+    root.updateMatrixWorld(true);
+    const muzzleCanChokeZ = new THREE.Vector3().setFromMatrixPosition(muzzleCan.matrixWorld).z;
+    expect(muzzleCanChokeZ).toBeCloseTo(muzzleCanFullZ - 0.118, 4);
   });
 });
 

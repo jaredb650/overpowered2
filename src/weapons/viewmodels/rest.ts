@@ -40,7 +40,28 @@ export function restingModel(id: WeaponId, def: ViewDef): { root: THREE.Object3D
 
 /** Shows `mods` on a resting clone and hides the gun's other mods. */
 export function dressModel(root: THREE.Object3D, def: ViewDef, mods: ReadonlySet<ModId>): void {
-  for (const [mod, look] of Object.entries(def.mods ?? {})) {
+  const entries = Object.entries(def.mods ?? {});
+  // First pass: reset shared hides/moves targets to their resting state so inactive mods cannot clobber active ones.
+  for (const [, look] of entries) {
+    if (look.hides) {
+      const own = root.getObjectByName(look.hides);
+      if (own) own.visible = true;
+    }
+    if (look.moves) {
+      const moved = root.getObjectByName(look.moves.part);
+      if (moved) moved.position.z = (moved.userData.restZ ??= moved.position.z);
+    }
+    if (look.alsoMoves) {
+      for (const mv of look.alsoMoves) {
+        const target = root.getObjectByName(mv.part);
+        if (!target) continue;
+        if (mv.x !== undefined) target.position.x = (target.userData.restX ??= target.position.x);
+        if (mv.y !== undefined) target.position.y = (target.userData.restY ??= target.position.y);
+        if (mv.z !== undefined) target.position.z = (target.userData.restZ ??= target.position.z);
+      }
+    }
+  }
+  for (const [mod, look] of entries) {
     const on = mods.has(mod as ModId);
     const part = root.getObjectByName(look.part);
     if (part) part.visible = on;
@@ -55,17 +76,18 @@ export function dressModel(root: THREE.Object3D, def: ViewDef, mods: ReadonlySet
         }
       }
     }
+    if (!on) continue;
     const own = look.hides ? root.getObjectByName(look.hides) : undefined;
-    if (own) own.visible = !on;
+    if (own) own.visible = false;
     const moved = look.moves ? root.getObjectByName(look.moves.part) : undefined;
-    if (moved) moved.position.z = (moved.userData.restZ ??= moved.position.z) + (on ? look.moves!.z : 0);
+    if (moved) moved.position.z += look.moves!.z;
     if (look.alsoMoves) {
       for (const mv of look.alsoMoves) {
         const target = root.getObjectByName(mv.part);
         if (!target) continue;
-        if (mv.x !== undefined) target.position.x = (target.userData.restX ??= target.position.x) + (on ? mv.x : 0);
-        if (mv.y !== undefined) target.position.y = (target.userData.restY ??= target.position.y) + (on ? mv.y : 0);
-        if (mv.z !== undefined) target.position.z = (target.userData.restZ ??= target.position.z) + (on ? mv.z : 0);
+        if (mv.x !== undefined) target.position.x += mv.x;
+        if (mv.y !== undefined) target.position.y += mv.y;
+        if (mv.z !== undefined) target.position.z += mv.z;
       }
     }
   }

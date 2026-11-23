@@ -114,6 +114,7 @@ export const REMOTE_MODS: Readonly<Record<ModId, { look: ModLook; sees: string }
   gimletCan: { look: 'report', sees: 'the suppressed report and the small dim flash' },
   ultramagCan: { look: 'report', sees: 'the suppressed report and the small dim flash' },
   rivetCan: { look: 'report', sees: 'the suppressed Rivet report and the small dim flash' },
+  shotgunCan: { look: 'report', sees: 'the heavy suppressed shotgun thump and the small dim flash' },
   awlAp: { look: 'round', sees: AP }, awlHp: { look: 'round', sees: AP }, awlPlusP: { look: 'round', sees: AP },
   smgAp: { look: 'round', sees: AP }, smgHp: { look: 'round', sees: AP }, smgPlusP: { look: 'round', sees: AP },
   gimletAp: { look: 'round', sees: AP }, gimletHp: { look: 'round', sees: AP }, gimletPlusP: { look: 'round', sees: AP },

@@ -553,6 +553,10 @@ const MOD_CATALOGUE: Readonly<Record<ModId, Ware>> = {
     price: 500, wave: 3,
     lore: 'Greased action bars for the pump shotgun, cutting a quarter off the rack without turning it into an automatic. Procurement billed it as preventive maintenance.',
   },
+  shotgunCan: {
+    price: 650, wave: 3,
+    lore: 'An absurdly large twelve-gauge baffle brick that turns a hallway-clearing boom into a heavy pneumatic thump. Threads cleanly onto the full barrel or the sawn-off stub.',
+  },
   thresherDragon: {
     price: 1000, wave: 5,
     lore: 'Magnesium incendiary shells for the Thresher. Sprays a twenty-metre shower of burning sparks that sets targets alight and illuminates the room for the after-action report.',

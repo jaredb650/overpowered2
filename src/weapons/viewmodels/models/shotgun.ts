@@ -7,7 +7,7 @@ import { Kit } from '../kit/kit';
 import { Model } from '../kit/model';
 import { F } from '../kit/finishes';
 import type { Mesher } from '../kit/mesher';
-import { curve, poly, rect, slot, type V2 } from '../kit/shapes';
+import { circle, curve, poly, rect, slot, type V2 } from '../kit/shapes';
 import { knurl, rail, rivet, screwX } from '../kit/details';
 import { bump, hold, inOut, seg, thud } from '../curves';
 import type { Anim, ViewDef } from '../def';
@@ -156,6 +156,82 @@ function choke(m: Mesher): void {
 }
 
 /**
+ * Oversized 12-gauge monolithic suppressor (`shotgunCan`): Salvo-style eccentric baffle brick (58 mm wide, 70 mm tall,
+ * 350 mm long) hanging below the bore line so the front sight bead stays clear in ADS. Threads onto the full barrel at
+ * `-0.630`, shifts back `+0.178` onto the sawn-off crown (`-0.452`) with clearance ahead of its mag tube cap, or forward
+ * `-0.118` onto the extended choke tip (`-0.748`).
+ */
+function suppressor(m: Mesher): void {
+  const body = poly([
+    [-0.029, -0.043], [-0.019, -0.053], [0.019, -0.053], [0.029, -0.043],
+    [0.029, 0.009], [0.021, 0.017], [-0.021, 0.017], [-0.029, 0.009],
+  ], 0.003);
+  const rib = poly([
+    [-0.031, -0.045], [-0.0205, -0.055], [0.0205, -0.055], [0.031, -0.045],
+    [0.031, 0.0105], [0.0225, 0.0182], [-0.0225, 0.0182], [-0.031, 0.0105],
+  ], 0.003);
+  const bore = [circle(0, 0, 0.0118, 22)];
+  m.part('can', [0, BORE, -0.630], () => {
+    // Heavy threaded mounting collar on the bore axis (narrow enough to clear the sawn-off tube cap cleanly).
+    m.use(F.steelDark);
+    m.lathe([[0.0122, 0.004, 0], [0.0148, 0.003], [0.0148, -0.022], [0.0165, -0.024, 0]], 24, { chamfer: 0.0008 });
+    m.at([0, 0, -0.009], null, () => knurl(m, 0.0156, 0.014, F.steelDark, 24, 0.0007));
+
+    // Rear bulkhead transitioning from collar into the huge drop-down expansion chamber.
+    m.use(F.steelDark);
+    m.at([0, 0, -0.026], null, () => m.front(rib, 0.012, { bevel: 0.0018 }));
+
+    // Main monolithic parkerized baffle brick.
+    m.use(F.parkerized);
+    m.at([0, 0, -0.182], null, () => m.front(body, 0.304, { bevel: 0.002 }));
+
+    // Six proud modular clamping ribs dividing the suppressor into heavy baffle segments.
+    m.use(F.steelDark);
+    const ribs = [-0.056, -0.108, -0.160, -0.212, -0.264, -0.314];
+    for (const z of ribs) {
+      m.at([0, 0, z], null, () => m.front(rib, 0.011, { bevel: 0.0014 }));
+    }
+
+    // Recessed matte-black flank flutes between ribs so the massive side profile breaks up cleanly under light.
+    m.use(F.black);
+    for (let i = 0; i < ribs.length - 1; i++) {
+      const z = (ribs[i]! + ribs[i + 1]!) * 0.5;
+      m.mirror(() => {
+        m.at([0.0294, -0.018, z], null, () => m.box(0.0014, 0.024, 0.032, 0.0004));
+      });
+    }
+
+    // Twin exposed steel tie-rods running along both flanks from rear bulkhead to front cap.
+    m.use(F.steel);
+    m.mirror(() => {
+      for (const y of [-0.041, 0.004]) {
+        m.at([0.0295, y, -0.184], null, () => m.cyl(0.0024, 0.318, 10, 0.0004));
+        // Rear & front hex retaining nuts on each tie-rod.
+        m.at([0.0295, y, -0.021], null, () => m.cyl(0.0038, 0.005, 6, 0.0004));
+        m.at([0.0295, y, -0.347], null, () => m.cyl(0.0038, 0.005, 6, 0.0004));
+      }
+    });
+
+    // Top anti-glare sighting channel along the crown so the front bead reads cleanly over the brick.
+    m.use(F.black);
+    m.at([0, 0.0174, -0.184], null, () => m.box(0.014, 0.0012, 0.304, 0.0002));
+    m.use(F.steelDark);
+    m.mirror(() => m.at([0.011, 0.0178, -0.184], null, () => m.box(0.004, 0.0018, 0.304, 0.0005)));
+
+    // Heavy stepped front end-cap with deep dark 12-gauge baffle bore and four face bolts.
+    m.use(F.steelDark);
+    m.at([0, 0, -0.340], null, () => m.front(rib, 0.012, { bevel: 0.0016, holes: bore }));
+    m.use(F.black);
+    m.lathe([[0.0118, -0.346, 0], [0.0112, -0.306, 0], [0, -0.3055, 0]], 18);
+    m.use(F.steel);
+    for (const [bx, by] of [[-0.017, -0.041], [0.017, -0.041], [-0.019, 0.006], [0.019, 0.006]]) {
+      m.at([bx, by, -0.3465], null, () => m.cyl(0.0032, 0.0024, 6, 0.0003));
+    }
+    m.at([-0.0298, -0.018, -0.182], [0, -Math.PI / 2, 0], () => m.decal('cal12', 0.068, 0.010, 0xb9bec4));
+  });
+}
+
+/**
  * Sawed-off 4-shell barrel (`shotgunSawedOff`): bare heavy blued barrel cut back right ahead of the walnut pump to a raw
  * bright-steel crown, compact 4-shell tube with knurled cap, close-coupled figure-8 clamp, and low ramped front bead.
  */
@@ -263,6 +339,7 @@ function buildShotgun(kit: Kit): Model {
     tube(m);
   });
   choke(m);
+  suppressor(m);
   sawedOff(m);
   saddle(m);
   pump(m);
@@ -299,6 +376,8 @@ function buildShotgun(kit: Kit): Model {
   model.socket('muzzle', [0, BORE, -0.702]);
   model.socket('muzzleChoke', [0, BORE, -0.756]);
   model.socket('muzzleSawed', [0, BORE, -0.46]);
+  // On the suppressor itself so muzzle flash and tracers ride along onto the sawn-off stub or extended choke.
+  model.socket('muzzleCan', [0, 0, -0.350], [0, 0, 0], 'can');
   model.socket('eject', [0.022, 0.03, -0.065]);
   model.hand('gripR', [0.019, -0.06, 0.07], [0, -0.96, 0.27], [-0.3, -0.25, -0.92]);
   model.support('pumpL', [-0.002, -0.0235, -0.012], 'pump');
@@ -398,12 +477,15 @@ export function shotgunDef(kit: Kit): ViewDef {
     animate: clip,
     readout: a => drawCount(a, 'ammo', 0, a.magSize, '#9cff3a'),
     mods: {
-      shotgunChoke: { part: 'choke', hides: 'breacher', muzzle: 'muzzleChoke' },
+      // Suppressor first so its muzzle socket (`muzzleCan`, parented to `can`) wins whenever fitted, and rides along
+      // when `shotgunSawedOff` pulls `can` back onto the sawn-off crown or `shotgunChoke` extends it to the choke tip.
+      shotgunCan: { part: 'can', hides: 'breacher', muzzle: 'muzzleCan' },
+      shotgunChoke: { part: 'choke', hides: 'breacher', muzzle: 'muzzleChoke', moves: { part: 'can', z: -0.118 } },
       shotgunSawedOff: {
         part: 'sawedOff', hides: 'barrelFull', muzzle: 'muzzleSawed',
         sight: [0, 0.054, -0.444], rear: [0, 0.0795, 0.0421], relief: 0.65,
         moves: { part: 'light', z: 0.072 },
-        alsoMoves: [{ part: 'lam', z: 0.072 }],
+        alsoMoves: [{ part: 'lam', z: 0.072 }, { part: 'can', z: 0.178 }],
       },
       shotgunBolt: { part: 'greaseBolt', also: 'greaseBars' },
       shotgunLight: { part: 'light' },
