@@ -75,4 +75,23 @@ describe('the impact puff', () => {
     bloodPuff(core(blood, 2.016), at, dir, 0.3);
     expect(blood.ring.countLive(2.03)).toBe(capped + 4);
   });
+
+  it('compiles puff vertex and fragment shaders without pow(0, y) NaN traps', () => {
+    const blood = layer();
+    const mat = (blood.ring.object as THREE.Mesh).material as THREE.MeshStandardMaterial;
+    const fake = {
+      uniforms: {},
+      vertexShader: '#include <common>\n#include <beginnormal_vertex>\n#include <begin_vertex>\n#include <project_vertex>',
+      fragmentShader: '#include <map_pars_fragment>\n#include <map_fragment>\n#include <normal_fragment_maps>\n#include <lights_fragment_end>\n#include <tonemapping_fragment>',
+    };
+    mat.onBeforeCompile(fake as unknown as THREE.WebGLProgramParametersWithUniforms, {} as THREE.WebGLRenderer);
+    const stripComments = (s: string) => s.replace(/\/\/[^\n]*/g, '');
+    expect(stripComments(fake.vertexShader)).not.toContain('pow(');
+    // Extract the puff branch of FRAG_COVER and verify it never calls pow() (pow(0, y) is NaN in GLSL ES).
+    const puffBranch = stripComments(fake.fragmentShader.slice(
+      fake.fragmentShader.indexOf('if (vStrand.z < -1.5)'),
+      fake.fragmentShader.indexOf('} else if (vStrand.z < 0.0)'),
+    ));
+    expect(puffBranch).not.toContain('pow(');
+  });
 });

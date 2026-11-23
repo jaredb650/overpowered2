@@ -30,11 +30,11 @@ const ATTRS = ['aP', 'aV', 'aC', 'aF'] as const;
 
 const SEGMENTS = 7;
 /** An impact puff grows with distance from the eye past this many metres, by this much a metre, to this much more at most. */
-const PUFF_FAR_FROM = 6;
-const PUFF_FAR_GAIN = 0.05;
-const PUFF_FAR_MOST = 1.2;
+const PUFF_FAR_FROM = 5;
+const PUFF_FAR_GAIN = 0.065;
+const PUFF_FAR_MOST = 1.6;
 /** Never smaller than this many pixels, half across. */
-const PUFF_MIN_PX = 7;
+const PUFF_MIN_PX = 10;
 /** Room around the strand for the antialiased edge. */
 const PAD = 1.4;
 
@@ -71,19 +71,20 @@ bSide = bSideLen > 0.001 ? bSide / bSideLen : normalize(cross(vec3(0.0, 1.0, 0.0
 float bDepth = max(-(viewMatrix * vec4(bPos, 1.0)).z, 0.05);
 float bFloor = uPixelWorld * bDepth * uMinPx;
 float bHalf = aC.y;
-float bK = bAge / aV.w;
+float bK = clamp(bAge / max(aV.w, 0.001), 0.0, 1.0);
 float bOpacity = abs(aC.w);
 if (bPuff) {
-  // Explosive snap-open on impact (0.42 -> 1.0 in ~40 ms), then billowy coast as air drag brakes it.
-  // Grows modestly with distance so hits read clearly at range while staying translucent and crisp up close.
-  float bSnap = 1.0 - pow(1.0 - min(bK * 5.0, 1.0), 3.0);
-  bHalf *= (0.42 + 0.58 * bSnap + 0.48 * bK) * (1.0 + clamp((bDepth - ${PUFF_FAR_FROM.toFixed(1)}) * ${PUFF_FAR_GAIN.toFixed(3)}, 0.0, ${PUFF_FAR_MOST.toFixed(2)}));
-  bOpacity *= clamp((bDepth - 0.45) / 0.75, 0.0, 1.0);
+  // Immediate snap-open on frame 1 (0.68 -> 1.12 in ~50 ms) using pure multiply (no pow(0, y) NaN),
+  // then a billowy outward coast as air drag brakes the aerosol cloud.
+  float bS = 1.0 - min(bK * 6.0, 1.0);
+  float bSnap = 1.0 - bS * bS * bS;
+  bHalf *= (0.68 + 0.44 * bSnap + 0.56 * bK) * (1.0 + clamp((bDepth - ${PUFF_FAR_FROM.toFixed(1)}) * ${PUFF_FAR_GAIN.toFixed(3)}, 0.0, ${PUFF_FAR_MOST.toFixed(2)}));
+  bOpacity *= clamp((bDepth - 0.35) / 0.65, 0.0, 1.0);
 } else if (bMist) {
   // Spreads as it thins. Gone before it can sit on the player's face, where it would cost a full screen.
   // At range the strands fall under a pixel, so the puff grows to carry the hit on its own.
-  bHalf *= (1.0 + 1.6 * bK) * (1.0 + clamp((bDepth - 5.0) * 0.14, 0.0, 2.0));
-  bOpacity *= (1.0 - bK) * (1.0 - bK) * clamp((bDepth - 0.7) / 1.3, 0.0, 1.0);
+  bHalf *= (1.0 + 1.5 * bK) * (1.0 + clamp((bDepth - 5.0) * 0.14, 0.0, 2.0));
+  bOpacity *= (1.0 - bK * 0.88) * clamp((bDepth - 0.55) / 1.0, 0.0, 1.0);
 }
 // Thinner than the pixel floor it gets paler, not fatter: a far spurt stays fine instead of turning to confetti.
 float bWidth = max(bHalf, bPuff ? uPixelWorld * bDepth * ${PUFF_MIN_PX.toFixed(1)} : bFloor);
@@ -147,52 +148,53 @@ float bAlpha;
 float bCore = 0.0;
 if (vStrand.z < -1.5) {
   // Impact Pop + Spritz: semi-transparent turbulent aerosol mist cloud expanding outward, layered with crisp
-  // radially-streaked micro-droplets bursting ahead of the mist core.
+  // radially-streaked micro-droplets bursting ahead of the mist core. Strictly pow-free so k=0 / k=1 never NaN.
   vec2 q = vec2(bAcross, bU * 2.0 - 1.0);
-  float k = vLook.z;
+  float k = clamp(vLook.z, 0.0, 1.0);
+  float rem = 1.0 - k;
   float r = length(q);
-  float th = atan(q.y, q.x);
-  float rot = bSeed * 6.2831 + k * (bSeed > 0.5 ? 0.35 : -0.35);
+  float th = atan(q.y, q.x + 1e-5);
+  float rot = bSeed * 6.2831 + k * (bSeed > 0.5 ? 0.38 : -0.38);
   float cs = cos(rot), sn = sin(rot);
   vec2 qr = vec2(q.x * cs - q.y * sn, q.x * sn + q.y * cs);
-  // Outward-blown turbulent aerosol wisps (reads as a liquid burst, never a static smoke ball).
-  float radialDrift = r - k * 0.28;
-  float tongue = bloodCloud(vec2(th * 2.6 + bSeed * 11.0, radialDrift * 2.1 + bSeed * 5.0));
-  float cloud = bloodCloud(qr * 3.1 + bSeed * 31.0);
-  float fine = bloodCloud(qr * 8.4 + bSeed * 73.0);
+  // Outward-blown turbulent aerosol wisps (reads as a real liquid mist burst, never a hard circle or smoke ball).
+  float radialDrift = r - k * 0.30;
+  float tongue = bloodCloud(vec2(th * 2.4 + bSeed * 11.0, radialDrift * 2.2 + bSeed * 5.0));
+  float cloud = bloodCloud(qr * 2.8 + bSeed * 31.0);
+  float fine = bloodCloud(qr * 7.6 + bSeed * 73.0);
   float wisp = cloud * 0.62 + fine * 0.38;
-  float reach = 0.60 + 0.24 * tongue + 0.14 * (cloud - 0.5);
-  // Soft feathered translucent mist dissolving from the outside in into wispy tendrils.
-  float env = 1.0 - smoothstep(0.06, reach, r);
-  float erode = smoothstep(0.14 + k * 0.56, 0.58 + k * 0.34, env + (wisp - 0.38) * 0.62);
-  float fade = pow(clamp(1.0 - k, 0.0, 1.0), 0.72);
-  float mistAlpha = erode * fade * (0.76 + 0.24 * env);
+  float reach = 0.74 + 0.16 * tongue + 0.10 * (cloud - 0.5);
+  // Soft feathered translucent mist holding full visibility through the pop, then dissolving into wispy tendrils.
+  float env = 1.0 - smoothstep(0.05, reach, r);
+  float erode = smoothstep(0.08 + k * 0.62, 0.44 + k * 0.42, env + (wisp - 0.34) * 0.64);
+  float fade = smoothstep(0.0, 0.55, rem);
+  float mistAlpha = erode * fade * (0.78 + 0.22 * env);
   // Radially-streaked wet spritz micro-droplets flung outward ahead of the vapor core.
-  float front = 0.28 + 0.68 * pow(k, 0.52);
-  float band = smoothstep(front - 0.32, front - 0.08, r) * (1.0 - smoothstep(front - 0.04, min(front + 0.12, 1.0), r));
-  vec2 pCell = vec2(th * 9.5 + bSeed * 43.0, (r - front * 0.45) * 11.0 + bSeed * 29.0);
+  float front = 0.32 + 0.62 * sqrt(k);
+  float band = smoothstep(front - 0.34, front - 0.08, r) * (1.0 - smoothstep(front - 0.02, min(front + 0.14, 1.0), r));
+  vec2 pCell = vec2(th * 9.0 + bSeed * 43.0, (r - front * 0.42) * 10.5 + bSeed * 29.0);
   vec2 pFrac = fract(pCell) - 0.5 - (vec2(bloodSpeck(pCell + 7.0), bloodSpeck(pCell + 19.0)) - 0.5) * 0.36;
-  float speckDist = length(vec2(pFrac.x * 1.35, pFrac.y * 0.72));
-  float drop = step(0.68 + 0.22 * k, bloodSpeck(pCell)) * smoothstep(0.36, 0.14, speckDist);
-  float spritzAlpha = band * drop * pow(clamp(1.0 - k, 0.0, 1.0), 0.95);
-  bAlpha = clamp(max(mistAlpha, spritzAlpha * 0.92), 0.0, 1.0);
-  // Smooth volumetric density (0 = backlit translucent haze / spritz, 1 = dense dark crimson heart).
-  bCore = clamp(env * erode * (1.0 - k * 0.45), 0.0, 1.0);
-  if (spritzAlpha > mistAlpha) bCore = 0.32;
+  float speckDist = length(vec2(pFrac.x * 1.35, pFrac.y * 0.70));
+  float drop = step(0.62 + 0.24 * k, bloodSpeck(pCell)) * smoothstep(0.38, 0.14, speckDist);
+  float spritzAlpha = band * drop * rem;
+  bAlpha = clamp(max(mistAlpha, spritzAlpha * 0.95), 0.0, 1.0);
+  // Smooth volumetric density (0 = backlit translucent crimson haze / spritz, 1 = deep dark blood heart).
+  bCore = clamp(env * erode * (1.0 - k * 0.4), 0.0, 1.0);
+  if (spritzAlpha > mistAlpha) bCore = 0.28;
 } else if (vStrand.z < 0.0) {
   // Fine hanging aerosol mist: wispy turbulent plumes rather than a stippled disc.
   vec2 q = vec2(bAcross / ${PAD.toFixed(2)}, bU * 2.0 - 1.0);
   float r = length(q);
-  float cloud = bloodCloud(q * 3.4 + bSeed * 41.0);
-  float fine = bloodCloud(q * 9.5 + bSeed * 91.0);
-  float env = 1.0 - smoothstep(0.05, 0.92, r);
-  float wisp = smoothstep(0.22 + vLook.z * 0.35, 0.78, env + (cloud * 0.65 + fine * 0.35 - 0.35) * 0.65);
-  bAlpha = wisp * (0.72 + 0.28 * fine);
+  float cloud = bloodCloud(q * 3.2 + bSeed * 41.0);
+  float fine = bloodCloud(q * 8.8 + bSeed * 91.0);
+  float env = 1.0 - smoothstep(0.05, 0.95, r);
+  float wisp = smoothstep(0.16 + vLook.z * 0.42, 0.68, env + (cloud * 0.65 + fine * 0.35 - 0.34) * 0.68);
+  bAlpha = wisp * (0.76 + 0.24 * fine);
 } else {
   float beads = max(vStrand.z, 1.0);
   // The head is a round cap about as long as the strand is wide.
   float cap = sqrt(clamp(bU * beads * 1.6, 0.0, 1.0));
-  float taper = pow(max(1.0 - bU, 0.0), 0.8);
+  float taper = pow(max(1.0 - bU, 0.0001), 0.8);
   // Surface tension breaks the tail into beads and leaves the head whole.
   float x = bU * beads + bSeed * 13.0;
   float wave = 0.5 + 0.5 * sin(x * 6.2831 + 2.4 * sin(x * 2.3 + bSeed * 6.0));
@@ -205,8 +207,8 @@ bAlpha *= vLook.y;
 if (bAlpha < 0.006) discard;
 vec3 bTint = mix(uVenous, uArterial, vLook.x);
 // Thin backlit aerosol scatters light and reads brighter crimson; thick core stays rich dark blood.
-if (vStrand.z < -1.5) bTint *= mix(uPuffEdge, uPuffCore, smoothstep(0.15, 0.82, bCore)) * mix(uPuffRim, 1.0, smoothstep(0.0, 0.25, bAlpha));
-else if (vStrand.z < 0.0) bTint *= 4.0;
+if (vStrand.z < -1.5) bTint *= mix(uPuffEdge, uPuffCore, smoothstep(0.15, 0.82, bCore)) * mix(uPuffRim, 1.0, smoothstep(0.0, 0.22, bAlpha));
+else if (vStrand.z < 0.0) bTint *= 5.2;
 diffuseColor = vec4(vec3(1.0), bAlpha);
 `;
 
@@ -219,8 +221,9 @@ const FRAG_LIGHT = /* glsl */ `
 #include <lights_fragment_end>
 {
   float bLight = dot(reflectedLight.directDiffuse + reflectedLight.indirectDiffuse, vec3(0.2126, 0.7152, 0.0722));
-  // Hit feedback has to be seen: a puff keeps a little of its red in a dark corner, where a strand goes black.
-  if (vStrand.z < -1.5) bLight = max(bLight, uPuffFloor);
+  // Hit feedback has to be seen: a puff keeps a clear crimson read in dark corners and preserves core/edge depth in full sun.
+  if (vStrand.z < -1.5) bLight = clamp(bLight, uPuffFloor, 0.72);
+  else if (vStrand.z < 0.0) bLight = max(bLight, uPuffFloor * 0.65);
   reflectedLight.directDiffuse = vec3(0.0);
   reflectedLight.indirectDiffuse = bTint * bLight * uLift;
 }
@@ -234,18 +237,18 @@ if (vStrand.z >= 0.0) {
 }
 `;
 
-/** The soft knee of the bloom starts at 0.55. Below that, nothing here can reach it. */
+/** Strands stay under the bloom knee; translucent crimson puffs get a little more red headroom so hits read cleanly. */
 const FRAG_LIMIT = /* glsl */ `
-gl_FragColor.rgb = min(gl_FragColor.rgb, vec3(0.5));
+gl_FragColor.rgb = min(gl_FragColor.rgb, vStrand.z < 0.0 ? vec3(0.76, 0.42, 0.42) : vec3(0.5));
 #include <tonemapping_fragment>
 `;
 
 /**
- * How an impact puff is shaded, in flat bands from the outside in, as multiples of the blood's own albedo (mist is 4): a
- * dark `rim` that parts it from whatever is behind (a body flashing red from the same hit included), the bright spray
- * (`edge`) and the thick `core`. `floor` is the least light it is drawn under, as a share of full daylight.
+ * How an impact puff is shaded, from the backlit translucent edge to the rich dark crimson heart: a subtle
+ * `rim` that parts it from bright backgrounds, bright backlit spray (`edge`) and deeper `core`. `floor` is
+ * the least light it is drawn under, as a share of full daylight.
  */
-export const PUFF_LOOK = { rim: 0.82, edge: 4.5, core: 2.3, floor: 0.18 };
+export const PUFF_LOOK = { rim: 0.78, edge: 5.6, core: 2.1, floor: 0.38 };
 
 function strip(): THREE.BufferGeometry {
   const position: number[] = [];

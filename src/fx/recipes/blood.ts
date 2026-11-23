@@ -78,7 +78,7 @@ export function bloodHit(core: FxCore, position: THREE.Vector3, dir: THREE.Vecto
   stream(core, x, y, z, dir.x, dir.y, dir.z, 3, 6.5 * p, 1.2, 0.012, 0.09, 2.2, 0, 2);
   stream(core, x, y, z, dir.x * -0.7, 0.75 - dir.y * 0.7, dir.z * -0.7, 3, 4.6 * p, 1.1, 0.0095, 0.08, 1.8, 0, 3);
   drops(core, x, y, z, dir.x, dir.y, dir.z, 2, 2.4 * p, 0.03);
-  b.mist(x, y, z, -dir.x * 2.2, 0.4 - dir.y * 2.2, -dir.z * 2.2, 0.13 * p, 0.2, 8, 0.55);
+  b.mist(x, y, z, -dir.x * 2.0, 0.45 - dir.y * 2.0, -dir.z * 2.0, 0.18 * p, 0.32, 6.5, 0.68);
 }
 
 /** High-drag micro-droplets that snap outward fast and brake in midair — the "spritz" half of a bullet impact pop. */
@@ -92,7 +92,7 @@ function spritz(
     const vx = dx * v + rand(-spread, spread);
     const vy = dy * v + rand(-spread * 0.65, spread * 0.95);
     const vz = dz * v + rand(-spread, spread);
-    b.add(x, y, z, vx, vy, vz, half * rand(0.7, 1.35), rand(0.022, 0.044), drag * rand(0.8, 1.25), i * 0.004, rand(0.14, 0.22));
+    b.add(x, y, z, vx, vy, vz, half * rand(0.75, 1.35), rand(0.026, 0.052), drag * rand(0.8, 1.25), i * 0.004, rand(0.18, 0.28));
   }
 }
 
@@ -115,9 +115,9 @@ export function bloodPuff(
   const w = clamp(weight, 0, 1);
   const half = (PUFF.half + PUFF.heavy * w) * scale;
   const life = PUFF.life + PUFF.lifeHeavy * w;
-  const opacity = clamp((0.60 + 0.20 * w) * clamp(scale, 0.75, 1.15), 0.42, 0.84);
-  // Stand slightly off the skin toward the gun so the body does not clip half of the entry pop.
-  const off = PUFF.off + half * 0.22;
+  const opacity = clamp((0.76 + 0.16 * w) * clamp(scale, 0.8, 1.15), 0.62, 0.92);
+  // Stand slightly off the skin toward the gun so the body mesh never clips half of the entry pop.
+  const off = PUFF.off + half * 0.24;
   const x = position.x - dir.x * off;
   const y = position.y - dir.y * off;
   const z = position.z - dir.z * off;
@@ -126,47 +126,47 @@ export function bloodPuff(
 
   if (kind === 'gib') {
     // Whole-body explosion: massive 3D billowing red mist cloud that chunks burst out of.
-    b.puff(position.x, position.y, position.z, dir.x * 1.4, 0.9, dir.z * 1.4, 0.68 * scale, 0.72, 4.2, 0.76, 0);
-    for (let i = 0; i < 5; i++) {
-      _v.set(rand(-1, 1), rand(-0.25, 0.85), rand(-1, 1)).normalize();
-      const ox = position.x + _v.x * rand(0.12, 0.34);
-      const oy = position.y + _v.y * rand(0.08, 0.32);
-      const oz = position.z + _v.z * rand(0.12, 0.34);
-      const spd = rand(1.8, 3.8);
-      b.puff(ox, oy, oz, _v.x * spd + dir.x * 1.2, _v.y * spd + 0.6, _v.z * spd + dir.z * 1.2, rand(0.48, 0.84) * scale, rand(0.55, 0.90), rand(3.6, 5.4), rand(0.54, 0.74), i * 0.018);
+    b.puff(position.x, position.y, position.z, dir.x * 1.4, 0.95, dir.z * 1.4, 0.92 * scale, 1.05, 3.6, 0.88, 0);
+    for (let i = 0; i < 6; i++) {
+      _v.set(rand(-1, 1), rand(-0.2, 0.85), rand(-1, 1)).normalize();
+      const ox = position.x + _v.x * rand(0.14, 0.40);
+      const oy = position.y + _v.y * rand(0.08, 0.36);
+      const oz = position.z + _v.z * rand(0.14, 0.40);
+      const spd = rand(1.8, 4.0);
+      b.puff(ox, oy, oz, _v.x * spd + dir.x * 1.2, _v.y * spd + 0.65, _v.z * spd + dir.z * 1.2, rand(0.64, 1.05) * scale, rand(0.82, 1.30), rand(3.2, 4.8), rand(0.68, 0.86), i * 0.018);
     }
-    spritz(core, position.x, position.y, position.z, dir.x * 0.5, 0.45, dir.z * 0.5, 10, 7.5, 6.5, 0.008, 6.2);
+    spritz(core, position.x, position.y, position.z, dir.x * 0.5, 0.45, dir.z * 0.5, 12, 8.0, 6.8, 0.010, 5.8);
     return;
   }
 
   if (kind === 'blowout') {
     // Torso blowout: huge directional aerosol plume erupting out the exit cavity.
-    b.puff(position.x + dir.x * 0.08, position.y + dir.y * 0.08, position.z + dir.z * 0.08, dir.x * 3.8, dir.y * 3.8 + 0.55, dir.z * 3.8, 0.52 * scale, 0.60, 4.8, 0.78, 0);
-    for (let i = 0; i < 3; i++) {
-      const spd = rand(2.2, 4.8);
+    b.puff(position.x + dir.x * 0.1, position.y + dir.y * 0.1, position.z + dir.z * 0.1, dir.x * 3.8, dir.y * 3.8 + 0.6, dir.z * 3.8, 0.72 * scale, 0.88, 4.0, 0.90, 0);
+    for (let i = 0; i < 4; i++) {
+      const spd = rand(2.2, 5.0);
       b.puff(
-        position.x + dir.x * rand(0.08, 0.28) + rand(-0.14, 0.14),
-        position.y + dir.y * rand(0.08, 0.24) + rand(-0.1, 0.16),
-        position.z + dir.z * rand(0.08, 0.28) + rand(-0.14, 0.14),
-        dir.x * spd + rand(-1.4, 1.4), dir.y * spd + rand(0.1, 1.5), dir.z * spd + rand(-1.4, 1.4),
-        rand(0.36, 0.62) * scale, rand(0.45, 0.76), rand(4.2, 6.0), rand(0.52, 0.72), i * 0.022,
+        position.x + dir.x * rand(0.1, 0.34) + rand(-0.16, 0.16),
+        position.y + dir.y * rand(0.08, 0.28) + rand(-0.12, 0.18),
+        position.z + dir.z * rand(0.1, 0.34) + rand(-0.16, 0.16),
+        dir.x * spd + rand(-1.5, 1.5), dir.y * spd + rand(0.15, 1.6), dir.z * spd + rand(-1.5, 1.5),
+        rand(0.48, 0.80) * scale, rand(0.65, 1.05), rand(3.6, 5.2), rand(0.68, 0.85), i * 0.02,
       );
     }
-    spritz(core, position.x, position.y, position.z, dir.x, dir.y + 0.15, dir.z, 8, 9.0, 4.2, 0.007, 6.5);
+    spritz(core, position.x, position.y, position.z, dir.x, dir.y + 0.15, dir.z, 10, 9.2, 4.5, 0.009, 6.0);
     return;
   }
 
   // Primary snap-open translucent mist pop (always emitted first).
-  b.puff(x, y, z, -dir.x * v + rand(-0.35, 0.35), 0.35 - dir.y * v, -dir.z * v + rand(-0.35, 0.35), half, life, PUFF.drag, opacity);
+  b.puff(x, y, z, -dir.x * v + rand(-0.3, 0.3), 0.38 - dir.y * v, -dir.z * v + rand(-0.3, 0.3), half, life, PUFF.drag, opacity);
 
   if (kind === 'headshot') {
     // Headshots get a distinct billowing arterial crown plume + snappy radial spritz halo.
     b.puff(
-      position.x + dir.x * 0.08, position.y + 0.06, position.z + dir.z * 0.08,
-      dir.x * (v * 1.3) + rand(-0.6, 0.6), 0.95 + rand(0, 0.5), dir.z * (v * 1.3) + rand(-0.6, 0.6),
-      half * 1.15, life * 1.3, 6.2, opacity * 0.85, 0.016,
+      position.x + dir.x * 0.1, position.y + 0.08, position.z + dir.z * 0.1,
+      dir.x * (v * 1.45) + rand(-0.6, 0.6), 1.15 + rand(0, 0.55), dir.z * (v * 1.45) + rand(-0.6, 0.6),
+      half * 1.28, life * 1.38, 5.0, opacity * 0.90, 0.015,
     );
-    spritz(core, x, y, z, -dir.x * 0.55, 0.55 - dir.y * 0.35, -dir.z * 0.55, 5, 6.2 + 2.4 * w, 3.8, 0.0055, 7.2);
+    spritz(core, x, y, z, -dir.x * 0.55, 0.6 - dir.y * 0.35, -dir.z * 0.55, 6, 6.5 + 2.6 * w, 4.0, 0.0075, 6.8);
     return;
   }
 
@@ -175,25 +175,25 @@ export function bloodPuff(
     if (scale >= 0.9) {
       for (let i = 0; i < 2; i++) {
         b.puff(
-          x + rand(-0.12, 0.12), y + rand(-0.1, 0.12), z + rand(-0.12, 0.12),
-          -dir.x * (v * 0.85) + rand(-1.1, 1.1), 0.4 + rand(-0.4, 0.7), -dir.z * (v * 0.85) + rand(-1.1, 1.1),
-          half * rand(0.75, 1.05), life * rand(1.05, 1.35), 6.8, opacity * 0.78, 0.014 * (i + 1),
+          x + rand(-0.14, 0.14), y + rand(-0.12, 0.14), z + rand(-0.14, 0.14),
+          -dir.x * (v * 0.85) + rand(-1.2, 1.2), 0.45 + rand(-0.35, 0.75), -dir.z * (v * 0.85) + rand(-1.2, 1.2),
+          half * rand(0.82, 1.12), life * rand(1.1, 1.4), 5.6, opacity * 0.86, 0.014 * (i + 1),
         );
       }
-      spritz(core, x, y, z, -dir.x * 0.7, 0.3 - dir.y * 0.5, -dir.z * 0.7, 6, 6.8, 4.2, 0.006, 7.5);
+      spritz(core, x, y, z, -dir.x * 0.7, 0.32 - dir.y * 0.5, -dir.z * 0.7, 7, 7.2, 4.4, 0.008, 7.0);
     }
     return;
   }
 
   // Standard bullet hit: crisp high-drag back-spritz + exit mist bloom for penetrating / heavy rounds.
   const spritzCount = w >= 0.5 ? 5 : 3;
-  spritz(core, x, y, z, -dir.x * 0.85, 0.32 - dir.y * 0.5, -dir.z * 0.85, spritzCount, 4.8 + 3.4 * w, 2.2 + 1.8 * w, 0.0045 + 0.002 * w, 8.2);
+  spritz(core, x, y, z, -dir.x * 0.85, 0.35 - dir.y * 0.5, -dir.z * 0.85, spritzCount, 5.0 + 3.4 * w, 2.3 + 1.8 * w, 0.0065 + 0.0025 * w, 7.6);
   if (w >= 0.45) {
     // Heavy / rifle rounds push a secondary translucent mist bloom out the far side.
     b.puff(
-      position.x + dir.x * 0.14, position.y + dir.y * 0.14, position.z + dir.z * 0.14,
-      dir.x * (v * 1.45), dir.y * (v * 1.45) + 0.35, dir.z * (v * 1.45),
-      half * 1.12, life * 1.25, 6.5, opacity * 0.82, 0.018,
+      position.x + dir.x * 0.16, position.y + dir.y * 0.16, position.z + dir.z * 0.16,
+      dir.x * (v * 1.5), dir.y * (v * 1.5) + 0.4, dir.z * (v * 1.5),
+      half * 1.18, life * 1.32, 5.2, opacity * 0.88, 0.016,
     );
   }
 }
@@ -203,17 +203,17 @@ export function bloodPuff(
  * adds. `life`, `lifeHeavy`: seconds. `off`: metres it stands off the skin. `drift`, `drag`: how fast it leaves the wound
  * back toward the gun, and how soon the air stops it. `perFrame`: the hard cap.
  */
-export const PUFF = { half: 0.17, heavy: 0.27, life: 0.24, lifeHeavy: 0.16, off: 0.055, drift: 1.9, drag: 8.5, perFrame: 12 };
+export const PUFF = { half: 0.24, heavy: 0.34, life: 0.38, lifeHeavy: 0.26, off: 0.09, drift: 1.65, drag: 6.2, perFrame: 12 };
 let puffFrame = -1;
 let puffs = 0;
 
-/** A soft breath of fine suspended drops. Gone inside half a second so it never hangs like fog. */
+/** A soft breath of fine suspended drops. Gone inside three quarters of a second so it never hangs like fog. */
 export function bloodMist(core: FxCore, position: THREE.Vector3, size = 1): void {
   const { x, y, z } = position;
   const b = core.blood.begin(core.bloodNow, -1e6, null, BLOOD_TONE.wound);
   for (let i = 0; i < 3; i++) {
     _v.set(rand(-1, 1), rand(-0.2, 0.65), rand(-1, 1)).normalize().multiplyScalar(rand(0.9, 2.3));
-    b.mist(x, y, z, _v.x, _v.y, _v.z, 0.19 * size, rand(0.36, 0.58), 5.8, 0.46);
+    b.mist(x, y, z, _v.x, _v.y, _v.z, 0.24 * size, rand(0.46, 0.72), 5.0, 0.62);
   }
 }
 

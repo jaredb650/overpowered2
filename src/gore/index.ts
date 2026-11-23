@@ -15,7 +15,7 @@ import {
 import { DevFlags } from '../core/devflags';
 import { clamp, rand, randomInCone, randomUnit } from '../core/math';
 import { WEAPONS } from '../weapons/data';
-import { BloodField, BloodTuning } from './blood';
+import { BloodField, BloodTuning, puffOf } from './blood';
 import { Tracks } from './tracks';
 import { FireField, FireTuning, type ParkedFire } from './fire';
 import { DryTuning, tickFlesh } from './cooked';
@@ -2977,11 +2977,19 @@ export class Gore implements GoreSystem {
       target.rag.muscle?.kick(damage.dir, impactStrength(forceOf(damage), target.info.mass) * MuscleTuning.corpseImpact);
       target.crawler?.kill();
       this.wounds.onLimb(target.piece, target.info, damage, hit.bone, hit.point);
+      if (!machine && !dry) {
+        const puff = puffOf(damage);
+        if (puff >= 0) fx.bloodPuff?.(hit.point, damage.dir, puff, 0.85, damage.type === 'pellet' ? 'shotgun' : 'bullet');
+      }
       target.health -= damage.amount * (damage.severMult ?? 1);
       this.corpseSound(hit.point, damage, machine, true, dry);
       if (target.health <= 0 && DevFlags.gibbing) this.burstLimb(target, damage);
     } else {
       this.sliced.damage(target, hit.point, _v.copy(damage.dir).multiplyScalar(forceOf(damage)));
+      if (!machine && !dry) {
+        const puff = puffOf(damage);
+        if (puff >= 0) fx.bloodPuff?.(hit.point, damage.dir, puff, 0.9, damage.type === 'pellet' ? 'shotgun' : 'bullet');
+      }
       this.corpseSound(hit.point, damage, machine, true, dry);
     }
   }
