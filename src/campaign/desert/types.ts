@@ -13,10 +13,16 @@ export interface ConvoyController {
   startWallLoop(): void;
   /** Halt convoy at the breached Main Gate and dismount the player on foot into the Warren. */
   dismountAtGate(): void;
-  /** Drive convoy trucks through the rubble into the Plane forecourt for Section 6 pickup. */
+  /** Drive convoy trucks through the rubble into the Plane forecourt for exfil pickup. */
   arriveForExfil(quistCaptured: boolean): void;
-  /** Begin high-speed Section 6 desert exfil chase with pursuing bandit bikes & trucks. */
+  /** Begin high-speed desert exfil chase with pursuing bandit bikes & trucks. */
   startExfilChase(quistCaptured: boolean): void;
+  /** Unmount turret HUD and lock convoy into smooth scenic highway cruise for the ending cutscene. */
+  enterEndingCruise?(): void;
+  /** Returns the world position of cuffed Quist seated in the open middle truck bed. */
+  getQuistBedPosition?(out: THREE.Vector3): THREE.Vector3;
+  /** Toggle whether cuffed Quist is visibly seated in the middle truck bed. */
+  setQuistCaptured?(captured: boolean): void;
   /** Dispatch a Saltblood reinforcement pickup truck out of the west or east side gate. */
   spawnSideGateTruck(side: 'west' | 'east'): void;
   /** Spawn a wave of desert bandit bikes/trucks during Approach or Exfil. */
@@ -41,13 +47,15 @@ export interface AirAndSquadsController {
   strikeMainGate(onBreached: () => void): void;
   /** Hover gunships over the breached gate and drop friendly assault squads into the Warren. */
   dropWarrenSquads(): void;
-  /** Advance friendly assault squads northward into the Warren / Pump Yard. */
-  advanceSquads(stage: 'warren' | 'pumpyard'): void;
-  /** Run the Section 6 scenic town-flattening ending cutscene behind the retreating convoy. */
+  /** Advance friendly assault squads northward into the Warren / Pump Yard / High Terraces / Salt Cave. */
+  advanceSquads(stage: 'warren' | 'pumpyard' | 'terraces' | 'cave'): void;
+  /** Run the scenic town-flattening ending cutscene behind the retreating convoy. */
   startEndingCutscene(
     getConvoyPos: (out: THREE.Vector3) => THREE.Vector3,
     quistCaptured: boolean,
     onDone: () => void,
+    getQuistBedPos?: (out: THREE.Vector3) => THREE.Vector3,
+    getTruckYaw?: () => number,
   ): void;
   /** Number of living friendly raid soldiers currently on the ground. */
   readonly aliveFriendlies: number;
@@ -63,6 +71,8 @@ export interface QuistHooks {
   onOutcome(outcome: QuistOutcome): void;
   /** Fired when Quist slams a bulkhead door behind him during the plane chase. */
   onDoorSlam(doorId: 'plane.door1' | 'plane.door2'): void;
+  /** Fired if cuffed Quist is killed or crushed by falling debris while being escorted to the exfil truck. */
+  onEscortLost?: (reason: 'crushed' | 'shot') => void;
 }
 
 export interface SetpiecesController {
@@ -76,10 +86,14 @@ export interface SetpiecesController {
   armWaterTower(): void;
   /** Execute the dramatic Water Tower collapse + flood knockback + street rubble block. */
   triggerWaterTowerDrop(): void;
-  /** Spawn Hadrek Quist inside the Cargo Plane for the Section 5 chase & 5-outcome speech. */
+  /** Spawn Hadrek Quist inside the Cargo Plane for the chase & 5-outcome speech. */
   startPlaneChase(hooks: QuistHooks): void;
   /** Advance Quist from mid-hull to tail cornered state when player reaches the aft bulkhead. */
   advanceQuistToTail(): void;
+  /** Hide/retire the walking cuffed Quist NPC when player + Quist board the exfil truck. */
+  boardCapturedQuistToConvoy?(): void;
+  /** Whether the escorted cuffed Quist NPC is currently alive. */
+  readonly quistEscortAlive?: boolean;
   /** Current final outcome of Hadrek Quist (null until resolved). */
   readonly quistOutcome: QuistOutcome | null;
   /** Whether the main gate has been breached by the Warthog. */

@@ -469,9 +469,10 @@ export class AllySystem implements GameSystem {
     this.chooseDest(a, now);
   }
 
-  /** The enemy's living, minus prisoners and the downed: nobody on our side finishes a man on the floor. */
+  /** The enemy's living, minus non-hostiles, prisoners and the downed: nobody on our side finishes a man on the floor. */
   private shootable(e: EnemyInstance): boolean {
     if (!e.alive) return false;
+    if ((e as { nonHostile?: boolean }).nonHostile === true) return false;
     const s = soldierOf(e);
     return !s || (!s.surrendered && !s.downed && s.fate !== 'surrender');
   }

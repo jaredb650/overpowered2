@@ -618,6 +618,7 @@ export class DamageModel {
   private run(e: Enemy, d: DamageInfo): DamageResult {
     const res = this.result();
     if (!e.alive) return res;
+    if (e.damageFilter && !e.damageFilter(d)) return res;
     const facts = this.facts;
     const told = this.told;
     const found = this.found;

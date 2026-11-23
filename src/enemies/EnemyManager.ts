@@ -552,6 +552,10 @@ export class EnemyManager implements EnemySystem {
 
     if (e.entrance !== 'none') {
       this.updateEntrance(e, dt);
+    } else if (e.scriptedNpc) {
+      if (e.mode !== 'hold') updateMovement(e, w, dt, this.alive);
+      updateContact(e, w);
+      if (e.downed) return;
     } else {
       if (w.now >= e.thinkAt && this.thinks < MAX_THINKS_PER_FRAME && e.stagger <= 0) {
         this.thinks++;

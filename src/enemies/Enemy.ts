@@ -1,7 +1,7 @@
 /** Runtime state of one enemy. Pooled; `reset` must restore every field a previous life could have touched. */
 import * as THREE from 'three';
 import type { GoreRegion } from '../characters/rig';
-import type { CharacterInstance, EmitterHandle, LoopHandle, PlayerSystem } from '../core/contracts';
+import type { CharacterInstance, DamageInfo, EmitterHandle, LoopHandle, PlayerSystem } from '../core/contracts';
 import type { EnemyId, EnemyInstance } from '../core/gameplay';
 import type { AttackDef, AttackPhase, Behaviour } from './brain';
 import type { EnemyDef } from './data';
@@ -257,6 +257,12 @@ export class Enemy implements EnemyInstance {
   boss: BossController | null = null;
   /** Bomber, burner and rocketeer tanks have blown. Stops a chain from firing twice. */
   tankBlown = false;
+  /** Ignored by ally targeting and enemy aggro (e.g. cuffed/scripted NPCs). */
+  nonHostile = false;
+  /** Skips normal AI think/behaviour/attack ticks while keeping locomotion, hitboxes, wounds, gore, and ragdoll. */
+  scriptedNpc = false;
+  /** Optional per-hit filter; returning false drops the hit before any damage, wounds, or reactions. */
+  damageFilter: ((d: DamageInfo) => boolean) | null = null;
 
   reset(): void {
     this.position.set(0, 0, 0);
@@ -338,5 +344,8 @@ export class Enemy implements EnemyInstance {
     this.quarry = null;
     this.boss = null;
     this.tankBlown = false;
+    this.nonHostile = false;
+    this.scriptedNpc = false;
+    this.damageFilter = null;
   }
 }

@@ -239,6 +239,10 @@ export interface StructuralNodeSpec {
   label?: string;
   /** If true, breaking this node collapses the entire cluster immediately. */
   keyNode?: boolean;
+  /** Optional material class hint for splinter/bend/shatter fracture dynamics. */
+  materialClass?: 'wood' | 'metal' | 'concrete' | 'stone';
+  /** Optional `[cols, rows]` subdivision grid hint for localized irregular panel fracturing. */
+  fractureGrid?: readonly [number, number];
 }
 
 export interface StructuralClusterSpec {
