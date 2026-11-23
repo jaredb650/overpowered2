@@ -1,13 +1,15 @@
 /**
- * Mission 5 ("Desert Raid" — Surplus) validation, dialogue, director, Saltblood styler & playthrough tests:
- *   1. `validateMission(DESERT_RAID)` returns zero problems (zero unused marks/zones/doors/lines).
- *   2. Starter weapon compatibility & Thermal brain chip preserved across all 6 checkpoints.
- *   3. All 6 beats exist; zero Council speakers or Council story references in `DESERT_RAID.lines`.
- *   4. Every draft Quist & Marr line from `DESERT-RAID.md` is present verbatim.
- *   5. Every `dr.*` call in `DESERT_RAID` is handled by `DesertRaid.call`.
- *   6. Full 6-section playthrough (including bulkhead door slam/override & captured Quist ending lines).
- *   7. Checkpoint death recovery with Sergeant Marr redeploy lines.
- *   8. `SaltbloodStyler` attaches cosmetics once per enemy `uid` without duplicates & cleans up on `clear()`.
+ * Mission 5 ("Desert Raid" — Surplus) validation, dialogue, director, Saltblood styler & 8-section playthrough tests:
+ *   1. `validateMission(DESERT_RAID)` returns zero problems (zero unused marks/zones/doors).
+ *   2. Starter weapon compatibility & Thermal brain chip preserved across all 8 checkpoints.
+ *   3. All 8 beats exist with dense combat rosters; zero Council speakers or Council story references in `DESERT_RAID.lines`.
+ *   4. Every draft Quist & Marr line from `DESERT-RAID.md` is present verbatim, plus new Terraces/Cave/Escort lines.
+ *   5. Every `dr.*` call in `DESERT_RAID` is handled by `DesertRaid.call` with zero warnings.
+ *   6. Full 8-section playthrough (including `high_terraces`, `salt_cave`, bulkhead door slam/override, cuffed escort stragglers & captured Quist ending lines).
+ *   7. Director escort boarding (`boardCapturedQuistToConvoy`, `enterEndingCruise`, `getQuistBedPosition`, `getTruckYaw`) AND `onEscortLost('crushed' | 'shot')` flipping `quistCaptured` to `false`.
+ *   8. Checkpoint death recovery across all 8 beats with Sergeant Marr redeploy lines.
+ *   9. `SaltbloodStyler` attaches cosmetics once per enemy `uid` without duplicates & cleans up on `clear()`.
+ *  10. Quist lines over `CampaignHud` pulse the nearest loudspeaker pole.
  */
 import * as THREE from 'three';
 import { describe, expect, it, vi } from 'vitest';
@@ -16,17 +18,18 @@ import type { EnemyId, EnemyInstance } from '../../core/gameplay';
 import { DESERT_Z, WARREN_MINIGUN } from '../../world/map/desert/plan';
 import { DESERT_RAID_CALLS, DesertRaid } from '../desertRaid';
 import { SaltbloodStyler } from '../desert/saltbloods';
+import type { QuistHooks } from '../desert/types';
 import type { CampaignHud } from '../hud';
 import { MissionRunner } from '../runner';
 import { missionWithStarter } from '../starter';
 import { FakeHost } from '../testkit';
-import type { Script, Step } from '../types';
+import type { Script } from '../types';
 import { validateMission } from '../validate';
 import { DESERT_RAID } from './desertRaid';
 import { REDEPLOY_LINES } from './desertRaid.lines';
 
 const FRAME = 1 / 30;
-const GIVE_UP_SECONDS = 360;
+const GIVE_UP_SECONDS = 480;
 
 function centerOf(zoneId: string): { x: number; y: number; z: number } {
   const z = DESERT_RAID.zones[zoneId]!;
@@ -51,6 +54,49 @@ function collectDrCalls(script: Script | undefined, out: Set<string>): void {
       out.add(step.name);
     }
   }
+}
+
+function countBeatEnemies(beatId: string): number {
+  const beat = DESERT_RAID.beats.find(b => b.id === beatId)!;
+  let total = 0;
+  for (const step of beat.start ?? []) {
+    if (step.do === 'squad') total += step.men.length;
+  }
+  for (const cue of beat.cues ?? []) {
+    for (const step of cue.run) {
+      if (step.do === 'squad') total += step.men.length;
+    }
+  }
+  return total;
+}
+
+function makeFakeCtx(placeMock?: ReturnType<typeof vi.fn>): Ctx {
+  const scene = new THREE.Scene();
+  return {
+    render: { scene, materials: { patch: <T>(m: T) => m } },
+    player: {
+      position: new THREE.Vector3(0, 0, DESERT_Z.approachStart),
+      velocity: new THREE.Vector3(),
+      yaw: 0,
+      pitch: 0,
+      teleport: () => {},
+      park: () => {},
+      unpark: () => {},
+      damage: () => {},
+    },
+    camera: { setSeat: () => {}, clearSeat: () => {}, setZoom: () => {}, setZoomFov: () => {}, addTrauma: () => {} },
+    hud: { seat: () => {}, setHint: () => {}, showPrompt: () => {} },
+    weapons: { holster: () => {} },
+    input: { isDown: () => false, wasPressed: () => false, consume: () => false },
+    physics: { addBox: () => null, remove: () => {}, raycast: () => null },
+    fx: { dust: () => {}, sparks: () => {}, burst: () => {}, tracer: () => {}, muzzleFlash: () => {}, explosion: () => {}, megaBlast: () => {}, smokeTrail: () => null },
+    world: { objects: { destruction: { damageAt: () => false, blast: () => {}, nukeSweep: () => {} } } },
+    allies: { spawn: () => null },
+    progression: { award: () => {}, callInsManager: { emplacements: { place: placeMock ?? (() => ({})) } } },
+    enemies: { alive: [], vehicles: { addExtra: () => {}, removeExtra: () => {} } },
+    audio: { has: () => false, play: () => {}, loop: () => ({ stop: () => {}, setVolume: () => {}, setPitch: () => {}, setPosition: () => {} }) },
+    events: { on: () => () => {}, emit: () => {} },
+  } as unknown as Ctx;
 }
 
 function makeFakeEnemy(uid: number, id: EnemyId, z: number, withBones = true): EnemyInstance {
@@ -91,17 +137,19 @@ function makeFakeEnemy(uid: number, id: EnemyId, z: number, withBones = true): E
   };
 }
 
-describe('Desert Raid (Mission 5)', () => {
-  it('passes validateMission with zero problems', () => {
+describe('Desert Raid (Mission 5 — 8-Section Campaign)', () => {
+  it('passes validateMission with zero problems across all 8 beats', () => {
     expect(validateMission(DESERT_RAID)).toEqual([]);
   });
 
-  it('has all 6 sections with checkpoints, starter weapon support & Thermal chip', () => {
+  it('has all 8 sections with checkpoints, dense combat rosters, starter weapon support & Thermal chip', () => {
     expect(DESERT_RAID.beats.map(b => b.id)).toEqual([
       'approach',
       'the_wall',
       'the_warren',
       'pump_yard',
+      'high_terraces',
+      'salt_cave',
       'the_plane',
       'exfil',
     ]);
@@ -110,6 +158,23 @@ describe('Desert Raid (Mission 5)', () => {
       expect(beat.checkpoint, `beat ${beat.id} checkpoint`).toBeDefined();
       expect(beat.checkpoint!.loadout.chip).toBe('thermal');
     }
+
+    // Verify dense human combat counts across all 8 sections
+    expect(countBeatEnemies('approach')).toBe(10);
+    expect(countBeatEnemies('the_wall')).toBe(16);
+    expect(countBeatEnemies('the_warren')).toBe(24);
+    expect(countBeatEnemies('pump_yard')).toBe(23); // 12 Pump Yard + 11 Storm Sewer
+    expect(countBeatEnemies('high_terraces')).toBeGreaterThanOrEqual(20);
+    expect(countBeatEnemies('salt_cave')).toBe(14);
+    expect(countBeatEnemies('the_plane')).toBe(16);
+    expect(countBeatEnemies('exfil')).toBe(5);
+
+    // Verify elevated wall marks & relocated northern Plane Canyon coordinates
+    expect(DESERT_RAID.marks.wallWestTop!.at[1]).toBe(3.6);
+    expect(DESERT_RAID.marks.wallCenterTop!.at[1]).toBe(3.6);
+    expect(DESERT_RAID.marks.wallEastTop!.at[1]).toBe(3.6);
+    expect(DESERT_RAID.marks.planeEntry!.at[2]).toBe(DESERT_Z.planeForecourt);
+    expect(DESERT_RAID.marks.quistTail!.at[2]).toBe(DESERT_Z.planeTail);
 
     const withHarrow = missionWithStarter(DESERT_RAID, 'harrow');
     expect(validateMission(withHarrow)).toEqual([]);
@@ -163,48 +228,34 @@ describe('Desert Raid (Mission 5)', () => {
     expect(byKey('quist.grenade')).toBe("Come closer. I'll tell you a secret.");
     expect(byKey('quist.captured')).toBeDefined();
 
+    // New 8-section dialogue lines (Mk 19, Sewer, High Terraces, Salt Cave, Live Cuffed Escort)
+    expect(byKey('marr.approach.start')).toContain('Mk 19');
+    expect(byKey('marr.terraces.start')).toBeDefined();
+    expect(byKey('quist.terraces.mock')).toBeDefined();
+    expect(byKey('marr.cave.start')).toBeDefined();
+    expect(byKey('quist.cave.warn')).toBeDefined();
+    expect(byKey('marr.escort.start')).toBeDefined();
+    expect(byKey('marr.escort.crushed')).toBeDefined();
+    expect(byKey('marr.escort.shot')).toBeDefined();
+
     // Captured Quist ending lines
     expect(byKey('quist.ending.1')).toBeDefined();
     expect(byKey('quist.ending.2')).toBeDefined();
     expect(byKey('quist.ending.3')).toBeDefined();
   });
 
-  it('handles every dr.* call used across all beats in DesertRaid.call', () => {
+  it('handles every dr.* call used across all 8 beats in DesertRaid.call with zero warnings', () => {
     const usedCalls = new Set<string>();
     for (const beat of DESERT_RAID.beats) {
       collectDrCalls(beat.start, usedCalls);
       for (const cue of beat.cues ?? []) collectDrCalls(cue.run, usedCalls);
     }
-    expect(usedCalls.size).toBeGreaterThan(0);
+    expect(usedCalls.has('dr.terracesStart')).toBe(true);
+    expect(usedCalls.has('dr.caveStart')).toBe(true);
 
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const placeMock = vi.fn(() => ({}) as unknown);
-    const scene = new THREE.Scene();
-    const fakeCtx = {
-      render: { scene, materials: { patch: <T>(m: T) => m } },
-      player: {
-        position: new THREE.Vector3(0, 0, 208),
-        velocity: new THREE.Vector3(),
-        yaw: 0,
-        pitch: 0,
-        teleport: () => {},
-        park: () => {},
-        unpark: () => {},
-        damage: () => {},
-      },
-      camera: { setSeat: () => {}, clearSeat: () => {}, setZoom: () => {}, setZoomFov: () => {}, addTrauma: () => {} },
-      hud: { seat: () => {}, setHint: () => {}, showPrompt: () => {} },
-      weapons: { holster: () => {} },
-      input: { isDown: () => false, wasPressed: () => false, consume: () => false },
-      physics: { addBox: () => null, remove: () => {}, raycast: () => null },
-      fx: { dust: () => {}, sparks: () => {}, burst: () => {}, tracer: () => {}, muzzleFlash: () => {}, explosion: () => {}, megaBlast: () => {}, smokeTrail: () => null },
-      world: { objects: { destruction: { damageAt: () => false, blast: () => {}, nukeSweep: () => {} } } },
-      allies: { spawn: () => null },
-      progression: { award: () => {}, callInsManager: { emplacements: { place: placeMock } } },
-      enemies: { alive: [], vehicles: { addExtra: () => {}, removeExtra: () => {} } },
-      audio: { has: () => false, play: () => {}, loop: () => ({ stop: () => {}, setVolume: () => {}, setPitch: () => {}, setPosition: () => {} }) },
-      events: { on: () => () => {}, emit: () => {} },
-    } as unknown as Ctx;
+    const fakeCtx = makeFakeCtx(placeMock);
     const host = new FakeHost();
     const runner = new MissionRunner(DESERT_RAID, host);
     const fakeUi = { speak: vi.fn(), talking: false } as unknown as CampaignHud;
@@ -226,7 +277,7 @@ describe('Desert Raid (Mission 5)', () => {
     warnSpy.mockRestore();
   });
 
-  it('plays through all 6 sections cleanly with bulkhead overrides and captured Quist ending', () => {
+  it('plays through all 8 sections cleanly with terraces, salt cave, bulkhead overrides & cuffed Quist escort ending', () => {
     const host = new FakeHost();
     const run = new MissionRunner(DESERT_RAID, host);
     const beats: string[] = [];
@@ -256,41 +307,61 @@ describe('Desert Raid (Mission 5)', () => {
         if (!sent.has('w_south')) {
           sent.add('w_south');
           host.feet = centerOf('warrenSouth');
-        } else if (!sent.has('w_north')) {
-          sent.add('w_north');
-          host.feet = centerOf('warrenNorth');
+        } else if (!sent.has('w_mid')) {
+          sent.add('w_mid');
+          host.feet = centerOf('warrenMid');
+          for (let i = 0; i < 4; i++) run.unitGone('warren_south', true, 'smg');
+          for (let i = 0; i < 4; i++) run.unitGone('warren_east_alley', true, 'smg');
         } else {
-          host.feet = centerOf('pumpYard');
+          host.feet = centerOf('pumpApproach');
         }
       } else if (beat.id === 'pump_yard') {
         if (!sent.has('dr:tower_dropped')) {
+          host.feet = centerOf('pumpTrigger');
           fireOnce('dr:tower_dropped');
         } else if (!sent.has('in_sewer')) {
           sent.add('in_sewer');
           host.feet = centerOf('sewer');
         } else {
-          host.feet = centerOf('planeForecourt');
+          host.feet = centerOf('terracesEntry');
+        }
+      } else if (beat.id === 'high_terraces') {
+        if (!sent.has('in_terrace_mid')) {
+          sent.add('in_terrace_mid');
+          host.feet = centerOf('terraceMidZone');
+        } else {
+          host.feet = centerOf('caveEntry');
+        }
+      } else if (beat.id === 'salt_cave') {
+        if (!sent.has('in_cave_mid')) {
+          sent.add('in_cave_mid');
+          host.feet = centerOf('caveMidZone');
+        } else {
+          host.feet = centerOf('planeForecourtZone');
         }
       } else if (beat.id === 'the_plane') {
         if (!sent.has('dr:door1_slam')) {
           fireOnce('dr:door1_slam');
-        } else if (!sent.has('clear:plane_guards_1')) {
-          sent.add('clear:plane_guards_1');
-          for (let i = 0; i < 3; i++) run.unitGone('plane_guards_1', true, 'smg');
+        } else if (!sent.has('clear:plane_bay1')) {
+          sent.add('clear:plane_bay1');
+          for (let i = 0; i < 4; i++) run.unitGone('plane_bay1', true, 'smg');
         } else if (host.doorStates['plane.door1'] === 1 && !sent.has('in_mid')) {
           sent.add('in_mid');
           host.feet = centerOf('planeMid');
           fireOnce('dr:door2_slam');
-        } else if (sent.has('in_mid') && !sent.has('clear:plane_guards_2')) {
-          sent.add('clear:plane_guards_2');
-          for (let i = 0; i < 3; i++) run.unitGone('plane_guards_2', true, 'smg');
-        } else if (sent.has('clear:plane_guards_2') && host.doorStates['plane.door2'] === 1 && !sent.has('dr:quist_done')) {
+        } else if (sent.has('in_mid') && !sent.has('clear:plane_bay2')) {
+          sent.add('clear:plane_bay2');
+          for (let i = 0; i < 4; i++) run.unitGone('plane_bay2', true, 'smg');
+        } else if (sent.has('clear:plane_bay2') && host.doorStates['plane.door2'] === 1 && !sent.has('dr:quist_done')) {
           host.feet = centerOf('planeTail');
           fireOnce('dr:quist_captured');
           fireOnce('dr:quist_done');
         }
       } else if (beat.id === 'exfil') {
-        if (host.calls.some(([n]) => n === 'dr.exfilArrive')) fireOnce('dr:exfil_boarded');
+        if (host.calls.some(([n]) => n === 'dr.exfilArrive')) {
+          fireOnce('dr:escort_active');
+          fireOnce('dr:exfil_boarded');
+        }
         if (host.calls.some(([n]) => n === 'dr.exfilChase')) fireOnce('dr:exfil_clear');
         if (host.calls.some(([n]) => n === 'dr.endingCutscene')) {
           fireOnce('dr:ending_quist_captured');
@@ -303,9 +374,28 @@ describe('Desert Raid (Mission 5)', () => {
 
     expect(run.state).toBe('won');
     expect(host.finishedCount).toBe(1);
-    expect(beats).toEqual(['approach', 'the_wall', 'the_warren', 'pump_yard', 'the_plane', 'exfil']);
+    expect(beats).toEqual([
+      'approach',
+      'the_wall',
+      'the_warren',
+      'pump_yard',
+      'high_terraces',
+      'salt_cave',
+      'the_plane',
+      'exfil',
+    ]);
     expect(host.doorStates['plane.door1']).toBe(1);
     expect(host.doorStates['plane.door2']).toBe(1);
+
+    // Check staged approach waves, side trucks, terraces, cave, and exfil arg '6'
+    expect(host.calls).toContainEqual(['dr.banditsApproach', '4']);
+    expect(host.calls).toContainEqual(['dr.banditsApproach', '5']);
+    expect(host.calls).toContainEqual(['dr.sideTruckWest', undefined]);
+    expect(host.calls).toContainEqual(['dr.sideTruckEast', undefined]);
+    expect(host.calls).toContainEqual(['dr.terracesStart', undefined]);
+    expect(host.calls).toContainEqual(['dr.caveStart', undefined]);
+    expect(host.calls).toContainEqual(['dr.exfilChase', '6']);
+
     expect(host.said).toContain('mission.desert_raid.quist.approach.warn');
     expect(host.said).toContain('mission.desert_raid.quist.wall.gate');
     expect(host.said).toContain('mission.desert_raid.marr.wall.breached');
@@ -313,14 +403,119 @@ describe('Desert Raid (Mission 5)', () => {
     expect(host.said).toContain('mission.desert_raid.quist.pump.tower');
     expect(host.said).toContain('mission.desert_raid.marr.pump.sewer');
     expect(host.said).toContain('mission.desert_raid.quist.sewer.dark.1');
+    expect(host.said).toContain('mission.desert_raid.marr.terraces.start');
+    expect(host.said).toContain('mission.desert_raid.quist.terraces.mock');
+    expect(host.said).toContain('mission.desert_raid.marr.cave.start');
+    expect(host.said).toContain('mission.desert_raid.quist.cave.warn');
     expect(host.said).toContain('mission.desert_raid.marr.door1.open');
     expect(host.said).toContain('mission.desert_raid.marr.door2.open');
     expect(host.said).toContain('mission.desert_raid.marr.quist.captured');
+    expect(host.said).toContain('mission.desert_raid.marr.escort.start');
     expect(host.said).toContain('mission.desert_raid.quist.ending.1');
     expect(host.said).toContain('mission.desert_raid.quist.ending.3');
   });
 
-  it('recovers cleanly from checkpoint deaths and plays Marr redeploy lines', () => {
+  it('wires cuffed Quist escort boarding, ending cruise, and onEscortLost(crushed/shot) cleanly in DesertRaid director', () => {
+    const fakeCtx = makeFakeCtx();
+    const host = new FakeHost();
+    const runner = new MissionRunner(DESERT_RAID, host);
+    const spoken: string[] = [];
+    const fakeUi = {
+      speak: vi.fn((line: { id: string }, done: () => void) => {
+        spoken.push(line.id);
+        done();
+      }),
+      talking: false,
+    } as unknown as CampaignHud;
+    const director = new DesertRaid(fakeCtx, runner, fakeUi);
+
+    let capturedHooks: QuistHooks | null = null;
+    vi.spyOn(director.setpieces, 'startPlaneChase').mockImplementation((hooks: QuistHooks) => {
+      capturedHooks = hooks;
+    });
+
+    const boardSpy = vi.fn();
+    director.setpieces.boardCapturedQuistToConvoy = boardSpy;
+
+    const enterCruiseSpy = vi.fn();
+    const setQuistCapturedSpy = vi.fn();
+    const getQuistBedPositionSpy = vi.fn((out: THREE.Vector3) => out.set(0, 1.4, -190));
+    director.convoy.enterEndingCruise = enterCruiseSpy;
+    director.convoy.setQuistCaptured = setQuistCapturedSpy;
+    director.convoy.getQuistBedPosition = getQuistBedPositionSpy;
+    const startChaseSpy = vi.spyOn(director.convoy, 'startExfilChase').mockImplementation(() => {});
+    const arriveSpy = vi.spyOn(director.convoy, 'arriveForExfil').mockImplementation(() => {});
+    const spawnBanditsSpy = vi.spyOn(director.convoy, 'spawnBanditWave').mockImplementation(() => {});
+
+    const callOrder: string[] = [];
+    enterCruiseSpy.mockImplementation(() => callOrder.push('enterEndingCruise'));
+    const endingSpy = vi.spyOn(director.airAndSquads, 'startEndingCutscene').mockImplementation(
+      (getPos, captured, onDone, getBedPos, getYaw) => {
+        callOrder.push('startEndingCutscene');
+        expect(typeof getPos).toBe('function');
+        expect(captured).toBe(true);
+        expect(typeof getBedPos).toBe('function');
+        expect(typeof getYaw).toBe('function');
+        getBedPos!(new THREE.Vector3());
+        getYaw!();
+        onDone();
+      },
+    );
+
+    // Scenario A: Quist captured and safely escorted to truck -> boarded -> ending cruise -> bed camera
+    director.call('dr.planeStart');
+    expect(capturedHooks).not.toBeNull();
+    capturedHooks!.onOutcome('captured');
+    expect(director.quistCaptured).toBe(true);
+
+    director.call('dr.exfilArrive');
+    expect(arriveSpy).toHaveBeenCalledWith(true);
+
+    director.call('dr.exfilChase', '6');
+    expect(boardSpy).toHaveBeenCalledTimes(1);
+    expect(setQuistCapturedSpy).toHaveBeenCalledWith(true);
+    expect(startChaseSpy).toHaveBeenCalledWith(true);
+    expect(spawnBanditsSpy).toHaveBeenCalledWith('exfil', 6);
+
+    director.call('dr.endingCutscene');
+    expect(callOrder).toEqual(['enterEndingCruise', 'startEndingCutscene']);
+    expect(getQuistBedPositionSpy).toHaveBeenCalledTimes(1);
+    expect(endingSpy).toHaveBeenCalledTimes(1);
+
+    // Scenario B: Quist captured, then crushed by falling debris during escort -> flips quistCaptured false
+    director.reset();
+    spoken.length = 0;
+    setQuistCapturedSpy.mockClear();
+    endingSpy.mockImplementation((_getPos, captured, onDone) => {
+      expect(captured).toBe(false);
+      onDone();
+    });
+
+    director.call('dr.planeStart');
+    capturedHooks!.onOutcome('captured');
+    expect(director.quistCaptured).toBe(true);
+
+    director.call('dr.exfilArrive');
+    capturedHooks!.onEscortLost?.('crushed');
+    expect(director.quistCaptured).toBe(false);
+    expect(setQuistCapturedSpy).toHaveBeenCalledWith(false);
+    expect(spoken).toContain('mission.desert_raid.marr.escort.crushed');
+
+    director.call('dr.exfilChase', '6');
+    expect(startChaseSpy).toHaveBeenLastCalledWith(false);
+    director.call('dr.endingCutscene');
+
+    // Scenario C: Quist captured, then shot by player during escort -> flips quistCaptured false
+    director.reset();
+    spoken.length = 0;
+    director.call('dr.planeStart');
+    capturedHooks!.onOutcome('captured');
+    capturedHooks!.onEscortLost?.('shot');
+    expect(director.quistCaptured).toBe(false);
+    expect(spoken).toContain('mission.desert_raid.marr.escort.shot');
+  });
+
+  it('recovers cleanly from checkpoint deaths across all 8 beats and plays Marr redeploy lines', () => {
     const host = new FakeHost();
     const run = new MissionRunner(DESERT_RAID, host);
     const died = new Set<string>();
@@ -331,10 +526,12 @@ describe('Desert Raid (Mission 5)', () => {
       run.signal(sig);
     };
 
+    const allBeatIds = DESERT_RAID.beats.map(b => b.id);
+
     run.start();
     for (let t = 0; t < GIVE_UP_SECONDS && run.state === 'running'; t += FRAME) {
       const beat = run.beat!;
-      if ((beat.id === 'pump_yard' || beat.id === 'the_plane') && !died.has(beat.id)) {
+      if (!died.has(beat.id)) {
         died.add(beat.id);
         run.down();
         run.redeploy();
@@ -348,10 +545,14 @@ describe('Desert Raid (Mission 5)', () => {
         fireOnce('dr:wall_shredded');
         if (host.calls.some(([n]) => n === 'dr.warthogGate')) fireOnce('dr:gate_breached');
       } else if (beat.id === 'the_warren') {
-        host.feet = centerOf('pumpYard');
+        fireOnce('dr:pump_reached');
       } else if (beat.id === 'pump_yard') {
         fireOnce('dr:tower_dropped');
-        host.feet = centerOf('planeForecourt');
+        host.feet = centerOf('terracesEntry');
+      } else if (beat.id === 'high_terraces') {
+        host.feet = centerOf('caveEntry');
+      } else if (beat.id === 'salt_cave') {
+        host.feet = centerOf('planeForecourtZone');
       } else if (beat.id === 'the_plane') {
         fireOnce('dr:quist_killed');
         fireOnce('dr:quist_done');
@@ -365,10 +566,12 @@ describe('Desert Raid (Mission 5)', () => {
     }
 
     expect(run.state).toBe('won');
-    expect(run.deaths).toBe(2);
+    expect(died.size).toBe(allBeatIds.length);
+    expect(run.deaths).toBe(8);
     expect(host.finishedCount).toBe(1);
     expect(host.said).toContain('mission.desert_raid.marr.redeploy.1');
     expect(host.said).toContain('mission.desert_raid.marr.redeploy.2');
+    expect(host.said).toContain('mission.desert_raid.marr.redeploy.3');
   });
 
   it('SaltbloodStyler styles raiders & heavy Plane guards once per uid without duplicates', () => {
@@ -421,14 +624,7 @@ describe('Desert Raid (Mission 5)', () => {
   });
 
   it('pulses loudspeakers when Quist speaks over CampaignHud', () => {
-    const fakeCtx = {
-      render: { scene: new THREE.Scene(), materials: { patch: <T>(m: T) => m } },
-      player: { position: new THREE.Vector3(0, 0, 208), velocity: new THREE.Vector3(), yaw: 0, pitch: 0 },
-      physics: { addBox: () => null, remove: () => {}, raycast: () => null },
-      enemies: { alive: [], vehicles: { addExtra: () => {}, removeExtra: () => {} } },
-      audio: { has: () => false, play: () => {}, loop: () => ({ stop: () => {}, setVolume: () => {}, setPitch: () => {}, setPosition: () => {} }) },
-      events: { on: () => () => {}, emit: () => {} },
-    } as unknown as Ctx;
+    const fakeCtx = makeFakeCtx();
     const host = new FakeHost();
     const runner = new MissionRunner(DESERT_RAID, host);
     const speakSpy = vi.fn((_line: unknown, done: () => void) => done());
