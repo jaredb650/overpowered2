@@ -57,6 +57,8 @@ export function createPhysicsState(position: THREE.Vector3, yaw: number, velocit
     crashNormal: new THREE.Vector3(0, 1, 0),
     vtolMode: true,
     airThrottle: 0,
+    abandonedFall: false,
+    fallSpin: 0,
   };
 }
 
@@ -130,8 +132,9 @@ function resolveHorizontalWalls(
               state.crashImpact = impact;
               state.crashNormal.copy(_hit.normal);
             }
-            state.velocity.x -= _hit.normal.x * vn * 1.18;
-            state.velocity.z -= _hit.normal.z * vn * 1.18;
+            // Slide cleanly along walls with minimal bounce so holding W never ping-pongs!
+            state.velocity.x -= _hit.normal.x * vn * 1.04;
+            state.velocity.z -= _hit.normal.z * vn * 1.04;
             const pen = radius - _hit.distance;
             if (pen > 0) {
               state.position.x += _hit.normal.x * pen;
@@ -160,7 +163,7 @@ function resolveHorizontalWalls(
           state.crashImpact = -state.velocity.x;
           state.crashNormal.set(1, 0, 0);
         }
-        state.velocity.x *= -0.22;
+        state.velocity.x *= -0.1;
       }
     } else if (state.position.x > maxX) {
       state.position.x = maxX;
@@ -169,7 +172,7 @@ function resolveHorizontalWalls(
           state.crashImpact = state.velocity.x;
           state.crashNormal.set(-1, 0, 0);
         }
-        state.velocity.x *= -0.22;
+        state.velocity.x *= -0.1;
       }
     }
     if (state.position.z < minZ) {
@@ -179,7 +182,7 @@ function resolveHorizontalWalls(
           state.crashImpact = -state.velocity.z;
           state.crashNormal.set(0, 0, 1);
         }
-        state.velocity.z *= -0.22;
+        state.velocity.z *= -0.1;
       }
     } else if (state.position.z > maxZ) {
       state.position.z = maxZ;
@@ -188,7 +191,7 @@ function resolveHorizontalWalls(
           state.crashImpact = state.velocity.z;
           state.crashNormal.set(0, 0, -1);
         }
-        state.velocity.z *= -0.22;
+        state.velocity.z *= -0.1;
       }
     }
   }
@@ -201,8 +204,9 @@ export function stepVehiclePhysics(
   dt: number,
   world: WorldSystem | undefined,
   physics: PhysicsSystem | undefined,
-  occupied: boolean,
+  driveActive: boolean,
   ownHandle?: number,
+  hasOccupant = driveActive,
 ): void {
   if (dt <= 0) return;
   const h = Math.min(dt, 0.05);
@@ -225,7 +229,7 @@ export function stepVehiclePhysics(
         ? (!state.vtolMode || input.throttle > 0.05 || input.climb > 0.05)
         : input.throttle > 0.05;
 
-  const canBoost = occupied && !state.deployed && input.boost && !state.boostLocked && state.boostFuel > 0.01 && wantsMoveForBoost;
+  const canBoost = driveActive && !state.deployed && input.boost && !state.boostLocked && state.boostFuel > 0.01 && wantsMoveForBoost;
   state.boosting = canBoost;
   if (canBoost) {
     state.boostFuel = Math.max(0, state.boostFuel - def.boostDrain * h);
@@ -237,20 +241,20 @@ export function stepVehiclePhysics(
     state.boostFuel = Math.min(1, state.boostFuel + def.boostRegen * h);
   }
 
-  // Forward (+Z rotated by yaw) and Right (+X rotated by yaw) basis vectors.
+  // Forward (+Z rotated by yaw) and Left (+X rotated by yaw) basis vectors.
   const fx = Math.sin(state.yaw);
   const fz = Math.cos(state.yaw);
-  const rx = Math.cos(state.yaw);
-  const rz = -Math.sin(state.yaw);
+  const lx = Math.cos(state.yaw);
+  const lz = -Math.sin(state.yaw);
 
   if (def.category === 'helicopter') {
-    stepHelicopter(def, state, input, h, fx, fz, rx, rz, world, physics, occupied, ownHandle);
+    stepHelicopter(def, state, input, h, fx, fz, lx, lz, world, physics, driveActive, hasOccupant, ownHandle);
   } else if (def.category === 'jet') {
-    stepJet(def, state, input, h, fx, fz, rx, rz, world, physics, occupied, ownHandle);
+    stepJet(def, state, input, h, fx, fz, lx, lz, world, physics, driveActive, hasOccupant, ownHandle);
   } else if (def.category === 'hover') {
-    stepHoverBike(def, state, input, h, fx, fz, rx, rz, world, physics, occupied, ownHandle);
+    stepHoverBike(def, state, input, h, fx, fz, lx, lz, world, physics, driveActive, ownHandle);
   } else {
-    stepGroundChassis(def, state, input, h, fx, fz, rx, rz, world, physics, occupied, ownHandle);
+    stepGroundChassis(def, state, input, h, fx, fz, lx, lz, world, physics, driveActive, ownHandle);
   }
 
   state.speed = def.category === 'jet'
@@ -265,8 +269,8 @@ function stepGroundChassis(
   dt: number,
   fx: number,
   fz: number,
-  rx: number,
-  rz: number,
+  lx: number,
+  lz: number,
   world: WorldSystem | undefined,
   physics: PhysicsSystem | undefined,
   occupied: boolean,
@@ -279,9 +283,9 @@ function stepGroundChassis(
   const steer = occupied && !locked ? clamp(input.steer, -1, 1) : 0;
   const handbrake = occupied && !locked && input.handbrake;
 
-  // Decompose current horizontal velocity into forward & lateral components.
+  // Decompose current horizontal velocity into forward & lateral (+X = left) components.
   let vFwd = state.velocity.x * fx + state.velocity.z * fz;
-  let vSide = state.velocity.x * rx + state.velocity.z * rz;
+  let vSide = state.velocity.x * lx + state.velocity.z * lz;
 
   const topFwd = state.boosting ? def.boostSpeed : def.maxSpeed;
   const topRev = def.maxReverse;
@@ -292,10 +296,8 @@ function stepGroundChassis(
     vFwd = damp(vFwd, 0, 12, dt);
     vSide = damp(vSide, 0, 14, dt);
   } else if (!state.grounded) {
-    // Mid-air: light air drag, keep forward launch momentum intact!
     vFwd = damp(vFwd, 0, 0.22, dt);
   } else if (handbrake && !isTracked) {
-    // Handbrake slows gently while letting the rear kick out into a powerslide!
     vFwd = damp(vFwd, 0, 1.8, dt);
   } else if (throttle > 0.02) {
     if (vFwd < -0.5) {
@@ -316,15 +318,23 @@ function stepGroundChassis(
     vFwd = damp(vFwd, 0, occupied ? 1.9 : 4.5, dt);
   }
 
-  // Steering & drift dynamics.
-  const targetSteer = -steer * (isMoto ? 0.44 : 0.56);
-  state.steerAngle = damp(state.steerAngle, targetSteer, 11, dt);
+  // Steering & drift dynamics (moto gets speed-sensitive steering stabilization so it's crisp yet never twitchy at 150 km/h!).
+  const targetSteer = -steer * (isMoto ? 0.36 : 0.54);
+  state.steerAngle = damp(state.steerAngle, targetSteer, isMoto ? 9.5 : 11, dt);
 
   let targetYawRate = 0;
   if (!locked) {
     if (isTracked) {
       const speedEase = 1 - clamp(Math.abs(vFwd) / (def.maxSpeed * 1.4), 0, 0.35);
       targetYawRate = -steer * def.turnRate * speedEase;
+    } else if (isMoto) {
+      const airControl = state.grounded ? 1 : 0.2;
+      const speedFactor = clamp(Math.abs(vFwd) / 4.5, 0, 1);
+      // Speed-sensitive curve: agile low-speed carving, composed high-speed sweepers.
+      const hiSpeedDamp = 1 - clamp((Math.abs(vFwd) - 16) / (def.boostSpeed * 1.25), 0, 0.48);
+      const dirSign = vFwd >= -0.35 ? 1 : -1;
+      const driftBoost = state.grounded && handbrake && Math.abs(vFwd) > 7 ? 1.25 : 1;
+      targetYawRate = -steer * def.turnRate * speedFactor * hiSpeedDamp * dirSign * driftBoost * airControl;
     } else {
       const airControl = state.grounded ? 1 : 0.25;
       const speedFactor = clamp(Math.abs(vFwd) / 5.5, 0, 1);
@@ -333,24 +343,24 @@ function stepGroundChassis(
       targetYawRate = -steer * def.turnRate * speedFactor * dirSign * driftBoost * airControl;
     }
   }
-  state.yawRate = damp(state.yawRate, targetYawRate, handbrake ? 6.5 : 10.5, dt);
+  state.yawRate = damp(state.yawRate, targetYawRate, isMoto ? 8.0 : handbrake ? 6.5 : 10.5, dt);
   state.yaw += state.yawRate * dt;
 
   const nfx = Math.sin(state.yaw);
   const nfz = Math.cos(state.yaw);
-  const nrx = Math.cos(state.yaw);
-  const nrz = -Math.sin(state.yaw);
+  const nlx = Math.cos(state.yaw);
+  const nlz = -Math.sin(state.yaw);
 
   state.drifting = state.grounded && !isTracked && handbrake && Math.hypot(vFwd, vSide) > 8 && Math.abs(steer) > 0.15;
   const grip = locked ? 18 : !state.grounded ? 0.5 : state.drifting ? def.driftGrip : def.lateralGrip;
 
-  const worldVx = vFwd * fx + vSide * rx;
-  const worldVz = vFwd * fz + vSide * rz;
+  const worldVx = vFwd * fx + vSide * lx;
+  const worldVz = vFwd * fz + vSide * lz;
   const newFwd = worldVx * nfx + worldVz * nfz;
-  const newSide = damp(worldVx * nrx + worldVz * nrz, 0, grip, dt);
+  const newSide = damp(worldVx * nlx + worldVz * nlz, 0, grip, dt);
 
-  state.velocity.x = newFwd * nfx + newSide * nrx;
-  state.velocity.z = newFwd * nfz + newSide * nrz;
+  state.velocity.x = newFwd * nfx + newSide * nlx;
+  state.velocity.z = newFwd * nfz + newSide * nlz;
 
   // Integrate horizontal position & slide off walls.
   const prevY = state.position.y;
@@ -365,22 +375,18 @@ function stepGroundChassis(
 
   if (state.grounded) {
     const dy = groundY - prevY;
-    // Detect crest departure: ground drops away beneath us while carrying upward ramp momentum!
     const crestDrop = groundY < prevY - 0.14;
     if (crestDrop && state.climbCarryTimer > 0 && state.recentClimbVy > 2.2 && horizSpeed > 9.5) {
-      // Launch cleanly off the ramp lip!
       state.velocity.y = clamp(state.recentClimbVy * 1.08 + horizSpeed * 0.08, 4.5, 22);
       state.grounded = false;
       state.climbCarryTimer = 0;
       state.recentClimbVy = 0;
       state.position.y += state.velocity.y * dt;
     } else if (groundY < prevY - 0.35 && horizSpeed > 12) {
-      // Driven off a steep ledge/cliff even without an upward ramp approach!
       state.velocity.y = Math.max(0, state.recentClimbVy);
       state.grounded = false;
       state.position.y += state.velocity.y * dt;
     } else {
-      // Normal grounded driving — smoothly follow terrain/ramp slope while recording upward climb rate.
       const nextY = damp(prevY, groundY, 24, dt);
       const instantClimbVy = (nextY - prevY) / dt;
       if (dy > 0.008 && instantClimbVy > 1.2) {
@@ -394,12 +400,11 @@ function stepGroundChassis(
       state.grounded = true;
     }
   } else {
-    // Airborne ballistic arc!
     state.velocity.y -= GRAVITY * dt;
     state.position.y += state.velocity.y * dt;
     if (state.position.y <= groundY) {
       const slamSpeed = -state.velocity.y;
-      if (slamSpeed > 18) {
+      if (slamSpeed > 22) {
         state.crashImpact = Math.max(state.crashImpact, slamSpeed - 6);
         state.crashNormal.set(0, 1, 0);
       }
@@ -412,31 +417,32 @@ function stepGroundChassis(
   }
   state.altitude = Math.max(0, state.position.y - groundY);
 
-  // Sample front/rear ground slopes + expressive acceleration squat, motorcycle lean, & airborne pitch!
+  // Sample front/rear ground slopes + expressive squat, motorcycle lean & suspension body roll!
+  // Coordinate rule (+Z nose, +Y up, +X left): POSITIVE roll drops right (-X) and lifts left (+X) = leaning RIGHT!
   let targetPitch: number;
   let targetRoll: number;
   if (state.grounded) {
     const gFwd = sampleGround(world, physics, state.position.x + nfx * def.halfLength * 0.8, state.position.y, state.position.z + nfz * def.halfLength * 0.8, groundY, ownHandle);
     const gRear = sampleGround(world, physics, state.position.x - nfx * def.halfLength * 0.8, state.position.y, state.position.z - nfz * def.halfLength * 0.8, groundY, ownHandle);
     const slopePitch = Math.atan2(gRear - gFwd, Math.max(1, def.halfLength * 1.6));
-    const wheeliePitch = isMoto && state.boosting && newFwd > 8 ? -0.24 : 0;
-    const squatPitch = clamp(-accelCmd * (isMoto ? 0.004 : 0.0024), -0.12, 0.09) - state.recoilOffset * 0.06 + wheeliePitch;
-    targetPitch = clamp(slopePitch + squatPitch, -0.52, 0.45);
+    const wheeliePitch = isMoto && state.boosting && newFwd > 8 ? -0.18 : 0;
+    const squatPitch = clamp(-accelCmd * (isMoto ? 0.003 : 0.0024), -0.1, 0.08) - state.recoilOffset * 0.06 + wheeliePitch;
+    targetPitch = clamp(slopePitch + squatPitch, -0.45, 0.42);
     if (isMoto) {
-      // Deep exhilarating motorcycle lean-to-turn banking!
-      const leanScale = clamp(Math.abs(newFwd) / (def.maxSpeed * 0.65), 0, 1);
-      targetRoll = clamp(-steer * 0.62 * leanScale, -0.62, 0.62);
+      // Smooth, controlled lean INTO the turn (steer > 0 turning right => positive roll leaning right!).
+      const leanScale = clamp(Math.abs(newFwd) / (def.maxSpeed * 0.55), 0, 1);
+      targetRoll = clamp(steer * 0.46 * leanScale, -0.46, 0.46);
     } else {
-      targetRoll = clamp(-state.yawRate * (newFwd / Math.max(10, def.maxSpeed)) * 0.14, -0.18, 0.18);
+      // 4-wheeled suspension body roll leans gently OUTWARD (turning right -> yawRate < 0 -> negative roll).
+      targetRoll = clamp(state.yawRate * (newFwd / Math.max(10, def.maxSpeed)) * 0.12, -0.15, 0.15);
     }
   } else {
-    // Nose tracks ballistic arc cleanly while flying off ramps!
-    targetPitch = clamp(-Math.atan2(state.velocity.y, Math.max(10, horizSpeed)) * 0.72, -0.48, 0.48);
-    targetRoll = isMoto ? clamp(-steer * 0.35, -0.4, 0.4) : damp(state.roll, 0, 2.5, dt);
+    targetPitch = clamp(-Math.atan2(state.velocity.y, Math.max(10, horizSpeed)) * 0.65, -0.44, 0.44);
+    targetRoll = isMoto ? clamp(steer * 0.28, -0.32, 0.32) : damp(state.roll, 0, 2.5, dt);
   }
 
   state.pitch = damp(state.pitch, targetPitch, state.grounded ? 10 : 5, dt);
-  state.roll = damp(state.roll, targetRoll, isMoto ? 11 : 9, dt);
+  state.roll = damp(state.roll, targetRoll, isMoto ? 8.5 : 9, dt);
   state.wheelSpin += (newFwd / (isMoto ? 0.42 : 0.58)) * dt;
 }
 
@@ -447,8 +453,8 @@ function stepHoverBike(
   dt: number,
   fx: number,
   fz: number,
-  rx: number,
-  rz: number,
+  lx: number,
+  lz: number,
   world: WorldSystem | undefined,
   physics: PhysicsSystem | undefined,
   occupied: boolean,
@@ -458,7 +464,7 @@ function stepHoverBike(
   const steer = occupied ? clamp(input.steer, -1, 1) : 0;
 
   let vFwd = state.velocity.x * fx + state.velocity.z * fz;
-  let vSide = state.velocity.x * rx + state.velocity.z * rz;
+  let vSide = state.velocity.x * lx + state.velocity.z * lz;
 
   const topFwd = state.boosting ? def.boostSpeed : def.maxSpeed;
   if (throttle > 0.02) {
@@ -471,20 +477,20 @@ function stepHoverBike(
   }
 
   const turnMult = 0.55 + 0.45 * clamp(Math.abs(vFwd) / 14, 0, 1);
-  state.yawRate = damp(state.yawRate, -steer * def.turnRate * turnMult, 12, dt);
+  state.yawRate = damp(state.yawRate, -steer * def.turnRate * turnMult, 11, dt);
   state.yaw += state.yawRate * dt;
 
   const nfx = Math.sin(state.yaw);
   const nfz = Math.cos(state.yaw);
-  const nrx = Math.cos(state.yaw);
-  const nrz = -Math.sin(state.yaw);
+  const nlx = Math.cos(state.yaw);
+  const nlz = -Math.sin(state.yaw);
 
-  const worldVx = vFwd * fx + vSide * rx;
-  const worldVz = vFwd * fz + vSide * rz;
+  const worldVx = vFwd * fx + vSide * lx;
+  const worldVz = vFwd * fz + vSide * lz;
   const newFwd = worldVx * nfx + worldVz * nfz;
-  const newSide = damp(worldVx * nrx + worldVz * nrz, 0, def.lateralGrip, dt);
-  state.velocity.x = newFwd * nfx + newSide * nrx;
-  state.velocity.z = newFwd * nfz + newSide * nrz;
+  const newSide = damp(worldVx * nlx + worldVz * nlz, 0, def.lateralGrip, dt);
+  state.velocity.x = newFwd * nfx + newSide * nlx;
+  state.velocity.z = newFwd * nfz + newSide * nlz;
 
   state.position.x += state.velocity.x * dt;
   state.position.z += state.velocity.z * dt;
@@ -516,9 +522,10 @@ function stepHoverBike(
   }
   state.altitude = Math.max(0, state.position.y - groundY);
 
-  const targetRoll = clamp(-steer * (0.22 + 0.36 * clamp(Math.abs(newFwd) / def.maxSpeed, 0, 1)), -0.58, 0.58);
+  // Carve INTO the turn: steer > 0 (turning right) => positive roll (banking right)!
+  const targetRoll = clamp(steer * (0.2 + 0.3 * clamp(Math.abs(newFwd) / def.maxSpeed, 0, 1)), -0.5, 0.5);
   const targetPitch = clamp(-throttle * 0.08 + (state.boosting ? -0.1 : 0) - clamp(state.velocity.y * 0.025, -0.25, 0.25), -0.35, 0.32);
-  state.roll = damp(state.roll, occupied ? targetRoll : 0, 10, dt);
+  state.roll = damp(state.roll, occupied ? targetRoll : 0, 9.5, dt);
   state.pitch = damp(state.pitch, occupied ? targetPitch : 0, 9, dt);
 }
 
@@ -529,32 +536,82 @@ function stepHelicopter(
   dt: number,
   fx: number,
   fz: number,
-  rx: number,
-  rz: number,
+  lx: number,
+  lz: number,
   world: WorldSystem | undefined,
   physics: PhysicsSystem | undefined,
-  occupied: boolean,
+  driveActive: boolean,
+  hasOccupant: boolean,
   ownHandle?: number,
 ): void {
-  const rotorSpeed = occupied ? 24 : state.altitude > 0.6 ? 18 : 2.2;
-  state.rotorAngle += rotorSpeed * dt;
-
   const groundY = sampleGround(world, physics, state.position.x, state.position.y, state.position.z, state.groundY, ownHandle);
   state.groundY = groundY;
   state.altitude = Math.max(0, state.position.y - groundY);
 
-  const throttle = occupied ? clamp(input.throttle, -1, 1) : 0;
-  const strafe = occupied ? clamp(input.steer, -1, 1) : 0;
-  // Note: when unmanned (e.g. sitting in Valkyrie Door Gunner or Kestrel FLIR seat!), hold altitude smoothly!
-  const climb = occupied ? clamp(input.climb, -1, 1) : 0;
+  // If completely abandoned in mid-air (NO crew in any seat!), cut lift and enter a fiery death spiral!
+  if (!hasOccupant) {
+    if (state.altitude > 3.5 || state.abandonedFall) {
+      state.abandonedFall = true;
+      if (Math.abs(state.fallSpin) < 0.5) state.fallSpin = 2.6;
+      state.rotorAngle += 9 * dt;
+      state.yaw += state.fallSpin * dt;
+      state.velocity.y -= GRAVITY * 0.72 * dt;
+      state.velocity.x = damp(state.velocity.x, 0, 0.28, dt);
+      state.velocity.z = damp(state.velocity.z, 0, 0.28, dt);
+      state.position.addScaledVector(state.velocity, dt);
+      state.pitch = damp(state.pitch, 0.52, 2.4, dt);
+      state.roll = damp(state.roll, 0.72, 2.4, dt);
+      if (state.position.y <= groundY) {
+        const impact = Math.max(28, -state.velocity.y * 1.45);
+        state.crashImpact = Math.max(state.crashImpact, impact);
+        state.crashNormal.set(0, 1, 0);
+        state.position.y = groundY;
+        state.velocity.set(0, 0, 0);
+        state.grounded = true;
+        // Keep abandonedFall latched so stepCrashAndRam() detonates the crashed chopper on this frame!
+      } else {
+        state.grounded = false;
+      }
+      state.altitude = Math.max(0, state.position.y - groundY);
+      resolveHorizontalWalls(def, state, physics, world, dt, ownHandle);
+      return;
+    }
+    // Exited low to the ground (<= 3.5 m): settle cleanly onto landing skids.
+    state.rotorAngle += (state.altitude > 0.4 ? 12 : 2.2) * dt;
+    state.velocity.x = damp(state.velocity.x, 0, 3.2, dt);
+    state.velocity.z = damp(state.velocity.z, 0, 3.2, dt);
+    state.velocity.y = state.altitude > 0.08 ? damp(state.velocity.y, -4.5, 4, dt) : 0;
+    state.position.addScaledVector(state.velocity, dt);
+    if (state.position.y <= groundY) {
+      state.position.y = groundY;
+      state.velocity.y = 0;
+      state.grounded = true;
+    } else {
+      state.grounded = false;
+    }
+    state.pitch = damp(state.pitch, 0, 5, dt);
+    state.roll = damp(state.roll, 0, 5, dt);
+    state.altitude = Math.max(0, state.position.y - groundY);
+    return;
+  }
+
+  state.abandonedFall = false;
+  state.fallSpin = 0;
+  const rotorSpeed = 24;
+  state.rotorAngle += rotorSpeed * dt;
+
+  const throttle = driveActive ? clamp(input.throttle, -1, 1) : 0;
+  const strafe = driveActive ? clamp(input.steer, -1, 1) : 0;
+  // When a gunner is seated in Seat 2 (hasOccupant && !driveActive), auto-hover holds altitude steadily!
+  const climb = driveActive ? clamp(input.climb, -1, 1) : 0;
 
   const targetVy = climb * def.climbRate;
-  state.velocity.y = damp(state.velocity.y, targetVy, occupied ? 5.5 : 4.2, dt);
+  state.velocity.y = damp(state.velocity.y, targetVy, driveActive ? 5.5 : 4.2, dt);
 
   const topSpeed = state.boosting ? def.boostSpeed : def.maxSpeed;
-  const desiredVx = (fx * throttle + rx * -strafe) * topSpeed;
-  const desiredVz = (fz * throttle + rz * -strafe) * topSpeed;
-  const response = occupied ? (Math.abs(throttle) > 0.05 || Math.abs(strafe) > 0.05 ? 2.6 : 1.9) : 2.5;
+  const desiredVx = (fx * throttle + lx * -strafe) * topSpeed;
+  const desiredVz = (fz * throttle + lz * -strafe) * topSpeed;
+  const response = driveActive ? (Math.abs(throttle) > 0.05 || Math.abs(strafe) > 0.05 ? 2.8 : 2.0) : 2.6;
   state.velocity.x = damp(state.velocity.x, desiredVx, response, dt);
   state.velocity.z = damp(state.velocity.z, desiredVz, response, dt);
 
@@ -564,7 +621,7 @@ function stepHelicopter(
 
   if (state.position.y < groundY) {
     const slam = -state.velocity.y;
-    if (slam > 14) {
+    if (slam > 18) {
       state.crashImpact = Math.max(state.crashImpact, slam);
       state.crashNormal.set(0, 1, 0);
     }
@@ -586,22 +643,19 @@ function stepHelicopter(
   resolveHorizontalWalls(def, state, physics, world, dt, ownHandle);
 
   const vFwd = state.velocity.x * fx + state.velocity.z * fz;
-  const vRight = state.velocity.x * rx + state.velocity.z * rz;
+  const vLeft = state.velocity.x * lx + state.velocity.z * lz;
   const airBlend = clamp(state.altitude / 2.2, 0, 1);
+  // Moving forward pitches nose down (+pitch); moving right (vLeft < 0) banks right (+roll).
   const targetPitch = clamp((vFwd / def.maxSpeed) * 0.28, -0.32, 0.34) * airBlend;
-  const targetRoll = clamp((-vRight / def.maxSpeed) * 0.36, -0.44, 0.44) * airBlend;
+  const targetRoll = clamp((-vLeft / def.maxSpeed) * 0.36, -0.44, 0.44) * airBlend;
   state.pitch = damp(state.pitch, targetPitch, 5.5, dt);
   state.roll = damp(state.roll, targetRoll, 5.5, dt);
 }
 
 /**
- * Dual-mode VTOL/STOL Jump-Jet & Ground-Attack Jet physics (Harrier & A-10 Warthog).
- *   - VTOL mode (`state.vtolMode === true`): effortless vertical takeoff/hover/landing like a thrust-vectored
- *     Harrier, plus pressing `W` + `Shift` aloft automatically kicks you forward if you want, or press `[Q]` to
- *     swap cleanly between VTOL Hover and full Mach Fighter Jet flight!
- *   - JET mode (`state.vtolMode === false`): exhilarating forward jet flight! Nose follows pilot mouse pitch/yaw,
- *     `A/D` rolls & carves sweeping dogfight banks, `W/S` modulates throttle (with safe minimum stall floor),
- *     and `Shift` ignites afterburner!
+ * Unified Dual-Mode VTOL/STOL Jump-Jet & Ground-Attack Jet physics (Harrier & A-10 Warthog).
+ * Single controller for pitch, yaw, and roll (ZERO dual-mutation stutter!), correct right-hand bank sign,
+ * and realistic abandoned nose-dive crashes if the pilot bails mid-flight!
  */
 function stepJet(
   def: DriveVehicleDef,
@@ -610,24 +664,54 @@ function stepJet(
   dt: number,
   fx: number,
   fz: number,
-  rx: number,
-  rz: number,
+  lx: number,
+  lz: number,
   world: WorldSystem | undefined,
   physics: PhysicsSystem | undefined,
-  occupied: boolean,
+  driveActive: boolean,
+  hasOccupant: boolean,
   ownHandle?: number,
 ): void {
   const groundY = sampleGround(world, physics, state.position.x, state.position.y, state.position.z, state.groundY, ownHandle);
   state.groundY = groundY;
   state.altitude = Math.max(0, state.position.y - groundY);
 
-  if (!occupied) {
-    // Unmanned jet descends gently in VTOL mode and parks cleanly on its landing gear.
+  if (!hasOccupant) {
+    const horizSpd = Math.hypot(state.velocity.x, state.velocity.z);
+    // If bailed out in mid-air or at flight speed, jet drops out of the sky nose-down and explodes on impact!
+    if (state.altitude > 3.5 || !state.vtolMode || horizSpd > 12 || state.abandonedFall) {
+      state.abandonedFall = true;
+      state.vtolMode = false;
+      state.airThrottle = damp(state.airThrottle, 0.15, 1.5, dt);
+      state.velocity.y -= GRAVITY * 0.85 * dt;
+      state.velocity.x = damp(state.velocity.x, 0, 0.18, dt);
+      state.velocity.z = damp(state.velocity.z, 0, 0.18, dt);
+      state.position.addScaledVector(state.velocity, dt);
+      const divePitch = clamp(-Math.atan2(state.velocity.y, Math.max(8, Math.hypot(state.velocity.x, state.velocity.z))), -0.4, 1.1);
+      state.pitch = damp(state.pitch, divePitch, 3.2, dt);
+      state.roll = damp(state.roll, 0.65, 1.8, dt);
+      state.yaw += 0.45 * dt;
+      if (state.position.y <= groundY) {
+        const impact = Math.max(34, state.velocity.length() * 1.25);
+        state.crashImpact = Math.max(state.crashImpact, impact);
+        state.crashNormal.set(0, 1, 0);
+        state.position.y = groundY;
+        state.velocity.set(0, 0, 0);
+        state.grounded = true;
+        // Keep abandonedFall latched so stepCrashAndRam() detonates the crashed jet on this frame!
+      } else {
+        state.grounded = false;
+      }
+      state.altitude = Math.max(0, state.position.y - groundY);
+      resolveHorizontalWalls(def, state, physics, world, dt, ownHandle);
+      return;
+    }
+    // Parked / exited gently on the tarmac: stay cleanly settled on gear.
     state.vtolMode = true;
     state.airThrottle = damp(state.airThrottle, 0, 3, dt);
-    state.velocity.x = damp(state.velocity.x, 0, 2.8, dt);
-    state.velocity.z = damp(state.velocity.z, 0, 2.8, dt);
-    state.velocity.y = state.altitude > 0.15 ? damp(state.velocity.y, -7.5, 3, dt) : 0;
+    state.velocity.x = damp(state.velocity.x, 0, 3.2, dt);
+    state.velocity.z = damp(state.velocity.z, 0, 3.2, dt);
+    state.velocity.y = state.altitude > 0.08 ? damp(state.velocity.y, -4.5, 4, dt) : 0;
     state.position.addScaledVector(state.velocity, dt);
     if (state.position.y <= groundY) {
       state.position.y = groundY;
@@ -642,45 +726,71 @@ function stepJet(
     return;
   }
 
-  const throttle = clamp(input.throttle, -1, 1);
-  const steer = clamp(input.steer, -1, 1);
-  const climb = clamp(input.climb, -1, 1);
+  state.abandonedFall = false;
+  state.fallSpin = 0;
+
+  const throttle = driveActive ? clamp(input.throttle, -1, 1) : 0;
+  const steer = driveActive ? clamp(input.steer, -1, 1) : 0;
+  const climb = driveActive ? clamp(input.climb, -1, 1) : 0;
 
   if (state.vtolMode) {
     // VTOL / STOL hover mode: vertical lift on Space, descend on Ctrl, agile hover cruise on WASD!
+    if (driveActive && typeof input.targetAimYaw === 'number') {
+      state.yaw = dampAngle(state.yaw, input.targetAimYaw, 4.5, dt);
+    }
     const vtolMax = def.maxSpeed * 0.42;
     const targetVy = climb * def.climbRate;
     state.velocity.y = damp(state.velocity.y, targetVy, 5.2, dt);
 
-    const desiredVx = (fx * throttle + rx * -steer) * vtolMax;
-    const desiredVz = (fz * throttle + rz * -steer) * vtolMax;
+    const nfx = Math.sin(state.yaw);
+    const nfz = Math.cos(state.yaw);
+    const nlx = Math.cos(state.yaw);
+    const nlz = -Math.sin(state.yaw);
+
+    const desiredVx = (nfx * throttle + nlx * -steer) * vtolMax;
+    const desiredVz = (nfz * throttle + nlz * -steer) * vtolMax;
     state.velocity.x = damp(state.velocity.x, desiredVx, 2.8, dt);
     state.velocity.z = damp(state.velocity.z, desiredVz, 2.8, dt);
     state.airThrottle = damp(state.airThrottle, Math.max(0.2, Math.abs(throttle) * 0.55), 4, dt);
 
     state.position.addScaledVector(state.velocity, dt);
-    const vFwd = state.velocity.x * fx + state.velocity.z * fz;
-    const vRight = state.velocity.x * rx + state.velocity.z * rz;
+    const vFwd = state.velocity.x * nfx + state.velocity.z * nfz;
+    const vLeft = state.velocity.x * nlx + state.velocity.z * nlz;
     const airBlend = clamp(state.altitude / 2.2, 0, 1);
     state.pitch = damp(state.pitch, clamp((vFwd / vtolMax) * 0.18, -0.22, 0.22) * airBlend, 6, dt);
-    state.roll = damp(state.roll, clamp((-vRight / vtolMax) * 0.34, -0.4, 0.4) * airBlend, 6, dt);
+    // Strafe right (vLeft < 0) => positive roll (banking right!).
+    state.roll = damp(state.roll, clamp((-vLeft / vtolMax) * 0.34, -0.4, 0.4) * airBlend, 6, dt);
   } else {
-    // FORWARD JET FLIGHT MODE!
-    // Throttle adjusts between safe cruise (0.42) and full military power (1.0), plus Afterburner on Shift!
+    // UNIFIED SMOOTH FORWARD JET FLIGHT MODE (single pitch/yaw/roll controller -> ZERO stutter!).
     const targetThrottle = state.boosting
       ? 1.0
-      : clamp(state.airThrottle + throttle * 0.85 * dt, 0.42, 1.0);
+      : clamp(state.airThrottle + throttle * 0.85 * dt, 0.45, 1.0);
     state.airThrottle = damp(state.airThrottle, targetThrottle, 5, dt);
 
-    // Steering bank + aerodynamic turn rate!
-    const targetRoll = clamp(-steer * 0.92 - state.yawRate * 0.36, -1.12, 1.12);
-    state.roll = damp(state.roll, targetRoll, 5.8, dt);
-    const bankYaw = -steer * def.turnRate * 0.85;
-    state.yawRate = damp(state.yawRate, bankYaw, 6, dt);
+    // Combine mouse aim heading + A/D keyboard banking smoothly in one place!
+    let yawDiff = 0;
+    if (driveActive && typeof input.targetAimYaw === 'number') {
+      let d = input.targetAimYaw - state.yaw;
+      while (d > Math.PI) d -= Math.PI * 2;
+      while (d < -Math.PI) d += Math.PI * 2;
+      yawDiff = d;
+    }
+    const desiredYawRate = clamp(yawDiff * 2.1 - steer * def.turnRate * 0.82, -def.turnRate * 1.15, def.turnRate * 1.15);
+    state.yawRate = damp(state.yawRate, desiredYawRate, 6.5, dt);
     state.yaw += state.yawRate * dt;
 
-    // Nose vector from (yaw, pitch) where pitch < 0 = nose UP in Three.js (+Z forward, rotation.x < 0 lifts +Z!).
-    const nosePitch = -state.pitch; // +angle = climbing up
+    // Smooth pitch tracking toward pilot aim (pitch < 0 = nose UP in Three.js!).
+    if (driveActive && typeof input.targetAimPitch === 'number') {
+      const desiredPitch = clamp(-input.targetAimPitch, -0.92, 0.92);
+      state.pitch = damp(state.pitch, desiredPitch, 5.2, dt);
+    }
+
+    // FIXED BANK SIGN (+Z nose, +Y up, +X left): turning RIGHT (yawRate < 0, steer > 0) => POSITIVE roll (right wing drops)!
+    const bankCmd = clamp((-state.yawRate / Math.max(1, def.turnRate)) * 0.82 + steer * 0.32, -1.05, 1.05);
+    state.roll = damp(state.roll, bankCmd, 5.4, dt);
+
+    // Nose vector from (yaw, pitch).
+    const nosePitch = -state.pitch;
     const cp = Math.cos(nosePitch);
     const dirX = Math.sin(state.yaw) * cp;
     const dirY = Math.sin(nosePitch);
@@ -693,19 +803,19 @@ function stepJet(
     const desiredVy = dirY * targetSpeed + climb * 10;
     const desiredVz = dirZ * targetSpeed;
 
-    state.velocity.x = damp(state.velocity.x, desiredVx, 3.8, dt);
-    state.velocity.y = damp(state.velocity.y, desiredVy, 3.8, dt);
-    state.velocity.z = damp(state.velocity.z, desiredVz, 3.8, dt);
+    state.velocity.x = damp(state.velocity.x, desiredVx, 4.2, dt);
+    state.velocity.y = damp(state.velocity.y, desiredVy, 4.2, dt);
+    state.velocity.z = damp(state.velocity.z, desiredVz, 4.2, dt);
 
     state.position.addScaledVector(state.velocity, dt);
   }
 
-  // Floor & sky ceiling checks (with high-speed kamikaze crash detection!).
+  // Floor & sky ceiling checks (with high-speed crash detection!).
   if (state.position.y < groundY) {
     const downSpeed = -state.velocity.y;
     const fwdSpeed = Math.hypot(state.velocity.x, state.velocity.z);
-    if (!state.vtolMode && (downSpeed > 14 || (state.pitch > 0.25 && fwdSpeed > 28))) {
-      state.crashImpact = Math.max(state.crashImpact, Math.hypot(fwdSpeed * 0.75, downSpeed));
+    if (!state.vtolMode && (downSpeed > 18 || (state.pitch > 0.32 && fwdSpeed > 34))) {
+      state.crashImpact = Math.max(state.crashImpact, Math.hypot(fwdSpeed * 0.72, downSpeed));
       state.crashNormal.set(0, 1, 0);
     }
     state.position.y = groundY;

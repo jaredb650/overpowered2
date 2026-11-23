@@ -157,7 +157,7 @@ export class EnemyDoorGunner extends Vehicle {
     const limitZ = Math.max(12, Math.min(bounds.max.z, -bounds.min.z) - orbit.radius * 0.4);
 
     // Drift focus gently toward the player so the orbit stays over the active rooftop fight.
-    if (quarry.alive && !quarry.parked) {
+    if (quarry.alive && (!quarry.parked || quarry.interceptor !== null)) {
       this.focus.x = damp(this.focus.x, clamp(quarry.position.x, -limitX, limitX), 0.35, dt);
       this.focus.z = damp(this.focus.z, clamp(quarry.position.z, -limitZ, limitZ), 0.35, dt);
       this.focus.y = damp(this.focus.y, quarry.position.y, 0.5, dt);
@@ -202,7 +202,8 @@ export class EnemyDoorGunner extends Vehicle {
     const player = this.sys.quarry(_pivot);
     _aim.copy(player.position);
     _aim.y += 1.0;
-    this.sees = player.alive && !player.parked && _pivot.distanceTo(_aim) < DOOR_GUNNER.gun.range * 1.25 && this.sys.lineClear(_pivot, _aim);
+    const targetable = player.alive && (!player.parked || player.interceptor !== null);
+    this.sees = targetable && _pivot.distanceTo(_aim) < DOOR_GUNNER.gun.range * 1.25 && this.sys.lineClear(_pivot, _aim);
     if (!this.sees) return;
     this.lastSeen.copy(_aim);
     this.seenAt = this.sys.now;

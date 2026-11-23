@@ -220,7 +220,7 @@ export class VehicleSystem implements VehicleTargets {
     });
   }
 
-  /** Who a machine at `from` looks for: the player. In co-op, whichever living player on foot is nearest it. */
+  /** Who a machine at `from` looks for: the player (on foot or in a driveable vehicle/mech). */
   quarry(from: THREE.Vector3): PlayerSystem {
     const everyone = this.ctx.coop?.world?.hostPlayers();
     let best = this.ctx.player;
@@ -228,7 +228,7 @@ export class VehicleSystem implements VehicleTargets {
     let nearest = Infinity;
     for (let i = 0; i < everyone.length; i++) {
       const p = everyone[i]!;
-      if (!p.alive || p.parked) continue;
+      if (!p.alive || (p.parked && p.interceptor === null)) continue;
       const d = p.position.distanceToSquared(from);
       if (d < nearest) { nearest = d; best = p; }
     }
@@ -627,9 +627,11 @@ export class VehicleSystem implements VehicleTargets {
     const healthFraction = Math.max(0.35, Math.min(1, v.health / Math.max(1, v.def.health)));
 
     this.unflag(v);
+    // CRITICAL: call v.remove() BEFORE setting v.retired = true, because every Vehicle.remove()
+    // early-returns when `this.retired` is already true (preventing ghost meshes/colliders/audio!).
+    v.remove();
     v.alive = false;
     v.retired = true;
-    v.remove();
     this.live.splice(idx, 1);
     if (this.chopper === v) this.chopper = null;
     if (v.tag !== null) this.ctx.campaign.unitGone(v.tag, true, 'hijack');
@@ -662,7 +664,7 @@ export class VehicleSystem implements VehicleTargets {
     return pushed;
   }
 
-  /** Resolves a high-speed collision / kamikaze ram between a player-driven vehicle and any live enemy vehicle. */
+  /** Resolves a high-speed collision / ram between a player-driven vehicle and any live enemy vehicle. */
   vehicleRam(
     center: THREE.Vector3,
     radius: number,
@@ -671,24 +673,24 @@ export class VehicleSystem implements VehicleTargets {
     source: string,
   ): { hit: boolean; armored: boolean; killed: boolean; point: THREE.Vector3 } | null {
     const speed = velocity.length();
-    if (speed < 7.5) return null;
+    if (speed < 6.5) return null;
     for (let i = this.live.length - 1; i >= 0; i--) {
       const v = this.live[i]!;
       if (!v.alive || v.retired) continue;
       v.nearest(center, _near);
-      if (_near.distance > radius + 1.2) continue;
-      // Kinetic impact damage scales with mass * speed^1.35 so fast/heavy rams smash trucks & damage tanks!
-      const kinetic = mass * Math.pow(speed, 1.35) * 0.65;
-      const dmg = v.def.armoured ? kinetic * 0.72 : kinetic * 1.45;
+      if (_near.distance > radius + 1.35) continue;
+      // Kinetic impact heavily favors the player: high-speed & heavy rams smash enemy trucks/humvees and dent tanks!
+      const kinetic = mass * Math.pow(speed, 1.38) * 1.15;
+      const dmg = Math.max(95, v.def.armoured ? kinetic * 0.95 : kinetic * 2.15);
       const beforeWrecks = this.wrecks.length;
       const hitPt = v.position.clone();
       v.take(dmg, _near.part, source, hitPt);
       const killed = !v.alive;
       if (killed && this.wrecks.length > beforeWrecks) {
         const w = this.wrecks[this.wrecks.length - 1]!;
-        w.shove(_a.set(velocity.x * 0.7, 0, velocity.z * 0.7), Math.min(6, speed * 0.18), rand(-2.5, 2.5));
-      } else if (v instanceof GroundVehicle && v.alive && dmg > 120) {
-        v.stagger(0.8);
+        w.shove(_a.set(velocity.x * 0.85, 0, velocity.z * 0.85), Math.min(7.5, speed * 0.22), rand(-3.0, 3.0));
+      } else if (v instanceof GroundVehicle && v.alive && dmg > 90) {
+        v.stagger(1.1);
       }
       return { hit: true, armored: v.def.armoured, killed, point: hitPt };
     }

@@ -1025,12 +1025,14 @@ export class Combat implements CombatSystem {
 
     const player = c.player;
     if (player.alive) {
-      const eye = player.eye;
-      const hit = closestSegmentPoints(st.origin, st.end, player.position, eye);
-      if (hit.dist2 < PLAYER_RADIUS * PLAYER_RADIUS) {
+      const inVehicle = player.parked && player.interceptor !== null;
+      const top = inVehicle ? this.vB.set(player.position.x, player.position.y + 2.6, player.position.z) : player.eye;
+      const hitRadius = inVehicle ? 2.15 : PLAYER_RADIUS;
+      const hit = closestSegmentPoints(st.origin, st.end, player.position, top);
+      if (hit.dist2 < hitRadius * hitRadius) {
         st.end.copy(st.origin).addScaledVector(st.dir, limit * hit.s);
         r.hitEnemy = true;
-        const guard = this.guard(st.dir, spec.damage, { armorPiercing: spec.armorPiercing });
+        const guard = inVehicle ? 'none' : this.guard(st.dir, spec.damage, { armorPiercing: spec.armorPiercing });
         if (spec.tracer) c.fx.tracer(st.from, st.end, spec.tracer);
         if (guard !== 'none') {
           this.deflected(st.end, st.dir, spec.damage, guard);
@@ -1048,6 +1050,53 @@ export class Combat implements CombatSystem {
       c.fx.impact(wall.point, wall.normal, wall.surface, 0.7);
       this.play(SURFACE_SOUND[wall.surface], wall.point, 0.7, 0.08);
       c.world.objects?.damageExplosive(wall.collider, spec.damage, spec.source);
+    }
+  }
+
+  /**
+   * BLU-27 Napalm bomb detonation: lays an elongated carpet of persistent burning napalm patches
+   * along the drop direction, showers fiery splashes, and ignites every enemy caught in the inferno.
+   */
+  napalmBurst(center: THREE.Vector3, velocity: THREE.Vector3, source: string, radius: number, cosmetic = false): void {
+    const c = this.ctx;
+    const fx = c.fx;
+    const fxDir = this.vA.set(velocity.x, 0, velocity.z);
+    if (fxDir.lengthSq() > 0.25) fxDir.normalize();
+    else fxDir.set(0, 0, 1);
+    const sideX = -fxDir.z;
+    const sideZ = fxDir.x;
+
+    const stripLen = Math.max(10, radius * 1.15);
+    const stripWid = Math.max(4.5, radius * 0.48);
+    const pt = this.vB;
+    const puff = this.vC;
+    const patches = 10;
+    for (let i = 0; i < patches; i++) {
+      const frac = i / (patches - 1);
+      const along = (frac - 0.32) * stripLen * 1.45;
+      const across = ((i % 2 === 0 ? 1 : -1) * (0.28 + (i % 3) * 0.24) + rand(-0.18, 0.18)) * stripWid;
+      const px = center.x + fxDir.x * along + sideX * across;
+      const pz = center.z + fxDir.z * along + sideZ * across;
+      const navY = c.world?.nav?.groundHeight?.(px, center.y + 4, pz);
+      const py = typeof navY === 'number' && Number.isFinite(navY) ? navY + 0.06 : center.y;
+      pt.set(px, py, pz);
+      const patch = this.flames.feed(pt, UP, source, cosmetic);
+      patch.radius = Math.max(patch.radius, 3.6);
+      fx.napalmSplash?.(pt, UP);
+      puff.set(rand(-0.5, 0.5), 1, rand(-0.5, 0.5)).normalize();
+      fx.flame?.(pt, puff, 6);
+    }
+
+    c.audio.play('flame_ignite', { position: center, volume: 0.96, pitch: 0.72 });
+    c.audio.play('flame_splash', { position: center, volume: 0.9, pitch: 0.78 });
+
+    if (!cosmetic) {
+      const burnReach = Math.max(radius, 12);
+      const n = c.enemies.query(center, burnReach, this.blastList) || 0;
+      for (let i = 0; i < n; i++) {
+        const e = this.blastList[i]!;
+        if (e.alive) c.enemies.afflict(e, 'burn', 9);
+      }
     }
   }
 

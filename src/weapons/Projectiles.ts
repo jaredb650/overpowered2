@@ -158,6 +158,8 @@ export interface Projectile {
   wp: boolean;
   /** Howitzer cluster shell: bursts ~7 m short of targets/walls into an 18-bomblet carpet (cluster.ts). */
   cluster: boolean;
+  /** BLU-27 incendiary napalm bomb: spreads a burning napalm carpet on detonation. */
+  napalm: boolean;
   /**
    * Co-op: a copy of a projectile another browser owns: an enemy's on a guest, or a friend's round (ProjectileSpec.cosmetic).
    * It flies, trails, sticks, beeps and bursts here as the real one does there, stepped under `Combat.watching`, and hurts
@@ -188,7 +190,7 @@ function createProjectile(): Projectile {
     blastSelf: undefined, blastPush: undefined, pinned: false, lastHit: -1,
     budget: makeBudget(), baseDamage: 0, armorPiercing: false,
     target: null, turnRate: 0, line: new THREE.Vector3(), steerDelay: 0, weave: 0, weavePhase: 0, accel: 0, topSpeed: 0, age: 0, size: 1, wired: false,
-    blastScale: undefined, blastShake: undefined, flak: false, wp: false, cluster: false, cosmetic: false, netId: 0, laser: ROCKET_LASER, tag: 0, ghost: false, blastMirrored: false,
+    blastScale: undefined, blastShake: undefined, flak: false, wp: false, cluster: false, napalm: false, cosmetic: false, netId: 0, laser: ROCKET_LASER, tag: 0, ghost: false, blastMirrored: false,
     initialFuse: 0, thrownBack: false,
     helix: null, helixData: { phase: 0, reach: 0, radius: 0, pitch: 0, startRadius: 0, convergence: 0 }, helixTravel: 0, helixRight: new THREE.Vector3(), helixUp: new THREE.Vector3(), helixOffset: new THREE.Vector3(),
   };
@@ -346,6 +348,7 @@ export class Projectiles {
     p.flak = spec.flak ?? false;
     p.wp = spec.wp ?? false;
     p.cluster = spec.cluster ?? false;
+    p.napalm = spec.napalm ?? false;
     p.cosmetic = spec.cosmetic ?? false;
     p.netId = netId;
     p.laser = spec.laser ?? ROCKET_LASER;
@@ -392,6 +395,7 @@ export class Projectiles {
     p.sticky = false;
     p.wp = false;
     p.cluster = false;
+    p.napalm = false;
     p.laser = ROCKET_LASER;
     const last = this.live.pop()!;
     if (index < this.live.length) this.live[index] = last;
@@ -826,15 +830,18 @@ export class Projectiles {
       return true;
     }
     if (!player.alive) return false;
-    const hit = closestSegmentPoints(p.position, end, player.position, player.eye);
-    if (hit.dist2 < PLAYER_RADIUS * PLAYER_RADIUS) {
+    const inVehicle = player.parked && player.interceptor !== null;
+    const top = inVehicle ? this.want.set(player.position.x, player.position.y + 2.6, player.position.z) : player.eye;
+    const hitRadius = inVehicle ? 2.15 : PLAYER_RADIUS;
+    const hit = closestSegmentPoints(p.position, end, player.position, top);
+    if (hit.dist2 < hitRadius * hitRadius) {
       p.position.lerp(end, hit.s);
       // A copy stops here and no more: whether it hurt is the host's to say (`hurt`).
       if (p.cosmetic) {
         p.live = false;
         return true;
       }
-      const guard = this.combat.guard(dir, p.damage, { armorPiercing: p.armorPiercing, explosive: p.explosive });
+      const guard = inVehicle ? 'none' : this.combat.guard(dir, p.damage, { armorPiercing: p.armorPiercing, explosive: p.explosive });
       if (guard !== 'none') {
         this.combat.deflected(p.position, dir, p.damage, guard);
         p.live = false;
@@ -1124,8 +1131,8 @@ export class Projectiles {
   explode(p: Projectile, normal: THREE.Vector3 | undefined): void {
     // Co-op: the others' copy of this round ends here and now, wherever it has got to on their screens.
     if (p.tag !== 0 && !p.cosmetic) this.ctx.coop?.world?.landed(p.tag, p.position);
-    // A friend's flak, cluster or WP round bursts for the eye and the ear (stepped under `Combat.watching`).
-    if (p.cosmetic && !p.flak && !p.cluster && !p.wp) return;
+    // A friend's flak, cluster, WP or napalm round bursts for the eye and the ear (stepped under `Combat.watching`).
+    if (p.cosmetic && !p.flak && !p.cluster && !p.wp && !p.napalm) return;
     if (p.flak) {
       flakBurst(this.ctx, this.combat, p.position, this.v.copy(p.velocity).normalize(), p.source);
       return;
@@ -1136,6 +1143,10 @@ export class Projectiles {
     }
     if (p.wp) {
       this.wp.spawn(p.position, `${p.source}_wp`, p.cosmetic);
+      if (p.cosmetic) return;
+    }
+    if (p.napalm) {
+      this.combat.napalmBurst(p.position, p.velocity, `${p.source}_napalm`, Math.max(12, p.blastRadius), p.cosmetic);
       if (p.cosmetic) return;
     }
     const b = this.blastSpec;

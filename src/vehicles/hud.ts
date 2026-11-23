@@ -43,6 +43,7 @@ const VEHICLE_RETICLES: Readonly<Record<HudViewMode, string>> = {
   standard: RETICLES.vehicle,
   emplacement: `<svg class="gn-ret" viewBox="-100 -100 200 200" aria-hidden="true"><circle r="18"/><path d="M-34 0h-10M34 0h10M0 24v12"/><rect x="-1.6" y="-1.6" width="3.2" height="3.2"/></svg>`,
   thermal: RETICLES.thermal,
+  chopper: `<svg class="gn-ret" viewBox="-100 -100 200 200" aria-hidden="true"><path d="M-76-52v-16h16M76-52v-16h-16M-76 52v16h16M76 52v16h-16M-54 0h34M20 0h34M0-46v28M0 18v32M-12 24h24M-8 38h16"/><circle r="10"/><rect x="-1.6" y="-1.6" width="3.2" height="3.2"/></svg>`,
   tank: `<svg class="gn-ret" viewBox="-100 -100 200 200" aria-hidden="true"><path d="M-86 0h66M20 0h66M0-60v44M0 14v72M-16 28h32M-11 46h22M-7 64h14M-62-44v-16h16M62-44v-16h-16M-62 44v16h16M62 44v16h-16"/><polygon points="0,-6 6,6 -6,6"/></svg>`,
   aa: `<svg class="gn-ret" viewBox="-100 -100 200 200" aria-hidden="true"><circle r="48" stroke-dasharray="8 6"/><circle r="20"/><path d="M-68 0h16M52 0h16M0-68v16M0 52v16"/><rect x="-1.8" y="-1.8" width="3.6" height="3.6"/></svg>`,
   mortar: `<svg class="gn-ret" viewBox="-100 -100 200 200" aria-hidden="true"><path d="M-64 0h44M20 0h44M0-72v52M0 20v56M-26-36a44 44 0 0 1 52 0M-38-18h14M24-18h14M-20 34h40M-12 52h24"/><circle r="6"/></svg>`,
@@ -202,6 +203,10 @@ export class GunnerHud implements SeatPanel {
   private readonly jetModeBadge: Label;
   private readonly ccipEl: HTMLElement;
   private readonly ccipShown: Shown;
+  private readonly ccipLabel: Label;
+  private readonly ccipNapalm: Flag;
+  private readonly gunPipEl: HTMLElement;
+  private readonly gunPipShown: Shown;
   private readonly lockEl: HTMLElement;
   private readonly lockShown: Shown;
   private readonly lockLabel: Label;
@@ -246,11 +251,13 @@ export class GunnerHud implements SeatPanel {
       tags.append(pip.el);
     }
 
-    // Fighter Jet CCIP Bomb Impact Reticle & Lock-On Target Diamond (projected in screen space).
-    this.ccipEl = div('gn-ccip', span('gn-ccip-lbl', 'CCIP'));
+    // Fighter Jet CCIP Bomb Impact Reticle, Boresight Gun-Tracking Pipper & Lock-On Target Diamond (projected in screen space).
+    const ccipLbl = span('gn-ccip-lbl', 'CCIP HE');
+    this.ccipEl = div('gn-ccip', ccipLbl);
+    this.gunPipEl = div('gn-gunpip', span('gn-gunpip-lbl', 'GUN'));
     const lockLbl = span('gn-lock-lbl');
     this.lockEl = div('gn-lock', lockLbl);
-    tags.append(this.ccipEl, this.lockEl);
+    tags.append(this.ccipEl, this.gunPipEl, this.lockEl);
 
     for (let i = 0; i < MAX_WEAPONS; i++) this.rows.push(new WeaponRow());
 
@@ -396,6 +403,9 @@ export class GunnerHud implements SeatPanel {
     this.jetAltVal = new Num(jetAltNum);
     this.jetModeBadge = new Label(jetModeEl);
     this.ccipShown = new Shown(this.ccipEl, 'block');
+    this.ccipLabel = new Label(ccipLbl);
+    this.ccipNapalm = new Flag(this.ccipEl, 'napalm');
+    this.gunPipShown = new Shown(this.gunPipEl, 'block');
     this.lockShown = new Shown(this.lockEl, 'block');
     this.lockLabel = new Label(lockLbl);
 
@@ -407,6 +417,7 @@ export class GunnerHud implements SeatPanel {
     this.mslWarn.set(false);
     this.jetBox.set(false);
     this.ccipShown.set(false);
+    this.gunPipShown.set(false);
     this.lockShown.set(false);
     addEventListener('resize', this.measure);
   }
@@ -496,6 +507,7 @@ export class GunnerHud implements SeatPanel {
       this.mslWarn.set(false);
       this.jetBox.set(false);
       this.ccipShown.set(false);
+      this.gunPipShown.set(false);
       this.lockShown.set(false);
       for (const pip of this.leads) pip.hide();
       if (this.vMode !== null) {
@@ -540,18 +552,33 @@ export class GunnerHud implements SeatPanel {
       this.jetModeBadge.set(v.vtolMode ? 'VTOL HOVER' : 'MACH JET');
     }
 
-    // Projected 3D tactical reticles (CCIP Bomb Ground Impact Point, Missile Lock Diamond, AA Lead Pips).
+    // Projected 3D tactical reticles (CCIP Bomb Ground Impact Point, Gun-Tracking Pipper, Missile Lock Diamond, AA Lead Pips).
     const camera = this.ctx.render.camera;
     if (v.ccipWorld) {
       _p.set(v.ccipWorld[0], v.ccipWorld[1], v.ccipWorld[2]).project(camera);
       if (_p.z <= 1 && Math.abs(_p.x) <= 1.05 && Math.abs(_p.y) <= 1.05) {
         this.ccipShown.set(true);
+        const lbl = v.ccipLabel || 'CCIP HE';
+        this.ccipLabel.set(lbl);
+        this.ccipNapalm.set(lbl.includes('NAPALM'));
         this.ccipEl.style.transform = `translate3d(${Math.round((_p.x * 0.5 + 0.5) * this.width)}px,${Math.round((0.5 - _p.y * 0.5) * this.height)}px,0)`;
       } else {
         this.ccipShown.set(false);
       }
     } else {
       this.ccipShown.set(false);
+    }
+
+    if (v.gunPipWorld) {
+      _p.set(v.gunPipWorld[0], v.gunPipWorld[1], v.gunPipWorld[2]).project(camera);
+      if (_p.z <= 1 && Math.abs(_p.x) <= 1.05 && Math.abs(_p.y) <= 1.05) {
+        this.gunPipShown.set(true);
+        this.gunPipEl.style.transform = `translate3d(${Math.round((_p.x * 0.5 + 0.5) * this.width)}px,${Math.round((0.5 - _p.y * 0.5) * this.height)}px,0)`;
+      } else {
+        this.gunPipShown.set(false);
+      }
+    } else {
+      this.gunPipShown.set(false);
     }
 
     if (v.lockWorld) {

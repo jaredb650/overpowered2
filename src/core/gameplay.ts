@@ -594,6 +594,8 @@ export interface ProjectileSpec {
   tag?: number;
   /** Milkor MGL sticky bomb: adheres to world geometry or struck enemies and awaits manual/swap detonation. */
   sticky?: boolean;
+  /** Incendiary BLU-27 napalm warhead: spreads a wide carpet of persistent burning napalm patches on impact. */
+  napalm?: boolean;
 }
 
 export interface CombatSystem extends GameSystem {

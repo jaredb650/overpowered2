@@ -296,7 +296,8 @@ export class GroundVehicle extends Vehicle {
     _aim.copy(player.position);
     _aim.y += 1.1;
     const range = this.def.cannon?.range ?? this.def.mount.range;
-    this.sees = player.alive && !player.parked && !this.order.parked && _pivot.distanceTo(_aim) < range && this.sys.lineClear(_pivot, _aim);
+    const targetable = player.alive && (!player.parked || player.interceptor !== null);
+    this.sees = targetable && !this.order.parked && _pivot.distanceTo(_aim) < range && this.sys.lineClear(_pivot, _aim);
     if (!this.sees) return;
     this.lastSeen.copy(_aim);
     this.seenAt = now;

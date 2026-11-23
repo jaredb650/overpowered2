@@ -31,6 +31,8 @@ export interface VehicleModelRig {
   readonly resupplyRing: THREE.Mesh | null;
   readonly muzzles: Readonly<Record<'main' | 'coax' | 'podLeft' | 'podRight' | 'roof' | 'front' | 'rear', THREE.Object3D>>;
   readonly meshes: THREE.Object3D[];
+  /** Base Y offset of `body` relative to `root` (preserved during hover/bob sync). */
+  readonly bodyBaseY?: number;
   /** Exterior canopy/turret parts hidden while in 1P so the camera never clips into vehicle geometry. */
   readonly fpHideParts?: THREE.Object3D[];
   /** Downward VTOL thruster cones visible when hovering in VTOL mode (Harrier / Warthog). */
@@ -124,22 +126,14 @@ function buildJackal(materials: ModelMaterials): VehicleModelRig {
     // Twin forward hood bumper MGs.
     b.cyl(0.045, 0.055, 0.95, 8, STEEL, { at: [s * 0.54, 1.28, 2.28], rot: ALONG_Z });
   }
-  // Open-air armored cockpit tub, raked windshield & bucket seats.
+  // Open-air armored cockpit tub & side step bars.
   b.box(1.96, 0.56, 1.45, SAND_LIGHT, { at: [0, 1.12, -0.05] });
-  b.box(1.78, 0.42, 0.08, GLASS, { at: [0, 1.66, 0.68], rot: [-0.42, 0, 0] });
   for (const s of [-1, 1]) {
-    // Tubular chrome desert roll-cage pillars & roof rails.
-    b.cyl(0.055, 0.055, 1.05, 8, CHROME, { at: [s * 0.92, 1.72, 0.45], rot: [-0.38, 0, 0] });
+    // Rear roll-cage struts & side step bars (front windshield & top bars live in fpHideGroup for crisp 1P sight).
     b.cyl(0.055, 0.055, 1.05, 8, CHROME, { at: [s * 0.92, 1.74, -0.78], rot: [0.18, 0, 0] });
-    b.cyl(0.055, 0.055, 1.38, 8, CHROME, { at: [s * 0.92, 2.16, -0.18], rot: ALONG_Z });
     b.cyl(0.05, 0.05, 1.72, 8, CHROME, { at: [s * 0.86, 1.82, -1.52], rot: [0.76, 0, 0] });
-    // Side step bars & fuel cans.
     b.box(0.18, 0.07, 1.75, STEEL, { at: [s * 1.1, 0.66, 0.05] });
   }
-  // Roof crossbars + glowing amber desert lightbar.
-  b.cyl(0.055, 0.055, 1.84, 8, CHROME, { at: [0, 2.16, 0.46], rot: ALONG_X });
-  b.cyl(0.055, 0.055, 1.84, 8, CHROME, { at: [0, 2.16, -0.82], rot: ALONG_X });
-  b.glow(new THREE.BoxGeometry(1.36, 0.09, 0.1), '#ffbe3b', 3.4, { at: [0, 2.24, 0.46] });
   // Rear truck bed + angled spare desert tire + twin nitro exhaust pipes.
   b.box(1.94, 0.56, 1.75, SAND, { at: [0, 1.12, -1.65] });
   b.box(1.72, 0.14, 1.56, GUNMETAL, { at: [0, 0.94, -1.62] });
@@ -151,6 +145,19 @@ function buildJackal(materials: ModelMaterials): VehicleModelRig {
   // Turret ring mount on rear deck.
   b.solid(new THREE.TorusGeometry(0.56, 0.07, 8, 18), GUNMETAL, { at: [0, 2.18, -0.78], rot: [Math.PI / 2, 0, 0] });
   body.add(materials.group(b));
+
+  // Front windshield, A-pillars, roof rails & amber lightbar (hidden in 1P driver view for zero clipping).
+  const fpB = new ModelBuilder();
+  fpB.box(1.78, 0.42, 0.08, GLASS, { at: [0, 1.66, 0.68], rot: [-0.42, 0, 0] });
+  for (const s of [-1, 1]) {
+    fpB.cyl(0.055, 0.055, 1.05, 8, CHROME, { at: [s * 0.92, 1.72, 0.45], rot: [-0.38, 0, 0] });
+    fpB.cyl(0.055, 0.055, 1.38, 8, CHROME, { at: [s * 0.92, 2.16, -0.18], rot: ALONG_Z });
+  }
+  fpB.cyl(0.055, 0.055, 1.84, 8, CHROME, { at: [0, 2.16, 0.46], rot: ALONG_X });
+  fpB.cyl(0.055, 0.055, 1.84, 8, CHROME, { at: [0, 2.16, -0.82], rot: ALONG_X });
+  fpB.glow(new THREE.BoxGeometry(1.36, 0.09, 0.1), '#ffbe3b', 3.4, { at: [0, 2.24, 0.46] });
+  const fpHideGroup = materials.group(fpB);
+  body.add(fpHideGroup);
 
   // Nitro boost exhaust flame cones (toggled when boosting).
   const boostGlow: THREE.Object3D[] = [];
@@ -221,6 +228,7 @@ function buildJackal(materials: ModelMaterials): VehicleModelRig {
     outriggers: [],
     boostGlow,
     resupplyRing: null,
+    fpHideParts: [fpHideGroup],
     muzzles: { main: mMain, coax: mCoax, podLeft: mMain, podRight: mMain, roof: mRoof, front: mMain, rear: mRoof },
     meshes: collectMeshes(root),
   };
@@ -355,7 +363,7 @@ function buildAegis(materials: ModelMaterials): VehicleModelRig {
     resupplyRing: null,
     muzzles: { main: mMain, coax: mCoax, podLeft: mMain, podRight: mMain, roof: mRoof, front: mMain, rear: mRoof },
     meshes: collectMeshes(root),
-    fpHideParts: [barrel],
+    fpHideParts: [turret, barrel],
   };
 }
 
@@ -598,11 +606,6 @@ function buildBastion(materials: ModelMaterials): VehicleModelRig {
     { z: 3.1, w: 1.38, top: 2.02, bottom: 1.02 },
     { z: 4.1, w: 1.26, top: 1.78, bottom: 1.02 },
   ]), OCHRE);
-  // Slotted armored windshield visor + side armor shutters.
-  b.box(2.38, 0.34, 0.1, GLASS, { at: [0, 2.34, 2.52], rot: [-0.26, 0, 0] });
-  for (let i = -2; i <= 2; i++) {
-    b.box(0.06, 0.38, 0.14, PLATE, { at: [i * 0.48, 2.34, 2.56], rot: [-0.26, 0, 0] });
-  }
   // Massive welded V-shaped steel Ramming Plow at the nose!
   b.box(1.75, 1.05, 0.24, PLATE, { at: [0.8, 0.96, 4.35], rot: [0.18, -0.34, 0] });
   b.box(1.75, 1.05, 0.24, PLATE, { at: [-0.8, 0.96, 4.35], rot: [0.18, 0.34, 0] });
@@ -621,9 +624,17 @@ function buildBastion(materials: ModelMaterials): VehicleModelRig {
   // Armored weapon deck floor & rear bulkhead.
   b.box(2.85, 0.28, 4.7, PLATE, { at: [0, 1.24, -1.65] });
   b.box(2.96, 1.28, 0.28, OCHRE_DARK, { at: [0, 1.74, -3.98] });
-  // Green beacon dome on cab roof.
-  b.glow(new THREE.CylinderGeometry(0.18, 0.24, 0.22, 10), GREEN, 3.0, { at: [0, 2.94, 1.75] });
   body.add(materials.group(b));
+
+  // Slotted armored windshield visor + cab beacon (hidden in 1P so driver & gunner views never clip!).
+  const fpB = new ModelBuilder();
+  fpB.box(2.38, 0.34, 0.1, GLASS, { at: [0, 2.34, 2.52], rot: [-0.26, 0, 0] });
+  for (let i = -2; i <= 2; i++) {
+    fpB.box(0.06, 0.38, 0.14, PLATE, { at: [i * 0.48, 2.34, 2.56], rot: [-0.26, 0, 0] });
+  }
+  fpB.glow(new THREE.CylinderGeometry(0.18, 0.24, 0.22, 10), GREEN, 3.0, { at: [0, 2.94, 1.75] });
+  const fpHideGroup = materials.group(fpB);
+  body.add(fpHideGroup);
 
   // Boost exhaust glows.
   const boostGlow: THREE.Object3D[] = [];
@@ -741,6 +752,7 @@ function buildBastion(materials: ModelMaterials): VehicleModelRig {
     outriggers,
     boostGlow,
     resupplyRing,
+    fpHideParts: [fpHideGroup],
     muzzles: { main: mCoax, coax: mCoax, podLeft: mFront, podRight: mFront, roof: mFront, front: mFront, rear: mRear },
     meshes: collectMeshes(root),
   };
@@ -946,6 +958,7 @@ function buildValkyrie(materials: ModelMaterials): VehicleModelRig {
   return {
     root,
     body,
+    bodyBaseY: 1.65,
     turret: null,
     barrel: null,
     barrelBaseZ: 0,
@@ -1063,6 +1076,7 @@ function buildHarrier(materials: ModelMaterials): VehicleModelRig {
   return {
     root,
     body,
+    bodyBaseY: 1.45,
     turret: null,
     barrel: null,
     barrelBaseZ: 0,
@@ -1134,6 +1148,7 @@ function buildWarthog(materials: ModelMaterials): VehicleModelRig {
   return {
     root,
     body,
+    bodyBaseY: 1.65,
     turret: null,
     barrel: null,
     barrelBaseZ: 0,
@@ -1146,6 +1161,7 @@ function buildWarthog(materials: ModelMaterials): VehicleModelRig {
     boostGlow,
     vtolGlow,
     resupplyRing: null,
+    fpHideParts: [jet],
     muzzles: { main: mGun, coax: mGun, podLeft: mLeft, podRight: mRight, roof: mGun, front: mGun, rear: mGun },
     meshes: collectMeshes(root),
   };

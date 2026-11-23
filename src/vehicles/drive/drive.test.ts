@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { describe, expect, it, vi } from 'vitest';
+import { lookup } from '../../audio/catalog';
 import type { Action, Ctx, RayHit } from '../../core/contracts';
 import type { HijackClaim, HijackableVehicle, VehicleRadarTarget } from '../../core/gameplay';
 import { ModelMaterials } from '../../progression/modelkit';
@@ -66,6 +67,9 @@ function makeDriveHarness() {
     char: { mesh: new THREE.Group() },
   };
   const applyDamage = vi.fn(() => ({ killed: true, headshot: false, gibbed: false, damage: 240 }));
+  const audioPlay = vi.fn();
+  const startLoop = vi.fn(() => ({ alive: true, setVolume: vi.fn(), setPitch: vi.fn(), setPosition: vi.fn(), stop: vi.fn() }));
+  const enemiesList = [mockEnemy];
   const domElement = { style: { filter: '' } };
 
   const ctx = {
@@ -138,8 +142,8 @@ function makeDriveHarness() {
       hold,
     },
     audio: {
-      play: vi.fn(),
-      startLoop: () => ({ alive: true, setVolume: vi.fn(), setPitch: vi.fn(), setPosition: vi.fn(), stop: vi.fn() }),
+      play: audioPlay,
+      startLoop,
     },
     fx: {
       muzzleFlash: vi.fn(),
@@ -161,11 +165,11 @@ function makeDriveHarness() {
       award,
     },
     enemies: {
-      alive: [mockEnemy],
+      alive: enemiesList,
       query: (_pos: THREE.Vector3, _r: number, out: unknown[]) => {
         out.length = 0;
-        out.push(mockEnemy);
-        return 1;
+        out.push(...enemiesList);
+        return out.length;
       },
       applyDamage,
       vehicles: {
@@ -231,6 +235,9 @@ function makeDriveHarness() {
     push,
     applyDamage,
     mockEnemy,
+    enemiesList,
+    audioPlay,
+    startLoop,
     removeCollider,
     pushWrecks,
     vehicleRam,
@@ -498,7 +505,18 @@ describe('AAA Driveable Vehicles (10-Vehicle Fleet)', () => {
     harrier.update(1 / 30);
     expect(h.spawnProjectile).toHaveBeenCalledWith(expect.objectContaining({ source: 'harrier_bomb' }));
 
-    // Cycle [R] ordnance from Mk-82 Bombs -> Lock Missiles -> Hydra Rockets!
+    // Cycle [R] ordnance: Mk-82 HE -> BLU-27 NAPALM BOMBS -> AIM-9 / AGM LOCK MISSILES -> HYDRA-70 ROCKETS!
+    h.held.clear();
+    h.justPressed.add('reload');
+    harrier.update(1 / 30);
+    expect(h.feed).toHaveBeenCalledWith(expect.stringContaining('NAPALM'), expect.any(String));
+
+    // Fire in Napalm mode and confirm napalm flag is passed to spawnProjectile!
+    h.justPressed.clear();
+    h.held.add('aim');
+    for (let i = 0; i < 20; i++) harrier.update(1 / 30);
+    expect(h.spawnProjectile).toHaveBeenCalledWith(expect.objectContaining({ source: 'harrier_napalm', napalm: true }));
+
     h.held.clear();
     h.justPressed.add('reload');
     harrier.update(1 / 30);
@@ -606,5 +624,169 @@ describe('AAA Driveable Vehicles (10-Vehicle Fleet)', () => {
     expect(mgr.active?.def.id).toBe('jackal');
     expect(h.award).toHaveBeenCalledWith(200, 'VEHICLE HIJACKED!', expect.any(THREE.Vector3));
     mgr.clear();
+  });
+
+  it('every driveable vehicle engine loop, dual-layer loop, and weapon/alt audio ID exists in CATALOG', () => {
+    for (const id of DRIVE_VEHICLE_ORDER) {
+      const def = DRIVE_VEHICLES[id];
+      expect(lookup(def.engineLoop), `${id} engineLoop ${def.engineLoop}`).toBeDefined();
+      if (def.engineLayerLoop) {
+        expect(lookup(def.engineLayerLoop), `${id} engineLayerLoop ${def.engineLayerLoop}`).toBeDefined();
+      }
+      for (const seat of def.seats) {
+        for (const w of [seat.primary, seat.secondary]) {
+          if (!w) continue;
+          expect(lookup(w.audio), `${id}/${seat.name}/${w.name} audio ${w.audio}`).toBeDefined();
+          for (const alt of [w.altMode, w.thirdMode, w.fourthMode]) {
+            if (alt?.audio) {
+              expect(lookup(alt.audio), `${id}/${seat.name}/${alt.name} audio ${alt.audio}`).toBeDefined();
+            }
+          }
+        }
+      }
+    }
+  });
+
+  it('player-favorable ramming caps self-damage and prevents low-speed W bounce spam via cooldown', () => {
+    const h = makeDriveHarness();
+    const jackal = new DriveableVehicle(h.ctx, h.materials, h.seats, vi.fn(), 'jackal', new THREE.Vector3(), 0);
+    jackal.board(0);
+    const startHp = jackal.health;
+
+    // High-speed ram into an enemy vehicle while holding W.
+    h.vehicleRam.mockReturnValue({ hit: true, armored: false, killed: false, point: new THREE.Vector3(0, 1, 3) });
+    h.held.add('forward');
+    jackal.phys.velocity.set(0, 0, 22);
+    jackal.update(1 / 30);
+    const hpAfterFirstHit = jackal.health;
+    expect(hpAfterFirstHit).toBeLessThan(startHp);
+    // Self-damage is strongly capped (<= 10% of maxHealth even at high speed).
+    expect(startHp - hpAfterFirstHit).toBeLessThanOrEqual(jackal.def.maxHealth * 0.1 + 1);
+
+    // Subsequent rapid frames holding W while bouncing must NOT apply spam damage!
+    for (let i = 0; i < 15; i++) {
+      jackal.phys.velocity.set(0, 0, 14);
+      jackal.update(1 / 30);
+    }
+    expect(jackal.health).toBe(hpAfterFirstHit);
+    jackal.dispose();
+  });
+
+  it('Jackal [Q] Auto-Turret dynamically switches between 40mm Smart-AGL (clusters) and .50 Cal HMG (close solo)', () => {
+    const h = makeDriveHarness();
+    const jackal = new DriveableVehicle(h.ctx, h.materials, h.seats, vi.fn(), 'jackal', new THREE.Vector3(), 0);
+    jackal.board(0);
+
+    // Enable Auto-Turret with [Q].
+    h.justPressed.add('stim');
+    jackal.update(1 / 30);
+    h.justPressed.clear();
+
+    // Cluster of 2 enemies at 28m -> auto-turret selects 40mm Smart-AGL!
+    h.mockEnemy.position.set(0, 0, 28);
+    h.mockEnemy.center.set(0, 1.1, 28);
+    const buddy = {
+      ...h.mockEnemy,
+      uid: 902,
+      position: new THREE.Vector3(2.5, 0, 28),
+      center: new THREE.Vector3(2.5, 1.1, 28),
+      char: { mesh: new THREE.Group() },
+    };
+    h.enemiesList.push(buddy);
+    for (let i = 0; i < 12; i++) jackal.update(0.1);
+    expect(h.spawnProjectile).toHaveBeenCalledWith(expect.objectContaining({ source: 'jackal_auto_agl' }));
+
+    // Close solo enemy at 9m -> switches back to .50 Cal HMG (no self-blast)!
+    h.enemiesList.length = 1;
+    h.mockEnemy.position.set(0, 0, 9);
+    h.mockEnemy.center.set(0, 1.1, 9);
+    h.fireRay.mockClear();
+    for (let i = 0; i < 12; i++) jackal.update(0.1);
+    expect(h.fireRay).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ source: 'jackal_auto_turret' }),
+    );
+
+    jackal.dispose();
+  });
+
+  it('Kestrel Pilot 1P uses Attack Chopper Killstreak Cam with zero exterior clipping and Gunner uses FLIR Thermal', () => {
+    const h = makeDriveHarness();
+    const kestrel = new DriveableVehicle(h.ctx, h.materials, h.seats, vi.fn(), 'kestrel', new THREE.Vector3(), 0);
+    kestrel.board(0);
+    expect(kestrel.activeSeatSpec.hudMode).toBe('chopper');
+
+    // Toggle to 1P via [C] -> exterior body hidden so gun/canopy never clips camera!
+    (kestrel as unknown as { keyCPressed: boolean }).keyCPressed = true;
+    kestrel.update(1 / 30);
+    const hud1p = (h.seats.seat as { vehicleHud?: { cameraLabel: string; hudMode: string } } | null)?.vehicleHud;
+    expect(hud1p?.cameraLabel).toBe('1P');
+    expect(hud1p?.hudMode).toBe('chopper');
+    expect(kestrel.model.body.visible).toBe(false);
+
+    // Switch to Seat 2 (Gunner) -> thermal mode active and body still hidden cleanly in 1P.
+    kestrel.switchSeat(1);
+    kestrel.update(1 / 30);
+    expect(kestrel.activeSeatSpec.hudMode).toBe('thermal');
+    expect(kestrel.model.body.visible).toBe(false);
+    kestrel.dispose();
+  });
+
+  it('Jet Mach right bank leans right with matching camera roll, populates Gun-Tracking Pipper, and Moto leans into turns', () => {
+    const h = makeDriveHarness();
+    const warthog = new DriveableVehicle(h.ctx, h.materials, h.seats, vi.fn(), 'warthog', new THREE.Vector3(0, 30, 0), 0);
+    warthog.board(0);
+    warthog.phys.vtolMode = false;
+    warthog.phys.position.set(0, 30, 0);
+    warthog.phys.velocity.set(0, 0, 55);
+
+    // Hold right turn in Mach flight: right wing drops (phys.roll > 0) and camera rolls matching cockpit bank (seat.view.roll < 0).
+    h.held.add('forward');
+    h.held.add('right');
+    for (let i = 0; i < 20; i++) warthog.update(1 / 30);
+    expect(warthog.phys.roll).toBeGreaterThan(0.1);
+    const seat = h.seats.seat as unknown as {
+      view: { roll: number };
+      vehicleHud?: { gunPipWorld?: readonly [number, number, number] | null; ccipLabel?: string } | null;
+    };
+    expect(seat.view.roll).toBeLessThan(-0.02);
+    expect(seat.vehicleHud?.gunPipWorld).not.toBeNull();
+    expect(seat.vehicleHud?.ccipLabel).toBe('CCIP HE');
+    warthog.dispose();
+
+    // Moto leans INTO a right turn (positive phys.roll = right side drops).
+    const motoDef = DRIVE_VEHICLES.moto;
+    const motoPhys = createPhysicsState(new THREE.Vector3(), 0);
+    const world = { nav: { groundHeight: () => 0 } } as unknown as Ctx['world'];
+    const inp = emptyInput();
+    inp.throttle = 1;
+    inp.steer = 1;
+    for (let i = 0; i < 40; i++) {
+      stepVehiclePhysics(motoDef, motoPhys, inp, 1 / 30, world, undefined, true);
+    }
+    expect(motoPhys.roll).toBeGreaterThan(0.1);
+  });
+
+  it('abandoned airborne helicopter spirals down and explodes on impact while preserving bodyBaseY on aircraft models', () => {
+    const h = makeDriveHarness();
+    const valkyrie = new DriveableVehicle(h.ctx, h.materials, h.seats, vi.fn(), 'valkyrie', new THREE.Vector3(), 0);
+    valkyrie.update(1 / 30);
+    // Aircraft bodyBaseY keeps landing gear on ground without sinking.
+    expect(valkyrie.model.body.position.y).toBeGreaterThanOrEqual(1.4);
+
+    // Take off high, then bail out while airborne -> enters abandonedFall, drops, and explodes on slam!
+    valkyrie.board(0);
+    valkyrie.phys.position.set(0, 18, 0);
+    valkyrie.phys.velocity.set(0, 0, 10);
+    valkyrie.exit(false);
+    expect(valkyrie.occupied).toBe(false);
+
+    for (let i = 0; i < 120 && valkyrie.alive; i++) {
+      valkyrie.update(1 / 30);
+    }
+    expect(valkyrie.alive).toBe(false);
+    expect(h.explode).toHaveBeenCalled();
+    valkyrie.dispose();
   });
 });

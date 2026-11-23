@@ -177,4 +177,90 @@ export const vehicles = [
     s.noise('white', 0.08).hp(1400).env(perc(0.03, 0.6)).drive(3).out();
     for (let i = 0; i < 5; i++) s.at(s.r(0.06, 0.9), () => clank(s, s.r(500, 1600), s.r(0.1, 0.3), 0.06));
   }),
+
+  // Player-driveable vehicle engines & foley (src/vehicles/drive).
+  // Snarly high-revving V-twin dirtbike / sportbike engine.
+  r('moto_engine_loop', { ...ENGINE, dur: 1, over: { ...ENGINE.over, volume: 0.58 } }, s => {
+    s.osc('sawtooth', 72).lp(780).am(s.lfo(24, 0.55)).drive(2.4).out(0.55);
+    s.osc('sawtooth', 108).lp(1200).am(s.lfo(24, 0.4)).drive(1.8).out(0.28);
+    s.osc('sine', 48).am(s.lfo(24, 0.35)).out(0.38);
+    s.noise('pink').bp(640, 1.6).am(s.lfo(48, 0.65)).out(0.42);
+    s.noise('white').bp(2800, 2.4).am(s.lfo(24, 0.45, 'square')).out(0.04);
+  }),
+  // Throaty single-cylinder 4WD combat quad ATV thumper.
+  r('quad_engine_loop', { ...ENGINE, dur: 1, over: { ...ENGINE.over, volume: 0.56 } }, s => {
+    s.osc('sawtooth', 54).lp(520).am(s.lfo(18, 0.58)).drive(2.1).out(0.62);
+    s.osc('sine', 36).am(s.lfo(18, 0.4)).out(0.45);
+    s.noise('pink').bp(380, 1.4).am(s.lfo(36, 0.7)).out(0.52);
+    s.noise('white').bp(1900, 2.0).am(s.lfo(18, 0.45, 'square')).out(0.04);
+  }),
+  // Repulsor grav-coil hum & twin micro-turbine whine for the Viper Jet-Skiff.
+  r('hover_engine_loop', { ...ENGINE, dur: 1, over: { ...ENGINE.over, volume: 0.6 } }, s => {
+    s.osc('sine', 64).am(s.lfo(8, 0.22)).drive(1.4).out(0.5);
+    s.osc('sawtooth', 128).lp(860, 2.2).am(s.lfo(16, 0.25)).out(0.26);
+    s.osc('sine', 192).am(s.wander(3, 0.16)).out(0.18);
+    s.osc('sine', 1480).am(s.wander(4, 0.14)).out(0.045);
+    s.noise('pink').bp(1250, 2.0).am(s.lfo(16, 0.18)).out(0.32);
+    s.noise('brown').lp(220).gain(1.5).out(0.42);
+  }),
+  // Fighter / A-10 twin-turbofan jet engine roar + compressor whine.
+  r('jet_engine_loop', { ...ENGINE, dur: 1, over: { ...ENGINE.over, volume: 0.72, maxVoices: 6, far: 260, send: 0.18 } }, s => {
+    s.noise('brown').lp(320).gain(2.2).drive(1.5).out(0.75);
+    s.noise('pink').bp(920, 0.9).am(s.wander(6, 0.18)).out(0.62);
+    s.osc('sawtooth', 110).lp(480).drive(1.4).out(0.24);
+    s.osc('sine', 2150).am(s.wander(2, 0.1)).out(0.055);
+    s.osc('sine', 3225).out(0.025);
+    s.noise('white').hp(4200).out(0.025);
+  }),
+  // Thunderous supersonic afterburner crackle layered over jet_engine_loop on Mach flight / Shift boost.
+  r('jet_afterburner_loop', { ...ENGINE, dur: 1, over: { ...ENGINE.over, volume: 0.74, maxVoices: 4, far: 300, send: 0.24 } }, s => {
+    s.noise('brown').lp(240).gain(2.6).drive(2.2).out(0.88);
+    s.noise('pink').bp(680, 0.7).am(s.wander(14, 0.35)).drive(2.0).out(0.72);
+    s.grains(1.2, () => 48, 0.004, () => s.r(0.4, 1)).bp(1800, 1.4).drive(2.4).out(0.34);
+    s.osc('sine', 42).am(s.lfo(12, 0.25)).drive(1.8).out(0.5);
+  }),
+  // Tire squeal & desert gravel spray while powersliding / drifting.
+  r('veh_drift_loop', { dur: 1, mix: 'loop3d', loop: true, over: { volume: 0.48, maxVoices: 4, near: 6, far: 95 } }, s => {
+    s.noise('pink').bp(1350, 4.2).am(s.wander(9, 0.35)).drive(1.8).out(0.55);
+    s.noise('white').bp(2600, 2.6).am(s.wander(14, 0.45)).out(0.22);
+    s.noise('brown').lp(420).gain(1.5).out(0.45);
+  }),
+  // Nitro / turbine boost ignition punch.
+  r('veh_boost_whoosh', { dur: 0.75, n: 2, mix: 'machine', over: { volume: 0.76, near: 8, far: 140, send: 0.18 }, expect: { attackMs: [0, 12] } }, s => {
+    thump(s, 74, 0.22, 0.9, 2.4);
+    s.noise('pink', 0.68).bp([[0, 320], [0.22, 1650], [0.68, 520]], 1.1).env(perc(0.58, 0.9, 0.01)).drive(2.2).out(0.85);
+    s.osc('sawtooth', [[0, 120], [0.3, 420], [0.68, 180]], 0.65).lp(1800).env(perc(0.55, 0.45, 0.01)).out(0.4);
+  }),
+  // IR Flare countermeasure salvo pops.
+  r('veh_flare_pop', { dur: 0.95, n: 2, mix: 'machine', over: { volume: 0.82, near: 12, far: 220, send: 0.22 }, expect: { attackMs: [0, 8] } }, s => {
+    for (let i = 0; i < 4; i++) {
+      s.at(i * 0.11 + s.r(0, 0.015), () => {
+        thump(s, s.r(120, 160), 0.08, 0.75, 2.4);
+        s.noise('white', 0.18).bp([[0, 3400], [0.16, 1100]], 1.2).env(perc(0.14, 0.85, 0.002)).drive(2.4).out(0.65);
+      });
+    }
+  }),
+  // Heavy chassis crunching impact on high-speed wall or vehicle ramming.
+  r('veh_crash_heavy', { dur: 1.1, n: 2, mix: 'blastSmall', over: { volume: 0.9, near: 14, far: 180, send: 0.24 }, expect: { attackMs: [0, 10], minSub: 0.06 } }, s => {
+    thump(s, 52, 0.32, 1, 3.2);
+    clank(s, 280, 1, 0.22);
+    s.noise('white', 0.12).hp(1500).env(perc(0.06, 0.75)).drive(3.4).out(0.75);
+    s.noise('brown', 0.55).lp(480).env(perc(0.45, 0.8, 0.004)).gain(1.8).out(0.65);
+    for (let i = 0; i < 4; i++) s.at(0.05 + i * 0.07, () => clank(s, s.r(620, 1550), 0.34 - i * 0.05, 0.05));
+  }),
+  // Boarding hatch / door slam + starter motor ignition turn-over.
+  r('veh_board', { dur: 0.65, mix: 'machine', over: { volume: 0.72, near: 6, far: 55 }, expect: { attackMs: [0, 10] } }, s => {
+    thump(s, 84, 0.14, 0.85, 2.2);
+    clank(s, 420, 0.8, 0.1);
+    s.at(0.09, () => {
+      s.osc('sawtooth', [[0, 68], [0.45, 165]], 0.48).lp(680).am(s.lfo(18, 0.45)).env(swell(0.04, 0.34, 0.08, 0.45)).drive(1.8).out();
+      s.noise('pink', 0.42).bp(840, 1.5).env(swell(0.04, 0.28, 0.1, 0.28)).out();
+    });
+  }),
+  // Crisp mechanical latch & servo click when switching vehicle seats.
+  r('veh_seat_click', { dur: 0.24, mix: 'foley', over: { volume: 0.65, near: 4, far: 35 }, expect: { attackMs: [0, 8] } }, s => {
+    click(s, 2200, 0.85, 0.008);
+    s.at(0.04, () => clank(s, 960, 0.55, 0.045));
+    s.at(0.09, () => click(s, 3100, 0.7, 0.007));
+  }),
 ];

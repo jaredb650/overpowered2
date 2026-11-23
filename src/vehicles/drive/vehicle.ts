@@ -130,13 +130,20 @@ export class DriveableVehicle {
   private missileWarning = false;
   private warningBeepTimer = 0;
   private autoTurretCooldown = 0;
+  private autoAglCooldown = 0;
   private resupplyTimer = 0;
   private roadkillTimer = 0;
   private ramVehicleCooldown = 0;
+  private wallCrashCooldown = 0;
   private smokeTimer = 0;
   private dustTimer = 0;
   private crashAudioCooldown = 0;
+  private lanceChargeBeep = 0;
+  private wasBoosting = false;
+  private wasAbandonedFall = false;
   private engineLoop: LoopHandle | null = null;
+  private engineLayerLoop: LoopHandle | null = null;
+  private driftLoop: LoopHandle | null = null;
   private keyCPressed = false;
   private readonly onKeyDown = (e: KeyboardEvent): void => {
     if (e.code === 'KeyC' && !e.repeat && this.occupied) {
@@ -165,13 +172,17 @@ export class DriveableVehicle {
     cameraTogglePressed: false,
     lookX: 0,
     lookY: 0,
+    targetAimYaw: 0,
+    targetAimPitch: 0,
   };
   private readonly hudScratch: { -readonly [K in keyof VehicleHudData]: VehicleHudData[K] };
   private readonly ccipOut: [number, number, number] = [0, 0, 0];
+  private readonly gunPipOut: [number, number, number] = [0, 0, 0];
   private readonly lockOut: [number, number, number] = [0, 0, 0];
   private readonly leadPipPool: [number, number, number][] = Array.from({ length: MAX_LEAD_PIPS }, () => [0, 0, 0]);
   private readonly leadPipsOut: [number, number, number][] = [];
   private currentLockTarget: MissileTarget | null = null;
+  private prevLockTarget: MissileTarget | null = null;
   private currentLockLabel = '';
 
   private readonly rammedCooldown = new Map<number, number>();
@@ -274,6 +285,8 @@ export class DriveableVehicle {
       rollRad: 0,
       altitudeM: 0,
       ccipWorld: null,
+      ccipLabel: 'CCIP HE',
+      gunPipWorld: null,
       lockWorld: null,
       lockLabel: '',
       leadPips: this.leadPipsOut,
@@ -343,12 +356,22 @@ export class DriveableVehicle {
     if (this.model.fpHideParts) {
       for (const p of this.model.fpHideParts) p.visible = !is1P;
     }
-    this.model.body.visible = !(is1P && spec.hudMode === 'thermal');
+    const hideWholeBody = is1P && (
+      spec.hudMode === 'thermal'
+      || spec.hudMode === 'chopper'
+      || (this.def.id === 'valkyrie' && spec.role === 'pilot')
+      || this.def.id === 'warthog'
+    );
+    this.model.body.visible = !hideWholeBody;
 
     // Mount Desert-Raid-style 3D gun cleanly in 1P gunner seats.
     const usesMount = is1P && Boolean(spec.mountGun);
     if (this.model.turret) {
-      this.model.turret.visible = !(usesMount && spec.usesTurret);
+      const hiddenByFp = Boolean(this.model.fpHideParts?.includes(this.model.turret));
+      this.model.turret.visible = !(is1P && hiddenByFp) && !(usesMount && spec.usesTurret);
+    }
+    if (this.model.subTurret) {
+      this.model.subTurret.visible = !(is1P && spec.usesSubTurret);
     }
     if (usesMount && spec.mountGun) {
       this.activeMountGun = this.getOrBuildMountGun(spec.mountGun);
@@ -360,6 +383,9 @@ export class DriveableVehicle {
       if (spec.hudMode === 'thermal') {
         this.seat.boxes = false;
         this.seat.look('thermal', 'grayscale(1) contrast(1.22)', '#ffd9a0');
+      } else if (spec.hudMode === 'chopper') {
+        this.seat.boxes = true;
+        this.seat.look(null, 'contrast(1.06) saturate(0.88)', '#ffb84d');
       } else {
         this.seat.boxes = true;
         this.seat.look(null, '', '#ff5a3a');
@@ -386,6 +412,9 @@ export class DriveableVehicle {
     if (this.model.turret) {
       this.model.turret.visible = true;
     }
+    if (this.model.subTurret) {
+      this.model.subTurret.visible = true;
+    }
   }
 
   /** Seats the local player in `seatIndex` (0 = Driver/Pilot) and hands control to this vehicle. */
@@ -399,6 +428,9 @@ export class DriveableVehicle {
     this.camDistCurrent = spec.chaseDist || 7.4;
     this.camFovCurrent = this.thirdPerson ? 76 : 64;
     this.keyCPressed = false;
+    this.wasBoosting = false;
+    this.wasAbandonedFall = false;
+    this.phys.abandonedFall = false;
 
     // Move parked static collider underground so our own rays and camera pull-in never snag on our hull.
     this.setColliderParked(false);
@@ -417,7 +449,7 @@ export class DriveableVehicle {
     this.applySeatVisuals();
 
     this.ctx.player.interceptor = this.damageIntercept;
-    this.ctx.audio?.play('metal_clang', { position: this.phys.position, volume: 0.55, pitch: 0.82 });
+    this.ctx.audio?.play('veh_board', { position: this.phys.position, volume: 0.72, pitch: 1.0 });
     this.startEngine();
     this.syncHud();
     return true;
@@ -436,7 +468,7 @@ export class DriveableVehicle {
     this.lanceHeld = false;
     this.seat.hintText = this.buildHintText();
     this.applySeatVisuals();
-    this.ctx.audio?.play('reload_bolt', { position: this.phys.position, volume: 0.65, pitch: 1.05 });
+    this.ctx.audio?.play('veh_seat_click', { position: this.phys.position, volume: 0.72, pitch: 1.04 });
     this.ctx.hud?.feed?.(`${this.def.shortName} // ${spec.name}`, this.def.color);
     this.syncHud();
   }
@@ -449,6 +481,7 @@ export class DriveableVehicle {
     this.lanceCharge = 0;
     this.lanceHeld = false;
     this.missileWarning = false;
+    this.wasBoosting = false;
     this.restoreVisualsOnExit();
     if (this.ctx.player.interceptor === this.damageIntercept) {
       this.ctx.player.interceptor = null;
@@ -475,7 +508,12 @@ export class DriveableVehicle {
     }
 
     if (this.alive) this.setColliderParked(true);
-    this.stopEngine();
+    // Keep aircraft engine roaring while an abandoned chopper/jet spirals toward the ground!
+    if (!airborneExit) this.stopEngine();
+    else {
+      this.driftLoop?.stop();
+      this.driftLoop = null;
+    }
   }
 
   /** Applies damage to the vehicle hull (directional armor, Bastion deployed resistance & kamikaze detonation). */
@@ -514,6 +552,8 @@ export class DriveableVehicle {
     this.clock += dt;
     if (this.crashAudioCooldown > 0) this.crashAudioCooldown = Math.max(0, this.crashAudioCooldown - dt);
     if (this.ramVehicleCooldown > 0) this.ramVehicleCooldown = Math.max(0, this.ramVehicleCooldown - dt);
+    if (this.wallCrashCooldown > 0) this.wallCrashCooldown = Math.max(0, this.wallCrashCooldown - dt);
+    if (this.autoAglCooldown > 0) this.autoAglCooldown = Math.max(0, this.autoAglCooldown - dt);
     if (this.flareRemaining > 0) this.flareRemaining = Math.max(0, this.flareRemaining - dt);
     if (this.flareCooldown > 0) this.flareCooldown = Math.max(0, this.flareCooldown - dt);
 
@@ -544,10 +584,33 @@ export class DriveableVehicle {
       this.updateMouseLook(dt);
     }
 
-    // Step physics (only driver/pilot seat feeds drive controls; gunners let vehicle coast or aircraft auto-hover!).
+    // Feed mouse aim angles into physics so Jet Mach flight has ONE unified smooth controller (zero dual-mutation stutter!).
+    this.inputScratch.targetAimYaw = this.aimYaw;
+    this.inputScratch.targetAimPitch = this.aimPitch;
+
+    // Step physics (only driver/pilot seat feeds drive controls; gunners let vehicle coast or aircraft auto-hover;
+    // completely abandoned airborne aircraft spiral and crash under gravity!).
     const driveActive = occupied && this._seatIndex === 0;
     const ownHandle = this.collider?.handle;
-    stepVehiclePhysics(this.def, this.phys, this.inputScratch, dt, this.ctx.world, this.ctx.physics, driveActive, ownHandle);
+    stepVehiclePhysics(this.def, this.phys, this.inputScratch, dt, this.ctx.world, this.ctx.physics, driveActive, ownHandle, occupied);
+
+    // Boost ignition whoosh on rising edge!
+    if (occupied && this.phys.boosting && !this.wasBoosting) {
+      this.ctx.audio?.play('veh_boost_whoosh', {
+        position: this.phys.position,
+        volume: this.def.category === 'jet' ? 0.9 : 0.72,
+        pitch: this.def.category === 'jet' ? 1.05 : this.def.category === 'moto' ? 1.25 : 1.0,
+      });
+    }
+    this.wasBoosting = occupied && this.phys.boosting;
+
+    // Abandoned aircraft stricken alarm!
+    if (this.phys.abandonedFall && !this.wasAbandonedFall) {
+      this.wasAbandonedFall = true;
+      this.ctx.audio?.play('gunship_stricken', { position: this.phys.position, volume: 0.9, pitch: 1.0 });
+    } else if (!this.phys.abandonedFall) {
+      this.wasAbandonedFall = false;
+    }
 
     // Nose-to-camera steering synchronization per vehicle class!
     if (driveActive && this.def.category === 'helicopter') {
@@ -555,14 +618,9 @@ export class DriveableVehicle {
     } else if (driveActive && this.def.category === 'jet') {
       if (this.phys.vtolMode) {
         this.phys.yaw = dampAngle(this.phys.yaw, this.aimYaw, 4.2, dt);
-      } else {
-        // Forward Mach jet flight: mouse aim smoothly pitches & steers the fighter jet nose!
-        const desiredPitch = clamp(-this.aimPitch, -0.95, 0.95);
-        this.phys.pitch = damp(this.phys.pitch, desiredPitch, 4.6, dt);
-        const yawDiff = wrapAngle(this.aimYaw - this.phys.yaw);
-        const mouseTurn = clamp(yawDiff * 2.2, -this.def.turnRate, this.def.turnRate);
-        this.phys.yaw = wrapAngle(this.phys.yaw + mouseTurn * dt);
-        this.phys.roll = damp(this.phys.roll, clamp(-yawDiff * 0.9 - this.inputScratch.steer * 0.75, -1.15, 1.15), 5.2, dt);
+      } else if (this.mouseIdleTimer > 0.25 && Math.abs(this.inputScratch.steer) > 0.05) {
+        // When banking with keyboard A/D without moving the mouse, let camera smoothly track the nose.
+        this.aimYaw = dampAngle(this.aimYaw, this.phys.yaw, 5.5, dt);
       }
     } else if (driveActive && (this.def.category === 'hover' || this.def.category === 'wheeled' || this.def.category === 'moto')) {
       if (this.mouseIdleTimer > 0.2 && Math.abs(this.phys.yawRate) > 0.01) {
@@ -576,7 +634,7 @@ export class DriveableVehicle {
     // Sync Kinematic Rapier Body for real GTA ragdoll-vehicle physics!
     this.syncKinematicHull();
 
-    // Handle high-speed wall/ground crashes, pushable enemy wrecks & kamikaze ramming!
+    // Handle high-speed wall/ground crashes, abandoned aircraft crashes, pushable wrecks & enemy-vehicle ramming!
     this.stepCrashAndRam(dt, occupied);
     if (!this.alive) return;
 
@@ -595,8 +653,15 @@ export class DriveableVehicle {
       this.updateTacticalOverlays();
       this.updateEngineAudio();
       this.syncHud();
-    } else if (this.collider) {
-      this.setColliderParked(true);
+    } else {
+      if (this.phys.abandonedFall) {
+        this.updateEngineAudio();
+      } else if (this.engineLoop || this.engineLayerLoop || this.driftLoop) {
+        this.stopEngine();
+      }
+      if (this.collider) {
+        this.setColliderParked(true);
+      }
     }
   }
 
@@ -728,7 +793,7 @@ export class DriveableVehicle {
       _camUp.crossVectors(_right, _aim).normalize();
       _eye.copy(_pivot).addScaledVector(_camUp, 0.29).addScaledVector(_aim, -0.78);
     } else {
-      // Clean 1P cockpit / thermal / MBT / mortar / fighter sight (exterior canopy hidden via fpHideParts!).
+      // Clean 1P cockpit / killstreak cam / thermal / MBT / mortar / fighter sight (zero clipping!).
       _eye.set(spec.fpEye[0], spec.fpEye[1], spec.fpEye[2])
         .applyQuaternion(_quat)
         .add(this.phys.position);
@@ -752,13 +817,17 @@ export class DriveableVehicle {
     seat.view.position.copy(_eye);
     seat.view.yaw = camYaw;
     seat.view.pitch = this.aimPitch;
+    // Camera looks down -Z, so positive camera rotation.z tilts LEFT; negate phys.roll (+ = right bank) so
+    // banking right tilts the horizon/camera naturally to the right!
     seat.view.roll = !is1P
-      ? this.phys.roll * 0.22
+      ? -this.phys.roll * 0.22
       : spec.hudMode === 'fighter'
-        ? this.phys.roll * 0.78
-        : spec.mountGun
-          ? this.phys.roll * 0.25
-          : this.phys.roll * 0.52;
+        ? -this.phys.roll * 0.72
+        : spec.hudMode === 'chopper'
+          ? -this.phys.roll * 0.36
+          : spec.mountGun
+            ? -this.phys.roll * 0.22
+            : -this.phys.roll * 0.48;
 
     // If passenger has hand-held weapons active (Quad/Moto Seat 2), keep player eye & forward synced to our seat!
     if (spec.passengerWeapons) {
@@ -778,7 +847,17 @@ export class DriveableVehicle {
     }
 
     // Smoothly damped FOV (ZERO Shift boost jitter!).
-    const baseFov = !is1P ? 76 : spec.hudMode === 'tank' ? 48 : spec.hudMode === 'thermal' ? 54 : spec.hudMode === 'fighter' ? 74 : 66;
+    const baseFov = !is1P
+      ? 76
+      : spec.hudMode === 'tank'
+        ? 48
+        : spec.hudMode === 'thermal'
+          ? 54
+          : spec.hudMode === 'chopper'
+            ? 62
+            : spec.hudMode === 'fighter'
+              ? 74
+              : 66;
     const speedFov = clamp(this.phys.speed * (this.def.category === 'jet' ? 0.12 : 0.14), 0, 8);
     const targetFov = baseFov + (this.phys.boosting ? 7.5 : 0) + speedFov;
     this.camFovCurrent = damp(this.camFovCurrent, targetFov, 7.5, dt);
@@ -790,14 +869,15 @@ export class DriveableVehicle {
     if (this.overheated && this.heat < 0.28) this.overheated = false;
   }
 
-  /** Computes live CCIP ground bomb impact point, missile lock target, and AA lead pips! */
+  /** Computes live CCIP ground bomb impact point, Fighter Gun-Tracking Pipper, missile lock target, and AA lead pips! */
   private updateTacticalOverlays(): void {
     const spec = this.activeSeatSpec;
     const secRt = this.secondaryState[this._seatIndex];
     const secResolved = spec.secondary && secRt ? this.resolveWeaponMode(spec.secondary, secRt.modeIndex) : null;
 
-    // 1. Live Fighter Jet CCIP Bomb Ground Impact Point!
+    // 1. Live Fighter Jet CCIP Bomb Ground Impact Point (HE or Napalm)!
     this.hudScratch.ccipWorld = null;
+    this.hudScratch.ccipLabel = secResolved?.napalm ? 'CCIP NAPALM' : 'CCIP HE';
     if (spec.hudMode === 'fighter' && secResolved && secResolved.kind === 'bomb' && this.phys.altitude > 3) {
       _ccipPos.copy(this.phys.position);
       _ccipPos.y -= 0.4;
@@ -808,7 +888,8 @@ export class DriveableVehicle {
       for (let i = 0; i < 32; i++) {
         _ccipVel.y -= g * step;
         _ccipPos.addScaledVector(_ccipVel, step);
-        const gy = this.ctx.world?.nav?.groundHeight?.(_ccipPos.x, _ccipPos.y + 4, _ccipPos.z) ?? this.phys.groundY;
+        const navGy = this.ctx.world?.nav?.groundHeight?.(_ccipPos.x, _ccipPos.y + 4, _ccipPos.z);
+        const gy = typeof navGy === 'number' && Number.isFinite(navGy) ? navGy : this.phys.groundY;
         if (_ccipPos.y <= gy) {
           this.ccipOut[0] = _ccipPos.x;
           this.ccipOut[1] = gy + 0.25;
@@ -817,6 +898,25 @@ export class DriveableVehicle {
           break;
         }
       }
+    }
+
+    // 1b. Live Fighter Boresight Gun-Tracking Pipper (shows exact ground/air convergence of nose GAU-12 / GAU-8)!
+    this.hudScratch.gunPipWorld = null;
+    if (spec.hudMode === 'fighter' && spec.primary.boresight) {
+      this.model.root.updateMatrixWorld(true);
+      this.model.muzzles.main.getWorldPosition(_muzzle);
+      _quat.setFromEuler(_euler.set(this.phys.pitch, this.phys.yaw, this.phys.roll));
+      _dir.set(0, 0, 1).applyQuaternion(_quat).normalize();
+      if (this.ctx.physics?.raycastInto?.(_muzzle, _dir, 240, CG.World, _hit)) {
+        this.gunPipOut[0] = _hit.point.x;
+        this.gunPipOut[1] = _hit.point.y;
+        this.gunPipOut[2] = _hit.point.z;
+      } else {
+        this.gunPipOut[0] = _muzzle.x + _dir.x * 160;
+        this.gunPipOut[1] = _muzzle.y + _dir.y * 160;
+        this.gunPipOut[2] = _muzzle.z + _dir.z * 160;
+      }
+      this.hudScratch.gunPipWorld = this.gunPipOut;
     }
 
     // 2. Live Missile Lock Target (Fighter ATGM, Kestrel Hellfire, Aegis TOW-X)!
@@ -863,6 +963,10 @@ export class DriveableVehicle {
         this.hudScratch.lockLabel = bestLabel;
       }
     }
+    if (this.currentLockTarget && this.currentLockTarget !== this.prevLockTarget) {
+      this.ctx.audio?.play('quiver_lock', { position: this.phys.position, volume: 0.72, pitch: 1.05 });
+    }
+    this.prevLockTarget = this.currentLockTarget;
 
     // 3. Live AA Lead-Computing Reticle Pips on Enemy Aircraft!
     this.leadPipsOut.length = 0;
@@ -997,7 +1101,7 @@ export class DriveableVehicle {
   private popFlares(): void {
     this.flareRemaining = 4.2;
     this.flareCooldown = 9.5;
-    this.ctx.audio?.play('steam_burst', { position: this.phys.position, volume: 0.9, pitch: 1.35 });
+    this.ctx.audio?.play('veh_flare_pop', { position: this.phys.position, volume: 0.92, pitch: 1.04 });
     for (let i = 0; i < 8; i++) {
       const side = i % 2 === 0 ? 1 : -1;
       _origin.copy(this.phys.position).addScaledVector(_up, -0.4);
@@ -1020,37 +1124,33 @@ export class DriveableVehicle {
     blastDamage: number;
     explosionKind: VehicleWeaponSpec['explosionKind'];
     homing: boolean;
+    napalm: boolean;
+    audio: string;
+    audioPitch: number;
   } {
-    if (modeIndex === 2 && spec.thirdMode) {
-      const m = spec.thirdMode;
+    const mode = modeIndex === 3 && spec.fourthMode
+      ? spec.fourthMode
+      : modeIndex === 2 && spec.thirdMode
+        ? spec.thirdMode
+        : modeIndex === 1 && spec.altMode
+          ? spec.altMode
+          : null;
+    if (mode) {
       return {
-        name: m.name,
-        kind: m.kind ?? spec.kind,
-        damage: m.damage,
-        speed: m.speed,
-        gravity: m.gravity ?? spec.gravity,
-        interval: m.interval ?? spec.interval,
-        magSize: m.magSize ?? spec.magSize,
-        blastRadius: m.blastRadius,
-        blastDamage: m.blastDamage,
-        explosionKind: m.explosionKind,
-        homing: Boolean(m.homing),
-      };
-    }
-    if (modeIndex === 1 && spec.altMode) {
-      const m = spec.altMode;
-      return {
-        name: m.name,
-        kind: m.kind ?? spec.kind,
-        damage: m.damage,
-        speed: m.speed,
-        gravity: m.gravity ?? spec.gravity,
-        interval: m.interval ?? spec.interval,
-        magSize: m.magSize ?? spec.magSize,
-        blastRadius: m.blastRadius,
-        blastDamage: m.blastDamage,
-        explosionKind: m.explosionKind,
-        homing: Boolean(m.homing),
+        name: mode.name,
+        kind: mode.kind ?? spec.kind,
+        damage: mode.damage,
+        speed: mode.speed,
+        gravity: mode.gravity ?? spec.gravity,
+        interval: mode.interval ?? spec.interval,
+        magSize: mode.magSize ?? spec.magSize,
+        blastRadius: mode.blastRadius,
+        blastDamage: mode.blastDamage,
+        explosionKind: mode.explosionKind,
+        homing: Boolean(mode.homing),
+        napalm: Boolean(mode.napalm),
+        audio: mode.audio ?? spec.audio,
+        audioPitch: mode.audioPitch ?? spec.audioPitch,
       };
     }
     return {
@@ -1065,6 +1165,9 @@ export class DriveableVehicle {
       blastDamage: spec.blastDamage,
       explosionKind: spec.explosionKind,
       homing: Boolean(spec.homing),
+      napalm: false,
+      audio: spec.audio,
+      audioPitch: spec.audioPitch,
     };
   }
 
@@ -1085,13 +1188,13 @@ export class DriveableVehicle {
     // [R]: Cycle alternate ammo / Fighter ordnance modes (or reload)!
     if (this.inputScratch.reloadPressed) {
       if (spec.primary.altMode) {
-        const count = spec.primary.thirdMode ? 3 : 2;
+        const count = spec.primary.fourthMode ? 4 : spec.primary.thirdMode ? 3 : 2;
         prim.modeIndex = (prim.modeIndex + 1) % count;
         const m = this.resolveWeaponMode(spec.primary, prim.modeIndex);
         this.ctx.audio?.play('reload_bolt', { position: this.phys.position, volume: 0.7, pitch: 0.92 });
         this.ctx.hud?.feed?.(`AMMO LOADED: ${m.name}`, this.def.color);
       } else if (spec.secondary?.altMode && sec) {
-        const count = spec.secondary.thirdMode ? 3 : 2;
+        const count = spec.secondary.fourthMode ? 4 : spec.secondary.thirdMode ? 3 : 2;
         sec.modeIndex = (sec.modeIndex + 1) % count;
         const m = this.resolveWeaponMode(spec.secondary, sec.modeIndex);
         sec.ammo = m.magSize;
@@ -1110,10 +1213,20 @@ export class DriveableVehicle {
       if (this.inputScratch.firePrimary && !this.overheated && prim.cooldown <= 0) {
         this.lanceHeld = true;
         this.lanceCharge = Math.min(1, this.lanceCharge + dt / chargeTime);
+        this.lanceChargeBeep -= dt;
+        if (this.lanceChargeBeep <= 0) {
+          this.lanceChargeBeep = 0.22;
+          this.ctx.audio?.play('railgun_charge', {
+            position: this.phys.position,
+            volume: 0.45,
+            pitch: 0.9 + this.lanceCharge * 0.65,
+          });
+        }
         if (this.lanceCharge >= 1) {
           this.fireParticleLance(spec.primary, prim, 1);
           this.lanceCharge = 0;
           this.lanceHeld = false;
+          this.lanceChargeBeep = 0;
         }
       } else if (this.lanceHeld) {
         if (this.lanceCharge >= 0.25 && prim.cooldown <= 0) {
@@ -1121,8 +1234,10 @@ export class DriveableVehicle {
         }
         this.lanceCharge = 0;
         this.lanceHeld = false;
+        this.lanceChargeBeep = 0;
       } else {
         this.lanceCharge = damp(this.lanceCharge, 0, 8, dt);
+        this.lanceChargeBeep = 0;
       }
     } else if (this.inputScratch.firePrimary && spec.primary.kind !== 'none' && !this.overheated) {
       this.tryFire(spec.primary, prim, false);
@@ -1251,30 +1366,34 @@ export class DriveableVehicle {
     }
 
     if (m.kind === 'bomb') {
-      // Gravity-dropped fighter bomb inheriting full aircraft velocity -> lands directly on CCIP ground reticle!
+      // Gravity-dropped fighter bomb (HE or BLU-27 Napalm!) inheriting full aircraft velocity -> lands on CCIP!
       _vel.copy(this.phys.velocity);
       _vel.y -= 2.0;
+      const bombScale = m.blastRadius >= 20 ? 3.0 : m.blastRadius >= 16 ? 2.5 : 1.9;
       this.ctx.combat.spawnProjectile({
         origin: _muzzle,
         velocity: _vel,
         kind: 'shell',
         team: 'player',
         damage: m.damage,
-        bossDamage: m.damage * 1.4,
-        source: `${this.def.id}_bomb`,
+        bossDamage: m.damage * 1.45,
+        source: m.napalm ? `${this.def.id}_napalm` : `${this.def.id}_bomb`,
         gravity: m.gravity || 28,
         lifetime: 10,
         trail: 'big',
-        size: 1.85,
+        size: 1.95,
         armorPiercing: true,
+        napalm: m.napalm,
         explosion: {
           radius: m.blastRadius,
           damage: m.blastDamage,
           kind: m.explosionKind,
           selfDamage: 0,
-          scale: m.blastRadius > 14 ? 2.1 : 1.75,
+          scale: bombScale,
+          shake: 1.4,
         },
       });
+      this.ctx.audio?.play('mortar_whistle', { position: _muzzle, volume: 0.65, pitch: m.napalm ? 0.92 : 0.8 });
     } else if (m.kind === 'atgm' || m.homing) {
       const lock = this.currentLockTarget;
       _vel.copy(_dir).multiplyScalar(m.speed);
@@ -1372,15 +1491,18 @@ export class DriveableVehicle {
       this.ctx.camera?.addTrauma?.(spec.trauma);
     }
     this.ctx.fx?.muzzleFlash?.(_muzzle, _dir, spec.muzzleFlash);
-    this.ctx.audio?.play(spec.audio, {
+    this.ctx.audio?.play(m.audio, {
       position: _muzzle,
-      volume: m.kind === 'cannon' || m.kind === 'bomb' ? 0.95 : 0.72,
-      pitch: spec.audioPitch,
+      volume: m.kind === 'cannon' || m.kind === 'bomb' ? 0.95 : 0.74,
+      pitch: m.audioPitch,
       pitchJitter: 0.04,
     });
   }
 
-  /** Jackal's toggleable `[Q]` AI roof gunner: tracks & shreds nearest enemy while you drift! */
+  /**
+   * Jackal's toggleable `[Q]` AI roof gunner: dynamically switches between 40mm Smart-AGL (enemy clusters of 2+,
+   * bosses, or enemy vehicles at 14..68 m) and the .50-Cal HMG (close range, single movers, or AGL reload)!
+   */
   private stepAutoTurret(dt: number): void {
     if (this.def.id !== 'jackal' || !this.specialActive || !this.occupied || this._seatIndex !== 0) return;
     this.autoTurretCooldown -= dt;
@@ -1389,6 +1511,85 @@ export class DriveableVehicle {
     this.model.root.updateMatrixWorld(true);
     this.model.muzzles.roof.getWorldPosition(_muzzle);
 
+    // 1. Check for high-value 40mm Smart-AGL targets (enemy vehicles, bosses, or tight clusters >= 2) at 14..68 m!
+    let aglTargetPos: THREE.Vector3 | null = null;
+    if (this.autoAglCooldown <= 0) {
+      let bestScore = 0;
+      // Prefer enemy vehicles in mid-range first.
+      this.ctx.enemies?.vehicles?.paintable?.(_paintTargets);
+      for (const vt of _paintTargets) {
+        if (!vt.alive) continue;
+        const dist = vt.center.distanceTo(_muzzle);
+        if (dist >= 14 && dist <= AUTO_TURRET_RANGE) {
+          const score = 120 - dist * 0.4;
+          if (score > bestScore) {
+            bestScore = score;
+            aglTargetPos = vt.center;
+          }
+        }
+      }
+      // Also check bosses and infantry clusters (2+ enemies within 6.5 m of each other).
+      const alive = this.ctx.enemies.alive;
+      for (let i = 0; i < alive.length; i++) {
+        const e = alive[i]!;
+        if (!e.alive) continue;
+        const dist = e.center.distanceTo(_muzzle);
+        if (dist < 14 || dist > AUTO_TURRET_RANGE) continue;
+        let cluster = 1;
+        for (let j = 0; j < alive.length; j++) {
+          if (i === j) continue;
+          const o = alive[j]!;
+          if (o.alive && o.center.distanceToSquared(e.center) <= 42.25) cluster++;
+        }
+        if (e.isBoss || cluster >= 2) {
+          const score = (e.isBoss ? 105 : 60 + cluster * 18) - dist * 0.35;
+          if (score > bestScore) {
+            bestScore = score;
+            aglTargetPos = e.center;
+          }
+        }
+      }
+    }
+
+    if (aglTargetPos) {
+      const dist = aglTargetPos.distanceTo(_muzzle);
+      const speed = 44;
+      const g = 16;
+      const tof = dist / speed;
+      _dir.subVectors(aglTargetPos, _muzzle);
+      const targetRelYaw = wrapAngle(Math.atan2(_dir.x, _dir.z) - this.phys.yaw);
+      this.turretYaw = dampAngle(this.turretYaw, targetRelYaw, 12, 0.14);
+      // Compute ballistic arc launch velocity so the 40mm grenade lands right in the pack!
+      _vel.set(_dir.x / Math.max(0.15, tof), (_dir.y + 0.5 * g * tof * tof) / Math.max(0.15, tof), _dir.z / Math.max(0.15, tof));
+      _dir.copy(_vel).normalize();
+      this.turretPitch = Math.asin(clamp(_dir.y, -0.45, 0.85));
+
+      this.autoAglCooldown = 2.6;
+      this.autoTurretCooldown = 0.36;
+      this.ctx.combat.spawnProjectile({
+        origin: _muzzle,
+        velocity: _vel,
+        kind: 'shell',
+        team: 'player',
+        damage: 145,
+        source: 'jackal_auto_agl',
+        gravity: g,
+        lifetime: 6,
+        trail: 'smoke',
+        explosion: {
+          radius: 4.8,
+          damage: 150,
+          kind: 'grenade',
+          selfDamage: 0,
+          scale: 1.05,
+        },
+      });
+      this.ctx.fx?.muzzleFlash?.(_muzzle, _dir, 'autocannon');
+      this.ctx.audio?.play('mgl_shot', { position: _muzzle, volume: 0.65, pitch: 0.98, pitchJitter: 0.05 });
+      return;
+    }
+
+    // 2. Otherwise shred nearest enemy with the M2-X50 .50-Cal HMG!
     let best: EnemyInstance | null = null;
     let bestD2 = AUTO_TURRET_RANGE * AUTO_TURRET_RANGE;
     for (const e of this.ctx.enemies.alive) {
@@ -1408,7 +1609,7 @@ export class DriveableVehicle {
 
     this.autoTurretCooldown = 0.11;
     this.ctx.combat.fireRay(_muzzle, _dir, {
-      damage: 28,
+      damage: 34,
       source: 'jackal_auto_turret',
       team: 'player',
       maxDistance: AUTO_TURRET_RANGE + 10,
@@ -1416,7 +1617,7 @@ export class DriveableVehicle {
       tracerFrom: _muzzle,
     });
     this.ctx.fx?.muzzleFlash?.(_muzzle, _dir, 'rotary');
-    this.ctx.audio?.play('hmg_shot', { position: _muzzle, volume: 0.42, pitch: 1.45, pitchJitter: 0.06 });
+    this.ctx.audio?.play('hmg_shot', { position: _muzzle, volume: 0.45, pitch: 1.38, pitchJitter: 0.06 });
   }
 
   /** Bastion Deployed `[Q]` mobile bunker aura: heals nearby players & refills weapon reserves every 1.4 s! */
@@ -1485,7 +1686,7 @@ export class DriveableVehicle {
     }
   }
 
-  /** Handles high-speed wall/ground crash damage, pushable enemy wrecks, and kamikaze enemy-vehicle ramming! */
+  /** Handles high-speed wall/ground crashes, abandoned aircraft impacts, pushable wrecks, and player-favorable enemy-vehicle ramming! */
   private stepCrashAndRam(_dt: number, occupied: boolean): void {
     // 1. Push destroyed enemy wrecks out of the way cleanly!
     if (this.phys.speed > 2.2) {
@@ -1493,23 +1694,35 @@ export class DriveableVehicle {
       this.ctx.enemies?.vehicles?.pushWrecks?.(this.phys.position, pushRadius, this.phys.velocity, this.def.mass);
     }
 
-    // 2. High-speed wall / ground crash damage (can detonate into a kamikaze blast!).
-    if (this.phys.crashImpact > 17) {
+    // 2. Abandoned falling aircraft slamming into terrain or buildings -> dramatic fireball!
+    if (!occupied && this.phys.abandonedFall && (this.phys.crashImpact > 10 || this.phys.grounded)) {
+      this.ctx.audio?.play('veh_crash_heavy', { position: this.phys.position, volume: 0.95, pitch: 0.8 });
+      this.explodeAndDestroy(true);
+      return;
+    }
+
+    // 3. High-speed wall / ground crash damage (forgiving threshold + cooldown + capped self-damage so driving feels great!).
+    if (this.wallCrashCooldown <= 0 && this.phys.crashImpact > 25) {
       const impact = this.phys.crashImpact;
-      const dmg = Math.round((impact - 14) * (this.def.category === 'jet' ? 36 : 13));
+      this.wallCrashCooldown = 1.15;
+      const isCatastrophicJetDive = this.def.category === 'jet' && impact >= 42;
+      const rawDmg = Math.round((impact - 22) * (this.def.category === 'jet' ? 22 : 7));
+      const maxCap = Math.round(this.def.maxHealth * (isCatastrophicJetDive ? 0.55 : 0.14));
+      const dmg = Math.min(rawDmg, maxCap);
       if (this.crashAudioCooldown <= 0) {
-        this.crashAudioCooldown = 0.35;
-        this.ctx.audio?.play('metal_clang', { position: this.phys.position, volume: 0.85, pitch: 0.72 });
+        this.crashAudioCooldown = 0.45;
+        this.ctx.audio?.play('veh_crash_heavy', { position: this.phys.position, volume: 0.85, pitch: 0.92 });
         this.ctx.fx?.sparks?.(this.phys.position, this.phys.crashNormal, 18, 0xffae3a);
       }
-      if (occupied) this.ctx.camera?.addTrauma?.(clamp(impact * 0.015, 0.2, 0.75));
-      this.absorbDamage(dmg, undefined, impact >= 24);
+      if (occupied) this.ctx.camera?.addTrauma?.(clamp(impact * 0.011, 0.16, 0.55));
+      this.absorbDamage(dmg, undefined, isCatastrophicJetDive);
       if (!this.alive) return;
     }
 
-    // 3. Ramming LIVE enemy trucks, humvees, tanks & choppers!
-    if (this.ramVehicleCooldown <= 0 && this.phys.speed > 8 && this.ctx.enemies?.vehicles?.vehicleRam) {
-      const ramRadius = Math.max(this.def.halfWidth, this.def.halfLength) + 0.9;
+    // 4. Ramming LIVE enemy trucks, humvees, tanks & choppers — heavily favors the player (no bounce-spam self-destruction)!
+    if (this.ramVehicleCooldown <= 0 && this.phys.speed > 6.5 && this.ctx.enemies?.vehicles?.vehicleRam) {
+      const ramRadius = Math.max(this.def.halfWidth, this.def.halfLength) + 0.95;
+      const impactSpeed = this.phys.speed;
       const res = this.ctx.enemies.vehicles.vehicleRam(
         this.phys.position,
         ramRadius,
@@ -1518,27 +1731,29 @@ export class DriveableVehicle {
         `${this.def.id}_ram`,
       );
       if (res?.hit) {
-        this.ramVehicleCooldown = 0.32;
+        // Long cooldown (1.15 s) eliminates low-speed repeated bounce damage when holding W!
+        this.ramVehicleCooldown = 1.15;
         _dir.subVectors(this.phys.position, res.point);
         _dir.y = 0;
         if (_dir.lengthSq() < 0.01) _dir.set(0, 0, -1);
         else _dir.normalize();
-        this.ctx.audio?.play('metal_clang', { position: res.point, volume: 0.95, pitch: 0.68 });
-        this.ctx.fx?.sparks?.(res.point, _dir, 26, 0xffb84d);
-        if (occupied) this.ctx.camera?.addTrauma?.(0.45);
+        this.ctx.audio?.play('veh_crash_heavy', { position: res.point, volume: 0.95, pitch: res.armored ? 0.82 : 1.05 });
+        this.ctx.fx?.sparks?.(res.point, _dir, 28, 0xffb84d);
+        if (occupied) this.ctx.camera?.addTrauma?.(clamp(impactSpeed * 0.014, 0.22, 0.52));
 
-        // Deflect velocity slightly off the enemy hull.
+        // Plow through light/destroyed targets cleanly; gentle non-bouncing slowdown against live heavy armor.
         const vn = this.phys.velocity.x * _dir.x + this.phys.velocity.z * _dir.z;
         if (vn < 0) {
-          this.phys.velocity.x -= _dir.x * vn * 1.25;
-          this.phys.velocity.z -= _dir.z * vn * 1.25;
+          const dampFactor = res.killed || this.def.mass >= 6 ? 0.35 : 0.72;
+          this.phys.velocity.x -= _dir.x * vn * dampFactor;
+          this.phys.velocity.z -= _dir.z * vn * dampFactor;
         }
 
-        // Kamikaze detection: ramming at blistering speed triggers massive self-damage & anti-armor kamikaze blast!
-        const kamikazeSpeed = this.phys.speed >= Math.max(24, this.def.maxSpeed * 0.72);
-        const baseSelf = (res.armored ? 260 : 115) * clamp(this.phys.speed / 16, 0.7, 2.2);
-        const selfDmg = baseSelf * (kamikazeSpeed ? 1.65 : 1.0);
-        this.absorbDamage(selfDmg, undefined, kamikazeSpeed);
+        // Player-favorable self-damage cap: heavy armor shrugs off rams, light vehicles take modest chip damage.
+        const capFrac = this.def.mass >= 6 ? 0.03 : this.def.mass >= 1.5 ? 0.07 : 0.12;
+        const rawSelf = (res.armored ? 72 : 34) * clamp(impactSpeed / 22, 0.5, 1.5) * (1 / Math.max(0.8, Math.sqrt(this.def.mass)));
+        const selfDmg = Math.min(Math.round(rawSelf), Math.round(this.def.maxHealth * capFrac));
+        this.absorbDamage(selfDmg, undefined, false);
       }
     }
   }
@@ -1664,13 +1879,13 @@ export class DriveableVehicle {
     }
 
     const frac = this.health / this.def.maxHealth;
-    if (frac < 0.38) {
+    if (frac < 0.38 || this.phys.abandonedFall) {
       this.smokeTimer -= dt;
       if (this.smokeTimer <= 0) {
-        this.smokeTimer = frac < 0.2 ? 0.08 : SMOKE_INTERVAL;
+        this.smokeTimer = frac < 0.2 || this.phys.abandonedFall ? 0.07 : SMOKE_INTERVAL;
         _origin.set(this.phys.position.x, this.phys.position.y + this.def.halfHeight + 0.4, this.phys.position.z);
-        this.ctx.fx?.smoke?.(_origin, 0x2e3136, frac < 0.2 ? 1.3 : 0.85, 1.4);
-        if (frac < 0.2) this.ctx.fx?.sparks?.(_origin, _up, 6, 0xff9436);
+        this.ctx.fx?.smoke?.(_origin, 0x2e3136, frac < 0.2 || this.phys.abandonedFall ? 1.45 : 0.85, 1.5);
+        if (frac < 0.2 || this.phys.abandonedFall) this.ctx.fx?.sparks?.(_origin, _up, 6, 0xff9436);
       }
     }
   }
@@ -1681,7 +1896,7 @@ export class DriveableVehicle {
     root.rotation.set(0, this.phys.yaw, 0);
 
     const hoverBob = this.def.category === 'hover' ? Math.sin(this.clock * 4.2) * 0.065 : 0;
-    body.position.y = hoverBob;
+    body.position.y = (this.model.bodyBaseY ?? 0) + hoverBob;
     body.rotation.set(this.phys.pitch, 0, this.phys.roll);
 
     if (turret) {
@@ -1733,20 +1948,78 @@ export class DriveableVehicle {
       volume: this.def.engineVolume,
       pitch: this.def.enginePitchIdle,
     }) ?? null;
+    if (this.def.engineLayerLoop) {
+      const initVol = this.def.category === 'tracked' ? 0.02 : this.def.engineVolume * 0.45;
+      this.engineLayerLoop = this.ctx.audio?.startLoop?.(this.def.engineLayerLoop, {
+        position: this.phys.position,
+        volume: initVol,
+        pitch: this.def.enginePitchIdle,
+      }) ?? null;
+    }
   }
 
   private updateEngineAudio(): void {
-    if (!this.engineLoop) return;
     const frac = clamp(this.phys.speed / this.def.boostSpeed, 0, 1);
     const pitch = this.def.enginePitchIdle + (this.def.enginePitchMax - this.def.enginePitchIdle) * frac + (this.phys.boosting ? 0.18 : 0);
-    this.engineLoop.setPosition(this.phys.position);
-    this.engineLoop.setPitch(pitch);
-    this.engineLoop.setVolume(this.def.engineVolume * (0.85 + frac * 0.35));
+
+    if (this.engineLoop) {
+      this.engineLoop.setPosition(this.phys.position);
+      this.engineLoop.setPitch(this.phys.abandonedFall ? pitch * 1.18 : pitch);
+      this.engineLoop.setVolume(this.def.engineVolume * (0.85 + frac * 0.35));
+    }
+
+    if (this.engineLayerLoop) {
+      this.engineLayerLoop.setPosition(this.phys.position);
+      if (this.def.category === 'tracked') {
+        const trackFrac = clamp(this.phys.speed / Math.max(1, this.def.maxSpeed), 0, 1);
+        this.engineLayerLoop.setPitch(0.75 + trackFrac * 0.65);
+        this.engineLayerLoop.setVolume(trackFrac > 0.04 ? this.def.engineVolume * (0.18 + trackFrac * 0.62) : 0.001);
+      } else if (this.def.category === 'jet') {
+        const abActive = !this.phys.vtolMode || this.phys.boosting;
+        const abLevel = this.phys.boosting ? 1.0 : !this.phys.vtolMode ? 0.55 + frac * 0.4 : 0.08;
+        this.engineLayerLoop.setPitch(abActive ? 0.92 + frac * 0.45 : 0.78);
+        this.engineLayerLoop.setVolume(this.def.engineVolume * abLevel);
+      } else {
+        // Helicopter turbine layer scales cleanly with speed & climb load.
+        const load = clamp(frac + Math.abs(this.phys.velocity.y) * 0.04, 0, 1);
+        this.engineLayerLoop.setPitch(0.92 + load * 0.32);
+        this.engineLayerLoop.setVolume(this.def.engineVolume * (0.42 + load * 0.36));
+      }
+    }
+
+    // Dynamic tire screech loop while drifting grounded wheeled/moto vehicles!
+    const shouldDrift = this.occupied
+      && (this.def.category === 'wheeled' || this.def.category === 'moto')
+      && this.phys.drifting
+      && this.phys.grounded
+      && this.phys.speed > 7;
+    if (shouldDrift) {
+      if (!this.driftLoop) {
+        this.driftLoop = this.ctx.audio?.startLoop?.('veh_drift_loop', {
+          position: this.phys.position,
+          volume: 0.42,
+          pitch: 0.95,
+        }) ?? null;
+      }
+      if (this.driftLoop) {
+        const spdFrac = clamp(this.phys.speed / this.def.maxSpeed, 0.3, 1.3);
+        this.driftLoop.setPosition(this.phys.position);
+        this.driftLoop.setPitch(0.85 + spdFrac * 0.35);
+        this.driftLoop.setVolume(clamp(0.28 + spdFrac * 0.32, 0.2, 0.6));
+      }
+    } else if (this.driftLoop) {
+      this.driftLoop.stop();
+      this.driftLoop = null;
+    }
   }
 
   private stopEngine(): void {
     this.engineLoop?.stop();
     this.engineLoop = null;
+    this.engineLayerLoop?.stop();
+    this.engineLayerLoop = null;
+    this.driftLoop?.stop();
+    this.driftLoop = null;
   }
 
   private explodeAndDestroy(kamikaze = false): void {

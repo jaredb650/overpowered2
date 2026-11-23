@@ -183,7 +183,8 @@ export class EnemyChopper extends Vehicle {
     const player = this.sys.quarry(_pivot);
     _aim.copy(player.position);
     _aim.y += 1;
-    this.sees = player.alive && !player.parked && _pivot.distanceTo(_aim) < CHOPPER.gun.range * 1.4 && this.sys.lineClear(_pivot, _aim);
+    const targetable = player.alive && (!player.parked || player.interceptor !== null);
+    this.sees = targetable && _pivot.distanceTo(_aim) < CHOPPER.gun.range * 1.4 && this.sys.lineClear(_pivot, _aim);
     if (!this.sees) return;
     this.lastSeen.copy(_aim);
     this.seenAt = this.sys.now;

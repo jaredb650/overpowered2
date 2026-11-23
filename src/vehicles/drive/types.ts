@@ -23,6 +23,7 @@ export type VehicleCategory = 'wheeled' | 'tracked' | 'helicopter' | 'hover' | '
 export type HudViewMode =
   | 'standard'
   | 'emplacement'
+  | 'chopper'
   | 'thermal'
   | 'tank'
   | 'aa'
@@ -55,6 +56,23 @@ export type VehicleSpecialId =
   | 'wheelie'
   | 'none';
 
+export interface VehicleWeaponAltMode {
+  readonly name: string;
+  readonly kind?: VehicleWeaponKind;
+  readonly damage: number;
+  readonly speed: number;
+  readonly gravity?: number;
+  readonly interval?: number;
+  readonly magSize?: number;
+  readonly blastRadius: number;
+  readonly blastDamage: number;
+  readonly explosionKind: ExplosionKind;
+  readonly homing?: boolean;
+  readonly napalm?: boolean;
+  readonly audio?: string;
+  readonly audioPitch?: number;
+}
+
 export interface VehicleWeaponSpec {
   readonly name: string;
   readonly kind: VehicleWeaponKind;
@@ -82,38 +100,18 @@ export interface VehicleWeaponSpec {
   readonly trauma: number;
   /** True for homing / lock-on missiles. */
   readonly homing?: boolean;
+  /** True for incendiary BLU-27 napalm bombs. */
+  readonly napalm?: boolean;
   /** True for fixed-boresight nose guns (fighter jets / A-10) that shoot straight along the hull nose. */
   readonly boresight?: boolean;
   /** Optional charge duration in seconds (Viper Particle Lance beam). */
   readonly chargeSeconds?: number;
   /** Optional alternate ammo / ordnance mode toggled via `[R]`. */
-  readonly altMode?: {
-    readonly name: string;
-    readonly kind?: VehicleWeaponKind;
-    readonly damage: number;
-    readonly speed: number;
-    readonly gravity?: number;
-    readonly interval?: number;
-    readonly magSize?: number;
-    readonly blastRadius: number;
-    readonly blastDamage: number;
-    readonly explosionKind: ExplosionKind;
-    readonly homing?: boolean;
-  };
-  /** Optional third ordnance mode cycled via `[R]` (Harrier Bombs -> Missiles -> Rockets). */
-  readonly thirdMode?: {
-    readonly name: string;
-    readonly kind?: VehicleWeaponKind;
-    readonly damage: number;
-    readonly speed: number;
-    readonly gravity?: number;
-    readonly interval?: number;
-    readonly magSize?: number;
-    readonly blastRadius: number;
-    readonly blastDamage: number;
-    readonly explosionKind: ExplosionKind;
-    readonly homing?: boolean;
-  };
+  readonly altMode?: VehicleWeaponAltMode;
+  /** Optional third ordnance mode cycled via `[R]`. */
+  readonly thirdMode?: VehicleWeaponAltMode;
+  /** Optional fourth ordnance mode cycled via `[R]` (Harrier HE Bombs -> Napalm -> Missiles -> Rockets). */
+  readonly fourthMode?: VehicleWeaponAltMode;
 }
 
 export interface VehicleSeatSpec {
@@ -190,6 +188,8 @@ export interface DriveVehicleDef {
   readonly ramSpeed: number;
   readonly ramDamage: number;
   readonly engineLoop: string;
+  /** Optional secondary audio loop (tank tracks, heli turbine, jet afterburner). */
+  readonly engineLayerLoop?: string;
   readonly enginePitchIdle: number;
   readonly enginePitchMax: number;
   readonly engineVolume: number;
@@ -232,6 +232,10 @@ export interface VehiclePhysicsState {
   vtolMode: boolean;
   /** Current forward jet throttle 0..1. */
   airThrottle: number;
+  /** True when an abandoned helicopter/jet is spiraling/plummeting out of the sky to crash! */
+  abandonedFall: boolean;
+  /** Spin rate (rad/s) during an uncontrolled abandoned aircraft crash spiral. */
+  fallSpin: number;
 }
 
 export interface VehicleInput {
@@ -248,6 +252,9 @@ export interface VehicleInput {
   /** Jet pitch/roll mouse delta inputs. */
   lookX: number;
   lookY: number;
+  /** Unified aim yaw/pitch targets fed into stepJet so jet flight never fights itself. */
+  targetAimYaw?: number;
+  targetAimPitch?: number;
 }
 
 export interface VehicleHudData {
@@ -274,6 +281,8 @@ export interface VehicleHudData {
   readonly rollRad: number;
   readonly altitudeM: number;
   readonly ccipWorld: readonly [number, number, number] | null;
+  readonly ccipLabel: string;
+  readonly gunPipWorld: readonly [number, number, number] | null;
   readonly lockWorld: readonly [number, number, number] | null;
   readonly lockLabel: string;
   readonly leadPips: readonly (readonly [number, number, number])[];

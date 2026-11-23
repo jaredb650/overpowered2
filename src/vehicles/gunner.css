@@ -281,6 +281,15 @@
 .gn.tone-vehicle[data-vmode="thermal"] .gn-corner { display: block; border-color: rgba(230, 242, 236, 0.5); }
 .gn.tone-vehicle[data-vmode="thermal"] .gn-reticle { width: 20rem; height: 20rem; margin: -10rem 0 0 -10rem; }
 
+.gn.tone-vehicle[data-vmode="chopper"] {
+  --gn: #ffe8c2;
+  --gn-dim: rgba(255, 232, 194, 0.6);
+  --gn-hot: #ff9c3b;
+}
+.gn.tone-vehicle[data-vmode="chopper"] .gn-corner { display: block; border-color: rgba(255, 206, 130, 0.52); }
+.gn.tone-vehicle[data-vmode="chopper"] .gn-reticle { width: 24rem; height: 24rem; margin: -12rem 0 0 -12rem; }
+.gn.tone-vehicle[data-vmode="chopper"] .gn-ret { stroke-width: 1.7; }
+
 .gn.tone-vehicle[data-vmode="passenger"] .gn-arms,
 .gn.tone-vehicle[data-vmode="passenger"] .gn-spin { display: none; }
 
@@ -337,7 +346,7 @@
   letter-spacing: 0.16em;
 }
 
-/* Projected 3D Tactical Reticles: CCIP Bomb Impact, Missile Lock Diamond, AA Lead Pips */
+/* Projected 3D Tactical Reticles: CCIP Bomb Impact, Gun-Tracking Pipper, Missile Lock Diamond, AA Lead Pips */
 .gn-ccip {
   display: none;
   position: absolute;
@@ -367,6 +376,45 @@
   transform: translateX(-50%);
   font-size: 0.85rem;
   letter-spacing: 0.12em;
+  color: #52ff88;
+  white-space: nowrap;
+}
+.gn-ccip.napalm {
+  border-color: #ff7b2e;
+  box-shadow: 0 0 1rem rgba(255, 123, 46, 0.8);
+}
+.gn-ccip.napalm::after { background: #ff7b2e; }
+.gn-ccip.napalm .gn-ccip-lbl { color: #ff9c3b; }
+
+.gn-gunpip {
+  display: none;
+  position: absolute;
+  left: -1.15rem;
+  top: -1.15rem;
+  width: 2.3rem;
+  height: 2.3rem;
+  border: 0.16rem solid #52ff88;
+  border-radius: 50%;
+  box-shadow: 0 0 0.75rem rgba(82, 255, 136, 0.72);
+}
+.gn-gunpip::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 0.36rem;
+  height: 0.36rem;
+  margin: -0.18rem 0 0 -0.18rem;
+  background: #52ff88;
+  border-radius: 50%;
+}
+.gn-gunpip-lbl {
+  position: absolute;
+  left: 50%;
+  top: -1.35rem;
+  transform: translateX(-50%);
+  font-size: 0.72rem;
+  letter-spacing: 0.14em;
   color: #52ff88;
   white-space: nowrap;
 }
