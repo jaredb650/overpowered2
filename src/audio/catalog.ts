@@ -316,7 +316,7 @@ const gunShots: SoundDef[] = [
   shot('shotgun_shell_in', 'guns/shotgun_shell_in.mp3', 'foley', 0.058, 0.19, { pitchJitter: 0.05 }),
   shot('gimlet_mag_out', 'guns/gimlet_mag_out.mp3', 'foley', 0.058, 0.194),
   shot('gimlet_mag_in', 'guns/gimlet_mag_in.mp3', 'foley', 0.058, 0.263),
-  shot('gimlet_rack_bolt', 'guns/gimlet_rack_bolt.mp3', 'foley', 0.058, 0.312),
+  shot('gimlet_rack_bolt', 'guns/gimlet_rack_bolt.mp3', 'foley', 0.058, 0.366),
   shot('harrow_mag_out', 'guns/harrow_mag_out.mp3', 'foley', 0.058, 0.247),
   shot('harrow_mag_in', 'guns/harrow_mag_in.mp3', 'foley', 0.058, 0.226),
   shot('harrow_rack_bolt', 'guns/harrow_rack_bolt.mp3', 'foley', 0.058, 0.277),
