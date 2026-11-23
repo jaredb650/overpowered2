@@ -46,8 +46,8 @@ describe('Flail viewmodel', () => {
     expect(def.model.parts.reddot!.parent).toBe(def.model.parts.cover);
     expect(def.model.parts.acog!.parent).toBe(def.model.parts.cover);
     expect(def.mods!.flailBox).toMatchObject({ part: 'boxExt', hides: 'boxStd' });
-    // Every look is built in, hidden until fitted: the gun with both optics and both boxes came to about 29,500.
-    expect(def.model.triangles).toBeLessThan(31000);
+    // Every look is built in, hidden until fitted: base + optics/boxes (~29.5k) plus flailLong and flailDouble (~55k total).
+    expect(def.model.triangles).toBeLessThan(60000);
   });
 
   it('puts each optic\'s sight point on the cover where the cover puts it, centred over the bore', () => {

@@ -126,7 +126,7 @@ function slide(m: Mesher): NonNullable<ViewDef['mods']>['ultramagDot'] {
       m.front(rail, BREECH - PORT + 0.002, { capFront: false, capBack: false });
     });
     serrations(m, -0.268, -0.212, 11);
-    dotLook = openReflex(m, [0, SY1, RMR_Z], { name: 'rmr', scale: 1.08, relief: 0.17, finish: FRAME, accent: NITRIDE, modelScale: S });
+    dotLook = openReflex(m, [0, SY1, RMR_Z], { name: 'rmr', scale: 1.12, riser: 0.0062, relief: 0.17, finish: FRAME, accent: NITRIDE, modelScale: S });
     serrations(m, 0.052, 0.1, 10);
     // Rear face: anti-glare grooves across it and a small firing-pin cap, nothing to catch the eye under the sights.
     m.use(F.black);

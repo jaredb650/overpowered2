@@ -173,6 +173,8 @@ export interface OpenReflexOpts {
   worldOffset?: Tuple3;
   /** Post-build uniform model scale (e.g. Ultramag's `S = 0.9`). */
   modelScale?: number;
+  /** Optional low-profile slide-cut adapter riser height in caller units (clears tall backup irons). */
+  riser?: number;
 }
 
 /**
@@ -188,8 +190,19 @@ export function openReflex(m: Mesher, at: Tuple3, opts: OpenReflexOpts = {}): Mo
   const accent = opts.accent ?? F.steelDark;
   const off = opts.worldOffset ?? [0, 0, 0];
   const ms = opts.modelScale ?? 1;
+  const riser = opts.riser ?? 0;
 
-  m.part(name, at, () => m.scaled(sc, () => {
+  m.part(name, at, () => {
+    if (riser > 0) {
+      // Flush bevelled slide-adapter plate bridging the slide top up to the reflex mounting deck.
+      const pw = 0.0128 * sc;
+      const pl = 0.039 * sc;
+      m.use(accent);
+      m.at([0, riser * 0.5 - 0.0008, 0], null, () => m.box(pw * 2, riser + 0.0016, pl, 0.0008 * sc));
+      m.use(F.steelDark);
+      m.at([0, riser - 0.0004, 0], null, () => m.box(pw * 1.9, 0.0014, pl * 0.94, 0.0004 * sc));
+    }
+    m.at([0, riser, 0], null, () => m.scaled(sc, () => {
     const hw = 0.0134;
     // Sunk mounting skirt nesting into the slide optic cut so there is zero daylight under the deck.
     m.use(F.steelDark);
@@ -249,12 +262,13 @@ export function openReflex(m: Mesher, at: Tuple3, opts: OpenReflexOpts = {}): Mo
     m.glass(() => m.at([0, 0, -0.0108], null, () => m.front(win, 0.0005, { bevel: 0 })));
     m.glow('dot', () => m.at([0, OPEN_REFLEX_DOT_Y, OPEN_REFLEX_DOT_Z], null, () => m.cyl(0.00048, 0.00018, 12, 0)));
   }));
+  });
 
   return {
     part: name,
     sight: [
       (off[0] + at[0]) * ms,
-      (off[1] + at[1] + OPEN_REFLEX_DOT_Y * sc) * ms,
+      (off[1] + at[1] + riser + OPEN_REFLEX_DOT_Y * sc) * ms,
       (off[2] + at[2] + OPEN_REFLEX_DOT_Z * sc) * ms,
     ],
     rear: null,
