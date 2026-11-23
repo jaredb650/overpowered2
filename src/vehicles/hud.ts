@@ -438,7 +438,7 @@ export class GunnerHud implements SeatPanel {
       : plan.tone === 'gunship'
         ? `${this.key('fire')} FIRE // 1-4 GUN, AGAIN FOR ROUND // ${this.key('aim')} ZOOM // ${this.key('reload')} VIEW${flares}${out}`
         : plan.tone === 'frame'
-          ? `${this.key('jump')} JETS // ${this.key('slide')} STOMP // ${this.key('dash')} CHARGE // ${this.key('melee')} MELEE // WHEEL ZOOM${out}`
+          ? `${this.key('jump')} JETS // ${this.key('slide')} STOMP // ${this.key('dash')} CHARGE // ${this.key('melee')} MELEE // X VIEW // WHEEL ZOOM${out}`
           : plan.tone === 'vehicle'
             ? `WASD DRIVE // SHIFT BOOST // F SEAT // C VIEW // Q SPECIAL${out}`
             : plan.aimZooms

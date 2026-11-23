@@ -192,6 +192,38 @@ describe('the stomp', () => {
     w.update(DT, { ...idle(), stomp: true });
     expect(w.stomping).toBe(false);
   });
+
+  it('dives diagonally onto a painted target with startTargetedStomp and credits angled travel toward big slam power', () => {
+    floor();
+    const w = walker();
+    run(w, 0.55, { ...idle(), jet: true });
+    expect(w.clearance()).toBeGreaterThan(2.5);
+    const target = new THREE.Vector3(3, 0, -14);
+    expect(w.startTargetedStomp(target)).toBe(true);
+    expect(w.stomping).toBe(true);
+    expect(w.stompTargeted).toBe(true);
+    let fell = -1;
+    let t = 0;
+    for (; fell < 0 && t < 1.5; t += DT) {
+      w.update(DT, idle());
+      fell = w.said.stomped;
+    }
+    expect(w.grounded).toBe(true);
+    expect(w.stompTargeted).toBe(false);
+    expect(fell).toBeGreaterThanOrEqual(FRAME.stomp.big);
+    expect(Math.hypot(w.feet.x - target.x, w.feet.z - target.z)).toBeLessThan(2.2);
+  });
+
+  it('engages air hover-brake while slamAiming is held so the pilot has time to paint a ground target', () => {
+    floor();
+    const w = walker();
+    run(w, 0.65, { ...idle(), jet: true });
+    const y0 = w.feet.y;
+    run(w, 0.6, { ...idle(), slamAiming: true });
+    expect(w.grounded).toBe(false);
+    expect(w.velocity.y).toBeGreaterThan(-3.2);
+    expect(y0 - w.feet.y).toBeLessThan(2.5);
+  });
 });
 
 describe('the charge', () => {

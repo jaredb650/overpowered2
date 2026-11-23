@@ -282,6 +282,8 @@ export interface StandInOptions {
   hover?: boolean;
   /** True when rolling on Treads. */
   treads?: boolean;
+  /** 0..1 forward torso dive pitch during an angled Pile-Driver dive-slam (also flares thrusters in 3P). */
+  diveTilt?: number;
   /** Frame delta time in seconds for animated attachments. */
   dt?: number;
 }
@@ -514,6 +516,7 @@ export class StandIn {
     const flying = options?.flying === true;
     const jetMode = options?.jetMode === true;
     const hover = options?.hover === true;
+    const diveTilt = clamp(options?.diveTilt ?? 0);
     const standby = parked || this.kneel > 0.1 || this.collapse > 0.1;
     const effectiveSink = (parked ? sink - 0.42 : sink) - this.kneel * 1.35 - this.collapse * 1.9;
     const limpRoll = this.limpSide * 0.08 * (0.4 + 0.6 * Math.abs(Math.sin(stride * Math.PI)));
@@ -523,7 +526,7 @@ export class StandIn {
     this.legs.rotation.y = legYaw;
     this.torso.position.set(feet.x + Math.cos(viewYaw) * sway, feet.y + FRAME_PLACES.hips + effectiveSink, feet.z - Math.sin(viewYaw) * sway);
     this.torso.rotation.set(
-      (parked ? -0.1 : 0) + (jetMode ? -0.55 : 0) + this.kneel * 0.22 + this.collapse * 0.42,
+      (parked ? -0.1 : 0) + (jetMode ? -0.55 : 0) - diveTilt * 0.42 + this.kneel * 0.22 + this.collapse * 0.42,
       viewYaw,
       limpRoll + this.collapse * 0.26,
       'YXZ',
@@ -538,11 +541,11 @@ export class StandIn {
     const hideVisor = this.activeCockpit?.hideStandardVisor === true;
     this.visorActive.visible = !hideVisor && !standby;
     this.visorStandby.visible = !hideVisor && standby;
-    const burn = jets || flying || jetMode;
+    const burn = jets || flying || jetMode || diveTilt > 0.15;
     for (let i = 0; i < this.jetCones.length; i++) {
       const cone = this.jetCones[i]!;
       cone.visible = burn && !inside;
-      if (burn) cone.scale.set(1, (jetMode ? 1.55 : 0.85) + Math.abs(Math.sin(stride * 13 + i * 2.1)) * 0.45, 1);
+      if (burn) cone.scale.set(1, (jetMode || diveTilt > 0.5 ? 1.55 : 0.85) + Math.abs(Math.sin(stride * 13 + i * 2.1)) * 0.45, 1);
     }
     if (options?.cracks !== undefined) this.setCracks(options.cracks);
 

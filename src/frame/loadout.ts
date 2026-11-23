@@ -228,7 +228,7 @@ export const FRAME_PARTS: Readonly<Record<FramePartId, FramePart>> = {
   },
   legsHeavy: {
     id: 'legsHeavy', slot: 'legs', name: 'Pile-Driver Legs',
-    does: 'Heavy legs: walk ×0.75, jet launch ×0.5, stomp ring ×1.5 with ×2.2 damage and push, leg armour ×1.6, immune to knockback.',
+    does: 'Heavy legs: walk ×0.75, jet launch ×0.5, stomp ring ×1.5 with ×2.2 damage and push, leg armour ×1.6, knockback-immune. Hold C/Ctrl in mid-air to paint a ground target and dive-slam at an angle.',
     lore: 'Puts the weight of the Office firmly behind every step.',
     legs: { walk: 0.75, jump: 0.5, stomp: 1.5, stompPower: 2.2, gait: 'heavy', legArmor: 1.6, immuneKnockback: true },
   },

@@ -34,6 +34,8 @@ export interface WalkerIntent {
   chargeHeld?: boolean;
   /** Camera pitch in radians (used by Flight / Afterburner 3D steering). */
   viewPitch?: number;
+  /** True while holding C/Ctrl in mid-air with Pile-Driver legs to paint an angled slam target (engages air hover-brake). */
+  slamAiming?: boolean;
 }
 
 /** What happened in the last `update`. */
@@ -102,6 +104,15 @@ export class Walker implements MoveState {
   /** Seconds left of a charge. */
   charging = 0;
   stomping = false;
+  /** True when the active stomp is an aimed angled Pile-Driver dive-slam toward `stompTarget`. */
+  stompTargeted = false;
+  /** Painted world-space landing point for an angled Pile-Driver dive-slam. */
+  readonly stompTarget = new THREE.Vector3();
+  /** Feet position when an angled Pile-Driver slam launched (used to reward forward dive distance). */
+  readonly stompOrigin = new THREE.Vector3();
+  private stompT = 0;
+  private stompDuration = 0.4;
+  private stompArcLift = 0;
   /** Seconds left standing up out of a stomp. */
   recover = 0;
   /** Plants so far: whole numbers are a foot coming down. */
@@ -138,7 +149,7 @@ export class Walker implements MoveState {
   private groundNormalY = 1;
   private gaitPlugin: GaitPlugin = GAIT_REGISTRY.walker;
   private drivePlugin: DrivePlugin = DRIVE_REGISTRY.jets;
-  private readonly intent: WalkerIntent = { moveX: 0, moveZ: 0, viewYaw: 0, jet: false, stomp: false, charge: false, chargeHeld: false, viewPitch: 0 };
+  private readonly intent: WalkerIntent = { moveX: 0, moveZ: 0, viewYaw: 0, jet: false, stomp: false, charge: false, chargeHeld: false, viewPitch: 0, slamAiming: false };
 
   constructor(physics: PhysicsSystem, private readonly floorY = -Infinity) {
     this.body = new CapsuleWorld(physics, FRAME.body.radius, CG.World | CG.Barrier);
@@ -151,6 +162,7 @@ export class Walker implements MoveState {
     this.gaitPlugin.reset?.();
     this.drivePlugin.reset?.();
     this.flying = this.hovering = this.jetMode = this.armsLockedForward = false;
+    this.stompTargeted = false;
     this.maxFuel = this.drivePlugin.maxFuel(this);
     this.maxCharges = this.drivePlugin.maxCharges(this);
     this.fuel = this.maxFuel;
@@ -175,7 +187,7 @@ export class Walker implements MoveState {
     this.maxFuel = this.drivePlugin.maxFuel(this);
     this.maxCharges = this.drivePlugin.maxCharges(this);
     this.fuel = this.maxFuel;
-    this.jetting = this.flying = this.hovering = this.jetMode = this.armsLockedForward = this.stomping = false;
+    this.jetting = this.flying = this.hovering = this.jetMode = this.armsLockedForward = this.stomping = this.stompTargeted = false;
     this.charges = this.maxCharges;
     this.chargeIn = this.charging = this.recover = this.boost = 0;
     this.stride = 0;
@@ -220,6 +232,7 @@ export class Walker implements MoveState {
     Object.assign(this.intent, intent);
     this.intent.chargeHeld = intent.chargeHeld ?? false;
     this.intent.viewPitch = intent.viewPitch ?? 0;
+    this.intent.slamAiming = intent.slamAiming ?? false;
     const ticks = Math.max(1, Math.ceil(dt / TICK - 1e-6));
     for (let i = 0; i < ticks; i++) {
       this.tick(dt / ticks, this.intent);
@@ -237,6 +250,17 @@ export class Walker implements MoveState {
     }
     this.jets(h, intent);
     this.walk(h, intent);
+    if (this.stomping && this.stompTargeted) {
+      this.guideTargetedStomp(h);
+    } else if (intent.slamAiming && !this.grounded && !this.stomping) {
+      // Mid-air Pile-Driver targeting thrusters: counteract gravity for steady slow-hover hang-time while painting.
+      this.velocity.y += FRAME.gravity * h;
+      const brake = 1 - Math.exp(-10 * h);
+      this.velocity.y += (-1.2 - this.velocity.y) * brake;
+      const hd = Math.exp(-3.5 * h);
+      this.velocity.x *= hd;
+      this.velocity.z *= hd;
+    }
     const startY = this.feet.y;
     const wasGrounded = this.grounded;
     this.slide(h);
@@ -312,11 +336,73 @@ export class Walker implements MoveState {
     const S = FRAME.stomp;
     if (this.grounded || this.stomping || this.clearance() < S.minHeight) return;
     this.stomping = true;
+    this.stompTargeted = false;
     this.stompTop = this.feet.y;
     this.charging = this.boost = 0;
     this.velocity.x *= S.carry;
     this.velocity.z *= S.carry;
     this.velocity.y = -S.speed;
+  }
+
+  /**
+   * Launches an angled Pile-Driver dive-slam toward a painted ground `target`.
+   * Steep dives from high altitude fly in a razor-straight diagonal; low-altitude Pile-Driver hops
+   * ignite a crisp ballistic launch arc so the mech clears rubble and lands dead-center on the ring.
+   */
+  startTargetedStomp(target: THREE.Vector3): boolean {
+    if (this.grounded || this.stomping || this.clearance() < 0.85) return false;
+    this.stomping = true;
+    this.stompTargeted = true;
+    this.stompTop = this.feet.y;
+    this.stompOrigin.copy(this.feet);
+    this.stompTarget.copy(target);
+    this.stompT = 0;
+    this.charging = this.boost = 0;
+    this.jetMode = this.flying = this.hovering = false;
+    const dx = target.x - this.feet.x;
+    const dy = target.y - this.feet.y;
+    const dz = target.z - this.feet.z;
+    const horiz = Math.hypot(dx, dz);
+    const total = Math.hypot(horiz, dy);
+    const drop = Math.max(0, -dy);
+    this.stompDuration = clamp(total / 38, 0.22, 1.05);
+    // Steep downward dive (high altitude) = straight diagonal; shallow forward leap = crisp ballistic arc.
+    this.stompArcLift = horiz < 2 || drop >= horiz * 0.6
+      ? 0
+      : clamp(horiz * 0.16, 1.1, 4.8);
+    if (dx * dx + dz * dz > 0.25) {
+      this.legYaw = Math.atan2(-dx, -dz);
+    }
+    this.guideTargetedStomp(0);
+    return true;
+  }
+
+  /** Tracks the ballistic angled dive curve via physical velocity so Rapier walls/ceilings/floors resolve cleanly. */
+  private guideTargetedStomp(h: number): void {
+    const dur = Math.max(0.12, this.stompDuration);
+    this.stompT += h / dur;
+    if (this.stompT >= 0.98) {
+      this.velocity.set(0, -FRAME.stomp.speed, 0);
+      return;
+    }
+    const u = this.stompT;
+    const ox = this.stompOrigin.x;
+    const oy = this.stompOrigin.y;
+    const oz = this.stompOrigin.z;
+    const tx = this.stompTarget.x;
+    const ty = this.stompTarget.y;
+    const tz = this.stompTarget.z;
+    const lift = this.stompArcLift;
+
+    const wantX = lerp(ox, tx, u);
+    const wantY = lerp(oy, ty, u) + 4 * lift * u * (1 - u);
+    const wantZ = lerp(oz, tz, u);
+
+    // Analytic derivative of the arc + proportional position lock so landings hit dead center.
+    const vx = (tx - ox) / dur + (wantX - this.feet.x) * 10;
+    const vy = (ty - oy + 4 * lift * (1 - 2 * u)) / dur + (wantY - this.feet.y) * 10;
+    const vz = (tz - oz) / dur + (wantZ - this.feet.z) * 10;
+    this.velocity.set(vx, vy, vz);
   }
 
   private jets(h: number, intent: WalkerIntent): void {
@@ -451,6 +537,12 @@ export class Walker implements MoveState {
         v.x = v.z = 0;
         break;
       }
+      if (this.stomping && this.stompTargeted && into > 0.65) {
+        this.stompTargeted = false;
+        v.x = v.z = 0;
+        v.y = -FRAME.stomp.speed;
+        break;
+      }
       _motion.multiplyScalar(1 - moved / len);
       clipFlat(_motion, _n);
       clipFlat(v, _n);
@@ -539,8 +631,12 @@ export class Walker implements MoveState {
     const v = this.velocity;
     this.said.landed = Math.max(this.said.landed, -v.y);
     if (this.stomping) {
+      const wasTargeted = this.stompTargeted;
       this.stomping = false;
-      this.said.stomped = Math.max(0, this.stompTop - this.feet.y);
+      this.stompTargeted = false;
+      const drop = Math.max(0, this.stompTop - this.feet.y);
+      const travel = wasTargeted ? this.feet.distanceTo(this.stompOrigin) : 0;
+      this.said.stomped = Math.max(drop, travel * 0.48);
       this.recover = FRAME.stomp.recover;
       v.x = v.z = 0;
     }
@@ -567,6 +663,7 @@ export class Walker implements MoveState {
     this.feet.copy(this.safe);
     this.velocity.set(0, 0, 0);
     this.stomping = false;
+    this.stompTargeted = false;
     this.said.rescued = true;
   }
 }

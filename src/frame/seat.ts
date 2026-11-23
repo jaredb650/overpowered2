@@ -16,6 +16,7 @@ import * as THREE from 'three';
 import { CG, type Ctx, type LoopHandle, type PlayerDamage, type RayHit } from '../core/contracts';
 import { clamp, lerp, rand, wrapAngle } from '../core/math';
 import { Ac130Rounds, ROUND_KINDS } from '../progression/callins/ac130Rounds';
+import { GroundRing } from '../progression/callins/ground';
 import type { MechKind } from '../progression/callins/link';
 import { TELL_EVERY, type Aircraft } from '../progression/callins/shared';
 import { CALLINS } from '../progression/data';
@@ -71,6 +72,18 @@ const FRAME_COLOR = CALLINS.frame.color;
 const BOOT_SECONDS = 2.4;
 /** Seconds for Old Mother's 25 m emergency canopy eject arc. */
 const EJECT_SECONDS = 1.65;
+/** Third-person chase camera defaults (over-the-shoulder distance, zoom, pullback, right offset). */
+const CAM_3P_BASE = 10.6;
+const CAM_3P_ZOOM = 6.2;
+const CAM_3P_ACTION = 12.6;
+const CAM_3P_RIGHT = 2.35;
+const CAM_3P_LIFT = 1.45;
+/** Pile-Driver angled slam ground-target solver constants. */
+const SLAM_GROUND_NORMAL = 0.45;
+const SLAM_MAX_RANGE = 58;
+const SLAM_MAX_HORIZ = 42;
+const SLAM_MAX_HOLD_SECONDS = 2.4;
+const SLAM_ARC_SEGMENTS = 18;
 
 interface KneelState {
   feet: THREE.Vector3;
@@ -102,6 +115,93 @@ const _right = new THREE.Vector3();
 const _cand = new THREE.Vector3();
 const _origin = new THREE.Vector3();
 const _hit: RayHit = { point: new THREE.Vector3(), normal: new THREE.Vector3(), distance: 0, surface: 'concrete', collider: null };
+const _slamProbe = new THREE.Vector3();
+const _slamHit: RayHit = { point: new THREE.Vector3(), normal: new THREE.Vector3(), distance: 0, surface: 'concrete', collider: null };
+
+function isTextInputTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  const tag = target.tagName;
+  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable;
+}
+
+/**
+ * Resolves the Pile-Driver angled slam target on walkable ground along `(origin, aim)`,
+ * clamped to `maxHoriz` m horizontally from `feet`. Aiming at a steep wall or open sky
+ * smoothly projects down onto reachable ground below so the painted ring stays responsive.
+ */
+export function solveSlamMarker(
+  physics: Ctx['physics'],
+  origin: THREE.Vector3,
+  aim: THREE.Vector3,
+  feet: THREE.Vector3,
+  out: THREE.Vector3,
+  maxRange = SLAM_MAX_RANGE,
+  maxHoriz = SLAM_MAX_HORIZ,
+): boolean {
+  let found = false;
+  if (physics.raycastInto(origin, aim, maxRange, CG.World, _slamHit)) {
+    if (_slamHit.normal.y >= SLAM_GROUND_NORMAL) {
+      out.copy(_slamHit.point);
+      found = true;
+    } else {
+      _slamProbe.copy(_slamHit.point).addScaledVector(_slamHit.normal, 1.0);
+      if (physics.raycastInto(_slamProbe, DOWN, 120, CG.World, _slamHit)) {
+        out.copy(_slamHit.point);
+      } else {
+        out.copy(_slamProbe);
+      }
+      found = true;
+    }
+  } else {
+    const hLen = Math.hypot(aim.x, aim.z);
+    if (hLen > 0.08) {
+      const dist = maxHoriz * 0.65;
+      _slamProbe.set(feet.x + (aim.x / hLen) * dist, feet.y + 12, feet.z + (aim.z / hLen) * dist);
+    } else {
+      _slamProbe.set(feet.x, feet.y + 0.5, feet.z);
+    }
+    if (physics.raycastInto(_slamProbe, DOWN, 140, CG.World, _slamHit)) {
+      out.copy(_slamHit.point);
+      found = true;
+    } else {
+      _slamProbe.set(feet.x, feet.y + 0.5, feet.z);
+      if (physics.raycastInto(_slamProbe, DOWN, 120, CG.World, _slamHit)) {
+        out.copy(_slamHit.point);
+        found = true;
+      }
+    }
+  }
+  if (!found) return false;
+
+  // Clamp horizontal reach from feet so the dive stays punchy and re-snap onto terrain at the edge.
+  let dx = out.x - feet.x;
+  let dz = out.z - feet.z;
+  const horiz = Math.hypot(dx, dz);
+  if (horiz > maxHoriz) {
+    const scale = maxHoriz / horiz;
+    dx *= scale;
+    dz *= scale;
+    _slamProbe.set(feet.x + dx, Math.max(feet.y, out.y) + 14, feet.z + dz);
+    if (physics.raycastInto(_slamProbe, DOWN, 140, CG.World, _slamHit)) {
+      out.copy(_slamHit.point);
+    } else {
+      out.set(feet.x + dx, Math.min(out.y, feet.y), feet.z + dz);
+    }
+  }
+
+  // Never paint a landing spot significantly above the mech's current altitude (drop down beneath instead).
+  if (out.y > feet.y + 1.5) {
+    _slamProbe.set(feet.x + dx * 0.45, feet.y + 0.5, feet.z + dz * 0.45);
+    if (physics.raycastInto(_slamProbe, DOWN, 120, CG.World, _slamHit)) {
+      out.copy(_slamHit.point);
+    } else {
+      _slamProbe.set(feet.x, feet.y + 0.5, feet.z);
+      if (physics.raycastInto(_slamProbe, DOWN, 120, CG.World, _slamHit)) out.copy(_slamHit.point);
+      else out.set(feet.x, feet.y - 1, feet.z);
+    }
+  }
+  return true;
+}
 
 export class Frame {
   readonly walker: Walker;
@@ -122,7 +222,7 @@ export class Frame {
   private readonly frame = new THREE.Quaternion();
   /** The eye, as posed this frame. */
   private readonly eye = new THREE.Vector3();
-  private readonly intent: WalkerIntent = { moveX: 0, moveZ: 0, viewYaw: 0, jet: false, stomp: false, charge: false, chargeHeld: false, viewPitch: 0 };
+  private readonly intent: WalkerIntent = { moveX: 0, moveZ: 0, viewYaw: 0, jet: false, stomp: false, charge: false, chargeHeld: false, viewPitch: 0, slamAiming: false };
   /** The hull sinking on its legs, metres (negative is down), and how fast: a critically damped spring back to 0. */
   private dip = 0;
   private dipV = 0;
@@ -154,6 +254,27 @@ export class Frame {
   private ejectState: EjectState | null = null;
   private collapsedPose: { feet: THREE.Vector3; yaw: number } | null = null;
   private aircraftAdapter: Aircraft | null = null;
+  /** Third-person chase camera toggle (`X` / `F5`) and damped follow distance. */
+  private _thirdPerson = false;
+  private camDist3P = CAM_3P_BASE;
+  private keyBound = false;
+  private readonly onViewKey = (e: KeyboardEvent): void => {
+    if (!this.occupied || e.repeat || isTextInputTarget(e.target)) return;
+    if (e.code === 'KeyX' || e.code === 'F5') {
+      if (e.code === 'F5') e.preventDefault();
+      this.toggleThirdPerson();
+    }
+  };
+  /** Mid-air Pile-Driver angled slam target painter state and 3D ground ring + dive arc visuals. */
+  private _slamAiming = false;
+  private _slamValid = false;
+  private _slamHoldTime = 0;
+  private _slamClock = 0;
+  private readonly _slamTarget = new THREE.Vector3();
+  private readonly slamRing: GroundRing | null;
+  private readonly slamLine: THREE.Line | null;
+  private readonly slamLinePos: Float32Array | null;
+  private readonly slamLineMat: THREE.LineBasicMaterial | null;
   /** Co-op: set while there are other players to tell (callins/manager.ts). */
   net: FrameNet | null = null;
   private tellIn = 0;
@@ -188,6 +309,33 @@ export class Frame {
       this.net?.news('shell', [ROUND_KINDS.indexOf(round), from.x, from.y, from.z, aim.x, aim.y, aim.z, seconds, side === 'left' ? 0 : 1]);
     this.guns.onMissile = (from, velocity) => this.net?.news('missile', [from.x, from.y, from.z, velocity.x, velocity.y, velocity.z]);
     this.guns.onNews = (kind, values) => this.net?.news(kind, values);
+
+    const hasScene = Boolean(scene && typeof scene.add === 'function');
+    if (hasScene) {
+      this.slamRing = new GroundRing(ctx);
+      const pts = new Float32Array((SLAM_ARC_SEGMENTS + 1) * 3);
+      const geom = new THREE.BufferGeometry();
+      geom.setAttribute('position', new THREE.BufferAttribute(pts, 3));
+      const mat = new THREE.LineBasicMaterial({
+        color: 0xff7830,
+        transparent: true,
+        opacity: 0.85,
+        depthWrite: false,
+      });
+      const line = new THREE.Line(geom, mat);
+      line.frustumCulled = false;
+      line.renderOrder = 21;
+      line.visible = false;
+      scene.add(line);
+      this.slamLine = line;
+      this.slamLinePos = pts;
+      this.slamLineMat = mat;
+    } else {
+      this.slamRing = null;
+      this.slamLine = null;
+      this.slamLinePos = null;
+      this.slamLineMat = null;
+    }
   }
 
   /** Maximum hull hit points for the active loadout (`4000` for standard legs + standard cockpit). */
@@ -203,6 +351,43 @@ export class Frame {
   /** The loadout this Frame is built from now (Foreclosure's howitzer included). */
   get loadout(): FrameLoadout {
     return this.kitNow;
+  }
+
+  /** True when piloting in third-person chase camera (`X` / `F5`). */
+  get thirdPerson(): boolean {
+    return this._thirdPerson;
+  }
+
+  /** Switches between first-person cockpit (`false`) and third-person chase view (`true`). */
+  setThirdPerson(on: boolean): void {
+    if (this._thirdPerson === on) return;
+    this._thirdPerson = on;
+    if (on) this.camDist3P = CAM_3P_BASE;
+    if (this.occupied) {
+      this.ctx.audio.play('weapon_dry', { pitch: on ? 1.25 : 0.9, volume: 0.45 });
+      this.pose(0);
+      if (this.seat) {
+        if (on) this.applyThirdPersonCamera(0, this.seat);
+        else this.seat.view.position.copy(this.eye);
+        this.ctx.camera.syncSeat();
+        this.panel(this.seat);
+      }
+    }
+  }
+
+  /** Toggles between 1P cockpit and 3P chase camera. */
+  toggleThirdPerson(): void {
+    this.setThirdPerson(!this._thirdPerson);
+  }
+
+  /** True while holding `C`/`Ctrl` mid-air with Pile-Driver legs to paint an angled slam target. */
+  get slamAiming(): boolean {
+    return this._slamAiming;
+  }
+
+  /** Last painted world-space Pile-Driver landing point. */
+  get slamTarget(): Readonly<THREE.Vector3> {
+    return this._slamTarget;
   }
 
   private mount(side: ArmSide): ArmMount {
@@ -232,6 +417,7 @@ export class Frame {
   private fit(loadout: FrameLoadout): void {
     this.kitNow = normalizeLoadout(loadout);
     this.stats = frameStats(this.kitNow);
+    if (this.stats.gait !== 'heavy') this.clearSlamAim();
     const arms = armsOf(this.kitNow);
     this.guns.fitArms(arms.left, arms.right);
     this.guns.fitShoulders(shouldersOf(this.kitNow));
@@ -431,6 +617,12 @@ export class Frame {
     this.rightGun.snap(yaw, 0);
     _to.set(-Math.sin(yaw), 0, -Math.cos(yaw)).multiplyScalar(30).add(this.eye);
     seat.sit(_to, this.eye);
+    this.bindViewKey();
+    if (this._thirdPerson) {
+      this.camDist3P = CAM_3P_BASE;
+      this.applyThirdPersonCamera(0, seat);
+      this.ctx.camera.syncSeat();
+    }
     this.panel(seat);
     this.onBoard();
     audio.play('metal_groan', { pitch: 0.7 });
@@ -563,6 +755,9 @@ export class Frame {
   /** A new run: out and gone, nothing left on the map or in the air. */
   clear(): void {
     this.clearKneel();
+    this.clearSlamAim();
+    this._thirdPerson = false;
+    this.camDist3P = CAM_3P_BASE;
     if (this.ejectState?.slowed) this.ctx.time.popScale('frame_eject');
     this.ejectState = null;
     this.collapsedPose = null;
@@ -668,18 +863,22 @@ export class Frame {
     it.moveZ = (input.isDown('forward') ? 1 : 0) - (input.isDown('back') ? 1 : 0);
     it.viewYaw = seat.yaw - input.frameLook.x * player.sensitivity * player.lookScale;
     it.jet = input.isDown('jump');
-    it.stomp = input.pressed('slide');
     it.charge = input.pressed('dash');
     it.chargeHeld = input.isDown('dash');
     it.viewPitch = seat.pitch;
+    this.updateSlamAimInput(dt, seat, it);
     w.update(dt, it);
     this.feel(dt);
     this.pose(dt);
     this.frame.setFromAxisAngle(UP, w.legYaw + Math.PI);
     seat.update(dt, this.frame, this.eye);
-    seat.view.roll = this.stats.noSway ? 0
+    if (this._thirdPerson) {
+      this.applyThirdPersonCamera(dt, seat);
+    }
+    seat.view.roll = this.stats.noSway || this._thirdPerson ? 0
       : FRAME.feel.roll * Math.sin(w.stride * Math.PI) * clamp(w.speed / FRAME.walk.forward) * (w.grounded ? 1 : 0);
     camera.syncSeat();
+    this.updateSlamVisuals(dt, seat);
     this.aimGuns(dt, seat);
     this.guns.update(dt, seat, {
       recoilMult: this.stats.noRecoil ? 0 : 1,
@@ -884,8 +1083,9 @@ export class Frame {
     const walk = w.grounded ? clamp(w.speed / FRAME.walk.forward) : 0;
     const sway = this.stats.noSway ? 0 : FRAME.feel.sway * Math.sin(w.stride * Math.PI) * walk;
     const kneel = this.boot < 1 ? (1 - this.boot) * 0.8 : 0;
+    const diveTilt = w.stomping && w.stompTargeted ? 1 : this._slamAiming ? 0.35 : 0;
     this.body.setPoseState(kneel, 0, this.crackStage, this.parts.limpSide, !this.parts.podOnline);
-    this.body.pose(w.feet, w.legYaw, w.viewYaw, w.stride, walk, this.dip, sway, true, this.eye, {
+    this.body.pose(w.feet, w.legYaw, w.viewYaw, w.stride, walk, this.dip, sway, !this._thirdPerson, this.eye, {
       parked: false,
       jets: w.jetting && !w.grounded,
       cracks: this.crackStage,
@@ -893,9 +1093,209 @@ export class Frame {
       jetMode: w.jetMode,
       hover: w.hovering,
       treads: this.stats.gait === 'treads',
+      diveTilt,
       dt,
     });
     if (dt > 0) this.backhandIn = Math.max(0, this.backhandIn - dt);
+  }
+
+  /**
+   * Positions the third-person over-the-shoulder chase camera behind the Frame's upper torso,
+   * pulling cleanly in front of walls/ceilings/floors and re-converging `seat.point`/`seat.range`
+   * from the 3P sightline so arms, shoulders, MIRV, and Pile-Driver slam targeting have zero parallax.
+   */
+  private applyThirdPersonCamera(dt: number, seat: GunnerSeat): void {
+    const w = this.walker;
+    const { physics } = this.ctx;
+    const targetDist = seat.zoomed
+      ? CAM_3P_ZOOM
+      : (w.charging > 0 || w.jetMode || w.stompTargeted || this._slamAiming ? CAM_3P_ACTION : CAM_3P_BASE);
+    if (dt > 0) {
+      this.camDist3P = lerp(this.camDist3P, targetDist, 1 - Math.exp(-8 * dt));
+    } else {
+      this.camDist3P = targetDist;
+    }
+
+    // Over-the-shoulder anchor above the hips, shifted slightly right so the chassis frames the left third cleanly.
+    _right.set(Math.cos(seat.yaw), 0, -Math.sin(seat.yaw));
+    _origin.set(
+      w.feet.x + _right.x * CAM_3P_RIGHT,
+      w.feet.y + FRAME_PLACES.hips + 1.55 + this.dip * 0.5,
+      w.feet.z + _right.z * CAM_3P_RIGHT,
+    );
+    _cand.copy(_origin)
+      .addScaledVector(seat.aim, -this.camDist3P);
+    _cand.y += CAM_3P_LIFT;
+
+    // Wall / ceiling pull-in from torso anchor toward desired 3P camera position.
+    _v.subVectors(_cand, _origin);
+    const desiredLen = _v.length();
+    if (desiredLen > 0.05) {
+      _v.divideScalar(desiredLen);
+      if (physics.raycastInto(_origin, _v, desiredLen + 0.5, CG.World, _hit)) {
+        const pull = Math.max(2.2, _hit.distance - 0.45);
+        _cand.copy(_origin).addScaledVector(_v, pull);
+      }
+    }
+
+    // Keep camera comfortably above terrain/floor underneath it.
+    _slamProbe.set(_cand.x, _cand.y + 1.2, _cand.z);
+    if (physics.raycastInto(_slamProbe, DOWN, 2.2, CG.World, _hit)) {
+      const minY = _hit.point.y + 0.6;
+      if (_cand.y < minY) _cand.y = minY;
+    }
+
+    seat.view.position.copy(_cand);
+
+    // Re-raycast from ahead of the mech along the 3P sightline so guns converge dead-on the crosshair.
+    const skip = Math.min(this.camDist3P * 0.55, 3.8);
+    _slamProbe.copy(_cand).addScaledVector(seat.aim, skip);
+    if (physics.raycastInto(_slamProbe, seat.aim, 400, CG.World | CG.Enemy | CG.Barrier, _hit)) {
+      seat.point.copy(_hit.point);
+      seat.range = _cand.distanceTo(_hit.point);
+    } else {
+      seat.point.copy(_cand).addScaledVector(seat.aim, 400);
+      seat.range = 400;
+    }
+  }
+
+  /**
+   * Handles Pile-Driver Legs mid-air slam targeting (`C`/`Ctrl` hold paints a MIRV-style ground marker
+   * with hover-brake; releasing launches an angled dive-slam straight into the painted target).
+   * Non-Pile-Driver legs keep the standard press-to-stomp path untouched.
+   */
+  private updateSlamAimInput(dt: number, seat: GunnerSeat, it: WalkerIntent): void {
+    const { input, physics, audio } = this.ctx;
+    const w = this.walker;
+    if (this.stats.gait !== 'heavy') {
+      if (this._slamAiming) this.clearSlamAim();
+      it.stomp = input.pressed('slide');
+      it.slamAiming = false;
+      return;
+    }
+
+    it.stomp = false;
+    const slideHeld = input.isDown('slide');
+    const slidePressed = input.pressed('slide');
+
+    if (w.grounded || w.stomping) {
+      if (this._slamAiming) {
+        this._slamAiming = false;
+        this._slamHoldTime = 0;
+      }
+      it.slamAiming = false;
+      return;
+    }
+
+    if (!this._slamAiming && (slideHeld || slidePressed) && w.clearance() >= 0.85) {
+      this._slamAiming = true;
+      this._slamHoldTime = 0;
+      this._slamClock = 0;
+      this._slamValid = solveSlamMarker(physics, seat.view.position, seat.aim, w.feet, this._slamTarget);
+      audio.play('quiver_arm', { pitch: 0.78, volume: 0.85 });
+    }
+
+    if (this._slamAiming) {
+      this._slamHoldTime += dt;
+      const timedOut = this._slamHoldTime >= SLAM_MAX_HOLD_SECONDS;
+      if (!slideHeld || timedOut) {
+        if (!this._slamValid) {
+          this._slamValid = solveSlamMarker(physics, seat.view.position, seat.aim, w.feet, this._slamTarget);
+        }
+        this._slamAiming = false;
+        this._slamHoldTime = 0;
+        it.slamAiming = false;
+        if (this._slamValid && w.startTargetedStomp(this._slamTarget)) {
+          audio.play('metal_clang', { pitch: 1.25, volume: 0.7 });
+        } else {
+          this.hideSlamVisuals();
+        }
+        return;
+      }
+    }
+
+    it.slamAiming = this._slamAiming;
+  }
+
+  /** Renders the MIRV-style depth-projected GroundRing and glowing 3D dive trajectory arc. */
+  private updateSlamVisuals(dt: number, seat: GunnerSeat): void {
+    const w = this.walker;
+    const diving = w.stomping && w.stompTargeted;
+    if (!this._slamAiming && !diving) {
+      this.hideSlamVisuals();
+      return;
+    }
+
+    this._slamClock += dt;
+    const target = diving ? w.stompTarget : this._slamTarget;
+    if (this._slamAiming) {
+      this._slamValid = solveSlamMarker(this.ctx.physics, seat.view.position, seat.aim, w.feet, this._slamTarget);
+      if (!this._slamValid) {
+        this.hideSlamVisuals();
+        return;
+      }
+    }
+
+    const outerRadius = Math.max(8, FRAME.stomp.radius * this.stats.stomp);
+    const innerRadius = 4.6;
+    if (this.slamRing) {
+      this.slamRing.show(target, outerRadius, innerRadius);
+      if (diving) {
+        this.slamRing.setColor('#ff2818', 3.4);
+        this.slamRing.setOpacity(0.95);
+      } else {
+        this.slamRing.setColor('#ff6a24', 2.6);
+        this.slamRing.setOpacity(0.84 + Math.sin(this._slamClock * 9) * 0.14);
+      }
+      this.slamRing.tick(this._slamClock);
+    }
+
+    if (this.slamLine && this.slamLinePos && this.slamLineMat) {
+      const sx = w.feet.x;
+      const sy = w.feet.y + 0.6;
+      const sz = w.feet.z;
+      const ex = target.x;
+      const ey = target.y + 0.25;
+      const ez = target.z;
+      const horiz = Math.hypot(ex - sx, ez - sz);
+      const lift = diving ? Math.min(2.2, horiz * 0.06) : Math.min(4.8, horiz * 0.14 + 0.8);
+      for (let i = 0; i <= SLAM_ARC_SEGMENTS; i++) {
+        const u = i / SLAM_ARC_SEGMENTS;
+        const idx = i * 3;
+        this.slamLinePos[idx] = lerp(sx, ex, u);
+        this.slamLinePos[idx + 1] = lerp(sy, ey, u) + 4 * lift * u * (1 - u);
+        this.slamLinePos[idx + 2] = lerp(sz, ez, u);
+      }
+      const attr = this.slamLine.geometry.getAttribute('position') as THREE.BufferAttribute;
+      attr.needsUpdate = true;
+      this.slamLineMat.color.setHex(diving ? 0xff3020 : 0xff7830);
+      this.slamLineMat.opacity = diving ? 0.95 : 0.78 + Math.sin(this._slamClock * 9) * 0.16;
+      this.slamLine.visible = true;
+    }
+  }
+
+  private hideSlamVisuals(): void {
+    this.slamRing?.hide();
+    if (this.slamLine) this.slamLine.visible = false;
+  }
+
+  private clearSlamAim(): void {
+    this._slamAiming = false;
+    this._slamValid = false;
+    this._slamHoldTime = 0;
+    this.hideSlamVisuals();
+  }
+
+  private bindViewKey(): void {
+    if (this.keyBound || typeof window === 'undefined') return;
+    window.addEventListener('keydown', this.onViewKey);
+    this.keyBound = true;
+  }
+
+  private unbindViewKey(): void {
+    if (!this.keyBound || typeof window === 'undefined') return;
+    window.removeEventListener('keydown', this.onViewKey);
+    this.keyBound = false;
   }
 
   /** Down into the legs by `depth` metres at most, and back up on the spring. */
@@ -1232,7 +1632,18 @@ export class Frame {
         case 'shotgun': return 'MECH SHOTGUN';
       }
     };
-    seat.status = `${tag(this.guns.left)} · ${tag(this.guns.right)}`;
+    const viewBadge = this._thirdPerson ? ' · 3P' : '';
+    const slamTag = this._slamAiming && this._slamValid
+      ? ` · SLAM LOCKED ${Math.round(w.feet.distanceTo(this._slamTarget))}M`
+      : w.stomping && w.stompTargeted
+        ? ' · PILE-DRIVER DIVE'
+        : '';
+    seat.status = `${tag(this.guns.left)} · ${tag(this.guns.right)}${viewBadge}${slamTag}`;
+    const out = seat.noWayOut ? '' : ` // ${key('interact')} EXIT`;
+    const slamHint = this.stats.gait === 'heavy'
+      ? `HOLD ${key('slide')} AIM SLAM`
+      : `${key('slide')} STOMP`;
+    seat.hintText = `${key('jump')} ${w.driveHudLabel} // ${slamHint} // ${key('dash')} CHARGE // ${key('melee')} MELEE // X VIEW (${this._thirdPerson ? '3P' : '1P'}) // WHEEL ZOOM${out}`;
   }
 
   /**
@@ -1338,6 +1749,8 @@ export class Frame {
   /** Releases seat ownership and active audio loops without hiding a still-deployed parked mech. */
   private releaseSeat(): void {
     this.seat = null;
+    this.unbindViewKey();
+    this.clearSlamAim();
     if (this.ctx.player.interceptor === this.intercept) this.ctx.player.interceptor = null;
     this.guns.silence();
     this.sensor.clear();

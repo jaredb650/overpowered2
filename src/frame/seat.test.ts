@@ -13,7 +13,7 @@ import { ROUND_KINDS } from '../progression/callins/ac130Rounds';
 import { FRAME } from './data';
 import { defaultLoadout, fitPart, kitIds } from './loadout';
 import { MECH_POSE } from './puppet';
-import { Frame } from './seat';
+import { Frame, solveSlamMarker } from './seat';
 
 const DT = 1 / 60;
 
@@ -236,3 +236,87 @@ describe('the loadout', () => {
     frame.net = null;
   });
 });
+
+describe('third-person view', () => {
+  it('toggles cleanly between 1P cockpit and 3P over-the-shoulder chase camera with HUD updates', () => {
+    expect(frame.thirdPerson).toBe(false);
+    frames(2);
+    const firstPersonPos = rig.seat!.view.position.clone();
+    frame.toggleThirdPerson();
+    expect(frame.thirdPerson).toBe(true);
+    frames(15);
+    const thirdPersonPos = rig.seat!.view.position.clone();
+    // Looking down -Z (yaw = 0): 3P camera sits behind (+Z) and slightly right (+X) of the cockpit eye.
+    expect(thirdPersonPos.z - firstPersonPos.z).toBeGreaterThan(7);
+    expect(thirdPersonPos.x - firstPersonPos.x).toBeGreaterThan(0.5);
+    expect(rig.seat!.status).toContain('· 3P');
+    expect(rig.seat!.hintText).toContain('X VIEW (3P)');
+    // Toggling back snaps right back to 1P cockpit eye.
+    frame.toggleThirdPerson();
+    expect(frame.thirdPerson).toBe(false);
+    frames(2);
+    expect(rig.seat!.view.position.distanceTo(firstPersonPos)).toBeLessThan(0.2);
+    expect(rig.seat!.status).not.toContain('· 3P');
+  });
+});
+
+describe('Pile-Driver aimed angled slam', () => {
+  it('solveSlamMarker paints walkable ground along aim, clamps far targets, and falls back smoothly when aiming at sky', () => {
+    const out = new THREE.Vector3();
+    const feet = new THREE.Vector3(0, 8, 0);
+    const origin = new THREE.Vector3(0, 12, 0);
+    // Downward-forward aim hits the y = 0 floor ahead (-Z).
+    const aimDown = new THREE.Vector3(0, -0.5, -0.866).normalize();
+    expect(solveSlamMarker(physics, origin, aimDown, feet, out)).toBe(true);
+    expect(out.y).toBeCloseTo(0, 1);
+    expect(out.z).toBeLessThan(-10);
+    // Far aim gets clamped within maxHoriz (25 m test limit).
+    expect(solveSlamMarker(physics, origin, new THREE.Vector3(0, -0.05, -0.998).normalize(), feet, out, 90, 25)).toBe(true);
+    expect(Math.hypot(out.x - feet.x, out.z - feet.z)).toBeLessThanOrEqual(25.1);
+    // Aiming into open sky projects down onto reachable floor ahead instead of failing.
+    expect(solveSlamMarker(physics, origin, new THREE.Vector3(0, 0.7, -0.714).normalize(), feet, out, 58, 42)).toBe(true);
+    expect(out.y).toBeCloseTo(0, 1);
+    expect(out.z).toBeLessThan(-10);
+  });
+
+  it('holds C/Ctrl mid-air with Pile-Driver legs to paint target and hover-brake, then releases to angled dive-slam forward', () => {
+    const heavyKit = fitPart(defaultLoadout(), 'legsHeavy');
+    frame.board(new THREE.Vector3(0, 0, 0), 0, Infinity, false, heavyKit);
+    expect(rig.seat!.hintText).toContain('AIM SLAM');
+
+    // Lift off with jump jets.
+    keys.down.add('jump');
+    frames(35);
+    keys.down.delete('jump');
+    expect(frame.walker.grounded).toBe(false);
+    expect(frame.walker.clearance()).toBeGreaterThan(1.2);
+
+    // Pitch slightly downward so crosshair aims at the floor ahead, then hold C/Ctrl ('slide').
+    rig.seat!.pitch = -0.35;
+    keys.down.add('slide');
+    keys.pressed.add('slide');
+    frames(1);
+    keys.pressed.clear();
+    frames(14);
+    expect(frame.slamAiming).toBe(true);
+    expect(frame.walker.stomping).toBe(false);
+    expect(frame.slamTarget.z).toBeLessThan(-5);
+    expect(rig.seat!.status).toContain('SLAM LOCKED');
+
+    // Release C/Ctrl to rocket diagonally into the painted ground target.
+    const paintedZ = frame.slamTarget.z;
+    keys.down.delete('slide');
+    frames(1);
+    expect(frame.slamAiming).toBe(false);
+    expect(frame.walker.stomping).toBe(true);
+    expect(frame.walker.stompTargeted).toBe(true);
+
+    // Advance until touchdown; mech should land well forward toward the painted target.
+    for (let i = 0; i < 90 && !frame.walker.grounded; i++) frames(1);
+    expect(frame.walker.grounded).toBe(true);
+    expect(frame.walker.stompTargeted).toBe(false);
+    expect(frame.walker.feet.z).toBeLessThan(-4);
+    expect(Math.abs(frame.walker.feet.z - paintedZ)).toBeLessThan(6);
+  });
+});
+
