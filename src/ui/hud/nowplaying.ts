@@ -33,8 +33,21 @@ export class NowPlaying {
     this.tag.set(original ? 'OST' : 'LOCAL');
     this.title.set(title);
     this.el.classList.toggle('np-local', !original);
+    this.el.classList.toggle('np-coop', !!this.el.parentElement?.querySelector('.cq-mate'));
     this.running?.cancel();
+    this.el.classList.add('playing');
     // The element rests invisible. The animation is the only thing that ever shows it, so nothing has to hide it again.
-    this.running = this.el.animate(FRAMES, { duration: SHOWN * 1000 });
+    const anim = this.el.animate(FRAMES, { duration: SHOWN * 1000 });
+    this.running = anim;
+    const clear = () => {
+      if (this.running === anim) {
+        this.running = null;
+        this.el.classList.remove('playing');
+      }
+    };
+    if (anim) {
+      anim.onfinish = clear;
+      anim.oncancel = clear;
+    }
   }
 }

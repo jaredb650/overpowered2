@@ -263,7 +263,11 @@ export class Hud implements HudSystem {
   private onResize = (): void => {
     this.worldLayer.measure();
     this.minimap.measure();
+    this.bubbles.measure();
+    this.crosshair.measure();
   };
+
+  private readonly readPickupsBound = (): readonly MinimapPoint[] => this.readPickups();
 
   init(): void {
     const { events } = this.ctx;
@@ -634,9 +638,8 @@ export class Hud implements HudSystem {
     if (game && game.state !== 'playing' && game.state !== 'paused') return;
 
     const camera = ctx.render.camera;
-    // The rig moved the camera this frame, but the matrix only refreshes at render, and at 40 m/s a frame of lag is
-    // visible on anchored text.
-    if (camera instanceof THREE.Camera) camera.updateMatrixWorld();
+    // CameraRig updates the camera's world matrix right before the HUD during play; refresh only if stale or paused.
+    if (camera instanceof THREE.Camera && (!playing || ctx.time.paused || camera.matrixWorldNeedsUpdate)) camera.updateMatrixWorld();
 
     const s = this.state;
     s.read(ctx);
@@ -674,7 +677,7 @@ export class Hud implements HudSystem {
     this.debug.update(s, dt);
     const seen = s.enemies;
     if (this.commander) s.enemies = this.commander.radar(seen);
-    this.minimap.update(s, dt, this.readPickups());
+    this.minimap.update(s, dt, this.readPickupsBound);
     s.enemies = seen;
     this.stragglers.update(s);
     this.scoreboard.update(input.isDown?.('scoreboard') === true && playing === true, dt);
@@ -683,6 +686,7 @@ export class Hud implements HudSystem {
 
   /** The helicopter on the first menu screens, the flythrough on the others, and neither in a run, which frees the helicopter. */
   private updateBackdrop(dt: number, state: GameState | undefined): void {
+    if (state === 'playing' && !this.backdrop.built && !this.flythrough.active) return;
     const screen = this.screens.name;
     const menu = state === 'menu';
     const heli = menu && HELI_SCREENS.has(screen);

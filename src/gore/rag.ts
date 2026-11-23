@@ -361,6 +361,12 @@ export class Rag {
   readonly restPoints: number[] = [];
   /** Told as the chain's fixed capsules are about to leave the world, by any road: woken, destroyed, or given up. */
   onUnrest: ((rag: Rag) => void) | null = null;
+  /** True when `part.p`/`part.q` already match the current physics step (e.g. read by `DynamicBalancer`). */
+  poseFresh = false;
+  /** True when `part.v`/`part.w` already match the current physics step. */
+  velFresh = false;
+  /** True when the last `drive()` saw a non-busy sleeping chain so unchanged sleeping chains skip Rapier reads and bone updates. */
+  private droveSleeping = false;
 
   constructor(
     readonly physics: PhysicsSystem,
@@ -595,6 +601,9 @@ export class Rag {
 
     this.muscle?.bind();
     for (const part of this.parts) if (part.parent && source.isFractured?.(part.bone)) this.breakJoint(part.bone);
+    this.poseFresh = false;
+    this.velFresh = false;
+    this.droveSleeping = false;
     this.bindDrive();
     this.momentum = 0;
     this.lift = NaN;
@@ -656,16 +665,23 @@ export class Rag {
     const parent = source.bones[root]!.parent ?? srcRoot;
     parent.matrixWorld.decompose(this.parentPos, this.parentRotInv, _scale);
     this.parentRotInv.invert();
+    this.poseFresh = false;
+    this.droveSleeping = false;
     this.drive();
   }
 
   /** Copies body poses onto the bones. Call once per frame, after the physics step. */
   drive(): void {
     const { parts, order, source, partOf } = this;
-    for (let i = 0; i < parts.length; i++) {
-      const part = parts[i]!;
-      part.body.translation(part.p);
-      part.body.rotation(part.q);
+    const sleeping = parts.length > 0 && (!this.muscle || !this.muscle.busy) && parts[0]!.body.isSleeping();
+    if (sleeping && this.droveSleeping) return;
+    if (!this.poseFresh) {
+      for (let i = 0; i < parts.length; i++) {
+        const part = parts[i]!;
+        part.body.translation(part.p);
+        part.body.rotation(part.q);
+      }
+      this.poseFresh = true;
     }
     const defs = source.rig.bones;
     const bones = source.bones;
@@ -694,16 +710,22 @@ export class Rag {
       }
     }
     source.root.updateMatrixWorld(true);
+    this.droveSleeping = sleeping;
   }
 
   /** Joint damping and soft limits. Runs before every physics sub-step. */
   preStep(dt: number): void {
+    this.poseFresh = false;
+    this.velFresh = false;
+    const muscle = this.muscle;
+    muscle?.syncGravity();
     const parts = this.parts;
     const n = parts.length;
     if (n < 2) return;
     // Rapier keeps a velocity given to a sleeping body and reports it for good, without ever moving it, and a body
     // that looks like it is moving never settles. A chain sleeps as one island, so one body answers for all of it.
-    if (this.muscle && !this.muscle.busy && parts[0]!.body.isSleeping()) return;
+    if ((!muscle || !muscle.busy) && parts[0]!.body.isSleeping()) return;
+    this.droveSleeping = false;
     for (let i = 0; i < n; i++) {
       const part = parts[i]!;
       part.body.rotation(part.q);
@@ -712,7 +734,6 @@ export class Rag {
       part.push.set(0, 0, 0);
     }
     const t = RagTuning;
-    const muscle = this.muscle;
     const balancing = muscle?.collapse?.balancer != null;
     // Death toneDamping (16 1/s) is meant to make dead bodies sag smoothly; skip it while DynamicBalancer drives the rig.
     const tone = this.slack || balancing ? 0 : t.toneDamping * Math.min(1, this.age / t.toneRise) * Math.exp(-this.age / t.toneFade);
@@ -796,6 +817,8 @@ export class Rag {
     _d.copy(impulse).multiplyScalar((len > cap ? (force * cap) / len : force) * this.throwScale);
     part.body.applyImpulseAtPoint(_d, point, true);
     this.pushed = true;
+    this.velFresh = false;
+    this.droveSleeping = false;
   }
 
   /** Moves the whole chain as one mass, shared out by weight. Nothing here turns it, however hard the push. */
@@ -814,6 +837,8 @@ export class Rag {
     const speed = Math.min(((length * force) / mass) * throwScale, room);
     for (const part of this.parts) part.body.applyImpulse(_d.copy(impulse).multiplyScalar((speed * part.mass) / length), true);
     this.pushed = true;
+    this.velFresh = false;
+    this.droveSleeping = false;
   }
 
   /** Same falloff as Physics.radialImpulse, for bodies too new for it to find. */
@@ -855,6 +880,14 @@ export class Rag {
       part.body.applyImpulse(_a, true);
     }
     this.pushed = true;
+    this.velFresh = false;
+    this.droveSleeping = false;
+  }
+
+  /** Marks cached body velocities stale after an external impulse or spin. */
+  invalidateVelocity(): void {
+    this.velFresh = false;
+    this.droveSleeping = false;
   }
 
   /** The body that carries `bone`: its own, the nearest above it, or the first body if the bone is missing. */
@@ -896,10 +929,13 @@ export class Rag {
     let worst = 0;
     this.thudPart = null;
     const parts = this.parts;
+    const readVel = !this.velFresh;
     for (let i = 0; i < parts.length; i++) {
       const part = parts[i]!;
-      part.body.linvel(part.v);
-      part.body.angvel(part.w);
+      if (readVel) {
+        part.body.linvel(part.v);
+        part.body.angvel(part.w);
+      }
       const sq = part.v.lengthSq();
       v = Math.max(v, sq);
       w = Math.max(w, part.w.lengthSq());
@@ -916,6 +952,7 @@ export class Rag {
       pz += part.v.z * part.mass;
       mass += part.mass;
     }
+    this.velFresh = true;
     const momentum = Math.hypot(px, py, pz);
     // A landing is the floor taking a fall away. Read from the whole chain's loss of momentum, gravity alone slowing a rising
     // body in a long frame, or a round against its motion, counted as one and slowed it to the dial in mid-air.
@@ -980,6 +1017,9 @@ export class Rag {
     // What left with the limb was not lost to anything.
     this.momentum = 0;
     this.lift = NaN;
+    this.poseFresh = false;
+    this.velFresh = false;
+    this.droveSleeping = false;
     if (this.active && parts.length > 0) this.muscle?.bind();
   }
 
@@ -996,6 +1036,9 @@ export class Rag {
     for (const part of this.parts) this.physics.world.removeRigidBody(part.body);
     this.parts.length = 0;
     this.active = false;
+    this.poseFresh = false;
+    this.velFresh = false;
+    this.droveSleeping = false;
   }
 
   private leaveShapes(): void {

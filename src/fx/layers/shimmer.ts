@@ -76,6 +76,10 @@ void main() {
 }
 `;
 
+const _shimmerProj = new THREE.Matrix4();
+const _shimmerFrustum = new THREE.Frustum();
+const _shimmerSphere = new THREE.Sphere();
+
 export class ShimmerLayer {
   readonly ring: InstanceRing;
   private readonly material: THREE.ShaderMaterial;
@@ -105,6 +109,8 @@ export class ShimmerLayer {
     mesh.visible = false;
     mesh.renderOrder = ORDER.shimmer;
     mesh.name = 'fx.shimmer';
+    mesh.matrixAutoUpdate = false;
+    mesh.updateMatrix();
     mesh.onBeforeRender = this.copyFrame;
     this.ring.object = mesh;
     scene.add(mesh);
@@ -145,7 +151,31 @@ export class ShimmerLayer {
     d[o + 7] = kind;
   }
 
-  sync(now: number): void {
+  sync(now: number, camera?: THREE.Camera | null): void {
     this.ring.sync(now);
+    const high = this.ring.highCount;
+    if (!this.ring.object.visible || high === 0 || !camera) return;
+    // Skip the expensive full-resolution HDR copyFramebufferToTexture when every live shimmer is off-screen.
+    _shimmerProj.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+    _shimmerFrustum.setFromProjectionMatrix(_shimmerProj);
+    const d = this.ring.data;
+    const deaths = this.ring.deaths;
+    const s = this.ring.stride;
+    let anyVisible = false;
+    for (let i = 0, o = 0; i < high; i++, o += s) {
+      if (deaths[i]! <= now) continue;
+      const age = now - d[o + 3]!;
+      if (age < 0) continue;
+      const radius = d[o + 4]!;
+      const kind = d[o + 7]!;
+      const cy = d[o + 1]! + (kind > 0.5 ? 0 : radius * 0.35 + age * 1.5);
+      _shimmerSphere.center.set(d[o]!, cy, d[o + 2]!);
+      _shimmerSphere.radius = radius * 1.15;
+      if (_shimmerFrustum.intersectsSphere(_shimmerSphere)) {
+        anyVisible = true;
+        break;
+      }
+    }
+    this.ring.object.visible = anyVisible;
   }
 }

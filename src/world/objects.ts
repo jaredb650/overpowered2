@@ -40,7 +40,8 @@ function extract(geo: Geo): { mat: Mat; geometry: THREE.BufferGeometry }[] {
     g.setAttribute('normal', new THREE.BufferAttribute(b.n.slice(0, b.nv * 3), 3));
     g.setAttribute('uv', new THREE.BufferAttribute(b.uv.slice(0, b.nv * 2), 2));
     g.setAttribute('color', new THREE.BufferAttribute(b.c.slice(0, b.nv * 4), 4, true));
-    g.setIndex(new THREE.BufferAttribute(b.idx.slice(0, b.ni), 1));
+    const idx = b.nv <= 65535 ? new Uint16Array(b.idx.subarray(0, b.ni)) : b.idx.slice(0, b.ni);
+    g.setIndex(new THREE.BufferAttribute(idx, 1));
     g.computeBoundingSphere();
     merged.set(b.mat, g);
     out.push({ mat: b.mat, geometry: g });
@@ -56,7 +57,11 @@ class Instances {
       mesh.frustumCulled = false;
       mesh.castShadow = true;
       mesh.receiveShadow = true;
+      mesh.userData.dynamicShadow = true;
       mesh.count = count;
+      mesh.visible = count > 0;
+      mesh.matrixAutoUpdate = false;
+      mesh.updateMatrix();
       root.add(mesh);
       this.meshes.push(mesh);
     }
@@ -155,15 +160,17 @@ export class Objects implements WorldObjects {
   /** Optional mission/runtime hook invoked on radial blasts (e.g. satchels breaking lights/cameras/bunker hooks). */
   blastHandler: ((center: THREE.Vector3, radius: number, amount: number, source: string) => void) | null = null;
 
-  constructor(private readonly ctx: Ctx, spec: MapSpec, private readonly kit: Kit, private readonly material: (m: Mat) => THREE.Material) {
+  constructor(private readonly ctx: Ctx, spec: MapSpec, kit: Kit, private readonly material: (m: Mat) => THREE.Material) {
     this.root.name = 'world-objects';
+    this.root.matrixAutoUpdate = false;
+    this.root.updateMatrix();
     this.lava = spec.lava;
     this.killY = spec.killY ?? null;
     this.ramps = spec.ramps.map(r => ({ ...r, cooldown: 0 }));
-    this.buildPads(spec);
+    this.buildPads(spec, kit);
     this.buildExplosives(spec);
     this.buildCrushers(spec);
-    this.buildElectric(spec);
+    this.buildElectric(spec, kit);
     this.buildGantries(spec);
     if (spec.reactor) this.buildReactor(spec.reactor);
     this.walls = new Structures(ctx, spec.structures, material);
@@ -194,8 +201,7 @@ export class Objects implements WorldObjects {
 
   // ---- jump pads ---------------------------------------------------------------------------------------------
 
-  private buildPads(spec: MapSpec): void {
-    const k = this.kit;
+  private buildPads(spec: MapSpec, k: Kit): void {
     const g = k.geo;
     for (const p of spec.pads) {
       const velocity = ballistic(p.pos, p.target, p.arc, PLAYER_GRAVITY, new THREE.Vector3());
@@ -227,11 +233,15 @@ export class Objects implements WorldObjects {
     this.ringMesh.frustumCulled = false;
     this.ringMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.ringMesh.count = this.pads.length * 3;
+    this.ringMesh.visible = this.pads.length > 0;
+    this.ringMesh.matrixAutoUpdate = false;
+    this.ringMesh.updateMatrix();
     this.root.add(this.ringMesh);
   }
 
   private animatePads(now: number, dt: number): void {
     const n = this.pads.length;
+    if (n === 0) return;
     for (let i = 0; i < n; i++) {
       const p = this.pads[i]!;
       p.cooldown = Math.max(0, p.cooldown - dt);
@@ -579,7 +589,7 @@ export class Objects implements WorldObjects {
 
   // ---- electrified floors ------------------------------------------------------------------------------------
 
-  private buildElectric(spec: MapSpec): void {
+  private buildElectric(spec: MapSpec, kit: Kit): void {
     for (const s of spec.electric) {
       const geo = new Geo();
       const { min, max } = s.box;
@@ -587,13 +597,13 @@ export class Objects implements WorldObjects {
       const y = min.y + 0.05;
       // Jagged arcs across the plate, read as current rather than a flat glow.
       for (let i = 0; i < 26; i++) {
-        let x = min.x + this.kit.rng() * (max.x - min.x), z = min.z + this.kit.rng() * (max.z - min.z);
-        const a = this.kit.rng() * TAU;
+        let x = min.x + kit.rng() * (max.x - min.x), z = min.z + kit.rng() * (max.z - min.z);
+        const a = kit.rng() * TAU;
         const pts: number[] = [];
         for (let j = 0; j < 7; j++) {
           pts.push(x, y, z);
-          x = clamp(x + Math.cos(a + (this.kit.rng() - 0.5) * 2.4) * 1.2, min.x, max.x);
-          z = clamp(z + Math.sin(a + (this.kit.rng() - 0.5) * 2.4) * 1.2, min.z, max.z);
+          x = clamp(x + Math.cos(a + (kit.rng() - 0.5) * 2.4) * 1.2, min.x, max.x);
+          z = clamp(z + Math.sin(a + (kit.rng() - 0.5) * 2.4) * 1.2, min.z, max.z);
         }
         for (let j = 0; j < 6; j++) {
           const ax = pts[j * 3]!, az = pts[j * 3 + 2]!, bx = pts[j * 3 + 3]!, bz = pts[j * 3 + 5]!;
@@ -604,6 +614,8 @@ export class Objects implements WorldObjects {
       const part = extract(geo)[0]!;
       const mesh = new THREE.Mesh(part.geometry, this.material('emissiveCyan'));
       mesh.visible = false;
+      mesh.matrixAutoUpdate = false;
+      mesh.updateMatrix();
       this.root.add(mesh);
       this.electric.push({ ...s, mesh, live: false, nextSpark: 0 });
     }
@@ -657,6 +669,9 @@ export class Objects implements WorldObjects {
       for (const part of extract(geo)) {
         const m = new THREE.Mesh(part.geometry, this.material(part.mat));
         m.castShadow = true;
+        m.userData.dynamicShadow = true;
+        m.matrixAutoUpdate = false;
+        m.updateMatrix();
         group.add(m);
       }
       group.position.set(s.x0, s.y, zc);
@@ -728,6 +743,8 @@ export class Objects implements WorldObjects {
     const coreMat = new THREE.ShaderMaterial({ uniforms: u, vertexShader: vert, fragmentShader: frag, toneMapped: false });
     const core = new THREE.Mesh(new THREE.CylinderGeometry(6.6, 6.6, 12.5, 32, 6, true), coreMat);
     core.position.y = 30;
+    core.matrixAutoUpdate = false;
+    core.updateMatrix();
     this.root.add(core);
 
     // Beam from the crown: a soft additive cone that marks the centre of the map from any zone.
@@ -749,6 +766,8 @@ export class Objects implements WorldObjects {
     });
     const beam = new THREE.Mesh(new THREE.CylinderGeometry(2.8, 0.7, 150, 16, 1, true), beamMat);
     beam.position.y = reactor.topY + 75 - 16;
+    beam.matrixAutoUpdate = false;
+    beam.updateMatrix();
     this.root.add(beam);
 
     const gyro = (r: number, tube: number, mat: Mat) => {
@@ -770,7 +789,12 @@ export class Objects implements WorldObjects {
       }
       geo.use('emissiveCyan').tube(pts.map((v, i) => (i % 3 === 1 ? tube * 1.04 : v)), tube * 0.1, 4);
       const group = new THREE.Group();
-      for (const part of extract(geo)) group.add(new THREE.Mesh(part.geometry, this.material(part.mat)));
+      for (const part of extract(geo)) {
+        const m = new THREE.Mesh(part.geometry, this.material(part.mat));
+        m.matrixAutoUpdate = false;
+        m.updateMatrix();
+        group.add(m);
+      }
       group.position.y = 30;
       this.root.add(group);
       return group;

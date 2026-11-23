@@ -419,9 +419,10 @@ export class Player implements PlayerSystem {
   private limitWallLook(turn: number): number {
     const n = this.climbN;
     // Angle between the view and straight out of the wall, 0..PI.
-    const off = (yaw: number) => Math.acos(clamp(-Math.sin(yaw) * n.x - Math.cos(yaw) * n.z, -1, 1));
-    const now = off(this.yaw);
-    if (off(this.yaw + turn) <= now) return turn;
+    const now = Math.acos(clamp(-Math.sin(this.yaw) * n.x - Math.cos(this.yaw) * n.z, -1, 1));
+    const ny = this.yaw + turn;
+    const next = Math.acos(clamp(-Math.sin(ny) * n.x - Math.cos(ny) * n.z, -1, 1));
+    if (next <= now) return turn;
     return turn * (1 - smoothstep(Math.PI / 2 - T.clingViewEase, Math.PI / 2, now));
   }
 

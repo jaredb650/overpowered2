@@ -19,6 +19,7 @@ export class DefenseHud {
   private ringText: Label;
   private arcAt = -1;
   private credits: Label;
+  private lastCredits = -1;
   private next: Label;
   private nextShown: Shown;
   private shops: { id: (typeof SHOP_ORDER)[number]; lost: Flag; hurt: Flag }[];
@@ -46,7 +47,10 @@ export class DefenseHud {
   update(): void {
     const d = this.ctx.contracts.defense;
     if (!d) return;
-    this.credits.set(d.credits.toLocaleString('en-US'));
+    if (d.credits !== this.lastCredits) {
+      this.lastCredits = d.credits;
+      this.credits.set(d.credits.toLocaleString('en-US'));
+    }
     const between = d.inBreak && !d.needLoadout;
     this.nextShown.set(between);
     if (between) {

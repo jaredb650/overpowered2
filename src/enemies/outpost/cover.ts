@@ -292,6 +292,9 @@ export class CoverMap {
     }
     let winner: CoverSpot | null = null;
     let top = -Infinity;
+    let winHidden = false;
+    let winCanShoot = false;
+    let winSide = 0;
     for (let i = 0; i < best.length; i++) {
       const s = best[i]!;
       this.read(s, q.threat, reading);
@@ -300,9 +303,16 @@ export class CoverMap {
       if (score > top) {
         top = score;
         winner = s;
+        winHidden = reading.hidden;
+        winCanShoot = reading.canShoot;
+        winSide = reading.side;
       }
     }
-    if (winner) this.read(winner, q.threat, reading);
+    if (winner) {
+      reading.hidden = winHidden;
+      reading.canShoot = winCanShoot;
+      reading.side = winSide;
+    }
     return winner;
   }
 

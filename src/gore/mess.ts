@@ -251,6 +251,7 @@ interface Pending {
 
 /** What a still skeleton needs, read off a character or a severed part without asking the library for anything. */
 interface Skinned {
+  root?: THREE.Object3D;
   skeleton?: THREE.Skeleton;
   bones: readonly THREE.Bone[];
 }
@@ -262,7 +263,7 @@ const _frustum = new THREE.Frustum();
 const _m = new THREE.Matrix4();
 const _sphere = new THREE.Sphere();
 const STILL = Symbol('mess.still');
-type StillSkeleton = THREE.Skeleton & { [STILL]?: true };
+type StillSkeleton = THREE.Skeleton & { [STILL]?: () => void };
 
 /** Where a skeleton's bones are, as one number: any bone moving changes it. */
 function poseSum(bones: readonly THREE.Bone[]): number {
@@ -286,26 +287,63 @@ export function stillSkeleton(source: Skinned, still: boolean): void {
   const skeleton = source.skeleton as StillSkeleton | undefined;
   if (!skeleton?.boneTexture || !skeleton.boneMatrices) return;
   if (!still) {
-    if (skeleton[STILL]) {
-      delete skeleton[STILL];
-      delete (skeleton as { update?: unknown }).update;
-    }
+    skeleton[STILL]?.();
     return;
   }
   if (skeleton[STILL]) return;
+  const root = source.root ?? source.bones[0]?.parent ?? null;
   // Once more as it lies, so what is sent is the pose it stopped in.
-  source.bones[0]?.parent?.updateMatrixWorld(true);
+  root?.updateMatrixWorld(true);
   skeleton.update();
   const data = skeleton.boneMatrices;
   const bones = skeleton.bones;
   const from = bones.length * 16;
   const pose = poseSum(bones);
   let wrote = NaN;
-  skeleton[STILL] = true;
-  skeleton.update = () => {
-    if (poseSum(bones) !== pose) {
+  let rootFrozen = false;
+
+  const restoreRoot = (): void => {
+    if (!rootFrozen || !root) return;
+    rootFrozen = false;
+    root.matrixAutoUpdate = true;
+    delete (root as { updateMatrixWorld?: unknown }).updateMatrixWorld;
+  };
+  const restoreAll = (): void => {
+    restoreRoot();
+    if (skeleton[STILL]) {
       delete skeleton[STILL];
       delete (skeleton as { update?: unknown }).update;
+    }
+  };
+
+  if (root) {
+    const rx = root.position.x, ry = root.position.y, rz = root.position.z;
+    const qx = root.quaternion.x, qy = root.quaternion.y, qz = root.quaternion.z, qw = root.quaternion.w;
+    const sx = root.scale.x, sy = root.scale.y, sz = root.scale.z;
+    const b0 = bones[0];
+    const bx = b0 ? b0.position.x : 0, by = b0 ? b0.position.y : 0, bz = b0 ? b0.position.z : 0;
+    const protoUpdate = THREE.Object3D.prototype.updateMatrixWorld;
+    root.matrixAutoUpdate = false;
+    rootFrozen = true;
+    root.updateMatrixWorld = function (force?: boolean): void {
+      if (
+        this.position.x !== rx || this.position.y !== ry || this.position.z !== rz
+        || this.quaternion.x !== qx || this.quaternion.y !== qy || this.quaternion.z !== qz || this.quaternion.w !== qw
+        || this.scale.x !== sx || this.scale.y !== sy || this.scale.z !== sz
+        || (b0 !== undefined && (b0.position.x !== bx || b0.position.y !== by || b0.position.z !== bz))
+      ) {
+        restoreRoot();
+        protoUpdate.call(this, force);
+        return;
+      }
+      if (force) protoUpdate.call(this, true);
+    };
+  }
+
+  skeleton[STILL] = restoreAll;
+  skeleton.update = () => {
+    if (poseSum(bones) !== pose) {
+      restoreAll();
       skeleton.update();
       return;
     }
@@ -447,18 +485,25 @@ export class MessField {
     }
   }
 
+  /** Cached simulating chain count for the current `update()`, invalidated on `wake()`. */
+  private simCount = -1;
+
   /** May one more chain be woken this frame? `over` is how far past the ragdoll budget it may take the count. */
   private room(over: number): boolean {
-    return this.wakes < MessTuning.wakesPerFrame && this.host.simulating() < this.host.maxRagdolls() + over;
+    if (this.wakes >= MessTuning.wakesPerFrame) return false;
+    if (this.simCount < 0) this.simCount = this.host.simulating();
+    return this.simCount < this.host.maxRagdolls() + over;
   }
 
   private wake(target: MessChain): void {
     this.wakes++;
+    this.simCount = -1;
     this.host.wake(target);
   }
 
   update(): void {
     this.wakes = 0;
+    this.simCount = -1;
     this.settleSupports();
     if (MessTuning.push) {
       this.landings();
@@ -569,13 +614,18 @@ export class MessField {
     const t = MessTuning;
     const speed = Math.hypot(vel.x, vel.z);
     const bodies = this.host.bodies as readonly MessChain[];
-    for (let pass = 0; pass < 3; pass++) {
+    let canWake = speed >= 0.5 && (!enemy || this.ctx.time.elapsed >= this.enemyWakeAt) && this.room(over);
+    // Pass 2 (`host.far`) holds only resting baked bodies; skip it entirely when this pusher cannot wake anything.
+    const passes = canWake ? 3 : 2;
+    for (let pass = 0; pass < passes; pass++) {
+      if (pass === 2 && !canWake) break;
       const list = pass === 0 ? bodies : pass === 1 ? this.host.limbs : this.host.far;
       const reverse = pass === 2;
       for (let i = reverse ? list.length - 1 : 0; reverse ? i >= 0 : i < list.length; reverse ? i-- : i++) {
         const target = list[i]!;
         const rag = target.rag;
         if (!rag || target.sinking >= 0) continue;
+        if (!rag.active && !canWake) continue;
         if (pass === 0 && ((target as MessBody).down || (target as MessBody).vapor >= 0)) continue;
         const c = rag.center;
         const reach = rag.info.reach[rag.build.chainRoot]! + radius;
@@ -585,18 +635,18 @@ export class MessField {
         let shoveTarget = target;
         if (!rag.active) {
           // At rest it takes someone moving to wake it: standing on a heap does not stir it.
-          if (speed < 0.5 || target.stakes.length > 0 || !rag.resting) continue;
+          if (target.stakes.length > 0 || !rag.resting) continue;
           const lo = rag.restMin;
           const hi = rag.restMax;
           if (hi.y < at.y - 0.05 || lo.y > at.y + height) continue;
           const nx = Math.max(lo.x, Math.min(at.x, hi.x)) - at.x;
           const nz = Math.max(lo.z, Math.min(at.z, hi.z)) - at.z;
           if (nx * nx + nz * nz > radius * radius) continue;
-          if (enemy && this.ctx.time.elapsed < this.enemyWakeAt) continue;
           if (!this.touches(rag, at, radius, height) || !this.room(over)) continue;
           if (enemy) this.enemyWakeAt = this.ctx.time.elapsed + t.enemyWakeEvery;
           this.count.pushWakes++;
           this.wake(target);
+          canWake = (!enemy || this.ctx.time.elapsed >= this.enemyWakeAt) && this.room(over);
           if (!rag.active) continue;
           if (pass === 2) {
             shoveTarget = (bodies[0]?.rag === rag ? bodies[0] : bodies.find(b => b.rag === rag)) ?? target;
@@ -655,6 +705,7 @@ export class MessField {
     }
     if (any) {
       rag.pushed = true;
+      rag.invalidateVelocity();
       this.host.pushed(target);
     }
   }

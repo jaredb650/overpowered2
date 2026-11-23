@@ -86,6 +86,15 @@ export class SpurtField {
   private readonly chain: Float32Array;
   private drawn = false;
   private firstSpurt = 0;
+  private putCount = 0;
+  private putFirst = true;
+  private putHasDir = false;
+  private putLx = 0;
+  private putLy = 0;
+  private putLz = 0;
+  private putPdx = 0;
+  private putPdy = 0;
+  private putPdz = 0;
   /** Stains laid so far, for checks. */
   stains = 0;
 
@@ -191,10 +200,46 @@ export class SpurtField {
     return n;
   }
 
+  private putPoint(x: number, y: number, z: number, age: number, serial: number): void {
+    const c = this.chain;
+    const o = this.putCount * STRIDE;
+    let split = false;
+    if (!this.putFirst) {
+      const dx = x - this.putLx, dy = y - this.putLy, dz = z - this.putLz;
+      const dist = Math.hypot(dx, dy, dz);
+      if (dist > SpurtTuning.gap) {
+        split = true;
+      } else if (this.putHasDir && dist > 1e-4) {
+        // A fresh systolic pulse overtaking the slower diastolic tail folds the ribbon backward: split into clean arcs.
+        const inv = 1 / dist;
+        if (this.putPdx * dx * inv + this.putPdy * dy * inv + this.putPdz * dz * inv < 0.1) split = true;
+      }
+      if (!split && dist > 1e-4) {
+        this.putPdx = dx / dist;
+        this.putPdy = dy / dist;
+        this.putPdz = dz / dist;
+        this.putHasDir = true;
+      } else if (split) {
+        this.putHasDir = false;
+      }
+    }
+    c[o] = x;
+    c[o + 1] = y;
+    c[o + 2] = z;
+    c[o + 3] = age;
+    c[o + 4] = serial * 0.35;
+    c[o + 5] = this.putFirst || split ? 1 : 0;
+    this.putLx = x;
+    this.putLy = y;
+    this.putLz = z;
+    this.putFirst = false;
+    this.putCount++;
+  }
+
   update(dt: number): void {
     const now = this.ctx.time.elapsed;
     const t = SpurtTuning;
-    let count = 0;
+    this.putCount = 0;
     const c = this.chain;
     let rays = t.raysPerFrame;
     let activeLeft = 0;
@@ -302,57 +347,28 @@ export class SpurtField {
         continue;
       }
       // The chain, newest first: the nozzle, then each glob in the order it left.
-      let first = true;
-      let hasDir = false;
-      let lx = 0, ly = 0, lz = 0;
-      let pdx = 0, pdy = 0, pdz = 0;
-      const put = (x: number, y: number, z: number, age: number, serial: number) => {
-        const o = count * STRIDE;
-        let split = false;
-        if (!first) {
-          const dx = x - lx, dy = y - ly, dz = z - lz;
-          const dist = Math.hypot(dx, dy, dz);
-          if (dist > t.gap) {
-            split = true;
-          } else if (hasDir && dist > 1e-4) {
-            // A fresh systolic pulse overtaking the slower diastolic tail folds the ribbon backward: split into clean arcs.
-            const inv = 1 / dist;
-            if (pdx * dx * inv + pdy * dy * inv + pdz * dz * inv < 0.1) split = true;
-          }
-          if (!split && dist > 1e-4) {
-            pdx = dx / dist;
-            pdy = dy / dist;
-            pdz = dz / dist;
-            hasDir = true;
-          } else if (split) {
-            hasDir = false;
-          }
-        }
-        c[o] = x;
-        c[o + 1] = y;
-        c[o + 2] = z;
-        c[o + 3] = age;
-        c[o + 4] = serial * 0.35;
-        c[o + 5] = first || split ? 1 : 0;
-        lx = x;
-        ly = y;
-        lz = z;
-        first = false;
-        count++;
-      };
-      if (s.emitting) put(s.nozzle.x, s.nozzle.y, s.nozzle.z, 0, s.fired);
+      this.putFirst = true;
+      this.putHasDir = false;
+      this.putLx = 0;
+      this.putLy = 0;
+      this.putLz = 0;
+      this.putPdx = 0;
+      this.putPdy = 0;
+      this.putPdz = 0;
+      if (s.emitting) this.putPoint(s.nozzle.x, s.nozzle.y, s.nozzle.z, 0, s.fired);
       for (let k = 1; k <= t.globs; k++) {
         const i = (s.head - k + t.globs) % t.globs;
         const g = i * G;
         if (s.globs[g + 7] === 0) {
           // A glob gone in the middle of the chain is a break in it.
-          first = true;
-          hasDir = false;
+          this.putFirst = true;
+          this.putHasDir = false;
           continue;
         }
-        put(s.globs[g]!, s.globs[g + 1]!, s.globs[g + 2]!, s.globs[g + 6]!, s.fired - k);
+        this.putPoint(s.globs[g]!, s.globs[g + 1]!, s.globs[g + 2]!, s.globs[g + 6]!, s.fired - k);
       }
     }
+    let count = this.putCount;
     if (this.tail) count = this.tail.append(c, count);
     if (this.warming > 0 && count === 0) {
       // A short rope far under the world, for a frame or two: the layer's program compiles now, not on the first neck

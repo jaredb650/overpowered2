@@ -8,6 +8,7 @@ const _center = new THREE.Vector3();
 const _target = new THREE.Vector3();
 const _bias = new THREE.Matrix4().set(0.5, 0, 0, 0.5, 0, 0.5, 0, 0.5, 0, 0, 0.5, 0.5, 0, 0, 0, 1);
 const _light = new THREE.Vector3();
+const INVALIDATE_COLOR = [0x8ce0 /* COLOR_ATTACHMENT0 */];
 
 function makeMap(size: number): THREE.WebGLRenderTarget {
   const depthTexture = new THREE.DepthTexture(size, size, THREE.UnsignedShortType);
@@ -78,6 +79,9 @@ export class MoonShadows {
 
   /** Runs the passes this frame needs. `draw` renders the scene with a caster filter into the current target. */
   update(renderer: THREE.WebGLRenderer, mainCamera: THREE.Camera, scene: THREE.Scene, draw: (kind: ShadowPassKind, camera: THREE.Camera) => void): void {
+    const gl = renderer.getContext() as WebGL2RenderingContext | null;
+    const canInvalidate = typeof gl?.invalidateFramebuffer === 'function';
+
     if (this.staticDirty && this.staticMap) {
       this.staticDirty = false;
       const size = this.bounds.getSize(_target);
@@ -91,10 +95,12 @@ export class MoonShadows {
       cam.updateProjectionMatrix();
       this.place(cam, _center);
       renderer.setRenderTarget(this.staticMap);
-      renderer.clear(true, true, false);
+      if (canInvalidate) gl.invalidateFramebuffer(gl.FRAMEBUFFER, INVALIDATE_COLOR);
+      renderer.clear(false, true, false);
       scene.overrideMaterial = this.depthMaterial;
       draw('static', cam);
       scene.overrideMaterial = null;
+      if (canInvalidate) gl.invalidateFramebuffer(gl.FRAMEBUFFER, INVALIDATE_COLOR);
       this.engine.opShadowMatS.value.copy(_bias).multiply(cam.projectionMatrix).multiply(cam.matrixWorldInverse);
       const texel = (half * 2) / this.staticMap.width;
       this.engine.opShadowInfo.value.x = 1 / this.staticMap.width;
@@ -113,10 +119,12 @@ export class MoonShadows {
       _target.applyMatrix4(cam.matrixWorld);
       this.place(cam, _target);
       renderer.setRenderTarget(this.dynamicMap);
-      renderer.clear(true, true, false);
+      if (canInvalidate) gl.invalidateFramebuffer(gl.FRAMEBUFFER, INVALIDATE_COLOR);
+      renderer.clear(false, true, false);
       scene.overrideMaterial = this.depthMaterial;
       draw('dynamic', cam);
       scene.overrideMaterial = null;
+      if (canInvalidate) gl.invalidateFramebuffer(gl.FRAMEBUFFER, INVALIDATE_COLOR);
       this.engine.opShadowMatD.value.copy(_bias).multiply(cam.projectionMatrix).multiply(cam.matrixWorldInverse);
       this.engine.opShadowInfo.value.y = 1 / this.dynamicMap.width;
       this.engine.opShadowInfo.value.w = texel;

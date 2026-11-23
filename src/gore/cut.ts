@@ -843,8 +843,41 @@ function finish(
     const assigned = new Uint8Array(n);
     const shiftU = new Int32Array(n);
     const shiftV = new Int32Array(n);
-    const dupMap = new Map<string, number>();
+    const dupMap = new Map<number, number>();
+    let dupMapFallback: Map<string, number> | null = null;
     const dups: { src: number; u: number; v: number }[] = [];
+    const assignCorner = (tSlot: number, vIdx: number, ru: number, rv: number, su: number, sv: number): void => {
+      const pu = Math.round(Math.min(1, Math.max(0, ru - su)) * 65535);
+      const pv = Math.round(Math.min(1, Math.max(0, rv - sv)) * 65535);
+      if (!assigned[vIdx]) {
+        assigned[vIdx] = 1;
+        shiftU[vIdx] = su;
+        shiftV[vIdx] = sv;
+        uvArr[vIdx * 2] = pu;
+        uvArr[vIdx * 2 + 1] = pv;
+      } else if (shiftU[vIdx] !== su || shiftV[vIdx] !== sv) {
+        let dstIdx: number | undefined;
+        if (su >= -2048 && su < 2048 && sv >= -2048 && sv < 2048 && n < 2_000_000) {
+          const key = (vIdx * 4096 + (su + 2048)) * 4096 + (sv + 2048);
+          dstIdx = dupMap.get(key);
+          if (dstIdx === undefined) {
+            dstIdx = n + dups.length;
+            dups.push({ src: vIdx, u: pu, v: pv });
+            dupMap.set(key, dstIdx);
+          }
+        } else {
+          dupMapFallback ??= new Map<string, number>();
+          const key = `${vIdx}:${su}:${sv}`;
+          dstIdx = dupMapFallback.get(key);
+          if (dstIdx === undefined) {
+            dstIdx = n + dups.length;
+            dups.push({ src: vIdx, u: pu, v: pv });
+            dupMapFallback.set(key, dstIdx);
+          }
+        }
+        index[tSlot] = dstIdx;
+      }
+    };
     for (let t = newCapStart; t < skinCount + capCount; t += 3) {
       const i0 = index[t]!, i1 = index[t + 1]!, i2 = index[t + 2]!;
       const o0 = (order ? order[i0]! : i0) * 2;
@@ -855,28 +888,9 @@ function finish(
       const u2 = raw[o2]!, v2 = raw[o2 + 1]!;
       const su = Math.floor(Math.min(u0, u1, u2));
       const sv = Math.floor(Math.min(v0, v1, v2));
-      const corners = [[i0, u0, v0], [i1, u1, v1], [i2, u2, v2]] as const;
-      for (let c = 0; c < 3; c++) {
-        const [vIdx, ru, rv] = corners[c]!;
-        const pu = Math.round(Math.min(1, Math.max(0, ru - su)) * 65535);
-        const pv = Math.round(Math.min(1, Math.max(0, rv - sv)) * 65535);
-        if (!assigned[vIdx]) {
-          assigned[vIdx] = 1;
-          shiftU[vIdx] = su;
-          shiftV[vIdx] = sv;
-          uvArr[vIdx * 2] = pu;
-          uvArr[vIdx * 2 + 1] = pv;
-        } else if (shiftU[vIdx] !== su || shiftV[vIdx] !== sv) {
-          const key = `${vIdx}:${su}:${sv}`;
-          let dstIdx = dupMap.get(key);
-          if (dstIdx === undefined) {
-            dstIdx = n + dups.length;
-            dups.push({ src: vIdx, u: pu, v: pv });
-            dupMap.set(key, dstIdx);
-          }
-          index[t + c] = dstIdx;
-        }
-      }
+      assignCorner(t, i0, u0, v0, su, sv);
+      assignCorner(t + 1, i1, u1, v1, su, sv);
+      assignCorner(t + 2, i2, u2, v2, su, sv);
     }
     if (dups.length > 0) {
       const totalV = n + dups.length;

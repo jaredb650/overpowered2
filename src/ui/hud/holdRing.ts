@@ -25,6 +25,8 @@ export class HoldRing {
   private readonly done: Flag;
   private asked: number | null = null;
   private flash = 0;
+  private active = false;
+  private lastDashQ = -1;
 
   constructor() {
     const svg = markup<SVGSVGElement>(`<svg class="hr-svg" viewBox="-50 -50 100 100" aria-hidden="true"><circle class="hr-track" r="${R}"/>` +
@@ -42,11 +44,21 @@ export class HoldRing {
   }
 
   update(dt: number): void {
+    if (this.asked === null && this.flash <= 0 && !this.active) return;
     const f = ringFrame(this.asked, this.flash, dt);
     this.asked = null;
     this.flash = f.flash;
+    this.active = f.fill !== null || f.flash > 0;
     this.shown.set(f.fill !== null);
     this.done.set(f.flash > 0);
-    if (f.fill !== null) this.arc.setAttribute('stroke-dashoffset', String(ROUND * (1 - f.fill)));
+    if (f.fill !== null) {
+      const q = Math.round(f.fill * 1000);
+      if (q !== this.lastDashQ) {
+        this.lastDashQ = q;
+        this.arc.setAttribute('stroke-dashoffset', String(ROUND * (1 - q / 1000)));
+      }
+    } else {
+      this.lastDashQ = -1;
+    }
   }
 }

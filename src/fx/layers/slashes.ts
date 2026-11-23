@@ -88,7 +88,7 @@ export class SlashLayer {
   readonly ring: InstanceRing;
 
   constructor(scene: THREE.Scene, uniforms: FxUniforms, cap = 48) {
-    this.ring = new InstanceRing(strip(), cap, ATTRS);
+    this.ring = new InstanceRing(strip(), cap, ATTRS, true);
     this.ring.lifeAt = 7;
     const material = new THREE.ShaderMaterial({
       vertexShader: VERT,
@@ -107,6 +107,8 @@ export class SlashLayer {
     mesh.visible = false;
     mesh.renderOrder = ORDER.slashes;
     mesh.name = 'fx.slashes';
+    mesh.matrixAutoUpdate = false;
+    mesh.updateMatrix();
     this.ring.object = mesh;
     scene.add(mesh);
   }

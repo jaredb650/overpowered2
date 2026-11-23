@@ -54,6 +54,10 @@ interface FloatText {
   age: number;
   live: boolean;
   drift: number;
+  opacity: number;
+  qx: number;
+  qy: number;
+  qs: number;
 }
 
 export interface MapMarker {
@@ -77,6 +81,9 @@ interface Marker extends MapMarker {
   tag: boolean;
   chars: number;
   row: number;
+  qx: number;
+  qy: number;
+  qa: number;
 }
 
 /** Most name tags stacked at once: three friends. */
@@ -87,6 +94,8 @@ export class WorldLayer {
   readonly markers: Marker[] = [];
   private floats: FloatText[] = [];
   private nextFloat = 0;
+  private activeFloats = 0;
+  private activeMarkers = 0;
   private width = 1;
   private height = 1;
   private rem = 16;
@@ -103,7 +112,7 @@ export class WorldLayer {
       const el = div('ft', text);
       el.style.display = 'none';
       this.el.append(el);
-      this.floats.push({ el, text, pos: new THREE.Vector3(), age: 0, live: false, drift: 0 });
+      this.floats.push({ el, text, pos: new THREE.Vector3(), age: 0, live: false, drift: 0, opacity: -1, qx: NaN, qy: NaN, qs: NaN });
     }
     for (let i = 0; i < MAX_MARKERS; i++) {
       const arrow = div('mk-arrow');
@@ -114,6 +123,7 @@ export class WorldLayer {
       this.el.append(el);
       this.markers.push({
         el, arrow, label, dist: new Num(dist), pos: new THREE.Vector3(), color: '', live: false, target: null, clock: 0, offscreen: null, use: 0, tag: false, chars: 0, row: 0,
+        qx: NaN, qy: NaN, qa: NaN,
       });
     }
     this.measure();
@@ -128,10 +138,13 @@ export class WorldLayer {
   float(position: THREE.Vector3, text: string, color?: string): void {
     const f = this.floats[this.nextFloat]!;
     this.nextFloat = (this.nextFloat + 1) % MAX_FLOATS;
+    if (!f.live) this.activeFloats++;
     f.pos.copy(position);
     f.age = 0;
     f.live = true;
     f.drift = (Math.random() - 0.5) * 2.4;
+    f.opacity = -1;
+    f.qx = f.qy = f.qs = NaN;
     f.text.textContent = text;
     f.el.style.setProperty('--c', color ?? 'var(--ink)');
     f.el.style.display = '';
@@ -149,6 +162,7 @@ export class WorldLayer {
   private place(position: THREE.Vector3, target: THREE.Vector3 | null, label: string, color?: string, tag = false): () => void {
     const m = this.markers.find(x => !x.live) ?? this.markers[0]!;
     const use = ++m.use;
+    if (!m.live) this.activeMarkers++;
     m.pos.copy(position);
     m.target = target;
     m.color = color ?? '#39e0ff';
@@ -157,47 +171,68 @@ export class WorldLayer {
     m.clock = 0;
     m.tag = tag;
     m.chars = label.length;
+    m.qx = m.qy = m.qa = NaN;
     if (m.row !== 0) { m.row = 0; m.el.style.removeProperty('--row'); }
     m.label.textContent = label;
     m.el.style.setProperty('--c', m.color);
     m.el.style.display = '';
     return () => {
       if (m.use !== use) return;
+      if (m.live) this.activeMarkers--;
       m.live = false;
       m.el.style.display = 'none';
     };
   }
 
   update(dt: number): void {
+    if (this.activeFloats === 0 && this.activeMarkers === 0) return;
     const camera = this.ctx.render.camera;
     if (!(camera instanceof THREE.Camera)) return;
     const w = this.width / 2;
     const h = this.height / 2;
 
-    for (const f of this.floats) {
-      if (!f.live) continue;
-      f.age += dt;
-      if (f.age >= FLOAT_LIFE) {
-        f.live = false;
-        f.el.style.display = 'none';
-        continue;
+    if (this.activeFloats > 0) {
+      for (const f of this.floats) {
+        if (!f.live) continue;
+        f.age += dt;
+        if (f.age >= FLOAT_LIFE) {
+          f.live = false;
+          this.activeFloats--;
+          f.el.style.display = 'none';
+          continue;
+        }
+        _v.copy(f.pos).applyMatrix4(camera.matrixWorldInverse);
+        if (_v.z > -0.2) {
+          if (f.opacity !== 0) {
+            f.opacity = 0;
+            f.el.style.opacity = '0';
+          }
+          continue;
+        }
+        const depth = clamp(14 / -_v.z, 0.62, 1.25);
+        _v.applyMatrix4(camera.projectionMatrix);
+        const u = f.age / FLOAT_LIFE;
+        // Peak on the first frame, settle, then shrink out; no fade-in anywhere.
+        const pop = u < 0.09 ? 1.7 - (u / 0.09) * 0.7 : u > 0.72 ? 1 - ((u - 0.72) / 0.28) * 0.55 : 1;
+        const x = _v.x * w + w + f.drift * this.rem * u * 2;
+        const y = -_v.y * h + h - this.rem * 4.5 * Math.sqrt(u);
+        if (f.opacity !== 1) {
+          f.opacity = 1;
+          f.el.style.opacity = '1';
+        }
+        const qx = Math.round(x * 10);
+        const qy = Math.round(y * 10);
+        const qs = Math.round(pop * depth * 1000);
+        if (qx !== f.qx || qy !== f.qy || qs !== f.qs) {
+          f.qx = qx;
+          f.qy = qy;
+          f.qs = qs;
+          f.el.style.transform = `translate3d(${(qx / 10).toFixed(1)}px,${(qy / 10).toFixed(1)}px,0) scale(${(qs / 1000).toFixed(3)})`;
+        }
       }
-      _v.copy(f.pos).applyMatrix4(camera.matrixWorldInverse);
-      if (_v.z > -0.2) {
-        f.el.style.opacity = '0';
-        continue;
-      }
-      const depth = clamp(14 / -_v.z, 0.62, 1.25);
-      _v.applyMatrix4(camera.projectionMatrix);
-      const u = f.age / FLOAT_LIFE;
-      // Peak on the first frame, settle, then shrink out; no fade-in anywhere.
-      const pop = u < 0.09 ? 1.7 - (u / 0.09) * 0.7 : u > 0.72 ? 1 - ((u - 0.72) / 0.28) * 0.55 : 1;
-      const x = _v.x * w + w + f.drift * this.rem * u * 2;
-      const y = -_v.y * h + h - this.rem * 4.5 * Math.sqrt(u);
-      f.el.style.opacity = '1';
-      f.el.style.transform = `translate3d(${x.toFixed(1)}px,${y.toFixed(1)}px,0) scale(${(pop * depth).toFixed(3)})`;
     }
 
+    if (this.activeMarkers === 0) return;
     const eye = this.ctx.player.eye;
     let tags = 0;
     for (const m of this.markers) {
@@ -219,13 +254,23 @@ export class WorldLayer {
         const k = 1 / Math.sqrt((dx * dx) / (rx * rx) + (dy * dy) / (ry * ry) || 1);
         x = dx * k;
         y = dy * k;
-        m.arrow.style.transform = `rotate(${Math.atan2(x, -y).toFixed(3)}rad)`;
+        const qa = Math.round(Math.atan2(x, -y) * 1000);
+        if (qa !== m.qa) {
+          m.qa = qa;
+          m.arrow.style.transform = `rotate(${(qa / 1000).toFixed(3)}rad)`;
+        }
       }
       if (off !== m.offscreen) {
         m.offscreen = off;
         m.el.classList.toggle('off', off);
       }
-      m.el.style.transform = `translate3d(${(x + w).toFixed(1)}px,${(y + h).toFixed(1)}px,0)`;
+      const qx = Math.round((x + w) * 10);
+      const qy = Math.round((y + h) * 10);
+      if (qx !== m.qx || qy !== m.qy) {
+        m.qx = qx;
+        m.qy = qy;
+        m.el.style.transform = `translate3d(${(qx / 10).toFixed(1)}px,${(qy / 10).toFixed(1)}px,0)`;
+      }
       if (m.tag && tags < MAX_TAGS) {
         this.tags[tags] = m;
         this.tagX[tags] = x; this.tagY[tags] = y; this.tagHalf[tags] = tagHalfWidth(m.chars) * this.rem;
@@ -269,13 +314,18 @@ export class WorldLayer {
   }
 
   reset(): void {
+    this.activeFloats = 0;
+    this.activeMarkers = 0;
     for (const f of this.floats) {
       f.live = false;
+      f.opacity = -1;
+      f.qx = f.qy = f.qs = NaN;
       f.el.style.display = 'none';
     }
     for (const m of this.markers) {
       m.live = false;
       m.tag = false;
+      m.qx = m.qy = m.qa = NaN;
       m.el.style.display = 'none';
     }
   }

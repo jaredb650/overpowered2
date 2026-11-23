@@ -19,7 +19,7 @@ uniform vec2 uHalfSize;
 in vec2 vUv;
 out vec4 outColor;
 
-float linear(float d) { return d >= 1.0 ? 1e5 : uProj.y / (d * 2.0 - 1.0 + uProj.x); }
+float linear(float d) { return d >= 1.0 ? 30000.0 : uProj.y / (d * 2.0 - 1.0 + uProj.x); }
 
 void main() {
   ivec2 p = ivec2(gl_FragCoord.xy);
@@ -27,46 +27,56 @@ void main() {
   vec3 c = sceneTexel.rgb;
   float d = texelFetch(tDepth, p, 0).r;
   if (d < ${VIEW_DEPTH_MAX.toFixed(4)}) { outColor = vec4(c, 1.0); return; }
-  float z = linear(d);
 
-  // Depth-aware upsample. Where all four half-res neighbours agree with this pixel, one hardware
-  // bilinear tap per texture is exact, and that is nearly every pixel. On a silhouette it takes the
-  // single neighbour closest in depth, so fog and AO stop exactly at the edge.
-  ivec2 h = (p - 1) >> 1;
-  ivec2 hiBound = ivec2(uHalfSize) - 1;
-  ivec2 q0 = clamp(h, ivec2(0), hiBound);
-  ivec2 q1 = clamp(h + ivec2(1, 0), ivec2(0), hiBound);
-  ivec2 q2 = clamp(h + ivec2(0, 1), ivec2(0), hiBound);
-  ivec2 q3 = clamp(h + ivec2(1, 1), ivec2(0), hiBound);
-  float e0 = abs(texelFetch(tHalfDepth, q0, 0).r - z);
-  float e1 = abs(texelFetch(tHalfDepth, q1, 0).r - z);
-  float e2 = abs(texelFetch(tHalfDepth, q2, 0).r - z);
-  float e3 = abs(texelFetch(tHalfDepth, q3, 0).r - z);
-  float ao;
-  vec4 fog;
+  bool needAo = uAo > 0.0 && d < 0.99999;
+  bool needFog = uFog > 0.0;
+  bool needSsr = uSsr > 0.0 && sceneTexel.a < 0.999;
+
+  float ao = 1.0;
+  vec4 fog = vec4(0.0, 0.0, 0.0, 1.0);
   vec4 ssr = vec4(0.0);
-  if (max(max(e0, e1), max(e2, e3)) < z * 0.025) {
-    vec2 uv = min(vUv * uHalfScale, uHalfEdge);
-    ao = texture(tAo, uv).r;
-    fog = texture(tFog, uv);
-    if (uSsr > 0.0) ssr = texture(tSsr, uv);
-  } else {
-    ivec2 q = q0;
-    float best = e0;
-    if (e1 < best) { best = e1; q = q1; }
-    if (e2 < best) { best = e2; q = q2; }
-    if (e3 < best) { q = q3; }
-    ao = texelFetch(tAo, q, 0).r;
-    fog = texelFetch(tFog, q, 0);
-    if (uSsr > 0.0) ssr = texelFetch(tSsr, q, 0);
+  if (needAo || needFog || needSsr) {
+    float z = linear(d);
+    // Depth-aware upsample. Where all four half-res neighbours agree with this pixel, one hardware
+    // bilinear tap per texture is exact, and that is nearly every pixel. On a silhouette it takes the
+    // single neighbour closest in depth, so fog and AO stop exactly at the edge.
+    ivec2 h = (p - 1) >> 1;
+    ivec2 hiBound = ivec2(uHalfSize) - 1;
+    ivec2 q0 = clamp(h, ivec2(0), hiBound);
+    ivec2 q1 = clamp(h + ivec2(1, 0), ivec2(0), hiBound);
+    ivec2 q2 = clamp(h + ivec2(0, 1), ivec2(0), hiBound);
+    ivec2 q3 = clamp(h + ivec2(1, 1), ivec2(0), hiBound);
+    float e0 = abs(texelFetch(tHalfDepth, q0, 0).r - z);
+    float e1 = abs(texelFetch(tHalfDepth, q1, 0).r - z);
+    float e2 = abs(texelFetch(tHalfDepth, q2, 0).r - z);
+    float e3 = abs(texelFetch(tHalfDepth, q3, 0).r - z);
+    if (max(max(e0, e1), max(e2, e3)) < z * 0.025) {
+      vec2 uv = min(vUv * uHalfScale, uHalfEdge);
+      if (needAo) ao = texture(tAo, uv).r;
+      if (needFog) fog = texture(tFog, uv);
+      if (needSsr) ssr = texture(tSsr, uv);
+    } else {
+      ivec2 q = q0;
+      float best = e0;
+      if (e1 < best) { best = e1; q = q1; }
+      if (e2 < best) { best = e2; q = q2; }
+      if (e3 < best) { q = q3; }
+      if (needAo) ao = texelFetch(tAo, q, 0).r;
+      if (needFog) fog = texelFetch(tFog, q, 0);
+      if (needSsr) ssr = texelFetch(tSsr, q, 0);
+    }
   }
-  float hot = smoothstep(1.0, 3.5, max(c.r, max(c.g, c.b)));
-  c *= mix(1.0, ao, uAo * (1.0 - hot));
+  if (needAo) {
+    float hot = smoothstep(1.0, 3.5, max(c.r, max(c.g, c.b)));
+    c *= mix(1.0, ao, uAo * (1.0 - hot));
+  }
   // ssr.rgb is premultiplied by nothing, a is ray confidence. The reflection replaces part of what the
   // forward pass guessed from the volume, so it only adds where it finds something brighter.
-  float reflectivity = (1.0 - sceneTexel.a) * ssr.a * uSsr;
-  c = mix(c, max(c, c * (1.0 - reflectivity) + ssr.rgb * reflectivity), min(reflectivity * 8.0, 1.0));
-  c = mix(c, c * fog.a + fog.rgb, uFog);
+  if (needSsr) {
+    float reflectivity = (1.0 - sceneTexel.a) * ssr.a * uSsr;
+    c = mix(c, max(c, c * (1.0 - reflectivity) + ssr.rgb * reflectivity), min(reflectivity * 8.0, 1.0));
+  }
+  if (needFog) c = mix(c, c * fog.a + fog.rgb, uFog);
   outColor = vec4(c, 1.0);
 }`;
 

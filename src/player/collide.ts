@@ -108,7 +108,8 @@ export class CapsuleWorld {
     if (!hit) return false;
     fillCast(out, hit);
     // Anything else at the very same distance? Rapier returned the nearest, so nothing is nearer.
-    let next = this.world.castShape(center, IDENTITY, motion, shape, 0, 1, false, undefined, this.groups, hit.collider);
+    const tieToi = Math.min(1, out.toi + 1e-6);
+    let next = this.world.castShape(center, IDENTITY, motion, shape, 0, tieToi, false, undefined, this.groups, hit.collider);
     if (!next || next.time_of_impact > out.toi) return true;
     const tied = this.tied;
     tied.length = 0;
@@ -117,7 +118,7 @@ export class CapsuleWorld {
       fillCast(this.alt, next);
       if (ahead(this.alt, out, motion)) copyHit(this.alt, out);
       tied.push(next.collider.handle);
-      next = this.world.castShape(center, IDENTITY, motion, shape, 0, 1, false, undefined, this.groups, undefined, undefined, this.untied);
+      next = this.world.castShape(center, IDENTITY, motion, shape, 0, tieToi, false, undefined, this.groups, undefined, undefined, this.untied);
     }
     tied.length = 0;
     return true;
@@ -141,7 +142,8 @@ export class CapsuleWorld {
     if (!hit) return false;
     fillRay(out, hit, origin, dir);
     // As for a sweep: a tie is settled by the faces, not by Rapier's tree.
-    let next = this.world.castRayAndGetNormal(this.ray, maxDist, true, undefined, this.groups, hit.collider);
+    const tieDist = Math.min(maxDist, out.toi + 1e-6);
+    let next = this.world.castRayAndGetNormal(this.ray, tieDist, true, undefined, this.groups, hit.collider);
     if (!next || next.timeOfImpact > out.toi) return true;
     const tied = this.tied;
     tied.length = 0;
@@ -150,7 +152,7 @@ export class CapsuleWorld {
       fillRay(this.alt, next, origin, dir);
       if (ahead(this.alt, out, dir)) copyHit(this.alt, out);
       tied.push(next.collider.handle);
-      next = this.world.castRayAndGetNormal(this.ray, maxDist, true, undefined, this.groups, undefined, undefined, this.untied);
+      next = this.world.castRayAndGetNormal(this.ray, tieDist, true, undefined, this.groups, undefined, undefined, this.untied);
     }
     tied.length = 0;
     return true;

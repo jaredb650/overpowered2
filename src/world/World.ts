@@ -41,7 +41,6 @@ export class World implements WorldSystem {
   readonly report: Record<string, number | string> = {};
   group: THREE.Group | null = null;
   private fragile: THREE.Group | null = null;
-  private kit!: Kit;
   private readonly materials = new Map<Mat, THREE.Material>();
 
   constructor(private readonly ctx: Ctx) {
@@ -96,7 +95,7 @@ export class World implements WorldSystem {
       }
     };
 
-    const kit = (this.kit = new Kit(ctx.physics));
+    const kit = new Kit(ctx.physics);
     const spec = this.spec;
     await report(0.01, 'Pouring concrete');
     const { def } = this;
@@ -123,6 +122,7 @@ export class World implements WorldSystem {
       this.fragile = spec.fragile.finish(this.material);
       this.fragile.name = 'fragile-dressing';
       group.add(this.fragile);
+      spec.fragile.clear();
     }
     this.group = group;
     if (ctx.render.scene instanceof THREE.Scene) ctx.render.scene.add(group, this.objects.root);
@@ -131,6 +131,8 @@ export class World implements WorldSystem {
     this.report.meshes = group.children.length;
     this.report.colliders = kit.colliders;
     this.report.lights = kit.lights.length;
+    // Drop raw CPU vertex/index builder arrays now that BufferGeometries are built.
+    kit.geo.clear();
 
     // Apply map atmosphere (e.g. golden dawn desert for Surplus) before baking sky irradiance into the LightVolume.
     if (def.atmosphere) {
@@ -169,6 +171,9 @@ export class World implements WorldSystem {
 
     await report(0.87, def.readyLabel);
     if (bake instanceof Promise) await bake;
+    this.objects.walls.debris.warm();
+    this.objects.props.debris.warm();
+    (ctx.render as { refreshStaticShadows?: () => void }).refreshStaticShadows?.();
     this.report.lightBakeMs = Math.round(performance.now() - t3);
     this.report.totalMs = Math.round(performance.now() - t0);
     await report(1, 'Ready');

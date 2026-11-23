@@ -87,6 +87,10 @@ class Rope {
   readonly held = new Uint8Array(RopeTuning.points);
   snags = 0;
   wallAt = 0;
+  anchorX = NaN;
+  anchorY = NaN;
+  anchorZ = NaN;
+  floorsSeeded = 0;
   readonly last = new THREE.Vector3();
 }
 
@@ -110,6 +114,8 @@ export class RopeField {
   private pos: Float32Array | null = null;
   private nor: Float32Array | null = null;
   private dirty = false;
+  /** Frames to keep the empty mesh visible at load so WebGL compiles both main and shadow programs before hiding. */
+  private warmFrames = 0;
 
   constructor(private readonly ctx: Ctx, private readonly blood: BloodField) {}
 
@@ -150,6 +156,7 @@ export class RopeField {
     g.setAttribute('normal', new THREE.BufferAttribute(nor, 3).setUsage(THREE.DynamicDrawUsage));
     g.setAttribute('color', new THREE.BufferAttribute(col, 3));
     g.setIndex(index);
+    g.setDrawRange(0, 6);
     const { render } = this.ctx;
     const m = new THREE.MeshPhysicalMaterial({
       vertexColors: true, roughness: 0.2, metalness: 0, clearcoat: 1, clearcoatRoughness: 0.15, side: THREE.DoubleSide,
@@ -158,10 +165,13 @@ export class RopeField {
     });
     const mat = render.materials?.patch ? render.materials.patch(m) ?? m : m;
     const mesh = (this.mesh = new THREE.Mesh(g, mat));
+    mesh.matrixAutoUpdate = false;
+    mesh.updateMatrix();
     mesh.frustumCulled = false;
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     mesh.name = 'gore.guts';
+    this.warmFrames = 2;
     render.scene.add(mesh);
   }
 
@@ -190,6 +200,10 @@ export class RopeField {
     r.held.fill(0);
     r.snags = 0;
     r.wallAt = 0;
+    r.anchorX = NaN;
+    r.anchorY = NaN;
+    r.anchorZ = NaN;
+    r.floorsSeeded = 0;
     return r;
   }
 
@@ -268,6 +282,10 @@ export class RopeField {
       r.looped = false;
       r.restAt = -1;
       r.born = this.ctx.time.elapsed;
+      r.anchorX = NaN;
+      r.anchorY = NaN;
+      r.anchorZ = NaN;
+      r.floorsSeeded = 0;
       r.dirty = true;
       this.dirty = true;
       n++;
@@ -320,6 +338,7 @@ export class RopeField {
     const t = RopeTuning;
     const h = Math.min(dt, 1 / 30);
     const P = t.points;
+    let anyAlive = false;
     for (const r of this.ropes) {
       if (!r.alive) continue;
       if (r.owner && r.owner.parent === null) {
@@ -337,6 +356,7 @@ export class RopeField {
         this.dirty = true;
         continue;
       }
+      anyAlive = true;
       if (r.restAt >= 0) {
         if (loose && age > t.linger) {
           r.dirty = true;
@@ -347,16 +367,48 @@ export class RopeField {
       r.dirty = true;
       this.dirty = true;
       const x = r.x, px = r.px;
-      // From above the strand's highest point, so a point already pushed under a floor still finds that floor.
-      let top = -Infinity;
-      for (let i = 1; i < P * 3; i += 3) top = Math.max(top, x[i]!);
-      for (let k = 0; k < t.groundPerFrame; k++) {
-        const i = r.groundAt;
-        r.groundAt = (r.groundAt + 1) % P;
-        _p.set(x[i * 3]!, top + 0.4, x[i * 3 + 2]!);
-        // A loose strand lies on whatever is under it: the world, and bodies (`DRAPE_ON`). One still hanging from a body
-        // finds only the world, or it would be held up by the body it hangs out of.
-        if (this.under(_p, top + 4 - x[i * 3 + 1]!, loose)) r.floors[i] = _hit.point.y;
+      const e0 = (P - 1) * 3;
+      let pinX = 0, pinY = 0, pinZ = 0;
+      let endX = 0, endY = 0, endZ = 0;
+      let skipGround = false;
+      if (r.target) {
+        r.target.updateWorldMatrix(true, false);
+        _a.copy(r.offset).applyMatrix4(r.target.matrixWorld);
+        pinX = _a.x;
+        pinY = _a.y;
+        pinZ = _a.z;
+        if (r.looped) {
+          _a.copy(r.endOffset).applyMatrix4(r.target.matrixWorld);
+          endX = _a.x;
+          endY = _a.y;
+          endZ = _a.z;
+        }
+        const dx = pinX - r.anchorX;
+        const dy = pinY - r.anchorY;
+        const dz = pinZ - r.anchorZ;
+        const stillAnchor = dx * dx + dy * dy + dz * dz < 1e-4;
+        if (stillAnchor && r.floorsSeeded >= P) {
+          skipGround = true;
+        } else if (!stillAnchor) {
+          r.anchorX = pinX;
+          r.anchorY = pinY;
+          r.anchorZ = pinZ;
+          r.floorsSeeded = 0;
+        }
+      }
+      if (!skipGround) {
+        // From above the strand's highest point, so a point already pushed under a floor still finds that floor.
+        let top = -Infinity;
+        for (let i = 1; i < P * 3; i += 3) top = Math.max(top, x[i]!);
+        for (let k = 0; k < t.groundPerFrame; k++) {
+          const i = r.groundAt;
+          r.groundAt = (r.groundAt + 1) % P;
+          _p.set(x[i * 3]!, top + 0.4, x[i * 3 + 2]!);
+          // A loose strand lies on whatever is under it: the world, and bodies (`DRAPE_ON`). One still hanging from a body
+          // finds only the world, or it would be held up by the body it hangs out of.
+          if (this.under(_p, top + 4 - x[i * 3 + 1]!, loose)) r.floors[i] = _hit.point.y;
+        }
+        if (r.target) r.floorsSeeded += t.groundPerFrame;
       }
       // In flight, a point or two a frame are tested along their own step: what a thrown strand hits, it slaps and stops at.
       if (loose) {
@@ -398,20 +450,14 @@ export class RopeField {
         x[o + 2] = x[o + 2]! + vz + swayZ * reach;
         motion += Math.abs(vx) + Math.abs(vy) + Math.abs(vz);
       }
-      const e0 = (P - 1) * 3;
-      let pinX = 0, pinY = 0, pinZ = 0;
-      let endX = 0, endY = 0, endZ = 0;
       if (r.target) {
-        r.target.updateWorldMatrix(true, false);
-        _a.copy(r.offset).applyMatrix4(r.target.matrixWorld);
-        pinX = x[0] = _a.x;
-        pinY = x[1] = _a.y;
-        pinZ = x[2] = _a.z;
+        x[0] = pinX;
+        x[1] = pinY;
+        x[2] = pinZ;
         if (r.looped) {
-          _a.copy(r.endOffset).applyMatrix4(r.target.matrixWorld);
-          endX = x[e0] = _a.x;
-          endY = x[e0 + 1] = _a.y;
-          endZ = x[e0 + 2] = _a.z;
+          x[e0] = endX;
+          x[e0 + 1] = endY;
+          x[e0 + 2] = endZ;
         }
       }
       for (let it = 0; it < t.iterations; it++) {
@@ -486,7 +532,16 @@ export class RopeField {
         if (r.still > 0.6) r.restAt = now;
       }
     }
-    if (this.dirty) this.draw(now);
+    if (this.dirty) {
+      this.draw(now);
+    } else if (!anyAlive && this.warmFrames > 0) {
+      this.warmFrames--;
+      if (this.warmFrames === 0) {
+        this.mesh.visible = false;
+        this.mesh.castShadow = false;
+        this.mesh.geometry.setDrawRange(0, 0);
+      }
+    }
   }
 
   /**
@@ -497,6 +552,12 @@ export class RopeField {
   private under(from: THREE.Vector3, max: number, drape: boolean): boolean {
     const physics = this.ctx.physics;
     if (!drape) return physics.raycastInto(from, _down, max, CG.World, _hit);
+    const excludeDynamic = (physics as { R?: { QueryFilterFlags?: { EXCLUDE_DYNAMIC?: number } } }).R?.QueryFilterFlags?.EXCLUDE_DYNAMIC;
+    if (excludeDynamic !== undefined) {
+      return (physics.raycastInto as (o: THREE.Vector3, d: THREE.Vector3, m: number, mask: number, out: RayHit, flags?: number) => boolean)(
+        from, _down, max, DRAPE_ON, _hit, excludeDynamic,
+      );
+    }
     if (!physics.raycastInto(from, _down, max, DRAPE_ON, _hit)) return false;
     const body = (_hit.collider as { parent?(): { isFixed(): boolean } | null } | null)?.parent?.();
     if (!body || body.isFixed()) return true;
@@ -537,13 +598,24 @@ export class RopeField {
 
   private draw(now: number): void {
     this.dirty = false;
+    this.warmFrames = 0;
     const pos = this.pos!, nor = this.nor!;
     const t = RopeTuning;
     const P = t.points;
+    let liveCount = 0;
+    let maxAlive = -1;
+    let minDirty = this.ropes.length;
+    let maxDirty = -1;
     for (let k = 0; k < this.ropes.length; k++) {
       const r = this.ropes[k]!;
+      if (r.alive) {
+        liveCount++;
+        maxAlive = k;
+      }
       if (!r.dirty) continue;
       r.dirty = false;
+      if (k < minDirty) minDirty = k;
+      if (k > maxDirty) maxDirty = k;
       const base = k * VERTS * 3;
       if (!r.alive) {
         pos.fill(0, base, base + VERTS * 3);
@@ -590,15 +662,31 @@ export class RopeField {
         }
       }
     }
-    const g = this.mesh!.geometry;
-    g.getAttribute('position').needsUpdate = true;
-    g.getAttribute('normal').needsUpdate = true;
+    const mesh = this.mesh!;
+    const g = mesh.geometry;
+    mesh.visible = liveCount > 0;
+    mesh.castShadow = liveCount > 0;
+    g.setDrawRange(0, liveCount > 0 ? (maxAlive + 1) * (RINGS - 1) * RADIAL * 6 : 0);
+    if (minDirty <= maxDirty) {
+      const offset = minDirty * VERTS * 3;
+      const count = (maxDirty - minDirty + 1) * VERTS * 3;
+      const posAttr = g.getAttribute('position') as THREE.BufferAttribute;
+      const norAttr = g.getAttribute('normal') as THREE.BufferAttribute;
+      posAttr.addUpdateRange(offset, count);
+      posAttr.needsUpdate = true;
+      norAttr.addUpdateRange(offset, count);
+      norAttr.needsUpdate = true;
+    }
   }
 
   clear(): void {
     for (const r of this.ropes) {
       r.alive = false;
       r.dirty = true;
+      r.anchorX = NaN;
+      r.anchorY = NaN;
+      r.anchorZ = NaN;
+      r.floorsSeeded = 0;
     }
     this.dirty = true;
     if (this.mesh) this.draw(0);

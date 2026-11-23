@@ -67,4 +67,39 @@ describe('InstanceRing', () => {
     spawn(r, 5, 1);
     expect(r.countLive(2)).toBe(1);
   });
+
+  it('trims trailing dead slots while preserving draw order on order-dependent rings', () => {
+    const r = make(6);
+    spawn(r, 0, 10);
+    spawn(r, 0, 1);
+    spawn(r, 0, 1);
+    r.sync(0.5);
+    expect(r.geometry.instanceCount).toBe(3);
+    r.sync(2);
+    expect(r.active).toBe(true);
+    expect(r.geometry.instanceCount).toBe(1);
+    expect(r.countLive(2)).toBe(1);
+  });
+
+  it('swap-compacts dead holes on order-independent rings', () => {
+    const r = new InstanceRing(new THREE.BufferGeometry(), 6, ['aP', 'aV'], true);
+    r.object = new THREE.Mesh(r.geometry);
+    r.object.visible = false;
+    const o0 = spawn(r, 0, 1);
+    r.data[o0] = 10;
+    const o1 = spawn(r, 0, 10);
+    r.data[o1] = 20;
+    const o2 = spawn(r, 0, 1);
+    r.data[o2] = 30;
+    const o3 = spawn(r, 0, 10);
+    r.data[o3] = 40;
+    r.sync(0.5);
+    expect(r.geometry.instanceCount).toBe(4);
+    r.sync(2);
+    expect(r.active).toBe(true);
+    expect(r.geometry.instanceCount).toBe(2);
+    expect(r.countLive(2)).toBe(2);
+    // Slot 0 received slot 3 (x=40), slot 1 kept x=20.
+    expect([r.data[0], r.data[8]].sort((a, b) => a! - b!)).toEqual([20, 40]);
+  });
 });

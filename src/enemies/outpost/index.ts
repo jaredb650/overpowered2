@@ -74,6 +74,8 @@ export type { PatrolPoint, PatrolRoute, StealthArc, StealthHudSnapshot, StealthS
 /** True when this page runs the Outpost's rules. */
 export const outpostActive = (): boolean => ACTIVE.def.ai === 'outpost';
 
+const byRunScoreDesc = (a: { score: number }, b: { score: number }) => b.score - a.score;
+
 /** Routes worked out per frame. An order waits its turn, which is invisible at this scale. */
 const ROUTES_PER_FRAME = 3;
 const MORALE_TICK = 0.25;
@@ -945,9 +947,17 @@ export class Outpost {
     return this.walkTo(s, to, null);
   }
 
+  private readonly singleEye: THREE.Vector3[] = [];
+  private readonly emptyEyes: readonly THREE.Vector3[] = [];
+
   /** Every player on his feet, the host's own included: what a broken man runs from. */
   playerEyes(): readonly THREE.Vector3[] {
-    return this.w.ctx.coop?.world?.playerEyes() ?? (this.w.player.alive ? [this.w.player.eye] : []);
+    const coopEyes = this.w.ctx.coop?.world?.playerEyes();
+    if (coopEyes) return coopEyes;
+    if (!this.w.player.alive) return this.emptyEyes;
+    this.singleEye[0] = this.w.player.eye;
+    this.singleEye.length = 1;
+    return this.singleEye;
   }
 
   private *fleePlaces(): Iterable<THREE.Vector3> {
@@ -959,11 +969,17 @@ export class Outpost {
   fleeTo(s: Soldier): boolean {
     const eyes = this.playerEyes();
     const runs = bestRuns(s.e.position, this.fleePlaces(), eyes, this.runs);
-    for (const r of runs) {
+    for (let i = 0; i < runs.length; i++) {
+      const r = runs[i]!;
       _a.copy(r.at).y += 1.3;
-      if (eyes.some(eye => this.w.director.clearLine(eye, _a))) r.score -= 25;
+      for (let j = 0; j < eyes.length; j++) {
+        if (this.w.director.clearLine(eyes[j]!, _a)) {
+          r.score -= 25;
+          break;
+        }
+      }
     }
-    runs.sort((a, b) => b.score - a.score);
+    runs.sort(byRunScoreDesc);
     for (let i = 0; i < runs.length; i++) {
       const at = runs[i]!.at;
       if ((i === 0 && this.walkTo(s, at, this.intel)) || this.walkTo(s, at, null)) {
@@ -1593,7 +1609,13 @@ export class Outpost {
   // -------------------------------------------------------------------------------------------
 
   flashbang(at: THREE.Vector3, fuse: number): void {
-    const b = this.bangs.find(x => !x.live);
+    let b = null;
+    for (let i = 0; i < this.bangs.length; i++) {
+      if (!this.bangs[i]!.live) {
+        b = this.bangs[i]!;
+        break;
+      }
+    }
     if (!b) return;
     b.live = true;
     b.at = this.w.now + fuse;

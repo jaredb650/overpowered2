@@ -94,6 +94,7 @@ const GUNSHIP_ENGINE_PLAN: EngineSoundPlan = {
 // ---------------------------------------------------------------------------------------------
 
 type GunshipMount = 'podLeft' | 'podRight' | 'ropeLeft' | 'ropeRight' | 'nose';
+const ROPE_MOUNTS: readonly GunshipMount[] = ['ropeLeft', 'ropeRight'];
 
 const TAN_HULL = '#8a7e5c';
 const OLIVE_PANEL = '#5b6143';
@@ -1018,9 +1019,8 @@ export class DesertAirAndSquads implements AirAndSquadsController {
     this.setRopesVisible(g, ropesOut);
     if (ropesOut) {
       const sway = Math.sin(this.dropClock * 6.2 + g.side) * 0.14;
-      const mounts: readonly GunshipMount[] = ['ropeLeft', 'ropeRight'];
       for (let r = 0; r < 2; r++) {
-        g.frame.mount(mounts[r]!, _v1);
+        g.frame.mount(ROPE_MOUNTS[r]!, _v1);
         const h = Math.max(1, _v1.y);
         const rope = g.ropes[r]!;
         rope.scale.set(1, h, 1);

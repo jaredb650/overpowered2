@@ -124,9 +124,15 @@ const WHITE = new THREE.Color(1, 1, 1);
 
 export class ProjectileVisuals {
   private readonly layers: Record<ProjectileKind | 'cone' | 'coneHot' | 'flare' | 'blink' | 'sticky' | 'stickyLed' | 'satchel' | 'satchelLed', Layer>;
+  private readonly layerList: Layer[];
   private readonly tints = new WeakMap<Projectile, THREE.Color>();
   private readonly stuck: StuckStake[] = [];
   private stuckHead = 0;
+  private stuckDirty = false;
+  private stuckActive = 0;
+  private stuckNextExpire = Infinity;
+  private prevStakeLive = 0;
+  private hadLive = false;
 
   private readonly matrix = new THREE.Matrix4();
   private readonly quat = new THREE.Quaternion();
@@ -156,6 +162,7 @@ export class ProjectileVisuals {
       satchel: layer(satchelBody(), basic(hdr(0x556242, 1.05)), CAPACITY.shell),
       satchelLed: layer(new THREE.IcosahedronGeometry(0.058, 1), basic(hdr(0xff1e12, 7.5)), CAPACITY.shell),
     };
+    this.layerList = Object.values(this.layers);
     for (const k of ['bullet', 'plasma'] as const) {
       this.layers[k].mesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(CAPACITY[k] * 3), 3);
       this.layers[k].mesh.instanceColor.setUsage(THREE.DynamicDrawUsage);
@@ -167,11 +174,13 @@ export class ProjectileVisuals {
 
   init(): void {
     const scene = this.ctx.render.scene;
-    for (const key of Object.keys(this.layers) as (keyof typeof this.layers)[]) scene.add(this.layers[key].mesh);
+    for (let i = 0; i < this.layerList.length; i++) scene.add(this.layerList[i]!.mesh);
   }
 
   clear(): void {
     for (const s of this.stuck) s.until = 0;
+    this.stuckDirty = true;
+    this.stuckNextExpire = Infinity;
   }
 
   /** Remembers the colour a projectile draws in. Called once at spawn, so no per-frame lookup logic. */
@@ -191,30 +200,59 @@ export class ProjectileVisuals {
     s.position.copy(point).addScaledVector(dir, -0.28);
     s.rotation.setFromUnitVectors(Y, dir);
     s.until = this.ctx.time.elapsed + seconds;
+    this.stuckDirty = true;
+    if (s.until < this.stuckNextExpire) this.stuckNextExpire = s.until;
   }
 
   draw(live: readonly Projectile[], dt: number): void {
+    const now = this.ctx.time.elapsed;
+    const expired = now >= this.stuckNextExpire;
+    if (live.length === 0 && !this.hadLive && !this.stuckDirty && !expired) return;
+
     const L = this.layers;
-    for (const key of Object.keys(L) as (keyof typeof L)[]) L[key].count = 0;
+    const list = this.layerList;
+    for (let i = 0; i < list.length; i++) list[i]!.count = 0;
     for (let i = 0; i < live.length; i++) this.place(live[i]!, dt);
 
-    const now = this.ctx.time.elapsed;
     const stakes = L.stake;
-    for (let i = 0; i < this.stuck.length; i++) {
-      const s = this.stuck[i]!;
-      if (s.until <= now || stakes.count >= stakes.mesh.instanceMatrix.count) continue;
-      this.scale.set(1, 1, 1);
-      this.matrix.compose(s.position, s.rotation, this.scale);
-      stakes.mesh.setMatrixAt(stakes.count++, this.matrix);
+    const liveStakes = stakes.count;
+    const writeStakes = liveStakes > 0 || this.prevStakeLive > 0 || this.stuckDirty || expired;
+    if (writeStakes) {
+      let active = 0;
+      let nextExpire = Infinity;
+      const maxStakes = stakes.mesh.instanceMatrix.count;
+      for (let i = 0; i < this.stuck.length; i++) {
+        const s = this.stuck[i]!;
+        if (s.until <= now) continue;
+        if (s.until < nextExpire) nextExpire = s.until;
+        if (stakes.count >= maxStakes) continue;
+        this.scale.set(1, 1, 1);
+        this.matrix.compose(s.position, s.rotation, this.scale);
+        stakes.mesh.setMatrixAt(stakes.count++, this.matrix);
+        active++;
+      }
+      this.stuckActive = active;
+      this.stuckNextExpire = nextExpire;
+      this.stuckDirty = false;
+      this.prevStakeLive = liveStakes;
+    } else {
+      stakes.count = this.stuckActive;
     }
 
-    for (const key of Object.keys(L) as (keyof typeof L)[]) {
-      const l = L[key];
+    for (let i = 0; i < list.length; i++) {
+      const l = list[i]!;
       l.mesh.count = l.count;
-      if (l.count === 0) continue;
+      if (l.count === 0 || (l === stakes && !writeStakes)) continue;
+      l.mesh.instanceMatrix.clearUpdateRanges();
+      l.mesh.instanceMatrix.addUpdateRange(0, l.count * 16);
       l.mesh.instanceMatrix.needsUpdate = true;
-      if (l.mesh.instanceColor) l.mesh.instanceColor.needsUpdate = true;
+      if (l.mesh.instanceColor) {
+        l.mesh.instanceColor.clearUpdateRanges();
+        l.mesh.instanceColor.addUpdateRange(0, l.count * 3);
+        l.mesh.instanceColor.needsUpdate = true;
+      }
     }
+    this.hadLive = live.length > 0;
   }
 
   private put(l: Layer, position: THREE.Vector3, rotation: THREE.Quaternion, sx: number, sy: number, sz: number): number {

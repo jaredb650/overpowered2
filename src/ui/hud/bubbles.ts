@@ -49,6 +49,9 @@ interface Bubble {
   /** Co-op only: when the next sight ray is due, and what the last one said. */
   rayAt: number;
   seen: boolean;
+  qx: number;
+  qy: number;
+  qs: number;
 }
 
 const _v = new THREE.Vector3();
@@ -67,7 +70,13 @@ const headOf = (enemy: EnemyInstance, out: THREE.Vector3): THREE.Vector3 => {
 export class Bubbles {
   readonly el: HTMLElement;
   readonly pool: Bubble[] = [];
+  private readonly placed: Bubble[] = [];
   private clock = 0;
+  private activeCount = 0;
+  private halfW = 720;
+  private halfH = 450;
+  private rem = 16;
+  private lastWarnAngleQ = NaN;
   /** The critical-warning cue under the crosshair: what is coming, and an arrow to where it came from. */
   readonly warnEl: HTMLElement;
   private readonly warnArrow: HTMLElement;
@@ -85,7 +94,7 @@ export class Bubbles {
       this.el.append(el);
       this.pool.push({
         el, box, text, enemy: null, full: '', typed: 0, age: 0, life: 0, urgent: false, bornAt: 0, pinned: false, anchor: new THREE.Vector3(),
-        x: 0, y: 0, w: 0, h: 0, shown: false, rayAt: 0, seen: false,
+        x: 0, y: 0, w: 0, h: 0, shown: false, rayAt: 0, seen: false, qx: NaN, qy: NaN, qs: NaN,
       });
     }
     this.warnArrow = div('bb-warn-arrow');
@@ -93,6 +102,15 @@ export class Bubbles {
     this.warnEl = div('bb-warn', this.warnArrow, this.warnText);
     this.warnEl.style.visibility = 'hidden';
     this.el.append(this.warnEl);
+    this.measure();
+  }
+
+  measure(): void {
+    this.halfW = (typeof innerWidth === 'number' ? innerWidth : 1440) / 2;
+    this.halfH = (typeof innerHeight === 'number' ? innerHeight : 900) / 2;
+    this.rem = (typeof getComputedStyle === 'function' && document.documentElement)
+      ? (parseFloat(getComputedStyle(document.documentElement).fontSize) || 16)
+      : 16;
   }
 
   /** A critical warning the player must act on (a flashbang coming in), with an arrow to where it came from. */
@@ -100,14 +118,13 @@ export class Bubbles {
     this.warnFrom.copy(from);
     this.warnText.textContent = label;
     this.warnLife = seconds;
+    this.lastWarnAngleQ = NaN;
     this.warnEl.style.visibility = '';
     this.warnEl.animate?.([{ transform: 'translateX(-50%) scale(1.3)' }, { transform: 'translateX(-50%)' }], 160);
   }
 
   get live(): number {
-    let n = 0;
-    for (const b of this.pool) if (b.enemy) n++;
-    return n;
+    return this.activeCount;
   }
 
   /** A line said aloud. Returns false when it stays feed-only: nobody to hang it on, out of sight, too far, or no room. */
@@ -116,6 +133,7 @@ export class Bubbles {
     if (!enemy || !enemy.alive) return false;
     const camera = this.ctx.render.camera;
     if (!(camera instanceof THREE.Camera)) return false;
+    _eye.setFromMatrixPosition(camera.matrixWorld);
     // Sight is checked now and again every frame, so a man out of view when he speaks never gets one.
     const probe = this.pool.find(b => b.enemy === enemy) ?? null;
     if (!this.visible(headOf(enemy, _head), enemy, camera, probe, true)) return false;
@@ -124,6 +142,7 @@ export class Bubbles {
     if (!b) for (const x of this.pool) if (!b || x.bornAt < b.bornAt) b = x;
     const bubble = b!;
     const row = line.row !== undefined && line.row >= 0 ? RULES[line.row] : undefined;
+    if (!bubble.enemy) this.activeCount++;
     bubble.enemy = enemy;
     bubble.urgent = URGENT.has(line.kind);
     bubble.full = line.text;
@@ -133,15 +152,19 @@ export class Bubbles {
     bubble.bornAt = this.clock;
     bubble.pinned = false;
     bubble.rayAt = 0;
+    bubble.qx = bubble.qy = bubble.qs = NaN;
+    const radio = row?.radio === true;
     bubble.el.classList.toggle('scream', row?.channel === 'scream');
-    bubble.el.classList.toggle('radio', row?.radio === true);
+    bubble.el.classList.toggle('radio', radio);
     bubble.el.style.setProperty('--c', color);
     bubble.el.style.visibility = '';
-    // Measured once with every word in it, then held at that size while the words come, so the box never jitters.
-    bubble.box.style.width = bubble.box.style.minHeight = '';
-    bubble.text.textContent = line.text;
-    bubble.w = bubble.box.offsetWidth;
-    bubble.h = bubble.box.offsetHeight;
+    // Size from character count and wrapping so the box stays fixed as words appear without forcing synchronous layout.
+    const len = line.text.length;
+    const chars = Math.min(24, Math.max(4, len));
+    const lines = len > 24 ? Math.ceil(len / 24) : 1;
+    const rem = this.rem;
+    bubble.w = Math.max(48, Math.round((chars * 0.49 + 1.1) * rem));
+    bubble.h = Math.max(24, Math.round((lines * 1.02 + 0.48 + (radio ? 0.75 : 0)) * rem));
     bubble.box.style.width = `${bubble.w}px`;
     bubble.box.style.minHeight = `${bubble.h}px`;
     bubble.text.textContent = '';
@@ -164,7 +187,7 @@ export class Bubbles {
 
   /** In front, on screen, within range, and in sight. Leaves the point in normalised device coordinates in `_v`. */
   private visible(at: THREE.Vector3, enemy: EnemyInstance, camera: THREE.Camera, b: Bubble | null, now: boolean): boolean {
-    if (at.distanceTo(_eye.setFromMatrixPosition(camera.matrixWorld)) > BUBBLE_RANGE) return false;
+    if (at.distanceToSquared(_eye) > BUBBLE_RANGE * BUBBLE_RANGE) return false;
     _view.copy(at).applyMatrix4(camera.matrixWorldInverse);
     if (_view.z > -0.2) return false;
     _v.copy(_view).applyMatrix4(camera.projectionMatrix);
@@ -192,17 +215,30 @@ export class Bubbles {
 
   update(dt: number): void {
     this.clock += dt;
+    if (this.activeCount === 0 && this.warnLife <= 0) return;
     const camera = this.ctx.render.camera;
     if (!(camera instanceof THREE.Camera)) return;
-    const w = innerWidth / 2;
-    const h = innerHeight / 2;
+    const w = this.halfW;
+    const h = this.halfH;
     if (this.warnLife > 0) {
       this.warnLife -= dt;
-      if (this.warnLife <= 0) this.warnEl.style.visibility = 'hidden';
-      // A compass bearing, like a hit indicator: up is ahead of the camera, down behind it.
-      _view.copy(this.warnFrom).applyMatrix4(camera.matrixWorldInverse);
-      this.warnArrow.style.transform = `rotate(${Math.atan2(_view.x, -_view.z).toFixed(3)}rad)`;
+      if (this.warnLife <= 0) {
+        this.warnEl.style.visibility = 'hidden';
+        this.lastWarnAngleQ = NaN;
+      } else {
+        // A compass bearing, like a hit indicator: up is ahead of the camera, down behind it.
+        _view.copy(this.warnFrom).applyMatrix4(camera.matrixWorldInverse);
+        const aq = Math.round(Math.atan2(_view.x, -_view.z) * 1000);
+        if (aq !== this.lastWarnAngleQ) {
+          this.lastWarnAngleQ = aq;
+          this.warnArrow.style.transform = `rotate(${(aq / 1000).toFixed(3)}rad)`;
+        }
+      }
     }
+    if (this.activeCount === 0) return;
+    _eye.setFromMatrixPosition(camera.matrixWorld);
+    const placed = this.placed;
+    placed.length = 0;
     for (const b of this.pool) {
       if (!b.enemy) continue;
       b.life -= dt;
@@ -227,9 +263,18 @@ export class Bubbles {
       if (!shown) continue;
       b.x = _v.x * w + w;
       b.y = -_v.y * h + h;
+      placed.push(b);
     }
     // Lowest on screen first; each one above it that would overlap steps up by 1.1 boxes.
-    const placed = this.pool.filter(b => b.enemy && b.shown).sort((a, c) => c.y - a.y);
+    for (let i = 1; i < placed.length; i++) {
+      const cur = placed[i]!;
+      let j = i - 1;
+      while (j >= 0 && placed[j]!.y < cur.y) {
+        placed[j + 1] = placed[j]!;
+        j--;
+      }
+      placed[j + 1] = cur;
+    }
     for (let i = 0; i < placed.length; i++) {
       const b = placed[i]!;
       for (let j = 0; j < i; j++) {
@@ -237,22 +282,34 @@ export class Bubbles {
         if (Math.abs(a.x - b.x) < (a.w + b.w) / 2 && Math.abs(a.y - b.y) < (a.h + b.h) / 2) b.y = a.y - 1.1 * Math.max(a.h, b.h);
       }
       const at = b.pinned ? b.anchor : headOf(b.enemy!, _head);
-      const dist = at.distanceTo(_eye.setFromMatrixPosition(camera.matrixWorld));
+      const dist = at.distanceTo(_eye);
       const scale = 1 - (1 - SMALLEST) * THREE.MathUtils.clamp((dist - NEAR) / (BUBBLE_RANGE - NEAR), 0, 1);
-      b.el.style.transform = `translate3d(${b.x.toFixed(1)}px,${b.y.toFixed(1)}px,0) scale(${scale.toFixed(3)})`;
+      const qx = Math.round(b.x * 10);
+      const qy = Math.round(b.y * 10);
+      const qs = Math.round(scale * 1000);
+      if (qx !== b.qx || qy !== b.qy || qs !== b.qs) {
+        b.qx = qx;
+        b.qy = qy;
+        b.qs = qs;
+        b.el.style.transform = `translate3d(${(qx / 10).toFixed(1)}px,${(qy / 10).toFixed(1)}px,0) scale(${(qs / 1000).toFixed(3)})`;
+      }
     }
   }
 
   private drop(b: Bubble): void {
+    if (b.enemy) this.activeCount--;
     b.enemy = null;
     b.shown = false;
     b.pinned = false;
+    b.qx = b.qy = b.qs = NaN;
     b.el.style.visibility = 'hidden';
   }
 
   reset(): void {
     for (const b of this.pool) this.drop(b);
+    this.activeCount = 0;
     this.warnLife = 0;
+    this.lastWarnAngleQ = NaN;
     this.warnEl.style.visibility = 'hidden';
   }
 }

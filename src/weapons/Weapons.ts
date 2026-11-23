@@ -15,7 +15,7 @@ import type {
 } from '../core/gameplay';
 import { SeededRandom, clamp, damp, invLerp, lerp, randomInCone, smoothstep, wrapAngle } from '../core/math';
 import { MOVE } from '../player/tuning';
-import type { Combat, Guard, GuardOptions, GuardResult } from './Combat';
+import type { Combat, CombatShotResult, Guard, GuardOptions, GuardResult } from './Combat';
 import { AdsZoom } from './adsZoom';
 import { ISSUED, MODS, MOD_ORDER, moddedDef } from './mods';
 import { HIT_STOP, LAUNCHER, SWORD, TUNING, WEAPONS, WEAPON_ORDER, type FireSelect, type SoundLayer, type WeaponDef } from './data';
@@ -30,7 +30,7 @@ import { isMelee } from './melee/data';
 import { Melee } from './melee/Melee';
 import { LANCE_ON, Lance } from './lance';
 import { ROCKET_LASER } from './laser';
-import { helixOffset } from './helix';
+import { helixOffset, type HelixSpec } from './helix';
 import { SmartAim, type SmartHooks, type SmartLock } from './smartaim';
 import { KATA, bearing, kataTargets } from './kata';
 import { soldierOf } from '../enemies/outpost/soldier';
@@ -84,6 +84,7 @@ export class Weapons implements WeaponSystem, Guard {
   /** Weapon mods held (bought at the Crucible's shop, or the lab's), and the ones fitted now. A run starts with none. */
   readonly mods = new Set<ModId>();
   readonly fitted = new Set<ModId>();
+  fittedVersion = 0;
   grenades: number = TUNING.grenade.start;
   modifiers: WeaponModifiers = {
     damage: 1, fireRate: 1, bottomlessMag: false, pellets: 1, explosiveRounds: false, blastRadius: 1, instakillBlast: false,
@@ -255,6 +256,10 @@ export class Weapons implements WeaponSystem, Guard {
   /** Co-op: a scatter gun's spread is drawn from a seed the others are sent, so they see the same pellets land. */
   private readonly spreadRng = new SeededRandom();
   private readonly playOptions = { position: undefined as THREE.Vector3 | undefined, volume: 1, pitch: 1, pitchJitter: 0 };
+  private readonly projBlast: NonNullable<ProjectileSpec['explosion']> = {
+    radius: 0, damage: 0, kind: 'rocket', instakill: undefined, selfDamage: undefined, playerPush: undefined, scale: undefined, shake: undefined,
+  };
+  private readonly projHelix: HelixSpec = { phase: 0, reach: 0, radius: 0, pitch: 0, startRadius: 0, convergence: 0 };
 
   /** Directed microwave cone boiler (Autoclave) and tethered harpoon skewer/grapple controller (Gaff). */
   readonly microwave: Microwave;
@@ -571,6 +576,7 @@ export class Weapons implements WeaponSystem, Guard {
       if (slot) for (const m of MOD_ORDER) if (m !== id && MODS[m].weapon === weapon && MODS[m].slot === slot) this.fitted.delete(m);
       this.fitted.add(id);
     } else this.fitted.delete(id);
+    this.fittedVersion++;
     const nextDef = moddedDef(weapon, this.fitted);
     this.slots[weapon].def = nextDef;
     // A magazine or caliber conversion mod changes what the gun holds: overflow goes back to reserve, clamped to maxReserve.
@@ -1908,13 +1914,37 @@ export class Weapons implements WeaponSystem, Guard {
   /** Emits `weapon:impact` when a hitscan ray strikes world geometry (non-enemy), using pooled scratch structs. */
   private emitWorldImpact(origin: THREE.Vector3, dir: THREE.Vector3, def: WeaponDef, res: ShotResult, maxDist = 800): void {
     if (res.hitEnemy) return;
-    if (!this.ctx.physics.raycastInto?.(origin, dir, maxDist, CG.World, this.impactHit)) return;
     const ev = this.impactEvent;
-    ev.position.copy(this.impactHit.point);
-    ev.surface = this.impactHit.surface;
+    const cr = res as Partial<CombatShotResult>;
+    if (cr.hitWorld !== undefined) {
+      if (!cr.hitWorld) return;
+      ev.position.copy(cr.worldPoint ?? res.end);
+      ev.surface = cr.worldSurface ?? 'concrete';
+    } else {
+      if (!this.ctx.physics.raycastInto?.(origin, dir, maxDist, CG.World, this.impactHit)) return;
+      ev.position.copy(this.impactHit.point);
+      ev.surface = this.impactHit.surface;
+    }
     ev.weapon = def.id;
     ev.suppressed = def.muzzle === 'suppressed';
     this.ctx.events.emit('weapon:impact', ev);
+  }
+
+  /** Populates the shared scratch explosion spec, clearing optional fields from previous projectiles. */
+  private fillBlast(
+    radius: number, damage: number, kind: ExplosionKind,
+    instakill?: boolean, selfDamage?: number, playerPush?: number, scale?: number, shake?: number,
+  ): NonNullable<ProjectileSpec['explosion']> {
+    const b = this.projBlast;
+    b.radius = radius;
+    b.damage = damage;
+    b.kind = kind;
+    b.instakill = instakill;
+    b.selfDamage = selfDamage;
+    b.playerPush = playerPush;
+    b.scale = scale;
+    b.shake = shake;
+    return b;
   }
 
   private eject(def: WeaponDef): void {
@@ -2137,9 +2167,9 @@ export class Weapons implements WeaponSystem, Guard {
     p.wp = !!def.altAmmo && this.altLoaded.has('rocket');
     p.gib = true;
     p.killStop = HIT_STOP.heavyKill;
-    p.explosion = {
-      radius: TUNING.rocket.radius * m.blastRadius, damage, kind, instakill: hell, playerPush: TUNING.rocket.playerPush,
-    };
+    p.explosion = this.fillBlast(
+      TUNING.rocket.radius * m.blastRadius, damage, kind, hell, undefined, TUNING.rocket.playerPush,
+    );
     this.combat.spawnProjectile(p);
   }
 
@@ -2154,13 +2184,13 @@ export class Weapons implements WeaponSystem, Guard {
     p.killStop = HIT_STOP.heavyKill;
     p.gib = true;
     p.bossDamage = def.shell?.bossDamage;
-    p.explosion = { radius: t.radius, damage: def.damage, kind: 'shell', instakill: true, selfDamage: 0 };
+    p.explosion = this.fillBlast(t.radius, def.damage, 'shell', true, 0);
     if (def.flak) {
       // Not the instakill shell: what it does is its burst's shrapnel (flak.ts), and a square hit is a hard knock, no more.
       p.flak = true;
       p.damage = FLAK.direct;
       p.bossDamage = undefined;
-      p.explosion = { radius: FLAK.radius, damage: FLAK.blast, kind: 'shell', selfDamage: 0, playerPush: 0 };
+      p.explosion = this.fillBlast(FLAK.radius, FLAK.blast, 'shell', undefined, 0, 0);
     }
     this.combat.spawnProjectile(p);
     this.shoveBack(t.push, t.groundPush);
@@ -2179,15 +2209,9 @@ export class Weapons implements WeaponSystem, Guard {
     p.force = def.force;
     p.killStop = def.killStop ?? HIT_STOP.heavyKill;
     p.cluster = !!def.altAmmo && this.altLoaded.has('howitzer');
-    p.explosion = {
-      radius: t.radius * m.blastRadius,
-      damage: t.blast * m.damage,
-      kind: t.kind,
-      scale: t.blastScale,
-      shake: t.blastShake,
-      selfDamage: t.selfDamage,
-      playerPush: t.playerPush,
-    };
+    p.explosion = this.fillBlast(
+      t.radius * m.blastRadius, t.blast * m.damage, t.kind, undefined, t.selfDamage, t.playerPush, t.blastScale, t.blastShake,
+    );
     this.combat.spawnProjectile(p);
     const fwd = c.player.forward;
     c.fx.ring(this.muzzleAt, fwd, 0xffc864, 1.8);
@@ -2219,16 +2243,11 @@ export class Weapons implements WeaponSystem, Guard {
     p.gib = true;
     p.killStop = HIT_STOP.heavyKill;
     p.explosion = isSatchel
-      ? {
-          radius: t.radius * m.blastRadius,
-          damage: t.blast * m.damage,
-          kind: 'barrel',
-          scale: TUNING.satchel.scale,
-          shake: TUNING.satchel.shake,
-          selfDamage: TUNING.satchel.selfDamage,
-          playerPush: TUNING.satchel.playerPush,
-        }
-      : { radius: t.radius * m.blastRadius, damage: t.blast * m.damage, kind: 'grenade' };
+      ? this.fillBlast(
+          t.radius * m.blastRadius, t.blast * m.damage, 'barrel',
+          undefined, TUNING.satchel.selfDamage, TUNING.satchel.playerPush, TUNING.satchel.scale, TUNING.satchel.shake,
+        )
+      : this.fillBlast(t.radius * m.blastRadius, t.blast * m.damage, 'grenade');
     this.combat.spawnProjectile(p);
   }
 
@@ -2248,8 +2267,8 @@ export class Weapons implements WeaponSystem, Guard {
       p.damage = b.direct * this.modifiers.damage;
       p.force = b.force;
       p.fuse = b.fuse;
-      p.explosion = { radius: b.radius * this.modifiers.blastRadius, damage: b.damage * this.modifiers.damage, kind: 'grenade' };
-    } else if (this.modifiers.explosiveRounds) p.explosion = { radius: TUNING.hellfireRounds.radius, damage, kind: 'hellfireBullet' };
+      p.explosion = this.fillBlast(b.radius * this.modifiers.blastRadius, b.damage * this.modifiers.damage, 'grenade');
+    } else if (this.modifiers.explosiveRounds) p.explosion = this.fillBlast(TUNING.hellfireRounds.radius, damage, 'hellfireBullet');
     this.combat.spawnProjectile(p);
   }
 
@@ -2495,11 +2514,15 @@ export class Weapons implements WeaponSystem, Guard {
     if (square) {
       const wall = c.physics.raycast(p.origin, fwd, t.range, CG.World);
       const body = c.enemies.raycast(p.origin, fwd, wall?.distance ?? t.range);
-      p.helix = {
-        phase: Math.atan2(sy, sx), reach: Math.max(0.1, body?.distance ?? wall?.distance ?? t.range),
-        radius: t.helixRadius, pitch: t.helixPitch, startRadius: t.square / Math.SQRT2, convergence: t.helixConvergence,
-      };
-      p.origin.add(helixOffset(this.dir, right, up, p.helix, 0));
+      const h = this.projHelix;
+      h.phase = Math.atan2(sy, sx);
+      h.reach = Math.max(0.1, body?.distance ?? wall?.distance ?? t.range);
+      h.radius = t.helixRadius;
+      h.pitch = t.helixPitch;
+      h.startRadius = t.square / Math.SQRT2;
+      h.convergence = t.helixConvergence;
+      p.helix = h;
+      p.origin.add(helixOffset(this.dir, right, up, h, 0));
       dir.copy(fwd);
     } else if (this.salvoDumb) {
       // Centred a touch above the crosshair, so the low pair does not go into the floor a few metres out.
@@ -2520,10 +2543,10 @@ export class Weapons implements WeaponSystem, Guard {
     p.size = t.size;
     p.gib = true;
     p.killStop = HIT_STOP.heavyKill;
-    p.explosion = {
-      radius: t.radius * m.blastRadius, damage: t.blastDamage * m.damage, kind: hell ? 'hellfire' : 'rocket', instakill: hell,
-      playerPush: TUNING.rocket.playerPush, scale: t.blastScale, shake: t.blastShake,
-    };
+    p.explosion = this.fillBlast(
+      t.radius * m.blastRadius, t.blastDamage * m.damage, hell ? 'hellfire' : 'rocket',
+      hell, undefined, TUNING.rocket.playerPush, t.blastScale, t.blastShake,
+    );
     this.combat.spawnProjectile(p);
   }
 
@@ -2878,7 +2901,7 @@ export class Weapons implements WeaponSystem, Guard {
     p.lifetime = fuse + 1;
     p.trail = 'none';
     p.tracer = undefined;
-    p.explosion = { radius: t.radius, damage: t.damage * this.modifiers.damage, kind: 'grenade' };
+    p.explosion = this.fillBlast(t.radius, t.damage * this.modifiers.damage, 'grenade');
     p.visualFrom = undefined;
     p.homing = undefined;
     p.sticky = false;

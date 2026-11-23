@@ -106,6 +106,7 @@ void main() {
 
 const _rect: [number, number, number, number] = [0, 0, 0, 0];
 const _clear = new THREE.Color(0, 0, 0);
+const _keepClear = new THREE.Color();
 
 export class BloodMap {
   readonly target: THREE.WebGLRenderTarget;
@@ -129,6 +130,8 @@ export class BloodMap {
       minFilter: THREE.LinearMipmapLinearFilter, magFilter: THREE.LinearFilter,
     });
     this.target.texture.name = 'bloodMap';
+    // Generate mipmaps once per batch at the end of flush(), not on every individual stain draw.
+    this.target.texture.mipmapsAutoUpdate = false;
     this.baked = new Uint8Array(slots);
     this.queue = new Float32Array(MapTuning.perBatch * 4 * 20);
     this.pass = new FullscreenPass(FRAG, {
@@ -141,6 +144,14 @@ export class BloodMap {
     m.blendEquation = THREE.MaxEquation;
     m.blendSrc = THREE.OneFactor;
     m.blendDst = THREE.OneFactor;
+  }
+
+  /** Pre-compiles the stain-baking shader into this target during boot so the first flush never hitches. */
+  async warm(renderer: THREE.WebGLRenderer): Promise<void> {
+    const keepTarget = renderer.getRenderTarget();
+    const pending = this.pass.compile(renderer, this.target);
+    renderer.setRenderTarget(keepTarget);
+    await pending;
   }
 
   get texture(): THREE.Texture {
@@ -202,8 +213,13 @@ export class BloodMap {
   private enqueue(slot: number): boolean {
     if (this.queued * 20 >= this.queue.length) return false;
     const o = this.queued++ * 20;
-    this.queue.set(this.host.matrices.subarray(slot * 16, slot * 16 + 16), o);
-    this.queue.set(this.host.data.subarray(slot * 4, slot * 4 + 4), o + 16);
+    const m = this.host.matrices;
+    const d = this.host.data;
+    const q = this.queue;
+    const mo = slot * 16;
+    const doff = slot * 4;
+    for (let i = 0; i < 16; i++) q[o + i] = m[mo + i]!;
+    for (let i = 0; i < 4; i++) q[o + 16 + i] = d[doff + i]!;
     return true;
   }
 
@@ -282,9 +298,10 @@ export class BloodMap {
     const px = t.side * t.tilePx;
     const u = this.pass.uniforms;
     const q = this.queue;
-    const keepClear = renderer.getClearColor(new THREE.Color());
+    const keepClear = renderer.getClearColor(_keepClear);
     const keepAlpha = renderer.getClearAlpha();
     const keepTarget = renderer.getRenderTarget();
+    let touched = false;
     for (let n = 0; n < this.queued; n++) {
       const o = n * 20;
       const cx = q[o + 12]!, cy = q[o + 13]!, cz = q[o + 14]!;
@@ -314,12 +331,26 @@ export class BloodMap {
           this.target.scissorTest = true;
           this.target.scissor.set(tx + x0, ty + z0, x1 - x0, z1 - z0);
           this.pass.render(renderer, this.target, true);
+          touched = true;
         }
       }
       this.bakedCount++;
     }
     this.queued = 0;
     this.target.scissorTest = false;
+    if (touched && typeof renderer.getContext === 'function' && renderer.properties) {
+      const props = renderer.properties.get(this.target.texture) as { __webglTexture?: WebGLTexture } | undefined;
+      if (props?.__webglTexture) {
+        const gl = renderer.getContext();
+        const state = renderer.state as unknown as {
+          bindTexture(type: number, texture: WebGLTexture): void;
+          unbindTexture(): void;
+        };
+        state.bindTexture(gl.TEXTURE_2D, props.__webglTexture);
+        gl.generateMipmap(gl.TEXTURE_2D);
+        state.unbindTexture();
+      }
+    }
     renderer.setClearColor(keepClear, keepAlpha);
     renderer.setRenderTarget(keepTarget);
   }

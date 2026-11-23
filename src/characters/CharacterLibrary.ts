@@ -36,6 +36,7 @@ interface Loaded {
   model: LoadedModel;
   material: THREE.Material;
   woundMaterial: THREE.Material;
+  woundDiscardMaterial: THREE.Material;
   farMaterial: THREE.Material;
   surface: SurfaceOptions;
   /** The same surface without the engine's lighting, made on request. */
@@ -102,7 +103,8 @@ export class CharacterLibraryImpl implements CharacterLibrary {
         const material = createCharacterMaterial(this.ctx, surface);
         const farMaterial = character ? createCharacterMaterial(this.ctx, { ...surface, far: true }) : material;
         const woundMaterial = character ? createCharacterMaterial(this.ctx, { ...surface, wounds: true }) : material;
-        return { model, material, woundMaterial, farMaterial, surface, plain: null };
+        const woundDiscardMaterial = character ? createCharacterMaterial(this.ctx, { ...surface, wounds: true, woundDiscard: true }) : material;
+        return { model, material, woundMaterial, woundDiscardMaterial, farMaterial, surface, plain: null };
       })();
       this.models.set(id, p);
     }
@@ -129,22 +131,28 @@ export class CharacterLibraryImpl implements CharacterLibrary {
    */
   private warmWounds(): void {
     if (this.warmed) return;
-    const entry = [...this.entries.values()].find(e => e.interior);
+    const entry = [...this.entries.values()].find(e => e.interior && e.def.props.length > 0)
+      ?? [...this.entries.values()].find(e => e.interior);
     const scene = this.ctx.render.scene as THREE.Scene | undefined;
     if (!entry || !scene?.isScene) return;
     this.warmed = true;
+    // Open wound (OP2_WOUNDS + OP2_WOUND_DISCARD + interior + backing).
     const body = this.spawn(entry.id) as Character;
     const hit = { kind: WoundKind.crater, bone: 0, point: new THREE.Vector3(0, 1, 0.1), dir: new THREE.Vector3(0, 0, -1), radius: 0.05, depth: 0.05, ragged: 1 };
     body.wound(hit);
     body.root.position.y = WARM_DEPTH;
     body.root.traverse(o => { o.frustumCulled = false; });
     scene.add(body.root);
+    // Non-discard wound shader (OP2_WOUNDS without discard) plus charredVariant on its attached kit.
+    const graze = this.spawn(entry.id) as Character;
+    graze.wound({ ...hit, kind: WoundKind.graze });
+    graze.setBurn(1);
     // A body nobody has shot, and one seen from far off, are two more programs (the plain and the far material): left to
-    // first use they link as the first wave walks in. They stand beside the wounded one for that frame.
+    // first use they link as the first wave walks in. They stand beside the wounded ones for that frame.
     const plain = this.spawn(entry.id) as Character;
     const far = this.spawn(entry.id) as Character;
     far.setLod(FAR_LOD, true);
-    for (const extra of [plain, far]) {
+    for (const extra of [graze, plain, far]) {
       extra.root.position.y = WARM_DEPTH;
       extra.root.traverse(o => { o.frustumCulled = false; });
       scene.add(extra.root);
@@ -152,7 +160,7 @@ export class CharacterLibraryImpl implements CharacterLibrary {
     body.inside!.onAfterRender = () => {
       body.inside!.onAfterRender = () => {};
       queueMicrotask(() => {
-        for (const warm of [body, plain, far]) {
+        for (const warm of [body, graze, plain, far]) {
           warm.root.traverse(o => { o.frustumCulled = true; });
           warm.release();
         }
@@ -162,7 +170,7 @@ export class CharacterLibraryImpl implements CharacterLibrary {
 
   private async loadOne(id: string): Promise<void> {
     const def = archetypeById(id);
-    const { model, material, woundMaterial, farMaterial } = await this.loadModel(id);
+    const { model, material, woundMaterial, woundDiscardMaterial, farMaterial } = await this.loadModel(id);
     await Promise.all(kitOf(def).map(async p => {
       this.propCache.set(p.model, await this.loadModel(p.model));
     }));
@@ -181,7 +189,7 @@ export class CharacterLibraryImpl implements CharacterLibrary {
     const interiorMaterial = fleshy ? createInteriorMaterial(this.ctx, this.detail!, n * 4) : null;
     const backingMaterial = fleshy ? createBackingMaterial(n * 4) : null;
     const entry: Entry = {
-      id, def, rig, model, material, woundMaterial, farMaterial, interior, walkMesh, bloodPool: this.bloodPool, interiorMaterial, backingMaterial, time: this.ctx.time, boneCount: n, bindInverses, bindPositions, children,
+      id, def, rig, model, material, woundMaterial, woundDiscardMaterial, farMaterial, interior, walkMesh, bloodPool: this.bloodPool, interiorMaterial, backingMaterial, time: this.ctx.time, boneCount: n, bindInverses, bindPositions, children,
       free: [], active: new Set(), freeLimbs: [], activeLimbs: [],
       acquireLimb: () => this.acquireLimb(entry),
     };
@@ -368,7 +376,7 @@ export class CharacterLibraryImpl implements CharacterLibrary {
     void p.then(l => {
       const { model } = l;
       for (const g of [...model.lods, ...model.lodsWithCaps, ...model.chains.values()]) g.dispose();
-      for (const m of new Set([l.material, l.woundMaterial, l.farMaterial, l.plain])) m?.dispose();
+      for (const m of new Set([l.material, l.woundMaterial, l.woundDiscardMaterial, l.farMaterial, l.plain])) m?.dispose();
       l.surface.atlasA?.dispose();
       l.surface.atlasB?.dispose();
     });

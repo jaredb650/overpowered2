@@ -63,6 +63,13 @@ void main() {
   }
 
   vec4 view = viewMatrix * vec4(pos, 1.0);
+  // Fades as the camera enters it: clip invisible close-up quads in the vertex shader to save fillrate.
+  float near = clamp((-view.z - 0.4) / 1.6, 0.0, 1.0);
+  float alpha = aC.a * near;
+  if (near <= 0.004 || alpha <= 0.004) {
+    gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
+    return;
+  }
   view.xy += q;
   vViewZ = view.z;
   gl_Position = projectionMatrix * view;
@@ -76,9 +83,7 @@ void main() {
   vErode = vec3(mix(0.03, 1.0, k * k * (0.45 + 0.55 * k)), aR.z, aR.w);
   // Slight per-sprite value shift, so overlapping lobes separate instead of merging into one cut-out.
   float vary = aR.w > 2.5 ? 0.9 + 0.2 * hash11(float(gl_InstanceID) * 1.31) : 1.0;
-  // Fades as the camera enters it: smoke must never turn into a grey screen over the player's eyes.
-  float near = clamp((-view.z - 0.4) / 1.6, 0.0, 1.0);
-  vColor = vec4(applyFog(aC.rgb * vary, -view.z), aC.a * near);
+  vColor = vec4(applyFog(aC.rgb * vary, -view.z), alpha);
 }
 `;
 
@@ -93,40 +98,42 @@ varying float vViewZ;
 ${SOFT_FRAG}
 
 void main() {
-  // Half a texel inset keeps the bilinear footprint inside the cell.
-  vec2 uv = vCell + (0.004 + vUv * 0.492);
-  vec4 t = texture2D(uAtlas, uv);
-  float density = t.r + (t.a - 0.5) * 0.1 * (1.0 - t.r);
   float thr = vErode.x;
-  float soft = vErode.y;
-  float a = smoothstep(thr, thr + soft, density);
-  // A glow is the one round thing here. A billow outline would read as a dull red cloud.
-  if (vErode.z > 1.5 && vErode.z < 2.5) {
+  vec3 col = vColor.rgb;
+  bool isGlow = vErode.z > 1.5 && vErode.z < 2.5;
+  float a;
+  // A glow is the one round thing here: skip the atlas texture fetch entirely.
+  if (isGlow) {
     float r = max(1.0 - length(vUv * 2.0 - 1.0), 0.0);
     a = r * r * (1.0 - thr);
-  }
-  if (a <= 0.004) discard;
-
-  vec3 col = vColor.rgb;
-  if (vErode.z < 0.5) {
-    vec2 slope = (t.gb - 0.5) * 2.0;
-    vec2 world = vec2(slope.x * vRot.x - slope.y * vRot.y, slope.x * vRot.y + slope.y * vRot.x);
-    // Cold overhead light on the billows, so the smoke keeps volume without any colour shift.
-    float lit = clamp(0.8 - world.y * 1.05 + world.x * 0.3, 0.42, 1.5);
-    col *= lit;
-  } else if (vErode.z > 2.5) {
-    // Cel-painted heat: each lobe has flat bands that step toward yellow at its core. The bands are
-    // in space, not time, so this is still no colour over life, and the core is what drives the bloom.
-    float aa = fwidth(density) * 1.2 + 0.004;
-    float band1 = smoothstep(thr + 0.2 - aa, thr + 0.2 + aa, density);
-    float band2 = smoothstep(thr + 0.46 - aa, thr + 0.46 + aa, density);
-    float top = max(col.r, col.b);
-    col.g = min(col.g + abs(col.r - col.b) * (0.22 * band1 + 0.5 * band2), top * 0.85);
-    col *= 1.0 + 0.55 * band2;
+    if (a <= 0.004) discard;
+  } else {
+    // Half a texel inset keeps the bilinear footprint inside the cell.
+    vec2 uv = vCell + (0.004 + vUv * 0.492);
+    vec4 t = texture2D(uAtlas, uv);
+    float density = t.r + (t.a - 0.5) * 0.1 * (1.0 - t.r);
+    a = smoothstep(thr, thr + vErode.y, density);
+    if (a <= 0.004) discard;
+    if (vErode.z < 0.5) {
+      vec2 slope = (t.gb - 0.5) * 2.0;
+      vec2 world = vec2(slope.x * vRot.x - slope.y * vRot.y, slope.x * vRot.y + slope.y * vRot.x);
+      // Cold overhead light on the billows, so the smoke keeps volume without any colour shift.
+      float lit = clamp(0.8 - world.y * 1.05 + world.x * 0.3, 0.42, 1.5);
+      col *= lit;
+    } else if (vErode.z > 2.5) {
+      // Cel-painted heat: each lobe has flat bands that step toward yellow at its core. The bands are
+      // in space, not time, so this is still no colour over life, and the core is what drives the bloom.
+      float aa = fwidth(density) * 1.2 + 0.004;
+      float band1 = smoothstep(thr + 0.2 - aa, thr + 0.2 + aa, density);
+      float band2 = smoothstep(thr + 0.46 - aa, thr + 0.46 + aa, density);
+      float top = max(col.r, col.b);
+      col.g = min(col.g + abs(col.r - col.b) * (0.22 * band1 + 0.5 * band2), top * 0.85);
+      col *= 1.0 + 0.55 * band2;
+    }
   }
 
   a *= vColor.a * softFade(vViewZ, 0.5);
-  gl_FragColor = vec4(col * a, vErode.z > 1.5 && vErode.z < 2.5 ? 0.0 : a);
+  gl_FragColor = vec4(col * a, isGlow ? 0.0 : a);
   ${OUTPUT_FRAG}
 }
 `;
@@ -177,6 +184,8 @@ export class SmokeLayer {
     mesh.visible = false;
     mesh.renderOrder = ORDER.smoke;
     mesh.name = 'fx.smoke';
+    mesh.matrixAutoUpdate = false;
+    mesh.updateMatrix();
     this.ring.object = mesh;
     scene.add(mesh);
   }

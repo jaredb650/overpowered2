@@ -29,6 +29,8 @@ export class EmissiveLines {
     });
     for (const mesh of found) {
       const line = new THREE.Mesh(mesh.geometry, this.materialFor(mesh.material as THREE.MeshStandardMaterial));
+      line.matrixAutoUpdate = false;
+      line.updateMatrix();
       line.visible = visible;
       mesh.add(line);
       this.lines.push(line);

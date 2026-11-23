@@ -126,7 +126,7 @@ export class FlashLayer {
   readonly ring: InstanceRing;
 
   constructor(scene: THREE.Scene, uniforms: FxUniforms, cap = 256, name = 'fx.flashes') {
-    this.ring = new InstanceRing(quad(), cap, ATTRS);
+    this.ring = new InstanceRing(quad(), cap, ATTRS, true);
     this.ring.lifeAt = 7;
     const material = new THREE.ShaderMaterial({
       vertexShader: VERT,
@@ -144,6 +144,8 @@ export class FlashLayer {
     mesh.visible = false;
     mesh.renderOrder = ORDER.flashes;
     mesh.name = name;
+    mesh.matrixAutoUpdate = false;
+    mesh.updateMatrix();
     this.ring.object = mesh;
     scene.add(mesh);
   }

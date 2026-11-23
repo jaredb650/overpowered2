@@ -53,8 +53,10 @@ export interface ArchetypeData {
   rig: RigDef;
   model: LoadedModel;
   material: THREE.Material;
-  /** The same skin with holes in it. Only for bodies that have some, because `discard` costs the whole draw. */
+  /** The same skin with wound decals/wear/scorch, without fragment `discard` so Early-Z/HSR stays enabled. */
   woundMaterial: THREE.Material;
+  /** The same skin with cutout holes (`OP2_WOUND_DISCARD`), only used when `book.open > 0`. */
+  woundDiscardMaterial: THREE.Material;
   /** Vertex-colour material for the far LOD. */
   farMaterial: THREE.Material;
   /** What is under the skin, shared by every body of this archetype. Null for machines, which get dents. */
@@ -76,6 +78,23 @@ export interface ArchetypeData {
   children: number[][];
   acquireLimb(): SeveredPart;
 }
+
+const protoSkeletonUpdate = THREE.Skeleton.prototype.update;
+
+/** Fast checksum of world-space bone transforms so duplicate same-frame or stationary skeleton.update() calls are skipped. */
+function poseSum(bones: readonly THREE.Bone[]): number {
+  let sum = 0;
+  for (let i = 0; i < bones.length; i++) {
+    const e = bones[i]!.matrixWorld.elements;
+    sum += e[0]! + e[1]! + e[5]! + e[6]! + e[10]! + e[12]! + e[13]! + e[14]!;
+  }
+  return sum;
+}
+
+/** Reusable buffers avoiding per-call allocations in Character.bakeFar() and SeveredPart.pose(). */
+const _wornProps: THREE.Object3D[] = [];
+let _poseChain = new Uint8Array(64);
+const SURFACE_EPS = 1e-4;
 
 function makeBones(a: ArchetypeData): THREE.Bone[] {
   const out: THREE.Bone[] = [];
@@ -549,6 +568,9 @@ export class Character implements CharacterInstance {
   inside: THREE.SkinnedMesh | null = null;
   private backing: THREE.SkinnedMesh | null = null;
   private readonly cullSphere: PropertyDescriptor;
+  private skeletonDirty = true;
+  private boneTextureUploaded = false;
+  private lastPoseSum = Number.NaN;
   /** Hits taken per bone that did not break it on their own, so sustained fire gets there too. */
   readonly stress: Float32Array;
 
@@ -573,6 +595,7 @@ export class Character implements CharacterInstance {
     this.skeleton = skeleton;
     this.extras = extras;
     this.data = skeleton.boneMatrices as Float32Array;
+    this.installSkeletonUpdate();
     this.mesh = new THREE.SkinnedMesh(a.model.lods[0]!, a.material);
     this.mesh.castShadow = true;
     this.mesh.receiveShadow = true;
@@ -600,9 +623,11 @@ export class Character implements CharacterInstance {
     this.data[this.extras + EXTRA_INFO * 4 + 1] = Math.random() * 64;
     this.book = new WoundBook(this.data, this.extras + EXTRA_WOUNDS * 4, count => {
       this.data[this.extras + EXTRA_INFO * 4] = count;
+      this.skeletonDirty = true;
     });
     this.worn = new WearBook(this.data, this.extras + EXTRA_WEAR * 4, most => {
       this.data[this.extras + EXTRA_INFO * 4 + 3] = most;
+      this.skeletonDirty = true;
     });
     this.anim = createAnimator(a.def, this);
     this.breaks = new FracturePose(a.rig, this.bones);
@@ -616,8 +641,26 @@ export class Character implements CharacterInstance {
     this.mesh.onBeforeRender = () => {
       if (this.flash <= 0) return;
       const left = this.flash - (this.a.time.elapsed - this.flashAt) * FLASH_DECAY;
-      this.data[this.extras + EXTRA_PARAMS * 4 + 1] = left > 0 ? left : 0;
+      const next = left > 0 ? left : 0;
+      const idx = this.extras + EXTRA_PARAMS * 4 + 1;
+      if (Math.abs(this.data[idx]! - next) > SURFACE_EPS) {
+        this.data[idx] = next;
+        this.skeletonDirty = true;
+      }
       if (left <= 0) this.flash = 0;
+    };
+  }
+
+  private installSkeletonUpdate(): void {
+    const skel = this.skeleton;
+    const bones = this.allBones;
+    skel.update = () => {
+      const sum = poseSum(bones);
+      if (!this.skeletonDirty && this.boneTextureUploaded && sum === this.lastPoseSum) return;
+      this.skeletonDirty = false;
+      this.boneTextureUploaded = true;
+      this.lastPoseSum = sum;
+      protoSkeletonUpdate.call(skel);
     };
   }
 
@@ -632,6 +675,7 @@ export class Character implements CharacterInstance {
     cap.scale.setScalar(1);
     parent.add(cap);
     this.activeCaps.add(cap);
+    this.skeletonDirty = true;
     this.setLod(this.lod, true);
   }
 
@@ -639,6 +683,7 @@ export class Character implements CharacterInstance {
     if (this.hidden[boneIndex]) return;
     const def = this.rig.bones[boneIndex]!;
     this.bones[boneIndex]!.scale.setScalar(COLLAPSED);
+    this.skeletonDirty = true;
     this.markChain(boneIndex, 1);
     for (let i = 0; i < this.bones.length; i++) {
       if (this.hidden[i]) this.severed.add(this.rig.bones[i]!.region);
@@ -671,6 +716,7 @@ export class Character implements CharacterInstance {
     const bone = this.bones[hit.bone];
     if (!bone || this.hidden[hit.bone]) return;
     placeWound(this.a, this.book, bone, hit.bone, hit);
+    this.skeletonDirty = true;
     this.showWounds();
   }
 
@@ -685,6 +731,7 @@ export class Character implements CharacterInstance {
   setWear(region: GoreRegion, spent: number, kind: WearKindId): void {
     if (this.a.def.rig !== 'humanoid' || !this.a.interior) return;
     this.worn.set(region, spent, kind);
+    this.skeletonDirty = true;
     this.showWounds();
   }
 
@@ -692,6 +739,7 @@ export class Character implements CharacterInstance {
   addWear(region: GoreRegion, share: number, kind: WearKindId, most = 1): void {
     if (this.a.def.rig !== 'humanoid' || !this.a.interior) return;
     this.worn.set(region, Math.min(this.worn.amount(region) + share, Math.max(most, this.worn.amount(region))), kind);
+    this.skeletonDirty = true;
     this.showWounds();
   }
 
@@ -705,10 +753,18 @@ export class Character implements CharacterInstance {
     return this.book.count > 0 || this.worn.most > 0 || this.burnThrough > 0;
   }
 
+  private skinMaterialFor(lodIndex: number): THREE.Material {
+    if (lodIndex >= FAR_LOD) return this.a.farMaterial;
+    if (!this.marked) return this.a.material;
+    return this.book.open > 0 ? this.a.woundDiscardMaterial : this.a.woundMaterial;
+  }
+
   /** Puts the body on the wounded program, with its inside if it has been opened. */
   private showWounds(): void {
     if (!this.marked) return;
-    if (this.mesh.material === this.a.material) this.mesh.material = this.a.woundMaterial;
+    if (this.mesh.material !== this.a.farMaterial) {
+      this.mesh.material = this.book.open > 0 ? this.a.woundDiscardMaterial : this.a.woundMaterial;
+    }
     if (this.book.open === 0 || !this.a.interior) return;
     if (!this.inside) {
       this.inside = makeInside(this.a, this.skeleton);
@@ -739,6 +795,7 @@ export class Character implements CharacterInstance {
   fracture(bone: number, style: FractureStyle, skew = 0): boolean {
     if (this.hidden[bone] || this.isFractured(bone)) return false;
     this.data[this.extras + EXTRA_INFO * 4 + 2] += 2 ** bone;
+    this.skeletonDirty = true;
     this.breaks.add(bone, style, skew);
     return true;
   }
@@ -754,22 +811,34 @@ export class Character implements CharacterInstance {
 
   setBloodiness(amount: number): void {
     // Machines do not bleed, whoever asks.
-    this.data[this.extras + EXTRA_PARAMS * 4] = this.a.interior ? amount : 0;
+    const next = this.a.interior ? amount : 0;
+    const idx = this.extras + EXTRA_PARAMS * 4;
+    if (Math.abs(this.data[idx]! - next) <= SURFACE_EPS) return;
+    this.data[idx] = next;
+    this.skeletonDirty = true;
   }
 
   /** Sets the pooled dynamic UV blood layer (`layer` is 1-based; 0 = clean/skip). Machines stay clean. */
   setBloodMapLayer(layer: number, active = 0, soak = 0): void {
     const o = this.extras + EXTRA_BLOOD_MAP * 4;
     if (!this.a.interior || layer <= 0) {
+      if (this.data[o] === 0 && this.data[o + 1] === 0 && this.data[o + 2] === 0 && this.data[o + 3] === 0) return;
       this.data[o] = 0;
       this.data[o + 1] = 0;
       this.data[o + 2] = 0;
       this.data[o + 3] = 0;
+      this.skeletonDirty = true;
       return;
     }
+    if (
+      this.data[o] === layer &&
+      Math.abs(this.data[o + 1]! - active) <= SURFACE_EPS &&
+      Math.abs(this.data[o + 2]! - soak) <= SURFACE_EPS
+    ) return;
     this.data[o] = layer;
     this.data[o + 1] = active;
     this.data[o + 2] = soak;
+    this.skeletonDirty = true;
   }
 
   /** 1-based dynamic blood map layer index, or 0 if clean. */
@@ -783,7 +852,11 @@ export class Character implements CharacterInstance {
 
   /** 0..1 char from fire. Embers crawl across as it rises. Past `KIT_CHARS_AT` what it carries is burnt too. */
   setBurn(amount: number): void {
-    this.data[this.extras + EXTRA_PARAMS * 4 + 2] = amount;
+    const idx = this.extras + EXTRA_PARAMS * 4 + 2;
+    if (Math.abs(this.data[idx]! - amount) > SURFACE_EPS) {
+      this.data[idx] = amount;
+      this.skeletonDirty = true;
+    }
     const kit = amount >= KIT_CHARS_AT;
     if (kit === this.kitCharred) return;
     this.kitCharred = kit;
@@ -808,6 +881,7 @@ export class Character implements CharacterInstance {
     this.data[o + 1] = v.y;
     this.data[o + 2] = v.z;
     this.data[o + 3] = 1;
+    this.skeletonDirty = true;
   }
 
   /**
@@ -817,7 +891,10 @@ export class Character implements CharacterInstance {
    */
   setBurnThrough(amount: number): void {
     if (!this.a.interior) return;
-    this.data[this.extras + EXTRA_FIRE * 4 + 5] = amount;
+    const idx = this.extras + EXTRA_FIRE * 4 + 5;
+    if (Math.abs(this.data[idx]! - amount) <= SURFACE_EPS) return;
+    this.data[idx] = amount;
+    this.skeletonDirty = true;
     if (amount > 0) this.showWounds();
   }
 
@@ -832,7 +909,10 @@ export class Character implements CharacterInstance {
 
   /** How hot its char still is: 1 alight, fading to 0 cold. It is the glow in the cracks (gore/fire.ts keeps it). */
   setEmber(heat: number): void {
-    this.data[this.extras + EXTRA_FIRE * 4 + 4] = heat;
+    const idx = this.extras + EXTRA_FIRE * 4 + 4;
+    if (Math.abs(this.data[idx]! - heat) <= SURFACE_EPS) return;
+    this.data[idx] = heat;
+    this.skeletonDirty = true;
   }
 
   /**
@@ -841,7 +921,10 @@ export class Character implements CharacterInstance {
    * texel, so it goes with a baked body's snapshot and a limb cut from the body.
    */
   setDry(amount: number): void {
-    this.data[this.extras + EXTRA_FIRE * 4 + 7] = amount;
+    const idx = this.extras + EXTRA_FIRE * 4 + 7;
+    if (Math.abs(this.data[idx]! - amount) <= SURFACE_EPS) return;
+    this.data[idx] = amount;
+    this.skeletonDirty = true;
   }
 
   /**
@@ -851,7 +934,11 @@ export class Character implements CharacterInstance {
   takeOrgan(organ: 'lung' | 'heart' | 'liver' | 'stomach', left = false): void {
     const id = organ === 'lung' ? (left ? Organ.lungL : Organ.lungR) : Organ[organ];
     const at = this.extras + EXTRA_FIRE * 4 + 6;
-    this.data[at] = (this.data[at]! | 0) | (1 << id);
+    const prev = this.data[at]! | 0;
+    const next = prev | (1 << id);
+    if (next === prev) return;
+    this.data[at] = next;
+    this.skeletonDirty = true;
   }
 
   /** The organs thrown out of it so far, a bit each (`Organ`). */
@@ -861,7 +948,10 @@ export class Character implements CharacterInstance {
 
   /** 0..1 ice coverage, for Frost Nova. */
   setFrost(amount: number): void {
-    this.data[this.extras + EXTRA_PARAMS * 4 + 3] = amount;
+    const idx = this.extras + EXTRA_PARAMS * 4 + 3;
+    if (Math.abs(this.data[idx]! - amount) <= SURFACE_EPS) return;
+    this.data[idx] = amount;
+    this.skeletonDirty = true;
   }
 
   /**
@@ -876,6 +966,7 @@ export class Character implements CharacterInstance {
     const inverses = own === this.a.bindInverses ? own.slice() : own;
     inverses[boneIndex] = new THREE.Matrix4().makeScale(COLLAPSED, COLLAPSED, COLLAPSED).multiply(this.a.bindInverses[boneIndex]!);
     this.skeleton.boneInverses = inverses;
+    this.skeletonDirty = true;
     // Whatever else is still on it (a helmet no plate threw off) goes with the skin.
     for (const p of this.props) if (p.bone === boneIndex && p.object.parent === this.bones[boneIndex]) p.object.visible = false;
     this.attachProp(boneIndex, prop, true);
@@ -895,7 +986,7 @@ export class Character implements CharacterInstance {
     const i = Math.min(level, set.length - 1);
     this.mesh.geometry = set[i]!;
     // The last LOD indexes welded vertices, so its UVs are meaningless and it paints from vertex colour.
-    this.mesh.material = i >= FAR_LOD ? this.a.farMaterial : this.marked ? this.a.woundMaterial : this.a.material;
+    this.mesh.material = this.skinMaterialFor(i);
     if (this.inside) this.showInside(this.book.open > 0 ? i : FAR_LOD);
   }
 
@@ -987,6 +1078,7 @@ export class Character implements CharacterInstance {
     if (this.kitCharred) {
       for (const p of this.props) if (p.object.parent === this.bones[p.bone] && p.object.visible) charKit(p.object, true);
     }
+    this.skeletonDirty = true;
     this.showWounds();
     this.root.updateMatrixWorld(true);
   }
@@ -1008,8 +1100,13 @@ export class Character implements CharacterInstance {
     }, out, vertex, index, maxVerts, maxIndices);
     if (skin.indices === 0) return NOTHING;
     // What has left the bone (a helmet shot off) or gone with a limb is not on the body any more.
-    const worn = this.props.filter(p => p.object.parent === this.bones[p.bone] && p.object.visible && !this.hidden[p.bone]).map(p => p.object);
-    const hung = bakeHung(worn, out, vertex + skin.verts, index + skin.indices, maxVerts - skin.verts, maxIndices - skin.indices, skin.burn);
+    _wornProps.length = 0;
+    for (let i = 0; i < this.props.length; i++) {
+      const p = this.props[i]!;
+      if (p.object.parent === this.bones[p.bone] && p.object.visible && !this.hidden[p.bone]) _wornProps.push(p.object);
+    }
+    const hung = bakeHung(_wornProps, out, vertex + skin.verts, index + skin.indices, maxVerts - skin.verts, maxIndices - skin.indices, skin.burn);
+    _wornProps.length = 0;
     return { verts: skin.verts + hung.verts, indices: skin.indices + hung.indices };
   }
 
@@ -1128,6 +1225,10 @@ export class Character implements CharacterInstance {
     this.root.position.set(0, 0, 0);
     this.root.rotation.set(0, 0, 0);
     this.root.visible = true;
+    this.skeletonDirty = true;
+    this.boneTextureUploaded = false;
+    this.lastPoseSum = Number.NaN;
+    this.installSkeletonUpdate();
   }
 
   release(): void {
@@ -1156,32 +1257,68 @@ export class SeveredPart implements SeveredLimb {
   private backing: THREE.SkinnedMesh | null = null;
   private clones: THREE.Object3D[] = [];
   private kitCharred = false;
+  private rootBone: THREE.Bone;
+  private readonly cullSphere: PropertyDescriptor;
+  private skeletonDirty = true;
+  private boneTextureUploaded = false;
+  private lastPoseSum = Number.NaN;
 
   constructor(private readonly a: ArchetypeData) {
     this.allBones = makeBones(a);
     this.bones = this.allBones.slice(0, a.model.meta.rigBoneCount);
+    this.rootBone = this.bones[0]!;
     const { skeleton, extras } = makeSkeleton(this.allBones, a.bindInverses);
     this.skeleton = skeleton;
     this.extras = extras;
     this.data = skeleton.boneMatrices as Float32Array;
+    this.installSkeletonUpdate();
     this.mesh = new THREE.SkinnedMesh(a.model.lods[0]!, a.material);
     this.mesh.castShadow = true;
     this.mesh.receiveShadow = true;
-    this.mesh.frustumCulled = false;
+    this.mesh.frustumCulled = true;
     this.root.add(this.mesh);
     this.mesh.bind(skeleton, new THREE.Matrix4());
+    // Follow the severed chain's active root bone so off-screen limbs are frustum-culled accurately.
+    const sphere = new THREE.Sphere(new THREE.Vector3(), a.rig.height * 0.75);
+    const mesh = this.mesh;
+    this.cullSphere = {
+      configurable: true,
+      get: () => {
+        const b = this.rootBone.matrixWorld.elements, w = mesh.matrixWorld.elements;
+        const dx = b[12]! - w[12]!, dy = b[13]! - w[13]!, dz = b[14]! - w[14]!;
+        sphere.center.set(dx * w[0]! + dy * w[1]! + dz * w[2]!, dx * w[4]! + dy * w[5]! + dz * w[6]!, dx * w[8]! + dy * w[9]! + dz * w[10]!);
+        return sphere;
+      },
+    };
+    Object.defineProperty(mesh, 'boundingSphere', this.cullSphere);
     this.book = new WoundBook(this.data, this.extras + EXTRA_WOUNDS * 4, count => {
       this.data[this.extras + EXTRA_INFO * 4] = count;
+      this.skeletonDirty = true;
     });
     this.worn = new WearBook(this.data, this.extras + EXTRA_WEAR * 4, most => {
       this.data[this.extras + EXTRA_INFO * 4 + 3] = most;
+      this.skeletonDirty = true;
     });
+  }
+
+  private installSkeletonUpdate(): void {
+    const skel = this.skeleton;
+    const bones = this.allBones;
+    skel.update = () => {
+      const sum = poseSum(bones);
+      if (!this.skeletonDirty && this.boneTextureUploaded && sum === this.lastPoseSum) return;
+      this.skeletonDirty = false;
+      this.boneTextureUploaded = true;
+      this.lastPoseSum = sum;
+      protoSkeletonUpdate.call(skel);
+    };
   }
 
   wound(hit: WoundHit): void {
     const bone = this.bones[hit.bone];
     if (!bone) return;
     placeWound(this.a, this.book, bone, hit.bone, hit);
+    this.skeletonDirty = true;
     this.showWounds();
   }
 
@@ -1191,14 +1328,16 @@ export class SeveredPart implements SeveredLimb {
 
   private showWounds(): void {
     if (this.book.count === 0 && this.worn.most <= 0 && this.burnThrough <= 0) return;
-    this.mesh.material = this.a.woundMaterial;
+    this.mesh.material = this.book.open > 0 ? this.a.woundDiscardMaterial : this.a.woundMaterial;
     if (this.book.open === 0 || !this.a.interior) return;
     if (!this.inside) {
       this.inside = makeInside(this.a, this.skeleton);
       this.backing = makeBacking(this.a, this.mesh.geometry, this.skeleton);
       this.backing.castShadow = this.mesh.castShadow;
-      this.inside.frustumCulled = false;
-      this.backing.frustumCulled = false;
+      this.inside.frustumCulled = true;
+      this.backing.frustumCulled = true;
+      Object.defineProperty(this.inside, 'boundingSphere', this.cullSphere);
+      Object.defineProperty(this.backing, 'boundingSphere', this.cullSphere);
       this.root.add(this.inside, this.backing);
     }
     this.showInside(true);
@@ -1215,7 +1354,11 @@ export class SeveredPart implements SeveredLimb {
 
   /** As the body's: the limb goes on burning after it has left it. */
   setBurn(amount: number): void {
-    this.data[this.extras + EXTRA_PARAMS * 4 + 2] = amount;
+    const idx = this.extras + EXTRA_PARAMS * 4 + 2;
+    if (Math.abs(this.data[idx]! - amount) > SURFACE_EPS) {
+      this.data[idx] = amount;
+      this.skeletonDirty = true;
+    }
     const kit = amount >= KIT_CHARS_AT;
     if (kit === this.kitCharred) return;
     this.kitCharred = kit;
@@ -1227,12 +1370,18 @@ export class SeveredPart implements SeveredLimb {
   }
 
   setEmber(heat: number): void {
-    this.data[this.extras + EXTRA_FIRE * 4 + 4] = heat;
+    const idx = this.extras + EXTRA_FIRE * 4 + 4;
+    if (Math.abs(this.data[idx]! - heat) <= SURFACE_EPS) return;
+    this.data[idx] = heat;
+    this.skeletonDirty = true;
   }
 
   setBurnThrough(amount: number): void {
     if (!this.a.interior) return;
-    this.data[this.extras + EXTRA_FIRE * 4 + 5] = amount;
+    const idx = this.extras + EXTRA_FIRE * 4 + 5;
+    if (Math.abs(this.data[idx]! - amount) <= SURFACE_EPS) return;
+    this.data[idx] = amount;
+    this.skeletonDirty = true;
     if (amount > 0) this.showWounds();
   }
 
@@ -1242,7 +1391,10 @@ export class SeveredPart implements SeveredLimb {
 
   /** As the body's: the blood on a limb dries where it lies. */
   setDry(amount: number): void {
-    this.data[this.extras + EXTRA_FIRE * 4 + 7] = amount;
+    const idx = this.extras + EXTRA_FIRE * 4 + 7;
+    if (Math.abs(this.data[idx]! - amount) <= SURFACE_EPS) return;
+    this.data[idx] = amount;
+    this.skeletonDirty = true;
   }
 
   /** The material a baked copy of this piece is drawn with (gore/far.ts), as a body's. */
@@ -1287,7 +1439,9 @@ export class SeveredPart implements SeveredLimb {
     const a = this.a;
     const skel = a.model.meta.skeleton;
     const rigCount = this.bones.length;
-    const chain = new Uint8Array(skel.length);
+    if (_poseChain.length < skel.length) _poseChain = new Uint8Array(skel.length);
+    const chain = _poseChain;
+    chain.fill(0, 0, skel.length);
     const mark = (b: number) => {
       chain[b] = 1;
       for (const c of a.children[b]!) mark(c);
@@ -1297,6 +1451,7 @@ export class SeveredPart implements SeveredLimb {
     // The chain root's parent may already be collapsed, and the bone itself may be too.
     src.root.updateMatrixWorld(true);
     const rootBone = this.bones[boneIndex]!;
+    this.rootBone = rootBone;
     const parentIdx = this.a.rig.bones[boneIndex]!.parent;
     const srcBone = src.bones[boneIndex]!;
     if (parentIdx >= 0) {
@@ -1345,6 +1500,7 @@ export class SeveredPart implements SeveredLimb {
     // A limb has nothing fading its flash, so a value copied mid-hit would stay lit for good.
     this.data[this.extras + EXTRA_PARAMS * 4 + 1] = 0;
     this.kitCharred = this.burn >= KIT_CHARS_AT;
+    this.skeletonDirty = true;
     this.showWounds();
     for (const p of src.props) {
       // A prop that has already left the bone (a helmet shot off) stays where it went; one out of sight stays so.
@@ -1372,6 +1528,10 @@ export class SeveredPart implements SeveredLimb {
     this.mesh.material = this.a.material;
     this.mesh.castShadow = true;
     if (this.inside) this.showInside(false);
+    this.skeletonDirty = true;
+    this.boneTextureUploaded = false;
+    this.lastPoseSum = Number.NaN;
+    this.installSkeletonUpdate();
     this.root.removeFromParent();
     this.releaseHook?.(this);
   }

@@ -32,6 +32,7 @@ class Slot {
     for (const id of this.family) this.icons.set(id, markup(weaponIcon(id)));
     this.el = div('slot', span('slot-key', WEAPONS[this.shown].key), this.icons.get(this.shown)!);
     if (this.family.length > 1) {
+      this.el.classList.add('has-fam');
       const pips = this.family.map(() => div('slot-pip'));
       this.el.append(div('slot-fam', ...pips));
       for (const pip of pips) {
@@ -178,10 +179,9 @@ export class Arms {
       this.name.set(`${WEAPONS.lance.name} · ${LANCE_LOOK.ball ? 'BALL' : 'BEAM'}`);
     } else if (WEAPON_DEFS[s.weapon].laser) {
       // The Rocket's laser sight (RMB toggle) stacks cleanly with WP alt-ammo mode.
-      const parts = [WEAPONS[s.weapon].name];
-      if (s.ammoMode) parts.push(s.ammoMode);
-      if (ROCKET_LASER.sight) parts.push('LASER');
-      this.name.set(parts.join(' · '));
+      const base = WEAPONS[s.weapon].name;
+      const withMode = s.ammoMode ? `${base} · ${s.ammoMode}` : base;
+      this.name.set(ROCKET_LASER.sight ? `${withMode} · LASER` : withMode);
     } else {
       this.name.set(s.ammoMode ? `${WEAPONS[s.weapon].name} · ${s.ammoMode}` : WEAPONS[s.weapon].name);
     }

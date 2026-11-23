@@ -21,6 +21,13 @@ function texture3D(data: Uint16Array, nx: number, ny: number, nz: number): THREE
   t.wrapS = t.wrapT = t.wrapR = THREE.ClampToEdgeWrapping;
   t.unpackAlignment = 1;
   t.needsUpdate = true;
+  // Release the CPU backing store once Three.js finishes uploading to the GPU (25-61 MB across the 4 volumes).
+  // Setting source.dataReady = false ensures Three.js won't dereference null image.data if a re-upload is triggered.
+  t.onUpdate = () => {
+    t.source.dataReady = false;
+    (t.image as { data: Uint16Array | null }).data = null;
+    t.onUpdate = null;
+  };
   return t;
 }
 

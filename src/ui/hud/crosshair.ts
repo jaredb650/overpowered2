@@ -245,20 +245,27 @@ class HitMarker {
   private t = 0;
   private active = false;
   private q = -1;
+  private op = '0';
   constructor(readonly kind: HitKind) {
     this.el = div(`hm hm-${kind}`, markup(svgWrap(HITS[kind].shape)));
     this.el.style.opacity = '0';
+    this.el.style.display = 'none';
   }
 
   fire(): void {
     this.t = 0;
-    this.active = true;
+    if (!this.active) {
+      this.active = true;
+      this.el.style.display = '';
+    }
   }
 
   cut(): void {
     if (!this.active) return;
     this.active = false;
+    this.op = '0';
     this.el.style.opacity = '0';
+    this.el.style.display = 'none';
   }
 
   update(dt: number): void {
@@ -268,7 +275,9 @@ class HitMarker {
     this.t += dt;
     if (u >= 1) {
       this.active = false;
+      this.op = '0';
       this.el.style.opacity = '0';
+      this.el.style.display = 'none';
       return;
     }
     // First frame at peak size. It snaps to rest in a quarter of its life, holds, then shrinks away.
@@ -278,7 +287,11 @@ class HitMarker {
       this.q = q;
       this.el.style.transform = `scale(${q / 100})`;
     }
-    this.el.style.opacity = u < 0.65 ? '1' : '0.75';
+    const op = u < 0.65 ? '1' : '0.75';
+    if (op !== this.op) {
+      this.op = op;
+      this.el.style.opacity = op;
+    }
   }
 }
 
@@ -291,9 +304,13 @@ class DamageArc {
   life = 0;
   size = 1;
   directional = false;
+  angleQ = NaN;
+  scaleQ = NaN;
+  opQ = -1;
   constructor() {
     this.el = div('arc', markup(`<svg viewBox="-100 -22 200 30" aria-hidden="true"><path d="M-96 2Q0 -36 96 2L84 8Q0 -18 -84 8Z"/></svg>`));
     this.el.style.opacity = '0';
+    this.el.style.display = 'none';
   }
 }
 
@@ -317,6 +334,9 @@ export class Crosshair {
   private hits: Record<HitKind, HitMarker>;
   private arcs: DamageArc[] = [];
   private nextArc = 0;
+  private activeArcs = 0;
+  private halfW = 720;
+  private halfH = 450;
   private weapon: WeaponId | null = null;
   private def: Reticle = RETICLES.smg;
   /** The Rocket's core is showing LASER_CORE. */
@@ -354,6 +374,9 @@ export class Crosshair {
   private chargePips: Flag;
   private readonly pips: HTMLElement[] = [];
   private pipBars = 0;
+  private fanWeapon: WeaponId | null = null;
+  private fanVersion = -1;
+  private fanBars = 0;
   private comboHost: HTMLElement;
   private heat = -1;
   private aimClock = 0;
@@ -469,6 +492,13 @@ export class Crosshair {
     this.el.append(this.twin);
     this.twinShown = new Shown(this.twin);
     this.twinLocked = new Flag(this.twin, 'lock');
+    this.measure();
+  }
+
+  measure(): void {
+    this.halfW = (typeof innerWidth === 'number' ? innerWidth : 1440) / 2;
+    this.halfH = (typeof innerHeight === 'number' ? innerHeight : 900) / 2;
+    this.locks.measure();
   }
 
   /** Reads a fired weapon: the reticle jumps on the frame of the shot. */
@@ -489,10 +519,16 @@ export class Crosshair {
     if (!from) return;
     const arc = this.arcs[this.nextArc]!;
     this.nextArc = (this.nextArc + 1) % MAX_ARCS;
+    if (arc.life <= 0) {
+      this.activeArcs++;
+      arc.el.style.display = '';
+    }
     arc.from.copy(from);
     arc.life = ARC_LIFE;
     arc.size = clamp(0.75 + amount / 45, 0.75, 1.6);
     arc.directional = true;
+    arc.angleQ = arc.scaleQ = NaN;
+    arc.opQ = -1;
   }
 
   private setWeapon(id: WeaponId): void {
@@ -625,7 +661,20 @@ export class Crosshair {
       this.chargeStaged.set(staged && CHARGE_STAGES.length > 0);
       this.chargeBall.set(staged && LANCE_LOOK.ball);
       for (let i = 0; i < this.chargeSteps.length; i++) this.chargeSteps[i]!.set(staged && s.charge >= CHARGE_STAGES[i]! - 1e-6);
-      const fan = WEAPONS[s.weapon].altFan ? moddedDef(s.weapon, this.ctx.weapons.fitted ?? NONE).altFan!.bars : 0;
+      let fan = 0;
+      if (WEAPONS[s.weapon].altFan) {
+        const ver = (this.ctx.weapons as { fittedVersion?: number }).fittedVersion;
+        if (ver !== undefined && this.fanWeapon === s.weapon && this.fanVersion === ver) {
+          fan = this.fanBars;
+        } else {
+          fan = moddedDef(s.weapon, this.ctx.weapons.fitted ?? NONE).altFan!.bars;
+          if (ver !== undefined) {
+            this.fanWeapon = s.weapon;
+            this.fanVersion = ver;
+            this.fanBars = fan;
+          }
+        }
+      }
       this.chargePips.set(fan > 0);
       if (fan !== this.pipBars) {
         this.pipBars = fan;
@@ -654,7 +703,7 @@ export class Crosshair {
     let y = 0;
     const camera = this.ctx.render.camera;
     if (v && camera instanceof THREE.PerspectiveCamera) {
-      const r = (Math.tan(v.cone) / Math.tan((camera.fov * Math.PI) / 360)) * (innerHeight / 2);
+      const r = (Math.tan(v.cone) / Math.tan((camera.fov * Math.PI) / 360)) * this.halfH;
       if (Math.abs(r - this.ringR) > 0.5) {
         this.ringR = r;
         const st = this.smartRing.style;
@@ -665,8 +714,8 @@ export class Crosshair {
         _head.copy(v.lock).project(camera);
         // Behind the eye, project() mirrors the point onto the screen.
         if (_head.z < 1) {
-          x = _head.x * (innerWidth / 2);
-          y = -_head.y * (innerHeight / 2);
+          x = _head.x * this.halfW;
+          y = -_head.y * this.halfH;
         }
       }
     }
@@ -700,8 +749,8 @@ export class Crosshair {
     if (camera instanceof THREE.PerspectiveCamera) {
       _head.copy(v.lock).project(camera);
       if (_head.z < 1) {
-        x = _head.x * (innerWidth / 2);
-        y = -_head.y * (innerHeight / 2);
+        x = _head.x * this.halfW;
+        y = -_head.y * this.halfH;
       }
     }
     this.twinLocked.set(true);
@@ -715,30 +764,49 @@ export class Crosshair {
   }
 
   private updateArcs(dt: number): void {
+    if (this.activeArcs === 0) return;
     const { player } = this.ctx;
+    const facing = Math.atan2(player.forward.x, -player.forward.z);
     for (const arc of this.arcs) {
       if (arc.life <= 0) continue;
       arc.life -= dt;
       if (arc.life <= 0) {
+        this.activeArcs--;
         arc.el.style.opacity = '0';
+        arc.el.style.display = 'none';
+        arc.angleQ = arc.scaleQ = NaN;
+        arc.opQ = -1;
         continue;
       }
       // The arc tracks the source as you turn, so spinning toward it still points the right way.
       _toSource.copy(arc.from).sub(player.position);
-      const facing = Math.atan2(player.forward.x, -player.forward.z);
       const source = Math.atan2(_toSource.x, -_toSource.z);
       const angle = wrapAngle(source - facing);
       const u = arc.life / ARC_LIFE;
       const pop = u > 0.92 ? 1.25 : 1;
-      arc.el.style.transform = `rotate(${(angle * 180) / Math.PI}deg) translate3d(0,-15.5rem,0) scale(${arc.size * pop})`;
-      arc.el.style.opacity = u > 0.45 ? '1' : (u / 0.45).toFixed(2);
+      const angleQ = Math.round(((angle * 180) / Math.PI) * 10);
+      const scaleQ = Math.round(arc.size * pop * 100);
+      if (angleQ !== arc.angleQ || scaleQ !== arc.scaleQ) {
+        arc.angleQ = angleQ;
+        arc.scaleQ = scaleQ;
+        arc.el.style.transform = `rotate(${angleQ / 10}deg) translate3d(0,-15.5rem,0) scale(${scaleQ / 100})`;
+      }
+      const opQ = u > 0.45 ? 100 : Math.round((u / 0.45) * 100);
+      if (opQ !== arc.opQ) {
+        arc.opQ = opQ;
+        arc.el.style.opacity = opQ >= 100 ? '1' : (opQ / 100).toFixed(2);
+      }
     }
   }
 
   reset(): void {
+    this.activeArcs = 0;
     for (const arc of this.arcs) {
       arc.life = 0;
+      arc.angleQ = arc.scaleQ = NaN;
+      arc.opQ = -1;
       arc.el.style.opacity = '0';
+      arc.el.style.display = 'none';
     }
     this.bloom = 0;
     this.locks.reset();

@@ -5,7 +5,7 @@
  */
 import * as THREE from 'three';
 import { HumanoidBone as B, type GoreRegion } from '../characters/rig';
-import type { Ctx, DamageInfo, PlayerSystem } from '../core/contracts';
+import { CG, type Ctx, type DamageInfo, type PhysicsSystem, type PlayerSystem, type RayHit } from '../core/contracts';
 import { clamp, pick, rand, randomUnit } from '../core/math';
 import type { AttackDef, Behaviour } from './brain';
 import type { Enemy } from './Enemy';
@@ -36,6 +36,18 @@ const _p = new THREE.Vector3();
 const _q = new THREE.Vector3();
 const _dir = new THREE.Vector3();
 const _up = new THREE.Vector3(0, 1, 0);
+const _rayHit: RayHit = { point: new THREE.Vector3(), normal: new THREE.Vector3(), distance: 0, surface: 'concrete', collider: null };
+const _shockFrom = new THREE.Vector3();
+const _shockDamage: Parameters<PlayerSystem['takeDamage']>[0] = { amount: 0, from: _shockFrom, type: 'crush', source: '' };
+const _beamFrom = new THREE.Vector3();
+const _beamDamage: Parameters<PlayerSystem['takeDamage']>[0] = { amount: 0, from: _beamFrom, type: 'fire', source: 'titan' };
+const SUMMON_TYPES = ['husk', 'trooper'] as const;
+
+function raycastWorld(physics: PhysicsSystem, origin: THREE.Vector3, dir: THREE.Vector3, maxDist: number): RayHit | null {
+  return typeof physics.raycastInto === 'function'
+    ? (physics.raycastInto(origin, dir, maxDist, CG.World, _rayHit) ? _rayHit : null)
+    : physics.raycast(origin, dir, maxDist);
+}
 
 /** No single hit may take more than this share of a boss. Instakill weapons still land hard, but they cannot delete it. */
 const MAX_HIT_SHARE = 0.05;
@@ -65,7 +77,10 @@ function shockHit(
 ): void {
   if (dist > radius || !p.grounded || Math.abs(p.position.y - at.y) > 3 || !p.alive) return;
   const falloff = 1 - (dist / radius) * 0.5;
-  target.takeDamage({ amount: damage * falloff, from: at, type: 'crush', source });
+  _shockDamage.amount = damage * falloff;
+  _shockFrom.copy(at);
+  _shockDamage.source = source;
+  target.takeDamage(_shockDamage);
   _dir.subVectors(p.position, at).setY(0).normalize();
   _q.set(_dir.x * knock, knock * 0.7, _dir.z * knock);
   target.launch(_q);
@@ -216,7 +231,7 @@ const charge: AttackDef = {
     _p.copy(e.position);
     _p.y += 1.4;
     // A wall ends it hard: the player baited that, and the stun is the opening they earned.
-    if (w.ctx.physics.raycast(_p, e.aimDir, CHARGE_PROBE) === null && Math.hypot(e.velocity.x, e.velocity.z) > 5) return;
+    if (raycastWorld(w.ctx.physics, _p, e.aimDir, CHARGE_PROBE) === null && e.velocity.x * e.velocity.x + e.velocity.z * e.velocity.z > 25) return;
     if (e.attackClock < 0.2) return;
     e.stagger = 2.4;
     bossFx(e, w, 'juggernautStun');
@@ -494,7 +509,7 @@ const beam: AttackDef = {
     if (e.timerB > 0) return;
     e.timerB = BEAM_TICK;
     _dir.subVectors(e.aimPoint, _p).normalize();
-    const hit = w.ctx.physics.raycast(_p, _dir, 200);
+    const hit = raycastWorld(w.ctx.physics, _p, _dir, 200);
     if (hit) {
       w.ctx.fx.sparks(hit.point, hit.normal, 7, 0xff8040);
       w.ctx.render.decals.add('scorch', hit.point, hit.normal, 1.3, rand(0, 6.28));
@@ -502,15 +517,23 @@ const beam: AttackDef = {
     // Co-op host: the beam burns whoever stands in it, not only the player it is sweeping after.
     const everyone = everyPlayer(w);
     if (!everyone) {
-      if (Math.hypot(p.position.x - e.aimPoint.x, p.position.z - e.aimPoint.z) < 1.1 && p.position.y - e.aimPoint.y < 2.2) {
-        w.ctx.player.takeDamage({ amount: 7 * e.damageMul, from: e.center, type: 'fire', source: 'titan' });
+      const dx = p.position.x - e.aimPoint.x;
+      const dz = p.position.z - e.aimPoint.z;
+      if (dx * dx + dz * dz < 1.21 && p.position.y - e.aimPoint.y < 2.2) {
+        _beamDamage.amount = 7 * e.damageMul;
+        _beamFrom.copy(e.center);
+        w.ctx.player.takeDamage(_beamDamage);
       }
       return;
     }
     for (let i = 0; i < everyone.length; i++) {
       const q = everyone[i]!;
-      if (q.alive && Math.hypot(q.position.x - e.aimPoint.x, q.position.z - e.aimPoint.z) < 1.1 && q.position.y - e.aimPoint.y < 2.2) {
-        q.takeDamage({ amount: 7 * e.damageMul, from: e.center, type: 'fire', source: 'titan' });
+      const dx = q.position.x - e.aimPoint.x;
+      const dz = q.position.z - e.aimPoint.z;
+      if (q.alive && dx * dx + dz * dz < 1.21 && q.position.y - e.aimPoint.y < 2.2) {
+        _beamDamage.amount = 7 * e.damageMul;
+        _beamFrom.copy(e.center);
+        q.takeDamage(_beamDamage);
       }
     }
   },
@@ -598,7 +621,7 @@ class Titan implements BossController {
     this.phase++;
     bossFx(e, w, 'titanLimb');
     w.ctx.time.hitStop(0.09, 0.05);
-    w.enemies.reinforce(pick(['husk', 'trooper'] as const), 4);
+    w.enemies.reinforce(pick(SUMMON_TYPES), 4);
     if (e.maim.legs === 0) {
       // Both legs gone: it comes down hard, and everything near it feels the landing.
       e.stagger = 3.2;

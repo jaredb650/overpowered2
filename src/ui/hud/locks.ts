@@ -38,6 +38,9 @@ interface Lock {
   shown: number;
   pop: number;
   visible: boolean;
+  qx: number;
+  qy: number;
+  qs: number;
 }
 
 const _p = new THREE.Vector3();
@@ -50,6 +53,11 @@ export class LockMarkers {
   private readonly chargeArc: SVGCircleElement | null;
   private chargeVisible = false;
   private chargeOffsetQ = -1;
+  private chargeQx = NaN;
+  private chargeQy = NaN;
+  private visibleLocks = 0;
+  private halfW = 720;
+  private halfH = 450;
   private labelText = '';
   private full = false;
 
@@ -61,13 +69,19 @@ export class LockMarkers {
       const el = div('lk-box', markup(BRACKETS), count);
       el.style.display = 'none';
       this.el.append(el);
-      this.locks.push({ el, count, target: null, n: 0, shown: 0, pop: 0, visible: false });
+      this.locks.push({ el, count, target: null, n: 0, shown: 0, pop: 0, visible: false, qx: NaN, qy: NaN, qs: NaN });
     }
     this.chargeEl = div('lk-charge', markup(CHARGE_RING));
     this.chargeEl.style.display = 'none';
     this.chargeArc = this.chargeEl.querySelector('.lk-charge-arc');
     this.el.append(this.chargeEl);
     this.el.append(this.label);
+    this.measure();
+  }
+
+  measure(): void {
+    this.halfW = (typeof innerWidth === 'number' ? innerWidth : 1440) / 2;
+    this.halfH = (typeof innerHeight === 'number' ? innerHeight : 900) / 2;
   }
 
   private paint(): PaintView | undefined {
@@ -84,9 +98,12 @@ export class LockMarkers {
     const paint = this.paint();
     const smart = this.smartAim();
     const camera = this.ctx.render.camera;
+    const hasCamera = camera instanceof THREE.Camera;
     const smartFiring = smart?.on === true && smart.phase === 'firing';
-    const live = !hidden && paint !== undefined && (paint.painting || (smartFiring && paint.marks.length > 0)) && camera instanceof THREE.Camera;
-    const showLabel = !hidden && paint !== undefined && paint.painting && camera instanceof THREE.Camera;
+    const live = !hidden && paint !== undefined && (paint.painting || (smartFiring && paint.marks.length > 0)) && hasCamera;
+    const showLabel = !hidden && paint !== undefined && paint.painting && hasCamera;
+    const smartPainting = !hidden && smart?.on === true && smart.phase === 'painting' && hasCamera;
+    if (!live && !showLabel && !smartPainting && this.visibleLocks === 0 && !this.chargeVisible && this.labelText === '' && !this.full) return;
 
     // Group the marks by target. A lock keeps its target while it stays marked, so its pop is its own.
     for (const l of this.locks) l.n = 0;
@@ -121,13 +138,15 @@ export class LockMarkers {
       this.label.textContent = text;
     }
 
-    const halfW = innerWidth / 2;
-    const halfH = innerHeight / 2;
+    const halfW = this.halfW;
+    const halfH = this.halfH;
     for (const l of this.locks) {
       if (l.n === 0 || !l.target) {
         if (l.visible) {
           l.visible = false;
+          this.visibleLocks--;
           l.el.style.display = 'none';
+          l.qx = l.qy = l.qs = NaN;
         }
         l.target = null;
         l.shown = 0;
@@ -145,24 +164,33 @@ export class LockMarkers {
       if (_p.z > 1) {
         if (l.visible) {
           l.visible = false;
+          this.visibleLocks--;
           l.el.style.display = 'none';
+          l.qx = l.qy = l.qs = NaN;
         }
         continue;
       }
       if (!l.visible) {
         l.visible = true;
+        this.visibleLocks++;
         l.el.style.display = '';
       }
       l.pop = damp(l.pop, 0, 14, dt);
       const x = Math.max(-halfW + 24, Math.min(halfW - 24, _p.x * halfW));
       const y = Math.max(-halfH + 24, Math.min(halfH - 24, -_p.y * halfH));
-      l.el.style.transform = `translate3d(${x.toFixed(1)}px,${y.toFixed(1)}px,0) scale(${(1 + l.pop * 0.7).toFixed(3)})`;
+      const qx = Math.round(x * 10);
+      const qy = Math.round(y * 10);
+      const qs = Math.round((1 + l.pop * 0.7) * 1000);
+      if (qx !== l.qx || qy !== l.qy || qs !== l.qs) {
+        l.qx = qx;
+        l.qy = qy;
+        l.qs = qs;
+        l.el.style.transform = `translate3d(${(qx / 10).toFixed(1)}px,${(qy / 10).toFixed(1)}px,0) scale(${(qs / 1000).toFixed(3)})`;
+      }
     }
 
     // Small radial loading indicator directly on the charging head during Autoraffica smart-gun head painting.
-    const chargingAt = !hidden && smart?.on === true && smart.phase === 'painting' && camera instanceof THREE.Camera
-      ? (smart.chargingAt ?? null)
-      : null;
+    const chargingAt = smartPainting ? (smart?.chargingAt ?? null) : null;
     const progress = chargingAt ? clamp(smart?.charge ?? 0, 0, 1) : 0;
     if (chargingAt && progress > 0) {
       _p.copy(chargingAt).project(camera as THREE.Camera);
@@ -173,7 +201,13 @@ export class LockMarkers {
         }
         const x = Math.max(-halfW + 24, Math.min(halfW - 24, _p.x * halfW));
         const y = Math.max(-halfH + 24, Math.min(halfH - 24, -_p.y * halfH));
-        this.chargeEl.style.transform = `translate3d(${x.toFixed(1)}px,${y.toFixed(1)}px,0)`;
+        const qx = Math.round(x * 10);
+        const qy = Math.round(y * 10);
+        if (qx !== this.chargeQx || qy !== this.chargeQy) {
+          this.chargeQx = qx;
+          this.chargeQy = qy;
+          this.chargeEl.style.transform = `translate3d(${(qx / 10).toFixed(1)}px,${(qy / 10).toFixed(1)}px,0)`;
+        }
         const q = Math.round(progress * 200);
         if (q !== this.chargeOffsetQ && this.chargeArc) {
           this.chargeOffsetQ = q;
@@ -185,19 +219,23 @@ export class LockMarkers {
     if (this.chargeVisible) {
       this.chargeVisible = false;
       this.chargeOffsetQ = -1;
+      this.chargeQx = this.chargeQy = NaN;
       this.chargeEl.style.display = 'none';
     }
   }
 
   reset(): void {
+    this.visibleLocks = 0;
     for (const l of this.locks) {
       l.target = null;
       l.n = l.shown = 0;
       l.visible = false;
+      l.qx = l.qy = l.qs = NaN;
       l.el.style.display = 'none';
     }
     this.chargeVisible = false;
     this.chargeOffsetQ = -1;
+    this.chargeQx = this.chargeQy = NaN;
     this.chargeEl.style.display = 'none';
     this.labelText = '';
     this.label.textContent = '';

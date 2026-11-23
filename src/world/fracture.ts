@@ -624,54 +624,68 @@ export function deformNodeGeometry(params: DeformNodeParams): void {
     else dz = 1;
   }
 
+  const bs = geom.boundingSphere;
+  const bsCx = bs ? bs.center.x : 0;
+  const bsCy = bs ? bs.center.y : 0;
+  const bsCz = bs ? bs.center.z : 0;
+  const bsR2 = bs ? bs.radius * bs.radius : -1;
+  let needSphere = !bs;
+
   if (materialClass === 'wood') {
     // Identify long axis of wooden beam/plank/wall
-    const hVals = [hx, hy, hz];
     let longAxis: 0 | 1 | 2 = 0;
-    if (hVals[1]! > hVals[longAxis]!) longAxis = 1;
-    if (hVals[2]! > hVals[longAxis]!) longAxis = 2;
-    const a1 = ((longAxis + 1) % 3) as 0 | 1 | 2;
-    const a2 = ((longAxis + 2) % 3) as 0 | 1 | 2;
+    let longHalf = hx;
+    if (hy > longHalf) { longAxis = 1; longHalf = hy; }
+    if (hz > longHalf) { longAxis = 2; longHalf = hz; }
 
     // Bend direction is impact push projected perpendicular to the long axis
-    const dirArr = [dx, dy, dz];
-    dirArr[longAxis] = 0;
-    let bLen = Math.hypot(dirArr[0]!, dirArr[1]!, dirArr[2]!);
+    let bx = longAxis === 0 ? 0 : dx;
+    let by = longAxis === 1 ? 0 : dy;
+    let bz = longAxis === 2 ? 0 : dz;
+    let bLen = Math.hypot(bx, by, bz);
     if (bLen < 0.15) {
       // Impact was along long axis -> bow toward the thinnest cross-section axis
-      const thin = hVals[a1]! <= hVals[a2]! ? a1 : a2;
-      dirArr[0] = 0;
-      dirArr[1] = 0;
-      dirArr[2] = 0;
-      dirArr[thin] = 1;
+      bx = 0;
+      by = 0;
+      bz = 0;
+      if (longAxis === 0) { if (hy <= hz) by = 1; else bz = 1; }
+      else if (longAxis === 1) { if (hz <= hx) bz = 1; else bx = 1; }
+      else { if (hx <= hy) bx = 1; else by = 1; }
       bLen = 1;
     }
-    dirArr[0]! /= bLen;
-    dirArr[1]! /= bLen;
-    dirArr[2]! /= bLen;
+    bx /= bLen;
+    by /= bLen;
+    bz /= bLen;
 
     // Blend into accumulated bend direction so repeated hits bow coherently & store whip direction
-    bendDirAccum.x = bendDirAccum.x * 0.55 + dirArr[0]! * 0.45;
-    bendDirAccum.y = bendDirAccum.y * 0.55 + dirArr[1]! * 0.45;
-    bendDirAccum.z = bendDirAccum.z * 0.55 + dirArr[2]! * 0.45;
+    bendDirAccum.x = bendDirAccum.x * 0.55 + bx * 0.45;
+    bendDirAccum.y = bendDirAccum.y * 0.55 + by * 0.45;
+    bendDirAccum.z = bendDirAccum.z * 0.55 + bz * 0.45;
     if (bendDirAccum.lengthSq() > 1e-4) bendDirAccum.normalize();
-    else bendDirAccum.set(dirArr[0]!, dirArr[1]!, dirArr[2]!);
+    else bendDirAccum.set(bx, by, bz);
 
-    const longHalf = hVals[longAxis]!;
-    const hitCoords = [hitX, hitY, hitZ];
-    const sHit = clamp(hitCoords[longAxis]! / longHalf, -0.85, 0.85);
+    const hitLong = longAxis === 0 ? hitX : longAxis === 1 ? hitY : hitZ;
+    const hitA1 = longAxis === 0 ? hitY : longAxis === 1 ? hitZ : hitX;
+    const hitA2 = longAxis === 0 ? hitZ : longAxis === 1 ? hitX : hitY;
+    const sHit = clamp(hitLong / longHalf, -0.85, 0.85);
     const maxBend = clamp(longHalf * 0.18, 0.14, 0.48) * Math.pow(strain, 0.85);
-    const twistSign = (hitCoords[a1]! + hitCoords[a2]! >= 0 ? 1 : -1);
+    const twistSign = (hitA1 + hitA2 >= 0 ? 1 : -1);
     const maxTwist = (0.12 + 0.24 * strain) * twistSign;
+    const bdx = bendDirAccum.x;
+    const bdy = bendDirAccum.y;
+    const bdz = bendDirAccum.z;
 
     for (let i = 0; i < vCount; i++) {
       const o = i * 3;
       const rx = restPos[o]!;
       const ry = restPos[o + 1]!;
       const rz = restPos[o + 2]!;
-      const rArr = [rx, ry, rz];
 
-      const s = clamp(rArr[longAxis]! / longHalf, -1, 1);
+      const rLong = longAxis === 0 ? rx : longAxis === 1 ? ry : rz;
+      const v1 = longAxis === 0 ? ry : longAxis === 1 ? rz : rx;
+      const v2 = longAxis === 0 ? rz : longAxis === 1 ? rx : ry;
+
+      const s = clamp(rLong / longHalf, -1, 1);
       // Parabolic arch deflection + local kink around hit point
       const arch = 1 - s * s * 0.82;
       const ds = s - sHit;
@@ -682,17 +696,33 @@ export function deformNodeGeometry(params: DeformNodeParams): void {
       const theta = maxTwist * s * (0.4 + 0.6 * kink);
       const cosT = Math.cos(theta);
       const sinT = Math.sin(theta);
-      const v1 = rArr[a1]!;
-      const v2 = rArr[a2]!;
-      rArr[a1] = v1 * cosT - v2 * sinT;
-      rArr[a2] = v1 * sinT + v2 * cosT;
+      const t1 = v1 * cosT - v2 * sinT;
+      const t2 = v1 * sinT + v2 * cosT;
 
-      posArr[o] = rArr[0]! + bendDirAccum.x * bend;
-      posArr[o + 1] = rArr[1]! + bendDirAccum.y * bend;
-      posArr[o + 2] = rArr[2]! + bendDirAccum.z * bend;
+      let px: number, py: number, pz: number;
+      if (longAxis === 0) {
+        px = rLong + bdx * bend;
+        py = t1 + bdy * bend;
+        pz = t2 + bdz * bend;
+      } else if (longAxis === 1) {
+        px = t2 + bdx * bend;
+        py = rLong + bdy * bend;
+        pz = t1 + bdz * bend;
+      } else {
+        px = t1 + bdx * bend;
+        py = t2 + bdy * bend;
+        pz = rLong + bdz * bend;
+      }
+      posArr[o] = px;
+      posArr[o + 1] = py;
+      posArr[o + 2] = pz;
+      if (!needSphere) {
+        const sx = px - bsCx, sy = py - bsCy, sz = pz - bsCz;
+        if (sx * sx + sy * sy + sz * sz > bsR2) needSphere = true;
+      }
 
       // Darken grain cracks along strain zone
-      const grain = 0.5 + 0.5 * Math.sin(rArr[a1]! * 18 + rArr[a2]! * 13);
+      const grain = 0.5 + 0.5 * Math.sin(t1 * 18 + t2 * 13);
       const crackFactor = clamp(kink * strain * (0.42 + 0.28 * grain), 0, 0.55);
       const shade = 1 - crackFactor;
       const co = i * 4;
@@ -761,22 +791,25 @@ export function deformNodeGeometry(params: DeformNodeParams): void {
       }
 
       if (push !== 0) {
-        const nx = posArr[o]! + dentX * push;
-        const ny = posArr[o + 1]! + dentY * push;
-        const nz = posArr[o + 2]! + dentZ * push;
-        const ox = nx - rx;
-        const oy = ny - ry;
-        const oz = nz - rz;
+        let px = posArr[o]! + dentX * push;
+        let py = posArr[o + 1]! + dentY * push;
+        let pz = posArr[o + 2]! + dentZ * push;
+        const ox = px - rx;
+        const oy = py - ry;
+        const oz = pz - rz;
         const oLen = Math.hypot(ox, oy, oz);
         if (oLen > maxDisp) {
           const s = maxDisp / oLen;
-          posArr[o] = rx + ox * s;
-          posArr[o + 1] = ry + oy * s;
-          posArr[o + 2] = rz + oz * s;
-        } else {
-          posArr[o] = nx;
-          posArr[o + 1] = ny;
-          posArr[o + 2] = nz;
+          px = rx + ox * s;
+          py = ry + oy * s;
+          pz = rz + oz * s;
+        }
+        posArr[o] = px;
+        posArr[o + 1] = py;
+        posArr[o + 2] = pz;
+        if (!needSphere) {
+          const sx = px - bsCx, sy = py - bsCy, sz = pz - bsCz;
+          if (sx * sx + sy * sy + sz * sz > bsR2) needSphere = true;
         }
 
         const co = i * 4;
@@ -807,22 +840,25 @@ export function deformNodeGeometry(params: DeformNodeParams): void {
         const t = 1 - dist / craterR;
         const angular = 0.65 + 0.35 * Math.abs(Math.sin(vx * 9.3 + vy * 7.1 + vz * 11.7));
         const push = depth * t * angular;
-        const nx = posArr[o]! + dx * push;
-        const ny = posArr[o + 1]! + dy * push;
-        const nz = posArr[o + 2]! + dz * push;
-        const ox = nx - rx;
-        const oy = ny - ry;
-        const oz = nz - rz;
+        let px = posArr[o]! + dx * push;
+        let py = posArr[o + 1]! + dy * push;
+        let pz = posArr[o + 2]! + dz * push;
+        const ox = px - rx;
+        const oy = py - ry;
+        const oz = pz - rz;
         const oLen = Math.hypot(ox, oy, oz);
         if (oLen > maxDisp) {
           const s = maxDisp / oLen;
-          posArr[o] = rx + ox * s;
-          posArr[o + 1] = ry + oy * s;
-          posArr[o + 2] = rz + oz * s;
-        } else {
-          posArr[o] = nx;
-          posArr[o + 1] = ny;
-          posArr[o + 2] = nz;
+          px = rx + ox * s;
+          py = ry + oy * s;
+          pz = rz + oz * s;
+        }
+        posArr[o] = px;
+        posArr[o + 1] = py;
+        posArr[o + 2] = pz;
+        if (!needSphere) {
+          const sx = px - bsCx, sy = py - bsCy, sz = pz - bsCz;
+          if (sx * sx + sy * sy + sz * sz > bsR2) needSphere = true;
         }
       }
 
@@ -843,7 +879,7 @@ export function deformNodeGeometry(params: DeformNodeParams): void {
   posAttr.needsUpdate = true;
   colAttr.needsUpdate = true;
   geom.computeVertexNormals();
-  geom.computeBoundingSphere();
+  if (needSphere) geom.computeBoundingSphere();
 }
 
 /**
@@ -864,11 +900,10 @@ export function applyBreakFractureDeform(
   const hz = Math.max(0.08, half.z);
 
   if (materialClass === 'wood') {
-    const hVals = [hx, hy, hz];
     let longAxis: 0 | 1 | 2 = 0;
-    if (hVals[1]! > hVals[longAxis]!) longAxis = 1;
-    if (hVals[2]! > hVals[longAxis]!) longAxis = 2;
-    const longH = hVals[longAxis]!;
+    let longH = hx;
+    if (hy > longH) { longAxis = 1; longH = hy; }
+    if (hz > longH) { longAxis = 2; longH = hz; }
     for (let i = 0; i < vCount; i++) {
       const o = i * 3;
       const coord = posArr[o + longAxis]!;
@@ -1027,6 +1062,7 @@ export class SplinterPool {
   private _woodSpawned = 0;
   private _metalSpawned = 0;
   private _concreteSpawned = 0;
+  private dirty = false;
 
   private readonly woodGeo: THREE.BufferGeometry;
   private readonly metalGeo: THREE.BufferGeometry;
@@ -1040,6 +1076,8 @@ export class SplinterPool {
 
   constructor(private readonly cap = MAX_SPLINTERS) {
     this.root.name = 'destruction-splinters';
+    this.root.matrixAutoUpdate = false;
+    this.root.updateMatrix();
     this.woodGeo = buildWoodSplinterGeometry();
     this.metalGeo = buildMetalShardGeometry();
     this.concreteGeo = buildMasonryChunkGeometry();
@@ -1066,6 +1104,9 @@ export class SplinterPool {
       m.frustumCulled = false;
       m.castShadow = false;
       m.receiveShadow = true;
+      m.matrixAutoUpdate = false;
+      m.updateMatrix();
+      m.userData.dynamicShadow = true;
       m.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
       m.count = 0;
       m.visible = false;
@@ -1190,11 +1231,18 @@ export class SplinterPool {
       this._totalSpawned++;
     }
 
-    this.syncInstances();
+    this.dirty = true;
   }
 
   update(dt: number): void {
-    if (this._activeCount === 0 || dt <= 0) return;
+    if (this._activeCount === 0 && !this.dirty) return;
+    if (dt <= 0) {
+      if (this.dirty) {
+        this.syncInstances();
+        this.dirty = false;
+      }
+      return;
+    }
 
     const gravity = -19;
     let remaining = 0;
@@ -1240,6 +1288,7 @@ export class SplinterPool {
 
     this._activeCount = remaining;
     this.syncInstances();
+    this.dirty = false;
   }
 
   private syncInstances(): void {
@@ -1274,26 +1323,24 @@ export class SplinterPool {
       }
     }
 
-    this.woodMesh.count = wCount;
-    this.woodMesh.visible = wCount > 0;
-    if (wCount > 0) {
-      this.woodMesh.instanceMatrix.needsUpdate = true;
-      if (this.woodMesh.instanceColor) this.woodMesh.instanceColor.needsUpdate = true;
-    }
+    const flushMesh = (mesh: THREE.InstancedMesh, count: number) => {
+      mesh.count = count;
+      mesh.visible = count > 0;
+      if (count > 0) {
+        mesh.instanceMatrix.clearUpdateRanges();
+        mesh.instanceMatrix.addUpdateRange(0, count * 16);
+        mesh.instanceMatrix.needsUpdate = true;
+        if (mesh.instanceColor) {
+          mesh.instanceColor.clearUpdateRanges();
+          mesh.instanceColor.addUpdateRange(0, count * 3);
+          mesh.instanceColor.needsUpdate = true;
+        }
+      }
+    };
 
-    this.metalMesh.count = mCount;
-    this.metalMesh.visible = mCount > 0;
-    if (mCount > 0) {
-      this.metalMesh.instanceMatrix.needsUpdate = true;
-      if (this.metalMesh.instanceColor) this.metalMesh.instanceColor.needsUpdate = true;
-    }
-
-    this.concreteMesh.count = cCount;
-    this.concreteMesh.visible = cCount > 0;
-    if (cCount > 0) {
-      this.concreteMesh.instanceMatrix.needsUpdate = true;
-      if (this.concreteMesh.instanceColor) this.concreteMesh.instanceColor.needsUpdate = true;
-    }
+    flushMesh(this.woodMesh, wCount);
+    flushMesh(this.metalMesh, mCount);
+    flushMesh(this.concreteMesh, cCount);
   }
 
   clear(): void {
@@ -1302,6 +1349,7 @@ export class SplinterPool {
     }
     this._activeCount = 0;
     this.cursor = 0;
+    this.dirty = false;
     this.woodMesh.count = 0;
     this.woodMesh.visible = false;
     this.metalMesh.count = 0;

@@ -21,6 +21,7 @@ const JET_NOZZLE = { side: 0.08, up: 1.02, back: 0.3 } as const;
 const JET_PUFFS = 60;
 
 const MAX_SLAM_TARGETS = 48;
+const SLAM_RINGS = [[1.2, 8, 1.4], [2.6, 12, 1.8]] as const;
 
 /** Where a body was blown apart, the floor is wet for a while: steps inside this many metres of it squelch. */
 const GIB_WET_RADIUS = 3.5;
@@ -52,6 +53,8 @@ export class MovementFeedback {
   private readonly slamDamage: DamageInfo = {
     amount: 0, type: 'crush', point: new THREE.Vector3(), dir: new THREE.Vector3(), force: 0, source: 'slam',
   };
+  private readonly stepOpts: PlayOptions = { volume: 1, pitch: 1, pitchJitter: 0.08 };
+  private readonly squelchOpts: PlayOptions = { volume: 1, pitch: 1.12, pitchJitter: 0.12 };
 
   constructor(private readonly ctx: Ctx, private readonly player: Player) {}
 
@@ -190,7 +193,7 @@ export class MovementFeedback {
     const s = Math.sin(p.yaw), c = Math.cos(p.yaw);
     // Down, a touch back: long enough to show past the feet when the view looks down.
     this.jetDir.set(s * 0.12, -1, c * 0.12).normalize();
-    for (const k of [-1, 1]) {
+    for (let k = -1; k <= 1; k += 2) {
       const n = JET_NOZZLE;
       this.jetAt.set(p.position.x + s * n.back + c * n.side * k, p.position.y + n.up, p.position.z + c * n.back - s * n.side * k);
       fx.jet?.(this.jetAt, this.jetDir, 2);
@@ -249,7 +252,8 @@ export class MovementFeedback {
     const { audio, fx, render } = this.ctx;
     audio.play('land_hard', { volume: 1, pitch: 0.62 });
     this.body('hand_plant', { volume: FEEDBACK.bodyVolume, pitch: 0.7, delay: 0.03 });
-    for (const [ring, count, scale] of [[1.2, 8, 1.4], [2.6, 12, 1.8]] as const) {
+    for (let r = 0; r < SLAM_RINGS.length; r++) {
+      const [ring, count, scale] = SLAM_RINGS[r]!;
       for (let i = 0; i < count; i++) {
         const a = ((i + (ring > 2 ? 0.5 : 0)) / count) * Math.PI * 2;
         this.feet.set(at.x + Math.cos(a) * ring, at.y, at.z + Math.sin(a) * ring);
@@ -285,15 +289,16 @@ export class MovementFeedback {
     const { audio } = this.ctx;
     const p = this.player;
     const k = clamp(p.speed / MOVE.runSpeed, 0.3, 1.2);
-    const options = {
-      volume: FEEDBACK.footstepVolume * k * (p.crouched ? 0.5 : 1),
-      pitch: FEEDBACK.footstepPitch + FEEDBACK.footstepPitchFromSpeed * k + (p.wallRunning ? 0.15 : 0),
-      pitchJitter: 0.08,
-    };
+    const options = this.stepOpts;
+    options.volume = FEEDBACK.footstepVolume * k * (p.crouched ? 0.5 : 1);
+    options.pitch = FEEDBACK.footstepPitch + FEEDBACK.footstepPitchFromSpeed * k + (p.wallRunning ? 0.15 : 0);
     // The first game's trio is the concrete step. Other surfaces get their synthesized set.
     if (p.groundSurface === 'concrete' || p.wallRunning) audio.playOneOf(FOOTSTEPS, options);
     else audio.play(`footstep_${p.groundSurface}`, options);
-    if (!p.wallRunning && this.onGore()) audio.play('wet_squelch', { volume: options.volume * GIB_STEP_VOLUME, pitch: 1.12, pitchJitter: 0.12 });
+    if (!p.wallRunning && this.onGore()) {
+      this.squelchOpts.volume = options.volume * GIB_STEP_VOLUME;
+      audio.play('wet_squelch', this.squelchOpts);
+    }
   }
 
   /** Standing where something was gibbed in the last few seconds. */

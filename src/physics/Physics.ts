@@ -47,18 +47,21 @@ export class Physics implements PhysicsSystem {
   readonly radialListeners = new Set<(center: THREE.Vector3, radius: number, strength: number) => void>();
   /** Wall time of the last step(), for budget checks. Never feeds gameplay. */
   stepMs = 0;
+  /** Cached vertical gravity, synced at the start of every step() to avoid repeated WASM reads. */
+  gravityY = GRAVITY;
 
   private surfaces = new Map<number, SurfaceKind>();
   private noClimb = new Set<number>();
   private accumulator = 0;
   private ray!: RAPIER.Ray;
-  private capsules = new Map<string, RAPIER.Capsule>();
+  private capsules = new Map<number, RAPIER.Capsule>();
   private readonly identity = { x: 0, y: 0, z: 0, w: 1 };
   private readonly hitPoint = new THREE.Vector3();
   private readonly radialSeen = new Set<number>();
   private readonly radialVec = new THREE.Vector3();
   private readonly radialBodies: RAPIER.RigidBody[] = [];
   private readonly radialT = { x: 0, y: 0, z: 0 };
+  private radialBall: RAPIER.Ball | null = null;
   private anchor: RAPIER.RigidBody | null = null;
 
   /** Must finish before any other physics call. */
@@ -79,6 +82,7 @@ export class Physics implements PhysicsSystem {
   }
 
   step(dt: number): void {
+    this.gravityY = this.world.gravity.y;
     this.accumulator += dt;
     if (this.accumulator < MIN_STEP) return;
     const started = performance.now();
@@ -109,10 +113,12 @@ export class Physics implements PhysicsSystem {
     };
   }
 
-  raycastInto(origin: THREE.Vector3, dir: THREE.Vector3, maxDist: number, mask: number, out: RayHit): boolean {
+  raycastInto(
+    origin: THREE.Vector3, dir: THREE.Vector3, maxDist: number, mask: number, out: RayHit, filterFlags?: number,
+  ): boolean {
     this.ray.origin = origin;
     this.ray.dir = dir;
-    const hit = this.world.castRayAndGetNormal(this.ray, maxDist, true, undefined, queryGroups(mask));
+    const hit = this.world.castRayAndGetNormal(this.ray, maxDist, true, filterFlags, queryGroups(mask));
     if (!hit) return false;
     const distance = hit.timeOfImpact;
     out.point.copy(origin).addScaledVector(dir, distance);
@@ -124,7 +130,7 @@ export class Physics implements PhysicsSystem {
   }
 
   private capsule(radius: number, halfHeight: number): RAPIER.Capsule {
-    const key = `${radius}:${halfHeight}`;
+    const key = Math.round(radius * 10000) * 16777216 + Math.round(halfHeight * 10000);
     let shape = this.capsules.get(key);
     if (!shape) this.capsules.set(key, (shape = new RAPIER.Capsule(halfHeight, radius)));
     return shape;
@@ -195,7 +201,8 @@ export class Physics implements PhysicsSystem {
   radialImpulse(center: THREE.Vector3, radius: number, force: number): void {
     const strength = force * DevFlags.force;
     for (const listener of this.radialListeners) listener(center, radius, strength);
-    const ball = new RAPIER.Ball(radius);
+    const ball = (this.radialBall ??= new RAPIER.Ball(radius));
+    ball.radius = radius;
     const seen = this.radialSeen;
     seen.clear();
     const mask = CG.Ragdoll | CG.Gib | CG.Debris;

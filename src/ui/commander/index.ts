@@ -76,6 +76,9 @@ export class CommanderHud {
   private person = false;
   private full = '';
   private shown = 0;
+  private shownChars = 0;
+  private bossBarRef: HTMLElement | null = null;
+  private bossNameEl: Element | null = null;
   private clock = 0;
   private bark = false;
   /** Seconds the bark stays up once typed. */
@@ -189,6 +192,7 @@ export class CommanderHud {
     }
     this.full = page.parts.map(p => p.text).join(page.speaker === 'intercept' ? '\n' : ' ');
     this.shown = 0;
+    this.shownChars = 0;
     this.text.textContent = '';
     this.clock = this.bark ? this.barkHold : readingSeconds(page);
     this.box.className = `cmd-box on ${page.speaker} ${page.tone}${this.bark ? ' bark' : ''}`;
@@ -257,13 +261,18 @@ export class CommanderHud {
     const typing = this.shown < this.full.length;
     if (typing) {
       this.shown = Math.min(this.full.length, this.shown + TYPE_RATE * dt);
-      this.text.textContent = this.full.slice(0, Math.ceil(this.shown));
+      const chars = Math.ceil(this.shown);
+      if (chars !== this.shownChars) {
+        this.shownChars = chars;
+        this.text.textContent = this.full.slice(0, chars);
+      }
     }
     this.face.update(dt, typing || this.voice.speaking);
     if (!this.bark && this.ctx.input.pressed?.('interact') === true) {
       // The first press finishes the line, the second moves on. Nobody should lose a joke to a stray key.
       if (typing) {
         this.shown = this.full.length;
+        this.shownChars = this.full.length;
         this.text.textContent = this.full;
       } else this.next(true);
       return;
@@ -281,8 +290,11 @@ export class CommanderHud {
   /** He wears a Juggernaut's armour, and he would like that understood. */
   nameBoss(bar: HTMLElement): void {
     if (!this.person) return;
-    const name = bar.querySelector('.bs-name');
-    if (name && name.textContent !== BOSS_NAME) name.textContent = BOSS_NAME;
+    if (bar !== this.bossBarRef) {
+      this.bossBarRef = bar;
+      this.bossNameEl = bar.querySelector('.bs-name');
+    }
+    if (this.bossNameEl && this.bossNameEl.textContent !== BOSS_NAME) this.bossNameEl.textContent = BOSS_NAME;
   }
 
   setPaused(paused: boolean): void {

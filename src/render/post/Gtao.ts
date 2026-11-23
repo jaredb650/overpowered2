@@ -8,7 +8,7 @@ uniform vec2 uProj;
 uniform vec2 uFullSize;
 in vec2 vUv;
 out vec4 outColor;
-float linear(float d) { return d >= 1.0 ? 1e5 : -uProj.y / (d * 2.0 - 1.0 + uProj.x) * -1.0; }
+float linear(float d) { return d >= 1.0 ? 30000.0 : -uProj.y / (d * 2.0 - 1.0 + uProj.x) * -1.0; }
 void main() {
   ivec2 p = ivec2(gl_FragCoord.xy) * 2;
   ivec2 hi = ivec2(uFullSize) - 1;
@@ -42,7 +42,7 @@ vec3 posAt(vec2 uv) { return viewPos(uv, depthAt(uv)); }
 
 void main() {
   float z = depthAt(vUv);
-  if (z > 2e4 || z < uViewCut) { outColor = vec4(1.0, z, 0.0, 1.0); return; }
+  if (z > 2e4 || z < uViewCut) { outColor = vec4(1.0, min(z, 30000.0), 0.0, 1.0); return; }
   vec3 P = viewPos(vUv, z);
 
   // Pick the flatter neighbour on each axis, so a silhouette does not bend the normal.
@@ -60,6 +60,7 @@ void main() {
 
   float screenRadius = uRadius / (z * uTanHalf.y * 2.0);
   screenRadius = min(screenRadius, 0.22);
+  float invR2 = 1.0 / (uRadius * uRadius);
   float vis = 0.0;
   for (int s = 0; s < SLICES; s++) {
     float phi = (float(s) + rot) / float(SLICES) * PI;
@@ -81,12 +82,12 @@ void main() {
       float zs1 = depthAt(vUv - o);
       vec3 a0 = viewPos(vUv + o, zs0) - P;
       vec3 a1 = viewPos(vUv - o, zs1) - P;
-      float d0 = length(a0), d1 = length(a1);
+      float d02 = dot(a0, a0), d12 = dot(a1, a1);
       // Weight falls off with distance, so a wall far behind a thin rail casts no halo.
-      float w0 = zs0 < uViewCut ? 0.0 : clamp(1.0 - d0 * d0 / (uRadius * uRadius), 0.0, 1.0);
-      float w1 = zs1 < uViewCut ? 0.0 : clamp(1.0 - d1 * d1 / (uRadius * uRadius), 0.0, 1.0);
-      h0 = max(h0, mix(-1.0, clamp(dot(a0, V) / max(d0, 1e-4), -1.0, 1.0), w0));
-      h1 = max(h1, mix(-1.0, clamp(dot(a1, V) / max(d1, 1e-4), -1.0, 1.0), w1));
+      float w0 = zs0 < uViewCut ? 0.0 : clamp(1.0 - d02 * invR2, 0.0, 1.0);
+      float w1 = zs1 < uViewCut ? 0.0 : clamp(1.0 - d12 * invR2, 0.0, 1.0);
+      h0 = max(h0, mix(-1.0, clamp(dot(a0, V) * inversesqrt(max(d02, 1e-8)), -1.0, 1.0), w0));
+      h1 = max(h1, mix(-1.0, clamp(dot(a1, V) * inversesqrt(max(d12, 1e-8)), -1.0, 1.0), w1));
     }
     float a0 = n + clamp(-acos(h1) - n, -PI * 0.5, PI * 0.5);
     float a1 = n + clamp(acos(h0) - n, -PI * 0.5, PI * 0.5);
@@ -94,7 +95,7 @@ void main() {
     vis += projLen * 0.25 * ((cn + 2.0 * a0 * sn - cos(2.0 * a0 - n)) + (cn + 2.0 * a1 * sn - cos(2.0 * a1 - n)));
   }
   // Depth rides along so the blur reads one texture instead of two.
-  outColor = vec4(clamp(vis / float(SLICES), 0.0, 1.0), z, 0.0, 1.0);
+  outColor = vec4(clamp(vis / float(SLICES), 0.0, 1.0), min(z, 30000.0), 0.0, 1.0);
 }`;
 
 const BLUR = /* glsl */ `
@@ -106,6 +107,7 @@ void main() {
   ivec2 p = ivec2(gl_FragCoord.xy);
   ivec2 last = ivec2(uLast);
   float z = texelFetch(tAo, p, 0).g;
+  if (z > 2e4 || z < 0.16) { outColor = vec4(1.0); return; }
   float sum = 0.0, wsum = 0.0;
   float invRange = 1.0 / max(z * 0.02, 0.02);
   for (int y = -2; y <= 1; y++) {

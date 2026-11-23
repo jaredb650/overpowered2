@@ -8,6 +8,7 @@
  */
 import { clamp, damp } from '../core/math';
 import { generateImpulse, ROOMS, ROOM_IDS, type RoomId } from './reverb';
+import { kRate } from './voices';
 
 const NYQUIST_CAP = 20000;
 const ROOM_SEED = 100;
@@ -15,9 +16,18 @@ const ROOM_SEED = 100;
 const MUSIC_TRIM = 0.42;
 /** Duck changes smaller than this are not worth an automation event on every frame. */
 const DUCK_STEP = 0.002;
+/** Tail seconds after a room crossfade before its convolver is disconnected from the send bus. */
+const ROOM_TAIL_SECONDS = 4.5;
 
 /** Maps 0..1 onto a cutoff frequency, exponentially, because hearing is. */
 const cutoff = (amount: number, wide: number, narrow: number) => wide * Math.pow(narrow / wide, clamp(amount));
+
+interface RoomSlot {
+  send: GainNode;
+  convolver: ConvolverNode;
+  connected: boolean;
+  disconnectAt: number;
+}
 
 export class Mixer {
   readonly sfxIn: GainNode;
@@ -35,7 +45,7 @@ export class Mixer {
   private readonly master: GainNode;
   private readonly limiter: DynamicsCompressorNode;
   private readonly clipper: WaveShaperNode;
-  private readonly roomGains = new Map<RoomId, GainNode>();
+  private readonly rooms = new Map<RoomId, RoomSlot>();
   private readonly roomReturn: GainNode;
 
   private room: RoomId | null = null;
@@ -81,6 +91,14 @@ export class Mixer {
     this.lowHealthFilter.frequency.value = NYQUIST_CAP;
     this.lowHealthFilter.Q.value = 0.7;
 
+    kRate(
+      this.musicSlowFilter.frequency,
+      this.lowHealthFilter.frequency,
+      this.musicDuck.gain,
+      this.musicSlowGain.gain,
+      this.reverbIn.gain,
+    );
+
     // Fast enough to catch a rocket on frame one. The slow release keeps it from pumping under the SMG.
     this.limiter = ac.createDynamicsCompressor();
     this.limiter.threshold.value = -4;
@@ -99,7 +117,7 @@ export class Mixer {
       curve[i] = Math.sign(x) * shaped;
     }
     this.clipper.curve = curve;
-    this.clipper.oversample = '4x';
+    this.clipper.oversample = '2x';
 
     this.sfxIn.connect(this.sfxLevel);
     this.roomReturn.connect(this.sfxLevel);
@@ -119,7 +137,7 @@ export class Mixer {
     this.clipper.connect(ac.destination);
   }
 
-  /** Generates a room and wires a convolver for it. A room with its send at zero is skipped once its tail has passed. */
+  /** Generates a room and wires a convolver for it. Inactive rooms stay disconnected from the send bus until entered. */
   buildRoom(id: RoomId): void {
     const spec = ROOMS[id];
     const [left, right] = generateImpulse(spec, this.ac.sampleRate, ROOM_SEED + ROOM_IDS.indexOf(id));
@@ -130,14 +148,15 @@ export class Mixer {
     convolver.normalize = false;
     convolver.buffer = buffer;
     const send = this.ac.createGain();
-    send.gain.value = id === this.room ? 1 : 0;
+    const active = id === this.room;
+    send.gain.value = active ? 1 : 0;
     this.reverbIn.connect(send);
-    send.connect(convolver);
+    if (active) send.connect(convolver);
     const wet = this.ac.createGain();
     wet.gain.value = spec.wet;
     convolver.connect(wet);
     wet.connect(this.roomReturn);
-    this.roomGains.set(id, send);
+    this.rooms.set(id, { send, convolver, connected: active, disconnectAt: 0 });
   }
 
   /** Crossfades the send, so the old room's tail rings out as you leave it. */
@@ -145,7 +164,19 @@ export class Mixer {
     if (id === this.room) return;
     this.room = id;
     const now = this.ac.currentTime;
-    for (const [room, g] of this.roomGains) g.gain.setTargetAtTime(room === id ? 1 : 0, now, seconds / 3);
+    for (const [room, r] of this.rooms) {
+      if (room === id) {
+        if (!r.connected) {
+          r.send.connect(r.convolver);
+          r.connected = true;
+        }
+        r.disconnectAt = 0;
+        r.send.gain.setTargetAtTime(1, now, seconds / 3);
+      } else {
+        r.send.gain.setTargetAtTime(0, now, seconds / 3);
+        if (r.connected && r.disconnectAt === 0) r.disconnectAt = now + seconds + ROOM_TAIL_SECONDS;
+      }
+    }
   }
 
   get currentRoom(): RoomId | null { return this.room; }
@@ -175,6 +206,14 @@ export class Mixer {
    */
   update(realDt: number, slowmo: number, lowHealth: number): void {
     const now = this.ac.currentTime;
+
+    for (const r of this.rooms.values()) {
+      if (r.connected && r.disconnectAt > 0 && now >= r.disconnectAt) {
+        r.send.disconnect(r.convolver);
+        r.connected = false;
+        r.disconnectAt = 0;
+      }
+    }
 
     this.duckHold = Math.max(0, this.duckHold - realDt);
     const duckTarget = this.duckHold > 0 ? this.duckAmount : 0;

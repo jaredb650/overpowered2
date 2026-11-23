@@ -12,8 +12,12 @@ function faceted(g: THREE.BufferGeometry): THREE.BufferGeometry {
 /** The original's SphereGeometry(r, 4, 4): an angular 24-triangle gem at unit radius. */
 export const gem = () => faceted(new THREE.SphereGeometry(1, 4, 4));
 
-/** Unit cube, half-extent 1. */
-export const cube = () => faceted(new THREE.BoxGeometry(2, 2, 2));
+/** Unit cube, half-extent 1 (indexed 24-vertex box already carries per-face flat normals). */
+export function cube(): THREE.BufferGeometry {
+  const g = new THREE.BoxGeometry(2, 2, 2);
+  g.deleteAttribute('uv');
+  return g;
+}
 
 /** Sharp irregular rock or glass splinter. */
 export function shard(): THREE.BufferGeometry {

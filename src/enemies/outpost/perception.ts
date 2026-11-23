@@ -113,6 +113,8 @@ export function stealthSightProfile(
   return out;
 }
 
+const FAN_RAYS_PER_FRAME = 12;
+
 /** The side's shared picture of the player. Every squad falls back on it when it has nothing fresher of its own. */
 export class Intel implements Exposure {
   readonly position = new THREE.Vector3();
@@ -120,14 +122,20 @@ export class Intel implements Exposure {
   at = -99;
   /** Last real sighting. */
   seenAt = -99;
-  private readonly fan = new Float32Array(FAN);
+  private fan = new Float32Array(FAN);
+  private fanBack = new Float32Array(FAN);
   private readonly origin = new THREE.Vector3();
+  private readonly pendingOrigin = new THREE.Vector3();
   private fanAt = -99;
+  private fanCursor = 0;
+  private fanPending = false;
 
   constructor(private readonly physics: PhysicsSystem) {}
 
   reset(): void {
     this.at = this.seenAt = this.fanAt = -99;
+    this.fanCursor = 0;
+    this.fanPending = false;
   }
 
   report(p: THREE.Vector3, now: number, seen: boolean): void {
@@ -136,16 +144,30 @@ export class Intel implements Exposure {
     if (seen) this.seenAt = now;
   }
 
-  /** Re-sweeps the fan if the threat has moved. A sweep is 72 rays, about once a second at most. */
+  /** Re-sweeps the fan if the threat has moved, amortized to 12 rays/frame across 6 frames via double-buffering. */
   refreshFan(now: number): void {
-    if (now - this.fanAt < FAN_INTERVAL) return;
-    if (this.fanAt > 0 && this.origin.distanceToSquared(this.position) < FAN_MOVE * FAN_MOVE) return;
-    this.fanAt = now;
-    this.origin.copy(this.position);
-    for (let i = 0; i < FAN; i++) {
+    if (!this.fanPending) {
+      if (now - this.fanAt < FAN_INTERVAL) return;
+      if (this.fanAt > 0 && this.origin.distanceToSquared(this.position) < FAN_MOVE * FAN_MOVE) return;
+      this.fanPending = true;
+      this.fanCursor = 0;
+      this.pendingOrigin.copy(this.position);
+    }
+    const end = Math.min(this.fanCursor + FAN_RAYS_PER_FRAME, FAN);
+    for (let i = this.fanCursor; i < end; i++) {
       const a = (i / FAN) * TAU;
       _dir.set(Math.sin(a), 0, Math.cos(a));
-      this.fan[i] = this.physics.raycastInto(this.origin, _dir, FAN_RANGE, CG.World, _hit) ? _hit.distance : FAN_RANGE;
+      this.fanBack[i] = this.physics.raycastInto(this.pendingOrigin, _dir, FAN_RANGE, CG.World, _hit) ? _hit.distance : FAN_RANGE;
+    }
+    this.fanCursor = end;
+    if (this.fanCursor >= FAN) {
+      const prev = this.fan;
+      this.fan = this.fanBack;
+      this.fanBack = prev;
+      this.origin.copy(this.pendingOrigin);
+      this.fanAt = now;
+      this.fanPending = false;
+      this.fanCursor = 0;
     }
   }
 

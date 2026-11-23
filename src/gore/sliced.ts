@@ -83,6 +83,8 @@ export class Half implements BurningPiece {
   burn = 0;
   /** A piece of a machine's hull: it sparks, and has no blood in it. */
   scrap = false;
+  /** Whether Rapier CCD is currently enabled on `body` (turned off once speed slows below 4 m/s). */
+  ccd = false;
   constructor(readonly mesh: THREE.Mesh, readonly side: CutSide) {}
 
   get root(): THREE.Object3D {
@@ -114,6 +116,10 @@ const _v2 = new THREE.Vector3();
 const _o = new THREE.Vector3();
 const _d = new THREE.Vector3();
 const _inv = new THREE.Quaternion();
+const _vec = { x: 0, y: 0, z: 0 };
+const _lv = { x: 0, y: 0, z: 0 };
+const HALF_CCD_SPEED = 4.0;
+const HALF_CCD_SPEED_SQ = HALF_CCD_SPEED * HALF_CCD_SPEED;
 
 /** Pale fibres on grey. Vertex colour supplies the hue, so one texture serves muscle, fat and bone. */
 function fleshTexture(): THREE.CanvasTexture {
@@ -337,6 +343,7 @@ export class SliceField {
     const half = new Half(mesh, side);
     half.born = this.ctx.time.elapsed;
     half.body = body;
+    half.ccd = true;
     half.burn = burn ? 0 : char;
     half.scrap = machine;
     half.releaseAt = this.ctx.time.elapsed + SliceTuning.holdSeconds;
@@ -370,16 +377,21 @@ export class SliceField {
     mesh.quaternion.copy(q);
     this.ctx.render.scene.add(mesh);
     const k = Math.sqrt(RagTuning.gravityScale);
+    const vx = v.x * k, vy = v.y * k, vz = v.z * k;
+    const fast = vx * vx + vy * vy + vz * vz >= HALF_CCD_SPEED_SQ;
+    _vec.x = rand(-spin, spin) * k;
+    _vec.y = rand(-spin, spin) * k;
+    _vec.z = rand(-spin, spin) * k;
     const body = world.createRigidBody(
       R.RigidBodyDesc.dynamic()
         .setTranslation(p.x, p.y, p.z)
         .setRotation(q)
-        .setLinvel(v.x * k, v.y * k, v.z * k)
-        .setAngvel({ x: rand(-spin, spin) * k, y: rand(-spin, spin) * k, z: rand(-spin, spin) * k })
+        .setLinvel(vx, vy, vz)
+        .setAngvel(_vec)
         .setGravityScale(RagTuning.gravityScale)
         .setLinearDamping(0.1)
         .setAngularDamping(0.6)
-        .setCcdEnabled(true),
+        .setCcdEnabled(fast),
     );
     const collider = R.ColliderDesc.convexHull(side.hull)
       ?? R.ColliderDesc.cuboid(Math.max(side.max.x, 0.015), Math.max(side.max.y, 0.015), Math.max(side.max.z, 0.015));
@@ -392,6 +404,7 @@ export class SliceField {
     half.born = this.ctx.time.elapsed;
     half.shared = true;
     half.body = body;
+    half.ccd = fast;
     half.burn = burn;
     // A piece of a burnt body is cooked through: it sprays, trails and pools nothing. Nor does a machine's (`throwWreck`).
     if (half.dry || cap) half.pooled = true;
@@ -428,6 +441,20 @@ export class SliceField {
     }
   }
 
+  /** Compiles the machine wreck hull-cap shader at load so the first machine kill has no shader stall. */
+  warmWreck(side: CutSide, skin: THREE.Material): void {
+    const mesh = new THREE.Mesh(side.geometry, [skin, this.wreckCap()]);
+    mesh.position.y = -500;
+    mesh.frustumCulled = false;
+    mesh.onAfterRender = () => {
+      mesh.onAfterRender = () => {};
+      queueMicrotask(() => {
+        mesh.removeFromParent();
+      });
+    };
+    this.ctx.render.scene.add(mesh);
+  }
+
   /** Asked whether a piece could be seen from the camera (mess.ts). Left unset, every piece counts as in sight. */
   inView: ((at: THREE.Vector3, radius: number) => boolean) | null = null;
 
@@ -450,6 +477,7 @@ export class SliceField {
       if (h.sinking >= 0 || h.vapor >= 0) continue;
       if (now - h.born < SliceTuning.minShown && live <= SliceTuning.hardCap) break;
       this.freeze(h);
+      h.mesh.matrixAutoUpdate = true;
       h.sinking = this.ctx.time.elapsed;
       live--;
     }
@@ -458,9 +486,12 @@ export class SliceField {
   private freeze(h: Half): void {
     if (h.body) this.ctx.physics.world.removeRigidBody(h.body);
     h.body = null;
+    h.ccd = false;
     // At rest it lies in its own pool and casts no shadow of its own, as a settled body and a limb at rest do not: with
     // one, twenty-eight pieces were 110 draws.
     h.mesh.castShadow = false;
+    h.mesh.matrixAutoUpdate = false;
+    h.mesh.updateMatrix();
     h.emitter?.stop();
     h.emitter = null;
     if (!h.pooled) {
@@ -510,6 +541,10 @@ export class SliceField {
       body.rotation(h.q);
       body.linvel(h.v);
       const speed = h.v.length();
+      if (h.ccd && h.releaseAt === 0 && speed < HALF_CCD_SPEED) {
+        body.enableCcd(false);
+        h.ccd = false;
+      }
       if (!h.scrap) h.nextThud = this.impacts.land('body', (h.speed - speed) * heard, h.speed * heard, h.p, h.nextThud);
       h.speed = speed;
       // From its torn face, which is where a piece of a trunk bleeds.
@@ -546,7 +581,10 @@ export class SliceField {
       body.setGravityScale(v.gravity, true);
       body.setLinearDamping(v.drag);
       body.linvel(h.v);
-      body.setLinvel({ x: h.v.x * 0.3, y: Math.max(h.v.y, 0) + v.rise * rand(0.8, 1.2), z: h.v.z * 0.3 }, true);
+      _vec.x = h.v.x * 0.3;
+      _vec.y = Math.max(h.v.y, 0) + v.rise * rand(0.8, 1.2);
+      _vec.z = h.v.z * 0.3;
+      body.setLinvel(_vec, true);
     }
     // A cut body is several pieces at once: a few embers a piece, not a body's worth each.
     if (now >= h.ashAt) {
@@ -591,7 +629,7 @@ export class SliceField {
     return found;
   }
 
-  private wake(h: Half): void {
+  private wake(h: Half, ccd = false): void {
     if (h.body || h.sinking >= 0) return;
     const { R, world } = this.ctx.physics;
     const body = world.createRigidBody(
@@ -601,7 +639,7 @@ export class SliceField {
         .setGravityScale(RagTuning.gravityScale)
         .setLinearDamping(0.1)
         .setAngularDamping(0.6)
-        .setCcdEnabled(true),
+        .setCcdEnabled(ccd),
     );
     const collider = R.ColliderDesc.convexHull(h.side.hull)
       ?? R.ColliderDesc.cuboid(Math.max(h.side.max.x, 0.015), Math.max(h.side.max.y, 0.015), Math.max(h.side.max.z, 0.015));
@@ -611,14 +649,20 @@ export class SliceField {
       body,
     );
     h.body = body;
+    h.ccd = ccd;
     h.age = 0;
     h.calm = 0;
+    h.mesh.matrixAutoUpdate = true;
     h.mesh.castShadow = true;
   }
 
   damage(handle: unknown, point: THREE.Vector3, impulse: THREE.Vector3): void {
     if (!(handle instanceof Half)) return;
-    this.wake(handle);
+    this.wake(handle, true);
+    if (handle.body && !handle.ccd) {
+      handle.body.enableCcd(true);
+      handle.ccd = true;
+    }
     handle.body?.applyImpulseAtPoint(impulse, point, true);
   }
 
@@ -627,6 +671,7 @@ export class SliceField {
     for (const h of this.halves) {
       if (h.sinking >= 0 || h.vapor >= 0) continue;
       this.freeze(h);
+      h.mesh.matrixAutoUpdate = true;
       h.sinking = this.ctx.time.elapsed;
     }
   }
@@ -656,7 +701,7 @@ export class SliceField {
       if (!body) continue;
       // One way only, as for a body: speed away from the walker up to a ceiling, never taken off.
       const want = Math.min(4.5, 0.8 + closing * 0.5);
-      const v = body.linvel();
+      const v = body.linvel(_lv as never) as unknown as { x: number; y: number; z: number };
       const ux = d > 1e-3 ? dx / d : vx / speed;
       const uz = d > 1e-3 ? dz / d : vz / speed;
       const have = v.x * ux + v.z * uz;

@@ -10,6 +10,7 @@ export class ShopHud {
   private readonly credits: Label;
   private readonly hint: Label;
   private readonly hintShown: Shown;
+  private lastCredits = -1;
 
   constructor(private readonly ctx: Ctx) {
     const n = span('df-cr-n');
@@ -23,7 +24,10 @@ export class ShopHud {
   update(): void {
     const shop = this.ctx.contracts.shop;
     if (!shop) return;
-    this.credits.set(shop.credits.toLocaleString('en-US'));
+    if (shop.credits !== this.lastCredits) {
+      this.lastCredits = shop.credits;
+      this.credits.set(shop.credits.toLocaleString('en-US'));
+    }
     this.hintShown.set(shop.inBreak);
     if (shop.inBreak) {
       // Co-op: the key is a vote, and the co-op HUD shows the count (net/coopHud.ts).

@@ -140,6 +140,19 @@ interface LoudspeakerPole {
   readonly beaconMat: THREE.MeshBasicMaterial;
   readonly beaconMesh: THREE.Mesh;
   pulseTimer: number;
+  wasPulsing: boolean;
+}
+
+let _poleBeaconGeo: THREE.SphereGeometry | null = null;
+let _gateDebrisGeo: THREE.BoxGeometry | null = null;
+let _gateDebrisMats: THREE.MeshStandardMaterial[] | null = null;
+
+function freezeStaticSubtree(root: THREE.Object3D, skip?: THREE.Object3D): void {
+  root.traverse((obj) => {
+    if (obj === skip) return;
+    obj.updateMatrix();
+    obj.matrixAutoUpdate = false;
+  });
 }
 
 interface AudioWaveRing {
@@ -267,13 +280,19 @@ function buildLoudspeakerPole(materials: ModelMaterials, matWood: THREE.Material
   group.add(materials.group(metalB));
 
   // Pulsing amber/red indicator beacon bulb
+  if (!_poleBeaconGeo) {
+    _poleBeaconGeo = new THREE.SphereGeometry(0.18, 10, 8);
+  }
   const beaconMat = new THREE.MeshBasicMaterial({
-    color: new THREE.Color('#ff6b22').multiplyScalar(1.3),
+    color: new THREE.Color('#ff7b24').multiplyScalar(1.1),
     toneMapped: false,
   });
-  const beaconMesh = new THREE.Mesh(new THREE.SphereGeometry(0.18, 10, 8), beaconMat);
+  const beaconMesh = new THREE.Mesh(_poleBeaconGeo, beaconMat);
   beaconMesh.position.set(0, 9.75, 0);
   group.add(beaconMesh);
+  freezeStaticSubtree(group, beaconMesh);
+  beaconMesh.updateMatrix();
+  beaconMesh.matrixAutoUpdate = false;
 
   return {
     index,
@@ -283,6 +302,7 @@ function buildLoudspeakerPole(materials: ModelMaterials, matWood: THREE.Material
     beaconMat,
     beaconMesh,
     pulseTimer: 0,
+    wasPulsing: false,
   };
 }
 
@@ -743,6 +763,8 @@ export class DesertSetpieces implements SetpiecesController {
   private quistNpcProps: QuistNpcProps | null = null;
   private lastAllowedDamageType: DamageType = 'bullet';
   private quistRig: QuistRig | null = null;
+  private quistMaterials: ModelMaterials | null = null;
+  private quistClothMat: THREE.MeshStandardMaterial | null = null;
   private quistCollider: RAPIER.Collider | null = null;
   private quistHooks: QuistHooks | null = null;
   private _quistState: QuistState = 'inactive';
@@ -899,6 +921,7 @@ export class DesertSetpieces implements SetpiecesController {
 
     // 2. Solid Bulldozer-Blade Main Gate
     this.gateGroup = buildMainGateModel(materials);
+    freezeStaticSubtree(this.gateGroup);
     scene.add(this.gateGroup);
     this.createMainGateCollider();
 
@@ -906,19 +929,28 @@ export class DesertSetpieces implements SetpiecesController {
     const tower = buildWaterTowerModel(materials);
     this.towerPivot = tower.pivot;
     this.towerRubbleGroup = tower.rubbleGroup;
+    freezeStaticSubtree(this.towerRubbleGroup);
     scene.add(this.towerPivot);
     scene.add(this.towerRubbleGroup);
     this.createTowerLegColliders();
     this.buildFloodWaveVisual(scene);
     this.buildSewerBeacon(scene, materials);
 
-    // 4. Sculpted Hadrek Quist Actor & HUD Prompt
-    this.quistRig = buildQuistActor(materials, matCloth);
-    scene.add(this.quistRig.root);
+    // 4. Defer fallback sculpted Hadrek Quist rig until needed (real gameplay spawns an Enemy NPC)
+    this.quistMaterials = materials;
+    this.quistClothMat = matCloth;
     this.buildQuistHudDom();
 
     // 5. Hook WorldObjects shot/blast callbacks cleanly
     this.attachWorldHooks();
+  }
+
+  private ensureQuistFallbackRig(): QuistRig | null {
+    if (this.quistRig) return this.quistRig;
+    if (!this.quistMaterials || !this.quistClothMat) return null;
+    this.quistRig = buildQuistActor(this.quistMaterials, this.quistClothMat);
+    this.ctx.render.scene.add(this.quistRig.root);
+    return this.quistRig;
   }
 
   private createMainGateCollider(): void {
@@ -1174,9 +1206,11 @@ export class DesertSetpieces implements SetpiecesController {
     }
 
     best.pulseTimer = 1.65;
+    best.wasPulsing = true;
     this._lastPulsedPoleIndex = best.index;
     best.beaconMat.color.set('#ff3a18').multiplyScalar(4.8);
     best.beaconMesh.scale.setScalar(1.45);
+    best.beaconMesh.updateMatrix();
     this.ctx.render.lights?.flash?.(best.hornPos, 0xff7722, 3.8, 18, 0.55);
 
     // Emit 3 staggered expanding audio-wave rings from the nearest pole's horns
@@ -1202,9 +1236,13 @@ export class DesertSetpieces implements SetpiecesController {
         const blink = 0.72 + 0.28 * Math.sin(pole.pulseTimer * 24);
         pole.beaconMat.color.set('#ff451a').multiplyScalar(1.3 + t * 3.6 * blink);
         pole.beaconMesh.scale.setScalar(1.0 + t * 0.45 * blink);
-      } else {
+        pole.beaconMesh.updateMatrix();
+        pole.wasPulsing = true;
+      } else if (pole.wasPulsing) {
         pole.beaconMat.color.set('#ff7b24').multiplyScalar(1.1);
         pole.beaconMesh.scale.setScalar(1.0);
+        pole.beaconMesh.updateMatrix();
+        pole.wasPulsing = false;
       }
     }
 
@@ -1274,7 +1312,19 @@ export class DesertSetpieces implements SetpiecesController {
   private spawnMainGateDebris(): void {
     this.clearGateDebris();
     const scene = this.ctx.render.scene;
-    const colors = ['#d29e24', '#b47f1c', '#733e1f', '#3d434a', '#23272c'];
+    if (!_gateDebrisGeo) {
+      _gateDebrisGeo = new THREE.BoxGeometry(1, 1, 1);
+      const colors = ['#d29e24', '#b47f1c', '#733e1f', '#3d434a', '#23272c'];
+      _gateDebrisMats = colors.map(
+        (color) =>
+          new THREE.MeshStandardMaterial({
+            color,
+            roughness: 0.72,
+            metalness: 0.55,
+          }),
+      );
+    }
+    const mats = _gateDebrisMats!;
     const count = 18;
     for (let i = 0; i < count; i++) {
       const side = i % 2 === 0 ? -1 : 1;
@@ -1282,12 +1332,8 @@ export class DesertSetpieces implements SetpiecesController {
       const w = isBlade ? rand(1.3, 2.4) : rand(0.9, 1.9);
       const h = isBlade ? rand(0.45, 0.9) : rand(0.6, 1.4);
       const d = rand(0.22, 0.45);
-      const mat = new THREE.MeshStandardMaterial({
-        color: colors[i % colors.length],
-        roughness: 0.72,
-        metalness: 0.55,
-      });
-      const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+      const mesh = new THREE.Mesh(_gateDebrisGeo, mats[i % mats.length]!);
+      mesh.scale.set(w, h, d);
       mesh.position.set(
         MAIN_GATE.x + side * rand(0.8, 6.2),
         MAIN_GATE.y + rand(0.8, 5.8),
@@ -1308,8 +1354,6 @@ export class DesertSetpieces implements SetpiecesController {
   private clearGateDebris(): void {
     for (const chunk of this.gateDebris) {
       chunk.mesh.parent?.remove(chunk.mesh);
-      chunk.mesh.geometry.dispose();
-      (chunk.mesh.material as THREE.Material).dispose();
     }
     this.gateDebris.length = 0;
   }
@@ -1330,6 +1374,8 @@ export class DesertSetpieces implements SetpiecesController {
         c.angVel.multiplyScalar(0.5);
         if (Math.abs(c.vel.y) < 0.7 && Math.hypot(c.vel.x, c.vel.z) < 0.8) {
           c.settled = true;
+          c.mesh.updateMatrix();
+          c.mesh.matrixAutoUpdate = false;
         }
       }
     }
@@ -1792,15 +1838,16 @@ export class DesertSetpieces implements SetpiecesController {
     } else {
       this.quistEnemy = null;
       this.quistNpcProps = null;
-      if (this.quistRig) {
-        this.quistRig.root.visible = true;
-        this.quistRig.root.position.copy(this.quistPos);
-        this.quistRig.root.rotation.set(0, this.quistYaw, 0);
-        this.quistRig.pistolInHand.visible = false;
-        this.quistRig.pistolHolstered.visible = true;
-        this.quistRig.grenadeInHand.visible = false;
-        this.quistRig.redGlint.visible = false;
-        this.quistRig.zipTie.visible = false;
+      const rig = this.ensureQuistFallbackRig();
+      if (rig) {
+        rig.root.visible = true;
+        rig.root.position.copy(this.quistPos);
+        rig.root.rotation.set(0, this.quistYaw, 0);
+        rig.pistolInHand.visible = false;
+        rig.pistolHolstered.visible = true;
+        rig.grenadeInHand.visible = false;
+        rig.redGlint.visible = false;
+        rig.zipTie.visible = false;
       }
       this.syncQuistCollider();
     }
@@ -1839,11 +1886,14 @@ export class DesertSetpieces implements SetpiecesController {
       this.quistEnemy.face = 'player';
       this.quistEnemy.velocity?.set?.(0, 0, 0);
       this.setQuistPosture('stand');
-    } else if (this.quistRig) {
-      this.quistRig.root.visible = true;
-      this.quistRig.root.position.copy(this.quistPos);
-      this.quistRig.root.rotation.set(0, 0, 0);
-      this.syncQuistCollider();
+    } else {
+      const rig = this.ensureQuistFallbackRig();
+      if (rig) {
+        rig.root.visible = true;
+        rig.root.position.copy(this.quistPos);
+        rig.root.rotation.set(0, 0, 0);
+        this.syncQuistCollider();
+      }
     }
 
     this.enterCorneredSpeech();
@@ -2904,7 +2954,10 @@ export class DesertSetpieces implements SetpiecesController {
 
     for (const pole of this.poles) {
       pole.pulseTimer = 0;
+      pole.wasPulsing = false;
+      pole.beaconMat.color.set('#ff7b24').multiplyScalar(1.1);
       pole.beaconMesh.scale.setScalar(1);
+      pole.beaconMesh.updateMatrix();
     }
     for (const ring of this.waveRings) {
       ring.active = false;

@@ -151,6 +151,15 @@ export class AudioEngine implements AudioSystem {
 
   private readonly listener = new THREE.Vector3();
   private listenerFrame = -1;
+  private lx = NaN;
+  private ly = NaN;
+  private lz = NaN;
+  private lfx = NaN;
+  private lfy = NaN;
+  private lfz = NaN;
+  private lux = NaN;
+  private luy = NaN;
+  private luz = NaN;
   private order = 0;
   private slowmo = 1;
   private warned = new Set<string>();
@@ -402,21 +411,39 @@ export class AudioEngine implements AudioSystem {
   private applyListener(x: number, y: number, z: number, fx: number, fy: number, fz: number, ux: number, uy: number, uz: number): void {
     this.listener.set(x, y, z);
     const l = this.ac!.listener;
+    const eps = 1e-4;
+    const posChanged = Math.abs(x - this.lx) > eps || Math.abs(y - this.ly) > eps || Math.abs(z - this.lz) > eps || Number.isNaN(this.lx);
+    const oriChanged =
+      Math.abs(fx - this.lfx) > eps || Math.abs(fy - this.lfy) > eps || Math.abs(fz - this.lfz) > eps ||
+      Math.abs(ux - this.lux) > eps || Math.abs(uy - this.luy) > eps || Math.abs(uz - this.luz) > eps ||
+      Number.isNaN(this.lfx);
+    if (!posChanged && !oriChanged) return;
     // Firefox has only the deprecated setters.
     if (!l.positionX) {
-      l.setPosition(x, y, z);
-      l.setOrientation(fx, fy, fz, ux, uy, uz);
+      if (posChanged) {
+        l.setPosition(x, y, z);
+        this.lx = x; this.ly = y; this.lz = z;
+      }
+      if (oriChanged) {
+        l.setOrientation(fx, fy, fz, ux, uy, uz);
+        this.lfx = fx; this.lfy = fy; this.lfz = fz;
+        this.lux = ux; this.luy = uy; this.luz = uz;
+      }
       return;
     }
-    l.positionX.value = x;
-    l.positionY.value = y;
-    l.positionZ.value = z;
-    l.forwardX.value = fx;
-    l.forwardY.value = fy;
-    l.forwardZ.value = fz;
-    l.upX.value = ux;
-    l.upY.value = uy;
-    l.upZ.value = uz;
+    if (posChanged) {
+      if (Math.abs(x - this.lx) > eps || Number.isNaN(this.lx)) { l.positionX.value = x; this.lx = x; }
+      if (Math.abs(y - this.ly) > eps || Number.isNaN(this.ly)) { l.positionY.value = y; this.ly = y; }
+      if (Math.abs(z - this.lz) > eps || Number.isNaN(this.lz)) { l.positionZ.value = z; this.lz = z; }
+    }
+    if (oriChanged) {
+      if (Math.abs(fx - this.lfx) > eps || Number.isNaN(this.lfx)) { l.forwardX.value = fx; this.lfx = fx; }
+      if (Math.abs(fy - this.lfy) > eps || Number.isNaN(this.lfy)) { l.forwardY.value = fy; this.lfy = fy; }
+      if (Math.abs(fz - this.lfz) > eps || Number.isNaN(this.lfz)) { l.forwardZ.value = fz; this.lfz = fz; }
+      if (Math.abs(ux - this.lux) > eps || Number.isNaN(this.lux)) { l.upX.value = ux; this.lux = ux; }
+      if (Math.abs(uy - this.luy) > eps || Number.isNaN(this.luy)) { l.upY.value = uy; this.luy = uy; }
+      if (Math.abs(uz - this.luz) > eps || Number.isNaN(this.luz)) { l.upZ.value = uz; this.luz = uz; }
+    }
   }
 
   // -------------------------------------------------------------------------------------------
@@ -734,6 +761,7 @@ export class AudioEngine implements AudioSystem {
     return sound ? sound.def.volume * sound.trim : 0;
   }
 
+  get context(): AudioContext | null { return this.ac; }
   get mixerForTests(): Mixer | null { return this.mixer; }
   get musicForTests(): MusicPlayer | null { return this.musicPlayer; }
   get contextForTests(): AudioContext | null { return this.ac; }

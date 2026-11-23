@@ -479,7 +479,9 @@ export const MAX_FLYING = 48;
 const GRAVITY = -28;
 
 export class PlateDebris {
-  private flying: Flying[] = [];
+  private readonly slots: Flying[] = [];
+  private readonly active: Flying[] = [];
+  private readonly freeSlots: Flying[] = [];
   private shardPool: THREE.Mesh[] = [];
   private pos = new THREE.Vector3();
   private quat = new THREE.Quaternion();
@@ -488,10 +490,29 @@ export class PlateDebris {
   private outDir = new THREE.Vector3();
   private boxSize = new THREE.Vector3();
 
-  constructor(private readonly ctx: Ctx) {}
+  constructor(private readonly ctx: Ctx) {
+    for (let i = 0; i < MAX_FLYING; i++) {
+      const slot: Flying = {
+        mesh: null as unknown as THREE.Mesh,
+        pooled: false,
+        baseScaleX: 1,
+        baseScaleY: 1,
+        baseScaleZ: 1,
+        vx: 0,
+        vy: 0,
+        vz: 0,
+        sx: 0,
+        sy: 0,
+        sz: 0,
+        life: 0,
+      };
+      this.slots.push(slot);
+      this.freeSlots.push(slot);
+    }
+  }
 
   get activeCount(): number {
-    return this.flying.length;
+    return this.active.length;
   }
 
   get pooledCount(): number {
@@ -521,20 +542,20 @@ export class PlateDebris {
     mesh.scale.copy(this.scale);
     mesh.visible = true;
     this.ctx.render.scene.add(mesh);
-    this.pushFlying({
+    this.spawnFlying(
       mesh,
-      pooled: false,
-      baseScaleX: this.scale.x || 1,
-      baseScaleY: this.scale.y || 1,
-      baseScaleZ: this.scale.z || 1,
-      vx: dir.x * 7 + rand(-3, 3),
-      vy: rand(6, 11),
-      vz: dir.z * 7 + rand(-3, 3),
-      sx: rand(4, 14) * (Math.random() < 0.5 ? 1 : -1),
-      sy: rand(0, TAU),
-      sz: rand(-4, 4),
-      life: rand(1.1, 1.7),
-    });
+      false,
+      this.scale.x || 1,
+      this.scale.y || 1,
+      this.scale.z || 1,
+      dir.x * 7 + rand(-3, 3),
+      rand(6, 11),
+      dir.z * 7 + rand(-3, 3),
+      rand(4, 14) * (Math.random() < 0.5 ? 1 : -1),
+      rand(0, TAU),
+      rand(-4, 4),
+      rand(1.1, 1.7),
+    );
   }
 
   /** Spawns 2–3 helmet dome shards or 2–4 jagged plate shards exploding outward from the broken plate. */
@@ -583,20 +604,20 @@ export class PlateDebris {
       const burst = helmet ? rand(3.5, 6.5) : rand(2.8, 5.8);
       const spinMax = helmet ? 18 : 16;
 
-      this.pushFlying({
-        mesh: shardMesh,
-        pooled: true,
-        baseScaleX: sx,
-        baseScaleY: sy,
-        baseScaleZ: sz,
-        vx: dir.x * carry + this.outDir.x * burst + rand(-1.2, 1.2),
-        vy: Math.max(dir.y * 5, 0) + this.outDir.y * 2.5 + rand(4.5, 9.5),
-        vz: dir.z * carry + this.outDir.z * burst + rand(-1.2, 1.2),
-        sx: rand(5, spinMax) * (Math.random() < 0.5 ? 1 : -1),
-        sy: rand(5, spinMax) * (Math.random() < 0.5 ? 1 : -1),
-        sz: rand(4, spinMax - 2) * (Math.random() < 0.5 ? 1 : -1),
-        life: rand(0.95, 1.55),
-      });
+      this.spawnFlying(
+        shardMesh,
+        true,
+        sx,
+        sy,
+        sz,
+        dir.x * carry + this.outDir.x * burst + rand(-1.2, 1.2),
+        Math.max(dir.y * 5, 0) + this.outDir.y * 2.5 + rand(4.5, 9.5),
+        dir.z * carry + this.outDir.z * burst + rand(-1.2, 1.2),
+        rand(5, spinMax) * (Math.random() < 0.5 ? 1 : -1),
+        rand(5, spinMax) * (Math.random() < 0.5 ? 1 : -1),
+        rand(4, spinMax - 2) * (Math.random() < 0.5 ? 1 : -1),
+        rand(0.95, 1.55),
+      );
     }
   }
 
@@ -608,29 +629,76 @@ export class PlateDebris {
       return recycled;
     }
     const mesh = new THREE.Mesh(geometry, mat);
-    mesh.castShadow = true;
+    mesh.castShadow = false;
     return mesh;
   }
 
-  private pushFlying(entry: Flying): void {
-    if (this.flying.length >= MAX_FLYING) this.retire(this.flying.shift()!);
-    this.flying.push(entry);
+  private spawnFlying(
+    mesh: THREE.Mesh,
+    pooled: boolean,
+    baseScaleX: number,
+    baseScaleY: number,
+    baseScaleZ: number,
+    vx: number,
+    vy: number,
+    vz: number,
+    sx: number,
+    sy: number,
+    sz: number,
+    life: number,
+  ): void {
+    let slot = this.freeSlots.pop();
+    if (!slot) {
+      // Evict the entry with the least remaining life without Array.shift().
+      let oldestIdx = 0;
+      let minLife = this.active[0]!.life;
+      for (let i = 1; i < this.active.length; i++) {
+        const l = this.active[i]!.life;
+        if (l < minLife) {
+          minLife = l;
+          oldestIdx = i;
+        }
+      }
+      slot = this.active[oldestIdx]!;
+      this.retire(slot);
+      const last = this.active.pop()!;
+      if (oldestIdx < this.active.length) this.active[oldestIdx] = last;
+    }
+    slot.mesh = mesh;
+    slot.pooled = pooled;
+    slot.baseScaleX = baseScaleX;
+    slot.baseScaleY = baseScaleY;
+    slot.baseScaleZ = baseScaleZ;
+    slot.vx = vx;
+    slot.vy = vy;
+    slot.vz = vz;
+    slot.sx = sx;
+    slot.sy = sy;
+    slot.sz = sz;
+    slot.life = life;
+    this.active.push(slot);
   }
 
   /** A pooled body takes its piece back: stop flying if airborne and restore visibility & unit scale cleanly. */
   release(mesh: THREE.Mesh): void {
-    const i = this.flying.findIndex(f => !f.pooled && f.mesh === mesh);
-    if (i >= 0) {
-      this.flying.splice(i, 1);
-      mesh.removeFromParent();
+    for (let i = 0; i < this.active.length; i++) {
+      const f = this.active[i]!;
+      if (!f.pooled && f.mesh === mesh) {
+        const last = this.active.pop()!;
+        if (i < this.active.length) this.active[i] = last;
+        f.mesh = null as unknown as THREE.Mesh;
+        this.freeSlots.push(f);
+        mesh.removeFromParent();
+        break;
+      }
     }
     mesh.visible = true;
     mesh.scale.setScalar(1);
   }
 
   update(dt: number): void {
-    for (let i = this.flying.length - 1; i >= 0; i--) {
-      const f = this.flying[i]!;
+    for (let i = this.active.length - 1; i >= 0; i--) {
+      const f = this.active[i]!;
       f.life -= dt;
       f.vy += GRAVITY * dt;
       f.mesh.position.x += f.vx * dt;
@@ -645,14 +713,22 @@ export class PlateDebris {
       }
       if (f.life <= 0) {
         this.retire(f);
-        this.flying.splice(i, 1);
+        const last = this.active.pop()!;
+        if (i < this.active.length) this.active[i] = last;
+        f.mesh = null as unknown as THREE.Mesh;
+        this.freeSlots.push(f);
       }
     }
   }
 
   clear(): void {
-    for (const f of this.flying) this.retire(f);
-    this.flying.length = 0;
+    for (let i = 0; i < this.active.length; i++) {
+      const f = this.active[i]!;
+      this.retire(f);
+      f.mesh = null as unknown as THREE.Mesh;
+      this.freeSlots.push(f);
+    }
+    this.active.length = 0;
   }
 
   private retire(f: Flying): void {

@@ -11,7 +11,7 @@
  * leads to the target.
  */
 import * as THREE from 'three';
-import { CG, type NavLinkKind, type NavQuery, type PhysicsSystem } from '../core/contracts';
+import { CG, type NavLinkKind, type NavQuery, type PhysicsSystem, type RayHit } from '../core/contracts';
 
 const CELL = 1;
 const TOP_Y = 118;
@@ -440,24 +440,44 @@ export class NavGraph implements NavQuery {
     return best;
   }
 
+  private lastLocX = NaN;
+  private lastLocY = NaN;
+  private lastLocZ = NaN;
+  private lastLocR = -1;
+  private lastLocNode = -1;
+  private fullDoneForSeed = false;
+
   /** Node at or near a position. `ring` is how many columns outward to search. */
   locate(p: THREE.Vector3, ring = 3): number {
+    if (p.x === this.lastLocX && p.y === this.lastLocY && p.z === this.lastLocZ && ring === this.lastLocR) {
+      return this.lastLocNode;
+    }
     const ix = Math.floor(p.x - this.minX), iz = Math.floor(p.z - this.minZ);
     let n = this.inColumn(ix, iz, p.y);
-    if (n >= 0 && Math.abs(this.py[n]! - p.y) < 3) return n;
-    let best = n, bestD = n >= 0 ? Math.abs(this.py[n]! - p.y) * 1.5 : 1e9;
-    for (let r = 1; r <= ring; r++) {
-      for (let dz = -r; dz <= r; dz++) {
-        for (let dx = -r; dx <= r; dx++) {
-          if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
-          n = this.inColumn(ix + dx, iz + dz, p.y);
-          if (n < 0) continue;
-          const d = Math.abs(this.py[n]! - p.y) * 1.5 + r;
-          if (d < bestD) { bestD = d; best = n; }
+    let best: number;
+    if (n >= 0 && Math.abs(this.py[n]! - p.y) < 3) {
+      best = n;
+    } else {
+      best = n;
+      let bestD = n >= 0 ? Math.abs(this.py[n]! - p.y) * 1.5 : 1e9;
+      for (let r = 1; r <= ring; r++) {
+        for (let dz = -r; dz <= r; dz++) {
+          for (let dx = -r; dx <= r; dx++) {
+            if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
+            n = this.inColumn(ix + dx, iz + dz, p.y);
+            if (n < 0) continue;
+            const d = Math.abs(this.py[n]! - p.y) * 1.5 + r;
+            if (d < bestD) { bestD = d; best = n; }
+          }
         }
+        if (best >= 0 && bestD < r + 2) break;
       }
-      if (best >= 0 && bestD < r + 2) break;
     }
+    this.lastLocX = p.x;
+    this.lastLocY = p.y;
+    this.lastLocZ = p.z;
+    this.lastLocR = ring;
+    this.lastLocNode = best;
     return best;
   }
 
@@ -483,6 +503,8 @@ export class NavGraph implements NavQuery {
         }
       }
     }
+    this.lastLocX = NaN;
+    this.fullDoneForSeed = false;
     this.passCount = FULL_EVERY * Math.ceil(this.passCount / FULL_EVERY + 1) - 1;
     this.dirty = this.hasTarget;
     this.forget = true;
@@ -496,11 +518,12 @@ export class NavGraph implements NavQuery {
     this.dirty = true;
   }
 
-  private beginPass(seed: number): void {
+  private beginPass(seed: number, forceFull = false): void {
+    if (seed !== this.lastSeed) this.fullDoneForSeed = false;
     this.running = true;
     this.pass++;
     this.passCount++;
-    this.passLimit = this.passCount % FULL_EVERY === 0 ? INF : NEAR_LIMIT;
+    this.passLimit = forceFull || this.passCount % FULL_EVERY === 0 ? INF : NEAR_LIMIT;
     this.passTarget.copy(this.target);
     this.heads.fill(-1);
     this.entryCount = 0;
@@ -532,9 +555,12 @@ export class NavGraph implements NavQuery {
     while (spent < budget) {
       if (this.queued === 0) {
         this.running = false;
-        if (this.forget && this.passLimit === INF) {
-          this.forget = false;
-          for (let i = 0; i < this.nodeCount; i++) if (doneStamp[i] !== pass) { this.dist[i] = INF; this.next[i] = -1; }
+        if (this.passLimit === INF) {
+          this.fullDoneForSeed = true;
+          if (this.forget) {
+            this.forget = false;
+            for (let i = 0; i < this.nodeCount; i++) if (doneStamp[i] !== pass) { this.dist[i] = INF; this.next[i] = -1; }
+          }
         }
         break;
       }
@@ -574,7 +600,10 @@ export class NavGraph implements NavQuery {
     if (!this.hasTarget || this.nodeCount === 0) return;
     if (!this.running && this.dirty) {
       const seed = this.locate(this.target, 8);
-      if (seed >= 0 && (seed !== this.lastSeed || this.passCount % FULL_EVERY !== 0)) this.beginPass(seed);
+      if (seed >= 0) {
+        if (seed !== this.lastSeed) this.beginPass(seed, false);
+        else if (!this.fullDoneForSeed || this.forget) this.beginPass(seed, true);
+      }
       this.dirty = false;
     }
     if (this.running) this.advance(this.budget);
@@ -585,7 +614,7 @@ export class NavGraph implements NavQuery {
     const seed = this.locate(this.target, 8);
     if (seed < 0) return;
     this.passCount = FULL_EVERY - 1;
-    this.beginPass(seed);
+    this.beginPass(seed, true);
     while (this.running) this.advance(1 << 20);
   }
 
@@ -661,12 +690,11 @@ export class NavGraph implements NavQuery {
     if (best >= 0) {
       return this.py[best]! + this.slopeX[best]! * (x - this.px[best]!) + this.slopeZ[best]! * (z - this.pz[best]!);
     }
-    // Off the graph (a wall top, a tight corner): ask physics.
+    // Off the graph (a wall top, a tight corner): ask physics without allocating a RayHit.
     _dir.set(x, y + 0.5, z);
-    const hit = this.physics.raycast(_dir, DOWN, 200, CG.World);
-    if (!hit) return NaN;
+    if (!this.physics.raycastInto(_dir, DOWN, 200, CG.World, _navRayHit)) return NaN;
     // On a map that lists its floors a wall top is not ground, or anything blocked by a wall would leap up and stand on it.
-    return hit.normal.y > 0.999 && !this.onLevel(hit.point.y) ? NaN : hit.point.y;
+    return _navRayHit.normal.y > 0.999 && !this.onLevel(_navRayHit.point.y) ? NaN : _navRayHit.point.y;
   }
 
   /** True for any height on a map with no list of floors. */
@@ -708,3 +736,10 @@ export class NavGraph implements NavQuery {
 }
 
 const DOWN = new THREE.Vector3(0, -1, 0);
+const _navRayHit: RayHit = {
+  point: new THREE.Vector3(),
+  normal: new THREE.Vector3(),
+  distance: 0,
+  surface: 'concrete',
+  collider: null,
+};

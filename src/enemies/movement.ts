@@ -3,7 +3,7 @@
  * ground through nav height. Every frame this does a little arithmetic per enemy; anything costlier is cached.
  */
 import * as THREE from 'three';
-import type { DamageInfo } from '../core/contracts';
+import { CG, type DamageInfo, type RayHit } from '../core/contracts';
 import { clamp, damp, dampAngle } from '../core/math';
 import { shout } from './attacks';
 import type { Enemy } from './Enemy';
@@ -18,6 +18,7 @@ const STEP_DOWN = 0.9;
 const JUMP_REACH = 4;
 const JUMP_HEIGHT = 7;
 const GROUND_SAMPLE_STEP = 0.3;
+const GROUND_SAMPLE_STEP_SQ = GROUND_SAMPLE_STEP * GROUND_SAMPLE_STEP;
 /** Gap bodies keep from each other. Tight enough that a pack reads as one mass. */
 const SEPARATION_GAP = 0.55;
 /** How hard a crowd jostles, in m/s, before the body's own top speed caps it. */
@@ -37,6 +38,7 @@ const _p = new THREE.Vector3();
 const _q = new THREE.Vector3();
 const _pad = new THREE.Vector3();
 const UP = new THREE.Vector3(0, 1, 0);
+const _rayHit: RayHit = { point: new THREE.Vector3(), normal: new THREE.Vector3(), distance: 0, surface: 'concrete', collider: null };
 const _fallDamage: DamageInfo = {
   amount: 0,
   type: 'true',
@@ -115,7 +117,11 @@ function probeWall(e: Enemy, w: AiWorld): void {
   e.probeAt = w.now + WALL_PROBE_SECONDS;
   _p.copy(e.position);
   _p.y += 1;
-  if (w.ctx.physics.raycast(_p, e.desired, WALL_PROBE_REACH) === null) return;
+  const physics = w.ctx.physics;
+  const hit = typeof physics.raycastInto === 'function'
+    ? physics.raycastInto(_p, e.desired, WALL_PROBE_REACH, CG.World, _rayHit)
+    : physics.raycast(_p, e.desired, WALL_PROBE_REACH) !== null;
+  if (!hit) return;
   if (e.mode === 'orbit') e.orbitDir = -e.orbitDir;
   else e.flowUntil = w.now + 1.2;
 }
@@ -180,30 +186,37 @@ function separate(e: Enemy, w: AiWorld, alive: readonly Enemy[]): void {
   const py = e.position.y;
   const pz = e.position.z;
   const r = e.def.radius;
-  for (let i = 0; i < alive.length; i++) {
-    const o = alive[i]!;
-    if (o === e || o.airborne) continue;
-    const dx = px - o.position.x;
-    const dz = pz - o.position.z;
-    const reach = r + o.def.radius + SEPARATION_GAP;
-    const d2 = dx * dx + dz * dz;
-    if (d2 > reach * reach || Math.abs(py - o.position.y) > 2) continue;
-    const d = Math.sqrt(d2) || 0.01;
-    const push = (1 - d / reach) * (o.def.radius / r);
-    // Half straight apart and half sideways by uid: crowds flow past each other rather than bounce off.
-    const tangent = e.uid < o.uid ? 0.6 : -0.6;
-    _sep.x += ((dx / d) - (dz / d) * tangent) * push;
-    _sep.z += ((dz / d) + (dx / d) * tangent) * push;
+  const grid = w.enemies?.grid;
+  if (grid && alive === w.enemies.alive) {
+    grid.ensure(alive);
+    grid.accumulateSeparation(e, px, py, pz, r, SEPARATION_GAP, _sep);
+  } else {
+    for (let i = 0; i < alive.length; i++) {
+      const o = alive[i]!;
+      if (o === e || o.airborne) continue;
+      const dx = px - o.position.x;
+      const dz = pz - o.position.z;
+      const reach = r + o.def.radius + SEPARATION_GAP;
+      const d2 = dx * dx + dz * dz;
+      if (d2 > reach * reach || Math.abs(py - o.position.y) > 2) continue;
+      const d = Math.sqrt(d2) || 0.01;
+      const push = (1 - d / reach) * (o.def.radius / r);
+      // Half straight apart and half sideways by uid: crowds flow past each other rather than bounce off.
+      const tangent = e.uid < o.uid ? 0.6 : -0.6;
+      _sep.x += ((dx / d) - (dz / d) * tangent) * push;
+      _sep.z += ((dz / d) + (dx / d) * tangent) * push;
+    }
   }
   // Capped, or the sum of its neighbours flings a body in the middle of a pack faster than it can walk.
-  const crowd = Math.hypot(_sep.x, _sep.z);
-  if (crowd > 1) _sep.multiplyScalar(1 / crowd);
+  const crowd2 = _sep.x * _sep.x + _sep.z * _sep.z;
+  if (crowd2 > 1) _sep.multiplyScalar(1 / Math.sqrt(crowd2));
   // Stand off the player so nobody clips into the camera. Lunges are ballistic and skip this.
   const dxp = px - w.player.position.x;
   const dzp = pz - w.player.position.z;
-  const dp = Math.hypot(dxp, dzp) || 0.01;
   const personal = r + 0.7;
-  if (dp < personal) {
+  const dp2 = dxp * dxp + dzp * dzp;
+  if (dp2 < personal * personal) {
+    const dp = Math.sqrt(dp2) || 0.01;
     const push = (1 - dp / personal) * 2.5;
     _sep.x += (dxp / dp) * push;
     _sep.z += (dzp / dp) * push;
@@ -296,10 +309,11 @@ export function updateMovement(e: Enemy, w: AiWorld, dt: number, alive: readonly
   let tz = d.z * speed + _sep.z * jostle;
   // A crowd steers a body. It must never carry one past its own walking speed.
   const top = Math.max(speed, jostle);
-  const wanted = Math.hypot(tx, tz);
-  if (wanted > top) {
-    tx *= top / wanted;
-    tz *= top / wanted;
+  const wanted2 = tx * tx + tz * tz;
+  if (wanted2 > top * top) {
+    const k = top / Math.sqrt(wanted2);
+    tx *= k;
+    tz *= k;
   }
   e.velocity.x = damp(e.velocity.x, tx, accel, dt);
   e.velocity.z = damp(e.velocity.z, tz, accel, dt);
@@ -385,7 +399,9 @@ function moveOnGround(e: Enemy, w: AiWorld, stepX: number, stepZ: number, dt: nu
   let nx = e.position.x + stepX;
   let nz = e.position.z + stepZ;
 
-  if (Math.hypot(nx - e.groundSampleAt.x, nz - e.groundSampleAt.y) >= GROUND_SAMPLE_STEP) {
+  const gdx = nx - e.groundSampleAt.x;
+  const gdz = nz - e.groundSampleAt.y;
+  if (gdx * gdx + gdz * gdz >= GROUND_SAMPLE_STEP_SQ) {
     let ground = stepHeight(e, w, nx, nz);
     if (Number.isNaN(ground)) {
       // Corners get cut because flow looks a few cells ahead. Sliding along the wall keeps the crowd moving.
@@ -431,8 +447,10 @@ function trackProgress(e: Enemy, w: AiWorld, dt: number, wanted: number): void {
     e.stuck = 0;
     return;
   }
-  const gone = Math.hypot(e.position.x - e.lastProgress.x, e.position.z - e.lastProgress.z);
-  if (gone > wanted * 0.25) {
+  const pdx = e.position.x - e.lastProgress.x;
+  const pdz = e.position.z - e.lastProgress.z;
+  const thresh = wanted * 0.25;
+  if (pdx * pdx + pdz * pdz > thresh * thresh) {
     e.stuck = 0;
     e.lastProgress.copy(e.position);
     return;

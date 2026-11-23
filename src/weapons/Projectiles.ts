@@ -133,6 +133,7 @@ export interface Projectile {
   weave: number;
   weavePhase: number;
   helix: HelixSpec | null;
+  helixData: HelixSpec;
   helixTravel: number;
   helixRight: THREE.Vector3;
   helixUp: THREE.Vector3;
@@ -183,7 +184,7 @@ function createProjectile(): Projectile {
     budget: makeBudget(), baseDamage: 0, armorPiercing: false,
     target: null, turnRate: 0, line: new THREE.Vector3(), steerDelay: 0, weave: 0, weavePhase: 0, accel: 0, topSpeed: 0, age: 0, size: 1, wired: false,
     blastScale: undefined, blastShake: undefined, flak: false, wp: false, cluster: false, cosmetic: false, netId: 0, laser: ROCKET_LASER, tag: 0, ghost: false, blastMirrored: false,
-    helix: null, helixTravel: 0, helixRight: new THREE.Vector3(), helixUp: new THREE.Vector3(), helixOffset: new THREE.Vector3(),
+    helix: null, helixData: { phase: 0, reach: 0, radius: 0, pitch: 0, startRadius: 0, convergence: 0 }, helixTravel: 0, helixRight: new THREE.Vector3(), helixUp: new THREE.Vector3(), helixOffset: new THREE.Vector3(),
   };
 }
 
@@ -310,7 +311,18 @@ export class Projectiles {
     p.steerDelay = spec.steerDelay ?? 0;
     p.weave = spec.weave ?? 0;
     p.weavePhase = rand(0, 6.28);
-    p.helix = spec.helix ? { ...spec.helix } : null;
+    if (spec.helix) {
+      const hd = p.helixData;
+      hd.phase = spec.helix.phase;
+      hd.reach = spec.helix.reach;
+      hd.radius = spec.helix.radius;
+      hd.pitch = spec.helix.pitch;
+      hd.startRadius = spec.helix.startRadius;
+      hd.convergence = spec.helix.convergence;
+      p.helix = hd;
+    } else {
+      p.helix = null;
+    }
     p.helixTravel = 0;
     p.helixOffset.set(0, 0, 0);
     if (p.helix) {
@@ -599,25 +611,29 @@ export class Projectiles {
   private sweepEnemies(p: Projectile, dir: THREE.Vector3, limit: number): boolean {
     const c = this.ctx;
     if (p.budget.left > 0 && p.kind !== 'stake' && p.kind !== 'rocket') return this.sweepThrough(p, dir, limit);
-    const hit = c.enemies.raycast(p.position, dir, limit);
-    if (hit && hit.enemy.uid !== p.lastHit) {
-      p.position.copy(hit.point);
-      this.hitEnemy(p, hit.enemy, hit.point, hit.normal, dir, hit.bone, hit.region);
-      return true;
+    const isRocket = p.kind === 'rocket';
+    // Rockets cast once out to `limit + ON_COURSE`: a hit within `limit` is direct contact, and any hit beyond `limit`
+    // means the rocket is still on course so the proximity fuse holds off.
+    const hit = c.enemies.raycast(p.position, dir, isRocket ? limit + ON_COURSE : limit);
+    if (hit) {
+      if (hit.distance <= limit && hit.enemy.uid !== p.lastHit) {
+        p.position.copy(hit.point);
+        this.hitEnemy(p, hit.enemy, hit.point, hit.normal, dir, hit.bone, hit.region);
+        return true;
+      }
+      if (isRocket) return false;
     }
-    if (p.kind !== 'rocket') return false;
-    // The fuse is for a near miss. It reaches further than a frame's flight, so on a straight shot it always went first and no
-    // rocket ever touched anyone, which is the one thing a shaped charge needs.
-    if (c.enemies.raycast(p.position, dir, limit + ON_COURSE)) return false;
+    if (!isRocket) return false;
     const end = this.end.copy(p.position).addScaledVector(dir, limit);
     const n = c.enemies.query(end, PROXIMITY + 1, this.nearby) || 0;
     // A guided missile's fuse is for its own mark: it may pass close by others on the way, and only a body square in its
     // path (the contact ray above) stops it short.
     const mark = p.turnRate > 0 ? p.target : null;
+    const prox2 = (PROXIMITY + 0.5) * (PROXIMITY + 0.5);
     for (let i = 0; i < n; i++) {
       const e = this.nearby[i]!;
       if (mark && e !== mark) continue;
-      if (e.alive && e.center.distanceTo(end) < PROXIMITY + 0.5) {
+      if (e.alive && e.center.distanceToSquared(end) < prox2) {
         p.position.copy(end);
         this.explode(p, undefined);
         p.live = false;

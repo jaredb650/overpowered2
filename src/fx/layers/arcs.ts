@@ -128,7 +128,7 @@ export class ArcLayer {
   readonly ring: InstanceRing;
 
   constructor(scene: THREE.Scene, uniforms: FxUniforms, cap = 192) {
-    this.ring = new InstanceRing(strip(), cap, ATTRS);
+    this.ring = new InstanceRing(strip(), cap, ATTRS, true);
     const material = new THREE.ShaderMaterial({
       vertexShader: VERT,
       fragmentShader: FRAG,
@@ -146,6 +146,8 @@ export class ArcLayer {
     mesh.visible = false;
     mesh.renderOrder = ORDER.arcs;
     mesh.name = 'fx.arcs';
+    mesh.matrixAutoUpdate = false;
+    mesh.updateMatrix();
     this.ring.object = mesh;
     scene.add(mesh);
   }

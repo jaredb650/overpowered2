@@ -125,8 +125,9 @@ export const FACE = { px: 1, nx: 2, py: 4, ny: 8, pz: 16, nz: 32, all: 63, noBot
 export class Geo {
   readonly buckets = new Map<number, Bucket>();
   /** Row-major 3x4 affine of the current frame. */
-  m: Float64Array = new Float64Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0]);
-  private stack: Float64Array[] = [];
+  private readonly stack: Float64Array[] = [new Float64Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0])];
+  private depth = 0;
+  m: Float64Array = this.stack[0]!;
   private mat: Mat = 'concrete';
   private matIndex = 0;
   private across = 5;
@@ -136,6 +137,12 @@ export class Geo {
   /** Last bucket lookup, because primitives usually come in runs. */
   private lastKey = -1;
   private last: Bucket | null = null;
+
+  clear(): void {
+    this.buckets.clear();
+    this.lastKey = -1;
+    this.last = null;
+  }
 
   use(mat: Mat): this {
     this.mat = mat;
@@ -155,7 +162,13 @@ export class Geo {
   }
 
   push(x: number, y: number, z: number, yaw = 0, pitch = 0, roll = 0): void {
-    this.stack.push(this.m.slice());
+    const m = this.m;
+    const nextDepth = ++this.depth;
+    let n = this.stack[nextDepth];
+    if (!n) {
+      n = new Float64Array(12);
+      this.stack[nextDepth] = n;
+    }
     const cy = Math.cos(yaw), sy = Math.sin(yaw);
     const cp = Math.cos(pitch), sp = Math.sin(pitch);
     const cr = Math.cos(roll), sr = Math.sin(roll);
@@ -163,8 +176,6 @@ export class Geo {
     const a00 = cy * cp, a01 = -cy * sp * cr + sy * sr, a02 = cy * sp * sr + sy * cr;
     const a10 = sp, a11 = cp * cr, a12 = -cp * sr;
     const a20 = -sy * cp, a21 = sy * sp * cr + cy * sr, a22 = -sy * sp * sr + cy * cr;
-    const m = this.m;
-    const n = new Float64Array(12);
     for (let i = 0; i < 3; i++) {
       const r0 = m[i * 4]!, r1 = m[i * 4 + 1]!, r2 = m[i * 4 + 2]!, r3 = m[i * 4 + 3]!;
       n[i * 4] = r0 * a00 + r1 * a10 + r2 * a20;
@@ -175,7 +186,8 @@ export class Geo {
     this.m = n;
   }
   pop(): void {
-    this.m = this.stack.pop()!;
+    this.depth--;
+    this.m = this.stack[this.depth]!;
   }
 
   private bucket(wx: number, wz: number): Bucket {
@@ -621,7 +633,12 @@ export class Geo {
       g.setAttribute('normal', new THREE.BufferAttribute(b.n.slice(0, b.nv * 3), 3));
       g.setAttribute('uv', new THREE.BufferAttribute(b.uv.slice(0, b.nv * 2), 2));
       g.setAttribute('color', new THREE.BufferAttribute(b.c.slice(0, b.nv * 4), 4, true));
-      g.setIndex(new THREE.BufferAttribute(b.idx.slice(0, b.ni), 1));
+      g.setIndex(
+        new THREE.BufferAttribute(
+          b.nv <= 65535 ? new Uint16Array(b.idx.subarray(0, b.ni)) : b.idx.slice(0, b.ni),
+          1,
+        ),
+      );
       g.computeBoundingSphere();
       g.computeBoundingBox();
       const mesh = new THREE.Mesh(g, material(b.mat));

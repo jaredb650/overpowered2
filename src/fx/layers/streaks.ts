@@ -42,7 +42,7 @@ void main() {
     pos = dragged(aP.xyz, aV.xyz, vec3(0.0, aF.x, 0.0), aR.z, age, vel);
     if (aR.w > 0.0) {
       // Embers wander: two out-of-phase sines are enough for a hot flake riding the air.
-      float seed = float(gl_InstanceID) * 1.37;
+      float seed = hash21(aP.xz + aV.xz * 1.37 + aP.w) * 62.831853;
       vec3 wobble = vec3(sin(age * 2.3 + seed), 0.0, cos(age * 1.7 + seed * 2.0)) * aR.w;
       pos += wobble * min(age, 1.0);
       vel += vec3(cos(age * 2.3 + seed) * 2.3, 0.0, -sin(age * 1.7 + seed * 2.0) * 1.7) * aR.w;
@@ -113,7 +113,7 @@ export class StreakLayer {
   private wander = 0;
 
   constructor(scene: THREE.Scene, uniforms: FxUniforms, cap = 5000) {
-    this.ring = new InstanceRing(quad(), cap, ATTRS);
+    this.ring = new InstanceRing(quad(), cap, ATTRS, true);
     const material = new THREE.ShaderMaterial({
       vertexShader: VERT,
       fragmentShader: FRAG,
@@ -131,6 +131,8 @@ export class StreakLayer {
     mesh.visible = false;
     mesh.renderOrder = ORDER.streaks;
     mesh.name = 'fx.streaks';
+    mesh.matrixAutoUpdate = false;
+    mesh.updateMatrix();
     this.ring.object = mesh;
     scene.add(mesh);
   }

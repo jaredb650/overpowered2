@@ -25,6 +25,7 @@ import { DamageModel, STRAY_TANK_DAMAGE, STRAY_TANK_RADIUS, drainDarts, type Hit
 import { Director } from './director';
 import { Enemy } from './Enemy';
 import { updateMovement } from './movement';
+import { EnemySpatialGrid } from './spatialGrid';
 import { Outpost, outpostActive } from './outpost';
 import { Spawner } from './spawner';
 import { VehicleSystem, vehiclesActive } from './vehicles';
@@ -33,6 +34,10 @@ import { MAX_ALIVE } from './waves';
 import { HELMET } from './wounds/armour';
 import { isGuest } from '../core/coop';
 import { DevFlags } from '../core/devflags';
+
+const byDistance = (a: EnemyRayHit, b: EnemyRayHit) => a.distance - b.distance;
+const _gridScratch: Enemy[] = [];
+const _trampleScratch: Enemy[] = [];
 
 /** The Crucible's helmeted types: the dangerous ones, so the armour says what to aim at. Troopers stay bare. */
 const CRUCIBLE_HELMETS: ReadonlySet<EnemyId> = new Set<EnemyId>(['gunner', 'rocketeer']);
@@ -190,6 +195,8 @@ export class EnemyManager implements EnemySystem {
   };
   private readonly nearby: EnemyInstance[] = [];
 
+  readonly grid = new EnemySpatialGrid();
+  private hasHazards = true;
   private uid = 0;
   private wave = 1;
   private thinks = 0;
@@ -199,8 +206,16 @@ export class EnemyManager implements EnemySystem {
 
   constructor(private readonly ctx: Ctx) {
     const self = this;
+    // Prototype-backed view avoids Proxy + Reflect.get on every w.ctx.* property read while still
+    // redirecting `player` to `ctx.coop.world.targetPlayer` in co-op.
+    const ctxView = Object.create(ctx) as Ctx;
+    Object.defineProperty(ctxView, 'player', {
+      get: () => ctx.coop?.world?.targetPlayer ?? ctx.player,
+      enumerable: true,
+      configurable: true,
+    });
     this.w = {
-      ctx: new Proxy(ctx, { get: (target, key) => key === 'player' ? target.coop?.world?.targetPlayer ?? target.player : Reflect.get(target, key) }),
+      ctx: ctxView,
       get director() { return self.director; },
       get telegraphs() { return self.telegraphs; },
       enemies: this,
@@ -243,6 +258,7 @@ export class EnemyManager implements EnemySystem {
       this.pool.release(e);
     }
     this.alive.length = 0;
+    this.grid.dirty = true;
     for (const e of this.dying) {
       e.char.release();
       this.pool.release(e);
@@ -346,6 +362,7 @@ export class EnemyManager implements EnemySystem {
 
     e.alive = true;
     this.alive.push(e);
+    this.grid.dirty = true;
     this.outpost?.onSpawn(e);
     this.place(e);
     ctx.events.emit('enemy:spawned', { enemy: e });
@@ -465,6 +482,21 @@ export class EnemyManager implements EnemySystem {
     this.vehicles?.update(dt);
     this.thinks = 0;
 
+    // Detect hazard-free maps once per frame so updateHazard() early-outs across all live enemies.
+    const objs = ctx.world.objects as (typeof ctx.world.objects & {
+      lava?: readonly unknown[];
+      crushers?: readonly unknown[];
+      electric?: readonly unknown[];
+    }) | undefined;
+    if (!objs?.hazardAt) {
+      this.hasHazards = false;
+    } else if (Array.isArray(objs.lava) && Array.isArray(objs.crushers) && Array.isArray(objs.electric)) {
+      this.hasHazards = objs.killY != null || objs.lava.length > 0 || objs.crushers.length > 0 || objs.electric.length > 0;
+    } else {
+      this.hasHazards = true;
+    }
+
+    this.grid.rebuild(this.alive);
     const list = this.frameList;
     list.length = 0;
     for (let i = 0; i < this.alive.length; i++) list.push(this.alive[i]!);
@@ -754,7 +786,7 @@ export class EnemyManager implements EnemySystem {
    * disappointment. Anything in the air is above it.
    */
   private updateHazard(e: Enemy, dt: number): void {
-    if (e.isBoss || e.airborne || e.pinned || e.def.id === 'drone') return;
+    if (!this.hasHazards || e.isBoss || e.airborne || e.pinned || e.def.id === 'drone') return;
     const { ctx } = this;
     const h = ctx.world.objects.hazardAt(e.position);
     if (!h) {
@@ -855,7 +887,8 @@ export class EnemyManager implements EnemySystem {
   private animate(e: Enemy, dt: number, aiming = e.attack !== null || e.face === 'player', feet: THREE.Vector3 = this.player.position, eye: THREE.Vector3 = this.player.eye): void {
     const near = e.dist < 26 ? 0 : e.dist < 60 ? 1 : 2;
     // Bosses stay at full rate: their footfalls shake the camera, and a skipped frame is a skipped plant.
-    e.lod = e.isBoss ? 0 : e.inView ? near : Math.min(near + 1, 3);
+    // Off-screen enemies beyond 18 m freeze at LOD 3; closer ones behind/beside the player keep animating for shadows.
+    e.lod = e.isBoss ? 0 : e.inView ? near : e.dist > 18 ? 3 : Math.min(near + 1, 2);
     const cos = Math.cos(e.yaw);
     const sin = Math.sin(e.yaw);
     const vx = e.velocity.x;
@@ -917,7 +950,7 @@ export class EnemyManager implements EnemySystem {
     const near = dist < 26 ? 0 : dist < 60 ? 1 : 2;
     out.dist = dist;
     out.inView = inView;
-    out.lod = e.isBoss ? 0 : inView ? near : Math.min(near + 1, 3);
+    out.lod = e.isBoss ? 0 : inView ? near : dist > 18 ? 3 : Math.min(near + 1, 2);
     return out;
   }
 
@@ -993,7 +1026,13 @@ export class EnemyManager implements EnemySystem {
 
   /** A shell on its way down: a ground circle first, then the blast. */
   strike(position: THREE.Vector3, delay: number, radius: number, damage: number, source: string): void {
-    const s = this.strikes.find(x => !x.live);
+    let s: Strike | null = null;
+    for (let i = 0; i < this.strikes.length; i++) {
+      if (!this.strikes[i]!.live) {
+        s = this.strikes[i]!;
+        break;
+      }
+    }
     if (!s) return;
     s.live = true;
     s.at = this.w.now + delay;
@@ -1198,11 +1237,13 @@ export class EnemyManager implements EnemySystem {
   // -------------------------------------------------------------------------------------------
 
   private rayEnemy(e: Enemy, origin: THREE.Vector3, dir: THREE.Vector3, maxDist: number, out: EnemyRayHit): boolean {
-    _a.subVectors(e.center, origin);
-    const along = _a.dot(dir);
+    const dx = e.center.x - origin.x;
+    const dy = e.center.y - origin.y;
+    const dz = e.center.z - origin.z;
+    const along = dx * dir.x + dy * dir.y + dz * dir.z;
     const reach = e.char.rig.height * 0.75 + 0.3;
     if (along < -reach || along > maxDist + reach) return false;
-    if (_a.lengthSq() - along * along > reach * reach) return false;
+    if (dx * dx + dy * dy + dz * dz - along * along > reach * reach) return false;
     const hit = this.ctx.gore.raycastCharacter(e.char, origin, dir, maxDist);
     if (!hit) return false;
     out.enemy = e;
@@ -1245,18 +1286,21 @@ export class EnemyManager implements EnemySystem {
       used++;
       if (used >= this.allHits.length) break;
     }
-    _hits.sort((a, b) => a.distance - b.distance);
+    _hits.sort(byDistance);
     if (_hits.length > max) _hits.length = max;
     return _hits;
   }
 
   query(center: THREE.Vector3, radius: number, out: EnemyInstance[]): number {
     out.length = 0;
+    this.grid.ensure(this.alive);
+    const n = this.grid.collectInRadius(center.x, center.z, radius + 0.5, _gridScratch);
     const r2 = radius * radius;
-    for (let i = 0; i < this.alive.length; i++) {
-      const e = this.alive[i]!;
-      if (e.center.distanceToSquared(center) <= r2) out.push(e);
+    for (let i = 0; i < n; i++) {
+      const e = _gridScratch[i]!;
+      if (e.alive && e.center.distanceToSquared(center) <= r2) out.push(e);
     }
+    _gridScratch.length = 0;
     return out.length;
   }
 
@@ -1291,26 +1335,31 @@ export class EnemyManager implements EnemySystem {
 
   /** Nearest ally that is closer to the player than `e`, and not another support. */
   frontAlly(e: Enemy, radius: number): Enemy | null {
+    this.grid.ensure(this.alive);
+    const n = this.grid.collectInRadius(e.position.x, e.position.z, radius, _gridScratch);
     let best: Enemy | null = null;
     let bestD = radius * radius;
-    for (let i = 0; i < this.alive.length; i++) {
-      const o = this.alive[i]!;
-      if (o === e || o.id === 'warden' || o.dist > e.dist + 6) continue;
+    for (let i = 0; i < n; i++) {
+      const o = _gridScratch[i]!;
+      if (!o.alive || o === e || o.id === 'warden' || o.dist > e.dist + 6) continue;
       const d = o.position.distanceToSquared(e.position);
       if (d < bestD) {
         bestD = d;
         best = o;
       }
     }
+    _gridScratch.length = 0;
     return best;
   }
 
   wardNearby(e: Enemy, radius: number, hp: number, maxTargets: number): void {
+    this.grid.ensure(this.alive);
+    const n = this.grid.collectInRadius(e.position.x, e.position.z, radius, _gridScratch);
     const r2 = radius * radius;
     let given = 0;
-    for (let i = 0; i < this.alive.length && given < maxTargets; i++) {
-      const o = this.alive[i]!;
-      if (o === e || o.isBoss || o.def.machine) continue;
+    for (let i = 0; i < n && given < maxTargets; i++) {
+      const o = _gridScratch[i]!;
+      if (!o.alive || o === e || o.isBoss || o.def.machine) continue;
       if (o.position.distanceToSquared(e.position) > r2) continue;
       o.buff = 1;
       if (o.ward > 0) {
@@ -1318,7 +1367,7 @@ export class EnemyManager implements EnemySystem {
         continue;
       }
       const visual = this.telegraphs.acquireWard();
-      if (visual < 0) return;
+      if (visual < 0) break;
       o.ward = hp;
       o.wardBy = e;
       o.wardVisual = visual;
@@ -1326,6 +1375,7 @@ export class EnemyManager implements EnemySystem {
       this.ctx.fx.ring(o.center, UP, 0xffe9a0, 1.4);
       this.ctx.audio.play('warden_shield_up', { position: o.center });
     }
+    _gridScratch.length = 0;
   }
 
   dropWard(e: Enemy): void {
@@ -1337,17 +1387,21 @@ export class EnemyManager implements EnemySystem {
 
   /** Charging bosses plough through their own side. */
   trample(boss: Enemy, radius: number): void {
+    this.grid.ensure(this.alive);
     const r = radius + 0.4;
-    for (let i = this.alive.length - 1; i >= 0; i--) {
-      const o = this.alive[i];
-      if (!o || o === boss || o.isBoss) continue;
-      if (o.position.distanceToSquared(boss.position) > r * r) continue;
+    const r2 = r * r;
+    const n = this.grid.collectInRadius(boss.position.x, boss.position.z, r, _trampleScratch);
+    for (let i = 0; i < n; i++) {
+      const o = _trampleScratch[i]!;
+      if (!o.alive || o === boss || o.isBoss) continue;
+      if (o.position.distanceToSquared(boss.position) > r2) continue;
       const t = this.statusDamage(o, 'trample', 'crush', o.health + 1);
       _dir.copy(o.position).sub(boss.position).setY(0.4).normalize();
       t.dir.copy(_dir);
       t.force = 700;
       this.model.kill(o, t, 'chest', null);
     }
+    _trampleScratch.length = 0;
   }
 
   /** The enemy's own blast. It is not a kill: nobody earned it. */
@@ -1394,6 +1448,7 @@ export class EnemyManager implements EnemySystem {
     if (i >= 0) {
       const last = this.alive.pop()!;
       if (last !== e) this.alive[i] = last;
+      this.grid.dirty = true;
     }
   }
 

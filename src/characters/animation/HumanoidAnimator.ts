@@ -359,6 +359,7 @@ export class HumanoidAnimator implements CharacterAnimation {
   private lastLod = 0;
 
   private action: ActionState | null = null;
+  private readonly actionSlot: ActionState = { kind: 'attackMelee', t: 0, duration: 1, flip: 1 };
   private meleeFlip = 1;
   private blockHold = 0;
   private stepAside = 0;
@@ -553,7 +554,12 @@ export class HumanoidAnimator implements CharacterAnimation {
     if (action === 'block') this.blockHold = 1;
     const duration = DURATION[action] / speed;
     if (action === 'attackMelee') this.meleeFlip = -this.meleeFlip;
-    this.action = { kind: action, t: 0, duration, flip: this.meleeFlip };
+    const slot = this.actionSlot;
+    slot.kind = action;
+    slot.t = 0;
+    slot.duration = duration;
+    slot.flip = this.meleeFlip;
+    this.action = slot;
     // Standing strikes commit a foot. The idle logic walks it home afterwards.
     if (action === 'attackMelee' || action === 'attackHeavy' || action === 'throw') this.stepAside = 0.3;
     else if (action === 'stagger') this.stepAside = -0.26;
@@ -868,6 +874,8 @@ export class HumanoidAnimator implements CharacterAnimation {
     this.grip = this.droppedGrip ?? this.grip;
     this.shieldRot = this.droppedShield ?? this.shieldRot;
     this.droppedGrip = this.droppedShield = null;
+    this.acc = 0;
+    this.lastLod = 0;
     this.needsHome = true;
   }
 
@@ -907,16 +915,23 @@ export class HumanoidAnimator implements CharacterAnimation {
    */
   update(dt: number, lod: number, probing = false): void {
     if (probing) {
-      this.advance(dt, this.lastLod, true);
+      this.advance(dt, this.lastLod >= 3 ? 2 : this.lastLod, true);
       return;
     }
+    if (lod >= 3) {
+      this.lastLod = lod;
+      this.acc = Math.min(this.acc + dt, 1.0);
+      return;
+    }
+    const woke = this.lastLod >= 3;
     this.lastLod = lod;
     this.acc += dt;
     const every = lod <= 0 ? 1 : lod === 1 ? 2 : 4;
-    if (++this.tickCount % every !== 0) return;
+    if (!woke && ++this.tickCount % every !== 0) return;
     const step = this.acc;
     this.acc = 0;
-    this.advance(step, lod, false);
+    if (woke && step > 0.25) this.needsHome = true;
+    this.advance(woke ? Math.min(step, 0.25) : step, lod, false);
   }
 
   /**
@@ -924,9 +939,11 @@ export class HumanoidAnimator implements CharacterAnimation {
    * has since moved on reads as a foot moving at metres a second. Nothing to do at LOD 0.
    */
   catchUp(): void {
+    if (this.acc <= 0) return;
     const step = this.acc;
     this.acc = 0;
-    this.advance(step, this.lastLod, false);
+    if (step > 0.25) this.needsHome = true;
+    this.advance(Math.min(step, 0.25), this.lastLod >= 3 ? 2 : this.lastLod, false);
   }
 
   private advance(step: number, lod: number, probing: boolean): void {

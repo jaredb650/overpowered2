@@ -315,15 +315,32 @@ function meshParts(geo: Geo): { mat: Mat; geometry: THREE.BufferGeometry }[] {
   return out;
 }
 
+const _pVel = new THREE.Vector3();
+const _bt = { x: 0, y: 0, z: 0 };
+const _br = { x: 0, y: 0, z: 0, w: 1 };
+const _blv = { x: 0, y: 0, z: 0 };
+const _bRayHit = {
+  point: new THREE.Vector3(),
+  normal: new THREE.Vector3(),
+  distance: 0,
+  surface: 'concrete' as const,
+  collider: null as RAPIER.Collider | null,
+};
+
 class Look {
   readonly meshes: THREE.InstancedMesh[] = [];
+  private dirtyMin = Infinity;
+  private dirtyMax = -1;
   constructor(root: THREE.Group, model: Model, wreck: boolean, count: number, material: (m: Mat) => THREE.Material, name: string) {
     const geo = new Geo();
     model(geo, wreck);
     for (const p of meshParts(geo)) {
       const mesh = new THREE.InstancedMesh(p.geometry, material(p.mat), count);
       mesh.name = `breakable:${name}${wreck ? ':wreck' : ''}`;
+      mesh.matrixAutoUpdate = false;
+      mesh.updateMatrix();
       for (let i = 0; i < count; i++) mesh.setMatrixAt(i, _hide);
+      mesh.instanceMatrix.needsUpdate = true;
       root.add(mesh);
       this.meshes.push(mesh);
     }
@@ -332,10 +349,23 @@ class Look {
     const shown = m !== _hide;
     for (const mesh of this.meshes) {
       mesh.setMatrixAt(i, m);
-      mesh.instanceMatrix.needsUpdate = true;
       // A wreck mesh draws nothing until the first wreck: hidden slots still cost their triangles.
       if (shown) mesh.visible = true;
     }
+    if (i < this.dirtyMin) this.dirtyMin = i;
+    if (i > this.dirtyMax) this.dirtyMax = i;
+  }
+  flush(): void {
+    if (this.dirtyMax < 0) return;
+    const offset = this.dirtyMin * 16;
+    const count = (this.dirtyMax - this.dirtyMin + 1) * 16;
+    for (const mesh of this.meshes) {
+      mesh.instanceMatrix.clearUpdateRanges();
+      mesh.instanceMatrix.addUpdateRange(offset, count);
+      mesh.instanceMatrix.needsUpdate = true;
+    }
+    this.dirtyMin = Infinity;
+    this.dirtyMax = -1;
   }
   hideAll(): void {
     for (const mesh of this.meshes) mesh.visible = false;
@@ -375,6 +405,8 @@ export class Breakables {
     private readonly onBlast: (center: THREE.Vector3, radius: number, damage: number, source: string) => void,
   ) {
     this.root.name = 'breakables';
+    this.root.matrixAutoUpdate = false;
+    this.root.updateMatrix();
     this.debris = new Debris(ctx, material, ['plaster', 'glass', 'dirt', 'steelDark']);
     this.root.add(this.debris.root);
     const counts = new Map<BreakKind, number>();
@@ -396,10 +428,18 @@ export class Breakables {
       this.looks.set(kind, { whole, wreck });
     }
     for (const p of this.props) this.show(p);
+    this.flushLooks();
     for (const l of this.looks.values()) l.wreck?.hideAll();
     // Wrecks start hidden, so their bounds are unknown: they are never culled. Nothing whole moves but a chair.
     for (const [kind, l] of this.looks) { l.whole.fit(kind === 'chair'); l.wreck?.fit(true); }
     if (specs.length) ctx.physics.radialListeners?.add((c, r, s) => this.shove(c, r, s));
+  }
+
+  private flushLooks(): void {
+    for (const l of this.looks.values()) {
+      l.whole.flush();
+      l.wreck?.flush();
+    }
   }
 
   get count(): number {
@@ -504,12 +544,12 @@ export class Breakables {
   private behindWall(p: Prop, from: THREE.Vector3): boolean {
     _v.set(0, p.def.cy * p.s.y, 0).applyQuaternion(p.q).add(p.p);
     _w.subVectors(_v, from);
-    const len = _w.length();
-    if (len < 0.5) return false;
-    _w.divideScalar(len);
-    const hit = this.ctx.physics.raycast(from, _w, len - 0.3, CG.World);
-    if (!hit || !hit.collider) return false;
-    const other = this.byCollider.get(hit.collider.handle);
+    const lenSq = _w.lengthSq();
+    if (lenSq < 0.25) return false;
+    const len = Math.sqrt(lenSq);
+    _w.multiplyScalar(1 / len);
+    if (!this.ctx.physics.raycastInto(from, _w, len - 0.3, CG.World, _bRayHit) || !_bRayHit.collider) return false;
+    const other = this.byCollider.get(_bRayHit.collider.handle);
     // Another prop in the way still counts as open air: a row of racks goes off down the row.
     return !other;
   }
@@ -631,6 +671,7 @@ export class Breakables {
       this.show(p);
     });
     for (const [id, at, q] of state.chairs) this.restById(id, _v.fromArray(at), _q.fromArray(q));
+    this.flushLooks();
   }
 
   /** What each kind throws when it goes. */
@@ -751,8 +792,8 @@ export class Breakables {
   }
 
   private piece(mat: DebrisMat, at: THREE.Vector3, q: THREE.Quaternion, half: THREE.Vector3, speed: number, tint: Rgb): void {
-    const v = new THREE.Vector3((Math.random() - 0.5) * 2, 0.6 + Math.random(), (Math.random() - 0.5) * 2).normalize().multiplyScalar(speed * (0.5 + Math.random() * 0.7));
-    this.debris.throw(mat, at.clone(), q.clone(), half.clone(), v, 8, [lin(tint[0]), lin(tint[1]), lin(tint[2])]);
+    _pVel.set((Math.random() - 0.5) * 2, 0.6 + Math.random(), (Math.random() - 0.5) * 2).normalize().multiplyScalar(speed * (0.5 + Math.random() * 0.7));
+    this.debris.throw(mat, at, q, half, _pVel, 8, [lin(tint[0]), lin(tint[1]), lin(tint[2])]);
   }
 
   /** A chair takes a hit: it becomes a body, and tumbles until it settles. */
@@ -784,7 +825,7 @@ export class Breakables {
   /** A tumbling chair stops where it is: its body goes, a static collider stands in its place. */
   private settle(p: Prop): void {
     if (!p.body) return;
-    const t = p.body.translation(), r = p.body.rotation();
+    const t = p.body.translation(_bt), r = p.body.rotation(_br);
     p.q.set(r.x, r.y, r.z, r.w);
     p.p.set(t.x, t.y, t.z).sub(_w.set(0, p.def.cy, 0).applyQuaternion(p.q));
     this.ctx.physics.world.removeRigidBody(p.body);
@@ -812,7 +853,7 @@ export class Breakables {
     for (let i = this.moving.length - 1; i >= 0; i--) {
       const p = this.moving[i]!;
       const body = p.body!;
-      const t = body.translation(), r = body.rotation(), v = body.linvel();
+      const t = body.translation(_bt), r = body.rotation(_br), v = body.linvel(_blv);
       p.q.set(r.x, r.y, r.z, r.w);
       p.p.set(t.x, t.y, t.z).sub(_w.set(0, p.def.cy, 0).applyQuaternion(p.q));
       this.show(p);
@@ -829,6 +870,7 @@ export class Breakables {
         if (Math.random() < 0.3) this.ctx.audio.play('electric_zap', { position: p.p, volume: 0.35, pitchJitter: 0.2 });
       }
     }
+    this.flushLooks();
   }
 
   reset(): void {
@@ -845,6 +887,7 @@ export class Breakables {
       this.show(p);
       if (this.attached) this.stand(p);
     }
+    this.flushLooks();
     for (const l of this.looks.values()) l.wreck?.hideAll();
     this.debris.clear();
   }

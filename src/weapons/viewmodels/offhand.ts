@@ -63,6 +63,7 @@ export class Offhand {
   private stimT = -1;
 
   constructor(private readonly set: OffhandSet) {
+    this.root.visible = false;
     for (const m of [set.grenade, set.walkie, set.designator, set.stim]) {
       m.root.visible = false;
       this.root.add(m.root);
@@ -89,6 +90,7 @@ export class Offhand {
     this.press = 0;
     this.tapT = -1;
     this.stimT = -1;
+    this.root.visible = false;
     for (const m of [this.set.grenade, this.set.walkie, this.set.designator, this.set.stim]) m.root.visible = false;
   }
 
@@ -128,6 +130,17 @@ export class Offhand {
   }
 
   update(dt: number): void {
+    const idle = this.state === 'none' && this.device_ === null && this.shownDevice === null
+      && this.deviceW < 0.002 && this.press <= 0 && this.tapT < 0 && this.stimT < 0;
+    if (idle) {
+      this.leftWeight = 0;
+      if (this.root.visible) {
+        this.set.grenade.root.visible = false;
+        this.root.visible = false;
+      }
+      return;
+    }
+    this.root.visible = true;
     this.t += dt;
     this.press = Math.max(0, this.press - dt * 1.6);
     // Held past the fuse it went off in the hand, and there is nothing left to throw.

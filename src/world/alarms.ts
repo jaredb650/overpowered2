@@ -102,8 +102,8 @@ interface AlarmRuntime {
   collider: RAPIER.Collider | null;
   readonly groupNode: THREE.Group;
   readonly thermalTarget: THREE.Mesh;
-  readonly ledMat: THREE.MeshBasicMaterial;
-  readonly screenMat: THREE.MeshBasicMaterial | null;
+  readonly ledMesh: THREE.Mesh;
+  readonly screenMesh: THREE.Mesh | null;
   readonly interactInfo: AlarmInteractable;
   readonly active: boolean;
 }
@@ -117,6 +117,13 @@ export class AlarmSystem {
   private readonly thermalCache: THREE.Object3D[] = [];
   private readonly ownedGeos: THREE.BufferGeometry[] = [];
   private readonly ownedMats: THREE.Material[] = [];
+  private readonly ledActiveMat: THREE.MeshBasicMaterial;
+  private readonly ledHubActiveMat: THREE.MeshBasicMaterial;
+  private readonly ledHubOverrideMat: THREE.MeshBasicMaterial;
+  private readonly ledOffMat: THREE.MeshBasicMaterial;
+  private readonly screenActiveMat: THREE.MeshBasicMaterial;
+  private readonly screenOverrideMat: THREE.MeshBasicMaterial;
+  private readonly screenOffMat: THREE.MeshBasicMaterial;
   private readonly onHubOverride?: (hubId: string, position: THREE.Vector3) => void;
   private readonly onPanelDestroyed?: (position: THREE.Vector3, panelId: string, soundRadius: number) => void;
   private readonly onPanelDisabled?: (position: THREE.Vector3, panelId: string) => void;
@@ -128,6 +135,8 @@ export class AlarmSystem {
     options: AlarmSystemOptions = {},
   ) {
     this.root.name = 'alarm-panels';
+    this.root.matrixAutoUpdate = false;
+    this.root.updateMatrix();
     this.onHubOverride = options.onHubOverride;
     this.onPanelDestroyed = options.onPanelDestroyed;
     this.onPanelDisabled = options.onPanelDisabled;
@@ -136,7 +145,18 @@ export class AlarmSystem {
     const steelMat = this.resolveMat(options.material, 'steel', 0x677482, 0.68, 0.4);
     const redMat = this.resolveMat(options.material, 'paintRed', 0xc62a24, 0.25, 0.45);
     const keyMat = new THREE.MeshStandardMaterial({ color: 0x1a2028, metalness: 0.35, roughness: 0.65 });
-    this.ownedMats.push(keyMat);
+    this.ledActiveMat = new THREE.MeshBasicMaterial({ color: COLOR_LED_ACTIVE, toneMapped: false });
+    this.ledHubActiveMat = new THREE.MeshBasicMaterial({ color: COLOR_LED_HUB_ACTIVE, toneMapped: false });
+    this.ledHubOverrideMat = new THREE.MeshBasicMaterial({ color: COLOR_LED_HUB_OVERRIDE, toneMapped: false });
+    this.ledOffMat = new THREE.MeshBasicMaterial({ color: COLOR_LED_OFF, toneMapped: false });
+    this.screenActiveMat = new THREE.MeshBasicMaterial({ color: COLOR_SCREEN_ACTIVE, toneMapped: false });
+    this.screenOverrideMat = new THREE.MeshBasicMaterial({ color: COLOR_SCREEN_OVERRIDE, toneMapped: false });
+    this.screenOffMat = new THREE.MeshBasicMaterial({ color: COLOR_SCREEN_OFF, toneMapped: false });
+    this.ownedMats.push(
+      keyMat,
+      this.ledActiveMat, this.ledHubActiveMat, this.ledHubOverrideMat, this.ledOffMat,
+      this.screenActiveMat, this.screenOverrideMat, this.screenOffMat,
+    );
 
     // Wall alarm box shared geometry
     const wallHousingGeo = buildBevelBoxGeo(0.2, 0.25, 0.08, 0.02);
@@ -158,6 +178,11 @@ export class AlarmSystem {
       hubBaseGeo, hubDeskGeo, hubScreenHoodGeo, hubScreenGeo, hubKeypadGeo, hubBeaconGeo,
     );
 
+    const freeze = (o: THREE.Object3D): void => {
+      o.matrixAutoUpdate = false;
+      o.updateMatrix();
+    };
+
     for (const spec of specs) {
       const isHub = spec.isHub === true;
       const position = new THREE.Vector3(spec.position[0], spec.position[1], spec.position[2]);
@@ -171,16 +196,19 @@ export class AlarmSystem {
       groupNode.name = `${isHub ? 'hub' : 'alarm'}_${spec.id}`;
       groupNode.position.copy(position);
       groupNode.rotation.y = spec.yaw;
+      freeze(groupNode);
 
       let thermalTarget: THREE.Mesh;
-      let ledMat: THREE.MeshBasicMaterial;
-      let screenMat: THREE.MeshBasicMaterial | null = null;
+      let ledMesh: THREE.Mesh;
+      let screenMesh: THREE.Mesh | null = null;
 
       if (isHub) {
         const base = new THREE.Mesh(hubBaseGeo, steelDarkMat);
         base.position.set(0, 0.44, 0);
         base.castShadow = true;
         base.receiveShadow = true;
+        base.userData.staticShadow = true;
+        freeze(base);
         groupNode.add(base);
 
         const desk = new THREE.Mesh(hubDeskGeo, steelMat);
@@ -188,56 +216,63 @@ export class AlarmSystem {
         desk.rotation.x = 0.16;
         desk.castShadow = true;
         desk.receiveShadow = true;
+        desk.userData.staticShadow = true;
+        freeze(desk);
         groupNode.add(desk);
 
         const screenHood = new THREE.Mesh(hubScreenHoodGeo, steelDarkMat);
         screenHood.position.set(0, 1.18, -0.2);
         screenHood.rotation.x = -0.26;
         screenHood.castShadow = true;
+        screenHood.userData.staticShadow = true;
+        freeze(screenHood);
         groupNode.add(screenHood);
         thermalTarget = screenHood;
 
-        screenMat = new THREE.MeshBasicMaterial({ color: COLOR_SCREEN_ACTIVE, toneMapped: false });
-        this.ownedMats.push(screenMat);
-        const screen = new THREE.Mesh(hubScreenGeo, screenMat);
-        screen.position.set(0, 1.18, -0.135);
-        screen.rotation.x = -0.26;
-        groupNode.add(screen);
+        screenMesh = new THREE.Mesh(hubScreenGeo, this.screenActiveMat);
+        screenMesh.position.set(0, 1.18, -0.135);
+        screenMesh.rotation.x = -0.26;
+        freeze(screenMesh);
+        groupNode.add(screenMesh);
 
         const keypad = new THREE.Mesh(hubKeypadGeo, keyMat);
         keypad.position.set(0.24, 0.94, 0.16);
         keypad.rotation.x = 0.16;
+        freeze(keypad);
         groupNode.add(keypad);
 
-        ledMat = new THREE.MeshBasicMaterial({ color: COLOR_LED_HUB_ACTIVE, toneMapped: false });
-        this.ownedMats.push(ledMat);
-        const beacon = new THREE.Mesh(hubBeaconGeo, ledMat);
-        beacon.position.set(-0.44, 1.47, -0.24);
-        groupNode.add(beacon);
+        ledMesh = new THREE.Mesh(hubBeaconGeo, this.ledHubActiveMat);
+        ledMesh.position.set(-0.44, 1.47, -0.24);
+        freeze(ledMesh);
+        groupNode.add(ledMesh);
       } else {
         const housing = new THREE.Mesh(wallHousingGeo, steelDarkMat);
         housing.castShadow = true;
         housing.receiveShadow = true;
+        housing.userData.staticShadow = true;
+        freeze(housing);
         groupNode.add(housing);
         thermalTarget = housing;
 
         const frame = new THREE.Mesh(wallFrameGeo, steelMat);
         frame.position.set(0, 0, 0.075);
+        freeze(frame);
         groupNode.add(frame);
 
         const plate = new THREE.Mesh(pullPlateGeo, redMat);
         plate.position.set(0, -0.04, 0.095);
+        freeze(plate);
         groupNode.add(plate);
 
         const pullBar = new THREE.Mesh(pullBarGeo, redMat);
         pullBar.position.set(0, -0.02, 0.125);
+        freeze(pullBar);
         groupNode.add(pullBar);
 
-        ledMat = new THREE.MeshBasicMaterial({ color: COLOR_LED_ACTIVE, toneMapped: false });
-        this.ownedMats.push(ledMat);
-        const led = new THREE.Mesh(ledGeo, ledMat);
-        led.position.set(0, 0.145, 0.1);
-        groupNode.add(led);
+        ledMesh = new THREE.Mesh(ledGeo, this.ledActiveMat);
+        ledMesh.position.set(0, 0.145, 0.1);
+        freeze(ledMesh);
+        groupNode.add(ledMesh);
       }
 
       this.root.add(groupNode);
@@ -265,8 +300,8 @@ export class AlarmSystem {
         collider,
         groupNode,
         thermalTarget,
-        ledMat,
-        screenMat,
+        ledMesh,
+        screenMesh,
         interactInfo,
         get active() {
           return this.isHub
@@ -313,20 +348,20 @@ export class AlarmSystem {
   private updateVisual(panel: AlarmRuntime): void {
     if (panel.isHub) {
       if (panel.overridden) {
-        panel.ledMat.color.setHex(COLOR_LED_HUB_OVERRIDE);
-        panel.screenMat?.color.setHex(COLOR_SCREEN_OVERRIDE);
+        panel.ledMesh.material = this.ledHubOverrideMat;
+        if (panel.screenMesh) panel.screenMesh.material = this.screenOverrideMat;
       } else if (!panel.powered) {
-        panel.ledMat.color.setHex(COLOR_LED_OFF);
-        panel.screenMat?.color.setHex(COLOR_SCREEN_OFF);
+        panel.ledMesh.material = this.ledOffMat;
+        if (panel.screenMesh) panel.screenMesh.material = this.screenOffMat;
       } else {
-        panel.ledMat.color.setHex(COLOR_LED_HUB_ACTIVE);
-        panel.screenMat?.color.setHex(COLOR_SCREEN_ACTIVE);
+        panel.ledMesh.material = this.ledHubActiveMat;
+        if (panel.screenMesh) panel.screenMesh.material = this.screenActiveMat;
       }
       return;
     }
 
     const online = panel.powered && !panel.disabled && !panel.destroyed;
-    panel.ledMat.color.setHex(online ? COLOR_LED_ACTIVE : COLOR_LED_OFF);
+    panel.ledMesh.material = online ? this.ledActiveMat : this.ledOffMat;
   }
 
   private rebuildCaches(): void {

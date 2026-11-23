@@ -62,40 +62,62 @@ export class DynamicLightPool implements DynamicLights {
   private lastCamY = 0;
   private lastCamZ = 0;
 
+  private readonly worldGroup = new THREE.Group();
+  private readonly viewGroup: THREE.Group | null;
   private worldLights: THREE.PointLight[] = [];
   private viewLights: THREE.PointLight[] = [];
 
   /** World position and radius of each live light. Read by the fog pass. */
   readonly fogPosition = Array.from({ length: MAX_LIVE_LIGHTS }, () => new THREE.Vector4(0, 0, 0, 1));
   readonly fogColor = Array.from({ length: MAX_LIVE_LIGHTS }, () => new THREE.Vector3());
+  /** Number of active packed lights (0..MAX_LIVE_LIGHTS), shared with lit shaders and fog. */
+  readonly opActiveLights: THREE.IUniform<number> = { value: 0 };
+  /** Total pool slots currently in the scene (0..MAX_LIVE_LIGHTS). */
+  readonly opPoolLights: THREE.IUniform<number> = { value: 0 };
 
   constructor(
     private readonly scene: THREE.Scene,
     private readonly viewScene?: THREE.Scene,
     initialCount = MAX_LIVE_LIGHTS,
   ) {
+    this.worldGroup.name = 'dynamic-light-pool';
+    this.worldGroup.matrixAutoUpdate = false;
+    this.worldGroup.updateMatrix();
+    this.scene.add(this.worldGroup);
+    if (this.viewScene) {
+      this.viewGroup = new THREE.Group();
+      this.viewGroup.name = 'dynamic-light-pool-view';
+      this.viewGroup.matrixAutoUpdate = false;
+      this.viewGroup.updateMatrix();
+      this.viewScene.add(this.viewGroup);
+    } else {
+      this.viewGroup = null;
+    }
     this.setCount(initialCount);
   }
 
   /** Rebuilds the pool. Only called from setQuality, because it recompiles every lit shader. */
   setCount(count: number): void {
     const clamped = Math.max(0, Math.min(count, MAX_LIVE_LIGHTS));
-    if (this.worldLights.length === clamped && (!this.viewScene || this.viewLights.length === clamped)) return;
-    for (const l of this.worldLights) this.scene.remove(l);
-    if (this.viewScene) {
-      for (const l of this.viewLights) this.viewScene.remove(l);
+    if (this.worldLights.length === clamped && (!this.viewGroup || this.viewLights.length === clamped)) return;
+    for (const l of this.worldLights) this.worldGroup.remove(l);
+    if (this.viewGroup) {
+      for (const l of this.viewLights) this.viewGroup.remove(l);
     }
-    const make = (target: THREE.Scene) => {
+    const make = (target: THREE.Group, enableDecalLayer: boolean) => {
       const list: THREE.PointLight[] = [];
       for (let i = 0; i < clamped; i++) {
         const light = new THREE.PointLight(0x000000, 0, 1, 2);
+        if (enableDecalLayer) light.layers.enable(1);
         target.add(light);
         list.push(light);
       }
       return list;
     };
-    this.worldLights = make(this.scene);
-    this.viewLights = this.viewScene ? make(this.viewScene) : [];
+    this.worldLights = make(this.worldGroup, true);
+    this.viewLights = this.viewGroup ? make(this.viewGroup, false) : [];
+    this.opPoolLights.value = clamped;
+    if (this.opActiveLights.value > clamped) this.opActiveLights.value = clamped;
   }
 
   /** Read-only access to the real GPU point lights managed by this pool. */
@@ -278,6 +300,7 @@ export class DynamicLightPool implements DynamicLights {
 
     const count = this.worldLights.length;
     const hasViewMirror = this.viewLights.length === count && count > 0;
+    let active = 0;
     for (let slot = 0; slot < MAX_LIVE_LIGHTS; slot++) {
       let bestIsFixture = false;
       let bestIdx = -1;
@@ -312,6 +335,7 @@ export class DynamicLightPool implements DynamicLights {
         }
         continue;
       }
+      active++;
 
       let lx: number;
       let ly: number;
@@ -371,5 +395,6 @@ export class DynamicLightPool implements DynamicLights {
       fogP.set(lx, ly, lz, lradius);
       fogC.set(lr * lpower, lg * lpower, lb * lpower);
     }
+    this.opActiveLights.value = active;
   }
 }

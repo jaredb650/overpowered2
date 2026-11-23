@@ -333,6 +333,7 @@ export class StructuralCluster implements StructuralClusterLike {
   readonly cellGroups = new Map<string, StructuralNode[]>();
   readonly adjacency = new Map<string, Set<string>>();
   readonly center = new THREE.Vector3();
+  radius = 0;
   collapsed = false;
   lastGroanAt = -10;
 
@@ -538,6 +539,15 @@ export class DestructionManager implements DestructionManagerLike {
   private readonly sweeps: NukeSweepState[] = [];
   private readonly nearEnemies: EnemyInstance[] = [];
   private readonly geometries: THREE.BufferGeometry[] = [];
+  private readonly bfsVisited = new Set<string>();
+  private readonly bfsQueue: string[] = [];
+  private readonly bfsDetached: StructuralNode[] = [];
+  private readonly _t = { x: 0, y: 0, z: 0 };
+  private readonly _r = { x: 0, y: 0, z: 0, w: 1 };
+  private readonly _lv = { x: 0, y: 0, z: 0 };
+  private readonly _crushPt = new THREE.Vector3();
+  private readonly _crushDir = new THREE.Vector3();
+  private shadowRefreshPending = false;
   private time = 0;
   private nextId = 1;
   private lastHintAt = -10;
@@ -550,7 +560,19 @@ export class DestructionManager implements DestructionManagerLike {
     private readonly onSecondaryBlast?: SecondaryBlastHook,
   ) {
     this.root.name = 'destruction';
+    this.root.matrixAutoUpdate = false;
+    this.root.updateMatrix();
     this.root.add(this.splinters.root);
+  }
+
+  private requestStaticShadowRefresh(): void {
+    this.shadowRefreshPending = true;
+  }
+
+  private flushStaticShadowRefresh(): void {
+    if (!this.shadowRefreshPending) return;
+    this.shadowRefreshPending = false;
+    (this.ctx.render as { refreshStaticShadows?: () => void } | undefined)?.refreshStaticShadows?.();
   }
 
   /** Number of currently active falling dynamic rigid bodies (always <= MAX_DYNAMIC_BODIES). */
@@ -580,30 +602,14 @@ export class DestructionManager implements DestructionManagerLike {
   }
 
   private createStaticCellCollider(
-    geom: THREE.BufferGeometry,
+    _geom: THREE.BufferGeometry,
     basePos: THREE.Vector3,
     half: THREE.Vector3,
     baseQuat: THREE.Quaternion,
     surface: SurfaceKind,
   ): RAPIER.Collider | null {
-    const { R, world } = this.ctx.physics;
-    const posAttr = geom.getAttribute('position') as THREE.BufferAttribute | undefined;
-    const idxAttr = geom.getIndex();
-    if (R?.ColliderDesc?.trimesh && posAttr && idxAttr) {
-      const verts = posAttr.array as Float32Array;
-      const idx = idxAttr.array instanceof Uint32Array ? idxAttr.array : new Uint32Array(idxAttr.array);
-      const desc = R.ColliderDesc.trimesh(verts, idx)
-        .setTranslation(basePos.x, basePos.y, basePos.z)
-        .setRotation(baseQuat)
-        .setCollisionGroups(groups(CG.World, 0xffff))
-        .setFriction(0.8);
-      const col = world.createCollider(desc);
-      (this.ctx.physics as { register?: (c: RAPIER.Collider, s: SurfaceKind) => RAPIER.Collider }).register?.(
-        col,
-        surface,
-      );
-      return col;
-    }
+    // Oriented cuboid matching the jagged cell's bounds is watertight along seams and avoids building
+    // hundreds of per-cell Rapier trimesh BVHs while keeping visual jagged fracture meshes intact.
     return this.ctx.physics.addStaticBox(basePos, half, baseQuat, surface);
   }
 
@@ -616,6 +622,7 @@ export class DestructionManager implements DestructionManagerLike {
     cluster.collapsed = false;
     cluster.lastGroanAt = -10;
     cluster.center.set(0, 0, 0);
+    cluster.radius = 0;
 
     const linkExact = (a: string, b: string) => {
       if (a === b) return;
@@ -643,8 +650,11 @@ export class DestructionManager implements DestructionManagerLike {
       const mesh = new THREE.Mesh(geom, this.material(ns.mat));
       mesh.position.copy(basePos);
       mesh.quaternion.copy(baseQuat);
+      mesh.matrixAutoUpdate = false;
+      mesh.updateMatrix();
       mesh.castShadow = true;
       mesh.receiveShadow = true;
+      mesh.userData.staticShadow = true;
       this.root.add(mesh);
 
       const posAttr = geom.getAttribute('position') as THREE.BufferAttribute;
@@ -765,6 +775,13 @@ export class DestructionManager implements DestructionManagerLike {
 
     if (cluster.nodes.length > 0) {
       cluster.center.multiplyScalar(1 / cluster.nodes.length);
+      let maxR = 0;
+      for (let i = 0; i < cluster.nodes.length; i++) {
+        const n = cluster.nodes[i]!;
+        const r = cluster.center.distanceTo(n.basePos) + n.half.length();
+        if (r > maxR) maxR = r;
+      }
+      cluster.radius = maxR;
     }
 
     const linkGroups = (origA: string, origB: string) => {
@@ -873,6 +890,8 @@ export class DestructionManager implements DestructionManagerLike {
     for (let ci = 0; ci < this.clusters.length; ci++) {
       const cluster = this.clusters[ci]!;
       if (excludeClusterId && cluster.id === excludeClusterId) continue;
+      const reach = radius + cluster.radius;
+      if (center.distanceToSquared(cluster.center) > reach * reach) continue;
       for (let ni = 0; ni < cluster.nodes.length; ni++) {
         const node = cluster.nodes[ni]!;
         if (node.state === 'tilting') {
@@ -906,10 +925,23 @@ export class DestructionManager implements DestructionManagerLike {
       this.emitBlockedHit(highestBlockedTier as DestructionTier, source, blockedPos, false);
     }
 
+    let dirtyClusters: Set<StructuralCluster> | null = null;
     for (let i = 0; i < hits.length; i++) {
       const h = hits[i]!;
       if (h.node.state !== 'intact') continue;
-      this.applyNodeDamage(h.cluster, h.node, h.damage, center, source);
+      const broke = this.applyNodeDamage(h.cluster, h.node, h.damage, center, source, true);
+      if (broke) {
+        if (!dirtyClusters) dirtyClusters = new Set();
+        dirtyClusters.add(h.cluster);
+      }
+    }
+
+    if (dirtyClusters) {
+      const isNuke = source === 'nuke';
+      for (const cluster of dirtyClusters) {
+        this.propagateSupportLoss(cluster, center, isNuke);
+        this.checkClusterCollapse(cluster);
+      }
     }
   }
 
@@ -964,7 +996,8 @@ export class DestructionManager implements DestructionManagerLike {
     damage: number,
     origin: THREE.Vector3,
     source: string,
-  ): void {
+    deferSupportCheck = false,
+  ): boolean {
     // Transform impact point and push direction into node local space
     _q.copy(node.baseQuat).invert();
     _v.subVectors(origin, node.basePos).applyQuaternion(_q);
@@ -1053,12 +1086,13 @@ export class DestructionManager implements DestructionManagerLike {
       }
 
       if (crossedThreshold) node.deformStage = stage;
-      return;
+      return false;
     }
 
     node.hp = 0;
     node.deformStrain = Math.max(node.deformStrain, 0.85);
-    this.breakNode(cluster, node, origin, source === 'nuke');
+    this.breakNode(cluster, node, origin, source === 'nuke', deferSupportCheck);
+    return true;
   }
 
   private breakNode(
@@ -1066,6 +1100,7 @@ export class DestructionManager implements DestructionManagerLike {
     node: StructuralNode,
     blastOrigin: THREE.Vector3 | null,
     isNuke = false,
+    deferSupportCheck = false,
   ): void {
     if (node.state !== 'intact') return;
     this.removeStaticCollider(node);
@@ -1143,11 +1178,13 @@ export class DestructionManager implements DestructionManagerLike {
       });
     }
 
-    // Load-bearing BFS: any intact node no longer connected to an intact ground anchor detaches!
-    this.propagateSupportLoss(cluster, blastOrigin, isNuke);
+    if (!deferSupportCheck) {
+      // Load-bearing BFS: any intact node no longer connected to an intact ground anchor detaches!
+      this.propagateSupportLoss(cluster, blastOrigin, isNuke);
 
-    // Check cluster collapse threshold / key node collapse
-    this.checkClusterCollapse(cluster);
+      // Check cluster collapse threshold / key node collapse
+      this.checkClusterCollapse(cluster);
+    }
   }
 
   private removeStaticCollider(node: StructuralNode): void {
@@ -1162,8 +1199,12 @@ export class DestructionManager implements DestructionManagerLike {
     blastOrigin: THREE.Vector3 | null,
     isNuke: boolean,
   ): void {
-    const visited = new Set<string>();
-    const queue: string[] = [];
+    const visited = this.bfsVisited;
+    const queue = this.bfsQueue;
+    const detached = this.bfsDetached;
+    visited.clear();
+    queue.length = 0;
+    detached.length = 0;
 
     for (let i = 0; i < cluster.nodes.length; i++) {
       const n = cluster.nodes[i]!;
@@ -1187,7 +1228,6 @@ export class DestructionManager implements DestructionManagerLike {
       }
     }
 
-    const detached: StructuralNode[] = [];
     let minY = Infinity;
     let maxY = -Infinity;
     for (let i = 0; i < cluster.nodes.length; i++) {
@@ -1205,6 +1245,10 @@ export class DestructionManager implements DestructionManagerLike {
       if (n.materialClass === 'wood') anyWood = true;
       const hFrac = detached.length > 1 ? (n.basePos.y - minY) / spanY : 0;
       n.state = 'tilting';
+      if (n.mesh) {
+        n.mesh.matrixAutoUpdate = true;
+        n.mesh.userData.staticShadow = false;
+      }
       n.tiltElapsed = 0;
       // Gradual 0.55-0.90s groan-and-sag phase ("The Finals" intermediate collapse layer);
       // lower unsupported slabs shear free slightly ahead of upper roofs.
@@ -1241,6 +1285,9 @@ export class DestructionManager implements DestructionManagerLike {
     }
 
     const anyDetached = detached.length > 0;
+    if (anyDetached) {
+      this.requestStaticShadowRefresh();
+    }
 
     if (anyDetached && this.time - cluster.lastGroanAt >= 0.4) {
       cluster.lastGroanAt = this.time;
@@ -1267,7 +1314,10 @@ export class DestructionManager implements DestructionManagerLike {
     isNuke: boolean,
   ): void {
     const idx = this.tilting.findIndex(t => t.node === node);
-    if (idx >= 0) this.tilting.splice(idx, 1);
+    if (idx >= 0) {
+      const last = this.tilting.pop()!;
+      if (idx < this.tilting.length) this.tilting[idx] = last;
+    }
     this.removeStaticCollider(node);
     this.spawnDynamicBody(cluster, node, blastOrigin ?? node.tiltBlastOrigin, isNuke || node.tiltIsNuke, true);
   }
@@ -1281,6 +1331,9 @@ export class DestructionManager implements DestructionManagerLike {
   ): void {
     node.state = 'falling';
     if (!node.mesh) return;
+    node.mesh.matrixAutoUpdate = true;
+    node.mesh.userData.staticShadow = false;
+    this.requestStaticShadowRefresh();
 
     // Enforce active dynamic body cap smoothly
     while (this.dynamicPool.length >= MAX_DYNAMIC_BODIES) {
@@ -1367,16 +1420,9 @@ export class DestructionManager implements DestructionManagerLike {
         .setAngularDamping(0.4),
     );
 
-    let colDesc: RAPIER.ColliderDesc | null = null;
-    if (node.isFractureCell && R?.ColliderDesc?.convexHull) {
-      const posAttr = node.mesh.geometry.getAttribute('position') as THREE.BufferAttribute | undefined;
-      if (posAttr) {
-        colDesc = R.ColliderDesc.convexHull(posAttr.array as Float32Array);
-      }
-    }
-    if (!colDesc) {
-      colDesc = R.ColliderDesc.cuboid(hx, hy, hz);
-    }
+    // Fast cuboid collider avoids runtime QuickHull stalls on fracture breaks while preserving
+    // the full jagged fracture mesh visually.
+    const colDesc = R.ColliderDesc.cuboid(hx, hy, hz);
     world.createCollider(
       colDesc
         .setDensity(densityFor(node.tier, node.mat))
@@ -1403,25 +1449,48 @@ export class DestructionManager implements DestructionManagerLike {
   }
 
   private recycleOldestDynamicBody(): void {
-    const oldest = this.dynamicPool.shift();
-    if (!oldest) return;
+    const len = this.dynamicPool.length;
+    if (len === 0) return;
+    let oldestIdx = 0;
+    let maxAge = this.dynamicPool[0]!.age;
+    for (let i = 1; i < len; i++) {
+      const a = this.dynamicPool[i]!.age;
+      if (a > maxAge) {
+        maxAge = a;
+        oldestIdx = i;
+      }
+    }
+    const oldest = this.dynamicPool[oldestIdx]!;
+    const last = this.dynamicPool.pop()!;
+    if (oldestIdx < this.dynamicPool.length) this.dynamicPool[oldestIdx] = last;
     this.settleDynamicEntry(oldest, true);
   }
 
   private settleDynamicEntry(entry: DynamicEntry, recycledByCap: boolean): void {
     const { node, body } = entry;
     if (node.dynamicBody) {
-      const t = body.translation();
-      const r = body.rotation();
+      const t = body.translation(this._t);
+      const r = body.rotation(this._r);
       if (node.mesh) {
         node.mesh.position.set(t.x, t.y, t.z);
         node.mesh.quaternion.set(r.x, r.y, r.z, r.w);
+        node.mesh.updateMatrix();
+        node.mesh.matrixAutoUpdate = false;
         if (recycledByCap && t.y > 4) {
           // If recycled mid-air under extreme nuke load, hide cleanly instead of freezing floating blocks
           node.mesh.visible = false;
+          node.mesh.userData.staticShadow = false;
           node.state = 'gone';
         } else {
           node.state = 'settled';
+          const maxHalf = Math.max(node.half.x, node.half.y, node.half.z);
+          if (maxHalf < 0.55) {
+            node.mesh.castShadow = false;
+            node.mesh.userData.staticShadow = false;
+          } else {
+            node.mesh.userData.staticShadow = true;
+          }
+          this.requestStaticShadowRefresh();
         }
       } else {
         node.state = 'gone';
@@ -1453,15 +1522,18 @@ export class DestructionManager implements DestructionManagerLike {
     const { node } = entry;
     const crushRadius = Math.max(node.half.x, node.half.y, node.half.z) + 1.0;
     const n = this.ctx.enemies.query(pos, crushRadius, this.nearEnemies);
+    if (n === 0) return;
+    this._crushDir.copy(vel).normalize();
     for (let ei = 0; ei < n; ei++) {
       const e = this.nearEnemies[ei]!;
       if (!e.alive || entry.crushedUids.has(e.uid)) continue;
       entry.crushedUids.add(e.uid);
+      this._crushPt.copy(e.center);
       this.ctx.enemies.applyDamage(e, {
         amount: CRUSH_DAMAGE,
         type: 'crush',
-        point: e.center.clone(),
-        dir: vel.clone().normalize(),
+        point: this._crushPt,
+        dir: this._crushDir,
         force: 220,
         source: 'structural_collapse',
         gib: true,
@@ -1481,22 +1553,34 @@ export class DestructionManager implements DestructionManagerLike {
     for (let i = this.sweeps.length - 1; i >= 0; i--) {
       const sw = this.sweeps[i]!;
       sw.radius += sw.speed * dt;
+      const rSq = sw.radius * sw.radius;
+      let dirtyClusters: Set<StructuralCluster> | null = null;
       for (let ci = 0; ci < this.clusters.length; ci++) {
         const cluster = this.clusters[ci]!;
+        const reach = sw.radius + cluster.radius;
+        if (sw.epicenter.distanceToSquared(cluster.center) > reach * reach) continue;
         for (let ni = 0; ni < cluster.nodes.length; ni++) {
           const node = cluster.nodes[ni]!;
           if (node.state !== 'intact' && node.state !== 'tilting') continue;
-          const d = node.basePos.distanceTo(sw.epicenter);
-          if (d > sw.radius) continue;
+          if (node.basePos.distanceToSquared(sw.epicenter) > rSq) continue;
           if (node.state === 'tilting') {
             this.releaseTiltingNodeNow(cluster, node, sw.epicenter, true);
           } else {
-            this.breakNode(cluster, node, sw.epicenter, true);
+            this.breakNode(cluster, node, sw.epicenter, true, true);
+            if (!dirtyClusters) dirtyClusters = new Set();
+            dirtyClusters.add(cluster);
           }
         }
       }
+      if (dirtyClusters) {
+        for (const cluster of dirtyClusters) {
+          this.propagateSupportLoss(cluster, sw.epicenter, true);
+          this.checkClusterCollapse(cluster);
+        }
+      }
       if (sw.radius >= sw.maxRadius) {
-        this.sweeps.splice(i, 1);
+        const last = this.sweeps.pop()!;
+        if (i < this.sweeps.length) this.sweeps[i] = last;
       }
     }
 
@@ -1505,7 +1589,8 @@ export class DestructionManager implements DestructionManagerLike {
       const h = this.pendingHazards[i]!;
       h.delay -= dt;
       if (h.delay > 0) continue;
-      this.pendingHazards.splice(i, 1);
+      const last = this.pendingHazards.pop()!;
+      if (i < this.pendingHazards.length) this.pendingHazards[i] = last;
       this.detonateHazard(h);
     }
 
@@ -1569,7 +1654,8 @@ export class DestructionManager implements DestructionManagerLike {
         }
       }
       if (node.tiltElapsed >= node.tiltDuration) {
-        this.tilting.splice(i, 1);
+        const last = this.tilting.pop()!;
+        if (i < this.tilting.length) this.tilting[i] = last;
         this.removeStaticCollider(node);
         if (node.mesh) {
           applyBreakFractureDeform(node.mesh.geometry, node.half, node.materialClass);
@@ -1593,9 +1679,9 @@ export class DestructionManager implements DestructionManagerLike {
       const { node, body } = entry;
       entry.age += dt;
 
-      const t = body.translation();
-      const r = body.rotation();
-      const lv = body.linvel();
+      const t = body.translation(this._t);
+      const r = body.rotation(this._r);
+      const lv = body.linvel(this._lv);
       _v2.set(t.x, t.y, t.z);
       _vel.set(lv.x, lv.y, lv.z);
       const speed = _vel.length();
@@ -1623,16 +1709,23 @@ export class DestructionManager implements DestructionManagerLike {
       else entry.stillTime = 0;
 
       if (_v2.y < -40) {
-        if (node.mesh) node.mesh.visible = false;
+        if (node.mesh) {
+          node.mesh.visible = false;
+          node.mesh.matrixAutoUpdate = false;
+        }
         node.state = 'gone';
         this.ctx.physics.world.removeRigidBody(body);
         node.dynamicBody = null;
-        this.dynamicPool.splice(i, 1);
+        const last = this.dynamicPool.pop()!;
+        if (i < this.dynamicPool.length) this.dynamicPool[i] = last;
       } else if (entry.age >= DYNAMIC_MAX_AGE || entry.stillTime >= DYNAMIC_STILL_TIME) {
-        this.dynamicPool.splice(i, 1);
+        const last = this.dynamicPool.pop()!;
+        if (i < this.dynamicPool.length) this.dynamicPool[i] = last;
         this.settleDynamicEntry(entry, false);
       }
     }
+
+    this.flushStaticShadowRefresh();
   }
 
   private detonateHazard(h: PendingHazard): void {
@@ -1685,6 +1778,8 @@ export class DestructionManager implements DestructionManagerLike {
       this.clusters.push(cluster);
       if (cluster.tag) this.byTag.set(cluster.tag, cluster);
     }
+    this.requestStaticShadowRefresh();
+    this.flushStaticShadowRefresh();
   }
 
   /** Removes all clusters, meshes, colliders, dynamic bodies, splinters, pending hazards, and active sweeps. */
@@ -1717,6 +1812,8 @@ export class DestructionManager implements DestructionManagerLike {
 
     for (const g of this.geometries) g.dispose();
     this.geometries.length = 0;
+    this.requestStaticShadowRefresh();
+    this.flushStaticShadowRefresh();
   }
 
   dispose(): void {

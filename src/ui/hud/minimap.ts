@@ -51,6 +51,8 @@ export class Minimap {
   private canvas: HTMLCanvasElement;
   private g: CanvasRenderingContext2D;
   private size = 240;
+  private shopFont = '800 10px ui-monospace, Menlo, monospace';
+  private northFont = '800 12px ui-monospace, Menlo, monospace';
   private clock = 0;
   private trailClock = 0;
   private range = NEAR_RANGE;
@@ -73,6 +75,9 @@ export class Minimap {
     const dpr = Math.min(devicePixelRatio || 1, 2);
     this.size = Math.max(64, Math.round(cssSize * dpr));
     this.canvas.width = this.canvas.height = this.size;
+    const u = this.size / 240;
+    this.shopFont = `800 ${Math.round(10 * u)}px ui-monospace, Menlo, monospace`;
+    this.northFont = `800 ${Math.round(12 * u)}px ui-monospace, Menlo, monospace`;
   }
 
   private sampleTrails(s: HudState): void {
@@ -95,7 +100,7 @@ export class Minimap {
     }
   }
 
-  update(s: HudState, dt: number, pickups: readonly MinimapPoint[]): void {
+  update(s: HudState, dt: number, pickups: readonly MinimapPoint[] | (() => readonly MinimapPoint[])): void {
     const open = clamp((s.speed - MOVE.runSpeed) / (FAR_SPEED - MOVE.runSpeed));
     this.range = damp(this.range, NEAR_RANGE + open * (FAR_RANGE - NEAR_RANGE), 2.2, dt);
     this.ping = (this.ping + dt / PING_PERIOD) % 1;
@@ -107,7 +112,7 @@ export class Minimap {
     this.clock -= dt;
     if (this.clock > 0) return;
     this.clock = REDRAW;
-    this.draw(s, pickups);
+    this.draw(s, typeof pickups === 'function' ? pickups() : pickups);
   }
 
   private draw(s: HudState, pickups: readonly MinimapPoint[]): void {
@@ -119,14 +124,13 @@ export class Minimap {
     g.clearRect(0, 0, size, size);
     if (typeof pos?.x !== 'number' || typeof fwd?.x !== 'number') return;
 
+    const px = pos.x;
+    const pz = pos.z;
     const half = size / 2;
     const scale = half / this.range;
     const heading = Math.atan2(fwd.x, -fwd.z);
     const cos = Math.cos(-heading);
     const sin = Math.sin(-heading);
-    // World to screen in one affine step: forward points up the map.
-    const sx = (x: number, z: number) => half + ((x - pos.x) * cos - (z - pos.z) * sin) * scale;
-    const sy = (x: number, z: number) => half + ((x - pos.x) * sin + (z - pos.z) * cos) * scale;
 
     const map = world.minimap;
     const image = map?.image;
@@ -136,7 +140,7 @@ export class Minimap {
       g.translate(half, half);
       g.rotate(-heading);
       g.scale(scale, scale);
-      g.translate(-pos.x, -pos.z);
+      g.translate(-px, -pz);
       g.globalAlpha = 0.9;
       g.drawImage(image, b.min.x, b.min.z, b.max.x - b.min.x, b.max.z - b.min.z);
       g.restore();
@@ -145,8 +149,10 @@ export class Minimap {
     const u = size / 240;
 
     for (const p of pickups) {
-      const x = sx(p.x, p.z);
-      const y = sy(p.x, p.z);
+      const rx = p.x - px;
+      const rz = p.z - pz;
+      const x = half + (rx * cos - rz * sin) * scale;
+      const y = half + (rx * sin + rz * cos) * scale;
       if (x < 0 || y < 0 || x > size || y > size) continue;
       g.fillStyle = p.color;
       g.fillRect(x - 3 * u, y - 3 * u, 6 * u, 6 * u);
@@ -154,8 +160,10 @@ export class Minimap {
 
     for (const m of this.world.markers) {
       if (!m.live || m.target) continue;
-      const x = clamp(sx(m.pos.x, m.pos.z), 8 * u, size - 8 * u);
-      const y = clamp(sy(m.pos.x, m.pos.z), 8 * u, size - 8 * u);
+      const rx = m.pos.x - px;
+      const rz = m.pos.z - pz;
+      const x = clamp(half + (rx * cos - rz * sin) * scale, 8 * u, size - 8 * u);
+      const y = clamp(half + (rx * sin + rz * cos) * scale, 8 * u, size - 8 * u);
       g.fillStyle = m.color;
       g.beginPath();
       g.moveTo(x, y - 7 * u);
@@ -169,13 +177,15 @@ export class Minimap {
     // Shops: a lettered tile in the shop's colour, grey while lost, held on the rim when off the map so it still points the way.
     const defense = this.ctx.contracts?.defense;
     if (defense) {
-      g.font = `800 ${Math.round(10 * u)}px ui-monospace, Menlo, monospace`;
+      g.font = this.shopFont;
       g.textAlign = 'center';
       g.textBaseline = 'middle';
       for (const id of SHOP_ORDER) {
         const p = defense.anchors[id].position;
-        const x = clamp(sx(p.x, p.z), 9 * u, size - 9 * u);
-        const y = clamp(sy(p.x, p.z), 9 * u, size - 9 * u);
+        const rx = p.x - px;
+        const rz = p.z - pz;
+        const x = clamp(half + (rx * cos - rz * sin) * scale, 9 * u, size - 9 * u);
+        const y = clamp(half + (rx * sin + rz * cos) * scale, 9 * u, size - 9 * u);
         const color = defense.shops[id].lost ? SHOP_LOST : SHOPS[id].color;
         g.fillStyle = '#05090e';
         g.fillRect(x - 8 * u, y - 8 * u, 16 * u, 16 * u);
@@ -196,8 +206,10 @@ export class Minimap {
         const slot = (this.trailHead - k + TRAIL_LEN) % TRAIL_LEN;
         for (let i = 0; i < n; i++) {
           const o = (i * TRAIL_LEN + slot) * 2;
-          const x = sx(this.trail[o]!, this.trail[o + 1]!);
-          const y = sy(this.trail[o]!, this.trail[o + 1]!);
+          const rx = this.trail[o]! - px;
+          const rz = this.trail[o + 1]! - pz;
+          const x = half + (rx * cos - rz * sin) * scale;
+          const y = half + (rx * sin + rz * cos) * scale;
           g.fillRect(x - 1.5 * u, y - 1.5 * u, 3 * u, 3 * u);
         }
       }
@@ -207,8 +219,10 @@ export class Minimap {
     const carriers = defense?.carriers;
     for (let i = 0; i < s.enemies.length; i++) {
       const e = s.enemies[i]!;
-      const x = sx(e.position.x, e.position.z);
-      const y = sy(e.position.x, e.position.z);
+      const rx = e.position.x - px;
+      const rz = e.position.z - pz;
+      const x = half + (rx * cos - rz * sin) * scale;
+      const y = half + (rx * sin + rz * cos) * scale;
       if (carriers?.has(e.uid)) {
         this.bomb(clamp(x, 7 * u, size - 7 * u), clamp(y, 7 * u, size - 7 * u), u);
         continue;
@@ -248,8 +262,10 @@ export class Minimap {
       g.lineWidth = 1.5 * u;
       for (const a of allies) {
         const p = a.body.position;
-        const x = sx(p.x, p.z);
-        const y = sy(p.x, p.z);
+        const rx = p.x - px;
+        const rz = p.z - pz;
+        const x = half + (rx * cos - rz * sin) * scale;
+        const y = half + (rx * sin + rz * cos) * scale;
         if (x < 0 || y < 0 || x > size || y > size) continue;
         const down = a.state === 'down';
         g.fillStyle = down ? ALLY_DOWN : ALLY;
@@ -272,8 +288,10 @@ export class Minimap {
         const state = lives.get(id)?.state ?? 'up';
         if (!root.visible || state === 'dead') continue;
         const p = root.position;
-        const x = clamp(sx(p.x, p.z), 7 * u, size - 7 * u);
-        const y = clamp(sy(p.x, p.z), 7 * u, size - 7 * u);
+        const rx = p.x - px;
+        const rz = p.z - pz;
+        const x = clamp(half + (rx * cos - rz * sin) * scale, 7 * u, size - 7 * u);
+        const y = clamp(half + (rx * sin + rz * cos) * scale, 7 * u, size - 7 * u);
         const down = state === 'down';
         if (down) {
           g.strokeStyle = MATE_DOWN;
@@ -311,7 +329,7 @@ export class Minimap {
     g.fillStyle = '#000000';
     g.fillRect(nx - 7 * u, ny - 7 * u, 14 * u, 14 * u);
     g.fillStyle = NORTH;
-    g.font = `800 ${Math.round(12 * u)}px ui-monospace, Menlo, monospace`;
+    g.font = this.northFont;
     g.textAlign = 'center';
     g.textBaseline = 'middle';
     g.fillText('N', nx, ny + u);

@@ -184,10 +184,10 @@ export const CLUTCH = { share: 0.06, delay: 0.2, seconds: 1.1, perShare: 2, most
 export function legLooks(e: Pick<Enemy, 'limbHp' | 'maxHealth' | 'def'>, upper: GoreRegion, lower: GoreRegion): number {
   if (!DevFlags.wear) return 0;
   let spent = 0;
-  for (const region of [upper, lower]) {
-    const left = e.limbHp.get(region);
-    if (left !== undefined && Number.isFinite(left)) spent = Math.max(spent, 1 - left / wholePool(e, region));
-  }
+  const upperLeft = e.limbHp.get(upper);
+  if (upperLeft !== undefined && Number.isFinite(upperLeft)) spent = Math.max(spent, 1 - upperLeft / wholePool(e, upper));
+  const lowerLeft = e.limbHp.get(lower);
+  if (lowerLeft !== undefined && Number.isFinite(lowerLeft)) spent = Math.max(spent, 1 - lowerLeft / wholePool(e, lower));
   return smoothstep(CLUTCH.limpFrom, CLUTCH.limpFull, spent);
 }
 
@@ -278,19 +278,38 @@ export function classOf(source: string, round: number): ArmourClass {
   return def?.armour ?? (round >= HEAVY_ROUND ? 'heavy' : 'light');
 }
 
+const _armourResult = { wear: 0, through: 0 };
+
 /**
  * One round on one plate. `round` is the round's own damage, `amount` what it would do where it struck. Light is stopped
  * and wears the plate by half the round; medium is stopped but wrecks the plate; heavy wears it by the round (twice for
  * a shredder) and half of what it would have done gets through either way. An ammo mod (`load`, AMMO) overrides the class:
  * AP wears it as heavy and gets `AMMO.ap.plate` through, HP is stopped and barely marks it.
  */
-export function armourHit(cls: ArmourClass, plateHp: number, round: number, amount: number, shred = 1, load?: AmmoLoad): { wear: number; through: number } {
-  if (load === 'ap' || load === 'api') return { wear: round * shred, through: amount * AMMO.ap.plate };
-  if (load === 'flechette') return { wear: round * shred, through: amount * AMMO.flechette.plate };
-  if (load === 'hp') return { wear: round * AMMO.hp.wear, through: 0 };
-  if (cls === 'medium') return { wear: plateHp, through: 0 };
-  if (cls === 'light') return { wear: round * LIGHT_WEAR, through: 0 };
-  return { wear: round * shred, through: amount * 0.5 };
+export function armourHit(
+  cls: ArmourClass, plateHp: number, round: number, amount: number, shred = 1, load?: AmmoLoad,
+  out: { wear: number; through: number } = { wear: 0, through: 0 },
+): { wear: number; through: number } {
+  if (load === 'ap' || load === 'api') {
+    out.wear = round * shred;
+    out.through = amount * AMMO.ap.plate;
+  } else if (load === 'flechette') {
+    out.wear = round * shred;
+    out.through = amount * AMMO.flechette.plate;
+  } else if (load === 'hp') {
+    out.wear = round * AMMO.hp.wear;
+    out.through = 0;
+  } else if (cls === 'medium') {
+    out.wear = plateHp;
+    out.through = 0;
+  } else if (cls === 'light') {
+    out.wear = round * LIGHT_WEAR;
+    out.through = 0;
+  } else {
+    out.wear = round * shred;
+    out.through = amount * 0.5;
+  }
+  return out;
 }
 
 /**
@@ -699,7 +718,7 @@ export class DamageModel {
         through = (amount - absorbed) * 0.5;
       } else {
         // One rule in every mode, by the class of the round (docs/proposals/armour-and-headshots-plan.md, section 2).
-        ({ wear, through } = armourHit(this.armourClass(plate, d), plate.hp, d.amount, amount, shred, d.load));
+        ({ wear, through } = armourHit(this.armourClass(plate, d), plate.hp, d.amount, amount, shred, d.load, _armourResult));
       }
       if (facts) e.armor = Math.max(0, e.armor - Math.min(wear, plate.hp));
       // A guest wears its own copy of the plate, as its best guess at the host's.

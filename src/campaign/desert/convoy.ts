@@ -721,28 +721,77 @@ function buildTurretGun(materials: ModelMaterials): {
   return { shieldPivot, beltPivot, beltStrip, heatSleeve };
 }
 
+let _mk19BodyGeo: THREE.CylinderGeometry | null = null;
+let _mk19BodyMat: THREE.MeshBasicMaterial | null = null;
+let _mk19GlowGeo: THREE.SphereGeometry | null = null;
+let _mk19GlowMat: THREE.MeshBasicMaterial | null = null;
+
 function buildMk19GrenadeMesh(): THREE.Group {
+  if (!_mk19BodyGeo) {
+    _mk19BodyGeo = new THREE.CylinderGeometry(0.045, 0.055, 0.24, 6);
+    _mk19BodyGeo.rotateX(Math.PI / 2);
+    _mk19BodyMat = new THREE.MeshBasicMaterial({
+      color: 0xffc448,
+      toneMapped: false,
+    });
+    _mk19GlowGeo = new THREE.SphereGeometry(0.11, 6, 6);
+    _mk19GlowMat = new THREE.MeshBasicMaterial({
+      color: 0xff8820,
+      transparent: true,
+      opacity: 0.78,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      toneMapped: false,
+    });
+  }
   const g = new THREE.Group();
   g.name = 'desert.mk19.grenade';
-  const bodyGeo = new THREE.CylinderGeometry(0.045, 0.055, 0.24, 6);
-  bodyGeo.rotateX(Math.PI / 2);
-  const bodyMat = new THREE.MeshBasicMaterial({
-    color: 0xffc448,
-    toneMapped: false,
-  });
-  g.add(new THREE.Mesh(bodyGeo, bodyMat));
-
-  const glowGeo = new THREE.SphereGeometry(0.11, 6, 6);
-  const glowMat = new THREE.MeshBasicMaterial({
-    color: 0xff8820,
-    transparent: true,
-    opacity: 0.78,
-    blending: THREE.AdditiveBlending,
-    depthWrite: false,
-    toneMapped: false,
-  });
-  g.add(new THREE.Mesh(glowGeo, glowMat));
+  g.add(new THREE.Mesh(_mk19BodyGeo, _mk19BodyMat!));
+  g.add(new THREE.Mesh(_mk19GlowGeo!, _mk19GlowMat!));
   return g;
+}
+
+interface BanditVisualTemplates {
+  bikeBody?: THREE.Group;
+  bikeWheel?: THREE.Group;
+  truckBody?: THREE.Group;
+  truckGunner?: THREE.Group;
+  truckWheel?: THREE.Group;
+}
+
+const _banditTemplateCache = new WeakMap<ModelMaterials, BanditVisualTemplates>();
+
+function getBanditTemplates(materials: ModelMaterials): BanditVisualTemplates {
+  let entry = _banditTemplateCache.get(materials);
+  if (!entry) {
+    entry = {};
+    _banditTemplateCache.set(materials, entry);
+  }
+  return entry;
+}
+
+function cloneTemplateGroup(src: THREE.Group): THREE.Group {
+  const out = new THREE.Group();
+  out.name = src.name;
+  out.position.copy(src.position);
+  out.rotation.copy(src.rotation);
+  out.scale.copy(src.scale);
+  for (let i = 0; i < src.children.length; i++) {
+    const child = src.children[i]!;
+    if (child instanceof THREE.Mesh) {
+      const m = new THREE.Mesh(child.geometry, child.material);
+      m.name = child.name;
+      m.position.copy(child.position);
+      m.rotation.copy(child.rotation);
+      m.scale.copy(child.scale);
+      m.castShadow = child.castShadow;
+      m.receiveShadow = child.receiveShadow;
+      out.add(m);
+    } else if (child instanceof THREE.Group) {
+      out.add(cloneTemplateGroup(child));
+    }
+  }
+  return out;
 }
 
 function buildBanditBikeVisual(materials: ModelMaterials): {
@@ -750,60 +799,66 @@ function buildBanditBikeVisual(materials: ModelMaterials): {
   body: THREE.Group;
   wheels: THREE.Object3D[];
 } {
+  const tpl = getBanditTemplates(materials);
+  const RUST = '#84482a';
+  if (!tpl.bikeBody) {
+    const b = new ModelBuilder();
+    const FRAME = '#2e2b28';
+    const TANK = '#b03a24';
+    const SCARF = '#d22d22';
+    const CLOTH = '#5d4e3d';
+    const LEATHER = '#3a3028';
+    const SKIN = '#d1a47e';
+    const HELMET = '#36322e';
+
+    // Welded scrap dirt-bike frame (facing -Z)
+    b.box(0.32, 0.34, 1.52, FRAME, { at: [0, 0.64, 0] });
+    b.box(0.38, 0.24, 0.56, TANK, { at: [0, 0.92, -0.22], rot: [-0.12, 0, 0] }); // fuel tank
+    b.box(0.32, 0.14, 0.64, '#24201c', { at: [0, 0.88, 0.34] }); // saddle
+    // Front fork & wide handlebars
+    for (const s of [-1, 1]) {
+      b.cyl(0.032, 0.032, 0.92, 6, '#565a60', { at: [s * 0.16, 0.72, -0.72], rot: [0.38, 0, 0] });
+    }
+    b.cyl(0.025, 0.025, 0.9, 6, FRAME, { at: [0, 1.12, -0.56], rot: ALONG_X });
+    // Cyclops glowing headlight + spiked scrap front fender
+    b.glow(new THREE.CylinderGeometry(0.11, 0.11, 0.1, 8), '#ffe49c', 3.4, { at: [0, 0.98, -0.74], rot: ALONG_Z });
+    b.box(0.24, 0.06, 0.44, RUST, { at: [0, 0.76, -0.84], rot: [0.22, 0, 0] });
+    // Exhaust pipe
+    b.cyl(0.045, 0.055, 0.85, 6, RUST, { at: [0.22, 0.56, 0.42], rot: [Math.PI / 2 - 0.16, 0, 0] });
+
+    // Clearly visible sculpted human Saltblood motorcycle rider straddling the saddle
+    // Straddled legs & boots on footpegs
+    for (const s of [-1, 1]) {
+      b.box(0.15, 0.38, 0.18, LEATHER, { at: [s * 0.22, 0.84, 0.14], rot: [0.42, 0, s * 0.14] });
+      b.box(0.14, 0.34, 0.16, '#26211d', { at: [s * 0.24, 0.56, 0.04], rot: [-0.2, 0, 0] });
+    }
+    // Leaning torso + scrap leather shoulder vest
+    b.box(0.46, 0.58, 0.3, CLOTH, { at: [0, 1.28, 0.16], rot: [-0.32, 0, 0] });
+    b.box(0.48, 0.32, 0.32, LEATHER, { at: [0, 1.32, 0.14], rot: [-0.32, 0, 0] });
+    // Head, desert helmet, bright amber goggles & crimson face-wrap scarf
+    b.solid(new THREE.SphereGeometry(0.16, 8, 6), SKIN, { at: [0, 1.62, 0.04] });
+    b.box(0.26, 0.16, 0.28, HELMET, { at: [0, 1.7, 0.05] });
+    b.glow(new THREE.BoxGeometry(0.2, 0.075, 0.06), '#ff7828', 2.8, { at: [0, 1.63, -0.11] }); // glowing goggles
+    // Fluttering crimson Saltblood scarf wrapped round neck & streaming back (+Z)
+    b.box(0.38, 0.12, 0.28, SCARF, { at: [0, 1.5, 0.06] });
+    b.box(0.18, 0.1, 0.58, SCARF, { at: [0.06, 1.48, 0.42], rot: [0.16, 0.18, 0] });
+    // Left arm gripping handlebar; right arm brandishing scrap SMG firing forward!
+    b.box(0.12, 0.12, 0.52, CLOTH, { at: [-0.26, 1.22, -0.22], rot: [0.12, -0.2, 0] });
+    b.box(0.12, 0.12, 0.44, CLOTH, { at: [0.28, 1.24, -0.12], rot: [0.04, 0.12, 0] });
+    b.box(0.08, 0.12, 0.42, '#24272c', { at: [0.34, 1.24, -0.44] }); // rider SMG
+
+    tpl.bikeBody = materials.group(b);
+    tpl.bikeWheel = buildOffroadWheel(materials, 0.38, 0.18, RUST);
+  }
+
   const root = new THREE.Group();
   root.name = 'desert.bandit.bike';
-  const b = new ModelBuilder();
-  const RUST = '#84482a';
-  const FRAME = '#2e2b28';
-  const TANK = '#b03a24';
-  const SCARF = '#d22d22';
-  const CLOTH = '#5d4e3d';
-  const LEATHER = '#3a3028';
-  const SKIN = '#d1a47e';
-  const HELMET = '#36322e';
-
-  // Welded scrap dirt-bike frame (facing -Z)
-  b.box(0.32, 0.34, 1.52, FRAME, { at: [0, 0.64, 0] });
-  b.box(0.38, 0.24, 0.56, TANK, { at: [0, 0.92, -0.22], rot: [-0.12, 0, 0] }); // fuel tank
-  b.box(0.32, 0.14, 0.64, '#24201c', { at: [0, 0.88, 0.34] }); // saddle
-  // Front fork & wide handlebars
-  for (const s of [-1, 1]) {
-    b.cyl(0.032, 0.032, 0.92, 6, '#565a60', { at: [s * 0.16, 0.72, -0.72], rot: [0.38, 0, 0] });
-  }
-  b.cyl(0.025, 0.025, 0.9, 6, FRAME, { at: [0, 1.12, -0.56], rot: ALONG_X });
-  // Cyclops glowing headlight + spiked scrap front fender
-  b.glow(new THREE.CylinderGeometry(0.11, 0.11, 0.1, 8), '#ffe49c', 3.4, { at: [0, 0.98, -0.74], rot: ALONG_Z });
-  b.box(0.24, 0.06, 0.44, RUST, { at: [0, 0.76, -0.84], rot: [0.22, 0, 0] });
-  // Exhaust pipe
-  b.cyl(0.045, 0.055, 0.85, 6, RUST, { at: [0.22, 0.56, 0.42], rot: [Math.PI / 2 - 0.16, 0, 0] });
-
-  // Clearly visible sculpted human Saltblood motorcycle rider straddling the saddle
-  // Straddled legs & boots on footpegs
-  for (const s of [-1, 1]) {
-    b.box(0.15, 0.38, 0.18, LEATHER, { at: [s * 0.22, 0.84, 0.14], rot: [0.42, 0, s * 0.14] });
-    b.box(0.14, 0.34, 0.16, '#26211d', { at: [s * 0.24, 0.56, 0.04], rot: [-0.2, 0, 0] });
-  }
-  // Leaning torso + scrap leather shoulder vest
-  b.box(0.46, 0.58, 0.3, CLOTH, { at: [0, 1.28, 0.16], rot: [-0.32, 0, 0] });
-  b.box(0.48, 0.32, 0.32, LEATHER, { at: [0, 1.32, 0.14], rot: [-0.32, 0, 0] });
-  // Head, desert helmet, bright amber goggles & crimson face-wrap scarf
-  b.solid(new THREE.SphereGeometry(0.16, 8, 6), SKIN, { at: [0, 1.62, 0.04] });
-  b.box(0.26, 0.16, 0.28, HELMET, { at: [0, 1.7, 0.05] });
-  b.glow(new THREE.BoxGeometry(0.2, 0.075, 0.06), '#ff7828', 2.8, { at: [0, 1.63, -0.11] }); // glowing goggles
-  // Fluttering crimson Saltblood scarf wrapped round neck & streaming back (+Z)
-  b.box(0.38, 0.12, 0.28, SCARF, { at: [0, 1.5, 0.06] });
-  b.box(0.18, 0.1, 0.58, SCARF, { at: [0.06, 1.48, 0.42], rot: [0.16, 0.18, 0] });
-  // Left arm gripping handlebar; right arm brandishing scrap SMG firing forward!
-  b.box(0.12, 0.12, 0.52, CLOTH, { at: [-0.26, 1.22, -0.22], rot: [0.12, -0.2, 0] });
-  b.box(0.12, 0.12, 0.44, CLOTH, { at: [0.28, 1.24, -0.12], rot: [0.04, 0.12, 0] });
-  b.box(0.08, 0.12, 0.42, '#24272c', { at: [0.34, 1.24, -0.44] }); // rider SMG
-
-  const body = materials.group(b);
+  const body = cloneTemplateGroup(tpl.bikeBody);
   root.add(body);
 
   const wheels: THREE.Object3D[] = [];
   for (const wz of [-0.92, 0.86] as const) {
-    const w = buildOffroadWheel(materials, 0.38, 0.18, RUST);
+    const w = cloneTemplateGroup(tpl.bikeWheel!);
     w.position.set(0, 0.38, wz);
     root.add(w);
     wheels.push(w);
@@ -817,75 +872,83 @@ function buildBanditTruckVisual(materials: ModelMaterials): {
   wheels: THREE.Object3D[];
   gunnerPivot: THREE.Object3D;
 } {
+  const tpl = getBanditTemplates(materials);
+  const RUST = '#7c3f24';
+  if (!tpl.truckBody) {
+    const b = new ModelBuilder();
+    const RUST_HI = '#9b5530';
+    const SCRAP = '#3a3734';
+    const PLATE = '#504b45';
+    const SPIKE = '#8e9296';
+    const SCARF = '#c92e24';
+
+    // Scrap pickup chassis (facing -Z)
+    b.box(2.18, 0.44, 5.1, SCRAP, { at: [0, 0.72, 0] });
+    // Spiked ram bumper (-Z)
+    b.box(2.38, 0.34, 0.24, PLATE, { at: [0, 0.68, -2.68] });
+    for (let i = -3; i <= 3; i++) {
+      b.cyl(0.015, 0.065, 0.46, 5, SPIKE, { at: [i * 0.34, 0.68, -2.95], rot: [-Math.PI / 2, 0, 0] });
+    }
+    // Rusted hood with welded patchwork armor plates
+    b.box(2.06, 0.58, 1.66, RUST, { at: [0, 1.18, -1.68] });
+    b.box(1.5, 0.12, 1.24, PLATE, { at: [0.12, 1.5, -1.64], rot: [0.08, 0.05, -0.04] });
+    for (const s of [-1, 1]) {
+      b.glow(new THREE.BoxGeometry(0.28, 0.16, 0.06), '#ffd480', 3.2, { at: [s * 0.76, 1.14, -2.54] });
+      b.glow(new THREE.BoxGeometry(0.28, 0.14, 0.06), '#ff2214', 2.6, { at: [s * 0.78, 1.12, 2.58] });
+    }
+    // Open-window welded cage cab so the Saltblood human driver is clearly visible inside!
+    b.box(2.12, 0.56, 1.54, RUST_HI, { at: [0, 1.26, -0.14] });
+    for (const s of [-1, 1]) {
+      b.box(0.11, 0.62, 0.11, PLATE, { at: [s * 0.98, 1.72, -0.86], rot: [0.18, 0, 0] });
+      b.box(0.11, 0.62, 0.11, PLATE, { at: [s * 0.98, 1.72, 0.54] });
+    }
+    b.box(1.98, 0.12, 1.56, PLATE, { at: [0, 2.04, -0.14] });
+    // Armored slat bars across open windshield
+    for (const yOff of [-0.08, 0.1]) {
+      b.box(1.92, 0.045, 0.04, SPIKE, { at: [0, 1.72 + yOff, -0.94] });
+    }
+    // Visible human Saltblood cab driver with crimson scarf & amber goggles
+    b.box(0.42, 0.5, 0.28, '#544638', { at: [-0.42, 1.56, -0.18] });
+    b.box(0.4, 0.12, 0.28, SCARF, { at: [-0.42, 1.78, -0.18] });
+    b.solid(new THREE.SphereGeometry(0.15, 8, 6), '#34302c', { at: [-0.42, 1.9, -0.2] });
+    b.glow(new THREE.BoxGeometry(0.17, 0.06, 0.05), '#ff5a22', 2.4, { at: [-0.42, 1.9, -0.34] });
+    // Open rear pickup bed with jagged scrap side armor plates
+    b.box(2.06, 0.1, 1.98, SCRAP, { at: [0, 1.0, 1.56] });
+    for (const s of [-1, 1]) {
+      b.box(0.16, 0.68, 2.04, RUST, { at: [s * 1.04, 1.32, 1.56] });
+      b.box(0.08, 0.56, 1.48, PLATE, { at: [s * 1.14, 1.44, 1.42], rot: [0, 0, s * -0.08] });
+    }
+    b.box(2.1, 0.54, 0.14, RUST_HI, { at: [0, 1.24, 2.52] });
+    // Pintle mount post in bed
+    b.cyl(0.055, 0.065, 0.75, 8, SCRAP, { at: [0, 1.38, 1.38] });
+
+    tpl.truckBody = materials.group(b);
+
+    const gb = new ModelBuilder();
+    gb.box(0.68, 0.42, 0.05, PLATE, { at: [0, 0.06, -0.34] });
+    gb.box(0.2, 0.2, 0.58, '#2c2f34', { at: [0, 0.05, -0.08] });
+    gb.cyl(0.032, 0.032, 1.08, 8, '#23262a', { at: [0, 0.05, -0.78], rot: ALONG_Z });
+    // Standing Saltblood bed gunner with crimson scarf & arms gripping weapon
+    gb.box(0.44, 0.68, 0.28, '#544638', { at: [0, -0.12, 0.46] });
+    gb.box(0.46, 0.14, 0.3, SCARF, { at: [0, 0.18, 0.46] });
+    gb.solid(new THREE.SphereGeometry(0.165, 8, 6), '#34302c', { at: [0, 0.34, 0.44] });
+    gb.glow(new THREE.BoxGeometry(0.18, 0.065, 0.05), '#ff4a20', 2.8, { at: [0, 0.34, 0.3] });
+    for (const s of [-1, 1]) {
+      gb.box(0.12, 0.12, 0.36, '#544638', { at: [s * 0.2, 0.06, 0.28] });
+    }
+    tpl.truckGunner = materials.group(gb);
+    tpl.truckWheel = buildOffroadWheel(materials, 0.5, 0.34, RUST);
+  }
+
   const root = new THREE.Group();
   root.name = 'desert.bandit.truck';
-  const b = new ModelBuilder();
-  const RUST = '#7c3f24';
-  const RUST_HI = '#9b5530';
-  const SCRAP = '#3a3734';
-  const PLATE = '#504b45';
-  const SPIKE = '#8e9296';
-  const SCARF = '#c92e24';
-
-  // Scrap pickup chassis (facing -Z)
-  b.box(2.18, 0.44, 5.1, SCRAP, { at: [0, 0.72, 0] });
-  // Spiked ram bumper (-Z)
-  b.box(2.38, 0.34, 0.24, PLATE, { at: [0, 0.68, -2.68] });
-  for (let i = -3; i <= 3; i++) {
-    b.cyl(0.015, 0.065, 0.46, 5, SPIKE, { at: [i * 0.34, 0.68, -2.95], rot: [-Math.PI / 2, 0, 0] });
-  }
-  // Rusted hood with welded patchwork armor plates
-  b.box(2.06, 0.58, 1.66, RUST, { at: [0, 1.18, -1.68] });
-  b.box(1.5, 0.12, 1.24, PLATE, { at: [0.12, 1.5, -1.64], rot: [0.08, 0.05, -0.04] });
-  for (const s of [-1, 1]) {
-    b.glow(new THREE.BoxGeometry(0.28, 0.16, 0.06), '#ffd480', 3.2, { at: [s * 0.76, 1.14, -2.54] });
-    b.glow(new THREE.BoxGeometry(0.28, 0.14, 0.06), '#ff2214', 2.6, { at: [s * 0.78, 1.12, 2.58] });
-  }
-  // Open-window welded cage cab so the Saltblood human driver is clearly visible inside!
-  b.box(2.12, 0.56, 1.54, RUST_HI, { at: [0, 1.26, -0.14] });
-  for (const s of [-1, 1]) {
-    b.box(0.11, 0.62, 0.11, PLATE, { at: [s * 0.98, 1.72, -0.86], rot: [0.18, 0, 0] });
-    b.box(0.11, 0.62, 0.11, PLATE, { at: [s * 0.98, 1.72, 0.54] });
-  }
-  b.box(1.98, 0.12, 1.56, PLATE, { at: [0, 2.04, -0.14] });
-  // Armored slat bars across open windshield
-  for (const yOff of [-0.08, 0.1]) {
-    b.box(1.92, 0.045, 0.04, SPIKE, { at: [0, 1.72 + yOff, -0.94] });
-  }
-  // Visible human Saltblood cab driver with crimson scarf & amber goggles
-  b.box(0.42, 0.5, 0.28, '#544638', { at: [-0.42, 1.56, -0.18] });
-  b.box(0.4, 0.12, 0.28, SCARF, { at: [-0.42, 1.78, -0.18] });
-  b.solid(new THREE.SphereGeometry(0.15, 8, 6), '#34302c', { at: [-0.42, 1.9, -0.2] });
-  b.glow(new THREE.BoxGeometry(0.17, 0.06, 0.05), '#ff5a22', 2.4, { at: [-0.42, 1.9, -0.34] });
-  // Open rear pickup bed with jagged scrap side armor plates
-  b.box(2.06, 0.1, 1.98, SCRAP, { at: [0, 1.0, 1.56] });
-  for (const s of [-1, 1]) {
-    b.box(0.16, 0.68, 2.04, RUST, { at: [s * 1.04, 1.32, 1.56] });
-    b.box(0.08, 0.56, 1.48, PLATE, { at: [s * 1.14, 1.44, 1.42], rot: [0, 0, s * -0.08] });
-  }
-  b.box(2.1, 0.54, 0.14, RUST_HI, { at: [0, 1.24, 2.52] });
-  // Pintle mount post in bed
-  b.cyl(0.055, 0.065, 0.75, 8, SCRAP, { at: [0, 1.38, 1.38] });
-
-  const body = materials.group(b);
+  const body = cloneTemplateGroup(tpl.truckBody);
   root.add(body);
 
   // Rotating bed gunner + scrap machine gun
   const gunnerPivot = new THREE.Group();
   gunnerPivot.position.set(0, 1.84, 1.38);
-  const gb = new ModelBuilder();
-  gb.box(0.68, 0.42, 0.05, PLATE, { at: [0, 0.06, -0.34] });
-  gb.box(0.2, 0.2, 0.58, '#2c2f34', { at: [0, 0.05, -0.08] });
-  gb.cyl(0.032, 0.032, 1.08, 8, '#23262a', { at: [0, 0.05, -0.78], rot: ALONG_Z });
-  // Standing Saltblood bed gunner with crimson scarf & arms gripping weapon
-  gb.box(0.44, 0.68, 0.28, '#544638', { at: [0, -0.12, 0.46] });
-  gb.box(0.46, 0.14, 0.3, SCARF, { at: [0, 0.18, 0.46] });
-  gb.solid(new THREE.SphereGeometry(0.165, 8, 6), '#34302c', { at: [0, 0.34, 0.44] });
-  gb.glow(new THREE.BoxGeometry(0.18, 0.065, 0.05), '#ff4a20', 2.8, { at: [0, 0.34, 0.3] });
-  for (const s of [-1, 1]) {
-    gb.box(0.12, 0.12, 0.36, '#544638', { at: [s * 0.2, 0.06, 0.28] });
-  }
-  gunnerPivot.add(materials.group(gb));
+  gunnerPivot.add(cloneTemplateGroup(tpl.truckGunner!));
   body.add(gunnerPivot);
 
   const wheels: THREE.Object3D[] = [];
@@ -895,7 +958,7 @@ function buildBanditTruckVisual(materials: ModelMaterials): {
     [-1.1, 0.5, 1.54],
     [1.1, 0.5, 1.54],
   ] as const) {
-    const w = buildOffroadWheel(materials, 0.5, 0.34, RUST);
+    const w = cloneTemplateGroup(tpl.truckWheel!);
     w.position.set(wx, wy, wz);
     root.add(w);
     wheels.push(w);
@@ -1074,12 +1137,24 @@ export class DesertConvoy implements ConvoyController, ExtraTarget {
   // Saltblood bandit vehicles & wrecks
   private nextBanditId = 1;
   private readonly _bandits: BanditVehicle[] = [];
+  private readonly _banditSnap: BanditVehicle[] = [];
+  private _banditSnapInUse = false;
   private readonly _wrecks: BanditWreck[] = [];
   private readonly banditByCollider = new Map<number, BanditVehicle>();
   private registeredOn: VehicleSystem | null = null;
 
   // HUD
   private hud: ConvoyHudRefs | null = null;
+  private hudLastKmh = -1;
+  private hudLastStage = '';
+  private hudLastHullText = '';
+  private hudLastHullScale = '';
+  private hudLastHullLow: boolean | null = null;
+  private hudLastHeatText = '';
+  private hudLastHeatOverheat: boolean | null = null;
+  private hudLastHeatScale = '';
+  private hudLastHeatHot: boolean | null = null;
+  private hudLastZoomed: boolean | null = null;
 
   constructor(
     private readonly ctx: Ctx,
@@ -1556,14 +1631,32 @@ export class DesertConvoy implements ConvoyController, ExtraTarget {
   blast(center: THREE.Vector3, spec: ExplosionSpec): number {
     const def = EXPLOSIONS[spec.kind];
     let hit = 0;
-    for (const bv of [...this._bandits]) {
-      if (!bv.alive || bv.id === this.skipBlastBanditId) continue;
-      const d = Math.max(0, bv.position.distanceTo(center) - 1.2);
-      if (d > spec.radius) continue;
-      const falloff = 1 - (d / spec.radius) * (1 - (def?.edgeDamage ?? 0.35));
-      const dealt = spec.instakill ? bv.maxHp : spec.damage * falloff * 1.35;
-      this.damageBandit(bv, dealt, spec.source, bv.center);
-      hit++;
+    const reuse = !this._banditSnapInUse;
+    let snap: BanditVehicle[];
+    if (reuse) {
+      this._banditSnapInUse = true;
+      snap = this._banditSnap;
+      snap.length = this._bandits.length;
+      for (let i = 0; i < this._bandits.length; i++) snap[i] = this._bandits[i]!;
+    } else {
+      snap = this._bandits.slice();
+    }
+    try {
+      for (let i = 0; i < snap.length; i++) {
+        const bv = snap[i]!;
+        if (!bv.alive || bv.id === this.skipBlastBanditId) continue;
+        const d = Math.max(0, bv.position.distanceTo(center) - 1.2);
+        if (d > spec.radius) continue;
+        const falloff = 1 - (d / spec.radius) * (1 - (def?.edgeDamage ?? 0.35));
+        const dealt = spec.instakill ? bv.maxHp : spec.damage * falloff * 1.35;
+        this.damageBandit(bv, dealt, spec.source, bv.center);
+        hit++;
+      }
+    } finally {
+      if (reuse) {
+        snap.length = 0;
+        this._banditSnapInUse = false;
+      }
     }
     return hit;
   }
@@ -1582,11 +1675,29 @@ export class DesertConvoy implements ConvoyController, ExtraTarget {
 
   frameBlow(at: THREE.Vector3, radius: number, damage: number): number {
     let hit = 0;
-    for (const bv of [...this._bandits]) {
-      if (!bv.alive) continue;
-      if (bv.position.distanceTo(at) <= radius + 2.0) {
-        this.damageBandit(bv, damage * 1.6, 'frame_stomp', bv.center);
-        hit++;
+    const reuse = !this._banditSnapInUse;
+    let snap: BanditVehicle[];
+    if (reuse) {
+      this._banditSnapInUse = true;
+      snap = this._banditSnap;
+      snap.length = this._bandits.length;
+      for (let i = 0; i < this._bandits.length; i++) snap[i] = this._bandits[i]!;
+    } else {
+      snap = this._bandits.slice();
+    }
+    try {
+      for (let i = 0; i < snap.length; i++) {
+        const bv = snap[i]!;
+        if (!bv.alive) continue;
+        if (bv.position.distanceTo(at) <= radius + 2.0) {
+          this.damageBandit(bv, damage * 1.6, 'frame_stomp', bv.center);
+          hit++;
+        }
+      }
+    } finally {
+      if (reuse) {
+        snap.length = 0;
+        this._banditSnapInUse = false;
       }
     }
     return hit;
@@ -3136,29 +3247,67 @@ export class DesertConvoy implements ConvoyController, ExtraTarget {
     if (!hud) return;
 
     const kmh = Math.round(this.currentSpeed * 3.6);
-    hud.speed.set(`${kmh} KM/H`);
+    if (kmh !== this.hudLastKmh) {
+      this.hudLastKmh = kmh;
+      hud.speed.set(`${kmh} KM/H`);
+    }
 
+    let stage: string;
     if (this._phase === 'approach') {
-      hud.stage.set('APPROACH — OPEN DUNES');
+      stage = 'APPROACH — OPEN DUNES';
     } else if (this._phase === 'wallLoop') {
-      hud.stage.set('WALL BROADSIDE — SHRED SURPLUS');
+      stage = 'WALL BROADSIDE — SHRED SURPLUS';
     } else if (this._phase === 'exfilChase') {
-      hud.stage.set(this._quistCaptured ? 'EXFIL — QUIST SECURED' : 'EXFIL — FULL THROTTLE');
+      stage = this._quistCaptured ? 'EXFIL — QUIST SECURED' : 'EXFIL — FULL THROTTLE';
     } else {
-      hud.stage.set('CONVOY STANDBY');
+      stage = 'CONVOY STANDBY';
+    }
+    if (stage !== this.hudLastStage) {
+      this.hudLastStage = stage;
+      hud.stage.set(stage);
     }
 
     const hullFrac = clamp(this._hull / this.maxHull);
-    hud.hullText.set(`${Math.ceil(this._hull)} / ${this.maxHull}`);
-    hud.hullFill.style.transform = `scaleX(${hullFrac.toFixed(4)})`;
-    hud.hullFill.classList.toggle('low', hullFrac < 0.3);
+    const hullText = `${Math.ceil(this._hull)} / ${this.maxHull}`;
+    if (hullText !== this.hudLastHullText) {
+      this.hudLastHullText = hullText;
+      hud.hullText.set(hullText);
+    }
+    const hullScale = `scaleX(${hullFrac.toFixed(4)})`;
+    if (hullScale !== this.hudLastHullScale) {
+      this.hudLastHullScale = hullScale;
+      hud.hullFill.style.transform = hullScale;
+    }
+    const hullLow = hullFrac < 0.3;
+    if (hullLow !== this.hudLastHullLow) {
+      this.hudLastHullLow = hullLow;
+      hud.hullFill.classList.toggle('low', hullLow);
+    }
 
     const heatPct = Math.round(this.heat.value * 100);
-    hud.heatText.set(this.heat.overheated ? 'OVERHEAT — VENTING' : `${heatPct}%`);
-    hud.heatText.el.classList.toggle('dr-cv-overheat', this.heat.overheated);
-    hud.heatFill.style.transform = `scaleX(${clamp(this.heat.value).toFixed(4)})`;
-    hud.heatFill.classList.toggle('hot', this.heat.overheated || this.heat.value > 0.8);
+    const heatText = this.heat.overheated ? 'OVERHEAT — VENTING' : `${heatPct}%`;
+    if (heatText !== this.hudLastHeatText) {
+      this.hudLastHeatText = heatText;
+      hud.heatText.set(heatText);
+    }
+    if (this.heat.overheated !== this.hudLastHeatOverheat) {
+      this.hudLastHeatOverheat = this.heat.overheated;
+      hud.heatText.el.classList.toggle('dr-cv-overheat', this.heat.overheated);
+    }
+    const heatScale = `scaleX(${clamp(this.heat.value).toFixed(4)})`;
+    if (heatScale !== this.hudLastHeatScale) {
+      this.hudLastHeatScale = heatScale;
+      hud.heatFill.style.transform = heatScale;
+    }
+    const heatHot = this.heat.overheated || this.heat.value > 0.8;
+    if (heatHot !== this.hudLastHeatHot) {
+      this.hudLastHeatHot = heatHot;
+      hud.heatFill.classList.toggle('hot', heatHot);
+    }
 
-    hud.reticle.classList.toggle('zoom', this._zoomed);
+    if (this._zoomed !== this.hudLastZoomed) {
+      this.hudLastZoomed = this._zoomed;
+      hud.reticle.classList.toggle('zoom', this._zoomed);
+    }
   }
 }

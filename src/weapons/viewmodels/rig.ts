@@ -262,8 +262,13 @@ export class Rig implements ViewmodelRig {
   private readonly fill = new THREE.DirectionalLight(0xc6d0e2, FILL_DARK);
   private moonVis = 1;
   private moonOpen = 1;
+  private moonTarget = 1;
   private moonProbe = 0;
+  private moonProbesLeft = MOON_PROBES.length;
   private moonClock = 0;
+  private readonly moonLastEye = new THREE.Vector3(Infinity, Infinity, Infinity);
+  private lookCacheVer = -1;
+  private readonly lookCache = new Map<ViewDef, { sight?: ModLook; muzzle?: ModLook; flip?: ModLook; laser?: ModLook }>();
   /**
    * The weapon light's beam (weapons/mods.ts LIGHT_GUNS): one spotlight made at boot and kept in the world, dark while no fitted
    * light is in hand. Adding or taking away a light recompiles every lit shader; a dark one costs a skipped branch (patch.ts).
@@ -414,6 +419,10 @@ export class Rig implements ViewmodelRig {
     this.lastMag = -1;
     this.lastBucket = -1;
     this.lastGrenades = -1;
+    this.moonLastEye.set(Infinity, Infinity, Infinity);
+    this.moonProbesLeft = MOON_PROBES.length;
+    this.lookCacheVer = -1;
+    this.lookCache.clear();
     this.offhand.reset();
     this.lastYaw = this.ctx.player.yaw;
     this.lastPitch = this.ctx.player.pitch;
@@ -843,14 +852,25 @@ export class Rig implements ViewmodelRig {
     this.moonClock -= dt;
     if (this.moonClock <= 0) {
       this.moonClock = MOON_RAY_INTERVAL;
-      const o = MOON_PROBES[this.moonProbe]!;
-      this.moonProbe = (this.moonProbe + 1) % MOON_PROBES.length;
-      _moonFrom.copy(this.ctx.player.eye);
-      _moonFrom.x += o[0];
-      _moonFrom.y += o[1];
-      _moonFrom.z += o[2];
-      const blocked = this.ctx.physics.raycastInto(_moonFrom, this.moonDir, MOON_REACH, CG.World, _moonHit);
-      this.moonOpen = damp(this.moonOpen, blocked ? 0 : 1, 1 / (MOON_RAY_INTERVAL * MOON_PROBES.length), MOON_RAY_INTERVAL);
+      const eye = this.ctx.player.eye;
+      if (eye.distanceToSquared(this.moonLastEye) >= 0.05 * 0.05) {
+        this.moonLastEye.copy(eye);
+        this.moonProbesLeft = MOON_PROBES.length;
+      }
+      if (this.moonProbesLeft > 0) {
+        this.moonProbesLeft--;
+        const o = MOON_PROBES[this.moonProbe]!;
+        this.moonProbe = (this.moonProbe + 1) % MOON_PROBES.length;
+        _moonFrom.copy(eye);
+        _moonFrom.x += o[0];
+        _moonFrom.y += o[1];
+        _moonFrom.z += o[2];
+        const blocked = this.ctx.physics.raycastInto(_moonFrom, this.moonDir, MOON_REACH, CG.World, _moonHit);
+        this.moonTarget = blocked ? 0 : 1;
+        this.moonOpen = damp(this.moonOpen, this.moonTarget, 1 / (MOON_RAY_INTERVAL * MOON_PROBES.length), MOON_RAY_INTERVAL);
+      } else if (Math.abs(this.moonOpen - this.moonTarget) >= 0.002) {
+        this.moonOpen = damp(this.moonOpen, this.moonTarget, 1 / (MOON_RAY_INTERVAL * MOON_PROBES.length), MOON_RAY_INTERVAL);
+      }
     }
     this.moonVis = damp(this.moonVis, this.moonOpen, 9, dt);
     this.viewMoon.intensity = this.moonIntensity * lerp(MOON_FLOOR, 1, this.moonVis);
@@ -1421,8 +1441,29 @@ export class Rig implements ViewmodelRig {
     const mods = def.mods;
     const fitted = this.ctx.weapons.fitted;
     if (!mods || !fitted) return undefined;
-    for (const id in mods) if (fitted.has(id as ModId) && mods[id as ModId]![key] !== undefined) return mods[id as ModId];
-    return undefined;
+    const ver = (this.ctx.weapons as { fittedVersion?: number }).fittedVersion;
+    if (ver === undefined) {
+      for (const id in mods) if (fitted.has(id as ModId) && mods[id as ModId]![key] !== undefined) return mods[id as ModId];
+      return undefined;
+    }
+    if (ver !== this.lookCacheVer) {
+      this.lookCacheVer = ver;
+      this.lookCache.clear();
+    }
+    let entry = this.lookCache.get(def);
+    if (!entry) {
+      entry = {};
+      for (const id in mods) {
+        if (!fitted.has(id as ModId)) continue;
+        const m = mods[id as ModId]!;
+        if (entry.sight === undefined && m.sight !== undefined) entry.sight = m;
+        if (entry.muzzle === undefined && m.muzzle !== undefined) entry.muzzle = m;
+        if (entry.flip === undefined && m.flip !== undefined) entry.flip = m;
+        if (entry.laser === undefined && m.laser !== undefined) entry.laser = m;
+      }
+      this.lookCache.set(def, entry);
+    }
+    return entry[key];
   }
 
   /** Every mod part shows only while its mod is fitted. After `resetParts`, which shows every part. */

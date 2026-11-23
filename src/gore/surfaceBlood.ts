@@ -154,6 +154,7 @@ interface BleedEmitter {
   ends: number;
   nextDrop: number;
   nextSoak: number;
+  collarDone: boolean;
   held: boolean;
   spurtId: number;
   baseSpurtPower: number;
@@ -170,6 +171,9 @@ interface BodyTrack {
   nextDribbleAt: number;
   nextSquishAt: number;
   dead: boolean;
+  sentLayer: number;
+  sentActive: number;
+  sentSoak: number;
   readonly emitters: BleedEmitter[];
 }
 
@@ -196,7 +200,7 @@ function makeEmitter(): BleedEmitter {
   return {
     active: false, bone: 0, tri: -1, bx: 0, by: 0, bz: 0,
     tier: 1, zone: '', soakRadius: 0, maxRadius: 0, growPerSec: 0,
-    collarAmount: 0, fresh: 0, started: 0, ends: 0, nextDrop: 0, nextSoak: 0,
+    collarAmount: 0, fresh: 0, started: 0, ends: 0, nextDrop: 0, nextSoak: 0, collarDone: false,
     held: false, spurtId: -1, baseSpurtPower: 0,
   };
 }
@@ -205,6 +209,7 @@ function makeBody(): BodyTrack {
   return {
     active: false, char: null, mesh: null, bindPositions: null,
     layer: -1, soakLevel: 0, lastSoakAt: -10, nextDribbleAt: 0, nextSquishAt: -10, dead: false,
+    sentLayer: -1, sentActive: -1, sentSoak: -1,
     emitters: Array.from({ length: SurfaceBloodTuning.maxEmittersPerBody }, makeEmitter),
   };
 }
@@ -292,7 +297,7 @@ export class SurfaceBloodField {
       const t = this.bodies[idx]!;
       const layer = pool.acquire(char, priority, now);
       t.layer = layer;
-      host.setBloodMapLayer?.(layer + 1, this.maxActiveTier(t) / 3, t.soakLevel);
+      this.syncBloodLayer(t, this.maxActiveTier(t) / 3);
       return { idx, track: t, pool };
     }
 
@@ -317,13 +322,27 @@ export class SurfaceBloodField {
     t.nextDribbleAt = now + rand(0.35, 1.1);
     t.nextSquishAt = -10;
     t.dead = false;
+    t.sentLayer = -1;
+    t.sentActive = -1;
+    t.sentSoak = -1;
     for (const em of t.emitters) {
       em.active = false;
+      em.collarDone = false;
       em.spurtId = -1;
     }
     this.byChar.set(char, idx);
-    host.setBloodMapLayer?.(layer + 1, 0, 0);
+    this.syncBloodLayer(t, 0);
     return { idx, track: t, pool };
+  }
+
+  private syncBloodLayer(t: BodyTrack, activeTier: number): void {
+    const layer = t.layer + 1;
+    const soak = t.soakLevel;
+    if (t.sentLayer === layer && t.sentActive === activeTier && t.sentSoak === soak) return;
+    t.sentLayer = layer;
+    t.sentActive = activeTier;
+    t.sentSoak = soak;
+    t.char?.setBloodMapLayer?.(layer, activeTier, soak);
   }
 
   private maxActiveTier(t: BodyTrack): number {
@@ -413,6 +432,7 @@ export class SurfaceBloodField {
     em.ends = Math.max(em.ends, now + dur);
     em.nextDrop = now + 0.04;
     em.nextSoak = now + 0.25;
+    em.collarDone = false;
 
     // Immediate visible wound collar + initial trickle seed.
     pool.paintCollar(
@@ -465,7 +485,7 @@ export class SurfaceBloodField {
       }
     }
 
-    track.char?.setBloodMapLayer?.(track.layer + 1, this.maxActiveTier(track) / 3, track.soakLevel);
+    this.syncBloodLayer(track, this.maxActiveTier(track) / 3);
     return true;
   }
 
@@ -517,7 +537,7 @@ export class SurfaceBloodField {
         em.spurtId = -1;
       }
     }
-    track.char?.setBloodMapLayer?.(track.layer + 1, this.maxActiveTier(track) / 3, track.soakLevel);
+    this.syncBloodLayer(track, this.maxActiveTier(track) / 3);
   }
 
   /**
@@ -557,7 +577,7 @@ export class SurfaceBloodField {
     const soaked = pool.paintFloorSoak(track.layer, track.mesh!, char.bones, track.bindPositions!, floorY, maxHeight, amount, 0.55);
     if (soaked) {
       track.soakLevel = Math.min(1, track.soakLevel + amount * 0.45);
-      track.char?.setBloodMapLayer?.(track.layer + 1, this.maxActiveTier(track) / 3, track.soakLevel);
+      this.syncBloodLayer(track, this.maxActiveTier(track) / 3);
       if (now >= track.nextSquishAt) {
         const hip = char.bones[0];
         if (hip) {
@@ -586,6 +606,7 @@ export class SurfaceBloodField {
     for (const em of track.emitters) {
       if (em.spurtId > 0) this.spurts.stop(em.spurtId);
       em.active = false;
+      em.collarDone = false;
       em.spurtId = -1;
     }
     for (const d of this.droplets) {
@@ -601,6 +622,9 @@ export class SurfaceBloodField {
     track.mesh = null;
     track.bindPositions = null;
     track.layer = -1;
+    track.sentLayer = -1;
+    track.sentActive = -1;
+    track.sentSoak = -1;
   }
 
   private spawnDroplet(bodyIdx: number, tri: number, bary: Float32Array, tier: BloodTier, fresh: number): void {
@@ -675,17 +699,18 @@ export class SurfaceBloodField {
         if (!loudest || em.tier > loudest.tier) loudest = em;
 
         // Creeping soak collar around the active wound.
-        if (now >= em.nextSoak) {
+        if (!em.collarDone && now >= em.nextSoak) {
           em.nextSoak = now + 0.35;
           const growth = em.growPerSec * 0.35 * (em.held ? 0.55 : 1);
           if (em.soakRadius < em.maxRadius) em.soakRadius = Math.min(em.maxRadius, em.soakRadius + growth);
           const life = clamp((now - em.started) / Math.max(0.01, em.ends - em.started));
-          pool.paintCollar(
+          const changed = pool.paintCollar(
             t.layer, t.mesh!, em.tri, em.bx, em.by, em.bz,
             em.soakRadius, em.collarAmount * (1 - life * 0.25), em.fresh * (1 - life * 0.35),
             em.tier === 1 ? 0.3 : 0.65,
             this.nearbyBonesFor(char, em.bone),
           );
+          if (em.soakRadius >= em.maxRadius && !changed) em.collarDone = true;
         }
 
         // Spawn gravity-walking surface droplets.
@@ -721,7 +746,7 @@ export class SurfaceBloodField {
       }
 
       const activeTier = anyActive ? this.maxActiveTier(t) / 3 : 0;
-      char.setBloodMapLayer?.(t.layer + 1, activeTier, t.soakLevel);
+      this.syncBloodLayer(t, activeTier);
     }
 
     // 2. Step surface-walking droplets along live posed world gravity.
@@ -872,7 +897,7 @@ export class SurfaceBloodField {
       const nextTri = mesh.triAdj[tri * 3 + edgeIdx]!;
       if (nextTri < 0) {
         // Layered armor/vest/belt hem: hop onto an underlying or lower shell along gravity before detaching into air.
-        const catchTri = findStepDownTri(mesh, tri, cpx, cpy, cpz, gx, gy, gz, 0.065, _nbary);
+        const catchTri = findStepDownTri(mesh, tri, cpx, cpy, cpz, gx, gy, gz, 0.065, _nbary, this.nearbyBonesFor(char, boneIdx));
         if (catchTri >= 0 && catchTri !== d.prevTri) {
           d.prevTri = tri;
           d.tri = catchTri;

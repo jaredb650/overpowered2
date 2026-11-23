@@ -22,6 +22,8 @@ uniform float uMaxDist;
 uniform vec4 uMedium; // density, height falloff, base height, noise amount
 uniform vec3 uScatter; // baked gain, moon gain, phase g
 uniform vec2 uScale;
+uniform float uViewCut;
+uniform int uLightCount;
 uniform vec4 uLightPos[${MAX_LIVE_LIGHTS}];
 uniform vec3 uLightCol[${MAX_LIVE_LIGHTS}];
 in vec2 vUv;
@@ -38,6 +40,7 @@ float density(vec3 p) {
 
 void main() {
   float z = texture(tDepth, vUv * uScale).r;
+  if (z < uViewCut) { outColor = vec4(0.0, 0.0, 0.0, 1.0); return; }
   vec3 eye = normalize(vec3((vUv * 2.0 - 1.0) * uTanHalf, -1.0));
   // The sky has no surface to stop at. Past this distance the dome's own horizon haze takes over.
   float dist = min(z / -eye.z, z > 2e4 ? uMaxDist * 0.45 : uMaxDist);
@@ -86,18 +89,21 @@ void main() {
 
   // Flashes light the air analytically. A closed form instead of per-step sampling means no noise and
   // no extra steps, which is what lets every muzzle flash light the fog at almost no cost.
-  float local = density(ro + rd * min(dist, 12.0) * 0.5);
-  for (int i = 0; i < ${MAX_LIVE_LIGHTS}; i++) {
-    vec3 c = uLightCol[i];
-    if (c.r + c.g + c.b <= 0.0) continue;
-    vec3 q = uLightPos[i].xyz - ro;
-    float b = dot(q, rd);
-    float h2 = max(dot(q, q) - b * b, 0.04);
-    float s = inversesqrt(h2);
-    float I = (atan((dist - b) * s) + atan(b * s)) * s;
-    float r = uLightPos[i].w;
-    float win = clamp(1.0 - h2 / (r * r), 0.0, 1.0);
-    scatter += c * (I * local * win * T * 0.5 / (4.0 * PI));
+  if (uLightCount > 0) {
+    float local = density(ro + rd * min(dist, 12.0) * 0.5);
+    for (int i = 0; i < ${MAX_LIVE_LIGHTS}; i++) {
+      if (i >= uLightCount) break;
+      vec3 c = uLightCol[i];
+      if (c.r + c.g + c.b <= 0.0) continue;
+      vec3 q = uLightPos[i].xyz - ro;
+      float b = dot(q, rd);
+      float h2 = max(dot(q, q) - b * b, 0.04);
+      float s = inversesqrt(h2);
+      float I = (atan((dist - b) * s) + atan(b * s)) * s;
+      float r = uLightPos[i].w;
+      float win = clamp(1.0 - h2 / (r * r), 0.0, 1.0);
+      scatter += c * (I * local * win * T * 0.5 / (4.0 * PI));
+    }
   }
   outColor = vec4(scatter, T);
 }`;
@@ -223,7 +229,7 @@ export class Fog {
     return this.history[this.flip]!.texture;
   }
 
-  configure(steps: number, lightPositions: THREE.Vector4[], lightColors: THREE.Vector3[]): void {
+  configure(steps: number, lightPositions: THREE.Vector4[], lightColors: THREE.Vector3[], lightCount?: THREE.IUniform<number>): void {
     this.march?.dispose();
     const e = this.engine;
     this.march = new FullscreenPass(MARCH, {
@@ -244,6 +250,8 @@ export class Fog {
       uMedium: { value: new THREE.Vector4() },
       uScatter: { value: new THREE.Vector3() },
       uScale: { value: this.scale },
+      uViewCut: { value: 0.16 },
+      uLightCount: lightCount ?? { value: MAX_LIVE_LIGHTS },
       uLightPos: { value: lightPositions },
       uLightCol: { value: lightColors },
     }, { STEPS: steps });

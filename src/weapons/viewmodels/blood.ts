@@ -141,7 +141,10 @@ export class BloodCoat {
   /** Layer indices, oldest first: the order the shader paints them in, so fresh blood lies over dry. */
   sorted(): readonly number[] {
     const o = this.order;
-    o.sort((a, b) => this.born[a]! - this.born[b]!);
+    const b = this.born;
+    if (b[o[0]!]! > b[o[1]!]!) { const t = o[0]!; o[0] = o[1]!; o[1] = t; }
+    if (b[o[1]!]! > b[o[2]!]!) { const t = o[1]!; o[1] = o[2]!; o[2] = t; }
+    if (b[o[0]!]! > b[o[1]!]!) { const t = o[0]!; o[0] = o[1]!; o[1] = t; }
     return o;
   }
 
@@ -150,6 +153,7 @@ export class BloodCoat {
    * Returns the most any layer shows.
    */
   write(now: number, a: { set(x: number, y: number, z: number, w: number): unknown }[], b: { set(x: number, y: number, z: number, w: number): unknown }[]): number {
+    if (this.amount[0]! <= 0 && this.amount[1]! <= 0 && this.amount[2]! <= 0) return 0;
     const by = this.sorted();
     let most = 0;
     for (let k = 0; k < BLOOD_LAYERS; k++) {

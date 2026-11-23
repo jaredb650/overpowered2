@@ -622,17 +622,28 @@ export class Structures {
 
   /** Redraws every chunk something changed in since the last call. */
   private redraw(): void {
+    if (this.dirty.size === 0) return;
+    const geo = new Geo();
     for (const c of this.dirty) {
-      const geo = new Geo();
+      geo.clear();
       for (const q of c.pieces) this.draw(geo, q.current, q.spec);
       if (c.group) {
         this.root.remove(c.group);
         for (const m of c.group.children) (m as THREE.Mesh).geometry.dispose();
       }
       c.group = geo.finish(this.material);
+      c.group.matrixAutoUpdate = false;
+      c.group.updateMatrix();
+      for (const m of c.group.children) {
+        m.matrixAutoUpdate = false;
+        m.updateMatrix();
+        if (m.castShadow) m.userData.staticShadow = true;
+      }
       this.root.add(c.group);
     }
+    geo.clear();
     this.dirty.clear();
+    (this.ctx.render as { refreshStaticShadows?: () => void } | undefined)?.refreshStaticShadows?.();
   }
 
   private draw(geo: Geo, parts: readonly Part[], s: StructureSpec): void {

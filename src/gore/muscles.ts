@@ -744,10 +744,17 @@ export class MuscleState {
   private elastic = 1;
   /** Some joint's strength is still on its way to what the wounds left it. */
   private easing = false;
+  /** Cached `world.gravity.y === 0` refreshed once per step/advance to avoid repeated WASM gravity reads. */
+  private cachedWeightless = false;
 
   constructor(private readonly rag: Rag) {
     this.rng = mulberry32(nextSeed++ * 2654435761);
     this.slump = lerp(MuscleTuning.slumpMin, MuscleTuning.slumpMax, this.rng());
+  }
+
+  /** Refreshes cached gravity sign from Rapier world (called in `bind`, `preStep`, and `advance`). */
+  syncGravity(): void {
+    this.cachedWeightless = this.rag.physics.world.gravity.y === 0;
   }
 
   /** Each body has its own stream, so runs repeat. */
@@ -784,7 +791,7 @@ export class MuscleState {
 
   /** Nothing presses a weightless body to rest, so stillness there says nothing about being finished. */
   private get weightless(): boolean {
-    return this.rag.physics.world.gravity.y === 0;
+    return this.cachedWeightless;
   }
 
   /** True until the hips are let go: its feet are being walked, and a footfall is not a body landing. */
@@ -794,6 +801,7 @@ export class MuscleState {
 
   /** Gives every part its joint data and works out what each joint carries. Call when the chain changes. */
   bind(): void {
+    this.syncGravity();
     const { rag } = this;
     const { parts, info } = rag;
     const defs = rag.source.rig.bones;
@@ -989,6 +997,7 @@ export class MuscleState {
       body.setAngvel(_vec, true);
     }
     this.rag.pushed = true;
+    this.rag.invalidateVelocity();
   }
 
   /** The chain's gravity changed by `k`: a body killed in the air has landed. What each joint carries changes with it. */
@@ -1088,7 +1097,6 @@ export class MuscleState {
     let top = 0;
     if (chest) {
       chest.body.translation(chest.p);
-      chest.body.rotation(chest.q);
       _d.copy(l.chestAt).applyQuaternion(chest.q).add(chest.p);
       top = liftForce(chest, _d.y, l.chestY, l, half);
     }
@@ -1203,6 +1211,7 @@ export class MuscleState {
 
   /** Once a frame. Tone and ligaments change slowly, and jointless bones have no physics to keep up with. */
   advance(dt: number, bones: readonly THREE.Bone[]): void {
+    this.syncGravity();
     const t = MuscleTuning;
     const { rag } = this;
     if (this.easing) this.easeStrength(dt);
@@ -1258,6 +1267,7 @@ export class MuscleState {
     // Slower under less gravity, by the same share as a throw, so the limbs land as far apart.
     const strength = hit * rag.throwScale;
     rag.pushed = true;
+    rag.invalidateVelocity();
     const first = parts[0]!;
     first.body.rotation(first.q);
     // Up along the body, not the world: a hit from above still throws the limbs of someone lying down.

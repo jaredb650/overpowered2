@@ -7,16 +7,16 @@
 }
 /* Co-op: the teammates strip starts one rem down, top centre, and this tag was drawn over its top edge for the seconds it
    shows. In a match with a strip it keeps to the screen's edge above it, a little smaller. Alone it is where it was. */
-:has(.cq-mate) > .np { top: 0; font-size: 0.72rem; line-height: 0.9rem; }
+.np.np-coop { top: 0; font-size: 0.72rem; line-height: 0.9rem; }
 .np-tag { padding: 0 0.35rem; background: var(--cold); color: #000; font-weight: 800; letter-spacing: 0.06em; }
 .np-local .np-tag { background: var(--steel); }
 .np-title { padding: 0 0.5rem; background: var(--plate); color: var(--ink); overflow: hidden; text-overflow: ellipsis; max-width: 36rem; text-shadow: var(--edge); }
 .np-bars { display: flex; align-items: flex-end; gap: 0.12rem; height: 0.8rem; }
-.np-bars span { width: 0.16rem; background: var(--cold); animation: np-bar 0.7s steps(4) infinite alternate; }
+.np-bars span { width: 0.16rem; background: var(--cold); transform-origin: bottom; }
+.np.playing .np-bars span { animation: np-bar 0.7s steps(4) infinite alternate; }
 .np-bars span:nth-child(1) { height: 45%; animation-delay: -0.1s; }
 .np-bars span:nth-child(2) { height: 100%; animation-delay: -0.45s; }
 .np-bars span:nth-child(3) { height: 70%; animation-delay: -0.3s; }
 .np-local .np-bars span { background: var(--steel); }
 @keyframes np-bar { from { transform: scaleY(0.35); } to { transform: scaleY(1); } }
-.np-bars span { transform-origin: bottom; }
-@media (prefers-reduced-motion: reduce) { .np-bars span { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .np.playing .np-bars span { animation: none; } }

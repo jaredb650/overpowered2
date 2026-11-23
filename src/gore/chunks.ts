@@ -122,6 +122,8 @@ interface Chunk {
   perched: boolean;
   /** Put back on physics after it had come to rest: it has done its dripping and trailing. */
   roused: boolean;
+  /** Whether Rapier CCD is currently enabled on `body` (turned off once speed drops below 4 m/s). */
+  ccd: boolean;
   alive: boolean;
   readonly p: THREE.Vector3;
   readonly q: THREE.Quaternion;
@@ -296,7 +298,27 @@ const _p = new THREE.Vector3();
 const _o = new THREE.Vector3();
 const _up = new THREE.Vector3(0, 1, 0);
 const _downward = new THREE.Vector3(0, -1, 0);
+const _ang = { x: 0, y: 0, z: 0 };
 const _floor: RayHit = { point: new THREE.Vector3(), normal: new THREE.Vector3(), distance: 0, surface: 'concrete', collider: null };
+/** Speed (m/s) above which loose chunks enable Rapier CCD to prevent tunneling through thin floors. */
+const CHUNK_CCD_SPEED = 4.0;
+const CHUNK_CCD_SPEED_SQ = CHUNK_CCD_SPEED * CHUNK_CCD_SPEED;
+
+function markRange(attr: THREE.BufferAttribute, slot: number, stride: number): void {
+  const start = slot * stride;
+  const end = start + stride;
+  const ranges = attr.updateRanges;
+  if (ranges.length === 0) {
+    attr.addUpdateRange(start, stride);
+  } else {
+    const r = ranges[0]!;
+    const lo = Math.min(r.start, start);
+    const hi = Math.max(r.start + r.count, end);
+    r.start = lo;
+    r.count = hi - lo;
+  }
+  attr.needsUpdate = true;
+}
 
 export class ChunkField {
   private readonly meshes = new Map<ChunkKind, THREE.InstancedMesh>();
@@ -340,7 +362,7 @@ export class ChunkField {
       const m = new THREE.MeshPhysicalMaterial({
         vertexColors: true, flatShading: true, roughness, metalness: 0, clearcoat, clearcoatRoughness: 0.2,
         // A breath of its own colour: in a dark, blue-lit map, dark red and bone on dark floor read as nothing.
-        emissive: glow ? new THREE.Color(glow) : undefined,
+        ...(glow ? { emissive: new THREE.Color(glow) } : {}),
       });
       // A burnt body's pieces are cooked: dry and dark, with none of that glow (cooked.ts).
       cookable(m);
@@ -388,8 +410,10 @@ export class ChunkField {
   private make(kind: ChunkKind, geometry: THREE.BufferGeometry, material: THREE.Material | THREE.Material[], cap: number): THREE.InstancedMesh {
     const mesh = new THREE.InstancedMesh(geometry, material, cap);
     mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    mesh.matrixAutoUpdate = false;
+    mesh.updateMatrix();
     mesh.frustumCulled = false;
-    mesh.castShadow = true;
+    mesh.castShadow = false;
     mesh.receiveShadow = true;
     for (let i = 0; i < cap; i++) mesh.setMatrixAt(i, _hide);
     // Every kind has a colour per piece from the start, all white: one program for burnt and unburnt alike.
@@ -398,7 +422,7 @@ export class ChunkField {
     this.meshes.set(kind, mesh);
     this.ring.set(kind, 0);
     const slots: Chunk[] = Array.from({ length: cap }, (_, slot) => ({
-      kind, slot, body: null, size: 0, bulk: 0, sx: 1, sy: 1, sz: 1, born: 0, simAt: 0, still: 0, restedAt: -1, speed: 0, splats: 0, nextThud: 0, wob: 0, wobV: 0, sag: 0, kickAt: 0, floorY: 0, trailAt: 0, ribbon: null, dry: false, hx: 0, hy: 0, hz: 0, perched: false, roused: false, alive: false,
+      kind, slot, body: null, size: 0, bulk: 0, sx: 1, sy: 1, sz: 1, born: 0, simAt: 0, still: 0, restedAt: -1, speed: 0, splats: 0, nextThud: 0, wob: 0, wobV: 0, sag: 0, kickAt: 0, floorY: 0, trailAt: 0, ribbon: null, dry: false, hx: 0, hy: 0, hz: 0, perched: false, roused: false, ccd: false, alive: false,
       p: new THREE.Vector3(), q: new THREE.Quaternion(), v: new THREE.Vector3(),
     }));
     this.slots.set(kind, slots);
@@ -503,7 +527,7 @@ export class ChunkField {
     // Burnt (`char`): toward black, unevenly, so a heap of them is not one flat colour.
     const tinted = this.meshes.get(kind)!;
     tinted.setColorAt(c.slot, burnTint(_tint, this.char, 0.18, this.ctx.time.elapsed));
-    tinted.instanceColor!.needsUpdate = true;
+    markRange(tinted.instanceColor!, c.slot, 3);
     c.dry = this.char >= FireTuning.sootFrom;
 
     if (this.live.length >= ChunkTuning.maxBodies) this.ghost(this.live[0]!);
@@ -561,16 +585,20 @@ export class ChunkField {
   /** Gives `c` a body where it is (`p`, `q`), at this speed and spin. */
   private embody(c: Chunk, vx: number, vy: number, vz: number, spin: number): void {
     const { R, world } = this.ctx.physics;
+    const fast = vx * vx + vy * vy + vz * vz >= CHUNK_CCD_SPEED_SQ;
+    _ang.x = (Math.random() - 0.5) * spin;
+    _ang.y = (Math.random() - 0.5) * spin;
+    _ang.z = (Math.random() - 0.5) * spin;
     const body = world.createRigidBody(
       R.RigidBodyDesc.dynamic()
         .setTranslation(c.p.x, c.p.y, c.p.z)
         .setRotation(c.q)
         .setLinvel(vx, vy, vz)
-        .setAngvel({ x: (Math.random() - 0.5) * spin, y: (Math.random() - 0.5) * spin, z: (Math.random() - 0.5) * spin })
+        .setAngvel(_ang)
         .setLinearDamping(0.1)
         .setAngularDamping(0.9)
-        // Small and thrown at up to 15 m/s: without it a piece crosses a thin floor between two steps and is gone.
-        .setCcdEnabled(true),
+        // Small and thrown at up to 15 m/s: without CCD fast pieces cross a thin floor; disable once slowed below 4 m/s.
+        .setCcdEnabled(fast),
     );
     world.createCollider(
       R.ColliderDesc.cuboid(c.hx, c.hy, c.hz)
@@ -583,6 +611,7 @@ export class ChunkField {
       body,
     );
     c.body = body;
+    c.ccd = fast;
   }
 
   /**
@@ -670,7 +699,7 @@ export class ChunkField {
     c.alive = false;
     const mesh = this.meshes.get(c.kind)!;
     mesh.setMatrixAt(c.slot, _hide);
-    mesh.instanceMatrix.needsUpdate = true;
+    markRange(mesh.instanceMatrix, c.slot, 16);
     const own = this.cut.get(c.kind);
     if (own !== undefined) {
       this.cut.set(c.kind, own - 1);
@@ -695,21 +724,40 @@ export class ChunkField {
     }
     const mesh = this.meshes.get(c.kind)!;
     mesh.setMatrixAt(c.slot, _m);
-    mesh.instanceMatrix.needsUpdate = true;
+    markRange(mesh.instanceMatrix, c.slot, 16);
   }
 
   /** World time each kind last had a piece in the air: only those cast shadows (`ChunkTuning.shadowFor`). */
   private readonly flewAt = new Map<ChunkKind, number>();
+  /** Compact list of kinds currently casting shadows, avoiding iterating all 150+ meshes every frame. */
+  private readonly shadowKinds: ChunkKind[] = [];
+  private readonly shadowSet = new Set<ChunkKind>();
+
+  private markShadow(kind: ChunkKind, now: number): void {
+    this.flewAt.set(kind, now);
+    if (!this.shadowSet.has(kind)) {
+      this.shadowSet.add(kind);
+      this.shadowKinds.push(kind);
+      const mesh = this.meshes.get(kind);
+      if (mesh) mesh.castShadow = true;
+    }
+  }
 
   update(dt: number): void {
     if (!this.ready) return;
     const now = this.ctx.time.elapsed;
     const t = ChunkTuning;
-    for (let i = 0; i < this.live.length; i++) this.flewAt.set(this.live[i]!.kind, now);
-    for (let i = 0; i < this.ghosts.length; i++) this.flewAt.set(this.ghosts[i]!.kind, now);
-    for (const [kind, mesh] of this.meshes) {
-      const cast = now - (this.flewAt.get(kind) ?? -Infinity) < t.shadowFor;
-      if (mesh.castShadow !== cast) mesh.castShadow = cast;
+    for (let i = 0; i < this.live.length; i++) this.markShadow(this.live[i]!.kind, now);
+    for (let i = 0; i < this.ghosts.length; i++) this.markShadow(this.ghosts[i]!.kind, now);
+    for (let i = this.shadowKinds.length - 1; i >= 0; i--) {
+      const kind = this.shadowKinds[i]!;
+      if (now - (this.flewAt.get(kind) ?? -Infinity) >= t.shadowFor) {
+        const mesh = this.meshes.get(kind);
+        if (mesh) mesh.castShadow = false;
+        this.shadowSet.delete(kind);
+        this.shadowKinds[i] = this.shadowKinds[this.shadowKinds.length - 1]!;
+        this.shadowKinds.pop();
+      }
     }
     for (let i = this.live.length - 1; i >= 0; i--) {
       const c = this.live[i]!;
@@ -718,6 +766,10 @@ export class ChunkField {
       body.rotation(c.q);
       body.linvel(c.v);
       const speed = c.v.length();
+      if (c.ccd && speed < CHUNK_CCD_SPEED) {
+        body.enableCcd(false);
+        c.ccd = false;
+      }
       const lost = c.speed - speed;
       // A sharp loss of speed is a bounce. Stain where it hit, a few times at most per piece.
       const organ = ORGAN_SET.has(c.kind);
@@ -751,29 +803,33 @@ export class ChunkField {
       else c.still = 0;
       if (c.still > t.settle || now - c.simAt > 7) this.dropBody(c);
     }
-    const g = this.ctx.physics.world.gravity.y;
-    for (let i = this.ghosts.length - 1; i >= 0; i--) {
-      const c = this.ghosts[i]!;
-      c.v.y += g * dt;
-      c.p.addScaledVector(c.v, dt);
-      if (c.p.y <= c.floorY) {
-        c.p.y = c.floorY;
-        c.restedAt = now;
-        this.ghosts.splice(i, 1);
-        if (c.kind !== 'scrap' && !c.dry) this.blood.stainBelow(c.p, 0.14 + c.bulk * 2.2, 'blood', 0.8);
+    if (this.ghosts.length > 0) {
+      const g = this.ctx.physics.world.gravity.y;
+      for (let i = this.ghosts.length - 1; i >= 0; i--) {
+        const c = this.ghosts[i]!;
+        c.v.y += g * dt;
+        c.p.addScaledVector(c.v, dt);
+        if (c.p.y <= c.floorY) {
+          c.p.y = c.floorY;
+          c.restedAt = now;
+          this.ghosts.splice(i, 1);
+          if (c.kind !== 'scrap' && !c.dry) this.blood.stainBelow(c.p, 0.14 + c.bulk * 2.2, 'blood', 0.8);
+        }
+        this.write(c, 1);
       }
-      this.write(c, 1);
     }
     this.updateOrgans(dt, now);
-    const all = this.all;
-    for (let i = 0; i < all.length; i++) {
-      const c = all[i]!;
-      if (!c.alive || c.restedAt < 0) continue;
-      // The organs and the ribcage are what a gib is read by: they lie twice as long as torn meat.
-      const age = c.restedAt <= this.dismissed ? now - this.dismissed : now - c.restedAt - t.linger * (LASTING.has(c.kind) ? 2 : 1);
-      if (age <= 0) continue;
-      if (age >= t.shrink) this.retire(c);
-      else this.write(c, 1 - age / t.shrink);
+    if (Number.isFinite(t.linger) || this.dismissed > -Infinity) {
+      const all = this.all;
+      for (let i = 0; i < all.length; i++) {
+        const c = all[i]!;
+        if (!c.alive || c.restedAt < 0) continue;
+        // The organs and the ribcage are what a gib is read by: they lie twice as long as torn meat.
+        const age = c.restedAt <= this.dismissed ? now - this.dismissed : now - c.restedAt - t.linger * (LASTING.has(c.kind) ? 2 : 1);
+        if (age <= 0) continue;
+        if (age >= t.shrink) this.retire(c);
+        else this.write(c, 1 - age / t.shrink);
+      }
     }
   }
 
@@ -833,7 +889,14 @@ export class ChunkField {
   /** Sets a piece moving again from where it lies, with a body of its own. */
   private kick(c: Chunk, vx: number, vy: number, vz: number): void {
     if (c.body) {
-      c.body.setLinvel({ x: vx, y: vy, z: vz }, true);
+      _ang.x = vx;
+      _ang.y = vy;
+      _ang.z = vz;
+      if (!c.ccd && vx * vx + vy * vy + vz * vz >= CHUNK_CCD_SPEED_SQ) {
+        c.body.enableCcd(true);
+        c.ccd = true;
+      }
+      c.body.setLinvel(_ang, true);
       return;
     }
     const flying = this.ghosts.indexOf(c);
@@ -974,6 +1037,13 @@ export class ChunkField {
     if (!this.ready) return;
     for (const c of this.all) if (c.alive) this.retire(c);
     this.ghosts.length = 0;
+    for (const kind of this.shadowKinds) {
+      const mesh = this.meshes.get(kind);
+      if (mesh) mesh.castShadow = false;
+    }
+    this.shadowKinds.length = 0;
+    this.shadowSet.clear();
+    this.flewAt.clear();
     for (const kind of this.meshes.keys()) this.ring.set(kind, 0);
     this.high.clear();
     this.share();

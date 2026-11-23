@@ -538,7 +538,9 @@ float sCoal = 0.0, sMost = OP2_COAL_MOST;
     }
     // Flesh lies a few centimetres behind gear and a hole is narrow, so from most angles a small hole would look past it
     // to the dark. The last of the skin inside the tear is drawn as the wall of the wound instead, falling away into it.
+    #ifdef OP2_WOUND_DISCARD
     if (edge < -funnel) discard;
+    #endif
 
     if (scorch > 0.0) {
       // Only flesh and cloth split. Plate just blackens.
@@ -759,6 +761,8 @@ export interface SurfaceOptions {
   far?: boolean;
   /** For bodies with wounds: cut-outs, craters and torn edges. Skinned meshes only. */
   wounds?: boolean;
+  /** Enables fragment `discard` for open cutout wounds; omitted for graze/wear-only bodies to preserve Early-Z/HSR. */
+  woundDiscard?: boolean;
   /** Burnt black all over: the kit on a burnt body (`charredVariant`). Not for skinned meshes, which burn by instance. */
   charred?: boolean;
 }
@@ -801,6 +805,7 @@ export function createCharacterMaterial(ctx: Ctx, o: SurfaceOptions): THREE.Mesh
   if (bloodMap) material.defines = { ...material.defines, OP2_BLOOD_MAP: 1 };
   if (o.far) material.defines = { ...material.defines, OP2_FAR: 1 };
   if (o.wounds) material.defines = { ...material.defines, OP2_WOUNDS: 1 };
+  if (o.woundDiscard) material.defines = { ...material.defines, OP2_WOUND_DISCARD: 1 };
   if (o.charred) material.defines = { ...material.defines, OP2_CHARRED: 1 };
   material.onBeforeCompile = shader => {
     shader.uniforms.tDetail = { value: o.detail };
@@ -831,7 +836,7 @@ export function createCharacterMaterial(ctx: Ctx, o: SurfaceOptions): THREE.Mesh
       .replace('#include <aomap_fragment>', FRAG_AO);
   };
   // The bone count is a uniform, so every archetype shares these few programs.
-  material.customProgramCacheKey = () => `op2char:${atlas ? 1 : 0}:${o.far ? 1 : 0}:${o.wounds ? 1 : 0}:${o.charred ? 1 : 0}:${bloodMap ? 1 : 0}`;
+  material.customProgramCacheKey = () => `op2char:${atlas ? 1 : 0}:${o.far ? 1 : 0}:${o.wounds ? 1 : 0}:${o.woundDiscard ? 1 : 0}:${o.charred ? 1 : 0}:${bloodMap ? 1 : 0}`;
   // A stub render system returns undefined here, and the sandbox then lights the material itself.
   const patched = ctx.render.materials?.patch?.(material) ?? material;
   made.set(patched, { ctx, o });

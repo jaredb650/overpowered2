@@ -152,8 +152,10 @@ export class FxCore {
     e.value = value;
   }
 
-  /** One ray per burst. Everything in the burst bounces or lands on that height. */
+  /** Fast O(1) NavGraph floor lookup with physics raycast fallback. Everything in the burst lands on that height. */
   floorAt(x: number, y: number, z: number): number {
+    const gh = this.ctx.world?.nav?.groundHeight?.(x, y, z);
+    if (gh !== undefined && Number.isFinite(gh) && gh <= y + 0.25 && gh >= y - FLOOR_SEARCH) return gh;
     this.probe.set(x, y + 0.25, z);
     return this.ctx.physics.raycastInto(this.probe, this.down, FLOOR_SEARCH, CG.World, this.hit) ? this.hit.point.y : NO_FLOOR;
   }
@@ -249,7 +251,7 @@ export class FxCore {
     this.lines.sync(now);
     this.arcs.sync(now);
     this.slashes.sync(now);
-    this.shimmer.sync(now);
+    this.shimmer.sync(now, cam);
     this.hose.sync();
     this.bloodHose.sync();
     const pn = u.uTimePlayer.value;

@@ -133,6 +133,8 @@ export class Microwave {
 
   private humLoop: LoopHandle | null = null;
   private humCharge = 0;
+  private lastHumVolume = -1;
+  private lastHumPitch = -1;
   private shimmerClock = 0;
   private markerClock = 0;
   private clock = 0;
@@ -365,6 +367,8 @@ export class Microwave {
       this.humLoop = null;
     }
     this.humCharge = 0;
+    this.lastHumVolume = -1;
+    this.lastHumPitch = -1;
     this.shimmerClock = 0;
     this.markerClock = 0;
     this.clock = 0;
@@ -401,15 +405,25 @@ export class Microwave {
           pitch,
           fadeIn: 0.08,
         }) ?? null;
+        this.lastHumPitch = pitch;
+        this.lastHumVolume = volume;
       } else {
-        this.humLoop.setPitch(pitch, 0.08);
-        this.humLoop.setVolume(volume, 0.08);
+        if (Math.abs(pitch - this.lastHumPitch) > 0.002) {
+          this.lastHumPitch = pitch;
+          this.humLoop.setPitch(pitch, 0.08);
+        }
+        if (Math.abs(volume - this.lastHumVolume) > 0.004) {
+          this.lastHumVolume = volume;
+          this.humLoop.setVolume(volume, 0.08);
+        }
       }
     } else {
       this.humCharge = Math.max(0, this.humCharge - dt * 1.4);
       if (this.humLoop) {
         this.humLoop.stop(0.12);
         this.humLoop = null;
+        this.lastHumVolume = -1;
+        this.lastHumPitch = -1;
       }
     }
   }

@@ -73,9 +73,9 @@ const vec3 OP_DRY_MID = vec3(0.115, 0.01, 0.007);
 const vec4 OP_DETAIL = vec4(${detail.map(f).join(', ')});
 
 /** The detail tile, repeated: m in tiles. r cracks, g blotches, b specks. */
-vec3 opDetail(vec2 m) {
+vec3 opDetailGrad(vec2 m, vec2 dmx, vec2 dmy) {
   vec2 t = fract(m) * (1.0 - 2.0 / 256.0) + 1.0 / 256.0;
-  return textureGrad(opDecalA, OP_DETAIL.xy + t * OP_DETAIL.zw, dFdx(m) * OP_DETAIL.zw, dFdy(m) * OP_DETAIL.zw).rgb;
+  return textureGrad(opDecalA, OP_DETAIL.xy + t * OP_DETAIL.zw, dmx * OP_DETAIL.zw, dmy * OP_DETAIL.zw).rgb;
 }
 `;
 
@@ -127,11 +127,15 @@ if (opKind > 1.5 && opKind < 2.5) {
 } else if (opKind > 3.5) {
   // A floor tile: every stain that dried on this floor, as one outline field. Drawn dry, under the fresh ones.
   float field = texture2D(opBloodMap, vOpRect.xy + opP * vOpRect.zw).r;
-  vec2 m = opP * vOpSize * 5.0;
-  vec3 det = opDetail(m);
-  float near = 1.0 - smoothstep(0.08, 0.3, max(fwidth(m.x), fwidth(m.y)));
-  float th = 0.5 + (det.g - 0.5) * 0.1 * near;
   float aa = max(fwidth(field) * 0.75, 0.003);
+  vec2 m = opP * vOpSize * 5.0;
+  vec2 dmx = dFdx(m);
+  vec2 dmy = dFdy(m);
+  if (field + 0.5 * aa <= 0.45) discard;
+  vec2 mFw = abs(dmx) + abs(dmy);
+  float near = 1.0 - smoothstep(0.08, 0.3, max(mFw.x, mFw.y));
+  vec3 det = near > 0.0 ? opDetailGrad(m, dmx, dmy) : vec3(0.0);
+  float th = 0.5 + (det.g - 0.5) * 0.1 * near;
   float cover = clamp((field - th) / aa + 0.5, 0.0, 1.0);
   if (cover < 0.004) discard;
   opThick = 0.3 + 0.45 * smoothstep(0.55, 0.95, field);
@@ -147,28 +151,33 @@ if (opKind > 1.5 && opKind < 2.5) {
     sin(q.x * 8.0 - seed * 0.7) + 0.5 * sin(q.x * 19.0 + seed * 1.3)
   ) * 0.012;
   opP = q * 0.5 + 0.5;
-  if (opP.x < 0.0 || opP.y < 0.0 || opP.x > 1.0 || opP.y > 1.0) discard;
   vec2 uvA = vOpRect.xy + opP * vOpRect.zw;
-  vec4 a = texture2D(opDecalA, uvA);
-  vec2 n2 = (texture2D(opDecalS, uvA).xy * 2.0 - 1.0) / vOpSize;
-  // Detail at real size, whatever the stain's: one tile is 20 cm.
+  vec2 uvADx = dFdx(uvA);
+  vec2 uvADy = dFdy(uvA);
   vec2 m = vOpUv * vOpSize * 5.0 + seed;
-  vec3 det = opDetail(m);
-  float near = 1.0 - smoothstep(0.08, 0.3, max(fwidth(m.x), fwidth(m.y)));
+  vec2 dmx = dFdx(m);
+  vec2 dmy = dFdy(m);
+  if (opP.x < 0.0 || opP.y < 0.0 || opP.x > 1.0 || opP.y > 1.0) discard;
+  vec4 a = textureGrad(opDecalA, uvA, uvADx, uvADy);
   float field = a.a;
+  float aa = max(fwidth(field) * 0.75, 0.003);
+  vec2 mFw = abs(dmx) + abs(dmy);
+  float near = 1.0 - smoothstep(0.08, 0.3, max(mFw.x, mFw.y));
   float th = 0.32 + 0.4 * fract(vOpDecal.x);
   // A pool spreads from where it started to its outline, fast and then slowly, and keeps creeping.
   if (opKind > 2.5) th = mix(0.97, th, 1.0 - exp(-opAge * 0.55)) - min(opAge * 0.0006, 0.03);
+  if (near <= 0.0 && field + 0.5 * aa <= th && a.g * 0.42 < 0.004) discard;
+  // Detail at real size, whatever the stain's: one tile is 20 cm.
+  vec3 det = near > 0.0 ? opDetailGrad(m, dmx, dmy) : vec3(0.0);
   // The floor's grain breaks the outline.
   th += (det.g - 0.5) * 0.09 * near;
-  float aa = max(fwidth(field) * 0.75, 0.003);
   float cover = clamp((field - th) / aa + 0.5, 0.0, 1.0);
   float inside = field - th;
   float lipW = vOpDecal.w;
   opThick = max(a.r * smoothstep(0.0, lipW * 1.6, inside), 0.04) * cover;
   // The mist round it: specks at real size, more of them where the haze is dense, a faint film far away.
   float haze = a.g * (1.0 - cover);
-  float speck = smoothstep(-0.05, 0.08, det.b - (1.0 - haze * 0.92));
+  float speck = near > 0.0 ? smoothstep(-0.05, 0.08, det.b - (1.0 - haze * 0.92)) : 0.0;
   float hazeA = mix(haze * 0.42, speck * 0.85 + haze * 0.12, near);
   float alpha = max(cover * mix(0.8, 0.985, smoothstep(0.0, 0.5, opThick)), hazeA);
   if (alpha < 0.004) discard;
@@ -176,16 +185,21 @@ if (opKind > 1.5 && opKind < 2.5) {
   opLip = cover * (1.0 - smoothstep(0.0, lipW, inside));
   opRim = cover * (1.0 - smoothstep(0.0, min(lipW * 5.0, 0.45), inside));
   opCrack = det.r * near;
-  float nl = length(n2);
-  // A small drop's lip is slight; a pool's stands up.
-  opTilt = nl > 1e-4 ? n2 / nl * pow(opLip, 1.3) * 0.46 * clamp(min(vOpSize.x, vOpSize.y) * 2.2, 0.3, 1.0) : vec2(0.0);
+  if (opLip > 0.0) {
+    vec2 n2 = (textureGrad(opDecalS, uvA, uvADx, uvADy).xy * 2.0 - 1.0) / vOpSize;
+    float nl = length(n2);
+    // A small drop's lip is slight; a pool's stands up.
+    opTilt = nl > 1e-4 ? n2 / nl * pow(opLip, 1.3) * 0.46 * clamp(min(vOpSize.x, vOpSize.y) * 2.2, 0.3, 1.0) : vec2(0.0);
+  }
   opA = vec4(1.0, 1.0, 1.0, alpha);
 } else {
-  if (opP.x < 0.0 || opP.y < 0.0 || opP.x > 1.0 || opP.y > 1.0) discard;
   vec2 uvA = vOpRect.xy + opP * vOpRect.zw;
-  opA = texture2D(opDecalA, uvA);
+  vec2 uvADx = dFdx(uvA);
+  vec2 uvADy = dFdy(uvA);
+  if (opP.x < 0.0 || opP.y < 0.0 || opP.x > 1.0 || opP.y > 1.0) discard;
+  opA = textureGrad(opDecalA, uvA, uvADx, uvADy);
   if (opA.a < 0.004) discard;
-  opS = texture2D(opDecalS, uvA);
+  opS = textureGrad(opDecalS, uvA, uvADx, uvADy);
   opTilt = opS.xy * 2.0 - 1.0;
   opRough = opS.z;
 }

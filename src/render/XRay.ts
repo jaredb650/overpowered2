@@ -207,6 +207,35 @@ export class XRay {
     return true;
   }
 
+  /** Pre-compiles plain and skinned silhouette shaders plus the sweep pass so mid-combat highlights never hitch. */
+  async warm(renderer: THREE.WebGLRenderer, target: THREE.WebGLRenderTarget, camera: THREE.Camera): Promise<void> {
+    const keepTarget = renderer.getRenderTarget();
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(9), 3));
+    geo.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(9), 3));
+    geo.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(new Uint16Array(12), 4));
+    geo.setAttribute('skinWeight', new THREE.BufferAttribute(new Float32Array([1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0]), 4));
+    const plainScene = new THREE.Scene();
+    plainScene.add(new THREE.Mesh(geo, this.material));
+    const skinnedScene = new THREE.Scene();
+    const skinned = new THREE.SkinnedMesh(geo, this.material);
+    const bone = new THREE.Bone();
+    skinned.add(bone);
+    skinned.bind(new THREE.Skeleton([bone]));
+    skinnedScene.add(skinned);
+    renderer.setRenderTarget(target);
+    const pPlain = renderer.compileAsync(plainScene, camera);
+    const pSkinned = renderer.compileAsync(skinnedScene, camera);
+    const pSweep = this.sweepPass.compile(renderer, target);
+    renderer.setRenderTarget(keepTarget);
+    try {
+      await Promise.all([pPlain, pSkinned, pSweep]);
+    } finally {
+      skinned.skeleton.dispose();
+      geo.dispose();
+    }
+  }
+
   clear(): void {
     for (let i = 0; i < this.count; i++) this.batches[i]!.lit.clear();
     this.count = this.cursor = 0;

@@ -82,7 +82,7 @@ export class RingLayer {
   readonly ring: InstanceRing;
 
   constructor(scene: THREE.Scene, uniforms: FxUniforms, segments: number, cap: number, name: string) {
-    this.ring = new InstanceRing(annulus(segments), cap, ATTRS);
+    this.ring = new InstanceRing(annulus(segments), cap, ATTRS, true);
     const material = new THREE.ShaderMaterial({
       vertexShader: VERT,
       fragmentShader: FRAG,
@@ -100,6 +100,8 @@ export class RingLayer {
     mesh.visible = false;
     mesh.renderOrder = ORDER.rings;
     mesh.name = name;
+    mesh.matrixAutoUpdate = false;
+    mesh.updateMatrix();
     this.ring.object = mesh;
     scene.add(mesh);
   }

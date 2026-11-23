@@ -412,7 +412,7 @@ export class Flames {
   feed(point: THREE.Vector3, normal: THREE.Vector3, source: string, cosmetic = false): Patch {
     const t = TUNING.napalm.patch;
     let best: Patch | null = null;
-    let bestD = Infinity;
+    let bestD2 = Infinity;
     let free: Patch | null = null;
     let oldest = this.patches[0]!;
     for (const p of this.patches) {
@@ -422,10 +422,11 @@ export class Flames {
       }
       if (p.serial < oldest.serial) oldest = p;
       if (p.normal.dot(normal) < 0.7) continue;
-      const d = p.position.distanceTo(point);
-      if (d < bestD && d < t.merge + p.radius * 0.5) {
+      const maxD = t.merge + p.radius * 0.5;
+      const d2 = p.position.distanceToSquared(point);
+      if (d2 < bestD2 && d2 < maxD * maxD) {
         best = p;
-        bestD = d;
+        bestD2 = d2;
       }
     }
     if (best) {
@@ -471,13 +472,15 @@ export class Flames {
   /** As the white phosphorus does: anyone standing in it catches fire, and burns on after he leaves. */
   private ignite(p: Patch): void {
     const n = this.ctx.enemies.query(p.position, p.radius + 2.6, this.nearby) || 0;
+    const maxR = p.radius + BODY_RADIUS;
+    const maxR2 = maxR * maxR;
     for (let i = 0; i < n; i++) {
       const e = this.nearby[i]!;
       if (!e.alive) continue;
       this.head.copy(e.position);
       this.head.y += e.char.rig.height;
       closestOnSegment(p.position, e.position, this.head, this.near);
-      if (this.near.distanceTo(p.position) > p.radius + BODY_RADIUS) continue;
+      if (this.near.distanceToSquared(p.position) > maxR2) continue;
       this.ctx.enemies.afflict(e, 'burn', TUNING.kiln.burnSeconds);
     }
   }
@@ -487,13 +490,15 @@ export class Flames {
     const c = this.ctx;
     const radius = this.radius(f);
     const n = c.enemies.query(f.position, radius + 2.6, this.nearby) || 0;
+    const maxR = radius + BODY_RADIUS;
+    const maxR2 = maxR * maxR;
     for (let i = 0; i < n && f.hitCount < MAX_HITS; i++) {
       const e = this.nearby[i]!;
       if (!e.alive || this.touched(f, e.uid)) continue;
       this.head.copy(e.position);
       this.head.y += e.char.rig.height;
       closestOnSegment(f.position, e.position, this.head, this.near);
-      if (this.near.distanceTo(f.position) > radius + BODY_RADIUS) continue;
+      if (this.near.distanceToSquared(f.position) > maxR2) continue;
       f.hits[f.hitCount++] = e.uid;
 
       const o = this.combat.strikeOptions('fire', f.source);

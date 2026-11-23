@@ -17,6 +17,8 @@ const WARN_BELOW = 0.25;
 class Bed {
   private handle: LoopHandle = DEAD_HANDLE;
   private level = 0;
+  private writtenVol = -1;
+  private writtenPitch = -1;
 
   constructor(
     private readonly audio: AudioSystem,
@@ -30,19 +32,31 @@ class Bed {
     if (this.level < 0.01 && target === 0) {
       if (this.handle.alive) this.handle.stop(0.05);
       this.level = 0;
+      this.writtenVol = -1;
+      this.writtenPitch = -1;
       return;
     }
     if (!this.handle.alive) {
       this.handle = this.audio.startLoop(this.id, { volume: this.level, pitch, fadeIn: 0.02 });
+      this.writtenVol = this.level;
+      this.writtenPitch = pitch;
       return;
     }
-    this.handle.setVolume(this.level, 0.04);
-    this.handle.setPitch(pitch);
+    if (Math.abs(this.level - this.writtenVol) > 0.004) {
+      this.writtenVol = this.level;
+      this.handle.setVolume(this.level, 0.04);
+    }
+    if (Math.abs(pitch - this.writtenPitch) > 0.002) {
+      this.writtenPitch = pitch;
+      this.handle.setPitch(pitch);
+    }
   }
 
   stop(): void {
     if (this.handle.alive) this.handle.stop(0.1);
     this.level = 0;
+    this.writtenVol = -1;
+    this.writtenPitch = -1;
   }
 }
 

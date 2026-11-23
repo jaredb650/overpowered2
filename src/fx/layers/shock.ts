@@ -108,7 +108,7 @@ export class ShockLayer {
   readonly ring: InstanceRing;
 
   constructor(scene: THREE.Scene, uniforms: FxUniforms, cap = 24) {
-    this.ring = new InstanceRing(wireSphere(), cap, ATTRS);
+    this.ring = new InstanceRing(wireSphere(), cap, ATTRS, true);
     this.ring.lifeAt = 7;
     const material = new THREE.ShaderMaterial({
       vertexShader: VERT,
@@ -127,6 +127,8 @@ export class ShockLayer {
     mesh.visible = false;
     mesh.renderOrder = ORDER.shock;
     mesh.name = 'fx.shock';
+    mesh.matrixAutoUpdate = false;
+    mesh.updateMatrix();
     this.ring.object = mesh;
     scene.add(mesh);
   }

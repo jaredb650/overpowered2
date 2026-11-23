@@ -24,6 +24,7 @@ const SMOKE_OUTLASTS = 2;
 
 const _up = new THREE.Vector3(0, 1, 0);
 const _p = new THREE.Vector3();
+const _q = new THREE.Quaternion();
 
 /** A part thrown clear: a turret, a tail. It lands, and stays as a piece of cover of its own. */
 export interface Flung {
@@ -123,13 +124,12 @@ export class Wreck {
 
   private syncColliders(): void {
     const { root, colliders, colliderOffsets } = this;
-    const q = new THREE.Quaternion();
     for (let i = 0; i < colliders.length && i < colliderOffsets.length; i++) {
       const off = colliderOffsets[i]!;
       _p.copy(off.pos).applyQuaternion(root.quaternion).add(root.position);
-      q.copy(root.quaternion).multiply(off.rot);
+      _q.copy(root.quaternion).multiply(off.rot);
       colliders[i]!.setTranslation(_p);
-      colliders[i]!.setRotation(q);
+      colliders[i]!.setRotation(_q);
     }
   }
 

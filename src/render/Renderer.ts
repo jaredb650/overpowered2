@@ -59,6 +59,10 @@ const STILL_DRAWS = 3;
 
 /** Sizes stay even so half-resolution targets line up exactly with the area they cover. */
 const even = (v: number): number => Math.max(2, Math.round(v / 2) * 2);
+const INVALIDATE_DEPTH = [0x8d00 /* DEPTH_ATTACHMENT */];
+/** Isolated layers so single-purpose passes skip traversing the rest of the world. */
+const DECAL_LAYER = 1;
+const XRAY_LAYER = 4;
 
 export class Renderer implements RenderSystem {
   readonly renderer: THREE.WebGLRenderer;
@@ -72,7 +76,7 @@ export class Renderer implements RenderSystem {
   decals!: DecalSystem;
   readonly moon = new THREE.DirectionalLight(0xffffff, 1);
 
-  private readonly engine: EngineUniforms & { opShadowTaps: { value: number } };
+  private readonly engine: EngineUniforms;
   private readonly patcher: MaterialPatcher;
   private readonly pool: DynamicLightPool;
   private readonly worldMaterials: WorldMaterials;
@@ -108,6 +112,8 @@ export class Renderer implements RenderSystem {
   private sceneTarget!: THREE.WebGLRenderTarget;
   /** Single-sampled colour after the world pass, with the world depth attached for the transparent pass. */
   private hdrTarget!: THREE.WebGLRenderTarget;
+  /** Depthless alias of `hdrTarget`, so Combine and X-ray never attach or store the depth buffer. */
+  private hdrColorOnly!: THREE.WebGLRenderTarget;
   private depthCopy!: THREE.WebGLRenderTarget;
   /** Writes into the resolved scene colour, so decals get AO and fog like the surface under them. */
   private decalTarget!: THREE.WebGLRenderTarget;
@@ -134,22 +140,37 @@ export class Renderer implements RenderSystem {
     this.renderer.info.autoReset = false;
     this.renderer.setClearColor(0x000000, 0);
 
-    this.engine = { ...createEngineUniforms(), opShadowTaps: { value: this.quality.shadowTaps } };
-    this.patcher = new MaterialPatcher(this.engine);
-    this.worldMaterials = new WorldMaterials(this.renderer, this.patcher, { opNoise: this.engine.opNoise, opViewPass: this.engine.opViewPass, opTime: this.engine.opTime });
-    this.materials = this.worldMaterials;
-    this.post = this.postState;
+    // Every light in the world scene also illuminates the isolated decals layer.
+    const baseAdd = THREE.Object3D.prototype.add;
+    this.scene.add = (...objects: THREE.Object3D[]) => {
+      for (const obj of objects) {
+        obj.traverse(c => {
+          if ((c as THREE.Light).isLight) c.layers.enable(DECAL_LAYER);
+        });
+        baseAdd.call(this.scene, obj);
+      }
+      return this.scene;
+    };
 
+    this.engine = createEngineUniforms();
     this.pool = new DynamicLightPool(this.scene, this.viewScene);
     this.lights = this.pool;
     this.pool.setCount(this.quality.dynamicLights);
+
+    this.patcher = new MaterialPatcher(
+      { ...this.engine, opActiveLights: this.pool.opActiveLights, opPoolLights: this.pool.opPoolLights },
+      this.quality.shadowTaps,
+    );
+    this.worldMaterials = new WorldMaterials(this.renderer, this.patcher, { opNoise: this.engine.opNoise, opViewPass: this.engine.opViewPass, opTime: this.engine.opTime });
+    this.materials = this.worldMaterials;
+    this.post = this.postState;
 
     this.volume = new LightVolume(this.engine);
     this.fogPass = new Fog(this.engine);
     this.fog = this.fogPass.settings;
     this.gtao.configure(this.quality.aoSlices, this.quality.aoSteps);
     this.ssr.configure(this.quality.ssrSteps);
-    this.fogPass.configure(this.quality.fogSteps, this.pool.fogPosition, this.pool.fogColor);
+    this.fogPass.configure(this.quality.fogSteps, this.pool.fogPosition, this.pool.fogColor, this.pool.opActiveLights);
 
     this.shadows = new MoonShadows(this.engine);
     this.shadows.setSizes(this.quality.shadowStatic, this.quality.shadowDynamic);
@@ -159,13 +180,20 @@ export class Renderer implements RenderSystem {
     this.engine.opMoonDir.value.set(-0.42, 0.56, -0.71).normalize();
     this.engine.opMoonColor.value.copy(this.moon.color).multiplyScalar(this.moon.intensity);
     this.moon.position.copy(this.engine.opMoonDir.value).multiplyScalar(100);
+    this.moon.matrixAutoUpdate = false;
+    this.moon.updateMatrix();
+    this.moon.target.matrixAutoUpdate = false;
+    this.moon.target.updateMatrix();
     this.scene.add(this.moon, this.moon.target);
     this.viewMoon.color.copy(this.moon.color);
     this.viewMoon.intensity = this.moon.intensity;
     this.viewScene.add(this.viewMoon, this.viewMoon.target);
 
     // A frame renders these scenes several times. render() updates their matrices once, up front.
+    // Disabling matrixAutoUpdate on the roots also prevents Three's force=true cascade into frozen static subtrees.
+    this.scene.matrixAutoUpdate = false;
     this.scene.matrixWorldAutoUpdate = false;
+    this.viewScene.matrixAutoUpdate = false;
     this.viewScene.matrixWorldAutoUpdate = false;
 
     this.hookRenderList(this.scene);
@@ -182,9 +210,12 @@ export class Renderer implements RenderSystem {
     this.decalAtlas = await this.worldMaterials.bakeAll();
     this.decalSystem = new Decals(this.patcher, this.decalAtlas);
     this.decals = this.decalSystem;
+    this.decalSystem.mesh.layers.set(DECAL_LAYER);
     this.scene.add(this.decalSystem.mesh);
 
     this.sky = new Sky(this.renderer, this.engine);
+    this.sky.mesh.matrixAutoUpdate = false;
+    this.sky.mesh.updateMatrix();
     this.scene.add(this.sky.mesh);
     this.scene.environment = this.sky.environment;
     this.viewScene.environment = this.sky.environment;
@@ -228,6 +259,8 @@ export class Renderer implements RenderSystem {
     }
     this.engine.opMoonColor.value.copy(this.moon.color).multiplyScalar(this.moon.intensity);
     this.moon.position.copy(this.engine.opMoonDir.value).multiplyScalar(100);
+    this.moon.updateMatrix();
+    this.moon.updateMatrixWorld();
     this.viewMoon.color.copy(this.moon.color);
     this.viewMoon.intensity = this.moon.intensity;
     if (this.sky) {
@@ -341,6 +374,7 @@ export class Renderer implements RenderSystem {
     this.engine.opTargetSize.value.set(w, h);
     this.sceneTarget?.dispose();
     this.hdrTarget?.dispose();
+    this.hdrColorOnly?.dispose();
     this.depthCopy?.dispose();
     this.decalTarget?.dispose();
 
@@ -350,6 +384,9 @@ export class Renderer implements RenderSystem {
     depth.minFilter = depth.magFilter = THREE.NearestFilter;
     this.sceneTarget = new THREE.WebGLRenderTarget(w, h, { ...hdr, samples: this.quality.msaa, depthTexture: depth, depthBuffer: true });
     this.hdrTarget = new THREE.WebGLRenderTarget(w, h, { ...hdr, depthTexture: depth, depthBuffer: true });
+    this.hdrColorOnly = new THREE.WebGLRenderTarget(w, h, { ...hdr, depthBuffer: false });
+    this.hdrColorOnly.texture.dispose();
+    this.hdrColorOnly.texture = this.hdrTarget.texture;
 
     const copy = new THREE.DepthTexture(w, h, THREE.FloatType);
     copy.format = THREE.DepthFormat;
@@ -378,7 +415,7 @@ export class Renderer implements RenderSystem {
     const h = even(this.fullHeight * scale);
     this.width = w;
     this.height = h;
-    for (const t of [this.sceneTarget, this.hdrTarget, this.decalTarget]) t.viewport.set(0, 0, w, h);
+    for (const t of [this.sceneTarget, this.hdrTarget, this.hdrColorOnly, this.decalTarget]) t.viewport.set(0, 0, w, h);
     this.depthRegion.max.set(w, h);
     this.bloom.setArea(w, h);
     this.gtao.setArea(w, h);
@@ -395,15 +432,31 @@ export class Renderer implements RenderSystem {
   async bakeLightVolume(input: LightVolumeBakeInput): Promise<void> {
     this.scene.updateMatrixWorld();
     this.scene.traverse(o => {
+      if ((o as THREE.Light).isLight) o.layers.enable(DECAL_LAYER);
       if ((o as THREE.Mesh).isMesh && o.castShadow && !(o as THREE.SkinnedMesh).isSkinnedMesh && !o.userData.dynamicShadow) {
         o.userData.staticShadow = true;
       }
     });
     this.shadows.setBounds(input.bounds);
     this.emissiveLines.attach(this.scene, this.quality.msaa === 0);
+    // Freeze the merged static level geometry so updateMatrixWorld() skips recomputing it every frame.
+    this.scene.traverse(o => {
+      if (o.name === 'world-static') {
+        o.traverse(c => {
+          c.matrixAutoUpdate = false;
+          c.updateMatrix();
+        });
+        o.updateMatrixWorld();
+      }
+    });
     // Program linking runs on the driver's threads, so it overlaps the bake worker for free and the
     // first frame does not hitch on twenty big shaders.
-    await Promise.all([this.volume.bake(input), this.renderer.compileAsync(this.scene, this.camera)]);
+    await Promise.all([
+      this.volume.bake(input),
+      this.renderer.compileAsync(this.scene, this.camera),
+      this.decalSystem?.floor.warm(this.renderer),
+      this.xray.warm(this.renderer, this.hdrColorOnly, this.camera),
+    ]);
   }
 
   setQuality(level: number): void {
@@ -411,12 +464,12 @@ export class Renderer implements RenderSystem {
     if (next === this.quality) return;
     const lightsChanged = next.dynamicLights !== this.quality.dynamicLights;
     this.quality = next;
-    this.engine.opShadowTaps.value = next.shadowTaps;
+    this.patcher.setShadowTaps(next.shadowTaps);
     this.shadows.setSizes(next.shadowStatic, next.shadowDynamic);
     if (lightsChanged) this.pool.setCount(next.dynamicLights);
     this.gtao.configure(next.aoSlices, next.aoSteps);
     this.ssr.configure(next.ssrSteps);
-    this.fogPass.configure(next.fogSteps, this.pool.fogPosition, this.pool.fogColor);
+    this.fogPass.configure(next.fogSteps, this.pool.fogPosition, this.pool.fogColor, this.pool.opActiveLights);
     this.emissiveLines.setVisible(next.msaa === 0);
     if (this.decalSystem) {
       this.decalSystem.floor.tileLimit = next.bloodTiles;
@@ -495,7 +548,7 @@ export class Renderer implements RenderSystem {
       ao: time(() => this.gtao.renderAo(renderer, this.tanHalf)),
       fog: time(() => this.fogPass.render(renderer, half, camera, this.tanHalf, this.engine.opTime.value)),
       ssr: time(() => this.ssr.render(renderer, half, this.sceneTarget.texture, this.bloom.output, camera, this.tanHalf)),
-      combine: time(() => this.combine.render(renderer, this.hdrTarget, this.sceneTarget.texture, depth, half, this.gtao.texture, this.fogPass.texture, this.ssr.texture, camera, 1, 1, 1)),
+      combine: time(() => this.combine.render(renderer, this.hdrColorOnly, this.sceneTarget.texture, depth, half, this.gtao.texture, this.fogPass.texture, this.ssr.texture, camera, 1, 1, 1)),
       bloom: time(() => this.bloom.render(renderer, this.hdrTarget)),
       composite: time(() => this.composite.render(renderer, this.hdrTarget.texture, this.bloom.output, this.width, this.height, 1, this.postState)),
     };
@@ -515,14 +568,25 @@ export class Renderer implements RenderSystem {
     return this.lastTriangles;
   }
 
-  private drawXRay(realDt: number): void {
+  private drawXRay(realDt: number, worldFrame: number): void {
     const { renderer, scene, camera, xray } = this;
     const depth = this.depthCopy.depthTexture!;
-    xray.drawSweep(renderer, this.hdrTarget, depth, camera, realDt);
-    renderer.setRenderTarget(this.hdrTarget);
+    xray.drawSweep(renderer, this.hdrColorOnly, depth, camera, realDt);
+    renderer.setRenderTarget(this.hdrColorOnly);
     scene.overrideMaterial = xray.material;
     this.listMode = 'xray';
-    while (xray.next(depth, camera)) renderer.render(scene, camera);
+    const prevMask = camera.layers.mask;
+    camera.layers.set(XRAY_LAYER);
+    while (xray.next(depth, camera)) {
+      const lit = xray.current!;
+      for (const o of lit) o.layers.enable(XRAY_LAYER);
+      const saved = renderer.info.render.frame;
+      renderer.info.render.frame = worldFrame - 1;
+      renderer.render(scene, camera);
+      renderer.info.render.frame = saved;
+      for (const o of lit) o.layers.disable(XRAY_LAYER);
+    }
+    camera.layers.mask = prevMask;
     this.listMode = 'all';
     scene.overrideMaterial = null;
   }
@@ -612,7 +676,10 @@ export class Renderer implements RenderSystem {
     this.viewMoon.target.updateMatrixWorld();
 
     engine.opShadowAmount.value = this.passes.shadows ? 1 : 0;
+    const baseFrame = renderer.info.render.frame;
     if (this.passes.shadows) this.shadows.update(renderer, camera, scene, this.drawShadow);
+    const shadowRan = renderer.info.render.frame > baseFrame;
+    let worldFrame = renderer.info.render.frame;
 
     // Viewmodel first, in a sliver of the depth range, then the world in the same target. One MSAA
     // surface and one resolve serve both, and the tiler never shades world pixels behind the gun.
@@ -627,10 +694,20 @@ export class Renderer implements RenderSystem {
     gl.depthRange(0, VIEW_DEPTH_MAX);
     engine.opViewPass.value = 1;
     renderer.render(viewScene, viewCamera);
+    const viewFrame = renderer.info.render.frame;
     engine.opViewPass.value = 0;
     gl.depthRange(0, 1);
     target.samples = samples;
-    renderer.render(scene, camera);
+    if (shadowRan) {
+      // Reuse the dynamic shadow pass's frame counter so WebGLObjects skips re-updating skeletons and buffers.
+      const saved = renderer.info.render.frame;
+      renderer.info.render.frame = worldFrame - 1;
+      renderer.render(scene, camera);
+      renderer.info.render.frame = saved;
+    } else {
+      renderer.render(scene, camera);
+      worldFrame = renderer.info.render.frame;
+    }
 
     renderer.copyTextureToTexture(this.sceneTarget.depthTexture!, this.depthCopy.depthTexture!, this.depthRegion);
 
@@ -640,7 +717,10 @@ export class Renderer implements RenderSystem {
     if (this.passes.decals && this.decalSystem.mesh.count > 0) {
       renderer.setRenderTarget(this.decalTarget);
       this.listMode = 'decals';
+      const prevMask = camera.layers.mask;
+      camera.layers.set(DECAL_LAYER);
       renderer.render(scene, camera);
+      camera.layers.mask = prevMask;
     }
 
     // AO and fog work from depth alone, so they run before anything transparent is drawn.
@@ -655,21 +735,27 @@ export class Renderer implements RenderSystem {
     if (fogOn) this.fogPass.render(renderer, this.gtao.depth.texture, camera, this.tanHalf, time);
     const ssrOn = q.ssrSteps > 0 && this.passes.ssr && this.frames > 0;
     if (ssrOn) this.ssr.render(renderer, this.gtao.depth.texture, this.sceneTarget.texture, this.hdrTarget.texture, camera, this.tanHalf);
-    this.combine.render(renderer, this.hdrTarget, this.sceneTarget.texture, depth, this.gtao.depth.texture, this.gtao.texture, this.fogPass.texture, this.ssr.texture, camera, aoOn ? 1 : 0, fogOn ? 1 : 0, ssrOn ? 1 : 0);
+    this.combine.render(renderer, this.hdrColorOnly, this.sceneTarget.texture, depth, this.gtao.depth.texture, this.gtao.texture, this.fogPass.texture, this.ssr.texture, camera, aoOn ? 1 : 0, fogOn ? 1 : 0, ssrOn ? 1 : 0);
 
     // Transparent pass into the resolved image, against the world's depth.
     engine.opFogTex.value = this.fogPass.texture;
     renderer.setRenderTarget(this.hdrTarget);
     this.listMode = 'transparent';
+    const savedTransparent = renderer.info.render.frame;
+    renderer.info.render.frame = worldFrame - 1;
     renderer.render(scene, camera);
+    renderer.info.render.frame = viewFrame - 1;
     gl.depthRange(0, VIEW_DEPTH_MAX);
     engine.opViewPass.value = 1;
     renderer.render(viewScene, viewCamera);
     engine.opViewPass.value = 0;
     gl.depthRange(0, 1);
+    renderer.info.render.frame = savedTransparent;
     this.listMode = 'all';
+    // Nothing reads hdrTarget's hardware depth attachment after transparents; discard it to save a TBDR depth store.
+    gl.invalidateFramebuffer(gl.FRAMEBUFFER, INVALIDATE_DEPTH);
 
-    if (this.xray.busy) this.drawXRay(realDt);
+    if (this.xray.busy) this.drawXRay(realDt, worldFrame);
 
     if (this.passes.bloom) this.bloom.render(renderer, this.hdrTarget);
     this.composite.render(renderer, this.hdrTarget.texture, this.bloom.output, this.width, this.height, time, this.postState);

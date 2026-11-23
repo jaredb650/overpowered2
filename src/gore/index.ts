@@ -467,6 +467,14 @@ const _v2 = new THREE.Vector3();
 const _v3 = new THREE.Vector3();
 const _v4 = new THREE.Vector3();
 const _v5 = new THREE.Vector3();
+const _gibHips = new THREE.Vector3();
+const _gibChest = new THREE.Vector3();
+const _gibBlastDir = new THREE.Vector3();
+const _gibDmgPoint = new THREE.Vector3();
+const _gibDmgDir = new THREE.Vector3();
+const _gibDamage: DamageInfo = {
+  amount: 999, type: 'explosive', point: _gibDmgPoint, dir: _gibDmgDir, force: 1, source: 'gib',
+};
 const _q = new THREE.Quaternion();
 const _q2 = new THREE.Quaternion();
 const _seeds = new Float32Array(MAX_BONES * SEED_STRIDE);
@@ -2226,15 +2234,15 @@ export class Gore implements GoreSystem {
     const push = force > 0 ? force : DEFAULT_FORCE.explosive;
     const machine = isMachine(char);
     char.root.updateMatrixWorld(true);
-    const hips = new THREE.Vector3().setFromMatrixPosition(char.bones[0]!.matrixWorld);
+    const hips = _gibHips.setFromMatrixPosition(char.bones[0]!.matrixWorld);
     const chestBone = info.children[0]!.length > 0 ? this.firstBody(info) : 0;
-    const chest = new THREE.Vector3().setFromMatrixPosition(char.bones[chestBone]!.matrixWorld);
+    const chest = _gibChest.setFromMatrixPosition(char.bones[chestBone]!.matrixWorld);
     const away = _v.copy(chest).sub(center);
     if (away.lengthSq() < 1e-4) randomUnit(away);
     away.normalize();
     away.y = Math.max(away.y, 0.25);
     away.normalize();
-    const blastDir = new THREE.Vector3().copy(away);
+    const blastDir = _gibBlastDir.copy(away);
     // The way the blast went, along the floor: the kill's own direction (a blast's runs from its centre through the
     // body, a round's along its shot). `center` is the body's own middle on most calls, and says nothing of it.
     const flat = this.gibFlat.copy(damage ? damage.dir : away).setY(0);
@@ -2248,9 +2256,9 @@ export class Gore implements GoreSystem {
     const t = GoreTuning;
     const launch = clamp(push / t.gibForcePerSpeed, t.gibSpeedMin, t.gibSpeedMax) * DevFlags.force;
     const killing = damage;
-    damage = {
-      amount: 999, type: 'explosive', point: chest.clone(), dir: blastDir.clone(), force: 1, source: 'gib',
-    };
+    _gibDmgPoint.copy(chest);
+    _gibDmgDir.copy(blastDir);
+    damage = _gibDamage;
     if (body?.rag?.active) body.rag.writeSeeds(_seeds);
     else if (body?.rag) fillVelocity(info.count, null, _seeds);
     else measureAnimVelocity(char, char.anim, null, _seeds);
@@ -2398,6 +2406,7 @@ export class Gore implements GoreSystem {
     const library = this.ctx.characters;
     if (!library?.archetypes) return;
     let warmed = false;
+    let warmedMachine = false;
     for (const id of library.archetypes()) {
       if (this.kits.has(id)) continue;
       let char: CharacterInstance;
@@ -2420,7 +2429,11 @@ export class Gore implements GoreSystem {
       } else if (isMachine(char)) {
         // A machine's hull is cut here too, with its limbs folded away, so its first burst pays for no cut.
         char.rig.bones.forEach((def, bone) => { if (bone > 0 && def.severable) char.hideLimb(bone); });
-        this.wreckFor(char);
+        const wreck = this.wreckFor(char);
+        if (!warmedMachine && wreck.length > 0) {
+          this.sliced.warmWreck(wreck[0]!.side, char.skinMaterial);
+          warmedMachine = true;
+        }
       }
       char.release();
       if (kit) this.cutLimbs(id, kit);

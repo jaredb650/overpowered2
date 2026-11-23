@@ -38,6 +38,7 @@ interface Piece {
   born: number;
   still: number;
   restedAt: number;
+  restingIndex: number;
   readonly half: THREE.Vector3;
   readonly p: THREE.Vector3;
   readonly q: THREE.Quaternion;
@@ -56,7 +57,11 @@ export class Debris {
   private readonly meshes = new Map<DebrisMat, THREE.InstancedMesh>();
   private readonly slots = new Map<DebrisMat, Piece[]>();
   private readonly ring = new Map<DebrisMat, number>();
+  private readonly aliveCount = new Map<DebrisMat, number>();
+  private readonly dirtyMin = new Map<DebrisMat, number>();
+  private readonly dirtyMax = new Map<DebrisMat, number>();
   private readonly moving: Piece[] = [];
+  private readonly resting: Piece[] = [];
   private readonly all: Piece[] = [];
   private time = 0;
   private ready = false;
@@ -64,17 +69,25 @@ export class Debris {
   /** `mats` are the materials this pool throws; the walls' own four by default. */
   constructor(private readonly ctx: Ctx, private readonly material: (m: Mat) => THREE.Material, private readonly mats: readonly DebrisMat[] = MATS) {
     this.root.name = 'debris';
+    this.root.matrixAutoUpdate = false;
+    this.root.updateMatrix();
     ctx.physics.radialListeners?.add((c, r, s) => this.blast(c, r, s));
+  }
+
+  /** Pre-builds instanced meshes during world load so the first explosion doesn't stall on allocation/compile. */
+  warm(): void {
+    this.ensure();
   }
 
   /** Throws again every resting piece in the blast, out from its middle and up, harder the nearer. */
   private blast(center: THREE.Vector3, radius: number, strength: number): void {
-    if (!this.ready || strength <= 0) return;
-    for (let i = 0; i < this.all.length; i++) {
-      const c = this.all[i]!;
-      if (!c.alive || c.body) continue;
-      const d = c.p.distanceTo(center);
-      if (d > radius) continue;
+    if (!this.ready || strength <= 0 || this.resting.length === 0) return;
+    const rSq = radius * radius;
+    for (let i = this.resting.length - 1; i >= 0; i--) {
+      const c = this.resting[i]!;
+      const dSq = c.p.distanceToSquared(center);
+      if (dSq > rSq) continue;
+      const d = Math.sqrt(dSq);
       const speed = Math.min(16, strength * 0.15 * (1 - d / radius));
       if (speed < 1) continue;
       _v.subVectors(c.p, center).setY(0).normalize().multiplyScalar(speed);
@@ -96,10 +109,13 @@ export class Debris {
       g.setAttribute('normal', new THREE.BufferAttribute(b.n.slice(0, b.nv * 3), 3));
       g.setAttribute('uv', new THREE.BufferAttribute(b.uv.slice(0, b.nv * 2), 2));
       g.setAttribute('color', new THREE.BufferAttribute(b.c.slice(0, b.nv * 4), 4, true));
-      g.setIndex(new THREE.BufferAttribute(b.idx.slice(0, b.ni), 1));
+      g.setIndex(new THREE.BufferAttribute(b.nv <= 65535 ? new Uint16Array(b.idx.subarray(0, b.ni)) : b.idx.slice(0, b.ni), 1));
       const cap = DebrisTuning.capacity;
       const mesh = new THREE.InstancedMesh(g, this.material(mat), cap);
       mesh.name = `debris:${mat}`;
+      mesh.matrixAutoUpdate = false;
+      mesh.updateMatrix();
+      mesh.userData.dynamicShadow = true;
       mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
       mesh.frustumCulled = false;
       mesh.castShadow = true;
@@ -108,17 +124,53 @@ export class Debris {
         mesh.setMatrixAt(i, _hide);
         mesh.setColorAt(i, _c.setScalar(1));
       }
+      mesh.instanceMatrix.needsUpdate = true;
+      if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
       // Nothing to draw until the first piece flies.
       mesh.visible = false;
       this.root.add(mesh);
       this.meshes.set(mat, mesh);
       this.ring.set(mat, 0);
+      this.aliveCount.set(mat, 0);
+      this.dirtyMin.set(mat, cap);
+      this.dirtyMax.set(mat, -1);
       const slots: Piece[] = Array.from({ length: cap }, (_, slot) => ({
-        mat, slot, body: null, alive: false, born: 0, still: 0, restedAt: -1,
+        mat, slot, body: null, alive: false, born: 0, still: 0, restedAt: -1, restingIndex: -1,
         half: new THREE.Vector3(), p: new THREE.Vector3(), q: new THREE.Quaternion(), v: new THREE.Vector3(),
       }));
       this.slots.set(mat, slots);
       this.all.push(...slots);
+    }
+  }
+
+  private removeResting(c: Piece): void {
+    const idx = c.restingIndex;
+    if (idx < 0) return;
+    const last = this.resting.pop()!;
+    if (idx < this.resting.length) {
+      this.resting[idx] = last;
+      last.restingIndex = idx;
+    }
+    c.restingIndex = -1;
+  }
+
+  private markDirty(mat: DebrisMat, slot: number): void {
+    const lo = this.dirtyMin.get(mat)!;
+    const hi = this.dirtyMax.get(mat)!;
+    if (slot < lo) this.dirtyMin.set(mat, slot);
+    if (slot > hi) this.dirtyMax.set(mat, slot);
+  }
+
+  private flushDirty(): void {
+    for (const [mat, mesh] of this.meshes) {
+      const hi = this.dirtyMax.get(mat)!;
+      if (hi < 0) continue;
+      const lo = this.dirtyMin.get(mat)!;
+      mesh.instanceMatrix.clearUpdateRanges();
+      mesh.instanceMatrix.addUpdateRange(lo * 16, (hi - lo + 1) * 16);
+      mesh.instanceMatrix.needsUpdate = true;
+      this.dirtyMin.set(mat, DebrisTuning.capacity);
+      this.dirtyMax.set(mat, -1);
     }
   }
 
@@ -127,13 +179,16 @@ export class Debris {
     this.ensure();
     const { R, world } = this.ctx.physics;
     let c: Piece;
-    if (again) c = again;
-    else {
+    if (again) {
+      c = again;
+      this.removeResting(c);
+    } else {
       const slots = this.slots.get(mat)!;
       const at = this.ring.get(mat)!;
       this.ring.set(mat, (at + 1) % slots.length);
       c = slots[at]!;
       if (c.alive) this.retire(c);
+      this.aliveCount.set(mat, this.aliveCount.get(mat)! + 1);
     }
     if (this.moving.length >= DebrisTuning.maxBodies) this.freeze(this.moving[0]!);
     // A thin board would slip through the floor's contact in one step at speed; it is thrown a little thicker than it looks.
@@ -187,22 +242,40 @@ export class Debris {
       this.moving[at] = this.moving[this.moving.length - 1]!;
       this.moving.pop();
     }
+    if (c.alive && c.restingIndex < 0) {
+      c.restingIndex = this.resting.length;
+      this.resting.push(c);
+    }
     this.write(c, 1);
   }
 
   private retire(c: Piece): void {
-    if (c.body) this.freeze(c);
+    if (!c.alive) return;
+    if (c.body) {
+      this.ctx.physics.world.removeRigidBody(c.body);
+      c.body = null;
+      const at = this.moving.indexOf(c);
+      if (at >= 0) {
+        this.moving[at] = this.moving[this.moving.length - 1]!;
+        this.moving.pop();
+      }
+    }
+    this.removeResting(c);
     c.alive = false;
+    c.restedAt = -1;
     const mesh = this.meshes.get(c.mat)!;
     mesh.setMatrixAt(c.slot, _hide);
-    mesh.instanceMatrix.needsUpdate = true;
+    this.markDirty(c.mat, c.slot);
+    const nextAlive = Math.max(0, this.aliveCount.get(c.mat)! - 1);
+    this.aliveCount.set(c.mat, nextAlive);
+    if (nextAlive === 0) mesh.visible = false;
   }
 
   private write(c: Piece, scale: number): void {
     _m.compose(c.p, c.q, _s.set(c.half.x * 2 * scale, c.half.y * 2 * scale, c.half.z * 2 * scale));
     const mesh = this.meshes.get(c.mat)!;
     mesh.setMatrixAt(c.slot, _m);
-    mesh.instanceMatrix.needsUpdate = true;
+    this.markDirty(c.mat, c.slot);
   }
 
   update(dt: number): void {
@@ -222,14 +295,14 @@ export class Debris {
       if (c.p.y < -20) this.retire(c);
       else if (c.still > t.settle || this.time - c.born > t.maxFlight) this.freeze(c);
     }
-    for (let i = 0; i < this.all.length; i++) {
-      const c = this.all[i]!;
-      if (!c.alive || c.restedAt < 0) continue;
+    for (let i = this.resting.length - 1; i >= 0; i--) {
+      const c = this.resting[i]!;
       const age = this.time - c.restedAt - t.linger;
       if (age <= 0) continue;
       if (age >= t.shrink) this.retire(c);
       else this.write(c, 1 - age / t.shrink);
     }
+    this.flushDirty();
   }
 
   /** Bodies in flight now. For checks and the perf readout. */
@@ -239,13 +312,12 @@ export class Debris {
 
   /** Pieces in the world, moving or still. */
   get pieces(): number {
-    let n = 0;
-    for (let i = 0; i < this.all.length; i++) if (this.all[i]!.alive) n++;
-    return n;
+    return this.moving.length + this.resting.length;
   }
 
   clear(): void {
     if (!this.ready) return;
     for (const c of this.all) if (c.alive) this.retire(c);
+    this.flushDirty();
   }
 }

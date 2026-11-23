@@ -1,6 +1,7 @@
 /** Behaviours and attacks unique to one enemy: the leaper's wall game, the suicide runners, the drone's flight. */
 import * as THREE from 'three';
 import { DroneBone } from '../characters/rig';
+import { CG, type PhysicsSystem, type RayHit } from '../core/contracts';
 import { clamp, damp, dampAngle, rand } from '../core/math';
 import type { AttackDef, Behaviour } from './brain';
 import type { Enemy } from './Enemy';
@@ -11,6 +12,13 @@ import { leapTo } from './movement';
 const _p = new THREE.Vector3();
 const _q = new THREE.Vector3();
 const _dir = new THREE.Vector3();
+const _rayHit: RayHit = { point: new THREE.Vector3(), normal: new THREE.Vector3(), distance: 0, surface: 'concrete', collider: null };
+
+function raycastWorld(physics: PhysicsSystem, origin: THREE.Vector3, dir: THREE.Vector3, maxDist: number): RayHit | null {
+  return typeof physics.raycastInto === 'function'
+    ? (physics.raycastInto(origin, dir, maxDist, CG.World, _rayHit) ? _rayHit : null)
+    : physics.raycast(origin, dir, maxDist);
+}
 
 const CLING_HEIGHT = 3.6;
 const WALL_SEARCH = 11;
@@ -27,7 +35,7 @@ function findWall(e: Enemy, w: AiWorld, out: THREE.Vector3): boolean {
     _dir.set(Math.sin(a), 0, Math.cos(a));
     _p.copy(e.position);
     _p.y += CLING_HEIGHT;
-    const hit = w.ctx.physics.raycast(_p, _dir, WALL_SEARCH);
+    const hit = raycastWorld(w.ctx.physics, _p, _dir, WALL_SEARCH);
     if (hit && Math.abs(hit.normal.y) < 0.3) {
       out.copy(hit.point).addScaledVector(hit.normal, 0.45);
       return true;
@@ -220,6 +228,8 @@ export function hover(radius: number): Behaviour {
       e.orbitDir = e.side;
       e.timerA = 0;
       e.timerB = rand(HOVER_MIN, HOVER_MAX);
+      e.groundSampleAt.set(1e9, 1e9);
+      e.probeAt = 0;
     },
     think(e, w) {
       if (w.now >= e.timerA) {
@@ -229,7 +239,7 @@ export function hover(radius: number): Behaviour {
       }
       if (e.velocity.lengthSq() > 4 && w.director.spendRay()) {
         _dir.copy(e.velocity).normalize();
-        const hit = w.ctx.physics.raycast(e.position, _dir, 5);
+        const hit = raycastWorld(w.ctx.physics, e.position, _dir, 5);
         e.stage = hit ? 1 : 0;
       }
     },
@@ -240,7 +250,14 @@ export function hover(radius: number): Behaviour {
       _p.multiplyScalar(1 / r);
       _dir.set(_p.z * e.orbitDir, 0, -_p.x * e.orbitDir).addScaledVector(_p, clamp((radius - r) * 0.3, -1, 1)).normalize();
       const speed = e.def.speed * e.speedMul;
-      const floor = w.ctx.world.nav.groundHeight(e.position.x, e.position.y + 2, e.position.z);
+      const gdx = e.position.x - e.groundSampleAt.x;
+      const gdz = e.position.z - e.groundSampleAt.y;
+      if (gdx * gdx + gdz * gdz >= 0.25 || w.now >= e.probeAt) {
+        e.groundSampleAt.set(e.position.x, e.position.z);
+        e.probeAt = w.now + 0.12;
+        e.groundY = w.ctx.world.nav.groundHeight(e.position.x, e.position.y + 2, e.position.z);
+      }
+      const floor = e.groundY;
       const base = Math.max(Number.isNaN(floor) ? p.y : floor, p.y);
       // Blocked ahead: rise over it rather than turning, so a drone never gets stuck against a tower.
       const climb = e.stage === 1 ? 7 : clamp((base + e.timerB - e.position.y) * 1.6, -5, 5);

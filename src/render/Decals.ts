@@ -224,6 +224,8 @@ export class Decals implements DecalSystem {
     this.mesh.castShadow = false;
     this.mesh.receiveShadow = true;
     this.mesh.renderOrder = -10;
+    this.mesh.matrixAutoUpdate = false;
+    this.mesh.updateMatrix();
     this.matrices = this.mesh.instanceMatrix.array as Float32Array;
     this.data = this.extra.array as Float32Array;
     // An empty slot is a quad of no size (all zeros), so the draw can run to the last slot in use without drawing it.
@@ -701,10 +703,35 @@ export class Decals implements DecalSystem {
       this.mesh.instanceMatrix.clearUpdateRanges();
       this.extra.clearUpdateRanges();
       any = true;
-      for (let k = 0; k < this.looseCount; k++) {
-        this.mesh.instanceMatrix.addUpdateRange(this.loose[k]! * 16, 16);
-        this.extra.addUpdateRange(this.loose[k]! * 4, 4);
+      // Insertion-sort the <= 48 loose slots and coalesce duplicates / contiguous runs into minimal ranges.
+      const loose = this.loose;
+      const n = this.looseCount;
+      for (let k = 1; k < n; k++) {
+        const v = loose[k]!;
+        let j = k - 1;
+        while (j >= 0 && loose[j]! > v) {
+          loose[j + 1] = loose[j]!;
+          j--;
+        }
+        loose[j + 1] = v;
       }
+      let start = loose[0]!;
+      let end = start;
+      for (let k = 1; k < n; k++) {
+        const s = loose[k]!;
+        if (s <= end + 1) {
+          if (s > end) end = s;
+        } else {
+          const count = end - start + 1;
+          this.mesh.instanceMatrix.addUpdateRange(start * 16, count * 16);
+          this.extra.addUpdateRange(start * 4, count * 4);
+          start = s;
+          end = s;
+        }
+      }
+      const count = end - start + 1;
+      this.mesh.instanceMatrix.addUpdateRange(start * 16, count * 16);
+      this.extra.addUpdateRange(start * 4, count * 4);
       this.looseCount = 0;
     }
     for (const r of this.rings) {

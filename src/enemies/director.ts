@@ -7,11 +7,14 @@
  *  - The line-of-sight budget caps raycasts per frame, however many enemies want one.
  */
 import * as THREE from 'three';
+import { CG, type RayHit } from '../core/contracts';
 import { clamp, TAU } from '../core/math';
 import { GHOST_RANGE } from './behaviours';
 import type { AttackToken } from './brain';
 import type { Enemy } from './Enemy';
 import type { AiWorld } from './aiWorld';
+
+const _rayHit: RayHit = { point: new THREE.Vector3(), normal: new THREE.Vector3(), distance: 0, surface: 'concrete', collider: null };
 
 /** Raycasts per frame shared by all enemies. Each one costs a WASM crossing and allocations in the wrapper. */
 const LOS_PER_FRAME = 8;
@@ -155,7 +158,10 @@ export class Director {
     const d = this.dir.length();
     if (d < 0.01) return true;
     this.dir.multiplyScalar(1 / d);
-    return this.w.ctx.physics.raycast(a, this.dir, d - 0.1) === null;
+    const { physics } = this.w.ctx;
+    return typeof physics.raycastInto === 'function'
+      ? !physics.raycastInto(a, this.dir, d - 0.1, CG.World, _rayHit)
+      : physics.raycast(a, this.dir, d - 0.1) === null;
   }
 
   spendBark(): boolean {

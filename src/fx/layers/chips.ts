@@ -57,7 +57,7 @@ void main() {
   float rate = length(aR.xyz);
   if (rate > 0.0) {
     vec3 axis = aR.xyz / rate;
-    float phase = hash21(aP.xz + aP.w + float(gl_InstanceID) * 0.37) * 6.2831853;
+    float phase = hash21(aP.xz + aP.w + aV.xz * 0.73 + aR.xy * 1.17) * 6.2831853;
     float angle = phase + rate * moved;
     local = rotateAxis(local, axis, angle);
     n = rotateAxis(n, axis, angle);
@@ -134,12 +134,14 @@ export class ChipLayer {
     });
 
     const make = (shape: ChipShape, geometry: THREE.BufferGeometry) => {
-      const ring = new InstanceRing(geometry, CAPS[shape], ATTRS);
+      const ring = new InstanceRing(geometry, CAPS[shape], ATTRS, true);
       const mesh = new THREE.Mesh(ring.geometry, material);
       mesh.frustumCulled = false;
       mesh.visible = false;
       mesh.renderOrder = ORDER.chips;
       mesh.name = `fx.chips.${shape}`;
+      mesh.matrixAutoUpdate = false;
+      mesh.updateMatrix();
       ring.object = mesh;
       scene.add(mesh);
       return ring;

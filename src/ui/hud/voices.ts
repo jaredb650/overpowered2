@@ -77,6 +77,8 @@ interface Slot {
   fade: number;
   /** Monotonic generation counter so an aborted play() from a previous clip cannot kill a newly assigned clip. */
   gen: number;
+  lastGain: number;
+  lastPan: number;
 }
 
 const _v = new THREE.Vector3();
@@ -89,12 +91,16 @@ export class ChatterVoices {
   private wired = false;
   private unlockBound = false;
   private clock = 0;
+  private activeCount = 0;
 
   constructor(private readonly ctx: Ctx, private readonly settings: Settings, private readonly deps: VoiceDeps = PAGE) {
     for (let i = 0; i < VOICE_POOL; i++) {
       const audio = deps.audio();
       audio.preload = 'auto';
-      const slot: Slot = { audio, gain: null, pan: null, dry: null, wet: null, enemy: null, rank: 0, radio: false, bornAt: 0, playing: false, fade: 0, gen: 0 };
+      const slot: Slot = {
+        audio, gain: null, pan: null, dry: null, wet: null, enemy: null, rank: 0, radio: false,
+        bornAt: 0, playing: false, fade: 0, gen: 0, lastGain: NaN, lastPan: NaN,
+      };
       audio.addEventListener('ended', () => {
         if (slot.playing) this.free(slot);
       });
@@ -164,13 +170,17 @@ export class ChatterVoices {
     if (!slot) return false;
     this.wire();
     const gen = ++slot.gen;
+    const wasPlaying = slot.playing;
     slot.audio.pause();
     slot.enemy = line.enemy ?? null;
     slot.rank = rank;
     slot.radio = radio;
     slot.bornAt = this.clock;
     slot.playing = true;
+    if (!wasPlaying) this.activeCount++;
     slot.fade = 0;
+    slot.lastGain = NaN;
+    slot.lastPan = NaN;
     slot.audio.src = `${BASE}${encodeURIComponent(clip)}.${VOICED.ext}`;
     if (slot.dry && slot.wet) {
       slot.dry.gain.value = radio ? 0 : 1;
@@ -186,11 +196,13 @@ export class ChatterVoices {
 
   /** He was cut off: his voice stops now. */
   cut(enemy: EnemyInstance): void {
+    if (this.activeCount === 0) return;
     for (const p of this.pool) if (p.playing && p.enemy === enemy && p.fade === 0) p.fade = CUT_FADE;
   }
 
   update(dt: number, paused: boolean): void {
     this.clock += dt;
+    if (this.activeCount === 0) return;
     for (const p of this.pool) {
       if (!p.playing) continue;
       if (paused !== p.audio.paused && p.fade === 0) {
@@ -215,12 +227,16 @@ export class ChatterVoices {
         if (age > MAX_PLAY_AGE || stalled) this.free(p);
       }
     }
-    this.mix();
+    if (this.activeCount > 0) this.mix();
   }
 
   /** Levels and sides, every frame: distance and bearing for shouts, the warning on top. */
   private mix(): void {
-    const warning = this.pool.some(p => p.playing && p.rank === RANK.critical);
+    let warning = false;
+    for (let i = 0; i < this.pool.length; i++) {
+      const p = this.pool[i]!;
+      if (p.playing && p.rank === RANK.critical) { warning = true; break; }
+    }
     const camera = this.ctx.render.camera;
     for (const p of this.pool) {
       if (!p.playing) continue;
@@ -236,9 +252,23 @@ export class ChatterVoices {
         }
       }
       if (p.fade > 0) level *= p.fade / CUT_FADE;
-      if (p.gain) p.gain.gain.value = level * VOICE_GAIN;
-      else p.audio.volume = THREE.MathUtils.clamp(level, 0, 1);
-      if (p.pan) p.pan.pan.value = side;
+      if (p.gain) {
+        const g = level * VOICE_GAIN;
+        if (!(Math.abs(g - p.lastGain) <= 1e-3)) {
+          p.lastGain = g;
+          p.gain.gain.value = g;
+        }
+      } else {
+        const v = THREE.MathUtils.clamp(level, 0, 1);
+        if (!(Math.abs(v - p.lastGain) <= 1e-3)) {
+          p.lastGain = v;
+          p.audio.volume = v;
+        }
+      }
+      if (p.pan && !(Math.abs(side - p.lastPan) <= 1e-3)) {
+        p.lastPan = side;
+        p.pan.pan.value = side;
+      }
     }
   }
 
@@ -269,11 +299,12 @@ export class ChatterVoices {
     }
   }
 
-  /** The graph, built once, on the first line played. */
+  /** The graph, built once, on the first line played. Shares AudioEngine's AudioContext when available. */
   private wire(): void {
     if (this.wired) return;
     this.wired = true;
-    const ac = (this.ac = this.deps.context());
+    const shared = this.deps === PAGE ? (this.ctx.audio as { context?: AudioContext | null } | undefined)?.context ?? null : null;
+    const ac = (this.ac = shared ?? this.deps.context());
     if (!ac) return;
     // The radio: a telephone band and a little grit, shared by every element.
     const low = ac.createBiquadFilter();
@@ -301,9 +332,14 @@ export class ChatterVoices {
 
   private free(p: Slot): void {
     p.gen++;
-    p.playing = false;
+    if (p.playing) {
+      p.playing = false;
+      this.activeCount = Math.max(0, this.activeCount - 1);
+    }
     p.enemy = null;
     p.fade = 0;
+    p.lastGain = NaN;
+    p.lastPan = NaN;
     p.audio.pause();
   }
 

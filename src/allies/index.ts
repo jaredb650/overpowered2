@@ -15,7 +15,7 @@
  * them through `Soldier.foe` (src/enemies/outpost/weapons.ts).
  */
 import * as THREE from 'three';
-import { CG, type CharacterInstance, type Ctx, type DamageInfo, type DamageType, type GameSystem, type PlayerSystem, type Structure } from '../core/contracts';
+import { CG, type CharacterInstance, type Ctx, type DamageInfo, type DamageType, type GameSystem, type PhysicsSystem, type PlayerSystem, type RayHit, type Structure } from '../core/contracts';
 import type { EnemyInstance } from '../core/gameplay';
 import type { GoreRegion } from '../characters/rig';
 import { clamp, damp, dampAngle, rand, randInt, TAU } from '../core/math';
@@ -94,6 +94,13 @@ const _slot = { x: 0, z: 0 };
 const _reading: SpotReading = { hidden: false, canShoot: false, side: 0 };
 const _zone: ZoneHit = { zone: 'thigh', side: 0, behind: false, glancing: false };
 const UP = new THREE.Vector3(0, 1, 0);
+const _rayHit: RayHit = { point: new THREE.Vector3(), normal: new THREE.Vector3(), distance: 0, surface: 'concrete', collider: null };
+
+function raycastWorld(physics: PhysicsSystem, origin: THREE.Vector3, dir: THREE.Vector3, maxDist: number): RayHit | null {
+  return typeof physics.raycastInto === 'function'
+    ? (physics.raycastInto(origin, dir, maxDist, CG.World, _rayHit) ? _rayHit : null)
+    : physics.raycast(origin, dir, maxDist, CG.World);
+}
 
 export interface AllyRayHit {
   ally: Ally;
@@ -488,7 +495,7 @@ export class AllySystem implements GameSystem {
     const d = _dir.length();
     if (d < 0.3) return true;
     _dir.divideScalar(d);
-    return !this.ctx.physics.raycast(from, _dir, d - 0.3, CG.World);
+    return !raycastWorld(this.ctx.physics, from, _dir, d - 0.3);
   }
 
   /** Scores the enemy he would rather shoot. Higher is better; -Infinity for never. */
@@ -957,9 +964,19 @@ export class AllySystem implements GameSystem {
 
   private animate(a: Ally, dt: number): void {
     const e = a.body;
-    const p = this.ctx.player.position;
+    const player = this.ctx.player;
+    const p = player.position;
     const dist = e.position.distanceTo(p);
-    e.lod = dist < LOD_NEAR ? 0 : dist < LOD_FAR ? 1 : 2;
+    let inView = true;
+    if (player.eye && player.forward) {
+      const dx = e.position.x - player.eye.x;
+      const dy = e.position.y + e.def.chest - player.eye.y;
+      const dz = e.position.z - player.eye.z;
+      const d = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1;
+      inView = (dx * player.forward.x + dy * player.forward.y + dz * player.forward.z) / d > 0.62;
+    }
+    const near = dist < LOD_NEAR ? 0 : dist < LOD_FAR ? 1 : 2;
+    e.lod = inView ? near : dist > 18 ? 3 : Math.min(near + 1, 2);
     const cos = Math.cos(e.yaw), sin = Math.sin(e.yaw);
     const vx = e.velocity.x, vz = e.velocity.z;
     const speed = a.state === 'down' ? 0 : Math.hypot(vx, vz);
@@ -997,13 +1014,13 @@ export class AllySystem implements GameSystem {
     _a.add(a.body.center);
     _dir.subVectors(_a, from).normalize();
     const reach = range + 4;
-    const wall = physics.raycast(from, _dir, reach, CG.World);
+    const wall = raycastWorld(physics, from, _dir, reach);
     const limit = wall ? wall.distance : reach;
     const hit = this.raycastBodies(from, _dir, limit, true);
     if (hit) {
       _b.copy(hit.point);
       const shield = hit.ally.def.shield && this.shieldStops(hit.ally, _dir);
-      if (shield) fx.sparks(hit.point, _dir.clone().negate(), 6, 0xffee88);
+      if (shield) fx.sparks(hit.point, _a.copy(_dir).negate(), 6, 0xffee88);
       else this.hurt(hit.ally, damage, hit.point, _dir, hit.bone, hit.region, 'bullet', source);
     } else if (wall) {
       fx.impact(wall.point, wall.normal, wall.surface, 0.5);
@@ -1278,9 +1295,30 @@ export class AllySystem implements GameSystem {
 
   /** The player fired along this line. A round that meets one of ours passes through him: a green spark, a flinch, CHECK FIRE. */
   private checkFire(origin: THREE.Vector3, dir: THREE.Vector3): void {
-    if (this.allies.length === 0) return;
+    const allies = this.allies;
+    const count = allies.length;
+    if (count === 0) return;
+    let nearRay = false;
+    for (let i = 0; i < count; i++) {
+      const a = allies[i]!;
+      if (a.state === 'dead') continue;
+      const c = a.body.center;
+      const ox = c.x - origin.x;
+      const oy = c.y - origin.y;
+      const oz = c.z - origin.z;
+      const along = ox * dir.x + oy * dir.y + oz * dir.z;
+      if (along < -1.3 || along > 201.3) continue;
+      const dx = ox - dir.x * along;
+      const dy = oy - dir.y * along;
+      const dz = oz - dir.z * along;
+      if (dx * dx + dy * dy + dz * dz <= 1.69) {
+        nearRay = true;
+        break;
+      }
+    }
+    if (!nearRay) return;
     const { ctx } = this;
-    const wall = ctx.physics.raycast(origin, dir, 200, CG.World);
+    const wall = raycastWorld(ctx.physics, origin, dir, 200);
     const hit = this.raycastBodies(origin, dir, wall ? wall.distance : 200);
     if (!hit) return;
     const a = hit.ally;

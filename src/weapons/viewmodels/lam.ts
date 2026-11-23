@@ -290,7 +290,7 @@ export class LamBeams {
     vec3(u, 'uEnd').copy(this.end);
     vec3(u, 'uDot').copy(this.dotAt);
     u.uRadius!.value = LAM.radius;
-    strength.z = this.hit ? Math.max(...this.strength) * LAM.dot * (1 - this.aim) : 0;
+    strength.z = this.hit ? Math.max(this.strength[0]!, this.strength[1]!) * LAM.dot * (1 - this.aim) : 0;
   }
 
   /** The view pass, aimed: the dot on the pixel the world's falls on, in front of the view camera, the same size on screen. */
@@ -308,7 +308,7 @@ export class LamBeams {
     const s = LAM.overlayDepth / depth;
     vec3(u, 'uDot').set((_v.x * s) / k, (_v.y * s) / k, -LAM.overlayDepth).applyMatrix4(viewCamera.matrixWorld);
     u.uRadius!.value = (LAM.radius * s) / k;
-    strength.z = Math.max(...this.strength) * LAM.dot * this.aim;
+    strength.z = Math.max(this.strength[0]!, this.strength[1]!) * LAM.dot * this.aim;
   }
 
   /** Whether the dot shows this frame: something in range on the centre ray and a beam on. For tests. */

@@ -165,6 +165,8 @@ class Fire {
   piece: BurningPiece | null = null;
   /** A baked body: smoke comes off the points it lies at. */
   parked: ParkedFire | null = null;
+  /** Last ember glow value pushed to skin.setEmber, or -1 if unsynced. */
+  ember = -1;
 }
 
 const _p = new THREE.Vector3();
@@ -390,6 +392,7 @@ export class FireField {
     f.body = char;
     f.info = rigInfo(char.rig);
     f.scale = char.rig.height / 1.85;
+    f.ember = -1;
     this.measure(f, null);
   }
 
@@ -474,6 +477,7 @@ export class FireField {
     f.scorched = false;
     f.scorchTries = 0;
     f.nextScorch = now + 0.7;
+    f.ember = -1;
     this.measure(f, only);
     this.by.set(source, f);
     return f;
@@ -518,9 +522,15 @@ export class FireField {
     f.heat = 1;
   }
 
+  private setEmber(f: Fire, skin: Skinned | null, value: number): void {
+    if (!skin?.setEmber || f.ember === value) return;
+    f.ember = value;
+    skin.setEmber(value);
+  }
+
   private drop(f: Fire, keepLook = false): void {
     // Taken for another fire while it smoked: its glow goes out with it, or it would sit lit for good.
-    if (keepLook && f.source) (f.source as Skinned).setEmber?.(0);
+    if (keepLook && f.source && f.ember !== 0) (f.source as Skinned).setEmber?.(0);
     if (f.source) this.by.delete(f.source);
     f.live = false;
     f.source = null;
@@ -528,6 +538,7 @@ export class FireField {
     f.info = null;
     f.piece = null;
     f.parked = null;
+    f.ember = -1;
   }
 
   /** A point on its skin, in the world: somewhere along one of its capsules, pushed out toward the surface. */
@@ -644,15 +655,15 @@ export class FireField {
         const k = (now - f.since) / f.lasts;
         // A reset body has no char: the library took it back and gave it to someone new.
         if (k >= 1 || (!f.fireproof && (source.burn ?? 0) < 0.05)) {
-          skin?.setEmber?.(0);
+          this.setEmber(f, skin, 0);
           this.drop(f);
           continue;
         }
         // The glow in the cracks: bright as the flames leave, most of it gone in the first quarter.
-        skin?.setEmber?.(0.6 * (1 - k) ** 3);
+        this.setEmber(f, skin, 0.6 * (1 - k) ** 3);
         f.heat = 0;
       } else {
-        skin?.setEmber?.(1);
+        this.setEmber(f, skin, 1);
       }
       if (f.capCount === 0) continue;
       if (f.piece) {

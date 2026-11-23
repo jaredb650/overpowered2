@@ -157,7 +157,7 @@ function dataTexture(data: Uint8Array, size: number): THREE.DataTexture {
   t.minFilter = THREE.LinearMipmapLinearFilter;
   t.magFilter = THREE.LinearFilter;
   t.generateMipmaps = true;
-  t.anisotropy = 8;
+  t.anisotropy = 4;
   t.colorSpace = THREE.NoColorSpace;
   t.needsUpdate = true;
   return t;
@@ -517,25 +517,31 @@ vmRough = mix(min(vmRough + 0.35, 1.0), vmRough, vmAo);
 
 // Perk looks. A buffed gun has to stay a detailed gun, so none of these replace the surface: emission lives in thin
 // veins and broken edge lines, and everything between them keeps its own albedo, wear and reflections.
-float vmVeinN = vmFine.a * 0.72 + vmBig.a * 0.28;
-// Hard surfaces only, and only in patches: cracks everywhere read as a marble texture, not as a hot gun.
-float vmVeinMask = step(vmKindId, 4.5) * smoothstep(0.5, 0.64, vmBig.r);
-float vmVein = vmVeinMask * (1.0 - smoothstep(0.0, 0.011, abs(vmVeinN - 0.5 - 0.05 * sin(uClock * 0.8 + vmBig.r * 6.0))));
-float vmEdgeLine = step(vmKindId, 4.5) * smoothstep(0.35, 0.7, vmEdge) * smoothstep(0.5, 0.62, vmVeinN);
-
-float vmFrost = uFrost * smoothstep(0.46, 0.66, vmBig.r * 0.5 + vmFine.a * 0.3 + max(vmN.y, 0.0) * 0.18 + vmEdge * 0.2 + (uFrost - 0.5) * 0.35);
-vmAlb = mix(vmAlb, vec3(0.62, 0.76, 0.9) * (0.75 + 0.5 * vmFine.b), vmFrost * 0.8);
-vmMetal *= 1.0 - vmFrost * 0.8;
-vmRough = mix(vmRough, 0.42 + vmFine.a * 0.25, vmFrost);
-
-vec3 vmEmis = vec3(0.03, 0.1, 0.18) * vmFrost * vmFine.a;
-float vmHeatMask = vSurf.w;
-// Squared, so one shot leaves a barrel dark and it takes sustained fire to bring up a glow.
-float vmHot = max(uGunHeat * uGunHeat * vmHeatMask * vmHeatShape * (0.72 + vmFine.a * 0.4), uPerkHeat * vmHeatMask * 0.2);
-vmEmis += vmHeatRamp(vmHot);
-vmAlb *= 1.0 - clamp(vmHot * 0.5, 0.0, 0.5);
-vmEmis += vec3(1.9, 0.52, 0.1) * uPerkHeat * (vmVein * (0.8 + 0.3 * sin(uClock * 3.1 + vmBig.a * 9.0)) + vmEdgeLine * 0.35);
-vmEmis += vec3(2.4, 0.07, 0.05) * uBerserk * (vmVein * 0.9 + vmEdgeLine * 0.4);
+vec3 vmEmis = vec3(0.0);
+float vmHot = 0.0;
+if (uFrost > 0.001) {
+  float vmFrost = uFrost * smoothstep(0.46, 0.66, vmBig.r * 0.5 + vmFine.a * 0.3 + max(vmN.y, 0.0) * 0.18 + vmEdge * 0.2 + (uFrost - 0.5) * 0.35);
+  vmAlb = mix(vmAlb, vec3(0.62, 0.76, 0.9) * (0.75 + 0.5 * vmFine.b), vmFrost * 0.8);
+  vmMetal *= 1.0 - vmFrost * 0.8;
+  vmRough = mix(vmRough, 0.42 + vmFine.a * 0.25, vmFrost);
+  vmEmis += vec3(0.03, 0.1, 0.18) * vmFrost * vmFine.a;
+}
+if (uGunHeat > 0.001 || uPerkHeat > 0.001) {
+  float vmHeatMask = vSurf.w;
+  // Squared, so one shot leaves a barrel dark and it takes sustained fire to bring up a glow.
+  vmHot = max(uGunHeat * uGunHeat * vmHeatMask * vmHeatShape * (0.72 + vmFine.a * 0.4), uPerkHeat * vmHeatMask * 0.2);
+  vmEmis += vmHeatRamp(vmHot);
+  vmAlb *= 1.0 - clamp(vmHot * 0.5, 0.0, 0.5);
+}
+if (uPerkHeat > 0.001 || uBerserk > 0.001) {
+  float vmVeinN = vmFine.a * 0.72 + vmBig.a * 0.28;
+  // Hard surfaces only, and only in patches: cracks everywhere read as a marble texture, not as a hot gun.
+  float vmVeinMask = step(vmKindId, 4.5) * smoothstep(0.5, 0.64, vmBig.r);
+  float vmVein = vmVeinMask * (1.0 - smoothstep(0.0, 0.011, abs(vmVeinN - 0.5 - 0.05 * sin(uClock * 0.8 + vmBig.r * 6.0))));
+  float vmEdgeLine = step(vmKindId, 4.5) * smoothstep(0.35, 0.7, vmEdge) * smoothstep(0.5, 0.62, vmVeinN);
+  vmEmis += vec3(1.9, 0.52, 0.1) * uPerkHeat * (vmVein * (0.8 + 0.3 * sin(uClock * 3.1 + vmBig.a * 9.0)) + vmEdgeLine * 0.35);
+  vmEmis += vec3(2.4, 0.07, 0.05) * uBerserk * (vmVein * 0.9 + vmEdgeLine * 0.4);
+}
 
 // Blood on the weapon and the gloves (../blood.ts). Each layer is one spatter that came from one direction: drops from a
 // tiling field, cut by a threshold, so more blood is more and bigger drops and never a tint. A surface square to where it
@@ -546,49 +552,51 @@ vec3 vmBloodCol = vec3(0.0);
 if (uBloodOn > 0.003) {
   // Never on a sight: y is 0 round a gun's sight points (rig.ts bakeReach). A mesh with no aBlood reads 0 and stays clean.
   float vmTakes = step(0.002, vBloodF.x) * vBloodF.y;
-  float vmFwd = clamp((vBloodF.x * 255.0 - 1.0) / 254.0, 0.0, 1.0);
-  // Cloth drinks it: a stain with a soft edge and no shine. Everything else beads.
-  float vmSoak = (vmKindId > 5.5 && vmKindId < 6.5) ? 1.0 : 0.0;
-  // Hot steel cooks it off.
-  float vmCook = 1.0 - smoothstep(0.12, 0.45, vmHot);
-  for (int i = 0; i < ${BLOOD_LAYERS}; i++) {
-    vec4 bA = uBloodA[i];
-    vec4 bB = uBloodB[i];
-    if (bB.x < 0.004) continue;
-    float wet = bB.y;
-    float facing = dot(vmN, bA.xyz);
-    // What the eye sees of a gun is mostly its back and top, which face away from a kill in front: so facing only shades
-    // the amount, and it is the streaks that show which way the blood came.
-    float cover = bB.x * mix(mix(0.42, 1.0, smoothstep(-0.8, 0.55, facing)), 1.0, bB.w) * mix(0.5 + 0.5 * vmFwd, 1.0, bB.z) * vmCook * vmTakes;
-    // The field is squeezed along the way the blood was travelling, so its blobs are long that way: a surface square to
-    // it cuts them round, and one it came in low over cuts them as streaks.
-    vec3 q = vOP - bA.xyz * (dot(vOP, bA.xyz) * 0.7);
-    q = q * ${(1 / SPATTER_TILE).toFixed(3)} + vec3(bA.w * 7.31 + float(i) * 0.37, bA.w * 3.17, bA.w * 5.53);
-    float big = texture(tSpatter, q).r;
-    float small = texture(tSpatter, q.zxy * ${SPATTER_FINE.toFixed(2)} + 0.41).r;
-    // Drying, a drop draws in a little and the finest of it is lost.
-    float at = 1.0 - cover + (1.0 - wet) * 0.03;
-    float at2 = 1.0 - min(cover * 1.12, 0.93) + (1.0 - wet) * 0.07;
-    float soft = 1.0 + vmSoak * 3.0;
-    float sb = clamp(fwidth(big) * 0.75, 0.008, 0.25) * soft;
-    float ss = clamp(fwidth(small) * 0.75, 0.008, 0.3) * soft;
-    float drops = smoothstep(at - sb, at + sb, big);
-    float specks = smoothstep(at2 - ss, at2 + ss, small);
-    float m = max(drops, specks);
-    // Thin at a drop's edge, standing thick in its middle.
-    float thick = max(drops * smoothstep(0.0, 0.16, big - at), specks * smoothstep(0.0, 0.2, small - at2) * 0.7);
-    vec3 fresh = mix(vec3(0.46, 0.005, 0.007), vec3(0.13, 0.0015, 0.0025), thick);
-    vec3 dried = mix(vec3(0.15, 0.022, 0.013), vec3(0.06, 0.009, 0.006), thick);
-    vec3 col = mix(dried, fresh, wet);
-    // Soaked cloth is a dark stain in the cloth's own weave, not a film over it.
-    col = mix(col, vmAlb * mix(vec3(0.3, 0.07, 0.06), vec3(0.75, 0.04, 0.04), wet), vmSoak * 0.75);
-    float over = m * mix(0.93, 1.0, thick);
-    vmAlb = mix(vmAlb, col, over);
-    vmRough = mix(vmRough, mix(mix(0.74, 0.13, wet), 0.55 + 0.2 * (1.0 - wet), vmSoak), m);
-    vmMetal *= 1.0 - over;
-    vmBloodCol = mix(vmBloodCol, col, m);
-    vmBloodM = max(vmBloodM, m);
-    vmBloodH = max(vmBloodH, thick * mix(0.3, 1.0, wet) * (1.0 - vmSoak));
+  if (vmTakes > 0.001) {
+    float vmFwd = clamp((vBloodF.x * 255.0 - 1.0) / 254.0, 0.0, 1.0);
+    // Cloth drinks it: a stain with a soft edge and no shine. Everything else beads.
+    float vmSoak = (vmKindId > 5.5 && vmKindId < 6.5) ? 1.0 : 0.0;
+    // Hot steel cooks it off.
+    float vmCook = 1.0 - smoothstep(0.12, 0.45, vmHot);
+    for (int i = 0; i < ${BLOOD_LAYERS}; i++) {
+      vec4 bA = uBloodA[i];
+      vec4 bB = uBloodB[i];
+      if (bB.x < 0.004) continue;
+      float wet = bB.y;
+      float facing = dot(vmN, bA.xyz);
+      // What the eye sees of a gun is mostly its back and top, which face away from a kill in front: so facing only shades
+      // the amount, and it is the streaks that show which way the blood came.
+      float cover = bB.x * mix(mix(0.42, 1.0, smoothstep(-0.8, 0.55, facing)), 1.0, bB.w) * mix(0.5 + 0.5 * vmFwd, 1.0, bB.z) * vmCook * vmTakes;
+      // The field is squeezed along the way the blood was travelling, so its blobs are long that way: a surface square to
+      // it cuts them round, and one it came in low over cuts them as streaks.
+      vec3 q = vOP - bA.xyz * (dot(vOP, bA.xyz) * 0.7);
+      q = q * ${(1 / SPATTER_TILE).toFixed(3)} + vec3(bA.w * 7.31 + float(i) * 0.37, bA.w * 3.17, bA.w * 5.53);
+      float big = texture(tSpatter, q).r;
+      float small = texture(tSpatter, q.zxy * ${SPATTER_FINE.toFixed(2)} + 0.41).r;
+      // Drying, a drop draws in a little and the finest of it is lost.
+      float at = 1.0 - cover + (1.0 - wet) * 0.03;
+      float at2 = 1.0 - min(cover * 1.12, 0.93) + (1.0 - wet) * 0.07;
+      float soft = 1.0 + vmSoak * 3.0;
+      float sb = clamp(fwidth(big) * 0.75, 0.008, 0.25) * soft;
+      float ss = clamp(fwidth(small) * 0.75, 0.008, 0.3) * soft;
+      float drops = smoothstep(at - sb, at + sb, big);
+      float specks = smoothstep(at2 - ss, at2 + ss, small);
+      float m = max(drops, specks);
+      // Thin at a drop's edge, standing thick in its middle.
+      float thick = max(drops * smoothstep(0.0, 0.16, big - at), specks * smoothstep(0.0, 0.2, small - at2) * 0.7);
+      vec3 fresh = mix(vec3(0.46, 0.005, 0.007), vec3(0.13, 0.0015, 0.0025), thick);
+      vec3 dried = mix(vec3(0.15, 0.022, 0.013), vec3(0.06, 0.009, 0.006), thick);
+      vec3 col = mix(dried, fresh, wet);
+      // Soaked cloth is a dark stain in the cloth's own weave, not a film over it.
+      col = mix(col, vmAlb * mix(vec3(0.3, 0.07, 0.06), vec3(0.75, 0.04, 0.04), wet), vmSoak * 0.75);
+      float over = m * mix(0.93, 1.0, thick);
+      vmAlb = mix(vmAlb, col, over);
+      vmRough = mix(vmRough, mix(mix(0.74, 0.13, wet), 0.55 + 0.2 * (1.0 - wet), vmSoak), m);
+      vmMetal *= 1.0 - over;
+      vmBloodCol = mix(vmBloodCol, col, m);
+      vmBloodM = max(vmBloodM, m);
+      vmBloodH = max(vmBloodH, thick * mix(0.3, 1.0, wet) * (1.0 - vmSoak));
+    }
   }
 }
 

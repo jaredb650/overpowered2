@@ -124,9 +124,8 @@ interface CameraRuntime {
   readonly mountGroup: THREE.Group;
   readonly headGroup: THREE.Group;
   readonly bodyMesh: THREE.Mesh;
-  readonly ledMat: THREE.MeshBasicMaterial;
+  readonly ledMesh: THREE.Mesh;
   readonly coneMesh: THREE.Mesh;
-  readonly coneMat: THREE.MeshBasicMaterial;
 }
 
 export class CameraSystem {
@@ -137,6 +136,8 @@ export class CameraSystem {
   private readonly thermalCache: THREE.Object3D[] = [];
   private readonly ownedGeos: THREE.BufferGeometry[] = [];
   private readonly ownedMats: THREE.Material[] = [];
+  private readonly ledMats: Record<VisualMode, THREE.MeshBasicMaterial>;
+  private readonly coneMats: Record<'idle' | 'spot' | 'lock', THREE.MeshBasicMaterial>;
   private readonly onAlert?: (cameraId: string, playerEye: THREE.Vector3) => void;
   private readonly onDestroyed?: (position: THREE.Vector3, cameraId: string, soundRadius: number) => void;
 
@@ -146,13 +147,39 @@ export class CameraSystem {
     options: CameraSystemOptions = {},
   ) {
     this.root.name = 'security-cameras';
+    this.root.matrixAutoUpdate = false;
+    this.root.updateMatrix();
     this.onAlert = options.onAlert;
     this.onDestroyed = options.onDestroyed;
 
     const steelDarkMat = this.resolveMat(options.material, 'steelDark', 0x2a313a, 0.72, 0.45);
     const steelMat = this.resolveMat(options.material, 'steel', 0x626e7c, 0.7, 0.38);
     const lensMat = new THREE.MeshStandardMaterial({ color: 0x090d14, metalness: 0.25, roughness: 0.12 });
-    this.ownedMats.push(lensMat);
+    const makeConeMat = (color: number, opacity: number) => new THREE.MeshBasicMaterial({
+      color,
+      transparent: true,
+      opacity,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+      blending: THREE.AdditiveBlending,
+      toneMapped: false,
+    });
+    this.ledMats = {
+      idle: new THREE.MeshBasicMaterial({ color: COLOR_LED_IDLE, toneMapped: false }),
+      spot: new THREE.MeshBasicMaterial({ color: COLOR_LED_SPOT, toneMapped: false }),
+      lock: new THREE.MeshBasicMaterial({ color: COLOR_LED_LOCK, toneMapped: false }),
+      off: new THREE.MeshBasicMaterial({ color: COLOR_LED_OFF, toneMapped: false }),
+    };
+    this.coneMats = {
+      idle: makeConeMat(COLOR_CONE_IDLE, 0.11),
+      spot: makeConeMat(COLOR_CONE_SPOT, 0.18),
+      lock: makeConeMat(COLOR_CONE_LOCK, 0.26),
+    };
+    this.ownedMats.push(
+      lensMat,
+      this.ledMats.idle, this.ledMats.spot, this.ledMats.lock, this.ledMats.off,
+      this.coneMats.idle, this.coneMats.spot, this.coneMats.lock,
+    );
 
     // Shared procedural geometry parts for mount, articulated head, sunshield, lens, and LED.
     const basePlateGeo = new THREE.BoxGeometry(0.16, 0.05, 0.16);
@@ -165,6 +192,12 @@ export class CameraSystem {
     const glassGeo = new THREE.CircleGeometry(0.042, 12);
     const ledGeo = new THREE.SphereGeometry(0.022, 8, 6);
     this.ownedGeos.push(basePlateGeo, stemGeo, swivelGeo, chassisGeo, hoodGeo, barrelGeo, glassGeo, ledGeo);
+    const coneGeoCache = new Map<number, THREE.ConeGeometry>();
+
+    const freeze = (o: THREE.Object3D): void => {
+      o.matrixAutoUpdate = false;
+      o.updateMatrix();
+    };
 
     for (const spec of specs) {
       const pitch = spec.pitch ?? CAMERA_DEFAULT_PITCH;
@@ -178,72 +211,76 @@ export class CameraSystem {
       const mountGroup = new THREE.Group();
       mountGroup.name = `cam_${spec.id}`;
       mountGroup.position.copy(position);
+      freeze(mountGroup);
 
       const plate = new THREE.Mesh(basePlateGeo, steelDarkMat);
       plate.position.set(0, 0.02, 0);
+      freeze(plate);
       mountGroup.add(plate);
 
       const stem = new THREE.Mesh(stemGeo, steelMat);
       stem.position.set(0, -0.06, 0);
+      freeze(stem);
       mountGroup.add(stem);
 
       const swivel = new THREE.Mesh(swivelGeo, steelDarkMat);
       swivel.position.set(0, HEAD_OFFSET_Y, 0);
+      freeze(swivel);
       mountGroup.add(swivel);
 
       const headGroup = new THREE.Group();
       headGroup.position.set(0, HEAD_OFFSET_Y, 0);
       headGroup.rotation.order = 'YXZ';
       headGroup.rotation.set(-pitch, spec.yaw, 0);
+      freeze(headGroup);
       mountGroup.add(headGroup);
 
       const bodyMesh = new THREE.Mesh(chassisGeo, steelDarkMat);
       bodyMesh.position.set(0, 0, -0.04);
       bodyMesh.castShadow = true;
       bodyMesh.receiveShadow = true;
+      bodyMesh.userData.dynamicShadow = true;
+      freeze(bodyMesh);
       headGroup.add(bodyMesh);
 
       const hood = new THREE.Mesh(hoodGeo, steelMat);
       hood.position.set(0, 0.088, -0.07);
+      freeze(hood);
       headGroup.add(hood);
 
       const barrel = new THREE.Mesh(barrelGeo, steelMat);
       barrel.position.set(0, -0.01, -0.23);
+      freeze(barrel);
       headGroup.add(barrel);
 
       const glass = new THREE.Mesh(glassGeo, lensMat);
       glass.position.set(0, -0.01, -0.272);
       glass.rotation.y = Math.PI;
+      freeze(glass);
       headGroup.add(glass);
 
-      const ledMat = new THREE.MeshBasicMaterial({ color: COLOR_LED_IDLE, toneMapped: false });
-      this.ownedMats.push(ledMat);
-      const led = new THREE.Mesh(ledGeo, ledMat);
-      led.position.set(0.065, -0.055, -0.215);
-      headGroup.add(led);
+      const ledMesh = new THREE.Mesh(ledGeo, this.ledMats.idle);
+      ledMesh.position.set(0.065, -0.055, -0.215);
+      freeze(ledMesh);
+      headGroup.add(ledMesh);
 
       // Subtle translucent vision cone extending along local -Z from the lens.
       const coneLen = Math.min(range * 0.55, 11);
-      const coneRadius = coneLen * Math.tan(CONE_HALF_ANGLE);
-      const coneGeo = new THREE.ConeGeometry(coneRadius, coneLen, 20, 1, true);
-      coneGeo.translate(0, -coneLen * 0.5, 0);
-      coneGeo.rotateX(Math.PI / 2);
-      this.ownedGeos.push(coneGeo);
+      const coneKey = Math.round(coneLen * 100);
+      let coneGeo = coneGeoCache.get(coneKey);
+      if (!coneGeo) {
+        const coneRadius = coneLen * Math.tan(CONE_HALF_ANGLE);
+        coneGeo = new THREE.ConeGeometry(coneRadius, coneLen, 20, 1, true);
+        coneGeo.translate(0, -coneLen * 0.5, 0);
+        coneGeo.rotateX(Math.PI / 2);
+        coneGeoCache.set(coneKey, coneGeo);
+        this.ownedGeos.push(coneGeo);
+      }
 
-      const coneMat = new THREE.MeshBasicMaterial({
-        color: COLOR_CONE_IDLE,
-        transparent: true,
-        opacity: 0.11,
-        depthWrite: false,
-        side: THREE.DoubleSide,
-        blending: THREE.AdditiveBlending,
-        toneMapped: false,
-      });
-      this.ownedMats.push(coneMat);
-
-      const coneMesh = new THREE.Mesh(coneGeo, coneMat);
+      const coneMesh = new THREE.Mesh(coneGeo, this.coneMats.idle);
       coneMesh.position.set(0, -0.01, -0.26);
       coneMesh.renderOrder = 2;
+      freeze(coneMesh);
       headGroup.add(coneMesh);
 
       this.root.add(mountGroup);
@@ -274,9 +311,8 @@ export class CameraSystem {
         mountGroup,
         headGroup,
         bodyMesh,
-        ledMat,
+        ledMesh,
         coneMesh,
-        coneMat,
       };
 
       this.list.push(runtime);
@@ -323,25 +359,13 @@ export class CameraSystem {
   private applyVisual(cam: CameraRuntime, mode: VisualMode): void {
     if (cam.visualMode === mode) return;
     cam.visualMode = mode;
+    cam.ledMesh.material = this.ledMats[mode];
     if (mode === 'off') {
-      cam.ledMat.color.setHex(COLOR_LED_OFF);
       cam.coneMesh.visible = false;
       return;
     }
     cam.coneMesh.visible = true;
-    if (mode === 'idle') {
-      cam.ledMat.color.setHex(COLOR_LED_IDLE);
-      cam.coneMat.color.setHex(COLOR_CONE_IDLE);
-      cam.coneMat.opacity = 0.11;
-    } else if (mode === 'spot') {
-      cam.ledMat.color.setHex(COLOR_LED_SPOT);
-      cam.coneMat.color.setHex(COLOR_CONE_SPOT);
-      cam.coneMat.opacity = 0.18;
-    } else {
-      cam.ledMat.color.setHex(COLOR_LED_LOCK);
-      cam.coneMat.color.setHex(COLOR_CONE_LOCK);
-      cam.coneMat.opacity = 0.26;
-    }
+    cam.coneMesh.material = this.coneMats[mode];
   }
 
   /** True if `collider` belongs to an active (undestroyed) security camera. */
@@ -391,6 +415,7 @@ export class CameraSystem {
     this.applyVisual(cam, 'off');
     // Drop and tilt the broken camera head downward.
     cam.headGroup.rotation.set(-1.28, cam.currentYaw + 0.18, 0.36);
+    cam.headGroup.updateMatrix();
 
     this.ctx.fx?.sparks?.(cam.headWorldPos, UP, 18, 0xffd066);
     this.ctx.fx?.smoke?.(cam.headWorldPos, 0x2b3038, 0.65, 1.4);
@@ -459,6 +484,8 @@ export class CameraSystem {
       const cam = this.list[i]!;
       if (cam.destroyed || !cam.powered) continue;
 
+      const prevYaw = cam.currentYaw;
+
       // Current forward direction of the lens (yaw 0 = -Z, positive pitch = downward).
       const cp = Math.cos(cam.pitch);
       _camFwd.set(-Math.sin(cam.currentYaw) * cp, -Math.sin(cam.pitch), -Math.cos(cam.currentYaw) * cp);
@@ -521,7 +548,10 @@ export class CameraSystem {
         }
       }
 
-      cam.headGroup.rotation.set(-cam.pitch, cam.currentYaw, 0);
+      if (cam.currentYaw !== prevYaw) {
+        cam.headGroup.rotation.set(-cam.pitch, cam.currentYaw, 0);
+        cam.headGroup.updateMatrix();
+      }
     }
   }
 
@@ -572,6 +602,7 @@ export class CameraSystem {
       cam.pauseTimer = 0;
       cam.currentYaw = cam.yaw;
       cam.headGroup.rotation.set(-cam.pitch, cam.yaw, 0);
+      cam.headGroup.updateMatrix();
       this.applyVisual(cam, 'idle');
 
       if (!cam.collider) {

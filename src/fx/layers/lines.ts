@@ -104,7 +104,7 @@ export class LineLayer {
   readonly ring: InstanceRing;
 
   constructor(scene: THREE.Scene, uniforms: FxUniforms, cap = 512) {
-    this.ring = new InstanceRing(quad(), cap, ATTRS);
+    this.ring = new InstanceRing(quad(), cap, ATTRS, true);
     const material = new THREE.ShaderMaterial({
       vertexShader: VERT,
       fragmentShader: FRAG,
@@ -122,6 +122,8 @@ export class LineLayer {
     mesh.visible = false;
     mesh.renderOrder = ORDER.tracers;
     mesh.name = 'fx.lines';
+    mesh.matrixAutoUpdate = false;
+    mesh.updateMatrix();
     this.ring.object = mesh;
     scene.add(mesh);
   }

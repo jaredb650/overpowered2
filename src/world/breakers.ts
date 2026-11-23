@@ -232,6 +232,8 @@ export class BreakerSystem {
     this.lights = options.lights ?? null;
     this.onTrip = options.onTrip ?? null;
     this.root.name = 'breaker-boxes';
+    this.root.matrixAutoUpdate = false;
+    this.root.updateMatrix();
 
     const defaultParent = ctx.render?.scene instanceof THREE.Scene ? ctx.render.scene : null;
     this.parent = options.parent ?? defaultParent;
@@ -297,33 +299,49 @@ export class BreakerSystem {
     const pos = new THREE.Vector3(spec.position[0], spec.position[1], spec.position[2]);
     const rotQuat = new THREE.Quaternion().setFromAxisAngle(Y_AXIS, spec.yaw);
 
+    const freeze = (o: THREE.Object3D): void => {
+      o.matrixAutoUpdate = false;
+      o.updateMatrix();
+    };
+
     const group = new THREE.Group();
     group.name = `breaker:${spec.id}`;
     group.position.copy(pos);
     group.quaternion.copy(rotQuat);
+    freeze(group);
 
     const bodyMesh = new THREE.Mesh(this.geo.body, this.steelMat);
     bodyMesh.castShadow = true;
     bodyMesh.receiveShadow = true;
+    bodyMesh.userData.staticShadow = true;
+    freeze(bodyMesh);
 
     const conduitMesh = new THREE.Mesh(this.geo.conduit, this.conduitMat);
     conduitMesh.castShadow = true;
     conduitMesh.receiveShadow = true;
+    conduitMesh.userData.staticShadow = true;
+    freeze(conduitMesh);
 
     const doorPivot = new THREE.Group();
     doorPivot.position.set(-0.21, 0, 0.065);
+    freeze(doorPivot);
     const doorMesh = new THREE.Mesh(this.geo.door, this.doorMat);
     doorMesh.castShadow = true;
     doorMesh.receiveShadow = true;
+    doorMesh.userData.dynamicShadow = true;
+    freeze(doorMesh);
     doorPivot.add(doorMesh);
 
     const leverPivot = new THREE.Group();
     leverPivot.position.set(0, -0.02, 0.045);
+    freeze(leverPivot);
     const leverMesh = new THREE.Mesh(this.geo.lever, this.leverMat);
+    freeze(leverMesh);
     leverPivot.add(leverMesh);
 
     const ledMesh = new THREE.Mesh(this.geo.led, this.ledPoweredMat);
     ledMesh.position.set(0.14, 0.24, 0.078);
+    freeze(ledMesh);
 
     group.add(bodyMesh, conduitMesh, doorPivot, leverPivot, ledMesh);
     this.root.add(group);
@@ -523,6 +541,8 @@ export class BreakerSystem {
       b.doorPivot.rotation.set(0, 0, 0);
       b.leverPivot.rotation.set(0, 0, 0);
     }
+    b.doorPivot.updateMatrix();
+    b.leverPivot.updateMatrix();
   }
 
   /** Restores all breakers to powered, intact state on mission restart. */

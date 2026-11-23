@@ -67,6 +67,8 @@ vec3 stars(vec3 d) {
 
 // Moon (or low golden desert sunrise disc when uDawn > 0.5).
 vec3 moonDisc(vec3 d, out float cover) {
+  float facing = dot(d, opMoonDir);
+  if (facing < 0.995) { cover = 0.0; return vec3(0.0); }
   float radius = uDawn > 0.5 ? 0.056 : 0.082;
   vec3 m = opMoonDir;
   vec3 up = abs(m.y) > 0.9 ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 1.0, 0.0);
@@ -74,8 +76,7 @@ vec3 moonDisc(vec3 d, out float cover) {
   vec3 ay = cross(m, ax);
   vec2 q = vec2(dot(d, ax), dot(d, ay)) / radius;
   float r2 = dot(q, q);
-  float facing = dot(d, m);
-  cover = facing > 0.0 ? 1.0 - smoothstep(0.96, 1.04, sqrt(r2)) : 0.0;
+  cover = 1.0 - smoothstep(0.96, 1.04, sqrt(r2));
   if (cover <= 0.0) return vec3(0.0);
   if (uDawn > 0.5) {
     float core = pow(max(1.0 - r2, 0.0), 0.35);
@@ -175,10 +176,13 @@ float colossus(float a, float e, out float glow, out float ribs) {
     float centre = -2.9 + fi * 1.07 + 0.34 * sin(fi * 2.1);
     float da = a - centre;
     da = da - 6.2831853 * floor(da / 6.2831853 + 0.5);
-    float h = 0.15 + 0.24 * skyHash(fi + 4.0);
     float w = 0.05 + 0.06 * skyHash(fi + 9.0);
+    // Max half-width is w * 1.20 and glow support ends at width * 1.6 <= w * 1.92.
+    if (abs(da) > w * 2.0) continue;
+    float h = 0.15 + 0.24 * skyHash(fi + 4.0);
     float t = clamp(e / h, 0.0, 1.0);
-    float width = w * (0.58 + 0.62 * pow(abs(t - 0.74) * 1.35, 2.0));
+    float u = (t - 0.74) * 1.35;
+    float width = w * (0.58 + 0.62 * u * u);
     float wall = (1.0 - smoothstep(width * 0.97, width * 1.03, abs(da))) * step(e, h);
     // Mast clusters on the rim.
     float mast = step(abs(fract(da / width * 2.5) - 0.5), 0.05) * step(abs(da), width) * step(h, e) * step(e, h + 0.018 + 0.02 * skyHash(floor(da / width * 2.5) + fi));
@@ -224,11 +228,14 @@ vec3 skyRadiance(vec3 d) {
   if (uDawn > 0.5) {
     float halo = pow(moonCos, 120.0) * 0.9 + pow(moonCos, 20.0) * 0.24 + pow(moonCos, 4.0) * 0.09;
     c += vec3(1.15, 0.64, 0.28) * halo;
-    c += stars(d) * smoothstep(0.35, 0.75, d.y) * 0.16;
+    if (d.y > 0.35) c += stars(d) * smoothstep(0.35, 0.75, d.y) * 0.16;
   } else {
     float halo = pow(moonCos, 180.0) * 0.32 + pow(moonCos, 28.0) * 0.05 + pow(moonCos, 6.0) * 0.012;
     c += vec3(0.5, 0.64, 0.92) * halo;
-    c += stars(d) * smoothstep(0.03, 0.3, d.y) * (1.0 - min(pow(moonCos, 12.0) * 3.0, 1.0));
+    if (d.y > 0.03) {
+      float starFade = smoothstep(0.03, 0.3, d.y) * (1.0 - min(pow(moonCos, 12.0) * 3.0, 1.0));
+      if (starFade > 0.0) c += stars(d) * starFade;
+    }
   }
   float cover;
   vec3 disc = moonDisc(d, cover);

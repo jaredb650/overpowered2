@@ -57,15 +57,42 @@ export class Game {
   readonly ctx: Ctx;
   state: GameState = 'boot';
   private ordered: GameSystem[] = [];
+  private orderedSource: GameSystem[] | null = null;
+  private orderedNames: string[] = [];
+  private orderedRunners: (() => void)[] = [];
   private fps = 0;
   private deferredCoopInit: GameSystem[] = [];
   private cpuMs = 0;
   private guard = createFrameGuard();
+  private readonly runPhysics: () => void;
+  private readonly runCamera: () => void;
+  private readonly runFx: () => void;
+  private readonly runAudio: () => void;
+  private readonly runHud: () => void;
+  private readonly runCoop: () => void;
+  private readonly runSettle: () => void;
+  private readonly runRender: () => void;
+  private readonly runInput: () => void;
+  private readonly runCoopClock: () => void;
+  private readonly runFrameDraw: () => void;
+  private readonly runFrameStep: () => void;
   /** Test pages only (core/proofmode.ts): decides which frames are drawn. Null on every real player's page. */
   readonly proof = drawGate();
 
   constructor(ctx: Ctx) {
     this.ctx = ctx;
+    this.runPhysics = () => this.ctx.physics.step(this.ctx.time.dt);
+    this.runCamera = () => this.ctx.camera.update?.();
+    this.runFx = () => this.ctx.fx.update?.();
+    this.runAudio = () => this.ctx.audio.update?.();
+    this.runHud = () => this.ctx.hud.update?.();
+    this.runCoop = () => this.ctx.coop?.update();
+    this.runSettle = () => this.ctx.render.settle?.();
+    this.runRender = () => this.ctx.render.render();
+    this.runInput = () => this.ctx.input.endFrame?.();
+    this.runCoopClock = () => this.ctx.coop?.world?.clock();
+    this.runFrameDraw = () => this.frame(true);
+    this.runFrameStep = () => this.frame(false);
   }
 
   /** Update order from docs/DESIGN.md section 4. */
@@ -148,27 +175,46 @@ export class Game {
     this.setState('playing');
   }
 
+  /** Rebuilds cached guard names and runners whenever `ordered` is replaced (including in tests). */
+  private syncOrderedCache(): void {
+    const ordered = this.ordered;
+    if (this.orderedSource === ordered && this.orderedNames.length === ordered.length) return;
+    this.orderedSource = ordered;
+    this.orderedNames.length = ordered.length;
+    this.orderedRunners.length = ordered.length;
+    for (let i = 0; i < ordered.length; i++) {
+      const sys = ordered[i]!;
+      this.orderedNames[i] = `system-${i}-${sys.constructor.name}`;
+      this.orderedRunners[i] = () => sys.update?.();
+    }
+  }
+
   /** One world step. `draw` is false on the extra steps a co-op host takes to catch up on a long frame (time.ts `split`). */
   private frame(draw = true): void {
     const c = this.ctx;
     if (this.state === 'playing' || (this.state === 'paused' && c.coop)) {
-      for (const sys of this.ordered) {
+      this.syncOrderedCache();
+      const ordered = this.ordered;
+      const names = this.orderedNames;
+      const runners = this.orderedRunners;
+      for (let i = 0; i < ordered.length; i++) {
+        const sys = ordered[i]!;
         if (this.freeRoamSkips(sys)) continue;
         // The load barrier holds the host's mission too: its runner opens on the campaign's first update.
         if (sys === c.campaign && c.coop?.hosting && c.coop.holding) continue;
         // Menus release local controls while the room, bodies, world and physics keep ticking.
         if (this.state === 'paused' && c.coop
           && (sys === c.player || sys === c.weapons || sys === c.viewmodel || (!c.coop.world && (sys === c.combat || sys === c.progression)))) continue;
-        if (sys === c.gore) this.guard('physics', () => c.physics.step(c.time.dt));
-        this.guard(`system-${this.ordered.indexOf(sys)}-${sys.constructor.name}`, () => sys.update?.());
+        if (sys === c.gore) this.guard('physics', this.runPhysics);
+        this.guard(names[i]!, runners[i]!);
       }
     } else {
-      this.guard('camera', () => c.camera.update?.());
-      this.guard('fx', () => c.fx.update?.());
-      this.guard('audio', () => c.audio.update?.());
-      this.guard('hud', () => c.hud.update?.());
+      this.guard('camera', this.runCamera);
+      this.guard('fx', this.runFx);
+      this.guard('audio', this.runAudio);
+      this.guard('hud', this.runHud);
     }
-    this.guard('coop', () => c.coop?.update());
+    this.guard('coop', this.runCoop);
     // Behind a screen nothing moves but a slow dolly, so a laptop sitting on the menu should not pay for full rate.
     // A screen with a moving picture of its own (the Crucible shop's turning gun) gets the menu's rate.
     const moving = (c.render as { backdrop?: { still: boolean } | null }).backdrop?.still === false;
@@ -176,10 +222,10 @@ export class Game {
     const hidden = typeof document !== 'undefined' && document.hidden;
     if (draw && !hidden && (this.state === 'playing' || c.coop || c.time.frame % (this.state === 'menu' || moving ? 2 : 4) === 0)) {
       // A proof page between its drawn frames: the scene is brought up to date for the game's own reads, and nothing is drawn.
-      if (this.proof && !this.proof.due(c.time.realElapsed)) this.guard('settle', () => c.render.settle?.());
-      else this.guard('render', () => c.render.render());
+      if (this.proof && !this.proof.due(c.time.realElapsed)) this.guard('settle', this.runSettle);
+      else this.guard('render', this.runRender);
     }
-    this.guard('input', () => c.input.endFrame?.());
+    this.guard('input', this.runInput);
   }
 
   run(): void {
@@ -196,9 +242,9 @@ export class Game {
       const steps = this.ctx.time.split(raw, this.cpuMs);
       for (let i = 1; i <= steps; i++) {
         // Co-op: the team's slow-mo, as the host has it, goes onto this screen's clock (net/world/clock.ts).
-        this.guard('coop-clock', () => this.ctx.coop?.world?.clock());
+        this.guard('coop-clock', this.runCoopClock);
         this.ctx.time.tick(raw / steps);
-        this.guard('frame', () => this.frame(i === steps));
+        this.guard('frame', i === steps ? this.runFrameDraw : this.runFrameStep);
       }
       this.cpuMs = performance.now() - t0;
       frames++;

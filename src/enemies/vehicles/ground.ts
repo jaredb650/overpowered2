@@ -256,6 +256,7 @@ export class GroundVehicle extends Vehicle {
     if (this.fireLeft >= 0) this.burn(dt);
     if (this.engineFire) this.take(ENGINE_FIRE_BLEED * dt, null, this.source, this.position);
     if (!this.alive) return;
+    if (order.parked && this.placed && Math.abs(drive.speed) <= 0.01 && Math.abs(drive.pitch) <= 0.001 && Math.abs(drive.roll) <= 0.001) return;
     this.look(dt);
     drive.sidestep(this.dodge, dt);
     drive.update(dt, this.clear);

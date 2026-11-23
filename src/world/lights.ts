@@ -333,6 +333,8 @@ export class ShootableLights {
     this.onBroken = options.onBroken ?? null;
     this.defaultAmbient = options.ambientBaseline ?? DEFAULT_AMBIENT;
     this.root.name = 'shootable-lights';
+    this.root.matrixAutoUpdate = false;
+    this.root.updateMatrix();
 
     const defaultParent = ctx.render?.scene instanceof THREE.Scene ? ctx.render.scene : null;
     this.parent = options.parent ?? defaultParent;
@@ -415,14 +417,21 @@ export class ShootableLights {
     group.name = `fixture:${id}`;
     group.position.copy(pos);
     group.quaternion.copy(rotQuat);
+    group.matrixAutoUpdate = false;
+    group.updateMatrix();
 
     const housingMesh = new THREE.Mesh(geo.housing, this.housingMat);
     housingMesh.castShadow = true;
     housingMesh.receiveShadow = true;
+    housingMesh.userData.staticShadow = true;
+    housingMesh.matrixAutoUpdate = false;
+    housingMesh.updateMatrix();
 
     const bulbMesh = new THREE.Mesh(geo.bulb, litMat);
     bulbMesh.castShadow = false;
     bulbMesh.receiveShadow = false;
+    bulbMesh.matrixAutoUpdate = false;
+    bulbMesh.updateMatrix();
 
     group.add(housingMesh, bulbMesh);
     this.root.add(group);

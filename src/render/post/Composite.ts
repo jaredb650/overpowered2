@@ -15,6 +15,7 @@ uniform float uSpeed;
 uniform float uLow;
 uniform vec3 uFlash;
 uniform vec4 uDamage[${MAX_DAMAGE_MARKS / 2}];
+uniform float uDamageActive;
 
 uniform float uExposure;
 uniform float uContrast;
@@ -143,11 +144,12 @@ void main() {
   }
 
   // Lens fringing grows toward the corners and the pulse adds to it.
-  float ca = uChroma + 0.0005 + edge * 0.001;
-  if (ca > 0.0) {
+  float caMix = clamp(uChroma * 40.0 + edge, 0.0, 1.0);
+  if (caMix > 0.0) {
+    float ca = uChroma + 0.0005 + edge * 0.001;
     vec2 o = fromCentre * ca;
     vec3 fringe = vec3(hdrFetch(uv + o).r, color.g, hdrFetch(uv - o).b);
-    color = mix(color, fringe, clamp(uChroma * 40.0 + edge, 0.0, 1.0));
+    color = mix(color, fringe, caMix);
   }
 
   color += uFlash;
@@ -188,17 +190,27 @@ void main() {
   }
 
   // Directional damage: a hot red bloom that hugs the screen edge the hit came from.
-  float dmg = 0.0;
-  for (int i = 0; i < ${MAX_DAMAGE_MARKS / 2}; i++) {
-    vec4 pair = uDamage[i];
-    vec2 d0 = vec2(sin(pair.x), cos(pair.x));
-    vec2 d1 = vec2(sin(pair.z), cos(pair.z));
+  if (uDamageActive > 0.0) {
+    float dmg = 0.0;
     vec2 dir = q / max(r, 1e-4);
     float e = smoothstep(0.2, 1.05, r);
-    dmg += pair.y * pow(max(dot(dir, d0), 0.0), 5.0) * e;
-    dmg += pair.w * pow(max(dot(dir, d1), 0.0), 5.0) * e;
+    for (int i = 0; i < ${MAX_DAMAGE_MARKS / 2}; i++) {
+      vec4 pair = uDamage[i];
+      if (pair.y > 0.0) {
+        vec2 d0 = vec2(sin(pair.x), cos(pair.x));
+        float k0 = max(dot(dir, d0), 0.0);
+        float k02 = k0 * k0;
+        dmg += pair.y * (k02 * k02 * k0) * e;
+      }
+      if (pair.w > 0.0) {
+        vec2 d1 = vec2(sin(pair.z), cos(pair.z));
+        float k1 = max(dot(dir, d1), 0.0);
+        float k12 = k1 * k1;
+        dmg += pair.w * (k12 * k12 * k1) * e;
+      }
+    }
+    c = mix(c, vec3(1.0, 0.035, 0.02), clamp(dmg * 1.15, 0.0, 0.9));
   }
-  c = mix(c, vec3(1.0, 0.035, 0.02), clamp(dmg * 1.15, 0.0, 0.9));
 
   // Speed lines: thin bright streaks that race outward from the screen centre.
   if (uSpeed > 0.02) {
@@ -215,13 +227,18 @@ void main() {
   // Vignette and the grade's coloured edge.
   float vig = smoothstep(0.32, 1.12, r);
   c = mix(c, c * uVignetteTint * 2.0 + uVignetteTint * 0.2, vig * uVignette);
-  c += uVignetteTint * pow(smoothstep(0.4, 1.15, r), 2.0) * uEdgeGlow * 2.4;
+  if (uEdgeGlow > 0.0) {
+    float eg = smoothstep(0.4, 1.15, r);
+    c += uVignetteTint * (eg * eg) * uEdgeGlow * 2.4;
+  }
 
   // Grain sits on the display-referred image and is strongest in the mids, where film shows it.
-  float grainMask = 1.0 - abs(dot(c, LUMA) * 2.0 - 1.0) * 0.6;
   float t = fract(uTime * 7.31);
-  float n = hash12(gl_FragCoord.xy + t * 1531.0) + hash12(gl_FragCoord.yx * 1.31 + t * 977.0) - 1.0;
-  c += n * uGrain * grainMask * 0.5;
+  if (uGrain > 0.0) {
+    float grainMask = 1.0 - abs(dot(c, LUMA) * 2.0 - 1.0) * 0.6;
+    float n = hash12(gl_FragCoord.xy + t * 1531.0) + hash12(gl_FragCoord.yx * 1.31 + t * 977.0) - 1.0;
+    c += n * uGrain * grainMask * 0.5;
+  }
 
   vec3 display = srgb(c);
   // Triangular dither at one 8-bit step. The blue-hour gradients band without it.
@@ -245,6 +262,7 @@ export class Composite {
     uLow: { value: 0 },
     uFlash: { value: new THREE.Color(0, 0, 0) },
     uDamage: { value: Array.from({ length: MAX_DAMAGE_MARKS / 2 }, () => new THREE.Vector4()) },
+    uDamageActive: { value: 0 },
     uExposure: { value: 1 },
     uContrast: { value: 1 },
     uSaturation: { value: 1 },
@@ -298,11 +316,14 @@ export class Composite {
     u.uLow!.value = state.lowHealth;
     (u.uFlash!.value as THREE.Color).copy(state.flashColor);
     const dmg = u.uDamage!.value as THREE.Vector4[];
+    let dmgActive = 0;
     for (let i = 0; i < dmg.length; i++) {
       const a = state.damage[i * 2]!;
       const b = state.damage[i * 2 + 1]!;
       dmg[i]!.set(a.x, a.y, b.x, b.y);
+      if (a.y > 0 || b.y > 0) dmgActive = 1;
     }
+    u.uDamageActive!.value = dmgActive;
     u.uExposure!.value = this.exposure * g.exposure;
     u.uContrast!.value = g.contrast;
     u.uSaturation!.value = g.saturation;

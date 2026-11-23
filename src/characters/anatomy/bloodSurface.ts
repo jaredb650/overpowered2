@@ -277,6 +277,7 @@ export function findStepDownTri(
   gx: number, gy: number, gz: number,
   maxDist: number,
   outBary: Float32Array,
+  nearbyBones?: readonly number[],
 ): number {
   // Probe slightly further along gravity from the shell hem.
   const tx = px + gx * (maxDist * 0.55);
@@ -288,18 +289,39 @@ export function findStepDownTri(
   let bestTri = -1;
   let bestD2 = maxD2;
 
-  for (let t = 0; t < mesh.triCount; t++) {
-    if (t === excludeTri) continue;
-    // Skip triangles facing strongly downward (undersides shouldn't catch a falling drop).
-    if (n[t * 3]! * gx + n[t * 3 + 1]! * gy + n[t * 3 + 2]! * gz > 0.45) continue;
-    const dx = c[t * 3]! - tx, dy = c[t * 3 + 1]! - ty, dz = c[t * 3 + 2]! - tz;
-    const d2 = dx * dx + dy * dy + dz * dz;
-    if (d2 >= bestD2) continue;
-    // Must lie forward along gravity from the exit point (never hop back upward).
-    const fwd = (c[t * 3]! - px) * gx + (c[t * 3 + 1]! - py) * gy + (c[t * 3 + 2]! - pz) * gz;
-    if (fwd < 0.008) continue;
-    bestD2 = d2;
-    bestTri = t;
+  if (nearbyBones && nearbyBones.length > 0) {
+    for (let bi = 0; bi < nearbyBones.length; bi++) {
+      const list = mesh.boneTris[nearbyBones[bi]!];
+      if (!list) continue;
+      for (let i = 0; i < list.length; i++) {
+        const t = list[i]!;
+        if (t === excludeTri) continue;
+        // Skip triangles facing strongly downward (undersides shouldn't catch a falling drop).
+        if (n[t * 3]! * gx + n[t * 3 + 1]! * gy + n[t * 3 + 2]! * gz > 0.45) continue;
+        const dx = c[t * 3]! - tx, dy = c[t * 3 + 1]! - ty, dz = c[t * 3 + 2]! - tz;
+        const d2 = dx * dx + dy * dy + dz * dz;
+        if (d2 >= bestD2) continue;
+        // Must lie forward along gravity from the exit point (never hop back upward).
+        const fwd = (c[t * 3]! - px) * gx + (c[t * 3 + 1]! - py) * gy + (c[t * 3 + 2]! - pz) * gz;
+        if (fwd < 0.008) continue;
+        bestD2 = d2;
+        bestTri = t;
+      }
+    }
+  } else {
+    for (let t = 0; t < mesh.triCount; t++) {
+      if (t === excludeTri) continue;
+      // Skip triangles facing strongly downward (undersides shouldn't catch a falling drop).
+      if (n[t * 3]! * gx + n[t * 3 + 1]! * gy + n[t * 3 + 2]! * gz > 0.45) continue;
+      const dx = c[t * 3]! - tx, dy = c[t * 3 + 1]! - ty, dz = c[t * 3 + 2]! - tz;
+      const d2 = dx * dx + dy * dy + dz * dz;
+      if (d2 >= bestD2) continue;
+      // Must lie forward along gravity from the exit point (never hop back upward).
+      const fwd = (c[t * 3]! - px) * gx + (c[t * 3 + 1]! - py) * gy + (c[t * 3 + 2]! - pz) * gz;
+      if (fwd < 0.008) continue;
+      bestD2 = d2;
+      bestTri = t;
+    }
   }
 
   if (bestTri >= 0) {
@@ -322,6 +344,9 @@ interface LayerSlot {
   lastActive: number;
   priority: number;
   hasFresh: boolean;
+  minFreshByte: number;
+  maxFreshByte: number;
+  lastDecayAt: number;
 }
 
 const LAYER_BYTES = BLOOD_MAP_SIZE * BLOOD_MAP_SIZE * 2;
@@ -339,12 +364,14 @@ export class BloodSurfacePool {
 
   private readonly slots: LayerSlot[] = Array.from({ length: BLOOD_MAP_LAYERS }, () => ({
     owner: null, dirty: false, lastActive: -1, priority: 0, hasFresh: false,
+    minFreshByte: LAYER_BYTES, maxFreshByte: -1, lastDecayAt: 0,
   }));
   private readonly ownerLayer = new Map<object, number>();
   private gpuReady = false;
   private fullUploadPending = true;
-  private decaySlice = 0;
-  private decayAcc = 0;
+  private decayCursor = 0;
+  private decayClock = 0;
+  private readonly sampleOut: [number, number] = [0, 0];
 
   // Scratch BFS state (zero hot-path allocations).
   private readonly bfsQueue = new Int32Array(BFS_CAP);
@@ -418,6 +445,9 @@ export class BloodSurfacePool {
     slot.lastActive = now;
     slot.priority = priority;
     slot.hasFresh = false;
+    slot.minFreshByte = LAYER_BYTES;
+    slot.maxFreshByte = -1;
+    slot.lastDecayAt = this.decayClock;
     slot.dirty = true;
     this.data.fill(0, pick * LAYER_BYTES, (pick + 1) * LAYER_BYTES);
     this.ownerLayer.set(owner, pick);
@@ -439,6 +469,9 @@ export class BloodSurfacePool {
     slot.owner = null;
     slot.priority = 0;
     slot.hasFresh = false;
+    slot.minFreshByte = LAYER_BYTES;
+    slot.maxFreshByte = -1;
+    slot.lastDecayAt = this.decayClock;
     slot.dirty = true;
     this.data.fill(0, layer * LAYER_BYTES, (layer + 1) * LAYER_BYTES);
   }
@@ -453,7 +486,12 @@ export class BloodSurfacePool {
       s.lastActive = -1;
       s.priority = 0;
       s.hasFresh = false;
+      s.minFreshByte = LAYER_BYTES;
+      s.maxFreshByte = -1;
+      s.lastDecayAt = 0;
     }
+    this.decayClock = 0;
+    this.decayCursor = 0;
     this.ownerLayer.clear();
     this.data.fill(0);
     this.fullUploadPending = true;
@@ -466,38 +504,65 @@ export class BloodSurfacePool {
     if (srcLayer < 0 || dstLayer < 0 || srcLayer === dstLayer) return;
     const srcOff = srcLayer * LAYER_BYTES;
     this.data.copyWithin(dstLayer * LAYER_BYTES, srcOff, srcOff + LAYER_BYTES);
-    this.slots[dstLayer]!.dirty = true;
-    this.slots[dstLayer]!.hasFresh = this.slots[srcLayer]!.hasFresh;
+    const src = this.slots[srcLayer]!;
+    const dst = this.slots[dstLayer]!;
+    dst.dirty = true;
+    dst.hasFresh = src.hasFresh;
+    dst.minFreshByte = src.minFreshByte;
+    dst.maxFreshByte = src.maxFreshByte;
+    dst.lastDecayAt = src.lastDecayAt;
   }
 
-  /** Samples `[coverage01, fresh01]` at normalized UV `(u, v)` for far corpse vertex-color baking. */
-  sampleUv(layer: number, u: number, v: number): [number, number] {
-    if (layer < 0 || layer >= BLOOD_MAP_LAYERS) return [0, 0];
+  /** Samples `[coverage01, fresh01]` at normalized UV `(u, v)` into a reused scratch tuple (or `out`). */
+  sampleUv(layer: number, u: number, v: number, out: [number, number] = this.sampleOut): [number, number] {
+    if (layer < 0 || layer >= BLOOD_MAP_LAYERS) {
+      out[0] = 0;
+      out[1] = 0;
+      return out;
+    }
     const px = Math.min(BLOOD_MAP_SIZE - 1, Math.max(0, (u * BLOOD_MAP_SIZE) | 0));
     const py = Math.min(BLOOD_MAP_SIZE - 1, Math.max(0, (v * BLOOD_MAP_SIZE) | 0));
     const o = layer * LAYER_BYTES + (py * BLOOD_MAP_SIZE + px) * 2;
-    return [this.data[o]! / 255, this.data[o + 1]! / 255];
+    out[0] = this.data[o]! / 255;
+    out[1] = this.data[o + 1]! / 255;
+    return out;
   }
 
-  /** Stamps a single pixel with smooth coverage accumulation and fresh arterial highlight. */
-  private stampPixel(base: number, px: number, py: number, cov: number, fresh: number): void {
-    if (px < 0 || px >= BLOOD_MAP_SIZE || py < 0 || py >= BLOOD_MAP_SIZE) return;
-    const o = base + (py * BLOOD_MAP_SIZE + px) * 2;
+  /** Stamps a single pixel with smooth coverage accumulation and fresh arterial highlight. Returns true iff a byte changed. */
+  private stampPixel(slot: LayerSlot, base: number, px: number, py: number, cov: number, fresh: number): boolean {
+    if (px < 0 || px >= BLOOD_MAP_SIZE || py < 0 || py >= BLOOD_MAP_SIZE) return false;
+    const local = (py * BLOOD_MAP_SIZE + px) * 2;
+    const o = base + local;
+    let changed = false;
     const targetR = cov * 255;
     const curR = this.data[o]!;
     // Accumulate smoothly so repeated drips over the same cloth thicken and darken naturally.
-    const nextR = Math.min(255, curR >= targetR ? curR + targetR * 0.14 : curR + (targetR - curR) * 0.72);
-    if (nextR > curR) this.data[o] = nextR | 0;
+    const nextR = Math.min(255, curR >= targetR ? curR + targetR * 0.14 : curR + (targetR - curR) * 0.72) | 0;
+    if (nextR > curR) {
+      this.data[o] = nextR;
+      changed = true;
+    }
     const targetG = Math.min(255, (fresh * 255) | 0);
-    if (targetG > this.data[o + 1]!) this.data[o + 1] = targetG;
+    if (targetG > this.data[o + 1]!) {
+      this.data[o + 1] = targetG;
+      changed = true;
+      const gOff = local + 1;
+      if (!slot.hasFresh) {
+        slot.hasFresh = true;
+        slot.lastDecayAt = this.decayClock;
+      }
+      if (gOff < slot.minFreshByte) slot.minFreshByte = gOff;
+      if (gOff > slot.maxFreshByte) slot.maxFreshByte = gOff;
+    }
+    return changed;
   }
 
   /**
    * Paints a thin rivulet trail from UV `(u0, v0)` to `(u1, v1)` within a single triangle.
    * Width is in texels (`~1.0..2.4` on 256×256 for crisp trickling trails).
    */
-  paintStreak(layer: number, u0: number, v0: number, u1: number, v1: number, widthPx: number, amount: number, fresh: number): void {
-    if (layer < 0 || layer >= BLOOD_MAP_LAYERS) return;
+  paintStreak(layer: number, u0: number, v0: number, u1: number, v1: number, widthPx: number, amount: number, fresh: number): boolean {
+    if (layer < 0 || layer >= BLOOD_MAP_LAYERS) return false;
     const slot = this.slots[layer]!;
     const base = layer * LAYER_BYTES;
     const x0 = u0 * (BLOOD_MAP_SIZE - 1);
@@ -509,6 +574,7 @@ export class BloodSurfacePool {
     const steps = Math.max(1, Math.min(24, Math.ceil(dist * 1.5)));
     const r = Math.max(0.75, widthPx);
     const ri = Math.ceil(r);
+    let changed = false;
 
     for (let s = 0; s <= steps; s++) {
       const t = s / steps;
@@ -525,25 +591,26 @@ export class BloodSurfacePool {
           const fall = (1 - d * d);
           const grain = 0.86 + 0.28 * hashTexel(px, py);
           const cov = Math.min(1, amount * fall * grain);
-          if (cov > 0.02) this.stampPixel(base, px, py, cov, fresh * fall);
+          if (cov > 0.02 && this.stampPixel(slot, base, px, py, cov, fresh * fall)) changed = true;
         }
       }
     }
-    slot.dirty = true;
-    if (fresh > 0.05) slot.hasFresh = true;
+    if (changed) slot.dirty = true;
+    return changed;
   }
 
   /**
    * Paints a seamless 3D-radius soaking collar around bind-space point `(bx, by, bz)` by walking adjacent triangles
    * across UV seams and evaluating true 3D bind-space distance at every rasterized texel.
+   * Returns true iff at least one byte changed.
    */
   paintCollar(
     layer: number, mesh: WalkMesh, startTri: number,
     bx: number, by: number, bz: number,
     radius: number, amount: number, fresh: number, stretchDown = 0,
     nearbyBones?: readonly number[],
-  ): void {
-    if (layer < 0 || layer >= BLOOD_MAP_LAYERS || startTri < 0 || radius <= 1e-4) return;
+  ): boolean {
+    if (layer < 0 || layer >= BLOOD_MAP_LAYERS || startTri < 0 || radius <= 1e-4) return false;
     if (this.visitMarks.length < mesh.triCount) this.visitMarks = new Uint32Array(mesh.triCount);
     const stamp = ++this.visitStamp;
     if (stamp === 0xffffffff) {
@@ -556,6 +623,7 @@ export class BloodSurfacePool {
     q[qTail++] = startTri;
     this.visitMarks[startTri] = this.visitStamp;
 
+    const slot = this.slots[layer]!;
     const base = layer * LAYER_BYTES;
     const downMul = 1 / (1 + stretchDown);
     const reachX = radius * 1.35;
@@ -565,7 +633,7 @@ export class BloodSurfacePool {
 
     while (qHead < qTail) {
       const tri = q[qHead++]!;
-      if (this.rasterizeTriCollar(base, mesh, tri, bx, by, bz, radius, downMul, amount, fresh)) painted = true;
+      if (this.rasterizeTriCollar(slot, base, mesh, tri, bx, by, bz, radius, downMul, amount, fresh)) painted = true;
 
       if (qTail >= BFS_CAP) continue;
       for (let e = 0; e < 3; e++) {
@@ -606,20 +674,18 @@ export class BloodSurfacePool {
           const maxZ = Math.max(pos[p + 2]!, pos[p + 5]!, pos[p + 8]!);
           if (bz + reachX < minZ || bz - reachX > maxZ) continue;
           this.visitMarks[tri] = this.visitStamp;
-          if (this.rasterizeTriCollar(base, mesh, tri, bx, by, bz, radius, downMul, amount, fresh)) painted = true;
+          if (this.rasterizeTriCollar(slot, base, mesh, tri, bx, by, bz, radius, downMul, amount, fresh)) painted = true;
         }
       }
     }
 
-    if (painted) {
-      this.slots[layer]!.dirty = true;
-      if (fresh > 0.05) this.slots[layer]!.hasFresh = true;
-    }
+    if (painted) slot.dirty = true;
+    return painted;
   }
 
   /** Rasterizes one triangle into UV space, shading each texel by 3D bind-space distance from `(bx, by, bz)`. */
   private rasterizeTriCollar(
-    base: number, mesh: WalkMesh, tri: number,
+    slot: LayerSlot, base: number, mesh: WalkMesh, tri: number,
     bx: number, by: number, bz: number,
     radius: number, downMul: number, amount: number, fresh: number,
   ): boolean {
@@ -645,7 +711,7 @@ export class BloodSurfacePool {
 
     // Small negative tolerance dilates 1 texel across UV island borders to prevent seam cracks under bilinear filtering.
     const pad = -0.14;
-    let hit = false;
+    let changed = false;
 
     for (let py = minY; py <= maxY; py++) {
       for (let px = minX; px <= maxX; px++) {
@@ -670,29 +736,27 @@ export class BloodSurfacePool {
         const edge = 1 - Math.min(1, Math.max(0, (normD + jitter - 0.2) / 0.85));
         if (edge <= 0.01) continue;
         const cov = Math.min(1, amount * edge * edge * (1.25 - 0.25 * edge));
-        this.stampPixel(base, px, py, cov, fresh * edge);
-        hit = true;
+        if (this.stampPixel(slot, base, px, py, cov, fresh * edge)) changed = true;
       }
     }
-    return hit;
+    return changed;
   }
 
   /**
    * Stains all triangles belonging to `bone` (e.g., staining a clutching hand/forearm when pressing an arterial wound).
    */
-  paintBone(layer: number, mesh: WalkMesh, bone: number, amount: number, fresh: number): void {
-    if (layer < 0 || layer >= BLOOD_MAP_LAYERS) return;
+  paintBone(layer: number, mesh: WalkMesh, bone: number, amount: number, fresh: number): boolean {
+    if (layer < 0 || layer >= BLOOD_MAP_LAYERS) return false;
     const tris = mesh.boneTris[bone];
-    if (!tris || tris.length === 0) return;
+    if (!tris || tris.length === 0) return false;
+    const slot = this.slots[layer]!;
     const base = layer * LAYER_BYTES;
-    let hit = false;
+    let changed = false;
     for (let i = 0; i < tris.length; i++) {
-      if (this.rasterizeTriUniform(base, mesh, tris[i]!, amount, fresh)) hit = true;
+      if (this.rasterizeTriUniform(slot, base, mesh, tris[i]!, amount, fresh)) changed = true;
     }
-    if (hit) {
-      this.slots[layer]!.dirty = true;
-      if (fresh > 0.05) this.slots[layer]!.hasFresh = true;
-    }
+    if (changed) slot.dirty = true;
+    return changed;
   }
 
   /**
@@ -704,9 +768,10 @@ export class BloodSurfacePool {
     floorY: number, maxHeight: number, amount: number, fresh: number,
   ): boolean {
     if (layer < 0 || layer >= BLOOD_MAP_LAYERS || maxHeight <= 1e-4) return false;
+    const slot = this.slots[layer]!;
     const base = layer * LAYER_BYTES;
     const c = mesh.triCenter;
-    let hit = false;
+    let changed = false;
 
     for (let t = 0; t < mesh.triCount; t++) {
       const b = mesh.triBone[t]!;
@@ -724,18 +789,15 @@ export class BloodSurfacePool {
       const h = wy - floorY;
       if (h > maxHeight) continue;
       const k = 1 - Math.max(0, h) / maxHeight;
-      if (this.rasterizeTriUniform(base, mesh, t, amount * (0.45 + 0.55 * k), fresh * k)) hit = true;
+      if (this.rasterizeTriUniform(slot, base, mesh, t, amount * (0.45 + 0.55 * k), fresh * k)) changed = true;
     }
 
-    if (hit) {
-      this.slots[layer]!.dirty = true;
-      if (fresh > 0.05) this.slots[layer]!.hasFresh = true;
-    }
-    return hit;
+    if (changed) slot.dirty = true;
+    return changed;
   }
 
   /** Rasterizes one triangle uniformly with subtle organic cloth absorption variation. */
-  private rasterizeTriUniform(base: number, mesh: WalkMesh, tri: number, amount: number, fresh: number): boolean {
+  private rasterizeTriUniform(slot: LayerSlot, base: number, mesh: WalkMesh, tri: number, amount: number, fresh: number): boolean {
     const S = BLOOD_MAP_SIZE - 1;
     const u = tri * 6;
     const x0 = mesh.triUv[u]! * S, y0 = mesh.triUv[u + 1]! * S;
@@ -749,7 +811,7 @@ export class BloodSurfacePool {
     const minY = Math.max(0, Math.floor(Math.min(y0, y1, y2)) - 1);
     const maxY = Math.min(S, Math.ceil(Math.max(y0, y1, y2)) + 1);
     const pad = -0.14;
-    let hit = false;
+    let changed = false;
     for (let py = minY; py <= maxY; py++) {
       for (let px = minX; px <= maxX; px++) {
         const w0 = ((x1 - px) * (y2 - py) - (x2 - px) * (y1 - py)) * invA;
@@ -757,42 +819,53 @@ export class BloodSurfacePool {
         const w2 = 1 - w0 - w1;
         if (w0 < pad || w1 < pad || w2 < pad) continue;
         const grain = 0.72 + 0.45 * hashTexel(px, py);
-        this.stampPixel(base, px, py, Math.min(1, amount * grain), fresh);
-        hit = true;
+        if (this.stampPixel(slot, base, px, py, Math.min(1, amount * grain), fresh)) changed = true;
       }
     }
-    return hit;
+    return changed;
   }
 
   /**
-   * Gradually dulls the bright fresh arterial sheen (`G` channel) over ~18 s once active pumping stops.
-   * Staggered across 4 slices so CPU cost stays negligible even with 32 stained bodies.
+   * Gradually dulls the bright fresh arterial sheen (`G` channel) once active pumping stops.
+   * Staggered 2 layers per frame (at 60 FPS) with per-layer elapsed tracking and tight `[minFreshByte, maxFreshByte]` bounds.
    */
   decayFreshness(dt: number): void {
-    this.decayAcc += dt;
-    if (this.decayAcc < 0.25) return;
-    const step = Math.max(1, Math.round(this.decayAcc * 14));
-    this.decayAcc = 0;
+    if (dt <= 0) return;
+    this.decayClock += dt;
+    const perCall = Math.max(2, Math.min(BLOOD_MAP_LAYERS, Math.ceil((dt / 0.25) * 4)));
 
-    const perSlice = BLOOD_MAP_LAYERS >> 2;
-    const start = (this.decaySlice++ & 3) * perSlice;
-    const end = start + perSlice;
-
-    for (let layer = start; layer < end; layer++) {
+    for (let k = 0; k < perCall; k++) {
+      const layer = this.decayCursor;
+      this.decayCursor = (layer + 1) & (BLOOD_MAP_LAYERS - 1);
       const slot = this.slots[layer]!;
-      if (!slot.owner || !slot.hasFresh) continue;
+      if (!slot.owner || !slot.hasFresh || slot.minFreshByte > slot.maxFreshByte) {
+        slot.lastDecayAt = this.decayClock;
+        continue;
+      }
+      const elapsed = this.decayClock - slot.lastDecayAt;
+      const step = Math.floor(elapsed * 4);
+      if (step < 1) continue;
+      slot.lastDecayAt += step / 4;
+
       const base = layer * LAYER_BYTES;
-      let anyLeft = false;
+      const hi = slot.maxFreshByte;
+      let newMin = LAYER_BYTES;
+      let newMax = -1;
       let changed = false;
-      for (let i = 1; i < LAYER_BYTES; i += 2) {
+      for (let i = slot.minFreshByte; i <= hi; i += 2) {
         const g = this.data[base + i]!;
         if (g === 0) continue;
         const next = g > step ? g - step : 0;
         this.data[base + i] = next;
         changed = true;
-        if (next > 0) anyLeft = true;
+        if (next > 0) {
+          if (i < newMin) newMin = i;
+          if (i > newMax) newMax = i;
+        }
       }
-      slot.hasFresh = anyLeft;
+      slot.minFreshByte = newMin;
+      slot.maxFreshByte = newMax;
+      slot.hasFresh = newMax >= newMin;
       if (changed) slot.dirty = true;
     }
   }

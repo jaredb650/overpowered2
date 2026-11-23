@@ -105,6 +105,10 @@ interface LegRig {
   grounded: boolean;
   stanceTarget: THREE.Vector3;
   shock: number;
+  lastRayX: number;
+  lastRayY: number;
+  lastRayZ: number;
+  lastRayHit: number | null;
 }
 
 interface ArmRig {
@@ -194,6 +198,18 @@ export class DynamicBalancer {
   private activeGravityMass = 0;
   private readonly partLegIdx: Int8Array;
   private readonly lastGrav: Float32Array;
+  /** Cached static-world raycasts for under-hips fallback and wall/cover environment probes. */
+  private hipsRayX = NaN;
+  private hipsRayY = NaN;
+  private hipsRayZ = NaN;
+  private hipsRayHit: number | null = null;
+  private probeX = NaN;
+  private probeY = NaN;
+  private probeZ = NaN;
+  private probeDirX = 0;
+  private probeDirZ = 0;
+  private probeWall = false;
+  private probeCover = false;
   age = 0;
   dyingAge = 0;
 
@@ -215,7 +231,7 @@ export class DynamicBalancer {
     this.lastGrav = new Float32Array(rag.parts.length).fill(NaN);
     this.crumpleSide = 1;
 
-    this.readCenterOfMass();
+    this.readCenterOfMass(true);
     const hips0 = rag.parts[0]!;
     this.hips = hips0;
     // Match exact initial standing pelvis height so Frame 0 has zero vertical pop or yank.
@@ -255,6 +271,7 @@ export class DynamicBalancer {
           side, hip: part, knee, hipOffset, footAt, upperLen, lowerLen,
           footPos, groundY: initialGroundY, grounded: true,
           stanceTarget: footPos.clone(), shock: 0,
+          lastRayX: NaN, lastRayY: NaN, lastRayZ: NaN, lastRayHit: null,
         });
       } else if (!part.hinge && m.role === 'arm') {
         const side: 1 | -1 = bind[part.bone * 3]! >= 0 ? 1 : -1;
@@ -350,9 +367,10 @@ export class DynamicBalancer {
       const isShin = part.hinge && part.muscle?.role === 'leg';
       const share = isShin ? 0.12 : part.muscle?.role === 'leg' ? 0.55 : 1.0;
       part.body.linvel(part.v);
-      part.body.setLinvel({ x: part.v.x + addX * share, y: part.v.y, z: part.v.z + addZ * share }, true);
+      _v6.set(part.v.x + addX * share, part.v.y, part.v.z + addZ * share);
+      part.body.setLinvel(_v6, true);
     }
-    this.readCenterOfMass();
+    this.readCenterOfMass(true);
   }
 
   /** Called whenever a shot or impact lands on the active balanced body. */
@@ -487,8 +505,6 @@ export class DynamicBalancer {
 
     const hips = this.rag.parts[0]!;
     // `part.q` and `part.w` are already populated by `Rag.preStep()` for every part before `muscle.step(dt)`.
-    hips.body.translation(hips.p);
-    hips.body.linvel(hips.v);
 
     const gEff = WEIGHT * this.rag.gravity;
     const totalMass = this.muscle.totalMass;
@@ -528,6 +544,7 @@ export class DynamicBalancer {
     // --- A. Vertical Leg-Extension Support (Real Gravity ON, strictly matched to actual active downward weight) ---
     // Compute live whole-body CoM velocity on every substep (not frame-stale `this.comVel`, and not just `hips.v` which
     // misses chest-hit momentum) so multi-substep frames never double-brake and chest hits trigger catch steps immediately.
+    hips.body.translation(hips.p);
     let liveVx = 0;
     let liveVz = 0;
     let comMass = 0;
@@ -698,7 +715,7 @@ export class DynamicBalancer {
         const tz = lerp(this.swingStart.z, this.swingTarget.z, s);
 
         part.body.translation(part.p);
-        part.body.linvel(part.v);
+        // `part.v` was just read in the live CoM loop above.
         // World position & velocity of ankle point on shin.
         _v2.copy(leg.footAt).sub(part.com).applyQuaternion(part.q);
         _v3.copy(part.w).cross(_v2).add(part.v);
@@ -722,7 +739,7 @@ export class DynamicBalancer {
       const grip = leg.hip.muscle!.drive * (1 - leg.shock * 0.75) * effSupport;
       if (grip <= 0.08) continue;
       part.body.translation(part.p);
-      part.body.linvel(part.v);
+      // `part.v` was just read in the live CoM loop above.
       _v2.copy(leg.footAt).sub(part.com).applyQuaternion(part.q);
       _v3.copy(part.w).cross(_v2).add(part.v);
       _v4.copy(leg.footAt).applyQuaternion(part.q).add(part.p);
@@ -744,15 +761,22 @@ export class DynamicBalancer {
     }
   }
 
-  private readCenterOfMass(): void {
-    const parts = this.rag.parts;
+  private readCenterOfMass(forceRead = false): void {
+    const rag = this.rag;
+    const parts = rag.parts;
+    const readPose = forceRead || !rag.poseFresh;
+    const readVel = forceRead || !rag.velFresh;
     let x = 0, y = 0, z = 0, vx = 0, vy = 0, vz = 0, m = 0;
     for (let i = 0; i < parts.length; i++) {
       const p = parts[i]!;
-      p.body.translation(p.p);
-      p.body.rotation(p.q);
-      p.body.linvel(p.v);
-      p.body.angvel(p.w);
+      if (readPose) {
+        p.body.translation(p.p);
+        p.body.rotation(p.q);
+      }
+      if (readVel) {
+        p.body.linvel(p.v);
+        p.body.angvel(p.w);
+      }
       _v0.copy(p.com).applyQuaternion(p.q).add(p.p);
       x += _v0.x * p.mass;
       y += _v0.y * p.mass;
@@ -762,6 +786,8 @@ export class DynamicBalancer {
       vz += p.v.z * p.mass;
       m += p.mass;
     }
+    rag.poseFresh = true;
+    rag.velFresh = true;
     if (m > 0) {
       this.com.set(x / m, y / m, z / m);
       this.comVel.set(vx / m, vy / m, vz / m);
@@ -790,7 +816,18 @@ export class DynamicBalancer {
       fx += leg.footPos.x;
       fz += leg.footPos.z;
       const probeY = Math.max(hips.p.y, leg.footPos.y + 0.4 * this.scale);
-      const hitY = this.raycastGround(leg.footPos.x, probeY, leg.footPos.z, 1.5 * this.scale);
+      const rdx = leg.footPos.x - leg.lastRayX;
+      const rdz = leg.footPos.z - leg.lastRayZ;
+      let hitY: number | null;
+      if (rdx * rdx + rdz * rdz <= 0.03 * 0.03 && Math.abs(probeY - leg.lastRayY) <= 0.25) {
+        hitY = leg.lastRayHit;
+      } else {
+        hitY = this.raycastGround(leg.footPos.x, probeY, leg.footPos.z, 1.5 * this.scale);
+        leg.lastRayX = leg.footPos.x;
+        leg.lastRayY = probeY;
+        leg.lastRayZ = leg.footPos.z;
+        leg.lastRayHit = hitY;
+      }
       if (hitY !== null) {
         leg.groundY = hitY;
         leg.grounded = leg.footPos.y <= hitY + t.groundTol * this.scale
@@ -817,22 +854,59 @@ export class DynamicBalancer {
       const targetG = gSum / gCount;
       this.groundY = lerp(this.groundY, targetG, 1 - Math.exp(-20 * Math.max(dt, 1 / 60)));
     } else {
-      const underHips = this.raycastGround(hips.p.x, hips.p.y, hips.p.z, 2.0 * this.scale);
+      const hdx = hips.p.x - this.hipsRayX;
+      const hdz = hips.p.z - this.hipsRayZ;
+      let underHips: number | null;
+      if (hdx * hdx + hdz * hdz <= 0.03 * 0.03 && Math.abs(hips.p.y - this.hipsRayY) <= 0.25) {
+        underHips = this.hipsRayHit;
+      } else {
+        underHips = this.raycastGround(hips.p.x, hips.p.y, hips.p.z, 2.0 * this.scale);
+        this.hipsRayX = hips.p.x;
+        this.hipsRayY = hips.p.y;
+        this.hipsRayZ = hips.p.z;
+        this.hipsRayHit = underHips;
+      }
       if (underHips !== null) this.groundY = underHips;
     }
   }
 
   private probeEnvironment(): void {
     const t = BalancerTuning;
-    this.wallAhead = false;
-    this.trippingOverCover = false;
-    if (!this.physics) return;
+    if (!this.physics) {
+      this.wallAhead = false;
+      this.trippingOverCover = false;
+      return;
+    }
     const speed = Math.hypot(this.comVel.x, this.comVel.z);
-    if (speed < t.probeMinSpeed * this.vScale) return;
+    if (speed < t.probeMinSpeed * this.vScale) {
+      this.wallAhead = false;
+      this.trippingOverCover = false;
+      this.probeX = NaN;
+      return;
+    }
 
     const dirX = this.comVel.x / speed;
     const dirZ = this.comVel.z / speed;
     const hips = this.rag.parts[0]!;
+    const pdx = hips.p.x - this.probeX;
+    const pdz = hips.p.z - this.probeZ;
+    if (
+      pdx * pdx + pdz * pdz <= 0.03 * 0.03
+      && Math.abs(hips.p.y - this.probeY) <= 0.15
+      && dirX * this.probeDirX + dirZ * this.probeDirZ >= 0.985
+    ) {
+      this.wallAhead = this.probeWall;
+      this.trippingOverCover = this.probeCover;
+      return;
+    }
+
+    this.wallAhead = false;
+    this.trippingOverCover = false;
+    this.probeX = hips.p.x;
+    this.probeY = hips.p.y;
+    this.probeZ = hips.p.z;
+    this.probeDirX = dirX;
+    this.probeDirZ = dirZ;
 
     // Chest ray: detects walls / pillars to reach out & brace against.
     _v0.set(hips.p.x, hips.p.y + 0.32 * this.scale, hips.p.z);
@@ -842,6 +916,8 @@ export class DynamicBalancer {
       this.wallAhead = true;
       this.wallPoint.copy(_ray.point);
       this.wallNormal.copy(_ray.normal);
+      this.probeWall = true;
+      this.probeCover = false;
       return;
     }
 
@@ -850,6 +926,8 @@ export class DynamicBalancer {
     if (this.physics.raycastInto(_v0, _v1, t.shinProbe * this.scale, CG.World, _ray)) {
       this.trippingOverCover = true;
     }
+    this.probeWall = false;
+    this.probeCover = this.trippingOverCover;
   }
 
   private updateStepping(drive: CollapseDrive, dt: number, dying: boolean): void {

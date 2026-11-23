@@ -164,7 +164,7 @@
 .slot-pip.owned { opacity: 0.75; }
 .slot-pip.on { background: currentColor; opacity: 1; }
 /* A family cell keeps its pips in the corner, so its dry mark moves down to the icon. */
-.slot:has(.slot-fam).dry::after { top: 0.62rem; }
+.slot.has-fam.dry::after { top: 0.62rem; }
 .slot.dry::after { content: ''; position: absolute; right: 0.2rem; top: 0.2rem; width: 0.42rem; height: 0.42rem; background: var(--blood); }
 
 .arm-main { display: flex; align-items: flex-end; gap: 1.1rem; }

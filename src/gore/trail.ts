@@ -188,6 +188,29 @@ export class GibTrail {
     }
   }
 
+  private putCount = 0;
+  private putFirst = true;
+  private putLx = 0;
+  private putLy = 0;
+  private putLz = 0;
+
+  private putPoint(chain: Float32Array, room: number, x: number, y: number, z: number, age: number, serial: number): void {
+    if (this.putCount >= room) return;
+    const o = this.putCount * STRIDE;
+    const split = !this.putFirst && Math.hypot(x - this.putLx, y - this.putLy, z - this.putLz) > TrailTuning.gap;
+    chain[o] = x;
+    chain[o + 1] = y;
+    chain[o + 2] = z;
+    chain[o + 3] = age;
+    chain[o + 4] = serial * 0.35;
+    chain[o + 5] = this.putFirst || split ? 1 : 0;
+    this.putLx = x;
+    this.putLy = y;
+    this.putLz = z;
+    this.putFirst = false;
+    this.putCount++;
+  }
+
   /**
    * Adds every ribbon to the hose's `chain` after its first `count` points, newest point first: the piece, then each glob
    * in the order it was left. Returns the new count. `SpurtField` calls it before it draws.
@@ -196,35 +219,22 @@ export class GibTrail {
     const t = TrailTuning;
     const now = this.ctx.time.elapsed;
     const room = chain.length / STRIDE;
+    this.putCount = count;
     for (const r of this.ribbons) {
       if (!r.live) continue;
-      let first = true;
-      let lx = 0, ly = 0, lz = 0;
-      const put = (x: number, y: number, z: number, age: number, serial: number): void => {
-        if (count >= room) return;
-        const o = count * STRIDE;
-        const split = !first && Math.hypot(x - lx, y - ly, z - lz) > t.gap;
-        chain[o] = x;
-        chain[o + 1] = y;
-        chain[o + 2] = z;
-        chain[o + 3] = age;
-        chain[o + 4] = serial * 0.35;
-        chain[o + 5] = first || split ? 1 : 0;
-        lx = x;
-        ly = y;
-        lz = z;
-        first = false;
-        count++;
-      };
-      if (r.fedAt === now) put(r.x, r.y, r.z, 0, r.fired);
+      this.putFirst = true;
+      this.putLx = 0;
+      this.putLy = 0;
+      this.putLz = 0;
+      if (r.fedAt === now) this.putPoint(chain, room, r.x, r.y, r.z, 0, r.fired);
       for (let k = 1; k <= t.globs; k++) {
         const g = ((r.head - k + t.globs) % t.globs) * G;
         // Globs go oldest first, so the first gap is the end of the rope.
         if (r.globs[g + 7] === 0) break;
-        put(r.globs[g]!, r.globs[g + 1]!, r.globs[g + 2]!, r.globs[g + 6]!, r.fired - k);
+        this.putPoint(chain, room, r.globs[g]!, r.globs[g + 1]!, r.globs[g + 2]!, r.globs[g + 6]!, r.fired - k);
       }
     }
-    return count;
+    return this.putCount;
   }
 
   clear(): void {

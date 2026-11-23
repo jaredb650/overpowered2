@@ -72,8 +72,16 @@ function isAttachedToScene(obj: THREE.Object3D, scene?: THREE.Object3D | null): 
   return r === scene || !!(r as THREE.Scene).isScene;
 }
 
+function ensureWorldMatrix(obj: THREE.Object3D, updated: Set<THREE.Object3D>): void {
+  if (updated.has(obj)) return;
+  if (obj.parent) ensureWorldMatrix(obj.parent, updated);
+  obj.updateWorldMatrix(false, false);
+  updated.add(obj);
+}
+
 export class EmitterPool {
   private readonly slots: Slot[] = [];
+  private readonly updatedMatrices = new Set<THREE.Object3D>();
   private cursor = 0;
 
   constructor(private readonly core: FxCore) {
@@ -122,6 +130,8 @@ export class EmitterPool {
     const { dt, realDt, paused } = this.core.ctx.time;
     if (paused) return;
     const scene = this.core.ctx.render?.scene;
+    const updated = this.updatedMatrices;
+    updated.clear();
     for (let i = 0; i < CAP; i++) {
       const s = this.slots[i]!;
       if (!s.live) continue;
@@ -137,7 +147,7 @@ export class EmitterPool {
         s.target = null;
         continue;
       }
-      s.target.updateWorldMatrix(true, false);
+      ensureWorldMatrix(s.target, updated);
       if (s.hasOffset) s.target.localToWorld(_p.copy(s.offset));
       else s.target.getWorldPosition(_p);
       if (!s.primed) {

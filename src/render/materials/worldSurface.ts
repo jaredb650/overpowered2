@@ -41,7 +41,10 @@ vec3 opGeoN = normalize(mat3(opCamToWorld) * vNormal);
 // World-space projection would swim on a viewmodel, which is rigid in eye space instead.
 vec3 opTexP = opViewPass > 0.5 ? -vViewPosition : opPos;
 vec3 opTexN = opViewPass > 0.5 ? normalize(vNormal) : opGeoN;
-vec3 opW = pow(abs(opTexN), vec3(12.0));
+vec3 opW = abs(opTexN);
+opW *= opW;
+vec3 opW4 = opW * opW;
+opW = opW4 * opW4 * opW4;
 opW /= opW.x + opW.y + opW.z;
 opW = max(opW - 0.02, 0.0);
 opW /= opW.x + opW.y + opW.z;
@@ -86,9 +89,17 @@ float opHeight = opA.w;
 vec3 opAlbedo = opA.rgb;
 
 // Macro variation at scales the tile cannot repeat: broad stains, plus vertical runs on walls.
+vec3 opPosDx = dFdx(opPos);
+vec3 opPosDy = dFdy(opPos);
 vec4 opMacro = texture(opNoise, opPos.xz * 0.019 + opPos.y * 0.011);
 float opWall = 1.0 - abs(opGeoN.y);
-float opRun = texture(opNoise, vec2(dot(opPos.xz, vec2(0.13, 0.11)), opPos.y * 0.008)).g;
+float opRun = 0.0;
+if (opWall > 0.01) {
+  vec2 opRunUv = vec2(dot(opPos.xz, vec2(0.13, 0.11)), opPos.y * 0.008);
+  vec2 opRunDx = vec2(dot(opPosDx.xz, vec2(0.13, 0.11)), opPosDx.y * 0.008);
+  vec2 opRunDy = vec2(dot(opPosDy.xz, vec2(0.13, 0.11)), opPosDy.y * 0.008);
+  opRun = textureGrad(opNoise, opRunUv, opRunDx, opRunDy).g;
+}
 float opVar = (opMacro.r - 0.5) * opSurf.w;
 opAlbedo *= 1.0 + opVar - opWall * smoothstep(0.42, 0.7, opRun) * opSurf.w * 0.8;
 opRough = clamp(opRough * (1.0 - opVar * 0.55), 0.04, 1.0);
@@ -98,20 +109,24 @@ opRough = clamp(opRough * (1.0 - opVar * 0.55), 0.04, 1.0);
   // Water collects in dips at three scales. The broad term makes whole areas dry or wet, so puddles
   // cluster like they do on a real slab instead of covering it in an even camouflage.
   float up = smoothstep(0.82, 0.97, opGeoN.y);
-  float wide = texture(opNoise, opPos.xz * 0.0067 + 0.17).r;
-  float mid = texture(opNoise, opPos.xz * 0.029).r;
-  float fine = texture(opNoise, opPos.xz * 0.13 + 0.3).g;
-  float depth = mid * 0.5 + wide * 0.32 + fine * 0.18 + (0.5 - opHeight) * 0.07 + (opWetness - 0.5) * 0.16;
-  float puddle = up * smoothstep(0.545, 0.6, depth);
-  float damp = up * smoothstep(0.42, 0.56, depth);
-  opAlbedo *= mix(1.0, 0.6, damp);
-  opRough = mix(opRough, opRough * 0.5, damp);
-  opRough = mix(opRough, 0.05, puddle);
-  opMetal *= 1.0 - puddle;
-  // A faint, slow ripple keeps a puddle from being a perfect mirror of the sky.
-  vec2 ripple = (texture(opNoise, opPos.xz * 0.9 + opTime * 0.013).gb - 0.5) * 0.03;
-  vec3 still = normalize(opGeoN + vec3(ripple.x, 0.0, ripple.y));
-  opNrm = normalize(mix(opNrm, still, puddle * 0.95));
+  if (up > 0.0) {
+    float wide = textureGrad(opNoise, opPos.xz * 0.0067 + 0.17, opPosDx.xz * 0.0067, opPosDy.xz * 0.0067).r;
+    float mid = textureGrad(opNoise, opPos.xz * 0.029, opPosDx.xz * 0.029, opPosDy.xz * 0.029).r;
+    float fine = textureGrad(opNoise, opPos.xz * 0.13 + 0.3, opPosDx.xz * 0.13, opPosDy.xz * 0.13).g;
+    float depth = mid * 0.5 + wide * 0.32 + fine * 0.18 + (0.5 - opHeight) * 0.07 + (opWetness - 0.5) * 0.16;
+    float puddle = up * smoothstep(0.545, 0.6, depth);
+    float damp = up * smoothstep(0.42, 0.56, depth);
+    opAlbedo *= mix(1.0, 0.6, damp);
+    opRough = mix(opRough, opRough * 0.5, damp);
+    opRough = mix(opRough, 0.05, puddle);
+    opMetal *= 1.0 - puddle;
+    if (puddle > 0.0) {
+      // A faint, slow ripple keeps a puddle from being a perfect mirror of the sky.
+      vec2 ripple = (textureGrad(opNoise, opPos.xz * 0.9 + opTime * 0.013, opPosDx.xz * 0.9, opPosDy.xz * 0.9).gb - 0.5) * 0.03;
+      vec3 still = normalize(opGeoN + vec3(ripple.x, 0.0, ripple.y));
+      opNrm = normalize(mix(opNrm, still, puddle * 0.95));
+    }
+  }
 }
 #endif
 

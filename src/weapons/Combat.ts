@@ -70,6 +70,13 @@ interface HitSlot {
   region: GoreRegion;
 }
 
+/** Hitscan result extended with world surface metadata so callers need not re-cast a world ray. */
+export interface CombatShotResult extends ShotResult {
+  hitWorld: boolean;
+  worldSurface: SurfaceKind;
+  worldPoint: THREE.Vector3;
+}
+
 /** Per-depth scratch, so a listener calling fireRay mid-shot cannot corrupt the shot in progress. */
 interface RayState {
   origin: THREE.Vector3;
@@ -77,7 +84,7 @@ interface RayState {
   from: THREE.Vector3;
   end: THREE.Vector3;
   hits: HitSlot[];
-  result: ShotResult;
+  result: CombatShotResult;
   /** Penetration left on the shot in progress. */
   budget: Budget;
   exit: THREE.Vector3;
@@ -208,7 +215,10 @@ export class Combat implements CombatSystem {
       }
       this.stack.push({
         origin: new THREE.Vector3(), dir: new THREE.Vector3(), from: new THREE.Vector3(), end: new THREE.Vector3(), hits,
-        result: { hitEnemy: false, headshot: false, killed: false, kills: 0, end: new THREE.Vector3() },
+        result: {
+          hitEnemy: false, headshot: false, killed: false, kills: 0, end: new THREE.Vector3(),
+          hitWorld: false, worldSurface: 'concrete', worldPoint: new THREE.Vector3(),
+        },
         budget: makeBudget(), exit: new THREE.Vector3(), exitNormal: new THREE.Vector3(),
       });
     }
@@ -496,12 +506,13 @@ export class Combat implements CombatSystem {
   // Hitscan
   // -------------------------------------------------------------------------------------------
 
-  fireRay(origin: THREE.Vector3, dir: THREE.Vector3, spec: ShotSpec): ShotResult {
+  fireRay(origin: THREE.Vector3, dir: THREE.Vector3, spec: ShotSpec): CombatShotResult {
     const depth = this.rayDepth;
     if (depth >= MAX_RAY_DEPTH) {
       const r = this.stack[MAX_RAY_DEPTH - 1]!.result;
-      r.hitEnemy = r.headshot = r.killed = false;
+      r.hitEnemy = r.headshot = r.killed = r.hitWorld = false;
       r.kills = 0;
+      r.worldSurface = 'concrete';
       r.end.copy(origin);
       return r;
     }
@@ -511,8 +522,9 @@ export class Combat implements CombatSystem {
     st.dir.copy(dir).normalize();
     st.from.copy(spec.tracerFrom ?? origin);
     const r = st.result;
-    r.hitEnemy = r.headshot = r.killed = false;
+    r.hitEnemy = r.headshot = r.killed = r.hitWorld = false;
     r.kills = 0;
+    r.worldSurface = 'concrete';
     try {
       if (spec.team === 'enemy') this.enemyRay(st, spec);
       else this.playerRay(st, spec);
@@ -689,6 +701,11 @@ export class Combat implements CombatSystem {
       }
 
       const atWall = damage * damageKept(budget);
+      if (!r.hitWorld) {
+        r.hitWorld = true;
+        r.worldSurface = wall.surface;
+        r.worldPoint.copy(wall.point);
+      }
       st.end.copy(wall.point);
       if (spec.tracer) c.fx.tracer(st.from, st.end, spec.tracer);
       this.impact(wall.point, wall.normal, wall.surface, scale);
