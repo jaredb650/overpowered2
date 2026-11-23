@@ -748,6 +748,18 @@ export class HumanoidAnimator implements CharacterAnimation {
     this.snapLeft = this.snapSeconds = seconds;
   }
 
+  private clearHitState(): void {
+    this.hitTrunk.clear();
+    this.hitHead.clear();
+    this.hitHips.clear();
+    this.hitStep = 0;
+    this.swayRig?.stop();
+    for (let i = 0; i < 2; i++) {
+      this.hitArm[i]!.clear();
+      this.hitFore[i]!.clear();
+    }
+  }
+
   blendFrom(seconds: number): void {
     this.reel = this.flail = this.flailW = this.buckle = this.buckleW = 0;
     this.action = null;
@@ -756,6 +768,7 @@ export class HumanoidAnimator implements CharacterAnimation {
     this.moveBlend = this.runBlend = 0;
     this.vel.set(0, 0, 0);
     this.speed = 0;
+    this.clearHitState();
     this.matchPose(seconds);
   }
 
@@ -768,6 +781,7 @@ export class HumanoidAnimator implements CharacterAnimation {
     this.moveBlend = this.runBlend = 0;
     this.vel.set(0, 0, 0);
     this.speed = 0;
+    this.clearHitState();
     if (this.plan === 'crawl' || this.plan === 'writhe' || kind === 'crawl') {
       this.planBlend = 1;
       this.clipKind = null;

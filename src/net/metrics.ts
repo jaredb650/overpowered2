@@ -108,6 +108,12 @@ export class PeerLane {
     return this.started ? this.top - this.base + 1 : 0;
   }
 
+  /** A peer disconnected: its next connection restarts unreliable sequence numbers from 0. */
+  resetSequence(): void {
+    this.started = false;
+    this.base = this.top = this.received = 0;
+  }
+
   reset(): void {
     this.outBytes = this.outPackets = this.inBytes = this.inPackets = this.fallback = this.skipped = this.late = 0;
     this.gap.reset();

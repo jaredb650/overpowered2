@@ -79,7 +79,7 @@ export const WEAPONS: Record<WeaponId, WeaponInfo> = {
     note: `Press 3 again to swap with the rocket. A tap fires all four straight; right click braids all four in a helix onto the aim point. Each blast is ${TUNING.quiver.radius} m; all four on one target is a lot.`,
   },
   mgl: {
-    name: 'Milkor MGL', key: '3',
+    name: 'RGL', key: '3',
     role: `Revolving 40 mm grenade launcher. ${def.mgl.magSize}-round drum, ${def.mgl.grenade!.blast} blast damage in ${def.mgl.grenade!.radius} m`,
     note: 'Press 3 again to cycle to it. Rapid semi-auto 40 mm HE grenades. Fit Sticky Bomb in Procurement: hold R to toggle HE or STICKY, and right-click to detonate every planted sticky at once.',
   },
@@ -152,8 +152,8 @@ export const WEAPONS: Record<WeaponId, WeaponInfo> = {
   },
   autoraffica: {
     name: 'Autoraffica', key: '6',
-    role: `Machine pistol. Three rounds of ${def.autoraffica.damage} a pull, ${def.autoraffica.magSize} in the magazine, always suppressed`,
-    note: 'Press 6 again to step to it. Hold R for smart aim: a head inside the circle takes the crosshair, and holding the trigger is full auto into every head in it; with none, one round a pull. Tap R reloads. Right click aims.',
+    role: `Machine pistol. Three rounds of ${def.autoraffica.damage} a pull, ${def.autoraffica.magSize} in the magazine`,
+    note: 'Press 6 again to step to it. Hold R to switch between burst and smart fire. In smart mode, hold left click to paint up to six heads in the cone and snap an automatic burst through each; letting go at any point cancels. Tap R reloads. Right click aims.',
   },
   lance: {
     name: 'Lance', key: '7',
@@ -177,7 +177,7 @@ export const WEAPONS: Record<WeaponId, WeaponInfo> = {
     note: `Press 8 again to swap with the ${def.buzzsaw.name.charAt(0) + def.buzzsaw.name.slice(1).toLowerCase()}. Goes through walls, ${def.piledriver.penetration} m of them in all, and everyone in line. Takes limbs off and can burst what it kills. It kicks, and it slows you a little. Hold R for Raufoss rounds, and again for ball: each bursts where it hits and throws a cone of fragments out of the far side, through cover or through the man it hit. Tap R reloads. Right click aims.`,
   },
   metalstorm: {
-    name: 'Metal Storm', key: '8',
+    name: 'Iron Storm', key: '8',
     role: `36-barrel stacked-projectile volley gun. ${def.metalstorm.magSize} caseless rounds, electronic ignition from 600 to 1,000,000 RPM`,
     note: 'Press 8 again to cycle to it. Hold R to step the electronic fire rate: 600 RPM, 3.6K RPM, 60K RPM, or a 1M RPM hyper-volley that dumps up to 36 stacked rounds in one roar. Tap R reloads. Fit the 40mm FireStorm mod to convert the matrix to stacked 40 mm HE grenades.',
   },
@@ -190,6 +190,26 @@ export const WEAPONS: Record<WeaponId, WeaponInfo> = {
     name: 'Stakegun', key: '0',
     role: `Rebar stakes, ${def.stakegun.damage} damage`,
     note: 'Pins bodies and limbs to walls. Right click loads exploding bolts: one sticks in a wall or a man, beeps for a second and goes off.',
+  },
+  bodkin: {
+    name: 'Bodkin', key: '1',
+    role: `Flechette bullpup. ${def.bodkin.damage} a dart, ${def.bodkin.magSize} rounds, 3-round burst at 1,200 RPM`,
+    note: 'Press 1 again to step to it. Steel darts ignore plates and riot shields, punch through cover and bleed flesh, with full damage at any range. Hold R toggles burst and semi.',
+  },
+  billhook: {
+    name: 'Billhook', key: '2',
+    role: `Semi-auto combat shotgun. ${def.billhook.pellets} pellets of ${def.billhook.damage}, ${def.billhook.magSize}-shell tube`,
+    note: 'Press 2 again to step to it. Pump damage without the pump cycle. Takes reflex, laser, extended tube, flechettes, dragon\'s breath or heavy slugs in Procurement.',
+  },
+  autoclave: {
+    name: 'Autoclave', key: '7',
+    role: 'Directed microwave emitter. Boils armoured targets from the inside out',
+    note: 'Press 7 again to swap with the Lance. Faint heat-shimmer cone bypasses plate armour: targets stagger and steam, drop their weapons and swell, then burst.',
+  },
+  gaff: {
+    name: 'Gaff', key: '0',
+    role: `Shoulder-fired harpoon cannon. ${def.gaff.damage} damage, steel tether winch`,
+    note: 'Press 0 again to swap with the Stakegun. Skewers a whole line of enemies to the far wall on one shaft. Hold right click to reel yourself in or pull a skewered target; tap to cut the rope.',
   },
 };
 

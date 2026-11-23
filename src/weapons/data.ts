@@ -31,6 +31,8 @@ export const AMMO = {
   flechette: { pellets: 3.5, flesh: 0.25, plate: 0.9, bleed: 0.25, bleedSeconds: 2.5 },
   // API, armour-piercing incendiary: AP's round, and one that reaches flesh sets the man alight `ignite` of the time, `burn` s.
   api: { ignite: 0.12, burn: 4 },
+  // Dragon's breath: incendiary magnesium shotgun shell; nearly every pellet reaching flesh sets the man alight for `burn` s.
+  dragon: { ignite: 0.9, burn: 4.5 },
 } as const;
 
 export type FireMode = 'auto' | 'semi' | 'charge' | 'spin' | 'stream' | 'melee' | 'paint';
@@ -177,6 +179,22 @@ export interface WeaponDef {
   grenade?: {
     readonly speed: number; readonly gravity: number; readonly life: number; readonly radius: number; readonly blast: number;
   };
+  /** Optional per-gun rocket ballistics override (Rocket longer tube: 56 m/s, proportional laserTurn). */
+  rocket?: { readonly speed: number; readonly laserTurn: number };
+  /** Optional per-gun shell ballistics override (Autocannon longer barrel: 280 m/s, 1150 boss damage). */
+  shell?: { readonly speed: number; readonly bossDamage?: number };
+  /** Optional damage override on bosses and vehicles (e.g. Bodkin tungsten darts). */
+  bossDamage?: number;
+  /** White phosphorus rockets fitted (hold R toggles WP cloud rounds). */
+  wp?: boolean;
+  /** Howitzer cluster shell fitted (hold R toggles standoff bomblet carpet). */
+  cluster?: boolean;
+  /** Riot shield fitted on a pistol (blocks frontal fire, replaces ADS with bash, excludes akimbo). */
+  shield?: boolean;
+  /** Microwave emitter stream (Autoclave: narrow cone heating enemies until they burst). */
+  microwave?: boolean;
+  /** Harpoon cannon (Gaff: multi-body skewer, wall pin, reel-in grapple rope). */
+  harpoon?: boolean;
   /** An under-barrel launcher is fitted (the Gimlet's mod): hold R raises it, and then it fires `LAUNCHER`'s round. */
   launcher?: boolean;
   /** Hit-stop on a kill, seconds. */
@@ -317,6 +335,19 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     // Hold R: full auto or one round a pull.
     select: { hold: 0.3, modes: ['auto', 'semi'] },
   },
+  // The flechette rifle (Steyr ACR inspired), after the Harrow on key 1: three-round 1200 RPM bursts or semi-auto (hold R),
+  // steel darts that pass straight through plates, riot shields and four men in a line, bleed in flesh, and never lose damage at range.
+  bodkin: {
+    ...BASE, id: 'bodkin', name: 'BODKIN', slot: 1, base: 'smg', mode: 'auto',
+    magSize: 24, reserve: 144, maxReserve: 288, reloadTime: 1.2, drawTime: 0.2,
+    interval: 0.05, damage: 38, severMult: 0, canSever: false, force: 3, headshotMult: 2,
+    penetration: 1.6, bodyCost: 0.35, armorPiercing: true, load: 'flechette',
+    muzzle: 'carbine', tracer: 'flechette', casing: 'rifle',
+    sounds: [{ id: 'gimlet_shot', pitch: 1.32, pitchJitter: 0.03 }, { id: 'bullet_flyby', volume: 0.45, pitch: 1.5, pitchJitter: 0.06 }],
+    recoil: 0.55, kick: 0.0022, shake: 0.0045, fovPunch: 0.15, impactScale: 0.5,
+    ads: { zoom: 0.45, time: 0.18 },
+    select: { hold: 0.3, modes: ['burst', 'semi'], burst: { rounds: 3, recover: 0.25 } },
+  },
   // The light machine gun, last on key 1: the SMG's 800 a minute with a round between the SMG's and the Harrow's, from a box of a
   // hundred on a belt. It goes through a sheet of cover, climbs a little, and is slow to draw, to aim and above all to reload: the
   // feed cover up, the box off, a new one on, the belt laid, the cover down, the handle racked. The shop sells a box of 200.
@@ -375,6 +406,21 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     recoil: 1.15, kick: 0.022, shake: 0.03, fovPunch: 2.2,
     altBoth: { kick: 1.8, push: 4.5, ground: 0.6, echo: 0.022, echoPitch: 0.95 },
   },
+  // The semi-auto combat shotgun (SPAS-12 inspired), after the Deuce on key 2: the pump's shell (6x26, 0.05 cone) in an
+  // 8-shell tube fired semi-auto at 0.26 s between shots. Strict upgrade to the pump.
+  billhook: {
+    ...BASE, id: 'billhook', name: 'BILLHOOK', slot: 2, base: 'shotgun', mode: 'semi',
+    magSize: 8, reserve: 48, maxReserve: 96, reloadTime: 1.5, drawTime: 0.22,
+    interval: 0.26, damage: 26, pellets: 6, spread: 0.05, severMult: 2.4, force: 20,
+    muzzle: 'shotgun', tracer: 'bullet', casing: 'shotgun',
+    sounds: [{ id: 'pump_shotgun_shot', pitch: 1.04, pitchJitter: 0.04 }],
+    reloadFoley: [
+      [0.08, 'reload_shell_in'], [0.24, 'reload_shell_in'], [0.4, 'reload_shell_in'],
+      [0.56, 'reload_shell_in'], [0.72, 'reload_shell_in'], [0.88, 'reload_bolt'],
+    ],
+    recoil: 0.95, kick: 0.013, shake: 0.019, fovPunch: 1.4,
+    ads: { zoom: 0.34, time: 0.2 },
+  },
   rocket: {
     ...BASE, id: 'rocket', name: 'ROCKET', slot: 3, mode: 'semi', round: 'rocket',
     magSize: 1, reserve: 10, maxReserve: 20, reloadTime: 1.5, drawTime: 0.26,
@@ -399,7 +445,7 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
   },
   // Milkor MGL: 6-shot revolving 40 mm grenade launcher on key 3. Rapid semi-auto drum thoomps; fits the Sticky Bomb shop mod.
   mgl: {
-    ...BASE, id: 'mgl', name: 'MILKOR MGL', slot: 3, base: 'rocket', mode: 'semi', round: 'grenade',
+    ...BASE, id: 'mgl', name: 'RGL', slot: 3, base: 'rocket', mode: 'semi', round: 'grenade',
     magSize: 6, reserve: 18, maxReserve: 30, reloadTime: 2.35, drawTime: 0.28,
     interval: 0.36, damage: 70, severMult: 2.5, force: 80, headshotMult: 1.5,
     grenade: { speed: 52, gravity: 11.2, life: 8, radius: 5.5, blast: 175 },
@@ -588,6 +634,17 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     reloadFoley: [[0.12, 'reload_cell'], [0.78, 'reload_bolt']], drawSound: 'weapon_draw_heavy',
     recoil: 1.3, kick: 0.075, shake: 0.14, fovPunch: 7,
   },
+  // The microwave gun, under the Lance on key 7: an invisible narrow-cone microwave emitter (shimmer only) that ignores
+  // armour plates and boils targets from within until they stagger, scream, swell and burst.
+  autoclave: {
+    ...BASE, id: 'autoclave', name: 'AUTOCLAVE', slot: 7, base: 'lance', mode: 'stream', microwave: true,
+    magSize: 120, reserve: 240, maxReserve: 480, reloadTime: 1.8, drawTime: 0.28,
+    interval: 1 / 30, damage: 12, severMult: 0, canSever: false, force: 0, headshotMult: 1, armorPiercing: true,
+    muzzle: 'plasma', tracer: 'bullet',
+    sounds: [],
+    reloadFoley: [[0.12, 'reload_cell'], [0.78, 'reload_bolt']], drawSound: 'weapon_draw_heavy',
+    recoil: 0.08, kick: 0, shake: 0.001,
+  },
   // The 20 mm rotary cannon. Big rounds, twenty-five a second once the barrels are turning, each one going off where it
   // lands (`burst`: a flash, a crack and fragments inside half a metre, never a blast). It goes through nothing. `force` 34
   // is over the 30 a body can die on its feet under, so what it kills is knocked down. Spin-up, the climb of its rate and
@@ -627,7 +684,7 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
   // Metal Storm: 36-barrel electronically-fired stacked-projectile weapon (5 stacked rounds per barrel = 180 rounds).
   // No moving bolt, no brass, pure solid-state ignition. Hold R cycles 4 electronic rates up to a 1,000,000 RPM hyper-volley.
   metalstorm: {
-    ...BASE, id: 'metalstorm', name: 'METAL STORM', slot: 8, base: 'buzzsaw', mode: 'auto',
+    ...BASE, id: 'metalstorm', name: 'IRON STORM', slot: 8, base: 'buzzsaw', mode: 'auto',
     magSize: 180, reserve: 360, maxReserve: 540, reloadTime: 2.6, drawTime: 0.38,
     interval: 0.1, damage: 24, spread: 0.012, severMult: 2.2, force: 16, headshotMult: 1.7,
     penetration: 0.8, bodyCost: 0.4, gib: 0.15, slow: 0.65, impactScale: 1.1,
@@ -669,6 +726,18 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     reloadFoley: [[0.1, 'stake_reload'], [0.6, 'stakegun_string']],
     recoil: 1, kick: 0.024, shake: 0.024, fovPunch: 1.4,
     altAmmo: { label: 'EXPLODING BOLTS' },
+  },
+  // The harpoon cannon, beside the Stakegun on key 0: shoulder-fired, 550 damage, no explosion, skewers a line of men
+  // onto the wall behind them, and stays tethered by a steel rope for reeling or grappling (right click).
+  gaff: {
+    ...BASE, id: 'gaff', name: 'GAFF', slot: 0, base: 'stakegun', mode: 'semi', round: 'stake', harpoon: true,
+    magSize: 1, reserve: 12, maxReserve: 24, reloadTime: 1.9, drawTime: 0.3,
+    interval: 0.5, damage: 550, severMult: 3.2, force: 160, headshotMult: 2,
+    penetration: 2.4, bodyCost: 0.3, armorPiercing: true,
+    muzzle: 'rifle', tracer: 'heavy',
+    sounds: [{ id: 'stakegun_shot', pitch: 0.72, pitchJitter: 0.03 }],
+    reloadFoley: [[0.14, 'stake_reload'], [0.68, 'stakegun_string'], [0.88, 'reload_bolt']], drawSound: 'weapon_draw_heavy',
+    recoil: 1.3, kick: 0.042, shake: 0.04, fovPunch: 2.8, killStop: HEAVY_KILL_STOP,
   },
 };
 
@@ -1015,13 +1084,14 @@ export const TUNING = {
    */
   howitzer: {
     speed: 195, gravity: 6.5, damage: 580, blast: 680, radius: 13.5,
-    kind: 'finisher' as ExplosionKind, blastScale: 1.65, blastShake: 0.85,
+    kind: 'howitzer' as ExplosionKind, blastScale: 1.65, blastShake: 0.85,
     selfDamage: 0.25, playerPush: 18, size: 2.2, push: 6.5, groundPush: 0.55,
   },
 } as const;
 
 /** Instakill values are for grunts. A boss takes a heavy hit, never the end of the fight: the host applies this to every hit, its own and a guest's. */
-export const bossHit = (boss: boolean, amount: number): number => boss && amount >= 9999 ? TUNING.autocannon.bossDamage : amount;
+export const bossHit = (boss: boolean, amount: number, bossDamage?: number): number =>
+  boss ? (bossDamage !== undefined ? bossDamage : amount >= 9999 ? TUNING.autocannon.bossDamage : amount) : amount;
 
 // ---------------------------------------------------------------------------------------------
 // Sword
@@ -1168,6 +1238,10 @@ export const EXPLOSIONS: Record<ExplosionKind, ExplosionDef> = {
     sounds: [{ id: 'explosion_barrel', pitchJitter: 0.06 }, { id: 'explosion_debris' }],
   },
   finisher: {
+    ...BLAST, shake: 0.15, shakeRange: 30, selfDamage: 0, selfCap: 0, playerPush: 0, impulse: 14,
+    sounds: [{ id: 'rocket_explosion' }], flash: 0, fovPunch: 3.5,
+  },
+  howitzer: {
     ...BLAST, shake: 0.15, shakeRange: 30, selfDamage: 0, selfCap: 0, playerPush: 0, impulse: 14,
     sounds: [{ id: 'rocket_explosion' }], flash: 0, fovPunch: 3.5,
   },

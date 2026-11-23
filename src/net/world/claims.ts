@@ -71,7 +71,7 @@ const LOCAL_REACH = 12;
 const _local = new THREE.Vector3();
 
 const DAMAGE_TYPES: readonly DamageInfo['type'][] = ['bullet', 'pellet', 'explosive', 'slash', 'melee', 'fire', 'shock', 'crush', 'true'];
-const LOADS: readonly NonNullable<DamageInfo['load']>[] = ['ap', 'hp', 'plusP', 'flechette', 'api'];
+const LOADS: readonly NonNullable<DamageInfo['load']>[] = ['ap', 'hp', 'plusP', 'flechette', 'api', 'dragon'];
 const ARMOURS: readonly NonNullable<DamageInfo['armour']>[] = ['light', 'medium', 'heavy'];
 const within = (n: unknown, least: number, most: number): n is number => typeof n === 'number' && Number.isFinite(n) && n >= least && n <= most;
 
@@ -302,8 +302,13 @@ export class Claims implements WorldModule {
     if (!enemy) { this.refuse('gone'); this.nack(from, value, 'gone'); return; }
     // The host's copy of the shooter's body. None yet (their first pose is still on its way, or their body is being built):
     // the claim is not dropped for that. It is checked against the eye it names itself, which is all the eye test bounds anyway.
-    const root = this.w.sender(from, now)?.char.root.position;
-    const eye: Vec = root ? [root.x, root.y + 1.6, root.z] : validVec(value?.origin) ? value.origin : [0, 0, 0];
+    const sender = this.w.sender(from, now);
+    const root = sender?.char.root.position;
+    const reye = sender?.eye;
+    const eye: Vec = root
+      ? (reye && Math.abs(reye.x - root.x) < 0.05 && Math.abs(reye.z - root.z) < 0.05 && reye.y > root.y + 0.1
+        ? [reye.x, reye.y, reye.z] : [root.x, root.y + 1.6, root.z])
+      : validVec(value?.origin) ? value.origin : [0, 0, 0];
     const verdict = this.w.validator.check(from, value, now, {
       eye, target: enemy.center.toArray() as Vec, size: enemy.char.rig.height, speed: enemy.velocity.length(),
       ping: session.lobby.pingOf(from), down: this.w.life(from).down, visible: (origin, target) => this.w.visible(origin, target),

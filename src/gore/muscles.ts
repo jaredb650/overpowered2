@@ -775,7 +775,11 @@ export class MuscleState {
 
   /** How much of a joint's reaction the hold on the hips takes, which is none once nothing is holding them. */
   private get support(): number {
-    return this.collapse?.support ?? 0;
+    if (!this.collapse) return 0;
+    // Once both feet leave the ground under DynamicBalancer there is no ground reaction on the pelvis,
+    // so every joint obeys pure Newton's 3rd law (`back = 1`) in mid-air.
+    if (this.collapse.balancer && this.collapse.balancer.groundedCount === 0) return 0;
+    return this.collapse.support;
   }
 
   /** Nothing presses a weightless body to rest, so stillness there says nothing about being finished. */
@@ -802,7 +806,16 @@ export class MuscleState {
       j.left = 0;
       j.part = null;
     }
-    if (this.collapse?.balancer?.hasRemovedParts()) this.endCollapse();
+    const bal = this.collapse?.balancer;
+    if (bal?.hasRemovedParts()) {
+      const drive = this.collapse!;
+      if (drive.alive) {
+        this.balance.speed.copy(bal.comVel);
+        this.fallOver(drive, 'limb');
+      } else {
+        this.endCollapse();
+      }
+    }
     this.reflex?.bind();
 
     let total = 0;

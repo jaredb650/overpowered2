@@ -82,4 +82,21 @@ describe('the reliable lane\'s envelope', () => {
     broken[BATCH_HEAD + 2 + 9 + 2] = 0x7d;
     expect(unbatch(broken)).toEqual([{ t: 'a' }, { t: 'c' }]);
   });
+
+  it('respects the backpressure gate on mid-frame overflow flushes and caps records per batch', () => {
+    const sent: Uint8Array[] = [];
+    const batcher = new Batcher(batch => sent.push(batch));
+    const writer = new RecordWriter<unknown>();
+    const filler = writer.encode({ t: 'x', pad: 'p'.repeat(5000) })!;
+    // Closed gate must discard mid-frame overflow flushes instead of bypassing backpressure.
+    for (let i = 0; i < 6; i++) batcher.add(filler, 'stalled', 1, () => false);
+    batcher.flush(() => false);
+    expect(sent).toHaveLength(0);
+    expect(batcher.stats.discarded).toBeGreaterThan(0);
+    // A hostile batch with >1024 tiny records stops at the per-batch record cap.
+    const many = Array.from({ length: 1200 }, (_, i) => ({ t: 'n', i }));
+    let count = 0;
+    expect(readBatch(batchOf('m', many), () => { count++; return true; })).toBe(1024);
+    expect(count).toBe(1024);
+  });
 });

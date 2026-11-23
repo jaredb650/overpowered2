@@ -41,7 +41,11 @@ export class Guns {
     // The lobby lets a guest hear only the host (lobby.ts `gameplay`).
     if (!this.w.hosting) return this.dropped?.guestIn(value);
     const remote = this.w.session.remotes.get(from);
-    if (remote) this.dropped?.hostIn(value, from, remote.char.root.position, remote.player.name, this.w.session.lobby.players.find(p => p.id === from)?.slot ?? -1);
+    if (!remote) {
+      if (value.op === 'drop' && Number.isInteger(value.q)) this.send({ t: 'gun', op: 'back', q: value.q }, from);
+      return;
+    }
+    this.dropped?.hostIn(value, from, remote.char.root.position, remote.player.name, this.w.session.lobby.players.find(p => p.id === from)?.slot ?? -1);
   }
 }
 

@@ -88,7 +88,7 @@ export interface DamageInfo {
 }
 
 /** A gun's ammo mod: armour-piercing, hollow-point or +P (ball rules, more damage). Unset is standard ball. */
-export type AmmoLoad = 'ap' | 'hp' | 'plusP' | 'flechette' | 'api';
+export type AmmoLoad = 'ap' | 'hp' | 'plusP' | 'flechette' | 'api' | 'dragon';
 
 export interface RayHit {
   point: THREE.Vector3;
@@ -342,6 +342,10 @@ export interface CharacterInstance {
   readonly stress: Float32Array;
   /** 0..1 overall blood coverage on the skin. */
   setBloodiness(amount: number): void;
+  /** 1-based pooled dynamic UV blood layer, or 0 when clean / unassigned. */
+  readonly bloodMapLayer?: number;
+  /** True when the most recent `wound()` call promoted a merged hole into a crater. */
+  readonly lastWoundPromoted?: boolean;
   /**
    * Wear you can see: `region` stands at `spent` of its health pool, 0 to 1, after a hit that wears as `kind`
    * (characters/anatomy/wear.ts `wearKindOf`): its skin is drawn torn that far through. `addWear` is for a region with no
@@ -418,6 +422,8 @@ export interface WoundHit {
   length?: number;
   /** Metres past touching at which this merges with a wound already there. */
   reach?: number;
+  /** Optional ceiling (metres) on how wide this wound may grow through merging. */
+  maxRadius?: number;
 }
 
 export interface CharacterLibrary extends GameSystem {
@@ -525,6 +531,26 @@ export interface GoreSystem extends GameSystem {
    */
   alight?(char: CharacterInstance, fireproof?: boolean): void;
   burnOn?(char: CharacterInstance, fireproof?: boolean): void;
+  /**
+   * Starts or upgrades a 3-tier Overgrowth-style bleeding wound on a flesh humanoid (humans and husks; never machines):
+   * tier 1 flesh wound collar + slow drips, tier 2 mortal/heavy creeping soak + rivulets, tier 3 arterial spurt rope +
+   * fast drenching stain. Optional so stand-ins need not implement it.
+   */
+  bleedWound?(
+    char: CharacterInstance,
+    bone: number,
+    point: THREE.Vector3,
+    tier: 1 | 2 | 3,
+    opts?: { normal?: THREE.Vector3; zone?: string; duration?: number; spurtPower?: number },
+  ): void;
+  /** Damps arterial spurt on the clutched bone and stains the clutching hand/forearm. */
+  clutchWound?(char: CharacterInstance, heldBone: number | null, handBone?: number, forearmBone?: number): void;
+  /** Stops active bleeding emitters and spurts on `char` (dressed or cauterised); existing stains remain and dull. */
+  stopBleed?(char: CharacterInstance, zone?: string): void;
+  /** Soaks the floor-facing side of a downed, crawling, or resting body lying in wet blood. */
+  soakPool?(char: CharacterInstance, floorY: number, amount?: number): void;
+  /** True where the floor is currently wet with blood (pools, fresh bursts). */
+  wetAt?(x: number, y: number, z: number): boolean;
   clear(): void;
 }
 
@@ -544,8 +570,8 @@ export interface CorpseHit {
 // ---------------------------------------------------------------------------------------------
 
 export type MuzzleKind = 'smg' | 'rifle' | 'shotgun' | 'rocket' | 'autocannon' | 'plasma' | 'railgun' | 'minigun' | 'revolver' | 'flame' | 'enemy' | 'carbine' | 'pistol' | 'sabot' | 'snipe' | 'quiver' | 'rotary' | 'hmg' | 'suppressed';
-export type TracerKind = 'scout' | 'bullet' | 'heavy' | 'hellfire' | 'bloodthirst' | 'berserk' | 'plasma' | 'rail' | 'enemy' | 'carbine' | 'pistol' | 'sabot' | 'snipe' | 'ap' | 'hp' | 'plusP' | 'flechette' | 'api' | 'raufoss' | 'scoutLong';
-export type ExplosionKind = 'rocket' | 'grenade' | 'hellfire' | 'hellfireBullet' | 'shell' | 'plasma' | 'plasmaBurst' | 'enemy' | 'barrel' | 'nuke' | 'finisher';
+export type TracerKind = 'scout' | 'bullet' | 'heavy' | 'hellfire' | 'bloodthirst' | 'berserk' | 'plasma' | 'rail' | 'enemy' | 'carbine' | 'pistol' | 'sabot' | 'snipe' | 'ap' | 'hp' | 'plusP' | 'flechette' | 'api' | 'raufoss' | 'scoutLong' | 'dragon';
+export type ExplosionKind = 'rocket' | 'grenade' | 'hellfire' | 'hellfireBullet' | 'shell' | 'plasma' | 'plasmaBurst' | 'enemy' | 'barrel' | 'nuke' | 'finisher' | 'howitzer';
 export type BeamKind = 'rail' | 'lance' | 'laser' | 'sniper' | 'heal';
 export type SlashKind = 'light' | 'heavy' | 'sweep' | 'finisher' | 'wave';
 export type EmitterPreset =
@@ -566,6 +592,8 @@ export interface EmitterHandle {
   readonly alive: boolean;
 }
 
+export type BloodPuffKind = 'bullet' | 'headshot' | 'shotgun' | 'blowout' | 'gib';
+
 export interface FxSystem extends GameSystem {
   /** `view` draws it in the view scene with the weapon. Pass the muzzle in view-scene coordinates then. */
   muzzleFlash(position: THREE.Vector3, dir: THREE.Vector3, kind: MuzzleKind, view?: boolean): void;
@@ -577,6 +605,8 @@ export interface FxSystem extends GameSystem {
   ring(position: THREE.Vector3, dir: THREE.Vector3, color: THREE.ColorRepresentation, size?: number): void;
   /** Supersonic Mach condensation / pressure ring along a heavy shell's trajectory (105mm howitzer). */
   vaporRing?(position: THREE.Vector3, dir: THREE.Vector3, scale?: number): void;
+  /** Dragon's breath magnesium shotgun blast: fire tongue, wide bouncing spark shower, and room flash. */
+  dragonBreath?(position: THREE.Vector3, dir: THREE.Vector3): void;
   sparks(position: THREE.Vector3, dir: THREE.Vector3, count: number, color?: THREE.ColorRepresentation): void;
   smoke(position: THREE.Vector3, color?: THREE.ColorRepresentation, size?: number, seconds?: number): void;
 
@@ -603,10 +633,10 @@ export interface FxSystem extends GameSystem {
    */
   gibTrail?(position: THREE.Vector3, velocity: THREE.Vector3, size?: number): void;
   /**
-   * The impact puff of a round on flesh, whole on the frame it lands and gone in a fifth of a second: hit feedback. `dir` is
-   * the round's; `weight` 0..1 as for `bloodSpray`; `scale` sizes it. Gore fires it from every bullet and pellet wound.
+   * The impact puff + spritz of a round or gore burst on flesh. `dir` is the round's or blast's; `weight` 0..1 sizes it;
+   * `scale` multipliers size; `kind` chooses silhouette ('bullet', 'headshot', 'shotgun', 'blowout', 'gib').
    */
-  bloodPuff?(position: THREE.Vector3, dir: THREE.Vector3, weight?: number, scale?: number): void;
+  bloodPuff?(position: THREE.Vector3, dir: THREE.Vector3, weight?: number, scale?: number, kind?: BloodPuffKind): void;
 
   /** Continuous emitter that follows `target`. `preset` picks the look. */
   attachEmitter(target: THREE.Object3D, preset: EmitterPreset, offset?: THREE.Vector3, seconds?: number): EmitterHandle;

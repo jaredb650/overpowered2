@@ -15,12 +15,14 @@ import type { ArmourOutcome, DamageResult, KillEvent } from '../core/gameplay';
 import { chance, clamp, lerp, pick, rand, smoothstep } from '../core/math';
 import { FACTIONS, type FactionRules } from '../contracts/data';
 import { ACTIVE } from '../contracts/select';
+import { BALANCER_PASS } from '../gore/balancer';
 import { KNOCK_PASS, MASS_PASS, STAND_PASS, STRENGTH_PASS, WEIGHT_PASS, type LimbStrength } from '../gore/muscles';
 import { standBudget, StandTuning } from '../gore/stand';
 import { STRUGGLE_PASS } from '../gore/reflex';
 import { bursts, HEAVY_ROUND } from './wounds/rules';
 import type { ZoneHit } from './wounds/zones';
 import { blowsOut } from '../gore/torso';
+import { isSmallArm, wearScaleOf } from '../gore/wounds';
 import { BLAST, OUTCOME_COUNT, OUTCOMES, rollBlast, tearsWaist, type BlastBody, type BlastOutcome, type BlastRoll, type OutcomeRule } from './blast';
 import { CHECK_CARRY, CHECK_MIN, CHECK_TOPPLE_MAX, CHECK_TOPPLE_MIN, checkStrength, SLIDE_KICK, SLIDE_TOPPLE } from './contact';
 import { ENEMIES, LIMB_SIZE, REGION_DAMAGE } from './data';
@@ -309,8 +311,9 @@ export function plateShatterChance(d: Pick<DamageInfo, 'amount' | 'type' | 'sour
 export const dartBleed = (load: AmmoLoad | undefined, amount: number): number => (load === 'flechette' ? amount * AMMO.flechette.bleed : 0);
 /** What of a flechette pool bleeds out over `dt`: 1 / AMMO.flechette.bleedSeconds of it a second, never under 1 hp a second, so it ends. */
 export const drainDarts = (pool: number, dt: number): number => Math.min(pool, Math.max(pool / AMMO.flechette.bleedSeconds, 1) * dt);
-/** Whether a round that reached flesh sets the man alight, for a roll in 0..1: an API round, AMMO.api.ignite of the time. */
-export const ignites = (load: AmmoLoad | undefined, roll: number): boolean => load === 'api' && roll < AMMO.api.ignite;
+/** Whether a round that reached flesh sets the man alight, for a roll in 0..1: API or Dragon's breath. */
+export const ignites = (load: AmmoLoad | undefined, roll: number): boolean =>
+  (load === 'api' && roll < AMMO.api.ignite) || (load === 'dragon' && roll < AMMO.dragon.ignite);
 export const STRAY_TANK_RADIUS = 0.8;
 /** Share of a shot tank's blast that reaches the player who shot it. Too close is a mistake, not a death sentence. */
 const TANK_SELF_DAMAGE = 0.35;
@@ -735,7 +738,9 @@ export class DamageModel {
       e.health -= amount;
       // A dart's hole bleeds on (EnemyManager drains it); an incendiary round sometimes lights him. Not a boss or a machine.
       if (!e.isBoss && !e.def.machine) e.darts += dartBleed(d.load, amount);
-      if (e.health > 0 && !e.def.fireproof && ignites(d.load, Math.random())) this.ignite(e, AMMO.api.burn);
+      if (e.health > 0 && !e.def.fireproof && ignites(d.load, Math.random())) {
+        this.ignite(e, d.load === 'dragon' ? AMMO.dragon.burn : AMMO.api.burn);
+      }
     }
     // Fire chars by what it takes as well as by the clock (EnemyManager.burnLook), on every screen: a man the flamethrower
     // kills in a quarter of a second is as burnt as one who burned for four.
@@ -764,7 +769,10 @@ export class DamageModel {
       if (blast) this.blastShown(e, d, blast);
       else if (!area && region !== 'head') this.spendLimb(e, region, d, res);
       // The head's pool is the host's to spend. What this screen shows of it is its own count, kept on the skin alone.
-      else if (!area && DevFlags.wear) e.char.addWear?.('head', amount / wholePool(e, 'head'), wearKindOf(d.type));
+      else if (!area && DevFlags.wear) {
+        const scale = wearScaleOf(d, 'head');
+        if (scale > 0) e.char.addWear?.('head', (amount / wholePool(e, 'head')) * scale, wearKindOf(d.type));
+      }
       // Sure of the kill: it goes down limp now, in place of the flinch a living body would give (the whole death, when it is
       // beyond doubt, is the caller's to start: `predictKill`). With no room on the floor it reacts as it would have.
       if (res.sure === 'fall' && !this.fellForDead(e, d, region, amount)) res.sure = undefined;
@@ -773,9 +781,26 @@ export class DamageModel {
       return res;
     }
 
-    const headPool = region === 'head' ? this.spendPool(e, 'head', amount, d.type) : Infinity;
+    const headPool = region === 'head' ? this.spendPool(e, 'head', amount, d) : Infinity;
     const spent = e.health <= 0 || headPool <= 0;
     if (blast?.fatal || (body ? wounds!.take(e, body, placed, d, amount, spent) : spent)) return this.lethal(e, d, res, region, true, blast);
+
+    if (
+      !body && !e.def.machine && !e.isBoss
+      && d.bone !== undefined && d.bone >= 0
+      && (d.type === 'bullet' || d.type === 'pellet' || d.type === 'slash' || d.type === 'melee' || d.type === 'explosive')
+      && (e.health / e.maxHealth < 0.35 || e.darts > 0 || e.bleed > 0)
+    ) {
+      const heavyWound = !isSmallArm(d) || e.char.lastWoundPromoted === true;
+      const arterial = d.bone === B.neck
+        || (heavyWound && e.health / e.maxHealth < 0.25 && (d.bone === B.chest || d.bone === B.thighL || d.bone === B.thighR));
+      if (arterial || heavyWound || e.darts > 0 || e.bleed > 0) {
+        this.w.ctx.gore.bleedWound?.(e.char, d.bone, d.point, arterial ? 3 : 2, {
+          normal: _v.copy(d.dir).negate(),
+          spurtPower: arterial ? 0.68 : undefined,
+        });
+      }
+    }
 
     if (blast) this.blastWound(e, d, res, blast);
     else if (area) this.blastLimb(e, d, res);
@@ -972,26 +997,36 @@ export class DamageModel {
     return res;
   }
 
-  private spendPool(e: Enemy, region: GoreRegion, amount: number, by: DamageType): number {
+  private spendPool(e: Enemy, region: GoreRegion, amount: number, d: DamageInfo): number {
     const left = (e.limbHp.get(region) ?? Infinity) - amount;
     e.limbHp.set(region, left);
-    this.showWear(e, region, left, by);
+    this.showWear(e, region, left, d);
     return left;
   }
 
-  /** Wear you can see: the region's skin is drawn as far through as its pool is spent (`WearTuning`). */
-  private showWear(e: Enemy, region: GoreRegion, left: number, by: DamageType): void {
+  /** Wear you can see: proportional to weapon class, ramping up as a limb approaches severing (`WearTuning`). */
+  private showWear(e: Enemy, region: GoreRegion, left: number, d: DamageInfo): void {
     const char = e.char;
     if (!DevFlags.wear || !char.setWear || !Number.isFinite(left)) return;
-    const spent = 1 - left / wholePool(e, region);
-    char.setWear(region, Math.min(spent, (char.wearOf?.(region) ?? 0) + WearTuning.step), wearKindOf(by));
+    const part = region === 'head' ? 'head' : 'limb';
+    const scale = wearScaleOf(d, part);
+    if (scale <= 0) return;
+    const spent = clamp(1 - left / wholePool(e, region), 0, 1);
+    const target = scale >= 0.99
+      ? spent
+      : part === 'head'
+        ? spent * scale
+        : Math.max(spent * scale, smoothstep(0.65, 1, spent));
+    char.setWear(region, Math.min(target, (char.wearOf?.(region) ?? 0) + WearTuning.step), wearKindOf(d.type));
   }
 
-  /** The trunk has no pool of its own: a hit on it wears it by the share of the body's health it took. */
+  /** The trunk has no pool of its own: heavy rounds, blades, shotguns and blasts wear it; small arms leave clean holes. */
   private wearTrunk(e: Enemy, region: GoreRegion, d: DamageInfo, amount: number, area: boolean): void {
     const char = e.char;
     if (!DevFlags.wear || !char.addWear || e.def.machine || !(amount > 0)) return;
-    const share = amount / e.maxHealth * WearTuning.trunk;
+    const scale = wearScaleOf(d, 'trunk');
+    if (scale <= 0) return;
+    const share = amount / e.maxHealth * WearTuning.trunk * scale;
     const kind = wearKindOf(d.type);
     if (area) {
       // A blast takes the whole front of him. Fire, shock and the rest of what lands everywhere are not wear.
@@ -1006,7 +1041,7 @@ export class DamageModel {
     const hit = d.amount * (d.severMult ?? 1) * SEVER_FACTOR[d.type] * this.rules(e).limbWear;
     if (hit <= 0) return;
     // A guest keeps count and cuts nothing: the limb comes off when the host says it did.
-    if (this.spendPool(e, region, hit, d.type) <= 0 && this.facts) this.sever(e, region, d, res);
+    if (this.spendPool(e, region, hit, d) <= 0 && this.facts) this.sever(e, region, d, res);
   }
 
   /** An explosive hit with no ring to answer to, a rocket's own contact or a boss in a blast, works the limb pools. */
@@ -1016,7 +1051,7 @@ export class DamageModel {
     const region = pick(BLAST_LIMBS);
     if (e.limbHp.has(region) && !e.char.severed.has(region)) {
       const hit = d.amount * (d.severMult ?? 1) * SEVER_FACTOR.explosive * rules.limbWear;
-      if (this.spendPool(e, region, hit, d.type) <= 0) this.sever(e, region, d, res);
+      if (this.spendPool(e, region, hit, d) <= 0) this.sever(e, region, d, res);
     }
   }
 
@@ -1263,7 +1298,7 @@ export class DamageModel {
     e.char.anim.flinch(B.upperArmL, d.dir, 0.3);
     if (d.type === 'explosive' || d.amount >= 40) e.char.anim.play('block', 1.4);
     // Sustained fire batters the arm behind the shield: enough of it and the arm goes, shield and all.
-    const left = this.spendPool(e, 'armL', d.amount * (d.type === 'explosive' ? 0.35 : 0.22), d.type);
+    const left = this.spendPool(e, 'armL', d.amount * (d.type === 'explosive' ? 0.35 : 0.22), d);
     if (left <= 0 && this.facts) this.sever(e, 'armL', d, res);
     this.emitHit(e, d, res);
   }
@@ -1525,8 +1560,14 @@ export class DamageModel {
     if (!profile && !e.downed) char.anim.flinch(bone, d.dir, flinch, d.point);
     char.hitFlash(armoured ? 0.35 : clamp(0.55 + frac * 2, 0.55, 1));
     if (!armoured && d.type !== 'fire' && d.type !== 'shock' && !e.def.machine) {
-      e.blood = Math.min(1, e.blood + 0.08 + frac * 1.1);
-      char.setBloodiness(e.blood);
+      const hasMap = (char.bloodMapLayer ?? 0) > 0;
+      const add = hasMap
+        ? (d.type === 'explosive' ? 0.32 : d.type === 'pellet' ? 0.1 : isSmallArm(d) ? 0 : 0.05 * frac)
+        : (0.04 + frac * 0.45);
+      if (add > 0) {
+        e.blood = Math.min(1, e.blood + add);
+        char.setBloodiness(e.blood);
+      }
     }
 
     const pushForce = d.force || DEFAULT_FORCE[d.type];
@@ -1648,20 +1689,18 @@ export class DamageModel {
     found.tripped = r.tripped;
     // Ice cannot stumble, and a body still arriving is on somebody else's clock.
     const held = e.frozen > 0 || e.entrance !== 'none';
-    // Floored by a head hit, the fall is the whole reaction. A flinch and a guard on the animator first would be read into the
-    // speed it goes down at, the head spinning against the chest and the hands thrown up at 10 m/s (gore.md, nothing a hit
-    // does to the animation may land in one frame), as `contact.ts` does for a body check. With `?knock=0`, as before.
     const headDown = KNOCK_PASS && !held && r.level === 'felled' && region === 'head';
-    // Felled on its way up, it goes over from the clip's pose, with nothing on the animator first either (`?struggle=0`: as
-    // before, which only a head hit did).
     const riseDown = STRUGGLE_PASS && !held && r.level === 'felled' && e.rising > 0;
     const floors = headDown || riseDown;
-    if (!floors) anim.flinch(bone, d.dir, flinch, d.point);
-    if (held) return;
-    if (!floors && ROUNDS.has(d.type)) this.swayPart(e, region, d, bone, flinch);
+    if (held) {
+      if (!floors) anim.flinch(bone, d.dir, flinch, d.point);
+      return;
+    }
     const felt = profile.pain > 0;
     const blast = d.type === 'explosive';
     if (r.level === 'flinch') {
+      anim.flinch(bone, d.dir, flinch, d.point);
+      if (ROUNDS.has(d.type)) this.swayPart(e, region, d, bone, flinch);
       if (!armoured) this.cryOut(e);
       // Hurt enough to notice, a hand goes to it a moment after the flinch, even though he fights on.
       if (felt && !armoured && DevFlags.clutch && this.w.now >= e.clutchAt && amount >= e.maxHealth * CLUTCH.share) {
@@ -1672,16 +1711,12 @@ export class DamageModel {
       }
       return;
     }
-    if (felt && !floors) {
-      if (blast || region === 'head') anim.guard?.(0.5 + r.strength * 0.5);
-      else if (!armoured) anim.holdWound?.(bone, d.point, 0.7 + r.strength);
-    }
     if (felt && !armoured) say(e, this.w, e.def.voice.pain, 0.7);
     const reactAt = e.reactAt;
     e.reactAt = this.w.now + profile.cooldown;
     if (r.level === 'thrown' || r.level === 'felled') {
-      // Only the rising rule drops it from the clip's pose with no topple. A head hit on a rising body goes over as any head
-      // hit does, tipped along the round and, knocked cold, with legs and spine locked.
+      // Never fire `anim.flinch` / `swayPart` / `guard` before a knockdown attempt: `measureAnimVelocity` steps the
+      // animator by 1/90 s and would bake those 1-frame animator kicks into the ragdoll's initial rigid-body velocities.
       const drops = riseDown && region !== 'head';
       const entryForce = AREA_TYPES.has(d.type) ? undefined : force;
       // Heavy knockbacks (non-KO, non-rising, grounded, visible) enter active ragdoll dynamically so the enemy reels
@@ -1698,16 +1733,16 @@ export class DamageModel {
         e.shock = 0;
         return;
       }
-      if (floors) {
-        anim.flinch(bone, d.dir, flinch, d.point);
-        // Gore has no room for it. Inside the cooldown or a get-up a head hit only skipped them to go to the floor, so it
-        // flinches as any other hit would there; staggered, an SMG would pin and shove a body for as long as it kept firing.
-        // A body felled on its way up is always inside a get-up.
-        if (early && !must) {
-          e.reactAt = reactAt;
-          return;
-        }
-        if (felt && headDown) anim.guard?.(0.5 + r.strength * 0.5);
+      // Gore had no room for a knockdown: fall back to the animated flinch/sway/stagger reaction cleanly.
+      anim.flinch(bone, d.dir, flinch, d.point);
+      if (floors && early && !must) {
+        e.reactAt = reactAt;
+        return;
+      }
+      if (ROUNDS.has(d.type)) this.swayPart(e, region, d, bone, flinch);
+      if (felt) {
+        if (blast || region === 'head') anim.guard?.(0.5 + r.strength * 0.5);
+        else if (!armoured) anim.holdWound?.(bone, d.point, 0.7 + r.strength);
       }
       // Past gore's budget. Staggering is what it would have done with one more foot under it.
       this.stagger(e, STAGGER_MAX, d.dir, r.strength, bone, profile.reel);
@@ -1716,6 +1751,48 @@ export class DamageModel {
     }
     const seconds = lerp(STAGGER_MIN, STAGGER_MAX, r.strength);
     const entryForce = AREA_TYPES.has(d.type) ? undefined : force;
+    // Under DynamicBalancer, enter active ragdoll directly BEFORE firing animator flinch/sway/stumble so
+    // `measureAnimVelocity` captures true pre-hit momentum instead of double-counting animator kicks on top of real r x J.
+    const tryBalancer = BALANCER_PASS && this.seenStanding(e) && (r.level === 'fall' || r.strength >= STAND_FROM);
+    let fallLead = -1;
+    if (tryBalancer) {
+      const rx = e.reel.x, ry = e.reel.y, rz = e.reel.z;
+      const vx = e.velocity.x, vy = e.velocity.y, vz = e.velocity.z;
+      let stumbleDir: THREE.Vector3;
+      if (r.tripped) {
+        e.reel.copy(e.velocity);
+        e.velocity.set(0, 0, 0);
+        stumbleDir = e.reel;
+      } else {
+        const wDir = this.towardWeakLeg(e, d.dir);
+        const speed = profile.reel * (1 + r.strength * REEL_GAIN);
+        e.reel.x += wDir.x * speed;
+        e.reel.z += wDir.z * speed;
+        stumbleDir = wDir;
+      }
+      let took = false;
+      if (r.level === 'fall') {
+        fallLead = rand(FALL_LEAD_MIN, FALL_LEAD_MAX);
+        _fall.copy(stumbleDir).setY(0);
+        if (_fall.lengthSq() < 1e-6) _fall.set(Math.sin(e.yaw), 0, Math.cos(e.yaw));
+        took = this.knockDown(e, _fall.normalize(), r.strength, bone, profile, false, knockAs(null, undefined, false, d.point, fallLead + STUMBLE_EXTRA, undefined, undefined, entryForce));
+      } else {
+        took = this.standFrom(e, stumbleDir, r.strength, bone, profile, d.point, entryForce);
+      }
+      if (took) {
+        e.shock *= SHOCK_AFTER_STAGGER;
+        return;
+      }
+      // Refused (budget full, speed over cap, or already due to fall): restore velocities and run animated stagger.
+      e.reel.set(rx, ry, rz);
+      e.velocity.set(vx, vy, vz);
+    }
+    anim.flinch(bone, d.dir, flinch, d.point);
+    if (ROUNDS.has(d.type)) this.swayPart(e, region, d, bone, flinch);
+    if (felt) {
+      if (blast || region === 'head') anim.guard?.(0.5 + r.strength * 0.5);
+      else if (!armoured) anim.holdWound?.(bone, d.point, 0.7 + r.strength);
+    }
     if (r.tripped) {
       // Stopped short by its own leg, with the rest of the body still going.
       _v.copy(e.velocity);
@@ -1726,7 +1803,15 @@ export class DamageModel {
       this.stagger(e, seconds, d.dir, r.strength, bone, profile.reel);
     }
     e.shock *= SHOCK_AFTER_STAGGER;
-    // Match `towardWeakLeg` direction that `stagger` just applied to `e.reel`.
+    if (tryBalancer) {
+      if (r.level === 'fall') {
+        e.fallIn = fallLead >= 0 ? fallLead : rand(FALL_LEAD_MIN, FALL_LEAD_MAX);
+        e.fallStrength = r.strength;
+        e.fallBone = bone;
+      }
+      return;
+    }
+    // Legacy ghost-stumble path (`?balancer=0`) or unseen enemy: follow animated stagger with fallFrom/standFrom.
     const stumbleDir = r.tripped ? e.reel : this.towardWeakLeg(e, d.dir);
     if (r.level === 'fall') this.fallFrom(e, stumbleDir, r.strength, bone, profile, undefined, d.point, entryForce);
     else if (r.strength >= STAND_FROM) this.standFrom(e, stumbleDir, r.strength, bone, profile, d.point, entryForce);
@@ -1742,12 +1827,12 @@ export class DamageModel {
    * the stagger it was just given, and catches itself or does not. Refused, going too fast to catch, or already due to
    * fall, the stagger stands.
    */
-  private standFrom(e: Enemy, dir: THREE.Vector3, strength: number, bone: number, profile: ReactionProfile, point?: THREE.Vector3, force?: number): void {
-    if (!this.seenStanding(e) || e.fallIn > 0 || this.m.outpost?.wounds.bodyOf(e)?.floored) return;
-    if (Math.hypot(e.velocity.x + e.reel.x + e.push.x, e.velocity.z + e.reel.z + e.push.z) > STAND_MAX_SPEED) return;
+  private standFrom(e: Enemy, dir: THREE.Vector3, strength: number, bone: number, profile: ReactionProfile, point?: THREE.Vector3, force?: number): boolean {
+    if (!this.seenStanding(e) || e.fallIn > 0 || this.m.outpost?.wounds.bodyOf(e)?.floored) return false;
+    if (Math.hypot(e.velocity.x + e.reel.x + e.push.x, e.velocity.z + e.reel.z + e.push.z) > STAND_MAX_SPEED) return false;
     _fall.copy(dir).setY(0);
-    if (_fall.lengthSq() < 1e-6) return;
-    this.knockDown(e, _fall.normalize(), strength, bone, profile, false, knockAs(null, undefined, false, point, StandTuning.maxSeconds, standBudget(strength), undefined, force));
+    if (_fall.lengthSq() < 1e-6) return false;
+    return this.knockDown(e, _fall.normalize(), strength, bone, profile, false, knockAs(null, undefined, false, point, StandTuning.maxSeconds, standBudget(strength), undefined, force));
   }
 
   /**

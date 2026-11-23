@@ -99,8 +99,12 @@ export class LaneRoom implements NetRoom {
     });
     wire.onPeerLeave(id => {
       this.peers.delete(id);
+      this.sim.forget(id);
       // The next connection under this id counts its frames from 0 again.
-      for (const lane of this.lanes.values()) lane.seq.delete(id);
+      for (const lane of this.lanes.values()) {
+        lane.seq.delete(id);
+        lane.stats?.peers.get(id)?.resetSequence();
+      }
       for (const handler of this.leaves) handler(id);
     });
     wire.onFast((frame, from) => this.fastIn(frame, from));
@@ -166,14 +170,22 @@ export class LaneRoom implements NetRoom {
     lane.stats?.peer(to).out(size);
     if (fast) {
       const frame = this.frame(lane, data, to);
-      if (!this.sim.active) return void this.wire.fastSend(to, frame);
-      this.sim.unreliable(to, frame.byteLength, () => { if (!this.closed) this.wire.fastSend(to, frame); });
-      return;
+      if (!this.sim.active) {
+        if (this.wire.fastSend(to, frame) || lane.name === PING_FAST_LANE) return;
+        // Fast channel failed mid-send (e.g. closing or buffer full): fall back to reliable path.
+      } else {
+        this.sim.unreliable(to, frame.byteLength, () => {
+          if (!this.closed) this.wire.fastSend(to, frame);
+        });
+        return;
+      }
     }
     if (lane.unreliable && lane.stats) lane.stats.peer(to).fallback++;
     if (!this.sim.active) return lane.wire.send(data, to);
     // The sender may change or reuse what it handed over before the delayed send: keep it as it is now.
-    const kept = isBytes(data) ? data.slice(0) : JSON.parse(JSON.stringify(data) ?? 'null') as unknown;
+    let kept: unknown;
+    try { kept = isBytes(data) ? data.slice(0) : JSON.parse(JSON.stringify(data) ?? 'null') as unknown; }
+    catch { return; }
     this.sim.reliable(to, size, () => { if (!this.closed) lane.wire.send(kept, to); });
   }
 
@@ -222,6 +234,7 @@ export class LaneRoom implements NetRoom {
       const bytes = view(data);
       const sent = new DataView(bytes.buffer, bytes.byteOffset, PING_BYTES).getFloat64(1, true);
       if (bytes[0] === 0) {
+        if (isFast && !this.wire.fastUp(from)) return;
         const pong = bytes.slice();
         pong[0] = 1;
         channel.send(pong, from);

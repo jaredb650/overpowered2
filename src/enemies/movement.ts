@@ -50,7 +50,7 @@ const _fallDamage: DamageInfo = {
 /** Kills a falling enemy cleanly if the map defines a lethal kill-plane (`killY`). */
 function fellBelowKillPlane(e: Enemy, w: AiWorld): boolean {
   const killY = w.ctx.world.objects?.killY;
-  if (killY == null || e.position.y > killY) return false;
+  if (typeof killY !== 'number' || e.position.y > killY) return false;
   if (!e.alive || e.def.id === 'drone') return false;
   _fallDamage.amount = e.health + 1;
   _fallDamage.point.copy(e.center);

@@ -315,4 +315,24 @@ describe('a loose arm, its own body and the wall beside it', () => {
     expect(asked).toBeLessThanOrEqual(40);
     expect(kept.jump).toBeLessThanOrEqual(free.jump + 0.01);
   });
+
+  it('clears stale flinch and sway state when handed back via blendFrom or getUp', () => {
+    const b = body('trooper');
+    b.step(10);
+    b.anim.flinch(H.upperArmL, FRONT, 1.4);
+    b.anim.sway('armL', FRONT, 1.4, H.upperArmL);
+    b.step(2);
+    expect(b.anim.swaying).toBe(true);
+
+    b.anim.blendFrom(0.25);
+    expect(b.anim.swaying).toBe(false);
+
+    b.anim.flinch(H.chest, FRONT, 1.4);
+    b.anim.sway('trunk', FRONT, 1.4, H.chest);
+    b.step(2);
+    expect(b.anim.swaying).toBe(true);
+
+    b.anim.getUp('supine', 0.8, 0.5);
+    expect(b.anim.swaying).toBe(false);
+  });
 });

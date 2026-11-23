@@ -766,4 +766,32 @@ describe('the life of a co-op session', () => {
     expect(h2.error).toBe('code-taken'); expect(h2.yieldedTo).toBe('ANNA');
     expect(a.phase).toBe('open'); expect(a.players.map(p => p.name)).toEqual(['ANNA', 'BEN']);
   });
+
+  it('host notifies onSeat lost when a guest steps out, endMatch drops offline seats, and close does not send count after bye', () => {
+    const { h, gs } = lobbyOf('ANNA', 'BEN');
+    const [a] = gs as unknown as [Lobby, Lobby];
+    const hostSeats: [string, unknown][] = [];
+    h.onSeat = (p, e) => hostSeats.push([p.name, e]);
+    h.startMatch('outpost', 'm-lost'); hub.flush();
+    // Guest steps back to lobby during a match -> host marks guest away and emits lost.
+    a.away(false); hub.flush();
+    expect(hostSeats).toContainEqual(['ANNA', { kind: 'lost' }]);
+    // Closing during a countdown does not emit a count:0 packet after bye.
+    h.endMatch(); hub.flush();
+    for (const g of gs as unknown as Lobby[]) g.setReady(true);
+    hub.flush();
+    expect(h.countdown('outpost')).toBe(true); hub.flush();
+    const sent: unknown[] = [];
+    const orig = roomOf(h).channel('lobby').send;
+    const ch = roomOf(h).channel('lobby');
+    ch.send = ((data: unknown, to?: string) => { sent.push(data); orig(data, to); }) as typeof ch.send;
+    h.leave();
+    const types = sent.map(d => (d as { t?: string })?.t);
+    expect(types).not.toContain('count');
+    // Ending a match with an unlinked offline seat cleans it up and emits gone.
+    const started = startedMatch('CARL');
+    started.h.endMatch(); hub.flush();
+    expect(started.h.players.map(p => p.name)).toEqual(['HOST']);
+    expect(started.seat).toHaveBeenCalledWith('CARL', { kind: 'gone' });
+  });
 });

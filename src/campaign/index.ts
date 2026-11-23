@@ -14,8 +14,9 @@
  */
 import type { Ctx } from '../core/contracts';
 import type { EnemyInstance } from '../core/gameplay';
-import { recordCampaignBeaten } from '../contracts/unlocks';
-import { selectedStarter } from '../contracts/starter';
+import { ACTIVE } from '../contracts/select';
+import { missionModsUnlocked, recordCampaignBeaten, recordMissionWin } from '../contracts/unlocks';
+import { selectedStarter, selectedStarterMods } from '../contracts/starter';
 import { missionWithStarter } from './starter';
 import { setMissionCorpseCap } from '../ui/settings';
 import type { CampaignSystem, MissionResult } from './events';
@@ -86,7 +87,9 @@ class Campaign implements CampaignSystem {
   constructor(private readonly ctx: Ctx, id: string) {
     const source = MISSIONS[id];
     const starterContract = id === 'outpost' ? 'campaign' : id === 'foreclosure' ? 'foreclosure' : id === 'bank_run' ? 'bank_run' : id === 'desert_raid' ? 'desert_raid' : null;
-    const mission = source && starterContract ? missionWithStarter(source, selectedStarter(starterContract)) : source;
+    const starterGun = starterContract ? selectedStarter(starterContract) : null;
+    const starterMods = starterContract && starterGun && missionModsUnlocked(starterContract) ? selectedStarterMods(starterGun) : undefined;
+    const mission = source && starterGun ? missionWithStarter(source, starterGun, starterMods) : source;
     if (!mission) throw new Error(`no mission ${id}`);
     for (const problem of validateMission(mission)) console.warn(`[campaign] ${mission.id}: ${problem}`);
     this.ui = new CampaignHud(ctx);
@@ -194,6 +197,7 @@ class Campaign implements CampaignSystem {
   /** A test that started halfway has beaten nothing. */
   private complete(): void {
     const { mission } = this.runner;
+    if (!START_BEAT) recordMissionWin(ACTIVE.def.id);
     this.result = { ...this.tally(), unlocked: mission.unlocks === true && !START_BEAT && recordCampaignBeaten() };
   }
 

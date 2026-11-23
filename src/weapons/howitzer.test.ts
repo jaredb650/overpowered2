@@ -138,7 +138,7 @@ describe('Shoulder-Fired 105mm Howitzer (Slot 3)', () => {
       damage: 580,
       blast: 680,
       radius: 13.5,
-      kind: 'finisher',
+      kind: 'howitzer',
       blastScale: 1.65,
       blastShake: 0.85,
       selfDamage: 0.25,
@@ -153,7 +153,7 @@ describe('Shoulder-Fired 105mm Howitzer (Slot 3)', () => {
     expect(weaponIcon('howitzer')).toContain('<svg');
   });
 
-  it('fires a 105mm shell with howitzer trail, finisher blast, shockwave FX, cannon casing, backblast, and shoulder shove', () => {
+  it('fires a 105mm shell with howitzer trail, fiery howitzer blast, shockwave FX, cannon casing, backblast, and shoulder shove', () => {
     r.ctx.player.velocity.set(0, 0, 0);
     r.ctx.player.forward.set(0, 0, -1);
 
@@ -174,7 +174,7 @@ describe('Shoulder-Fired 105mm Howitzer (Slot 3)', () => {
     expect(p.explosion).toEqual({
       radius: 13.5,
       damage: 680,
-      kind: 'finisher',
+      kind: 'howitzer',
       scale: 1.65,
       shake: 0.85,
       selfDamage: 0.25,

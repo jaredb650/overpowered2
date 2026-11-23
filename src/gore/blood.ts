@@ -8,10 +8,12 @@
  */
 import * as THREE from 'three';
 import { hitWeight } from '../audio/reactions';
-import { CG, type CharacterInstance, type Ctx, type DamageInfo, type DecalKind, type RayHit } from '../core/contracts';
+import { HumanoidBone } from '../characters/rig';
+import { CG, type BloodPuffKind, type CharacterInstance, type Ctx, type DamageInfo, type DecalKind, type RayHit } from '../core/contracts';
 import { DevFlags } from '../core/devflags';
 import { clamp, TAU, randomInCone } from '../core/math';
 import type { BigKind, SplatHow } from '../render/decalSheet';
+import { isSmallArm } from './wounds';
 
 export const BloodTuning = {
   /** Raycasts per frame across droplets, queued splats and smears. */
@@ -585,19 +587,28 @@ export class BloodField {
     // The rest of a shotgun's pellets on one body are the same hit: one splash, one dripping wound.
     const again = d.type === 'pellet' && this.sprayChar === char && now - this.sprayAt < 0.05;
     const s = clamp(severity, 0, 1);
-    const wet = Math.min(1, (this.wet.get(char) ?? 0) + (again ? s * 0.5 : BloodTuning.wetPerHit + s * 1.1));
-    this.wet.set(char, wet);
-    char.setBloodiness(wet);
-    // The impact puff, on the frame of the hit: one for a round, and for a blast one for the body and a few for its pellets.
+    const hasMap = (char.bloodMapLayer ?? 0) > 0;
+    const wetAdd = hasMap
+      ? (again ? 0 : d.type === 'explosive' ? 0.3 : d.type === 'pellet' ? 0.08 : isSmallArm(d) ? 0 : s * 0.08)
+      : (again ? s * 0.2 : BloodTuning.wetPerHit * 0.4 + s * 0.42);
+    if (wetAdd > 0) {
+      const wet = Math.min(1, (this.wet.get(char) ?? 0) + wetAdd);
+      this.wet.set(char, wet);
+      char.setBloodiness(wet);
+    }
+    // The impact puff + spritz, on the frame of the hit: scaled & shaped by round class, headshots, and shotgun spreads.
     const puff = puffOf(d);
     if (puff >= 0) {
       const t = BloodTuning;
+      const head = d.region === 'head' || bone === HumanoidBone.head;
+      const kind: BloodPuffKind = head ? 'headshot' : d.type === 'pellet' ? 'shotgun' : 'bullet';
       if (!again) {
         this.pelletPuffs = 0;
-        this.ctx.fx.bloodPuff?.(point, d.dir, puff, d.type === 'pellet' ? t.puffBlastScale : 1);
+        const scale = d.type === 'pellet' ? t.puffBlastScale : head ? 1.2 : 1;
+        this.ctx.fx.bloodPuff?.(point, d.dir, puff, scale, kind);
       } else if (this.pelletPuffs < t.puffPellets) {
         this.pelletPuffs++;
-        this.ctx.fx.bloodPuff?.(point, d.dir, puff, t.puffPelletScale);
+        this.ctx.fx.bloodPuff?.(point, d.dir, puff, t.puffPelletScale, kind);
       }
     }
     // A flechette's darts are each their own small hole, dripping on its own: one spray for the blast, a wound a dart.

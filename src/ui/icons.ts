@@ -107,6 +107,22 @@ const WEAPON_PATHS: Record<WeaponId, string> = {
   stakegun:
     'M17 13H85L95 15L85 17H17Z M8 9H45V21H8Z M58 3H63L68 12H63Z M63 18H68L63 27H58Z M45 9L63 12V18L45 21Z ' +
     'M15 21H24L21 31H12Z M3 11H8V19H3Z',
+  // Bodkin: sleek bullpup flechette rifle with tall integrated optic rib and rear magazine behind the grip.
+  bodkin:
+    'M2 10H68L82 12V16H68L62 19H2Z M82 13H94V15H82Z M20 5H64V8H20Z M24 8H30V10H24Z M52 8H58V10H52Z ' +
+    'M14 19H26L23 31H13Z M44 19H53L49 30H41Z',
+  // Billhook: semi-auto combat shotgun with slotted heat shield, full-length underbarrel tube and hooked folding stock.
+  billhook:
+    'M1 12H5V22H1Z M5 12H26V15H5Z M5 20H18V23H5Z M26 9H54V19H26Z M54 8H93V12H54Z M54 13H88V17H54Z ' +
+    'M56 17H80V20H56Z M28 19H37L33 30H24Z',
+  // Autoclave: directed microwave emitter with waveguide dish, twin cooling fins and capacitor pack below.
+  autoclave:
+    'M4 10H12V22H4Z M12 8H62V21H12Z M62 11H80V18H62Z M80 6L92 9V20L80 23Z M24 4H54V8H24Z ' +
+    'M20 21H30L26 31H17Z M38 21H58V29H38Z',
+  // Gaff: shoulder-fired harpoon cannon with barbed spear projecting ahead and winch drum slung underneath.
+  gaff:
+    'M2 11H12V21H2Z M12 9H64V18H12Z M64 12H95L85 8V12H64Z M64 15H95L85 19V15H64Z ' +
+    'M22 18H31L27 30H19Z M40 18H56V27L52 29H44L40 27Z M34 5H50V9H34Z',
 };
 
 export function weaponIcon(id: WeaponId): string {

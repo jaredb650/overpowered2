@@ -68,6 +68,9 @@ function buildGallery(): Record<string, Effect> {
   g.bloodHit = { fire: s => s.fx.bloodHit(s.target.clone().setY(1.2), v(0.7, 0.1, 0.5).normalize()) };
   g.bloodPuff = { fire: s => s.fx.bloodPuff(s.target.clone().setY(1.2), v(0.7, 0.1, 0.5).normalize(), 0.3) };
   g.bloodPuffHeavy = { fire: s => s.fx.bloodPuff(s.target.clone().setY(1.2), v(0.7, 0.1, 0.5).normalize(), 0.75, 1.15) };
+  g.bloodPuffShotgun = { fire: s => s.fx.bloodPuff(s.target.clone().setY(1.2), v(0.7, 0.1, 0.5).normalize(), 0.7, 1.15, 'shotgun') };
+  g.bloodPuffHeadshot = { fire: s => s.fx.bloodPuff(s.target.clone().setY(1.6), v(0.7, 0.1, 0.5).normalize(), 0.9, 1.45, 'headshot') };
+  g.bloodPuffBlowout = { fire: s => s.fx.bloodPuff(s.target.clone().setY(1.2), v(0.85, 0.08, 0.2).normalize(), 1, 1.85, 'blowout') };
   g.bloodMist = { fire: s => s.fx.bloodMist(s.target.clone().setY(1.3), 1) };
   g.headBurst = { fire: s => s.fx.headBurst(s.target.clone().setY(1.7), v(-0.5, 0.2, 0.3).normalize()) };
   g.gibBurst = { fire: s => s.fx.gibBurst(s.target.clone().setY(1), v(0.5, 0.5, 0.2).normalize(), 12) };

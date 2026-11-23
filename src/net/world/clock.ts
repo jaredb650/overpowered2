@@ -112,8 +112,8 @@ export class Clock implements WorldModule, TimeGate {
     if (kind === 'bossDeath') return;
     if (!this.up()) return this.refuse(kind, 'down', 0, now);
     if (now < this.lockUntil) return this.refuse(kind, 'spent', this.lockUntil - now, now);
-    // Asked again while it runs (a second Time Warp): the host restarts its clock, but "just asked" stays the first ask, so
-    // when the host ends it this screen lets go at once instead of waiting for an answer that has already come.
+    // Asked again while it runs (a second Time Warp): the host restarts its clock; keep the original request time so a host
+    // cancellation (e.g. player downed) takes effect immediately rather than lingering for PREDICT_MS.
     const again = this.mine.has(kind);
     if (!again) this.mine.set(kind, now);
     this.released.delete(kind);
@@ -214,7 +214,13 @@ export class Clock implements WorldModule, TimeGate {
     } else if (this.active.length > 0) {
       // An entry whose end never arrived ends on its own deadline; my own unconfirmed one when the host stays silent.
       let stale = false;
-      for (const entry of this.active) if (now > entry.until + OVERDUE_MS) stale = true;
+      const me = this.slot;
+      for (const entry of this.active) {
+        if (now > entry.until + OVERDUE_MS) {
+          stale = true;
+          if (entry.slot === me) this.mine.delete(entry.kind);
+        }
+      }
       if (stale) this.active = this.active.filter(entry => now <= entry.until + OVERDUE_MS);
     }
     if (this.active.length === 0 && this.applied.size === 0) return;
@@ -245,6 +251,15 @@ export class Clock implements WorldModule, TimeGate {
       this.grade = grade;
       (w.ctx.progression as { shareGrade?(grade: GradeName | null): void } | undefined)?.shareGrade?.(grade);
     }
+  }
+
+  /** Host: bring an arriving or rejoining guest up to date on active slow-mo and team lockout immediately. */
+  catchUp(id: string): void {
+    if (!this.w.hosting) return;
+    const now = performance.now();
+    this.board.update(now);
+    this.w.send({ t: 'slowstate', lock: Math.round(this.board.lockMs), list: this.board.list.map(entry => ({ k: entry.kind, s: entry.slot, sc: entry.scale,
+      ms: Math.max(0, Math.round(entry.until - now)), of: Math.round(entry.total), ...(entry.label ? { nm: entry.label } : {}) })) }, id);
   }
 
   /** Once the world has begun: the host's state goes out, and the notice is drawn. */

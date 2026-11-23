@@ -333,7 +333,7 @@ export class Reactions {
     const now = this.ctx.time.realElapsed;
     if (now - this.lastSpray < SPRAY_GAP) return;
     this.lastSpray = now;
-    this.play('blood_spray', at, 1, rand(0.92, 1.08), delay);
+    this.play(Math.random() < 0.65 ? 'blood_spray_jet' : 'blood_spray', at, 1, rand(0.92, 1.08), delay);
   }
 
   /** Gone mortal or down: the line is said from the body, once, by a man who still has a voice. His death has its own. */
@@ -399,7 +399,8 @@ export class Reactions {
         if (wet) this.play('wet_squelch', position, volume * 0.6, pitch, 0.02);
         break;
       case 'organ':
-        this.play(wet ? (Math.random() < 0.5 ? 'gore_splat' : 'organ_splat') : 'wet_squelch', position, volume, pitch);
+        this.play(wet ? (Math.random() < 0.5 ? 'gore_splat' : 'organ_splat') : 'blood_squish', position, volume, pitch);
+        if (wet) this.play('blood_splash', position, volume * 0.75, pitch, 0.02);
         if (Math.random() < DRIP_CHANCE) this.play('blood_drip', position, volume * 0.8, 1, rand(0.15, 0.4));
         break;
     }

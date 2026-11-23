@@ -32,7 +32,7 @@ function fit(id: ModId, on = true): boolean {
 describe('the Flail on paper', () => {
   it('is last on key 1, a primary of its own, about 800 a minute with a round between the SMG and the Harrow', () => {
     const f = WEAPONS.flail;
-    expect(familyOfSlot(1)).toEqual(['smg', 'gimlet', 'harrow', 'flail']);
+    expect(familyOfSlot(1)).toEqual(['smg', 'gimlet', 'harrow', 'bodkin', 'flail']);
     expect(f.mode).toBe('auto');
     expect(60 / f.interval).toBeCloseTo(800, 6);
     expect(f.damage).toBeGreaterThan(WEAPONS.smg.damage);

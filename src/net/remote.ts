@@ -30,13 +30,13 @@ const LOOKS: Record<string, [Kit, Stance]> = {
 export const AKIMBO_TAG = '-ak';
 /** Weapon id to prop. Anything new and unlisted is drawn as the SMG. */
 export function propFor(weapon: string): keyof typeof LOOKS {
-  if (/^(shotgun|thresher|deuce)/.test(weapon)) return 'shotgun';
-  if (/^(rocket|quiver|mgl|sabot)/.test(weapon)) return 'launcher';
+  if (/^(shotgun|thresher|deuce|bodkin|billhook)/.test(weapon)) return 'shotgun';
+  if (/^(rocket|quiver|mgl|sabot|howitzer|satchel)/.test(weapon)) return 'launcher';
   if (/^(autocannon|piledriver|buzzsaw|metalstorm)/.test(weapon)) return 'minigun';
   if (/^(judge|ultramag|awl|pistol|revolver)/.test(weapon)) return 'pistol';
-  if (/^(lance|stakegun|rivet)/.test(weapon)) return 'sniperRifle';
-  if (/^(sword|knife|crowbar|shovel|baton)/.test(weapon)) return 'blade';
-  if (/^(kiln|flame|napalm)/.test(weapon)) return 'flamer';
+  if (/^(lance|stakegun|rivet|gaff)/.test(weapon)) return 'sniperRifle';
+  if (/^(sword|knife|crowbar|shovel|baton|flail)/.test(weapon)) return 'blade';
+  if (/^(kiln|flame|napalm|autoclave)/.test(weapon)) return 'flamer';
   return 'smg';
 }
 const _at = new THREE.Vector3();
@@ -69,7 +69,9 @@ export class RemotePlayer implements Shooter {
   readonly velocity = new THREE.Vector3();
   /** Their weapons, as this screen shows them. */
   readonly watcher: Watcher;
-  private readonly doing: Doing = { reload: false, stim: false, laser: false, charge: false, ball: false };
+  private readonly doing: Doing = { reload: false, stim: false, laser: false, charge: false, ball: false, shield: false };
+  /** True while this teammate currently has their riot shield actively raised. */
+  get shieldActive(): boolean { return this.doing.shield === true; }
   private removeTag: () => void;
   private material: THREE.Material;
   private original: THREE.Material | THREE.Material[];
@@ -214,6 +216,7 @@ export class RemotePlayer implements Shooter {
     d.laser = (flags & DOING.laser) !== 0;
     d.charge = (flags & DOING.charge) !== 0;
     d.ball = (flags & DOING.ball) !== 0;
+    d.shield = (flags & DOING.shield) !== 0;
     this.watcher.doing(d, dt);
     this.watcher.update(dt);
   }

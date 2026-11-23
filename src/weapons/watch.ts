@@ -26,6 +26,8 @@ import { Lance, type LanceHolder, type LanceHost, type LanceShot } from './lance
 import { MODS, moddedDef } from './mods';
 import { ENERGY } from './melee/data';
 import { Raufoss } from './raufoss';
+import { Microwave } from './microwave';
+import { Harpoon } from './harpoon';
 import { backblast, fillShot } from './shot';
 
 // ---------------------------------------------------------------------------------------------
@@ -82,7 +84,11 @@ export const REMOTE_FX: Readonly<Record<WeaponId, RemoteRow>> = {
   piledriver: { kind: 'rounds', sees: `${BULLET}, through walls with exit craters; Raufoss bursts when loaded` },
   metalstorm: { kind: 'rounds', sees: 'electronic stacked-barrel tracers from the 36-barrel matrix, up to a 1M RPM hyper-volley; 40mm FireStorm grenades arc as projectiles' },
   kiln: { kind: 'hose', sees: 'the napalm stream from their nozzle, its splashes, burning pools and scorches' },
+  autoclave: { kind: 'hose', sees: 'the heat shimmer ahead of the emitter and the rising hum as targets steam, swell and burst' },
   stakegun: { kind: 'projectile', sees: 'the stake in flight and standing in the wall; an exploding bolt sticks, beeps and blinks' },
+  gaff: { kind: 'projectile', sees: 'the heavy harpoon in flight with its steel tether cable, skewering bodies to the wall and reeling' },
+  bodkin: { kind: 'rounds', sees: 'three-round bursts of thin flechette tracers through plates and cover, leaving needles in the wall' },
+  billhook: { kind: 'pellets', sees: 'every pellet of the semi-auto twelve-gauge shell from the same seed, or a single heavy slug when loaded' },
 };
 
 /** What a mod changes of its gun for a watcher. */
@@ -93,17 +99,21 @@ const MAG = 'more rounds: nothing a watcher sees';
 const AP = 'the round\'s own tracer colour';
 const LIGHT = 'a light cone from their gun, on while it is in hand';
 const AKIMBO = 'a second gun in the left hand; shots alternate muzzles';
+const MAGWELL = 'a flared magwell: the reload gesture is shorter';
+const SHIELD = 'a ballistic riot shield carried on the left arm, stopping frontal fire until fatigued';
 
 export const REMOTE_MODS: Readonly<Record<ModId, { look: ModLook; sees: string }>> = {
   awlAcog: { look: 'none', sees: SIGHT }, harrowAcog: { look: 'none', sees: SIGHT }, gimletAcog: { look: 'none', sees: SIGHT },
   gimletDot: { look: 'none', sees: SIGHT }, reddot: { look: 'none', sees: SIGHT }, piledriverDot: { look: 'none', sees: SIGHT },
   piledriverAcog: { look: 'none', sees: SIGHT }, ultramagDot: { look: 'none', sees: SIGHT }, flailDot: { look: 'none', sees: SIGHT },
-  flailAcog: { look: 'none', sees: SIGHT },
+  flailAcog: { look: 'none', sees: SIGHT }, rivetDot: { look: 'none', sees: SIGHT }, billhookDot: { look: 'none', sees: SIGHT },
+  bodkinAcog: { look: 'none', sees: SIGHT },
   awlCan: { look: 'report', sees: 'the suppressed report and the small dim flash' },
   awl50: { look: 'report', sees: 'the thunderous .50 Cal anti-materiel report (or suppressed .50 Cal report with a can), heavy sabot flash, and oversized cannon casing' },
   suppressor: { look: 'report', sees: 'the suppressed report and the small dim flash, at the faster rate' },
   gimletCan: { look: 'report', sees: 'the suppressed report and the small dim flash' },
   ultramagCan: { look: 'report', sees: 'the suppressed report and the small dim flash' },
+  rivetCan: { look: 'report', sees: 'the suppressed Rivet report and the small dim flash' },
   awlAp: { look: 'round', sees: AP }, awlHp: { look: 'round', sees: AP }, awlPlusP: { look: 'round', sees: AP },
   smgAp: { look: 'round', sees: AP }, smgHp: { look: 'round', sees: AP }, smgPlusP: { look: 'round', sees: AP },
   gimletAp: { look: 'round', sees: AP }, gimletHp: { look: 'round', sees: AP }, gimletPlusP: { look: 'round', sees: AP },
@@ -116,34 +126,64 @@ export const REMOTE_MODS: Readonly<Record<ModId, { look: ModLook; sees: string }
   harrowApi: { look: 'round', sees: 'the red API tracer and orange sparks where it lands' },
   flailApi: { look: 'round', sees: 'the red API tracer and orange sparks where it lands' },
   awlBarrel: { look: 'round', sees: 'the longer, brighter vapour wake, through more cover' },
+  gimletLong: { look: 'round', sees: 'the longer bright scout tracer through more cover at a slightly slower cadence' },
+  flailHeavy: { look: 'rate', sees: 'the faster heavy-barrel rate through cover' },
+  billhookSlug: { look: 'round', sees: 'a single heavy slug tracer and larger wall impact in place of buckshot' },
+  bodkinTungsten: { look: 'round', sees: 'the heavy sabot-grade dart wake punching through twice the cover' },
   raufoss: { look: 'round', sees: 'the Raufoss tracer, its burst, sparkle and scorch where it strikes, and the pellets out of the far side' },
   shotgunFlechette: { look: 'pellets', sees: 'a needle of a tracer a dart, from the same seed, and the needles standing in the wall' },
   thresherFlechette: { look: 'pellets', sees: 'a needle of a tracer a dart, from the same seed, and the needles standing in the wall' },
   deuceFlechette: { look: 'pellets', sees: 'a needle of a tracer a dart, from the same seed, and the needles standing in the wall' },
+  billhookFlechette: { look: 'pellets', sees: 'a needle of a tracer a dart, from the same seed, and the needles standing in the wall' },
+  thresherDragon: { look: 'pellets', sees: 'a tongue of flame, wide shower of glowing sparks, orange tracers and scorches' },
+  billhookDragon: { look: 'pellets', sees: 'a tongue of flame, wide shower of glowing sparks, orange tracers and scorches' },
   shotgunChoke: { look: 'pellets', sees: 'the tighter pattern (the cone the shooter used is sent)' },
+  shotgunSawedOff: { look: 'pellets', sees: 'the wider sawed-off cone (the cone the shooter used is sent)' },
+  deuceLong: { look: 'pellets', sees: 'the tighter long-barrel pattern (the cone the shooter used is sent)' },
   deuceQuad: { look: 'pellets', sees: 'four barrels\' worth of pellets and echoes on a right click' },
   trommel12: { look: 'round', sees: 'the heavy round through walls in place of the 20 mm burst, the barrage a step lower' },
   autocannonFlak: { look: 'shell', sees: 'the flak shell\'s air burst: ring, sparks, light and fragment tracers' },
+  autocannonBarrel: { look: 'shell', sees: 'the faster 20 mm shell in flight' },
+  rocketTube: { look: 'shell', sees: 'the faster rocket in flight' },
+  rocketWp: { look: 'shell', sees: 'the white phosphorus rocket bursting into a burning white-smoke cloud' },
+  mglLong: { look: 'shell', sees: 'the flatter, faster 40 mm grenade arc' },
+  howitzerCluster: { look: 'shell', sees: 'the standoff burst throwing a carpet of bomblets across the target zone' },
   metalstorm40mm: { look: 'shell', sees: 'stacked 40 mm HE grenades arcing from the FireStorm barrel matrix, with a heavy launcher thump' },
   mglSticky: { look: 'shell', sees: '40 mm sticky bombs clamping onto surfaces or targets with a pulsing red-amber LED until remote detonation' },
   smgAkimbo: { look: 'second gun', sees: AKIMBO }, rivetAkimbo: { look: 'second gun', sees: AKIMBO },
   ultramagAkimbo: { look: 'second gun', sees: AKIMBO }, judgeAkimbo: { look: 'second gun', sees: AKIMBO },
   autorafficaAkimbo: { look: 'second gun', sees: AKIMBO },
+  rivetShield: { look: 'second gun', sees: SHIELD }, ultramagShield: { look: 'second gun', sees: SHIELD },
+  judgeShield: { look: 'second gun', sees: SHIELD }, autorafficaShield: { look: 'second gun', sees: SHIELD },
   smgLight: { look: 'light', sees: LIGHT }, gimletLight: { look: 'light', sees: LIGHT }, harrowLight: { look: 'light', sees: LIGHT },
   awlLight: { look: 'light', sees: LIGHT }, shotgunLight: { look: 'light', sees: LIGHT }, thresherLight: { look: 'light', sees: LIGHT },
   deuceLight: { look: 'light', sees: LIGHT }, judgeLight: { look: 'light', sees: LIGHT }, rivetLight: { look: 'light', sees: LIGHT },
   ultramagLight: { look: 'light', sees: LIGHT }, autorafficaLight: { look: 'light', sees: LIGHT },
+  billhookLight: { look: 'light', sees: LIGHT }, bodkinLight: { look: 'light', sees: LIGHT },
   swordEnergy: { look: 'blade', sees: 'the blade of light: its glow, its zap on a swing, its cauterizing sparks' },
   gimletGl: { look: 'shell', sees: 'the 40 mm grenade arcing out of the launcher, with its thump' },
   sabotBrake: { look: 'rate', sees: 'the faster rate only' }, ultramagLam: { look: 'rate', sees: 'the faster rate only' },
   ultramagComp: { look: 'rate', sees: 'the faster rate only' }, gimletShort: { look: 'rate', sees: 'the faster rate only' },
+  harrowShort: { look: 'rate', sees: 'the faster rate only' }, harrowBrake: { look: 'rate', sees: 'the faster rate only' },
+  rivetLam: { look: 'rate', sees: 'the faster rate only' }, rivetComp: { look: 'rate', sees: 'the faster rate only' },
+  mglTrigger: { look: 'rate', sees: 'the faster rate only' },
   awlBolt: { look: 'rate', sees: 'the faster bolt only' },
+  shotgunBolt: { look: 'rate', sees: 'the faster pump cycle only' },
+  bodkinBurst5: { look: 'rate', sees: 'five darts per burst instead of three' },
   smgMag: { look: 'none', sees: MAG }, rivetMag: { look: 'none', sees: MAG }, piledriverBox: { look: 'none', sees: MAG },
   ultramagMag: { look: 'none', sees: MAG }, autorafficaMag: { look: 'none', sees: MAG }, flailBox: { look: 'none', sees: MAG },
+  harrowMag: { look: 'none', sees: MAG }, billhookTube: { look: 'none', sees: MAG }, bodkinMag: { look: 'none', sees: MAG },
   smgTape: { look: 'none', sees: 'a faster reload: the reload gesture is shorter' },
+  harrowMagwell: { look: 'none', sees: MAGWELL }, gimletMagwell: { look: 'none', sees: MAGWELL },
+  ultramagMagwell: { look: 'none', sees: MAGWELL }, rivetMagwell: { look: 'none', sees: MAGWELL },
+  bodkinMagwell: { look: 'none', sees: MAGWELL },
   smgStock: { look: 'none', sees: 'a longer held-breath zoom: nothing a watcher sees' },
+  flailStock: { look: 'none', sees: 'a longer held-breath zoom: nothing a watcher sees' },
+  billhookLam: { look: 'none', sees: 'a laser sight and faster aim: nothing a watcher sees' },
+  judgeLong: { look: 'none', sees: 'higher damage per round: nothing a watcher sees' },
   deuceLoader: { look: 'none', sees: 'a faster reload: the reload gesture is shorter' },
-  judgeHammer: { look: 'rate', sees: 'the faster fan only' }, judgeGrip: { look: 'none', sees: 'more fanned rounds: each is drawn as it is fired' },
+  judgeHammer: { look: 'rate', sees: 'the faster fan only' }, judgeComp: { look: 'rate', sees: 'the faster fan charge only' },
+  judgeGrip: { look: 'none', sees: 'more fanned rounds: each is drawn as it is fired' },
 };
 
 // ---------------------------------------------------------------------------------------------
@@ -173,6 +213,7 @@ export interface Doing {
   laser: boolean;
   charge: boolean;
   ball: boolean;
+  shield?: boolean;
 }
 
 /** A friend's perks are not known here, and their look is the shooter's own to send: every round is filled plain. */
@@ -225,10 +266,13 @@ export class Watcher {
   readonly laser = { on: false, at: new THREE.Vector3() };
   /** True once they have said what they hold (`hold`). */
   held = false;
-  /** Their Kiln: seconds it still pours without another word, its sound, and the time owed toward the next glob. */
+  /** Their Kiln or Autoclave: seconds it still streams without another word, its sound, and napalm glob cadence. */
   private hoseLeft = 0;
   private hoseLoop: LoopHandle | null = null;
   private hoseOwed = 0;
+  private hoseWeapon: WeaponId = 'kiln';
+  private microwave: Microwave | null = null;
+  private harpoon: Harpoon | null = null;
   /** What their pose last said they were doing, to tell a start from more of the same. */
   private readonly was: Doing = { reload: false, stim: false, laser: false, charge: false, ball: false };
   /** Their weapon light: one of the session's spotlights (net/remote.ts hands it over), dark unless their gun has one fitted. */
@@ -291,7 +335,7 @@ export class Watcher {
         this.lanceShot(note.kind);
         return;
       case 'hose':
-        this.pour();
+        this.pour(weapon);
         return;
       case 'swing':
         this.swing(note);
@@ -300,6 +344,15 @@ export class Watcher {
     const kind = REMOTE_FX[weapon].kind;
     if (kind === 'melee' || kind === 'hose' || kind === 'lance') return;
     this.feedback(def, note.left, note.barrel);
+    if (weapon === 'gaff') {
+      const at = s.muzzle(this.muzzleAt, note.left);
+      const h = (this.harpoon ??= new Harpoon(this.ctx));
+      if (h.ropeOut) h.cut();
+      h.finishReload();
+      h.fire(origin, dir, at, 'gaff', true);
+      WATCHED.projectiles++;
+      return;
+    }
     if (note.rays <= 0) return;
     this.rounds(def, origin, dir, note);
   }
@@ -343,6 +396,7 @@ export class Watcher {
     const s = this.shooter;
     const at = s.muzzle(this.muzzleAt, left);
     fx.muzzleFlash(at, s.forward, def.muzzle);
+    if (def.load === 'dragon') fx.dragonBreath?.(at, s.forward);
     WATCHED.flashes++;
     this.layers(def.sounds);
     if (def.mode === 'spin') this.rattle(def);
@@ -462,14 +516,20 @@ export class Watcher {
   // The Kiln
   // -------------------------------------------------------------------------------------------
 
-  /** Their Kiln is on: it lights if it was not, and pours on from their nozzle down their aim until they say it stopped. */
-  private pour(): void {
+  /** Their Kiln or Autoclave is on: it starts if it was not, and streams from their nozzle down their aim until they say it stopped. */
+  private pour(weapon: WeaponId): void {
     WATCHED.hose++;
-    if (this.hoseLeft <= 0) {
+    if (this.hoseLeft <= 0 || this.hoseWeapon !== weapon) {
+      this.hoseLoop?.stop(0.08);
+      this.hoseWeapon = weapon;
       this.shooter.muzzle(this.muzzleAt);
-      this.say('flame_ignite');
-      this.hoseLoop = this.ctx.audio.startLoop?.('flame_hose_loop', { position: this.muzzleAt, volume: REPORT }) ?? null;
-      this.hoseOwed = FRIEND_EVERY;
+      if (weapon === 'autoclave') {
+        this.hoseLoop = this.ctx.audio.startLoop?.('railgun_charge_loop', { position: this.muzzleAt, volume: REPORT * 0.65, pitch: 0.9 }) ?? null;
+      } else {
+        this.say('flame_ignite');
+        this.hoseLoop = this.ctx.audio.startLoop?.('flame_hose_loop', { position: this.muzzleAt, volume: REPORT }) ?? null;
+        this.hoseOwed = FRIEND_EVERY;
+      }
     }
     this.hoseLeft = HOSE_HOLD;
   }
@@ -479,11 +539,13 @@ export class Watcher {
     this.hoseLeft = 0;
     this.hoseLoop?.stop(0.1);
     this.hoseLoop = null;
-    this.shooter.muzzle(this.muzzleAt);
-    this.say('flame_stop');
+    if (this.hoseWeapon !== 'autoclave') {
+      this.shooter.muzzle(this.muzzleAt);
+      this.say('flame_stop');
+    }
   }
 
-  /** A frame of their stream: globs of the shooter's own napalm (Flames.friendGlob), a little fewer a second, that burn nobody. */
+  /** A frame of their stream: Autoclave heat shimmer cone, or Kiln napalm globs (Flames.friendGlob) that burn nobody. */
   private stream(dt: number): void {
     const s = this.shooter;
     this.hoseLeft -= dt;
@@ -491,9 +553,13 @@ export class Watcher {
       this.stopPour();
       return;
     }
-    const k = TUNING.napalm;
     const nozzle = s.muzzle(this.muzzleAt);
     this.hoseLoop?.setPosition(nozzle);
+    if (this.hoseWeapon === 'autoclave') {
+      (this.microwave ??= new Microwave(this.ctx)).emitShimmer(nozzle, s.forward, dt);
+      return;
+    }
+    const k = TUNING.napalm;
     this.hoseOwed += dt;
     while (this.hoseOwed >= FRIEND_EVERY) {
       this.hoseOwed -= FRIEND_EVERY;
@@ -723,6 +789,10 @@ export class Watcher {
   update(dt: number): void {
     this.puppet?.tick();
     if (this.hoseLeft > 0) this.stream(this.ctx.time.dt);
+    if (this.harpoon && (this.harpoon.ropeOut || this.harpoon.embeddedCount > 0)) {
+      const s = this.shooter;
+      this.harpoon.update(this.ctx.time.dt, false, false, s.muzzle(this.muzzleAt), s.eye, s.forward);
+    }
     if (this.casingIn > 0 && (this.casingIn -= this.ctx.time.dt) <= 0) this.eject(this.casingKind);
     if (this.barrage) {
       this.barrageLeft -= dt;
@@ -738,6 +808,10 @@ export class Watcher {
   dispose(): void {
     this.puppet?.dispose();
     this.puppet = null;
+    this.harpoon?.dispose();
+    this.harpoon = null;
+    this.microwave?.reset();
+    this.microwave = null;
     this.barrage?.stop(0.05);
     this.barrage = null;
     this.hoseLoop?.stop(0.05);

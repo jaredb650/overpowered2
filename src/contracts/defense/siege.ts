@@ -734,7 +734,7 @@ export class Siege {
     this.faceOf(job.piece, p, SATCHEL.standOff + 0.4, _a);
     if (this.near(p, _a, ARRIVED) && s.task !== 'move') {
       job.workUntil = now + SATCHEL.plant;
-      this.o.comms.relay('Setting the charge!', s, null);
+      this.o.comms.relay('Setting the charge!', s, null, 'siege.charge');
       return;
     }
     if (!this.ctx.world.nav.nearest(_a, 3, _a)) return;
@@ -859,7 +859,7 @@ export class Siege {
     }
     if (this.near(p, _a, ARRIVED) && s.task !== 'move') {
       job.workUntil = now + BUILD_SECONDS;
-      this.o.comms.relay(job.piece ? 'Building a way over!' : 'Digging in!', s, null);
+      this.o.comms.relay(job.piece ? 'Building a way over!' : 'Digging in!', s, null, job.piece ? 'siege.pad' : 'siege.dig');
       return;
     }
     if (!this.ctx.world.nav.nearest(_a, 3, _a)) {

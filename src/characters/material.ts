@@ -9,7 +9,7 @@
 import * as THREE from 'three';
 import type { Ctx } from '../core/contracts';
 import { mulberry32 } from '../core/math';
-import { EXTRA_FIRE, EXTRA_INFO, EXTRA_PARAMS, WEAR_VERTEX, WOUND_COMMON, WOUND_REGION, WOUND_VERTEX_LOOP } from './anatomy/glsl';
+import { EXTRA_BLOOD_MAP, EXTRA_FIRE, EXTRA_INFO, EXTRA_PARAMS, WEAR_VERTEX, WOUND_COMMON, WOUND_REGION, WOUND_VERTEX_LOOP } from './anatomy/glsl';
 
 const VERT_PARS = /* glsl */ `
 attribute vec4 aColor;
@@ -128,6 +128,9 @@ uniform float uFill;
 varying vec2 vAtlasUv;
 uniform sampler2D tAtlasA;
 uniform sampler2D tAtlasB;
+#endif
+#ifdef OP2_BLOOD_MAP
+uniform highp sampler2DArray tBloodMap;
 #endif
 #ifdef OP2_SKINNED
 uniform highp sampler2D boneTexture;
@@ -416,19 +419,68 @@ float sCoal = 0.0, sMost = OP2_COAL_MOST;
     ${BURN_SURFACE}
   }
 
-  if (blood > 0.001) {
+  #ifdef OP2_WEARS
+  {
+    // Skin gone: one look for everything that takes the skin off a body without cutting a hole in it. Runs BEFORE
+    // blood maps and 3D bullet holes so localized blood trails and punctures always read cleanly on top of torn flesh.
+    float sThrough = -1.0, sChar = 0.0;
+    ${WEAR_DRIVER}
+    ${FIRE_DRIVER}
+    ${SKIN_GONE}
+    ${FIRE_GLOW}
+  }
+  #endif
+
+  bool hasBloodMap = false;
+  #ifdef OP2_BLOOD_MAP
+  vec4 bmInfo = op2Extra(${EXTRA_BLOOD_MAP});
+  hasBloodMap = bmInfo.x > 0.5;
+  #endif
+
+  float gBlood = hasBloodMap ? blood * 0.35 : blood;
+  if (gBlood > 0.001) {
     // Coverage grows out of the creases: the threshold walks down through the noise as blood rises.
-    // It stops well short of the whole body: past a point, a figure in blotches reads as camouflage, not as blood.
-    float t = mix(0.9, 0.7, blood);
+    // When a character owns a live dynamic UV blood map, global blotches step back so localized wound bleeding leads.
+    float t = mix(0.9, 0.7, gBlood);
     float m = smoothstep(t, t + 0.2, grain * 0.7 + macro.a * 0.14 + micro.r * 0.16 + (1.0 - vColorAO.a) * 0.3);
     sAlb = mix(sAlb, mix(vec3(0.15, 0.004, 0.005), vec3(0.07, 0.002, 0.004), macro.a) * sDried, m * 0.9);
     sRough = mix(sRough, mix(0.2, 0.62, sDry), m);
     sMetal *= 1.0 - m;
   }
 
+  #ifdef OP2_BLOOD_MAP
+  if (hasBloodMap) {
+    vec2 bm = texture(tBloodMap, vec3(vAtlasUv, bmInfo.x - 1.0)).rg;
+    float bCov = bm.r;
+    if (bCov > 0.01) {
+      float bFresh = bm.g * (1.0 - sDry);
+      float edgeNoise = (grain - 0.5) * 0.22 + (micro.g - 0.5) * 0.14;
+      float soak = smoothstep(0.02, 0.42, bCov + edgeNoise * (1.0 - bCov));
+      float thick = smoothstep(0.32, 0.85, bCov + edgeNoise * 0.35);
+      float damp = soak * (1.0 - sCoal * 0.75);
+      // Pure stain: thin edges absorb into fabric/skin; thicker collars & rivulets pool dark glossy crimson,
+      // with actively pumping arterial blood reading slightly brighter and wetter until bleeding stops.
+      vec3 absorbed = sAlb * vec3(0.45, 0.10, 0.10) + vec3(0.085, 0.004, 0.005);
+      vec3 pooled = mix(vec3(0.20, 0.007, 0.008), vec3(0.105, 0.003, 0.004), thick);
+      vec3 arterial = vec3(0.32, 0.012, 0.013);
+      vec3 stainCol = mix(absorbed, mix(pooled, arterial, bFresh * 0.68), thick) * sDried;
+      sAlb = mix(sAlb, stainCol, damp * mix(0.80, 0.97, thick));
+      float wetRough = mix(0.32, mix(0.13, 0.08, bFresh), thick);
+      sRough = mix(sRough, mix(wetRough, 0.62, sDry), damp);
+      sMetal *= 1.0 - damp * 0.88;
+      sH *= 1.0 - thick * 0.82;
+      sBare = max(sBare, damp * mix(0.34, 0.78, thick) * (1.0 - sDry * 0.65) * (1.0 - sCoal));
+    }
+  }
+  #endif
+
   #ifdef OP2_WOUNDS
   if (vWoundNear > 0.0) {
     int wounds = int(info.x);
+    // When the dynamic UV blood walker is active, keep the wound shader's own stain tight to the puncture rim
+    // instead of smearing a coarse vertical stripe over the gravity-accurate rivulets.
+    float runBlood = hasBloodMap ? 0.0 : blood;
+    float stainScale = hasBloodMap ? 0.55 : 1.0;
     // Metres outside the nearest cut, and how much of each kind of damage this pixel is in.
     float edge = 1.0, rimWidth = 0.01, funnel = 0.0, bruise = 0.0, stain = 0.0, scorch = 0.0, pit = 0.0, torn = 0.0;
     // Skin tears along a few long lines, not at every grain of it. Big wounds wander on a big noise, and only the finest
@@ -441,7 +493,7 @@ float sCoal = 0.0, sMost = OP2_COAL_MOST;
       if (i >= wounds) break;
       int base = OP2_WOUND_BASE + i * OP2_WOUND_TEXELS;
       vec4 t0 = op2Extra(base);
-      float run = op2RunWet(vBind - t0.xyz, blood);
+      float run = op2RunWet(vBind - t0.xyz, runBlood);
       if (run > t0.w) continue;
       vec4 t2 = op2Extra(base + 2);
       float coded = t2.w;
@@ -459,10 +511,11 @@ float sCoal = 0.0, sMost = OP2_COAL_MOST;
       if (past > t0.w) continue;
       // Fire seals what it burns.
       if (kind != OP2_DENT && kind != OP2_BURN) {
-        // Below the wound it runs in rivulets, longer the wetter the body: stripes that hang down the bind pose.
-        float below = smoothstep(0.0, 0.05, -off.y) * blood;
+        // Below the wound it runs in rivulets on fallback bodies without a dynamic UV blood map.
+        float below = smoothstep(0.0, 0.05, -off.y) * runBlood;
         float rivulet = texture2D(tDetail, vec2(vBind.x * 4.1 + vBind.z * 3.3, vBind.y * 0.11 + t0.x)).a - 0.5;
-        stain = max(stain, smoothstep(1.0, 0.25, (op2RunWet(off, blood) + past * 2.0) / (t1.w * OP2_STAIN_RADII + OP2_STAIN_MARGIN) + (tear + tearBig) * 0.2 * (1.0 - below) - rivulet * 1.6 * below));
+        float stainReach = (t1.w * OP2_STAIN_RADII + OP2_STAIN_MARGIN) * stainScale;
+        stain = max(stain, smoothstep(1.0, 0.25, (op2RunWet(off, runBlood) + past * 2.0) / stainReach + (tear + tearBig) * 0.2 * (1.0 - below) - rivulet * 1.6 * below));
       }
       if (kind == OP2_BURN) {
         scorch = max(scorch, smoothstep(1.15, 0.55, (dist + past * 2.0) / t1.w + tear * 0.35));
@@ -499,7 +552,7 @@ float sCoal = 0.0, sMost = OP2_COAL_MOST;
     float bare = 1.0 - sMetal;
     if (stain > 0.0) {
       // Dark where it is thick. Bright paint is what made the old wounds look drawn on.
-      float wet = stain * (0.8 + grain * 0.2);
+      float wet = stain * (0.8 + grain * 0.2) * (hasBloodMap ? 0.65 : 1.0);
       sAlb = mix(sAlb, mix(vec3(0.17, 0.006, 0.007), vec3(0.075, 0.002, 0.003), stain * stain) * sDried, wet * 0.94);
       sRough = mix(sRough, mix(0.2, 0.62, sDry), wet);
       sMetal *= 1.0 - wet;
@@ -519,6 +572,7 @@ float sCoal = 0.0, sMost = OP2_COAL_MOST;
       sRough = 0.34;
       sMetal = 0.0;
       sWoundH -= rimWidth * 0.5 + inner * funnel * 0.45;
+      sBare = max(sBare, (1.0 - inner * 0.6) * 0.65 * (1.0 - sDry * 0.55) * (1.0 - sCoal));
     } else if (ring > 0.0) {
       // Bruised, then torn.
       sAlb = mix(sAlb, vec3(0.035, 0.004, 0.008), ring * 0.8);
@@ -527,6 +581,7 @@ float sCoal = 0.0, sMost = OP2_COAL_MOST;
       sRough = mix(sRough, 0.26, ring);
       sMetal *= 1.0 - rim;
       sWoundH -= rim * rim * rimWidth * 0.7;
+      sBare = max(sBare, rim * 0.45 * (1.0 - sDry * 0.55) * (1.0 - sCoal));
     }
     if (pit > 0.0 || torn > 0.0) {
       sAlb = mix(sAlb, vec3(0.3, 0.3, 0.32), torn);
@@ -537,20 +592,6 @@ float sCoal = 0.0, sMost = OP2_COAL_MOST;
       sRough = mix(sRough, 0.8, pit);
       sWoundH -= pit * 0.012;
     }
-  }
-  #endif
-
-  #ifdef OP2_WEARS
-  {
-    // Skin gone: one look for everything that takes the skin off a body without cutting a hole in it. A driver says how far
-    // through the skin a pixel is, sThrough (under 0 whole; from 0 torn and raw, 0.12 to 0.24 down to muscle, 0.44 and up
-    // bone), and how burnt what shows is, sChar (0 raw and wet, 1 black). SKIN_GONE draws it. Wear is the driver below;
-    // fire's burn-through sets the same two (docs/notes/characters.md, "Skin gone").
-    float sThrough = -1.0, sChar = 0.0;
-    ${WEAR_DRIVER}
-    ${FIRE_DRIVER}
-    ${SKIN_GONE}
-    ${FIRE_GLOW}
   }
   #endif
 
@@ -709,6 +750,8 @@ export interface SurfaceOptions {
   detail: THREE.Texture;
   atlasA: THREE.Texture | null;
   atlasB: THREE.Texture | null;
+  /** Shared pooled UV blood-stain array texture (flesh humanoids). */
+  bloodMap?: THREE.DataArrayTexture | null;
   /** First texel after the bone matrices. */
   extraBase: number;
   emissive?: number;
@@ -753,7 +796,9 @@ export function unburntVariant(material: THREE.Material): THREE.Material {
 export function createCharacterMaterial(ctx: Ctx, o: SurfaceOptions): THREE.MeshStandardMaterial {
   const material = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1, metalness: 1 });
   const atlas = o.atlasA !== null && !o.far;
+  const bloodMap = atlas && !!o.bloodMap && !o.charred;
   if (atlas) material.defines = { ...material.defines, OP2_ATLAS: 1 };
+  if (bloodMap) material.defines = { ...material.defines, OP2_BLOOD_MAP: 1 };
   if (o.far) material.defines = { ...material.defines, OP2_FAR: 1 };
   if (o.wounds) material.defines = { ...material.defines, OP2_WOUNDS: 1 };
   if (o.charred) material.defines = { ...material.defines, OP2_CHARRED: 1 };
@@ -766,6 +811,9 @@ export function createCharacterMaterial(ctx: Ctx, o: SurfaceOptions): THREE.Mesh
     if (atlas) {
       shader.uniforms.tAtlasA = { value: o.atlasA };
       shader.uniforms.tAtlasB = { value: o.atlasB };
+    }
+    if (bloodMap) {
+      shader.uniforms.tBloodMap = { value: o.bloodMap };
     }
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', `#include <common>\n${VERT_PARS}`)
@@ -783,7 +831,7 @@ export function createCharacterMaterial(ctx: Ctx, o: SurfaceOptions): THREE.Mesh
       .replace('#include <aomap_fragment>', FRAG_AO);
   };
   // The bone count is a uniform, so every archetype shares these few programs.
-  material.customProgramCacheKey = () => `op2char:${atlas ? 1 : 0}:${o.far ? 1 : 0}:${o.wounds ? 1 : 0}:${o.charred ? 1 : 0}`;
+  material.customProgramCacheKey = () => `op2char:${atlas ? 1 : 0}:${o.far ? 1 : 0}:${o.wounds ? 1 : 0}:${o.charred ? 1 : 0}:${bloodMap ? 1 : 0}`;
   // A stub render system returns undefined here, and the sandbox then lights the material itself.
   const patched = ctx.render.materials?.patch?.(material) ?? material;
   made.set(patched, { ctx, o });

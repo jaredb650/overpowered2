@@ -40,6 +40,7 @@ export class World implements WorldSystem {
   /** Build timings and sizes, for the sandbox. */
   readonly report: Record<string, number | string> = {};
   group: THREE.Group | null = null;
+  private fragile: THREE.Group | null = null;
   private kit!: Kit;
   private readonly materials = new Map<Mat, THREE.Material>();
 
@@ -118,6 +119,11 @@ export class World implements WorldSystem {
     this.report.bakeMs = Math.round(performance.now() - t1);
 
     const group = kit.geo.finish(this.material);
+    if (spec.fragile) {
+      this.fragile = spec.fragile.finish(this.material);
+      this.fragile.name = 'fragile-dressing';
+      group.add(this.fragile);
+    }
     this.group = group;
     if (ctx.render.scene instanceof THREE.Scene) ctx.render.scene.add(group, this.objects.root);
     this.report.triangles = kit.geo.triangles();
@@ -186,5 +192,6 @@ export class World implements WorldSystem {
 
   reset(): void {
     this.objects.reset();
+    if (this.fragile) this.fragile.visible = true;
   }
 }

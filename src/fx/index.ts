@@ -8,7 +8,7 @@
 import * as THREE from 'three';
 import { clamp, rand } from '../core/math';
 import type {
-  BeamKind, Ctx, EmitterHandle, EmitterPreset, ExplosionOptions, FxSystem, GameEvents, MuzzleKind, SlashKind,
+  BeamKind, BloodPuffKind, Ctx, EmitterHandle, EmitterPreset, ExplosionOptions, FxSystem, GameEvents, MuzzleKind, SlashKind,
   SurfaceKind, TracerKind,
 } from '../core/contracts';
 import { FxCore } from './core';
@@ -23,6 +23,7 @@ import { impact } from './recipes/impacts';
 import * as misc from './recipes/misc';
 import { listen } from './recipes/movement';
 import { muzzleFlash, tracer } from './recipes/muzzle';
+import { dragonBreath } from './recipes/dragon';
 import { hose, napalm, napalmSplash } from './recipes/napalm';
 import { fireGlow, fireSpit, flameLick, smokeWisp } from './recipes/fire';
 
@@ -160,6 +161,10 @@ class Fx implements FxSystem {
     }
   }
 
+  dragonBreath(position: THREE.Vector3, dir: THREE.Vector3): void {
+    dragonBreath(this.core, position, dir);
+  }
+
   sparks(position: THREE.Vector3, dir: THREE.Vector3, count: number, color?: THREE.ColorRepresentation): void {
     misc.sparks(this.core, position, dir, count, color);
   }
@@ -180,8 +185,8 @@ class Fx implements FxSystem {
     bloodMist(this.core, position, size);
   }
 
-  bloodPuff(position: THREE.Vector3, dir: THREE.Vector3, weight?: number, scale?: number): void {
-    bloodPuff(this.core, position, dir, weight, scale);
+  bloodPuff(position: THREE.Vector3, dir: THREE.Vector3, weight?: number, scale?: number, kind?: BloodPuffKind): void {
+    bloodPuff(this.core, position, dir, weight, scale, kind);
   }
 
   headBurst(position: THREE.Vector3, dir: THREE.Vector3): void {

@@ -2,6 +2,27 @@
 
 `src/weapons/**` except `viewmodels/`, sandbox at `/?sandbox=range`. `createCombat(ctx)` and `createWeapons(ctx)` from `src/weapons/index.ts`.
 
+## Weapons Wishlist Update (2026-11-22)
+
+Four new weapons, 43 shop mods, two pistol remodels, player-facing renames, and core weapon-mechanic additions following `docs/proposals/weapons-wishlist.md` (with all 10 owner decisions recorded in Section 5):
+
+- **New weapons:**
+  - **Bodkin** (`bodkin`, key 1, `base: 'smg'`, `mode: 'burst'`): bullpup high-velocity flechette rifle inspired by the Steyr ACR — 3-round burst, low recoil, clear 24-round magazine; mods: `bodkinAcog`, `bodkinMag`, `bodkinBurst5` (5-round burst), `bodkinTungsten` (3.2 m penetration + boss/vehicle bonus), `bodkinMagwell`, `bodkinLight`.
+  - **Billhook** (`billhook`, key 2, `base: 'shotgun'`, `mode: 'semi'`): SPAS-12-inspired semi-auto combat shotgun — 8-shell tube, rapid semi-auto with tube reload; mods: `billhookDot`, `billhookLam`, `billhookTube` (11-round tube), `billhookLight`, `billhookDragon` (Dragon's Breath incendiary), `billhookFlechette`, `billhookSlug`.
+  - **Autoclave** (`autoclave`, key 7, `base: 'lance'`, `mode: 'microwave'`): industrial directed microwave emitter (`src/weapons/microwave.ts`) with 3-stage boiling (steam → skin swell/blister → internal rupture pop with gore/aoe splatter), faint heat-shimmer cone only (no visible beam or dynamic light), magazine-fed battery cell.
+  - **Gaff** (`gaff`, key 9, `base: 'stakegun'`, `mode: 'harpoon'`): shoulder-fired heavy harpoon cannon (`src/weapons/harpoon.ts`) with a 3D braided steel rope, multi-body impale/skewer (up to 6 enemies) and stacked wall pins, plus RMB winch grapple sling (tap RMB mid-pull to cut line early and preserve momentum).
+- **Shop & UI renames:** `"MILKOR MGL"` → **`RGL`** and `"METAL STORM"` → **`IRON STORM`** across all player-facing UI, shop, HUD, and loadout copy; internal ids (`mgl`, `metalstorm`) remain unchanged.
+- **Autoraffica smart-gun rework (`src/weapons/smartaim.ts`):** Hold `R` toggles between 3-round burst and smart fire. In smart mode, holding LMB paints up to 6 enemy heads inside the smart cone with a short per-head charge-up and an on-head radial loading indicator (`src/ui/hud/locks.ts`). Releasing LMB at **any** point (while painting or while firing) cancels the sequence immediately; keeping LMB held automatically snaps through every locked head. Akimbo pistols hide the static twin crosshair at rest and only reveal it when firing or moving.
+- **Riot shield (`src/weapons/shield.ts`):** Available on all 4 pistols (`rivetShield`, `ultramagShield`, `judgeShield`, `autorafficaShield`, mutually exclusive with akimbo). Held down at rest and raised with right-click (hold RMB) behind a narrow armoured viewing slit; blocks frontal standard bullets, filling an arm-fatigue meter until full fatigue forces the shield down on cooldown. AP rounds, rockets/blasts, and flanking shots bypass it. Teammates' raised shields also intercept enemy shots in co-op.
+- **Launcher & incendiary additions:**
+  - **Dragon's Breath** (`thresherDragon`, `billhookDragon`, `src/fx/recipes/dragon.ts`): incandescent magnesium-fire tongues, hot embers, scorch decals, and enemy ignition synced in co-op.
+  - **White Phosphorus** (`rocketWp`, `src/weapons/wp.ts`): spawns billowing, lingering toxic/incendiary WP smoke clouds (`WpCloud`) that obscure sightlines and burn enemies inside.
+  - **Howitzer fiery blast & cluster shell** (`howitzerCluster`, `src/weapons/cluster.ts`): dedicated fiery `'howitzer'` `ExplosionKind`; cluster shell is an alternate ammo type toggled with Hold `R` that airbursts at standoff distance into a carpet of bomblets.
+  - **Rocket LAM** (`rocketTube`, `src/weapons/laser.ts`): 400 m laser designator pod and extended launch tube.
+  - **Autocannon long barrel** (`autocannonBarrel`): faster muzzle velocity and extra direct-hit damage against vehicles and bosses.
+  - **Awl crosshair (`src/ui/hud/overlays.ts`):** Black CS-style fine duplex scope reticle.
+- **Missions beaten twice (`src/contracts/starter.ts`, `src/campaign/starter.ts`):** Wins are tracked per mission; once a mission has 2 wins, its starter weapon loadout screen keeps the primary choice (SMG, Gimlet, or Harrow) and unlocks every mod for the chosen starter gun for free with no point cap.
+
 ## The Flail light machine gun
 
 `flail`, last on key 1 (SMG, Gimlet, Harrow, Flail; `base: 'smg'`, its own unlock): an M249-style belt-fed LMG. 36 damage at

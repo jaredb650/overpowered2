@@ -5,10 +5,10 @@
  */
 import * as THREE from 'three';
 import { F } from '../kit/finishes';
-import type { Mesher } from '../kit/mesher';
+import type { Finish, Mesher } from '../kit/mesher';
 import type { Model } from '../kit/model';
-import { rect } from '../kit/shapes';
-import { knurl } from '../kit/details';
+import { poly, rect } from '../kit/shapes';
+import { knurl, screwY } from '../kit/details';
 import type { ModLook, Tuple3 } from '../def';
 
 /** The glow colours an optic's model needs (`new Model(m, mats, { glows })`). */
@@ -153,3 +153,126 @@ export function acogShade(model: Model, name = 'acog'): void {
   disc.renderOrder = 2;
   part.add(disc);
 }
+
+/** Local dot offset (y above slide top, z ahead of mount centre) for `openReflex` at scale 1. */
+export const OPEN_REFLEX_DOT_Y = 0.013;
+export const OPEN_REFLEX_DOT_Z = -0.0103;
+
+export interface OpenReflexOpts {
+  /** Part name (defaults to `'rmr'`). */
+  name?: string;
+  /** Uniform scale of the optic mesh in the caller's coordinate space (defaults to 1). */
+  scale?: number;
+  /** Eye relief in metres when aimed (defaults to 0.17). */
+  relief?: number;
+  /** Housing body finish (defaults to `F.anodized`). */
+  finish?: Finish;
+  /** Accent trim finish for bevel bands and buttons (defaults to `F.steelDark`). */
+  accent?: Finish;
+  /** Offset from model root to the caller's current part space when computing model-space `sight`. */
+  worldOffset?: Tuple3;
+  /** Post-build uniform model scale (e.g. Ultramag's `S = 0.9`). */
+  modelScale?: number;
+  /** Optional low-profile slide-cut adapter riser height in caller units (clears tall backup irons). */
+  riser?: number;
+}
+
+/**
+ * Low-profile open reflex sight (RMR/SRO-inspired): a thin bevelled deck sunk cleanly into the slide cut, a single
+ * slender arched hood with a wide panoramic window (no rear hoop or top bridge blocking the view), recessed rear LED
+ * emitter cradle, flush Torx mounting screws, tactile side buttons, and a crisp floating red dot.
+ */
+export function openReflex(m: Mesher, at: Tuple3, opts: OpenReflexOpts = {}): ModLook {
+  const name = opts.name ?? 'rmr';
+  const sc = opts.scale ?? 1;
+  const relief = opts.relief ?? 0.17;
+  const body = opts.finish ?? F.anodized;
+  const accent = opts.accent ?? F.steelDark;
+  const off = opts.worldOffset ?? [0, 0, 0];
+  const ms = opts.modelScale ?? 1;
+  const riser = opts.riser ?? 0;
+
+  m.part(name, at, () => {
+    if (riser > 0) {
+      // Flush bevelled slide-adapter plate bridging the slide top up to the reflex mounting deck.
+      const pw = 0.0128 * sc;
+      const pl = 0.039 * sc;
+      m.use(accent);
+      m.at([0, riser * 0.5 - 0.0008, 0], null, () => m.box(pw * 2, riser + 0.0016, pl, 0.0008 * sc));
+      m.use(F.steelDark);
+      m.at([0, riser - 0.0004, 0], null, () => m.box(pw * 1.9, 0.0014, pl * 0.94, 0.0004 * sc));
+    }
+    m.at([0, riser, 0], null, () => m.scaled(sc, () => {
+    const hw = 0.0134;
+    // Sunk mounting skirt nesting into the slide optic cut so there is zero daylight under the deck.
+    m.use(F.steelDark);
+    m.at([0, -0.0005, 0], null, () => m.box(hw * 1.84, 0.0026, 0.037, 0.0004));
+
+    // Low sculpted mounting deck: only 4.1 mm tall above the slide surface, bevelled nose and tail.
+    m.use(body);
+    m.side(poly([
+      [-0.0205, 0.0002, 0.0008], [-0.0205, 0.0036, 0.001], [0.0202, 0.0041, 0.001], [0.0208, 0.0002, 0.0008],
+    ], 0.0008), hw * 2, { bevel: 0.00065 });
+
+    // Subtle recessed deck tray behind the lens for the emitter and mounting screws.
+    m.use(F.black);
+    m.at([0, 0.0039, 0.0055], null, () => m.box(0.0192, 0.0005, 0.022, 0));
+
+    // Single thin arched front/mid hood: wide open window with 2.5 mm slim forged aluminum frame.
+    const hoodOuter = poly([
+      [-hw, 0.0020], [hw, 0.0020],
+      [hw, 0.0175, 0.0045], [0.0092, 0.0238, 0.006],
+      [-0.0092, 0.0238, 0.006], [-hw, 0.0175, 0.0045],
+    ], 0.001);
+    const win = poly([
+      [-0.0108, 0.0046, 0.0022], [0.0108, 0.0046, 0.0022],
+      [0.0108, 0.0168, 0.0038], [0.0074, 0.0213, 0.005],
+      [-0.0074, 0.0213, 0.005], [-0.0108, 0.0168, 0.0038],
+    ], 0.0012);
+    m.use(body);
+    m.at([0, 0, -0.0108], null, () => m.front(hoodOuter, 0.0046, { bevel: 0.00055, holes: [win] }));
+
+    // Sleek swept side cheeks tapering down from the lower hood flanks to the rear deck (outside the window).
+    const cheek = poly([
+      [-0.009, 0.0036], [-0.009, 0.0086, 0.0015], [0.002, 0.0066, 0.003], [0.0195, 0.0046, 0.001], [0.0195, 0.0036],
+    ], 0.0008);
+    m.mirror(() => m.at([hw - 0.0011, 0, 0], null, () => m.side(cheek, 0.0021, { bevel: 0.0004 })));
+
+    // Subtle machined side accent bevel strip along the lower deck flanks.
+    m.use(accent);
+    m.mirror(() => m.at([hw + 0.0002, 0.0021, -0.001], null, () => m.box(0.0008, 0.0016, 0.029, 0.00025)));
+
+    // Rear LED emitter housing pod on the deck with dark lens facing forward onto the glass.
+    m.use(body);
+    m.at([0, 0.0048, 0.0156], null, () => m.box(0.0074, 0.0026, 0.0072, 0.0005));
+    m.use(F.black);
+    m.at([0, 0.0050, 0.0118], null, () => m.cyl(0.0014, 0.0006, 10, 0));
+
+    // Flush Torx deck mounting screws, elevation dial on top deck, windage dial on right, brightness buttons on left.
+    m.mirror(() => screwY(m, 0.0072, 0.0040, 0.0036, 0.0017, F.steel));
+    screwY(m, 0, 0.0041, 0.0076, 0.0015, F.steelDark);
+    m.use(F.steel);
+    m.at([hw + 0.0003, 0.0025, 0.0095], [0, Math.PI / 2, 0], () => m.cyl(0.0015, 0.0008, 10, 0.0002));
+    m.use(F.rubber);
+    for (const z of [0.002, 0.0095]) {
+      m.at([-hw - 0.0005, 0.0026, z], null, () => m.box(0.001, 0.0024, 0.0042, 0.0003));
+    }
+
+    // Clear panoramic glass window and crisp glowing red dot.
+    m.glass(() => m.at([0, 0, -0.0108], null, () => m.front(win, 0.0005, { bevel: 0 })));
+    m.glow('dot', () => m.at([0, OPEN_REFLEX_DOT_Y, OPEN_REFLEX_DOT_Z], null, () => m.cyl(0.00048, 0.00018, 12, 0)));
+  }));
+  });
+
+  return {
+    part: name,
+    sight: [
+      (off[0] + at[0]) * ms,
+      (off[1] + at[1] + riser + OPEN_REFLEX_DOT_Y * sc) * ms,
+      (off[2] + at[2] + OPEN_REFLEX_DOT_Z * sc) * ms,
+    ],
+    rear: null,
+    relief,
+  };
+}
+

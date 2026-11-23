@@ -345,4 +345,27 @@ describe('one fort for the whole team', () => {
     expect(a.walls.all[1]!.repairing).toBe(-1);
     g.dispose();
   });
+
+  it('keeps fortbuy separate from wallblast rate limits and unseats a downed guest on gunseat', async () => {
+    const g = await game(1);
+    const a = g.guests[0]!;
+    // Flood wallblasts past the blast bucket: fortbuy must still succeed on its own buy bucket.
+    for (let i = 0; i < 40; i++) g.sendFrom(0, { t: 'wallblast', at: [0, 1, 0.5], radius: 2, amount: 1, source: 'grenade' });
+    g.host.walls.blast(V(0, 1, 0.5), 3, 100, 'grenade');
+    tick(g);
+    a.defense.credits = 1000;
+    const offer = a.defense.offers('barracks').find(o => o.act.kind === 'repair' && o.act.index === 1 && o.why === null)!;
+    expect(a.defense.buy('barracks', offer.act)).toBeNull();
+    tick(g, 50);
+    expect(g.host.walls.all[1]!.repairing).toBeGreaterThanOrEqual(0);
+    // Downed guest claiming a gun seat is refused and unseated immediately.
+    const guestId = g.guestLobbies[0]!.you;
+    g.hw.team.life(guestId).fall(performance.now());
+    a.guns[0]!.occupant = 'player'; a.guns[0]!.remote = false;
+    g.sendFrom(0, { t: 'gunseat', gun: 0, on: true });
+    tick(g);
+    expect(g.host.guns[0]!.occupant).toBeNull();
+    expect(a.guns[0]!.occupant).toBeNull();
+    g.dispose();
+  });
 });

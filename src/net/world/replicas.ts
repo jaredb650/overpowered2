@@ -76,6 +76,7 @@ export class RecentSet {
   }
   /** Lets an id back in: for a death this page played ahead of the host's word and the host then denied (hits.ts). */
   delete(value: number): boolean { return this.set.delete(value); }
+  clear(): void { this.set.clear(); }
 }
 
 /** The far tier's spacing for a guest, from the snapshot bytes a second they are being sent: thinned over the ceiling. */
@@ -287,7 +288,7 @@ export class Replicas implements WorldModule {
   /** Guest, each frame before the enemies draw: every replica where its playhead has it. */
   animate(now: number): void {
     const { ctx, manager } = this.w;
-    const dt = Math.max(0, Math.min(250, now - this.lastFrame));
+    const dt = this.lastFrame === 0 ? 16 : Math.max(0, Math.min(250, now - this.lastFrame));
     this.lastFrame = now;
     if (this.clock.empty) return;
     const hostNow = this.clock.now(now), jitter = this.clock.jitter;
@@ -396,10 +397,16 @@ export class Replicas implements WorldModule {
         this.slotKnown[slot] = true;
         continue;
       }
-      const root = session.remotes.get(player.id)?.char.root;
-      if (!root?.visible) continue;
+      const remote = session.remotes.get(player.id);
+      const root = remote?.char.root;
+      if (!remote || !root?.visible) continue;
       this.slotFeet[slot]!.copy(root.position);
-      this.slotEye[slot]!.copy(root.position).y += 1.6;
+      const reye = remote.eye;
+      if (reye && Math.abs(reye.x - root.position.x) < 0.05 && Math.abs(reye.z - root.position.z) < 0.05 && reye.y > root.position.y + 0.1) {
+        this.slotEye[slot]!.copy(reye);
+      } else {
+        this.slotEye[slot]!.copy(root.position).y += 1.6;
+      }
       this.slotKnown[slot] = true;
     }
   }
@@ -538,5 +545,6 @@ export class Replicas implements WorldModule {
     this.map.clear();
     this.waiting.length = 0;
     this.pending = [];
+    this.lastFrame = 0;
   }
 }

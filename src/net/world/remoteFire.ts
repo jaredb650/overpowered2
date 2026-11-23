@@ -63,7 +63,7 @@ export type LoopEvent = { t: 'loop'; k: 'beam' | 'giant' | 'hose' | 'spin' | 'wh
  */
 export type ProjEvent = {
   t: 'round'; slot?: number; k: string; src: string; o: Vec; v: Vec; i?: number;
-  g?: number; l?: number; fu?: number; tr?: string; sz?: number; tc?: string; x?: 1; w?: 1; fk?: 1; st?: 1;
+  g?: number; l?: number; fu?: number; tr?: string; sz?: number; tc?: string; x?: 1; w?: 1; fk?: 1; st?: 1; wp?: 1; cl?: 1;
   tg?: number; q?: number[]; hx?: number[];
 };
 /** The gun a player holds and the mods fitted to it, in MOD_ORDER. `on`: bit 1 the rocket's laser sight is up. */
@@ -95,6 +95,16 @@ const mm = (n: number): number => Math.round(n * 1000) / 1000;
 const unit = (n: number): number => Math.round(n * 10000) / 10000;
 const point = (v: THREE.Vector3): Vec => [mm(v.x), mm(v.y), mm(v.z)];
 const finite = (n: unknown, lo: number, hi: number): n is number => typeof n === 'number' && Number.isFinite(n) && n >= lo && n <= hi;
+/** Allocation-free byte estimate for the FX stats counter (replaces hot-path JSON.stringify on every shot). */
+function wireEstimate(event: FireEvent | LoopEvent | ProjEvent | KitEvent | MeleeFxEvent): number {
+  switch (event.t) {
+    case 'fire': return 76 + (event.k ? 12 : 0) + (event.n ? 8 : 0) + (event.snd ? 16 : 0);
+    case 'round': return 96 + (event.q ? 36 : 0) + (event.hx ? 24 : 0);
+    case 'loop': return 44 + (event.at ? 24 : 0) + (event.n ? 24 : 0);
+    case 'mfx': return 92;
+    case 'held': return 28 + (event.mods?.length ?? 0) * 4;
+  }
+}
 
 export class RemoteFire implements WorldModule {
   /** Events sent and drawn, by kind, since the world began: for the proofs and the bandwidth numbers. */
@@ -161,7 +171,7 @@ export class RemoteFire implements WorldModule {
     const slot = this.w.session.lobby.me?.slot;
     const out = this.w.hosting ? { ...event, slot } : event;
     this.sent[event.t]++;
-    this.sent.bytes += JSON.stringify(out).length;
+    this.sent.bytes += wireEstimate(out);
     this.w.send(out);
   }
 
@@ -227,7 +237,7 @@ export class RemoteFire implements WorldModule {
     let tag = 0;
     // A round whose end the others must be told: one that goes off, and a stake, which stops in a body or flies on through
     // it by what it did to that body on this screen.
-    if (spec.explosion || spec.flak || spec.kind === 'stake' || spec.sticky) {
+    if (spec.explosion || spec.flak || spec.wp || spec.cluster || spec.kind === 'stake' || spec.sticky) {
       tag = this.nextTag = this.nextTag % 0xffff + 1;
       event.i = tag;
     }
@@ -241,6 +251,8 @@ export class RemoteFire implements WorldModule {
     if (spec.wired) event.w = 1;
     if (spec.flak) event.fk = 1;
     if (spec.sticky) event.st = 1;
+    if (spec.wp) event.wp = 1;
+    if (spec.cluster) event.cl = 1;
     if (spec.turnRate) {
       event.q = [mm(spec.turnRate), mm(spec.steerDelay ?? 0), mm(spec.weave ?? 0), mm(spec.accel ?? 0), mm(spec.topSpeed ?? 0)];
       const uid = (spec.target as { uid?: number } | null | undefined)?.uid;
@@ -353,7 +365,9 @@ export class RemoteFire implements WorldModule {
   /** True when `origin` is not where the host has that guest's body, by more than lag and a dash explain (`originSlack`). */
   private far(remote: RemotePlayer, origin: Vec, from: string): boolean {
     const p = remote.char.root.position;
-    return Math.hypot(origin[0] - p.x, origin[1] - (p.y + 1.6), origin[2] - p.z) >= originSlack(this.w.session.lobby.pingOf?.(from));
+    const reye = remote.eye;
+    const ey = reye && Math.abs(reye.x - p.x) < 0.05 && Math.abs(reye.z - p.z) < 0.05 && reye.y > p.y + 0.1 ? reye.y : p.y + 1.6;
+    return Math.hypot(origin[0] - p.x, origin[1] - ey, origin[2] - p.z) >= originSlack(this.w.session.lobby.pingOf?.(from));
   }
 
   // -------------------------------------------------------------------------------------------
@@ -436,6 +450,8 @@ export class RemoteFire implements WorldModule {
     spec.wired = event.w === 1;
     spec.flak = event.fk === 1;
     spec.sticky = event.st === 1;
+    spec.wp = event.wp === 1;
+    spec.cluster = event.cl === 1;
     const q = Array.isArray(event.q) && event.q.length === 5 && event.q.every(n => finite(n, 0, 1000)) ? event.q : null;
     spec.turnRate = q ? q[0] : undefined;
     spec.steerDelay = q ? q[1] : undefined;
@@ -477,6 +493,7 @@ export class RemoteFire implements WorldModule {
     if (performance.now() < this.stimUntil) flags |= DOING.stim;
     if (ROCKET_LASER.sight && WEAPONS[w.current].laser === true) flags |= DOING.laser;
     if (w.current === 'lance' && w.charge > 0) flags |= DOING.charge | (LANCE_LOOK.ball ? DOING.ball : 0);
+    if (w.shield?.active) flags |= DOING.shield;
     return flags;
   }
 

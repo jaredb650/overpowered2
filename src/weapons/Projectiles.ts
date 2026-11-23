@@ -16,6 +16,8 @@ import { helixOffset, type HelixSpec } from './helix';
 import { ROCKET_LASER } from './laser';
 import { ProjectileVisuals } from './ProjectileVisuals';
 import { flakBurst, flakFuze, nearestAhead } from './flak';
+import { WpCloud } from './wp';
+import { checkClusterStandoff, detonateCluster } from './cluster';
 import { isGuest } from '../core/coop';
 
 const MAX_PROJECTILES = 256;
@@ -66,6 +68,7 @@ export interface Projectile {
   kind: ProjectileKind;
   team: Team;
   damage: number;
+  bossDamage: number | undefined;
   source: string;
   position: THREE.Vector3;
   velocity: THREE.Vector3;
@@ -149,6 +152,10 @@ export interface Projectile {
   blastMirrored: boolean;
   /** An autocannon flak shell: a proximity fuze, and its blast is the flak's air burst and cone (flak.ts). */
   flak: boolean;
+  /** White phosphorus rocket warhead: spawns a 6 m burning cloud for 12 s on detonation (wp.ts). */
+  wp: boolean;
+  /** Howitzer cluster shell: bursts ~7 m short of targets/walls into an 18-bomblet carpet (cluster.ts). */
+  cluster: boolean;
   /**
    * Co-op: a copy of a projectile another browser owns: an enemy's on a guest, or a friend's round (ProjectileSpec.cosmetic).
    * It flies, trails, sticks, beeps and bursts here as the real one does there, stepped under `Combat.watching`, and hurts
@@ -165,7 +172,7 @@ export interface Projectile {
 
 function createProjectile(): Projectile {
   return {
-    live: false, serial: 0, kind: 'bullet', team: 'player', damage: 0, source: '',
+    live: false, serial: 0, kind: 'bullet', team: 'player', damage: 0, bossDamage: undefined, source: '',
     position: new THREE.Vector3(), velocity: new THREE.Vector3(), gravity: 0, life: 0, fuse: 0, homing: 0,
     trail: 'none', ringClock: 0, smokeClock: 0, lastTrail: new THREE.Vector3(),
     visualOffset: new THREE.Vector3(), visualHold: 0, whizzed: false, resting: false, spin: 0,
@@ -175,7 +182,7 @@ function createProjectile(): Projectile {
     blastSelf: undefined, blastPush: undefined, pinned: false, lastHit: -1,
     budget: makeBudget(), baseDamage: 0, armorPiercing: false,
     target: null, turnRate: 0, line: new THREE.Vector3(), steerDelay: 0, weave: 0, weavePhase: 0, accel: 0, topSpeed: 0, age: 0, size: 1, wired: false,
-    blastScale: undefined, blastShake: undefined, flak: false, cosmetic: false, netId: 0, laser: ROCKET_LASER, tag: 0, ghost: false, blastMirrored: false,
+    blastScale: undefined, blastShake: undefined, flak: false, wp: false, cluster: false, cosmetic: false, netId: 0, laser: ROCKET_LASER, tag: 0, ghost: false, blastMirrored: false,
     helix: null, helixTravel: 0, helixRight: new THREE.Vector3(), helixUp: new THREE.Vector3(), helixOffset: new THREE.Vector3(),
   };
 }
@@ -219,8 +226,11 @@ export class Projectiles {
     cosmetic: undefined as boolean | undefined, mirrored: undefined as boolean | undefined,
   };
 
+  readonly wp: WpCloud;
+
   constructor(private readonly ctx: Ctx, private readonly combat: Combat) {
     this.visuals = new ProjectileVisuals(ctx);
+    this.wp = new WpCloud(ctx);
     for (let i = 0; i < MAX_PROJECTILES; i++) {
       this.free.push(createProjectile());
     }
@@ -242,6 +252,7 @@ export class Projectiles {
   clear(): void {
     for (let i = this.live.length - 1; i >= 0; i--) this.retire(i);
     this.pendingCount = 0;
+    this.wp.reset();
     this.visuals.clear();
   }
 
@@ -270,6 +281,7 @@ export class Projectiles {
     p.kind = kind;
     p.team = spec.team;
     p.damage = spec.damage;
+    p.bossDamage = spec.bossDamage;
     p.source = spec.source;
     p.position.copy(spec.origin);
     p.velocity.copy(spec.velocity);
@@ -312,6 +324,8 @@ export class Projectiles {
     p.size = spec.size ?? 1;
     p.wired = spec.wired ?? false;
     p.flak = spec.flak ?? false;
+    p.wp = spec.wp ?? false;
+    p.cluster = spec.cluster ?? false;
     p.cosmetic = spec.cosmetic ?? false;
     p.netId = netId;
     p.laser = spec.laser ?? ROCKET_LASER;
@@ -356,6 +370,8 @@ export class Projectiles {
     p.stuckBone = null;
     p.stuckEnemy = null;
     p.sticky = false;
+    p.wp = false;
+    p.cluster = false;
     p.laser = ROCKET_LASER;
     const last = this.live.pop()!;
     if (index < this.live.length) this.live[index] = last;
@@ -364,6 +380,7 @@ export class Projectiles {
 
   update(dt: number): void {
     this.drainPins();
+    this.wp.update(dt);
     const realDt = this.ctx.time.realDt;
     for (let i = this.live.length - 1; i >= 0; i--) {
       const p = this.live[i]!;
@@ -422,6 +439,7 @@ export class Projectiles {
     if (len <= 0) return;
 
     if (p.flak && this.flakFuze(p, dir, len)) return;
+    if (p.cluster && this.clusterFuze(p, dir, speed, dt)) return;
     const wall = c.physics.raycast(p.position, dir, len, CG.World);
     const limit = wall ? wall.distance : len;
     if (p.ghost) {
@@ -490,7 +508,8 @@ export class Projectiles {
     const want = this.want.subVectors(p.laser.at, p.position);
     const dist = want.length();
     if (dist < 1e-3) return;
-    turnToward(p.velocity, want.divideScalar(dist), TUNING.rocket.laserTurn * dt);
+    const rate = p.turnRate > 0 ? p.turnRate : TUNING.rocket.laserTurn;
+    turnToward(p.velocity, want.divideScalar(dist), rate * dt);
   }
 
   /**
@@ -622,6 +641,7 @@ export class Projectiles {
     o.killStop = p.killStop;
     o.charge = p.explosive && !p.sticky ? SHAPED_CHARGE[p.blastKind] : undefined;
     o.pierces = p.armorPiercing;
+    o.bossDamage = p.bossDamage;
     return combat.strike(enemy, point, normal, dir, bone, region, p.damage, o);
   }
 
@@ -765,7 +785,7 @@ export class Projectiles {
         p.live = false;
         return true;
       }
-      const guard = this.combat.guard(dir);
+      const guard = this.combat.guard(dir, p.damage, { armorPiercing: p.armorPiercing, explosive: p.explosive });
       if (guard !== 'none') {
         this.combat.deflected(p.position, dir, p.damage, guard);
         p.live = false;
@@ -1042,14 +1062,32 @@ export class Projectiles {
     return true;
   }
 
+  /** A Howitzer cluster shell's standoff fuze (~7 m short of walls/enemies): true when it bursts into bomblets. */
+  private clusterFuze(p: Projectile, dir: THREE.Vector3, speed: number, dt: number): boolean {
+    const at = checkClusterStandoff(this.ctx, p.position, dir, speed, dt, this.w);
+    if (!at) return false;
+    p.position.copy(at);
+    this.explode(p, undefined);
+    p.live = false;
+    return true;
+  }
+
   explode(p: Projectile, normal: THREE.Vector3 | undefined): void {
     // Co-op: the others' copy of this round ends here and now, wherever it has got to on their screens.
     if (p.tag !== 0 && !p.cosmetic) this.ctx.coop?.world?.landed(p.tag, p.position);
-    // A friend's flak shell bursts for the eye and the ear (it is stepped under `Combat.watching`).
-    if (p.cosmetic && !p.flak) return;
+    // A friend's flak, cluster or WP round bursts for the eye and the ear (stepped under `Combat.watching`).
+    if (p.cosmetic && !p.flak && !p.cluster && !p.wp) return;
     if (p.flak) {
       flakBurst(this.ctx, this.combat, p.position, this.v.copy(p.velocity).normalize(), p.source);
       return;
+    }
+    if (p.cluster) {
+      detonateCluster(this.ctx, p.position, this.v.copy(p.velocity).normalize(), `${p.source}_cluster`, p.cosmetic);
+      return;
+    }
+    if (p.wp) {
+      this.wp.spawn(p.position, `${p.source}_wp`, p.cosmetic);
+      if (p.cosmetic) return;
     }
     const b = this.blastSpec;
     b.radius = p.blastRadius;
@@ -1255,7 +1293,7 @@ export class Projectiles {
       const p = this.live[i]!;
       if (!p.cosmetic || p.tag !== tag) continue;
       p.position.copy(at);
-      if (p.flak) {
+      if (p.flak || p.cluster || p.wp) {
         this.combat.watching++;
         try {
           this.explode(p, undefined);

@@ -54,11 +54,11 @@ const AWARDS: readonly AwardEvent['kind'][] = ['score', 'label', 'executed'];
 export type CreditRule = 'player' | 'ally' | 'linger';
 
 /** Time and the map. `fire` is the scratch damage's first value in EnemyManager, never emitted; `''` a scratch one never filled. */
-const LINGER = /^(|bleed|burn|fire|fell|crash|trample|hazard|coop|lava|crusher|electric|structural_collapse)$/;
+const LINGER = /^(|bleed|burn|fire|fell|crash|trample|hazard|coop|lava|crusher|electric|structural_collapse|chandelier)$/;
 /** Enemies' own weapons, the villain's devices, wrecks, and what a boss's death does to the field. */
-const ENEMY_MADE = /^(titan_death|frag|flashbang|smoke|manpads|mortar|mine|tripwire|claymore|snare|tank_cannon|enemy_emplacement|vehicle_ram|wreck_fire|wreck|vehicle_blast|crawler_cutter|crawler_missile|crawler_turret|crawler_lunge|crawler_mortar|crawler_steam|crawler_casemate|rival_rotary|rival_cannon|rival_missile|rival_stomp|flak_gun|aa_top_attack|sapper_charge)$/;
+const ENEMY_MADE = /^(titan_death|frag|flashbang|smoke|manpads|mortar|mine|tripwire|claymore|snare|tank_cannon|enemy_emplacement|vehicle_ram|wreck_fire|wreck|vehicle_blast|crawler_cutter|crawler_missile|crawler_turret|crawler_lunge|crawler_mortar|crawler_steam|crawler_casemate|rival_rotary|rival_cannon|rival_missile|rival_stomp|flak_gun|aa_top_attack|sapper_charge|saltblood_technical|saltblood_bike|saltblood_fire|quist_grenade|quist_suicide|highway_enemy)$/;
 /** Everything of a player's that is not a gun in the weapon table (authority.ts classes the same names for a claim). */
-const PLAYER_MADE = /^(grenade|sword|slam|gib|kick|stomp|barrel|lab|test|airstrike|warthog|chopper|door_gun|gunship|orbital|ac130|black_sun|nuke|sentry|drop_pod|frame|mech|wireBomb|harrow_|attack|chain|skyfall|frost|rigged|deadman|vampire|overdrive|emplacement|mounted|turret|hazard_|breach_charge|hydraulic_overload|stealth_takedown)/;
+const PLAYER_MADE = /^(grenade|sword|slam|gib|kick|stomp|barrel|lab|test|airstrike|warthog|chopper|door_gun|gunship|orbital|ac130|black_sun|nuke|sentry|drop_pod|frame|mech|wireBomb|harrow_|howitzer_cluster|rocket_wp|weapon|attack|chain|skyfall|frost|rigged|deadman|vampire|overdrive|emplacement|mounted|turret|hazard_|breach_charge|hydraulic_overload|stealth_takedown)/;
 
 /** The rule for a damage source, or null for a source this table has never heard of (credit then goes as `player`). */
 export function creditRule(source: string): CreditRule | null {

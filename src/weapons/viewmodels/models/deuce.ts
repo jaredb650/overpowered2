@@ -26,6 +26,10 @@ const BX = 0.0168;
 const R = 0.0165;
 const BREECH = -0.012;
 const MUZZLE = -0.46;
+const LONG_MUZZLE = -0.7;
+/** Just ahead of the walnut beavertail forend: where the short and long front barrel sets swap cleanly. */
+const SPLIT = -0.305;
+const R_SPLIT = R - 0.0019;
 /** The hinge pin, at the front of the action under the barrels. Barrels-part space is measured from it. */
 const HY = 0.004;
 const HZ = -0.088;
@@ -73,33 +77,116 @@ function chambered(m: Mesher, name: string, x: number): void {
   m.part(name, [x, BORE - HY, BREECH - HZ], () => m.at([0, 0, 0.0005], null, () => shell12(m, F.red)));
 }
 
+/** Rear barrel tube from breech to `SPLIT`, shared by short and long barrels, in the barrels' frame. */
+function tubeRearAt(m: Mesher, x: number, y: number): void {
+  const z = (v: number) => v - HZ;
+  m.at([x, y, 0], null, () => {
+    m.use(F.barrel);
+    m.lathe([[R, z(BREECH), 0], [R, z(-0.09)], [R - 0.0016, z(-0.13)], [R_SPLIT, z(SPLIT), 0]], 26);
+    // The bore, seen from the breech end when it hangs open.
+    m.use(F.black);
+    m.lathe([[0.0098, z(BREECH) + 0.0004, 0], [0.0098, z(BREECH) - 0.004, 0], [0, z(BREECH) - 0.0045, 0]], 18);
+  });
+}
+
+/** Front barrel tube from `SPLIT` to `muzzle`, with tapered crown, choke collar (when long) and dark bore. */
+function tubeFrontAt(m: Mesher, x: number, y: number, muzzle: number, long = false): void {
+  const z = (v: number) => v - HZ;
+  m.at([x, y, 0], null, () => {
+    m.use(F.barrel);
+    const tipR = long ? R - 0.0026 : R - 0.0022;
+    const crownR = long ? R - 0.0012 : R - 0.001;
+    const boreR = long ? 0.0092 : 0.0095;
+    m.lathe([
+      [R_SPLIT, z(SPLIT), 0],
+      [tipR, z(muzzle + 0.014)],
+      [crownR, z(muzzle + 0.01)],
+      [crownR, z(muzzle), 0.0008],
+      [boreR, z(muzzle), 0],
+    ], 26);
+    if (long) {
+      m.use(F.steel);
+      m.lathe([[crownR + 0.0003, z(muzzle + 0.012), 0], [crownR + 0.0004, z(muzzle + 0.008)], [crownR + 0.0003, z(muzzle + 0.006), 0]], 26);
+    }
+    m.use(F.black);
+    m.lathe([[boreR, z(muzzle), 0], [boreR - 0.0002, z(muzzle + 0.03), 0], [0, z(muzzle + 0.0305), 0]], 18);
+  });
+}
+
+/** Top sighting rib segment from `z0` (rear) to `z1` (front) with cross-cuts and optional beads. */
+function ribSegment(m: Mesher, y: number, z0: number, z1: number, bead: boolean, midBead = false): void {
+  const z = (v: number) => v - HZ;
+  const len = z0 - z1;
+  m.use(F.steel);
+  m.at([0, y + R - 0.0012, z((z0 + z1) / 2)], null, () => m.box(0.0075, 0.0038, len, 0.0009));
+  const cuts = Math.max(1, Math.floor((len - 0.012) / 0.022));
+  for (let i = 0; i < cuts; i++) {
+    m.at([0, y + R + 0.0009, z(z0 - 0.012 - i * 0.022)], null, () => m.box(0.0064, 0.0005, 0.0012, 0));
+  }
+  if (midBead) {
+    m.use(F.brass);
+    m.at([0, y + R + 0.002, z((z0 + z1) * 0.52)], null, () => m.cyl(0.0014, 0.002, 10, 0));
+  }
+  if (bead) {
+    m.glow('sight', () => m.at([0, y + R + 0.0028, z(z1 + 0.008)], null, () => m.lathe([[0, 0.0026, 0], [0.0022, 0.0018], [0.0024, 0], [0.0022, -0.0018], [0, -0.0026, 0]], 10)));
+  }
+}
+
+/** Front barrel set (from `SPLIT` to `muzzle`), with a nested quad child so `deuceQuad` × `deuceLong` compose cleanly in both rig & studio. */
+function barrelTips(m: Mesher, name: string, quadName: string, muzzle: number, long: boolean): void {
+  m.part(name, [0, 0, 0], () => {
+    const lo = BORE - HY;
+    const up = UP - HY;
+    const z = (v: number) => v - HZ;
+    const len = SPLIT - muzzle;
+
+    // Lower pair front tubes, top rib, under-rib, muzzle band (and mid stabilizer band on long).
+    tubeFrontAt(m, BX, lo, muzzle, long);
+    tubeFrontAt(m, -BX, lo, muzzle, long);
+    ribSegment(m, lo, SPLIT, muzzle, true, long);
+    m.use(F.steel);
+    m.at([0, lo - R + 0.004, z((SPLIT + muzzle) / 2)], null, () => m.box(0.008, 0.006, len - 0.01, 0.0008));
+    m.use(F.steelDark);
+    const bandZ = long ? [muzzle + 0.018, -0.5] : [muzzle + 0.016];
+    for (const bz of bandZ) {
+      m.at([0, lo, z(bz)], null, () => m.front(poly([[-BX - R - 0.0012, -R * 0.6], [BX + R + 0.0012, -R * 0.6], [BX + R + 0.0012, R * 0.6], [-BX - R - 0.0012, R * 0.6]], 0.006), 0.012, { bevel: 0.001 }));
+    }
+
+    // Upper pair front tubes (nested child shown only while `deuceQuad` is fitted).
+    m.part(quadName, [0, 0, 0], () => {
+      tubeFrontAt(m, BX, up, muzzle, long);
+      tubeFrontAt(m, -BX, up, muzzle, long);
+      // Core between the four barrels and bright steel side ribs where the rows meet.
+      m.use(F.barrelBlack);
+      m.at([0, (up + lo) / 2, z((SPLIT + muzzle) / 2)], null, () => m.box(0.016, 0.016, len - 0.008, 0.001));
+      m.use(F.steel);
+      m.mirror(() => m.at([BX + 0.0095, (up + lo) / 2, z((SPLIT + muzzle) / 2)], null, () => m.box(0.0055, 0.0065, len - 0.014, 0.0012)));
+      ribSegment(m, up, SPLIT, muzzle, true, long);
+      // Quad muzzle band (and mid stabilizer band on long) wrapping all four tubes.
+      m.use(F.steelDark);
+      for (const bz of bandZ) {
+        m.at([0, 0, z(bz)], null, () => m.front(poly([[-BX - R - 0.0014, lo - R * 0.62], [BX + R + 0.0014, lo - R * 0.62], [BX + R + 0.0014, up + R * 0.62], [-BX - R - 0.0014, up + R * 0.62]], 0.007), 0.0125, { bevel: 0.001 }));
+      }
+    });
+  });
+}
+
 function barrels(m: Mesher): void {
   m.part('barrels', [0, HY, HZ], () => {
     const y = BORE - HY;
     const z = (v: number) => v - HZ;
     // The shop's weapon light (weapons/mods.ts LIGHT_GUNS), hidden until fitted: clamped under the barrels, so it drops with them.
     weaponLight(m, [0, 0.005 - HY, z(-0.41)]);
-    m.mirror(() => m.at([BX, y, 0], null, () => {
-      m.use(F.barrel);
-      m.lathe([[R, z(BREECH), 0], [R, z(-0.09)], [R - 0.0016, z(-0.13)], [R - 0.0022, z(MUZZLE + 0.012)], [R - 0.001, z(MUZZLE + 0.008)], [R - 0.001, z(MUZZLE), 0.0008], [0.0095, z(MUZZLE), 0]], 26);
-      m.use(F.black);
-      m.lathe([[0.0095, z(MUZZLE), 0], [0.0093, z(MUZZLE + 0.03), 0], [0, z(MUZZLE + 0.0305), 0]], 18);
-      // The bore, seen from the breech end when it hangs open.
-      m.lathe([[0.0098, z(BREECH) + 0.0004, 0], [0.0098, z(BREECH) - 0.004, 0], [0, z(BREECH) - 0.0045, 0]], 18);
-    }));
+    tubeRearAt(m, BX, y);
+    tubeRearAt(m, -BX, y);
     // Monoblock: the two breeches in one block, with the lump that locks into the water table.
     m.use(F.parkerized);
     m.at([0, y, z(BREECH - 0.034)], null, () => m.front(poly([[-BX - R - 0.001, -R + 0.002], [BX + R + 0.001, -R + 0.002], [BX + R + 0.001, 0.004, 0.006], [BX + 0.006, R - 0.001, 0.008], [-BX - 0.006, R - 0.001, 0.008], [-BX - R - 0.001, 0.004, 0.006]], 0.002), 0.068, { bevel: 0.0016 }));
     m.at([0, 0.0115 - HY, z(BREECH - 0.034)], null, () => m.box(0.034, 0.008, 0.064, 0.0014));
-    // Rib on top between the barrels, bright so the two read apart, with a bead; the groove underneath filled.
+    // Rear rib between the barrels from monoblock to `SPLIT`, and the under-rib.
+    ribSegment(m, y, -0.072, SPLIT, false);
     m.use(F.steel);
-    m.at([0, y + R - 0.0012, z((BREECH + MUZZLE) / 2 - 0.03)], null, () => m.box(0.0075, 0.0038, BREECH - MUZZLE - 0.06, 0.0009));
-    for (let i = 0; i < 18; i++) m.at([0, y + R + 0.0009, z(-0.09 - i * 0.022)], null, () => m.box(0.0064, 0.0005, 0.0012, 0));
-    m.at([0, y - R + 0.004, z((BREECH + MUZZLE) / 2 - 0.03)], null, () => m.box(0.008, 0.006, BREECH - MUZZLE - 0.07, 0.0008));
-    m.glow('sight', () => m.at([0, y + R + 0.0028, z(MUZZLE + 0.008)], null, () => m.lathe([[0, 0.0026, 0], [0.0022, 0.0018], [0.0024, 0], [0.0022, -0.0018], [0, -0.0026, 0]], 10)));
-    // Muzzle band tying the two together.
-    m.use(F.steelDark);
-    m.at([0, y, z(MUZZLE + 0.016)], null, () => m.front(poly([[-BX - R - 0.0012, -R * 0.6], [BX + R + 0.0012, -R * 0.6], [BX + R + 0.0012, R * 0.6], [-BX - R - 0.0012, R * 0.6]], 0.006), 0.012, { bevel: 0.001 }));
+    m.at([0, y - R + 0.004, z((-0.072 + SPLIT) / 2)], null, () => m.box(0.008, 0.006, -0.072 - SPLIT, 0.0008));
     // Beavertail forend: walnut wrapping the barrels' bellies, checkered where the hand closes, an iron at its back.
     m.use(F.walnut);
     m.side(poly([[z(-0.115), y - 0.004], [z(-0.12), y - R - 0.014, 0.008], [z(-0.3), y - R - 0.012, 0.01], [z(-0.31), y - 0.004, 0.006]], 0.003), 0.072, { bevel: 0.005, smooth: 40 });
@@ -113,6 +200,8 @@ function barrels(m: Mesher): void {
     chambered(m, 'shell0', BX);
     chambered(m, 'shell1', -BX);
     quad(m);
+    barrelTips(m, 'shortTips', 'quadShort', MUZZLE, false);
+    barrelTips(m, 'longTips', 'quadLong', LONG_MUZZLE, true);
     // The shell in the hand during a reload, in the barrels' frame so it lands in a chamber however far they hang, and the
     // speed loader's clip of two, its middle on the lower pair's.
     m.part('shellIn', [BX, BORE - HY, BREECH - HZ], () => shell12(m, F.red));
@@ -120,45 +209,29 @@ function barrels(m: Mesher): void {
   });
 }
 
-/** One barrel's tube, muzzle and bores, its axis on the origin, in the barrels' frame. */
-function tubeAt(m: Mesher, x: number, y: number): void {
-  const z = (v: number) => v - HZ;
-  m.at([x, y, 0], null, () => {
-    m.use(F.barrel);
-    m.lathe([[R, z(BREECH), 0], [R, z(-0.09)], [R - 0.0016, z(-0.13)], [R - 0.0022, z(MUZZLE + 0.012)], [R - 0.001, z(MUZZLE + 0.008)], [R - 0.001, z(MUZZLE), 0.0008], [0.0095, z(MUZZLE), 0]], 26);
-    m.use(F.black);
-    m.lathe([[0.0095, z(MUZZLE), 0], [0.0093, z(MUZZLE + 0.03), 0], [0, z(MUZZLE + 0.0305), 0]], 18);
-    m.lathe([[0.0098, z(BREECH) + 0.0004, 0], [0.0098, z(BREECH) - 0.004, 0], [0, z(BREECH) - 0.0045, 0]], 18);
-  });
-}
-
 /**
- * The quad's upper pair, in the barrels' frame: two more tubes on their own monoblock, bright side ribs where the rows meet
- * so the four read apart from the eye, the rib and bead moved up onto them, and a band round all four at the muzzle.
+ * The quad's upper breech section (from breech to `SPLIT`), in the barrels' frame: upper monoblock, rear tubes, core & side
+ * ribs, extractor, and upper chambered shells. The front barrels come from `quadShort` or `quadLong` inside `barrelTips`.
  */
 function quad(m: Mesher): void {
   m.part('quad', [0, 0, 0], () => {
     const y = UP - HY;
     const lo = BORE - HY;
     const z = (v: number) => v - HZ;
-    tubeAt(m, BX, y);
-    tubeAt(m, -BX, y);
+    tubeRearAt(m, BX, y);
+    tubeRearAt(m, -BX, y);
     // Monoblock: the upper breeches in one block, its foot sunk into the lower one's so the shoulders close up.
     m.use(F.parkerized);
     m.at([0, y, z(BREECH - 0.034)], null, () => m.front(poly([[-BX - R - 0.001, lo - y + 0.004], [BX + R + 0.001, lo - y + 0.004], [BX + R + 0.001, 0.004, 0.006], [BX + 0.006, R - 0.001, 0.008], [-BX - 0.006, R - 0.001, 0.008], [-BX - R - 0.001, 0.004, 0.006]], 0.002), 0.068, { bevel: 0.0016 }));
-    // The core between the four, and a bright rib down each side where the rows meet.
+    // Rear core and bright steel side ribs where the rows meet, and the rear upper top rib.
+    const len = -0.072 - SPLIT;
     m.use(F.barrelBlack);
-    m.at([0, (y + lo) / 2, z((BREECH + MUZZLE) / 2 - 0.03)], null, () => m.box(0.016, 0.016, BREECH - MUZZLE - 0.06, 0.001));
+    m.at([0, (y + lo) / 2, z((-0.072 + SPLIT) / 2)], null, () => m.box(0.016, 0.016, len, 0.001));
     m.use(F.steel);
-    m.mirror(() => m.at([BX + 0.0095, (y + lo) / 2, z((BREECH + MUZZLE) / 2 - 0.03)], null, () => m.box(0.0055, 0.0065, BREECH - MUZZLE - 0.072, 0.0012)));
-    // Top rib, its cross-cuts and the bead, now on the upper pair.
-    m.at([0, y + R - 0.0012, z((BREECH + MUZZLE) / 2 - 0.03)], null, () => m.box(0.0075, 0.0038, BREECH - MUZZLE - 0.06, 0.0009));
-    for (let i = 0; i < 18; i++) m.at([0, y + R + 0.0009, z(-0.09 - i * 0.022)], null, () => m.box(0.0064, 0.0005, 0.0012, 0));
-    m.glow('sight', () => m.at([0, y + R + 0.0028, z(MUZZLE + 0.008)], null, () => m.lathe([[0, 0.0026, 0], [0.0022, 0.0018], [0.0024, 0], [0.0022, -0.0018], [0, -0.0026, 0]], 10)));
-    // Muzzle band round all four.
-    m.use(F.steelDark);
-    m.at([0, 0, z(MUZZLE + 0.016)], null, () => m.front(poly([[-BX - R - 0.0014, lo - R * 0.62], [BX + R + 0.0014, lo - R * 0.62], [BX + R + 0.0014, y + R * 0.62], [-BX - R - 0.0014, y + R * 0.62]], 0.007), 0.0125, { bevel: 0.001 }));
+    m.mirror(() => m.at([BX + 0.0095, (y + lo) / 2, z((-0.072 + SPLIT) / 2)], null, () => m.box(0.0055, 0.0065, len, 0.0012)));
+    ribSegment(m, y, -0.072, SPLIT, false);
     // Extractor between the upper chambers.
+    m.use(F.steelDark);
     m.at([0, y + 0.004, z(BREECH) - 0.002], null, () => m.box(0.008, 0.008, 0.004, 0.0006));
     chamberedAt(m, 'shell2', BX, y);
     chamberedAt(m, 'shell3', -BX, y);
@@ -272,6 +345,7 @@ function buildDeuce(kit: Kit): Model {
   model.socket('muzzle1', [-BX, BORE, MUZZLE - 0.002]);
   model.socket('muzzle2', [BX, UP, MUZZLE - 0.002]);
   model.socket('muzzle3', [-BX, UP, MUZZLE - 0.002]);
+  model.socket('muzzleLong', [BX, BORE, LONG_MUZZLE - 0.002]);
   model.socket('eject', [0, BORE + 0.01, BREECH]);
   model.hand('gripR', [0.019, -0.06, 0.07], [0, -0.96, 0.27], [-0.3, -0.25, -0.92]);
   model.support('foreL', [-0.004, BORE - R - 0.012 - HY, -0.21 - HZ], 'barrels');
@@ -280,10 +354,15 @@ function buildDeuce(kit: Kit): Model {
   return model;
 }
 
+const MUZZLE_SOCKETS = ['muzzle', 'muzzle1', 'muzzle2', 'muzzle3'] as const;
+
 function clip(a: Anim): void {
   const P = a.parts;
   pullTrigger(a);
   a.glow('sight', 1);
+  const mz = (a.mods?.has('deuceLong') ? LONG_MUZZLE : MUZZLE) - 0.002;
+  const sockets = a.model?.sockets;
+  if (sockets) for (const name of MUZZLE_SOCKETS) if (sockets[name]) sockets[name]!.position.z = mz;
   // Barrels together rock the whole gun up and back, past what the spring does with one.
   const t = a.sinceFire;
   if (a.strength > 1.5 && t < 0.32) {
@@ -393,6 +472,11 @@ export function deuceDef(kit: Kit): ViewDef {
     left: { socket: 'foreL', pose: HANDS.support },
     heatPerShot: 0.05,
     animate: clip,
-    mods: { deuceQuad: { part: 'quad', also: 'quadTop', hides: 'top' }, deuceLoader: { part: 'carrier' }, deuceLight: { part: 'light' } },
+    mods: {
+      deuceQuad: { part: 'quad', also: ['quadTop', 'quadShort', 'quadLong'], hides: 'top' },
+      deuceLong: { part: 'longTips', hides: 'shortTips', muzzle: 'muzzleLong', moves: { part: 'light', z: -0.14 } },
+      deuceLoader: { part: 'carrier' },
+      deuceLight: { part: 'light' },
+    },
   };
 }

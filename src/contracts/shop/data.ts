@@ -132,7 +132,7 @@ const WEAPON_CATALOGUE: Readonly<Partial<Record<WeaponId, Ware>>> = {
   },
   autoraffica: {
     price: 2100, wave: 12,
-    lore: 'Three rounds a pull through a silencer it was born with. Hold R and it finds the head for you: the Council has been automating the contractor for years, and is pleased to report progress.',
+    lore: 'Three-round bursts through a shrouded, weighted barrel built for urban compliance. Hold R for smart mode, hold the trigger to paint every head in the ring, and let the pistol work its way through the list.',
   },
   ultramag: {
     price: 1200, wave: 4,
@@ -201,6 +201,22 @@ const WEAPON_CATALOGUE: Readonly<Partial<Record<WeaponId, Ware>>> = {
   sword: {
     price: 250, wave: 0,
     lore: 'Issued because the blade, unlike the ammunition, is not billed. It stops bullets, which the Council regards as a perk rather than a benefit.',
+  },
+  bodkin: {
+    price: 1500, wave: 8,
+    lore: 'A bullpup flechette rifle firing steel darts in three-round bursts at twelve hundred a minute. Plates and riot shields do not slow it down, and neither does the man behind them.',
+  },
+  billhook: {
+    price: 1800, wave: 9,
+    lore: 'Semi-automatic twelve-gauge with an eight-shell tube and a folding hook stock. All of the pump\'s persuasion, none of the pause for reflection.',
+  },
+  autoclave: {
+    price: 3400, wave: 14,
+    lore: 'A directed-microwave emitter that ripples the air in a faint heat shimmer and boils armoured targets from the inside out. No flash, no beam, just rising steam and an eventual housekeeping claim.',
+  },
+  gaff: {
+    price: 2600, wave: 13,
+    lore: 'A shoulder-fired harpoon cannon on a steel winch cable. Skewers everyone standing in a line, pins the collection to the far wall, and reels the contractor across the room.',
   },
 };
 
@@ -494,7 +510,7 @@ const MOD_CATALOGUE: Readonly<Record<ModId, Ware>> = {
   autorafficaAkimbo: { price: 2400, wave: 14, lore: 'Two Autorafficas, two smart aims, each finding a head of its own. The Council asked whether this was necessary and was shown the results.' },
   metalstorm40mm: {
     price: 1800, wave: 15,
-    lore: 'Converts Metal Storm\'s thirty-six stacked barrels into a 40 mm high-explosive grenade matrix. Retains the million-RPM electronic volley switch, against the strenuous advice of the Council\'s structural engineers.',
+    lore: 'Converts Iron Storm\'s thirty-six stacked barrels into a 40 mm high-explosive grenade matrix. Retains the million-RPM electronic volley switch, against the strenuous advice of the Council\'s structural engineers.',
   },
   awl50: {
     price: 1650, wave: 8,
@@ -502,7 +518,180 @@ const MOD_CATALOGUE: Readonly<Record<ModId, Ware>> = {
   },
   mglSticky: {
     price: 1100, wave: 7,
-    lore: 'Magnetic 40 mm sticky charges for the Milkor MGL. Hold R to switch between HE and Sticky; right-click to detonate every planted charge at once. Procurement considers this a controlled demolition.',
+    lore: 'Magnetic 40 mm sticky charges for the RGL. Hold R to switch between HE and Sticky; right-click to detonate every planted charge at once. Procurement considers this a controlled demolition.',
+  },
+  // Wishlist mods: rifles, shotguns, launchers, key 4, pistols, riot shields, flared magwells, and new weapons (billhook, bodkin).
+  gimletLong: {
+    price: 900, wave: 5,
+    lore: 'A longer barrel and full-length rail handguard for the Gimlet. Slightly slower, noticeably harder, and with AP rounds fitted it treats body armour as a filing error.',
+  },
+  harrowShort: {
+    price: 850, wave: 4,
+    lore: 'A cut-down barrel for the Harrow that brings the cycle up fifteen percent. Still goes through walls; it now does so before the wall has finished introducing itself.',
+  },
+  harrowBrake: {
+    price: 500, wave: 3,
+    lore: 'A slotted muzzle brake for the Harrow, venting sideways so the rifle recovers five percent sooner. Stacks with the short barrel; please keep colleagues out of the side lanes.',
+  },
+  harrowMag: {
+    price: 450, wave: 3,
+    lore: 'Forty rounds in a long curved Harrow magazine where there were twenty-four. Sixteen more opinions on whatever cover the target chose.',
+  },
+  flailHeavy: {
+    price: 1400, wave: 10,
+    lore: 'A slotted heavy shroud and fluted barrel for the Flail. Faster, harder and punching through cover like a battle rifle; Procurement declined to weigh it.',
+  },
+  flailStock: {
+    price: 400, wave: 7,
+    lore: 'An enhanced cheek-rest stock for the Flail, extending held-breath focus by sixty percent and shortening recovery. The Council approves of steady breathing while removing walls.',
+  },
+  shotgunSawedOff: {
+    price: 500, wave: 2,
+    lore: 'Four shells, a brutal wide cone and thirty-four damage a pellet up close, polite at distance. Nothing left at the muzzle to screw a choke into.',
+  },
+  shotgunBolt: {
+    price: 500, wave: 3,
+    lore: 'Greased action bars for the pump shotgun, cutting a quarter off the rack without turning it into an automatic. Procurement billed it as preventive maintenance.',
+  },
+  thresherDragon: {
+    price: 1000, wave: 5,
+    lore: 'Magnesium incendiary shells for the Thresher. Sprays a twenty-metre shower of burning sparks that sets targets alight and illuminates the room for the after-action report.',
+  },
+  deuceLong: {
+    price: 700, wave: 7,
+    lore: 'Full-length sporting barrels for the Deuce, tightening the pattern to the pump\'s cone and holding damage out to fourteen metres. Fits both double and quad setups.',
+  },
+  rocketTube: {
+    price: 900, wave: 6,
+    lore: 'An extended launch tube that boosts rocket velocity to fifty-six metres a second and lifts warhead yield to one hundred thirty, with matching laser steering.',
+  },
+  rocketWp: {
+    price: 1600, wave: 9,
+    lore: 'White phosphorus warheads for the Rocket Launcher. Hold R to switch rounds; detonation leaves a six-metre burning cloud for twelve seconds that ignites anyone inside.',
+  },
+  mglLong: {
+    price: 800, wave: 8,
+    lore: 'An extended 40 mm barrel for the RGL, flattening the grenade arc to seventy metres a second and boosting direct impact damage to one hundred five.',
+  },
+  mglTrigger: {
+    price: 700, wave: 7,
+    lore: 'A tuned double-action trigger group for the RGL, cycling the six-chamber drum a quarter faster so all six grenades arrive before the first echo settles.',
+  },
+  howitzerCluster: {
+    price: 2000, wave: 11,
+    lore: 'Standoff cluster munitions for the 105 mm Howitzer. Hold R to switch shells; bursts short of the target to carpet the zone with eighteen rippling bomblets.',
+  },
+  autocannonBarrel: {
+    price: 1200, wave: 7,
+    lore: 'A lengthened 20 mm barrel that accelerates shells to two hundred eighty metres a second and raises direct-hit damage against bosses, vehicles and frames to eleven fifty.',
+  },
+  judgeLong: {
+    price: 700, wave: 4,
+    lore: 'An extended heavy barrel for the Judge, pushing every chamber to one hundred fifty damage. The extra steel at the muzzle leaves no room for appeal.',
+  },
+  judgeComp: {
+    price: 700, wave: 5,
+    lore: 'A ported muzzle compensator for the Judge that cuts climb and charges the fan twenty percent faster. Stacks with the extended hammer for rapid multi-head verdicts.',
+  },
+  rivetCan: {
+    price: 550, wave: 2,
+    lore: 'A slim threaded suppressor for the Rivet. Turns fifteen brisk arguments into fifteen polite whispers; Procurement recommends it for indoor compliance work.',
+  },
+  rivetDot: {
+    price: 400, wave: 2,
+    lore: 'A low-profile open reflex sight milled onto the Rivet\'s slide. Clear glass, crisp red dot, and zero bulk in the sight picture.',
+  },
+  rivetLam: {
+    price: 600, wave: 3,
+    lore: 'An underbarrel laser module for the Rivet that projects a centre-aligned beam and speeds the trigger cycle by a quarter.',
+  },
+  rivetComp: {
+    price: 550, wave: 3,
+    lore: 'A ported slide compensator for the Rivet, cutting muzzle flip by more than half and raising its semi-auto cadence by fifteen percent.',
+  },
+  harrowMagwell: {
+    price: 300, wave: 2,
+    lore: 'A machined flared magwell bolted to the Harrow\'s receiver, guiding fresh magazines home fifteen percent faster even under heavy fire.',
+  },
+  gimletMagwell: {
+    price: 300, wave: 2,
+    lore: 'A bevelled alloy funnel on the Gimlet\'s magazine well, trimming fifteen percent off every reload without adding bulk to the carbine.',
+  },
+  ultramagMagwell: {
+    price: 300, wave: 2,
+    lore: 'A wide steel magwell funnel at the base of the Ultramag\'s grip, seating eleven-round magazines fifteen percent faster in single or akimbo carry.',
+  },
+  rivetMagwell: {
+    price: 300, wave: 2,
+    lore: 'A flared competition magwell fitted to the Rivet\'s grip frame, shaving fifteen percent off reload time whether carried singly or in pairs.',
+  },
+  bodkinMagwell: {
+    price: 300, wave: 2,
+    lore: 'A funnelled rear magazine housing for the Bodkin bullpup, guiding the clear flechette magazine straight into the catch fifteen percent faster.',
+  },
+  rivetShield: {
+    price: 1200, wave: 6,
+    lore: 'A ballistic riot shield carried on the off-arm. Hold right click to raise it and peer through the armoured slit, stopping frontal fire until arm fatigue forces a drop while the Rivet fires past its edge.',
+  },
+  ultramagShield: {
+    price: 1400, wave: 7,
+    lore: 'A ballistic riot shield paired with the Ultramag. Hold right click to raise the narrow armoured viewport and stop frontal fire until fatigue builds, firing heavy rounds round the steel rim.',
+  },
+  judgeShield: {
+    price: 1300, wave: 6,
+    lore: 'A ballistic riot shield carried beside the Judge. Trades fanning and aiming for a right-click shield raise that stops frontal fire until the arm gives out.',
+  },
+  autorafficaShield: {
+    price: 1600, wave: 10,
+    lore: 'A ballistic riot shield paired with the Autoraffica. Hold right click to raise the steel face and hold off frontal gunfire through the armoured slit while the machine pistol paints heads round the rim.',
+  },
+  billhookDot: {
+    price: 450, wave: 9,
+    lore: 'A low-profile reflex sight mounted on the Billhook\'s top rail, giving a clean red dot over the slotted heat shield when aimed.',
+  },
+  billhookLam: {
+    price: 700, wave: 9,
+    lore: 'A rail laser sight under the Billhook\'s tube, projecting a steady red point and bringing the shotgun to the eye thirty percent faster.',
+  },
+  billhookLight: {
+    price: 150, wave: 0,
+    lore: 'A weapon light clamped beside the Billhook\'s magazine tube, always on so dark hallways stay lit through all eight semi-auto shells.',
+  },
+  billhookTube: {
+    price: 650, wave: 10,
+    lore: 'An extended magazine tube for the Billhook, raising capacity from eight shells to eleven for sustained semi-auto room clearance.',
+  },
+  billhookFlechette: {
+    price: 900, wave: 9,
+    lore: 'Twenty-one steel flechette darts per Billhook shell. Goes straight through body armour at semi-auto speed and leaves every target bleeding.',
+  },
+  billhookDragon: {
+    price: 1100, wave: 10,
+    lore: 'Dragon\'s breath incendiary shells for the Billhook. Turns every pull into a scorching tongue of fire and bouncing sparks that sets rooms alight.',
+  },
+  billhookSlug: {
+    price: 850, wave: 10,
+    lore: 'Heavy twelve-gauge slugs for the Billhook: one true-flying projectile dealing two hundred damage and shattering armour plates on impact.',
+  },
+  bodkinAcog: {
+    price: 700, wave: 8,
+    lore: 'A four-power optic replacing the Bodkin\'s low-power rib sight, turning the zero-spread flechette bursts into long-range armour surgery.',
+  },
+  bodkinMag: {
+    price: 550, wave: 9,
+    lore: 'An extended thirty-six-round clear polymer magazine for the Bodkin, giving twelve three-round flechette bursts before a reload.',
+  },
+  bodkinBurst5: {
+    price: 800, wave: 9,
+    lore: 'A five-round burst cam for the Bodkin, firing five darts at twelve hundred rounds a minute per pull with a slightly longer recovery pause.',
+  },
+  bodkinTungsten: {
+    price: 950, wave: 10,
+    lore: 'Dense tungsten-core flechettes for the Bodkin, doubling wall penetration to over three metres and dealing heightened damage to bosses and vehicles.',
+  },
+  bodkinLight: {
+    price: 150, wave: 0,
+    lore: 'A compact weapon light tucked into the Bodkin\'s pale polymer fore-end, always on so the dart bursts find every dark corner.',
   },
 };
 

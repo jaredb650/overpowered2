@@ -179,7 +179,7 @@ export const FRAME_PARTS: Readonly<Record<FramePartId, FramePart>> = {
     lore: 'Six opinions, delivered at once. The Office considers this efficient.',
   },
   stormPod: {
-    id: 'stormPod', slot: 'shoulder', shoulder: 'storm', name: 'Metal Storm Pod',
+    id: 'stormPod', slot: 'shoulder', shoulder: 'storm', name: 'Iron Storm Pod',
     does: 'Hold shoulder key (G / V / B) to lock, charge and paint up to 8 targets; release for a snapping burst of 120 rounds per target. 7.5 s reload.',
     lore: 'No moving parts in the barrels; all the movement happens to whoever was painted.',
   },

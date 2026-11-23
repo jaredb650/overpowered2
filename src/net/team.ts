@@ -23,7 +23,7 @@
  * every player, alive or not, is paid the full wave pay by their own shop when the host's `wave:clear` reaches them.
  */
 import * as THREE from 'three';
-import type { Ctx } from '../core/contracts';
+import { CG, type Ctx } from '../core/contracts';
 import type { WavePhase } from '../core/gameplay';
 import { cheatsOn } from '../core/cheats';
 import { OrderKey } from '../allies/rules';
@@ -226,6 +226,8 @@ export class Team {
   private sentKit = '';
   private watching = -1;
   private readonly seat = { position: new THREE.Vector3(), yaw: 0, pitch: -0.25, roll: 0, shake: 0 };
+  private readonly specFrom = new THREE.Vector3();
+  private readonly specDir = new THREE.Vector3();
   private prompt: { text: string; off: () => void } | null = null;
   private readonly promptAt = new THREE.Vector3();
   private myState: LifeState = 'up';
@@ -250,9 +252,9 @@ export class Team {
   private told: CrucibleRules | null = null;
   /** Host: each arrived guest's seat key, kept while they are in, because the lobby forgets a player the moment they leave. */
   private readonly left = new Map<string, string>();
-  /** Host: arrived players who are out of the world right now, and those of them the team respawned meanwhile. */
+  /** Host: arrived players who are out of the world right now, and those of them the team respawned meanwhile (with target mark). */
   private readonly awayIds = new Set<string>();
-  private readonly rose = new Set<string>();
+  private readonly rose = new Map<string, { at?: Vec; yaw?: number }>();
   /** Host: players lost while up: until when each still counts as up for a wipe (`LOST_UP_MS`), and whether their line is back. */
   private readonly lostUp = new Map<string, { until: number; back: boolean }>();
   onOver: (cards: Card[], wave: number, ending: Ending) => void = () => {};
@@ -471,7 +473,7 @@ export class Team {
     const slot = target?.slot;
     if (slot === undefined) return;
     // Out of the world just now (a dropped connection): the news waits for them (`update`).
-    if (target!.away) this.rose.add(id);
+    if (target!.away) this.rose.set(id, at ? { at, yaw } : {});
     const life = this.life(id);
     const event: WorldEvent = { t: 'up', slot, life: life.life, how, by: by ? this.session.lobby.players.find(p => p.id === by)?.slot ?? -1 : -1,
       ...(at ? { at, yaw } : {}) };
@@ -637,7 +639,25 @@ export class Team {
     this.arrived.add(id);
     if (fresh || again) {
       this.toldSeat.set(id, performance.now());
-      const seat = this.seats.get(this.seatKey(id));
+      const key = this.seatKey(id);
+      if (key) {
+        this.left.set(id, key);
+        // If this player's previous connection just left (e.g. a fast page reload before `update()` ran its cleanup),
+        // carry its dead/down state onto the seat right now so a fast reload is never a free revive.
+        for (const [oldId, oldLife] of this.lives) {
+          if (oldId === id || this.left.get(oldId) !== key) continue;
+          if (this.session.lobby.players.some(p => p.id === oldId)) continue;
+          if (oldLife.state !== 'up') this.seatOf(key).dead = true;
+          this.lives.delete(oldId);
+          this.arrived.delete(oldId);
+          this.toldSeat.delete(oldId);
+          this.missed.delete(oldId);
+          this.lostUp.delete(oldId);
+          this.awayIds.delete(oldId);
+          this.rose.delete(oldId);
+        }
+      }
+      const seat = this.seats.get(key);
       const purse = seat?.purse;
       const dead = seat?.dead === true || (!fresh && this.lives.get(id)?.state === 'dead');
       // Not a free revive: they wait, dead, for the team's next respawn.
@@ -878,9 +898,11 @@ export class Team {
           this.awayIds.add(player.id);
           const life = this.lives.get(player.id);
           if (life?.state === 'down') life.bleedUntil += Math.min(frame, STALL_MS);
-        } else if (this.awayIds.delete(player.id) && this.rose.delete(player.id)) {
+        } else if (this.awayIds.delete(player.id) && this.rose.has(player.id)) {
+          const mark = this.rose.get(player.id)!;
+          this.rose.delete(player.id);
           const life = this.life(player.id);
-          if (life.state === 'up') this.send({ t: 'up', slot: player.slot, life: life.life, how: 'respawn', by: -1 }, player.id);
+          if (life.state === 'up') this.send({ t: 'up', slot: player.slot, life: life.life, how: 'respawn', by: -1, ...(mark.at ? { at: mark.at, yaw: mark.yaw } : {}) }, player.id);
         }
       }
       const lives: TeamLife[] = [];
@@ -992,7 +1014,20 @@ export class Team {
     // The body faces +Z with a half turn (remote.ts); the camera looks down its -Z.
     const yaw = root.rotation.y - Math.PI;
     this.seat.yaw = yaw;
-    this.seat.position.set(root.position.x + Math.sin(yaw) * 3.2, root.position.y + 2.3, root.position.z + Math.cos(yaw) * 3.2);
+    this.specFrom.set(root.position.x, root.position.y + 1.6, root.position.z);
+    const tx = root.position.x + Math.sin(yaw) * 3.2;
+    const ty = root.position.y + 2.3;
+    const tz = root.position.z + Math.cos(yaw) * 3.2;
+    this.specDir.set(tx - this.specFrom.x, ty - this.specFrom.y, tz - this.specFrom.z);
+    const dist = this.specDir.length();
+    if (dist > 0.01 && this.ctx.physics?.raycast) {
+      this.specDir.divideScalar(dist);
+      const hit = this.ctx.physics.raycast(this.specFrom, this.specDir, dist, CG.World);
+      const clamped = hit && Number.isFinite(hit.distance) ? Math.max(0.35, hit.distance - 0.3) : dist;
+      this.seat.position.copy(this.specFrom).addScaledVector(this.specDir, clamped);
+    } else {
+      this.seat.position.set(tx, ty, tz);
+    }
     this.ctx.camera.setSeat?.(this.seat);
     // Over a friend's shoulder there is no gun in my hands.
     const view = this.ctx.render.viewScene as { visible?: boolean } | undefined;

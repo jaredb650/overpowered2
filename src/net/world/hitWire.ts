@@ -16,7 +16,7 @@ import { WEAPONS } from '../../weapons/data';
 import { ENEMY_IDS, REGIONS } from './wire';
 
 const TYPES: readonly DamageType[] = ['bullet', 'pellet', 'explosive', 'melee', 'slash', 'fire', 'shock', 'crush', 'true'];
-const LOADS: readonly (AmmoLoad | undefined)[] = [undefined, 'ap', 'hp', 'plusP', 'flechette', 'api'];
+const LOADS: readonly (AmmoLoad | undefined)[] = [undefined, 'ap', 'hp', 'plusP', 'flechette', 'api', 'dragon'];
 const TORSOS: readonly DamageInfo['torso'][] = [undefined, 'crack', 'waist', 'blowout'];
 const STOPS: readonly HitStop[] = ['none', 'plate', 'shield', 'ward', 'entrance'];
 const ARMOURS: readonly (ArmourOutcome | undefined)[] = [undefined, 'stopped', 'through', 'broken'];

@@ -18,11 +18,12 @@ import { storedRulesCustom } from '../../contracts/crucible';
 import { CONTRACTS, COUNCIL_OFFICE, NOTICE_FOOTER, NOTICE_TITLE, type ContractDef } from '../../contracts/data';
 import { readHighScore } from '../../contracts/scores';
 import { ACTIVE, contractSearch, playsOn } from '../../contracts/select';
-import { isShut } from '../../contracts/unlocks';
+import { isShut, missionModsUnlocked, missionWins } from '../../contracts/unlocks';
 import { isFirstLaunch, markPlayed } from '../../contracts/firstLaunch';
 import { INVITE } from './coop';
-import { hasStarter, selectedStarter, saveStarter } from '../../contracts/starter';
-import { starterCards } from './starter';
+import { hasStarter, selectedStarter, saveStarter, type StarterGun } from '../../contracts/starter';
+import { starterCards, starterModConfig } from './starter';
+import { WEAPONS } from '../../weapons/data';
 import type { Ctx } from '../../core/contracts';
 import type { MapId } from '../../world/map/maps';
 import { div, h, span } from '../dom';
@@ -62,6 +63,7 @@ const isCrucible = (contract: ContractDef | null): boolean => contract?.id === '
 interface Level {
   crumb: string;
   items: NavItem[];
+  header?: HTMLElement;
   up: Level | null;
   /** The item focused when the player went down from here, to land on again coming back up. */
   at: number;
@@ -182,7 +184,7 @@ export class MainMenu implements Screen {
     const level = this.level;
     const items = [...level.items];
     if (level === this.crucibleModes) items.splice(1, 0, this.rules);
-    this.list.replaceChildren(...level.items.map(i => i.el));
+    this.list.replaceChildren(...(level.header ? [level.header] : []), ...level.items.map(i => i.el));
     this.crumb.textContent = level.crumb;
     this.crumb.style.display = level.crumb ? '' : 'none';
     this.rules.el.style.display = level === this.crucibleModes ? '' : 'none';
@@ -228,14 +230,33 @@ export class MainMenu implements Screen {
     if (isShut(contract)) this.ctx.audio.play?.('ui_error');
     else if (hasStarter(contract.id)) {
       let gun = selectedStarter(contract.id);
-      const level = this.makeLevel(`${this.level.crumb} / Starter gun`, this.level, []);
-      const cards = starterCards(gun, picked => { gun = picked; saveStarter(gun); });
-      level.items.push(...cards, menuButton('Deploy', () => {
+      const deploy = () => {
         saveStarter(gun);
         const params = new URLSearchParams(contractSearch(contract.id, location.search, map));
         params.set('starter', gun);
         location.search = params.toString();
-      }), this.backButton(level));
+      };
+      const freeMods = Boolean(contract.mission && missionModsUnlocked(contract.id));
+      const wins = freeMods ? missionWins(contract.id) : 0;
+      const level = this.makeLevel(`${this.level.crumb} / Starter gun`, this.level, []);
+      if (freeMods) {
+        level.header = div('starter-unlock-note', `Mission cleared ${wins}× · pick a gun to configure free mods`);
+        const openMods = (picked: StarterGun) => {
+          gun = picked;
+          saveStarter(gun);
+          const cfg = starterModConfig(gun, wins);
+          const modLevel = this.makeLevel(`${level.crumb} / ${WEAPONS[gun].name} mods`, level, []);
+          modLevel.header = cfg.header;
+          modLevel.items.push(...cfg.items, menuButton('Deploy', deploy), this.backButton(modLevel));
+          this.enter(modLevel);
+          this.paint(m);
+        };
+        const cards = starterCards(gun, openMods, { modsUnlocked: true });
+        level.items.push(...cards, menuButton('Configure mods', () => openMods(gun)), menuButton('Deploy', deploy), this.backButton(level));
+      } else {
+        const cards = starterCards(gun, picked => { gun = picked; saveStarter(gun); });
+        level.items.push(...cards, menuButton('Deploy', deploy), this.backButton(level));
+      }
       this.enter(level);
       this.paint(m);
     }

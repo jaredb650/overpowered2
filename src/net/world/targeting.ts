@@ -10,6 +10,7 @@ import type { PlayerSense } from '../../enemies/aiWorld';
 import type { Foe } from '../../enemies/outpost/soldier';
 import { soldierOf } from '../../enemies/outpost/soldier';
 import { Route, RouteFinder, type NavGrid } from '../../enemies/outpost/routes';
+import { MOVE } from '../../player/tuning';
 import { WEAPONS } from '../../weapons/data';
 import type { TeamLife } from '../team';
 import type { WorldContext, WorldModule } from './context';
@@ -147,8 +148,13 @@ export class Targeting implements WorldModule {
               case 'takeDamage': return (damage: PlayerDamage) => this.hurt(roster.id, damage);
               case 'launch': return (velocity: THREE.Vector3) => this.shove(roster.id, velocity, false);
               case 'push': return (velocity: THREE.Vector3) => this.shove(roster.id, velocity, true);
-              // The host's own seat, speed and moves are not a friend's.
-              case 'parked': case 'sliding': case 'wallRunning': case 'dashing': return false;
+              // Reflect the friend's own movement state from their pose rather than always false.
+              case 'parked': case 'dashing': return false;
+              case 'sliding': return session.remotes.get(roster.id)?.buffer.latest?.()?.pose.move === 'slide';
+              case 'wallRunning': {
+                const move = session.remotes.get(roster.id)?.buffer.latest?.()?.pose.move;
+                return move === 'wallrun' || move === 'wallrunR';
+              }
               case 'speed': return Math.hypot(velocity.x, velocity.z);
               default: return Reflect.get(target, key);
             }
@@ -173,7 +179,8 @@ export class Targeting implements WorldModule {
       }
       if (remote && pose) {
         adapter.player.position.copy(remote.char.root.position);
-        adapter.player.eye.copy(remote.char.root.position).y += 1.6;
+        const eyeH = adapter.life.down || pose.move === 'downed' ? 0.4 : pose.move === 'slide' ? MOVE.eyeSlide : pose.move === 'crouch' ? MOVE.eyeCrouch : MOVE.eyeStand;
+        adapter.player.eye.copy(remote.char.root.position).y += eyeH;
         adapter.player.velocity.fromArray(pose.velocity);
         adapter.player.forward.set(-Math.sin(pose.yaw), 0, -Math.cos(pose.yaw));
       }

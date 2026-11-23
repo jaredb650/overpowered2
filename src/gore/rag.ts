@@ -713,7 +713,9 @@ export class Rag {
     }
     const t = RagTuning;
     const muscle = this.muscle;
-    const tone = this.slack ? 0 : t.toneDamping * Math.min(1, this.age / t.toneRise) * Math.exp(-this.age / t.toneFade);
+    const balancing = muscle?.collapse?.balancer != null;
+    // Death toneDamping (16 1/s) is meant to make dead bodies sag smoothly; skip it while DynamicBalancer drives the rig.
+    const tone = this.slack || balancing ? 0 : t.toneDamping * Math.min(1, this.age / t.toneRise) * Math.exp(-this.age / t.toneFade);
     const rate = t.jointDamping * Math.min(1, this.age / t.toneRise) + tone + (this.calm > 0 ? t.restDamping : 0);
     const damp = 1 - Math.exp(-rate * dt);
     const hush = this.quiet > t.quietTime ? 1 - Math.exp(-t.quietDamping * dt) : 0;
@@ -732,7 +734,9 @@ export class Rag {
       const mag = rel.length();
       if (mag > 1e-4) {
         _b.copy(rel).divideScalar(mag);
-        const lambda = (damp * mag) / (invInertia(p, _b) + invInertia(c, _b));
+        const mDrive = c.muscle?.drive ?? 0;
+        const jDamp = balancing && mDrive > 0 ? damp * (1 - 0.2 * clamp(mDrive, 0, 1)) : damp;
+        const lambda = (jDamp * mag) / (invInertia(p, _b) + invInertia(c, _b));
         c.tau.addScaledVector(_b, -lambda);
         p.tau.addScaledVector(_b, lambda);
       }

@@ -83,8 +83,9 @@ export class RecordWriter<T> {
       if (need > this.scratch.length) this.scratch = new Uint8Array(Math.max(need, this.scratch.length * 2));
       end = at + encoder.encodeInto(text, this.scratch.subarray(at)).written;
     }
-    // The head sits right before the payload: the kind, then the length in 7-bit groups, low first.
+    // The head sits right before the payload: the kind, then the length in 7-bit groups, low first (at most 4 bytes = 2^28).
     let length = end - at, size = 1;
+    if (length >= 0x10000000) return null;
     for (let n = length; n >= 0x80; n >>>= 7) size++;
     let i = at - size;
     const start = i - 1;
@@ -111,12 +112,19 @@ export class Batcher {
   constructor(private readonly send: (batch: Uint8Array, to: string) => void, private readonly maxBytes = BATCH_MAX_BYTES) {}
 
   /** Adds an encoded record to `to`'s batch for the match tagged `tag`. */
-  add(record: Encoded, to: string, tag: number): void {
+  add(record: Encoded, to: string, tag: number, gate?: (to: string, bytes: number) => boolean): void {
     const size = record.end - record.start;
     let p = this.pending.get(to);
     if (!p) this.pending.set(to, (p = { bytes: new Uint8Array(2048), length: 0, tag, events: 0 }));
-    // Another match's events never share a batch; a batch that would outgrow one frame leaves first.
-    if (p.length > 0 && (p.tag !== tag || p.length + size > this.maxBytes)) this.out(to, p);
+    // Another match's events never share a batch; a batch that would outgrow one frame leaves first (respecting backpressure gate).
+    if (p.length > 0 && (p.tag !== tag || p.length + size > this.maxBytes)) {
+      if (gate && !gate(to, p.length)) {
+        this.stats.discarded += p.events + 1;
+        p.length = p.events = 0;
+        return;
+      }
+      this.out(to, p);
+    }
     if (p.length === 0) {
       p.tag = tag;
       p.bytes[0] = BATCH_MAGIC;
@@ -174,6 +182,9 @@ export function batchTag(data: unknown): number | null {
   return (bytes[1]! | (bytes[2]! << 8) | (bytes[3]! << 16) | (bytes[4]! << 24)) >>> 0;
 }
 
+/** Cap records unpacked from a single batch so a malformed dense packet cannot freeze the main thread. */
+export const MAX_BATCH_RECORDS = 1024;
+
 /**
  * Hands each whole record of a batch to `each`, in order: its kind, its payload (a view into `data`) and its size on the
  * wire. Stops at the first record that is cut short. Returns how many it handed over. `each` may return false to stop.
@@ -183,7 +194,7 @@ export function readBatch(data: unknown, each: (kind: number, payload: Uint8Arra
   if (!bytes || batchTag(bytes) === null) return 0;
   let at = BATCH_HEAD, count = 0;
   const end = bytes.byteLength;
-  while (at < end) {
+  while (at < end && count < MAX_BATCH_RECORDS) {
     const start = at;
     const kind = bytes[at++]!;
     let length = 0, shift = 0, more = true;

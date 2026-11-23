@@ -390,4 +390,25 @@ describe('call-ins over the mocked lobby transport', () => {
     expect(p.games[0]!.log.dropped).toEqual([slot]);
     p.dispose();
   });
+
+  it('replays active Frame mech poses on catchUp and clears them when the pilot leaves', () => {
+    const p = party();
+    const pose = Array.from({ length: 13 }, (_, i) => i + 1);
+    const slot1 = p.slotOf(1);
+    p.games[1]!.link.send!.mech(pose);
+    p.relay.flush();
+    p.games[2]!.log.mech.length = 0;
+    (p.worlds[0] as unknown as { callins: { catchUp(id: string): void } }).callins.catchUp(p.lobbies[2]!.you);
+    p.relay.flush();
+    expect(p.games[2]!.log.mech).toEqual([{ slot: slot1, pose }]);
+    // Pilot leaves: cached Frame pose is dropped so future catchUp does not replay a ghost Frame.
+    p.worlds[0]!.update();
+    (p.lobbies[0]! as unknown as { players: unknown[] }).players = p.lobbies[0]!.players.filter(player => player.slot !== slot1);
+    p.worlds[0]!.update();
+    p.games[2]!.log.mech.length = 0;
+    (p.worlds[0] as unknown as { callins: { catchUp(id: string): void } }).callins.catchUp(p.lobbies[2]!.you);
+    p.relay.flush();
+    expect(p.games[2]!.log.mech).toHaveLength(0);
+    p.dispose();
+  });
 });

@@ -83,11 +83,13 @@ export class Callins implements WorldModule {
    */
   measure = false;
   readonly cost: Record<string, { orders: number; news: number; bytes: number }> = {};
-  private readonly rates = new Map<string, { order: Rate; news: Rate; mech: Rate; perk: Rate; aged: Rate }>();
+  private readonly rates = new Map<string, { callin: Rate; order: Rate; news: Rate; mech: Rate; perk: Rate; aged: Rate }>();
   private readonly perkOut = new Rate();
   private readonly to = new THREE.Vector3();
   /** This player's running call-ins by number, to name the cost of their news. */
   private readonly mine = new Map<number, string>();
+  /** Latest Distraint Frame pose per slot (for late-joiner catchUp and guest resay). */
+  private readonly lastMech = new Map<number, number[]>();
   /** Slots with a player in them last frame, to notice one leaving. */
   private present = 0;
   private readonly at = new THREE.Vector3();
@@ -98,11 +100,13 @@ export class Callins implements WorldModule {
     w.router.both('callin', (value, from, now) => {
       const player = w.playerOf(from, value.slot);
       const name = callinName(value.id);
-      if (player && name) ctx.hud.feed(`${player.name} called in ${name}`, '#ffc14a');
-      if (session.hosting && player) {
+      if (!player) return;
+      if (session.hosting) {
+        if (!this.rate(from).callin.take(now, ORDERS_PER_SECOND)) return;
         w.validator.callIn(from, now);
         w.relay({ t: 'callin', id: name ? String(value.id).slice(0, 24) : '', slot: player.slot }, from);
       }
+      if (name) ctx.hud.feed(`${player.name} called in ${name}`, '#ffc14a');
     });
     w.router.both('cin', (value, from, now) => this.orderIn(value, from, now));
     w.router.both('cnews', (value, from, now) => this.newsIn(value, from, now));
@@ -131,7 +135,15 @@ export class Callins implements WorldModule {
         const k = NEWS_KINDS.indexOf(n.k);
         if (k >= 0) this.out({ t: 'cnews', slot: slot(), n: n.n, k, ...(n.v ? { v: n.v.map(mm) } : {}) }, this.mine.get(n.n) ?? 'other', false);
       },
-      mech: p => this.out(p ? { t: 'mech', slot: slot(), p: p.map(mm) } : { t: 'mech', slot: slot() }, 'frame', false),
+      mech: p => {
+        const s = slot();
+        const rounded = p ? p.map(mm) : null;
+        if (s !== undefined) {
+          if (rounded) this.lastMech.set(s, rounded);
+          else this.lastMech.delete(s);
+        }
+        this.out(rounded ? { t: 'mech', slot: s, p: rounded } : { t: 'mech', slot: s }, 'frame', false);
+      },
       mechNews: (kind, v) => this.out({ t: 'mech', slot: slot(), k: MECH_KINDS.indexOf(kind), ...(v ? { v: v.map(mm) } : {}) }, 'frame', false),
     };
     return link;
@@ -156,6 +168,9 @@ export class Callins implements WorldModule {
       if (player.host || player.slot === to.slot) continue;
       for (const order of link.copyOrders(player.slot)) w.send(this.wire(order, player.slot), id);
     }
+    for (const [slot, pose] of this.lastMech) {
+      if (slot !== to.slot) w.send({ t: 'mech', slot, p: pose }, id);
+    }
   }
 
   /**
@@ -166,7 +181,12 @@ export class Callins implements WorldModule {
     if (this.w.hosting || !this.w.ready) return;
     const link = this.plug();
     if (!link) return;
-    for (const order of link.runningOrders()) this.w.send(this.wire(order, this.w.session.lobby.me?.slot));
+    const me = this.w.session.lobby.me?.slot;
+    for (const order of link.runningOrders()) this.w.send(this.wire(order, me));
+    if (me !== undefined) {
+      const pose = this.lastMech.get(me);
+      if (pose) this.w.send({ t: 'mech', slot: me, p: pose });
+    }
   }
 
   private out(event: CallinsEvent, id: string, order: boolean): void {
@@ -181,7 +201,7 @@ export class Callins implements WorldModule {
 
   private rate(from: string) {
     let rate = this.rates.get(from);
-    if (!rate) this.rates.set(from, rate = { order: new Rate(), news: new Rate(), mech: new Rate(), perk: new Rate(), aged: new Rate() });
+    if (!rate) this.rates.set(from, rate = { callin: new Rate(), order: new Rate(), news: new Rate(), mech: new Rate(), perk: new Rate(), aged: new Rate() });
     return rate;
   }
 
@@ -237,6 +257,10 @@ export class Callins implements WorldModule {
       if (!this.rate(from).mech.take(now, MECH_PER_SECOND)) return;
       w.relay({ t: 'mech', slot, ...(value.p ? { p: value.p } : {}), ...(kind ? { k: value.k, ...(value.v ? { v: value.v } : {}) } : {}) }, from);
     }
+    if (!kind) {
+      if (value.p) this.lastMech.set(slot, value.p);
+      else this.lastMech.delete(slot);
+    }
     const link = this.plug();
     if (!link) return;
     if (kind) link.mechNews(slot, kind, value.v ?? []);
@@ -291,7 +315,10 @@ export class Callins implements WorldModule {
     let present = 0;
     for (const player of session.lobby.players) if (!player.away || player.id === session.lobby.you) present |= 1 << player.slot;
     const left = this.present & ~present;
-    for (let slot = 0; left !== 0 && slot < 4; slot++) if (left & (1 << slot)) link.drop(slot);
+    for (let slot = 0; left !== 0 && slot < 4; slot++) if (left & (1 << slot)) {
+      link.drop(slot);
+      this.lastMech.delete(slot);
+    }
     this.present = present;
     for (const remote of session.remotes.values()) remote.hidden = link.inFrame(remote.player.slot);
   }
@@ -302,6 +329,7 @@ export class Callins implements WorldModule {
     const link = linkOf(this.w);
     if (link && this.plugged) link.send = null;
     this.rates.clear();
+    this.lastMech.clear();
   }
 }
 

@@ -257,6 +257,41 @@ const scenarios: Record<string, Scenario> = {
       s.sever(b!, 'armL', B.upperArmL, v(3, 1.5, 4));
     },
   },
+  blooddrip: {
+    camera: [0, 1.26, 2.75, 0, 1.0, 0],
+    setup(s) {
+      s.place(-0.92, 0, 0.14);
+      s.place(0, 0, 0);
+      s.place(0.92, 0, -0.14);
+    },
+    frame(s, f) {
+      const [t1, t2, t3] = s.row;
+      if (f === 10) {
+        // Left: Tier 1 light flesh wound on upper chest (placed on chest directly so idle gun arms do not intercept it).
+        const p1 = bonePos(t1!, B.chest).add(v(0.02, 0.06, 0.13));
+        s.gore.bleedWound(t1!, B.chest, p1, 1, { normal: v(0, 0, 1), zone: 'chest:0' });
+
+        // Center: Tier 2 mortal/heavy torso bleed on chest + abdomen.
+        const p2 = bonePos(t2!, B.chest).add(v(-0.02, 0.06, 0.14));
+        s.gore.bleedWound(t2!, B.chest, p2, 2, { normal: v(0, 0, 1), zone: 'lung:0' });
+
+        // Right: Tier 3 carotid arterial spurt arcing sideways + fast drenching drips down sternum and legs.
+        const p3 = bonePos(t3!, B.neck).add(v(-0.04, 0.02, 0.08));
+        s.gore.bleedWound(t3!, B.neck, p3, 3, {
+          normal: v(0.82, 0.28, 0.42).normalize(),
+          zone: 'carotid:0',
+          spurtPower: 0.72,
+        });
+      }
+      // After 2.2s of upright vertical dripping, tip the arterial victim sideways so new drips curve with world gravity.
+      if (f === 140) {
+        const chest = bonePos(t3!, B.chest);
+        s.gore.ragdoll(t3!, {
+          impulses: [{ bone: B.chest, point: chest, impulse: v(85, 0, -20) }],
+        });
+      }
+    },
+  },
   ribcage: {
     camera: [0.55, 1.45, 1.1, 0, 1.3, 0],
     setup(s) {

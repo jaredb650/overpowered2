@@ -59,4 +59,13 @@ describe('100ms interpolation buffer', () => {
     expect(Number.isFinite(b.sample(151)?.position[0])).toBe(true);
     expect(b.sample(1000)?.seq).toBe(99);
   });
+  it('recovers when a reconnected peer resets its sequence number after a stale gap', () => {
+    const b = new PoseBuffer();
+    b.push(pose(500, 10), 1000);
+    // Out-of-order within the live window is still dropped.
+    expect(b.push(pose(1, 20), 1500)).toBe(false);
+    // After a >2s silence (e.g. peer reloaded and restarted seq at 1), accept and snap cleanly.
+    expect(b.push(pose(1, 20), 3600)).toBe(true);
+    expect(b.sample(3700)).toMatchObject({ seq: 1, position: [20, 1, 2] });
+  });
 });

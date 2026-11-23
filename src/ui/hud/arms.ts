@@ -8,7 +8,6 @@ import type { HudState } from '../state';
 import { TUNING, WEAPONS as WEAPON_DEFS } from '../../weapons/data';
 import { SLOT_ORDER, familyOf, familyOfSlot } from '../../weapons/families';
 import { LANCE_LOOK, LANCE_ON } from '../../weapons/lance';
-import { AMMO_GUNS, FLECHETTE_GUNS } from '../../weapons/mods';
 import { ROCKET_LASER } from '../../weapons/laser';
 
 const MAX_GRENADE_PIPS = TUNING.grenade.max;
@@ -76,6 +75,12 @@ export class Arms {
   private magBar: Meter;
   private reload: Meter;
   private reloadRow: Shown;
+  private shieldRow: Shown;
+  private shieldBar: Meter;
+  private shieldLabel: Label;
+  private shieldWarn: Flag;
+  private shieldOut: Flag;
+  private shieldUp: Flag;
   private ammoBlock: HTMLElement;
   private lowAmmo: Flag;
   private empty: Flag;
@@ -95,6 +100,9 @@ export class Arms {
     const magFill = div('arm-magfill');
     const reloadFill = div('arm-reloadfill');
     const reloadRow = div('arm-reload', reloadFill, span('arm-reload-t', 'reloading'));
+    const shieldFill = div('arm-shieldfill');
+    const shieldText = span('arm-shield-t', 'SHIELD · RMB');
+    const shieldRow = div('arm-shield', shieldText, div('arm-shieldbar', shieldFill));
     const grenades = div('arm-gren');
     for (let i = 0; i < MAX_GRENADE_PIPS; i++) {
       const pip = markup(GRENADE_ICON);
@@ -102,6 +110,7 @@ export class Arms {
       this.pips.push(new Flag(pip, 'full'));
     }
     this.ammoBlock = div('arm-ammo',
+      shieldRow,
       div('arm-count', magEl, reserveEl),
       div('arm-magbar', magFill),
       reloadRow,
@@ -120,6 +129,13 @@ export class Arms {
     this.magBar = new Meter(magFill);
     this.reload = new Meter(reloadFill);
     this.reloadRow = new Shown(reloadRow);
+    this.shieldRow = new Shown(shieldRow);
+    this.shieldBar = new Meter(shieldFill);
+    this.shieldLabel = new Label(shieldText);
+    this.shieldWarn = new Flag(shieldRow, 'warn');
+    this.shieldOut = new Flag(shieldRow, 'exhausted');
+    this.shieldUp = new Flag(shieldRow, 'raised');
+    this.shieldRow.set(false);
     this.lowAmmo = new Flag(this.ammoBlock, 'low');
     this.empty = new Flag(this.ammoBlock, 'empty');
     this.infinite = new Flag(this.ammoBlock, 'infinite');
@@ -158,9 +174,17 @@ export class Arms {
       this.magEl.animate(SLAM as unknown as Keyframe[], 140);
     }
     // The Lance wears its mode, which right click toggles, on its name.
-    if (s.weapon === 'lance' && LANCE_ON) this.name.set(`${WEAPONS.lance.name} · ${LANCE_LOOK.ball ? 'BALL' : 'BEAM'}`);
-    // The Rocket's laser sight, which right click toggles.
-    if (WEAPON_DEFS[s.weapon].laser) this.name.set(ROCKET_LASER.sight ? `${WEAPONS[s.weapon].name} · LASER` : WEAPONS[s.weapon].name);
+    if (s.weapon === 'lance' && LANCE_ON) {
+      this.name.set(`${WEAPONS.lance.name} · ${LANCE_LOOK.ball ? 'BALL' : 'BEAM'}`);
+    } else if (WEAPON_DEFS[s.weapon].laser) {
+      // The Rocket's laser sight (RMB toggle) stacks cleanly with WP alt-ammo mode.
+      const parts = [WEAPONS[s.weapon].name];
+      if (s.ammoMode) parts.push(s.ammoMode);
+      if (ROCKET_LASER.sight) parts.push('LASER');
+      this.name.set(parts.join(' · '));
+    } else {
+      this.name.set(s.ammoMode ? `${WEAPONS[s.weapon].name} · ${s.ammoMode}` : WEAPONS[s.weapon].name);
+    }
 
     const melee = s.magSize === 0;
     const count = s.bottomless && !melee ? '∞' : melee ? '–' : String(s.mag);
@@ -172,12 +196,26 @@ export class Arms {
     this.infinite.set(s.bottomless && !melee);
     this.empty.set(!s.bottomless && !melee && s.mag === 0);
     this.lowAmmo.set(!s.bottomless && !melee && s.mag > 0 && ratio <= 0.33);
-    // A gun with a second kind of round, selector, electronic RPM dial, or mod-granted alt ammo wears its active mode on its name.
-    if (WEAPON_DEFS[s.weapon].altAmmo || WEAPON_DEFS[s.weapon].select || WEAPON_DEFS[s.weapon].rateSelect || s.weapon === 'sabot' || s.weapon === 'mgl' || s.weapon === 'satchel' || AMMO_GUNS.includes(s.weapon)
-      || (FLECHETTE_GUNS as readonly WeaponId[]).includes(s.weapon)) this.name.set(s.ammoMode ? `${WEAPONS[s.weapon].name} · ${s.ammoMode}` : WEAPONS[s.weapon].name);
 
     this.reloadRow.set(s.reloading);
     if (s.reloading) this.reload.set(s.reloadProgress);
+
+    this.shieldRow.set(s.shieldFitted);
+    if (s.shieldFitted) {
+      this.shieldBar.set(s.shieldExhausted ? 1 : s.shieldFatigue);
+      this.shieldOut.set(s.shieldExhausted);
+      this.shieldWarn.set(!s.shieldExhausted && s.shieldFatigue >= 0.65);
+      this.shieldUp.set(s.shieldActive && !s.shieldExhausted);
+      this.shieldLabel.set(
+        s.shieldExhausted
+          ? `FATIGUED ${s.shieldCooldown.toFixed(1)}S`
+          : s.shieldActive
+            ? `SHIELD UP · ${Math.round(s.shieldFatigue * 100)}%`
+            : s.shieldFatigue > 0.02
+              ? `FATIGUE · ${Math.round(s.shieldFatigue * 100)}%`
+              : 'SHIELD · HOLD RMB',
+      );
+    }
 
     if (s.grenades !== this.shownCount) {
       this.shownCount = s.grenades;

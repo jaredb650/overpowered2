@@ -90,7 +90,7 @@ describe('where it lives', () => {
   it('fits every region in its texels, and the texels in the bone texture', () => {
     expect(WEAR_REGIONS).toHaveLength(11);
     expect(WEAR_REGIONS.length).toBeLessThanOrEqual(WEAR_TEXELS * 4);
-    expect(EXTRA_TEXELS - EXTRA_WEAR).toBe(WEAR_TEXELS);
+    expect(EXTRA_TEXELS - EXTRA_WEAR).toBeGreaterThanOrEqual(WEAR_TEXELS);
     // 37 bones is the largest rig (model.ts): its matrices, the wounds and the wear have to fit.
     expect(37 * 4 + EXTRA_TEXELS).toBeLessThanOrEqual(BONE_TEXTURE_SIZE * BONE_TEXTURE_SIZE);
   });

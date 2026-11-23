@@ -36,12 +36,13 @@ export const WORDS = new Words([
   'ashot', 'aorder', 'arefund', 'note', 'jam', 'revive', 'up', 'over', 'restore', 'vote', 'sync', 'mark', 'mission', 'gather',
   // Values: guns, enemies, kinds of damage, places on a body, states.
   'smg', 'shotgun', 'rocket', 'autocannon', 'sword', 'judge', 'lance', 'buzzsaw', 'kiln', 'stakegun', 'harrow', 'rivet', 'sabot', 'quiver', 'mgl', 'satchel', 'howitzer', 'thresher',
-  'knife', 'crowbar', 'shovel', 'baton', 'piledriver', 'metalstorm', 'deuce', 'ultramag', 'autoraffica', 'gimlet', 'awl', 'flail', 'grenade',
+  'knife', 'crowbar', 'shovel', 'baton', 'piledriver', 'metalstorm', 'deuce', 'ultramag', 'autoraffica', 'gimlet', 'awl', 'flail', 'billhook', 'bodkin', 'autoclave', 'gaff', 'grenade',
   'husk', 'trooper', 'gunner', 'brute', 'stalker', 'riot', 'sniper', 'rocketeer', 'leaper', 'bomber', 'burner', 'warden', 'skitter', 'drone', 'juggernaut', 'titan',
   'bullet', 'pellet', 'explosive', 'melee', 'slash', 'crush', 'true', 'burn', 'freeze', 'bolt',
   'chest', 'abdomen', 'armL', 'forearmL', 'armR', 'forearmR', 'legL', 'shinL', 'legR', 'shinR',
   'down', 'respawn', 'start', 'clear', 'intermission', 'active', 'rail', 'beam', 'ball', 'giant', 'hose', 'swing', 'spin',
   'stagger', 'stumble', 'daze', 'roar', 'land', 'leap', 'block', 'getUp', 'crucible', 'outpost', 'defense', 'campaign', 'foreclosure',
+  'dragon', 'wp', 'cl', 'rocket_wp', 'howitzer_cluster',
 ]);
 
 /** Every world event as a packed tree. An event the tree cannot carry exactly as JSON would (none today) goes as JSON. */

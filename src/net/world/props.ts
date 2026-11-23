@@ -184,11 +184,15 @@ export class Props implements WorldModule, PropLink {
       }
       return;
     }
-    for (const h of this.outbox.values()) {
-      this.stats.hits++;
-      this.w.send({ t: 'prop', op: 'hit', set: h.set, id: h.id, amount: Math.min(MOST, h.amount), source: h.source.slice(0, 32) });
+    if (this.w.ready && this.outbox.size) {
+      for (const h of this.outbox.values()) {
+        this.stats.hits++;
+        this.w.send({ t: 'prop', op: 'hit', set: h.set, id: h.id, amount: Math.min(MOST, h.amount), source: h.source.slice(0, 32) });
+      }
+      this.outbox.clear();
+    } else if (this.outbox.size > 512) {
+      this.outbox.clear();
     }
-    this.outbox.clear();
     // What the host's barrels and props did to this player, worked out here from where the player really is.
     if (this.felt.length) {
       const combat = this.w.ctx.combat;
@@ -202,7 +206,7 @@ export class Props implements WorldModule, PropLink {
     // A guess the host never confirmed: ask for the host's state, which stands the thing up again or knocks down what is missing.
     let stale = false;
     for (const at of this.guesses.values()) if (now - at > GUESS_MS) stale = true;
-    if (stale && now - this.lastAsk > ASK_EVERY_MS) {
+    if (this.w.ready && stale && now - this.lastAsk > ASK_EVERY_MS) {
       // The answer is the host's whole state, which settles every guess at once.
       this.guesses.clear();
       this.lastAsk = now;

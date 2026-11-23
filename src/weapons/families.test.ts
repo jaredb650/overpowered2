@@ -10,17 +10,19 @@ const all = new Set<WeaponId>(WEAPON_ORDER);
 
 describe('family table', () => {
   it('groups by number key, base first', () => {
-    expect(familyOfSlot(1)).toEqual(['smg', 'gimlet', 'harrow', 'flail']);
-    expect(familyOfSlot(2)).toEqual(['shotgun', 'thresher', 'deuce']);
+    expect(familyOfSlot(1)).toEqual(['smg', 'gimlet', 'harrow', 'bodkin', 'flail']);
+    expect(familyOfSlot(2)).toEqual(['shotgun', 'thresher', 'deuce', 'billhook']);
     expect(familyOfSlot(3)).toEqual(['rocket', 'quiver', 'mgl', 'satchel', 'howitzer']);
     // The Sabot is first on key 4: the explosive autocannon is its upgrade.
     expect(familyOfSlot(4)).toEqual(['sabot', 'awl', 'autocannon']);
     expect(familyOfSlot(6)).toEqual(['judge', 'rivet', 'ultramag', 'autoraffica']);
+    expect(familyOfSlot(7)).toEqual(['lance', 'autoclave']);
+    expect(familyOfSlot(0)).toEqual(['stakegun', 'gaff']);
     // Key 5: the katana alone. The four swung beside it are switched off (`?melee=four` brings them back).
     expect(familyOfSlot(5)).toEqual(['sword']);
     for (const id of ['knife', 'crowbar', 'shovel', 'baton'] as WeaponId[]) expect(inPlay(id), id).toBe(false);
     expect(inPlay('sword')).toBe(true);
-    expect(familyOf('harrow')).toEqual(['smg', 'gimlet', 'harrow', 'flail']);
+    expect(familyOf('harrow')).toEqual(['smg', 'gimlet', 'harrow', 'bodkin', 'flail']);
   });
 
   it('every weapon in play is on exactly one key, and every member names a base on the same key', () => {
@@ -31,10 +33,12 @@ describe('family table', () => {
       const base = WEAPONS[id].base;
       if (base) expect(WEAPONS[base].slot, id).toBe(WEAPONS[id].slot);
     }
-    expect(membersOf('smg')).toEqual(['gimlet', 'harrow', 'flail']);
+    expect(membersOf('smg')).toEqual(['gimlet', 'harrow', 'bodkin', 'flail']);
     expect(membersOf('judge')).toEqual(['rivet', 'ultramag', 'autoraffica']);
-    expect(membersOf('shotgun')).toEqual(['thresher', 'deuce']);
+    expect(membersOf('shotgun')).toEqual(['thresher', 'deuce', 'billhook']);
     expect(membersOf('rocket')).toEqual(['quiver', 'mgl', 'satchel', 'howitzer']);
+    expect(membersOf('lance')).toEqual(['autoclave']);
+    expect(membersOf('stakegun')).toEqual(['gaff']);
     // The autocannon is earned on its own, from a weapon cache: owning the Sabot does not bring it.
     expect(membersOf('sabot')).toEqual(['awl']);
     expect(WEAPONS.autocannon.base).toBeUndefined();
@@ -54,12 +58,16 @@ describe('family table', () => {
   it('the key of the slot in hand steps to the next member and wraps', () => {
     expect(pressSlot(1, 'smg', all, undefined)).toBe('gimlet');
     expect(pressSlot(1, 'gimlet', all, undefined)).toBe('harrow');
-    expect(pressSlot(1, 'harrow', all, undefined)).toBe('flail');
+    expect(pressSlot(1, 'harrow', all, undefined)).toBe('bodkin');
+    expect(pressSlot(1, 'bodkin', all, undefined)).toBe('flail');
     expect(pressSlot(1, 'flail', all, undefined)).toBe('smg');
     expect(pressSlot(2, 'shotgun', all, undefined)).toBe('thresher');
+    expect(pressSlot(2, 'deuce', all, undefined)).toBe('billhook');
     expect(pressSlot(4, 'sabot', all, undefined)).toBe('awl');
     expect(pressSlot(4, 'awl', all, undefined)).toBe('autocannon');
     expect(pressSlot(4, 'autocannon', all, undefined)).toBe('sabot');
+    expect(pressSlot(7, 'lance', all, undefined)).toBe('autoclave');
+    expect(pressSlot(0, 'stakegun', all, undefined)).toBe('gaff');
     // The katana alone: key 5 again does nothing, even with the four owned.
     expect(pressSlot(5, 'sword', all, undefined)).toBeNull();
   });

@@ -228,6 +228,7 @@ const TRACERS: Record<TracerKind, TracerFx> = {
   // whiter-hot than the Piledriver's ball.
   flechette: { color: hot(0xe6f2ff, 3.4), width: 0.008, speed: 640, length: 12, core: 7, minPx: 1.1 },
   api: { color: hot(0xff0c0c, 2), width: 0.024, speed: 760, length: 22, core: 3, minPx: 1.5 },
+  dragon: { color: hot(0xff7818, 4.4), width: 0.036, speed: 220, length: 10, core: 6.5, minPx: 1.8 },
   raufoss: { color: hot(0xffc860, 4.2), width: 0.05, speed: 400, length: 26, core: 9, minPx: 2 },
 };
 

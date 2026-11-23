@@ -23,7 +23,7 @@ export interface Pose {
   flags?: number;
 }
 /** The bits of `Pose.flags`. New ones go on the end. */
-export const DOING = { reload: 1, stim: 2, laser: 4, charge: 8, ball: 16 } as const;
+export const DOING = { reload: 1, stim: 2, laser: 4, charge: 8, ball: 16, shield: 32 } as const;
 const VERSION = 2;
 const HEADER = 41;
 const encoder = new TextEncoder();
@@ -69,10 +69,16 @@ export class PoseBuffer {
   private frames: { at: number; pose: Pose }[] = [];
   push(pose: Pose, at: number): boolean {
     const last = this.frames.at(-1);
+    // A peer that reconnected or reloaded starts its sequence over at 0: after a stale gap, accept the fresh stream.
+    if (last && at - last.at > 2000 && pose.seq < 16) {
+      this.frames = [{ at, pose }];
+      return true;
+    }
     if (last && ((pose.seq - last.pose.seq) >>> 0) >= 0x80000000) return false;
     if (last?.pose.seq === pose.seq) return false;
-    // Teleports snap instead of drawing a body through walls.
-    if (last && Math.hypot(...pose.position.map((n, i) => n - last.pose.position[i]!) as [number, number, number]) > 10) this.frames = [];
+    // Teleports snap instead of drawing a body through walls; allow fast dashes (~26 m/s) across brief packet loss.
+    const snap = last ? Math.max(10, 35 * Math.min(1, Math.max(0, at - last.at) / 1000)) : 10;
+    if (last && Math.hypot(...pose.position.map((n, i) => n - last.pose.position[i]!) as [number, number, number]) > snap) this.frames = [];
     this.frames.push({ at: last ? Math.max(at, last.at + 0.01) : at, pose });
     if (this.frames.length > 32) this.frames.shift();
     return true;

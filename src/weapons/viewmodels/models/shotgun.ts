@@ -11,6 +11,7 @@ import { curve, poly, rect, slot, type V2 } from '../kit/shapes';
 import { knurl, rail, rivet, screwX } from '../kit/details';
 import { bump, hold, inOut, seg, thud } from '../curves';
 import type { Anim, ViewDef } from '../def';
+import { GREASE } from '../../mods';
 import { HANDS } from '../poses';
 import { drawCount, pullTrigger, shell12 } from './common';
 import { TORCH, weaponLight } from './light';
@@ -112,7 +113,6 @@ function barrel(m: Mesher): void {
         m.at([Math.cos(a) * 0.0138, Math.sin(a) * 0.0138, -0.648], [0, 0, a], () => m.box(0.002, 0.0038, 0.022, 0.0003));
       }
     });
-    choke(m);
     // Heat shield: real slats, so the blued barrel shows through.
     m.use(F.parkerized);
     const a0 = -0.42;
@@ -135,10 +135,10 @@ function barrel(m: Mesher): void {
 /**
  * The choke mod: a long extended tube screwed in where the breaching choke was, in bright steel. A knurled collar to turn
  * it by, a brass ring that marks the constriction, ported over the top so the muzzle stays down, and a bore you can see
- * narrow at the crown. In the barrel's frame, on the bore.
+ * narrow at the crown. Placed at root on the bore axis so it never collides with `barrelFull`'s hide toggle.
  */
 function choke(m: Mesher): void {
-  m.part('choke', [0, 0, 0], () => {
+  m.at([0, BORE, 0], null, () => m.part('choke', [0, 0, 0], () => {
     m.use(F.steel);
     m.lathe([[0.0112, -0.622, 0], [0.0136, -0.624], [0.0138, -0.662], [0.0148, -0.664], [0.0148, -0.69], [0.0134, -0.694], [0.0134, -0.744], [0.0124, -0.752], [0.0092, -0.752, 0]], 26, { chamfer: 0.0006 });
     m.at([0, 0, -0.677], null, () => knurl(m, 0.0151, 0.022, F.steelDark, 26, 0.0007));
@@ -151,6 +151,44 @@ function choke(m: Mesher): void {
     for (const a of [Math.PI / 2 - 0.5, Math.PI / 2 + 0.5]) {
       for (let i = 0; i < 3; i++) m.at([Math.cos(a) * 0.0131, Math.sin(a) * 0.0131, -0.712 - i * 0.012], [0, 0, a], () => m.box(0.0018, 0.0034, 0.0075, 0.0003));
     }
+  }));
+}
+
+/**
+ * Sawed-off 4-shell barrel (`shotgunSawedOff`): bare heavy blued barrel cut back right ahead of the walnut pump to a raw
+ * bright-steel crown, compact 4-shell tube with knurled cap, close-coupled figure-8 clamp, and low ramped front bead.
+ */
+function sawedOff(m: Mesher): void {
+  m.part('sawedOff', [0, 0, 0], () => {
+    m.at([0, BORE, 0], null, () => {
+      m.use(F.barrel);
+      m.lathe([[0.0145, -0.17, 0], [0.0145, -0.205], [0.0126, -0.215], [0.0122, -0.45, 0]], 22);
+      // Freshly sawn bright-steel crown ring and deep dark 12-gauge bore.
+      m.use(F.steel);
+      m.lathe([[0.0122, -0.45, 0], [0.0122, -0.456, 0.0005], [0.0096, -0.456, 0.0004], [0.0096, -0.45, 0]], 22);
+      m.use(F.black);
+      m.lathe([[0.0096, -0.456, 0], [0.0094, -0.486, 0], [0, -0.4865, 0]], 16);
+      // Low steel front ramp and glowing sight bead just behind the sawn muzzle.
+      m.at([0, 0.012, -0.44], null, () => {
+        m.use(F.steelDark);
+        m.side(poly([[0.014, 0], [-0.007, 0], [-0.009, 0.012, 0.002], [0.002, 0.012, 0.002]], 0.001), 0.004, { bevel: 0.0006 });
+        m.glow('sight', () => m.at([0, 0.012, -0.004], null, () => m.cyl(0.0015, 0.006, 8, 0)));
+      });
+    });
+    // Compact 4-shell magazine tube, ending flush under the cut barrel with a knurled cap.
+    m.at([0, TUBE, 0], null, () => {
+      m.use(F.blued);
+      m.lathe([[0.0138, -0.17, 0], [0.0138, -0.436, 0]], 20);
+      m.use(F.steelDark);
+      m.at([0, 0, -0.444], null, () => knurl(m, 0.0162, 0.014, F.steelDark, 24, 0.0006));
+      m.lathe([[0.0138, -0.436, 0], [0.0165, -0.437], [0.0165, -0.452, 0], [0.0142, -0.456], [0, -0.456, 0]], 20);
+    });
+    // Close-coupled barrel clamp right ahead of the pump's forward edge (-0.415).
+    m.use(F.parkerized);
+    m.at([0, 0, -0.428], null, () => {
+      m.front(poly([[-0.0178, -0.0145], [0.0178, -0.0145], [0.0178, 0.012, 0.003], [0.0155, 0.0445, 0.008], [-0.0155, 0.0445, 0.008], [-0.0178, 0.012, 0.003]], 0.003), 0.018, { bevel: 0.0014 });
+      m.mirror(() => screwX(m, 0.0182, 0.015, 0, 1, 0.0026));
+    });
   });
 }
 
@@ -204,6 +242,13 @@ function pump(m: Mesher): void {
     m.mirror(() => m.at([0.0152, 0.0, 0.135], null, () => m.box(0.002, 0.0075, 0.11, 0.0006)));
     m.use(F.steelDark);
     m.at([0, 0, 0.085], null, () => m.lathe([[0.0142, 0.004, 0], [0.0172, 0.004], [0.0172, -0.004], [0.0142, -0.004, 0]], 18));
+    // Greased bolt mod: polished chrome twin action bars and brass slick collar riding with the forend.
+    m.part('greaseBars', [0, 0, 0], () => {
+      m.use(F.chrome);
+      m.mirror(() => m.at([0.0157, 0.0, 0.135], null, () => m.box(0.0024, 0.0082, 0.112, 0.0006)));
+      m.use(F.brass);
+      m.at([0, 0, 0.085], null, () => m.lathe([[0.0146, 0.0044, 0], [0.0178, 0.0044], [0.0178, -0.0044], [0.0146, -0.0044, 0]], 18));
+    });
   });
 }
 
@@ -212,8 +257,12 @@ function buildShotgun(kit: Kit): Model {
   m.bevel = 0.0014;
   receiver(m);
   stock(m);
-  barrel(m);
-  tube(m);
+  m.part('barrelFull', [0, 0, 0], () => {
+    barrel(m);
+    tube(m);
+  });
+  choke(m);
+  sawedOff(m);
   saddle(m);
   pump(m);
 
@@ -222,6 +271,13 @@ function buildShotgun(kit: Kit): Model {
     m.box(0.027, 0.024, 0.074, 0.0014);
     m.use(F.steelDark);
     for (let i = 0; i < 7; i++) m.at([0.0138, 0, -0.022 + i * 0.0072], null, () => m.box(0.0012, 0.018, 0.0034, 0.0003));
+    // Greased bolt mod: mirror-polished chrome slick carrier face with gold-brass oil grooves & extractor.
+    m.part('greaseBolt', [0, 0, 0], () => {
+      m.use(F.chrome);
+      m.at([0.0006, 0, 0], null, () => m.box(0.0276, 0.0246, 0.075, 0.0014));
+      m.use(F.brass);
+      for (let i = 0; i < 5; i++) m.at([0.0146, 0, -0.02 + i * 0.01], [0.35, 0, 0], () => m.box(0.0012, 0.018, 0.0032, 0.0003));
+    });
   });
   m.part('trigger', [0, -0.018, -0.002], () => {
     m.use(F.steelDark);
@@ -239,6 +295,7 @@ function buildShotgun(kit: Kit): Model {
   });
   model.socket('muzzle', [0, BORE, -0.702]);
   model.socket('muzzleChoke', [0, BORE, -0.756]);
+  model.socket('muzzleSawed', [0, BORE, -0.46]);
   model.socket('eject', [0.022, 0.03, -0.065]);
   model.hand('gripR', [0.019, -0.06, 0.07], [0, -0.96, 0.27], [-0.3, -0.25, -0.92]);
   model.support('pumpL', [-0.002, -0.0235, -0.012], 'pump');
@@ -254,9 +311,10 @@ const SHELLS = [0.12, 0.34, 0.56] as const;
 function clip(a: Anim): void {
   const P = a.parts;
   pullTrigger(a);
-  // Hand-cycled: the off hand throws the pump between shots, deliberately. The whole cycle fits the 0.55 s refire, and
-  // the rack's foley (cycleFoley in data.ts) lands on its ends: back at 0.27 s, home at 0.47 s.
-  const t = a.sinceFire;
+  // Hand-cycled: the off hand throws the pump between shots, deliberately. With Greased bolt (`shotgunBolt`), the whole
+  // cycle and its foley (mods.ts) run at GREASE (75%): back at 0.20 s, home at 0.35 s, fitting inside the 0.4125 s refire.
+  const cycle = a.mods?.has('shotgunBolt') ? GREASE : 1;
+  const t = a.sinceFire / cycle;
   let rack = t < 0.48 ? hold(t, 0.13, 0.27, 0.31, 0.47) : 0;
   a.gunP.z += rack * 0.012;
   a.gunR.z -= rack * 0.035;
@@ -321,8 +379,17 @@ export function shotgunDef(kit: Kit): ViewDef {
     left: { socket: 'pumpL', pose: HANDS.support },
     heatPerShot: 0.09,
     animate: clip,
-    readout: a => drawCount(a, 'ammo', 0, 6, '#9cff3a'),
-    mods: { shotgunChoke: { part: 'choke', hides: 'breacher', muzzle: 'muzzleChoke' }, shotgunLight: { part: 'light' } },
+    readout: a => drawCount(a, 'ammo', 0, a.magSize, '#9cff3a'),
+    mods: {
+      shotgunChoke: { part: 'choke', hides: 'breacher', muzzle: 'muzzleChoke' },
+      shotgunSawedOff: {
+        part: 'sawedOff', hides: 'barrelFull', muzzle: 'muzzleSawed',
+        sight: [0, 0.054, -0.444], rear: [0, 0.0795, 0.0421], relief: 0.65,
+        moves: { part: 'light', z: 0.072 },
+      },
+      shotgunBolt: { part: 'greaseBolt', also: 'greaseBars' },
+      shotgunLight: { part: 'light' },
+    },
   };
 }
 

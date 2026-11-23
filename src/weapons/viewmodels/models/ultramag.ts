@@ -22,8 +22,9 @@ import { hold, inOut, inQuad, outCubic, outQuad, seg, thud } from '../curves';
 import type { Anim, ViewDef } from '../def';
 import { HANDS } from '../poses';
 import { pullTrigger, round } from './common';
-import { OPTIC_GLOWS } from './optics';
+import { OPTIC_GLOWS, openReflex } from './optics';
 import { TORCH, weaponLight } from './light';
+import { animateRiotShield, attachRiotShieldHand, buildRiotShield } from './shield';
 import { COMP } from '../../mods';
 
 /** Built size against authored: the owner found it too big for the hands at full size. */
@@ -64,12 +65,10 @@ const CAN_LEN = 0.35;
 const CAN_W = 0.0265;
 const CAN_TOP = 0.0186;
 const CAN_BOT = 0.062;
-/** The reflex sight on the slide just ahead of the rear sight, as an optic cut has it: its centre along the slide, and its dot. */
 /** The compensator's length from the muzzle face forward. Its section is the slide's over the frame's. */
 const COMP_LEN = 0.08;
-const RMR_Z = 0.057;
-const DOT_Y = SY1 + 0.02;
-const DOT_Z = RMR_Z - 0.008;
+/** The low-profile open reflex sight on the slide optic cut, just ahead of the rear sight. */
+const RMR_Z = 0.0585;
 
 const NITRIDE: Finish = { color: 0x737b85, rough: 0.32, metal: 0.9, wear: 0.18, kind: Kind.brushed };
 const FRAME: Finish = { color: 0x1e2024, rough: 0.5, metal: 0.55, wear: 0.3 };
@@ -104,7 +103,8 @@ function serrations(m: Mesher, z0: number, z1: number, count: number): void {
   });
 }
 
-function slide(m: Mesher): void {
+function slide(m: Mesher): NonNullable<ViewDef['mods']>['ultramagDot'] {
+  let dotLook!: NonNullable<ViewDef['mods']>['ultramagDot'];
   m.part('slide', [0, BORE, 0], () => m.at([0, -BORE, 0], null, () => {
     const section = slideSection();
     m.use(NITRIDE);
@@ -126,7 +126,7 @@ function slide(m: Mesher): void {
       m.front(rail, BREECH - PORT + 0.002, { capFront: false, capBack: false });
     });
     serrations(m, -0.268, -0.212, 11);
-    reflex(m);
+    dotLook = openReflex(m, [0, SY1, RMR_Z], { name: 'rmr', scale: 1.12, riser: 0.0062, relief: 0.17, finish: FRAME, accent: NITRIDE, modelScale: S });
     serrations(m, 0.052, 0.1, 10);
     // Rear face: anti-glare grooves across it and a small firing-pin cap, nothing to catch the eye under the sights.
     m.use(F.black);
@@ -162,6 +162,7 @@ function slide(m: Mesher): void {
       m.at([0, -0.004, 0.004], null, () => m.box(0.018, 0.014, 0.004, 0.0005));
     });
   }));
+  return dotLook;
 }
 
 function barrel(m: Mesher): void {
@@ -541,33 +542,56 @@ function compBody(m: Mesher): void {
 }
 
 /**
- * A chunky reflex sight (an RMR's shape at the gun's scale) on the slide, riding it: a slanted hood over a wide window, a
- * rear frame, the base on the slide's flat, a button on each flank, the dot floating at the window's middle.
+ * Flared competition magwell (`ultramagMagwell`): a bevelled brushed-stainless funnel collar wrapping the base of the grip,
+ * flaring outward into a wide open mouth round the magazine base pad with a contrasting nitride locking band and dark interior
+ * lead-in bevels.
  */
-function reflex(m: Mesher): void {
-  m.part('rmr', [0, SY1, RMR_Z], () => {
-    const w = 0.0205;
-    const win = rect(-0.0145, DOT_Y - SY1 - 0.0105, 0.0145, DOT_Y - SY1 + 0.0095, 0.004);
-    m.use(FRAME);
-    // Base on the slide's top flat, and the low body between the two frames.
-    m.at([0, 0.0025, 0], null, () => m.box(w * 2, 0.005, 0.046, 0.0014, 0.003));
-    m.side(poly([[0.022, 0.003], [0.022, 0.0095], [-0.022, 0.0095], [-0.022, 0.003]], 0.001), w * 2, { bevel: 0.0014 });
-    // Front hood: thick, its face raked back; the rear frame thinner. Both carry the window. The band over the window is 5 mm
-    // and more: a bevel insets the face's outline and widens the window's, and where the two cross the face fills the window in.
-    const hood = poly([[-w, 0.003], [w, 0.003], [w, 0.028, 0.006], [w - 0.007, 0.036, 0.005], [-w + 0.007, 0.036, 0.005], [-w, 0.028, 0.006]], 0.002);
-    m.at([0, 0, -0.016], null, () => m.front(hood, 0.013, { bevel: 0.0018, holes: [win] }));
-    m.at([0, 0, 0.019], null, () => m.front(hood, 0.007, { bevel: 0.0014, holes: [win] }));
-    // The bridge over the window from hood to rear frame, clear of the window's top edge, and the flanks under the window.
-    m.at([0, DOT_Y - SY1 + 0.0138, 0.0015], null, () => m.box(0.026, 0.0032, 0.03, 0.0012));
-    m.mirror(() => m.at([w - 0.0015, 0.0105, 0.0015], null, () => m.box(0.003, 0.006, 0.03, 0.0008)));
+function magwell(m: Mesher): void {
+  m.part('magwell', [0, -0.1435, 0.0965], () => m.at([0, 0, 0], [-0.06, 0, 0], () => {
+    // Upper locking band hugging the base of the grip frame in gunmetal nitride.
     m.use(NITRIDE);
-    m.mirror(() => m.at([w + 0.0004, 0.006, -0.002], null, () => m.box(0.0012, 0.004, 0.03, 0.0004)));
+    m.mirror(() => m.at([0.0222, 0.0055, 0], null, () => m.side(poly([
+      [-0.036, -0.003], [0.037, -0.003], [0.035, 0.007, 0.002], [-0.034, 0.007, 0.002],
+    ], 0.0012), 0.0046, { bevel: 0.0009 })));
+    m.at([0, 0.0055, -0.0345], null, () => m.front(poly([
+      [-0.0235, -0.003], [0.0235, -0.003], [0.022, 0.007, 0.002], [-0.022, 0.007, 0.002],
+    ], 0.0012), 0.0045, { bevel: 0.0009 }));
+    m.at([0, 0.0055, 0.0355], null, () => m.front(poly([
+      [-0.0235, -0.003], [0.0235, -0.003], [0.022, 0.007, 0.002], [-0.022, 0.007, 0.002],
+    ], 0.0012), 0.005, { bevel: 0.0009 }));
+
+    // Flared brushed-stainless competition skirt: four real sloped walls framing an open hollow mouth around the mag base pad.
     m.use(STAINLESS);
-    m.mirror(() => m.at([w + 0.0008, 0.0155, -0.016], null, () => m.box(0.0016, 0.006, 0.008, 0.0006)));
-    m.mirror(() => screwX(m, w + 0.0002, 0.006, 0.016, 1, 0.0016, F.steelDark));
-    m.glass(() => m.at([0, 0, -0.0105], null, () => m.front(win, 0.0008, { bevel: 0 })));
-    m.glow('dot', () => m.at([0, DOT_Y - SY1, DOT_Z - RMR_Z + 0.0004], null, () => m.cyl(0.0007, 0.0002, 12, 0)));
-  });
+    // Left and right flared side wings.
+    m.mirror(() => m.at([0, 0, 0], null, () => {
+      const wing = poly([
+        [0.0195, 0.0035], [0.0242, 0.0035, 0.0014], [0.0282, -0.0075, 0.0024], [0.0268, -0.0105, 0.0014],
+        [0.0202, -0.0105, 0.001], [0.0188, -0.0035, 0.0012],
+      ], 0.001);
+      m.at([0, 0, 0.0005], null, () => m.front(wing, 0.08, { bevel: 0.0014 }));
+    }));
+    // Front flared apron lip with sweeping lower chamfer.
+    const frontLip = poly([
+      [-0.0355, 0.0035], [-0.031, 0.0035], [-0.032, -0.004], [-0.035, -0.0105, 0.0015],
+      [-0.0415, -0.0105, 0.002], [-0.0422, -0.0065, 0.0025], [-0.0385, 0.002, 0.0018],
+    ], 0.001);
+    m.side(frontLip, 0.053, { bevel: 0.0014 });
+    // Rear flared heel ramp.
+    const rearLip = poly([
+      [0.032, 0.0035], [0.0375, 0.0035, 0.0015], [0.0425, -0.0065, 0.0025], [0.0412, -0.0105, 0.0018],
+      [0.035, -0.0105, 0.0012], [0.033, -0.004],
+    ], 0.001);
+    m.side(rearLip, 0.053, { bevel: 0.0014 });
+
+    // Subtle red anodized competition accent stripe inlaid along the outer skirt flanks + rear retention screw.
+    m.use(RED);
+    m.mirror(() => m.at([0.0266, -0.0052, 0.0005], [0, 0, 0.3], () => m.box(0.0009, 0.0024, 0.058, 0.0003)));
+    m.mirror(() => screwX(m, 0.0242, 0.0045, 0.024, 1, 0.0019, F.steelDark));
+
+    // Dark recessed funnel throat liner inside the skirt mouth.
+    m.use(F.black);
+    m.at([0, -0.004, 0.0005], null, () => m.front(rect(-0.0192, -0.0055, 0.0192, 0.0055, 0.002), 0.068, { bevel: 0 }));
+  }));
 }
 
 /** A laser module under the dust cover: a squared housing on a clamp, the lens and its pinpoint, two pressure pads. */
@@ -589,15 +613,16 @@ function laser(m: Mesher): void {
   }));
 }
 
-function buildUltramag(kit: Kit): Model {
+function buildUltramag(kit: Kit): { model: Model; dotLook: NonNullable<ViewDef['mods']>['ultramagDot']; shieldLook: NonNullable<ViewDef['mods']>['ultramagShield'] } {
   const m = kit.mesher();
   m.bevel = 0.0012;
   frame(m);
   guard(m);
   grip(m);
   barrel(m);
-  slide(m);
+  const dotLook = slide(m);
   magazine(m);
+  magwell(m);
   suppressor(m);
   compensator(m);
   laser(m);
@@ -618,6 +643,8 @@ function buildUltramag(kit: Kit): Model {
     m.side(poly([[-0.0035, 0.002], [0.004, 0.002], [0.0015, -0.012, 0.004], [0.006, -0.027, 0.002], [0.0025, -0.0285, 0.001], [-0.004, -0.014, 0.005]], 0.001), 0.0068, { bevel: 0.0008 });
   });
   shrink(m.tree, S);
+  // Built after `shrink` so the shared ballistic riot shield keeps its true 1:1 scale across all four pistols.
+  const shieldLook = buildRiotShield(m);
   const model = new Model(m, kit.mats, {
     glows: { sight: [0xff6a1a, 7], rear: [0xffe2c4, 2], accent: [0xff2a1c, 3.2], laser: [0xff3020, 7], dot: OPTIC_GLOWS.dot, torch: TORCH },
   });
@@ -631,7 +658,8 @@ function buildUltramag(kit: Kit): Model {
   model.pistolSupport('gripL', k([-0.034, -0.072, 0.07]));
   model.hand('magHold', k([-0.017, -0.1, 0.022]), [-0.3, 0.1, -0.95], [0.9, -0.1, -0.35], 'mag');
   model.hand('boltHold', k([-0.023, 0.0, 0.07]), [-0.5, -0.2, -0.8], [0.8, -0.3, -0.5], 'slide');
-  return model;
+  attachRiotShieldHand(model);
+  return { model, dotLook, shieldLook };
 }
 
 /** Scales a built mesh tree about the origin: every vertex and every part's pivot. Normals keep under a uniform scale. */
@@ -703,42 +731,47 @@ function clip(a: Anim): void {
     a.gunP.z += lower * 0.07;
     a.gunR.x += lower * 0.6;
   }
-  if (reload < 0) return;
-  const mag = parts.mag!;
-  const away = inQuad(seg(reload, 0.05, 0.2)) * (1 - outCubic(seg(reload, 0.4, 0.55)));
-  mag.position.y -= away * 0.34;
-  mag.position.z += away * 0.09;
-  if (reload > 0.22 && reload < 0.38) mag.visible = false;
-  const seat = reload >= 0.55 ? thud(seg(reload, 0.55, 0.66)) : 0;
-  const present = hold(reload, 0, 0.12, 0.91, 1);
-  a.gunR.z -= present * 0.48;
-  a.gunR.x += present * 0.16 + seat * 0.06;
-  a.gunR.y += present * 0.1;
-  a.gunP.x -= present * 0.04;
-  a.gunP.y += present * 0.044 + seat * 0.01;
-  a.gunP.z += present * 0.05;
-  const hand = a.left;
-  hand.fingerRate = 44;
-  hand.to('magHold', inOut(seg(reload, 0, 0.06)));
-  hand.to('pouchL', inOut(seg(reload, 0.12, 0.25)));
-  hand.to('magHold', inOut(seg(reload, 0.32, 0.46)));
-  hand.to('boltHold', inOut(seg(reload, 0.59, 0.68)));
-  hand.to('gripL', inOut(seg(reload, 0.81, 0.91)));
-  hand.shape(HANDS.cup, hold(reload, 0.26, 0.4, 0.56, 0.62));
-  hand.shape(HANDS.pinch, hold(reload, 0.6, 0.67, 0.78, 0.84));
+  if (reload >= 0) {
+    const mag = parts.mag!;
+    const away = inQuad(seg(reload, 0.05, 0.2)) * (1 - outCubic(seg(reload, 0.4, 0.55)));
+    mag.position.y -= away * 0.34;
+    mag.position.z += away * 0.09;
+    if (reload > 0.22 && reload < 0.38) mag.visible = false;
+    const seat = reload >= 0.55 ? thud(seg(reload, 0.55, 0.66)) : 0;
+    const present = hold(reload, 0, 0.12, 0.91, 1);
+    a.gunR.z -= present * 0.48;
+    a.gunR.x += present * 0.16 + seat * 0.06;
+    a.gunR.y += present * 0.1;
+    a.gunP.x -= present * 0.04;
+    a.gunP.y += present * 0.044 + seat * 0.01;
+    a.gunP.z += present * 0.05;
+    const hand = a.left;
+    hand.fingerRate = 44;
+    hand.to('magHold', inOut(seg(reload, 0, 0.06)));
+    hand.to('pouchL', inOut(seg(reload, 0.12, 0.25)));
+    hand.to('magHold', inOut(seg(reload, 0.32, 0.46)));
+    hand.to('boltHold', inOut(seg(reload, 0.59, 0.68)));
+    hand.to('gripL', inOut(seg(reload, 0.81, 0.91)));
+    hand.shape(HANDS.cup, hold(reload, 0.26, 0.4, 0.56, 0.62));
+    hand.shape(HANDS.pinch, hold(reload, 0.6, 0.67, 0.78, 0.84));
+  }
+  animateRiotShield(a, 'ultramagShield');
 }
 
 export function ultramagDef(kit: Kit): ViewDef {
+  const { model, dotLook, shieldLook } = buildUltramag(kit);
   return {
-    id: 'ultramag', model: buildUltramag(kit),
+    id: 'ultramag', model,
     pos: [0.13, -0.138, -0.41], rot: [0.02, 0.06, 0],
     sight: k([0, SIGHT_Y, POST_Z + 0.0042]), rear: k([0, SIGHT_Y, REAR_Z]), relief: 0.66,
     mods: {
+      ultramagShield: shieldLook,
       ultramagCan: { part: 'can', muzzle: 'muzzleCan' },
-      // Level, the dot on the eye line, the eye close for a window about 10 degrees wide with the rear blade under it.
-      ultramagDot: { part: 'rmr', sight: k([0, DOT_Y, DOT_Z]), rear: null, relief: 0.14 },
+      // Level, low-profile open reflex dot on the eye line with clear unobstructed glass and lower-1/3 iron witness.
+      ultramagDot: dotLook,
       ultramagLam: { part: 'lam', laser: 'laser' },
       ultramagMag: { part: 'magExt' },
+      ultramagMagwell: { part: 'magwell' },
       ultramagComp: { part: 'comp', muzzle: 'muzzleComp', flip: COMP.flip },
       ultramagLight: { part: 'light' },
     },

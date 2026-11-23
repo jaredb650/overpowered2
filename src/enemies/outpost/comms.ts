@@ -95,8 +95,10 @@ export class Comms {
   private readonly facts: ChatterFacts = { faction: FACTION, tier: 'high', role: null, flags: {} };
   private readonly slots: Record<string, string> = {};
   private readonly line: CommsLine = {
-    kind: 'contact', text: '', squad: '', speaker: null, enemy: null, position: new THREE.Vector3(), row: -1, name: -1, dead: -1, slots: null, why: '', voice: -1,
+    kind: 'contact', text: '', squad: '', speaker: null, enemy: null, position: new THREE.Vector3(), row: -1, name: -1, dead: -1, slots: null, why: '', voice: -1, clip: null, radio: false,
   };
+  /** Alternates trooper voices for bodiless radio relays (`s === null`). */
+  private relayVoice = 0;
 
   constructor(private readonly w: AiWorld) {
     const events = w.ctx.events;
@@ -113,6 +115,7 @@ export class Comms {
     this.talks.clear();
     this.pending.length = 0;
     this.timers.length = 0;
+    this.relayVoice = 0;
   }
 
   /** Something to decide `seconds` from now, on the AI clock: the radio's calls into silence. */
@@ -230,6 +233,8 @@ export class Comms {
     line.speaker = s ? speakerTag(line.name, s.rankDef.label, s.squad.name) : null;
     line.enemy = s ? s.e : null;
     line.voice = s?.voice ?? -1;
+    line.clip = null;
+    line.radio = false;
     if (s) line.position.copy(s.e.center);
     else line.position.copy(w.player.position);
     const why = this.memory.why;
@@ -298,7 +303,7 @@ export class Comms {
   }
 
   /** Words the caller chose, on the same feed. `who` names a voice that belongs to nobody on the map. */
-  relay(text: string, s: Soldier | null, who: string | null): void {
+  relay(text: string, s: Soldier | null, who: string | null, clip: string | null = null, radio = false): void {
     const { w, line } = this;
     if (s?.injuries.mute || this.deaf) return;
     this.nextLineAt = w.now + LINE_GAP;
@@ -306,7 +311,9 @@ export class Comms {
     line.text = text;
     line.row = line.dead = -1;
     line.slots = null;
-    line.voice = s?.voice ?? -1;
+    line.voice = s ? s.voice : clip ? (this.relayVoice++ & 1) : -1;
+    line.clip = clip;
+    line.radio = radio;
     line.why = 'relay (words a caller chose)';
     line.name = s?.name ?? -1;
     line.squad = s ? s.squad.name : 'Command';
@@ -314,7 +321,7 @@ export class Comms {
     line.enemy = s ? s.e : null;
     if (s) {
       line.position.copy(s.e.center);
-      this.talks.set(s.squad, { s, from: w.now, until: w.now + airtime(text), priority: 'tactical', interruptible: true, text, pain: false, radio: false });
+      this.talks.set(s.squad, { s, from: w.now, until: w.now + airtime(text), priority: 'tactical', interruptible: true, text, pain: false, radio });
     } else line.position.copy(w.player.position);
     w.ctx.events.emit('comms:line', line);
   }

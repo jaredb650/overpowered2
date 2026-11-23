@@ -38,7 +38,10 @@ export type WeaponId =
   // Throw-and-stick demolition satchel charges with remote RMB clacker on key 3.
   | 'satchel'
   // Shoulder-fired 105mm recoilless artillery howitzer on key 3.
-  | 'howitzer';
+  | 'howitzer'
+  // Weapons wishlist (docs/proposals/weapons-wishlist.md): semi-auto combat shotgun (key 2), flechette bullpup (key 1),
+  // microwave gun (key 7), and harpoon cannon (key 0).
+  | 'billhook' | 'bodkin' | 'autoclave' | 'gaff';
 
 /**
  * A weapon mod (src/weapons/mods.ts): the SMG's suppressor, the Harrow's red dot and ACOG, the Sabot's Raufoss rounds, the
@@ -67,9 +70,9 @@ export type ModId = 'awlAcog' | 'awlCan' | 'awlAp' | 'awlHp' | 'suppressor' | 'r
   | 'swordEnergy'
   // The weapon light, one a gun: every rifle, shotgun and pistol (weapons/mods.ts LIGHT_GUNS).
   | 'smgLight' | 'gimletLight' | 'harrowLight' | 'awlLight' | 'shotgunLight' | 'thresherLight' | 'deuceLight'
-  | 'judgeLight' | 'rivetLight' | 'ultramagLight' | 'autorafficaLight'
+  | 'judgeLight' | 'rivetLight' | 'ultramagLight' | 'autorafficaLight' | 'billhookLight' | 'bodkinLight'
   // Flechettes for every shotgun and API rounds for the Harrow (weapons/mods.ts FLECHETTE_GUNS, API_GUNS).
-  | 'shotgunFlechette' | 'thresherFlechette' | 'deuceFlechette' | 'harrowApi' | 'flailApi'
+  | 'shotgunFlechette' | 'thresherFlechette' | 'deuceFlechette' | 'billhookFlechette' | 'harrowApi' | 'flailApi'
   // Akimbo: a second gun of the same in the left hand (weapons/mods.ts AKIMBO_GUNS).
   | 'smgAkimbo' | 'rivetAkimbo' | 'ultramagAkimbo' | 'judgeAkimbo' | 'autorafficaAkimbo'
   // The Flail's red dot and ACOG, its 200-round box, and AP, HP and +P rounds.
@@ -77,7 +80,22 @@ export type ModId = 'awlAcog' | 'awlCan' | 'awlAp' | 'awlHp' | 'suppressor' | 'r
   // Metal Storm's 40mm FireStorm grenade matrix conversion.
   | 'metalstorm40mm'
   // Milkor MGL's Sticky Bomb 40mm conversion.
-  | 'mglSticky';
+  | 'mglSticky'
+  // Rifles wishlist: Gimlet long barrel, Harrow short barrel/brake/40-rd mag, Flail heavy barrel/stock.
+  | 'gimletLong' | 'harrowShort' | 'harrowBrake' | 'harrowMag' | 'flailHeavy' | 'flailStock'
+  // Flared magwells (weapons/mods.ts MAGWELL_GUNS): 15% faster reload.
+  | 'harrowMagwell' | 'gimletMagwell' | 'ultramagMagwell' | 'rivetMagwell' | 'bodkinMagwell'
+  // Shotguns wishlist: pump sawed-off & greased bolt, Thresher & Billhook dragon's breath, Deuce long barrel.
+  | 'shotgunSawedOff' | 'shotgunBolt' | 'thresherDragon' | 'billhookDragon' | 'deuceLong'
+  // Launchers & key 4 wishlist: Rocket tube & WP, MGL long barrel & trigger, Howitzer cluster, Autocannon barrel.
+  | 'rocketTube' | 'rocketWp' | 'mglLong' | 'mglTrigger' | 'howitzerCluster' | 'autocannonBarrel'
+  // Pistols wishlist: Judge extended barrel & compensator; Rivet comp, suppressor, reflex, laser; Riot shield (SHIELD_GUNS).
+  | 'judgeLong' | 'judgeComp' | 'rivetComp' | 'rivetCan' | 'rivetDot' | 'rivetLam'
+  | 'rivetShield' | 'ultramagShield' | 'judgeShield' | 'autorafficaShield'
+  // Billhook mods: reflex, laser, extended tube, slugs (light, flechette, dragon above).
+  | 'billhookDot' | 'billhookLam' | 'billhookTube' | 'billhookSlug'
+  // Bodkin mods: 4x optic, extended mag, 5-round burst, tungsten darts (light, magwell above).
+  | 'bodkinAcog' | 'bodkinMag' | 'bodkinBurst5' | 'bodkinTungsten';
 
 export type Team = 'player' | 'enemy';
 
@@ -236,6 +254,15 @@ export interface WeaponSystem extends GameSystem {
   readonly launcherUp?: boolean;
   /** The Autoraffica's smart aim, for the HUD's circle and the gun turning to the head. Unset on a weapon system that has none. */
   readonly smartAim?: SmartAimView;
+  /** Riot shield state (src/weapons/shield.ts), for the HUD arm-fatigue meter and co-op sync. */
+  readonly shield?: Readonly<{
+    raise: number;
+    fatigue: number;
+    exhausted: boolean;
+    cooldown: number;
+    active: boolean;
+    fitted: boolean;
+  }>;
   /** The left gun's smart aim with the Autoraffica akimbo (a lock a gun): the HUD's second crosshair. Unset on a system that has none. */
   readonly smartAimLeft?: SmartAimView;
   /** Two guns in hand now: the akimbo mod or Berserk's SMGs. Unset on a weapon system that has none. */
@@ -249,14 +276,25 @@ export interface WeaponSystem extends GameSystem {
 /** What the Gun Kata brain chip got when it asked the guns: it went, or why it did not (and spent nothing). */
 export type KataResult = 'go' | 'noAkimbo' | 'noTargets' | 'busy';
 
+/** The Autoraffica smart aim's paint-then-snap phase. */
+export type SmartAimPhase = 'idle' | 'painting' | 'firing';
+
 /** The Autoraffica's smart aim (src/weapons/smartaim.ts), as the HUD and the viewmodel read it. */
 export interface SmartAimView {
   /** Switched on (hold R) with the gun in hand. */
   readonly on: boolean;
   /** Radians off the crosshair a head may be and take the lock: the circle the HUD draws. */
   readonly cone: number;
-  /** The middle of the locked man's head, kept up to date, or null with no lock. */
+  /** The middle of the locked or charging man's head, kept up to date, or null with no lock. */
   readonly lock: THREE.Vector3 | null;
+  /** Paint-then-snap phase: idle at rest, painting while charging marks, firing while drilling locked heads. */
+  readonly phase?: SmartAimPhase;
+  /** 0..1 charge progress toward locking the head currently being painted. */
+  readonly charge?: number;
+  /** Live world-space position of the head currently charging up to lock, or null when not charging. */
+  readonly chargingAt?: THREE.Vector3 | null;
+  /** Number of painted heads currently held. */
+  readonly markCount?: number;
 }
 
 /**
@@ -387,6 +425,8 @@ export interface ShotSpec {
    * is a real explosion, and which takes its place while both are set.
    */
   burst?: BurstSpec;
+  /** Damage override on bosses and vehicles (e.g. Bodkin tungsten darts). */
+  bossDamage?: number;
 }
 
 /**
@@ -462,6 +502,8 @@ export interface ProjectileSpec {
   kind: 'rocket' | 'shell' | 'grenade' | 'bullet' | 'plasma' | 'stake' | 'flame';
   team: Team;
   damage: number;
+  /** Damage override on bosses, vehicles and the mech (e.g. Autocannon longer barrel: 1150 vs 900). */
+  bossDamage?: number;
   source: string;
   /** Set for projectiles that explode. */
   explosion?: Omit<ExplosionSpec, 'team' | 'source'>;
@@ -520,6 +562,10 @@ export interface ProjectileSpec {
   wired?: boolean;
   /** The autocannon's flak shell: a proximity fuze and an air burst of shrapnel (weapons/flak.ts). */
   flak?: boolean;
+  /** White phosphorus warhead (rocketWp): spawns a 6 m burning WP cloud for 12 s on detonation (weapons/wp.ts). */
+  wp?: boolean;
+  /** Howitzer standoff cluster shell (howitzerCluster): bursts ~7 m short into an 18-bomblet carpet (weapons/cluster.ts). */
+  cluster?: boolean;
   /** The laser a `wired` rocket steers for, when it is not the player's own: the friend's whose rocket it is. */
   laser?: { on: boolean; at: THREE.Vector3 };
   /**

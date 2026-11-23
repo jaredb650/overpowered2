@@ -125,3 +125,32 @@ it('is silent with the enemy voices turned down', () => {
   settings.voices = 0;
   expect(voices.say(line(MOVING, man(5), 0))).toBe(false);
 });
+
+it('plays relayed radio, fake-chatter, and spatial siege clips when present in the manifest', () => {
+  const { voices, audios } = setup();
+  VOICED.clips.add('radio.spotter.eyes.a.t2');
+  VOICED.clips.add('chatter.pinned~TYRES.t3');
+  VOICED.clips.add('siege.charge.t2');
+
+  const relay = (clip: string, radio: boolean, enemy: EnemyInstance | null, voice: number): CommsLine => ({
+    kind: 'order', text: '', squad: 'Command', speaker: null, enemy, position: new THREE.Vector3(), row: -1, voice, clip, radio,
+  });
+
+  // Bodiless fake-chatter / radio plays map-wide on the radio channel.
+  expect(voices.say(relay('chatter.pinned~TYRES', true, null, 1))).toBe(true);
+  expect(audios[0]!.src).toBe(`audio/chatter/${encodeURIComponent('chatter.pinned~TYRES.t3')}.mp3`);
+  expect(voices.pool[0]!.radio).toBe(true);
+
+  // Soldier radio beyond earshot is still heard on the radio.
+  expect(voices.say(relay('radio.spotter.eyes.a', true, man(EARSHOT + 40), 0))).toBe(true);
+  expect(voices.pool[1]!.radio).toBe(true);
+
+  // Siege engineer shout respects earshot and plays dry from his body.
+  expect(voices.say(relay('siege.charge', false, man(EARSHOT + 10), 0))).toBe(false);
+  expect(voices.say(relay('siege.charge', false, man(12), 0))).toBe(true);
+  expect(audios[2]!.src).toBe('audio/chatter/siege.charge.t2.mp3');
+  expect(voices.pool[2]!.radio).toBe(false);
+
+  // Unrecorded relay stays silent.
+  expect(voices.say(relay('radio.missing', true, null, 0))).toBe(false);
+});

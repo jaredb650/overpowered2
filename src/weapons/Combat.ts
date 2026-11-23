@@ -111,6 +111,8 @@ export interface StrikeOptions {
   load: AmmoLoad | undefined;
   /** The modded row's armour class (DamageInfo.armour). */
   armour: 'light' | 'medium' | 'heavy' | undefined;
+  /** Damage override on bosses (e.g. Autocannon longer barrel, Bodkin tungsten darts). */
+  bossDamage: number | undefined;
 }
 
 interface QueuedBlast {
@@ -126,9 +128,16 @@ interface QueuedBlast {
 /** Deflection result reported by the sword. */
 export type GuardResult = 'none' | 'block' | 'parry';
 
+/** Optional metadata describing an incoming attack for shield/guard interception. */
+export interface GuardOptions {
+  armorPiercing?: boolean;
+  explosive?: boolean;
+  melee?: boolean;
+}
+
 /** Implemented by WeaponSystem. Combat asks before an enemy shot lands. */
 export interface Guard {
-  guard(incoming: THREE.Vector3): GuardResult;
+  guard(incoming: THREE.Vector3, damage?: number, opts?: GuardOptions): GuardResult;
 }
 
 const UP = new THREE.Vector3(0, 1, 0);
@@ -166,7 +175,7 @@ export class Combat implements CombatSystem {
 
   private readonly opts: StrikeOptions = {
     type: 'bullet', source: '', force: 0, severMult: 1, headshotMult: 2, gib: false,
-    slicePlaneNormal: undefined, explosionId: undefined, killStop: 0, quiet: false, reach: undefined, blastKind: undefined, charge: undefined, pierces: false, vaporize: false, load: undefined, armour: undefined,
+    slicePlaneNormal: undefined, explosionId: undefined, killStop: 0, quiet: false, reach: undefined, blastKind: undefined, charge: undefined, pierces: false, vaporize: false, load: undefined, armour: undefined, bossDamage: undefined,
   };
 
   // Scratch. Each is used within one function and never held across a call that could re-enter it.
@@ -317,6 +326,7 @@ export class Combat implements CombatSystem {
     o.vaporize = false;
     o.load = undefined;
     o.armour = undefined;
+    o.bossDamage = undefined;
     return o;
   }
 
@@ -328,7 +338,7 @@ export class Combat implements CombatSystem {
     if (this.watching > 0) return NO_DAMAGE;
     const c = this.ctx;
     const d = this.nextDamage();
-    d.amount = bossHit(enemy.isBoss, amount);
+    d.amount = bossHit(enemy.isBoss, amount, o.bossDamage);
     d.type = o.type;
     d.point.copy(point);
     d.dir.copy(dir);
@@ -383,21 +393,35 @@ export class Combat implements CombatSystem {
       // A dart through a plate flashes white off it; an incendiary round spits fire where it goes in.
       if (d.load === 'flechette' && armour) c.fx.sparks(point, normal, 2, 0xf2f8ff);
       else if (d.load === 'api') c.fx.sparks(point, normal, 3, 0xff5a1e);
+      else if (d.load === 'dragon') {
+        c.fx.sparks(point, normal, 6, 0xff9228);
+        c.fx.flameLick?.(point, 0.24, 1);
+      }
       // A co-op guest's enemy dies on the host's word; what tells the shooter of the kill goes by its own guess, at once.
       const killed = toldKill(result);
+      const heavyFlesh = d.type === 'pellet' || d.amount >= 55 || d.force >= 25;
       if (result.headshot) {
         // You can hear whether it killed: the old headshot and a 2D puff over a little red mist, or a dry crack and nothing to see.
         if (killed) {
           c.fx.bloodMist(point, HEADSHOT_MIST);
           this.play('headshot');
           this.play('headshot_puff');
-        } else this.play('headshot_crack');
+        } else {
+          this.play('headshot_crack');
+          if (!enemy.machine) this.play(heavyFlesh ? 'flesh_bullet_hard' : 'flesh_bullet_impact', point, 0.9, 0.08);
+        }
         c.hud.hitMarker(killed ? 'kill' : armour ?? 'head');
         this.feel.stop(killed ? HIT_STOP.headshotKill : HIT_STOP.headshot);
       } else {
         c.fx.bloodHit(point, dir, d.load === 'flechette' ? 0.35 : 1);
-        // The material of the hit. Its weight by round, and the 2D confirmation, are layered by audio from the same enemy:hit.
-        this.play(enemy.machine ? 'machine_hit' : 'bullet_body', point, 1, 0.06);
+        // The material of the hit, played strictly 3D from the body itself.
+        if (enemy.machine) {
+          this.play('machine_hit', point, 1, 0.06);
+        } else {
+          this.play('bullet_body', point, 0.45, 0.06);
+          this.play(heavyFlesh ? 'flesh_bullet_hard' : 'flesh_bullet_impact', point, 1, 0.08);
+          this.play('blood_spritz', point, heavyFlesh ? 0.85 : 0.65, 0.1);
+        }
         c.hud.hitMarker(killed ? 'kill' : armour ?? 'body');
       }
       if (killed && killStop > 0) this.feel.stop(killStop);
@@ -434,9 +458,20 @@ export class Combat implements CombatSystem {
     }
     if (d.load === 'flechette' && result.armour) c.fx.sparks(point, normal, 2, 0xf2f8ff);
     else if (d.load === 'api') c.fx.sparks(point, normal, 3, 0xff5a1e);
+    else if (d.load === 'dragon') {
+      c.fx.sparks(point, normal, 6, 0xff9228);
+      c.fx.flameLick?.(point, 0.24, 1);
+    }
     if (result.headshot) return;
     c.fx.bloodHit(point, d.dir, d.load === 'flechette' ? 0.35 : 1);
-    this.play(enemy.machine ? 'machine_hit' : 'bullet_body', point, 1, 0.06);
+    if (enemy.machine) {
+      this.play('machine_hit', point, 1, 0.06);
+    } else {
+      const heavyFlesh = d.type === 'pellet' || d.amount >= 55 || d.force >= 25;
+      this.play('bullet_body', point, 0.45, 0.06);
+      this.play(heavyFlesh ? 'flesh_bullet_hard' : 'flesh_bullet_impact', point, 1, 0.08);
+      this.play('blood_spritz', point, heavyFlesh ? 0.85 : 0.65, 0.1);
+    }
   }
 
   /** Co-op guest: the host says the local player's hit killed and the gun did not say so when it fired. The kill's marker and, for a head, its sound and mist. */
@@ -584,6 +619,7 @@ export class Combat implements CombatSystem {
         o.pierces = spec.armorPiercing ?? false;
         o.load = spec.load;
         o.armour = spec.armour;
+        o.bossDamage = spec.bossDamage;
         const splits = cleave > 0 && h.region !== 'head';
         // Vertical, through the line of the shot, so the two halves fall away either side of it.
         if (splits) o.slicePlaneNormal = this.vE.crossVectors(st.dir, UP).normalize();
@@ -658,8 +694,13 @@ export class Combat implements CombatSystem {
       this.impact(wall.point, wall.normal, wall.surface, scale);
       if (spec.load === 'flechette') this.needles.stick(wall.point, st.dir);
       else if (spec.load === 'api') c.fx.sparks(wall.point, wall.normal, 5, 0xff5a1e);
+      else if (spec.load === 'dragon') {
+        c.fx.sparks(wall.point, wall.normal, 8, 0xff9a28);
+        c.render.decals.add('scorch', wall.point, wall.normal, rand(0.32, 0.52), rand(0, 6.2832));
+      }
       if (!watching) c.world.objects?.damageExplosive(wall.collider, atWall, spec.source);
-      const vehicle = !watching && c.enemies.vehicles?.shot(wall.collider, wall.point, atWall, spec.source) === true;
+      const vehicleDmg = spec.bossDamage ? spec.bossDamage * damageKept(budget) : atWall;
+      const vehicle = !watching && c.enemies.vehicles?.shot(wall.collider, wall.point, vehicleDmg, spec.source) === true;
       left -= wall.distance;
       flown += wall.distance;
 
@@ -956,7 +997,7 @@ export class Combat implements CombatSystem {
     const limit = wall ? wall.distance : max;
     st.end.copy(st.origin).addScaledVector(st.dir, limit);
 
-    const remoteHit = c.coop?.world?.enemyRay(st.origin, st.end, spec.damage, spec.source, true, spec.tracer, spec.whizz);
+    const remoteHit = c.coop?.world?.enemyRay(st.origin, st.end, spec.damage, spec.source, true, spec.tracer, spec.whizz, spec.armorPiercing);
     if (remoteHit) {
       st.end.copy(remoteHit);
       r.hitEnemy = true;
@@ -971,7 +1012,7 @@ export class Combat implements CombatSystem {
       if (hit.dist2 < PLAYER_RADIUS * PLAYER_RADIUS) {
         st.end.copy(st.origin).addScaledVector(st.dir, limit * hit.s);
         r.hitEnemy = true;
-        const guard = this.guard(st.dir);
+        const guard = this.guard(st.dir, spec.damage, { armorPiercing: spec.armorPiercing });
         if (spec.tracer) c.fx.tracer(st.from, st.end, spec.tracer);
         if (guard !== 'none') {
           this.deflected(st.end, st.dir, spec.damage, guard);
@@ -992,10 +1033,10 @@ export class Combat implements CombatSystem {
     }
   }
 
-  /** Asks the sword whether it took the shot. */
-  guard(incoming: THREE.Vector3): GuardResult {
+  /** Asks the sword or raised riot shield whether it took the shot. */
+  guard(incoming: THREE.Vector3, damage?: number, opts?: GuardOptions): GuardResult {
     const g = this.ctx.weapons as unknown as Partial<Guard>;
-    return g.guard?.(incoming) ?? 'none';
+    return g.guard?.(incoming, damage, opts) ?? 'none';
   }
 
   /**

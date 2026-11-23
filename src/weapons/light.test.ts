@@ -17,8 +17,8 @@ const view = (owned: WeaponId[]): ShopView => ({
 
 describe('weapon light', () => {
   it('fits every rifle, shotgun and pistol, and nothing heavy', () => {
-    expect([...LIGHT_GUNS].sort()).toEqual(['autoraffica', 'awl', 'deuce', 'gimlet', 'harrow', 'judge', 'rivet', 'shotgun', 'smg', 'thresher', 'ultramag']);
-    for (const heavy of ['sabot', 'autocannon', 'rocket', 'quiver', 'buzzsaw', 'piledriver', 'lance', 'kiln', 'stakegun'] as WeaponId[]) {
+    expect([...LIGHT_GUNS].sort()).toEqual(['autoraffica', 'awl', 'billhook', 'bodkin', 'deuce', 'gimlet', 'harrow', 'judge', 'rivet', 'shotgun', 'smg', 'thresher', 'ultramag']);
+    for (const heavy of ['sabot', 'autocannon', 'rocket', 'quiver', 'buzzsaw', 'piledriver', 'lance', 'autoclave', 'kiln', 'stakegun', 'gaff'] as WeaponId[]) {
       expect(MOD_ORDER.some(id => MODS[id].weapon === heavy && id.endsWith('Light')), heavy).toBe(false);
     }
   });

@@ -255,6 +255,7 @@ describe('endings: every run ends on the team board', () => {
   it('writes each board in the Council\'s voice, and only a win is green', () => {
     expect(endCopy('wipe', 7)).toMatchObject({ big: 'TEAM WIPED', won: false });
     expect(endCopy('wipe', 7).sub).toContain('wave 7');
+    expect(endCopy('wipe', 0).sub).not.toContain('wave 0');
     expect(endCopy('fulfilled', 10)).toMatchObject({ big: 'CONTRACT FULFILLED', won: true });
     expect(endCopy('mission', 0)).toMatchObject({ big: 'MISSION COMPLETE', won: true });
   });
@@ -1152,6 +1153,30 @@ describe('a guest\'s words said once are said again when the host has dropped th
     game.tick(); game.tick();
     expect(kept()?.grenades).toBe(5);
     expect(kept()?.guns.map(g => g.weapon).sort()).toEqual(['shotgun', 'smg']);
+    game.dispose();
+  });
+
+  it('a quick reload while downed does not grant a free revive, and an away respawn keeps checkpoint coordinates', () => {
+    const game = party(1);
+    game.tick();
+    const a = game.guests[0]!;
+    die(a); game.relay.flush(); game.tick();
+    expect(game.host.world.team.life(a.lobby.you).state).toBe('down');
+    // Immediately reload (new peer id, same browser) before the bleed timer finishes: must come back dead/bleeding, not up.
+    const reloaded = game.rejoin(0, 'guest-1-fast');
+    game.tick();
+    expect(game.host.world.team.life(reloaded.lobby.you).state).not.toBe('up');
+    expect(reloaded.player.alive).toBe(false);
+    // Away player respawned at a checkpoint receives those exact coordinates upon returning.
+    game.relay.close(reloaded.room); game.relay.flush();
+    game.tick();
+    game.host.world.team.respawnAll({ x: 42, y: 3, z: -18 }, 1.25);
+    game.relay.reopen(reloaded.room); game.relay.flush();
+    game.tick();
+    expect(reloaded.player.alive).toBe(true);
+    const call = reloaded.player.teleport.mock.calls.at(-1)!;
+    expect(call[0].distanceTo(new THREE.Vector3(42, 3, -18))).toBeLessThan(2);
+    expect(call[1]).toBeCloseTo(1.25, 2);
     game.dispose();
   });
 });

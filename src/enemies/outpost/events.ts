@@ -51,6 +51,10 @@ export interface CommsLine {
   why?: string;
   /** The speaker's voice for life (chatter/voices.ts), or -1. */
   voice?: number;
+  /** Explicit chatter clip key (without `.t2`/`.t3`) for relayed lines (`row === -1`), or null. */
+  clip?: string | null;
+  /** True when a relayed clip should play on the map-wide radio channel rather than spatially from `enemy`. */
+  radio?: boolean;
 }
 
 declare module '../../core/contracts' {

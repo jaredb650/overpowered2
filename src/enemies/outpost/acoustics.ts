@@ -43,6 +43,8 @@ const HEAVY_SUPPRESSED: ReadonlySet<WeaponId> = new Set<WeaponId>([
   'autocannon',
   'metalstorm',
   'stakegun',
+  'billhook',
+  'gaff',
 ]);
 
 /** Suppressor mod IDs keyed by weapon, for resolving suppression from `ctx.weapons.fitted`. */
@@ -51,6 +53,7 @@ const SUPPRESSOR_MOD_BY_WEAPON: Partial<Record<WeaponId, ModId>> = {
   smg: 'suppressor',
   gimlet: 'gimletCan',
   ultramag: 'ultramagCan',
+  rivet: 'rivetCan',
 };
 
 /** Scratch vectors/hit for zero-allocation occlusion raycasts. */

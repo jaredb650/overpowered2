@@ -130,8 +130,8 @@ describe('friends-only hit sanity checks', () => {
   it('knows each gun\'s fastest from the weapon table', () => {
     expect(limitsOf('smg')!.fastest).toBeCloseTo(Math.min(60 / (60 / WEAPONS.smg.interval + 100) / 2, KATA.step));
     expect(limitsOf('judge')!.fastest).toBeCloseTo(WEAPONS.judge.altFan!.gap / 2);
-    expect(limitsOf('rivet')!.fastest).toBeCloseTo(WEAPONS.rivet.interval / 2);
-    expect(limitsOf('shotgun')!.fastest).toBeCloseTo(WEAPONS.shotgun.interval);
+    expect(limitsOf('rivet')!.fastest).toBeCloseTo(Math.min(WEAPONS.rivet.interval / 1.25 / 1.15 / 2, KATA.step));
+    expect(limitsOf('shotgun')!.fastest).toBeCloseTo(WEAPONS.shotgun.interval * 0.75);
     expect(limitsOf('ultramag')!.fastest).toBeCloseTo(Math.min(WEAPONS.ultramag.interval / 1.25 / 1.15 / 2, KATA.step));
     expect(limitsOf('autocannon')!.instakill).toBe(true);
     expect(limitsOf('lance')!.pierces).toBe(true);
@@ -139,6 +139,22 @@ describe('friends-only hit sanity checks', () => {
     expect(limitsOf('smg')!.pierces).toBe(false);
     expect(limitsOf('deuce')!.pellets).toBeGreaterThanOrEqual(WEAPONS.deuce.pellets * 4 * 3.5);
     expect(limitsOf('__proto__')).toBeNull();
+    // Rate-selected weapons (Metal Storm) use their fastest rateSelect RPM and volley count, not only the base interval.
+    const storm = WEAPONS.metalstorm;
+    const maxRpm = Math.max(...storm.rateSelect!.modes.map(m => m.rpm));
+    const maxVolley = Math.max(...storm.rateSelect!.modes.map(m => m.volley ?? 1));
+    expect(limitsOf('metalstorm')!.fastest).toBeCloseTo(Math.max(0.004, 60 / maxRpm));
+    expect(limitsOf('metalstorm')!.pellets).toBeGreaterThanOrEqual(maxVolley);
+  });
+  it('allows Autoclave Stage-3 true-damage pop through the instakill check', () => {
+    const validator = new ClaimValidator();
+    const pop: HitClaim = {
+      ...claim(1, 200),
+      weapon: 'autoclave',
+      damage: { amount: 1e6, type: 'true', source: 'autoclave', force: 0, region: 'chest', point: target, dir: [0, 0, -1] },
+    };
+    expect(validator.check('guest', pop, 220, scene()).ok).toBe(true);
+    expect(pop.damage.amount).toBe(INSTAKILL);
   });
 });
 

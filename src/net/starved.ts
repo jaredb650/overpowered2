@@ -40,5 +40,6 @@ export class Starved {
   /** A new world, or a state in which silence is expected (the host's tab hidden, the run over): start again. */
   reset(): void {
     this.dry = 0;
+    this.last = 0;
   }
 }

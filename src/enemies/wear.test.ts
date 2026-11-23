@@ -63,14 +63,14 @@ const body = (e: { char: CharacterInstance }) => e.char as unknown as Body;
 
 afterEach(() => { DevFlags.wear = true; });
 
-describe('wear follows the pools', () => {
-  it('shows an arm as far through as its pool is spent, round by round, until it comes off', () => {
+describe('wear follows the pools proportionally by weapon class', () => {
+  it('shows an arm torn through 1:1 with its pool under heavy fire until it comes off', () => {
     const { manager, spawn } = world();
     const e = spawn('trooper');
     const whole = e.limbHp.get('armR')!;
     const seen: number[] = [];
     for (let i = 0; i < 12 && !e.char.severed.has('armR'); i++) {
-      manager.applyDamage(e, hit('armR', 8));
+      manager.applyDamage(e, hit('armR', 8, 'pellet', { source: 'shotgun' }));
       const left = e.limbHp.get('armR');
       seen.push(body(e).wearOf('armR'));
       if (left !== undefined) expect(seen.at(-1)).toBeCloseTo(1 - left / whole, 5);
@@ -83,6 +83,26 @@ describe('wear follows the pools', () => {
     expect(body(e).wearOf('armL')).toBe(0);
   });
 
+  it('keeps 9mm/small-arms torso hits free of region-wide skin flaying while ramping limb wear near severing', () => {
+    const { manager, spawn } = world();
+    const torso = spawn('trooper');
+    manager.applyDamage(torso, hit('chest', 25, 'bullet', { source: 'rivet' }));
+    expect(body(torso).wearOf('chest')).toBe(0);
+    manager.applyDamage(torso, hit('chest', 25, 'bullet', { source: 'smg' }));
+    expect(body(torso).wearOf('chest')).toBe(0);
+    // First SMG arm hit stays subtle, then ramps sharply as the limb approaches severing.
+    const arm = spawn('trooper');
+    manager.applyDamage(arm, hit('armR', 8, 'bullet', { source: 'smg' }));
+    const early = body(arm).wearOf('armR');
+    expect(early).toBeGreaterThan(0);
+    expect(early).toBeLessThan(0.12);
+    for (let i = 0; i < 12 && !arm.char.severed.has('armR'); i++) {
+      manager.applyDamage(arm, hit('armR', 8, 'bullet', { source: 'smg' }));
+    }
+    expect(arm.char.severed.has('armR')).toBe(true);
+    expect(body(arm).wearOf('armR')).toBeGreaterThan(0.7);
+  });
+
   it('changes nothing a hit does: the same rounds take the same pools and the same limb with it off', () => {
     const run = (on: boolean) => {
       DevFlags.wear = on;
@@ -90,7 +110,7 @@ describe('wear follows the pools', () => {
       const e = spawn('trooper');
       const log: (number | undefined)[] = [];
       for (let i = 0; i < 8; i++) {
-        manager.applyDamage(e, hit(i % 2 ? 'armR' : 'chest', 7));
+        manager.applyDamage(e, hit(i % 2 ? 'armR' : 'chest', 7, 'pellet', { source: 'shotgun' }));
         log.push(e.limbHp.get('armR'), e.health, e.char.severed.size);
       }
       return { log, worn: body(e).worn.size };
@@ -110,17 +130,16 @@ describe('wear follows the pools', () => {
     expect(body(e).worn.get('armR')!.kind).toBe(WearKind.cut);
   });
 
-  it('wears the trunk by the health a hit on it took, and stops short of bare', () => {
+  it('wears the trunk under blasts and heavy weapons, and stops short of bare', () => {
     const { manager, spawn } = world();
-    const e = spawn('brute');
-    e.armor = 0;
+    const e = spawn('trooper');
     const before = e.health;
-    manager.applyDamage(e, hit('chest', 10));
-    expect(body(e).wearOf('chest')).toBeCloseTo((before - e.health) / e.maxHealth * WearTuning.trunk, 5);
+    manager.applyDamage(e, hit('chest', 10, 'explosive', { source: 'rocket' }));
+    expect(body(e).wearOf('chest')).toBeCloseTo((before - e.health) / e.maxHealth * WearTuning.trunk * 0.6, 5);
+    expect(body(e).wearOf('abdomen')).toBeCloseTo((before - e.health) / e.maxHealth * WearTuning.trunk * 0.6, 5);
     e.health = e.maxHealth = 1e6;
-    for (let i = 0; i < 40; i++) manager.applyDamage(e, hit('chest', 1e5));
+    for (let i = 0; i < 40; i++) manager.applyDamage(e, hit('chest', 1e5, 'pellet', { source: 'shotgun' }));
     expect(body(e).wearOf('chest')).toBeLessThanOrEqual(WearTuning.trunkMost);
-    expect(body(e).wearOf('abdomen')).toBe(0);
   });
 
   it('shows fire as no wear of its own: the char is fire\'s to draw', () => {
@@ -136,10 +155,10 @@ describe('a co-op guest wears its own copy', () => {
     const { manager, spawn } = world();
     const e = spawn('trooper');
     const whole = e.limbHp.get('armR')!, head = e.limbHp.get('head')!;
-    manager.predictDamage(e, hit('armR', 8));
+    manager.predictDamage(e, hit('armR', 8, 'pellet', { source: 'shotgun' }));
     expect(body(e).wearOf('armR')).toBeCloseTo(1 - e.limbHp.get('armR')! / whole, 5);
     expect(body(e).wearOf('armR')).toBeGreaterThan(0);
-    const res = manager.predictDamage(e, hit('head', 5));
+    const res = manager.predictDamage(e, hit('head', 5, 'pellet', { source: 'shotgun' }));
     // The head's pool is the host's: the guest's copy of it is not spent, only the skin is told.
     expect(e.limbHp.get('head')).toBe(head);
     expect(body(e).wearOf('head')).toBeCloseTo(res.dealt / head, 5);

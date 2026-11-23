@@ -84,7 +84,10 @@ export const WEAPON_PRICES: Partial<Record<WeaponId, WeaponPrice>> = {
   smg: { price: 1100, loadout: 'primary', ammo: 'basic', box: 60 },
   thresher: { price: 800, loadout: 'primary', ammo: 'basic', box: 80 },
   shotgun: { price: 1000, loadout: 'primary', ammo: 'basic', box: 70 },
+  billhook: { price: 1700, loadout: 'primary', ammo: 'basic', box: 90 },
+  bodkin: { price: 1450, loadout: 'primary', ammo: 'basic', box: 100 },
   stakegun: { price: 1100, loadout: 'primary', ammo: 'specialty', box: 220 },
+  gaff: { price: 2200, loadout: 'primary', ammo: 'specialty', box: 260 },
   kiln: { price: 1200, loadout: 'primary', ammo: 'specialty', box: 200 },
   sabot: { price: 1400, loadout: 'primary', ammo: 'specialty', box: 300 },
   awl: { price: 950, loadout: 'primary', ammo: 'basic', box: 110 },
@@ -101,6 +104,7 @@ export const WEAPON_PRICES: Partial<Record<WeaponId, WeaponPrice>> = {
   mgl: { price: 1900, explosive: true, ammo: 'explosive', box: 290 },
   rocket: { price: 3000, explosive: true, ammo: 'explosive', box: 450 },
   autocannon: { price: 2600, explosive: true, ammo: 'explosive', box: 420 },
+  autoclave: { price: 2100, explosive: true, ammo: 'specialty', box: 280 },
   lance: { price: 2400, explosive: true, ammo: 'explosive', box: 380 },
 };
 

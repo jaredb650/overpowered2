@@ -1,7 +1,9 @@
 /**
- * The Autoraffica (weapons-update plan section 14): always suppressed; a three-round burst a pull, or hold R for the smart aim,
- * which locks the head nearest the crosshair inside its circle, in sight: locked, a held trigger is full auto into the heads in
- * the circle one after another; unlocked, it is semi-auto.
+ * The Autoraffica (docs/proposals/weapons-wishlist.md section 2): always suppressed; a three-round burst a pull, or hold R
+ * for paint-then-snap smart mode. In smart mode, hold left click to paint visible heads inside the 8° circle one at a time
+ * (0.25 s each, nearest unpainted head first, ascending lock beep); releasing while painting cancels all marks and fires nothing;
+ * once every visible head in the circle is marked, drills them full-auto (800 RPM) in order with a ~0.08 s snap delay between
+ * kills; releasing while firing stops immediately; clicking with no head in the circle fires one plain shot on pull.
  */
 import { beforeEach, describe, expect, it } from 'vitest';
 import { CACHE_ORDER } from '../progression/data';
@@ -9,19 +11,30 @@ import { MOD_WARES, WEAPON_WARES } from '../contracts/shop/data';
 import { STARTING_WEAPONS, WEAPONS } from './data';
 import { familyOfSlot } from './families';
 import { AMMO_GUNS, MODS, MOD_ORDER } from './mods';
+import { SMART_DEFAULTS } from './smartaim';
 import { makeRange, type Dummy, type Range } from './testkit';
 
 const A = WEAPONS.autoraffica;
 const B = A.pullBurst!;
 const S = A.smart!;
+const PAINT_TIME = S.paintTime ?? SMART_DEFAULTS.paintTime;
+const SNAP_DELAY = S.snapDelay ?? SMART_DEFAULTS.snapDelay;
+
 let r: Range;
 let callouts: string[];
+let playPitches: Array<{ id: string; pitch: number }>;
 
 beforeEach(async () => {
   r = await makeRange();
   r.reset();
   callouts = [];
+  playPitches = [];
   (r.ctx.hud as { callout?: (t: string) => void }).callout = t => callouts.push(t);
+  const origPlay = r.ctx.audio.play.bind(r.ctx.audio);
+  r.ctx.audio.play = (id: string, opts?: { pitch?: number }) => {
+    playPitches.push({ id, pitch: opts?.pitch ?? 1 });
+    return origPlay(id, opts as never);
+  };
   r.weapons.give('autoraffica');
   r.weapons.switchTo('autoraffica');
   r.run(0.6);
@@ -53,7 +66,6 @@ function lookAtBody(d: Dummy): void {
 }
 
 const heads = (d: Dummy) => d.hits.filter(h => h.source === 'autoraffica' && h.region === 'head').length;
-const locked = () => (r.weapons.smartAim as unknown as { target: Dummy | null }).target;
 
 describe('the Autoraffica on paper', () => {
   it('is on key 6 with the pistols, its own unlock from its own cache, sold in the shop with AP and HP rounds', () => {
@@ -63,13 +75,14 @@ describe('the Autoraffica on paper', () => {
     expect(CACHE_ORDER.filter(id => id === 'autoraffica')).toHaveLength(1);
     expect(WEAPON_WARES.autoraffica!.price).toBeGreaterThan(0);
     expect(WEAPON_WARES.autoraffica!.wave).toBeGreaterThan(0);
+    expect(WEAPON_WARES.autoraffica!.lore.length).toBeGreaterThan(40);
     expect(AMMO_GUNS).toContain('autoraffica');
     expect(MODS.autorafficaAp.slot).toBe('ammo');
     expect(MODS.autorafficaHp.slot).toBe('ammo');
     expect(MOD_WARES.autorafficaAp.lore.length).toBeGreaterThan(40);
   });
 
-  it('is always suppressed: the can is the gun, and no mod changes its report or its flash', () => {
+  it('is always suppressed: the shroud is part of the gun, and no mod changes its report or its flash', () => {
     expect(A.muzzle).toBe('suppressed');
     expect(A.sounds[0]!.id).toBe('autoraffica_shot');
     for (const id of MOD_ORDER) {
@@ -134,9 +147,10 @@ describe('the burst', () => {
   });
 });
 
-describe('smart aim', () => {
-  it('hold R switches it on and off with a callout; a tap of R reloads', () => {
+describe('smart aim (paint-then-snap)', () => {
+  it('hold R switches between SMART and BURST with a callout; a short R tap reloads without toggling', () => {
     expect(r.weapons.smartAim.on).toBe(false);
+    expect(r.weapons.ammoMode).toBe('BURST');
     smartOn();
     expect(callouts).toEqual(['SMART']);
     expect(r.weapons.ammoMode).toBe('SMART');
@@ -151,123 +165,187 @@ describe('smart aim', () => {
     expect(r.weapons.ammoMode).toBe('BURST');
   });
 
-  it('locks the head nearest the crosshair inside the circle, the crosshair is on it, and a held trigger is full auto into it', () => {
-    const near = r.enemies.add(0.5, -10);
-    const far = r.enemies.add(-1, -10);
-    lookNear(near, 0.4);
+  it('does not passively lock at rest; holding LMB on 1 target paints for 0.25 s, beeps, then full-auto drills his head', () => {
+    const d = r.enemies.add(0.4, -10);
+    lookNear(d, 0.3);
     smartOn();
-    r.run(1 / 60);
-    expect(locked()).toBe(near);
-    const head = r.combat.headOf(near, near.center.clone());
-    expect(r.weapons.smartAim.lock!.distanceTo(head)).toBeLessThan(1e-6);
+    r.run(0.2);
+    // No passive lock while idle at rest.
+    expect(r.weapons.smartAim.phase).toBe('idle');
+    expect(r.weapons.smartAim.lock).toBeNull();
+    expect(r.weapons.paint?.marks.length).toBe(0);
+
+    // Hold LMB: paints for 0.25 s with zero shots fired during charge, exposing chargingAt for the radial head ring.
+    r.input.simulate('fire', true);
+    r.run(PAINT_TIME * 0.6);
+    expect(r.weapons.smartAim.phase).toBe('painting');
+    expect(r.weapons.smartAim.charge).toBeGreaterThan(0.3);
+    const head = r.combat.headOf(d, d.center.clone());
+    expect(r.weapons.smartAim.chargingAt).not.toBeNull();
+    expect(r.weapons.smartAim.chargingAt!.distanceTo(head)).toBeLessThan(1e-6);
+    expect(d.hits.length).toBe(0);
+
+    // Finish painting: lock beep fires and full-auto immediately begins drilling his head.
+    r.run(PAINT_TIME * 0.6);
+    expect(r.weapons.smartAim.phase).toBe('firing');
+    expect(r.weapons.smartAim.chargingAt).toBeNull();
     expect(r.weapons.ammoMode).toBe('SMART · LOCK');
-    // He never dies (the dummy's health), so a second of trigger is a second of full auto, every round to his head.
-    r.input.simulate('fire', true);
-    r.run(1);
+    expect(playPitches.filter(p => p.id === 'quiver_lock').length).toBe(1);
+    expect(r.weapons.smartAim.lock!.distanceTo(head)).toBeLessThan(1e-6);
+
+    // Continue holding for 0.6 s: full-auto (800 RPM) drills his head on every round.
+    r.run(0.6);
     r.input.simulate('fire', false);
-    r.run(0.2);
+    r.run(0.1);
     const fired = A.magSize - r.weapons.ammo('autoraffica').mag;
-    expect(fired).toBeGreaterThanOrEqual(Math.floor(1 / S.interval) - 1);
-    expect(heads(near)).toBe(fired);
+    expect(fired).toBeGreaterThanOrEqual(Math.floor(0.6 / S.interval));
+    expect(heads(d)).toBe(fired);
+  });
+
+  it('paints multiple heads one at a time (nearest crosshair first) with ascending pitch, then kills in order with snap delay', () => {
+    const near = r.enemies.add(0.3, -10, 50);
+    const far = r.enemies.add(-0.9, -10, 50);
+    lookNear(near, 0);
+    smartOn();
+
+    // Hold LMB: paints `near` first (0.25 s).
+    r.input.simulate('fire', true);
+    r.run(PAINT_TIME + 0.03);
+    expect(r.weapons.smartAim.phase).toBe('painting');
+    expect(r.weapons.smartAim.markCount).toBe(1);
+    expect(r.weapons.paint?.marks.length).toBe(1);
+    expect(r.weapons.ammoMode).toBe('SMART · MARK 1');
+    expect(near.hits.length).toBe(0);
     expect(far.hits.length).toBe(0);
-  });
 
-  it('with no head in the circle it is semi-auto: one round a pull however long the trigger is held', () => {
-    const d = r.enemies.add(0, -10);
-    lookAtBody(d);
-    r.player.forward.x += 0.4;
-    r.player.forward.normalize();
-    smartOn();
-    r.input.simulate('fire', true);
-    r.run(1);
-    r.input.simulate('fire', false);
-    r.run(0.2);
-    expect(r.weapons.ammo('autoraffica').mag).toBe(A.magSize - 1);
-    r.tap('fire');
-    r.run(0.2);
-    expect(r.weapons.ammo('autoraffica').mag).toBe(A.magSize - 2);
-  });
+    // Paint `far` second (another 0.25 s): ascending pitch lock beep, then immediately kills `near`.
+    r.run(PAINT_TIME);
+    const locks = playPitches.filter(p => p.id === 'quiver_lock');
+    expect(locks.length).toBe(2);
+    expect(locks[1]!.pitch).toBeGreaterThan(locks[0]!.pitch);
+    // `near` takes the first headshot and dies; `far` waits out the ~0.08 s snap delay.
+    expect(near.alive).toBe(false);
+    expect(heads(near)).toBe(1);
+    expect(far.alive).toBe(true);
+    expect(heads(far)).toBe(0);
 
-  it('a head outside the circle is not locked; off, the rounds go down the crosshair', () => {
-    const d = r.enemies.add(0, -10);
-    // 2 m off at 10 m: 0.2 rad, outside the 0.14 circle.
-    lookNear(d, 2);
-    smartOn();
-    r.run(1 / 60);
-    expect(locked()).toBeNull();
-    lookAtBody(d);
-    holdR(S.hold + 0.05);
-    expect(r.weapons.smartAim.on).toBe(false);
-    r.tap('fire');
-    r.run(0.2);
-    expect(heads(d)).toBe(0);
-    expect(d.hits.length).toBe(B.rounds);
-  });
-
-  it('never locks through a wall', () => {
-    r.wall(-6, 0.3);
-    const d = r.enemies.add(0, -10);
-    lookNear(d, 0.4);
-    smartOn();
-    r.run(0.2);
-    expect(locked()).toBeNull();
-  });
-
-  it('holds its man while he is in the circle, never jumping to a nearer head; full auto hands on as each dies, and stops with none left', () => {
-    const a = r.enemies.add(0.9, -10, 50);
-    const b = r.enemies.add(-0.6, -10, 50);
-    lookNear(a, 0);
-    smartOn();
-    r.run(1 / 60);
-    expect(locked()).toBe(a);
-    // Now b is nearer the crosshair, and both are in the circle: the lock stays on a.
-    lookNear(a, -1.1);
-    r.run(0.2);
-    expect(locked()).toBe(a);
-    // The trigger held: a round kills a (24 times 3 to the head over his 50), the lock hands on to b, a round kills him, and
-    // with no head left in the circle the gun stops, the trigger still down.
-    r.input.simulate('fire', true);
-    r.run(1);
-    expect(a.alive).toBe(false);
-    expect(b.alive).toBe(false);
-    expect(heads(a)).toBe(1);
-    expect(heads(b)).toBe(1);
-    expect(locked()).toBeNull();
+    // After snap delay, snaps to `far`, drills him to death, and finishes idle even with LMB still down.
+    r.run(SNAP_DELAY + 0.15);
+    expect(far.alive).toBe(false);
+    expect(heads(far)).toBe(1);
+    expect(r.weapons.smartAim.phase).toBe('idle');
+    expect(r.weapons.smartAim.lock).toBeNull();
     expect(r.weapons.ammo('autoraffica').mag).toBe(A.magSize - 2);
     r.input.simulate('fire', false);
   });
 
-  it('lets a man go after its track time and passes him over for its rest, moving to another in the circle', () => {
-    const a = r.enemies.add(0, -10);
-    const b = r.enemies.add(1, -10);
+  it('cancels all marks and fires nothing if released while still painting (Q3a)', () => {
+    const a = r.enemies.add(0.3, -10, 50);
+    const b = r.enemies.add(-0.8, -10, 50);
     lookNear(a, 0);
     smartOn();
-    r.run(1 / 60);
-    expect(locked()).toBe(a);
-    r.run(S.track + 0.05);
-    expect(locked()).toBe(b);
-    // Alone in the circle, he is locked again once his rest is over.
-    b.alive = false;
-    r.run(1 / 60);
-    expect(locked()).toBeNull();
-    r.run(S.rest);
-    expect(locked()).toBe(a);
+
+    // Paint first head, partway through painting second head, then release.
+    r.input.simulate('fire', true);
+    r.run(PAINT_TIME + PAINT_TIME * 0.4);
+    expect(r.weapons.smartAim.phase).toBe('painting');
+    expect(r.weapons.smartAim.markCount).toBe(1);
+    r.input.simulate('fire', false);
+    r.run(0.2);
+
+    expect(r.weapons.smartAim.phase).toBe('idle');
+    expect(r.weapons.smartAim.markCount).toBe(0);
+    expect(r.weapons.ammo('autoraffica').mag).toBe(A.magSize);
+    expect(a.hits.length).toBe(0);
+    expect(b.hits.length).toBe(0);
+    expect(r.record.sounds).toContain('quiver_cancel');
   });
 
-  it('a lock outlives a moment out of sight, and no longer', () => {
+  it('stops firing immediately and clears remaining marks if released while firing (Q3b)', () => {
+    const a = r.enemies.add(0.3, -10, 500);
+    const b = r.enemies.add(-0.8, -10, 500);
+    lookNear(a, 0);
+    smartOn();
+
+    // Paint both heads and let firing begin on `a`.
+    r.input.simulate('fire', true);
+    r.run(PAINT_TIME * 2 + 0.05);
+    expect(r.weapons.smartAim.phase).toBe('firing');
+    const hitsBeforeRelease = a.hits.length;
+    expect(hitsBeforeRelease).toBeGreaterThan(0);
+    expect(b.hits.length).toBe(0);
+
+    // Release while firing: stops immediately, clears remaining marks.
+    r.input.simulate('fire', false);
+    r.run(0.5);
+    expect(r.weapons.smartAim.phase).toBe('idle');
+    expect(r.weapons.smartAim.markCount).toBe(0);
+    expect(a.hits.length).toBe(hitsBeforeRelease);
+    expect(b.hits.length).toBe(0);
+  });
+
+  it('resets charging progress if a head leaves the circle or goes behind cover mid-paint', () => {
     const d = r.enemies.add(0, -10);
     lookNear(d, 0);
     smartOn();
+
+    // Charge partway, then turn outside the 8° cone.
+    r.input.simulate('fire', true);
+    r.run(PAINT_TIME * 0.7);
+    expect(r.weapons.smartAim.charge).toBeGreaterThan(0.5);
+    lookNear(d, 2.5);
     r.run(1 / 60);
-    expect(locked()).toBe(d);
+    expect(r.weapons.smartAim.charge).toBe(0);
+    expect(r.weapons.smartAim.markCount).toBe(0);
+
+    // Look back on him: must restart from 0, so half paintTime is not enough to finish.
+    lookNear(d, 0);
+    r.run(PAINT_TIME * 0.5);
+    expect(r.weapons.smartAim.phase).toBe('painting');
+    expect(r.weapons.smartAim.markCount).toBe(0);
+
+    // Put a wall in front of him: charge resets to 0 again.
     r.wall(-6, 0.3);
-    r.run(S.grace / 2);
-    expect(locked()).toBe(d);
-    r.run(S.grace);
-    expect(locked()).toBeNull();
+    r.run(1 / 60);
+    expect(r.weapons.smartAim.charge).toBe(0);
+    expect(d.hits.length).toBe(0);
+    r.input.simulate('fire', false);
   });
 
-  it('is off with another gun in hand and back on with the Autoraffica', () => {
+  it('fires a plain single shot on pull when clicking with no head in the circle', () => {
+    const d = r.enemies.add(0, -10);
+    // 2.5 m off at 10 m: outside the 0.14 rad (~8°) circle.
+    lookNear(d, 2.5);
+    smartOn();
+
+    r.input.simulate('fire', true);
+    r.run(0.6);
+    r.input.simulate('fire', false);
+    r.run(0.2);
+    expect(r.weapons.ammo('autoraffica').mag).toBe(A.magSize - 1);
+    expect(d.hits.length).toBe(0);
+
+    // Second tap fires one more plain shot.
+    r.tap('fire');
+    r.run(0.2);
+    expect(r.weapons.ammo('autoraffica').mag).toBe(A.magSize - 2);
+  });
+
+  it('never paints through a wall, and falls back to plain single shot', () => {
+    r.wall(-6, 0.3);
+    const d = r.enemies.add(0, -10);
+    lookNear(d, 0.3);
+    smartOn();
+
+    r.input.simulate('fire', true);
+    r.run(PAINT_TIME + 0.1);
+    r.input.simulate('fire', false);
+    expect(r.weapons.smartAim.markCount).toBe(0);
+    expect(d.hits.length).toBe(0);
+    expect(r.weapons.ammo('autoraffica').mag).toBe(A.magSize - 1);
+  });
+
+  it('is off with another gun in hand and back on with the Autoraffica; reset turns it off', () => {
     smartOn();
     r.weapons.give('rivet');
     r.weapons.switchTo('rivet');

@@ -455,6 +455,13 @@ export class Lobby {
     if (this.phase !== 'open') return;
     if (!this.hosting) return this.guestBeat(now);
     this.checkHold(now);
+    // Keep backpressure state fresh even during quiet periods with no event flushes, so 'slow' decays cleanly back to 'ok'.
+    if (this.match && this.room.buffered) {
+      for (const p of [...this.players]) {
+        if (p.host || p.away || !linked(p)) continue;
+        this.mayFlush(p.id, now);
+      }
+    }
     for (const p of [...this.players]) {
       if (p.host) continue;
       const at = this.lostAt.get(p.seat!);
@@ -473,6 +480,8 @@ export class Lobby {
       if (!this.heard.has(p.id)) this.heard.set(p.id, now);
       // A page loading a map is busy, not gone: the barrier judges how long to wait for it, not this rule.
       if (p.state !== 'lost' && now - last > (p.state === 'loading' ? LOADING_SEAT_MS : SILENCE_MS)) { this.seatLost(p, now); continue; }
+      // Don't pile more control traffic onto a peer whose reliable queue is still draining.
+      if (this.held(p)) continue;
       this.pings.set(p.id, now);
       this.ch.send({ t: 'ping', n: now }, p.id);
     }
@@ -692,12 +701,12 @@ export class Lobby {
     this.post(null, `Start cancelled: ${this.names(this.notReady)} not ready.`);
   }
 
-  private stopCount(): void {
+  private stopCount(silent = false): void {
     if (this.counter) clearInterval(this.counter);
     this.counter = null;
     const was = this.count;
     this.count = 0;
-    if (was) for (const p of this.players) if (linked(p)) this.ch.send({ t: 'count', n: 0 }, p.id);
+    if (was && !silent) for (const p of this.players) if (linked(p)) this.ch.send({ t: 'count', n: 0 }, p.id);
   }
 
   /** Host: the match is over for everyone, and the room stays open for the next one. */
@@ -706,12 +715,27 @@ export class Lobby {
     this.match = null;
     this.started = false;
     this.starting.clear();
+    if (this.ackTimer) clearTimeout(this.ackTimer);
+    this.ackTimer = null;
     this.backToLobbyPage();
     this.beenIn.clear();
     this.readyAt.clear();
     this.out.clear();
     // A seat nobody ever connected to is nobody on the lobby page; a lost one keeps its grace.
+    const dropped = this.players.filter(p => !p.host && !linked(p));
     this.players = this.players.filter(p => p.host || linked(p));
+    for (const p of dropped) {
+      if (p.seat) {
+        this.lostAt.delete(p.seat);
+        this.readyAt.delete(p.seat);
+        this.out.delete(p.seat);
+        this.slotWanted.delete(p.seat);
+      }
+      this.heard.delete(p.id);
+      this.pings.delete(p.id);
+      this.forgetPeer(p.id);
+      this.onSeat(p, { kind: 'gone' });
+    }
     for (const p of this.players) {
       if (p.state === 'lost') continue;
       p.away = false;
@@ -829,7 +853,11 @@ export class Lobby {
     });
     return (data, to) => {
       if (this.phase !== 'open' || !this.match) return 0;
-      const message = data instanceof ArrayBuffer ? data : { match: this.match.id, data };
+      const message = data instanceof ArrayBuffer || data instanceof Uint8Array
+        ? data
+        : ArrayBuffer.isView(data)
+          ? new Uint8Array(data.buffer, data.byteOffset, data.byteLength)
+          : { match: this.match.id, data };
       if (!this.hosting) {
         if (!this.hostId) return 0;
         channel.send(message, this.hostId);
@@ -878,13 +906,14 @@ export class Lobby {
         if (!record) return 0;
         lane.bytes = record.end - record.start;
         const tag = this.matchTag();
+        const gate = (peer: string) => this.mayFlush(peer, performance.now());
         let count = 0;
         if (!this.hosting) {
-          if (this.hostId && !(cosmetic && this.pressure.drops(this.hostId))) { batcher.add(record, this.hostId, tag); count = 1; }
+          if (this.hostId && !(cosmetic && this.pressure.drops(this.hostId))) { batcher.add(record, this.hostId, tag, gate); count = 1; }
         } else for (const player of this.players) {
           if (player.host || player.away || (to !== undefined && player.id !== to) || player.id === except) continue;
           if (cosmetic && this.pressure.drops(player.id)) continue;
-          batcher.add(record, player.id, tag);
+          batcher.add(record, player.id, tag, gate);
           count++;
         }
         if (count === 0) return 0;
@@ -1265,10 +1294,12 @@ export class Lobby {
     } else if (msg.t === 'away' && typeof msg.back === 'boolean') {
       if (msg.back ? !player.away || !!player.state : player.away === true && !player.state) return;
       if (!msg.back) {
+        const wasIn = !player.away;
         player.away = true;
         player.state = undefined;
         this.out.add(player.seat!);
         this.post(null, `${player.name} went back to the lobby.`);
+        if (wasIn && this.match) this.onSeat(player, { kind: 'lost' });
         this.checkHold();
       } else if (this.match && this.barrier) {
         // On their way in: their page loads the map and says so; "is back" is posted when they are.
@@ -1385,6 +1416,7 @@ export class Lobby {
     this.rivals.delete(id);
     this.pings.delete(id);
     this.forgetPeer(id);
+    if (this.phase === 'closed') return;
     if (!this.hosting) {
       this.unheard.delete(id);
       // Not the end yet: a dropped link comes back more often than not (RECONNECT_MS).
@@ -1503,9 +1535,11 @@ export class Lobby {
   }
 
   private netError(error: NetError, peerId?: string): void {
+    if (this.phase === 'closed') return;
     if (this.hosting) report(coopErrorCode(error, !!this.room.status?.().ice?.ours.publicIps.some(ip => this.room.status?.().ice?.theirs.publicIps.includes(ip)), turnConfigured()), { stage: 'host-peer-failure', reason: error, ice: this.reportIce() });
     if (this.hosting) {
       if (error === 'password' && peerId) {
+        if (this.failed.size >= 128) this.failed.delete(this.failed.values().next().value!);
         this.failed.add(peerId);
         if (this.atDoor.has(peerId)) this.doorCh?.send({ t: 'wrong' }, peerId);
       }
@@ -1546,7 +1580,7 @@ export class Lobby {
   /** A chat line from the host's side: kept here and sent on, with the list, to every guest. */
   private post(from: string | null, text: string): void {
     this.addLine(from, text, false);
-    for (const p of this.players) if (linked(p)) this.ch.send({ t: 'chat', from, text }, p.id);
+    for (const p of this.players) if (linked(p) && !this.held(p)) this.ch.send({ t: 'chat', from, text }, p.id);
     this.broadcast();
   }
 
@@ -1558,7 +1592,7 @@ export class Lobby {
   }
 
   private broadcast(): void {
-    for (const p of this.players) if (linked(p)) this.ch.send({ t: 'lobby', you: p.id, players: this.players, pick: this.pick, live: this.live, holdLeft: this.holdLeft, on: this.match?.id ?? null }, p.id);
+    for (const p of this.players) if (linked(p) && !this.held(p)) this.ch.send({ t: 'lobby', you: p.id, players: this.players, pick: this.pick, live: this.live, holdLeft: this.holdLeft, on: this.match?.id ?? null }, p.id);
     this.onChange();
   }
 
@@ -1594,7 +1628,7 @@ export class Lobby {
     this.beat = null;
     if (this.ackTimer) clearTimeout(this.ackTimer);
     this.ackTimer = null;
-    this.stopCount();
+    this.stopCount(true);
     this.clearWait();
     this.shutDoor();
     if (linger > 0) setTimeout(() => this.room.leave(), linger);

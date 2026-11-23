@@ -56,6 +56,9 @@ playwright-core (screenshots). No other runtime deps without a strong reason. De
 - Missions: the owner loved mission 1 and hated Foreclosure v1 ("incoherent"). Wants a villain who controls the level and reacts,
   set pieces that force a way of playing, clear dialogue, a clear gated route through distinct places, enough enemies for the big
   tools. Write scripts plainly, villain-first; get the owner's OK on a script before building. Say "sections", not "beats".
+  **Mission voices:** if a mission has an NPC without a saved Breeze TTS 2 voice (`docs/notes/voices.md`), ask the owner *"Do you
+  have a voice sample for `<NPC>` yet?"* If no, leave their lines unvoiced (subtitles only) for later; if yes, train/save the voice
+  in Breeze TTS 2 from their sample and generate the NPC's lines with it.
 
 ### Pushing (deploys the public site)
 
@@ -157,10 +160,10 @@ No allocation in hot paths; pool everything with hard caps. Frame order and budg
 | `src/world/` | Maps (`map/`: `annex/` = Retraining, `fort/` = Defense, Holdfast = Foreclosure), kit, nav, breakables | `docs/notes/world.md`, `holdfast.md` |
 | `src/contracts/` | Modes (`data.ts`), `shop/` (Procurement: `data.ts` wares, `lockWave`), `chips.ts` brain chips, loadouts, starters, `firstLaunch.ts`, `defense/` (Outpost Defense) | `docs/notes/contracts.md`, `fort.md` (Defense map) |
 | `src/progression/` | Streaks, perks, `implants.ts`, stims, score, `callins/` (airstrike, Warthog, AC-130, choppers, nuke), `pickups/` (`pods.ts` supply pods) | `docs/notes/progression.md`, `docs/proposals/implants.md`, `air-support.md` |
-| `src/campaign/` | Mission runner, cutscenes, parkour, `missions/` (outpost, foreclosure, retraining + `.lines.ts` dialogue) | `docs/campaign/*.md`, `docs/design/tutorial.md` |
+| `src/campaign/` | Mission runner, cutscenes, parkour, `missions/` (outpost, foreclosure, retraining + `.lines.ts` dialogue) | `docs/campaign/*.md`, `docs/design/tutorial.md`, `docs/notes/voices.md` |
 | `src/allies/`, `src/frame/`, `src/vehicles/` | Squad allies; the Distraint Frame (mech); flyable/gunner vehicles | `docs/notes/allies.md`, `frame.md`, `vehicles.md` |
 | `src/net/` | Co-op: lobby, session, `authority.ts` (host validates guest hit claims), `world.ts`/`worldProtocol.ts` (snapshots), `pose.ts`, `turn.ts` (TURN relay URL, empty) | `docs/notes/coop.md`, `coop-audit.md`, `docs/research/coop-netcode.md` |
-| `src/audio/` | Engine, `catalog.ts` (every sound id), music playlist, synth, voices | `docs/notes/audio.md`, `docs/CREDITS.md` |
+| `src/audio/` | Engine, `catalog.ts` (every sound id), music playlist, synth, voices | `docs/notes/audio.md`, `docs/notes/voices.md`, `docs/CREDITS.md` |
 | `src/ui/` | HUD, menus (DOM + CSS), settings, `backdrop/gunstage.ts` (shop studio turntable), commander UI, error report | `docs/notes/ui.md` |
 | `src/lab/` | Test Range and dev/cheat panel (`/?map=range`, `?dev=1`): mod rows (`mods.ts`), implants, spawn, settings; flags in `src/core/devflags.ts` | `docs/notes/lab.md` |
 | `src/sandbox/` | `/?sandbox=<name>` test pages | |

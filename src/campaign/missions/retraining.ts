@@ -5,8 +5,8 @@
  * voluntary exit) is campaign/retraining.ts, reached through `tut.*` calls.
  */
 import {
-  BALCONY, CHIMNEY_TOP, JET_TOWER, DASH_LAND, DASH_PIT, DECK, DOORS, DUCT, EXIT, LEDGE, ROCKET_LEDGE, SHACKS, SLAM_PIT, SLOT, STAIRS_X, STAND,
-  WALL_LAND, WALL_PIT,
+  BALCONY, CHIMNEY_TOP, JET_TOWER, DASH_LAND, DASH_PIT, DECK, DOORS, DUCT, EXIT, LEDGE, ROCKET_LEDGE, SLAM_PIT, SLOT, STAIRS_X, STAND,
+  TOWN_SUBJECTS, WALL_LAND, WALL_PIT,
 } from '../../world/map/annex/plan';
 import type { Checkpoint, DoorDef, Loadout, Mark, Mission, Script, Zone } from '../types';
 import { RETRAINING_LINES } from './retraining.lines';
@@ -35,35 +35,35 @@ function ring(prefix: string, cx: number, cz: number, r: number, n: number, y = 
 }
 const names = (prefix: string, n: number): string => Array.from({ length: n }, (_, i) => `${prefix}${i}`).join(',');
 
-/** Two subjects by every shack but the last, in its doorway and beside it, begging. */
-const TOWN_MARKS: Record<string, Mark> = Object.fromEntries(SHACKS.flatMap(([x, z], i) => [
-  [`town${i * 2}`, { at: [x, 0, z + 2.6] }],
-  [`town${i * 2 + 1}`, { at: [x + 2.6, 0, z + 1.4] }],
-]).slice(0, 20));
+/** Twenty clear street and square marks in the shantytown, never overlapping buildings. */
+const TOWN_MARKS: Record<string, Mark> = Object.fromEntries(
+  TOWN_SUBJECTS.map(([x, z], i) => [`town${i}`, { at: [x, 0, z] }]),
+);
 
 export const RETRAINING: Mission = {
   id: 'retraining',
   title: 'Retraining',
   loadout: KIT,
   zones: {
-    exit: zone(EXIT.x0, -1, EXIT.z0 + 2, EXIT.x1, 4, EXIT.z1),
+    exit: zone(EXIT.x0, -1, EXIT.z0 + 2, EXIT.x1, 4.5, EXIT.z1),
     hall: zone(-8, -1, -4, 8, 6, -0.6),
-    ductEnd: zone(-8, -1, DUCT.z0 - 4, 8, 4, DUCT.z0 - 0.4),
+    ductEnd: zone(-8, -1, DUCT.z0 - 4, 8, 5, DUCT.z0 - 0.4),
     slot: zone(-8, -1, SLOT.z0, 8, 1.4, SLOT.z1),
-    slotEnd: zone(-8, -1, SLOT.z0 - 5, 8, 4, SLOT.z0 - 0.4),
+    slotEnd: zone(-8, -1, SLOT.z0 - 5, 8, 5, SLOT.z0 - 0.4),
     dashPit: zone(-8, -8, DASH_PIT.z0, 8, -1.5, DASH_PIT.z1),
-    dashLand: zone(-8, DECK - 0.5, DASH_LAND.z0, 8, DECK + 6, DASH_LAND.z1),
+    dashLand: zone(-8, DECK - 0.5, DASH_LAND.z0, 8, DECK + 20, DASH_LAND.z1),
     wallPit: zone(-8, -8, WALL_PIT.z0, 8, -1.5, WALL_PIT.z1),
-    wallLand: zone(-8, DECK - 0.5, WALL_LAND.z0, 8, DECK + 6, WALL_LAND.z1),
-    chimneyTop: zone(-3, CHIMNEY_TOP - 1, -106, 3, CHIMNEY_TOP + 6, -100),
+    wallLand: zone(-8, DECK - 0.5, WALL_LAND.z0, 8, DECK + 20, WALL_LAND.z1),
+    chimneyTop: zone(-3, CHIMNEY_TOP - 1, -106, 3, CHIMNEY_TOP + 20, -100),
     slamPit: zone(-8, -1, SLAM_PIT.z0 - 2, 8, 3, SLAM_PIT.z1),
-    ledgeTop: zone(-8, LEDGE - 0.5, ROCKET_LEDGE.z0, 8, LEDGE + 6, ROCKET_LEDGE.z1),
-    jetTop: zone(JET_TOWER.x0, LEDGE + JET_TOWER.h - 0.5, JET_TOWER.z0, JET_TOWER.x1, LEDGE + JET_TOWER.h + 6, JET_TOWER.z1),
-    balcony: zone(STAND.x0, BALCONY - 1, STAND.z0, STAND.x1, BALCONY + 6, STAND.z1),
+    ledgeTop: zone(-8, LEDGE - 0.5, ROCKET_LEDGE.z0, 8, LEDGE + 20, ROCKET_LEDGE.z1),
+    jetTop: zone(JET_TOWER.x0, LEDGE + JET_TOWER.h - 0.5, JET_TOWER.z0, JET_TOWER.x1, LEDGE + JET_TOWER.h + 20, JET_TOWER.z1),
+    balcony: zone(STAND.x0, BALCONY - 1, STAND.z0, STAND.x1, BALCONY + 8, STAND.z1),
   },
   marks: {
     spawn: { at: [0, 0.3, 8.5], yaw: 0 },
     exitFront: { at: [0, 0, 11], yaw: Math.PI },
+    exitTarget: { at: [0, 1.2, EXIT.z0 + 4] },
     hallDoor: { at: [0, 0, -2] },
     ductEnd: { at: [0, 0, DUCT.z0 - 2] },
     slideStart: { at: [0, 0, -20], yaw: 0 },
@@ -74,6 +74,8 @@ export const RETRAINING: Mission = {
     wallLand: { at: [0, DECK, -97] },
     chimney: { at: [0, DECK, -101] },
     slamTop: { at: [0, CHIMNEY_TOP, -104.5], yaw: 0 },
+    slamTarget: { at: [SLAM_PIT.cx, 0, SLAM_PIT.cz] },
+    rocketStart: { at: [0, 0, -121], yaw: 0 },
     ledge: { at: [0, LEDGE, -129] },
     jetTop: { at: [(JET_TOWER.x0 + JET_TOWER.x1) / 2, LEDGE + JET_TOWER.h, (JET_TOWER.z0 + JET_TOWER.z1) / 2] },
     galleryLanding: { at: [0, LEDGE, -135], yaw: 0 },
@@ -98,6 +100,7 @@ export const RETRAINING: Mission = {
     shed: { at: [19, 0, -319] },
     stairs: { at: [STAIRS_X, 0, -320] },
     balcony: { at: [0, BALCONY, -341], yaw: 0 },
+    townCenter: { at: [0, 0, -372] },
     ...ring('slam', SLAM_PIT.cx, SLAM_PIT.cz, 3.2, 5),
     ...TOWN_MARKS,
   },
@@ -152,6 +155,7 @@ export const RETRAINING: Mission = {
     {
       id: 'dash',
       title: 'Mobility',
+      checkpoint: at('dashStart'),
       start: [
         { do: 'done', id: 'slide' },
         cut('m.dash'),
@@ -191,7 +195,7 @@ export const RETRAINING: Mission = {
         { do: 'done', id: 'chimney' },
         tut('held', `slam:light:${names('slam', 5)}`),
         cut('m.slam'),
-        { do: 'objective', id: 'slam', text: 'Slam into the ring below' },
+        { do: 'objective', id: 'slam', text: 'Slam into the ring below', at: 'slamTarget' },
         { do: 'hint', text: 'Jump off, and in the air press {slide} to slam. From this high it knocks down everyone near.', seconds: 9 },
         tut('drill', 'slam'),
         tut('zones', 'slamPit,slamTop'),
@@ -201,6 +205,7 @@ export const RETRAINING: Mission = {
     {
       id: 'rocket',
       title: 'Mobility',
+      checkpoint: at('rocketStart'),
       start: [
         { do: 'done', id: 'slam' },
         cut('m.slamDone'),
@@ -238,7 +243,7 @@ export const RETRAINING: Mission = {
         { do: 'callins', held: true },
         tut('held', 'lane:light:laneA'),
         cut('w.lane'),
-        { do: 'objective', id: 'lane', text: 'Shoot the subject on the left' },
+        { do: 'objective', id: 'lane', text: 'Shoot the subject on the left', at: 'laneA' },
         { do: 'hint', text: '{aim} to aim. Aimed, hold {dash} to focus: one held breath. {reload} reloads.', seconds: 10 },
       ],
       until: { signal: 'clear:lane' },
@@ -253,7 +258,7 @@ export const RETRAINING: Mission = {
         // Nothing but armour-piercing ends him: hollow points that miss the plate wound him, never kill him.
         tut('sturdy', 'armoured'),
         cut('w.armour'),
-        { do: 'objective', id: 'armour', text: 'Shoot the armoured subject' },
+        { do: 'objective', id: 'armour', text: 'Shoot the armoured subject', at: 'laneB' },
       ],
       until: { signal: 'stopped:armoured' },
     },
@@ -292,7 +297,7 @@ export const RETRAINING: Mission = {
         { do: 'grenades', count: 2 },
         tut('held', `trench:light:${names('trench', 3)}`),
         say('w.grenade'),
-        { do: 'objective', id: 'grenade', text: 'Grenade the trench' },
+        { do: 'objective', id: 'grenade', text: 'Grenade the trench', at: 'trench1' },
         { do: 'hint', text: 'Hold {grenade} to cook, release to throw.', seconds: 8 },
       ],
       until: { signal: 'clear:trench' },
@@ -323,7 +328,7 @@ export const RETRAINING: Mission = {
         cut('k.drain'),
         say('k.blade'),
         tut('held', `blade:light:${names('blade', 3)}`),
-        { do: 'objective', id: 'blade', text: 'Kill the subjects with the blade' },
+        { do: 'objective', id: 'blade', text: 'Kill the subjects with the blade', at: 'blade1' },
         { do: 'hint', text: '{melee} strikes from any gun. {weapon5} draws the blade: {fire} three times chains, {aim} stabs, hold {aim} to guard. Running at one, {fire} dashes to him.', seconds: 14 },
       ],
       until: { signal: 'clear:blade' },
@@ -336,7 +341,7 @@ export const RETRAINING: Mission = {
         cut('k.energy'),
         tut('fit', 'swordEnergy'),
         tut('held', 'energy:plated:blade1'),
-        { do: 'objective', id: 'energy', text: 'Cut the armoured subject with the energy blade' },
+        { do: 'objective', id: 'energy', text: 'Cut the armoured subject with the energy blade', at: 'blade1' },
         { do: 'hint', text: 'Energy blade fitted: faster swings, a longer lunge, and it cuts through plate. {aim} stabs.', seconds: 10 },
       ],
       until: { signal: 'clear:energy' },
@@ -370,6 +375,7 @@ export const RETRAINING: Mission = {
         { do: 'call', name: 'lights', arg: 'normal' },
         { do: 'give', weapon: 'rivet' },
         tut('fit', 'rivetAkimbo'),
+        tut('equip', 'rivet'),
         { do: 'call', name: 'chip', arg: 'kata' },
         tut('held', `kata:light:${names('kata', 8)}`),
         cut('c.kata'),
@@ -379,7 +385,7 @@ export const RETRAINING: Mission = {
       until: { event: 'chip:kata' },
     },
 
-    // The Yard: live men, outdoors.
+    // The Yard: live men, outdoors. Recovery across all four Yard beats is enforced continuously by Retraining.watchYard.
     {
       id: 'surrender',
       title: 'The Yard',
@@ -396,14 +402,8 @@ export const RETRAINING: Mission = {
         { do: 'squad', tag: 'b', men: ['trooper', 'trooper'], at: 'shed', orders: 'ambush', light: true },
         cut('y.intro'),
         say('y.live'),
-        { do: 'objective', id: 'surrender', text: 'Make one of them surrender' },
-        { do: 'hint', text: 'Kill his friends and stop shooting the last one. A kneeling man shot again runs, and never gives up.', seconds: 10 },
-      ],
-      cues: [
-        {
-          when: { all: [{ cleared: 'a' }, { not: { event: 'enemy:surrendered' } }] },
-          run: [say('y.lesson'), { do: 'squad', tag: 'a', men: ['trooper', 'trooper'], at: 'yardA', orders: 'hunt', light: true }],
-        },
+        { do: 'objective', id: 'surrender', text: 'Make one of them surrender', at: 'yardA' },
+        { do: 'hint', text: 'Kill two of his squad and stop shooting the last one. He will drop to his knees.', seconds: 10 },
       ],
       until: { event: 'enemy:surrendered' },
     },
@@ -414,7 +414,7 @@ export const RETRAINING: Mission = {
         { do: 'done', id: 'surrender' },
         cut('y.kneel'),
         { do: 'objective', id: 'question', text: 'Question him' },
-        { do: 'hint', text: 'Walk up to him and tap {interact} to question him.', seconds: 9 },
+        { do: 'hint', text: 'Walk up to the kneeling man and tap {interact} to question him.', seconds: 9 },
       ],
       until: { event: 'prisoner:questioned' },
     },
@@ -440,13 +440,7 @@ export const RETRAINING: Mission = {
         { do: 'release', tag: 'b' },
         tut('yield', 'b'),
         { do: 'objective', id: 'capture', text: 'Capture a man from the shed', at: 'shed' },
-        { do: 'hint', text: 'Hold {interact} on a kneeling man to cuff him. The drone takes him and pays the bounty.', seconds: 10 },
-      ],
-      cues: [
-        {
-          when: { all: [{ cleared: 'b' }, { not: { event: 'enemy:surrendered' } }] },
-          run: [say('y.lesson'), { do: 'squad', tag: 'b', men: ['trooper', 'trooper'], at: 'shed', orders: 'hunt', light: true }],
-        },
+        { do: 'hint', text: 'Kill one at the shed, let the last surrender, then HOLD {interact} on him to cuff him.', seconds: 10 },
       ],
       until: { event: 'prisoner:secured' },
     },
@@ -475,7 +469,7 @@ export const RETRAINING: Mission = {
         say('n.access'),
         { do: 'callins', held: false },
         tut('callin', 'nuke'),
-        { do: 'objective', id: 'nuke', text: 'Call it in' },
+        { do: 'objective', id: 'nuke', text: 'Call it in', at: 'townCenter' },
         { do: 'hint', text: '{callinNuke} to aim the Tactical Nuke, click to confirm.', seconds: 12 },
       ],
       cues: [{ when: { after: 9 }, run: [say('n.fraction')] }],
@@ -492,7 +486,7 @@ export const RETRAINING: Mission = {
         { do: 'wait', seconds: 3 },
         tut('home'),
         say('n.door'),
-        { do: 'objective', id: 'leave', text: 'Leave through the door' },
+        { do: 'objective', id: 'leave', text: 'Leave through the door', at: 'exitTarget' },
       ],
       // Nothing in the mission ends it: the door does (retraining.ts), through the menu, so no mission-complete screen comes up.
       until: { signal: 'never' },

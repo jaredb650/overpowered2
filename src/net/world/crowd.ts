@@ -57,6 +57,8 @@ export class Crowd implements WorldModule {
   private gatherAt = 0;
   /** For the proofs: notes sent (a guest) and taken (the host), by kind. */
   readonly counts: Record<string, number> = {};
+  /** Host: latest jam state sent to guests, replayed to late joiners/reconnectors. */
+  private lastJam: JamState | null = null;
 
   constructor(private readonly w: WorldContext, private readonly targeting: Targeting, private readonly applying: () => string | null) {
     const { ctx, router } = w;
@@ -98,7 +100,11 @@ export class Crowd implements WorldModule {
         return id === null ? null : this.players().find(p => p.id === id) ?? null;
       },
       bySlot: slot => this.players().find(p => p.slot === slot) ?? null,
-      jam: state => { if (this.w.ready) this.w.send({ t: 'jam', on: state.on, ops: state.ops.slice(0, MOST_UIDS), cold: state.cold.slice(0, MOST_UIDS), floor: state.floor.slice(0, MOST_UIDS) }); },
+      jam: state => {
+        const snap: JamState = { on: state.on, ops: state.ops.slice(0, MOST_UIDS), cold: state.cold.slice(0, MOST_UIDS), floor: state.floor.slice(0, MOST_UIDS) };
+        this.lastJam = snap;
+        if (this.w.ready) this.w.send({ t: 'jam', ...snap });
+      },
     };
     return outpost;
   }
@@ -173,9 +179,21 @@ export class Crowd implements WorldModule {
     this.shots = this.hurt = 0;
   }
 
+  /** Host: replay active jammer / cold / floor state to a joining or reconnecting guest. */
+  catchUp(id: string): void {
+    if (!this.w.hosting || !this.w.ready) return;
+    const jam = this.lastJam;
+    if (jam && (jam.on || jam.ops.length || jam.cold.length || jam.floor.length)) {
+      this.w.send({ t: 'jam', ...jam }, id);
+    }
+  }
+
+  forgetPeer(id: string): void { this.rate.delete(id); }
+
   dispose(): void {
     if (this.outpost && this.w.hosting) this.outpost.crowd = null;
     this.outpost = null;
+    this.lastJam = null;
   }
 }
 

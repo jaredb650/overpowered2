@@ -15,7 +15,7 @@ import type {
 } from '../core/gameplay';
 import { SeededRandom, clamp, damp, invLerp, lerp, randomInCone, smoothstep, wrapAngle } from '../core/math';
 import { MOVE } from '../player/tuning';
-import type { Combat, Guard, GuardResult } from './Combat';
+import type { Combat, Guard, GuardOptions, GuardResult } from './Combat';
 import { AdsZoom } from './adsZoom';
 import { ISSUED, MODS, MOD_ORDER, moddedDef } from './mods';
 import { HIT_STOP, LAUNCHER, SWORD, TUNING, WEAPONS, WEAPON_ORDER, type FireSelect, type SoundLayer, type WeaponDef } from './data';
@@ -31,11 +31,14 @@ import { Melee } from './melee/Melee';
 import { LANCE_ON, Lance } from './lance';
 import { ROCKET_LASER } from './laser';
 import { helixOffset } from './helix';
-import { SmartAim, type SmartHooks } from './smartaim';
+import { SmartAim, type SmartHooks, type SmartLock } from './smartaim';
 import { KATA, bearing, kataTargets } from './kata';
 import { soldierOf } from '../enemies/outpost/soldier';
 import { DroppedGuns } from './dropped';
 import { keepsAGun, type GunKit } from './handover';
+import { Microwave } from './microwave';
+import { Harpoon } from './harpoon';
+import { RiotShield, type RiotShieldState } from './shield';
 
 interface Slot {
   def: WeaponDef;
@@ -150,6 +153,8 @@ export class Weapons implements WeaponSystem, Guard {
   aimHeld = false;
   /** Suppresses ADS zoom on the RMB press that detonates MGL sticky bombs, until RMB is released. */
   private aimSuppress = false;
+  /** Riot shield state machine for shielded pistols (rivet/ultramag/judge/autoraffica). */
+  readonly riotShield = new RiotShield();
 
   private cooking = false;
   private cookLeft = 0;
@@ -181,24 +186,15 @@ export class Weapons implements WeaponSystem, Guard {
   private msBarrel = 0;
   /** Seconds R has been held on a `select`, `smart`, `altAmmo` or `rateSelect` gun, or -1: a shorter press reloads on release. */
   private rHeld = -1;
-  /** The Autoraffica's smart aim (hold R): switched on, kept across a switch, off at a reset; and its lock. See smartaim.ts. */
+  /** The Autoraffica's smart aim (hold R): switched on, kept across a switch, off at a reset; paint-then-snap state. See smartaim.ts. */
   private smartOn = false;
   private readonly smart = new SmartAim();
   private readonly smartHooks: SmartHooks = {
-    look: (cone, skip) => this.headNear(cone, WEAPONS[this.current].smart!.range, skip, this.akimboOn ? this.smartL.target : null),
-    holds: (e, cone) => this.headSeen(e, WEAPONS[this.current].smart!.range, Math.cos(cone)) >= 0,
+    lookUnpainted: (cone, range, painted) => this.headUnpainted(cone, range, painted),
+    holds: (e, cone, range) => this.headSeen(e, range, Math.cos(cone)) >= 0,
     head: (e, out) => this.combat.headOf(e, out),
-    locked: () => this.ctx.audio.play('judge_fan_lock', { pitch: 1.7, volume: 0.45 }),
-  };
-  /**
-   * Akimbo: the left gun's own smart aim, in the same circle. Each gun locks a head of its own, the other's only when his is the
-   * one head there (`splitLocks`), and fires into it: two heads at once at twice the rate.
-   */
-  private readonly smartL = new SmartAim();
-  private readonly smartHooksL: SmartHooks = {
-    ...this.smartHooks,
-    look: (cone, skip) => this.headNear(cone, WEAPONS[this.current].smart!.range, skip, this.smart.target),
-    locked: () => this.ctx.audio.play('judge_fan_lock', { pitch: 1.5, volume: 0.45 }),
+    marked: (_e, count) => this.ctx.audio.play('quiver_lock', { pitch: 1.15 + (count - 1) * 0.12, volume: 0.65 }),
+    cancelled: () => this.ctx.audio.play('quiver_cancel', { pitch: 1.1, volume: 0.45 }),
   };
   /** Seconds left of `occupy`. */
   private occupied = 0;
@@ -260,6 +256,12 @@ export class Weapons implements WeaponSystem, Guard {
   private readonly spreadRng = new SeededRandom();
   private readonly playOptions = { position: undefined as THREE.Vector3 | undefined, volume: 1, pitch: 1, pitchJitter: 0 };
 
+  /** Directed microwave cone boiler (Autoclave) and tethered harpoon skewer/grapple controller (Gaff). */
+  readonly microwave: Microwave;
+  readonly harpoon: Harpoon;
+  private microwaveTicked = false;
+  private gaffAimHold = 0;
+
   constructor(private readonly ctx: Ctx) {
     const slots = {} as Record<WeaponId, Slot>;
     for (const id of WEAPON_ORDER) {
@@ -270,6 +272,8 @@ export class Weapons implements WeaponSystem, Guard {
     }
     this.slots = slots;
     this.sword = new Melee(ctx, this.combat, this.modifiers);
+    this.microwave = new Microwave(ctx);
+    this.harpoon = new Harpoon(ctx);
     // The Lance's trigger, its beams and its bursts are lance.ts. This is all it needs of the arsenal.
     this.lance = new Lance(ctx, {
       modifiers: this.modifiers,
@@ -355,6 +359,7 @@ export class Weapons implements WeaponSystem, Guard {
   reset(): void {
     this.combat.projectiles.clearStickies();
     this.aimSuppress = false;
+    this.riotShield.reset();
     this.stopEverything();
     this.owned.clear();
     this.slotLast.clear();
@@ -380,6 +385,9 @@ export class Weapons implements WeaponSystem, Guard {
     this.occupied = 0;
     this.sword.reset();
     this.lance.reset();
+    this.microwave.reset();
+    this.harpoon.reset();
+    this.gaffAimHold = 0;
     this.altLoaded.clear();
     this.mods.clear();
     for (const id of MOD_ORDER) this.fitMod(id, false);
@@ -389,7 +397,6 @@ export class Weapons implements WeaponSystem, Guard {
     this.rateMode.clear();
     this.msBarrel = 0;
     this.smart.drop();
-    this.smartL.drop();
     this.rHeld = -1;
     this.glSlot.cooldown = 0;
     this.glSlot.ammo.mag = LAUNCHER.magSize;
@@ -422,8 +429,9 @@ export class Weapons implements WeaponSystem, Guard {
   }
 
   get charge(): number {
-    if (WEAPONS[this.current].altFan) return this.fan.bar;
-    const mode = WEAPONS[this.current].mode;
+    const def = WEAPONS[this.current];
+    if (def.altFan) return this.fan.bar;
+    const mode = def.mode;
     return mode === 'spin' ? this.spin : mode === 'charge' && LANCE_ON ? this.lance.level : this.chargeLevel;
   }
 
@@ -454,7 +462,7 @@ export class Weapons implements WeaponSystem, Guard {
 
   /** The left gun's smart aim, on only with the Autoraffica akimbo: the HUD's second crosshair and the left gun's turn. */
   get smartAimLeft(): SmartAimView {
-    return this.smartL;
+    return this.smart.left;
   }
 
   /** Two guns in hand: the akimbo mod, or Berserk's SMGs. */
@@ -524,13 +532,22 @@ export class Weapons implements WeaponSystem, Guard {
       const planted = this.combat.projectiles.stickyCount('satchel');
       return planted > 0 ? `RMB DETONATE · ${planted}` : 'TOSS';
     }
+    if (this.current === 'gaff' && this.harpoon.ropeOut) {
+      return this.harpoon.reeling ? 'REELING' : 'RMB REEL · TAP CUT';
+    }
     // An ammo mod (AP or HP) comes first, beside the Gimlet's bursts.
     const load = def.load === 'plusP' ? '+P' : def.load ? def.load.toUpperCase() : '';
     const sel = this.selectOf(def);
     if (sel !== 'auto') return load ? `${load} · ${sel.toUpperCase()}` : sel.toUpperCase();
-    // The Autoraffica: its bursts, or the smart aim and whether it holds a head.
+    // The Autoraffica: its bursts, or smart paint-then-snap mode and current lock/mark state.
     if (def.smart) {
-      const mode = this.smart.on ? (this.smart.target ? 'SMART · LOCK' : 'SMART') : 'BURST';
+      const mode = !this.smart.on
+        ? 'BURST'
+        : this.smart.phase === 'firing'
+          ? 'SMART · LOCK'
+          : this.smart.phase === 'painting'
+            ? (this.smart.markCount > 0 ? `SMART · MARK ${this.smart.markCount}` : 'SMART · MARK')
+            : 'SMART';
       return load ? `${load} · ${mode}` : mode;
     }
     if (def.raufoss) return 'RAUFOSS';
@@ -592,9 +609,10 @@ export class Weapons implements WeaponSystem, Guard {
     c.hud.callout?.(on ? label : id === 'mgl' ? 'HE' : 'STANDARD');
   }
 
-  /** The Quiver's marks while it is in hand, or the Judge's locks. */
+  /** The Quiver's marks while it is in hand, the Judge's locks, or the Autoraffica's painted heads. */
   get paint(): PaintView | undefined {
     const def = WEAPONS[this.current];
+    if (def.smart && this.smart.on) return this.smart;
     return def.mode === 'paint' ? this.painter : def.altFan ? this.fan : undefined;
   }
 
@@ -763,8 +781,26 @@ export class Weapons implements WeaponSystem, Guard {
     this.occupied = seconds;
   }
 
-  guard(incoming: THREE.Vector3): GuardResult {
-    return this.bladeOut ? this.sword.guard(incoming) : 'none';
+  /** Riot shield state snapshot for HUD arm-fatigue meter and co-op sync. */
+  get shield(): Readonly<RiotShieldState> {
+    return this.riotShield.getState();
+  }
+
+  guard(incoming: THREE.Vector3, damage = 20, opts?: GuardOptions): GuardResult {
+    if (this.bladeOut) return this.sword.guard(incoming);
+    if (this.riotShield.active) {
+      const res = this.riotShield.tryBlock(incoming, this.ctx.player.forward, damage, opts);
+      if (res.blocked) {
+        // Straight-back metallic impact jolt on the shield viewmodel (zero roll/yaw).
+        this.ctx.viewmodel.swing('block', 0.16);
+        if (res.exhaustedNow) {
+          this.ctx.audio.play('weapon_draw_heavy', { pitch: 0.72, volume: 0.85 });
+          this.ctx.hud.callout?.('SHIELD FATIGUED');
+        }
+        return 'block';
+      }
+    }
+    return 'none';
   }
 
   /** Stops every continuous thing. Called on death, pause and holster, so nothing keeps roaring in a menu. */
@@ -788,6 +824,8 @@ export class Weapons implements WeaponSystem, Guard {
     this.quickReturn = 0;
     this.burstLeft = 0;
     this.rHeld = -1;
+    if (this.harpoon.ropeOut) this.harpoon.cut();
+    this.gaffAimHold = 0;
     this.ctx.viewmodel.setCharge(0);
   }
 
@@ -798,12 +836,56 @@ export class Weapons implements WeaponSystem, Guard {
   update(): void {
     // The bursts a Lance beam booked go off whatever is in hand now, dead or holstered included.
     this.lance.tick();
+    this.microwaveTicked = false;
     this.frame();
-    this.dropped.update(this.ctx.time.realDt);
     const p = this.ctx.player;
+    const dt = this.ctx.time.playerDt;
+    if (!this.microwaveTicked) this.microwave.update(dt, false, p.eye, p.forward, this.muzzleAt);
+    this.updateHarpoon(dt);
+    this.dropped.update(this.ctx.time.realDt);
     this.rigEye.copy(p.eye);
     this.rigYaw = p.yaw;
     this.rigPitch = p.pitch;
+  }
+
+  /** Ticks the Gaff harpoon flight, 3D steel rope, right-click grapple reel, and tap-to-cut/reload handoff. */
+  private updateHarpoon(dt: number): void {
+    const h = this.harpoon;
+    if (!h.ropeOut && !h.reloading && h.embeddedCount === 0 && this.current !== 'gaff') return;
+    const c = this.ctx;
+    const wasRopeOut = h.ropeOut;
+    let reelHeld = false;
+    let cutTapped = false;
+    const active = this.current === 'gaff' && c.player.alive !== false && !this.holstered && !this.reloading
+      && this.drawLeft <= 0 && this.occupied <= 0;
+    if (active && h.ropeOut) {
+      const aimDown = c.input.isDown('aim');
+      if (aimDown) {
+        this.gaffAimHold += dt;
+      } else if (this.gaffAimHold > 0) {
+        if (this.gaffAimHold < 0.22) cutTapped = true;
+        this.gaffAimHold = 0;
+      }
+      if (c.input.pressed('reload') || (c.input.pressed('fire') && h.state !== 'flying')) {
+        cutTapped = true;
+        this.gaffAimHold = 0;
+      }
+      reelHeld = aimDown && !cutTapped;
+    } else {
+      this.gaffAimHold = 0;
+    }
+    const muzzle = this.current === 'gaff' ? this.muzzle(false) : this.muzzleAt;
+    h.update(dt, reelHeld, cutTapped, muzzle, c.player.eye, c.player.forward);
+    if (this.current === 'gaff') {
+      c.viewmodel.setCharge(h.reeling ? 1 : 0);
+      if (wasRopeOut && !h.ropeOut) {
+        const s = this.slots.gaff;
+        if (s.ammo.mag === 0) {
+          if (s.ammo.reserve > 0) this.startReload();
+          else if (!this.modifiers.bottomlessMag) this.wentDry();
+        }
+      }
+    }
   }
 
   private frame(): void {
@@ -811,9 +893,10 @@ export class Weapons implements WeaponSystem, Guard {
     const dt = c.time.playerDt;
     // Guidance is on only on a frame the launcher is up with its sight on, so a holster, a death or a switch lets go.
     ROCKET_LASER.on = false;
-    this.smart.on = this.smartOn && WEAPONS[this.current].smart !== undefined && !this.holstered && c.player.alive !== false;
-    this.smartL.on = this.smart.on && this.slots[this.current].def.akimbo === true;
-    if (!this.smartL.on) this.smartL.drop();
+    const smartSpec = WEAPONS[this.current].smart;
+    this.smart.on = this.smartOn && smartSpec !== undefined && !this.holstered && c.player.alive !== false;
+    this.smart.akimbo = this.smart.on && this.slots[this.current].def.akimbo === true;
+    if (smartSpec) this.smart.cone = smartSpec.cone;
     if (!this.smart.on) this.smart.drop();
     this.sword.tick(dt);
     // RMB while holding MGL or Satchel Charge with planted charges immediately detonates all of them and suppresses ADS on that click.
@@ -891,13 +974,6 @@ export class Weapons implements WeaponSystem, Guard {
       return;
     }
     this.updateReload(dt);
-    if (this.smart.on) {
-      this.smart.update(dt, WEAPONS[this.current].smart!, this.smartHooks);
-      if (this.smartL.on) {
-        this.smartL.update(dt, WEAPONS[this.current].smart!, this.smartHooksL);
-        this.splitLocks();
-      }
-    }
     this.updateGun(dt);
     this.applyHandling(dt);
   }
@@ -1014,6 +1090,8 @@ export class Weapons implements WeaponSystem, Guard {
     }
     const from = this.current;
     if (from === 'mgl') this.detonateStickies('mgl', true);
+    if (from === 'gaff' && this.harpoon.ropeOut) this.harpoon.cut();
+    this.gaffAimHold = 0;
     this.aimOn = false;
     this.aimSuppress = false;
     this.aimT = 0;
@@ -1161,6 +1239,7 @@ export class Weapons implements WeaponSystem, Guard {
       const take = Math.min(a.magSize - a.mag, a.reserve);
       a.mag += take;
       a.reserve -= take;
+      if (s.def.harpoon) this.harpoon.finishReload();
     }
     this.syncRateCharge();
     this.ctx.events.emit('weapon:reload', { weapon: this.current, phase: 'end' });
@@ -1190,6 +1269,9 @@ export class Weapons implements WeaponSystem, Guard {
     }
     if (WEAPONS[this.current].smart) {
       this.smartOn = !this.smartOn;
+      this.smart.on = this.smartOn;
+      this.smart.akimbo = this.smartOn && this.slots[this.current].def.akimbo === true;
+      if (!this.smartOn) this.smart.drop();
       this.burstLeft = 0;
       this.ctx.audio.play('fire_select', { pitch: this.smartOn ? 1.3 : 0.92 });
       this.ctx.hud.callout?.(this.smartOn ? 'SMART' : 'BURST');
@@ -1299,6 +1381,8 @@ export class Weapons implements WeaponSystem, Guard {
     if (this.modifiers.bottomlessMag) return;
     s.ammo.mag = Math.max(0, s.ammo.mag - rounds);
     if (s.ammo.mag > 0) return;
+    // Keep the Gaff in hand while its steel tether is out so RMB can reel or tap-cut before reloading.
+    if (s.def.harpoon) return;
     if (s.ammo.reserve > 0) this.autoReload = Math.max(TUNING.autoReloadDelay, s.def.cycleTime ?? 0);
     // The last grenade gone: back on the rifle, which still has rounds.
     else if (s === this.glSlot) this.raiseLauncher(false);
@@ -1451,48 +1535,64 @@ export class Weapons implements WeaponSystem, Guard {
   }
 
   /**
-   * Smart aim with a head locked: the trigger held is full auto at the smart aim's `interval`, each round into the locked
-   * head, the lock handing on as each man dies, until no head is left in the circle. Unlocked it is the semi-auto trigger
-   * (false: `updateSemi` fires one round a pull).
+   * Paint-then-snap smart aim: hold left click to paint visible heads inside the 8° circle one at a time (0.25 s each);
+   * releasing while painting cancels all marks; once every visible head in the circle is marked, drills them full-auto
+   * (800 RPM) in order with a short snap delay between kills; releasing while firing stops immediately. With no heads
+   * in the circle on click, returns false so `updateSemi` fires one plain shot on pull.
    */
   private updateSmartFire(s: Slot, held: boolean): boolean {
-    if (!this.smart.target && !this.smartL.target) return false;
-    if (!held && this.pressBuffer <= 0) {
-      if (s.cooldown < 0) s.cooldown = 0;
-      return true;
-    }
-    if (s.cooldown > 0) return true;
-    if (!this.canShoot(s)) {
-      this.dryFire();
-      this.pressBuffer = 0;
+    const spec = s.def.smart!;
+    const dt = this.ctx.time.playerDt;
+    const pressed = this.ctx.input.pressed('fire') || (this.pressBuffer > 0 && held);
+    const wasFiring = this.smart.phase === 'firing';
+    const status = this.smart.update(dt, spec, pressed, held, this.canShoot(s), this.smartHooks);
+    if (status === 'plain') return false;
+    if (status === 'idle') {
+      if (!held && s.cooldown < 0) s.cooldown = 0;
       return true;
     }
     this.pressBuffer = 0;
-    // Akimbo: the guns in turn, each into its own lock, at twice the rate.
-    const interval = s.def.smart!.interval / Math.max(this.modifiers.fireRate, 0.01) / this.ak;
-    while (s.cooldown <= 0 && this.canShoot(s) && (this.smart.target?.alive || this.smartL.target?.alive)) {
-      this.shootGun(s, this.akimboOn && this.leftNext);
-      if (this.akimboOn) this.leftNext = !this.leftNext;
-      s.cooldown += interval;
+    if (status === 'painting') {
+      if (s.cooldown < 0) s.cooldown = 0;
+      return true;
     }
+    // status === 'firing'
+    if (!this.canShoot(s)) {
+      this.smart.finish();
+      this.dryFire();
+      return true;
+    }
+    if (!wasFiring && s.cooldown < 0) s.cooldown = 0;
+    if (s.cooldown > 0) return true;
+    // Akimbo: the guns in turn, each into its own lock, at twice the rate.
+    const interval = spec.interval / Math.max(this.modifiers.fireRate, 0.01) / this.ak;
+    while (s.cooldown <= 0 && this.canShoot(s) && this.smart.phase === 'firing') {
+      let left = this.akimboOn && this.leftNext;
+      let target = this.smart.readyTarget(left);
+      if (!target && this.akimboOn) {
+        const alt = this.smart.readyTarget(!left);
+        if (alt) {
+          left = !left;
+          target = alt;
+        }
+      }
+      if (!target) {
+        if (s.cooldown < 0) s.cooldown = 0;
+        break;
+      }
+      this.shootGun(s, left);
+      if (this.akimboOn) this.leftNext = !left;
+      s.cooldown += interval;
+      this.smart.afterShot(spec, this.smartHooks);
+    }
+    if (!this.canShoot(s) && this.smart.phase === 'firing') this.smart.finish();
     return true;
   }
 
-  /** The head a smart round from this hand goes into: the hand's own lock, else the other gun's. Null with smart aim off. */
+  /** The head a smart round from this hand goes into while drilling painted marks; null when idle or off. */
   private smartLock(left: boolean): EnemyInstance | null {
-    if (!this.smart.on) return null;
-    const own = left && this.smartL.on ? this.smartL.target : this.smart.target;
-    const other = left && this.smartL.on ? this.smart.target : this.smartL.target;
-    return own?.alive ? own : other?.alive ? other : null;
-  }
-
-  /** The left gun on the head the right one holds, with another head in the circle: it moves onto that one. */
-  private splitLocks(): void {
-    const t = this.smart.target;
-    if (!t || this.smartL.target !== t) return;
-    const spec = WEAPONS[this.current].smart!;
-    const other = this.headNear(spec.cone, spec.range, t);
-    if (other) this.smartL.take(other, this.smartHooksL);
+    if (!this.smart.on || this.smart.phase !== 'firing') return null;
+    return this.smart.readyTarget(left);
   }
 
   private updateCharge(s: Slot, dt: number, held: boolean): void {
@@ -1604,6 +1704,40 @@ export class Weapons implements WeaponSystem, Guard {
 
   private updateStream(s: Slot, dt: number, held: boolean): void {
     const c = this.ctx;
+    if (s.def.microwave) {
+      this.microwaveTicked = true;
+      const firing = held && this.canShoot(s);
+      const at = this.muzzle(false);
+      const active = this.microwave.update(dt, firing, c.player.eye, c.player.forward, at);
+      c.viewmodel.setCharge(active ? 1 : 0);
+      if (!firing) {
+        if (this.streamOn) {
+          this.streamOn = false;
+          HOSE_OFF.weapon = s.def.id;
+          c.events.emit('weapon:loop', HOSE_OFF);
+        }
+        if (held) this.dryFire();
+        if (s.cooldown < 0) s.cooldown = 0;
+        return;
+      }
+      this.streamOn = true;
+      const interval = this.interval(s.def);
+      while (s.cooldown <= 0 && this.canShoot(s)) {
+        this.consume(s);
+        c.viewmodel.fire(s.def.recoil, false);
+        this.combat.feel.shake(s.def.shake);
+        const e = this.firedEvent;
+        e.weapon = s.def.id;
+        e.origin.copy(c.player.eye);
+        e.dir.copy(c.player.forward);
+        e.suppressed = false;
+        this.note.kind = 'hose';
+        c.events.emit('weapon:fired', e);
+        this.note.kind = 'gun';
+        s.cooldown += interval;
+      }
+      return;
+    }
     if (!held || !this.canShoot(s)) {
       if (this.streamOn) {
         this.streamOn = false;
@@ -1654,10 +1788,14 @@ export class Weapons implements WeaponSystem, Guard {
   private barrage = false;
 
   private endContinuous(): void {
-    // Co-op: the others' copy of the Kiln's stream ends with it.
-    if (this.loopKind === 'flame_hose_loop') {
+    // Co-op: the others' copy of the Kiln's or Autoclave's stream ends with it.
+    if (this.loopKind === 'flame_hose_loop' || (this.streamOn && this.current === 'autoclave')) {
       HOSE_OFF.weapon = this.current;
       this.ctx.events.emit('weapon:loop', HOSE_OFF);
+    }
+    if (this.streamOn && this.current === 'autoclave') {
+      this.microwave.update(1e-4, false, this.ctx.player.eye, this.ctx.player.forward, this.muzzleAt);
+      this.ctx.viewmodel.setCharge(0);
     }
     // Everything that ends a loop ends a Lance charge too: a switch, a reload, a melee, a pause, a death.
     this.lance.cancel();
@@ -1726,6 +1864,7 @@ export class Weapons implements WeaponSystem, Guard {
     const at = this.muzzle(left, barrel);
     if (def.id !== 'satchel') {
       c.fx.muzzleFlash(this.flashPoint(at), this.flashDir.set(0, 0, -1).applyQuaternion(c.render.camera.quaternion), def.muzzle);
+      if (def.load === 'dragon') c.fx.dragonBreath?.(at, dir ?? fwd);
     }
     this.layerSounds(def.sounds);
     if (def.cycleFoley) {
@@ -1964,6 +2103,8 @@ export class Weapons implements WeaponSystem, Guard {
     p.fuse = undefined;
     p.wired = undefined;
     p.sticky = undefined;
+    p.wp = undefined;
+    p.cluster = undefined;
     p.trail = trail;
     p.gib = false;
     p.severMult = this.modifiers.alwaysSever ? 1000 : def.canSever ? def.severMult : 0;
@@ -1974,6 +2115,7 @@ export class Weapons implements WeaponSystem, Guard {
     p.headshotMult = def.headshotMult;
     p.killStop = 0;
     p.silent = false;
+    p.bossDamage = undefined;
     p.visualFrom = this.muzzleAt;
     unguided(p);
     return p;
@@ -1984,8 +2126,11 @@ export class Weapons implements WeaponSystem, Guard {
     const hell = m.instakillBlast;
     const kind: ExplosionKind = hell ? 'hellfire' : 'rocket';
     const damage = def.damage * m.damage;
-    const p = this.fillProjectile('rocket', def, TUNING.rocket.speed, damage, hell ? 'hellfire' : 'smoke');
+    const speed = def.rocket?.speed ?? TUNING.rocket.speed;
+    const p = this.fillProjectile('rocket', def, speed, damage, hell ? 'hellfire' : 'smoke');
     p.wired = def.laser === true;
+    if (def.rocket?.laserTurn) p.turnRate = def.rocket.laserTurn;
+    p.wp = !!def.altAmmo && this.altLoaded.has('rocket');
     p.gib = true;
     p.killStop = HIT_STOP.heavyKill;
     p.explosion = {
@@ -2000,14 +2145,17 @@ export class Weapons implements WeaponSystem, Guard {
       return;
     }
     const t = TUNING.autocannon;
-    const p = this.fillProjectile('shell', def, t.speed, def.damage, 'rings');
+    const speed = def.shell?.speed ?? t.speed;
+    const p = this.fillProjectile('shell', def, speed, def.damage, 'rings');
     p.killStop = HIT_STOP.heavyKill;
     p.gib = true;
+    p.bossDamage = def.shell?.bossDamage;
     p.explosion = { radius: t.radius, damage: def.damage, kind: 'shell', instakill: true, selfDamage: 0 };
     if (def.flak) {
       // Not the instakill shell: what it does is its burst's shrapnel (flak.ts), and a square hit is a hard knock, no more.
       p.flak = true;
       p.damage = FLAK.direct;
+      p.bossDamage = undefined;
       p.explosion = { radius: FLAK.radius, damage: FLAK.blast, kind: 'shell', selfDamage: 0, playerPush: 0 };
     }
     this.combat.spawnProjectile(p);
@@ -2026,6 +2174,7 @@ export class Weapons implements WeaponSystem, Guard {
     p.severMult = this.modifiers.alwaysSever ? 1000 : def.severMult;
     p.force = def.force;
     p.killStop = def.killStop ?? HIT_STOP.heavyKill;
+    p.cluster = !!def.altAmmo && this.altLoaded.has('howitzer');
     p.explosion = {
       radius: t.radius * m.blastRadius,
       damage: t.blast * m.damage,
@@ -2080,6 +2229,10 @@ export class Weapons implements WeaponSystem, Guard {
   }
 
   private shootStake(def: WeaponDef): void {
+    if (def.harpoon) {
+      this.harpoon.fire(this.ctx.player.eye, this.ctx.player.forward, this.muzzleAt, def.id, false);
+      return;
+    }
     const t = TUNING.stake;
     const damage = def.damage * this.modifiers.damage;
     const p = this.fillProjectile('stake', def, t.speed, damage, 'none');
@@ -2158,8 +2311,8 @@ export class Weapons implements WeaponSystem, Guard {
   private applyHandling(dt: number): void {
     const def = WEAPONS[this.current];
     const cap = this.handling.cap(dt, def, def.mode === 'spin' ? this.spin : 0);
-    // Aimed, the player walks. The same clamp, so a dash, a slide or a wall run is never cut by it.
-    holdSpeed(this.ctx.player, Math.min(cap, lerp(1, TUNING.ads.speed, this.aim)), dt, this.handling);
+    // Aimed or holding the riot shield up, the player walks. The same clamp, so dashes/slides/wall-runs are never cut.
+    holdSpeed(this.ctx.player, Math.min(cap, lerp(1, TUNING.ads.speed, this.aim), this.riotShield.moveSpeedMult), dt, this.handling);
   }
 
   /**
@@ -2266,6 +2419,7 @@ export class Weapons implements WeaponSystem, Guard {
 
   private stopPaint(): void {
     if (this.painter.painting || this.salvoLeft > 0 || this.fan.busy) this.ctx.viewmodel.setCharge(0);
+    this.smart.drop();
     this.fan.cancel();
     this.ctx.time.popScale(FAN_SLOWMO);
     this.fanFired = false;
@@ -2423,6 +2577,30 @@ export class Weapons implements WeaponSystem, Guard {
     return best ?? (avoided ? avoid : null);
   }
 
+  /** The head nearest the crosshair inside `cone` and `range` with clear line of sight and not yet in `painted`. */
+  private headUnpainted(cone: number, range: number, painted: readonly SmartLock[]): EnemyInstance | null {
+    const cos = Math.cos(cone);
+    const alive = this.ctx.enemies.alive;
+    let best: EnemyInstance | null = null;
+    let bestAngle = Infinity;
+    for (let i = 0; i < alive.length; i++) {
+      const e = alive[i]!;
+      let seen = false;
+      for (let k = 0; k < painted.length; k++) {
+        if (painted[k]!.enemy === e) {
+          seen = true;
+          break;
+        }
+      }
+      if (seen) continue;
+      const angle = this.headSeen(e, range, cos);
+      if (angle < 0 || angle >= bestAngle) continue;
+      best = e;
+      bestAngle = angle;
+    }
+    return best;
+  }
+
   /** His head's angle off the crosshair while he lives, is inside the cone (`cos`) and `range` and in plain sight; else -1. */
   private headSeen(e: EnemyInstance, range: number, cos: number): number {
     if (!e.alive) return -1;
@@ -2506,9 +2684,28 @@ export class Weapons implements WeaponSystem, Guard {
     const def = this.slots[this.current].def;
     const p = c.player;
     const busy = this.holstered || this.occupied > 0 || p.alive === false;
+    const moving = p.dashing === true || p.sliding === true;
+    // Riot shield (owner Q6): held down at rest, raised while holding right click behind the narrow armoured viewing slit.
+    if (def.shield) {
+      const wantRaise = !this.aimSuppress && c.input.isDown('aim');
+      const shieldBusy = busy || moving || this.reloading || this.drawLeft > 0
+        || this.sword.inQuickStrike || this.quickReturn > 0;
+      const st = this.riotShield.update(dt, true, wantRaise, shieldBusy);
+      this.aimOn = false;
+      this.aimT = 0;
+      this.aimHeld = st.active;
+      this.adsZoom.update(c.time.realDt, false, false, undefined);
+      c.camera.setAim?.(1, 1, 1);
+      c.viewmodel.setAim?.(st.raise);
+      c.viewmodel.setCharge(st.exhausted ? 1 : st.fatigue);
+      return;
+    }
+    if (this.riotShield.fitted) {
+      this.riotShield.update(dt, false, false, false);
+      c.viewmodel.setCharge(0);
+    }
     // A press while holstered is a call-in's cancel, not ours; a press that detonated MGL stickies suppresses ADS.
     if (def.ads && !busy && !this.aimHold && !this.aimSuppress && c.input.pressed('aim')) this.aimOn = !this.aimOn;
-    const moving = p.dashing === true || p.sliding === true;
     if (moving) this.aimOn = false;
     const wants = !this.aimSuppress && (this.aimHold ? c.input.isDown('aim') : this.aimOn);
     // The launcher is fired from the shoulder over its own leaf, not through the rifle's sight.
@@ -2548,10 +2745,9 @@ export class Weapons implements WeaponSystem, Guard {
     if (wall) reach = wall.distance;
     const body = c.enemies.raycast(eye, forward, reach);
     if (body) reach = body.distance;
-    // A hair short of the surface, so the dot is not inside it.
+    // A hair short of the surface, so the dot is not inside it. The thin 400 m beam is drawn by ViewmodelRig's LAM.
     L.at.copy(eye).addScaledVector(forward, Math.max(0, reach - 0.04));
     L.on = true;
-    c.fx.beam(this.muzzle(false), L.at, 'laser');
   }
 
   // -------------------------------------------------------------------------------------------

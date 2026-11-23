@@ -138,7 +138,7 @@ describe('Ultramag viewmodel', () => {
 
   it('shows each mod as a part, the extended magazine riding with the magazine', () => {
     for (const [id, look] of Object.entries(def.mods ?? {})) expect(def.model.parts[look!.part], id).toBeDefined();
-    expect(Object.keys(def.mods ?? {}).sort()).toEqual(['ultramagCan', 'ultramagComp', 'ultramagDot', 'ultramagLam', 'ultramagLight', 'ultramagMag']);
+    expect(Object.keys(def.mods ?? {}).sort()).toEqual(['ultramagCan', 'ultramagComp', 'ultramagDot', 'ultramagLam', 'ultramagLight', 'ultramagMag', 'ultramagMagwell', 'ultramagShield']);
     // The laser's emitter faces down the bore, ahead of the module.
     const laser = def.model.sockets[def.mods!.ultramagLam!.laser!]!;
     expect(laser.position.z).toBeLessThan(-0.25);
@@ -209,7 +209,8 @@ describe('Ultramag viewmodel', () => {
     pose(0.16);
     expect(position('feedRound').distanceTo(first)).toBeLessThan(1e-9);
     expect(def.model.draws).toBeLessThanOrEqual(32);
-    expect(def.model.triangles).toBeLessThan(40000);
+    // All mod parts are baked and hidden until fitted (including ultramagMagwell and the shared riot shield).
+    expect(def.model.triangles).toBeLessThan(50000);
     def.model.root.traverse(node => {
       if (!(node instanceof THREE.Mesh)) return;
       const positions = node.geometry.getAttribute('position');

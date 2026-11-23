@@ -194,6 +194,27 @@ const RETICLES: Record<WeaponId, Reticle> = {
     arms: [poly('-1.25,-30 1.25,-30 1.25,-9 -1.25,-9'), poly('9,-1.25 15,-1.25 15,1.25 9,1.25'), poly('-1.25,9 1.25,9 1.25,30 -1.25,30'), poly('-9,-1.25 -15,-1.25 -15,1.25 -9,1.25')],
     gap: 0, kick: 5, speedGap: 1,
   },
+  // Bodkin: razor-fine needle arms for zero-spread flechette bursts.
+  bodkin: { core: DOT, arms: four(tick(10, 1.0)), gap: 4.5, kick: 1.5, speedGap: 2 },
+  // Billhook: semi-auto combat shotgun corner brackets matching the pump's true cone.
+  billhook: {
+    core: DOT,
+    arms: four(poly('3,-14 14,-14 14,-3 11.6,-3 11.6,-11.6 3,-11.6')),
+    diagonal: true, gap: 1, kick: 5.5, speedGap: 0, trueCone: true,
+  },
+  // Autoclave: open heat-emitter arcs framing the narrow microwave cone.
+  autoclave: { core: DOT, arms: ['', ARC_E, '', ARC_W], gap: -4, kick: 0.4, speedGap: 1.5 },
+  // Gaff: heavy harpoon diamond with barbed side flanges and long vertical lead post.
+  gaff: {
+    core: DIAMOND,
+    arms: [
+      poly('-1.4,-32 1.4,-32 1.4,-10 -1.4,-10'),
+      poly('10,-1.5 22,-1.5 26,-5 26,5 22,1.5 10,1.5'),
+      poly('-1.4,10 1.4,10 1.4,32 -1.4,32'),
+      poly('-10,-1.5 -22,-1.5 -26,-5 -26,5 -22,1.5 -10,1.5'),
+    ],
+    gap: 0, kick: 8, speedGap: 1,
+  },
 };
 
 /** About the strafing ceiling. */
@@ -659,21 +680,31 @@ export class Crosshair {
     }
   }
 
-  /** The left gun's crosshair: at rest a little left of the middle, swung onto its own lock as the reticle is onto the right's. */
+  /** The left gun's crosshair: hidden at rest, shown only while actively marking or firing locks and snapped onto its head. */
   private updateTwin(v: SmartAimView | null, dt: number): void {
-    this.twinShown.set(v !== null);
-    if (!v) return;
+    const active = v !== null && v.lock !== null && (v.phase === 'painting' || v.phase === 'firing' || v.phase === undefined);
+    this.twinShown.set(active);
+    if (!active || !v || !v.lock) {
+      this.twinLocked.set(false);
+      this.twinX = 0;
+      this.twinY = 0;
+      if (this.twinQ !== '') {
+        this.twinQ = '';
+        this.twin.style.transform = '';
+      }
+      return;
+    }
     let x = -TWIN_REST;
     let y = 0;
     const camera = this.ctx.render.camera;
-    if (v.lock && camera instanceof THREE.PerspectiveCamera) {
+    if (camera instanceof THREE.PerspectiveCamera) {
       _head.copy(v.lock).project(camera);
       if (_head.z < 1) {
         x = _head.x * (innerWidth / 2);
         y = -_head.y * (innerHeight / 2);
       }
     }
-    this.twinLocked.set(v.lock != null);
+    this.twinLocked.set(true);
     this.twinX = damp(this.twinX, x, 34, dt);
     this.twinY = damp(this.twinY, y, 34, dt);
     const q = `translate3d(${this.twinX.toFixed(1)}px,${this.twinY.toFixed(1)}px,0)`;

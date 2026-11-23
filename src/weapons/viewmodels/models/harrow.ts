@@ -7,7 +7,7 @@ import { Kit } from '../kit/kit';
 import { Model } from '../kit/model';
 import { F } from '../kit/finishes';
 import type { Mesher } from '../kit/mesher';
-import { curve, poly, rect, slotRow } from '../kit/shapes';
+import { circle, curve, poly, rect, slotRow } from '../kit/shapes';
 import { knurl, screwX, serrations } from '../kit/details';
 import { bump, hold, inOut, inQuad, outCubic, seg, thud } from '../curves';
 import { fill, pullTrigger } from './common';
@@ -19,7 +19,14 @@ import { TORCH, weaponLight } from './light';
 const BORE = 0.046;
 const GUARD_REAR = -0.165;
 const GUARD_FRONT = -0.4;
+const TIP_AT = -0.556;
 const MUZZLE = -0.628;
+/** The shop's short barrel (`harrowShort`): cut back tight ahead of the gas block (-0.428), pulling the muzzle device 10 cm back. */
+const TIP_SHORT = -0.456;
+const SHORT_SHIFT = TIP_SHORT - TIP_AT;
+const MUZZLE_S = MUZZLE + SHORT_SHIFT;
+/** Length of the shop's heavy slotted muzzle brake (`harrowBrake`) ahead of the barrel shoulder. */
+const BRAKE_LEN = 0.084;
 
 function receiver(m: Mesher): void {
   m.use(F.parkerized);
@@ -109,9 +116,10 @@ function furniture(m: Mesher): void {
 }
 
 function barrel(m: Mesher): void {
+  // Breech through gas block and front sight tower: shared by both the standard and cut-down short barrel.
   m.at([0, BORE, 0], null, () => {
     m.use(F.barrel);
-    m.lathe([[0.0118, -0.15, 0], [0.0118, -0.41], [0.0102, -0.415], [0.0102, -0.57, 0]], 20);
+    m.lathe([[0.0118, -0.15, 0], [0.0118, -0.41], [0.0102, -0.415], [0.0102, -0.442, 0]], 20);
     // Gas tube rides above, into the block.
     m.use(F.steel);
     m.at([0, 0.0185, -0.3], null, () => m.cyl(0.0048, 0.25, 10));
@@ -124,18 +132,106 @@ function barrel(m: Mesher): void {
       m.mirror(() => m.at([0.0085, 0.006, 0], null, () => m.box(0.0022, 0.02, 0.012, 0.0008)));
     });
     m.glow('sight', () => m.at([0, 0.052, -0.4215], null, () => m.box(0.0016, 0.006, 0.0006, 0)));
-    // Bayonet lug, because of course it has one.
-    m.at([0, -0.014, -0.48], null, () => m.box(0.008, 0.007, 0.018, 0.0012));
+  });
 
-    // Brake: a fat sleeve with two rows of side ports and an open crown.
-    m.use(F.barrelBlack);
-    m.lathe([[0.0102, -0.556, 0], [0.0168, -0.56], [0.0168, MUZZLE + 0.006], [0.0145, MUZZLE], [0.0062, MUZZLE, 0]], 22);
-    m.use(F.black);
-    m.mirror(() => {
-      for (let i = 0; i < 3; i++) m.at([0.0166, 0, -0.574 - i * 0.016], null, () => m.box(0.0012, 0.013, 0.008, 0));
+  // Standard forward barrel section and bayonet lug; hidden when `harrowShort` is fitted.
+  m.part('barrelStd', [0, BORE, 0], () => {
+    m.use(F.barrel);
+    m.lathe([[0.0102, -0.44, 0], [0.0102, TIP_AT - 0.008, 0]], 20);
+    m.use(F.steelDark);
+    m.at([0, -0.014, -0.48], null, () => m.box(0.008, 0.007, 0.018, 0.0012));
+  });
+
+  // Cut-down short carbine barrel collar (`harrowShort`): heavy stepped stub right ahead of the gas block.
+  m.part('barrelShort', [0, BORE, 0], () => {
+    m.use(F.barrel);
+    m.lathe([[0.0104, -0.44, 0], [0.0122, -0.443], [0.0122, TIP_SHORT + 0.003], [0.0106, TIP_SHORT - 0.006, 0]], 20);
+    m.use(F.steel);
+    m.at([0, 0, -0.446], null, () => m.cyl(0.0128, 0.004, 18));
+  });
+
+  // Muzzle mount carrier at the barrel shoulder: `harrowShort` shifts it back by `SHORT_SHIFT`, carrying whichever muzzle device is on.
+  m.part('muzzleMount', [0, BORE, TIP_AT], () => {
+    const stdEnd = MUZZLE - TIP_AT;
+    // Original Harrow ported sleeve; hidden when `harrowBrake` is fitted.
+    m.part('muzzleStd', [0, 0, 0], () => {
+      m.use(F.barrelBlack);
+      m.lathe([[0.0102, 0, 0], [0.0168, -0.004], [0.0168, stdEnd + 0.006], [0.0145, stdEnd], [0.0062, stdEnd, 0]], 22);
+      m.use(F.black);
+      m.mirror(() => {
+        for (let i = 0; i < 3; i++) m.at([0.0166, 0, -0.018 - i * 0.016], null, () => m.box(0.0012, 0.013, 0.008, 0));
+      });
+      for (let i = 0; i < 3; i++) m.at([0, 0.0166, -0.018 - i * 0.016], null, () => m.box(0.007, 0.0012, 0.006, 0));
+      m.lathe([[0.0062, stdEnd + 0.0005, 0], [0.0056, stdEnd + 0.03, 0], [0, stdEnd + 0.031, 0]], 14);
     });
-    for (let i = 0; i < 3; i++) m.at([0, 0.0166, -0.574 - i * 0.016], null, () => m.box(0.007, 0.0012, 0.006, 0));
-    m.lathe([[0.0062, MUZZLE + 0.0005, 0], [0.0056, MUZZLE + 0.03, 0], [0, MUZZLE + 0.031, 0]], 14);
+
+    // Heavy machined 3-chamber slotted muzzle brake (`harrowBrake`): real open blast chambers, angled baffle bulkheads, top vents.
+    m.part('brake', [0, 0, 0], () => {
+      // Contrasting machined steel jam nut and crush washer at the thread shoulder.
+      m.use(F.steel);
+      m.lathe([[0.0102, 0.002, 0], [0.0138, 0.001], [0.0142, -0.004], [0.0142, -0.01], [0.0112, -0.012, 0]], 6);
+
+      const oct = poly([
+        [-0.014, -0.014], [0.014, -0.014], [0.018, -0.009], [0.018, 0.009],
+        [0.014, 0.014], [-0.014, 0.014], [-0.018, 0.009], [-0.018, -0.009],
+      ], 0.0014);
+      const bore = circle(0, 0, 0.0068, 16);
+
+      // Rear mounting bulkhead, two thick internal blast baffles, and forward crown bulkhead — leaving 3 open through-ports on each side.
+      m.use(F.barrelBlack);
+      m.at([0, 0, -0.014], null, () => m.front(oct, 0.009, { bevel: 0.001, holes: [bore] }));
+      m.at([0, 0, -0.036], null, () => m.front(oct, 0.006, { bevel: 0.0008, holes: [bore] }));
+      m.at([0, 0, -0.058], null, () => m.front(oct, 0.006, { bevel: 0.0008, holes: [bore] }));
+      m.at([0, 0, -0.077], null, () => m.front(oct, 0.007, { bevel: 0.001, holes: [bore] }));
+
+      // Top and bottom armoured decks spanning the chambers; top deck carries 3 real compensator vent cut-outs.
+      m.use(F.parkerized);
+      const deck = poly([[-0.0145, -0.01], [0.0145, -0.01], [0.0145, -0.08], [-0.0145, -0.08]], 0.0016);
+      m.at([0, 0.0118, 0], null, () => m.top(deck, 0.0046, {
+        bevel: 0.0008,
+        holes: slotRow(0, -0.025, 0, -0.068, 3, 0.014, 0.0046, 0),
+      }));
+      m.at([0, -0.0118, 0], null, () => m.top(deck, 0.0046, { bevel: 0.0008 }));
+
+      // Inner core barrel sleeve bridging the baffles with recessed dark bore throat.
+      m.use(F.steelDark);
+      m.at([0, 0, -0.045], null, () => m.pipe(0.0086, 0.0068, 0.066, 18));
+      // Four bevelled stand-off crown teeth at the muzzle face.
+      const tooth = poly([[-0.0032, -0.003], [0.0032, -0.003], [0.0022, 0.003], [-0.0022, 0.003]], 0.0006);
+      for (const [tx, ty] of [[-0.011, 0.0095], [0.011, 0.0095], [-0.011, -0.0095], [0.011, -0.0095]] as const) {
+        m.at([tx, ty, -BRAKE_LEN + 0.003], null, () => m.front(tooth, 0.006, { bevel: 0.0006 }));
+      }
+      m.use(F.black);
+      m.lathe([[0.0068, -0.079, 0], [0.0058, -0.045, 0], [0, -0.044, 0]], 14);
+    });
+  });
+}
+
+/**
+ * The shop's flared magwell (`harrowMagwell`): a machined brushed-steel competition funnel bolted over the bottom of the
+ * parkerized receiver's magwell, notched at the rear for the paddle release.
+ */
+function magwell(m: Mesher): void {
+  m.part('magwell', [0, -0.03, -0.09], () => {
+    const throat = rect(-0.0148, -0.038, 0.0148, 0.038, 0.0025);
+    // Upper collar hugging the parkerized magwell in contrasting brushed steel.
+    m.use(F.steel);
+    m.at([0, 0.0025, 0], null, () => m.top(rect(-0.0205, -0.044, 0.0205, 0.043, 0.003), 0.007, { bevel: 0.0012, holes: [throat] }));
+    // Mid bevelled flare step.
+    m.at([0, -0.004, -0.001], null, () => m.top(poly([
+      [-0.0235, 0.044], [0.0235, 0.044], [0.025, -0.044], [0.018, -0.05], [-0.018, -0.05], [-0.025, -0.044],
+    ], 0.003), 0.0065, { bevel: 0.0014, holes: [rect(-0.0168, -0.041, 0.0168, 0.039, 0.003)] }));
+    // Wide flared bottom funnel mouth.
+    m.at([0, -0.011, -0.002], null, () => m.top(poly([
+      [-0.027, 0.045], [0.027, 0.045], [0.0285, -0.045], [0.02, -0.054], [-0.02, -0.054], [-0.0285, -0.045],
+    ], 0.0035), 0.0075, { bevel: 0.0016, holes: [rect(-0.0195, -0.045, 0.0195, 0.04, 0.0035)] }));
+    // Dark steel clamping plates and hex retention screws on both flanks.
+    m.use(F.steelDark);
+    m.mirror(() => {
+      m.at([0.0225, -0.0035, -0.002], null, () => m.side(poly([[0.032, 0.005], [-0.034, 0.005], [-0.038, -0.007], [0.03, -0.007]], 0.002), 0.0034, { bevel: 0.0008 }));
+      screwX(m, 0.0243, -0.001, 0.016, 1, 0.002);
+      screwX(m, 0.0243, -0.001, -0.02, 1, 0.002);
+    });
   });
 }
 
@@ -144,20 +240,59 @@ const OPTIC_AT = [0, 0.079, -0.03] as const;
 
 function magazine(m: Mesher): void {
   // Part space: origin at the mouth of the well, feed lips up. It leans forward, so it rocks in.
+  // Both the standard 24-rounder (`magStd`) and the shop's 40-rounder (`magExt`) live inside `mag`, so the reload carries whichever is on.
   m.part('mag', [0, -0.012, -0.09], () => {
     m.at([0, 0, 0], [-0.1, 0, 0], () => {
-      m.use(F.steelDark);
-      m.side(poly([[-0.036, 0.03], [0.036, 0.03], [0.036, -0.13, 0.004], [-0.036, -0.13, 0.004]], 0.002), 0.027, { bevel: 0.0014 });
-      // Pressed ribs: three stiffeners down each face.
-      m.use(F.parkerized);
-      m.mirror(() => {
-        for (const z of [-0.022, 0, 0.022]) m.at([0.0138, -0.056, z], null, () => m.box(0.0016, 0.128, 0.007, 0.0006));
+      m.part('magStd', [0, 0, 0], () => {
+        m.use(F.steelDark);
+        m.side(poly([[-0.036, 0.03], [0.036, 0.03], [0.036, -0.13, 0.004], [-0.036, -0.13, 0.004]], 0.002), 0.027, { bevel: 0.0014 });
+        // Pressed ribs: three stiffeners down each face.
+        m.use(F.parkerized);
+        m.mirror(() => {
+          for (const z of [-0.022, 0, 0.022]) m.at([0.0138, -0.056, z], null, () => m.box(0.0016, 0.128, 0.007, 0.0006));
+        });
+        // Floor plate with a lip to pull on.
+        m.use(F.steel);
+        m.at([0, -0.133, 0], null, () => m.box(0.031, 0.006, 0.08, 0.0014, 0.003));
+        m.at([0, -0.134, 0.042], null, () => m.box(0.02, 0.004, 0.008, 0.001));
       });
-      // Floor plate with a lip to pull on.
-      m.use(F.steel);
-      m.at([0, -0.133, 0], null, () => m.box(0.031, 0.006, 0.08, 0.0014, 0.003));
-      m.at([0, -0.134, 0.042], null, () => m.box(0.02, 0.004, 0.008, 0.001));
-      // Feed lips and the top round, a proper rifle cartridge.
+
+      // Extended 40-round curved battle-rifle magazine (`harrowMag`): straight inside the magwell, curving forward below it.
+      m.part('magExt', [0, 0, 0], () => {
+        m.use(F.steelDark);
+        const back = curve([[0.036, 0.03], [0.036, -0.038], [0.032, -0.105], [0.017, -0.172], [-0.006, -0.228]], 5);
+        const front = curve([[-0.078, -0.208], [-0.054, -0.155], [-0.04, -0.095], [-0.036, -0.038], [-0.036, 0.03]], 5);
+        m.side([...back, ...front], 0.027, { bevel: 0.0015, smooth: 40 });
+        // Curved pressed steel stiffener ribs on both faces.
+        m.use(F.parkerized);
+        m.mirror(() => {
+          const rib = (off: number) => {
+            const b = curve([[off + 0.004, -0.01], [off + 0.004, -0.042], [off, -0.105], [off - 0.015, -0.168], [off - 0.036, -0.214]], 4);
+            const f = curve([[off - 0.044, -0.212], [off - 0.023, -0.166], [off - 0.008, -0.105], [off - 0.004, -0.042], [off - 0.004, -0.01]], 4);
+            m.at([0.0138, 0, 0], null, () => m.side([...b, ...f], 0.0018, { bevel: 0.0005, smooth: 40 }));
+          };
+          rib(0.021);
+          rib(-0.021);
+        });
+        // Round-count witness holes on the left flank showing brass cartridges inside.
+        for (const [y, z] of [[-0.08, -0.001], [-0.115, -0.006], [-0.15, -0.015], [-0.185, -0.028]] as const) {
+          m.use(F.black);
+          m.at([-0.0136, y, z], [0, -Math.PI / 2, 0], () => m.cyl(0.0028, 0.0012, 10));
+          m.use(F.brass);
+          m.at([-0.0131, y, z], [0, -Math.PI / 2, 0], () => m.cyl(0.002, 0.001, 10));
+        }
+        // Canted heavy steel + rubber extended bumper floorplate matching the banana curve's exit angle.
+        m.at([0, -0.222, -0.043], [0.28, 0, 0], () => {
+          m.use(F.steel);
+          m.side(poly([[-0.042, 0.005], [0.043, 0.005], [0.046, -0.005, 0.002], [-0.044, -0.005, 0.002]], 0.0015), 0.032, { bevel: 0.0014 });
+          m.use(F.rubber);
+          m.at([0, -0.007, 0], null, () => m.side(poly([[-0.038, 0.003], [0.038, 0.003], [0.036, -0.004, 0.002], [-0.036, -0.004, 0.002]], 0.0015), 0.029, { bevel: 0.0012 }));
+          m.use(F.steelDark);
+          m.at([0, -0.002, 0.046], null, () => m.side(poly([[-0.004, 0.003], [0.005, 0.002], [0.005, -0.004], [-0.004, -0.004]], 0.001), 0.022, { bevel: 0.0008 }));
+        });
+      });
+
+      // Feed lips and the top round, shared by both magazines.
       m.use(F.steel);
       m.mirror(() => m.at([0.0108, 0.0305, 0], null, () => m.box(0.0024, 0.0065, 0.062, 0.0006)));
       m.use(F.brass);
@@ -179,6 +314,7 @@ function buildHarrow(kit: Kit): { model: Model; mods: ViewDef['mods'] } {
   receiver(m);
   furniture(m);
   barrel(m);
+  magwell(m);
   magazine(m);
   // The shop's optics (weapons/mods.ts), each a part hidden until fitted. The irons stay and sit low under either.
   const dot = redDot(m, OPTIC_AT);
@@ -207,12 +343,27 @@ function buildHarrow(kit: Kit): { model: Model; mods: ViewDef['mods'] } {
   const model = new Model(m, kit.mats, { glows: { sight: [0x7dff5a, 6], torch: TORCH, ...OPTIC_GLOWS } });
   acogShade(model);
   model.socket('muzzle', [0, BORE, MUZZLE - 0.004]);
+  model.socket('muzzleShort', [0, BORE, MUZZLE_S - 0.004]);
+  // Parented to `brake` inside `muzzleMount`, so it automatically shifts back when both `harrowBrake` and `harrowShort` are fitted.
+  model.socket('muzzleBrake', [0, 0, -BRAKE_LEN - 0.004], [0, 0, 0], 'brake');
   model.socket('eject', [0.021, 0.054, -0.03]);
   model.hand('gripR', [0.018, -0.054, 0.072], [0, -0.96, 0.27], [-0.3, -0.25, -0.92]);
   model.support('gripL', [-0.001, 0.013, -0.3]);
   model.hand('magHold', [-0.02, -0.07, -0.004], [-0.3, 0.1, -0.95], [0.9, -0.1, -0.35], 'mag');
   model.hand('chargeHold', [-0.022, 0.0, 0.004], [-0.5, -0.2, -0.8], [0.8, -0.3, -0.5], 'charge');
-  return { model, mods: { reddot: dot, harrowAcog: scope, harrowLight: { part: 'light' } } };
+  return {
+    model,
+    mods: {
+      reddot: dot,
+      harrowAcog: scope,
+      harrowLight: { part: 'light' },
+      // Brake before short barrel so when both are fitted, the flash leaves the shifted brake's mouth (`muzzleBrake`).
+      harrowBrake: { part: 'brake', hides: 'muzzleStd', muzzle: 'muzzleBrake' },
+      harrowShort: { part: 'barrelShort', hides: 'barrelStd', muzzle: 'muzzleShort', moves: { part: 'muzzleMount', z: SHORT_SHIFT } },
+      harrowMag: { part: 'magExt', hides: 'magStd' },
+      harrowMagwell: { part: 'magwell' },
+    },
+  };
 }
 
 /** How far the carrier and its handle run. */

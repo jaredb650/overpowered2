@@ -17,7 +17,8 @@ import { VmMaterials } from './kit/materials';
 import { BloodCoat, clearByte, closeness, killBlood, reachByte, VmBloodTuning } from './blood';
 import type { Model } from './kit/model';
 import { buildDefs, buildOffhand, type OffhandSet } from './models';
-import { LamBeams, type LaserCast } from './lam';
+import { LamBeams, ROCKET_LAM_RANGE, type LaserCast } from './lam';
+import { ROCKET_LASER } from '../laser';
 import { Legs } from './legs';
 import { Offhand, leftGunAway } from './offhand';
 import { HANDS } from './poses';
@@ -810,8 +811,13 @@ export class Rig implements ViewmodelRig {
     this.lam.aim = this.aimW;
   }
 
-  /** Slot `slot`'s laser: its fitted module's emitter while its gun shows, at `strength`. */
+  /** Slot `slot`'s laser: its fitted module's emitter while its gun shows, at `strength` (400 m for the Rocket's guided laser). */
   private updateLam(def: ViewDef | null, slot: number, strength: number): void {
+    if (def && def.id === 'rocket' && slot === 0 && this.holsterW < 1 && ROCKET_LASER.on) {
+      const socket = def.model.sockets.lam ?? null;
+      this.lam.set(0, socket, strength, ROCKET_LAM_RANGE);
+      return;
+    }
     const id = def && this.holsterW < 1 ? this.look(def, 'laser')?.laser : undefined;
     let s: THREE.Object3D | null | undefined = id ? def!.model.sockets[id] : undefined;
     const socket = s ?? null;

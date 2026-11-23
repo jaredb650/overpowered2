@@ -13,8 +13,8 @@ import { Kit } from '../kit/kit';
 import { Model } from '../kit/model';
 import { F } from '../kit/finishes';
 import type { Finish, Mesher } from '../kit/mesher';
-import { curve, poly, rect, type P2 } from '../kit/shapes';
-import { hexX, knurl, screwX, serrations } from '../kit/details';
+import { circle, curve, poly, rect, slotRow, type P2 } from '../kit/shapes';
+import { hexX, knurl, rail, screwX, serrations } from '../kit/details';
 import { bump, hold, inOut, inQuad, outCubic, seg, thud } from '../curves';
 import { fill, pullTrigger } from './common';
 import type { Anim, ModLook, ViewDef } from '../def';
@@ -40,6 +40,10 @@ const GAS = -0.452;
 const POST = -0.585;
 const HIDER = -0.62;
 const MUZZLE = -0.668;
+/** Heavy M60/MG42-inspired fore-end (`flailHeavy`): chunky slotted shroud and aggressive muzzle booster. */
+const SHROUD_H_REAR = -0.198;
+const SHROUD_H_FRONT = -0.562;
+const MUZZLE_HEAVY = -0.718;
 /** The irons' line, the front post's tip to the rear aperture: level. */
 const IRONS = 0.112;
 /** Where the belt comes up the left flank and in, and the middle of the box under it. */
@@ -130,18 +134,87 @@ function lower(m: Mesher): void {
 }
 
 function stock(m: Mesher): void {
-  // A fixed angular stock, skeletoned through behind the grip, a cheek facet on top and a rubber pad.
-  m.use(F.polymer);
-  const outer = poly([[REC_BACK - 0.004, 0.068], [REC_BACK - 0.004, 0.012], [0.2, -0.004, 0.012], [0.35, -0.022, 0.008], [0.362, -0.02, 0.004], [0.362, 0.076, 0.006], [0.28, 0.074, 0.02], [0.17, 0.07, 0.012]], 0.004);
-  const cut = poly([[0.17, 0.05], [0.2, 0.018], [0.322, 0.002], [0.33, 0.012], [0.33, 0.054], [0.29, 0.056]], 0.006);
-  m.side(outer, 0.04, { bevel: 0.006, smooth: 50, holes: [cut] });
-  m.use(F.polymerGrey);
-  m.mirror(() => m.at([0.0205, 0, 0], null, () => m.side(poly([[0.2, 0.066], [0.31, 0.068], [0.32, 0.06], [0.21, 0.058]], 0.002), 0.002, { bevel: 0.0006 })));
-  m.use(F.rubber);
-  m.at([0, 0.028, 0.368], null, () => m.box(0.042, 0.1, 0.012, 0.004, 0.008));
-  // The buffer's end cap where the stock meets the receiver.
+  // The buffer's end cap where either stock meets the receiver.
   m.use(F.steelDark);
   m.at([0, 0.04, REC_BACK + 0.004], null, () => m.box(HALF * 2 + 0.002, 0.056, 0.01, 0.002, 0.004));
+
+  // The issued fixed angular skeleton stock; hidden when `flailStock` is fitted.
+  m.part('stockStd', [0, 0, 0], () => {
+    m.use(F.polymer);
+    const outer = poly([[REC_BACK - 0.004, 0.068], [REC_BACK - 0.004, 0.012], [0.2, -0.004, 0.012], [0.35, -0.022, 0.008], [0.362, -0.02, 0.004], [0.362, 0.076, 0.006], [0.28, 0.074, 0.02], [0.17, 0.07, 0.012]], 0.004);
+    const cut = poly([[0.17, 0.05], [0.2, 0.018], [0.322, 0.002], [0.33, 0.012], [0.33, 0.054], [0.29, 0.056]], 0.006);
+    m.side(outer, 0.04, { bevel: 0.006, smooth: 50, holes: [cut] });
+    m.use(F.polymerGrey);
+    m.mirror(() => m.at([0.0205, 0, 0], null, () => m.side(poly([[0.2, 0.066], [0.31, 0.068], [0.32, 0.06], [0.21, 0.058]], 0.002), 0.002, { bevel: 0.0006 })));
+    m.use(F.rubber);
+    m.at([0, 0.028, 0.368], null, () => m.box(0.042, 0.1, 0.012, 0.004, 0.008));
+  });
+
+  // Enhanced tactical precision cheek-rest stock (`flailStock`): bevelled multi-material frame, adjustable cheek riser on twin
+  // steel guide posts, knurled elevation/LOP dials, machined cheek rails, under-heel shoulder hook and heavy ribbed recoil pad.
+  m.part('stockEnh', [0, 0, 0], () => {
+    // Heavy contoured lower/main body with twin truss cut-outs revealing the machined LOP guide rods.
+    m.use(F.polymer);
+    const frame = poly([
+      [REC_BACK - 0.002, 0.069], [REC_BACK - 0.002, 0.01], [0.18, -0.006, 0.01],
+      [0.245, -0.026, 0.008], [0.368, -0.032, 0.006], [0.376, -0.026, 0.004],
+      [0.376, 0.078, 0.006], [0.33, 0.075, 0.01], [0.18, 0.07, 0.008],
+    ], 0.004);
+    const frontCut = poly([[0.175, 0.046], [0.195, 0.016], [0.26, -0.006], [0.262, 0.046]], 0.006);
+    const rearCut = poly([[0.285, 0.044], [0.285, -0.012], [0.342, -0.015], [0.344, 0.044]], 0.006);
+    m.side(frame, 0.042, { bevel: 0.0055, smooth: 50, holes: [frontCut, rearCut] });
+
+    // Contrasting machined anodized-grey side rail plates + QD sling sockets + thin inset cyan accent strip.
+    m.use(F.anodizedGrey);
+    m.mirror(() => {
+      m.at([0.0218, 0, 0], null, () => m.side(poly([
+        [0.145, 0.064], [0.355, 0.068], [0.36, 0.052], [0.15, 0.048],
+      ], 0.0025), 0.0032, { bevel: 0.0009 }));
+      // QD sling cup at rear lower flank.
+      m.use(F.steelDark);
+      m.at([0.0218, -0.006, 0.354], [0, Math.PI / 2, 0], () => m.cyl(0.0068, 0.0032, 16));
+      m.use(F.black);
+      m.at([0.023, -0.006, 0.354], [0, Math.PI / 2, 0], () => m.cyl(0.0038, 0.0014, 14));
+      m.use(F.anodizedGrey);
+    });
+    m.use(F.black);
+    m.at([-0.0236, 0, 0], null, () => m.side(poly([[0.158, 0.058], [0.342, 0.061], [0.342, 0.056], [0.158, 0.053]], 0.0006), 0.0008, { bevel: 0.0002 }));
+    m.glow('line', () => m.at([-0.0241, 0, 0], null, () => m.side(poly([[0.16, 0.0564], [0.34, 0.0594], [0.34, 0.0576], [0.16, 0.0546]], 0.0003), 0.0006, { bevel: 0 })));
+
+    // Twin brushed-steel guide posts & knurled elevation / length-of-pull adjustment wheels inside the cutouts.
+    m.use(F.steel);
+    for (const z of [0.215, 0.295]) m.at([0, 0.066, z], [Math.PI / 2, 0, 0], () => m.cyl(0.0048, 0.024, 12));
+    m.at([0, 0.015, 0.314], [Math.PI / 2, 0, 0], () => knurl(m, 0.0115, 0.016, F.steelDark, 20, 0.0007));
+    m.at([0, 0.026, 0.225], null, () => knurl(m, 0.0095, 0.014, F.steel, 18, 0.0006));
+
+    // Elevated ergonomic cheek riser saddle riding on the twin posts (contrasting stippled polymer + rubber top pad).
+    m.use(F.polymerStipple);
+    const riser = poly([
+      [0.184, 0.072], [0.205, 0.084, 0.008], [0.316, 0.086, 0.008], [0.33, 0.074, 0.005],
+      [0.326, 0.064, 0.003], [0.188, 0.062, 0.003],
+    ], 0.003);
+    m.side(riser, 0.048, { bevel: 0.005, smooth: 50 });
+    m.use(F.rubber);
+    m.at([0, 0.085, 0.26], null, () => m.top(rect(-0.016, -0.052, 0.016, 0.052, 0.006), 0.0035, { bevel: 0.0012 }));
+    m.mirror(() => {
+      screwX(m, 0.0242, 0.072, 0.215, 1, 0.0022, F.steel);
+      screwX(m, 0.0242, 0.073, 0.295, 1, 0.0022, F.steel);
+    });
+
+    // Under-stock heavy machined folding shoulder-hook / monopod rail.
+    m.use(F.steelDark);
+    m.side(poly([[0.252, -0.026], [0.362, -0.031], [0.366, -0.041, 0.003], [0.258, -0.036, 0.003]], 0.002), 0.024, { bevel: 0.0016 });
+    m.use(F.steel);
+    m.at([0, -0.034, 0.352], [0, Math.PI / 2, 0], () => m.cyl(0.0046, 0.028, 12));
+
+    // Heavy contoured rubber recoil buttpad with horizontal traction ribs.
+    m.use(F.rubber);
+    m.side(poly([[0.372, 0.08], [0.388, 0.077, 0.005], [0.39, -0.032, 0.006], [0.372, -0.036, 0.004]], 0.003), 0.044, { bevel: 0.004, smooth: 40 });
+    m.use(F.polymerGrey);
+    for (let i = 0; i < 6; i++) {
+      m.at([0, -0.018 + i * 0.016, 0.388], null, () => m.front(rect(-0.016, -0.0022, 0.016, 0.0022, 0.0008), 0.0026, { bevel: 0.0006 }));
+    }
+  });
 }
 
 function barrel(m: Mesher): void {
@@ -238,6 +311,276 @@ function handleAndBipod(m: Mesher): void {
       m.at([0, 0, 0.03], null, () => knurl(m, 0.0052, 0.014, F.steelDark, 12, 0.0004));
       m.use(F.rubber);
       m.at([0, -0.001, -0.098], null, () => m.box(0.008, 0.006, 0.012, 0.0012, 0.002));
+    });
+  });
+}
+
+/**
+ * The shop's heavy barrel (`flailHeavy`): replaces the whole fore-end with a chunky futuristic M60/MG42-inspired square slotted
+ * shroud, a heavy fluted radiator barrel visible right through the cut-out vents, an M60 ribbed lower fore-end handguard, heavy
+ * folded stamped bipod legs, a canted quick-change carry handle, a hooded front sight, and an aggressive slotted muzzle booster.
+ */
+function heavyFront(m: Mesher): void {
+  m.part('frontHeavy', [0, 0, 0], () => {
+    const R = SHROUD_H_REAR; // -0.198
+    const N = SHROUD_H_FRONT; // -0.562
+    const shroudLen = R - N; // 0.364
+
+    // --- 1. Heavy trunnion collar & MG42-style quick-change barrel latch on the right ---
+    const outerCollar = poly([
+      [-0.025, 0.012], [0.025, 0.012], [0.034, 0.022], [0.034, 0.066],
+      [0.025, 0.077], [-0.025, 0.077], [-0.034, 0.066], [-0.034, 0.022],
+    ], 0.002);
+    const innerCage = poly([
+      [-0.021, 0.02], [0.021, 0.02], [0.026, 0.027], [0.026, 0.061],
+      [0.021, 0.068], [-0.021, 0.068], [-0.026, 0.061], [-0.026, 0.027],
+    ], 0.002);
+    m.use(F.steelDark);
+    m.at([0, 0, R - 0.002], null, () => m.front(outerCollar, 0.036, { bevel: 0.0018, holes: [innerCage] }));
+    // Right-side quick-change barrel lock housing and knurled swing release lever.
+    m.at([0.035, 0, 0], null, () => m.side(poly([
+      [R - 0.006, 0.028], [R - 0.044, 0.028], [R - 0.05, 0.044], [R - 0.042, 0.056], [R - 0.006, 0.056],
+    ], 0.002), 0.007, { bevel: 0.0012 }));
+    m.at([0.04, 0.042, R - 0.022], [0, Math.PI / 2, 0], () => knurl(m, 0.0065, 0.008, F.steel, 14, 0.0005));
+    m.use(F.steel);
+    m.at([0.04, 0, 0], null, () => m.side(poly([
+      [R - 0.018, 0.047], [R - 0.018, 0.037], [R - 0.058, 0.033], [R - 0.062, 0.042],
+    ], 0.0015), 0.004, { bevel: 0.0009 }));
+
+    // --- 2. Chunky squared MG42/M60 slotted shroud with real through-cut vents ---
+    const sideWall = poly([
+      [R - 0.016, 0.014], [R - 0.016, 0.073], [N + 0.014, 0.073, 0.003],
+      [N, 0.062, 0.002], [N, 0.024, 0.002], [N + 0.012, 0.014, 0.003],
+    ], 0.0018);
+    // Six big MG42 stadium windows centred on the bore so the fluted barrel & cooling fins show straight through.
+    const mainVents = slotRow(-0.258, BORE, -0.508, BORE, 6, 0.022, 0.017, 0);
+    // Five upper shoulder raked exhaust cuts above the main vents.
+    const upperVents = [0, 1, 2, 3, 4].map(i => {
+      const z = -0.252 - i * 0.054;
+      return poly([[z, 0.0585], [z - 0.028, 0.0585], [z - 0.034, 0.0675], [z - 0.006, 0.0675]], 0.0018);
+    });
+    m.use(PLATE);
+    m.mirror(() => m.at([0.0295, 0, 0], null, () => m.side(sideWall, 0.0044, { bevel: 0.0009, holes: [...mainVents, ...upperVents] })));
+
+    // Contrasting pale ceramic lower armour cheek strips bolted along both sides of the squared shroud.
+    const cheekStrip = poly([
+      [R - 0.03, 0.016], [R - 0.03, 0.032], [N + 0.022, 0.032, 0.002],
+      [N + 0.014, 0.022, 0.002], [N + 0.02, 0.016, 0.002],
+    ], 0.0015);
+    const cheekCuts = slotRow(-0.285, 0.024, -0.495, 0.024, 4, 0.026, 0.0065, 0);
+    m.use(CERAMIC);
+    m.mirror(() => m.at([0.0324, 0, 0], null, () => m.side(cheekStrip, 0.0028, { bevel: 0.0007, holes: cheekCuts })));
+
+    // Crisp inset cyan accent line along the left flank of the heavy shroud.
+    const glowLine = (h: number): P2[] => [
+      [R - 0.036, 0.0335 + h], [N + 0.028, 0.0335 + h], [N + 0.028, 0.0335 - h], [R - 0.036, 0.0335 - h],
+    ];
+    m.use(F.black);
+    m.at([-0.032, 0, 0], null, () => m.side(poly(glowLine(0.0016), 0.0004), 0.0008, { bevel: 0.0002 }));
+    m.glow('line', () => m.at([-0.0325, 0, 0], null, () => m.side(poly(glowLine(0.0006), 0.0002), 0.0006, { bevel: 0 })));
+
+    // Slotted bevelled top heat-shield deck with twin-row real dorsal cooling vents + forward Picatinny rail.
+    m.use(F.anodizedGrey);
+    const topDeck = poly([
+      [-0.0265, R - 0.02], [0.0265, R - 0.02], [0.0265, N + 0.014, 0.003],
+      [0.021, N + 0.006, 0.002], [-0.021, N + 0.006, 0.002], [-0.0265, N + 0.014, 0.003],
+    ], 0.002);
+    const topVents = [
+      ...slotRow(-0.0125, -0.258, -0.0125, -0.508, 6, 0.018, 0.008, Math.PI / 2),
+      ...slotRow(0.0125, -0.258, 0.0125, -0.508, 6, 0.018, 0.008, Math.PI / 2),
+    ];
+    m.at([0, 0.0736, 0], null, () => m.top(topDeck, 0.0044, { bevel: 0.0009, holes: topVents }));
+    // Short dorsal tactical rail on the forward section, well below the iron sight line (0.112).
+    m.at([0, 0.0756, 0], null, () => rail(m, -0.405, -0.535, 0.02, F.anodized));
+
+    // Three heavy machined structural rib collars wrapping the shroud, bolted through with hex bolts.
+    m.use(F.steelDark);
+    for (const z of [-0.232, -0.386, N + 0.008]) {
+      m.at([0, 0, z], null, () => m.front(outerCollar, 0.012, { bevel: 0.0014, holes: [innerCage] }));
+      m.mirror(() => {
+        hexX(m, 0.0342, 0.056, z, 1, 0.0028);
+        hexX(m, 0.0342, 0.026, z, 1, 0.0028);
+      });
+    }
+    // Forward armoured muzzle bulkhead capping the shroud around the protruding heavy barrel and gas regulator.
+    const frontCap = poly([
+      [-0.024, 0.014], [0.024, 0.014], [0.031, 0.023], [0.031, 0.064],
+      [0.023, 0.073], [-0.023, 0.073], [-0.031, 0.064], [-0.031, 0.023],
+    ], 0.002);
+    m.use(F.steelDark);
+    m.at([0, 0, N + 0.003], null, () => m.front(frontCap, 0.008, {
+      bevel: 0.0012,
+      holes: [circle(0, BORE, 0.0175, 18)],
+    }));
+
+    // Internal amber heat-indicator radiator rails tucked deep inside the shroud walls (brighten as barrel heats).
+    m.glow('vent', () => m.mirror(() => {
+      m.at([0.0258, 0.058, (R + N) / 2], null, () => m.side(rect(-shroudLen * 0.4, -0.0014, shroudLen * 0.4, 0.0014, 0.0004), 0.0012, { bevel: 0 }));
+    }));
+
+    // --- 3. M60-style sculpted ribbed lower polymer handguard cradle (belly at y = -0.002 for gripL) ---
+    m.use(F.polymer);
+    const cradle = poly([
+      [-0.027, 0.018], [-0.027, 0.008, 0.004], [-0.015, -0.002, 0.006], [0.015, -0.002, 0.006],
+      [0.027, 0.008, 0.004], [0.027, 0.018], [0.0225, 0.018], [0.0225, 0.01],
+      [0.0125, 0.0025], [-0.0125, 0.0025], [-0.0225, 0.01], [-0.0225, 0.018],
+    ], 0.0014);
+    m.at([0, 0, -0.296], null, () => m.front(cradle, 0.194, { bevel: 0.0016 }));
+    // Stippled side grip swells and transverse belly cooling ribs.
+    m.use(F.polymerStipple);
+    m.mirror(() => m.at([0.0276, 0, 0], null, () => m.side(poly([
+      [-0.208, 0.015], [-0.382, 0.015], [-0.376, 0.004, 0.003], [-0.214, 0.004, 0.003],
+    ], 0.002), 0.0024, { bevel: 0.0007 })));
+    m.use(F.polymerGrey);
+    const ribProf = poly([[-0.014, -0.0032], [0.014, -0.0032], [0.017, 0.0005], [-0.017, 0.0005]], 0.0008);
+    for (let i = 0; i < 8; i++) m.at([0, 0, -0.22 - i * 0.021], null, () => m.front(ribProf, 0.007, { bevel: 0.0007 }));
+    // Angled forward hand-stop / heat deflector lip at the front of the polymer handguard.
+    m.at([0, 0, 0], null, () => m.side(poly([[-0.384, 0.004], [-0.398, 0.004], [-0.394, -0.012, 0.003], [-0.38, -0.003, 0.003]], 0.0015), 0.026, { bevel: 0.0012 }));
+
+    // --- 4. Massive heavy fluted barrel + cooling radiator discs + M60 under-barrel gas cylinder ---
+    m.at([0, BORE, 0], null, () => {
+      m.use(F.barrel);
+      m.lathe([
+        [0.0168, R + 0.004, 0], [0.0168, R - 0.024], [0.0152, R - 0.032],
+        [0.0152, N - 0.006], [0.0142, N - 0.014], [0.0142, -0.632, 0],
+      ], 24);
+      // Eight deep machined longitudinal cooling flutes spanning from inside the shroud out past the front sight.
+      m.use(F.barrelBlack);
+      const fluteLen = (-0.232) - (-0.622);
+      const fluteMid = (-0.232 + -0.622) / 2;
+      const fluteProf = poly([[-0.0016, -0.0018], [0.0016, -0.0018], [0.0022, 0.0018], [-0.0022, 0.0018]], 0.0004);
+      for (let i = 0; i < 8; i++) {
+        const a = (i / 8) * Math.PI * 2 + Math.PI / 8;
+        m.at([Math.cos(a) * 0.0148, Math.sin(a) * 0.0148, fluteMid], [0, 0, a], () => m.front(fluteProf, fluteLen, { bevel: 0.0005 }));
+      }
+      // Six machined brushed-steel radiator fin collars visible right through the shroud's six MG42 windows.
+      m.use(F.steel);
+      for (let i = 0; i < 6; i++) {
+        const z = -0.258 - i * 0.05;
+        m.lathe([[0.0152, z + 0.005, 0], [0.0196, z + 0.004], [0.0196, z - 0.004], [0.0152, z - 0.005, 0]], 22);
+      }
+    });
+    // M60 heavy under-barrel gas cylinder, forward gas block, and protruding knurled gas regulator cap.
+    m.use(F.steelDark);
+    m.at([0, BORE - 0.026, -0.38], null, () => m.cyl(0.0082, 0.355, 16));
+    m.at([0, 0, N + 0.012], null, () => m.front(poly([
+      [-0.014, 0.004], [0.014, 0.004], [0.016, 0.024], [0.01, 0.036], [-0.01, 0.036], [-0.016, 0.024],
+    ], 0.002), 0.024, { bevel: 0.0014 }));
+    m.at([0, BORE - 0.026, N - 0.008], null, () => knurl(m, 0.0092, 0.016, F.steel, 16, 0.0006));
+    m.use(F.steelDark);
+    m.at([0, BORE - 0.026, N - 0.019], null, () => m.cyl(0.0072, 0.006, 6));
+
+    // --- 5. Heavy folded stamped-steel MG42/M60 bipod (folds cleanly back along shroud lower flanks, clear of gripL) ---
+    m.use(F.steelDark);
+    m.at([0, 0, N + 0.016], null, () => m.front(poly([
+      [-0.028, 0.002], [0.028, 0.002], [0.034, 0.014], [-0.034, 0.014],
+    ], 0.002), 0.022, { bevel: 0.0014 }));
+    m.use(F.steel);
+    m.at([0, 0.007, N + 0.016], [0, Math.PI / 2, 0], () => m.cyl(0.005, 0.076, 12));
+    m.mirror(() => {
+      // Stamped chamfered steel outer bipod strut with lightening holes, folded backward from -0.544 to -0.398.
+      m.use(F.anodized);
+      const legOuter = poly([
+        [N + 0.018, 0.014], [N + 0.018, 0.0], [-0.415, -0.002, 0.002], [-0.415, 0.012, 0.002],
+      ], 0.0018);
+      const legHoles = [-0.51, -0.478, -0.446].map(z => circle(z, 0.006, 0.0032, 10));
+      m.at([0.0365, 0, 0], null, () => m.side(legOuter, 0.006, { bevel: 0.001, holes: legHoles }));
+      // Telescoping brushed-steel inner rod + knurled tension lock collar.
+      m.use(F.steel);
+      m.at([0.0365, 0.0055, -0.402], null, () => m.cyl(0.0038, 0.038, 12));
+      m.at([0.0365, 0.0055, -0.418], null, () => knurl(m, 0.0056, 0.012, F.steelDark, 14, 0.0005));
+      // Aggressive wide serrated stamped spade foot resting neatly at z = -0.382 (well ahead of gripL at -0.30).
+      m.use(F.steelDark);
+      m.at([0.038, 0, 0], null, () => m.side(poly([
+        [-0.392, 0.014], [-0.376, 0.017, 0.001], [-0.374, 0.009, 0.001], [-0.38, 0.005, 0.001],
+        [-0.374, 0.001, 0.001], [-0.376, -0.007, 0.001], [-0.392, -0.004],
+      ], 0.001), 0.01, { bevel: 0.0009 }));
+      m.use(F.rubber);
+      m.at([0.0435, 0, 0], null, () => m.side(rect(-0.39, -0.003, -0.378, 0.013, 0.0015), 0.0024, { bevel: 0.0006 }));
+    });
+
+    // --- 6. Heavy canted quick-change carry handle (upper-left, iconic in FP & studio, clear of ADS sight line) ---
+    m.use(F.steelDark);
+    m.at([-0.033, 0.06, -0.232], [0, Math.PI / 2, 0], () => m.cyl(0.0075, 0.008, 14));
+    m.tube([
+      [-0.032, 0.06, -0.232], [-0.056, 0.074, -0.236], [-0.058, 0.076, -0.334], [-0.034, 0.064, -0.336],
+    ], 0.0046, { seg: 10, samples: 18, tension: 0.35 });
+    // Chunky finger-grooved ergonomic polymer carry grip with machined anodized end caps and steel lock nut.
+    m.at([-0.0575, 0.0755, -0.285], null, () => {
+      m.use(F.polymerStipple);
+      m.lathe([
+        [0.005, 0.042, 0], [0.0098, 0.04], [0.0098, 0.026], [0.0084, 0.022], [0.0098, 0.018],
+        [0.0098, 0.004], [0.0084, 0], [0.0098, -0.004], [0.0098, -0.018], [0.0084, -0.022],
+        [0.0098, -0.026], [0.0098, -0.04], [0.005, -0.042, 0],
+      ], 18);
+      m.use(F.anodizedGrey);
+      for (const z of [0.042, -0.042]) m.at([0, 0, z], null, () => m.cyl(0.0112, 0.005, 16));
+      m.use(F.steel);
+      m.at([0, 0, -0.047], null, () => m.cyl(0.0068, 0.005, 6));
+    });
+
+    // --- 7. Heavy hooded MG42/M60 front sight tower at exact [0, IRONS, POST] so irons ADS stays dead-level ---
+    m.at([0, BORE, POST], null, () => {
+      m.use(F.steelDark);
+      m.lathe([[0.0144, 0.012, 0], [0.0176, 0.011], [0.0176, -0.011], [0.0144, -0.012, 0]], 20);
+      // Tapered A-frame sight tower base.
+      m.side(poly([[0.011, 0.013], [0.006, IRONS - BORE - 0.008, 0.002], [-0.006, IRONS - BORE - 0.008, 0.002], [-0.011, 0.013]], 0.0014), 0.011, { bevel: 0.001 });
+      // Protective circular/horseshoe armoured sight hood.
+      const hoodOut = poly([
+        [-0.0115, IRONS - BORE - 0.012], [0.0115, IRONS - BORE - 0.012],
+        [0.013, IRONS - BORE + 0.002, 0.005], [0.007, IRONS - BORE + 0.011, 0.004],
+        [-0.007, IRONS - BORE + 0.011, 0.004], [-0.013, IRONS - BORE + 0.002, 0.005],
+      ], 0.0015);
+      const hoodIn = poly([
+        [-0.0075, IRONS - BORE - 0.008], [0.0075, IRONS - BORE - 0.008],
+        [0.0088, IRONS - BORE + 0.001, 0.004], [0.0045, IRONS - BORE + 0.007, 0.003],
+        [-0.0045, IRONS - BORE + 0.007, 0.003], [-0.0088, IRONS - BORE + 0.001, 0.004],
+      ], 0.0012);
+      m.at([0, 0, 0], null, () => m.front(hoodOut, 0.012, { bevel: 0.0009, holes: [hoodIn] }));
+      // Sight post & lit green tritium tip aligned to IRONS.
+      m.use(F.black);
+      m.at([0, IRONS - BORE - 0.004, 0], null, () => m.front(rect(-0.0012, -0.0035, 0.0012, 0.0035, 0.0003), 0.004, { bevel: 0.0003 }));
+      m.glow('sight', () => m.at([0, IRONS - BORE - 0.0015, 0.0024], null, () => m.front(rect(-0.0007, -0.0013, 0.0007, 0.0013, 0.0002), 0.0005, { bevel: 0 })));
+    });
+
+    // --- 8. Aggressive big slotted MG42 muzzle booster & multi-chamber flash hider ---
+    m.at([0, BORE, 0], null, () => {
+      // Stage 1: heavy hex barrel collar & stepped conical MG42 recoil-booster funnel (-0.620 to -0.650).
+      m.use(F.steel);
+      m.lathe([[0.0142, -0.618, 0], [0.0185, -0.619], [0.0185, -0.628], [0.0158, -0.63, 0]], 6);
+      m.use(F.steelDark);
+      m.lathe([[0.0156, -0.628, 0], [0.0208, -0.638], [0.0208, -0.65], [0.0165, -0.652, 0]], 22);
+
+      // Stage 2: massive squared-octagonal slotted compensator shroud (-0.650 to -0.704) with real open side blast chambers.
+      const brakeOct = poly([
+        [-0.016, -0.017], [0.016, -0.017], [0.0215, -0.011], [0.0215, 0.011],
+        [0.016, 0.017], [-0.016, 0.017], [-0.0215, 0.011], [-0.0215, -0.011],
+      ], 0.0016);
+      const brakeBore = circle(0, 0, 0.0076, 18);
+      m.use(F.barrelBlack);
+      m.at([0, 0, -0.654], null, () => m.front(brakeOct, 0.009, { bevel: 0.0011, holes: [brakeBore] }));
+      m.at([0, 0, -0.677], null, () => m.front(brakeOct, 0.007, { bevel: 0.0009, holes: [brakeBore] }));
+      m.at([0, 0, -0.699], null, () => m.front(brakeOct, 0.009, { bevel: 0.0011, holes: [brakeBore] }));
+      // Top and bottom slotted armoured decks spanning the open side chambers.
+      m.use(PLATE);
+      const brakeDeck = poly([[-0.0165, -0.65], [0.0165, -0.65], [0.0165, -0.703], [-0.0165, -0.703]], 0.0018);
+      m.at([0, 0.0145, 0], null, () => m.top(brakeDeck, 0.0052, {
+        bevel: 0.0009,
+        holes: slotRow(0, -0.665, 0, -0.688, 2, 0.016, 0.0065, 0),
+      }));
+      m.at([0, -0.0145, 0], null, () => m.top(brakeDeck, 0.0052, { bevel: 0.0009 }));
+      // Inner ported core sleeve visible through the open side blast windows.
+      m.use(F.steelDark);
+      m.at([0, 0, -0.676], null, () => m.pipe(0.0102, 0.0078, 0.048, 18));
+
+      // Stage 3: four aggressive serrated stand-off muzzle prongs (-0.702 to MUZZLE_HEAVY = -0.718) + deep dark bore.
+      m.use(F.steelDark);
+      const prong = poly([[-0.0042, -0.004], [0.0042, -0.004], [0.0026, 0.0045], [-0.0026, 0.0045]], 0.0007);
+      for (const [px, py] of [[-0.013, 0.0115], [0.013, 0.0115], [-0.013, -0.0115], [0.013, -0.0115]] as const) {
+        m.at([px, py, MUZZLE_HEAVY + 0.008], null, () => m.front(prong, 0.016, { bevel: 0.0008 }));
+      }
+      m.use(F.black);
+      m.lathe([[0.0078, -0.702, 0], [0.0064, -0.662, 0], [0, -0.661, 0]], 16);
     });
   });
 }
@@ -379,9 +722,13 @@ function buildFlail(kit: Kit): { model: Model; mods: ViewDef['mods'] } {
   receiver(m);
   lower(m);
   stock(m);
-  barrel(m);
-  shroud(m);
-  handleAndBipod(m);
+  // Standard fore-end wrapped in `frontStd` so `flailHeavy` swaps the whole front cleanly in both FP and shop studio.
+  m.part('frontStd', [0, 0, 0], () => {
+    barrel(m);
+    shroud(m);
+    handleAndBipod(m);
+  });
+  heavyFront(m);
   const { dot, scope } = cover(m);
   feed(m);
 
@@ -400,6 +747,7 @@ function buildFlail(kit: Kit): { model: Model; mods: ViewDef['mods'] } {
   const model = new Model(m, kit.mats, { glows: { line: [0x38d6ff, 5], vent: [0xff7a1e, 4], sight: [0x7dff5a, 6], ...OPTIC_GLOWS } });
   acogShade(model, 'acog');
   model.socket('muzzle', [0, BORE, MUZZLE - 0.004]);
+  model.socket('muzzleHeavy', [0, BORE, MUZZLE_HEAVY - 0.004]);
   // Cases go down out of the chute.
   model.socket('eject', [HALF - 0.008, 0.002, -0.028], [0, 0, -Math.PI / 2]);
   model.hand('gripR', [0.018, -0.058, 0.074], [0, -0.96, 0.27], [-0.3, -0.25, -0.92]);
@@ -408,7 +756,16 @@ function buildFlail(kit: Kit): { model: Model; mods: ViewDef['mods'] } {
   model.hand('boxHold', [-0.034, -0.05, 0.006], [-0.1, 0.1, -0.98], [0.9, 0.05, -0.2], 'box');
   model.grasp('beltHold', [-0.018, -0.024, -0.006], [1, 0, 0], [0, 0.35, -0.94], 'belt');
   model.hand('chargeHold', [-0.03, 0.0, 0.004], [-0.5, -0.2, -0.8], [0.8, -0.3, -0.5], 'charge');
-  return { model, mods: { flailDot: dot, flailAcog: scope, flailBox: { part: 'boxExt', hides: 'boxStd' } } };
+  return {
+    model,
+    mods: {
+      flailDot: dot,
+      flailAcog: scope,
+      flailBox: { part: 'boxExt', hides: 'boxStd' },
+      flailHeavy: { part: 'frontHeavy', hides: 'frontStd', muzzle: 'muzzleHeavy' },
+      flailStock: { part: 'stockEnh', hides: 'stockStd' },
+    },
+  };
 }
 
 const RACK = 0.036;

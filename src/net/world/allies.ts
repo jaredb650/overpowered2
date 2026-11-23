@@ -68,7 +68,8 @@ export class Allies implements WorldModule {
   private serial = 0;
   private next = 0;
   private readonly parts = new ListParts();
-  private sent = false;
+  /** How many empty-list clears to send after the last ally dies so one dropped unreliable packet cannot leave a ghost. */
+  private emptyLeft = 0;
   private ashots = 0;
   private ashotSecond = 0;
 
@@ -162,7 +163,7 @@ export class Allies implements WorldModule {
 
   update(now: number): void {
     if (!this.w.hosting) {
-      this.animate(now, this.w.ctx.time.realDt);
+      this.animate(now, this.w.ctx.time.dt ?? this.w.ctx.time.realDt);
       this.orders?.update(this.w.ctx.time.playerDt ?? this.w.ctx.time.realDt);
     } else if (now >= this.next) { this.next = now + SEND_MS; this.send(); }
   }
@@ -170,15 +171,20 @@ export class Allies implements WorldModule {
   /** Host: where the garrison stands, for the guests to draw. */
   private send(): void {
     const allies = (this.w.ctx.allies as unknown as { allies?: { body: Enemy; type: AllyType; state: string; order?: string; leader?: PlayerSystem | null }[] } | undefined)?.allies;
-    if (!allies?.length && !this.sent) return;
+    const live = (allies ?? []).filter(a => a.state !== 'dead');
+    if (live.length === 0) {
+      if (this.emptyLeft <= 0) return;
+      this.emptyLeft--;
+    } else {
+      this.emptyLeft = 5;
+    }
     // A man following a friend who has left the match follows the host again.
     if (allies?.some(a => a.leader)) {
       const here = this.targeting.players();
       for (const a of allies) if (a.leader && !here.some(p => p.player === a.leader)) a.leader = null;
     }
-    this.sent = !!allies?.length;
     const round = (n: number) => Math.round(n * 100) / 100;
-    const list = (allies ?? []).filter(a => a.state !== 'dead').slice(0, 24).map(a => {
+    const list = live.slice(0, 24).map(a => {
       let id = this.ids.get(a);
       if (id === undefined) this.ids.set(a, id = ++this.serial);
       const p = a.body.position;
@@ -200,7 +206,7 @@ export class Allies implements WorldModule {
       if (!Array.isArray(row) || row.length !== 8 || !row.every(Number.isFinite)) continue;
       const [id, typeIndex, x, y, z, yaw, state, posture] = row as number[];
       const type = ALLY_KINDS[typeIndex!];
-      if (!type || !validVec([x, y, z])) continue;
+      if (!Number.isInteger(id) || !type || !validVec([x, y, z])) continue;
       seen.add(id!);
       let body = this.bodies.get(id!);
       if (!body || body.type !== type) {
@@ -230,7 +236,7 @@ export class Allies implements WorldModule {
   }
 
   private animate(now: number, dt: number): void {
-    const frame = Math.max(0, Math.min(250, now - this.lastFrame));
+    const frame = this.lastFrame === 0 ? 16 : Math.max(0, Math.min(250, now - this.lastFrame));
     this.lastFrame = now;
     const clock = this.replicas.clock.empty ? this.clock : this.replicas.clock;
     if (clock.empty) return;
@@ -258,6 +264,7 @@ export class Allies implements WorldModule {
     this.bodies.clear();
     this.stands.length = 0;
     this.standIds.clear();
+    this.lastFrame = 0;
   }
 }
 

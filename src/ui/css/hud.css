@@ -201,6 +201,35 @@
   color: #000;
   font-weight: 800;
 }
+.arm-shield {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.16rem;
+  margin-bottom: 0.15rem;
+}
+.arm-shield-t {
+  font: 700 0.85rem/1 var(--mono);
+  letter-spacing: 0.06em;
+  color: var(--steel);
+  text-shadow: var(--edge);
+}
+.arm-shield.raised .arm-shield-t { color: var(--cold); }
+.arm-shield.warn .arm-shield-t { color: var(--amber); }
+.arm-shield.exhausted .arm-shield-t { color: var(--blood); }
+.arm-shieldbar {
+  width: 100%;
+  height: 0.34rem;
+  background: var(--plate);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+.arm-shieldfill {
+  height: 100%;
+  background: var(--cold);
+  transform-origin: 0 50%;
+}
+.arm-shield.warn .arm-shieldfill { background: var(--amber); }
+.arm-shield.exhausted .arm-shieldfill { background: var(--blood); }
 
 /* --- Tach --- */
 
@@ -413,6 +442,14 @@
 .lk-label { position: absolute; left: -6rem; top: 2.6rem; width: 12rem; text-align: center; color: var(--blood); font-weight: 800;
   font-size: 0.8rem; letter-spacing: 0.08em; text-shadow: 0 0 2px #000, 0 0 2px #000; }
 .lk.full .lk-label { color: var(--amber); }
+/* Autoraffica smart-gun head-paint charge indicator: small crisp radial loading ring right on the charging head. */
+.lk-charge { position: absolute; left: -1.35rem; top: -1.35rem; width: 2.7rem; height: 2.7rem; pointer-events: none; will-change: transform; }
+.lk-charge-svg { display: block; width: 100%; height: 100%; overflow: visible; }
+.lk-charge-rim { fill: none; stroke: #000; stroke-width: 4.4; opacity: 0.55; }
+.lk-charge-track { fill: none; stroke: #fff; stroke-width: 2; opacity: 0.28; }
+.lk-charge-arc { fill: none; stroke: var(--amber); stroke-width: 2.6; stroke-linecap: round;
+  filter: drop-shadow(0 0 2px rgba(255, 200, 40, 0.7)); }
+.lk-charge-dot { fill: var(--amber); stroke: #000; stroke-width: 0.8; }
 .xh-heal { top: 6.4rem; animation: op-heal 1.4s ease-in-out infinite alternate; }
 @keyframes op-heal { from { opacity: 1; } to { opacity: 0.55; } }
 /* The held-breath zoom: a thin bar draining below and right of centre, clear of a scope's stadia, dim while it refills; its

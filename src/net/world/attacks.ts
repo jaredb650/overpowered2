@@ -264,12 +264,12 @@ export class EnemyAttacks implements WorldModule {
     return typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= 3 ? value : this.w.session.lobby.me?.slot ?? 0;
   }
 
-  private beginIn(value: Extract<AttackEvent, { t: 'atk' }>, now: number, waited = 0): void {
+  private beginIn(value: Extract<AttackEvent, { t: 'atk' }>, now: number, waited?: number): void {
     if (!Number.isFinite(value.w) || value.w < 0 || value.w > 30) return;
     const e = this.replicas.enemy(value.uid);
     if (!e || !e.alive) {
       // Not drawn here yet: kept a moment, and started that far in once he is.
-      if (waited === 0 && this.early.size < 48) this.early.set(value.uid, { value, waited: this.clock.late(value.ht, now) });
+      if (waited === undefined && this.early.size < 48) this.early.set(value.uid, { value, waited: this.clock.late(value.ht, now) });
       return;
     }
     const a = this.find(e, value.a);
@@ -285,7 +285,7 @@ export class EnemyAttacks implements WorldModule {
     e.attackShots = 0;
     e.attackStage = 0;
     // Late by more than the link's usual delay: the wind-up is that much shorter, so the shot still lands with the host's.
-    e.attackWindup = Math.max(0.05, value.w - (waited > 0 ? waited : this.clock.late(value.ht, now)));
+    e.attackWindup = Math.max(0.05, value.w - (waited !== undefined ? waited : this.clock.late(value.ht, now)));
     const world = this.world(to);
     this.guard(e, () => a.begin(e, world));
     this.setAim(e, value);

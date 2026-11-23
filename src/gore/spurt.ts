@@ -12,7 +12,7 @@ import { clamp } from '../core/math';
 import type { BloodField } from './blood';
 
 export const SpurtTuning = {
-  max: 8,
+  max: 12,
   /** Globs each spurt can have in the air, and how many it fires a second. */
   globs: 30,
   rate: 34,
@@ -102,9 +102,10 @@ export class SpurtField {
 
   /**
    * A spurt out of `target` at `offset`, along `axis` (both in its frame), for `seconds`. `owner` is the body's root: when
-   * it leaves the scene the spurt stops. `power` scales the push: 1 a limb, more for a neck.
+   * it leaves the scene the spurt stops. `power` scales the push: 1 a limb, more for a neck. Returns a handle id for
+   * damping (hand clutching a wound) or stopping (dressed/cauterised).
    */
-  start(target: THREE.Object3D, offset: THREE.Vector3, axis: THREE.Vector3, owner: THREE.Object3D, seconds: number, power = 1): void {
+  start(target: THREE.Object3D, offset: THREE.Vector3, axis: THREE.Vector3, owner: THREE.Object3D, seconds: number, power = 1, leanScale = 0.8): number {
     let s = this.spurts.find(o => !o.alive);
     if (!s) {
       s = this.spurts[0]!;
@@ -117,7 +118,7 @@ export class SpurtField {
     s.owner = owner;
     s.offset.copy(offset);
     s.axis.copy(axis).normalize();
-    s.lean.set(Math.sin(s.serial * 2.4), 0, Math.cos(s.serial * 2.4)).multiplyScalar(0.8);
+    s.lean.set(Math.sin(s.serial * 2.4), 0, Math.cos(s.serial * 2.4)).multiplyScalar(leanScale);
     s.started = this.ctx.time.elapsed;
     s.ends = s.started + seconds;
     s.power = power;
@@ -130,6 +131,43 @@ export class SpurtField {
     s.nextStain = 0;
     s.phase = 0;
     for (let i = 0; i < SpurtTuning.globs; i++) s.globs[i * G + 7] = 0;
+    return s.serial;
+  }
+
+  /** Updates jet pressure of a running spurt by handle (e.g. clutching hand cuts carotid jet in half). */
+  setPower(id: number, power: number): void {
+    if (id <= 0) return;
+    for (const s of this.spurts) {
+      if (s.alive && s.serial === id) {
+        s.power = Math.max(0.05, power);
+        return;
+      }
+    }
+  }
+
+  /** Stops emission on a running spurt by handle (dressed/cauterised); globs already airborne finish falling. */
+  stop(id: number): void {
+    if (id <= 0) return;
+    for (const s of this.spurts) {
+      if (s.alive && s.serial === id) {
+        s.ends = Math.min(s.ends, this.ctx.time.elapsed);
+        s.emitting = false;
+        return;
+      }
+    }
+  }
+
+  /** Caps remaining pumping time on a spurt (e.g. heart stops on death, pressure fades quickly). */
+  clampRemaining(id: number, maxSeconds: number, powerScale = 0.7): void {
+    if (id <= 0) return;
+    const limit = this.ctx.time.elapsed + maxSeconds;
+    for (const s of this.spurts) {
+      if (s.alive && s.serial === id) {
+        if (s.ends > limit) s.ends = limit;
+        s.power = Math.max(0.15, s.power * powerScale);
+        return;
+      }
+    }
   }
 
   private warming = 0;
@@ -265,10 +303,31 @@ export class SpurtField {
       }
       // The chain, newest first: the nozzle, then each glob in the order it left.
       let first = true;
+      let hasDir = false;
       let lx = 0, ly = 0, lz = 0;
+      let pdx = 0, pdy = 0, pdz = 0;
       const put = (x: number, y: number, z: number, age: number, serial: number) => {
         const o = count * STRIDE;
-        const split = !first && Math.hypot(x - lx, y - ly, z - lz) > t.gap;
+        let split = false;
+        if (!first) {
+          const dx = x - lx, dy = y - ly, dz = z - lz;
+          const dist = Math.hypot(dx, dy, dz);
+          if (dist > t.gap) {
+            split = true;
+          } else if (hasDir && dist > 1e-4) {
+            // A fresh systolic pulse overtaking the slower diastolic tail folds the ribbon backward: split into clean arcs.
+            const inv = 1 / dist;
+            if (pdx * dx * inv + pdy * dy * inv + pdz * dz * inv < 0.1) split = true;
+          }
+          if (!split && dist > 1e-4) {
+            pdx = dx / dist;
+            pdy = dy / dist;
+            pdz = dz / dist;
+            hasDir = true;
+          } else if (split) {
+            hasDir = false;
+          }
+        }
         c[o] = x;
         c[o + 1] = y;
         c[o + 2] = z;
@@ -288,6 +347,7 @@ export class SpurtField {
         if (s.globs[g + 7] === 0) {
           // A glob gone in the middle of the chain is a break in it.
           first = true;
+          hasDir = false;
           continue;
         }
         put(s.globs[g]!, s.globs[g + 1]!, s.globs[g + 2]!, s.globs[g + 6]!, s.fired - k);
