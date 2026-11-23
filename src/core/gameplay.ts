@@ -327,6 +327,18 @@ export interface PaintView {
  */
 export type SwordMove = 'light1' | 'light2' | 'light3' | 'windup' | 'block' | 'heavy' | 'stab' | 'cleave' | 'spin' | 'wave' | 'flurry';
 
+/** Optional shell-by-shell reload timing metadata for tubular-magazine shotguns. */
+export interface ReloadMeta {
+  /** Exact number of shells being inserted during this reload. */
+  readonly shells: number;
+  /** True when reloading from an empty magazine (ends with a pump/bolt rack). */
+  readonly fromEmpty: boolean;
+  /** Reload fraction (0..1) where the first shell begins fetching. */
+  readonly startFrac: number;
+  /** Reload fraction (0..1) allocated to each shell insertion. */
+  readonly stepFrac: number;
+}
+
 /** First-person arms and weapons. WeaponSystem drives it; it never changes game state. */
 export interface ViewmodelRig extends GameSystem {
   /** Raises this weapon with a draw animation lasting `seconds`. */
@@ -335,8 +347,12 @@ export interface ViewmodelRig extends GameSystem {
   holster(seconds: number): void;
   /** Fires one shot of recoil. `strength` 1 is the weapon's normal kick. */
   fire(strength?: number, left?: boolean): void;
+  /** Starts a deferred manual action cycle (e.g. racking a bolt-action rifle after unscoping). Optional for stand-in rigs. */
+  cycle?(): void;
   /** Plays the reload animation over `seconds`. */
-  reload(seconds: number): void;
+  reload(seconds: number, meta?: ReloadMeta): void;
+  /** Cancels any active reload animation immediately (e.g. interrupting a shell-by-shell shotgun reload to fire). */
+  cancelReload?(): void;
   swing(move: SwordMove, seconds: number): void;
   /** 0..1 charge or spin level, for the Lance and Buzzsaw. */
   setCharge(amount: number): void;

@@ -118,7 +118,7 @@ describe('the Awl scout', () => {
     expect(WAKE_PROFILES.scout.shock).toBe(0);
   });
 
-  it('scopes at its own FOV, drops out for the visible bolt, and swaps to the shared ACOG and back', () => {
+  it('scopes at its own FOV, holds the bolt closed while scoped for follow-through, and swaps to the shared ACOG and back', () => {
     const zoom = vi.fn();
     const aim = vi.fn();
     range.ctx.camera.setZoom = zoom;
@@ -127,11 +127,18 @@ describe('the Awl scout', () => {
     range.run(0.4);
     expect(range.weapons.scoped).toBe(true);
     expect(zoom).toHaveBeenLastCalledWith(WEAPONS.awl.scopeFov);
+    // Scoped shot stays in the scope so the player can follow through and see the hit.
     range.tap('fire');
-    expect(range.weapons.scoped).toBe(false);
-    range.run(1);
     expect(range.weapons.scoped).toBe(true);
-    expect(zoom).toHaveBeenLastCalledWith(WEAPONS.awl.scopeFov);
+    expect(range.weapons.ammo('awl').mag).toBe(4);
+    // Cannot fire again while still scoped with a spent chamber.
+    range.tap('fire');
+    expect(range.weapons.ammo('awl').mag).toBe(4);
+    // Unscoping racks the bolt; once the bolt closes, the next shot can fire.
+    range.tap('aim');
+    range.run(0.2);
+    expect(range.weapons.scoped).toBe(false);
+    range.run(0.6);
     fit('awlAcog');
     range.tap('aim');
     range.run(0.4);
@@ -149,38 +156,50 @@ describe('the Awl scout', () => {
     expect(zoom).toHaveBeenLastCalledWith(WEAPONS.awl.scopeFov);
   });
 
-  it('goes back into the scope as the bolt locks, unless aim was pressed or let go during the cycle', () => {
+  it('waits to rack the bolt until unscoped in both toggle and hold scope modes, and blocks re-scoping mid-cycle', () => {
+    const eject = vi.fn();
+    range.ctx.fx = new Proxy(range.ctx.fx, { get: (target, key) => key === 'shellCasing' ? eject : Reflect.get(target, key) });
     const scopeUp = () => {
       range.tap('aim');
       range.run(0.4);
       expect(range.weapons.scoped).toBe(true);
     };
-    // Toggled: in, shot, out for the bolt, back in on its own once it locks.
+    // Toggle scope: stays scoped after firing with no bolt cycle or shell ejection until aim is pressed again.
     scopeUp();
     range.tap('fire');
+    range.run(1);
+    expect(range.weapons.scoped).toBe(true);
+    expect(eject).not.toHaveBeenCalled();
+    // Unscope: bolt cycles and ejects the spent brass.
+    range.tap('aim');
+    range.run(0.3);
+    expect(range.weapons.scoped).toBe(false);
+    expect(eject).toHaveBeenCalledOnce();
+    // Cannot re-scope mid-bolt; once the cycle completes, scoping works again.
+    range.tap('aim');
     expect(range.weapons.scoped).toBe(false);
     range.run(0.5);
-    expect(range.weapons.scoped).toBe(false);
-    range.run(0.4);
-    expect(range.weapons.scoped).toBe(true);
-    // Aim pressed during the cycle: it stays out.
-    range.tap('fire');
-    range.run(0.2);
-    range.tap('aim');
-    range.run(1);
-    expect(range.weapons.scoped).toBe(false);
-    // Hold to aim: held through the cycle it comes back; let go during it, it stays out.
+    scopeUp();
+    // Hold to aim: stays scoped as long as aim is held after firing, then cycles once released.
     range.weapons.aimHold = true;
     range.input.simulate('aim', true);
     range.run(0.4);
     expect(range.weapons.scoped).toBe(true);
     range.tap('fire');
-    range.input.simulate('aim', true);
     range.run(1);
     expect(range.weapons.scoped).toBe(true);
-    range.tap('fire');
+    expect(eject).toHaveBeenCalledTimes(1);
     range.input.simulate('aim', false);
-    range.run(1);
+    range.run(0.3);
+    expect(range.weapons.scoped).toBe(false);
+    expect(eject).toHaveBeenCalledTimes(2);
+    range.run(0.5);
+    // Holding aim again after the bolt finishes brings the scope back cleanly.
+    range.input.simulate('aim', true);
+    range.run(0.4);
+    expect(range.weapons.scoped).toBe(true);
+    range.input.simulate('aim', false);
+    range.run(0.4);
     expect(range.weapons.scoped).toBe(false);
   });
 
@@ -291,7 +310,7 @@ describe('the Awl\'s extended barrel and greased bolt', () => {
     expect(e!.hits[0]!.armour).toBe('heavy');
   });
 
-  it('the greased bolt: the whole cycle and every cue a quarter sooner, the case on the pull, the scope back as it locks', () => {
+  it('the greased bolt: the whole cycle and every cue a quarter sooner, the case on the pull once unscoped', () => {
     const greased = def('awlBolt');
     expect(greased.cycleTime).toBeCloseTo(0.65 * GREASE);
     expect(greased.interval).toBeCloseTo(0.65 * GREASE);
@@ -306,11 +325,16 @@ describe('the Awl\'s extended barrel and greased bolt', () => {
     range.run(0.4);
     expect(range.weapons.scoped).toBe(true);
     range.tap('fire');
+    // Stays scoped with bolt held until unscoped.
+    range.run(0.3);
+    expect(range.weapons.scoped).toBe(true);
+    expect(eject).not.toHaveBeenCalled();
+    // Unscoping triggers the greased bolt: ejects within 0.17 s and finishes well before plain bolt's 0.65 s.
+    range.tap('aim');
     range.run(0.17);
     expect(eject).toHaveBeenCalledOnce();
-    range.run(0.41);
-    // 0.58 s: back in the scope and ready, where the plain bolt is still going home (0.65 s).
-    expect(range.weapons.scoped).toBe(true);
+    range.run(0.35);
+    // 0.52 s after unscoping: bolt locked and ready to fire again, where plain bolt is still cycling (0.65 s).
     range.tap('fire');
     expect(range.weapons.ammo('awl').mag).toBe(3);
   });

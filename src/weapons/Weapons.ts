@@ -18,7 +18,7 @@ import { MOVE } from '../player/tuning';
 import type { Combat, CombatShotResult, Guard, GuardOptions, GuardResult } from './Combat';
 import { AdsZoom } from './adsZoom';
 import { ISSUED, MODS, MOD_ORDER, moddedDef } from './mods';
-import { HIT_STOP, LAUNCHER, SWORD, TUNING, WEAPONS, WEAPON_ORDER, type FireSelect, type SoundLayer, type WeaponDef } from './data';
+import { HIT_STOP, LAUNCHER, SWORD, TUNING, WEAPONS, WEAPON_ORDER, type FireSelect, type ReloadCue, type SoundLayer, type WeaponDef } from './data';
 import { Fan, type FanHooks, type FanLock } from './fan';
 import { familyOf, familyOfSlot, membersOf, pressSlot, wheelSlot } from './families';
 import { Handling, holdSpeed } from './handling';
@@ -111,10 +111,17 @@ export class Weapons implements WeaponSystem, Guard {
   private reloadLeft = 0;
   private reloadTotal = 0;
   private reloadCue = 0;
+  /** Active foley cues for the reload in progress (static or generated per missing shell). */
+  private reloadFoley: readonly ReloadCue[] = [];
+  /** True while running a shell-by-shell tube reload that credits one shell per `reload_shell_in` cue. */
+  private reloadPerShell = false;
+  private reloadShellsLeft = 0;
   /** Seconds since the last shot of a hand-cycled gun, and its next `cycleFoley` cue. Negative when nothing is due. */
   private cycleAt = -1;
   private cycleCue = 0;
   private cycleGun: WeaponId | null = null;
+  /** A scoped/aimed bolt-action shot holds the bolt closed for follow-through until the player unscopes. */
+  private boltPending: WeaponId | null = null;
   private autoReload = -1;
   /** Counts down to handing a dry gun over to the next loaded one. Negative when idle. */
   private drySwap = -1;
@@ -136,8 +143,6 @@ export class Weapons implements WeaponSystem, Guard {
   private loopKind = '';
 
   private zoomed = false;
-  /** A bolt gun's shot took it out of its scope: back in when the bolt closes, unless aim was let go meanwhile. */
-  private rescope = false;
   private zoom = 0;
   private scopeShown = false;
 
@@ -815,6 +820,7 @@ export class Weapons implements WeaponSystem, Guard {
 
   /** Stops every continuous thing. Called on death, pause and holster, so nothing keeps roaring in a menu. */
   private stopEverything(): void {
+    this.flushBoltPending();
     this.aimOn = false;
     this.kataQueue.length = 0;
     this.stopPaint();
@@ -1099,6 +1105,7 @@ export class Weapons implements WeaponSystem, Guard {
       return;
     }
     const from = this.current;
+    this.flushBoltPending();
     if (from === 'mgl') this.detonateStickies('mgl', true);
     if (from === 'gaff' && this.harpoon.ropeOut) this.harpoon.cut();
     this.gaffAimHold = 0;
@@ -1159,6 +1166,7 @@ export class Weapons implements WeaponSystem, Guard {
     if (this.modifiers.bottomlessMag) return false;
     // A salvo in the air finishes before the tubes are opened.
     if (this.salvoLeft > 0 || this.fan.phase === 'fire') return false;
+    if (this.boltPending === s.def.id) this.boltPending = null;
     this.stopPaint();
     this.endContinuous();
     this.chargeLevel = 0;
@@ -1166,10 +1174,31 @@ export class Weapons implements WeaponSystem, Guard {
     this.ctx.viewmodel.setCharge(0);
     this.clearScope(true);
     const boost = clamp(this.modifiers.fireRate, 1, MAX_RELOAD_BOOST);
-    this.reloadTotal = this.reloadLeft = s.def.reloadTime / boost;
     this.reloadCue = 0;
     this.autoReload = -1;
-    this.ctx.viewmodel.reload(this.reloadTotal);
+    const sr = s.def.shellReload;
+    if (sr) {
+      const shells = Math.min(a.magSize - a.mag, a.reserve);
+      const fromEmpty = a.mag === 0;
+      const tail = fromEmpty ? sr.emptyRack : sr.end;
+      const raw = sr.start + shells * sr.perShell + tail;
+      const startFrac = sr.start / raw;
+      const stepFrac = sr.perShell / raw;
+      const cues: ReloadCue[] = [];
+      for (let i = 0; i < shells; i++) cues.push([startFrac + (i + 0.72) * stepFrac, 'reload_shell_in']);
+      if (fromEmpty) cues.push([(sr.start + shells * sr.perShell + sr.emptyRack * 0.45) / raw, sr.rackSound]);
+      this.reloadTotal = this.reloadLeft = raw / boost;
+      this.reloadFoley = cues;
+      this.reloadPerShell = true;
+      this.reloadShellsLeft = shells;
+      this.ctx.viewmodel.reload(this.reloadTotal, { shells, fromEmpty, startFrac, stepFrac });
+    } else {
+      this.reloadTotal = this.reloadLeft = s.def.reloadTime / boost;
+      this.reloadFoley = s.def.reloadFoley;
+      this.reloadPerShell = false;
+      this.reloadShellsLeft = 0;
+      this.ctx.viewmodel.reload(this.reloadTotal);
+    }
     this.ctx.events.emit('weapon:reload', { weapon: this.current, phase: 'start' });
     return true;
   }
@@ -1218,12 +1247,21 @@ export class Weapons implements WeaponSystem, Guard {
         this.endReload(true);
         return;
       }
+      // If the player interrupts a shell-by-shell reload with fire on this frame, let updateGun cancel and shoot cleanly.
+      if (this.reloadPerShell && input.pressed('fire') && this.held.ammo.mag > 0) return;
       this.reloadLeft -= dt;
-      const held = this.held.def;
       const progress = this.reloadProgress;
-      while (this.reloadCue < held.reloadFoley.length && progress >= held.reloadFoley[this.reloadCue]![0]) {
-        this.ctx.audio.play(held.reloadFoley[this.reloadCue]![1]);
-        this.reloadCue++;
+      while (this.reloadCue < this.reloadFoley.length && progress >= this.reloadFoley[this.reloadCue]![0]) {
+        const sound = this.reloadFoley[this.reloadCue++]![1];
+        this.ctx.audio.play(sound);
+        if (this.reloadPerShell && sound === 'reload_shell_in' && this.reloadShellsLeft > 0) {
+          const a = this.held.ammo;
+          if (a.mag < a.magSize && a.reserve > 0) {
+            a.mag++;
+            a.reserve--;
+            this.reloadShellsLeft--;
+          }
+        }
       }
       if (this.reloadLeft <= 0) this.endReload(true);
       return;
@@ -1244,6 +1282,9 @@ export class Weapons implements WeaponSystem, Guard {
   private endReload(fill: boolean): void {
     const s = this.held;
     this.reloadLeft = 0;
+    this.reloadFoley = [];
+    this.reloadPerShell = false;
+    this.reloadShellsLeft = 0;
     if (fill) {
       const a = s.ammo;
       const take = Math.min(a.magSize - a.mag, a.reserve);
@@ -1256,7 +1297,13 @@ export class Weapons implements WeaponSystem, Guard {
   }
 
   private cancelReload(): void {
-    if (this.reloading) this.reloadLeft = 0;
+    if (this.reloading) {
+      this.reloadLeft = 0;
+      this.reloadFoley = [];
+      this.reloadPerShell = false;
+      this.reloadShellsLeft = 0;
+      this.ctx.viewmodel.cancelReload?.();
+    }
   }
 
   // -------------------------------------------------------------------------------------------
@@ -1339,9 +1386,15 @@ export class Weapons implements WeaponSystem, Guard {
     else if (this.pressBuffer > 0 && !held) this.pressBuffer -= dt;
 
     if (this.reloading) {
-      // Keep the barrels turning down through a reload, so the Buzzsaw does not feel like it hit a wall.
-      if (def.mode === 'spin') this.spinDown(dt);
-      return;
+      // Shell-by-shell shotguns can interrupt reload at any time once at least one shell is in the tube.
+      if (def.shellReload && (input.pressed('fire') || this.pressBuffer > 0) && s.ammo.mag > 0) {
+        this.endReload(false);
+        this.ctx.viewmodel.cancelReload?.();
+      } else {
+        // Keep the barrels turning down through a reload, so the Buzzsaw does not feel like it hit a wall.
+        if (def.mode === 'spin') this.spinDown(dt);
+        return;
+      }
     }
 
     // Akimbo: the off hand has its own gun, not the hammer, and right click is the zoom.
@@ -1393,7 +1446,9 @@ export class Weapons implements WeaponSystem, Guard {
     if (s.ammo.mag > 0) return;
     // Keep the Gaff in hand while its steel tether is out so RMB can reel or tap-cut before reloading.
     if (s.def.harpoon) return;
-    if (s.ammo.reserve > 0) this.autoReload = Math.max(TUNING.autoReloadDelay, s.def.cycleTime ?? 0);
+    if (s.ammo.reserve > 0) {
+      if (!this.shouldHoldBolt(s.def)) this.autoReload = Math.max(TUNING.autoReloadDelay, s.def.cycleTime ?? 0);
+    }
     // The last grenade gone: back on the rifle, which still has rounds.
     else if (s === this.glSlot) this.raiseLauncher(false);
     // Keep the clacker in hand after tossing the final satchel so RMB can still detonate planted charges.
@@ -1530,6 +1585,10 @@ export class Weapons implements WeaponSystem, Guard {
     }
     // Right click on a double gun pulls both triggers. On the Deuce's last shell it is one barrel, as a left click.
     const both = s.def.altBoth !== undefined && this.ctx.input.pressed('aim');
+    if (this.boltPending === s.def.id) {
+      this.pressBuffer = 0;
+      return;
+    }
     if ((this.pressBuffer <= 0 && !both) || s.cooldown > 0) return;
     if (!this.canShoot(s)) {
       if (both) {
@@ -1541,7 +1600,7 @@ export class Weapons implements WeaponSystem, Guard {
     this.pressBuffer = 0;
     this.shootGun(s, this.akimboOn && this.leftNext, both);
     if (this.akimboOn) this.leftNext = !this.leftNext;
-    s.cooldown = this.interval(s.def) / this.ak;
+    s.cooldown = this.boltPending === s.def.id ? 0 : this.interval(s.def) / this.ak;
   }
 
   /**
@@ -1878,14 +1937,15 @@ export class Weapons implements WeaponSystem, Guard {
     }
     this.layerSounds(def.sounds);
     if (def.cycleFoley) {
-      if (def.cycleTime) {
-        const was = this.zoomed;
-        this.clearScope(false);
-        this.rescope = was;
+      if (this.shouldHoldBolt(def)) {
+        // Stay scoped/aimed so the shooter can follow through; rack the bolt once they unscope.
+        this.boltPending = def.id;
+      } else {
+        this.cycleAt = 0;
+        this.cycleCue = 0;
+        this.cycleGun = def.id;
+        c.viewmodel.cycle?.();
       }
-      this.cycleAt = 0;
-      this.cycleCue = 0;
-      this.cycleGun = def.id;
     }
     c.viewmodel.fire(def.recoil * strength, left);
     if (def.kick > 0) {
@@ -2739,9 +2799,10 @@ export class Weapons implements WeaponSystem, Guard {
     const blocked = busy || moving || !def.ads || this.glUp || this.reloading || this.drawLeft > 0
       || this.sword.inQuickStrike || this.quickReturn > 0 || (!!def.cycleTime && this.held.cooldown > 0);
     const up = wants && !blocked;
+    if (this.boltPending === def.id && !def.scope && !up) this.beginDeferredCycle(def);
     this.aimT = clamp(this.aimT + (up ? dt : -dt) / (def.ads?.time ?? 0.2));
     const w = this.aim;
-    this.aimHeld = (!!def.ads && wants && !busy) || this.zoomed || this.rescope;
+    this.aimHeld = (!!def.ads && wants && !busy) || this.zoomed;
     this.adsZoom.update(c.time.realDt, up || this.scopeShown, c.input.isDown('dash'), def.breath);
     c.camera.setAim?.(1 - (def.ads?.zoom ?? 0) * w, lerp(1, this.aimSensitivity, w), this.adsZoom.mag);
     // Akimbo has no sights to look down: the view zooms and the guns stay at the hip.
@@ -2778,31 +2839,46 @@ export class Weapons implements WeaponSystem, Guard {
   }
 
   // -------------------------------------------------------------------------------------------
-  // Scope
+  // Scope & deferred bolt follow-through
   // -------------------------------------------------------------------------------------------
+
+  private shouldHoldBolt(def: WeaponDef): boolean {
+    return !!def.cycleTime && (this.zoomed || (!!def.ads && this.aimT > 0.5));
+  }
+
+  private beginDeferredCycle(def: WeaponDef): void {
+    this.boltPending = null;
+    this.cycleAt = 0;
+    this.cycleCue = 0;
+    this.cycleGun = def.id;
+    this.held.cooldown = this.interval(def) / this.ak;
+    this.ctx.viewmodel.cycle?.();
+    if (this.held.ammo.mag === 0 && this.held.ammo.reserve > 0 && !this.modifiers.bottomlessMag) {
+      this.autoReload = Math.max(TUNING.autoReloadDelay, def.cycleTime ?? 0);
+    }
+  }
+
+  private flushBoltPending(): void {
+    if (!this.boltPending) return;
+    const slot = this.slots[this.boltPending];
+    slot.cooldown = Math.max(slot.cooldown, this.interval(slot.def));
+    this.boltPending = null;
+  }
 
   private updateZoom(): void {
     const c = this.ctx;
     const t = TUNING.autocannon;
     const def = this.held.def;
-    if (this.rescope) {
-      // Aim pressed (toggle) or let go (hold) during the cycle keeps it out; otherwise it is back in as the bolt locks.
-      if (!def.scope || (!this.aimHold && c.input.pressed('aim')) || (this.aimHold && !c.input.isDown('aim'))) this.rescope = false;
-      else if (!(def.cycleTime && this.held.cooldown > 0) && !this.reloading && this.drawLeft <= 0) {
-        this.rescope = false;
-        this.zoomed = true;
-        c.audio.play('autocannon_zoom');
-        c.camera.setZoom(def.scopeFov ?? t.scopeFov);
-      }
-    }
     if (def.scope && (this.aimHold || c.input.pressed('aim')) && !this.reloading && this.drawLeft <= 0 && !(def.cycleTime && this.held.cooldown > 0)) {
       const zoomed = this.aimHold ? c.input.isDown('aim') : !this.zoomed;
       if (zoomed !== this.zoomed) {
         this.zoomed = zoomed;
         c.audio.play('autocannon_zoom');
         c.camera.setZoom(this.zoomed ? (def.scopeFov ?? t.scopeFov) : null);
+        if (!zoomed && this.boltPending === def.id) this.beginDeferredCycle(def);
       }
     }
+    if (def.scope && !this.zoomed && this.boltPending === def.id) this.beginDeferredCycle(def);
     this.zoom = damp(this.zoom, this.zoomed ? 1 : 0, t.zoomRate, c.time.realDt);
     const shown = this.zoomed && this.zoom > t.scopeShowAt;
     if (shown !== this.scopeShown) {
@@ -2814,7 +2890,6 @@ export class Weapons implements WeaponSystem, Guard {
   private clearScope(audible: boolean): void {
     if (this.zoomed && audible) this.ctx.audio.play('autocannon_zoom');
     this.zoomed = false;
-    this.rescope = false;
     this.zoom = 0;
     if (this.scopeShown) this.ctx.viewmodel.setScoped(false);
     this.scopeShown = false;
@@ -2827,6 +2902,7 @@ export class Weapons implements WeaponSystem, Guard {
 
   private startQuickMelee(): void {
     const { viewmodel } = this.ctx;
+    this.flushBoltPending();
     this.stopPaint();
     this.endContinuous();
     this.cancelReload();

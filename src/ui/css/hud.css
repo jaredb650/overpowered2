@@ -886,3 +886,14 @@
   to { opacity: 0.68; }
 }
 
+/* --- User HUD visibility toggles (ui/settings.ts) --- */
+.hud.hud-off > :not(.scope),
+.hud.hud-no-crosshair [data-hud-part="crosshair"],
+.hud.hud-no-vitals [data-hud-part="vitals"],
+.hud.hud-no-weapons [data-hud-part="weapons"],
+.hud.hud-no-minimap [data-hud-part="minimap"],
+.hud.hud-no-score [data-hud-part="score"],
+.hud.hud-no-feeds [data-hud-part="feeds"],
+.hud.hud-no-markers [data-hud-part="markers"] {
+  display: none !important;
+}

@@ -189,6 +189,32 @@ export class Hud implements HudSystem {
     const cheatTag = div('hud-cheats', 'CHEATS');
     cheatTag.classList.toggle('on', cheatsOn());
     onCheats(on => cheatTag.classList.toggle('on', on));
+    // Tag every HUD widget with its visibility group so players can hide individual parts or the entire HUD.
+    const tagPart = (el: HTMLElement | undefined, part: string) => { if (el) el.dataset.hudPart = part; };
+    tagPart(this.crosshair.el, 'crosshair');
+    tagPart(this.callouts.el, 'crosshair');
+    tagPart(this.vitals.el, 'vitals');
+    tagPart(this.lowFrame.el, 'vitals');
+    tagPart(this.tach.el, 'vitals');
+    tagPart(this.arms.el, 'weapons');
+    tagPart(this.callIns.el, 'weapons');
+    tagPart(this.perks.el, 'weapons');
+    tagPart(this.minimap.el, 'minimap');
+    tagPart(this.sonar.el, 'minimap');
+    tagPart(this.tally.el, 'score');
+    tagPart(this.combo.el, 'score');
+    tagPart(this.styleLane.el, 'score');
+    tagPart(this.boss.el, 'score');
+    tagPart(this.bannerLanes.el, 'score');
+    tagPart(this.defense?.el, 'score');
+    tagPart(this.shop?.el, 'score');
+    tagPart(this.commander?.el, 'score');
+    tagPart(this.feedLane.el, 'feeds');
+    tagPart(this.comms.el, 'feeds');
+    tagPart(this.worldLayer.el, 'markers');
+    tagPart(this.bubbles.el, 'markers');
+    tagPart(this.defense?.ring, 'markers');
+
     this.hud = div('hud',
       this.lowFrame.el,
       this.worldLayer.el,
@@ -226,6 +252,7 @@ export class Hud implements HudSystem {
       cheatTag,
     );
     this.hud.style.display = 'none';
+    this.applyHudSettings(this.settings);
     this.root.append(this.hud);
 
     this.flythrough = new Flythrough(ctx);
@@ -321,6 +348,18 @@ export class Hud implements HudSystem {
 
   dazzle(amount: number): void {
     this.hud.style.opacity = amount > 0 ? String(1 - amount) : '';
+  }
+
+  /** Applies master and per-part HUD visibility toggles from player settings. */
+  applyHudSettings(s: Settings): void {
+    this.hud.classList.toggle('hud-off', !s.hud);
+    this.hud.classList.toggle('hud-no-crosshair', !s.hudCrosshair);
+    this.hud.classList.toggle('hud-no-vitals', !s.hudVitals);
+    this.hud.classList.toggle('hud-no-weapons', !s.hudWeapons);
+    this.hud.classList.toggle('hud-no-minimap', !s.hudMinimap);
+    this.hud.classList.toggle('hud-no-score', !s.hudScore);
+    this.hud.classList.toggle('hud-no-feeds', !s.hudFeeds);
+    this.hud.classList.toggle('hud-no-markers', !s.hudMarkers);
   }
 
   seat(panel: SeatPanel | null): void {

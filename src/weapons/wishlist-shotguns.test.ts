@@ -370,3 +370,97 @@ describe("Dragon's breath FX, wall scorch, and co-op playback", () => {
     expect(moddedDef('thresher', new Set<ModId>(['thresherDragon'])).load).toBe('dragon');
   });
 });
+
+describe('Shell-by-shell exact-count shotgun reload', () => {
+  it('inserts only the missing shells on the pump shotgun, skips the pump rack when non-empty, and allows fire-to-interrupt', async () => {
+    const r = await makeRange();
+    r.reset();
+    r.weapons.give('shotgun');
+    r.weapons.switchTo('shotgun');
+    r.run(0.6);
+    expect(r.weapons.ammo('shotgun').mag).toBe(6);
+
+    // Fire 1 shell (5/6): reloading inserts exactly 1 shell with no pump rack, much faster than an empty reload.
+    r.tap('fire');
+    r.run(0.7);
+    expect(r.weapons.ammo('shotgun').mag).toBe(5);
+    r.record.sounds.length = 0;
+    r.tap('reload');
+    expect(r.weapons.reloading).toBe(true);
+    r.run(0.8);
+    expect(r.weapons.reloading).toBe(false);
+    expect(r.weapons.ammo('shotgun').mag).toBe(6);
+    expect(r.record.sounds.filter(s => s === 'reload_shell_in')).toHaveLength(1);
+    expect(r.record.sounds).not.toContain('reload_pump');
+
+    // Empty the magazine (0/6): reloading inserts shells one by one and firing mid-reload interrupts cleanly.
+    for (let i = 0; i < 6; i++) {
+      r.tap('fire');
+      if (i < 5) r.run(0.65);
+    }
+    expect(r.weapons.ammo('shotgun').mag).toBe(0);
+    r.record.sounds.length = 0;
+    if (!r.weapons.reloading) r.tap('reload');
+    expect(r.weapons.reloading).toBe(true);
+    r.run(0.9);
+    const midMag = r.weapons.ammo('shotgun').mag;
+    expect(midMag).toBeGreaterThanOrEqual(2);
+    expect(midMag).toBeLessThan(6);
+    r.tap('fire');
+    expect(r.weapons.reloading).toBe(false);
+    expect(r.weapons.ammo('shotgun').mag).toBe(midMag - 1);
+
+    // Drain to 0/6 and let a full empty reload finish: inserts all 6 shells + pump rack.
+    const left = r.weapons.ammo('shotgun').mag;
+    for (let i = 0; i < left; i++) {
+      r.run(0.65);
+      r.tap('fire');
+    }
+    expect(r.weapons.ammo('shotgun').mag).toBe(0);
+    r.record.sounds.length = 0;
+    if (!r.weapons.reloading) r.tap('reload');
+    r.run(2.5);
+    expect(r.weapons.reloading).toBe(false);
+    expect(r.weapons.ammo('shotgun').mag).toBe(6);
+    expect(r.record.sounds.filter(s => s === 'reload_shell_in')).toHaveLength(6);
+    expect(r.record.sounds).toContain('reload_pump');
+  });
+
+  it('inserts exact missing shells on the Billhook (2 spent -> 2 shells, empty -> 8 shells + bolt rack)', async () => {
+    const r = await makeRange();
+    r.reset();
+    r.weapons.give('billhook');
+    r.weapons.switchTo('billhook');
+    r.run(0.6);
+    expect(r.weapons.ammo('billhook').mag).toBe(8);
+
+    // Fire 2 shells (6/8) -> exactly 2 shell-in cues, no bolt rack.
+    r.tap('fire');
+    r.run(0.35);
+    r.tap('fire');
+    r.run(0.35);
+    expect(r.weapons.ammo('billhook').mag).toBe(6);
+    r.record.sounds.length = 0;
+    r.tap('reload');
+    r.run(1.0);
+    expect(r.weapons.reloading).toBe(false);
+    expect(r.weapons.ammo('billhook').mag).toBe(8);
+    expect(r.record.sounds.filter(s => s === 'reload_shell_in')).toHaveLength(2);
+    expect(r.record.sounds).not.toContain('reload_bolt');
+
+    // Empty all 8 shells -> exactly 8 shell-in cues + reload_bolt.
+    for (let i = 0; i < 8; i++) {
+      r.tap('fire');
+      if (i < 7) r.run(0.35);
+    }
+    expect(r.weapons.ammo('billhook').mag).toBe(0);
+    r.record.sounds.length = 0;
+    if (!r.weapons.reloading) r.tap('reload');
+    r.run(2.6);
+    expect(r.weapons.reloading).toBe(false);
+    expect(r.weapons.ammo('billhook').mag).toBe(8);
+    expect(r.record.sounds.filter(s => s === 'reload_shell_in')).toHaveLength(8);
+    expect(r.record.sounds).toContain('reload_bolt');
+  });
+});
+

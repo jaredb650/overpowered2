@@ -8,7 +8,7 @@ import * as THREE from 'three';
 import { clamp, damp, lerp, smoothstep, wrapAngle } from '../../core/math';
 import { DevFlags } from '../../core/devflags';
 import { CG, type Ctx, type DamageInfo, type MovePose, type RayHit } from '../../core/contracts';
-import type { CallInId, EnemyInstance, KillEvent, ModId, PerkId, PowerupId, SwordMove, ViewmodelRig, WeaponId } from '../../core/gameplay';
+import type { CallInId, EnemyInstance, KillEvent, ModId, PerkId, PowerupId, ReloadMeta, SwordMove, ViewmodelRig, WeaponId } from '../../core/gameplay';
 import { Arm } from './arms';
 import { inQuad, outBack, outCubic } from './curves';
 import { Anim, HandCtl, ironsUp, type ModLook, type Tuple3, type ViewDef } from './def';
@@ -394,7 +394,10 @@ export class Rig implements ViewmodelRig {
     this.moveR.reset();
     this.settle.reset();
     this.a.reload = -1;
+    this.a.reloadShells = 0;
+    this.a.reloadFromEmpty = false;
     this.a.sinceFire = 99;
+    this.a.sinceCycle = 99;
     this.a.heat = 0;
     this.a.charge = 0;
     this.a.spinRate = 0;
@@ -450,6 +453,9 @@ export class Rig implements ViewmodelRig {
     a.parts = def.model.parts;
     a.model = def.model;
     a.reload = -1;
+    a.reloadShells = 0;
+    a.reloadFromEmpty = false;
+    a.sinceCycle = 99;
     a.swing = null;
     a.parry = -1;
     a.bladeHeat = 0;
@@ -476,6 +482,8 @@ export class Rig implements ViewmodelRig {
     this.holstered = true;
     this.holsterRate = 1 / Math.max(seconds, 0.02);
     this.a.reload = -1;
+    this.a.reloadShells = 0;
+    this.a.reloadFromEmpty = false;
     this.a.swing = null;
   }
 
@@ -510,10 +518,25 @@ export class Rig implements ViewmodelRig {
     o.z.v += (Math.random() - 0.5) * 2 * r.roll * strength * launch;
   }
 
-  reload(seconds: number): void {
+  cycle(): void {
+    this.a.sinceCycle = 0;
+  }
+
+  reload(seconds: number, meta?: ReloadMeta): void {
     this.a.reload = 0;
     this.a.reloadSeconds = Math.max(seconds, 0.05);
+    this.a.reloadShells = meta?.shells ?? 0;
+    this.a.reloadFromEmpty = meta?.fromEmpty ?? false;
+    this.a.reloadStart = meta?.startFrac ?? 0;
+    this.a.reloadStep = meta?.stepFrac ?? 0;
     this.reloadLeft = this.a.reloadSeconds;
+  }
+
+  cancelReload(): void {
+    this.a.reload = -1;
+    this.a.reloadShells = 0;
+    this.a.reloadFromEmpty = false;
+    this.reloadLeft = 0;
   }
 
   swing(move: SwordMove, seconds: number): void {
@@ -936,6 +959,7 @@ export class Rig implements ViewmodelRig {
   private stepTimers(dt: number): void {
     const a = this.a;
     a.sinceFire += dt;
+    if (a.sinceCycle >= 0) a.sinceCycle += dt;
     a.sinceDraw += dt;
     a.heat = Math.max(0, a.heat - dt * (a.sinceFire > 0.25 ? 0.28 : 0.05));
 
@@ -951,9 +975,11 @@ export class Rig implements ViewmodelRig {
     if (a.reload >= 0) {
       this.reloadLeft -= dt;
       a.reload = clamp(1 - this.reloadLeft / a.reloadSeconds);
-      if (this.reloadLeft <= 0) a.reload = -1;
-      // A reload cancelled by the weapon system ends here; a clip alone would keep playing to the end.
-      if (!this.ctx.weapons.reloading && a.reload > 0.02) a.reload = -1;
+      if (this.reloadLeft <= 0 || (!this.ctx.weapons.reloading && a.reload > 0.02)) {
+        a.reload = -1;
+        a.reloadShells = 0;
+        a.reloadFromEmpty = false;
+      }
     }
     if (a.swing) {
       a.swingP += dt / a.swingSeconds;

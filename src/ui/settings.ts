@@ -1,6 +1,7 @@
 /** Player settings: persisted to localStorage, applied to the systems that own them. */
 import type { Ctx } from '../core/contracts';
 import { SWAY } from '../enemies/damage';
+import { SuppressionSetting } from '../enemies/outpost/suppression';
 import { GoreTuning } from '../gore';
 import { BloodTuning } from '../gore/blood';
 import { ChunkTuning } from '../gore/chunks';
@@ -57,11 +58,30 @@ export interface Settings {
   chatter: number;
   /** The enemy voices' level, 0 to 1, under master and effects. */
   voices: number;
+  /** Incoming gunfire suppression blur, camera jolt and audio ducking. */
+  suppression: boolean;
+  /** Master HUD toggle: off hides all gameplay HUD elements (leaving sniper scope overlays usable). */
+  hud: boolean;
+  /** Crosshair, hit markers and mode callouts. */
+  hudCrosshair: boolean;
+  /** Health, armour, stims, low-health vignette and speed tach. */
+  hudVitals: boolean;
+  /** Weapon bar, ammo readout, perks and call-in slots. */
+  hudWeapons: boolean;
+  /** Minimap and sonar radar chip. */
+  hudMinimap: boolean;
+  /** Wave counter, score odometer, combo, style lane, boss bar, banners and economy/commander panels. */
+  hudScore: boolean;
+  /** Kill feed and enemy radio/comms feed. */
+  hudFeeds: boolean;
+  /** Floating world markers, damage numbers, objective pings and speech bubbles. */
+  hudMarkers: boolean;
 }
 
 export const DEFAULTS: Readonly<Settings> = {
   sensitivity: 1, fov: 90, invertY: false, master: 0.8, sfx: 1, music: 0.7, quality: 2, gore: 1, mess: MESS_DEFAULT, holdToHop: false,
   aimHold: false, aimSensitivity: TUNING.ads.sensitivity, hitText: 0, chatter: CHATTER_BUBBLES, voices: 1,
+  suppression: true, hud: true, hudCrosshair: true, hudVitals: true, hudWeapons: true, hudMinimap: true, hudScore: true, hudFeeds: true, hudMarkers: true,
 };
 
 /** Raised from 4 to 10 for low-DPI mice. Values saved under the old cap (0.1 to 4) are inside the new range and load unchanged. */
@@ -273,6 +293,9 @@ export function applySettings(ctx: Ctx, s: Settings): void {
   applyGore(s.gore);
   applyMess(ctx, s.mess);
   HitText.level = s.hitText;
+  SuppressionSetting.enabled = s.suppression;
+  if (!s.suppression) ctx.render?.post?.setSuppression?.(0);
+  (ctx.hud as { applyHudSettings?(settings: Settings): void } | undefined)?.applyHudSettings?.(s);
 }
 
 /**

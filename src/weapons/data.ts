@@ -228,6 +228,14 @@ export interface WeaponDef {
   /** A spun gun's barrage and drive loops are heard at this pitch, under what its rate sets: the Trommel's 12 mm rechamber. */
   loopPitch?: number;
   reloadFoley: readonly ReloadCue[];
+  /** Shell-by-shell tubular magazine reload timings (shotgun / billhook): inserts only the missing shells. */
+  shellReload?: {
+    readonly start: number;
+    readonly perShell: number;
+    readonly end: number;
+    readonly emptyRack: number;
+    readonly rackSound: string;
+  };
   /** Sounds after each shot, at seconds after it, for a gun that is cycled by hand between shots. */
   cycleFoley?: readonly ReloadCue[];
   cycleTime?: number;
@@ -375,6 +383,7 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     // On the viewmodel's pump (shotgun.ts clip): back by 0.27 s after the shot, home again by 0.47 s.
     cycleFoley: [[0.26, 'pump_rack_back'], [0.45, 'pump_rack_forward']],
     reloadFoley: [[0.1, 'reload_shell_in'], [0.32, 'reload_shell_in'], [0.54, 'reload_shell_in'], [0.86, 'reload_pump']],
+    shellReload: { start: 0.16, perShell: 0.28, end: 0.16, emptyRack: 0.34, rackSound: 'reload_pump' },
     recoil: 1, kick: 0.014, shake: 0.02, fovPunch: 1.6,
     ads: { zoom: 0.34, time: 0.2 },
   },
@@ -418,6 +427,7 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
       [0.08, 'reload_shell_in'], [0.24, 'reload_shell_in'], [0.4, 'reload_shell_in'],
       [0.56, 'reload_shell_in'], [0.72, 'reload_shell_in'], [0.88, 'reload_bolt'],
     ],
+    shellReload: { start: 0.14, perShell: 0.22, end: 0.14, emptyRack: 0.3, rackSound: 'reload_bolt' },
     recoil: 0.95, kick: 0.013, shake: 0.019, fovPunch: 1.4,
     ads: { zoom: 0.34, time: 0.2 },
   },
@@ -671,7 +681,7 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     ...BASE, id: 'piledriver', name: 'PILEDRIVER', slot: 8, base: 'buzzsaw', mode: 'auto',
     magSize: 50, reserve: 100, maxReserve: 150, reloadTime: 3, drawTime: 0.4,
     interval: 0.12, damage: 90, spread: 0.004, severMult: 5, force: 48, headshotMult: 2,
-    penetration: 2.4, bodyCost: 0.3, gib: 0.3, slow: 0.72, killStop: 0.03, impactScale: 1.8,
+    penetration: 2.4, bodyCost: 0.3, gib: 0.04, slow: 0.72, killStop: 0.03, impactScale: 1.8,
     muzzle: 'hmg', tracer: 'heavy', casing: 'cannon',
     sounds: [{ id: 'hmg_shot', pitchJitter: 0.03 }],
     reloadFoley: [[0.05, 'reload_mag_out'], [0.5, 'reload_mag_in'], [0.8, 'piledriver_charge']], drawSound: 'weapon_draw_heavy',
@@ -687,7 +697,7 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     ...BASE, id: 'metalstorm', name: 'IRON STORM', slot: 8, base: 'buzzsaw', mode: 'auto',
     magSize: 180, reserve: 360, maxReserve: 540, reloadTime: 2.6, drawTime: 0.38,
     interval: 0.1, damage: 24, spread: 0.012, severMult: 2.2, force: 16, headshotMult: 1.7,
-    penetration: 0.8, bodyCost: 0.4, gib: 0.15, slow: 0.65, impactScale: 1.1,
+    penetration: 0.8, bodyCost: 0.4, slow: 0.65, impactScale: 1.1,
     muzzle: 'hmg', tracer: 'heavy', casing: null,
     sounds: [{ id: 'metalstorm_shot', pitchJitter: 0.04 }],
     reloadFoley: [[0.06, 'reload_mag_out'], [0.52, 'reload_mag_in'], [0.82, 'reload_cell']],

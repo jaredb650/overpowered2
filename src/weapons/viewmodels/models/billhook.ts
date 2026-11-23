@@ -472,23 +472,33 @@ function clip(a: Anim): void {
   const p = a.reload;
   if (p >= 0) {
     // Clean, readable reload pose: slight lift and gentle tilt so the under-receiver loading port stays clear without awkward twisting.
-    const present = hold(p, 0, 0.06, 0.76, 0.85);
+    const dynamic = a.reloadShells > 0;
+    const count = dynamic ? a.reloadShells : SHELLS.length;
+    const fetch = dynamic ? a.reloadStep * 0.72 : FETCH;
+    const presentIn = dynamic ? Math.min(0.06, a.reloadStart * 0.85) : 0.06;
+    const presentEnd = dynamic ? a.reloadStart + count * a.reloadStep : 0.76;
+    const presentOut = dynamic ? Math.min(1, presentEnd + (a.reloadFromEmpty ? 0.05 : Math.max(0.04, 1 - presentEnd))) : 0.85;
+    const present = hold(p, 0, presentIn, presentEnd, presentOut);
+    const pushOut = dynamic ? a.reloadStep * 0.18 : 0.045;
+    const seatDur = dynamic ? a.reloadStep * 0.35 : 0.07;
     let seat = 0;
     let hand = 0;
-    for (const at of SHELLS) {
-      const k = seg(p, at - FETCH, at);
-      if (p > at - FETCH && p < at + 0.045) {
-        P.shell!.visible = p < at + 0.01;
+    for (let i = 0; i < count; i++) {
+      const at = dynamic ? a.reloadStart + (i + 0.72) * a.reloadStep : SHELLS[i]!;
+      const k = seg(p, at - fetch, at);
+      if (p > at - fetch && p < at + pushOut) {
+        const pushEnd = dynamic ? pushOut * 0.25 : 0.01;
+        P.shell!.visible = p < at + pushEnd;
         const u = inOut(k);
         const sh = P.shell!;
         sh.position.x += (1 - u) * -0.14;
         sh.position.y += (1 - u) * -0.26 - 0.012 * u;
-        sh.position.z += (1 - u) * 0.1 + (p > at ? seg(p, at, at + 0.01) * -0.048 : 0);
+        sh.position.z += (1 - u) * 0.1 + (p > at ? seg(p, at, at + pushEnd) * -0.048 : 0);
         sh.rotation.x += (1 - u) * 1.15;
         sh.rotation.y += (1 - u) * -0.4;
-        hand = Math.max(hand, hold(p, at - FETCH, at - FETCH + 0.04, at + 0.02, at + 0.055));
+        hand = Math.max(hand, hold(p, at - fetch, at - fetch + fetch * 0.35, at + pushOut * 0.45, at + pushOut * 1.2));
       }
-      seat = Math.max(seat, p >= at ? thud(seg(p, at, at + 0.07)) : 0);
+      seat = Math.max(seat, p >= at ? thud(seg(p, at, at + seatDur)) : 0);
     }
     a.gunR.z -= present * 0.34;
     a.gunR.x += present * 0.16 + seat * 0.02;
@@ -497,20 +507,27 @@ function clip(a: Anim): void {
     a.gunP.y += present * 0.04 + seat * 0.005;
     a.gunP.z += present * 0.035;
 
-    // Final bolt-rack beat synced with `[0.88, 'reload_bolt']` in `weapons/data.ts`.
-    const rack = bump(p, 0.82, 0.96);
-    boltBack = Math.max(boltBack, rack);
-    a.gunR.x -= rack * 0.035;
-    a.gunP.z += rack * 0.012;
-
     a.left.fingerRate = 44;
     a.left.to('shellHold', hand);
     a.left.shape(HANDS.pinch, hand);
-    // Reach up to charge the bolt handle on the final beat if needed, otherwise return cleanly to forend.
-    const chargeHand = hold(p, 0.8, 0.85, 0.91, 0.97);
-    if (chargeHand > 0.01) {
-      a.right.to('boltHold', chargeHand);
-      a.right.shape(HANDS.pinch, chargeHand);
+
+    if (!dynamic || a.reloadFromEmpty) {
+      // Final bolt-rack beat when loading from an empty chamber.
+      const rackStart = dynamic ? presentEnd : 0.82;
+      const rackSpan = 1 - rackStart;
+      const rackEnd = dynamic ? Math.min(0.96, rackStart + rackSpan * 0.88) : 0.96;
+      const rack = bump(p, rackStart, rackEnd);
+      boltBack = Math.max(boltBack, rack);
+      a.gunR.x -= rack * 0.035;
+      a.gunP.z += rack * 0.012;
+
+      const chargeHand = dynamic
+        ? hold(p, Math.max(0, rackStart - 0.02), rackStart + rackSpan * 0.18, rackStart + rackSpan * 0.62, Math.min(0.98, rackStart + rackSpan * 0.92))
+        : hold(p, 0.8, 0.85, 0.91, 0.97);
+      if (chargeHand > 0.01) {
+        a.right.to('boltHold', chargeHand);
+        a.right.shape(HANDS.pinch, chargeHand);
+      }
     }
   }
 

@@ -420,7 +420,7 @@ export const MODS: Readonly<Record<ModId, ModDef>> = {
       sounds: [{ id: 'awl50_shot', pitchJitter: 0.02 }],
       force: 85,
       severMult: 3.5,
-      gib: 0.45,
+      gib: 0.05,
       killStop: 0.05,
       impactScale: 1.9,
       kick: 0.028,

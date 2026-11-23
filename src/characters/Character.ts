@@ -229,8 +229,8 @@ const smooth = (a: number, b: number, x: number): number => {
  * What fire leaves of the flesh and bone it bares, as a baked body's vertex colour (bytes, before the shader's lift):
  * the skin shader's SKIN_GONE at `sChar` 0.95, worked back through its curve. Keep in step with it.
  */
-const FAR_COOKED = [40, 27, 23] as const;
-const FAR_COOKED_BONE = [50, 45, 40] as const;
+const FAR_COOKED = [32, 20, 17] as const;
+const FAR_COOKED_BONE = [118, 108, 90] as const;
 let farLive = new Uint8Array(4096);
 let farUsed = new Uint8Array(4096);
 let farSlot = new Int32Array(4096);

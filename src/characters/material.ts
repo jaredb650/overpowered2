@@ -101,7 +101,7 @@ const BARE = { gain: 0.8, most: 0.55 };
  * The most light a burnt pixel gives back, as radiance before the tone map (lit concrete at night is about 0.05 to 0.1,
  * and under the weapon light several): char and soot, the meat a fire has bared and cooked, and its bone.
  */
-const COAL = { most: 0.035, cooked: 0.08, bone: 0.3 };
+const COAL = { most: 0.035, cooked: 0.095, bone: 0.48 };
 
 const FRAG_PARS = /* glsl */ `
 #define OP2_BARE_GAIN ${BARE.gain.toFixed(2)}
@@ -226,12 +226,11 @@ const FIRE_DRIVER = /* glsl */ `
       float patches = 0.35;
       #else
       float wide = texture2D(tDetail, vBind.xy * 0.31 + vBind.z * 0.23 + 0.11).a;
-      // Spread out to fill 0..1, so the share of the skin that has gone is the number below.
+      // Spread out to fill 0..1, so the share of the skin that has melted away climbs steeply with sEaten.
       float patches = clamp((wide * 0.7 + macro.a * 0.22 + micro.r * 0.08 - 0.5) * 3.0 + 0.5, 0.0, 1.0);
       #endif
-      // Burnt right through, 0.8 of the skin has gone where the fire caught and 0.4 at the far end of the body. The depth
-      // is steep, so the middle of a bared patch is down to bone while its edge is still raw.
-      sFireDepth = sPlate > 0.5 ? -1.0 : (sEaten * 0.8 - from * 0.4 - patches) * 1.3;
+      // Deep melt: skin sloughs off into blistered/charred muscle and exposed skeletal bone across the whole body.
+      sFireDepth = sPlate > 0.5 ? -1.0 : (sEaten * 1.35 - from * 0.35 - patches * 0.65) * 1.35;
       if (sFireDepth > sThrough) {
         sThrough = sFireDepth;
         sChar = OP2_FIRE_COOKED;
@@ -240,15 +239,14 @@ const FIRE_DRIVER = /* glsl */ `
 `;
 
 /**
- * While the flames are on it, what the fire has bared glows a little along its fibres, and brightest at the edge where the
- * skin is still going. Once it only smoulders (heat 0.6 and under) the bared flesh is dark: the glow left is the skin's.
+ * While active flames lick the body, the sloughing melt rim has a faint cherry-red heat sear rather than a cartoon neon outline.
  */
 const FIRE_GLOW = /* glsl */ `
-    if (sFireDepth > -0.06) {
+    if (sFireDepth > -0.05) {
       float flames = clamp(op2Extra(${EXTRA_FIRE + 1}).x * 2.5 - 1.5, 0.0, 1.0);
-      float rim = smoothstep(-0.06, 0.0, sFireDepth) * (1.0 - smoothstep(0.0, 0.05, sFireDepth));
-      float fibres = smoothstep(0.55, 0.8, texture2D(tDetail, vec2(vBind.x * 13.0 + vBind.z * 9.0, vBind.y * 2.4)).a) * smoothstep(0.0, 0.1, sFireDepth);
-      sGlow += vec3(1.0, 0.24, 0.03) * flames * (rim * 2.5 + fibres * 0.3);
+      float rim = smoothstep(-0.05, 0.0, sFireDepth) * (1.0 - smoothstep(0.0, 0.045, sFireDepth));
+      float fibres = smoothstep(0.62, 0.85, texture2D(tDetail, vec2(vBind.x * 13.0 + vBind.z * 9.0, vBind.y * 2.4)).a) * smoothstep(0.0, 0.1, sFireDepth);
+      sGlow += vec3(0.9, 0.16, 0.02) * flames * (rim * 0.55 + fibres * 0.08);
     }
 `;
 
@@ -256,7 +254,8 @@ const FIRE_GLOW = /* glsl */ `
  * What a pixel looks like with its skin gone to `sThrough`, whatever took it (the comment where it is used has the scale):
  * bruised just outside the tear, a raw edge, then muscle with its fibres running the length of the body and fat near the
  * edge, then bone with blood standing on it. Painted on the skin and sunk by the bump, at every level of detail, with no
- * extra draw. `sChar` burns it: black meat, grey bone.
+ * extra draw. `sChar` melts and carbonizes it: shrunken blackened-mahogany muscle revealing soot-stained charred ribs,
+ * skull, and limb bones in 3D relief.
  */
 const SKIN_GONE = /* glsl */ `
     if (sThrough > -0.1) {
@@ -266,57 +265,80 @@ const SKIN_GONE = /* glsl */ `
       // Bone shows as long slivers down the length of the body, where the meat is thinnest over it, not as blots.
       float shaft = texture2D(tDetail, vec2(vBind.x * 2.6 + vBind.z * 2.1, vBind.y * 0.42)).a;
       float bone = smoothstep(0.5, 0.57, sThrough - abs(shaft - 0.5) * 1.5);
+      // Fire-melted remains (sChar > 0.5): expose anatomical skeletal structure — ribcage bars, sternum/spine, skull, and limb shafts.
+      float skullHollow = 0.0;
+      if (sChar > 0.5) {
+        float torsoBand = smoothstep(0.96, 1.06, vBind.y) * (1.0 - smoothstep(1.38, 1.48, vBind.y)) * (1.0 - smoothstep(0.16, 0.25, abs(vBind.x)));
+        float ribWave = sin((vBind.y + abs(vBind.x) * 0.22) * 86.0) * 0.5 + 0.5;
+        float ribRidge = smoothstep(0.42, 0.68, ribWave) * torsoBand;
+        float centerCol = (1.0 - smoothstep(0.025, 0.06, abs(vBind.x))) * torsoBand;
+        float skullZone = smoothstep(1.48, 1.56, vBind.y);
+        // Sunken dark orbital sockets & nasal cavity on the front of the charred skull.
+        float eyeSocket = smoothstep(0.05, 0.015, length(vec2(abs(vBind.x) - 0.036, vBind.y - 1.65))) * step(0.0, vBind.z);
+        float nasal = smoothstep(0.032, 0.01, length(vec2(vBind.x, vBind.y - 1.60))) * step(0.0, vBind.z);
+        skullHollow = clamp(eyeSocket + nasal, 0.0, 1.0) * skullZone * smoothstep(0.35, 0.65, sThrough);
+        float limbShaft = smoothstep(0.35, 0.62, sThrough - abs(shaft - 0.5) * 1.15);
+        float skeleton = max(limbShaft, max(max(ribRidge, centerCol) * smoothstep(0.32, 0.62, sThrough), skullZone * smoothstep(0.28, 0.56, sThrough) * (1.0 - skullHollow)));
+        bone = max(bone, skeleton * sChar);
+      }
       float streak = texture2D(tDetail, vec2(vBind.x * 13.0 + vBind.z * 9.0, vBind.y * 2.4)).a * 0.65 + micro.r * 0.35;
       vec3 under = mix(vec3(0.3, 0.032, 0.03), vec3(0.1, 0.007, 0.011), smoothstep(0.3, 0.7, streak));
-      // Fat under the skin, in clumps, where the tear is shallow.
+      // Fat under the skin, in clumps, where the tear is shallow (blistered yellowish seared fat on burn edges).
       under = mix(under, vec3(0.42, 0.27, 0.13), smoothstep(0.66, 0.76, macro.a * 0.7 + micro.a * 0.3) * 0.22 * (1.0 - meat));
       under = mix(under, under * 0.55, meat * 0.5);
-      // Bone is never clean: blood sits on it in a film and it shows through where that has run off.
+      // Bone is never clean: blood sits on it on ballistic wounds; fire leaves soot-stained ash-ivory bone with carbonized mottling.
       float film = smoothstep(0.36, 0.64, macro.a * 0.55 + micro.a * 0.45);
-      under = mix(under, mix(vec3(0.66, 0.6, 0.48) * (0.72 + micro.r * 0.36), vec3(0.13, 0.012, 0.01), film * 0.6), bone);
-      // Cooked: dark, and brown more than red (under a hard light the red of it read as salmon).
-      under = mix(under, mix(under * 0.16, vec3(0.05, 0.026, 0.016), 0.55 * (1.0 - bone)) + vec3(0.006, 0.005, 0.004), sChar * (1.0 - bone * 0.45));
+      vec3 rawBone = mix(vec3(0.66, 0.6, 0.48) * (0.72 + micro.r * 0.36), vec3(0.13, 0.012, 0.01), film * 0.6);
+      float sootPatch = smoothstep(0.48, 0.78, macro.r * 0.6 + micro.a * 0.4);
+      vec3 charredBone = mix(vec3(0.6, 0.54, 0.43) * (0.72 + micro.r * 0.3), vec3(0.12, 0.1, 0.09), sootPatch * 0.68);
+      under = mix(under, mix(rawBone, charredBone, sChar), bone);
+      // Charred shrunken meat: tarry blackened-mahogany tendons with dark seared crimson deep in the fibres, never flat salmon.
+      vec3 charredMeat = mix(vec3(0.055, 0.015, 0.01), vec3(0.016, 0.011, 0.01), smoothstep(0.35, 0.72, streak)) + vec3(0.005, 0.004, 0.004);
+      under = mix(under, charredMeat, sChar * (1.0 - bone));
+      // Deep blackened eye/nasal cavities on charred skull.
+      under = mix(under, vec3(0.006, 0.005, 0.005), skullHollow);
       // Dried: not for bone, which only loses the wet on it.
       under *= mix(vec3(1.0), sDried, 1.0 - bone * 0.6);
       sAlb = mix(sAlb, vec3(0.04, 0.005, 0.009), bruise * 0.72 * (1.0 - sMetal * 0.5));
       sAlb = mix(sAlb, under, raw);
-      sRough = mix(sRough, mix(mix(mix(0.24, 0.4, streak), 0.46, bone), 0.62, sDry * 0.8), raw);
+      sRough = mix(sRough, mix(mix(mix(0.24, 0.4, streak), 0.52, bone), 0.62, sDry * 0.8), raw);
       sMetal *= 1.0 - raw;
       sEmis *= 1.0 - raw;
       sH *= 1.0 - raw * 0.8;
-      // Sunk below the skin's torn edge, deeper in the meat, the bone standing back up out of it.
-      sWoundH -= raw * 0.003 + meat * 0.0045 - bone * 0.0025 + (streak - 0.5) * 0.0012 * raw;
+      // Sunk below the skin's torn/melted edge, deeper in shrunken meat and skull hollows, with skeletal bone standing proud.
+      sWoundH -= raw * 0.003 + meat * 0.0048 + skullHollow * 0.006 - bone * (0.0025 + sChar * 0.0022) + (streak - 0.5) * 0.0012 * raw;
       sBare = raw * (1.0 - sChar);
-      // What a fire bared is burnt too: cooked meat gives back a little more than char, and bone more again, so both
-      // show through the black. What a round or a blade bared is not burnt at all.
+      // Charred meat gives back dark tarry contrast; charred bone catches more light so ribs/skull/shafts clearly read.
       sCoal = mix(sCoal, sChar, raw);
       sMost = mix(sMost, mix(OP2_COOKED_MOST, OP2_BONE_MOST, bone), raw);
-      // And dry: cooked meat does not shine.
-      sRough = mix(sRough, 0.82, raw * sChar * (1.0 - bone));
+      // Charred meat has crusty dry roughness with occasional glossy rendered/weeping spots; bone is dry chalky-matte.
+      float blisterWet = smoothstep(0.7, 0.88, macro.a) * (1.0 - meat) * 0.35;
+      sRough = mix(sRough, 0.86 - blisterWet, raw * sChar * (1.0 - bone));
+      sRough = mix(sRough, 0.72, raw * sChar * bone);
     }
 `;
 
 /**
  * What fire does to a surface, for a body (per instance, from its texels) and for the kit it carries (`charred`, below).
- * Reads `burn` 0..1, `heat` 0..1 and the noise `n`; `behind` is how long ago the fire's edge passed this pixel, in the
- * noise's own units: under 0 not yet, 0 the glowing edge, 0.4 and up burnt the longest.
- * Ahead of the edge the skin scalds red. Behind it: burnt brown, then black with flecks of pale ash, splitting as it
- * shrinks. The splits glow while it is hot and go dark and dry as it cools. Plate does not split: it is sooted black and
- * keeps a little of its shine.
+ * Ahead of the burn front, skin blisters and scalds angry crimson with weeping gloss. Behind it: crusty carbonized black
+ * skin and grey ash flaking, splitting open into dark seared fissures with only a subtle dull cherry-red coal while actively
+ * burning — avoiding the glowing magma/ember-statue look so melted flesh and charred bone lead visually.
  */
 const BURN_SURFACE = /* glsl */ `
     float edge = burn * 1.45 - 0.2;
     float behind = edge - n;
     float charred = smoothstep(-0.1, 0.08, behind);
     float flesh = 1.0 - sMetal;
-    float ember = smoothstep(0.035, 0.0, abs(behind)) * step(burn, 0.995);
+    float ember = smoothstep(0.025, 0.0, abs(behind)) * step(burn, 0.995) * heat;
     float crack = op2Crack(macro, micro) * charred * flesh;
-    float scald = smoothstep(-0.36, -0.1, behind) * (1.0 - charred) * flesh;
-    sAlb = mix(sAlb, vec3(0.2, 0.03, 0.018) + sAlb * vec3(0.4, 0.1, 0.06), scald * 0.75);
-    sRough = mix(sRough, 0.3, scald * 0.5);
-    vec3 coal = mix(vec3(0.05, 0.024, 0.012), vec3(0.011, 0.01, 0.01), smoothstep(0.04, 0.38, behind));
-    float ash = smoothstep(0.6, 0.76, micro.a * 0.55 + macro.r * 0.45) * smoothstep(0.25, 0.65, behind) * (1.0 - heat * 0.7);
-    coal = mix(coal, vec3(0.2, 0.195, 0.185), ash * 0.6);
+    float scald = smoothstep(-0.38, -0.08, behind) * (1.0 - charred) * flesh;
+    float blister = smoothstep(0.58, 0.78, micro.a * 0.6 + macro.r * 0.4) * scald;
+    sAlb = mix(sAlb, vec3(0.24, 0.022, 0.016) + sAlb * vec3(0.32, 0.06, 0.04), scald * 0.82);
+    sAlb = mix(sAlb, vec3(0.36, 0.14, 0.08), blister * 0.45);
+    sRough = mix(sRough, 0.22, scald * 0.65);
+    vec3 coal = mix(vec3(0.036, 0.016, 0.01), vec3(0.01, 0.009, 0.009), smoothstep(0.04, 0.36, behind));
+    float ash = smoothstep(0.56, 0.74, micro.a * 0.55 + macro.r * 0.45) * smoothstep(0.22, 0.62, behind) * (1.0 - heat * 0.5);
+    coal = mix(coal, vec3(0.22, 0.21, 0.195), ash * 0.65);
     // Soot on plate: black, but still plate under it.
     coal = mix(sAlb * 0.07 + vec3(0.008), coal, flesh);
     sAlb = mix(sAlb, coal, charred);
@@ -324,15 +346,16 @@ const BURN_SURFACE = /* glsl */ `
     sMetal *= 1.0 - charred * 0.6;
     sCoal = charred;
     sEmis *= 1.0 - charred;
-    // The char splits as it shrinks. What shows in the splits is raw while the fire is on it, dry and dark once it is cold.
+    // Charred skin splits open into recessed dark seared meat fissures as it shrinks.
     float live = max(heat, 1.0 - step(0.995, burn));
-    sAlb = mix(sAlb, mix(vec3(0.028, 0.007, 0.005), vec3(0.13, 0.01, 0.006), live), crack);
-    sRough = mix(sRough, mix(0.7, 0.34, live), crack);
-    // As it cools, fewer of the splits still glow: the light goes out patch by patch.
-    float lit = heat * smoothstep(1.0 - heat * 1.2, 1.25 - heat * 1.2, macro.r * 0.55 + micro.a * 0.45);
-    sGlow += vec3(1.0, 0.24, 0.03) * (ember * 3.5 + crack * (burn * (1.0 - burn) * 1.2 + lit * 2.6) + op2CrackWide(macro, micro) * charred * flesh * lit * 0.3);
+    sAlb = mix(sAlb, mix(vec3(0.024, 0.006, 0.005), vec3(0.11, 0.009, 0.006), live), crack);
+    sRough = mix(sRough, mix(0.76, 0.32, live), crack);
+    sWoundH -= crack * 0.0022;
+    // Restrained dull cherry-red coal strictly inside active hot fissures — never a bright orange ember shell.
+    float lit = heat * heat * smoothstep(1.05 - heat * 1.1, 1.3 - heat * 1.1, macro.r * 0.55 + micro.a * 0.45);
+    sGlow += vec3(0.85, 0.13, 0.02) * (ember * 0.55 + crack * (burn * (1.0 - burn) * 0.25 + lit * 0.22) + op2CrackWide(macro, micro) * charred * flesh * lit * 0.04);
     #ifdef OP2_FAR
-    sGlow += vec3(1.0, 0.24, 0.03) * (charred * flesh * heat * 0.1);
+    sGlow += vec3(0.85, 0.13, 0.02) * (charred * flesh * heat * heat * 0.03);
     #endif
 `;
 

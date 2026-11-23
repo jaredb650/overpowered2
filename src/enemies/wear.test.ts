@@ -148,6 +148,21 @@ describe('wear follows the pools proportionally by weapon class', () => {
     manager.applyDamage(e, hit('chest', 10, 'fire'));
     expect(body(e).wearOf('chest')).toBe(0);
   });
+
+  it('prevents a single shot or same-frame shotgun blast from completely skinning a head', () => {
+    const { manager, spawn } = world();
+    const heavy = spawn('trooper');
+    heavy.health = heavy.maxHealth = 1000;
+    manager.applyDamage(heavy, hit('head', 220, 'bullet', { source: 'awl' }));
+    expect(body(heavy).wearOf('head')).toBeLessThanOrEqual(WearTuning.headStep + 1e-6);
+    expect(body(heavy).wearOf('head')).toBeLessThan(0.5);
+
+    // Multiple shotgun pellets hitting the head on the same frame share the per-frame head wear cap.
+    const pellets = spawn('trooper');
+    pellets.health = pellets.maxHealth = 1000;
+    for (let i = 0; i < 8; i++) manager.applyDamage(pellets, hit('head', 26, 'pellet', { source: 'shotgun' }));
+    expect(body(pellets).wearOf('head')).toBeLessThanOrEqual(WearTuning.headStep + 1e-6);
+  });
 });
 
 describe('a co-op guest wears its own copy', () => {

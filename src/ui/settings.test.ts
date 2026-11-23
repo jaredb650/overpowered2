@@ -179,3 +179,54 @@ describe('the gore update\'s parts follow the settings', () => {
     }
   });
 });
+
+describe('suppression and HUD visibility toggles', () => {
+  it('default to enabled, persist through loadSettings, and forward to SuppressionSetting and HUD', async () => {
+    const { applySettings } = await import('./settings');
+    const { Suppression, SuppressionSetting } = await import('../enemies/outpost/suppression');
+    const THREE = await import('three');
+    expect(DEFAULTS.suppression).toBe(true);
+    expect(DEFAULTS.hud).toBe(true);
+    expect(DEFAULTS.hudCrosshair).toBe(true);
+    expect(DEFAULTS.hudVitals).toBe(true);
+    expect(DEFAULTS.hudWeapons).toBe(true);
+    expect(DEFAULTS.hudMinimap).toBe(true);
+    expect(DEFAULTS.hudScore).toBe(true);
+    expect(DEFAULTS.hudFeeds).toBe(true);
+    expect(DEFAULTS.hudMarkers).toBe(true);
+
+    store({ suppression: false, hud: false, hudCrosshair: false, hudMinimap: false });
+    const loaded = loadSettings();
+    expect(loaded.suppression).toBe(false);
+    expect(loaded.hud).toBe(false);
+    expect(loaded.hudCrosshair).toBe(false);
+    expect(loaded.hudMinimap).toBe(false);
+    expect(loaded.hudVitals).toBe(true);
+
+    const applyHudSettings = vi.fn();
+    const setSuppression = vi.fn();
+    const kick = vi.fn();
+    const ctx = {
+      player: {}, weapons: {}, camera: { kick, addTrauma: vi.fn() }, audio: { duck: vi.fn() },
+      render: { post: { setSuppression, chromatic: vi.fn() } }, hud: { applyHudSettings },
+    } as never;
+    try {
+      applySettings(ctx, loaded);
+      expect(SuppressionSetting.enabled).toBe(false);
+      expect(setSuppression).toHaveBeenLastCalledWith(0);
+      expect(applyHudSettings).toHaveBeenLastCalledWith(loaded);
+
+      // With suppression disabled, near-miss enemy rounds add zero suppression and zero camera kick.
+      const sup = new Suppression({
+        ctx, now: 1, player: { alive: true, chest: new THREE.Vector3(0, 1.2, 0) },
+      } as never);
+      sup.round(new THREE.Vector3(0, 1.2, -10), new THREE.Vector3(0, 0, 1), true);
+      expect(sup.level).toBe(0);
+      expect(sup.cracks).toBe(0);
+      expect(kick).not.toHaveBeenCalled();
+    } finally {
+      SuppressionSetting.enabled = true;
+    }
+  });
+});
+

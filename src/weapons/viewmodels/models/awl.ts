@@ -606,7 +606,8 @@ function build(kit: Kit): { model: Model; mods: ViewDef['mods'] } {
 function clip(anim: Anim): void {
   // The greased bolt runs sooner (GREASE); .50 Cal runs a deliberate 1.15x cycle (mods.ts awl50).
   const cycleScale = (anim.mods?.has('awlBolt') ? GREASE : 1) * (anim.mods?.has('awl50') ? 1.15 : 1);
-  const bolt = boltPose(anim.sinceFire / cycleScale);
+  const boltTime = anim.sinceCycle >= 0 ? anim.sinceCycle : anim.sinceFire;
+  const bolt = boltPose(boltTime / cycleScale);
   anim.parts.bolt!.rotation.z += bolt.lift * 1.12;
   anim.parts.bolt!.position.z += bolt.back * 0.095;
   anim.parts.grease!.rotation.z = anim.parts.bolt!.rotation.z;

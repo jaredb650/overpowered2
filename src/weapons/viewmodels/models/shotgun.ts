@@ -327,24 +327,34 @@ function clip(a: Anim): void {
   const p = a.reload;
   if (p >= 0) {
     // The gun rolls onto its right side to show the port, and rests on a slight rise as each shell goes in.
-    const present = hold(p, 0, 0.09, 0.68, 0.8);
+    const dynamic = a.reloadShells > 0;
+    const count = dynamic ? a.reloadShells : SHELLS.length;
+    const fetch = dynamic ? a.reloadStep * 0.72 : FETCH;
+    const presentIn = dynamic ? Math.min(0.09, a.reloadStart * 0.85) : 0.09;
+    const presentEnd = dynamic ? a.reloadStart + count * a.reloadStep : 0.68;
+    const presentOut = dynamic ? Math.min(1, presentEnd + (a.reloadFromEmpty ? 0.06 : Math.max(0.04, 1 - presentEnd))) : 0.8;
+    const present = hold(p, 0, presentIn, presentEnd, presentOut);
+    const pushOut = dynamic ? a.reloadStep * 0.18 : 0.05;
+    const seatDur = dynamic ? a.reloadStep * 0.35 : 0.09;
     let seat = 0;
     let hand = 0;
-    for (const at of SHELLS) {
-      const k = seg(p, at - FETCH, at);
-      if (p > at - FETCH && p < at + 0.05) {
-        P.shell!.visible = p < at + 0.012;
+    for (let i = 0; i < count; i++) {
+      const at = dynamic ? a.reloadStart + (i + 0.72) * a.reloadStep : SHELLS[i]!;
+      const k = seg(p, at - fetch, at);
+      if (p > at - fetch && p < at + pushOut) {
+        const pushEnd = dynamic ? pushOut * 0.25 : 0.012;
+        P.shell!.visible = p < at + pushEnd;
         const u = inOut(k);
         const sh = P.shell!;
         // Up from the belt, then pushed forward past the carrier.
         sh.position.x += (1 - u) * -0.16;
         sh.position.y += (1 - u) * -0.3 - 0.014 * u;
-        sh.position.z += (1 - u) * 0.12 + (p > at ? seg(p, at, at + 0.012) * -0.05 : 0);
+        sh.position.z += (1 - u) * 0.12 + (p > at ? seg(p, at, at + pushEnd) * -0.05 : 0);
         sh.rotation.x += (1 - u) * 1.3;
         sh.rotation.y += (1 - u) * -0.5;
-        hand = Math.max(hand, hold(p, at - FETCH, at - FETCH + 0.05, at + 0.03, at + 0.07));
+        hand = Math.max(hand, hold(p, at - fetch, at - fetch + fetch * 0.38, at + pushOut * 0.6, at + pushOut * 1.4));
       }
-      seat = Math.max(seat, p >= at ? thud(seg(p, at, at + 0.09)) : 0);
+      seat = Math.max(seat, p >= at ? thud(seg(p, at, at + seatDur)) : 0);
     }
     a.gunR.z -= present * 0.62;
     a.gunR.x += present * 0.2 + seat * 0.022;
@@ -353,10 +363,14 @@ function clip(a: Anim): void {
     a.gunP.y += present * 0.05 + seat * 0.005;
     a.gunP.z += present * 0.05;
 
-    const last = bump(p, 0.8, 0.98);
-    rack = Math.max(rack, last);
-    a.gunR.x -= last * 0.04;
-    a.gunP.z += last * 0.01;
+    if (!dynamic || a.reloadFromEmpty) {
+      const rackStart = dynamic ? presentEnd : 0.8;
+      const rackEnd = dynamic ? Math.min(0.98, rackStart + (1 - rackStart) * 0.92) : 0.98;
+      const last = bump(p, rackStart, rackEnd);
+      rack = Math.max(rack, last);
+      a.gunR.x -= last * 0.04;
+      a.gunP.z += last * 0.01;
+    }
 
     a.left.fingerRate = 42;
     a.left.to('shellHold', hand);

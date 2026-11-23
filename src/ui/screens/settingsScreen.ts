@@ -240,13 +240,23 @@ export class SettingsScreen implements Screen {
     const quality = new Stepper('Graphics quality', QUALITY_LEVELS, () => s.quality, v => { s.quality = v; }, qualityTick);
     const gore = new Stepper('Gore', GORE_LEVELS, () => s.gore, v => { s.gore = v; }, tick);
     const mess = new Stepper('Mess', MESS_NAMES, () => s.mess, v => { s.mess = v; }, tick);
+    const suppression = new Stepper('Suppression effects', ['Off', 'On'], () => (s.suppression ? 1 : 0), v => { s.suppression = v === 1; }, tick);
     const hitText = new Stepper('Hit text', HIT_TEXT_LEVELS, () => s.hitText, v => { s.hitText = v; }, tick);
     const chatter = new Stepper('Enemy chatter', CHATTER_LEVELS, () => s.chatter, v => { s.chatter = v; }, tick);
     const voices = new Slider('Enemy voices', 0, 1, 0.05, () => s.voices, v => { s.voices = v; }, pct, tick);
+    const hudAll = new Stepper('Show HUD', ['Off', 'On'], () => (s.hud ? 1 : 0), v => { s.hud = v === 1; }, tick);
+    const hudCrosshair = new Stepper('Crosshair', ['Off', 'On'], () => (s.hudCrosshair ? 1 : 0), v => { s.hudCrosshair = v === 1; }, tick);
+    const hudVitals = new Stepper('Vitals & armor', ['Off', 'On'], () => (s.hudVitals ? 1 : 0), v => { s.hudVitals = v === 1; }, tick);
+    const hudWeapons = new Stepper('Weapons & ammo', ['Off', 'On'], () => (s.hudWeapons ? 1 : 0), v => { s.hudWeapons = v === 1; }, tick);
+    const hudMinimap = new Stepper('Minimap & radar', ['Off', 'On'], () => (s.hudMinimap ? 1 : 0), v => { s.hudMinimap = v === 1; }, tick);
+    const hudScore = new Stepper('Wave, score & combo', ['Off', 'On'], () => (s.hudScore ? 1 : 0), v => { s.hudScore = v === 1; }, tick);
+    const hudFeeds = new Stepper('Kill & radio feeds', ['Off', 'On'], () => (s.hudFeeds ? 1 : 0), v => { s.hudFeeds = v === 1; }, tick);
+    const hudMarkers = new Stepper('World markers', ['Off', 'On'], () => (s.hudMarkers ? 1 : 0), v => { s.hudMarkers = v === 1; }, tick);
     const reports = new Stepper('Anonymous error reports', ['Off', 'On'], () => reporter.enabled() ? 1 : 0, v => reporter.setEnabled(v === 1), () => {});
     this.cheatRow = new CheatRow(text => this.note.set(text), id => this.ctx.audio.play?.(id));
-    const general = [sensitivity, fov, invert, hop, aimMode, aimSens, master, sfx, music, voices, quality, gore, mess, hitText, chatter];
-    this.refreshers = [...general, reports].map(r => () => r.refresh());
+    const general = [sensitivity, fov, invert, hop, aimMode, aimSens, master, sfx, music, voices, quality, gore, mess, suppression, hitText, chatter];
+    const hudRows = [hudAll, hudCrosshair, hudVitals, hudWeapons, hudMinimap, hudScore, hudFeeds, hudMarkers];
+    this.refreshers = [...general, ...hudRows, reports].map(r => () => r.refresh());
     const keys = this.keyRows();
     const resetKeys = menuButton('Reset keys', () => this.resetKeys());
     resetKeys.el.classList.add('mi-small');
@@ -256,10 +266,17 @@ export class SettingsScreen implements Screen {
         el: div('gd-panel', div('set-list',
           span('gd-h', 'Controls and view'), sensitivity.el, fov.el, invert.el, hop.el, aimMode.el, aimSens.el,
           span('gd-h', 'Audio'), master.el, sfx.el, music.el, voices.el,
-          span('gd-h', 'Video'), quality.el, gore.el, mess.el, hitText.el, chatter.el,
+          span('gd-h', 'Video'), quality.el, gore.el, mess.el, suppression.el, hitText.el, chatter.el,
           span('gd-h', 'Cheats'), this.cheatRow.el,
         )),
         rows: [...general, this.cheatRow],
+      },
+      {
+        el: div('gd-panel', div('set-list',
+          span('gd-h', 'HUD visibility'), hudAll.el,
+          span('gd-h', 'HUD elements'), hudCrosshair.el, hudVitals.el, hudWeapons.el, hudMinimap.el, hudScore.el, hudFeeds.el, hudMarkers.el,
+        )),
+        rows: hudRows,
       },
       { el: div('gd-panel', keys.el, resetKeys.el), rows: keyRows },
       { el: div('gd-panel', span('gd-h', 'Privacy'), reports.el,
@@ -267,7 +284,7 @@ export class SettingsScreen implements Screen {
       ), rows: [reports] },
     ];
 
-    this.tabs = ['General', 'Keys', 'Privacy'].map((label, i) => {
+    this.tabs = ['General', 'HUD', 'Keys', 'Privacy'].map((label, i) => {
       const el = h('button', 'tab', label);
       el.type = 'button';
       el.tabIndex = -1;

@@ -27,7 +27,7 @@ import { BLAST, OUTCOME_COUNT, OUTCOMES, rollBlast, tearsWaist, type BlastBody, 
 import { CHECK_CARRY, CHECK_MIN, CHECK_TOPPLE_MAX, CHECK_TOPPLE_MIN, checkStrength, SLIDE_KICK, SLIDE_TOPPLE } from './contact';
 import { ENEMIES, LIMB_SIZE, REGION_DAMAGE } from './data';
 import { wearKindOf } from '../characters/anatomy/wear';
-import { AMMO, WEAPONS, type ArmourClass } from '../weapons/data';
+import { AMMO, SLOT8_OLD, WEAPONS, type ArmourClass } from '../weapons/data';
 import type { WeaponId } from '../core/gameplay';
 import { say } from './attacks';
 import { finishAttack } from './brain';
@@ -209,7 +209,7 @@ const SEVER_FACTOR: Record<DamageType, number> = {
  * by one blow does not arrive flayed; the trunk, which has no pool, wears by `trunk` of the share of health a hit on it took,
  * to `trunkMost`, short of bare: it is the limbs and the head that come off.
  */
-export const WearTuning = { step: 0.5, trunk: 0.55, trunkMost: 0.7 };
+export const WearTuning = { step: 0.5, headStep: 0.22, headMost: 0.65, trunk: 0.55, trunkMost: 0.7 };
 
 /** A region's pool when whole, as `EnemyManager` fills it. */
 function wholePool(e: Pick<Enemy, 'maxHealth' | 'def'>, region: GoreRegion): number {
@@ -237,21 +237,22 @@ const WHOLE_LIMB: Partial<Record<GoreRegion, GoreRegion>> = { forearmL: 'armL', 
 
 /** A killing round of this much damage or more is a severe headshot. Below it he keeps his head, with a hole in it. */
 const HEAD_BURST_DAMAGE = 40;
-/** Severe headshots on these get a partial head wound (docs/proposals/partial-head-wounds.md); gore says which are built. */
+/** Archetypes with baked partial head wounds (docs/proposals/partial-head-wounds.md); gore says which are loaded. */
 const PARTIAL_HEADS: ReadonlySet<string> = new Set(['trooper', 'gunner', 'husk', 'brute']);
-/** Rounds that burst any head they kill: the very damaging tier, with four pellets of a blast and the Judge up close. */
-const HEAD_BURSTERS: ReadonlySet<string> = new Set(['autocannon', 'sabot', 'awl', 'ultramag', 'stakegun', 'piledriver', 'lance']);
+/** Rounds that always trigger a head burst (partial or full), regardless of falloff or AP scaling. */
+const HEAD_BURSTERS: ReadonlySet<string> = new Set([
+  'autocannon', 'sabot', 'awl', 'ultramag', 'stakegun', 'piledriver', 'lance', 'gaff', 'gimlet', 'flail',
+]);
 const JUDGE_BURST_RANGE = 8;
 
 /**
- * What a killing round does to a head (docs/proposals/partial-head-wounds.md): a hole under 40, a burst for the very
- * damaging (`heavy`), and between the two a partial wound on the enemies in `PARTIAL_HEADS`, a burst on the rest. Never
- * off whole: that is a blast's and the katana's.
+ * What a killing round does to a head (docs/proposals/partial-head-wounds.md): a hole under 40 unless `heavy`, and
+ * whenever a head bursts (`heavy` or >= 40), a random 50/50 split between a baked partial head wound (for enemies in
+ * `PARTIAL_HEADS`) and a full Fallout-style burst. Never off whole: that is a blast's and the katana's.
  */
-export function headOutcome(round: number, heavy: boolean, enemy: string): HeadOutcome {
-  if (heavy) return 'burst';
-  if (round < HEAD_BURST_DAMAGE) return 'hole';
-  return PARTIAL_HEADS.has(enemy) ? 'partial' : 'burst';
+export function headOutcome(round: number, heavy: boolean, enemy: string, roll = Math.random()): HeadOutcome {
+  if (!heavy && round < HEAD_BURST_DAMAGE) return 'hole';
+  return PARTIAL_HEADS.has(enemy) && roll < 0.5 ? 'partial' : 'burst';
 }
 /**
  * Co-op kill prediction (`sureKill`). A guest drops a body for dead when its hit is over what the body has left by this
@@ -515,6 +516,9 @@ export class DamageModel {
   private volleyAt = -1;
   /** Pellets of this frame's blast on the head the last hit struck, counting it. 0 for anything else. */
   private headVolley = 0;
+  /** Head wear already added this frame per enemy, capping any single shot (including multi-pellet blasts) to `WearTuning.headStep`. */
+  private readonly headWorn = new Map<Enemy, number>();
+  private headWornAt = -1;
   /** Limbs the blast `seenIn` has taken so far. */
   private cuts = 0;
   private readonly seam: DamageInfo = { amount: 0, type: 'explosive', point: new THREE.Vector3(), dir: new THREE.Vector3(), force: 0, source: '' };
@@ -791,7 +795,12 @@ export class DamageModel {
       // The head's pool is the host's to spend. What this screen shows of it is its own count, kept on the skin alone.
       else if (!area && DevFlags.wear) {
         const scale = wearScaleOf(d, 'head');
-        if (scale > 0) e.char.addWear?.('head', (amount / wholePool(e, 'head')) * scale, wearKindOf(d.type));
+        const add = scale > 0 ? Math.min((amount / wholePool(e, 'head')) * scale, this.headWearAllowance(e)) : 0;
+        if (add > 0) {
+          const prev = e.char.wearOf?.('head') ?? 0;
+          e.char.addWear?.('head', add, wearKindOf(d.type), WearTuning.headMost);
+          this.recordHeadWear(e, Math.max(0, (e.char.wearOf?.('head') ?? prev + add) - prev));
+        }
       }
       // Sure of the kill: it goes down limp now, in place of the flinch a living body would give (the whole death, when it is
       // beyond doubt, is the caller's to start: `predictKill`). With no room on the floor it reacts as it would have.
@@ -1024,6 +1033,23 @@ export class DamageModel {
     return left;
   }
 
+  private headWearAllowance(e: Enemy): number {
+    if (this.headWornAt !== this.w.now) {
+      this.headWornAt = this.w.now;
+      this.headWorn.clear();
+    }
+    return Math.max(0, WearTuning.headStep - (this.headWorn.get(e) ?? 0));
+  }
+
+  private recordHeadWear(e: Enemy, delta: number): void {
+    if (delta <= 0) return;
+    if (this.headWornAt !== this.w.now) {
+      this.headWornAt = this.w.now;
+      this.headWorn.clear();
+    }
+    this.headWorn.set(e, (this.headWorn.get(e) ?? 0) + delta);
+  }
+
   /** Wear you can see: proportional to weapon class, ramping up as a limb approaches severing (`WearTuning`). */
   private showWear(e: Enemy, region: GoreRegion, left: number, d: DamageInfo): void {
     const char = e.char;
@@ -1037,7 +1063,16 @@ export class DamageModel {
       : part === 'head'
         ? spent * scale
         : Math.max(spent * scale, smoothstep(0.65, 1, spent));
-    char.setWear(region, Math.min(target, (char.wearOf?.(region) ?? 0) + WearTuning.step), wearKindOf(d.type));
+    const prev = char.wearOf?.(region) ?? 0;
+    if (part === 'head') {
+      const next = Math.min(target, prev + this.headWearAllowance(e), WearTuning.headMost);
+      if (next > prev) {
+        char.setWear(region, next, wearKindOf(d.type));
+        this.recordHeadWear(e, next - prev);
+      }
+      return;
+    }
+    char.setWear(region, Math.min(target, prev + WearTuning.step), wearKindOf(d.type));
   }
 
   /** The trunk has no pool of its own: heavy rounds, blades, shotguns and blasts wear it; small arms leave clean holes. */
@@ -1230,9 +1265,10 @@ export class DamageModel {
     return d.armour ?? classOf(d.source, d.amount);
   }
 
-  /** A very damaging round to the head: one of `HEAD_BURSTERS`, four pellets of a blast, or the Judge up close. */
+  /** A round that triggers a head burst (partial or full): `HEAD_BURSTERS`, 20mm Trommel, multi-pellet head blasts, or the Judge up close. */
   private heavyHead(e: Enemy, d: DamageInfo): boolean {
-    if (d.type === 'pellet') return this.headVolley >= HEAD_VOLLEY;
+    if (d.type === 'pellet') return this.headVolley >= HEAD_VOLLEY || (this.headVolley >= 2 && d.amount * this.headVolley >= HEAD_BURST_DAMAGE);
+    if (d.source === 'buzzsaw' && !SLOT8_OLD) return true;
     if (HEAD_BURSTERS.has(d.source)) return true;
     return d.source === 'judge' && e.position.distanceTo(this.w.player.position) < JUDGE_BURST_RANGE;
   }

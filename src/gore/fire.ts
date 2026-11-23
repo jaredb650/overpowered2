@@ -63,10 +63,10 @@ export const FireTuning = {
    * `eatFrom`, by `eatAlive` a second up to `eatAliveMax`: patches of bared muscle on a man who has burned for some seconds.
    * A corpse goes on to `eatMax` over its burning: muscle over most of it and bone where the fire caught.
    */
-  eatFrom: 0.8,
-  eatAlive: 0.09,
-  eatAliveMax: 0.4,
-  eatMax: 0.75,
+  eatFrom: 0.45,
+  eatAlive: 0.16,
+  eatAliveMax: 0.65,
+  eatMax: 1.0,
 };
 
 const enum Phase { Alive, Corpse, Smoulder }

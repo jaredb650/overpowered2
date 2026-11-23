@@ -51,24 +51,30 @@ for (const hold of [false, true]) {
       expect(r.weapons.aim).toBe(0);
     });
 
-    it.each([false, true])('Awl bolt recovery with aim cancelled = %s', cancel => {
+    it('Awl holds the bolt while scoped and cycles once unscoped', () => {
       draw('awl');
       r.weapons.aimHold = hold;
       aim(true);
       if (!hold) aim(false); // A toggle stays on after release.
       expect(r.weapons.scoped).toBe(true);
       r.tap('fire');
+      // Remains scoped for follow-through; cannot fire again until unscoped and cycled.
+      expect(r.weapons.scoped).toBe(true);
+      r.run(0.4);
+      expect(r.weapons.scoped).toBe(true);
+      r.tap('fire');
+      expect(r.weapons.ammo('awl').mag).toBe(4);
+      // Unscoping starts the bolt cycle; scoping back in is blocked until the bolt locks.
+      if (hold) r.input.simulate('aim', false);
+      else r.tap('aim');
+      r.run(0.15);
       expect(r.weapons.scoped).toBe(false);
-      r.run(0.15);
-      if (cancel) {
-        if (hold) r.input.simulate('aim', false);
-        else r.tap('aim'); // Switch the scope toggle off during the bolt stroke.
-      }
-      r.run(0.15);
-      expect(r.weapons.scoped).toBe(false); // It cannot return before the bolt locks.
-      r.run(WEAPONS.awl.cycleTime! + 0.4);
-      expect(r.weapons.scoped).toBe(!cancel);
-      // A recovered hold scope must still drop on release.
+      r.run(WEAPONS.awl.cycleTime! + 0.1);
+      // After the bolt finishes, scoping and firing work again.
+      aim(true);
+      expect(r.weapons.scoped).toBe(true);
+      r.tap('fire');
+      expect(r.weapons.ammo('awl').mag).toBe(3);
       if (hold) {
         aim(false);
         expect(r.weapons.scoped).toBe(false);

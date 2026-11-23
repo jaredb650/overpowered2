@@ -188,8 +188,8 @@ export const GoreTuning = {
   bodyLodFar: 60,
   /** Damage a corpse limb takes before it comes off. */
   corpseLimbHealth: 60,
-  /** The same for the waist. It is where most rounds land, and at limb strength an SMG cut a body in two with its third. */
-  corpseTrunkHealth: 420,
+  /** Damage a corpse's torso takes before tearing apart: intentionally huge so bullets punch holes instead of casually gibbing trunks. */
+  corpseTrunkHealth: 2400,
   /** Damage a loose limb takes before it bursts into chunks. */
   limbBurstHealth: 90,
   /** How long a top half keeps dragging itself along. */
@@ -345,6 +345,8 @@ class DeadBody {
   shade: THREE.Object3D[] | null = null;
   /** World time before which it stays a character, whatever the caps say: something is still happening on it (`Gore.hold`). */
   holdUntil = 0;
+  /** World time a partial head wound was mounted on this body (-1 if none), so leftover pellets of the killing blast keep it. */
+  partialHeadAt = -1;
   constructor(readonly char: CharacterInstance, readonly info: RigInfo) {}
 }
 
@@ -1528,6 +1530,7 @@ export class Gore implements GoreSystem {
     body.pooled = f.was.pooled;
     body.bare = f.was.bare;
     body.dry = f.was.dry;
+    body.partialHeadAt = f.was.partialHeadAt;
     body.smearLeft = 0;
     body.freshAt = this.ctx.time.elapsed;
     body.rag = f.rag;
@@ -2055,8 +2058,10 @@ export class Gore implements GoreSystem {
         time.hitStop(GoreTuning.hitStopSeconds, GoreTuning.hitStopScale);
       }
       if (burst) this.burstHead(char, neck, damage);
-      else if (partial) this.partialHead(char, neck, damage);
-      else if (what === 'off') this.sever(char, 'head', damage);
+      else if (partial) {
+        this.partialHead(char, neck, damage);
+        down.partialHeadAt = this.ctx.time.elapsed;
+      } else if (what === 'off') this.sever(char, 'head', damage);
       else this.ctx.fx.bloodHit(damage.point, damage.dir, 1.2);
       if ((what === 'hole' || (what === 'partial' && partial)) && down.rag?.active) {
         const headBone = info.children[neck]![0] ?? neck;
@@ -2092,6 +2097,7 @@ export class Gore implements GoreSystem {
 
     // Nothing is left to sell it with. The body goes limp on this frame, with a realistic head-only snap if the head stayed on.
     const body = this.adopt(char);
+    if (partial) body.partialHeadAt = this.ctx.time.elapsed;
     this.startRag(body, { velocity, limp: true });
     if ((what === 'hole' || (what === 'partial' && partial)) && body.rag) {
       const headBone = info.children[neck]![0] ?? neck;
@@ -2970,7 +2976,7 @@ export class Gore implements GoreSystem {
     }
     if (target instanceof DeadBody) {
       const { char } = target;
-      if (damage.gib) {
+      if (damage.gib && damage.type === 'explosive') {
         this.gib(char, hit.point, forceOf(damage), damage);
         return;
       }
@@ -3029,15 +3035,23 @@ export class Gore implements GoreSystem {
       let b = hit.bone;
       while (b >= 0 && !defs[b]!.severable) b = defs[b]!.parent;
       const dmgSlot = b >= 0 ? b : hit.bone;
-      target.damage[dmgSlot] = target.damage[dmgSlot]! + damage.amount * (damage.severMult ?? 1);
-      const lasts = b >= 0 && defs[b]!.region === 'abdomen' ? GoreTuning.corpseTrunkHealth : GoreTuning.corpseLimbHealth;
       const head = b >= 0 && defs[b]!.region === 'head';
-      // A shotgun's blast is one hit on a head: four of its pellets there, counting any that killed him, burst it. A head
-      // worn through by pellets bursts too; anything else that wears it through shoots it off.
+      const sameFramePartial = head && target.partialHeadAt === this.ctx.time.elapsed;
+      if (!sameFramePartial) {
+        target.damage[dmgSlot] = target.damage[dmgSlot]! + damage.amount * (damage.severMult ?? 1);
+      }
+      const lasts = b >= 0 && defs[b]!.region === 'abdomen' ? GoreTuning.corpseTrunkHealth : GoreTuning.corpseLimbHealth;
+      // A shotgun's blast is one hit on a head: a multi-pellet volley there (counting any that killed him) or pellets
+      // wearing it through burst it (50/50 partial vs full if intact; always full if already partial). Leftover pellets
+      // from the same blast that just rolled a partial head wound leave the partial head intact.
       const volley = head ? this.headPellets(char, damage) : 0;
-      if (head && (volley >= HEAD_VOLLEY || (volley > 0 && target.damage[dmgSlot]! >= lasts))) {
+      const headBurstVolley = volley >= HEAD_VOLLEY || (volley >= 2 && damage.amount * volley >= GoreTuning.headBurstDamage);
+      if (sameFramePartial) {
+        // Keep the partial head wound mounted on this frame.
+      } else if (head && (headBurstVolley || (volley > 0 && target.damage[dmgSlot]! >= lasts))) {
         target.damage[dmgSlot] = 0;
-        this.headshot(char, damage, undefined, 'burst');
+        const canPartial = target.partialHeadAt < 0 && (PARTIAL_HEADS[char.archetype]?.every(id => this.standIns.has(id)) ?? false);
+        this.headshot(char, damage, undefined, canPartial && Math.random() < 0.5 ? 'partial' : 'burst');
       } else if (b >= 0 && target.damage[dmgSlot]! >= lasts) {
         target.damage[dmgSlot] = 0;
         this.sever(char, defs[b]!.region, damage);

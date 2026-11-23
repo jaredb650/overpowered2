@@ -38,6 +38,9 @@ const BACK_TURNED = 0.42;
 
 const _to = new THREE.Vector3();
 
+/** Toggled by player settings (ui/settings.ts). When false, incoming near-miss rounds produce no suppression blur, jolt or duck. */
+export const SuppressionSetting = { enabled: true };
+
 export class Suppression {
   /** 0 calm, 1 cannot think. */
   level = 0;
@@ -65,6 +68,7 @@ export class Suppression {
 
   /** One round went somewhere near. `line` is whether it had a clear run at the player. */
   round(muzzle: THREE.Vector3, dir: THREE.Vector3, line: boolean): void {
+    if (!SuppressionSetting.enabled) return;
     const { player } = this.w;
     if (!player.alive) return;
     _to.subVectors(player.chest, muzzle);
@@ -103,8 +107,10 @@ export class Suppression {
     this.blind = Math.max(this.blind, strength);
     this.blindUntil = w.now + seconds;
     this.blindSeconds = seconds;
-    this.level = Math.max(this.level, strength);
-    this.quietAt = w.now + seconds * 0.6;
+    if (SuppressionSetting.enabled) {
+      this.level = Math.max(this.level, strength);
+      this.quietAt = w.now + seconds * 0.6;
+    }
     return true;
   }
 
@@ -114,13 +120,18 @@ export class Suppression {
 
   update(dt: number): void {
     const { ctx, w } = this;
-    if (w.now >= this.quietAt) this.level = Math.max(0, this.level - FADE * dt);
     if (this.blind > 0) {
       // Comes back slowly and all at the end, the way the white on the screen does.
       const left = (this.blindUntil - w.now) / this.blindSeconds;
       if (left <= 0) this.blind = 0;
       ctx.hud.dazzle?.(left <= 0 ? 0 : clamp(left * 2.2) * this.blind);
     }
+    if (!SuppressionSetting.enabled) {
+      this.level = 0;
+      ctx.render.post.setSuppression?.(0);
+      return;
+    }
+    if (w.now >= this.quietAt) this.level = Math.max(0, this.level - FADE * dt);
     const { level } = this;
     ctx.render.post.setSuppression?.(level * level * BLUR);
     if (level < 0.05) return;

@@ -67,7 +67,7 @@ type Rings = readonly [fireball: number, maim: number];
 export const BLAST = {
   /** Small enough that the fireball only takes a body or two out of a crowd. Most of a grenade's work is the ring round it. */
   rings: {
-    rocket: [0.25, 0.65], grenade: [0.22, 0.62], hellfire: [0.3, 0.7], hellfireBullet: [0.3, 0.7], shell: [0.3, 0.7],
+    rocket: [0.25, 0.65], grenade: [0.22, 0.62], hellfire: [0.3, 0.7], hellfireBullet: [0.14, 0.6], shell: [0.3, 0.7],
     plasma: [0.25, 0.65], plasmaBurst: [0, 0.62], enemy: [0.25, 0.65], barrel: [0.28, 0.68], finisher: [0.25, 0.65], howitzer: [0.25, 0.65], nuke: [1, 1],
   } as Readonly<Record<ExplosionKind, Rings>>,
   /** Each time an outcome comes up in one blast its weight is divided by 1 plus this, so a crowd never all goes the same way. */
@@ -82,9 +82,9 @@ export const BLAST = {
   dazed: 1.6,
   /** Limbs one blast may take, at 3 to 5 ms of mesh cutting each, all in one frame. A crowd of 12 comes in under it. Past it, bodies go whole. */
   cuts: 12,
-  /** A pellet this hard is a point-blank shotgun, and a kill from one in the trunk tears the body in two this often. */
+  /** A pellet this hard is a point-blank shotgun, and a kill from one in the trunk rarely tears the body in two. */
   pointBlankForce: 100,
-  pointBlankWaist: 0.35,
+  pointBlankWaist: 0.05,
 } as const;
 
 export interface BlastBody {

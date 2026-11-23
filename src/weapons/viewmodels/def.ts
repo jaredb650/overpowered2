@@ -145,6 +145,8 @@ export class Anim {
   time = 0;
   /** Seconds since the last shot. Large when the gun has not fired. */
   sinceFire = 99;
+  /** Seconds since a deferred bolt cycle began, or -1 when driven directly by `sinceFire`. */
+  sinceCycle = -1;
   /** Counts shots since equip; drives anything that indexes, like cylinder rotation. */
   shots = 0;
   /** Strength of the last shot. */
@@ -153,6 +155,14 @@ export class Anim {
   reload = -1;
   /** Seconds the reload was given. */
   reloadSeconds = 1;
+  /** Exact shell count for shell-by-shell shotgun reloads, or 0 to use a clip's static beats. */
+  reloadShells = 0;
+  /** True when a shell-by-shell reload began from an empty magazine and ends with a rack. */
+  reloadFromEmpty = false;
+  /** Fraction of the reload before the first shell begins fetching. */
+  reloadStart = 0;
+  /** Fraction of the reload per individual shell insertion. */
+  reloadStep = 0;
   /** 0..1 through the draw; 1 when settled. */
   draw = 1;
   /** Seconds since the draw finished. */

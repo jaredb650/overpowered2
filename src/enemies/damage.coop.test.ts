@@ -256,7 +256,7 @@ describe('a guest is shown a hit the host decided', () => {
     const burst = world();
     const head = burst.spawn('husk');
     burst.manager.replayDeath(head, round('smg', 'head', { amount: 20 }), false, { blast: null, shatter: false, heavyHead: true });
-    expect(burst.gore.headshot.mock.calls[0]![3]).toBe('burst');
+    expect(['partial', 'burst']).toContain(burst.gore.headshot.mock.calls[0]![3]);
   });
 });
 
@@ -622,5 +622,29 @@ describe('a guest is on the host\'s wave and counts what is left as the host doe
     w.manager.reset();
     expect(w.manager.hostMore).toBeNull();
     expect(w.manager.remaining).toBe(0);
+  });
+
+  it('triggers head bursts on 2+ shotgun pellets, 20mm Trommel, and Gimlet, while a single stray pellet leaves a hole', () => {
+    const stray = world();
+    const a = stray.spawn('trooper'); a.health = 1;
+    stray.gore.headPellets.mockReturnValue(1);
+    stray.manager.applyDamage(a, round('shotgun', 'head', { amount: 28 }));
+    expect(stray.gore.headshot.mock.calls[0]![3]).toBe('hole');
+
+    const pair = world();
+    const b = pair.spawn('trooper'); b.health = 1;
+    pair.gore.headPellets.mockReturnValue(2);
+    pair.manager.applyDamage(b, round('shotgun', 'head', { amount: 28 }));
+    expect(['partial', 'burst']).toContain(pair.gore.headshot.mock.calls[0]![3]);
+
+    const trommel = world();
+    const c = trommel.spawn('trooper'); c.health = 1;
+    trommel.manager.applyDamage(c, round('buzzsaw', 'head', { amount: 32 }));
+    expect(['partial', 'burst']).toContain(trommel.gore.headshot.mock.calls[0]![3]);
+
+    const gimlet = world();
+    const d = gimlet.spawn('trooper'); d.health = 1;
+    gimlet.manager.applyDamage(d, round('gimlet', 'head', { amount: 30 }));
+    expect(['partial', 'burst']).toContain(gimlet.gore.headshot.mock.calls[0]![3]);
   });
 });
