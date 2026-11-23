@@ -354,7 +354,7 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     interval: 0.05, damage: 38, severMult: 0, canSever: false, force: 3, headshotMult: 2,
     penetration: 1.6, bodyCost: 0.35, armorPiercing: true, load: 'flechette',
     muzzle: 'carbine', tracer: 'flechette', casing: 'rifle',
-    sounds: [{ id: 'gimlet_shot', pitch: 1.32, pitchJitter: 0.03 }, { id: 'bullet_flyby', volume: 0.45, pitch: 1.5, pitchJitter: 0.06 }],
+    sounds: [{ id: 'bodkin_shot', pitchJitter: 0.03 }],
     recoil: 0.55, kick: 0.0022, shake: 0.0045, fovPunch: 0.15, impactScale: 0.5,
     ads: { zoom: 0.45, time: 0.18 },
     select: { hold: 0.3, modes: ['burst', 'semi'], burst: { rounds: 3, recover: 0.25 } },
@@ -526,9 +526,10 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     // Eight times the 90-degree hip view: tan(90 / 2) / tan(scopeFov / 2) = 8.
     scope: true, scopeFov: 2 * Math.atan(1 / 8) * 180 / Math.PI,
     sounds: [{ id: 'awl_shot', pitchJitter: 0.02 }],
-    // The bolt at 0.65 s (was 0.95, every cue scaled with it): lift, pull with the case out, push, lock.
+    // The bolt at 0.65 s: lift & pull back (`awl_bolt_open`), case out mid-pull (0.205 s), push & lock (`awl_bolt_close`).
     cycleTime: 0.65, cycleEject: 1,
-    cycleFoley: [[0.082, 'reload_bolt'], [0.205, 'pump_rack_back'], [0.445, 'pump_rack_forward'], [0.575, 'reload_bolt']],
+    cycleFoley: [[0.068, 'awl_bolt_open'], [0.205, ''], [0.355, 'awl_bolt_close']],
+    reloadFoley: [[0.06, 'awl_mag_out'], [0.5, 'awl_mag_in'], [0.66, 'awl_bolt_open'], [0.84, 'awl_bolt_close']],
     recoil: 1, kick: 0.014, shake: 0.014, fovPunch: 1.1, impactScale: 1.3,
   },
   // The upgrade on key 4: a shoulder-fired 20 mm-class cannon fed by a clip of three shells from the top. Not owned with

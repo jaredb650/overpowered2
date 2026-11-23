@@ -312,14 +312,19 @@ const gunShots: SoundDef[] = [
   // The first game's pump, cut out of its shotgun shot into its two strokes, so they land on the viewmodel's pump.
   { ...sample('guns/pump_rack_back.mp3', 'foley', 0.16), id: 'pump_rack_back' },
   { ...sample('guns/pump_rack_forward.mp3', 'foley', 0.16), id: 'pump_rack_forward' },
-  // Recorded reload foley (owner, 2026-11-23): Gimlet, Harrow, and 12-gauge shell insertion, on the foley mix at the pump's level (~0.058).
-  shot('shotgun_shell_in', 'guns/shotgun_shell_in.mp3', 'foley', 0.058, 0.19, { pitchJitter: 0.05 }),
-  shot('gimlet_mag_out', 'guns/gimlet_mag_out.mp3', 'foley', 0.058, 0.194),
-  shot('gimlet_mag_in', 'guns/gimlet_mag_in.mp3', 'foley', 0.058, 0.263),
-  shot('gimlet_rack_bolt', 'guns/gimlet_rack_bolt.mp3', 'foley', 0.058, 0.366),
-  shot('harrow_mag_out', 'guns/harrow_mag_out.mp3', 'foley', 0.058, 0.247),
-  shot('harrow_mag_in', 'guns/harrow_mag_in.mp3', 'foley', 0.058, 0.226),
-  shot('harrow_rack_bolt', 'guns/harrow_rack_bolt.mp3', 'foley', 0.058, 0.277),
+  // Recorded reload & bolt foley (owner, 2026-11-23): Gimlet, Harrow, Awl, and 12-gauge shell insertion, levelled on the foley mix
+  // to match synth reload foley (~0.125).
+  shot('shotgun_shell_in', 'guns/shotgun_shell_in.mp3', 'foley', 0.115, 0.172, { pitchJitter: 0.05 }),
+  shot('gimlet_mag_out', 'guns/gimlet_mag_out.mp3', 'foley', 0.125, 0.177),
+  shot('gimlet_mag_in', 'guns/gimlet_mag_in.mp3', 'foley', 0.125, 0.24),
+  shot('gimlet_rack_bolt', 'guns/gimlet_rack_bolt.mp3', 'foley', 0.125, 0.366),
+  shot('harrow_mag_out', 'guns/harrow_mag_out.mp3', 'foley', 0.125, 0.225),
+  shot('harrow_mag_in', 'guns/harrow_mag_in.mp3', 'foley', 0.125, 0.21),
+  shot('harrow_rack_bolt', 'guns/harrow_rack_bolt.mp3', 'foley', 0.125, 0.251),
+  shot('awl_mag_out', 'guns/awl_mag_out.mp3', 'foley', 0.125, 0.237),
+  shot('awl_mag_in', 'guns/awl_mag_in.mp3', 'foley', 0.125, 0.195),
+  shot('awl_bolt_open', 'guns/awl_bolt_open.mp3', 'foley', 0.125, 0.288),
+  shot('awl_bolt_close', 'guns/awl_bolt_close.mp3', 'foley', 0.125, 0.263),
   shot('smg_shot', 'guns/smg_shot.mp3', 'gun', 0.143, 0.105),
   // The SMG with its suppressor (the owner's, 2026-11-15): about 2 dB under the bare SMG, and less of it in the room.
   shot('smg_suppressed_shot', 'guns/smg_suppressed_shot.mp3', 'gun', 0.11, 0.17, { send: 0.08 }),
@@ -329,6 +334,8 @@ const gunShots: SoundDef[] = [
   // the bare SMG, with less of it in the room, as the SMG's suppressor is.
   shot('gimlet_shot', 'guns/gimlet_shot.mp3', 'gun', 0.155, 0.206, { send: 0.2 }),
   shot('gimlet_suppressed_shot', 'guns/gimlet_suppressed_shot.mp3', 'gun', 0.115, 0.118, { send: 0.08 }),
+  // The Bodkin flechette rifle (the owner's, 2026-11-23): crisp burst report at the Gimlet's rung on the ladder.
+  shot('bodkin_shot', 'guns/bodkin_shot.mp3', 'gun', 0.155, 0.24, { send: 0.2 }),
   // The Autoraffica (the owner's, 2026-11-16): a suppressed pistol fired three at a time, so under the suppressed SMG.
   shot('autoraffica_shot', 'guns/autoraffica_shot.mp3', 'gun', 0.1, 0.243, { send: 0.08 }),
   // The Rivet through its suppressor mod (2026-11-22): reuses the suppressed 9 mm pistol sample at single-shot level.

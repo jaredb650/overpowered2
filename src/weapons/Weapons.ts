@@ -1226,7 +1226,8 @@ export class Weapons implements WeaponSystem, Guard {
     while (this.cycleCue < cues.length && this.cycleAt >= cues[this.cycleCue]![0]) {
       // The pull-back cue ejects: the first rack cue by default, or the bolt gun's chosen cue.
       if (this.cycleCue === (def.cycleEject ?? 0) && def.casing) this.eject(def);
-      this.ctx.audio.play(cues[this.cycleCue++]![1]);
+      const id = cues[this.cycleCue++]![1];
+      if (id) this.ctx.audio.play(id);
     }
   }
 

@@ -411,7 +411,7 @@ export class Watcher {
     if (def.mode === 'spin') this.rattle(def);
     if (def.cycleFoley) {
       // A hand-cycled gun: the pump or the bolt is heard from them, and its shell leaves when the hand pulls it back.
-      for (const [when, id] of def.cycleFoley) this.say(id, REPORT, 1, Math.max(0.001, when));
+      for (const [when, id] of def.cycleFoley) if (id) this.say(id, REPORT, 1, Math.max(0.001, when));
       if (def.casing) {
         this.casingIn = Math.max(0.01, def.cycleFoley[def.cycleEject ?? 0]?.[0] ?? 0.1);
         this.casingKind = def.casing;

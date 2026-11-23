@@ -50,25 +50,25 @@ describe('the Awl scout', () => {
     expect(boltPose(0.3)).toMatchObject({ lift: 1, back: 1 });
     expect(boltPose(0.52)).toMatchObject({ lift: 1, back: 0 });
     expect(boltPose(0.66)).toEqual({ lift: 0, back: 0, hand: 0 });
-    // The model's bolt and the row's cues are one clock: the case flies mid-pull, the hand is back by the refire.
-    const [lift, pull, push, lock] = WEAPONS.awl.cycleFoley!.map(([at]) => at);
+    // The model's bolt and the row's cues are one clock: open on lift, case flies mid-pull, close on push/lock, hand back by refire.
+    const [open, pull, close] = WEAPONS.awl.cycleFoley!.map(([at]) => at);
     expect(WEAPONS.awl.cycleTime).toBe(0.65);
-    expect(boltPose(lift!).lift).toBeGreaterThan(0);
+    expect(boltPose(open! + 0.01).lift).toBeGreaterThan(0);
     expect(boltPose(pull!).back).toBeGreaterThan(0.2);
     expect(boltPose(pull!).back).toBeLessThan(0.8);
-    expect(boltPose(push!).back).toBeLessThan(1);
-    expect(boltPose(lock!).lift).toBeLessThan(1);
+    expect(boltPose(close!).back).toBeGreaterThan(0.5);
     expect(boltPose(WEAPONS.awl.cycleTime!).hand).toBe(0);
     range.tap('fire');
     range.run(0.15);
-    expect(range.record.sounds).toContain('reload_bolt');
+    expect(range.record.sounds).toContain('awl_bolt_open');
     expect(eject).not.toHaveBeenCalled();
     range.run(0.15);
     expect(eject).toHaveBeenCalledOnce();
     expect(eject.mock.calls[0]![2]).toBe('rifle');
     range.run(0.6);
     expect(eject).toHaveBeenCalledOnce();
-    expect(range.record.sounds).toContain('pump_rack_forward');
+    expect(range.record.sounds).toContain('awl_bolt_close');
+    expect(WEAPONS.awl.reloadFoley.map(([, id]) => id)).toEqual(['awl_mag_out', 'awl_mag_in', 'awl_bolt_open', 'awl_bolt_close']);
   });
 
   it('cannot refire or reload before the bolt closes, even under a fire-rate boost', () => {
