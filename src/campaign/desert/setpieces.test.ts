@@ -4,8 +4,9 @@
 import * as THREE from 'three';
 import type RAPIER from '@dimforge/rapier3d-compat';
 import { describe, expect, it, vi } from 'vitest';
-import type { Ctx, PlayerDamage, WorldObjects } from '../../core/contracts';
+import type { Ctx, DamageInfo, PlayerDamage, WorldObjects } from '../../core/contracts';
 import type { Enemy } from '../../enemies/Enemy';
+import { HumanoidBone } from '../../characters/rig';
 import {
   CARGO_PLANE,
   LOUDSPEAKER_POLES,
@@ -14,25 +15,64 @@ import {
 } from '../../world/map/desert/plan';
 import type { CampaignHud } from '../hud';
 import type { MissionRunner } from '../runner';
+import { QUIST_GEAR_NAME, SaltbloodStyler } from './saltbloods';
 import {
   DesertSetpieces,
   QUIST_CAPTURE_BONUS,
   QUIST_CAPTURE_HOLD,
+  QUIST_DOOR2_TRIGGER_Z,
+  QUIST_ESCORT_STOP_DIST,
+  QUIST_ESCORT_TELEPORT_DIST,
   QUIST_GRENADE_WINDOW,
+  QUIST_NPC_MAX_HP,
+  QUIST_RAMP_TRIGGER_Z,
   QUIST_SPEECH_DURATION,
   QUIST_SUICIDE_DRAW,
   QUIST_SUICIDE_TEMPLE,
+  QUIST_TAIL_TRIGGER_Z,
   TOWER_FALL_DURATION,
   TOWER_FLOOD_DURATION,
 } from './setpieces';
 import type { QuistHooks, QuistOutcome } from './types';
 
-function makeSetpiecesEnv() {
+function makeHumanoidCharStub() {
+  const root = new THREE.Group();
+  root.name = 'enemy-char-root';
+  const bones: THREE.Object3D[] = [];
+  const needed: number[] = [
+    HumanoidBone.hips,
+    HumanoidBone.chest,
+    HumanoidBone.neck,
+    HumanoidBone.head,
+    HumanoidBone.upperArmL,
+    HumanoidBone.upperArmR,
+    HumanoidBone.foreArmL,
+    HumanoidBone.foreArmR,
+    HumanoidBone.handL,
+    HumanoidBone.handR,
+  ];
+  for (const b of needed) {
+    const g = new THREE.Group();
+    g.name = `bone-${b}`;
+    root.add(g);
+    bones[b] = g;
+  }
+  const anim = {
+    posture: 'stand',
+    setPosture(p: string) {
+      anim.posture = p;
+    },
+  };
+  return { root, bones, anim };
+}
+
+function makeSetpiecesEnv(opts: { realEnemyManager?: boolean } = {}) {
   let interactDown = false;
   let interactPressed = false;
   let interactReleased = false;
   let elapsed = 0;
   let nextHandle = 100;
+  let nextEnemyUid = 500;
 
   const signals: string[] = [];
   const sounds: string[] = [];
@@ -46,6 +86,8 @@ function makeSetpiecesEnv() {
   const playerDamages: PlayerDamage[] = [];
   const lightFlashes: { pos: THREE.Vector3; color: THREE.ColorRepresentation; intensity: number }[] = [];
   const aliveEnemies: Enemy[] = [];
+  const withdrawnEnemies: Enemy[] = [];
+  const enemyDamageLog: { enemy: Enemy; damage: DamageInfo; allowed: boolean }[] = [];
   const eventHandlers = new Map<string, ((payload: unknown) => void)[]>();
 
   const player = {
@@ -76,6 +118,83 @@ function makeSetpiecesEnv() {
   };
 
   const hush = vi.fn();
+  const scene = new THREE.Scene();
+
+  const applyEnemyDamage = vi.fn((enemy: Enemy, dmg: DamageInfo) => {
+    if (!enemy.alive) return false;
+    const allowed = enemy.damageFilter ? enemy.damageFilter(dmg) : true;
+    enemyDamageLog.push({ enemy, damage: dmg, allowed });
+    if (!allowed) return false;
+    enemy.health = Math.max(0, enemy.health - dmg.amount);
+    if (enemy.health <= 0) {
+      enemy.alive = false;
+      const idx = aliveEnemies.indexOf(enemy);
+      if (idx >= 0) aliveEnemies.splice(idx, 1);
+    }
+    return true;
+  });
+
+  const withdrawEnemy = vi.fn((enemy: Enemy) => {
+    withdrawnEnemies.push(enemy);
+    enemy.alive = false;
+    const idx = aliveEnemies.indexOf(enemy);
+    if (idx >= 0) aliveEnemies.splice(idx, 1);
+    if (enemy.char?.root?.parent) {
+      enemy.char.root.parent.remove(enemy.char.root);
+    }
+  });
+
+  const spawnEnemy = vi.fn((type: string, pos: THREE.Vector3) => {
+    const char = makeHumanoidCharStub();
+    char.root.position.copy(pos);
+    scene.add(char.root);
+    const anim = {
+      posture: 'stand',
+      setPosture(p: string) {
+        anim.posture = p;
+      },
+    };
+    const enemy = {
+      uid: nextEnemyUid++,
+      type,
+      alive: true,
+      isBoss: false,
+      nonHostile: false,
+      scriptedNpc: false,
+      damageFilter: null as ((d: DamageInfo) => boolean) | null,
+      health: 100,
+      maxHealth: 100,
+      armor: 20,
+      plates: [{}],
+      shield: false,
+      ward: 0,
+      pace: 0,
+      face: 'player',
+      mode: 'hold' as 'hold' | 'point' | 'chase',
+      moveTarget: pos.clone(),
+      position: pos.clone(),
+      groundY: pos.y,
+      center: pos.clone().add(new THREE.Vector3(0, 1.0, 0)),
+      velocity: new THREE.Vector3(),
+      yaw: 0,
+      targetYaw: 0,
+      char,
+      anim,
+    } as unknown as Enemy;
+    aliveEnemies.push(enemy);
+    return enemy;
+  });
+
+  const enemiesMock = opts.realEnemyManager
+    ? {
+        alive: aliveEnemies,
+        spawn: spawnEnemy,
+        applyDamage: applyEnemyDamage,
+        withdraw: withdrawEnemy,
+      }
+    : {
+        alive: aliveEnemies,
+      };
 
   const ctx = {
     time: {
@@ -98,7 +217,7 @@ function makeSetpiecesEnv() {
       }),
     },
     render: {
-      scene: new THREE.Scene(),
+      scene,
       materials: { patch: <T>(m: T) => m },
       lights: {
         flash: vi.fn((pos: THREE.Vector3, color: THREE.ColorRepresentation, intensity: number) => {
@@ -176,9 +295,7 @@ function makeSetpiecesEnv() {
       addTrauma: vi.fn(),
       kick: vi.fn(),
     },
-    enemies: {
-      alive: aliveEnemies,
-    },
+    enemies: enemiesMock,
     player,
   } as unknown as Ctx;
 
@@ -198,10 +315,12 @@ function makeSetpiecesEnv() {
   const lines: { key: string; now?: boolean }[] = [];
   const outcomes: QuistOutcome[] = [];
   const doorSlams: ('plane.door1' | 'plane.door2')[] = [];
+  const escortLosses: ('crushed' | 'shot')[] = [];
   const hooks: QuistHooks = {
     onLine: (key, opts) => lines.push({ key, now: opts?.now }),
     onOutcome: outcome => outcomes.push(outcome),
     onDoorSlam: doorId => doorSlams.push(doorId),
+    onEscortLost: reason => escortLosses.push(reason),
   };
 
   const step = (seconds: number, dt = 0.05) => {
@@ -234,12 +353,18 @@ function makeSetpiecesEnv() {
     lines,
     outcomes,
     doorSlams,
+    escortLosses,
     createdColliders,
     removedColliders,
     playerLaunches,
     playerDamages,
     lightFlashes,
     aliveEnemies,
+    withdrawnEnemies,
+    enemyDamageLog,
+    spawnEnemy,
+    applyEnemyDamage,
+    withdrawEnemy,
     step,
     setInteractDown: (v: boolean) => {
       interactDown = v;
@@ -401,8 +526,8 @@ describe('DesertSetpieces (Mission 5 — Desert Raid)', () => {
     expect(env.setpieces.quistState).toBe('wait_ramp');
     expect(env.setpieces.quistPosition.z).toBeCloseTo(CARGO_PLANE.quistWaitPos[2], 2);
 
-    // Player enters cargo ramp (z < -88)
-    env.player.position.set(0, CARGO_PLANE.floorY, -89);
+    // Player enters cargo ramp (z < QUIST_RAMP_TRIGGER_Z)
+    env.player.position.set(0, CARGO_PLANE.floorY, QUIST_RAMP_TRIGGER_Z - 1);
     env.step(0.05);
     expect(env.doorSlams).toEqual(['plane.door1']);
     expect(env.setpieces.quistState).toBe('sprint_mid');
@@ -412,8 +537,8 @@ describe('DesertSetpieces (Mission 5 — Desert Raid)', () => {
     expect(env.setpieces.quistState).toBe('wait_mid');
     expect(env.setpieces.quistPosition.z).toBeCloseTo(CARGO_PLANE.quistMidPos[2], 1);
 
-    // Player breaches door 1 and pushes past z < -108
-    env.player.position.set(0, CARGO_PLANE.floorY, -109);
+    // Player breaches door 1 and pushes past QUIST_DOOR2_TRIGGER_Z
+    env.player.position.set(0, CARGO_PLANE.floorY, QUIST_DOOR2_TRIGGER_Z - 1);
     env.step(0.05);
     expect(env.doorSlams).toEqual(['plane.door1', 'plane.door2']);
     expect(env.setpieces.quistState).toBe('sprint_tail');
@@ -423,18 +548,18 @@ describe('DesertSetpieces (Mission 5 — Desert Raid)', () => {
     expect(env.setpieces.quistState).toBe('wait_tail');
     expect(env.setpieces.quistPosition.z).toBeCloseTo(CARGO_PLANE.quistCornerPos[2], 1);
 
-    // Player enters tail section (z < -117) -> starts 17.5 s speech & fires beat 1
-    env.player.position.set(0, CARGO_PLANE.floorY, -118);
+    // Player enters tail section (z < QUIST_TAIL_TRIGGER_Z) -> starts 17.5 s speech & fires beat 1
+    env.player.position.set(0, CARGO_PLANE.floorY, QUIST_TAIL_TRIGGER_Z - 1);
     env.step(0.05);
     expect(env.setpieces.quistState).toBe('speech');
     expect(env.lines.some(l => l.key === 'quist.speech.1')).toBe(true);
   });
 
   // -----------------------------------------------------------------------------------------------
-  // 5A. Quist Outcome 1 — Hold [E] for 1.5 s (within 3.8 m) -> Captured (+$2,500)
+  // 5A. Quist Outcome 1 — Hold [E] for 1.2 s (within 3.8 m) -> Captured Escort (+$2,500)
   // -----------------------------------------------------------------------------------------------
 
-  it('Outcome 1: Hold [E] for 1.5 s within 3.8 m captures Quist alive for +$2,500 bonus', () => {
+  it('Outcome 1: Hold [E] for 1.2 s within 3.8 m captures Quist alive into captured_escort for +$2,500 bonus', () => {
     const env = makeSetpiecesEnv();
     env.setpieces.startPlaneChase(env.hooks);
     env.setpieces.advanceQuistToTail();
@@ -448,7 +573,7 @@ describe('DesertSetpieces (Mission 5 — Desert Raid)', () => {
     expect(env.setpieces.captureProgress).toBe(0);
     env.releaseInteract();
 
-    // Move within 3.8 m (2.5 m away) and hold [E] for 1.5 s
+    // Move within 3.8 m (2.5 m away) and hold [E] for QUIST_CAPTURE_HOLD (1.2 s)
     env.player.position.set(0, CARGO_PLANE.floorY, CARGO_PLANE.quistCornerPos[2] + 2.5);
     env.pressInteract();
     env.step(QUIST_CAPTURE_HOLD * 0.5, 0.05);
@@ -457,12 +582,19 @@ describe('DesertSetpieces (Mission 5 — Desert Raid)', () => {
 
     env.step(QUIST_CAPTURE_HOLD * 0.6, 0.05);
     expect(env.setpieces.quistOutcome).toBe('captured');
-    expect(env.setpieces.quistState).toBe('captured');
+    expect(env.setpieces.quistState).toBe('captured_escort');
+    expect(env.setpieces.quistEscortAlive).toBe(true);
     expect(env.outcomes).toEqual(['captured']);
     expect(env.signals).toContain('dr:quist_done');
     expect(env.lines.some(l => l.key === 'quist.captured' && l.now === true)).toBe(true);
     expect(env.awards).toContainEqual({ points: QUIST_CAPTURE_BONUS, reason: 'HADREK QUIST CAPTURED' });
     expect(env.sounds).toContain('cuff_click');
+
+    // Boarding convoy retires escort cleanly into final 'captured' state.
+    env.setpieces.boardCapturedQuistToConvoy();
+    expect(env.setpieces.quistState).toBe('captured');
+    expect(env.setpieces.quistEscortAlive).toBe(false);
+    expect(env.escortLosses).toEqual([]);
   });
 
   // -----------------------------------------------------------------------------------------------
@@ -701,5 +833,251 @@ describe('DesertSetpieces (Mission 5 — Desert Raid)', () => {
     expect(env.setpieces.quistOutcome).toBeNull();
     expect(env.setpieces.quistState).toBe('inactive');
     expect(env.setpieces.mainGateCollider).not.toBeNull();
+  });
+
+  // -----------------------------------------------------------------------------------------------
+  // 7. Real Goreable Enemy Hadrek Quist NPC + Live Cuffed Follower + SaltbloodStyler Exclusion
+  // -----------------------------------------------------------------------------------------------
+
+  describe('Real Goreable Enemy Hadrek Quist NPC & Live Cuffed Follower', () => {
+    const makeDamage = (partial: Partial<DamageInfo> & Pick<DamageInfo, 'amount' | 'type' | 'source'>): DamageInfo => ({
+      point: new THREE.Vector3(0, CARGO_PLANE.floorY + 1.5, CARGO_PLANE.quistCornerPos[2]),
+      dir: new THREE.Vector3(0, 0, -1),
+      force: 10,
+      ...partial,
+    });
+
+    it('spawns a real scripted nonHostile boss Enemy styled with bone-attached warlord gear and skipped by SaltbloodStyler', () => {
+      const env = makeSetpiecesEnv({ realEnemyManager: true });
+      env.setpieces.startPlaneChase(env.hooks);
+
+      const npc = env.setpieces.quistNpc;
+      expect(npc).not.toBeNull();
+      expect(env.spawnEnemy).toHaveBeenCalledTimes(1);
+      expect(npc!.scriptedNpc).toBe(true);
+      expect(npc!.nonHostile).toBe(true);
+      expect(npc!.isBoss).toBe(true);
+      expect(npc!.health).toBe(QUIST_NPC_MAX_HP);
+      expect(npc!.maxHealth).toBe(QUIST_NPC_MAX_HP);
+      expect(npc!.armor).toBe(0);
+      expect(npc!.plates).toEqual([]);
+      expect(npc!.shield).toBe(false);
+      expect(npc!.ward).toBe(0);
+      expect(npc!.damageFilter).not.toBeNull();
+      expect(npc!.char.root.userData.desertQuist).toBe(true);
+
+      // Custom Salt King warlord gear mounted on humanoid bones (head, chest, hands, etc.)
+      let gearMountCount = 0;
+      npc!.char.root.traverse(obj => {
+        if (obj.name === QUIST_GEAR_NAME) gearMountCount++;
+      });
+      expect(gearMountCount).toBeGreaterThanOrEqual(5);
+
+      // SaltbloodStyler MUST skip Hadrek Quist so generic raider scraps are never stapled onto him
+      const styler = new SaltbloodStyler(env.ctx);
+      styler.update();
+      let genericGearCount = 0;
+      npc!.char.root.traverse(obj => {
+        if (obj.name === 'saltblood-gear') genericGearCount++;
+      });
+      expect(genericGearCount).toBe(0);
+      expect(npc!.char.root.userData.saltbloodStyled).not.toBe(true);
+    });
+
+    it('blocks damage & hurries retreat in Phase A, then accepts real player headshot kill in tail bay', () => {
+      const env = makeSetpiecesEnv({ realEnemyManager: true });
+      env.setpieces.startPlaneChase(env.hooks);
+      const npc = env.setpieces.quistNpc!;
+
+      // Shooting Quist during Phase A (wait_ramp) is filtered out & hurries him into slamming door 1
+      const phaseAHit = env.applyEnemyDamage(
+        npc,
+        makeDamage({ amount: 200, type: 'bullet', source: 'awl', region: 'head' }),
+      );
+      expect(phaseAHit).toBe(false);
+      expect(npc.alive).toBe(true);
+      expect(env.doorSlams).toEqual(['plane.door1']);
+      expect(env.setpieces.quistState).toBe('sprint_mid');
+
+      // Advance to tail speech
+      env.setpieces.advanceQuistToTail();
+      expect(env.setpieces.quistState).toBe('speech');
+
+      // Ally fire and enemy strays are blocked even in tail bay
+      expect(env.applyEnemyDamage(npc, makeDamage({ amount: 200, type: 'bullet', source: 'ally_rifle' }))).toBe(false);
+      expect(env.applyEnemyDamage(npc, makeDamage({ amount: 200, type: 'bullet', source: 'trooper' }))).toBe(false);
+      expect(npc.alive).toBe(true);
+
+      // Player headshot ('awl' sniper rifle) kills the real goreable Enemy immediately -> resolves 'killed'
+      const lethal = env.applyEnemyDamage(
+        npc,
+        makeDamage({
+          amount: 220,
+          type: 'bullet',
+          source: 'awl',
+          region: 'head',
+          bone: HumanoidBone.head,
+        }),
+      );
+      expect(lethal).toBe(true);
+      expect(npc.alive).toBe(false);
+
+      env.step(0.05);
+      expect(env.setpieces.quistOutcome).toBe('killed');
+      expect(env.setpieces.quistState).toBe('dead');
+      expect(env.outcomes).toEqual(['killed']);
+      expect(env.signals).toContain('dr:quist_killed');
+      expect(env.signals).toContain('dr:quist_done');
+      expect(env.hush).toHaveBeenCalled();
+    });
+
+    it('Hold [E] captures real NPC into live cuffed follower that jogs, stops, teleports on fallback & withdraws cleanly on convoy board', () => {
+      const env = makeSetpiecesEnv({ realEnemyManager: true });
+      env.setpieces.startPlaneChase(env.hooks);
+      env.setpieces.advanceQuistToTail();
+      const npc = env.setpieces.quistNpc!;
+
+      env.player.position.set(0, CARGO_PLANE.floorY, CARGO_PLANE.quistCornerPos[2] + 2.2);
+      env.pressInteract();
+      env.step(QUIST_CAPTURE_HOLD + 0.1, 0.05);
+      env.releaseInteract();
+
+      expect(env.setpieces.quistOutcome).toBe('captured');
+      expect(env.setpieces.quistState).toBe('captured_escort');
+      expect(env.setpieces.quistEscortAlive).toBe(true);
+      expect(npc.alive).toBe(true);
+      expect(npc.nonHostile).toBe(true);
+      expect((npc.char as unknown as { anim: { posture: string } }).anim.posture).toBe('cuffed');
+
+      // Close to player (<= QUIST_ESCORT_STOP_DIST): holds position
+      npc.position.set(0, CARGO_PLANE.floorY, CARGO_PLANE.quistCornerPos[2]);
+      env.player.position.set(0, CARGO_PLANE.floorY, CARGO_PLANE.quistCornerPos[2] + QUIST_ESCORT_STOP_DIST - 0.6);
+      env.step(0.1, 0.05);
+      expect(npc.mode).toBe('hold');
+      expect(npc.pace).toBe(0);
+
+      // Player walks 10 m south (> QUIST_ESCORT_JOG_DIST): cuffed Quist jogs toward trailing point behind player
+      env.player.position.set(0, CARGO_PLANE.floorY, CARGO_PLANE.quistCornerPos[2] + 10);
+      env.step(0.1, 0.05);
+      expect(npc.mode).toBe('point');
+      expect(npc.pace).toBeGreaterThan(1.0);
+      expect(npc.moveTarget.distanceTo(env.player.position)).toBeLessThan(4.5);
+
+      // Player gets > QUIST_ESCORT_TELEPORT_DIST ahead: safety teleport snaps cuffed Quist behind player
+      env.player.position.set(0, 0, CARGO_PLANE.quistCornerPos[2] + QUIST_ESCORT_TELEPORT_DIST + 8);
+      env.step(0.05, 0.05);
+      expect(npc.position.distanceTo(env.player.position)).toBeLessThan(6.0);
+
+      // Boarding exfil convoy withdraws real NPC cleanly without firing onEscortLost
+      env.setpieces.boardCapturedQuistToConvoy();
+      expect(env.withdrawEnemy).toHaveBeenCalledWith(npc);
+      expect(env.setpieces.quistState).toBe('captured');
+      expect(env.setpieces.quistEscortAlive).toBe(false);
+      expect(env.escortLosses).toEqual([]);
+    });
+
+    it('cuffed escort damageFilter blocks ally & enemy gunfire but allows falling structural crush -> onEscortLost("crushed")', () => {
+      const env = makeSetpiecesEnv({ realEnemyManager: true });
+      env.setpieces.startPlaneChase(env.hooks);
+      env.setpieces.advanceQuistToTail();
+      const npc = env.setpieces.quistNpc!;
+
+      env.player.position.set(0, CARGO_PLANE.floorY, CARGO_PLANE.quistCornerPos[2] + 2.0);
+      env.pressInteract();
+      env.step(QUIST_CAPTURE_HOLD + 0.1, 0.05);
+      env.releaseInteract();
+      expect(env.setpieces.quistState).toBe('captured_escort');
+
+      // Ally fire and enemy strays are blocked so unfair gunfire never ruins the escort
+      expect(env.applyEnemyDamage(npc, makeDamage({ amount: 250, type: 'bullet', source: 'ally_rifle' }))).toBe(false);
+      expect(env.applyEnemyDamage(npc, makeDamage({ amount: 250, type: 'bullet', source: 'enemy_rifle' }))).toBe(false);
+      expect(env.applyEnemyDamage(npc, makeDamage({ amount: 250, type: 'bullet', source: 'trooper' }))).toBe(false);
+      expect(npc.alive).toBe(true);
+      expect(env.setpieces.quistEscortAlive).toBe(true);
+
+      // Falling structural debris crush IS allowed -> kills cuffed Quist & fires onEscortLost('crushed')
+      const crushed = env.applyEnemyDamage(
+        npc,
+        makeDamage({
+          amount: 999,
+          type: 'crush',
+          source: 'structural_collapse',
+          gib: true,
+        }),
+      );
+      expect(crushed).toBe(true);
+      expect(npc.alive).toBe(false);
+
+      env.step(0.05);
+      expect(env.setpieces.quistEscortAlive).toBe(false);
+      expect(env.setpieces.quistState).toBe('dead');
+      expect(env.escortLosses).toEqual(['crushed']);
+      expect(env.signals).toContain('dr:quist_escort_lost');
+    });
+
+    it('shooting cuffed Quist during escort is allowed and fires onEscortLost("shot")', () => {
+      const env = makeSetpiecesEnv({ realEnemyManager: true });
+      env.setpieces.startPlaneChase(env.hooks);
+      env.setpieces.advanceQuistToTail();
+      const npc = env.setpieces.quistNpc!;
+
+      env.player.position.set(0, CARGO_PLANE.floorY, CARGO_PLANE.quistCornerPos[2] + 2.0);
+      env.pressInteract();
+      env.step(QUIST_CAPTURE_HOLD + 0.1, 0.05);
+      env.releaseInteract();
+
+      const shot = env.applyEnemyDamage(
+        npc,
+        makeDamage({
+          amount: 250,
+          type: 'bullet',
+          source: 'ultramag',
+          region: 'head',
+        }),
+      );
+      expect(shot).toBe(true);
+      expect(npc.alive).toBe(false);
+
+      env.step(0.05);
+      expect(env.setpieces.quistEscortAlive).toBe(false);
+      expect(env.escortLosses).toEqual(['shot']);
+    });
+
+    it('routes pistol suicide and grenade detonation through real EnemyManager applyDamage (headshot / explosive gib)', () => {
+      // 1) Pistol suicide deals lethal head damage to real NPC
+      const envSuicide = makeSetpiecesEnv({ realEnemyManager: true });
+      envSuicide.setpieces.startPlaneChase(envSuicide.hooks);
+      envSuicide.setpieces.advanceQuistToTail();
+      const npcSuicide = envSuicide.setpieces.quistNpc!;
+
+      envSuicide.player.position.set(0, CARGO_PLANE.floorY, CARGO_PLANE.quistCornerPos[2] + 10.5);
+      envSuicide.step(QUIST_SPEECH_DURATION + QUIST_SUICIDE_DRAW + QUIST_SUICIDE_TEMPLE + 0.15, 0.05);
+      expect(envSuicide.setpieces.quistOutcome).toBe('suicide');
+      expect(npcSuicide.alive).toBe(false);
+      expect(
+        envSuicide.enemyDamageLog.some(
+          e => e.allowed && e.damage.source === 'quist_suicide' && e.damage.region === 'head' && e.damage.bone === HumanoidBone.head,
+        ),
+      ).toBe(true);
+
+      // 2) Grenade detonation deals lethal explosive gib damage to real NPC
+      const envGrenade = makeSetpiecesEnv({ realEnemyManager: true });
+      envGrenade.setpieces.startPlaneChase(envGrenade.hooks);
+      envGrenade.setpieces.advanceQuistToTail();
+      const npcGrenade = envGrenade.setpieces.quistNpc!;
+
+      envGrenade.player.position.set(0, CARGO_PLANE.floorY, CARGO_PLANE.quistCornerPos[2] + 5.5);
+      envGrenade.step(QUIST_SPEECH_DURATION + 0.05, 0.05);
+      envGrenade.player.position.set(0, CARGO_PLANE.floorY, CARGO_PLANE.quistCornerPos[2] + 9.5);
+      envGrenade.step(QUIST_GRENADE_WINDOW + 0.1, 0.05);
+
+      expect(envGrenade.setpieces.quistOutcome).toBe('grenade_survived');
+      expect(npcGrenade.alive).toBe(false);
+      expect(
+        envGrenade.enemyDamageLog.some(
+          e => e.allowed && e.damage.source === 'quist_grenade' && e.damage.type === 'explosive' && e.damage.gib === true,
+        ),
+      ).toBe(true);
+    });
   });
 });
