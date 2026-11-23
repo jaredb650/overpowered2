@@ -450,7 +450,12 @@ export class SurfaceBloodField {
       const audio = this.ctx.audio;
       if (startedSpurt) {
         this.lastWoundAudioAt = now;
-        audio?.play('blood_spray_short', { position: opts.point, volume: 0.65, pitchJitter: 0.08 });
+        const useJet = Math.random() < 0.55;
+        audio?.play(useJet ? 'blood_spray_jet' : 'blood_spray_short', {
+          position: opts.point,
+          volume: useJet ? 0.58 : 0.65,
+          pitchJitter: 0.09,
+        });
       } else if (keepTier === 2) {
         this.lastWoundAudioAt = now;
         audio?.play('blood_spray_short', { position: opts.point, volume: 0.5, pitchJitter: 0.1 });

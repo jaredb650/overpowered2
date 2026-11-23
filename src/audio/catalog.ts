@@ -228,20 +228,56 @@ const bodyGoreSamples: SoundDef[] = [
     'gore', 0.13, 'blood_spurt',
     { priority: 4, maxVoices: 3, perFrame: 1, near: 5, far: 45, send: 0.06, pitchJitter: 0.1 },
   ),
-  // Intimate 3D blood trickling/dribbling from actively bleeding bodies and fresh corpses.
+  // Intimate 3D blood trickling/dribbling from actively bleeding bodies and fresh corpses (6 takes).
   gore3Pack(
     'blood_dribble',
-    ['gore3/blood_dribble_1.mp3', 'gore3/blood_dribble_2.mp3', 'gore3/blood_dribble_1.mp3'],
+    [
+      'gore3/blood_dribble_1.mp3',
+      'gore3/blood_dribble_2.mp3',
+      'gore3/blood_dribble_3.mp3',
+      'gore3/blood_dribble_4.mp3',
+      'gore3/blood_dribble_5.mp3',
+      'gore3/blood_dribble_6.mp3',
+    ],
     'flesh', 0.14, 'blood_spurt',
     { priority: 3, maxVoices: 3, perFrame: 1, near: 3.5, far: 22, send: 0.04, pitchJitter: 0.08 },
   ),
-  // Sustained arterial jet / severed stump blood spray (kept subtle and limited to one active voice).
-  shot('blood_spray_long', 'gore3/blood_spray_long.mp3', 'gore', 0.095, 0.135, {
-    priority: 4, maxVoices: 1, perFrame: 1, near: 4, far: 28, send: 0.05, pitchJitter: 0.08,
+  // Primary severed-stump & arterial jet blood spray pack (4 takes), used in lieu of repeating blood_spray_long.
+  gore3Pack(
+    'blood_spray_jet',
+    [
+      'gore3/blood_spray_1.mp3',
+      'gore3/blood_spray_2.mp3',
+      'gore3/blood_spray_3.mp3',
+      'gore3/blood_spray_4.mp3',
+    ],
+    'gore', 0.085, 'blood_spurt',
+    { priority: 4, maxVoices: 2, perFrame: 1, near: 4, far: 30, send: 0.05, pitchJitter: 0.09 },
+  ),
+  // Rare sustained arterial jet (kept subtle/quiet and played sparingly alongside blood_spray_jet).
+  shot('blood_spray_long', 'gore3/blood_spray_long.mp3', 'gore', 0.06, 0.199, {
+    priority: 4, maxVoices: 1, perFrame: 1, near: 3.5, far: 24, send: 0.05, pitchJitter: 0.08,
   }),
   // Short pressurized blood spray burst (heavy wound opening, blowout fan, arterial beat).
   shot('blood_spray_short', 'gore3/blood_spray_short.mp3', 'gore', 0.16, 0.163, {
     priority: 4, maxVoices: 3, perFrame: 1, near: 5, far: 45, send: 0.06, pitchJitter: 0.1,
+  }),
+  // Visceral wet head bursting & limb gibbing crunch (5 takes), played 3D from the head/limb.
+  gore3Pack(
+    'head_burst',
+    [
+      'gore3/head_burst_1.mp3',
+      'gore3/head_burst_2.mp3',
+      'gore3/head_burst_3.mp3',
+      'gore3/head_burst_4.mp3',
+      'gore3/head_burst_5.mp3',
+    ],
+    'gore', 0.34, 'head_pop',
+    { priority: 7, maxVoices: 3, perFrame: 1, family: undefined, familyMax: undefined, near: 14, far: 130, send: 0.14, pitchJitter: 0.08 },
+  ),
+  // Scattering skull/bone fragments layered onto head bursts and limb gibs.
+  shot('skull_fragments', 'gore3/skull_fragments.mp3', 'gore', 0.22, 0.1385, {
+    priority: 6, maxVoices: 2, perFrame: 1, near: 10, far: 90, send: 0.1, pitchJitter: 0.09,
   }),
   // Wet blood splash (floor pool / evisceration spill / gib splash / heavy drips).
   shot('blood_splash', 'gore3/blood_splash_short.mp3', 'flesh', 0.17, 0.201, {
@@ -495,7 +531,7 @@ const RENDER_TIERS: readonly RegExp[] = [
   /^(ui_|hit_marker|wave_|footstep_|impact_|ricochet|casing_|weapon_|reload_|dash|double_jump|wall_kick|slide_|wallrun_|slam_|mantle|hand_plant|boot_scuff|vault_over|gear_rustle|land_hard|jump_pad$|speed_wind|amb_)/,
   // The first kills: gore, enemy voices, and what a player feels getting hurt or picking something up. `machine_clang` is
   // a drone or skitter being shot, and `metal_clang` its wreck.
-  /^(limb_|bone_|gib_|torso_|blood_|head_pop|body_|flesh_|vox_(grunt|pain|death|husk|radio)|enemy_|player_|heartbeat|low_health|armor_|heal_|pickup_|combo_|multikill|style_|grenade_|bullet_|machine_clang|metal_clang|stealth_|breaker_|camera_|shutter_|bunker_)/,
+  /^(limb_|bone_|gib_|torso_|blood_|head_pop|head_burst|skull_fragments|body_|flesh_|vox_(grunt|pain|death|husk|radio)|enemy_|player_|heartbeat|low_health|armor_|heal_|pickup_|combo_|multikill|style_|grenade_|bullet_|machine_clang|metal_clang|stealth_|breaker_|camera_|shutter_|bunker_)/,
   // The first streaks and the first weapon cache.
   /^(perk_|powerup_|callin_|cache_|missile_|explosion_|vox_|revolver_|stake_|flame_|minigun_|cannon_|piledriver_|metalstorm_|mgl_|awl50_|railgun_|lance_|plasma_|sword_|lightning_)/,
 ];

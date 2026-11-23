@@ -63,8 +63,11 @@ The sounds in `public/audio/sfx/gore3` are the owner's own positional gore, bloo
 mixed down to mono, level-matched, and encoded to 44.1 kHz MP3 at 160 kbps. Nothing in them is third-party material:
 `bullet_impact_1.mp3`, `bullet_impact_2.mp3`, `bullet_impact_3.mp3`, `bullet_impact_4.mp3`, `bullet_impact_5.mp3`,
 `bullet_impact_6.mp3`, `bullet_impact_7.mp3`, `bullet_impact_8.mp3`, `bullet_impact_9.mp3`, `bullet_impact_hard.mp3`,
-`torso_gib_1.mp3`, `torso_gib_2.mp3`, `torso_gib_3.mp3`, `blood_spritz_1.mp3`, `blood_spritz_2.mp3`, `blood_dribble_1.mp3`,
-`blood_dribble_2.mp3`, `blood_spray_long.mp3`, `blood_spray_short.mp3`, `blood_splash_short.mp3`, `blood_squish_short.mp3`.
+`torso_gib_1.mp3`, `torso_gib_2.mp3`, `torso_gib_3.mp3`, `head_burst_1.mp3`, `head_burst_2.mp3`, `head_burst_3.mp3`,
+`head_burst_4.mp3`, `head_burst_5.mp3`, `skull_fragments.mp3`, `blood_spritz_1.mp3`, `blood_spritz_2.mp3`,
+`blood_dribble_1.mp3`, `blood_dribble_2.mp3`, `blood_dribble_3.mp3`, `blood_dribble_4.mp3`, `blood_dribble_5.mp3`,
+`blood_dribble_6.mp3`, `blood_spray_1.mp3`, `blood_spray_2.mp3`, `blood_spray_3.mp3`, `blood_spray_4.mp3`,
+`blood_spray_long.mp3`, `blood_spray_short.mp3`, `blood_splash_short.mp3`, `blood_squish_short.mp3`.
 
 ## Squad comms voices
 

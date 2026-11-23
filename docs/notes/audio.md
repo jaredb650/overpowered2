@@ -322,11 +322,15 @@ at 44.1 kHz / 160 kbps MP3, level-matched). Every id plays in **3D from the body
   near 10 m, far 95 m, outside the `flesh` family so corpses stay crisp under fire) and `flesh_bullet_hard` (heavy rounds/pellets,
   level 0.28, near 14 m, far 120 m)
 - Torso blowout, limb burst & total gib: `torso_gib` (3 takes, level 0.42, near 16 m, far 160 m, priority 8) — loud ribcage/flesh
-  crunch played from the body on total `gib()`, `blowOut()`, and `burstLimb()`
-- Bleeding, arterial sprays, splashes & squishes from the body: `blood_spritz` (wound hit spritz), `blood_dribble` (intimate 3D
-  trickling from actively bleeding wounds & fresh corpses within 18 m), `blood_spray_long` (Tier 3 arterial jet & severed stump),
-  `blood_spray_short` (heavy wound opening, blowout fan, arterial stump pulse, partial head burst), `blood_splash` (pools, drips,
-  blowouts, gibs, evisceration spill), and `blood_squish` (evisceration/intestines spilling out, organ bursts, wet corpse/organ hits)
+  crunch played from the body on total `gib()`, `blowOut()`, and `burstLimb()`, joined by `head_burst` (5 takes, level 0.34,
+  near 14 m, far 130 m, priority 7) and `skull_fragments` (level 0.22, near 10 m, far 90 m) on head bursts, partial head blowouts,
+  violent limb severs, loose limb gibs, and total body gibs
+- Bleeding, arterial sprays, splashes & squishes from the body: `blood_spritz` (wound hit spritz), `blood_dribble` (6 takes, intimate
+  3D trickling from actively bleeding wounds & fresh corpses within 18 m), `blood_spray_jet` (4 takes, level 0.085, primary severed
+  stump and arterial jet spray), `blood_spray_long` (rare sustained arterial jet, lowered to level 0.06 at measured loudness 0.199
+  and gated on a 12 s cooldown so `blood_spray_jet` and `blood_spray_short` carry most stumps), `blood_spray_short` (heavy wound
+  opening, blowout fan, arterial stump pulse, partial head burst), `blood_splash` (pools, drips, blowouts, gibs, evisceration spill),
+  and `blood_squish` (evisceration/intestines spilling out, organ bursts, wet corpse/organ hits)
 
 **The gun sound update** (`sfx/guns`, the owner's own generated recordings). Every player gun now fires a recording.
 Each is set by how loud it lands, not by its file's level: `shot()` in the catalog divides its place on one ladder by the

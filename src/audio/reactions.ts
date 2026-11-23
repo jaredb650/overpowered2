@@ -333,7 +333,7 @@ export class Reactions {
     const now = this.ctx.time.realElapsed;
     if (now - this.lastSpray < SPRAY_GAP) return;
     this.lastSpray = now;
-    this.play('blood_spray', at, 1, rand(0.92, 1.08), delay);
+    this.play(Math.random() < 0.65 ? 'blood_spray_jet' : 'blood_spray', at, 1, rand(0.92, 1.08), delay);
   }
 
   /** Gone mortal or down: the line is said from the body, once, by a man who still has a voice. His death has its own. */

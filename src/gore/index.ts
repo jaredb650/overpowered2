@@ -523,7 +523,8 @@ export class Gore implements GoreSystem {
   /** Next body to look at for its level of detail. One a frame is plenty for things that lie still. */
   private lodAt = 0;
   private lastKnock = -1;
-  private lastLongSpray = -10;
+  private lastStumpSpray = -10;
+  private lastLongSpray = -15;
   /** Simulated bodies were over `maxRagdolls` with nothing yet fit to freeze, at the last look. */
   private over = false;
   private ready = false;
@@ -1734,7 +1735,17 @@ export class Gore implements GoreSystem {
     else body?.rag?.muscle?.struck(Math.max(impact, GoreTuning.limbLossShock));
     body?.rag?.muscle?.kick(damage.dir, impact * MuscleTuning.corpseImpact);
 
-    if (!dry) this.startStump(char, bone, 1);
+    if (!dry) {
+      this.startStump(char, bone, 1);
+      if (!isMachine(char) && damage.type !== 'melee' && (damage.force >= 25 || damage.amount >= 75)) {
+        this.ctx.audio.play('head_burst', {
+          position: stump,
+          volume: 0.72,
+          pitch: region === 'head' ? 1 : 1.1,
+          pitchJitter: 0.08,
+        });
+      }
+    }
     this.woundEffects(char, bone, stump, damage, dry);
     this.enforceBudget();
     return torso ? { regions, stump, torso } : { regions, stump };
@@ -1924,9 +1935,30 @@ export class Gore implements GoreSystem {
       this.spurts.start(parent, s.offset, s.axis, char.root, (s.ends - s.started) * 0.75, Math.min(1.35, power));
       parent.updateWorldMatrix(true, false);
       _v.copy(s.offset).applyMatrix4(parent.matrixWorld);
-      if (s.started - this.lastLongSpray >= 3.5) {
-        this.lastLongSpray = s.started;
-        this.ctx.audio.play('blood_spray_long', { position: _v, volume: clamp(0.5 + power * 0.2, 0.5, 0.72), pitchJitter: 0.08 });
+      if (s.started - this.lastStumpSpray >= 2.2) {
+        this.lastStumpSpray = s.started;
+        const canLong = s.started - this.lastLongSpray >= 12;
+        const roll = Math.random();
+        if (canLong && roll < 0.15) {
+          this.lastLongSpray = s.started;
+          this.ctx.audio.play('blood_spray_long', {
+            position: _v,
+            volume: clamp(0.38 + power * 0.14, 0.38, 0.56),
+            pitchJitter: 0.08,
+          });
+        } else if (roll < 0.8) {
+          this.ctx.audio.play('blood_spray_jet', {
+            position: _v,
+            volume: clamp(0.55 + power * 0.2, 0.55, 0.82),
+            pitchJitter: 0.09,
+          });
+        } else {
+          this.ctx.audio.play('blood_spray_short', {
+            position: _v,
+            volume: clamp(0.5 + power * 0.2, 0.5, 0.75),
+            pitchJitter: 0.1,
+          });
+        }
       }
       this.surfaceBlood.bleedWound(char, {
         bone: def.parent,
@@ -2105,6 +2137,10 @@ export class Gore implements GoreSystem {
       this.chunks.spawn('meat', at.x, at.y, at.z, _v.x, _v.y, _v.z, rand(0.03, 0.05));
     }
     char.hideLimb(neck);
+    this.ctx.audio.play('head_burst', { position: at, volume: 1, pitchJitter: 0.08 });
+    if (Math.random() < 0.7) {
+      this.ctx.audio.play('skull_fragments', { position: at, volume: 0.85, pitchJitter: 0.1, delay: 0.04 });
+    }
     this.startStump(char, neck, 1.7);
     fx.bloodMist(at, 0.3);
     // One fan past the body and a sheet on the wall behind stand for most of what was nine separate stains.
@@ -2151,6 +2187,10 @@ export class Gore implements GoreSystem {
     fx.bloodHit(at, _v3, 1.4);
     fx.bloodPuff?.(at, damage.dir, 0.9, 1.55, 'headshot');
     fx.bloodMist(at, 0.38);
+    this.ctx.audio.play('head_burst', { position: at, volume: 0.82, pitch: 1.06, pitchJitter: 0.08 });
+    if (Math.random() < 0.55) {
+      this.ctx.audio.play('skull_fragments', { position: at, volume: 0.72, pitchJitter: 0.1, delay: 0.04 });
+    }
     this.ctx.audio.play('blood_spray_short', { position: at, volume: 0.9, pitchJitter: 0.08 });
     this.ctx.audio.play('blood_squish', { position: at, volume: 0.8, pitchJitter: 0.1, delay: 0.04 });
     // What is left of the head pumps out of the wound, up and back the way the round came.
@@ -2677,6 +2717,12 @@ export class Gore implements GoreSystem {
     }
     // Loud visceral ribcage/torso gib crunch directly from the pasted body.
     audio.play('torso_gib', { position: chest, volume: 1.15, pitchJitter: 0.06 });
+    if (Math.random() < 0.5) {
+      audio.play('head_burst', { position: chest, volume: 0.72, pitchJitter: 0.09, delay: 0.025 });
+    }
+    if (Math.random() < 0.4) {
+      audio.play('skull_fragments', { position: chest, volume: 0.7, pitchJitter: 0.1, delay: 0.06 });
+    }
     audio.play('enemy_explode', { position: chest, volume: 0.45, pitchJitter: 0.06 });
   }
 
@@ -3045,7 +3091,15 @@ export class Gore implements GoreSystem {
     if (limb.machine) {
       this.ctx.audio.play('impact_armor', { position: c, volume: 0.85, pitch: 0.9, pitchJitter: 0.08 });
     } else {
-      this.ctx.audio.play('torso_gib', { position: c, volume: 0.95, pitch: 1.08, pitchJitter: 0.08 });
+      const isHead = limb.info.rig.bones[limb.rootBone]?.region === 'head';
+      if (isHead || Math.random() < 0.65) {
+        this.ctx.audio.play('head_burst', { position: c, volume: 0.95, pitch: isHead ? 1 : 1.08, pitchJitter: 0.09 });
+      } else {
+        this.ctx.audio.play('torso_gib', { position: c, volume: 0.95, pitch: 1.08, pitchJitter: 0.08 });
+      }
+      if (Math.random() < (isHead ? 0.7 : 0.4)) {
+        this.ctx.audio.play('skull_fragments', { position: c, volume: 0.72, pitch: isHead ? 1 : 1.08, pitchJitter: 0.1, delay: 0.03 });
+      }
       if (!dry) this.ctx.audio.play('blood_splash', { position: c, volume: 0.85, pitchJitter: 0.1, delay: 0.04 });
     }
     if (dry) this.ashPuff(c, 2);
@@ -3557,7 +3611,8 @@ export class Gore implements GoreSystem {
     this.stoodFrame = -1;
     this.stood = 0;
     this.lastKnock = -1;
-    this.lastLongSpray = -10;
+    this.lastStumpSpray = -10;
+    this.lastLongSpray = -15;
     this.mess.clear();
     this.pins = [];
     for (const s of this.stumps) {
