@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 import type { MaterialLibrary } from '../../core/contracts';
 import type { FxCore } from '../core';
-import { bloodPuff, PUFF } from '../recipes/blood';
+import { BLOOD_PUFF_SCALE, bloodMist, bloodPuff, PUFF } from '../recipes/blood';
 import { BloodLayer, crossing } from './blood';
 import { makeUniforms } from './shared';
 
@@ -102,5 +102,47 @@ describe('the impact puff', () => {
     ));
     expect(nonStrand.length).toBeGreaterThan(200);
     expect(nonStrand).not.toContain('pow(');
+  });
+
+  it('scales blood puffs and mists independently per event kind and with the overall multiplier', () => {
+    const base = layer();
+    const small = layer();
+    const big = layer();
+    const other = layer();
+    const mistBase = layer();
+    const mistSmall = layer();
+    try {
+      bloodPuff(core(base, 10), at, dir, 1, 1.2, 'gib');
+      BLOOD_PUFF_SCALE.gib = 0.25;
+      bloodPuff(core(small, 11), at, dir, 1, 1.2, 'gib');
+      // Adjusting gib does not change bullet puffs.
+      bloodPuff(core(other, 12), at, dir, 0.3, 1, 'bullet');
+      BLOOD_PUFF_SCALE.gib = 2;
+      bloodPuff(core(big, 13), at, dir, 1, 1.2, 'gib');
+
+      expect(small.ring.data[9]!).toBeCloseTo(base.ring.data[9]! * 0.25, 3);
+      expect(big.ring.data[9]!).toBeCloseTo(base.ring.data[9]! * 2, 3);
+
+      const bulletRef = layer();
+      BLOOD_PUFF_SCALE.gib = 1;
+      bloodPuff(core(bulletRef, 14), at, dir, 0.3, 1, 'bullet');
+      expect(other.ring.data[9]!).toBeCloseTo(bulletRef.ring.data[9]!, 4);
+
+      // Overall × per-event scales bloodMist as well.
+      bloodMist(core(mistBase, 15), at, 1, 'headshot');
+      BLOOD_PUFF_SCALE.overall = 0.5;
+      BLOOD_PUFF_SCALE.headshot = 0.5;
+      bloodMist(core(mistSmall, 16), at, 1, 'headshot');
+      expect(mistSmall.ring.data[9]!).toBeCloseTo(mistBase.ring.data[9]! * 0.25, 3);
+    } finally {
+      BLOOD_PUFF_SCALE.overall = 1;
+      BLOOD_PUFF_SCALE.bullet = 1;
+      BLOOD_PUFF_SCALE.shotgun = 1;
+      BLOOD_PUFF_SCALE.headshot = 1;
+      BLOOD_PUFF_SCALE.headburst = 1;
+      BLOOD_PUFF_SCALE.limb = 1;
+      BLOOD_PUFF_SCALE.blowout = 1;
+      BLOOD_PUFF_SCALE.gib = 1;
+    }
   });
 });

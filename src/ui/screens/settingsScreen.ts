@@ -9,7 +9,7 @@ import { KEY_GROUPS } from '../data';
 import { Label, Meter, div, h, span } from '../dom';
 import type { Hud } from '../Hud';
 import {
-  AIM_SENSITIVITY_RANGE, CHATTER_LEVELS, DEFAULTS, FOV_RANGE, GORE_LEVELS, MESS_NAMES, QUALITY_LEVELS, SENSITIVITY_CURVE, SENSITIVITY_RANGE, applyQuality, applySettings,
+  AIM_SENSITIVITY_RANGE, BLOOD_PUFF_LABELS, CHATTER_LEVELS, DEFAULTS, FOV_RANGE, GORE_LEVELS, MESS_NAMES, QUALITY_LEVELS, SENSITIVITY_CURVE, SENSITIVITY_RANGE, applyQuality, applySettings,
   saveSettings, sliderToValue, valueToSlider,
   type Settings,
 } from '../settings';
@@ -240,6 +240,14 @@ export class SettingsScreen implements Screen {
     const quality = new Stepper('Graphics quality', QUALITY_LEVELS, () => s.quality, v => { s.quality = v; }, qualityTick);
     const gore = new Stepper('Gore', GORE_LEVELS, () => s.gore, v => { s.gore = v; }, tick);
     const mess = new Stepper('Mess', MESS_NAMES, () => s.mess, v => { s.mess = v; }, tick);
+    const puffAll = new Stepper('All blood puffs', BLOOD_PUFF_LABELS, () => s.bloodPuffScale, v => { s.bloodPuffScale = v; }, tick);
+    const puffBullet = new Stepper('Regular bullets', BLOOD_PUFF_LABELS, () => s.bloodPuffBullet, v => { s.bloodPuffBullet = v; }, tick);
+    const puffShotgun = new Stepper('Shotgun blasts', BLOOD_PUFF_LABELS, () => s.bloodPuffShotgun, v => { s.bloodPuffShotgun = v; }, tick);
+    const puffHeadshot = new Stepper('Headshot hits', BLOOD_PUFF_LABELS, () => s.bloodPuffHeadshot, v => { s.bloodPuffHeadshot = v; }, tick);
+    const puffHeadburst = new Stepper('Head bursts & decap', BLOOD_PUFF_LABELS, () => s.bloodPuffHeadburst, v => { s.bloodPuffHeadburst = v; }, tick);
+    const puffLimb = new Stepper('Limb bursts', BLOOD_PUFF_LABELS, () => s.bloodPuffLimb, v => { s.bloodPuffLimb = v; }, tick);
+    const puffBlowout = new Stepper('Torso blowouts', BLOOD_PUFF_LABELS, () => s.bloodPuffBlowout, v => { s.bloodPuffBlowout = v; }, tick);
+    const puffGib = new Stepper('Full-body gibs', BLOOD_PUFF_LABELS, () => s.bloodPuffGib, v => { s.bloodPuffGib = v; }, tick);
     const suppression = new Stepper('Suppression effects', ['Off', 'On'], () => (s.suppression ? 1 : 0), v => { s.suppression = v === 1; }, tick);
     const hitText = new Stepper('Hit text', HIT_TEXT_LEVELS, () => s.hitText, v => { s.hitText = v; }, tick);
     const chatter = new Stepper('Enemy chatter', CHATTER_LEVELS, () => s.chatter, v => { s.chatter = v; }, tick);
@@ -254,9 +262,10 @@ export class SettingsScreen implements Screen {
     const hudMarkers = new Stepper('World markers', ['Off', 'On'], () => (s.hudMarkers ? 1 : 0), v => { s.hudMarkers = v === 1; }, tick);
     const reports = new Stepper('Anonymous error reports', ['Off', 'On'], () => reporter.enabled() ? 1 : 0, v => reporter.setEnabled(v === 1), () => {});
     this.cheatRow = new CheatRow(text => this.note.set(text), id => this.ctx.audio.play?.(id));
-    const general = [sensitivity, fov, invert, hop, aimMode, aimSens, master, sfx, music, voices, quality, gore, mess, suppression, hitText, chatter];
+    const general = [sensitivity, fov, invert, hop, aimMode, aimSens, master, sfx, music, voices, quality, suppression, hitText, chatter];
+    const goreRows = [gore, mess, puffAll, puffBullet, puffShotgun, puffHeadshot, puffHeadburst, puffLimb, puffBlowout, puffGib];
     const hudRows = [hudAll, hudCrosshair, hudVitals, hudWeapons, hudMinimap, hudScore, hudFeeds, hudMarkers];
-    this.refreshers = [...general, ...hudRows, reports].map(r => () => r.refresh());
+    this.refreshers = [...general, ...goreRows, ...hudRows, reports].map(r => () => r.refresh());
     const keys = this.keyRows();
     const resetKeys = menuButton('Reset keys', () => this.resetKeys());
     resetKeys.el.classList.add('mi-small');
@@ -266,10 +275,17 @@ export class SettingsScreen implements Screen {
         el: div('gd-panel', div('set-list',
           span('gd-h', 'Controls and view'), sensitivity.el, fov.el, invert.el, hop.el, aimMode.el, aimSens.el,
           span('gd-h', 'Audio'), master.el, sfx.el, music.el, voices.el,
-          span('gd-h', 'Video'), quality.el, gore.el, mess.el, suppression.el, hitText.el, chatter.el,
+          span('gd-h', 'Video'), quality.el, suppression.el, hitText.el, chatter.el,
           span('gd-h', 'Cheats'), this.cheatRow.el,
         )),
         rows: [...general, this.cheatRow],
+      },
+      {
+        el: div('gd-panel', div('set-list',
+          span('gd-h', 'Gore & mess'), gore.el, mess.el,
+          span('gd-h', 'Blood puff sizes'), puffAll.el, puffBullet.el, puffShotgun.el, puffHeadshot.el, puffHeadburst.el, puffLimb.el, puffBlowout.el, puffGib.el,
+        )),
+        rows: goreRows,
       },
       {
         el: div('gd-panel', div('set-list',
@@ -284,7 +300,7 @@ export class SettingsScreen implements Screen {
       ), rows: [reports] },
     ];
 
-    this.tabs = ['General', 'HUD', 'Keys', 'Privacy'].map((label, i) => {
+    this.tabs = ['General', 'Gore', 'HUD', 'Keys', 'Privacy'].map((label, i) => {
       const el = h('button', 'tab', label);
       el.type = 'button';
       el.tabIndex = -1;

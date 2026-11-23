@@ -2,6 +2,7 @@
 import type { Ctx } from '../core/contracts';
 import { SWAY } from '../enemies/damage';
 import { SuppressionSetting } from '../enemies/outpost/suppression';
+import { BLOOD_PUFF_SCALE } from '../fx/recipes/blood';
 import { GoreTuning } from '../gore';
 import { BloodTuning } from '../gore/blood';
 import { ChunkTuning } from '../gore/chunks';
@@ -21,6 +22,10 @@ const STORAGE_KEY = SETTINGS_KEY;
 const BASE_SENSITIVITY = 0.002;
 
 export const GORE_LEVELS = ['Low', 'Full', 'Excessive'] as const;
+/** Pre-selected blood puff size increments (25% to 200% in 25% steps). */
+export const BLOOD_PUFF_SCALES = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2] as const;
+export const BLOOD_PUFF_LABELS = ['25%', '50%', '75%', '100%', '125%', '150%', '175%', '200%'] as const;
+export const BLOOD_PUFF_DEFAULT = BLOOD_PUFF_SCALES.indexOf(1);
 /**
  * How much of a fight stays on the floor (`MESS` in gore/mess.ts, in the same order as `MESS_LEVELS`): bodies, blood, limbs
  * and pieces. Standard keeps 120 bodies and three times the blood for the whole match; "Clear at wave break" is Standard
@@ -46,6 +51,22 @@ export interface Settings {
   gore: number;
   /** What stays on the floor: an index into MESS_NAMES. */
   mess: number;
+  /** Overall blood puff size multiplier: index into BLOOD_PUFF_SCALES. */
+  bloodPuffScale: number;
+  /** Regular bullet hit blood puff multiplier: index into BLOOD_PUFF_SCALES. */
+  bloodPuffBullet: number;
+  /** Shotgun blast blood puff multiplier: index into BLOOD_PUFF_SCALES. */
+  bloodPuffShotgun: number;
+  /** Headshot impact blood puff multiplier: index into BLOOD_PUFF_SCALES. */
+  bloodPuffHeadshot: number;
+  /** Head burst & partial decapitation blood puff multiplier: index into BLOOD_PUFF_SCALES. */
+  bloodPuffHeadburst: number;
+  /** Severed limb burst blood puff multiplier: index into BLOOD_PUFF_SCALES. */
+  bloodPuffLimb: number;
+  /** Torso blowout / torso gib blood puff multiplier: index into BLOOD_PUFF_SCALES. */
+  bloodPuffBlowout: number;
+  /** Full-body gib cloud multiplier: index into BLOOD_PUFF_SCALES. */
+  bloodPuffGib: number;
   /** Holding jump hops on every landing. */
   holdToHop: boolean;
   /** Aim down sights while the button is held. Off, a click toggles it, which is kinder to a trackpad. */
@@ -79,8 +100,11 @@ export interface Settings {
 }
 
 export const DEFAULTS: Readonly<Settings> = {
-  sensitivity: 1, fov: 90, invertY: false, master: 0.8, sfx: 1, music: 0.7, quality: 2, gore: 1, mess: MESS_DEFAULT, holdToHop: false,
-  aimHold: false, aimSensitivity: TUNING.ads.sensitivity, hitText: 0, chatter: CHATTER_BUBBLES, voices: 1,
+  sensitivity: 1, fov: 90, invertY: false, master: 0.8, sfx: 1, music: 0.7, quality: 2, gore: 1, mess: MESS_DEFAULT,
+  bloodPuffScale: BLOOD_PUFF_DEFAULT, bloodPuffBullet: BLOOD_PUFF_DEFAULT, bloodPuffShotgun: BLOOD_PUFF_DEFAULT,
+  bloodPuffHeadshot: BLOOD_PUFF_DEFAULT, bloodPuffHeadburst: BLOOD_PUFF_DEFAULT, bloodPuffLimb: BLOOD_PUFF_DEFAULT,
+  bloodPuffBlowout: BLOOD_PUFF_DEFAULT, bloodPuffGib: BLOOD_PUFF_DEFAULT,
+  holdToHop: false, aimHold: false, aimSensitivity: TUNING.ads.sensitivity, hitText: 0, chatter: CHATTER_BUBBLES, voices: 1,
   suppression: true, hud: true, hudCrosshair: true, hudVitals: true, hudWeapons: true, hudMinimap: true, hudScore: true, hudFeeds: true, hudMarkers: true,
 };
 
@@ -93,6 +117,8 @@ export const valueToSlider = (v: number, min: number, max: number, curve = 1): n
 export const FOV_RANGE = [70, 120] as const;
 export const AIM_SENSITIVITY_RANGE = [0.3, 1.5] as const;
 
+const clampPuffIdx = (v: number): number => clamp(Math.round(v), 0, BLOOD_PUFF_SCALES.length - 1);
+
 /** A stored value from an older build, or a hand-edited one, must not reach the camera. */
 function sanitize(s: Settings): void {
   s.sensitivity = clamp(s.sensitivity, ...SENSITIVITY_RANGE);
@@ -104,6 +130,14 @@ function sanitize(s: Settings): void {
   s.quality = clamp(Math.round(s.quality), 0, QUALITY_LEVELS.length - 1);
   s.gore = clamp(Math.round(s.gore), 0, GORE_LEVELS.length - 1);
   s.mess = clamp(Math.round(s.mess), 0, MESS_NAMES.length - 1);
+  s.bloodPuffScale = clampPuffIdx(s.bloodPuffScale);
+  s.bloodPuffBullet = clampPuffIdx(s.bloodPuffBullet);
+  s.bloodPuffShotgun = clampPuffIdx(s.bloodPuffShotgun);
+  s.bloodPuffHeadshot = clampPuffIdx(s.bloodPuffHeadshot);
+  s.bloodPuffHeadburst = clampPuffIdx(s.bloodPuffHeadburst);
+  s.bloodPuffLimb = clampPuffIdx(s.bloodPuffLimb);
+  s.bloodPuffBlowout = clampPuffIdx(s.bloodPuffBlowout);
+  s.bloodPuffGib = clampPuffIdx(s.bloodPuffGib);
   s.hitText = clamp(Math.round(s.hitText), 0, HIT_TEXT_LEVELS.length - 1);
   s.chatter = clamp(Math.round(s.chatter), 0, CHATTER_LEVELS.length - 1);
   s.voices = clamp(s.voices);
@@ -279,6 +313,10 @@ export function applyMess(ctx: Ctx, level: number): void {
   applyLoad(ctx, true);
 }
 
+function puffScaleFor(index: number): number {
+  return BLOOD_PUFF_SCALES[clampPuffIdx(index)] ?? 1;
+}
+
 /** Sends every value to its owner. `quality` is separate because changing it recompiles shaders. */
 export function applySettings(ctx: Ctx, s: Settings): void {
   const look = ctx.player as unknown as LookOwner;
@@ -292,6 +330,14 @@ export function applySettings(ctx: Ctx, s: Settings): void {
   ctx.audio.setVolumes?.(s.master, s.sfx, s.music);
   applyGore(s.gore);
   applyMess(ctx, s.mess);
+  BLOOD_PUFF_SCALE.overall = puffScaleFor(s.bloodPuffScale);
+  BLOOD_PUFF_SCALE.bullet = puffScaleFor(s.bloodPuffBullet);
+  BLOOD_PUFF_SCALE.shotgun = puffScaleFor(s.bloodPuffShotgun);
+  BLOOD_PUFF_SCALE.headshot = puffScaleFor(s.bloodPuffHeadshot);
+  BLOOD_PUFF_SCALE.headburst = puffScaleFor(s.bloodPuffHeadburst);
+  BLOOD_PUFF_SCALE.limb = puffScaleFor(s.bloodPuffLimb);
+  BLOOD_PUFF_SCALE.blowout = puffScaleFor(s.bloodPuffBlowout);
+  BLOOD_PUFF_SCALE.gib = puffScaleFor(s.bloodPuffGib);
   HitText.level = s.hitText;
   SuppressionSetting.enabled = s.suppression;
   if (!s.suppression) ctx.render?.post?.setSuppression?.(0);

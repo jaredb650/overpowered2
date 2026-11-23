@@ -413,7 +413,7 @@ export class Combat implements CombatSystem {
       if (result.headshot) {
         // You can hear whether it killed: the old headshot and a 2D puff over a little red mist, or a dry crack and nothing to see.
         if (killed) {
-          c.fx.bloodMist(point, HEADSHOT_MIST);
+          c.fx.bloodMist(point, HEADSHOT_MIST, 'headshot');
           this.play('headshot');
           this.play('headshot_puff');
         } else {
@@ -452,7 +452,7 @@ export class Combat implements CombatSystem {
     const c = this.ctx;
     const point = d.point;
     if (result.killed && result.headshot) {
-      c.fx.bloodMist(point, HEADSHOT_MIST);
+      c.fx.bloodMist(point, HEADSHOT_MIST, 'headshot');
       return;
     }
     if (d.type !== 'bullet' && d.type !== 'pellet') return;
@@ -488,7 +488,7 @@ export class Combat implements CombatSystem {
   killConfirm(point: THREE.Vector3, headshot: boolean): void {
     const c = this.ctx;
     if (headshot) {
-      c.fx.bloodMist(point, HEADSHOT_MIST);
+      c.fx.bloodMist(point, HEADSHOT_MIST, 'headshot');
       this.play('headshot');
       this.play('headshot_puff');
       this.feel.stop(HIT_STOP.headshotKill);

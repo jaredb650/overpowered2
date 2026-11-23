@@ -104,10 +104,27 @@ function burstStreaks(
   }
 }
 
+/** User-configurable scale multipliers (0.25..2.0) for blood puffs overall and per trauma event. */
+export const BLOOD_PUFF_SCALE: Record<'overall' | BloodPuffKind, number> = {
+  overall: 1,
+  bullet: 1,
+  shotgun: 1,
+  headshot: 1,
+  headburst: 1,
+  limb: 1,
+  blowout: 1,
+  gib: 1,
+};
+
+/** Effective blood puff size multiplier for an event kind (overall × per-event). */
+export function bloodPuffMult(kind?: BloodPuffKind): number {
+  return BLOOD_PUFF_SCALE.overall * (kind ? BLOOD_PUFF_SCALE[kind] : 1);
+}
+
 /**
  * The impact blood burst: sharp liquid tendrils tearing outward and breaking into droplets, fast frame-0 kinetic
  * needles, velocity-stretched directional splatter cones, and sculpted billowing dark-crimson mist clouds scaled to
- * the trauma class (`bullet`, `shotgun`, `headshot`, `blowout`, or a gigantic pasted `gib` cloud).
+ * the trauma class (`bullet`, `shotgun`, `headshot`, `headburst`, `limb`, `blowout`, or a gigantic pasted `gib` cloud).
  */
 export function bloodPuff(
   core: FxCore, position: THREE.Vector3, dir: THREE.Vector3, weight = 0.3, scale = 1, kind: BloodPuffKind = 'bullet',
@@ -120,8 +137,10 @@ export function bloodPuff(
   if (!major && puffs >= PUFF.perFrame) return;
   if (!major) puffs++;
 
+  const mult = bloodPuffMult(kind);
+  const spreadMult = clamp(0.45 + 0.55 * mult, 0.45, 1.85);
   const w = clamp(weight, 0, 1);
-  const half = (PUFF.half + PUFF.heavy * w) * scale;
+  const half = (PUFF.half + PUFF.heavy * w) * scale * mult;
   const life = PUFF.life + PUFF.lifeHeavy * w;
   const mistOpacity = clamp((0.44 + 0.14 * w) * clamp(scale, 0.85, 1.15), 0.36, 0.60);
   // Stand slightly off the skin toward the gun so the body mesh never clips half of the entry burst.
@@ -130,62 +149,63 @@ export function bloodPuff(
   const y = position.y - dir.y * off;
   const z = position.z - dir.z * off;
   const v = PUFF.drift * (0.75 + 0.65 * w);
-  const b = core.blood.begin(core.bloodNow, -1e6, null, kind === 'headshot' || major ? BLOOD_TONE.arterial : BLOOD_TONE.wound);
+  const arterial = kind === 'headshot' || kind === 'headburst' || kind === 'limb' || major;
+  const b = core.blood.begin(core.bloodNow, -1e6, null, arterial ? BLOOD_TONE.arterial : BLOOD_TONE.wound);
 
   if (kind === 'gib') {
     // Big whole-body gib / pasted detonation: sweeping ~3.5-4.5 m asymmetric billowing dark-oxblood mist cloud
     // with torn liquid blood webs ripping outward, discrete teardrop splatter cones, and frame-0 kinetic needles.
-    const gScale = clamp(scale, 0.85, 1.45);
+    const gScale = clamp(scale, 0.85, 1.45) * mult;
     // 1) Central & radial torn liquid blood webs (sharp dark tendrils shattering into crisp flying droplets).
-    b.splash(position.x, position.y, position.z, dir.x * 2.6, 0.95, dir.z * 2.6, 0.90 * gScale, 0.46, 4.0, 0.96, 0);
+    b.splash(position.x, position.y, position.z, dir.x * 2.6 * spreadMult, 0.95 * spreadMult, dir.z * 2.6 * spreadMult, 0.90 * gScale, 0.46, 4.0, 0.96, 0);
     for (let i = 0; i < 5; i++) {
       _v.set(rand(-1, 1), rand(-0.18, 0.85), rand(-1, 1)).normalize();
-      const spd = rand(2.4, 5.4);
+      const spd = rand(2.4, 5.4) * spreadMult;
       b.setTone(i % 2 === 0 ? BLOOD_TONE.arterial : BLOOD_TONE.venous);
       b.splash(
-        position.x + _v.x * rand(0.10, 0.40),
-        position.y + _v.y * rand(0.06, 0.34),
-        position.z + _v.z * rand(0.10, 0.40),
-        _v.x * spd + dir.x * 1.8, _v.y * spd + 0.75, _v.z * spd + dir.z * 1.8,
+        position.x + _v.x * rand(0.10, 0.40) * spreadMult,
+        position.y + _v.y * rand(0.06, 0.34) * spreadMult,
+        position.z + _v.z * rand(0.10, 0.40) * spreadMult,
+        _v.x * spd + dir.x * 1.8 * spreadMult, _v.y * spd + 0.75 * spreadMult, _v.z * spd + dir.z * 1.8 * spreadMult,
         rand(0.58, 0.96) * gScale, rand(0.36, 0.60), rand(3.8, 5.2), rand(0.86, 0.98), i * 0.007,
       );
     }
     // 2) Inner dark oxblood core billows — low per-puff opacity so overlapping 3D folds stay sculpted and velvety.
     for (let i = 0; i < 3; i++) {
       _v.set(rand(-1, 1), rand(-0.08, 0.70), rand(-1, 1)).normalize();
-      const spd = rand(1.0, 2.2);
+      const spd = rand(1.0, 2.2) * spreadMult;
       b.setTone(i === 0 ? BLOOD_TONE.venous : BLOOD_TONE.wound);
       b.puff(
-        position.x + _v.x * rand(0.12, 0.36),
-        position.y + _v.y * rand(0.08, 0.32),
-        position.z + _v.z * rand(0.12, 0.36),
-        _v.x * spd + dir.x * 1.2, _v.y * spd + 0.55, _v.z * spd + dir.z * 1.2,
+        position.x + _v.x * rand(0.12, 0.36) * spreadMult,
+        position.y + _v.y * rand(0.08, 0.32) * spreadMult,
+        position.z + _v.z * rand(0.12, 0.36) * spreadMult,
+        _v.x * spd + dir.x * 1.2 * spreadMult, _v.y * spd + 0.55 * spreadMult, _v.z * spd + dir.z * 1.2 * spreadMult,
         rand(0.72, 1.04) * gScale, rand(1.25, 1.75), rand(2.4, 3.2), rand(0.36, 0.48), i * 0.014,
       );
     }
     // 3) Mid billowing crimson plumes expanding outward into a full ~3.5-4.5 m pasted cloud.
     for (let i = 0; i < 6; i++) {
       _v.set(rand(-1, 1), rand(-0.10, 0.80), rand(-1, 1)).normalize();
-      const spd = rand(2.2, 5.0);
+      const spd = rand(2.2, 5.0) * spreadMult;
       b.setTone(i % 3 === 0 ? BLOOD_TONE.arterial : BLOOD_TONE.wound);
       b.puff(
-        position.x + _v.x * rand(0.22, 0.65),
-        position.y + _v.y * rand(0.12, 0.48),
-        position.z + _v.z * rand(0.22, 0.65),
-        _v.x * spd + dir.x * 2.0, _v.y * spd + 0.75, _v.z * spd + dir.z * 2.0,
+        position.x + _v.x * rand(0.22, 0.65) * spreadMult,
+        position.y + _v.y * rand(0.12, 0.48) * spreadMult,
+        position.z + _v.z * rand(0.22, 0.65) * spreadMult,
+        _v.x * spd + dir.x * 2.0 * spreadMult, _v.y * spd + 0.75 * spreadMult, _v.z * spd + dir.z * 2.0 * spreadMult,
         rand(0.76, 1.16) * gScale, rand(1.35, 1.95), rand(2.4, 3.4), rand(0.30, 0.44), 0.01 + i * 0.015,
       );
     }
     // 4) Outer wispy vapor plumes curling upward without towering over corridors.
     for (let i = 0; i < 4; i++) {
       _v.set(rand(-1, 1), rand(0.14, 0.92), rand(-1, 1)).normalize();
-      const spd = rand(1.8, 3.8);
+      const spd = rand(1.8, 3.8) * spreadMult;
       b.setTone(i % 2 === 0 ? BLOOD_TONE.wound : BLOOD_TONE.venous);
       b.puff(
-        position.x + _v.x * rand(0.34, 0.82),
-        position.y + rand(0.18, 0.60),
-        position.z + _v.z * rand(0.34, 0.82),
-        _v.x * spd + dir.x * 1.4, _v.y * spd + rand(0.75, 1.65), _v.z * spd + dir.z * 1.4,
+        position.x + _v.x * rand(0.34, 0.82) * spreadMult,
+        position.y + rand(0.18, 0.60) * spreadMult,
+        position.z + _v.z * rand(0.34, 0.82) * spreadMult,
+        _v.x * spd + dir.x * 1.4 * spreadMult, _v.y * spd + rand(0.75, 1.65) * spreadMult, _v.z * spd + dir.z * 1.4 * spreadMult,
         rand(0.84, 1.24) * gScale, rand(1.50, 2.20), rand(2.2, 3.0), rand(0.24, 0.34), 0.02 + i * 0.018,
       );
     }
@@ -193,53 +213,53 @@ export function bloodPuff(
     b.setTone(BLOOD_TONE.arterial);
     for (let i = 0; i < 5; i++) {
       _v.set(rand(-1, 1), rand(-0.15, 0.75), rand(-1, 1)).normalize().addScaledVector(dir, 0.55).normalize();
-      const spd = rand(7.5, 12.2);
+      const spd = rand(7.5, 12.2) * spreadMult;
       b.mist(
-        position.x + _v.x * 0.22, position.y + 0.10 + _v.y * 0.22, position.z + _v.z * 0.22,
+        position.x + _v.x * 0.22 * spreadMult, position.y + 0.10 + _v.y * 0.22 * spreadMult, position.z + _v.z * 0.22 * spreadMult,
         _v.x * spd, _v.y * spd + 0.65, _v.z * spd,
         rand(0.28, 0.46) * gScale, rand(0.34, 0.54), rand(4.2, 5.4), rand(0.82, 0.94), i * 0.006,
       );
     }
-    burstStreaks(core, position.x, position.y + 0.12, position.z, dir.x * 0.35, 0.28, dir.z * 0.35, 20, 16.0, 12.0, 0.0068, 6.8, 0.13, 0.24, 0.016);
+    burstStreaks(core, position.x, position.y + 0.12, position.z, dir.x * 0.35, 0.28, dir.z * 0.35, 20, 16.0, 12.0, 0.0068 * clamp(mult, 0.5, 1.5), 6.8, 0.13, 0.24, 0.016);
     return;
   }
 
   if (kind === 'blowout') {
     // Torso blowout: huge directional arterial liquid rupture + billowing exit cloud erupting out the cavity.
-    const bScale = clamp(scale, 1.0, 2.1);
-    b.splash(position.x + dir.x * 0.12, position.y + dir.y * 0.12, position.z + dir.z * 0.12, dir.x * 5.6, dir.y * 5.6 + 0.65, dir.z * 5.6, 0.82 * bScale, 0.44, 4.0, 0.96, 0);
+    const bScale = clamp(scale, 1.0, 2.1) * mult;
+    b.splash(position.x + dir.x * 0.12, position.y + dir.y * 0.12, position.z + dir.z * 0.12, dir.x * 5.6 * spreadMult, dir.y * 5.6 * spreadMult + 0.65, dir.z * 5.6 * spreadMult, 0.82 * bScale, 0.44, 4.0, 0.96, 0);
     for (let i = 0; i < 3; i++) {
-      const spd = rand(4.0, 8.2);
+      const spd = rand(4.0, 8.2) * spreadMult;
       b.setTone(i === 0 ? BLOOD_TONE.arterial : BLOOD_TONE.venous);
       b.splash(
-        position.x + dir.x * rand(0.16, 0.54) + rand(-0.22, 0.22),
-        position.y + dir.y * rand(0.10, 0.38) + rand(-0.16, 0.22),
-        position.z + dir.z * rand(0.16, 0.54) + rand(-0.22, 0.22),
-        dir.x * spd + rand(-2.4, 2.4), dir.y * spd + rand(-0.4, 1.8), dir.z * spd + rand(-2.4, 2.4),
+        position.x + (dir.x * rand(0.16, 0.54) + rand(-0.22, 0.22)) * spreadMult,
+        position.y + (dir.y * rand(0.10, 0.38) + rand(-0.16, 0.22)) * spreadMult,
+        position.z + (dir.z * rand(0.16, 0.54) + rand(-0.22, 0.22)) * spreadMult,
+        dir.x * spd + rand(-2.4, 2.4) * spreadMult, dir.y * spd + rand(-0.4, 1.8) * spreadMult, dir.z * spd + rand(-2.4, 2.4) * spreadMult,
         rand(0.56, 0.98) * bScale, rand(0.36, 0.58), rand(3.8, 5.2), rand(0.86, 0.96), i * 0.010,
       );
     }
     for (let i = 0; i < 8; i++) {
-      const spd = rand(2.8, 7.2);
+      const spd = rand(2.8, 7.2) * spreadMult;
       b.setTone(i < 2 ? BLOOD_TONE.venous : i < 5 ? BLOOD_TONE.wound : BLOOD_TONE.arterial);
       b.puff(
-        position.x + dir.x * rand(0.18, 0.82) + rand(-0.30, 0.30),
-        position.y + dir.y * rand(0.12, 0.60) + rand(-0.22, 0.36),
-        position.z + dir.z * rand(0.18, 0.82) + rand(-0.30, 0.30),
-        dir.x * spd + rand(-2.4, 2.4), dir.y * spd + rand(0.15, 2.4), dir.z * spd + rand(-2.4, 2.4),
+        position.x + (dir.x * rand(0.18, 0.82) + rand(-0.30, 0.30)) * spreadMult,
+        position.y + (dir.y * rand(0.12, 0.60) + rand(-0.22, 0.36)) * spreadMult,
+        position.z + (dir.z * rand(0.18, 0.82) + rand(-0.30, 0.30)) * spreadMult,
+        dir.x * spd + rand(-2.4, 2.4) * spreadMult, dir.y * spd + rand(0.15, 2.4) * spreadMult, dir.z * spd + rand(-2.4, 2.4) * spreadMult,
         rand(0.70, 1.32) * bScale, rand(1.15, 1.85), rand(2.2, 3.4), rand(0.32, 0.48), i * 0.015,
       );
     }
     b.setTone(BLOOD_TONE.arterial);
     for (let i = 0; i < 4; i++) {
-      const spd = rand(8.5, 13.5);
+      const spd = rand(8.5, 13.5) * spreadMult;
       b.mist(
-        position.x + dir.x * 0.32, position.y + dir.y * 0.32, position.z + dir.z * 0.32,
-        dir.x * spd + rand(-2.4, 2.4), dir.y * spd + rand(-0.7, 1.5), dir.z * spd + rand(-2.4, 2.4),
+        position.x + dir.x * 0.32 * spreadMult, position.y + dir.y * 0.32 * spreadMult, position.z + dir.z * 0.32 * spreadMult,
+        dir.x * spd + rand(-2.4, 2.4) * spreadMult, dir.y * spd + rand(-0.7, 1.5) * spreadMult, dir.z * spd + rand(-2.4, 2.4) * spreadMult,
         rand(0.32, 0.50) * bScale, rand(0.34, 0.56), rand(3.8, 5.0), rand(0.82, 0.94), i * 0.008,
       );
     }
-    burstStreaks(core, position.x, position.y, position.z, dir.x, dir.y + 0.14, dir.z, 16, 17.5, 7.5, 0.0068, 6.2, 0.14, 0.24, 0.016);
+    burstStreaks(core, position.x, position.y, position.z, dir.x, dir.y + 0.14, dir.z, 16, 17.5, 7.5, 0.0068 * clamp(mult, 0.5, 1.5), 6.2, 0.14, 0.24, 0.016);
     return;
   }
 
@@ -248,8 +268,8 @@ export function bloodPuff(
   b.setTone(BLOOD_TONE.wound);
   b.puff(x, y, z, -dir.x * (v * 0.85) + rand(-0.35, 0.35), 0.38 - dir.y * (v * 0.85), -dir.z * (v * 0.85) + rand(-0.35, 0.35), half * 1.18, life * 1.25, PUFF.drag * 0.70, mistOpacity, 0.006);
 
-  if (kind === 'headshot') {
-    // Headshots erupt in a sharp arterial tendril crown + billowing oxblood mist + punchy directional exit cone.
+  if (kind === 'headshot' || kind === 'headburst' || kind === 'limb') {
+    // Headshots, head bursts, and limb bursts erupt in a sharp arterial tendril crown + billowing oxblood mist + directional exit cone.
     b.setTone(BLOOD_TONE.arterial);
     b.splash(
       position.x + dir.x * 0.14, position.y + 0.08, position.z + dir.z * 0.14,
@@ -266,7 +286,7 @@ export function bloodPuff(
     }
     b.setTone(BLOOD_TONE.arterial);
     b.mist(position.x + dir.x * 0.24, position.y + 0.06, position.z + dir.z * 0.24, dir.x * 10.5 + rand(-1.2, 1.2), 1.5 + dir.y * 5.5, dir.z * 10.5 + rand(-1.2, 1.2), half * 0.56, 0.36, 4.4, 0.90, 0.005);
-    burstStreaks(core, x, y, z, dir.x * 0.65, 0.55 + dir.y * 0.25, dir.z * 0.65, 11, 13.5 + 3.0 * w, 6.2, 0.0055, 7.2, 0.12, 0.20, 0.012);
+    burstStreaks(core, x, y, z, dir.x * 0.65, 0.55 + dir.y * 0.25, dir.z * 0.65, 11, 13.5 + 3.0 * w, 6.2, 0.0055 * clamp(mult, 0.5, 1.5), 7.2, 0.12, 0.20, 0.012);
     return;
   }
 
@@ -288,7 +308,7 @@ export function bloodPuff(
       }
       b.setTone(BLOOD_TONE.arterial);
       b.mist(position.x + dir.x * 0.26, position.y, position.z + dir.z * 0.26, dir.x * 10.2 + rand(-1.6, 1.6), 0.55 + dir.y * 5.0, dir.z * 10.2 + rand(-1.6, 1.6), half * 0.58, 0.36, 4.5, 0.88, 0.005);
-      burstStreaks(core, x, y, z, dir.x * 0.55, 0.32 + dir.y * 0.2, dir.z * 0.55, 11, 13.5, 6.8, 0.0056, 7.2, 0.12, 0.20, 0.012);
+      burstStreaks(core, x, y, z, dir.x * 0.55, 0.32 + dir.y * 0.2, dir.z * 0.55, 11, 13.5, 6.8, 0.0056 * clamp(mult, 0.5, 1.5), 7.2, 0.12, 0.20, 0.012);
     }
     return;
   }
@@ -296,7 +316,7 @@ export function bloodPuff(
   // Standard / heavy bullet hit: frame-0 kinetic needles + directional teardrop splatter cone + exit bloom on heavier rounds.
   b.setTone(BLOOD_TONE.arterial);
   const streakCount = w >= 0.5 ? 8 : 5;
-  burstStreaks(core, position.x, position.y, position.z, dir.x * 0.65, 0.32 + dir.y * 0.30, dir.z * 0.65, streakCount, 11.5 + 4.0 * w, 4.8 + 2.8 * w, 0.0046 + 0.0018 * w, 7.6, 0.11, 0.19, 0.012);
+  burstStreaks(core, position.x, position.y, position.z, dir.x * 0.65, 0.32 + dir.y * 0.30, dir.z * 0.65, streakCount, 11.5 + 4.0 * w, 4.8 + 2.8 * w, (0.0046 + 0.0018 * w) * clamp(mult, 0.5, 1.5), 7.6, 0.11, 0.19, 0.012);
   b.mist(position.x + dir.x * 0.18, position.y + dir.y * 0.18, position.z + dir.z * 0.18, dir.x * (7.2 + 3.2 * w), 0.35 + dir.y * 4.5, dir.z * (7.2 + 3.2 * w), half * 0.54, 0.28 + 0.12 * w, 4.8, 0.86, 0.004);
   if (w >= 0.45) {
     // Heavy / rifle rounds punch a directional liquid splash + billowing mist + wide teardrop spray cone out the far side.
@@ -321,12 +341,13 @@ let puffFrame = -1;
 let puffs = 0;
 
 /** A soft breath of fine suspended drops. Gone inside a second so it never hangs like fog. */
-export function bloodMist(core: FxCore, position: THREE.Vector3, size = 1): void {
+export function bloodMist(core: FxCore, position: THREE.Vector3, size = 1, kind?: BloodPuffKind): void {
   const { x, y, z } = position;
+  const mult = bloodPuffMult(kind);
   const b = core.blood.begin(core.bloodNow, -1e6, null, BLOOD_TONE.wound);
   for (let i = 0; i < 3; i++) {
     _v.set(rand(-1, 1), rand(-0.2, 0.65), rand(-1, 1)).normalize().multiplyScalar(rand(0.9, 2.4));
-    b.puff(x, y, z, _v.x, _v.y, _v.z, 0.28 * size, rand(0.55, 0.88), 3.6, 0.40, i * 0.012);
+    b.puff(x, y, z, _v.x, _v.y, _v.z, 0.28 * size * mult, rand(0.55, 0.88), 3.6, 0.40, i * 0.012);
   }
 }
 
@@ -359,10 +380,11 @@ export function gibBurst(core: FxCore, position: THREE.Vector3, dir: THREE.Vecto
  */
 export function headBurst(core: FxCore, position: THREE.Vector3, dir: THREE.Vector3): void {
   const { x, y, z } = position;
-  bloodPuff(core, position, dir, 1, 1.5, 'headshot');
+  const mult = bloodPuffMult('headburst');
+  bloodPuff(core, position, dir, 1, 1.5, 'headburst');
   const mist = core.blood.begin(core.bloodNow, -1e6, null, BLOOD_TONE.arterial);
-  mist.splash(x, y + 0.08, z, dir.x * 2.2, 2.4, dir.z * 2.2, 0.58, 0.42, 4.4, 0.94, 0.008);
-  mist.puff(x, y + 0.1, z, dir.x * 1.4, 1.8, dir.z * 1.4, 0.62, 0.78, 3.4, 0.42, 0.014);
+  mist.splash(x, y + 0.08, z, dir.x * 2.2, 2.4, dir.z * 2.2, 0.58 * mult, 0.42, 4.4, 0.94, 0.008);
+  mist.puff(x, y + 0.1, z, dir.x * 1.4, 1.8, dir.z * 1.4, 0.62 * mult, 0.78, 3.4, 0.42, 0.014);
   bloodJet(core, position, UP, 1.3);
   core.blood.setTone(BLOOD_TONE.arterial);
   for (let i = 0; i < 6; i++) {

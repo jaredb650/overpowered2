@@ -230,3 +230,58 @@ describe('suppression and HUD visibility toggles', () => {
   });
 });
 
+describe('blood puff size settings', () => {
+  it('default to 100%, clamp saved indices to 25%..200%, and write BLOOD_PUFF_SCALE per event', async () => {
+    const { applySettings, BLOOD_PUFF_DEFAULT, BLOOD_PUFF_LABELS, BLOOD_PUFF_SCALES } = await import('./settings');
+    const { BLOOD_PUFF_SCALE } = await import('../fx/recipes/blood');
+
+    expect(BLOOD_PUFF_SCALES[0]).toBe(0.25);
+    expect(BLOOD_PUFF_SCALES[BLOOD_PUFF_SCALES.length - 1]).toBe(2);
+    expect(BLOOD_PUFF_SCALES[BLOOD_PUFF_DEFAULT]).toBe(1);
+    expect(BLOOD_PUFF_LABELS[BLOOD_PUFF_DEFAULT]).toBe('100%');
+
+    expect(DEFAULTS.bloodPuffScale).toBe(BLOOD_PUFF_DEFAULT);
+    expect(DEFAULTS.bloodPuffBullet).toBe(BLOOD_PUFF_DEFAULT);
+    expect(DEFAULTS.bloodPuffShotgun).toBe(BLOOD_PUFF_DEFAULT);
+    expect(DEFAULTS.bloodPuffHeadshot).toBe(BLOOD_PUFF_DEFAULT);
+    expect(DEFAULTS.bloodPuffHeadburst).toBe(BLOOD_PUFF_DEFAULT);
+    expect(DEFAULTS.bloodPuffLimb).toBe(BLOOD_PUFF_DEFAULT);
+    expect(DEFAULTS.bloodPuffBlowout).toBe(BLOOD_PUFF_DEFAULT);
+    expect(DEFAULTS.bloodPuffGib).toBe(BLOOD_PUFF_DEFAULT);
+
+    store({
+      bloodPuffScale: 5,       // 150%
+      bloodPuffBullet: -4,     // clamped to 0 -> 25%
+      bloodPuffShotgun: 2,     // 75%
+      bloodPuffHeadshot: 4,    // 125%
+      bloodPuffHeadburst: 6,   // 175%
+      bloodPuffLimb: 1,        // 50%
+      bloodPuffBlowout: 0,     // 25%
+      bloodPuffGib: 99,        // clamped to 7 -> 200%
+    });
+    const loaded = loadSettings();
+    expect(loaded.bloodPuffBullet).toBe(0);
+    expect(loaded.bloodPuffGib).toBe(BLOOD_PUFF_SCALES.length - 1);
+
+    const ctx = {
+      player: {}, weapons: {}, camera: {}, audio: {}, render: {}, hud: {},
+    } as never;
+    try {
+      applySettings(ctx, loaded);
+      expect(BLOOD_PUFF_SCALE).toEqual({
+        overall: 1.5,
+        bullet: 0.25,
+        shotgun: 0.75,
+        headshot: 1.25,
+        headburst: 1.75,
+        limb: 0.5,
+        blowout: 0.25,
+        gib: 2,
+      });
+    } finally {
+      applySettings(ctx, { ...DEFAULTS });
+    }
+  });
+});
+
+

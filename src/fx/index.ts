@@ -181,8 +181,8 @@ class Fx implements FxSystem {
     bloodHit(this.core, position, dir, intensity);
   }
 
-  bloodMist(position: THREE.Vector3, size?: number): void {
-    bloodMist(this.core, position, size);
+  bloodMist(position: THREE.Vector3, size?: number, kind?: BloodPuffKind): void {
+    bloodMist(this.core, position, size, kind);
   }
 
   bloodPuff(position: THREE.Vector3, dir: THREE.Vector3, weight?: number, scale?: number, kind?: BloodPuffKind): void {

@@ -2164,7 +2164,7 @@ export class Gore implements GoreSystem {
       this.ctx.audio.play('skull_fragments', { position: at, volume: 0.85, pitchJitter: 0.1, delay: 0.04 });
     }
     this.startStump(char, neck, 1.7);
-    fx.bloodMist(at, 0.3);
+    fx.bloodMist(at, 0.3, 'headburst');
     // One fan past the body and a sheet on the wall behind stand for most of what was nine separate stains.
     this.blood.fan(at, damage.dir, 1.5);
     this.blood.splatterAlong(at, damage.dir, 5, 8, 0.6);
@@ -2207,8 +2207,8 @@ export class Gore implements GoreSystem {
       this.chunks.spawn(kind, at.x, at.y, at.z, _v.x, _v.y, _v.z, r * size, _q, 14);
     }
     fx.bloodHit(at, _v3, 1.4);
-    fx.bloodPuff?.(at, damage.dir, 0.9, 1.55, 'headshot');
-    fx.bloodMist(at, 0.38);
+    fx.bloodPuff?.(at, damage.dir, 0.9, 1.55, 'headburst');
+    fx.bloodMist(at, 0.38, 'headburst');
     this.ctx.audio.play('head_burst', { position: at, volume: 0.82, pitch: 1.06, pitchJitter: 0.08 });
     if (Math.random() < 0.55) {
       this.ctx.audio.play('skull_fragments', { position: at, volume: 0.72, pitchJitter: 0.1, delay: 0.04 });
@@ -2679,7 +2679,7 @@ export class Gore implements GoreSystem {
     if (belly && this.ropes.hangingFrom(char.root) === 0) this.eviscerate(char, exit, _v3.copy(dir).negate());
     fx.bloodHit(exit, dir, 1.8);
     fx.bloodPuff?.(exit, dir, 1, 1.85, 'blowout');
-    fx.bloodMist(exit, 0.65);
+    fx.bloodMist(exit, 0.65, 'blowout');
     fx.bloodSpray?.(exit, dir, 1);
     this.blood.fan(exit, dir, 2.1);
     this.blood.splatterAlong(exit, dir, 7, 9, 0.75);
@@ -3143,7 +3143,8 @@ export class Gore implements GoreSystem {
       this.ctx.fx.bloodPuff?.(c, damage.dir, 1, 1.15, 'gib');
       this.ctx.fx.bloodHit(c, damage.dir, 1.8);
     } else if (!limb.machine) {
-      this.ctx.fx.bloodPuff?.(c, damage.dir, 0.75, 1.05, 'headshot');
+      const isHead = limb.info.rig.bones[limb.rootBone]?.region === 'head';
+      this.ctx.fx.bloodPuff?.(c, damage.dir, 0.75, 1.05, isHead ? 'headburst' : 'limb');
       this.ctx.fx.bloodHit(c, damage.dir, 1.4);
     }
     this.chunks.char = burn;

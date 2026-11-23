@@ -592,7 +592,7 @@ export interface EmitterHandle {
   readonly alive: boolean;
 }
 
-export type BloodPuffKind = 'bullet' | 'headshot' | 'shotgun' | 'blowout' | 'gib';
+export type BloodPuffKind = 'bullet' | 'headshot' | 'headburst' | 'shotgun' | 'limb' | 'blowout' | 'gib';
 
 export interface FxSystem extends GameSystem {
   /** `view` draws it in the view scene with the weapon. Pass the muzzle in view-scene coordinates then. */
@@ -615,7 +615,7 @@ export interface FxSystem extends GameSystem {
   /** Bullet-hit puff of blood. */
   bloodHit(position: THREE.Vector3, dir: THREE.Vector3, intensity?: number): void;
   /** Hanging red mist. */
-  bloodMist(position: THREE.Vector3, size?: number): void;
+  bloodMist(position: THREE.Vector3, size?: number, kind?: BloodPuffKind): void;
   /** Chunks and droplets used by a head bursting. */
   headBurst(position: THREE.Vector3, dir: THREE.Vector3): void;
   /** Whole-body gore burst used by gibs. */
