@@ -9,7 +9,7 @@
 import * as THREE from 'three';
 import type { Ctx } from '../core/contracts';
 import { mulberry32 } from '../core/math';
-import { EXTRA_FIRE, EXTRA_INFO, EXTRA_PARAMS, WEAR_VERTEX, WOUND_COMMON, WOUND_REGION, WOUND_VERTEX_LOOP } from './anatomy/glsl';
+import { EXTRA_BLOOD_MAP, EXTRA_FIRE, EXTRA_INFO, EXTRA_PARAMS, WEAR_VERTEX, WOUND_COMMON, WOUND_REGION, WOUND_VERTEX_LOOP } from './anatomy/glsl';
 
 const VERT_PARS = /* glsl */ `
 attribute vec4 aColor;
@@ -128,6 +128,9 @@ uniform float uFill;
 varying vec2 vAtlasUv;
 uniform sampler2D tAtlasA;
 uniform sampler2D tAtlasB;
+#endif
+#ifdef OP2_BLOOD_MAP
+uniform highp sampler2DArray tBloodMap;
 #endif
 #ifdef OP2_SKINNED
 uniform highp sampler2D boneTexture;
@@ -426,6 +429,35 @@ float sCoal = 0.0, sMost = OP2_COAL_MOST;
     sMetal *= 1.0 - m;
   }
 
+  #ifdef OP2_BLOOD_MAP
+  {
+    vec4 bmInfo = op2Extra(${EXTRA_BLOOD_MAP});
+    if (bmInfo.x > 0.5) {
+      vec2 bm = texture(tBloodMap, vec3(vAtlasUv, bmInfo.x - 1.0)).rg;
+      float bCov = bm.r;
+      if (bCov > 0.01) {
+        float bFresh = bm.g * (1.0 - sDry);
+        float edgeNoise = (grain - 0.5) * 0.22 + (micro.g - 0.5) * 0.14;
+        float soak = smoothstep(0.02, 0.42, bCov + edgeNoise * (1.0 - bCov));
+        float thick = smoothstep(0.32, 0.85, bCov + edgeNoise * 0.35);
+        float damp = soak * (1.0 - sCoal * 0.75);
+        // Pure stain: thin edges absorb into fabric/skin; thicker collars & rivulets pool dark glossy crimson,
+        // with actively pumping arterial blood reading slightly brighter and wetter until bleeding stops.
+        vec3 absorbed = sAlb * vec3(0.45, 0.10, 0.10) + vec3(0.085, 0.004, 0.005);
+        vec3 pooled = mix(vec3(0.20, 0.007, 0.008), vec3(0.105, 0.003, 0.004), thick);
+        vec3 arterial = vec3(0.32, 0.012, 0.013);
+        vec3 stainCol = mix(absorbed, mix(pooled, arterial, bFresh * 0.68), thick) * sDried;
+        sAlb = mix(sAlb, stainCol, damp * mix(0.80, 0.97, thick));
+        float wetRough = mix(0.32, mix(0.13, 0.08, bFresh), thick);
+        sRough = mix(sRough, mix(wetRough, 0.62, sDry), damp);
+        sMetal *= 1.0 - damp * 0.88;
+        sH *= 1.0 - thick * 0.82;
+        sBare = max(sBare, damp * mix(0.34, 0.78, thick) * (1.0 - sDry * 0.65) * (1.0 - sCoal));
+      }
+    }
+  }
+  #endif
+
   #ifdef OP2_WOUNDS
   if (vWoundNear > 0.0) {
     int wounds = int(info.x);
@@ -709,6 +741,8 @@ export interface SurfaceOptions {
   detail: THREE.Texture;
   atlasA: THREE.Texture | null;
   atlasB: THREE.Texture | null;
+  /** Shared pooled UV blood-stain array texture (flesh humanoids). */
+  bloodMap?: THREE.DataArrayTexture | null;
   /** First texel after the bone matrices. */
   extraBase: number;
   emissive?: number;
@@ -753,7 +787,9 @@ export function unburntVariant(material: THREE.Material): THREE.Material {
 export function createCharacterMaterial(ctx: Ctx, o: SurfaceOptions): THREE.MeshStandardMaterial {
   const material = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1, metalness: 1 });
   const atlas = o.atlasA !== null && !o.far;
+  const bloodMap = atlas && !!o.bloodMap && !o.charred;
   if (atlas) material.defines = { ...material.defines, OP2_ATLAS: 1 };
+  if (bloodMap) material.defines = { ...material.defines, OP2_BLOOD_MAP: 1 };
   if (o.far) material.defines = { ...material.defines, OP2_FAR: 1 };
   if (o.wounds) material.defines = { ...material.defines, OP2_WOUNDS: 1 };
   if (o.charred) material.defines = { ...material.defines, OP2_CHARRED: 1 };
@@ -766,6 +802,9 @@ export function createCharacterMaterial(ctx: Ctx, o: SurfaceOptions): THREE.Mesh
     if (atlas) {
       shader.uniforms.tAtlasA = { value: o.atlasA };
       shader.uniforms.tAtlasB = { value: o.atlasB };
+    }
+    if (bloodMap) {
+      shader.uniforms.tBloodMap = { value: o.bloodMap };
     }
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', `#include <common>\n${VERT_PARS}`)
@@ -783,7 +822,7 @@ export function createCharacterMaterial(ctx: Ctx, o: SurfaceOptions): THREE.Mesh
       .replace('#include <aomap_fragment>', FRAG_AO);
   };
   // The bone count is a uniform, so every archetype shares these few programs.
-  material.customProgramCacheKey = () => `op2char:${atlas ? 1 : 0}:${o.far ? 1 : 0}:${o.wounds ? 1 : 0}:${o.charred ? 1 : 0}`;
+  material.customProgramCacheKey = () => `op2char:${atlas ? 1 : 0}:${o.far ? 1 : 0}:${o.wounds ? 1 : 0}:${o.charred ? 1 : 0}:${bloodMap ? 1 : 0}`;
   // A stub render system returns undefined here, and the sandbox then lights the material itself.
   const patched = ctx.render.materials?.patch?.(material) ?? material;
   made.set(patched, { ctx, o });

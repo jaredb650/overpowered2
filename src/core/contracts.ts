@@ -525,6 +525,26 @@ export interface GoreSystem extends GameSystem {
    */
   alight?(char: CharacterInstance, fireproof?: boolean): void;
   burnOn?(char: CharacterInstance, fireproof?: boolean): void;
+  /**
+   * Starts or upgrades a 3-tier Overgrowth-style bleeding wound on a flesh humanoid (humans and husks; never machines):
+   * tier 1 flesh wound collar + slow drips, tier 2 mortal/heavy creeping soak + rivulets, tier 3 arterial spurt rope +
+   * fast drenching stain. Optional so stand-ins need not implement it.
+   */
+  bleedWound?(
+    char: CharacterInstance,
+    bone: number,
+    point: THREE.Vector3,
+    tier: 1 | 2 | 3,
+    opts?: { normal?: THREE.Vector3; zone?: string; duration?: number; spurtPower?: number },
+  ): void;
+  /** Damps arterial spurt on the clutched bone and stains the clutching hand/forearm. */
+  clutchWound?(char: CharacterInstance, heldBone: number | null, handBone?: number, forearmBone?: number): void;
+  /** Stops active bleeding emitters and spurts on `char` (dressed or cauterised); existing stains remain and dull. */
+  stopBleed?(char: CharacterInstance, zone?: string): void;
+  /** Soaks the floor-facing side of a downed, crawling, or resting body lying in wet blood. */
+  soakPool?(char: CharacterInstance, floorY: number, amount?: number): void;
+  /** True where the floor is currently wet with blood (pools, fresh bursts). */
+  wetAt?(x: number, y: number, z: number): boolean;
   clear(): void;
 }
 
