@@ -295,4 +295,68 @@ describe('DynamicBalancer (Euphoria / RDR2 active ragdoll)', () => {
     expect(aimed.z).toBeGreaterThanOrEqual(-0.5 - 1e-4);
     gore.clear();
   });
+
+  it('severing a limb while living under DynamicBalancer falls over cleanly into Reflex', () => {
+    gore.clear();
+    const c = spawnLiving(0, 0, 0);
+    expect(gore.knockdown(c, {
+      velocity: v(0, 0, -1.6),
+      stumble: { seconds: 1.2, budget: 0.8 },
+      hurt: 0.6,
+      lie: 0.6,
+      rise: 1.2,
+    })).toBe(true);
+    const rag = ragOf(c);
+    expect(rag.muscle?.collapse?.alive).toBe(true);
+    expect(rag.muscle?.collapse?.balancer).not.toBeNull();
+    for (let f = 0; f < 5; f++) frame(c);
+    const dmg: DamageInfo = {
+      amount: 90,
+      type: 'slash',
+      point: at(c, B.upperArmL),
+      dir: v(1, 0, 0),
+      force: 20,
+      source: 'test',
+      bone: B.upperArmL,
+      region: 'armL',
+    };
+    gore.sever(c, 'armL', dmg);
+    // Living balancer must transition via fallOver('limb') rather than endCollapse(): collapse ends, gains reset, Reflex takes over.
+    expect(rag.muscle!.collapse).toBeNull();
+    expect(rag.muscle!.balance.lost).toBe('limb');
+    expect(rag.muscle!.reflex).not.toBeNull();
+    for (const part of rag.parts) {
+      expect(part.muscle!.gain).toBe(1);
+    }
+    expect(() => {
+      for (let f = 0; f < 30; f++) frame(c);
+    }).not.toThrow();
+    gore.clear();
+  });
+
+  it('multi-substep frames (20 fps) under DynamicBalancer brake smoothly without velocity reversal', () => {
+    gore.clear();
+    const c = spawnLiving(0, 0, 0);
+    expect(gore.knockdown(c, {
+      velocity: v(0, 0, -2.0),
+      stumble: { seconds: 1.5, budget: 0.9 },
+    })).toBe(true);
+    const rag = ragOf(c);
+    const bal = rag.muscle!.collapse!.balancer!;
+    let reversed = false;
+    for (let f = 0; f < 25; f++) {
+      ctx.time.tick(1 / 20);
+      physics.step(ctx.time.dt);
+      gore.update();
+      c.root.updateMatrixWorld(true);
+      if (bal.comVel.z > 0.45) reversed = true;
+      for (const p of rag.parts) {
+        p.body.linvel(p.v);
+        expect(Number.isFinite(p.v.x + p.v.y + p.v.z)).toBe(true);
+        expect(p.v.length()).toBeLessThan(15);
+      }
+    }
+    expect(reversed).toBe(false);
+    gore.clear();
+  });
 });

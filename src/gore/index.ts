@@ -26,11 +26,10 @@ import { BodyFilter, fillVelocity, LimbFilter, measureAnimVelocity, Rag, SEED_ST
 import { boneRay, boneRayContact, nextCapsuleHit, rayBones, rayNearSphere } from './raycast';
 import { Reflex, ReflexTuning } from './reflex';
 import { Stand, StandTuning, strengthBudget } from './stand';
-import { DynamicBalancer } from './balancer';
+import { BALANCER_PASS, DynamicBalancer } from './balancer';
 import { Crawler } from './crawl';
 
-/** Closed-loop Euphoria/RDR2 dynamic balancer. `?balancer=0` falls back to legacy ghost-pinned animation playback. */
-export const BALANCER_PASS = typeof location === 'undefined' || new URLSearchParams(location.search).get('balancer') !== '0';
+export { BALANCER_PASS };
 import { HUMAN_MASS, markSevered, markSubtree, MAX_BONES, rigInfo, type RigInfo } from './rigInfo';
 import { SliceField } from './sliced';
 import { woundBloodTier, WoundPlanner, WoundTuning } from './wounds';
@@ -904,12 +903,12 @@ export class Gore implements GoreSystem {
         // Legacy ghost-pinned fallback: most of the round into where its feet are heading.
         rag.applyImpulse(hit.bone, hit.point, _v.copy(hit.dir).multiplyScalar(hit.force * (1 - MuscleTuning.carryShare)));
         drive.carry(hit.dir, dv);
+        muscle.jolt(hit.bone, hit.point, hit.dir, joltOf(hit.force, info.mass));
+        char.anim.holdWound?.(hit.bone, hit.point, seconds);
       }
       drive.away.set(hit.dir.x, 0, hit.dir.z).normalize();
       const region = info.rig.bones[hit.bone]!.region;
       if (region.startsWith('leg') || region.startsWith('shin')) drive.shotLeg = drive.weakLeg = region.endsWith('L') ? 1 : -1;
-      muscle.jolt(hit.bone, hit.point, hit.dir, joltOf(hit.force, info.mass));
-      char.anim.holdWound?.(hit.bone, hit.point, seconds);
     }
     if ((options?.twitch ?? 0) > 0 && !isMachine(char)) muscle.startTwitch(options!.twitch!);
     return true;
@@ -945,9 +944,11 @@ export class Gore implements GoreSystem {
     const muscle = rag.muscle;
     if (!muscle) return;
     if (strength) muscle.strengthen(strength, true);
+    let hasBalancer = false;
     if (drive && muscle.canStand()) {
       if (useBalancer) {
         drive.balancer = new DynamicBalancer(rag, muscle, this.ctx.physics, ground, yaw);
+        hasBalancer = true;
         if (velocity) drive.balancer.seedVelocity(velocity);
       }
       // Its weaker leg goes first, unless a leg was shot just now.
@@ -956,13 +957,14 @@ export class Gore implements GoreSystem {
         drive.away.set(hit.dir.x, 0, hit.dir.z).normalize();
         const region = info.rig.bones[hit.bone]!.region;
         if (region.startsWith('leg') || region.startsWith('shin')) drive.shotLeg = region.endsWith('L') ? 1 : -1;
-        char.anim.holdWound?.(hit.bone, hit.point, seconds);
+        if (!hasBalancer) char.anim.holdWound?.(hit.bone, hit.point, seconds);
       }
       if (hit && drive.balancer) drive.balancer.onHit(hit.bone, hit.point, hit.dir, (hit.force * DevFlags.force) / info.mass);
       muscle.startCollapse(drive);
       body.holding = true;
     }
-    if (hit) muscle.jolt(hit.bone, hit.point, hit.dir, joltOf(hit.force, info.mass));
+    // Under DynamicBalancer, real r x J + localized partShock own the impact whip; legacy random jolt() would fight it.
+    if (hit && !hasBalancer) muscle.jolt(hit.bone, hit.point, hit.dir, joltOf(hit.force, info.mass));
   }
 
   knockdown(char: CharacterInstance, options?: KnockdownOptions): boolean {
@@ -1068,22 +1070,28 @@ export class Gore implements GoreSystem {
       for (const i of options.impulses) {
         const force = i.impulse.length();
         if (stumble?.balancer && force > 0) {
-          // Closed-loop balancer: full ballistic impulse lands directly on the bone (lever-arm r x J + CoM momentum).
+          // Closed-loop balancer: full ballistic impulse lands directly on the bone (lever-arm r x J + CoM momentum),
+          // plus equal-and-opposite internal joint whip (`muscle.jolt`) scaled by mass.
           const dv = (force * DevFlags.force) / rag.info.mass;
           this.push(rag, i.bone, i.point, i.impulse, 0);
           stumble.stand?.hit(dv, options.cost ?? 0);
           muscle?.onBalancerHit(i.bone, i.point, _v.copy(i.impulse).divideScalar(force), dv);
+          muscle?.jolt(i.bone, i.point, _v.copy(i.impulse).divideScalar(force), joltOf(force, rag.info.mass) * 0.45);
         } else if (stumble?.stand && force > 0) {
           // Legacy ghost-pinned balance: all of it lands on the body, with no lift.
           const dv = (force * DevFlags.force) / rag.info.mass;
           this.push(rag, i.bone, i.point, i.impulse, 0);
           stumble.stand.hit(dv, options.cost ?? 0);
           stumble.carry(_v.copy(i.impulse).divideScalar(force), dv);
+          muscle?.jolt(i.bone, i.point, _v.copy(i.impulse).divideScalar(force), joltOf(force, rag.info.mass));
         } else if (stumble && force > 0) {
           this.push(rag, i.bone, i.point, _v.copy(i.impulse).multiplyScalar(1 - MuscleTuning.carryShare));
           stumble.carry(_v.copy(i.impulse).divideScalar(force), (force * DevFlags.force) / rag.info.mass);
-        } else this.push(rag, i.bone, i.point, i.impulse);
-        if (force > 0) muscle?.jolt(i.bone, i.point, _v.copy(i.impulse).divideScalar(force), joltOf(force, rag.info.mass));
+          muscle?.jolt(i.bone, i.point, _v.copy(i.impulse).divideScalar(force), joltOf(force, rag.info.mass));
+        } else {
+          this.push(rag, i.bone, i.point, i.impulse);
+          if (force > 0) muscle?.jolt(i.bone, i.point, _v.copy(i.impulse).divideScalar(force), joltOf(force, rag.info.mass));
+        }
         // How hard it was hit, for how long it stays down, not how far it moves: that is left as it was for every size.
         muscle?.reflex?.struck(joltOf(force, HUMAN_MASS));
       }
@@ -2978,13 +2986,13 @@ export class Gore implements GoreSystem {
       const force = forceOf(damage);
       const dv = (force * DevFlags.force) / target.info.mass;
       if (drive?.balancer && target.rag) {
-        // Dying on feet under DynamicBalancer: deliver 100% of impulse (45% local r x J + 55% whole-body momentum, no lift)
-        // and notify balancer for localized neuromuscular shock, leg buckle, gut curl, and wound clutch.
+        // Dying on feet under DynamicBalancer: deliver 100% of impulse (45% local r x J + 55% whole-body momentum, no lift),
+        // notify balancer for localized neuromuscular shock/buckle/clutch, and keep equal-and-opposite joint whip (`muscle.jolt`).
+        // Skip legacy `muscle.struck()` pace-rushing so the balancer's own decay & shock drive the fall.
         const local = 0.45;
         target.rag.applyImpulse(hit.bone, hit.point, _v.copy(damage.dir).multiplyScalar(force * local));
         target.rag.shove(_v.copy(damage.dir).multiplyScalar(force * (1 - local)));
         muscle?.onBalancerHit(hit.bone, hit.point, damage.dir, dv, hit.region);
-        muscle?.struck(impactStrength(force, target.info.mass));
         muscle?.jolt(hit.bone, hit.point, damage.dir, joltOf(force, target.info.mass));
       } else {
         // Legacy ghost-pinned collapse or limp ragdoll.

@@ -15,6 +15,7 @@ import type { ArmourOutcome, DamageResult, KillEvent } from '../core/gameplay';
 import { chance, clamp, lerp, pick, rand, smoothstep } from '../core/math';
 import { FACTIONS, type FactionRules } from '../contracts/data';
 import { ACTIVE } from '../contracts/select';
+import { BALANCER_PASS } from '../gore/balancer';
 import { KNOCK_PASS, MASS_PASS, STAND_PASS, STRENGTH_PASS, WEIGHT_PASS, type LimbStrength } from '../gore/muscles';
 import { standBudget, StandTuning } from '../gore/stand';
 import { STRUGGLE_PASS } from '../gore/reflex';
@@ -1689,20 +1690,18 @@ export class DamageModel {
     found.tripped = r.tripped;
     // Ice cannot stumble, and a body still arriving is on somebody else's clock.
     const held = e.frozen > 0 || e.entrance !== 'none';
-    // Floored by a head hit, the fall is the whole reaction. A flinch and a guard on the animator first would be read into the
-    // speed it goes down at, the head spinning against the chest and the hands thrown up at 10 m/s (gore.md, nothing a hit
-    // does to the animation may land in one frame), as `contact.ts` does for a body check. With `?knock=0`, as before.
     const headDown = KNOCK_PASS && !held && r.level === 'felled' && region === 'head';
-    // Felled on its way up, it goes over from the clip's pose, with nothing on the animator first either (`?struggle=0`: as
-    // before, which only a head hit did).
     const riseDown = STRUGGLE_PASS && !held && r.level === 'felled' && e.rising > 0;
     const floors = headDown || riseDown;
-    if (!floors) anim.flinch(bone, d.dir, flinch, d.point);
-    if (held) return;
-    if (!floors && ROUNDS.has(d.type)) this.swayPart(e, region, d, bone, flinch);
+    if (held) {
+      if (!floors) anim.flinch(bone, d.dir, flinch, d.point);
+      return;
+    }
     const felt = profile.pain > 0;
     const blast = d.type === 'explosive';
     if (r.level === 'flinch') {
+      anim.flinch(bone, d.dir, flinch, d.point);
+      if (ROUNDS.has(d.type)) this.swayPart(e, region, d, bone, flinch);
       if (!armoured) this.cryOut(e);
       // Hurt enough to notice, a hand goes to it a moment after the flinch, even though he fights on.
       if (felt && !armoured && DevFlags.clutch && this.w.now >= e.clutchAt && amount >= e.maxHealth * CLUTCH.share) {
@@ -1713,16 +1712,12 @@ export class DamageModel {
       }
       return;
     }
-    if (felt && !floors) {
-      if (blast || region === 'head') anim.guard?.(0.5 + r.strength * 0.5);
-      else if (!armoured) anim.holdWound?.(bone, d.point, 0.7 + r.strength);
-    }
     if (felt && !armoured) say(e, this.w, e.def.voice.pain, 0.7);
     const reactAt = e.reactAt;
     e.reactAt = this.w.now + profile.cooldown;
     if (r.level === 'thrown' || r.level === 'felled') {
-      // Only the rising rule drops it from the clip's pose with no topple. A head hit on a rising body goes over as any head
-      // hit does, tipped along the round and, knocked cold, with legs and spine locked.
+      // Never fire `anim.flinch` / `swayPart` / `guard` before a knockdown attempt: `measureAnimVelocity` steps the
+      // animator by 1/90 s and would bake those 1-frame animator kicks into the ragdoll's initial rigid-body velocities.
       const drops = riseDown && region !== 'head';
       const entryForce = AREA_TYPES.has(d.type) ? undefined : force;
       // Heavy knockbacks (non-KO, non-rising, grounded, visible) enter active ragdoll dynamically so the enemy reels
@@ -1739,16 +1734,16 @@ export class DamageModel {
         e.shock = 0;
         return;
       }
-      if (floors) {
-        anim.flinch(bone, d.dir, flinch, d.point);
-        // Gore has no room for it. Inside the cooldown or a get-up a head hit only skipped them to go to the floor, so it
-        // flinches as any other hit would there; staggered, an SMG would pin and shove a body for as long as it kept firing.
-        // A body felled on its way up is always inside a get-up.
-        if (early && !must) {
-          e.reactAt = reactAt;
-          return;
-        }
-        if (felt && headDown) anim.guard?.(0.5 + r.strength * 0.5);
+      // Gore had no room for a knockdown: fall back to the animated flinch/sway/stagger reaction cleanly.
+      anim.flinch(bone, d.dir, flinch, d.point);
+      if (floors && early && !must) {
+        e.reactAt = reactAt;
+        return;
+      }
+      if (ROUNDS.has(d.type)) this.swayPart(e, region, d, bone, flinch);
+      if (felt) {
+        if (blast || region === 'head') anim.guard?.(0.5 + r.strength * 0.5);
+        else if (!armoured) anim.holdWound?.(bone, d.point, 0.7 + r.strength);
       }
       // Past gore's budget. Staggering is what it would have done with one more foot under it.
       this.stagger(e, STAGGER_MAX, d.dir, r.strength, bone, profile.reel);
@@ -1757,6 +1752,48 @@ export class DamageModel {
     }
     const seconds = lerp(STAGGER_MIN, STAGGER_MAX, r.strength);
     const entryForce = AREA_TYPES.has(d.type) ? undefined : force;
+    // Under DynamicBalancer, enter active ragdoll directly BEFORE firing animator flinch/sway/stumble so
+    // `measureAnimVelocity` captures true pre-hit momentum instead of double-counting animator kicks on top of real r x J.
+    const tryBalancer = BALANCER_PASS && this.seenStanding(e) && (r.level === 'fall' || r.strength >= STAND_FROM);
+    let fallLead = -1;
+    if (tryBalancer) {
+      const rx = e.reel.x, ry = e.reel.y, rz = e.reel.z;
+      const vx = e.velocity.x, vy = e.velocity.y, vz = e.velocity.z;
+      let stumbleDir: THREE.Vector3;
+      if (r.tripped) {
+        e.reel.copy(e.velocity);
+        e.velocity.set(0, 0, 0);
+        stumbleDir = e.reel;
+      } else {
+        const wDir = this.towardWeakLeg(e, d.dir);
+        const speed = profile.reel * (1 + r.strength * REEL_GAIN);
+        e.reel.x += wDir.x * speed;
+        e.reel.z += wDir.z * speed;
+        stumbleDir = wDir;
+      }
+      let took = false;
+      if (r.level === 'fall') {
+        fallLead = rand(FALL_LEAD_MIN, FALL_LEAD_MAX);
+        _fall.copy(stumbleDir).setY(0);
+        if (_fall.lengthSq() < 1e-6) _fall.set(Math.sin(e.yaw), 0, Math.cos(e.yaw));
+        took = this.knockDown(e, _fall.normalize(), r.strength, bone, profile, false, knockAs(null, undefined, false, d.point, fallLead + STUMBLE_EXTRA, undefined, undefined, entryForce));
+      } else {
+        took = this.standFrom(e, stumbleDir, r.strength, bone, profile, d.point, entryForce);
+      }
+      if (took) {
+        e.shock *= SHOCK_AFTER_STAGGER;
+        return;
+      }
+      // Refused (budget full, speed over cap, or already due to fall): restore velocities and run animated stagger.
+      e.reel.set(rx, ry, rz);
+      e.velocity.set(vx, vy, vz);
+    }
+    anim.flinch(bone, d.dir, flinch, d.point);
+    if (ROUNDS.has(d.type)) this.swayPart(e, region, d, bone, flinch);
+    if (felt) {
+      if (blast || region === 'head') anim.guard?.(0.5 + r.strength * 0.5);
+      else if (!armoured) anim.holdWound?.(bone, d.point, 0.7 + r.strength);
+    }
     if (r.tripped) {
       // Stopped short by its own leg, with the rest of the body still going.
       _v.copy(e.velocity);
@@ -1767,7 +1804,15 @@ export class DamageModel {
       this.stagger(e, seconds, d.dir, r.strength, bone, profile.reel);
     }
     e.shock *= SHOCK_AFTER_STAGGER;
-    // Match `towardWeakLeg` direction that `stagger` just applied to `e.reel`.
+    if (tryBalancer) {
+      if (r.level === 'fall') {
+        e.fallIn = fallLead >= 0 ? fallLead : rand(FALL_LEAD_MIN, FALL_LEAD_MAX);
+        e.fallStrength = r.strength;
+        e.fallBone = bone;
+      }
+      return;
+    }
+    // Legacy ghost-stumble path (`?balancer=0`) or unseen enemy: follow animated stagger with fallFrom/standFrom.
     const stumbleDir = r.tripped ? e.reel : this.towardWeakLeg(e, d.dir);
     if (r.level === 'fall') this.fallFrom(e, stumbleDir, r.strength, bone, profile, undefined, d.point, entryForce);
     else if (r.strength >= STAND_FROM) this.standFrom(e, stumbleDir, r.strength, bone, profile, d.point, entryForce);
@@ -1783,12 +1828,12 @@ export class DamageModel {
    * the stagger it was just given, and catches itself or does not. Refused, going too fast to catch, or already due to
    * fall, the stagger stands.
    */
-  private standFrom(e: Enemy, dir: THREE.Vector3, strength: number, bone: number, profile: ReactionProfile, point?: THREE.Vector3, force?: number): void {
-    if (!this.seenStanding(e) || e.fallIn > 0 || this.m.outpost?.wounds.bodyOf(e)?.floored) return;
-    if (Math.hypot(e.velocity.x + e.reel.x + e.push.x, e.velocity.z + e.reel.z + e.push.z) > STAND_MAX_SPEED) return;
+  private standFrom(e: Enemy, dir: THREE.Vector3, strength: number, bone: number, profile: ReactionProfile, point?: THREE.Vector3, force?: number): boolean {
+    if (!this.seenStanding(e) || e.fallIn > 0 || this.m.outpost?.wounds.bodyOf(e)?.floored) return false;
+    if (Math.hypot(e.velocity.x + e.reel.x + e.push.x, e.velocity.z + e.reel.z + e.push.z) > STAND_MAX_SPEED) return false;
     _fall.copy(dir).setY(0);
-    if (_fall.lengthSq() < 1e-6) return;
-    this.knockDown(e, _fall.normalize(), strength, bone, profile, false, knockAs(null, undefined, false, point, StandTuning.maxSeconds, standBudget(strength), undefined, force));
+    if (_fall.lengthSq() < 1e-6) return false;
+    return this.knockDown(e, _fall.normalize(), strength, bone, profile, false, knockAs(null, undefined, false, point, StandTuning.maxSeconds, standBudget(strength), undefined, force));
   }
 
   /**

@@ -34,6 +34,9 @@ const DOWN = new THREE.Vector3(0, -1, 0);
 const fade = (band: readonly number[], u: number, lead: number): number =>
   1 - smoothstep(Math.max(0, band[0]! - lead), Math.max(0.01, band[1]! - lead), u);
 
+/** Closed-loop Euphoria/RDR2 dynamic balancer. `?balancer=0` falls back to legacy ghost-pinned animation playback. */
+export const BALANCER_PASS = typeof location === 'undefined' || new URLSearchParams(location.search).get('balancer') !== '0';
+
 export const BalancerTuning = {
   /** Capture-point offset from feet midpoint (m * scale) that triggers a catch step. */
   stepTrigger: 0.14,
@@ -523,7 +526,22 @@ export class DynamicBalancer {
     const vertSupport = stand ? lerp(support, 1, StandTuning.lift) * legPower : effSupport;
 
     // --- A. Vertical Leg-Extension Support (Real Gravity ON, strictly matched to actual active downward weight) ---
-    const horizSpeed = Math.hypot(this.comVel.x, this.comVel.z);
+    // Compute live whole-body CoM velocity on every substep (not frame-stale `this.comVel`, and not just `hips.v` which
+    // misses chest-hit momentum) so multi-substep frames never double-brake and chest hits trigger catch steps immediately.
+    let liveVx = 0;
+    let liveVz = 0;
+    let comMass = 0;
+    for (const p of this.rag.parts) {
+      p.body.linvel(p.v);
+      liveVx += p.v.x * p.mass;
+      liveVz += p.v.z * p.mass;
+      comMass += p.mass;
+    }
+    if (comMass > 1e-4) {
+      liveVx /= comMass;
+      liveVz /= comMass;
+    }
+    const horizSpeed = Math.hypot(liveVx, liveVz);
     const normSpeed = horizSpeed / vScale;
     let legShockMax = 0;
     for (const leg of this.legs) legShockMax = Math.max(legShockMax, leg.shock);
@@ -551,15 +569,18 @@ export class DynamicBalancer {
       // Ankle strategy strongly resists minor bumps without drifting hips; stepping strategy scales braking smoothly with speed.
       const speedScale = inAnkleStrategy ? 2.4 : (0.65 + 0.23 * normSpeed);
       const brakeK = t.brakeRate * speedScale * traction * (this.groundedCount >= 2 ? 1.25 : 0.75);
-      let fx = -this.comVel.x * totalMass * brakeK * dt;
-      let fz = -this.comVel.z * totalMass * brakeK * dt;
+      // Cap braking at 85% of current whole-body momentum per substep so large dt never reverses velocity.
+      const brakeCoeff = Math.min(totalMass * 0.85, totalMass * brakeK * dt);
+      let fx = -liveVx * brakeCoeff;
+      let fz = -liveVz * brakeCoeff;
 
       // When nearly still on both feet, center hips over real physical feet midpoint (ankle/hip strategy).
       if (this.groundedCount >= 2 && horizSpeed < 0.85 * vScale && yielded < 0.2) {
         const ankleW = inAnkleStrategy ? 18.0 : t.settleRate;
         const settleW = (1 - smoothstep(0.35 * vScale, 0.85 * vScale, horizSpeed)) * ankleW * traction;
-        fx += (this.feetMid.x - hips.p.x) * totalMass * settleW * dt;
-        fz += (this.feetMid.z - hips.p.z) * totalMass * settleW * dt;
+        const settleCoeff = (totalMass * settleW * dt) / (1 + settleW * dt * dt);
+        fx += (this.feetMid.x - hips.p.x) * settleCoeff;
+        fz += (this.feetMid.z - hips.p.z) * settleCoeff;
       }
 
       // If tripping over low cover, reduce braking so upper torso pitches cleanly over the barrier.
@@ -595,8 +616,8 @@ export class DynamicBalancer {
     const fwdZ = Math.cos(this.facingYaw);
     const leftX = Math.cos(this.facingYaw);
     const leftZ = -Math.sin(this.facingYaw);
-    const vFwd = (this.comVel.x * fwdX + this.comVel.z * fwdZ) / vScale;
-    const vLeft = (this.comVel.x * leftX + this.comVel.z * leftZ) / vScale;
+    const vFwd = (liveVx * fwdX + liveVz * fwdZ) / vScale;
+    const vLeft = (liveVx * leftX + liveVz * leftZ) / vScale;
 
     // Pitch gently with velocity, forward when tripped or gut-curled.
     let targetPitch = clamp(vFwd * 0.065, -t.maxVelLean, t.maxVelLean) + this.gutCurl * 0.28 + (this.trippingOverCover ? 0.35 : 0);
@@ -636,7 +657,7 @@ export class DynamicBalancer {
       hips.tau.z += (ki * az * ang - di * hips.w.z) * spinScale;
     }
 
-    // --- D. Soft Chest Vestibular Stabilization (prevents braking deceleration from flinging torso over hips, yields on hit) ---
+    // --- D. Soft Chest Vestibular Stabilization (cooperates with aligned spine joint PD, yields on hit) ---
     if (this.spine) {
       const sp = this.spine;
       const spShock = this.spineIdx >= 0 ? this.partShock[this.spineIdx]! : 0;
@@ -1213,9 +1234,9 @@ export class DynamicBalancer {
         m.drive = baseUpper * m.strength * shockCut;
         m.gain = m.role === 'spine' ? 2.4 : 1.0;
         if (m.role === 'spine') {
-          // Spine muscles transmit vertical compression of the chest straight down into the pelvis:
-          // total body weight in Rapier remains 100% real, while eliminating artificial 1-joint chest droop.
-          const spineCarry = m.drive;
+          // Spine muscles transmit vertical compression of the chest straight down into the pelvis ONLY while grounded:
+          // total body weight in Rapier remains 100% real on the ground, and reverts to 1g everywhere when airborne.
+          const spineCarry = this.groundedCount > 0 ? m.drive : 0;
           gFactor = 1 - spineCarry;
           carriedOnHips += part.mass * spineCarry;
         } else {
@@ -1232,7 +1253,7 @@ export class DynamicBalancer {
     }
 
     if (root && rootIdx >= 0) {
-      // Pelvis carries its own real gravity PLUS vertical trunk compression transmitted down the spine.
+      // Pelvis carries its own real gravity PLUS grounded vertical trunk compression transmitted down the spine.
       const hipFactor = 1 + carriedOnHips / Math.max(root.mass, 0.5);
       const grav = g * hipFactor;
       if (!(Math.abs(grav - this.lastGrav[rootIdx]!) <= 1e-4)) {
