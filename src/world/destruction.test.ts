@@ -33,6 +33,7 @@ import {
   damageMultiplierFor,
   DestructionManager,
   MAX_DYNAMIC_BODIES,
+  MAX_SPLINTERS,
   NUKE_SWEEP_SPEED,
   type StructuralClusterSpec,
 } from './destruction';
@@ -229,9 +230,14 @@ describe('support-graph BFS collapse and physics', () => {
     expect(roof.state).toBe('tilting');
     expect(audioPlay).toHaveBeenCalledWith('metal_groan', expect.anything());
 
-    // Advance past max tilt warning duration (0.35s) -> both release as real dynamic rigid bodies and fall!
+    // At 0.35s both slab & roof are still in the dramatic groan-and-sag phase (0.55-0.90s)
     const roofY0 = roof.mesh!.position.y;
-    stepPhysics(manager, 30); // 0.5s
+    stepPhysics(manager, 21); // 0.35s
+    expect(slab.state).toBe('tilting');
+    expect(roof.state).toBe('tilting');
+
+    // Advance past max sagging duration (~0.95s total) -> both release as real dynamic rigid bodies and fall!
+    stepPhysics(manager, 42); // +0.70s (1.05s total)
     expect(slab.state).toBe('falling');
     expect(roof.state).toBe('falling');
     expect(slab.dynamicBody).not.toBeNull();
@@ -453,3 +459,269 @@ describe('cluster lifecycle, liquidation events, helper builders, and nukeSweep'
     manager.clear();
   });
 });
+
+describe('next-gen jagged panel fracture, DMM deformation, splinters, and gradual hinged sagging', () => {
+  function maxVertexDisplacement(geom: THREE.BufferGeometry, restPos: Float32Array): number {
+    const pos = geom.getAttribute('position') as THREE.BufferAttribute;
+    const arr = pos.array as Float32Array;
+    let maxD = 0;
+    for (let i = 0; i < pos.count; i++) {
+      const o = i * 3;
+      const d = Math.hypot(arr[o]! - restPos[o]!, arr[o + 1]! - restPos[o + 1]!, arr[o + 2]! - restPos[o + 2]!);
+      if (d > maxD) maxD = d;
+    }
+    return maxD;
+  }
+
+  it('subdivides broad panels into watertight irregular jagged shards and punches localized shoot-through holes', () => {
+    const { manager } = makeEnv();
+    const cluster = manager.addCluster({
+      id: 'fracture_wall',
+      kind: 'shanty',
+      nodes: [
+        {
+          id: 'sheet_wall',
+          pos: [-110, 2.0, 0],
+          half: [3.0, 2.0, 0.14], // 6m x 4m x 0.28m thin broad panel -> auto 3x2 jagged grid
+          mat: 'plywood',
+          hp: 100,
+          tier: 0,
+          anchored: true,
+          kind: 'wall',
+        },
+      ],
+    });
+    physics.flushQueries();
+
+    const cells = cluster.getNodes('sheet_wall');
+    expect(cells.length).toBe(6); // 3x2 irregular jagged shard cells
+    expect(cells.every(c => c.isFractureCell)).toBe(true);
+    expect(cluster.getNode('sheet_wall')).toBe(cells[0]);
+
+    // Watertight intact wall: a dense sweep of rays across the entire panel face must all hit!
+    for (const xOff of [-2.4, -1.2, 0.0, 1.2, 2.4]) {
+      for (const y of [0.8, 2.0, 3.2]) {
+        const hit = physics.raycast(V(-110 + xOff, y, -3), V(0, 0, 1), 6);
+        expect(hit, `watertight ray at x=${xOff}, y=${y}`).not.toBeNull();
+      }
+    }
+
+    // Punch ONLY the top-left cell (row=1, col=0 -> cell index 3) via direct collider hit
+    const targetCell = cells[3]!;
+    const farNeighbor = cells[2]!; // bottom-right cell
+    const hitPoint = targetCell.basePos.clone();
+    expect(manager.damageCollider(targetCell.staticCollider, 150, 'smg', hitPoint)).toBe(true);
+    physics.flushQueries();
+
+    // ONLY the punched cell broke away; surrounding jagged cells remain standing!
+    expect(targetCell.state).toBe('falling');
+    expect(targetCell.staticCollider).toBeNull();
+    expect(farNeighbor.state).toBe('intact');
+    expect(cluster.intactCount).toBe(5);
+
+    // Bullets & rays now fly cleanly RIGHT THROUGH the punched hole while neighbors still block!
+    const holeRay = physics.raycast(V(hitPoint.x, hitPoint.y, -3), V(0, 0, 1), 6);
+    expect(holeRay).toBeNull();
+    const neighborRay = physics.raycast(V(farNeighbor.basePos.x, farNeighbor.basePos.y, -3), V(0, 0, 1), 6);
+    expect(neighborRay).not.toBeNull();
+
+    // Blowing out all 3 bottom-row anchored cells drops the remaining unsupported top cells into sagging!
+    for (const bottomCell of [cells[0]!, cells[1]!, cells[2]!]) {
+      manager.damageCollider(bottomCell.staticCollider, 200, 'smg', bottomCell.basePos);
+    }
+    expect(cells[4]!.state).toBe('tilting');
+    expect(cells[5]!.state).toBe('tilting');
+
+    manager.clear();
+  });
+
+  it('visibly bends/twists wood vertices, darkens cracks, and spawns pooled 3D wood splinters on non-lethal hits', () => {
+    const { manager, audioPlay } = makeEnv();
+    const cluster = manager.addCluster({
+      id: 'wood_beam_test',
+      kind: 'test',
+      nodes: [
+        {
+          id: 'post',
+          pos: [-130, 2.0, 0],
+          half: [0.22, 2.0, 0.22], // 4m wooden column -> subdivided 6 segments along Y
+          mat: 'plywood',
+          hp: 200,
+          tier: 0,
+          anchored: true,
+          kind: 'column',
+        },
+      ],
+    });
+    const post = cluster.getNode('post')!;
+    expect(post.materialClass).toBe('wood');
+    expect(maxVertexDisplacement(post.mesh!.geometry, post.restPositions)).toBe(0);
+
+    // Non-lethal hit #1 (drops HP to 70% < 85%): bends/twists wood + spawns wood splinters + wood crack audio
+    const impact1 = V(-130.22, 2.1, 0);
+    manager.damageCollider(post.staticCollider, 60, 'smg', impact1);
+    expect(post.state).toBe('intact');
+    expect(post.hp).toBe(140);
+    const disp1 = maxVertexDisplacement(post.mesh!.geometry, post.restPositions);
+    expect(disp1).toBeGreaterThan(0.05);
+    expect(manager.splinters.woodSpawned).toBeGreaterThanOrEqual(3);
+    expect(manager.activeSplinters).toBeGreaterThan(0);
+    expect(manager.activeSplinters).toBeLessThanOrEqual(MAX_SPLINTERS);
+    expect(audioPlay).toHaveBeenCalledWith('bone_snap', expect.anything());
+
+    // Non-lethal hit #2 (drops HP to 30% < 35%): bends even further & darkens crack zone vertex colors
+    manager.damageCollider(post.staticCollider, 80, 'smg', impact1);
+    const disp2 = maxVertexDisplacement(post.mesh!.geometry, post.restPositions);
+    expect(disp2).toBeGreaterThan(disp1);
+
+    const colArr = (post.mesh!.geometry.getAttribute('color') as THREE.BufferAttribute).array as Uint8Array;
+    let darkened = false;
+    for (let i = 0; i < colArr.length; i += 4) {
+      if (colArr[i]! < post.restColors[i]! - 10) {
+        darkened = true;
+        break;
+      }
+    }
+    expect(darkened).toBe(true);
+
+    // Final lethal hit: launches with burst of 6-10 elongated wood splinters & elastic whip
+    const woodBeforeBreak = manager.splinters.woodSpawned;
+    manager.damageCollider(post.staticCollider, 100, 'smg', impact1);
+    expect(post.state).toBe('falling');
+    expect(manager.splinters.woodSpawned - woodBeforeBreak).toBeGreaterThanOrEqual(6);
+    expect(manager.activeSplinters).toBeLessThanOrEqual(MAX_SPLINTERS);
+
+    // Step splinter simulation and verify splinters advance smoothly
+    stepPhysics(manager, 15);
+    expect(manager.activeSplinters).toBeLessThanOrEqual(MAX_SPLINTERS);
+
+    manager.clear();
+  });
+
+  it('visibly dents metal vertices inward around the local impact point without breaking', () => {
+    const { manager } = makeEnv();
+    const cluster = manager.addCluster({
+      id: 'metal_dent_test',
+      kind: 'test',
+      nodes: [
+        {
+          id: 'plate',
+          pos: [-150, 2.0, 0],
+          half: [1.5, 1.5, 0.2],
+          mat: 'steel',
+          hp: 400,
+          tier: 0,
+          anchored: true,
+          kind: 'wall',
+          fractureGrid: [1, 1], // single panel to inspect denting cleanly
+        },
+      ],
+    });
+    const plate = cluster.getNode('plate')!;
+    expect(plate.materialClass).toBe('metal');
+
+    // Hit on front (+Z) face near (-0.4, +0.3, +0.2) in local space
+    const worldHit = V(-150.4, 2.3, 0.2);
+    manager.damageCollider(plate.staticCollider, 140, 'smg', worldHit);
+    expect(plate.state).toBe('intact');
+
+    const posAttr = plate.mesh!.geometry.getAttribute('position') as THREE.BufferAttribute;
+    const arr = posAttr.array as Float32Array;
+    let maxNearDentInward = 0;
+    for (let i = 0; i < posAttr.count; i++) {
+      const o = i * 3;
+      const rx = plate.restPositions[o]!;
+      const ry = plate.restPositions[o + 1]!;
+      const rz = plate.restPositions[o + 2]!;
+      if (Math.hypot(rx - (-0.4), ry - 0.3, rz - 0.2) < 0.75) {
+        // Impact came from +Z toward center (-Z direction), so inward dent moves Z negative
+        const inward = rz - arr[o + 2]!;
+        if (inward > maxNearDentInward) maxNearDentInward = inward;
+      }
+    }
+    expect(maxNearDentInward).toBeGreaterThan(0.05);
+    expect(manager.splinters.metalSpawned).toBeGreaterThanOrEqual(1);
+
+    manager.clear();
+  });
+
+  it('holds unsupported roofs in gradual hinged sagging for > 0.4s before dropping them for lethal crush damage', () => {
+    const { manager, livingEnemies, applyDamage } = makeEnv();
+    const enemy = { uid: 99, alive: true, position: V(-170, 0, 0), center: V(-170, 1.0, 0) };
+    livingEnemies.push(enemy);
+
+    const cluster = manager.addCluster({
+      id: 'sag_crush_tower',
+      kind: 'watchtower',
+      nodes: [
+        { id: 'leg_l', pos: [-172, 2.5, 0], half: [0.3, 2.5, 0.3], mat: 'plywood', hp: 50, tier: 0, anchored: true, kind: 'column' },
+        { id: 'leg_r', pos: [-168, 2.5, 0], half: [0.3, 2.5, 0.3], mat: 'plywood', hp: 50, tier: 0, anchored: true, kind: 'column' },
+        { id: 'deck', pos: [-170, 5.4, 0], half: [2.4, 0.45, 2.0], mat: 'plywood', hp: 300, tier: 0, anchored: false, kind: 'slab' },
+      ],
+      links: [
+        ['leg_l', 'deck'],
+        ['leg_r', 'deck'],
+      ],
+    });
+    const deck = cluster.getNode('deck')!;
+
+    // Knock out both legs -> deck enters gradual 0.55-0.90s hinged groan-and-sag phase
+    manager.blast(V(-172, 2.5, 0), 1.5, 100, 'rocket');
+    manager.blast(V(-168, 2.5, 0), 1.5, 100, 'rocket');
+    expect(deck.state).toBe('tilting');
+    expect(deck.tiltDuration).toBeGreaterThanOrEqual(0.55);
+    expect(deck.tiltDuration).toBeLessThanOrEqual(0.92);
+
+    const startY = deck.mesh!.position.y;
+    const startQuat = deck.mesh!.quaternion.clone();
+    const splintersBefore = manager.splinters.totalSpawned;
+
+    // After 0.42s (25 frames): MUST still be in gradual hinged sagging, visibly rotated & sagging downward,
+    // and continuously emitting joint-tearing splinters!
+    stepPhysics(manager, 25);
+    expect(deck.state).toBe('tilting');
+    expect(deck.mesh!.position.y).toBeLessThan(startY - 0.05);
+    expect(deck.mesh!.quaternion.angleTo(startQuat)).toBeGreaterThan(0.03);
+    expect(manager.splinters.totalSpawned).toBeGreaterThan(splintersBefore);
+
+    // Advance another ~1.25s so deck shears free, crashes down, and crushes the enemy underneath!
+    stepPhysics(manager, 75);
+    expect(deck.state === 'falling' || deck.state === 'settled').toBe(true);
+    expect(applyDamage).toHaveBeenCalledWith(
+      enemy,
+      expect.objectContaining({
+        amount: 350,
+        type: 'crush',
+        source: 'structural_collapse',
+        gib: true,
+      }),
+    );
+
+    manager.clear();
+  });
+
+  it('strictly caps pooled 3D splinters at MAX_SPLINTERS (90) under heavy destruction', () => {
+    const { manager } = makeEnv();
+    const nodes = [];
+    for (let i = 0; i < 30; i++) {
+      nodes.push({
+        id: `w_${i}`,
+        pos: [-200 + (i % 6) * 1.5, 1.5 + Math.floor(i / 6) * 1.5, 0] as const,
+        half: [0.4, 0.4, 0.4] as const,
+        mat: 'plywood' as const,
+        hp: 20,
+        tier: 0 as const,
+        anchored: true,
+        kind: 'column' as const,
+      });
+    }
+    manager.addCluster({ id: 'splinter_stress', kind: 'test', nodes });
+    manager.blast(V(-196, 4, 0), 25, 200, 'rocket');
+    expect(manager.splinters.totalSpawned).toBeGreaterThan(MAX_SPLINTERS);
+    expect(manager.activeSplinters).toBeLessThanOrEqual(MAX_SPLINTERS);
+    expect(manager.activeSplinters).toBe(MAX_SPLINTERS);
+    manager.clear();
+    expect(manager.activeSplinters).toBe(0);
+  });
+});
+
