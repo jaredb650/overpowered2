@@ -295,6 +295,68 @@ const bodyGoreSamples: SoundDef[] = [
 ];
 
 /**
+ * Recorded vehicle impact & aircraft missile launch audio (sfx/vehicles, the owner's own recordings).
+ * `veh_hit_light` (10 takes) and `veh_hit_heavy` (3 takes) sit on `playerHurt` at priority 8–9 so incoming hits and
+ * crashes cut cleanly through engines, gunfire, and dogfight chaos when you're inside a vehicle.
+ */
+const vehicleSamples: SoundDef[] = [
+  {
+    ...MIX.playerHurt,
+    priority: 8,
+    critical: false,
+    maxVoices: 4,
+    perFrame: 1,
+    near: 12,
+    far: 120,
+    send: 0.06,
+    pitchJitter: 0.06,
+    volume: 0.30 / 0.3,
+    id: 'veh_hit_light',
+    kind: 'sample',
+    loop: false,
+    fallback: 'metal_clang',
+    files: [
+      'vehicles/veh_hit_light_1.mp3',
+      'vehicles/veh_hit_light_2.mp3',
+      'vehicles/veh_hit_light_3.mp3',
+      'vehicles/veh_hit_light_4.mp3',
+      'vehicles/veh_hit_light_5.mp3',
+      'vehicles/veh_hit_light_6.mp3',
+      'vehicles/veh_hit_light_7.mp3',
+      'vehicles/veh_hit_light_8.mp3',
+      'vehicles/veh_hit_light_9.mp3',
+      'vehicles/veh_hit_light_10.mp3',
+    ],
+  },
+  {
+    ...MIX.playerHurt,
+    priority: 9,
+    critical: false,
+    maxVoices: 3,
+    perFrame: 1,
+    near: 18,
+    far: 220,
+    send: 0.16,
+    pitchJitter: 0.05,
+    duck: [0.22, 0.35],
+    volume: 0.42 / 0.3,
+    id: 'veh_hit_heavy',
+    kind: 'sample',
+    loop: false,
+    fallback: 'veh_crash_heavy',
+    files: [
+      'vehicles/veh_hit_heavy_1.mp3',
+      'vehicles/veh_hit_heavy_2.mp3',
+      'vehicles/veh_hit_heavy_3.mp3',
+    ],
+  },
+  shot('aircraft_missile_fire', 'vehicles/aircraft_missile_fire.mp3', 'gunHeavy', 0.27, 0.2493, {
+    maxVoices: 4, perFrame: 1, near: 18, far: 260, send: 0.24, pitchJitter: 0.04,
+  }),
+];
+
+
+/**
  * A gun shot set by how loud it lands rather than by its file's level: `level` is its place on the gun ladder and `loud`
  * is the file's own loudness (analyze.ts `loudness`, the loudest 50 ms), measured when it was added. Remeasure if a file
  * is replaced.
@@ -547,7 +609,7 @@ const gunShotIds = new Set(gunShots.map(d => d.id));
 
 export const CATALOG: ReadonlyMap<string, SoundDef> = new Map(
   [
-    ...samples, ...armourSamples, ...woundSamples, ...bodyGoreSamples, ...gunShots, ...packs, ...groups, ...stacks,
+    ...samples, ...armourSamples, ...woundSamples, ...bodyGoreSamples, ...vehicleSamples, ...gunShots, ...packs, ...groups, ...stacks,
     ...recipes.filter(rec => !gunShotIds.has(rec.id)).map(synth),
   ].map(def => [def.id, def]),
 );

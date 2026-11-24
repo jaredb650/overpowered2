@@ -191,3 +191,17 @@ Approved and supplied by the owner from their own library. On 2026-11-07 the own
 | `blood_spill_1.mp3` | Organ_Broken_01 | Supplied by the owner | Not recorded; publishing approved by the owner |
 | `blood_spill_2.mp3` | Organ_Broken_02 | Supplied by the owner | Not recorded; publishing approved by the owner |
 | `blood_spill_3.mp3` | Organ_Broken_03 | Supplied by the owner | Not recorded; publishing approved by the owner |
+| `veh_hit_light_1.mp3` | bullet_striking_metal_plate__3_.mp3 | Supplied by the owner | Not recorded; publishing approved by the owner |
+| `veh_hit_light_2.mp3` | bullet_striking_metal_plate__3_ (2).mp3 | Supplied by the owner | Not recorded; publishing approved by the owner |
+| `veh_hit_light_3.mp3` | metal_plate_hard_hit__1_.mp3 | Supplied by the owner | Not recorded; publishing approved by the owner |
+| `veh_hit_light_4.mp3` | metal_plate_hard_hit__1_ (1).mp3 | Supplied by the owner | Not recorded; publishing approved by the owner |
+| `veh_hit_light_5.mp3` | metal_plate_hard_hit__2_.mp3 | Supplied by the owner | Not recorded; publishing approved by the owner |
+| `veh_hit_light_6.mp3` | metal_plate_hard_hit__2_ (1).mp3 | Supplied by the owner | Not recorded; publishing approved by the owner |
+| `veh_hit_light_7.mp3` | metal_plate_hard_hit__3_.mp3 | Supplied by the owner | Not recorded; publishing approved by the owner |
+| `veh_hit_light_8.mp3` | metal_plate_hard_hit__3_ (1).mp3 | Supplied by the owner | Not recorded; publishing approved by the owner |
+| `veh_hit_light_9.mp3` | metal_plate_hard_hit__4_.mp3 | Supplied by the owner | Not recorded; publishing approved by the owner |
+| `veh_hit_light_10.mp3` | metal_plate_hard_hit__4_ (1).mp3 | Supplied by the owner | Not recorded; publishing approved by the owner |
+| `veh_hit_heavy_1.mp3` | metal_plate_crunching_from_explosion__1_.mp3 | Supplied by the owner | Not recorded; publishing approved by the owner |
+| `veh_hit_heavy_2.mp3` | metal_plate_crunching_from_explosion__3_.mp3 | Supplied by the owner | Not recorded; publishing approved by the owner |
+| `veh_hit_heavy_3.mp3` | metal_plate_crunching_from_explosion__4_.mp3 | Supplied by the owner | Not recorded; publishing approved by the owner |
+| `aircraft_missile_fire.mp3` | aircraftFireMissile.mp3 | Supplied by the owner | Not recorded; publishing approved by the owner |

@@ -28,7 +28,7 @@ declare module '../../core/contracts' {
     /** Emitted whenever a player aircraft deploys IR flares / smoke countermeasures. */
     'dogfight:player_flares': { position: THREE.Vector3 };
     /** Enemy air-to-air gunfire / Fox-2 missile hit applied directly to the player's active aircraft hull. */
-    'dogfight:damage_player_jet': { amount: number; from: THREE.Vector3 };
+    'dogfight:damage_player_jet': { amount: number; from: THREE.Vector3; heavy?: boolean };
     /** Player-driven vehicle hitscan gunfire / lance / flare visual FX for co-op teammates. */
     'vehicle:fx': {
       kind: 'ray' | 'flare';
@@ -130,8 +130,9 @@ export class DriveableManager {
       this.active?.setExternalRwr(locking, lockStrength, missileInbound, label ?? '');
     });
 
-    ctx.events.on('dogfight:damage_player_jet', ({ amount, from }) => {
-      this.active?.absorbDamage(amount, from);
+    ctx.events.on('dogfight:damage_player_jet', ({ amount, from, heavy }) => {
+      const kind = heavy === true ? 'heavy' : heavy === false ? 'light' : undefined;
+      this.active?.absorbDamage(amount, from, false, kind);
     });
 
     ctx.events.on('run:start', () => {

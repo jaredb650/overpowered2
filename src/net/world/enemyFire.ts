@@ -23,7 +23,7 @@ import { validVec, type Vec } from './wire';
 
 const PROJECTILE_KINDS = ['bullet', 'rocket', 'grenade', 'shell', 'plasma', 'stake'] as const;
 type WireKind = typeof PROJECTILE_KINDS[number];
-const TRAILS: readonly ProjectileTrail[] = ['none', 'smoke', 'big', 'hellfire', 'rings', 'sparks', 'swarm', 'plasma'];
+const TRAILS: readonly ProjectileTrail[] = ['none', 'smoke', 'big', 'hellfire', 'rings', 'sparks', 'swarm', 'plasma', 'missile'];
 const TRACERS: readonly TracerKind[] = ['scout', 'bullet', 'heavy', 'hellfire', 'bloodthirst', 'berserk', 'plasma', 'rail', 'enemy', 'carbine', 'pistol',
   'sabot', 'snipe', 'ap', 'hp', 'plusP', 'flechette', 'api', 'raufoss', 'scoutLong'];
 const MUZZLES: readonly MuzzleKind[] = ['smg', 'rifle', 'shotgun', 'rocket', 'autocannon', 'plasma', 'railgun', 'minigun', 'revolver', 'flame', 'enemy',

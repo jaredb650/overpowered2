@@ -24,6 +24,8 @@ import { isGuest } from '../core/coop';
 const MAX_PROJECTILES = 256;
 const UP = new THREE.Vector3(0, 1, 0);
 const HELIX_SMOKE_STEP = 0.4;
+/** Metres between volumetric smoke billows along an aircraft missile contrail. */
+const MISSILE_SMOKE_STEP = 4.2;
 const PLAYER_RADIUS = 0.45;
 const WHIZZ_RADIUS = 3;
 const GRENADE_RADIUS = 0.11;
@@ -1237,6 +1239,29 @@ export class Projectiles {
           if (Math.random() < 0.5) fx.smoke(at, 0xffaa00, 0.3, 0.8);
         }
         break;
+      case 'missile': {
+        // Prominent aircraft missile contrail: distance-spaced lit smoke billows (size > 1.2 uses volumetric smoke
+        // rather than tiny cubes) so curved air-to-air trajectories read cleanly across the sky without overwhelming
+        // it like the killstreak anti-air SAM.
+        const gap = p.lastTrail.distanceTo(p.position);
+        const steps = Math.min(6, Math.floor(gap / MISSILE_SMOKE_STEP));
+        if (steps > 0) {
+          const smokeColor = p.team === 'enemy' ? 0xdcd6ce : 0xe4e8ec;
+          for (let s = 1; s <= steps; s++) {
+            at.lerpVectors(p.lastTrail, p.position, (s * MISSILE_SMOKE_STEP) / gap);
+            fx.smoke(at, smokeColor, 1.32, 2.45);
+          }
+          p.lastTrail.lerp(p.position, (steps * MISSILE_SMOKE_STEP) / gap);
+        }
+        if (p.smokeClock >= 0.032) {
+          p.smokeClock = 0;
+          const tail = this.behind(p, 0.35, at);
+          fx.smoke(tail, 0xffaa44, 0.42, 0.22);
+          this.w.copy(p.velocity).negate();
+          fx.sparks(tail, this.w, 2, p.team === 'enemy' ? 0xff9238 : 0xffcf70);
+        }
+        break;
+      }
       case 'rings':
         if (p.ringClock >= 0.06 && moved) {
           p.ringClock = 0;

@@ -76,6 +76,7 @@ export function dogfightWaveSkill(wave: number): number {
 interface AirProjectile {
   mesh: THREE.Mesh;
   pos: THREE.Vector3;
+  lastTrail: THREE.Vector3;
   vel: THREE.Vector3;
   team: AiJetTeam;
   damage: number;
@@ -92,6 +93,8 @@ interface AirProjectile {
 
 const _v = new THREE.Vector3();
 const _v2 = new THREE.Vector3();
+const _trailPt = new THREE.Vector3();
+const _back = new THREE.Vector3();
 const _up = new THREE.Vector3(0, 1, 0);
 const _quat = new THREE.Quaternion();
 const _zAxis = new THREE.Vector3(0, 0, 1);
@@ -586,7 +589,7 @@ export class DogfightWaves implements WaveSystem {
       },
       onMissileLaunch: (from, dir, team, _targetPos, targetJet, damage) => {
         this.spawnProjectile(from, dir, team, damage, 152, true, targetJet, team === 'enemy');
-        this.ctx.audio?.play?.('rocket_fire', { position: from, volume: 0.65, pitch: 1.05 });
+        this.ctx.audio?.play?.('aircraft_missile_fire', { position: from, volume: 0.72, pitch: 1.02 });
         if (team === 'enemy' && this.missileWarnCd <= 0) {
           this.missileWarnCd = 4.0;
           this.ctx.hud?.feed?.('MISSILE ALERT — BANDIT FOX-2 INBOUND! POP [Q] FLARES!', '#ff3864');
@@ -676,7 +679,7 @@ export class DogfightWaves implements WaveSystem {
       },
       onMissileLaunch: (from, dir, team, _targetPos, targetJet, damage) => {
         this.spawnProjectile(from, dir, team, damage, 165, true, targetJet, false);
-        this.ctx.audio?.play?.('rocket_fire', { position: from, volume: 0.55, pitch: 1.15 });
+        this.ctx.audio?.play?.('aircraft_missile_fire', { position: from, volume: 0.65, pitch: 1.08 });
       },
       onCarrierStrike: () => { /* Allies never strike the carrier. */ },
       onKilled: killed => {
@@ -918,6 +921,7 @@ export class DogfightWaves implements WaveSystem {
     this.projectiles.push({
       mesh,
       pos: from.clone(),
+      lastTrail: from.clone(),
       vel: dir.clone().multiplyScalar(speed),
       team,
       damage,
@@ -961,22 +965,47 @@ export class DogfightWaves implements WaveSystem {
           p.mesh.quaternion.copy(_quat);
         }
 
-        p.smokeCd -= dt;
-        if (p.smokeCd <= 0) {
-          p.smokeCd = 0.045;
-          this.ctx.fx?.sparks?.(p.pos, _up, 2, p.team === 'ally' ? 0xb8f3ff : 0xffb380);
-        }
-      } else if (p.rocket) {
-        p.smokeCd -= dt;
-        if (p.smokeCd <= 0) {
-          p.smokeCd = 0.045;
-          this.ctx.fx?.sparks?.(p.pos, _up, 2, 0xffc078);
-        }
       }
 
       const prevY = p.pos.y;
       p.pos.addScaledVector(p.vel, dt);
       p.mesh.position.copy(p.pos);
+
+      if (p.missile) {
+        const dist = p.pos.distanceTo(p.lastTrail);
+        if (dist >= 4.2) {
+          const steps = Math.min(6, Math.floor(dist / 4.2));
+          const smokeColor = p.team === 'ally' ? 0xe4e8ec : 0xdcd6ce;
+          for (let s = 1; s <= steps; s++) {
+            _trailPt.lerpVectors(p.lastTrail, p.pos, s / steps);
+            this.ctx.fx?.smoke?.(_trailPt, smokeColor, 1.32, 2.45);
+          }
+          p.lastTrail.copy(p.pos);
+        }
+        p.smokeCd -= dt;
+        if (p.smokeCd <= 0) {
+          p.smokeCd = 0.032;
+          this.ctx.fx?.smoke?.(p.pos, 0xffaa44, 0.42, 0.22);
+          _back.copy(p.vel).normalize().negate();
+          this.ctx.fx?.sparks?.(p.pos, _back, 2, p.team === 'ally' ? 0xb8f3ff : 0xffb380);
+        }
+      } else if (p.rocket) {
+        const dist = p.pos.distanceTo(p.lastTrail);
+        if (dist >= 5.5) {
+          const steps = Math.min(4, Math.floor(dist / 5.5));
+          for (let s = 1; s <= steps; s++) {
+            _trailPt.lerpVectors(p.lastTrail, p.pos, s / steps);
+            this.ctx.fx?.smoke?.(_trailPt, 0xc8c2b8, 1.24, 1.4);
+          }
+          p.lastTrail.copy(p.pos);
+        }
+        p.smokeCd -= dt;
+        if (p.smokeCd <= 0) {
+          p.smokeCd = 0.045;
+          _back.copy(p.vel).normalize().negate();
+          this.ctx.fx?.sparks?.(p.pos, _back, 2, 0xffc078);
+        }
+      }
 
       let hit = false;
       if (p.damage > 0) {
@@ -1032,6 +1061,7 @@ export class DogfightWaves implements WaveSystem {
                 this.ctx.events.emit('dogfight:damage_player_jet', {
                   amount: p.damage,
                   from: p.pos.clone(),
+                  heavy: Boolean(p.missile || p.rocket),
                 });
               } else {
                 player.takeDamage({

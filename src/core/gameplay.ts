@@ -510,10 +510,10 @@ export interface ExplosionSpec {
 }
 
 /**
- * Dotted smoke, Hellfire smoke, the heavy strike smoke, 30mm rings, a plasma spark line, a missile's thin quick smoke, or
- * the wake of the Lance's plasma ball: sparks with a ring pulse every few metres.
+ * Dotted smoke, Hellfire smoke, the heavy strike smoke, prominent aircraft missile contrail smoke, 30mm rings, a plasma
+ * spark line, a missile's thin quick smoke, or the wake of the Lance's plasma ball: sparks with a ring pulse every few metres.
  */
-export type ProjectileTrail = 'none' | 'smoke' | 'big' | 'hellfire' | 'rings' | 'howitzer' | 'sparks' | 'swarm' | 'plasma';
+export type ProjectileTrail = 'none' | 'smoke' | 'big' | 'hellfire' | 'rings' | 'howitzer' | 'sparks' | 'swarm' | 'plasma' | 'missile';
 
 export interface ProjectileSpec {
   origin: THREE.Vector3;

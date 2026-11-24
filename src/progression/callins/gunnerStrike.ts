@@ -197,6 +197,11 @@ export abstract class GunnerStrike<M extends string> implements Aircraft {
 
   hit(): boolean {
     if (this.crash) return false;
+    this.kit.ctx.audio.play('veh_hit_heavy', {
+      volume: this.flown ? 0.94 : 0.72,
+      position: this.heard,
+      unaffectedByTime: true,
+    });
     if (--this.hits > 0) {
       this.radio.say('WE ARE HIT. STILL FLYING.');
       if (this.flown) this.kit.ctx.camera.addTrauma(0.7);
@@ -210,7 +215,11 @@ export abstract class GunnerStrike<M extends string> implements Aircraft {
     // A mission's fixed flight goes down where the mission says, and nowhere else.
     if (this.crash || this.scripted || this.plan.armour.rounds <= 0) return false;
     if (this.flown) this.kit.ctx.camera.addTrauma(0.12);
-    this.kit.ctx.audio.play('impact_metal', { volume: 0.7, position: this.heard });
+    this.kit.ctx.audio.play('veh_hit_light', {
+      volume: this.flown ? 0.82 : 0.62,
+      position: this.heard,
+      unaffectedByTime: true,
+    });
     if (--this.rounds > 0) {
       if (this.rounds % 8 === 0) this.radio.say('TAKING ROUNDS. TAKING ROUNDS.');
       return false;
@@ -554,7 +563,7 @@ export abstract class GunnerStrike<M extends string> implements Aircraft {
       return;
     }
     if (!this.ai) kit.ctx.camera.addTrauma(0.3);
-    kit.ctx.audio.play('impact_metal', { volume: 0.9, position: this.heard });
+    kit.ctx.audio.play('veh_hit_light', { volume: this.flown ? 0.9 : 0.7, position: this.heard, unaffectedByTime: true });
     if (this.hitCalls % HITS_PER_CALL === 1) radio.say('TAKING FIRE. KILL THAT GUNSHIP.');
   }
 

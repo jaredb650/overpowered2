@@ -81,6 +81,17 @@ const RESUPPLY_RADIUS = 14;
 const AUTO_TURRET_RANGE = 68;
 const MAX_LEAD_PIPS = 6;
 
+export type VehicleDamageKind = 'light' | 'heavy' | 'crash';
+
+const HEAVY_DAMAGE_SOURCE =
+  /missile|rocket|aam|sam|cannon|bomb|mortar|shell|flak|blast|explod|atgm|artillery|howitzer|rail|lance|nuke|strike/i;
+
+function classifyVehicleDamage(damage: PlayerDamage): VehicleDamageKind {
+  if (damage.type === 'explosive' || damage.type === 'crush') return 'heavy';
+  if (damage.source && HEAVY_DAMAGE_SOURCE.test(damage.source)) return 'heavy';
+  return 'light';
+}
+
 const MOUNT_SPECS: Readonly<Record<VehicleMountGun, GunSpec>> = {
   hybrid: HYBRID_HMG_AGL,
   m134: M134,
@@ -148,6 +159,9 @@ export class DriveableVehicle {
   private smokeTimer = 0;
   private dustTimer = 0;
   private crashAudioCooldown = 0;
+  private bumpAudioCooldown = 0;
+  private lightHitAudioCooldown = 0;
+  private heavyHitAudioCooldown = 0;
   private lanceChargeBeep = 0;
   private wasBoosting = false;
   private wasAbandonedFall = false;
@@ -178,7 +192,8 @@ export class DriveableVehicle {
   private kinCollider: RAPIER.Collider | null = null;
   private bumperShape: RAPIER.Cuboid | null = null;
 
-  private readonly damageIntercept = (damage: PlayerDamage): boolean => this.absorbDamage(damage.amount, damage.from);
+  private readonly damageIntercept = (damage: PlayerDamage): boolean =>
+    this.absorbDamage(damage.amount, damage.from, false, classifyVehicleDamage(damage));
   private readonly inputScratch: VehicleInput = {
     throttle: 0,
     steer: 0,
@@ -764,7 +779,13 @@ export class DriveableVehicle {
   }
 
   /** Applies damage to the vehicle hull (directional armor, Bastion deployed resistance & kamikaze detonation). */
-  absorbDamage(amount: number, from?: THREE.Vector3, kamikaze = false): boolean {
+  absorbDamage(
+    amount: number,
+    from?: THREE.Vector3,
+    kamikaze = false,
+    kind?: VehicleDamageKind,
+    playSound = true,
+  ): boolean {
     if (!this.alive || amount <= 0) return true;
     let mult = 1;
     if (from) {
@@ -783,9 +804,49 @@ export class DriveableVehicle {
 
     const dealt = amount * mult;
     this.health = Math.max(0, this.health - dealt);
+
+    const heavy =
+      kind === 'heavy' ||
+      kind === 'crash' ||
+      (kind === 'light'
+        ? dealt >= 95 || dealt >= this.def.maxHealth * 0.14
+        : dealt >= 45 || dealt >= this.def.maxHealth * 0.085);
+
     if (this.occupied) {
-      this.ctx.camera?.addTrauma?.(clamp(dealt * 0.008, 0.06, 0.48));
-      this.ctx.audio?.play('metal_clang', { position: this.phys.position, volume: 0.48, pitch: rand(0.82, 1.15) });
+      this.ctx.camera?.addTrauma?.(clamp(dealt * (heavy ? 0.011 : 0.008), heavy ? 0.14 : 0.06, 0.48));
+    }
+    if (playSound) {
+      if (heavy) {
+        if (this.heavyHitAudioCooldown <= 0) {
+          this.heavyHitAudioCooldown = 0.18;
+          if (this.occupied) {
+            this.ctx.audio?.play('veh_hit_heavy', {
+              volume: clamp(0.84 + dealt * 0.003, 0.84, 1.0),
+              pitch: rand(0.92, 1.08),
+            });
+          } else {
+            this.ctx.audio?.play('veh_hit_heavy', {
+              position: this.phys.position,
+              volume: 0.72,
+              pitch: rand(0.92, 1.08),
+            });
+          }
+        }
+      } else if (this.lightHitAudioCooldown <= 0) {
+        this.lightHitAudioCooldown = 0.085;
+        if (this.occupied) {
+          this.ctx.audio?.play('veh_hit_light', {
+            volume: clamp(0.74 + dealt * 0.008, 0.74, 1.0),
+            pitch: rand(0.94, 1.08),
+          });
+        } else {
+          this.ctx.audio?.play('veh_hit_light', {
+            position: this.phys.position,
+            volume: 0.56,
+            pitch: rand(0.94, 1.08),
+          });
+        }
+      }
     }
     if (this.health <= 0) {
       this.explodeAndDestroy(kamikaze || this.phys.speed >= 18);
@@ -798,6 +859,9 @@ export class DriveableVehicle {
     if (!this.alive || this.disposed || dt <= 0) return;
     this.clock += dt;
     if (this.crashAudioCooldown > 0) this.crashAudioCooldown = Math.max(0, this.crashAudioCooldown - dt);
+    if (this.bumpAudioCooldown > 0) this.bumpAudioCooldown = Math.max(0, this.bumpAudioCooldown - dt);
+    if (this.lightHitAudioCooldown > 0) this.lightHitAudioCooldown = Math.max(0, this.lightHitAudioCooldown - dt);
+    if (this.heavyHitAudioCooldown > 0) this.heavyHitAudioCooldown = Math.max(0, this.heavyHitAudioCooldown - dt);
     if (this.ramVehicleCooldown > 0) this.ramVehicleCooldown = Math.max(0, this.ramVehicleCooldown - dt);
     if (this.wallCrashCooldown > 0) this.wallCrashCooldown = Math.max(0, this.wallCrashCooldown - dt);
     if (this.autoAglCooldown > 0) this.autoAglCooldown = Math.max(0, this.autoAglCooldown - dt);
@@ -1748,6 +1812,7 @@ export class DriveableVehicle {
       _vel.copy(_dir).multiplyScalar(m.speed);
       if (this.def.category === 'jet') _vel.addScaledVector(this.phys.velocity, 0.35);
       const missileTurn = this.def.id === 'raptor' ? 7.6 : this.def.id === 'hornet' ? 6.0 : 4.8;
+      const isAircraft = this.def.category === 'jet' || this.def.category === 'helicopter';
       this.ctx.combat.spawnProjectile({
         origin: _muzzle,
         velocity: _vel,
@@ -1757,7 +1822,7 @@ export class DriveableVehicle {
         bossDamage: m.damage * 1.3,
         source: `${this.def.id}_atgm`,
         lifetime: 8,
-        trail: 'hellfire',
+        trail: isAircraft ? 'missile' : 'hellfire',
         target: lock,
         turnRate: lock ? missileTurn : 0,
         armorPiercing: true,
@@ -1856,7 +1921,10 @@ export class DriveableVehicle {
     }
     this.ctx.audio?.play(m.audio, {
       position: _muzzle,
-      volume: m.kind === 'cannon' || m.kind === 'bomb' ? 0.95 : 0.74,
+      volume:
+        m.kind === 'cannon' || m.kind === 'bomb' || m.kind === 'atgm' || m.audio === 'aircraft_missile_fire'
+          ? 0.95
+          : 0.74,
       pitch: m.audioPitch,
       pitchJitter: 0.04,
     });
@@ -2059,12 +2127,31 @@ export class DriveableVehicle {
 
     // 2. Abandoned falling aircraft slamming into terrain or buildings -> dramatic fireball!
     if (!occupied && this.phys.abandonedFall && (this.phys.crashImpact > 10 || this.phys.grounded)) {
-      this.ctx.audio?.play('veh_crash_heavy', { position: this.phys.position, volume: 0.95, pitch: 0.8 });
+      this.ctx.audio?.play('veh_hit_heavy', { position: this.phys.position, volume: 0.95, pitch: 0.85 });
       this.explodeAndDestroy(true);
       return;
     }
 
-    // 3. High-speed wall / ground crash damage (forgiving threshold + cooldown + capped self-damage so driving feels great!).
+    // 3. Wall / ground crash feedback:
+    //    - Minor bumps / hard landings (`7..25 m/s`): crisp light hull thud + light sparks (no self-damage).
+    //    - High-speed wall / ground crashes (`> 25 m/s`): heavy crunch + capped self-damage.
+    if (this.phys.crashImpact > 7 && this.phys.crashImpact <= 25 && this.bumpAudioCooldown <= 0) {
+      const impact = this.phys.crashImpact;
+      this.bumpAudioCooldown = 0.38;
+      const bumpVol = clamp(0.55 + (impact - 7) * 0.02, 0.55, 0.9);
+      if (occupied) {
+        this.ctx.audio?.play('veh_hit_light', { volume: bumpVol, pitch: rand(0.92, 1.06) });
+        this.ctx.camera?.addTrauma?.(clamp(impact * 0.006, 0.04, 0.14));
+      } else {
+        this.ctx.audio?.play('veh_hit_light', {
+          position: this.phys.position,
+          volume: bumpVol * 0.7,
+          pitch: rand(0.92, 1.06),
+        });
+      }
+      this.ctx.fx?.sparks?.(this.phys.position, this.phys.crashNormal, 8, 0xffc864);
+    }
+
     if (this.wallCrashCooldown <= 0 && this.phys.crashImpact > 25) {
       const impact = this.phys.crashImpact;
       this.wallCrashCooldown = 1.15;
@@ -2074,11 +2161,21 @@ export class DriveableVehicle {
       const dmg = Math.min(rawDmg, maxCap);
       if (this.crashAudioCooldown <= 0) {
         this.crashAudioCooldown = 0.45;
-        this.ctx.audio?.play('veh_crash_heavy', { position: this.phys.position, volume: 0.85, pitch: 0.92 });
+        this.heavyHitAudioCooldown = Math.max(this.heavyHitAudioCooldown, 0.25);
+        const crashVol = clamp(0.86 + (impact - 25) * 0.005, 0.86, 1.0);
+        if (occupied) {
+          this.ctx.audio?.play('veh_hit_heavy', { volume: crashVol, pitch: rand(0.9, 1.02) });
+        } else {
+          this.ctx.audio?.play('veh_hit_heavy', {
+            position: this.phys.position,
+            volume: 0.82,
+            pitch: rand(0.9, 1.02),
+          });
+        }
         this.ctx.fx?.sparks?.(this.phys.position, this.phys.crashNormal, 18, 0xffae3a);
       }
       if (occupied) this.ctx.camera?.addTrauma?.(clamp(impact * 0.011, 0.16, 0.55));
-      this.absorbDamage(dmg, undefined, isCatastrophicJetDive);
+      this.absorbDamage(dmg, undefined, isCatastrophicJetDive, 'crash', false);
       if (!this.alive) return;
     }
 
@@ -2100,7 +2197,14 @@ export class DriveableVehicle {
         _dir.y = 0;
         if (_dir.lengthSq() < 0.01) _dir.set(0, 0, -1);
         else _dir.normalize();
-        this.ctx.audio?.play('veh_crash_heavy', { position: res.point, volume: 0.95, pitch: res.armored ? 0.82 : 1.05 });
+        const heavyRam = impactSpeed >= 15 || res.armored || res.killed;
+        const ramSound = heavyRam ? 'veh_hit_heavy' : 'veh_hit_light';
+        const ramPitch = res.armored ? 0.9 : 1.04;
+        if (occupied) {
+          this.ctx.audio?.play(ramSound, { volume: heavyRam ? 0.94 : 0.82, pitch: ramPitch });
+        } else {
+          this.ctx.audio?.play(ramSound, { position: res.point, volume: heavyRam ? 0.86 : 0.72, pitch: ramPitch });
+        }
         this.ctx.fx?.sparks?.(res.point, _dir, 28, 0xffb84d);
         if (occupied) this.ctx.camera?.addTrauma?.(clamp(impactSpeed * 0.014, 0.22, 0.52));
 
@@ -2116,7 +2220,7 @@ export class DriveableVehicle {
         const capFrac = this.def.mass >= 6 ? 0.03 : this.def.mass >= 1.5 ? 0.07 : 0.12;
         const rawSelf = (res.armored ? 72 : 34) * clamp(impactSpeed / 22, 0.5, 1.5) * (1 / Math.max(0.8, Math.sqrt(this.def.mass)));
         const selfDmg = Math.min(Math.round(rawSelf), Math.round(this.def.maxHealth * capFrac));
-        this.absorbDamage(selfDmg, undefined, false);
+        this.absorbDamage(selfDmg, undefined, false, heavyRam ? 'crash' : 'light', false);
       }
     }
   }

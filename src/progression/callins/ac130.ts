@@ -289,6 +289,11 @@ export class Ac130 implements Aircraft {
 
   hit(): boolean {
     if (this.crash) return false;
+    this.kit.ctx.audio.play('veh_hit_heavy', {
+      volume: this.flown ? 0.94 : 0.72,
+      position: this.flown ? undefined : this.position,
+      unaffectedByTime: true,
+    });
     if (--this.hits > 0) {
       this.radio.say(this.hits === 1 ? 'HIT AGAIN. WE CANNOT TAKE ANOTHER.' : 'WE ARE HIT. NUMBER TWO ENGINE IS OUT.');
       if (this.flown) this.kit.ctx.camera.addTrauma(0.6);

@@ -1748,16 +1748,17 @@ export class Frame {
     }
     if (res.part === 'reactor') {
       audio.play('plate_destroyed', { pitch: 0.75, volume: 0.9 });
+      audio.play('veh_hit_heavy', { pitch: rand(0.9, 1.04), volume: 0.9 });
       camera.addTrauma(0.45);
       render.post.chromatic(0.24, 0.16);
       hud.feed('REAR REACTOR HIT', FRAME_COLOR);
-    } else if (res.dealt >= 40) {
-      audio.play('metal_clang', { pitch: rand(0.6, 0.85), volume: 0.85 });
+    } else if (res.dealt >= 40 || damage.type === 'explosive' || damage.type === 'crush') {
+      audio.play('veh_hit_heavy', { pitch: rand(0.9, 1.06), volume: 0.92 });
       audio.play('metal_groan', { pitch: rand(0.7, 0.95), volume: 0.55 });
       camera.addTrauma(clamp(res.dealt / 180, 0.12, 0.42));
       render.post.chromatic(0.22, 0.14);
     } else {
-      audio.play('metal_clang', { pitch: rand(0.95, 1.3), volume: 0.38 });
+      audio.play('veh_hit_light', { pitch: rand(0.92, 1.08), volume: 0.72 });
       camera.addTrauma(0.035);
     }
     if (res.broke === 'leftLeg' || res.broke === 'rightLeg') {

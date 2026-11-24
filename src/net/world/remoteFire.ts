@@ -72,7 +72,7 @@ export type KitEvent = { t: 'held'; weapon: string; mods: string[]; slot?: numbe
 export type KataEvent = { t: 'kata' };
 
 const PROJECTILES: readonly ProjectileSpec['kind'][] = ['rocket', 'shell', 'grenade', 'bullet', 'plasma', 'stake'];
-const TRAILS: readonly ProjectileTrail[] = ['none', 'smoke', 'big', 'hellfire', 'rings', 'howitzer', 'sparks', 'swarm', 'plasma'];
+const TRAILS: readonly ProjectileTrail[] = ['none', 'smoke', 'big', 'hellfire', 'rings', 'howitzer', 'sparks', 'swarm', 'plasma', 'missile'];
 /**
  * What a guest may send in a second, by kind, each with its own count (they shared one of 40 once: a fast explosive gun's
  * launches and landings together ran it out, and copies went untold where they ended). `end` is a round's landing: one for

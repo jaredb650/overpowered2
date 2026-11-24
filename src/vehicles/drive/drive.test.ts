@@ -1195,6 +1195,131 @@ describe('AAA Driveable Vehicles (13-Vehicle Fleet)', () => {
     expect(layers.bombChuteLines!.count).toBe(1);
     projectiles.clear();
   });
+
+  it('routes vehicle bullet/minor hits, explosive/major hits, and bumps/crashes to distinct 2D/3D damage audio', () => {
+    const h = makeDriveHarness();
+    const mgr = new DriveableManager(h.ctx, makeMaterials(), h.seats, h.setHolstered);
+    const v = mgr.spawn('jackal', new THREE.Vector3(0, 0, 0), 0);
+    v.board(0);
+    h.audioPlay.mockClear();
+
+    // 1. Bullet hit while occupied -> 2D veh_hit_light (no spatial position so it cuts through engine noise).
+    const intercept = h.ctx.player.interceptor as ((d: { amount: number; type: string; source: string; from?: THREE.Vector3 }) => boolean) | null;
+    expect(intercept).toBeTruthy();
+    intercept!({ amount: 14, type: 'bullet', source: 'rifle', from: new THREE.Vector3(0, 1, 20) });
+    const lightCall = h.audioPlay.mock.calls.find(([id]) => id === 'veh_hit_light');
+    expect(lightCall).toBeTruthy();
+    expect(lightCall?.[1]?.position).toBeUndefined();
+
+    // 2. Explosive / missile hit while occupied -> 2D veh_hit_heavy.
+    h.audioPlay.mockClear();
+    intercept!({ amount: 60, type: 'explosive', source: 'enemy_rocket', from: new THREE.Vector3(0, 1, 20) });
+    const heavyCall = h.audioPlay.mock.calls.find(([id]) => id === 'veh_hit_heavy');
+    expect(heavyCall).toBeTruthy();
+    expect(heavyCall?.[1]?.position).toBeUndefined();
+
+    // 3. dogfight:damage_player_jet honors explicit heavy: false (gunfire) vs heavy: true (Fox-2 missile).
+    v.update(0.3);
+    h.audioPlay.mockClear();
+    h.ctx.events.emit('dogfight:damage_player_jet', { amount: 18, from: new THREE.Vector3(0, 50, 80), heavy: false });
+    expect(h.audioPlay.mock.calls.some(([id]) => id === 'veh_hit_light')).toBe(true);
+    expect(h.audioPlay.mock.calls.some(([id]) => id === 'veh_hit_heavy')).toBe(false);
+
+    v.update(0.3);
+    h.audioPlay.mockClear();
+    h.ctx.events.emit('dogfight:damage_player_jet', { amount: 28, from: new THREE.Vector3(0, 50, 80), heavy: true });
+    expect(h.audioPlay.mock.calls.some(([id]) => id === 'veh_hit_heavy')).toBe(true);
+
+    // 4. Minor wall bump (crashImpact 7..25) -> 2D veh_hit_light, no self-damage.
+    const hpBeforeBump = v.health;
+    v.update(0.5);
+    h.audioPlay.mockClear();
+    v.phys.crashImpact = 14;
+    (v as unknown as { stepCrashAndRam(dt: number, occupied: boolean): void }).stepCrashAndRam(1 / 30, true);
+    expect(v.health).toBe(hpBeforeBump);
+    expect(h.audioPlay.mock.calls.filter(([id]) => id === 'veh_hit_light').length).toBe(1);
+
+    // 5. High-speed wall crash (crashImpact > 25) -> exactly one 2D veh_hit_heavy (no double-trigger via absorbDamage).
+    v.update(0.6);
+    h.audioPlay.mockClear();
+    v.phys.crashImpact = 32;
+    (v as unknown as { stepCrashAndRam(dt: number, occupied: boolean): void }).stepCrashAndRam(1 / 30, true);
+    const heavyCrashCalls = h.audioPlay.mock.calls.filter(([id]) => id === 'veh_hit_heavy');
+    expect(heavyCrashCalls.length).toBe(1);
+    expect(heavyCrashCalls[0]?.[1]?.position).toBeUndefined();
+    expect(v.health).toBeLessThan(hpBeforeBump);
+
+    // 6. Unmanned / parked vehicle hit -> 3D positional audio.
+    v.exit(true);
+    v.update(0.3);
+    h.audioPlay.mockClear();
+    v.absorbDamage(15, new THREE.Vector3(0, 1, 10), false, 'light');
+    const parkedCall = h.audioPlay.mock.calls.find(([id]) => id === 'veh_hit_light');
+    expect(parkedCall).toBeTruthy();
+    expect(parkedCall?.[1]?.position).toBeDefined();
+
+    mgr.clear();
+  });
+
+  it('wires aircraft missiles to aircraft_missile_fire + prominent volumetric missile smoke trails', () => {
+    // Verify catalog entries for all new vehicle & aircraft missile sounds.
+    expect(lookup('veh_hit_light')?.files?.length).toBe(10);
+    expect(lookup('veh_hit_heavy')?.files?.length).toBe(3);
+    expect(lookup('aircraft_missile_fire')?.file).toBe('vehicles/aircraft_missile_fire.mp3');
+
+    // Verify all aircraft homing missile weapon modes use aircraft_missile_fire, while Aegis ground ATGM keeps rocket_fire.
+    expect(DRIVE_VEHICLES.kestrel.seats[1]?.secondary?.audio).toBe('aircraft_missile_fire');
+    expect(DRIVE_VEHICLES.harrier.seats[0]?.secondary?.thirdMode?.audio).toBe('aircraft_missile_fire');
+    expect(DRIVE_VEHICLES.warthog.seats[0]?.secondary?.thirdMode?.audio).toBe('aircraft_missile_fire');
+    expect(DRIVE_VEHICLES.raptor.seats[0]?.secondary?.audio).toBe('aircraft_missile_fire');
+    expect(DRIVE_VEHICLES.raptor.seats[0]?.secondary?.altMode?.audio).toBe('aircraft_missile_fire');
+    expect(DRIVE_VEHICLES.hornet.seats[0]?.secondary?.audio).toBe('aircraft_missile_fire');
+    expect(DRIVE_VEHICLES.hornet.seats[0]?.secondary?.altMode?.audio).toBe('aircraft_missile_fire');
+    expect(DRIVE_VEHICLES.aegis.seats[1]?.secondary?.audio).toBe('rocket_fire');
+
+    // Fire a Raptor Sidewinder -> spawns with trail: 'missile' and plays aircraft_missile_fire at cockpit-audible 0.95 volume.
+    const h = makeDriveHarness();
+    const raptor = new DriveableVehicle(h.ctx, makeMaterials(), h.seats, h.setHolstered, 'raptor', new THREE.Vector3(0, 60, 0), 0);
+    raptor.board(0);
+    h.audioPlay.mockClear();
+    h.spawnProjectile.mockClear();
+    h.held.add('aim');
+    raptor.update(1 / 30);
+    h.held.delete('aim');
+    expect(h.spawnProjectile).toHaveBeenCalledWith(expect.objectContaining({ source: 'raptor_atgm', trail: 'missile' }));
+    expect(h.audioPlay).toHaveBeenCalledWith('aircraft_missile_fire', expect.objectContaining({ volume: 0.95 }));
+    raptor.dispose();
+
+    // Verify Projectiles 'missile' trail emits volumetric lit smoke billows (size > 1.2) along distance steps.
+    const smokeSpy = vi.fn();
+    const sparksSpy = vi.fn();
+    const projCtx = {
+      render: { scene: new THREE.Scene() },
+      time: { elapsed: 0, realDt: 0.05 },
+      physics: { raycast: () => null },
+      enemies: { raycast: () => null, query: () => 0, nearby: () => [], vehicles: undefined },
+      fx: { smoke: smokeSpy, ring: vi.fn(), sparks: sparksSpy, impact: vi.fn() },
+      audio: { play: vi.fn(), startLoop: vi.fn() },
+    } as unknown as Ctx;
+    const projectiles = new Projectiles(projCtx, { watching: 0, explode: vi.fn(), napalmBurst: vi.fn() } as unknown as Combat);
+    projectiles.init();
+    projectiles.spawn({
+      origin: new THREE.Vector3(0, 80, 0),
+      velocity: new THREE.Vector3(0, 0, 170),
+      kind: 'rocket',
+      team: 'player',
+      damage: 480,
+      source: 'raptor_atgm',
+      lifetime: 5,
+      trail: 'missile',
+    });
+    for (let i = 0; i < 6; i++) projectiles.update(0.05);
+    const volumetricCalls = smokeSpy.mock.calls.filter((call) => typeof call[2] === 'number' && call[2] > 1.2);
+    expect(volumetricCalls.length).toBeGreaterThanOrEqual(8);
+    expect(sparksSpy).toHaveBeenCalled();
+    projectiles.clear();
+  });
 });
+
 
 
