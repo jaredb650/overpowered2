@@ -109,7 +109,7 @@ export function reportSolo(): void { ++lobbyGeneration; reporter.context({ role:
 export function startReporting(): void {
   if (typeof window === 'undefined') return;
   const mode = new URLSearchParams(location.search).get('contract') ?? 'crucible';
-  reporter.context({ mode: ['crucible', 'outpost', 'defense', 'campaign', 'foreclosure'].includes(mode) ? mode : 'crucible' });
+  reporter.context({ mode: ['crucible', 'outpost', 'rooftop', 'badlands', 'dogfight', 'defense', 'campaign', 'foreclosure'].includes(mode) ? mode : 'crucible' });
   setInterval(() => reporter.flush(), 5000);
   window.addEventListener('pagehide', () => { for (let i = 0; i < 30; i++) reporter.flush(); });
   document.addEventListener('visibilitychange', () => { if (document.hidden) reporter.flush(); });

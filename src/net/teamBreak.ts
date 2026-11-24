@@ -25,7 +25,13 @@ const VOTE_COLOR = '#ff8a3a';
 
 /** How long the break before `next` lasts in `mode`, by the host's rules. */
 export function teamBreakSeconds(mode: string, next: number, rules?: Parameters<typeof isBossWave>[1]): number {
-  const boss = mode === 'crucible' ? isBossWave(next, rules) : mode === 'outpost' ? next >= FINAL_WAVE : false;
+  const boss = mode === 'crucible'
+    ? isBossWave(next, rules)
+    : mode === 'outpost'
+      ? next >= FINAL_WAVE
+      : mode === 'rooftop' || mode === 'badlands'
+        ? next >= 5 && next % 5 === 0
+        : false;
   return boss ? BOSS_BREAK : TEAM_BREAK;
 }
 

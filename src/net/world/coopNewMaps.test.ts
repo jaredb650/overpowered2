@@ -12,6 +12,7 @@ import type { AiCombatJet } from '../../enemies/dogfight/aiJet';
 import type { DogfightNetBridge, DogfightWaves } from '../../enemies/dogfight/waves';
 import type { ExtraTarget, VehicleSystem } from '../../enemies/vehicles';
 import { ClaimValidator } from '../authority';
+import { WORLD_MODES } from '../index';
 import { COOP_MODES } from '../lobby';
 import type { WorldEvent } from '../worldProtocol';
 import type { WorldContext } from './context';
@@ -281,10 +282,13 @@ function makeWorldPair() {
 }
 
 describe('co-op modes, authority, and credit rules for new maps & vehicles', () => {
-  it('registers rooftop, badlands, and dogfight in COOP_MODES', () => {
+  it('registers rooftop, badlands, and dogfight in COOP_MODES and WORLD_MODES (not freeRoam)', () => {
     expect(COOP_MODES).toContain('rooftop');
     expect(COOP_MODES).toContain('badlands');
     expect(COOP_MODES).toContain('dogfight');
+    for (const mode of COOP_MODES) {
+      expect(WORLD_MODES, `${mode} must be in WORLD_MODES so waves & enemies spawn in co-op`).toContain(mode);
+    }
   });
 
   it('ClaimValidator accepts all 13 drivable vehicle weapon prefixes while vehicle/callIn is active', () => {
