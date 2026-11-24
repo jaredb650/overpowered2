@@ -238,25 +238,50 @@ describe('the loadout', () => {
 });
 
 describe('third-person view', () => {
-  it('toggles cleanly between 1P cockpit and 3P over-the-shoulder chase camera with HUD updates', () => {
+  it('toggles cleanly between 1P cockpit and pulled-back over-the-right-shoulder 3P camera, and swaps shoulders smoothly', () => {
     expect(frame.thirdPerson).toBe(false);
+    expect(frame.shoulderSide).toBe(1);
     frames(2);
     const firstPersonPos = rig.seat!.view.position.clone();
     frame.toggleThirdPerson();
     expect(frame.thirdPerson).toBe(true);
-    frames(15);
-    const thirdPersonPos = rig.seat!.view.position.clone();
-    // Looking down -Z (yaw = 0): 3P camera sits behind (+Z) and slightly right (+X) of the cockpit eye.
-    expect(thirdPersonPos.z - firstPersonPos.z).toBeGreaterThan(7);
-    expect(thirdPersonPos.x - firstPersonPos.x).toBeGreaterThan(0.5);
-    expect(rig.seat!.status).toContain('· 3P');
+    frames(20);
+    const rightShoulderPos = rig.seat!.view.position.clone();
+    // Looking down -Z (yaw = 0): 3P camera sits well back (+Z > 12 m), clear over the right shoulder (+X > 3 m), and elevated.
+    expect(rightShoulderPos.z - firstPersonPos.z).toBeGreaterThan(12);
+    expect(rightShoulderPos.x - firstPersonPos.x).toBeGreaterThan(3);
+    expect(rightShoulderPos.y).toBeGreaterThan(firstPersonPos.y + 1.5);
+    expect(rig.seat!.status).toContain('· 3P-R');
     expect(rig.seat!.hintText).toContain('X VIEW (3P)');
-    // Toggling back snaps right back to 1P cockpit eye.
+    expect(rig.seat!.hintText).toContain('Z SHOULDER (R)');
+
+    // Swap to left shoulder -> glides smoothly across to -X and updates HUD badge/hint.
+    frame.toggleShoulder();
+    expect(frame.shoulderSide).toBe(-1);
+    frames(30);
+    const leftShoulderPos = rig.seat!.view.position.clone();
+    expect(leftShoulderPos.x - firstPersonPos.x).toBeLessThan(-3);
+    expect(leftShoulderPos.z - firstPersonPos.z).toBeGreaterThan(12);
+    expect(rig.seat!.status).toContain('· 3P-L');
+    expect(rig.seat!.hintText).toContain('Z SHOULDER (L)');
+
+    // Swap back to right shoulder cleanly.
+    frame.toggleShoulder();
+    expect(frame.shoulderSide).toBe(1);
+    frames(30);
+    expect(rig.seat!.view.position.x - firstPersonPos.x).toBeGreaterThan(3);
+    expect(rig.seat!.status).toContain('· 3P-R');
+
+    // Aim convergence point in 3P is always ahead of the mech (never behind the chassis).
+    expect(rig.seat!.point.z).toBeLessThan(frame.walker.feet.z);
+
+    // Toggling back to 1P snaps right back to cockpit eye.
     frame.toggleThirdPerson();
     expect(frame.thirdPerson).toBe(false);
     frames(2);
     expect(rig.seat!.view.position.distanceTo(firstPersonPos)).toBeLessThan(0.2);
     expect(rig.seat!.status).not.toContain('· 3P');
+    expect(rig.seat!.hintText).not.toContain('Z SHOULDER');
   });
 });
 

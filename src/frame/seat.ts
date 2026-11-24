@@ -35,6 +35,7 @@ import {
 } from './loadout';
 import { routeOpenSeatHit } from './openSeat';
 import { FrameParts } from './parts';
+import type { Sight } from './arms/types';
 import { backhand, crush, FrameGuns, legSweep, ROUND_NAMES, shove, stomp, trample, treadCrush, type Arm, type ArmMount } from './weapons';
 
 /**
@@ -72,12 +73,14 @@ const FRAME_COLOR = CALLINS.frame.color;
 const BOOT_SECONDS = 2.4;
 /** Seconds for Old Mother's 25 m emergency canopy eject arc. */
 const EJECT_SECONDS = 1.65;
-/** Third-person chase camera defaults (over-the-shoulder distance, zoom, pullback, right offset). */
-const CAM_3P_BASE = 10.6;
-const CAM_3P_ZOOM = 6.2;
-const CAM_3P_ACTION = 12.6;
-const CAM_3P_RIGHT = 2.35;
-const CAM_3P_LIFT = 1.45;
+/** Third-person over-the-shoulder shooter camera defaults (pulled well back overlooking the active shoulder). */
+const CAM_3P_BASE = 15.0;
+const CAM_3P_ZOOM = 9.2;
+const CAM_3P_ACTION = 17.5;
+const CAM_3P_SIDE = 4.2;
+const CAM_3P_SIDE_ZOOM = 3.25;
+const CAM_3P_LIFT = 2.45;
+const CAM_3P_LIFT_ZOOM = 1.35;
 /** Pile-Driver angled slam ground-target solver constants. */
 const SLAM_GROUND_NORMAL = 0.45;
 const SLAM_MAX_RANGE = 58;
@@ -254,15 +257,27 @@ export class Frame {
   private ejectState: EjectState | null = null;
   private collapsedPose: { feet: THREE.Vector3; yaw: number } | null = null;
   private aircraftAdapter: Aircraft | null = null;
-  /** Third-person chase camera toggle (`X` / `F5`) and damped follow distance. */
+  /** Third-person over-the-shoulder chase camera (`X` / `F5`) and right/left shoulder swap (`Z` / `H`). */
   private _thirdPerson = false;
+  /** Active over-the-shoulder camera side: `+1` = right shoulder (default), `-1` = left shoulder. */
+  private _shoulderSide: 1 | -1 = 1;
   private camDist3P = CAM_3P_BASE;
+  private camSide3P = CAM_3P_SIDE;
+  /** Reusable mech-plane 3P weapon sight so hitscan & projectile rays start beside the chassis along the exact crosshair line. */
+  private readonly gunSight3P: Sight = {
+    view: { position: new THREE.Vector3(), yaw: 0, pitch: 0, roll: 0, shake: 1 },
+    aim: new THREE.Vector3(0, 0, -1),
+    point: new THREE.Vector3(),
+    range: 0,
+  };
   private keyBound = false;
   private readonly onViewKey = (e: KeyboardEvent): void => {
     if (!this.occupied || e.repeat || isTextInputTarget(e.target)) return;
     if (e.code === 'KeyX' || e.code === 'F5') {
       if (e.code === 'F5') e.preventDefault();
       this.toggleThirdPerson();
+    } else if (this._thirdPerson && (e.code === 'KeyZ' || e.code === 'KeyH')) {
+      this.toggleShoulder();
     }
   };
   /** Mid-air Pile-Driver angled slam target painter state and 3D ground ring + dive arc visuals. */
@@ -358,11 +373,19 @@ export class Frame {
     return this._thirdPerson;
   }
 
-  /** Switches between first-person cockpit (`false`) and third-person chase view (`true`). */
+  /** Active third-person camera shoulder: `+1` = right shoulder (default), `-1` = left shoulder. */
+  get shoulderSide(): 1 | -1 {
+    return this._shoulderSide;
+  }
+
+  /** Switches between first-person cockpit (`false`) and third-person over-the-shoulder view (`true`). */
   setThirdPerson(on: boolean): void {
     if (this._thirdPerson === on) return;
     this._thirdPerson = on;
-    if (on) this.camDist3P = CAM_3P_BASE;
+    if (on) {
+      this.camDist3P = CAM_3P_BASE;
+      this.camSide3P = this._shoulderSide * CAM_3P_SIDE;
+    }
     if (this.occupied) {
       this.ctx.audio.play('weapon_dry', { pitch: on ? 1.25 : 0.9, volume: 0.45 });
       this.pose(0);
@@ -375,9 +398,24 @@ export class Frame {
     }
   }
 
-  /** Toggles between 1P cockpit and 3P chase camera. */
+  /** Toggles between 1P cockpit and 3P over-the-shoulder camera. */
   toggleThirdPerson(): void {
     this.setThirdPerson(!this._thirdPerson);
+  }
+
+  /** Sets the active third-person over-the-shoulder side (`+1` right, `-1` left) with smooth camera glide. */
+  setShoulderSide(side: 1 | -1): void {
+    if (this._shoulderSide === side) return;
+    this._shoulderSide = side;
+    if (this.occupied && this._thirdPerson) {
+      this.ctx.audio.play('veh_seat_click', { pitch: side > 0 ? 1.08 : 0.94, volume: 0.55 });
+      if (this.seat) this.panel(this.seat);
+    }
+  }
+
+  /** Swaps the third-person camera between right (`+1`) and left (`-1`) shoulder (`Z` / `H`). */
+  toggleShoulder(): void {
+    this.setShoulderSide(this._shoulderSide === 1 ? -1 : 1);
   }
 
   /** True while holding `C`/`Ctrl` mid-air with Pile-Driver legs to paint an angled slam target. */
@@ -620,6 +658,7 @@ export class Frame {
     this.bindViewKey();
     if (this._thirdPerson) {
       this.camDist3P = CAM_3P_BASE;
+      this.camSide3P = this._shoulderSide * CAM_3P_SIDE;
       this.applyThirdPersonCamera(0, seat);
       this.ctx.camera.syncSeat();
     }
@@ -757,7 +796,9 @@ export class Frame {
     this.clearKneel();
     this.clearSlamAim();
     this._thirdPerson = false;
+    this._shoulderSide = 1;
     this.camDist3P = CAM_3P_BASE;
+    this.camSide3P = CAM_3P_SIDE;
     if (this.ejectState?.slowed) this.ctx.time.popScale('frame_eject');
     this.ejectState = null;
     this.collapsedPose = null;
@@ -880,7 +921,7 @@ export class Frame {
     camera.syncSeat();
     this.updateSlamVisuals(dt, seat);
     this.aimGuns(dt, seat);
-    this.guns.update(dt, seat, {
+    this.guns.update(dt, this._thirdPerson ? this.gunSight3P : seat, {
       recoilMult: this.stats.noRecoil ? 0 : 1,
       feet: w.feet,
       torsoYaw: w.viewYaw,
@@ -1100,9 +1141,10 @@ export class Frame {
   }
 
   /**
-   * Positions the third-person over-the-shoulder chase camera behind the Frame's upper torso,
-   * pulling cleanly in front of walls/ceilings/floors and re-converging `seat.point`/`seat.range`
-   * from the 3P sightline so arms, shoulders, MIRV, and Pile-Driver slam targeting have zero parallax.
+   * Positions the third-person over-the-shoulder shooter camera well back and slightly elevated over the active
+   * shoulder (`+1` right default, `-1` left via `Z`/`H`), pulling cleanly inside walls/ceilings/floors and
+   * projecting both `seat.point` and `gunSight3P` from the mech's torso plane along the exact crosshair line so
+   * every hitscan round, shell, missile, and Pile-Driver slam lands dead-on the reticle with zero parallax.
    */
   private applyThirdPersonCamera(dt: number, seat: GunnerSeat): void {
     const w = this.walker;
@@ -1110,53 +1152,80 @@ export class Frame {
     const targetDist = seat.zoomed
       ? CAM_3P_ZOOM
       : (w.charging > 0 || w.jetMode || w.stompTargeted || this._slamAiming ? CAM_3P_ACTION : CAM_3P_BASE);
+    const targetSide = this._shoulderSide * (seat.zoomed ? CAM_3P_SIDE_ZOOM : CAM_3P_SIDE);
+    const lift = seat.zoomed ? CAM_3P_LIFT_ZOOM : CAM_3P_LIFT;
     if (dt > 0) {
       this.camDist3P = lerp(this.camDist3P, targetDist, 1 - Math.exp(-8 * dt));
+      this.camSide3P = lerp(this.camSide3P, targetSide, 1 - Math.exp(-12 * dt));
     } else {
       this.camDist3P = targetDist;
+      this.camSide3P = targetSide;
     }
 
-    // Over-the-shoulder anchor above the hips, shifted slightly right so the chassis frames the left third cleanly.
+    // Center upper-torso pivot and lateral shoulder offset (with wall clearance check so swapping shoulders never clips).
+    const torsoY = w.feet.y + FRAME_PLACES.hips + 2.05 + this.dip * 0.45;
     _right.set(Math.cos(seat.yaw), 0, -Math.sin(seat.yaw));
+    _origin.set(w.feet.x, torsoY, w.feet.z);
+    let sideOffset = this.camSide3P;
+    if (Math.abs(sideOffset) > 0.05) {
+      const sign = sideOffset >= 0 ? 1 : -1;
+      _v.set(_right.x * sign, 0, _right.z * sign);
+      if (physics.raycastInto(_origin, _v, Math.abs(sideOffset) + 0.55, CG.World, _hit)) {
+        sideOffset = sign * Math.max(0.4, _hit.distance - 0.55);
+      }
+    }
     _origin.set(
-      w.feet.x + _right.x * CAM_3P_RIGHT,
-      w.feet.y + FRAME_PLACES.hips + 1.55 + this.dip * 0.5,
-      w.feet.z + _right.z * CAM_3P_RIGHT,
+      w.feet.x + _right.x * sideOffset,
+      torsoY,
+      w.feet.z + _right.z * sideOffset,
     );
-    _cand.copy(_origin)
-      .addScaledVector(seat.aim, -this.camDist3P);
-    _cand.y += CAM_3P_LIFT;
 
-    // Wall / ceiling pull-in from torso anchor toward desired 3P camera position.
+    _cand.copy(_origin).addScaledVector(seat.aim, -this.camDist3P);
+    _cand.y += lift;
+
+    // Wall / ceiling pull-in from shoulder anchor toward desired 3P camera position.
     _v.subVectors(_cand, _origin);
     const desiredLen = _v.length();
     if (desiredLen > 0.05) {
       _v.divideScalar(desiredLen);
-      if (physics.raycastInto(_origin, _v, desiredLen + 0.5, CG.World, _hit)) {
-        const pull = Math.max(2.2, _hit.distance - 0.45);
+      if (physics.raycastInto(_origin, _v, desiredLen + 0.55, CG.World, _hit)) {
+        const pull = Math.max(2.6, _hit.distance - 0.5);
         _cand.copy(_origin).addScaledVector(_v, pull);
       }
     }
 
     // Keep camera comfortably above terrain/floor underneath it.
-    _slamProbe.set(_cand.x, _cand.y + 1.2, _cand.z);
-    if (physics.raycastInto(_slamProbe, DOWN, 2.2, CG.World, _hit)) {
-      const minY = _hit.point.y + 0.6;
+    _slamProbe.set(_cand.x, _cand.y + 1.4, _cand.z);
+    if (physics.raycastInto(_slamProbe, DOWN, 2.5, CG.World, _hit)) {
+      const minY = _hit.point.y + 0.7;
       if (_cand.y < minY) _cand.y = minY;
     }
 
     seat.view.position.copy(_cand);
 
-    // Re-raycast from ahead of the mech along the 3P sightline so guns converge dead-on the crosshair.
-    const skip = Math.min(this.camDist3P * 0.55, 3.8);
+    // Project along the exact crosshair line to the mech's chest plane so convergence NEVER hits behind the chassis.
+    const toTorso = (w.feet.x - _cand.x) * seat.aim.x
+      + (torsoY - _cand.y) * seat.aim.y
+      + (w.feet.z - _cand.z) * seat.aim.z;
+    const skip = Math.max(2.0, toTorso + 0.6);
     _slamProbe.copy(_cand).addScaledVector(seat.aim, skip);
     if (physics.raycastInto(_slamProbe, seat.aim, 400, CG.World | CG.Enemy | CG.Barrier, _hit)) {
       seat.point.copy(_hit.point);
       seat.range = _cand.distanceTo(_hit.point);
     } else {
-      seat.point.copy(_cand).addScaledVector(seat.aim, 400);
-      seat.range = 400;
+      seat.point.copy(_slamProbe).addScaledVector(seat.aim, 400);
+      seat.range = skip + 400;
     }
+
+    // Update mech-plane 3P gun sight so hitscan arms keep full range and shoot cleanly past the shoulder onto the reticle.
+    this.gunSight3P.view.position.copy(_slamProbe);
+    this.gunSight3P.view.yaw = seat.view.yaw;
+    this.gunSight3P.view.pitch = seat.view.pitch;
+    this.gunSight3P.view.roll = seat.view.roll;
+    this.gunSight3P.view.shake = seat.view.shake;
+    this.gunSight3P.aim.copy(seat.aim);
+    this.gunSight3P.point.copy(seat.point);
+    this.gunSight3P.range = _slamProbe.distanceTo(seat.point);
   }
 
   /**
@@ -1187,11 +1256,12 @@ export class Frame {
       return;
     }
 
+    const aimOrigin = this._thirdPerson ? this.gunSight3P.view.position : seat.view.position;
     if (!this._slamAiming && (slideHeld || slidePressed) && w.clearance() >= 0.85) {
       this._slamAiming = true;
       this._slamHoldTime = 0;
       this._slamClock = 0;
-      this._slamValid = solveSlamMarker(physics, seat.view.position, seat.aim, w.feet, this._slamTarget);
+      this._slamValid = solveSlamMarker(physics, aimOrigin, seat.aim, w.feet, this._slamTarget);
       audio.play('quiver_arm', { pitch: 0.78, volume: 0.85 });
     }
 
@@ -1200,7 +1270,7 @@ export class Frame {
       const timedOut = this._slamHoldTime >= SLAM_MAX_HOLD_SECONDS;
       if (!slideHeld || timedOut) {
         if (!this._slamValid) {
-          this._slamValid = solveSlamMarker(physics, seat.view.position, seat.aim, w.feet, this._slamTarget);
+          this._slamValid = solveSlamMarker(physics, aimOrigin, seat.aim, w.feet, this._slamTarget);
         }
         this._slamAiming = false;
         this._slamHoldTime = 0;
@@ -1229,7 +1299,8 @@ export class Frame {
     this._slamClock += dt;
     const target = diving ? w.stompTarget : this._slamTarget;
     if (this._slamAiming) {
-      this._slamValid = solveSlamMarker(this.ctx.physics, seat.view.position, seat.aim, w.feet, this._slamTarget);
+      const aimOrigin = this._thirdPerson ? this.gunSight3P.view.position : seat.view.position;
+      this._slamValid = solveSlamMarker(this.ctx.physics, aimOrigin, seat.aim, w.feet, this._slamTarget);
       if (!this._slamValid) {
         this.hideSlamVisuals();
         return;
@@ -1632,7 +1703,8 @@ export class Frame {
         case 'shotgun': return 'MECH SHOTGUN';
       }
     };
-    const viewBadge = this._thirdPerson ? ' · 3P' : '';
+    const sideTag = this._shoulderSide > 0 ? 'R' : 'L';
+    const viewBadge = this._thirdPerson ? ` · 3P-${sideTag}` : '';
     const slamTag = this._slamAiming && this._slamValid
       ? ` · SLAM LOCKED ${Math.round(w.feet.distanceTo(this._slamTarget))}M`
       : w.stomping && w.stompTargeted
@@ -1643,7 +1715,8 @@ export class Frame {
     const slamHint = this.stats.gait === 'heavy'
       ? `HOLD ${key('slide')} AIM SLAM`
       : `${key('slide')} STOMP`;
-    seat.hintText = `${key('jump')} ${w.driveHudLabel} // ${slamHint} // ${key('dash')} CHARGE // ${key('melee')} MELEE // X VIEW (${this._thirdPerson ? '3P' : '1P'}) // WHEEL ZOOM${out}`;
+    const shoulderHint = this._thirdPerson ? ` // Z SHOULDER (${sideTag})` : '';
+    seat.hintText = `${key('jump')} ${w.driveHudLabel} // ${slamHint} // ${key('dash')} CHARGE // ${key('melee')} MELEE // X VIEW (${this._thirdPerson ? '3P' : '1P'})${shoulderHint} // WHEEL ZOOM${out}`;
   }
 
   /**
