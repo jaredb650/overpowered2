@@ -269,10 +269,10 @@ function emptyInput(): VehicleInput {
   };
 }
 
-describe('AAA Driveable Vehicles (10-Vehicle Fleet)', () => {
-  it('builds sculptural 3D rigs with valid muzzles and bounding boxes for all 10 vehicles', () => {
+describe('AAA Driveable Vehicles (13-Vehicle Fleet)', () => {
+  it('builds sculptural 3D rigs with valid muzzles and bounding boxes for all 13 vehicles', () => {
     const mats = makeMaterials();
-    expect(DRIVE_VEHICLE_ORDER).toHaveLength(10);
+    expect(DRIVE_VEHICLE_ORDER).toHaveLength(13);
     for (const id of DRIVE_VEHICLE_ORDER) {
       const rig = buildVehicleModel(id, mats);
       expect(rig.root.children.length).toBeGreaterThan(0);
@@ -591,9 +591,9 @@ describe('AAA Driveable Vehicles (10-Vehicle Fleet)', () => {
     jackal.dispose();
   });
 
-  it('Badlands 10-vehicle Motor Pool stages all 10 distinct vehicles with clean clearance and hijack works', () => {
+  it('Badlands 13-vehicle Motor Pool stages all 13 distinct vehicles with clean clearance and hijack works', () => {
     const ids = new Set<DriveVehicleId>(BADLANDS_MOTOR_POOL.map(s => s.id));
-    expect(ids.size).toBe(10);
+    expect(ids.size).toBe(13);
     // Ensure zero overlap between any two staged vehicles.
     for (let i = 0; i < BADLANDS_MOTOR_POOL.length; i++) {
       for (let j = i + 1; j < BADLANDS_MOTOR_POOL.length; j++) {
@@ -994,7 +994,7 @@ describe('AAA Driveable Vehicles (10-Vehicle Fleet)', () => {
     quad.dispose();
   });
 
-  it('upgrades all 10 vehicle models to PBR textured materials with valid box-projected UVs (no flat untextured solid)', () => {
+  it('upgrades all 13 vehicle models to PBR textured materials with valid box-projected UVs (no flat untextured solid)', () => {
     const mats = makeMaterials();
     for (const id of DRIVE_VEHICLE_ORDER) {
       const rig = buildVehicleModel(id, mats);
@@ -1011,5 +1011,190 @@ describe('AAA Driveable Vehicles (10-Vehicle Fleet)', () => {
       expect(pbrMeshCount, `${id} should contain PBR textured meshes`).toBeGreaterThan(0);
     }
   });
+
+  it('F-22 Raptor delivers stealth air-superiority agility, AA Lead Pips, AIM-9X/AIM-120D modes, and [Q] Cobra thrust-vectoring airbrake', () => {
+    const def = DRIVE_VEHICLES.raptor;
+    expect(def.stealth).toBe(true);
+    expect(def.maxSpeed).toBeGreaterThan(DRIVE_VEHICLES.hornet.maxSpeed);
+    expect(def.turnRate).toBeGreaterThan(DRIVE_VEHICLES.hornet.turnRate);
+
+    const h = makeDriveHarness();
+    const raptor = new DriveableVehicle(h.ctx, h.materials, h.seats, vi.fn(), 'raptor', new THREE.Vector3(0, 50, 0), 0);
+    expect(raptor.model.nozzles?.length).toBe(2);
+    expect(raptor.board(0)).toBe(true);
+    raptor.phys.position.set(0, 50, 0);
+    raptor.phys.velocity.set(0, 0, 96);
+
+    // Add an airborne target -> Fighter HUD computes live AA Lead Pip!
+    h.radarTargets.push({
+      id: 88,
+      kind: 'chopper',
+      label: 'HOSTILE FIGHTER',
+      position: new THREE.Vector3(0, 52, 85),
+      velocity: new THREE.Vector3(24, 0, 0),
+      airborne: true,
+    });
+    raptor.update(1 / 30);
+    const hud = (h.seats.seat as { vehicleHud?: { leadPips: readonly (readonly [number, number, number])[]; vtolMode: boolean } })?.vehicleHud;
+    expect(hud?.leadPips.length).toBe(1);
+    expect(hud!.leadPips[0]![0]).toBeGreaterThan(1.5);
+
+    // Cycle [R] AIM-9X -> AIM-120D AMRAAM.
+    h.justPressed.add('reload');
+    raptor.update(1 / 30);
+    h.justPressed.clear();
+    expect(h.feed).toHaveBeenCalledWith(expect.stringContaining('AMRAAM'), expect.any(String));
+
+    // Trigger [Q] Cobra maneuver -> activates cobraTimer, intercepts enemy missiles, rapidly bleeds speed, and deflects 2D vector nozzles!
+    const preCobraSpeed = raptor.speed;
+    h.justPressed.add('stim');
+    raptor.update(1 / 30);
+    h.justPressed.clear();
+    expect(raptor.phys.cobraTimer).toBeGreaterThan(1.5);
+    expect(h.interceptEnemyProjectiles).toHaveBeenCalled();
+
+    h.held.add('right');
+    for (let i = 0; i < 20; i++) raptor.update(1 / 30);
+    expect(raptor.speed).toBeLessThan(preCobraSpeed - 18);
+    expect(Math.abs(raptor.phys.nozzleDeflect)).toBeGreaterThan(0.1);
+    raptor.dispose();
+  });
+
+  it('F/A-18E Super Hornet bridges Harrier and Raptor agility, computes AA Lead Pips, and cycles all 4 multi-role carrier stores', () => {
+    expect(DRIVE_VEHICLES.hornet.turnRate).toBeGreaterThan(DRIVE_VEHICLES.harrier.turnRate);
+    expect(DRIVE_VEHICLES.hornet.turnRate).toBeLessThan(DRIVE_VEHICLES.raptor.turnRate);
+
+    const h = makeDriveHarness();
+    const hornet = new DriveableVehicle(h.ctx, h.materials, h.seats, vi.fn(), 'hornet', new THREE.Vector3(0, 42, 0), 0);
+    expect(hornet.board(0)).toBe(true);
+    hornet.phys.position.set(0, 42, 0);
+    hornet.phys.velocity.set(0, 0, 70);
+
+    // AA Lead Pips active on Hornet Fighter HUD.
+    h.radarTargets.push({
+      id: 91,
+      kind: 'chopper',
+      label: 'ENEMY GUNSHIP',
+      position: new THREE.Vector3(0, 44, 70),
+      velocity: new THREE.Vector3(-18, 0, 0),
+      airborne: true,
+    });
+    hornet.update(1 / 30);
+    const hud = (h.seats.seat as { vehicleHud?: { leadPips: readonly (readonly [number, number, number])[] } })?.vehicleHud;
+    expect(hud?.leadPips.length).toBe(1);
+
+    // Cycle [R] through AGM-65E MAVERICK -> MK-82 500LB JDAM -> ZUNI 127MM ROCKETS -> AIM-9 / AMRAAM.
+    h.justPressed.add('reload');
+    hornet.update(1 / 30);
+    expect(h.feed).toHaveBeenCalledWith(expect.stringContaining('MAVERICK'), expect.any(String));
+    hornet.update(1 / 30);
+    expect(h.feed).toHaveBeenCalledWith(expect.stringContaining('MK-82'), expect.any(String));
+    hornet.update(1 / 30);
+    expect(h.feed).toHaveBeenCalledWith(expect.stringContaining('ZUNI'), expect.any(String));
+    h.justPressed.clear();
+
+    // [Q] IR Flares countermeasure intercepts incoming missiles.
+    h.justPressed.add('stim');
+    hornet.update(1 / 30);
+    expect(hornet.isCountermeasureActive).toBe(true);
+    expect(h.interceptEnemyProjectiles).toHaveBeenCalled();
+    hornet.dispose();
+  });
+
+  it('B-1 Lancer sweeps variable-geometry wings with speed, triggers [Q] Dump-and-Burn torch, fires ventral Vulcan, and drops Snake-Eye chute & CBU-87 cluster bombs', () => {
+    const h = makeDriveHarness();
+    const lancer = new DriveableVehicle(h.ctx, h.materials, h.seats, vi.fn(), 'lancer', new THREE.Vector3(0, 36, -85), 0);
+    expect(lancer.model.wingsLeft).toBeDefined();
+    expect(lancer.model.wingsRight).toBeDefined();
+    expect(lancer.model.dumpBurnGlow).toBeDefined();
+    expect(lancer.board(0)).toBe(true);
+
+    // Low speed -> wings stay extended forward; high supersonic speed -> wings sweep symmetrically back!
+    lancer.phys.position.set(0, 36, -85);
+    lancer.phys.velocity.set(0, 0, 12);
+    lancer.update(1 / 30);
+    const lowSweep = lancer.phys.wingSweep;
+
+    h.held.add('forward');
+    h.held.add('dash');
+    for (let i = 0; i < 38; i++) lancer.update(1 / 30);
+    expect(lancer.phys.wingSweep).toBeGreaterThan(lowSweep + 0.35);
+    expect(lancer.model.wingsLeft!.rotation.y).toBeGreaterThan(0.25);
+    expect(lancer.model.wingsRight!.rotation.y).toBeLessThan(-0.25);
+
+    // Primary LMB fires the ventral 20mm Vulcan gun!
+    h.held.add('fire');
+    lancer.update(1 / 30);
+    h.held.delete('fire');
+    expect(h.spawnProjectile).toHaveBeenCalledWith(expect.objectContaining({ source: 'lancer_cannon' }));
+
+    // Secondary RMB drops MK-82 Snake-Eye retarded chute bomb with chute: true & CCIP SNAKE-EYE label!
+    const seat = h.seats.seat as { vehicleHud?: { ccipLabel?: string } };
+    expect(seat.vehicleHud?.ccipLabel).toBe('CCIP SNAKE-EYE');
+    h.held.add('aim');
+    lancer.update(1 / 30);
+    h.held.delete('aim');
+    expect(h.spawnProjectile).toHaveBeenCalledWith(expect.objectContaining({ source: 'lancer_chute', bomb: true, chute: true }));
+
+    // Cycle [R] to CBU-87 Cluster Bombs and drop with cluster: true!
+    h.held.clear();
+    h.justPressed.add('reload');
+    lancer.update(1 / 30);
+    h.justPressed.clear();
+    expect(h.feed).toHaveBeenCalledWith(expect.stringContaining('CLUSTER'), expect.any(String));
+    for (let i = 0; i < 15; i++) lancer.update(1 / 30);
+    h.held.add('aim');
+    lancer.update(1 / 30);
+    h.held.delete('aim');
+    expect(h.spawnProjectile).toHaveBeenCalledWith(expect.objectContaining({ source: 'lancer_cluster', bomb: true, cluster: true }));
+
+    // Trigger [Q] Dump-and-Burn -> ignites flaming tailcone torch!
+    h.justPressed.add('stim');
+    lancer.update(1 / 30);
+    h.justPressed.clear();
+    expect(lancer.phys.dumpBurnTimer).toBeGreaterThan(2.5);
+    expect(lancer.model.dumpBurnGlow!.length).toBeGreaterThan(0);
+    expect(lancer.model.dumpBurnGlow!.every(g => g.visible)).toBe(true);
+    lancer.dispose();
+
+    // Verify Projectiles applies Snake-Eye horizontal air drag and renders 3D drag chute canopy + shroud lines!
+    const startLoop = vi.fn(() => ({ alive: true, setPosition: vi.fn(), setPitch: vi.fn(), setVolume: vi.fn(), stop: vi.fn() }));
+    const projCtx = {
+      render: { scene: new THREE.Scene() },
+      time: { elapsed: 0, realDt: 0.05 },
+      physics: { raycast: () => null },
+      enemies: { raycast: () => null, nearby: () => [], vehicles: undefined },
+      fx: { smoke: vi.fn(), ring: vi.fn(), sparks: vi.fn(), impact: vi.fn() },
+      audio: { play: vi.fn(), startLoop },
+    } as unknown as Ctx;
+    const projectiles = new Projectiles(projCtx, { watching: 0, explode: vi.fn(), napalmBurst: vi.fn() } as unknown as Combat);
+    projectiles.init();
+
+    projectiles.spawn({
+      origin: new THREE.Vector3(0, 60, 0),
+      velocity: new THREE.Vector3(0, -3.5, 65),
+      kind: 'shell',
+      team: 'player',
+      damage: 1100,
+      source: 'lancer_snakeeye',
+      gravity: 28,
+      lifetime: 10,
+      trail: 'none',
+      size: 1.15,
+      bomb: true,
+      chute: true,
+    });
+    for (let i = 0; i < 20; i++) projectiles.update(0.05);
+    const activeChute = (projectiles as unknown as { active: { velocity: THREE.Vector3 }[] }).active[0]!;
+    // Horizontal airspeed drastically decelerates after chute pops open!
+    expect(activeChute.velocity.z).toBeLessThan(20);
+    expect(activeChute.velocity.y).toBeGreaterThanOrEqual(-26.1);
+
+    const layers = (projectiles.visuals as unknown as { layers: Record<string, { count: number }> }).layers;
+    expect(layers.bombChuteCanopy!.count).toBe(1);
+    expect(layers.bombChuteLines!.count).toBe(1);
+    projectiles.clear();
+  });
 });
+
 

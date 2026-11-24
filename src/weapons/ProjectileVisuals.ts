@@ -200,6 +200,32 @@ function satchelBody(): THREE.BufferGeometry {
   ]);
 }
 
+/** Snake-Eye high-drag retarded bomb cruciform parachute canopy (trailing behind -Y tail). */
+function bombChuteCanopy(): THREE.BufferGeometry {
+  const parts: THREE.BufferGeometry[] = [
+    // Flared cruciform nylon drag canopy dome + cross arms
+    rotated(new THREE.CylinderGeometry(0.18, 0.72, 0.56, 10, 1, true), 0, -2.55, 0),
+    rotated(new THREE.BoxGeometry(1.58, 0.34, 0.52), 0, -2.72, 0),
+    rotated(new THREE.BoxGeometry(0.52, 0.34, 1.58), 0, -2.72, 0),
+    rotated(new THREE.CylinderGeometry(0.72, 0.62, 0.14, 10), 0, -2.86, 0),
+  ];
+  return mergedLit(parts);
+}
+
+/** Four taut suspension shroud cords connecting the Snake-Eye tail pack to the deployed drag chute. */
+function bombChuteLines(): THREE.BufferGeometry {
+  const parts: THREE.BufferGeometry[] = [];
+  for (let i = 0; i < 4; i++) {
+    const a = (i * Math.PI) / 2 + Math.PI / 4;
+    const cord = new THREE.CylinderGeometry(0.018, 0.018, 1.65, 5);
+    cord.rotateZ(0.26);
+    cord.translate(0.24, -1.78, 0);
+    cord.rotateY(a);
+    parts.push(cord);
+  }
+  return mergedLit(parts);
+}
+
 interface Layer {
   mesh: THREE.InstancedMesh;
   count: number;
@@ -234,7 +260,8 @@ export class ProjectileVisuals {
     | 'cone' | 'coneHot' | 'flare' | 'blink'
     | 'sticky' | 'stickyLed' | 'satchel' | 'satchelLed'
     | 'bombHeBody' | 'bombHeFins' | 'bombHeBand'
-    | 'bombNapalmBody' | 'bombNapalmBand',
+    | 'bombNapalmBody' | 'bombNapalmBand'
+    | 'bombChuteCanopy' | 'bombChuteLines',
     Layer
   >;
   private readonly layerList: Layer[];
@@ -274,12 +301,18 @@ export class ProjectileVisuals {
       // Demolition Satchel Charge: canvas-olive demolition pack + bright pulsing red armed beacon light.
       satchel: layer(satchelBody(), basic(hdr(0x556242, 1.05)), CAPACITY.shell),
       satchelLed: layer(new THREE.IcosahedronGeometry(0.058, 1), basic(hdr(0xff1e12, 7.5)), CAPACITY.shell),
-      // Modeled aircraft gravity bombs (Mk-82 / Mk-84 HE iron bomb & BLU-27 Napalm firebomb canister).
+      // Modeled aircraft gravity bombs (Mk-82 / Mk-84 HE iron bomb, BLU-27 Napalm canister, & Snake-Eye drag parachute).
       bombHeBody: layer(bombHeBody(), metal(0x4a563d, 0.58, 0.28, 0x0b0e08), CAPACITY.shell),
       bombHeFins: layer(bombHeFins(), metal(0x282e36, 0.44, 0.62, 0x07090b), CAPACITY.shell),
       bombHeBand: layer(bombHeBand(), metal(0xf2c62c, 0.46, 0.16, 0x3a2b04), CAPACITY.shell),
       bombNapalmBody: layer(bombNapalmBody(), metal(0xaeb8c2, 0.34, 0.72, 0x161a1e), CAPACITY.shell),
       bombNapalmBand: layer(bombNapalmBand(), metal(0xe83b1c, 0.42, 0.18, 0x3b0c04), CAPACITY.shell),
+      bombChuteCanopy: layer(
+        bombChuteCanopy(),
+        new THREE.MeshStandardMaterial({ color: 0xf4ece0, roughness: 0.82, metalness: 0.04, emissive: 0x3a2612, side: THREE.DoubleSide }),
+        CAPACITY.shell,
+      ),
+      bombChuteLines: layer(bombChuteLines(), metal(0x3a3f46, 0.72, 0.25, 0x0a0c0e), CAPACITY.shell),
     };
     this.layerList = Object.values(this.layers);
     for (const k of ['bullet', 'plasma'] as const) {
@@ -432,7 +465,7 @@ export class ProjectileVisuals {
         if (p.bomb) {
           const k = p.size || 1;
           // Gentle axial roll around the bomb's velocity axis as gravity pitches the nose downward.
-          p.spin += dt * 1.4;
+          p.spin += dt * (p.chute ? 0.55 : 1.4);
           this.spin.setFromAxisAngle(Y, p.spin);
           this.quat.multiply(this.spin);
           if (p.napalm) {
@@ -441,7 +474,13 @@ export class ProjectileVisuals {
           } else {
             this.put(L.bombHeBody, pos, this.quat, k, k, k);
             this.put(L.bombHeFins, pos, this.quat, k, k, k);
-            this.put(L.bombHeBand, pos, this.quat, k, k, k);
+            this.put(p.cluster ? L.bombNapalmBand : L.bombHeBand, pos, this.quat, k, k, k);
+            if (p.chute && p.age > 0.1) {
+              const open = clamp((p.age - 0.1) / 0.16, 0.08, 1);
+              const ck = k * open;
+              this.put(L.bombChuteCanopy, pos, this.quat, ck * 1.15, k * (0.45 + 0.55 * open), ck * 1.15);
+              this.put(L.bombChuteLines, pos, this.quat, ck, k * (0.45 + 0.55 * open), ck);
+            }
           }
           break;
         }

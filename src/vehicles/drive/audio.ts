@@ -231,20 +231,27 @@ export class VehicleAudioController {
       this.rpm = damp(this.rpm, revTarget, throttleAmt > 0.1 ? 8.5 : 4.2, dt);
     } else if (isJet && this.active) {
       const mach = !phys.vtolMode;
+      const dumpBurn = phys.dumpBurnTimer > 0;
+      const cobra = phys.cobraTimer > 0;
       const load = clamp(
-        (mach ? 0.48 : 0.24) + speedFrac * 0.46 + throttleAmt * 0.22 + Math.max(0, climbAmt) * 0.24 + (phys.boosting ? 0.34 : 0),
+        (mach ? 0.48 : 0.24) + speedFrac * 0.46 + throttleAmt * 0.22 + Math.max(0, climbAmt) * 0.24 + (phys.boosting || dumpBurn ? 0.36 : 0) - (cobra ? 0.16 : 0),
         0.15,
-        1.25,
+        1.3,
       );
-      this.rpm = damp(this.rpm, load, 4.5, dt);
-      const abTarget = phys.boosting ? 1.0 : mach ? clamp(0.32 + speedFrac * 0.55 + throttleAmt * 0.18, 0.25, 0.85) : 0.04;
-      this.afterburner = damp(this.afterburner, abTarget, phys.boosting ? 8 : 3.2, dt);
+      this.rpm = damp(this.rpm, load, 4.8, dt);
+      const abTarget = (phys.boosting || dumpBurn)
+        ? (dumpBurn ? 1.18 : 1.0)
+        : mach
+          ? clamp(0.32 + speedFrac * 0.55 + throttleAmt * 0.18, 0.25, 0.85)
+          : 0.04;
+      this.afterburner = damp(this.afterburner, abTarget, phys.boosting || dumpBurn ? 8 : 3.2, dt);
 
       if ((phys.boosting && !this.wasBoosting) || (mach && !this.wasMach)) {
+        const ignitePitch = this.def.id === 'raptor' ? 1.24 : this.def.id === 'hornet' ? 1.12 : this.def.id === 'lancer' ? 0.82 : this.def.id === 'harrier' ? 1.08 : 0.94;
         this.ctx.audio?.play?.('veh_afterburner_ignite', {
           position: _pt,
-          volume: occupied ? 0.82 : 0.7 * distGain,
-          pitch: this.def.id === 'harrier' ? 1.08 : 0.94,
+          volume: occupied ? 0.84 : 0.72 * distGain,
+          pitch: ignitePitch,
         });
       }
       this.wasBoosting = phys.boosting;
@@ -288,9 +295,10 @@ export class VehicleAudioController {
         this.secondary.setPitch(clamp((0.72 + trackFrac * 0.72) * this.doppler, 0.4, 2.0), 0.06);
         this.secondary.setVolume(trackFrac > 0.04 ? clamp(masterGain * (0.2 + trackFrac * 0.68), 0.001, 1.1) : 0.001, 0.08);
       } else if (isJet) {
-        // Pure turbofan compressor whine tone — unmistakable jet spin-up / spin-down feedback!
-        const whinePitch = (0.58 + this.rpm * 0.92 + (phys.vtolMode ? 0.12 : 0.24)) * spoolPitch * this.doppler;
-        this.secondary.setPitch(clamp(whinePitch, 0.38, 2.35), 0.06);
+        // Pure turbofan compressor whine tone — razor-high on Raptor, crisp on Hornet, deep twin-podded thunder on Lancer!
+        const jetWhineOffset = this.def.id === 'raptor' ? 0.22 : this.def.id === 'hornet' ? 0.1 : this.def.id === 'lancer' ? -0.1 : 0;
+        const whinePitch = (0.58 + jetWhineOffset + this.rpm * 0.92 + (phys.vtolMode ? 0.12 : 0.24)) * spoolPitch * this.doppler;
+        this.secondary.setPitch(clamp(whinePitch, 0.38, 2.45), 0.06);
         this.secondary.setVolume(clamp(masterGain * (0.52 + this.rpm * 0.42), 0.001, 1.05), 0.06);
       } else if (isHeli) {
         // Helicopter turbine whine over rotor slap!
@@ -307,9 +315,10 @@ export class VehicleAudioController {
 
     if (this.tertiary?.alive && isJet) {
       this.tertiary.setPosition(_pt);
-      const abPitch = (0.84 + this.rpm * 0.42 + (phys.boosting ? 0.2 : 0)) * spoolPitch * this.doppler;
-      this.tertiary.setPitch(clamp(abPitch, 0.5, 2.2), 0.06);
-      this.tertiary.setVolume(clamp(masterGain * this.afterburner * 1.15, 0.001, 1.25), 0.07);
+      const abBase = this.def.id === 'lancer' ? 0.72 : this.def.id === 'raptor' ? 0.96 : 0.84;
+      const abPitch = (abBase + this.rpm * 0.42 + (phys.boosting || phys.dumpBurnTimer > 0 ? 0.22 : 0)) * spoolPitch * this.doppler;
+      this.tertiary.setPitch(clamp(abPitch, 0.5, 2.3), 0.06);
+      this.tertiary.setVolume(clamp(masterGain * this.afterburner * 1.15, 0.001, 1.32), 0.07);
     }
 
     // 5. Tire drift screech & gravel loop on grounded wheeled / moto powerslides.

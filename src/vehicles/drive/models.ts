@@ -43,6 +43,15 @@ export interface VehicleModelRig {
   readonly fpHideParts?: THREE.Object3D[];
   /** Downward VTOL thruster cones visible when hovering in VTOL mode (Harrier / Warthog). */
   readonly vtolGlow?: THREE.Object3D[];
+  /** Pivoting variable-geometry swing wings (Lancer: sweep smoothly backward with airspeed!). */
+  readonly wingsLeft?: THREE.Group;
+  readonly wingsRight?: THREE.Group;
+  /** Animated 2D thrust-vectoring exhaust nozzle groups (F-22 Raptor). */
+  readonly nozzles?: THREE.Group[];
+  /** Giant trailing fuel-torch plumes for Lancer's [Q] Dump-and-Burn special! */
+  readonly dumpBurnGlow?: THREE.Object3D[];
+  /** Retractable tricycle landing gear group (hidden automatically once airborne above 3.2m). */
+  readonly landingGear?: THREE.Group;
 }
 
 const ALONG_X: readonly [number, number, number] = [0, 0, Math.PI / 2];
@@ -1344,6 +1353,426 @@ function buildWarthog(materials: ModelMaterials): VehicleModelRig {
   };
 }
 
+// =============================================================================
+// 11. RAPTOR — F-22 Stealth Air-Superiority Dogfighter (Chined Nose, Diamond Wings, Twin V-Tails, 2D Vector Nozzles)
+// =============================================================================
+function buildRaptor(materials: ModelMaterials): VehicleModelRig {
+  const root = new THREE.Group();
+  const body = new THREE.Group();
+  body.position.y = 1.42;
+  root.add(body);
+
+  const b = new VehicleBuilder();
+  const RAM_BASE = '#4f5a66';
+  const RAM_DARK = '#343d47';
+  const RAM_LIGHT = '#758392';
+  const GOLD_GLASS = '#7a5a1a';
+
+  // Sleek chined stealth diamond fuselage (+Z nose to +6.45 m, wide twin-engine rear deck)
+  b.solid(hull([
+    { z: -4.9, w: 1.08, top: 0.54, bottom: -0.34 },
+    { z: -2.2, w: 1.38, top: 0.68, bottom: -0.46 },
+    { z: 0.9, w: 1.32, top: 0.72, bottom: -0.48 },
+    { z: 3.6, w: 0.76, top: 0.44, bottom: -0.34 },
+    { z: 5.4, w: 0.34, top: 0.12, bottom: -0.18 },
+    { z: 6.45, w: 0.06, top: -0.02, bottom: -0.08 },
+  ]), RAM_BASE, {}, 'armor');
+  // Chined fuselage stealth bevel ridges & dorsal spine RAM panels
+  b.box(1.55, 0.14, 5.4, RAM_DARK, { at: [0, 0.66, -1.5] }, 'armor');
+  b.box(0.88, 0.1, 3.6, RAM_LIGHT, { at: [0, 0.72, -1.6] }, 'armor');
+  b.box(0.42, 0.48, 0.22, RAM_DARK, { at: [0, 0.82, 1.55], rot: [-0.18, 0, 0] }, 'carbon'); // ejection seat
+  b.glow(new THREE.BoxGeometry(0.28, 0.1, 0.04), '#38e8ff', 2.8, { at: [0, 0.74, 2.75] }); // stealth HUD glass
+
+  // Frameless gold-tinted stealth bubble canopy (hidden in 1P cockpit!)
+  const canopyB = new VehicleBuilder();
+  canopyB.solid(hull([
+    { z: 0.75, w: 0.56, top: 1.18, bottom: 0.68 },
+    { z: 2.25, w: 0.52, top: 1.36, bottom: 0.58 },
+    { z: 3.75, w: 0.32, top: 0.84, bottom: 0.38 },
+  ]), GOLD_GLASS, {}, 'canopy');
+  const canopyGroup = canopyB.build(materials);
+  body.add(canopyGroup);
+
+  for (const s of [-1, 1]) {
+    // Angled stealth caret engine intakes
+    b.box(0.74, 0.64, 2.85, RAM_DARK, { at: [s * 1.12, 0.04, 1.25], rot: [0, s * 0.14, s * 0.24] }, 'armor');
+    b.box(0.62, 0.52, 0.14, '#0c0f13', { at: [s * 1.16, 0.04, 2.66], rot: [0, s * 0.22, s * 0.24] }, 'metal');
+    // Signature F-22 diamond trapezoidal wings (swept-back LE + forward-swept TE)
+    b.box(3.9, 0.12, 2.45, RAM_BASE, { at: [s * 2.55, 0.12, -0.55], rot: [0, s * 0.58, 0] }, 'armor');
+    b.box(2.15, 0.1, 1.45, RAM_LIGHT, { at: [s * 3.72, 0.11, -1.55], rot: [0, s * -0.22, 0] }, 'armor');
+    // Swept-back diamond horizontal stabilators
+    b.box(2.1, 0.09, 1.22, RAM_DARK, { at: [s * 1.85, 0.06, -4.35], rot: [0, s * 0.52, 0] }, 'armor');
+    // Signature canted outward twin V-tails (~26 deg cant)
+    b.box(0.13, 2.1, 1.85, RAM_BASE, { at: [s * 1.32, 1.12, -3.75], rot: [-0.36, 0, s * -0.44] }, 'armor');
+    b.box(0.14, 0.32, 0.85, '#38e8ff', { at: [s * 1.72, 1.98, -4.18], rot: [0, 0, s * -0.44] }, 'armor');
+    // Wingtip nav lights
+    b.glow(new THREE.SphereGeometry(0.09, 8, 8), s > 0 ? '#ff2020' : '#24ff6a', 4.8, { at: [s * 4.78, 0.12, -1.78] });
+  }
+  // Right-wing root internal 20mm M61A2 Vulcan gun port fairing
+  b.box(0.24, 0.16, 1.45, STEEL, { at: [0.85, 0.36, 2.95] }, 'metal');
+  body.add(b.build(materials));
+
+  // Retractable tricycle landing gear (tucks away cleanly once airborne!)
+  const gearB = new VehicleBuilder();
+  gearB.box(0.12, 0.92, 0.14, STEEL, { at: [0, -0.9, 3.2] }, 'metal');
+  gearB.cyl(0.22, 0.22, 0.16, 16, TYRE, { at: [0, -1.26, 3.2], rot: ALONG_X }, 'tread');
+  gearB.cyl(0.11, 0.11, 0.18, 12, CHROME, { at: [0, -1.26, 3.2], rot: ALONG_X }, 'metal');
+  for (const s of [-1, 1]) {
+    gearB.box(0.14, 0.88, 0.16, STEEL, { at: [s * 1.32, -0.88, -1.2] }, 'metal');
+    gearB.cyl(0.26, 0.26, 0.2, 16, TYRE, { at: [s * 1.32, -1.22, -1.2], rot: ALONG_X }, 'tread');
+    gearB.cyl(0.13, 0.13, 0.22, 12, CHROME, { at: [s * 1.32, -1.22, -1.2], rot: ALONG_X }, 'metal');
+  }
+  const landingGear = gearB.build(materials);
+  body.add(landingGear);
+
+  // Animated 2D Rectangular Thrust-Vectoring Exhaust Nozzles + Twin Blue-White Afterburners!
+  const nozzles: THREE.Group[] = [];
+  const boostGlow: THREE.Object3D[] = [];
+  for (const s of [-1, 1]) {
+    const noz = new THREE.Group();
+    noz.position.set(s * 0.56, 0.08, -4.95);
+    const nb = new VehicleBuilder();
+    nb.box(0.68, 0.42, 0.72, STEEL, { at: [0, 0, -0.22] }, 'metal');
+    nb.box(0.56, 0.28, 0.18, '#151920', { at: [0, 0, -0.54] }, 'metal');
+    nb.box(0.66, 0.08, 0.46, GUNMETAL, { at: [0, 0.21, -0.34] }, 'metal');
+    nb.box(0.66, 0.08, 0.46, GUNMETAL, { at: [0, -0.21, -0.34] }, 'metal');
+    noz.add(nb.build(materials));
+
+    const aft = new THREE.Mesh(
+      new THREE.ConeGeometry(0.28, 3.4, 10),
+      new THREE.MeshBasicMaterial({ color: 0x4de8ff, transparent: true, opacity: 0.92, toneMapped: false }),
+    );
+    aft.rotation.x = -Math.PI / 2;
+    aft.position.set(0, 0, -2.15);
+    aft.visible = false;
+    noz.add(aft);
+    boostGlow.push(aft);
+
+    body.add(noz);
+    nozzles.push(noz);
+  }
+
+  const riders: RiderRig[] = [
+    buildRiderRig(materials, { seatIndex: 0, parent: body, at: [0, 0.62, 2.08], posture: 'cockpit', scale: 0.8 }),
+  ];
+
+  const mGun = makeMarker(body, 0.85, 0.36, 4.2);
+  const mLeft = makeMarker(body, 1.35, -0.35, 0.4);
+  const mRight = makeMarker(body, -1.35, -0.35, 0.4);
+  return {
+    root,
+    body,
+    bodyBaseY: 1.42,
+    turret: null,
+    barrel: null,
+    barrelBaseZ: 0,
+    subTurret: null,
+    wheelsFront: [],
+    wheelsRear: [],
+    rotorMain: null,
+    rotorTail: null,
+    outriggers: [],
+    boostGlow,
+    nozzles,
+    landingGear,
+    resupplyRing: null,
+    fpHideParts: [canopyGroup],
+    riders,
+    muzzles: { main: mGun, coax: mGun, podLeft: mLeft, podRight: mRight, roof: mGun, front: mGun, rear: mGun },
+    meshes: collectMeshes(root),
+  };
+}
+
+// =============================================================================
+// 12. HORNET — F/A-18E Super Hornet (Sweeping LEX Strakes, Rhino Intakes, Twin Canted Tails, Wingtip Rails)
+// =============================================================================
+function buildHornet(materials: ModelMaterials): VehicleModelRig {
+  const root = new THREE.Group();
+  const body = new THREE.Group();
+  body.position.y = 1.46;
+  root.add(body);
+
+  const b = new VehicleBuilder();
+  const NAVY_TOP = '#7a8694';
+  const NAVY_BOT = '#95a0ab';
+  const NAVY_DARK = '#343c46';
+  const SQN_GOLD = '#f4c430';
+
+  // Sleek Super Hornet fuselage + black nose anti-glare strip
+  b.solid(hull([
+    { z: -4.8, w: 0.88, top: 0.56, bottom: -0.38 },
+    { z: -1.8, w: 1.08, top: 0.72, bottom: -0.5 },
+    { z: 1.4, w: 0.94, top: 0.72, bottom: -0.46 },
+    { z: 3.9, w: 0.58, top: 0.38, bottom: -0.34 },
+    { z: 6.1, w: 0.1, top: -0.02, bottom: -0.14 },
+  ]), NAVY_TOP, {}, 'armor');
+  b.box(0.56, 0.08, 2.2, NAVY_DARK, { at: [0, 0.46, 3.85], rot: [0.16, 0, 0] }, 'armor'); // nose anti-glare
+  b.box(0.42, 0.5, 0.22, NAVY_DARK, { at: [0, 0.86, 1.55], rot: [-0.15, 0, 0] }, 'carbon'); // ejection seat
+  b.glow(new THREE.BoxGeometry(0.26, 0.1, 0.04), '#6ec6ff', 2.6, { at: [0, 0.78, 2.7] });
+
+  // Framed Naval aviator bubble canopy (hidden in 1P!)
+  const canopyB = new VehicleBuilder();
+  canopyB.solid(hull([
+    { z: 0.65, w: 0.52, top: 1.24, bottom: 0.68 },
+    { z: 2.25, w: 0.5, top: 1.38, bottom: 0.6 },
+    { z: 3.55, w: 0.32, top: 0.88, bottom: 0.42 },
+  ]), GLASS, {}, 'canopy');
+  canopyB.box(1.02, 0.06, 0.08, NAVY_DARK, { at: [0, 1.34, 2.22] }, 'metal');
+  canopyB.box(0.06, 0.06, 2.6, NAVY_DARK, { at: [0, 1.34, 1.92], rot: [0.15, 0, 0] }, 'metal');
+  const canopyGroup = canopyB.build(materials);
+  body.add(canopyGroup);
+
+  for (const s of [-1, 1]) {
+    // Trademark F/A-18E sweeping Leading-Edge Extensions (LEX) flaring back into wing root!
+    b.box(1.12, 0.1, 3.4, NAVY_BOT, { at: [s * 0.96, 0.34, 1.65], rot: [0, s * 0.24, 0] }, 'armor');
+    // Rectangular angular "Rhino" Super Hornet engine intakes tucked under LEX
+    b.box(0.68, 0.62, 2.9, NAVY_DARK, { at: [s * 1.04, -0.08, 0.35] }, 'armor');
+    b.box(0.56, 0.5, 0.14, '#0c0f13', { at: [s * 1.04, -0.08, 1.82], rot: [0, s * 0.18, 0] }, 'metal');
+    // Broad swept-back carrier wings
+    b.box(4.25, 0.13, 1.92, NAVY_TOP, { at: [s * 2.85, 0.24, -0.75], rot: [0, s * 0.3, 0] }, 'armor');
+    // Wingtip Sidewinder rails + slim AIM-9 white missiles
+    b.box(0.12, 0.12, 1.75, NAVY_DARK, { at: [s * 4.92, 0.24, -1.45] }, 'metal');
+    b.cyl(0.06, 0.06, 1.95, 10, '#e6ecf2', { at: [s * 5.04, 0.24, -1.35], rot: ALONG_Z }, 'armor');
+    // Underwing Maverick / JDAM pylons & ordnance
+    for (const wx of [2.15, 3.35]) {
+      b.box(0.1, 0.28, 0.72, NAVY_DARK, { at: [s * wx, 0.04, -0.85] }, 'metal');
+      b.cyl(0.13, 0.13, 1.85, 12, '#dfe6ed', { at: [s * wx, -0.16, -0.78], rot: ALONG_Z }, 'armor');
+      b.solid(new THREE.ConeGeometry(0.13, 0.34, 10), NAVY_DARK, { at: [s * wx, -0.16, 0.3], rot: ALONG_Z }, 'armor', true);
+    }
+    // Swept-back horizontal tailplanes
+    b.box(2.05, 0.1, 1.15, NAVY_BOT, { at: [s * 1.78, 0.06, -4.35], rot: [0, s * 0.44, 0] }, 'armor');
+    // Iconic outward-canted twin vertical tail fins (~20 deg cant) + gold squadron stripe!
+    b.box(0.14, 2.25, 1.65, NAVY_TOP, { at: [s * 1.15, 1.25, -3.55], rot: [-0.28, 0, s * -0.34] }, 'armor');
+    b.box(0.16, 0.32, 0.92, SQN_GOLD, { at: [s * 1.48, 2.15, -3.88], rot: [0, 0, s * -0.34] }, 'armor');
+    // Twin closely-spaced F414 circular exhaust nozzles
+    b.cyl(0.32, 0.36, 0.65, 14, STEEL, { at: [s * 0.44, 0.08, -5.05], rot: ALONG_Z }, 'metal');
+    // Wingtip nav lights
+    b.glow(new THREE.SphereGeometry(0.09, 8, 8), s > 0 ? '#ff2020' : '#24ff6a', 4.6, { at: [s * 5.05, 0.32, -1.4] });
+  }
+  // Nose-mounted M61A1 Vulcan port + carrier arrestor tailhook
+  b.box(0.22, 0.14, 0.65, STEEL, { at: [0, 0.34, 4.9] }, 'metal');
+  b.box(0.08, 0.08, 1.65, STEEL, { at: [0, -0.36, -4.45], rot: [0.14, 0, 0] }, 'metal');
+  body.add(b.build(materials));
+
+  // Retractable carrier tricycle landing gear (twin nose wheels!)
+  const gearB = new VehicleBuilder();
+  gearB.box(0.14, 0.94, 0.16, STEEL, { at: [0, -0.92, 3.25] }, 'metal');
+  for (const nw of [-0.14, 0.14]) {
+    gearB.cyl(0.21, 0.21, 0.12, 14, TYRE, { at: [nw, -1.28, 3.25], rot: ALONG_X }, 'tread');
+  }
+  for (const s of [-1, 1]) {
+    gearB.box(0.16, 0.92, 0.18, STEEL, { at: [s * 1.38, -0.92, -1.05] }, 'metal');
+    gearB.cyl(0.27, 0.27, 0.22, 16, TYRE, { at: [s * 1.38, -1.24, -1.05], rot: ALONG_X }, 'tread');
+    gearB.cyl(0.13, 0.13, 0.24, 12, CHROME, { at: [s * 1.38, -1.24, -1.05], rot: ALONG_X }, 'metal');
+  }
+  const landingGear = gearB.build(materials);
+  body.add(landingGear);
+
+  const boostGlow: THREE.Object3D[] = [];
+  for (const s of [-1, 1]) {
+    const aft = new THREE.Mesh(
+      new THREE.ConeGeometry(0.28, 3.0, 10),
+      new THREE.MeshBasicMaterial({ color: 0xffa84c, transparent: true, opacity: 0.9, toneMapped: false }),
+    );
+    aft.rotation.x = -Math.PI / 2;
+    aft.position.set(s * 0.44, 0.08, -6.8);
+    aft.visible = false;
+    body.add(aft);
+    boostGlow.push(aft);
+  }
+
+  const riders: RiderRig[] = [
+    buildRiderRig(materials, { seatIndex: 0, parent: body, at: [0, 0.64, 2.02], posture: 'cockpit', scale: 0.8 }),
+  ];
+
+  const mGun = makeMarker(body, 0, 0.36, 5.25);
+  const mLeft = makeMarker(body, 2.25, -0.2, -0.35);
+  const mRight = makeMarker(body, -2.25, -0.2, -0.35);
+  return {
+    root,
+    body,
+    bodyBaseY: 1.46,
+    turret: null,
+    barrel: null,
+    barrelBaseZ: 0,
+    subTurret: null,
+    wheelsFront: [],
+    wheelsRear: [],
+    rotorMain: null,
+    rotorTail: null,
+    outriggers: [],
+    boostGlow,
+    landingGear,
+    resupplyRing: null,
+    fpHideParts: [canopyGroup],
+    riders,
+    muzzles: { main: mGun, coax: mGun, podLeft: mLeft, podRight: mRight, roof: mGun, front: mGun, rear: mGun },
+    meshes: collectMeshes(root),
+  };
+}
+
+// =============================================================================
+// 13. LANCER — B-1B / F-111 Swing-Wing Supersonic Close-Air Bomber (Animated Sweep Wings + 4 Nacelles + Dump & Burn!)
+// =============================================================================
+function buildLancer(materials: ModelMaterials): VehicleModelRig {
+  const root = new THREE.Group();
+  const body = new THREE.Group();
+  body.position.y = 1.68;
+  root.add(body);
+
+  const b = new VehicleBuilder();
+  const GUNSHIP = '#363e47';
+  const DARK_SLATE = '#222830';
+  const TRIM_GREY = '#535f6c';
+  const AMBER = '#f59e0b';
+
+  // Long sleek supersonic dart blended-wing-body fuselage (-7.5 m tail to +7.8 m needle radome!)
+  b.solid(hull([
+    { z: -7.5, w: 0.34, top: 0.42, bottom: -0.18 },
+    { z: -4.2, w: 1.18, top: 0.72, bottom: -0.42 },
+    { z: -0.6, w: 1.52, top: 0.84, bottom: -0.56 },
+    { z: 2.6, w: 1.16, top: 0.88, bottom: -0.54 },
+    { z: 5.2, w: 0.68, top: 0.52, bottom: -0.38 },
+    { z: 7.8, w: 0.1, top: -0.02, bottom: -0.14 },
+  ]), GUNSHIP, {}, 'armor');
+  // Blended wing-box fairing & rotary bomb-bay belly seam
+  b.box(2.95, 0.32, 3.6, DARK_SLATE, { at: [0, 0.18, 0.2] }, 'armor');
+  b.box(0.86, 0.1, 4.4, DARK_SLATE, { at: [0, -0.58, 0.6] }, 'metal'); // internal rotary bomb bay doors
+  // Ventral F-111 M61 Vulcan gun fairing under nose
+  b.cyl(0.13, 0.15, 2.35, 10, STEEL, { at: [0, -0.52, 4.45], rot: ALONG_Z }, 'metal');
+  // Iconic B-1B forward SMCS nose ride-control strakes / mini-canards (swept back!)
+  for (const s of [-1, 1]) {
+    b.box(0.92, 0.08, 0.62, TRIM_GREY, { at: [s * 0.76, -0.08, 5.45], rot: [0, s * 0.45, s * -0.25] }, 'armor');
+    // Quad underslung twin-podded turbofan nacelles (iconic B-1B twin engine boxes!)
+    b.box(1.12, 0.64, 3.65, DARK_SLATE, { at: [s * 1.45, -0.42, -2.35] }, 'armor');
+    b.box(0.96, 0.48, 0.16, '#0c0f13', { at: [s * 1.45, -0.42, -0.5] }, 'metal');
+    for (const nx of [-0.28, 0.28]) {
+      b.cyl(0.24, 0.27, 0.65, 12, STEEL, { at: [s * 1.45 + nx, -0.42, -4.35], rot: ALONG_Z }, 'metal');
+    }
+    // High-mounted swept-back cruciform horizontal tailplanes on vertical fin
+    b.box(2.55, 0.11, 1.25, GUNSHIP, { at: [s * 1.45, 1.38, -6.55], rot: [0, s * 0.52, 0] }, 'armor');
+  }
+  // Tall swept B-1B single vertical stabilizer fin + amber tip beacon
+  b.box(0.18, 2.85, 2.35, GUNSHIP, { at: [0, 1.65, -5.95], rot: [-0.42, 0, 0] }, 'armor');
+  b.box(0.2, 0.34, 0.92, AMBER, { at: [0, 2.92, -6.68] }, 'armor');
+  // Fuel-dump vent pipe at extreme tailcone
+  b.cyl(0.11, 0.14, 0.85, 10, STEEL, { at: [0, 0.18, -7.75], rot: ALONG_Z }, 'metal');
+  body.add(b.build(materials));
+
+  // Retractable heavy tricycle landing gear
+  const gearB = new VehicleBuilder();
+  gearB.box(0.16, 1.08, 0.18, STEEL, { at: [0, -1.04, 4.3] }, 'metal');
+  for (const nw of [-0.16, 0.16]) {
+    gearB.cyl(0.24, 0.24, 0.14, 14, TYRE, { at: [nw, -1.46, 4.3], rot: ALONG_X }, 'tread');
+  }
+  for (const s of [-1, 1]) {
+    gearB.box(0.18, 1.06, 0.22, STEEL, { at: [s * 1.75, -1.02, -0.6] }, 'metal');
+    gearB.cyl(0.32, 0.32, 0.26, 16, TYRE, { at: [s * 1.75, -1.38, -0.6], rot: ALONG_X }, 'tread');
+    gearB.cyl(0.16, 0.16, 0.28, 12, CHROME, { at: [s * 1.75, -1.38, -0.6], rot: ALONG_X }, 'metal');
+  }
+  const landingGear = gearB.build(materials);
+  body.add(landingGear);
+
+  // Stepped supersonic bomber cockpit canopy (hidden in 1P!)
+  const canopyB = new VehicleBuilder();
+  canopyB.solid(hull([
+    { z: 2.35, w: 0.72, top: 1.18, bottom: 0.72 },
+    { z: 3.95, w: 0.62, top: 1.24, bottom: 0.62 },
+    { z: 5.15, w: 0.42, top: 0.84, bottom: 0.42 },
+  ]), GLASS, {}, 'canopy');
+  canopyB.box(0.08, 0.08, 2.5, DARK_SLATE, { at: [0, 1.16, 3.8], rot: [0.16, 0, 0] }, 'metal');
+  canopyB.box(1.18, 0.07, 0.08, DARK_SLATE, { at: [0, 1.12, 4.1] }, 'metal');
+  const canopyGroup = canopyB.build(materials);
+  body.add(canopyGroup);
+
+  // ANIMATED VARIABLE-GEOMETRY SWING WINGS (15° unswept takeoff -> ~60° razor supersonic delta!)
+  const makeSwingWing = (side: 1 | -1): THREE.Group => {
+    const pivot = new THREE.Group();
+    pivot.position.set(side * 1.38, 0.22, 0.65);
+    const wb = new VehicleBuilder();
+    // Long tapered supercritical supersonic wing extending outward along +X (side=1) or -X (side=-1), swept BACKWARD!
+    wb.box(4.85, 0.14, 1.65, GUNSHIP, { at: [side * 2.45, 0, -0.45], rot: [0, side * 0.18, 0] }, 'armor');
+    wb.box(2.15, 0.11, 1.05, TRIM_GREY, { at: [side * 5.25, -0.02, -0.96], rot: [0, side * 0.22, 0] }, 'armor');
+    wb.box(4.4, 0.08, 0.22, AMBER, { at: [side * 2.45, 0.06, 0.3], rot: [0, side * 0.18, 0] }, 'armor');
+    wb.glow(new THREE.SphereGeometry(0.1, 8, 8), side > 0 ? '#ff2020' : '#24ff6a', 5.0, { at: [side * 6.32, 0, -1.16] });
+    pivot.add(wb.build(materials));
+    body.add(pivot);
+    return pivot;
+  };
+  const wingsLeft = makeSwingWing(1);
+  const wingsRight = makeSwingWing(-1);
+
+  // 4 Roaring Afterburner Plumes (twin pods × 2 engines each!)
+  const boostGlow: THREE.Object3D[] = [];
+  for (const s of [-1, 1]) {
+    for (const nx of [-0.28, 0.28]) {
+      const aft = new THREE.Mesh(
+        new THREE.ConeGeometry(0.24, 3.2, 10),
+        new THREE.MeshBasicMaterial({ color: 0xff9436, transparent: true, opacity: 0.9, toneMapped: false }),
+      );
+      aft.rotation.x = -Math.PI / 2;
+      aft.position.set(s * 1.45 + nx, -0.42, -6.15);
+      aft.visible = false;
+      body.add(aft);
+      boostGlow.push(aft);
+    }
+  }
+
+  // Iconic "Dump-and-Burn" fiery fuel torch trailing from the rear tailcone!
+  const dumpBurnGlow: THREE.Object3D[] = [];
+  const outerTorch = new THREE.Mesh(
+    new THREE.ConeGeometry(0.68, 6.4, 12),
+    new THREE.MeshBasicMaterial({ color: 0xff6218, transparent: true, opacity: 0.78, toneMapped: false }),
+  );
+  outerTorch.rotation.x = -Math.PI / 2;
+  outerTorch.position.set(0, 0.16, -11.0);
+  outerTorch.visible = false;
+  body.add(outerTorch);
+  dumpBurnGlow.push(outerTorch);
+
+  const innerTorch = new THREE.Mesh(
+    new THREE.ConeGeometry(0.36, 4.4, 10),
+    new THREE.MeshBasicMaterial({ color: 0xffe478, transparent: true, opacity: 0.94, toneMapped: false }),
+  );
+  innerTorch.rotation.x = -Math.PI / 2;
+  innerTorch.position.set(0, 0.16, -9.9);
+  innerTorch.visible = false;
+  body.add(innerTorch);
+  dumpBurnGlow.push(innerTorch);
+
+  const riders: RiderRig[] = [
+    buildRiderRig(materials, { seatIndex: 0, parent: body, at: [0.22, 0.62, 3.55], posture: 'cockpit', scale: 0.78 }),
+  ];
+
+  const mGun = makeMarker(body, 0, -0.52, 5.85);
+  const mLeft = makeMarker(body, 0.45, -0.68, 0.55);
+  const mRight = makeMarker(body, -0.45, -0.68, 0.55);
+  return {
+    root,
+    body,
+    bodyBaseY: 1.68,
+    turret: null,
+    barrel: null,
+    barrelBaseZ: 0,
+    subTurret: null,
+    wheelsFront: [],
+    wheelsRear: [],
+    rotorMain: null,
+    rotorTail: null,
+    outriggers: [],
+    boostGlow,
+    wingsLeft,
+    wingsRight,
+    dumpBurnGlow,
+    landingGear,
+    resupplyRing: null,
+    fpHideParts: [canopyGroup],
+    riders,
+    muzzles: { main: mGun, coax: mGun, podLeft: mLeft, podRight: mRight, roof: mGun, front: mGun, rear: mGun },
+    meshes: collectMeshes(root),
+  };
+}
+
 export function buildVehicleModel(id: DriveVehicleId, materials: ModelMaterials): VehicleModelRig {
   switch (id) {
     case 'jackal': return buildJackal(materials);
@@ -1356,5 +1785,8 @@ export function buildVehicleModel(id: DriveVehicleId, materials: ModelMaterials)
     case 'valkyrie': return buildValkyrie(materials);
     case 'harrier': return buildHarrier(materials);
     case 'warthog': return buildWarthog(materials);
+    case 'raptor': return buildRaptor(materials);
+    case 'hornet': return buildHornet(materials);
+    case 'lancer': return buildLancer(materials);
   }
 }

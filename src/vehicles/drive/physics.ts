@@ -59,6 +59,10 @@ export function createPhysicsState(position: THREE.Vector3, yaw: number, velocit
     airThrottle: 0,
     abandonedFall: false,
     fallSpin: 0,
+    cobraTimer: 0,
+    wingSweep: 0,
+    nozzleDeflect: 0,
+    dumpBurnTimer: 0,
   };
 }
 
@@ -733,12 +737,21 @@ function stepJet(
   const steer = driveActive ? clamp(input.steer, -1, 1) : 0;
   const climb = driveActive ? clamp(input.climb, -1, 1) : 0;
 
+  // Tick jet special timers (Raptor Cobra AoA & Lancer Dump-and-Burn).
+  if (state.cobraTimer > 0) state.cobraTimer = Math.max(0, state.cobraTimer - dt);
+  if (state.dumpBurnTimer > 0) state.dumpBurnTimer = Math.max(0, state.dumpBurnTimer - dt);
+
+  const isRaptor = def.id === 'raptor';
+  const isHornet = def.id === 'hornet';
+  const isLancer = def.id === 'lancer';
+  const isStolJet = def.special.id !== 'vtol';
+
   if (state.vtolMode) {
-    // VTOL / STOL hover mode: vertical lift on Space, descend on Ctrl, agile hover cruise on WASD!
+    // VTOL / STOL tarmac hover & launch mode: Space lifts off cleanly, Ctrl settles onto gear, WASD repositions!
     if (driveActive && typeof input.targetAimYaw === 'number') {
-      state.yaw = dampAngle(state.yaw, input.targetAimYaw, 4.5, dt);
+      state.yaw = dampAngle(state.yaw, input.targetAimYaw, isRaptor ? 6.5 : 4.5, dt);
     }
-    const vtolMax = def.maxSpeed * 0.42;
+    const vtolMax = def.maxSpeed * (isStolJet ? 0.34 : 0.42);
     const targetVy = climb * def.climbRate;
     state.velocity.y = damp(state.velocity.y, targetVy, 5.2, dt);
 
@@ -749,23 +762,40 @@ function stepJet(
 
     const desiredVx = (nfx * throttle + nlx * -steer) * vtolMax;
     const desiredVz = (nfz * throttle + nlz * -steer) * vtolMax;
-    state.velocity.x = damp(state.velocity.x, desiredVx, 2.8, dt);
-    state.velocity.z = damp(state.velocity.z, desiredVz, 2.8, dt);
-    state.airThrottle = damp(state.airThrottle, Math.max(0.2, Math.abs(throttle) * 0.55), 4, dt);
+    state.velocity.x = damp(state.velocity.x, desiredVx, 3.0, dt);
+    state.velocity.z = damp(state.velocity.z, desiredVz, 3.0, dt);
+    state.airThrottle = damp(state.airThrottle, Math.max(0.2, Math.abs(throttle) * 0.6), 4, dt);
 
     state.position.addScaledVector(state.velocity, dt);
     const vFwd = state.velocity.x * nfx + state.velocity.z * nfz;
     const vLeft = state.velocity.x * nlx + state.velocity.z * nlz;
     const airBlend = clamp(state.altitude / 2.2, 0, 1);
-    state.pitch = damp(state.pitch, clamp((vFwd / vtolMax) * 0.18, -0.22, 0.22) * airBlend, 6, dt);
+    state.pitch = damp(state.pitch, clamp((vFwd / Math.max(10, vtolMax)) * 0.16, -0.22, 0.22) * airBlend, 6, dt);
     // Strafe right (vLeft < 0) => positive roll (banking right!).
-    state.roll = damp(state.roll, clamp((-vLeft / vtolMax) * 0.34, -0.4, 0.4) * airBlend, 6, dt);
+    state.roll = damp(state.roll, clamp((-vLeft / Math.max(10, vtolMax)) * 0.34, -0.4, 0.4) * airBlend, 6, dt);
+
+    // Non-VTOL conventional jets (Raptor, Hornet, Lancer) transition seamlessly into Mach flight once airborne + pushing forward!
+    if (isStolJet && driveActive && ((state.altitude > 4.2 && (throttle > 0.15 || state.boosting)) || (state.altitude > 1.8 && state.boosting && throttle > 0.1))) {
+      state.vtolMode = false;
+      state.airThrottle = Math.max(state.airThrottle, 0.78);
+    }
   } else {
     // UNIFIED SMOOTH FORWARD JET FLIGHT MODE (single pitch/yaw/roll controller -> ZERO stutter!).
-    const targetThrottle = state.boosting
+    const cobraActive = isRaptor && state.cobraTimer > 0;
+    const dumpBurnActive = isLancer && state.dumpBurnTimer > 0;
+
+    // Gentle auto-STOL touchdown if a conventional jet slows right down near the tarmac while holding descend/back.
+    if (isStolJet && driveActive && state.altitude < 4.5 && climb < -0.2 && throttle < -0.1 && state.airThrottle < 0.52) {
+      state.vtolMode = true;
+    }
+
+    const minThrottle = cobraActive ? 0.3 : 0.45;
+    const targetThrottle = (state.boosting || dumpBurnActive)
       ? 1.0
-      : clamp(state.airThrottle + throttle * 0.85 * dt, 0.45, 1.0);
-    state.airThrottle = damp(state.airThrottle, targetThrottle, 5, dt);
+      : cobraActive
+        ? 0.34
+        : clamp(state.airThrottle + throttle * 0.85 * dt, minThrottle, 1.0);
+    state.airThrottle = damp(state.airThrottle, targetThrottle, cobraActive ? 8.5 : 5, dt);
 
     // Combine mouse aim heading + A/D keyboard banking smoothly in one place!
     let yawDiff = 0;
@@ -775,19 +805,29 @@ function stepJet(
       while (d < -Math.PI) d += Math.PI * 2;
       yawDiff = d;
     }
-    const desiredYawRate = clamp(yawDiff * 2.1 - steer * def.turnRate * 0.82, -def.turnRate * 1.15, def.turnRate * 1.15);
-    state.yawRate = damp(state.yawRate, desiredYawRate, 6.5, dt);
+    const turnAuthority = def.turnRate * (cobraActive ? 1.75 : 1.0);
+    const aimGain = isRaptor ? (cobraActive ? 4.4 : 3.2) : isHornet ? 2.6 : 2.1;
+    const yawDamp = isRaptor ? 11.0 : isHornet ? 8.5 : isLancer ? 5.8 : 6.5;
+    const pitchDamp = isRaptor ? (cobraActive ? 11.5 : 9.5) : isHornet ? 7.4 : isLancer ? 5.0 : 5.2;
+    const rollDamp = isRaptor ? 8.8 : isHornet ? 7.0 : isLancer ? 4.8 : 5.4;
+    const maxBank = isRaptor ? 1.36 : isHornet ? 1.22 : isLancer ? 0.98 : 1.05;
+    const velDamp = isRaptor ? (cobraActive ? 7.5 : 6.2) : isHornet ? 5.0 : isLancer ? 3.8 : 4.2;
+
+    const desiredYawRate = clamp(yawDiff * aimGain - steer * turnAuthority * 0.88, -turnAuthority * 1.25, turnAuthority * 1.25);
+    state.yawRate = damp(state.yawRate, desiredYawRate, yawDamp, dt);
     state.yaw += state.yawRate * dt;
 
     // Smooth pitch tracking toward pilot aim (pitch < 0 = nose UP in Three.js!).
+    const pitchLimit = isRaptor ? 1.18 : isHornet ? 1.06 : 0.92;
     if (driveActive && typeof input.targetAimPitch === 'number') {
-      const desiredPitch = clamp(-input.targetAimPitch, -0.92, 0.92);
-      state.pitch = damp(state.pitch, desiredPitch, 5.2, dt);
+      const cobraNoseBias = cobraActive ? -0.34 : 0;
+      const desiredPitch = clamp(-input.targetAimPitch + cobraNoseBias, -pitchLimit, pitchLimit);
+      state.pitch = damp(state.pitch, desiredPitch, pitchDamp, dt);
     }
 
     // FIXED BANK SIGN (+Z nose, +Y up, +X left): turning RIGHT (yawRate < 0, steer > 0) => POSITIVE roll (right wing drops)!
-    const bankCmd = clamp((-state.yawRate / Math.max(1, def.turnRate)) * 0.82 + steer * 0.32, -1.05, 1.05);
-    state.roll = damp(state.roll, bankCmd, 5.4, dt);
+    const bankCmd = clamp((-state.yawRate / Math.max(1, turnAuthority)) * (isRaptor ? 1.05 : 0.86) + steer * 0.36, -maxBank, maxBank);
+    state.roll = damp(state.roll, bankCmd, rollDamp, dt);
 
     // Nose vector from (yaw, pitch).
     const nosePitch = -state.pitch;
@@ -796,18 +836,31 @@ function stepJet(
     const dirY = Math.sin(nosePitch);
     const dirZ = Math.cos(state.yaw) * cp;
 
-    const targetSpeed = state.boosting
-      ? def.boostSpeed
-      : def.maxSpeed * state.airThrottle;
+    const targetSpeed = dumpBurnActive
+      ? def.boostSpeed * 1.05
+      : state.boosting && !cobraActive
+        ? def.boostSpeed
+        : def.maxSpeed * state.airThrottle;
     const desiredVx = dirX * targetSpeed;
-    const desiredVy = dirY * targetSpeed + climb * 10;
+    const desiredVy = dirY * targetSpeed + climb * (isRaptor ? 14 : 10);
     const desiredVz = dirZ * targetSpeed;
 
-    state.velocity.x = damp(state.velocity.x, desiredVx, 4.2, dt);
-    state.velocity.y = damp(state.velocity.y, desiredVy, 4.2, dt);
-    state.velocity.z = damp(state.velocity.z, desiredVz, 4.2, dt);
+    state.velocity.x = damp(state.velocity.x, desiredVx, velDamp, dt);
+    state.velocity.y = damp(state.velocity.y, desiredVy, velDamp, dt);
+    state.velocity.z = damp(state.velocity.z, desiredVz, velDamp, dt);
 
     state.position.addScaledVector(state.velocity, dt);
+  }
+
+  // Animated variable-geometry wing sweep (Lancer) & 2D thrust-vectoring exhaust nozzles (Raptor)!
+  const curSpd = Math.hypot(state.velocity.x, state.velocity.y, state.velocity.z);
+  if (isLancer) {
+    const targetSweep = state.vtolMode ? 0 : clamp((curSpd - 22) / 56, 0, 1);
+    state.wingSweep = damp(state.wingSweep, targetSweep, 3.2, dt);
+  }
+  if (isRaptor) {
+    const targetNozzle = clamp(-state.pitch * 0.42 + (state.cobraTimer > 0 ? 0.38 : 0) + clamp(climb * 0.18, -0.2, 0.2), -0.46, 0.46);
+    state.nozzleDeflect = damp(state.nozzleDeflect, targetNozzle, 10, dt);
   }
 
   // Floor & sky ceiling checks (with high-speed crash detection!).

@@ -598,6 +598,8 @@ export interface ProjectileSpec {
   bomb?: boolean;
   /** Incendiary BLU-27 napalm warhead: spreads a wide carpet of persistent burning napalm patches on impact. */
   napalm?: boolean;
+  /** High-drag Snake-Eye retarded parachute bomb: deploys cruciform drag chute after release for low-level supersonic bombing. */
+  chute?: boolean;
 }
 
 export interface CombatSystem extends GameSystem {

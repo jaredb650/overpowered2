@@ -189,6 +189,8 @@ export class DriveableVehicle {
   private currentLockLabel = '';
 
   private readonly rammedCooldown = new Map<number, number>();
+  private dumpBurnWakeTimer = 0;
+  private cobraVaporTimer = 0;
   private clock = 0;
   private mouseIdleTimer = 0;
   private disposed = false;
@@ -935,18 +937,33 @@ export class DriveableVehicle {
     const secRt = this.secondaryState[this._seatIndex];
     const secResolved = spec.secondary && secRt ? this.resolveWeaponMode(spec.secondary, secRt.modeIndex) : null;
 
-    // 1. Live Fighter Jet CCIP Bomb Ground Impact Point (HE or Napalm)!
+    // 1. Live Fighter Jet CCIP Bomb Ground Impact Point (HE, Napalm, Cluster, or Snake-Eye Retarded Parachute)!
     this.hudScratch.ccipWorld = null;
-    this.hudScratch.ccipLabel = secResolved?.napalm ? 'CCIP NAPALM' : 'CCIP HE';
+    this.hudScratch.ccipLabel = secResolved?.chute
+      ? 'CCIP SNAKE-EYE'
+      : secResolved?.cluster
+        ? 'CCIP CLUSTER'
+        : secResolved?.napalm
+          ? 'CCIP NAPALM'
+          : 'CCIP HE';
     if (spec.hudMode === 'fighter' && secResolved && secResolved.kind === 'bomb' && this.phys.altitude > 3) {
       _ccipPos.copy(this.phys.position);
       _ccipPos.y -= 0.45;
       _ccipVel.copy(this.phys.velocity);
       _ccipVel.y -= 3.5;
       const g = secResolved.gravity || 28;
-      const step = 0.18;
-      for (let i = 0; i < 32; i++) {
+      const isChute = secResolved.chute;
+      const step = isChute ? 0.12 : 0.18;
+      const maxSteps = isChute ? 60 : 36;
+      for (let i = 0; i < maxSteps; i++) {
+        const t = (i + 1) * step;
         _ccipVel.y -= g * step;
+        if (isChute && t > 0.12) {
+          const drag = Math.exp(-3.4 * step);
+          _ccipVel.x *= drag;
+          _ccipVel.z *= drag;
+          if (_ccipVel.y < -26) _ccipVel.y = -26;
+        }
         _ccipPos.addScaledVector(_ccipVel, step);
         const navGy = this.ctx.world?.nav?.groundHeight?.(_ccipPos.x, _ccipPos.y + 4, _ccipPos.z);
         const gy = typeof navGy === 'number' && Number.isFinite(navGy) ? navGy : this.phys.groundY;
@@ -960,7 +977,7 @@ export class DriveableVehicle {
       }
     }
 
-    // 1b. Live Fighter Boresight Gun-Tracking Pipper (shows exact ground/air convergence of nose GAU-12 / GAU-8)!
+    // 1b. Live Fighter Boresight Gun-Tracking Pipper (shows exact ground/air convergence of nose GAU-12 / GAU-8 / M61 Vulcan)!
     this.hudScratch.gunPipWorld = null;
     if (spec.hudMode === 'fighter' && spec.primary.boresight) {
       this.model.root.updateMatrixWorld(true);
@@ -979,7 +996,7 @@ export class DriveableVehicle {
       this.hudScratch.gunPipWorld = this.gunPipOut;
     }
 
-    // 2. Live Missile Lock Target (Fighter ATGM, Kestrel Hellfire, Aegis TOW-X)!
+    // 2. Live Missile Lock Target (Raptor AIM-9X/AMRAAM wide off-boresight, Hornet, Fighter ATGM, Kestrel Hellfire, Aegis TOW-X)!
     this.currentLockTarget = null;
     this.currentLockLabel = '';
     this.hudScratch.lockWorld = null;
@@ -988,7 +1005,7 @@ export class DriveableVehicle {
     if (wantsLock) {
       let bestTarget: MissileTarget | null = null;
       let bestLabel = 'TARGET';
-      let bestDot = 0.78;
+      let bestDot = this.def.id === 'raptor' ? 0.66 : this.def.id === 'hornet' ? 0.72 : 0.78;
       // Prefer enemy vehicles & choppers first.
       this.ctx.enemies?.vehicles?.paintable?.(_paintTargets);
       for (const t of _paintTargets) {
@@ -998,7 +1015,7 @@ export class DriveableVehicle {
         if (d > bestDot) {
           bestDot = d;
           bestTarget = t;
-          bestLabel = 'ARMOR LOCK';
+          bestLabel = this.def.id === 'raptor' ? 'AIR / ARMOR LOCK' : 'ARMOR LOCK';
         }
       }
       if (!bestTarget) {
@@ -1024,13 +1041,14 @@ export class DriveableVehicle {
       }
     }
     if (this.currentLockTarget && this.currentLockTarget !== this.prevLockTarget) {
-      this.ctx.audio?.play('quiver_lock', { position: this.phys.position, volume: 0.72, pitch: 1.05 });
+      this.ctx.audio?.play('quiver_lock', { position: this.phys.position, volume: 0.72, pitch: this.def.id === 'raptor' ? 1.18 : 1.05 });
     }
     this.prevLockTarget = this.currentLockTarget;
 
-    // 3. Live AA Lead-Computing Reticle Pips on Enemy Aircraft!
+    // 3. Live AA Lead-Computing Reticle Pips on Enemy Aircraft (AA Turrets + Dogfighters Raptor & Hornet)!
     this.leadPipsOut.length = 0;
-    if (spec.hudMode === 'aa' && this.ctx.enemies?.vehicles?.listTargets) {
+    const showAaLeads = spec.hudMode === 'aa' || this.def.id === 'raptor' || this.def.id === 'hornet';
+    if (showAaLeads && this.ctx.enemies?.vehicles?.listTargets) {
       this.ctx.enemies.vehicles.listTargets(_radarTargets);
       const projSpeed = Math.max(120, spec.primary.speed || 220);
       for (const rt of _radarTargets) {
@@ -1051,7 +1069,8 @@ export class DriveableVehicle {
       this.missileWarning = false;
       return;
     }
-    const incoming = this.ctx.combat?.hasIncomingEnemyMissile?.(this.phys.position, 92) ?? false;
+    const warnRange = this.def.stealth ? 52 : 92;
+    const incoming = this.ctx.combat?.hasIncomingEnemyMissile?.(this.phys.position, warnRange) ?? false;
     this.missileWarning = incoming && !this.isCountermeasureActive;
     if (this.missileWarning) {
       this.warningBeepTimer -= dt;
@@ -1130,6 +1149,36 @@ export class DriveableVehicle {
       this.ctx.hud?.feed?.('IR SMOKE SCREEN — LOCK BROKEN', this.def.color);
     } else if (sp.id === 'flares') {
       this.popFlares();
+    } else if (sp.id === 'cobra') {
+      // F-22 Raptor 2D Thrust-Vectoring Cobra Airbrake + IR Flares!
+      if (this.phys.vtolMode) {
+        // If still on tarmac/STOL, snap right into airborne Mach combat!
+        this.phys.vtolMode = false;
+        this.phys.airThrottle = 0.85;
+        this.phys.velocity.y = Math.max(this.phys.velocity.y, 16);
+        this.phys.grounded = false;
+      }
+      this.phys.cobraTimer = sp.duration;
+      this.phys.boostFuel = Math.min(1, this.phys.boostFuel + 0.35);
+      this.phys.boostLocked = false;
+      this.popFlares();
+      this.engineAudio.playVtolShift(this.phys.position, true);
+      this.ctx.hud?.feed?.('F-22 COBRA MANEUVER // 2D THRUST-VECTOR TURN + FLARES', this.def.color);
+    } else if (sp.id === 'dump_burn') {
+      // Lancer "Dump-and-Burn" trailing jet-fuel afterburner torch + incendiary wake + IR Flares!
+      if (this.phys.vtolMode) {
+        this.phys.vtolMode = false;
+        this.phys.airThrottle = 1.0;
+        this.phys.velocity.y = Math.max(this.phys.velocity.y, 14);
+        this.phys.grounded = false;
+      }
+      this.phys.dumpBurnTimer = sp.duration;
+      this.phys.boostFuel = 1;
+      this.phys.boostLocked = false;
+      this.dumpBurnWakeTimer = 0;
+      this.popFlares();
+      this.ctx.audio?.play('veh_afterburner_ignite', { position: this.phys.position, volume: 1.0, pitch: 0.78 });
+      this.ctx.hud?.feed?.('LANCER DUMP-AND-BURN // FUEL TORCH + FLARES', this.def.color);
     } else if (sp.id === 'overcharge') {
       this.phys.boostFuel = 1;
       this.phys.boostLocked = false;
@@ -1160,7 +1209,7 @@ export class DriveableVehicle {
 
   private popFlares(): void {
     this.flareRemaining = 4.2;
-    this.flareCooldown = 9.5;
+    this.flareCooldown = this.def.stealth ? 6.5 : 9.5;
     this.ctx.audio?.play('veh_flare_pop', { position: this.phys.position, volume: 0.92, pitch: 1.04 });
     for (let i = 0; i < 8; i++) {
       const side = i % 2 === 0 ? 1 : -1;
@@ -1185,6 +1234,9 @@ export class DriveableVehicle {
     explosionKind: VehicleWeaponSpec['explosionKind'];
     homing: boolean;
     napalm: boolean;
+    cluster: boolean;
+    chute: boolean;
+    moab: boolean;
     audio: string;
     audioPitch: number;
   } {
@@ -1209,6 +1261,9 @@ export class DriveableVehicle {
         explosionKind: mode.explosionKind,
         homing: Boolean(mode.homing),
         napalm: Boolean(mode.napalm),
+        cluster: Boolean(mode.cluster),
+        chute: Boolean(mode.chute),
+        moab: Boolean(mode.moab),
         audio: mode.audio ?? spec.audio,
         audioPitch: mode.audioPitch ?? spec.audioPitch,
       };
@@ -1225,7 +1280,10 @@ export class DriveableVehicle {
       blastDamage: spec.blastDamage,
       explosionKind: spec.explosionKind,
       homing: Boolean(spec.homing),
-      napalm: false,
+      napalm: Boolean(spec.napalm),
+      cluster: Boolean(spec.cluster),
+      chute: Boolean(spec.chute),
+      moab: Boolean(spec.moab),
       audio: spec.audio,
       audioPitch: spec.audioPitch,
     };
@@ -1426,13 +1484,13 @@ export class DriveableVehicle {
     }
 
     if (m.kind === 'bomb') {
-      // Gravity-dropped fighter bomb (Mk-82 / Mk-84 HE or BLU-27 Napalm) inheriting full aircraft velocity -> lands on CCIP!
-      // Cleared slightly below the wing pylon with a crisp downward ejector kick, zero smoke/flame trail, and live 3D whistle.
+      // Gravity-dropped fighter/bomber bomb (Mk-82 / Mk-84 HE, Snake-Eye Chute, CBU-87 Cluster, or BLU-27 Napalm) inheriting full aircraft velocity -> lands on CCIP!
+      // Cleared slightly below the wing pylon / belly bay with a crisp downward ejector kick, zero smoke/flame trail, and live 3D whistle.
       _muzzle.y -= 0.45;
       _vel.copy(this.phys.velocity);
       _vel.y -= 3.5;
-      const bombScale = m.blastRadius >= 20 ? 3.0 : m.blastRadius >= 16 ? 2.5 : 1.9;
-      const modelSize = m.napalm ? 1.08 : m.blastRadius >= 20 ? 1.22 : 0.96;
+      const bombScale = m.moab ? 4.4 : m.blastRadius >= 20 ? 3.0 : m.blastRadius >= 16 ? 2.5 : 1.9;
+      const modelSize = m.moab ? 1.95 : m.napalm ? 1.08 : m.cluster ? 1.06 : m.blastRadius >= 20 ? 1.22 : 0.96;
       this.ctx.combat.spawnProjectile({
         origin: _muzzle,
         velocity: _vel,
@@ -1440,27 +1498,30 @@ export class DriveableVehicle {
         team: 'player',
         damage: m.damage,
         bossDamage: m.damage * 1.45,
-        source: m.napalm ? `${this.def.id}_napalm` : `${this.def.id}_bomb`,
+        source: m.napalm ? `${this.def.id}_napalm` : m.cluster ? `${this.def.id}_cluster` : m.chute ? `${this.def.id}_chute` : `${this.def.id}_bomb`,
         gravity: m.gravity || 28,
-        lifetime: 10,
+        lifetime: m.chute ? 14 : 10,
         trail: 'none',
         size: modelSize,
         armorPiercing: true,
         bomb: true,
         napalm: m.napalm,
+        cluster: m.cluster,
+        chute: m.chute,
         explosion: {
           radius: m.blastRadius,
           damage: m.blastDamage,
           kind: m.explosionKind,
           selfDamage: 0,
           scale: bombScale,
-          shake: 1.4,
+          shake: m.moab ? 2.2 : 1.4,
         },
       });
     } else if (m.kind === 'atgm' || m.homing) {
       const lock = this.currentLockTarget;
       _vel.copy(_dir).multiplyScalar(m.speed);
       if (this.def.category === 'jet') _vel.addScaledVector(this.phys.velocity, 0.35);
+      const missileTurn = this.def.id === 'raptor' ? 7.6 : this.def.id === 'hornet' ? 6.0 : 4.8;
       this.ctx.combat.spawnProjectile({
         origin: _muzzle,
         velocity: _vel,
@@ -1472,7 +1533,7 @@ export class DriveableVehicle {
         lifetime: 8,
         trail: 'hellfire',
         target: lock,
-        turnRate: lock ? 4.8 : 0,
+        turnRate: lock ? missileTurn : 0,
         armorPiercing: true,
         explosion: {
           radius: m.blastRadius,
@@ -1904,13 +1965,82 @@ export class DriveableVehicle {
   }
 
   private stepEffects(dt: number, occupied: boolean): void {
-    const showBoost = this.phys.boosting || (this.def.category === 'jet' && occupied && !this.phys.vtolMode);
+    const showBoost = this.phys.boosting || this.phys.dumpBurnTimer > 0 || (this.def.category === 'jet' && occupied && !this.phys.vtolMode);
     for (const g of this.model.boostGlow) {
       g.visible = showBoost;
       if (showBoost) {
-        const base = this.phys.boosting ? 1.15 : 0.68;
+        const base = this.phys.boosting || this.phys.dumpBurnTimer > 0 ? 1.2 : 0.68;
         const s = base + Math.sin(this.clock * 45) * 0.22;
         g.scale.set(1, 1, s);
+      }
+    }
+
+    if (this.model.dumpBurnGlow) {
+      const showTorch = this.phys.dumpBurnTimer > 0;
+      for (const tg of this.model.dumpBurnGlow) {
+        tg.visible = showTorch;
+        if (showTorch) {
+          const s = 0.92 + Math.sin(this.clock * 54) * 0.24;
+          tg.scale.set(0.95 + Math.sin(this.clock * 33) * 0.14, 0.95 + Math.cos(this.clock * 37) * 0.14, s);
+        }
+      }
+      if (showTorch) {
+        this.dumpBurnWakeTimer -= dt;
+        if (this.dumpBurnWakeTimer <= 0) {
+          this.dumpBurnWakeTimer = 0.18;
+          const fx = Math.sin(this.phys.yaw);
+          const fz = Math.cos(this.phys.yaw);
+          _origin.set(
+            this.phys.position.x - fx * 8.2,
+            this.phys.position.y + 1.1,
+            this.phys.position.z - fz * 8.2,
+          );
+          this.ctx.fx?.smoke?.(_origin, 0xff7a24, 1.85, 0.95);
+          this.ctx.fx?.sparks?.(_origin, _up, 10, 0xffc844);
+          // Drop burning fuel fireball that ignites the ground below if skimming low!
+          if (this.phys.altitude < 42) {
+            _vel.set(this.phys.velocity.x * 0.3, -18, this.phys.velocity.z * 0.3);
+            this.ctx.combat.spawnProjectile({
+              origin: _origin,
+              velocity: _vel,
+              kind: 'shell',
+              team: 'player',
+              damage: 140,
+              source: 'lancer_dump_burn',
+              gravity: 24,
+              lifetime: 3.5,
+              trail: 'smoke',
+              size: 0.55,
+              napalm: true,
+              explosion: {
+                radius: 7.5,
+                damage: 180,
+                kind: 'rocket',
+                selfDamage: 0,
+                scale: 1.1,
+                shake: 0.25,
+              },
+            });
+          }
+        }
+      }
+    }
+
+    // F-22 Raptor high-G Cobra wingtip condensation trails!
+    if (this.phys.cobraTimer > 0) {
+      this.cobraVaporTimer -= dt;
+      if (this.cobraVaporTimer <= 0) {
+        this.cobraVaporTimer = 0.055;
+        const rx = Math.cos(this.phys.yaw);
+        const rz = -Math.sin(this.phys.yaw);
+        for (const side of [-1, 1]) {
+          _origin.set(
+            this.phys.position.x + rx * side * 4.5,
+            this.phys.position.y + 1.4,
+            this.phys.position.z + rz * side * 4.5,
+          );
+          this.ctx.fx?.smoke?.(_origin, 0xe8f6ff, 0.85, 0.75);
+        }
       }
     }
 
@@ -1986,6 +2116,22 @@ export class DriveableVehicle {
 
     if (rotorMain) rotorMain.rotation.y = this.phys.rotorAngle;
     if (rotorTail) rotorTail.rotation.x = this.phys.rotorAngle * 2.8;
+
+    // Animated variable-geometry swing wings (Lancer: 0 unswept -> 0.78 rad supersonic delta!)
+    if (this.model.wingsLeft) this.model.wingsLeft.rotation.y = this.phys.wingSweep * 0.78;
+    if (this.model.wingsRight) this.model.wingsRight.rotation.y = -this.phys.wingSweep * 0.78;
+
+    // Animated 2D thrust-vectoring exhaust nozzles (F-22 Raptor)
+    if (this.model.nozzles) {
+      for (const noz of this.model.nozzles) {
+        noz.rotation.x = this.phys.nozzleDeflect;
+      }
+    }
+
+    // Retractable tricycle landing gear (tucks away cleanly once airborne!)
+    if (this.model.landingGear) {
+      this.model.landingGear.visible = this.phys.altitude < 3.2;
+    }
 
     for (let i = 0; i < outriggers.length; i++) {
       const side = i % 2 === 0 ? 1 : -1;
@@ -2082,7 +2228,13 @@ export class DriveableVehicle {
     }
     const swap = this.def.seats.length > 1 ? 'F SEAT // ' : '';
     const extra = this.def.category === 'jet'
-      ? 'SPACE LIFT // SHIFT AFTERBURNER // R ORDNANCE // Q VTOL/FLARES // '
+      ? (this.def.id === 'raptor'
+        ? 'SPACE TAKEOFF // SHIFT SUPERCRUISE // R MISSILES // Q COBRA+FLARES // '
+        : this.def.id === 'lancer'
+          ? 'SPACE TAKEOFF // SHIFT MACH SWEEP // R BOMBS // Q DUMP&BURN // '
+          : this.def.id === 'hornet'
+            ? 'SPACE TAKEOFF // SHIFT AFTERBURNER // R ORDNANCE // Q FLARES // '
+            : 'SPACE LIFT // SHIFT AFTERBURNER // R ORDNANCE // Q VTOL/FLARES // ')
       : this.def.category === 'helicopter'
         ? 'SPACE CLIMB // CTRL DESCEND // Q FLARES // '
         : this.def.category === 'hover'
@@ -2146,7 +2298,7 @@ export class DriveableVehicle {
     h.specialLabel = this.def.special.id === 'vtol'
       ? (this.phys.vtolMode ? 'JET MODE' : 'VTOL HOVER')
       : this.def.special.name;
-    h.specialActive = this.specialActive || this.flareRemaining > 0;
+    h.specialActive = this.specialActive || this.flareRemaining > 0 || this.phys.cobraTimer > 0 || this.phys.dumpBurnTimer > 0;
     h.specialReady = this.specialCooldown <= 0;
     h.specialFraction = this.def.special.cooldown > 0 ? clamp(1 - this.specialCooldown / this.def.special.cooldown, 0, 1) : 1;
     h.cameraLabel = !this.thirdPerson || spec.chaseDist <= 0.5 ? '1P' : '3P';

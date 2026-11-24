@@ -164,6 +164,8 @@ export interface Projectile {
   whistleLoop: LoopHandle | null;
   /** BLU-27 incendiary napalm bomb: spreads a burning napalm carpet on detonation. */
   napalm: boolean;
+  /** Mk-82 Snake-Eye retarded parachute bomb: deploys drag chute after release to shed forward speed for safe low-level bombing. */
+  chute: boolean;
   /**
    * Co-op: a copy of a projectile another browser owns: an enemy's on a guest, or a friend's round (ProjectileSpec.cosmetic).
    * It flies, trails, sticks, beeps and bursts here as the real one does there, stepped under `Combat.watching`, and hurts
@@ -194,7 +196,7 @@ function createProjectile(): Projectile {
     blastSelf: undefined, blastPush: undefined, pinned: false, lastHit: -1,
     budget: makeBudget(), baseDamage: 0, armorPiercing: false,
     target: null, turnRate: 0, line: new THREE.Vector3(), steerDelay: 0, weave: 0, weavePhase: 0, accel: 0, topSpeed: 0, age: 0, size: 1, wired: false,
-    blastScale: undefined, blastShake: undefined, flak: false, wp: false, cluster: false, bomb: false, whistleLoop: null, napalm: false, cosmetic: false, netId: 0, laser: ROCKET_LASER, tag: 0, ghost: false, blastMirrored: false,
+    blastScale: undefined, blastShake: undefined, flak: false, wp: false, cluster: false, bomb: false, whistleLoop: null, napalm: false, chute: false, cosmetic: false, netId: 0, laser: ROCKET_LASER, tag: 0, ghost: false, blastMirrored: false,
     initialFuse: 0, thrownBack: false,
     helix: null, helixData: { phase: 0, reach: 0, radius: 0, pitch: 0, startRadius: 0, convergence: 0 }, helixTravel: 0, helixRight: new THREE.Vector3(), helixUp: new THREE.Vector3(), helixOffset: new THREE.Vector3(),
   };
@@ -354,11 +356,12 @@ export class Projectiles {
     p.cluster = spec.cluster ?? false;
     p.bomb = spec.bomb ?? false;
     p.napalm = spec.napalm ?? false;
+    p.chute = spec.chute ?? false;
     p.whistleLoop = p.bomb
       ? (this.ctx.audio?.startLoop?.('bomb_whistle_loop', {
         position: p.position,
         volume: 0.22,
-        pitch: p.napalm ? 1.38 : 1.28,
+        pitch: p.napalm ? 1.38 : p.chute ? 1.04 : 1.28,
         doppler: true,
       }) ?? null)
       : null;
@@ -414,6 +417,7 @@ export class Projectiles {
     p.cluster = false;
     p.bomb = false;
     p.napalm = false;
+    p.chute = false;
     p.laser = ROCKET_LASER;
     const last = this.live.pop()!;
     if (index < this.live.length) this.live[index] = last;
@@ -450,9 +454,9 @@ export class Projectiles {
       if (p.whistleLoop) {
         // Classic falling aerial bomb pitch drop as it accelerates down toward impact.
         const fallFrac = clamp(p.age / 2.8, 0, 1);
-        const startPitch = p.napalm ? 1.38 : 1.28;
+        const startPitch = p.napalm ? 1.38 : p.chute ? 1.04 : 1.28;
         p.whistleLoop.setPosition(p.position);
-        p.whistleLoop.setPitch(startPitch - fallFrac * 0.66, 0.08);
+        p.whistleLoop.setPitch(startPitch - fallFrac * (p.chute ? 0.34 : 0.66), 0.08);
         p.whistleLoop.setVolume(0.22 + clamp(p.age / 0.6, 0, 1) * 0.72, 0.08);
       }
       this.emitTrail(p, realDt);
@@ -473,6 +477,13 @@ export class Projectiles {
     } else if (p.turnRate > 0) this.guide(p, dt);
     else if (p.homing > 0) this.steer(p, dt);
     if (p.gravity > 0) p.velocity.y -= p.gravity * dt;
+    if (p.chute && p.age > 0.12) {
+      // Mk-82 Snake-Eye drag chute pops open 0.12s after release: sheds forward velocity rapidly and caps descent!
+      const drag = Math.exp(-3.4 * dt);
+      p.velocity.x *= drag;
+      p.velocity.z *= drag;
+      if (p.velocity.y < -26) p.velocity.y = -26;
+    }
 
     const speed = p.velocity.length();
     if (speed < 1e-3) return;

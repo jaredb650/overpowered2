@@ -540,7 +540,7 @@ export class GunnerHud implements SeatPanel {
     if (charging) this.chargeBar.set(v.chargeFraction);
     this.mslWarn.set(v.missileWarning);
 
-    // Green Military Fighter Jet HUD (Harrier & Warthog)!
+    // Green Military Fighter Jet HUD (Harrier, Warthog, Raptor, Hornet, Lancer)!
     const isFighter = v.hudMode === 'fighter';
     this.jetBox.set(isFighter);
     if (isFighter) {
@@ -549,7 +549,16 @@ export class GunnerHud implements SeatPanel {
       this.jetLadder.style.transform = `translate3d(0,${pitchPx}px,0) rotate(${rollDeg}deg)`;
       this.jetSpdVal.set(Math.round(v.speedKmh));
       this.jetAltVal.set(Math.round(v.altitudeM));
-      this.jetModeBadge.set(v.vtolMode ? 'VTOL HOVER' : 'MACH JET');
+      const modeText = v.id === 'raptor' && v.specialActive
+        ? 'COBRA AOA'
+        : v.id === 'lancer' && v.specialActive
+          ? 'DUMP & BURN'
+          : v.vtolMode
+            ? (v.id === 'harrier' || v.id === 'warthog' ? 'VTOL HOVER' : 'STOL LAUNCH')
+            : v.id === 'raptor'
+              ? 'STEALTH MACH'
+              : 'MACH JET';
+      this.jetModeBadge.set(modeText);
     }
 
     // Projected 3D tactical reticles (CCIP Bomb Ground Impact Point, Gun-Tracking Pipper, Missile Lock Diamond, AA Lead Pips).
@@ -560,7 +569,7 @@ export class GunnerHud implements SeatPanel {
         this.ccipShown.set(true);
         const lbl = v.ccipLabel || 'CCIP HE';
         this.ccipLabel.set(lbl);
-        this.ccipNapalm.set(lbl.includes('NAPALM'));
+        this.ccipNapalm.set(lbl.includes('NAPALM') || lbl.includes('CLUSTER') || lbl.includes('SNAKE'));
         this.ccipEl.style.transform = `translate3d(${Math.round((_p.x * 0.5 + 0.5) * this.width)}px,${Math.round((0.5 - _p.y * 0.5) * this.height)}px,0)`;
       } else {
         this.ccipShown.set(false);

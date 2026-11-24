@@ -16,7 +16,10 @@ export type DriveVehicleId =
   | 'moto'
   | 'valkyrie'
   | 'harrier'
-  | 'warthog';
+  | 'warthog'
+  | 'raptor'
+  | 'hornet'
+  | 'lancer';
 
 export type VehicleCategory = 'wheeled' | 'tracked' | 'helicopter' | 'hover' | 'moto' | 'jet';
 
@@ -54,6 +57,8 @@ export type VehicleSpecialId =
   | 'deploy'
   | 'vtol'
   | 'wheelie'
+  | 'cobra'
+  | 'dump_burn'
   | 'none';
 
 export interface VehicleWeaponAltMode {
@@ -69,6 +74,9 @@ export interface VehicleWeaponAltMode {
   readonly explosionKind: ExplosionKind;
   readonly homing?: boolean;
   readonly napalm?: boolean;
+  readonly cluster?: boolean;
+  readonly chute?: boolean;
+  readonly moab?: boolean;
   readonly audio?: string;
   readonly audioPitch?: number;
 }
@@ -102,6 +110,12 @@ export interface VehicleWeaponSpec {
   readonly homing?: boolean;
   /** True for incendiary BLU-27 napalm bombs. */
   readonly napalm?: boolean;
+  /** True for aerial CBU-87 cluster canister bombs (burst into 18-bomblet carpet). */
+  readonly cluster?: boolean;
+  /** True for Mk-82 Snake-Eye retarded parachute bombs (high horizontal air-drag chute). */
+  readonly chute?: boolean;
+  /** True for GBU-43 MOAB thermobaric mega-bombs. */
+  readonly moab?: boolean;
   /** True for fixed-boresight nose guns (fighter jets / A-10) that shoot straight along the hull nose. */
   readonly boresight?: boolean;
   /** Optional charge duration in seconds (Viper Particle Lance beam). */
@@ -157,6 +171,8 @@ export interface DriveVehicleDef {
   readonly shortName: string;
   readonly category: VehicleCategory;
   readonly color: string;
+  /** Low-observable radar signature (F-22 Raptor, B-2 Spirit): halves enemy missile lock range & faster flare cycle. */
+  readonly stealth?: boolean;
   readonly maxHealth: number;
   /** Effective vehicle mass (tons-scale factor: 0.45 moto, 1.8 jackal, 6.5 bastion, 10 aegis) for wreck pushing & ramming. */
   readonly mass: number;
@@ -228,7 +244,7 @@ export interface VehiclePhysicsState {
   /** Instantaneous wall/ground crash speed from this physics tick (0 when clean). */
   crashImpact: number;
   readonly crashNormal: THREE.Vector3;
-  /** VTOL Hover mode flag for Jump-Jets (Harrier / Warthog). */
+  /** VTOL Hover / STOL tarmac mode flag for Jets (Harrier / Warthog / STOL takeoff). */
   vtolMode: boolean;
   /** Current forward jet throttle 0..1. */
   airThrottle: number;
@@ -236,6 +252,14 @@ export interface VehiclePhysicsState {
   abandonedFall: boolean;
   /** Spin rate (rad/s) during an uncontrolled abandoned aircraft crash spiral. */
   fallSpin: number;
+  /** Remaining seconds of F-22 Raptor 2D Thrust-Vectoring Cobra airbrake maneuver. */
+  cobraTimer: number;
+  /** Variable-geometry wing sweep factor 0 (unswept low-speed) .. 1 (supersonic swept delta, Lancer). */
+  wingSweep: number;
+  /** Animated 2D thrust-vectoring exhaust nozzle pitch deflection in radians (Raptor). */
+  nozzleDeflect: number;
+  /** Remaining seconds of Lancer "Dump-and-Burn" trailing jet-fuel afterburner torch. */
+  dumpBurnTimer: number;
 }
 
 export interface VehicleInput {

@@ -14,7 +14,7 @@ import { DRIVE_VEHICLES, VEHICLE_ASKED } from './data';
 import { HIJACK_MAP, type DriveVehicleId } from './types';
 import { DriveableVehicle } from './vehicle';
 
-/** Badlands 10-vehicle Motor Pool & Airbase Apron (West ground/bikes crescent + East armor/airfield apron, zero overlap). */
+/** Badlands 13-vehicle Motor Pool & Airbase Apron (West ground/bikes crescent + East armor/airfield apron, zero overlap). */
 export interface MotorPoolSlot {
   readonly slot: string;
   readonly id: DriveVehicleId;
@@ -29,15 +29,18 @@ export const BADLANDS_MOTOR_POOL: readonly MotorPoolSlot[] = [
   { slot: 'pool.quad',     id: 'quad',     at: [-12.8, 0, -2.5],  yaw: -2.48 },
   { slot: 'pool.jackal',   id: 'jackal',   at: [-15.2, 0, -7.8],  yaw: -2.42 },
   { slot: 'pool.aegis',    id: 'aegis',    at: [-19.5, 0, -15.5], yaw: -2.25 },
-  // East Heavy Guntruck, Rotorcraft & VTOL/Attack Jet Apron
+  // East Heavy Guntruck, Rotorcraft & Fighter/Bomber Airfield Apron
   { slot: 'pool.kestrel',  id: 'kestrel',  at: [14.5, 0, 3.2],    yaw: 2.68 },
   { slot: 'pool.bastion',  id: 'bastion',  at: [11.8, 0, -9.2],   yaw: 2.48 },
   { slot: 'pool.valkyrie', id: 'valkyrie', at: [22.8, 0, -4.5],   yaw: 2.55 },
   { slot: 'pool.harrier',  id: 'harrier',  at: [19.0, 0, -20.5],  yaw: 2.35 },
   { slot: 'pool.warthog',  id: 'warthog',  at: [4.5, 0, -25.0],   yaw: 2.85 },
+  { slot: 'pool.raptor',   id: 'raptor',   at: [34.5, 0, -17.5],  yaw: 2.22 },
+  { slot: 'pool.hornet',   id: 'hornet',   at: [31.5, 0, -32.0],  yaw: 2.42 },
+  { slot: 'pool.lancer',   id: 'lancer',   at: [14.5, 0, -39.5],  yaw: 2.75 },
 ];
 
-/** Test Range open-apron 10-vehicle showcase lineup. */
+/** Test Range open-apron 13-vehicle showcase lineup. */
 const RANGE_MOTOR_POOL: readonly MotorPoolSlot[] = [
   { slot: 'range.viper',    id: 'viper',    at: [-5, 0, -10],   yaw: 0.25 },
   { slot: 'range.moto',     id: 'moto',     at: [-9, 0, -10],   yaw: 0.3 },
@@ -49,6 +52,9 @@ const RANGE_MOTOR_POOL: readonly MotorPoolSlot[] = [
   { slot: 'range.valkyrie', id: 'valkyrie', at: [26, 0, -14],   yaw: -0.62 },
   { slot: 'range.harrier',  id: 'harrier',  at: [15, 0, -22],   yaw: -0.25 },
   { slot: 'range.warthog',  id: 'warthog',  at: [0, 0, -24],    yaw: 0.05 },
+  { slot: 'range.raptor',   id: 'raptor',   at: [-16, 0, -27],  yaw: 0.22 },
+  { slot: 'range.hornet',   id: 'hornet',   at: [29, 0, -28],   yaw: -0.35 },
+  { slot: 'range.lancer',   id: 'lancer',   at: [8, 0, -39],    yaw: -0.05 },
 ];
 
 const BOARD_REACH = 5.8;
@@ -56,7 +62,7 @@ const HIJACK_REACH = 6.4;
 const TANK_HOLD_SECONDS = 0.45;
 const HIJACK_BONUS = 200;
 const GRAPPLE_HIJACK_BONUS = 300;
-const MAX_PLAYER_VEHICLES = 18;
+const MAX_PLAYER_VEHICLES = 22;
 const EXIT_REBOARD_COOLDOWN = 0.24;
 
 const _pos = new THREE.Vector3();
