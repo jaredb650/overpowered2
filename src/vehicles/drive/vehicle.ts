@@ -99,6 +99,8 @@ export class DriveableVehicle {
   alive = true;
   /** Optional Motor Pool slot tag (so Badlands can replace lost staged vehicles between waves). */
   readonly poolSlot: string | null;
+  /** Co-op: true when a teammate is currently driving this Motor Pool vehicle (hidden & non-colliding locally). */
+  remoteHidden = false;
 
   private seat: GunnerSeat | null = null;
   private _seatIndex = 0;
@@ -1470,6 +1472,16 @@ export class DriveableVehicle {
     });
     this.ctx.fx?.muzzleFlash?.(_muzzle, _dir, 'plasma');
     this.ctx.audio?.play(spec.audio, { position: _muzzle, volume: 0.95, pitch: 1.05 + charge * 0.45 });
+    this.ctx.events.emit('vehicle:fx', {
+      kind: 'ray',
+      from: _muzzle,
+      to: res.end,
+      dir: _dir,
+      tracer: 'rail',
+      flash: 'plasma',
+      sound: spec.audio,
+      pitch: 1.05 + charge * 0.45,
+    });
     this.phys.recoilOffset = Math.min(1, this.phys.recoilOffset + 0.45 * charge);
     if (this.occupied) this.ctx.camera?.addTrauma?.(spec.trauma * (0.6 + 0.6 * charge));
   }
@@ -1596,17 +1608,28 @@ export class DriveableVehicle {
         },
       });
     } else if (m.speed <= 0 || m.kind === 'mg' || (m.kind === 'hmg' && m.speed <= 0)) {
-      this.ctx.combat.fireRay(_muzzle, _dir, {
+      const tracerKind = m.kind === 'hmg' ? 'heavy' : 'bullet';
+      const rayRes = this.ctx.combat.fireRay(_muzzle, _dir, {
         damage: m.damage,
         source: `${this.def.id}_${m.kind}`,
         team: 'player',
         maxDistance: 250,
-        tracer: m.kind === 'hmg' ? 'heavy' : 'bullet',
+        tracer: tracerKind,
         tracerFrom: _muzzle,
         blastRadius: m.blastRadius > 0 ? m.blastRadius : undefined,
         armorPiercing: m.kind === 'hmg',
         force: m.kind === 'hmg' ? 55 : 28,
         severMult: m.kind === 'hmg' ? 2.0 : 1.2,
+      });
+      this.ctx.events.emit('vehicle:fx', {
+        kind: 'ray',
+        from: _muzzle,
+        to: rayRes.end,
+        dir: _dir,
+        tracer: tracerKind,
+        flash: spec.muzzleFlash,
+        sound: m.audio,
+        pitch: m.audioPitch,
       });
     } else {
       // High-velocity 120mm tank cannon, 20mm/25mm/30mm autocannon/AA flak, Hydra rockets, or Plasma bolts!
@@ -2179,9 +2202,57 @@ export class DriveableVehicle {
     }
   }
 
+  /** Co-op: packs pose & animated part telemetry for remote teammates' screens (13 numbers). */
+  wirePose(out: number[]): number[] {
+    const p = this.phys;
+    let flags = 0;
+    if (p.boosting) flags |= 1;
+    if (p.vtolMode) flags |= 2;
+    if (p.altitude < 3.2) flags |= 4;
+    if (p.deployed) flags |= 8;
+    if (p.dumpBurnTimer > 0) flags |= 16;
+    if (this.health / Math.max(1, this.def.maxHealth) < 0.38) flags |= 32;
+    out.length = 13;
+    out[0] = Math.round(p.position.x * 100) / 100;
+    out[1] = Math.round(p.position.y * 100) / 100;
+    out[2] = Math.round(p.position.z * 100) / 100;
+    out[3] = Math.round(p.yaw * 1000) / 1000;
+    out[4] = Math.round(p.pitch * 1000) / 1000;
+    out[5] = Math.round(p.roll * 1000) / 1000;
+    out[6] = Math.round(this.turretYaw * 1000) / 1000;
+    out[7] = Math.round(this.turretPitch * 1000) / 1000;
+    out[8] = Math.round(p.steerAngle * 1000) / 1000;
+    out[9] = Math.round(p.wheelSpin * 100) / 100;
+    out[10] = Math.round(p.rotorAngle * 100) / 100;
+    out[11] = Math.round(p.wingSweep * 1000) / 1000;
+    out[12] = flags;
+    return out;
+  }
+
+  /** Co-op: hides/unhides a parked Motor Pool vehicle while a teammate drives it on their screen. */
+  setRemoteHidden(hidden: boolean): void {
+    if (this.occupied) return;
+    this.remoteHidden = hidden;
+    this.model.root.visible = !hidden;
+    this.setColliderParked(!hidden);
+  }
+
+  /** Co-op: moves an unoccupied Motor Pool vehicle to where a teammate parked/exited it. */
+  parkAt(pos: THREE.Vector3, yaw: number): void {
+    if (this.occupied) return;
+    this.phys.position.copy(pos);
+    this.phys.velocity.set(0, 0, 0);
+    this.phys.speed = 0;
+    this.phys.yaw = yaw;
+    this.phys.pitch = 0;
+    this.phys.roll = 0;
+    this.syncTransform();
+    if (!this.remoteHidden) this.setColliderParked(true);
+  }
+
   private setColliderParked(parked: boolean): void {
     if (!this.collider) return;
-    if (parked) {
+    if (parked && !this.remoteHidden) {
       _origin.set(this.phys.position.x, this.phys.position.y + this.def.halfHeight, this.phys.position.z);
       _quat.setFromAxisAngle(_up, this.phys.yaw);
       this.collider.setTranslation(_origin);

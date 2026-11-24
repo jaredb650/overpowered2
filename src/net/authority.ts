@@ -51,7 +51,7 @@ export function selectTarget(position: readonly number[], players: readonly Targ
  */
 export type ClaimClass = 'gun' | 'melee' | 'blast' | 'callin' | 'perk' | 'mounted' | 'body' | 'world' | 'other';
 
-const CALLIN_SOURCE = /^(airstrike|warthog|chopper|door_gun|gunship|orbital|ac130|black_sun|nuke|sentry|drop_pod|frame|mech|harrow_|attack|manpads)/;
+const CALLIN_SOURCE = /^(airstrike|warthog|chopper|door_gun|gunship|orbital|ac130|black_sun|nuke|sentry|drop_pod|frame|mech|harrow_|attack|manpads|(?:viper|moto|quad|jackal|aegis|bastion|kestrel|valkyrie|harrier|raptor|hornet|lancer)_)/;
 const PERK_SOURCE = /^(chain|skyfall|frost|rigged|deadman|vampire|overdrive)/;
 const MOUNTED_SOURCE = /^(emplacement|mounted|turret)/;
 const BODY_SOURCE = /^(slam|sword_deflect|gib|kick|stomp)/;

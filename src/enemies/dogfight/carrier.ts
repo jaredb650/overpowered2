@@ -192,6 +192,30 @@ export class CarrierDefenseSystem {
     this.warnCooldown = 0;
   }
 
+  /** Co-op guest: applies host carrier hull, credits, upgrade levels, and mounts matching sponson turrets. */
+  syncFromHost(
+    hp: number,
+    maxHp: number,
+    credits: number,
+    destroyed: boolean,
+    ciwsLevel: number,
+    samLevel: number,
+    armorLevel: number,
+    wingmanLevel: number,
+  ): void {
+    const tookHit = hp < this.hp - 1;
+    this.hp = clamp(hp, 0, Math.max(1, maxHp));
+    this.maxHp = Math.max(1, maxHp);
+    this.credits = Math.max(0, Math.round(credits));
+    this.destroyed = destroyed;
+    this.ciwsLevel = clamp(ciwsLevel | 0, 0, UPGRADE_COSTS.ciws.length);
+    this.samLevel = clamp(samLevel | 0, 0, UPGRADE_COSTS.sam.length);
+    this.armorLevel = clamp(armorLevel | 0, 0, UPGRADE_COSTS.armor.length);
+    this.wingmanLevel = clamp(wingmanLevel | 0, 0, UPGRADE_COSTS.wingman.length);
+    if (tookHit) this.hitFlashTimer = 1.6;
+    this.syncTurretMeshes();
+  }
+
   addCredits(amount: number): void {
     if (amount <= 0) return;
     this.credits += Math.round(amount);

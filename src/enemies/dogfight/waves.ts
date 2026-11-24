@@ -99,6 +99,15 @@ const _zAxis = new THREE.Vector3(0, 0, 1);
 const _airTermPos = new THREE.Vector3(CARRIER_AIRCRAFT_TERMINAL[0], CARRIER_AIRCRAFT_TERMINAL[1] + 2.3, CARRIER_AIRCRAFT_TERMINAL[2]);
 const _defTermPos = new THREE.Vector3(CARRIER_DEFENSE_TERMINAL[0], CARRIER_DEFENSE_TERMINAL[1] + 2.3, CARRIER_DEFENSE_TERMINAL[2]);
 
+export interface DogfightNetBridge {
+  onJetKilled(jet: AiCombatJet, source: string, heavyKill: boolean): void;
+  onBuyUpgrade(id: CarrierUpgradeId): void;
+  onCallNextWave(): void;
+  onPlayerFlares(): void;
+  onGuestDamage(peerId: string, amount: number, from: THREE.Vector3): void;
+  onGuestRwr(peerId: string, locking: boolean, lockStrength: number, missileInbound: boolean, label: string): void;
+}
+
 export class DogfightWaves implements WaveSystem {
   wave = 0;
   phase: WavePhase = 'intermission';
@@ -118,6 +127,11 @@ export class DogfightWaves implements WaveSystem {
   private spawnQueue: AiJetKind[] = [];
   private spawnTimer = 0;
   private active = false;
+  private guestActive = false;
+  private netBridge: DogfightNetBridge | null = null;
+  private readonly guestPrevPos = new Map<string, THREE.Vector3>();
+  private readonly guestVel = new Map<string, THREE.Vector3>();
+  private readonly guestRwrActive = new Set<string>();
   private waveClearBonus = 0;
   private carrierLossPending = false;
   private carrierLossTimer = 0;
@@ -144,7 +158,7 @@ export class DogfightWaves implements WaveSystem {
   private readonly allyMissileMat = new THREE.MeshBasicMaterial({ color: 0x56f0ff });
 
   private readonly onKeyDown = (e: KeyboardEvent): void => {
-    if (!this.active || this.carrier.destroyed) return;
+    if ((!this.active && !this.guestActive) || this.carrier.destroyed) return;
     if (e.code === 'KeyB' && !this.ui.open && !this.ctx.player.parked && this.isOnCarrierDeck(this.ctx.player.position)) {
       e.preventDefault();
       this.ui.openTab('defenses');
@@ -198,9 +212,12 @@ export class DogfightWaves implements WaveSystem {
       },
     });
 
-    ctx.events.on('run:start', () => this.start());
+    // Game.ts calls waves.start() on solo & co-op host; co-op guests activate deck HUD & terminals without running a duplicate wave director.
+    ctx.events.on('run:start', () => {
+      if (ctx.coop && !ctx.coop.hosting) this.startGuest();
+    });
     ctx.events.on('game:state', ({ to }) => {
-      this.ui.setHudVisible(this.active && to === 'playing');
+      this.ui.setHudVisible((this.active || this.guestActive) && to === 'playing');
       if (to === 'menu' || to === 'gameover') {
         this.ui.close();
         this.clearPrompt();
@@ -209,11 +226,110 @@ export class DogfightWaves implements WaveSystem {
     });
     ctx.events.on('dogfight:player_flares', () => {
       if (this.active) this.handlePlayerFlares();
+      else if (this.guestActive) this.netBridge?.onPlayerFlares();
     });
 
     if (typeof window !== 'undefined') {
       window.addEventListener('keydown', this.onKeyDown);
     }
+  }
+
+  /** Plugs the co-op DogfightSync module into this wave director. */
+  setNetBridge(bridge: DogfightNetBridge | null): void {
+    this.netBridge = bridge;
+  }
+
+  /** Co-op guest: enables Carrier HUD, Deck Terminals, ocean rescue hoist, and flight-deck jet repair without running host wave AI. */
+  startGuest(): void {
+    this.reset();
+    this.guestActive = true;
+    this.ui.setHudVisible(true);
+    this.ui.updateHud();
+    this.ctx.hud?.feed?.('USS SOVEREIGN FLIGHT OPS — BOARD YOUR JET OR USE DECK TERMINALS [E]', '#38e8ff');
+  }
+
+  /** Co-op guest: per-frame carrier deck services, terminal prompts, wreckage physics, and HUD strip refresh. */
+  tickGuest(dt: number): void {
+    if (!this.guestActive || dt <= 0) return;
+    const player = this.ctx.player;
+    const playerPos = player.position;
+    if (player.alive && !player.parked && playerPos.y < 2.2) {
+      player.teleport(new THREE.Vector3(DOGFIGHT_PLAYER_SPAWN[0], DOGFIGHT_PLAYER_SPAWN[1] + 0.25, DOGFIGHT_PLAYER_SPAWN[2]));
+      this.ctx.hud?.feed?.('RESCUE HOIST — RETURNED TO USS SOVEREIGN FLIGHT DECK', '#38e8ff');
+      this.ctx.audio?.play?.('ui_confirm');
+    }
+    if (player.alive && player.parked && this.isOnCarrierDeck(playerPos) && playerPos.y <= CARRIER_DECK_Y + 3.5) {
+      this.ctx.events.emit('dogfight:repair_player_jet', { amount: 65 * dt });
+    }
+    this.updateDeckTerminals();
+    this.wreckage.update(dt);
+    this.ui.updateHud();
+  }
+
+  /** Co-op guest: applies host's authoritative wave & USS Sovereign carrier state. */
+  applyGuestState(
+    wave: number,
+    phase: WavePhase,
+    remaining: number,
+    nextWaveIn: number,
+    hp: number,
+    maxHp: number,
+    credits: number,
+    destroyed: boolean,
+    ciwsLevel: number,
+    samLevel: number,
+    armorLevel: number,
+    wingmanLevel: number,
+  ): void {
+    if (!this.guestActive) this.startGuest();
+    this.wave = wave;
+    this.phase = phase;
+    this.remaining = remaining;
+    this.nextWaveIn = nextWaveIn;
+    const wasDestroyed = this.carrier.destroyed;
+    this.carrier.syncFromHost(hp, maxHp, credits, destroyed, ciwsLevel, samLevel, armorLevel, wingmanLevel);
+    if (!wasDestroyed && destroyed) {
+      this.ui.close();
+      this.clearPrompt();
+      this.ctx.hud?.feed?.('USS SOVEREIGN SUNK — CARRIER LOST!', '#ff2e2e');
+    }
+    this.ui.updateHud();
+  }
+
+  /** Co-op guest: replays the 7-piece explosive jet breakup and pilot fate synced from the host. */
+  applyGuestShatter(
+    kind: AiJetKind,
+    team: AiJetTeam,
+    pos: THREE.Vector3,
+    vel: THREE.Vector3,
+    yaw: number,
+    pitch: number,
+    roll: number,
+    source: string,
+    heavyKill: boolean,
+  ): void {
+    this.wreckage.shatterJet(kind, pos, vel, yaw, pitch, roll);
+    if (team === 'enemy') {
+      this.wreckage.spawnPilotFate(kind, pos, vel, source, heavyKill);
+    }
+  }
+
+  /** Co-op host: applies a guest's Carrier Defense Terminal upgrade purchase. */
+  requestBuyUpgrade(id: CarrierUpgradeId): boolean {
+    if (!this.active || this.carrier.destroyed) return false;
+    return this.carrier.purchase(id).ok;
+  }
+
+  /** Co-op host: honors a guest's request to call the next wave early. */
+  requestNextWave(): void {
+    if (!this.active || this.carrier.destroyed) return;
+    if (this.phase === 'intermission') this.nextWaveIn = 0.05;
+  }
+
+  /** Co-op host: breaks enemy locks & decoys inbound Fox-2 missiles when a guest pops [Q] flares. */
+  triggerGuestFlares(): void {
+    if (!this.active) return;
+    this.handlePlayerFlares();
   }
 
   start(): void {
@@ -249,6 +365,10 @@ export class DogfightWaves implements WaveSystem {
     this.playerFlareWindow = 0;
     this.enemySpawnOrdinal = 0;
     this.active = false;
+    this.guestActive = false;
+    this.guestPrevPos.clear();
+    this.guestVel.clear();
+    this.guestRwrActive.clear();
     // Keep generic outpost squads suppressed so ground soldiers don't spawn over the ocean.
     void this.outpost;
   }
@@ -260,6 +380,11 @@ export class DogfightWaves implements WaveSystem {
   }
 
   private buyUpgrade(id: CarrierUpgradeId): void {
+    if (this.guestActive) {
+      this.netBridge?.onBuyUpgrade(id);
+      this.ctx.audio?.play?.('ui_confirm');
+      return;
+    }
     const res = this.carrier.purchase(id);
     if (!res.ok) {
       this.ctx.audio?.play?.('ui_error');
@@ -267,6 +392,10 @@ export class DogfightWaves implements WaveSystem {
   }
 
   private callNextWaveNow(): void {
+    if (this.guestActive) {
+      this.netBridge?.onCallNextWave();
+      return;
+    }
     if (this.phase === 'intermission' && !this.carrier.destroyed) {
       this.nextWaveIn = 0.05;
     }
@@ -517,6 +646,7 @@ export class DogfightWaves implements WaveSystem {
           source,
           !!heavyKill,
         );
+        this.netBridge?.onJetKilled(killedJet, source, !!heavyKill);
       },
     }, undefined, tacticalRole);
 
@@ -559,9 +689,43 @@ export class DogfightWaves implements WaveSystem {
           killed.pitch,
           killed.roll,
         );
+        this.netBridge?.onJetKilled(killed, 'enemy_aa', false);
       },
     }, undefined, 'hunter');
     this.allies.push(ally);
+  }
+
+  /** Co-op host: gathers all live airborne remote teammates so enemy fighters dogfight every pilot in the sky. */
+  private collectAirborneGuests(dt: number): { peerId: string; pos: THREE.Vector3; vel: THREE.Vector3 }[] {
+    const remotes = this.ctx.coop?.remotes;
+    if (!remotes || remotes.size === 0) return [];
+    const out: { peerId: string; pos: THREE.Vector3; vel: THREE.Vector3 }[] = [];
+    for (const [peerId, r] of remotes) {
+      if (r.downed || !r.inVehicle) continue;
+      const pos = r.char.root.position;
+      if (pos.y <= CARRIER_DECK_Y + 6) continue;
+      let prev = this.guestPrevPos.get(peerId);
+      let vel = this.guestVel.get(peerId);
+      if (!vel) {
+        vel = new THREE.Vector3();
+        this.guestVel.set(peerId, vel);
+      }
+      if (prev && dt > 1e-4) {
+        vel.subVectors(pos, prev).divideScalar(dt);
+        const spd = vel.length();
+        if (spd > 180) vel.multiplyScalar(180 / spd);
+      } else {
+        vel.copy(r.velocity);
+      }
+      if (!prev) {
+        prev = pos.clone();
+        this.guestPrevPos.set(peerId, prev);
+      } else {
+        prev.copy(pos);
+      }
+      out.push({ peerId, pos, vel });
+    }
+    return out;
   }
 
   private tickJets(
@@ -573,9 +737,25 @@ export class DogfightWaves implements WaveSystem {
     opponents: readonly AiCombatJet[],
     playerCountermeasures: boolean,
   ): void {
+    const guests = list === this.enemies ? this.collectAirborneGuests(dt) : [];
     for (let i = list.length - 1; i >= 0; i--) {
       const jet = list[i]!;
-      jet.update(dt, playerPos, playerVel, playerAirborne, opponents, playerCountermeasures);
+      let targetPos = playerPos;
+      let targetVel = playerVel;
+      let airborne = playerAirborne;
+      if (guests.length > 0) {
+        let bestSq = playerAirborne ? jet.position.distanceToSquared(playerPos) : Infinity;
+        for (const g of guests) {
+          const dSq = jet.position.distanceToSquared(g.pos);
+          if (dSq < bestSq) {
+            bestSq = dSq;
+            targetPos = g.pos;
+            targetVel = g.vel;
+            airborne = true;
+          }
+        }
+      }
+      jet.update(dt, targetPos, targetVel, airborne, opponents, playerCountermeasures);
       if (jet.disposed) {
         this.manager.vehicles?.removeExtra(jet);
         list.splice(i, 1);
@@ -621,11 +801,6 @@ export class DogfightWaves implements WaveSystem {
   }
 
   private emitPlayerRwr(activeCockpit: boolean): void {
-    if (!activeCockpit) {
-      this.clearPlayerRwr();
-      return;
-    }
-
     let maxLock = 0;
     let lockingName = '';
     for (const e of this.enemies) {
@@ -646,14 +821,33 @@ export class DogfightWaves implements WaveSystem {
 
     const locking = maxLock > 0.08;
     const anyWarning = locking || missileInbound;
-    if (!anyWarning && !this.wasRwrActive) return;
-    this.wasRwrActive = anyWarning;
-
     const label = missileInbound
       ? 'BANDIT FOX-2 INBOUND'
       : locking
         ? `${lockingName} LOCKING (${Math.round(maxLock * 100)}%)`
         : '';
+
+    // Forward RWR lock/missile warnings to airborne co-op guests too.
+    if (this.netBridge && this.ctx.coop?.remotes) {
+      for (const [peerId, r] of this.ctx.coop.remotes) {
+        const guestFlying = !r.downed && r.inVehicle && r.char.root.position.y > CARRIER_DECK_Y + 6;
+        if (guestFlying && anyWarning) {
+          this.guestRwrActive.add(peerId);
+          this.netBridge.onGuestRwr(peerId, locking, maxLock, missileInbound, label);
+        } else if (this.guestRwrActive.has(peerId)) {
+          this.guestRwrActive.delete(peerId);
+          this.netBridge.onGuestRwr(peerId, false, 0, false, '');
+        }
+      }
+    }
+
+    if (!activeCockpit) {
+      this.clearPlayerRwr();
+      return;
+    }
+
+    if (!anyWarning && !this.wasRwrActive) return;
+    this.wasRwrActive = anyWarning;
 
     this.ctx.events.emit('dogfight:rwr', {
       locking,
@@ -826,9 +1020,9 @@ export class DogfightWaves implements WaveSystem {
             hit = true;
           }
 
-          // 2. Check hit against player (active aircraft hull when parked, or on-foot player on deck).
+          // 2. Check hit against local host player (active aircraft hull when parked, or on-foot player on deck).
+          const hitR = p.missile ? 6.4 : p.rocket ? 5.2 : 4.2;
           if (!hit && player.alive) {
-            const hitR = p.missile ? 6.4 : p.rocket ? 5.2 : 4.2;
             if (p.pos.distanceToSquared(playerPos) <= hitR * hitR) {
               if (p.missile || p.rocket) {
                 this.ctx.fx?.explosion?.(p.pos, { radius: 8, scale: 1.1 });
@@ -848,6 +1042,21 @@ export class DogfightWaves implements WaveSystem {
                 });
               }
               hit = true;
+            }
+          }
+          // 3. Co-op host: check hit against remote airborne guests too!
+          if (!hit && this.netBridge && this.ctx.coop?.remotes) {
+            for (const [peerId, r] of this.ctx.coop.remotes) {
+              if (r.downed) continue;
+              if (p.pos.distanceToSquared(r.char.root.position) <= hitR * hitR) {
+                if (p.missile || p.rocket) {
+                  this.ctx.fx?.explosion?.(p.pos, { radius: 8, scale: 1.1 });
+                  this.ctx.audio?.play?.('rocket_explosion', { position: p.pos, volume: 0.85 });
+                }
+                this.netBridge.onGuestDamage(peerId, p.damage, p.pos.clone());
+                hit = true;
+                break;
+              }
             }
           }
         }

@@ -34,7 +34,9 @@ export const INVITE: string = typeof location === 'undefined' ? '' : cleanCode(n
 
 /** What the host can start: a mode on its own map, or on a map it also plays on. */
 const MODES: readonly { label: string; mode: CoopMode; map?: CoopMap }[] = [
-  { label: 'Crucible mode', mode: 'crucible' }, { label: 'Endless Humans mode', mode: 'outpost' }, { label: 'Outpost Defense mode', mode: 'defense' },
+  { label: 'Crucible mode', mode: 'crucible' }, { label: 'Endless Humans mode', mode: 'outpost' },
+  { label: 'Rooftop mode', mode: 'rooftop' }, { label: 'Badlands mode', mode: 'badlands' },
+  { label: 'Dogfight mode', mode: 'dogfight' }, { label: 'Outpost Defense mode', mode: 'defense' },
   { label: 'Office — Crucible mode', mode: 'crucible', map: 'office' }, { label: 'Office — Endless Humans mode', mode: 'outpost', map: 'office' },
   { label: 'Mission 1: The Outpost', mode: 'campaign' }, { label: 'Mission 2: Foreclosure', mode: 'foreclosure' },
 ];
@@ -42,6 +44,9 @@ const MODES: readonly { label: string; mode: CoopMode; map?: CoopMap }[] = [
 const MODE_NOTE: Record<CoopMode, string> = {
   crucible: 'Crucible mode together: the host runs the waves, each of you earns and spends your own credits at your own supply pod, and a downed friend can be revived with E. Everyone down ends the run.',
   outpost: 'Endless Humans together: squads, surrender and capture. Whoever takes a prisoner gets the bounty.',
+  rooftop: 'Rooftop Skyline together: seven skyscrapers, stairwell breaches, fast-roping SWAT choppers, overhead paratroopers, and gunship bosses. Everyone down ends the run.',
+  badlands: 'Badlands combined-arms together: everyone gets a Distraint Frame on the staging pad plus the full 13-vehicle motor pool & airbase apron — tanks, guntrucks, choppers, and fighter jets — against armoured convoys and gunships.',
+  dogfight: 'Dogfight aboard USS Sovereign together: launch any fighter, attacker, or bomber off the flight deck catapult, dogfight enemy squadrons with cannons and missiles, and pool credits to upgrade carrier CIWS, SeaRAM SAMs, armor, and AI wingmen.',
   defense: 'Outpost Defense together: hold the fort. The host runs the waves, the garrison, the Barracks and the walls; each of you has your own loadout, credits, Armoury and Infirmary.',
   campaign: 'The Outpost together. The host runs the mission; everyone hears the Commander, rides the door guns in on the same Packmule, and goes back to the last checkpoint if all of you go down.',
   foreclosure: 'Foreclosure together. The host runs the mission and the Bailiffs; everyone rides and fights it, and goes back to the last checkpoint if all of you go down.',

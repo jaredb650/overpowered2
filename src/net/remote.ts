@@ -83,6 +83,8 @@ export class RemotePlayer implements Shooter {
   downed = false;
   /** Set by the call-ins (world/callins.ts): this friend is in a Frame, which is drawn in their place. The body still moves, unseen. */
   hidden = false;
+  /** Set by driveables (world/driveables.ts): this friend is driving/flying a vehicle drawn in their place. */
+  inVehicle = false;
 
   /**
    * `seat`: which of the friends on this screen they are, 1 to 3 (their own strand of the napalm hose). `torch`: the
@@ -183,7 +185,7 @@ export class RemotePlayer implements Shooter {
       return;
     }
     const c = this.char;
-    c.root.visible = !this.hidden;
+    c.root.visible = !this.hidden && !this.inVehicle;
     this.arm(p.weapon);
     c.root.position.fromArray(p.position);
     // Player looks down -Z; the allies' body faces +Z.
@@ -201,7 +203,7 @@ export class RemotePlayer implements Shooter {
     c.anim.update(dt, 0);
     c.root.updateMatrixWorld(true);
     // Above the head and clear of the HUD's own markers, which sit at chest height on what they mark.
-    this.tag.copy(c.root.position).y += down ? 1.0 : p.move === 'crouch' || p.move === 'slide' ? 2.0 : 2.6;
+    if (!this.inVehicle) this.tag.copy(c.root.position).y += down ? 1.0 : p.move === 'crouch' || p.move === 'slide' ? 2.0 : 2.6;
     c.root.userData.weapon = p.weapon;
     if (p.move === 'jet') this.jet(dt);
     // Their eye and aim now, for whatever of theirs follows the aim (a beam, a stream, a laser).

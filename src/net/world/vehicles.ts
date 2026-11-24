@@ -15,9 +15,12 @@
 import * as THREE from 'three';
 import { damp, dampAngle } from '../../core/math';
 import type { EmitterHandle } from '../../core/contracts';
+import type { HijackableVehicle } from '../../core/gameplay';
 import type RAPIER from '@dimforge/rapier3d-compat';
-import { EngineSound } from '../../progression/callins/airframe';
+import { Airframe, EngineSound } from '../../progression/callins/airframe';
+import { ModelMaterials } from '../../progression/modelkit';
 import type { Gun } from '../../vehicles/guns';
+import { UTILITY_AIRFRAME, type UtilityMount } from '../../vehicles/utilityModel';
 import { CHOPPER_WIRE, type EnemyChopper, type GunshipRig } from '../../enemies/vehicles/chopper';
 import { CHOPPER, VEHICLES, type GroundDef } from '../../enemies/vehicles/data';
 import { pintleOf, WIRE, type GroundVehicle } from '../../enemies/vehicles/ground';
@@ -99,6 +102,20 @@ interface Heli {
   smokeIn: number;
 }
 
+/** A guest's copy of an enemy utility helicopter (`transport` FastRopeHeli or `doorGunner` EnemyDoorGunner). */
+interface UtilityHeli {
+  id: number;
+  kind: 'transport' | 'doorGunner';
+  frame: Airframe<UtilityMount>;
+  motion: MotionBuffer;
+  crashing: boolean;
+  engine: EngineSound | null;
+  fire: EmitterHandle | null;
+  smokeIn: number;
+}
+
+const AIR_UTILITY: readonly string[] = ['transport', 'doorGunner'];
+
 export class Vehicles implements WorldModule {
   /** Host: an id for each vehicle; guest: the drawn copies. */
   private readonly ids = new WeakMap<Vehicle, number>();
@@ -107,6 +124,9 @@ export class Vehicles implements WorldModule {
   /** How many empty-list clears to send after the last live vehicle leaves so one dropped unreliable packet cannot leave a ghost. */
   private emptyLeft = 0;
   private readonly puppets = new Map<number, Puppet>();
+  /** Guest: replicated enemy utility helicopters (`transport` and `doorGunner`) on Rooftop & Badlands. */
+  private readonly airPuppets = new Map<number, UtilityHeli>();
+  private airMaterials: ModelMaterials | null = null;
   /** Guest: vehicle ids already wrecked, so a late unreliable `vehicles` packet cannot resurrect a live copy on top of the wreck. */
   private readonly dead = new RecentSet(256);
   /** Host: each vehicle's id by its model, and each wreck's number; guest: the wrecks standing here. */
@@ -149,13 +169,43 @@ export class Vehicles implements WorldModule {
   each(visit: (id: number, kind: string, root: THREE.Object3D, turret: number) => void): void {
     for (const [id, puppet] of this.puppets) visit(id, puppet.kind, puppet.model.root, puppet.model.turret?.rotation.y ?? 0);
     if (this.heli) visit(this.heli.id, 'chopper', this.heli.rig.frame.root, 0);
+    for (const [id, air] of this.airPuppets) visit(id, air.kind, air.frame.root, 0);
   }
   /** Guest: the host has sent no vehicle. */
-  get none(): boolean { return this.puppets.size === 0 && !this.heli; }
+  get none(): boolean { return this.puppets.size === 0 && !this.heli && this.airPuppets.size === 0; }
+  /** Guest: count of replicated enemy utility aircraft (`transport` + `doorGunner`). */
+  get utilityCount(): number { return this.airPuppets.size; }
   /** Guest: the helicopter's copy as it stands (for the proofs). */
   get chopper(): { id: number; at: number[]; visible: boolean; tail: boolean; flags: number } | null {
     const h = this.heli;
     return h ? { id: h.id, at: h.rig.frame.root.position.toArray(), visible: h.rig.frame.root.visible, tail: h.rig.tail.visible, flags: h.want[3] ?? 0 } : null;
+  }
+  /** Guest: nearest hijackable replicated ground vehicle (`humvee`, `truck`, `tank`) within `reach`. */
+  findHijackable(pos: THREE.Vector3, reach: number): HijackableVehicle | null {
+    let best: HijackableVehicle | null = null;
+    let bestDist = Infinity;
+    for (const [id, puppet] of this.puppets) {
+      if (!GROUND.includes(puppet.kind)) continue;
+      const def = VEHICLES[puppet.kind as Ground] as GroundDef;
+      const d = puppet.model.root.position.distanceTo(pos);
+      const limit = Math.max(reach, Math.max(def.halfLength, def.halfWidth) + 2.6);
+      if (d <= limit && d < bestDist) {
+        bestDist = d;
+        best = {
+          id,
+          kind: puppet.kind as Ground,
+          label: def.name.toUpperCase(),
+          position: puppet.model.root.position,
+          quaternion: puppet.model.root.quaternion,
+          health: def.health,
+          maxHealth: def.health,
+          armored: puppet.kind === 'tank',
+          airborne: false,
+          distance: d,
+        };
+      }
+    }
+    return best;
   }
   /** Host: the live vehicle the guests know as `id` (claims.ts applies a guest's round to it). */
   find(id: number): Vehicle | undefined {
@@ -169,10 +219,10 @@ export class Vehicles implements WorldModule {
     this.hostWrecks();
   }
 
-  /** Host: where every truck, humvee and tank is, for the guests to draw. */
+  /** Host: where every truck, humvee, tank, gunship, transport, and door-gunner is, for the guests to draw. */
   private send(): void {
     const live = (this.w.ctx.enemies.vehicles as unknown as { live?: Vehicle[] } | undefined)?.live;
-    const active = (live ?? []).filter(v => v.alive && (GROUND.includes(v.def.kind) || v.def.kind === 'chopper'));
+    const active = (live ?? []).filter(v => v.alive && (GROUND.includes(v.def.kind) || v.def.kind === 'chopper' || AIR_UTILITY.includes(v.def.kind)));
     if (active.length === 0) {
       if (this.emptyLeft <= 0) return;
       this.emptyLeft--;
@@ -182,9 +232,15 @@ export class Vehicles implements WorldModule {
     const list = active.slice(0, 16).map(v => {
       let id = this.ids.get(v);
       if (id === undefined) this.ids.set(v, id = ++this.serial);
-      const g = v as unknown as Partial<GroundVehicle> & Partial<EnemyChopper>;
+      const g = v as unknown as Partial<GroundVehicle> & Partial<EnemyChopper> & { phase?: string };
       if (g.modelRoot) this.roots.set(g.modelRoot, { id, kind: v.def.kind });
-      const x = g.wire ? g.wire(this.extra).map(n => Math.round(n * 1000) / 1000) : undefined;
+      let x: number[] | undefined;
+      if (g.wire) {
+        x = g.wire(this.extra).map(n => Math.round(n * 1000) / 1000);
+      } else if (AIR_UTILITY.includes(v.def.kind)) {
+        const crashing = g.phase === 'crashing' || v.health <= 0;
+        x = [crashing ? 1 : 0];
+      }
       return { id, kind: v.def.kind, p: v.position.toArray() as Vec, q: v.quaternion.toArray() as [number, number, number, number],
         turret: (v as unknown as { turretYaw?: number }).turretYaw ?? 0, ...(x ? { x } : {}) };
     });
@@ -200,11 +256,17 @@ export class Vehicles implements WorldModule {
     if (stamped) this.clock.observe(t, now); else this.clock.observe(now, now);
     const fleet = (this.w.ctx.enemies.vehicles as unknown as { fleet?: { ground(kind: string): GroundModel } } | undefined)?.fleet;
     const seen = new Set<number>();
+    const seenAir = new Set<number>();
     let flying = false;
     const bound = (n: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, n));
     for (const v of value.list.slice(0, 16)) {
       if (!v || !Number.isInteger(v.id) || this.dead.has(v.id) || !validVec(v.p) || !Array.isArray(v.q) || v.q.length !== 4 || !v.q.every(Number.isFinite)) continue;
       if (v.kind === 'chopper') { flying = this.fly(v, t) || flying; continue; }
+      if (AIR_UTILITY.includes(v.kind)) {
+        seenAir.add(v.id);
+        this.flyUtility(v, t);
+        continue;
+      }
       if (!GROUND.includes(v.kind)) continue;
       seen.add(v.id);
       let puppet = this.puppets.get(v.id);
@@ -234,7 +296,71 @@ export class Vehicles implements WorldModule {
       puppet.model.root.visible = true;
     }
     for (const [id, puppet] of this.puppets) if (!seen.has(id)) { this.retire(puppet, true); this.puppets.delete(id); }
+    for (const [id, air] of this.airPuppets) if (!seenAir.has(id)) { this.retireUtility(air); this.airPuppets.delete(id); }
     if (!flying && this.heli) this.land();
+  }
+
+  /** Guest: replicates an enemy `transport` or `doorGunner` Packmule helicopter from the host's snapshot. */
+  private flyUtility(v: Extract<VehiclesEvent, { t: 'vehicles' }>['list'][number], t: number): void {
+    const scene = this.w.ctx.render?.scene;
+    if (!scene) return;
+    let air = this.airPuppets.get(v.id);
+    if (!air || air.kind !== v.kind) {
+      if (air) this.retireUtility(air);
+      this.airMaterials ??= new ModelMaterials(this.w.ctx);
+      const frame = new Airframe(this.airMaterials, scene, UTILITY_AIRFRAME);
+      frame.root.position.fromArray(v.p);
+      frame.root.quaternion.fromArray(v.q).normalize();
+      frame.root.visible = true;
+      air = {
+        id: v.id,
+        kind: v.kind as 'transport' | 'doorGunner',
+        frame,
+        motion: new MotionBuffer(),
+        crashing: false,
+        engine: null,
+        fire: null,
+        smokeIn: 0,
+      };
+      air.motion.interval = SEND_MS;
+      this.airPuppets.set(v.id, air);
+    }
+    air.crashing = Array.isArray(v.x) && (v.x[0] ?? 0) !== 0;
+    air.motion.place(t, v.p[0], v.p[1], v.p[2], 0, v.q[0], v.q[1], v.q[2], v.q[3]);
+  }
+
+  private retireUtility(air: UtilityHeli): void {
+    air.frame.hide();
+    air.frame.root.removeFromParent();
+    air.engine?.stop(0.35);
+    air.fire?.stop();
+  }
+
+  private hoverUtility(air: UtilityHeli, dt: number, seconds: number, hostNow: number, jitter: number): void {
+    const s = air.motion.advance(dt, hostNow, jitter, this.sample);
+    if (s.mode === 2) return;
+    const root = air.frame.root;
+    root.visible = true;
+    root.position.set(s.x, s.y, s.z);
+    root.quaternion.set(air.motion.tag(s.at, 0), air.motion.tag(s.at, 1), air.motion.tag(s.at, 2), air.motion.tag(s.at, 3));
+    if (s.k > 0) root.quaternion.slerp(_q.set(air.motion.tag(s.at + 1, 0), air.motion.tag(s.at + 1, 1), air.motion.tag(s.at + 1, 2), air.motion.tag(s.at + 1, 3)), s.k);
+    root.quaternion.normalize();
+    air.frame.update(seconds * (air.crashing ? 0.5 : 1));
+    root.updateMatrixWorld();
+    if (air.crashing) {
+      const { fx } = this.w.ctx;
+      air.fire ??= fx?.attachEmitter?.(root, 'fireTrail', _at.set(0, 1.3, -1.6), 12) ?? null;
+      air.smokeIn -= seconds;
+      if (air.smokeIn <= 0) {
+        air.smokeIn = 0.11;
+        fx?.smoke?.(root.position, '#141210', 2.0 + Math.random() * 1.1, 1.8 + Math.random() * 1.2);
+      }
+    }
+    if (!air.engine && this.w.ctx.audio) {
+      air.engine = new EngineSound(this.w.ctx, CHOPPER_ENGINE);
+      air.engine.start(1.2);
+    }
+    air.engine?.update(root.position, air.crashing ? 0.5 : 1, seconds);
   }
 
   // ---- The attack helicopter ---------------------------------------------------------------------------------------
@@ -400,6 +526,7 @@ export class Vehicles implements WorldModule {
         this.work(puppet, simDt);
       }
       if (this.heli) this.hover(this.heli, dt, simDt, hostNow, jitter);
+      for (const air of this.airPuppets.values()) this.hoverUtility(air, dt, simDt, hostNow, jitter);
     }
     if (this.wrecks.size > 0) {
       for (const w of this.wrecks.values()) w.wreck.update(simDt);
@@ -566,6 +693,8 @@ export class Vehicles implements WorldModule {
   dispose(): void {
     for (const puppet of this.puppets.values()) this.retire(puppet, true);
     this.puppets.clear();
+    for (const air of this.airPuppets.values()) this.retireUtility(air);
+    this.airPuppets.clear();
     this.dead.clear();
     this.land();
     for (const w of this.wrecks.values()) w.wreck.dispose();

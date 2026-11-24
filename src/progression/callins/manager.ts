@@ -172,14 +172,22 @@ export class CallInManager implements CallinLink {
         if (spawn) this.frame.board(spawn.position, spawn.yaw, Infinity, false, loadFrameLoadout());
       });
     } else if (ACTIVE.def.id === 'badlands') {
-      // Badlands stages the player's customized Distraint Frame on the desert pad at start and replaces it between waves if lost.
-      const padPos = new THREE.Vector3(BADLANDS_FRAME_PAD[0], BADLANDS_FRAME_PAD[1], BADLANDS_FRAME_PAD[2]);
+      // Badlands stages each player's customized Distraint Frame on the desert pad (staggered by co-op slot so 4 Frames never overlap) and replaces it between waves if lost.
+      const padForSlot = (): THREE.Vector3 => {
+        const slot = ctx.coop?.lobby.me?.slot ?? 0;
+        const dx = slot === 0 ? 0 : (slot % 2 === 1 ? -1 : 1) * Math.ceil(slot / 2) * 5.2;
+        const dz = slot >= 2 ? -4.2 : 0;
+        const p = new THREE.Vector3(BADLANDS_FRAME_PAD[0] + dx, BADLANDS_FRAME_PAD[1], BADLANDS_FRAME_PAD[2] + dz);
+        const gy = ctx.world?.nav?.groundHeight?.(p.x, p.y + 4, p.z);
+        if (typeof gy === 'number' && Number.isFinite(gy)) p.y = gy;
+        return p;
+      };
       ctx.events.on('run:start', () => {
-        this.frame.deploy(padPos, -2.65, loadFrameLoadout());
+        this.frame.deploy(padForSlot(), -2.65, loadFrameLoadout());
       });
       ctx.events.on('wave:clear', () => {
         if (!this.frame.deployed && !this.frame.occupied) {
-          this.frame.deploy(padPos, -2.65, loadFrameLoadout());
+          this.frame.deploy(padForSlot(), -2.65, loadFrameLoadout());
           ctx.hud.feed('REPLACEMENT DISTRAINT FRAME DELIVERED AT PAD', CALLINS.frame.color);
         }
       });

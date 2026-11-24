@@ -15,6 +15,8 @@ import type { ChatterEvent } from './world/chatter';
 import type { ClaimEvent, NackEvent } from './world/claims';
 import type { CrowdEvent } from './world/crowd';
 import type { SlowEvent } from './world/clock';
+import type { DogfightEvent } from './world/dogfight';
+import type { DriveablesEvent } from './world/driveables';
 import type { EnemyFireEvent } from './world/enemyFire';
 import type { FortEvent } from './world/fort';
 import type { VillainPropsEvent } from './world/villainProps';
@@ -42,6 +44,8 @@ import { CHATTER_WIRE } from './world/chatter';
 import { CLAIMS_WIRE } from './world/claims';
 import { CLOCK_WIRE } from './world/clock';
 import { CREDIT_WIRE } from './world/credit';
+import { DOGFIGHT_WIRE } from './world/dogfight';
+import { DRIVEABLES_WIRE } from './world/driveables';
 import { ENEMY_FIRE_WIRE } from './world/enemyFire';
 import { FORT_WIRE } from './world/fort';
 import { GUNS_WIRE } from './world/guns';
@@ -98,7 +102,9 @@ export type WorldEvent =
   | PropEvent       // world/props.ts: prop
   /** Guest to host: my world is up, send me what lies in the shared world (world.ts `catchUp`). */
   | { t: 'worldsync' }
-  | VehiclesEvent   // world/vehicles.ts: vehicles
+  | VehiclesEvent   // world/vehicles.ts: vehicles, wreck
+  | DriveablesEvent // world/driveables.ts: drv, drvx, drvf, vhijack, vhijackok
+  | DogfightEvent   // world/dogfight.ts: dfstate, dfhit, dfshatter, dfbuy, dfnext, dfflare, dfrwr, dfdmg
   | FortEvent       // world/fort.ts: fort, fortstate, wallblast, wallhit, repair, repaired, fortbuy, fortsold, shell, fortsay, fortradio, gunseat
   | VillainPropsEvent // world/villainProps.ts: dev, devshot, snared, shutter, smoke
   | AlliesEvent     // world/allies.ts: allies, ashot, aorder, arefund
@@ -124,6 +130,8 @@ const gather = (): { readonly [K in WorldEvent['t']]: WireClass } => ({
   ...CLAIMS_WIRE,
   ...CLOCK_WIRE,
   ...CREDIT_WIRE,
+  ...DOGFIGHT_WIRE,
+  ...DRIVEABLES_WIRE,
   ...ENEMY_FIRE_WIRE,
   ...FORT_WIRE,
   ...GUNS_WIRE,

@@ -27,6 +27,8 @@ import { Credit } from './world/credit';
 import { Crowd } from './world/crowd';
 import type { SlowKind } from './world/slow';
 import { WorldContext, type WorldModule } from './world/context';
+import { DogfightSync } from './world/dogfight';
+import { Driveables } from './world/driveables';
 import { EnemyFire } from './world/enemyFire';
 import { Fort } from './world/fort';
 import { Guns, type GunEvent } from './world/guns';
@@ -72,6 +74,8 @@ export class CoopWorld {
   private readonly props: Props;
   private readonly capture: Capture;
   private readonly vehicles: Vehicles;
+  private readonly driveables: Driveables;
+  private readonly dogfight: DogfightSync;
   private readonly garrison: Allies;
   private readonly fort: Fort;
   private readonly villainProps: VillainProps;
@@ -111,6 +115,8 @@ export class CoopWorld {
     this.enemies = new Replicas(w, this.targeting);
     // Before Claims, which lets a guest's rounds hurt them; after Replicas, whose clock their copies are drawn by.
     this.vehicles = new Vehicles(w, this.enemies);
+    this.driveables = new Driveables(w, this.vehicles);
+    this.dogfight = new DogfightSync(w);
     // Before RemoteFire: a shot's id moves on `weapon:fired`, and claims.ts must hear that first.
     this.claims = new Claims(w, this.enemies, this.targeting, this.vehicles);
     this.shots = new RemoteFire(w, this.late);
@@ -143,7 +149,7 @@ export class CoopWorld {
     w.router.host('worldsync', (_, from) => this.team.asked(from));
     // Moves and identities ride the reliable lane beside the enemies' unreliable states (replicas.ts).
     const moves = new Moves(w, this.enemies), identity = new Identity(w, this.enemies);
-    this.modules = [this.late, this.capture, this.vehicles, this.garrison, this.fort, this.villainProps, this.crowd, this.targeting, this.claims, this.credit, this.hits, this.shots, this.props, this.attacks, this.warnings, this.calls, this.hook, w.later, this.time, moves, identity, this.enemies];
+    this.modules = [this.late, this.capture, this.vehicles, this.driveables, this.dogfight, this.garrison, this.fort, this.villainProps, this.crowd, this.targeting, this.claims, this.credit, this.hits, this.shots, this.props, this.attacks, this.warnings, this.calls, this.hook, w.later, this.time, moves, identity, this.enemies];
     this.parts = [...this.modules, this.booms, this.pods, sonar];
     // Guest: the host's `sync` means it has this player in the world: everything said once is said again (context.ts `resay`).
     this.team.onSynced = () => {
@@ -248,10 +254,18 @@ export class CoopWorld {
   /** Host: what lies in the shared world now, for a guest who was loading, joined late or came back: pods, dropped guns, what is broken. */
   private catchUp(id: string): void {
     // Each on its own: one that fails must not cost the guest the others.
-    for (const part of [this.pods, this.guns, this.props, this.fort, this.villainProps, this.crowd, this.capture, this.vehicles, this.calls, this.hook, this.time]) {
+    for (const part of [this.pods, this.guns, this.props, this.fort, this.villainProps, this.crowd, this.capture, this.vehicles, this.driveables, this.dogfight, this.calls, this.hook, this.time]) {
       try { part.catchUp(id); } catch (error) { console.warn('[coop] A catch-up for an arriving guest failed', error); }
     }
   }
+  /** Co-op player-driveable vehicles sync module (world/driveables.ts), for tests and proofs. */
+  get driveablesSync(): Driveables { return this.driveables; }
+  /** Co-op Dogfight mode sync module (world/dogfight.ts), for tests and proofs. */
+  get dogfightSync(): DogfightSync { return this.dogfight; }
+  /** Guest: nearest hijackable host enemy ground vehicle within `reach`. */
+  findGuestHijackable(pos: THREE.Vector3, reach: number) { return this.driveables.findGuestHijackable(pos, reach); }
+  /** Guest: asks the host to hijack enemy vehicle `vid`. */
+  requestVehicleHijack(vid: number, viaGrapple: boolean): void { this.driveables.requestVehicleHijack(vid, viaGrapple); }
   /**
    * Guest: the local player's damage on an enemy. It is sent to the host as a claim (claims.ts) and drawn here at once
    * (hits.ts `predict`); the result is this machine's guess at the host's. The world's own damage is neither.

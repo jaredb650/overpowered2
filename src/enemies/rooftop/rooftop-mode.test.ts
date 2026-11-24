@@ -200,6 +200,7 @@ function makeHarness() {
     airburst: vi.fn(),
     callout: vi.fn(),
     wreckUtility: () => ({ dispose: vi.fn(), update: vi.fn() }),
+    shatterAirborne: vi.fn(),
     bury: vi.fn(),
     killMan: (e: Enemy, source: string) => {
       e.alive = false;
@@ -377,8 +378,10 @@ describe('FastRopeHeli shoot-down payoff', () => {
     const onboardBefore = heli.onboardCount;
     const rappellingBefore = heli.rappellingCount;
 
-    // Shoot down the transport helicopter mid-deployment!
-    heli.take(TRANSPORT.health + 100, null, 'harrow', heli.position);
+    // Shoot down the transport helicopter mid-deployment with rifle bursts (below single-hit mid-air detonation threshold)!
+    while (heli.phase !== 'crashing' && !heli.retired) {
+      heli.take(100, null, 'harrow', heli.position);
+    }
 
     expect(heli.phase).toBe('crashing');
     expect(heli.onboardCount).toBe(0);

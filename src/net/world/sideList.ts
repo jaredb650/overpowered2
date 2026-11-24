@@ -7,7 +7,7 @@
 import type { WorldContext } from './context';
 
 /** The side packet kinds. Add at the end only. */
-export const SIDE = { vehicles: 1, allies: 2 } as const;
+export const SIDE = { vehicles: 1, allies: 2, jets: 3 } as const;
 /** Bytes of rows in one part: with the frame's head and the part's own fields it stays under the safe unreliable size (room.ts). */
 export const PART_BYTES = 900;
 const MOST_PARTS = 16;

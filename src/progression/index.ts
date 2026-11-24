@@ -206,6 +206,11 @@ class Progression implements ProgressionSystem {
     return this.callInsManager.frame;
   }
 
+  /** Player-driveable vehicles & Motor Pool manager (src/vehicles/drive). Used by co-op world sync (net/world/driveables.ts). */
+  get driveables(): CallInManager['driveables'] {
+    return this.callInsManager.driveables;
+  }
+
   /** A mission's courier: the Packmule on a fixed flight, crewed, nobody in the seat. Not on ProgressionSystem: only the campaign host asks. */
   flyFlight(flight: Flight): { down(): void; readonly position: THREE.Vector3 } {
     return this.callInsManager.flyFlight(flight);

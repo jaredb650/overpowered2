@@ -6,7 +6,7 @@
 import * as THREE from 'three';
 import type { Ctx } from '../../core/contracts';
 import { ON_RANGE } from '../../core/devflags';
-import type { HijackableVehicle } from '../../core/gameplay';
+import type { HijackClaim, HijackableVehicle } from '../../core/gameplay';
 import { ACTIVE } from '../../contracts/select';
 import type { ModelMaterials } from '../../progression/modelkit';
 import type { SeatRig } from '../seat';
@@ -14,6 +14,8 @@ import { CARRIER_CATAPULT_PAD, CARRIER_CATAPULT_YAW } from '../../world/map/dogf
 import { DRIVE_VEHICLES, VEHICLE_ASKED } from './data';
 import { HIJACK_MAP, type DriveVehicleId } from './types';
 import { DriveableVehicle } from './vehicle';
+
+import type { MuzzleKind, TracerKind } from '../../core/contracts';
 
 declare module '../../core/contracts' {
   interface GameEvents {
@@ -27,6 +29,17 @@ declare module '../../core/contracts' {
     'dogfight:player_flares': { position: THREE.Vector3 };
     /** Enemy air-to-air gunfire / Fox-2 missile hit applied directly to the player's active aircraft hull. */
     'dogfight:damage_player_jet': { amount: number; from: THREE.Vector3 };
+    /** Player-driven vehicle hitscan gunfire / lance / flare visual FX for co-op teammates. */
+    'vehicle:fx': {
+      kind: 'ray' | 'flare';
+      from: THREE.Vector3;
+      to?: THREE.Vector3;
+      dir?: THREE.Vector3;
+      tracer?: TracerKind;
+      flash?: MuzzleKind;
+      sound?: string;
+      pitch?: number;
+    };
   }
 }
 
@@ -168,12 +181,38 @@ export class DriveableManager {
         this.vehicles.splice(i, 1);
       }
     }
-    _pos.set(CARRIER_CATAPULT_PAD[0], CARRIER_CATAPULT_PAD[1], CARRIER_CATAPULT_PAD[2]);
-    const jet = this.spawn(id, _pos, CARRIER_CATAPULT_YAW, { poolSlot: 'carrier.catapult' });
+    const slot = this.ctx.coop?.lobby.me?.slot ?? 0;
+    const dx = slot % 2 === 1 ? -9.3 : 0;
+    const dz = slot >= 2 ? 20.0 : (slot === 1 ? 4.0 : 0);
+    _pos.set(CARRIER_CATAPULT_PAD[0] + dx, CARRIER_CATAPULT_PAD[1], CARRIER_CATAPULT_PAD[2] + dz);
+    const jet = this.spawn(id, _pos, CARRIER_CATAPULT_YAW, { poolSlot: `carrier.catapult.${slot}` });
     if (board && !this.seats.occupied && this.ctx.player.alive) {
       jet.board(0);
     }
     return jet;
+  }
+
+  /** Co-op: hides a Badlands/Range Motor Pool vehicle while a teammate drives it on their screen. */
+  setRemoteClaim(poolSlot: string, claimed: boolean): void {
+    if (!poolSlot || poolSlot.startsWith('carrier.')) return;
+    for (const v of this.vehicles) {
+      if (v.alive && v.poolSlot === poolSlot && !v.occupied) {
+        v.setRemoteHidden(claimed);
+      }
+    }
+  }
+
+  /** Co-op: unhides and repositions a Motor Pool vehicle where a teammate parked/exited it intact. */
+  releaseRemoteClaim(poolSlot: string, pos?: THREE.Vector3, yaw?: number): void {
+    if (!poolSlot || poolSlot.startsWith('carrier.')) return;
+    for (const v of this.vehicles) {
+      if (v.alive && v.poolSlot === poolSlot && !v.occupied) {
+        if (pos && typeof yaw === 'number' && Number.isFinite(yaw)) {
+          v.parkAt(pos, yaw);
+        }
+        v.setRemoteHidden(false);
+      }
+    }
   }
 
   /** Currently occupied player vehicle, or null when on foot or in another seat. */
@@ -214,24 +253,45 @@ export class DriveableManager {
   /** Executes an enemy vehicle hijack: retires enemy vehicle safely, spawns matching player vehicle, and boards! */
   performHijack(enemyVehicleId: number, viaGrapple: boolean): DriveableVehicle | null {
     if (!this.ctx.player.alive || this.seats.occupied) return null;
+    // Co-op guest: ask the host to retire its live enemy vehicle and grant us the hijacked chassis.
+    if (this.ctx.coop && !this.ctx.coop.hosting) {
+      const world = this.ctx.coop.world as unknown as { requestVehicleHijack?(id: number, viaGrapple: boolean): void } | undefined;
+      world?.requestVehicleHijack?.(enemyVehicleId, viaGrapple);
+      this.clearPrompt();
+      this.hijackHoldId = -1;
+      this.hijackHoldElapsed = 0;
+      return null;
+    }
     const claim = this.ctx.enemies?.vehicles?.hijack?.(enemyVehicleId);
     if (!claim) return null;
+    return this.completeHijack(claim.kind, claim.position, claim.yaw, claim.velocity, claim.healthFraction, viaGrapple);
+  }
 
-    const driveId = HIJACK_MAP[claim.kind];
-    const vehicle = this.spawn(driveId, claim.position, claim.yaw, {
-      velocity: claim.velocity,
-      healthFraction: Math.max(0.55, claim.healthFraction),
+  /** Spawns and boards a hijacked enemy vehicle (used locally on solo/host, and after host grant on co-op guests). */
+  completeHijack(
+    kind: HijackClaim['kind'],
+    position: THREE.Vector3,
+    yaw: number,
+    velocity: THREE.Vector3,
+    healthFraction: number,
+    viaGrapple: boolean,
+  ): DriveableVehicle | null {
+    if (!this.ctx.player.alive || this.seats.occupied) return null;
+    const driveId = HIJACK_MAP[kind];
+    const vehicle = this.spawn(driveId, position, yaw, {
+      velocity,
+      healthFraction: Math.max(0.55, healthFraction),
     });
 
     if (vehicle.board(0)) {
       const bonus = viaGrapple ? GRAPPLE_HIJACK_BONUS : HIJACK_BONUS;
       const title = viaGrapple ? 'GRAPPLE HIJACK!' : 'VEHICLE HIJACKED!';
-      this.ctx.audio?.play('glass_break', { position: claim.position, volume: 0.7, pitch: 0.9 });
-      this.ctx.audio?.play('metal_clang', { position: claim.position, volume: 0.9, pitch: 0.85 });
-      this.ctx.fx?.sparks?.(claim.position, new THREE.Vector3(0, 1, 0), 22, 0xffd166);
-      this.ctx.progression?.award?.(bonus, title, claim.position);
+      this.ctx.audio?.play('glass_break', { position, volume: 0.7, pitch: 0.9 });
+      this.ctx.audio?.play('metal_clang', { position, volume: 0.9, pitch: 0.85 });
+      this.ctx.fx?.sparks?.(position, new THREE.Vector3(0, 1, 0), 22, 0xffd166);
+      this.ctx.progression?.award?.(bonus, title, position);
       this.ctx.hud?.feed?.(`${title} — ${DRIVE_VEHICLES[driveId].name} (+${bonus})`, '#ffd166');
-      this.ctx.hud?.floatText?.(claim.position, title, '#ffd166');
+      this.ctx.hud?.floatText?.(position, title, '#ffd166');
       this.ctx.camera?.addTrauma?.(0.35);
     }
     this.clearPrompt();
@@ -292,8 +352,14 @@ export class DriveableManager {
     const { hud, input, player } = this.ctx;
     const key = input.labelFor?.('interact') ?? 'E';
 
-    // 1. Check for nearby live enemy vehicle to HIJACK!
-    const hijackTarget: HijackableVehicle | null = this.ctx.enemies?.vehicles?.findHijackable?.(player.position, HIJACK_REACH) ?? null;
+    // 1. Check for nearby live enemy vehicle to HIJACK! (On co-op guests, scan replicated enemy vehicle puppets.)
+    let hijackTarget: HijackableVehicle | null = null;
+    if (this.ctx.coop && !this.ctx.coop.hosting) {
+      const world = this.ctx.coop.world as unknown as { findGuestHijackable?(pos: THREE.Vector3, reach: number): HijackableVehicle | null } | undefined;
+      hijackTarget = world?.findGuestHijackable?.(player.position, HIJACK_REACH) ?? null;
+    } else {
+      hijackTarget = this.ctx.enemies?.vehicles?.findHijackable?.(player.position, HIJACK_REACH) ?? null;
+    }
     if (hijackTarget) {
       if (hijackTarget.armored) {
         if (input.isDown('interact')) {
@@ -331,7 +397,7 @@ export class DriveableManager {
     let best: DriveableVehicle | null = null;
     let bestDist = Infinity;
     for (const v of this.vehicles) {
-      if (!v.alive || v.occupied) continue;
+      if (!v.alive || v.occupied || v.remoteHidden) continue;
       const d = v.position.distanceTo(player.position);
       const reach = Math.max(BOARD_REACH, Math.max(v.def.halfLength, v.def.halfWidth) + 2.6);
       if (d <= reach && d < bestDist) {
