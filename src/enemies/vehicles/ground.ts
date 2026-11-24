@@ -19,7 +19,7 @@ import {
   DRIVER_HEALTH, ENGINE_FIRE_BLEED, ENGINE_FIRE_RELOAD, ENGINE_FIRE_SPEED, SOFT_FIRE_AT, SOFT_FIRE_SECONDS, type CannonDef, type GroundDef,
 } from './data';
 import { Driver, type RoutePoint } from './drive';
-import type { VehicleSystem } from './index';
+import type { GroundTargetResult, VehicleSystem } from './index';
 import { CANNON_MUZZLE, PINTLE, PINTLE_GUN, TRUNNION, TURRET_RING, type GroundModel } from './models';
 import { Mount } from './mount';
 import { GROUND_ENGINES } from './sounds';
@@ -121,8 +121,10 @@ export class GroundVehicle extends Vehicle {
   private lookIn = 0;
   private groundIn = 0;
   private sees = false;
-  /** Who it last looked for (`VehicleSystem.quarry`). */
+  /** Who it last looked for (`VehicleSystem.findGroundTarget` / `quarry`). */
   private quarry: PlayerSystem | null = null;
+  private currentTarget: GroundTargetResult | null = null;
+  private roofFriendlyCd = 0;
   private seenAt = -99;
   private readonly lastSeen = new THREE.Vector3();
   private clear = Infinity;
@@ -290,15 +292,27 @@ export class GroundVehicle extends Vehicle {
     this.lookIn -= dt;
     if (this.lookIn > 0) return;
     this.lookIn = LOOK_EVERY;
+    if (this.order.parked) {
+      this.sees = false;
+      this.currentTarget = null;
+      return;
+    }
     const { now } = this.sys;
     this.pivot(_pivot);
-    const player = this.quarry = this.sys.quarry(_pivot);
-    _aim.copy(player.position);
-    _aim.y += 1.1;
     const range = this.def.cannon?.range ?? this.def.mount.range;
-    const targetable = player.alive && (!player.parked || player.interceptor !== null);
-    this.sees = targetable && !this.order.parked && _pivot.distanceTo(_aim) < range && this.sys.lineClear(_pivot, _aim);
-    if (!this.sees) return;
+    const target = this.sys.findGroundTarget(_pivot, range, {
+      requireLos: true,
+      preferArmor: !!this.def.cannon,
+    });
+    this.currentTarget = target;
+    this.quarry = target?.player ?? null;
+    if (!target) {
+      this.sees = false;
+      return;
+    }
+    _aim.copy(target.position);
+    _aim.y += target.aimLift;
+    this.sees = true;
     this.lastSeen.copy(_aim);
     this.seenAt = now;
   }
@@ -340,9 +354,9 @@ export class GroundVehicle extends Vehicle {
 
   /** The target, with as much lead as this crew can manage. */
   private leadOn(c: CannonDef, from: THREE.Vector3, out: THREE.Vector3): THREE.Vector3 {
-    const player = this.quarry ?? this.sys.ctx.player;
+    const vel = this.currentTarget?.velocity ?? (this.quarry ?? this.sys.ctx.player).velocity;
     const t = from.distanceTo(this.lastSeen) / c.speed;
-    return out.copy(this.lastSeen).addScaledVector(player.velocity, t * c.lead * (this.sees ? 1 : 0));
+    return out.copy(this.lastSeen).addScaledVector(vel, t * c.lead * (this.sees ? 1 : 0));
   }
 
   private mainGun(dt: number, c: CannonDef): void {
@@ -449,6 +463,9 @@ export class GroundVehicle extends Vehicle {
     SHELL.explosion!.radius = c.radius;
     SHELL.explosion!.damage = c.damage;
     combat.spawnProjectile(SHELL);
+    // Deliver shell splash to friendly ground troops and AI armor on arrival.
+    const travel = _muzzle.distanceTo(this.layAt) / Math.max(1, c.speed);
+    sys.scheduleFriendlyBlast(this.layAt, c.radius, c.damage, travel, 'tank_cannon');
     // Through combat, so a co-op guest sees the flash too (it draws the same flash here).
     combat.enemyMuzzle(_muzzle, _dir, 'autocannon');
     fx.smoke(_muzzle, '#8a8478', 2.6, 1.6);
@@ -473,6 +490,18 @@ export class GroundVehicle extends Vehicle {
     } else {
       _aim.copy(this.lastSeen);
       mount.update(dt, _pivot, _aim, this.sees);
+      if (mount.firing && this.sees && this.currentTarget && this.currentTarget.kind !== 'player') {
+        this.roofFriendlyCd -= dt;
+        if (this.roofFriendlyCd <= 0) {
+          this.roofFriendlyCd = Math.max(0.18, 2.2 / Math.max(1, this.def.mount.rate));
+          const t = this.currentTarget;
+          if (t.kind === 'ally' && t.ally?.alive) {
+            t.ally.shotAt(_pivot, this.def.mount.damage, 0.25, `${this.def.kind}_gun`);
+          } else if (t.kind === 'friendly_vehicle' && t.vehicle?.alive) {
+            t.vehicle.takeDamage(this.def.mount.damage, _pivot, `${this.def.kind}_gun`);
+          }
+        }
+      }
     }
     this.placeRider();
   }

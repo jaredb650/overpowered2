@@ -171,6 +171,40 @@ function bombNapalmBand(): THREE.BufferGeometry {
   ]);
 }
 
+/** BLU-121/B Thermobaric ("Fuel-Air") heavy warhead: massive matte-charcoal pressure hull + reinforced cruciform tail. */
+function bombThermoBody(): THREE.BufferGeometry {
+  const parts: THREE.BufferGeometry[] = [
+    rotated(new THREE.CylinderGeometry(0.29, 0.30, 1.18, 14), 0, 0.04, 0),
+    rotated(new THREE.CylinderGeometry(0.16, 0.29, 0.42, 14), 0, 0.84, 0),
+    rotated(new THREE.ConeGeometry(0.16, 0.28, 12), 0, 1.19, 0),
+    rotated(new THREE.CylinderGeometry(0.055, 0.08, 0.16, 8), 0, 1.38, 0), // nose proximity probe
+    rotated(new THREE.CylinderGeometry(0.30, 0.16, 0.54, 14), 0, -0.82, 0),
+    rotated(new THREE.CylinderGeometry(0.16, 0.12, 0.28, 12), 0, -1.22, 0),
+  ];
+  for (let i = 0; i < 4; i++) {
+    const a = (i * Math.PI) / 2;
+    const fin = new THREE.BoxGeometry(0.045, 0.62, 0.42);
+    fin.translate(0, -1.04, 0.26);
+    fin.rotateY(a);
+    parts.push(fin);
+    const shroud = new THREE.BoxGeometry(0.64, 0.22, 0.04);
+    shroud.translate(0, -1.20, 0.33);
+    shroud.rotateY(a + Math.PI / 4);
+    parts.push(shroud);
+  }
+  return mergedLit(parts);
+}
+
+/** BLU-121/B Thermobaric bright orange/gold triple fuel-air hazard bands & collar. */
+function bombThermoBand(): THREE.BufferGeometry {
+  return mergedLit([
+    rotated(new THREE.CylinderGeometry(0.298, 0.302, 0.16, 14), 0, 0.48, 0),
+    rotated(new THREE.CylinderGeometry(0.304, 0.304, 0.12, 14), 0, 0.16, 0),
+    rotated(new THREE.CylinderGeometry(0.304, 0.304, 0.14, 14), 0, -0.36, 0),
+    rotated(new THREE.CylinderGeometry(0.18, 0.22, 0.09, 12), 0, 0.96, 0),
+  ]);
+}
+
 function stakeBody(): THREE.BufferGeometry {
   return merged([
     new THREE.CylinderGeometry(0.018, 0.018, 0.86, 5),
@@ -261,6 +295,7 @@ export class ProjectileVisuals {
     | 'sticky' | 'stickyLed' | 'satchel' | 'satchelLed'
     | 'bombHeBody' | 'bombHeFins' | 'bombHeBand'
     | 'bombNapalmBody' | 'bombNapalmBand'
+    | 'bombThermoBody' | 'bombThermoBand'
     | 'bombChuteCanopy' | 'bombChuteLines',
     Layer
   >;
@@ -301,12 +336,14 @@ export class ProjectileVisuals {
       // Demolition Satchel Charge: canvas-olive demolition pack + bright pulsing red armed beacon light.
       satchel: layer(satchelBody(), basic(hdr(0x556242, 1.05)), CAPACITY.shell),
       satchelLed: layer(new THREE.IcosahedronGeometry(0.058, 1), basic(hdr(0xff1e12, 7.5)), CAPACITY.shell),
-      // Modeled aircraft gravity bombs (Mk-82 / Mk-84 HE iron bomb, BLU-27 Napalm canister, & Snake-Eye drag parachute).
+      // Modeled aircraft gravity bombs (Mk-82 / Mk-84 HE, BLU-27 Napalm, BLU-121/B Thermobaric, & Snake-Eye drag parachute).
       bombHeBody: layer(bombHeBody(), metal(0x4a563d, 0.58, 0.28, 0x0b0e08), CAPACITY.shell),
       bombHeFins: layer(bombHeFins(), metal(0x282e36, 0.44, 0.62, 0x07090b), CAPACITY.shell),
       bombHeBand: layer(bombHeBand(), metal(0xf2c62c, 0.46, 0.16, 0x3a2b04), CAPACITY.shell),
       bombNapalmBody: layer(bombNapalmBody(), metal(0xaeb8c2, 0.34, 0.72, 0x161a1e), CAPACITY.shell),
       bombNapalmBand: layer(bombNapalmBand(), metal(0xe83b1c, 0.42, 0.18, 0x3b0c04), CAPACITY.shell),
+      bombThermoBody: layer(bombThermoBody(), metal(0x1f242b, 0.42, 0.64, 0x090b0e), CAPACITY.shell),
+      bombThermoBand: layer(bombThermoBand(), metal(0xff8e1c, 0.32, 0.24, 0x6e2d04), CAPACITY.shell),
       bombChuteCanopy: layer(
         bombChuteCanopy(),
         new THREE.MeshStandardMaterial({ color: 0xf4ece0, roughness: 0.82, metalness: 0.04, emissive: 0x3a2612, side: THREE.DoubleSide }),
@@ -465,16 +502,19 @@ export class ProjectileVisuals {
         if (p.bomb) {
           const k = p.size || 1;
           // Gentle axial roll around the bomb's velocity axis as gravity pitches the nose downward.
-          p.spin += dt * (p.chute ? 0.55 : 1.4);
+          p.spin += dt * (p.chute ? 0.55 : p.thermobaric ? 0.85 : 1.4);
           this.spin.setFromAxisAngle(Y, p.spin);
           this.quat.multiply(this.spin);
-          if (p.napalm) {
+          if (p.thermobaric) {
+            this.put(L.bombThermoBody, pos, this.quat, k, k, k);
+            this.put(L.bombThermoBand, pos, this.quat, k, k, k);
+          } else if (p.napalm) {
             this.put(L.bombNapalmBody, pos, this.quat, k, k, k);
             this.put(L.bombNapalmBand, pos, this.quat, k, k, k);
           } else {
             this.put(L.bombHeBody, pos, this.quat, k, k, k);
             this.put(L.bombHeFins, pos, this.quat, k, k, k);
-            this.put(p.cluster ? L.bombNapalmBand : L.bombHeBand, pos, this.quat, k, k, k);
+            this.put(p.cluster || p.aerialCluster ? L.bombNapalmBand : L.bombHeBand, pos, this.quat, k, k, k);
             if (p.chute && p.age > 0.1) {
               const open = clamp((p.age - 0.1) / 0.16, 0.08, 1);
               const ck = k * open;

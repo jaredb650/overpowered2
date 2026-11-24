@@ -52,6 +52,8 @@ export interface VehicleModelRig {
   readonly dumpBurnGlow?: THREE.Object3D[];
   /** Retractable tricycle landing gear group (hidden automatically once airborne above 3.2m). */
   readonly landingGear?: THREE.Group;
+  /** Animated ventral internal bomb-bay door hinges (Lancer triple bays; each carries `userData.side = 1 | -1`). */
+  readonly bombBayDoors?: THREE.Object3D[];
 }
 
 const ALONG_X: readonly [number, number, number] = [0, 0, Math.PI / 2];
@@ -1612,89 +1614,160 @@ function buildHornet(materials: ModelMaterials): VehicleModelRig {
 }
 
 // =============================================================================
-// 13. LANCER — B-1B / F-111 Swing-Wing Supersonic Close-Air Bomber (Animated Sweep Wings + 4 Nacelles + Dump & Burn!)
+// 13. LANCER — B-1B Lancer Supersonic Heavy Strategic Bomber (~28.2 m L × ~26.8 m W unswept / ~16.4 m swept × ~6.8 m H)
 // =============================================================================
 function buildLancer(materials: ModelMaterials): VehicleModelRig {
   const root = new THREE.Group();
   const body = new THREE.Group();
-  body.position.y = 1.68;
+  const BODY_BASE_Y = 2.48;
+  body.position.y = BODY_BASE_Y;
   root.add(body);
 
   const b = new VehicleBuilder();
-  const GUNSHIP = '#363e47';
-  const DARK_SLATE = '#222830';
-  const TRIM_GREY = '#535f6c';
+  const GUNSHIP = '#353d46';
+  const DARK_SLATE = '#21272f';
+  const TRIM_GREY = '#556270';
+  const BAY_INTERIOR = '#15191f';
   const AMBER = '#f59e0b';
 
-  // Long sleek supersonic dart blended-wing-body fuselage (-7.5 m tail to +7.8 m needle radome!)
+  // Long supersonic blended-wing-body strategic bomber fuselage (-13.5 m tailcone to +14.3 m needle radome = 27.8 m hull, 28.2 m w/ dump pipe!)
   b.solid(hull([
-    { z: -7.5, w: 0.34, top: 0.42, bottom: -0.18 },
-    { z: -4.2, w: 1.18, top: 0.72, bottom: -0.42 },
-    { z: -0.6, w: 1.52, top: 0.84, bottom: -0.56 },
-    { z: 2.6, w: 1.16, top: 0.88, bottom: -0.54 },
-    { z: 5.2, w: 0.68, top: 0.52, bottom: -0.38 },
-    { z: 7.8, w: 0.1, top: -0.02, bottom: -0.14 },
+    { z: -13.5, w: 0.48, top: 0.68, bottom: -0.26 },
+    { z: -9.5, w: 1.55, top: 1.05, bottom: -0.62 },
+    { z: -4.2, w: 2.35, top: 1.24, bottom: -0.84 },
+    { z: 0.4, w: 2.75, top: 1.32, bottom: -0.94 },
+    { z: 5.2, w: 1.92, top: 1.28, bottom: -0.86 },
+    { z: 9.6, w: 1.26, top: 0.92, bottom: -0.64 },
+    { z: 12.2, w: 0.62, top: 0.36, bottom: -0.34 },
+    { z: 14.3, w: 0.08, top: -0.02, bottom: -0.14 },
   ]), GUNSHIP, {}, 'armor');
-  // Blended wing-box fairing & rotary bomb-bay belly seam
-  b.box(2.95, 0.32, 3.6, DARK_SLATE, { at: [0, 0.18, 0.2] }, 'armor');
-  b.box(0.86, 0.1, 4.4, DARK_SLATE, { at: [0, -0.58, 0.6] }, 'metal'); // internal rotary bomb bay doors
-  // Ventral F-111 M61 Vulcan gun fairing under nose
-  b.cyl(0.13, 0.15, 2.35, 10, STEEL, { at: [0, -0.52, 4.45], rot: ALONG_Z }, 'metal');
-  // Iconic B-1B forward SMCS nose ride-control strakes / mini-canards (swept back!)
-  for (const s of [-1, 1]) {
-    b.box(0.92, 0.08, 0.62, TRIM_GREY, { at: [s * 0.76, -0.08, 5.45], rot: [0, s * 0.45, s * -0.25] }, 'armor');
-    // Quad underslung twin-podded turbofan nacelles (iconic B-1B twin engine boxes!)
-    b.box(1.12, 0.64, 3.65, DARK_SLATE, { at: [s * 1.45, -0.42, -2.35] }, 'armor');
-    b.box(0.96, 0.48, 0.16, '#0c0f13', { at: [s * 1.45, -0.42, -0.5] }, 'metal');
-    for (const nx of [-0.28, 0.28]) {
-      b.cyl(0.24, 0.27, 0.65, 12, STEEL, { at: [s * 1.45 + nx, -0.42, -4.35], rot: ALONG_Z }, 'metal');
-    }
-    // High-mounted swept-back cruciform horizontal tailplanes on vertical fin
-    b.box(2.55, 0.11, 1.25, GUNSHIP, { at: [s * 1.45, 1.38, -6.55], rot: [0, s * 0.52, 0] }, 'armor');
+
+  // Blended wing-box carry-through fairing, dorsal avionics spine & aerial refueling slipway
+  b.box(5.35, 0.48, 7.2, DARK_SLATE, { at: [0, 0.24, 0.35] }, 'armor');
+  b.box(1.42, 0.24, 12.8, TRIM_GREY, { at: [0, 1.24, -1.6] }, 'armor');
+  b.box(0.92, 0.16, 2.2, DARK_SLATE, { at: [0, 1.32, 6.0] }, 'metal'); // UARRSI aerial refueling port
+  b.box(0.54, 0.28, 3.8, DARK_SLATE, { at: [0, 0.96, -10.4] }, 'armor'); // dorsal ECM spine fairing
+
+  // Recessed triple internal rotary bomb-bay cavity + rotary launcher drums (visible when belly doors swing open!)
+  b.box(1.66, 0.22, 7.6, BAY_INTERIOR, { at: [0, -0.88, 2.3] }, 'metal');
+  for (const bayZ of [4.9, 2.3, -0.3]) {
+    b.cyl(0.32, 0.32, 2.05, 10, GUNMETAL, { at: [0, -0.78, bayZ], rot: ALONG_Z }, 'metal');
   }
-  // Tall swept B-1B single vertical stabilizer fin + amber tip beacon
-  b.box(0.18, 2.85, 2.35, GUNSHIP, { at: [0, 1.65, -5.95], rot: [-0.42, 0, 0] }, 'armor');
-  b.box(0.2, 0.34, 0.92, AMBER, { at: [0, 2.92, -6.68] }, 'armor');
-  // Fuel-dump vent pipe at extreme tailcone
-  b.cyl(0.11, 0.14, 0.85, 10, STEEL, { at: [0, 0.18, -7.75], rot: ALONG_Z }, 'metal');
+
+  // Ventral nose M61 Vulcan rotary cannon fairing
+  b.cyl(0.17, 0.21, 3.3, 12, STEEL, { at: [0, -0.82, 8.65], rot: ALONG_Z }, 'metal');
+  b.box(0.56, 0.26, 2.4, DARK_SLATE, { at: [0, -0.74, 7.8] }, 'armor');
+
+  // Symmetrical airframe features: SMCS mini-canards, paired rectangular 4-engine nacelles, and cruciform tailplanes
+  for (const s of [-1, 1]) {
+    // Iconic B-1B forward SMCS (Structural Mode Control System) nose ride-control mini-canards
+    b.box(1.55, 0.10, 0.88, TRIM_GREY, { at: [s * 1.28, -0.16, 10.65], rot: [0, s * 0.48, s * -0.26] }, 'armor');
+
+    // Paired rectangular underslung twin-engine nacelles (4 large F101 turbofans in twin boxes!)
+    b.box(2.15, 1.12, 7.2, DARK_SLATE, { at: [s * 2.65, -0.68, -4.2] }, 'armor');
+    b.box(2.22, 0.16, 6.4, TRIM_GREY, { at: [s * 2.65, -0.12, -4.1] }, 'armor'); // nacelle top pylon blend
+    // Variable-geometry supersonic intake ramp & twin dark intake cavities with center splitter vane
+    b.box(1.92, 0.86, 0.24, '#0a0d11', { at: [s * 2.65, -0.68, -0.58] }, 'metal');
+    b.box(0.16, 0.94, 1.1, GUNMETAL, { at: [s * 2.65, -0.68, -0.62] }, 'metal'); // center intake splitter
+    b.box(1.98, 0.14, 0.85, TRIM_GREY, { at: [s * 2.65, -0.18, -0.35], rot: [0.22, 0, 0] }, 'armor'); // overhanging intake lip
+    // 2 large F101 turkey-feather turbofan exhaust nozzles per nacelle (4 engines total!)
+    for (const nx of [-0.52, 0.52]) {
+      b.cyl(0.42, 0.48, 1.25, 14, STEEL, { at: [s * 2.65 + nx, -0.68, -8.25], rot: ALONG_Z }, 'metal');
+      b.cyl(0.34, 0.38, 0.35, 12, '#14181e', { at: [s * 2.65 + nx, -0.68, -8.82], rot: ALONG_Z }, 'metal');
+    }
+
+    // High-mounted swept-back cruciform all-moving horizontal stabilators on vertical fin
+    b.box(4.4, 0.16, 1.95, GUNSHIP, { at: [s * 2.35, 2.28, -11.95], rot: [0, s * 0.54, 0] }, 'armor');
+    b.box(4.1, 0.08, 0.28, TRIM_GREY, { at: [s * 2.35, 2.34, -11.15], rot: [0, s * 0.54, 0] }, 'armor');
+  }
+
+  // Tall swept B-1B single vertical stabilizer fin + top ECM pod & amber beacon (reaches world y ≈ 6.80 m!)
+  b.box(0.28, 3.65, 3.15, GUNSHIP, { at: [0, 2.02, -10.85], rot: [-0.38, 0, 0] }, 'armor');
+  b.box(0.32, 0.24, 1.45, AMBER, { at: [0, 4.18, -11.95] }, 'armor'); // top fin cap & strobe (4.18 + 0.12 + 2.48 = 6.78 m)
+  b.box(0.34, 0.42, 1.95, DARK_SLATE, { at: [0, 1.45, -12.45] }, 'armor'); // rudder actuator fairing
+
+  // Fuel-dump vent pipe at extreme tailcone (extends to z = -13.90 m -> exact 28.20 m airframe length!)
+  b.cyl(0.16, 0.22, 1.1, 12, STEEL, { at: [0, 0.26, -13.35], rot: ALONG_Z }, 'metal');
+  // Flight-deck interior instrument glow & copilot seat silhouette
+  b.box(0.48, 0.56, 0.24, DARK_SLATE, { at: [-0.38, 1.16, 7.92], rot: [-0.15, 0, 0] }, 'carbon');
+  b.glow(new THREE.BoxGeometry(0.95, 0.12, 0.06), '#ffb444', 2.4, { at: [0, 1.24, 9.15] });
   body.add(b.build(materials));
 
-  // Retractable heavy tricycle landing gear
-  const gearB = new VehicleBuilder();
-  gearB.box(0.16, 1.08, 0.18, STEEL, { at: [0, -1.04, 4.3] }, 'metal');
-  for (const nw of [-0.16, 0.16]) {
-    gearB.cyl(0.24, 0.24, 0.14, 14, TYRE, { at: [nw, -1.46, 4.3], rot: ALONG_X }, 'tread');
+  // ANIMATED TRIPLE BELLY BOMB-BAY DOORS (3 tandem bays × 2 clamshell doors = 6 hinged leaves; `userData.side = 1 | -1`)
+  const bombBayDoors: THREE.Object3D[] = [];
+  for (const bayZ of [4.9, 2.3, -0.3]) {
+    for (const side of [1, -1] as const) {
+      const hinge = new THREE.Group();
+      hinge.position.set(side * 0.88, -0.94, bayZ);
+      hinge.userData.side = side;
+      const db = new VehicleBuilder();
+      db.box(0.86, 0.10, 2.35, DARK_SLATE, { at: [-side * 0.43, 0, 0] }, 'armor');
+      db.box(0.76, 0.04, 2.22, TRIM_GREY, { at: [-side * 0.43, -0.05, 0] }, 'metal');
+      hinge.add(db.build(materials));
+      body.add(hinge);
+      bombBayDoors.push(hinge);
+    }
   }
+
+  // Retractable heavy strategic bomber landing gear (twin nose wheels + dual 4-wheel main bogies; flush at world y = 0.00!)
+  const gearB = new VehicleBuilder();
+  // Heavy nose gear strut & twin nose wheels (2.48 - 2.12 - 0.36 = 0.00)
+  gearB.box(0.26, 1.56, 0.28, STEEL, { at: [0, -1.48, 8.2] }, 'metal');
+  gearB.box(0.18, 0.22, 1.05, GUNMETAL, { at: [0, -1.16, 7.72], rot: [0.55, 0, 0] }, 'metal'); // drag brace
+  for (const nw of [-0.26, 0.26]) {
+    gearB.cyl(0.36, 0.36, 0.22, 16, TYRE, { at: [nw, -2.12, 8.2], rot: ALONG_X }, 'tread');
+    gearB.cyl(0.18, 0.18, 0.24, 12, CHROME, { at: [nw, -2.12, 8.2], rot: ALONG_X }, 'metal');
+  }
+  // Dual 4-wheel main gear bogies (2.48 - 2.02 - 0.46 = 0.00)
   for (const s of [-1, 1]) {
-    gearB.box(0.18, 1.06, 0.22, STEEL, { at: [s * 1.75, -1.02, -0.6] }, 'metal');
-    gearB.cyl(0.32, 0.32, 0.26, 16, TYRE, { at: [s * 1.75, -1.38, -0.6], rot: ALONG_X }, 'tread');
-    gearB.cyl(0.16, 0.16, 0.28, 12, CHROME, { at: [s * 1.75, -1.38, -0.6], rot: ALONG_X }, 'metal');
+    gearB.box(0.30, 1.64, 0.34, STEEL, { at: [s * 3.1, -1.36, -1.2] }, 'metal');
+    gearB.box(0.20, 0.24, 1.25, GUNMETAL, { at: [s * 2.55, -1.12, -1.2], rot: [0, 0, s * 0.48] }, 'metal'); // side brace
+    gearB.box(0.28, 0.22, 1.55, STEEL, { at: [s * 3.1, -2.02, -1.2] }, 'metal'); // bogie beam
+    for (const bx of [-0.30, 0.30]) {
+      for (const bz of [-0.56, 0.56]) {
+        gearB.cyl(0.46, 0.46, 0.28, 16, TYRE, { at: [s * 3.1 + bx, -2.02, -1.2 + bz], rot: ALONG_X }, 'tread');
+        gearB.cyl(0.22, 0.22, 0.30, 12, CHROME, { at: [s * 3.1 + bx, -2.02, -1.2 + bz], rot: ALONG_X }, 'metal');
+      }
+    }
   }
   const landingGear = gearB.build(materials);
   body.add(landingGear);
 
-  // Stepped supersonic bomber cockpit canopy (hidden in 1P!)
+  // Recessed 4-pane strategic bomber flight deck canopy with dark mullions & eyebrow roof (hidden in 1P!)
   const canopyB = new VehicleBuilder();
   canopyB.solid(hull([
-    { z: 2.35, w: 0.72, top: 1.18, bottom: 0.72 },
-    { z: 3.95, w: 0.62, top: 1.24, bottom: 0.62 },
-    { z: 5.15, w: 0.42, top: 0.84, bottom: 0.42 },
+    { z: 6.55, w: 1.24, top: 1.66, bottom: 1.08 },
+    { z: 8.65, w: 1.08, top: 1.72, bottom: 0.94 },
+    { z: 10.15, w: 0.72, top: 1.18, bottom: 0.66 },
   ]), GLASS, {}, 'canopy');
-  canopyB.box(0.08, 0.08, 2.5, DARK_SLATE, { at: [0, 1.16, 3.8], rot: [0.16, 0, 0] }, 'metal');
-  canopyB.box(1.18, 0.07, 0.08, DARK_SLATE, { at: [0, 1.12, 4.1] }, 'metal');
+  // 4-pane strategic windshield framing: center post, left/right corner mullions, upper eyebrow brow & side escape hatches
+  canopyB.box(0.11, 0.62, 0.14, DARK_SLATE, { at: [0, 1.44, 9.72], rot: [-0.52, 0, 0] }, 'metal');
+  for (const s of [-1, 1]) {
+    canopyB.box(0.11, 0.64, 0.14, DARK_SLATE, { at: [s * 0.66, 1.44, 9.32], rot: [-0.46, s * 0.25, 0] }, 'metal');
+    canopyB.box(0.10, 0.56, 0.16, DARK_SLATE, { at: [s * 1.04, 1.46, 8.02] }, 'metal');
+  }
+  canopyB.box(1.78, 0.12, 2.05, GUNSHIP, { at: [0, 1.72, 7.65] }, 'armor');
+  canopyB.box(1.52, 0.08, 0.12, DARK_SLATE, { at: [0, 1.64, 8.72] }, 'metal');
   const canopyGroup = canopyB.build(materials);
   body.add(canopyGroup);
 
-  // ANIMATED VARIABLE-GEOMETRY SWING WINGS (15° unswept takeoff -> ~60° razor supersonic delta!)
+  // HUGE ANIMATED VARIABLE-GEOMETRY SWING WINGS (15° unswept ~26.8 m span -> 60° swept ~16.4 m razor supersonic delta!)
   const makeSwingWing = (side: 1 | -1): THREE.Group => {
     const pivot = new THREE.Group();
-    pivot.position.set(side * 1.38, 0.22, 0.65);
+    pivot.position.set(side * 2.45, 0.28, 1.45);
     const wb = new VehicleBuilder();
-    // Long tapered supercritical supersonic wing extending outward along +X (side=1) or -X (side=-1), swept BACKWARD!
-    wb.box(4.85, 0.14, 1.65, GUNSHIP, { at: [side * 2.45, 0, -0.45], rot: [0, side * 0.18, 0] }, 'armor');
-    wb.box(2.15, 0.11, 1.05, TRIM_GREY, { at: [side * 5.25, -0.02, -0.96], rot: [0, side * 0.22, 0] }, 'armor');
-    wb.box(4.4, 0.08, 0.22, AMBER, { at: [side * 2.45, 0.06, 0.3], rot: [0, side * 0.18, 0] }, 'armor');
-    wb.glow(new THREE.SphereGeometry(0.1, 8, 8), side > 0 ? '#ff2020' : '#24ff6a', 5.0, { at: [side * 6.32, 0, -1.16] });
+    // Inboard heavy wing box (pivots backward cleanly along -Z on high-speed Mach sweep)
+    wb.box(6.2, 0.24, 2.75, GUNSHIP, { at: [side * 3.15, 0, -1.05], rot: [0, side * 0.30, 0] }, 'armor');
+    // Outboard tapered supercritical supersonic wing section
+    wb.box(4.75, 0.18, 1.75, TRIM_GREY, { at: [side * 8.20, -0.04, -2.72], rot: [0, side * 0.34, 0] }, 'armor');
+    // Wingtip fairing reaching local x = ±10.95 (world x = ±13.40 -> ~26.8 m unswept, ±8.19 -> ~16.4 m swept!)
+    wb.box(0.85, 0.14, 1.05, DARK_SLATE, { at: [side * 10.38, -0.05, -3.52], rot: [0, side * 0.34, 0] }, 'armor');
+    // Leading-edge slat accent stripe & underwing flap track canoes
+    wb.box(9.4, 0.10, 0.28, AMBER, { at: [side * 5.2, 0.09, -0.95], rot: [0, side * 0.32, 0] }, 'armor');
+    for (const fx of [2.8, 5.2, 7.6]) {
+      wb.box(0.24, 0.20, 1.15, DARK_SLATE, { at: [side * fx, -0.14, -fx * 0.33 - 1.35] }, 'metal');
+    }
+    wb.glow(new THREE.SphereGeometry(0.12, 8, 8), side > 0 ? '#ff2020' : '#24ff6a', 5.4, { at: [side * 10.83, -0.05, -3.65] });
     pivot.add(wb.build(materials));
     body.add(pivot);
     return pivot;
@@ -1702,55 +1775,61 @@ function buildLancer(materials: ModelMaterials): VehicleModelRig {
   const wingsLeft = makeSwingWing(1);
   const wingsRight = makeSwingWing(-1);
 
-  // 4 Roaring Afterburner Plumes (twin pods × 2 engines each!)
+  // 4 Roaring Orange F101 Afterburner Plumes (twin pods × 2 engines each, tucked inside z >= -13.6 so rest AABB = exact airframe!)
   const boostGlow: THREE.Object3D[] = [];
   for (const s of [-1, 1]) {
-    for (const nx of [-0.28, 0.28]) {
+    for (const nx of [-0.52, 0.52]) {
       const aft = new THREE.Mesh(
-        new THREE.ConeGeometry(0.24, 3.2, 10),
+        new THREE.ConeGeometry(0.42, 4.8, 12),
         new THREE.MeshBasicMaterial({ color: 0xff9436, transparent: true, opacity: 0.9, toneMapped: false }),
       );
       aft.rotation.x = -Math.PI / 2;
-      aft.position.set(s * 1.45 + nx, -0.42, -6.15);
+      aft.position.set(s * 2.65 + nx, -0.68, -11.2);
       aft.visible = false;
       body.add(aft);
       boostGlow.push(aft);
     }
   }
 
-  // Iconic "Dump-and-Burn" fiery fuel torch trailing from the rear tailcone!
+  // Iconic "Dump-and-Burn" fiery fuel torch anchored at tailcone pipe (scale 0.001 at rest so rest AABB = exact 28.2 m airframe!)
   const dumpBurnGlow: THREE.Object3D[] = [];
+  const outerTorchGeo = new THREE.ConeGeometry(1.15, 9.6, 12);
+  outerTorchGeo.translate(0, 4.8, 0);
   const outerTorch = new THREE.Mesh(
-    new THREE.ConeGeometry(0.68, 6.4, 12),
-    new THREE.MeshBasicMaterial({ color: 0xff6218, transparent: true, opacity: 0.78, toneMapped: false }),
+    outerTorchGeo,
+    new THREE.MeshBasicMaterial({ color: 0xff6218, transparent: true, opacity: 0.8, toneMapped: false }),
   );
   outerTorch.rotation.x = -Math.PI / 2;
-  outerTorch.position.set(0, 0.16, -11.0);
+  outerTorch.position.set(0, 0.26, -13.85);
+  outerTorch.scale.setScalar(0.001);
   outerTorch.visible = false;
   body.add(outerTorch);
   dumpBurnGlow.push(outerTorch);
 
+  const innerTorchGeo = new THREE.ConeGeometry(0.62, 6.8, 10);
+  innerTorchGeo.translate(0, 3.4, 0);
   const innerTorch = new THREE.Mesh(
-    new THREE.ConeGeometry(0.36, 4.4, 10),
+    innerTorchGeo,
     new THREE.MeshBasicMaterial({ color: 0xffe478, transparent: true, opacity: 0.94, toneMapped: false }),
   );
   innerTorch.rotation.x = -Math.PI / 2;
-  innerTorch.position.set(0, 0.16, -9.9);
+  innerTorch.position.set(0, 0.26, -13.85);
+  innerTorch.scale.setScalar(0.001);
   innerTorch.visible = false;
   body.add(innerTorch);
   dumpBurnGlow.push(innerTorch);
 
   const riders: RiderRig[] = [
-    buildRiderRig(materials, { seatIndex: 0, parent: body, at: [0.22, 0.62, 3.55], posture: 'cockpit', scale: 0.78 }),
+    buildRiderRig(materials, { seatIndex: 0, parent: body, at: [0.38, 0.98, 8.15], posture: 'cockpit', scale: 0.92 }),
   ];
 
-  const mGun = makeMarker(body, 0, -0.52, 5.85);
-  const mLeft = makeMarker(body, 0.45, -0.68, 0.55);
-  const mRight = makeMarker(body, -0.45, -0.68, 0.55);
+  const mGun = makeMarker(body, 0, -0.82, 10.4);
+  const mLeft = makeMarker(body, 0.36, -1.08, 2.3);
+  const mRight = makeMarker(body, -0.36, -1.08, 2.3);
   return {
     root,
     body,
-    bodyBaseY: 1.68,
+    bodyBaseY: BODY_BASE_Y,
     turret: null,
     barrel: null,
     barrelBaseZ: 0,
@@ -1765,6 +1844,7 @@ function buildLancer(materials: ModelMaterials): VehicleModelRig {
     wingsRight,
     dumpBurnGlow,
     landingGear,
+    bombBayDoors,
     resupplyRing: null,
     fpHideParts: [canopyGroup],
     riders,

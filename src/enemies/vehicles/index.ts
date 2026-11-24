@@ -22,7 +22,8 @@ import { MISSION_ID } from '../../campaign/select';
 import type { ExplosionKind, RayHit } from '../../core/contracts';
 import { CG, type Ctx, type PlayerSystem } from '../../core/contracts';
 import type { EnemyId, ExplosionSpec, FriendlyAircraft, HijackClaim, HijackableVehicle, MissileTarget, VehicleGrappleHit, VehicleRadarTarget, VehicleTargets } from '../../core/gameplay';
-import { rand } from '../../core/math';
+import type { Ally } from '../../allies/ally';
+import { clamp, rand } from '../../core/math';
 import { Airframe } from '../../progression/callins/airframe';
 import { GroundProbe } from '../../progression/callins/ground';
 import { hitText } from '../../progression/data';
@@ -51,6 +52,52 @@ export { EnemyDoorGunner } from './doorGunner';
 export { FastRopeHeli } from './transport';
 export { RIVAL_FRAME, RivalFrame, type RivalAttackKind, type RivalFramePhase, type RivalHitZoneId } from './rivalFrame';
 export type GroundVehicleKind = 'humvee' | 'truck' | 'tank';
+
+/** Maximum simultaneous enemy attack helicopters in flight (pooled GunshipRigs). */
+export const MAX_CHOPPERS = 3;
+
+/** Friendly AI vehicle (or emplacement) that enemy tanks, humvees, and choppers can target and damage. */
+export interface FriendlyGroundTarget {
+  readonly id: string | number;
+  readonly alive: boolean;
+  readonly position: THREE.Vector3;
+  readonly velocity: THREE.Vector3;
+  readonly aimLift?: number;
+  readonly armored?: boolean;
+  readonly airborne?: boolean;
+  takeDamage(amount: number, from?: THREE.Vector3, source?: string): void;
+}
+
+/** Resolved ground/low-altitude hostile target returned by `VehicleSystem.findGroundTarget()`. */
+export interface GroundTargetResult {
+  readonly kind: 'player' | 'ally' | 'friendly_vehicle';
+  readonly position: THREE.Vector3;
+  readonly velocity: THREE.Vector3;
+  readonly distance: number;
+  readonly aimLift: number;
+  readonly player?: PlayerSystem;
+  readonly ally?: Ally;
+  readonly vehicle?: FriendlyGroundTarget;
+}
+
+export interface GroundTargetOptions {
+  /** Require unobstructed LOS via `lineClear` (default true). */
+  readonly requireLos?: boolean;
+  /** Explicit ceiling on player world Y for ground vehicles (default 18; players above 25m are always ignored by ground units). */
+  readonly maxPlayerY?: number;
+  /** When true (e.g., attack helicopters), allows engaging high-altitude airborne players and aircraft. */
+  readonly includeAirbornePlayer?: boolean;
+  /** When true (e.g., main battle tanks), gives priority weight to friendly armored vehicles. */
+  readonly preferArmor?: boolean;
+}
+
+interface PendingFriendlyBlast {
+  at: THREE.Vector3;
+  radius: number;
+  damage: number;
+  delay: number;
+  source: string;
+}
 
 declare module '../../core/contracts' {
   interface GameEvents {
@@ -91,6 +138,7 @@ const _up = new THREE.Vector3(0, 1, 0);
 const _hit: RayHit = { point: new THREE.Vector3(), normal: new THREE.Vector3(), distance: 0, surface: 'concrete', collider: null };
 const _near: { distance: number; part: PartState | null } = { distance: 0, part: null };
 const _men: Enemy[] = [];
+const _losPt = new THREE.Vector3();
 
 const NO_BEHAVIOURS: Enemy['behaviours'] = [];
 
@@ -117,15 +165,19 @@ export class VehicleSystem implements VehicleTargets {
   readonly extras: ExtraTarget[] = [];
   readonly live: Vehicle[] = [];
   readonly wrecks: Wreck[] = [];
+  readonly choppers: EnemyChopper[] = [];
   readonly guns: GunRack;
   fleet!: Fleet;
   friendly: FriendlyAircraft | null = null;
 
   private materials!: ModelMaterials;
-  private gunship: GunshipRig | null = null;
+  private readonly freeGunships: GunshipRig[] = [];
+  private readonly allGunships: GunshipRig[] = [];
   private skyline: Skyline | null = null;
-  private chopper: EnemyChopper | null = null;
   private readonly waiting: Waiting[] = [];
+  private readonly friendlyTargets = new Set<FriendlyGroundTarget>();
+  private friendlyVehicleProvider: (() => readonly FriendlyGroundTarget[]) | null = null;
+  private readonly pendingFriendlyBlasts: PendingFriendlyBlast[] = [];
   private trafficIn = 0;
   private clearRoad = Infinity;
   private dodgeRoad = 0;
@@ -138,6 +190,11 @@ export class VehicleSystem implements VehicleTargets {
     this.ctx = world.ctx;
     this.manager = world.enemies;
     this.guns = new GunRack(spec => this.buildGun(spec));
+  }
+
+  /** Primary live enemy chopper (backwards-compatible accessor when up to 3 choppers are active). */
+  get chopper(): EnemyChopper | null {
+    return this.choppers[0] ?? null;
   }
 
   get now(): number {
@@ -181,7 +238,7 @@ export class VehicleSystem implements VehicleTargets {
 
   private roomFor(w: Waiting): boolean {
     if (w.order.state) return true;
-    if (w.order.kind === 'chopper') return this.chopper === null;
+    if (w.order.kind === 'chopper') return this.choppers.length < MAX_CHOPPERS;
     if (w.order.kind === 'transport' || w.order.kind === 'doorGunner') return this.live.length < MAX_LIVE;
     if (this.live.length >= MAX_LIVE) return false;
     const [x, , z] = w.at.at;
@@ -236,6 +293,201 @@ export class VehicleSystem implements VehicleTargets {
     return best;
   }
 
+  /** Registers a friendly AI ground/low-air vehicle so enemy armor & choppers can target and damage it. */
+  registerFriendlyTarget(target: FriendlyGroundTarget): void {
+    this.friendlyTargets.add(target);
+  }
+
+  /** Registers a batch of friendly AI vehicles with enemy ground/chopper targeting. */
+  registerFriendlyTargets(targets: readonly FriendlyGroundTarget[]): void {
+    for (let i = 0; i < targets.length; i++) this.friendlyTargets.add(targets[i]!);
+  }
+
+  /** Removes a friendly AI vehicle from enemy targeting (e.g., on disposal). */
+  unregisterFriendlyTarget(target: FriendlyGroundTarget): void {
+    this.friendlyTargets.delete(target);
+  }
+
+  /**
+   * Connects a live friendly vehicle list or provider callback (e.g., `() => aiFleet.getLiveGroundTargets()`)
+   * so enemy tanks, humvees, and attack choppers engage friendly AI armor alongside `ctx.allies`.
+   */
+  setFriendlyVehicles(
+    targets: readonly FriendlyGroundTarget[] | (() => readonly FriendlyGroundTarget[]) | null,
+  ): void {
+    if (targets === null) {
+      this.friendlyVehicleProvider = null;
+    } else if (typeof targets === 'function') {
+      this.friendlyVehicleProvider = targets;
+    } else {
+      const snapshot = targets;
+      this.friendlyVehicleProvider = () => snapshot;
+    }
+  }
+
+  private forEachFriendlyVehicle(fn: (v: FriendlyGroundTarget) => void): void {
+    if (this.friendlyTargets.size > 0) {
+      for (const v of this.friendlyTargets) fn(v);
+    }
+    if (this.friendlyVehicleProvider) {
+      const list = this.friendlyVehicleProvider();
+      for (let i = 0; i < list.length; i++) {
+        const v = list[i]!;
+        if (!this.friendlyTargets.has(v)) fn(v);
+      }
+    }
+  }
+
+  /**
+   * Combined-arms target acquisition for enemy ground vehicles and attack choppers.
+   * Considers:
+   *  1. The player (when on foot or low `y < 22 m` for ground vehicles, ignoring high-flying jets at `y > 25 m` so tanks fight ground allies/armor instead of staring at the sky),
+   *  2. Live friendly infantry in `ctx.allies`,
+   *  3. Registered / provided friendly AI vehicles (`setFriendlyVehicles` / `registerFriendlyTarget`).
+   */
+  findGroundTarget(from: THREE.Vector3, maxRange: number, opts?: GroundTargetOptions): GroundTargetResult | null {
+    const requireLos = opts?.requireLos !== false;
+    const includeAirborne = opts?.includeAirbornePlayer === true;
+    const preferArmor = opts?.preferArmor === true;
+    let best: GroundTargetResult | null = null;
+    let bestScore = Infinity;
+
+    // 1. Player candidate
+    const player = this.quarry(from);
+    if (player && player.alive && (!player.parked || player.interceptor !== null)) {
+      const py = player.position.y;
+      const maxY = opts?.maxPlayerY ?? 22;
+      const elevOk = includeAirborne ? true : (py < maxY && py <= 25);
+      if (elevOk) {
+        _losPt.set(player.position.x, player.position.y + 1.1, player.position.z);
+        const dist = from.distanceTo(_losPt);
+        if (dist < maxRange && (!requireLos || this.lineClear(from, _losPt))) {
+          bestScore = dist;
+          best = {
+            kind: 'player',
+            position: player.position,
+            velocity: player.velocity,
+            distance: dist,
+            aimLift: 1.1,
+            player,
+          };
+        }
+      }
+    }
+
+    // 2. Live friendly infantry (`ctx.allies`)
+    const allies = this.ctx.allies?.allies;
+    if (allies && allies.length > 0) {
+      for (let i = 0; i < allies.length; i++) {
+        const a = allies[i]!;
+        if (!a.alive) continue;
+        const pos = a.body.position;
+        _losPt.set(pos.x, pos.y + 1.1, pos.z);
+        const dist = from.distanceTo(_losPt);
+        if (dist >= maxRange) continue;
+        const score = dist;
+        if (score >= bestScore) continue;
+        if (requireLos && !this.lineClear(from, _losPt)) continue;
+        bestScore = score;
+        best = {
+          kind: 'ally',
+          position: pos,
+          velocity: a.body.velocity,
+          distance: dist,
+          aimLift: 1.1,
+          ally: a,
+        };
+      }
+    }
+
+    // 3. Registered / provided friendly AI vehicles (tanks, APCs, gunships)
+    this.forEachFriendlyVehicle(v => {
+      if (!v.alive) return;
+      if (v.airborne && !includeAirborne) return;
+      const lift = v.aimLift ?? 1.4;
+      _losPt.set(v.position.x, v.position.y + lift, v.position.z);
+      const dist = from.distanceTo(_losPt);
+      if (dist >= maxRange) return;
+      const score = (preferArmor && v.armored) ? dist * 0.78 : dist;
+      if (score >= bestScore) return;
+      if (requireLos && !this.lineClear(from, _losPt)) return;
+      bestScore = score;
+      best = {
+        kind: 'friendly_vehicle',
+        position: v.position,
+        velocity: v.velocity,
+        distance: dist,
+        aimLift: lift,
+        vehicle: v,
+      };
+    });
+
+    return best;
+  }
+
+  /** Schedules an enemy tank shell / chopper rocket / mortar blast against friendly allies and AI vehicles. */
+  scheduleFriendlyBlast(at: THREE.Vector3, radius: number, damage: number, delay: number, source: string): void {
+    if (delay <= 0) {
+      this.damageFriendlyAt(at, radius, damage, source);
+      return;
+    }
+    this.pendingFriendlyBlasts.push({
+      at: at.clone(),
+      radius,
+      damage,
+      delay,
+      source,
+    });
+  }
+
+  /** Applies explosive splash damage from enemy ordnance to friendly allies and registered friendly AI vehicles. */
+  damageFriendlyAt(at: THREE.Vector3, radius: number, damage: number, source: string): number {
+    let hit = 0;
+
+    // 1. Friendly infantry squad (call blast once on closest alive ally inside radius to avoid duplicate AllySystem blasts)
+    const allies = this.ctx.allies?.allies;
+    if (allies && allies.length > 0) {
+      let closest: Ally | null = null;
+      let closestDist = radius + 1.2;
+      for (let i = 0; i < allies.length; i++) {
+        const a = allies[i]!;
+        if (!a.alive) continue;
+        const d = a.body.position.distanceTo(at);
+        if (d <= closestDist) {
+          closestDist = d;
+          closest = a;
+        }
+      }
+      if (closest) {
+        closest.blast(at, radius, damage, 0, source);
+        hit++;
+      }
+    }
+
+    // 2. Registered / provided friendly AI vehicles
+    this.forEachFriendlyVehicle(v => {
+      if (!v.alive) return;
+      const reach = radius + (v.armored ? 3.2 : 2.0);
+      const d = v.position.distanceTo(at);
+      if (d > reach) return;
+      const falloff = clamp(1 - (d / Math.max(0.5, reach)) * 0.72, 0.25, 1);
+      v.takeDamage(damage * falloff, at, source);
+      hit++;
+    });
+
+    return hit;
+  }
+
+  private tickFriendlyBlasts(dt: number): void {
+    for (let i = this.pendingFriendlyBlasts.length - 1; i >= 0; i--) {
+      const b = this.pendingFriendlyBlasts[i]!;
+      b.delay -= dt;
+      if (b.delay > 0) continue;
+      this.pendingFriendlyBlasts.splice(i, 1);
+      this.damageFriendlyAt(b.at, b.radius, b.damage, b.source);
+    }
+  }
+
   spawnGround(kind: GroundVehicleKind, order: GroundOrder): GroundVehicle {
     const v = new GroundVehicle(this, VEHICLES[kind] as GroundDef, this.fleet.ground(kind), order);
     this.live.push(v);
@@ -245,11 +497,18 @@ export class VehicleSystem implements VehicleTargets {
 
   spawnChopper(from: THREE.Vector3, marks: readonly THREE.Vector3[], tag: string | null): EnemyChopper {
     this.skyline ??= new Skyline(this.ctx, new GroundProbe(this.ctx));
-    this.chopper?.remove();
-    this.chopper = new EnemyChopper(this, this.rig(), this.skyline, from, marks, tag);
-    this.live.push(this.chopper);
-    this.flag(this.chopper);
-    return this.chopper;
+    while (this.choppers.length >= MAX_CHOPPERS) {
+      const oldest = this.choppers[0];
+      if (!oldest) break;
+      oldest.remove();
+      const idx = this.choppers.indexOf(oldest);
+      if (idx >= 0) this.choppers.splice(idx, 1);
+    }
+    const c = new EnemyChopper(this, this.acquireGunshipRig(), this.skyline, from, marks, tag);
+    this.choppers.push(c);
+    this.live.push(c);
+    this.flag(c);
+    return c;
   }
 
   spawnTransport(from: THREE.Vector3, lz: THREE.Vector3, hoverY: number, squadIds: readonly EnemyId[], tag: string | null = null): FastRopeHeli {
@@ -267,18 +526,28 @@ export class VehicleSystem implements VehicleTargets {
     return gunner;
   }
 
-  private rig(): GunshipRig {
-    if (this.gunship) return this.gunship;
+  private acquireGunshipRig(): GunshipRig {
+    const pooled = this.freeGunships.pop();
+    if (pooled) return pooled;
     const { scene } = this.ctx.render;
     const frame = new Airframe(this.materials, scene, GUNSHIP_AIRFRAME);
     const tail = gunshipTailGroup(this.materials);
     frame.root.add(tail);
-    this.gunship = { frame, tail, gun: new Gun(this.materials, scene, CHIN_GUN) };
-    return this.gunship;
+    const rig: GunshipRig = { frame, tail, gun: new Gun(this.materials, scene, CHIN_GUN) };
+    this.allGunships.push(rig);
+    return rig;
   }
 
-  chopperGone(): void {
-    this.chopper = null;
+  chopperGone(chopper?: EnemyChopper, rig?: GunshipRig): void {
+    if (chopper) {
+      const idx = this.choppers.indexOf(chopper);
+      if (idx >= 0) this.choppers.splice(idx, 1);
+    } else {
+      this.choppers.length = 0;
+    }
+    if (rig && !this.freeGunships.includes(rig)) {
+      this.freeGunships.push(rig);
+    }
   }
 
   /** The player has been told to kill this. A tank at the far end of the apron is otherwise a shell from nowhere, and nothing shows it on the minimap. */
@@ -296,10 +565,26 @@ export class VehicleSystem implements VehicleTargets {
     v.unmark = null;
   }
 
-  /** Writes where the enemy chopper is. A dying one is no longer anyone's target. */
+  /** Writes where the nearest live enemy chopper is. A dying one is no longer anyone's target. */
   chopperAt(out: THREE.Vector3): boolean {
-    if (!this.chopper?.alive) return false;
-    out.copy(this.chopper.center);
+    let best: EnemyChopper | null = null;
+    let bestD = Infinity;
+    const ref = this.ctx.player?.position;
+    for (let i = 0; i < this.choppers.length; i++) {
+      const c = this.choppers[i]!;
+      if (!c.alive) continue;
+      if (!ref) {
+        best = c;
+        break;
+      }
+      const d = c.center.distanceToSquared(ref);
+      if (d < bestD) {
+        bestD = d;
+        best = c;
+      }
+    }
+    if (!best) return false;
+    out.copy(best.center);
     return true;
   }
 
@@ -307,7 +592,7 @@ export class VehicleSystem implements VehicleTargets {
     this.friendly = aircraft;
   }
 
-  /** Registers an extra destructible war-machine target (FlakTower, OldMother) with vehicle hit/blast/paint pipelines. */
+  /** Registers an extra destructible war-machine target (FlakTower, OldMother, BaseDefenseSystem) with vehicle hit/blast/paint pipelines. */
   addExtra(target: ExtraTarget): void {
     if (!this.extras.includes(target)) this.extras.push(target);
   }
@@ -317,7 +602,7 @@ export class VehicleSystem implements VehicleTargets {
     if (i >= 0) this.extras.splice(i, 1);
   }
 
-  /** Every live vehicle and the chopper, for a launcher that paints targets. A Vehicle is a MissileTarget as it stands. */
+  /** Every live vehicle and the choppers, for a launcher that paints targets. A Vehicle is a MissileTarget as it stands. */
   paintable(out: MissileTarget[]): number {
     out.length = 0;
     for (const v of this.live) if (v.alive && !v.retired) out.push(v);
@@ -634,7 +919,7 @@ export class VehicleSystem implements VehicleTargets {
     v.alive = false;
     v.retired = true;
     this.live.splice(idx, 1);
-    if (this.chopper === v) this.chopper = null;
+    if (v instanceof EnemyChopper) this.chopperGone(v);
     if (v.tag !== null) this.ctx.campaign.unitGone(v.tag, true, 'hijack');
 
     return { kind, position, yaw, velocity, healthFraction };
@@ -883,6 +1168,7 @@ export class VehicleSystem implements VehicleTargets {
   // -------------------------------------------------------------------------------------------
 
   update(dt: number): void {
+    if (this.pendingFriendlyBlasts.length > 0) this.tickFriendlyBlasts(dt);
     if (this.live.length === 0 && this.wrecks.length === 0 && this.waiting.length === 0 && this.extras.length === 0) return;
     this.traffic(dt);
     for (let i = 0; i < this.live.length; i++) this.live[i]!.update(dt);
@@ -1003,9 +1289,16 @@ export class VehicleSystem implements VehicleTargets {
     for (const w of this.wrecks) w.dispose();
     this.wrecks.length = 0;
     this.friendly = null;
-    this.chopper = null;
-    this.gunship?.frame.hide();
-    this.gunship?.gun.hide();
+    this.choppers.length = 0;
+    this.freeGunships.length = 0;
+    for (const g of this.allGunships) {
+      g.frame.hide();
+      g.gun.hide();
+      this.freeGunships.push(g);
+    }
+    this.friendlyTargets.clear();
+    this.friendlyVehicleProvider = null;
+    this.pendingFriendlyBlasts.length = 0;
   }
 
   /** One read of everything, for bots and the lab. */

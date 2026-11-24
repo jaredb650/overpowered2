@@ -19,8 +19,9 @@ const PLASMA_FIRE: FirePalette = { outer: hot(0x1140ff, 1.1), mid: hot(0x22aaff,
 const ENEMY_FIRE: FirePalette = { outer: hot(0xee0030, 1.1), mid: hot(0xff2060, 1.15), inner: hot(0xffa0c0, 2.6), glow: hot(0xff1044, 0.3) };
 const WHITE_FIRE: FirePalette = { outer: hot(0x8899aa, 0.9), mid: hot(0xccddee, 1.2), inner: hot(0xffffff, 3), glow: hot(0xbfd8ff, 0.24) };
 
-export type ExplosionRecipeKind = ExplosionKind | 'howitzer';
+export type ExplosionRecipeKind = ExplosionKind | 'howitzer' | 'thermobaric';
 export const HOWITZER_EXPLOSION_KIND = 'howitzer' as const;
+export const THERMOBARIC_EXPLOSION_KIND = 'thermobaric' as const;
 
 interface Recipe {
   /** Blast radius the spec's numbers were authored against. */
@@ -234,8 +235,38 @@ const RECIPES: Record<ExplosionRecipeKind, Recipe> = {
     lightGain: 1.65,
     flash: FIRE.core,
   },
+  /**
+   * BLU-121/B Thermobaric ("Fuel-Air") Bomb: juiced-up 105 mm Howitzer blast — snapping shockwave,
+   * towering rolling fiery fireball, dense incandescent chip storm, 18 lingering flame tongues, heavy dark debris &
+   * rising ember shower, intense fiery light flash, and huge ground scorch (never uses `megaBlast` dome).
+   */
+  thermobaric: {
+    ...ROCKET,
+    base: 28,
+    chips: [[CHIP.yellow, 150], [CHIP.amber, 130], [CHIP.orange, 120], [CHIP.red, 95]],
+    hellfire: false,
+    shockReach: 0.95,
+    shockLife: 0.20,
+    shockCut: 0.85,
+    sparks: 120,
+    sparkColor: SPARK.yellow,
+    fire: FLAME,
+    fireScale: 1.45,
+    fireLife: 2.35,
+    lingerFlames: 18,
+    smoke: 26,
+    debris: 56,
+    dust: true,
+    scorch: 0.85,
+    embers: 96,
+    light: 0xff7a22,
+    lightGain: 2.4,
+    flash: FIRE.core,
+  },
   nuke: { ...ROCKET, base: 60, hellfire: true },
 };
+
+export const EXPLOSION_RECIPES: Readonly<Record<ExplosionRecipeKind, Recipe>> = RECIPES;
 
 export function hasExplosionRecipe(kind: string): kind is ExplosionRecipeKind {
   return kind in RECIPES;
@@ -368,7 +399,7 @@ export function explosion(core: FxCore, position: THREE.Vector3, options: Omit<E
 
   if (r.smoke) smokeColumn(core, x, y, z, R * (r.hellfire ? 0.62 : 1), Math.ceil(r.smoke * scale));
   const nearFloor = y - floor < R * 0.75;
-  if (r.dust && nearFloor) groundDust(core, x, floor, z, R, Math.ceil(12 * scale));
+  if (r.dust && nearFloor) groundDust(core, x, floor, z, R, Math.ceil((kind === 'thermobaric' ? 24 : 12) * scale));
 
   if (r.fire) {
     // Hellfire's radius is huge, but the fireball should sit inside a chip storm, not swallow it.
@@ -431,10 +462,13 @@ export function explosion(core: FxCore, position: THREE.Vector3, options: Omit<E
 
   if (r.shockReach > 0 && nearFloor) {
     core.waves.add(x, floor + 0.06, z, 0, 1, 0, core.waveColor, 0.28, b, r.shockLife * 1.6, R, 0.006, 1, 0);
+    if (kind === 'thermobaric') {
+      core.waves.add(x, floor + 0.08, z, 0, 1, 0, CHIP.amber, 0.42, b + 0.05, r.shockLife * 2.2, R * 1.15, 0.009, 1, 0);
+    }
   }
 
   const render = core.ctx.render;
-  render.lights.flash(position, r.light, 7 * r.lightGain, Math.max(R * 3, 6), r.lingerFlames ? 0.55 : 0.32);
+  render.lights.flash(position, r.light, 7 * r.lightGain, Math.max(R * 3, 6), kind === 'thermobaric' ? 0.85 : r.lingerFlames ? 0.55 : 0.32);
 
   if (r.scorch > 0 && nearFloor && R > 1) {
     _p.set(x, floor + 0.02, z);

@@ -69,14 +69,17 @@ export interface VehicleWeaponAltMode {
   readonly gravity?: number;
   readonly interval?: number;
   readonly magSize?: number;
+  readonly reloadSeconds?: number;
   readonly blastRadius: number;
   readonly blastDamage: number;
   readonly explosionKind: ExplosionKind;
   readonly homing?: boolean;
   readonly napalm?: boolean;
   readonly cluster?: boolean;
+  readonly aerialCluster?: boolean;
   readonly chute?: boolean;
   readonly moab?: boolean;
+  readonly thermobaric?: boolean;
   readonly audio?: string;
   readonly audioPitch?: number;
 }
@@ -110,12 +113,16 @@ export interface VehicleWeaponSpec {
   readonly homing?: boolean;
   /** True for incendiary BLU-27 napalm bombs. */
   readonly napalm?: boolean;
-  /** True for aerial CBU-87 cluster canister bombs (burst into 18-bomblet carpet). */
+  /** True for aerial cluster canister bombs. */
   readonly cluster?: boolean;
+  /** True for heavy bomber CBU-105 high-altitude aerial cluster dispensers (28 m airburst -> 52 AP bomblets). */
+  readonly aerialCluster?: boolean;
   /** True for Mk-82 Snake-Eye retarded parachute bombs (high horizontal air-drag chute). */
   readonly chute?: boolean;
   /** True for GBU-43 MOAB thermobaric mega-bombs. */
   readonly moab?: boolean;
+  /** True for BLU-121/B thermobaric ("Fuel-Air") warheads. */
+  readonly thermobaric?: boolean;
   /** True for fixed-boresight nose guns (fighter jets / A-10) that shoot straight along the hull nose. */
   readonly boresight?: boolean;
   /** Optional charge duration in seconds (Viper Particle Lance beam). */

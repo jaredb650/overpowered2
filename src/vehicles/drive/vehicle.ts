@@ -142,6 +142,8 @@ export class DriveableVehicle {
   private specialCooldown = 0;
   private flareRemaining = 0;
   private flareCooldown = 0;
+  private bombBayHold = 0;
+  private bombBayOpen = 0;
   private missileWarning = false;
   private radarLockWarning = false;
   private extRwrLock = false;
@@ -867,6 +869,10 @@ export class DriveableVehicle {
     if (this.autoAglCooldown > 0) this.autoAglCooldown = Math.max(0, this.autoAglCooldown - dt);
     if (this.flareRemaining > 0) this.flareRemaining = Math.max(0, this.flareRemaining - dt);
     if (this.flareCooldown > 0) this.flareCooldown = Math.max(0, this.flareCooldown - dt);
+    if (this.bombBayHold > 0) this.bombBayHold = Math.max(0, this.bombBayHold - dt);
+    const bayTarget = this.bombBayHold > 0 ? 1 : 0;
+    this.bombBayOpen = damp(this.bombBayOpen, bayTarget, bayTarget > 0 ? 14 : 4.5, dt);
+    if (bayTarget === 0 && this.bombBayOpen < 0.002) this.bombBayOpen = 0;
 
     if (this.seat && (this.seat.stage === 'left' || this.seats.seat !== this.seat)) {
       this.exit(true);
@@ -1192,15 +1198,19 @@ export class DriveableVehicle {
     const secRt = this.secondaryState[this._seatIndex];
     const secResolved = spec.secondary && secRt ? this.resolveWeaponMode(spec.secondary, secRt.modeIndex) : null;
 
-    // 1. Live Fighter Jet CCIP Bomb Ground Impact Point (HE, Napalm, Cluster, or Snake-Eye Retarded Parachute)!
+    // 1. Live Fighter Jet / Strategic Bomber CCIP Bomb Ground Impact Point (Thermobaric, CBU-105, Snake-Eye, Cluster, Napalm, HE)!
     this.hudScratch.ccipWorld = null;
-    this.hudScratch.ccipLabel = secResolved?.chute
-      ? 'CCIP SNAKE-EYE'
-      : secResolved?.cluster
-        ? 'CCIP CLUSTER'
-        : secResolved?.napalm
-          ? 'CCIP NAPALM'
-          : 'CCIP HE';
+    this.hudScratch.ccipLabel = secResolved?.thermobaric
+      ? 'CCIP THERMOBARIC'
+      : secResolved?.aerialCluster
+        ? 'CCIP CBU-105'
+        : secResolved?.chute
+          ? 'CCIP SNAKE-EYE'
+          : secResolved?.cluster
+            ? 'CCIP CLUSTER'
+            : secResolved?.napalm
+              ? 'CCIP NAPALM'
+              : 'CCIP HE';
     if (spec.hudMode === 'fighter' && secResolved && secResolved.kind === 'bomb' && this.phys.altitude > 3) {
       _ccipPos.copy(this.phys.position);
       _ccipPos.y -= 0.45;
@@ -1209,7 +1219,7 @@ export class DriveableVehicle {
       const g = secResolved.gravity || 28;
       const isChute = secResolved.chute;
       const step = isChute ? 0.12 : 0.18;
-      const maxSteps = isChute ? 60 : 36;
+      const maxSteps = isChute ? 110 : 60;
       for (let i = 0; i < maxSteps; i++) {
         const t = (i + 1) * step;
         _ccipVel.y -= g * step;
@@ -1411,7 +1421,12 @@ export class DriveableVehicle {
       return;
     }
 
-    if (this.specialCooldown > 0) return;
+    if (this.specialCooldown > 0) {
+      if (sp.id === 'dump_burn' && (this.missileWarning || this.radarLockWarning) && this.flareCooldown <= 0) {
+        this.popFlares();
+      }
+      return;
+    }
     this.specialActive = true;
     this.specialRemaining = sp.duration;
     this.specialCooldown = sp.cooldown;
@@ -1488,7 +1503,7 @@ export class DriveableVehicle {
 
   private popFlares(): void {
     this.flareRemaining = 4.2;
-    this.flareCooldown = this.def.stealth ? 6.5 : 9.5;
+    this.flareCooldown = this.def.id === 'lancer' ? 5.5 : this.def.stealth ? 6.5 : 9.5;
     this.ctx.audio?.play('veh_flare_pop', { position: this.phys.position, volume: 0.92, pitch: 1.04 });
     for (let i = 0; i < 8; i++) {
       const side = i % 2 === 0 ? 1 : -1;
@@ -1509,14 +1524,17 @@ export class DriveableVehicle {
     gravity: number;
     interval: number;
     magSize: number;
+    reloadSeconds: number;
     blastRadius: number;
     blastDamage: number;
     explosionKind: VehicleWeaponSpec['explosionKind'];
     homing: boolean;
     napalm: boolean;
     cluster: boolean;
+    aerialCluster: boolean;
     chute: boolean;
     moab: boolean;
+    thermobaric: boolean;
     audio: string;
     audioPitch: number;
   } {
@@ -1536,14 +1554,17 @@ export class DriveableVehicle {
         gravity: mode.gravity ?? spec.gravity,
         interval: mode.interval ?? spec.interval,
         magSize: mode.magSize ?? spec.magSize,
+        reloadSeconds: mode.reloadSeconds ?? spec.reloadSeconds,
         blastRadius: mode.blastRadius,
         blastDamage: mode.blastDamage,
         explosionKind: mode.explosionKind,
         homing: Boolean(mode.homing),
         napalm: Boolean(mode.napalm),
         cluster: Boolean(mode.cluster),
+        aerialCluster: Boolean(mode.aerialCluster),
         chute: Boolean(mode.chute),
         moab: Boolean(mode.moab),
+        thermobaric: Boolean(mode.thermobaric),
         audio: mode.audio ?? spec.audio,
         audioPitch: mode.audioPitch ?? spec.audioPitch,
       };
@@ -1556,14 +1577,17 @@ export class DriveableVehicle {
       gravity: spec.gravity,
       interval: spec.interval,
       magSize: spec.magSize,
+      reloadSeconds: spec.reloadSeconds,
       blastRadius: spec.blastRadius,
       blastDamage: spec.blastDamage,
       explosionKind: spec.explosionKind,
       homing: Boolean(spec.homing),
       napalm: Boolean(spec.napalm),
       cluster: Boolean(spec.cluster),
+      aerialCluster: Boolean(spec.aerialCluster),
       chute: Boolean(spec.chute),
       moab: Boolean(spec.moab),
+      thermobaric: Boolean(spec.thermobaric),
       audio: spec.audio,
       audioPitch: spec.audioPitch,
     };
@@ -1600,8 +1624,12 @@ export class DriveableVehicle {
         this.ctx.audio?.play('reload_bolt', { position: this.phys.position, volume: 0.75, pitch: 1.08 });
         this.ctx.hud?.feed?.(`ORDNANCE SELECTED: ${m.name}`, this.def.color);
       } else {
-        if (spec.primary.magSize > 0 && prim.ammo < spec.primary.magSize && prim.reloadLeft <= 0) prim.reloadLeft = spec.primary.reloadSeconds;
-        if (sec && spec.secondary && spec.secondary.magSize > 0 && sec.ammo < spec.secondary.magSize && sec.reloadLeft <= 0) sec.reloadLeft = spec.secondary.reloadSeconds;
+        const pm = this.resolveWeaponMode(spec.primary, prim.modeIndex);
+        if (pm.magSize > 0 && prim.ammo < pm.magSize && prim.reloadLeft <= 0) prim.reloadLeft = pm.reloadSeconds;
+        if (sec && spec.secondary) {
+          const sm = this.resolveWeaponMode(spec.secondary, sec.modeIndex);
+          if (sm.magSize > 0 && sec.ammo < sm.magSize && sec.reloadLeft <= 0) sec.reloadLeft = sm.reloadSeconds;
+        }
       }
     }
 
@@ -1738,11 +1766,11 @@ export class DriveableVehicle {
     const m = this.resolveWeaponMode(spec, rt.modeIndex);
     if (m.magSize > 0) {
       if (rt.ammo <= 0) {
-        rt.reloadLeft = spec.reloadSeconds;
+        rt.reloadLeft = m.reloadSeconds;
         return;
       }
       rt.ammo--;
-      if (rt.ammo <= 0) rt.reloadLeft = spec.reloadSeconds;
+      if (rt.ammo <= 0) rt.reloadLeft = m.reloadSeconds;
     }
     rt.cooldown = m.interval;
 
@@ -1774,13 +1802,25 @@ export class DriveableVehicle {
     }
 
     if (m.kind === 'bomb') {
-      // Gravity-dropped fighter/bomber bomb (Mk-82 / Mk-84 HE, Snake-Eye Chute, CBU-87 Cluster, or BLU-27 Napalm) inheriting full aircraft velocity -> lands on CCIP!
+      // Swing open internal belly bomb-bay doors (Lancer triple bays) and hold open 2.2 s after last release!
+      this.bombBayHold = 2.2;
+      this.bombBayOpen = Math.max(this.bombBayOpen, 0.35);
+      // Gravity-dropped fighter/bomber bomb (Mk-82 Snake-Eye, CBU-105 Aerial Cluster, BLU-27 Napalm, or BLU-121/B Thermobaric) -> lands on CCIP!
       // Cleared slightly below the wing pylon / belly bay with a crisp downward ejector kick, zero smoke/flame trail, and live 3D whistle.
       _muzzle.y -= 0.45;
       _vel.copy(this.phys.velocity);
       _vel.y -= 3.5;
-      const bombScale = m.moab ? 4.4 : m.blastRadius >= 20 ? 3.0 : m.blastRadius >= 16 ? 2.5 : 1.9;
-      const modelSize = m.moab ? 1.95 : m.napalm ? 1.08 : m.cluster ? 1.06 : m.blastRadius >= 20 ? 1.22 : 0.96;
+      const bombScale = m.thermobaric ? 1.45 : m.moab ? 4.4 : m.blastRadius >= 20 ? 3.0 : m.blastRadius >= 16 ? 2.5 : 1.9;
+      const modelSize = m.thermobaric ? 1.65 : m.moab ? 1.95 : m.napalm ? 1.08 : (m.aerialCluster || m.cluster) ? 1.12 : m.blastRadius >= 20 ? 1.22 : 0.96;
+      const bombSource = m.napalm
+        ? `${this.def.id}_napalm`
+        : (m.aerialCluster || m.cluster)
+          ? `${this.def.id}_cluster`
+          : m.thermobaric
+            ? `${this.def.id}_thermobaric`
+            : m.chute
+              ? `${this.def.id}_chute`
+              : `${this.def.id}_bomb`;
       this.ctx.combat.spawnProjectile({
         origin: _muzzle,
         velocity: _vel,
@@ -1788,23 +1828,25 @@ export class DriveableVehicle {
         team: 'player',
         damage: m.damage,
         bossDamage: m.damage * 1.45,
-        source: m.napalm ? `${this.def.id}_napalm` : m.cluster ? `${this.def.id}_cluster` : m.chute ? `${this.def.id}_chute` : `${this.def.id}_bomb`,
+        source: bombSource,
         gravity: m.gravity || 28,
-        lifetime: m.chute ? 14 : 10,
+        lifetime: m.chute ? 16 : (m.thermobaric || m.aerialCluster) ? 14 : 10,
         trail: 'none',
         size: modelSize,
         armorPiercing: true,
         bomb: true,
         napalm: m.napalm,
-        cluster: m.cluster,
+        cluster: m.cluster || m.aerialCluster,
+        aerialCluster: m.aerialCluster,
         chute: m.chute,
+        thermobaric: m.thermobaric,
         explosion: {
           radius: m.blastRadius,
           damage: m.blastDamage,
           kind: m.explosionKind,
           selfDamage: 0,
           scale: bombScale,
-          shake: m.moab ? 2.2 : 1.4,
+          shake: m.thermobaric ? 2.4 : m.moab ? 2.2 : 1.4,
         },
       });
     } else if (m.kind === 'atgm' || m.homing) {
@@ -2323,6 +2365,8 @@ export class DriveableVehicle {
         if (showTorch) {
           const s = 0.92 + Math.sin(this.clock * 54) * 0.24;
           tg.scale.set(0.95 + Math.sin(this.clock * 33) * 0.14, 0.95 + Math.cos(this.clock * 37) * 0.14, s);
+        } else {
+          tg.scale.setScalar(0.001);
         }
       }
       if (showTorch) {
@@ -2332,9 +2376,9 @@ export class DriveableVehicle {
           const fx = Math.sin(this.phys.yaw);
           const fz = Math.cos(this.phys.yaw);
           _origin.set(
-            this.phys.position.x - fx * 8.2,
-            this.phys.position.y + 1.1,
-            this.phys.position.z - fz * 8.2,
+            this.phys.position.x - fx * 14.5,
+            this.phys.position.y + 1.8,
+            this.phys.position.z - fz * 14.5,
           );
           this.ctx.fx?.smoke?.(_origin, 0xff7a24, 1.85, 0.95);
           this.ctx.fx?.sparks?.(_origin, _up, 10, 0xffc844);
@@ -2470,6 +2514,14 @@ export class DriveableVehicle {
     if (this.model.wingsLeft) this.model.wingsLeft.rotation.y = this.phys.wingSweep * 0.78;
     if (this.model.wingsRight) this.model.wingsRight.rotation.y = -this.phys.wingSweep * 0.78;
 
+    // Animated ventral internal bomb-bay doors (Lancer triple bays: swing wide on release, close smoothly after 2.2 s)
+    if (this.model.bombBayDoors) {
+      for (const door of this.model.bombBayDoors) {
+        const side = (door.userData.side as number) || 1;
+        door.rotation.z = side * this.bombBayOpen * 1.48;
+      }
+    }
+
     // Animated 2D thrust-vectoring exhaust nozzles (F-22 Raptor)
     if (this.model.nozzles) {
       for (const noz of this.model.nozzles) {
@@ -2522,6 +2574,30 @@ export class DriveableVehicle {
     out[11] = Math.round(p.wingSweep * 1000) / 1000;
     out[12] = flags;
     return out;
+  }
+
+  /** Refills primary & secondary ammo reserves for all seats and optionally selects a secondary ordnance mode. */
+  refillOrdnance(selectSecondaryMode?: number): void {
+    for (let i = 0; i < this.def.seats.length; i++) {
+      const spec = this.def.seats[i]!;
+      const prim = this.primaryState[i];
+      if (prim) {
+        const pm = this.resolveWeaponMode(spec.primary, prim.modeIndex);
+        prim.ammo = pm.magSize;
+        prim.reloadLeft = 0;
+      }
+      const sec = this.secondaryState[i];
+      if (sec && spec.secondary) {
+        if (typeof selectSecondaryMode === 'number') {
+          const count = spec.secondary.fourthMode ? 4 : spec.secondary.thirdMode ? 3 : spec.secondary.altMode ? 2 : 1;
+          sec.modeIndex = clamp(Math.floor(selectSecondaryMode), 0, count - 1);
+        }
+        const sm = this.resolveWeaponMode(spec.secondary, sec.modeIndex);
+        sec.ammo = sm.magSize;
+        sec.reloadLeft = 0;
+      }
+    }
+    this.syncHud();
   }
 
   /** Co-op: hides/unhides a parked Motor Pool vehicle while a teammate drives it on their screen. */
@@ -2661,7 +2737,7 @@ export class DriveableVehicle {
         name: spec.primary.kind === 'lance' ? `HOLD LMB ${primMode.name}` : `LMB ${primMode.name}`,
         ammo: primMode.magSize > 0 ? prim.ammo : 999,
         max: primMode.magSize > 0 ? primMode.magSize : 999,
-        reload: prim.reloadLeft > 0 ? 1 - prim.reloadLeft / spec.primary.reloadSeconds : -1,
+        reload: prim.reloadLeft > 0 ? 1 - prim.reloadLeft / primMode.reloadSeconds : -1,
         selected: true,
       });
     }
@@ -2674,7 +2750,7 @@ export class DriveableVehicle {
         name: `RMB ${secMode.name}`,
         ammo: secMode.magSize > 0 ? sec.ammo : 999,
         max: secMode.magSize > 0 ? secMode.magSize : 999,
-        reload: sec.reloadLeft > 0 ? 1 - sec.reloadLeft / spec.secondary.reloadSeconds : -1,
+        reload: sec.reloadLeft > 0 ? 1 - sec.reloadLeft / secMode.reloadSeconds : -1,
       });
     }
 

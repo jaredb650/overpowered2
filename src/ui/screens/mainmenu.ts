@@ -33,7 +33,7 @@ import { menuButton, wordmark } from './parts';
 import type { Screen } from './Screens';
 
 /** The campaign's missions, in the order they are played. */
-export const CAMPAIGN: readonly ContractDef[] = CONTRACTS.filter(c => c.mission && !c.training);
+export const CAMPAIGN: readonly ContractDef[] = CONTRACTS.filter(c => c.mission && !c.training && !c.hidden);
 
 /** Retraining, the tutorial. */
 export const TRAINING: ContractDef = CONTRACTS.find(c => c.training)!;

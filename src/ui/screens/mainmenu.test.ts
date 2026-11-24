@@ -4,7 +4,7 @@ import { CAMPAIGN, SURVIVAL_MAPS, TRAINING, modeName, modesOn } from './mainmenu
 
 describe('the main menu tree', () => {
   it('lists the missions in order under Campaign', () => {
-    expect(CAMPAIGN.map(c => c.id)).toEqual(['campaign', 'foreclosure', 'quiet_title', 'bank_run', 'desert_raid']);
+    expect(CAMPAIGN.map(c => c.id)).toEqual(['campaign', 'foreclosure', 'quiet_title', 'bank_run', 'desert_raid', 'crossfire']);
   });
 
   it('puts each survival mode under its map', () => {
@@ -25,6 +25,6 @@ describe('the main menu tree', () => {
 
   it('reaches every contract, so a new row cannot fall off the menu', () => {
     const reached = [...CAMPAIGN, TRAINING, ...SURVIVAL_MAPS.flatMap(({ map }) => modesOn(map))];
-    expect([...new Set(reached.map(c => c.id))].sort()).toEqual(CONTRACTS.map(c => c.id).sort());
+    expect([...new Set(reached.map(c => c.id))].sort()).toEqual(CONTRACTS.filter(c => !c.hidden).map(c => c.id).sort());
   });
 });

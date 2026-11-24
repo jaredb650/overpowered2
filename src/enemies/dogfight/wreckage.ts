@@ -96,7 +96,7 @@ export function choosePilotFate(kind: AiJetKind, heavyKill: boolean, roll = Math
 }
 
 function hidePilotWeapon(char: CharacterInstance): void {
-  const handR = char.bones[HumanoidBone.handR];
+  const handR = char.bones?.[HumanoidBone.handR];
   if (!handR) return;
   for (const name of ['smg', 'shotgun', 'minigun', 'sniperRifle', 'flamer']) {
     const obj = handR.getObjectByName(name);
@@ -114,26 +114,28 @@ function isOverCarrierDeck(p: THREE.Vector3, pad = 4.5): boolean {
 }
 
 /** Jet-proportional part sizes so each shattered aircraft blows into recognizable chunks! */
-function jetPartProfile(kind: AiJetKind): {
+export function jetPartProfile(kind: AiJetKind): {
   hullLen: number;
   hullW: number;
   wingSpan: number;
   wingChord: number;
   tailH: number;
   color: number;
+  chunkScale: number;
 } {
   switch (kind) {
     case 'lancer':
-      return { hullLen: 7.4, hullW: 1.85, wingSpan: 8.6, wingChord: 2.4, tailH: 3.1, color: 0x3b4047 };
+      // Massive strategic bomber (~1.8x larger than original placeholder dimensions!)
+      return { hullLen: 13.4, hullW: 3.3, wingSpan: 15.5, wingChord: 4.3, tailH: 5.5, color: 0x3b4047, chunkScale: 1.8 };
     case 'warthog':
-      return { hullLen: 5.2, hullW: 1.55, wingSpan: 6.4, wingChord: 1.9, tailH: 2.1, color: 0x4b535a };
+      return { hullLen: 5.2, hullW: 1.55, wingSpan: 6.4, wingChord: 1.9, tailH: 2.1, color: 0x4b535a, chunkScale: 1 };
     case 'raptor':
-      return { hullLen: 5.8, hullW: 1.75, wingSpan: 5.4, wingChord: 2.8, tailH: 2.2, color: 0x363d46 };
+      return { hullLen: 5.8, hullW: 1.75, wingSpan: 5.4, wingChord: 2.8, tailH: 2.2, color: 0x363d46, chunkScale: 1 };
     case 'harrier':
-      return { hullLen: 4.8, hullW: 1.45, wingSpan: 4.5, wingChord: 1.7, tailH: 2.0, color: 0x454d55 };
+      return { hullLen: 4.8, hullW: 1.45, wingSpan: 4.5, wingChord: 1.7, tailH: 2.0, color: 0x454d55, chunkScale: 1 };
     case 'hornet':
     default:
-      return { hullLen: 5.4, hullW: 1.6, wingSpan: 5.2, wingChord: 2.1, tailH: 2.2, color: 0x4a525c };
+      return { hullLen: 5.4, hullW: 1.6, wingSpan: 5.2, wingChord: 2.1, tailH: 2.2, color: 0x4a525c, chunkScale: 1 };
   }
 }
 
@@ -184,6 +186,7 @@ export class DogfightWreckageSystem {
     private readonly ctx: Ctx,
     private readonly manager: EnemyManager,
     private readonly cb: WreckageCallbacks,
+    private readonly surfaceMode: 'ocean' | 'desert' = 'ocean',
   ) {
     this.noseConeGeo.rotateX(Math.PI / 2);
     this.bombBodyGeo.rotateX(Math.PI / 2);
@@ -229,6 +232,7 @@ export class DogfightWreckageSystem {
     const hullMat = this.getHullMat(kind, prof.color);
     const baseQuat = new THREE.Quaternion().setFromEuler(new THREE.Euler(pitch, yaw, roll, 'YXZ'));
 
+    const cs = prof.chunkScale;
     const specs: Array<{
       offset: [number, number, number];
       scale: [number, number, number];
@@ -237,19 +241,19 @@ export class DogfightWreckageSystem {
       isNose?: boolean;
     }> = [
       // 1. Flaming Center Fuselage Core
-      { offset: [0, 0, -0.5], scale: [prof.hullW, 1.25, prof.hullLen * 0.62], burst: [rand(-5, 5), rand(2, 7), rand(-5, 5)], burning: true },
+      { offset: [0, 0, -0.5 * cs], scale: [prof.hullW, 1.25 * cs, prof.hullLen * 0.62], burst: [rand(-5, 5), rand(2, 7), rand(-5, 5)], burning: true },
       // 2. Torn Left Wing
-      { offset: [-prof.wingSpan * 0.45, 0, -0.4], scale: [prof.wingSpan * 0.68, 0.24, prof.wingChord], burst: [-rand(14, 24), rand(4, 12), rand(-6, 6)], burning: true },
+      { offset: [-prof.wingSpan * 0.45, 0, -0.4 * cs], scale: [prof.wingSpan * 0.68, 0.24 * cs, prof.wingChord], burst: [-rand(14, 24), rand(4, 12), rand(-6, 6)], burning: true },
       // 3. Torn Right Wing
-      { offset: [prof.wingSpan * 0.45, 0, -0.4], scale: [prof.wingSpan * 0.68, 0.24, prof.wingChord], burst: [rand(14, 24), rand(4, 12), rand(-6, 6)], burning: false },
+      { offset: [prof.wingSpan * 0.45, 0, -0.4 * cs], scale: [prof.wingSpan * 0.68, 0.24 * cs, prof.wingChord], burst: [rand(14, 24), rand(4, 12), rand(-6, 6)], burning: false },
       // 4. Blown-off Vertical Tail / Stabilizer
-      { offset: [0, prof.tailH * 0.45, -prof.hullLen * 0.55], scale: [0.3, prof.tailH, 1.9], burst: [rand(-8, 8), rand(10, 19), -rand(10, 18)], burning: false },
+      { offset: [0, prof.tailH * 0.45, -prof.hullLen * 0.55], scale: [0.3 * cs, prof.tailH, 1.9 * cs], burst: [rand(-8, 8), rand(10, 19), -rand(10, 18)], burning: false },
       // 5. Shattered Nose / Cockpit Section
-      { offset: [0, 0.1, prof.hullLen * 0.52], scale: [1.1, 1.0, 1.2], burst: [rand(-6, 6), rand(7, 15), rand(10, 19)], burning: false, isNose: true },
+      { offset: [0, 0.1 * cs, prof.hullLen * 0.52], scale: [1.1 * cs, 1.0 * cs, 1.2 * cs], burst: [rand(-6, 6), rand(7, 15), rand(10, 19)], burning: false, isNose: true },
       // 6. Left Engine Nacelle / Armor Chunk
-      { offset: [-1.1, -0.3, -1.6], scale: [0.85, 0.75, 2.2], burst: [-rand(9, 17), -rand(2, 7), -rand(6, 14)], burning: true },
+      { offset: [-1.1 * cs, -0.3 * cs, -1.6 * cs], scale: [0.85 * cs, 0.75 * cs, 2.2 * cs], burst: [-rand(9, 17), -rand(2, 7), -rand(6, 14)], burning: true },
       // 7. Jagged Hull Plate Shard
-      { offset: [1.0, 0.4, 0.6], scale: [1.3, 0.18, 2.1], burst: [rand(10, 20), rand(8, 18), rand(-8, 8)], burning: false },
+      { offset: [1.0 * cs, 0.4 * cs, 0.6 * cs], scale: [1.3 * cs, 0.18 * cs, 2.1 * cs], burst: [rand(10, 20), rand(8, 18), rand(-8, 8)], burning: false },
     ];
 
     for (const s of specs) {
@@ -293,8 +297,8 @@ export class DogfightWreckageSystem {
     }
 
     // Immediate dramatic multi-burst fireball + shrapnel sparks at breakup center!
-    this.ctx.fx?.explosion?.(pos, { radius: 13, scale: kind === 'lancer' ? 2.5 : 1.75 });
-    this.ctx.fx?.sparks?.(pos, _up, 28, 0xffaa33);
+    this.ctx.fx?.explosion?.(pos, { radius: kind === 'lancer' ? 20 : 13, scale: kind === 'lancer' ? 3.2 : 1.75 });
+    this.ctx.fx?.sparks?.(pos, _up, kind === 'lancer' ? 42 : 28, 0xffaa33);
     this.ctx.audio?.play?.('explosion_tank', { position: pos, volume: 0.95, pitch: rand(0.92, 1.12) });
   }
 
@@ -626,22 +630,36 @@ export class DogfightWreckageSystem {
         }
       }
 
-      // Bounce once with sparks if a wreckage chunk slams onto USS Sovereign's steel deck!
-      if (!c.bounced && c.vel.y < 0 && c.mesh.position.y <= CARRIER_DECK_Y + 0.5 && isOverCarrierDeck(c.mesh.position, 0)) {
+      // Bounce once with sparks if a wreckage chunk slams onto USS Sovereign's steel deck (ocean mode) or desert floor!
+      if (this.surfaceMode === 'ocean') {
+        if (!c.bounced && c.vel.y < 0 && c.mesh.position.y <= CARRIER_DECK_Y + 0.5 && isOverCarrierDeck(c.mesh.position, 0)) {
+          c.bounced = true;
+          c.mesh.position.y = CARRIER_DECK_Y + 0.5;
+          c.vel.y = Math.abs(c.vel.y) * 0.28;
+          c.vel.x *= 0.55;
+          c.vel.z *= 0.55;
+          this.ctx.fx?.sparks?.(c.mesh.position, _up, 12, 0xffaa33);
+          this.ctx.audio?.play?.('metal_clang', { position: c.mesh.position, volume: 0.45, pitch: rand(0.75, 1.05) });
+        }
+      } else if (!c.bounced && c.vel.y < 0 && c.mesh.position.y <= 0.45) {
         c.bounced = true;
-        c.mesh.position.y = CARRIER_DECK_Y + 0.5;
-        c.vel.y = Math.abs(c.vel.y) * 0.28;
+        c.mesh.position.y = 0.45;
+        c.vel.y = Math.abs(c.vel.y) * 0.3;
         c.vel.x *= 0.55;
         c.vel.z *= 0.55;
-        this.ctx.fx?.sparks?.(c.mesh.position, _up, 12, 0xffaa33);
+        this.ctx.fx?.sparks?.(c.mesh.position, _up, 12, c.burning ? 0xff8822 : 0xd8be94);
         this.ctx.audio?.play?.('metal_clang', { position: c.mesh.position, volume: 0.45, pitch: rand(0.75, 1.05) });
+        if (c.burning) {
+          this.ctx.fx?.explosion?.(c.mesh.position, { radius: 6, scale: 1.0 });
+        }
+        continue;
       }
 
-      // Ocean splashdown or lifetime expired!
+      // Ocean splashdown / desert final rest or lifetime expired!
       if (c.mesh.position.y <= 0.35 || c.life <= 0) {
         if (c.mesh.position.y <= 0.35) {
           c.mesh.position.y = 0.35;
-          this.ctx.fx?.sparks?.(c.mesh.position, _up, c.burning ? 14 : 8, 0xd8f0ff);
+          this.ctx.fx?.sparks?.(c.mesh.position, _up, c.burning ? 14 : 8, this.surfaceMode === 'desert' ? 0xd8be94 : 0xd8f0ff);
           if (c.burning) {
             this.ctx.fx?.explosion?.(c.mesh.position, { radius: 6, scale: 0.9 });
           }
@@ -707,9 +725,9 @@ export class DogfightWreckageSystem {
       e.groundY = 0;
       p.markerPos.set(e.position.x, e.position.y + 4.8, e.position.z);
 
-      // Touched down in the sea (or landed on deck) — despawn cleanly so they never block wave progression!
+      // Touched down in the sea or desert floor — despawn cleanly so they never block wave progression!
       if (e.position.y <= 0.8 || p.age > 35) {
-        this.ctx.fx?.sparks?.(new THREE.Vector3(e.position.x, 0.5, e.position.z), _up, 12, 0xd8f0ff);
+        this.ctx.fx?.sparks?.(new THREE.Vector3(e.position.x, 0.5, e.position.z), _up, 12, this.surfaceMode === 'desert' ? 0xd8be94 : 0xd8f0ff);
         p.unmark?.();
         p.unmark = null;
         if (p.canopyOpen) {
@@ -776,6 +794,26 @@ export class DogfightWreckageSystem {
       if (b.smokeCd <= 0) {
         b.smokeCd = 0.06;
         this.ctx.fx?.sparks?.(b.pos, _up, 2, b.kind === 'para' ? 0xdde6ee : 0x8a9099);
+      }
+
+      if (this.surfaceMode === 'desert') {
+        const hitGround = b.pos.y <= 0.45;
+        if (hitGround || b.life <= 0) {
+          if (hitGround) {
+            const hitPt = b.pos.clone().setY(0.5);
+            const heavy = b.kind === 'mk84' || b.kind === 'para';
+            this.ctx.fx?.explosion?.(hitPt, { radius: heavy ? 16 : 11, scale: heavy ? 2.4 : 1.6 });
+            this.ctx.audio?.play?.(heavy ? 'explosion_tank' : 'explosion_barrel', {
+              position: hitPt,
+              volume: 0.95,
+              pitch: rand(0.8, 1.0),
+            });
+            this.cb.onBombHitCarrier(hitPt, b.damage, b.attackerName, heavy);
+          }
+          this.ctx.render?.scene?.remove(b.mesh);
+          this.bombs.splice(i, 1);
+        }
+        continue;
       }
 
       // 1. Check physical impact onto USS Sovereign's flight deck!

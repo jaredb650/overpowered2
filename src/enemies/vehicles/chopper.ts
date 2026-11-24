@@ -21,7 +21,7 @@ import { Autopilot, type PilotPlan } from '../../vehicles/pilot';
 import type { Skyline } from '../../vehicles/skyline';
 import { Crew } from './crew';
 import { CHOPPER } from './data';
-import type { VehicleSystem } from './index';
+import type { GroundTargetResult, VehicleSystem } from './index';
 import { MAIN_ROTOR, TAIL_ROTOR, type ChopperMount } from './models';
 import { Mount } from './mount';
 import { CHOPPER_ENGINE } from './sounds';
@@ -94,6 +94,8 @@ export class EnemyChopper extends Vehicle {
   private lookIn = 0;
   private sees = false;
   private seenAt = -99;
+  private currentTarget: GroundTargetResult | null = null;
+  private chinFriendlyCd = 0;
   private friendlyIn = 0;
   private spin = 0;
   private fallSpeed = 0;
@@ -180,12 +182,17 @@ export class EnemyChopper extends Vehicle {
     if (this.lookIn > 0) return;
     this.lookIn = LOOK_EVERY;
     this.rig.frame.mount('chin', _pivot);
-    const player = this.sys.quarry(_pivot);
-    _aim.copy(player.position);
-    _aim.y += 1;
-    const targetable = player.alive && (!player.parked || player.interceptor !== null);
-    this.sees = targetable && _pivot.distanceTo(_aim) < CHOPPER.gun.range * 1.4 && this.sys.lineClear(_pivot, _aim);
-    if (!this.sees) return;
+    const target = this.sys.findGroundTarget(_pivot, CHOPPER.gun.range * 1.4, {
+      requireLos: true,
+    });
+    this.currentTarget = target;
+    if (!target) {
+      this.sees = false;
+      return;
+    }
+    _aim.copy(target.position);
+    _aim.y += target.aimLift;
+    this.sees = true;
     this.lastSeen.copy(_aim);
     this.seenAt = this.sys.now;
   }
@@ -203,6 +210,7 @@ export class EnemyChopper extends Vehicle {
     }
     const friendly = sys.friendly;
     if (friendly) this.focus.copy(friendly.position);
+    else if (this.pressing && this.currentTarget) this.focus.copy(this.currentTarget.position);
     else if (this.pressing) this.focus.copy(sys.quarry(this.position).position);
     else if (this.marks.length > 0) this.focus.copy(this.marks[this.leg]!);
   }
@@ -219,6 +227,18 @@ export class EnemyChopper extends Vehicle {
     _side.subVectors(_pivot, this.lastSeen).setY(0).normalize();
     _aim.copy(this.lastSeen).addScaledVector(_side, this.walk);
     mount.update(dt, _pivot, _aim, this.sees);
+    if (mount.firing && this.sees && this.currentTarget && this.currentTarget.kind !== 'player') {
+      this.chinFriendlyCd -= dt;
+      if (this.chinFriendlyCd <= 0) {
+        this.chinFriendlyCd = Math.max(0.16, 2.0 / Math.max(1, CHOPPER.gun.rate));
+        const t = this.currentTarget;
+        if (t.kind === 'ally' && t.ally?.alive) {
+          t.ally.shotAt(_pivot, CHOPPER.gun.damage, 0.25, 'gunship_gun');
+        } else if (t.kind === 'friendly_vehicle' && t.vehicle?.alive) {
+          t.vehicle.takeDamage(CHOPPER.gun.damage, _pivot, 'gunship_gun');
+        }
+      }
+    }
     this.pods(dt);
   }
 
@@ -238,17 +258,19 @@ export class EnemyChopper extends Vehicle {
 
   private rocket(): void {
     const { rockets } = CHOPPER;
-    const { audio, combat, fx } = this.sys.ctx;
+    const { audio, combat } = this.sys.ctx;
     this.leftPod = !this.leftPod;
     this.salvo--;
     this.salvoIn = rockets.gap;
     this.rig.frame.mount(this.leftPod ? 'podLeft' : 'podRight', _pos);
     _side.subVectors(this.lastSeen, _pos).setY(0).normalize();
-    _aim.copy(this.lastSeen).addScaledVector(_side, (this.salvo - rockets.salvo / 2) * SALVO_WALK);
-    _aim.sub(_pos).normalize();
+    _p.copy(this.lastSeen).addScaledVector(_side, (this.salvo - rockets.salvo / 2) * SALVO_WALK);
+    _aim.copy(_p).sub(_pos).normalize();
     randomInCone(_aim, rockets.spread, _dir);
     _vel.copy(_dir).multiplyScalar(rockets.speed);
     combat.spawnProjectile(ROCKET);
+    const travel = _pos.distanceTo(_p) / Math.max(1, rockets.speed);
+    this.sys.scheduleFriendlyBlast(_p, rockets.radius, rockets.damage, travel, 'gunship_rocket');
     // Through combat, so a co-op guest sees the flash too (it draws the same flash here).
     combat.enemyMuzzle(_pos, _dir, 'rocket');
     audio.play('enemy_rocket_fire', { position: _pos });
@@ -386,7 +408,7 @@ export class EnemyChopper extends Vehicle {
     this.engines.stop(0.4);
     rig.frame.hide();
     rig.gun.hide();
-    sys.chopperGone();
+    sys.chopperGone(this, rig);
   }
 
   remove(): void {

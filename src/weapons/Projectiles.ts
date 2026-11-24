@@ -8,7 +8,7 @@ import { toldKill, type DamageResult, type EnemyInstance, type MissileTarget, ty
 import { clamp, rand } from '../core/math';
 import type { GoreRegion } from '../characters/rig';
 import type { Combat } from './Combat';
-import { SHAPED_CHARGE, SURFACE_SOUND, TUNING } from './data';
+import { EXPLOSIONS, SHAPED_CHARGE, SURFACE_SOUND, TUNING } from './data';
 import { closestSegmentPoints } from './geometry';
 import { damageKept, loadBudget, makeBudget, passBody, passWall, type Budget } from './penetration';
 import { retarget, turnToward, weave } from './swarm';
@@ -17,7 +17,7 @@ import { ROCKET_LASER } from './laser';
 import { ProjectileVisuals } from './ProjectileVisuals';
 import { flakBurst, flakFuze, nearestAhead } from './flak';
 import { WpCloud } from './wp';
-import { checkClusterStandoff, detonateCluster } from './cluster';
+import { checkAerialClusterAirburst, checkClusterStandoff, detonateAerialCluster, detonateCluster } from './cluster';
 import { THROWBACK, safeThrowbackFuse, throwbackPriority, type IncomingGrenade, type ThrowbackResult } from './throwback';
 import { isGuest } from '../core/coop';
 
@@ -160,6 +160,10 @@ export interface Projectile {
   wp: boolean;
   /** Howitzer cluster shell: bursts ~7 m short of targets/walls into an 18-bomblet carpet (cluster.ts). */
   cluster: boolean;
+  /** Heavy bomber CBU-105 aerial cluster canister: bursts ~28 m above ground into 52 heavy AP submunitions. */
+  aerialCluster: boolean;
+  /** BLU-121/B thermobaric fuel-air warhead: juiced-up howitzer blast, Tier-3 destruction, massive knockback. */
+  thermobaric: boolean;
   /** Modeled aerial gravity bomb (Mk-82 / Mk-84 HE or BLU-27 napalm canister) with falling whistle audio. */
   bomb: boolean;
   /** Positional falling whistle loop attached to aerial bombs; stopped immediately on detonation/retire. */
@@ -198,7 +202,7 @@ function createProjectile(): Projectile {
     blastSelf: undefined, blastPush: undefined, pinned: false, lastHit: -1,
     budget: makeBudget(), baseDamage: 0, armorPiercing: false,
     target: null, turnRate: 0, line: new THREE.Vector3(), steerDelay: 0, weave: 0, weavePhase: 0, accel: 0, topSpeed: 0, age: 0, size: 1, wired: false,
-    blastScale: undefined, blastShake: undefined, flak: false, wp: false, cluster: false, bomb: false, whistleLoop: null, napalm: false, chute: false, cosmetic: false, netId: 0, laser: ROCKET_LASER, tag: 0, ghost: false, blastMirrored: false,
+    blastScale: undefined, blastShake: undefined, flak: false, wp: false, cluster: false, aerialCluster: false, thermobaric: false, bomb: false, whistleLoop: null, napalm: false, chute: false, cosmetic: false, netId: 0, laser: ROCKET_LASER, tag: 0, ghost: false, blastMirrored: false,
     initialFuse: 0, thrownBack: false,
     helix: null, helixData: { phase: 0, reach: 0, radius: 0, pitch: 0, startRadius: 0, convergence: 0 }, helixTravel: 0, helixRight: new THREE.Vector3(), helixUp: new THREE.Vector3(), helixOffset: new THREE.Vector3(),
   };
@@ -241,6 +245,7 @@ export class Projectiles {
     playerPush: undefined as number | undefined, normal: undefined as THREE.Vector3 | undefined,
     scale: undefined as number | undefined, shake: undefined as number | undefined,
     cosmetic: undefined as boolean | undefined, mirrored: undefined as boolean | undefined,
+    worldObject: undefined as boolean | undefined,
   };
 
   readonly wp: WpCloud;
@@ -356,14 +361,16 @@ export class Projectiles {
     p.flak = spec.flak ?? false;
     p.wp = spec.wp ?? false;
     p.cluster = spec.cluster ?? false;
+    p.aerialCluster = spec.aerialCluster ?? false;
+    p.thermobaric = spec.thermobaric ?? false;
     p.bomb = spec.bomb ?? false;
     p.napalm = spec.napalm ?? false;
     p.chute = spec.chute ?? false;
     p.whistleLoop = p.bomb
       ? (this.ctx.audio?.startLoop?.('bomb_whistle_loop', {
         position: p.position,
-        volume: 0.22,
-        pitch: p.napalm ? 1.38 : p.chute ? 1.04 : 1.28,
+        volume: p.thermobaric ? 0.36 : 0.22,
+        pitch: p.thermobaric ? 0.72 : p.napalm ? 1.38 : p.chute ? 1.04 : 1.28,
         doppler: true,
       }) ?? null)
       : null;
@@ -417,6 +424,8 @@ export class Projectiles {
     p.sticky = false;
     p.wp = false;
     p.cluster = false;
+    p.aerialCluster = false;
+    p.thermobaric = false;
     p.bomb = false;
     p.napalm = false;
     p.chute = false;
@@ -456,9 +465,9 @@ export class Projectiles {
       if (p.whistleLoop) {
         // Classic falling aerial bomb pitch drop as it accelerates down toward impact.
         const fallFrac = clamp(p.age / 2.8, 0, 1);
-        const startPitch = p.napalm ? 1.38 : p.chute ? 1.04 : 1.28;
+        const startPitch = p.thermobaric ? 0.72 : p.napalm ? 1.38 : p.chute ? 1.04 : 1.28;
         p.whistleLoop.setPosition(p.position);
-        p.whistleLoop.setPitch(startPitch - fallFrac * (p.chute ? 0.34 : 0.66), 0.08);
+        p.whistleLoop.setPitch(startPitch - fallFrac * (p.chute ? 0.34 : p.thermobaric ? 0.28 : 0.66), 0.08);
         p.whistleLoop.setVolume(0.22 + clamp(p.age / 0.6, 0, 1) * 0.72, 0.08);
       }
       this.emitTrail(p, realDt);
@@ -502,7 +511,8 @@ export class Projectiles {
     if (len <= 0) return;
 
     if (p.flak && this.flakFuze(p, dir, len)) return;
-    if (p.cluster && this.clusterFuze(p, dir, speed, dt)) return;
+    if (p.aerialCluster && p.age >= 0.08 && this.aerialClusterFuze(p, dt)) return;
+    if (!p.aerialCluster && p.cluster && this.clusterFuze(p, dir, speed, dt)) return;
     const wall = c.physics.raycast(p.position, dir, len, CG.World);
     const limit = wall ? wall.distance : len;
     if (p.ghost) {
@@ -1167,13 +1177,27 @@ export class Projectiles {
     return true;
   }
 
+  /** Heavy bomber CBU-105 aerial cluster canister fuze (~28 m above ground on descent): true when it bursts into 52 AP bomblets. */
+  private aerialClusterFuze(p: Projectile, dt: number): boolean {
+    const at = checkAerialClusterAirburst(this.ctx, p.position, p.velocity, dt, this.w);
+    if (!at) return false;
+    p.position.copy(at);
+    this.explode(p, undefined);
+    p.live = false;
+    return true;
+  }
+
   explode(p: Projectile, normal: THREE.Vector3 | undefined): void {
     // Co-op: the others' copy of this round ends here and now, wherever it has got to on their screens.
     if (p.tag !== 0 && !p.cosmetic) this.ctx.coop?.world?.landed(p.tag, p.position);
     // A friend's flak, cluster, WP or napalm round bursts for the eye and the ear (stepped under `Combat.watching`).
-    if (p.cosmetic && !p.flak && !p.cluster && !p.wp && !p.napalm) return;
+    if (p.cosmetic && !p.flak && !p.cluster && !p.aerialCluster && !p.wp && !p.napalm) return;
     if (p.flak) {
       flakBurst(this.ctx, this.combat, p.position, this.v.copy(p.velocity).normalize(), p.source);
+      return;
+    }
+    if (p.aerialCluster) {
+      detonateAerialCluster(this.ctx, p.position, this.v.copy(p.velocity).normalize(), p.source || 'lancer_cluster', p.cosmetic);
       return;
     }
     if (p.cluster) {
@@ -1202,9 +1226,49 @@ export class Projectiles {
     b.cosmetic = p.ghost;
     b.mirrored = p.blastMirrored;
     b.normal = normal;
+    b.worldObject = undefined;
     // Lift the centre off the surface, or every line-of-sight ray starts inside the wall it hit.
     const at = this.v.copy(p.position);
     if (normal) at.addScaledVector(normal, 0.15);
+
+    if (p.thermobaric || p.blastKind === 'thermobaric') {
+      const c = this.ctx;
+      const radius = p.blastRadius;
+      const def = EXPLOSIONS.thermobaric;
+      c.fx?.explosion?.(at, { radius, kind: 'thermobaric', scale: p.blastScale ?? 1.45, normal });
+      for (let i = 0; i < def.sounds.length; i++) {
+        const s = def.sounds[i]!;
+        c.audio?.play?.(s.id, { position: at, volume: s.volume ?? 1, pitch: s.pitch ?? 1, pitchJitter: s.pitchJitter });
+      }
+      // Strong shockwave camera shake & flash felt even by the high-flying B-1B pilot.
+      const camPos = c.render?.camera?.position;
+      if (camPos) {
+        const dist = camPos.distanceTo(at);
+        const shakeReach = Math.max(radius + def.shakeRange, 180);
+        const k = clamp(1 - dist / shakeReach);
+        if (k > 0) {
+          this.combat.feel?.shake?.((p.blastShake ?? def.shake) * k);
+          if (k > 0.25) c.render?.post?.flash?.(0xff8c3a, def.flash * k, 0.32);
+        }
+      }
+      if (!p.ghost && !p.cosmetic) {
+        // Tier-3 structural destruction across the full thermobaric radius (`ac130_bomb` is Tier-3 rated in destruction.ts).
+        c.world?.objects?.damageExplosivesInRadius?.(at, radius, p.blastDamage, 'ac130_bomb');
+        // Armor-crushing overpressure shock on enemy vehicles, tanks, and emplacements.
+        c.enemies?.vehicles?.frameBlow?.(at, radius, p.blastDamage * 0.55, null, 'frame_howitzer');
+      }
+      // Run Combat.explode with 'thermobaric' blast rings and worldObject=true to skip duplicate FX/audio/world damage.
+      b.kind = 'thermobaric';
+      b.worldObject = true;
+      this.combat.explode(at, b);
+      b.worldObject = undefined;
+      if (!p.ghost && !p.cosmetic) {
+        // Extra fuel-air overpressure impulse across the full 48 m radius to toss vehicles, ragdolls & debris.
+        c.physics?.radialImpulse?.(at, radius * 1.5, def.impulse * radius);
+      }
+      return;
+    }
+
     this.combat.explode(at, b);
   }
 

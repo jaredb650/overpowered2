@@ -45,6 +45,14 @@ const COMPLETION_COPY: Partial<Record<ContractId, CompletionCopy>> = {
     subject: 'Surplus has been levelled. Hadrek Quist is off the water.',
     deductions: 'One shantytown. One water tower. Three open trucks (sandblasted).',
   },
+  crossfire: {
+    subject: 'Form 7742-W executed. Northern Command & Southern Directorate engaged across all fronts.',
+    deductions: '38 tons of munitions. Two Northern IFF transponders. Engine #2 fire-suppression foam.',
+  },
+  crossfire_return: {
+    subject: 'Fortress Halcyon flattened; B-1B Lancer recovered under CVN-91 umbrella. 42% cost reduction logged.',
+    deductions: '38 tons of munitions. One spoofed transponder. Two seats (neural transfer surcharge waived).',
+  },
 };
 
 export class MissionComplete implements Screen {

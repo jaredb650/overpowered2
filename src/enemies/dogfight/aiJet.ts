@@ -31,7 +31,13 @@ import type { BombKind } from './wreckage';
 export type AiJetKind = 'hornet' | 'harrier' | 'warthog' | 'lancer' | 'raptor';
 export type AiJetTeam = 'enemy' | 'ally';
 export type AiJetRole = 'fighter' | 'striker' | 'bomber' | 'ace' | 'wingman';
-export type AiJetDoctrine = 'heavy_bomber' | 'cas_attacker' | 'rocket_striker' | 'air_superiority' | 'ace_interceptor';
+export type AiJetDoctrine =
+  | 'heavy_bomber'
+  | 'cas_attacker'
+  | 'rocket_striker'
+  | 'air_superiority'
+  | 'ace_interceptor'
+  | 'escort_bomber';
 export type AiJetState = 'approach' | 'carrier_run' | 'dogfight' | 'evade' | 'extend' | 'dying';
 export type AiTacticalRole = 'hunter' | 'striker';
 
@@ -141,7 +147,7 @@ export const AI_JET_PROFILES: Record<AiJetKind, AiJetProfile> = {
     pitchRate: 1.05,
     maxBank: 0.88,
     preferredAlt: 96,
-    hitboxHalf: [8.2, 2.6, 9.8],
+    hitboxHalf: [13.4, 3.6, 14.2],
     hasGun: false,
     gunDamage: 0,
     gunRange: 0,
@@ -185,11 +191,52 @@ export interface AiJetFireCallbacks {
   onCarrierRocket?(from: THREE.Vector3, dir: THREE.Vector3, damage: number, attackerName: string): void;
   onCarrierGunStrafe?(from: THREE.Vector3, dir: THREE.Vector3, damage: number, attackerName: string, heavy: boolean): void;
   onKilled(jet: AiCombatJet, source: string, heavyKill?: boolean): void;
+  /** Optional telemetry hooks for pilot radio chatter. */
+  onStateChange?(jet: AiCombatJet, next: AiJetState, prev: AiJetState): void;
+  onFlare?(jet: AiCombatJet): void;
+  onDamaged?(jet: AiCombatJet, healthRatio: number): void;
+  onLockBroken?(jet: AiCombatJet): void;
+  /**
+   * Set true when the caller simulates enemy-vs-ally air projectiles & damages allied `AiCombatJet`s itself.
+   * When false/omitted, `AiCombatJet` resolves in-flight AI-vs-AI gun/missile impacts internally so two-way
+   * dogfights genuinely damage and shoot down allied jets in every mode.
+   */
+  readonly handlesEnemyAiHits?: boolean;
 }
 
-const MIN_FLIGHT_ALT = 22;
-const MAX_FLIGHT_ALT = DOGFIGHT_BOUNDS.y1 - 24;
-const BOUNDARY_TURN_R = 575;
+export interface AiJetSpawnOptions {
+  /** Override max/starting HP (e.g., 7,500 HP flying-tank allied B-1B Lancer). */
+  readonly hpOverride?: number;
+  /** Explicit doctrine override (e.g., `'escort_bomber'` for an escorted allied B-1B Lancer). */
+  readonly doctrine?: AiJetDoctrine;
+  /** Ordered 3D waypoint path for escort bombers or scripted flight corridors. */
+  readonly waypoints?: readonly THREE.Vector3[];
+  /** Optional cruise speed override (m/s). */
+  readonly speedOverride?: number;
+  /** Optional priority air opponent to hunt (e.g., allied escort Lancer). */
+  readonly priorityTarget?: AiCombatJet | null;
+  /** Invoked once when an escort bomber finishes its waypoint path. */
+  readonly onWaypointsComplete?: (jet: AiCombatJet) => void;
+}
+
+export interface AiJetTheater {
+  readonly minAlt: number;
+  readonly maxAlt: number;
+  readonly turnRadius: number;
+  readonly groundY: number;
+  /** When true, bombing/rocket/strafing runs dynamically track the player's position on the ground (Badlands CAS). */
+  readonly dynamicGroundTarget?: boolean;
+  /** Optional custom HUD alert when a B-1 Lancer begins its carpet-bombing salvo. */
+  readonly bomberAlert?: string;
+}
+
+export const DOGFIGHT_THEATER: AiJetTheater = {
+  minAlt: 22,
+  maxAlt: DOGFIGHT_BOUNDS.y1 - 24,
+  turnRadius: 575,
+  groundY: CARRIER_DECK_Y,
+  dynamicGroundTarget: false,
+};
 
 let nextJetUid = 90_000;
 
@@ -209,20 +256,39 @@ function wrapAngle(a: number): number {
   return r;
 }
 
+interface PendingAiHit {
+  target: AiCombatJet;
+  delay: number;
+  damage: number;
+  heavy: boolean;
+  missile: boolean;
+  source: string;
+}
+
+interface ResolvedAirTarget {
+  targetJet: AiCombatJet | null;
+  targetPos: THREE.Vector3;
+  targetVel: THREE.Vector3;
+  isPlayer: boolean;
+  dist: number;
+}
+
 export class AiCombatJet implements ExtraTarget, MissileTarget {
   readonly uid = nextJetUid++;
   readonly profile: AiJetProfile;
   readonly kind: AiJetKind;
   readonly team: AiJetTeam;
+  readonly doctrine: AiJetDoctrine;
   readonly tacticalRole: AiTacticalRole;
   readonly skill: number;
   readonly name: string;
+  readonly theater: AiJetTheater;
 
   readonly position = new THREE.Vector3();
   readonly velocity = new THREE.Vector3();
   readonly center = new THREE.Vector3();
   readonly aimLift = 0;
-  readonly paintRadius = 8.2;
+  readonly paintRadius: number;
 
   yaw = 0;
   pitch = 0;
@@ -244,6 +310,7 @@ export class AiCombatJet implements ExtraTarget, MissileTarget {
   private gunBurstLeft = 0;
   private missileCooldown: number;
   private flareCooldown = 0;
+  private countermeasureTimer = 0;
   private strikeCooldown = 0;
   private bombSalvoLeft = 0;
   private bombSalvoCd = 0;
@@ -259,6 +326,21 @@ export class AiCombatJet implements ExtraTarget, MissileTarget {
   private afterburning = false;
   private unmark: (() => void) | null = null;
   private readonly markerPos = new THREE.Vector3();
+  private readonly strikeAnchor = new THREE.Vector3();
+
+  // Escort bomber & two-way AI-vs-AI state
+  private readonly speedOverride: number | null;
+  private waypoints: THREE.Vector3[] = [];
+  private waypointCumDist: number[] = [];
+  private waypointTotalDist = 0;
+  private waypointIdx = 0;
+  private waypointsDone = false;
+  private onWaypointsComplete: ((jet: AiCombatJet) => void) | null = null;
+  private priorityTarget: AiCombatJet | null = null;
+  private currentTargetJet: AiCombatJet | null = null;
+  private aiMissileLockTarget: AiCombatJet | null = null;
+  private aiMissileLockProgress = 0;
+  private readonly pendingAiHits: PendingAiHit[] = [];
 
   private readonly rig: VehicleModelRig;
   private collider: RAPIER.Collider | null = null;
@@ -275,10 +357,19 @@ export class AiCombatJet implements ExtraTarget, MissileTarget {
     private readonly cb: AiJetFireCallbacks,
     customLabel?: string,
     tacticalRole?: AiTacticalRole,
+    theater: AiJetTheater = DOGFIGHT_THEATER,
+    options?: AiJetSpawnOptions,
   ) {
     this.kind = kind;
     this.team = team;
+    this.theater = theater;
+    this.strikeAnchor.copy(theater.dynamicGroundTarget ? spawnPos : _carrierPos);
+    this.strikeAnchor.y = theater.groundY;
     this.profile = AI_JET_PROFILES[kind];
+    this.doctrine = options?.doctrine ?? this.profile.doctrine;
+    this.paintRadius = kind === 'lancer' ? 14.2 : 8.2;
+    this.speedOverride = options?.speedOverride ?? null;
+    this.priorityTarget = options?.priorityTarget ?? null;
     this.tacticalRole = tacticalRole ?? (
       this.profile.role === 'ace' || this.profile.role === 'fighter'
         ? 'hunter'
@@ -289,10 +380,12 @@ export class AiCombatJet implements ExtraTarget, MissileTarget {
     this.skill = clamp(skill, 0.25, 1.0);
     this.name = customLabel ?? (team === 'ally' ? `WINGMAN ${this.profile.name}` : this.profile.name);
 
-    // Slight HP scaling with skill on enemy fighters; wingmen are resilient escorts.
-    this.maxHealth = Math.round(this.profile.maxHp * (team === 'ally' ? 1.8 : 0.88 + this.skill * 0.28));
+    // Slight HP scaling with skill on enemy fighters; wingmen are resilient escorts; explicit override supported (e.g., 7,500 HP Lancer).
+    this.maxHealth = options?.hpOverride != null
+      ? Math.max(1, Math.round(options.hpOverride))
+      : Math.round(this.profile.maxHp * (team === 'ally' ? 1.8 : 0.88 + this.skill * 0.28));
     this.health = this.maxHealth;
-    this.speed = this.profile.cruiseSpeed;
+    this.speed = this.speedOverride ?? this.profile.cruiseSpeed;
     this.yaw = initialYaw;
     this.position.copy(spawnPos);
     this.center.copy(spawnPos);
@@ -300,6 +393,12 @@ export class AiCombatJet implements ExtraTarget, MissileTarget {
     this.missileCooldown = rand(4.5, this.profile.missileCooldown);
     this.orbitSide = Math.random() < 0.5 ? -1 : 1;
     this.evadeDir = this.orbitSide;
+
+    if (options?.waypoints && options.waypoints.length > 0) {
+      this.setWaypoints(options.waypoints, options.onWaypointsComplete);
+    } else if (options?.onWaypointsComplete) {
+      this.onWaypointsComplete = options.onWaypointsComplete;
+    }
 
     // Build our real PBR 3D jet rig and configure it for flight!
     this.rig = buildVehicleModel(kind, materials);
@@ -310,8 +409,8 @@ export class AiCombatJet implements ExtraTarget, MissileTarget {
     // Add crisp glowing IFF identification wingtip/dorsal strobe so enemy vs friendly jets read instantly in the sky!
     const beaconColor = team === 'enemy' ? 0xff3b2f : 0x38e8ff;
     const beaconMat = new THREE.MeshBasicMaterial({ color: beaconColor });
-    this.teamBeacon = new THREE.Mesh(new THREE.SphereGeometry(0.45, 8, 6), beaconMat);
-    this.teamBeacon.position.set(0, 1.85, -1.2);
+    this.teamBeacon = new THREE.Mesh(new THREE.SphereGeometry(kind === 'lancer' ? 0.72 : 0.45, 8, 6), beaconMat);
+    this.teamBeacon.position.set(0, kind === 'lancer' ? 4.4 : 1.85, -1.2);
     this.rig.body.add(this.teamBeacon);
 
     // Tint afterburners slightly warmer/redder on enemies, bright cyan-amber on allies.
@@ -334,10 +433,10 @@ export class AiCombatJet implements ExtraTarget, MissileTarget {
       );
     }
 
-    // Track jet with a sleek HUD world indicator (red bandit diamond or cyan wingman tag).
+    // Track jet with a sleek HUD world indicator (red bandit diamond or cyan wingman/escort tag).
     this.markerPos.copy(this.position);
     const tagText = team === 'ally'
-      ? `ALLY · ${kind === 'raptor' ? 'RAPTOR' : 'HORNET'}`
+      ? (kind === 'lancer' ? (customLabel ?? 'ESCORT · B-1B LANCER') : `ALLY · ${kind === 'raptor' ? 'RAPTOR' : 'HORNET'}`)
       : kind === 'raptor'
         ? 'ACE · RAPTOR'
         : kind === 'lancer'
@@ -345,6 +444,99 @@ export class AiCombatJet implements ExtraTarget, MissileTarget {
           : this.profile.name;
     const tagColor = team === 'ally' ? '#38e8ff' : kind === 'raptor' ? '#ff3864' : kind === 'lancer' ? '#ff9f1c' : '#ff4d3d';
     this.unmark = ctx.hud?.follow?.(this.markerPos, tagText, tagColor) ?? null;
+  }
+
+  /** Current HP alias for campaign HUD/escort bars. */
+  get hp(): number {
+    return this.health;
+  }
+
+  /** Max HP alias for campaign HUD/escort bars. */
+  get maxHp(): number {
+    return this.maxHealth;
+  }
+
+  /** True when operating under the allied escort-bomber waypoint doctrine. */
+  get isEscortBomber(): boolean {
+    return this.doctrine === 'escort_bomber';
+  }
+
+  /** True while defensive IR flares are actively decoying incoming missiles. */
+  get isCountermeasureActive(): boolean {
+    return this.countermeasureTimer > 0;
+  }
+
+  /** Current AI jet opponent being engaged (null when targeting player or patrolling). */
+  get lockedTarget(): AiCombatJet | null {
+    return this.currentTargetJet;
+  }
+
+  /** Current waypoint index along the assigned route. */
+  get waypointIndex(): number {
+    return this.waypointIdx;
+  }
+
+  /** True once all assigned waypoints have been reached. */
+  get waypointsCompleted(): boolean {
+    return this.waypointsDone;
+  }
+
+  /** 0..1 normalized progress along the assigned waypoint route (ideal for escort HUD progress bars). */
+  get progress(): number {
+    if (this.waypoints.length === 0) return 0;
+    if (this.waypointsDone || this.waypointIdx >= this.waypoints.length) return 1;
+    if (this.waypointTotalDist <= 0.001) {
+      return clamp(this.waypointIdx / this.waypoints.length, 0, 1);
+    }
+    const segStart = this.waypointIdx === 0 ? this.waypoints[0] : this.waypoints[this.waypointIdx - 1];
+    const segEnd = this.waypoints[this.waypointIdx];
+    const baseDist = this.waypointCumDist[Math.max(0, this.waypointIdx - 1)] ?? 0;
+    if (this.waypointIdx === 0) {
+      // Distance progress from spawn toward first waypoint (if waypoints[0] != spawn)
+      const totalFirst = this.waypointCumDist[0] ?? 0;
+      if (totalFirst <= 0.001) return 0;
+      const rem = this.position.distanceTo(segEnd);
+      return clamp((totalFirst - rem) / this.waypointTotalDist, 0, 1);
+    }
+    const segLen = segStart.distanceTo(segEnd);
+    const rem = this.position.distanceTo(segEnd);
+    const covered = baseDist + clamp(segLen - rem, 0, segLen);
+    return clamp(covered / this.waypointTotalDist, 0, 1);
+  }
+
+  /** Assign or update a priority air target (e.g., allied escort B-1B Lancer). */
+  setPriorityTarget(target: AiCombatJet | null): void {
+    this.priorityTarget = target;
+  }
+
+  /** Assign an ordered 3D waypoint path for escort bombers or scripted corridors. */
+  setWaypoints(waypoints: readonly THREE.Vector3[], onComplete?: (jet: AiCombatJet) => void): void {
+    this.waypoints = waypoints.map((w) => w.clone());
+    this.waypointIdx = 0;
+    this.waypointsDone = this.waypoints.length === 0;
+    if (onComplete) this.onWaypointsComplete = onComplete;
+
+    this.waypointCumDist = [];
+    let acc = 0;
+    let prev = this.position;
+    for (let i = 0; i < this.waypoints.length; i++) {
+      acc += prev.distanceTo(this.waypoints[i]);
+      this.waypointCumDist.push(acc);
+      prev = this.waypoints[i];
+    }
+    this.waypointTotalDist = acc;
+  }
+
+  /** Called when an enemy fighter or SAM locks onto this jet; pops defensive IR flares if ready! */
+  notifyMissileLock(): boolean {
+    if (!this.alive || this.flareCooldown > 0) return false;
+    this.popFlares();
+    this.countermeasureTimer = this.isEscortBomber ? 3.5 : 2.8;
+    this.flareCooldown = this.profile.flareCooldown * (this.isEscortBomber ? 0.78 : (1.2 - this.skill * 0.3));
+    if (!this.isEscortBomber && this.state !== 'evade' && Math.random() < 0.45 + this.skill * 0.35) {
+      this.triggerEvade();
+    }
+    return true;
   }
 
   // -------------------------------------------------------------------------------------------
@@ -395,7 +587,7 @@ export class AiCombatJet implements ExtraTarget, MissileTarget {
     if (this.alive && this.team === 'enemy') out.push(...this.rig.meshes);
   }
 
-  /** Applies damage from player, CIWS, SAMs, or allied wingmen. */
+  /** Applies damage from player, CIWS, SAMs, or enemy/allied AI jets. */
   applyDamage(
     amount: number,
     point: THREE.Vector3,
@@ -419,15 +611,25 @@ export class AiCombatJet implements ExtraTarget, MissileTarget {
       return;
     }
 
+    this.cb.onDamaged?.(this, this.health / Math.max(1, this.maxHealth));
+
     // Skilled enemy pilots react to taking hits by popping IR flares and executing a high-G break turn!
     // Fighters/strikers switch into retaliation dogfight; B-1 Lancers stay pure bombers and evade at Mach speed.
     if (this.team === 'enemy') {
-      if (showPlayerMarker && this.profile.doctrine !== 'heavy_bomber') {
-        this.retaliateTimer = this.profile.doctrine === 'cas_attacker' ? 7 : 14;
+      if (showPlayerMarker && this.doctrine !== 'heavy_bomber') {
+        this.retaliateTimer = this.doctrine === 'cas_attacker' ? 7 : 14;
       }
       if (this.state !== 'evade' && Math.random() < 0.35 + this.skill * 0.45) {
         this.triggerEvade();
       }
+    } else if (this.isEscortBomber) {
+      // Allied B-1B Lancer stays on its escort corridor and deploys defensive flares when hit!
+      if (heavyHit && this.flareCooldown <= 0) {
+        this.notifyMissileLock();
+      }
+    } else if (this.state !== 'evade' && Math.random() < 0.3 + this.skill * 0.35) {
+      // Allied wingmen execute defensive break turns when shot up by enemy fighters!
+      this.triggerEvade();
     }
   }
 
@@ -438,20 +640,26 @@ export class AiCombatJet implements ExtraTarget, MissileTarget {
 
   /** Called when the player pops IR flares / smoke to break this bandit's radar/IR lock immediately. */
   breakPlayerLock(suppressSeconds = 3.8): void {
+    const wasLocking = this.playerLockProgress > 0.15;
     this.playerLockProgress = 0;
     this.lockSuppressed = Math.max(this.lockSuppressed, suppressSeconds);
+    if (wasLocking) this.cb.onLockBroken?.(this);
   }
 
   private triggerEvade(): void {
+    const prev = this.state;
     this.state = 'evade';
     this.stateTimer = rand(1.9, 3.0);
     this.evadeDir = Math.random() < 0.5 ? -1 : 1;
     this.playerLockProgress = 0;
+    this.aiMissileLockProgress = 0;
     this.bombSalvoLeft = 0;
     this.strafeBurstLeft = 0;
     this.rocketSalvoLeft = 0;
+    if (prev !== 'evade') this.cb.onStateChange?.(this, 'evade', prev);
     if (this.flareCooldown <= 0) {
       this.popFlares();
+      this.countermeasureTimer = 2.6;
       this.flareCooldown = this.profile.flareCooldown * (1.25 - this.skill * 0.35);
     }
   }
@@ -465,6 +673,7 @@ export class AiCombatJet implements ExtraTarget, MissileTarget {
       this.ctx.fx?.sparks?.(_v, _v2.set(rand(-1, 1), -1, rand(-1, 1)), 12, 0xfff0aa);
     }
     this.ctx.audio?.play?.('veh_flare_pop', { position: this.position, volume: 0.45, pitch: 1.1 });
+    this.cb.onFlare?.(this);
   }
 
   /** Blows the jet apart immediately (callback spawns 7 tumbling physics chunks + pilot ejection/ragdoll/gibs!). */
@@ -473,6 +682,9 @@ export class AiCombatJet implements ExtraTarget, MissileTarget {
     this.alive = false;
     this.health = 0;
     this.playerLockProgress = 0;
+    this.aiMissileLockProgress = 0;
+    this.currentTargetJet = null;
+    this.pendingAiHits.length = 0;
     this.state = 'dying';
     this.bombSalvoLeft = 0;
     this.strafeBurstLeft = 0;
@@ -497,6 +709,7 @@ export class AiCombatJet implements ExtraTarget, MissileTarget {
     playerAirborne: boolean,
     opponents: readonly AiCombatJet[],
     playerCountermeasures = false,
+    priorityTarget?: AiCombatJet | null,
   ): void {
     if (this.disposed || !this.alive) return;
 
@@ -504,6 +717,7 @@ export class AiCombatJet implements ExtraTarget, MissileTarget {
     this.gunCooldown = Math.max(0, this.gunCooldown - dt);
     this.missileCooldown = Math.max(0, this.missileCooldown - dt);
     this.flareCooldown = Math.max(0, this.flareCooldown - dt);
+    this.countermeasureTimer = Math.max(0, this.countermeasureTimer - dt);
     this.strikeCooldown = Math.max(0, this.strikeCooldown - dt);
     this.lockSuppressed = Math.max(0, this.lockSuppressed - dt);
     this.retaliateTimer = Math.max(0, this.retaliateTimer - dt);
@@ -511,10 +725,25 @@ export class AiCombatJet implements ExtraTarget, MissileTarget {
       this.playerLockProgress = 0;
     }
 
+    this.tickPendingAiHits(dt);
+
     if (this.team === 'ally') {
-      this.updateWingmanAi(dt, opponents);
+      if (this.doctrine === 'escort_bomber') {
+        this.updateEscortBomberAi(dt);
+      } else {
+        this.updateWingmanAi(dt, opponents);
+      }
     } else {
-      this.updateEnemyAi(dt, playerPos, playerVel, playerAirborne, playerCountermeasures);
+      const effectivePriority = priorityTarget !== undefined ? priorityTarget : this.priorityTarget;
+      this.updateEnemyAi(
+        dt,
+        playerPos,
+        playerVel,
+        playerAirborne,
+        playerCountermeasures,
+        opponents,
+        effectivePriority,
+      );
     }
 
     // Visual smoke trail when damaged below 48% HP.
@@ -530,32 +759,204 @@ export class AiCombatJet implements ExtraTarget, MissileTarget {
     this.syncModelAndCollider(dt);
   }
 
+  private tickPendingAiHits(dt: number): void {
+    for (let i = this.pendingAiHits.length - 1; i >= 0; i--) {
+      const h = this.pendingAiHits[i];
+      h.delay -= dt;
+      if (h.delay > 0) continue;
+      this.pendingAiHits.splice(i, 1);
+
+      if (!h.target.alive || h.target.disposed) continue;
+      if (h.missile && h.target.isCountermeasureActive) {
+        // Defensive IR flares decoyed the incoming Fox-2 missile!
+        _v.copy(h.target.position).add(new THREE.Vector3(rand(-8, 8), rand(-4, 4), rand(-8, 8)));
+        this.ctx.fx?.sparks?.(_v, _v2.set(0, 1, 0), 14, 0xfff0aa);
+        continue;
+      }
+      h.target.applyDamage(h.damage, h.target.position, h.source, false, h.heavy);
+    }
+  }
+
+  private updateEscortBomberAi(dt: number): void {
+    const cruise = this.speedOverride ?? this.profile.cruiseSpeed;
+    this.afterburning = false;
+    this.currentTargetJet = null;
+
+    if (this.waypoints.length === 0) {
+      this.forwardDir(_fwd);
+      _aim.copy(this.position).addScaledVector(_fwd, 220);
+      _aim.y = clamp(this.position.y, this.theater.minAlt + 12, this.theater.maxAlt - 6);
+      this.steerToward(_aim, cruise, dt);
+      return;
+    }
+
+    const arrivalRadius = Math.max(24, cruise * 0.65);
+    while (!this.waypointsDone && this.waypointIdx < this.waypoints.length) {
+      const wp = this.waypoints[this.waypointIdx];
+      const d = this.position.distanceTo(wp);
+      if (d <= arrivalRadius) {
+        this.waypointIdx++;
+        if (this.waypointIdx >= this.waypoints.length) {
+          this.waypointsDone = true;
+          this.onWaypointsComplete?.(this);
+          break;
+        }
+      } else {
+        break;
+      }
+    }
+
+    if (this.waypointsDone) {
+      // Continue cruising steadily past the final waypoint along current heading.
+      const lastWp = this.waypoints[this.waypoints.length - 1];
+      this.forwardDir(_fwd);
+      _aim.set(
+        this.position.x + _fwd.x * 260,
+        clamp(lastWp.y, this.theater.minAlt + 12, this.theater.maxAlt - 6),
+        this.position.z + _fwd.z * 260,
+      );
+      this.steerToward(_aim, cruise, dt);
+      return;
+    }
+
+    const wp = this.waypoints[this.waypointIdx];
+    _aim.set(wp.x, clamp(wp.y, this.theater.minAlt + 10, this.theater.maxAlt - 6), wp.z);
+    this.steerToward(_aim, cruise, dt);
+  }
+
+  /**
+   * Dynamically chooses the best airborne opponent for an enemy fighter/striker:
+   * splits pressure naturally across the airborne player, allied escort wingmen, and any
+   * priority `escort_bomber` (e.g., allied B-1B Lancer).
+   *
+   * Returns `null` when no eligible airborne opponent exists (or for pure `heavy_bomber`s).
+   */
+  private pickEnemyAirTarget(
+    playerPos: THREE.Vector3,
+    playerVel: THREE.Vector3,
+    playerAirborne: boolean,
+    opponents: readonly AiCombatJet[],
+    priorityTarget: AiCombatJet | null,
+  ): ResolvedAirTarget | null {
+    if (this.doctrine === 'heavy_bomber') return null;
+
+    // Collect live allied aircraft from opponents + explicit priorityTarget without duplicates.
+    const allies: AiCombatJet[] = [];
+    if (opponents && opponents.length > 0) {
+      for (const o of opponents) {
+        if (o && o.alive && o.team === 'ally') allies.push(o);
+      }
+    }
+    if (priorityTarget && priorityTarget.alive && priorityTarget.team === 'ally' && !allies.includes(priorityTarget)) {
+      allies.push(priorityTarget);
+    }
+
+    // Fast path: 100% identical to legacy single-target dogfight when no allied jets are present.
+    if (allies.length === 0) {
+      if (!playerAirborne) return null;
+      return {
+        targetJet: null,
+        targetPos: playerPos,
+        targetVel: playerVel,
+        isPlayer: true,
+        dist: this.position.distanceTo(playerPos),
+      };
+    }
+
+    // Multi-target scoring: smaller score = stronger preference.
+    let bestScore = Infinity;
+    let best: ResolvedAirTarget | null = null;
+    const bomberHunter = (this.uid % 11) < 6 || (priorityTarget != null && priorityTarget === this.priorityTarget);
+
+    if (playerAirborne) {
+      const distPlayer = this.position.distanceTo(playerPos);
+      let score = distPlayer;
+      // Player recently shot this bandit -> strong retaliation bias!
+      if (this.retaliateTimer > 0) score *= 0.48;
+      // Natural squadron split: some fighters favor player engagement, others hunt escorts/bomber.
+      else if (this.uid % 3 === 0) score *= 0.78;
+      else if (bomberHunter) score *= 1.25;
+      bestScore = score;
+      best = {
+        targetJet: null,
+        targetPos: playerPos,
+        targetVel: playerVel,
+        isPlayer: true,
+        dist: distPlayer,
+      };
+    }
+
+    for (const ally of allies) {
+      const dist = this.position.distanceTo(ally.position);
+      const isPriorityEscort = ally === priorityTarget || ally.doctrine === 'escort_bomber';
+      let score = dist;
+      if (isPriorityEscort) {
+        score *= bomberHunter ? 0.52 : 0.92;
+      } else {
+        // Wingman dogfight affinity
+        score *= (this.uid % 3 === 1) ? 0.74 : 0.96;
+      }
+      if (score < bestScore) {
+        bestScore = score;
+        best = {
+          targetJet: ally,
+          targetPos: ally.position,
+          targetVel: ally.velocity,
+          isPlayer: false,
+          dist,
+        };
+      }
+    }
+
+    return best;
+  }
+
   private updateEnemyAi(
     dt: number,
     playerPos: THREE.Vector3,
     playerVel: THREE.Vector3,
     playerAirborne: boolean,
     playerCountermeasures: boolean,
+    opponents: readonly AiCombatJet[] = [],
+    priorityTarget: AiCombatJet | null = null,
   ): void {
-    const distCarrier = Math.hypot(this.position.x - _carrierPos.x, this.position.z - _carrierPos.z);
-    const distPlayer = this.position.distanceTo(playerPos);
+    const th = this.theater;
+    if (th.dynamicGroundTarget) {
+      this.strikeAnchor.set(playerPos.x, th.groundY, playerPos.z);
+    } else {
+      this.strikeAnchor.copy(_carrierPos);
+    }
+
+    const airTarget = this.pickEnemyAirTarget(playerPos, playerVel, playerAirborne, opponents, priorityTarget);
+    this.currentTargetJet = airTarget?.targetJet ?? null;
+
+    const distCarrier = Math.hypot(this.position.x - this.strikeAnchor.x, this.position.z - this.strikeAnchor.z);
+    const distAir = airTarget ? airTarget.dist : Infinity;
     const horizR = Math.hypot(this.position.x, this.position.z);
-    const doctrine = this.profile.doctrine;
+    const doctrine = this.doctrine;
+    const prefAlt = clamp(this.profile.preferredAlt, th.minAlt + 8, th.maxAlt - 6);
+    const approachDist = Math.min(th.turnRadius * 1.12, doctrine === 'heavy_bomber' ? 320 : 260);
+    const extendDist = Math.min(th.turnRadius * 0.85, doctrine === 'heavy_bomber' ? 330 : 250);
 
     // Distinct target preferences per aircraft class:
-    // - B-1 Lancer (heavy_bomber): NEVER dogfights; pure high-altitude carrier carpet bomber!
-    // - A-10 Warthog (cas_attacker): focuses relentlessly on carrier strafes/bombs; only briefly dogfights if attacked up close.
-    // - Hornet / Raptor / Hunter Harrier: actively intercept & dogfight the airborne player across the whole sky!
-    const wantsDogfight = playerAirborne && doctrine !== 'heavy_bomber' && (
+    // - B-1 Lancer (heavy_bomber): NEVER dogfights; pure high-altitude carpet bomber!
+    // - A-10 Warthog (cas_attacker): focuses on strafes/bombs; dogfights if attacked up close or assigned priority escort.
+    // - Hornet / Raptor / Hunter Harrier: actively intercept & dogfight airborne player, wingmen, and escort bombers!
+    const hasPriorityEscort = airTarget?.targetJet != null && (
+      airTarget.targetJet === priorityTarget || airTarget.targetJet.doctrine === 'escort_bomber'
+    );
+    const wantsDogfight = airTarget !== null && doctrine !== 'heavy_bomber' && (
       this.tacticalRole === 'hunter' ||
-      (doctrine === 'cas_attacker' ? (this.retaliateTimer > 0 && distPlayer < 210) : (this.retaliateTimer > 0 || distPlayer < 210))
+      hasPriorityEscort ||
+      (doctrine === 'cas_attacker' ? (this.retaliateTimer > 0 && distAir < 210) : (this.retaliateTimer > 0 || distAir < 210))
     );
 
+    const prevState = this.state;
     if (this.state === 'approach') {
       if (wantsDogfight) {
         this.state = 'dogfight';
         this.stateTimer = rand(10, 16);
-      } else if (distCarrier < (doctrine === 'heavy_bomber' ? 320 : 260)) {
+      } else if (distCarrier < approachDist) {
         this.state = 'carrier_run';
         this.stateTimer = rand(8, 12);
       }
@@ -565,7 +966,6 @@ export class AiCombatJet implements ExtraTarget, MissileTarget {
         this.stateTimer = wantsDogfight ? rand(9, 14) : rand(3.5, 5.5);
       }
     } else if (this.state === 'extend') {
-      const extendDist = doctrine === 'heavy_bomber' ? 330 : 250;
       if (this.stateTimer <= 0 || (!wantsDogfight && distCarrier > extendDist)) {
         if (wantsDogfight) {
           this.state = 'dogfight';
@@ -576,43 +976,45 @@ export class AiCombatJet implements ExtraTarget, MissileTarget {
         }
       }
     } else if (this.state === 'carrier_run') {
-      if (wantsDogfight && (this.tacticalRole === 'hunter' || this.retaliateTimer > 0 || (doctrine !== 'cas_attacker' && distPlayer < 175))) {
+      if (wantsDogfight && (this.tacticalRole === 'hunter' || hasPriorityEscort || this.retaliateTimer > 0 || (doctrine !== 'cas_attacker' && distAir < 175))) {
         this.state = 'dogfight';
         this.stateTimer = rand(10, 15);
       } else if (this.bombSalvoLeft <= 0 && this.strafeBurstLeft <= 0 && this.rocketSalvoLeft <= 0 && (distCarrier < 42 || this.stateTimer <= 0)) {
         this.state = 'extend';
-        this.stateTimer = doctrine === 'heavy_bomber' ? rand(4.8, 6.8) : rand(3.5, 5.2);
+        this.stateTimer = doctrine === 'heavy_bomber' ? rand(4.5, 6.2) : rand(3.2, 4.8);
         this.orbitSide = Math.random() < 0.5 ? -1 : 1;
       }
     } else if (this.state === 'dogfight') {
-      if (!playerAirborne || doctrine === 'heavy_bomber') {
+      const breakDist = airTarget?.targetJet?.kind === 'lancer' ? 54 : 46;
+      if (!airTarget || doctrine === 'heavy_bomber') {
         this.state = 'carrier_run';
         this.stateTimer = rand(6, 9);
-      } else if (distPlayer < 46) {
+      } else if (distAir < breakDist) {
         this.state = 'extend';
         this.stateTimer = rand(2.2, 3.4);
         this.orbitSide = Math.random() < 0.5 ? -1 : 1;
-      } else if (this.stateTimer <= 0 && this.tacticalRole === 'striker' && this.retaliateTimer <= 0) {
+      } else if (this.stateTimer <= 0 && this.tacticalRole === 'striker' && !hasPriorityEscort && this.retaliateTimer <= 0) {
         this.state = 'carrier_run';
         this.stateTimer = rand(8, 11);
       }
     }
+    if (this.state !== prevState) this.cb.onStateChange?.(this, this.state, prevState);
 
     // Continue any active bomb stick, GAU-8 BRRRT strafe burst, or Hydra rocket salvo!
     this.tickActiveCarrierSalvos(dt);
 
     // Choose 3D steering target point + airspeed tailored to aircraft doctrine!
-    let targetSpeed = this.profile.cruiseSpeed;
+    let targetSpeed = this.speedOverride ?? this.profile.cruiseSpeed;
     this.afterburning = false;
 
-    if (horizR > BOUNDARY_TURN_R) {
-      const anchor = playerAirborne && this.tacticalRole === 'hunter' ? playerPos : _carrierPos;
-      _aim.set(anchor.x + this.orbitSide * 60, this.profile.preferredAlt, anchor.z);
-      targetSpeed = this.profile.cruiseSpeed;
+    if (horizR > th.turnRadius && !hasPriorityEscort) {
+      const anchor = airTarget && this.tacticalRole === 'hunter' ? airTarget.targetPos : this.strikeAnchor;
+      _aim.set(anchor.x + this.orbitSide * 50, prefAlt, anchor.z);
+      targetSpeed = this.speedOverride ?? this.profile.cruiseSpeed;
       this.playerLockProgress = Math.max(0, this.playerLockProgress - dt * 0.9);
     } else if (this.state === 'approach') {
-      const anchor = wantsDogfight ? playerPos : _carrierPos;
-      _aim.set(anchor.x + this.orbitSide * 28, this.profile.preferredAlt, anchor.z);
+      const anchor = wantsDogfight && airTarget ? airTarget.targetPos : this.strikeAnchor;
+      _aim.set(anchor.x + this.orbitSide * 24, prefAlt, anchor.z);
       targetSpeed = this.profile.boostSpeed * 0.94;
       this.afterburning = true;
       this.playerLockProgress = Math.max(0, this.playerLockProgress - dt * 0.8);
@@ -620,19 +1022,19 @@ export class AiCombatJet implements ExtraTarget, MissileTarget {
       this.playerLockProgress = Math.max(0, this.playerLockProgress - dt * 0.8);
 
       if (doctrine === 'heavy_bomber') {
-        // B-1 Lancer: flies level, high-altitude supersonic carpet-bombing corridor right over USS Sovereign!
-        const bombAlt = CARRIER_DECK_Y + 76;
-        _aim.set(_carrierPos.x, bombAlt, _carrierPos.z);
-        targetSpeed = this.profile.cruiseSpeed * 1.12;
+        // B-1 Lancer: flies level, high-altitude carpet-bombing corridor right over the target!
+        const bombAlt = clamp(th.groundY + (th.dynamicGroundTarget ? 68 : 76), th.minAlt + 20, th.maxAlt - 6);
+        _aim.set(this.strikeAnchor.x, bombAlt, this.strikeAnchor.z);
+        targetSpeed = this.profile.cruiseSpeed * (th.dynamicGroundTarget ? 1.0 : 1.12);
         this.afterburning = distCarrier > 150;
 
-        // Compute realistic ballistic horizontal release lead distance so falling bombs land right on the flight deck!
-        const hDrop = Math.max(18, this.position.y - CARRIER_DECK_Y);
+        // Compute realistic ballistic horizontal release lead distance so falling bombs land right on target!
+        const hDrop = Math.max(18, this.position.y - th.groundY);
         const tFall = Math.sqrt((2 * hDrop) / 26);
-        const releaseLead = clamp(this.speed * tFall, 65, 195);
-        if (this.strikeCooldown <= 0 && this.bombSalvoLeft <= 0 && distCarrier <= releaseLead + 32 && distCarrier >= Math.max(25, releaseLead - 75)) {
+        const releaseLead = clamp(this.speed * tFall, 60, 195);
+        if (this.strikeCooldown <= 0 && this.bombSalvoLeft <= 0 && distCarrier <= releaseLead + 34 && distCarrier >= Math.max(25, releaseLead - 75)) {
           this.forwardDir(_fwd);
-          _v.set(_carrierPos.x - this.position.x, 0, _carrierPos.z - this.position.z).normalize();
+          _v.set(this.strikeAnchor.x - this.position.x, 0, this.strikeAnchor.z - this.position.z).normalize();
           const horizDot = _fwd.x * _v.x + _fwd.z * _v.z;
           if (horizDot > 0.78) {
             this.beginCarrierOrdnancePass();
@@ -641,62 +1043,73 @@ export class AiCombatJet implements ExtraTarget, MissileTarget {
       } else if (doctrine === 'cas_attacker') {
         // A-10 Warthog: alternates low steep GAU-8 Avenger diving strafes and medium-altitude dive-bomb runs!
         const isBombPass = this.carrierPassCount % 2 === 1;
-        const runAlt = isBombPass ? CARRIER_DECK_Y + 42 : CARRIER_DECK_Y + 22;
-        _aim.set(_carrierPos.x + rand(-4, 4), runAlt, _carrierPos.z + rand(-14, 14));
+        const runAlt = clamp(th.groundY + (isBombPass ? 42 : 26), th.minAlt + 2, th.maxAlt - 12);
+        _aim.set(this.strikeAnchor.x + rand(-4, 4), runAlt, this.strikeAnchor.z + rand(-10, 10));
         targetSpeed = isBombPass ? this.profile.cruiseSpeed * 1.05 : this.profile.cruiseSpeed * 0.92;
         this.afterburning = false;
 
         const maxRange = isBombPass ? 155 : 215;
         if (this.strikeCooldown <= 0 && this.bombSalvoLeft <= 0 && this.strafeBurstLeft <= 0 && distCarrier < maxRange && distCarrier > 36) {
           this.forwardDir(_fwd);
-          _v.subVectors(_carrierPos, this.position).normalize();
+          _v.subVectors(this.strikeAnchor, this.position).normalize();
           if (_fwd.dot(_v) > 0.76) {
             this.beginCarrierOrdnancePass();
           }
         }
       } else {
         // Harrier (Hydra rockets + 25mm), Hornet/Raptor (when player is grounded: fast strafe + rockets).
-        const runAlt = CARRIER_DECK_Y + 28;
-        _aim.set(_carrierPos.x + rand(-5, 5), runAlt, _carrierPos.z + rand(-16, 16));
-        targetSpeed = this.profile.cruiseSpeed * 1.08;
+        const runAlt = clamp(th.groundY + 30, th.minAlt + 4, th.maxAlt - 12);
+        _aim.set(this.strikeAnchor.x + rand(-5, 5), runAlt, this.strikeAnchor.z + rand(-12, 12));
+        targetSpeed = this.profile.cruiseSpeed * 1.05;
         this.afterburning = false;
 
         if (this.strikeCooldown <= 0 && this.rocketSalvoLeft <= 0 && this.strafeBurstLeft <= 0 && distCarrier < 195 && distCarrier > 45) {
           this.forwardDir(_fwd);
-          _v.subVectors(_carrierPos, this.position).normalize();
+          _v.subVectors(this.strikeAnchor, this.position).normalize();
           if (_fwd.dot(_v) > 0.74) {
             this.beginCarrierOrdnancePass();
           }
         }
       }
-    } else if (this.state === 'dogfight') {
-      const leadT = clamp(distPlayer / 185, 0.14, 1.15) * (0.55 + this.skill * 0.45);
-      _aim.copy(playerPos).addScaledVector(playerVel, leadT);
-      _aim.y = clamp(_aim.y + 5, MIN_FLIGHT_ALT + 6, MAX_FLIGHT_ALT);
-      targetSpeed = distPlayer > 160 ? this.profile.boostSpeed : this.profile.cruiseSpeed * (0.94 + this.skill * 0.22);
-      this.afterburning = distPlayer > 160;
+    } else if (this.state === 'dogfight' && airTarget) {
+      const leadT = clamp(distAir / 185, 0.14, 1.15) * (0.55 + this.skill * 0.45);
+      _aim.copy(airTarget.targetPos).addScaledVector(airTarget.targetVel, leadT);
+      _aim.y = clamp(_aim.y + 5, th.minAlt + 6, th.maxAlt);
+      targetSpeed = distAir > 160 ? this.profile.boostSpeed : this.profile.cruiseSpeed * (0.94 + this.skill * 0.22);
+      this.afterburning = distAir > 160;
 
-      this.tryAirToAirWeapons(dt, playerPos, playerVel, null, distPlayer, playerAirborne && !playerCountermeasures);
+      if (!airTarget.isPlayer) {
+        this.playerLockProgress = Math.max(0, this.playerLockProgress - dt * 1.2);
+      }
+      this.tryAirToAirWeapons(
+        dt,
+        airTarget.targetPos,
+        airTarget.targetVel,
+        airTarget.targetJet,
+        distAir,
+        airTarget.isPlayer && playerAirborne && !playerCountermeasures,
+      );
     } else if (this.state === 'evade') {
       const breakYaw = this.yaw + this.evadeDir * 1.45;
       _aim.set(
         this.position.x + Math.sin(breakYaw) * 130,
-        clamp(this.position.y + 34, MIN_FLIGHT_ALT + 12, MAX_FLIGHT_ALT),
+        clamp(this.position.y + 30, th.minAlt + 10, th.maxAlt),
         this.position.z + Math.cos(breakYaw) * 130,
       );
       targetSpeed = this.profile.boostSpeed;
       this.afterburning = true;
       this.playerLockProgress = 0;
     } else {
-      const awayFrom = wantsDogfight ? playerPos : _carrierPos;
+      const awayFrom = wantsDogfight && airTarget ? airTarget.targetPos : this.strikeAnchor;
       _v.subVectors(this.position, awayFrom);
       _v.y = 0;
       if (_v.lengthSq() < 1) _v.set(this.orbitSide, 0, -1);
       _v.normalize();
+      const extendStep = Math.min(160, th.turnRadius * 0.65);
       _aim.set(
-        this.position.x + _v.x * 160 + -_v.z * this.orbitSide * 85,
-        clamp(this.profile.preferredAlt + 24, MIN_FLIGHT_ALT + 20, MAX_FLIGHT_ALT),
-        this.position.z + _v.z * 160 + _v.x * this.orbitSide * 85,
+        this.position.x + _v.x * extendStep + -_v.z * this.orbitSide * 70,
+        clamp(prefAlt + 18, th.minAlt + 16, th.maxAlt),
+        this.position.z + _v.z * extendStep + _v.x * this.orbitSide * 70,
       );
       targetSpeed = this.profile.boostSpeed * 0.96;
       this.afterburning = true;
@@ -707,7 +1120,7 @@ export class AiCombatJet implements ExtraTarget, MissileTarget {
   }
 
   private beginCarrierOrdnancePass(): void {
-    const doctrine = this.profile.doctrine;
+    const doctrine = this.doctrine;
     const passIdx = this.carrierPassCount++;
 
     if (doctrine === 'heavy_bomber') {
@@ -715,7 +1128,7 @@ export class AiCombatJet implements ExtraTarget, MissileTarget {
       this.bombSalvoLeft = 5;
       this.bombSalvoCd = 0;
       this.strikeCooldown = 6.2;
-      this.ctx.hud?.feed?.('B-1 LANCER BOMBS AWAY — CARPET SALVO OVER CARRIER!', '#ff9f1c');
+      this.ctx.hud?.feed?.(this.theater.bomberAlert ?? 'B-1 LANCER BOMBS AWAY — CARPET SALVO OVER CARRIER!', '#ff9f1c');
       return;
     }
 
@@ -745,7 +1158,7 @@ export class AiCombatJet implements ExtraTarget, MissileTarget {
       return;
     }
 
-    // Fighters (Hornet/Raptor) on opportunistic carrier pass when player is grounded: 2 rockets + short gun burst.
+    // Fighters (Hornet/Raptor) on opportunistic ground/carrier pass when player is grounded: 2 rockets + short gun burst.
     this.rocketSalvoLeft = 2;
     this.rocketSalvoCd = 0;
     this.strafeBurstLeft = 4;
@@ -753,20 +1166,33 @@ export class AiCombatJet implements ExtraTarget, MissileTarget {
     this.strikeCooldown = 4.2;
   }
 
+  private sampleStrikePoint(yOffset: number, spreadDynamic: number): THREE.Vector3 {
+    if (this.theater.dynamicGroundTarget) {
+      return new THREE.Vector3(
+        this.strikeAnchor.x + rand(-spreadDynamic, spreadDynamic),
+        this.theater.groundY + yOffset,
+        this.strikeAnchor.z + rand(-spreadDynamic, spreadDynamic),
+      );
+    }
+    return new THREE.Vector3(rand(-13, 9), CARRIER_DECK_Y + yOffset, rand(-44, 44));
+  }
+
   private tickActiveCarrierSalvos(dt: number): void {
+    const groundY = this.theater.groundY;
+
     // 1. Staggered real gravity-driven bomb drops (Lancer carpet stick / Warthog dive bombs)
     if (this.bombSalvoLeft > 0) {
       this.bombSalvoCd -= dt;
       if (this.bombSalvoCd <= 0) {
         this.bombSalvoLeft--;
-        this.bombSalvoCd = this.profile.doctrine === 'heavy_bomber' ? 0.24 : 0.28;
+        this.bombSalvoCd = this.doctrine === 'heavy_bomber' ? 0.24 : 0.28;
         const from = this.position.clone().add(new THREE.Vector3(rand(-1.8, 1.8), -2.4, rand(-1.8, 1.8)));
 
-        // Calculate clean ballistic aim velocity toward carrier deck so bombs actually arc onto USS Sovereign!
-        const targetDeck = new THREE.Vector3(rand(-12, 8), CARRIER_DECK_Y, rand(-44, 44));
-        const hDrop = Math.max(12, from.y - CARRIER_DECK_Y);
-        const isPara = this.profile.doctrine === 'heavy_bomber' && this.bombSalvoLeft % 2 === 1;
-        const kind: BombKind = this.profile.doctrine === 'heavy_bomber'
+        // Calculate clean ballistic aim velocity toward target ground/deck!
+        const targetDeck = this.sampleStrikePoint(0, this.doctrine === 'heavy_bomber' ? 16 : 9);
+        const hDrop = Math.max(12, from.y - groundY);
+        const isPara = this.doctrine === 'heavy_bomber' && this.bombSalvoLeft % 2 === 1;
+        const kind: BombKind = this.doctrine === 'heavy_bomber'
           ? (isPara ? 'para' : 'mk84')
           : (this.bombSalvoLeft === 0 ? 'cluster' : 'mk82');
 
@@ -783,7 +1209,7 @@ export class AiCombatJet implements ExtraTarget, MissileTarget {
         bombVel.z = bombVel.z * 0.72 + this.velocity.z * 0.28;
 
         const perBombDmg = Math.round(
-          (this.profile.doctrine === 'heavy_bomber' ? 76 : 82) * (0.85 + this.skill * 0.28),
+          (this.doctrine === 'heavy_bomber' ? 76 : 82) * (0.85 + this.skill * 0.28),
         );
 
         if (this.cb.onBombDrop) {
@@ -794,14 +1220,14 @@ export class AiCombatJet implements ExtraTarget, MissileTarget {
       }
     }
 
-    // 2. Staggered Hydra unguided rocket salvos (Harrier / fighters on carrier attack)
+    // 2. Staggered Hydra unguided rocket salvos (Harrier / fighters on strike attack)
     if (this.rocketSalvoLeft > 0) {
       this.rocketSalvoCd -= dt;
       if (this.rocketSalvoCd <= 0) {
         this.rocketSalvoLeft--;
         this.rocketSalvoCd = 0.16;
         this.forwardDir(_fwd);
-        const targetDeck = new THREE.Vector3(rand(-13, 9), CARRIER_DECK_Y + 0.6, rand(-46, 46));
+        const targetDeck = this.sampleStrikePoint(0.6, 9);
         const from = this.position.clone().addScaledVector(_fwd, 3.2);
         const dir = _v.subVectors(targetDeck, from).normalize();
         const rDmg = Math.round(32 * (0.85 + this.skill * 0.3));
@@ -818,10 +1244,10 @@ export class AiCombatJet implements ExtraTarget, MissileTarget {
       this.strafeBurstCd -= dt;
       if (this.strafeBurstCd <= 0) {
         this.strafeBurstLeft--;
-        const isGau8 = this.profile.doctrine === 'cas_attacker';
+        const isGau8 = this.doctrine === 'cas_attacker';
         this.strafeBurstCd = isGau8 ? 0.065 : 0.095;
         this.forwardDir(_fwd);
-        const targetDeck = new THREE.Vector3(rand(-13, 9), CARRIER_DECK_Y + 0.5, rand(-44, 44));
+        const targetDeck = this.sampleStrikePoint(0.5, isGau8 ? 8 : 7);
         const from = this.position.clone().addScaledVector(_fwd, 4.5);
         const dir = _v.subVectors(targetDeck, from).normalize();
         const sDmg = Math.round((isGau8 ? 20 : 14) * (0.85 + this.skill * 0.28));
@@ -835,6 +1261,20 @@ export class AiCombatJet implements ExtraTarget, MissileTarget {
   }
 
   private updateWingmanAi(dt: number, enemies: readonly AiCombatJet[]): void {
+    const th = this.theater;
+    if (this.state === 'evade' && this.stateTimer > 0) {
+      const breakYaw = this.yaw + this.evadeDir * 1.45;
+      _aim.set(
+        this.position.x + Math.sin(breakYaw) * 130,
+        clamp(this.position.y + 24, th.minAlt + 10, th.maxAlt),
+        this.position.z + Math.cos(breakYaw) * 130,
+      );
+      this.afterburning = true;
+      this.steerToward(_aim, this.profile.boostSpeed, dt);
+      return;
+    }
+    if (this.state === 'evade') this.state = 'dogfight';
+
     let target: AiCombatJet | null = null;
     let bestD = Infinity;
     for (const e of enemies) {
@@ -845,22 +1285,24 @@ export class AiCombatJet implements ExtraTarget, MissileTarget {
         target = e;
       }
     }
+    this.currentTargetJet = target;
 
     if (target) {
       const dist = Math.sqrt(bestD);
       const leadT = clamp(dist / 185, 0.14, 1.05);
       _aim.copy(target.position).addScaledVector(target.velocity, leadT);
-      _aim.y = clamp(_aim.y + 4, MIN_FLIGHT_ALT + 8, MAX_FLIGHT_ALT);
+      _aim.y = clamp(_aim.y + 4, th.minAlt + 8, th.maxAlt);
       const targetSpeed = dist > 130 ? this.profile.boostSpeed : this.profile.cruiseSpeed * 1.10;
       this.afterburning = dist > 130;
       this.steerToward(_aim, targetSpeed, dt);
       this.tryAirToAirWeapons(dt, target.position, target.velocity, target, dist, false);
     } else {
-      const patrolAngle = Math.atan2(this.position.x - _carrierPos.x, this.position.z - _carrierPos.z) + this.orbitSide * 0.55;
+      const patrolAnchor = this.priorityTarget && this.priorityTarget.alive ? this.priorityTarget.position : _carrierPos;
+      const patrolAngle = Math.atan2(this.position.x - patrolAnchor.x, this.position.z - patrolAnchor.z) + this.orbitSide * 0.55;
       _aim.set(
-        _carrierPos.x + Math.sin(patrolAngle) * 165,
-        this.profile.preferredAlt + 18,
-        _carrierPos.z + Math.cos(patrolAngle) * 165,
+        patrolAnchor.x + Math.sin(patrolAngle) * 165,
+        clamp(this.profile.preferredAlt + 18, th.minAlt + 14, th.maxAlt),
+        patrolAnchor.z + Math.cos(patrolAngle) * 165,
       );
       this.afterburning = false;
       this.steerToward(_aim, this.profile.cruiseSpeed * 0.88, dt);
@@ -889,8 +1331,26 @@ export class AiCombatJet implements ExtraTarget, MissileTarget {
       _v.z += rand(-spread, spread);
       _v.normalize();
       const dmg = this.team === 'ally' ? 30 : this.profile.gunDamage;
-      const isHeavyGun = this.profile.doctrine === 'cas_attacker';
+      const isHeavyGun = this.doctrine === 'cas_attacker';
       this.cb.onGunShot(this.position.clone().addScaledVector(_fwd, 5.5), _v.clone(), this.team, dmg, 245, isHeavyGun);
+
+      // Two-way AI-vs-AI gunfire resolution when caller doesn't simulate enemy-vs-ally bullet collision itself.
+      if (this.team === 'enemy' && targetJet && targetJet.alive && !this.cb.handlesEnemyAiHits) {
+        const hitChance = targetJet.kind === 'lancer'
+          ? clamp(0.74 + this.skill * 0.2, 0.55, 0.95)
+          : clamp(0.42 + this.skill * 0.34, 0.28, 0.80);
+        if (Math.random() < hitChance) {
+          this.pendingAiHits.push({
+            target: targetJet,
+            delay: clamp(dist / 245, 0.06, 1.35),
+            damage: dmg,
+            heavy: isHeavyGun,
+            missile: false,
+            source: this.name,
+          });
+        }
+      }
+
       this.gunBurstLeft--;
       this.gunCooldown = this.gunBurstLeft > 0 ? (isHeavyGun ? 0.07 : 0.10) : rand(0.95, 1.9) * (1.2 - this.skill * 0.35);
     }
@@ -926,7 +1386,56 @@ export class AiCombatJet implements ExtraTarget, MissileTarget {
       return;
     }
 
-    // Wingman AI missile launch against enemy aircraft!
+    // 3. Enemy Fox-2 Homing Missile against Allied Wingmen & Escort B-1B Lancer!
+    if (this.team === 'enemy' && targetJet && targetJet.alive) {
+      if (this.aiMissileLockTarget !== targetJet) {
+        this.aiMissileLockTarget = targetJet;
+        this.aiMissileLockProgress = 0;
+      }
+      const canAcquireAlly = this.profile.hasMissiles &&
+        this.missileCooldown <= 0 &&
+        dist > 60 &&
+        dist < 480 &&
+        align > 0.80;
+
+      if (canAcquireAlly) {
+        const lockRate = (this.profile.role === 'ace' ? 0.65 : 0.52) * (0.85 + this.skill * 0.30);
+        const prev = this.aiMissileLockProgress;
+        this.aiMissileLockProgress = Math.min(1, this.aiMissileLockProgress + lockRate * dt);
+        if (prev < 0.45 && this.aiMissileLockProgress >= 0.45) {
+          // Warn allied target (e.g., escort Lancer pops IR flares!)
+          targetJet.notifyMissileLock();
+        }
+        if (this.aiMissileLockProgress >= 1) {
+          this.aiMissileLockProgress = 0;
+          const mDmg = Math.round(115 + this.skill * 65);
+          this.cb.onMissileLaunch(
+            this.position.clone().addScaledVector(_fwd, 4.5),
+            _fwd.clone(),
+            this.team,
+            targetPos.clone(),
+            targetJet,
+            mDmg,
+          );
+          if (!this.cb.handlesEnemyAiHits) {
+            this.pendingAiHits.push({
+              target: targetJet,
+              delay: clamp(dist / 165, 0.32, 2.6),
+              damage: mDmg,
+              heavy: true,
+              missile: true,
+              source: this.name,
+            });
+          }
+          this.missileCooldown = this.profile.missileCooldown * (1.1 - this.skill * 0.25);
+        }
+      } else {
+        this.aiMissileLockProgress = Math.max(0, this.aiMissileLockProgress - dt * 0.85);
+      }
+      return;
+    }
+
+    // 4. Wingman AI missile launch against enemy aircraft!
     if (this.team === 'ally' && this.profile.hasMissiles && dist > 60 && dist < 420 && align > 0.82 && this.missileCooldown <= 0) {
       this.cb.onMissileLaunch(
         this.position.clone().addScaledVector(_fwd, 4.5),
@@ -967,11 +1476,11 @@ export class AiCombatJet implements ExtraTarget, MissileTarget {
     this.velocity.copy(_fwd).multiplyScalar(this.speed);
     this.position.addScaledVector(this.velocity, dt);
 
-    if (this.position.y < MIN_FLIGHT_ALT) {
-      this.position.y = MIN_FLIGHT_ALT;
+    if (this.position.y < this.theater.minAlt) {
+      this.position.y = this.theater.minAlt;
       if (this.pitch > 0) this.pitch = damp(this.pitch, -0.25, 8, dt);
-    } else if (this.position.y > MAX_FLIGHT_ALT) {
-      this.position.y = MAX_FLIGHT_ALT;
+    } else if (this.position.y > this.theater.maxAlt) {
+      this.position.y = this.theater.maxAlt;
       if (this.pitch < 0) this.pitch = damp(this.pitch, 0.15, 6, dt);
     }
   }
@@ -984,7 +1493,7 @@ export class AiCombatJet implements ExtraTarget, MissileTarget {
 
   private syncModelAndCollider(dt: number): void {
     this.center.copy(this.position);
-    this.markerPos.set(this.position.x, this.position.y + 4.4, this.position.z);
+    this.markerPos.set(this.position.x, this.position.y + (this.kind === 'lancer' ? 6.8 : 4.4), this.position.z);
 
     this.rig.root.position.copy(this.position);
     this.rig.root.rotation.set(this.pitch, this.yaw, this.roll, 'YXZ');

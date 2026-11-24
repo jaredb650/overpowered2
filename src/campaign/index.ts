@@ -23,6 +23,7 @@ import type { CampaignSystem, MissionResult } from './events';
 import './events';
 import { BankRun } from './bankRun';
 import { Chancery } from './chancery';
+import { CrossfireDirector, isCrossfireMissionId } from './crossfire/director';
 import { DesertRaid } from './desertRaid';
 import { Foreclosure } from './foreclosure';
 import { GameHost } from './host';
@@ -82,6 +83,8 @@ class Campaign implements CampaignSystem {
   private readonly bankRun: BankRun | null = null;
   /** Desert Raid's Surplus convoy, warren, water tower & Quist runtime director (desertRaid.ts). */
   private readonly desertRaid: DesertRaid | null = null;
+  /** Crossfire's 4-part multi-map runtime director (crossfire/director.ts). */
+  private readonly crossfire: CrossfireDirector | null = null;
   result: MissionResult | null = null;
 
   constructor(private readonly ctx: Ctx, id: string) {
@@ -112,9 +115,12 @@ class Campaign implements CampaignSystem {
     } else if (mission.id === 'desert_raid') {
       const dr = (this.desertRaid = new DesertRaid(ctx, this.runner, this.ui));
       this.host.desertRaidCall = (name, arg) => dr.call(name, arg);
+    } else if (isCrossfireMissionId(mission.id)) {
+      const cf = (this.crossfire = new CrossfireDirector(ctx, this.runner, this.ui, () => this.host.film.playing));
+      this.host.crossfireCall = (name, arg) => { cf.call(name, arg); };
     }
-    // A mission with friendly squads (Foreclosure, Desert Raid) loads their bodies now.
-    if (mission.id === 'desert_raid' || /"do":"(roster|battle)"/.test(JSON.stringify(mission.beats))) void ctx.allies?.preload();
+    // A mission with friendly squads (Foreclosure, Desert Raid, Crossfire) loads their bodies now.
+    if (mission.id === 'desert_raid' || isCrossfireMissionId(mission.id) || /"do":"(roster|battle)"/.test(JSON.stringify(mission.beats))) void ctx.allies?.preload();
   }
 
   init(): void {
@@ -210,6 +216,7 @@ class Campaign implements CampaignSystem {
     this.chancery?.update(dt);
     this.bankRun?.update(dt);
     this.desertRaid?.update(dt);
+    this.crossfire?.update(dt);
     this.runner.update(dt);
     this.ui.beat(this.runner.beat?.title ?? '');
     this.ui.update(this.ctx.time.realDt);
@@ -228,6 +235,8 @@ class Campaign implements CampaignSystem {
     this.bankRun?.clear();
     this.desertRaid?.ensureBuilt();
     this.desertRaid?.clear();
+    this.crossfire?.ensureBuilt();
+    this.crossfire?.clear();
     this.ui.reset();
     // Apply the mission's corpse cap for both hosts and co-op guests, and persist it so mid-run setting changes clamp to it.
     setMissionCorpseCap(this.runner.mission.corpses);
@@ -255,6 +264,7 @@ class Campaign implements CampaignSystem {
     this.chancery?.reset();
     this.bankRun?.reset();
     this.desertRaid?.reset();
+    this.crossfire?.reset();
     this.ui.reset();
   }
 }

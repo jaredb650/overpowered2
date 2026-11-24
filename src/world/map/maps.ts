@@ -37,13 +37,25 @@ import {
   authorDogfight, DOGFIGHT_BOUNDS, DOGFIGHT_HUB, DOGFIGHT_LEVELS,
   DOGFIGHT_LIGHT_BOUNDS, DOGFIGHT_LIGHT_CELL, DOGFIGHT_NAV_BOUNDS, DOGFIGHT_STAGES,
 } from './dogfight';
+import {
+  authorAirbase, AIRBASE_BOUNDS, AIRBASE_HUB, AIRBASE_LEVELS,
+  AIRBASE_LIGHT_BOUNDS, AIRBASE_LIGHT_CELL, AIRBASE_NAV_BOUNDS, AIRBASE_STAGES,
+} from './airbase';
+import {
+  authorStrait, STRAIT_BOUNDS, STRAIT_HUB, STRAIT_LEVELS,
+  STRAIT_LIGHT_BOUNDS, STRAIT_LIGHT_CELL, STRAIT_NAV_BOUNDS, STRAIT_STAGES,
+} from './strait';
+import {
+  authorHalcyon, HALCYON_BOUNDS, HALCYON_HUB, HALCYON_LEVELS,
+  HALCYON_LIGHT_BOUNDS, HALCYON_LIGHT_CELL, HALCYON_NAV_BOUNDS, HALCYON_STAGES,
+} from './halcyon';
 import { KH } from './killhouse/plan';
 import { LEVEL, RING } from './layout';
 import type { MapSpec } from './spec';
 import type { MapZone } from '../../core/contracts';
 import { ACTIVE } from '../../contracts/select';
 
-export type MapId = 'crucible' | 'killhouse' | 'outpost' | 'fort' | 'holdfast' | 'office' | 'range' | 'annex' | 'rooftop' | 'chancery' | 'bank' | 'desert' | 'badlands' | 'dogfight';
+export type MapId = 'crucible' | 'killhouse' | 'outpost' | 'fort' | 'holdfast' | 'office' | 'range' | 'annex' | 'rooftop' | 'chancery' | 'bank' | 'desert' | 'badlands' | 'dogfight' | 'airbase' | 'strait' | 'halcyon';
 
 export interface MapDef {
   id: MapId;
@@ -295,7 +307,61 @@ const dogfight: MapDef = {
   atmosphere: 'dawn',
 };
 
-const MAPS: Record<MapId, MapDef> = { crucible, killhouse, outpost, fort, holdfast, office, range, annex, rooftop, chancery, bank, desert, badlands, dogfight };
+const AB = AIRBASE_BOUNDS;
+const ABN = AIRBASE_NAV_BOUNDS;
+const ABL = AIRBASE_LIGHT_BOUNDS;
+const airbase: MapDef = {
+  id: 'airbase',
+  bounds: box(AB.x0, AB.y0, AB.z0, AB.x1, AB.y1, AB.z1),
+  navBounds: box(ABN.x0, ABN.y0, ABN.z0, ABN.x1, ABN.y1, ABN.z1),
+  lightBounds: box(ABL.x0, ABL.y0, ABL.z0, ABL.x1, ABL.y1, ABL.z1),
+  lightCell: AIRBASE_LIGHT_CELL,
+  minimapExtent: 168,
+  navHub: AIRBASE_HUB,
+  nav: { mutual: true, levels: [...AIRBASE_LEVELS] },
+  stages: AIRBASE_STAGES,
+  author: authorAirbase,
+  readyLabel: 'Spoofing Northern IFF',
+  atmosphere: 'dawn',
+};
+
+const ST = STRAIT_BOUNDS;
+const STN = STRAIT_NAV_BOUNDS;
+const STL = STRAIT_LIGHT_BOUNDS;
+const strait: MapDef = {
+  id: 'strait',
+  bounds: box(ST.x0, ST.y0, ST.z0, ST.x1, ST.y1, ST.z1),
+  navBounds: box(STN.x0, STN.y0, STN.z0, STN.x1, STN.y1, STN.z1),
+  lightBounds: box(STL.x0, STL.y0, STL.z0, STL.x1, STL.y1, STL.z1),
+  lightCell: STRAIT_LIGHT_CELL,
+  minimapExtent: 640,
+  navHub: STRAIT_HUB,
+  nav: { mutual: true, levels: [...STRAIT_LEVELS] },
+  stages: STRAIT_STAGES,
+  author: authorStrait,
+  readyLabel: 'Forming up on the Lancer',
+  atmosphere: 'dawn',
+};
+
+const HL = HALCYON_BOUNDS;
+const HLN = HALCYON_NAV_BOUNDS;
+const HLL = HALCYON_LIGHT_BOUNDS;
+const halcyon: MapDef = {
+  id: 'halcyon',
+  bounds: box(HL.x0, HL.y0, HL.z0, HL.x1, HL.y1, HL.z1),
+  navBounds: box(HLN.x0, HLN.y0, HLN.z0, HLN.x1, HLN.y1, HLN.z1),
+  lightBounds: box(HLL.x0, HLL.y0, HLL.z0, HLL.x1, HLL.y1, HLL.z1),
+  lightCell: HALCYON_LIGHT_CELL,
+  minimapExtent: 180,
+  navHub: HALCYON_HUB,
+  nav: { mutual: true, levels: [...HALCYON_LEVELS] },
+  stages: HALCYON_STAGES,
+  author: authorHalcyon,
+  readyLabel: 'Arming Fortress Halcyon defenses',
+  atmosphere: 'dawn',
+};
+
+const MAPS: Record<MapId, MapDef> = { crucible, killhouse, outpost, fort, holdfast, office, range, annex, rooftop, chancery, bank, desert, badlands, dogfight, airbase, strait, halcyon };
 
 /** The map of the page's contract, or whatever `?map=` names. contracts/select.ts has the rules. */
 export function selectMap(): MapDef {

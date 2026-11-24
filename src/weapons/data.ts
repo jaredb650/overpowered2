@@ -1072,7 +1072,7 @@ export const TUNING = {
       /** Seconds a patch burns after the last glob that fed it, the last `fade` of them dying down. */
       life: 7, fade: 2,
       /** Pooled. A full pool puts out the oldest. */
-      max: 24,
+      max: 64,
       /** A glob landing this close to a patch on the same surface feeds it, growing it by `grow` up to `maxRadius`. */
       merge: 0.9, radius: 0.55, grow: 0.06, maxRadius: 1.5,
       /** Seconds between checks for men standing in it. */
@@ -1285,6 +1285,14 @@ export const EXPLOSIONS: Record<ExplosionKind, ExplosionDef> = {
   howitzer: {
     ...BLAST, shake: 0.15, shakeRange: 30, selfDamage: 0, selfCap: 0, playerPush: 0, impulse: 14,
     sounds: [{ id: 'rocket_explosion' }], flash: 0, fovPunch: 3.5,
+  },
+  thermobaric: {
+    ...BLAST, shake: 2.4, shakeRange: 140, edgeDamage: 0.55, selfDamage: 0, selfCap: 0, playerPush: 28, impulse: 24,
+    sounds: [
+      { id: 'hellfire_rocket_blast', volume: 1.0, pitch: 0.72 },
+      { id: 'rocket_explosion', volume: 0.95, pitch: 0.62 },
+    ],
+    flash: 0.55, fovPunch: 8.5,
   },
   nuke: {
     ...BLAST, shake: 0.5, shakeRange: 400, edgeDamage: 1, selfDamage: 0, selfCap: 0, playerPush: 0,

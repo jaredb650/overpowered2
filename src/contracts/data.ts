@@ -11,7 +11,7 @@ import type { MapId } from '../world/map/maps';
  * `outpost` is Endless Humans. The id is older than the campaign, and URLs and score tables are keyed on it. `defense` is
  * Outpost Defense, Endless Humans' tower defense (docs/proposals/outpost-defense.md).
  */
-export type ContractId = 'campaign' | 'foreclosure' | 'quiet_title' | 'bank_run' | 'desert_raid' | 'crucible' | 'outpost' | 'rooftop' | 'badlands' | 'dogfight' | 'defense' | 'retraining';
+export type ContractId = 'campaign' | 'foreclosure' | 'quiet_title' | 'bank_run' | 'desert_raid' | 'crossfire' | 'crossfire_strait' | 'crossfire_halcyon' | 'crossfire_return' | 'crucible' | 'outpost' | 'rooftop' | 'badlands' | 'dogfight' | 'defense' | 'retraining';
 
 /** Who lives there. Section 15's faction rules hang off this: pain, fear, bleeding, gib thresholds. */
 export type FactionId = 'swarm' | 'humans';
@@ -79,6 +79,8 @@ export interface ContractDef {
   economy?: boolean;
   /** The tutorial (docs/design/tutorial.md): reached from Play > Training and a first launch, never listed with the missions. */
   training?: boolean;
+  /** Multi-part campaign continuation contracts reached via handoff transitions rather than direct menu selection. */
+  hidden?: boolean;
   /** Disables The Commander entirely (no briefings, barks, adaptations, or boss spawn) for truly endless human survival modes like Rooftop. */
   noCommander?: boolean;
   /** localStorage key of this contract's high score. */
@@ -238,6 +240,116 @@ export const CONTRACTS: readonly ContractDef[] = [
       ],
     },
     scoreKey: 'op2_highscore.desert_raid',
+  },
+  {
+    id: 'crossfire',
+    name: 'Crossfire',
+    map: 'airbase',
+    faction: 'humans',
+    waves: 'squads',
+    ai: 'outpost',
+    wounds: 'anatomy',
+    rewards: { backShot: 1.5 },
+    mission: 'crossfire_airbase',
+    opensAfter: 'outpost',
+    noCommander: true,
+    briefing: {
+      ref: 'Form 7742-W',
+      subject: 'Northern Command (Valken Airbase) and Southern Directorate (Fortress Halcyon), jointly and severally',
+      body: [
+        'Actuarial review indicates that exterminating two rival superpowers separately exceeds the quarterly munitions ceiling. Under Form 7742-W (Cross-Border Liability Transfer), you will steal a Northern B-1B Lancer and two F-22 Raptors from Valken Airbase with spoofed Northern transponders and fly them straight into Southern Fortress Halcyon.',
+        'Part 1: Raid Valken Airbase on foot beside Viper Squad, override the Alert Hangar from ATC Level 3, and climb out north in the 28.2 m B-1B Lancer.',
+        'Parts 2–4: Transfer to Contractor #7712-B’s F-22 Raptor to escort the Lancer across the Open-Sea Strait, take the bomber’s cockpit to flatten Fortress Halcyon alongside Captain Mercer’s combined-arms invasion, and bring the wounded bomber home at dusk.',
+      ],
+      terms: [
+        ['Theaters', 'Valken Airbase -> The Strait -> Fortress Halcyon -> Dusk Egress'],
+        ['Aircraft', 'B-1B Lancer (4-mode bomb bays) & F-22 Raptor Escort'],
+        ['Support', 'Viper Squad, Mercer Armored Columns, Valkyrie Fast-Rope & Kestrel CAS'],
+        ['Liability', 'Transferred 100% to Northern Command via spoofed IFF'],
+      ],
+    },
+    scoreKey: 'op2_highscore.crossfire',
+  },
+  {
+    id: 'crossfire_strait',
+    name: 'Crossfire — The Strait',
+    map: 'strait',
+    faction: 'humans',
+    waves: 'squads',
+    ai: 'outpost',
+    wounds: 'anatomy',
+    rewards: { backShot: 1.5 },
+    mission: 'crossfire_strait',
+    opensAfter: 'outpost',
+    hidden: true,
+    noCommander: true,
+    briefing: {
+      ref: 'Form 7742-W/2',
+      subject: 'Southern Directorate Strait Naval Screen & Interceptor CAP',
+      body: [
+        'Contractor #7712-B seat transfer complete. Escort the stolen 7,500 HP B-1B Lancer north across the Open-Sea Strait toward Fortress Halcyon.',
+        'Suppress the Mid-Strait Missile Destroyers SNS Ironclad and SNS Bastion, and clear Halvorsen’s coastal interceptors before feet-dry.',
+      ],
+      terms: [
+        ['Theater', 'The Open-Sea Strait (1,640 m Corridor)'],
+        ['Seat', 'Contractor #7712-B — F-22 Raptor Escort'],
+      ],
+    },
+    scoreKey: 'op2_highscore.crossfire_strait',
+  },
+  {
+    id: 'crossfire_halcyon',
+    name: 'Crossfire — Fortress Halcyon',
+    map: 'halcyon',
+    faction: 'humans',
+    waves: 'squads',
+    ai: 'outpost',
+    wounds: 'anatomy',
+    rewards: { backShot: 1.5 },
+    mission: 'crossfire_halcyon',
+    opensAfter: 'outpost',
+    hidden: true,
+    noCommander: true,
+    briefing: {
+      ref: 'Form 7742-W/3',
+      subject: 'General Halvorsen & Fortress Halcyon Garrison',
+      body: [
+        'Contractor #7712-A seat transfer complete. Pilot the 4-mode B-1B Lancer over Fortress Halcyon in direct support of Captain Mercer’s beachhead armor and Valkyrie assault choppers.',
+        'Breach Section B, silence the mortar trenches and SAM ridge, flatten Halcyon’s war machine, and drop BLU-121 Thermobaric ordnance onto the Citadel Command HQ.',
+      ],
+      terms: [
+        ['Theater', 'Fortress Halcyon — Combined-Arms Siege'],
+        ['Seat', 'Contractor #7712-A — B-1B Lancer Heavy Bomber'],
+      ],
+    },
+    scoreKey: 'op2_highscore.crossfire_halcyon',
+  },
+  {
+    id: 'crossfire_return',
+    name: 'Crossfire — Dusk Egress',
+    map: 'strait',
+    faction: 'humans',
+    waves: 'squads',
+    ai: 'outpost',
+    wounds: 'anatomy',
+    rewards: { backShot: 1.5 },
+    mission: 'crossfire_return',
+    opensAfter: 'outpost',
+    hidden: true,
+    noCommander: true,
+    briefing: {
+      ref: 'Form 7742-W/4',
+      subject: 'Red-Wing Pursuit Squadron & Strait Dusk Egress',
+      body: [
+        'Contractor #7712-B seat transfer complete. Fortress Halcyon is flattened and the ordnance-spent B-1B Lancer is trailing smoke on its dusk sprint south.',
+        'Break Halvorsen’s surviving Red-Wing Aces and bring the wounded bomber inside the CVN-91 Carrier Strike Group CIWS/SAM umbrella.',
+      ],
+      terms: [
+        ['Theater', 'The Open-Sea Strait (Dusk Egress)'],
+        ['Seat', 'Contractor #7712-B — F-22 Raptor Escort'],
+      ],
+    },
+    scoreKey: 'op2_highscore.crossfire_return',
   },
   {
     id: 'crucible',

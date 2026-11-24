@@ -538,6 +538,10 @@ export class GameHost implements MissionHost {
           this.desertRaidCall?.(name, arg);
           return;
         }
+        if (name.startsWith('cf.')) {
+          this.crossfireCall?.(name, arg);
+          return;
+        }
         console.warn(`[campaign] nothing provides the call "${name}"`);
     }
   }
@@ -554,6 +558,8 @@ export class GameHost implements MissionHost {
   bankRunCall?: (name: string, arg: string | undefined) => void;
   /** Desert Raid's Surplus convoy, warren & Quist runtime handler (campaign/desertRaid.ts). */
   desertRaidCall?: (name: string, arg: string | undefined) => void;
+  /** Crossfire's 4-part multi-map runtime handler (campaign/crossfire/director.ts). */
+  crossfireCall?: (name: string, arg: string | undefined) => void;
 
   /** Co-op: every living player's feet (types.ts). net/mission.ts provides it; alone it is unset. */
   crowd?: () => readonly { x: number; y: number; z: number }[];

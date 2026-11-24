@@ -15,27 +15,33 @@ import type { ExplosionSpec } from '../core/gameplay';
 import { clamp, rand } from '../core/math';
 
 export interface BombletSpec {
-  /** Number of bomblets in the carpet (e.g. 28 for Bomblet Cannon, 32 for Mortar Cluster). */
+  /** Number of bomblets in the carpet (e.g. 28 for Bomblet Cannon, 32 for Mortar Cluster, 52 for CBU-105 Aerial). */
   count: number;
-  /** Forward length of the carpet in metres (e.g. 14). */
+  /** Forward length of the carpet in metres (e.g. 14, or 44 for CBU-105 Aerial). */
   length: number;
-  /** Side-to-side width of the carpet in metres (e.g. 9), or diameter when `circular` is true. */
+  /** Side-to-side width of the carpet in metres (e.g. 9, or 28 for CBU-105 Aerial), or diameter when `circular` is true. */
   width: number;
-  /** Ripple duration in seconds over which bomblets detonate (e.g. 0.7). */
+  /** Ripple duration in seconds over which bomblets detonate (e.g. 0.7, or 0.9 for CBU-105 Aerial). */
   ripple: number;
-  /** Blast radius per bomblet in metres (e.g. 2.4). */
+  /** Blast radius per bomblet in metres (e.g. 2.4, or 5.5 for CBU-105 Aerial). */
   blastRadius: number;
-  /** Blast damage per bomblet (e.g. 70). */
+  /** Blast damage per bomblet (e.g. 70, or 190 for CBU-105 Aerial). */
   damage: number;
   /** True for a mortar's overhead circular shower; false for a forward-thrown fan. */
   circular?: boolean;
+  /** True for high-altitude bomber aerial cluster dispersal (elliptical length × width carpet dropped from altitude). */
+  aerial?: boolean;
+  /** Airburst height above ground in metres for `aerial` dispersal (default 28). */
+  dropHeight?: number;
+  /** True for heavy shaped-charge / EFP submunitions that penetrate armored vehicles. */
+  armorPiercing?: boolean;
   /** Damage source string. */
   source: string;
   /** Co-op cosmetic-only playback (no damage). */
   cosmetic?: boolean;
 }
 
-export const MAX_BOMBLETS = 128;
+export const MAX_BOMBLETS = 384;
 export const BOMBLET_GRAVITY = 24;
 export const BOMBLET_RESTITUTION = 0.45;
 
@@ -43,9 +49,9 @@ const GOLDEN_RATIO = 0.61803398875;
 const GOLDEN_ANGLE = 2.399963229728653;
 const SKIN = 0.08;
 const FLOOR_NORMAL_Y = 0.65;
-const MAX_LIGHTS_PER_STEP = 2;
-const MAX_FX_PER_STEP = 4;
-const CRACKLE_GAP = 0.055;
+const MAX_LIGHTS_PER_STEP = 3;
+const MAX_FX_PER_STEP = 6;
+const CRACKLE_GAP = 0.048;
 const RAGDOLL_PUSH_SCALE = 1.65;
 const RAGDOLL_PUSH_FORCE = 92;
 
@@ -58,6 +64,7 @@ interface Bomblet {
   settled: boolean;
   blastRadius: number;
   damage: number;
+  armorPiercing: boolean;
   source: string;
   cosmetic: boolean;
   trailIn: number;
@@ -116,6 +123,7 @@ function makeBomblet(): Bomblet {
     settled: false,
     blastRadius: 2.4,
     damage: 70,
+    armorPiercing: false,
     source: 'frame_cluster',
     cosmetic: false,
     trailIn: 0,
@@ -188,6 +196,8 @@ class BombletField {
     const count = Math.max(1, Math.min(MAX_BOMBLETS, Math.round(spec.count)));
     const ripple = Math.max(0, spec.ripple);
     const circular = spec.circular === true;
+    const aerial = spec.aerial === true;
+    const armorPiercing = spec.armorPiercing === true;
     const cosmetic = spec.cosmetic === true;
 
     _fwd.set(dir.x, 0, dir.z);
@@ -197,7 +207,14 @@ class BombletField {
 
     const seedOffset = Math.random();
     const seedAngle = Math.random() * Math.PI * 2;
-    const baseDelay = circular ? 0.45 : 0.18;
+    const dropH = aerial ? clamp(spec.dropHeight ?? 28, 3, 36) : 18;
+    const aerialNomVy = dropH > 6 ? -13 : 6.5;
+    const aerialBaseDelay = clamp(
+      ((aerialNomVy + Math.sqrt(aerialNomVy * aerialNomVy + 2 * BOMBLET_GRAVITY * dropH)) / BOMBLET_GRAVITY) * 0.92,
+      0.45,
+      1.15,
+    );
+    const baseDelay = aerial ? aerialBaseDelay : circular ? 0.45 : 0.18;
 
     for (let i = 0; i < count; i++) {
       const b = this.alloc();
@@ -208,6 +225,7 @@ class BombletField {
       b.settled = false;
       b.blastRadius = spec.blastRadius;
       b.damage = spec.damage;
+      b.armorPiercing = armorPiercing;
       b.source = spec.source;
       b.cosmetic = cosmetic;
       b.trailIn = rand(0.02, 0.07);
@@ -217,7 +235,23 @@ class BombletField {
       const order = count === 1 ? 0 : i / (count - 1);
       b.detonateAt = baseDelay + order * ripple;
 
-      if (circular) {
+      if (aerial) {
+        // High-altitude bomber CBU-105 dispenser: elliptical sunflower carpet (`length` × `width`) dropped from ~28 m.
+        const rNorm = Math.sqrt((i + 0.5) / count);
+        const theta = i * GOLDEN_ANGLE + seedAngle;
+        const along = Math.cos(theta) * rNorm * (spec.length * 0.5) * rand(0.92, 1.04) + spec.length * 0.12;
+        const across = Math.sin(theta) * rNorm * (spec.width * 0.5) * rand(0.92, 1.04);
+        const vy = dropH > 6
+          ? -10 - 6 * (1 - rNorm) + rand(-1.4, 1.4)
+          : rand(5.0, 9.0);
+        const tFall = (vy + Math.sqrt(vy * vy + 2 * BOMBLET_GRAVITY * dropH)) / BOMBLET_GRAVITY;
+        const effTime = Math.max(0.55, tFall + 0.12);
+        b.vel
+          .copy(_fwd)
+          .multiplyScalar(along / effTime)
+          .addScaledVector(_right, across / effTime);
+        b.vel.y = vy;
+      } else if (circular) {
         // Sunflower phyllotaxis over a `width` m diameter circular patch (radius = width * 0.5) dropped from ~18 m.
         const rNorm = Math.sqrt((i + 0.5) / count);
         const radius = rNorm * (spec.width * 0.5) * rand(0.9, 1.02);
@@ -340,10 +374,16 @@ class BombletField {
         _blast.normal = b.normal;
         _blast.cosmetic = b.cosmetic;
         _blast.mirrored = !b.cosmetic;
+        _blast.scale = b.armorPiercing ? 0.95 : 0.55;
+        _blast.shake = b.armorPiercing ? 0.045 : 0.015;
         c.combat.explode(b.pos, _blast);
 
+        if (b.armorPiercing && !b.cosmetic) {
+          c.enemies?.vehicles?.frameBlow?.(b.pos, b.blastRadius, b.damage * 0.75, null, 'frame_40mm_ap');
+        }
+
         // Strong ragdoll push across the carpet.
-        c.physics?.radialImpulse?.(b.pos, b.blastRadius * RAGDOLL_PUSH_SCALE, RAGDOLL_PUSH_FORCE);
+        c.physics?.radialImpulse?.(b.pos, b.blastRadius * RAGDOLL_PUSH_SCALE, b.armorPiercing ? RAGDOLL_PUSH_FORCE * 1.45 : RAGDOLL_PUSH_FORCE);
 
         if (fxThisStep < MAX_FX_PER_STEP) {
           fxThisStep++;
