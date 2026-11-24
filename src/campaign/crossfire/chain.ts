@@ -230,7 +230,7 @@ export function buildCrossfireSearch(nextContractId: string, currentSearch?: str
   const from = currentSearch ?? (typeof location !== 'undefined' ? location.search : '');
   const next = new URLSearchParams(contractSearch(nextContractId as ContractId, from));
   next.delete('custom');
-  return next.toString();
+  return `?${next.toString()}`;
 }
 
 export interface CrossfireTransitionOptions {

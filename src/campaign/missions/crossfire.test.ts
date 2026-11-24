@@ -258,6 +258,7 @@ describe('Crossfire multi-map chain state (`chain.ts`)', () => {
     });
 
     const preview = buildCrossfireSearch('crossfire_halcyon', '?dev=1&unlock=1&map=strait&custom=1');
+    expect(preview.startsWith('?')).toBe(true);
     const previewParams = new URLSearchParams(preview);
     expect(previewParams.get('contract')).toBe('crossfire_halcyon');
     expect(previewParams.get('dev')).toBe('1');
@@ -276,7 +277,10 @@ describe('Crossfire multi-map chain state (`chain.ts`)', () => {
     expect(assign).toHaveBeenCalledTimes(1);
     expect(allowedAtAssign).toBe(true);
     allowPageNavigation(false);
-    const navigated = new URLSearchParams(assign.mock.calls[0]![0] as string);
+    const navigatedRaw = assign.mock.calls[0]![0] as string;
+    expect(navigatedRaw.startsWith('?')).toBe(true);
+    expect(new URL(navigatedRaw, 'https://jaredb650.github.io/overpowered2/').pathname).toBe('/overpowered2/');
+    const navigated = new URLSearchParams(navigatedRaw);
     expect(navigated.get('contract')).toBe('crossfire_strait');
     expect(navigated.get('dev')).toBe('1');
     expect(navigated.get('unlock')).toBe('1');
