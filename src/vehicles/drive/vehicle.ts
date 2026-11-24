@@ -155,6 +155,15 @@ export class DriveableVehicle {
   private readonly engineAudio: VehicleAudioController;
   /** Occupant IDs per seat (`'local'` for local player, peer/AI IDs for co-op passengers & gunners). */
   private readonly seatOccupants: (string | null)[];
+  /** Co-op multi-crew: >= 0 when this vehicle is driven by a remote teammate (`slot`) and we ride as gunner/passenger. */
+  remoteDriverSlot = -1;
+  /** Co-op multi-crew: host-arbitrated seat swap request hook (returns false when deferred to host). */
+  onRequestSeatSwap: ((targetSeat: number) => boolean) | null = null;
+  /** Co-op multi-crew: invoked when a passenger exits a remote-driven vehicle so Driveables cleans up. */
+  onCrewExit: (() => void) | null = null;
+  private remoteGunnerSeat = -1;
+  private remoteGunnerYaw = 0;
+  private remoteGunnerPitch = 0;
   private keyCPressed = false;
   private readonly onKeyDown = (e: KeyboardEvent): void => {
     if (e.code === 'KeyC' && !e.repeat && this.occupied) {
@@ -386,6 +395,141 @@ export class DriveableVehicle {
     this.syncRiderModels();
   }
 
+  /** Co-op multi-crew: true while this vehicle's hull is driven by a remote teammate (`remoteDriverSlot`). */
+  get isRemoteDriven(): boolean {
+    return this.remoteDriverSlot >= 0;
+  }
+
+  /** Co-op multi-crew: current seat index and turret yaw/pitch for gunner aim broadcast (`drvg`). */
+  get localTurretAim(): { seat: number; yaw: number; pitch: number } {
+    const yaw = this.activeSeatSpec.usesTurret || this.activeSeatSpec.usesSubTurret
+      ? this.turretYaw
+      : wrapAngle(this.aimYaw - this.phys.yaw);
+    return { seat: this._seatIndex, yaw, pitch: this.aimPitch };
+  }
+
+  /**
+   * Co-op multi-crew: syncs remote crew riders into `seatOccupants` (preserving `'local'` in our own seat)
+   * and updates visible tinted 3D rider models on this vehicle.
+   */
+  setCrewOccupants(entries: readonly [number, string, string | undefined][]): void {
+    const nextMap = new Map<number, { id: string; color?: string }>();
+    for (const [seatIdx, id, color] of entries) {
+      if (seatIdx >= 0 && seatIdx < this.seatOccupants.length) {
+        nextMap.set(seatIdx, { id, color });
+      }
+    }
+    for (let i = 0; i < this.seatOccupants.length; i++) {
+      if (this.occupied && i === this._seatIndex) {
+        this.seatOccupants[i] = 'local';
+        continue;
+      }
+      const entry = nextMap.get(i);
+      this.seatOccupants[i] = entry ? entry.id : null;
+      if (entry?.color) {
+        for (const r of this.model.riders) {
+          if (r.seatIndex === i) setRiderAccent(r, entry.color);
+        }
+      }
+    }
+    if (this.remoteGunnerSeat >= 0 && !nextMap.has(this.remoteGunnerSeat)) {
+      this.remoteGunnerSeat = -1;
+    }
+    this.syncRiderModels();
+  }
+
+  /**
+   * Co-op multi-crew: smoothly drives this passenger-ridden vehicle's hull from the remote driver's
+   * interpolated pose stream (`drv`) without running conflicting local hull physics.
+   */
+  applyRemoteHullPose(
+    x: number,
+    y: number,
+    z: number,
+    yaw: number,
+    pitch: number,
+    roll: number,
+    steer: number,
+    wheelSpin: number,
+    rotorAngle: number,
+    wingSweep: number,
+    flags: number,
+    dt: number,
+    driverTurretYaw?: number,
+    driverTurretPitch?: number,
+  ): void {
+    const p = this.phys;
+    const prevX = p.position.x;
+    const prevY = p.position.y;
+    const prevZ = p.position.z;
+    p.position.set(x, y, z);
+    if (dt > 0.001) {
+      const dx = x - prevX;
+      const dy = y - prevY;
+      const dz = z - prevZ;
+      if (dx * dx + dy * dy + dz * dz < 40 * 40) {
+        p.velocity.set(dx / dt, dy / dt, dz / dt);
+        p.speed = Math.hypot(p.velocity.x, p.velocity.z);
+      } else {
+        p.velocity.set(0, 0, 0);
+        p.speed = 0;
+      }
+    }
+    p.yaw = yaw;
+    p.pitch = pitch;
+    p.roll = roll;
+    p.steerAngle = steer;
+    p.wheelSpin = wheelSpin;
+    p.rotorAngle = rotorAngle;
+    p.wingSweep = wingSweep;
+    p.boosting = (flags & 1) !== 0;
+    p.vtolMode = (flags & 2) !== 0;
+    p.altitude = (flags & 4) !== 0 ? 0.5 : Math.max(4, y);
+    p.deployed = (flags & 8) !== 0;
+    p.deployAnim = damp(p.deployAnim, p.deployed ? 1 : 0, 6, Math.max(0.016, dt));
+    p.dumpBurnTimer = (flags & 16) !== 0 ? 0.2 : 0;
+    if ((flags & 32) !== 0 && this.health > this.def.maxHealth * 0.35) {
+      this.health = Math.round(this.def.maxHealth * 0.3);
+    }
+    // If we're riding in a non-main-turret seat (e.g. Aegis cupola), show the driver's main turret turning!
+    if (
+      this._seatIndex !== 0
+      && !this.activeSeatSpec.usesTurret
+      && typeof driverTurretYaw === 'number'
+      && typeof driverTurretPitch === 'number'
+    ) {
+      this.turretYaw = dampAngle(this.turretYaw, driverTurretYaw, 16, Math.max(0.016, dt));
+      this.turretPitch = damp(this.turretPitch, driverTurretPitch, 16, Math.max(0.016, dt));
+    }
+  }
+
+  /** Co-op multi-crew: rotates this vehicle's gunner turret on the driver's screen to match a remote gunner. */
+  applyRemoteGunnerTurret(seatIndex: number, yaw: number, pitch: number): void {
+    if (seatIndex < 1 || seatIndex >= this.def.seats.length) return;
+    if (this.occupied && this._seatIndex === seatIndex) return;
+    this.remoteGunnerSeat = seatIndex;
+    this.remoteGunnerYaw = yaw;
+    this.remoteGunnerPitch = pitch;
+  }
+
+  /**
+   * Co-op multi-crew: seamlessly promotes a passenger to local driver/owner when the original driver bails
+   * out of an intact vehicle (preventing mid-air drops and preserving hull momentum & Motor Pool slot).
+   */
+  promoteToDriver(takeDriverSeat = true): void {
+    if (!this.isRemoteDriven) return;
+    this.remoteDriverSlot = -1;
+    this.onCrewExit = null;
+    if (this.seatOccupants[0] !== 'local') this.seatOccupants[0] = null;
+    if (takeDriverSeat && this.occupied && this._seatIndex !== 0) {
+      this.switchSeat(0, true);
+    } else {
+      this.syncRiderModels();
+      this.syncHud();
+    }
+    this.ctx.hud?.feed?.(`DRIVER BAILED — YOU HAVE CONTROL OF ${this.def.shortName}!`, '#38e8ff');
+  }
+
   private syncRiderModels(): void {
     const is1P = this.occupied && (!this.thirdPerson || this.activeSeatSpec.chaseDist <= 0.5);
     for (const r of this.model.riders) {
@@ -523,10 +667,23 @@ export class DriveableVehicle {
   }
 
   /** Switches seats cleanly inside the same vehicle (`[F]` or `1`/`2`/`3`). */
-  switchSeat(index: number): void {
+  switchSeat(index: number, force = false): void {
     if (!this.occupied || !this.seat) return;
-    const next = ((index % this.def.seats.length) + this.def.seats.length) % this.def.seats.length;
+    const count = this.def.seats.length;
+    const next = ((index % count) + count) % count;
     if (next === this._seatIndex) return;
+    if (!force) {
+      const occ = this.seatOccupants[next];
+      if (occ !== null && occ !== 'local') {
+        this.ctx.audio?.play('veh_seat_click', { position: this.phys.position, volume: 0.45, pitch: 0.65 });
+        this.ctx.hud?.feed?.(`${this.def.seats[next]!.name} OCCUPIED`, '#ffb84d');
+        return;
+      }
+      // Co-op multi-crew: let the host arbitrate seat swaps so two teammates never claim the same seat.
+      if (this.onRequestSeatSwap && !this.onRequestSeatSwap(next)) {
+        return;
+      }
+    }
     const prev = this._seatIndex;
     if (this.seatOccupants[prev] === 'local') this.seatOccupants[prev] = null;
     this._seatIndex = next;
@@ -543,11 +700,29 @@ export class DriveableVehicle {
     this.syncHud();
   }
 
+  /** Cycles to the next open seat inside the vehicle (skipping seats occupied by co-op teammates). */
+  private cycleOpenSeat(): void {
+    const count = this.def.seats.length;
+    for (let step = 1; step < count; step++) {
+      const cand = (this._seatIndex + step) % count;
+      const occ = this.seatOccupants[cand];
+      if (occ === null || occ === 'local') {
+        this.switchSeat(cand);
+        return;
+      }
+    }
+    this.ctx.hud?.feed?.('ALL OTHER SEATS OCCUPIED', '#ffb84d');
+  }
+
   /** Exits cleanly beside the vehicle (preserving forward momentum for badass jump-offs!). */
   exit(quiet = false): void {
     if (!this.seat) return;
     const seat = this.seat;
+    const crewExitCb = this.onCrewExit;
+    const wasRemote = this.isRemoteDriven;
     this.seat = null;
+    this.onCrewExit = null;
+    this.remoteDriverSlot = -1;
     if (this.seatOccupants[this._seatIndex] === 'local') {
       this.seatOccupants[this._seatIndex] = null;
     }
@@ -580,11 +755,12 @@ export class DriveableVehicle {
       this.ctx.player.push(_vel);
     }
 
-    if (this.alive) this.setColliderParked(true);
+    if (this.alive && !wasRemote) this.setColliderParked(true);
     // Keep aircraft engine roaring while an abandoned chopper/jet spirals down; otherwise smoothly spin down!
-    if (!airborneExit && this.occupiedSeatCount === 0) {
+    if (wasRemote || (!airborneExit && this.occupiedSeatCount === 0)) {
       this.engineAudio.shutdown();
     }
+    crewExitCb?.();
   }
 
   /** Applies damage to the vehicle hull (directional armor, Bastion deployed resistance & kamikaze detonation). */
@@ -633,6 +809,7 @@ export class DriveableVehicle {
     }
 
     const occupied = this.occupied;
+    const remoteDriven = this.isRemoteDriven;
     this.readInput(occupied);
 
     if (occupied) {
@@ -645,7 +822,7 @@ export class DriveableVehicle {
         this.applySeatVisuals();
       }
       if (this.ctx.input.pressed('melee') && this.def.seats.length > 1) {
-        this.switchSeat(this._seatIndex + 1);
+        this.cycleOpenSeat();
       } else if (!this.activeSeatSpec.passengerWeapons) {
         // Only intercept 1/2/3 seat swaps when NOT using hand-held passenger weapons!
         if (this.ctx.input.pressed('weapon1') && this.def.seats.length >= 1) this.switchSeat(0);
@@ -659,61 +836,67 @@ export class DriveableVehicle {
     this.inputScratch.targetAimYaw = this.aimYaw;
     this.inputScratch.targetAimPitch = this.aimPitch;
 
-    // Step physics (only driver/pilot seat feeds drive controls; gunners let vehicle coast or aircraft auto-hover;
-    // completely abandoned airborne aircraft spiral and crash under gravity!).
-    const driveActive = occupied && this._seatIndex === 0;
-    const ownHandle = this.collider?.handle;
-    stepVehiclePhysics(this.def, this.phys, this.inputScratch, dt, this.ctx.world, this.ctx.physics, driveActive, ownHandle, occupied);
+    if (!remoteDriven) {
+      // Step physics (only driver/pilot seat feeds drive controls; gunners let vehicle coast or aircraft auto-hover;
+      // completely abandoned airborne aircraft spiral and crash under gravity!).
+      const driveActive = occupied && this._seatIndex === 0;
+      const ownHandle = this.collider?.handle;
+      stepVehiclePhysics(this.def, this.phys, this.inputScratch, dt, this.ctx.world, this.ctx.physics, driveActive, ownHandle, occupied);
 
-    // Boost ignition whoosh on rising edge!
-    if (occupied && this.phys.boosting && !this.wasBoosting) {
-      this.ctx.audio?.play('veh_boost_whoosh', {
-        position: this.phys.position,
-        volume: this.def.category === 'jet' ? 0.9 : 0.72,
-        pitch: this.def.category === 'jet' ? 1.05 : this.def.category === 'moto' ? 1.25 : 1.0,
-      });
-    }
-    this.wasBoosting = occupied && this.phys.boosting;
-
-    // Abandoned aircraft stricken alarm!
-    if (this.phys.abandonedFall && !this.wasAbandonedFall) {
-      this.wasAbandonedFall = true;
-      this.ctx.audio?.play('gunship_stricken', { position: this.phys.position, volume: 0.9, pitch: 1.0 });
-    } else if (!this.phys.abandonedFall) {
-      this.wasAbandonedFall = false;
-    }
-
-    // Nose-to-camera steering synchronization per vehicle class!
-    if (driveActive && this.def.category === 'helicopter') {
-      this.phys.yaw = dampAngle(this.phys.yaw, this.aimYaw, 3.6, dt);
-    } else if (driveActive && this.def.category === 'jet') {
-      if (this.phys.vtolMode) {
-        this.phys.yaw = dampAngle(this.phys.yaw, this.aimYaw, 4.2, dt);
-      } else if (this.mouseIdleTimer > 0.25 && Math.abs(this.inputScratch.steer) > 0.05) {
-        // When banking with keyboard A/D without moving the mouse, let camera smoothly track the nose.
-        this.aimYaw = dampAngle(this.aimYaw, this.phys.yaw, 5.5, dt);
+      // Boost ignition whoosh on rising edge!
+      if (occupied && this.phys.boosting && !this.wasBoosting) {
+        this.ctx.audio?.play('veh_boost_whoosh', {
+          position: this.phys.position,
+          volume: this.def.category === 'jet' ? 0.9 : 0.72,
+          pitch: this.def.category === 'jet' ? 1.05 : this.def.category === 'moto' ? 1.25 : 1.0,
+        });
       }
-    } else if (driveActive && (this.def.category === 'hover' || this.def.category === 'wheeled' || this.def.category === 'moto')) {
-      if (this.mouseIdleTimer > 0.2 && Math.abs(this.phys.yawRate) > 0.01) {
-        this.aimYaw = wrapAngle(this.aimYaw + this.phys.yawRate * dt * 0.85);
+      this.wasBoosting = occupied && this.phys.boosting;
+
+      // Abandoned aircraft stricken alarm!
+      if (this.phys.abandonedFall && !this.wasAbandonedFall) {
+        this.wasAbandonedFall = true;
+        this.ctx.audio?.play('gunship_stricken', { position: this.phys.position, volume: 0.9, pitch: 1.0 });
+      } else if (!this.phys.abandonedFall) {
+        this.wasAbandonedFall = false;
       }
-      if (this.mouseIdleTimer > 0.85 && this.phys.speed > 4) {
-        this.aimYaw = dampAngle(this.aimYaw, this.phys.yaw, 2.2, dt);
+
+      // Nose-to-camera steering synchronization per vehicle class!
+      if (driveActive && this.def.category === 'helicopter') {
+        this.phys.yaw = dampAngle(this.phys.yaw, this.aimYaw, 3.6, dt);
+      } else if (driveActive && this.def.category === 'jet') {
+        if (this.phys.vtolMode) {
+          this.phys.yaw = dampAngle(this.phys.yaw, this.aimYaw, 4.2, dt);
+        } else if (this.mouseIdleTimer > 0.25 && Math.abs(this.inputScratch.steer) > 0.05) {
+          // When banking with keyboard A/D without moving the mouse, let camera smoothly track the nose.
+          this.aimYaw = dampAngle(this.aimYaw, this.phys.yaw, 5.5, dt);
+        }
+      } else if (driveActive && (this.def.category === 'hover' || this.def.category === 'wheeled' || this.def.category === 'moto')) {
+        if (this.mouseIdleTimer > 0.2 && Math.abs(this.phys.yawRate) > 0.01) {
+          this.aimYaw = wrapAngle(this.aimYaw + this.phys.yawRate * dt * 0.85);
+        }
+        if (this.mouseIdleTimer > 0.85 && this.phys.speed > 4) {
+          this.aimYaw = dampAngle(this.aimYaw, this.phys.yaw, 2.2, dt);
+        }
       }
+
+      // Sync Kinematic Rapier Body for real GTA ragdoll-vehicle physics!
+      this.syncKinematicHull();
+
+      // Handle high-speed wall/ground crashes, abandoned aircraft crashes, pushable wrecks & enemy-vehicle ramming!
+      this.stepCrashAndRam(dt, occupied);
+      if (!this.alive) return;
+
+      this.stepSpecial(dt, occupied);
+      this.stepWeapons(dt, occupied);
+      this.stepAutoTurret(dt);
+      this.stepResupplyAura(dt);
+      this.stepRoadkill(dt);
+    } else {
+      // Passenger / Gunner riding a teammate's vehicle: full local weapon firing & turret aiming, zero hull conflict!
+      this.stepWeapons(dt, occupied);
     }
 
-    // Sync Kinematic Rapier Body for real GTA ragdoll-vehicle physics!
-    this.syncKinematicHull();
-
-    // Handle high-speed wall/ground crashes, abandoned aircraft crashes, pushable wrecks & enemy-vehicle ramming!
-    this.stepCrashAndRam(dt, occupied);
-    if (!this.alive) return;
-
-    this.stepSpecial(dt, occupied);
-    this.stepWeapons(dt, occupied);
-    this.stepAutoTurret(dt);
-    this.stepResupplyAura(dt);
-    this.stepRoadkill(dt);
     this.stepMissileWarning(dt, occupied);
     this.stepEffects(dt, occupied);
     this.syncTransform();
@@ -729,7 +912,7 @@ export class DriveableVehicle {
       this.syncHud();
     } else {
       this.engineAudio.update(dt, this.phys, false, null, false, 0);
-      if (this.collider) {
+      if (this.collider && !remoteDriven) {
         this.setColliderParked(true);
       }
     }
@@ -2148,15 +2331,23 @@ export class DriveableVehicle {
     body.position.y = (this.model.bodyBaseY ?? 0) + hoverBob;
     body.rotation.set(this.phys.pitch, 0, this.phys.roll);
 
+    const remoteGunnerSpec = this.remoteGunnerSeat >= 1 ? this.def.seats[this.remoteGunnerSeat] : undefined;
+    const remoteDrivesMain = Boolean(remoteGunnerSpec?.usesTurret && !this.activeSeatSpec.usesTurret);
+    const mainYaw = remoteDrivesMain ? this.remoteGunnerYaw : this.turretYaw;
+    const mainPitch = remoteDrivesMain ? this.remoteGunnerPitch : this.turretPitch;
     if (turret) {
-      turret.rotation.y = this.turretYaw;
+      turret.rotation.y = mainYaw;
     }
     if (barrel) {
-      barrel.rotation.x = clamp(-this.turretPitch, -0.55, 0.38);
+      barrel.rotation.x = clamp(-mainPitch, -0.55, 0.38);
       barrel.position.z = this.model.barrelBaseZ - this.phys.recoilOffset * 0.55;
     }
-    if (subTurret && this._seatIndex >= 1) {
-      subTurret.rotation.y = this.turretYaw - (turret && this.def.id === 'aegis' ? this.turretYaw : 0);
+    if (subTurret) {
+      if (this._seatIndex >= 1 && this.activeSeatSpec.usesSubTurret) {
+        subTurret.rotation.y = this.turretYaw - (turret && this.def.id === 'aegis' ? this.turretYaw : 0);
+      } else if (remoteGunnerSpec?.usesSubTurret) {
+        subTurret.rotation.y = this.remoteGunnerYaw - (turret && this.def.id === 'aegis' ? mainYaw : 0);
+      }
     }
 
     for (const wf of wheelsFront) {
@@ -2388,7 +2579,8 @@ export class DriveableVehicle {
     seat.hullText = `${Math.ceil(this.health)} / ${this.def.maxHealth}`;
     seat.heat = this.heat;
     seat.overheated = this.overheated;
-    seat.status = spec.name;
+    const crewCount = this.occupiedSeatCount;
+    seat.status = crewCount > 1 ? `${spec.name} · CREW ${crewCount}/${this.def.seats.length}` : spec.name;
 
     const h = this.hudScratch;
     h.hudMode = spec.hudMode;

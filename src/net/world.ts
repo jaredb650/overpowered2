@@ -266,6 +266,10 @@ export class CoopWorld {
   findGuestHijackable(pos: THREE.Vector3, reach: number) { return this.driveables.findGuestHijackable(pos, reach); }
   /** Guest: asks the host to hijack enemy vehicle `vid`. */
   requestVehicleHijack(vid: number, viaGrapple: boolean): void { this.driveables.requestVehicleHijack(vid, viaGrapple); }
+  /** Co-op multi-crew: nearest teammate vehicle with an open passenger/gunner seat within boarding reach. */
+  findBoardableRemoteVehicle(pos: THREE.Vector3) { return this.driveables.findBoardableRemoteVehicle(pos); }
+  /** Co-op multi-crew: asks to board seat `seatIndex` on `driverSlot`'s vehicle. */
+  requestCrewSeat(driverSlot: number, seatIndex: number): void { this.driveables.requestCrewSeat(driverSlot, seatIndex); }
   /**
    * Guest: the local player's damage on an enemy. It is sent to the host as a claim (claims.ts) and drawn here at once
    * (hits.ts `predict`); the result is this machine's guess at the host's. The world's own damage is neither.

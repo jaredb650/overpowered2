@@ -62,8 +62,8 @@ describe('every event type is classed', () => {
     const classes = eventClasses();
     // What may be left out for a peer that is behind, in full: a new entry here is a decision, not an accident.
     const left = [...classes.keys()].filter(droppable).sort();
-    expect(left).toEqual(['allies', 'ashot', 'boom', 'card', 'chatcut', 'chatter', 'dfrwr', 'dfstate', 'drv', 'drvf', 'efx', 'fire', 'hitfx', 'mfx', 'pfx', 'ray', 'round', 'say', 'shock', 'team', 'vehicles']);
-    for (const fact of ['hit', 'status', 'vhit', 'ack', 'kill', 'sever', 'hurt', 'shove', 'wave', 'over', 'up', 'life', 'revive', 'loop', 'held', 'slowstate', 'cin', 'cnews', 'move', 'who', 'mission', 'worldsync', 'pod', 'gun', 'prop', 'restore', 'kit', 'drvx', 'vhijack', 'vhijackok', 'dfhit', 'dfshatter', 'dfbuy', 'dfnext', 'dfflare', 'dfdmg']) {
+    expect(left).toEqual(['allies', 'ashot', 'boom', 'card', 'chatcut', 'chatter', 'dfrwr', 'dfstate', 'drv', 'drvf', 'drvg', 'efx', 'fire', 'hitfx', 'mfx', 'pfx', 'ray', 'round', 'say', 'shock', 'team', 'vehicles']);
+    for (const fact of ['hit', 'status', 'vhit', 'ack', 'kill', 'sever', 'hurt', 'shove', 'wave', 'over', 'up', 'life', 'revive', 'loop', 'held', 'slowstate', 'cin', 'cnews', 'move', 'who', 'mission', 'worldsync', 'pod', 'gun', 'prop', 'restore', 'kit', 'drvx', 'drvs', 'vhijack', 'vhijackok', 'dfhit', 'dfshatter', 'dfbuy', 'dfnext', 'dfflare', 'dfdmg']) {
       expect(classes.get(fact), fact).toBe('fact');
       expect(droppable(fact)).toBe(false);
     }

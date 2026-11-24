@@ -32,11 +32,13 @@ interface FakePeer {
   remotes: Map<string, {
     inVehicle: boolean;
     root: THREE.Group;
-    tag: { setWorldPosition: ReturnType<typeof vi.fn> };
+    tag: THREE.Vector3;
   }>;
   setRemoteClaim: ReturnType<typeof vi.fn>;
   releaseRemoteClaim: ReturnType<typeof vi.fn>;
   completeHijack: ReturnType<typeof vi.fn>;
+  boardRemoteVehicle: ReturnType<typeof vi.fn>;
+  ejectRemoteVehicle: ReturnType<typeof vi.fn>;
   tracers: ReturnType<typeof vi.fn>;
   smoke: ReturnType<typeof vi.fn>;
   sparks: ReturnType<typeof vi.fn>;
@@ -75,6 +77,8 @@ function makeWorldPair() {
     const setRemoteClaim = vi.fn();
     const releaseRemoteClaim = vi.fn();
     const completeHijack = vi.fn();
+    const boardRemoteVehicle = vi.fn();
+    const ejectRemoteVehicle = vi.fn();
     const tracers = vi.fn();
     const smoke = vi.fn();
     const sparks = vi.fn();
@@ -88,13 +92,13 @@ function makeWorldPair() {
     const remotes = new Map<string, {
       inVehicle: boolean;
       root: THREE.Group;
-      tag: { setWorldPosition: ReturnType<typeof vi.fn> };
+      tag: THREE.Vector3;
     }>();
     const otherId = hosting ? 'guest1' : 'host';
     remotes.set(otherId, {
       inVehicle: false,
       root: new THREE.Group(),
-      tag: { setWorldPosition: vi.fn() },
+      tag: new THREE.Vector3(),
     });
 
     let nextHandle = 500;
@@ -108,6 +112,8 @@ function makeWorldPair() {
       setRemoteClaim,
       releaseRemoteClaim,
       completeHijack,
+      boardRemoteVehicle,
+      ejectRemoteVehicle,
       tracers,
       smoke,
       sparks,
@@ -123,9 +129,15 @@ function makeWorldPair() {
 
     const driveablesMgr = {
       active: null as unknown,
+      get remoteRidden() {
+        const a = this.active as { isRemoteDriven?: boolean } | null;
+        return a && a.isRemoteDriven ? a : null;
+      },
       setRemoteClaim,
       releaseRemoteClaim,
       completeHijack,
+      boardRemoteVehicle,
+      ejectRemoteVehicle,
     };
 
     const vehiclesSys = {
@@ -636,5 +648,217 @@ describe('Dogfight co-op sync (AI jets, carrier state, terminal upgrades, RWR & 
 
     hostDf.dispose();
     guestDf.dispose();
+  });
+});
+
+describe('Multi-crew co-op vehicles (boarding, seat swapping, turret aim, driver-bail promotion, explosion eject)', () => {
+  interface MockVehicle {
+    def: { id: string };
+    poolSlot: string | null;
+    alive: boolean;
+    seatIndex: number;
+    remoteDriverSlot: number;
+    readonly isRemoteDriven: boolean;
+    localTurretAim: { seat: number; yaw: number; pitch: number };
+    onRequestSeatSwap: ((targetSeat: number) => boolean) | null;
+    wirePose: (out: number[]) => number[];
+    setCrewOccupants: ReturnType<typeof vi.fn>;
+    switchSeat: ReturnType<typeof vi.fn>;
+    applyRemoteHullPose: ReturnType<typeof vi.fn>;
+    applyRemoteGunnerTurret: ReturnType<typeof vi.fn>;
+    promoteToDriver: ReturnType<typeof vi.fn>;
+  }
+
+  function makeMockVehicle(id: string, poolSlot: string | null, pos: [number, number, number], remoteDriverSlot = -1, seatIndex = 0): MockVehicle {
+    const v: MockVehicle = {
+      def: { id },
+      poolSlot,
+      alive: true,
+      seatIndex,
+      remoteDriverSlot,
+      get isRemoteDriven() { return this.remoteDriverSlot >= 0; },
+      localTurretAim: { seat: seatIndex, yaw: 0.75, pitch: -0.22 },
+      onRequestSeatSwap: null,
+      wirePose: (out: number[]) => {
+        out.length = 0;
+        out.push(pos[0], pos[1], pos[2], 0.5, 0, 0, 0, 0, 0, 0, 0, 0, 1);
+        return out;
+      },
+      setCrewOccupants: vi.fn(),
+      switchSeat: vi.fn((idx: number) => {
+        v.seatIndex = idx;
+        v.localTurretAim.seat = idx;
+        return true;
+      }),
+      applyRemoteHullPose: vi.fn(),
+      applyRemoteGunnerTurret: vi.fn(),
+      promoteToDriver: vi.fn((takeDriver: boolean) => {
+        v.remoteDriverSlot = -1;
+        if (takeDriver) v.seatIndex = 0;
+      }),
+    };
+    return v;
+  }
+
+  it('boards a 3-seat Bastion, prevents seat collisions, swaps open seats 1 <-> 2, and syncs gunner turret aim (drvg)', () => {
+    const { host, guest, deliver } = makeWorldPair();
+    const hostDrive = new Driveables(host.w, new Vehicles(host.w, makeFakeReplicas()));
+    const guestDrive = new Driveables(guest.w, new Vehicles(guest.w, makeFakeReplicas()));
+
+    const hostMgr = (host.w.ctx.progression as unknown as { driveables: { active: MockVehicle | null } }).driveables;
+    const guestMgr = (guest.w.ctx.progression as unknown as { driveables: { active: MockVehicle | null } }).driveables;
+
+    // 1. Single-seat jet is NOT boardable.
+    hostMgr.active = makeMockVehicle('hornet', null, [0, 10, 0]);
+    hostDrive.update(1000);
+    deliver(host, guest, 1000);
+    expect(guestDrive.findBoardableRemoteVehicle(new THREE.Vector3(1, 10, 0))).toBeNull();
+
+    // 2. Host boards a 3-seat Bastion at (30, 1, -20).
+    const hostBastion = makeMockVehicle('bastion', 'motorpool.bastion', [30, 1, -20]);
+    hostMgr.active = hostBastion;
+    hostDrive.update(1100);
+    deliver(host, guest, 1100);
+
+    const boardable = guestDrive.findBoardableRemoteVehicle(new THREE.Vector3(32, 1, -20));
+    expect(boardable).not.toBeNull();
+    expect(boardable?.id).toBe('bastion');
+    expect(boardable?.seatIndex).toBe(1);
+    expect(boardable?.crewCount).toBe(1);
+    expect(boardable?.seatCount).toBe(3);
+
+    // Wire guest.boardRemoteVehicle to mount a mock remote-ridden Bastion.
+    let guestRide: MockVehicle | null = null;
+    let guestRequestSwap: ((targetSeat: number) => boolean) | null = null;
+    guest.boardRemoteVehicle.mockImplementation(
+      (driverSlot: number, id: string, pool: string | null, seatIndex: number, _pos: THREE.Vector3, _yaw: number, _onExit: () => void, onSwap: (t: number) => boolean) => {
+        guestRide = makeMockVehicle(id, pool, [30, 1, -20], driverSlot, seatIndex);
+        guestRequestSwap = onSwap;
+        guestMgr.active = guestRide;
+        return guestRide;
+      },
+    );
+
+    // 3. Guest presses E to join seat 1 -> host arbitrates -> guest boards & host sees crew occupant!
+    guestDrive.requestCrewSeat(0, 1);
+    deliver(guest, host, 1150);
+    deliver(host, guest, 1160);
+
+    expect(guest.boardRemoteVehicle).toHaveBeenCalledTimes(1);
+    expect(guestRide).not.toBeNull();
+    expect(guestRide!.seatIndex).toBe(1);
+    expect(hostBastion.setCrewOccupants).toHaveBeenCalledWith([[1, 'guest1', expect.any(String)]]);
+    expect(host.remotes.get('guest1')?.inVehicle).toBe(true);
+    expect(guestDrive.crewOf(0).sort((a, b) => a[0] - b[0])).toEqual([[0, 0], [1, 1]]);
+
+    // 4. Guest tries to swap into seat 0 (occupied by host driver) -> rejected!
+    expect(guestRequestSwap!(0)).toBe(false);
+    deliver(guest, host, 1200);
+    deliver(host, guest, 1210);
+    expect(guestRide!.seatIndex).toBe(1);
+
+    // 5. Guest swaps into open seat 2 (AA Vulcan gunner) -> approved & synced!
+    guestRequestSwap!(2);
+    deliver(guest, host, 1250);
+    deliver(host, guest, 1260);
+    expect(guestRide!.switchSeat).toHaveBeenCalledWith(2, true);
+    expect(guestRide!.seatIndex).toBe(2);
+    expect(hostDrive.crewOf(0).sort((a, b) => a[0] - b[0])).toEqual([[0, 0], [2, 1]]);
+
+    // 6. Guest updates -> feeds remote hull pose AND sends drvg gunner turret aim -> host applies it!
+    guestDrive.update(1350);
+    expect(guestRide!.applyRemoteHullPose).toHaveBeenCalled();
+    deliver(guest, host, 1360);
+    expect(hostBastion.applyRemoteGunnerTurret).toHaveBeenCalledWith(2, expect.closeTo(0.75, 2), expect.closeTo(-0.22, 2));
+
+    hostDrive.dispose();
+    guestDrive.dispose();
+  });
+
+  it('promotes the gunner to driver seamlessly on driver bailout (both host->guest and guest->host) and ejects on explosion', () => {
+    const { host, guest, deliver } = makeWorldPair();
+    const hostDrive = new Driveables(host.w, new Vehicles(host.w, makeFakeReplicas()));
+    const guestDrive = new Driveables(guest.w, new Vehicles(guest.w, makeFakeReplicas()));
+
+    const hostMgr = (host.w.ctx.progression as unknown as { driveables: { active: MockVehicle | null } }).driveables;
+    const guestMgr = (guest.w.ctx.progression as unknown as { driveables: { active: MockVehicle | null } }).driveables;
+
+    // --- Case 1: Host drives Badlands Motor Pool Jackal, guest boards roof gunner, host bails out intact ---
+    const hostJackal = makeMockVehicle('jackal', 'motorpool.jackal', [10, 1, 10]);
+    hostMgr.active = hostJackal;
+    hostDrive.update(1000);
+    deliver(host, guest, 1000);
+
+    let guestRide: MockVehicle | null = null;
+    guest.boardRemoteVehicle.mockImplementation((driverSlot: number, id: string, pool: string | null, seatIndex: number) => {
+      guestRide = makeMockVehicle(id, pool, [10, 1, 10], driverSlot, seatIndex);
+      guestMgr.active = guestRide;
+      return guestRide;
+    });
+
+    guestDrive.requestCrewSeat(0, 1);
+    deliver(guest, host, 1050);
+    deliver(host, guest, 1060);
+    expect(guestRide!.isRemoteDriven).toBe(true);
+
+    // Host bails out while vehicle is intact (`alive = true`)!
+    hostMgr.active = null;
+    hostDrive.update(1200);
+    deliver(host, guest, 1210);
+
+    // Guest is seamlessly promoted to local driver (NOT ejected), and Motor Pool slot is NOT prematurely released!
+    expect(guestRide!.promoteToDriver).toHaveBeenCalledWith(true);
+    expect(guestRide!.isRemoteDriven).toBe(false);
+    expect(guestRide!.seatIndex).toBe(0);
+    expect(guest.ejectRemoteVehicle).not.toHaveBeenCalled();
+    expect(guest.releaseRemoteClaim).not.toHaveBeenCalled();
+
+    // --- Case 2: Guest is now driving, host hops into gunner seat, then guest bails out intact -> host promoted! ---
+    guestDrive.update(1300);
+    deliver(guest, host, 1310);
+
+    let hostRide: MockVehicle | null = null;
+    host.boardRemoteVehicle.mockImplementation((driverSlot: number, id: string, pool: string | null, seatIndex: number) => {
+      hostRide = makeMockVehicle(id, pool, [10, 1, 10], driverSlot, seatIndex);
+      hostMgr.active = hostRide;
+      return hostRide;
+    });
+
+    hostDrive.requestCrewSeat(1, 1);
+    deliver(host, guest, 1360);
+    expect(hostRide).not.toBeNull();
+    expect(hostRide!.isRemoteDriven).toBe(true);
+
+    // Guest bails out intact -> host must be promoted to driver (not ejected)!
+    guestMgr.active = null;
+    guestDrive.update(1500);
+    deliver(guest, host, 1510);
+
+    expect(hostRide!.promoteToDriver).toHaveBeenCalledWith(true);
+    expect(hostRide!.isRemoteDriven).toBe(false);
+    expect(host.ejectRemoteVehicle).not.toHaveBeenCalled();
+
+    // --- Case 3: Host is driving again, guest boards, vehicle EXPLODES (`alive = false`) -> guest ejected! ---
+    hostDrive.update(1600);
+    deliver(host, guest, 1610);
+
+    guest.boardRemoteVehicle.mockClear();
+    guestDrive.requestCrewSeat(0, 1);
+    deliver(guest, host, 1650);
+    deliver(host, guest, 1660);
+    expect(guestRide!.isRemoteDriven).toBe(true);
+    guestRide!.promoteToDriver.mockClear();
+
+    hostRide!.alive = false;
+    hostMgr.active = null;
+    hostDrive.update(1800);
+    deliver(host, guest, 1810);
+
+    expect(guestRide!.promoteToDriver).not.toHaveBeenCalled();
+    expect(guest.ejectRemoteVehicle).toHaveBeenCalledWith(0, false);
+    expect(guest.releaseRemoteClaim).toHaveBeenCalledWith('motorpool.jackal', expect.any(THREE.Vector3), expect.any(Number));
+
+    hostDrive.dispose();
+    guestDrive.dispose();
   });
 });

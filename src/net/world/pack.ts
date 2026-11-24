@@ -43,7 +43,8 @@ export const WORDS = new Words([
   'down', 'respawn', 'start', 'clear', 'intermission', 'active', 'rail', 'beam', 'ball', 'giant', 'hose', 'swing', 'spin',
   'stagger', 'stumble', 'daze', 'roar', 'land', 'leap', 'block', 'getUp', 'crucible', 'outpost', 'defense', 'campaign', 'foreclosure',
   'dragon', 'wp', 'cl', 'rocket_wp', 'howitzer_cluster',
-  'rooftop', 'badlands', 'dogfight', 'drv', 'drvx', 'drvf', 'vhijack', 'vhijackok', 'pool',
+  'rooftop', 'badlands', 'dogfight', 'drv', 'drvx', 'drvf', 'drvs', 'drvg', 'vhijack', 'vhijackok', 'pool',
+  'join', 'leave', 'swap', 'ty', 'tp',
   'dfstate', 'dfhit', 'dfshatter', 'dfbuy', 'dfnext', 'dfflare', 'dfrwr', 'dfdmg',
   'hornet', 'harrier', 'warthog', 'lancer', 'raptor', 'jackal', 'aegis', 'kestrel', 'viper', 'bastion', 'valkyrie', 'quad', 'moto',
 ]);

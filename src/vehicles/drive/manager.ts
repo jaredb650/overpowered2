@@ -223,6 +223,63 @@ export class DriveableManager {
     return null;
   }
 
+  /** Co-op multi-crew: currently occupied vehicle being driven by a remote teammate (`isRemoteDriven`). */
+  get remoteRidden(): DriveableVehicle | null {
+    const a = this.active;
+    return a && a.isRemoteDriven ? a : null;
+  }
+
+  /**
+   * Co-op multi-crew: mounts the local player into an open gunner/passenger seat on a teammate's live vehicle.
+   * The spawned `DriveableVehicle` mirrors the driver's hull pose (`isRemoteDriven = true`) while giving the
+   * passenger full local weapon/optic/HUD/hand-weapon control and seamless promotion if the driver bails.
+   */
+  boardRemoteVehicle(
+    driverSlot: number,
+    id: DriveVehicleId,
+    poolSlot: string | null,
+    seatIndex: number,
+    position: THREE.Vector3,
+    yaw: number,
+    onCrewExit: () => void,
+    onRequestSeatSwap: (targetSeat: number) => boolean,
+  ): DriveableVehicle | null {
+    if (!this.ctx.player.alive || this.seats.occupied) return null;
+    const v = this.spawn(id, position, yaw, { poolSlot });
+    v.remoteDriverSlot = driverSlot;
+    v.onRequestSeatSwap = onRequestSeatSwap;
+    v.onCrewExit = () => {
+      onCrewExit();
+      // Remove and dispose the temporary passenger mirror chassis once exited.
+      const idx = this.vehicles.indexOf(v);
+      if (idx >= 0) this.vehicles.splice(idx, 1);
+      v.dispose();
+    };
+    if (!v.board(seatIndex)) {
+      const idx = this.vehicles.indexOf(v);
+      if (idx >= 0) this.vehicles.splice(idx, 1);
+      v.dispose();
+      return null;
+    }
+    this.clearPrompt();
+    const spec = v.activeSeatSpec;
+    this.ctx.hud?.feed?.(`BOARDED ${v.def.shortName} · ${spec.name}`, '#38e8ff');
+    return v;
+  }
+
+  /** Co-op multi-crew: forcefully ejects & disposes a remote-ridden vehicle when the hull explodes. */
+  ejectRemoteVehicle(driverSlot: number, quiet = false): void {
+    const v = this.vehicles.find(x => x.alive && x.remoteDriverSlot === driverSlot);
+    if (!v) return;
+    if (v.occupied) {
+      v.exit(quiet);
+    } else {
+      const idx = this.vehicles.indexOf(v);
+      if (idx >= 0) this.vehicles.splice(idx, 1);
+      v.dispose();
+    }
+  }
+
   private stagePool(pool: readonly MotorPoolSlot[]): void {
     for (const s of pool) {
       _pos.set(s.at[0], s.at[1], s.at[2]);
@@ -392,6 +449,38 @@ export class DriveableManager {
 
     this.hijackHoldId = -1;
     this.hijackHoldElapsed = 0;
+
+    // 1.5. Co-op multi-crew: check for a nearby teammate's vehicle with an open gunner/passenger seat!
+    if (this.ctx.coop?.world) {
+      const world = this.ctx.coop.world as unknown as {
+        findBoardableRemoteVehicle?(pos: THREE.Vector3): {
+          driverSlot: number;
+          id: DriveVehicleId;
+          seatIndex: number;
+          seatName: string;
+          crewCount: number;
+          seatCount: number;
+          position: THREE.Vector3;
+          halfHeight: number;
+        } | null;
+        requestCrewSeat?(driverSlot: number, seatIndex: number): void;
+      };
+      const crewTarget = world.findBoardableRemoteVehicle?.(player.position) ?? null;
+      if (crewTarget) {
+        const def = DRIVE_VEHICLES[crewTarget.id];
+        this.setPrompt(
+          crewTarget.position,
+          crewTarget.halfHeight * 2 + 1.3,
+          `${key} BOARD ${def.shortName} · ${crewTarget.seatName} (${crewTarget.crewCount}/${crewTarget.seatCount})`,
+          '#38e8ff',
+        );
+        if (input.pressed('interact')) {
+          this.clearPrompt();
+          world.requestCrewSeat?.(crewTarget.driverSlot, crewTarget.seatIndex);
+        }
+        return;
+      }
+    }
 
     // 2. Check for nearest parked friendly/player driveable vehicle to board!
     let best: DriveableVehicle | null = null;
