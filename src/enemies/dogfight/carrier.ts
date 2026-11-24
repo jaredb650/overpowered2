@@ -42,11 +42,11 @@ export const EMERGENCY_REPAIR_AMOUNT = 900;
 
 const CIWS_ACTIVE_COUNTS = [0, 2, 3, 4] as const;
 const CIWS_DPS = [0, 42, 66, 98] as const;
-const CIWS_RANGE = 185;
+const CIWS_RANGE = 220;
 
 const SAM_ACTIVE_COUNTS = [0, 1, 2, 3] as const;
 const SAM_COOLDOWNS = [99, 5.2, 3.6, 2.4] as const;
-const SAM_RANGE = 240;
+const SAM_RANGE = 340;
 
 const ARMOR_REPAIR_PER_SEC = [0, 12, 26, 45] as const;
 

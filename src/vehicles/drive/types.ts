@@ -300,6 +300,8 @@ export interface VehicleHudData {
   readonly deployed: boolean;
   readonly chargeFraction: number;
   readonly missileWarning: boolean;
+  readonly radarLockWarning?: boolean;
+  readonly rwrLabel?: string;
   readonly vtolMode: boolean;
   readonly pitchRad: number;
   readonly rollRad: number;

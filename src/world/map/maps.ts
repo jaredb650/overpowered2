@@ -35,7 +35,7 @@ import {
 } from './badlands';
 import {
   authorDogfight, DOGFIGHT_BOUNDS, DOGFIGHT_HUB, DOGFIGHT_LEVELS,
-  DOGFIGHT_LIGHT_BOUNDS, DOGFIGHT_LIGHT_CELL, DOGFIGHT_STAGES,
+  DOGFIGHT_LIGHT_BOUNDS, DOGFIGHT_LIGHT_CELL, DOGFIGHT_NAV_BOUNDS, DOGFIGHT_STAGES,
 } from './dogfight';
 import { KH } from './killhouse/plan';
 import { LEVEL, RING } from './layout';
@@ -47,8 +47,10 @@ export type MapId = 'crucible' | 'killhouse' | 'outpost' | 'fort' | 'holdfast' |
 
 export interface MapDef {
   id: MapId;
-  /** Nav columns, the kill plane under the map and the fall-back containment. */
+  /** Playable bounds, the kill plane under the map and the fall-back containment. */
   bounds: THREE.Box3;
+  /** Optional tighter bounds for the 1 m NavGraph bake (defaults to `bounds`). Great for huge air/sea maps. */
+  navBounds?: THREE.Box3;
   /** Light volume and static moon shadow coverage. */
   lightBounds: THREE.Box3;
   /** Light volume cell in meters. Undefined takes the renderer's default. */
@@ -276,13 +278,15 @@ const badlands: MapDef = {
 };
 
 const DF = DOGFIGHT_BOUNDS;
+const DFN = DOGFIGHT_NAV_BOUNDS;
 const DFL = DOGFIGHT_LIGHT_BOUNDS;
 const dogfight: MapDef = {
   id: 'dogfight',
   bounds: box(DF.x0, DF.y0, DF.z0, DF.x1, DF.y1, DF.z1),
+  navBounds: box(DFN.x0, DFN.y0, DFN.z0, DFN.x1, DFN.y1, DFN.z1),
   lightBounds: box(DFL.x0, DFL.y0, DFL.z0, DFL.x1, DFL.y1, DFL.z1),
   lightCell: DOGFIGHT_LIGHT_CELL,
-  minimapExtent: 190,
+  minimapExtent: 280,
   navHub: DOGFIGHT_HUB,
   nav: { mutual: true, levels: [...DOGFIGHT_LEVELS] },
   stages: DOGFIGHT_STAGES,

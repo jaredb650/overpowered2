@@ -505,6 +505,12 @@
   letter-spacing: 0.14em;
   animation: gnMslPulse 0.42s ease-in-out infinite;
 }
+.gn-msl-warn.lock {
+  background: rgba(140, 82, 6, 0.86);
+  border-color: #ffb703;
+  color: #fff7dc;
+  animation-duration: 0.72s;
+}
 
 
 

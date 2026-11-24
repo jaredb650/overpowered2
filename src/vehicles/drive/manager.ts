@@ -21,6 +21,12 @@ declare module '../../core/contracts' {
     'dogfight:spawn_jet': { id: DriveVehicleId; board?: boolean };
     /** Dogfight deck crew emergency repair heals any parked/active player aircraft. */
     'dogfight:repair_player_jet': { amount: number };
+    /** Dogfight enemy radar/IR lock & incoming Fox-2 missile state forwarded to the cockpit RWR. */
+    'dogfight:rwr': { locking: boolean; lockStrength: number; missileInbound: boolean; label?: string };
+    /** Emitted whenever a player aircraft deploys IR flares / smoke countermeasures. */
+    'dogfight:player_flares': { position: THREE.Vector3 };
+    /** Enemy air-to-air gunfire / Fox-2 missile hit applied directly to the player's active aircraft hull. */
+    'dogfight:damage_player_jet': { amount: number; from: THREE.Vector3 };
   }
 }
 
@@ -105,6 +111,14 @@ export class DriveableManager {
         if (!v.alive) continue;
         v.health = Math.min(v.def.maxHealth, v.health + amount);
       }
+    });
+
+    ctx.events.on('dogfight:rwr', ({ locking, lockStrength, missileInbound, label }) => {
+      this.active?.setExternalRwr(locking, lockStrength, missileInbound, label ?? '');
+    });
+
+    ctx.events.on('dogfight:damage_player_jet', ({ amount, from }) => {
+      this.active?.absorbDamage(amount, from);
     });
 
     ctx.events.on('run:start', () => {

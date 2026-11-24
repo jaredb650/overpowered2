@@ -130,6 +130,12 @@ export class DriveableVehicle {
   private flareRemaining = 0;
   private flareCooldown = 0;
   private missileWarning = false;
+  private radarLockWarning = false;
+  private extRwrLock = false;
+  private extRwrLockStrength = 0;
+  private extRwrMissile = false;
+  private extRwrLabel = '';
+  private extRwrTimer = 0;
   private warningBeepTimer = 0;
   private autoTurretCooldown = 0;
   private autoAglCooldown = 0;
@@ -1064,19 +1070,42 @@ export class DriveableVehicle {
     }
   }
 
+  /** Updates external RWR lock/missile warnings (e.g. enemy AI fighters in Dogfight mode). */
+  setExternalRwr(locking: boolean, lockStrength: number, missileInbound: boolean, label = ''): void {
+    this.extRwrLock = locking;
+    this.extRwrLockStrength = clamp(lockStrength, 0, 1);
+    this.extRwrMissile = missileInbound;
+    this.extRwrLabel = label;
+    this.extRwrTimer = (locking || missileInbound) ? 0.38 : 0;
+  }
+
   private stepMissileWarning(dt: number, occupied: boolean): void {
+    if (this.extRwrTimer > 0) this.extRwrTimer = Math.max(0, this.extRwrTimer - dt);
     if (!occupied) {
       this.missileWarning = false;
+      this.radarLockWarning = false;
       return;
     }
-    const warnRange = this.def.stealth ? 52 : 92;
-    const incoming = this.ctx.combat?.hasIncomingEnemyMissile?.(this.phys.position, warnRange) ?? false;
-    this.missileWarning = incoming && !this.isCountermeasureActive;
+    const warnRange = this.def.stealth ? 58 : 105;
+    const combatIncoming = this.ctx.combat?.hasIncomingEnemyMissile?.(this.phys.position, warnRange) ?? false;
+    const extMissile = this.extRwrTimer > 0 && this.extRwrMissile;
+    const extLock = this.extRwrTimer > 0 && this.extRwrLock;
+
+    this.missileWarning = (combatIncoming || extMissile) && !this.isCountermeasureActive;
+    this.radarLockWarning = !this.missileWarning && extLock && !this.isCountermeasureActive;
+
     if (this.missileWarning) {
       this.warningBeepTimer -= dt;
       if (this.warningBeepTimer <= 0) {
-        this.warningBeepTimer = 0.24;
-        this.ctx.audio?.play('ui_click', { position: this.phys.position, volume: 0.72, pitch: 1.95 });
+        this.warningBeepTimer = 0.14;
+        this.ctx.audio?.play('ui_click', { position: this.phys.position, volume: 0.78, pitch: 2.15 });
+      }
+    } else if (this.radarLockWarning) {
+      this.warningBeepTimer -= dt;
+      if (this.warningBeepTimer <= 0) {
+        // Authentic accelerating RWR lock chirp as enemy lock nears 100%!
+        this.warningBeepTimer = clamp(0.42 - this.extRwrLockStrength * 0.24, 0.16, 0.42);
+        this.ctx.audio?.play('ui_click', { position: this.phys.position, volume: 0.56, pitch: 1.45 + this.extRwrLockStrength * 0.4 });
       }
     } else {
       this.warningBeepTimer = 0;
@@ -1110,8 +1139,8 @@ export class DriveableVehicle {
       return;
     }
     if (sp.id === 'vtol') {
-      // If a missile lock warning is flashing and flares are ready, pop IR Flares immediately without dropping out of Jet flight!
-      if (this.missileWarning && this.flareCooldown <= 0) {
+      // If a missile lock or radar lock warning is flashing and flares are ready, pop IR Flares immediately without dropping out of Jet flight!
+      if ((this.missileWarning || this.radarLockWarning) && this.flareCooldown <= 0) {
         this.popFlares();
         return;
       }
@@ -1129,7 +1158,7 @@ export class DriveableVehicle {
       this.engineAudio.playVtolShift(this.phys.position, !this.phys.vtolMode);
       this.ctx.hud?.feed?.(this.phys.vtolMode ? `${this.def.shortName} // VTOL HOVER MODE` : `${this.def.shortName} // MACH JET MODE`, this.def.color);
       // Also pop countermeasures if off cooldown so pilots always feel safe!
-      if (this.flareCooldown <= 0 && this.missileWarning) this.popFlares();
+      if (this.flareCooldown <= 0 && (this.missileWarning || this.radarLockWarning)) this.popFlares();
       return;
     }
 
@@ -1146,6 +1175,7 @@ export class DriveableVehicle {
         this.ctx.fx?.smoke?.(_origin, 0x8e969e, 2.2, 4.5);
       }
       this.ctx.combat?.interceptEnemyProjectiles?.(this.phys.position, 22, 4);
+      this.ctx.events.emit('dogfight:player_flares', { position: this.phys.position.clone() });
       this.ctx.hud?.feed?.('IR SMOKE SCREEN — LOCK BROKEN', this.def.color);
     } else if (sp.id === 'flares') {
       this.popFlares();
@@ -1218,6 +1248,7 @@ export class DriveableVehicle {
       this.ctx.fx?.sparks?.(_origin, _dir, 14, 0xffd166);
     }
     this.ctx.combat?.interceptEnemyProjectiles?.(this.phys.position, 32, 8);
+    this.ctx.events.emit('dogfight:player_flares', { position: this.phys.position.clone() });
     this.ctx.hud?.feed?.('IR FLARES DEPLOYED — MISSILE LOCK BROKEN', '#ffd166');
   }
 
@@ -2306,6 +2337,8 @@ export class DriveableVehicle {
     h.deployed = this.phys.deployed;
     h.chargeFraction = this.lanceCharge;
     h.missileWarning = this.missileWarning;
+    h.radarLockWarning = this.radarLockWarning;
+    h.rwrLabel = this.extRwrLabel;
     h.vtolMode = this.phys.vtolMode;
     h.pitchRad = -this.phys.pitch;
     h.rollRad = this.phys.roll;

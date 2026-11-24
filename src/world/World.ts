@@ -148,7 +148,8 @@ export class World implements WorldSystem {
       voxelSize: def.lightCell,
     });
 
-    const stats: NavBuildStats = await this.navGraph.build(this.bounds, spec.jumpLinks, def.navHub, f => report(0.42 + f * 0.4, 'Walking the floors'), def.nav);
+    const navBounds = def.navBounds ?? this.bounds;
+    const stats: NavBuildStats = await this.navGraph.build(navBounds, spec.jumpLinks, def.navHub, f => report(0.42 + f * 0.4, 'Walking the floors'), def.nav);
     this.report.navNodes = stats.nodes;
     this.report.navLinks = stats.links;
     this.report.navRemoved = stats.removed;

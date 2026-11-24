@@ -31,6 +31,7 @@ export type AiJetKind = 'hornet' | 'harrier' | 'warthog' | 'lancer' | 'raptor';
 export type AiJetTeam = 'enemy' | 'ally';
 export type AiJetRole = 'fighter' | 'striker' | 'bomber' | 'ace' | 'wingman';
 export type AiJetState = 'approach' | 'carrier_run' | 'dogfight' | 'evade' | 'extend' | 'dying';
+export type AiTacticalRole = 'hunter' | 'striker';
 
 export interface AiJetProfile {
   readonly kind: AiJetKind;
@@ -60,19 +61,19 @@ export const AI_JET_PROFILES: Record<AiJetKind, AiJetProfile> = {
     name: 'F/A-18E HORNET',
     role: 'fighter',
     maxHp: 340,
-    cruiseSpeed: 48,
-    boostSpeed: 64,
-    turnRate: 1.55,
-    pitchRate: 1.5,
-    maxBank: 1.18,
-    preferredAlt: 58,
+    cruiseSpeed: 58,
+    boostSpeed: 86,
+    turnRate: 1.65,
+    pitchRate: 1.58,
+    maxBank: 1.22,
+    preferredAlt: 82,
     hitboxHalf: [5.4, 2.2, 6.2],
-    gunDamage: 8,
-    gunRange: 145,
+    gunDamage: 12,
+    gunRange: 215,
     carrierStrikeDamage: 75,
     hasMissiles: true,
-    missileCooldown: 11.5,
-    flareCooldown: 9.5,
+    missileCooldown: 8.5,
+    flareCooldown: 9.0,
     rewardCredits: 140,
     rewardScore: 450,
   },
@@ -81,19 +82,19 @@ export const AI_JET_PROFILES: Record<AiJetKind, AiJetProfile> = {
     name: 'AV-8B HARRIER',
     role: 'striker',
     maxHp: 300,
-    cruiseSpeed: 44,
-    boostSpeed: 56,
-    turnRate: 1.72,
-    pitchRate: 1.62,
-    maxBank: 1.12,
-    preferredAlt: 48,
+    cruiseSpeed: 52,
+    boostSpeed: 74,
+    turnRate: 1.78,
+    pitchRate: 1.68,
+    maxBank: 1.16,
+    preferredAlt: 68,
     hitboxHalf: [4.8, 2.1, 5.6],
-    gunDamage: 9,
-    gunRange: 135,
+    gunDamage: 13,
+    gunRange: 195,
     carrierStrikeDamage: 95,
-    hasMissiles: false,
-    missileCooldown: 15,
-    flareCooldown: 10.5,
+    hasMissiles: true,
+    missileCooldown: 10.5,
+    flareCooldown: 10.0,
     rewardCredits: 130,
     rewardScore: 400,
   },
@@ -102,19 +103,19 @@ export const AI_JET_PROFILES: Record<AiJetKind, AiJetProfile> = {
     name: 'A-10 WARTHOG',
     role: 'striker',
     maxHp: 520,
-    cruiseSpeed: 39,
-    boostSpeed: 50,
-    turnRate: 1.32,
-    pitchRate: 1.25,
-    maxBank: 0.96,
-    preferredAlt: 42,
+    cruiseSpeed: 46,
+    boostSpeed: 64,
+    turnRate: 1.38,
+    pitchRate: 1.30,
+    maxBank: 0.98,
+    preferredAlt: 56,
     hitboxHalf: [6.4, 2.3, 6.0],
-    gunDamage: 12,
-    gunRange: 140,
+    gunDamage: 18,
+    gunRange: 195,
     carrierStrikeDamage: 145,
     hasMissiles: false,
-    missileCooldown: 18,
-    flareCooldown: 11,
+    missileCooldown: 16,
+    flareCooldown: 10.5,
     rewardCredits: 175,
     rewardScore: 550,
   },
@@ -123,15 +124,15 @@ export const AI_JET_PROFILES: Record<AiJetKind, AiJetProfile> = {
     name: 'B-1 LANCER',
     role: 'bomber',
     maxHp: 680,
-    cruiseSpeed: 56,
-    boostSpeed: 74,
-    turnRate: 0.98,
-    pitchRate: 1.0,
+    cruiseSpeed: 66,
+    boostSpeed: 96,
+    turnRate: 1.02,
+    pitchRate: 1.05,
     maxBank: 0.88,
-    preferredAlt: 72,
+    preferredAlt: 98,
     hitboxHalf: [8.2, 2.6, 9.8],
-    gunDamage: 6,
-    gunRange: 110,
+    gunDamage: 9,
+    gunRange: 160,
     carrierStrikeDamage: 240,
     hasMissiles: false,
     missileCooldown: 20,
@@ -144,19 +145,19 @@ export const AI_JET_PROFILES: Record<AiJetKind, AiJetProfile> = {
     name: 'F-22 RAPTOR ACE',
     role: 'ace',
     maxHp: 540,
-    cruiseSpeed: 58,
-    boostSpeed: 78,
-    turnRate: 2.05,
-    pitchRate: 1.95,
-    maxBank: 1.32,
-    preferredAlt: 76,
+    cruiseSpeed: 68,
+    boostSpeed: 104,
+    turnRate: 2.15,
+    pitchRate: 2.02,
+    maxBank: 1.36,
+    preferredAlt: 108,
     hitboxHalf: [5.8, 2.3, 6.8],
-    gunDamage: 10,
-    gunRange: 165,
+    gunDamage: 16,
+    gunRange: 245,
     carrierStrikeDamage: 105,
     hasMissiles: true,
-    missileCooldown: 8.5,
-    flareCooldown: 6.5,
+    missileCooldown: 6.5,
+    flareCooldown: 6.2,
     rewardCredits: 300,
     rewardScore: 1000,
   },
@@ -169,9 +170,9 @@ export interface AiJetFireCallbacks {
   onKilled(jet: AiCombatJet, source: string): void;
 }
 
-const MIN_FLIGHT_ALT = 19;
-const MAX_FLIGHT_ALT = DOGFIGHT_BOUNDS.y1 - 16;
-const BOUNDARY_TURN_R = 225;
+const MIN_FLIGHT_ALT = 22;
+const MAX_FLIGHT_ALT = DOGFIGHT_BOUNDS.y1 - 24;
+const BOUNDARY_TURN_R = 575;
 const SEA_LEVEL = 0;
 
 let nextJetUid = 90_000;
@@ -197,6 +198,7 @@ export class AiCombatJet implements ExtraTarget, MissileTarget {
   readonly profile: AiJetProfile;
   readonly kind: AiJetKind;
   readonly team: AiJetTeam;
+  readonly tacticalRole: AiTacticalRole;
   readonly skill: number;
   readonly name: string;
 
@@ -214,6 +216,11 @@ export class AiCombatJet implements ExtraTarget, MissileTarget {
   readonly maxHealth: number;
   alive = true;
   disposed = false;
+
+  /** 0..1 active radar/IR lock progress on the player's aircraft (drives cockpit RWR warning tone & HUD!). */
+  playerLockProgress = 0;
+  private lockSuppressed = 0;
+  private retaliateTimer = 0;
 
   state: AiJetState = 'approach';
   private stateTimer = 0;
@@ -245,10 +252,18 @@ export class AiCombatJet implements ExtraTarget, MissileTarget {
     skill: number,
     private readonly cb: AiJetFireCallbacks,
     customLabel?: string,
+    tacticalRole?: AiTacticalRole,
   ) {
     this.kind = kind;
     this.team = team;
     this.profile = AI_JET_PROFILES[kind];
+    this.tacticalRole = tacticalRole ?? (
+      this.profile.role === 'ace' || this.profile.role === 'fighter'
+        ? 'hunter'
+        : this.profile.kind === 'harrier' && Math.random() < 0.5
+          ? 'hunter'
+          : 'striker'
+    );
     this.skill = clamp(skill, 0.25, 1.0);
     this.name = customLabel ?? (team === 'ally' ? `WINGMAN ${this.profile.name}` : this.profile.name);
 
@@ -375,16 +390,34 @@ export class AiCombatJet implements ExtraTarget, MissileTarget {
       return;
     }
 
-    // Skilled enemy pilots react to taking hits by popping IR flares & executing a high-G break turn!
-    if (this.team === 'enemy' && this.state !== 'evade' && Math.random() < 0.35 + this.skill * 0.45) {
-      this.triggerEvade();
+    // Skilled enemy pilots react to taking hits by popping IR flares, executing a high-G break turn,
+    // and switching into active retaliation dogfight against the player!
+    if (this.team === 'enemy') {
+      if (showPlayerMarker && this.profile.role !== 'bomber') {
+        this.retaliateTimer = 14;
+      }
+      if (this.state !== 'evade' && Math.random() < 0.35 + this.skill * 0.45) {
+        this.triggerEvade();
+      }
     }
+  }
+
+  /** True when this bandit is actively painting the player's jet with radar/IR missile lock. */
+  get isLockingPlayer(): boolean {
+    return this.alive && this.team === 'enemy' && this.playerLockProgress > 0.08;
+  }
+
+  /** Called when the player pops IR flares / smoke to break this bandit's radar/IR lock immediately. */
+  breakPlayerLock(suppressSeconds = 3.8): void {
+    this.playerLockProgress = 0;
+    this.lockSuppressed = Math.max(this.lockSuppressed, suppressSeconds);
   }
 
   private triggerEvade(): void {
     this.state = 'evade';
     this.stateTimer = rand(1.9, 3.0);
     this.evadeDir = Math.random() < 0.5 ? -1 : 1;
+    this.playerLockProgress = 0;
     if (this.flareCooldown <= 0) {
       this.popFlares();
       this.flareCooldown = this.profile.flareCooldown * (1.25 - this.skill * 0.35);
@@ -406,6 +439,7 @@ export class AiCombatJet implements ExtraTarget, MissileTarget {
     if (!this.alive) return;
     this.alive = false;
     this.health = 0;
+    this.playerLockProgress = 0;
     this.state = 'dying';
     this.deathTimer = 0;
     this.unmark?.();
@@ -433,6 +467,7 @@ export class AiCombatJet implements ExtraTarget, MissileTarget {
     playerVel: THREE.Vector3,
     playerAirborne: boolean,
     opponents: readonly AiCombatJet[],
+    playerCountermeasures = false,
   ): void {
     if (this.disposed) return;
 
@@ -446,11 +481,16 @@ export class AiCombatJet implements ExtraTarget, MissileTarget {
     this.missileCooldown = Math.max(0, this.missileCooldown - dt);
     this.flareCooldown = Math.max(0, this.flareCooldown - dt);
     this.strikeCooldown = Math.max(0, this.strikeCooldown - dt);
+    this.lockSuppressed = Math.max(0, this.lockSuppressed - dt);
+    this.retaliateTimer = Math.max(0, this.retaliateTimer - dt);
+    if (playerCountermeasures) {
+      this.playerLockProgress = 0;
+    }
 
     if (this.team === 'ally') {
       this.updateWingmanAi(dt, opponents);
     } else {
-      this.updateEnemyAi(dt, playerPos, playerVel, playerAirborne);
+      this.updateEnemyAi(dt, playerPos, playerVel, playerAirborne, playerCountermeasures);
     }
 
     // Visual smoke trail when damaged below 48% HP.
@@ -471,56 +511,65 @@ export class AiCombatJet implements ExtraTarget, MissileTarget {
     playerPos: THREE.Vector3,
     playerVel: THREE.Vector3,
     playerAirborne: boolean,
+    playerCountermeasures: boolean,
   ): void {
     const distCarrier = Math.hypot(this.position.x - _carrierPos.x, this.position.z - _carrierPos.z);
     const distPlayer = this.position.distanceTo(playerPos);
     const horizR = Math.hypot(this.position.x, this.position.z);
+    const wantsDogfight = playerAirborne && (
+      this.tacticalRole === 'hunter' ||
+      this.retaliateTimer > 0 ||
+      (this.profile.role !== 'bomber' && distPlayer < 210)
+    );
 
-    // State transitions based on role, player air presence, and tactical geometry.
+    // State transitions: Hunters immediately intercept the player's jet from across the entire 1,280 m sky;
+    // Strikers & Bombers press attacks on USS Sovereign unless engaged by the player!
     if (this.state === 'approach') {
-      if (playerAirborne && this.profile.role !== 'bomber' && distPlayer < 170) {
+      if (wantsDogfight) {
         this.state = 'dogfight';
+        this.stateTimer = rand(10, 16);
+      } else if (distCarrier < 260) {
+        this.state = 'carrier_run';
         this.stateTimer = rand(7, 11);
-      } else if (distCarrier < 175) {
-        this.state = (this.profile.role === 'ace' && playerAirborne) ? 'dogfight' : 'carrier_run';
-        this.stateTimer = rand(6, 9);
       }
     } else if (this.state === 'evade') {
       if (this.stateTimer <= 0) {
-        this.state = playerAirborne && this.profile.role !== 'bomber' ? 'dogfight' : 'extend';
-        this.stateTimer = rand(4, 7);
+        this.state = wantsDogfight ? 'dogfight' : 'extend';
+        this.stateTimer = wantsDogfight ? rand(9, 14) : rand(3.5, 5.5);
       }
     } else if (this.state === 'extend') {
-      if (this.stateTimer <= 0 || distCarrier > 155) {
-        if (playerAirborne && (this.profile.role === 'ace' || (this.profile.role === 'fighter' && Math.random() < 0.65))) {
+      if (this.stateTimer <= 0 || (!wantsDogfight && distCarrier > 260)) {
+        if (wantsDogfight) {
           this.state = 'dogfight';
-          this.stateTimer = rand(7, 12);
+          this.stateTimer = rand(10, 16);
         } else {
           this.state = 'carrier_run';
-          this.stateTimer = rand(6, 10);
+          this.stateTimer = rand(7, 11);
         }
       }
     } else if (this.state === 'carrier_run') {
-      // Break off into a crisp climbing extension once close over the carrier!
-      if (distCarrier < 46 || this.stateTimer <= 0) {
+      // Hunters break off immediately to dogfight as soon as the player takes to the skies!
+      if (wantsDogfight && (this.tacticalRole === 'hunter' || this.retaliateTimer > 0 || distPlayer < 175)) {
+        this.state = 'dogfight';
+        this.stateTimer = rand(10, 15);
+      } else if (distCarrier < 56 || this.stateTimer <= 0) {
         this.state = 'extend';
         this.stateTimer = rand(3.5, 5.2);
         this.orbitSide = Math.random() < 0.5 ? -1 : 1;
-      } else if (playerAirborne && this.profile.role === 'ace' && distPlayer < 120) {
-        this.state = 'dogfight';
-        this.stateTimer = rand(7, 11);
       }
     } else if (this.state === 'dogfight') {
-      if (!playerAirborne && this.stateTimer <= 0) {
+      if (!playerAirborne) {
+        // Player landed back on USS Sovereign — switch to carrier pressure until they launch again!
         this.state = 'carrier_run';
         this.stateTimer = rand(6, 9);
-      } else if (distPlayer < 34) {
-        // Overshoot recovery: climb & extend into an Immelmann reversal!
+      } else if (distPlayer < 46) {
+        // High-G overshoot recovery: climb & extend into an Immelmann reversal before snapping back onto the player!
         this.state = 'extend';
-        this.stateTimer = rand(2.6, 4.0);
-      } else if (this.stateTimer <= 0 && this.profile.role !== 'ace' && Math.random() < 0.45) {
+        this.stateTimer = rand(2.2, 3.4);
+        this.orbitSide = Math.random() < 0.5 ? -1 : 1;
+      } else if (this.stateTimer <= 0 && this.tacticalRole === 'striker' && this.retaliateTimer <= 0) {
         this.state = 'carrier_run';
-        this.stateTimer = rand(6, 9);
+        this.stateTimer = rand(7, 10);
       }
     }
 
@@ -529,22 +578,27 @@ export class AiCombatJet implements ExtraTarget, MissileTarget {
     this.afterburning = false;
 
     if (horizR > BOUNDARY_TURN_R) {
-      // Soft airspace boundary turn-back toward the carrier sky.
-      _aim.set(_carrierPos.x + this.orbitSide * 45, this.profile.preferredAlt, _carrierPos.z);
+      // Soft airspace boundary turn-back toward the combat zone.
+      const anchor = playerAirborne && this.tacticalRole === 'hunter' ? playerPos : _carrierPos;
+      _aim.set(anchor.x + this.orbitSide * 60, this.profile.preferredAlt, anchor.z);
       targetSpeed = this.profile.cruiseSpeed;
+      this.playerLockProgress = Math.max(0, this.playerLockProgress - dt * 0.9);
     } else if (this.state === 'approach') {
-      _aim.set(_carrierPos.x + this.orbitSide * 24, this.profile.preferredAlt, _carrierPos.z);
-      targetSpeed = this.profile.boostSpeed * 0.92;
+      const anchor = wantsDogfight ? playerPos : _carrierPos;
+      _aim.set(anchor.x + this.orbitSide * 30, this.profile.preferredAlt, anchor.z);
+      targetSpeed = this.profile.boostSpeed * 0.94;
       this.afterburning = true;
+      this.playerLockProgress = Math.max(0, this.playerLockProgress - dt * 0.8);
     } else if (this.state === 'carrier_run') {
       // Attack run diving smoothly toward the carrier flight deck.
-      const runAlt = this.profile.role === 'bomber' ? CARRIER_DECK_Y + 34 : CARRIER_DECK_Y + 18;
+      const runAlt = this.profile.role === 'bomber' ? CARRIER_DECK_Y + 40 : CARRIER_DECK_Y + 22;
       _aim.set(_carrierPos.x + rand(-5, 5), runAlt, _carrierPos.z + rand(-18, 18));
-      targetSpeed = this.profile.role === 'bomber' ? this.profile.boostSpeed : this.profile.cruiseSpeed * 1.05;
+      targetSpeed = this.profile.role === 'bomber' ? this.profile.boostSpeed : this.profile.cruiseSpeed * 1.06;
       this.afterburning = this.profile.role === 'bomber';
+      this.playerLockProgress = Math.max(0, this.playerLockProgress - dt * 0.8);
 
       // Unleash carrier strafe / bomb run when lined up within range!
-      if (distCarrier < 135 && distCarrier > 38 && this.strikeCooldown <= 0) {
+      if (distCarrier < 175 && distCarrier > 42 && this.strikeCooldown <= 0) {
         this.forwardDir(_fwd);
         _v.subVectors(_carrierPos, this.position).normalize();
         if (_fwd.dot(_v) > 0.72) {
@@ -552,38 +606,41 @@ export class AiCombatJet implements ExtraTarget, MissileTarget {
         }
       }
     } else if (this.state === 'dogfight') {
-      // True lead-pursuit intercept against the player's jet!
-      const leadT = clamp(distPlayer / 160, 0.15, 1.05) * (0.5 + this.skill * 0.5);
+      // True high-G lead-pursuit intercept against the player's jet!
+      const leadT = clamp(distPlayer / 185, 0.14, 1.15) * (0.55 + this.skill * 0.45);
       _aim.copy(playerPos).addScaledVector(playerVel, leadT);
-      _aim.y = clamp(_aim.y + 4, MIN_FLIGHT_ALT + 4, MAX_FLIGHT_ALT);
-      targetSpeed = distPlayer > 110 ? this.profile.boostSpeed : this.profile.cruiseSpeed * (0.92 + this.skill * 0.18);
-      this.afterburning = distPlayer > 110;
+      _aim.y = clamp(_aim.y + 5, MIN_FLIGHT_ALT + 6, MAX_FLIGHT_ALT);
+      targetSpeed = distPlayer > 160 ? this.profile.boostSpeed : this.profile.cruiseSpeed * (0.94 + this.skill * 0.22);
+      this.afterburning = distPlayer > 160;
 
-      // Fire cannons & homing AAMs when nose is aligned with lead point!
-      this.tryAirToAirWeapons(playerPos, playerVel, null, distPlayer);
+      // Fire cannons & build genuine radar/IR missile lock when nose is aligned with the player!
+      this.tryAirToAirWeapons(dt, playerPos, playerVel, null, distPlayer, playerAirborne && !playerCountermeasures);
     } else if (this.state === 'evade') {
       // Violent high-G climbing jink perpendicular to current heading!
       const breakYaw = this.yaw + this.evadeDir * 1.45;
       _aim.set(
-        this.position.x + Math.sin(breakYaw) * 90,
-        clamp(this.position.y + 26, MIN_FLIGHT_ALT + 10, MAX_FLIGHT_ALT),
-        this.position.z + Math.cos(breakYaw) * 90,
+        this.position.x + Math.sin(breakYaw) * 120,
+        clamp(this.position.y + 34, MIN_FLIGHT_ALT + 12, MAX_FLIGHT_ALT),
+        this.position.z + Math.cos(breakYaw) * 120,
       );
       targetSpeed = this.profile.boostSpeed;
       this.afterburning = true;
+      this.playerLockProgress = 0;
     } else {
-      // `extend`: climb away from the carrier to regain energy before turning back in!
-      _v.subVectors(this.position, _carrierPos);
+      // `extend`: climb away briefly to regain energy before whipping back in!
+      const awayFrom = wantsDogfight ? playerPos : _carrierPos;
+      _v.subVectors(this.position, awayFrom);
       _v.y = 0;
       if (_v.lengthSq() < 1) _v.set(this.orbitSide, 0, -1);
       _v.normalize();
       _aim.set(
-        this.position.x + _v.x * 110 + -_v.z * this.orbitSide * 55,
-        clamp(this.profile.preferredAlt + 24, MIN_FLIGHT_ALT + 18, MAX_FLIGHT_ALT),
-        this.position.z + _v.z * 110 + _v.x * this.orbitSide * 55,
+        this.position.x + _v.x * 140 + -_v.z * this.orbitSide * 75,
+        clamp(this.profile.preferredAlt + 28, MIN_FLIGHT_ALT + 20, MAX_FLIGHT_ALT),
+        this.position.z + _v.z * 140 + _v.x * this.orbitSide * 75,
       );
-      targetSpeed = this.profile.boostSpeed * 0.95;
+      targetSpeed = this.profile.boostSpeed * 0.96;
       this.afterburning = true;
+      this.playerLockProgress = Math.max(0, this.playerLockProgress - dt * 1.1);
     }
 
     this.steerToward(_aim, targetSpeed, dt);
@@ -604,20 +661,20 @@ export class AiCombatJet implements ExtraTarget, MissileTarget {
 
     if (target) {
       const dist = Math.sqrt(bestD);
-      const leadT = clamp(dist / 165, 0.15, 0.95);
+      const leadT = clamp(dist / 185, 0.14, 1.05);
       _aim.copy(target.position).addScaledVector(target.velocity, leadT);
-      _aim.y = clamp(_aim.y + 3, MIN_FLIGHT_ALT + 6, MAX_FLIGHT_ALT);
-      const targetSpeed = dist > 95 ? this.profile.boostSpeed : this.profile.cruiseSpeed * 1.08;
-      this.afterburning = dist > 95;
+      _aim.y = clamp(_aim.y + 4, MIN_FLIGHT_ALT + 8, MAX_FLIGHT_ALT);
+      const targetSpeed = dist > 130 ? this.profile.boostSpeed : this.profile.cruiseSpeed * 1.10;
+      this.afterburning = dist > 130;
       this.steerToward(_aim, targetSpeed, dt);
-      this.tryAirToAirWeapons(target.position, target.velocity, target, dist);
+      this.tryAirToAirWeapons(dt, target.position, target.velocity, target, dist, false);
     } else {
       // Patrol high combat air patrol orbit around USS Sovereign!
       const patrolAngle = Math.atan2(this.position.x - _carrierPos.x, this.position.z - _carrierPos.z) + this.orbitSide * 0.55;
       _aim.set(
-        _carrierPos.x + Math.sin(patrolAngle) * 105,
-        this.profile.preferredAlt + 12,
-        _carrierPos.z + Math.cos(patrolAngle) * 105,
+        _carrierPos.x + Math.sin(patrolAngle) * 165,
+        this.profile.preferredAlt + 18,
+        _carrierPos.z + Math.cos(patrolAngle) * 165,
       );
       this.afterburning = false;
       this.steerToward(_aim, this.profile.cruiseSpeed * 0.88, dt);
@@ -638,48 +695,80 @@ export class AiCombatJet implements ExtraTarget, MissileTarget {
     // Also fire visible tracer stream toward deck for strafers.
     if (!heavy) {
       _v.subVectors(hitPt, this.position).normalize();
-      this.cb.onGunShot(this.position.clone(), _v.clone(), 'enemy', this.profile.gunDamage, 185);
+      this.cb.onGunShot(this.position.clone(), _v.clone(), 'enemy', this.profile.gunDamage, 195);
     }
   }
 
   private tryAirToAirWeapons(
+    dt: number,
     targetPos: THREE.Vector3,
     targetVel: THREE.Vector3,
     targetJet: AiCombatJet | null,
     dist: number,
+    lockingPlayer: boolean,
   ): void {
     this.forwardDir(_fwd);
-    const leadT = clamp(dist / 195, 0.08, 0.75);
+    const leadT = clamp(dist / 235, 0.08, 0.85);
     _v.copy(targetPos).addScaledVector(targetVel, leadT).sub(this.position).normalize();
     const align = _fwd.dot(_v);
 
     // 1. Autocannon tracer burst when within range & nose cone!
-    if (dist < this.profile.gunRange && align > 0.92 && this.gunCooldown <= 0) {
-      if (this.gunBurstLeft <= 0) this.gunBurstLeft = this.team === 'ally' ? 5 : Math.round(3 + this.skill * 4);
+    if (dist < this.profile.gunRange && align > 0.90 && this.gunCooldown <= 0) {
+      if (this.gunBurstLeft <= 0) this.gunBurstLeft = this.team === 'ally' ? 5 : Math.round(4 + this.skill * 4);
       // Slight spread so skilled pilots are dangerous without unfair laser aim.
-      const spread = this.team === 'ally' ? 0.025 : (1.15 - this.skill * 0.7) * 0.055;
+      const spread = this.team === 'ally' ? 0.022 : (1.1 - this.skill * 0.65) * 0.048;
       _v.x += rand(-spread, spread);
       _v.y += rand(-spread, spread);
       _v.z += rand(-spread, spread);
       _v.normalize();
-      const dmg = this.team === 'ally' ? 28 : this.profile.gunDamage;
-      this.cb.onGunShot(this.position.clone().addScaledVector(_fwd, 5.5), _v.clone(), this.team, dmg, 210);
+      const dmg = this.team === 'ally' ? 30 : this.profile.gunDamage;
+      this.cb.onGunShot(this.position.clone().addScaledVector(_fwd, 5.5), _v.clone(), this.team, dmg, 245);
       this.gunBurstLeft--;
-      this.gunCooldown = this.gunBurstLeft > 0 ? 0.11 : rand(1.1, 2.2) * (1.2 - this.skill * 0.35);
+      this.gunCooldown = this.gunBurstLeft > 0 ? 0.10 : rand(0.95, 1.9) * (1.2 - this.skill * 0.35);
     }
 
-    // 2. Homing Air-to-Air Missile launch!
-    if (this.profile.hasMissiles && dist > 48 && dist < 210 && align > 0.84 && this.missileCooldown <= 0) {
-      const mDmg = this.team === 'ally' ? 145 : Math.round(24 + this.skill * 14);
+    // 2. Homing Air-to-Air Missile (Fox-2) with genuine radar/IR lock acquisition on the player!
+    if (lockingPlayer && this.team === 'enemy') {
+      const canAcquire = this.profile.hasMissiles &&
+        this.missileCooldown <= 0 &&
+        this.lockSuppressed <= 0 &&
+        dist > 60 &&
+        dist < 480 &&
+        align > 0.80;
+
+      if (canAcquire) {
+        const lockRate = (this.profile.role === 'ace' ? 0.62 : 0.48) * (0.85 + this.skill * 0.30);
+        this.playerLockProgress = Math.min(1, this.playerLockProgress + lockRate * dt);
+        if (this.playerLockProgress >= 1) {
+          this.playerLockProgress = 0;
+          const mDmg = Math.round(95 + this.skill * 55);
+          this.cb.onMissileLaunch(
+            this.position.clone().addScaledVector(_fwd, 4.5),
+            _fwd.clone(),
+            this.team,
+            targetPos.clone(),
+            null,
+            mDmg,
+          );
+          this.missileCooldown = this.profile.missileCooldown * (1.15 - this.skill * 0.25);
+        }
+      } else {
+        this.playerLockProgress = Math.max(0, this.playerLockProgress - dt * 0.85);
+      }
+      return;
+    }
+
+    // Wingman AI missile launch against enemy aircraft!
+    if (this.team === 'ally' && this.profile.hasMissiles && dist > 60 && dist < 420 && align > 0.82 && this.missileCooldown <= 0) {
       this.cb.onMissileLaunch(
-        this.position.clone().addScaledVector(_fwd, 4.0),
+        this.position.clone().addScaledVector(_fwd, 4.5),
         _fwd.clone(),
         this.team,
         targetPos.clone(),
         targetJet,
-        mDmg,
+        155,
       );
-      this.missileCooldown = this.profile.missileCooldown * (this.team === 'ally' ? 0.75 : (1.2 - this.skill * 0.3));
+      this.missileCooldown = this.profile.missileCooldown * 0.72;
     }
   }
 

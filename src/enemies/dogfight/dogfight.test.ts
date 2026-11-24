@@ -13,21 +13,37 @@ import {
   CARRIER_DEFENSE_TERMINAL,
   CARRIER_SAM_MOUNTS,
   DOGFIGHT_BOUNDS,
+  DOGFIGHT_ESCORTS,
   DOGFIGHT_LIGHT_BOUNDS,
   DOGFIGHT_LIGHT_CELL,
+  DOGFIGHT_NAV_BOUNDS,
   DOGFIGHT_PLAYER_SPAWN,
+  DOGFIGHT_SEA_STACKS,
   DOGFIGHT_SKY_SPAWNS,
 } from '../../world/map/dogfight/plan';
 import { SURVIVAL_MAPS, modesOn } from '../../ui/screens/mainmenu';
 import { AiCombatJet } from './aiJet';
 import { CARRIER_BASE_HP, CARRIER_START_CREDITS, CarrierDefenseSystem } from './carrier';
 import { HANGAR_AIRCRAFT } from './terminalUi';
-import { dogfightWaveRoster, dogfightWaveSkill } from './waves';
+import { DogfightWaves, dogfightWaveRoster, dogfightWaveSkill } from './waves';
 
-function mockCtx(): Ctx {
+function mockCtx(): { ctx: Ctx; emitEvent: (ev: string, payload?: unknown) => void } {
   const scene = new THREE.Scene();
   const listeners = new Map<string, ((...args: unknown[]) => void)[]>();
-  return {
+  const ctx = {
+    time: { dt: 1 / 30, elapsed: 0 },
+    player: {
+      alive: true,
+      parked: true,
+      position: new THREE.Vector3(0, 95, -80),
+      velocity: new THREE.Vector3(0, 0, 0),
+      teleport: vi.fn(),
+      takeDamage: vi.fn(),
+    },
+    input: {
+      pressed: vi.fn(() => false),
+      labelFor: vi.fn(() => 'E'),
+    },
     events: {
       on: vi.fn((ev: string, fn: (...args: unknown[]) => void) => {
         const arr = listeners.get(ev) ?? [];
@@ -35,7 +51,9 @@ function mockCtx(): Ctx {
         listeners.set(ev, arr);
         return () => {};
       }),
-      emit: vi.fn(),
+      emit: vi.fn((ev: string, payload?: unknown) => {
+        for (const fn of listeners.get(ev) ?? []) fn(payload);
+      }),
     },
     render: { scene, materials: { patch: (m: unknown) => m } },
     audio: { play: vi.fn() },
@@ -54,9 +72,35 @@ function mockCtx(): Ctx {
       world: { removeCollider: vi.fn() },
     },
   } as unknown as Ctx;
+  return {
+    ctx,
+    emitEvent: (ev: string, payload?: unknown) => {
+      for (const fn of listeners.get(ev) ?? []) fn(payload);
+    },
+  };
 }
 
 describe('Dogfight Map Plan & Registration', () => {
+  it('expands ocean airspace to >=10x Badlands while keeping navBounds compact over the carrier', () => {
+    const width = DOGFIGHT_BOUNDS.x1 - DOGFIGHT_BOUNDS.x0;
+    const depth = DOGFIGHT_BOUNDS.z1 - DOGFIGHT_BOUNDS.z0;
+    const height = DOGFIGHT_BOUNDS.y1 - DOGFIGHT_BOUNDS.y0;
+    // Badlands is ~124,000 m^2; Dogfight must be >= 10x that area!
+    expect(width * depth).toBeGreaterThanOrEqual(1_240_000);
+    expect(height).toBeGreaterThanOrEqual(300);
+
+    // NavGraph bounds stay tight around USS Sovereign (< 25k 1m cells) for fast loading.
+    const navArea = (DOGFIGHT_NAV_BOUNDS.x1 - DOGFIGHT_NAV_BOUNDS.x0) * (DOGFIGHT_NAV_BOUNDS.z1 - DOGFIGHT_NAV_BOUNDS.z0);
+    expect(navArea).toBeLessThan(25_000);
+    expect(DOGFIGHT_NAV_BOUNDS.x0).toBeLessThanOrEqual(CARRIER_DECK_RECT.x0);
+    expect(DOGFIGHT_NAV_BOUNDS.x1).toBeGreaterThanOrEqual(CARRIER_DECK_RECT.x1);
+    expect(DOGFIGHT_NAV_BOUNDS.z0).toBeLessThanOrEqual(CARRIER_DECK_RECT.z0);
+    expect(DOGFIGHT_NAV_BOUNDS.z1).toBeGreaterThanOrEqual(CARRIER_DECK_RECT.z1);
+
+    expect(DOGFIGHT_ESCORTS.length).toBeGreaterThanOrEqual(2);
+    expect(DOGFIGHT_SEA_STACKS.length).toBeGreaterThanOrEqual(6);
+  });
+
   it('keeps LightVolume voxel dimensions strictly inside the 200x48 cell budget', () => {
     const nx = Math.ceil((DOGFIGHT_LIGHT_BOUNDS.x1 - DOGFIGHT_LIGHT_BOUNDS.x0) / DOGFIGHT_LIGHT_CELL);
     const ny = Math.ceil((DOGFIGHT_LIGHT_BOUNDS.y1 - DOGFIGHT_LIGHT_BOUNDS.y0) / DOGFIGHT_LIGHT_CELL);
@@ -119,7 +163,7 @@ describe('Dogfight Wave Scaling & Pilot Skill', () => {
 
 describe('CarrierDefenseSystem', () => {
   it('handles credit upgrades for CIWS, SAM, Hull Armor, Wingmen, and Emergency Repair', () => {
-    const ctx = mockCtx();
+    const { ctx } = mockCtx();
     const onCiwsShot = vi.fn();
     const onSamLaunch = vi.fn();
     const onSpawnWingman = vi.fn();
@@ -174,7 +218,7 @@ describe('CarrierDefenseSystem', () => {
 
 describe('AiCombatJet Combat & ExtraTarget Integration', () => {
   it('flies smoothly, exposes paintable & radarTargets for AA Lead Pips, takes damage, and triggers kill callback', () => {
-    const ctx = mockCtx();
+    const { ctx } = mockCtx();
     const materials = new ModelMaterials(ctx);
     const onKilled = vi.fn();
     const onCarrierStrike = vi.fn();
@@ -193,6 +237,8 @@ describe('AiCombatJet Combat & ExtraTarget Integration', () => {
         onCarrierStrike,
         onKilled,
       },
+      undefined,
+      'hunter',
     );
 
     const paintList: MissileTarget[] = [];
@@ -211,7 +257,7 @@ describe('AiCombatJet Combat & ExtraTarget Integration', () => {
       jet.update(1 / 30, new THREE.Vector3(20, 65, -40), new THREE.Vector3(0, 0, -45), true, []);
     }
     expect(jet.position.z).toBeGreaterThan(startZ);
-    expect(['dogfight', 'carrier_run', 'extend', 'evade']).toContain(jet.state);
+    expect(['dogfight', 'extend', 'evade']).toContain(jet.state);
 
     // Deal lethal blast damage and confirm death spiral + kill callback
     const caught = jet.blast(jet.position.clone(), {
@@ -236,5 +282,101 @@ describe('AiCombatJet Combat & ExtraTarget Integration', () => {
     expect(radarList).toHaveLength(0);
 
     jet.dispose();
+  });
+
+  it('hunts an airborne player from long range, ramps radar lock, fires Fox-2, and breaks lock on flares', () => {
+    const { ctx } = mockCtx();
+    const materials = new ModelMaterials(ctx);
+    const onMissileLaunch = vi.fn();
+
+    // Place enemy hunter Hornet 320 m behind an airborne player flying straight ahead (+Z)
+    const jet = new AiCombatJet(
+      ctx,
+      materials,
+      'hornet',
+      'enemy',
+      new THREE.Vector3(0, 100, -220),
+      0, // facing +Z straight at player!
+      0.9,
+      {
+        onGunShot: vi.fn(),
+        onMissileLaunch,
+        onCarrierStrike: vi.fn(),
+        onKilled: vi.fn(),
+      },
+      undefined,
+      'hunter',
+    );
+
+    const playerPos = new THREE.Vector3(0, 100, 120);
+    const playerVel = new THREE.Vector3(0, 0, 58);
+
+    // First step transitions from approach -> dogfight immediately (even at 340 m range!)
+    jet.update(1 / 30, playerPos, playerVel, true, []);
+    expect(jet.state).toBe('dogfight');
+
+    // Advance until radar lock builds and Fox-2 missile launches
+    let sawLock = false;
+    for (let i = 0; i < 360; i++) {
+      playerPos.addScaledVector(playerVel, 1 / 30);
+      jet.update(1 / 30, playerPos, playerVel, true, []);
+      if (jet.isLockingPlayer) sawLock = true;
+      if (onMissileLaunch.mock.calls.length > 0) break;
+    }
+    expect(sawLock).toBe(true);
+    expect(onMissileLaunch).toHaveBeenCalledTimes(1);
+
+    // Break lock with player IR flares
+    jet.playerLockProgress = 0.75;
+    jet.breakPlayerLock(4.0);
+    expect(jet.playerLockProgress).toBe(0);
+    expect(jet.isLockingPlayer).toBe(false);
+
+    jet.dispose();
+  });
+
+  it('emits cockpit RWR lock/missile warnings and decoys inbound enemy Fox-2 missiles on player IR flares', () => {
+    const { ctx, emitEvent } = mockCtx();
+    const waves = new DogfightWaves(
+      ctx,
+      {} as never,
+      { vehicles: { addExtra: vi.fn(), removeExtra: vi.fn() } } as never,
+    );
+
+    waves.start();
+    // Skip intermission so Wave 1 spawns enemy hunters
+    waves.nextWaveIn = 0.01;
+    waves.update();
+    // Advance spawn timer so first Hornet spawns
+    for (let i = 0; i < 15; i++) waves.update();
+    expect(waves.enemies.length).toBeGreaterThanOrEqual(1);
+
+    const hunter = waves.enemies[0]!;
+    expect(hunter.tacticalRole).toBe('hunter');
+
+    // Simulate active radar lock + inbound Fox-2 missile on player
+    hunter.position.set(0, 100, -240);
+    hunter.yaw = 0;
+    hunter.playerLockProgress = 0.65;
+    (ctx.player.position as THREE.Vector3).set(0, 100, -40);
+    waves.update();
+
+    const emitSpy = ctx.events.emit as unknown as ReturnType<typeof vi.fn>;
+    const rwrCalls = emitSpy.mock.calls.filter(c => c[0] === 'dogfight:rwr');
+    expect(rwrCalls.length).toBeGreaterThan(0);
+    expect(rwrCalls[rwrCalls.length - 1]![1]).toMatchObject({ locking: true });
+
+    // Trigger player IR flares -> breaks lock and clears RWR!
+    emitEvent('dogfight:player_flares', { position: ctx.player.position });
+    expect(hunter.playerLockProgress).toBe(0);
+
+    const finalRwr = emitSpy.mock.calls.filter(c => c[0] === 'dogfight:rwr').pop()?.[1] as {
+      locking: boolean;
+      missileInbound: boolean;
+    };
+    expect(finalRwr.locking).toBe(false);
+    expect(finalRwr.missileInbound).toBe(false);
+
+    waves.dispose();
   });
 });

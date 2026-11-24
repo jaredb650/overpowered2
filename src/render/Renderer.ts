@@ -67,7 +67,7 @@ const XRAY_LAYER = 4;
 export class Renderer implements RenderSystem {
   readonly renderer: THREE.WebGLRenderer;
   readonly scene = new THREE.Scene();
-  readonly camera = new THREE.PerspectiveCamera(80, 16 / 9, 0.1, 1500);
+  readonly camera = new THREE.PerspectiveCamera(80, 16 / 9, 0.1, 3600);
   readonly viewScene = new THREE.Scene();
   readonly viewCamera = new THREE.PerspectiveCamera(58, 16 / 9, 0.01, 12);
   readonly materials: MaterialLibrary;

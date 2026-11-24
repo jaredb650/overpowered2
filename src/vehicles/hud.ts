@@ -196,6 +196,8 @@ export class GunnerHud implements SeatPanel {
   private readonly chargeBox: Shown;
   private readonly chargeBar: Meter;
   private readonly mslWarn: Shown;
+  private readonly mslWarnText: Label;
+  private readonly mslWarnLock: Flag;
   private readonly jetBox: Shown;
   private readonly jetLadder: HTMLElement;
   private readonly jetSpdVal: Num;
@@ -398,6 +400,8 @@ export class GunnerHud implements SeatPanel {
     this.chargeBox = new Shown(chargeEl, 'flex');
     this.chargeBar = new Meter(chargeFill);
     this.mslWarn = new Shown(mslWarnEl, 'block');
+    this.mslWarnText = new Label(mslWarnEl);
+    this.mslWarnLock = new Flag(mslWarnEl, 'lock');
     this.jetBox = new Shown(jetEl, 'block');
     this.jetSpdVal = new Num(jetSpdNum);
     this.jetAltVal = new Num(jetAltNum);
@@ -538,7 +542,15 @@ export class GunnerHud implements SeatPanel {
     const charging = v.chargeFraction > 0.02;
     this.chargeBox.set(charging);
     if (charging) this.chargeBar.set(v.chargeFraction);
-    this.mslWarn.set(v.missileWarning);
+    const showMsl = v.missileWarning;
+    const showLock = !showMsl && Boolean(v.radarLockWarning);
+    this.mslWarn.set(showMsl || showLock);
+    this.mslWarnLock.set(showLock);
+    if (showMsl) {
+      this.mslWarnText.set('⚠ MISSILE INBOUND // POP [Q] FLARES!');
+    } else if (showLock) {
+      this.mslWarnText.set(v.rwrLabel ? `⚠ ${v.rwrLabel}` : '⚠ RADAR LOCK — BREAK OR [Q] FLARES');
+    }
 
     // Green Military Fighter Jet HUD (Harrier, Warthog, Raptor, Hornet, Lancer)!
     const isFighter = v.hudMode === 'fighter';

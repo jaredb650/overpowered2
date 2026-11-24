@@ -22,17 +22,20 @@ import {
   CARRIER_DEFENSE_TERMINAL,
   CARRIER_SAM_MOUNTS,
   DOGFIGHT_BOUNDS,
+  DOGFIGHT_ESCORTS,
   DOGFIGHT_HUB_PT,
   DOGFIGHT_LEVELS,
   DOGFIGHT_LIGHT_BOUNDS,
   DOGFIGHT_LIGHT_CELL,
+  DOGFIGHT_NAV_BOUNDS,
   DOGFIGHT_PICKUPS,
   DOGFIGHT_PLAYER_SPAWN,
   DOGFIGHT_PLAYER_YAW,
+  DOGFIGHT_SEA_STACKS,
   DOGFIGHT_SKY_SPAWNS,
 } from './plan';
 
-export { DOGFIGHT_BOUNDS, DOGFIGHT_LEVELS, DOGFIGHT_LIGHT_BOUNDS, DOGFIGHT_LIGHT_CELL };
+export { DOGFIGHT_BOUNDS, DOGFIGHT_LEVELS, DOGFIGHT_LIGHT_BOUNDS, DOGFIGHT_LIGHT_CELL, DOGFIGHT_NAV_BOUNDS };
 export * from './plan';
 
 export const DOGFIGHT_HUB = new THREE.Vector3(DOGFIGHT_HUB_PT[0], DOGFIGHT_HUB_PT[1], DOGFIGHT_HUB_PT[2]);
@@ -42,17 +45,17 @@ const STAGES_BUILT = new WeakSet<MapSpec>();
 const DECK_Y = CARRIER_DECK_Y;
 const DECK_T = 0.6;
 
-/** Ocean plane out to +-900 m plus white foam wakes steaming behind the stern and bow. */
+/** Ocean plane out to +-2,400 m plus white foam wakes steaming behind the stern and bow. */
 function authorOcean(k: Kit): void {
   const g = k.geo;
 
-  // Main deep maritime ocean expanse (visual to the horizon).
+  // Main deep maritime ocean expanse (visual to the horizon across the 1,280 m arena).
   g.use('steel').tint(0.14, 0.34, 0.52);
-  g.gridStep(-900, 0, 900, 1800, 0, 0, 0, 0, -1800, 90);
+  g.gridStep(-2400, 0, 2400, 4800, 0, 0, 0, 0, -4800, 160);
 
   // Subtle sunlit sea shimmer bands near the carrier.
   g.use('tile').tint(0.16, 0.40, 0.60);
-  g.box(0, 0.015, 0, 220, 0.01, 240, FACE.py);
+  g.box(0, 0.015, 0, 260, 0.01, 280, FACE.py);
 
   // Churning stern propeller wake foam streaming behind z = +72 to +230.
   g.use('paintWhite').tint(0.76, 0.88, 0.96);
@@ -73,10 +76,9 @@ function authorOcean(k: Kit): void {
   }
   g.tint(1);
 
-  // Flat sea-level collider across the playable airspace so airborne jets sample exact y = 0 AGL over open ocean.
-  // NavGraph filters exclusively to levels: [CARRIER_DECK_Y], so y = 0 is never added to walkable nav!
+  // Flat sea-level collider across the entire 1,280 m playable airspace so airborne jets sample exact y = 0 AGL.
   k.noClimb(() => {
-    k.collide(0, -1.0, 0, 262, 1.0, 262, 'glass');
+    k.collide(0, -1.0, 0, 680, 1.0, 680, 'glass');
   });
 }
 
@@ -347,11 +349,85 @@ function authorSponsonsAndTerminals(k: Kit): void {
   g.tint(1);
 }
 
+/** Flanking naval escort destroyers and volcanic sea stack spires across the 1,280 m ocean arena. */
+function authorEscortsAndSeaStacks(k: Kit): void {
+  const g = k.geo;
+
+  // 1. Stealth Naval Escort Destroyers steaming alongside USS Sovereign!
+  for (const d of DOGFIGHT_ESCORTS) {
+    k.push(d.x, 0, d.z, d.yaw);
+    g.use('paintRed').tint(0.55, 0.16, 0.14);
+    g.box(0, 0.1, 0, 6.2, 1.3, 38);
+    g.use('steel').tint(0.44, 0.49, 0.54);
+    g.box(0, 3.2, 0, 6.6, 2.2, 39);
+    g.box(0, 3.4, -44, 3.8, 2.0, 6.5);
+    g.box(0, 3.6, -50, 1.8, 1.8, 3.2);
+    // Aft helipad deck + white H markings
+    g.use('asphalt').tint(0.32, 0.36, 0.40);
+    g.box(0, 5.45, 25, 5.8, 0.15, 11.5, FACE.py);
+    g.use('paintWhite').tint(0.86, 0.90, 0.94);
+    g.box(0, 5.62, 25, 0.35, 0.04, 3.6, FACE.py);
+    // Forward 5-inch naval gun turret + VLS deck
+    g.use('steelDark').tint(0.40, 0.45, 0.50);
+    g.box(0, 6.3, -27, 2.4, 1.0, 2.8);
+    g.box(0, 6.6, -32, 0.28, 0.26, 3.6);
+    // Stealth pyramid bridge superstructure + radar mast
+    g.use('steel').tint(0.50, 0.55, 0.60);
+    g.box(0, 9.6, -6, 5.4, 4.2, 13);
+    g.box(0, 15.0, -7, 3.8, 2.6, 8.2);
+    g.use('steelDark').tint(0.28, 0.34, 0.40);
+    g.box(0, 21.5, -7, 1.6, 4.4, 2.0);
+    g.box(0, 26.8, -7, 0.45, 2.2, 0.45);
+    // Glowing bridge window slit + red aviation beacon
+    g.use('emissiveCyan').tint(0.6, 0.95, 1.0);
+    g.box(0, 14.8, -15.3, 3.2, 0.7, 0.12);
+    g.use('emissiveRed').tint(1, 0.2, 0.15);
+    g.box(0, 29.2, -7, 0.5, 0.4, 0.5);
+    // Stern wake foam
+    g.use('paintWhite').tint(0.76, 0.88, 0.96);
+    g.box(0, 0.03, 66, 4.6, 0.015, 28, FACE.py);
+    g.tint(1);
+
+    k.noClimb(() => {
+      k.collide(0, 3.0, 0, 6.8, 3.2, 42, 'metal');
+      k.collide(0, 13.0, -6.5, 5.5, 9.5, 13.5, 'metal');
+    });
+    k.pop();
+  }
+
+  // 2. Towering Volcanic Basalt Sea Stacks & Atoll Spires (vertical landmarks + missile evasion cover!)
+  for (const s of DOGFIGHT_SEA_STACKS) {
+    k.push(s.x, 0, s.z, s.yaw);
+    g.use('paintWhite').tint(0.76, 0.88, 0.96);
+    g.box(0, 0.04, 0, s.radius * 1.24, 0.02, s.radius * 1.18, FACE.py);
+
+    g.use('concrete').tint(0.28, 0.27, 0.26);
+    g.box(0, s.height * 0.16, 0, s.radius, s.height * 0.18, s.radius * 0.86);
+    g.tint(0.34, 0.32, 0.30);
+    g.box(s.radius * 0.18, s.height * 0.44, -s.radius * 0.12, s.radius * 0.72, s.height * 0.24, s.radius * 0.66);
+    g.tint(0.40, 0.36, 0.32);
+    g.box(-s.radius * 0.10, s.height * 0.72, s.radius * 0.08, s.radius * 0.42, s.height * 0.24, s.radius * 0.38);
+    g.tint(0.44, 0.39, 0.34);
+    g.box(-s.radius * 0.08, s.height * 0.94, s.radius * 0.04, s.radius * 0.20, s.height * 0.14, s.radius * 0.18);
+    g.tint(0.30, 0.29, 0.28);
+    g.box(-s.radius * 0.95, s.height * 0.18, s.radius * 0.65, s.radius * 0.38, s.height * 0.20, s.radius * 0.34);
+    g.tint(1);
+
+    k.noClimb(() => {
+      k.collide(0, s.height * 0.18, 0, s.radius * 0.95, s.height * 0.20, s.radius * 0.82, 'concrete');
+      k.collide(s.radius * 0.14, s.height * 0.52, -s.radius * 0.08, s.radius * 0.62, s.height * 0.28, s.radius * 0.56, 'concrete');
+      k.collide(-s.radius * 0.08, s.height * 0.84, s.radius * 0.06, s.radius * 0.30, s.height * 0.20, s.radius * 0.28, 'concrete');
+    });
+    k.pop();
+  }
+}
+
 export const DOGFIGHT_STAGES = [
   {
-    label: 'Charting the open sea',
+    label: 'Charting the open sea & task force',
     run: (k: Kit, spec: MapSpec) => {
       authorOcean(k);
+      authorEscortsAndSeaStacks(k);
       STAGES_BUILT.add(spec);
     },
   },

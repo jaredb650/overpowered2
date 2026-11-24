@@ -4,10 +4,12 @@
  * coordinate directly without pulling renderer state.
  *
  * USS SOVEREIGN (CVN-88) — Open-Ocean Aircraft Carrier Air-Combat Arena:
- *   - Ocean sea level at y = 0 stretching visually to +-900 m.
- *   - Playable airspace bounds: 520 m x 520 m (x, z in [-260, +260]), ceiling y = 185 m.
+ *   - Ocean sea level at y = 0 stretching visually to +-2,400 m.
+ *   - Playable airspace bounds: 1,280 m x 1,280 m (x, z in [-640, +640], ~13x Badlands area), ceiling y = 320 m.
+ *   - NavGraph bake bounds (`DOGFIGHT_NAV_BOUNDS`) stay tight around the carrier deck so loading is instant!
  *   - Carrier flight deck at y = 10 m, 144 m long (z in [-72, +72]), ~38 m wide.
- *   - Starboard Island command tower on +X side; wide angled landing waist on -X side.
+ *   - Flanked by 2 Naval Escort Destroyers (DDG-74 & DDG-81) and 6 Volcanic Sea Stack Spires out at 310–510 m
+ *     for thrilling high-speed dogfight landmarks and missile-evasion cover.
  *   - Catapult Pad 1 sits clear ahead of the player spawn for instant takeoff, flanked by two
  *     interactive deck terminals (Aircraft Select & Carrier Defenses).
  */
@@ -15,12 +17,25 @@
 export const CARRIER_DECK_Y = 10;
 
 export const DOGFIGHT_BOUNDS = {
-  x0: -260,
+  x0: -640,
   y0: -14,
-  z0: -260,
-  x1: 260,
-  y1: 185,
-  z1: 260,
+  z0: -640,
+  x1: 640,
+  y1: 320,
+  z1: 640,
+} as const;
+
+/**
+ * Tight 1-meter NavGraph bounds covering only USS Sovereign's carrier deck & island (88 x 184 m = ~16k cells).
+ * Decoupled from the 1,280 x 1,280 m flyable airspace so world load stays instantaneous!
+ */
+export const DOGFIGHT_NAV_BOUNDS = {
+  x0: -44,
+  y0: -4,
+  z0: -92,
+  x1: 44,
+  y1: 42,
+  z1: 92,
 } as const;
 
 /**
@@ -89,16 +104,38 @@ export const CARRIER_SAM_MOUNTS: readonly SponsonMount[] = [
   { id: 'sam_port_mid',   role: 'sam', at: [-22.6, CARRIER_DECK_Y + 0.8,  -4.0], defaultYaw: -Math.PI / 2 },
 ];
 
-/** High-altitude ocean airspace entry points for hostile enemy jet squadrons. */
+/** Flanking escort destroyers steaming in formation with USS Sovereign across the wider ocean. */
+export const DOGFIGHT_ESCORTS: readonly { readonly id: string; readonly x: number; readonly z: number; readonly yaw: number }[] = [
+  { id: 'ddg_74', x: -240, z: -155, yaw: 0.04 },
+  { id: 'ddg_81', x:  255, z:  140, yaw: -0.05 },
+];
+
+/** Towering basalt sea stacks & rock spires around 320–510 m for vertical dogfight landmarks & missile cover. */
+export const DOGFIGHT_SEA_STACKS: readonly {
+  readonly x: number;
+  readonly z: number;
+  readonly radius: number;
+  readonly height: number;
+  readonly yaw: number;
+}[] = [
+  { x: -395, z: -360, radius: 34, height: 96,  yaw: 0.4 },
+  { x:  410, z: -340, radius: 28, height: 112, yaw: 1.1 },
+  { x: -460, z:  110, radius: 38, height: 84,  yaw: 2.2 },
+  { x:  450, z:  -45, radius: 32, height: 104, yaw: 0.8 },
+  { x: -320, z:  420, radius: 30, height: 78,  yaw: 1.7 },
+  { x:  360, z:  410, radius: 36, height: 92,  yaw: 2.7 },
+];
+
+/** High-altitude ocean airspace entry points for hostile enemy jet squadrons across the 1,280 m arena. */
 export const DOGFIGHT_SKY_SPAWNS: readonly (readonly [number, number, number])[] = [
-  [0, 68, -235],
-  [145, 76, -195],
-  [-145, 72, -195],
-  [230, 82, -40],
-  [-230, 78, -40],
-  [175, 86, 170],
-  [-175, 84, 170],
-  [0, 92, 235],
+  [0, 110, -540],
+  [365, 122, -415],
+  [-365, 118, -415],
+  [530, 130, -80],
+  [-530, 126, -80],
+  [380, 136, 390],
+  [-380, 132, 390],
+  [0, 145, 540],
 ];
 
 /** Deck supply pickup locations (health / ammo near island ops room). */
