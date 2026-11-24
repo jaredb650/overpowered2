@@ -26,6 +26,7 @@ import { AiCombatJet } from './aiJet';
 import { CARRIER_BASE_HP, CARRIER_START_CREDITS, CarrierDefenseSystem } from './carrier';
 import { HANGAR_AIRCRAFT } from './terminalUi';
 import { DogfightWaves, dogfightWaveRoster, dogfightWaveSkill } from './waves';
+import { DogfightWreckageSystem, choosePilotFate } from './wreckage';
 
 function mockCtx(): { ctx: Ctx; emitEvent: (ev: string, payload?: unknown) => void } {
   const scene = new THREE.Scene();
@@ -380,3 +381,310 @@ describe('AiCombatJet Combat & ExtraTarget Integration', () => {
     waves.dispose();
   });
 });
+
+describe('Distinct AI Aircraft Doctrines & Ordnance Preferences', () => {
+  it('enforces B-1 Lancer as a pure strategic carrier bomber (no guns, no missiles, drops real bomb sticks)', () => {
+    const { ctx } = mockCtx();
+    const materials = new ModelMaterials(ctx);
+    const onGunShot = vi.fn();
+    const onMissileLaunch = vi.fn();
+    const onBombDrop = vi.fn();
+
+    const lancer = new AiCombatJet(
+      ctx,
+      materials,
+      'lancer',
+      'enemy',
+      new THREE.Vector3(0, 96, -210),
+      0, // heading +Z straight over USS Sovereign
+      0.85,
+      {
+        onGunShot,
+        onMissileLaunch,
+        onBombDrop,
+        onCarrierStrike: vi.fn(),
+        onKilled: vi.fn(),
+      },
+      undefined,
+      'striker',
+    );
+
+    expect(lancer.profile.doctrine).toBe('heavy_bomber');
+    expect(lancer.profile.hasGun).toBe(false);
+    expect(lancer.profile.hasMissiles).toBe(false);
+
+    // Even when taking damage with an airborne player right nearby, Lancer never enters dogfight or shoots guns
+    lancer.applyDamage(80, lancer.position.clone(), 'player_gun', true);
+    const playerPos = new THREE.Vector3(25, 96, -120);
+    const playerVel = new THREE.Vector3(0, 0, 50);
+
+    for (let i = 0; i < 480; i++) {
+      lancer.update(1 / 30, playerPos, playerVel, true, []);
+      expect(lancer.state).not.toBe('dogfight');
+      if (onBombDrop.mock.calls.length >= 5) break;
+    }
+
+    expect(onGunShot).not.toHaveBeenCalled();
+    expect(onMissileLaunch).not.toHaveBeenCalled();
+    expect(onBombDrop.mock.calls.length).toBeGreaterThanOrEqual(5);
+    // Confirm bombs dropped are Lancer heavy/parachute ordnance
+    for (const call of onBombDrop.mock.calls) {
+      expect(['mk84', 'para']).toContain(call[2]);
+    }
+
+    lancer.dispose();
+  });
+
+  it('flies A-10 Warthog with CAS doctrine alternating heavy 30mm GAU-8 strafe bursts and dive-bomb drops', () => {
+    const { ctx } = mockCtx();
+    const materials = new ModelMaterials(ctx);
+    const onCarrierGunStrafe = vi.fn();
+    const onBombDrop = vi.fn();
+
+    const warthog = new AiCombatJet(
+      ctx,
+      materials,
+      'warthog',
+      'enemy',
+      new THREE.Vector3(0, 62, -230),
+      0,
+      0.85,
+      {
+        onGunShot: vi.fn(),
+        onMissileLaunch: vi.fn(),
+        onBombDrop,
+        onCarrierGunStrafe,
+        onCarrierStrike: vi.fn(),
+        onKilled: vi.fn(),
+      },
+      undefined,
+      'striker',
+    );
+
+    expect(warthog.profile.doctrine).toBe('cas_attacker');
+
+    // Run two full carrier attack runs so both GAU-8 strafe and dive-bomb passes execute
+    const playerOnDeck = new THREE.Vector3(0, CARRIER_DECK_Y, 0);
+    const zeroVel = new THREE.Vector3();
+    for (let i = 0; i < 900; i++) {
+      warthog.update(1 / 30, playerOnDeck, zeroVel, false, []);
+      if (onCarrierGunStrafe.mock.calls.length > 0 && onBombDrop.mock.calls.length > 0) break;
+    }
+
+    expect(onCarrierGunStrafe.mock.calls.length).toBeGreaterThan(0);
+    // All Warthog strafe rounds must be marked heavy (30mm GAU-8)
+    expect(onCarrierGunStrafe.mock.calls.every(c => c[4] === true)).toBe(true);
+    expect(onBombDrop.mock.calls.length).toBeGreaterThan(0);
+    for (const call of onBombDrop.mock.calls) {
+      expect(['mk82', 'cluster']).toContain(call[2]);
+    }
+
+    warthog.dispose();
+  });
+
+  it('flies striker AV-8B Harrier firing Hydra rocket salvos onto the carrier', () => {
+    const { ctx } = mockCtx();
+    const materials = new ModelMaterials(ctx);
+    const onCarrierRocket = vi.fn();
+
+    const harrier = new AiCombatJet(
+      ctx,
+      materials,
+      'harrier',
+      'enemy',
+      new THREE.Vector3(0, 68, -220),
+      0,
+      0.8,
+      {
+        onGunShot: vi.fn(),
+        onMissileLaunch: vi.fn(),
+        onCarrierRocket,
+        onCarrierStrike: vi.fn(),
+        onKilled: vi.fn(),
+      },
+      undefined,
+      'striker',
+    );
+
+    expect(harrier.profile.doctrine).toBe('rocket_striker');
+    const playerOnDeck = new THREE.Vector3(0, CARRIER_DECK_Y, 0);
+    const zeroVel = new THREE.Vector3();
+    for (let i = 0; i < 360; i++) {
+      harrier.update(1 / 30, playerOnDeck, zeroVel, false, []);
+      if (onCarrierRocket.mock.calls.length >= 3) break;
+    }
+
+    expect(onCarrierRocket.mock.calls.length).toBeGreaterThanOrEqual(3);
+    harrier.dispose();
+  });
+});
+
+describe('Explosive Jet Breakup, Ejected Pilot Fates & Real Falling Bombs', () => {
+  function mockWreckageHarness() {
+    const { ctx } = mockCtx();
+    const gore = {
+      burnOn: vi.fn(),
+      sever: vi.fn(),
+      ragdoll: vi.fn(),
+      gib: vi.fn(),
+    };
+    const characters = {
+      spawn: vi.fn(() => ({
+        root: new THREE.Group(),
+        bones: Array.from({ length: 17 }, () => new THREE.Group()),
+        setBurn: vi.fn(),
+        setBloodiness: vi.fn(),
+      })),
+    };
+    const progression = { award: vi.fn() };
+    Object.assign(ctx, { gore, characters, progression });
+
+    const spawnedEnemies: Array<{
+      alive: boolean;
+      scriptedNpc: boolean;
+      pinned: boolean;
+      mode: string;
+      face: string;
+      attacks: unknown[];
+      behaviours: unknown[];
+      maxHealth: number;
+      health: number;
+      score: number;
+      groundY: number;
+      position: THREE.Vector3;
+      velocity: THREE.Vector3;
+      char: { root: THREE.Group; bones: THREE.Group[] };
+    }> = [];
+
+    const despawn = vi.fn((e: { alive: boolean }) => {
+      e.alive = false;
+    });
+    const manager = {
+      spawn: vi.fn((_kind: string, pos: THREE.Vector3) => {
+        const handR = new THREE.Group();
+        const smg = new THREE.Mesh();
+        smg.name = 'smg';
+        handR.add(smg);
+        const bones = Array.from({ length: 17 }, (_, idx) => (idx === 10 ? handR : new THREE.Group()));
+        const e = {
+          alive: true,
+          scriptedNpc: false,
+          pinned: false,
+          mode: 'advance',
+          face: 'player',
+          attacks: [{ id: 'smg' }],
+          behaviours: [{ id: 'chase' }],
+          maxHealth: 100,
+          health: 100,
+          score: 100,
+          groundY: 0,
+          position: pos.clone(),
+          velocity: new THREE.Vector3(),
+          char: { root: new THREE.Group(), bones },
+        };
+        spawnedEnemies.push(e);
+        return e;
+      }),
+      despawn,
+    };
+
+    const onBombHitCarrier = vi.fn();
+    const wreckage = new DogfightWreckageSystem(ctx, manager as never, { onBombHitCarrier });
+    return { ctx, gore, characters, progression, manager, spawnedEnemies, despawn, onBombHitCarrier, wreckage };
+  }
+
+  it('shatters killed jets into 7 tumbling physical wreckage chunks instead of keeping an intact plane', () => {
+    const { wreckage } = mockWreckageHarness();
+    wreckage.shatterJet(
+      'hornet',
+      new THREE.Vector3(0, 90, 0),
+      new THREE.Vector3(0, 0, 60),
+      0,
+      0,
+      0.2,
+    );
+
+    expect(wreckage.shatteredJets).toBe(1);
+    expect(wreckage.activeChunkCount).toBe(7);
+
+    // Advance physics until chunks fall & splash into the ocean or expire
+    for (let i = 0; i < 360; i++) wreckage.update(1 / 30);
+    expect(wreckage.activeChunkCount).toBe(0);
+    wreckage.dispose();
+  });
+
+  it('covers all 4 pilot fates deterministically: unarmed shootable parachuter, burning ragdoll, mangled ragdoll, and gibbed', () => {
+    expect(choosePilotFate('hornet', false, 0.1)).toBe('eject_chute');
+    expect(choosePilotFate('hornet', false, 0.55)).toBe('burning_ragdoll');
+    expect(choosePilotFate('hornet', false, 0.75)).toBe('mangled_ragdoll');
+    expect(choosePilotFate('hornet', false, 0.95)).toBe('gibbed');
+    expect(choosePilotFate('lancer', true, 0.4)).toBe('gibbed');
+
+    const { wreckage, gore, progression, spawnedEnemies, despawn } = mockWreckageHarness();
+    const cockpit = new THREE.Vector3(0, 85, 0);
+    const vel = new THREE.Vector3(0, 0, 50);
+
+    // 1. Ejected shootable parachuting pilot
+    const fate1 = wreckage.spawnPilotFate('hornet', cockpit, vel, 'vulcan', false, 'eject_chute');
+    expect(fate1).toBe('eject_chute');
+    expect(wreckage.activePilotCount).toBe(1);
+    const pilot = spawnedEnemies[0]!;
+    expect(pilot.scriptedNpc).toBe(true);
+    expect(pilot.pinned).toBe(true);
+    expect(pilot.attacks).toEqual([]);
+    expect(pilot.face).toBe('move');
+    expect(pilot.char.bones[10]!.getObjectByName('smg')?.visible).toBe(false);
+
+    // Step past rocket boost so canopy opens, then simulate player shooting the pilot mid-air!
+    for (let i = 0; i < 30; i++) wreckage.update(1 / 30);
+    pilot.alive = false;
+    wreckage.update(1 / 30);
+    expect(wreckage.ejectedPilotsShot).toBe(1);
+    expect(wreckage.activePilotCount).toBe(0);
+    expect(progression.award).toHaveBeenCalledWith(150, 'EJECTED PILOT SPLASHED', expect.any(THREE.Vector3));
+
+    // 2. Unshot parachuter splashing into sea despawns silently without bonus score
+    progression.award.mockClear();
+    wreckage.spawnPilotFate('hornet', new THREE.Vector3(0, 12, 0), new THREE.Vector3(), 'vulcan', false, 'eject_chute');
+    for (let i = 0; i < 180; i++) wreckage.update(1 / 30);
+    expect(wreckage.activePilotCount).toBe(0);
+    expect(despawn).toHaveBeenCalled();
+    expect(progression.award).not.toHaveBeenCalled();
+
+    // 3. Burning ragdoll
+    wreckage.spawnPilotFate('hornet', cockpit, vel, 'vulcan', false, 'burning_ragdoll');
+    expect(gore.burnOn).toHaveBeenCalled();
+    expect(gore.ragdoll).toHaveBeenCalledTimes(1);
+
+    // 4. Mangled ragdoll (severs 1-2 limbs + ragdoll)
+    wreckage.spawnPilotFate('warthog', cockpit, vel, 'vulcan', false, 'mangled_ragdoll');
+    expect(gore.sever).toHaveBeenCalled();
+    expect(gore.ragdoll).toHaveBeenCalledTimes(2);
+
+    // 5. Mid-air gore gib explosion
+    wreckage.spawnPilotFate('raptor', cockpit, vel, 'aim9x', true, 'gibbed');
+    expect(gore.gib).toHaveBeenCalledTimes(1);
+    expect(wreckage.gibbedPilotsSpawned).toBe(1);
+
+    wreckage.dispose();
+  });
+
+  it('drops real 3D gravity-driven bombs that damage USS Sovereign on deck hits and splash harmlessly in the open ocean', () => {
+    const { wreckage, onBombHitCarrier } = mockWreckageHarness();
+
+    // Bomb 1: directly over USS Sovereign flight deck -> must hit carrier!
+    wreckage.spawnBomb(new THREE.Vector3(0, 65, 0), new THREE.Vector3(0, -10, 0), 'mk84', 95, 'B-1 LANCER');
+    // Bomb 2: parachute bomb far out over open ocean -> must splash with zero carrier damage!
+    wreckage.spawnBomb(new THREE.Vector3(240, 55, 240), new THREE.Vector3(0, -6, 0), 'para', 95, 'B-1 LANCER');
+    expect(wreckage.activeBombCount).toBe(2);
+
+    for (let i = 0; i < 300; i++) wreckage.update(1 / 30);
+
+    expect(wreckage.activeBombCount).toBe(0);
+    expect(onBombHitCarrier).toHaveBeenCalledTimes(1);
+    expect(onBombHitCarrier).toHaveBeenCalledWith(expect.any(THREE.Vector3), 95, 'B-1 LANCER', true);
+
+    wreckage.dispose();
+  });
+});
+

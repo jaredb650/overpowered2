@@ -33,6 +33,7 @@ import type { Outpost } from '../outpost';
 import { AiCombatJet, type AiJetKind, type AiJetTeam, type AiTacticalRole } from './aiJet';
 import { CarrierDefenseSystem, type CarrierUpgradeId } from './carrier';
 import { DogfightTerminalUi, type TerminalTab } from './terminalUi';
+import { DogfightWreckageSystem } from './wreckage';
 
 const FIRST_WAVE_DELAY = 6.5;
 const INTERMISSION_SECONDS = 14.0;
@@ -80,6 +81,10 @@ interface AirProjectile {
   damage: number;
   life: number;
   missile: boolean;
+  rocket: boolean;
+  heavyTracer: boolean;
+  carrierAttack: boolean;
+  attackerName: string;
   targetJet: AiCombatJet | null;
   targetPlayer: boolean;
   smokeCd: number;
@@ -103,6 +108,7 @@ export class DogfightWaves implements WaveSystem {
   boss = false;
 
   readonly carrier: CarrierDefenseSystem;
+  readonly wreckage: DogfightWreckageSystem;
   readonly enemies: AiCombatJet[] = [];
   readonly allies: AiCombatJet[] = [];
 
@@ -127,10 +133,14 @@ export class DogfightWaves implements WaveSystem {
   private wasRwrActive = false;
 
   private readonly tracerGeo = new THREE.BoxGeometry(0.14, 0.14, 4.4);
+  private readonly heavyTracerGeo = new THREE.BoxGeometry(0.28, 0.28, 7.6);
   private readonly missileGeo = new THREE.CylinderGeometry(0.14, 0.2, 2.4, 6);
+  private readonly rocketGeo = new THREE.CylinderGeometry(0.11, 0.14, 1.85, 6);
   private readonly enemyTracerMat = new THREE.MeshBasicMaterial({ color: 0xff5a36 });
+  private readonly heavyTracerMat = new THREE.MeshBasicMaterial({ color: 0xffd147 });
   private readonly allyTracerMat = new THREE.MeshBasicMaterial({ color: 0xffe484 });
   private readonly enemyMissileMat = new THREE.MeshBasicMaterial({ color: 0xff3b30 });
+  private readonly enemyRocketMat = new THREE.MeshBasicMaterial({ color: 0xff922b });
   private readonly allyMissileMat = new THREE.MeshBasicMaterial({ color: 0x56f0ff });
 
   private readonly onKeyDown = (e: KeyboardEvent): void => {
@@ -147,6 +157,7 @@ export class DogfightWaves implements WaveSystem {
     private readonly manager: EnemyManager,
   ) {
     this.missileGeo.rotateX(Math.PI / 2);
+    this.rocketGeo.rotateX(Math.PI / 2);
     this.materials = new ModelMaterials(ctx);
 
     this.carrier = new CarrierDefenseSystem(ctx, {
@@ -166,6 +177,12 @@ export class DogfightWaves implements WaveSystem {
       },
       onCarrierDestroyed: () => {
         this.triggerCarrierDestroyed();
+      },
+    });
+
+    this.wreckage = new DogfightWreckageSystem(ctx, manager, {
+      onBombHitCarrier: (hitPt, damage, attackerName) => {
+        this.carrier.damageHull(damage, hitPt, attackerName);
       },
     });
 
@@ -211,6 +228,7 @@ export class DogfightWaves implements WaveSystem {
 
   reset(): void {
     this.clearUnitsAndProjectiles();
+    this.wreckage.reset();
     this.clearPrompt();
     this.clearPlayerRwr();
     this.carrier.reset();
@@ -266,6 +284,7 @@ export class DogfightWaves implements WaveSystem {
     // Dramatic carrier sinking beat before ending the run.
     if (this.carrierLossPending) {
       this.carrierLossTimer -= dt;
+      this.wreckage.update(dt);
       if (Math.random() < dt * 7) {
         _v.set(rand(-16, 14), CARRIER_DECK_Y + rand(0.5, 4.5), rand(-55, 55));
         this.ctx.fx?.explosion?.(_v, { radius: 12, scale: rand(1.4, 2.4) });
@@ -347,13 +366,16 @@ export class DogfightWaves implements WaveSystem {
     // 7. Tick Carrier CIWS Phalanx, SeaRAM SAM launchers & Hull Auto-Repair!
     this.carrier.update(dt, this.enemies);
 
-    // 8. Tick airborne tracers & homing missiles!
+    // 8. Tick airborne tracers, carrier rockets & homing missiles!
     this.tickProjectiles(dt, playerPos, playerCountermeasures);
 
-    // 9. Aggregate enemy radar locks & inbound Fox-2 missiles for the player's cockpit RWR!
+    // 9. Tick explosive jet wreckage chunks, ejected parachuting pilots & falling bombs!
+    this.wreckage.update(dt);
+
+    // 10. Aggregate enemy radar locks & inbound Fox-2 missiles for the player's cockpit RWR!
     this.emitPlayerRwr(player.alive && player.parked);
 
-    // 10. Update Carrier HUD Strip!
+    // 11. Update Carrier HUD Strip!
     this.ui.updateHud();
   }
 
@@ -428,8 +450,10 @@ export class DogfightWaves implements WaveSystem {
     const skill = dogfightWaveSkill(this.wave) + (kind === 'raptor' ? 0.15 : 0);
 
     const jet = new AiCombatJet(this.ctx, this.materials, kind, 'enemy', pos, initialYaw, skill, {
-      onGunShot: (from, dir, team, damage, speed) => {
-        this.spawnProjectile(from, dir, team, damage, speed, false, null, team === 'enemy');
+      onGunShot: (from, dir, team, damage, speed, heavy) => {
+        this.spawnProjectile(from, dir, team, damage, speed, false, null, team === 'enemy', {
+          heavyTracer: !!heavy,
+        });
       },
       onMissileLaunch: (from, dir, team, _targetPos, targetJet, damage) => {
         this.spawnProjectile(from, dir, team, damage, 152, true, targetJet, team === 'enemy');
@@ -439,20 +463,60 @@ export class DogfightWaves implements WaveSystem {
           this.ctx.hud?.feed?.('MISSILE ALERT — BANDIT FOX-2 INBOUND! POP [Q] FLARES!', '#ff3864');
         }
       },
+      onBombDrop: (from, initVel, bombKind, damage, attackerName) => {
+        this.wreckage.spawnBomb(from, initVel, bombKind, damage, attackerName);
+      },
+      onCarrierRocket: (from, dir, damage, attackerName) => {
+        this.spawnProjectile(from, dir, 'enemy', damage, 138, false, null, false, {
+          rocket: true,
+          carrierAttack: true,
+          attackerName,
+        });
+        this.ctx.audio?.play?.('rocket_fire', { position: from, volume: 0.52, pitch: rand(1.02, 1.16) });
+      },
+      onCarrierGunStrafe: (from, dir, damage, attackerName, heavy) => {
+        this.spawnProjectile(from, dir, 'enemy', damage, heavy ? 255 : 230, false, null, false, {
+          heavyTracer: heavy,
+          carrierAttack: true,
+          attackerName,
+        });
+        if (heavy || Math.random() < 0.35) {
+          this.ctx.audio?.play?.('gunship_gun', {
+            position: from,
+            volume: heavy ? 0.58 : 0.32,
+            pitch: heavy ? rand(0.68, 0.8) : rand(1.05, 1.22),
+          });
+        }
+      },
       onCarrierStrike: (from, hitPt, damage, attackerName, heavyBomb) => {
         this.ctx.fx?.explosion?.(hitPt, { radius: heavyBomb ? 14 : 8, scale: heavyBomb ? 2.2 : 1.25 });
         this.ctx.audio?.play?.(heavyBomb ? 'explosion_tank' : 'explosion_barrel', { position: hitPt, volume: 0.9, pitch: rand(0.85, 1.05) });
         if (heavyBomb) {
-          // Visual bomb drop streak from bomber to deck.
           _v.subVectors(hitPt, from).normalize();
           this.spawnProjectile(from, _v, 'enemy', 0, 145, false, null, false);
         }
         this.carrier.damageHull(damage, hitPt, attackerName);
       },
-      onKilled: (killedJet, _source) => {
+      onKilled: (killedJet, source, heavyKill) => {
         this.carrier.addCredits(killedJet.profile.rewardCredits);
         this.ctx.progression?.award?.(killedJet.profile.rewardScore, `${killedJet.name} SPLASHED`, killedJet.position);
         this.ctx.hud?.feed?.(`SPLASH ONE! ${killedJet.name} (+${killedJet.profile.rewardCredits} CR)`, '#ffd166');
+        // Blow jet apart into 7 tumbling physical chunks + eject/ragdoll/gib the pilot!
+        this.wreckage.shatterJet(
+          killedJet.kind,
+          killedJet.position,
+          killedJet.velocity,
+          killedJet.yaw,
+          killedJet.pitch,
+          killedJet.roll,
+        );
+        this.wreckage.spawnPilotFate(
+          killedJet.kind,
+          killedJet.position,
+          killedJet.velocity,
+          source,
+          !!heavyKill,
+        );
       },
     }, undefined, tacticalRole);
 
@@ -477,8 +541,8 @@ export class DogfightWaves implements WaveSystem {
       CARRIER_WINGMAN_PAD[2] - 25,
     );
     const ally = new AiCombatJet(this.ctx, this.materials, kind, 'ally', pos, Math.PI, 0.92, {
-      onGunShot: (from, dir, team, damage, speed) => {
-        this.spawnProjectile(from, dir, team, damage, speed, false, null, false);
+      onGunShot: (from, dir, team, damage, speed, heavy) => {
+        this.spawnProjectile(from, dir, team, damage, speed, false, null, false, { heavyTracer: !!heavy });
       },
       onMissileLaunch: (from, dir, team, _targetPos, targetJet, damage) => {
         this.spawnProjectile(from, dir, team, damage, 165, true, targetJet, false);
@@ -487,6 +551,14 @@ export class DogfightWaves implements WaveSystem {
       onCarrierStrike: () => { /* Allies never strike the carrier. */ },
       onKilled: killed => {
         this.ctx.hud?.feed?.(`${killed.name} SHOT DOWN — LAUNCHING REPLACEMENT NEXT WAVE`, '#ff9f1c');
+        this.wreckage.shatterJet(
+          killed.kind,
+          killed.position,
+          killed.velocity,
+          killed.yaw,
+          killed.pitch,
+          killed.roll,
+        );
       },
     }, undefined, 'hunter');
     this.allies.push(ally);
@@ -621,15 +693,28 @@ export class DogfightWaves implements WaveSystem {
     missile: boolean,
     targetJet: AiCombatJet | null,
     targetPlayer: boolean,
+    opts?: { rocket?: boolean; heavyTracer?: boolean; carrierAttack?: boolean; attackerName?: string },
   ): void {
-    if (this.projectiles.length >= 140) {
+    if (this.projectiles.length >= 160) {
       const old = this.projectiles.shift()!;
       this.ctx.render?.scene?.remove(old.mesh);
     }
-    const geo = missile ? this.missileGeo : this.tracerGeo;
+    const rocket = !!opts?.rocket;
+    const heavyTracer = !!opts?.heavyTracer;
+    const geo = missile
+      ? this.missileGeo
+      : rocket
+        ? this.rocketGeo
+        : heavyTracer
+          ? this.heavyTracerGeo
+          : this.tracerGeo;
     const mat = missile
       ? (team === 'enemy' ? this.enemyMissileMat : this.allyMissileMat)
-      : (team === 'enemy' ? this.enemyTracerMat : this.allyTracerMat);
+      : rocket
+        ? this.enemyRocketMat
+        : heavyTracer
+          ? this.heavyTracerMat
+          : (team === 'enemy' ? this.enemyTracerMat : this.allyTracerMat);
     const mesh = new THREE.Mesh(geo, mat);
     mesh.position.copy(from);
     _quat.setFromUnitVectors(_zAxis, dir);
@@ -642,8 +727,12 @@ export class DogfightWaves implements WaveSystem {
       vel: dir.clone().multiplyScalar(speed),
       team,
       damage,
-      life: missile ? 7.5 : 2.6,
+      life: missile ? 7.5 : rocket ? 4.2 : 2.6,
       missile,
+      rocket,
+      heavyTracer,
+      carrierAttack: !!opts?.carrierAttack,
+      attackerName: opts?.attackerName ?? 'HOSTILE AIRCRAFT',
       targetJet,
       targetPlayer,
       smokeCd: 0,
@@ -683,8 +772,15 @@ export class DogfightWaves implements WaveSystem {
           p.smokeCd = 0.045;
           this.ctx.fx?.sparks?.(p.pos, _up, 2, p.team === 'ally' ? 0xb8f3ff : 0xffb380);
         }
+      } else if (p.rocket) {
+        p.smokeCd -= dt;
+        if (p.smokeCd <= 0) {
+          p.smokeCd = 0.045;
+          this.ctx.fx?.sparks?.(p.pos, _up, 2, 0xffc078);
+        }
       }
 
+      const prevY = p.pos.y;
       p.pos.addScaledVector(p.vel, dt);
       p.mesh.position.copy(p.pos);
 
@@ -706,33 +802,63 @@ export class DogfightWaves implements WaveSystem {
               break;
             }
           }
-        } else if (player.alive) {
-          // Check hit against player (active aircraft hull when parked, or on-foot player on deck).
-          const hitR = p.missile ? 6.4 : 4.2;
-          if (p.pos.distanceToSquared(playerPos) <= hitR * hitR) {
-            if (p.missile) {
-              this.ctx.fx?.explosion?.(p.pos, { radius: 8, scale: 1.1 });
-              this.ctx.audio?.play?.('rocket_explosion', { position: p.pos, volume: 0.85 });
-            }
-            if (player.parked) {
-              this.ctx.events.emit('dogfight:damage_player_jet', {
-                amount: p.damage,
-                from: p.pos.clone(),
-              });
+        } else {
+          // 1. Check physical flight-deck hit for enemy carrier rockets & strafing runs!
+          if (
+            p.carrierAttack &&
+            prevY >= CARRIER_DECK_Y - 1.5 &&
+            p.pos.y <= CARRIER_DECK_Y + 1.8 &&
+            this.isOnCarrierDeck(p.pos)
+          ) {
+            const hitPt = p.pos.clone().setY(CARRIER_DECK_Y + 0.5);
+            if (p.rocket) {
+              this.ctx.fx?.explosion?.(hitPt, { radius: 8.5, scale: 1.35 });
+              this.ctx.audio?.play?.('explosion_barrel', { position: hitPt, volume: 0.8, pitch: rand(0.9, 1.08) });
+            } else if (p.heavyTracer) {
+              this.ctx.fx?.sparks?.(hitPt, _up, 14, 0xffd147);
+              if (Math.random() < 0.35) {
+                this.ctx.fx?.explosion?.(hitPt, { radius: 4.5, scale: 0.72 });
+              }
             } else {
-              player.takeDamage({
-                amount: p.damage,
-                type: p.missile ? 'explosive' : 'bullet',
-                from: p.pos.clone(),
-                source: p.missile ? 'enemy_aam' : 'enemy_jet_gun',
-              });
+              this.ctx.fx?.sparks?.(hitPt, _up, 8, 0xff9248);
             }
+            this.carrier.damageHull(p.damage, hitPt, p.attackerName);
             hit = true;
+          }
+
+          // 2. Check hit against player (active aircraft hull when parked, or on-foot player on deck).
+          if (!hit && player.alive) {
+            const hitR = p.missile ? 6.4 : p.rocket ? 5.2 : 4.2;
+            if (p.pos.distanceToSquared(playerPos) <= hitR * hitR) {
+              if (p.missile || p.rocket) {
+                this.ctx.fx?.explosion?.(p.pos, { radius: 8, scale: 1.1 });
+                this.ctx.audio?.play?.('rocket_explosion', { position: p.pos, volume: 0.85 });
+              }
+              if (player.parked) {
+                this.ctx.events.emit('dogfight:damage_player_jet', {
+                  amount: p.damage,
+                  from: p.pos.clone(),
+                });
+              } else {
+                player.takeDamage({
+                  amount: p.damage,
+                  type: p.missile || p.rocket ? 'explosive' : 'bullet',
+                  from: p.pos.clone(),
+                  source: p.missile ? 'enemy_aam' : p.rocket ? 'enemy_rocket' : 'enemy_jet_gun',
+                });
+              }
+              hit = true;
+            }
           }
         }
       }
 
-      const outOfBounds = Math.abs(p.pos.x) > maxBoundX || Math.abs(p.pos.z) > maxBoundZ || p.pos.y <= 0.2;
+      const hitSea = p.pos.y <= 0.3;
+      if (!hit && hitSea && (p.rocket || p.heavyTracer)) {
+        this.ctx.fx?.sparks?.(p.pos.clone().setY(0.5), _up, p.rocket ? 14 : 6, 0xd8f4ff);
+      }
+
+      const outOfBounds = Math.abs(p.pos.x) > maxBoundX || Math.abs(p.pos.z) > maxBoundZ || hitSea;
       if (hit || p.life <= 0 || outOfBounds) {
         this.ctx.render?.scene?.remove(p.mesh);
         this.projectiles.splice(i, 1);
@@ -829,9 +955,20 @@ export class DogfightWaves implements WaveSystem {
 
   dispose(): void {
     this.clearUnitsAndProjectiles();
+    this.wreckage.dispose();
     this.clearPrompt();
     this.carrier.dispose();
     this.ui.dispose();
+    this.tracerGeo.dispose();
+    this.heavyTracerGeo.dispose();
+    this.missileGeo.dispose();
+    this.rocketGeo.dispose();
+    this.enemyTracerMat.dispose();
+    this.heavyTracerMat.dispose();
+    this.allyTracerMat.dispose();
+    this.enemyMissileMat.dispose();
+    this.enemyRocketMat.dispose();
+    this.allyMissileMat.dispose();
     if (typeof window !== 'undefined') {
       window.removeEventListener('keydown', this.onKeyDown);
     }

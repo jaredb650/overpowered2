@@ -369,6 +369,20 @@ export class EnemyManager implements EnemySystem {
     return e;
   }
 
+  /** Silently removes a living scripted enemy (e.g. an ejected pilot splashing into the sea) without awarding kill score. */
+  despawn(e: Enemy): void {
+    const idx = this.alive.indexOf(e);
+    if (idx < 0) return;
+    this.alive.splice(idx, 1);
+    e.alive = false;
+    e.pinned = false;
+    e.scriptedNpc = false;
+    this.stopEffects(e);
+    e.char.release();
+    this.pool.release(e);
+    this.grid.dirty = true;
+  }
+
   /** Plates live on the pooled character for good, so a respawn re-seats them instead of building new ones. */
   fitPlates(e: Enemy, specs: readonly PlateSpec[]): void {
     let meshes = this.plateMeshes.get(e.char);
