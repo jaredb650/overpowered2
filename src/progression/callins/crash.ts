@@ -108,7 +108,7 @@ export class Crash {
     fx.smoke(root.position, 0x23262a, plan.radius * 0.8, 12);
     render.lights.flash(root.position, '#ffa050', 90, plan.radius * 4, 0.7);
     render.decals.add('scorch', _at.copy(root.position).setY(root.position.y - plan.belly), UP, plan.radius * 0.8, rand(0, TAU));
-    audio.layer([{ id: 'vehicle_explode' }, { id: 'wreck_land' }], { position: root.position });
+    audio.layer([{ id: 'veh_destroyed' }, { id: 'wreck_land' }], { position: root.position });
     const near = clamp(1 - player.position.distanceTo(root.position) / (plan.radius * 8));
     camera.addTrauma(0.25 + 0.5 * near);
     // Down on its belly, tipped where it fell.

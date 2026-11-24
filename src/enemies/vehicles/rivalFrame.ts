@@ -928,7 +928,7 @@ export class RivalFrame implements ExtraTarget {
     fx.chips(cockpitWorld, 0xff9430, 52);
     fx.embers(cockpitWorld, 44, 5.0);
     render.lights.flash(cockpitWorld, 0xffa040, 34, 65, 0.65);
-    audio.play('vehicle_explode', { position: this.position, volume: 1 });
+    audio.play('veh_destroyed', { position: this.position, volume: 1 });
     audio.play('plate_destroyed', { position: cockpitWorld, pitch: 0.85, volume: 1 });
     audio.play('rocket_fire', { position: cockpitWorld, pitch: 1.25, volume: 0.95 });
     camera.addTrauma(0.95);

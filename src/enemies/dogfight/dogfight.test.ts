@@ -594,7 +594,7 @@ describe('Explosive Jet Breakup, Ejected Pilot Fates & Real Falling Bombs', () =
   }
 
   it('shatters killed jets into 7 tumbling physical wreckage chunks instead of keeping an intact plane', () => {
-    const { wreckage } = mockWreckageHarness();
+    const { ctx, wreckage } = mockWreckageHarness();
     wreckage.shatterJet(
       'hornet',
       new THREE.Vector3(0, 90, 0),
@@ -606,6 +606,7 @@ describe('Explosive Jet Breakup, Ejected Pilot Fates & Real Falling Bombs', () =
 
     expect(wreckage.shatteredJets).toBe(1);
     expect(wreckage.activeChunkCount).toBe(7);
+    expect(ctx.audio.play).toHaveBeenCalledWith('veh_destroyed', expect.objectContaining({ position: expect.any(THREE.Vector3) }));
 
     // Advance physics until chunks fall & splash into the ocean or expire
     for (let i = 0; i < 360; i++) wreckage.update(1 / 30);

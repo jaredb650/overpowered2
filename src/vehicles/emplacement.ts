@@ -514,7 +514,7 @@ export class Emplacement {
     fx.sparks?.(blastAt, UP, 24);
     fx.smoke(this.pivot, 0x242220, 2.4, 2.6);
     render.lights.flash(this.pivot, 0xff9a38, 18, 32, 0.35);
-    audio.play('vehicle_explode', { position: this.pivot, pitch: 1.25, volume: 0.85 });
+    audio.play('veh_destroyed', { position: this.pivot, pitch: 1.15, volume: 0.9 });
     audio.play('explosion_debris', { position: this.pivot, pitch: 1.1, volume: 0.8 });
     if (player.position.distanceTo(this.pivot) <= 25) {
       camera.addTrauma(0.38);

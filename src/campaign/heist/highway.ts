@@ -956,7 +956,7 @@ export class HighwayChase {
 
     if (this._hull <= 0) {
       this.ctx.fx?.explosion?.(this._humveePos, { radius: 8, kind: 'barrel', scale: 1.4 });
-      this.ctx.audio?.play?.('vehicle_explode', { position: this._humveePos, volume: 0.9 });
+      this.ctx.audio?.play?.('veh_destroyed', { volume: 1.0 });
       this.dismount(true);
       this.ctx.player?.takeDamage?.({
         amount: 9999,
@@ -1822,7 +1822,7 @@ export class HighwayChase {
       this.ctx.hud?.feed?.('DRIVER DOWN — OUT OF CONTROL!', '#ffcf56');
     } else {
       this.ctx.fx?.explosion?.(pos, { radius: 6.5, kind: 'barrel', scale: 1.2 });
-      this.ctx.audio?.play?.('vehicle_explode', { position: pos, volume: 0.88 });
+      this.ctx.audio?.play?.('veh_destroyed', { position: pos, volume: 0.95 });
       this.ctx.camera?.addTrauma?.(0.24);
       this.ctx.hud?.feed?.(p.kind === 'bearcat' ? 'SWAT BEARCAT DESTROYED!' : 'INTERCEPTOR WRECKED!', '#7ee787');
     }
@@ -1883,8 +1883,8 @@ export class HighwayChase {
     const R = HIGHWAY_CONSTANTS.tankerBlastRadius;
     this.ctx.fx?.explosion?.(center, { radius: R, kind: 'hellfire', scale: 2.1 });
     this.ctx.render?.lights?.flash?.(center, 0xff7722, 34, 48, 0.55);
-    this.ctx.audio?.play?.('explosion_tank', { position: center, volume: 1.0 });
-    this.ctx.audio?.play?.('vehicle_explode', { position: center, volume: 0.95 });
+    this.ctx.audio?.play?.('explosion_tank', { position: center, volume: 0.7 });
+    this.ctx.audio?.play?.('veh_destroyed', { position: center, volume: 1.0 });
     this.ctx.camera?.addTrauma?.(0.68);
     this.ctx.hud?.feed?.('FUEL TANKER DETONATED — MASSIVE FIREBALL!', '#ff6b3d');
 
@@ -1990,7 +1990,7 @@ export class HighwayChase {
     if (w.exploded) return;
     w.exploded = true;
     this.ctx.fx?.explosion?.(w.position, { radius: 6, kind: 'barrel', scale: 1.25 });
-    this.ctx.audio?.play?.('vehicle_explode', { position: w.position, volume: 0.85 });
+    this.ctx.audio?.play?.('veh_destroyed', { position: w.position, volume: 0.9 });
     this.ctx.camera?.addTrauma?.(0.26);
     w.velocity.y = Math.max(w.velocity.y, 4.5);
     w.velocity.z = Math.max(w.velocity.z, 22);

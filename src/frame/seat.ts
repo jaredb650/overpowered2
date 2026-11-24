@@ -1801,6 +1801,7 @@ export class Frame {
     fx.explosion(_at, { kind: 'rocket', radius: H.explodeRadius, scale: 2.2 });
     fx.ring(this.walker.feet, UP, '#ff5020', H.explodeRadius * 1.4);
     fx.sparks(_at, UP, 32, '#ffaa40');
+    audio.play('veh_destroyed', wasOccupied ? { volume: 1 } : { position: _at, volume: 1 });
     audio.play('explosion_debris', { position: _at, volume: 1 });
     audio.play('metal_groan', { position: _at, pitch: 0.55, volume: 1 });
     camera.addTrauma(0.9);

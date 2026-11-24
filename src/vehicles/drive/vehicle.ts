@@ -2666,7 +2666,7 @@ export class DriveableVehicle {
       selfDamage: 0,
       scale: kamikaze ? 2.0 : 1.5,
     });
-    this.ctx.audio?.play('vehicle_explode', { position: pos });
+    this.ctx.audio?.play('veh_destroyed', wasOccupied ? { volume: 1 } : { position: pos, volume: 1 });
     this.dispose();
   }
 

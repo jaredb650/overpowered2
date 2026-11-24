@@ -1042,7 +1042,7 @@ export class OldMother implements ExtraTarget {
         fx.embers(_p, 30, 4.5);
         fx.heatShimmer(_p, 9, 4);
         render.lights.flash(_p, 0xff9a38, 30, 68, 0.55);
-        audio.play('vehicle_explode', { position: _p, volume: 0.95 });
+        audio.play('veh_destroyed', { position: _p, volume: 0.95 });
         camera.addTrauma(0.55);
       }
     }
@@ -1297,7 +1297,7 @@ export class OldMother implements ExtraTarget {
       fx.explosion(box.center, { radius: 6, kind: 'rocket', scale: 1.7 });
       fx.chips(box.center, 0xff9030, 32);
       render.lights.flash(box.center, 0xffa040, 20, 44, 0.45);
-      audio.play('vehicle_explode', { position: box.center, volume: 1 });
+      audio.play('veh_destroyed', { position: box.center, volume: 1 });
       progression.award(500, box.label, box.center);
       hud.feed(`${box.label} DESTROYED`, '#ff7a30');
       box.unmark?.();
@@ -1358,7 +1358,7 @@ export class OldMother implements ExtraTarget {
     render.lights.flash(_p2, 0xff8828, 36, 76, 0.75);
     render.decals?.add('scorch', new THREE.Vector3(this.position.x, 0.04, this.position.z), _up, 18);
 
-    audio.play('vehicle_explode', { position: this.position, volume: 1 });
+    audio.play('veh_destroyed', { position: this.position, volume: 1 });
     audio.play('explosion_debris', { position: this.position, volume: 1 });
     audio.play('plate_destroyed', { position: _p, pitch: 0.65, volume: 1 });
     camera.addTrauma(1.0);

@@ -603,6 +603,9 @@ export class AiCombatJet implements ExtraTarget, MissileTarget {
     if (showPlayerMarker) {
       this.ctx.hud?.hitMarker?.(killed ? 'kill' : 'body');
       this.ctx.audio?.play?.(killed ? 'hit_marker_kill' : 'hit_marker');
+      if (killed) {
+        this.ctx.audio?.play?.('veh_destroyed', { volume: 0.85 });
+      }
     }
 
     if (killed) {

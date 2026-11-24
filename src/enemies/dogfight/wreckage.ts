@@ -299,7 +299,8 @@ export class DogfightWreckageSystem {
     // Immediate dramatic multi-burst fireball + shrapnel sparks at breakup center!
     this.ctx.fx?.explosion?.(pos, { radius: kind === 'lancer' ? 20 : 13, scale: kind === 'lancer' ? 3.2 : 1.75 });
     this.ctx.fx?.sparks?.(pos, _up, kind === 'lancer' ? 42 : 28, 0xffaa33);
-    this.ctx.audio?.play?.('explosion_tank', { position: pos, volume: 0.95, pitch: rand(0.92, 1.12) });
+    this.ctx.audio?.play?.('veh_destroyed', { position: pos, volume: 1.0, pitch: rand(0.94, 1.08) });
+    this.ctx.audio?.play?.('explosion_tank', { position: pos, volume: 0.55, pitch: rand(0.92, 1.12) });
   }
 
   // -------------------------------------------------------------------------------------------

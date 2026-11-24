@@ -1135,7 +1135,7 @@ export class FlakTower implements ExtraTarget {
       fx.chips(g.center, 0xff9030, 32);
       fx.embers(g.center, 24, 3);
       render.lights.flash(g.center, 0xffa040, 22, 42, 0.45);
-      audio.play('vehicle_explode', { position: g.center, volume: 1 });
+      audio.play('veh_destroyed', { position: g.center, volume: 1 });
       hud.hitMarker('kill');
       audio.play('hit_marker_kill');
       progression.award(450, 'FLAK GUN', g.center);

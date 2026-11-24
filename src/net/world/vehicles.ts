@@ -648,7 +648,7 @@ export class Vehicles implements WorldModule {
     ctx.fx.heatShimmer(_at, def.halfLength * 1.4, 6);
     ctx.render.lights.flash(_at, 0xffa050, 18, def.wreck.blastRadius * 5, 0.5);
     ctx.render.decals.add('scorch', root.position, _up, def.halfLength * 2.2, Math.random() * 6.28);
-    ctx.audio.play('vehicle_explode', { position: _at });
+    ctx.audio.play('veh_destroyed', { position: _at });
     ctx.fx.ring(root.position, _up, 0xffa040, def.wreck.blastRadius);
   }
 
@@ -680,7 +680,7 @@ export class Vehicles implements WorldModule {
     ctx.fx.embers(_at, 40, 4);
     ctx.render.lights.flash(_at, 0xffa050, 18, CHOPPER.wreck.blastRadius * 5, 0.5);
     ctx.render.decals.add('scorch', root.position, _up, CHOPPER.halfLength * 2.2, Math.random() * 6.28);
-    ctx.audio.play('vehicle_explode', { position: _at });
+    ctx.audio.play('veh_destroyed', { position: _at });
   }
 
   private wreckGone(wid: number): void {

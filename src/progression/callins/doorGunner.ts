@@ -258,7 +258,7 @@ export class DoorGunner extends GunnerStrike<UtilityMount> {
     fx.explosion(position, { radius: 4, kind: 'rocket', scale: 1.2 });
     render.post.flash('#ffb060', 0.5, 0.25);
     camera.addTrauma(0.9);
-    audio.play('vehicle_explode', { volume: 0.7, unaffectedByTime: true });
+    audio.play('veh_destroyed', { volume: 0.9, unaffectedByTime: true });
     this.burning = fx.attachEmitter(this.frame.root, 'fireTrail', _dir.set(0, 1.4, -2), 120);
   }
 

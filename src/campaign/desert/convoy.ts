@@ -1742,7 +1742,7 @@ export class DesertConvoy implements ConvoyController, ExtraTarget {
 
     if (this._hull <= 0) {
       this.ctx.fx?.explosion?.(pos, { radius: 7, kind: 'barrel', scale: 1.35 });
-      this.ctx.audio?.play?.('vehicle_explode', { position: pos, volume: 0.9 });
+      this.ctx.audio?.play?.('veh_destroyed', { volume: 1.0 });
       this.dismountTurret(true, false);
       this.ctx.player?.takeDamage?.({
         amount: 9999,
@@ -3111,7 +3111,7 @@ export class DesertConvoy implements ConvoyController, ExtraTarget {
       this.ctx.fx?.explosion?.(pos, { radius: 4.2, kind: 'barrel', scale: 0.95 });
       this.ctx.fx?.sparks?.(pos, UP, 18, 0xffaa33);
       this.ctx.audio?.play?.('explosion_small', { position: pos, volume: 0.85 });
-      this.ctx.audio?.play?.('vehicle_explode', { position: pos, volume: 0.65, pitch: 1.35 });
+      this.ctx.audio?.play?.('veh_destroyed', { position: pos, volume: 0.8, pitch: 1.2 });
       this.ctx.hud?.feed?.(
         mode === 'rider_flip' ? 'SALTBLOOD RIDER DOWN — BIKE FLIPPED!' : 'SALTBLOOD BIKE DESTROYED!',
         '#ffcf6e',
@@ -3123,7 +3123,7 @@ export class DesertConvoy implements ConvoyController, ExtraTarget {
       this.ctx.fx?.explosion?.(pos, { radius: 7.2, kind: 'barrel', scale: 1.4 });
       this.ctx.fx?.embers?.(pos, 26, 3.2);
       this.ctx.render?.lights?.flash?.(pos, 0xff8828, 28, 38, 0.45);
-      this.ctx.audio?.play?.('vehicle_explode', { position: pos, volume: 0.92 });
+      this.ctx.audio?.play?.('veh_destroyed', { position: pos, volume: 0.95 });
       this.ctx.audio?.play?.('explosion_barrel', { position: pos, volume: 0.85 });
       this.ctx.camera?.addTrauma?.(0.32);
       this.ctx.hud?.feed?.(

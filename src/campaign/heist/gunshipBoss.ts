@@ -1091,7 +1091,7 @@ export class GunshipBoss {
     this.ctx.fx?.smoke?.(this._position, 0x181615, 4.2, 3.2);
     this.ctx.render?.lights?.flash?.(this._position, 0xff8828, 42, 65, 0.7);
     this.ctx.render?.post?.flash?.('#ffb464', 0.55, 0.45);
-    this.ctx.audio?.play?.('vehicle_explode', { position: this._position, volume: 1.0 });
+    this.ctx.audio?.play?.('veh_destroyed', { position: this._position, volume: 1.0 });
     this.ctx.audio?.play?.('boss_death', { volume: 0.95 });
     this.ctx.camera?.addTrauma?.(0.92);
     this.ctx.hud?.feed?.('AUDITOR-1 DESTROYED — STERLING DOWN!', '#7ee787');

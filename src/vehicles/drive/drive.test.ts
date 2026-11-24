@@ -1319,6 +1319,37 @@ describe('AAA Driveable Vehicles (13-Vehicle Fleet)', () => {
     expect(sparksSpy).toHaveBeenCalled();
     projectiles.clear();
   });
+
+  it('plays veh_destroyed (2D when piloted, 3D when unmanned) on total vehicle destruction', () => {
+    const def = lookup('veh_destroyed');
+    expect(def?.files?.length).toBe(4);
+    expect(def?.fallback).toBe('vehicle_explode');
+    expect(def?.critical).toBe(false);
+
+    const h = makeDriveHarness();
+    const mgr = new DriveableManager(h.ctx, h.materials, h.seats, h.setHolstered);
+
+    // 1. Occupied player vehicle destroyed -> 2D veh_destroyed (no position) so it cuts through combat chaos.
+    const piloted = mgr.spawn('jackal', new THREE.Vector3(0, 0, 10), 0);
+    piloted.board(0);
+    h.audioPlay.mockClear();
+    piloted.absorbDamage(9999, new THREE.Vector3(0, 1, 10), true, 'heavy');
+    expect(piloted.alive).toBe(false);
+    const pilotedCall = h.audioPlay.mock.calls.find(([id]) => id === 'veh_destroyed');
+    expect(pilotedCall).toBeTruthy();
+    expect(pilotedCall?.[1]?.position).toBeUndefined();
+
+    // 2. Unmanned vehicle destroyed -> 3D positional veh_destroyed.
+    const unmanned = mgr.spawn('jackal', new THREE.Vector3(24, 0, 10), 0);
+    h.audioPlay.mockClear();
+    unmanned.absorbDamage(9999, new THREE.Vector3(24, 1, 10), true, 'heavy');
+    expect(unmanned.alive).toBe(false);
+    const unmannedCall = h.audioPlay.mock.calls.find(([id]) => id === 'veh_destroyed');
+    expect(unmannedCall).toBeTruthy();
+    expect(unmannedCall?.[1]?.position).toBeDefined();
+
+    mgr.clear();
+  });
 });
 
 

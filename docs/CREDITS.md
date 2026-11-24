@@ -205,3 +205,7 @@ Approved and supplied by the owner from their own library. On 2026-11-07 the own
 | `veh_hit_heavy_2.mp3` | metal_plate_crunching_from_explosion__3_.mp3 | Supplied by the owner | Not recorded; publishing approved by the owner |
 | `veh_hit_heavy_3.mp3` | metal_plate_crunching_from_explosion__4_.mp3 | Supplied by the owner | Not recorded; publishing approved by the owner |
 | `aircraft_missile_fire.mp3` | aircraftFireMissile.mp3 | Supplied by the owner | Not recorded; publishing approved by the owner |
+| `veh_destroyed_1.mp3` | crunchu_hard_vehicle_destroyed_massive_d_____1_.mp3 | Supplied by the owner | Not recorded; publishing approved by the owner |
+| `veh_destroyed_2.mp3` | crunchu_hard_vehicle_destroyed_massive_d_____2_.mp3 | Supplied by the owner | Not recorded; publishing approved by the owner |
+| `veh_destroyed_3.mp3` | crunchu_hard_vehicle_destroyed_massive_d_____4_.mp3 | Supplied by the owner | Not recorded; publishing approved by the owner |
+| `veh_destroyed_4.mp3` | vehicle_destroyed_massive_destruction_ex_____2_.mp3 | Supplied by the owner | Not recorded; publishing approved by the owner |

@@ -1102,7 +1102,7 @@ export class VehicleSystem implements VehicleTargets {
     fx.explosion(at, { radius: 6, kind: 'rocket', scale: 1.8 });
     fx.chips(at, 0xff9000, 40);
     render.lights.flash(at, 0xffa050, 14, 40, 0.3);
-    audio.play('vehicle_explode', { position: at, volume: 0.8 });
+    audio.play('veh_destroyed', { position: at, volume: 0.95 });
   }
 
   /** The vehicle has gone. Everything that happens once, in one place. */
@@ -1120,7 +1120,7 @@ export class VehicleSystem implements VehicleTargets {
     fx.heatShimmer(_b, def.halfLength * 1.4, 6);
     render.lights.flash(_b, 0xffa050, 18, w.blastRadius * 5, 0.5);
     render.decals.add('scorch', v.position, _up, def.halfLength * 2.2, rand(0, 6.28));
-    audio.play('vehicle_explode', { position: _b });
+    audio.play('veh_destroyed', { position: _b });
     if (source.length > 0) {
       progression.award(def.score, def.name, _b);
       hud.feed(`${def.name} DESTROYED`, KILL_COLOR);
