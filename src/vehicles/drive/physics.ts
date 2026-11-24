@@ -89,7 +89,7 @@ function sampleGround(
     // while angled steel ramps rising in front of our bumper are picked up smoothly.
     _origin.set(x, y + 2.4, z);
     _dir.set(0, -1, 0);
-    if (physics.raycastInto(_origin, _dir, 44, CG.World, _hit)) {
+    if (physics.raycastInto(_origin, _dir, 240, CG.World, _hit)) {
       if ((ownHandle === undefined || _hit.collider?.handle !== ownHandle) && _hit.normal.y > 0.45) {
         // Only accept hits that aren't a vertical wall lip way above our wheels.
         if (_hit.point.y <= y + 1.85) {

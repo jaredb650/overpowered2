@@ -378,6 +378,8 @@ const SOURCE_NAMES: Readonly<Record<string, string>> = {
   grenade: 'Frag', sword_finisher: 'Sword finisher', sword_deflect: 'Deflected shot', drop_pod: 'Drop pod',
   sword_stab: 'Sword stab', sword_cleave: 'Cleave', sword_tornado: 'Tornado', sword_wave: 'Flying slash', sword_flurry: 'Flurry',
   barrel: 'Barrel', tank: 'Tank', lava: 'Lava', crusher: 'Crusher', electric: 'Electric floor',
+  carrier_destroyed: 'USS Sovereign Sunk', enemy_aam: 'Bandit Air-to-Air Missile', enemy_jet_gun: 'Bandit Cannon',
+  carrier_ciws: 'Carrier CIWS', carrier_sam: 'Carrier SeaRAM SAM',
 };
 
 export function sourceName(source: string): string {

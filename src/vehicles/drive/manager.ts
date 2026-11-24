@@ -10,9 +10,19 @@ import type { HijackableVehicle } from '../../core/gameplay';
 import { ACTIVE } from '../../contracts/select';
 import type { ModelMaterials } from '../../progression/modelkit';
 import type { SeatRig } from '../seat';
+import { CARRIER_CATAPULT_PAD, CARRIER_CATAPULT_YAW } from '../../world/map/dogfight/plan';
 import { DRIVE_VEHICLES, VEHICLE_ASKED } from './data';
 import { HIJACK_MAP, type DriveVehicleId } from './types';
 import { DriveableVehicle } from './vehicle';
+
+declare module '../../core/contracts' {
+  interface GameEvents {
+    /** Dogfight flight deck hangar terminal spawns or swaps the player's catapult aircraft. */
+    'dogfight:spawn_jet': { id: DriveVehicleId; board?: boolean };
+    /** Dogfight deck crew emergency repair heals any parked/active player aircraft. */
+    'dogfight:repair_player_jet': { amount: number };
+  }
+}
 
 /** Badlands 13-vehicle Motor Pool & Airbase Apron (West ground/bikes crescent + East armor/airfield apron, zero overlap). */
 export interface MotorPoolSlot {
@@ -86,6 +96,17 @@ export class DriveableManager {
       this.performHijack(vehicleId, true);
     });
 
+    ctx.events.on('dogfight:spawn_jet', ({ id, board }) => {
+      this.stageCarrierJet(id, Boolean(board));
+    });
+
+    ctx.events.on('dogfight:repair_player_jet', ({ amount }) => {
+      for (const v of this.vehicles) {
+        if (!v.alive) continue;
+        v.health = Math.min(v.def.maxHealth, v.health + amount);
+      }
+    });
+
     ctx.events.on('run:start', () => {
       this.clear();
       if (VEHICLE_ASKED) {
@@ -98,6 +119,8 @@ export class DriveableManager {
       }
       if (ACTIVE.def.id === 'badlands') {
         this.stagePool(BADLANDS_MOTOR_POOL);
+      } else if (ACTIVE.def.id === 'dogfight') {
+        this.stageCarrierJet('hornet', false);
       } else if (ON_RANGE) {
         this.stagePool(RANGE_MOTOR_POOL);
       }
@@ -120,6 +143,23 @@ export class DriveableManager {
         ctx.hud?.feed?.(`MOTOR POOL RESTOCKED (${replaced} VEHICLE${replaced > 1 ? 'S' : ''})`, '#38e8ff');
       }
     });
+  }
+
+  /** Replaces any unoccupied jet on USS Sovereign's catapult with `id`, optionally boarding immediately. */
+  stageCarrierJet(id: DriveVehicleId, board = false): DriveableVehicle {
+    for (let i = this.vehicles.length - 1; i >= 0; i--) {
+      const v = this.vehicles[i]!;
+      if (!v.occupied) {
+        v.dispose();
+        this.vehicles.splice(i, 1);
+      }
+    }
+    _pos.set(CARRIER_CATAPULT_PAD[0], CARRIER_CATAPULT_PAD[1], CARRIER_CATAPULT_PAD[2]);
+    const jet = this.spawn(id, _pos, CARRIER_CATAPULT_YAW, { poolSlot: 'carrier.catapult' });
+    if (board && !this.seats.occupied && this.ctx.player.alive) {
+      jet.board(0);
+    }
+    return jet;
   }
 
   /** Currently occupied player vehicle, or null when on foot or in another seat. */

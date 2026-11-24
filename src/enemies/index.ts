@@ -7,6 +7,7 @@ import type { Ctx } from '../core/contracts';
 import type { EnemySystem, WaveSystem } from '../core/gameplay';
 import { EnemyManager } from './EnemyManager';
 import { BadlandsWaves } from './badlands/waves';
+import { DogfightWaves } from './dogfight/waves';
 import { RooftopWaves } from './rooftop/waves';
 import { Waves } from './waves';
 
@@ -23,5 +24,6 @@ export function createWaves(ctx: Ctx): WaveSystem {
   if (ACTIVE.def.economy && ACTIVE.map === 'fort' && outpost) return new DefenseDirector(ctx, outpost, manager);
   if (ACTIVE.def.id === 'rooftop' && outpost) return new RooftopWaves(ctx, outpost, manager);
   if (ACTIVE.def.id === 'badlands' && outpost) return new BadlandsWaves(ctx, outpost, manager);
+  if (ACTIVE.def.id === 'dogfight' && outpost) return new DogfightWaves(ctx, outpost, manager);
   return ACTIVE.def.waves === 'squads' && outpost ? outpost.waves : new Waves();
 }

@@ -105,6 +105,7 @@ export interface ExtraTarget {
   direct(collider: RAPIER.Collider, point: THREE.Vector3, amount: number, kind: ExplosionKind, source: string): boolean;
   blast(center: THREE.Vector3, spec: ExplosionSpec): number;
   paintable?(out: MissileTarget[]): void;
+  radarTargets?(out: VehicleRadarTarget[]): void;
   frameBlow?(at: THREE.Vector3, radius: number, damage: number, dir: THREE.Vector3 | null, source: string): number;
   highlightMeshes?(out: THREE.Object3D[]): void;
 }
@@ -723,6 +724,9 @@ export class VehicleSystem implements VehicleTargets {
       });
       added++;
     }
+    const beforeExtras = out.length;
+    for (const x of this.extras) x.radarTargets?.(out);
+    added += out.length - beforeExtras;
     return added;
   }
 

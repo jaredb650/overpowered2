@@ -33,13 +33,17 @@ import {
   authorBadlands, BADLANDS_BOUNDS, BADLANDS_HUB, BADLANDS_LEVELS,
   BADLANDS_LIGHT_BOUNDS, BADLANDS_LIGHT_CELL, BADLANDS_STAGES,
 } from './badlands';
+import {
+  authorDogfight, DOGFIGHT_BOUNDS, DOGFIGHT_HUB, DOGFIGHT_LEVELS,
+  DOGFIGHT_LIGHT_BOUNDS, DOGFIGHT_LIGHT_CELL, DOGFIGHT_STAGES,
+} from './dogfight';
 import { KH } from './killhouse/plan';
 import { LEVEL, RING } from './layout';
 import type { MapSpec } from './spec';
 import type { MapZone } from '../../core/contracts';
 import { ACTIVE } from '../../contracts/select';
 
-export type MapId = 'crucible' | 'killhouse' | 'outpost' | 'fort' | 'holdfast' | 'office' | 'range' | 'annex' | 'rooftop' | 'chancery' | 'bank' | 'desert' | 'badlands';
+export type MapId = 'crucible' | 'killhouse' | 'outpost' | 'fort' | 'holdfast' | 'office' | 'range' | 'annex' | 'rooftop' | 'chancery' | 'bank' | 'desert' | 'badlands' | 'dogfight';
 
 export interface MapDef {
   id: MapId;
@@ -271,7 +275,23 @@ const badlands: MapDef = {
   atmosphere: 'dawn',
 };
 
-const MAPS: Record<MapId, MapDef> = { crucible, killhouse, outpost, fort, holdfast, office, range, annex, rooftop, chancery, bank, desert, badlands };
+const DF = DOGFIGHT_BOUNDS;
+const DFL = DOGFIGHT_LIGHT_BOUNDS;
+const dogfight: MapDef = {
+  id: 'dogfight',
+  bounds: box(DF.x0, DF.y0, DF.z0, DF.x1, DF.y1, DF.z1),
+  lightBounds: box(DFL.x0, DFL.y0, DFL.z0, DFL.x1, DFL.y1, DFL.z1),
+  lightCell: DOGFIGHT_LIGHT_CELL,
+  minimapExtent: 190,
+  navHub: DOGFIGHT_HUB,
+  nav: { mutual: true, levels: [...DOGFIGHT_LEVELS] },
+  stages: DOGFIGHT_STAGES,
+  author: authorDogfight,
+  readyLabel: 'Launching combat air patrol',
+  atmosphere: 'dawn',
+};
+
+const MAPS: Record<MapId, MapDef> = { crucible, killhouse, outpost, fort, holdfast, office, range, annex, rooftop, chancery, bank, desert, badlands, dogfight };
 
 /** The map of the page's contract, or whatever `?map=` names. contracts/select.ts has the rules. */
 export function selectMap(): MapDef {

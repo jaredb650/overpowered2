@@ -44,6 +44,7 @@ export const SURVIVAL_MAPS: readonly { name: string; map: MapId }[] = [
   { name: 'Kill House', map: 'killhouse' },
   { name: 'Rooftop', map: 'rooftop' },
   { name: 'Badlands', map: 'badlands' },
+  { name: 'Dogfight', map: 'dogfight' },
   { name: 'Outpost', map: 'fort' },
   { name: 'Office', map: 'office' },
 ];
@@ -186,6 +187,8 @@ export class MainMenu implements Screen {
     const items = [...level.items];
     if (level === this.crucibleModes) items.splice(1, 0, this.rules);
     this.list.replaceChildren(...(level.header ? [level.header] : []), ...level.items.map(i => i.el));
+    this.el.classList.toggle('mm-sublevel', level !== this.root);
+    this.el.classList.toggle('mm-dense', level !== this.root && (level.items.length >= 6 || Boolean(level.header)));
     this.crumb.textContent = level.crumb;
     this.crumb.style.display = level.crumb ? '' : 'none';
     this.rules.el.style.display = level === this.crucibleModes ? '' : 'none';

@@ -329,6 +329,7 @@ export class Hud implements HudSystem {
     events.on('music:track', e => this.nowPlaying.show(e.title, e.original));
     events.on('defense:open', e => this.openDefense(e.screen));
     events.on('shop:open', () => this.openDefense('procurement'));
+    events.on('dogfight:modal', e => this.setDogfightModal(e.open));
     events.on('comms:line', e => {
       const chatter = e.kind === 'ally' ? 0 : this.settings.chatter;
       if (chatter === CHATTER_OFF) return;
@@ -538,6 +539,22 @@ export class Hud implements HudSystem {
     this.scoreboard.setHeld(false);
     if (screen === 'loadout' || screen === 'procurement') this.screens.show(screen);
     else this.screens.shop(screen);
+  }
+
+  private setDogfightModal(open: boolean): void {
+    const game = this.game;
+    if (!game || this.deathClock > 0) return;
+    if (open) {
+      if (game.state !== 'playing' && game.state !== 'paused') return;
+      game.setState('paused');
+      this.lockAfter = null;
+      this.lockHeld = false;
+      this.ctx.input.releaseLock?.();
+      this.scoreboard.setHeld(false);
+      this.screens.show('none');
+    } else if (game.state === 'paused') {
+      this.resume();
+    }
   }
 
   pause(): void {

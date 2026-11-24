@@ -168,7 +168,7 @@ export class HudState {
     this.nextWaveIn = num(waves.nextWaveIn, 0);
 
     const e = ctx.enemies as unknown as Record<string, unknown>;
-    this.remaining = num(e.remaining, 0);
+    this.remaining = typeof waves.remaining === 'number' ? waves.remaining : num(e.remaining, 0);
     this.enemies = Array.isArray(e.alive) ? (e.alive as EnemyInstance[]) : NO_ENEMIES;
 
     const sonar = ctx.contracts?.sonar as unknown as Record<string, unknown> | undefined;

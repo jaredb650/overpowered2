@@ -11,7 +11,7 @@ import type { MapId } from '../world/map/maps';
  * `outpost` is Endless Humans. The id is older than the campaign, and URLs and score tables are keyed on it. `defense` is
  * Outpost Defense, Endless Humans' tower defense (docs/proposals/outpost-defense.md).
  */
-export type ContractId = 'campaign' | 'foreclosure' | 'quiet_title' | 'bank_run' | 'desert_raid' | 'crucible' | 'outpost' | 'rooftop' | 'badlands' | 'defense' | 'retraining';
+export type ContractId = 'campaign' | 'foreclosure' | 'quiet_title' | 'bank_run' | 'desert_raid' | 'crucible' | 'outpost' | 'rooftop' | 'badlands' | 'dogfight' | 'defense' | 'retraining';
 
 /** Who lives there. Section 15's faction rules hang off this: pain, fear, bleeding, gib thresholds. */
 export type FactionId = 'swarm' | 'humans';
@@ -380,6 +380,33 @@ export const CONTRACTS: readonly ContractDef[] = [
       ],
     },
     scoreKey: 'op2_highscore.badlands',
+  },
+  {
+    id: 'dogfight',
+    name: 'Dogfight',
+    map: 'dogfight',
+    faction: 'humans',
+    waves: 'squads',
+    ai: 'outpost',
+    wounds: 'anatomy',
+    rewards: { backShot: 1.5 },
+    noCommander: true,
+    briefing: {
+      ref: 'Form 7742-A',
+      subject: 'Hostile strike squadrons targeting USS Sovereign (CVN-88) in open waters',
+      body: [
+        'You are stationed aboard the fleet carrier USS Sovereign out at open sea. Use the Flight Deck Hangar terminal to select and launch your aircraft — F-22 Raptor, F/A-18E Super Hornet, B-1 Lancer, AV-8B Harrier, A-10 Warthog, or Kestrel gunship — straight off the catapult.',
+        'Waves of skilled enemy pilots are closing in to sink the carrier and contest the skies. Dogfight them with cannons and homing missiles, or land back on the flight deck to repair and switch jets.',
+        'Spend combat credits at the Carrier Defense terminal to install automated CIWS Phalanx autocannons, SeaRAM surface-to-air missile batteries, armored hull auto-repair, and allied AI wingmen. If the carrier sinks, the contract terminates.',
+      ],
+      terms: [
+        ['Site', 'USS Sovereign (CVN-88) — Open Ocean Airspace'],
+        ['Opposition', 'Skilled AI fighter, strike, bomber & Raptor Ace squadrons'],
+        ['Support', 'Deck aircraft selector, CIWS, SeaRAM SAMs, AI wingmen'],
+        ['Duration', 'Endless — defend the carrier'],
+      ],
+    },
+    scoreKey: 'op2_highscore.dogfight',
   },
   {
     id: 'defense',
