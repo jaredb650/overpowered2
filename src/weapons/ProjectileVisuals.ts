@@ -47,6 +47,38 @@ function merged(parts: THREE.BufferGeometry[]): THREE.BufferGeometry {
   return out;
 }
 
+/** Merge geometries preserving vertex normals so lit MeshStandardMaterial projectiles shade cleanly. */
+function mergedLit(parts: THREE.BufferGeometry[]): THREE.BufferGeometry {
+  let vertices = 0;
+  let indices = 0;
+  for (const g of parts) {
+    if (!g.getAttribute('normal')) g.computeVertexNormals();
+    vertices += g.getAttribute('position').count;
+    indices += g.index ? g.index.count : g.getAttribute('position').count;
+  }
+  const position = new Float32Array(vertices * 3);
+  const normal = new Float32Array(vertices * 3);
+  const index = new Uint32Array(indices);
+  let vo = 0;
+  let io = 0;
+  for (const g of parts) {
+    const pos = g.getAttribute('position');
+    const nrm = g.getAttribute('normal');
+    position.set(pos.array as Float32Array, vo * 3);
+    normal.set(nrm.array as Float32Array, vo * 3);
+    const n = g.index ? g.index.count : pos.count;
+    for (let i = 0; i < n; i++) index[io + i] = (g.index ? g.index.getX(i) : i) + vo;
+    vo += pos.count;
+    io += n;
+    g.dispose();
+  }
+  const out = new THREE.BufferGeometry();
+  out.setAttribute('position', new THREE.BufferAttribute(position, 3));
+  out.setAttribute('normal', new THREE.BufferAttribute(normal, 3));
+  out.setIndex(new THREE.BufferAttribute(index, 1));
+  return out;
+}
+
 const rotated = (g: THREE.BufferGeometry, x: number, y: number, z: number, rx = 0): THREE.BufferGeometry => {
   if (rx) g.rotateX(rx);
   return g.translate(x, y, z);
@@ -65,6 +97,77 @@ function rocketBody(): THREE.BufferGeometry {
     rotated(new THREE.ConeGeometry(0.075, 0.14, 6), 0, 0.24, 0),
     rotated(new THREE.CylinderGeometry(0.05, 0.065, 0.06, 6), 0, -0.2, 0),
     fin(0), fin(Math.PI / 2), fin(Math.PI), fin(-Math.PI / 2),
+  ]);
+}
+
+/** Mk-82 / Mk-84 general-purpose aerial iron bomb: streamlined low-drag teardrop body (nose along +Y). */
+function bombHeBody(): THREE.BufferGeometry {
+  return mergedLit([
+    rotated(new THREE.CylinderGeometry(0.21, 0.23, 0.72, 12), 0, 0.08, 0),
+    rotated(new THREE.CylinderGeometry(0.115, 0.21, 0.38, 12), 0, 0.63, 0),
+    rotated(new THREE.ConeGeometry(0.115, 0.22, 12), 0, 0.93, 0),
+    rotated(new THREE.CylinderGeometry(0.23, 0.115, 0.56, 12), 0, -0.56, 0),
+    rotated(new THREE.CylinderGeometry(0.115, 0.085, 0.26, 10), 0, -0.97, 0),
+  ]);
+}
+
+/** Mk-82 / Mk-84 dark steel hardware: nose impact fuze, dorsal suspension lugs, cruciform fins, and box-tail shroud. */
+function bombHeFins(): THREE.BufferGeometry {
+  const parts: THREE.BufferGeometry[] = [
+    rotated(new THREE.CylinderGeometry(0.032, 0.052, 0.16, 8), 0, 1.07, 0),
+    rotated(new THREE.CylinderGeometry(0.075, 0.075, 0.035, 8), 0, 1.01, 0),
+    rotated(new THREE.BoxGeometry(0.05, 0.09, 0.08), 0, 0.26, 0.23),
+    rotated(new THREE.BoxGeometry(0.05, 0.09, 0.08), 0, -0.14, 0.24),
+  ];
+  for (let i = 0; i < 4; i++) {
+    const a = (i * Math.PI) / 2;
+    const fin = new THREE.BoxGeometry(0.034, 0.54, 0.34);
+    fin.translate(0, -0.84, 0.20);
+    fin.rotateY(a);
+    parts.push(fin);
+
+    // Box-tail stabilizer shroud plate connecting adjacent fin tips.
+    const plate = new THREE.BoxGeometry(0.51, 0.19, 0.032);
+    plate.translate(0, -0.96, 0.255);
+    plate.rotateY(a + Math.PI / 4);
+    parts.push(plate);
+  }
+  return mergedLit(parts);
+}
+
+/** Mk-82 / Mk-84 ordnance yellow high-explosive warhead bands. */
+function bombHeBand(): THREE.BufferGeometry {
+  return mergedLit([
+    rotated(new THREE.CylinderGeometry(0.184, 0.214, 0.12, 12), 0, 0.52, 0),
+    rotated(new THREE.CylinderGeometry(0.228, 0.232, 0.06, 12), 0, 0.22, 0),
+  ]);
+}
+
+/** BLU-27 incendiary napalm firebomb canister: brushed aluminum tank, blunt tapered cones, stub tail strakes. */
+function bombNapalmBody(): THREE.BufferGeometry {
+  const parts: THREE.BufferGeometry[] = [
+    new THREE.CylinderGeometry(0.23, 0.23, 1.34, 12),
+    rotated(new THREE.CylinderGeometry(0.095, 0.23, 0.38, 12), 0, 0.86, 0),
+    rotated(new THREE.ConeGeometry(0.095, 0.16, 10), 0, 1.13, 0),
+    rotated(new THREE.CylinderGeometry(0.23, 0.095, 0.38, 12), 0, -0.86, 0),
+    rotated(new THREE.CylinderGeometry(0.095, 0.055, 0.14, 10), 0, -1.12, 0),
+    rotated(new THREE.CylinderGeometry(0.065, 0.065, 0.05, 8), 0, 0.15, 0.24, Math.PI / 2),
+  ];
+  for (let i = 0; i < 4; i++) {
+    const fin = new THREE.BoxGeometry(0.028, 0.34, 0.20);
+    fin.translate(0, -0.92, 0.17);
+    fin.rotateY((i * Math.PI) / 2);
+    parts.push(fin);
+  }
+  return mergedLit(parts);
+}
+
+/** BLU-27 napalm canister bright red-orange incendiary hazard stripes & igniter collar. */
+function bombNapalmBand(): THREE.BufferGeometry {
+  return mergedLit([
+    rotated(new THREE.CylinderGeometry(0.236, 0.236, 0.18, 12), 0, 0.46, 0),
+    rotated(new THREE.CylinderGeometry(0.236, 0.236, 0.16, 12), 0, -0.44, 0),
+    rotated(new THREE.CylinderGeometry(0.115, 0.145, 0.08, 12), 0, 0.98, 0),
   ]);
 }
 
@@ -113,6 +216,9 @@ function layer(geometry: THREE.BufferGeometry, material: THREE.Material, capacit
 const basic = (color: THREE.Color, extra: THREE.MeshBasicMaterialParameters = {}): THREE.MeshBasicMaterial =>
   new THREE.MeshBasicMaterial({ color, toneMapped: false, ...extra });
 
+const metal = (color: number, roughness: number, metalness: number, emissive = 0x000000): THREE.MeshStandardMaterial =>
+  new THREE.MeshStandardMaterial({ color, roughness, metalness, emissive });
+
 interface StuckStake {
   position: THREE.Vector3;
   rotation: THREE.Quaternion;
@@ -123,7 +229,14 @@ const Y = new THREE.Vector3(0, 1, 0);
 const WHITE = new THREE.Color(1, 1, 1);
 
 export class ProjectileVisuals {
-  private readonly layers: Record<ProjectileKind | 'cone' | 'coneHot' | 'flare' | 'blink' | 'sticky' | 'stickyLed' | 'satchel' | 'satchelLed', Layer>;
+  private readonly layers: Record<
+    ProjectileKind
+    | 'cone' | 'coneHot' | 'flare' | 'blink'
+    | 'sticky' | 'stickyLed' | 'satchel' | 'satchelLed'
+    | 'bombHeBody' | 'bombHeFins' | 'bombHeBand'
+    | 'bombNapalmBody' | 'bombNapalmBand',
+    Layer
+  >;
   private readonly layerList: Layer[];
   private readonly tints = new WeakMap<Projectile, THREE.Color>();
   private readonly stuck: StuckStake[] = [];
@@ -161,6 +274,12 @@ export class ProjectileVisuals {
       // Demolition Satchel Charge: canvas-olive demolition pack + bright pulsing red armed beacon light.
       satchel: layer(satchelBody(), basic(hdr(0x556242, 1.05)), CAPACITY.shell),
       satchelLed: layer(new THREE.IcosahedronGeometry(0.058, 1), basic(hdr(0xff1e12, 7.5)), CAPACITY.shell),
+      // Modeled aircraft gravity bombs (Mk-82 / Mk-84 HE iron bomb & BLU-27 Napalm firebomb canister).
+      bombHeBody: layer(bombHeBody(), metal(0x4a563d, 0.58, 0.28, 0x0b0e08), CAPACITY.shell),
+      bombHeFins: layer(bombHeFins(), metal(0x282e36, 0.44, 0.62, 0x07090b), CAPACITY.shell),
+      bombHeBand: layer(bombHeBand(), metal(0xf2c62c, 0.46, 0.16, 0x3a2b04), CAPACITY.shell),
+      bombNapalmBody: layer(bombNapalmBody(), metal(0xaeb8c2, 0.34, 0.72, 0x161a1e), CAPACITY.shell),
+      bombNapalmBand: layer(bombNapalmBand(), metal(0xe83b1c, 0.42, 0.18, 0x3b0c04), CAPACITY.shell),
     };
     this.layerList = Object.values(this.layers);
     for (const k of ['bullet', 'plasma'] as const) {
@@ -308,6 +427,22 @@ export class ProjectileVisuals {
           // Pulsing red-amber armed LED on top of the canister: bright while blinking, dim ember between pulses.
           const ledScale = p.resting ? (p.blink > 0 ? 1.15 : 0.48) : 0.85;
           this.put(L.stickyLed, pos.addScaledVector(this.dir, 0.145), this.quat, ledScale, ledScale, ledScale);
+          break;
+        }
+        if (p.bomb) {
+          const k = p.size || 1;
+          // Gentle axial roll around the bomb's velocity axis as gravity pitches the nose downward.
+          p.spin += dt * 1.4;
+          this.spin.setFromAxisAngle(Y, p.spin);
+          this.quat.multiply(this.spin);
+          if (p.napalm) {
+            this.put(L.bombNapalmBody, pos, this.quat, k, k, k);
+            this.put(L.bombNapalmBand, pos, this.quat, k, k, k);
+          } else {
+            this.put(L.bombHeBody, pos, this.quat, k, k, k);
+            this.put(L.bombHeFins, pos, this.quat, k, k, k);
+            this.put(L.bombHeBand, pos, this.quat, k, k, k);
+          }
           break;
         }
         {

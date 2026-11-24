@@ -11,6 +11,8 @@ import { buildVehicleModel } from './models';
 import { createPhysicsState, stepVehiclePhysics } from './physics';
 import type { DriveVehicleId, VehicleInput } from './types';
 import { DriveableVehicle } from './vehicle';
+import { Projectiles } from '../../weapons/Projectiles';
+import type { Combat } from '../../weapons/Combat';
 
 function makeMaterials(): ModelMaterials {
   return new ModelMaterials({
@@ -788,5 +790,111 @@ describe('AAA Driveable Vehicles (10-Vehicle Fleet)', () => {
     expect(valkyrie.alive).toBe(false);
     expect(h.explode).toHaveBeenCalled();
     valkyrie.dispose();
+  });
+
+  it('aircraft bombs drop modeled 3D HE & Napalm meshes with no trail/muzzleFlash, kachunk release audio, and Doppler falling whistle', () => {
+    expect(lookup('bomb_release')).toBeDefined();
+    expect(lookup('bomb_whistle_loop')).toBeDefined();
+
+    const h = makeDriveHarness();
+    const muzzleFlash = vi.fn();
+    (h.ctx.fx as unknown as { muzzleFlash: typeof muzzleFlash }).muzzleFlash = muzzleFlash;
+    const playSpy = h.ctx.audio.play as ReturnType<typeof vi.fn>;
+
+    const warthog = new DriveableVehicle(h.ctx, h.materials, h.seats, vi.fn(), 'warthog', new THREE.Vector3(0, 40, 0), 0);
+    warthog.board(0);
+    warthog.phys.velocity.set(0, 0, 52);
+    playSpy.mockClear();
+    muzzleFlash.mockClear();
+
+    // Drop HE MK-84 bomb (secondary fire = 'aim').
+    h.held.add('aim');
+    warthog.update(1 / 30);
+    h.held.delete('aim');
+
+    expect(h.spawnProjectile).toHaveBeenCalledWith(expect.objectContaining({
+      kind: 'shell',
+      source: 'warthog_bomb',
+      bomb: true,
+      trail: 'none',
+    }));
+    expect(muzzleFlash).not.toHaveBeenCalled();
+    expect(playSpy).toHaveBeenCalledWith('bomb_release', expect.any(Object));
+    expect(playSpy).not.toHaveBeenCalledWith('mortar_whistle', expect.any(Object));
+    warthog.dispose();
+
+    // Verify Projectiles starts bomb_whistle_loop with Doppler, sweeps pitch down while falling, renders 3D bomb layers (zero shell/cone), and stops on clear().
+    const setPosition = vi.fn();
+    const setPitch = vi.fn();
+    const setVolume = vi.fn();
+    const stop = vi.fn();
+    const startLoop = vi.fn(() => ({ alive: true, setPosition, setPitch, setVolume, stop }));
+    const projCtx = {
+      render: { scene: new THREE.Scene() },
+      time: { elapsed: 0, realDt: 0.05 },
+      physics: { raycast: () => null },
+      enemies: { raycast: () => null, nearby: () => [], vehicles: undefined },
+      fx: { smoke: vi.fn(), ring: vi.fn(), sparks: vi.fn(), impact: vi.fn() },
+      audio: { play: vi.fn(), startLoop },
+    } as unknown as Ctx;
+    const combatStub = { watching: 0, explode: vi.fn(), napalmBurst: vi.fn() } as unknown as Combat;
+    const projectiles = new Projectiles(projCtx, combatStub);
+    projectiles.init();
+
+    // Spawn 1 HE bomb + 1 Napalm canister bomb.
+    projectiles.spawn({
+      origin: new THREE.Vector3(0, 80, 0),
+      velocity: new THREE.Vector3(0, -3.5, 45),
+      kind: 'shell',
+      team: 'player',
+      damage: 1350,
+      source: 'warthog_bomb',
+      gravity: 28,
+      lifetime: 10,
+      trail: 'none',
+      size: 1.22,
+      bomb: true,
+    });
+    projectiles.spawn({
+      origin: new THREE.Vector3(6, 80, 0),
+      velocity: new THREE.Vector3(0, -3.5, 45),
+      kind: 'shell',
+      team: 'player',
+      damage: 540,
+      source: 'warthog_napalm',
+      gravity: 28,
+      lifetime: 10,
+      trail: 'none',
+      size: 1.08,
+      bomb: true,
+      napalm: true,
+    });
+
+    expect(startLoop).toHaveBeenCalledWith('bomb_whistle_loop', expect.objectContaining({ doppler: true }));
+    expect(startLoop).toHaveBeenCalledTimes(2);
+
+    projectiles.update(0.25);
+    const pitchEarly = setPitch.mock.calls[0]![0] as number;
+    projectiles.update(0.75);
+    const pitchLate = setPitch.mock.calls[setPitch.mock.calls.length - 1]![0] as number;
+    expect(pitchLate).toBeLessThan(pitchEarly);
+    expect(setPosition).toHaveBeenCalled();
+    expect((projCtx.fx.smoke as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
+
+    // Confirm ProjectileVisuals populated the dedicated 3D bomb layers and ZERO shell/cone layers!
+    const layers = (projectiles.visuals as unknown as {
+      layers: Record<string, { count: number }>;
+    }).layers;
+    expect(layers.bombHeBody!.count).toBe(1);
+    expect(layers.bombHeFins!.count).toBe(1);
+    expect(layers.bombHeBand!.count).toBe(1);
+    expect(layers.bombNapalmBody!.count).toBe(1);
+    expect(layers.bombNapalmBand!.count).toBe(1);
+    expect(layers.shell!.count).toBe(0);
+    expect(layers.cone!.count).toBe(0);
+    expect(layers.coneHot!.count).toBe(0);
+
+    projectiles.clear();
+    expect(stop).toHaveBeenCalledTimes(2);
   });
 });

@@ -880,9 +880,9 @@ export class DriveableVehicle {
     this.hudScratch.ccipLabel = secResolved?.napalm ? 'CCIP NAPALM' : 'CCIP HE';
     if (spec.hudMode === 'fighter' && secResolved && secResolved.kind === 'bomb' && this.phys.altitude > 3) {
       _ccipPos.copy(this.phys.position);
-      _ccipPos.y -= 0.4;
+      _ccipPos.y -= 0.45;
       _ccipVel.copy(this.phys.velocity);
-      _ccipVel.y -= 2.0;
+      _ccipVel.y -= 3.5;
       const g = secResolved.gravity || 28;
       const step = 0.18;
       for (let i = 0; i < 32; i++) {
@@ -1366,10 +1366,13 @@ export class DriveableVehicle {
     }
 
     if (m.kind === 'bomb') {
-      // Gravity-dropped fighter bomb (HE or BLU-27 Napalm!) inheriting full aircraft velocity -> lands on CCIP!
+      // Gravity-dropped fighter bomb (Mk-82 / Mk-84 HE or BLU-27 Napalm) inheriting full aircraft velocity -> lands on CCIP!
+      // Cleared slightly below the wing pylon with a crisp downward ejector kick, zero smoke/flame trail, and live 3D whistle.
+      _muzzle.y -= 0.45;
       _vel.copy(this.phys.velocity);
-      _vel.y -= 2.0;
+      _vel.y -= 3.5;
       const bombScale = m.blastRadius >= 20 ? 3.0 : m.blastRadius >= 16 ? 2.5 : 1.9;
+      const modelSize = m.napalm ? 1.08 : m.blastRadius >= 20 ? 1.22 : 0.96;
       this.ctx.combat.spawnProjectile({
         origin: _muzzle,
         velocity: _vel,
@@ -1380,9 +1383,10 @@ export class DriveableVehicle {
         source: m.napalm ? `${this.def.id}_napalm` : `${this.def.id}_bomb`,
         gravity: m.gravity || 28,
         lifetime: 10,
-        trail: 'big',
-        size: 1.95,
+        trail: 'none',
+        size: modelSize,
         armorPiercing: true,
+        bomb: true,
         napalm: m.napalm,
         explosion: {
           radius: m.blastRadius,
@@ -1393,7 +1397,6 @@ export class DriveableVehicle {
           shake: 1.4,
         },
       });
-      this.ctx.audio?.play('mortar_whistle', { position: _muzzle, volume: 0.65, pitch: m.napalm ? 0.92 : 0.8 });
     } else if (m.kind === 'atgm' || m.homing) {
       const lock = this.currentLockTarget;
       _vel.copy(_dir).multiplyScalar(m.speed);
@@ -1490,7 +1493,9 @@ export class DriveableVehicle {
     if (this.occupied && spec.trauma > 0) {
       this.ctx.camera?.addTrauma?.(spec.trauma);
     }
-    this.ctx.fx?.muzzleFlash?.(_muzzle, _dir, spec.muzzleFlash);
+    if (m.kind !== 'bomb') {
+      this.ctx.fx?.muzzleFlash?.(_muzzle, _dir, spec.muzzleFlash);
+    }
     this.ctx.audio?.play(m.audio, {
       position: _muzzle,
       volume: m.kind === 'cannon' || m.kind === 'bomb' ? 0.95 : 0.74,

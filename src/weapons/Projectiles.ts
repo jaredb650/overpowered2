@@ -3,7 +3,7 @@
  * at any frame rate, and all of them share one fixed pool with oldest-out eviction.
  */
 import * as THREE from 'three';
-import { CG, type Ctx, type CorpseHit, type ExplosionKind, type RayHit } from '../core/contracts';
+import { CG, type Ctx, type CorpseHit, type ExplosionKind, type LoopHandle, type RayHit } from '../core/contracts';
 import { toldKill, type DamageResult, type EnemyInstance, type MissileTarget, type ProjectileSpec, type ProjectileTrail, type Team } from '../core/gameplay';
 import { clamp, rand } from '../core/math';
 import type { GoreRegion } from '../characters/rig';
@@ -158,6 +158,10 @@ export interface Projectile {
   wp: boolean;
   /** Howitzer cluster shell: bursts ~7 m short of targets/walls into an 18-bomblet carpet (cluster.ts). */
   cluster: boolean;
+  /** Modeled aerial gravity bomb (Mk-82 / Mk-84 HE or BLU-27 napalm canister) with falling whistle audio. */
+  bomb: boolean;
+  /** Positional falling whistle loop attached to aerial bombs; stopped immediately on detonation/retire. */
+  whistleLoop: LoopHandle | null;
   /** BLU-27 incendiary napalm bomb: spreads a burning napalm carpet on detonation. */
   napalm: boolean;
   /**
@@ -190,7 +194,7 @@ function createProjectile(): Projectile {
     blastSelf: undefined, blastPush: undefined, pinned: false, lastHit: -1,
     budget: makeBudget(), baseDamage: 0, armorPiercing: false,
     target: null, turnRate: 0, line: new THREE.Vector3(), steerDelay: 0, weave: 0, weavePhase: 0, accel: 0, topSpeed: 0, age: 0, size: 1, wired: false,
-    blastScale: undefined, blastShake: undefined, flak: false, wp: false, cluster: false, napalm: false, cosmetic: false, netId: 0, laser: ROCKET_LASER, tag: 0, ghost: false, blastMirrored: false,
+    blastScale: undefined, blastShake: undefined, flak: false, wp: false, cluster: false, bomb: false, whistleLoop: null, napalm: false, cosmetic: false, netId: 0, laser: ROCKET_LASER, tag: 0, ghost: false, blastMirrored: false,
     initialFuse: 0, thrownBack: false,
     helix: null, helixData: { phase: 0, reach: 0, radius: 0, pitch: 0, startRadius: 0, convergence: 0 }, helixTravel: 0, helixRight: new THREE.Vector3(), helixUp: new THREE.Vector3(), helixOffset: new THREE.Vector3(),
   };
@@ -348,7 +352,16 @@ export class Projectiles {
     p.flak = spec.flak ?? false;
     p.wp = spec.wp ?? false;
     p.cluster = spec.cluster ?? false;
+    p.bomb = spec.bomb ?? false;
     p.napalm = spec.napalm ?? false;
+    p.whistleLoop = p.bomb
+      ? (this.ctx.audio?.startLoop?.('bomb_whistle_loop', {
+        position: p.position,
+        volume: 0.22,
+        pitch: p.napalm ? 1.38 : 1.28,
+        doppler: true,
+      }) ?? null)
+      : null;
     p.cosmetic = spec.cosmetic ?? false;
     p.netId = netId;
     p.laser = spec.laser ?? ROCKET_LASER;
@@ -385,6 +398,10 @@ export class Projectiles {
   private retire(index: number): void {
     const p = this.live[index]!;
     p.live = false;
+    if (p.whistleLoop) {
+      p.whistleLoop.stop(0.04);
+      p.whistleLoop = null;
+    }
     // Co-op: the host's enemy projectile is gone, so its copies go too (a copy that ends says nothing).
     if (p.netId && !p.cosmetic) this.ctx.coop?.world?.projectileGone(p.netId);
     p.netId = 0;
@@ -395,6 +412,7 @@ export class Projectiles {
     p.sticky = false;
     p.wp = false;
     p.cluster = false;
+    p.bomb = false;
     p.napalm = false;
     p.laser = ROCKET_LASER;
     const last = this.live.pop()!;
@@ -428,6 +446,14 @@ export class Projectiles {
         if (at >= 0) this.retire(at);
         i = Math.min(i, this.live.length);
         continue;
+      }
+      if (p.whistleLoop) {
+        // Classic falling aerial bomb pitch drop as it accelerates down toward impact.
+        const fallFrac = clamp(p.age / 2.8, 0, 1);
+        const startPitch = p.napalm ? 1.38 : 1.28;
+        p.whistleLoop.setPosition(p.position);
+        p.whistleLoop.setPitch(startPitch - fallFrac * 0.66, 0.08);
+        p.whistleLoop.setVolume(0.22 + clamp(p.age / 0.6, 0, 1) * 0.72, 0.08);
       }
       this.emitTrail(p, realDt);
     }

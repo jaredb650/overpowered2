@@ -263,4 +263,29 @@ export const vehicles = [
     s.at(0.04, () => clank(s, 960, 0.55, 0.045));
     s.at(0.09, () => click(s, 3100, 0.7, 0.007));
   }),
+  // Heavy mechanical pylon shackle & ejector-rack "KA-CHUNK" when releasing an aerial bomb.
+  r('bomb_release', { dur: 0.46, n: 2, mix: 'machine', over: { volume: 0.92, near: 14, far: 165, send: 0.16, maxVoices: 6 }, expect: { attackMs: [0, 10] } }, s => {
+    // "KA-" — solenoid unlatch snap + sharp shackle hook release
+    click(s, 2950, 0.95, 0.009);
+    clank(s, 1240, 0.68, 0.045);
+    // "-CHUNK" — forged-steel sway-brace slam + pneumatic ejector piston punch
+    s.at(0.052, () => {
+      thump(s, 78, 0.16, 1.0, 2.8);
+      clank(s, 355, 1.0, 0.14);
+      modal(s, { f0: 520, modes: MODES.bar, decay: 0.14, level: 0.42, strike: 0.85 });
+      s.noise('pink', 0.13).bp(1420, 1.4).env(perc(0.085, 0.52, 0.003)).out(0.55);
+    });
+    // Brief damped pylon spring settle
+    s.at(0.125, () => {
+      click(s, 1880, 0.34, 0.011);
+      clank(s, 790, 0.24, 0.045);
+    });
+  }),
+  // Seamless 3D positional falling aerial bomb aerodynamic whistle (pitch swept downward in Projectiles.ts + Doppler).
+  r('bomb_whistle_loop', { dur: 2, mix: 'loop3d', loop: true, over: { volume: 0.66, maxVoices: 6, near: 22, far: 320, send: 0.22 } }, s => {
+    s.osc('sine', 960).am(s.lfo(7, 0.09)).out(0.42);
+    s.osc('sine', 1924).am(s.lfo(11, 0.12)).out(0.09);
+    s.noise('pink').bp(1160, 4.4).am(s.wander(3, 0.14)).out(0.52);
+    s.noise('pink').bp(480, 1.4).out(0.28);
+  }),
 ];
