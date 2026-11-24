@@ -565,8 +565,8 @@ const RENDER_TIERS: readonly RegExp[] = [
   // The first kills: gore, enemy voices, and what a player feels getting hurt or picking something up. `machine_clang` is
   // a drone or skitter being shot, and `metal_clang` its wreck.
   /^(limb_|bone_|gib_|torso_|blood_|head_pop|head_burst|skull_fragments|body_|flesh_|vox_(grunt|pain|death|husk|radio)|enemy_|player_|heartbeat|low_health|armor_|heal_|pickup_|combo_|multikill|style_|grenade_|bullet_|machine_clang|metal_clang|stealth_|breaker_|camera_|shutter_|bunker_)/,
-  // The first streaks and the first weapon cache.
-  /^(perk_|powerup_|callin_|cache_|missile_|explosion_|vox_|revolver_|stake_|flame_|minigun_|cannon_|piledriver_|metalstorm_|mgl_|awl50_|railgun_|lance_|plasma_|sword_|lightning_)/,
+  // The first streaks, the first weapon cache, and player-driveable vehicles / ordnance.
+  /^(perk_|powerup_|callin_|cache_|missile_|explosion_|vox_|revolver_|stake_|flame_|minigun_|cannon_|piledriver_|metalstorm_|mgl_|awl50_|railgun_|lance_|plasma_|sword_|lightning_|moto_|quad_|hover_|jet_|truck_|tank_|heli_|gunship_|veh_|bomb_)/,
 ];
 
 /** Lower renders sooner. Every id's first variant comes before any id's spares in the same tier. */

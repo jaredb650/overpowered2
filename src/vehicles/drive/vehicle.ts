@@ -17,17 +17,19 @@
  */
 import * as THREE from 'three';
 import type RAPIER from '@dimforge/rapier3d-compat';
-import { CG, type Ctx, type LoopHandle, type PlayerDamage, type RayHit } from '../../core/contracts';
+import { CG, type Ctx, type PlayerDamage, type RayHit } from '../../core/contracts';
 import type { EnemyInstance, MissileTarget, VehicleRadarTarget } from '../../core/gameplay';
 import { clamp, damp, dampAngle, rand, randomInCone, wrapAngle } from '../../core/math';
 import type { GoreRegion } from '../../characters/rig';
 import type { ModelMaterials } from '../../progression/modelkit';
 import { Gun, M134, type GunSpec } from '../guns';
 import { GunnerSeat, type SeatPlan, type SeatRig } from '../seat';
+import { VehicleAudioController, type VehicleAudioTelemetry } from './audio';
 import { DRIVE_VEHICLES } from './data';
 import { HYBRID_HMG_AGL, VULCAN_AA } from './guns';
 import { buildVehicleModel, type VehicleModelRig } from './models';
 import { createPhysicsState, stepVehiclePhysics } from './physics';
+import { animateRider, setRiderAccent } from './riders';
 import type {
   DriveVehicleDef,
   DriveVehicleId,
@@ -141,9 +143,10 @@ export class DriveableVehicle {
   private lanceChargeBeep = 0;
   private wasBoosting = false;
   private wasAbandonedFall = false;
-  private engineLoop: LoopHandle | null = null;
-  private engineLayerLoop: LoopHandle | null = null;
-  private driftLoop: LoopHandle | null = null;
+  private prevTurretYaw = 0;
+  private readonly engineAudio: VehicleAudioController;
+  /** Occupant IDs per seat (`'local'` for local player, peer/AI IDs for co-op passengers & gunners). */
+  private readonly seatOccupants: (string | null)[];
   private keyCPressed = false;
   private readonly onKeyDown = (e: KeyboardEvent): void => {
     if (e.code === 'KeyC' && !e.repeat && this.occupied) {
@@ -206,6 +209,8 @@ export class DriveableVehicle {
     this.phys = createPhysicsState(position, yaw, opts?.velocity);
     this.aimYaw = yaw;
     this.camDistCurrent = this.def.seats[0]!.chaseDist || 7.4;
+    this.engineAudio = new VehicleAudioController(ctx, this.def);
+    this.seatOccupants = this.def.seats.map(() => null);
     this.model = buildVehicleModel(id, materials);
     this.model.root.name = `drive.${id}.${this.uid}`;
     ctx.render.scene.add(this.model.root);
@@ -333,6 +338,54 @@ export class DriveableVehicle {
     return this.def.seats[this._seatIndex]!;
   }
 
+  get audioTelemetry(): VehicleAudioTelemetry {
+    return this.engineAudio.telemetry;
+  }
+
+  /** Number of currently occupied seats (local player + any co-op / AI riders). */
+  get occupiedSeatCount(): number {
+    let count = 0;
+    for (const occ of this.seatOccupants) {
+      if (occ !== null) count++;
+    }
+    return count;
+  }
+
+  /** Remaining open seats available for co-op teammates or AI gunners. */
+  get openSeatCount(): number {
+    return Math.max(0, this.def.seats.length - this.occupiedSeatCount);
+  }
+
+  /** Returns the occupant ID (`'local'`, remote player ID, AI ID, or `null`) in `seatIndex`. */
+  getSeatOccupant(seatIndex: number): string | null {
+    return this.seatOccupants[seatIndex] ?? null;
+  }
+
+  /**
+   * Assigns or clears a visible rider in `seatIndex` (used locally on board/seat-swap and ready for
+   * co-op replication & AI squadmates). Optionally tints the rider's tactical visor & shoulder stripes.
+   */
+  setSeatOccupant(seatIndex: number, occupantId: string | null, accentColor?: string): void {
+    if (seatIndex < 0 || seatIndex >= this.seatOccupants.length) return;
+    this.seatOccupants[seatIndex] = occupantId;
+    if (accentColor) {
+      for (const r of this.model.riders) {
+        if (r.seatIndex === seatIndex) setRiderAccent(r, accentColor);
+      }
+    }
+    this.syncRiderModels();
+  }
+
+  private syncRiderModels(): void {
+    const is1P = this.occupied && (!this.thirdPerson || this.activeSeatSpec.chaseDist <= 0.5);
+    for (const r of this.model.riders) {
+      const occ = this.seatOccupants[r.seatIndex] ?? null;
+      r.occupantId = occ;
+      // Hide ONLY the local player's rider mesh while in 1P (never hide co-op teammates!).
+      r.root.visible = occ !== null && !(is1P && occ === 'local' && r.seatIndex === this._seatIndex);
+    }
+  }
+
   private getOrBuildMountGun(kind: VehicleMountGun): Gun {
     let gun = this.mountGuns.get(kind);
     if (!gun) {
@@ -398,6 +451,8 @@ export class DriveableVehicle {
     } else if (this.occupied) {
       this.holster();
     }
+
+    this.syncRiderModels();
   }
 
   private restoreVisualsOnExit(): void {
@@ -415,6 +470,7 @@ export class DriveableVehicle {
     if (this.model.subTurret) {
       this.model.subTurret.visible = true;
     }
+    this.syncRiderModels();
   }
 
   /** Seats the local player in `seatIndex` (0 = Driver/Pilot) and hands control to this vehicle. */
@@ -444,12 +500,13 @@ export class DriveableVehicle {
     seat.fixed(this.phys.position);
     seat.noWayOut = false;
     seat.board();
+    this.seatOccupants[this._seatIndex] = 'local';
     this.updateAimTarget();
     seat.sit(_target, _pivot);
     this.applySeatVisuals();
 
     this.ctx.player.interceptor = this.damageIntercept;
-    this.ctx.audio?.play('veh_board', { position: this.phys.position, volume: 0.72, pitch: 1.0 });
+    this.ctx.audio?.play('veh_board', { position: this.phys.position, volume: 0.78, pitch: 1.0 });
     this.startEngine();
     this.syncHud();
     return true;
@@ -460,7 +517,10 @@ export class DriveableVehicle {
     if (!this.occupied || !this.seat) return;
     const next = ((index % this.def.seats.length) + this.def.seats.length) % this.def.seats.length;
     if (next === this._seatIndex) return;
+    const prev = this._seatIndex;
+    if (this.seatOccupants[prev] === 'local') this.seatOccupants[prev] = null;
     this._seatIndex = next;
+    this.seatOccupants[next] = 'local';
     const spec = this.activeSeatSpec;
     this.thirdPerson = next === 0 && spec.chaseDist > 0.5;
     this.camDistCurrent = spec.chaseDist || 7.4;
@@ -468,7 +528,7 @@ export class DriveableVehicle {
     this.lanceHeld = false;
     this.seat.hintText = this.buildHintText();
     this.applySeatVisuals();
-    this.ctx.audio?.play('veh_seat_click', { position: this.phys.position, volume: 0.72, pitch: 1.04 });
+    this.ctx.audio?.play('veh_seat_click', { position: this.phys.position, volume: 0.78, pitch: 1.04 });
     this.ctx.hud?.feed?.(`${this.def.shortName} // ${spec.name}`, this.def.color);
     this.syncHud();
   }
@@ -478,6 +538,9 @@ export class DriveableVehicle {
     if (!this.seat) return;
     const seat = this.seat;
     this.seat = null;
+    if (this.seatOccupants[this._seatIndex] === 'local') {
+      this.seatOccupants[this._seatIndex] = null;
+    }
     this.lanceCharge = 0;
     this.lanceHeld = false;
     this.missileWarning = false;
@@ -508,11 +571,9 @@ export class DriveableVehicle {
     }
 
     if (this.alive) this.setColliderParked(true);
-    // Keep aircraft engine roaring while an abandoned chopper/jet spirals toward the ground!
-    if (!airborneExit) this.stopEngine();
-    else {
-      this.driftLoop?.stop();
-      this.driftLoop = null;
+    // Keep aircraft engine roaring while an abandoned chopper/jet spirals down; otherwise smoothly spin down!
+    if (!airborneExit && this.occupiedSeatCount === 0) {
+      this.engineAudio.shutdown();
     }
   }
 
@@ -647,18 +708,17 @@ export class DriveableVehicle {
     this.stepEffects(dt, occupied);
     this.syncTransform();
 
+    const turretTurning = Math.abs(wrapAngle(this.turretYaw - this.prevTurretYaw)) > 0.006;
+    this.prevTurretYaw = this.turretYaw;
+
     if (occupied && this.seat) {
       this.ctx.player.carry(this.phys.position);
       this.updateCamera(dt);
       this.updateTacticalOverlays();
-      this.updateEngineAudio();
+      this.engineAudio.update(dt, this.phys, true, this.inputScratch, turretTurning, this.lanceCharge);
       this.syncHud();
     } else {
-      if (this.phys.abandonedFall) {
-        this.updateEngineAudio();
-      } else if (this.engineLoop || this.engineLayerLoop || this.driftLoop) {
-        this.stopEngine();
-      }
+      this.engineAudio.update(dt, this.phys, false, null, false, 0);
       if (this.collider) {
         this.setColliderParked(true);
       }
@@ -1047,7 +1107,7 @@ export class DriveableVehicle {
           this.phys.grounded = false;
         }
       }
-      this.ctx.audio?.play('steam_burst', { position: this.phys.position, volume: 0.85, pitch: this.phys.vtolMode ? 0.82 : 1.38 });
+      this.engineAudio.playVtolShift(this.phys.position, !this.phys.vtolMode);
       this.ctx.hud?.feed?.(this.phys.vtolMode ? `${this.def.shortName} // VTOL HOVER MODE` : `${this.def.shortName} // MACH JET MODE`, this.def.color);
       // Also pop countermeasures if off cooldown so pilots always feel safe!
       if (this.flareCooldown <= 0 && this.missileWarning) this.popFlares();
@@ -1931,6 +1991,15 @@ export class DriveableVehicle {
       const side = i % 2 === 0 ? 1 : -1;
       outriggers[i]!.rotation.z = side * 1.15 * (1 - this.phys.deployAnim);
     }
+
+    if (this.model.riders.length > 0) {
+      const spdRatio = clamp(this.phys.speed / Math.max(1, this.def.maxSpeed), 0, 1.2);
+      const lookYawDelta = wrapAngle(this.aimYaw - this.phys.yaw);
+      for (const r of this.model.riders) {
+        if (!r.root.visible) continue;
+        animateRider(r, this.phys.steerAngle, spdRatio, clamp(-this.phys.pitch, 0, 0.6), lookYawDelta, this.aimPitch);
+      }
+    }
   }
 
   private setColliderParked(parked: boolean): void {
@@ -1947,84 +2016,11 @@ export class DriveableVehicle {
   }
 
   private startEngine(): void {
-    this.stopEngine();
-    this.engineLoop = this.ctx.audio?.startLoop?.(this.def.engineLoop, {
-      position: this.phys.position,
-      volume: this.def.engineVolume,
-      pitch: this.def.enginePitchIdle,
-    }) ?? null;
-    if (this.def.engineLayerLoop) {
-      const initVol = this.def.category === 'tracked' ? 0.02 : this.def.engineVolume * 0.45;
-      this.engineLayerLoop = this.ctx.audio?.startLoop?.(this.def.engineLayerLoop, {
-        position: this.phys.position,
-        volume: initVol,
-        pitch: this.def.enginePitchIdle,
-      }) ?? null;
-    }
-  }
-
-  private updateEngineAudio(): void {
-    const frac = clamp(this.phys.speed / this.def.boostSpeed, 0, 1);
-    const pitch = this.def.enginePitchIdle + (this.def.enginePitchMax - this.def.enginePitchIdle) * frac + (this.phys.boosting ? 0.18 : 0);
-
-    if (this.engineLoop) {
-      this.engineLoop.setPosition(this.phys.position);
-      this.engineLoop.setPitch(this.phys.abandonedFall ? pitch * 1.18 : pitch);
-      this.engineLoop.setVolume(this.def.engineVolume * (0.85 + frac * 0.35));
-    }
-
-    if (this.engineLayerLoop) {
-      this.engineLayerLoop.setPosition(this.phys.position);
-      if (this.def.category === 'tracked') {
-        const trackFrac = clamp(this.phys.speed / Math.max(1, this.def.maxSpeed), 0, 1);
-        this.engineLayerLoop.setPitch(0.75 + trackFrac * 0.65);
-        this.engineLayerLoop.setVolume(trackFrac > 0.04 ? this.def.engineVolume * (0.18 + trackFrac * 0.62) : 0.001);
-      } else if (this.def.category === 'jet') {
-        const abActive = !this.phys.vtolMode || this.phys.boosting;
-        const abLevel = this.phys.boosting ? 1.0 : !this.phys.vtolMode ? 0.55 + frac * 0.4 : 0.08;
-        this.engineLayerLoop.setPitch(abActive ? 0.92 + frac * 0.45 : 0.78);
-        this.engineLayerLoop.setVolume(this.def.engineVolume * abLevel);
-      } else {
-        // Helicopter turbine layer scales cleanly with speed & climb load.
-        const load = clamp(frac + Math.abs(this.phys.velocity.y) * 0.04, 0, 1);
-        this.engineLayerLoop.setPitch(0.92 + load * 0.32);
-        this.engineLayerLoop.setVolume(this.def.engineVolume * (0.42 + load * 0.36));
-      }
-    }
-
-    // Dynamic tire screech loop while drifting grounded wheeled/moto vehicles!
-    const shouldDrift = this.occupied
-      && (this.def.category === 'wheeled' || this.def.category === 'moto')
-      && this.phys.drifting
-      && this.phys.grounded
-      && this.phys.speed > 7;
-    if (shouldDrift) {
-      if (!this.driftLoop) {
-        this.driftLoop = this.ctx.audio?.startLoop?.('veh_drift_loop', {
-          position: this.phys.position,
-          volume: 0.42,
-          pitch: 0.95,
-        }) ?? null;
-      }
-      if (this.driftLoop) {
-        const spdFrac = clamp(this.phys.speed / this.def.maxSpeed, 0.3, 1.3);
-        this.driftLoop.setPosition(this.phys.position);
-        this.driftLoop.setPitch(0.85 + spdFrac * 0.35);
-        this.driftLoop.setVolume(clamp(0.28 + spdFrac * 0.32, 0.2, 0.6));
-      }
-    } else if (this.driftLoop) {
-      this.driftLoop.stop();
-      this.driftLoop = null;
-    }
+    this.engineAudio.start(this.phys.position, this.phys.vtolMode);
   }
 
   private stopEngine(): void {
-    this.engineLoop?.stop();
-    this.engineLoop = null;
-    this.engineLayerLoop?.stop();
-    this.engineLayerLoop = null;
-    this.driftLoop?.stop();
-    this.driftLoop = null;
+    this.engineAudio.stopAll();
   }
 
   private explodeAndDestroy(kamikaze = false): void {

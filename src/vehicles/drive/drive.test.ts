@@ -70,7 +70,7 @@ function makeDriveHarness() {
   };
   const applyDamage = vi.fn(() => ({ killed: true, headshot: false, gibbed: false, damage: 240 }));
   const audioPlay = vi.fn();
-  const startLoop = vi.fn(() => ({ alive: true, setVolume: vi.fn(), setPitch: vi.fn(), setPosition: vi.fn(), stop: vi.fn() }));
+  const startLoop = vi.fn((_id?: string, _opts?: unknown) => ({ alive: true, setVolume: vi.fn(), setPitch: vi.fn(), setPosition: vi.fn(), stop: vi.fn() }));
   const enemiesList = [mockEnemy];
   const domElement = { style: { filter: '' } };
 
@@ -897,4 +897,119 @@ describe('AAA Driveable Vehicles (10-Vehicle Fleet)', () => {
     projectiles.clear();
     expect(stop).toHaveBeenCalledTimes(2);
   });
+
+  it('registers all responsive vehicle audio recipes & auto-retries dead loop handles with spin-up/down + gear shifts + VTOL cues', () => {
+    for (const id of ['jet_turbine_whine_loop', 'veh_afterburner_ignite', 'veh_vtol_shift', 'veh_gear_shift']) {
+      const entry = lookup(id);
+      expect(entry, `audio catalog missing ${id}`).toBeDefined();
+      expect(entry!.priority).toBeGreaterThanOrEqual(6);
+    }
+
+    const h = makeDriveHarness();
+    // Simulate SoundBank still rendering on initial board (returns dead handle first, then live handle!)
+    let callNum = 0;
+    const liveStop = vi.fn();
+    const liveSetPitch = vi.fn();
+    const liveSetVolume = vi.fn();
+    h.startLoop.mockImplementation(() => {
+      callNum++;
+      if (callNum === 1) {
+        return { alive: false, setVolume: vi.fn(), setPitch: vi.fn(), setPosition: vi.fn(), stop: vi.fn() };
+      }
+      return { alive: true, setVolume: liveSetVolume, setPitch: liveSetPitch, setPosition: vi.fn(), stop: liveStop };
+    });
+
+    const moto = new DriveableVehicle(h.ctx, h.materials, h.seats, vi.fn(), 'moto', new THREE.Vector3(), 0);
+    expect(moto.board(0)).toBe(true);
+    // First startLoop returned dead handle; next update tick must automatically retry and acquire a live loop!
+    h.held.add('forward');
+    for (let i = 0; i < 45; i++) moto.update(0.05);
+    expect(h.startLoop.mock.calls.length).toBeGreaterThanOrEqual(2);
+    expect(liveSetPitch).toHaveBeenCalled();
+    expect(liveSetVolume).toHaveBeenCalled();
+    expect(moto.audioTelemetry.gear).toBeGreaterThanOrEqual(2);
+    expect(h.audioPlay).toHaveBeenCalledWith('veh_gear_shift', expect.any(Object));
+
+    // Exiting on ground triggers smooth audible spin-down rather than instant zero!
+    moto.exit(false);
+    expect(moto.audioTelemetry.running).toBe(true);
+    for (let i = 0; i < 60; i++) moto.update(0.05);
+    expect(moto.audioTelemetry.running).toBe(false);
+    expect(liveStop).toHaveBeenCalled();
+    moto.dispose();
+
+    // Harrier VTOL -> Mach toggle fires dedicated nozzle swivel + afterburner ignition + 3 jet audio layers!
+    h.audioPlay.mockClear();
+    h.startLoop.mockClear();
+    const harrier = new DriveableVehicle(h.ctx, h.materials, h.seats, vi.fn(), 'harrier', new THREE.Vector3(), 0);
+    expect(harrier.board(0)).toBe(true);
+    const loopIds = h.startLoop.mock.calls.map(c => c[0]);
+    expect(loopIds).toContain('jet_engine_loop');
+    expect(loopIds).toContain('jet_turbine_whine_loop');
+    expect(loopIds).toContain('jet_afterburner_loop');
+    h.justPressed.add('stim');
+    harrier.update(0.05);
+    h.justPressed.clear();
+    expect(h.audioPlay).toHaveBeenCalledWith('veh_vtol_shift', expect.any(Object));
+    expect(h.audioPlay).toHaveBeenCalledWith('veh_afterburner_ignite', expect.any(Object));
+    harrier.dispose();
+  });
+
+  it('mounts articulated co-op ready visible riders on Quad/Moto/Jackal/Viper/Aircraft and hides only the local rider in 1P', () => {
+    const h = makeDriveHarness();
+    for (const id of ['quad', 'moto', 'jackal', 'viper', 'kestrel', 'valkyrie'] as const) {
+      const rig = buildVehicleModel(id, h.materials);
+      expect(rig.riders.length, `${id} should have 2 visible rider sockets`).toBe(2);
+      expect(rig.riders.every(r => !r.root.visible)).toBe(true);
+    }
+
+    // Quad ATV: 0 riders parked -> 1 rider on solo board -> 2 riders when co-op teammate hops on rear seat!
+    const quad = new DriveableVehicle(h.ctx, h.materials, h.seats, vi.fn(), 'quad', new THREE.Vector3(), 0);
+    expect(quad.occupiedSeatCount).toBe(0);
+    expect(quad.openSeatCount).toBe(2);
+
+    expect(quad.board(0)).toBe(true);
+    expect(quad.occupiedSeatCount).toBe(1);
+    expect(quad.openSeatCount).toBe(1);
+    expect(quad.model.riders.filter(r => r.root.visible).length).toBe(1);
+
+    // Co-op teammate boards Seat 1 (rear pillion passenger): BOTH riders are visibly seated on the Quad!
+    quad.setSeatOccupant(1, 'coop-p2', '#ffaa2b');
+    expect(quad.occupiedSeatCount).toBe(2);
+    expect(quad.openSeatCount).toBe(0);
+    expect(quad.model.riders.filter(r => r.root.visible).length).toBe(2);
+
+    // Toggle to 1P camera: hides ONLY the local driver mesh, NEVER the co-op passenger!
+    h.justPressed.add('slide');
+    quad.update(0.016);
+    h.justPressed.clear();
+    const driverRig = quad.model.riders.find(r => r.seatIndex === 0)!;
+    const passengerRig = quad.model.riders.find(r => r.seatIndex === 1)!;
+    expect(driverRig.root.visible).toBe(false);
+    expect(passengerRig.root.visible).toBe(true);
+
+    quad.exit(false);
+    expect(driverRig.root.visible).toBe(false);
+    expect(passengerRig.root.visible).toBe(true);
+    quad.dispose();
+  });
+
+  it('upgrades all 10 vehicle models to PBR textured materials with valid box-projected UVs (no flat untextured solid)', () => {
+    const mats = makeMaterials();
+    for (const id of DRIVE_VEHICLE_ORDER) {
+      const rig = buildVehicleModel(id, mats);
+      expect(rig.meshes.length, `${id} should have meshes`).toBeGreaterThan(0);
+      let pbrMeshCount = 0;
+      for (const obj of rig.meshes) {
+        const mesh = obj as THREE.Mesh;
+        expect(mesh.material, `${id} should not use untextured flat ModelMaterials.solid`).not.toBe(mats.solid);
+        if (mesh.material instanceof THREE.MeshStandardMaterial) {
+          pbrMeshCount++;
+          expect(mesh.geometry.getAttribute('uv'), `${id} PBR mesh must have UVs`).toBeDefined();
+        }
+      }
+      expect(pbrMeshCount, `${id} should contain PBR textured meshes`).toBeGreaterThan(0);
+    }
+  });
 });
+
