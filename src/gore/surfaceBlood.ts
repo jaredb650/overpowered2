@@ -240,6 +240,7 @@ export class SurfaceBloodField {
   private pool: BloodSurfacePool | null = null;
   private poolWired = false;
   private lastWoundAudioAt = -10;
+  private lastSingleSprayAt = -10;
   private lastDribbleAudioAt = -10;
   private lastSplashAudioAt = -10;
 
@@ -465,23 +466,29 @@ export class SurfaceBloodField {
       this.spurtsStarted++;
     }
 
-    // Positional 3D wound bleeding sound from the wound itself (rate-limited so bursts never stack).
-    if (now - this.lastWoundAudioAt >= 0.35 && (!wasActive || upgrade)) {
+    // Positional 3D wound bleeding sound from the wound itself (rate-limited and multi-take-first so hits never loop one clip).
+    if (now - this.lastWoundAudioAt >= 1.8 && (!wasActive || upgrade)) {
       const audio = this.ctx.audio;
       if (startedSpurt) {
         this.lastWoundAudioAt = now;
-        const useJet = Math.random() < 0.55;
-        audio?.play(useJet ? 'blood_spray_jet' : 'blood_spray_short', {
+        const useShort = now - this.lastSingleSprayAt >= 4.5 && Math.random() < 0.2;
+        if (useShort) this.lastSingleSprayAt = now;
+        audio?.play(useShort ? 'blood_spray_short' : 'blood_spray_jet', {
           position: opts.point,
-          volume: useJet ? 0.58 : 0.65,
-          pitchJitter: 0.09,
+          volume: useShort ? 0.52 : 0.6,
+          pitchJitter: useShort ? 0.12 : 0.09,
         });
       } else if (keepTier === 2) {
         this.lastWoundAudioAt = now;
-        audio?.play('blood_spray_short', { position: opts.point, volume: 0.5, pitchJitter: 0.1 });
-      } else if (keepTier === 1 && opts.withSpurt !== false && !track.dead) {
-        this.lastWoundAudioAt = now;
-        audio?.play('blood_spritz', { position: opts.point, volume: 0.45, pitchJitter: 0.12 });
+        const roll = Math.random();
+        if (now - this.lastSingleSprayAt >= 4.5 && roll < 0.2) {
+          this.lastSingleSprayAt = now;
+          audio?.play('blood_spray_short', { position: opts.point, volume: 0.42, pitchJitter: 0.13 });
+        } else if (roll < 0.65) {
+          audio?.play('blood_spray_jet', { position: opts.point, volume: 0.42, pitchJitter: 0.11 });
+        } else {
+          audio?.play('blood_dribble', { position: opts.point, volume: 0.7, pitchJitter: 0.1 });
+        }
       }
     }
 
@@ -991,6 +998,7 @@ export class SurfaceBloodField {
     this.dropletsDetached = 0;
     this.spurtsStarted = 0;
     this.lastWoundAudioAt = -10;
+    this.lastSingleSprayAt = -10;
     this.lastDribbleAudioAt = -10;
     this.lastSplashAudioAt = -10;
     this.pool?.clear();

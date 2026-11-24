@@ -532,6 +532,8 @@ export class Gore implements GoreSystem {
   /** Next body to look at for its level of detail. One a frame is plenty for things that lie still. */
   private lodAt = 0;
   private lastKnock = -1;
+  private lastCorpseSpritz = -10;
+  private lastHardCorpse = -10;
   private lastStumpSpray = -10;
   private lastLongSpray = -15;
   /** Simulated bodies were over `maxRagdolls` with nothing yet fit to freeze, at the last look. */
@@ -2022,7 +2024,7 @@ export class Gore implements GoreSystem {
       if (strong) {
         this.blood.spray(_v, _v2, 3, 7 * (0.5 + pressure), 0.16, 0.1);
         if (s.beat === 3 || s.beat === 7) {
-          audio.play('blood_spray_short', { position: _v, volume: clamp(0.45 + pressure * 0.4, 0.35, 0.8), pitchJitter: 0.1 });
+          audio.play('blood_spray_jet', { position: _v, volume: clamp(0.4 + pressure * 0.35, 0.32, 0.72), pitchJitter: 0.1 });
         }
       }
     }
@@ -3090,24 +3092,41 @@ export class Gore implements GoreSystem {
    */
   private corpseSound(at: THREE.Vector3, damage: DamageInfo, machine: boolean, limb: boolean, dry = false): void {
     const { audio, time } = this.ctx;
+    const now = time.realElapsed;
     const heavy = damage.type === 'pellet' || damage.amount >= 55 || damage.force >= 25;
     if (!machine) {
-      audio.play(heavy ? 'flesh_bullet_hard' : 'flesh_bullet_impact', {
-        position: at,
-        volume: limb ? 0.85 : 1,
-        pitch: limb ? 1.08 : 0.96,
-        pitchJitter: limb ? 0.1 : 0.08,
-      });
-      if (!dry) {
-        audio.play(limb || Math.random() < 0.35 ? 'blood_squish' : 'blood_spritz', {
+      if (heavy && now - this.lastHardCorpse >= 1.1) {
+        this.lastHardCorpse = now;
+        audio.play('flesh_bullet_hard', {
+          position: at,
+          volume: limb ? 0.8 : 0.92,
+          pitch: limb ? 1.06 : 0.96,
+          pitchJitter: limb ? 0.1 : 0.08,
+        });
+        audio.play('flesh_bullet_impact', {
           position: at,
           volume: limb ? 0.55 : 0.65,
-          pitchJitter: 0.1,
+          pitch: limb ? 1.02 : 0.9,
+          pitchJitter: limb ? 0.1 : 0.08,
+        });
+      } else {
+        audio.play('flesh_bullet_impact', {
+          position: at,
+          volume: limb ? 0.85 : 1,
+          pitch: limb ? 1.08 : heavy ? 0.9 : 0.96,
+          pitchJitter: limb ? 0.1 : 0.08,
+        });
+      }
+      if (!dry && now - this.lastCorpseSpritz >= 1.8) {
+        this.lastCorpseSpritz = now;
+        audio.play(limb || Math.random() < 0.35 ? 'blood_squish' : 'blood_spritz', {
+          position: at,
+          volume: limb ? 0.45 : 0.5,
+          pitchJitter: 0.13,
         });
       }
       audio.play('corpse_body', { position: at, volume: limb ? 0.25 : 0.35, pitchJitter: limb ? 0.12 : 0.1 });
     }
-    const now = time.realElapsed;
     if (now - this.lastKnock < CORPSE_KNOCK_GAP || (!machine && !Object.hasOwn(WEAPONS, damage.source))) return;
     this.lastKnock = now;
     // A wreck is metal in the world: the plate under the world's voices, cut where a living machine's is.
@@ -3655,6 +3674,8 @@ export class Gore implements GoreSystem {
     this.stoodFrame = -1;
     this.stood = 0;
     this.lastKnock = -1;
+    this.lastCorpseSpritz = -10;
+    this.lastHardCorpse = -10;
     this.lastStumpSpray = -10;
     this.lastLongSpray = -15;
     this.mess.clear();

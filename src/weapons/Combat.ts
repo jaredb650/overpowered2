@@ -180,6 +180,9 @@ export class Combat implements CombatSystem {
   private readonly blastList: EnemyInstance[] = [];
   private readonly hopList: EnemyInstance[] = [];
   private readonly hopHit: EnemyInstance[] = [];
+  /** Cooldowns (`realElapsed`) so single-take gore3 accents never repeat back-to-back under sustained fire. */
+  private lastBloodSpritzAt = -Infinity;
+  private lastHardFleshAt = -Infinity;
 
   private readonly opts: StrikeOptions = {
     type: 'bullet', source: '', force: 0, severMult: 1, headshotMult: 2, gib: false,
@@ -268,6 +271,8 @@ export class Combat implements CombatSystem {
     this.queueLen = 0;
     this.exploding = false;
     this.rayDepth = 0;
+    this.lastBloodSpritzAt = -Infinity;
+    this.lastHardFleshAt = -Infinity;
   }
 
   /** A DamageInfo that stays valid for the next DAMAGE_RING hits, long enough for anything that keeps it briefly. */
@@ -304,13 +309,34 @@ export class Combat implements CombatSystem {
     this.ctx.audio.play(layer.id, p);
   }
 
-  private play(id: string, position?: THREE.Vector3, volume = 1, pitchJitter = 0): void {
+  private play(id: string, position?: THREE.Vector3, volume = 1, pitchJitter = 0, pitch = 1): void {
     const p = this.playPosition;
     p.position = position;
     p.volume = volume;
-    p.pitch = 1;
+    p.pitch = pitch;
     p.pitchJitter = pitchJitter;
     this.ctx.audio.play(id, p);
+  }
+
+  /**
+   * Positional 3D flesh impact audio for live enemies. Multi-take `bullet_body` (6 takes) and
+   * `flesh_bullet_impact` (7 takes) carry every hit so rapid fire stays varied; single-take accents
+   * (`flesh_bullet_hard`, `blood_spritz`) are rate-limited so they never loop back-to-back.
+   */
+  private playFleshHit(point: THREE.Vector3, heavyFlesh: boolean, bodyHit: boolean): void {
+    const now = this.ctx.time.realElapsed;
+    if (bodyHit) this.play('bullet_body', point, 0.45, 0.06);
+    if (heavyFlesh && now - this.lastHardFleshAt >= HARD_FLESH_GAP) {
+      this.lastHardFleshAt = now;
+      this.play('flesh_bullet_hard', point, bodyHit ? 0.92 : 0.85, 0.09);
+      this.play('flesh_bullet_impact', point, bodyHit ? 0.65 : 0.55, 0.08, 0.92);
+    } else {
+      this.play('flesh_bullet_impact', point, bodyHit ? 1 : 0.9, 0.08, heavyFlesh ? 0.9 : 1);
+    }
+    if (bodyHit && now - this.lastBloodSpritzAt >= BLOOD_SPRITZ_GAP) {
+      this.lastBloodSpritzAt = now;
+      this.play('blood_spritz', point, heavyFlesh ? 0.58 : 0.45, 0.14);
+    }
   }
 
   // -------------------------------------------------------------------------------------------
@@ -419,7 +445,7 @@ export class Combat implements CombatSystem {
           this.play('headshot_puff');
         } else {
           this.play('headshot_crack');
-          if (!enemy.machine) this.play(heavyFlesh ? 'flesh_bullet_hard' : 'flesh_bullet_impact', point, 0.9, 0.08);
+          if (!enemy.machine) this.playFleshHit(point, heavyFlesh, false);
         }
         c.hud.hitMarker(killed ? 'kill' : armour ?? 'head');
         this.feel.stop(killed ? HIT_STOP.headshotKill : HIT_STOP.headshot);
@@ -429,9 +455,7 @@ export class Combat implements CombatSystem {
         if (enemy.machine) {
           this.play('machine_hit', point, 1, 0.06);
         } else {
-          this.play('bullet_body', point, 0.45, 0.06);
-          this.play(heavyFlesh ? 'flesh_bullet_hard' : 'flesh_bullet_impact', point, 1, 0.08);
-          this.play('blood_spritz', point, heavyFlesh ? 0.85 : 0.65, 0.1);
+          this.playFleshHit(point, heavyFlesh, true);
         }
         c.hud.hitMarker(killed ? 'kill' : armour ?? 'body');
       }
@@ -479,9 +503,7 @@ export class Combat implements CombatSystem {
       this.play('machine_hit', point, 1, 0.06);
     } else {
       const heavyFlesh = d.type === 'pellet' || d.amount >= 55 || d.force >= 25;
-      this.play('bullet_body', point, 0.45, 0.06);
-      this.play(heavyFlesh ? 'flesh_bullet_hard' : 'flesh_bullet_impact', point, 1, 0.08);
-      this.play('blood_spritz', point, heavyFlesh ? 0.85 : 0.65, 0.1);
+      this.playFleshHit(point, heavyFlesh, true);
     }
   }
 
@@ -1464,5 +1486,9 @@ const EXIT_DUST: Record<SurfaceKind, number> = {
 
 /** Size of the red mist a fatal headshot leaves: a puff over the wound, not a burst. */
 const HEADSHOT_MIST = 2.2;
+/** Minimum seconds between single-take `blood_spritz` accents on live flesh hits. */
+const BLOOD_SPRITZ_GAP = 3.2;
+/** Minimum seconds between single-take `flesh_bullet_hard` accents on heavy flesh hits. */
+const HARD_FLESH_GAP = 1.1;
 const NO_DAMAGE: DamageResult = { dealt: 0, killed: false, headshot: false, severed: [], blocked: false };
 
