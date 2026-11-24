@@ -30,6 +30,18 @@ function isTextField(target: EventTarget | null): boolean {
   return target.isContentEditable || target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT';
 }
 
+let unloadingOnPurpose = false;
+
+/** Suppresses the `beforeunload` leave-site prompt for an intentional in-game page navigation (e.g., multi-map campaign transitions). */
+export function allowPageNavigation(allow = true): void {
+  unloadingOnPurpose = allow;
+}
+
+/** True while the page is intentionally navigating to another map or contract. */
+export function isPageNavigationAllowed(): boolean {
+  return unloadingOnPurpose;
+}
+
 export class Input implements InputSystem {
   /** Look motion handed out by the last consumeLook, for sway and directional sword input. */
   readonly frameLook = { x: 0, y: 0 };
@@ -70,8 +82,8 @@ export class Input implements InputSystem {
     this.listen(document, 'visibilitychange', () => { if (document.hidden) this.clearPhysical(); });
     this.listen(document, 'pointerlockchange', () => this.onLockChange());
     // Ctrl is the slide key and Ctrl+W closes a tab on Windows and Linux. A page cannot cancel that shortcut,
-    // but it can ask before leaving, which saves the run.
-    this.listen(window, 'beforeunload', e => { if (this.locked) e.preventDefault(); });
+    // but it can ask before leaving, which saves the run. Skip the prompt during intentional in-game map transitions.
+    this.listen(window, 'beforeunload', e => { if (this.locked && !unloadingOnPurpose) e.preventDefault(); });
   }
 
   get locked(): boolean {

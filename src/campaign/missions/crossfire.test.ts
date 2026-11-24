@@ -8,6 +8,7 @@
  *   - `chain.ts` state round-trip, validation, URL preservation, and Node safety
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { allowPageNavigation, isPageNavigationAllowed } from '../../input';
 import { getHalcyonTarget } from '../../world/map/halcyon/targets';
 import {
   CROSSFIRE_CALLS,
@@ -248,7 +249,9 @@ describe('Crossfire multi-map chain state (`chain.ts`)', () => {
       setItem: (k: string, v: string) => { backing.set(k, v); },
       removeItem: (k: string) => { backing.delete(k); },
     });
-    const assign = vi.fn();
+    allowPageNavigation(false);
+    let allowedAtAssign = false;
+    const assign = vi.fn((_url: string) => { allowedAtAssign = isPageNavigationAllowed(); });
     vi.stubGlobal('location', {
       search: '?contract=crossfire&dev=1&unlock=1&map=airbase&autostart=1',
       assign,
@@ -271,6 +274,8 @@ describe('Crossfire multi-map chain state (`chain.ts`)', () => {
     );
 
     expect(assign).toHaveBeenCalledTimes(1);
+    expect(allowedAtAssign).toBe(true);
+    allowPageNavigation(false);
     const navigated = new URLSearchParams(assign.mock.calls[0]![0] as string);
     expect(navigated.get('contract')).toBe('crossfire_strait');
     expect(navigated.get('dev')).toBe('1');

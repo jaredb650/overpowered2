@@ -1,6 +1,7 @@
 /** The game-facing co-op session. Host world snapshots and hit claims are world.ts, the team rules team.ts; never Player or Weapons. */
 import type { Ctx, GameSystem } from '../core/contracts';
 import { tabBusy } from '../core/oneTab';
+import { isPageNavigationAllowed } from '../input';
 import { Lobby, type ChatLine, type Match } from './lobby';
 import { errorText } from './lobbyText';
 import { POSE_MS, type Move } from './pose';
@@ -438,7 +439,7 @@ export class CoopSession implements GameSystem {
 }
 
 /** This page is changing address of its own accord (to a map page): no prompt for that. */
-const leavingOnPurpose = (): boolean => deploying;
+const leavingOnPurpose = (): boolean => deploying || isPageNavigationAllowed();
 
 declare module '../core/contracts' {
   interface Ctx { coop?: CoopSession }

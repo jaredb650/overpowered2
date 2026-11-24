@@ -8,6 +8,7 @@
  */
 import type { ContractId } from '../../contracts/data';
 import { contractSearch } from '../../contracts/select';
+import { allowPageNavigation } from '../../input';
 
 export const CROSSFIRE_CHAIN_KEY = 'op2.crossfire.chain';
 
@@ -419,6 +420,7 @@ export async function transitionToCrossfirePart(
         setTimeout(resolve, holdMs);
       });
     }
+    allowPageNavigation(true);
     location.assign(targetSearch);
   } finally {
     transitioning = false;
