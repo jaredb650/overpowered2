@@ -288,6 +288,7 @@ export class MissionRunner implements WatchFacts {
 
   private open(index: number): void {
     this.closeBeat();
+    if (this.index >= 0 && this.index !== index) this.flushStaleRadio();
     this.index = index;
     const beat = this.mission.beats[index]!;
     if (beat.checkpoint || !this.save) {
@@ -614,6 +615,21 @@ export class MissionRunner implements WatchFacts {
       if (spoken.latch) spoken.latch.open = true;
       this.nextLine();
     });
+  }
+
+  /** Drops stale unplayed lines queued earlier in a previous beat without interrupting the active speaker or fresh handoff lines. */
+  private flushStaleRadio(): void {
+    const STALE_BEAT_QUEUE_SECONDS = 2.0;
+    let write = 0;
+    for (let i = 0; i < this.radio.length; i++) {
+      const spoken = this.radio[i]!;
+      if (this.elapsed - spoken.asked >= STALE_BEAT_QUEUE_SECONDS) {
+        if (spoken.latch) spoken.latch.open = true;
+      } else {
+        this.radio[write++] = spoken;
+      }
+    }
+    this.radio.length = write;
   }
 
   /** Stops the radio, as a death or a skipped film does, or a run thrown away. Nothing that was waiting on a line is left waiting. */

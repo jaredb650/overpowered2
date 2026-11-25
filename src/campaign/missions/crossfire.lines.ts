@@ -2,7 +2,7 @@
  * Complete dialogue script for the 4-part "Crossfire" campaign
  * (`Form 7742-W: Cross-Border Liability Transfer`).
  *
- * All 73 lines are voiced via local Breeze TTS 2 in `public/audio/voice/mission.crossfire.*.mp3`
+ * All 72 lines are voiced via local Breeze TTS 2 in `public/audio/voice/mission.crossfire.*.mp3`
  * (see `docs/notes/voices.md` for voice IDs and casting).
  * Speaker mapping (dedicated Crossfire entries in `src/enemies/commander/lines.ts` & `src/ui/commander/portrait.ts`):
  *   council   — The Galactic Council / Bureau Compliance Officer (`council`)
@@ -31,13 +31,13 @@ export const CROSSFIRE_AIRBASE_LINES: readonly Line[] = [
     'airbase.council.brief.1',
     'council',
     'deadpan',
-    'Form 7742-W: Cross-Border Liability Transfer. Both Northern Command and the Southern Directorate have declined to extinguish themselves at reasonable cost.',
+    'Form 7742-W: Cross-Border Liability Transfer. Northern Command and the Southern Directorate have declined to eliminate each other on budget.',
   ),
   line(
     'airbase.council.brief.2',
     'council',
     'deadpan',
-    'You are therefore borrowing a Northern B-1B Lancer with its live transponder intact, and delivering its ordnance to Southern headquarters. Please keep the receipt.',
+    'Borrow a Northern B-1B Lancer with its live transponder intact and deliver its payload to Southern headquarters. Keep the receipt.',
   ),
   line(
     'airbase.wingman.perimeter.start',
@@ -69,19 +69,13 @@ export const CROSSFIRE_AIRBASE_LINES: readonly Line[] = [
     'airbase.wingman.apron.fuel',
     'viper',
     'orders',
-    'JP-8 fuel depots right in the middle of their line. Punch a hole in those tanks and cook the tarmac.',
+    'Inner blast gate is locked down and their tank is blocking our armor! Blow the marked JP-8 fuel depots to rupture that red pipeline and crack their barricade wide open!',
   ),
   line(
     'airbase.wingman.apron.fuel_blown',
     'viper',
     'smug',
-    'That lit up half the apron! Hangar row is cracking — push north toward the ATC tower.',
-  ),
-  line(
-    'airbase.wingman.apron.chopper',
-    'viper',
-    'urgent',
-    'Friendly Valkyrie transport flaring over the fuel apron! Fresh assault squad fast-roping in to back our push!',
+    'Pipeline detonation blew the inner blast gate clean off its hinges! Armor pushing through the smoke — move on the ATC tower!',
   ),
 
   // Section 3: 3-Level ATC Tower & Hangar Override / IFF Spoof Console

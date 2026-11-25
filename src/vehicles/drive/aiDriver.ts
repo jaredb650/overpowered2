@@ -45,6 +45,11 @@ export interface AiGroundSpawnOptions {
    * When explicitly provided and `laneId` has not yet been opened, that lane defaults to closed.
    */
   readonly gateWaypointIndex?: number;
+  /**
+   * Optional multi-gate map (`waypointIndex -> laneId`) so a ground vehicle can hold at
+   * multiple sequential breach gates (e.g., South Radar Gate -> Inner Apron Blast Gate).
+   */
+  readonly gateWaypoints?: Readonly<Record<number, string>>;
   readonly hpOverride?: number;
   readonly speedScale?: number;
   readonly label?: string;
@@ -162,6 +167,7 @@ export class AiFriendlyVehicle implements FriendlyGroundTarget {
   readonly waypoints: THREE.Vector3[] = [];
   waypointIndex = 0;
   gateWaypointIndex = 0;
+  private readonly gateWaypoints = new Map<number, string>();
   waitingAtGate = false;
   routeCompleted = false;
   private readonly speedScale: number;
@@ -262,12 +268,25 @@ export class AiFriendlyVehicle implements FriendlyGroundTarget {
     this.unmark = ctx.hud?.follow?.(this.markerPos, label, '#38e8ff') ?? null;
   }
 
-  /** Configures ground waypoint lane and gate stop index. */
-  configureGround(waypoints: readonly THREE.Vector3[], gateWaypointIndex: number): void {
+  /** Configures ground waypoint lane and gate stop index(es). */
+  configureGround(
+    waypoints: readonly THREE.Vector3[],
+    gateWaypointIndex: number,
+    gateWaypoints?: Readonly<Record<number, string>>,
+  ): void {
     this.waypoints.length = 0;
     for (const wp of waypoints) this.waypoints.push(wp.clone());
     this.waypointIndex = 0;
     this.gateWaypointIndex = clamp(gateWaypointIndex, 0, Math.max(0, this.waypoints.length - 1));
+    this.gateWaypoints.clear();
+    if (gateWaypoints) {
+      for (const [rawIdx, lane] of Object.entries(gateWaypoints)) {
+        const idx = Number(rawIdx);
+        if (Number.isInteger(idx) && idx >= 0 && idx < this.waypoints.length) {
+          this.gateWaypoints.set(idx, lane);
+        }
+      }
+    }
     this.routeCompleted = this.waypoints.length === 0;
   }
 
@@ -425,8 +444,18 @@ export class AiFriendlyVehicle implements FriendlyGroundTarget {
   // Ground Armor AI (Aegis MBT, Bastion APC, Jackal Technical)
   // -------------------------------------------------------------------------------------------
 
-  private updateGround(dt: number): void {
+  private isBlockedAtCurrentWaypoint(): boolean {
+    if (this.gateWaypoints.size > 0) {
+      for (const [idx, lane] of this.gateWaypoints) {
+        if (this.waypointIndex >= idx && !this.fleet.isGateOpen(lane)) return true;
+      }
+      return false;
+    }
     const laneClosed = this.laneId !== null && !this.fleet.isGateOpen(this.laneId);
+    return laneClosed && this.waypointIndex >= this.gateWaypointIndex;
+  }
+
+  private updateGround(dt: number): void {
     const topSpeed = this.def.maxSpeed * this.speedScale;
 
     if (this.waypoints.length === 0 || this.routeCompleted) {
@@ -439,7 +468,7 @@ export class AiFriendlyVehicle implements FriendlyGroundTarget {
       const dz = wp.z - this.position.z;
       const dist = Math.hypot(dx, dz);
 
-      const blockedHere = laneClosed && this.waypointIndex >= this.gateWaypointIndex;
+      const blockedHere = this.isBlockedAtCurrentWaypoint();
       if (blockedHere && dist <= 4.5) {
         // Hold cleanly at the staging waypoint right in front of the closed perimeter wall!
         this.waitingAtGate = true;
@@ -448,7 +477,7 @@ export class AiFriendlyVehicle implements FriendlyGroundTarget {
       } else {
         this.waitingAtGate = false;
         if (dist <= 4.0) {
-          if (laneClosed && this.waypointIndex >= this.gateWaypointIndex) {
+          if (blockedHere) {
             this.waitingAtGate = true;
             this.speed = 0;
             this.velocity.set(0, 0, 0);
@@ -874,9 +903,14 @@ export class AiVehicleFleet {
     const first = wps[0];
     const yaw = first ? Math.atan2(first.x - spawnPos.x, first.z - spawnPos.z) : 0;
 
-    // If caller specified a gateWaypointIndex and never opened the lane yet, start that gate closed.
+    // If caller specified gate waypoint(s) and never opened those lanes yet, start them closed.
     if (opts.gateWaypointIndex !== undefined && !this.laneGates.has(opts.laneId)) {
       this.laneGates.set(opts.laneId, false);
+    }
+    if (opts.gateWaypoints) {
+      for (const lane of Object.values(opts.gateWaypoints)) {
+        if (!this.laneGates.has(lane)) this.laneGates.set(lane, false);
+      }
     }
 
     const unit = new AiFriendlyVehicle(this.ctx, this, this.materials, opts.kind, 'ground', spawnPos, yaw, {
@@ -888,7 +922,7 @@ export class AiVehicleFleet {
       onDestroyed: opts.onDestroyed,
     });
     const gateIdx = opts.gateWaypointIndex ?? Math.min(1, Math.max(0, wps.length - 1));
-    unit.configureGround(wps, gateIdx);
+    unit.configureGround(wps, gateIdx, opts.gateWaypoints);
     this.units.push(unit);
     return unit;
   }

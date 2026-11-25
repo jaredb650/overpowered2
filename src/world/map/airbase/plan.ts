@@ -87,6 +87,15 @@ export const AIRBASE_SOUTH_GATE = {
   radarMast: { x: -34, z: 124, height: 18 },
 } as const;
 
+/** Inner fortified security wall & blast gate separating the Fuel Apron from the ATC Tower & Alert Hangar. */
+export const AIRBASE_INNER_GATE = {
+  z: 11,
+  portalCenterX: -22,
+  portalHalfW: 11,
+  portalHeight: 6.2,
+  runwayFenceX: 42,
+} as const;
+
 export const AIRBASE_MAINT_HANGARS = [
   { id: 'maint_hangar_south', label: 'MAINTENANCE HANGAR 01', x: -78, z: 82, halfX: 16, halfZ: 12, height: 9.6 },
   { id: 'maint_hangar_north', label: 'MAINTENANCE HANGAR 02', x: -78, z: 42, halfX: 16, halfZ: 12, height: 9.6 },
@@ -242,13 +251,13 @@ export const AIRBASE_VEHICLE_ROUTES: readonly AirbaseVehicleRoute[] = [
     id: 'qrf_east_taxiway',
     kind: 'qrf',
     spawn: [62, -138],
-    waypoints: [[62, -76], [62, -18], [26, -18], [0, 32], [0, 92]],
+    waypoints: [[62, -76], [62, -18], [26, -18], [0, -24], [-18, -18]],
   },
   {
     id: 'tank_runway_north',
     kind: 'tank',
     spawn: [62, -142],
-    waypoints: [[62, -96], [62, -40], [36, -24], [36, 48], [36, 98]],
+    waypoints: [[62, -96], [62, -40], [36, -24], [12, -24], [-18, -24]],
   },
   {
     id: 'qrf_west_apron',

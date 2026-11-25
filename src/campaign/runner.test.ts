@@ -453,6 +453,34 @@ describe('the radio, with lines that take their time', () => {
     }
   });
 
+  it('drops stale queued lines from an earlier beat when advancing, while letting the active speaker finish', () => {
+    const { host, run, step, said } = slow([
+      {
+        id: 'a',
+        title: 'A',
+        start: [{ do: 'say', line: 'one' }, { do: 'say', line: 'two' }],
+        until: { signal: 'advance' },
+      },
+      {
+        id: 'b',
+        title: 'B',
+        start: [{ do: 'say', line: 'three' }],
+        until: { after: 99 },
+      },
+    ]);
+    expect(host.said).toEqual(['one']);
+    step(3.0);
+    run.signal('advance');
+    step();
+    expect(run.beat?.id).toBe('b');
+    // Active speaker 'one' is NOT interrupted mid-sentence
+    expect(host.said).toEqual(['one']);
+    // When 'one' finishes, stale 'two' from beat 'a' was dropped and 'three' plays next
+    said();
+    step();
+    expect(host.said).toEqual(['one', 'three']);
+  });
+
   it('greets a restart with the beat\'s own lines, where it has them', () => {
     const { host, run, step, said } = slow([
       { id: 'a', title: 'A', checkpoint: saved, until: { after: 1 } },

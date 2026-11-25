@@ -1,10 +1,9 @@
 /**
  * Crossfire Part 1 Runtime Director — "Valken Airbase" (`map: 'airbase'`, Contractor #7712-A).
  *
- * Handles all 9 Part 1 `cf.*` mission director calls:
+ * Handles all 8 Part 1 `cf.*` mission director calls:
  *   - `cf.airbaseInit`
  *   - `cf.airbaseBreach`
- *   - `cf.airbaseValkyrieDrop`
  *   - `cf.apronFuelWatch`
  *   - `cf.atcConsole`
  *   - `cf.buddyRaptorsBoard`
@@ -15,7 +14,10 @@
 import * as THREE from 'three';
 import type { Ally } from '../../allies/ally';
 import type { AllyType } from '../../allies/data';
-import type { Ctx } from '../../core/contracts';
+import type { Ctx, DamageInfo } from '../../core/contracts';
+import type { EnemyInstance, ExplosionSpec } from '../../core/gameplay';
+import { clamp } from '../../core/math';
+import type { EnemyManager } from '../../enemies/EnemyManager';
 import type { VehicleSystem } from '../../enemies/vehicles';
 import { ModelMaterials } from '../../progression/modelkit';
 import { AiVehicleFleet } from '../../vehicles/drive/aiDriver';
@@ -26,6 +28,7 @@ import {
   AIRBASE_ATC_CONSOLE,
   AIRBASE_BUDDY_RAPTOR_SPAWNS,
   AIRBASE_DESTRUCTIBLES,
+  AIRBASE_INNER_GATE,
   AIRBASE_LANCER_SPAWN,
   AIRBASE_SOUTH_GATE,
   AIRBASE_TAKEOFF_GATE,
@@ -42,11 +45,30 @@ import {
 } from './chain';
 
 const _v = new THREE.Vector3();
+const _v2 = new THREE.Vector3();
+const _enemyScratch: EnemyInstance[] = [];
+const _blastDamage: DamageInfo = {
+  amount: 0,
+  type: 'explosive',
+  point: new THREE.Vector3(),
+  dir: new THREE.Vector3(),
+  force: 18,
+  source: 'jp8_pipeline',
+};
 const FUEL_DEPOTS = AIRBASE_DESTRUCTIBLES.filter(d => d.kind === 'fuelDepot');
 const CONSOLE_REACH = Math.max(4.2, AIRBASE_ATC_CONSOLE.interactRadius + 0.6);
 const SOUTH_GATE_Z = AIRBASE_SOUTH_GATE.z + 3; // z = 121 (matches South Gate gantry portal)
 
 type FrontStage = 'staging' | 'perimeter' | 'apron' | 'tower' | 'hangar';
+
+interface PendingPipelineBlast {
+  delay: number;
+  at: THREE.Vector3;
+  radius: number;
+  scale: number;
+  damage: number;
+  isGateBlast: boolean;
+}
 
 interface ViperWingmanEntry {
   readonly callsign: string;
@@ -131,6 +153,8 @@ export class AirbaseDirector {
   private consoleBeacon: THREE.Mesh | null = null;
   private consoleBeaconMat: THREE.MeshBasicMaterial | null = null;
   private consoleRing: THREE.Mesh | null = null;
+  private readonly fuelBeacons: THREE.Mesh[] = [];
+  private readonly fuelRings: THREE.Mesh[] = [];
   private readonly ownedGeos: THREE.BufferGeometry[] = [];
   private readonly ownedMats: THREE.Material[] = [];
 
@@ -139,14 +163,16 @@ export class AirbaseDirector {
   private readonly assaultTroops: Ally[] = [];
   private invasionInitialized = false;
   private gateBreached = false;
+  private apronGateBreached = false;
   private frontStage: FrontStage = 'staging';
   private reinforceTimer = 0;
   private truckReinforcementsSpawned = 0;
-  private valkyrieDropsDispatched = 0;
 
   // Part 1 live mission state
   private fuelWatchActive = false;
   private fuelBlownSignaled = false;
+  private readonly pendingPipelineBlasts: PendingPipelineBlast[] = [];
+  private readonly unmarkFuelDepots: (() => void)[] = [];
   private atcArmed = false;
   private atcDone = false;
   private atcPromptShowing = false;
@@ -194,7 +220,33 @@ export class AirbaseDirector {
     this.fleet = new AiVehicleFleet(this.ctx, this.materials);
     this.buildConsoleIndicator();
     this.buildBreachChargeProp();
+    this.buildFuelIndicators();
     this.hookExplosions();
+  }
+
+  /** Pulsing orange target beacons & ground rings marking the JP-8 Fuel Depots during Beat 2. */
+  private buildFuelIndicators(): void {
+    const beaconGeo = new THREE.SphereGeometry(0.42, 10, 8);
+    const beaconMat = new THREE.MeshBasicMaterial({ color: 0xff6b1a });
+    const ringGeo = new THREE.RingGeometry(4.1, 4.65, 28);
+    ringGeo.rotateX(-Math.PI / 2);
+    const ringMat = new THREE.MeshBasicMaterial({ color: 0xff8c24, side: THREE.DoubleSide });
+    this.ownedGeos.push(beaconGeo, ringGeo);
+    this.ownedMats.push(beaconMat, ringMat);
+
+    for (const depot of FUEL_DEPOTS) {
+      const beacon = new THREE.Mesh(beaconGeo, beaconMat);
+      beacon.position.set(depot.x, 4.6, depot.z);
+      beacon.visible = false;
+      this.propsRoot.add(beacon);
+      this.fuelBeacons.push(beacon);
+
+      const ring = new THREE.Mesh(ringGeo, ringMat);
+      ring.position.set(depot.x, 0.09, depot.z);
+      ring.visible = false;
+      this.propsRoot.add(ring);
+      this.fuelRings.push(ring);
+    }
   }
 
   private buildConsoleIndicator(): void {
@@ -305,18 +357,130 @@ export class AirbaseDirector {
     }
   }
 
+  private clearFuelMarkers(): void {
+    for (const off of this.unmarkFuelDepots) off();
+    this.unmarkFuelDepots.length = 0;
+    for (const b of this.fuelBeacons) b.visible = false;
+    for (const r of this.fuelRings) r.visible = false;
+  }
+
+  private armFuelWatch(): void {
+    this.fuelWatchActive = true;
+    if (this.fuelBlownSignaled) return;
+    this.clearFuelMarkers();
+    for (let i = 0; i < FUEL_DEPOTS.length; i++) {
+      const depot = FUEL_DEPOTS[i]!;
+      const b = this.fuelBeacons[i];
+      const r = this.fuelRings[i];
+      if (b) b.visible = true;
+      if (r) r.visible = true;
+      const isNorth = depot.id === 'airbase.fuel.north';
+      const label = isNorth ? 'JP-8 FUEL DEPOT · BLOW GATE PIPELINE' : 'JP-8 FUEL DEPOT [DESTROY]';
+      const color = isNorth ? '#ff5e1a' : '#ff9f1c';
+      const off = this.ctx.hud?.marker?.(new THREE.Vector3(depot.x, 4.8, depot.z), label, color) ?? null;
+      if (off) this.unmarkFuelDepots.push(off);
+    }
+  }
+
+  private openApronGate(): void {
+    if (this.apronGateBreached) return;
+    this.apronGateBreached = true;
+    this.fleet?.setGateOpen('apron_gate', true);
+    this.advanceAssaultLine('tower');
+  }
+
+  private applyPipelineBlastDamage(at: THREE.Vector3, radius: number, damage: number): void {
+    const enemies = this.ctx.enemies as unknown as EnemyManager | undefined;
+    if (!enemies) return;
+    if (typeof enemies.query === 'function') {
+      const n = enemies.query(at, radius, _enemyScratch);
+      for (let i = 0; i < n; i++) {
+        const e = _enemyScratch[i]!;
+        if (!e.alive) continue;
+        const d = e.center.distanceTo(at);
+        const falloff = clamp(1 - (d / Math.max(1, radius)) * 0.65, 0.3, 1);
+        _v2.subVectors(e.center, at).normalize();
+        _blastDamage.amount = damage * falloff;
+        _blastDamage.point.copy(e.center);
+        _blastDamage.dir.copy(_v2);
+        _blastDamage.force = 22 * falloff;
+        enemies.applyDamage(e, _blastDamage);
+      }
+    }
+    if (enemies.vehicles?.blast) {
+      const spec: ExplosionSpec = {
+        radius,
+        damage,
+        kind: 'barrel',
+        source: 'jp8_pipeline',
+        team: 'player',
+      };
+      enemies.vehicles.blast(at, spec);
+    }
+  }
+
+  private detonatePipelineBlast(b: PendingPipelineBlast): void {
+    this.ctx.fx?.explosion?.(b.at, { radius: b.radius, scale: b.scale, kind: 'barrel' });
+    this.ctx.fx?.chips?.(b.at, 0xff8822, b.isGateBlast ? 54 : 32);
+    this.ctx.render?.lights?.flash?.(b.at, 0xff8c2b, b.isGateBlast ? 24 : 16, b.isGateBlast ? 62 : 42, 0.55);
+    this.ctx.audio?.play?.('rocket_explosion', { position: b.at, volume: 1.0, pitch: b.isGateBlast ? 0.72 : 0.84 });
+    if (b.isGateBlast) {
+      // Secondary pier explosions flanking the Inner Blast Gate gantry
+      const pierW = _v.set(AIRBASE_INNER_GATE.portalCenterX - AIRBASE_INNER_GATE.portalHalfW, 2.4, AIRBASE_INNER_GATE.z + 1.0);
+      this.ctx.fx?.explosion?.(pierW, { radius: 14, scale: 1.9, kind: 'barrel' });
+      const pierE = _v2.set(AIRBASE_INNER_GATE.portalCenterX + AIRBASE_INNER_GATE.portalHalfW, 2.4, AIRBASE_INNER_GATE.z + 1.0);
+      this.ctx.fx?.explosion?.(pierE, { radius: 14, scale: 1.9, kind: 'barrel' });
+      this.ctx.audio?.play?.('vehicle_explode', { position: b.at, volume: 0.95, pitch: 0.85 });
+    }
+    this.applyPipelineBlastDamage(b.at, b.radius + 4, b.damage);
+
+    if (b.isGateBlast) {
+      this.openApronGate();
+      this.ctx.hud?.feed?.('INNER BLAST GATE BREACHED — ARMOR & ASSAULT TROOPS PUSHING TO ATC TOWER!', '#38e8ff');
+    }
+  }
+
   private triggerFuelCookoff(x: number, z: number, label: string): void {
     if (this.fuelBlownSignaled) return;
     this.fuelBlownSignaled = true;
-    const pos = _v.set(x, 2.2, z);
-    this.ctx.fx?.explosion?.(pos, { radius: 18, scale: 2.2, kind: 'barrel' });
-    this.ctx.audio?.play?.('rocket_explosion', { position: pos, volume: 0.95, pitch: 0.8 });
-    this.ctx.hud?.feed?.(`${label} DETONATED — APRON IGNITED!`, '#ff9f1c');
+    this.clearFuelMarkers();
+
+    // Stage 1 (t = 0.0 s): Primary JP-8 depot fireball
+    const pos = _v.set(x, 2.5, z);
+    this.ctx.fx?.explosion?.(pos, { radius: 20, scale: 2.5, kind: 'barrel' });
+    this.ctx.fx?.chips?.(pos, 0xff9922, 40);
+    this.ctx.render?.lights?.flash?.(pos, 0xff8822, 20, 52, 0.5);
+    this.ctx.audio?.play?.('rocket_explosion', { position: pos, volume: 1.0, pitch: 0.78 });
+    this.ctx.audio?.play?.('vehicle_explode', { position: pos, volume: 0.8, pitch: 0.9 });
+    this.applyPipelineBlastDamage(pos, 22, 650);
+    this.ctx.hud?.feed?.(`${label} DETONATED — JP-8 PIPELINE IGNITING TOWARD INNER BLAST GATE!`, '#ff6b1a');
+
+    // Stage 2 (t = 0.35 s): Mid-pipeline pressure valve eruption
+    // Stage 3 (t = 0.70 s): Inner Blast Gate breach fireball obliterating the roadblock & releasing our armor!
+    this.pendingPipelineBlasts.push(
+      {
+        delay: 0.35,
+        at: new THREE.Vector3(-34, 2.5, 24),
+        radius: 16,
+        scale: 2.2,
+        damage: 700,
+        isGateBlast: false,
+      },
+      {
+        delay: 0.70,
+        at: new THREE.Vector3(AIRBASE_INNER_GATE.portalCenterX, 2.8, AIRBASE_INNER_GATE.z),
+        radius: 24,
+        scale: 2.9,
+        damage: 1400,
+        isGateBlast: true,
+      },
+    );
+
     this.runner.signal(CROSSFIRE_SIGNALS.fuelBlown);
   }
 
-  /** Handles all 9 Part 1 `cf.*` calls. Returns true if handled. */
-  call(name: string, arg?: string): boolean {
+  /** Handles all 8 Part 1 `cf.*` calls. Returns true if handled. */
+  call(name: string, _arg?: string): boolean {
     this.ensureBuilt();
     switch (name) {
       case 'cf.airbaseInit':
@@ -325,21 +489,19 @@ export class AirbaseDirector {
       case 'cf.airbaseBreach':
         this.triggerSouthGateBreach();
         return true;
-      case 'cf.airbaseValkyrieDrop':
-        this.dispatchValkyrieDrop(arg);
-        return true;
       case 'cf.apronFuelWatch':
-        this.ensureInvasionForce(true);
-        this.fuelWatchActive = true;
+        this.ensureInvasionForce(true, false);
         this.advanceAssaultLine('apron');
+        this.armFuelWatch();
         return true;
       case 'cf.atcConsole':
-        this.ensureInvasionForce(true);
-        this.advanceAssaultLine('tower');
+        this.ensureInvasionForce(true, true);
+        this.openApronGate();
         this.armAtcConsole();
         return true;
       case 'cf.buddyRaptorsBoard':
-        this.ensureInvasionForce(true);
+        this.ensureInvasionForce(true, true);
+        this.openApronGate();
         this.advanceAssaultLine('hangar');
         this.startBuddyRaptorsBoarding();
         return true;
@@ -370,7 +532,7 @@ export class AirbaseDirector {
     saveChainState(chain);
 
     this.ensureAirbaseProps();
-    this.ensureInvasionForce(false);
+    this.ensureInvasionForce(false, false);
   }
 
   /** Ensures static Alert Hangar B-1B Lancer, parked F-22 Raptors, and staging troop carriers exist. */
@@ -428,13 +590,14 @@ export class AirbaseDirector {
 
   /**
    * Stages the combined-arms Bureau assault force:
-   *   - 4 AI-driven friendly ground vehicles (2 Jackal technicals, 1 Aegis MBT, 1 Bastion APC)
-   *     held behind `south_gate` until `cf.airbaseBreach` blows the gate open.
+   *   - 3 AI-driven friendly ground vehicles (2 Jackal technicals + 1 Aegis MBT),
+   *     sequentially gated at `south_gate` (South Radar Gate) and `apron_gate` (Inner Blast Gate
+   *     at z = 11 — held until the player detonates the marked JP-8 Fuel Depots!).
    *   - 2 essential scripted wingmen (`VIPER-2`, `VIPER-3`) with cyan HUD follow markers.
    *   - 8 expendable frontline assault infantry stacked on the gate & approach road.
    * Safe to call on mid-mission `?beat=` jumps (`startBreached = true`).
    */
-  private ensureInvasionForce(startBreached: boolean): void {
+  private ensureInvasionForce(startBreached: boolean, apronOpen = false): void {
     this.ensureAirbaseProps();
     if (this.invasionInitialized) {
       if (startBreached && !this.gateBreached) {
@@ -442,36 +605,44 @@ export class AirbaseDirector {
         this.fleet?.setGateOpen('south_gate', true);
         if (this.breachChargeGroup) this.breachChargeGroup.visible = false;
       }
+      if (apronOpen && !this.apronGateBreached) {
+        this.openApronGate();
+      }
       return;
     }
     this.invasionInitialized = true;
     this.gateBreached = startBreached;
-    this.frontStage = startBreached ? 'apron' : 'staging';
-    this.reinforceTimer = 8.0;
+    this.apronGateBreached = apronOpen;
+    this.frontStage = apronOpen ? 'tower' : startBreached ? 'apron' : 'staging';
+    this.reinforceTimer = 9.0;
     this.truckReinforcementsSpawned = 0;
 
     if (this.breachChargeGroup) {
       this.breachChargeGroup.visible = !startBreached;
     }
 
-    // Wire friendly ground targets into VehicleSystem so Darrow's tank & QRF fight our armor!
+    // Wire friendly ground targets into VehicleSystem so Northern armor & QRF fight our vehicles!
     this.vehicleSystem?.setFriendlyVehicles?.(() => this.fleet?.getLiveGroundTargets(true) ?? []);
 
-    // 1. Friendly AI armor & technical convoy
+    // 1. Friendly AI armor & technical convoy (2 Jackals + 1 Aegis MBT, gated at South Gate -> Inner Apron Gate)
     if (this.fleet) {
       this.fleet.setGateOpen('south_gate', startBreached);
+      this.fleet.setGateOpen('apron_gate', apronOpen);
 
       this.fleet.spawnGround({
         id: 'airbase_jackal_west',
         kind: 'jackal',
         laneId: 'south_gate',
         label: 'JACKAL-1 · ASSAULT',
-        spawn: startBreached ? [-18, 0, 82] : [-4.2, 0, 131],
-        waypoints: startBreached
-          ? [[-22, 0, 44], [-22, 0, 8], [-12, 0, -24]]
-          : [[-4.2, 0, 126], [-5, 0, 108], [-18, 0, 82], [-22, 0, 44], [-22, 0, 8]],
-        gateWaypointIndex: 0,
-        speedScale: 0.44,
+        spawn: apronOpen ? [-22, 0, -2] : startBreached ? [-20, 0, 72] : [-4.2, 0, 131],
+        waypoints: apronOpen
+          ? [[-20, 0, -14], [-10, 0, -28]]
+          : startBreached
+            ? [[-24, 0, 32], [-22, 0, -4], [-10, 0, -28]]
+            : [[-4.2, 0, 126], [-5, 0, 104], [-20, 0, 68], [-25, 0, 26], [-22, 0, -4], [-10, 0, -28]],
+        gateWaypoints: apronOpen ? undefined : startBreached ? { 0: 'apron_gate' } : { 0: 'south_gate', 3: 'apron_gate' },
+        hpOverride: 550,
+        speedScale: 0.42,
       });
 
       this.fleet.spawnGround({
@@ -479,12 +650,15 @@ export class AirbaseDirector {
         kind: 'jackal',
         laneId: 'south_gate',
         label: 'JACKAL-2 · ASSAULT',
-        spawn: startBreached ? [12, 0, 68] : [4.2, 0, 132],
-        waypoints: startBreached
-          ? [[16, 0, 20], [16, 0, -24]]
-          : [[4.2, 0, 126], [6, 0, 104], [12, 0, 68], [16, 0, 20], [16, 0, -24]],
-        gateWaypointIndex: 0,
-        speedScale: 0.44,
+        spawn: apronOpen ? [-14, 0, -4] : startBreached ? [0, 0, 64] : [4.2, 0, 132],
+        waypoints: apronOpen
+          ? [[6, 0, -18], [16, 0, -28]]
+          : startBreached
+            ? [[-14, 0, 28], [-16, 0, -4], [14, 0, -26]]
+            : [[4.2, 0, 126], [6, 0, 100], [-2, 0, 62], [-14, 0, 28], [-16, 0, -4], [14, 0, -26]],
+        gateWaypoints: apronOpen ? undefined : startBreached ? { 0: 'apron_gate' } : { 0: 'south_gate', 3: 'apron_gate' },
+        hpOverride: 550,
+        speedScale: 0.42,
       });
 
       this.fleet.spawnGround({
@@ -492,27 +666,15 @@ export class AirbaseDirector {
         kind: 'aegis',
         laneId: 'south_gate',
         label: 'AEGIS-1 · HEAVY ARMOR',
-        spawn: startBreached ? [-10, 0, 56] : [-3.4, 0, 148],
-        waypoints: startBreached
-          ? [[-6, 0, 18], [8, 0, -18], [26, 0, -34]]
-          : [[-3.4, 0, 129], [0, 0, 104], [-10, 0, 68], [-6, 0, 18], [8, 0, -18], [26, 0, -34]],
-        gateWaypointIndex: 0,
-        hpOverride: 2400,
-        speedScale: 0.36,
-      });
-
-      this.fleet.spawnGround({
-        id: 'airbase_bastion_apc',
-        kind: 'bastion',
-        laneId: 'south_gate',
-        label: 'BASTION-1 · APC',
-        spawn: startBreached ? [-20, 0, 52] : [4.0, 0, 152],
-        waypoints: startBreached
-          ? [[-24, 0, 12], [-14, 0, -28]]
-          : [[4.0, 0, 132], [4, 0, 102], [-18, 0, 62], [-24, 0, 12], [-14, 0, -28]],
-        gateWaypointIndex: 0,
-        hpOverride: 1700,
-        speedScale: 0.38,
+        spawn: apronOpen ? [-22, 0, 2] : startBreached ? [-20, 0, 56] : [-3.4, 0, 148],
+        waypoints: apronOpen
+          ? [[-18, 0, -18], [8, 0, -22], [22, 0, -32]]
+          : startBreached
+            ? [[-20, 0, 30], [-22, 0, -4], [6, 0, -20], [22, 0, -32]]
+            : [[-3.4, 0, 130], [-2, 0, 102], [-18, 0, 62], [-20, 0, 30], [-22, 0, -4], [6, 0, -20], [22, 0, -32]],
+        gateWaypoints: apronOpen ? undefined : startBreached ? { 0: 'apron_gate' } : { 0: 'south_gate', 3: 'apron_gate' },
+        hpOverride: 1900,
+        speedScale: 0.28,
       });
     }
 
@@ -530,7 +692,7 @@ export class AirbaseDirector {
         );
       }
     } else {
-      const posts = FRONT_POSTS.apron;
+      const posts = FRONT_POSTS[apronOpen ? 'tower' : 'apron'];
       for (let i = 0; i < 6; i++) {
         const pt = posts[i % posts.length]!;
         const at = new THREE.Vector3(pt[0] + (i - 2.5) * 2.2, pt[1], pt[2] + 8);
@@ -596,7 +758,7 @@ export class AirbaseDirector {
 
   /** Detonates the South Radar Gate breach charge and releases the friendly assault convoy & infantry. */
   private triggerSouthGateBreach(): void {
-    this.ensureInvasionForce(false);
+    this.ensureInvasionForce(false, false);
     if (this.gateBreached) return;
     this.gateBreached = true;
 
@@ -611,52 +773,11 @@ export class AirbaseDirector {
     this.ctx.audio?.play?.('rocket_explosion', { position: blastPos, volume: 1.0, pitch: 0.78 });
     this.ctx.audio?.play?.('vehicle_explode', { position: blastPos, volume: 0.75, pitch: 0.92 });
 
-    // Open the South Gate lane so Jackal-1, Jackal-2, Aegis-1, and Bastion-1 surge into the base!
+    // Open the South Gate lane so Jackal-1, Jackal-2, and Aegis-1 surge into Sector 1 (and hold at Inner Apron Gate)!
     this.fleet?.setGateOpen('south_gate', true);
     this.advanceAssaultLine('perimeter');
 
     this.ctx.hud?.feed?.('SOUTH RADAR GATE BREACHED — ASSAULT ARMOR & INFANTRY MOVING IN!', '#38e8ff');
-  }
-
-  /** Dispatches a friendly Valkyrie fast-rope transport to drop 4 expendable assault infantry. */
-  private dispatchValkyrieDrop(arg?: string): void {
-    this.ensureInvasionForce(true);
-    if (!this.fleet) return;
-
-    this.valkyrieDropsDispatched++;
-    const isHangar = arg === 'hangar';
-    const lzPos: readonly [number, number, number] = isHangar ? [-12, 0, -34] : [-24, 0, 60];
-    const postPos: readonly [number, number, number] = isHangar ? [8, 0, -46] : [-24, 0, 44];
-    const approachFrom: readonly [number, number, number] = isHangar ? [-170, 48, -10] : [-165, 44, 62];
-    const egressTo: readonly [number, number, number] = isHangar ? [180, 64, -155] : [175, 58, 12];
-
-    this.fleet.spawnValkyrie({
-      id: `airbase_valkyrie_${this.valkyrieDropsDispatched}`,
-      lzId: isHangar ? 'airbase_lz_hangar' : 'airbase_lz_apron',
-      label: isHangar ? 'VALKYRIE-2 · ASSAULT' : 'VALKYRIE-1 · ASSAULT',
-      approachFrom,
-      lzPos,
-      egressTo,
-      hoverHeight: 13,
-      squadCount: 4,
-      squadTypes: ['rifleman', 'shotgunner', 'gunner', 'rifleman'],
-      postPos,
-      expendable: true,
-      detached: true,
-      onTroopsDeployed: (_unit, spawned) => {
-        for (const a of spawned) {
-          a.expendable = true;
-          a.detached = true;
-          if (!this.assaultTroops.includes(a)) this.assaultTroops.push(a);
-        }
-        this.ctx.hud?.feed?.(
-          isHangar
-            ? 'VALKYRIE-2 FAST-ROPE COMPLETE — ASSAULT SQUAD ON ALERT APRON!'
-            : 'VALKYRIE-1 FAST-ROPE COMPLETE — ASSAULT SQUAD ON FUEL APRON!',
-          '#38e8ff',
-        );
-      },
-    });
   }
 
   /** Advances surviving expendable assault infantry forward to the current battlefront stage. */
@@ -684,16 +805,17 @@ export class AirbaseDirector {
     const liveAegis = this.fleet.units.some(u => u.kind === 'aegis' && u.alive && !u.disposed);
     if (liveAegis) return;
     this.fleet.setGateOpen('south_gate', true);
+    this.fleet.setGateOpen('apron_gate', true);
     this.fleet.spawnGround({
       id: 'airbase_aegis_reinforce',
       kind: 'aegis',
       laneId: 'south_gate',
       label: 'AEGIS-2 · HEAVY ARMOR',
-      spawn: [-22, 0, 12],
-      waypoints: [[8, 0, -18], [26, 0, -34]],
+      spawn: [-22, 0, 2],
+      waypoints: [[8, 0, -20], [22, 0, -32]],
       gateWaypointIndex: 0,
-      hpOverride: 2400,
-      speedScale: 0.40,
+      hpOverride: 1900,
+      speedScale: 0.34,
     });
   }
 
@@ -884,11 +1006,11 @@ export class AirbaseDirector {
   private tickStagingTruckReinforcements(dt: number): void {
     if (!this.gateBreached) return;
     if (this.frontStage !== 'perimeter' && this.frontStage !== 'apron') return;
-    if (this.truckReinforcementsSpawned >= 12) return;
+    if (this.truckReinforcementsSpawned >= 10) return;
 
     this.reinforceTimer -= dt;
     if (this.reinforceTimer > 0) return;
-    this.reinforceTimer = 9.5;
+    this.reinforceTimer = 11.0;
 
     // Prune dead expendables
     for (let i = this.assaultTroops.length - 1; i >= 0; i--) {
@@ -896,10 +1018,10 @@ export class AirbaseDirector {
     }
 
     const totalAllies = this.ctx.allies?.allies?.length ?? 0;
-    if (this.assaultTroops.length >= 10 || totalAllies >= 22) return;
+    if (this.assaultTroops.length >= 8 || totalAllies >= 18) return;
 
     const posts = FRONT_POSTS[this.frontStage];
-    const toSpawn = Math.min(2, 10 - this.assaultTroops.length, 12 - this.truckReinforcementsSpawned);
+    const toSpawn = Math.min(2, 8 - this.assaultTroops.length, 10 - this.truckReinforcementsSpawned);
     for (let i = 0; i < toSpawn; i++) {
       const bay = STAGING_TRUCK_BAYS[(this.truckReinforcementsSpawned + i) % STAGING_TRUCK_BAYS.length]!;
       const post = posts[(this.truckReinforcementsSpawned + i) % posts.length]!;
@@ -915,7 +1037,7 @@ export class AirbaseDirector {
   update(dt: number): void {
     if (!this.built || dt <= 0) return;
 
-    // 0. Blink armed satchel charge LED before breach & update friendly AI armor/Valkyries
+    // 0. Blink armed satchel charge LED before breach & update friendly AI armor
     if (this.breachChargeGroup?.visible && this.breachChargeLedMat) {
       this.beaconPulse += dt * 7.5;
       this.breachChargeLedMat.color.setHex(Math.sin(this.beaconPulse) >= 0 ? 0xff2b22 : 0x440908);
@@ -923,13 +1045,36 @@ export class AirbaseDirector {
     this.fleet?.update(dt);
     this.tickStagingTruckReinforcements(dt);
 
-    // 1. Watch JP-8 fuel depots via DestructionManager clusters
+    // 0b. Tick staggered 3-stage JP-8 pipeline chain explosions -> Inner Blast Gate breach
+    for (let i = this.pendingPipelineBlasts.length - 1; i >= 0; i--) {
+      const b = this.pendingPipelineBlasts[i]!;
+      b.delay -= dt;
+      if (b.delay > 0) continue;
+      this.pendingPipelineBlasts.splice(i, 1);
+      this.detonatePipelineBlast(b);
+    }
+
+    // 1. Pulse JP-8 depot markers & watch JP-8 fuel depots via DestructionManager clusters
     if (this.fuelWatchActive && !this.fuelBlownSignaled) {
+      this.beaconPulse += dt * 5.2;
+      const pulseScale = 0.85 + Math.sin(this.beaconPulse) * 0.3;
+      for (const b of this.fuelBeacons) {
+        if (b.visible) b.scale.setScalar(pulseScale);
+      }
+      for (const r of this.fuelRings) {
+        if (r.visible) r.rotation.z += dt * 1.1;
+      }
+
       const dest = this.ctx.world?.objects?.destruction;
       if (dest) {
         for (const depot of FUEL_DEPOTS) {
           const cluster = dest.getCluster(depot.id);
-          if (cluster && (cluster.collapsed || cluster.destroyedFraction >= 0.45)) {
+          if (!cluster) continue;
+          const withNodes = cluster as { getNode?: (id: string) => { state?: string } | undefined };
+          const tankA = withNodes.getNode?.('jp8_tank_a');
+          const tankB = withNodes.getNode?.('jp8_tank_b');
+          const tankHit = (tankA && tankA.state !== 'intact') || (tankB && tankB.state !== 'intact');
+          if (cluster.collapsed || cluster.destroyedFraction >= 0.12 || tankHit) {
             this.triggerFuelCookoff(depot.x, depot.z, depot.label);
             break;
           }
@@ -1029,12 +1174,12 @@ export class AirbaseDirector {
     return {
       invasionInitialized: this.invasionInitialized,
       gateBreached: this.gateBreached,
+      apronGateBreached: this.apronGateBreached,
       frontStage: this.frontStage,
       friendlyVehicleCount: this.fleet?.getLiveAll().length ?? 0,
       viperWingmenCount: this.viperWingmen.length,
       viperBoardedCount: this.viperWingmen.filter(w => w.boarded).length,
       assaultTroopCount: this.assaultTroops.filter(a => a.alive).length,
-      valkyrieDropsDispatched: this.valkyrieDropsDispatched,
       fuelWatchActive: this.fuelWatchActive,
       fuelBlownSignaled: this.fuelBlownSignaled,
       atcArmed: this.atcArmed,
@@ -1055,6 +1200,8 @@ export class AirbaseDirector {
     this.hideAtcPrompt();
     this.unmarkAtc?.();
     this.unmarkAtc = null;
+    this.clearFuelMarkers();
+    this.pendingPipelineBlasts.length = 0;
 
     for (const w of this.viperWingmen) {
       w.unmark?.();
@@ -1092,10 +1239,10 @@ export class AirbaseDirector {
 
     this.invasionInitialized = false;
     this.gateBreached = false;
+    this.apronGateBreached = false;
     this.frontStage = 'staging';
     this.reinforceTimer = 0;
     this.truckReinforcementsSpawned = 0;
-    this.valkyrieDropsDispatched = 0;
 
     this.fuelWatchActive = false;
     this.fuelBlownSignaled = false;

@@ -1,9 +1,11 @@
 /**
- * Crossfire Part 1 — "Valken Airbase" (`map: 'airbase'`, Contractor #7712-A, ~7–8 min).
+ * Crossfire Part 1 — "Valken Airbase" (`map: 'airbase'`, Contractor #7712-A, ~8–9 min).
  *
- * You raid Northern Command's Valken Airbase on foot beside your 4-man buddy squad (Viper Squad):
- *   1. perimeter — Breach South Radar Gate; Colonel Darrow locks down the flight line
- *   2. apron     — Fight across the Fuel Apron & Hangar Row vs QRF trucks & fast-rope chopper; blow JP-8 depots
+ * You raid Northern Command's Valken Airbase on foot beside your 4-man buddy squad (Viper Squad),
+ * Viper-2/3 wingmen, and combined-arms Bureau armor (2 Jackal technicals + 1 Aegis MBT):
+ *   1. perimeter — Satchel-breach South Radar Gate & smash Darrow's courtyard garrison + guntruck
+ *   2. apron     — Pinned at the locked Inner Blast Gate by Northern armor & endless Hangar 02 defenders;
+ *                  detonate the marked JP-8 Fuel Depots to chain-blast the red pipeline and blow the gate open!
  *   3. tower     — Fight up all 4 levels of the 3-Level ATC Tower (y = 0 -> 10.8) & hit the Hangar Override / IFF Spoof Console
  *   4. hangar    — Storm the Hardened Alert Hangar, crush Darrow's armored QRF push (tank + QRF truck) as Viper-2/3 board the 2 F-22 Raptors
  *   5. takeoff   — Climb into the 28.2 m B-1B Lancer yourself, taxi onto Runway 01/19, ignite afterburners, and climb through the takeoff gate -> Strait handoff
@@ -16,6 +18,7 @@ import {
   AIRBASE_BUDDY_RAPTOR_SPAWNS,
   AIRBASE_DESTRUCTIBLES,
   AIRBASE_ENEMY_SPAWNS,
+  AIRBASE_INNER_GATE,
   AIRBASE_LANCER_SPAWN,
   AIRBASE_PICKUPS,
   AIRBASE_PLAYER_SPAWN,
@@ -55,7 +58,6 @@ function routeFromPlan(id: string): readonly (readonly [number, number])[] {
   return [r.spawn, ...r.waypoints];
 }
 
-const WEST_APRON_PTS = routeFromPlan('qrf_west_apron');
 const TANK_NORTH_PTS = routeFromPlan('tank_runway_north');
 const EAST_TAXI_PTS = routeFromPlan('qrf_east_taxiway');
 
@@ -84,17 +86,20 @@ const MARKS: Readonly<Record<string, Mark>> = {
   buddyRaptorWest: { at: AIRBASE_BUDDY_RAPTOR_SPAWNS[0]!.at, yaw: AIRBASE_BUDDY_RAPTOR_SPAWNS[0]!.yaw },
   buddyRaptorEast: { at: AIRBASE_BUDDY_RAPTOR_SPAWNS[1]!.at, yaw: AIRBASE_BUDDY_RAPTOR_SPAWNS[1]!.yaw },
 
-  // Section 1: South Gate Garrison
+  // Section 1: South Gate Garrison & Courtyard Guntruck
   sgWest: { at: SOUTH_GATE_SPAWNS[0]!.at, yaw: Math.PI },
   sgCenter: { at: SOUTH_GATE_SPAWNS[2]!.at, yaw: Math.PI },
   sgEast: { at: SOUTH_GATE_SPAWNS[4]!.at, yaw: Math.PI },
+  sgGuntruck: { at: [3, 0, 102], yaw: Math.PI },
 
-  // Section 2: Fuel Apron & Hangar Row
+  // Section 2: Fuel Apron, JP-8 Pipeline Blockade & Hangar 02 Reinforcements
   fuelDepotSouth: { at: [FUEL_SOUTH.x, 0, FUEL_SOUTH.z], yaw: 0 },
   fuelDepotNorth: { at: [FUEL_NORTH.x, 0, FUEL_NORTH.z], yaw: 0 },
   apronSouthLine: { at: APRON_SPAWNS[1]!.at, yaw: Math.PI },
   apronCatwalk: { at: APRON_SPAWNS[3]!.at, yaw: APRON_SPAWNS[3]!.yaw },
   apronNorthLine: { at: APRON_SPAWNS[6]!.at, yaw: Math.PI },
+  apronRoadblock: { at: [-18, 0, 22], yaw: Math.PI },
+  apronHangarBay: { at: [-74, 0, 42], yaw: Math.PI / 2 },
 
   // Section 3: 3-Level ATC Tower (y = 0, 3.6, 7.2, 10.8)
   atcGround: { at: ATC_SPAWNS[0]!.at, yaw: Math.PI },
@@ -107,12 +112,6 @@ const MARKS: Readonly<Record<string, Mark>> = {
   hangarApronEast: { at: HANGAR_SPAWNS[1]!.at, yaw: Math.PI },
   hangarInterior: { at: HANGAR_SPAWNS[2]!.at, yaw: Math.PI },
   runwayGuards: { at: RUNWAY_SPAWNS[0]!.at, yaw: RUNWAY_SPAWNS[0]!.yaw },
-
-  // QRF West Apron Truck route
-  qrfWest0: { at: [WEST_APRON_PTS[0]![0], 0, WEST_APRON_PTS[0]![1]], yaw: 0 },
-  qrfWest1: { at: [WEST_APRON_PTS[1]![0], 0, WEST_APRON_PTS[1]![1]], yaw: 0 },
-  qrfWest2: { at: [WEST_APRON_PTS[2]![0], 0, WEST_APRON_PTS[2]![1]], yaw: 0 },
-  qrfWest3: { at: [WEST_APRON_PTS[3]![0], 0, WEST_APRON_PTS[3]![1]], yaw: 0 },
 
   // Tank Runway North route
   tankNorth0: { at: [TANK_NORTH_PTS[0]![0], 0, TANK_NORTH_PTS[0]![1]], yaw: 0 },
@@ -137,13 +136,11 @@ const MARKS: Readonly<Record<string, Mark>> = {
 };
 
 const ROUTES: Readonly<Record<string, readonly string[]>> = {
-  qrfWestApron: ['qrfWest0', 'qrfWest1', 'qrfWest2', 'qrfWest3'],
   tankRunwayNorth: ['tankNorth0', 'tankNorth1', 'tankNorth2', 'tankNorth3'],
   qrfEastTaxiway: ['qrfEast0', 'qrfEast1', 'qrfEast2', 'qrfEast3'],
 };
 
 const ZONES: Readonly<Record<string, Zone>> = {
-  fuelApron: zoneFromPlan('airbase-fuel-apron'),
   atcTower: zoneFromPlan('airbase-atc'),
   atcOpsCab: {
     min: [AIRBASE_ATC_TOWER.x - 8, AIRBASE_ATC_TOWER.cabFloorY - 1, AIRBASE_ATC_TOWER.z - 8],
@@ -165,6 +162,16 @@ const DOORS: Readonly<Record<string, DoorDef>> = {
     height: 6.0,
     kind: 'split',
     seconds: 0.14,
+    start: 0,
+    look: 'steelDark',
+  },
+  'apron.gate': {
+    at: [AIRBASE_INNER_GATE.portalCenterX, 0, AIRBASE_INNER_GATE.z],
+    yaw: 0,
+    width: AIRBASE_INNER_GATE.portalHalfW * 2,
+    height: AIRBASE_INNER_GATE.portalHeight,
+    kind: 'split',
+    seconds: 0.16,
     start: 0,
     look: 'steelDark',
   },
@@ -194,21 +201,33 @@ const CUTSCENES: Readonly<Record<string, Cutscene>> = {
   valkenOpening: {
     shots: [
       {
+        // Shot 1: Sweeping dawn flyover over our staged assault column (Jackals, Aegis MBT, staging carriers)
         from: [-28, 12, 162],
-        to: [18, 9, 144],
+        to: [18, 10, 146],
         lookFrom: [0, 2.5, 134],
         lookTo: [0, 2.8, 121],
-        seconds: 3.8,
+        seconds: 5.6,
         fov: 48,
         fadeIn: 0.6,
         caption: 'VALKEN AIRBASE // SOUTH RADAR GATE — 05:40',
       },
       {
+        // Shot 2: Aerial sweep showcasing the Fuel Apron, JP-8 Pipeline, locked Inner Blast Gate, ATC Tower & Alert Hangar
+        from: [22, 18, 92],
+        to: [-16, 16, 48],
+        lookFrom: [-30, 3.0, 32],
+        lookTo: [4, 5.5, -52],
+        seconds: 5.4,
+        fov: 50,
+        caption: 'OBJECTIVE: BREACH PERIMETER // SEIZE B-1B LANCER',
+      },
+      {
+        // Shot 3: Tight low-angle push-in on the blinking armed satchel charge right before detonation
         from: [7.5, 4.0, 132],
         to: [-3.0, 2.3, 125.5],
         lookFrom: [0, 2.0, 121],
         lookTo: [0, 1.5, 121],
-        seconds: 3.0,
+        seconds: 4.6,
         fov: 44,
         fadeOut: 0.35,
         caption: 'BREACH CHARGE ARMED // FORM 7742-W',
@@ -243,15 +262,17 @@ export const CROSSFIRE_AIRBASE: Mission = {
         { do: 'threat', level: 4, grade: 'regular' },
         { do: 'music', state: 'easy' },
         { do: 'door', door: 'south.gate', open: 0, seconds: 0 },
+        { do: 'door', door: 'apron.gate', open: 0, seconds: 0 },
         { do: 'door', door: 'alert.south', open: 0, seconds: 0 },
         { do: 'door', door: 'alert.north', open: 0, seconds: 0 },
         { do: 'call', name: 'cf.airbaseInit', arg: 'buddyRaptorWest,buddyRaptorEast' },
         { do: 'roster', men: VIPER_SQUAD, at: 'perimeterStart' },
         { do: 'drop', item: 'ammo', at: 'dropGateAmmo' },
-        // Pre-stage Northern defenders behind cover inside the closed gate so zero enemies pop in on open tarmac
+        // Pre-stage Northern defenders + courtyard guntruck behind the closed gate (zero open-tarmac pop-in!)
         { do: 'squad', tag: 'sg_west', men: ['trooper', 'trooper', 'gunner'], at: 'sgWest', orders: 'hold', ensure: true },
-        { do: 'squad', tag: 'sg_center', men: ['trooper', 'brute', 'gunner'], at: 'sgCenter', orders: 'hold', ensure: true },
+        { do: 'squad', tag: 'sg_center', men: ['trooper', 'brute', 'gunner', 'rocketeer'], at: 'sgCenter', orders: 'hold', ensure: true },
         { do: 'squad', tag: 'sg_east', men: ['trooper', 'warden', 'trooper'], at: 'sgEast', orders: 'hold', ensure: true },
+        { do: 'vehicle', tag: 'sg_guntruck', kind: 'humvee', at: 'sgGuntruck', holds: 'sgGuntruck', crew: ['trooper', 'gunner'], crewTag: 'sg_crew', ensure: true },
         say('council.brief.1'),
         say('council.brief.2'),
         { do: 'cutscene', id: 'valkenOpening' },
@@ -259,15 +280,12 @@ export const CROSSFIRE_AIRBASE: Mission = {
         { do: 'call', name: 'cf.airbaseBreach' },
         { do: 'banner', text: 'CROSSFIRE', sub: 'VALKEN AIRBASE // PART 01 OF 04' },
         say('wingman.perimeter.start'),
-        { do: 'objective', id: 'breach_gate', text: 'Storm the breached South Radar Gate with your assault column', at: 'southGateObj' },
+        { do: 'objective', id: 'breach_gate', text: 'Breach the South Radar Gate and clear the courtyard defenders & guntruck', at: 'southGateObj' },
         { do: 'hint', text: 'Assault armor, Viper-2/3, and your 4-man squad are pushing with you — press {interact} on squadmates for hold/follow orders.', seconds: 8 },
         {
           do: 'until',
           when: {
-            any: [
-              { cleared: ['sg_west', 'sg_center', 'sg_east'] },
-              { all: [{ zone: 'fuelApron' }, { kills: 4 }] },
-            ],
+            cleared: ['sg_west', 'sg_center', 'sg_east', 'sg_guntruck'],
           },
         },
         { do: 'done', id: 'breach_gate' },
@@ -279,18 +297,18 @@ export const CROSSFIRE_AIRBASE: Mission = {
           when: { any: [{ kills: 1 }, { after: 5 }] },
           run: [
             { do: 'music', state: 'hard' },
-            say('darrow.perimeter.lockdown'),
+            say('darrow.perimeter.lockdown', { within: 8 }),
           ],
         },
       ],
     },
 
     // -------------------------------------------------------------------------------------------
-    // Section 2: Fuel Apron & Hangar Row
+    // Section 2: Fuel Apron & JP-8 Inner Blast Gate Blockade (Option A Hard Gate)
     // -------------------------------------------------------------------------------------------
     {
       id: 'apron',
-      title: 'Fuel Apron & Hangar Row',
+      title: 'JP-8 Fuel Apron Blockade',
       checkpoint: { at: 'apronStart', loadout: RAID_LOADOUT },
       start: [
         { do: 'callins', held: true },
@@ -299,45 +317,44 @@ export const CROSSFIRE_AIRBASE: Mission = {
         { do: 'sweep', tag: 'sg_west' },
         { do: 'sweep', tag: 'sg_center' },
         { do: 'sweep', tag: 'sg_east' },
+        { do: 'sweep', tag: 'sg_crew' },
+        { do: 'sweep', tag: 'sg_guntruck' },
         { do: 'door', door: 'south.gate', open: 1, seconds: 0 },
+        { do: 'door', door: 'apron.gate', open: 0, seconds: 0 },
         { do: 'door', door: 'alert.south', open: 0, seconds: 0 },
         { do: 'door', door: 'alert.north', open: 0, seconds: 0 },
         { do: 'roster', men: VIPER_SQUAD, at: 'apronStart' },
-        { do: 'banner', text: 'FUEL APRON', sub: 'MAINTENANCE HANGAR ROW // JP-8 DEPOTS' },
+        { do: 'banner', text: 'INNER BLAST GATE LOCKDOWN', sub: 'BLOW THE MARKED JP-8 FUEL DEPOTS TO BREACH' },
         { do: 'drop', item: 'health', at: 'dropApronHealth' },
         { do: 'rack', weapon: 'rocket', at: 'rackApronRocket', optional: true, label: 'ANTI-ARMOR ROCKET LAUNCHER' },
         { do: 'call', name: 'cf.apronFuelWatch', arg: 'fuelDepotSouth,fuelDepotNorth' },
         { do: 'squad', tag: 'apron_south', men: ['trooper', 'gunner', 'trooper', 'riot'], at: 'apronSouthLine', ensure: true },
         { do: 'squad', tag: 'apron_catwalk', men: ['sniper', 'trooper', 'gunner'], at: 'apronCatwalk', orders: 'hold', ensure: true },
-        { do: 'squad', tag: 'apron_north', men: ['trooper', 'brute', 'rocketeer', 'trooper'], at: 'apronNorthLine', orders: 'hold', ensure: true },
-        { do: 'vehicle', tag: 'qrf_west_truck', kind: 'truck', at: 'qrfWest0', route: 'qrfWestApron', crew: ['trooper', 'gunner', 'trooper'], crewTag: 'apron_qrf', ensure: true },
-        say('darrow.apron.qrf'),
+        { do: 'squad', tag: 'apron_north', men: ['trooper', 'brute', 'rocketeer', 'gunner'], at: 'apronNorthLine', ensure: true },
+        { do: 'vehicle', tag: 'apron_tank', kind: 'tank', at: 'apronRoadblock', holds: 'apronRoadblock', ensure: true },
         say('wingman.apron.fuel'),
-        { do: 'objective', id: 'clear_apron', text: 'Fight across the Fuel Apron and push to the ATC Tower', at: 'towerStart' },
-        { do: 'hint', text: 'Detonate the JP-8 fuel depots to clear the hangar row! Grab the optional Rocket Launcher by Hangar 02.', seconds: 8 },
-        {
-          do: 'until',
-          when: {
-            any: [
-              { zone: 'atcTower' },
-              { cleared: ['apron_south', 'apron_catwalk', 'apron_north', 'apron_qrf'] },
-            ],
-          },
-        },
-        { do: 'done', id: 'clear_apron' },
+        { do: 'objective', id: 'blow_jp8_gate', text: 'Detonate the marked JP-8 Fuel Depots to rupture the pipeline and blow the Inner Blast Gate', at: 'fuelDepotNorth' },
+        { do: 'hint', text: 'Inner Blast Gate is sealed and enemy reinforcements keep pouring from Hangar 02 — shoot, satchel, or rocket the marked JP-8 Fuel Depots!', seconds: 9 },
+        { do: 'until', when: { signal: CROSSFIRE_SIGNALS.fuelBlown } },
+        { do: 'done', id: 'blow_jp8_gate' },
+        // Sync physical blast-gate opening right on Stage 3 of the 3-stage pipeline chain detonation!
+        { do: 'wait', seconds: 0.7 },
+        { do: 'door', door: 'apron.gate', open: 1, seconds: 0.16 },
+        say('wingman.apron.fuel_blown'),
+        { do: 'until', when: { any: [{ zone: 'atcTower' }, { after: 3.5 }] } },
         { do: 'goto', beat: 'tower' },
       ],
       cues: [
         {
-          when: { signal: CROSSFIRE_SIGNALS.fuelBlown },
-          run: [say('wingman.apron.fuel_blown')],
+          when: { after: 7 },
+          run: [say('darrow.apron.qrf', { within: 8 })],
         },
+        // Continuous Northern reinforcements pouring from concealed Maintenance Hangar 02 until JP-8 blows!
         {
-          when: { any: [{ kills: 5 }, { after: 14 }] },
+          when: { all: [{ left: 3, tag: 'apron_north' }, { after: 6 }] },
+          repeat: true,
           run: [
-            { do: 'release', tag: 'apron_north' },
-            { do: 'call', name: 'cf.airbaseValkyrieDrop', arg: 'apron' },
-            say('wingman.apron.chopper'),
+            { do: 'squad', tag: 'apron_north', men: ['trooper', 'gunner', 'rocketeer', 'trooper'], at: 'apronHangarBay' },
           ],
         },
       ],
@@ -357,8 +374,9 @@ export const CROSSFIRE_AIRBASE: Mission = {
         { do: 'sweep', tag: 'apron_south' },
         { do: 'sweep', tag: 'apron_catwalk' },
         { do: 'sweep', tag: 'apron_north' },
-        { do: 'sweep', tag: 'apron_qrf' },
+        { do: 'sweep', tag: 'apron_tank' },
         { do: 'door', door: 'south.gate', open: 1, seconds: 0 },
+        { do: 'door', door: 'apron.gate', open: 1, seconds: 0 },
         { do: 'door', door: 'alert.south', open: 0, seconds: 0 },
         { do: 'door', door: 'alert.north', open: 0, seconds: 0 },
         { do: 'roster', men: VIPER_SQUAD, at: 'towerStart' },
@@ -386,14 +404,14 @@ export const CROSSFIRE_AIRBASE: Mission = {
         {
           when: { zone: 'atcTower' },
           run: [
-            say('darrow.tower.warning'),
+            say('darrow.tower.warning', { within: 8 }),
             { do: 'release', tag: 'atc_l1' },
           ],
         },
         {
           when: { zone: 'atcOpsCab' },
           run: [
-            say('council.tower.iff'),
+            say('council.tower.iff', { within: 8 }),
             { do: 'release', tag: 'atc_l3' },
           ],
         },
@@ -416,6 +434,7 @@ export const CROSSFIRE_AIRBASE: Mission = {
         { do: 'sweep', tag: 'atc_l2' },
         { do: 'sweep', tag: 'atc_l3' },
         { do: 'door', door: 'south.gate', open: 1, seconds: 0 },
+        { do: 'door', door: 'apron.gate', open: 1, seconds: 0 },
         { do: 'door', door: 'alert.south', open: 1, seconds: 0 },
         { do: 'door', door: 'alert.north', open: 1, seconds: 0 },
         { do: 'roster', men: VIPER_SQUAD, at: 'hangarStart' },
@@ -449,13 +468,7 @@ export const CROSSFIRE_AIRBASE: Mission = {
           when: { any: [{ signal: CROSSFIRE_SIGNALS.raptorsSpooled }, { after: 14 }] },
           run: [
             say('wingman.hangar.raptors_boarding'),
-            say('darrow.hangar.desperate'),
-          ],
-        },
-        {
-          when: { any: [{ zone: 'alertHangar' }, { after: 8 }] },
-          run: [
-            { do: 'call', name: 'cf.airbaseValkyrieDrop', arg: 'hangar' },
+            say('darrow.hangar.desperate', { within: 8 }),
           ],
         },
         {
@@ -482,6 +495,7 @@ export const CROSSFIRE_AIRBASE: Mission = {
         { do: 'sweep', tag: 'hangar_vault' },
         { do: 'sweep', tag: 'hangar_qrf_crew' },
         { do: 'door', door: 'south.gate', open: 1, seconds: 0 },
+        { do: 'door', door: 'apron.gate', open: 1, seconds: 0 },
         { do: 'door', door: 'alert.south', open: 1, seconds: 0 },
         { do: 'door', door: 'alert.north', open: 1, seconds: 0 },
         { do: 'music', state: 'hard' },

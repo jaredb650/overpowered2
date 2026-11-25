@@ -26,6 +26,7 @@ import {
   AIRBASE_DESTRUCTIBLES,
   AIRBASE_ENEMY_SPAWNS,
   AIRBASE_HUB_PT,
+  AIRBASE_INNER_GATE,
   AIRBASE_LEVELS,
   AIRBASE_LIGHT_BOUNDS,
   AIRBASE_LIGHT_CELL,
@@ -238,8 +239,8 @@ function buildAirbaseDestructible(
       { id: 'col_br', pos: pt(3.2, 1.7, -2.2), half: [0.18, 1.7, 0.18], mat: 'steelDark', color: 0x3b424c, hp: 110, tier: 0, anchored: true, kind: 'column', yaw, materialClass: 'metal' },
       { id: 'canopy', pos: pt(0, 3.55, 0), half: [3.7, 0.14, 2.6], mat: 'panel', color: 0x6f7b88, hp: 120, tier: 0, anchored: false, kind: 'roof', yaw, impactRadius: 7.5, materialClass: 'metal', fractureGrid: [2, 2] },
       { id: 'pump_wall', pos: pt(-3.2, 1.4, 0), half: [0.16, 1.4, 2.1], mat: 'rust', color: 0x6a5c50, hp: 120, tier: 0, anchored: true, kind: 'wall', yaw, materialClass: 'metal', fractureGrid: [2, 2] },
-      { id: 'jp8_tank_a', pos: pt(-0.8, 0.95, 0), half: [0.85, 0.95, 1.4], mat: 'paintRed', color: 0xcc2c22, hp: 45, tier: 0, anchored: true, kind: 'hazard', yaw, hazardRadius: 10, hazardDamage: 260, materialClass: 'metal' },
-      { id: 'jp8_tank_b', pos: pt(1.4, 0.95, 0), half: [0.85, 0.95, 1.4], mat: 'paintRed', color: 0xcc2c22, hp: 45, tier: 0, anchored: true, kind: 'hazard', yaw, hazardRadius: 10, hazardDamage: 260, materialClass: 'metal' },
+      { id: 'jp8_tank_a', pos: pt(-0.8, 0.95, 0), half: [0.85, 0.95, 1.4], mat: 'paintRed', color: 0xcc2c22, hp: 30, tier: 0, anchored: true, kind: 'hazard', yaw, hazardRadius: 12, hazardDamage: 280, materialClass: 'metal' },
+      { id: 'jp8_tank_b', pos: pt(1.4, 0.95, 0), half: [0.85, 0.95, 1.4], mat: 'paintRed', color: 0xcc2c22, hp: 30, tier: 0, anchored: true, kind: 'hazard', yaw, hazardRadius: 12, hazardDamage: 280, materialClass: 'metal' },
     ];
     return {
       id,
@@ -460,6 +461,8 @@ function authorSouthPerimeter(k: Kit, spec: MapSpec): void {
   // West & East perimeter fence runs framing the airfield
   fence(k, [-146, gateZ, -146, -146], 0, 2.8, true);
   fence(k, [146, gateZ, 146, -146], 0, 2.8, true);
+  // Runway Security Divider Fence along x = +42 (z = 121 -> 11) sealing the Fuel Apron from Main Runway until Inner Gate is blown
+  fence(k, [AIRBASE_INNER_GATE.runwayFenceX, gateZ, AIRBASE_INNER_GATE.runwayFenceX, AIRBASE_INNER_GATE.z], 0, 3.2, true);
 
   // Blast Gate Concrete Piers & Overhead Steel Security Gantry Arch (open center x in [-10.5, +10.5], headroom 6.2 m)
   for (const sx of [-11.8, 11.8]) {
@@ -498,13 +501,22 @@ function authorSouthPerimeter(k: Kit, spec: MapSpec): void {
   k.light(gh.x, 3.2, gh.z, PALETTE.warmSodium, 26, 18);
   spec.plan?.blocks.push({ x0: gx0, z0: gz0, x1: gx1, z1: gz1 });
 
-  // Jersey barriers & tactical cover flanking the insertion road (leaving central x in [-8, +8] clear!)
+  // Jersey barriers & tactical cover flanking the insertion road & South Gate courtyard (leaving central x in [-8, +8] clear!)
   barrier(k, -9.8, 0, 132, 0.22, 4.2);
   barrier(k, 9.8, 0, 132, -0.22, 4.2);
+  barrier(k, -14.0, 0, 126, 0.12, 4.0);
+  barrier(k, 14.0, 0, 126, -0.12, 4.0);
   barrier(k, -14.5, 0, 114, 0.08, 4.2);
   barrier(k, 12.2, 0, 110, -0.15, 4.2);
+  barrier(k, -11.5, 0, 102, 0.18, 4.4);
+  barrier(k, 12.0, 0, 100, -0.18, 4.4);
+  container(k, -28, 0, 102, 0.26, [0.34, 0.40, 0.36], true);
+  container(k, 28, 0, 100, -0.28, [0.46, 0.42, 0.36], true);
   tyres(k, -17, 0, 128, 3, true);
   tyres(k, 14, 0, 130, 3, true);
+  tyres(k, 23, 0, 92, 3, true);
+  spec.barrels(-10.5, 0, 111, 2);
+  spec.barrels(11.0, 0, 104, 2);
 
   // Tall 18 m Perimeter Surveillance Radar Dish Mast at (-34, 0, 124)
   const rm = AIRBASE_SOUTH_GATE.radarMast;
@@ -597,13 +609,86 @@ function authorFuelApronAndHangars(k: Kit, spec: MapSpec): void {
   jetBlastDeflector(k, 22, 54, Math.PI / 2, 10);
   jetBlastDeflector(k, 22, 26, Math.PI / 2, 10);
 
-  // Apron tactical cover: supply containers, generators, jersey barriers & explosive barrels
+  // Apron tactical cover: military ISO containers, generators, jersey barriers & explosive barrels
+  // (keeps West Apron armor lane x in [-28, -15] and all spawns/pickups 100% clear!)
   container(k, -12, 0, 74, Math.PI / 2, [0.42, 0.48, 0.54], true);
+  container(k, 6, 0, 84, 0.22, [0.36, 0.42, 0.36], true);
+  container(k, 4, 0, 58, -0.18, [0.34, 0.40, 0.35], true);
+  container(k, 10, 0, 42, Math.PI / 2 + 0.16, [0.48, 0.44, 0.38], true);
+  container(k, 28, 0, 38, 0.12, [0.38, 0.44, 0.50], true);
+  barrier(k, -6, 0, 80, 0.22, 4.4);
+  barrier(k, -8, 0, 62, -0.18, 4.5);
   barrier(k, -12, 0, 52, 0.15, 4.5);
   barrier(k, -12, 0, 34, -0.20, 4.5);
+  barrier(k, 2, 0, 34, 0.14, 4.4);
+  // Inner Checkpoint kill-zone cover flanking the Blast Gate approach
+  barrier(k, -6, 0, 22, -0.25, 4.4);
+  barrier(k, 10, 0, 20, 0.18, 4.6);
+  barrier(k, -39, 0, 22, 0.24, 4.2);
+  tyres(k, 14, 0, 74, 3, true);
+  tyres(k, 15, 0, 28, 3, true);
   machine(k, -52, 0, 62, 0, 3.2, 2.2, 2.0);
+  machine(k, 16, 0, 64, Math.PI / 2, 3.2, 2.2, 2.0);
   spec.barrels(-14, 0, 62, 3);
+  spec.barrels(-6, 0, 48, 2);
+  spec.barrels(6, 0, 31, 2);
   spec.tank(-34, 0, 62);
+
+  // --- Visual Red JP-8 Fuel Manifold Pipeline (South Depot -> North Depot -> Inner Blast Gate) ---
+  // Pure visual storytelling showing that blowing the JP-8 depots ruptures the pipeline feeding the Blast Gate!
+  const innerZ = AIRBASE_INNER_GATE.z;
+  const px0 = AIRBASE_INNER_GATE.portalCenterX - AIRBASE_INNER_GATE.portalHalfW; // -33
+  const px1 = AIRBASE_INNER_GATE.portalCenterX + AIRBASE_INNER_GATE.portalHalfW; // -11
+  const pierW = px0 - 1.2; // -34.2
+  const pierE = px1 + 1.2; // -9.8
+
+  // Main elevated red JP-8 manifold pipe along x = -34 from South Depot (z = 88) -> North Depot (z = 36) -> Gate Pier (z = 12.2)
+  g.use('paintRed').tint(0.92, 0.20, 0.16);
+  g.cyl(-34, 2.4, 86, -34, 2.4, 65, 0.28, 0.28, 8);
+  g.cyl(-34, 2.4, 59, -34, 2.4, 38.5, 0.28, 0.28, 8);
+  g.cyl(-34, 2.4, 33.5, -34, 2.4, innerZ + 1.4, 0.30, 0.30, 8);
+  // Riser up the West Blast Gate Pier and overhead manifold across the blast gantry to the East Pier
+  g.cyl(-34, 2.4, innerZ + 1.4, -34, 6.25, innerZ + 1.4, 0.26, 0.26, 8);
+  g.cyl(-34, 6.25, innerZ + 1.4, pierE, 6.25, innerZ + 1.4, 0.24, 0.24, 8);
+  g.cyl(pierE, 6.25, innerZ + 1.4, pierE, 2.1, innerZ + 1.4, 0.24, 0.24, 8);
+  // Steel pipe stanchions supporting the overhead JP-8 pipeline (visual only)
+  g.use('steelDark').tint(0.36, 0.40, 0.46);
+  for (const sz of [78, 70, 52, 44, 26, 18]) {
+    g.cyl(-34, 0, sz, -34, 2.35, sz, 0.11, 0.11, 6);
+  }
+  // Glowing amber pressure junction valves along pipeline & on both Blast Gate piers
+  g.use('emissiveOrange').tint(1.0, 0.52, 0.14);
+  for (const vz of [74, 48, 25]) {
+    g.box(-34, 2.4, vz, 0.46, 0.42, 0.46);
+  }
+  g.box(pierW, 2.2, innerZ + 1.55, 0.55, 0.65, 0.32);
+  g.box(pierE, 2.2, innerZ + 1.55, 0.55, 0.65, 0.32);
+  g.tint(1);
+
+  // --- Inner Fortified Security Checkpoint Wall & 22 m Blast Gate Portal at z = 11 ---
+  // Completely seals Fuel Apron from ATC Tower & Alert Hangar until the JP-8 chain blast blows 'apron.gate' open!
+  k.wall(-146, innerZ, pierW - 1.2, innerZ, 0, 4.0, { thick: 1.2, mat: 'concreteDark', cap: true });
+  k.wall(pierE + 1.2, innerZ, AIRBASE_INNER_GATE.runwayFenceX, innerZ, 0, 4.0, { thick: 1.2, mat: 'concreteDark', cap: true });
+  // Hazard stripe trim along south face of inner security wall
+  g.use('hazard').tint(0.95, 0.78, 0.25);
+  g.box(-90, 3.65, innerZ + 0.65, 52, 0.24, 0.04, FACE.pz);
+  g.box(16, 3.65, innerZ + 0.65, 24, 0.24, 0.04, FACE.pz);
+  // Heavy concrete Blast Gate jamb piers framing the 22 m portal (x in [-33, -11])
+  for (const sx of [pierW, pierE]) {
+    k.block('concrete', sx - 1.2, 0, innerZ - 1.5, sx + 1.2, 6.6, innerZ + 1.5, 0.1);
+    g.use('hazard').tint(0.95, 0.78, 0.25);
+    g.box(sx, 1.3, innerZ + 1.54, 1.15, 0.55, 0.04, FACE.pz);
+    g.use('emissiveRed').tint(1, 0.22, 0.16);
+    g.box(sx, 6.9, innerZ, 0.38, 0.28, 0.38);
+  }
+  // Overhead steel Blast Gate gantry arch + glowing red lockdown light bar
+  k.truss(pierW, 7.1, innerZ, pierE, 7.1, innerZ, 1.1, 1.4, 'steelDark', 0.10);
+  g.use('emissiveRed').tint(1, 0.22, 0.16);
+  g.box(AIRBASE_INNER_GATE.portalCenterX, 6.45, innerZ + 0.85, 9.2, 0.16, 0.08, FACE.pz);
+  g.tint(1);
+  k.light(AIRBASE_INNER_GATE.portalCenterX, 5.8, innerZ + 2.5, PALETTE.alertRed, 42, 28);
+  spec.plan?.blocks.push({ x0: -146, z0: innerZ - 0.8, x1: px0, z1: innerZ + 0.8 });
+  spec.plan?.blocks.push({ x0: px1, z0: innerZ - 0.8, x1: AIRBASE_INNER_GATE.runwayFenceX, z1: innerZ + 0.8 });
 
   // Tall dawn airfield apron floodlight masts (placed off road centerlines)
   k.mast(-52, 102, 0, 12, 0.7, 'orange', 75, 44);
@@ -879,6 +964,18 @@ function authorAlertHangarAndRevetments(k: Kit, spec: MapSpec): void {
     jetBlastDeflector(k, px, pz + 14.0, 0, 12);
     k.light(px, 8.5, pz, PALETTE.amberFlood, 36, 28);
   }
+
+  // --- ATC Courtyard & Alert Hangar Plaza tactical cover (clear of z = -18..-24 vehicle spine & y = 3.0 Lancer exits!) ---
+  container(k, 12, 0, -4, 0.14, [0.36, 0.42, 0.36], true);
+  container(k, -28, 0, -34, -0.22, [0.42, 0.46, 0.50], true);
+  barrier(k, -38, 0, -1, 0.32, 4.4);
+  barrier(k, -12, 0, -4, -0.20, 4.4);
+  barrier(k, 28, 0, -2, -0.18, 4.4);
+  // Waist-high Alert Hangar south approach barriers (height 1.15 m, cleanly below y = 3.0 Lancer wing clearance!)
+  barrier(k, -2, 0, -35, 0.16, 4.2);
+  barrier(k, 22, 0, -35, -0.16, 4.2);
+  tyres(k, 32, 0, -36, 3, true);
+  spec.barrels(4, 0, -34, 2);
 
   // --- Tier-0 Destructible Fuel Farm & Bunker Clusters ---
   for (const d of AIRBASE_DESTRUCTIBLES) {

@@ -250,7 +250,7 @@ function makeHarness(missionId: string) {
   };
 }
 
-describe('CrossfireDirector & all 25 cf.* calls', () => {
+describe('CrossfireDirector & all 24 cf.* calls', () => {
   beforeEach(() => {
     vi.stubGlobal('sessionStorage', createMemoryStorage());
     vi.stubGlobal('localStorage', createMemoryStorage());
@@ -267,10 +267,9 @@ describe('CrossfireDirector & all 25 cf.* calls', () => {
 
     const callArgs: Record<string, string | undefined> = {
       'cf.straitWave': 'outbound_probe',
-      'cf.airbaseValkyrieDrop': 'apron',
     };
 
-    expect(CROSSFIRE_CALLS.size).toBe(25);
+    expect(CROSSFIRE_CALLS.size).toBe(24);
     for (const callName of CROSSFIRE_CALLS) {
       const handled = h.director.call(callName, callArgs[callName]);
       expect(handled, `Expected ${callName} to be handled`).toBe(true);
@@ -283,27 +282,29 @@ describe('CrossfireDirector & all 25 cf.* calls', () => {
     warnSpy.mockRestore();
   });
 
-  it('Part 1 (Valken Airbase): invasion staging, gate breach, Valkyrie drop, fuel watch, ATC override, Viper boarding, Lancer takeoff & Strait handoff', () => {
+  it('Part 1 (Valken Airbase): invasion staging, south gate breach, JP-8 pipeline chain breach of apron gate, ATC override, Viper boarding, Lancer takeoff & Strait handoff', () => {
     const h = makeHarness('crossfire_airbase');
     h.director.ensureBuilt();
 
-    // 1. Init stages locked Lancer + 2 parked Raptors + 4 friendly vehicles held behind closed south_gate + Viper-2/3 + 8 expendables
+    // 1. Init stages locked Lancer + 2 parked Raptors + 3 friendly vehicles held behind closed south_gate & apron_gate + Viper-2/3 + 8 expendables
     expect(h.director.call('cf.airbaseInit')).toBe(true);
     expect(loadChainState()?.part).toBe(1);
     expect(loadChainState()?.contractor).toBe('A');
     expect(h.director.airbase.state.parkedRaptorCount).toBe(2);
-    expect(h.director.airbase.state.friendlyVehicleCount).toBe(4);
+    expect(h.director.airbase.state.friendlyVehicleCount).toBe(3);
     expect(h.director.airbase.state.viperWingmenCount).toBe(2);
     expect(h.director.airbase.state.assaultTroopCount).toBe(8);
     expect(h.director.airbase.vehicleFleet!.isGateOpen('south_gate')).toBe(false);
+    expect(h.director.airbase.vehicleFleet!.isGateOpen('apron_gate')).toBe(false);
     expect(h.getFriendlyVehiclesProvider()).toBeTypeOf('function');
 
-    // 1b. Breach detonates satchel charge and opens south_gate for friendly armor & technicals
+    // 1b. Breach detonates satchel charge and opens south_gate while apron_gate stays locked until JP-8 blows
     expect(h.director.call('cf.airbaseBreach')).toBe(true);
     expect(h.director.airbase.state.gateBreached).toBe(true);
     expect(h.director.airbase.vehicleFleet!.isGateOpen('south_gate')).toBe(true);
+    expect(h.director.airbase.vehicleFleet!.isGateOpen('apron_gate')).toBe(false);
 
-    // 2. Fuel apron blast signals cf:fuel_blown + friendly Valkyrie fast-rope drop dispatches
+    // 2. Fuel apron blast signals cf:fuel_blown and 3-stage pipeline chain blast breaches apron_gate after 0.70 s
     h.director.call('cf.apronFuelWatch');
     const fuelDepot = AIRBASE_DESTRUCTIBLES.find(d => d.kind === 'fuelDepot')!;
     h.events.emit('combat:explosion', {
@@ -312,10 +313,11 @@ describe('CrossfireDirector & all 25 cf.* calls', () => {
       damage: 400,
     });
     expect(h.signals).toContain(CROSSFIRE_SIGNALS.fuelBlown);
-
-    expect(h.director.call('cf.airbaseValkyrieDrop', 'apron')).toBe(true);
-    expect(h.director.airbase.state.valkyrieDropsDispatched).toBe(1);
-    expect(h.director.airbase.vehicleFleet!.units.some(u => u.kind === 'valkyrie')).toBe(true);
+    expect(h.director.airbase.state.apronGateBreached).toBe(false);
+    h.director.update(0.4);
+    h.director.update(0.4);
+    expect(h.director.airbase.state.apronGateBreached).toBe(true);
+    expect(h.director.airbase.vehicleFleet!.isGateOpen('apron_gate')).toBe(true);
 
     // 3. ATC Override console reacts to [E] interact when player stands at Level 3 console
     h.director.call('cf.atcConsole');
