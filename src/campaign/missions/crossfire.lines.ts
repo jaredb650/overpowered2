@@ -2,14 +2,15 @@
  * Complete dialogue script for the 4-part "Crossfire" campaign
  * (`Form 7742-W: Cross-Border Liability Transfer`).
  *
- * All lines are unvoiced (subtitle-only) until voice samples are recorded.
+ * All 73 lines are voiced via local Breeze TTS 2 in `public/audio/voice/mission.crossfire.*.mp3`
+ * (see `docs/notes/voices.md` for voice IDs and casting).
  * Speaker mapping (dedicated Crossfire entries in `src/enemies/commander/lines.ts` & `src/ui/commander/portrait.ts`):
- *   council   — The Galactic Council / Bureau Compliance Officer (deadpan bureaucracy)
- *   darrow    — Colonel Darrow, Northern Command CO at Valken Airbase
- *   halvorsen — General Halvorsen, Southern Directorate CO at Fortress Halcyon
- *   mercer    — Captain Mercer, Bureau Ground Force CO at Halcyon Beachhead
- *   viper     — Viper Flight (buddy squad wingmen / B-1B co-pilot / air wing)
- *   carrier   — CVN-91 Actual (Carrier Air Control / recovery net)
+ *   council   — The Galactic Council / Bureau Compliance Officer (`council`)
+ *   darrow    — Colonel Darrow, Northern Command CO at Valken Airbase (`co_darrow`)
+ *   halvorsen — General Halvorsen, Southern Directorate CO at Fortress Halcyon (`co_halvorsen`)
+ *   mercer    — Captain Mercer, Bureau Ground Force CO at Halcyon Beachhead (`tank_ironclad_sgt`)
+ *   viper     — Viper Flight (buddy squad wingmen / B-1B co-pilot / air wing) (`pilot_serious_atc`)
+ *   carrier   — CVN-91 Actual (Carrier Air Control / recovery net) (`pilot_airline_vet`)
  */
 import type { Emotion, Line, Speaker } from '../../enemies/commander/lines';
 

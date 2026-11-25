@@ -82,7 +82,14 @@ Currently saved voices:
 | `transport_crew_chief` | `.tchief` | **Door Gunners** (`EnemyDoorGunner`) & **Enemy Attack Choppers** (`EnemyChopper`) | Grizzled, raspy crew chief / door gunner | Punchy ramp & minigun callouts |
 | `transport_convoy_trucker` | `.ttruck` | **Fast-Rope Assault Transport / Convoy Crews** (`FastRopeHeli`) | Friendly Midwestern convoy trucker | APC / Humvee / overland convoy & lift crew |
 
-> **Speaker-slot note (`crossfire.lines.ts`):** Because `Speaker` in `src/enemies/commander/lines.ts` is a fixed union, `crossfire.lines.ts` reuses `governor` for **Colonel Darrow**, `harbourmaster` for **General Halvorsen**, and `marr` for **Captain Mercer**. Those are separate characters from Bank Run's Governor, Foreclosure's Harbourmaster, and Desert Raid's Sgt Marr — do **not** share voices across those missions by mistake. Colonel Darrow and General Halvorsen do not have saved voices yet.
+#### Crossfire Campaign Commanders (`src/campaign/missions/crossfire.lines.ts`)
+
+| Voice ID (`voice_id`) | Speaker ID | Character / role | Game file convention |
+|---|---|---|---|
+| `co_darrow` | `darrow` | **Colonel Darrow** — Northern Command CO at Valken Airbase | `public/audio/voice/<line.id>.mp3` |
+| `co_halvorsen` | `halvorsen` | **General Halvorsen** — Southern Directorate CO at Fortress Halcyon | `public/audio/voice/<line.id>.mp3` |
+
+> **Crossfire casting (`crossfire.lines.ts`):** `council` → `council`, `darrow` → `co_darrow`, `halvorsen` → `co_halvorsen`, `mercer` → `tank_ironclad_sgt`, `viper` → `pilot_serious_atc`, `carrier` → `pilot_airline_vet`. (All 6 are dedicated speakers in `src/enemies/commander/lines.ts`, separate from Bank Run's Governor, Foreclosure's Harbourmaster, and Desert Raid's Sgt Marr.)
 
 Check if the server is running:
 
