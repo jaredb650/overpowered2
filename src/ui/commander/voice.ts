@@ -43,7 +43,7 @@ let pageList: Promise<ClipList> | null = null;
 async function fetchList(): Promise<ClipList> {
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      const r = await fetch(`${BASE}manifest.json`);
+      const r = await fetch(`${BASE}manifest.json`, { cache: 'no-cache' });
       // No list means no recordings, which is a fine way to ship.
       if (!r.ok) return new Set();
       const m = (await r.json()) as { clips?: unknown } | null;

@@ -48,7 +48,7 @@ export interface VoiceDeps {
 const PAGE: VoiceDeps = {
   audio: () => new Audio(),
   list: async () => {
-    const r = await fetch(`${BASE}manifest.json`);
+    const r = await fetch(`${BASE}manifest.json`, { cache: 'no-cache' });
     // No list is a game with no recorded voices: every line stays text.
     return r.ok ? ((await r.json()) as { clips: string[]; ext?: string }) : { clips: [] };
   },
