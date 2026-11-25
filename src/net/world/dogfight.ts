@@ -86,10 +86,37 @@ const _vel = new THREE.Vector3();
 const mm = (n: number): number => Math.round(n * 100) / 100;
 const rad = (n: number): number => Math.round(n * 1000) / 1000;
 
+interface JetHost {
+  readonly enemies: readonly AiCombatJet[];
+  readonly allies: readonly AiCombatJet[];
+  setNetBridge(bridge: DogfightNetBridge | null): void;
+  applyGuestShatter(
+    kind: AiJetKind,
+    team: AiJetTeam,
+    pos: THREE.Vector3,
+    vel: THREE.Vector3,
+    yaw: number,
+    pitch: number,
+    roll: number,
+    source: string,
+    heavyKill: boolean,
+  ): void;
+  tickGuest(dt: number): void;
+  triggerGuestFlares(): void;
+}
+
 function dogfightWavesOf(w: WorldContext): DogfightWaves | null {
   const waves = w.ctx.waves as unknown as Partial<DogfightWaves> | undefined;
   if (!waves || typeof waves.setNetBridge !== 'function' || !waves.carrier || !waves.wreckage) return null;
   return waves as DogfightWaves;
+}
+
+function jetHostOf(w: WorldContext): JetHost | null {
+  const df = dogfightWavesOf(w);
+  if (df) return df;
+  const jets = (w.ctx.waves as unknown as { jets?: Partial<JetHost> } | undefined)?.jets;
+  if (!jets || typeof jets.setNetBridge !== 'function' || !Array.isArray(jets.enemies)) return null;
+  return jets as JetHost;
 }
 
 function vehicleSystemOf(w: WorldContext): VehicleSystem | null {
@@ -300,7 +327,7 @@ export class DogfightSync implements WorldModule {
   private readonly parts = new ListParts();
   private readonly rates = new Map<string, { hit: Rate; buy: Rate; flare: Rate }>();
   private materials: ModelMaterials | null = null;
-  private pluggedWaves: DogfightWaves | null = null;
+  private pluggedHost: JetHost | null = null;
   private nextJetSend = 0;
   private nextStateSend = 0;
   private emptyLeft = 0;
@@ -332,9 +359,9 @@ export class DogfightSync implements WorldModule {
     return r;
   }
 
-  private ensureBridge(waves: DogfightWaves): void {
-    if (this.pluggedWaves === waves) return;
-    this.pluggedWaves = waves;
+  private ensureBridge(host: JetHost, dogfight: DogfightWaves | null): void {
+    if (this.pluggedHost === host) return;
+    this.pluggedHost = host;
     const bridge: DogfightNetBridge = {
       onJetKilled: (jet, source, heavyKill) => {
         if (!this.w.hosting || !this.w.ready) return;
@@ -351,7 +378,7 @@ export class DogfightSync implements WorldModule {
           src: source.slice(0, 32),
           ...(heavyKill ? { hvy: 1 as const } : {}),
         });
-        this.sendState(waves);
+        if (dogfight) this.sendState(dogfight);
       },
       onBuyUpgrade: id => {
         if (!this.w.hosting && this.w.ready) this.w.send({ t: 'dfbuy', id });
@@ -377,13 +404,14 @@ export class DogfightSync implements WorldModule {
         }, peerId);
       },
     };
-    waves.setNetBridge(bridge);
+    host.setNetBridge(bridge);
   }
 
   update(now: number): void {
-    const waves = dogfightWavesOf(this.w);
-    if (!waves) return;
-    this.ensureBridge(waves);
+    const host = jetHostOf(this.w);
+    if (!host) return;
+    const dogfight = dogfightWavesOf(this.w);
+    this.ensureBridge(host, dogfight);
 
     const dt = this.lastFrame === 0 ? 0.016 : clamp((now - this.lastFrame) / 1000, 0, 0.25);
     this.lastFrame = now;
@@ -391,15 +419,15 @@ export class DogfightSync implements WorldModule {
     if (this.w.hosting) {
       if (this.w.ready && now >= this.nextJetSend) {
         this.nextJetSend = now + JET_SEND_MS;
-        this.sendJets(waves);
+        this.sendJets(host);
       }
-      if (this.w.ready && now >= this.nextStateSend) {
+      if (dogfight && this.w.ready && now >= this.nextStateSend) {
         this.nextStateSend = now + STATE_SEND_MS;
-        this.sendState(waves);
+        this.sendState(dogfight);
       }
     } else {
-      // Guest: tick Carrier HUD, Deck Terminals, ocean hoist, flight deck repair, and interpolated jet puppets.
-      waves.tickGuest(dt);
+      // Guest: tick Carrier HUD / jet wreckage and interpolated jet puppets.
+      host.tickGuest(dt);
       for (const [id, p] of this.puppets) {
         if (now - p.lastSeenAt > 3500) {
           this.removePuppet(id);
@@ -412,7 +440,7 @@ export class DogfightSync implements WorldModule {
 
   // ---- Host broadcast ----
 
-  private sendJets(waves: DogfightWaves): void {
+  private sendJets(host: JetHost): void {
     const rows: JetWireRow[] = [];
     const pushList = (list: readonly AiCombatJet[], tm: 0 | 1) => {
       for (const j of list) {
@@ -435,8 +463,8 @@ export class DogfightSync implements WorldModule {
         });
       }
     };
-    pushList(waves.enemies, 0);
-    pushList(waves.allies, 1);
+    pushList(host.enemies, 0);
+    pushList(host.allies, 1);
 
     // Prune dead entries from idToJet map.
     for (const [id, j] of this.idToJet) {
@@ -531,7 +559,7 @@ export class DogfightSync implements WorldModule {
     if (this.w.hosting) return;
     const waves = dogfightWavesOf(this.w);
     if (!waves) return;
-    this.ensureBridge(waves);
+    this.ensureBridge(waves, waves);
     if (
       !Number.isFinite(v.w) || !VALID_PHASES.has(v.ph) || !Number.isFinite(v.rem) || !Number.isFinite(v.nxt)
       || !Number.isFinite(v.hp) || !Number.isFinite(v.mhp) || !Number.isFinite(v.cr)
@@ -556,11 +584,11 @@ export class DogfightSync implements WorldModule {
   private onShatter(v: Extract<DogfightEvent, { t: 'dfshatter' }>): void {
     if (this.w.hosting) return;
     if (Number.isInteger(v.id) && v.id > 0) this.removePuppet(v.id);
-    const waves = dogfightWavesOf(this.w);
-    if (!waves || !VALID_KINDS.has(v.k) || !validVec(v.p) || !validVec(v.v) || !validVec(v.r)) return;
+    const host = jetHostOf(this.w);
+    if (!host || !VALID_KINDS.has(v.k) || !validVec(v.p) || !validVec(v.v) || !validVec(v.r)) return;
     _pos.set(v.p[0], v.p[1], v.p[2]);
     _vel.set(v.v[0], v.v[1], v.v[2]);
-    waves.applyGuestShatter(
+    host.applyGuestShatter(
       v.k,
       v.tm === 0 ? 'enemy' : 'ally',
       _pos,
@@ -629,7 +657,7 @@ export class DogfightSync implements WorldModule {
   private onGuestFlare(from: string, now: number): void {
     if (!this.w.hosting) return;
     if (!this.rate(from).flare.take(now, FLARE_PER_SECOND)) return;
-    dogfightWavesOf(this.w)?.triggerGuestFlares();
+    jetHostOf(this.w)?.triggerGuestFlares();
   }
 
   /** Host: immediately syncs USS Sovereign carrier/wave state to an arriving guest. */
@@ -637,7 +665,7 @@ export class DogfightSync implements WorldModule {
     if (!this.w.hosting) return;
     const waves = dogfightWavesOf(this.w);
     if (!waves) return;
-    this.ensureBridge(waves);
+    this.ensureBridge(waves, waves);
     this.sendState(waves, id);
   }
 
@@ -650,9 +678,9 @@ export class DogfightSync implements WorldModule {
     this.puppets.clear();
     this.idToJet.clear();
     this.rates.clear();
-    if (this.pluggedWaves) {
-      this.pluggedWaves.setNetBridge(null);
-      this.pluggedWaves = null;
+    if (this.pluggedHost) {
+      this.pluggedHost.setNetBridge(null);
+      this.pluggedHost = null;
     }
     this.lastFrame = 0;
   }

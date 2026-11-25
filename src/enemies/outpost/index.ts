@@ -44,6 +44,8 @@ import { listenToEachOther } from './chatter/listeners';
 import { BRAVADO, breaking, tickOutcomes } from './chatter/outcomes';
 import { PlayerMemory, rememberPlayer } from './chatter/memory';
 import { Offers } from './chatter/offers';
+import { VehicleChatter } from './chatter/vehicles';
+import { resetAirRadio } from './chatter/airRadio';
 import { Comms } from './comms';
 import { CoverMap, type CoverSpot, type SpotReading } from './cover';
 import { Mind, type CrowdLink, type CrowdPlayer, type Note } from './crowd';
@@ -208,6 +210,8 @@ export class Outpost {
   readonly memory = new PlayerMemory();
   /** Tactics offered across squad borders: the shield wall. */
   readonly offers = new Offers();
+  /** Combined-arms ground chatter, CCIP bomb scatter, and anti-roadkill dodge. */
+  readonly vehicles: VehicleChatter;
   private readonly leaving: Soldier[] = [];
   private readonly runs: FleeCandidate[] = [];
   private gates: THREE.Vector3[] = [];
@@ -240,6 +244,7 @@ export class Outpost {
     listenForWounds(w, this.comms);
     listenToEachOther(w, this);
     rememberPlayer(this);
+    this.vehicles = new VehicleChatter(this);
     this.dropped = new DroppedWeapons(w.ctx);
     this.waves = new OutpostWaves(w.ctx, this, manager);
     this.wounds = new WoundSystem(w, this, manager);
@@ -488,6 +493,8 @@ export class Outpost {
     this.cover.release();
     this.intel.reset();
     this.comms.reset();
+    this.vehicles.reset();
+    resetAirRadio();
     this.dread.reset();
     this.dropped.clear();
     this.gateUsedAt.clear();
@@ -679,6 +686,7 @@ export class Outpost {
     const now = w.now;
     this.flushLeaving();
     this.comms.update();
+    this.vehicles.update();
     this.dread.update(dt);
     // Co-op host: every player has their own motion and their own stillness, and each man looks for the one he is after.
     const crowd = this.crowd?.players() ?? null;

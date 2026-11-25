@@ -15,7 +15,7 @@ import { ROLE_OF } from '../doctrine';
 import { soldierOf, type Soldier } from '../soldier';
 import { isMelee } from '../../../weapons/melee/data';
 
-export type Habit = 'heads' | 'high' | 'blasts' | 'blade' | 'flanks';
+export type Habit = 'heads' | 'high' | 'blasts' | 'blade' | 'flanks' | 'roadkills' | 'airStrikes' | 'heavyArmor';
 /** Kills (or back shots) of one kind before it is noticed. */
 export const HABIT_AT = 4;
 /** Metres of height that make a kill "from above". */
@@ -23,11 +23,15 @@ const ABOVE = 2.5;
 /** What the blade habit makes riflemen keep, and how far the men spread against explosives: the Commander's own answers. */
 const KEEP_OUT = 7;
 const SPREAD = 5.5;
+const VEH_KEEP_OUT = 12;
+const VEH_SPREAD = 7;
 /** Seconds without sight of him that make the next sighting "again". */
 export const AGAIN_AFTER = 12;
 
 export class PlayerMemory {
-  readonly counts: Record<Habit, number> = { heads: 0, high: 0, blasts: 0, blade: 0, flanks: 0 };
+  readonly counts: Record<Habit, number> = {
+    heads: 0, high: 0, blasts: 0, blade: 0, flanks: 0, roadkills: 0, airStrikes: 0, heavyArmor: 0,
+  };
   readonly noticed = new Set<Habit>();
   /** Callsigns of squads wiped this match, newest last. */
   readonly wiped: string[] = [];
@@ -51,11 +55,14 @@ export function rememberPlayer(o: Outpost): void {
     if (w.player.position.y - k.enemy.position.y > ABOVE) note(o, 'high');
     if (k.damage.type === 'explosive') note(o, 'blasts');
     if (isMelee(k.damage.source)) note(o, 'blade');
+    if (w.player.airborne) note(o, 'airStrikes');
+    else if (w.player.heavyArmor) note(o, 'heavyArmor');
   });
   events.on('enemy:backshot', b => {
     const s = soldierOf(b.enemy);
     if (s && !s.surrendered && !b.fleeing) note(o, 'flanks');
   });
+  events.on('vehicle:roadkill', () => note(o, 'roadkills'));
 }
 
 function note(o: Outpost, habit: Habit): void {
@@ -69,6 +76,18 @@ function note(o: Outpost, habit: Habit): void {
   if (habit === 'blasts') {
     doctrine.spacing = Math.max(doctrine.spacing, SPREAD);
     doctrine.stacks = false;
-  } else if (habit === 'blade') doctrine.keepOut = Math.max(doctrine.keepOut, KEEP_OUT);
+  } else if (habit === 'blade') {
+    doctrine.keepOut = Math.max(doctrine.keepOut, KEEP_OUT);
+  } else if (habit === 'roadkills') {
+    doctrine.keepOut = Math.max(doctrine.keepOut, VEH_KEEP_OUT);
+    doctrine.spacing = Math.max(doctrine.spacing, VEH_SPREAD);
+  } else if (habit === 'airStrikes') {
+    doctrine.spacing = Math.max(doctrine.spacing, VEH_SPREAD);
+    doctrine.stacks = false;
+  } else if (habit === 'heavyArmor') {
+    doctrine.spacing = Math.max(doctrine.spacing, VEH_SPREAD);
+    doctrine.keepOut = Math.max(doctrine.keepOut, VEH_KEEP_OUT);
+    doctrine.stacks = false;
+  }
   o.comms.say('habit', voice, null, { flags: { [habit]: true } });
 }

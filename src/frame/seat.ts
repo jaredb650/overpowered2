@@ -664,6 +664,13 @@ export class Frame {
     }
     this.panel(seat);
     this.onBoard();
+    this.ctx.events?.emit?.('vehicle:boarded', {
+      id: 'frame',
+      mount: 'frame',
+      hijacked: false,
+      viaGrapple: false,
+      position: this.walker.feet.clone(),
+    });
     audio.play('metal_groan', { pitch: 0.7 });
     audio.play('tank_turret_stop', { pitch: 0.7 });
   }
@@ -1473,6 +1480,12 @@ export class Frame {
     audio.play('land_hard', { pitch: 0.42 });
     audio.play('slam_impact', { pitch: 0.55 });
     audio.play('explosion_debris', { volume: 0.7 * k });
+    this.ctx.events?.emit?.('vehicle:ordnance', {
+      vehicleId: 'frame',
+      kind: 'stomp',
+      origin: at.clone(),
+      target: at.clone(),
+    });
     render.post.radialBlur(0.55 * k, 0.3);
     render.post.chromatic(0.4 * k, 0.25);
     camera.addTrauma(0.55 + 0.45 * k);

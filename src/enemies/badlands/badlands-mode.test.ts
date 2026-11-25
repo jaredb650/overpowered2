@@ -27,10 +27,13 @@ import type { GroundVehicleKind, VehicleSystem } from '../vehicles/index';
 import { FastRopeHeli } from '../vehicles/transport';
 import {
   BADLANDS_FIRST_WAVE,
+  BADLANDS_JET_MIN_WAVE,
   BADLANDS_MAX_HOSTILE,
   BADLANDS_MAX_STRENGTH,
   badlandsAirSupportForWave,
   badlandsBossForWave,
+  badlandsJetRaidChance,
+  badlandsJetRaidForWave,
   badlandsTankCount,
   badlandsWaveStrength,
   BadlandsWaves,
@@ -74,7 +77,16 @@ function makeHarness() {
     center: at.clone(),
     velocity: new THREE.Vector3(),
     groundSampleAt: new THREE.Vector2(at.x, at.z),
-    char: { anim: { play: vi.fn() } },
+    char: {
+      root: new THREE.Group(),
+      bones: [],
+      anim: { play: vi.fn() },
+      setPosition: vi.fn(),
+      setRotation: vi.fn(),
+      ragdoll: vi.fn(),
+      sever: vi.fn(),
+      gib: vi.fn(),
+    },
   } as unknown as Enemy);
 
   const ctx = {
@@ -134,9 +146,12 @@ function makeHarness() {
     vehicles: null as unknown as VehicleSystem,
   } as unknown as EnemyManager;
 
+  const extraTargets = new Set<unknown>();
   const vehicles = {
     live: liveVehicles,
     target: (tag: string) => markedTags.add(tag),
+    addExtra: (t: unknown) => { extraTargets.add(t); },
+    removeExtra: (t: unknown) => { extraTargets.delete(t); },
     spawnGround: (kind: GroundVehicleKind, order: GroundOrder) => {
       spawnedGround.push({ kind, order });
       const stub = Object.create(GroundVehicle.prototype) as Record<string, unknown>;
@@ -202,7 +217,7 @@ function makeHarness() {
     },
   } as unknown as Outpost;
 
-  return { ctx, manager, outpost, alive, liveVehicles, markedTags, spawnedGround, spawnedBosses, feeds, events };
+  return { ctx, manager, outpost, alive, liveVehicles, extraTargets, markedTags, spawnedGround, spawnedBosses, feeds, events };
 }
 
 describe('Badlands contract, shop, starter & menu registration', () => {
@@ -370,5 +385,92 @@ describe('BadlandsWaves live orchestration', () => {
     expect(seen.has('doorGunner')).toBe(true);
     expect(seen.has('chopper')).toBe(true);
     expect(h.spawnedBosses).toContain('juggernaut');
+    // Strictly NO enemy combat jets on Waves 1–5!
+    expect([...seen].some(v => v.startsWith('jet:'))).toBe(false);
+    waves.dispose();
+  });
+
+  it('never spawns enemy combat jets on Waves 1–5, enables probabilistic jet raids from Wave 6+, and gates wave clear on live jets', () => {
+    expect(BADLANDS_JET_MIN_WAVE).toBe(6);
+    for (let w = 1; w <= 5; w++) {
+      expect(badlandsJetRaidChance(w)).toBe(0);
+      expect(badlandsJetRaidForWave(w, () => 0)).toEqual([]);
+    }
+
+    // Wave 6+ has genuine probability (spawns when roll < chance, skips when roll >= chance on non-boss waves).
+    expect(badlandsJetRaidChance(6)).toBeGreaterThan(0);
+    expect(badlandsJetRaidChance(6)).toBeLessThan(1);
+    expect(badlandsJetRaidForWave(6, () => 0.99)).toEqual([]);
+    const w6Raid = badlandsJetRaidForWave(6, () => 0.05);
+    expect(w6Raid.length).toBe(1);
+    expect(['warthog', 'harrier', 'hornet']).toContain(w6Raid[0]);
+
+    // Wave 10 boss wave guarantees an airstrike with heavy striker/bomber + escort!
+    expect(badlandsJetRaidChance(10)).toBe(1);
+    const w10Raid = badlandsJetRaidForWave(10, () => 0.5);
+    expect(w10Raid.length).toBe(2);
+
+    // Live orchestration on Wave 6 with deterministic low roll so jet raid triggers:
+    const h = makeHarness();
+    const waves = new BadlandsWaves(h.ctx, h.outpost, h.manager);
+    const randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0.1);
+    try {
+      waves.start();
+      waves.jumpTo(6);
+
+      const step = (seconds: number) => {
+        const steps = Math.ceil(seconds / h.ctx.time.dt);
+        for (let i = 0; i < steps; i++) {
+          h.ctx.time.elapsed += h.ctx.time.dt;
+          waves.update();
+        }
+      };
+
+      step(12);
+      expect(waves.wave).toBe(6);
+      expect(waves.jets.aliveCount).toBeGreaterThanOrEqual(1);
+      expect(h.extraTargets.size).toBeGreaterThanOrEqual(1);
+      expect(waves.spawnedVehicles.some(v => v.startsWith('jet:'))).toBe(true);
+      expect(h.feeds.some(f => f.includes('AIRSTRIKE INBOUND'))).toBe(true);
+
+      // Flush every ground unit & ground/chopper vehicle while keeping the jet alive -> wave must NOT clear yet!
+      for (let r = 0; r < 14; r++) {
+        step(3);
+        for (const v of h.liveVehicles) {
+          if (v instanceof GroundVehicle && v.crewAboard > 0) {
+            h.manager.queued = Math.max(0, h.manager.queued - v.crewAboard);
+            (v as unknown as { crewAboard: number }).crewAboard = 0;
+          }
+          if (v instanceof FastRopeHeli && v.onboardCount > 0) {
+            h.manager.queued = Math.max(0, h.manager.queued - v.onboardCount);
+            (v as unknown as { onboardCount: number }).onboardCount = 0;
+          }
+          v.alive = false;
+          v.retired = true;
+        }
+        h.liveVehicles.length = 0;
+        for (const e of h.alive) e.alive = false;
+        h.alive.length = 0;
+      }
+      expect(waves.jets.aliveCount).toBeGreaterThanOrEqual(1);
+      expect(waves.phase).not.toBe('intermission');
+
+      // Splash the enemy jet -> shatters into physical wreckage, unregisters ExtraTarget, and clears Wave 6!
+      for (const jet of [...waves.jets.enemies]) {
+        jet.applyDamage(5000, jet.position, 'bastion_vulcan', true, true);
+      }
+      expect(waves.jets.aliveCount).toBe(0);
+      expect(waves.jets.wreckage.shatteredJets).toBeGreaterThanOrEqual(1);
+      expect(h.extraTargets.size).toBe(0);
+
+      // Clear any spawned ejected pilot enemy if the pilot fate rolled 'eject_chute'
+      for (const e of h.alive) e.alive = false;
+      h.alive.length = 0;
+      step(1);
+      expect(waves.phase).toBe('intermission');
+    } finally {
+      randomSpy.mockRestore();
+      waves.dispose();
+    }
   });
 });

@@ -67,7 +67,10 @@ export const SPEAK_RATE = 0.05;
 export const airtime = (text: string): number => 0.9 + 0.06 * text.length;
 
 /** Kinds that cut in over the side-wide line gap. A bubble of one of these is not the one a fourth line replaces. */
-export const URGENT: ReadonlySet<CommsKind> = new Set<CommsKind>(['manDown', 'leaderDown', 'takingCommand', 'squadGone', 'frag', 'flash', 'surrender', 'lastStand', 'spring', 'refused', 'hostage', 'rocketOut', 'fakeOut', 'shieldUp', 'shieldDown', 'breakOut']);
+export const URGENT: ReadonlySet<CommsKind> = new Set<CommsKind>([
+  'manDown', 'leaderDown', 'takingCommand', 'squadGone', 'frag', 'flash', 'surrender', 'lastStand', 'spring', 'refused', 'hostage', 'rocketOut', 'fakeOut', 'shieldUp', 'shieldDown', 'breakOut',
+  'ordnance', 'vehHijack', 'airInbound', 'airDown', 'airEvade', 'groundAirCall',
+]);
 
 /** Rows by `faction/concept`, in table order. */
 const INDEX = new Map<string, number[]>();

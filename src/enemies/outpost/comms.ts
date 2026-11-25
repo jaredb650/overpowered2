@@ -30,6 +30,8 @@ const KIND_GAP: Partial<Record<CommsKind, number>> = {
   shieldUp: 8, stackOn: 4, shieldPush: 10, breakOut: 4, shieldFlanked: 6, shieldDown: 3, merge: 4,
   habit: 3, flee: 4, holdout: 2, fakeOut: 1, revenge: 4, taunt: 12,
   contactReport: 12, copy: 3, status: 10, squadWiped: 4, sayAgain: 1, radioCheck: 1, radioLost: 1, radioGrab: 1, hit: 3, dying: 6, plateHeld: 15, plateGone: 4, pierced: 10, artery: 5, gut: 5, limbLost: 1, downed: 6, beg: 5, scream: 4, rescue: 6, lastStand: 5, pinning: 7, flushing: 6, rushing: 5, cutoff: 6, opening: 8, wounded: 7, dry: 5, hostage: 5, clearShot: 5,
+  vehSpotted: 7, ordnance: 2.5, vehHijack: 4, vehRoadkill: 4, vehAir: 7, vehArmor: 7, groundAirCall: 7,
+  airInbound: 4, airStrike: 3.5, airDogfight: 4, airEvade: 3, airDown: 2, airSplash: 3.5,
 };
 const DEFAULT_KIND_GAP = 2.5;
 /** Spacing between any two lines, so the feed stays readable. A casualty cuts in regardless. */
@@ -235,6 +237,7 @@ export class Comms {
     line.voice = s?.voice ?? -1;
     line.clip = null;
     line.radio = false;
+    line.ally = false;
     if (s) line.position.copy(s.e.center);
     else line.position.copy(w.player.position);
     const why = this.memory.why;
@@ -257,7 +260,7 @@ export class Comms {
 
   /**
    * Where the player is from where this man stands, and what he is doing: the clock (12 dead ahead, 3 to his right), height,
-   * charging or running, fast, hurt. Worked out only when somebody speaks.
+   * charging or running, fast, hurt, mounted. Worked out only when somebody speaks.
    */
   private read(s: Soldier): void {
     const { w, facts } = this;
@@ -283,6 +286,9 @@ export class Comms {
     flags.fleeing = closing < -CHARGE;
     flags.fast = p.speed > FAST;
     flags.playerHurt = player.health < player.maxHealth * 0.5;
+    flags.inVehicle = p.mount !== 'foot';
+    flags.airborne = p.airborne;
+    flags.heavyArmor = p.heavyArmor;
   }
 
   /** Who answers a man: his buddy if he can, otherwise the nearest of his squad still fighting. */

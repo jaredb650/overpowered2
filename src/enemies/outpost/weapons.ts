@@ -53,6 +53,15 @@ const canFire = (e: Enemy): boolean => {
   return !!s && s.fighting && !s.silent && s.weapon === 'primary' && s.exposed && s.mag > 0 && s.reloadUntil === 0 && hasGun(e) && (s.sees || s.suppressing || s.blind || atFoe(s)) && !heldBack(s);
 };
 
+/** Keeps on-foot range identical while unlocking extended AA/AT engagement range against aircraft and vehicles. */
+const withinFootRange = (e: Enemy, footMax: number): boolean => {
+  const s = soldierOf(e);
+  if (!s) return false;
+  if (atFoe(s)) return true;
+  const p = s.squad.outpost.w.player;
+  return p.airborne || p.mount !== 'foot' || e.dist <= footMax;
+};
+
 /** The same, but only on a target he can see. Rockets and sniper rounds are too few to spend on a guess. */
 const canAim = (e: Enemy): boolean => {
   const s = soldierOf(e);
@@ -197,8 +206,8 @@ function soldierGun(t: GunSpec): AttackDef {
 }
 
 const rifle = soldierGun({
-  name: 'rifle', range: [1.5, 64], shots: 3, gap: 0.1, damage: 7, speed: 88, windup: 0.26, cooldown: [0.5, 1.05], miss: 1,
-  sound: 'enemy_smg', muzzle: 'enemy', moveMul: 0.65, token: 'ranged',
+  name: 'rifle', range: [1.5, 96], shots: 3, gap: 0.1, damage: 7, speed: 88, windup: 0.26, cooldown: [0.5, 1.05], miss: 1,
+  sound: 'enemy_smg', muzzle: 'enemy', moveMul: 0.65, token: 'ranged', requires: e => canFire(e) && withinFootRange(e, 64),
 });
 
 /**
@@ -206,8 +215,9 @@ const rifle = soldierGun({
  * does not stop when the player breaks sight: the squad's `laneAt` keeps it working the ground, and that is what denies the space.
  */
 const machineGun = soldierGun({
-  name: 'machinegun', range: [2, 84], shots: 34, gap: 0.085, damage: 4.2, speed: 96, windup: 0.55, cooldown: [0.6, 1.2], miss: 1.15,
+  name: 'machinegun', range: [2, 132], shots: 34, gap: 0.085, damage: 4.2, speed: 96, windup: 0.55, cooldown: [0.6, 1.2], miss: 1.15,
   sound: 'enemy_minigun_loop', muzzle: 'minigun', moveMul: 0.12, token: null, loop: 'enemy_minigun_loop', traverse: 1.15,
+  requires: e => canFire(e) && withinFootRange(e, 84),
 });
 
 const sidearm = soldierGun({
@@ -275,17 +285,21 @@ const shotgunBlast: AttackDef = {
   },
 };
 
-const launcher = rocket({ name: 'rocket', range: [8, 54], damage: 44, radius: 5, speed: 34, windup: 0.85, cooldown: [3, 4.4] });
+const launcher = rocket({ name: 'rocket', range: [8, 125], damage: 44, radius: 5, speed: 34, windup: 0.85, cooldown: [3, 4.4] });
 
-/** The laser telegraph is the swarm's. The round goes where the target will be and not where it was, and it lands at its feet. */
+/** The laser telegraph is the swarm's. The round goes where the target will be and not where it was, and it lands at its feet (or center mass for aircraft). */
 const rocketShot: AttackDef = {
   ...launcher,
-  requires: canAimFoe,
+  requires: e => canAimFoe(e) && withinFootRange(e, 54),
   // He announces every shot, so the player can dodge and the men behind him can move.
   begin(e, w) {
     launcher.begin?.(e, w);
     const s = soldierOf(e);
-    if (s) s.squad.outpost.comms.say('rocketOut', s);
+    if (s) {
+      const airTarget = w.player.airborne;
+      const armorTarget = !airTarget && w.player.heavyArmor;
+      s.squad.outpost.comms.say('rocketOut', s, null, airTarget || armorTarget ? { flags: { airTarget, armorTarget } } : null);
+    }
   },
   fire(e, w) {
     const s = soldierOf(e);
@@ -294,19 +308,21 @@ const rocketShot: AttackDef = {
     s.firedAt = w.now;
     muzzleOf(e, _muzzle);
     const foe = atFoe(s) ? s.foe! : null;
+    const isAir = !foe && w.player.airborne;
+    const speed = isAir ? 48 : 34;
     if (foe) {
       faceFoe(e, s);
       _target.copy(foe.center);
-    } else interceptPoint(w, s.squad.outpost.track, _muzzle, 34, s.rankDef.lead, _target);
-    _target.y -= 1;
+    } else interceptPoint(w, s.squad.outpost.track, _muzzle, speed, s.rankDef.lead, _target);
+    if (!isAir) _target.y -= 1;
     wander(s, w);
     _dir.subVectors(_target, _muzzle).normalize();
-    _vel.copy(_dir).multiplyScalar(34);
+    _vel.copy(_dir).multiplyScalar(speed);
     w.ctx.combat.spawnProjectile({
-      origin: _muzzle, velocity: _vel, kind: 'rocket', team: 'enemy', damage: 44 * e.damageMul, source: e.id, explosion: { radius: 5, damage: 44 * e.damageMul, kind: 'enemy', selfDamage: 1 }, lifetime: 5, homing: 0,
+      origin: _muzzle, velocity: _vel, kind: 'rocket', team: 'enemy', damage: 44 * e.damageMul, source: e.id, explosion: { radius: 5, damage: 44 * e.damageMul, kind: 'enemy', selfDamage: 1 }, lifetime: isAir ? 6.5 : 5, homing: 0,
     });
     // The real rocket hurts the player if he is near where it lands. Its burst on allies goes through the ally.
-    foe?.blast(_target, 5, 44 * e.damageMul, _muzzle.distanceTo(_target) / 34, e.id);
+    foe?.blast(_target, 5, 44 * e.damageMul, _muzzle.distanceTo(_target) / speed, e.id);
     w.ctx.combat.enemyMuzzle(_muzzle, _dir, 'rocket');
     w.ctx.audio.play('enemy_rocket_fire', { position: _muzzle, pitchJitter: 0.08 });
   },
@@ -320,7 +336,7 @@ function wander(s: Soldier, w: AiWorld): void {
   _target.addScaledVector(_rand, shake);
 }
 
-const snipe = sniperShot({ name: 'snipe', range: [10, 90], damage: SNIPE_DAMAGE, windup: 1.45, lock: 0.28, cooldown: [2, 3] });
+const snipe = sniperShot({ name: 'snipe', range: [10, 150], damage: SNIPE_DAMAGE, windup: 1.45, lock: 0.28, cooldown: [2, 3] });
 
 /**
  * The laser walks onto where the target is going. Running in a straight line no longer dodges it, because the dot is ahead of you. What
@@ -328,7 +344,7 @@ const snipe = sniperShot({ name: 'snipe', range: [10, 90], damage: SNIPE_DAMAGE,
  */
 const marksmanShot: AttackDef = {
   ...snipe,
-  requires: canAim,
+  requires: e => canAim(e) && withinFootRange(e, 90),
   windupTick(e, w, dt) {
     const s = soldierOf(e);
     if (!s) return;

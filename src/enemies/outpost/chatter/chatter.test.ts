@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { EventBus } from '../../../core/events';
-import type { GameEvents } from '../../../core/contracts';
+import type { Ctx, GameEvents } from '../../../core/contracts';
 import { mulberry32 } from '../../../core/math';
 import type { AiWorld } from '../../aiWorld';
 import { Comms } from '../comms';
@@ -16,6 +16,8 @@ import { FAKE_RANGE, FUMBLE_SECONDS, plotting } from '../flight';
 import { HABIT_AT, PlayerMemory, rememberPlayer } from './memory';
 import { Offers } from './offers';
 import { VOICE_COUNT } from './voices';
+import { ACE_VOICES, ROLE_VOICE_POOLS, cutAir, makeAirSpeaker, resetAirRadio, sayAir, type AirCrewRole } from './airRadio';
+import { VehicleChatter } from './vehicles';
 import * as THREE from 'three';
 import { OutpostSquad } from '../squad';
 import { RULES } from './lines';
@@ -712,3 +714,214 @@ describe('one voice per man, for life', () => {
     expect(new Set(heard.map(l => l.voice))).toEqual(new Set([voice]));
   });
 });
+
+describe('combined-arms air radio, vehicle chatter, and vehicle habits', () => {
+  it('emits distinct pilot radio lines without Outpost and cuts a pilot mid-sentence when shot down', () => {
+    resetAirRadio();
+    const events = new EventBus<GameEvents>();
+    const heard: CommsLine[] = [];
+    const cuts: { speaker?: string | null; at: number; radio: boolean }[] = [];
+    events.on('comms:line', l => heard.push({ ...l }));
+    events.on('comms:cut', c => cuts.push({ speaker: c.speaker, at: c.at, radio: c.radio }));
+
+    const ctx = {
+      time: { elapsed: 10 },
+      events,
+      player: { position: new THREE.Vector3(0, 50, 0) },
+      enemies: {},
+    } as unknown as Ctx;
+
+    const hog = makeAirSpeaker('warthog');
+    const wingman = makeAirSpeaker('allyWingman', true);
+
+    expect(sayAir(ctx, 'airInbound', hog, { cas: true })).toBe(true);
+    expect(heard[0]!.radio).toBe(true);
+    expect(heard[0]!.ally).toBe(false);
+    expect(heard[0]!.speaker).toBe(hog.callsign);
+    expect(RULES[heard[0]!.row!]!.id).toContain('warthog');
+
+    // Shoot Hog down 0.35s into his transmission -> cuts mid-sentence by speaker tag.
+    ctx.time.elapsed = 10.35;
+    expect(cutAir(ctx, hog)).toBe(true);
+    expect(cuts).toEqual([{ speaker: hog.callsign, at: Math.floor(0.35 / SPEAK_RATE), radio: true }]);
+
+    // Allied wingman celebrates a splash with ally=true.
+    ctx.time.elapsed = 15;
+    expect(sayAir(ctx, 'airSplash', wingman, { enemyDown: true })).toBe(true);
+    const last = heard[heard.length - 1]!;
+    expect(last.ally).toBe(true);
+    expect(last.radio).toBe(true);
+    expect(RULES[last.row!]!.id).toContain('airSplash.ally');
+  });
+
+  it('triggers a two-way ground radio reply when an enemy aircraft checks in over an active Outpost', () => {
+    resetAirRadio();
+    const events = new EventBus<GameEvents>();
+    const heard: CommsLine[] = [];
+    events.on('comms:line', l => heard.push({ ...l }));
+
+    const soldiers: Soldier[] = [];
+    const outpost = {
+      w: null as unknown as AiWorld,
+      doctrine: { radioSilence: false },
+      soldiers,
+      squads: [] as OutpostSquad[],
+      comms: null as unknown as Comms,
+    };
+    const w = {
+      now: 20,
+      player: { position: new THREE.Vector3(0, 0, -10), velocity: new THREE.Vector3(), speed: 0 },
+      enemies: { outpost },
+      ctx: { time: { elapsed: 20 }, events, player: { position: new THREE.Vector3(0, 0, -10), health: 100, maxHealth: 100 }, enemies: { outpost } },
+    } as unknown as AiWorld;
+    outpost.w = w;
+    outpost.comms = new Comms(w);
+
+    const alpha = new OutpostSquad(1, 'Alpha', outpost as unknown as Outpost);
+    alpha.seenAt = 20;
+    const radio = new Soldier();
+    radio.e = { alive: true, maxHealth: 100, yaw: 0, center: new THREE.Vector3(), position: new THREE.Vector3(), def: { voice: { attack: 'x' } } } as unknown as Soldier['e'];
+    alpha.join(radio);
+    alpha.radioman = radio;
+    soldiers.push(radio);
+    outpost.squads.push(alpha);
+
+    const hog = makeAirSpeaker('warthog');
+    expect(sayAir(w.ctx, 'airInbound', hog, { cas: true })).toBe(true);
+    w.now = 22;
+    outpost.comms.update();
+    expect(heard.some(l => l.kind === 'groundAirCall' && RULES[l.row!]!.radio === true)).toBe(true);
+  });
+
+  it('scatters troopers away from live CCIP bomb aim and reacts to hijacks and roadkills', () => {
+    const events = new EventBus<GameEvents>();
+    const say = vi.fn();
+    const order = vi.fn();
+    const scare = vi.fn();
+    const s = new Soldier();
+    s.sees = true;
+    s.e = {
+      alive: true, maxHealth: 100, yaw: 0,
+      center: new THREE.Vector3(2, 1, 0),
+      position: new THREE.Vector3(2, 0, 0),
+      def: { voice: { attack: 'x' } },
+    } as unknown as Soldier['e'];
+
+    const w = {
+      now: 10,
+      player: {
+        position: new THREE.Vector3(0, 0, 0),
+        velocity: new THREE.Vector3(0, 0, 12),
+        speed: 12,
+        mount: 'jet',
+        vehicleId: 'warthog',
+        airborne: true,
+        heavyArmor: false,
+        deployedBunker: false,
+        ccipActive: true,
+        ccipPos: new THREE.Vector3(0, 0, 0),
+        ccipKind: 'napalm',
+      },
+      ctx: {
+        events,
+        world: { nav: { nearest: (p: THREE.Vector3, _r: number, out: THREE.Vector3) => { out.copy(p); return true; } } },
+      },
+    } as unknown as AiWorld;
+
+    const outpost = { w, soldiers: [s], squads: [] as OutpostSquad[], comms: { say }, order, scare } as unknown as Outpost;
+    const squad = new OutpostSquad(1, 'Alpha', outpost);
+    squad.seenAt = 10;
+    squad.join(s);
+    outpost.squads.push(squad);
+    const vc = new VehicleChatter(outpost);
+
+    // Live CCIP napalm aim triggers ordnance callout and radial scatter order.
+    vc.update();
+    expect(say).toHaveBeenCalledWith('ordnance', s, null, { flags: { napalm: true, incoming: true } });
+    expect(order).toHaveBeenCalled();
+
+    // Hijack via grapple triggers vehHijack callout and fear spike.
+    events.emit('vehicle:boarded', { id: 'warthog', mount: 'jet', hijacked: true, viaGrapple: true, position: new THREE.Vector3() });
+    expect(say).toHaveBeenCalledWith('vehHijack', s, null, { flags: { jet: true, warthog: true, viaGrapple: true } });
+    expect(scare).toHaveBeenCalled();
+
+    // Roadkill emits vehRoadkill callout.
+    events.emit('vehicle:roadkill', { vehicleId: 'aegis', position: new THREE.Vector3(1, 0, 0), speed: 15 });
+    expect(say).toHaveBeenCalledWith('vehRoadkill', s, null, { flags: { armor: true, aegis: true } });
+  });
+
+  it('recognizes roadkills, airStrikes, and heavyArmor habits and adapts squad doctrine', () => {
+    const events = new EventBus<GameEvents>();
+    const memory = new PlayerMemory();
+    const doctrine = { spacing: 1, keepOut: 0, stacks: true };
+    const comms = { say: vi.fn() };
+    const s = new Soldier();
+    const e = { alive: true, position: new THREE.Vector3() } as unknown as Soldier['e'];
+    s.e = e;
+    enlist(e, s);
+
+    const player = { position: new THREE.Vector3(), mount: 'armor', heavyArmor: true, airborne: false };
+    const o = {
+      w: { now: 10, player, ctx: { events } },
+      soldiers: [s],
+      squads: [] as OutpostSquad[],
+      memory,
+      doctrine,
+      comms,
+    } as unknown as Outpost;
+    const squad = new OutpostSquad(1, 'Alpha', o);
+    squad.seenAt = 10;
+    squad.join(s);
+    o.squads.push(squad);
+
+    rememberPlayer(o);
+    for (let i = 0; i < HABIT_AT; i++) {
+      events.emit('vehicle:roadkill', { vehicleId: 'jackal', position: new THREE.Vector3(), speed: 18 });
+    }
+    expect(memory.noticed.has('roadkills')).toBe(true);
+    expect(doctrine.spacing).toBeGreaterThanOrEqual(7);
+    expect(doctrine.keepOut).toBeGreaterThanOrEqual(12);
+
+    player.airborne = true;
+    player.heavyArmor = false;
+    for (let i = 0; i < HABIT_AT; i++) {
+      events.emit('enemy:killed', { enemy: e, headshot: false, damage: { source: 'warthog', type: 'explosive' } } as never);
+    }
+    expect(memory.noticed.has('airStrikes')).toBe(true);
+    expect(doctrine.stacks).toBe(false);
+
+    player.airborne = false;
+    player.heavyArmor = true;
+    for (let i = 0; i < HABIT_AT; i++) {
+      events.emit('enemy:killed', { enemy: e, headshot: false, damage: { source: 'aegis', type: 'bullet' } } as never);
+    }
+    expect(memory.noticed.has('heavyArmor')).toBe(true);
+    expect(comms.say).toHaveBeenCalledWith('habit', s, null, { flags: { heavyArmor: true } });
+  });
+
+  it('reserves pilot_manic_ace and pilot_surgical_ace strictly for enemy F-22 Raptor Ace mini-bosses and gives every crew class dedicated voices', () => {
+    resetAirRadio();
+    const aceSet = new Set(ACE_VOICES);
+    expect(ROLE_VOICE_POOLS.raptor).toEqual(ACE_VOICES);
+    for (const [role, pool] of Object.entries(ROLE_VOICE_POOLS) as [AirCrewRole, readonly number[]][]) {
+      expect(pool.length, role).toBeGreaterThan(0);
+      for (const v of pool) {
+        // No aircraft, tank, or transport crew ever falls back to ground trooper voices (0, 1).
+        expect(v, role).toBeGreaterThanOrEqual(VOICE_COUNT);
+        if (role !== 'raptor') {
+          expect(aceSet.has(v), `${role} must never use reserved ace voice ${v}`).toBe(false);
+        }
+      }
+    }
+    const ace1 = makeAirSpeaker('raptor');
+    const ace2 = makeAirSpeaker('raptor');
+    const wing1 = makeAirSpeaker('allyWingman', true);
+    const tank1 = makeAirSpeaker('tank');
+    expect(aceSet.has(ace1.voice)).toBe(true);
+    expect(aceSet.has(ace2.voice)).toBe(true);
+    expect(ace1.voice).not.toBe(ace2.voice);
+    expect(aceSet.has(wing1.voice)).toBe(false);
+    expect(ROLE_VOICE_POOLS.tank).toContain(tank1.voice);
+  });
+});
+

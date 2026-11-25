@@ -24,6 +24,7 @@ import { TRANSPORT } from './data';
 import type { VehicleSystem } from './index';
 import { CHOPPER_ENGINE } from './sounds';
 import { Vehicle, type PartState } from './vehicle';
+import { cutAir, makeAirSpeaker, sayAir, type AirSpeaker } from '../outpost/chatter/airRadio';
 
 export type TransportPhase = 'approach' | 'deploy' | 'egress' | 'crashing';
 
@@ -116,6 +117,7 @@ export class FastRopeHeli extends Vehicle {
   private fallSpeed = 0;
   private smokeIn = 0;
   private payloadWiped = false;
+  private readonly speaker: AirSpeaker;
 
   /** Counts of onboard + rappelling troops killed when this transport was shot down. */
   wipedOnboard = 0;
@@ -131,6 +133,7 @@ export class FastRopeHeli extends Vehicle {
     tag: string | null,
   ) {
     super(sys, TRANSPORT, tag);
+    this.speaker = makeAirSpeaker('transport');
     const { scene } = sys.ctx.render;
     this.frame = new Airframe(materials, scene, UTILITY_AIRFRAME);
     this.engines = new EngineSound(sys.ctx, CHOPPER_ENGINE);
@@ -168,6 +171,7 @@ export class FastRopeHeli extends Vehicle {
     this.engines.start(1.2);
     this.stepFrame(0);
     this.collectMeshes(this.frame.root);
+    sayAir(sys.ctx, 'airInbound', this.speaker, { insert: true });
   }
 
   get phase(): TransportPhase {
@@ -230,6 +234,7 @@ export class FastRopeHeli extends Vehicle {
       this._phase = 'deploy';
       this.vel.multiplyScalar(0.3);
       this.dropIn = 0.55;
+      sayAir(this.sys.ctx, 'airStrike', this.speaker, { ropes: true });
       const o = this.sys.manager.outpost;
       if (o && this.onboard.length > 0) {
         this.squad = o.muster(this.onboard.length, this.lz);
@@ -276,6 +281,7 @@ export class FastRopeHeli extends Vehicle {
     if (this.onboard.length === 0 && this.rappelling.length === 0) {
       this._phase = 'egress';
       this.floodlight.visible = false;
+      sayAir(this.sys.ctx, 'airEvade', this.speaker, { egress: true });
     }
   }
 
@@ -455,6 +461,9 @@ export class FastRopeHeli extends Vehicle {
     _p.set(0, 1.4, -1.5);
     this.fires.push(fx.attachEmitter(this.frame.root, 'fireTrail', _p, 12));
     audio.play('gunship_stricken', { position: this.position });
+    if (!cutAir(this.sys.ctx, this.speaker)) {
+      sayAir(this.sys.ctx, 'airDown', this.speaker, { crashing: true }, true);
+    }
   }
 
   override take(amount: number, part: PartState | null, source: string, point: THREE.Vector3): void {
@@ -482,6 +491,7 @@ export class FastRopeHeli extends Vehicle {
   private destroyMidAir(source: string, point: THREE.Vector3): void {
     this.alive = false;
     this.retired = true;
+    cutAir(this.sys.ctx, this.speaker);
     this.wipePayload(source);
     this.teardownVisuals();
     this.sys.airburst(this.position);

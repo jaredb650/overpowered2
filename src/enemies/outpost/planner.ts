@@ -22,8 +22,10 @@ export const SAFE = 1 << 10; // Out of it, on ground we chose.
 export const FORMED = 1 << 11; // Back together and ready to go again.
 export const KILLED = 1 << 12; // Never true. It is what wanting the fight won looks like.
 export const SHIELDED = 1 << 13; // It is holding one of ours in front of it.
+export const AIRBORNE = 1 << 14; // The player is flying (jet, chopper, or high in the air).
+export const HEAVY_ARMOR = 1 << 15; // The player is inside heavy armor (tank, guntruck, or Distraint Frame).
 
-export type ActionId = 'search' | 'baseOfFire' | 'flank' | 'cutOff' | 'frag' | 'flash' | 'breach' | 'rush' | 'setAmbush' | 'lieInWait' | 'retreat' | 'regroup';
+export type ActionId = 'search' | 'baseOfFire' | 'flank' | 'cutOff' | 'frag' | 'flash' | 'breach' | 'rush' | 'standOff' | 'setAmbush' | 'lieInWait' | 'retreat' | 'regroup';
 export type GoalId = 'destroy' | 'survive' | 'recover' | 'waylay';
 
 export interface PlanAction {
@@ -42,10 +44,11 @@ export const ACTIONS: readonly PlanAction[] = [
   { id: 'baseOfFire', needs: LOCATED | CONTACT, forbids: PINNED, gives: PINNED, clears: 0, cost: 1 },
   { id: 'flank', needs: PINNED, forbids: 0, gives: OPENING, clears: 0, cost: 3 },
   { id: 'cutOff', needs: LOCATED | RUNNING, forbids: 0, gives: OPENING, clears: 0, cost: 2.5 },
-  { id: 'frag', needs: LOCATED | HAS_FRAG, forbids: SHIELDED, gives: OPENING, clears: CAMPING, cost: 3.6 },
-  { id: 'flash', needs: LOCATED | HAS_FLASH, forbids: 0, gives: OPENING, clears: 0, cost: 3.4 },
-  { id: 'breach', needs: LOCATED | DOOR, forbids: CONTACT, gives: OPENING | CONTACT, clears: DOOR, cost: 2.5 },
-  { id: 'rush', needs: OPENING, forbids: 0, gives: KILLED, clears: 0, cost: 1 },
+  { id: 'frag', needs: LOCATED | HAS_FRAG, forbids: SHIELDED | AIRBORNE, gives: OPENING, clears: CAMPING, cost: 3.6 },
+  { id: 'flash', needs: LOCATED | HAS_FLASH, forbids: AIRBORNE, gives: OPENING, clears: 0, cost: 3.4 },
+  { id: 'breach', needs: LOCATED | DOOR, forbids: CONTACT | AIRBORNE, gives: OPENING | CONTACT, clears: DOOR, cost: 2.5 },
+  { id: 'rush', needs: OPENING, forbids: AIRBORNE | HEAVY_ARMOR, gives: KILLED, clears: 0, cost: 1 },
+  { id: 'standOff', needs: PINNED, forbids: 0, gives: KILLED, clears: 0, cost: 5.5 },
   { id: 'setAmbush', needs: 0, forbids: CONTACT | WAITING, gives: WAITING, clears: 0, cost: 3 },
   { id: 'lieInWait', needs: WAITING, forbids: 0, gives: KILLED, clears: 0, cost: 1 },
   { id: 'retreat', needs: 0, forbids: SAFE, gives: SAFE, clears: 0, cost: 1 },

@@ -23,8 +23,10 @@ const SNAP_MISS = 1.35;
 const WALKED_MISS = 0.85;
 /** Rate his eye catches up with the target's real motion, in 1/s. */
 const EYE_RATE = 5;
-/** Vertical motion is a jump, and nobody leads a jump all the way. */
+/** Vertical motion is a jump, and nobody leads a jump all the way. Aircraft get full 3D lead. */
 const LEAD_VERTICAL = 0.45;
+const LEAD_VERTICAL_AIR = 0.92;
+const MAX_LEAD_FLIGHT = 1.6;
 
 const _target = new THREE.Vector3();
 const _rand = new THREE.Vector3();
@@ -51,13 +53,13 @@ export function interceptPoint(w: AiWorld, track: TargetTrack, from: THREE.Vecto
   const p = w.player;
   const v = track.velocity;
   // Two passes: the flight time depends on where the target ends up, and at these speeds the second pass is within a few centimetres.
-  let flight = from.distanceTo(p.chest) / speed;
+  let flight = Math.min(MAX_LEAD_FLIGHT, from.distanceTo(p.chest) / speed);
   out.copy(p.chest).addScaledVector(v, flight);
-  flight = from.distanceTo(out) / speed;
+  flight = Math.min(MAX_LEAD_FLIGHT, from.distanceTo(out) / speed);
   out.copy(p.chest);
   out.x += v.x * flight * lead;
   out.z += v.z * flight * lead;
-  out.y += v.y * flight * lead * LEAD_VERTICAL;
+  out.y += v.y * flight * lead * (p.airborne ? LEAD_VERTICAL_AIR : LEAD_VERTICAL);
   return out;
 }
 

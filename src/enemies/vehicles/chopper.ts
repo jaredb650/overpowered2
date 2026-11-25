@@ -26,6 +26,7 @@ import { MAIN_ROTOR, TAIL_ROTOR, type ChopperMount } from './models';
 import { Mount } from './mount';
 import { CHOPPER_ENGINE } from './sounds';
 import { Vehicle, type PartState } from './vehicle';
+import { cutAir, makeAirSpeaker, sayAir, type AirSpeaker } from '../outpost/chatter/airRadio';
 
 type Fate = 'flying' | 'spinning' | 'dropping' | 'diving';
 
@@ -105,9 +106,11 @@ export class EnemyChopper extends Vehicle {
   private smokeIn = 0;
   private readonly drift = new THREE.Vector3();
   private readonly fires: EmitterHandle[] = [];
+  private readonly speaker: AirSpeaker;
 
   constructor(sys: VehicleSystem, private readonly rig: GunshipRig, private readonly skyline: Skyline, from: THREE.Vector3, marks: readonly THREE.Vector3[], tag: string | null) {
     super(sys, CHOPPER, tag);
+    this.speaker = makeAirSpeaker('chopper');
     const bounds = sys.ctx.world.bounds;
     const edge = Math.min(bounds.max.x, -bounds.min.x, bounds.max.z, -bounds.min.z);
     this.plan = { ...CHOPPER.pilot, limit: Math.min(CHOPPER.pilot.limit, Math.max(edge - 6, 12)) };
@@ -127,6 +130,7 @@ export class EnemyChopper extends Vehicle {
     this.engines.start(1.6);
     this.stepFrame(0);
     this.collectMeshes(rig.frame.root);
+    sayAir(sys.ctx, 'airInbound', this.speaker, { gunship: true });
   }
 
   override get center(): THREE.Vector3 {
@@ -205,8 +209,10 @@ export class EnemyChopper extends Vehicle {
       this.pressing = !this.pressing;
       const range = this.pressing ? CHOPPER.press : CHOPPER.breakOff;
       this.phaseLeft = rand(range[0], range[1]);
-      if (this.pressing) this.walk = CHOPPER.walkFrom;
-      else if (this.marks.length > 0) this.leg = (this.leg + 1) % this.marks.length;
+      if (this.pressing) {
+        this.walk = CHOPPER.walkFrom;
+        sayAir(sys.ctx, 'airStrike', this.speaker, { strafe: true });
+      } else if (this.marks.length > 0) this.leg = (this.leg + 1) % this.marks.length;
     }
     const friendly = sys.friendly;
     if (friendly) this.focus.copy(friendly.position);
@@ -254,6 +260,7 @@ export class EnemyChopper extends Vehicle {
     this.rocketsIn = rand(rockets.every[0], rockets.every[1]);
     this.salvo = rockets.salvo;
     this.salvoIn = 0;
+    sayAir(this.sys.ctx, 'airStrike', this.speaker, { rockets: true });
   }
 
   private rocket(): void {
@@ -284,6 +291,7 @@ export class EnemyChopper extends Vehicle {
     this.friendlyIn -= dt;
     if (this.friendlyIn > 0 || _pivot.distanceTo(target) > CHOPPER.gun.range * 1.6) return;
     this.friendlyIn = FRIENDLY_BURST_EVERY;
+    sayAir(sys.ctx, 'airDogfight', this.speaker, { gunship: true });
     const { audio, fx } = sys.ctx;
     this.mount.gun.muzzle(_p);
     audio.play('gunship_gun', { position: _p });
@@ -320,6 +328,9 @@ export class EnemyChopper extends Vehicle {
     _p.set(0, 1.6, -2);
     this.fires.push(fx.attachEmitter(rig.frame.root, 'fireTrail', _p, 12));
     audio.play('gunship_stricken', { position: this.position });
+    if (!cutAir(sys.ctx, this.speaker)) {
+      sayAir(sys.ctx, 'airDown', this.speaker, { tailRotor: fate === 'spinning', rotor: fate === 'dropping' }, true);
+    }
   }
 
   /** Falling with no way to stop. It ends on the ground or on whatever is in the way. */
@@ -382,6 +393,7 @@ export class EnemyChopper extends Vehicle {
     const { sys, rig } = this;
     this.alive = false;
     this.retired = true;
+    cutAir(sys.ctx, this.speaker);
     this.teardown();
     sys.airburst(this.position);
     sys.callout(point, 'MID-AIR DETONATION');

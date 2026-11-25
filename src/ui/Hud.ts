@@ -331,21 +331,22 @@ export class Hud implements HudSystem {
     events.on('shop:open', () => this.openDefense('procurement'));
     events.on('dogfight:modal', e => this.setDogfightModal(e.open));
     events.on('comms:line', e => {
-      const chatter = e.kind === 'ally' ? 0 : this.settings.chatter;
+      const isAlly = e.kind === 'ally' || e.ally === true;
+      const chatter = isAlly ? 0 : this.settings.chatter;
       if (chatter === CHATTER_OFF) return;
-      const color = e.kind === 'ally' ? 'var(--friend)' : COMMS_FEAR.has(e.kind) ? 'var(--amber)' : 'var(--cold)';
-      this.comms.push(e.text, color, e.speaker ?? e.squad, e.enemy);
+      const color = isAlly ? 'var(--friend)' : COMMS_FEAR.has(e.kind) ? 'var(--amber)' : 'var(--cold)';
+      this.comms.push(e.text, color, e.speaker ?? e.squad, e.enemy ?? e.speaker);
       if (chatter === CHATTER_BUBBLES) this.bubbles.say(e, color);
-      if (e.kind !== 'ally') this.voices.say(e);
+      if (!isAlly || (e.row !== undefined && e.row >= 0) || Boolean(e.clip)) this.voices.say(e);
       // A critical warning gets a cue whatever the setting: the player has to act on it.
       if (e.kind === 'flash' && e.enemy) this.bubbles.warn(e.position, 'FLASH INCOMING');
       if (e.kind === 'fakeOut' && e.enemy) this.bubbles.warn(e.position, 'GRENADE', 1.4);
       this.debug.chatter(e);
     });
     events.on('comms:cut', e => {
-      this.comms.cut(e.enemy, e.at, e.radio);
-      this.voices.cut(e.enemy);
-      this.bubbles.cut(e.enemy, e.at, e.radio);
+      this.comms.cut(e.enemy ?? e.speaker, e.at, e.radio);
+      this.voices.cut(e.enemy, e.speaker);
+      if (e.enemy) this.bubbles.cut(e.enemy, e.at, e.radio);
     });
     applySettings(this.ctx, this.settings);
     applyQuality(this.ctx, this.settings);

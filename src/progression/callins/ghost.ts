@@ -94,13 +94,19 @@ export function ghostCtx(ctx: Ctx, stats: GhostStats): Ctx {
   } as Partial<Ctx['combat']>);
   const enemies = over(ctx.enemies, { applyDamage: () => NO_DAMAGE, afflict: () => undefined } as Partial<Ctx['enemies']>);
   const hud = over(ctx.hud, { banner: () => undefined, feed: () => undefined } as Partial<Ctx['hud']>);
+  const events = over(ctx.events, {
+    emit(type: string, payload: unknown): void {
+      if (type === 'comms:line') return;
+      (ctx.events.emit as (t: string, p: unknown) => void)(type, payload);
+    },
+  } as Partial<Ctx['events']>);
   const time = over(ctx.time, { hitStop: () => undefined } as Partial<Ctx['time']>);
   const input = over(ctx.input, { isDown: () => false, pressed: () => false, released: () => false } as Partial<Ctx['input']>);
   const audio = over(ctx.audio, { play: (id: string, options?: Parameters<Ctx['audio']['play']>[1]) => { if (!stats.quiet) ctx.audio.play(id, options); } } as Partial<Ctx['audio']>);
   const camera = over(ctx.camera, { addTrauma: (amount: number) => { if (!stats.quiet) ctx.camera.addTrauma(amount); } } as Partial<Ctx['camera']>);
   // Reads fall through to the live context, so a system set on it later (co-op itself) is seen here too.
   return Object.create(ctx, {
-    combat: { value: combat }, enemies: { value: enemies }, hud: { value: hud }, time: { value: time }, input: { value: input },
+    combat: { value: combat }, enemies: { value: enemies }, hud: { value: hud }, events: { value: events }, time: { value: time }, input: { value: input },
     audio: { value: audio }, camera: { value: camera },
   }) as Ctx;
 }

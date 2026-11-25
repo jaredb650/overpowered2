@@ -25,7 +25,7 @@ import { MAX_SQUAD, SUCCESSION, type Role } from './doctrine';
 import { FEAR, RAPID_SECONDS, RAPID_SHARE } from './morale';
 import type { Outpost } from './index';
 import {
-  ACTION_COUNT, actionBit, ACTIONS, actionIndex, basePrices, CAMPING, CONTACT, DOOR, FORMED, GOALS, HAS_FLASH, HAS_FRAG, LOCATED, makePlan, MAX_PLAN, OPENING, PINNED, RUNNING, SAFE, SHIELDED, WAITING,
+  ACTION_COUNT, actionBit, ACTIONS, actionIndex, AIRBORNE, basePrices, CAMPING, CONTACT, DOOR, FORMED, GOALS, HAS_FLASH, HAS_FRAG, HEAVY_ARMOR, LOCATED, makePlan, MAX_PLAN, OPENING, PINNED, RUNNING, SAFE, SHIELDED, WAITING,
   type ActionId, type GoalId,
 } from './planner';
 import type { Rank } from './rank';
@@ -536,6 +536,8 @@ export class OutpostSquad implements Squad {
     if (this.safe) f |= SAFE;
     if (this.formed) f |= FORMED;
     if (o.captives.held) f |= SHIELDED;
+    if (o.w.player.airborne) f |= AIRBORNE;
+    if (o.w.player.heavyArmor) f |= HEAVY_ARMOR;
     if (o.doctrine.stacks && now >= this.stackReadyAt && now - this.seenAt > STACK_AFTER && this.fighters() >= 3 && this.findDoor()) f |= DOOR;
     if (now >= this.grenadeReadyAt && f & LOCATED) {
       if (this.thrower('frag')) f |= HAS_FRAG;
@@ -608,6 +610,16 @@ export class OutpostSquad implements Squad {
       prices[actionIndex('flash')] = 1.6;
     }
     if (facts & RUNNING) prices[actionIndex('cutOff')] = 1.2;
+    if (facts & AIRBORNE) {
+      prices[actionIndex('standOff')] = 1.1;
+      prices[actionIndex('baseOfFire')] = 0.7;
+      prices[actionIndex('cutOff')] = NEVER;
+      prices[actionIndex('flank')] = NEVER;
+    } else if (facts & HEAVY_ARMOR) {
+      prices[actionIndex('standOff')] = 1.4;
+      prices[actionIndex('flank')] = 1.5;
+      prices[actionIndex('cutOff')] = NEVER;
+    }
     this.centroid(_c);
     if (_c.distanceTo(this.threat) > CUT_REACH) prices[actionIndex('cutOff')] = NEVER;
     // Somebody is holding one of ours. The way past that is round the side.
@@ -667,6 +679,7 @@ export class OutpostSquad implements Squad {
       case 'flash': this.enterThrow(now, 'flash'); break;
       case 'breach': this.enterBreach(now); break;
       case 'rush': this.enterRush(now); break;
+      case 'standOff': this.enterStandOff(now); break;
       case 'setAmbush': this.enterSetAmbush(now); break;
       case 'lieInWait': this.mode = 'ambush'; break;
       case 'retreat': this.enterRetreat(); break;
@@ -684,6 +697,7 @@ export class OutpostSquad implements Squad {
       case 'flash': return this.stepThrow(now);
       case 'breach': return this.stepBreach(now);
       case 'rush': return this.stepRush(now);
+      case 'standOff': return this.stepStandOff(now);
       case 'setAmbush': return this.stepSetAmbush(now);
       case 'lieInWait': return this.stepLieInWait(now);
       case 'retreat': return this.stepRetreat(now);
@@ -1243,6 +1257,43 @@ export class OutpostSquad implements Squad {
       if (s.fighting && (s.task === 'move' || s.hasOrder || s.e.dist > RUSH_STAND + 3)) return true;
     }
     return false;
+  }
+
+  // -------------------------------------------------------------------------------------------
+  // Stand-off (anti-air / anti-armor dispersion)
+  // -------------------------------------------------------------------------------------------
+
+  private enterStandOff(now: number): void {
+    const { outpost: o } = this;
+    const p = o.w.player;
+    this.mode = 'engage';
+    this.stepUntil = now + 7;
+    this.coverFireUntil = now + COVER_FIRE_SECONDS;
+    const nav = o.w.ctx.world.nav;
+    let i = 0;
+    for (const s of this.members) {
+      if (!s.fighting) continue;
+      if (this.holdsHeight(s) && s.canShoot) continue;
+      // Spread troopers out around cover at safe stand-off distance (22-45m) so armor/air blasts don't wipe a cluster.
+      const angle = Math.atan2(s.e.position.x - this.threat.x, s.e.position.z - this.threat.z) + (i % 2 === 0 ? 1 : -1) * (0.35 + (i >> 1) * 0.28);
+      const stand = Math.max(24, Math.min(44, s.def.far * 0.85));
+      _anchor.set(this.threat.x + Math.sin(angle) * stand, s.e.position.y, this.threat.z + Math.cos(angle) * stand);
+      const spot = this.seek(s, 14, 18, Math.max(46, s.def.far), angle, false);
+      if (spot && spot !== s.spot && this.withinReach(s, spot.position)) this.send(s, spot, 2, i++ * ORDER_STAGGER);
+      else if (s.e.dist < 18 && nav.nearest(_anchor, 8, _anchor) && this.withinReach(s, _anchor)) o.order(s, _anchor, null, 2, i++ * ORDER_STAGGER);
+    }
+    if (this.leader) {
+      const kind = p.airborne ? 'vehAir' : 'vehArmor';
+      o.comms.say(kind, this.leader, null, { flags: { [p.mount]: true, deployedBunker: p.deployedBunker } });
+    }
+  }
+
+  private stepStandOff(now: number): StepResult {
+    const p = this.outpost.w.player;
+    this.coverFireUntil = now + COVER_FIRE_SECONDS;
+    if (!p.airborne && !p.heavyArmor) return DONE;
+    if (now >= this.stepUntil) return DONE;
+    return GOING;
   }
 
   // -------------------------------------------------------------------------------------------

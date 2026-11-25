@@ -34,6 +34,7 @@ import { AiCombatJet, type AiJetKind, type AiJetTeam, type AiTacticalRole } from
 import { CarrierDefenseSystem, type CarrierUpgradeId } from './carrier';
 import { DogfightTerminalUi, type TerminalTab } from './terminalUi';
 import { DogfightWreckageSystem } from './wreckage';
+import { cutAir, makeAirSpeaker, resetAirRadio, sayAir, type AirSpeaker } from '../outpost/chatter/airRadio';
 
 const FIRST_WAVE_DELAY = 6.5;
 const INTERMISSION_SECONDS = 14.0;
@@ -148,6 +149,7 @@ export class DogfightWaves implements WaveSystem {
   private playerFlareWindow = 0;
   private enemySpawnOrdinal = 0;
   private wasRwrActive = false;
+  private readonly allySpeakers = new WeakMap<AiCombatJet, AirSpeaker>();
 
   private readonly tracerGeo = new THREE.BoxGeometry(0.14, 0.14, 4.4);
   private readonly heavyTracerGeo = new THREE.BoxGeometry(0.28, 0.28, 7.6);
@@ -348,6 +350,7 @@ export class DogfightWaves implements WaveSystem {
   reset(): void {
     this.clearUnitsAndProjectiles();
     this.wreckage.reset();
+    resetAirRadio();
     this.clearPrompt();
     this.clearPlayerRwr();
     this.carrier.reset();
@@ -581,6 +584,16 @@ export class DogfightWaves implements WaveSystem {
     const initialYaw = Math.atan2(aimX - pos.x, aimZ - pos.z);
     const skill = dogfightWaveSkill(this.wave) + (kind === 'raptor' ? 0.15 : 0);
 
+    const speaker = makeAirSpeaker(kind, false);
+    let lastSalvoCallAt = -Infinity;
+    let calledDamaged = false;
+    const salvoReady = (): boolean => {
+      const now = this.ctx.time?.elapsed ?? 0;
+      if (now - lastSalvoCallAt < 4.5) return false;
+      lastSalvoCallAt = now;
+      return true;
+    };
+
     const jet = new AiCombatJet(this.ctx, this.materials, kind, 'enemy', pos, initialYaw, skill, {
       onGunShot: (from, dir, team, damage, speed, heavy) => {
         this.spawnProjectile(from, dir, team, damage, speed, false, null, team === 'enemy', {
@@ -590,6 +603,7 @@ export class DogfightWaves implements WaveSystem {
       onMissileLaunch: (from, dir, team, _targetPos, targetJet, damage) => {
         this.spawnProjectile(from, dir, team, damage, 152, true, targetJet, team === 'enemy');
         this.ctx.audio?.play?.('aircraft_missile_fire', { position: from, volume: 0.72, pitch: 1.02 });
+        sayAir(this.ctx, 'airDogfight', speaker, { fox2: true });
         if (team === 'enemy' && this.missileWarnCd <= 0) {
           this.missileWarnCd = 4.0;
           this.ctx.hud?.feed?.('MISSILE ALERT — BANDIT FOX-2 INBOUND! POP [Q] FLARES!', '#ff3864');
@@ -597,6 +611,7 @@ export class DogfightWaves implements WaveSystem {
       },
       onBombDrop: (from, initVel, bombKind, damage, attackerName) => {
         this.wreckage.spawnBomb(from, initVel, bombKind, damage, attackerName);
+        if (salvoReady()) sayAir(this.ctx, 'airStrike', speaker, { bombsAway: true, carrier: true });
       },
       onCarrierRocket: (from, dir, damage, attackerName) => {
         this.spawnProjectile(from, dir, 'enemy', damage, 138, false, null, false, {
@@ -605,6 +620,7 @@ export class DogfightWaves implements WaveSystem {
           attackerName,
         });
         this.ctx.audio?.play?.('rocket_fire', { position: from, volume: 0.52, pitch: rand(1.02, 1.16) });
+        if (salvoReady()) sayAir(this.ctx, 'airStrike', speaker, { rockets: true, carrier: true });
       },
       onCarrierGunStrafe: (from, dir, damage, attackerName, heavy) => {
         this.spawnProjectile(from, dir, 'enemy', damage, heavy ? 255 : 230, false, null, false, {
@@ -612,6 +628,7 @@ export class DogfightWaves implements WaveSystem {
           carrierAttack: true,
           attackerName,
         });
+        if (salvoReady()) sayAir(this.ctx, 'airStrike', speaker, { brrrt: kind === 'warthog', strafe: true, carrier: true });
         if (heavy || Math.random() < 0.35) {
           this.ctx.audio?.play?.('gunship_gun', {
             position: from,
@@ -629,7 +646,36 @@ export class DogfightWaves implements WaveSystem {
         }
         this.carrier.damageHull(damage, hitPt, attackerName);
       },
+      onStateChange: (_j, next) => {
+        if (next === 'carrier_run') sayAir(this.ctx, 'airStrike', speaker, { attackRun: true, carrier: true });
+        else if (next === 'dogfight') sayAir(this.ctx, 'airDogfight', speaker, { engaged: true });
+        else if (next === 'evade') sayAir(this.ctx, 'airEvade', speaker, { breaking: true });
+      },
+      onFlare: () => {
+        sayAir(this.ctx, 'airEvade', speaker, { flares: true });
+      },
+      onLockBroken: () => {
+        sayAir(this.ctx, 'airDogfight', speaker, { lockLost: true });
+      },
+      onDamaged: (_j, ratio) => {
+        if (!calledDamaged && ratio < 0.45) {
+          calledDamaged = true;
+          sayAir(this.ctx, 'airEvade', speaker, { damaged: true });
+        }
+      },
       onKilled: (killedJet, source, heavyKill) => {
+        if (!cutAir(this.ctx, speaker)) {
+          sayAir(this.ctx, 'airDown', speaker, { eject: !heavyKill }, true);
+        }
+        // Let a surviving allied wingman celebrate a splash!
+        for (const wing of this.allies) {
+          if (!wing.alive) continue;
+          const ws = this.allySpeakers.get(wing);
+          if (ws) {
+            sayAir(this.ctx, 'airSplash', ws, { enemyDown: true });
+            break;
+          }
+        }
         this.carrier.addCredits(killedJet.profile.rewardCredits);
         this.ctx.progression?.award?.(killedJet.profile.rewardScore, `${killedJet.name} SPLASHED`, killedJet.position);
         this.ctx.hud?.feed?.(`SPLASH ONE! ${killedJet.name} (+${killedJet.profile.rewardCredits} CR)`, '#ffd166');
@@ -655,6 +701,7 @@ export class DogfightWaves implements WaveSystem {
 
     this.enemies.push(jet);
     this.manager.vehicles?.addExtra(jet);
+    sayAir(this.ctx, 'airInbound', speaker, { carrier: tacticalRole === 'striker' });
   }
 
   private ensureWingmen(): void {
@@ -673,6 +720,8 @@ export class DogfightWaves implements WaveSystem {
       CARRIER_WINGMAN_PAD[1] + 18,
       CARRIER_WINGMAN_PAD[2] - 25,
     );
+    const speaker = makeAirSpeaker('allyWingman', true, kind === 'raptor' ? 'Viper 1' : 'Sabre 1');
+    let calledDamaged = false;
     const ally = new AiCombatJet(this.ctx, this.materials, kind, 'ally', pos, Math.PI, 0.92, {
       onGunShot: (from, dir, team, damage, speed, heavy) => {
         this.spawnProjectile(from, dir, team, damage, speed, false, null, false, { heavyTracer: !!heavy });
@@ -680,9 +729,26 @@ export class DogfightWaves implements WaveSystem {
       onMissileLaunch: (from, dir, team, _targetPos, targetJet, damage) => {
         this.spawnProjectile(from, dir, team, damage, 165, true, targetJet, false);
         this.ctx.audio?.play?.('aircraft_missile_fire', { position: from, volume: 0.65, pitch: 1.08 });
+        sayAir(this.ctx, 'airDogfight', speaker, { fox2: true });
       },
       onCarrierStrike: () => { /* Allies never strike the carrier. */ },
+      onStateChange: (_j, next) => {
+        if (next === 'dogfight') sayAir(this.ctx, 'airDogfight', speaker, { engaged: true });
+        else if (next === 'evade') sayAir(this.ctx, 'airEvade', speaker, { breaking: true });
+      },
+      onFlare: () => {
+        sayAir(this.ctx, 'airEvade', speaker, { flares: true });
+      },
+      onDamaged: (_j, ratio) => {
+        if (!calledDamaged && ratio < 0.45) {
+          calledDamaged = true;
+          sayAir(this.ctx, 'airEvade', speaker, { damaged: true });
+        }
+      },
       onKilled: killed => {
+        if (!cutAir(this.ctx, speaker)) {
+          sayAir(this.ctx, 'airDown', speaker, { wingmanDown: true }, true);
+        }
         this.ctx.hud?.feed?.(`${killed.name} SHOT DOWN — LAUNCHING REPLACEMENT NEXT WAVE`, '#ff9f1c');
         this.wreckage.shatterJet(
           killed.kind,
@@ -695,7 +761,9 @@ export class DogfightWaves implements WaveSystem {
         this.netBridge?.onJetKilled(killed, 'enemy_aa', false);
       },
     }, undefined, 'hunter');
+    this.allySpeakers.set(ally, speaker);
     this.allies.push(ally);
+    sayAir(this.ctx, 'airInbound', speaker, { wingman: true });
   }
 
   /** Co-op host: gathers all live airborne remote teammates so enemy fighters dogfight every pilot in the sky. */
@@ -964,7 +1032,6 @@ export class DogfightWaves implements WaveSystem {
           _quat.setFromUnitVectors(_zAxis, _v2);
           p.mesh.quaternion.copy(_quat);
         }
-
       }
 
       const prevY = p.pos.y;

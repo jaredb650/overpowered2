@@ -14,6 +14,7 @@ import { CARRIER_CATAPULT_PAD, CARRIER_CATAPULT_YAW } from '../../world/map/dogf
 import { DRIVE_VEHICLES, VEHICLE_ASKED } from './data';
 import { HIJACK_MAP, type DriveVehicleId } from './types';
 import { DriveableVehicle } from './vehicle';
+import { mountOfVehicle } from '../../enemies/aiWorld';
 
 import type { MuzzleKind, TracerKind } from '../../core/contracts';
 
@@ -341,7 +342,7 @@ export class DriveableManager {
       healthFraction: Math.max(0.55, healthFraction),
     });
 
-    if (vehicle.board(0)) {
+    if (vehicle.board(0, true)) {
       const bonus = viaGrapple ? GRAPPLE_HIJACK_BONUS : HIJACK_BONUS;
       const title = viaGrapple ? 'GRAPPLE HIJACK!' : 'VEHICLE HIJACKED!';
       this.ctx.audio?.play('glass_break', { position, volume: 0.7, pitch: 0.9 });
@@ -351,6 +352,13 @@ export class DriveableManager {
       this.ctx.hud?.feed?.(`${title} — ${DRIVE_VEHICLES[driveId].name} (+${bonus})`, '#ffd166');
       this.ctx.hud?.floatText?.(position, title, '#ffd166');
       this.ctx.camera?.addTrauma?.(0.35);
+      this.ctx.events?.emit?.('vehicle:boarded', {
+        id: driveId,
+        mount: mountOfVehicle(driveId),
+        hijacked: true,
+        viaGrapple,
+        position: position.clone(),
+      });
     }
     this.clearPrompt();
     this.hijackHoldId = -1;

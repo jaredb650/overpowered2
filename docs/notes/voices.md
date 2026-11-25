@@ -39,11 +39,50 @@ Whenever you create or update a mission (`src/campaign/missions/*.lines.ts`) or 
 
 Currently saved voices:
 
-| Voice ID (`voice_id`) | Character | Game file convention |
+#### Core / existing game voices
+
+| Voice ID (`voice_id`) | Character / role | Game file convention |
 |---|---|---|
 | `council` | Galactic Council / Office of Societal Compliance | `public/audio/voice/<line.id>.mp3` |
 | `trooper1` | Garrison Trooper 1 (originally ElevenLabs `trooper2`) | `public/audio/chatter/<key>.t2.mp3` |
 | `trooper2` | Garrison Trooper 2 (originally ElevenLabs `trooper3`) | `public/audio/chatter/<key>.t3.mp3` |
+
+#### RESERVED — Survival Mode Enemy Ace Pilot Mini-Bosses
+> **Do NOT use these voices for friendly wingmen, allied radio, or generic chatter.** They are reserved strictly as unique boss voices when enemy **F-22 Raptor Ace** mini-bosses spawn in Survival / Dogfight / Badlands (`ROLE_VOICE_POOLS.raptor` in `src/enemies/outpost/chatter/airRadio.ts`).
+
+| Voice ID (`voice_id`) | Chatter suffix | Assigned In-Game NPCs | Personality / archetype | Notes |
+|---|---|---|---|---|
+| `pilot_manic_ace` | `.pmace` | **Enemy F-22 Raptor Ace** (Dogfight Waves 5/8/10+ & Badlands boss escorts) | Loose-cannon, slightly manic young male fighter ace | Cocky, wired, reckless mini-boss — **Ace only** |
+| `pilot_surgical_ace` | `.psace` | **Enemy F-22 Raptor Ace** (Dogfight Waves 5/8/10+ & Badlands boss escorts) | Ice-cold, clinical female fighter ace | Calm, detached, surgical mini-boss — **Ace only** |
+
+#### Pilots & Air Support
+
+| Voice ID (`voice_id`) | Chatter suffix | Assigned In-Game NPCs | Personality / archetype | Notes |
+|---|---|---|---|---|
+| `pilot_serious_atc` | `.patc` | **Spectre AC-130 call-in**, **Allied Dogfight Wingman Lead** (`Viper 1`), **F/A-18E Hornet** | Serious, commanding ATC / military pilot | Cloned from owner's ElevenLabs Pilot 1 sample (`5.64 s`) — Viper Lead / AC-130 / serious flight radio |
+| `pilot_airline_vet` | `.pvet` | **B-1 Lancer Heavy Bomber**, **A-10 Warthog CAS**, **F/A-18E Hornet** | Burned-out airline-captain veteran (deadpan baritone) | Treats flak & SAMs like mild turbulence |
+| `pilot_gunship_cowboy` | `.pcow` | **Gunner Strike Chopper call-in**, **A-10 Warthog CAS**, **AV-8B Harrier**, **Enemy Attack Chopper** | Drawling Southern close-air-support pilot | Warthog / Gunner Strike / gunship CAS |
+| `pilot_academy_rookie` | `.prook` | **Allied Dogfight Wingman 2** (`Sabre`), **AV-8B Harrier**, **F/A-18E Hornet** | Over-caffeinated young academy rookie | Fast, eager textbook callouts |
+
+#### Tank Commanders
+
+| Voice ID (`voice_id`) | Chatter suffix | Assigned In-Game NPCs | Personality / archetype | Notes |
+|---|---|---|---|---|
+| `tank_ironclad_sgt` | `.tsgt` | **Enemy Tank Commanders** (`GroundVehicle` tanks in Badlands/Endless) | Old-school gravelly veteran sergeant | Also a strong candidate for Captain Mercer (`crossfire.lines.ts`) or allied Aegis tank lead |
+| `tank_smug_tactician` | `.tsmug` | **Enemy Tank Commanders** (`GroundVehicle` tanks in Badlands/Endless) | Crisp British armor tactician | Dry condescension — rival / enemy armor commander |
+| `tank_metal_brawler` | `.tbrawl` | **Enemy Tank Commanders** (`GroundVehicle` tanks in Badlands/Endless) | Booming, gleeful heavy-metal brawler | Upbeat demolition tank commander |
+| `tank_hulldown_perf` | `.thull` | **Enemy Tank Commanders** (`GroundVehicle` tanks in Badlands/Endless) | Tightly-wound female hull-down perfectionist | Clipped, tactical, obsessed with angles & maintenance budgets |
+
+#### Troop Transport & Convoy Crews
+
+| Voice ID (`voice_id`) | Chatter suffix | Assigned In-Game NPCs | Personality / archetype | Notes |
+|---|---|---|---|---|
+| `transport_union_driver` | `.tunion` | **Fast-Rope Assault Transport** (`FastRopeHeli`) | Clock-watching blue-collar union bus driver | Dropship insertion pilot (`Packmule 2-3` vibe) |
+| `transport_hotdrop_surfer` | `.tsurf` | **Fast-Rope Assault Transport** (`FastRopeHeli`) | Laid-back West Coast surfer pilot | Valkyrie fast-rope / hot-drop pilot |
+| `transport_crew_chief` | `.tchief` | **Door Gunners** (`EnemyDoorGunner`) & **Enemy Attack Choppers** (`EnemyChopper`) | Grizzled, raspy crew chief / door gunner | Punchy ramp & minigun callouts |
+| `transport_convoy_trucker` | `.ttruck` | **Fast-Rope Assault Transport / Convoy Crews** (`FastRopeHeli`) | Friendly Midwestern convoy trucker | APC / Humvee / overland convoy & lift crew |
+
+> **Speaker-slot note (`crossfire.lines.ts`):** Because `Speaker` in `src/enemies/commander/lines.ts` is a fixed union, `crossfire.lines.ts` reuses `governor` for **Colonel Darrow**, `harbourmaster` for **General Halvorsen**, and `marr` for **Captain Mercer**. Those are separate characters from Bank Run's Governor, Foreclosure's Harbourmaster, and Desert Raid's Sgt Marr — do **not** share voices across those missions by mistake. Colonel Darrow and General Halvorsen do not have saved voices yet.
 
 Check if the server is running:
 

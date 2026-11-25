@@ -25,6 +25,7 @@ import { Mount } from './mount';
 import { GROUND_ENGINES } from './sounds';
 import { Vehicle, type PartState } from './vehicle';
 import { Wreck, type Flung } from './wreck';
+import { cutAir, makeAirSpeaker, sayAir, type AirSpeaker } from '../outpost/chatter/airRadio';
 
 /** What the mission or the lab asks for. */
 export interface GroundOrder {
@@ -150,9 +151,11 @@ export class GroundVehicle extends Vehicle {
   /** A round in the turret ring: the main gun no longer turns. The roof gun still does. */
   private gunLocked = false;
   private readonly smoke: EmitterHandle[] = [];
+  private readonly tankSpeaker: AirSpeaker | null;
 
   constructor(sys: VehicleSystem, override readonly def: GroundDef, private readonly model: GroundModel, private readonly order: GroundOrder) {
     super(sys, def, order.tag);
+    this.tankSpeaker = def.kind === 'tank' && !order.parked ? makeAirSpeaker('tank') : null;
     this.y = order.y;
     this.drive = new Driver(def.drive);
     const first = order.route[0] ?? { x: order.x, z: order.z + 1 };
@@ -175,6 +178,7 @@ export class GroundVehicle extends Vehicle {
     model.root.visible = true;
     this.collectMeshes(model.root);
     if (def.rider && !order.parked) this.seatRider();
+    if (this.tankSpeaker) sayAir(sys.ctx, 'airInbound', this.tankSpeaker, { armor: true });
   }
 
   private fitGun(): Mount {
@@ -478,6 +482,7 @@ export class GroundVehicle extends Vehicle {
     sys.ctx.coop?.world?.enemySound('tank_cannon', _muzzle);
     const near = clamp(1 - _muzzle.distanceTo(player.position) / 70);
     if (near > 0) camera.addTrauma(SHELL_SHAKE * near * near);
+    if (this.tankSpeaker) sayAir(sys.ctx, 'airStrike', this.tankSpeaker, { mainGun: true });
   }
 
   private roofGun(dt: number): void {
@@ -642,6 +647,7 @@ export class GroundVehicle extends Vehicle {
         drive.halt();
         audio.play('track_snap', { position: point });
         sys.callout(point, 'TRACK OFF');
+        if (this.tankSpeaker) sayAir(sys.ctx, 'airEvade', this.tankSpeaker, { trackOut: true });
         break;
       }
       case 'engine':
@@ -650,10 +656,12 @@ export class GroundVehicle extends Vehicle {
         this.smoke.push(fx.attachEmitter(model.root, 'burning', _p.set(0, 2.2, -3), 300));
         this.smoke.push(fx.attachEmitter(model.root, 'smokeTrail', _p.set(0, 2.4, -3.2), 300));
         sys.callout(point, 'ENGINE ON FIRE');
+        if (this.tankSpeaker) sayAir(sys.ctx, 'airEvade', this.tankSpeaker, { engineHit: true });
         break;
       case 'turret':
         this.turretJammed = true;
         sys.callout(point, 'TURRET JAMMED');
+        if (this.tankSpeaker) sayAir(sys.ctx, 'airEvade', this.tankSpeaker, { turretJam: true });
         break;
     }
   }
@@ -662,6 +670,9 @@ export class GroundVehicle extends Vehicle {
     const { sys, def, model, order } = this;
     this.alive = false;
     this.retired = true;
+    if (this.tankSpeaker && !cutAir(sys.ctx, this.tankSpeaker)) {
+      sayAir(sys.ctx, 'airDown', this.tankSpeaker, { cookOff: true }, true);
+    }
     this.teardown(1.2);
     if (this.rider?.alive) {
       // He was stood over a fuel tank.

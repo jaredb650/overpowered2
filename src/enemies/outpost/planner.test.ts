@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  ACTION_COUNT, actionBit, ACTIONS, basePrices, CAMPING, CONTACT, DOOR, GOALS, HAS_FLASH, HAS_FRAG, LOCATED, makePlan, MAX_PLAN, OPENING, PINNED, RUNNING, SAFE, SHIELDED, WAITING, type ActionId,
+  ACTION_COUNT, actionBit, ACTIONS, AIRBORNE, basePrices, CAMPING, CONTACT, DOOR, GOALS, HAS_FLASH, HAS_FRAG, HEAVY_ARMOR, LOCATED, makePlan, MAX_PLAN, OPENING, PINNED, RUNNING, SAFE, SHIELDED, WAITING, type ActionId,
 } from './planner';
 import { promoted, RANKS, RANK_ORDER, rollGrade, atLeastRegular } from './rank';
 
@@ -79,6 +79,21 @@ describe('the planner', () => {
 
   it('allocates nothing and stops at four steps', () => {
     expect(plan(0, 'destroy', noAmbush).length).toBeLessThanOrEqual(MAX_PLAN);
+  });
+
+  it('stands off against an airborne threat and never throws frags, flashes, breaches, or rushes into the sky', () => {
+    const p = plan(LOCATED | CONTACT | CAMPING | HAS_FRAG | HAS_FLASH | DOOR | AIRBORNE, 'destroy', noAmbush, { frag: 0.1, flash: 0.1, breach: 0.1 });
+    expect(p).toEqual(['baseOfFire', 'standOff']);
+    expect(p).not.toContain('frag');
+    expect(p).not.toContain('flash');
+    expect(p).not.toContain('breach');
+    expect(p).not.toContain('rush');
+  });
+
+  it('stands off against heavy armor instead of rushing the hull', () => {
+    const p = plan(LOCATED | CONTACT | OPENING | HEAVY_ARMOR, 'destroy', noAmbush);
+    expect(p).toEqual(['baseOfFire', 'standOff']);
+    expect(p).not.toContain('rush');
   });
 });
 

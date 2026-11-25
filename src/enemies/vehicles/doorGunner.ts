@@ -20,6 +20,7 @@ import type { VehicleSystem } from './index';
 import { Mount } from './mount';
 import { CHOPPER_ENGINE } from './sounds';
 import { Vehicle, type PartState } from './vehicle';
+import { cutAir, makeAirSpeaker, sayAir, type AirSpeaker } from '../outpost/chatter/airRadio';
 
 const MAIN_ROTOR = 0;
 const TAIL_ROTOR = 1;
@@ -85,6 +86,8 @@ export class EnemyDoorGunner extends Vehicle {
   private spin = 0;
   private fallSpeed = 0;
   private smokeIn = 0;
+  private readonly speaker: AirSpeaker;
+  private calledGuns = false;
 
   constructor(
     sys: VehicleSystem,
@@ -95,6 +98,7 @@ export class EnemyDoorGunner extends Vehicle {
     tag: string | null,
   ) {
     super(sys, DOOR_GUNNER, tag);
+    this.speaker = makeAirSpeaker('doorGunner');
     const { scene } = sys.ctx.render;
     this.frame = new Airframe(materials, scene, UTILITY_AIRFRAME);
     this.gun = new Gun(materials, scene, M134);
@@ -114,6 +118,7 @@ export class EnemyDoorGunner extends Vehicle {
     this.engines.start(1.4);
     this.stepFrame(0);
     this.collectMeshes(this.frame.root);
+    sayAir(sys.ctx, 'airInbound', this.speaker, { orbit: true });
   }
 
   override get center(): THREE.Vector3 {
@@ -217,7 +222,13 @@ export class EnemyDoorGunner extends Vehicle {
       return;
     }
     this.mount.update(dt, _pivot, this.lastSeen, this.sees);
-    if (this.mount.firing) this.gun.turn(BARREL_SPIN * dt);
+    if (this.mount.firing) {
+      this.gun.turn(BARREL_SPIN * dt);
+      if (!this.calledGuns) {
+        this.calledGuns = true;
+        sayAir(this.sys.ctx, 'airStrike', this.speaker, { minigun: true });
+      }
+    }
   }
 
   protected broke(part: PartState, point: THREE.Vector3): void {
@@ -248,6 +259,9 @@ export class EnemyDoorGunner extends Vehicle {
     _p.set(0, 1.4, -1.5);
     this.fires.push(fx.attachEmitter(this.frame.root, 'fireTrail', _p, 12));
     audio.play('gunship_stricken', { position: this.position });
+    if (!cutAir(this.sys.ctx, this.speaker)) {
+      sayAir(this.sys.ctx, 'airDown', this.speaker, { crashing: true }, true);
+    }
   }
 
   override take(amount: number, part: PartState | null, source: string, point: THREE.Vector3): void {
@@ -276,6 +290,7 @@ export class EnemyDoorGunner extends Vehicle {
   private destroyMidAir(source: string, point: THREE.Vector3): void {
     this.alive = false;
     this.retired = true;
+    cutAir(this.sys.ctx, this.speaker);
     this.teardownVisuals();
     this.sys.airburst(this.position);
     this.sys.callout(point, 'MID-AIR DETONATION');

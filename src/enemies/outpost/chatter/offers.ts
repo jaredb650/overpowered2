@@ -56,11 +56,14 @@ export class Offers {
   }
 
   tick(o: Outpost, now: number): void {
-    for (const s of o.soldiers) {
-      if (s.role !== 'shield' || !s.fighting || !s.e.shield || !s.squad.inContact || s.e.dist > OFFER_RANGE) continue;
-      if (this.cover.some(c => c.by === s)) continue;
-      this.cover.push({ by: s, until: now + OFFER_SECONDS, claims: [], had: new Set(), placeAt: 0, flankedAt: 0 });
-      o.comms.say('shieldUp', s);
+    const antiShield = o.w.player.airborne || o.w.player.heavyArmor;
+    if (!antiShield) {
+      for (const s of o.soldiers) {
+        if (s.role !== 'shield' || !s.fighting || !s.e.shield || !s.squad.inContact || s.e.dist > OFFER_RANGE) continue;
+        if (this.cover.some(c => c.by === s)) continue;
+        this.cover.push({ by: s, until: now + OFFER_SECONDS, claims: [], had: new Set(), placeAt: 0, flankedAt: 0 });
+        o.comms.say('shieldUp', s);
+      }
     }
     for (let i = this.cover.length - 1; i >= 0; i--) {
       const c = this.cover[i]!;

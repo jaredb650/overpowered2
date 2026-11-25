@@ -28,7 +28,10 @@ export type CommsKind =
   | 'contactReport' | 'copy' | 'status' | 'squadWiped' | 'sayAgain' | 'radioCheck' | 'radioLost' | 'radioGrab'
   | 'flee' | 'holdout' | 'fakeOut' | 'revenge' | 'taunt'
   | 'habit'
-  | 'shieldUp' | 'stackOn' | 'shieldPush' | 'breakOut' | 'shieldFlanked' | 'shieldDown' | 'merge';
+  | 'shieldUp' | 'stackOn' | 'shieldPush' | 'breakOut' | 'shieldFlanked' | 'shieldDown' | 'merge'
+  // Combined-arms vehicle, ordnance, and air-ground pilot radio concepts.
+  | 'vehSpotted' | 'ordnance' | 'vehHijack' | 'vehRoadkill' | 'vehAir' | 'vehArmor' | 'groundAirCall'
+  | 'airInbound' | 'airStrike' | 'airDogfight' | 'airEvade' | 'airDown' | 'airSplash';
 
 export interface CommsLine {
   kind: CommsKind;
@@ -55,13 +58,15 @@ export interface CommsLine {
   clip?: string | null;
   /** True when a relayed clip should play on the map-wide radio channel rather than spatially from `enemy`. */
   radio?: boolean;
+  /** True for friendly Dogfight wingmen and allied aircrews so the HUD styles them in var(--friend) while preserving semantic kind. */
+  ally?: boolean;
 }
 
 declare module '../../core/contracts' {
   interface GameEvents {
     'comms:line': CommsLine;
-    /** The man talking was killed or badly hit `at` characters into his line: it ends there, with a dash. */
-    'comms:cut': { enemy: EnemyInstance; at: number; radio: boolean };
+    /** The speaker talking was killed or badly hit `at` characters into the line: it ends there, with a dash. */
+    'comms:cut': { enemy: EnemyInstance | null; speaker?: string | null; at: number; radio: boolean };
     /** Morale ran out. The weapon is on the floor and `fate` says what happens next. */
     'enemy:broken': { enemy: EnemyInstance; fate: 'flee' | 'surrender' };
     /** Hands up, on the knees. No longer a threat, and no longer counted for the wave. */

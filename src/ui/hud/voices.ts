@@ -69,6 +69,7 @@ interface Slot {
   dry: GainNode | null;
   wet: GainNode | null;
   enemy: EnemyInstance | null;
+  speaker: string | null;
   rank: number;
   radio: boolean;
   bornAt: number;
@@ -98,7 +99,7 @@ export class ChatterVoices {
       const audio = deps.audio();
       audio.preload = 'auto';
       const slot: Slot = {
-        audio, gain: null, pan: null, dry: null, wet: null, enemy: null, rank: 0, radio: false,
+        audio, gain: null, pan: null, dry: null, wet: null, enemy: null, speaker: null, rank: 0, radio: false,
         bornAt: 0, playing: false, fade: 0, gen: 0, lastGain: NaN, lastPan: NaN,
       };
       audio.addEventListener('ended', () => {
@@ -142,7 +143,7 @@ export class ChatterVoices {
     if (line.row !== undefined && line.row >= 0) {
       const row = RULES[line.row];
       if (!row) return false;
-      radio = row.radio;
+      radio = row.radio || line.radio === true;
       if (!radio && !line.enemy) return false;
       const slots: Record<string, string> = { ...(line.slots ?? {}) };
       if (line.dead !== undefined && line.dead >= 0) slots.dead = NAME_LIST[line.dead]!;
@@ -159,9 +160,12 @@ export class ChatterVoices {
     if (!clip) return false;
     if (!radio && line.enemy && this.distance(line.enemy) > EARSHOT) return false;
     // His own earlier line ends where the new one starts; otherwise a free element, or the lowest and oldest, never for a lower line.
+    const speakerTag = !line.enemy && line.speaker ? line.speaker : null;
     let slot = (line.enemy
       ? this.pool.find(p => p.playing && p.enemy === line.enemy)
-      : this.pool.find(p => p.playing && !p.enemy && p.radio))
+      : speakerTag
+        ? this.pool.find(p => p.playing && !p.enemy && p.speaker === speakerTag)
+        : this.pool.find(p => p.playing && !p.enemy && !p.speaker && p.radio))
       ?? this.pool.find(p => !p.playing)
       ?? null;
     if (!slot) {
@@ -173,6 +177,7 @@ export class ChatterVoices {
     const wasPlaying = slot.playing;
     slot.audio.pause();
     slot.enemy = line.enemy ?? null;
+    slot.speaker = speakerTag;
     slot.rank = rank;
     slot.radio = radio;
     slot.bornAt = this.clock;
@@ -195,9 +200,13 @@ export class ChatterVoices {
   }
 
   /** He was cut off: his voice stops now. */
-  cut(enemy: EnemyInstance): void {
+  cut(enemy: EnemyInstance | null, speaker?: string | null): void {
     if (this.activeCount === 0) return;
-    for (const p of this.pool) if (p.playing && p.enemy === enemy && p.fade === 0) p.fade = CUT_FADE;
+    if (enemy) {
+      for (const p of this.pool) if (p.playing && p.enemy === enemy && p.fade === 0) p.fade = CUT_FADE;
+    } else if (speaker) {
+      for (const p of this.pool) if (p.playing && !p.enemy && p.speaker === speaker && p.fade === 0) p.fade = CUT_FADE;
+    }
   }
 
   update(dt: number, paused: boolean): void {
@@ -337,6 +346,7 @@ export class ChatterVoices {
       this.activeCount = Math.max(0, this.activeCount - 1);
     }
     p.enemy = null;
+    p.speaker = null;
     p.fade = 0;
     p.lastGain = NaN;
     p.lastPan = NaN;

@@ -33,6 +33,7 @@ import {
   type ConvoyLane,
 } from '../../world/map/badlands';
 import type { EnemyManager } from '../EnemyManager';
+import type { AiJetKind } from '../dogfight/aiJet';
 import type { Outpost } from '../outpost';
 import { SQUAD_TEMPLATES } from '../outpost/doctrine';
 import { ParatrooperSystem } from '../rooftop/paratroopers';
@@ -40,6 +41,7 @@ import { EnemyChopper } from '../vehicles/chopper';
 import { EnemyDoorGunner } from '../vehicles/doorGunner';
 import { GroundVehicle } from '../vehicles/ground';
 import { FastRopeHeli } from '../vehicles/transport';
+import { BadlandsJetController } from './airstrike';
 
 export type BadlandsDeliveryKind = 'humvee' | 'truck' | 'heli' | 'paratrooper';
 export type BadlandsAirSupportKind = 'doorGunner' | 'chopper';
@@ -56,6 +58,8 @@ export const BADLANDS_PER_WAVE = 6;
 export const BADLANDS_MAX_STRENGTH = 96;
 /** Double Outpost's 18-hostile cap while staying cleanly under EnemyManager's MAX_ALIVE = 48. */
 export const BADLANDS_MAX_HOSTILE = 36;
+/** First wave on which hostile combat jets can enter Badlands airspace (strictly after Wave 5). */
+export const BADLANDS_JET_MIN_WAVE = 6;
 
 const INTERMISSION = 9;
 const FIRST_WAVE_DELAY = 3;
@@ -65,12 +69,15 @@ const TANK_DELAY = 4.0;
 const TANK_GAP = 6.5;
 const AIR_DELAY = 5.5;
 const AIR_GAP = 9.0;
+const JET_DELAY = 8.5;
+const JET_GAP = 6.5;
 const BOSS_DELAY = 3.0;
 const REROUTE_EVERY = 3.5;
 const REROUTE_DIST = 68;
 
 const MAX_ACTIVE_GROUND = 5;
 const MAX_ACTIVE_TRANSPORTS = 2;
+const MAX_ACTIVE_JETS = 3;
 const APPROACH_RADIUS = 178;
 
 const TAG_HUMVEE = 'badlands_humvee';
@@ -82,6 +89,7 @@ const TAG_GUNNER = 'badlands_gunner';
 const FEED_CONVOY = '#ffba58';
 const FEED_TANK = '#ff6a3c';
 const FEED_AIR = '#ff7242';
+const FEED_JET = '#ff4d3d';
 const FEED_BOSS = '#ff3d3d';
 
 const _from = new THREE.Vector3();
@@ -119,6 +127,53 @@ export function badlandsAirSupportForWave(wave: number): readonly BadlandsAirSup
   if (wave % 5 === 0) return ['chopper'];
   if (wave >= 6 && wave % 2 === 0) return ['doorGunner', 'chopper'];
   return ['chopper'];
+}
+
+/** Probability (0..1) that hostile combat jets conduct an airstrike on `wave` (0 on W1–5, escalating W6+). */
+export function badlandsJetRaidChance(wave: number): number {
+  if (wave < BADLANDS_JET_MIN_WAVE) return 0;
+  if (wave % 5 === 0) return 1;
+  if (wave === 6) return 0.55;
+  if (wave === 7) return 0.65;
+  if (wave === 8) return 0.72;
+  return Math.min(0.9, 0.78 + (wave - 9) * 0.04);
+}
+
+/**
+ * Rolls an optional hostile combat jet squadron for `wave` (always empty on Waves 1–5).
+ * Escalates from single CAS strikers (W6) to mixed Warthog/Harrier/Hornet/Lancer/Raptor flights (W7+).
+ */
+export function badlandsJetRaidForWave(wave: number, roll: () => number = Math.random): readonly AiJetKind[] {
+  const chance = badlandsJetRaidChance(wave);
+  if (chance <= 0 || roll() >= chance) return [];
+
+  const pick = <T>(pool: readonly T[]): T => pool[Math.min(pool.length - 1, Math.floor(roll() * pool.length))]!;
+
+  // Boss waves after Wave 5 (W10, W15, W20...): heavy bomber/CAS strike + air-superiority ace escort!
+  if (wave % 5 === 0) {
+    const heavy = pick<AiJetKind>(['warthog', 'lancer']);
+    const escort = pick<AiJetKind>(wave >= 10 ? ['raptor', 'hornet'] : ['hornet', 'harrier']);
+    return wave >= 15 ? [heavy, escort, pick<AiJetKind>(['warthog', 'harrier', 'hornet'])] : [heavy, escort];
+  }
+
+  if (wave === 6) {
+    return [pick<AiJetKind>(['warthog', 'harrier', 'hornet'])];
+  }
+  if (wave <= 8) {
+    const pool: readonly AiJetKind[] = ['warthog', 'harrier', 'hornet', 'lancer'];
+    const count = wave >= 8 && roll() < 0.55 ? 2 : 1;
+    const out: AiJetKind[] = [];
+    for (let i = 0; i < count; i++) out.push(pick(pool));
+    return out;
+  }
+
+  const pool: readonly AiJetKind[] = wave >= 10
+    ? ['warthog', 'harrier', 'hornet', 'lancer', 'raptor']
+    : ['warthog', 'harrier', 'hornet', 'lancer'];
+  const count = wave >= 12 && roll() < 0.45 ? 3 : 2;
+  const out: AiJetKind[] = [];
+  for (let i = 0; i < count; i++) out.push(pick(pool));
+  return out;
 }
 
 function pickHumanSquad(wave: number, size: number, roll: () => number): EnemyId[] {
@@ -206,6 +261,7 @@ export class BadlandsWaves implements WaveSystem {
   nextWaveIn = 0;
 
   readonly paratroopers: ParatrooperSystem;
+  readonly jets: BadlandsJetController;
 
   private queue: BadlandsDelivery[] = [];
   private cursor = 0;
@@ -214,6 +270,8 @@ export class BadlandsWaves implements WaveSystem {
   private tankClock = 0;
   private pendingAir: BadlandsAirSupportKind[] = [];
   private airClock = 0;
+  private pendingJets: AiJetKind[] = [];
+  private jetClock = 0;
   private pendingBosses: BadlandsGroundBossKind[] = [];
   private bossClock = 0;
   private rerouteClock = REROUTE_EVERY;
@@ -234,6 +292,7 @@ export class BadlandsWaves implements WaveSystem {
     private readonly manager: EnemyManager,
   ) {
     this.paratroopers = new ParatrooperSystem(ctx, o, manager);
+    this.jets = new BadlandsJetController(ctx, manager);
   }
 
   reset(): void {
@@ -247,6 +306,8 @@ export class BadlandsWaves implements WaveSystem {
     this.tankClock = 0;
     this.pendingAir = [];
     this.airClock = 0;
+    this.pendingJets = [];
+    this.jetClock = 0;
     this.pendingBosses = [];
     this.bossClock = 0;
     this.rerouteClock = REROUTE_EVERY;
@@ -258,7 +319,12 @@ export class BadlandsWaves implements WaveSystem {
     this.paraUsedAt.clear();
     this.spawnedVehicles.length = 0;
     this.paratroopers.reset();
+    this.jets.reset();
     this.manager.queued = 0;
+  }
+
+  dispose(): void {
+    this.jets.dispose();
   }
 
   start(): void {
@@ -293,6 +359,7 @@ export class BadlandsWaves implements WaveSystem {
     if (!this.running) return;
     const dt = this.ctx.time.dt;
     this.paratroopers.update(dt);
+    this.jets.update(dt);
 
     if (this.phase === 'intermission') {
       this.nextWaveIn -= dt;
@@ -313,6 +380,7 @@ export class BadlandsWaves implements WaveSystem {
     this.updateBosses(dt);
     this.updateTanks(dt);
     this.updateAirSupport(dt);
+    this.updateEnemyJets(dt);
     if (this.phase === 'spawning' || this.phase === 'boss') this.feedDeliveries(dt);
     this.updateGroundPursuit(dt);
     this.checkClear();
@@ -334,6 +402,9 @@ export class BadlandsWaves implements WaveSystem {
     this.pendingAir = [...badlandsAirSupportForWave(wave)];
     this.airClock = this.pendingAir.length > 0 ? AIR_DELAY : 0;
 
+    this.pendingJets = [...badlandsJetRaidForWave(wave, Math.random)];
+    this.jetClock = this.pendingJets.length > 0 ? JET_DELAY : 0;
+
     this.pendingBosses = [...badlandsBossForWave(wave)];
     this.bossClock = this.pendingBosses.length > 0 ? BOSS_DELAY : 0;
 
@@ -350,9 +421,9 @@ export class BadlandsWaves implements WaveSystem {
 
     if (isBoss) {
       const label = this.pendingBosses.length > 1
-        ? 'JUGGERNAUT + TITAN + GUNSHIP'
+        ? 'JUGGERNAUT + TITAN + AIRSTRIKE'
         : this.pendingBosses[0] === 'titan'
-          ? 'TITAN + ARMOUR COLUMN'
+          ? (this.pendingJets.length > 0 ? 'TITAN + ARMOUR + FAST MOVERS' : 'TITAN + ARMOUR COLUMN')
           : 'JUGGERNAUT + ARMOUR COLUMN';
       ctx.hud.feed(`BOSS WAVE ${wave}: ${label}`, FEED_BOSS);
     } else if (wave === 1) {
@@ -370,6 +441,8 @@ export class BadlandsWaves implements WaveSystem {
     this.pendingBosses.length = 0;
     this.pendingTanks = 0;
     this.pendingAir.length = 0;
+    this.pendingJets.length = 0;
+    this.jets.reset();
     this.manager.queued = Math.max(0, this.manager.queued - dropped);
   }
 
@@ -532,6 +605,34 @@ export class BadlandsWaves implements WaveSystem {
     }
   }
 
+  private updateEnemyJets(dt: number): void {
+    if (this.pendingJets.length === 0) return;
+    // Don't hold up an already-wiped ground wave on a delayed secondary jet timer.
+    if (
+      this.cursor >= this.queue.length &&
+      this.o.hostile === 0 &&
+      this.paratroopers.pendingCount === 0 &&
+      this.activeGroundCount() === 0 &&
+      this.jets.aliveCount === 0
+    ) {
+      this.pendingJets.length = 0;
+      return;
+    }
+
+    this.jetClock -= dt;
+    if (this.jetClock > 0) return;
+    if (this.jets.aliveCount >= MAX_ACTIVE_JETS) {
+      this.jetClock = 3.0;
+      return;
+    }
+
+    const kind = this.pendingJets.shift()!;
+    const jet = this.jets.spawnJet(kind, this.wave);
+    this.jetClock = JET_GAP;
+    this.spawnedVehicles.push(`jet:${kind}`);
+    this.ctx.hud.feed(`ENEMY ${jet.name} AIRSTRIKE INBOUND!`, FEED_JET);
+  }
+
   private updateBosses(dt: number): void {
     if (this.pendingBosses.length === 0) return;
     this.bossClock -= dt;
@@ -654,8 +755,9 @@ export class BadlandsWaves implements WaveSystem {
     return false;
   }
 
-  /** Live hostile ground vehicles, gunships, door gunners, and payload-bearing transports block wave clear. */
+  /** Live hostile ground vehicles, gunships, door gunners, jets, and payload-bearing transports block wave clear. */
   private hasBlockingVehicles(): boolean {
+    if (this.jets.aliveCount > 0) return true;
     const vehicles = this.manager.vehicles;
     if (!vehicles) return false;
     for (const v of vehicles.live) {

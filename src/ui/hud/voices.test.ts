@@ -3,7 +3,7 @@ import { beforeEach, expect, it, vi } from 'vitest';
 import type { Ctx } from '../../core/contracts';
 import type { EnemyInstance } from '../../core/gameplay';
 import { RULES } from '../../enemies/outpost/chatter/lines';
-import { VOICED, clipFor } from '../../enemies/outpost/chatter/voices';
+import { VOICED, VOICE_INDEX, clipFor } from '../../enemies/outpost/chatter/voices';
 import type { CommsLine } from '../../enemies/outpost/events';
 import type { Settings } from '../settings';
 import { ChatterVoices, EARSHOT, VOICE_POOL } from './voices';
@@ -154,3 +154,41 @@ it('plays relayed radio, fake-chatter, and spatial siege clips when present in t
   // Unrecorded relay stays silent.
   expect(voices.say(relay('radio.missing', true, null, 0))).toBe(false);
 });
+
+it('tracks bodiless pilot/crew radio slots by speaker and cuts only the shot-down speaker mid-sentence', () => {
+  const { voices, audios } = setup();
+  const airRow = row('ch.garrison.airInbound.warthog.1');
+  const allyRow = row('ch.garrison.airSplash.ally.1');
+  VOICED.clips.add(`${RULES[airRow]!.id}.pcow`);
+  VOICED.clips.add(`${RULES[allyRow]!.id}.patc`);
+  VOICED.clips.add('callin.ac130.on_station.patc');
+
+  const hog: CommsLine = {
+    kind: 'airInbound', text: '', squad: 'CAS', speaker: 'Hog 2-1 · CAS',
+    enemy: null, position: new THREE.Vector3(), row: airRow, dead: -1, slots: null, voice: VOICE_INDEX.pcow, radio: true,
+  };
+  const viper: CommsLine = {
+    kind: 'airSplash', text: '', squad: 'Wingman', speaker: 'Viper 1 · Wingman',
+    enemy: null, position: new THREE.Vector3(), row: allyRow, dead: -1, slots: null, voice: VOICE_INDEX.patc, radio: true, ally: true,
+  };
+  const spectre: CommsLine = {
+    kind: 'ally', text: '', squad: 'SPECTRE 1-1', speaker: 'SPECTRE 1-1',
+    enemy: null, position: new THREE.Vector3(), row: -1, voice: VOICE_INDEX.patc, clip: 'callin.ac130.on_station', radio: true, ally: true,
+  };
+
+  expect(voices.say(hog)).toBe(true);
+  expect(voices.say(viper)).toBe(true);
+  expect(voices.say(spectre)).toBe(true);
+  expect(audios[2]!.src).toBe('audio/chatter/callin.ac130.on_station.patc.mp3');
+
+  // Shooting down Hog 2-1 cuts only Hog 2-1's slot; Viper 1 and Spectre keep talking.
+  voices.cut(null, 'Hog 2-1 · CAS');
+  voices.update(0.05, false);
+  const hogSlot = voices.pool.find(p => p.audio.src.includes('warthog'));
+  const viperSlot = voices.pool.find(p => p.audio.src.includes('airSplash'));
+  const spectreSlot = voices.pool.find(p => p.audio.src.includes('callin.ac130'));
+  expect(hogSlot?.playing).toBe(false);
+  expect(viperSlot?.playing).toBe(true);
+  expect(spectreSlot?.playing).toBe(true);
+});
+

@@ -12,7 +12,7 @@ import type { CollapseOptions, KnockdownOptions } from '../gore/muscles';
 import type { DamageResult, EnemyId, EnemyInstance, EnemyRayHit, EnemySystem } from '../core/gameplay';
 import { clamp, rand, TAU } from '../core/math';
 import { Pool } from '../core/pool';
-import { PlayerSense, type AiWorld } from './aiWorld';
+import { mountOfVehicle, PlayerSense, type AiWorld } from './aiWorld';
 import { SPOIL } from './reactions';
 import { PlateDebris, plateGeometry, plateMaterial, type Plate, type PlateSpec } from './armor';
 import { shout } from './attacks';
@@ -561,6 +561,70 @@ export class EnemyManager implements EnemySystem {
     // Full at 11.5 m/s, just under the player's 12.5 run, so simply running gets all of it. Tricks earn score.
     p.evasion = clamp((p.speed - EVASION_FROM) / EVASION_SPAN);
     p.ghost = this.ctx.progression.isActive?.('ghost') ?? false;
+
+    // Detect occupied player vehicle or Distraint Frame without allocating per frame.
+    const prog = this.ctx.progression as unknown as {
+      driveables?: {
+        active?: {
+          def: { id: import('../vehicles/drive/types').DriveVehicleId; stealth?: boolean };
+          phys: { position: THREE.Vector3; velocity: THREE.Vector3; altitude: number; deployed: boolean; speed: number; grounded: boolean };
+          hud?: { ccipWorld: readonly [number, number, number] | null; ccipLabel: string };
+        } | null;
+      };
+      frame?: { occupied?: boolean };
+    } | undefined;
+    const veh = src === this.ctx.player ? prog?.driveables?.active ?? null : null;
+    const inFrame = !veh && src === this.ctx.player && Boolean(prog?.frame?.occupied);
+    if (veh) {
+      p.mount = mountOfVehicle(veh.def.id);
+      p.vehicleId = veh.def.id;
+      p.altitude = Math.max(0, veh.phys.altitude);
+      p.airborne = p.mount === 'jet' || p.mount === 'chopper' ? p.altitude > 3.2 || !veh.phys.grounded : p.altitude > 5.5;
+      p.heavyArmor = p.mount === 'armor';
+      p.stealth = Boolean(veh.def.stealth);
+      p.deployedBunker = veh.def.id === 'bastion' && veh.phys.deployed;
+      p.chest.copy(veh.phys.position);
+      p.velocity.copy(veh.phys.velocity);
+      p.speed = Math.max(p.speed, veh.phys.speed);
+      const ccip = veh.hud?.ccipWorld ?? null;
+      if (ccip) {
+        p.ccipActive = true;
+        p.ccipPos.set(ccip[0], ccip[1], ccip[2]);
+        const lbl = veh.hud?.ccipLabel ?? '';
+        p.ccipKind = lbl.includes('NAPALM') ? 'napalm'
+          : lbl.includes('CLUSTER') ? 'cluster'
+            : lbl.includes('CHUTE') || lbl.includes('SNAKE') ? 'chute'
+              : lbl.includes('THERMO') ? 'thermobaric'
+                : lbl.includes('MOAB') ? 'moab'
+                  : 'he';
+      } else {
+        p.ccipActive = false;
+        p.ccipKind = null;
+      }
+    } else if (inFrame) {
+      p.mount = 'frame';
+      p.vehicleId = 'frame';
+      const navGy = this.ctx.world?.nav?.groundHeight?.(src.position.x, src.position.y + 4, src.position.z);
+      p.altitude = Number.isFinite(navGy) ? Math.max(0, src.position.y - navGy!) : Math.max(0, src.position.y);
+      p.airborne = !src.grounded && p.altitude > 5.5;
+      p.heavyArmor = true;
+      p.stealth = false;
+      p.deployedBunker = false;
+      p.chest.y = src.position.y + 1.8;
+      p.ccipActive = false;
+      p.ccipKind = null;
+    } else {
+      p.mount = 'foot';
+      p.vehicleId = null;
+      const navGy = this.ctx.world?.nav?.groundHeight?.(src.position.x, src.position.y + 4, src.position.z);
+      p.altitude = Number.isFinite(navGy) ? Math.max(0, src.position.y - navGy!) : Math.max(0, src.position.y);
+      p.airborne = !src.grounded && p.altitude > 6.5;
+      p.heavyArmor = false;
+      p.stealth = false;
+      p.deployedBunker = false;
+      p.ccipActive = false;
+      p.ccipKind = null;
+    }
   }
 
   private updateEnemy(e: Enemy, dt: number): void {

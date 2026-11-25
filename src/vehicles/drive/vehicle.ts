@@ -28,6 +28,7 @@ import { VehicleAudioController, type VehicleAudioTelemetry } from './audio';
 import { DRIVE_VEHICLES } from './data';
 import { HYBRID_HMG_AGL, VULCAN_AA } from './guns';
 import { buildVehicleModel, type VehicleModelRig } from './models';
+import { mountOfVehicle, type OrdnanceEventKind } from '../../enemies/aiWorld';
 import { createPhysicsState, stepVehiclePhysics } from './physics';
 import { animateRider, setRiderAccent } from './riders';
 import type {
@@ -228,6 +229,7 @@ export class DriveableVehicle {
   private readonly rammedCooldown = new Map<number, number>();
   private dumpBurnWakeTimer = 0;
   private cobraVaporTimer = 0;
+  private lastOrdnanceEmitAt = -10;
   private clock = 0;
   private mouseIdleTimer = 0;
   private disposed = false;
@@ -649,7 +651,7 @@ export class DriveableVehicle {
   }
 
   /** Seats the local player in `seatIndex` (0 = Driver/Pilot) and hands control to this vehicle. */
-  board(seatIndex = 0): boolean {
+  board(seatIndex = 0, fromHijack = false): boolean {
     if (!this.alive || this.occupied || this.seats.occupied) return false;
     this._seatIndex = clamp(seatIndex, 0, this.def.seats.length - 1);
     const spec = this.activeSeatSpec;
@@ -684,6 +686,15 @@ export class DriveableVehicle {
     this.ctx.audio?.play('veh_board', { position: this.phys.position, volume: 0.78, pitch: 1.0 });
     this.startEngine();
     this.syncHud();
+    if (!fromHijack) {
+      this.ctx.events?.emit?.('vehicle:boarded', {
+        id: this.def.id,
+        mount: mountOfVehicle(this.def.id),
+        hijacked: false,
+        viaGrapple: false,
+        position: this.phys.position.clone(),
+      });
+    }
     return true;
   }
 
@@ -1416,6 +1427,7 @@ export class DriveableVehicle {
       this.specialActive = this.phys.deployed;
       this.ctx.audio?.play('metal_groan', { position: this.phys.position, volume: 0.75, pitch: this.phys.deployed ? 0.85 : 1.15 });
       this.ctx.hud?.feed?.(this.phys.deployed ? 'BASTION DEPLOYED — +40% ARMOR & RESUPPLY AURA' : 'BASTION MOBILE', this.def.color);
+      if (this.phys.deployed) this.emitOrdnance('bunker', this.phys.position, this.phys.position, true);
       return;
     }
     if (sp.id === 'vtol') {
@@ -1479,6 +1491,7 @@ export class DriveableVehicle {
       this.popFlares();
       this.engineAudio.playVtolShift(this.phys.position, true);
       this.ctx.hud?.feed?.('F-22 COBRA MANEUVER // 2D THRUST-VECTOR TURN + FLARES', this.def.color);
+      this.emitOrdnance('cobra', this.phys.position, null, true);
     } else if (sp.id === 'dump_burn') {
       // Lancer "Dump-and-Burn" trailing jet-fuel afterburner torch + incendiary wake + IR Flares!
       if (this.phys.vtolMode) {
@@ -1494,6 +1507,7 @@ export class DriveableVehicle {
       this.popFlares();
       this.ctx.audio?.play('veh_afterburner_ignite', { position: this.phys.position, volume: 1.0, pitch: 0.78 });
       this.ctx.hud?.feed?.('LANCER DUMP-AND-BURN // FUEL TORCH + FLARES', this.def.color);
+      this.emitOrdnance('dump_burn', this.phys.position, this.phys.position, true);
     } else if (sp.id === 'overcharge') {
       this.phys.boostFuel = 1;
       this.phys.boostLocked = false;
@@ -1522,6 +1536,17 @@ export class DriveableVehicle {
     }
   }
 
+  private emitOrdnance(kind: OrdnanceEventKind, origin: THREE.Vector3, target: THREE.Vector3 | null, force = false): void {
+    if (!force && this.clock - this.lastOrdnanceEmitAt < 1.4) return;
+    this.lastOrdnanceEmitAt = this.clock;
+    this.ctx.events?.emit?.('vehicle:ordnance', {
+      vehicleId: this.def.id,
+      kind,
+      origin: origin.clone(),
+      target: target ? target.clone() : null,
+    });
+  }
+
   private popFlares(): void {
     this.flareRemaining = 4.2;
     this.flareCooldown = this.def.id === 'lancer' ? 5.5 : this.def.stealth ? 6.5 : 9.5;
@@ -1534,6 +1559,7 @@ export class DriveableVehicle {
     }
     this.ctx.combat?.interceptEnemyProjectiles?.(this.phys.position, 32, 8);
     this.ctx.events.emit('dogfight:player_flares', { position: this.phys.position.clone() });
+    this.emitOrdnance('flares', this.phys.position, null, false);
     this.ctx.hud?.feed?.('IR FLARES DEPLOYED — MISSILE LOCK BROKEN', '#ffd166');
   }
 
@@ -1780,6 +1806,7 @@ export class DriveableVehicle {
     });
     this.phys.recoilOffset = Math.min(1, this.phys.recoilOffset + 0.45 * charge);
     if (this.occupied) this.ctx.camera?.addTrauma?.(spec.trauma * (0.6 + 0.6 * charge));
+    this.emitOrdnance('lance', _muzzle, this.seat?.point ?? null, false);
   }
 
   private tryFire(spec: VehicleWeaponSpec, rt: WeaponRuntime, isSecondary: boolean): void {
@@ -1870,6 +1897,20 @@ export class DriveableVehicle {
           shake: m.thermobaric ? 2.4 : m.moab ? 2.2 : 1.4,
         },
       });
+      const ccip = this.hudScratch.ccipWorld;
+      const dropTarget = ccip ? _ccipPos.set(ccip[0], ccip[1], ccip[2]) : null;
+      const ordKind: OrdnanceEventKind = m.napalm
+        ? 'napalm'
+        : (m.aerialCluster || m.cluster)
+          ? 'cluster'
+          : m.thermobaric
+            ? 'thermobaric'
+            : m.moab
+              ? 'moab'
+              : m.chute
+                ? 'chute'
+                : 'bomb';
+      this.emitOrdnance(ordKind, _muzzle, dropTarget, true);
     } else if (m.kind === 'atgm' || m.homing) {
       const lock = this.currentLockTarget;
       _vel.copy(_dir).multiplyScalar(m.speed);
@@ -1897,6 +1938,7 @@ export class DriveableVehicle {
           scale: 1.45,
         },
       });
+      this.emitOrdnance('missile', _muzzle, lock ? lock.center : (this.seat?.point ?? null), false);
     } else if (m.kind === 'agl' || m.kind === 'mortar') {
       _vel.copy(_dir).multiplyScalar(m.speed);
       _vel.y += m.kind === 'mortar' ? 22 : 5.2;
@@ -1918,6 +1960,7 @@ export class DriveableVehicle {
           scale: m.blastRadius > 8 ? 1.55 : 1.05,
         },
       });
+      if (m.kind === 'mortar') this.emitOrdnance('mortar', _muzzle, this.seat?.point ?? null, false);
     } else if (m.speed <= 0 || m.kind === 'mg' || (m.kind === 'hmg' && m.speed <= 0)) {
       const tracerKind = m.kind === 'hmg' ? 'heavy' : 'bullet';
       const rayRes = this.ctx.combat.fireRay(_muzzle, _dir, {
@@ -1971,6 +2014,9 @@ export class DriveableVehicle {
           scale: m.blastRadius >= 9 ? 1.7 : isCannon ? 1.25 : 0.95,
         } : undefined,
       });
+      if (isRocket) this.emitOrdnance('rocket', _muzzle, this.seat?.point ?? null, false);
+      else if (this.def.id === 'warthog' && spec.boresight) this.emitOrdnance('gau8', _muzzle, this.seat?.point ?? null, false);
+      else if (isCannon && this.def.id === 'aegis') this.emitOrdnance('cannon', _muzzle, this.seat?.point ?? null, false);
     }
 
     if (spec.recoilKick > 0) {
@@ -2363,6 +2409,11 @@ export class DriveableVehicle {
         this.ctx.camera?.addTrauma?.(extremeSpeed ? 0.22 : 0.13);
         if (res.killed) {
           this.ctx.hud?.floatText?.(e.center, region ? 'CLIPPED!' : 'ROADKILL', '#ff9e3b');
+          this.ctx.events?.emit?.('vehicle:roadkill', {
+            vehicleId: this.def.id,
+            position: e.center.clone(),
+            speed: this.phys.speed,
+          });
         }
       }
     }
