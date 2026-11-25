@@ -9,6 +9,9 @@ import { SPRINTER_GAIT } from './gait/sprinter';
 import { HEAVY_GAIT } from './gait/heavy';
 import { TREADS_GAIT } from './gait/treads';
 import { SPIDER_GAIT } from './gait/spider';
+import { HOVER_GAIT } from './gait/hover';
+import { WHEELS_GAIT } from './gait/wheels';
+import { AERO_QUAD_GAIT } from './gait/aeroQuad';
 import type { DrivePlugin } from './drive/types';
 import { JETS_DRIVE } from './drive/jets';
 import { FLIGHT_DRIVE } from './drive/flight';
@@ -16,6 +19,9 @@ import { HOVER_DRIVE } from './drive/hover';
 import { AFTERBURNER_DRIVE } from './drive/afterburner';
 import { OVERCHARGE_DRIVE } from './drive/overcharge';
 import { DIESEL_DRIVE } from './drive/diesel';
+import { BLINK_DRIVE } from './drive/blink';
+import { REDLINE_DRIVE } from './drive/redline';
+import { ASSAULT_DRIVE } from './drive/assault';
 
 export const GAIT_REGISTRY: Readonly<Record<GaitKind, GaitPlugin>> = {
   walker: WALKER_GAIT,
@@ -23,6 +29,9 @@ export const GAIT_REGISTRY: Readonly<Record<GaitKind, GaitPlugin>> = {
   heavy: HEAVY_GAIT,
   treads: TREADS_GAIT,
   spider: SPIDER_GAIT,
+  hover: HOVER_GAIT,
+  wheels: WHEELS_GAIT,
+  aeroQuad: AERO_QUAD_GAIT,
 };
 
 export const DRIVE_REGISTRY: Readonly<Record<DriveKind, DrivePlugin>> = {
@@ -32,4 +41,7 @@ export const DRIVE_REGISTRY: Readonly<Record<DriveKind, DrivePlugin>> = {
   afterburner: AFTERBURNER_DRIVE,
   overcharge: OVERCHARGE_DRIVE,
   diesel: DIESEL_DRIVE,
+  blink: BLINK_DRIVE,
+  redline: REDLINE_DRIVE,
+  assault: ASSAULT_DRIVE,
 };

@@ -8,8 +8,16 @@
  */
 import * as THREE from 'three';
 import { dampAngle, damp } from '../core/math';
+import type { FramePalette } from '../frame/models/palette';
+import { createFrameBuilder } from '../frame/models/palette';
 import type { Point } from '../progression/callins/airframe';
 import { ModelBuilder, type ModelMaterials } from '../progression/modelkit';
+
+export interface GunExtra {
+  readonly group: THREE.Group;
+  /** Live visual state update (e.g. sword blade extension 0..1, shield barrier alpha 0..1, mode 0/1). */
+  setActive?(amount: number, mode?: number): void;
+}
 
 export interface GunSpec {
   name: string;
@@ -17,6 +25,8 @@ export interface GunSpec {
   build(b: ModelBuilder): void;
   /** What moves when it fires: a Gatling's barrel cluster, or a cannon's barrel on its slide. */
   moving(b: ModelBuilder): void;
+  /** Optional articulated/translucent attachment (energy sword blade, shield wall, glowing coils). */
+  extra?(materials: ModelMaterials, palette: FramePalette): GunExtra;
   /** In the gun's own space. */
   muzzle: Point;
   /** Barrels this far behind the aim, as a rate: the weight the gun has when it is swung. */
@@ -30,15 +40,21 @@ export class Gun {
   /** The pivot. Parent to the scene only, like `Airframe.root`. */
   readonly root = new THREE.Group();
   private readonly moving: THREE.Group;
+  private readonly extra: GunExtra | null = null;
   private yaw = 0;
   private pitch = 0;
   private slide = 0;
+  private poseYaw = 0;
+  private posePitch = 0;
+  private poseRoll = 0;
+  private poseExtend = 0;
+  private trackMult = 1;
 
   /** `mirror`: the model flipped left to right, for an arm on the other side from the one it was drawn for (the Frame's loadout). */
-  constructor(materials: ModelMaterials, scene: THREE.Scene, private readonly spec: GunSpec, mirror = false) {
-    const fixed = new ModelBuilder();
+  constructor(materials: ModelMaterials, scene: THREE.Scene, private readonly spec: GunSpec, mirror = false, palette?: FramePalette) {
+    const fixed = createFrameBuilder(palette);
     spec.build(fixed);
-    const moving = new ModelBuilder();
+    const moving = createFrameBuilder(palette);
     spec.moving(moving);
     this.moving = materials.group(moving, materials.nearby);
     this.root.name = spec.name;
@@ -46,6 +62,17 @@ export class Gun {
     this.root.scale.setScalar(spec.scale ?? 1);
     if (mirror) this.root.scale.x = -this.root.scale.x;
     this.root.add(materials.group(fixed, materials.nearby), this.moving);
+    if (spec.extra && palette) {
+      this.extra = spec.extra(materials, palette);
+      this.moving.add(this.extra.group);
+    } else if (spec.extra) {
+      this.extra = spec.extra(materials, {
+        id: 'bureau', name: 'Bureau Standard', primary: '#15181d', secondary: '#2b313a', plate: '#47505c',
+        steel: '#6b7582', iron: '#1e2228', dark: '#0b0d10', accent: '#a5894b', glow: '#ff2a1a',
+        secondaryGlow: '#ffaa30', thruster: '#ff8828', thrusterCore: '#fff0b8',
+      });
+      this.moving.add(this.extra.group);
+    }
     this.root.visible = false;
     scene.add(this.root);
   }
@@ -56,16 +83,35 @@ export class Gun {
     this.pitch = pitch;
   }
 
+  /** Multiplier on `spec.follow` tracking speed (e.g. V-Crest Duelist head = 1.15). */
+  setTrackMult(mult: number): void {
+    this.trackMult = Math.max(0.25, mult);
+  }
+
+  /** Temporary additive swing / guard / thrust pose offset applied around the gun pivot. */
+  setPoseOffset(yaw: number, pitch: number, roll: number, extendZ = 0): void {
+    this.poseYaw = yaw;
+    this.posePitch = pitch;
+    this.poseRoll = roll;
+    this.poseExtend = extendZ;
+  }
+
+  /** Updates optional dynamic attachment state (blade ignition, shield barrier, ammo glow). */
+  setActive(amount: number, mode = 0): void {
+    this.extra?.setActive?.(amount, mode);
+  }
+
   /** Call once a frame. The gun swings after the aim, and the slide runs back out. */
   point(pivot: THREE.Vector3, yaw: number, pitch: number, dt: number): void {
     const { root, spec } = this;
-    this.yaw = dampAngle(this.yaw, yaw, spec.follow, dt);
-    this.pitch = damp(this.pitch, pitch, spec.follow, dt);
+    const rate = spec.follow * this.trackMult;
+    this.yaw = dampAngle(this.yaw, yaw, rate, dt);
+    this.pitch = damp(this.pitch, pitch, rate, dt);
     this.slide = damp(this.slide, 0, spec.return, dt);
     root.visible = true;
     root.position.copy(pivot);
-    root.rotation.set(this.pitch, this.yaw, 0);
-    this.moving.position.z = this.slide;
+    root.rotation.set(this.pitch + this.posePitch, this.yaw + this.poseYaw, this.poseRoll);
+    this.moving.position.z = this.slide + this.poseExtend;
   }
 
   /** Radians to turn the moving part about the bore. */
@@ -90,6 +136,14 @@ export class Gun {
 
   hide(): void {
     this.root.visible = false;
+  }
+
+  dispose(): void {
+    this.root.removeFromParent();
+    this.root.traverse(obj => {
+      const m = obj as THREE.Mesh;
+      if (m.geometry) m.geometry.dispose();
+    });
   }
 }
 

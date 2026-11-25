@@ -75,6 +75,7 @@ export class FrameParts {
   maxHp: number = FRAME_PARTS.hull;
   maxLeg: number = FRAME_PARTS.leg;
   canopyScale = 1;
+  crackDamageMult = 1;
   hp: number = FRAME_PARTS.hull;
   leftLeg: number = FRAME_PARTS.leg;
   rightLeg: number = FRAME_PARTS.leg;
@@ -83,12 +84,13 @@ export class FrameParts {
   rearFlash = 0;
 
   /** Configures hull HP, leg armour, and canopy strength from the active loadout (`frameStats`). */
-  configure(opts?: { hullScale?: number; legArmor?: number; canopyScale?: number }): void {
+  configure(opts?: { hullScale?: number; legArmor?: number; canopyScale?: number; crackDamageMult?: number }): void {
     const prevMaxHp = this.maxHp;
     const prevMaxLeg = this.maxLeg;
     this.maxHp = Math.max(1, Math.round(FRAME_PARTS.hull * (opts?.hullScale ?? 1)));
     this.maxLeg = Math.max(1, Math.round(FRAME_PARTS.leg * (opts?.legArmor ?? 1)));
     this.canopyScale = Math.max(0, opts?.canopyScale ?? 1);
+    this.crackDamageMult = Math.max(0.1, opts?.crackDamageMult ?? 1);
     this.hp = this.hp >= prevMaxHp ? this.maxHp : Math.min(this.hp, this.maxHp);
     this.leftLeg = this.leftLeg >= prevMaxLeg ? this.maxLeg : Math.min(this.leftLeg, this.maxLeg);
     this.rightLeg = this.rightLeg >= prevMaxLeg ? this.maxLeg : Math.min(this.rightLeg, this.maxLeg);
@@ -176,7 +178,7 @@ export class FrameParts {
         this.cracks++;
         cracked = true;
       }
-      const dealt = Math.min(this.hp, Math.max(FRAME_PARTS.sniperChip, Math.round(damage.amount * FRAME.hull.sniperMult)));
+      const dealt = Math.min(this.hp, Math.max(Math.round(FRAME_PARTS.sniperChip * this.crackDamageMult), Math.round(damage.amount * FRAME.hull.sniperMult * this.crackDamageMult)));
       this.hp = Math.max(0, this.hp - dealt);
       return { dealt, blocked: false, part: cracked ? 'canopy' : 'hull', broke: null, cracked, killed: this.hp <= 0 };
     }
@@ -206,7 +208,7 @@ export class FrameParts {
       this.canopyScale > 0
       && damage.type === 'explosive'
       && localAhead > 0.45
-      && damage.amount >= 180 * this.canopyScale
+      && damage.amount >= (180 * this.canopyScale) / this.crackDamageMult
       && this.cracks < FRAME_PARTS.maxCracks
     ) {
       // Massive frontal explosive also spiders the canopy glass (easier on thinner canopies like Twin-Mount).

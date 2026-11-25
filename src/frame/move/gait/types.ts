@@ -38,6 +38,17 @@ export interface MoveState {
   readonly strafeScale: number;
   readonly turnScale: number;
   readonly fuelScale: number;
+  /** Fuel regeneration rate multiplier (Chitin Core = 1.35, Redline Surge = 0.5). */
+  readonly fuelRegenScale: number;
+  /** True while Redline Surge energy-buff window is active (4 s after redline recovery). */
+  redlineBuff: number;
+  /** True while Assault-Ram Drive is actively forward-rushing (30% frontal damage reduction + Boost Kick enabled). */
+  assaultBoosting: boolean;
+  /** Last directional dash vector in torso space (`-1..1`) for Blink-Step vernier visual flares. */
+  dashDirX: number;
+  dashDirZ: number;
+  /** True when Aero-Quad Legs are splayed flat in mid-air hover-glide. */
+  aeroHovering: boolean;
   readonly free: boolean;
   clearance(): number;
   wish(intent: WalkerIntent, out: THREE.Vector3): THREE.Vector3;
@@ -51,13 +62,17 @@ export interface GaitPlugin {
   readonly minWalkY: number;
   /** True if landing/crouch stomp triggers a 360° leg sweep instead of a slam (Spider Legs). */
   readonly legSweepOnStomp?: boolean;
-  /** True if stride surge is suppressed (Treads). */
+  /** True if crouch triggers a downward repulsor crush pulse (Mag-Skiff Hover Hull). */
+  readonly repulsorPulseOnStomp?: boolean;
+  /** True if stride surge is suppressed (Treads, Hover, Wheels). */
   readonly noSurge?: boolean;
   /** Optional custom turning step. Return true to replace standard walker turn. */
   turn?(s: MoveState, h: number, intent: WalkerIntent): boolean;
   /** Optional custom ground/slope walking step. Return true to replace standard walker walk. */
   walk?(s: MoveState, h: number, intent: WalkerIntent, groundNormalY: number): boolean;
-  /** Optional stomp trigger override (e.g. Treads cannot stomp; Spider sweeps). Return true if handled. */
+  /** Optional mid-air hover/glide override (Aero-Quad Legs). Return true if handled. */
+  airGlide?(s: MoveState, h: number, intent: WalkerIntent): boolean;
+  /** Optional stomp trigger override (e.g. Treads cannot stomp; Spider sweeps; Hover pulses). Return true if handled. */
   startStomp?(s: MoveState, intent: WalkerIntent): boolean;
   /** Reset any internal gait state on `Walker.place`. */
   reset?(): void;

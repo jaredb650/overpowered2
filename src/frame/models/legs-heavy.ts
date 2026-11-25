@@ -8,7 +8,7 @@ import { clamp } from '../../core/math';
 import { ModelBuilder, type ModelMaterials } from '../../progression/modelkit';
 import {
   ACROSS, AMBER, BRASS, DARK, FLAT, GUNMETAL, IRON, OBSIDIAN, PLATE, STEEL,
-  ngon, prism, type LegsVisual,
+  frameBuilder, ngon, prism, type FramePalette, type LegsVisual,
 } from './shared';
 
 const HIP_DROP = 0.26;
@@ -143,11 +143,11 @@ interface HeavySide {
   readonly side: -1 | 1;
 }
 
-export function buildHeavyLegs(materials: ModelMaterials, hipsY: number): LegsVisual {
+export function buildHeavyLegs(materials: ModelMaterials, hipsY: number, palette?: FramePalette): LegsVisual {
   const group = new THREE.Group();
   group.name = 'frame.legs.heavy';
 
-  const pelvisBuilder = new ModelBuilder();
+  const pelvisBuilder = frameBuilder(palette);
   buildPelvis(pelvisBuilder, hipsY);
   const pelvisGroup = materials.group(pelvisBuilder);
   group.add(pelvisGroup);
@@ -159,18 +159,18 @@ export function buildHeavyLegs(materials: ModelMaterials, hipsY: number): LegsVi
   for (const s of [-1, 1] as const) {
     const hip = new THREE.Group();
     hip.position.set(s * 1.24, hipBaseY, 0.16);
-    const thighB = new ModelBuilder();
+    const thighB = frameBuilder(palette);
     buildThigh(thighB, s);
     hip.add(materials.group(thighB));
 
     const shin = new THREE.Group();
     shin.position.set(0, KNEE_Y, KNEE_Z);
-    const sleeveB = new ModelBuilder();
+    const sleeveB = frameBuilder(palette);
     buildUpperSleeve(sleeveB, s);
     shin.add(materials.group(sleeveB));
 
     const ram = new THREE.Group();
-    const footB = new ModelBuilder();
+    const footB = frameBuilder(palette);
     buildPileDriverFoot(footB, footY);
     ram.add(materials.group(footB));
     shin.add(ram);

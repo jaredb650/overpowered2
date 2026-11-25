@@ -9,6 +9,11 @@ import { buildMortarRack } from './shoulder-mortar';
 import { buildFpvHive } from './shoulder-fpv';
 import { buildPointDef } from './shoulder-pointdef';
 import { buildFlareRack } from './shoulder-flares';
+import { buildTwinGrenade } from './shoulder-twingrenade';
+import { buildLaserOrbit } from './shoulder-orbit';
+import { buildArcNeedle } from './shoulder-arcneedle';
+import { buildPlasmaMissiles } from './shoulder-plasmamissiles';
+import { buildShoulderGatling } from './shoulder-gatling';
 
 export const SHOULDER_MODELS: Readonly<Record<ShoulderKind, ShoulderModelBuilder>> = {
   pod6: buildPod6,
@@ -19,4 +24,9 @@ export const SHOULDER_MODELS: Readonly<Record<ShoulderKind, ShoulderModelBuilder
   fpv: buildFpvHive,
   pointdef: buildPointDef,
   flares: buildFlareRack,
+  twinGrenade: buildTwinGrenade,
+  laserOrbit: buildLaserOrbit,
+  arcNeedle: buildArcNeedle,
+  plasmaMissiles: buildPlasmaMissiles,
+  shoulderGatling: buildShoulderGatling,
 };

@@ -11,6 +11,13 @@ import { VULCAN30_PLUGIN } from './vulcan30';
 import { BEAM_PLUGIN } from './beam';
 import { CLUSTER_PLUGIN } from './cluster';
 import { SHOTGUN_PLUGIN } from './shotgun';
+import { GRENADE_PLUGIN } from './grenade';
+import { SWORD_PLUGIN } from './sword';
+import { BUNKER_PLUGIN } from './bunker';
+import { FLAMER_PLUGIN } from './flamer';
+import { PLASMA_PLUGIN } from './plasma';
+import { RAIL_PLUGIN } from './rail';
+import { SHIELD_PLUGIN } from './shield';
 import type { ArmPlugin } from './types';
 
 export const ARM_REGISTRY: Readonly<Record<ArmKind, ArmPlugin>> = {
@@ -21,6 +28,13 @@ export const ARM_REGISTRY: Readonly<Record<ArmKind, ArmPlugin>> = {
   beam: BEAM_PLUGIN,
   cluster: CLUSTER_PLUGIN,
   shotgun: SHOTGUN_PLUGIN,
+  grenade: GRENADE_PLUGIN,
+  sword: SWORD_PLUGIN,
+  bunker: BUNKER_PLUGIN,
+  flamer: FLAMER_PLUGIN,
+  plasma: PLASMA_PLUGIN,
+  rail: RAIL_PLUGIN,
+  shield: SHIELD_PLUGIN,
 };
 
 /** Dispatches a remote co-op `MechKind` wire note to the matching arm plug-in, if any. Returns true if handled. */

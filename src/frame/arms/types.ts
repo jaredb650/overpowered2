@@ -1,7 +1,5 @@
 /**
  * Arm weapon plug-in contract for the Distraint Frame (`src/frame/arms/`).
- * Phase 1 arm lanes (A: vulcan30, B: beam, C: cluster, D: shotgun) implement `ArmPlugin` in their own file without
- * editing `weapons.ts`, `seat.ts`, `puppet.ts`, or `arms/registry.ts`.
  */
 import type * as THREE from 'three';
 import type { Ctx } from '../../core/contracts';
@@ -18,10 +16,25 @@ export interface Arm {
   bore(out: THREE.Vector3): THREE.Vector3;
   turn(radians: number): void;
   recoil(metres: number): void;
+  /** Optional additive swing / guard / lunge pose offset (Energy Sword, Pile Bunker, Shield). */
+  setPose?(yaw: number, pitch: number, roll: number, extendZ?: number): void;
+  /** Optional dynamic visual state (blade extension 0..1, shield barrier alpha 0..1, ammo glow mode). */
+  setActive?(amount: number, mode?: number): void;
 }
 
 /** Where the Frame aims from and at: the seat, as it has it this frame. */
 export type Sight = Pick<GunnerSeat, 'view' | 'aim' | 'point' | 'range'>;
+
+/** Active directional shield state reported by an Armored Energy Shield arm. */
+export interface ShieldState {
+  active: boolean;
+  /** 0..1 frontal damage reduction (0.8 standard, 0.95 Perfect Guard). */
+  reduction: number;
+  /** True during the 0.5 s Perfect Guard window (reflects incoming rockets). */
+  perfect: boolean;
+  /** Called by `Frame.hit()` when the shield absorbs damage so it builds heat. */
+  onAbsorb?: (blockedDamage: number) => void;
+}
 
 /** Context handed to an arm weapon each frame while piloted. */
 export interface ArmUpdateContext {
@@ -40,11 +53,18 @@ export interface ArmUpdateContext {
   readonly cyclePressed: boolean;
   /** True on the frame the pilot tapped `R` for manual reload (never cycles ammo). */
   readonly reloadPressed: boolean;
-  /** View recoil kick multiplier (`0` on Spider Legs `noRecoil`, `1` otherwise). */
+  /** View recoil kick multiplier (`0` on Spider/Hover Legs, `0.6` on Bastion, `1` otherwise). */
   readonly recoilMult: number;
+  /** Energy weapon charge & cooling rate multiplier (Valkyrie = 1.2, Redline Surge = 1.25). */
+  readonly energyMult?: number;
+  /** Mech feet position and torso yaw in world space. */
+  readonly feet?: THREE.Vector3;
+  readonly torsoYaw?: number;
+  /** Optional velocity impulse pushed into the Walker (Energy Sword booster lunge / Impale Lunge). */
+  readonly lungeImpulse?: (dir: THREE.Vector3, speed: number, duration: number) => void;
   /** Co-op shell note callback for 40 mm / 105 mm arcs. */
   readonly onShell: ((round: Round40 | 'g105', from: THREE.Vector3, aim: THREE.Vector3, seconds: number, side: ArmSide) => void) | null;
-  /** Co-op mech news callback for new arm weapons (`vulcan30`, `beam`, `cluster`, `shotgun`). */
+  /** Co-op mech news callback for arm weapons. */
   readonly onNews: ((kind: MechKind, values: number[]) => void) | null;
 }
 
@@ -57,6 +77,8 @@ export interface FrameArmGun {
   readonly heat?: number;
   /** Optional walk-speed multiplier while charging/firing (e.g. Red Beam returns 0.6 while charging). */
   readonly walkSpeedMult?: number;
+  /** Optional active shield state for `Armored Energy Shield`. */
+  readonly shieldState?: ShieldState;
   /** Step this arm while piloted. */
   update(dt: number, u: ArmUpdateContext): void;
   /** Passive cooling / reloading while parked empty on the map. */

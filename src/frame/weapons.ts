@@ -20,20 +20,23 @@ import type { MechKind } from '../progression/callins/link';
 import type { GunnerWeapon } from '../vehicles/hud';
 import { angleOff, type PaintCandidate } from '../weapons/swarm';
 import { FRAME, type FrameArmWeapon, type RotaryMode } from './data';
-import type { ArmKind, ArmSide, ShoulderKind } from './loadout';
+import type { ArmKind, ArmSide, ExpansionKind, ShoulderKind } from './loadout';
 import { ARM_REGISTRY } from './arms/registry';
 import { Cannon, Cannon40ArmGun } from './arms/cannon40';
 import { Howitzer, Howitzer105ArmGun } from './arms/howitzer105';
 import { Rotary, RotaryArmGun } from './arms/rotary';
 import { ROUND_NAMES, airburstPoint, howitzerShockwave, shellImpact } from './arms/shared';
-import type { Arm, ArmUpdateContext, FrameArmGun, Sight } from './arms/types';
+import type { Arm, ArmUpdateContext, FrameArmGun, ShieldState, Sight } from './arms/types';
+import { EXPANSION_REGISTRY } from './expansions/registry';
+import type { ExpansionContext, ExpansionVisualState, FrameExpansion } from './expansions/types';
 import { SHOULDER_REGISTRY } from './shoulders/registry';
 import { Pod, Pod6Shoulder, podMissile } from './shoulders/pod6';
 import type { FrameShoulderWeapon, ShoulderUpdateContext, SmokeModifier } from './shoulders/types';
 
 export type { FrameArmWeapon, RotaryMode } from './data';
-export type { ArmKind, ArmSide, ShoulderKind } from './loadout';
-export type { Arm, ArmUpdateContext, FrameArmGun, Sight } from './arms/types';
+export type { ArmKind, ArmSide, ExpansionKind, ShoulderKind } from './loadout';
+export type { Arm, ArmUpdateContext, FrameArmGun, ShieldState, Sight } from './arms/types';
+export type { ExpansionVisualState, FrameExpansion } from './expansions/types';
 export type { FrameShoulderWeapon, ShoulderUpdateContext, SmokeModifier } from './shoulders/types';
 export { Rotary } from './arms/rotary';
 export { Cannon } from './arms/cannon40';
@@ -335,6 +338,62 @@ export function smokePulse(enemies: EnemySystem, at: THREE.Vector3): number {
   return struck;
 }
 
+/** Assault-Ram Drive Boost Kick: 550 dmg supersonic forward knee/foot strike in a 7.5 m cone. */
+export function boostKick(enemies: EnemySystem, at: THREE.Vector3, yaw: number): number {
+  const reach = 7.5;
+  const halfArc = 1.15;
+  const n = Math.min(enemies.query(at, reach + 1, _hits) || 0, _hits.length);
+  let struck = 0;
+  const fx = -Math.sin(yaw);
+  const fz = -Math.cos(yaw);
+  for (let i = 0; i < n; i++) {
+    const e = _hits[i]!;
+    if (!e.alive) continue;
+    const dx = e.position.x - at.x;
+    const dz = e.position.z - at.z;
+    const d = Math.hypot(dx, dz);
+    if (d > reach) continue;
+    if (d > 2.2 && Math.abs(wrapAngle(Math.atan2(-dx, -dz) - yaw)) > halfArc) continue;
+    blow.source = 'frame_charge';
+    blow.amount = 550;
+    blow.point.copy(e.center);
+    blow.dir.set(fx, 0.45, fz).normalize();
+    blow.force = 1450;
+    blow.gib = true;
+    enemies.applyDamage(e, blow);
+    blow.gib = false;
+    struck++;
+  }
+  return struck;
+}
+
+/** Mag-Skiff Hover Hull crouch replacement: 10 m 360° downward gravitic repulsor crush wave. */
+export function repulsorPulse(enemies: EnemySystem, at: THREE.Vector3): number {
+  const radius = 10;
+  const n = Math.min(enemies.query(at, radius + 0.5, _hits) || 0, _hits.length);
+  let struck = 0;
+  for (let i = 0; i < n; i++) {
+    const e = _hits[i]!;
+    if (!e.alive) continue;
+    const dx = e.position.x - at.x;
+    const dz = e.position.z - at.z;
+    const d = Math.hypot(dx, dz);
+    if (d > radius) continue;
+    blow.source = 'frame_stomp';
+    blow.amount = lerp(240, 90, clamp(d / radius));
+    blow.point.copy(e.center);
+    blow.dir.set(dx, 0, dz);
+    if (blow.dir.lengthSq() < 1e-4) blow.dir.set(1, 0, 0);
+    blow.dir.normalize().setY(0.55).normalize();
+    blow.force = 950;
+    blow.gib = d < 3.5;
+    enemies.applyDamage(e, blow);
+    blow.gib = false;
+    struck++;
+  }
+  return struck;
+}
+
 /** The smoke going: flares up and out of the back, and a ring of smoke round the legs that lasts. The look alone. */
 export function smokeScreen(
   ctx: Ctx,
@@ -467,10 +526,18 @@ export class ArmMount {
 export interface FrameGunsUpdateOptions {
   /** View recoil kick multiplier (`0` on Spider Legs `noRecoil`, `1` otherwise). */
   recoilMult?: number;
-  /** Frame's feet position in world space (for Point Defence, Countermeasure Rack, Mortar, FPV). */
+  /** Energy weapon charge/damage multiplier from Head/Engine (`1` standard, `1.2` Halo Crown, etc.). */
+  energyMult?: number;
+  /** Target lock range multiplier from Head optics (`1` standard, `1.25` Cyclops, etc.). */
+  lockRangeMult?: number;
+  /** Frame's feet position in world space (for Point Defence, Countermeasure Rack, Mortar, FPV, Sword, Expansions). */
   feet?: THREE.Vector3;
   /** Frame's torso yaw in radians. */
   torsoYaw?: number;
+  /** Optional forward lunge impulse callback (used by Energy Sword & Pile Bunker). */
+  lungeImpulse?: (dir: THREE.Vector3, speed: number, duration?: number) => void;
+  /** Optional callback to knock loose an attached leg sapper charge (used by Breacher Nova / Aegis). */
+  clearSapper?: () => boolean;
 }
 
 export class FrameGuns {
@@ -481,7 +548,10 @@ export class FrameGuns {
   /** Active shoulder weapons for slots 0..N-1 (G, V, B). */
   readonly shoulders: FrameShoulderWeapon[] = [];
   private readonly shoulderCache: Partial<Record<ShoulderKind, FrameShoulderWeapon>>[] = [{}, {}, {}];
-  /** For the HUD panel: left arm, right arm, fitted shoulders (0..3), smoke. `Frame` appends jets after these. */
+  /** Active Core Expansion (`Q` key); `'smoke'` delegates to `this.smoke` for full backward compatibility. */
+  private expansionCache: Partial<Record<ExpansionKind, FrameExpansion>> = {};
+  expansion: FrameExpansion;
+  /** For the HUD panel: left arm, right arm, fitted shoulders (0..3), Q expansion/smoke. `Frame` appends jets after these. */
   readonly rows: GunnerWeapon[] = [
     { name: '', ammo: 100, max: 100, reload: -1 },
     { name: '', ammo: 0, max: FRAME.cannon.magazine, reload: -1 },
@@ -494,6 +564,8 @@ export class FrameGuns {
   private sight: Sight | null = null;
   private feetRef: THREE.Vector3 = _zero;
   private yawRef = 0;
+  private lockRangeMultRef = 1;
+  private clearSapperRef: () => boolean = () => false;
   /** Set false when shoulder slot 0 (right shoulder) has been knocked out or no pod is fitted. */
   podOnline = true;
   /**
@@ -515,6 +587,9 @@ export class FrameGuns {
   ) {
     this.left = new ArmMount(ctx, 'left', 'fire', leftArm, 'rotary');
     this.right = new ArmMount(ctx, 'right', 'aim', rightArm, 'cannon40');
+    const smokeExp = EXPANSION_REGISTRY.smoke.create(ctx);
+    this.expansionCache.smoke = smokeExp;
+    this.expansion = smokeExp;
     rounds.onImpact = (kind, point, normal, dir) => this.impact(kind, point, normal, dir);
     this.fitShoulders(['pod6']);
     this.label();
@@ -567,6 +642,23 @@ export class FrameGuns {
     return Math.min(this.left.walkSpeedMult, this.right.walkSpeedMult);
   }
 
+  /** Active visual state of the fitted Core Expansion (read by `StandIn` each frame). */
+  get expansionVisual(): ExpansionVisualState {
+    return this.expansion.visual;
+  }
+
+  /** Returns the strongest active energy shield state across both arms, or null if neither is shielding. */
+  activeShield(): ShieldState | null {
+    const ls = this.left.gun.shieldState ?? null;
+    const rs = this.right.gun.shieldState ?? null;
+    if (ls && ls.active && rs && rs.active) {
+      return ls.perfect || ls.reduction >= rs.reduction ? ls : rs;
+    }
+    if (ls && ls.active) return ls;
+    if (rs && rs.active) return rs;
+    return null;
+  }
+
   /** Both arms, from the loadout: each with a fresh clock. */
   fitArms(left: ArmKind, right: ArmKind): void {
     this.silence();
@@ -606,6 +698,52 @@ export class FrameGuns {
     this.label();
   }
 
+  /** Fits the Core Expansion (`Q` slot) from the loadout. */
+  fitExpansion(kind: ExpansionKind): void {
+    let exp = this.expansionCache[kind];
+    if (!exp) {
+      exp = EXPANSION_REGISTRY[kind].create(this.ctx);
+      this.expansionCache[kind] = exp;
+    }
+    exp.reset();
+    this.expansion = exp;
+    this.label();
+  }
+
+  private makeExpansionCtx(feet: THREE.Vector3, yaw: number, clearSapper?: () => boolean): ExpansionContext {
+    return {
+      ctx: this.ctx,
+      feet,
+      torsoYaw: yaw,
+      popSmoke: () => this.popSmoke(feet, yaw),
+      clearSapper: clearSapper ?? this.clearSapperRef,
+      onNews: this.onNews,
+    };
+  }
+
+  /** Triggers the active Core Expansion (`Q` press). Returns true if it fired/activated. */
+  triggerExpansion(at: THREE.Vector3, yaw: number, clearSapper?: () => boolean): boolean {
+    if (this.expansion.kind === 'smoke') {
+      const ok = this.popSmoke(at, yaw);
+      if (ok) this.onNews?.('smoke', []);
+      return ok;
+    }
+    return this.expansion.trigger(this.makeExpansionCtx(at, yaw, clearSapper));
+  }
+
+  /** Routes incoming hull damage through the active expansion (Aegis Barrier, Bunker Dome, or Last-Stand Fuse). */
+  absorbExpansionDamage(
+    damage: number,
+    currentHp: number,
+    from: THREE.Vector3 | undefined,
+    feet: THREE.Vector3,
+    yaw: number,
+    clearSapper?: () => boolean,
+  ): number {
+    if (!this.expansion.absorbDamage) return damage;
+    return this.expansion.absorbDamage(damage, currentHp, from, this.makeExpansionCtx(feet, yaw, clearSapper));
+  }
+
   private syncRowCount(): void {
     const want = 2 + this.shoulders.length + 1;
     while (this.rows.length < want) this.rows.push({ name: '', ammo: 0, max: 1, reload: -1 });
@@ -623,14 +761,17 @@ export class FrameGuns {
     const { input } = this.ctx;
     this.sight = sight;
     const recoilMult = opts?.recoilMult ?? 1;
+    const energyMult = opts?.energyMult ?? 1;
+    this.lockRangeMultRef = opts?.lockRangeMult ?? 1;
     this.feetRef = opts?.feet ?? _zero;
     this.yawRef = opts?.torsoYaw ?? 0;
+    if (opts?.clearSapper) this.clearSapperRef = opts.clearSapper;
 
     // Independent per-arm ammo/mode cycling: tap 1 = left arm ONLY, tap 2 = right arm ONLY.
     // R = manual reload only (never cycles ammo).
     const reloadPressed = input.pressed('reload');
-    this.stepArm(this.left, dt, sight, input.pressed('weapon1'), reloadPressed, recoilMult);
-    this.stepArm(this.right, dt, sight, input.pressed('weapon2'), reloadPressed, recoilMult);
+    this.stepArm(this.left, dt, sight, input.pressed('weapon1'), reloadPressed, recoilMult, energyMult, opts?.lungeImpulse);
+    this.stepArm(this.right, dt, sight, input.pressed('weapon2'), reloadPressed, recoilMult, energyMult, opts?.lungeImpulse);
 
     // Shoulders: G (slot 0), V (slot 1), B (slot 2); 3 / 4 / 5 cycle rounds (3 falls back to first cycleable shoulder).
     const c3 = input.pressed(SHOULDER_CYCLE_ACTIONS[0]!);
@@ -675,8 +816,9 @@ export class FrameGuns {
       this.shoulders[slot]!.update(dt, u);
     }
 
-    // Smoke & in-flight rounds.
+    // Smoke, Core Expansion & in-flight rounds.
     this.smoke.update(dt);
+    this.expansion.update(dt, this.makeExpansionCtx(this.feetRef, this.yawRef));
     this.rounds.update(dt);
     this.label();
   }
@@ -688,6 +830,8 @@ export class FrameGuns {
     cyclePressed: boolean,
     reloadPressed: boolean,
     recoilMult: number,
+    energyMult: number,
+    lungeImpulse?: (dir: THREE.Vector3, speed: number, duration?: number) => void,
   ): void {
     const { input } = this.ctx;
     const u: ArmUpdateContext = {
@@ -703,6 +847,10 @@ export class FrameGuns {
       cyclePressed,
       reloadPressed,
       recoilMult,
+      energyMult,
+      feet: this.feetRef,
+      torsoYaw: this.yawRef,
+      lungeImpulse,
       onShell: this.onShell,
       onNews: this.onNews,
     };
@@ -728,19 +876,24 @@ export class FrameGuns {
       const online = slot === 0 ? this.podOnline : true;
       this.shoulders[slot]!.fillRow(row, SHOULDER_KEYS[slot]!, SHOULDER_CYCLE_KEYS[slot]!, online);
     }
-    const smoke = this.rows[2 + this.shoulders.length]!;
-    smoke.name = 'Q SMOKE';
-    smoke.ammo = this.smoke.count;
-    smoke.max = this.smoke.maxCount;
-    smoke.reload = this.smoke.progress;
+    const expRow = this.rows[2 + this.shoulders.length]!;
+    if (this.expansion.kind === 'smoke') {
+      expRow.name = 'Q SMOKE';
+      expRow.ammo = this.smoke.count;
+      expRow.max = this.smoke.maxCount;
+      expRow.reload = this.smoke.progress;
+    } else {
+      this.expansion.fillRow(expRow);
+    }
   }
 
-  /** Passive cooling, reloads, smoke refill, and in-flight shells while parked empty on the map. */
+  /** Passive cooling, reloads, smoke/expansion refill, and in-flight shells while parked empty on the map. */
   idleUpdate(dt: number): void {
     this.left.idleUpdate(dt);
     this.right.idleUpdate(dt);
     for (let i = 0; i < this.shoulders.length; i++) this.shoulders[i]!.idleUpdate(dt);
     this.smoke.update(dt);
+    this.expansion.idleUpdate(dt);
     this.rounds.update(dt);
   }
 
@@ -750,14 +903,15 @@ export class FrameGuns {
 
   /** Everyone near the sight with a clear line to them, enemies and then vehicles: the Quiver's rule, from the cockpit. */
   private gather(range: number = P.range, coneCos: number = Math.cos(P.cone)): readonly PaintCandidate[] {
+    const effRange = range * this.lockRangeMultRef;
     const out = this.inView;
     out.length = 0;
     const { enemies } = this.ctx;
-    for (let i = 0; i < enemies.alive.length && out.length < MAX_IN_VIEW; i++) this.consider(enemies.alive[i]!, range, coneCos);
+    for (let i = 0; i < enemies.alive.length && out.length < MAX_IN_VIEW; i++) this.consider(enemies.alive[i]!, effRange, coneCos);
     const v = enemies.vehicles;
     if (v && typeof v.paintable === 'function') {
       const n = v.paintable(this.paintables);
-      for (let i = 0; i < n && out.length < MAX_IN_VIEW; i++) this.consider(this.paintables[i]!, range, coneCos);
+      for (let i = 0; i < n && out.length < MAX_IN_VIEW; i++) this.consider(this.paintables[i]!, effRange, coneCos);
       this.paintables.length = 0;
     }
     return out;
@@ -805,6 +959,7 @@ export class FrameGuns {
     this.left.kind = 'rotary';
     this.right.kind = 'cannon40';
     this.fitShoulders(['pod6']);
+    this.fitExpansion('smoke');
     this.smoke.reset();
     this.rounds.clear();
     this.label();

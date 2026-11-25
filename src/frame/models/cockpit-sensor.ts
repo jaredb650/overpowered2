@@ -8,7 +8,7 @@
  */
 import * as THREE from 'three';
 import { ModelBuilder, type ModelMaterials } from '../../progression/modelkit';
-import { ACROSS, ALONG_Z, AMBER, BRASS, DARK, GUNMETAL, IRON, OBSIDIAN, PLATE, RED, STEEL, ngon, prism, type CockpitVisual } from './shared';
+import { ACROSS, ALONG_Z, AMBER, BRASS, DARK, GUNMETAL, IRON, OBSIDIAN, PLATE, RED, STEEL, frameBuilder, ngon, prism, type CockpitVisual, type FramePalette } from './shared';
 
 /** Exterior recessed cyclops optics housing, multi-lens array, canted radar cheeks, and dorsal FLIR dome (torso space). */
 function exterior(b: ModelBuilder): void {
@@ -112,10 +112,10 @@ function interior(b: ModelBuilder): void {
   b.glow(new THREE.BoxGeometry(0.18, 0.008, 0.01), AMBER, 2.8, { at: [0, -0.528, -0.8] });
 }
 
-export function buildSensorCockpit(materials: ModelMaterials): CockpitVisual {
-  const ext = new ModelBuilder();
+export function buildSensorCockpit(materials: ModelMaterials, palette?: FramePalette): CockpitVisual {
+  const ext = frameBuilder(palette);
   exterior(ext);
-  const int = new ModelBuilder();
+  const int = frameBuilder(palette);
   interior(int);
   return {
     exterior: materials.group(ext),

@@ -8,7 +8,7 @@ import { clamp } from '../../core/math';
 import { ModelBuilder, type ModelMaterials } from '../../progression/modelkit';
 import {
   AMBER, BRASS, DARK, FLAT, GUNMETAL, IRON, OBSIDIAN, PLATE, RED, STEEL,
-  ngon, prism, type LegsVisual,
+  frameBuilder, ngon, prism, type FramePalette, type LegsVisual,
 } from './shared';
 
 const HUB_DROP = 0.5;
@@ -142,12 +142,12 @@ interface SpiderLeg {
   readonly spec: LegSpec;
 }
 
-export function buildSpiderLegs(materials: ModelMaterials, hipsY: number): LegsVisual {
+export function buildSpiderLegs(materials: ModelMaterials, hipsY: number, palette?: FramePalette): LegsVisual {
   const group = new THREE.Group();
   group.name = 'frame.legs.spider';
 
   const hubGroup = new THREE.Group();
-  const hubB = new ModelBuilder();
+  const hubB = frameBuilder(palette);
   buildHub(hubB, hipsY);
   hubGroup.add(materials.group(hubB));
   group.add(hubGroup);
@@ -166,13 +166,13 @@ export function buildSpiderLegs(materials: ModelMaterials, hipsY: number): LegsV
     coxa.rotation.y = spec.baseAngle;
 
     const femur = new THREE.Group();
-    const femurB = new ModelBuilder();
+    const femurB = frameBuilder(palette);
     buildFemur(femurB);
     femur.add(materials.group(femurB));
 
     const tibia = new THREE.Group();
     tibia.position.set(KNEE_X, KNEE_Y, 0);
-    const tibiaB = new ModelBuilder();
+    const tibiaB = frameBuilder(palette);
     buildTibia(tibiaB, footY);
     tibia.add(materials.group(tibiaB));
 

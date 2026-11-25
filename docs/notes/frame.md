@@ -28,84 +28,132 @@ off and compare.
 `Frame.deploy(feet, yaw)`. There is no call-in timer and no despawn timer: it remains parked with a HUD marker (`DISTRAINT 4 · XX%`)
 and `[E] BOARD` prompt until destroyed (`0 HP` triggers an explosion and safely ejects the pilot if inside).
 
-## Loadout & Part Catalogue (2026-11-22)
+## Loadout & Part Catalogue (Overhaul v2 · 2026-11-25)
 
-The Frame is built from parts, one per slot (`src/frame/loadout.ts`, zero Three.js), chosen on the Frame Loadout screen (`src/ui/screens/frameLoadout.ts` + live rotating 3D preview in `src/ui/screens/framePreview.ts`) and saved in `op2.frame.loadout.v1`. All parts are currently free.
+The Frame is built from **9 customizable slots** (`src/frame/loadout.ts`, zero Three.js), configured in the **Bureau Hangar Garage** (`src/ui/screens/frameLoadout.ts` + `src/ui/css/frameGarage.css` + live orbit/zoom 3D turntable in `src/ui/screens/framePreview.ts`) with 6 one-click quick-build presets (`BUREAU STANDARD`, `CYBER SAMURAI`, `NAPALM JUGGERNAUT`, `HOVER GUNSLINGER`, `DRIFT WRECKER`, `CHITIN SKIFF`) and saved in `op2.frame.loadout.v1`. All parts are currently free.
 
-**The default** (`DEFAULT_FRAME_LOADOUT`) is the original Distraint Frame: 20 mm Rotary left, 40 mm Autocannon right, Six-tube Missile Pod, Standard Legs, Standard Cockpit, Standard Engine (`frameStats` multipliers all `1`). Campaign story beats (`board`, `kneel`) still build the default Frame; Foreclosure's `installWeapon('howitzer105')` swaps only the right arm. Call-ins (`frameDrop.ts`) and `/?map=range&frame=1` wear the saved loadout.
+**The default** (`DEFAULT_FRAME_LOADOUT`) remains the original Distraint Frame: 20 mm Rotary left, 40 mm Autocannon right, Six-tube Missile Pod, Standard Legs, Standard Cockpit, Standard Visor Head, Standard Engine, Tactical Smoke, Bureau Slate paint (`frameStats` multipliers all `1`). Campaign story beats (`board`, `kneel`) still build the default Frame; Foreclosure's `installWeapon('howitzer105')` swaps only the right arm. Call-ins (`frameDrop.ts`) and `/?map=range&frame=1` wear the saved loadout.
 
-### Arm Weapons (`LMB` left / `RMB` right · tap `1` left ammo / tap `2` right ammo · `R` reload)
+### Arm Weapons (`LMB` left / `RMB` right · tap `1` left ammo / tap `2` right ammo · `R` reload) — 14 Weapons
 
 | Id | Name | Numbers & Behavior |
 |---|---|---|
 | `rotaryL/R` | **20 mm Vulcan Rotary** | 6 barrels; 0.25 s spin-up; 24 rds/s STD (`68` dmg, 0.7 m burst) / 16 rds/s AIRBURST (tap `1`/`2`); ~6.7 s to overheat, 2.2 s vent. |
 | `cannonL/R` | **40 mm Autocannon** | 10-shell mag, 0.28 s cadence, 3.8 s reload; HE / AP / FLAK cycled on tap `1`/`2` independently per arm. |
 | `howitzerL/R` | **105 mm Howitzer** | 1-shell breech, 3.1 s auto-reload; monolithic shell with 22 m shockwave knockdown. |
-| `vulcan30L/R` | **30 mm Rotary Cannon** | 3 barrels in rounded triangle; 0.35 s spin-up, 14 rds/s; ~5.0 s continuous fire to overheat, 2.5 s vent; HE (3.0 m, 76.5 dmg) / AP (145 dmg, penetrates 1 body) / FLAK (8 proximity airburst pellets) cycled on tap `1`/`2`. |
-| `beamL/R` | **Red Beam** | Hold 1.6 s to charge (walk slowed ×0.6; early release keeps half charge for 2.0 s). Release fires 1.0 s continuous 1.4 m red beam to 180 m piercing up to 3 walls: vaporizes enemies, scorches/ignites within 2.4 m edge, 900 dmg to bosses (`bossHit`), 9.0 s cooldown. |
-| `clusterL/R` | **Bomblet Cannon** | 1-shell breech, 3.6 s reload; bursts 7 m short of first enemy/wall, throwing 28 wall-bouncing bomblets across ~14 m × 9 m rippling over 0.7 s (2.4 m, 70 dmg each). |
-| `shotgunL/R` | **Mech Shotgun** | 6-shell tube, 0.42 s semi-auto, 26 heavy pellets in a 5.5° spread cone, 85 dmg/pellet up to 25 m (tapering to 25% at 85 m), heavy ragdoll push, 0.45 s shell-by-shell reload interruptible by firing. |
+| `vulcan30L/R` | **30 mm Rotary Cannon** | 3 barrels in rounded triangle; 0.35 s spin-up, 14 rds/s; ~5.0 s continuous fire to overheat, 2.5 s vent; HE / AP / FLAK cycled on tap `1`/`2`. |
+| `beamL/R` | **Red Beam** | Hold 1.6 s to charge (walk ×0.6); release fires 1.0 s continuous 1.4 m beam to 180 m piercing 3 walls, 900 dmg to bosses, 9.0 s cooldown. |
+| `clusterL/R` | **Bomblet Cannon** | 1-shell breech, 3.6 s reload; bursts 7 m short of first enemy/wall, throwing 28 wall-bouncing bomblets across ~14 m × 9 m. |
+| `shotgunL/R` | **Mech Shotgun** | 6-shell tube, 0.42 s semi-auto, 26 heavy pellets in 5.5° cone, 85 dmg/pellet to 25 m, interruptible shell-by-shell reload. |
+| `grenadeL/R` | **60 mm Grenade Launcher** | 6-round rotary drum, 0.52 s cadence, 2.9 s reload. Tap `1`/`2` switches **HE** (7.5 m, 290 dmg + concussive impulse) and **NAPALM** (8.5 m burning zone for 10 s + 42 DPS + 150 direct impact). |
+| `swordL/R` | **Plasma Energy Sword** | Zero-ammo heat-gated energy broadsword with live ignited plasma blade. Tap `1`/`2` switches **CLEAVE** (tap = 2-hit 160° horizontal lunge sweep, 9 m, 420 dmg; hold = 360° whirlwind, 10 m, 680 dmg) and **BEAM WAVE** (vertical crescent wave projectile to 38 m piercing enemies, 320 dmg). |
+| `bunkerL/R` | **Pile Bunker** | Hydraulic melee spike. Tap = quick jab (6 m, 450 dmg, 1.4 s cd); hold 0.65 s = super-heated detonation thrust (7.5 m, 1,450 dmg + 6 m concussive cone, 3.8 s cd). |
+| `shieldL/R` | **Energy Pulse Shield** | Projected translucent hexagonal barrier (`850 HP` heat capacity). Hold to block frontal 110° damage (`75%` reduction + `90%` parry window in first 0.4 s + pulse shockwave on parry). |
+| `flamerL/R` | **Thermite Flamethrower** | Continuous pressurized stream to 24 m; 100-unit fuel tank; ignites enemies & leaves 6 s burning puddles; ignores armor. |
+| `plasmaL/R` | **Plasma Rifle** | Semi-auto bolt (3.2/s, 4.5 m plasma bubble, 130 dmg + stagger). Hold 0.9 s for **Supercharge** (10 m plasma sphere, 480 dmg + 3 s plasma DoT). |
+| `railL/R` | **Linear Rail Rifle** | Precision electromagnetics (14-rd mag). Tap = 180 dmg hitscan (2.8/s); hold 0.8 s = 620 dmg hyper-velocity slug piercing 5 targets + 1 wall. |
 
-### Shoulder Weapons (`G` slot 1 / `V` slot 2 / `B` slot 3 · tap `3`/`4`/`5` cycle round)
+### Shoulder Weapons (`G` slot 1 / `V` slot 2 / `B` slot 3 · tap `3`/`4`/`5` cycle round) — 13 Weapons
 
 | Id | Name | Numbers & Behavior |
 |---|---|---|
-| `pod6` | **Six-tube Missile Pod** | Hold to paint up to 6 targets (0.11 s/mark to 200 m), release fires 6 homing missiles (145 direct, 115 in 4.2 m); tap fires 6 dumb; 8.5 s reload. |
-| `stormPod` | **Metal Storm Pod** | Hold to paint up to 8 targets (0.5 s/mark) + 0.7 s charge after first lock; release snaps through painted targets in order (0.25 s, 120 rds × 30 dmg each, skipping dead/occluded), 7.5 s reload. |
-| `mirv` | **MIRV Launcher** | Hold to place ground marker (up to 200 m); release launches straight up to +70 m, dives, and splits at 25 m into 8 homing sub-missiles targeting enemies within 22 m (5 m, 220 dmg each), 11 s reload. |
-| `wireBomb` | **Guided Heavy Missile** | Slow 16 m/s agile missile steered live to crosshair (walk freely while guiding), detonates via `megaBlast` (26 m kill radius, 70 m wave-timed shockwave, condensation dome, delayed shake/ragdoll push/breakable ring/delayed boom), 28 s reload. |
-| `mortarRack` | **Mortar Rack** | 6 rounds, 0.5 s cadence, 6.5 s reload; hold for landing circle (25–180 m, ~2.5 s flight at 100 m), release fires high arc. Tap `3`/`4`/`5` cycles **HE** (6 m, 260 dmg), **WP** (9 m white-hot burning patch for 14 s + white smoke plume), and **Cluster** (32 bomblets over 18 m circle). |
-| `fpvHive` | **FPV Drone Hive** | 4-drone stock (rebuilds 1 every 4 s; pooled cap 4/mech, 16/co-op); launches 0.15 s apart (holding prefers crosshair targets); 28 m/s, 60 m search, distinct targets, 4 m / 200 dmg blast, 20 HP shootable. |
-| `pointDefence` | **Point Defence** | Passive APS turret (no key): intercepts enemy rockets/grenades/mortars within 15 m (6 charges, 0.6 s cd, 3 s refill) + clips infantry within 6 m (12 dmg, 3/s). |
-| `flareRack` | **Countermeasure Rack** | Passive upgrade to `Q` smoke: 6 charges (was 3), 7 s refill (was 14 s), 1.5× smoke wall + auto-flares on incoming enemy missile lock once every 5 s (free). |
+| `pod6` | **Six-tube Missile Pod** | Hold to paint up to 6 targets (0.11 s/mark to 200 m), release fires 6 homing missiles (145 direct, 115 in 4.2 m); 8.5 s reload. |
+| `stormPod` | **Metal Storm Pod** | Hold to paint up to 8 targets + 0.7 s charge; release snaps 120 rds × 30 dmg across painted targets, 7.5 s reload. |
+| `mirv` | **MIRV Launcher** | Hold to place ground marker; launches to +70 m, dives, splits at 25 m into 8 homing sub-missiles (5 m, 220 dmg each), 11 s reload. |
+| `wireBomb` | **Guided Heavy Missile** | Slow 16 m/s agile missile steered live to crosshair, detonates via `megaBlast` (26 m kill radius, 70 m shockwave), 28 s reload. |
+| `mortarRack` | **Mortar Rack** | 6 rounds, high arc to 25–180 m. Tap `3`/`4`/`5` cycles **HE** (6 m, 260 dmg), **WP** (9 m white-hot burn for 14 s), and **Cluster** (32 bomblets). |
+| `fpvHive` | **FPV Drone Hive** | 4-drone stock (rebuilds 1 every 4 s); 28 m/s autonomous seekers, 4 m / 200 dmg blast, 20 HP shootable. |
+| `pointDefence` | **Point Defence** | Passive APS turret: intercepts enemy rockets/grenades/mortars within 15 m + clips infantry within 6 m. |
+| `flareRack` | **Countermeasure Rack** | Passive upgrade to `Q`: double charges, half refill, 1.5× smoke wall + auto-flares on incoming missile lock. |
+| `twinGrenade` | **Twin Shoulder Grenade Cannon** | Twin-barrel dual-arc mortar barrage; 2-shell burst (HE or Napalm cycled via `3`/`4`/`5`), 7.0 m splash, 4.5 s reload. |
+| `laserOrbit` | **Laser Orbit Drones** | Deploys 2 glowing orbit pods circling the chassis for 14 s, auto-zapping nearest enemies within 35 m with crimson beams (55 dmg / 0.45 s), 12 s cd. |
+| `arcNeedle` | **Arc Stun Needle** | Instant rail-dart (340 dmg + 6 m chain lightning stunning 4 nearby enemies for 2.5 s + boss weakspot bonus), 4.0 s cd. |
+| `plasmaMissiles` | **Vertical Plasma VLS** | Fires 6 vertical plasma missiles arching down onto painted targets; creates overlapping 7 m plasma DoT fields (160 impact + 35 DPS for 4 s), 9.5 s reload. |
+| `shoulderGatling` | **Shoulder Gatling** | Autonomous 18 rds/s 20 mm suppression rotary firing toward crosshair while tapped/held; shares own heat gauge (3.8 s continuous, 2.0 s vent). |
 
-### Legs (`src/frame/move/gait/`)
+### Full-Body Chassis (`src/frame/models/chassis/` & `cockpit-*.ts`) — 8 Silhouettes
+
+| Id | Name | Shoulders | Numbers & Silhouette |
+|---|---|---|---|
+| `cockpitStandard` | **Standard Bureau** | 1 | Baseline chamfered Bureau obsidian/slate hull (`×1.0`). |
+| `cockpitTwin` | **Twin-Mount** | 2 | Twin shoulder yoke unlocking Shoulder 2 (`V`); canopy cracks at ×0.7. |
+| `cockpitOpen` | **Open Frame** | 3 | Roll-cage exoskeleton unlocking Shoulders 2 (`V`) & 3 (`B`); front/top seat hits pass to pilot (`openSeat.ts`), hull ×0.9. |
+| `cockpitSensor` | **Sensor Recon** | 1 | Thermal brain chip wall-seeing enemy outlines to 70 m (`cockpitSensor.ts`); hull ×0.9. |
+| `chassisKestrel` | **Kestrel Interceptor** | 2 | Forward-swept needle torso with glowing intake gills & rear wing-strakes. Hull ×0.82, walk ×1.18, dash cd ×0.80, energy charge ×1.15. |
+| `chassisBastion` | **Bastion Juggernaut** | 2 | Massive sloped dreadnought hull with bulldozer chin prow & twin reactive shoulder shields. Hull ×1.45, walk ×0.86, recoil ×0.75. |
+| `chassisValkyrie` | **Valkyrie Aero** | 2 | Sleek curved white/metallic high-altitude core with swept wing-fins & twin vector pods. Hull ×0.90, jet fuel ×1.35, air control ×1.30. |
+| `chassisChitin` | **Chitin Bio-Core** | 3 | Layered organic overlapping carapace plates with pulsing bio-vents & 3-shoulder bio-mounts. Hull ×1.08, energy charge ×1.25, thermal visor 50 m. |
+
+### Heads (`src/frame/models/heads/`) — 6 Sculpted Assemblies
+
+| Id | Name | Stat & Look |
+|---|---|---|
+| `headStandard` | **Bureau Visor** | Baseline recessed armored slit visor (`×1.0`). |
+| `headDuelist` | **V-Fin Duelist** | Swept ceremonial V-crest antenna, glowing visor slit, chin guard (+15% lock speed, +15% weakspot crit). |
+| `headCyclops` | **Mono-Eye Cyclops** | Heavy rounded dome with glowing mono-eye scanning rail (+20% lock range, passive 40 m thermal). |
+| `headStealth` | **Faceted Recon** | Low-profile angular stealth faceted hood (-35% enemy lock-on speed, +10% dash regen). |
+| `headBunker` | **Bunker Turret** | Thick armored pillbox dome recessed into the collar (+400 flat hull HP, -25% canopy crack rate). |
+| `headHalo` | **Seraph Crown** | Floating dual-ring energy halo crown with spire crest (+25% energy recharge, +15% Core Expansion radius). |
+
+### Legs (`src/frame/move/gait/`) — 8 Locomotion Systems
 
 | Id | Name | Numbers & Behavior |
 |---|---|---|
 | `legsStandard` | **Standard Legs** | Baseline 7 m/s walker (`×1.0` all stats). |
 | `legsSprinter` | **Sprinter Legs** | Reverse-jointed light gait: walk ×1.30, jet launch ×1.6, stomp ×0.6, leg armour ×0.7. |
-| `legsHeavy` | **Pile-Driver Legs** | Heavy slow gait: walk ×0.75, jet launch ×0.5, stomp ring ×1.5 with damage/push ×2.2, leg armour ×1.6, knockback-immune. |
-| `legsTreads` | **Treads** | Tank base: flat ×1.25, slopes/rubble ×0.6, hull turn ×0.5 (free turret aim), no hop (except flying engines), no aim sway, no stomp — crushes enemies driven over (300 dmg), hull armour ×1.2. |
-| `legsSpider` | **Spider Legs** | 4-leg quadruped: walk ×1.0, strafe ×1.4, climbs 45° slopes and 2.2 m ledges, zero view recoil kick, replaces stomp with 360° 5 m leg sweep knockdown. |
+| `legsHeavy` | **Pile-Driver Legs** | Heavy slow gait: walk ×0.75, jet launch ×0.5, stomp ring ×1.5 with damage/push ×2.2, aimed mid-air slam, leg armour ×1.6, knockback-immune. |
+| `legsTreads` | **Treads** | Tank base: flat ×1.25, slopes/rubble ×0.6, hull turn ×0.5, no hop, no aim sway, crushes enemies driven over (300 dmg), hull armour ×1.2. |
+| `legsSpider` | **Spider Legs** | 4-leg quadruped: strafe ×1.4, climbs 45° slopes and 2.2 m ledges, zero view recoil kick, 360° 5 m leg sweep knockdown. |
+| `legsHover` | **Mag-Skiff Hover Skirt** | Ground-effect hovercraft floating 0.65 m off the deck: walk ×1.35, strafe ×1.65, zero aim sway, glides over terrain & hazards, leg armour ×0.85. |
+| `legsWheels` | **High-Speed Drift Wheels** | 4 rugged armored assault wheels: flat ×1.55, drift-boosts through corners (`Shift` power-slide leaves spark trails & knocks enemies aside for 260 dmg), zero hop. |
+| `legsAeroQuad` | **Aero-Quad Hover Legs** | 4 articulated stabilizer legs with vector thrusters: hold `Space` in mid-air to lock altitude and strafe at 13 m/s as a hovering gun-platform (`hoverGunPlatform`), zero recoil while hovering. |
 
-### Cockpits (`src/frame/models/cockpit-*.ts`)
-
-| Id | Name | Shoulders | Numbers & Behavior |
-|---|---|---|---|
-| `cockpitStandard` | **Standard Cockpit** | 1 | Standard armoured canopy (`×1.0`). |
-| `cockpitTwin` | **Twin-Mount Cockpit** | 2 | Unlocks Shoulder 2 (`V`); thinner canopy cracks at ×0.7 damage. |
-| `cockpitOpen` | **Open Frame** | 3 | Unlocks Shoulders 2 (`V`) & 3 (`B`); open roll-cage with no canopy — front/top hits on the exposed seat route directly to the pilot (`openSeat.ts`), hull ×0.9. |
-| `cockpitSensor` | **Sensor Cockpit** | 1 | Thermal brain chip wall-seeing enemy outlines within 70 m (`cockpitSensor.ts`), shared in co-op; hull ×0.9. |
-
-### Engines (`src/frame/move/drive/`)
+### Engines (`src/frame/move/drive/`) — 9 Propulsion Drives
 
 | Id | Name | Drive | Numbers & Behavior |
 |---|---|---|---|
 | `engineStandard` | **Standard Engine** | `jets` | 7 m hop, 1.5 s hover, 2.3 s fuel, 2 × 18 m/s Shift charges (3.5 s refill). |
-| `engineJet` | **Jump-Jet Engine** | `flight` | Walk ×1.2, unlimited-ceiling Space flight (14 m/s air), Shift 32 m/s 0.6 s omnidirectional jet blast (costs 1 s fuel), 4 s fuel (1.2 s delay, 3 s refill). |
-| `engineRotor` | **Rotor Engine** | `hover` | Walk ×0.9, Space climbs up to 14 m and hovers indefinitely at zero fuel cost (9 m/s omnidirectional strafe), no Shift charge, ×1.25 hull damage while airborne. |
-| `engineAfterburner` | **Afterburner** | `afterburner` | Normal walk/hop (no hover); Shift airborne enters 48 m/s jet mode (wings/legs folded, 70°/s turn cap, mouse pitch climb/dive, 7 s fuel, arms locked forward, crouch = ×1.5 dive-bomb stomp). |
-| `engineOvercharge` | **Overcharge Engine** | `overcharge` | Walk ×1.45, 3 × 26 m/s 0.7 s Shift charges (2.5 s refill), weak hop (×0.5 fuel). |
-| `engineDiesel` | **Long-Haul Engine** | `diesel` | Walk ×0.95, hold Shift for steady 11 m/s sustained run up to 12 s (tramples small enemies, refills in 4 s), normal hop (×1.3 fuel). |
+| `engineJet` | **Jump-Jet Engine** | `flight` | Walk ×1.2, unlimited-ceiling Space flight (14 m/s air), Shift 32 m/s jet blast, 4 s fuel. |
+| `engineRotor` | **Rotor Engine** | `hover` | Walk ×0.9, Space climbs up to 14 m and hovers indefinitely at zero fuel cost (9 m/s strafe), ×1.25 hull dmg airborne. |
+| `engineAfterburner` | **Afterburner** | `afterburner` | Shift airborne enters 48 m/s jet mode (7 s fuel, arms locked forward, crouch = ×1.5 dive-bomb stomp). |
+| `engineOvercharge` | **Overcharge Engine** | `overcharge` | Walk ×1.45, 3 × 26 m/s Shift charges (2.5 s refill), weak hop (×0.5 fuel). |
+| `engineDiesel` | **Long-Haul Engine** | `diesel` | Hold Shift for steady 11 m/s sustained run up to 12 s (tramples small enemies), ×1.3 hop fuel. |
+| `engineBlink` | **Quick-Boost Blink** | `blink` | 4 micro-charges (1.4 s refill); `Shift` triggers instant 14 m burst with 0.25 s i-frame flash & plasma afterimage; walk ×1.12. |
+| `engineRedline` | **Redline Overdrive** | `redline` | Draining fuel to 0% triggers a 4 s Redline Surge (+35% speed, +25% energy recharge, red exhaust trails) followed by rapid 70% refill. |
+| `engineAssault` | **Assault Boost Core** | `assault` | Hold `Shift` to sprint forward at 36 m/s (consuming fuel) while firing BOTH arm weapons forward with 40% frontal damage reduction; releasing `Shift` into melee triggers a 550 dmg Boost Kick! |
 
-**Co-op wire.** `kitIds(loadout)` encodes 8 part indices into `FRAME_PART_ORDER` (5 single slots + 3 shoulders, `-1` for empty; legacy 7-id and bare 13-number poses still decode cleanly). `MechPose` carries `MECH_FIRING`, `MECH_FIRING_RIGHT`, `MECH_JETS`, `MECH_PARKED`, `MECH_FLYING`, `MECH_HOVERING`, `MECH_JETMODE`, and `MECH_ARMS_LOCKED`. New arm/shoulder weapon FX dispatch via `MechKind` wire notes (`vulcan30`, `beam`, `cluster`, `shotgun`, `storm`, `mirv`, `wire`, `mortar`, `fpv`, `pointdef`) to each plug-in's `remoteNews` / `remoteFiring`.
+### Core Expansions (`Q` key · `src/frame/expansions/`) — 5 Tactical Abilities
+
+| Id | Name | Numbers & Behavior |
+|---|---|---|
+| `expSmoke` | **Tactical Smoke** | Classic regenerating smoke wall, flares, and 6.5 m concussive pulse around the legs. |
+| `expNova` | **Assault Armor Nova** | 1.2 s charge then 18 m omnidirectional energy detonation (650 dmg + clears incoming projectiles + massive knockback), 22 s cd. |
+| `expAegis` | **Pulse Armor Aegis** | Wraps the Frame in a 1,800 HP translucent energy overshield shell for 12 s; absorbs all hits cleanly, 28 s cd. |
+| `expDome` | **Bunker Dome** | Drops a stationary 12 m geodesic force-field dome (`3,200 HP`, 15 s); allies shoot out, enemy fire blocked, 32 s cd. |
+| `expTerminal` | **Terminal Overdrive** | Auto-triggers at 1 HP (or manual `Q` under 25% HP): 2 s invulnerability + 1,200 HP overshield + 14 m shockwave, once per 90 s. |
+
+### Paint & Liveries (`src/frame/models/palette.ts`) — 10 Presets + Custom 4-Color Tint
+
+`paintBureau` (Bureau Slate), `paintCrimson` (Crimson Ace), `paintArctic` (Arctic Ops), `paintHazard` (Hazard Demolition), `paintOlive` (Olive Drab), `paintStealth` (Stealth Obsidian), `paintCobalt` (Cobalt Vanguard), `paintDesert` (Desert Storm), `paintChrome` (Chrome Experimental), `paintToxic` (Toxic Hive) — plus live 4-color custom tint pickers (`primary`, `secondary`, `accent`, `glow`) that repaint every chassis, head, leg, engine, and weapon model in real time.
+
+**Co-op wire.** `kitIds(loadout)` encodes 11 part indices into `FRAME_PART_ORDER` (`leftArm`, `rightArm`, `legs`, `cockpit`, `engine`, `shoulder0..2`, `head`, `expansion`, `paint`; `-1` for empty). Legacy 8-id, 7-id, and bare 13-number poses decode cleanly via `kitFrom()`. `MechPose` carries `MECH_FIRING`, `MECH_FIRING_RIGHT`, `MECH_JETS`, `MECH_PARKED`, `MECH_FLYING`, `MECH_HOVERING`, `MECH_JETMODE`, and `MECH_ARMS_LOCKED`. All v2 weapons & expansions replicate via `MechKind` wire notes (`grenade`, `sword`, `bunker`, `shield`, `flamer`, `plasma`, `rail`, `twinGrenade`, `laserOrbit`, `arcNeedle`, `plasmaMissiles`, `shoulderGatling`, `expNova`, `expAegis`, `expDome`, `expTerminal`).
 
 ## Files
 
 | File | Holds |
 |---|---|
 | `data.ts` | Core constants (`FRAME`), `FRAME.hull`, `framePlan`, URL flags |
-| `loadout.ts` | Full 37-part catalogue (`FRAME_PART_ORDER`, `FRAME_PARTS`), `MAX_SHOULDERS = 3`, `frameStats`, `kitIds`/`kitFrom`, storage |
-| `arms/` | Arm weapon plug-in registry (`registry.ts`, `types.ts`, `shared.ts`) + `rotary.ts`, `cannon40.ts`, `howitzer105.ts`, `vulcan30.ts`, `beam.ts`, `cluster.ts`, `shotgun.ts` |
-| `shoulders/` | Shoulder weapon plug-in registry (`registry.ts`, `types.ts`) + `pod6.ts`, `storm.ts`, `mirv.ts`, `wire.ts`, `mortar.ts`, `fpv.ts`, `pointdef.ts`, `flares.ts` |
-| `move/` | Movement plug-in registry (`registry.ts`), leg gaits (`gait/{walker,sprinter,heavy,treads,spider}.ts`), engine drives (`drive/{jets,flight,hover,afterburner,overcharge,diesel}.ts`) |
-| `models/` | Sculpted bevelled 3D models for every arm, shoulder, leg, cockpit, and engine (`shared.ts`, `shoulders.ts`, `engine-kit.ts`, per-part model files) |
+| `loadout.ts` | Full 78-part v2 catalogue (`FRAME_PART_ORDER`, `FRAME_PARTS`), 6 presets (`FRAME_PRESETS`), `MAX_SHOULDERS = 3`, `frameStats`, 11-id `kitIds`/`kitFrom`, storage |
+| `arms/` | Arm weapon plug-in registry (`registry.ts`, `types.ts`, `shared.ts`) + 14 arm plug-ins (`rotary`, `cannon40`, `howitzer105`, `vulcan30`, `beam`, `cluster`, `shotgun`, `grenade`, `sword`, `bunker`, `shield`, `flamer`, `plasma`, `rail`) |
+| `shoulders/` | Shoulder weapon plug-in registry (`registry.ts`, `types.ts`) + 13 shoulder plug-ins (`pod6`, `storm`, `mirv`, `wire`, `mortar`, `fpv`, `pointdef`, `flares`, `twinGrenade`, `laserOrbit`, `arcNeedle`, `plasmaMissiles`, `shoulderGatling`) |
+| `move/` | Movement plug-in registry (`registry.ts`), 8 leg gaits (`gait/{walker,sprinter,heavy,treads,spider,hover,wheels,aeroQuad}.ts`), 9 engine drives (`drive/{jets,flight,hover,afterburner,overcharge,diesel,blink,redline,assault}.ts`) |
+| `expansions/` | Core Expansion plug-ins (`nova.ts`, `aegis.ts`, `dome.ts`, `terminal.ts`, `visuals.ts`) |
+| `models/` | Palette resolver (`palette.ts`), shared beveled primitives (`shared.ts`), 8 chassis (`chassis/` + `cockpit-*.ts`), 6 heads (`heads/`), all arm/shoulder/leg/engine 3D builders |
 | `bomblets.ts` | Shared pooled wall-bouncing `bombletCarpet` used by Bomblet Cannon and Mortar Cluster |
-| `cockpitSensor.ts`, `openSeat.ts` | Sensor Cockpit 70 m Thermal outlines and Open Frame exposed seat hit routing |
-| `controller.ts`, `seat.ts`, `weapons.ts`, `parts.ts`, `arms.ts`, `cockpit.ts`, `puppet.ts` | Walker physics, persistent Frame vehicle, gun/shoulder coordinator, locational armour, model assembly, co-op puppet |
+| `cockpitSensor.ts`, `openSeat.ts` | Sensor Cockpit & Chitin Bio-Core Thermal outlines and Open Frame exposed seat hit routing |
+| `controller.ts`, `seat.ts`, `weapons.ts`, `parts.ts`, `arms.ts`, `cockpit.ts`, `puppet.ts` | Walker physics, persistent Frame vehicle, 1P/3P camera (`X`/`Z`), weapon & expansion coordinator, locational armour, model assembly, co-op puppet |
 | `src/fx/recipes/megaBlast.ts`, `megaBlastWave.ts`, `redBeam.ts` | Wave-timed 4-stage `megaBlast` explosion and pooled Red Beam FX |
-| `src/ui/screens/frameLoadout.ts`, `framePreview.ts` | Frame Loadout screen with live stats, keybinds, and rotating 3D custom mech preview |
+| `src/ui/screens/frameLoadout.ts`, `framePreview.ts`, `src/ui/css/frameGarage.css` | 3-column Bureau Hangar Garage with 9-slot selector, 6 presets, live stat bars, custom 4-color paint picker, and interactive orbit/zoom 3D turntable |
 
 Outside `src/frame/`: the `frame` tone and Hull Integrity bar in `src/vehicles/hud.ts` and `gunner.css`, fields on `GunnerSeat`
 (`legs`, `marks`, `hull`, `hullText`), `Heat`, `player.carry(feet)`, and `callIns.frame` / `progression.frame`.

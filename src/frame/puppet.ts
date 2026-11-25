@@ -31,9 +31,14 @@ import type { Gun } from '../vehicles/guns';
 import { ArmRack } from './arms';
 import { ARM_REGISTRY, dispatchArmRemoteNews } from './arms/registry';
 import type { Arm, ArmRemoteState } from './arms/types';
-import { FRAME_PLACES, StandIn } from './cockpit';
+import { StandIn } from './cockpit';
 import { FRAME } from './data';
-import { armsOf, defaultLoadout, KIT_LENGTH, kitFrom, LEGACY_KIT_LENGTH, type ArmKind, type ArmSide } from './loadout';
+import { dispatchExpansionRemoteNews } from './expansions/registry';
+import {
+  armsOf, defaultLoadout, KIT_LENGTH, kitFrom, LEGACY_KIT_LENGTH, LEGACY_V1_KIT_LENGTH, paintOf,
+  type ArmKind, type ArmSide,
+} from './loadout';
+import { resolvePalette } from './models/palette';
 import {
   MECH_FIRING, MECH_FIRING_RIGHT, MECH_FLYING, MECH_HOVER, MECH_JET_MODE, MECH_JETS, MECH_PARKED, MECH_TREADS,
 } from './seat';
@@ -46,8 +51,10 @@ import { podMissile, shellImpact, smokeScreen } from './weapons';
  * spot its guns are on, and `MECH_FIRING | MECH_JETS | MECH_PARKED | MECH_FIRING_RIGHT | MECH_FLYING | MECH_JET_MODE | MECH_TREADS | MECH_HOVER`.
  */
 export const MECH_POSE = 13;
-/** A pose with the pilot's loadout after it: `MECH_POSE` numbers, then `KIT_LENGTH` (8) part numbers. A bare pose is the standard Frame. */
+/** A pose with the pilot's loadout after it: `MECH_POSE` numbers, then `KIT_LENGTH` (11) part numbers. A bare pose is the standard Frame. */
 export const MECH_POSE_KIT = MECH_POSE + KIT_LENGTH;
+/** Legacy v1 3-shoulder pose length (`MECH_POSE + 8`), accepted when decoding older peers. */
+export const MECH_POSE_V1_KIT = MECH_POSE + LEGACY_V1_KIT_LENGTH;
 /** Legacy 2-shoulder pose length (`MECH_POSE + 7`), accepted when decoding older peers. */
 export const MECH_POSE_LEGACY_KIT = MECH_POSE + LEGACY_KIT_LENGTH;
 
@@ -122,6 +129,8 @@ export class FramePuppet implements DroppedFrame {
       bore: out => this.gunOf(side).bore(out),
       turn: radians => this.gunOf(side).turn(radians),
       recoil: metres => this.gunOf(side).recoil(metres),
+      setPose: (yaw, pitch, roll, forward) => this.gunOf(side).setPoseOffset(yaw, pitch, roll, forward),
+      setActive: v => this.gunOf(side).setActive(v),
     });
     this.armProxies = [makeArm('left'), makeArm('right')];
   }
@@ -144,12 +153,13 @@ export class FramePuppet implements DroppedFrame {
   private armPlaces(): readonly (readonly [Gun, readonly [number, number, number]])[] {
     const left = this.gunOf('left'), right = this.gunOf('right');
     this.rack.only(left, right);
-    return [[left, FRAME_PLACES.rotary], [right, FRAME_PLACES.cannon]];
+    return [[left, this.body.places.leftArm], [right, this.body.places.rightArm]];
   }
 
   /** The pilot's loadout from the end of a pose; nothing changes unless a number did. A bare pose is the standard Frame. */
   private wearKit(values: readonly number[]): void {
     const kitLen = values.length >= MECH_POSE_KIT ? KIT_LENGTH
+      : values.length >= MECH_POSE_V1_KIT ? LEGACY_V1_KIT_LENGTH
       : values.length >= MECH_POSE_LEGACY_KIT ? LEGACY_KIT_LENGTH
       : 0;
     let same = true;
@@ -164,6 +174,7 @@ export class FramePuppet implements DroppedFrame {
     const yaw = this.viewYaw;
     this.leftKind = arms.left;
     this.rightKind = arms.right;
+    this.rack.setPalette(resolvePalette(paintOf(loadout), loadout.customPaint));
     this.body.setLoadout(loadout);
     this.gunOf('left').snap(yaw, 0);
     this.gunOf('right').snap(yaw, 0);
@@ -254,6 +265,24 @@ export class FramePuppet implements DroppedFrame {
         this.dustRing(at, 3.2, 12, 1.8);
         audio.play('enemy_swing', { position: at, pitch: 0.48, volume: 0.9 });
         audio.play('slam_impact', { position: at, pitch: 0.75, volume: 0.7 });
+        break;
+      }
+      case 'repulsor': {
+        const at = v.length >= 3 ? _at.set(v[0]!, v[1]!, v[2]!) : feet;
+        fx.ring(_v.copy(at).setY(at.y + 0.6), UP, '#55d8ff', 10.5);
+        this.dustRing(at, 4.5, 16, 2.0);
+        audio.play('steam_burst', { position: at, pitch: 0.65, volume: 0.9 });
+        break;
+      }
+      case 'boostKick': {
+        const at = v.length >= 3 ? _at.set(v[0]!, v[1]!, v[2]!) : feet;
+        fx.slam(at, 3.2);
+        fx.ring(_v.copy(at).setY(at.y + 1.4), UP, '#ff7733', 9.0);
+        audio.play('titan_stomp', { position: at, pitch: 0.95, volume: 0.9 });
+        break;
+      }
+      case 'expansion': {
+        dispatchExpansionRemoteNews(ctx, v as number[]);
         break;
       }
       case 'smoke':
@@ -384,8 +413,8 @@ export class FramePuppet implements DroppedFrame {
     }
     const left = this.gunOf('left'), right = this.gunOf('right');
     this.rack.only(left, right);
-    this.aim(left, FRAME_PLACES.rotary, dt, 0);
-    this.aim(right, FRAME_PLACES.cannon, dt, this.swing >= 0 ? sweep : 0);
+    this.aim(left, this.body.places.leftArm, dt, 0);
+    this.aim(right, this.body.places.rightArm, dt, this.swing >= 0 ? sweep : 0);
   }
 
   private aim(gun: Gun, place: readonly [number, number, number], dt: number, sweep: number): void {
@@ -453,7 +482,7 @@ export class FramePuppet implements DroppedFrame {
       this.jetLoop = null;
       return;
     }
-    this.body.place(FRAME_PLACES.jets, _at);
+    this.body.place(this.body.places.jets, _at);
     this.jetLoop ??= audio.startLoop('flame_loop', { fadeIn: 0.05, pitch: 0.55, position: _at });
     this.jetLoop?.setPosition(_at);
     this.flameIn -= dt;

@@ -254,6 +254,7 @@ class FakeEl {
   textContent = '';
   innerHTML = '';
   type = '';
+  value = '';
   style: Record<string, string> = {};
   children: FakeEl[] = [];
   parentNode: FakeEl | null = null;
@@ -323,6 +324,10 @@ class FakeEl {
     this.listeners.get(type)?.delete(fn);
   }
 
+  trigger(type: string, event: unknown = {}): void {
+    for (const fn of this.listeners.get(type) ?? []) fn(event);
+  }
+
   getContext(): null {
     return null;
   }
@@ -351,7 +356,8 @@ describe('FrameLoadoutScreen, FramePreview, and part stats', () => {
     (globalThis as unknown as { window?: unknown }).window = prevWin;
   });
 
-  it('produces non-empty numerical specs for every catalogued part and uses "brain chip" terminology', () => {
+  it('produces non-empty numerical specs for all 87 catalogued parts and uses "brain chip" terminology', () => {
+    expect(FRAME_PART_ORDER).toHaveLength(87);
     for (const id of FRAME_PART_ORDER) {
       const part = FRAME_PARTS[id];
       const rows = partSpecs(part);
@@ -371,12 +377,16 @@ describe('FrameLoadoutScreen, FramePreview, and part stats', () => {
     expect(openSum.rows.find(r => r.label === 'Shoulders')?.value).toBe('3 / 3');
     expect(openSum.traits).toContain('Exposed Pilot Seat');
     expect(openSum.traits).toContain('Knockback Immune');
+    expect(openSum.bars.length).toBeGreaterThanOrEqual(5);
 
     const sensorSum = loadoutSummary(fitPart(defaultLoadout(), 'cockpitSensor'));
     expect(sensorSum.traits).toContain('70 m Wall-Seeing Optics');
+
+    const cyclopsSum = loadoutSummary(fitPart(defaultLoadout(), 'headCyclops'));
+    expect(cyclopsSum.traits).toContain('70 m Wall-Seeing Optics');
   });
 
-  it('mounts FramePreview gracefully without WebGL, rotates smoothly, swaps loadouts live, and disposes cleanly', () => {
+  it('mounts FramePreview gracefully without WebGL, rotates & zooms smoothly, swaps v2 loadouts & custom paint live, and disposes cleanly', () => {
     (globalThis as unknown as { document: unknown }).document = {
       createElement: (tag: string) => new FakeEl(tag),
     };
@@ -385,21 +395,30 @@ describe('FrameLoadoutScreen, FramePreview, and part stats', () => {
     preview.mount(container as unknown as HTMLElement, defaultLoadout());
     expect(preview.isMounted).toBe(true);
     expect(preview.hasWebGL).toBe(false); // headless fallback without throwing
-    expect(container.findByClass('fl-canvas')).toHaveLength(1);
+    const canvas = container.findByClass('fl-canvas')[0]!;
+    expect(canvas).toBeDefined();
 
     const startAngle = preview.angle;
     preview.update(0.1);
     expect(preview.angle).toBeCloseTo(startAngle + 0.1 * PREVIEW_TURN_SPEED, 4);
 
-    // Live loadout swaps across all slots.
-    let kit = fitPart(defaultLoadout(), 'cockpitOpen');
-    kit = fitPart(kit, 'beamL');
-    kit = fitPart(kit, 'shotgunR');
-    kit = fitPart(kit, 'mortarRack', 0);
-    kit = fitPart(kit, 'mirv', 1);
-    kit = fitPart(kit, 'pointDefence', 2);
-    kit = fitPart(kit, 'legsSpider');
-    kit = fitPart(kit, 'engineRotor');
+    // Wheel zoom updates camera orbit distance within clamped bounds.
+    const startDist = preview.distance;
+    canvas.trigger('wheel', { deltaY: -200, preventDefault: vi.fn() });
+    expect(preview.distance).toBeLessThan(startDist);
+
+    // Live loadout swaps across v1 + v2 slots including sword, shield, hover legs, and custom paint.
+    let kit = fitPart(defaultLoadout(), 'chassisKestrel');
+    kit = fitPart(kit, 'swordL');
+    kit = fitPart(kit, 'shieldR');
+    kit = fitPart(kit, 'laserOrbit', 0);
+    kit = fitPart(kit, 'arcNeedle', 1);
+    kit = fitPart(kit, 'legsHover');
+    kit = fitPart(kit, 'headDuelist');
+    kit = fitPart(kit, 'engineBlink');
+    kit = fitPart(kit, 'expNova');
+    kit = fitPart(kit, 'paintArctic');
+    kit = { ...kit, customPaint: { primary: '#224466', glow: '#00ffcc' } };
     preview.setLoadout(kit);
     expect(preview.currentLoadout).toEqual(kit);
     preview.update(0.05);
@@ -410,7 +429,7 @@ describe('FrameLoadoutScreen, FramePreview, and part stats', () => {
     expect(preview.scene.children).toHaveLength(0);
   });
 
-  it('mounts FrameLoadoutScreen, dynamically switches 1/2/3 shoulder slots, displays updated keys, and disposes on close', () => {
+  it('mounts FrameLoadoutScreen, switches 1/2/3 shoulder slots, applies presets & custom paint, displays updated keys, and disposes on close', () => {
     (globalThis as unknown as { document: unknown }).document = {
       createElement: (tag: string) => new FakeEl(tag),
     };
@@ -438,34 +457,63 @@ describe('FrameLoadoutScreen, FramePreview, and part stats', () => {
     expect(keysText).toContain('G / V / B');
     expect(keysText).toContain('3 / 4 / 5');
     expect(keysText).toContain('R · Q · F');
+    expect(keysText).toContain('R Reload');
     expect(keysText).toContain('Space · Shift');
     expect(keysText).toContain('C / Ctrl · E');
 
-    // Standard cockpit -> 1 shoulder group.
-    const shoulderGroups = () => root.findByClass('pc-group').filter(g => g.textContent.startsWith('Shoulder'));
-    expect(shoulderGroups()).toHaveLength(1);
+    // Standard chassis -> 1 dynamic shoulder slot button.
+    const shoulderButtons = () => root.findByClass('fg-slot-shoulder');
+    expect(shoulderButtons()).toHaveLength(1);
 
-    // Click Twin-Mount Cockpit -> 2 shoulder slots shown dynamically + live preview updated.
+    // Activate chassis parts by name -> dynamically switches 1 / 2 / 3 shoulder slots + live preview.
     const activateByName = (partName: string) => {
       const item = navItems.find(it => (it.el as unknown as FakeEl).allText().includes(partName));
       expect(item).toBeDefined();
       item!.activate!();
     };
-    activateByName('Twin-Mount Cockpit');
+    activateByName('Twin-Mount Gunship Core');
     expect(screen.currentLoadout.cockpit).toBe('cockpitTwin');
     expect(screen.preview.currentLoadout.cockpit).toBe('cockpitTwin');
-    expect(shoulderGroups()).toHaveLength(2);
+    expect(shoulderButtons()).toHaveLength(2);
 
-    // Click Open Frame -> 3 shoulder slots shown dynamically.
-    activateByName('Open Frame');
+    activateByName('Gantry Open-Cage Core');
     expect(screen.currentLoadout.cockpit).toBe('cockpitOpen');
     expect(screen.preview.currentLoadout.cockpit).toBe('cockpitOpen');
-    expect(shoulderGroups()).toHaveLength(3);
+    expect(shoulderButtons()).toHaveLength(3);
 
-    // Click Sensor Cockpit -> back to 1 shoulder slot.
-    activateByName('Sensor Cockpit');
+    activateByName('Sensor Recon Core');
     expect(screen.currentLoadout.cockpit).toBe('cockpitSensor');
-    expect(shoulderGroups()).toHaveLength(1);
+    expect(shoulderButtons()).toHaveLength(1);
+
+    // Quick-Build Presets bar renders all 6 presets + Reset and transforms the full build on click.
+    const presetBtns = root.findByClass('fg-preset-btn');
+    expect(presetBtns).toHaveLength(6);
+    const samuraiBtn = presetBtns.find(b => b.getAttribute('data-preset') === 'samurai')!;
+    samuraiBtn.trigger('click');
+    expect(screen.currentLoadout.cockpit).toBe('chassisKestrel');
+    expect(screen.currentLoadout.leftArm).toBe('swordL');
+    expect(screen.currentLoadout.rightArm).toBe('shieldR');
+    expect(screen.currentLoadout.paint).toBe('paintArctic');
+    expect(screen.preview.currentLoadout.cockpit).toBe('chassisKestrel');
+    expect(shoulderButtons()).toHaveLength(2);
+
+    // Paint slot renders all 10 livery swatch cards + 4 live custom color pickers.
+    screen.selectSlot('paint');
+    expect(root.findByClass('fg-paint-card')).toHaveLength(10);
+    const colorInputs = root.findByClass('fg-color-input');
+    expect(colorInputs).toHaveLength(4);
+    const glowInput = colorInputs.find(i => i.getAttribute('data-channel') === 'glow')!;
+    glowInput.value = '#33ffaa';
+    glowInput.trigger('input');
+    expect(screen.currentLoadout.customPaint?.glow).toBe('#33ffaa');
+    expect(screen.preview.currentLoadout.customPaint?.glow).toBe('#33ffaa');
+
+    // Reset button returns cleanly to Bureau Standard.
+    const resetBtn = root.findByClass('fg-reset-btn')[0]!;
+    resetBtn.trigger('click');
+    expect(screen.currentLoadout.cockpit).toBe('cockpitStandard');
+    expect(screen.currentLoadout.customPaint).toBeUndefined();
+    expect(shoulderButtons()).toHaveLength(1);
 
     // Update rotates the preview; closing disposes cleanly.
     const before = screen.preview.angle;

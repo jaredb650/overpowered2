@@ -1,10 +1,15 @@
 /**
  * Shared palette, geometry helpers, and plug-in visual interfaces for Distraint Frame 3D models (`src/frame/models/`).
- * Every part model uses these materials and bevelled `prism` profiles so all Phase 1 lanes match the Frame's Bureau metal.
+ * Every part model uses these semantic Bureau materials and bevelled `prism` profiles; `PaletteModelBuilder` maps
+ * them transparently onto whichever `FramePalette` livery or custom paint the player equipped.
  */
 import * as THREE from 'three';
 import { TAU } from '../../core/math';
 import type { ModelBuilder, ModelMaterials } from '../../progression/modelkit';
+import { BUREAU_PALETTE, createFrameBuilder, type FramePalette } from './palette';
+
+export { BUREAU_PALETTE, FRAME_PALETTES, createFrameBuilder, paletteKey, remapColor, resolvePalette } from './palette';
+export type { CustomFrameColors, FramePalette, PaintKind } from './palette';
 
 export const OBSIDIAN = '#15181d';
 export const GUNMETAL = '#2b313a';
@@ -34,36 +39,80 @@ export function ngon(r: number, n: number, turn = 0): [number, number][] {
   return Array.from({ length: n }, (_, i) => [Math.cos((i / n) * TAU + turn) * r, Math.sin((i / n) * TAU + turn) * r] as [number, number]);
 }
 
+/** Per-chassis hardpoint coordinates in torso space (`x` right, `y` up from hips, `-z` ahead). */
+export interface ChassisPlaces {
+  readonly eye: readonly [number, number, number];
+  /** Where the Head / Sensor Crown mounts on top of (or forward of) the torso. */
+  readonly head: readonly [number, number, number];
+  /** Left arm gun pivot. */
+  readonly leftArm: readonly [number, number, number];
+  /** Right arm gun pivot. */
+  readonly rightArm: readonly [number, number, number];
+  /** Up to 3 shoulder hardpoints: slot 0 right, slot 1 left, slot 2 dorsal center. */
+  readonly shoulders: readonly [
+    readonly [number, number, number],
+    readonly [number, number, number],
+    readonly [number, number, number],
+  ];
+  /** Rear jet / reactor exhaust center. */
+  readonly jets: readonly [number, number, number];
+  /** Optional twin back thruster cone mount positions (`[x, y, z]`) for standard jet cones. */
+  readonly jetNozzles?: readonly (readonly [number, number, number])[];
+  /** Optional forward posture pitch offset in radians (e.g. Kestrel leans forward). */
+  readonly posturePitch?: number;
+}
+
 /** Builds a shoulder weapon model in local mount space (origin = shoulder pylon mount, -Z = forward). */
 export type ShoulderModelBuilder = (b: ModelBuilder) => void;
 
-/** Animated legs assembly owned by a custom gait (`legs-sprinter.ts`, `legs-heavy.ts`, `legs-treads.ts`, `legs-spider.ts`). */
+/** Animated legs assembly owned by a custom gait (`legs-*.ts`). */
 export interface LegsVisual {
   readonly group: THREE.Group;
   pose(
     stride: number, walk: number, effectiveSink: number, kneel: number, collapse: number,
     limpSide: -1 | 0 | 1, parked: boolean, jetMode: boolean,
+    extra?: { hovering?: boolean; flying?: boolean; dt?: number; turnRate?: number; speed?: number },
   ): void;
 }
-export type LegsVisualBuilder = (materials: ModelMaterials, hipsY: number) => LegsVisual;
+export type LegsVisualBuilder = (materials: ModelMaterials, hipsY: number, palette?: FramePalette) => LegsVisual;
 
-/** Custom cockpit exterior and/or first-person interior visual (`cockpit-twin.ts`, `cockpit-open.ts`, `cockpit-sensor.ts`). */
+/** Custom cockpit/chassis exterior and first-person interior visual. */
 export interface CockpitVisual {
-  /** Attached to the exterior `hull` group (hidden when `inside` is true). */
+  /** Attached to the exterior `hull` (or replaces it entirely when `replacesHull` is true). */
   readonly exterior?: THREE.Group;
   /** Attached to the first-person `cockpit` group (shown when `inside` is true). */
   readonly interior?: THREE.Group;
-  /** Hide the standard interior cockpit roll-cage/glass (e.g. Open Frame). */
+  /** Hide the standard interior cockpit roll-cage/glass. */
   readonly hideStandardInterior?: boolean;
-  /** Hide the standard exterior visor slit (e.g. Open Frame). */
+  /** Hide the standard exterior visor slit. */
   readonly hideStandardVisor?: boolean;
+  /** When true, hides the standard `hull()` mesh completely so this chassis defines a totally new silhouette! */
+  readonly replacesHull?: boolean;
+  /** Optional custom hardpoint coordinates for arms, shoulders, head, eye, and jets. */
+  readonly places?: ChassisPlaces;
+  /** Optional visor meshes controlled by active/standby state when `replacesHull` is true. */
+  readonly visorActive?: THREE.Object3D;
+  readonly visorStandby?: THREE.Object3D;
 }
-export type CockpitVisualBuilder = (materials: ModelMaterials) => CockpitVisual;
+export type CockpitVisualBuilder = (materials: ModelMaterials, palette?: FramePalette) => CockpitVisual;
 
-/** Animated engine exterior visual attached to `hull` (`engine-kit.ts`: jet bells, helicopter rotor, afterburner wings, etc.). */
+/** Sculpted Head / Sensor Crown mounted at `places.head` on the exterior torso. */
+export interface HeadVisual {
+  readonly group: THREE.Group;
+  pose?(aimYawDelta: number, aimPitch: number, dt: number, standby: boolean): void;
+}
+export type HeadVisualBuilder = (materials: ModelMaterials, palette?: FramePalette) => HeadVisual;
+
+/** Animated engine exterior visual attached to `torso` (`engine-kit.ts`, `engine-v2.ts`). */
 export interface EngineVisual {
   readonly group: THREE.Group;
   pose(
     dt: number, jets: boolean, flying: boolean, hovering: boolean, jetMode: boolean, stride: number, inside: boolean,
+    extra?: { charging?: boolean; redline?: number; dashDirX?: number; dashDirZ?: number },
   ): void;
+}
+
+/** Helper to instantiate a palette-aware `ModelBuilder` inside any part builder. */
+export function frameBuilder(palette?: FramePalette): ModelBuilder {
+  return createFrameBuilder(palette ?? BUREAU_PALETTE);
 }

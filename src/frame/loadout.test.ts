@@ -4,8 +4,9 @@ import { describe, expect, it } from 'vitest';
 import type { Ctx } from '../core/contracts';
 import type { Ac130Rounds } from '../progression/callins/ac130Rounds';
 import {
-  armsOf, DEFAULT_FRAME_LOADOUT, defaultLoadout, FRAME_LOADOUT_KEY, FRAME_PART_ORDER, FRAME_PARTS, fitPart, frameStats, KIT_LENGTH, kitFrom,
-  kitIds, loadFrameLoadout, normalizeLoadout, partsFor, sameLoadout, saveFrameLoadout, shoulderSlots, type FramePart,
+  armsOf, DEFAULT_FRAME_LOADOUT, defaultLoadout, FRAME_LOADOUT_KEY, FRAME_PART_ORDER, FRAME_PARTS, FRAME_PRESETS,
+  fitPart, frameStats, KIT_LENGTH, kitFrom, kitIds, loadFrameLoadout, normalizeLoadout, partsFor, sameLoadout,
+  saveFrameLoadout, shoulderSlots,
 } from './loadout';
 import { FrameGuns, type Arm, type Sight } from './weapons';
 
@@ -17,17 +18,29 @@ function memory(): Pick<Storage, 'getItem' | 'setItem'> & { map: Map<string, str
 }
 
 describe('the default loadout', () => {
-  it('is the Frame as it always was: the rotary left, the 40 mm right, the pod, the standard legs, cockpit and engine', () => {
+  it('is the Frame as it always was: the rotary left, the 40 mm right, the pod, the standard legs, cockpit, engine, head, smoke, and bureau paint', () => {
     expect(DEFAULT_FRAME_LOADOUT).toEqual({
-      leftArm: 'rotaryL', rightArm: 'cannonR', shoulders: ['pod6'], legs: 'legsStandard', cockpit: 'cockpitStandard', engine: 'engineStandard',
+      leftArm: 'rotaryL',
+      rightArm: 'cannonR',
+      shoulders: ['pod6'],
+      legs: 'legsStandard',
+      cockpit: 'cockpitStandard',
+      engine: 'engineStandard',
+      head: 'headStandard',
+      expansion: 'expSmoke',
+      paint: 'paintBureau',
     });
     expect(armsOf(defaultLoadout())).toEqual({ left: 'rotary', right: 'cannon40' });
     // Every multiplier is exactly 1, so nothing walks, jumps or stomps differently.
     expect(frameStats(defaultLoadout())).toEqual({
-      walk: 1, jump: 1, stomp: 1, stompPower: 1, dash: 1, gait: 'walker', drive: 'jets', shoulders: 1, pod: true,
+      walk: 1, jump: 1, stomp: 1, stompPower: 1, dash: 1, gait: 'walker', drive: 'jets',
+      head: 'standard', expansion: 'smoke', paint: 'bureau', shoulders: 1, pod: true,
       hullScale: 1, legArmor: 1, canopyScale: 1, openSeat: false, sensorRange: 0, airborneDamageMult: 1,
       noRecoil: false, noSway: false, immuneKnockback: false, legSweep: false, crushOnDrive: false,
       strafe: 1, turnRate: 1, fuelScale: 1,
+      fuelRegenScale: 1, recoilScale: 1, energyChargeMult: 1, armTrackMult: 1, lockRangeMult: 1,
+      crackDamageMult: 1, hoverHeight: 0, repulsorPulse: false, driftRig: false, aeroHover: false,
+      redlineSurge: false, assaultRam: false, blinkBoost: false,
     });
   });
 
@@ -45,14 +58,26 @@ describe('the default loadout', () => {
 
 describe('slots', () => {
   it('lists each part only in its own slot, and an arm only on its own side', () => {
-    expect(partsFor('leftArm').map(p => p.id)).toEqual(['rotaryL', 'cannonL', 'howitzerL', 'vulcan30L', 'beamL', 'clusterL', 'shotgunL']);
-    expect(partsFor('rightArm').map(p => p.id)).toEqual(['rotaryR', 'cannonR', 'howitzerR', 'vulcan30R', 'beamR', 'clusterR', 'shotgunR']);
-    expect(partsFor('shoulder').map(p => p.id)).toEqual(['pod6', 'stormPod', 'mirv', 'wireBomb', 'mortarRack', 'fpvHive', 'pointDefence', 'flareRack']);
-    expect(partsFor('legs')).toHaveLength(5);
-    expect(partsFor('cockpit')).toHaveLength(4);
-    expect(partsFor('engine')).toHaveLength(6);
+    expect(partsFor('leftArm').map(p => p.id)).toEqual([
+      'rotaryL', 'cannonL', 'howitzerL', 'vulcan30L', 'beamL', 'clusterL', 'shotgunL',
+      'grenadeL', 'swordL', 'bunkerL', 'flamerL', 'plasmaL', 'railL', 'shieldL',
+    ]);
+    expect(partsFor('rightArm').map(p => p.id)).toEqual([
+      'rotaryR', 'cannonR', 'howitzerR', 'vulcan30R', 'beamR', 'clusterR', 'shotgunR',
+      'grenadeR', 'swordR', 'bunkerR', 'flamerR', 'plasmaR', 'railR', 'shieldR',
+    ]);
+    expect(partsFor('shoulder').map(p => p.id)).toEqual([
+      'pod6', 'stormPod', 'mirv', 'wireBomb', 'mortarRack', 'fpvHive', 'pointDefence', 'flareRack',
+      'twinGrenade', 'laserOrbit', 'arcNeedle', 'plasmaMissiles', 'shoulderGatling',
+    ]);
+    expect(partsFor('legs')).toHaveLength(8);
+    expect(partsFor('cockpit')).toHaveLength(8);
+    expect(partsFor('engine')).toHaveLength(9);
+    expect(partsFor('head')).toHaveLength(6);
+    expect(partsFor('expansion')).toHaveLength(5);
+    expect(partsFor('paint')).toHaveLength(10);
     // A right arm in the left slot, an unknown id, a shoulder part as legs: each falls back to the default's part.
-    const l = normalizeLoadout({ leftArm: 'cannonR', rightArm: 'nonsense', legs: 'pod6', shoulders: ['rotaryL'] });
+    const l = normalizeLoadout({ leftArm: 'cannonR', rightArm: 'nonsense', legs: 'pod6', shoulders: ['rotaryL'], head: 'pod6', paint: 'nope' });
     expect(l).toEqual(defaultLoadout());
   });
 
@@ -66,7 +91,7 @@ describe('slots', () => {
     expect(sameLoadout(fitPart(fitPart(l, 'rotaryL'), 'cannonR'), defaultLoadout())).toBe(true);
   });
 
-  it('gives as many shoulder slots as the cockpit says: one for standard, two for Twin-Mount, three for Open Frame', () => {
+  it('gives as many shoulder slots as the cockpit says: one for standard, two for Twin-Mount/v2 cores, three for Open Frame', () => {
     expect(shoulderSlots(defaultLoadout())).toBe(1);
     expect(normalizeLoadout({ shoulders: ['pod6', 'pod6', 'pod6'] }).shoulders).toEqual(['pod6']);
     const two = fitPart(defaultLoadout(), 'cockpitTwin');
@@ -78,12 +103,19 @@ describe('slots', () => {
     const back = fitPart(three, 'cockpitStandard');
     expect(back.shoulders).toEqual(['pod6']);
   });
+
+  it('normalizes every quick-build preset without changing any chosen part', () => {
+    expect(FRAME_PRESETS.length).toBeGreaterThanOrEqual(6);
+    for (const preset of FRAME_PRESETS) {
+      expect(normalizeLoadout(preset.loadout)).toEqual(preset.loadout);
+    }
+  });
 });
 
 describe('kept between runs', () => {
   it('saves and loads the same loadout', () => {
     const s = memory();
-    const l = fitPart(fitPart(defaultLoadout(), 'cannonL'), 'howitzerR');
+    const l = fitPart(fitPart(fitPart(defaultLoadout(), 'cannonL'), 'howitzerR'), 'paintCrimson');
     saveFrameLoadout(l, s);
     expect(s.map.has(FRAME_LOADOUT_KEY)).toBe(true);
     expect(loadFrameLoadout(s)).toEqual(l);
@@ -101,22 +133,26 @@ describe('kept between runs', () => {
 });
 
 describe('on the wire', () => {
-  it('is one short list of part numbers that reads back as the same loadout (including legacy 7-id lists)', () => {
-    const l = fitPart(fitPart(defaultLoadout(), 'howitzerL'), 'rotaryR');
+  it('is one short list of part numbers that reads back as the same loadout (including legacy 7-id & 8-id lists)', () => {
+    const l = fitPart(fitPart(fitPart(defaultLoadout(), 'howitzerL'), 'rotaryR'), 'headHalo');
     const ids = kitIds(l);
     expect(ids).toHaveLength(KIT_LENGTH);
     expect(ids.every(n => Number.isInteger(n))).toBe(true);
     expect(kitFrom(ids)).toEqual(l);
-    expect(kitIds(defaultLoadout())).toEqual([0, 3, 7, 8, 9, 6, -1, -1]);
-    // Legacy 7-element wire list (from MAX_SHOULDERS = 2) still decodes cleanly.
+    expect(kitIds(defaultLoadout()).slice(0, 8)).toEqual([0, 3, 7, 8, 9, 6, -1, -1]);
+    // Legacy 7-element (MAX_SHOULDERS = 2) and 8-element (pre-v2) wire lists decode cleanly.
     expect(kitFrom([0, 3, 7, 8, 9, 6, -1])).toEqual(defaultLoadout());
-    // 3-shoulder Open Frame round-trips cleanly.
-    const open = fitPart(fitPart(fitPart(fitPart(defaultLoadout(), 'cockpitOpen'), 'mortarRack', 0), 'mirv', 1), 'pointDefence', 2);
+    expect(kitFrom([0, 3, 7, 8, 9, 6, -1, -1])).toEqual(defaultLoadout());
+    // 3-shoulder Open Frame + v2 head/expansion/paint round-trips cleanly.
+    let open = fitPart(fitPart(fitPart(fitPart(defaultLoadout(), 'cockpitOpen'), 'mortarRack', 0), 'mirv', 1), 'pointDefence', 2);
+    open = fitPart(fitPart(fitPart(open, 'headDuelist'), 'expNova'), 'paintCrimson');
     expect(kitFrom(kitIds(open))).toEqual(open);
     // Numbers nobody knows are the default's parts, never a crash.
-    expect(kitFrom([99, -5, Number.NaN, 2, 1, 1e9, 0, -1])).toEqual(defaultLoadout());
+    expect(kitFrom([999, -5, Number.NaN, 2, 1, 1e9, 0, -1, -9, 9999, -3])).toEqual(defaultLoadout());
     // The order is append-only: these places must never move.
     expect(FRAME_PART_ORDER.slice(0, 10)).toEqual(['rotaryL', 'rotaryR', 'cannonL', 'cannonR', 'howitzerL', 'howitzerR', 'pod6', 'legsStandard', 'cockpitStandard', 'engineStandard']);
+    // Every part in FRAME_PARTS is registered in FRAME_PART_ORDER.
+    expect(FRAME_PART_ORDER.length).toBe(Object.keys(FRAME_PARTS).length);
   });
 });
 

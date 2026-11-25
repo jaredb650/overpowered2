@@ -9,8 +9,9 @@ import { ModelBuilder, type ModelMaterials } from '../../progression/modelkit';
 import type { DriveKind } from '../loadout';
 import {
   ACROSS, ALONG_Z, AMBER, BRASS, DARK, FLAT, GUNMETAL, IRON, OBSIDIAN, PLATE, RED, STEEL,
-  ngon, prism, type EngineVisual,
+  frameBuilder, ngon, prism, type EngineVisual, type FramePalette,
 } from './shared';
+import { buildEngineV2Visual } from './engine-v2';
 
 /** Helper: creates a pair of nested translucent HDR exhaust cones pointing along `-Y` from the local origin. */
 function makePlume(
@@ -54,12 +55,12 @@ function makePlume(
  * Twin canted vectoring jet thruster pods on the back shoulders with gimballed OBSIDIAN/STEEL nozzles
  * and flaring AMBER plasma flame cones.
  */
-function buildFlightVisual(materials: ModelMaterials): EngineVisual {
+function buildFlightVisual(materials: ModelMaterials, palette?: FramePalette): EngineVisual {
   const group = new THREE.Group();
   group.name = 'engine.flight';
 
   // Central dorsal fuel manifold & vectoring yoke spanning the upper back.
-  const base = new ModelBuilder();
+  const base = frameBuilder(palette);
   base.solid(prism([[-0.5, -0.22], [0.46, -0.22], [0.56, 0.24], [0.22, 0.44], [-0.42, 0.44], [-0.58, 0.14]], 1.95, 0.05), GUNMETAL, { at: [0, 1.92, 1.56], rot: ACROSS });
   base.solid(prism([[-0.38, 0.28], [0.36, 0.28], [0.26, 0.5], [-0.28, 0.5]], 1.5, 0.035), PLATE, { at: [0, 1.92, 1.52], rot: ACROSS });
   base.cyl(0.22, 0.22, 2.55, 12, IRON, { at: [0, 1.98, 1.48], rot: [0, 0, Math.PI / 2] });
@@ -86,7 +87,7 @@ function buildFlightVisual(materials: ModelMaterials): EngineVisual {
     gimbal.position.set(s * 1.64, 1.58, 1.72);
     gimbal.rotation.set(0.32, 0, s * -0.22);
 
-    const nb = new ModelBuilder();
+    const nb = frameBuilder(palette);
     nb.solid(prism(ngon(0.32, 8, Math.PI / 8), 0.26, 0.03), STEEL, { at: [0, 0.04, 0], rot: FLAT });
     nb.cyl(0.26, 0.36, 0.52, 12, OBSIDIAN, { at: [0, -0.26, 0] });
     nb.cyl(0.31, 0.35, 0.09, 12, STEEL, { at: [0, -0.5, 0] });
@@ -130,12 +131,12 @@ function buildFlightVisual(materials: ModelMaterials): EngineVisual {
  * Dorsal turbine mast + coaxial 4-blade heavy gunship rotor head spinning smoothly.
  * Hidden when `inside` is true so blades never obscure interior cockpit sightlines.
  */
-function buildHoverVisual(materials: ModelMaterials): EngineVisual {
+function buildHoverVisual(materials: ModelMaterials, palette?: FramePalette): EngineVisual {
   const group = new THREE.Group();
   group.name = 'engine.hover';
 
   // Dorsal twin-turbine housing & armored mast pylon (positioned aft at z = 1.25 to clear dorsal shoulder mounts).
-  const housing = new ModelBuilder();
+  const housing = frameBuilder(palette);
   housing.solid(prism([[-0.74, 0], [0.68, 0], [0.82, 0.42], [0.48, 0.82], [-0.52, 0.82], [-0.82, 0.36]], 1.48, 0.055), GUNMETAL, { at: [0, 2.08, 1.32], rot: ACROSS });
   housing.solid(prism([[-0.44, 0.68], [0.42, 0.68], [0.28, 1.06], [-0.34, 1.06]], 0.96, 0.04), PLATE, { at: [0, 2.08, 1.28], rot: ACROSS });
   for (const s of [-1, 1]) {
@@ -155,7 +156,7 @@ function buildHoverVisual(materials: ModelMaterials): EngineVisual {
   const makeHub = (bladeLen: number, hubRadius: number, y: number): THREE.Group => {
     const hub = new THREE.Group();
     hub.position.set(0, y, 1.25);
-    const b = new ModelBuilder();
+    const b = frameBuilder(palette);
     b.solid(prism(ngon(hubRadius, 8, Math.PI / 8), 0.22, 0.03), OBSIDIAN, { rot: FLAT });
     b.cyl(hubRadius * 0.55, hubRadius * 0.72, 0.14, 10, STEEL, { at: [0, 0.14, 0] });
     for (let i = 0; i < 4; i++) {
@@ -216,12 +217,12 @@ function buildHoverVisual(materials: ModelMaterials): EngineVisual {
  * Twin swept variable-geometry fighter wings + twin heavy vectoring afterburner cans with AMBER/RED exhaust plumes.
  * Wings sweep backward dynamically in `jetMode` and fold compactly when walking.
  */
-function buildAfterburnerVisual(materials: ModelMaterials): EngineVisual {
+function buildAfterburnerVisual(materials: ModelMaterials, palette?: FramePalette): EngineVisual {
   const group = new THREE.Group();
   group.name = 'engine.afterburner';
 
   // Central variable-geometry wingbox + twin heavy rear vectoring afterburner cans.
-  const core = new ModelBuilder();
+  const core = frameBuilder(palette);
   core.solid(prism([
     [-0.95, 1.38], [0.62, 1.42], [0.88, 1.88], [0.56, 2.34], [-0.74, 2.32], [-1.06, 1.82],
   ], 1.72, 0.06), OBSIDIAN, { at: [0, 0, 1.44], rot: ACROSS });
@@ -244,7 +245,7 @@ function buildAfterburnerVisual(materials: ModelMaterials): EngineVisual {
     const pivot = new THREE.Group();
     pivot.position.set(s * 1.16, 1.88, 1.26);
 
-    const wb = new ModelBuilder();
+    const wb = frameBuilder(palette);
     // Main swept delta airfoil slab (in local X outward along `s`, Z aft).
     const pts: [number, number][] = s > 0
       ? [[0, -0.58], [0.5, -0.52], [3.05, 0.72], [3.12, 1.14], [1.65, 1.18], [0, 0.68]]
@@ -317,11 +318,11 @@ function buildAfterburnerVisual(materials: ModelMaterials): EngineVisual {
  * Overcharge Engine (`overcharge`):
  * Twin glowing high-voltage capacitor spines + flared heat-radiator louvers (OBSIDIAN/BRASS/RED glow bars).
  */
-function buildOverchargeVisual(materials: ModelMaterials): EngineVisual {
+function buildOverchargeVisual(materials: ModelMaterials, palette?: FramePalette): EngineVisual {
   const group = new THREE.Group();
   group.name = 'engine.overcharge';
 
-  const base = new ModelBuilder();
+  const base = frameBuilder(palette);
   // Central armored busbar manifold bridging the back torso.
   base.solid(prism([[-0.42, 0.6], [0.46, 0.6], [0.52, 2.08], [-0.36, 2.14]], 1.42, 0.05), OBSIDIAN, { at: [0, 0, 1.78], rot: ACROSS });
   base.cyl(0.14, 0.14, 1.92, 10, BRASS, { at: [0, 1.84, 1.92], rot: [0, 0, Math.PI / 2] });
@@ -349,7 +350,7 @@ function buildOverchargeVisual(materials: ModelMaterials): EngineVisual {
   for (const s of [-1, 1]) {
     const bank = new THREE.Group();
     bank.position.set(s * 1.24, 1.48, 1.88);
-    const lb = new ModelBuilder();
+    const lb = frameBuilder(palette);
     for (let i = 0; i < 4; i++) {
       const y = -0.52 + i * 0.34;
       const pts: [number, number][] = s > 0
@@ -388,11 +389,11 @@ function buildOverchargeVisual(materials: ModelMaterials): EngineVisual {
  * Long-Haul Engine (`diesel`):
  * Industrial twin vertical exhaust stacks with heat cages + heavy armoured diesel drum pack (GUNMETAL/PLATE/BRASS).
  */
-function buildDieselVisual(materials: ModelMaterials): EngineVisual {
+function buildDieselVisual(materials: ModelMaterials, palette?: FramePalette): EngineVisual {
   const group = new THREE.Group();
   group.name = 'engine.diesel';
 
-  const pack = new ModelBuilder();
+  const pack = frameBuilder(palette);
   // Heavy armoured lower diesel engine block & structural cradle frame.
   pack.solid(prism([[-0.66, 0.42], [0.44, 0.42], [0.56, 1.72], [-0.46, 1.82], [-0.74, 1.38]], 2.18, 0.06), GUNMETAL, { at: [0, 0, 1.98], rot: ACROSS });
   pack.solid(prism([[-0.52, 0.34], [0.28, 0.34], [0.28, 0.64], [-0.58, 0.64]], 2.34, 0.04), OBSIDIAN, { at: [0, 0, 2.08], rot: ACROSS });
@@ -438,7 +439,7 @@ function buildDieselVisual(materials: ModelMaterials): EngineVisual {
   for (const s of [-1, 1]) {
     const hinge = new THREE.Group();
     hinge.position.set(s * 1.18, 3.38, 2.02);
-    const fb = new ModelBuilder();
+    const fb = frameBuilder(palette);
     fb.solid(prism(ngon(0.19, 8, Math.PI / 8), 0.05, 0.01), STEEL, { at: [0, 0.02, 0.14], rot: FLAT });
     fb.cyl(0.03, 0.03, 0.16, 6, BRASS, { at: [0, 0.01, 0], rot: [0, 0, Math.PI / 2] });
     hinge.add(materials.group(fb));
@@ -465,13 +466,17 @@ function buildDieselVisual(materials: ModelMaterials): EngineVisual {
 }
 
 /** Builds the animated exterior engine visual for `drive`, or `null` for standard `'jets'`. */
-export function buildEngineVisual(drive: DriveKind, materials: ModelMaterials): EngineVisual | null {
+export function buildEngineVisual(drive: DriveKind, materials: ModelMaterials, palette?: FramePalette): EngineVisual | null {
   switch (drive) {
     case 'jets': return null;
-    case 'flight': return buildFlightVisual(materials);
-    case 'hover': return buildHoverVisual(materials);
-    case 'afterburner': return buildAfterburnerVisual(materials);
-    case 'overcharge': return buildOverchargeVisual(materials);
-    case 'diesel': return buildDieselVisual(materials);
+    case 'flight': return buildFlightVisual(materials, palette);
+    case 'hover': return buildHoverVisual(materials, palette);
+    case 'afterburner': return buildAfterburnerVisual(materials, palette);
+    case 'overcharge': return buildOverchargeVisual(materials, palette);
+    case 'diesel': return buildDieselVisual(materials, palette);
+    case 'blink':
+    case 'redline':
+    case 'assault':
+      return buildEngineV2Visual(drive, materials, palette);
   }
 }

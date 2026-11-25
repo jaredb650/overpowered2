@@ -15,6 +15,14 @@ import { VULCAN30_ARM } from './models/vulcan30';
 import { BEAM_ARM } from './models/beam';
 import { CLUSTER_ARM } from './models/cluster';
 import { SHOTGUN_ARM } from './models/shotgun';
+import { GRENADE_ARM } from './models/grenade';
+import { SWORD_ARM } from './models/sword';
+import { BUNKER_ARM } from './models/bunker';
+import { FLAMER_ARM } from './models/flamer';
+import { PLASMA_ARM } from './models/plasma';
+import { RAIL_ARM } from './models/rail';
+import { SHIELD_ARM } from './models/shield';
+import { BUREAU_PALETTE, paletteKey, type FramePalette } from './models/palette';
 
 const SPECS: Readonly<Record<ArmKind, GunSpec>> = {
   rotary: ROTARY_ARM,
@@ -24,6 +32,13 @@ const SPECS: Readonly<Record<ArmKind, GunSpec>> = {
   beam: BEAM_ARM,
   cluster: CLUSTER_ARM,
   shotgun: SHOTGUN_ARM,
+  grenade: GRENADE_ARM,
+  sword: SWORD_ARM,
+  bunker: BUNKER_ARM,
+  flamer: FLAMER_ARM,
+  plasma: PLASMA_ARM,
+  rail: RAIL_ARM,
+  shield: SHIELD_ARM,
 };
 
 /** The side each model was drawn for. */
@@ -35,12 +50,21 @@ const NATIVE: Readonly<Record<ArmKind, ArmSide>> = {
   beam: 'right',
   cluster: 'right',
   shotgun: 'right',
+  grenade: 'right',
+  sword: 'left',
+  bunker: 'left',
+  flamer: 'left',
+  plasma: 'right',
+  rail: 'right',
+  shield: 'left',
 };
 
 export class ArmRack {
   /** Per side, per kind; and every one built, for hiding without an iterator a frame. */
   private readonly bySide: Record<ArmSide, Partial<Record<ArmKind, Gun>>> = { left: {}, right: {} };
   private readonly all: Gun[] = [];
+  private palette: FramePalette = BUREAU_PALETTE;
+  private paletteSig: string = paletteKey(BUREAU_PALETTE);
 
   /** `ready`: the guns to build now rather than on first wear (the standard Frame's, and the howitzer Foreclosure fits). */
   constructor(private readonly materials: ModelMaterials, private readonly scene: THREE.Scene,
@@ -48,12 +72,24 @@ export class ArmRack {
     for (const [side, kind] of ready) this.gun(side, kind);
   }
 
+  /** Re-tints all arm models lazily by clearing cached guns when the active paint palette changes. */
+  setPalette(palette: FramePalette): void {
+    const sig = paletteKey(palette);
+    if (sig === this.paletteSig) return;
+    this.palette = palette;
+    this.paletteSig = sig;
+    for (let i = 0; i < this.all.length; i++) this.all[i]!.dispose();
+    this.all.length = 0;
+    this.bySide.left = {};
+    this.bySide.right = {};
+  }
+
   /** The model for `kind` on `side`, built the first time it is asked for. Hidden until posed. */
   gun(side: ArmSide, kind: ArmKind): Gun {
     const row = this.bySide[side];
     let g = row[kind];
     if (!g) {
-      g = row[kind] = new Gun(this.materials, this.scene, SPECS[kind], NATIVE[kind] !== side);
+      g = row[kind] = new Gun(this.materials, this.scene, SPECS[kind], NATIVE[kind] !== side, this.palette);
       this.all.push(g);
     }
     return g;

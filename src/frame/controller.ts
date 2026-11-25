@@ -59,6 +59,8 @@ export interface WalkerSaid {
   rescued: boolean;
   /** True when Spider Legs triggered a 360° leg sweep instead of a stomp. */
   swept: boolean;
+  /** True when Mag-Skiff Hover Hull triggered a downward repulsor crush pulse on crouch. */
+  repulsorPulsed: boolean;
   /** Extra stomp power/radius multiplier (e.g. 1.5 for Afterburner dive-bomb, 1 normally). */
   stompMult: number;
 }
@@ -123,7 +125,7 @@ export class Walker implements MoveState {
   readonly chargeDir = new THREE.Vector3();
   readonly said: WalkerSaid = {
     steps: 0, landed: 0, stomped: -1, bumped: 0, charged: false, lifted: false, turned: 0, shift: 0, rescued: false,
-    swept: false, stompMult: 1,
+    swept: false, repulsorPulsed: false, stompMult: 1,
   };
   /** The legs take the view with them at once and there is no arc. */
   free: boolean = FRAME_TURN_FREE;
@@ -139,6 +141,22 @@ export class Walker implements MoveState {
   turnScale = 1;
   /** Multiplier on jet/flight fuel capacity from the engine (`frameStats.fuelScale`). */
   fuelScale = 1;
+  /** Multiplier on jet/drive fuel regeneration rate (Chitin Core / Redline Reactor). */
+  fuelRegenScale = 1;
+  /** Seconds remaining of Redline Surge energy weapon damage/cooling buff. */
+  redlineBuff = 0;
+  /** True while Assault-Ram Drive is holding Shift in shielded forward rush. */
+  assaultBoosting = false;
+  /** Last horizontal Quick-Boost / Blink direction (for thruster plume orientation). */
+  dashDirX = 0;
+  dashDirZ = 0;
+  /** True while Aero-Quad Legs are splayed flat in mid-air hover-glide. */
+  aeroHovering = false;
+
+  /** Short melee booster lunge (Plasma Energy Sword slashes & Impale Lunge). */
+  private lungeLeft = 0;
+  private lungeSpeed = 0;
+  private readonly lungeDir = new THREE.Vector3();
 
   private readonly body: CapsuleWorld;
   private readonly hit = newSweepHit();
@@ -162,6 +180,10 @@ export class Walker implements MoveState {
     this.gaitPlugin.reset?.();
     this.drivePlugin.reset?.();
     this.flying = this.hovering = this.jetMode = this.armsLockedForward = false;
+    this.assaultBoosting = this.aeroHovering = false;
+    this.redlineBuff = 0;
+    this.dashDirX = this.dashDirZ = 0;
+    this.lungeLeft = 0;
     this.stompTargeted = false;
     this.maxFuel = this.drivePlugin.maxFuel(this);
     this.maxCharges = this.drivePlugin.maxCharges(this);
@@ -170,7 +192,18 @@ export class Walker implements MoveState {
     this.chargeIn = 0;
   }
 
-  /** HUD label for the drive/jets row (e.g. `'JETS'`, `'FLIGHT'`, `'ROTOR'`). */
+  /** Applies a brief horizontal booster lunge (e.g. Plasma Energy Sword combo or Impale Lunge). */
+  addLungeImpulse(dir: THREE.Vector3, speed: number, duration: number): void {
+    const h = Math.hypot(dir.x, dir.z);
+    if (h < 1e-4 || speed <= 0 || duration <= 0) return;
+    this.lungeDir.set(dir.x / h, 0, dir.z / h);
+    this.lungeSpeed = speed;
+    this.lungeLeft = duration;
+    this.velocity.x = this.lungeDir.x * speed;
+    this.velocity.z = this.lungeDir.z * speed;
+  }
+
+  /** HUD label for the drive/jets row (e.g. `'JETS'`, `'FLIGHT'`, `'ROTOR'`, `'BLINK'`). */
   get driveHudLabel(): string {
     return this.drivePlugin.hudLabel ?? 'JETS';
   }
@@ -188,6 +221,10 @@ export class Walker implements MoveState {
     this.maxCharges = this.drivePlugin.maxCharges(this);
     this.fuel = this.maxFuel;
     this.jetting = this.flying = this.hovering = this.jetMode = this.armsLockedForward = this.stomping = this.stompTargeted = false;
+    this.assaultBoosting = this.aeroHovering = false;
+    this.redlineBuff = 0;
+    this.dashDirX = this.dashDirZ = 0;
+    this.lungeLeft = 0;
     this.charges = this.maxCharges;
     this.chargeIn = this.charging = this.recover = this.boost = 0;
     this.stride = 0;
@@ -199,6 +236,7 @@ export class Walker implements MoveState {
   /** Stops an active charge dead (e.g. slamming a tank or crawler) and holds the legs in recovery. */
   stopCharge(recover = 0.8): void {
     this.charging = 0;
+    this.assaultBoosting = false;
     this.recover = Math.max(this.recover, recover);
     this.velocity.x = this.velocity.z = 0;
   }
@@ -227,7 +265,7 @@ export class Walker implements MoveState {
     const s = this.said;
     s.steps = s.landed = s.bumped = s.turned = s.shift = 0;
     s.stomped = -1;
-    s.charged = s.lifted = s.rescued = s.swept = false;
+    s.charged = s.lifted = s.rescued = s.swept = s.repulsorPulsed = false;
     s.stompMult = 1;
     Object.assign(this.intent, intent);
     this.intent.chargeHeld = intent.chargeHeld ?? false;
@@ -246,7 +284,11 @@ export class Walker implements MoveState {
     this.refill(h);
     if (!this.drivePlugin.charge?.(this, h, intent) && intent.charge) this.startCharge(intent);
     if (intent.stomp) {
-      if (!this.gaitPlugin.startStomp?.(this, intent)) this.startStomp();
+      if (this.gaitPlugin.repulsorPulseOnStomp) {
+        this.said.repulsorPulsed = true;
+      } else if (!this.gaitPlugin.startStomp?.(this, intent)) {
+        this.startStomp();
+      }
     }
     this.jets(h, intent);
     this.walk(h, intent);
@@ -314,6 +356,7 @@ export class Walker implements MoveState {
       this.chargeIn = 0;
     }
     if (this.recover > 0) this.recover = Math.max(0, this.recover - h);
+    if (this.redlineBuff > 0) this.redlineBuff = Math.max(0, this.redlineBuff - h);
   }
 
   /** Shoulder first along the keys held, or the view with none; the legs re-plant under the view at once. Cancels standing up. */
@@ -329,6 +372,8 @@ export class Walker implements MoveState {
     this.wish(intent, _wish);
     if (_wish.lengthSq() > 0.01) this.chargeDir.copy(_wish).normalize();
     else this.chargeDir.set(-Math.sin(this.viewYaw), 0, -Math.cos(this.viewYaw));
+    this.dashDirX = this.chargeDir.x;
+    this.dashDirZ = this.chargeDir.z;
     this.said.charged = true;
   }
 
@@ -406,13 +451,15 @@ export class Walker implements MoveState {
   }
 
   private jets(h: number, intent: WalkerIntent): void {
+    this.aeroHovering = false;
+    if (this.gaitPlugin.airGlide?.(this, h, intent)) return;
     if (this.drivePlugin.jets?.(this, h, intent)) return;
     const J = FRAME.jet;
     const maxFuel = this.maxFuel;
     const v = this.velocity;
     if (this.grounded) {
       this.onGround += h;
-      if (this.onGround > J.refillAfter) this.fuel = Math.min(maxFuel, this.fuel + (maxFuel / J.refill) * h);
+      if (this.onGround > J.refillAfter) this.fuel = Math.min(maxFuel, this.fuel + (maxFuel / J.refill) * this.fuelRegenScale * h);
     } else {
       this.onGround = 0;
     }
@@ -466,10 +513,16 @@ export class Walker implements MoveState {
   }
 
   private walk(h: number, intent: WalkerIntent): void {
+    const v = this.velocity;
+    if (this.lungeLeft > 0) {
+      this.lungeLeft = Math.max(0, this.lungeLeft - h);
+      v.x = this.lungeDir.x * this.lungeSpeed;
+      v.z = this.lungeDir.z * this.lungeSpeed;
+      return;
+    }
     if (this.drivePlugin.airMove?.(this, h, intent)) return;
     if (this.gaitPlugin.walk?.(this, h, intent, this.groundNormalY)) return;
     const W = FRAME.walk;
-    const v = this.velocity;
     if (this.charging > 0) {
       this.charging -= h;
       const speed = this.charging > 0 ? FRAME.charge.speed * this.dashScale : W.forward;

@@ -80,13 +80,19 @@ export type MechKind =
   | 'shell' | 'missile' | 'stomp' | 'smoke' | 'swing'
   | 'vulcan30' | 'beam' | 'cluster' | 'shotgun'
   | 'storm' | 'mirv' | 'wire' | 'mortar' | 'fpv' | 'pointdef'
-  | 'sweep';
+  | 'sweep'
+  | 'grenade' | 'sword' | 'bunker' | 'flamer' | 'plasma' | 'rail' | 'shield'
+  | 'twinGrenade' | 'orbit' | 'arcNeedle' | 'plasmaMissiles' | 'shoulderGatling'
+  | 'expansion' | 'boostKick' | 'repulsor';
 /** Append-only wire order. Never insert, reorder or remove. */
 export const MECH_KINDS: readonly MechKind[] = [
   'shell', 'missile', 'stomp', 'smoke', 'swing',
   'vulcan30', 'beam', 'cluster', 'shotgun',
   'storm', 'mirv', 'wire', 'mortar', 'fpv', 'pointdef',
   'sweep',
+  'grenade', 'sword', 'bunker', 'flamer', 'plasma', 'rail', 'shield',
+  'twinGrenade', 'orbit', 'arcNeedle', 'plasmaMissiles', 'shoulderGatling',
+  'expansion', 'boostKick', 'repulsor',
 ];
 
 /**

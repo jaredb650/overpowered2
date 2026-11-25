@@ -8,7 +8,7 @@ import { clamp } from '../../core/math';
 import { ModelBuilder, type ModelMaterials } from '../../progression/modelkit';
 import {
   ACROSS, AMBER, BRASS, DARK, FLAT, GUNMETAL, IRON, OBSIDIAN, PLATE, RED, STEEL,
-  ngon, prism, type LegsVisual,
+  frameBuilder, ngon, prism, type FramePalette, type LegsVisual,
 } from './shared';
 
 const HIP_DROP = 0.22;
@@ -136,11 +136,11 @@ interface SprinterSide {
   readonly side: -1 | 1;
 }
 
-export function buildSprinterLegs(materials: ModelMaterials, hipsY: number): LegsVisual {
+export function buildSprinterLegs(materials: ModelMaterials, hipsY: number, palette?: FramePalette): LegsVisual {
   const group = new THREE.Group();
   group.name = 'frame.legs.sprinter';
 
-  const pelvisBuilder = new ModelBuilder();
+  const pelvisBuilder = frameBuilder(palette);
   buildPelvis(pelvisBuilder, hipsY);
   const pelvisGroup = materials.group(pelvisBuilder);
   group.add(pelvisGroup);
@@ -152,13 +152,13 @@ export function buildSprinterLegs(materials: ModelMaterials, hipsY: number): Leg
   for (const s of [-1, 1] as const) {
     const hip = new THREE.Group();
     hip.position.set(s * 0.96, hipBaseY, 0.2);
-    const thighB = new ModelBuilder();
+    const thighB = frameBuilder(palette);
     buildThigh(thighB, s);
     hip.add(materials.group(thighB));
 
     const shin = new THREE.Group();
     shin.position.set(0, KNEE_Y, KNEE_Z);
-    const shinB = new ModelBuilder();
+    const shinB = frameBuilder(palette);
     buildShin(shinB, s, footY);
     shin.add(materials.group(shinB));
     hip.add(shin);

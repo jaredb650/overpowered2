@@ -30,13 +30,17 @@ import { FrameCockpitSensor } from './cockpitSensor';
 import { Walker, type WalkerIntent } from './controller';
 import { FRAME, framePlan, type FrameArmWeapon } from './data';
 import {
-  armPart, armsOf, DEFAULT_FRAME_LOADOUT, defaultLoadout, frameStats, kitIds, normalizeLoadout, shouldersOf,
+  armPart, armsOf, DEFAULT_FRAME_LOADOUT, defaultLoadout, frameStats, kitIds, normalizeLoadout, paintOf, shouldersOf,
   type ArmKind, type ArmSide, type FrameLoadout, type FrameStats,
 } from './loadout';
+import { resolvePalette } from './models/palette';
 import { routeOpenSeatHit } from './openSeat';
 import { FrameParts } from './parts';
 import type { Sight } from './arms/types';
-import { backhand, crush, FrameGuns, legSweep, ROUND_NAMES, shove, stomp, trample, treadCrush, type Arm, type ArmMount } from './weapons';
+import {
+  backhand, boostKick, crush, FrameGuns, legSweep, repulsorPulse, ROUND_NAMES, shove, stomp, trample, treadCrush,
+  type Arm, type ArmMount,
+} from './weapons';
 
 /**
  * Co-op: how the Frame is told to the other screens, which draw a stand-in of it (puppet.ts `FramePuppet`).
@@ -307,9 +311,11 @@ export class Frame {
       bore: out => this.armGun(side).bore(out),
       turn: radians => this.armGun(side).turn(radians),
       recoil: metres => this.armGun(side).recoil(metres),
+      setPose: (yaw, pitch, roll, forward) => this.armGun(side).setPoseOffset(yaw, pitch, roll, forward),
+      setActive: v => this.armGun(side).setActive(v),
     });
     const shoulderMount = (slot: number, out: THREE.Vector3): THREE.Vector3 => {
-      const p = FRAME_PLACES.shoulders[slot] ?? FRAME_PLACES.pod;
+      const p = this.body.places.shoulders[slot] ?? this.body.places.shoulders[0];
       return this.body.place([p[0], p[1], p[2] - 0.7], out);
     };
     this.guns = new FrameGuns(
@@ -317,7 +323,10 @@ export class Frame {
       new Ac130Rounds(ctx, materials),
       arm('left'),
       arm('right'),
-      out => this.body.place(TUBES, out),
+      out => {
+        const p = this.body.places.shoulders[0];
+        return this.body.place([p[0], p[1], p[2] - 0.7], out);
+      },
       shoulderMount,
     );
     this.guns.onShell = (round, from, aim, seconds, side) =>
@@ -448,25 +457,31 @@ export class Frame {
   private armPlaces(): readonly (readonly [Gun, readonly [number, number, number]])[] {
     const left = this.leftGun, right = this.rightGun;
     this.rack.only(left, right);
-    return [[left, FRAME_PLACES.rotary], [right, FRAME_PLACES.cannon]];
+    return [[left, this.body.places.leftArm], [right, this.body.places.rightArm]];
   }
 
-  /** Builds it from `loadout`: arms, shoulders, visual chassis, armour pools, and gait/drive plug-ins. */
+  /** Builds it from `loadout`: arms, shoulders, expansion, paint palette, visual chassis, armour pools, and gait/drive plug-ins. */
   private fit(loadout: FrameLoadout): void {
     this.kitNow = normalizeLoadout(loadout);
     this.stats = frameStats(this.kitNow);
     if (this.stats.gait !== 'heavy') this.clearSlamAim();
     const arms = armsOf(this.kitNow);
+    this.rack.setPalette(resolvePalette(paintOf(this.kitNow), this.kitNow.customPaint));
     this.guns.fitArms(arms.left, arms.right);
     this.guns.fitShoulders(shouldersOf(this.kitNow));
+    this.guns.fitExpansion(this.stats.expansion);
     this.body.setLoadout(this.kitNow);
     this.parts.configure({
       hullScale: this.stats.hullScale,
       legArmor: this.stats.legArmor,
       canopyScale: this.stats.canopyScale,
+      crackDamageMult: this.stats.crackDamageMult,
     });
     this.walker.fuelScale = this.stats.fuelScale;
+    this.walker.fuelRegenScale = this.stats.fuelRegenScale;
     this.walker.setMovement(this.stats.gait, this.stats.drive);
+    this.leftGun.setTrackMult(this.stats.armTrackMult);
+    this.rightGun.setTrackMult(this.stats.armTrackMult);
     this.rack.only(this.leftGun, this.rightGun);
     if (this.seat) {
       this.seat.weapons.length = 0;
@@ -490,9 +505,10 @@ export class Frame {
   installWeapon(weapon: FrameArmWeapon, quiet = false): void {
     this.kitNow = { ...this.kitNow, rightArm: armPart('right', weapon) };
     this.guns.installArmWeapon(weapon);
+    this.rightGun.setTrackMult(this.stats.armTrackMult);
     this.rack.only(this.leftGun, this.rightGun);
     if (this.occupied && this.seat) {
-      this.aim(this.rightGun, FRAME_PLACES.cannon, this.seat, 0, 0);
+      this.aim(this.rightGun, this.body.places.rightArm, this.seat, 0, 0);
       this.panel(this.seat);
     } else if (this.deployed) {
       this.poseParked();
@@ -528,9 +544,9 @@ export class Frame {
       | (rightFiring ? MECH_FIRING_RIGHT : 0)
       | (w.jetting && !w.grounded ? MECH_JETS : 0)
       | (w.flying ? MECH_FLYING : 0)
-      | (w.jetMode ? MECH_JET_MODE : 0)
+      | (w.jetMode || w.assaultBoosting ? MECH_JET_MODE : 0)
       | (this.stats.gait === 'treads' ? MECH_TREADS : 0)
-      | (w.hovering ? MECH_HOVER : 0);
+      | (w.hovering || w.aeroHovering ? MECH_HOVER : 0);
     if (seat.range > 6) _to.copy(seat.point);
     else _to.copy(seat.aim).multiplyScalar(GUN_REACH).add(seat.view.position);
     this.net!.pose([w.feet.x, w.feet.y, w.feet.z, w.legYaw, w.viewYaw, w.stride, walk, this.dip, sway, _to.x, _to.y, _to.z,
@@ -783,7 +799,9 @@ export class Frame {
   stand(feet: THREE.Vector3, yaw: number): void {
     if (this.seat) return;
     this.body.setPoseState(0, 0, 0, 0, false);
-    this.body.pose(feet, yaw, yaw, 0, 0, 0, 0, false, this.eye, { parked: true, treads: this.stats.gait === 'treads' });
+    this.body.pose(feet, yaw, yaw, 0, 0, 0, 0, false, this.eye, {
+      parked: true, treads: this.stats.gait === 'treads', hoverHeight: this.stats.hoverHeight,
+    });
     for (const [gun, place] of this.armPlaces()) {
       this.body.place(place, _pivot);
       gun.snap(yaw, -0.35);
@@ -818,7 +836,9 @@ export class Frame {
     this.parts.reset();
     this.walker.speedScale = 1;
     this.walker.fuelScale = 1;
+    this.walker.fuelRegenScale = 1;
     this.walker.setMovement('walker', 'jets');
+    this.rack.setPalette(resolvePalette(paintOf(this.kitNow), this.kitNow.customPaint));
     this.body.setLoadout(this.kitNow);
     this.guns.podOnline = true;
     this.deployed = false;
@@ -905,6 +925,7 @@ export class Frame {
     w.strafeScale = this.stats.strafe;
     w.turnScale = this.stats.turnRate;
     w.fuelScale = this.stats.fuelScale;
+    w.fuelRegenScale = this.stats.fuelRegenScale;
     this.guns.podOnline = this.parts.podOnline && this.stats.shoulders > 0;
     const it = this.intent;
     it.moveX = (input.isDown('right') ? 1 : 0) - (input.isDown('left') ? 1 : 0);
@@ -928,15 +949,21 @@ export class Frame {
     camera.syncSeat();
     this.updateSlamVisuals(dt, seat);
     this.aimGuns(dt, seat);
+    const energyMult = this.stats.energyChargeMult * (w.redlineBuff > 0 ? 1.25 : 1);
     this.guns.update(dt, this._thirdPerson ? this.gunSight3P : seat, {
-      recoilMult: this.stats.noRecoil ? 0 : 1,
+      recoilMult: this.stats.recoilScale,
+      energyMult,
+      lockRangeMult: this.stats.lockRangeMult,
       feet: w.feet,
       torsoYaw: w.viewYaw,
+      lungeImpulse: (dir, speed, dur) => w.addLungeImpulse(dir, speed, dur ?? 0.25),
+      clearSapper: () => this.clearSapper(),
     });
     if (this.net) this.say(dt, seat);
     if (input.pressed('weaponLast') || input.pressed('stim')) {
-      if (this.guns.popSmoke(w.feet, w.viewYaw)) this.net?.news('smoke');
-      else this.ctx.audio.play('weapon_dry');
+      if (!this.guns.triggerExpansion(w.feet, w.viewYaw, () => this.clearSapper())) {
+        this.ctx.audio.play('weapon_dry');
+      }
     }
     this.sensor.update(this.ctx, this.stats.sensorRange, w.feet, this.stats.sensorRange > 0);
     this.blows(dt);
@@ -1068,6 +1095,8 @@ export class Frame {
     this.body.setPoseState(0, 0, this.crackStage, this.parts.limpSide, !this.parts.podOnline);
     this.body.pose(w.feet, w.legYaw, w.viewYaw, 0, 0, 0, 0, false, this.eye, {
       parked: true, jets: false, cracks: this.crackStage, treads: this.stats.gait === 'treads',
+      hoverHeight: this.stats.hoverHeight,
+      expansion: this.guns.expansionVisual,
     });
     for (const [gun, place] of this.armPlaces()) {
       this.body.place(place, _pivot);
@@ -1135,13 +1164,21 @@ export class Frame {
     this.body.setPoseState(kneel, 0, this.crackStage, this.parts.limpSide, !this.parts.podOnline);
     this.body.pose(w.feet, w.legYaw, w.viewYaw, w.stride, walk, this.dip, sway, !this._thirdPerson, this.eye, {
       parked: false,
-      jets: w.jetting && !w.grounded,
+      jets: (w.jetting && !w.grounded) || w.assaultBoosting,
       cracks: this.crackStage,
       flying: w.flying,
-      jetMode: w.jetMode,
-      hover: w.hovering,
+      jetMode: w.jetMode || w.assaultBoosting,
+      hover: w.hovering || w.aeroHovering,
       treads: this.stats.gait === 'treads',
       diveTilt,
+      charging: w.charging > 0 || w.assaultBoosting,
+      redline: w.redlineBuff > 0 ? 1 : 0,
+      hoverHeight: this.stats.hoverHeight,
+      dashDirX: w.dashDirX,
+      dashDirZ: w.dashDirZ,
+      speed: w.speed,
+      aimPitch: this.seat?.pitch ?? 0,
+      expansion: this.guns.expansionVisual,
       dt,
     });
     if (dt > 0) this.backhandIn = Math.max(0, this.backhandIn - dt);
@@ -1158,7 +1195,7 @@ export class Frame {
     const { physics } = this.ctx;
     const targetDist = seat.zoomed
       ? CAM_3P_ZOOM
-      : (w.charging > 0 || w.jetMode || w.stompTargeted || this._slamAiming ? CAM_3P_ACTION : CAM_3P_BASE);
+      : (w.charging > 0 || w.jetMode || w.assaultBoosting || w.stompTargeted || this._slamAiming ? CAM_3P_ACTION : CAM_3P_BASE);
     const targetSide = this._shoulderSide * (seat.zoomed ? CAM_3P_SIDE_ZOOM : CAM_3P_SIDE);
     const lift = seat.zoomed ? CAM_3P_LIFT_ZOOM : CAM_3P_LIFT;
     if (dt > 0) {
@@ -1170,7 +1207,7 @@ export class Frame {
     }
 
     // Center upper-torso pivot and lateral shoulder offset (with wall clearance check so swapping shoulders never clips).
-    const torsoY = w.feet.y + FRAME_PLACES.hips + 2.05 + this.dip * 0.45;
+    const torsoY = w.feet.y + FRAME_PLACES.hips + 2.05 + this.stats.hoverHeight * 0.6 + this.dip * 0.45;
     _right.set(Math.cos(seat.yaw), 0, -Math.sin(seat.yaw));
     _origin.set(w.feet.x, torsoY, w.feet.z);
     let sideOffset = this.camSide3P;
@@ -1389,6 +1426,7 @@ export class Frame {
     this.dip = clamp(this.dip - s.shift, -2, 1.5);
     if (s.steps > 0) this.footfall();
     if (s.swept) this.swept();
+    if (s.repulsorPulsed) this.repulsorPulsed();
     if (s.stomped >= 0) this.stomped(s.stomped, s.stompMult);
     else if (s.landed > 3) {
       const k = clamp(s.landed / 18);
@@ -1417,6 +1455,22 @@ export class Frame {
     const k2 = F.spring * F.spring;
     this.dipV += (-k2 * this.dip - 2 * F.spring * this.dipV) * dt;
     this.dip += this.dipV * dt;
+  }
+
+  /** Hover Skirt 360° 10 m repulsor shock pulse on stomp press. */
+  private repulsorPulsed(): void {
+    const { audio, camera, fx, enemies, world } = this.ctx;
+    const at = this.walker.feet;
+    this.net?.news('repulsor', [at.x, at.y, at.z]);
+    this.clearSapper();
+    repulsorPulse(enemies, at);
+    world.objects?.damageExplosivesInRadius?.(at, 10, 140, 'frame_stomp');
+    fx.ring(_v.copy(at).setY(at.y + 0.6), UP, '#55d8ff', 10.5);
+    this.dustRing(at, 4.5, 16, 2.0);
+    audio.play('steam_burst', { position: at, pitch: 0.65, volume: 1 });
+    audio.play('slam_impact', { position: at, pitch: 0.9, volume: 0.85 });
+    camera.addTrauma(0.42);
+    this.sink(0.24);
   }
 
   /** Spider Legs 360° 5 m knockdown sweep around the chassis. */
@@ -1509,7 +1563,7 @@ export class Frame {
     if (this.smokeFxIn > 0) return;
     this.smokeFxIn = ratio <= 0.2 ? 0.14 : 0.28;
     const { fx } = this.ctx;
-    this.body.place(FRAME_PLACES.jets, _at);
+    this.body.place(this.body.places.jets, _at);
     _at.y += 0.6;
     fx.smoke(_at, 0x2a2d32, ratio <= 0.2 ? 1.8 : 1.1, 1.5);
     if (ratio <= 0.2) fx.sparks(_at, UP, 6, '#ffaa30');
@@ -1519,15 +1573,15 @@ export class Frame {
   private jets(dt: number): void {
     const w = this.walker;
     const { audio, camera, fx } = this.ctx;
-    const lit = w.jetting && !w.grounded;
+    const lit = (w.jetting && !w.grounded) || w.assaultBoosting;
     if (lit) {
-      this.jetLoop ??= audio.startLoop('flame_loop', { fadeIn: 0.05, pitch: 0.55, volume: 1 });
-      camera.addTrauma(0.06);
+      this.jetLoop ??= audio.startLoop('flame_loop', { fadeIn: 0.05, pitch: w.assaultBoosting ? 0.72 : 0.55, volume: 1 });
+      camera.addTrauma(w.assaultBoosting ? 0.1 : 0.06);
       this.flameIn -= dt;
       if (this.flameIn <= 0) {
         this.flameIn = 0.05;
-        this.body.place(FRAME_PLACES.jets, _at);
-        fx.flame(_at, DOWN, 1.4);
+        this.body.place(this.body.places.jets, _at);
+        fx.flame(_at, DOWN, w.assaultBoosting ? 1.8 : 1.4);
         fx.smoke(_at.setY(_at.y - 1.5), 0x9a9690, 1.6, 1.2);
       }
     } else if (this.jetLoop) {
@@ -1567,8 +1621,8 @@ export class Frame {
     const leftSweep = this.swing >= 0 && this.swingArm === -1 ? sweep : 0;
     const rightSweep = this.swing >= 0 && this.swingArm === 1 ? sweep : 0;
     this.rack.only(this.leftGun, this.rightGun);
-    this.aim(this.leftGun, FRAME_PLACES.rotary, seat, dt, leftSweep);
-    this.aim(this.rightGun, FRAME_PLACES.cannon, seat, dt, rightSweep);
+    this.aim(this.leftGun, this.body.places.leftArm, seat, dt, leftSweep);
+    this.aim(this.rightGun, this.body.places.rightArm, seat, dt, rightSweep);
   }
 
   private aim(gun: Gun, place: readonly [number, number, number], seat: GunnerSeat, dt: number, sweep: number): void {
@@ -1609,7 +1663,7 @@ export class Frame {
       camera.fovPunch(9, 0.7);
       camera.addTrauma(0.3);
     }
-    if (w.charging > 0) {
+    if (w.charging > 0 || w.assaultBoosting) {
       const speed = w.speed;
       if (speed > 1) {
         _v.set(w.velocity.x / speed, 0, w.velocity.z / speed);
@@ -1653,6 +1707,35 @@ export class Frame {
       this.sink(0.25);
     }
     if (input.pressed('melee') && this.backhandIn <= 0) {
+      // Assault Boost Drive: pressing F mid-boost delivers a massive 480-damage Boost Kick shockwave!
+      if (w.assaultBoosting) {
+        this.backhandIn = 0.65;
+        w.stopCharge(0.5);
+        this.clearSapper();
+        const kicked = boostKick(enemies, w.feet, w.viewYaw);
+        _v.set(-Math.sin(w.viewYaw), 0, -Math.cos(w.viewYaw));
+        _at.copy(w.feet).addScaledVector(_v, 3.4);
+        _at.y += 1.6;
+        this.net?.news('boostKick', [w.feet.x, w.feet.y, w.feet.z, w.viewYaw]);
+        world.objects?.damageExplosivesInRadius?.(_at, 7.5, 280, 'frame_charge');
+        const vHit = enemies.vehicles?.frameBlow?.(_at, 7.5, 420, _v, 'frame_charge') ?? 0;
+        fx.slam(_at, 3.4);
+        fx.ring(_at, UP, '#ff7733', 9.0);
+        fx.sparks(_at, _v, 28, '#ffbb55');
+        audio.play('titan_stomp', { pitch: 0.95, volume: 1 });
+        audio.play('slam_impact', { pitch: 0.65, volume: 1 });
+        if (kicked > 0 || vHit > 0) {
+          audio.play('hit_punch', { pitch: 0.48, volume: 1 });
+          audio.play('bone_crack');
+        }
+        render.post.radialBlur(0.5, 0.35);
+        camera.addTrauma(0.65);
+        camera.kick(0.045, 0, 0);
+        this.sink(0.32);
+        this.ctx.hud.callout?.('BOOST KICK');
+        return;
+      }
+
       this.backhandIn = FRAME.backhand.every;
       this.swingArm = this.swingArm === 1 ? -1 : 1;
       this.swing = 0;
@@ -1714,6 +1797,13 @@ export class Frame {
         case 'beam': return 'RED BEAM';
         case 'cluster': return 'BOMBLET CANNON';
         case 'shotgun': return 'MECH SHOTGUN';
+        case 'grenade': return '60MM GRENADE';
+        case 'sword': return 'PLASMA SWORD';
+        case 'bunker': return 'PILE BUNKER';
+        case 'shield': return 'ENERGY SHIELD';
+        case 'flamer': return 'INCINERATOR';
+        case 'plasma': return 'PLASMA RIFLE';
+        case 'rail': return 'RAIL RIFLE';
       }
     };
     const sideTag = this._shoulderSide > 0 ? 'R' : 'L';
@@ -1733,22 +1823,85 @@ export class Frame {
   }
 
   /**
-   * Every hit while piloted routes through the Frame's armoured hull and locational parts (`parts.ts`):
-   * Open Frame seat hits pass through directly to the pilot (`openSeat.ts`), Rotor Engine airborne hits take ×1.25,
-   * light small-arms bounce cleanly with sparks, heavy bullets chip plates, snipers crack the canopy glass,
-   * heavy ordnance damages legs/pod/hull, and hits from behind into the reactor vents deal bonus damage.
+   * Every hit while piloted routes through the Frame's active shields, Core Expansions, armoured hull, and locational
+   * parts (`parts.ts`): Open Frame seat hits pass through directly to the pilot (`openSeat.ts`), Energy Shield blocks
+   * frontal attacks (and reflects rockets on Perfect Guard), Assault Boost cuts frontal damage by 30%, Aegis/Dome/Fuse
+   * expansions absorb or prevent lethal hits, Rotor Engine airborne hits take ×1.25, and rear reactor hits deal ×2.5.
    */
   private hit(damage: PlayerDamage): boolean {
     if (!this.deployed || this.health <= 0) return false;
     if (routeOpenSeatHit(damage, this.walker.feet, this.walker.viewYaw, this.stats.openSeat)) {
       return false;
     }
-    const effective = !this.walker.grounded && this.stats.airborneDamageMult !== 1
-      ? { ...damage, amount: damage.amount * this.stats.airborneDamageMult }
-      : damage;
+    const { audio, camera, fx, hud, render } = this.ctx;
+    const w = this.walker;
+
+    // Compute frontal alignment of incoming attack for Energy Shield & Assault Boost DR.
+    let localAhead = 1;
+    if (damage.from) {
+      const dx = damage.from.x - w.feet.x;
+      const dz = damage.from.z - w.feet.z;
+      const horiz = Math.hypot(dx, dz) || 1;
+      const fxDir = -Math.sin(w.viewYaw);
+      const fzDir = -Math.cos(w.viewYaw);
+      localAhead = (dx * fxDir + dz * fzDir) / horiz;
+    }
+
+    let amount = damage.amount;
+    if (!w.grounded && this.stats.airborneDamageMult !== 1) {
+      amount *= this.stats.airborneDamageMult;
+    }
+
+    // Active Energy Shield arm: frontal damage reduction + Perfect Guard reflection.
+    const shield = this.guns.activeShield();
+    if (shield && localAhead > 0.15) {
+      amount *= 1 - clamp(shield.reduction, 0, 0.98);
+      _at.copy(w.feet).setY(w.feet.y + 3.0);
+      _v.set(-Math.sin(w.viewYaw), 0, -Math.cos(w.viewYaw));
+      _at.addScaledVector(_v, 2.2);
+      fx.sparks(_at, _v, shield.perfect ? 18 : 8, shield.perfect ? '#99f6ff' : '#44ccff');
+      audio.play('metal_clang', { pitch: shield.perfect ? 1.7 : 1.35, volume: shield.perfect ? 0.9 : 0.55 });
+      if (shield.perfect && damage.type === 'explosive' && damage.from) {
+        _to.subVectors(damage.from, _at).normalize().multiplyScalar(58);
+        this.ctx.combat.spawnProjectile({
+          origin: _at.clone(),
+          velocity: _to.clone(),
+          damage: Math.max(240, damage.amount),
+          team: 'player',
+          source: 'frame_shield_reflect',
+          kind: 'rocket',
+          gravity: 0,
+          explosion: { radius: 5.5, damage: Math.max(240, damage.amount), kind: 'rocket', selfDamage: 0, playerPush: 0 },
+        });
+        fx.ring(_at, _v, '#99f6ff', 3.4);
+        hud.callout?.('PERFECT GUARD — REFLECTED');
+      }
+    }
+
+    // Assault Boost Drive: 30% frontal damage reduction while boosting forward.
+    if (w.assaultBoosting && localAhead > 0.2) {
+      amount *= 0.7;
+    }
+
+    // Core Expansion interception (Aegis Barrier, Bunker Dome, Last-Stand Fuse).
+    const preExpansion = amount;
+    amount = this.guns.absorbExpansionDamage(amount, this.health, damage.from, w.feet, w.viewYaw, () => this.clearSapper());
+    if (amount <= 0) {
+      camera.addTrauma(0.06);
+      if (this.seat) this.panel(this.seat);
+      return true;
+    }
+
+    const effective = amount === damage.amount ? damage : { ...damage, amount };
     const prevCracks = this.crackStage;
-    const res = this.parts.hit(effective, this.walker.feet, this.walker.viewYaw);
-    const { audio, camera, hud, render } = this.ctx;
+    const res = this.parts.hit(effective, w.feet, w.viewYaw);
+
+    // Last-Stand Fuse survival clamp: if active or just triggered, never let hull HP drop below 1.
+    if (this.guns.expansion.visual.terminalActive && this.parts.hp <= 0 && amount < preExpansion) {
+      this.parts.hp = 1;
+      res.killed = false;
+    }
+
     if (res.blocked) {
       audio.play('metal_clang', { pitch: rand(1.45, 1.85), volume: 0.24 });
       camera.addTrauma(0.015);
@@ -1859,6 +2012,3 @@ export class Frame {
     this.tellIn = 0;
   }
 }
-
-/** The pod's tube faces, at the front of the box on the right shoulder. */
-const TUBES = [FRAME_PLACES.pod[0], FRAME_PLACES.pod[1], FRAME_PLACES.pod[2] - 0.7] as const;

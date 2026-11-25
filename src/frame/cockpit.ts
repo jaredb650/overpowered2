@@ -19,21 +19,26 @@ import { clamp } from '../core/math';
 import { ModelBuilder, type ModelMaterials } from '../progression/modelkit';
 import { FRAME } from './data';
 import {
-  frameStats, shouldersOf, type DriveKind, type FrameLoadout, type FramePartId, type GaitKind, type ShoulderKind,
+  frameStats, headOf, paintOf, shouldersOf, type DriveKind, type FrameLoadout, type FramePartId, type GaitKind, type HeadKind, type ShoulderKind,
 } from './loadout';
 import {
-  ACROSS, ALONG_Z, AMBER, BRASS, DARK, FLAT, GUNMETAL, IRON, OBSIDIAN, PLATE, RED, STEEL,
-  ngon, prism, type CockpitVisual, type EngineVisual, type LegsVisual,
+  ACROSS, ALONG_Z, AMBER, BRASS, BUREAU_PALETTE, DARK, FLAT, GUNMETAL, IRON, OBSIDIAN, PLATE, RED, STEEL,
+  frameBuilder, ngon, paletteKey, prism, resolvePalette,
+  type ChassisPlaces, type CockpitVisual, type EngineVisual, type FramePalette, type HeadVisual, type LegsVisual,
 } from './models/shared';
 import { SHOULDER_MODELS } from './models/shoulders';
+import { buildChassisVisual } from './models/chassis';
+import { buildHeadVisual } from './models/heads';
 import { buildSprinterLegs } from './models/legs-sprinter';
 import { buildHeavyLegs } from './models/legs-heavy';
 import { buildTreadsLegs } from './models/legs-treads';
 import { buildSpiderLegs } from './models/legs-spider';
-import { buildTwinCockpit } from './models/cockpit-twin';
-import { buildOpenCockpit } from './models/cockpit-open';
-import { buildSensorCockpit } from './models/cockpit-sensor';
+import { buildHoverLegs } from './models/legs-hover';
+import { buildWheelLegs } from './models/legs-wheels';
+import { buildAeroQuadLegs } from './models/legs-aeroquad';
 import { buildEngineVisual } from './models/engine-kit';
+import type { ExpansionVisualState } from './expansions/types';
+import { ExpansionVisuals } from './expansions/visuals';
 
 export { ROTARY_ARM } from './models/rotary';
 export { CANNON_ARM } from './models/cannon40';
@@ -44,6 +49,8 @@ export const FRAME_PLACES = {
   hips: 3.9,
   /** The eye: `FRAME.eye` over the feet, `FRAME.podAhead` ahead of the hips. */
   eye: [0, FRAME.eye - 3.9, -FRAME.podAhead] as const,
+  /** Where the head / sensor crown mounts on the standard torso. */
+  head: [0, 2.36, -0.35] as const,
   /** Where each arm's gun turns. */
   rotary: [-1.75, 0.15, -1.15] as const,
   cannon: [1.75, 0.15, -1.15] as const,
@@ -58,6 +65,21 @@ export const FRAME_PLACES = {
   /** Where the jets burn, on the back. */
   jets: [0, 1.0, 1.9] as const,
 } as const;
+
+const DEFAULT_JET_NOZZLES: readonly (readonly [number, number, number])[] = [
+  [-1.2, 0.5, 1.98],
+  [1.2, 0.5, 1.98],
+];
+
+export const STANDARD_CHASSIS_PLACES: ChassisPlaces = {
+  eye: FRAME_PLACES.eye,
+  head: FRAME_PLACES.head,
+  leftArm: FRAME_PLACES.rotary,
+  rightArm: FRAME_PLACES.cannon,
+  shoulders: FRAME_PLACES.shoulders,
+  jets: FRAME_PLACES.jets,
+  jetNozzles: DEFAULT_JET_NOZZLES,
+};
 
 /**
  * First-person cockpit roll-cage around the eye (origin = eye). Wide unobstructed center field of view, bevelled angled
@@ -278,7 +300,7 @@ export interface StandInOptions {
   flying?: boolean;
   /** True while in Afterburner jet mode (legs fold back, wings deploy). */
   jetMode?: boolean;
-  /** True while hovering (Rotor Engine). */
+  /** True while hovering (Rotor Engine or Aero-Quad mid-air hover). */
   hover?: boolean;
   /** True when rolling on Treads. */
   treads?: boolean;
@@ -286,6 +308,20 @@ export interface StandInOptions {
   diveTilt?: number;
   /** Frame delta time in seconds for animated attachments. */
   dt?: number;
+  /** Visual hover lift above feet (e.g. Mag-Skiff Hover Hull = 0.65). */
+  hoverHeight?: number;
+  /** Active Core Expansion visual state (Nova / Aegis / Dome / Last-Stand). */
+  expansion?: ExpansionVisualState | null;
+  /** Engine extra animation telemetry (blink/redline/assault). */
+  charging?: boolean;
+  redline?: number;
+  dashDirX?: number;
+  dashDirZ?: number;
+  /** Leg extra animation telemetry (wheels drift / hover / aero-quad). */
+  turnRate?: number;
+  speed?: number;
+  /** Camera pitch for subtle head-tracking animation. */
+  aimPitch?: number;
 }
 
 /** The Frame's full procedural exterior & cockpit rig, posed every frame. */
@@ -294,24 +330,34 @@ export class StandIn {
   readonly torso: THREE.Group;
   readonly legs = new THREE.Group();
   private readonly materials: ModelMaterials;
-  private readonly cockpitStandard: THREE.Group;
+  private cockpitStandard: THREE.Group;
   private readonly hull: THREE.Group;
-  private readonly standardLegs: THREE.Group;
+  private hullCore: THREE.Group;
+  private standardLegs: THREE.Group;
+  private readonly headAnchor = new THREE.Group();
   /** Slot 0..2 shoulder mount anchors on the hull; each holds cached shoulder weapon meshes. */
   private readonly shoulderAnchors: THREE.Group[] = [];
-  private readonly shoulderCache: Partial<Record<ShoulderKind, THREE.Group>>[] = [{}, {}, {}];
-  private readonly podGroup: THREE.Group;
+  private shoulderCache: Partial<Record<ShoulderKind, THREE.Group>>[] = [{}, {}, {}];
   private readonly visorActive: THREE.Mesh;
+  private readonly visorActiveMat: THREE.MeshBasicMaterial;
   private readonly visorStandby: THREE.Mesh;
+  private readonly visorStandbyMat: THREE.MeshBasicMaterial;
   private readonly jetCones: THREE.Mesh[] = [];
+  private readonly jetConeMat: THREE.MeshBasicMaterial;
   private readonly cracks: THREE.LineSegments[] = [];
   private readonly sides: THREE.Group[] = [];
-  private readonly legsCache: Partial<Record<GaitKind, LegsVisual | null>> = {};
+  private legsCache: Partial<Record<GaitKind, LegsVisual | null>> = {};
   private activeLegs: LegsVisual | null = null;
-  private readonly cockpitCache: Partial<Record<FramePartId, CockpitVisual | null>> = {};
+  private cockpitCache: Partial<Record<FramePartId, CockpitVisual | null>> = {};
   private activeCockpit: CockpitVisual | null = null;
-  private readonly engineCache: Partial<Record<DriveKind, EngineVisual | null>> = {};
+  private headCache: Partial<Record<HeadKind, HeadVisual | null>> = {};
+  private activeHead: HeadVisual | null = null;
+  private engineCache: Partial<Record<DriveKind, EngineVisual | null>> = {};
   private activeEngine: EngineVisual | null = null;
+  private readonly expansions: ExpansionVisuals;
+  private palette: FramePalette = BUREAU_PALETTE;
+  private paletteSig: string = paletteKey(BUREAU_PALETTE);
+  private hoverClock = 0;
   private kneel = 0;
   private collapse = 0;
   private limpSide: -1 | 0 | 1 = 0;
@@ -320,9 +366,7 @@ export class StandIn {
     this.materials = materials;
     this.cockpit = new THREE.Group();
     this.cockpit.name = 'frame.cockpit';
-    const c = new ModelBuilder();
-    cockpit(c);
-    this.cockpitStandard = materials.group(c, materials.nearby);
+    this.cockpitStandard = this.buildCockpitStandard();
     this.cockpit.add(this.cockpitStandard);
     for (let i = 0; i < CRACK_SETS.length; i++) {
       const layer = makeCrackLayer(CRACK_SETS[i]!, 0.34 + i * 0.12);
@@ -330,9 +374,12 @@ export class StandIn {
       this.cracks.push(layer);
     }
 
-    const h = new ModelBuilder();
-    hull(h);
-    this.hull = materials.group(h);
+    this.hull = new THREE.Group();
+    this.hullCore = this.buildHullCore();
+    this.hull.add(this.hullCore);
+
+    this.headAnchor.position.set(FRAME_PLACES.head[0], FRAME_PLACES.head[1], FRAME_PLACES.head[2]);
+    this.hull.add(this.headAnchor);
 
     for (let i = 0; i < FRAME_PLACES.shoulders.length; i++) {
       const anchor = new THREE.Group();
@@ -342,20 +389,22 @@ export class StandIn {
       this.shoulderAnchors.push(anchor);
     }
 
-    const pd = new ModelBuilder();
+    const pd = frameBuilder(this.palette);
     SHOULDER_MODELS.pod6(pd);
-    this.podGroup = materials.group(pd);
-    this.shoulderAnchors[0]!.add(this.podGroup);
-    this.shoulderCache[0]!.pod6 = this.podGroup;
+    const podGroup = materials.group(pd);
+    this.shoulderAnchors[0]!.add(podGroup);
+    this.shoulderCache[0]!.pod6 = podGroup;
 
-    // Dual-state glowing canopy visor slit (crimson when active, warm amber when parked/empty).
+    // Dual-state glowing canopy visor slit (primary glow when active, secondary glow when parked/empty).
     const visorGeo = new THREE.BoxGeometry(1.36, 0.11, 0.06);
-    this.visorActive = new THREE.Mesh(visorGeo, new THREE.MeshBasicMaterial({ color: new THREE.Color(RED).multiplyScalar(4.2), toneMapped: false }));
+    this.visorActiveMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(RED).multiplyScalar(4.2), toneMapped: false });
+    this.visorActive = new THREE.Mesh(visorGeo, this.visorActiveMat);
     this.visorActive.position.set(0, 1.32, -2.24);
     this.visorActive.rotation.x = -0.14;
     this.hull.add(this.visorActive);
 
-    this.visorStandby = new THREE.Mesh(visorGeo, new THREE.MeshBasicMaterial({ color: new THREE.Color(AMBER).multiplyScalar(3.4), toneMapped: false }));
+    this.visorStandbyMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(AMBER).multiplyScalar(3.4), toneMapped: false });
+    this.visorStandby = new THREE.Mesh(visorGeo, this.visorStandbyMat);
     this.visorStandby.position.copy(this.visorActive.position);
     this.visorStandby.rotation.copy(this.visorActive.rotation);
     this.visorStandby.visible = false;
@@ -364,12 +413,14 @@ export class StandIn {
     // Twin dynamic thruster flame cones under the back jet bells.
     const coneGeo = new THREE.ConeGeometry(0.28, 1.6, 10, 1, true);
     coneGeo.translate(0, -0.8, 0);
-    const coneMat = new THREE.MeshBasicMaterial({
+    this.jetConeMat = new THREE.MeshBasicMaterial({
       color: new THREE.Color('#ff8828').multiplyScalar(3.5), transparent: true, opacity: 0.85, side: THREE.DoubleSide, toneMapped: false,
     });
-    for (const s of [-1, 1]) {
-      const cone = new THREE.Mesh(coneGeo, coneMat);
-      cone.position.set(s * 1.2, 0.5, 1.98);
+    for (let i = 0; i < DEFAULT_JET_NOZZLES.length; i++) {
+      const n = DEFAULT_JET_NOZZLES[i]!;
+      const s = i === 0 ? -1 : 1;
+      const cone = new THREE.Mesh(coneGeo, this.jetConeMat);
+      cone.position.set(n[0], n[1], n[2]);
       cone.rotation.set(0.22, 0, s * -0.1);
       cone.visible = false;
       this.hull.add(cone);
@@ -380,19 +431,10 @@ export class StandIn {
     this.torso.name = 'frame.torso';
     this.torso.add(this.hull);
 
-    this.standardLegs = new THREE.Group();
-    const hips = new ModelBuilder();
-    pelvis(hips);
-    this.standardLegs.add(materials.group(hips));
-    for (const s of [-1, 1]) {
-      const b = new ModelBuilder();
-      leg(b, s);
-      const side = new THREE.Group();
-      side.add(materials.group(b));
-      side.position.set(s * 1.05, FRAME_PLACES.hips - 0.25, 0.2);
-      this.standardLegs.add(side);
-      this.sides.push(side);
-    }
+    this.expansions = new ExpansionVisuals(scene);
+    this.torso.add(this.expansions.root);
+
+    this.standardLegs = this.buildStandardLegs();
     this.legs.add(this.standardLegs);
     this.legs.name = 'frame.legs';
     for (const g of [this.cockpit, this.torso, this.legs]) {
@@ -401,8 +443,136 @@ export class StandIn {
     }
   }
 
-  /** Updates modular shoulder, leg, cockpit, and engine models to match `loadout` (lazy-cached; default is standard). */
+  /** Active torso hardpoints (arms, shoulders, head, eye, jets) for the equipped chassis. */
+  get places(): ChassisPlaces {
+    return this.activeCockpit?.places ?? STANDARD_CHASSIS_PLACES;
+  }
+
+  private buildCockpitStandard(): THREE.Group {
+    const c = frameBuilder(this.palette);
+    cockpit(c);
+    return this.materials.group(c, this.materials.nearby);
+  }
+
+  private buildHullCore(): THREE.Group {
+    const h = frameBuilder(this.palette);
+    hull(h);
+    return this.materials.group(h);
+  }
+
+  private buildStandardLegs(): THREE.Group {
+    this.sides.length = 0;
+    const g = new THREE.Group();
+    const hips = frameBuilder(this.palette);
+    pelvis(hips);
+    g.add(this.materials.group(hips));
+    for (const s of [-1, 1]) {
+      const b = frameBuilder(this.palette);
+      leg(b, s);
+      const side = new THREE.Group();
+      side.add(this.materials.group(b));
+      side.position.set(s * 1.05, FRAME_PLACES.hips - 0.25, 0.2);
+      g.add(side);
+      this.sides.push(side);
+    }
+    return g;
+  }
+
+  /** Rebuilds base geometry and clears cached modular attachments when the active paint livery changes. */
+  private applyPalette(next: FramePalette): void {
+    const sig = paletteKey(next);
+    if (sig === this.paletteSig) return;
+    this.palette = next;
+    this.paletteSig = sig;
+
+    // Retint dynamic glow materials (visor & thruster cones & expansion shells).
+    this.visorActiveMat.color.set(next.glow).multiplyScalar(4.2);
+    this.visorStandbyMat.color.set(next.secondaryGlow).multiplyScalar(3.4);
+    this.jetConeMat.color.set(next.thruster).multiplyScalar(3.5);
+    this.expansions.setPalette(next);
+
+    // Rebuild standard cockpit, hull core, and standard legs.
+    this.cockpit.remove(this.cockpitStandard);
+    this.cockpitStandard = this.buildCockpitStandard();
+    this.cockpit.add(this.cockpitStandard);
+
+    this.hull.remove(this.hullCore);
+    this.hullCore = this.buildHullCore();
+    this.hull.add(this.hullCore);
+
+    this.legs.remove(this.standardLegs);
+    this.standardLegs = this.buildStandardLegs();
+    this.legs.add(this.standardLegs);
+
+    // Clear modular caches so every equipped attachment rebuilds in the new palette.
+    for (let slot = 0; slot < this.shoulderAnchors.length; slot++) {
+      const anchor = this.shoulderAnchors[slot]!;
+      for (const mesh of Object.values(this.shoulderCache[slot]!)) if (mesh) anchor.remove(mesh);
+      this.shoulderCache[slot] = {};
+    }
+    for (const lv of Object.values(this.legsCache)) if (lv) this.legs.remove(lv.group);
+    this.legsCache = {};
+    this.activeLegs = null;
+
+    for (const cv of Object.values(this.cockpitCache)) {
+      if (cv?.exterior) this.hull.remove(cv.exterior);
+      if (cv?.interior) this.cockpit.remove(cv.interior);
+    }
+    this.cockpitCache = {};
+    this.activeCockpit = null;
+
+    for (const hv of Object.values(this.headCache)) if (hv) this.headAnchor.remove(hv.group);
+    this.headCache = {};
+    this.activeHead = null;
+
+    for (const ev of Object.values(this.engineCache)) if (ev) this.hull.remove(ev.group);
+    this.engineCache = {};
+    this.activeEngine = null;
+  }
+
+  /** Syncs anchor transforms (head, shoulders, jet nozzles) to the active chassis hardpoints. */
+  private syncHardpoints(): void {
+    const p = this.places;
+    this.headAnchor.position.set(p.head[0], p.head[1], p.head[2]);
+    for (let i = 0; i < this.shoulderAnchors.length; i++) {
+      const pos = p.shoulders[i] ?? FRAME_PLACES.shoulders[i]!;
+      this.shoulderAnchors[i]!.position.set(pos[0], pos[1], pos[2]);
+    }
+    const nozzles = p.jetNozzles ?? DEFAULT_JET_NOZZLES;
+    for (let i = 0; i < this.jetCones.length; i++) {
+      const n = nozzles[i] ?? DEFAULT_JET_NOZZLES[i]!;
+      this.jetCones[i]!.position.set(n[0], n[1], n[2]);
+    }
+  }
+
+  /** Updates modular chassis, head, shoulder, leg, engine, and paint livery visuals to match `loadout`. */
   setLoadout(loadout: FrameLoadout): void {
+    const palette = resolvePalette(paintOf(loadout), loadout.customPaint);
+    this.applyPalette(palette);
+
+    const stats = frameStats(loadout);
+
+    // Cockpit / full Chassis visual swap.
+    const nextCockpit = this.cockpitVisualFor(loadout.cockpit);
+    if (this.activeCockpit && this.activeCockpit !== nextCockpit) {
+      if (this.activeCockpit.exterior) this.activeCockpit.exterior.visible = false;
+      if (this.activeCockpit.interior) this.activeCockpit.interior.visible = false;
+    }
+    this.activeCockpit = nextCockpit;
+    this.hullCore.visible = !(nextCockpit?.replacesHull);
+    this.cockpitStandard.visible = !(nextCockpit?.hideStandardInterior);
+    if (nextCockpit?.exterior) nextCockpit.exterior.visible = true;
+    if (nextCockpit?.interior) nextCockpit.interior.visible = true;
+    this.syncHardpoints();
+
+    // Head / Sensor Crown visual swap.
+    const headKind = headOf(loadout);
+    const nextHead = this.headVisualFor(headKind);
+    if (this.activeHead && this.activeHead !== nextHead) this.activeHead.group.visible = false;
+    this.activeHead = nextHead;
+    if (nextHead) nextHead.group.visible = true;
+
+    // Shoulder weapon visuals.
     const fitted = shouldersOf(loadout);
     for (let slot = 0; slot < this.shoulderAnchors.length; slot++) {
       const kind = fitted[slot];
@@ -411,7 +581,7 @@ export class StandIn {
       if (!kind) continue;
       let group = cache[kind];
       if (!group) {
-        const b = new ModelBuilder();
+        const b = frameBuilder(this.palette);
         SHOULDER_MODELS[kind](b);
         group = this.materials.group(b);
         this.shoulderAnchors[slot]!.add(group);
@@ -420,24 +590,12 @@ export class StandIn {
       group.visible = true;
     }
 
-    const stats = frameStats(loadout);
     // Legs visual swap.
     const nextLegs = this.legsVisualFor(stats.gait);
     if (this.activeLegs && this.activeLegs !== nextLegs) this.activeLegs.group.visible = false;
     this.activeLegs = nextLegs;
     this.standardLegs.visible = nextLegs === null;
     if (nextLegs) nextLegs.group.visible = true;
-
-    // Cockpit visual swap.
-    const nextCockpit = this.cockpitVisualFor(loadout.cockpit);
-    if (this.activeCockpit && this.activeCockpit !== nextCockpit) {
-      if (this.activeCockpit.exterior) this.activeCockpit.exterior.visible = false;
-      if (this.activeCockpit.interior) this.activeCockpit.interior.visible = false;
-    }
-    this.activeCockpit = nextCockpit;
-    this.cockpitStandard.visible = !(nextCockpit?.hideStandardInterior);
-    if (nextCockpit?.exterior) nextCockpit.exterior.visible = true;
-    if (nextCockpit?.interior) nextCockpit.interior.visible = true;
 
     // Engine visual swap.
     const nextEngine = this.engineVisualFor(stats.drive);
@@ -450,10 +608,13 @@ export class StandIn {
     if (gait === 'walker') return null;
     if (Object.hasOwn(this.legsCache, gait)) return this.legsCache[gait] ?? null;
     let built: LegsVisual | null = null;
-    if (gait === 'sprinter') built = buildSprinterLegs(this.materials, FRAME_PLACES.hips);
-    else if (gait === 'heavy') built = buildHeavyLegs(this.materials, FRAME_PLACES.hips);
-    else if (gait === 'treads') built = buildTreadsLegs(this.materials, FRAME_PLACES.hips);
-    else if (gait === 'spider') built = buildSpiderLegs(this.materials, FRAME_PLACES.hips);
+    if (gait === 'sprinter') built = buildSprinterLegs(this.materials, FRAME_PLACES.hips, this.palette);
+    else if (gait === 'heavy') built = buildHeavyLegs(this.materials, FRAME_PLACES.hips, this.palette);
+    else if (gait === 'treads') built = buildTreadsLegs(this.materials, FRAME_PLACES.hips, this.palette);
+    else if (gait === 'spider') built = buildSpiderLegs(this.materials, FRAME_PLACES.hips, this.palette);
+    else if (gait === 'hover') built = buildHoverLegs(this.materials, FRAME_PLACES.hips, this.palette);
+    else if (gait === 'wheels') built = buildWheelLegs(this.materials, FRAME_PLACES.hips, this.palette);
+    else if (gait === 'aeroQuad') built = buildAeroQuadLegs(this.materials, FRAME_PLACES.hips, this.palette);
     if (built) {
       built.group.visible = false;
       this.legs.add(built.group);
@@ -465,10 +626,7 @@ export class StandIn {
   private cockpitVisualFor(id: FramePartId): CockpitVisual | null {
     if (id === 'cockpitStandard') return null;
     if (Object.hasOwn(this.cockpitCache, id)) return this.cockpitCache[id] ?? null;
-    let built: CockpitVisual | null = null;
-    if (id === 'cockpitTwin') built = buildTwinCockpit(this.materials);
-    else if (id === 'cockpitOpen') built = buildOpenCockpit(this.materials);
-    else if (id === 'cockpitSensor') built = buildSensorCockpit(this.materials);
+    const built = buildChassisVisual(id, this.materials, this.palette);
     if (built?.exterior) {
       built.exterior.visible = false;
       this.hull.add(built.exterior);
@@ -481,10 +639,22 @@ export class StandIn {
     return built;
   }
 
+  private headVisualFor(head: HeadKind): HeadVisual | null {
+    if (head === 'standard') return null;
+    if (Object.hasOwn(this.headCache, head)) return this.headCache[head] ?? null;
+    const built = buildHeadVisual(head, this.materials, this.palette);
+    if (built) {
+      built.group.visible = false;
+      this.headAnchor.add(built.group);
+    }
+    this.headCache[head] = built;
+    return built;
+  }
+
   private engineVisualFor(drive: DriveKind): EngineVisual | null {
     if (drive === 'jets') return null;
     if (Object.hasOwn(this.engineCache, drive)) return this.engineCache[drive] ?? null;
-    const built = buildEngineVisual(drive, this.materials);
+    const built = buildEngineVisual(drive, this.materials, this.palette);
     if (built) {
       built.group.visible = false;
       this.hull.add(built.group);
@@ -511,50 +681,77 @@ export class StandIn {
     feet: THREE.Vector3, legYaw: number, viewYaw: number, stride: number, walk: number, sink: number, sway: number,
     inside: boolean, eye: THREE.Vector3, options?: StandInOptions,
   ): void {
+    const dt = options?.dt ?? 1 / 60;
     const parked = options?.parked === true;
     const jets = options?.jets === true;
     const flying = options?.flying === true;
     const jetMode = options?.jetMode === true;
     const hover = options?.hover === true;
     const diveTilt = clamp(options?.diveTilt ?? 0);
+    const hoverHeight = options?.hoverHeight ?? 0;
+    this.hoverClock += dt;
+    const hoverLift = hoverHeight > 0 && !parked && this.collapse < 0.2
+      ? hoverHeight + Math.sin(this.hoverClock * 3.2) * 0.08
+      : 0;
     const standby = parked || this.kneel > 0.1 || this.collapse > 0.1;
-    const effectiveSink = (parked ? sink - 0.42 : sink) - this.kneel * 1.35 - this.collapse * 1.9;
+    const effectiveSink = (parked ? sink - 0.42 : sink) - this.kneel * 1.35 - this.collapse * 1.9 + hoverLift;
     const limpRoll = this.limpSide * 0.08 * (0.4 + 0.6 * Math.abs(Math.sin(stride * Math.PI)));
+    const p = this.places;
 
     this.legs.visible = this.torso.visible = true;
-    this.legs.position.copy(feet);
+    this.legs.position.set(feet.x, feet.y + hoverLift, feet.z);
     this.legs.rotation.y = legYaw;
     this.torso.position.set(feet.x + Math.cos(viewYaw) * sway, feet.y + FRAME_PLACES.hips + effectiveSink, feet.z - Math.sin(viewYaw) * sway);
     this.torso.rotation.set(
-      (parked ? -0.1 : 0) + (jetMode ? -0.55 : 0) - diveTilt * 0.42 + this.kneel * 0.22 + this.collapse * 0.42,
+      (p.posturePitch ?? 0) + (parked ? -0.1 : 0) + (jetMode ? -0.55 : 0) - diveTilt * 0.42 + this.kneel * 0.22 + this.collapse * 0.42,
       viewYaw,
       limpRoll + this.collapse * 0.26,
       'YXZ',
     );
-    this.place(FRAME_PLACES.eye, eye);
+    this.place(p.eye, eye);
 
     this.hull.visible = !inside;
     this.cockpit.visible = inside;
     this.cockpit.position.copy(eye);
     this.cockpit.rotation.set(0, viewYaw, 0);
 
-    const hideVisor = this.activeCockpit?.hideStandardVisor === true;
+    const hideVisor = this.activeCockpit?.hideStandardVisor === true || this.activeCockpit?.replacesHull === true;
     this.visorActive.visible = !hideVisor && !standby;
     this.visorStandby.visible = !hideVisor && standby;
-    const burn = jets || flying || jetMode || diveTilt > 0.15;
+    if (this.activeCockpit?.visorActive) this.activeCockpit.visorActive.visible = !standby;
+    if (this.activeCockpit?.visorStandby) this.activeCockpit.visorStandby.visible = standby;
+
+    const burn = jets || flying || jetMode || diveTilt > 0.15 || options?.charging === true;
     for (let i = 0; i < this.jetCones.length; i++) {
       const cone = this.jetCones[i]!;
       cone.visible = burn && !inside;
-      if (burn) cone.scale.set(1, (jetMode || diveTilt > 0.5 ? 1.55 : 0.85) + Math.abs(Math.sin(stride * 13 + i * 2.1)) * 0.45, 1);
+      if (burn) cone.scale.set(1, (jetMode || diveTilt > 0.5 || options?.charging ? 1.55 : 0.85) + Math.abs(Math.sin(stride * 13 + i * 2.1)) * 0.45, 1);
     }
     if (options?.cracks !== undefined) this.setCracks(options.cracks);
 
+    this.expansions.sync(options?.expansion ?? null, dt, inside);
+
+    if (this.activeHead?.pose) {
+      this.activeHead.pose(0, options?.aimPitch ?? 0, dt, standby);
+    }
+
     if (this.activeEngine) {
-      this.activeEngine.pose(options?.dt ?? 1 / 60, jets, flying, hover, jetMode, stride, inside);
+      this.activeEngine.pose(dt, jets, flying, hover, jetMode, stride, inside, {
+        charging: options?.charging,
+        redline: options?.redline,
+        dashDirX: options?.dashDirX,
+        dashDirZ: options?.dashDirZ,
+      });
     }
 
     if (this.activeLegs) {
-      this.activeLegs.pose(stride, walk, effectiveSink, this.kneel, this.collapse, this.limpSide, parked, jetMode);
+      this.activeLegs.pose(stride, walk, effectiveSink - hoverLift, this.kneel, this.collapse, this.limpSide, parked, jetMode, {
+        hovering: hover,
+        flying,
+        dt,
+        turnRate: options?.turnRate,
+        speed: options?.speed,
+      });
       return;
     }
 
@@ -569,7 +766,7 @@ export class StandIn {
       const isLimping = (i === 0 ? -1 : 1) === this.limpSide;
       const strideRot = planted ? swing * (1 - 2 * k) : swing * (2 * k - 1);
       side.rotation.x = parked ? 0.08 : (jetMode ? 0 : strideRot * (isLimping ? 0.55 : 1)) + crouchFlex;
-      side.position.y = FRAME_PLACES.hips - 0.25 + effectiveSink * 0.45 + (planted || jetMode ? 0 : Math.sin(k * Math.PI) * 0.45 * clamp(walk * 2) * (isLimping ? 0.45 : 1));
+      side.position.y = FRAME_PLACES.hips - 0.25 + (effectiveSink - hoverLift) * 0.45 + (planted || jetMode ? 0 : Math.sin(k * Math.PI) * 0.45 * clamp(walk * 2) * (isLimping ? 0.45 : 1));
     }
   }
 
@@ -586,6 +783,7 @@ export class StandIn {
 
   hide(): void {
     this.cockpit.visible = this.torso.visible = this.legs.visible = false;
+    this.expansions.hide();
   }
 }
 

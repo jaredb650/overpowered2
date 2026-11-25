@@ -8,7 +8,7 @@ import { clamp } from '../../core/math';
 import { ModelBuilder, type ModelMaterials } from '../../progression/modelkit';
 import {
   ACROSS, AMBER, BRASS, DARK, FLAT, GUNMETAL, IRON, OBSIDIAN, PLATE, RED, STEEL,
-  ngon, prism, type LegsVisual,
+  frameBuilder, ngon, prism, type FramePalette, type LegsVisual,
 } from './shared';
 
 const TRACK_X = 1.62;
@@ -138,8 +138,8 @@ function buildChassis(b: ModelBuilder, hipsY: number): void {
   }
 }
 
-function buildWheelMesh(materials: ModelMaterials, radius: number, width: number, toothed: boolean): THREE.Group {
-  const b = new ModelBuilder();
+function buildWheelMesh(materials: ModelMaterials, radius: number, width: number, toothed: boolean, palette?: FramePalette): THREE.Group {
+  const b = frameBuilder(palette);
   // Dark rubber tire band.
   b.cyl(radius, radius, width, 14, DARK, { rot: [0, 0, Math.PI / 2] });
   // Inner machined gunmetal rim.
@@ -167,17 +167,17 @@ interface WheelEntry {
   readonly ratio: number;
 }
 
-export function buildTreadsLegs(materials: ModelMaterials, hipsY: number): LegsVisual {
+export function buildTreadsLegs(materials: ModelMaterials, hipsY: number, palette?: FramePalette): LegsVisual {
   const group = new THREE.Group();
   group.name = 'frame.legs.treads';
 
-  const turretB = new ModelBuilder();
+  const turretB = frameBuilder(palette);
   buildTurretRing(turretB, hipsY);
   const turretGroup = materials.group(turretB);
   group.add(turretGroup);
 
   const chassisGroup = new THREE.Group();
-  const chassisB = new ModelBuilder();
+  const chassisB = frameBuilder(palette);
   buildChassis(chassisB, hipsY);
   chassisGroup.add(materials.group(chassisB));
   group.add(chassisGroup);
@@ -187,24 +187,24 @@ export function buildTreadsLegs(materials: ModelMaterials, hipsY: number): LegsV
     const tx = s * TRACK_X;
     // 5 lower bogie road wheels per side.
     for (const wz of ROAD_WHEEL_ZS) {
-      const w = buildWheelMesh(materials, 0.35, 0.86, false);
+      const w = buildWheelMesh(materials, 0.35, 0.86, false, palette);
       w.position.set(tx, 0.44, wz);
       chassisGroup.add(w);
       wheels.push({ mesh: w, ratio: 1 });
     }
     // Front elevated idler wheel.
-    const idler = buildWheelMesh(materials, 0.39, 0.84, false);
+    const idler = buildWheelMesh(materials, 0.39, 0.84, false, palette);
     idler.position.set(tx, 1.0, -2.24);
     chassisGroup.add(idler);
     wheels.push({ mesh: idler, ratio: 0.9 });
     // Rear elevated toothed drive sprocket.
-    const sprocket = buildWheelMesh(materials, 0.41, 0.86, true);
+    const sprocket = buildWheelMesh(materials, 0.41, 0.86, true, palette);
     sprocket.position.set(tx, 1.04, 2.16);
     chassisGroup.add(sprocket);
     wheels.push({ mesh: sprocket, ratio: 0.85 });
     // 3 upper return rollers.
     for (const rz of RETURN_ROLLER_ZS) {
-      const roller = buildWheelMesh(materials, 0.17, 0.78, false);
+      const roller = buildWheelMesh(materials, 0.17, 0.78, false, palette);
       roller.position.set(tx, 1.32, rz);
       chassisGroup.add(roller);
       wheels.push({ mesh: roller, ratio: 2.0 });
