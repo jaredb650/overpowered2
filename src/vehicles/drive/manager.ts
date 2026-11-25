@@ -295,7 +295,7 @@ export class DriveableManager {
     id: DriveVehicleId,
     position: THREE.Vector3,
     yaw: number,
-    opts?: { velocity?: THREE.Vector3; healthFraction?: number; poolSlot?: string | null },
+    opts?: { velocity?: THREE.Vector3; healthFraction?: number; poolSlot?: string | null; exitLocked?: boolean },
   ): DriveableVehicle {
     while (this.vehicles.length >= MAX_PLAYER_VEHICLES) {
       const idx = this.vehicles.findIndex(v => !v.occupied && !v.poolSlot);

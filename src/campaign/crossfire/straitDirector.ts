@@ -266,7 +266,8 @@ export class StraitDirector {
 
     mgr.clear();
     const pos = new THREE.Vector3(pose.at[0], pose.at[1], pose.at[2]);
-    const veh = mgr.spawn('raptor', pos, pose.yaw, { poolSlot: `crossfire.${pose.id}` });
+    const veh = mgr.spawn('raptor', pos, pose.yaw, { poolSlot: `crossfire.${pose.id}`, exitLocked: true });
+    veh.setExitLocked?.(true);
     veh.phys.grounded = false;
     veh.phys.groundY = 0;
     veh.phys.altitude = pos.y;

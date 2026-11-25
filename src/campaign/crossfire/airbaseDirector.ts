@@ -337,7 +337,9 @@ export class AirbaseDirector {
     if (mgr) {
       this.lancerVehicle = mgr.spawn('lancer', spawnPos, AIRBASE_LANCER_SPAWN.yaw, {
         poolSlot: 'crossfire.valken_lancer',
+        exitLocked: true,
       });
+      this.lancerVehicle.setExitLocked?.(true);
     }
     this.ctx.hud?.feed?.('B-1B LANCER UNLOCKED IN ALERT HANGAR — CLIMB ABOARD [E]', '#ffd166');
   }

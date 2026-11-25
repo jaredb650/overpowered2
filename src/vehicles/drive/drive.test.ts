@@ -311,6 +311,31 @@ describe('AAA Driveable Vehicles (13-Vehicle Fleet)', () => {
     mgr.clear();
   });
 
+  it('exitLocked prevents accidental [E] bail-out, removes E EXIT hint, and allows programmatic exit', () => {
+    const h = makeDriveHarness();
+    const mgr = new DriveableManager(h.ctx, h.materials, h.seats, vi.fn());
+    const lancer = mgr.spawn('lancer', new THREE.Vector3(0, 120, 0), 0, { exitLocked: true });
+
+    expect(lancer.board(0)).toBe(true);
+    expect(lancer.occupied).toBe(true);
+    expect(h.seats.seat?.noWayOut).toBe(true);
+    expect(h.seats.seat?.hintText).not.toContain('E EXIT');
+
+    // Pressing [E] while exitLocked must NOT eject the pilot!
+    h.justPressed.add('interact');
+    mgr.update(1 / 30, true);
+    expect(lancer.occupied).toBe(true);
+    expect(mgr.active).toBe(lancer);
+    expect(h.seats.occupied).toBe(true);
+
+    // Programmatic quiet exit (cutscenes/reset/destruction) still works cleanly.
+    lancer.exit(true);
+    expect(lancer.occupied).toBe(false);
+    expect(h.seats.occupied).toBe(false);
+
+    mgr.clear();
+  });
+
   it('boost hysteresis locks empty fuel until 22% refill (zero Shift camera chatter)', () => {
     const def = DRIVE_VEHICLES.jackal;
     const st = createPhysicsState(new THREE.Vector3(), 0);

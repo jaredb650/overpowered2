@@ -333,7 +333,8 @@ export class HalcyonDirector {
     }
 
     mgr.clear();
-    const veh = mgr.spawn('lancer', pos, yaw, { poolSlot: 'crossfire.halcyon_lancer' });
+    const veh = mgr.spawn('lancer', pos, yaw, { poolSlot: 'crossfire.halcyon_lancer', exitLocked: true });
+    veh.setExitLocked?.(true);
     const chain = loadChainState();
     if (chain && chain.lancerMaxHp > 0) {
       const ratio = clamp(chain.lancerHp / chain.lancerMaxHp, 0.5, 1);

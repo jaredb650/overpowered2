@@ -37,6 +37,7 @@ interface MockDriveable {
   health: number;
   alive: boolean;
   occupied: boolean;
+  exitLocked: boolean;
   phys: {
     grounded: boolean;
     groundY: number;
@@ -49,6 +50,7 @@ interface MockDriveable {
   };
   refilledMode: number | null;
   board: (seat?: number) => void;
+  setExitLocked: (locked: boolean) => void;
   refillOrdnance: (mode?: number) => void;
 }
 
@@ -74,12 +76,13 @@ function makeHarness(missionId: string) {
       spawnedDriveables.length = 0;
       driveables.active = null;
     }),
-    spawn: vi.fn((id: string, pos: THREE.Vector3, _yaw: number) => {
+    spawn: vi.fn((id: string, pos: THREE.Vector3, _yaw: number, opts?: { exitLocked?: boolean }) => {
       const veh: MockDriveable = {
         def: { id, maxHealth: id === 'lancer' ? 2800 : 1400 },
         health: id === 'lancer' ? 2800 : 1400,
         alive: true,
         occupied: false,
+        exitLocked: Boolean(opts?.exitLocked),
         phys: {
           grounded: true,
           groundY: 0,
@@ -94,6 +97,9 @@ function makeHarness(missionId: string) {
         board: vi.fn(() => {
           veh.occupied = true;
           driveables.active = veh;
+        }),
+        setExitLocked: vi.fn((locked: boolean) => {
+          veh.exitLocked = locked;
         }),
         refillOrdnance: (mode?: number) => {
           veh.refilledMode = mode ?? null;
@@ -506,6 +512,7 @@ describe('CrossfireDirector & all 23 cf.* calls', () => {
     expect(strait.spawnedDriveables).toHaveLength(1);
     expect(strait.spawnedDriveables[0]?.def.id).toBe('raptor');
     expect(strait.spawnedDriveables[0]?.occupied).toBe(true);
+    expect(strait.spawnedDriveables[0]?.exitLocked).toBe(true);
     expect(strait.spawnedDriveables[0]?.phys.grounded).toBe(false);
     expect(strait.director.strait.lancer?.alive).toBe(true);
 
@@ -515,6 +522,7 @@ describe('CrossfireDirector & all 23 cf.* calls', () => {
     expect(strait.spawnedDriveables).toHaveLength(1);
     expect(strait.spawnedDriveables[0]?.def.id).toBe('raptor');
     expect(strait.spawnedDriveables[0]?.occupied).toBe(true);
+    expect(strait.spawnedDriveables[0]?.exitLocked).toBe(true);
     expect(strait.director.strait.lancer?.alive).toBe(true);
     strait.director.reset();
 
@@ -526,6 +534,7 @@ describe('CrossfireDirector & all 23 cf.* calls', () => {
     expect(ret.spawnedDriveables).toHaveLength(1);
     expect(ret.spawnedDriveables[0]?.def.id).toBe('raptor');
     expect(ret.spawnedDriveables[0]?.occupied).toBe(true);
+    expect(ret.spawnedDriveables[0]?.exitLocked).toBe(true);
     expect(ret.director.strait.lancer?.alive).toBe(true);
     ret.director.reset();
 
@@ -538,11 +547,21 @@ describe('CrossfireDirector & all 23 cf.* calls', () => {
       expect(halcyon.spawnedDriveables).toHaveLength(1);
       expect(halcyon.spawnedDriveables[0]?.def.id).toBe('lancer');
       expect(halcyon.spawnedDriveables[0]?.occupied).toBe(true);
+      expect(halcyon.spawnedDriveables[0]?.exitLocked).toBe(true);
       expect(halcyon.spawnedDriveables[0]?.phys.grounded).toBe(false);
       expect(halcyon.director.halcyon.state.active).toBe(true);
       expect(halcyon.director.halcyon.vehicleFleet?.isGateOpen('lane_center_breach')).toBe(true);
     }
     halcyon.director.reset();
+
+    // 5. Part 1 Beat 5 (Valken Airbase escape Lancer) locks exit once unlocked/boarded
+    const airbase = makeHarness('crossfire_airbase');
+    airbase.director.ensureBuilt();
+    airbase.director.call('cf.lancerReady');
+    expect(airbase.spawnedDriveables).toHaveLength(1);
+    expect(airbase.spawnedDriveables[0]?.def.id).toBe('lancer');
+    expect(airbase.spawnedDriveables[0]?.exitLocked).toBe(true);
+    airbase.director.reset();
   });
 
   it('repairs player F-22 hull when flying alongside the B-1B Lancer and cleanly downs player when jet is shot down', () => {

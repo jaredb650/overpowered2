@@ -177,6 +177,9 @@ export class DriveableVehicle {
   onRequestSeatSwap: ((targetSeat: number) => boolean) | null = null;
   /** Co-op multi-crew: invoked when a passenger exits a remote-driven vehicle so Driveables cleans up. */
   onCrewExit: (() => void) | null = null;
+  /** When true, manual bail-out via the interact key (`E`) is disabled (e.g. airborne campaign missions). */
+  exitLocked = false;
+  private exitLockFeedCooldown = 0;
   private remoteGunnerSeat = -1;
   private remoteGunnerYaw = 0;
   private remoteGunnerPitch = 0;
@@ -237,10 +240,11 @@ export class DriveableVehicle {
     id: DriveVehicleId,
     position: THREE.Vector3,
     yaw: number,
-    opts?: { velocity?: THREE.Vector3; healthFraction?: number; poolSlot?: string | null },
+    opts?: { velocity?: THREE.Vector3; healthFraction?: number; poolSlot?: string | null; exitLocked?: boolean },
   ) {
     this.def = DRIVE_VEHICLES[id];
     this.poolSlot = opts?.poolSlot ?? null;
+    this.exitLocked = Boolean(opts?.exitLocked);
     this.health = Math.round(this.def.maxHealth * clamp(opts?.healthFraction ?? 1, 0.25, 1));
     this.phys = createPhysicsState(position, yaw, opts?.velocity);
     this.aimYaw = yaw;
@@ -669,7 +673,7 @@ export class DriveableVehicle {
     if (!spec.passengerWeapons) this.holster();
 
     seat.fixed(this.phys.position);
-    seat.noWayOut = false;
+    seat.noWayOut = this.exitLocked;
     seat.board();
     this.seatOccupants[this._seatIndex] = 'local';
     this.updateAimTarget();
@@ -681,6 +685,15 @@ export class DriveableVehicle {
     this.startEngine();
     this.syncHud();
     return true;
+  }
+
+  /** Locks or unlocks manual bail-out via `[E]` and keeps the active seat HUD hint in sync. */
+  setExitLocked(locked: boolean): void {
+    this.exitLocked = locked;
+    if (this.seat) {
+      this.seat.noWayOut = locked;
+      this.seat.hintText = this.buildHintText();
+    }
   }
 
   /** Switches seats cleanly inside the same vehicle (`[F]` or `1`/`2`/`3`). */
@@ -867,6 +880,7 @@ export class DriveableVehicle {
     if (this.ramVehicleCooldown > 0) this.ramVehicleCooldown = Math.max(0, this.ramVehicleCooldown - dt);
     if (this.wallCrashCooldown > 0) this.wallCrashCooldown = Math.max(0, this.wallCrashCooldown - dt);
     if (this.autoAglCooldown > 0) this.autoAglCooldown = Math.max(0, this.autoAglCooldown - dt);
+    if (this.exitLockFeedCooldown > 0) this.exitLockFeedCooldown = Math.max(0, this.exitLockFeedCooldown - dt);
     if (this.flareRemaining > 0) this.flareRemaining = Math.max(0, this.flareRemaining - dt);
     if (this.flareCooldown > 0) this.flareCooldown = Math.max(0, this.flareCooldown - dt);
     if (this.bombBayHold > 0) this.bombBayHold = Math.max(0, this.bombBayHold - dt);
@@ -884,8 +898,15 @@ export class DriveableVehicle {
 
     if (occupied) {
       if (this.ctx.input.pressed('interact')) {
-        this.exit(false);
-        return;
+        if (!this.exitLocked) {
+          this.exit(false);
+          return;
+        }
+        if (this.exitLockFeedCooldown <= 0) {
+          this.exitLockFeedCooldown = 1.6;
+          this.ctx.audio?.play?.('veh_seat_click', { position: this.phys.position, volume: 0.4, pitch: 0.6 });
+          this.ctx.hud?.feed?.('CANOPY LOCKED — STAY ON MISSION!', '#ffb84d');
+        }
       }
       if (this.inputScratch.cameraTogglePressed && this.activeSeatSpec.chaseDist > 0.5) {
         this.thirdPerson = !this.thirdPerson;
@@ -2697,30 +2718,38 @@ export class DriveableVehicle {
   private buildHintText(): string {
     const spec = this.activeSeatSpec;
     if (spec.passengerWeapons) {
-      return `HAND WEAPONS ACTIVE // 1-9 SWITCH GUN // F DRIVER SEAT // E EXIT`;
+      return this.exitLocked
+        ? 'HAND WEAPONS ACTIVE // 1-9 SWITCH GUN // F DRIVER SEAT'
+        : 'HAND WEAPONS ACTIVE // 1-9 SWITCH GUN // F DRIVER SEAT // E EXIT';
     }
-    const swap = this.def.seats.length > 1 ? 'F SEAT // ' : '';
-    const extra = this.def.category === 'jet'
-      ? (this.def.id === 'raptor'
-        ? 'SPACE TAKEOFF // SHIFT SUPERCRUISE // R MISSILES // Q COBRA+FLARES // '
-        : this.def.id === 'lancer'
-          ? 'SPACE TAKEOFF // SHIFT MACH SWEEP // R BOMBS // Q DUMP&BURN // '
-          : this.def.id === 'hornet'
-            ? 'SPACE TAKEOFF // SHIFT AFTERBURNER // R ORDNANCE // Q FLARES // '
-            : 'SPACE LIFT // SHIFT AFTERBURNER // R ORDNANCE // Q VTOL/FLARES // ')
-      : this.def.category === 'helicopter'
-        ? 'SPACE CLIMB // CTRL DESCEND // Q FLARES // '
-        : this.def.category === 'hover'
-          ? 'HOLD LMB LANCE // SPACE HOP // Q OVERCHARGE // '
-          : this.def.category === 'moto'
-            ? 'SPACE DRIFT // Q WHEELIE // '
-            : this.def.id === 'aegis'
-              ? 'R APFSDS/HE // Q IR SMOKE // '
-              : this.def.id === 'jackal'
-                ? 'SPACE DRIFT // Q AUTO-TURRET // '
-                : `Q ${this.def.special.name} // `;
-    const cam = spec.chaseDist > 0.5 ? 'C VIEW // ' : '';
-    return `WASD DRIVE // SHIFT BOOST // ${extra}${swap}${cam}E EXIT`;
+    const parts: string[] = ['WASD DRIVE', 'SHIFT BOOST'];
+    if (this.def.category === 'jet') {
+      parts.push(
+        this.def.id === 'raptor'
+          ? 'SPACE TAKEOFF // SHIFT SUPERCRUISE // R MISSILES // Q COBRA+FLARES'
+          : this.def.id === 'lancer'
+            ? 'SPACE TAKEOFF // SHIFT MACH SWEEP // R BOMBS // Q DUMP&BURN'
+            : this.def.id === 'hornet'
+              ? 'SPACE TAKEOFF // SHIFT AFTERBURNER // R ORDNANCE // Q FLARES'
+              : 'SPACE LIFT // SHIFT AFTERBURNER // R ORDNANCE // Q VTOL/FLARES',
+      );
+    } else if (this.def.category === 'helicopter') {
+      parts.push('SPACE CLIMB // CTRL DESCEND // Q FLARES');
+    } else if (this.def.category === 'hover') {
+      parts.push('HOLD LMB LANCE // SPACE HOP // Q OVERCHARGE');
+    } else if (this.def.category === 'moto') {
+      parts.push('SPACE DRIFT // Q WHEELIE');
+    } else if (this.def.id === 'aegis') {
+      parts.push('R APFSDS/HE // Q IR SMOKE');
+    } else if (this.def.id === 'jackal') {
+      parts.push('SPACE DRIFT // Q AUTO-TURRET');
+    } else {
+      parts.push(`Q ${this.def.special.name}`);
+    }
+    if (this.def.seats.length > 1) parts.push('F SEAT');
+    if (spec.chaseDist > 0.5) parts.push('C VIEW');
+    if (!this.exitLocked) parts.push('E EXIT');
+    return parts.join(' // ');
   }
 
   private syncHud(): void {
