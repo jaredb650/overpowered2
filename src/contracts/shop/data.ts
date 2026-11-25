@@ -23,7 +23,7 @@ const query = typeof location === 'undefined' ? null : new URLSearchParams(locat
  * The endless survival games that sell their guns from a supply pod: the Crucible and Endless Humans. Outpost Defense
  * (`defense`) has its own shops, and the Campaign and Foreclosure are missions.
  */
-export const SHOP_CONTRACTS: readonly ContractId[] = ['crucible', 'outpost', 'rooftop', 'badlands'];
+export const SHOP_CONTRACTS: readonly ContractId[] = ['crucible', 'outpost', 'rooftop', 'badlands', 'endless_war'];
 
 /**
  * This page sells its guns: one of `SHOP_CONTRACTS`' own games, not a mission, the range or a sandbox. `?shop=0` brings the
@@ -33,8 +33,8 @@ export const SHOP_ON: boolean =
   query !== null && ((SHOP_CONTRACTS.includes(ACTIVE.def.id) && MISSION_ID === null) || ACTIVE.def.training === true) && !ON_RANGE
   && !query.has('sandbox') && query.get('shop') !== '0';
 
-/** Retraining's shop (docs/design/tutorial.md): open whenever its pod is, with every row released, because the lesson cannot wait for a wave. */
-export const SHOP_ANYTIME: boolean = ACTIVE.def.training === true;
+/** Retraining's shop and Endless War's FOB Procurement Pod: open whenever the pod is down, with every row released, because there are no wave downtimes. */
+export const SHOP_ANYTIME: boolean = ACTIVE.def.training === true || ACTIVE.def.id === 'endless_war';
 
 /**
  * Seconds of a break with the shop on, at least: the supply pod takes about 6 s to land and open (progression's DROP_POD), and then
@@ -55,10 +55,10 @@ export const ENDLESS_PAY = { kill: 20, headshot: 10, wave: 160 } as const;
 
 /** Credits for one kill in `contract`. */
 export const killPayIn = (contract: ContractId, headshot: boolean): number =>
-  contract === 'outpost' || contract === 'rooftop' ? ENDLESS_PAY.kill + (headshot ? ENDLESS_PAY.headshot : 0) : killPay(headshot);
+  contract === 'outpost' || contract === 'rooftop' || contract === 'endless_war' ? ENDLESS_PAY.kill + (headshot ? ENDLESS_PAY.headshot : 0) : killPay(headshot);
 /** Credits for clearing `wave` in `contract`. */
 export const wavePayIn = (contract: ContractId, wave: number): number =>
-  contract === 'outpost' || contract === 'rooftop' ? ENDLESS_PAY.wave * wave : wavePay(wave);
+  contract === 'outpost' || contract === 'rooftop' || contract === 'endless_war' ? ENDLESS_PAY.wave * wave : wavePay(wave);
 
 /**
  * The wave a ware's catalogue lock lands on in `contract`. The Crucible is endless and keeps the catalogue's locks. Endless Humans

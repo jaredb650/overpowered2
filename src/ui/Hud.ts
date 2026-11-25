@@ -330,6 +330,8 @@ export class Hud implements HudSystem {
     events.on('defense:open', e => this.openDefense(e.screen));
     events.on('shop:open', () => this.openDefense('procurement'));
     events.on('dogfight:modal', e => this.setDogfightModal(e.open));
+    events.on('badlands:modal', e => this.setDogfightModal(e.open));
+    events.on('badlands:customize_frame', e => this.openFrameFromTerminal(e.onDone));
     events.on('comms:line', e => {
       const isAlly = e.kind === 'ally' || e.ally === true;
       const chatter = isAlly ? 0 : this.settings.chatter;
@@ -558,6 +560,18 @@ export class Hud implements HudSystem {
     }
   }
 
+  private openFrameFromTerminal(onDone: () => void): void {
+    const game = this.game;
+    if (!game || this.deathClock > 0) return;
+    if (game.state !== 'playing' && game.state !== 'paused') return;
+    game.setState('paused');
+    this.lockAfter = null;
+    this.lockHeld = false;
+    this.ctx.input.releaseLock?.();
+    this.scoreboard.setHeld(false);
+    this.screens.showAside('frame', onDone);
+  }
+
   pause(): void {
     const game = this.game;
     // The death beat is already on its way to the game over screen.
@@ -656,8 +670,9 @@ export class Hud implements HudSystem {
     if (this.deathClock > 0) return;
     const game = this.game;
     this.ctx.time.popScale('hud-death');
-    // A mission brings the player back at a checkpoint, and the mouse stays where it was.
+    // A mission brings the player back at a checkpoint, and Endless War redeploys at FOB Vanguard while the FOB Core stands.
     if (this.ctx.campaign?.redeploy()) return;
+    if ((this.ctx.waves as { redeploy?: () => boolean } | undefined)?.redeploy?.()) return;
     this.lockAfter = null;
     this.ctx.input.releaseLock?.();
     this.ctx.events.emit('run:end', { score: this.report.score, wave: this.report.wave, kills: this.report.kills });

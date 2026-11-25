@@ -49,13 +49,17 @@ import {
   authorHalcyon, HALCYON_BOUNDS, HALCYON_HUB, HALCYON_LEVELS,
   HALCYON_LIGHT_BOUNDS, HALCYON_LIGHT_CELL, HALCYON_NAV_BOUNDS, HALCYON_STAGES,
 } from './halcyon';
+import {
+  authorEndlessWar, ENDLESS_WAR_ATMOSPHERE, ENDLESS_WAR_BOUNDS, ENDLESS_WAR_HUB, ENDLESS_WAR_LEVELS,
+  ENDLESS_WAR_LIGHT_BOUNDS, ENDLESS_WAR_LIGHT_CELL, ENDLESS_WAR_NAV_BOUNDS, ENDLESS_WAR_STAGES,
+} from './endlessWar';
 import { KH } from './killhouse/plan';
 import { LEVEL, RING } from './layout';
 import type { MapSpec } from './spec';
 import type { MapZone } from '../../core/contracts';
 import { ACTIVE } from '../../contracts/select';
 
-export type MapId = 'crucible' | 'killhouse' | 'outpost' | 'fort' | 'holdfast' | 'office' | 'range' | 'annex' | 'rooftop' | 'chancery' | 'bank' | 'desert' | 'badlands' | 'dogfight' | 'airbase' | 'strait' | 'halcyon';
+export type MapId = 'crucible' | 'killhouse' | 'outpost' | 'fort' | 'holdfast' | 'office' | 'range' | 'annex' | 'rooftop' | 'chancery' | 'bank' | 'desert' | 'badlands' | 'dogfight' | 'airbase' | 'strait' | 'halcyon' | 'endless_war';
 
 export interface MapDef {
   id: MapId;
@@ -75,8 +79,8 @@ export interface MapDef {
   stages: readonly MapStage[];
   author(k: Kit, spec: MapSpec): void;
   readyLabel: string;
-  /** Optional atmosphere preset ('night' default, 'dawn' for golden desert sunrise). */
-  atmosphere?: 'night' | 'dawn';
+  /** Optional atmosphere preset ('night' default, 'dawn' for golden desert sunrise, 'overcast' for storm war front). */
+  atmosphere?: 'night' | 'dawn' | 'overcast';
   zoneOverride?(position: THREE.Vector3, zones: readonly MapZone[]): MapZone | null;
 }
 
@@ -361,7 +365,25 @@ const halcyon: MapDef = {
   atmosphere: 'dawn',
 };
 
-const MAPS: Record<MapId, MapDef> = { crucible, killhouse, outpost, fort, holdfast, office, range, annex, rooftop, chancery, bank, desert, badlands, dogfight, airbase, strait, halcyon };
+const EW = ENDLESS_WAR_BOUNDS;
+const EWN = ENDLESS_WAR_NAV_BOUNDS;
+const EWL = ENDLESS_WAR_LIGHT_BOUNDS;
+const endless_war: MapDef = {
+  id: 'endless_war',
+  bounds: box(EW.x0, EW.y0, EW.z0, EW.x1, EW.y1, EW.z1),
+  navBounds: box(EWN.x0, EWN.y0, EWN.z0, EWN.x1, EWN.y1, EWN.z1),
+  lightBounds: box(EWL.x0, EWL.y0, EWL.z0, EWL.x1, EWL.y1, EWL.z1),
+  lightCell: ENDLESS_WAR_LIGHT_CELL,
+  minimapExtent: 360,
+  navHub: ENDLESS_WAR_HUB,
+  nav: { mutual: true, levels: [...ENDLESS_WAR_LEVELS] },
+  stages: ENDLESS_WAR_STAGES,
+  author: authorEndlessWar,
+  readyLabel: 'Opening the Endless War front',
+  atmosphere: ENDLESS_WAR_ATMOSPHERE,
+};
+
+const MAPS: Record<MapId, MapDef> = { crucible, killhouse, outpost, fort, holdfast, office, range, annex, rooftop, chancery, bank, desert, badlands, dogfight, airbase, strait, halcyon, endless_war };
 
 /** The map of the page's contract, or whatever `?map=` names. contracts/select.ts has the rules. */
 export function selectMap(): MapDef {

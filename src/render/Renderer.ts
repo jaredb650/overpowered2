@@ -237,8 +237,17 @@ export class Renderer implements RenderSystem {
   }
 
   /** Switches sky dome, directional sun/moon, PMREM reflections, baked sky irradiance, and fog haze. */
-  setAtmosphere(preset: 'night' | 'dawn'): void {
-    if (preset === 'dawn') {
+  setAtmosphere(preset: 'night' | 'dawn' | 'overcast'): void {
+    if (preset === 'overcast') {
+      this.moon.color.setRGB(0.84, 0.88, 0.93);
+      this.moon.intensity = 2.45;
+      this.engine.opMoonDir.value.set(0.32, 0.72, -0.61).normalize();
+      this.volume.skyZenith = [0.22, 0.245, 0.28];
+      this.volume.skyHorizon = [0.39, 0.41, 0.44];
+      this.fog.density = 0.0029;
+      this.fog.bakedGain = 1.2;
+      this.fog.moonGain = 2.2;
+    } else if (preset === 'dawn') {
       this.moon.color.setRGB(1.0, 0.79, 0.54);
       this.moon.intensity = 3.2;
       this.engine.opMoonDir.value.set(0.46, 0.32, -0.83).normalize();
@@ -264,7 +273,7 @@ export class Renderer implements RenderSystem {
     this.viewMoon.color.copy(this.moon.color);
     this.viewMoon.intensity = this.moon.intensity;
     if (this.sky) {
-      this.sky.setDawn(this.renderer, preset === 'dawn');
+      this.sky.setAtmosphere(this.renderer, preset);
       this.scene.environment = this.sky.environment;
       this.viewScene.environment = this.sky.environment;
     }

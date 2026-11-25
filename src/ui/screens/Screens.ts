@@ -52,6 +52,7 @@ export class Screens {
   private nav: Nav;
   private current: ScreenName = 'none';
   private returnTo: ScreenName = 'menu';
+  private returnCb: (() => void) | null = null;
 
   constructor(ctx: Ctx, hud: Hud, settings: Settings) {
     this.nav = new Nav(ctx);
@@ -94,6 +95,8 @@ export class Screens {
   show(name: ScreenName): void {
     if (ASIDE.includes(name)) {
       if (!ASIDE.includes(this.current)) this.returnTo = this.current === 'none' ? 'menu' : this.current;
+    } else {
+      this.returnCb = null;
     }
     if (this.current !== 'none') {
       this.screens[this.current].el.style.display = 'none';
@@ -105,6 +108,12 @@ export class Screens {
     const screen = this.screens[name];
     screen.el.style.display = '';
     screen.open(this.nav);
+  }
+
+  /** Opens an aside screen (e.g. Frame loadout from a field terminal) and calls `onBack` when dismissed. */
+  showAside(name: 'frame', onBack: () => void): void {
+    this.show(name);
+    this.returnCb = onBack;
   }
 
   playMenu(): void {
@@ -140,6 +149,13 @@ export class Screens {
 
   /** Back out of guide, settings or the Frame's loadout to whichever screen opened it. */
   back(): void {
+    if (this.returnCb) {
+      const cb = this.returnCb;
+      this.returnCb = null;
+      this.show('none');
+      cb();
+      return;
+    }
     this.show(this.returnTo);
   }
 

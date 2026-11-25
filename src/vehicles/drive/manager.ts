@@ -11,6 +11,16 @@ import { ACTIVE } from '../../contracts/select';
 import type { ModelMaterials } from '../../progression/modelkit';
 import type { SeatRig } from '../seat';
 import { CARRIER_CATAPULT_PAD, CARRIER_CATAPULT_YAW } from '../../world/map/dogfight/plan';
+import {
+  BADLANDS_AIRCRAFT_PAD,
+  BADLANDS_SPAWN_YAW,
+  BADLANDS_VEHICLE_PAD,
+} from '../../world/map/badlands/plan';
+import {
+  ENDLESS_WAR_AIRCRAFT_PAD,
+  ENDLESS_WAR_NORTH_YAW,
+  ENDLESS_WAR_VEHICLE_PAD,
+} from '../../world/map/endlessWar/plan';
 import { DRIVE_VEHICLES, VEHICLE_ASKED } from './data';
 import { HIJACK_MAP, type DriveVehicleId } from './types';
 import { DriveableVehicle } from './vehicle';
@@ -120,6 +130,17 @@ export class DriveableManager {
       this.stageCarrierJet(id, Boolean(board));
     });
 
+    ctx.events.on('badlands:spawn_vehicle', ({ id, board }) => {
+      this.stageBadlandsVehicle(id, Boolean(board));
+    });
+
+    ctx.events.on('badlands:clear_vehicles', () => {
+      const removed = this.clearUnoccupied();
+      if (removed > 0) {
+        ctx.hud?.feed?.(`CLEARED ${removed} UNOCCUPIED VEHICLE${removed > 1 ? 'S' : ''}`, '#38e8ff');
+      }
+    });
+
     ctx.events.on('dogfight:repair_player_jet', ({ amount }) => {
       for (const v of this.vehicles) {
         if (!v.alive) continue;
@@ -146,32 +167,80 @@ export class DriveableManager {
         }
         return;
       }
-      if (ACTIVE.def.id === 'badlands') {
-        this.stagePool(BADLANDS_MOTOR_POOL);
-      } else if (ACTIVE.def.id === 'dogfight') {
+      if (ACTIVE.def.id === 'dogfight') {
         this.stageCarrierJet('hornet', false);
       } else if (ON_RANGE) {
         this.stagePool(RANGE_MOTOR_POOL);
       }
     });
+  }
 
-    ctx.events.on('wave:clear', () => {
-      if (ACTIVE.def.id !== 'badlands') return;
-      let replaced = 0;
-      for (const s of BADLANDS_MOTOR_POOL) {
-        const exists = this.vehicles.some(v => v.alive && v.poolSlot === s.slot);
-        if (!exists) {
-          _pos.set(s.at[0], s.at[1], s.at[2]);
-          const gy = ctx.world?.nav?.groundHeight?.(_pos.x, _pos.y + 3, _pos.z);
-          if (typeof gy === 'number' && Number.isFinite(gy)) _pos.y = gy;
-          this.spawn(s.id, _pos, s.yaw, { poolSlot: s.slot });
-          replaced++;
-        }
+  /**
+   * Badlands sandbox requisition: spawns `id` on the staging pad vehicle bay (ground/hover/rotorcraft)
+   * or clear north airstrip threshold (fixed-wing jets), clearing any unoccupied vehicle blocking that
+   * pad while preserving vehicles driven out into the basin.
+   */
+  stageBadlandsVehicle(id: DriveVehicleId, board = false): DriveableVehicle {
+    const def = DRIVE_VEHICLES[id];
+    const isJet = def.category === 'jet';
+    const isWar = ACTIVE.def.id === 'endless_war';
+    const base = isWar
+      ? (isJet ? ENDLESS_WAR_AIRCRAFT_PAD : ENDLESS_WAR_VEHICLE_PAD)
+      : (isJet ? BADLANDS_AIRCRAFT_PAD : BADLANDS_VEHICLE_PAD);
+    const spawnYaw = isWar ? ENDLESS_WAR_NORTH_YAW : BADLANDS_SPAWN_YAW;
+    const slot = this.ctx.coop?.lobby.me?.slot ?? 0;
+    const slotOffsetX = slot === 0 ? 0 : (slot % 2 === 1 ? -1 : 1) * Math.ceil(slot / 2) * (isJet ? 18 : 8);
+    const slotOffsetZ = slot >= 2 ? (isJet ? -14 : -8) : 0;
+
+    _pos.set(base[0] + slotOffsetX, base[1], base[2] + slotOffsetZ);
+    const gy = this.ctx.world?.nav?.groundHeight?.(_pos.x, _pos.y + 3, _pos.z);
+    if (typeof gy === 'number' && Number.isFinite(gy)) _pos.y = gy;
+
+    const clearRadius = isJet ? 22 : 12;
+    const clearRadiusSq = clearRadius * clearRadius;
+    for (let i = this.vehicles.length - 1; i >= 0; i--) {
+      const v = this.vehicles[i]!;
+      if (v.occupied) continue;
+      const dx = v.position.x - _pos.x;
+      const dz = v.position.z - _pos.z;
+      if (dx * dx + dz * dz <= clearRadiusSq) {
+        v.dispose();
+        this.vehicles.splice(i, 1);
       }
-      if (replaced > 0) {
-        ctx.hud?.feed?.(`MOTOR POOL RESTOCKED (${replaced} VEHICLE${replaced > 1 ? 'S' : ''})`, '#38e8ff');
+    }
+
+    const vehicle = this.spawn(id, _pos, spawnYaw, { poolSlot: null });
+    if (board && !this.seats.occupied && this.ctx.player.alive) {
+      vehicle.board(0);
+      this.ctx.hud?.feed?.(`${def.name} DEPLOYED`, '#38e8ff');
+    } else {
+      const where = isJet ? (isWar ? 'FOB WEST AIRSTRIP' : 'NORTH AIRSTRIP') : 'VEHICLE PAD';
+      this.ctx.hud?.feed?.(`${def.name} STAGED ON ${where}`, '#38e8ff');
+    }
+    return vehicle;
+  }
+
+  /** Number of currently alive, unoccupied player vehicles on the map. */
+  get unoccupiedCount(): number {
+    let n = 0;
+    for (const v of this.vehicles) {
+      if (v.alive && !v.occupied) n++;
+    }
+    return n;
+  }
+
+  /** Disposes all unoccupied player vehicles (leaving any currently driven vehicle intact). */
+  clearUnoccupied(): number {
+    let removed = 0;
+    for (let i = this.vehicles.length - 1; i >= 0; i--) {
+      const v = this.vehicles[i]!;
+      if (!v.occupied) {
+        v.dispose();
+        this.vehicles.splice(i, 1);
+        removed++;
       }
-    });
+    }
+    return removed;
   }
 
   /** Replaces any unoccupied jet on USS Sovereign's catapult with `id`, optionally boarding immediately. */

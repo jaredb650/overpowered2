@@ -6,6 +6,7 @@ export const SKY_GLSL = /* glsl */ `
 uniform vec3 opMoonDir;
 uniform float uSkyTime;
 uniform float uDawn;
+uniform float uOvercast;
 uniform sampler2D opNoise;
 
 #define SKY_PI 3.14159265
@@ -24,6 +25,17 @@ float skyHash3(vec3 p) {
 
 vec3 skyGradient(vec3 d) {
   float h = max(d.y, 0.0);
+  if (uOvercast > 0.5) {
+    // War-torn overcast front: brooding storm-slate zenith descending into smoky ash mist + faint distant firelight on the north horizon.
+    vec3 zenith = vec3(0.145, 0.168, 0.198);
+    vec3 mid = vec3(0.255, 0.274, 0.296);
+    vec3 horizon = vec3(0.395, 0.408, 0.422);
+    vec3 c = mix(horizon, mid, 1.0 - exp(-h * 6.0));
+    c = mix(c, zenith, 1.0 - exp(-h * 2.0));
+    float northGlow = max(-d.z, 0.0);
+    c += vec3(0.16, 0.068, 0.025) * exp(-h * 14.0) * pow(northGlow, 2.2);
+    return c;
+  }
   if (uDawn > 0.5) {
     // Golden desert dawn: warm sunlit ochre-amber horizon rising through dusty rose into clear pale dawn blue.
     vec3 zenith = vec3(0.11, 0.175, 0.30);
@@ -65,8 +77,9 @@ vec3 stars(vec3 d) {
   return sum;
 }
 
-// Moon (or low golden desert sunrise disc when uDawn > 0.5).
+// Moon (or low golden desert sunrise disc when uDawn > 0.5; hidden behind heavy clouds on overcast).
 vec3 moonDisc(vec3 d, out float cover) {
+  if (uOvercast > 0.5) { cover = 0.0; return vec3(0.0); }
   float facing = dot(d, opMoonDir);
   if (facing < 0.995) { cover = 0.0; return vec3(0.0); }
   float radius = uDawn > 0.5 ? 0.056 : 0.082;
@@ -106,6 +119,20 @@ float cloudField(vec2 p, float t) {
 vec3 clouds(vec3 d, vec3 base, float moonAmount) {
   if (d.y < 0.015) return base;
   float t = uSkyTime * 0.0009;
+  if (uOvercast > 0.5) {
+    float fade = smoothstep(0.015, 0.12, d.y);
+    vec2 high = d.xz / (d.y + 0.12) * vec2(0.85, 1.35);
+    float hc = cloudField(high + 2.0, t * 1.5);
+    float overcastSheet = smoothstep(0.30, 0.72, hc) * fade;
+    vec3 sheetCol = mix(vec3(0.32, 0.34, 0.37), vec3(0.49, 0.51, 0.54), moonAmount * 0.65);
+    vec3 c = mix(base, sheetCol, overcastSheet * 0.78);
+    vec2 low = d.xz / (d.y + 0.22) * 1.95;
+    float lc = cloudField(low + 7.5, t * 2.6);
+    float stormDeck = smoothstep(0.40, 0.68, lc) * fade;
+    vec3 stormUnder = mix(vec3(0.12, 0.135, 0.155), vec3(0.22, 0.24, 0.265), smoothstep(0.08, 0.55, d.y));
+    float silverEdge = smoothstep(0.38, 0.48, lc) * (1.0 - smoothstep(0.48, 0.62, lc));
+    return mix(c, stormUnder + vec3(0.35, 0.38, 0.42) * silverEdge * (0.6 + moonAmount), stormDeck * 0.86);
+  }
   // The moon/sun is the map's landmark, so the deck parts around it.
   float clear = 1.0 - smoothstep(0.962, 0.992, dot(d, opMoonDir)) * 0.94;
   float fade = smoothstep(0.015, 0.14, d.y) * clear;
@@ -127,6 +154,19 @@ vec3 clouds(vec3 d, vec3 base, float moonAmount) {
   }
   vec3 under = mix(vec3(0.012, 0.02, 0.038), vec3(0.03, 0.045, 0.07), smoothstep(0.1, 0.5, d.y));
   return mix(c, under + vec3(0.42, 0.5, 0.64) * moonAmount * rim * 2.2, deck * 0.9);
+}
+
+// Distant storm-shrouded mountain ridges & battle-smoke horizon for the overcast war front.
+vec3 overcastRidges(vec3 d, vec3 c) {
+  if (d.y > 0.22 || d.y < -0.04) return c;
+  float a = atan(d.x, d.z);
+  float e = d.y;
+  vec3 haze = skyGradient(vec3(d.x, 0.015, d.z));
+  float farRidge = 0.032 + 0.026 * sin(a * 3.0 + 0.4) + 0.016 * sin(a * 7.0 - 1.1) + 0.009 * sin(a * 13.0 + 2.3);
+  c = mix(c, mix(haze, vec3(0.16, 0.18, 0.20), 0.42), step(e, max(0.008, farRidge)));
+  float nearRidge = 0.014 + 0.018 * sin(a * 5.0 - 0.8) + 0.010 * sin(a * 11.0 + 1.5);
+  c = mix(c, mix(haze, vec3(0.10, 0.11, 0.12), 0.68), step(e, max(0.004, nearRidge)));
+  return c;
 }
 
 // Distant sandstone desert mesas & dunes for the dawn desert horizon (replaces city skyline on desert map).
@@ -225,7 +265,10 @@ vec3 skyline(vec3 d, vec3 c) {
 vec3 skyRadiance(vec3 d) {
   vec3 c = skyGradient(d);
   float moonCos = max(dot(d, opMoonDir), 0.0);
-  if (uDawn > 0.5) {
+  if (uOvercast > 0.5) {
+    float diffuseHalo = pow(moonCos, 16.0) * 0.14 + pow(moonCos, 4.0) * 0.07;
+    c += vec3(0.56, 0.59, 0.64) * diffuseHalo;
+  } else if (uDawn > 0.5) {
     float halo = pow(moonCos, 120.0) * 0.9 + pow(moonCos, 20.0) * 0.24 + pow(moonCos, 4.0) * 0.09;
     c += vec3(1.15, 0.64, 0.28) * halo;
     if (d.y > 0.35) c += stars(d) * smoothstep(0.35, 0.75, d.y) * 0.16;
@@ -241,9 +284,9 @@ vec3 skyRadiance(vec3 d) {
   vec3 disc = moonDisc(d, cover);
   c = mix(c, disc, cover);
   c = clouds(d, c, pow(moonCos, 10.0) * 0.5 + pow(moonCos, 80.0) * 0.5);
-  c = uDawn > 0.5 ? desertMesas(d, c) : skyline(d, c);
+  c = uOvercast > 0.5 ? overcastRidges(d, c) : (uDawn > 0.5 ? desertMesas(d, c) : skyline(d, c));
   // Below the horizon is a ground haze the map hides.
-  vec3 groundHaze = uDawn > 0.5 ? vec3(0.34, 0.22, 0.14) : vec3(0.02, 0.032, 0.05);
+  vec3 groundHaze = uOvercast > 0.5 ? vec3(0.18, 0.185, 0.19) : (uDawn > 0.5 ? vec3(0.34, 0.22, 0.14) : vec3(0.02, 0.032, 0.05));
   if (d.y < 0.0) c = mix(c, groundHaze, clamp(-d.y * 8.0, 0.0, 1.0));
   return c;
 }
@@ -264,7 +307,7 @@ void main() {
   gl_FragColor = vec4(skyRadiance(normalize(vDir)), 1.0);
 }`;
 
-/** Procedural dome (blue-hour night default, golden dawn desert option) plus the PMREM environment baked from it. */
+/** Procedural dome (blue-hour night default, golden dawn desert, or overcast storm war front) plus PMREM environment. */
 export class Sky {
   readonly mesh: THREE.Mesh;
   environment: THREE.Texture;
@@ -279,6 +322,7 @@ export class Sky {
         opNoise: engine.opNoise,
         uSkyTime: { value: 0 },
         uDawn: { value: 0 },
+        uOvercast: { value: 0 },
       },
       side: THREE.BackSide,
       depthWrite: false,
@@ -307,12 +351,18 @@ export class Sky {
     return tex;
   }
 
-  setDawn(renderer: THREE.WebGLRenderer, on: boolean): void {
-    const target = on ? 1 : 0;
-    if (this.material.uniforms.uDawn!.value === target) return;
-    this.material.uniforms.uDawn!.value = target;
+  setAtmosphere(renderer: THREE.WebGLRenderer, preset: 'night' | 'dawn' | 'overcast'): void {
+    const dawn = preset === 'dawn' ? 1 : 0;
+    const overcast = preset === 'overcast' ? 1 : 0;
+    if (this.material.uniforms.uDawn!.value === dawn && this.material.uniforms.uOvercast!.value === overcast) return;
+    this.material.uniforms.uDawn!.value = dawn;
+    this.material.uniforms.uOvercast!.value = overcast;
     this.environment.dispose();
     this.environment = this.bakeEnv(renderer);
+  }
+
+  setDawn(renderer: THREE.WebGLRenderer, on: boolean): void {
+    this.setAtmosphere(renderer, on ? 'dawn' : 'night');
   }
 
   update(time: number): void {

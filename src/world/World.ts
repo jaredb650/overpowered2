@@ -136,7 +136,7 @@ export class World implements WorldSystem {
 
     // Apply map atmosphere (e.g. golden dawn desert for Surplus) before baking sky irradiance into the LightVolume.
     if (def.atmosphere) {
-      (ctx.render as { setAtmosphere?: (a: 'night' | 'dawn') => void }).setAtmosphere?.(def.atmosphere);
+      (ctx.render as { setAtmosphere?: (a: 'night' | 'dawn' | 'overcast') => void }).setAtmosphere?.(def.atmosphere);
     }
 
     // The light bake runs in a worker, so start it first and let nav use the main thread in the meantime.

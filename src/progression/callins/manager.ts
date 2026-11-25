@@ -19,7 +19,9 @@ import { loadFrameLoadout } from '../../frame/loadout';
 import { CALLIN_HOLD } from '../../input/bindings';
 import { CHIN_CANNON, Gun, M134 } from '../../vehicles/guns';
 import { SeatRig } from '../../vehicles/seat';
-import { BADLANDS_FRAME_PAD } from '../../world/map/badlands/plan';
+import { BadlandsTerminalController } from '../../enemies/badlands/terminalUi';
+import { BADLANDS_FRAME_PAD, BADLANDS_TERMINAL } from '../../world/map/badlands/plan';
+import { ENDLESS_WAR_FRAME_PAD, ENDLESS_WAR_NORTH_YAW, ENDLESS_WAR_TERMINAL } from '../../world/map/endlessWar/plan';
 import type { MapSpec } from '../../world/map/spec';
 import { UTILITY_AIRFRAME, type UtilityMount } from '../../vehicles/utilityModel';
 import { ModelMaterials } from '../modelkit';
@@ -104,6 +106,8 @@ export class CallInManager implements CallinLink {
   readonly driveables: DriveableManager;
   /** The Distraint Frame, here for the same reason. Built the first time it is asked for. */
   private frameRig: Frame | null = null;
+  /** Badlands Motor Pool & Frame Requisition Terminal kiosk controller (active only on Badlands). */
+  private badlandsTerminal: BadlandsTerminalController | null = null;
   private readonly harrow: Ride<AttackMount>;
   private readonly packmule: Ride<UtilityMount>;
   private readonly mark: StrikeOrder = { point: new THREE.Vector3(), heading: new THREE.Vector3(1, 0, 0), seed: 0 };
@@ -171,23 +175,52 @@ export class CallInManager implements CallinLink {
         // In the player's own loadout (frame/loadout.ts), as a call-in would be: the range is where a loadout is tried.
         if (spawn) this.frame.board(spawn.position, spawn.yaw, Infinity, false, loadFrameLoadout());
       });
-    } else if (ACTIVE.def.id === 'badlands') {
-      // Badlands stages each player's customized Distraint Frame on the desert pad (staggered by co-op slot so 4 Frames never overlap) and replaces it between waves if lost.
+    } else if (ACTIVE.def.id === 'badlands' || ACTIVE.def.id === 'endless_war') {
+      const isWar = ACTIVE.def.id === 'endless_war';
+      const framePad = isWar ? ENDLESS_WAR_FRAME_PAD : BADLANDS_FRAME_PAD;
+      const terminalPos = isWar ? ENDLESS_WAR_TERMINAL : BADLANDS_TERMINAL;
+      const frameYaw = isWar ? ENDLESS_WAR_NORTH_YAW : -2.65;
+      // Stages each player's customized Distraint Frame on the pad (staggered by co-op slot so 4 Frames never overlap),
+      // replaces it between waves if lost, and provides the Motor Pool & Frame Terminal for on-demand mech/vehicle requisition.
       const padForSlot = (): THREE.Vector3 => {
         const slot = ctx.coop?.lobby.me?.slot ?? 0;
         const dx = slot === 0 ? 0 : (slot % 2 === 1 ? -1 : 1) * Math.ceil(slot / 2) * 5.2;
         const dz = slot >= 2 ? -4.2 : 0;
-        const p = new THREE.Vector3(BADLANDS_FRAME_PAD[0] + dx, BADLANDS_FRAME_PAD[1], BADLANDS_FRAME_PAD[2] + dz);
+        const p = new THREE.Vector3(framePad[0] + dx, framePad[1], framePad[2] + dz);
         const gy = ctx.world?.nav?.groundHeight?.(p.x, p.y + 4, p.z);
         if (typeof gy === 'number' && Number.isFinite(gy)) p.y = gy;
         return p;
       };
+      this.badlandsTerminal = new BadlandsTerminalController(
+        ctx,
+        () => ({
+          deployed: Boolean(this.frameRig?.deployed),
+          occupied: Boolean(this.frameRig?.occupied),
+          health: this.frameRig?.health ?? 0,
+          maxHealth: this.frameRig?.maxHealth ?? 0,
+          loadout: this.frameRig?.deployed ? this.frameRig.loadout : null,
+        }),
+        () => this.driveables.unoccupiedCount,
+        terminalPos,
+      );
+      ctx.events.on('badlands:spawn_frame', ({ board }) => {
+        const loadout = loadFrameLoadout();
+        const pad = padForSlot();
+        if (board && !this.seats.occupied && ctx.player.alive) {
+          this.frame.board(pad, frameYaw, Infinity, false, loadout);
+          ctx.hud.feed('DISTRAINT FRAME DEPLOYED — NEW LOADOUT ACTIVE', CALLINS.frame.color);
+        } else {
+          this.frame.deploy(pad, frameYaw, loadout);
+          ctx.hud.feed('DISTRAINT FRAME STAGED ON PAD — NEW LOADOUT READY', CALLINS.frame.color);
+        }
+      });
       ctx.events.on('run:start', () => {
-        this.frame.deploy(padForSlot(), -2.65, loadFrameLoadout());
+        this.badlandsTerminal?.reset();
+        this.frame.deploy(padForSlot(), frameYaw, loadFrameLoadout());
       });
       ctx.events.on('wave:clear', () => {
         if (!this.frame.deployed && !this.frame.occupied) {
-          this.frame.deploy(padForSlot(), -2.65, loadFrameLoadout());
+          this.frame.deploy(padForSlot(), frameYaw, loadFrameLoadout());
           ctx.hud.feed('REPLACEMENT DISTRAINT FRAME DELIVERED AT PAD', CALLINS.frame.color);
         }
       });
@@ -359,8 +392,10 @@ export class CallInManager implements CallinLink {
     }
 
     this.frameRig?.update(this.ctx.time.playerDt);
-    this.driveables.update(this.ctx.time.playerDt, !this.steering && !this.targeting.id);
-    this.emplacements.update(dt, !this.steering && !this.targeting.id);
+    this.badlandsTerminal?.update(!this.steering && !this.targeting.id && !this.seats.occupied);
+    const canInteract = !this.steering && !this.targeting.id && !this.badlandsTerminal?.open;
+    this.driveables.update(this.ctx.time.playerDt, canInteract);
+    this.emplacements.update(dt, canInteract);
     if (this.holstered && !this.aiming && !this.seats.occupied && !this.ctx.player.parked) {
       this.gunBackIn -= dt;
       if (this.gunBackIn <= 0) this.drawGun();
@@ -630,6 +665,7 @@ export class CallInManager implements CallinLink {
 
   /** The player died: nothing is left half-open, but strikes already called in still land. */
   onDeath(): void {
+    this.badlandsTerminal?.close();
     this.seats.eject();
     this.tapHold.cancel();
     this.calling = false;
@@ -641,6 +677,7 @@ export class CallInManager implements CallinLink {
 
   clear(): void {
     this.shut = false;
+    this.badlandsTerminal?.reset();
     this.frameRig?.clear();
     this.driveables.clear();
     this.emplacements.clear();

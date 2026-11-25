@@ -18,7 +18,7 @@ import { metrics } from './metrics';
 import { Starved } from './starved';
 
 /** The modes whose world the host runs. The others are free roam: everyone walks the map, nothing else. */
-export const WORLD_MODES: readonly Match['mode'][] = ['crucible', 'outpost', 'rooftop', 'badlands', 'dogfight', 'defense', 'campaign', 'foreclosure'];
+export const WORLD_MODES: readonly Match['mode'][] = ['crucible', 'outpost', 'rooftop', 'badlands', 'endless_war', 'dogfight', 'defense', 'campaign', 'foreclosure'];
 /** How long the team board stays up after the host is gone for good, before everyone regroups in a new lobby. */
 export const LOST_BOARD_MS = 10_000;
 /** The status line of a guest the host has stopped feeding: in the place and style of "Reconnecting to host…". */

@@ -427,7 +427,7 @@ export class BadlandsWaves implements WaveSystem {
           : 'JUGGERNAUT + ARMOUR COLUMN';
       ctx.hud.feed(`BOSS WAVE ${wave}: ${label}`, FEED_BOSS);
     } else if (wave === 1) {
-      ctx.hud.feed('CONVOY & AIR ASSAULT — BOARD FRAME [E]', FEED_CONVOY);
+      ctx.hud.feed('CONVOY & AIR ASSAULT — BOARD FRAME OR USE TERMINAL [E]', FEED_CONVOY);
     }
   }
 

@@ -11,7 +11,7 @@ import type { MapId } from '../world/map/maps';
  * `outpost` is Endless Humans. The id is older than the campaign, and URLs and score tables are keyed on it. `defense` is
  * Outpost Defense, Endless Humans' tower defense (docs/proposals/outpost-defense.md).
  */
-export type ContractId = 'campaign' | 'foreclosure' | 'quiet_title' | 'bank_run' | 'desert_raid' | 'crossfire' | 'crossfire_strait' | 'crossfire_halcyon' | 'crossfire_return' | 'crucible' | 'outpost' | 'rooftop' | 'badlands' | 'dogfight' | 'defense' | 'retraining';
+export type ContractId = 'campaign' | 'foreclosure' | 'quiet_title' | 'bank_run' | 'desert_raid' | 'crossfire' | 'crossfire_strait' | 'crossfire_halcyon' | 'crossfire_return' | 'crucible' | 'outpost' | 'rooftop' | 'badlands' | 'endless_war' | 'dogfight' | 'defense' | 'retraining';
 
 /** Who lives there. Section 15's faction rules hang off this: pain, fear, bleeding, gib thresholds. */
 export type FactionId = 'swarm' | 'humans';
@@ -480,18 +480,45 @@ export const CONTRACTS: readonly ContractDef[] = [
       ref: 'Form 7742-D',
       subject: 'Combined-arms Saltblood warbands and armoured convoys converging on the Surplus salt basin',
       body: [
-        'The open salt basin beyond Surplus is wide, flat, and clear to the ceiling. Your customized Distraint Frame is staged on the concrete pad at deployment; press E beside it to board and take to the sky.',
-        'Every motorised asset in the theatre is rolling in: technicals, troop trucks, battle tanks, fast-roping utility helicopters, paratrooper transport jets, door gunners, and attack choppers, carrying full warbands from the first wave.',
-        'There is no Commander and no final wave. Replacement Frames are delivered to the pad after each cleared wave if yours is written off. Fuel and ammunition remain billable.',
+        'The open salt basin beyond Surplus is wide, flat, and clear to the ceiling. Your customized Distraint Frame is staged on the concrete pad at deployment, beside the Motor Pool & Frame Terminal.',
+        'Use the staging pad terminal anytime to requisition any ground vehicle, battle tank, attack gunship, or fighter/bomber jet on demand, or to deploy a fresh Distraint Frame whenever you swap parts in Procurement or the loadout studio.',
+        'Every motorised asset in the theatre is rolling in: technicals, troop trucks, battle tanks, fast-roping helicopters, paratrooper jets, door gunners, and attack choppers. There is no Commander and no final wave.',
       ],
       terms: [
         ['Site', 'The Badlands — 352 m open dawn desert basin'],
         ['Occupants', 'Large human warbands, technicals, trucks, tanks, helis, gunships'],
-        ['Equipment', 'Distraint Frame staged on pad at deployment'],
+        ['Equipment', 'Staging pad terminal — free Frame & all 13 vehicles on demand'],
         ['Duration', 'Endless'],
       ],
     },
     scoreKey: 'op2_highscore.badlands',
+  },
+  {
+    id: 'endless_war',
+    name: 'Endless War',
+    map: 'endless_war',
+    faction: 'humans',
+    waves: 'squads',
+    ai: 'outpost',
+    wounds: 'anatomy',
+    rewards: { backShot: 1.5 },
+    noCommander: true,
+    briefing: {
+      ref: 'Form 7742-E',
+      subject: 'The Iron Bastion Front — nonstop combined-arms war across the river valley',
+      body: [
+        'Two armies are locked across a 480 m x 720 m war-torn mud front split by a wide river and three fortified bridges. Autonomous friendly squads, armor, and gunships push automatically from Friendly FOB Vanguard while hostile forces escalate without limit.',
+        'Push across the bridges to sabotage five enemy strategic facilities — Fuel Depot, Artillery Ridge, Radar/AA Net, Motor Pool, and Airfield Tower — to cripple enemy capabilities, collect heavy bounties, and trigger Momentum Surges.',
+        'Use the FOB Motor Pool & Frame Terminal for free vehicles, aircraft, and your Distraint Frame, and open the War Command Console ([E] in FOB or [O] Field Radio) to call in Armored Spearheads, Airborne Platoons, Air Wings, and Rolling Artillery. You respawn at FOB Vanguard indefinitely — hold the FOB Command Core until the front breaks.',
+      ],
+      terms: [
+        ['Theater', '480 m x 720 m overcast trench front, 3 river bridges, 2.2 km airspace'],
+        ['Forces', 'Autonomous friendly army vs uncapped escalating enemy war machine'],
+        ['Objectives', 'Destroy 5 north-bank strategic facilities to weaken enemy pushes'],
+        ['Loss Condition', 'Friendly FOB Command Core destroyed — no wave downtimes, no end'],
+      ],
+    },
+    scoreKey: 'op2_highscore.endless_war',
   },
   {
     id: 'dogfight',

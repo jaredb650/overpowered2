@@ -653,6 +653,46 @@ describe('AAA Driveable Vehicles (13-Vehicle Fleet)', () => {
     mgr.clear();
   });
 
+  it('Badlands terminal stages ground/rotorcraft on the vehicle bay and jets on the north airstrip, replacing pad clutter cleanly', () => {
+    const h = makeDriveHarness();
+    const mgr = new DriveableManager(h.ctx, h.materials, h.seats, vi.fn());
+
+    // 1. Spawn a tank on the staging pad vehicle bay
+    const tank = mgr.stageBadlandsVehicle('aegis', false);
+    expect(tank.def.id).toBe('aegis');
+    expect(tank.position.x).toBeCloseTo(-4.5, 1);
+    expect(tank.position.z).toBeCloseTo(-5.5, 1);
+    expect(mgr.vehicles.length).toBe(1);
+
+    // 2. Spawning a second ground vehicle while tank is still sitting on the pad replaces the unoccupied pad vehicle cleanly
+    const bastion = mgr.stageBadlandsVehicle('bastion', false);
+    expect(bastion.def.id).toBe('bastion');
+    expect(mgr.vehicles.length).toBe(1);
+
+    // 3. Drive/move the bastion out into the basin, then spawn a chopper -> bastion is preserved!
+    bastion.parkAt(new THREE.Vector3(60, 0, -40), 0);
+    const kestrel = mgr.stageBadlandsVehicle('kestrel', false);
+    expect(kestrel.def.id).toBe('kestrel');
+    expect(mgr.vehicles.length).toBe(2);
+
+    // 4. Spawn a fixed-wing jet -> stages on the clear north airstrip threshold (-28 Z) facing North
+    const raptor = mgr.stageBadlandsVehicle('raptor', false);
+    expect(raptor.def.id).toBe('raptor');
+    expect(raptor.position.x).toBeCloseTo(0, 1);
+    expect(raptor.position.z).toBeCloseTo(-28, 1);
+    expect(mgr.vehicles.length).toBe(3);
+
+    // 5. Board a freshly spawned Warthog and clear unoccupied vehicles -> keeps occupied Warthog only
+    const warthog = mgr.stageBadlandsVehicle('warthog', true);
+    expect(mgr.active).toBe(warthog);
+    expect(mgr.unoccupiedCount).toBe(2);
+    expect(mgr.clearUnoccupied()).toBe(2);
+    expect(mgr.vehicles.length).toBe(1);
+    expect(mgr.active).toBe(warthog);
+
+    mgr.clear();
+  });
+
   it('every driveable vehicle engine loop, dual-layer loop, and weapon/alt audio ID exists in CATALOG', () => {
     for (const id of DRIVE_VEHICLE_ORDER) {
       const def = DRIVE_VEHICLES[id];

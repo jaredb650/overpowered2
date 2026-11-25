@@ -46,6 +46,19 @@ export const BADLANDS_PLAYER_SPAWN: readonly [number, number, number] = [0, 0, 1
 /** Parked Distraint Frame staging spot beside player spawn on the concrete staging pad. */
 export const BADLANDS_FRAME_PAD: readonly [number, number, number] = [4.5, 0, 1.5];
 
+/** Interactive Motor Pool & Frame Requisition Terminal kiosk on the SW staging pad, immediately visible from spawn. */
+export const BADLANDS_TERMINAL: readonly [number, number, number] = [-7.5, 0, 7.5];
+
+/** Concrete staging pad delivery bay for terminal-spawned ground vehicles, hover skiffs, and rotorcraft. */
+export const BADLANDS_VEHICLE_PAD: readonly [number, number, number] = [-4.5, 0, -5.5];
+
+/** Clear north desert airstrip threshold for terminal-spawned fixed-wing jets (130+ m clear north takeoff lane). */
+export const BADLANDS_AIRCRAFT_PAD: readonly [number, number, number] = [0, 0, -28.0];
+
+/** North-facing heading (`-Z`, straight down the clear central convoy corridor / runway) for DriveableVehicle spawns. */
+export const BADLANDS_SPAWN_YAW = Math.PI;
+
+
 /** 8 cardinal + diagonal radial convoy entry lanes (spawns at r ≈ 158 m, routes onto the r = 56 m ring road). */
 export interface ConvoyLane {
   readonly id: string;

@@ -13,6 +13,7 @@ describe('the main menu tree', () => {
       ['Kill House', ['outpost']],
       ['Rooftop', ['rooftop']],
       ['Badlands', ['badlands']],
+      ['Endless War', ['endless_war']],
       ['Dogfight', ['dogfight']],
       ['Outpost', ['defense']],
       ['Office', ['crucible', 'outpost']],

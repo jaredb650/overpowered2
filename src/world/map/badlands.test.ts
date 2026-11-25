@@ -19,6 +19,7 @@ import { Kit } from '../kit/kit';
 import { NavGraph } from '../nav';
 import {
   authorBadlands,
+  BADLANDS_AIRCRAFT_PAD,
   BADLANDS_BOSS_ZONES,
   BADLANDS_BOUNDS,
   BADLANDS_CONVOY_LANES,
@@ -35,6 +36,8 @@ import {
   BADLANDS_PLAYER_SPAWN,
   BADLANDS_RING_WAYPOINTS,
   BADLANDS_STAGES,
+  BADLANDS_TERMINAL,
+  BADLANDS_VEHICLE_PAD,
 } from './badlands';
 import { MapSpec } from './spec';
 
@@ -139,8 +142,16 @@ describe('Badlands open-desert survival map', () => {
   });
 
   it('keeps all 8 radial convoy lanes, inner ring road, Frame staging pad, and Sandstone Arch clear for vehicles & mech flight', () => {
-    // Central basin & Frame staging pad have 100% open sky to the flight ceiling
-    for (const pt of [BADLANDS_PLAYER_SPAWN, BADLANDS_FRAME_PAD, [0, 0, 0] as const, [-10, 0, -10] as const, [10, 0, 10] as const]) {
+    // Central basin, Frame staging pad, vehicle bay, and north airstrip have 100% open sky to the flight ceiling
+    for (const pt of [
+      BADLANDS_PLAYER_SPAWN,
+      BADLANDS_FRAME_PAD,
+      BADLANDS_VEHICLE_PAD,
+      BADLANDS_AIRCRAFT_PAD,
+      [0, 0, 0] as const,
+      [-10, 0, -10] as const,
+      [10, 0, 10] as const,
+    ]) {
       const floorHit = physics.raycast(V(pt[0], 3, pt[2]), V(0, -1, 0), 5, CG.World);
       expect(floorHit, `Missing ground at [${pt.join(',')}]`).not.toBeNull();
       expect(floorHit!.point.y).toBeCloseTo(0, 1);
@@ -148,6 +159,11 @@ describe('Badlands open-desert survival map', () => {
       const skyHit = physics.raycast(V(pt[0], 1, pt[2]), V(0, 1, 0), 108, CG.World);
       expect(skyHit, `Unexpected ceiling over open staging pad at [${pt.join(',')}]`).toBeNull();
     }
+
+    // Requisition Terminal kiosk stands solid at BADLANDS_TERMINAL
+    const termHit = physics.raycast(V(BADLANDS_TERMINAL[0], 5, BADLANDS_TERMINAL[2]), V(0, -1, 0), 5, CG.World);
+    expect(termHit, 'Missing solid collider at BADLANDS_TERMINAL').not.toBeNull();
+    expect(termHit!.point.y).toBeGreaterThan(1.5);
 
     // Every radial convoy lane from outer spawn down to inner ring road is flat and completely unobstructed
     for (const lane of BADLANDS_CONVOY_LANES) {
@@ -192,6 +208,9 @@ describe('Badlands open-desert survival map', () => {
     const checkpoints: { label: string; p: THREE.Vector3 }[] = [
       { label: 'player_spawn', p: V(BADLANDS_PLAYER_SPAWN[0], 0, BADLANDS_PLAYER_SPAWN[2]) },
       { label: 'frame_pad', p: V(BADLANDS_FRAME_PAD[0], 0, BADLANDS_FRAME_PAD[2]) },
+      { label: 'vehicle_pad', p: V(BADLANDS_VEHICLE_PAD[0], 0, BADLANDS_VEHICLE_PAD[2]) },
+      { label: 'aircraft_pad', p: V(BADLANDS_AIRCRAFT_PAD[0], 0, BADLANDS_AIRCRAFT_PAD[2]) },
+      { label: 'terminal_front', p: V(BADLANDS_TERMINAL[0] + 2.2, 0, BADLANDS_TERMINAL[2] + 1.2) },
       { label: 'arch_center', p: V(BADLANDS_LANDMARKS.sandstoneArch.x, 0, BADLANDS_LANDMARKS.sandstoneArch.z) },
       { label: 'oasis_center', p: V(BADLANDS_LANDMARKS.wreckedOasis.x, 0, BADLANDS_LANDMARKS.wreckedOasis.z) },
       { label: 'derrick_deck', p: V(BADLANDS_LANDMARKS.saltDerrick.x + 2.5, 3.6, BADLANDS_LANDMARKS.saltDerrick.z) },

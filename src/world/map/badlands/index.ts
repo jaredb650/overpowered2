@@ -15,6 +15,7 @@ import { cable, scrapHeap, truck, tyres } from '../../kit/props';
 import { DESERT_PALETTE, sandstoneMesa, type Rgb } from '../desert/dunes';
 import type { MapSpec } from '../spec';
 import {
+  BADLANDS_AIRCRAFT_PAD,
   BADLANDS_BOUNDS,
   BADLANDS_CONVOY_LANES,
   BADLANDS_FRAME_PAD,
@@ -28,6 +29,8 @@ import {
   BADLANDS_PLAYER_SPAWN,
   BADLANDS_RING_WAYPOINTS,
   BADLANDS_SKY_SPAWNS,
+  BADLANDS_TERMINAL,
+  BADLANDS_VEHICLE_PAD,
 } from './plan';
 
 export { BADLANDS_BOUNDS, BADLANDS_LEVELS, BADLANDS_LIGHT_BOUNDS, BADLANDS_LIGHT_CELL };
@@ -301,13 +304,68 @@ function authorBasinAndRoads(k: Kit, spec: MapSpec): void {
     g.box(0, 0.024, s, 15.6, 0.004, 0.35, FACE.py);
     g.box(s, 0.024, 0, 0.35, 0.004, 15.6, FACE.py);
   }
-  // Mech bay stencil around BADLANDS_FRAME_PAD (6, 0, -4)
+  // Mech bay stencil around BADLANDS_FRAME_PAD (4.5, 0, 1.5)
   const fx = BADLANDS_FRAME_PAD[0];
   const fz = BADLANDS_FRAME_PAD[2];
   g.use('paintWhite').tint(0.92, 0.86, 0.72);
   for (const s of [-3.4, 3.4]) {
     g.box(fx, 0.025, fz + s, 3.6, 0.004, 0.22, FACE.py);
     g.box(fx + s, 0.025, fz, 0.22, 0.004, 3.6, FACE.py);
+  }
+
+  // Vehicle delivery bay stencil around BADLANDS_VEHICLE_PAD (-4.5, 0, -5.5)
+  const vx = BADLANDS_VEHICLE_PAD[0];
+  const vz = BADLANDS_VEHICLE_PAD[2];
+  g.use('emissiveCyan').tint(0.24, 0.78, 0.92);
+  for (const s of [-4.6, 4.6]) {
+    g.box(vx, 0.025, vz + s, 4.0, 0.004, 0.18, FACE.py);
+  }
+  for (const s of [-3.9, 3.9]) {
+    g.box(vx + s, 0.025, vz, 0.18, 0.004, 4.7, FACE.py);
+  }
+  // North-pointing chevron inside vehicle bay
+  g.use('paintYellow').tint(0.92, 0.72, 0.24);
+  g.box(vx, 0.026, vz - 3.6, 1.4, 0.004, 0.22, FACE.py);
+
+  // Marked north desert airstrip threshold around BADLANDS_AIRCRAFT_PAD (0, 0, -28)
+  const ax = BADLANDS_AIRCRAFT_PAD[0];
+  const az = BADLANDS_AIRCRAFT_PAD[2];
+  g.use('concreteDark').tint(0.62, 0.56, 0.48);
+  g.box(ax, 0.018, az - 10, 7.6, 0.004, 18, FACE.py);
+  g.use('paintWhite').tint(0.9, 0.88, 0.82);
+  for (const tx of [-5.2, -3.2, 3.2, 5.2]) {
+    g.box(ax + tx, 0.024, az + 5.8, 0.55, 0.004, 2.2, FACE.py);
+  }
+  for (let d = 0; d < 4; d++) {
+    g.box(ax, 0.024, az - 1.5 - d * 6.8, 0.35, 0.004, 2.0, FACE.py);
+  }
+
+  // Interactive Motor Pool & Frame Requisition Terminal kiosk at BADLANDS_TERMINAL (-7.5, 0, 7.5)
+  {
+    const [tx, ty, tz] = BADLANDS_TERMINAL;
+    const termYaw = Math.atan2(BADLANDS_PLAYER_SPAWN[0] - tx, BADLANDS_PLAYER_SPAWN[2] - tz);
+    k.push(tx, ty, tz, termYaw);
+    // Concrete beveled plinth & dark-steel console housing
+    g.use('concreteDark').tint(0.74, 0.70, 0.64);
+    g.bevel(0, 0.12, 0, 1.45, 0.12, 0.95, 0.05);
+    g.use('steelDark').tint(0.38, 0.42, 0.48);
+    g.bevel(0, 0.92, -0.1, 1.15, 0.72, 0.52, 0.06);
+    // Operator desk ledge & overhead sun canopy on dual steel posts
+    g.use('steel').tint(0.54, 0.58, 0.62);
+    g.bevel(0, 0.96, 0.46, 1.02, 0.08, 0.24, 0.03);
+    g.cyl(-1.24, 0.2, -0.58, -1.24, 2.72, -0.58, 0.1, 0.09, 6, false, true);
+    g.cyl(1.24, 0.2, -0.58, 1.24, 2.72, -0.58, 0.1, 0.09, 6, false, true);
+    g.bevel(0, 2.76, 0.12, 1.55, 0.11, 1.05, 0.04);
+    // Glowing cyan screen, canopy beacon strip, amber header bar, and floor standing mat
+    g.use('emissiveCyan').tint(0.25, 0.92, 1.0);
+    g.box(0, 1.52, 0.44, 0.92, 0.42, 0.05);
+    g.box(0, 2.76, 1.18, 1.38, 0.08, 0.06);
+    g.box(0, 0.028, 1.55, 1.25, 0.008, 0.65, FACE.py);
+    g.use('emissiveOrange').tint(1.0, 0.70, 0.18);
+    g.box(0, 2.02, 0.44, 0.92, 0.045, 0.05);
+    k.noClimb(() => k.collide(0, 1.0, -0.05, 1.25, 1.0, 0.68, 'metal'));
+    k.pop();
+    k.light(tx + 1.2, ty + 2.3, tz + 0.4, 0x38e8ff, 14, 12);
   }
   g.tint(1);
 
