@@ -39,10 +39,31 @@ const say = (key: string, opts: { wait?: boolean; now?: boolean; again?: boolean
   ...opts,
 });
 
-/** Contractor A assault loadout (slots 1, 2, 3, 6, 5). */
+/** Contractor A custom tactical loadout (slots 1, 2, 3, 6, 5). */
 const RAID_LOADOUT: Loadout = {
-  weapons: ['harrow', 'shotgun', 'satchel', 'ultramag', 'knife'],
+  weapons: ['gimlet', 'shotgun', 'satchel', 'rivet', 'sword'],
   grenades: 4,
+  exclusiveMods: true,
+  mods: [
+    // Gimlet: short barrel, suppressor, magwell, laser, red dot (replaces issued ACOG)
+    'gimletShort',
+    'gimletCan',
+    'gimletMagwell',
+    'gimletLam',
+    'gimletDot',
+    // Shotgun: sawed-off barrel, flechette rounds, reflex sight, tactical flashlight ONLY (no laser)
+    'shotgunSawedOff',
+    'shotgunFlechette',
+    'shotgunDot',
+    'shotgunLight',
+    // Rivet pistol: suppressor, reflex sight, AP rounds, extended mag, magwell, laser
+    'rivetCan',
+    'rivetDot',
+    'rivetAp',
+    'rivetMag',
+    'rivetMagwell',
+    'rivetLam',
+  ],
 };
 
 /** 4 friendly Bailiff/contractor wingmen fighting beside you from the south perimeter to the Alert Hangar. */
@@ -99,7 +120,6 @@ const MARKS: Readonly<Record<string, Mark>> = {
   apronCatwalk: { at: APRON_SPAWNS[3]!.at, yaw: APRON_SPAWNS[3]!.yaw },
   apronNorthLine: { at: APRON_SPAWNS[9]!.at, yaw: Math.PI },
   apronRoadblock: { at: [-18, 0, 18], yaw: Math.PI },
-  apronHangarBay: { at: [-74, 0, 42], yaw: Math.PI / 2 },
 
   // Section 3: 3-Level ATC Tower (y = 0, 3.6, 7.2, 10.8)
   atcGround: { at: ATC_SPAWNS[0]!.at, yaw: Math.PI },
@@ -259,11 +279,11 @@ const CUTSCENES: Readonly<Record<string, Cutscene>> = {
         caption: 'NORTHERN IFF TRANSPONDER: ACTIVE // COURSE 000° NORTH',
       },
       {
-        // Shot 3 (18.0 -> 26.2s): Smooth push-in onto Viper-2's escort F-22 cockpit as Council transfers neural seat & fades to black
-        from: [12, 84, -172],
-        to: [2, 95, -258],
+        // Shot 3 (18.0 -> 26.2s): Hero 3/4 forward-quarter push-in onto Viper-2's F-22 cockpit against the dawn horizon with the B-1B Lancer behind
+        from: [-6, 77, -205],
+        to: [-1, 89, -288],
         lookFrom: [16, 75, -185],
-        lookTo: [15, 89, -271],
+        lookTo: [16, 89, -271],
         seconds: 8.2,
         fov: 42,
         fadeOut: 1.4,
@@ -395,14 +415,6 @@ export const CROSSFIRE_AIRBASE: Mission = {
         {
           when: { after: 7 },
           run: [say('darrow.apron.qrf', { within: 8 })],
-        },
-        // Continuous Northern reinforcements pouring from concealed Maintenance Hangar 02 until North JP-8 Manifold blows!
-        {
-          when: { all: [{ left: 4, tag: 'apron_north' }, { after: 4.5 }] },
-          repeat: true,
-          run: [
-            { do: 'squad', tag: 'apron_north', men: ['trooper', 'gunner', 'rocketeer', 'riot', 'trooper'], at: 'apronHangarBay' },
-          ],
         },
       ],
     },

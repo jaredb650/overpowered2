@@ -44,6 +44,7 @@ import {
   saveChainState,
   transitionToCrossfirePart,
 } from './chain';
+import { DynamicFlankSpawner } from './flankSpawner';
 
 const _v = new THREE.Vector3();
 const _v2 = new THREE.Vector3();
@@ -144,6 +145,7 @@ export class AirbaseDirector {
   private materials: ModelMaterials | null = null;
   private airWing: CrossfireAirWing | null = null;
   private fleet: AiVehicleFleet | null = null;
+  private flankSpawner: DynamicFlankSpawner | null = null;
   private built = false;
 
   private lockedLancerRig: VehicleModelRig | null = null;
@@ -219,6 +221,11 @@ export class AirbaseDirector {
     return this.fleet;
   }
 
+  /** Exposed for unit tests and runtime inspection. */
+  get flankWaveSpawner(): DynamicFlankSpawner | null {
+    return this.flankSpawner;
+  }
+
   ensureBuilt(): void {
     if (this.built) return;
     this.built = true;
@@ -226,6 +233,10 @@ export class AirbaseDirector {
     this.ctx.render?.scene?.add(this.propsRoot);
     this.airWing = new CrossfireAirWing(this.ctx);
     this.fleet = new AiVehicleFleet(this.ctx, this.materials);
+    this.flankSpawner = new DynamicFlankSpawner(this.ctx);
+    this.flankSpawner.setFriendlyVehiclePositions(() =>
+      (this.fleet?.getLiveGroundTargets(true) ?? []).map(t => t.position),
+    );
     this.buildConsoleIndicator();
     this.buildBreachChargeProp();
     this.buildFuelIndicators();
@@ -502,25 +513,31 @@ export class AirbaseDirector {
         this.ensureInvasionForce(true, false);
         this.advanceAssaultLine('apron');
         this.armFuelWatch();
+        this.flankSpawner?.setSector('apron', 3.0);
         return true;
       case 'cf.atcConsole':
         this.ensureInvasionForce(true, true);
         this.openApronGate();
         this.armAtcConsole();
+        this.flankSpawner?.setSector('tower', 4.5);
         return true;
       case 'cf.buddyRaptorsBoard':
         this.ensureInvasionForce(true, true);
         this.openApronGate();
         this.advanceAssaultLine('hangar');
         this.startBuddyRaptorsBoarding();
+        this.flankSpawner?.setSector('hangar', 4.0);
         return true;
       case 'cf.lancerReady':
+        this.flankSpawner?.stop();
         this.unlockLancer();
         return true;
       case 'cf.buddyRaptorsTakeoff':
+        this.flankSpawner?.stop();
         this.launchBuddyRaptors();
         return true;
       case 'cf.airbaseEscapeCutscene':
+        this.flankSpawner?.stop();
         this.startEscapeCutscene();
         return true;
       case 'cf.handoffToStrait':
@@ -653,7 +670,7 @@ export class AirbaseDirector {
             ? [[-24, 0, 32], [-22, 0, -4], [-10, 0, -28]]
             : [[-4.2, 0, 126], [-5, 0, 104], [-20, 0, 68], [-25, 0, 26], [-22, 0, -4], [-10, 0, -28]],
         gateWaypoints: apronOpen ? undefined : startBreached ? { 0: 'apron_gate' } : { 0: 'south_gate', 3: 'apron_gate' },
-        hpOverride: 340,
+        hpOverride: 290,
         speedScale: 0.34,
       });
 
@@ -669,7 +686,7 @@ export class AirbaseDirector {
             ? [[-14, 0, 28], [-16, 0, -4], [14, 0, -26]]
             : [[4.2, 0, 126], [6, 0, 100], [-2, 0, 62], [-14, 0, 28], [-16, 0, -4], [14, 0, -26]],
         gateWaypoints: apronOpen ? undefined : startBreached ? { 0: 'apron_gate' } : { 0: 'south_gate', 3: 'apron_gate' },
-        hpOverride: 340,
+        hpOverride: 290,
         speedScale: 0.34,
       });
 
@@ -685,7 +702,7 @@ export class AirbaseDirector {
             ? [[-20, 0, 30], [-22, 0, -4], [6, 0, -20], [22, 0, -32]]
             : [[-3.4, 0, 130], [-2, 0, 102], [-18, 0, 62], [-20, 0, 30], [-22, 0, -4], [6, 0, -20], [22, 0, -32]],
         gateWaypoints: apronOpen ? undefined : startBreached ? { 0: 'apron_gate' } : { 0: 'south_gate', 3: 'apron_gate' },
-        hpOverride: 1050,
+        hpOverride: 920,
         speedScale: 0.24,
       });
     }
@@ -761,7 +778,7 @@ export class AirbaseDirector {
   ): Ally | null {
     const ally = this.ctx.allies?.spawn?.(type, at, post, 8, yaw) ?? null;
     if (!ally) return null;
-    const hp = type === 'gunner' ? 120 : 90;
+    const hp = type === 'gunner' ? 95 : 72;
     ally.maxHealth = hp;
     ally.health = hp;
     ally.expendable = true;
@@ -1116,13 +1133,16 @@ export class AirbaseDirector {
       }
     }
 
-    // Crisp afterburner exhaust trail behind the 3-ship flight
+    // Sleek supersonic contrail wisps behind the 3-ship flight (color, size, seconds)
     this.escapeSmokeCd -= dt;
     if (this.escapeSmokeCd <= 0) {
-      this.escapeSmokeCd = 0.09;
-      this.ctx.fx?.smoke?.(_v.set(fx, fy - 0.8, fz + 15), 2, 0xdce6f2, 1.4);
-      this.ctx.fx?.smoke?.(_v.set(fx - 25, fy - 2.4, fz + 22), 1, 0xdce6f2, 0.9);
-      this.ctx.fx?.smoke?.(_v.set(fx + 25, fy - 2.4, fz + 24), 1, 0xdce6f2, 0.9);
+      this.escapeSmokeCd = 0.08;
+      this.ctx.fx?.smoke?.(_v.set(fx, fy - 0.6, fz + 15), 0xdce6f2, 0.95, 0.75);
+      const wingX = 38 - smoothJoin * 13;
+      const wingY = -5.0 + smoothJoin * 2.8;
+      const wingZ = 26 - smoothJoin * 12;
+      this.ctx.fx?.smoke?.(_v.set(fx - wingX, fy + wingY, fz + wingZ + 9.5), 0xcce8ff, 0.52, 0.45);
+      this.ctx.fx?.smoke?.(_v.set(fx + wingX, fy + wingY, fz + wingZ + 11.5), 0xcce8ff, 0.52, 0.45);
     }
   }
 
@@ -1170,7 +1190,7 @@ export class AirbaseDirector {
 
     this.reinforceTimer -= dt;
     if (this.reinforceTimer > 0) return;
-    this.reinforceTimer = 9.0;
+    this.reinforceTimer = 11.5;
 
     // Prune dead expendables
     for (let i = this.assaultTroops.length - 1; i >= 0; i--) {
@@ -1178,10 +1198,10 @@ export class AirbaseDirector {
     }
 
     const totalAllies = this.ctx.allies?.allies?.length ?? 0;
-    if (this.assaultTroops.length >= 8 || totalAllies >= 18) return;
+    if (this.assaultTroops.length >= 6 || totalAllies >= 16) return;
 
     const posts = FRONT_POSTS[this.frontStage];
-    const toSpawn = Math.min(2, 8 - this.assaultTroops.length, 16 - this.truckReinforcementsSpawned);
+    const toSpawn = Math.min(2, 6 - this.assaultTroops.length, 16 - this.truckReinforcementsSpawned);
     for (let i = 0; i < toSpawn; i++) {
       const bay = STAGING_TRUCK_BAYS[(this.truckReinforcementsSpawned + i) % STAGING_TRUCK_BAYS.length]!;
       const post = posts[(this.truckReinforcementsSpawned + i) % posts.length]!;
@@ -1197,13 +1217,14 @@ export class AirbaseDirector {
   update(dt: number): void {
     if (!this.built || dt <= 0) return;
 
-    // 0. Blink armed satchel charge LED before breach & update friendly AI armor
+    // 0. Blink armed satchel charge LED before breach & update friendly AI armor + multi-angle enemy flankers
     if (this.breachChargeGroup?.visible && this.breachChargeLedMat) {
       this.beaconPulse += dt * 7.5;
       this.breachChargeLedMat.color.setHex(Math.sin(this.beaconPulse) >= 0 ? 0xff2b22 : 0x440908);
     }
     this.fleet?.update(dt);
     this.tickStagingTruckReinforcements(dt);
+    this.flankSpawner?.update(dt);
 
     // 0b. Tick staggered 3-stage JP-8 pipeline chain explosions -> Inner Blast Gate breach
     for (let i = this.pendingPipelineBlasts.length - 1; i >= 0; i--) {
@@ -1383,6 +1404,7 @@ export class AirbaseDirector {
 
     this.vehicleSystem?.setFriendlyVehicles?.(null);
     this.fleet?.clear();
+    this.flankSpawner?.reset();
 
     if (this.lockedLancerRig) {
       this.propsRoot.remove(this.lockedLancerRig.root);
@@ -1441,6 +1463,8 @@ export class AirbaseDirector {
   reset(): void {
     this.clearStageEntities();
     this.unhookExplosions();
+    this.flankSpawner?.dispose();
+    this.flankSpawner = null;
     this.airWing?.dispose();
     this.airWing = null;
     this.fleet?.dispose();
