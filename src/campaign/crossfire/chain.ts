@@ -46,10 +46,12 @@ export interface CrossfireChainState {
  */
 export const CROSSFIRE_CALL_DOCS = {
   // Part 1 — Valken Airbase (`crossfireAirbase.ts`)
-  'cf.airbaseInit': 'Initialize Part 1 chain state, dawn airbase staging, parked F-22 Raptors, destructible fuel depots, and locked B-1B Lancer.',
+  'cf.airbaseInit': 'Initialize Part 1 chain state, dawn airbase staging convoy (Aegis/Bastion/Jackals/troop trucks), Viper-2/3 wingmen, parked F-22 Raptors, satchel breach charge, and locked B-1B Lancer.',
+  'cf.airbaseBreach': 'Detonate the South Radar Gate satchel breach charge and open the south_gate lane so friendly technicals, Aegis tank, Bastion APC, and assault infantry surge into Valken Airbase.',
+  'cf.airbaseValkyrieDrop': 'Dispatch a friendly Valkyrie fast-rope transport chopper to deploy an expendable assault squad onto the Fuel Apron or Alert Hangar plaza (`apron` | `hangar`).',
   'cf.apronFuelWatch': 'Watch JP-8 fuel depots on the Fuel Apron and signal `cf:fuel_blown` when cooked off.',
   'cf.atcConsole': 'Arm the interactive Hangar Override & IFF Spoof Console at ATC Level 3 (`AIRBASE_ATC_CONSOLE`); signals `cf:atc_override_done`.',
-  'cf.buddyRaptorsBoard': 'Order Viper-2 and Viper-3 wingmen to sprint to parked F-22 Raptors and spool engines; signals `cf:raptors_spooled`.',
+  'cf.buddyRaptorsBoard': 'Order essential Viper-2 and Viper-3 wingmen to sprint to parked F-22 Raptors, board cockpits, and spool engines; signals `cf:raptors_spooled`.',
   'cf.lancerReady': 'Unlock the 28.2 m B-1B Lancer in the Alert Hangar for player boarding and runway takeoff; signals `cf:lancer_boarded` and `cf:lancer_airborne`.',
   'cf.buddyRaptorsTakeoff': 'Launch both AI buddy F-22 Raptors off Runway 01/19 in formation alongside the player Lancer.',
   'cf.handoffToStrait': 'Persist Part 1 stats and transfer Contractor A -> Contractor B into `crossfire_strait`.',

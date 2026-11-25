@@ -489,3 +489,52 @@ describe('the Bailiffs', () => {
     }
   });
 });
+
+describe('invasion roles (essential, expendable, scriptedGoal)', () => {
+  it('essential allies never go down or die, clamp at 25% HP, and regenerate', () => {
+    const ctx = fakeCtx();
+    const sys = new AllySystem(ctx as unknown as Ctx);
+    const a = stand(sys, v(0, 0, -5), ctx);
+    a.essential = true;
+
+    sys.hurt(a, 9999, v(0, 1.2, -5), v(0, 0, 1), 5, 'chest', 'bullet', 'trooper');
+    expect(a.state).toBe('up');
+    expect(a.health).toBeCloseTo(a.maxHealth * 0.25);
+    expect(ctx.hud.feed).not.toHaveBeenCalled();
+
+    // Slowly regenerates back up when updated
+    (ctx.world.nav as unknown as { groundHeight: () => number }).groundHeight = () => 0;
+    ctx.time.dt = 1.0;
+    (sys as unknown as { updateUp(a: Ally, dt: number, now: number): void }).updateUp(a, 1.0, 1.0);
+    expect(a.health).toBeGreaterThan(a.maxHealth * 0.25);
+  });
+
+  it('expendable allies die directly without going down, MAN DOWN tags, or HUD kill spam', () => {
+    const ctx = fakeCtx();
+    const sys = new AllySystem(ctx as unknown as Ctx);
+    const a = stand(sys, v(0, 0, -5), ctx);
+    a.expendable = true;
+
+    // A normal lethal hit that would put a core squadmate down kills an expendable outright
+    sys.hurt(a, a.maxHealth + 10, v(0, 1.2, -5), v(0, 0, 1), 5, 'chest', 'bullet', 'trooper');
+    expect(a.state).toBe('dead');
+    expect(sys.allies).not.toContain(a);
+    expect(ctx.hud.follow).not.toHaveBeenCalled();
+    expect(ctx.hud.feed).not.toHaveBeenCalled();
+    expect(ctx.gore.ragdoll).toHaveBeenCalledTimes(1);
+  });
+
+  it('scriptedGoal overrides cover/follow steering at runPace', () => {
+    const ctx = fakeCtx();
+    const sys = new AllySystem(ctx as unknown as Ctx);
+    const a = stand(sys, v(0, 0, 0), ctx);
+    a.order = 'follow';
+    a.scriptedGoal = v(-26, 0, -78);
+
+    (sys as unknown as { chooseDest(a: Ally, now: number): void }).chooseDest(a, 1.0);
+    expect(a.dest.x).toBeCloseTo(-26);
+    expect(a.dest.z).toBeCloseTo(-78);
+    expect(a.body.pace).toBe(ALLY.runPace);
+  });
+});
+

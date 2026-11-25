@@ -444,9 +444,17 @@ export class AllySystem implements GameSystem {
   private updateUp(a: Ally, dt: number, now: number): void {
     const e = a.body;
     const inj = a.injuries;
-    if (inj.bleed > 0) {
+    if (a.essential) {
+      if (a.health < a.maxHealth) {
+        a.health = Math.min(a.maxHealth, a.health + a.maxHealth * 0.14 * dt);
+      }
+      if (inj.bleed > 0) inj.clear();
+    } else if (inj.bleed > 0) {
       const lost = inj.bleed * a.maxHealth * dt;
-      if (takeHit(a, lost, false) === 'down') this.goDown(a, now);
+      if (takeHit(a, lost, false) === 'down') {
+        if (a.expendable) this.die(a, UP);
+        else this.goDown(a, now);
+      }
       if (a.state !== 'up') return;
     }
     if (now >= a.thinkAt) this.think(a, now);
@@ -610,6 +618,12 @@ export class AllySystem implements GameSystem {
   private chooseDest(a: Ally, now: number): void {
     const p = this.leaderOf(a);
     const e = a.body;
+    if (a.scriptedGoal) {
+      this.claim(a, null);
+      e.pace = ALLY.runPace;
+      this.setDest(a, a.scriptedGoal);
+      return;
+    }
     if (a.patient) {
       this.setDest(a, a.patient.body.position);
       return;
@@ -1072,7 +1086,7 @@ export class AllySystem implements GameSystem {
     // worth more alive, and a man the player can revive is the point of him.
     if (_zone.zone === 'head') amount *= _zone.glancing ? 0.6 : 1.6;
     else if (_zone.zone === 'heart') amount *= 2;
-    if (a.state === 'up' && amount > a.maxHealth * WoundTuning.graze) {
+    if (!a.essential && a.state === 'up' && amount > a.maxHealth * WoundTuning.graze) {
       a.injuries.add(_zone.zone, _zone.side, bone ?? 0, 0, 0, 0, amount / a.maxHealth, type, amount);
       a.body.speedMul = Math.max(0.55, a.injuries.speed) * rand(0.95, 1.05);
     }
@@ -1089,9 +1103,15 @@ export class AllySystem implements GameSystem {
     char.hitFlash(0.5);
     if (bone !== undefined) char.anim.flinch(bone, dir, 0.7);
     ctx.fx.bloodHit(point, dir, 0.7);
+    if (a.essential) {
+      a.health = Math.max(a.maxHealth * 0.25, a.health - amount);
+      return;
+    }
     const outcome = takeHit(a, amount, floors && a.state === 'up');
-    if (outcome === 'down') this.goDown(a, now);
-    else if (outcome === 'dead') this.die(a, dir);
+    if (outcome === 'down') {
+      if (a.expendable) this.die(a, dir);
+      else this.goDown(a, now);
+    } else if (outcome === 'dead') this.die(a, dir);
   }
 
   private goDown(a: Ally, now: number): void {
@@ -1162,7 +1182,9 @@ export class AllySystem implements GameSystem {
     const { ctx } = this;
     a.state = 'dead';
     this.ctx.audio.play(a.body.def.voice.die, { position: a.body.center, pitch: a.body.def.voice.pitch, volume: 0.7 });
-    ctx.hud.feed(`${a.def.label.toUpperCase()} KILLED`, `#${ALLY_DOWN_COLOR.toString(16)}`);
+    if (!a.expendable) {
+      ctx.hud.feed(`${a.def.label.toUpperCase()} KILLED`, `#${ALLY_DOWN_COLOR.toString(16)}`);
+    }
     _b.copy(a.body.velocity).addScaledVector(dir, 1.5);
     ctx.gore.ragdoll(a.body.char, { velocity: _b });
     ctx.events.emit('ally:dead', { ally: a });

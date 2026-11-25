@@ -95,8 +95,6 @@ const MARKS: Readonly<Record<string, Mark>> = {
   apronSouthLine: { at: APRON_SPAWNS[1]!.at, yaw: Math.PI },
   apronCatwalk: { at: APRON_SPAWNS[3]!.at, yaw: APRON_SPAWNS[3]!.yaw },
   apronNorthLine: { at: APRON_SPAWNS[6]!.at, yaw: Math.PI },
-  apronChopperIn: { at: [-155, 42, 34], yaw: Math.PI * 0.4 },
-  apronChopperDrop: { at: [-24, 0, 58], yaw: 0, hold: 4.5 },
 
   // Section 3: 3-Level ATC Tower (y = 0, 3.6, 7.2, 10.8)
   atcGround: { at: ATC_SPAWNS[0]!.at, yaw: Math.PI },
@@ -140,7 +138,6 @@ const MARKS: Readonly<Record<string, Mark>> = {
 
 const ROUTES: Readonly<Record<string, readonly string[]>> = {
   qrfWestApron: ['qrfWest0', 'qrfWest1', 'qrfWest2', 'qrfWest3'],
-  apronChopper: ['apronChopperDrop'],
   tankRunwayNorth: ['tankNorth0', 'tankNorth1', 'tankNorth2', 'tankNorth3'],
   qrfEastTaxiway: ['qrfEast0', 'qrfEast1', 'qrfEast2', 'qrfEast3'],
 };
@@ -161,6 +158,16 @@ const ZONES: Readonly<Record<string, Zone>> = {
 };
 
 const DOORS: Readonly<Record<string, DoorDef>> = {
+  'south.gate': {
+    at: [0, 0, AIRBASE_SOUTH_GATE.z + 3],
+    yaw: 0,
+    width: 21.0,
+    height: 6.0,
+    kind: 'split',
+    seconds: 0.14,
+    start: 0,
+    look: 'steelDark',
+  },
   'alert.south': {
     at: [AIRBASE_ALERT_HANGAR.x, 0, AIRBASE_ALERT_HANGAR.blastDoorSlot.southZ],
     yaw: 0,
@@ -187,24 +194,24 @@ const CUTSCENES: Readonly<Record<string, Cutscene>> = {
   valkenOpening: {
     shots: [
       {
-        from: [110, 42, -135],
-        to: [66, 26, -78],
-        lookFrom: [12, 8, -76],
-        lookTo: [12, 6, -76],
-        seconds: 4.0,
-        fov: 46,
-        fadeIn: 0.7,
-        caption: 'VALKEN AIRBASE // NORTHERN COMMAND — 05:40',
+        from: [-28, 12, 162],
+        to: [18, 9, 144],
+        lookFrom: [0, 2.5, 134],
+        lookTo: [0, 2.8, 121],
+        seconds: 3.8,
+        fov: 48,
+        fadeIn: 0.6,
+        caption: 'VALKEN AIRBASE // SOUTH RADAR GATE — 05:40',
       },
       {
-        from: [-84, 24, 34],
-        to: [-42, 16, 88],
-        lookFrom: [-56, 12, -12],
-        lookTo: [0, 3, 118],
-        seconds: 3.6,
-        fov: 50,
-        fadeOut: 0.5,
-        caption: 'FORM 7742-W // CROSS-BORDER LIABILITY TRANSFER',
+        from: [7.5, 4.0, 132],
+        to: [-3.0, 2.3, 125.5],
+        lookFrom: [0, 2.0, 121],
+        lookTo: [0, 1.5, 121],
+        seconds: 3.0,
+        fov: 44,
+        fadeOut: 0.35,
+        caption: 'BREACH CHARGE ARMED // FORM 7742-W',
       },
     ],
   },
@@ -235,21 +242,25 @@ export const CROSSFIRE_AIRBASE: Mission = {
         { do: 'callins', held: true },
         { do: 'threat', level: 4, grade: 'regular' },
         { do: 'music', state: 'easy' },
+        { do: 'door', door: 'south.gate', open: 0, seconds: 0 },
         { do: 'door', door: 'alert.south', open: 0, seconds: 0 },
         { do: 'door', door: 'alert.north', open: 0, seconds: 0 },
         { do: 'call', name: 'cf.airbaseInit', arg: 'buddyRaptorWest,buddyRaptorEast' },
-        say('council.brief.1'),
-        say('council.brief.2'),
-        { do: 'cutscene', id: 'valkenOpening' },
-        { do: 'banner', text: 'CROSSFIRE', sub: 'VALKEN AIRBASE // PART 01 OF 04' },
         { do: 'roster', men: VIPER_SQUAD, at: 'perimeterStart' },
         { do: 'drop', item: 'ammo', at: 'dropGateAmmo' },
+        // Pre-stage Northern defenders behind cover inside the closed gate so zero enemies pop in on open tarmac
         { do: 'squad', tag: 'sg_west', men: ['trooper', 'trooper', 'gunner'], at: 'sgWest', orders: 'hold', ensure: true },
         { do: 'squad', tag: 'sg_center', men: ['trooper', 'brute', 'gunner'], at: 'sgCenter', orders: 'hold', ensure: true },
         { do: 'squad', tag: 'sg_east', men: ['trooper', 'warden', 'trooper'], at: 'sgEast', orders: 'hold', ensure: true },
+        say('council.brief.1'),
+        say('council.brief.2'),
+        { do: 'cutscene', id: 'valkenOpening' },
+        { do: 'door', door: 'south.gate', open: 1, seconds: 0.14 },
+        { do: 'call', name: 'cf.airbaseBreach' },
+        { do: 'banner', text: 'CROSSFIRE', sub: 'VALKEN AIRBASE // PART 01 OF 04' },
         say('wingman.perimeter.start'),
-        { do: 'objective', id: 'breach_gate', text: 'Breach South Radar Gate with Viper Squad', at: 'southGateObj' },
-        { do: 'hint', text: 'Your 4-man Viper Squad fights alongside you — press {interact} on squadmates to issue advance or hold orders.', seconds: 8 },
+        { do: 'objective', id: 'breach_gate', text: 'Storm the breached South Radar Gate with your assault column', at: 'southGateObj' },
+        { do: 'hint', text: 'Assault armor, Viper-2/3, and your 4-man squad are pushing with you — press {interact} on squadmates for hold/follow orders.', seconds: 8 },
         {
           do: 'until',
           when: {
@@ -288,6 +299,7 @@ export const CROSSFIRE_AIRBASE: Mission = {
         { do: 'sweep', tag: 'sg_west' },
         { do: 'sweep', tag: 'sg_center' },
         { do: 'sweep', tag: 'sg_east' },
+        { do: 'door', door: 'south.gate', open: 1, seconds: 0 },
         { do: 'door', door: 'alert.south', open: 0, seconds: 0 },
         { do: 'door', door: 'alert.north', open: 0, seconds: 0 },
         { do: 'roster', men: VIPER_SQUAD, at: 'apronStart' },
@@ -324,7 +336,7 @@ export const CROSSFIRE_AIRBASE: Mission = {
           when: { any: [{ kills: 5 }, { after: 14 }] },
           run: [
             { do: 'release', tag: 'apron_north' },
-            { do: 'vehicle', tag: 'apron_heli', kind: 'transport', at: 'apronChopperIn', route: 'apronChopper', crew: ['trooper', 'gunner', 'riot', 'trooper'], crewTag: 'apron_heli_crew', ensure: true },
+            { do: 'call', name: 'cf.airbaseValkyrieDrop', arg: 'apron' },
             say('wingman.apron.chopper'),
           ],
         },
@@ -346,7 +358,7 @@ export const CROSSFIRE_AIRBASE: Mission = {
         { do: 'sweep', tag: 'apron_catwalk' },
         { do: 'sweep', tag: 'apron_north' },
         { do: 'sweep', tag: 'apron_qrf' },
-        { do: 'sweep', tag: 'apron_heli_crew' },
+        { do: 'door', door: 'south.gate', open: 1, seconds: 0 },
         { do: 'door', door: 'alert.south', open: 0, seconds: 0 },
         { do: 'door', door: 'alert.north', open: 0, seconds: 0 },
         { do: 'roster', men: VIPER_SQUAD, at: 'towerStart' },
@@ -403,6 +415,7 @@ export const CROSSFIRE_AIRBASE: Mission = {
         { do: 'sweep', tag: 'atc_l1' },
         { do: 'sweep', tag: 'atc_l2' },
         { do: 'sweep', tag: 'atc_l3' },
+        { do: 'door', door: 'south.gate', open: 1, seconds: 0 },
         { do: 'door', door: 'alert.south', open: 1, seconds: 0 },
         { do: 'door', door: 'alert.north', open: 1, seconds: 0 },
         { do: 'roster', men: VIPER_SQUAD, at: 'hangarStart' },
@@ -418,7 +431,7 @@ export const CROSSFIRE_AIRBASE: Mission = {
         { do: 'vehicle', tag: 'darrow_qrf', kind: 'truck', at: 'qrfEast0', route: 'qrfEastTaxiway', crew: ['trooper', 'gunner', 'riot', 'trooper'], crewTag: 'hangar_qrf_crew', ensure: true },
         say('wingman.hangar.push'),
         { do: 'objective', id: 'secure_hangar', text: 'Destroy Darrow’s armored QRF push and secure the Alert Hangar', at: 'alertHangarObj' },
-        { do: 'hint', text: 'Crush Darrow’s tank and QRF troops on the alert apron while Viper-2 and Viper-3 scramble into the parked F-22 Raptors!', seconds: 8 },
+        { do: 'hint', text: 'Our Aegis tank is engaging Darrow’s MBT — smash their line while Viper-2 and Viper-3 sprint into the parked F-22 Raptors!', seconds: 8 },
         {
           do: 'until',
           when: {
@@ -437,6 +450,12 @@ export const CROSSFIRE_AIRBASE: Mission = {
           run: [
             say('wingman.hangar.raptors_boarding'),
             say('darrow.hangar.desperate'),
+          ],
+        },
+        {
+          when: { any: [{ zone: 'alertHangar' }, { after: 8 }] },
+          run: [
+            { do: 'call', name: 'cf.airbaseValkyrieDrop', arg: 'hangar' },
           ],
         },
         {
@@ -462,6 +481,7 @@ export const CROSSFIRE_AIRBASE: Mission = {
         { do: 'sweep', tag: 'hangar_east' },
         { do: 'sweep', tag: 'hangar_vault' },
         { do: 'sweep', tag: 'hangar_qrf_crew' },
+        { do: 'door', door: 'south.gate', open: 1, seconds: 0 },
         { do: 'door', door: 'alert.south', open: 1, seconds: 0 },
         { do: 'door', door: 'alert.north', open: 1, seconds: 0 },
         { do: 'music', state: 'hard' },

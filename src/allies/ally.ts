@@ -52,6 +52,12 @@ export class Ally implements Vitals, Foe {
   mount: AllyMount | null = null;
   /** Another squad's man, fighting his own battle (a mission's `battle`): a held E is not his order. A tap still reaches him. */
   detached = false;
+  /** Scripted essential wingman (e.g. Viper-1/2): never downs or dies; clamps at 25% HP and regenerates. */
+  essential = false;
+  /** Frontline invasion troop: dies directly at 0 HP without a downed/revive state or HUD kill-feed spam. */
+  expendable = false;
+  /** Optional scripted sprint destination (e.g. boarding a parked jet); overrides cover/follow steering until cleared. */
+  scriptedGoal: THREE.Vector3 | null = null;
   /** On the gun now: `mount.occupant` is him. */
   manning = false;
 
@@ -114,6 +120,9 @@ export class Ally implements Vitals, Foe {
     this.leader = null;
     this.mount = null;
     this.detached = false;
+    this.essential = false;
+    this.expendable = false;
+    this.scriptedGoal = null;
     this.manning = false;
     this.target = null;
     this.hasArmour = false;

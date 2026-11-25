@@ -43,13 +43,13 @@ export const CROSSFIRE_AIRBASE_LINES: readonly Line[] = [
     'airbase.wingman.perimeter.start',
     'viper',
     'orders',
-    'Viper squad on your six. Two Raptors on the east pads, one heavy bomber in the alert vault. Breach the radar gate and keep moving.',
+    'Gate charge is blown — technicals and heavy armor punching through! Viper-2 and Viper-3 on your six, assault platoons rolling in. Push past the radar gate!',
   ),
   line(
     'airbase.darrow.perimeter.lockdown',
     'darrow',
     'orders',
-    'This is Colonel Darrow. Unidentified armed party at South Radar Gate — lock down the flight line and seal the Alert Hangar blast doors now!',
+    'This is Colonel Darrow! Southern Directorate raiders just blew the South Radar Gate — armored column and guntrucks pouring onto the base! Seal the Alert Hangar blast doors now!',
   ),
   line(
     'airbase.wingman.perimeter.clear',
@@ -63,7 +63,7 @@ export const CROSSFIRE_AIRBASE_LINES: readonly Line[] = [
     'airbase.darrow.apron.qrf',
     'darrow',
     'irritated',
-    'Roll the west apron QRF and put a fast-rope bird over the hangars. Keep them off the taxiway!',
+    'Roll the west apron QRF trucks and lock down the hangar row! Do not let those Southern bastards reach the taxiway!',
   ),
   line(
     'airbase.wingman.apron.fuel',
@@ -81,7 +81,7 @@ export const CROSSFIRE_AIRBASE_LINES: readonly Line[] = [
     'airbase.wingman.apron.chopper',
     'viper',
     'urgent',
-    'Northern transport chopper flaring over the apron! Troops coming down the ropes!',
+    'Friendly Valkyrie transport flaring over the fuel apron! Fresh assault squad fast-roping in to back our push!',
   ),
 
   // Section 3: 3-Level ATC Tower & Hangar Override / IFF Spoof Console
@@ -95,7 +95,7 @@ export const CROSSFIRE_AIRBASE_LINES: readonly Line[] = [
     'airbase.darrow.tower.warning',
     'darrow',
     'urgent',
-    'They are inside the control tower! Stop them before they reach the ops cab — if they override the alert vault, the Lancer is loaded live!',
+    'Southern commandos are inside the control tower! Stop them before they reach the ops cab — if they crack the alert vault, that Lancer is loaded live!',
   ),
   line(
     'airbase.council.tower.iff',
@@ -121,13 +121,13 @@ export const CROSSFIRE_AIRBASE_LINES: readonly Line[] = [
     'airbase.wingman.hangar.push',
     'viper',
     'urgent',
-    'Tank on the north runway and QRF trucks closing fast! Smash that armor while Viper-2 and Viper-3 sprint for the parked F-22s!',
+    'Northern tank rolling down the runway and QRF trucks closing fast! Our Aegis armor is engaging — smash their line while Viper-2 and Viper-3 sprint for the parked F-22s!',
   ),
   line(
     'airbase.wingman.hangar.raptors_boarding',
     'viper',
     'orders',
-    'Viper-2 and Viper-3 are in the Raptor cockpits — turbines spooling! Clear the apron and grab the big bird!',
+    'Viper-2 and Viper-3 are strapped into the Raptor cockpits — turbines spooling! Clear the apron and grab the big bird!',
   ),
   line(
     'airbase.darrow.hangar.desperate',
@@ -153,7 +153,7 @@ export const CROSSFIRE_AIRBASE_LINES: readonly Line[] = [
     'airbase.darrow.takeoff.airborne',
     'darrow',
     'cracked',
-    'She is airborne! Full wartime bomb load, Northern IFF squawking live, heading straight for the Strait! Get me Southern Command on guard right now!',
+    'She is airborne! Southern raiders just stole a live Northern Lancer and she is banking straight for the Strait! Get me Northern Air Command — scramble every interceptor we have!',
   ),
   line(
     'airbase.council.takeoff.handoff',
@@ -188,13 +188,13 @@ export const CROSSFIRE_STRAIT_LINES: readonly Line[] = [
     'strait.darrow.guard.warning',
     'darrow',
     'urgent',
-    'EMERGENCY GUARD! Fortress Halcyon, this is Colonel Darrow, Northern Command! That B-1B crossing the strait was hijacked — repeat, DO NOT—',
+    'NORTHERN AIR COMMAND, PRIORITY FLASH! This is Colonel Darrow at Valken! Southern raiders hijacked a live B-1B with our transponder active — launch the northern interceptor wing immediately—',
   ),
   line(
     'strait.council.jamming',
     'council',
     'deadpan',
-    'Northern emergency guard frequency has been reassigned to static. Unsolicited apologies interfere with schedule.',
+    'Northern Air Command emergency frequency has been reassigned to static. Premature interceptor scrambles interfere with schedule.',
   ),
   line(
     'strait.wingman.probe.bogeys',

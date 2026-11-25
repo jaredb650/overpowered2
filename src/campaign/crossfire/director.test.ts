@@ -176,10 +176,24 @@ function makeHarness(missionId: string) {
     },
     allies: {
       allies: [],
-      spawn: vi.fn((type: string) => {
+      spawn: vi.fn((type: string, at?: THREE.Vector3, post?: THREE.Vector3) => {
         spawnedAllies.push(type);
-        return { alive: true, body: { position: new THREE.Vector3(), velocity: new THREE.Vector3() } };
+        const pos = at ? at.clone() : new THREE.Vector3();
+        return {
+          alive: true,
+          state: 'up',
+          essential: false,
+          expendable: false,
+          detached: false,
+          order: 'post',
+          post: post ? post.clone() : pos.clone(),
+          postRadius: 6,
+          thinkAt: 0,
+          scriptedGoal: null as THREE.Vector3 | null,
+          body: { position: pos, center: pos.clone().setY(pos.y + 1.2), velocity: new THREE.Vector3() },
+        };
       }),
+      dismiss: vi.fn(),
     },
     enemies: {
       alive: [],
@@ -236,7 +250,7 @@ function makeHarness(missionId: string) {
   };
 }
 
-describe('CrossfireDirector & all 23 cf.* calls', () => {
+describe('CrossfireDirector & all 25 cf.* calls', () => {
   beforeEach(() => {
     vi.stubGlobal('sessionStorage', createMemoryStorage());
     vi.stubGlobal('localStorage', createMemoryStorage());
@@ -253,9 +267,10 @@ describe('CrossfireDirector & all 23 cf.* calls', () => {
 
     const callArgs: Record<string, string | undefined> = {
       'cf.straitWave': 'outbound_probe',
+      'cf.airbaseValkyrieDrop': 'apron',
     };
 
-    expect(CROSSFIRE_CALLS.size).toBe(23);
+    expect(CROSSFIRE_CALLS.size).toBe(25);
     for (const callName of CROSSFIRE_CALLS) {
       const handled = h.director.call(callName, callArgs[callName]);
       expect(handled, `Expected ${callName} to be handled`).toBe(true);
@@ -268,17 +283,27 @@ describe('CrossfireDirector & all 23 cf.* calls', () => {
     warnSpy.mockRestore();
   });
 
-  it('Part 1 (Valken Airbase): fuel watch, ATC override, buddy Raptors, Lancer unlock/takeoff & Strait handoff', () => {
+  it('Part 1 (Valken Airbase): invasion staging, gate breach, Valkyrie drop, fuel watch, ATC override, Viper boarding, Lancer takeoff & Strait handoff', () => {
     const h = makeHarness('crossfire_airbase');
     h.director.ensureBuilt();
 
-    // 1. Init stages locked Lancer + 2 parked Raptors + Part 1 chain state
+    // 1. Init stages locked Lancer + 2 parked Raptors + 4 friendly vehicles held behind closed south_gate + Viper-2/3 + 8 expendables
     expect(h.director.call('cf.airbaseInit')).toBe(true);
     expect(loadChainState()?.part).toBe(1);
     expect(loadChainState()?.contractor).toBe('A');
     expect(h.director.airbase.state.parkedRaptorCount).toBe(2);
+    expect(h.director.airbase.state.friendlyVehicleCount).toBe(4);
+    expect(h.director.airbase.state.viperWingmenCount).toBe(2);
+    expect(h.director.airbase.state.assaultTroopCount).toBe(8);
+    expect(h.director.airbase.vehicleFleet!.isGateOpen('south_gate')).toBe(false);
+    expect(h.getFriendlyVehiclesProvider()).toBeTypeOf('function');
 
-    // 2. Fuel apron blast signals cf:fuel_blown
+    // 1b. Breach detonates satchel charge and opens south_gate for friendly armor & technicals
+    expect(h.director.call('cf.airbaseBreach')).toBe(true);
+    expect(h.director.airbase.state.gateBreached).toBe(true);
+    expect(h.director.airbase.vehicleFleet!.isGateOpen('south_gate')).toBe(true);
+
+    // 2. Fuel apron blast signals cf:fuel_blown + friendly Valkyrie fast-rope drop dispatches
     h.director.call('cf.apronFuelWatch');
     const fuelDepot = AIRBASE_DESTRUCTIBLES.find(d => d.kind === 'fuelDepot')!;
     h.events.emit('combat:explosion', {
@@ -288,6 +313,10 @@ describe('CrossfireDirector & all 23 cf.* calls', () => {
     });
     expect(h.signals).toContain(CROSSFIRE_SIGNALS.fuelBlown);
 
+    expect(h.director.call('cf.airbaseValkyrieDrop', 'apron')).toBe(true);
+    expect(h.director.airbase.state.valkyrieDropsDispatched).toBe(1);
+    expect(h.director.airbase.vehicleFleet!.units.some(u => u.kind === 'valkyrie')).toBe(true);
+
     // 3. ATC Override console reacts to [E] interact when player stands at Level 3 console
     h.director.call('cf.atcConsole');
     h.setPlayerPos(AIRBASE_ATC_CONSOLE.at[0], AIRBASE_ATC_CONSOLE.at[1], AIRBASE_ATC_CONSOLE.at[2]);
@@ -296,9 +325,10 @@ describe('CrossfireDirector & all 23 cf.* calls', () => {
     h.setInteractPressed(false);
     expect(h.signals).toContain(CROSSFIRE_SIGNALS.atcOverrideDone);
 
-    // 4. Buddy Raptors spool up -> cf:raptors_spooled
+    // 4. Viper-2 & Viper-3 sprint to F-22 Raptors, board, and spool up -> cf:raptors_spooled
     h.director.call('cf.buddyRaptorsBoard');
     h.director.update(3.2);
+    expect(h.director.airbase.state.viperBoardedCount).toBe(2);
     expect(h.signals).toContain(CROSSFIRE_SIGNALS.raptorsSpooled);
 
     // 5. Unlock Lancer -> board -> buddy Raptors launch -> climb past takeoff gate
@@ -326,6 +356,7 @@ describe('CrossfireDirector & all 23 cf.* calls', () => {
     expect(saved?.lancerHp).toBe(CROSSFIRE_DEFAULT_LANCER_MAX_HP);
 
     h.director.reset();
+    expect(h.getFriendlyVehiclesProvider()).toBeNull();
   });
 
   it('Part 2 (The Strait Outbound): escort spawn, waves, destroyers suppression, feet-dry & Halcyon handoff', () => {

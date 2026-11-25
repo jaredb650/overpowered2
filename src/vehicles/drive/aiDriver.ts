@@ -61,6 +61,10 @@ export interface AiValkyrieSpawnOptions {
   readonly squadCount?: number;
   readonly squadTypes?: readonly AllyType[];
   readonly postPos?: WaypointLike;
+  /** Mark fast-roped troops as expendable frontline infantry (no down state or HUD kill spam). */
+  readonly expendable?: boolean;
+  /** Mark fast-roped troops as detached so player [E] squad holds only command the core squad. */
+  readonly detached?: boolean;
   readonly hpOverride?: number;
   readonly label?: string;
   readonly onTroopsDeployed?: (unit: AiFriendlyVehicle, spawned: readonly Ally[]) => void;
@@ -172,6 +176,8 @@ export class AiFriendlyVehicle implements FriendlyGroundTarget {
   private hoverTimer = 0;
   private squadRemaining = 0;
   private squadTypes: readonly AllyType[] = DEFAULT_SQUAD_TYPES;
+  private squadExpendable = false;
+  private squadDetached = false;
   private dropCooldown = 0;
   private dropIndex = 0;
   private readonly ropes: THREE.Mesh[] = [];
@@ -286,6 +292,8 @@ export class AiFriendlyVehicle implements FriendlyGroundTarget {
     }
     this.squadRemaining = Math.max(1, opts.squadCount ?? 4);
     this.squadTypes = opts.squadTypes && opts.squadTypes.length > 0 ? opts.squadTypes : DEFAULT_SQUAD_TYPES;
+    this.squadExpendable = opts.expendable === true;
+    this.squadDetached = opts.detached === true;
     this.onTroopsDeployed = opts.onTroopsDeployed ?? null;
     this.valkyriePhase = 'inbound';
 
@@ -555,6 +563,8 @@ export class AiFriendlyVehicle implements FriendlyGroundTarget {
     const type = this.squadTypes[idx % this.squadTypes.length] ?? 'rifleman';
     const ally = this.ctx.allies?.spawn?.(type, dropPos, this.postPos.clone(), 7, this.yaw);
     if (ally) {
+      if (this.squadExpendable) ally.expendable = true;
+      if (this.squadDetached) ally.detached = true;
       this.deployedTroops.push(ally);
     }
   }
