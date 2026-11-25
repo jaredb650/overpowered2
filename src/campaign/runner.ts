@@ -78,6 +78,8 @@ export class MissionRunner implements WatchFacts {
   private readonly heard = new Set<string>();
   /** Signals fired in the current attempt (cleared on start/redeploy) for sidestepping superseded radio chatter. */
   private readonly seenSignals = new Set<string>();
+  /** Signals fired during the currently open beat (cleared on beat close) so synchronous start-step signals never race a later `until`. */
+  private readonly beatSignals = new Set<string>();
   /** Taken from racks, kept through every restart, so a gun found off the path is not lost to a checkpoint that never promised it. */
   private readonly taken = new Set<WeaponId>();
   /** Mods carried on racks already taken, kept alongside `taken` across checkpoint restarts. */
@@ -131,6 +133,10 @@ export class MissionRunner implements WatchFacts {
 
   leave(watch: Watch): void {
     this.live.delete(watch);
+  }
+
+  heardSignal(name: string): boolean {
+    return this.beatSignals.has(name);
   }
 
   // ---------------------------------------------------------------------------------------------
@@ -213,7 +219,7 @@ export class MissionRunner implements WatchFacts {
           continue;
         }
         cue.watch.close();
-        if (cue.cue.repeat) cue.watch = arm(cue.cue.when, this);
+        if (cue.cue.repeat) cue.watch = arm(cue.cue.when, this, true);
         else this.cues.splice(i, 1);
         this.begin(cue.cue.run);
         if (cue.cue.repeat) i++;
@@ -237,6 +243,7 @@ export class MissionRunner implements WatchFacts {
 
   signal(name: string): void {
     this.seenSignals.add(name);
+    this.beatSignals.add(name);
     this.pruneSupersededRadio(name);
     for (const watch of this.live) watch.signal?.(name);
   }
@@ -286,6 +293,7 @@ export class MissionRunner implements WatchFacts {
 
   private closeBeat(): void {
     this.finishing = false;
+    this.beatSignals.clear();
     for (const run of this.scripts) run.watch?.close();
     this.scripts.length = 0;
     for (const cue of this.cues) cue.watch.close();

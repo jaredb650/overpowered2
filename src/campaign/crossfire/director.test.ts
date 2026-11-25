@@ -11,7 +11,8 @@ import { CROSSFIRE_RETURN } from '../missions/crossfireReturn';
 import { CROSSFIRE_STRAIT } from '../missions/crossfireStrait';
 import { CutscenePlayer } from '../cutscene';
 import type { CampaignHud } from '../hud';
-import type { MissionRunner } from '../runner';
+import { MissionRunner } from '../runner';
+import { FakeHost } from '../testkit';
 import {
   CROSSFIRE_CALLS,
   CROSSFIRE_CHAIN_KEY,
@@ -769,8 +770,10 @@ describe('CrossfireDirector & all 25 cf.* calls', () => {
     expect(ironclad.sinking).toBe(true);
     const ironcladSites = def.sites.filter(s => s.shipId === 'destroyer_west');
     expect(ironcladSites.every(s => !s.alive && s.rig.root.visible === false)).toBe(true);
-    // Bastion's turrets remain alive until Bastion sinks
+    // Bastion's turrets remain alive until Bastion sinks — sinking Ironclad alone shifts marker east and does NOT suppress both
     expect(def.sites.filter(s => s.shipId === 'destroyer_east' && s.alive).length).toBe(4);
+    expect(h.signals).not.toContain(CROSSFIRE_SIGNALS.destroyersSuppressed);
+    expect(h.signals).toContain(CROSSFIRE_SIGNALS.destroyersShiftEast);
 
     // Tick sinking animation -> hull lists & plunges beneath the waves
     for (let i = 0; i < 65; i++) h.director.update(0.1);
@@ -833,6 +836,101 @@ describe('CrossfireDirector & all 25 cf.* calls', () => {
     expect(h.director.strait.state.activeOrbitTag).toBeNull();
 
     h.director.reset();
+  });
+
+  it('never softlocks Beat 2 or leaves a dead destroyer indicator when both destroyers are sunk before Beat 1 planes even spawn', () => {
+    const h = makeHarness('crossfire_strait');
+    const host = new FakeHost();
+    const runner = new MissionRunner(CROSSFIRE_STRAIT, host);
+    const director = new CrossfireDirector(h.ctx, runner);
+    host.call = (name, arg) => {
+      director.call(name, arg);
+    };
+
+    runner.start();
+    // Finish Beat 1 intro cutscene
+    expect(host.cutsceneDone).not.toBeNull();
+    host.cutsceneDone!(false);
+    runner.update(0.05);
+    expect(runner.beat?.id).toBe('outbound_probe');
+    // First wave of planes (`outbound_probe`) has NOT spawned yet (3s wait still ticking)!
+    expect(director.strait.state.spawnedWaves).not.toContain('outbound_probe');
+
+    // Player flies ahead and sinks BOTH destroyers before the first wave of planes even spawns
+    const fleet = director.strait.destroyerFleet!;
+    expect(fleet.aliveCount).toBe(2);
+    fleet.damageShip('destroyer_west', 9999);
+    fleet.damageShip('destroyer_east', 9999);
+    expect(fleet.aliveCount).toBe(0);
+
+    // Wait 3.2s so `outbound_probe` spawns, then clear the probe wave -> Beat 2 (`destroyer_gauntlet`) opens
+    for (let i = 0; i < 35; i++) {
+      runner.update(0.1);
+      director.update(0.1);
+    }
+    expect(director.strait.state.spawnedWaves).toContain('outbound_probe');
+    director.strait.airWingInstance!.shredWave('outbound_probe');
+    runner.update(0.05);
+    expect(runner.beat?.id).toBe('destroyer_gauntlet');
+
+    // First frame of Beat 2: `sink_destroyers` is IMMEDIATELY checked off (no stuck destroyerWest marker!),
+    // stale destroyer SAM dialogue is sidestepped, and only `clear_gauntlet_wing` remains active.
+    runner.update(0.05);
+    expect(runner.objectives.map(o => o.id)).toEqual(['clear_gauntlet_wing']);
+    expect(host.said).not.toContain('mission.crossfire.strait.halvorsen.gauntlet.fire');
+    expect(host.said).not.toContain('mission.crossfire.strait.wingman.gauntlet.sams');
+
+    // Clearing the strike wing immediately completes Beat 2 and advances to Beat 3 (`coastal_aces`)!
+    director.strait.airWingInstance!.shredWave('destroyer_strike');
+    runner.update(0.05);
+    expect(runner.beat?.id).toBe('coastal_aces');
+
+    director.reset();
+  });
+
+  it('shifts the Beat 2 destroyer objective marker onto SNS Bastion when SNS Ironclad was already sunk early', () => {
+    const h = makeHarness('crossfire_strait');
+    const host = new FakeHost();
+    const runner = new MissionRunner(CROSSFIRE_STRAIT, host);
+    const director = new CrossfireDirector(h.ctx, runner);
+    host.call = (name, arg) => {
+      director.call(name, arg);
+    };
+
+    runner.start();
+    host.cutsceneDone!(false);
+    runner.update(0.05);
+
+    // Sink ONLY SNS Ironclad (`destroyer_west`) during Beat 1, leaving SNS Bastion (`destroyer_east`) alive
+    const fleet = director.strait.destroyerFleet!;
+    fleet.damageShip('destroyer_west', 9999);
+    expect(fleet.aliveCount).toBe(1);
+
+    // Advance into Beat 2
+    for (let i = 0; i < 35; i++) {
+      runner.update(0.1);
+      director.update(0.1);
+    }
+    director.strait.airWingInstance!.shredWave('outbound_probe');
+    runner.update(0.05);
+    expect(runner.beat?.id).toBe('destroyer_gauntlet');
+
+    // First frame of Beat 2: `sink_destroyers` shifts straight to `destroyerEast` (never sitting on empty water at destroyerWest)
+    runner.update(0.05);
+    const sinkObj = runner.objectives.find(o => o.id === 'sink_destroyers');
+    expect(sinkObj).toBeDefined();
+    expect(sinkObj!.at).toEqual(CROSSFIRE_STRAIT.marks.destroyerEast);
+
+    // Sinking SNS Bastion checks off `sink_destroyers`, and clearing the strike wing advances to Beat 3
+    fleet.damageShip('destroyer_east', 9999);
+    runner.update(0.05);
+    expect(runner.objectives.map(o => o.id)).toEqual(['clear_gauntlet_wing']);
+
+    director.strait.airWingInstance!.shredWave('destroyer_strike');
+    runner.update(0.05);
+    expect(runner.beat?.id).toBe('coastal_aces');
+
+    director.reset();
   });
 });
 

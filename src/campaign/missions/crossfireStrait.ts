@@ -127,6 +127,27 @@ export const CROSSFIRE_STRAIT: Mission = {
       id: 'destroyer_gauntlet',
       title: 'Destroyer Gauntlet',
       checkpoint: { at: 'midStraitCheck', loadout: PILOT_LOADOUT },
+      cues: [
+        {
+          when: { signal: CROSSFIRE_SIGNALS.destroyersShiftEast },
+          run: [
+            {
+              do: 'objective',
+              id: 'sink_destroyers',
+              text: 'Sink SNS Bastion (or knock out its SAMs)',
+              at: 'destroyerEast',
+            },
+          ],
+        },
+        {
+          when: { signal: CROSSFIRE_SIGNALS.destroyersSuppressed },
+          run: [{ do: 'done', id: 'sink_destroyers' }],
+        },
+        {
+          when: { signal: CROSSFIRE_SIGNALS.waveClearedDestroyerStrike },
+          run: [{ do: 'done', id: 'clear_gauntlet_wing' }],
+        },
+      ],
       start: [
         { do: 'callins', held: true },
         { do: 'threat', level: 6, grade: 'veteran' },
@@ -137,7 +158,8 @@ export const CROSSFIRE_STRAIT: Mission = {
         say('halvorsen.gauntlet.fury', { within: 6, unless: CROSSFIRE_SIGNALS.destroyersSuppressed }),
         say('halvorsen.gauntlet.fire', { within: 7, unless: CROSSFIRE_SIGNALS.destroyersSuppressed }),
         say('wingman.gauntlet.sams', { within: 8, unless: CROSSFIRE_SIGNALS.destroyersSuppressed }),
-        { do: 'objective', id: 'survive_gauntlet', text: 'Sink SNS Ironclad & SNS Bastion (or knock out their SAMs) and clear the strike wing — Lancer holding defensive orbit', at: 'destroyerWest' },
+        { do: 'objective', id: 'sink_destroyers', text: 'Sink SNS Ironclad & SNS Bastion (or knock out their SAMs)', at: 'destroyerWest' },
+        { do: 'objective', id: 'clear_gauntlet_wing', text: 'Clear the Harrier/Warthog strike wing — Lancer holding defensive orbit', at: 'lancerMid' },
         { do: 'hint', text: 'Lock AMRAAMs and pour cannons straight into the destroyer hulls to sink them outright (destroying all deck turrets at once)! Pop [Q] flares to decoy SeaRAMs.', seconds: 9 },
         {
           do: 'until',
@@ -148,7 +170,8 @@ export const CROSSFIRE_STRAIT: Mission = {
             ],
           },
         },
-        { do: 'done', id: 'survive_gauntlet' },
+        { do: 'done', id: 'sink_destroyers' },
+        { do: 'done', id: 'clear_gauntlet_wing' },
         say('wingman.gauntlet.suppressed', { within: 4 }),
         { do: 'goto', beat: 'coastal_aces' },
       ],

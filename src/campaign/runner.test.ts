@@ -167,6 +167,65 @@ describe('triggers', () => {
     step(1.1);
     expect(run.beat?.id).toBe('c');
   });
+
+  it('remembers signals emitted earlier in the same beat without leaking across beats or looping repeating cues', () => {
+    const host = new FakeHost();
+    let runner!: MissionRunner;
+    host.call = name => {
+      if (name === 'emitNow') runner.signal('already_done');
+    };
+    const m = mission([
+      {
+        id: 'a',
+        title: 'A',
+        cues: [
+          { when: { signal: 'already_done' }, run: [{ do: 'done', id: 'obj_a' }] },
+          { when: { signal: 'ping' }, repeat: true, run: [{ do: 'banner', text: 'pong' }] },
+        ],
+        start: [
+          { do: 'call', name: 'emitNow' },
+          { do: 'objective', id: 'obj_a', text: 'Should auto-clear' },
+          { do: 'until', when: { all: [{ signal: 'already_done' }, { signal: 'second' }] } },
+          { do: 'goto', beat: 'b' },
+        ],
+      },
+      {
+        id: 'b',
+        title: 'B',
+        // Reusing the same signal name in beat B must NOT fire from beat A's signal
+        until: { signal: 'already_done' },
+      },
+      { id: 'c', title: 'C', until: { after: 99 } },
+    ]);
+    runner = new MissionRunner(m, host);
+    runner.start();
+    runner.update(1 / 60);
+
+    // Objective cleared on first frame because beat cue saw the synchronous start-step signal
+    expect(host.objectiveText).toEqual([]);
+    expect(runner.beat?.id).toBe('a');
+
+    // Repeating signal cue fires once per signal and never infinite-loops
+    runner.signal('ping');
+    runner.update(1 / 60);
+    runner.update(1 / 60);
+    expect(host.log).toEqual(['banner pong']);
+    runner.signal('ping');
+    runner.update(1 / 60);
+    expect(host.log).toEqual(['banner pong', 'banner pong']);
+
+    // Emitting only `second` completes beat A because `already_done` was remembered from beat A's start script
+    runner.signal('second');
+    runner.update(1 / 60);
+    expect(runner.beat?.id).toBe('b');
+
+    // Beat B stays waiting for a fresh `already_done` signal
+    runner.update(1 / 60);
+    expect(runner.beat?.id).toBe('b');
+    runner.signal('already_done');
+    runner.update(1 / 60);
+    expect(runner.beat?.id).toBe('c');
+  });
 });
 
 describe('scripts', () => {

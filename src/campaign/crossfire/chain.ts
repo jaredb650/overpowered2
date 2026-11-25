@@ -97,6 +97,7 @@ export const CROSSFIRE_SIGNALS = {
   waveClearedDestroyerStrike: 'cf:wave_cleared_destroyer_strike',
   waveClearedCoastalAces: 'cf:wave_cleared_coastal_aces',
   destroyersSuppressed: 'cf:destroyers_suppressed',
+  destroyersShiftEast: 'cf:destroyers_shift_east',
   lancerMidstrait: 'cf:lancer_midstrait',
   straitFeetDry: 'cf:strait_feet_dry',
   // Part 3

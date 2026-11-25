@@ -167,6 +167,7 @@ export class StraitDirector {
 
   private destroyersHot = false;
   private destroyersSuppressedSignaled = false;
+  private destroyerShiftEastSignaled = false;
   private lancerMidstraitSignaled = false;
   private feetDryWatchActive = false;
   private feetDrySignaled = false;
@@ -244,6 +245,7 @@ export class StraitDirector {
         // Instantly destroy & hide all surviving SAM/CIWS turrets on the sinking warship!
         this.defenses?.destroySitesForShip(ship.id);
         this.checkDestroyerSuppression();
+        this.syncDestroyerObjectiveSignal();
       },
     });
 
@@ -505,8 +507,21 @@ export class StraitDirector {
     if (liveMounts.length > 0) {
       this.defenses.mountStraitDestroyers(liveMounts);
       this.ctx.hud?.feed?.('SNS IRONCLAD & SNS BASTION WEAPONS HOT — SINK WARSHIPS OR KILL SEARAMs!', '#ff4d3d');
+      this.syncDestroyerObjectiveSignal();
     } else {
       this.checkDestroyerSuppression();
+    }
+  }
+
+  private syncDestroyerObjectiveSignal(): void {
+    if (!this.destroyersHot || this.destroyersSuppressedSignaled || this.destroyerShiftEastSignaled || !this.destroyers) {
+      return;
+    }
+    const westAlive = this.destroyers.getShip('destroyer_west')?.alive === true;
+    const eastAlive = this.destroyers.getShip('destroyer_east')?.alive === true;
+    if (!westAlive && eastAlive) {
+      this.destroyerShiftEastSignaled = true;
+      this.runner.signal(CROSSFIRE_SIGNALS.destroyersShiftEast);
     }
   }
 
@@ -514,9 +529,8 @@ export class StraitDirector {
     if (!this.destroyersHot || this.destroyersSuppressedSignaled || !this.defenses) return;
     const allShipsSunk = Boolean(this.destroyers && this.destroyers.allSunkOrSinking);
     const total = this.defenses.totalCount;
-    const destroyed = total - this.defenses.aliveCount;
     const aliveSams = this.defenses.getSitesByKind('destroyer_sam').filter(s => s.alive).length;
-    if (allShipsSunk || (total > 0 && (aliveSams === 0 || destroyed >= Math.ceil(total * 0.5)))) {
+    if (allShipsSunk || (total > 0 && aliveSams === 0)) {
       this.destroyersSuppressedSignaled = true;
       this.ctx.hud?.feed?.(
         allShipsSunk
@@ -996,6 +1010,7 @@ export class StraitDirector {
     this.introReboardDone = false;
     this.destroyersHot = false;
     this.destroyersSuppressedSignaled = false;
+    this.destroyerShiftEastSignaled = false;
     this.lancerMidstraitSignaled = false;
     this.feetDryWatchActive = false;
     this.feetDrySignaled = false;

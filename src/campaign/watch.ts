@@ -16,6 +16,8 @@ export interface WatchFacts {
   /** Live watches hear about kills and signals through this. */
   join(watch: Watch): void;
   leave(watch: Watch): void;
+  /** True if `name` has already been signaled during the current beat. */
+  heardSignal?(name: string): boolean;
 }
 
 export interface Watch {
@@ -42,7 +44,7 @@ function matches(payload: unknown, where: Readonly<Record<string, string | numbe
 
 const noop = (): void => {};
 
-export function arm(trigger: Trigger, facts: WatchFacts): Watch {
+export function arm(trigger: Trigger, facts: WatchFacts, fresh = false): Watch {
   if ('zone' in trigger) {
     const zone = facts.zone(trigger.zone);
     const want = !trigger.outside;
@@ -90,7 +92,7 @@ export function arm(trigger: Trigger, facts: WatchFacts): Watch {
     return { test: () => facts.spawned(trigger.tag) > 0 && facts.host.health(trigger.tag) <= trigger.below, close: noop };
   }
   if ('signal' in trigger) {
-    let heard = false;
+    let heard = !fresh && Boolean(facts.heardSignal?.(trigger.signal));
     const watch: Watch = {
       test: () => heard,
       signal(name) {
@@ -112,7 +114,7 @@ export function arm(trigger: Trigger, facts: WatchFacts): Watch {
     return { test: () => facts.host.rounds(trigger.ammo) < trigger.under, close: noop };
   }
   if ('not' in trigger) {
-    const inner = arm(trigger.not, facts);
+    const inner = arm(trigger.not, facts, fresh);
     let happened = false;
     return {
       test(dt) {
@@ -123,7 +125,7 @@ export function arm(trigger: Trigger, facts: WatchFacts): Watch {
     };
   }
   // Every part is tested every frame, so a clock inside an `any` keeps running after a neighbour has come true.
-  const parts = ('all' in trigger ? trigger.all : trigger.any).map(t => arm(t, facts));
+  const parts = ('all' in trigger ? trigger.all : trigger.any).map(t => arm(t, facts, fresh));
   const need = 'all' in trigger ? parts.length : 1;
   return {
     test(dt) {
