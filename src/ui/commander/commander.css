@@ -51,6 +51,21 @@
 .cmd-box.harbourmaster .cmd-text { color: #ffe9c4; font-weight: 400; }
 .cmd-box.harbourmaster .cmd-name { color: #1d0f1e; background: #f2c12e; padding: 0.12rem 0.5rem 0.04rem; }
 
+/* Crossfire speakers: Northern Airbase CO, Southern Fortress General, Bureau Ground & Air Wing, Carrier ATC. */
+.cmd-box.darrow { --accent: #5aa8d8; background: #101922; }
+.cmd-box.darrow .cmd-text { color: #d8ecf8; font-weight: 400; }
+.cmd-box.darrow.cracked { --accent: #e05246; }
+.cmd-box.darrow.cracked .cmd-text { color: #ffd9d4; }
+.cmd-box.halvorsen { --accent: #d94a38; background: #1c1010; }
+.cmd-box.halvorsen .cmd-text { color: #f6dcd4; font-weight: 400; }
+.cmd-box.halvorsen.cracked .cmd-name { animation: cmd-twitch 2.3s steps(1) infinite; }
+.cmd-box.mercer { --accent: #e0a63a; background: #12191e; }
+.cmd-box.mercer .cmd-text { color: #f3ead4; font-weight: 400; }
+.cmd-box.viper { --accent: #42e09b; background: #0d1917; }
+.cmd-box.viper .cmd-text { color: #d6f7e8; font-weight: 400; }
+.cmd-box.carrier { --accent: #38c9c9; background: #09181b; }
+.cmd-box.carrier .cmd-text { color: #ccf2f2; font-weight: 400; }
+
 /* What the box does as the Commander comes apart. */
 .cmd-box.commander.rattled .cmd-text { color: #f5e6c8; }
 .cmd-box.commander.cracked { --accent: var(--blood); }

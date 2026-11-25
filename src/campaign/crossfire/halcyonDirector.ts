@@ -97,6 +97,9 @@ export class HalcyonDirector {
   private liveCallout = 'BREACH SECTION B & SILENCE OUTER FLAK BASTIONS';
   private hudThrottle = 0;
   private capRespawnCd = 28;
+  private playerCrashTimer = -1;
+  private lancerLastHp = -1;
+  private lancerNoDamageTimer = 0;
 
   constructor(
     private readonly ctx: Ctx,
@@ -111,6 +114,25 @@ export class HalcyonDirector {
 
   private get vehicleSystem(): Partial<VehicleSystem> | undefined {
     return this.ctx.enemies?.vehicles as Partial<VehicleSystem> | undefined;
+  }
+
+  private downPlayerCleanly(source: string): void {
+    if (this.playerLancer?.occupied) {
+      this.playerLancer.exit?.(true);
+    }
+    const p = this.ctx.player as (Ctx['player'] & { unpark?: (grace?: number) => void }) | undefined;
+    if (p && p.alive) {
+      p.unpark?.(0);
+      p.takeDamage?.({
+        amount: 9999,
+        from: p.position?.clone?.() ?? new THREE.Vector3(),
+        type: 'true',
+        source,
+      });
+    }
+    if (this.runner.state !== 'down' && this.runner.state !== 'won') {
+      this.runner.down();
+    }
   }
 
   ensureBuilt(): void {
@@ -221,23 +243,28 @@ export class HalcyonDirector {
     this.ensureBuilt();
     switch (name) {
       case 'cf.halcyonInit':
-        this.halcyonInit();
+        this.halcyonInit('breach');
         return true;
       case 'cf.halcyonBreachWatch':
+        this.ensureInitializedForBeat('breach');
         this.breachWatchActive = true;
         this.liveCallout = 'MERCER: BLOW SECTION B [0, 0, 98] & OUTER FLAK BASTIONS!';
         this.syncHud();
         return true;
       case 'cf.halcyonArmorPush':
+        this.ensureInitializedForBeat('ridge');
         this.startArmorPush();
         return true;
       case 'cf.halcyonValkyrieDrop':
+        this.ensureInitializedForBeat('ridge');
         this.launchValkyrieDrops();
         return true;
       case 'cf.halcyonWarMachine':
+        this.ensureInitializedForBeat('war_machine');
         this.startWarMachinePhase();
         return true;
       case 'cf.halcyonCitadelSiege':
+        this.ensureInitializedForBeat('citadel');
         this.startCitadelSiege();
         return true;
       case 'cf.halcyonLeveled':
@@ -249,6 +276,16 @@ export class HalcyonDirector {
       default:
         return false;
     }
+  }
+
+  /**
+   * Guarantees the player is seated in a live airborne B-1B Lancer with Mercer's fleet & escorts
+   * whenever redeploying from a mid-mission checkpoint (Beats 2, 3, or 4) or jumping via `?beat=`.
+   */
+  private ensureInitializedForBeat(stage: 'breach' | 'ridge' | 'war_machine' | 'citadel'): void {
+    const needsLancer = Boolean(this.driveables) && (!this.playerLancer || !this.playerLancer.alive);
+    if (this.active && !needsLancer) return;
+    this.halcyonInit(stage);
   }
 
   private mountDefenseSubset(ids: ReadonlySet<string>): void {
@@ -314,15 +351,27 @@ export class HalcyonDirector {
     return veh;
   }
 
-  private halcyonInit(): void {
+  private halcyonInit(stage: 'breach' | 'ridge' | 'war_machine' | 'citadel' = 'breach'): void {
     this.clearMissionState();
     this.active = true;
+    if (stage !== 'breach') {
+      this.introReboardDone = true;
+      this.breachedSignaled = true;
+    }
+    if (stage === 'war_machine' || stage === 'citadel') {
+      this.ridgeClearSignaled = true;
+    }
+    if (stage === 'citadel') {
+      this.warBrokenSignaled = true;
+    }
 
     // 1. Spawn Contractor A airborne in the overhauled 4-mode B-1B Lancer
     this.playerLancer = this.spawnPlayerAirborneLancer();
 
-    // 2. Mount initial Outer Flak Bastions (`site_flak_west`, `site_flak_east`)
-    this.mountDefenseSubset(INITIAL_DEFENSE_IDS);
+    // 2. Mount initial Outer Flak Bastions (`site_flak_west`, `site_flak_east`) on Beat 1
+    if (stage === 'breach') {
+      this.mountDefenseSubset(INITIAL_DEFENSE_IDS);
+    }
 
     // 3. Deploy Captain Mercer's Beachhead Armor & Kestrel CAS via AiVehicleFleet
     if (this.fleet) {
@@ -412,6 +461,9 @@ export class HalcyonDirector {
 
       // Connect friendly armor & gunship into enemy VehicleSystem for real tank-vs-tank firefights!
       this.vehicleSystem?.setFriendlyVehicles?.(() => this.fleet?.getLiveGroundTargets(true) ?? []);
+      if (stage !== 'breach') {
+        this.openBreachGates();
+      }
     }
 
     // 4. Spawn Mercer's initial beachhead infantry squad if AlliesSystem is available
@@ -827,6 +879,38 @@ export class HalcyonDirector {
     });
   }
 
+  private tickPlayerLancerSurvivalAndRepair(dt: number): void {
+    if (this.handoffTriggered || this.leveledActive || this.isCutscenePlaying()) return;
+    const p = this.ctx.player;
+    if (!p || !p.alive) return;
+
+    const lancer = this.playerLancer;
+    if (lancer && !lancer.alive) {
+      if (this.playerCrashTimer < 0) {
+        this.playerCrashTimer = 0.75;
+        this.ctx.hud?.feed?.('B-1B LANCER SHOT DOWN — EJECTING!', '#ff3b2f');
+      }
+      this.playerCrashTimer -= dt;
+      if (this.playerCrashTimer <= 0 || p.position.y < 14) {
+        this.downPlayerCleanly('aircraft_destroyed');
+      }
+      return;
+    }
+
+    // Gentle out-of-combat damage-control self-repair between bombing runs so Part 3 doesn't soft-wall on attrition
+    if (lancer && lancer.alive && lancer.occupied) {
+      if (this.lancerLastHp >= 0 && lancer.health < this.lancerLastHp - 0.5) {
+        this.lancerNoDamageTimer = 0;
+      } else {
+        this.lancerNoDamageTimer += dt;
+      }
+      if (this.lancerNoDamageTimer >= 5.5 && lancer.health < lancer.def.maxHealth) {
+        lancer.health = Math.min(lancer.def.maxHealth, lancer.health + 75 * dt);
+      }
+      this.lancerLastHp = lancer.health;
+    }
+  }
+
   update(dt: number): void {
     if (!this.built || !this.active || dt <= 0) return;
 
@@ -843,6 +927,9 @@ export class HalcyonDirector {
       }
     }
 
+    // 0b. Cleanly handle shot-down Lancer -> checkpoint redeploy & out-of-combat damage control repair
+    this.tickPlayerLancerSurvivalAndRepair(dt);
+
     // 1. Tick Mercer's friendly combined-arms fleet (Aegis tanks, Bastion APCs, Jackals, Kestrel CAS, Valkyries)
     this.fleet?.update(dt);
 
@@ -850,6 +937,7 @@ export class HalcyonDirector {
     const playerAirborne = Boolean(this.ctx.player?.alive && (this.ctx.player.parked || this.ctx.player.position.y > 16));
     this.defenses?.update(dt, {
       playerAirborne,
+      playerVelocity: this.playerLancer?.alive ? this.playerLancer.phys.velocity : undefined,
       alliedJets: this.airWing?.allies ?? [],
       friendlyFleet: this.fleet,
     });
@@ -903,6 +991,10 @@ export class HalcyonDirector {
 
   get airWingInstance(): CrossfireAirWing | null {
     return this.airWing;
+  }
+
+  get playerJet(): DriveableVehicle | null {
+    return this.playerLancer;
   }
 
   get state() {
@@ -966,6 +1058,9 @@ export class HalcyonDirector {
     this.handoffTriggered = false;
     this.hudThrottle = 0;
     this.capRespawnCd = 28;
+    this.playerCrashTimer = -1;
+    this.lancerLastHp = -1;
+    this.lancerNoDamageTimer = 0;
   }
 
   clear(): void {

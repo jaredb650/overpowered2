@@ -145,6 +145,7 @@ export interface BaseDefenseSystemOptions {
 export interface BaseDefenseUpdateContext {
   readonly playerAirborne?: boolean;
   readonly playerCountermeasures?: boolean;
+  readonly playerVelocity?: THREE.Vector3;
   readonly alliedJets?: readonly AiCombatJet[];
   readonly friendlyFleet?: AiVehicleFleet | null;
   readonly friendlyGroundTargets?: readonly FriendlyGroundTarget[];
@@ -201,6 +202,7 @@ interface DefenseVisualRig {
 
 const MORTAR_GRAVITY = 22;
 const MAX_ACTIVE_SAMS = 18;
+const MAX_ACTIVE_PLAYER_SAMS = 2;
 const MAX_ACTIVE_MORTARS = 16;
 
 const _v = new THREE.Vector3();
@@ -419,6 +421,7 @@ export class BaseDefenseSite implements MissileTarget {
   pitch = 0.25;
   lockProgress = 0;
   fireCooldown: number;
+  ciwsBurstRemaining = 5;
   shotsFired = 0;
   samsFired = 0;
   mortarsFired = 0;
@@ -552,6 +555,9 @@ export class BaseDefenseSystem implements ExtraTarget {
   private registeredExtra = false;
   private wasRwrActive = false;
   private playerFlareTimer = 0;
+  private readonly prevPlayerPos = new THREE.Vector3();
+  private readonly derivedPlayerVel = new THREE.Vector3();
+  private hasPrevPlayerPos = false;
   private disposed = false;
 
   // Shared projectile visuals
@@ -608,15 +614,26 @@ export class BaseDefenseSystem implements ExtraTarget {
    */
   mountStraitDestroyers(mounts: readonly StraitDefenseMount[] = STRAIT_DESTROYER_MOUNTS): BaseDefenseSite[] {
     const spawned: BaseDefenseSite[] = [];
+    let samIdx = 0;
+    let ciwsIdx = 0;
     for (const m of mounts) {
-      spawned.push(this.addSite({
+      const site = this.addSite({
         id: m.id,
         kind: m.role === 'sam' ? 'destroyer_sam' : 'destroyer_ciws',
         position: m.at,
         yaw: m.defaultYaw,
         shipId: m.shipId,
         label: m.role === 'sam' ? `${m.shipId.toUpperCase()} SAM` : `${m.shipId.toUpperCase()} CIWS`,
-      }));
+      });
+      // Stagger initial weapon cooldowns across both destroyers so SAMs and CIWS open in readable waves instead of a 1-frame delete salvo.
+      if (m.role === 'sam') {
+        site.fireCooldown = 2.0 + samIdx * 2.2;
+        samIdx++;
+      } else {
+        site.fireCooldown = 1.0 + ciwsIdx * 0.55;
+        ciwsIdx++;
+      }
+      spawned.push(site);
     }
     return spawned;
   }
@@ -864,7 +881,27 @@ export class BaseDefenseSystem implements ExtraTarget {
 
     const player = this.ctx.player;
     const playerPos = player?.position ?? _v.set(0, 0, 0);
-    const playerVel = player?.velocity ?? _v2.set(0, 0, 0);
+    let playerVel: THREE.Vector3;
+    if (ctxOpts?.playerVelocity) {
+      playerVel = ctxOpts.playerVelocity;
+    } else if (player?.velocity && player.velocity.lengthSq() > 0.25) {
+      playerVel = player.velocity;
+    } else {
+      const activeVehVel = (this.ctx.progression as unknown as {
+        driveables?: { active?: { velocity?: THREE.Vector3 } };
+      } | undefined)?.driveables?.active?.velocity;
+      if (activeVehVel && activeVehVel.lengthSq() > 0.25) {
+        playerVel = activeVehVel;
+      } else if (this.hasPrevPlayerPos && dt > 0.0005 && playerPos.distanceToSquared(this.prevPlayerPos) < 250 * 250) {
+        this.derivedPlayerVel.subVectors(playerPos, this.prevPlayerPos).divideScalar(dt);
+        playerVel = this.derivedPlayerVel;
+      } else {
+        playerVel = _v2.set(0, 0, 0);
+      }
+    }
+    this.prevPlayerPos.copy(playerPos);
+    this.hasPrevPlayerPos = true;
+
     const playerAirborne = ctxOpts?.playerAirborne ?? Boolean(player && player.alive && playerPos.y > 10);
     const playerCountermeasures = Boolean(ctxOpts?.playerCountermeasures) || this.playerFlareTimer > 0;
     const alliedJets = ctxOpts?.alliedJets ?? [];
@@ -974,6 +1011,15 @@ export class BaseDefenseSystem implements ExtraTarget {
     return best;
   }
 
+  private activePlayerSamCount(): number {
+    let count = 0;
+    for (let i = 0; i < this.sams.length; i++) {
+      const m = this.sams[i]!;
+      if (m.targetPlayer && !m.decoyed) count++;
+    }
+    return count;
+  }
+
   private updateSamSite(site: BaseDefenseSite, target: AirTargetCandidate, dt: number): void {
     const rateMult = this.getEffectiveFireRateMultiplier(site);
     site.fireCooldown = Math.max(0, site.fireCooldown - dt * rateMult);
@@ -986,7 +1032,7 @@ export class BaseDefenseSystem implements ExtraTarget {
     if (site.fireCooldown > 0) return;
 
     const prevLock = site.lockProgress;
-    const lockRate = 0.42 * rateMult;
+    const lockRate = 0.34 * rateMult;
     site.lockProgress = Math.min(1, site.lockProgress + lockRate * dt);
 
     if (prevLock < 0.45 && site.lockProgress >= 0.45 && target.jet) {
@@ -994,8 +1040,13 @@ export class BaseDefenseSystem implements ExtraTarget {
     }
 
     if (site.lockProgress >= 1) {
+      // Prevent simultaneous 4-SAM instant-delete salvos against the player; hold lock briefly until sky clears.
+      if (target.isPlayer && this.activePlayerSamCount() >= MAX_ACTIVE_PLAYER_SAMS) {
+        site.lockProgress = 0.86;
+        return;
+      }
       site.lockProgress = 0;
-      const baseCooldown = site.kind === 'destroyer_sam' ? 7.2 : 6.8;
+      const baseCooldown = site.kind === 'destroyer_sam' ? 9.5 : 7.6;
       site.fireCooldown = baseCooldown / rateMult;
       this.launchSam(site, target);
     }
@@ -1025,14 +1076,15 @@ export class BaseDefenseSystem implements ExtraTarget {
     mesh.quaternion.copy(_quat);
     this.ctx.render?.scene?.add(mesh);
 
-    const speed = site.kind === 'destroyer_sam' ? 156 : 148;
+    const speed = site.kind === 'destroyer_sam' ? 144 : 142;
+    const damage = site.kind === 'destroyer_sam' ? 75 : 95;
     this.sams.push({
       mesh,
       pos: _muzzle.clone(),
       vel: _dir.clone().multiplyScalar(speed),
       speed,
-      damage: 115,
-      life: 7.5,
+      damage,
+      life: 7.2,
       smokeCd: 0,
       targetPlayer: target.isPlayer,
       targetJet: target.jet,
@@ -1050,15 +1102,15 @@ export class BaseDefenseSystem implements ExtraTarget {
   private updateFlakTower(site: BaseDefenseSite, target: AirTargetCandidate, dt: number): void {
     site.fireCooldown -= dt;
     if (site.fireCooldown > 0) return;
-    site.fireCooldown = rand(0.65, 1.05);
+    site.fireCooldown = rand(0.75, 1.15);
     site.shotsFired++;
 
     site.getMuzzleWorldPos(_muzzle);
-    const leadT = clamp(target.dist / 260, 0.1, 0.95);
-    const burstPt = target.pos.clone().addScaledVector(target.vel, leadT);
-    burstPt.x += rand(-11, 11);
-    burstPt.y += rand(-8, 8);
-    burstPt.z += rand(-11, 11);
+    const leadT = clamp(target.dist / 260, 0.08, 0.75);
+    const burstPt = target.pos.clone().addScaledVector(target.vel, leadT * 0.45);
+    burstPt.x += rand(-13, 13);
+    burstPt.y += rand(-9, 9);
+    burstPt.z += rand(-13, 13);
 
     // Rising AA tracer + dark black-orange flak airburst puff!
     this.ctx.fx?.tracer?.(_muzzle, burstPt, 'enemy');
@@ -1068,8 +1120,8 @@ export class BaseDefenseSystem implements ExtraTarget {
 
     // Proximity flak shrapnel damage if aircraft flies through the burst cloud
     const prox = burstPt.distanceTo(target.pos);
-    if (prox < 12) {
-      const flakDmg = Math.round(32 * clamp(1 - prox / 14, 0.3, 1));
+    if (prox < 10.5) {
+      const flakDmg = Math.round(22 * clamp(1 - prox / 12, 0.3, 1));
       if (target.isPlayer) {
         this.ctx.events?.emit?.('dogfight:damage_player_jet', { amount: flakDmg, from: burstPt, heavy: true });
       } else if (target.jet?.alive) {
@@ -1081,15 +1133,26 @@ export class BaseDefenseSystem implements ExtraTarget {
   private updateDestroyerCiws(site: BaseDefenseSite, target: AirTargetCandidate, dt: number): void {
     site.fireCooldown -= dt;
     if (site.fireCooldown > 0) return;
-    site.fireCooldown = 0.11;
+
+    // Bursty 5-round Phalanx tracer streams followed by a brief re-acquisition pause (dramatic & survivable!).
+    site.ciwsBurstRemaining--;
+    if (site.ciwsBurstRemaining <= 0) {
+      site.ciwsBurstRemaining = 5;
+      site.fireCooldown = rand(1.25, 1.65);
+    } else {
+      site.fireCooldown = 0.18;
+    }
     site.shotsFired++;
 
     site.getMuzzleWorldPos(_muzzle);
-    const leadT = clamp(target.dist / 280, 0.05, 0.65);
-    const aimPt = target.pos.clone().addScaledVector(target.vel, leadT);
-    aimPt.x += rand(-4.5, 4.5);
-    aimPt.y += rand(-3.5, 3.5);
-    aimPt.z += rand(-4.5, 4.5);
+    // High-speed maneuvering aircraft widen CIWS tracking dispersion; hovering close is still dangerous.
+    const speedFactor = clamp(target.vel.length() / 48, 0.75, 2.1);
+    const spreadXZ = 7.8 * speedFactor;
+    const spreadY = 5.6 * speedFactor;
+    const aimPt = target.pos.clone();
+    aimPt.x += rand(-spreadXZ, spreadXZ);
+    aimPt.y += rand(-spreadY, spreadY);
+    aimPt.z += rand(-spreadXZ, spreadXZ);
 
     this.ctx.fx?.tracer?.(_muzzle, aimPt, 'enemy');
     if (site.shotsFired % 4 === 1) {
@@ -1097,8 +1160,8 @@ export class BaseDefenseSystem implements ExtraTarget {
     }
 
     const hitDist = aimPt.distanceTo(target.pos);
-    if (hitDist < 6.5) {
-      const dmg = 14;
+    if (hitDist < 4.6) {
+      const dmg = 7;
       if (target.isPlayer) {
         this.ctx.events?.emit?.('dogfight:damage_player_jet', { amount: dmg, from: _muzzle, heavy: false });
       } else if (target.jet?.alive) {
@@ -1228,7 +1291,7 @@ export class BaseDefenseSystem implements ExtraTarget {
 
         if (aim) {
           _dir.subVectors(aim, m.pos).normalize();
-          _v.copy(m.vel).normalize().lerp(_dir, clamp(3.4 * dt, 0, 1)).normalize();
+          _v.copy(m.vel).normalize().lerp(_dir, clamp(2.65 * dt, 0, 1)).normalize();
           m.vel.copy(_v).multiplyScalar(m.speed);
           _quat.setFromUnitVectors(_zAxis, _v);
           m.mesh.quaternion.copy(_quat);
@@ -1393,6 +1456,7 @@ export class BaseDefenseSystem implements ExtraTarget {
     for (const m of this.mortars) this.ctx.render?.scene?.remove(m.mesh);
     this.mortars.length = 0;
     this.secondaryBlasts.length = 0;
+    this.hasPrevPlayerPos = false;
   }
 
   dispose(): void {

@@ -40,6 +40,11 @@ const NAMES: Record<Speaker, string> = {
   governor: 'Governor Reginald Sterling',
   quist: 'Hadrek Quist',
   marr: 'Sergeant Marr',
+  darrow: 'Colonel Darrow',
+  halvorsen: 'General Halvorsen',
+  mercer: 'Captain Mercer',
+  viper: 'Viper Flight',
+  carrier: 'CVN-91 Actual',
 };
 const TAGS: Record<Speaker, string> = {
   commander: 'Outpost command / open channel',
@@ -50,6 +55,11 @@ const TAGS: Record<Speaker, string> = {
   governor: 'Brine Central Reserve / PA & Gunship',
   quist: 'Surplus loudspeaker / the Salt King',
   marr: 'Raid column / tactical net',
+  darrow: 'Northern Command / Valken Airbase',
+  halvorsen: 'Southern Directorate / Fortress Halcyon',
+  mercer: 'Bureau Ground Force / Halcyon Beachhead',
+  viper: 'Bureau Strike Wing / Air Net',
+  carrier: 'Carrier Air Control / Recovery Net',
 };
 const TONES: ReadonlySet<string> = new Set<Tone>(['smug', 'irritated', 'rattled', 'cracked']);
 const CHIPS: readonly [StatusFlag, string][] = [['painted', 'PAINTED'], ['jammed', 'SONAR JAMMED'], ['uplink', 'UPLINK JAMMED'], ['aaLock', 'AA LOCK']];

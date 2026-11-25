@@ -71,6 +71,11 @@ export class Portrait {
     else if (this.speaker === 'governor') this.governor(talking);
     else if (this.speaker === 'quist') this.quist(talking);
     else if (this.speaker === 'marr') this.marr(talking);
+    else if (this.speaker === 'darrow') this.darrow(talking);
+    else if (this.speaker === 'halvorsen') this.halvorsen(talking);
+    else if (this.speaker === 'mercer') this.mercer(talking);
+    else if (this.speaker === 'viper') this.viper(talking);
+    else if (this.speaker === 'carrier') this.carrier(talking);
     else this.signal();
     this.scan();
     g.globalAlpha = 1;
@@ -442,6 +447,278 @@ export class Portrait {
     this.blob(10, 10, 3, 3, talking && f % 2 === 0 ? '#55e07a' : '#1b3d24');
   }
 
+  /** Colonel Darrow (Northern Command CO, Valken Airbase): flight-ops radar room, steel-blue service jacket, ops glasses. */
+  private darrow(talking: boolean): void {
+    const f = this.frame;
+    const t = this.tone;
+    const { g } = this;
+    const shake = t === 'cracked' ? ((f * 7) % 3) - 1 : t === 'rattled' ? ((f * 5) % 2) * 0.6 : 0;
+    const cx = 48 + shake;
+
+    // Flight-ops control room backdrop with live sweeping radar scope behind him.
+    this.rect(0, 0, SIZE, SIZE, t === 'cracked' ? '#251418' : '#101d28');
+    const radarCol = t === 'cracked' || t === 'rattled' ? '#d94c42' : '#3296b8';
+    g.strokeStyle = radarCol;
+    g.globalAlpha = 0.35;
+    g.lineWidth = 1;
+    g.beginPath();
+    g.arc(74, 24, 18, 0, Math.PI * 2);
+    g.stroke();
+    g.beginPath();
+    g.arc(74, 24, 10, 0, Math.PI * 2);
+    g.stroke();
+    const sweep = (f * 0.35) % (Math.PI * 2);
+    this.line(radarCol, 1.4, 74, 24, 74 + Math.cos(sweep) * 18, 24 + Math.sin(sweep) * 18);
+    g.globalAlpha = 1;
+    // Runway threshold bars along lower wall.
+    for (let x = 6; x < 34; x += 6) this.rect(x, 18, 3, 12, '#1c3040');
+
+    // Steel-blue Northern Air Force tunic, dark tie, silver colonel eagles & flight wings.
+    this.poly('#23384d', 8, 96, 16, 68, 35, 62, 61, 62, 80, 68, 88, 96);
+    this.poly('#c8d4de', 41, 62, 48, 76, 55, 62);
+    this.poly('#182430', 46, 68, 50, 68, 51, 90, 48, 95, 45, 90);
+    // Silver colonel shoulder boards & gold command wings.
+    this.rect(17, 67, 13, 3.5, '#c2d0dc');
+    this.rect(66, 67, 13, 3.5, '#c2d0dc');
+    this.poly('#d4b14c', 22, 78, 34, 78, 31, 81, 25, 81);
+
+    // Neck, sharp-jawed face, and close-cropped iron-grey crew cut.
+    this.rect(cx - 7, 54, 14, 10, '#9c7862');
+    this.poly('#c89f83', cx - 15, 29, cx + 15, 29, cx + 16, 47, cx + 9, 59, cx, 62, cx - 9, 59, cx - 16, 47);
+    this.blob(cx - 16, 41, 2.5, 4.5, '#9c7862');
+    this.blob(cx + 16, 41, 2.5, 4.5, '#9c7862');
+    // Close-cropped military crew cut.
+    this.poly('#6f7982', cx - 16, 33, cx - 15, 19, cx - 8, 15, cx + 8, 15, cx + 15, 19, cx + 16, 33, cx + 12, 24, cx - 12, 24);
+    this.rect(cx - 12, 16, 24, 4, '#8d98a1');
+
+    // Tower comms earpiece + thin mic wire.
+    this.rect(cx + 15, 36, 4, 9, '#1b2229');
+    this.line('#1f2830', 1.4, cx + 16, 44, cx + 7, 51);
+
+    // Eyes & steel-rimmed rectangular ops glasses (askew when cracked).
+    const ey = 38;
+    const blink = f % 33 === 0 && t !== 'cracked';
+    const glassTilt = t === 'cracked' ? 2.2 : 0;
+    for (const side of [-1, 1]) {
+      const ex = cx + side * 6.8;
+      if (blink) this.line('#2c221c', 1.5, ex - 3.2, ey, ex + 3.2, ey);
+      else {
+        this.blob(ex, ey, 3.1, t === 'cracked' || t === 'rattled' ? 3.5 : 2.1, '#eef0ec');
+        this.blob(ex, ey, 1.3, 1.5, '#131c24');
+      }
+      const browTilt = t === 'irritated' || t === 'cracked' ? side * 2.2 : t === 'rattled' ? -side * 1.4 : side * 0.6;
+      this.line('#59626a', 2.2, ex - 4.2, ey - 6 - browTilt, ex + 4.2, ey - 6 + browTilt);
+      g.strokeStyle = '#9db4c4';
+      g.lineWidth = 1.2;
+      g.strokeRect(ex - 4.8, ey - 3.6 + side * glassTilt * 0.5, 9.6, 6.8);
+    }
+    this.line('#9db4c4', 1.2, cx - 2, ey - 0.5, cx + 2, ey - 0.5);
+
+    if (t === 'rattled' || t === 'cracked') {
+      const drip = (f >> 1) % 6;
+      this.blob(cx - 14, 29 + drip * 2, 1.1, 1.8, '#9dd6ee');
+    }
+
+    // Tight military jaw & mouth.
+    const open = talking && f % 2 === 0 ? (t === 'cracked' ? 4.8 : 2.9) : 0;
+    this.blob(cx, 51, 5.2, 1 + open, open > 0 ? '#3a1816' : '#744c40');
+    // Alert tower beacon LED.
+    this.blob(10, 10, 3, 3, talking && f % 2 === 0 ? (t === 'cracked' ? '#ff3a2a' : '#4ec9ff') : '#1c3544');
+  }
+
+  /** General Halvorsen (Southern Directorate CO, Fortress Halcyon): concrete citadel bunker, crimson-trimmed garrison cap. */
+  private halvorsen(talking: boolean): void {
+    const f = this.frame;
+    const t = this.tone;
+    const shake = t === 'cracked' ? ((f * 7) % 3) - 1 : t === 'rattled' ? ((f * 5) % 2) * 0.7 : 0;
+    const cx = 48 + shake;
+
+    // Reinforced Citadel concrete wall with heavy blast-shutter slats & crimson warning lamp.
+    this.rect(0, 0, SIZE, SIZE, t === 'cracked' ? '#2c1111' : '#1d1414');
+    for (let y = 8; y < 56; y += 8) this.rect(4, y, 88, 3, t === 'cracked' ? '#3a1a1a' : '#2a1f1f');
+    if (t === 'cracked') {
+      // Falling concrete dust flecks as the Citadel ceiling buckles.
+      for (let i = 0; i < 6; i++) {
+        this.rect((i * 19 + f * 3) % 90, (i * 13 + f * 7) % 90, 2, 2, '#9a8e82');
+      }
+    }
+
+    // Heavy dark charcoal-olive Directorate greatcoat with broad crimson-and-gold general epaulettes.
+    this.poly('#272422', 4, 96, 12, 66, 33, 61, 63, 61, 84, 66, 92, 96);
+    this.poly('#3b1818', 40, 61, 48, 76, 56, 61, 56, 96, 40, 96);
+    // Broad crimson/gold general shoulder boards + medal ribbon rack.
+    this.poly('#a82622', 12, 66, 31, 62, 30, 69, 11, 72);
+    this.poly('#a82622', 84, 66, 65, 62, 66, 69, 85, 72);
+    this.rect(16, 65, 3, 3, '#e5b832');
+    this.rect(22, 64, 3, 3, '#e5b832');
+    this.rect(71, 64, 3, 3, '#e5b832');
+    this.rect(77, 65, 3, 3, '#e5b832');
+    this.rect(18, 77, 14, 4, '#d4a63a');
+    this.rect(18, 82, 14, 4, '#a82622');
+
+    // Thick neck & weathered square-jawed head.
+    this.rect(cx - 9, 54, 18, 11, '#8c6450');
+    this.blob(cx, 41, 18.5, 20.5, '#ba8c72');
+    this.poly('#8c6450', cx - 15, 52, cx, 62, cx + 15, 52, cx + 9, 59, cx, 63, cx - 9, 59);
+    // Cheek scar.
+    this.line('#703b30', 1.4, cx + 8, 43, cx + 12, 52);
+
+    // Eyes & heavy grey furrowed brows.
+    const ey = 39;
+    const blink = f % 37 === 0 && t !== 'cracked';
+    for (const side of [-1, 1]) {
+      const ex = cx + side * 7.5;
+      if (blink) this.line('#2c1d18', 1.6, ex - 3.6, ey, ex + 3.6, ey);
+      else {
+        this.blob(ex, ey, 3.2, t === 'cracked' ? 4 : 2.1, '#ebe4d6');
+        this.blob(ex, ey, 1.4, 1.5, '#141212');
+      }
+      const angle = t === 'rattled' ? -side * 1.5 : side * 2.5;
+      this.line('#7d7c7a', 2.8, ex - 4.8, ey - 5.8 - angle, ex + 4.8, ey - 5.8 + angle);
+    }
+
+    // Grim mouth & heavy grey beard/jaw shadow.
+    const open = talking && f % 2 === 0 ? (t === 'cracked' ? 5.2 : 3.2) : 0;
+    this.blob(cx, 52, 6.2, 1 + open, open > 0 ? '#3a1111' : '#6b3f35');
+    if (t === 'cracked' && open > 0) {
+      for (let i = -4; i <= 4; i += 3) this.rect(cx + i, 50, 2, 2, '#ebe4d6');
+    }
+
+    // Peaked Directorate garrison cap (crimson band + gold star, tilted when rattled/cracked).
+    const tilt = t === 'cracked' ? 3.5 : t === 'rattled' ? 1.8 : 0;
+    this.poly('#232020', cx - 23, 24 + tilt, cx - 16, 9, cx + 16, 9 - tilt * 0.4, cx + 23, 24 - tilt * 0.4, cx + 19, 28 - tilt * 0.4, cx - 19, 28 + tilt);
+    this.poly('#0f0d0d', cx - 20, 28 + tilt, cx + 20, 28 - tilt * 0.4, cx + 15, 32 - tilt * 0.4, cx - 15, 32 + tilt);
+    this.rect(cx - 18, 23 + tilt * 0.3, 36, 3.2, '#b82824');
+    this.blob(cx, 16, 4.2, 4.2, '#e5b832');
+    this.blob(cx, 16, 1.8, 1.8, '#b82824');
+
+    // Red bunker PA alert LED.
+    this.blob(10, 10, 3, 3, talking && f % 2 === 0 ? '#ff3a28' : '#4a1412');
+  }
+
+  /** Captain Mercer (Bureau Ground Invasion CO, Halcyon Beachhead): armored hull backdrop, CVC helmet, tactical boom mic. */
+  private mercer(talking: boolean): void {
+    const f = this.frame;
+    const cx = 48;
+
+    // Armored tank/APC interior with amber tactical horizon grid & distant beach smoke glow.
+    this.rect(0, 0, SIZE, SIZE, '#111a21');
+    this.rect(0, 56, SIZE, 40, '#1a2024');
+    for (let x = 12; x < SIZE; x += 18) this.line('#1f2f3a', 1, x, 0, x, 56);
+    this.line('#d98c2b', 1.2, 0, 56, SIZE, 56);
+
+    // Bureau heavy ballistic vest, raised collar guard, amber rank chevron patch.
+    this.poly('#263038', 10, 96, 18, 65, 78, 65, 86, 96);
+    this.poly('#394650', 24, 62, 72, 62, 68, 76, 28, 76);
+    this.poly('#e0a63a', 20, 74, 26, 70, 32, 74, 30, 77, 26, 74, 22, 77);
+
+    // Neck & face.
+    this.rect(cx - 7, 54, 14, 10, '#8f6a52');
+    this.blob(cx, 41, 15.5, 19, '#bc8f70');
+
+    // Tanker / assault CVC combat helmet with raised smoked visor & dual earcups.
+    this.poly('#343c40', cx - 19, 36, cx - 17, 14, cx, 10, cx + 17, 14, cx + 19, 36, cx + 15, 29, cx - 15, 29);
+    this.poly('#182128', cx - 14, 19, cx + 14, 19, cx + 12, 26, cx - 12, 26);
+    this.line('#4ca8d8', 1.2, cx - 10, 22, cx + 10, 22);
+    this.rect(cx - 21, 34, 6, 13, '#1d2326');
+    this.rect(cx + 15, 34, 6, 13, '#1d2326');
+    // Heavy comms boom mic sweeping from right earcup across mouth.
+    this.line('#1a1f22', 2.2, cx + 17, 45, cx + 5, 52);
+    this.blob(cx + 4, 52, 2.5, 2.2, '#14171a');
+
+    // Sharp, battle-focused eyes.
+    const ey = 38;
+    const blink = f % 35 === 0;
+    for (const side of [-1, 1]) {
+      const ex = cx + side * 6;
+      if (blink) this.line('#2c1e16', 1.5, ex - 3, ey, ex + 3, ey);
+      else {
+        this.blob(ex, ey, 3, 2.1, '#eef2ee');
+        this.blob(ex, ey, 1.3, 1.4, '#13191e');
+      }
+      this.line('#3f3126', 2, ex - 3.8, ey - 4.8 - side * 0.5, ex + 3.8, ey - 4.8 + side * 0.5);
+    }
+
+    const open = talking && f % 2 === 0 ? 2.7 : 0;
+    this.blob(cx - 1, 51, 4.6, 1 + open, open > 0 ? '#3a1a16' : '#734a3c');
+    // Amber-green tactical command link LED.
+    this.blob(10, 10, 3, 3, talking && f % 2 === 0 ? '#f0b83a' : '#4a3812');
+  }
+
+  /** Viper Flight (Bureau Strike Wing): cockpit HUD horizon backdrop, modern fighter helmet, gold visor, oxygen mask LED. */
+  private viper(talking: boolean): void {
+    const f = this.frame;
+    const { g } = this;
+    const cx = 48;
+
+    // Dark cockpit canopy sky with subtly banking emerald HUD pitch ladder.
+    this.rect(0, 0, SIZE, SIZE, '#0b1817');
+    const roll = Math.sin(f * 0.18) * 3;
+    this.line('#216e54', 1.2, 6, 36 + roll, 24, 36 + roll);
+    this.line('#216e54', 1.2, 72, 36 - roll, 90, 36 - roll);
+    this.line('#1a523f', 1, 12, 22 + roll, 22, 22 + roll);
+    this.line('#1a523f', 1, 74, 22 - roll, 84, 22 - roll);
+
+    // Olive-charcoal G-suit & parachute harness straps.
+    this.poly('#283630', 10, 96, 20, 66, 76, 66, 86, 96);
+    this.poly('#4f5c54', 28, 66, 35, 66, 38, 96, 30, 96);
+    this.poly('#4f5c54', 61, 66, 68, 66, 66, 96, 58, 96);
+
+    // Matte-charcoal fighter flight helmet.
+    this.blob(cx, 38, 21, 22, '#222a2e');
+    this.poly('#313c42', cx - 15, 22, cx, 14, cx + 15, 22, cx + 11, 28, cx - 11, 28);
+
+    // Reflective amber-gold fighter visor lowered with animated sky glint.
+    this.poly('#b87c1e', cx - 16, 32, cx + 16, 32, cx + 14, 44, cx + 4, 46, cx, 43, cx - 4, 46, cx - 14, 44);
+    const glintX = cx - 12 + ((f * 3) % 22);
+    this.poly('#f7d56c', glintX, 33, glintX + 6, 33, glintX + 3, 43, glintX - 2, 43);
+
+    // Oxygen mask & ribbed hose with active emerald voice-modulator bars.
+    this.poly('#181f22', cx - 11, 44, cx + 11, 44, cx + 8, 60, cx, 64, cx - 8, 60);
+    this.poly('#263036', cx - 5, 60, cx + 5, 60, cx + 7, 84, cx - 7, 84);
+    for (let y = 65; y <= 79; y += 4) this.line('#141a1d', 1.4, cx - 5, y, cx + 5, y);
+
+    // Animated cockpit comms modulation bars on oxygen mask while talking.
+    for (let i = 0; i < 3; i++) {
+      const lit = talking && ((f + i) % 2 === 0);
+      g.fillStyle = lit ? '#42e09b' : '#183d2e';
+      g.fillRect(cx - 5 + i * 4, 51, 2.6, lit ? 5 : 2.5);
+    }
+    this.blob(10, 10, 3, 3, talking && f % 2 === 0 ? '#42e09b' : '#143b2c');
+  }
+
+  /** CVN-91 Actual (Carrier Air Control): naval CIC green-teal PPI radar scope with carrier deck & inbound bomber blip. */
+  private carrier(talking: boolean): void {
+    const f = this.frame;
+    const { g } = this;
+    this.rect(0, 0, SIZE, SIZE, '#071518');
+
+    // Range rings & crosshairs.
+    g.strokeStyle = '#18545c';
+    g.lineWidth = 1;
+    for (const r of [14, 27, 40]) {
+      g.beginPath();
+      g.arc(48, 48, r, 0, Math.PI * 2);
+      g.stroke();
+    }
+    this.line('#13434a', 1, 8, 48, 88, 48);
+    this.line('#13434a', 1, 48, 8, 48, 88);
+
+    // Rotating naval radar sweep beam.
+    const a = (f * 0.28) % (Math.PI * 2);
+    this.line('#38e0d8', 2, 48, 48, 48 + Math.cos(a) * 40, 48 + Math.sin(a) * 40);
+
+    // Carrier deck silhouette at center.
+    this.poly('#52e5df', 44, 41, 52, 41, 53, 55, 43, 55);
+    // Inbound friendly Lancer blip approaching carrier recovery line.
+    const blipBright = talking && f % 2 === 0 ? '#9cfdf5' : '#38c9c9';
+    this.blob(48, 26, 3.2, 3.2, blipBright);
+    this.line('#38c9c9', 1.2, 42, 26, 54, 26);
+
+    // Active CIC comms LED.
+    this.blob(10, 10, 3, 3, talking && f % 2 === 0 ? '#38e0d8' : '#12393d');
+  }
+
   /** A signal on a scope, which is all anyone knows about where this came from. */
   private signal(): void {
     const f = this.frame;
@@ -468,7 +745,8 @@ export class Portrait {
     g.globalAlpha = 0.22;
     for (let y = 0; y < SIZE; y += 2) this.rect(0, y, SIZE, 1, '#000');
     g.globalAlpha = 1;
-    if (this.speaker === 'commander' && this.tone === 'cracked' && this.frame % 11 < 2) {
+    const glitchSpeaker = this.speaker === 'commander' || this.speaker === 'darrow' || this.speaker === 'halvorsen';
+    if (glitchSpeaker && this.tone === 'cracked' && this.frame % 11 < 2) {
       const y = (this.frame * 13) % 80;
       g.drawImage(this.el, 0, y, SIZE, 10, 4, y, SIZE, 10);
     }

@@ -145,11 +145,16 @@ describe('Crossfire 4-part campaign missions', () => {
     expect(CROSSFIRE_ALL_LINES.length).toBe(expectedCount);
 
     const seen = new Set<string>();
+    const allowedSpeakers = new Set(['council', 'darrow', 'halvorsen', 'mercer', 'viper', 'carrier']);
     for (const entry of CROSSFIRE_ALL_LINES) {
       expect(entry.id.startsWith('mission.crossfire.'), `bad prefix on ${entry.id}`).toBe(true);
       expect(seen.has(entry.id), `duplicate line id ${entry.id}`).toBe(false);
       seen.add(entry.id);
       expect(entry.text.trim().length, `empty text on ${entry.id}`).toBeGreaterThan(0);
+      expect(
+        allowedSpeakers.has(entry.speaker),
+        `unexpected legacy speaker "${entry.speaker}" on ${entry.id}`,
+      ).toBe(true);
     }
   });
 

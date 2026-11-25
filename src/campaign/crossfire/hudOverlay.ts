@@ -21,6 +21,7 @@ export interface StraitHudState {
   readonly etaSeconds: number;
   readonly banditsRemaining: number;
   readonly statusLine?: string;
+  readonly repairBanner?: { readonly text: string; readonly tone: 'repair' | 'hint' } | null;
 }
 
 export interface HalcyonHudBadge {
@@ -51,6 +52,7 @@ export class CrossfireHudOverlay {
   private secFillEl: HTMLElement | null = null;
   private badgeRowEl: HTMLElement | null = null;
   private calloutEl: HTMLElement | null = null;
+  private repairEl: HTMLElement | null = null;
   private lastMode: 'none' | 'strait' | 'halcyon' = 'none';
   private lastBadgeSignature = '';
 
@@ -202,6 +204,20 @@ export class CrossfireHudOverlay {
     });
     root.appendChild(callout);
 
+    // Formation repair status strip (Strait Parts 2 & 4)
+    const repair = document.createElement('div');
+    Object.assign(repair.style, {
+      display: 'none',
+      marginTop: '5px',
+      padding: '4px 7px',
+      borderRadius: '2px',
+      fontSize: '10px',
+      fontWeight: '700',
+      textTransform: 'uppercase',
+      letterSpacing: '0.08em',
+    });
+    root.appendChild(repair);
+
     const mount = document.querySelector('.hud') ?? document.body;
     mount.appendChild(root);
 
@@ -217,6 +233,7 @@ export class CrossfireHudOverlay {
     this.secFillEl = secFill;
     this.badgeRowEl = badgeRow;
     this.calloutEl = callout;
+    this.repairEl = repair;
     return true;
   }
 
@@ -269,6 +286,23 @@ export class CrossfireHudOverlay {
       this.calloutEl!.textContent = state.statusLine;
     } else {
       this.calloutEl!.style.display = 'none';
+    }
+
+    const repair = this.repairEl!;
+    if (state.repairBanner) {
+      repair.style.display = 'block';
+      repair.textContent = state.repairBanner.text;
+      if (state.repairBanner.tone === 'repair') {
+        repair.style.color = '#7dffb0';
+        repair.style.background = 'rgba(22, 92, 56, 0.72)';
+        repair.style.border = '1px solid rgba(84, 255, 157, 0.78)';
+      } else {
+        repair.style.color = '#8ce8ff';
+        repair.style.background = 'rgba(18, 52, 74, 0.62)';
+        repair.style.border = '1px solid rgba(56, 232, 255, 0.42)';
+      }
+    } else {
+      repair.style.display = 'none';
     }
   }
 
@@ -329,6 +363,7 @@ export class CrossfireHudOverlay {
     } else {
       this.calloutEl!.style.display = 'none';
     }
+    this.repairEl!.style.display = 'none';
   }
 
   hide(): void {
@@ -352,6 +387,7 @@ export class CrossfireHudOverlay {
     this.secFillEl = null;
     this.badgeRowEl = null;
     this.calloutEl = null;
+    this.repairEl = null;
   }
 
   get mode(): 'none' | 'strait' | 'halcyon' {

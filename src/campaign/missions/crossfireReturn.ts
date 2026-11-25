@@ -110,7 +110,7 @@ export const CROSSFIRE_RETURN: Mission = {
         say('wingman.ambush.start', { now: true }),
         say('wingman.ambush.lancer'),
         { do: 'objective', id: 'break_ambush', text: 'Defend the smoking B-1B Lancer from Red-Wing Squadron (2 Ace Raptors + 4 Hornets)', at: 'lancerReturnMid' },
-        { do: 'hint', text: 'Halvorsen’s surviving Red-Wing Aces are diving straight at the wounded bomber! Prioritize the Ace Raptors before they finish the Lancer!', seconds: 8 },
+        { do: 'hint', text: 'Halvorsen’s Red-Wing Aces are diving at the wounded bomber! Prioritize the Ace Raptors — form up alongside the Lancer anytime to repair your F-22 hull.', seconds: 9 },
         {
           do: 'until',
           when: {

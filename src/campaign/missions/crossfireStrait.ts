@@ -100,7 +100,7 @@ export const CROSSFIRE_STRAIT: Mission = {
         { do: 'banner', text: 'THE STRAIT', sub: 'PART 02 OF 04 // F-22 BOMBER ESCORT' },
         say('wingman.outbound.formup'),
         { do: 'objective', id: 'escort_probe', text: 'Escort the B-1B Lancer north and splash the 3-Hornet intercept probe', at: 'lancerMid' },
-        { do: 'hint', text: 'You pilot Contractor B’s F-22 Raptor! Guard the 7,500 HP AI B-1B Lancer — use AMRAAMs, gun bursts, and flares to keep bandits off her.', seconds: 8 },
+        { do: 'hint', text: 'You pilot Contractor B’s F-22 Raptor! Guard the B-1B Lancer with AMRAAMs, guns, and [Q] flares — fly close alongside the Lancer anytime to repair your F-22 hull.', seconds: 9 },
         { do: 'wait', seconds: 3.5 },
         say('darrow.guard.warning', { wait: true }),
         say('council.jamming'),
@@ -140,7 +140,7 @@ export const CROSSFIRE_STRAIT: Mission = {
         { do: 'call', name: 'cf.straitWave', arg: 'destroyer_strike' },
         say('wingman.gauntlet.sams', { now: true }),
         { do: 'objective', id: 'survive_gauntlet', text: 'Shred the Harrier/Warthog strike wing and suppress the Missile Destroyers', at: 'destroyerWest' },
-        { do: 'hint', text: 'Southern Missile Destroyers are firing SeaRAM SAMs and CIWS at the Lancer! Knock out their deck launchers or decoy missiles while downing the 3 Harriers & 2 Warthogs.', seconds: 9 },
+        { do: 'hint', text: 'Pop [Q] flares to decoy destroyer SeaRAMs and knock out their deck launchers! Damaged? Form up alongside the B-1B Lancer to repair your F-22 hull.', seconds: 9 },
         {
           do: 'until',
           when: {

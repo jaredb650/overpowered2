@@ -495,4 +495,112 @@ describe('CrossfireDirector & all 23 cf.* calls', () => {
 
     h.director.reset();
   });
+
+  it('respawns and seats player in airborne aircraft on mid-mission checkpoint redeploys across Strait, Return & Halcyon', () => {
+    // 1. Part 2 Beat 2 (Destroyer Gauntlet) redeploy after clear()
+    const strait = makeHarness('crossfire_strait');
+    strait.director.ensureBuilt();
+    strait.director.clear();
+    strait.director.call('cf.straitDestroyersHot');
+    strait.director.call('cf.straitWave', 'destroyer_strike');
+    expect(strait.spawnedDriveables).toHaveLength(1);
+    expect(strait.spawnedDriveables[0]?.def.id).toBe('raptor');
+    expect(strait.spawnedDriveables[0]?.occupied).toBe(true);
+    expect(strait.spawnedDriveables[0]?.phys.grounded).toBe(false);
+    expect(strait.director.strait.lancer?.alive).toBe(true);
+
+    // 2. Part 2 Beat 3 (Coastal Aces) redeploy after clear()
+    strait.director.clear();
+    strait.director.call('cf.straitWave', 'coastal_aces');
+    expect(strait.spawnedDriveables).toHaveLength(1);
+    expect(strait.spawnedDriveables[0]?.def.id).toBe('raptor');
+    expect(strait.spawnedDriveables[0]?.occupied).toBe(true);
+    expect(strait.director.strait.lancer?.alive).toBe(true);
+    strait.director.reset();
+
+    // 3. Part 4 Beat 2 (Carrier Umbrella) redeploy after clear()
+    const ret = makeHarness('crossfire_return');
+    ret.director.ensureBuilt();
+    ret.director.clear();
+    ret.director.call('cf.straitCarrierUmbrella');
+    expect(ret.spawnedDriveables).toHaveLength(1);
+    expect(ret.spawnedDriveables[0]?.def.id).toBe('raptor');
+    expect(ret.spawnedDriveables[0]?.occupied).toBe(true);
+    expect(ret.director.strait.lancer?.alive).toBe(true);
+    ret.director.reset();
+
+    // 4. Part 3 Beat 2/3/4 (Halcyon Ridge / War Machine / Citadel) redeploy after clear()
+    const halcyon = makeHarness('crossfire_halcyon');
+    halcyon.director.ensureBuilt();
+    for (const beatCall of ['cf.halcyonArmorPush', 'cf.halcyonWarMachine', 'cf.halcyonCitadelSiege'] as const) {
+      halcyon.director.clear();
+      halcyon.director.call(beatCall);
+      expect(halcyon.spawnedDriveables).toHaveLength(1);
+      expect(halcyon.spawnedDriveables[0]?.def.id).toBe('lancer');
+      expect(halcyon.spawnedDriveables[0]?.occupied).toBe(true);
+      expect(halcyon.spawnedDriveables[0]?.phys.grounded).toBe(false);
+      expect(halcyon.director.halcyon.state.active).toBe(true);
+      expect(halcyon.director.halcyon.vehicleFleet?.isGateOpen('lane_center_breach')).toBe(true);
+    }
+    halcyon.director.reset();
+  });
+
+  it('repairs player F-22 hull when flying alongside the B-1B Lancer and cleanly downs player when jet is shot down', () => {
+    const h = makeHarness('crossfire_strait');
+    h.director.ensureBuilt();
+    h.director.call('cf.straitOutboundInit');
+
+    const raptor = h.spawnedDriveables[0]!;
+    const lancer = h.director.strait.lancer!;
+    raptor.health = 500;
+
+    // Far away (> 135 m) -> does NOT repair
+    raptor.phys.position.set(lancer.position.x + 280, lancer.position.y, lancer.position.z);
+    h.director.update(0.5);
+    expect(raptor.health).toBe(500);
+    expect(h.director.strait.state.formationRepairActive).toBe(false);
+
+    // Form up alongside the Lancer (within 135 m) -> smoothly repairs F-22 hull
+    raptor.phys.position.set(lancer.position.x + 35, lancer.position.y, lancer.position.z + 20);
+    h.director.update(1.0);
+    expect(raptor.health).toBeGreaterThan(600);
+    expect(h.director.strait.state.formationRepairActive).toBe(true);
+
+    // Shot down jet cleanly triggers mission down after brief crash beat (no stuck ocean fall)
+    raptor.alive = false;
+    raptor.occupied = false;
+    h.director.update(0.4);
+    h.director.update(0.5);
+    expect(h.downSpy).toHaveBeenCalled();
+
+    h.director.reset();
+  });
+
+  it('staggers destroyer SeaRAM launches and caps simultaneous inbound player SAMs', () => {
+    const h = makeHarness('crossfire_strait');
+    h.director.ensureBuilt();
+    h.director.call('cf.straitOutboundInit');
+    h.director.call('cf.straitDestroyersHot');
+
+    const def = h.director.strait.defenseSystem!;
+    const sams = def.getSitesByKind('destroyer_sam');
+    expect(sams).toHaveLength(4);
+    // Initial cooldowns are staggered across the 4 launchers (not all firing on frame 1)
+    const cooldowns = sams.map(s => s.fireCooldown);
+    expect(new Set(cooldowns.map(c => Math.round(c * 10))).size).toBe(4);
+
+    // Place airborne player right in destroyer range and tick with 0 initial cooldowns -> never exceeds 2 active SAMs on player
+    h.setPlayerPos(-140, 105, -60);
+    for (const s of sams) s.fireCooldown = 0;
+    for (let i = 0; i < 150; i++) {
+      def.update(1 / 30, {
+        playerAirborne: true,
+        playerVelocity: new THREE.Vector3(0, 0, -72),
+      });
+      expect(def.activeSamCount).toBeLessThanOrEqual(2);
+    }
+
+    h.director.reset();
+  });
 });
+

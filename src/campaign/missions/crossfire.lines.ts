@@ -3,12 +3,13 @@
  * (`Form 7742-W: Cross-Border Liability Transfer`).
  *
  * All lines are unvoiced (subtitle-only) until voice samples are recorded.
- * Speaker mapping (valid `Speaker` union from `src/enemies/commander/lines.ts`):
- *   council       — The Galactic Council / Bureau Compliance Officer (deadpan bureaucracy)
- *   governor      — Colonel Darrow, Northern Command CO at Valken Airbase
- *   harbourmaster — General Halvorsen, Southern Directorate CO at Fortress Halcyon
- *   marr          — Captain Mercer, Bureau Ground Invasion Commander at Halcyon Beachhead
- *   radio         — Buddy squad wingmen (Viper-2 / Viper-3 / Viper-4), B-1B co-pilot, CVN-91 ATC
+ * Speaker mapping (dedicated Crossfire entries in `src/enemies/commander/lines.ts` & `src/ui/commander/portrait.ts`):
+ *   council   — The Galactic Council / Bureau Compliance Officer (deadpan bureaucracy)
+ *   darrow    — Colonel Darrow, Northern Command CO at Valken Airbase
+ *   halvorsen — General Halvorsen, Southern Directorate CO at Fortress Halcyon
+ *   mercer    — Captain Mercer, Bureau Ground Force CO at Halcyon Beachhead
+ *   viper     — Viper Flight (buddy squad wingmen / B-1B co-pilot / air wing)
+ *   carrier   — CVN-91 Actual (Carrier Air Control / recovery net)
  */
 import type { Emotion, Line, Speaker } from '../../enemies/commander/lines';
 
@@ -39,19 +40,19 @@ export const CROSSFIRE_AIRBASE_LINES: readonly Line[] = [
   ),
   line(
     'airbase.wingman.perimeter.start',
-    'radio',
+    'viper',
     'orders',
     'Viper squad on your six. Two Raptors on the east pads, one heavy bomber in the alert vault. Breach the radar gate and keep moving.',
   ),
   line(
     'airbase.darrow.perimeter.lockdown',
-    'governor',
+    'darrow',
     'orders',
     'This is Colonel Darrow. Unidentified armed party at South Radar Gate — lock down the flight line and seal the Alert Hangar blast doors now!',
   ),
   line(
     'airbase.wingman.perimeter.clear',
-    'radio',
+    'viper',
     'orders',
     'South gate is ours. Push onto the fuel apron — watch the maintenance catwalks!',
   ),
@@ -59,25 +60,25 @@ export const CROSSFIRE_AIRBASE_LINES: readonly Line[] = [
   // Section 2: Fuel Apron & Hangar Row
   line(
     'airbase.darrow.apron.qrf',
-    'governor',
+    'darrow',
     'irritated',
     'Roll the west apron QRF and put a fast-rope bird over the hangars. Keep them off the taxiway!',
   ),
   line(
     'airbase.wingman.apron.fuel',
-    'radio',
+    'viper',
     'orders',
     'JP-8 fuel depots right in the middle of their line. Punch a hole in those tanks and cook the tarmac.',
   ),
   line(
     'airbase.wingman.apron.fuel_blown',
-    'radio',
+    'viper',
     'smug',
     'That lit up half the apron! Hangar row is cracking — push north toward the ATC tower.',
   ),
   line(
     'airbase.wingman.apron.chopper',
-    'radio',
+    'viper',
     'urgent',
     'Northern transport chopper flaring over the apron! Troops coming down the ropes!',
   ),
@@ -85,13 +86,13 @@ export const CROSSFIRE_AIRBASE_LINES: readonly Line[] = [
   // Section 3: 3-Level ATC Tower & Hangar Override / IFF Spoof Console
   line(
     'airbase.wingman.tower.enter',
-    'radio',
+    'viper',
     'orders',
     'Three flights up to Flight Ops. Clear the stairwell and hit the Hangar Override console — we need those blast doors open and the Northern IFF welded on.',
   ),
   line(
     'airbase.darrow.tower.warning',
-    'governor',
+    'darrow',
     'urgent',
     'They are inside the control tower! Stop them before they reach the ops cab — if they override the alert vault, the Lancer is loaded live!',
   ),
@@ -103,13 +104,13 @@ export const CROSSFIRE_AIRBASE_LINES: readonly Line[] = [
   ),
   line(
     'airbase.wingman.tower.override_done',
-    'radio',
+    'viper',
     'smug',
     'Blast doors cycling open and Northern IFF is locked solid! Wait — Darrow just rolled armor onto the alert apron!',
   ),
   line(
     'airbase.darrow.tower.breached',
-    'governor',
+    'darrow',
     'rattled',
     'Blast doors are open! Every gun on the runway — put a main battle tank in front of that hangar! Nobody takes that bomber!',
   ),
@@ -117,19 +118,19 @@ export const CROSSFIRE_AIRBASE_LINES: readonly Line[] = [
   // Section 4: Hardened Alert Hangar & QRF Armor Push
   line(
     'airbase.wingman.hangar.push',
-    'radio',
+    'viper',
     'urgent',
     'Tank on the north runway and QRF trucks closing fast! Smash that armor while Viper-2 and Viper-3 sprint for the parked F-22s!',
   ),
   line(
     'airbase.wingman.hangar.raptors_boarding',
-    'radio',
+    'viper',
     'orders',
     'Viper-2 and Viper-3 are in the Raptor cockpits — turbines spooling! Clear the apron and grab the big bird!',
   ),
   line(
     'airbase.darrow.hangar.desperate',
-    'governor',
+    'darrow',
     'rattled',
     'They are taking the Raptors too! Shoot the tires, shoot the intakes, stop them on the concrete!',
   ),
@@ -137,19 +138,19 @@ export const CROSSFIRE_AIRBASE_LINES: readonly Line[] = [
   // Section 5: Climb into the B-1B Lancer & Runway Takeoff
   line(
     'airbase.wingman.takeoff.board',
-    'radio',
+    'viper',
     'orders',
     'Apron is clear! Climb into the B-1B Lancer, roll her onto Runway Zero-One, and slam the afterburners — we are launching on your wings!',
   ),
   line(
     'airbase.wingman.takeoff.rolling',
-    'radio',
+    'viper',
     'urgent',
     'Lancer rolling! Viper flight releasing brakes — pull up at the north threshold and punch for the coast!',
   ),
   line(
     'airbase.darrow.takeoff.airborne',
-    'governor',
+    'darrow',
     'cracked',
     'She is airborne! Full wartime bomb load, Northern IFF squawking live, heading straight for the Strait! Get me Southern Command on guard right now!',
   ),
@@ -161,7 +162,7 @@ export const CROSSFIRE_AIRBASE_LINES: readonly Line[] = [
   ),
 
   // Part 1 Redeploy
-  line('airbase.redeploy.1', 'radio', 'orders', 'Back on line, Viper Lead. Darrow still has that bomber locked up — push north.'),
+  line('airbase.redeploy.1', 'viper', 'orders', 'Back on line, Viper Lead. Darrow still has that bomber locked up — push north.'),
   line('airbase.redeploy.2', 'council', 'deadpan', 'Replacement contractor billed to Northern Command under incidental staffing.'),
 ];
 
@@ -178,13 +179,13 @@ export const CROSSFIRE_STRAIT_LINES: readonly Line[] = [
   // Section 1: Outbound Probe
   line(
     'strait.wingman.outbound.formup',
-    'radio',
+    'viper',
     'orders',
     'Seat transfer clean — you are in the F-22 escort. Lancer is heavy, seven-five-zero-zero hull, flying straight north on auto-nav. Keep the sky off her back.',
   ),
   line(
     'strait.darrow.guard.warning',
-    'governor',
+    'darrow',
     'urgent',
     'EMERGENCY GUARD! Fortress Halcyon, this is Colonel Darrow, Northern Command! That B-1B crossing the strait was hijacked — repeat, DO NOT—',
   ),
@@ -196,13 +197,13 @@ export const CROSSFIRE_STRAIT_LINES: readonly Line[] = [
   ),
   line(
     'strait.wingman.probe.bogeys',
-    'radio',
+    'viper',
     'urgent',
     'Three Southern Hornets coming fast through the sea stacks! Weapons hot — do not let them touch the bomber!',
   ),
   line(
     'strait.wingman.probe.clear',
-    'radio',
+    'viper',
     'orders',
     'First wave splashed. Heads up — two Southern missile destroyers dead ahead in the channel.',
   ),
@@ -210,25 +211,25 @@ export const CROSSFIRE_STRAIT_LINES: readonly Line[] = [
   // Section 2: Destroyer Gauntlet
   line(
     'strait.halvorsen.gauntlet.fury',
-    'harbourmaster',
+    'halvorsen',
     'irritated',
     'This is General Halvorsen at Fortress Halcyon. A Northern heavy bomber in our airspace with zero declaration? You bastards want a war — you just bought one.',
   ),
   line(
     'strait.halvorsen.gauntlet.fire',
-    'harbourmaster',
+    'halvorsen',
     'urgent',
     'Ironclad! Bastion! Weapons free on every Northern signature in the strait! Launch SeaRAMs and scramble the strike wing!',
   ),
   line(
     'strait.wingman.gauntlet.sams',
-    'radio',
+    'viper',
     'urgent',
     'Destroyers lighting up SeaRAMs and CIWS on the Lancer! Harriers and Warthogs diving from the flanks — shred the ships or pull their fire!',
   ),
   line(
     'strait.wingman.gauntlet.suppressed',
-    'radio',
+    'viper',
     'smug',
     'Destroyer SAM mounts silenced! Lancer is through the mid-strait gauntlet — Halcyon coast coming up in the smoke!',
   ),
@@ -236,19 +237,19 @@ export const CROSSFIRE_STRAIT_LINES: readonly Line[] = [
   // Section 3: Coastal Aces & Feet-Dry Handoff
   line(
     'strait.halvorsen.coastal.aces',
-    'harbourmaster',
+    'halvorsen',
     'urgent',
     'Red-Wing Lead, scramble immediately! That Northern bomber does not cross our seawall — tear it out of the sky!',
   ),
   line(
     'strait.wingman.coastal.incoming',
-    'radio',
+    'viper',
     'urgent',
     'Southern Raptor Ace plus Hornet CAP dropping out of the coastal cloud deck! Clear the corridor so the Lancer hits feet-dry!',
   ),
   line(
     'strait.wingman.coastal.feet_dry',
-    'radio',
+    'viper',
     'smug',
     'Corridor clear! Lancer is crossing the coastline — Halcyon is wide open below us!',
   ),
@@ -260,7 +261,7 @@ export const CROSSFIRE_STRAIT_LINES: readonly Line[] = [
   ),
 
   // Part 2 Redeploy
-  line('strait.redeploy.1', 'radio', 'urgent', 'Fresh F-22 on the wing. Lancer is still flying — stay between her and the bandits.'),
+  line('strait.redeploy.1', 'viper', 'urgent', 'Fresh F-22 on the wing. Lancer is still flying — stay between her and the bandits.'),
   line('strait.redeploy.2', 'council', 'deadpan', 'Escort aircraft loss deducted from mileage allowance. Re-engaging.'),
 ];
 
@@ -283,25 +284,25 @@ export const CROSSFIRE_HALCYON_LINES: readonly Line[] = [
   ),
   line(
     'halcyon.mercer.breach.call',
-    'marr',
+    'mercer',
     'urgent',
     'Lancer, this is Captain Mercer on the south beach! My Aegis tanks and Bastion APCs are pinned outside their seawall — blow a hole in Section B of their south blast wall and silence the two outer flak towers!',
   ),
   line(
     'halcyon.wingman.breach.escort',
-    'radio',
+    'viper',
     'orders',
     'Viper flight keeping enemy Hornets off your tail! Line up south-to-north and crack Section B wide open!',
   ),
   line(
     'halcyon.halvorsen.breach.shock',
-    'harbourmaster',
+    'halvorsen',
     'irritated',
     'Northern armor on my beach and a Northern B-1B overhead?! Sound general quarters — wire every coastal battery and call Directorate High Command for full retaliation!',
   ),
   line(
     'halcyon.mercer.breach.open',
-    'marr',
+    'mercer',
     'orders',
     'Section B is rubble and the outer flak is burning! All armor — punch through the gap! Follow the smoke!',
   ),
@@ -309,25 +310,25 @@ export const CROSSFIRE_HALCYON_LINES: readonly Line[] = [
   // Section 2: Ridge Suppression & Valkyrie Fast-Rope Assault
   line(
     'halcyon.halvorsen.ridge.traps',
-    'harbourmaster',
+    'halvorsen',
     'smug',
     'Let their tanks roll into the courtyard. Unmask the forward mortar trenches and fire every SAM battery on the ridge!',
   ),
   line(
     'halcyon.mercer.ridge.pinned',
-    'marr',
+    'mercer',
     'urgent',
     'Mortar rain all over the breach and SAMs locking our inbound Valkyrie choppers! Drop CBU-105 Cluster on those mortar pits and wipe the outer SAM pads!',
   ),
   line(
     'halcyon.mercer.ridge.clear',
-    'marr',
+    'mercer',
     'orders',
     'Mortars are slag and the outer SAMs are gone! Valkyrie flight, you are green for inner courtyard fast-rope!',
   ),
   line(
     'halcyon.wingman.ridge.valkyries',
-    'radio',
+    'viper',
     'orders',
     'Valkyrie One and Two diving on the inner flanks — dropping Bureau assault squads right into their courtyard!',
   ),
@@ -335,43 +336,43 @@ export const CROSSFIRE_HALCYON_LINES: readonly Line[] = [
   // Section 3: War Machine Open-Hunting Climax
   line(
     'halcyon.halvorsen.warmachine.unleash',
-    'harbourmaster',
+    'halvorsen',
     'urgent',
     'Open the west Tank Armory and scramble every bird in the hardened hangars! Grind their invasion into the tarmac!',
   ),
   line(
     'halcyon.mercer.warmachine.hunt',
-    'marr',
+    'mercer',
     'orders',
     'Full war down here, Lancer! Flatten their Tank Armory, hardened hangars, fuel farm, radar domes, and barracks — break Halcyon’s spine so our armor can take the plaza!',
   ),
   line(
     'halcyon.mercer.warmachine.armory_down',
-    'marr',
+    'mercer',
     'orders',
     'West Tank Armory just went up! No more enemy armor rolling out of that depot!',
   ),
   line(
     'halcyon.wingman.warmachine.airfield_down',
-    'radio',
+    'viper',
     'smug',
     'Hardened hangars and flight line are ashes! Halcyon has no runway left to scramble from!',
   ),
   line(
     'halcyon.mercer.warmachine.fuel_down',
-    'marr',
+    'mercer',
     'orders',
     'Fuel farm chain-detonated! Felt that shockwave through my tank hull!',
   ),
   line(
     'halcyon.halvorsen.warmachine.cracking',
-    'harbourmaster',
+    'halvorsen',
     'rattled',
     'My fuel farm, my hangars, my armor — all burning! Where is Directorate Air Command?! Tell them the North just razed Halcyon!',
   ),
   line(
     'halcyon.mercer.warmachine.broken',
-    'marr',
+    'mercer',
     'orders',
     'Their war machine is cooked! My tanks are ringing the central Citadel — only Halvorsen’s Command HQ is left standing!',
   ),
@@ -379,31 +380,31 @@ export const CROSSFIRE_HALCYON_LINES: readonly Line[] = [
   // Section 4: Citadel Command HQ & Sea Egress
   line(
     'halcyon.halvorsen.citadel.seal',
-    'harbourmaster',
+    'halvorsen',
     'cracked',
     'Seal the blast shutters! Four meters of reinforced concrete — come and dig me out, you Northern cowards! Our missiles are already fueling for Valken!',
   ),
   line(
     'halcyon.mercer.citadel.thermobaric',
-    'marr',
+    'mercer',
     'urgent',
     'Citadel Command HQ is Tier-3 reinforced! Switch to BLU-121 Thermobaric and drop the whole roof on Halvorsen’s head!',
   ),
   line(
     'halcyon.halvorsen.citadel.final',
-    'harbourmaster',
+    'halvorsen',
     'cracked',
     'The ceiling is buckling— tell High Command... burn the North to the bedrock—',
   ),
   line(
     'halcyon.mercer.citadel.destroyed',
-    'marr',
+    'mercer',
     'orders',
     'Direct hit! Citadel HQ is a crater! Fortress Halcyon is flattened — get that smoking bomber back out to sea before their last fighters box you in!',
   ),
   line(
     'halcyon.wingman.egress.damage',
-    'radio',
+    'viper',
     'urgent',
     'Lancer’s port engine is trailing smoke and bomb bays are dry! Banking south over the strait — Red-Wing survivors are chasing us home!',
   ),
@@ -415,7 +416,7 @@ export const CROSSFIRE_HALCYON_LINES: readonly Line[] = [
   ),
 
   // Part 3 Redeploy
-  line('halcyon.redeploy.1', 'marr', 'urgent', 'Lancer back on station! Line up your run — my squads need bombs on target!'),
+  line('halcyon.redeploy.1', 'mercer', 'urgent', 'Lancer back on station! Line up your run — my squads need bombs on target!'),
   line('halcyon.redeploy.2', 'council', 'deadpan', 'Bomber hull reinstated from contingency reserve. Ordnance meter still running.'),
 ];
 
@@ -432,19 +433,19 @@ export const CROSSFIRE_RETURN_LINES: readonly Line[] = [
   // Section 1: Dusk Ambush
   line(
     'return.wingman.ambush.start',
-    'radio',
+    'viper',
     'urgent',
     'You are back in the F-22! Lancer is leaking fuel and running on three engines — two Ace Raptors and four Hornets diving out of the dusk clouds straight at her!',
   ),
   line(
     'return.wingman.ambush.lancer',
-    'radio',
+    'viper',
     'urgent',
     'This is Lancer! Bomb bays are empty, flares almost spent — keep Red-Wing off my tail until we reach the carrier!',
   ),
   line(
     'return.wingman.ambush.broken',
-    'radio',
+    'viper',
     'smug',
     'Red-Wing lead is down! Keep pushing south — CVN-91 is on radar!',
   ),
@@ -452,19 +453,19 @@ export const CROSSFIRE_RETURN_LINES: readonly Line[] = [
   // Section 2: Carrier Umbrella
   line(
     'return.wingman.carrier.approach',
-    'radio',
+    'carrier',
     'orders',
     'CVN-91 Actual to Viper flight: we have your wounded bomber on scope. Hold off the last pursuers until she crosses the four-forty recovery line!',
   ),
   line(
     'return.wingman.carrier.umbrella_hot',
-    'radio',
+    'viper',
     'urgent',
     'Lancer crossing the umbrella! Harbinger and Resolute opening CIWS and SeaRAMs — clear the sky!',
   ),
   line(
     'return.wingman.carrier.safe',
-    'radio',
+    'viper',
     'smug',
     'Lancer is inside the carrier bubble and trailing clean! Pursuers are breaking off — we made it home!',
   ),
@@ -490,7 +491,7 @@ export const CROSSFIRE_RETURN_LINES: readonly Line[] = [
   ),
 
   // Part 4 Redeploy
-  line('return.redeploy.1', 'radio', 'urgent', 'Back in the dusk sky — keep that smoking Lancer alive until the carrier guns cover us!'),
+  line('return.redeploy.1', 'viper', 'urgent', 'Back in the dusk sky — keep that smoking Lancer alive until the carrier guns cover us!'),
   line('return.redeploy.2', 'council', 'deadpan', 'Recovery window re-opened. Please return the bomber in reusable scrap condition.'),
 ];
 

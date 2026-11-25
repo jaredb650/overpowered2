@@ -105,6 +105,11 @@ function yawToward(from: THREE.Vector3, to: THREE.Vector3): number {
   return Math.atan2(to.x - from.x, to.z - from.z);
 }
 
+export const LANCER_FORMATION_REPAIR_RADIUS = 135;
+export const LANCER_FORMATION_REPAIR_RATE = 120;
+
+type StraitBeatStage = 'start' | 'midstrait' | 'coastal' | 'carrier';
+
 export class StraitDirector {
   private airWing: CrossfireAirWing | null = null;
   private defenses: BaseDefenseSystem | null = null;
@@ -129,6 +134,9 @@ export class StraitDirector {
   private handoffTriggered = false;
   private debriefComplete = false;
   private smokeTrailCd = 0;
+  private formationRepairActive = false;
+  private repairFxCd = 0;
+  private playerCrashTimer = -1;
   private spawnedWaveNames = new Set<string>();
 
   // Saved dawn scene atmosphere so dusk return tint can be cleanly reverted on clear/reset
@@ -147,6 +155,25 @@ export class StraitDirector {
     return (this.ctx.progression as unknown as { driveables?: DriveableManager } | undefined)?.driveables;
   }
 
+  private downPlayerCleanly(source: string): void {
+    if (this.playerRaptor?.occupied) {
+      this.playerRaptor.exit?.(true);
+    }
+    const p = this.ctx.player as (Ctx['player'] & { unpark?: (grace?: number) => void }) | undefined;
+    if (p && p.alive) {
+      p.unpark?.(0);
+      p.takeDamage?.({
+        amount: 9999,
+        from: p.position?.clone?.() ?? new THREE.Vector3(),
+        type: 'true',
+        source,
+      });
+    }
+    if (this.runner.state !== 'down' && this.runner.state !== 'won') {
+      this.runner.down();
+    }
+  }
+
   ensureBuilt(): void {
     if (this.built) return;
     this.built = true;
@@ -159,7 +186,7 @@ export class StraitDirector {
         if (jet === this.escortLancer && !this.lancerFailed && !this.feetDrySignaled && !this.lancerRecoveredSignaled) {
           this.lancerFailed = true;
           this.ctx.hud?.feed?.('B-1B LANCER DESTROYED — ESCORT FAILED!', '#ff3b2f');
-          this.runner.down();
+          this.downPlayerCleanly('lancer_destroyed');
         }
       },
     });
@@ -180,24 +207,34 @@ export class StraitDirector {
     this.ensureBuilt();
     switch (name) {
       case 'cf.straitOutboundInit':
-        this.initStrait('outbound');
+        this.initStrait('outbound', 'start');
         return true;
-      case 'cf.straitWave':
-        this.spawnWave(arg ?? 'outbound_probe');
+      case 'cf.straitWave': {
+        const waveName = arg ?? 'outbound_probe';
+        if (waveName === 'destroyer_strike') this.ensureInitializedForBeat('outbound', 'midstrait');
+        else if (waveName === 'coastal_aces') this.ensureInitializedForBeat('outbound', 'coastal');
+        else if (waveName === 'outbound_probe') this.ensureInitializedForBeat('outbound', 'start');
+        else if (waveName === 'return_ambush') this.ensureInitializedForBeat('return', 'start');
+        else if (waveName === 'return_final') this.ensureInitializedForBeat('return', 'carrier');
+        this.spawnWave(waveName);
         return true;
+      }
       case 'cf.straitDestroyersHot':
+        this.ensureInitializedForBeat('outbound', 'midstrait');
         this.activateDestroyers();
         return true;
       case 'cf.straitFeetDryWatch':
+        this.ensureInitializedForBeat('outbound', 'coastal');
         this.feetDryWatchActive = true;
         return true;
       case 'cf.handoffToHalcyon':
         this.handoffToHalcyon();
         return true;
       case 'cf.straitReturnInit':
-        this.initStrait('return');
+        this.initStrait('return', 'start');
         return true;
       case 'cf.straitCarrierUmbrella':
+        this.ensureInitializedForBeat('return', 'carrier');
         this.activateCarrierUmbrella();
         return true;
       case 'cf.crossfireDebrief':
@@ -206,6 +243,17 @@ export class StraitDirector {
       default:
         return false;
     }
+  }
+
+  /**
+   * Ensures the escort Lancer, wingmen, and Contractor B's airborne F-22 Raptor are spawned and boarded
+   * when redeploying at a mid-mission checkpoint (e.g. Destroyer Gauntlet, Coastal Aces, Carrier Umbrella)
+   * or jumping directly to a beat via `?beat=`.
+   */
+  private ensureInitializedForBeat(mode: 'outbound' | 'return', stage: StraitBeatStage): void {
+    const needsPlane = Boolean(this.driveables) && (!this.playerRaptor || !this.playerRaptor.alive);
+    if (this.mode === mode && this.escortLancer?.alive && !needsPlane) return;
+    this.initStrait(mode, stage);
   }
 
   private spawnPlayerAirborneRaptor(pose: StraitFlightPose): DriveableVehicle | null {
@@ -259,7 +307,7 @@ export class StraitDirector {
     veh.model?.root?.position?.set(x, y, z);
   }
 
-  private initStrait(mode: 'outbound' | 'return'): void {
+  private initStrait(mode: 'outbound' | 'return', stage: StraitBeatStage = 'start'): void {
     this.clearMissionState();
     this.mode = mode;
 
@@ -274,17 +322,40 @@ export class StraitDirector {
       this.restoreAtmosphere();
     }
 
-    // 1. Spawn Contractor B airborne in the F-22 Raptor
-    const playerPose = mode === 'outbound' ? STRAIT_OUTBOUND_PLAYER_SPAWN : STRAIT_INBOUND_PLAYER_SPAWN;
+    // Determine Lancer starting waypoint slice & formation pose for the active beat/checkpoint stage
+    const rawPath = mode === 'outbound' ? STRAIT_OUTBOUND_LANCER_PATH : STRAIT_INBOUND_LANCER_PATH;
+    const startIdx = mode === 'outbound'
+      ? (stage === 'coastal' ? 3 : stage === 'midstrait' ? 2 : 0)
+      : (stage === 'carrier' ? 3 : 0);
+    const waypoints = rawPath.slice(startIdx).map(p => new THREE.Vector3(p[0], p[1], p[2]));
+    const lancerStart = waypoints[0]!.clone();
+    const lancerYaw = mode === 'outbound' ? Math.PI : 0;
+
+    // 1. Spawn Contractor B airborne in the F-22 Raptor (positioned in formation behind/beside the Lancer for mid-mission checkpoints)
+    const basePose = mode === 'outbound' ? STRAIT_OUTBOUND_PLAYER_SPAWN : STRAIT_INBOUND_PLAYER_SPAWN;
+    const playerPose: StraitFlightPose = startIdx === 0
+      ? basePose
+      : {
+          id: `${basePose.id}_${stage}`,
+          at: [
+            lancerStart.x + (mode === 'outbound' ? 24 : -24),
+            lancerStart.y + 4,
+            lancerStart.z + (mode === 'outbound' ? 48 : -48),
+          ],
+          yaw: basePose.yaw,
+          speed: basePose.speed,
+        };
+    if (stage !== 'start') {
+      this.introReboardDone = true;
+    }
+    if (mode === 'outbound' && stage === 'coastal') {
+      this.lancerMidstraitSignaled = true;
+      this.destroyersSuppressedSignaled = true;
+    }
     this.playerSpawnPose = playerPose;
     this.playerRaptor = this.spawnPlayerAirborneRaptor(playerPose);
 
     // 2. Spawn the 7,500 HP AI B-1B Lancer flying along the strait escort path
-    const rawPath = mode === 'outbound' ? STRAIT_OUTBOUND_LANCER_PATH : STRAIT_INBOUND_LANCER_PATH;
-    const waypoints = rawPath.map(p => new THREE.Vector3(p[0], p[1], p[2]));
-    const lancerStart = waypoints[0]!.clone();
-    const lancerYaw = mode === 'outbound' ? Math.PI : 0;
-
     if (this.airWing) {
       const lancer = this.airWing.spawnAlly('lancer', lancerStart, lancerYaw, 0.82, {
         label: mode === 'outbound' ? 'B-1B LANCER (ESCORT)' : 'B-1B LANCER (DAMAGED)',
@@ -305,11 +376,15 @@ export class StraitDirector {
 
       // 3. Spawn friendly F-22 Raptor wingmen flanking the Lancer
       const wingmen = mode === 'outbound' ? STRAIT_OUTBOUND_WINGMAN_SPAWNS : STRAIT_INBOUND_WINGMAN_SPAWNS;
+      const baseLancerStart = rawPath[0]!;
+      const offX = lancerStart.x - baseLancerStart[0];
+      const offY = lancerStart.y - baseLancerStart[1];
+      const offZ = lancerStart.z - baseLancerStart[2];
       for (let i = 0; i < wingmen.length; i++) {
         const w = wingmen[i]!;
         this.airWing.spawnAlly(
           'raptor',
-          new THREE.Vector3(w.at[0], w.at[1], w.at[2]),
+          new THREE.Vector3(w.at[0] + offX, w.at[1] + offY, w.at[2] + offZ),
           w.yaw,
           0.8,
           {
@@ -533,6 +608,23 @@ export class StraitDirector {
       statusLine = 'WOUNDED LANCER TRAILING SMOKE — DEFEND HER SIX!';
     }
 
+    let repairBanner: { text: string; tone: 'repair' | 'hint' } | null = null;
+    const raptor = this.playerRaptor;
+    if (raptor?.alive && raptor.occupied && raptor.def.maxHealth > 0) {
+      const hullPct = Math.round((raptor.health / raptor.def.maxHealth) * 100);
+      if (this.formationRepairActive) {
+        repairBanner = {
+          text: `✦ LANCER FORMATION REPAIR ACTIVE · F-22 HULL ${hullPct}% (+${LANCER_FORMATION_REPAIR_RATE} HP/S)`,
+          tone: 'repair',
+        };
+      } else if (hullPct < 75 && lancer.alive) {
+        repairBanner = {
+          text: `F-22 HULL ${hullPct}% — FLY ALONGSIDE B-1B LANCER TO REPAIR`,
+          tone: 'hint',
+        };
+      }
+    }
+
     this.hudOverlay.updateStrait({
       mode: this.mode,
       lancerHp: lancer.health,
@@ -541,7 +633,62 @@ export class StraitDirector {
       etaSeconds: remainingDist / speed,
       banditsRemaining: bandits,
       statusLine,
+      repairBanner,
     });
+  }
+
+  private tickFormationRepair(dt: number): void {
+    const raptor = this.playerRaptor;
+    const lancer = this.escortLancer;
+    if (!raptor || !raptor.alive || !raptor.occupied || !lancer || !lancer.alive) {
+      this.formationRepairActive = false;
+      return;
+    }
+
+    const dist = raptor.phys.position.distanceTo(lancer.position);
+    if (dist <= LANCER_FORMATION_REPAIR_RADIUS && raptor.health < raptor.def.maxHealth) {
+      const wasActive = this.formationRepairActive;
+      this.formationRepairActive = true;
+      const prevHp = raptor.health;
+      raptor.health = Math.min(raptor.def.maxHealth, raptor.health + LANCER_FORMATION_REPAIR_RATE * dt);
+      this.ctx.player?.heal?.(20 * dt);
+
+      this.repairFxCd -= dt;
+      if (!wasActive || this.repairFxCd <= 0) {
+        this.repairFxCd = 0.65;
+        this.ctx.audio?.play?.('heal_tick', { volume: 0.34, pitch: 1.08 });
+        this.ctx.fx?.sparks?.(raptor.phys.position, new THREE.Vector3(0, 1, 0), 6, 0x54ff9d);
+      }
+      if (prevHp < raptor.def.maxHealth && raptor.health >= raptor.def.maxHealth) {
+        this.ctx.hud?.feed?.('F-22 HULL REPAIRED TO 100% — FORMATION LINK COMPLETE!', '#54ff9d');
+      }
+    } else {
+      this.formationRepairActive = false;
+    }
+  }
+
+  private tickPlayerAircraftSurvival(dt: number): void {
+    if (this.debriefComplete || this.handoffTriggered || this.isCutscenePlaying()) return;
+    const p = this.ctx.player;
+    if (!p || !p.alive) return;
+
+    // 1. Player's F-22 Raptor was shot down or crashed: brief explosion beat, then clean death -> Restart from Checkpoint!
+    if (this.playerRaptor && !this.playerRaptor.alive) {
+      if (this.playerCrashTimer < 0) {
+        this.playerCrashTimer = 0.75;
+        this.ctx.hud?.feed?.('F-22 RAPTOR SHOT DOWN — EJECTING!', '#ff3b2f');
+      }
+      this.playerCrashTimer -= dt;
+      if (this.playerCrashTimer <= 0 || p.position.y < 18) {
+        this.downPlayerCleanly('aircraft_destroyed');
+      }
+      return;
+    }
+
+    // 2. If player accidentally bailed out over open sea and hits the water, cleanly trigger checkpoint redeploy.
+    if (this.playerRaptor && !this.playerRaptor.occupied && p.position.y < 14) {
+      this.downPlayerCleanly('sea_impact');
+    }
   }
 
   update(dt: number): void {
@@ -560,6 +707,12 @@ export class StraitDirector {
       }
     }
 
+    // 0b. Cleanly handle aircraft shot-down / sea impact -> checkpoint restart
+    this.tickPlayerAircraftSurvival(dt);
+
+    // 0c. Lancer formation proximity repair aura
+    this.tickFormationRepair(dt);
+
     // 1. Tick two-way dogfight air wing with escort Lancer as shared priority target
     this.airWing?.update(dt, this.escortLancer);
 
@@ -568,6 +721,7 @@ export class StraitDirector {
       const playerAirborne = Boolean(this.ctx.player?.alive && (this.ctx.player.parked || this.ctx.player.position.y > 16));
       this.defenses.update(dt, {
         playerAirborne,
+        playerVelocity: this.playerRaptor?.alive ? this.playerRaptor.phys.velocity : undefined,
         alliedJets: this.airWing?.allies ?? [],
       });
       this.checkDestroyerSuppression();
@@ -626,6 +780,10 @@ export class StraitDirector {
     return this.escortLancer;
   }
 
+  get playerJet(): DriveableVehicle | null {
+    return this.playerRaptor;
+  }
+
   get state() {
     return {
       mode: this.mode,
@@ -637,6 +795,7 @@ export class StraitDirector {
       umbrellaActive: this.umbrellaActive,
       lancerRecoveredSignaled: this.lancerRecoveredSignaled,
       lancerFailed: this.lancerFailed,
+      formationRepairActive: this.formationRepairActive,
       handoffTriggered: this.handoffTriggered,
       debriefComplete: this.debriefComplete,
       spawnedWaves: [...this.spawnedWaveNames],
@@ -670,6 +829,9 @@ export class StraitDirector {
     this.handoffTriggered = false;
     this.debriefComplete = false;
     this.smokeTrailCd = 0;
+    this.formationRepairActive = false;
+    this.repairFxCd = 0;
+    this.playerCrashTimer = -1;
     this.spawnedWaveNames.clear();
   }
 
