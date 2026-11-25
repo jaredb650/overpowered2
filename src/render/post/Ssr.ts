@@ -91,6 +91,7 @@ void main() {
   vec3 pHit = viewPos(uvHit, zHit);
   // Last frame's image, so the hit point has to be carried through last frame's camera.
   vec4 prev = uCurToPrev * vec4(pHit, 1.0);
+  if (prev.w <= 1e-4) return;
   vec2 uvPrev = prev.xy / prev.w * 0.5 + 0.5;
   vec2 edge = min(uvPrev, 1.0 - uvPrev);
   float fade = smoothstep(0.0, 0.07, min(edge.x, edge.y));

@@ -9,6 +9,8 @@ import { CROSSFIRE_AIRBASE } from '../missions/crossfireAirbase';
 import { CROSSFIRE_HALCYON } from '../missions/crossfireHalcyon';
 import { CROSSFIRE_RETURN } from '../missions/crossfireReturn';
 import { CROSSFIRE_STRAIT } from '../missions/crossfireStrait';
+import { CutscenePlayer } from '../cutscene';
+import type { CampaignHud } from '../hud';
 import type { MissionRunner } from '../runner';
 import {
   CROSSFIRE_CALLS,
@@ -304,11 +306,20 @@ describe('CrossfireDirector & all 25 cf.* calls', () => {
     expect(h.director.airbase.vehicleFleet!.isGateOpen('south_gate')).toBe(true);
     expect(h.director.airbase.vehicleFleet!.isGateOpen('apron_gate')).toBe(false);
 
-    // 2. Fuel apron blast signals cf:fuel_blown and 3-stage pipeline chain blast breaches apron_gate after 0.70 s
+    // 2. Blast at South Fuel Depot (combat hazard) does NOT breach apron_gate; deep North JP-8 Main Manifold DOES
     h.director.call('cf.apronFuelWatch');
-    const fuelDepot = AIRBASE_DESTRUCTIBLES.find(d => d.kind === 'fuelDepot')!;
+    const southDepot = AIRBASE_DESTRUCTIBLES.find(d => d.id === 'airbase.fuel.south')!;
+    const northDepot = AIRBASE_DESTRUCTIBLES.find(d => d.id === 'airbase.fuel.north')!;
     h.events.emit('combat:explosion', {
-      position: new THREE.Vector3(fuelDepot.x, 1, fuelDepot.z),
+      position: new THREE.Vector3(southDepot.x, 1, southDepot.z),
+      radius: 10,
+      damage: 400,
+    });
+    expect(h.signals).not.toContain(CROSSFIRE_SIGNALS.fuelBlown);
+    expect(h.director.airbase.state.apronGateBreached).toBe(false);
+
+    h.events.emit('combat:explosion', {
+      position: new THREE.Vector3(northDepot.x, 1, northDepot.z),
       radius: 10,
       damage: 400,
     });
@@ -659,5 +670,72 @@ describe('CrossfireDirector & all 25 cf.* calls', () => {
 
     h.director.reset();
   });
+
+  it('CutscenePlayer hides viewScene and keeps weapons holstered throughout endsBlack cutscenes until reset()', () => {
+    const viewScene = new THREE.Scene();
+    viewScene.visible = true;
+    let holstered = false;
+    let parked = false;
+
+    const ctx = {
+      render: { scene: new THREE.Scene(), viewScene },
+      camera: { setSeat: vi.fn(), setZoom: vi.fn(), syncSeat: vi.fn() },
+      hud: { seat: vi.fn() },
+      input: { pressed: () => false },
+      player: {
+        position: new THREE.Vector3(0, 0, 0),
+        park: vi.fn(() => { parked = true; }),
+        unpark: vi.fn(() => { parked = false; }),
+      },
+      weapons: {
+        setHolstered: vi.fn((h: boolean) => { holstered = h; }),
+      },
+    } as unknown as Ctx;
+
+    const ui = {
+      cinema: {} as HTMLElement,
+      caption: vi.fn(),
+      votes: vi.fn(),
+      curtain: vi.fn(),
+      lift: vi.fn(),
+    } as unknown as CampaignHud;
+
+    const player = new CutscenePlayer(ctx, ui);
+    const done = vi.fn();
+    player.play(
+      {
+        endsBlack: true,
+        shots: [
+          { from: [0, 5, 10], to: [0, 5, 0], lookFrom: [0, 5, -10], lookTo: [0, 5, -20], seconds: 1.0 },
+        ],
+      },
+      done,
+    );
+
+    expect(parked).toBe(true);
+    expect(holstered).toBe(true);
+    expect(viewScene.visible).toBe(false);
+
+    // Even if an external system tries to unholster mid-cutscene, update() re-enforces holster & hidden viewScene
+    holstered = false;
+    viewScene.visible = true;
+    player.update(0.4);
+    expect(holstered).toBe(true);
+    expect(viewScene.visible).toBe(false);
+
+    // Finishing an endsBlack cutscene keeps player parked, weapon holstered, and viewScene hidden
+    player.update(0.7);
+    expect(done).toHaveBeenCalledWith(false);
+    expect(parked).toBe(true);
+    expect(holstered).toBe(true);
+    expect(viewScene.visible).toBe(false);
+
+    // Calling reset() restores on-foot controls and viewScene cleanly
+    player.reset();
+    expect(parked).toBe(false);
+    expect(holstered).toBe(false);
+    expect(viewScene.visible).toBe(true);
+  });
 });
+
 

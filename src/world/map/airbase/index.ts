@@ -617,15 +617,21 @@ function authorFuelApronAndHangars(k: Kit, spec: MapSpec): void {
   container(k, 10, 0, 42, Math.PI / 2 + 0.16, [0.48, 0.44, 0.38], true);
   container(k, 28, 0, 38, 0.12, [0.38, 0.44, 0.50], true);
   barrier(k, -6, 0, 80, 0.22, 4.4);
+  barrier(k, -14, 0, 68, -0.14, 4.4);
   barrier(k, -8, 0, 62, -0.18, 4.5);
+  barrier(k, -32, 0, 56, 0.12, 4.6);
+  barrier(k, -42, 0, 60, -0.22, 4.4);
   barrier(k, -12, 0, 52, 0.15, 4.5);
   barrier(k, -12, 0, 34, -0.20, 4.5);
   barrier(k, 2, 0, 34, 0.14, 4.4);
+  // Concrete Jet Blast Deflector shielding the deep North JP-8 Main Manifold (-36, 25) from South Gate sniping!
+  jetBlastDeflector(k, -36, 35, 0, 11);
   // Inner Checkpoint kill-zone cover flanking the Blast Gate approach
   barrier(k, -6, 0, 22, -0.25, 4.4);
   barrier(k, 10, 0, 20, 0.18, 4.6);
-  barrier(k, -39, 0, 22, 0.24, 4.2);
+  barrier(k, -46, 0, 20, 0.24, 4.2);
   tyres(k, 14, 0, 74, 3, true);
+  tyres(k, -38, 0, 67, 3, true);
   tyres(k, 15, 0, 28, 3, true);
   machine(k, -52, 0, 62, 0, 3.2, 2.2, 2.0);
   machine(k, 16, 0, 64, Math.PI / 2, 3.2, 2.2, 2.0);
@@ -634,33 +640,27 @@ function authorFuelApronAndHangars(k: Kit, spec: MapSpec): void {
   spec.barrels(6, 0, 31, 2);
   spec.tank(-34, 0, 62);
 
-  // --- Visual Red JP-8 Fuel Manifold Pipeline (South Depot -> North Depot -> Inner Blast Gate) ---
-  // Pure visual storytelling showing that blowing the JP-8 depots ruptures the pipeline feeding the Blast Gate!
+  // --- Visual Red JP-8 Main Manifold Pipeline (Deep North Manifold -> Inner Blast Gate) ---
+  // Pure visual storytelling showing that fighting up to and blowing the shielded North JP-8 Manifold ruptures the Blast Gate!
   const innerZ = AIRBASE_INNER_GATE.z;
   const px0 = AIRBASE_INNER_GATE.portalCenterX - AIRBASE_INNER_GATE.portalHalfW; // -33
   const px1 = AIRBASE_INNER_GATE.portalCenterX + AIRBASE_INNER_GATE.portalHalfW; // -11
   const pierW = px0 - 1.2; // -34.2
   const pierE = px1 + 1.2; // -9.8
 
-  // Main elevated red JP-8 manifold pipe along x = -34 from South Depot (z = 88) -> North Depot (z = 36) -> Gate Pier (z = 12.2)
+  // Main elevated red JP-8 manifold pipe from North Manifold (-36, 25) straight into West Gate Pier (-34.2, 12.4)
   g.use('paintRed').tint(0.92, 0.20, 0.16);
-  g.cyl(-34, 2.4, 86, -34, 2.4, 65, 0.28, 0.28, 8);
-  g.cyl(-34, 2.4, 59, -34, 2.4, 38.5, 0.28, 0.28, 8);
-  g.cyl(-34, 2.4, 33.5, -34, 2.4, innerZ + 1.4, 0.30, 0.30, 8);
+  g.cyl(-36, 2.4, 22.5, pierW, 2.4, innerZ + 1.4, 0.32, 0.32, 8);
   // Riser up the West Blast Gate Pier and overhead manifold across the blast gantry to the East Pier
-  g.cyl(-34, 2.4, innerZ + 1.4, -34, 6.25, innerZ + 1.4, 0.26, 0.26, 8);
-  g.cyl(-34, 6.25, innerZ + 1.4, pierE, 6.25, innerZ + 1.4, 0.24, 0.24, 8);
+  g.cyl(pierW, 2.4, innerZ + 1.4, pierW, 6.25, innerZ + 1.4, 0.26, 0.26, 8);
+  g.cyl(pierW, 6.25, innerZ + 1.4, pierE, 6.25, innerZ + 1.4, 0.24, 0.24, 8);
   g.cyl(pierE, 6.25, innerZ + 1.4, pierE, 2.1, innerZ + 1.4, 0.24, 0.24, 8);
-  // Steel pipe stanchions supporting the overhead JP-8 pipeline (visual only)
+  // Steel pipe stanchions supporting the overhead JP-8 manifold pipe (visual only)
   g.use('steelDark').tint(0.36, 0.40, 0.46);
-  for (const sz of [78, 70, 52, 44, 26, 18]) {
-    g.cyl(-34, 0, sz, -34, 2.35, sz, 0.11, 0.11, 6);
-  }
-  // Glowing amber pressure junction valves along pipeline & on both Blast Gate piers
+  g.cyl(-35.2, 0, 17.5, -35.2, 2.35, 17.5, 0.12, 0.12, 6);
+  // Glowing amber pressure junction valves along manifold & on both Blast Gate piers
   g.use('emissiveOrange').tint(1.0, 0.52, 0.14);
-  for (const vz of [74, 48, 25]) {
-    g.box(-34, 2.4, vz, 0.46, 0.42, 0.46);
-  }
+  g.box(-35.2, 2.4, 17.5, 0.48, 0.44, 0.48);
   g.box(pierW, 2.2, innerZ + 1.55, 0.55, 0.65, 0.32);
   g.box(pierE, 2.2, innerZ + 1.55, 0.55, 0.65, 0.32);
   g.tint(1);

@@ -295,6 +295,8 @@ export interface Mission {
   fronts?: Readonly<Record<string, { name: string; place: string }>>;
   /** Stealth mission: skip automatic tag-wide squad release on a single `enemy:hit` so stealth AI handles local squad alerts. */
   stealth?: boolean;
+  /** Optional simultaneous hostile infantry cap for large-scale combined-arms assaults (defaults to Outpost MAX_HOSTILE). */
+  maxHostile?: number;
 }
 
 // -------------------------------------------------------------------------------------------------

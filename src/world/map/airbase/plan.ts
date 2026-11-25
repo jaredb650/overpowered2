@@ -217,9 +217,11 @@ export const AIRBASE_ENEMY_SPAWNS: readonly AirbaseEnemySpawn[] = [
   { at: [-72, 0, 82], section: 'fuelApron', role: 'rifle', yaw: 1.57 },
   { at: [-58, 3.6, 80], section: 'fuelApron', role: 'sniper', yaw: 1.2 },
   { at: [-24, 0, 56], section: 'fuelApron', role: 'rifle', yaw: 0 },
+  { at: [-34, 0, 52], section: 'fuelApron', role: 'heavy', yaw: 0 },
+  { at: [-6, 0, 64], section: 'fuelApron', role: 'rocket', yaw: -0.2 },
   { at: [-58, 3.6, 44], section: 'fuelApron', role: 'rifle', yaw: 1.4 },
   { at: [-72, 0, 42], section: 'fuelApron', role: 'heavy', yaw: 1.57 },
-  { at: [-32, 0, 28], section: 'fuelApron', role: 'rocket', yaw: 0.3 },
+  { at: [-30, 0, 18], section: 'fuelApron', role: 'rocket', yaw: 0.25 },
 
   // Section 3: 3-Level Air Traffic Control Tower (all 4 levels!)
   { at: [-44, 0, -8], section: 'atcTower', role: 'rifle', yaw: 0.4 },
@@ -286,7 +288,7 @@ export interface AirbaseDestructibleSpec {
 export const AIRBASE_DESTRUCTIBLES: readonly AirbaseDestructibleSpec[] = [
   { id: 'airbase.south.bunker', label: 'SOUTH GATE SANDBAG BUNKER', kind: 'bunker', x: -18, z: 108, yaw: 0 },
   { id: 'airbase.fuel.south', label: 'SOUTH JP-8 FUEL DEPOT', kind: 'fuelDepot', x: -34, z: 88, yaw: 0 },
-  { id: 'airbase.fuel.north', label: 'NORTH JP-8 FUEL DEPOT', kind: 'fuelDepot', x: -34, z: 36, yaw: 0 },
+  { id: 'airbase.fuel.north', label: 'NORTH JP-8 MAIN MANIFOLD', kind: 'fuelDepot', x: -36, z: 25, yaw: 0 },
   { id: 'airbase.hangar.bunker', label: 'ALERT APRON MUNITIONS BUNKER', kind: 'bunker', x: -14, z: -38, yaw: 0.35 },
   { id: 'airbase.east.radar', label: 'RUNWAY APPROACH RADAR SHED', kind: 'radarShed', x: 106, z: 22, yaw: -Math.PI / 2 },
 ];

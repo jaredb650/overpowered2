@@ -240,9 +240,10 @@ export class GameHost implements MissionHost {
     this.arrivalClock -= dt;
     if (this.arrivalClock > 0) return;
     const o = this.manager.outpost;
+    const cap = this.runner?.mission.maxHostile ?? MAX_HOSTILE;
     if (head.seat === 0 && o) {
       // The same rule as the waves: the rest wait outside the wire until there is room in the fight.
-      if (o.hostile + head.men.length > MAX_HOSTILE) return;
+      if (o.hostile + head.men.length > cap) return;
       o.formSquad(head.men.length, head.at);
       if (head.orders !== 'hunt') {
         const squad = o.squads[o.squads.length - 1]!;

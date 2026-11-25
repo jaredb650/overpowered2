@@ -56,7 +56,7 @@ const _blastDamage: DamageInfo = {
   force: 18,
   source: 'jp8_pipeline',
 };
-const FUEL_DEPOTS = AIRBASE_DESTRUCTIBLES.filter(d => d.kind === 'fuelDepot');
+const GATE_FUEL_DEPOTS = AIRBASE_DESTRUCTIBLES.filter(d => d.id === 'airbase.fuel.north');
 const CONSOLE_REACH = Math.max(4.2, AIRBASE_ATC_CONSOLE.interactRadius + 0.6);
 const SOUTH_GATE_Z = AIRBASE_SOUTH_GATE.z + 3; // z = 121 (matches South Gate gantry portal)
 
@@ -242,7 +242,7 @@ export class AirbaseDirector {
     this.ownedGeos.push(beaconGeo, ringGeo);
     this.ownedMats.push(beaconMat, ringMat);
 
-    for (const depot of FUEL_DEPOTS) {
+    for (const depot of GATE_FUEL_DEPOTS) {
       const beacon = new THREE.Mesh(beaconGeo, beaconMat);
       beacon.position.set(depot.x, 4.6, depot.z);
       beacon.visible = false;
@@ -356,9 +356,9 @@ export class AirbaseDirector {
 
   private onWorldBlast(at: THREE.Vector3, radius: number): void {
     if (!this.fuelWatchActive || this.fuelBlownSignaled) return;
-    for (const depot of FUEL_DEPOTS) {
+    for (const depot of GATE_FUEL_DEPOTS) {
       const dist = Math.hypot(at.x - depot.x, at.z - depot.z);
-      if (dist <= radius + 14) {
+      if (dist <= radius + 8) {
         this.triggerFuelCookoff(depot.x, depot.z, depot.label);
         return;
       }
@@ -376,16 +376,17 @@ export class AirbaseDirector {
     this.fuelWatchActive = true;
     if (this.fuelBlownSignaled) return;
     this.clearFuelMarkers();
-    for (let i = 0; i < FUEL_DEPOTS.length; i++) {
-      const depot = FUEL_DEPOTS[i]!;
+    for (let i = 0; i < GATE_FUEL_DEPOTS.length; i++) {
+      const depot = GATE_FUEL_DEPOTS[i]!;
       const b = this.fuelBeacons[i];
       const r = this.fuelRings[i];
       if (b) b.visible = true;
       if (r) r.visible = true;
-      const isNorth = depot.id === 'airbase.fuel.north';
-      const label = isNorth ? 'JP-8 FUEL DEPOT · BLOW GATE PIPELINE' : 'JP-8 FUEL DEPOT [DESTROY]';
-      const color = isNorth ? '#ff5e1a' : '#ff9f1c';
-      const off = this.ctx.hud?.marker?.(new THREE.Vector3(depot.x, 4.8, depot.z), label, color) ?? null;
+      const off = this.ctx.hud?.marker?.(
+        new THREE.Vector3(depot.x, 4.8, depot.z),
+        'JP-8 MAIN MANIFOLD · BLOW GATE PIPELINE',
+        '#ff5e1a',
+      ) ?? null;
       if (off) this.unmarkFuelDepots.push(off);
     }
   }
@@ -468,7 +469,7 @@ export class AirbaseDirector {
     this.pendingPipelineBlasts.push(
       {
         delay: 0.35,
-        at: new THREE.Vector3(-34, 2.5, 24),
+        at: new THREE.Vector3(-35.2, 2.5, 17.5),
         radius: 16,
         scale: 2.2,
         damage: 700,
@@ -652,8 +653,8 @@ export class AirbaseDirector {
             ? [[-24, 0, 32], [-22, 0, -4], [-10, 0, -28]]
             : [[-4.2, 0, 126], [-5, 0, 104], [-20, 0, 68], [-25, 0, 26], [-22, 0, -4], [-10, 0, -28]],
         gateWaypoints: apronOpen ? undefined : startBreached ? { 0: 'apron_gate' } : { 0: 'south_gate', 3: 'apron_gate' },
-        hpOverride: 550,
-        speedScale: 0.42,
+        hpOverride: 340,
+        speedScale: 0.34,
       });
 
       this.fleet.spawnGround({
@@ -668,8 +669,8 @@ export class AirbaseDirector {
             ? [[-14, 0, 28], [-16, 0, -4], [14, 0, -26]]
             : [[4.2, 0, 126], [6, 0, 100], [-2, 0, 62], [-14, 0, 28], [-16, 0, -4], [14, 0, -26]],
         gateWaypoints: apronOpen ? undefined : startBreached ? { 0: 'apron_gate' } : { 0: 'south_gate', 3: 'apron_gate' },
-        hpOverride: 550,
-        speedScale: 0.42,
+        hpOverride: 340,
+        speedScale: 0.34,
       });
 
       this.fleet.spawnGround({
@@ -684,8 +685,8 @@ export class AirbaseDirector {
             ? [[-20, 0, 30], [-22, 0, -4], [6, 0, -20], [22, 0, -32]]
             : [[-3.4, 0, 130], [-2, 0, 102], [-18, 0, 62], [-20, 0, 30], [-22, 0, -4], [6, 0, -20], [22, 0, -32]],
         gateWaypoints: apronOpen ? undefined : startBreached ? { 0: 'apron_gate' } : { 0: 'south_gate', 3: 'apron_gate' },
-        hpOverride: 1900,
-        speedScale: 0.28,
+        hpOverride: 1050,
+        speedScale: 0.24,
       });
     }
 
@@ -760,6 +761,9 @@ export class AirbaseDirector {
   ): Ally | null {
     const ally = this.ctx.allies?.spawn?.(type, at, post, 8, yaw) ?? null;
     if (!ally) return null;
+    const hp = type === 'gunner' ? 120 : 90;
+    ally.maxHealth = hp;
+    ally.health = hp;
     ally.expendable = true;
     ally.detached = true;
     ally.order = 'post';
@@ -825,8 +829,8 @@ export class AirbaseDirector {
       spawn: [-22, 0, 2],
       waypoints: [[8, 0, -20], [22, 0, -32]],
       gateWaypointIndex: 0,
-      hpOverride: 1900,
-      speedScale: 0.34,
+      hpOverride: 1150,
+      speedScale: 0.28,
     });
   }
 
@@ -1009,6 +1013,15 @@ export class AirbaseDirector {
     this.airWing?.clear();
     this.raptorsLaunched = false;
 
+    // Clear any residual cockpit/post-FX state and keep first-person weapons holstered/hidden before the cut
+    const canvas = this.ctx.render?.renderer?.domElement;
+    if (canvas) canvas.style.filter = '';
+    this.ctx.render?.post?.setGrade?.('default', 0);
+    this.ctx.render?.post?.setSpeed?.(0);
+    this.ctx.weapons?.setHolstered?.(true);
+    const viewScene = this.ctx.render?.viewScene;
+    if (viewScene) viewScene.visible = false;
+
     for (const rig of this.parkedRaptors) {
       this.propsRoot.remove(rig.root);
     }
@@ -1018,7 +1031,7 @@ export class AirbaseDirector {
 
     const root = new THREE.Group();
     root.name = 'crossfire.airbase.escape_formation';
-    root.position.set(30, 68, -30);
+    root.position.set(40, 48, -10);
 
     // Center lead: 28.2 m B-1B Lancer with gear up, afterburners lit, nose pitched gently into climb
     const lancerRig = buildVehicleModel('lancer', this.materials);
@@ -1062,9 +1075,9 @@ export class AirbaseDirector {
     const t = this.escapeClock;
 
     // Linear cruise climb synchronized with the 3-shot `valkenEscape` camera track (0 -> 26.2 s)
-    const fx = 30;
-    const fy = 68 + t * 2.3;
-    const fz = -30 - t * 17.5;
+    const fx = 40;
+    const fy = 48 + t * 1.65;
+    const fz = -10 - t * 10.5;
     this.escapeFormationRoot.position.set(fx, fy, fz);
 
     // Subtle aerodynamic bank-and-leveling feel + B-1B variable-geometry wing sweep
@@ -1074,8 +1087,8 @@ export class AirbaseDirector {
       this.escapeLancerRig.root.rotation.set(pitch, Math.PI, bank, 'YXZ');
       if (this.escapeLancerRig.wingsLeft && this.escapeLancerRig.wingsRight) {
         const sweep = 0.14 + clamp(t / 7.5, 0, 1) * 0.54;
-        this.escapeLancerRig.wingsLeft.rotation.y = -sweep;
-        this.escapeLancerRig.wingsRight.rotation.y = sweep;
+        this.escapeLancerRig.wingsLeft.rotation.y = sweep;
+        this.escapeLancerRig.wingsRight.rotation.y = -sweep;
       }
       const glowScale = 1.25 + Math.sin(t * 21) * 0.14;
       for (const g of this.escapeLancerRig.boostGlow) {
@@ -1152,12 +1165,12 @@ export class AirbaseDirector {
   /** Reinforces expendable assault infantry strictly from behind the parked staging troop carriers outside South Gate. */
   private tickStagingTruckReinforcements(dt: number): void {
     if (!this.gateBreached) return;
-    if (this.frontStage !== 'perimeter' && this.frontStage !== 'apron') return;
-    if (this.truckReinforcementsSpawned >= 10) return;
+    if (this.frontStage !== 'perimeter' && this.frontStage !== 'apron' && this.frontStage !== 'tower') return;
+    if (this.truckReinforcementsSpawned >= 16) return;
 
     this.reinforceTimer -= dt;
     if (this.reinforceTimer > 0) return;
-    this.reinforceTimer = 11.0;
+    this.reinforceTimer = 9.0;
 
     // Prune dead expendables
     for (let i = this.assaultTroops.length - 1; i >= 0; i--) {
@@ -1168,7 +1181,7 @@ export class AirbaseDirector {
     if (this.assaultTroops.length >= 8 || totalAllies >= 18) return;
 
     const posts = FRONT_POSTS[this.frontStage];
-    const toSpawn = Math.min(2, 8 - this.assaultTroops.length, 10 - this.truckReinforcementsSpawned);
+    const toSpawn = Math.min(2, 8 - this.assaultTroops.length, 16 - this.truckReinforcementsSpawned);
     for (let i = 0; i < toSpawn; i++) {
       const bay = STAGING_TRUCK_BAYS[(this.truckReinforcementsSpawned + i) % STAGING_TRUCK_BAYS.length]!;
       const post = posts[(this.truckReinforcementsSpawned + i) % posts.length]!;
@@ -1201,7 +1214,7 @@ export class AirbaseDirector {
       this.detonatePipelineBlast(b);
     }
 
-    // 1. Pulse JP-8 depot markers & watch JP-8 fuel depots via DestructionManager clusters
+    // 1. Pulse JP-8 depot markers & watch the deep North JP-8 Main Manifold via DestructionManager clusters
     if (this.fuelWatchActive && !this.fuelBlownSignaled) {
       this.beaconPulse += dt * 5.2;
       const pulseScale = 0.85 + Math.sin(this.beaconPulse) * 0.3;
@@ -1214,7 +1227,7 @@ export class AirbaseDirector {
 
       const dest = this.ctx.world?.objects?.destruction;
       if (dest) {
-        for (const depot of FUEL_DEPOTS) {
+        for (const depot of GATE_FUEL_DEPOTS) {
           const cluster = dest.getCluster(depot.id);
           if (!cluster) continue;
           const withNodes = cluster as { getNode?: (id: string) => { state?: string } | undefined };

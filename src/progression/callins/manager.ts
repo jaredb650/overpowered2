@@ -361,7 +361,7 @@ export class CallInManager implements CallinLink {
     this.frameRig?.update(this.ctx.time.playerDt);
     this.driveables.update(this.ctx.time.playerDt, !this.steering && !this.targeting.id);
     this.emplacements.update(dt, !this.steering && !this.targeting.id);
-    if (this.holstered && !this.aiming && !this.seats.occupied) {
+    if (this.holstered && !this.aiming && !this.seats.occupied && !this.ctx.player.parked) {
       this.gunBackIn -= dt;
       if (this.gunBackIn <= 0) this.drawGun();
     }
@@ -371,7 +371,7 @@ export class CallInManager implements CallinLink {
   /** Nothing can be called from a seat: leave it first. */
   private readKeys(dt: number): void {
     const { input } = this.ctx;
-    if (this.steering || this.seats.occupied) {
+    if (this.steering || this.seats.occupied || this.ctx.player.parked) {
       this.tapHold.cancel();
       return;
     }

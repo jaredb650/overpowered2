@@ -31,6 +31,7 @@ export class CutscenePlayer {
   private total = 0;
   private done: ((skipped: boolean) => void) | null = null;
   private figure: CharacterInstance | null = null;
+  private lockedBlack = false;
   /**
    * Co-op: asked when this player presses skip. True ends the film here and now, as it does alone; false leaves it running (the
    * press was a vote, and net/mission.ts ends every screen's film together). Unset alone.
@@ -43,11 +44,17 @@ export class CutscenePlayer {
     return this.scene !== null;
   }
 
+  private setViewVisible(visible: boolean): void {
+    const viewScene = this.ctx.render?.viewScene;
+    if (viewScene) viewScene.visible = visible;
+  }
+
   /** `from`: seconds into it, for a co-op player who arrives while it runs. Past its end, it is over at once. */
   play(scene: Cutscene, done: (skipped: boolean) => void, from = 0): void {
     const { camera, hud, player, weapons } = this.ctx;
     // Co-op: a film sent again while it runs (a catch-up that crossed its start) is the one already playing.
-    if (this.scene) this.release();
+    if (this.scene) this.release(false);
+    this.lockedBlack = false;
     this.scene = scene;
     this.index = this.clock = this.total = 0;
     this.done = done;
@@ -68,6 +75,7 @@ export class CutscenePlayer {
     this.total = from;
     player.park(player.position);
     weapons.setHolstered(true);
+    this.setViewVisible(false);
     camera.setSeat(this.view);
     hud.seat(this.ui.cinema);
     if (scene.figure) this.stage(scene.figure);
@@ -126,6 +134,8 @@ export class CutscenePlayer {
   update(dt: number): void {
     const { scene } = this;
     if (!scene) return;
+    this.ctx.weapons?.setHolstered?.(true);
+    this.setViewVisible(false);
     this.clock += dt;
     this.total += dt;
     this.figure?.anim.update(dt, 0);
@@ -153,13 +163,13 @@ export class CutscenePlayer {
     const { ui } = this;
     const { endsBlack } = this.scene!;
     const done = this.done;
-    this.release();
+    this.release(endsBlack === true);
     ui.curtain(1);
     if (!endsBlack) ui.lift(LIFT_SECONDS);
     done?.(skipped);
   }
 
-  private release(): void {
+  private release(keepLocked = false): void {
     const { camera, hud, player, weapons } = this.ctx;
     this.scene = null;
     this.done = null;
@@ -169,12 +179,20 @@ export class CutscenePlayer {
     camera.setSeat(null);
     camera.setZoom(null);
     hud.seat(null);
+    if (keepLocked) {
+      this.lockedBlack = true;
+      weapons.setHolstered(true);
+      this.setViewVisible(false);
+      return;
+    }
+    this.lockedBlack = false;
     player.unpark(0);
+    this.setViewVisible(true);
     weapons.setHolstered(false);
   }
 
   /** A restart or a quit from the pause menu, with the film still running. */
   reset(): void {
-    if (this.scene) this.release();
+    if (this.scene || this.lockedBlack) this.release(false);
   }
 }

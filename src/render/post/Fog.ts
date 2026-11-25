@@ -100,12 +100,12 @@ void main() {
       float h2 = max(dot(q, q) - b * b, 0.04);
       float s = inversesqrt(h2);
       float I = (atan((dist - b) * s) + atan(b * s)) * s;
-      float r = uLightPos[i].w;
+      float r = max(uLightPos[i].w, 1e-3);
       float win = clamp(1.0 - h2 / (r * r), 0.0, 1.0);
       scatter += c * (I * local * win * T * 0.5 / (4.0 * PI));
     }
   }
-  outColor = vec4(scatter, T);
+  outColor = vec4(max(scatter, vec3(0.0)), clamp(T, 0.0, 1.0));
 }`;
 
 const RESOLVE = /* glsl */ `
@@ -125,11 +125,16 @@ void main() {
   ivec2 p = ivec2(gl_FragCoord.xy);
   ivec2 last = ivec2(uLast);
   vec4 cur = texelFetch(tCurrent, p, 0);
+  if (any(isnan(cur)) || any(isinf(cur))) cur = vec4(0.0, 0.0, 0.0, 1.0);
+  if (uBlend <= 0.001) { outColor = cur; return; }
   float z = min(texelFetch(tDepth, p, 0).r, 400.0);
   vec3 eye = vec3((vUv * 2.0 - 1.0) * uTanHalf * z, -z);
   vec4 world = uCamToWorld * vec4(eye, 1.0);
   vec4 prev = uPrevViewProj * world;
+  if (prev.w <= 1e-4) { outColor = cur; return; }
   vec2 uv = prev.xy / prev.w * 0.5 + 0.5;
+  float inside = step(0.0, uv.x) * step(uv.x, 1.0) * step(0.0, uv.y) * step(uv.y, 1.0);
+  if (inside <= 0.0) { outColor = cur; return; }
 
   // Clamp history to the local range of this frame. That rejects stale fog after fast motion
   // while keeping the temporal average in smooth areas.
@@ -138,8 +143,9 @@ void main() {
   vec4 lo = min(min(min(a, b), min(c, d)), cur);
   vec4 hi = max(max(max(a, b), max(c, d)), cur);
   vec4 pad = (hi - lo) * 0.3 + 1e-4;
-  vec4 hist = clamp(texture(tHistory, min(uv * uHistoryScale, uHistoryEdge)), lo - pad, hi + pad);
-  float inside = step(0.0, uv.x) * step(uv.x, 1.0) * step(0.0, uv.y) * step(uv.y, 1.0);
+  vec4 rawHist = texture(tHistory, min(uv * uHistoryScale, uHistoryEdge));
+  if (any(isnan(rawHist)) || any(isinf(rawHist))) { outColor = cur; return; }
+  vec4 hist = clamp(rawHist, lo - pad, hi + pad);
   outColor = mix(cur, hist, uBlend * inside);
 }`;
 
@@ -219,6 +225,8 @@ export class Fog {
   private frame = 0;
   private readonly noise = noiseVolume();
   private readonly prevViewProj = new THREE.Matrix4();
+  private readonly prevCamPos = new THREE.Vector3();
+  private readonly curCamPos = new THREE.Vector3();
   private hasHistory = false;
   private readonly scale = new THREE.Vector2(1, 1);
   private readonly edge = new THREE.Vector2(1, 1);
@@ -293,6 +301,9 @@ export class Fog {
     (u.uScatter!.value as THREE.Vector3).set(s.bakedGain, s.moonGain, s.anisotropy);
     this.march!.render(renderer, this.raw);
 
+    this.curCamPos.setFromMatrixPosition(camera.matrixWorld);
+    const cameraCut = this.hasHistory && this.curCamPos.distanceToSquared(this.prevCamPos) > 400;
+
     const r = this.resolve.uniforms;
     const prev = this.flip;
     this.flip = 1 - this.flip;
@@ -302,11 +313,12 @@ export class Fog {
     (r.uCamToWorld!.value as THREE.Matrix4).copy(camera.matrixWorld);
     (r.uTanHalf!.value as THREE.Vector2).copy(tanHalf);
     (r.uPrevViewProj!.value as THREE.Matrix4).copy(this.prevViewProj);
-    r.uBlend!.value = this.hasHistory ? 0.9 : 0;
+    r.uBlend!.value = this.hasHistory && !cameraCut ? 0.9 : 0;
     this.resolve.render(renderer, this.history[this.flip]!);
     (r.uHistoryScale!.value as THREE.Vector2).copy(this.scale);
     (r.uHistoryEdge!.value as THREE.Vector2).copy(this.edge);
     this.hasHistory = true;
+    this.prevCamPos.copy(this.curCamPos);
     this.prevViewProj.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
   }
 

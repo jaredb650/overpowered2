@@ -67,16 +67,21 @@ void main() {
     }
   }
   if (needAo) {
+    if (isnan(ao) || isinf(ao)) ao = 1.0;
     float hot = smoothstep(1.0, 3.5, max(c.r, max(c.g, c.b)));
     c *= mix(1.0, ao, uAo * (1.0 - hot));
   }
   // ssr.rgb is premultiplied by nothing, a is ray confidence. The reflection replaces part of what the
   // forward pass guessed from the volume, so it only adds where it finds something brighter.
   if (needSsr) {
+    if (any(isnan(ssr)) || any(isinf(ssr))) ssr = vec4(0.0);
     float reflectivity = (1.0 - sceneTexel.a) * ssr.a * uSsr;
     c = mix(c, max(c, c * (1.0 - reflectivity) + ssr.rgb * reflectivity), min(reflectivity * 8.0, 1.0));
   }
-  if (needFog) c = mix(c, c * fog.a + fog.rgb, uFog);
+  if (needFog) {
+    if (any(isnan(fog)) || any(isinf(fog))) fog = vec4(0.0, 0.0, 0.0, 1.0);
+    c = mix(c, c * fog.a + fog.rgb, uFog);
+  }
   outColor = vec4(c, 1.0);
 }`;
 
