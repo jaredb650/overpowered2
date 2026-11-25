@@ -106,7 +106,7 @@ export const CROSSFIRE_STRAIT: Mission = {
         say('council.jamming'),
         { do: 'music', state: 'hard' },
         { do: 'call', name: 'cf.straitWave', arg: 'outbound_probe' },
-        say('wingman.probe.bogeys', { now: true }),
+        say('wingman.probe.bogeys'),
         {
           do: 'until',
           when: {
@@ -138,7 +138,7 @@ export const CROSSFIRE_STRAIT: Mission = {
         say('halvorsen.gauntlet.fire'),
         { do: 'call', name: 'cf.straitDestroyersHot', arg: 'destroyerWest,destroyerEast' },
         { do: 'call', name: 'cf.straitWave', arg: 'destroyer_strike' },
-        say('wingman.gauntlet.sams', { now: true }),
+        say('wingman.gauntlet.sams'),
         { do: 'objective', id: 'survive_gauntlet', text: 'Shred the Harrier/Warthog strike wing and suppress the Missile Destroyers', at: 'destroyerWest' },
         { do: 'hint', text: 'Pop [Q] flares to decoy destroyer SeaRAMs and knock out their deck launchers! Damaged? Form up alongside the B-1B Lancer to repair your F-22 hull.', seconds: 9 },
         {
@@ -172,7 +172,7 @@ export const CROSSFIRE_STRAIT: Mission = {
         say('halvorsen.coastal.aces'),
         { do: 'call', name: 'cf.straitWave', arg: 'coastal_aces' },
         { do: 'call', name: 'cf.straitFeetDryWatch', arg: 'lancerFeetDry,halcyonCoastObj' },
-        say('wingman.coastal.incoming', { now: true }),
+        say('wingman.coastal.incoming'),
         { do: 'objective', id: 'clear_coastal_aces', text: 'Down Halvorsen’s Raptor Ace + Hornet CAP and escort the Lancer feet-dry', at: 'halcyonCoastObj' },
         {
           do: 'until',
@@ -185,7 +185,7 @@ export const CROSSFIRE_STRAIT: Mission = {
           },
         },
         { do: 'done', id: 'clear_coastal_aces' },
-        say('wingman.coastal.feet_dry', { now: true }),
+        say('wingman.coastal.feet_dry'),
         say('council.handoff.halcyon', { wait: true }),
         { do: 'call', name: 'cf.handoffToHalcyon' },
         { do: 'wait', seconds: 2.0 },

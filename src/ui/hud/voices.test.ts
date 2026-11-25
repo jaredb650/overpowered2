@@ -192,3 +192,25 @@ it('tracks bodiless pilot/crew radio slots by speaker and cuts only the shot-dow
   expect(spectreSlot?.playing).toBe(true);
 });
 
+it('ducks enemy radio and chopper chatter while campaign/mission dialogue is talking', () => {
+  const camera = new THREE.PerspectiveCamera();
+  camera.updateMatrixWorld();
+  const campaign = { talking: true };
+  const ctx = { render: { camera }, player: { eye: new THREE.Vector3() }, campaign } as unknown as Ctx;
+  const settings = { master: 1, sfx: 1, voices: 1 } as Settings;
+  const audios: FakeAudio[] = [];
+  const voices = new ChatterVoices(ctx, settings, {
+    audio: () => { const a = new FakeAudio(); audios.push(a); return a as unknown as HTMLAudioElement; },
+    list: async () => ({ clips: [] }),
+    context: () => null,
+  });
+
+  expect(voices.say(line(RADIO, man(EARSHOT + 50), 0, { squad: 'Charlie' }))).toBe(true);
+  expect(audios[0]!.volume).toBeLessThan(0.3);
+
+  campaign.talking = false;
+  voices.update(0.016, false);
+  expect(audios[0]!.volume).toBeCloseTo(1);
+});
+
+

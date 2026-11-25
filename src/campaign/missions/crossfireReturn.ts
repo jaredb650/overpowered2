@@ -107,7 +107,7 @@ export const CROSSFIRE_RETURN: Mission = {
         { do: 'cutscene', id: 'duskReturnIntro' },
         { do: 'banner', text: 'DUSK EGRESS', sub: 'PART 04 OF 04 // DEFEND THE WOUNDED LANCER' },
         { do: 'call', name: 'cf.straitWave', arg: 'return_ambush' },
-        say('wingman.ambush.start', { now: true }),
+        say('wingman.ambush.start'),
         say('wingman.ambush.lancer'),
         { do: 'objective', id: 'break_ambush', text: 'Defend the smoking B-1B Lancer from Red-Wing Squadron (2 Ace Raptors + 4 Hornets)', at: 'lancerReturnMid' },
         { do: 'hint', text: 'Halvorsen’s Red-Wing Aces are diving at the wounded bomber! Prioritize the Ace Raptors — form up alongside the Lancer anytime to repair your F-22 hull.', seconds: 9 },
@@ -152,7 +152,7 @@ export const CROSSFIRE_RETURN: Mission = {
           },
         },
         { do: 'done', id: 'reach_umbrella' },
-        say('wingman.carrier.safe', { now: true }),
+        say('wingman.carrier.safe'),
         { do: 'goto', beat: 'debrief' },
       ],
       cues: [

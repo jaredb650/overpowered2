@@ -30,11 +30,13 @@ const NEAR = 14;
 const FAR_LEVEL = 0.42;
 /** Other lines under a warning. */
 const UNDER_WARNING = 0.38;
+/** Enemy/ambient chatter ducks under mission radio (Viper, Council, Darrow, Mercer, Halvorsen). */
+const UNDER_CAMPAIGN = 0.24;
 const CUT_FADE = 0.03;
-/** Voice clips peak around -7 dB while gunfire peaks near -1.5 dB; boost via Web Audio so callouts cut through combat. */
-const VOICE_GAIN = 1.65;
-/** Makeup gain on the 300–3200 Hz radio bandpass so radio traffic matches direct shouts. */
-const RADIO_MAKEUP = 1.35;
+/** Voice clips peak around -7 dB while gunfire peaks near -1.5 dB; boost via Web Audio so callouts cut through combat without drowning mission dialogue. */
+const VOICE_GAIN = 1.35;
+/** Makeup gain on the 300–3200 Hz radio bandpass so enemy chopper/radio traffic stays tucked below mission radio. */
+const RADIO_MAKEUP = 0.85;
 /** Recovery guards so a stuck element never leaks a pool slot. */
 const LOAD_GRACE = 3.5;
 const MAX_PLAY_AGE = 9;
@@ -246,11 +248,12 @@ export class ChatterVoices {
       const p = this.pool[i]!;
       if (p.playing && p.rank === RANK.critical) { warning = true; break; }
     }
+    const campaignDuck = this.ctx.campaign?.talking === true ? UNDER_CAMPAIGN : 1;
     const camera = this.ctx.render.camera;
     for (const p of this.pool) {
       if (!p.playing) continue;
       if (!p.radio && !p.enemy) continue;
-      let level = this.level * (warning && p.rank < RANK.critical ? UNDER_WARNING : 1);
+      let level = this.level * campaignDuck * (warning && p.rank < RANK.critical ? UNDER_WARNING : 1);
       let side = 0;
       if (!p.radio && p.enemy) {
         const d = this.distance(p.enemy);

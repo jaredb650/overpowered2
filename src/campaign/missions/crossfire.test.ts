@@ -170,6 +170,19 @@ describe('Crossfire 4-part campaign missions', () => {
       expect(getHalcyonTarget(targetId), `missing Halcyon target "${targetId}"`).toBeDefined();
     }
   });
+
+  it('queues mission dialogue cleanly without interrupting active speakers with now: true', () => {
+    for (const mission of ALL_MISSIONS) {
+      for (const step of collectSteps(mission)) {
+        if (step.do === 'say') {
+          expect(
+            step.now,
+            `${mission.id} say step "${step.line}" should not interrupt active dialogue with now: true`,
+          ).not.toBe(true);
+        }
+      }
+    }
+  });
 });
 
 describe('Crossfire multi-map chain state (`chain.ts`)', () => {

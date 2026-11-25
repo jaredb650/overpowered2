@@ -27,6 +27,8 @@ const LOAD_GRACE = 4;
 const STALL_GRACE = 2.5;
 /** Seconds a clip that is cut off takes to go, so that it stops rather than clicks. */
 const FADE_SECONDS = 0.1;
+/** Clean presence boost for mission/commander radio so Viper, Council, and bosses cut clearly over combat and enemy chatter. */
+const VOICE_BOOST = 1.45;
 
 type ClipList = ReadonlySet<string>;
 
@@ -63,14 +65,18 @@ const PAGE: VoiceDeps = {
 };
 
 /** Lets go of an element and of whatever it was still downloading. */
-function unload(audio: HTMLAudioElement): void {
+function unload(audio: HTMLAudioElement, src?: MediaElementAudioSourceNode, gain?: GainNode): void {
   audio.pause();
   audio.removeAttribute('src');
   audio.load();
+  try { src?.disconnect(); } catch {}
+  try { gain?.disconnect(); } catch {}
 }
 
 interface Playing {
   audio: HTMLAudioElement;
+  src?: MediaElementAudioSourceNode;
+  gain?: GainNode;
   /** Takes every listener off it at once, so a clip that has been replaced cannot act on the one that replaced it. */
   off: AbortController;
   started: boolean;
@@ -81,6 +87,8 @@ interface Playing {
 
 interface Fading {
   audio: HTMLAudioElement;
+  src?: MediaElementAudioSourceNode;
+  gain?: GainNode;
   from: number;
   left: number;
 }
@@ -149,8 +157,17 @@ export class Voice {
     if (!p) return;
     p.off.abort();
     // Cut off mid-word, it fades. Anything not yet sounding just goes.
-    if (p.started && !p.audio.paused) this.fading.push({ audio: p.audio, from: p.audio.volume, left: FADE_SECONDS });
-    else unload(p.audio);
+    if (p.started && !p.audio.paused) {
+      this.fading.push({
+        audio: p.audio,
+        src: p.src,
+        gain: p.gain,
+        from: p.gain ? p.gain.gain.value : p.audio.volume,
+        left: FADE_SECONDS,
+      });
+    } else {
+      unload(p.audio, p.src, p.gain);
+    }
   }
 
   /** Every frame the game runs: fades, the wait for the list, and a watch on a clip that has stopped coming. */
@@ -159,10 +176,12 @@ export class Voice {
       const f = this.fading[i]!;
       f.left -= dt;
       if (f.left > 0) {
-        f.audio.volume = f.from * (f.left / FADE_SECONDS);
+        const nextLevel = f.from * (f.left / FADE_SECONDS);
+        if (f.gain) f.gain.gain.value = nextLevel;
+        else f.audio.volume = nextLevel;
         continue;
       }
-      unload(f.audio);
+      unload(f.audio, f.src, f.gain);
       this.fading.splice(i, 1);
     }
     if (this.paused || this.hidden) return;
@@ -195,14 +214,15 @@ export class Voice {
     this.current = null;
     if (was) {
       was.off.abort();
-      unload(was.audio);
+      unload(was.audio, was.src, was.gain);
     }
     const clip = this.queue.shift();
     if (!clip) return;
     const audio = this.deps.audio(`${BASE}${encodeURIComponent(clip)}.mp3`);
     const p: Playing = { audio, off: new AbortController(), started: false, at: -1, still: 0 };
     const mine = { signal: p.off.signal };
-    audio.volume = this.level;
+    this.attachBoost(p);
+    this.applyLevel(p);
     audio.addEventListener('ended', () => this.next(), mine);
     // A file that will not play is a line that stays as text.
     audio.addEventListener('error', () => this.next(), mine);
@@ -219,6 +239,10 @@ export class Voice {
   }
 
   private start(p: Playing): void {
+    if (p.gain) {
+      const ac = p.gain.context as AudioContext;
+      if (ac.state === 'suspended') void ac.resume().catch(() => undefined);
+    }
     p.audio.play().catch((err: unknown) => {
       // A pause or a stop got there first, and whoever did it has this clip in hand.
       if (this.current !== p || (err as { name?: unknown } | null)?.name === 'AbortError') return;
@@ -227,7 +251,7 @@ export class Voice {
   }
 
   private resume(p: Playing): void {
-    p.audio.volume = this.level;
+    this.applyLevel(p);
     p.still = 0;
     this.start(p);
   }
@@ -244,8 +268,32 @@ export class Voice {
 
   /** A fade has nobody left to finish it while the game is stopped. */
   private settle(): void {
-    for (const f of this.fading) unload(f.audio);
+    for (const f of this.fading) unload(f.audio, f.src, f.gain);
     this.fading.length = 0;
+  }
+
+  private attachBoost(p: Playing): void {
+    if (this.deps !== PAGE) return;
+    const ac = (this.ctx.audio as { context?: AudioContext | null } | undefined)?.context ?? null;
+    if (!ac || typeof ac.createMediaElementSource !== 'function') return;
+    try {
+      const src = ac.createMediaElementSource(p.audio);
+      const gain = ac.createGain();
+      src.connect(gain).connect(ac.destination);
+      p.audio.volume = 1;
+      p.src = src;
+      p.gain = gain;
+    } catch {
+      // Fall back cleanly to plain HTMLAudioElement.volume.
+    }
+  }
+
+  private applyLevel(p: Playing): void {
+    if (p.gain) {
+      p.gain.gain.value = Math.max(0, this.level * VOICE_BOOST);
+    } else {
+      p.audio.volume = Math.min(1, Math.max(0, this.level));
+    }
   }
 
   private duck(): void {
