@@ -62,9 +62,9 @@ export const ROLE_VOICE_POOLS: Readonly<Record<AirCrewRole, readonly number[]>> 
   // Rotorcraft & air-assault crews.
   chopper: [VOICE_INDEX.pcow, VOICE_INDEX.tchief],
   doorGunner: [VOICE_INDEX.tchief],
-  transport: [VOICE_INDEX.tunion, VOICE_INDEX.tsurf, VOICE_INDEX.ttruck],
-  // Armored vehicle / tank commanders.
-  tank: [VOICE_INDEX.tsmug, VOICE_INDEX.tsgt, VOICE_INDEX.tbrawl, VOICE_INDEX.thull],
+  transport: [VOICE_INDEX.tchief, VOICE_INDEX.pvet],
+  // Armored vehicle / tank commanders (ironclad veteran sergeant first).
+  tank: [VOICE_INDEX.tsgt, VOICE_INDEX.tbrawl, VOICE_INDEX.thull],
 };
 
 const CALLSIGN_POOLS: Record<AirCrewRole, { prefix: readonly string[]; flight: string }> = {

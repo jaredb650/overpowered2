@@ -15,7 +15,7 @@ import { breaking, revenge, tickOutcomes } from './outcomes';
 import { FAKE_RANGE, FUMBLE_SECONDS, plotting } from '../flight';
 import { HABIT_AT, PlayerMemory, rememberPlayer } from './memory';
 import { Offers } from './offers';
-import { VOICE_COUNT } from './voices';
+import { BLACKLISTED_VOICES, VOICE_COUNT, VOICES } from './voices';
 import { ACE_VOICES, ROLE_VOICE_POOLS, cutAir, makeAirSpeaker, resetAirRadio, sayAir, type AirCrewRole } from './airRadio';
 import { VehicleChatter } from './vehicles';
 import * as THREE from 'three';
@@ -922,6 +922,25 @@ describe('combined-arms air radio, vehicle chatter, and vehicle habits', () => {
     expect(ace1.voice).not.toBe(ace2.voice);
     expect(aceSet.has(wing1.voice)).toBe(false);
     expect(ROLE_VOICE_POOLS.tank).toContain(tank1.voice);
+    expect(VOICES[tank1.voice]).toBe('tsgt');
+    const transport1 = makeAirSpeaker('transport');
+    expect(ROLE_VOICE_POOLS.transport).toContain(transport1.voice);
+    expect(VOICES[transport1.voice]).toBe('tchief');
+  });
+
+  it('blacklists deleted comedy transport and smug tank voices from VOICES, pools, and manifest', async () => {
+    for (const v of VOICES) {
+      expect(BLACKLISTED_VOICES.has(v), `blacklisted voice "${v}" must not be in VOICES`).toBe(false);
+    }
+    const { readFileSync } = await import('node:fs');
+    const manifest = JSON.parse(readFileSync('public/audio/chatter/manifest.json', 'utf8')) as { clips: string[] };
+    for (const clip of manifest.clips) {
+      const suf = clip.slice(clip.lastIndexOf('.') + 1);
+      expect(BLACKLISTED_VOICES.has(suf), `blacklisted clip "${clip}" must not be in chatter manifest`).toBe(false);
+    }
+    expect(manifest.clips).toContain('ch.garrison.airInbound.transport.1.tchief');
+    expect(manifest.clips).toContain('ch.garrison.airStrike.transport.ropes.1.tchief');
+    expect(manifest.clips).toContain('ch.garrison.airInbound.transport.1.pvet');
   });
 });
 

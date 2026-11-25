@@ -68,19 +68,18 @@ Currently saved voices:
 
 | Voice ID (`voice_id`) | Chatter suffix | Assigned In-Game NPCs | Personality / archetype | Notes |
 |---|---|---|---|---|
-| `tank_ironclad_sgt` | `.tsgt` | **Enemy Tank Commanders** (`GroundVehicle` tanks in Badlands/Endless) | Old-school gravelly veteran sergeant | Also a strong candidate for Captain Mercer (`crossfire.lines.ts`) or allied Aegis tank lead |
-| `tank_smug_tactician` | `.tsmug` | **Enemy Tank Commanders** (`GroundVehicle` tanks in Badlands/Endless) | Crisp British armor tactician | Dry condescension — rival / enemy armor commander |
+| `tank_ironclad_sgt` | `.tsgt` | **Enemy Tank Commanders** (`GroundVehicle` tanks, lead) & **Captain Mercer** (`crossfire.lines.ts`) | Old-school gravelly veteran sergeant | Lead armor commander voice |
 | `tank_metal_brawler` | `.tbrawl` | **Enemy Tank Commanders** (`GroundVehicle` tanks in Badlands/Endless) | Booming, gleeful heavy-metal brawler | Upbeat demolition tank commander |
 | `tank_hulldown_perf` | `.thull` | **Enemy Tank Commanders** (`GroundVehicle` tanks in Badlands/Endless) | Tightly-wound female hull-down perfectionist | Clipped, tactical, obsessed with angles & maintenance budgets |
 
-#### Troop Transport & Convoy Crews
+#### Troop Transport & Air-Assault Crews
 
 | Voice ID (`voice_id`) | Chatter suffix | Assigned In-Game NPCs | Personality / archetype | Notes |
 |---|---|---|---|---|
-| `transport_union_driver` | `.tunion` | **Fast-Rope Assault Transport** (`FastRopeHeli`) | Clock-watching blue-collar union bus driver | Dropship insertion pilot (`Packmule 2-3` vibe) |
-| `transport_hotdrop_surfer` | `.tsurf` | **Fast-Rope Assault Transport** (`FastRopeHeli`) | Laid-back West Coast surfer pilot | Valkyrie fast-rope / hot-drop pilot |
-| `transport_crew_chief` | `.tchief` | **Door Gunners** (`EnemyDoorGunner`) & **Enemy Attack Choppers** (`EnemyChopper`) | Grizzled, raspy crew chief / door gunner | Punchy ramp & minigun callouts |
-| `transport_convoy_trucker` | `.ttruck` | **Fast-Rope Assault Transport / Convoy Crews** (`FastRopeHeli`) | Friendly Midwestern convoy trucker | APC / Humvee / overland convoy & lift crew |
+| `transport_crew_chief` | `.tchief` | **Fast-Rope Assault Transport** (`FastRopeHeli`), **Door Gunners** (`EnemyDoorGunner`) & **Enemy Attack Choppers** (`EnemyChopper`) | Grizzled, raspy military crew chief | Lead fast-rope & door-gunner callouts (paired with `.pvet` for transport) |
+
+#### Blacklisted / Deleted Voices (DO NOT RECREATE OR USE)
+- `transport_union_driver` (`.tunion`), `transport_hotdrop_surfer` (`.tsurf`), `transport_convoy_trucker` (`.ttruck`), and `tank_smug_tactician` (`.tsmug`) have been permanently deleted and blacklisted (`BLACKLISTED_VOICES` in `src/enemies/outpost/chatter/voices.ts`). Do not recreate or assign them.
 
 #### Crossfire Campaign Commanders (`src/campaign/missions/crossfire.lines.ts`)
 

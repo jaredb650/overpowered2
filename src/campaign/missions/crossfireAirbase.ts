@@ -21,7 +21,6 @@ import {
   AIRBASE_PLAYER_SPAWN,
   AIRBASE_PLAYER_YAW,
   AIRBASE_RUNWAY,
-  AIRBASE_SKY_SPAWNS,
   AIRBASE_SOUTH_GATE,
   AIRBASE_TAKEOFF_GATE,
   AIRBASE_VEHICLE_ROUTES,
@@ -96,9 +95,8 @@ const MARKS: Readonly<Record<string, Mark>> = {
   apronSouthLine: { at: APRON_SPAWNS[1]!.at, yaw: Math.PI },
   apronCatwalk: { at: APRON_SPAWNS[3]!.at, yaw: APRON_SPAWNS[3]!.yaw },
   apronNorthLine: { at: APRON_SPAWNS[6]!.at, yaw: Math.PI },
-  apronChopperIn: { at: AIRBASE_SKY_SPAWNS[2]!, yaw: Math.PI * 0.25 },
-  apronChopperDrop: { at: [-24, 15, 58], yaw: 0, hold: 4.5 },
-  apronChopperOut: { at: AIRBASE_SKY_SPAWNS[4]!, yaw: -Math.PI * 0.5 },
+  apronChopperIn: { at: [-155, 42, 34], yaw: Math.PI * 0.4 },
+  apronChopperDrop: { at: [-24, 0, 58], yaw: 0, hold: 4.5 },
 
   // Section 3: 3-Level ATC Tower (y = 0, 3.6, 7.2, 10.8)
   atcGround: { at: ATC_SPAWNS[0]!.at, yaw: Math.PI },
@@ -142,7 +140,7 @@ const MARKS: Readonly<Record<string, Mark>> = {
 
 const ROUTES: Readonly<Record<string, readonly string[]>> = {
   qrfWestApron: ['qrfWest0', 'qrfWest1', 'qrfWest2', 'qrfWest3'],
-  apronChopper: ['apronChopperIn', 'apronChopperDrop', 'apronChopperOut'],
+  apronChopper: ['apronChopperDrop'],
   tankRunwayNorth: ['tankNorth0', 'tankNorth1', 'tankNorth2', 'tankNorth3'],
   qrfEastTaxiway: ['qrfEast0', 'qrfEast1', 'qrfEast2', 'qrfEast3'],
 };

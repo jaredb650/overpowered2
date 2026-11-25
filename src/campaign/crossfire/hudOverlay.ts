@@ -56,31 +56,71 @@ export class CrossfireHudOverlay {
   private lastMode: 'none' | 'strait' | 'halcyon' = 'none';
   private lastBadgeSignature = '';
 
+  private anchorToObjectives(root: HTMLElement): void {
+    const objs = document.querySelector('.hud .col-left .ms-objs');
+    const colLeft = document.querySelector('.hud .col-left');
+    if (objs && objs.parentElement) {
+      if (root.previousElementSibling !== objs) objs.after(root);
+      Object.assign(root.style, {
+        position: 'relative',
+        top: '',
+        left: '',
+        transform: '',
+        width: '100%',
+        maxWidth: '24rem',
+        marginTop: '-0.3rem',
+      });
+      return;
+    }
+    if (colLeft) {
+      if (root.parentElement !== colLeft) colLeft.appendChild(root);
+      Object.assign(root.style, {
+        position: 'relative',
+        top: '',
+        left: '',
+        transform: '',
+        width: '100%',
+        maxWidth: '24rem',
+        marginTop: '0',
+      });
+      return;
+    }
+    const fallback = document.querySelector('.hud') ?? document.body;
+    if (root.parentElement !== fallback) fallback.appendChild(root);
+    Object.assign(root.style, {
+      position: 'fixed',
+      top: '10rem',
+      left: '2rem',
+      transform: '',
+      width: 'min(24rem, 42vw)',
+      maxWidth: '24rem',
+      marginTop: '0',
+    });
+  }
+
   private ensureDom(): boolean {
     if (typeof document === 'undefined' || !document.body) return false;
-    if (this.root && this.root.isConnected) return true;
+    if (this.root && this.root.isConnected) {
+      this.anchorToObjectives(this.root);
+      return true;
+    }
 
     document.getElementById(ROOT_ID)?.remove();
 
     const root = document.createElement('div');
     root.id = ROOT_ID;
     Object.assign(root.style, {
-      position: 'fixed',
-      top: '96px',
-      left: '50%',
-      transform: 'translateX(-50%)',
-      width: 'min(480px, 84vw)',
-      zIndex: '42',
+      zIndex: '4',
       pointerEvents: 'none',
       userSelect: 'none',
-      fontFamily: '"JetBrains Mono", "Fira Code", ui-monospace, SFMono-Regular, Menlo, monospace',
-      letterSpacing: '0.07em',
-      color: '#e8eef5',
-      background: 'linear-gradient(180deg, rgba(10, 16, 24, 0.84) 0%, rgba(8, 12, 18, 0.72) 100%)',
-      border: '1px solid rgba(56, 232, 255, 0.34)',
-      borderTop: '2px solid #f4b238',
-      boxShadow: '0 10px 28px rgba(0, 0, 0, 0.45)',
-      padding: '8px 12px',
+      boxSizing: 'border-box',
+      fontFamily: 'var(--mono, "JetBrains Mono", "Fira Code", ui-monospace, SFMono-Regular, Menlo, monospace)',
+      letterSpacing: '0.04em',
+      color: 'var(--ink, #e8eef5)',
+      background: 'var(--plate, rgba(10, 14, 20, 0.82))',
+      borderLeft: '2px solid var(--amber, #f4b238)',
+      boxShadow: '0.14rem 0.14rem 0 #000',
+      padding: '6px 9px',
       display: 'none',
     });
 
@@ -89,23 +129,25 @@ export class CrossfireHudOverlay {
       display: 'flex',
       justifyContent: 'space-between',
       alignItems: 'baseline',
-      gap: '10px',
-      marginBottom: '6px',
+      gap: '8px',
+      marginBottom: '4px',
     });
 
     const title = document.createElement('div');
     Object.assign(title.style, {
-      fontSize: '11px',
+      fontSize: '10px',
       fontWeight: '700',
-      color: '#f4b238',
+      color: 'var(--amber, #f4b238)',
       textTransform: 'uppercase',
     });
 
     const sub = document.createElement('div');
     Object.assign(sub.style, {
-      fontSize: '10px',
+      fontSize: '9px',
+      fontWeight: '600',
       color: '#9bb4cc',
       textTransform: 'uppercase',
+      whiteSpace: 'nowrap',
     });
 
     header.appendChild(title);
@@ -117,8 +159,8 @@ export class CrossfireHudOverlay {
     Object.assign(barHeader.style, {
       display: 'flex',
       justifyContent: 'space-between',
-      fontSize: '11px',
-      marginBottom: '3px',
+      fontSize: '10px',
+      marginBottom: '2px',
     });
     const barLabel = document.createElement('span');
     barLabel.style.color = '#d8e6f2';
@@ -131,11 +173,11 @@ export class CrossfireHudOverlay {
     const barTrack = document.createElement('div');
     Object.assign(barTrack.style, {
       width: '100%',
-      height: '7px',
+      height: '5px',
       background: 'rgba(255, 255, 255, 0.1)',
-      border: '1px solid rgba(255, 255, 255, 0.16)',
+      border: '1px solid rgba(255, 255, 255, 0.14)',
       overflow: 'hidden',
-      marginBottom: '6px',
+      marginBottom: '4px',
     });
     const barFill = document.createElement('div');
     Object.assign(barFill.style, {
@@ -149,14 +191,14 @@ export class CrossfireHudOverlay {
 
     // Secondary transit bar (Strait mode)
     const secRow = document.createElement('div');
-    Object.assign(secRow.style, { display: 'none', marginTop: '4px' });
+    Object.assign(secRow.style, { display: 'none', marginTop: '3px' });
     const secHead = document.createElement('div');
     Object.assign(secHead.style, {
       display: 'flex',
       justifyContent: 'space-between',
-      fontSize: '10px',
+      fontSize: '9px',
       color: '#9bb4cc',
-      marginBottom: '3px',
+      marginBottom: '2px',
     });
     const secLabel = document.createElement('span');
     const secValue = document.createElement('span');
@@ -165,7 +207,7 @@ export class CrossfireHudOverlay {
     const secTrack = document.createElement('div');
     Object.assign(secTrack.style, {
       width: '100%',
-      height: '5px',
+      height: '4px',
       background: 'rgba(255, 255, 255, 0.08)',
       overflow: 'hidden',
     });
@@ -186,8 +228,8 @@ export class CrossfireHudOverlay {
     Object.assign(badgeRow.style, {
       display: 'none',
       flexWrap: 'wrap',
-      gap: '5px',
-      marginTop: '6px',
+      gap: '4px',
+      marginTop: '4px',
     });
     root.appendChild(badgeRow);
 
@@ -195,10 +237,11 @@ export class CrossfireHudOverlay {
     const callout = document.createElement('div');
     Object.assign(callout.style, {
       display: 'none',
-      marginTop: '6px',
-      paddingTop: '5px',
+      marginTop: '4px',
+      paddingTop: '4px',
       borderTop: '1px solid rgba(255, 255, 255, 0.12)',
-      fontSize: '10px',
+      fontSize: '9px',
+      lineHeight: '1.3',
       color: '#ffd25a',
       textTransform: 'uppercase',
     });
@@ -208,18 +251,17 @@ export class CrossfireHudOverlay {
     const repair = document.createElement('div');
     Object.assign(repair.style, {
       display: 'none',
-      marginTop: '5px',
-      padding: '4px 7px',
+      marginTop: '4px',
+      padding: '3px 6px',
       borderRadius: '2px',
-      fontSize: '10px',
+      fontSize: '9px',
       fontWeight: '700',
       textTransform: 'uppercase',
-      letterSpacing: '0.08em',
+      letterSpacing: '0.05em',
     });
     root.appendChild(repair);
 
-    const mount = document.querySelector('.hud') ?? document.body;
-    mount.appendChild(root);
+    this.anchorToObjectives(root);
 
     this.root = root;
     this.titleEl = title;

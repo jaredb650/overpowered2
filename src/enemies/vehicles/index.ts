@@ -254,8 +254,13 @@ export class VehicleSystem implements VehicleTargets {
       return;
     }
     if (order.kind === 'transport') {
-      const lz = route[0] ? new THREE.Vector3(...route[0].at) : new THREE.Vector3(...at.at);
-      this.spawnTransport(_a.set(...at.at), lz, lz.y + 12, order.crew ?? [], order.tag);
+      const first = route[0];
+      const sameAsSpawn = first
+        ? Math.hypot(first.at[0] - at.at[0], first.at[2] - at.at[2]) < 2
+        : false;
+      const drop = (sameAsSpawn ? route[1] : first) ?? at;
+      const lz = new THREE.Vector3(...drop.at);
+      this.spawnTransport(_a.set(...at.at), lz, lz.y + 12, order.crew ?? [], crewTag ?? order.tag);
       return;
     }
     if (order.kind === 'doorGunner') {
