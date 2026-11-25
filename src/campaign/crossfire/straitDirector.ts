@@ -18,12 +18,13 @@ import * as THREE from 'three';
 import { recordMissionWin } from '../../contracts/unlocks';
 import type { Ctx } from '../../core/contracts';
 import { clamp, rand } from '../../core/math';
-import type { AiCombatJet, AiJetKind } from '../../enemies/dogfight/aiJet';
+import type { AiCombatJet, AiJetKind, EscortHoldingOrbit } from '../../enemies/dogfight/aiJet';
 import type { DriveableManager } from '../../vehicles/drive/manager';
 import type { DriveableVehicle } from '../../vehicles/drive/vehicle';
 import {
   STRAIT_CARRIER_CENTER,
   STRAIT_CARRIER_RECOVERY_Z,
+  STRAIT_DESTROYERS,
   STRAIT_DESTROYER_MOUNTS,
   STRAIT_ENEMY_SECTORS,
   STRAIT_FEET_DRY_Z,
@@ -37,7 +38,7 @@ import {
   type StraitFlightPose,
 } from '../../world/map/strait/plan';
 import type { MissionRunner } from '../runner';
-import { CrossfireAirWing } from './airWing';
+import { CrossfireAirWing, STRAIT_AIR_THEATER } from './airWing';
 import { BaseDefenseSystem } from './baseDefense';
 import {
   CROSSFIRE_DEFAULT_LANCER_MAX_HP,
@@ -47,6 +48,7 @@ import {
   loadChainState,
   transitionToCrossfirePart,
 } from './chain';
+import { DestroyerFleet } from './destroyerShip';
 import { CrossfireHudOverlay } from './hudOverlay';
 
 interface StraitWaveEntry {
@@ -108,11 +110,52 @@ function yawToward(from: THREE.Vector3, to: THREE.Vector3): number {
 export const LANCER_FORMATION_REPAIR_RADIUS = 135;
 export const LANCER_FORMATION_REPAIR_RATE = 120;
 
+const LANCER_ORBIT_PROBE: EscortHoldingOrbit = {
+  centerX: 0,
+  centerZ: 280,
+  altitude: 112,
+  radiusX: 155,
+  radiusZ: 80,
+  speed: 44,
+  direction: 1,
+};
+
+const LANCER_ORBIT_DESTROYERS: EscortHoldingOrbit = {
+  centerX: 0,
+  centerZ: 145,
+  altitude: 124,
+  radiusX: 175,
+  radiusZ: 80,
+  speed: 46,
+  direction: -1,
+};
+
+const LANCER_ORBIT_COASTAL: EscortHoldingOrbit = {
+  centerX: 0,
+  centerZ: -335,
+  altitude: 128,
+  radiusX: 160,
+  radiusZ: 85,
+  speed: 46,
+  direction: 1,
+};
+
+const LANCER_ORBIT_RETURN_AMBUSH: EscortHoldingOrbit = {
+  centerX: 0,
+  centerZ: -210,
+  altitude: 122,
+  radiusX: 160,
+  radiusZ: 85,
+  speed: 44,
+  direction: 1,
+};
+
 type StraitBeatStage = 'start' | 'midstrait' | 'coastal' | 'carrier';
 
 export class StraitDirector {
   private airWing: CrossfireAirWing | null = null;
   private defenses: BaseDefenseSystem | null = null;
+  private destroyers: DestroyerFleet | null = null;
   private built = false;
 
   private mode: 'none' | 'outbound' | 'return' = 'none';
@@ -138,6 +181,7 @@ export class StraitDirector {
   private repairFxCd = 0;
   private playerCrashTimer = -1;
   private spawnedWaveNames = new Set<string>();
+  private activeOrbitTag: string | null = null;
 
   // Saved dawn scene atmosphere so dusk return tint can be cleanly reverted on clear/reset
   private savedBgColor: THREE.Color | null = null;
@@ -178,25 +222,41 @@ export class StraitDirector {
     if (this.built) return;
     this.built = true;
 
-    this.airWing = new CrossfireAirWing(this.ctx, {
-      onWaveCleared: waveId => {
-        this.runner.signal(`cf:wave_cleared_${waveId}`);
+    this.airWing = new CrossfireAirWing(
+      this.ctx,
+      {
+        onWaveCleared: waveId => {
+          this.runner.signal(`cf:wave_cleared_${waveId}`);
+        },
+        onAllyKilled: jet => {
+          if (jet === this.escortLancer && !this.lancerFailed && !this.feetDrySignaled && !this.lancerRecoveredSignaled) {
+            this.lancerFailed = true;
+            this.ctx.hud?.feed?.('B-1B LANCER DESTROYED — ESCORT FAILED!', '#ff3b2f');
+            this.downPlayerCleanly('lancer_destroyed');
+          }
+        },
       },
-      onAllyKilled: jet => {
-        if (jet === this.escortLancer && !this.lancerFailed && !this.feetDrySignaled && !this.lancerRecoveredSignaled) {
-          this.lancerFailed = true;
-          this.ctx.hud?.feed?.('B-1B LANCER DESTROYED — ESCORT FAILED!', '#ff3b2f');
-          this.downPlayerCleanly('lancer_destroyed');
-        }
+      STRAIT_AIR_THEATER,
+    );
+
+    this.destroyers = new DestroyerFleet(this.ctx, {
+      onShipSunk: ship => {
+        // Instantly destroy & hide all surviving SAM/CIWS turrets on the sinking warship!
+        this.defenses?.destroySitesForShip(ship.id);
+        this.checkDestroyerSuppression();
       },
     });
 
     this.defenses = new BaseDefenseSystem(this.ctx, {
-      onDestroyed: (_id, kind) => {
+      onDamaged: (_id, _kind, amount, pos, shipId) => {
+        if (shipId) this.destroyers?.applyTurretDamage(shipId, amount, false, pos);
+      },
+      onDestroyed: (_id, kind, pos, shipId) => {
         this.ctx.hud?.feed?.(
           kind === 'destroyer_sam' ? 'DESTROYER SEARAM LAUNCHER KNOCKED OUT!' : 'DESTROYER CIWS TURRET SILENCED!',
           '#ffd166',
         );
+        if (shipId) this.destroyers?.applyTurretDamage(shipId, 0, true, pos);
         this.checkDestroyerSuppression();
       },
     });
@@ -396,6 +456,11 @@ export class StraitDirector {
       }
     }
 
+    // 4. Spawn dynamic sinkable Southern Missile Destroyers (SNS IRONCLAD & SNS BASTION) for Outbound Beats 1–2
+    if (mode === 'outbound' && stage !== 'coastal') {
+      this.destroyers?.spawnShips(STRAIT_DESTROYERS);
+    }
+
     this.syncHud();
   }
 
@@ -431,19 +496,34 @@ export class StraitDirector {
   private activateDestroyers(): void {
     if (this.destroyersHot || !this.defenses) return;
     this.destroyersHot = true;
-    this.defenses.mountStraitDestroyers(STRAIT_DESTROYER_MOUNTS);
-    this.ctx.hud?.feed?.('SNS IRONCLAD & SNS BASTION WEAPONS HOT — SEARAM SAMs ACTIVE!', '#ff4d3d');
+    if (this.destroyers && this.destroyers.totalCount === 0) {
+      this.destroyers.spawnShips(STRAIT_DESTROYERS);
+    }
+    const liveMounts = this.destroyers && this.destroyers.totalCount > 0
+      ? STRAIT_DESTROYER_MOUNTS.filter(m => this.destroyers!.getShip(m.shipId)?.alive !== false)
+      : STRAIT_DESTROYER_MOUNTS;
+    if (liveMounts.length > 0) {
+      this.defenses.mountStraitDestroyers(liveMounts);
+      this.ctx.hud?.feed?.('SNS IRONCLAD & SNS BASTION WEAPONS HOT — SINK WARSHIPS OR KILL SEARAMs!', '#ff4d3d');
+    } else {
+      this.checkDestroyerSuppression();
+    }
   }
 
   private checkDestroyerSuppression(): void {
     if (!this.destroyersHot || this.destroyersSuppressedSignaled || !this.defenses) return;
+    const allShipsSunk = Boolean(this.destroyers && this.destroyers.allSunkOrSinking);
     const total = this.defenses.totalCount;
-    if (total === 0) return;
     const destroyed = total - this.defenses.aliveCount;
     const aliveSams = this.defenses.getSitesByKind('destroyer_sam').filter(s => s.alive).length;
-    if (aliveSams === 0 || destroyed >= Math.ceil(total * 0.5)) {
+    if (allShipsSunk || (total > 0 && (aliveSams === 0 || destroyed >= Math.ceil(total * 0.5)))) {
       this.destroyersSuppressedSignaled = true;
-      this.ctx.hud?.feed?.('SOUTHERN MISSILE DESTROYERS SUPPRESSED!', '#54ff9d');
+      this.ctx.hud?.feed?.(
+        allShipsSunk
+          ? 'BOTH SOUTHERN MISSILE DESTROYERS SUNK — CORRIDOR CLEAR!'
+          : 'SOUTHERN MISSILE DESTROYERS SUPPRESSED!',
+        '#54ff9d',
+      );
       this.runner.signal(CROSSFIRE_SIGNALS.destroyersSuppressed);
     }
   }
@@ -581,6 +661,78 @@ export class StraitDirector {
     });
   }
 
+  private updateLancerEscortHolding(lancer: AiCombatJet): void {
+    // During intro flyby cutscenes, keep the Lancer at scenic flyby pace so she never races ahead before the player gets control.
+    if (this.isCutscenePlaying()) {
+      lancer.setHoldingOrbit(null);
+      lancer.setSpeedOverride(10);
+      this.activeOrbitTag = null;
+      return;
+    }
+
+    let wantTag: string | null = null;
+    let wantOrbit: EscortHoldingOrbit | null = null;
+    let feedMsg: string | null = null;
+
+    if (this.mode === 'outbound') {
+      const probeActive = !this.destroyersHot && !this.feetDryWatchActive && !this.airWing?.isWaveCleared('outbound_probe');
+      const gauntletActive = this.destroyersHot && (
+        !this.destroyersSuppressedSignaled ||
+        (this.spawnedWaveNames.has('destroyer_strike') && !this.airWing?.isWaveCleared('destroyer_strike'))
+      );
+      const coastalActive = this.feetDryWatchActive &&
+        this.spawnedWaveNames.has('coastal_aces') &&
+        !this.airWing?.isWaveCleared('coastal_aces');
+
+      if (probeActive && (this.activeOrbitTag === 'probe' || lancer.position.z <= 290)) {
+        wantTag = 'probe';
+        wantOrbit = LANCER_ORBIT_PROBE;
+        feedMsg = 'B-1B LANCER HOLDING DEFENSIVE ORBIT — SPLASH THE INTERCEPT PROBE!';
+      } else if (gauntletActive && (this.activeOrbitTag === 'destroyers' || lancer.position.z <= 165)) {
+        wantTag = 'destroyers';
+        wantOrbit = LANCER_ORBIT_DESTROYERS;
+        feedMsg = 'B-1B LANCER HOLDING DEFENSIVE ORBIT — SINK DESTROYERS & CLEAR STRIKE WING!';
+      } else if (coastalActive && (this.activeOrbitTag === 'coastal' || lancer.position.z <= -310)) {
+        wantTag = 'coastal';
+        wantOrbit = LANCER_ORBIT_COASTAL;
+        feedMsg = 'B-1B LANCER HOLDING OFFSHORE ORBIT — DOWN HALVORSEN’S COASTAL ACES!';
+      }
+    } else if (this.mode === 'return') {
+      const ambushActive = !this.umbrellaActive &&
+        this.spawnedWaveNames.has('return_ambush') &&
+        !this.airWing?.isWaveCleared('return_ambush');
+      if (ambushActive && (this.activeOrbitTag === 'return_ambush' || lancer.position.z >= -220)) {
+        wantTag = 'return_ambush';
+        wantOrbit = LANCER_ORBIT_RETURN_AMBUSH;
+        feedMsg = 'WOUNDED LANCER EVADING IN DEFENSIVE ORBIT — BREAK RED-WING AMBUSH!';
+      }
+    }
+
+    if (wantTag !== this.activeOrbitTag) {
+      const prevTag = this.activeOrbitTag;
+      this.activeOrbitTag = wantTag;
+      lancer.setHoldingOrbit(wantOrbit);
+      if (wantOrbit && feedMsg) {
+        this.ctx.hud?.feed?.(feedMsg, '#ffd166');
+      } else if (prevTag && !wantOrbit) {
+        this.ctx.hud?.feed?.('CORRIDOR CLEAR — B-1B LANCER RESUMING TRANSIT!', '#54ff9d');
+      }
+    }
+
+    lancer.setSpeedOverride(wantOrbit ? wantOrbit.speed ?? 44 : 25);
+  }
+
+  private formatDestroyerStatus(): string {
+    const ships = this.destroyers?.ships ?? [];
+    if (ships.length === 0) return 'SNS IRONCLAD & SNS BASTION SEARAM SAMs ACTIVE';
+    const parts = ships.map(s => {
+      const short = s.id.includes('west') ? 'IRONCLAD' : s.id.includes('east') ? 'BASTION' : s.label;
+      return s.alive ? `${short} ${Math.round(s.healthRatio * 100)}%` : `${short} SUNK`;
+    });
+    const suffix = this.escortLancer?.isHoldingOrbit ? ' · LANCER HOLDING ORBIT' : ' · SINK WARSHIPS';
+    return `${parts.join(' · ')}${suffix}`;
+  }
+
   private syncHud(): void {
     if (this.mode === 'none' || !this.escortLancer || this.debriefComplete) {
       this.hudOverlay.hide();
@@ -595,18 +747,25 @@ export class StraitDirector {
     const remainingDist = Math.max(0, Math.abs(targetZ - lancer.position.z));
     const speed = Math.max(18, lancer.speed);
     const bandits = this.airWing?.aliveEnemyCount() ?? 0;
+    const holdingOrbit = lancer.isHoldingOrbit;
 
     let statusLine: string | undefined;
     if (this.mode === 'outbound') {
       if (this.destroyersHot && !this.destroyersSuppressedSignaled) {
-        statusLine = 'SNS IRONCLAD & SNS BASTION SEARAM SAMs ACTIVE';
+        statusLine = this.formatDestroyerStatus();
       } else if (this.feetDryWatchActive) {
-        statusLine = 'APPROACHING HALCYON COASTLINE — CLEAR REMAINING BANDITS';
+        statusLine = holdingOrbit
+          ? 'LANCER HOLDING OFFSHORE ORBIT — DOWN COASTAL ACES'
+          : 'APPROACHING HALCYON COASTLINE — CLEAR REMAINING BANDITS';
+      } else if (holdingOrbit) {
+        statusLine = 'LANCER HOLDING DEFENSIVE ORBIT — SPLASH INTERCEPT PROBE';
       }
     } else if (this.umbrellaActive) {
       statusLine = 'CVN-91 CARRIER UMBRELLA HOT — ESCORT LANCER SOUTH';
     } else {
-      statusLine = 'WOUNDED LANCER TRAILING SMOKE — DEFEND HER SIX!';
+      statusLine = holdingOrbit
+        ? 'WOUNDED LANCER HOLDING DEFENSIVE ORBIT — BREAK RED-WING AMBUSH'
+        : 'WOUNDED LANCER TRAILING SMOKE — DEFEND HER SIX!';
     }
 
     let repairBanner: { text: string; tone: 'repair' | 'hint' } | null = null;
@@ -633,6 +792,7 @@ export class StraitDirector {
       progress,
       etaSeconds: remainingDist / speed,
       banditsRemaining: bandits,
+      holdingOrbit,
       statusLine,
       repairBanner,
     });
@@ -714,8 +874,16 @@ export class StraitDirector {
     // 0c. Lancer formation proximity repair aura
     this.tickFormationRepair(dt);
 
+    // 0d. Engage or release Lancer defensive racetrack holding orbit before ticking flight AI
+    if (this.escortLancer?.alive) {
+      this.updateLancerEscortHolding(this.escortLancer);
+    }
+
     // 1. Tick two-way dogfight air wing with escort Lancer as shared priority target
     this.airWing?.update(dt, this.escortLancer);
+
+    // 1b. Tick dynamic sinkable Southern Missile Destroyers (smoke plumes, chain explosions, listing & sinking)
+    this.destroyers?.update(dt);
 
     // 2. Tick Mid-Strait Southern Missile Destroyer SAMs & CIWS
     if (this.destroyersHot && this.defenses) {
@@ -738,7 +906,7 @@ export class StraitDirector {
         }
         // Adaptive boost if coastal_aces is already cleared so player isn't left waiting in empty sky
         if (this.feetDryWatchActive && this.airWing?.isWaveCleared('coastal_aces')) {
-          lancer.position.z -= dt * 42;
+          lancer.position.z -= dt * 48;
         }
         if ((this.feetDryWatchActive || lancer.position.z <= STRAIT_FEET_DRY_Z) && lancer.position.z <= STRAIT_FEET_DRY_Z) {
           this.signalFeetDry();
@@ -753,7 +921,7 @@ export class StraitDirector {
         }
         // Adaptive sprint into carrier umbrella once final pursuers are splashed
         if (this.umbrellaActive && this.airWing?.isWaveCleared('return_final')) {
-          lancer.position.z += dt * 42;
+          lancer.position.z += dt * 48;
         }
         if (lancer.position.z >= STRAIT_CARRIER_RECOVERY_Z) {
           this.signalLancerRecovered();
@@ -777,6 +945,10 @@ export class StraitDirector {
     return this.defenses;
   }
 
+  get destroyerFleet(): DestroyerFleet | null {
+    return this.destroyers;
+  }
+
   get lancer(): AiCombatJet | null {
     return this.escortLancer;
   }
@@ -790,6 +962,9 @@ export class StraitDirector {
       mode: this.mode,
       destroyersHot: this.destroyersHot,
       destroyersSuppressedSignaled: this.destroyersSuppressedSignaled,
+      destroyersAlive: this.destroyers?.aliveCount ?? 0,
+      holdingOrbit: this.escortLancer?.isHoldingOrbit ?? false,
+      activeOrbitTag: this.activeOrbitTag,
       lancerMidstraitSignaled: this.lancerMidstraitSignaled,
       feetDryWatchActive: this.feetDryWatchActive,
       feetDrySignaled: this.feetDrySignaled,
@@ -810,6 +985,7 @@ export class StraitDirector {
     this.restoreAtmosphere();
     this.airWing?.clear();
     this.defenses?.clear();
+    this.destroyers?.clear();
     this.hudOverlay.hide();
 
     this.mode = 'none';
@@ -833,6 +1009,7 @@ export class StraitDirector {
     this.formationRepairActive = false;
     this.repairFxCd = 0;
     this.playerCrashTimer = -1;
+    this.activeOrbitTag = null;
     this.spawnedWaveNames.clear();
   }
 
@@ -846,6 +1023,8 @@ export class StraitDirector {
     this.airWing = null;
     this.defenses?.dispose();
     this.defenses = null;
+    this.destroyers?.dispose();
+    this.destroyers = null;
     this.built = false;
   }
 }

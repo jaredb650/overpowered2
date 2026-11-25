@@ -137,7 +137,8 @@ export interface BaseDefenseSiteOptions {
 }
 
 export interface BaseDefenseSystemOptions {
-  readonly onDestroyed?: (id: string, kind: BaseDefenseKind, pos: THREE.Vector3) => void;
+  readonly onDestroyed?: (id: string, kind: BaseDefenseKind, pos: THREE.Vector3, shipId?: string | null) => void;
+  readonly onDamaged?: (id: string, kind: BaseDefenseKind, amount: number, pos: THREE.Vector3, shipId?: string | null) => void;
   /** Automatically register with `ctx.enemies?.vehicles?.addExtra(this)` (default true). */
   readonly autoRegisterExtra?: boolean;
 }
@@ -525,6 +526,13 @@ export class BaseDefenseSite implements MissileTarget {
     if (smoke) this.emitters.push(smoke);
   }
 
+  /** Hides deck turret visuals & emitters when its parent warship sinks beneath the waves. */
+  hideForSunkShip(): void {
+    for (const e of this.emitters) e.stop();
+    this.emitters.length = 0;
+    this.rig.root.visible = false;
+  }
+
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
@@ -551,7 +559,8 @@ export class BaseDefenseSystem implements ExtraTarget {
   private readonly mortars: ActiveMortarShell[] = [];
   private readonly secondaryBlasts: ActiveSecondaryBlast[] = [];
   private readonly unsubs: (() => void)[] = [];
-  private readonly onDestroyedCb: ((id: string, kind: BaseDefenseKind, pos: THREE.Vector3) => void) | null;
+  private readonly onDestroyedCb: ((id: string, kind: BaseDefenseKind, pos: THREE.Vector3, shipId?: string | null) => void) | null;
+  private readonly onDamagedCb: ((id: string, kind: BaseDefenseKind, amount: number, pos: THREE.Vector3, shipId?: string | null) => void) | null;
   private registeredExtra = false;
   private wasRwrActive = false;
   private playerFlareTimer = 0;
@@ -573,6 +582,7 @@ export class BaseDefenseSystem implements ExtraTarget {
     opts?: BaseDefenseSystemOptions,
   ) {
     this.onDestroyedCb = opts?.onDestroyed ?? null;
+    this.onDamagedCb = opts?.onDamaged ?? null;
     this.samBodyGeo.rotateX(Math.PI / 2);
     this.samNoseGeo.rotateX(Math.PI / 2);
 
@@ -826,6 +836,24 @@ export class BaseDefenseSystem implements ExtraTarget {
     }
   }
 
+  /** Immediately destroys and hides all SAM/CIWS turrets mounted on a sinking warship. */
+  destroySitesForShip(shipId: string): number {
+    let killed = 0;
+    for (let i = 0; i < this.sites.length; i++) {
+      const s = this.sites[i]!;
+      if (s.shipId !== shipId) continue;
+      if (s.alive) {
+        const pos = s.position.clone();
+        s.markDestroyed();
+        const blastPos = pos.clone().setY(pos.y + 1.6);
+        this.ctx.fx?.explosion?.(blastPos, { radius: s.spec.secondaryBlastRadius * 0.9, scale: 1.8 });
+        killed++;
+      }
+      s.hideForSunkShip();
+    }
+    return killed;
+  }
+
   private applyDamageToSite(
     site: BaseDefenseSite,
     amount: number,
@@ -843,7 +871,10 @@ export class BaseDefenseSystem implements ExtraTarget {
       this.ctx.audio?.play?.(killed ? 'hit_marker_kill' : 'hit_marker');
     }
 
-    if (!killed) return;
+    if (!killed) {
+      this.onDamagedCb?.(site.id, site.kind, amount, point, site.shipId);
+      return;
+    }
 
     const pos = site.position.clone();
     site.markDestroyed();
@@ -865,7 +896,7 @@ export class BaseDefenseSystem implements ExtraTarget {
       { pos: blastPos.clone().add(new THREE.Vector3(rand(-2.5, 2.5), 1.6, rand(-2.5, 2.5))), delay: 0.78, radius: site.spec.secondaryBlastRadius * 0.6 },
     );
 
-    this.onDestroyedCb?.(site.id, site.kind, pos);
+    this.onDestroyedCb?.(site.id, site.kind, pos, site.shipId);
   }
 
   // -------------------------------------------------------------------------------------------

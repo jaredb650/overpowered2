@@ -481,6 +481,35 @@ describe('the radio, with lines that take their time', () => {
     expect(host.said).toEqual(['one', 'three']);
   });
 
+  it('sidesteps queued and newly requested lines whose `unless` signal has already fired', () => {
+    const { host, run, step, said } = slow([
+      {
+        id: 'a',
+        title: 'A',
+        start: [
+          { do: 'say', line: 'one' },
+          { do: 'say', line: 'two', unless: 'wave_cleared', wait: true },
+          { do: 'banner', text: 'unblocked' },
+        ],
+        cues: [
+          { when: { signal: 'ask_late' }, run: [{ do: 'say', line: 'three', unless: 'wave_cleared' }] },
+        ],
+        until: { after: 99 },
+      },
+    ]);
+    expect(host.said).toEqual(['one']);
+    // Wave clears while 'one' is still talking -> queued 'two' is dropped immediately and the waiting script unblocks!
+    run.signal('wave_cleared');
+    step();
+    expect(host.log).toContain('banner unblocked');
+    // Requesting another line guarded by `unless: 'wave_cleared'` after the signal fired skips it immediately too
+    run.signal('ask_late');
+    step();
+    said();
+    step();
+    expect(host.said).toEqual(['one']);
+  });
+
   it('greets a restart with the beat\'s own lines, where it has them', () => {
     const { host, run, step, said } = slow([
       { id: 'a', title: 'A', checkpoint: saved, until: { after: 1 } },

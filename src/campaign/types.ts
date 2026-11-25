@@ -146,9 +146,10 @@ export type Step =
    *
    * `now` is an order that cannot wait, given as a door shuts: the line on the radio is cut off, anything still waiting is dropped, and
    * this is said at once. `within` drops the line unsaid if it has not started this many seconds after it was asked for, for a reaction
-   * that would rather not be heard than be heard late.
+   * that would rather not be heard than be heard late. `unless` drops the line unsaid if any listed signal has already fired before it
+   * goes on air (e.g. an enemy wave or target was already cleared while earlier radio lines were still playing).
    */
-  | { do: 'say'; line: string; wait?: boolean; again?: boolean; now?: boolean; within?: number }
+  | { do: 'say'; line: string; wait?: boolean; again?: boolean; now?: boolean; within?: number; unless?: string | readonly string[] }
   /** Puts an objective on the HUD. `at` is a mark for a world marker. */
   | { do: 'objective'; id: string; text: string; at?: string }
   /** Ticks one off. */

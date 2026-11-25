@@ -63,6 +63,22 @@ export const CROSSFIRE_AIR_THEATER: AiJetTheater = {
   dynamicGroundTarget: false,
 };
 
+/** Tight Strait theater keeping every AI fighter, wingman, and escort strictly inside playable ±820 m bounds. */
+export const STRAIT_AIR_THEATER: AiJetTheater = {
+  minAlt: 26,
+  maxAlt: 295,
+  turnRadius: 620,
+  groundY: 0,
+  dynamicGroundTarget: false,
+  leashBounds: {
+    minX: -690,
+    maxX: 690,
+    minZ: -690,
+    maxZ: 690,
+    softMargin: 110,
+  },
+};
+
 export class CrossfireAirWing {
   readonly enemies: AiCombatJet[] = [];
   readonly allies: AiCombatJet[] = [];

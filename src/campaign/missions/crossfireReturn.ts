@@ -17,7 +17,10 @@ import { CROSSFIRE_SIGNALS } from '../crossfire/chain';
 import type { Cutscene, Loadout, Mark, Mission, Step, Zone } from '../types';
 import { CROSSFIRE_RETURN_LINES, CROSSFIRE_RETURN_REDEPLOY } from './crossfire.lines';
 
-const say = (key: string, opts: { wait?: boolean; now?: boolean; again?: boolean; within?: number } = {}): Step => ({
+const say = (
+  key: string,
+  opts: { wait?: boolean; now?: boolean; again?: boolean; within?: number; unless?: string | readonly string[] } = {},
+): Step => ({
   do: 'say',
   line: `mission.crossfire.return.${key}`,
   ...opts,
@@ -107,8 +110,8 @@ export const CROSSFIRE_RETURN: Mission = {
         { do: 'cutscene', id: 'duskReturnIntro' },
         { do: 'banner', text: 'DUSK EGRESS', sub: 'PART 04 OF 04 // DEFEND THE WOUNDED LANCER' },
         { do: 'call', name: 'cf.straitWave', arg: 'return_ambush' },
-        say('wingman.ambush.start'),
-        say('wingman.ambush.lancer'),
+        say('wingman.ambush.start', { within: 6, unless: CROSSFIRE_SIGNALS.waveClearedReturnAmbush }),
+        say('wingman.ambush.lancer', { within: 8, unless: CROSSFIRE_SIGNALS.waveClearedReturnAmbush }),
         { do: 'objective', id: 'break_ambush', text: 'Defend the smoking B-1B Lancer from Red-Wing Squadron (2 Ace Raptors + 4 Hornets)', at: 'lancerReturnMid' },
         { do: 'hint', text: 'Halvorsen’s Red-Wing Aces are diving at the wounded bomber! Prioritize the Ace Raptors — form up alongside the Lancer anytime to repair your F-22 hull.', seconds: 9 },
         {
@@ -121,7 +124,7 @@ export const CROSSFIRE_RETURN: Mission = {
           },
         },
         { do: 'done', id: 'break_ambush' },
-        say('wingman.ambush.broken'),
+        say('wingman.ambush.broken', { within: 4 }),
         { do: 'goto', beat: 'carrier_umbrella' },
       ],
     },
@@ -140,7 +143,7 @@ export const CROSSFIRE_RETURN: Mission = {
         { do: 'banner', text: 'CARRIER UMBRELLA', sub: 'CVN-91 RECOVERY LINE // FINAL INTERCEPT' },
         { do: 'call', name: 'cf.straitCarrierUmbrella', arg: 'carrierRecoveryObj,carrierCenter' },
         { do: 'call', name: 'cf.straitWave', arg: 'return_final' },
-        say('wingman.carrier.approach'),
+        say('wingman.carrier.approach', { within: 6, unless: CROSSFIRE_SIGNALS.lancerRecovered }),
         { do: 'objective', id: 'reach_umbrella', text: 'Escort the B-1B Lancer south across the CVN-91 recovery line', at: 'carrierRecoveryObj' },
         {
           do: 'until',

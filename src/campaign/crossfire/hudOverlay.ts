@@ -20,6 +20,7 @@ export interface StraitHudState {
   readonly progress: number;
   readonly etaSeconds: number;
   readonly banditsRemaining: number;
+  readonly holdingOrbit?: boolean;
   readonly statusLine?: string;
   readonly repairBanner?: { readonly text: string; readonly tone: 'repair' | 'hint' } | null;
 }
@@ -316,10 +317,14 @@ export class CrossfireHudOverlay {
     this.secLabelEl!.textContent = state.mode === 'outbound'
       ? 'HALCYON COASTLINE ETA'
       : 'CVN-91 CARRIER UMBRELLA';
-    const eta = Math.max(0, Math.ceil(state.etaSeconds));
-    const mins = Math.floor(eta / 60);
-    const secs = String(eta % 60).padStart(2, '0');
-    this.secValueEl!.textContent = `${pct}% · ${mins}:${secs}`;
+    if (state.holdingOrbit) {
+      this.secValueEl!.textContent = `${pct}% · HOLDING ORBIT`;
+    } else {
+      const eta = Math.max(0, Math.ceil(state.etaSeconds));
+      const mins = Math.floor(eta / 60);
+      const secs = String(eta % 60).padStart(2, '0');
+      this.secValueEl!.textContent = `${pct}% · ${mins}:${secs}`;
+    }
     this.secFillEl!.style.width = `${pct}%`;
 
     this.badgeRowEl!.style.display = 'none';

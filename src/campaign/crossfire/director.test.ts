@@ -736,6 +736,104 @@ describe('CrossfireDirector & all 25 cf.* calls', () => {
     expect(holstered).toBe(false);
     expect(viewScene.visible).toBe(true);
   });
+
+  it('sinks Southern Missile Destroyers at 0 hull HP, instantly kills & hides surviving deck turrets, and animates listing/sinking', () => {
+    const h = makeHarness('crossfire_strait');
+    h.director.ensureBuilt();
+    h.director.call('cf.straitOutboundInit');
+    h.director.call('cf.straitDestroyersHot');
+
+    const fleet = h.director.strait.destroyerFleet!;
+    const def = h.director.strait.defenseSystem!;
+    expect(fleet.totalCount).toBe(2);
+    expect(fleet.aliveCount).toBe(2);
+
+    // Both warships are paintable for AMRAAM/AGM lock-on
+    const paintTargets: { alive: boolean; center: THREE.Vector3 }[] = [];
+    fleet.paintable(paintTargets as never);
+    expect(paintTargets).toHaveLength(2);
+
+    const ironclad = fleet.getShip('destroyer_west')!;
+    const bastion = fleet.getShip('destroyer_east')!;
+    expect(ironclad.maxHealth).toBe(1500);
+    expect(bastion.maxHealth).toBe(1500);
+
+    // Destroying a deck SAM on Ironclad also chunks Ironclad's global hull HP
+    const ironcladSam = def.sites.find(s => s.shipId === 'destroyer_west' && s.kind === 'destroyer_sam')!;
+    def.damageSite(ironcladSam.id, 9999);
+    expect(ironclad.health).toBeLessThan(1500);
+
+    // Finish sinking Ironclad directly via hull damage -> surviving CIWS & aft SAM on Ironclad immediately die & hide!
+    fleet.damageShip('destroyer_west', 9999);
+    expect(ironclad.alive).toBe(false);
+    expect(ironclad.sinking).toBe(true);
+    const ironcladSites = def.sites.filter(s => s.shipId === 'destroyer_west');
+    expect(ironcladSites.every(s => !s.alive && s.rig.root.visible === false)).toBe(true);
+    // Bastion's turrets remain alive until Bastion sinks
+    expect(def.sites.filter(s => s.shipId === 'destroyer_east' && s.alive).length).toBe(4);
+
+    // Tick sinking animation -> hull lists & plunges beneath the waves
+    for (let i = 0; i < 65; i++) h.director.update(0.1);
+    expect(Math.abs(ironclad.rig.hullGroup.rotation.z)).toBeGreaterThan(0.5);
+    expect(ironclad.rig.hullGroup.position.y).toBeLessThan(-20);
+    expect(ironclad.sunk).toBe(true);
+    expect(ironclad.rig.root.visible).toBe(false);
+
+    // Sink Bastion -> all turrets gone and cf:destroyers_suppressed fires!
+    fleet.damageShip('destroyer_east', 9999);
+    expect(fleet.aliveCount).toBe(0);
+    expect(def.aliveCount).toBe(0);
+    expect(h.signals).toContain(CROSSFIRE_SIGNALS.destroyersSuppressed);
+
+    h.director.reset();
+  });
+
+  it('holds the B-1B Lancer in a full-speed defensive racetrack orbit while Strait threats remain and leashes enemy fighters inside playable bounds', () => {
+    const h = makeHarness('crossfire_strait');
+    h.director.ensureBuilt();
+    h.director.call('cf.straitOutboundInit');
+    h.director.call('cf.straitDestroyersHot');
+    h.director.call('cf.straitWave', 'destroyer_strike');
+
+    const lancer = h.director.strait.lancer!;
+    // Move Lancer into the mid-strait hold threshold and tick 10 seconds while destroyers + strike wing are still alive
+    lancer.position.set(0, 118, 150);
+    for (let i = 0; i < 120; i++) {
+      h.director.update(1 / 12);
+    }
+
+    expect(lancer.isHoldingOrbit).toBe(true);
+    expect(h.director.strait.state.activeOrbitTag).toBe('destroyers');
+    // Lancer stays south of the destroyer SAM umbrella & never flies past STRAIT_FEET_DRY_Z while threats remain!
+    expect(lancer.position.z).toBeGreaterThan(-40);
+    expect(lancer.speed).toBeGreaterThan(35);
+
+    // Enemy fighters pushed toward the ±820 m invisible wall stay strictly leashed inside ±690 m!
+    const enemies = h.director.strait.airWingInstance!.enemies;
+    expect(enemies.length).toBeGreaterThan(0);
+    for (const e of enemies) {
+      e.position.set(780, 120, -790);
+      e.yaw = Math.PI * 0.75; // pointed straight toward the NE corner wall
+    }
+    for (let i = 0; i < 30; i++) {
+      h.director.update(1 / 15);
+    }
+    for (const e of enemies) {
+      if (!e.alive) continue;
+      expect(Math.abs(e.position.x)).toBeLessThanOrEqual(690.01);
+      expect(Math.abs(e.position.z)).toBeLessThanOrEqual(690.01);
+    }
+
+    // Sink both destroyers + clear strike wing -> Lancer immediately releases defensive orbit and resumes north transit!
+    h.director.strait.destroyerFleet!.damageShip('destroyer_west', 9999);
+    h.director.strait.destroyerFleet!.damageShip('destroyer_east', 9999);
+    h.director.strait.airWingInstance!.shredWave('destroyer_strike');
+    h.director.update(0.1);
+    expect(lancer.isHoldingOrbit).toBe(false);
+    expect(h.director.strait.state.activeOrbitTag).toBeNull();
+
+    h.director.reset();
+  });
 });
 
 

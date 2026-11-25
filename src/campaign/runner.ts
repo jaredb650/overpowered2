@@ -53,6 +53,8 @@ interface Spoken {
   /** Mission seconds when it was asked for, and how long after that it may still start. */
   asked: number;
   within: number;
+  /** Signals that supersede this line if they fire before it goes on air. */
+  unless: readonly string[];
 }
 
 const HINT_SECONDS = 7;
@@ -74,6 +76,8 @@ export class MissionRunner implements WatchFacts {
   private readonly doors = new Map<string, number>();
   private objectiveList: ObjectiveState[] = [];
   private readonly heard = new Set<string>();
+  /** Signals fired in the current attempt (cleared on start/redeploy) for sidestepping superseded radio chatter. */
+  private readonly seenSignals = new Set<string>();
   /** Taken from racks, kept through every restart, so a gun found off the path is not lost to a checkpoint that never promised it. */
   private readonly taken = new Set<WeaponId>();
   /** Mods carried on racks already taken, kept alongside `taken` across checkpoint restarts. */
@@ -139,6 +143,7 @@ export class MissionRunner implements WatchFacts {
     this.closeBeat();
     this.tags.clear();
     this.heard.clear();
+    this.seenSignals.clear();
     this.taken.clear();
     this.takenMods.clear();
     this.hush();
@@ -172,6 +177,7 @@ export class MissionRunner implements WatchFacts {
     const { save, mission } = this;
     this.closeBeat();
     this.tags.clear();
+    this.seenSignals.clear();
     for (const [tag, spawned] of save.gone) this.tags.set(tag, { spawned, left: 0 });
     this.state = 'running';
     this.doors.clear();
@@ -230,6 +236,8 @@ export class MissionRunner implements WatchFacts {
   }
 
   signal(name: string): void {
+    this.seenSignals.add(name);
+    this.pruneSupersededRadio(name);
     for (const watch of this.live) watch.signal?.(name);
   }
 
@@ -412,7 +420,7 @@ export class MissionRunner implements WatchFacts {
     const { host } = this;
     switch (step.do) {
       case 'say':
-        this.say(step.line, step.again === true, step.wait ? this.hold(run) : null, step.now === true, step.within);
+        this.say(step.line, step.again === true, step.wait ? this.hold(run) : null, step.now === true, step.within, step.unless);
         return;
       case 'objective':
         this.objectiveList = this.objectiveList.filter(o => o.id !== step.id);
@@ -584,23 +592,58 @@ export class MissionRunner implements WatchFacts {
     return this.onAir !== null || this.radio.length > 0;
   }
 
-  private say(id: string, again: boolean, latch: Latch | null, now = false, within = Infinity): void {
+  private say(
+    id: string,
+    again: boolean,
+    latch: Latch | null,
+    now = false,
+    within = Infinity,
+    unless?: string | readonly string[],
+  ): void {
     const line = this.lines.get(id);
     if (!line) throw new Error(`mission ${this.mission.id}: no line ${id}`);
+    const skipSignals = unless === undefined ? [] : (typeof unless === 'string' ? [unless] : unless);
+    if (skipSignals.some(sig => this.seenSignals.has(sig))) {
+      if (latch) latch.open = true;
+      return;
+    }
     if (!again && (this.heard.has(id) || this.radio.some(s => s.line.id === id))) {
       if (latch) latch.open = true;
       return;
     }
     if (now) this.hush();
-    this.radio.push({ line, latch, asked: this.elapsed, within });
+    this.radio.push({ line, latch, asked: this.elapsed, within, unless: skipSignals });
     this.nextLine();
+  }
+
+  private isSuperseded(spoken: Spoken): boolean {
+    if (this.elapsed - spoken.asked > spoken.within) return true;
+    for (let i = 0; i < spoken.unless.length; i++) {
+      if (this.seenSignals.has(spoken.unless[i]!)) return true;
+    }
+    return false;
+  }
+
+  /** Drops any queued radio line whose `unless` condition just fired (e.g. wave already cleared). */
+  private pruneSupersededRadio(signalName: string): void {
+    if (this.radio.length === 0) return;
+    let write = 0;
+    for (let i = 0; i < this.radio.length; i++) {
+      const spoken = this.radio[i]!;
+      if (spoken.unless.includes(signalName)) {
+        if (spoken.latch) spoken.latch.open = true;
+      } else {
+        this.radio[write++] = spoken;
+      }
+    }
+    this.radio.length = write;
   }
 
   private nextLine(): void {
     if (this.onAir) return;
     let next = this.radio.shift();
-    // A reaction that has waited past its moment is dropped, not said late.
-    while (next && this.elapsed - next.asked > next.within) {
+    // A reaction that has waited past its moment or whose target was already cleared is dropped, not said late.
+    while (next && this.isSuperseded(next)) {
       if (next.latch) next.latch.open = true;
       next = this.radio.shift();
     }
@@ -617,13 +660,13 @@ export class MissionRunner implements WatchFacts {
     });
   }
 
-  /** Drops stale unplayed lines queued earlier in a previous beat without interrupting the active speaker or fresh handoff lines. */
+  /** Drops stale unplayed lines queued earlier in a previous beat without interrupting the active speaker or same-tick handoff lines. */
   private flushStaleRadio(): void {
-    const STALE_BEAT_QUEUE_SECONDS = 2.0;
+    const STALE_BEAT_QUEUE_SECONDS = 0.45;
     let write = 0;
     for (let i = 0; i < this.radio.length; i++) {
       const spoken = this.radio[i]!;
-      if (this.elapsed - spoken.asked >= STALE_BEAT_QUEUE_SECONDS) {
+      if (this.elapsed - spoken.asked >= STALE_BEAT_QUEUE_SECONDS || this.isSuperseded(spoken)) {
         if (spoken.latch) spoken.latch.open = true;
       } else {
         this.radio[write++] = spoken;

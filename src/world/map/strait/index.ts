@@ -350,13 +350,12 @@ function authorNavalEscort(k: Kit, ship: StraitShipPose, hostileDestroyer: boole
   k.pop();
 }
 
-/** Stage 3: Mid-Strait Volcanic Sea Stacks (94–142 m tall) & 2 Detailed PBR Southern Missile Destroyers. */
+/** Stage 3: Mid-Strait Volcanic Sea Stacks (94–142 m tall). Hostile Southern Missile Destroyers spawn dynamically via StraitDirector so they can list & sink! */
 function authorMidStraitGauntlet(k: Kit, spec: MapSpec): void {
   const g = k.geo;
 
-  // 1. Two heavily armed hostile Southern Missile Destroyers (`destroyer_west` & `destroyer_east`)
+  // Record ship footprint hints in the tactical plan; actual sinkable warship hulls + colliders spawn dynamically in DestroyerFleet.
   for (const d of STRAIT_DESTROYERS) {
-    authorNavalEscort(k, d, true);
     spec.plan?.blocks.push({ x0: d.x - 10, z0: d.z - 52, x1: d.x + 10, z1: d.z + 52 });
   }
 

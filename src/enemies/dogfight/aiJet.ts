@@ -219,11 +219,34 @@ export interface AiJetSpawnOptions {
   readonly onWaypointsComplete?: (jet: AiCombatJet) => void;
 }
 
+export interface EscortHoldingOrbit {
+  readonly centerX: number;
+  readonly centerZ: number;
+  readonly altitude: number;
+  readonly radiusX: number;
+  readonly radiusZ: number;
+  /** Optional orbital cruise speed override (m/s). Defaults to full-speed jet orbit (>= 44 m/s). */
+  readonly speed?: number;
+  /** +1 = clockwise, -1 = counter-clockwise (default +1). */
+  readonly direction?: 1 | -1;
+}
+
+export interface AirspaceLeashBounds {
+  readonly minX: number;
+  readonly maxX: number;
+  readonly minZ: number;
+  readonly maxZ: number;
+  /** Inward turn-back margin inside the hard clamp box (default 95 m). */
+  readonly softMargin?: number;
+}
+
 export interface AiJetTheater {
   readonly minAlt: number;
   readonly maxAlt: number;
   readonly turnRadius: number;
   readonly groundY: number;
+  /** Optional hard airspace leash keeping AI fighters & wingmen strictly inside playable bounds. */
+  readonly leashBounds?: AirspaceLeashBounds;
   /** When true, bombing/rocket/strafing runs dynamically track the player's position on the ground (Badlands CAS). */
   readonly dynamicGroundTarget?: boolean;
   /** Optional tactical ground strike target resolver (used by Endless War to prioritize Bastion intruders, armor columns, or FOB Core). */
@@ -331,7 +354,8 @@ export class AiCombatJet implements ExtraTarget, MissileTarget {
   private readonly strikeAnchor = new THREE.Vector3();
 
   // Escort bomber & two-way AI-vs-AI state
-  private readonly speedOverride: number | null;
+  private speedOverride: number | null;
+  private holdingOrbit: EscortHoldingOrbit | null = null;
   private waypoints: THREE.Vector3[] = [];
   private waypointCumDist: number[] = [];
   private waypointTotalDist = 0;
@@ -782,10 +806,54 @@ export class AiCombatJet implements ExtraTarget, MissileTarget {
     }
   }
 
+  /** Engages or releases a full-speed defensive racetrack holding orbit for an `escort_bomber`. */
+  setHoldingOrbit(orbit: EscortHoldingOrbit | null): void {
+    const wasOrbiting = this.holdingOrbit !== null;
+    this.holdingOrbit = orbit;
+    if (wasOrbiting && orbit === null && this.waypoints.length > 1 && !this.waypointsDone) {
+      // Advance waypointIdx past any waypoints already behind our current transit progress so we break cleanly forward.
+      const last = this.waypoints[this.waypoints.length - 1]!;
+      const headingNorth = last.z < this.waypoints[0]!.z;
+      while (this.waypointIdx < this.waypoints.length - 1) {
+        const wp = this.waypoints[this.waypointIdx]!;
+        const passed = headingNorth ? wp.z > this.position.z - 25 : wp.z < this.position.z + 25;
+        if (passed) this.waypointIdx++;
+        else break;
+      }
+    }
+  }
+
+  get isHoldingOrbit(): boolean {
+    return this.holdingOrbit !== null;
+  }
+
+  /** Dynamically updates the cruise speed override (e.g. scenic intro flyby vs combat transit). */
+  setSpeedOverride(speed: number | null): void {
+    this.speedOverride = speed;
+  }
+
   private updateEscortBomberAi(dt: number): void {
     const cruise = this.speedOverride ?? this.profile.cruiseSpeed;
     this.afterburning = false;
     this.currentTargetJet = null;
+
+    if (this.holdingOrbit) {
+      const o = this.holdingOrbit;
+      const rx = Math.max(40, o.radiusX);
+      const rz = Math.max(40, o.radiusZ);
+      const dir = o.direction ?? 1;
+      const theta = Math.atan2((this.position.x - o.centerX) / rx, (this.position.z - o.centerZ) / rz);
+      const nextTheta = theta + dir * 0.56;
+      const orbitAlt = clamp(o.altitude, this.theater.minAlt + 14, this.theater.maxAlt - 10);
+      _aim.set(
+        o.centerX + Math.sin(nextTheta) * rx,
+        orbitAlt,
+        o.centerZ + Math.cos(nextTheta) * rz,
+      );
+      const orbitSpeed = o.speed ?? Math.max(cruise, 44);
+      this.steerToward(_aim, orbitSpeed, dt);
+      return;
+    }
 
     if (this.waypoints.length === 0) {
       this.forwardDir(_fwd);
@@ -1015,7 +1083,32 @@ export class AiCombatJet implements ExtraTarget, MissileTarget {
     let targetSpeed = this.speedOverride ?? this.profile.cruiseSpeed;
     this.afterburning = false;
 
-    if (horizR > th.turnRadius && !hasPriorityEscort) {
+    const leash = th.leashBounds;
+    const leashSoft = leash?.softMargin ?? 95;
+    const outsideLeash = Boolean(
+      leash && (
+        this.position.x < leash.minX + leashSoft ||
+        this.position.x > leash.maxX - leashSoft ||
+        this.position.z < leash.minZ + leashSoft ||
+        this.position.z > leash.maxZ - leashSoft
+      ),
+    );
+
+    if (outsideLeash && leash) {
+      const safeX = clamp(
+        airTarget ? airTarget.targetPos.x : (leash.minX + leash.maxX) * 0.5,
+        leash.minX + leashSoft * 1.35,
+        leash.maxX - leashSoft * 1.35,
+      );
+      const safeZ = clamp(
+        airTarget ? airTarget.targetPos.z : (leash.minZ + leash.maxZ) * 0.5,
+        leash.minZ + leashSoft * 1.35,
+        leash.maxZ - leashSoft * 1.35,
+      );
+      _aim.set(safeX + this.orbitSide * 40, prefAlt, safeZ);
+      targetSpeed = this.speedOverride ?? this.profile.cruiseSpeed;
+      this.playerLockProgress = Math.max(0, this.playerLockProgress - dt * 0.9);
+    } else if (horizR > th.turnRadius && !hasPriorityEscort) {
       const anchor = airTarget && this.tacticalRole === 'hunter' ? airTarget.targetPos : this.strikeAnchor;
       _aim.set(anchor.x + this.orbitSide * 50, prefAlt, anchor.z);
       targetSpeed = this.speedOverride ?? this.profile.cruiseSpeed;
@@ -1490,6 +1583,31 @@ export class AiCombatJet implements ExtraTarget, MissileTarget {
     } else if (this.position.y > this.theater.maxAlt) {
       this.position.y = this.theater.maxAlt;
       if (this.pitch < 0) this.pitch = damp(this.pitch, 0.15, 6, dt);
+    }
+
+    const leash = this.theater.leashBounds;
+    if (leash) {
+      let clamped = false;
+      if (this.position.x < leash.minX) {
+        this.position.x = leash.minX;
+        clamped = true;
+      } else if (this.position.x > leash.maxX) {
+        this.position.x = leash.maxX;
+        clamped = true;
+      }
+      if (this.position.z < leash.minZ) {
+        this.position.z = leash.minZ;
+        clamped = true;
+      } else if (this.position.z > leash.maxZ) {
+        this.position.z = leash.maxZ;
+        clamped = true;
+      }
+      if (clamped) {
+        const cx = (leash.minX + leash.maxX) * 0.5;
+        const cz = (leash.minZ + leash.maxZ) * 0.5;
+        const inwardYaw = Math.atan2(cx - this.position.x, cz - this.position.z);
+        this.yaw = wrapAngle(this.yaw + clamp(wrapAngle(inwardYaw - this.yaw), -maxYawStep * 1.5, maxYawStep * 1.5));
+      }
     }
   }
 

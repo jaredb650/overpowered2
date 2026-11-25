@@ -18,7 +18,10 @@ import { CROSSFIRE_SIGNALS } from '../crossfire/chain';
 import type { Cutscene, Loadout, Mark, Mission, Step, Zone } from '../types';
 import { CROSSFIRE_STRAIT_LINES, CROSSFIRE_STRAIT_REDEPLOY } from './crossfire.lines';
 
-const say = (key: string, opts: { wait?: boolean; now?: boolean; again?: boolean; within?: number } = {}): Step => ({
+const say = (
+  key: string,
+  opts: { wait?: boolean; now?: boolean; again?: boolean; within?: number; unless?: string | readonly string[] } = {},
+): Step => ({
   do: 'say',
   line: `mission.crossfire.strait.${key}`,
   ...opts,
@@ -98,32 +101,27 @@ export const CROSSFIRE_STRAIT: Mission = {
         { do: 'call', name: 'cf.straitOutboundInit', arg: 'outboundStart,lancerStart' },
         { do: 'cutscene', id: 'straitOutboundIntro' },
         { do: 'banner', text: 'THE STRAIT', sub: 'PART 02 OF 04 // F-22 BOMBER ESCORT' },
-        say('wingman.outbound.formup'),
         { do: 'objective', id: 'escort_probe', text: 'Escort the B-1B Lancer north and splash the 3-Hornet intercept probe', at: 'lancerMid' },
         { do: 'hint', text: 'You pilot Contractor B’s F-22 Raptor! Guard the B-1B Lancer with AMRAAMs, guns, and [Q] flares — fly close alongside the Lancer anytime to repair your F-22 hull.', seconds: 9 },
-        { do: 'wait', seconds: 3.5 },
-        say('darrow.guard.warning', { wait: true }),
-        say('council.jamming'),
+        say('wingman.outbound.formup', { within: 5, unless: CROSSFIRE_SIGNALS.waveClearedOutboundProbe }),
+        say('darrow.guard.warning', { within: 8, unless: CROSSFIRE_SIGNALS.waveClearedOutboundProbe }),
+        say('council.jamming', { within: 10, unless: CROSSFIRE_SIGNALS.waveClearedOutboundProbe }),
+        { do: 'wait', seconds: 3.0 },
         { do: 'music', state: 'hard' },
         { do: 'call', name: 'cf.straitWave', arg: 'outbound_probe' },
-        say('wingman.probe.bogeys'),
+        say('wingman.probe.bogeys', { within: 8, unless: CROSSFIRE_SIGNALS.waveClearedOutboundProbe }),
         {
           do: 'until',
-          when: {
-            any: [
-              { signal: CROSSFIRE_SIGNALS.waveClearedOutboundProbe },
-              { signal: CROSSFIRE_SIGNALS.lancerMidstrait },
-            ],
-          },
+          when: { signal: CROSSFIRE_SIGNALS.waveClearedOutboundProbe },
         },
         { do: 'done', id: 'escort_probe' },
-        say('wingman.probe.clear'),
+        say('wingman.probe.clear', { within: 4 }),
         { do: 'goto', beat: 'destroyer_gauntlet' },
       ],
     },
 
     // -------------------------------------------------------------------------------------------
-    // Section 2: Destroyer Gauntlet (SNS Ironclad & SNS Bastion SeaRAMs + Harriers & Warthogs)
+    // Section 2: Destroyer Gauntlet (SNS Ironclad & SNS Bastion + Harriers & Warthogs)
     // -------------------------------------------------------------------------------------------
     {
       id: 'destroyer_gauntlet',
@@ -133,26 +131,25 @@ export const CROSSFIRE_STRAIT: Mission = {
         { do: 'callins', held: true },
         { do: 'threat', level: 6, grade: 'veteran' },
         { do: 'music', state: 'hard' },
-        { do: 'banner', text: 'DESTROYER GAUNTLET', sub: 'SNS IRONCLAD & SNS BASTION // SEARAM SAMs ACTIVE' },
-        say('halvorsen.gauntlet.fury'),
-        say('halvorsen.gauntlet.fire'),
+        { do: 'banner', text: 'DESTROYER GAUNTLET', sub: 'SNS IRONCLAD & SNS BASTION // SINK HOSTILE WARSHIPS' },
         { do: 'call', name: 'cf.straitDestroyersHot', arg: 'destroyerWest,destroyerEast' },
         { do: 'call', name: 'cf.straitWave', arg: 'destroyer_strike' },
-        say('wingman.gauntlet.sams'),
-        { do: 'objective', id: 'survive_gauntlet', text: 'Shred the Harrier/Warthog strike wing and suppress the Missile Destroyers', at: 'destroyerWest' },
-        { do: 'hint', text: 'Pop [Q] flares to decoy destroyer SeaRAMs and knock out their deck launchers! Damaged? Form up alongside the B-1B Lancer to repair your F-22 hull.', seconds: 9 },
+        say('halvorsen.gauntlet.fury', { within: 6, unless: CROSSFIRE_SIGNALS.destroyersSuppressed }),
+        say('halvorsen.gauntlet.fire', { within: 7, unless: CROSSFIRE_SIGNALS.destroyersSuppressed }),
+        say('wingman.gauntlet.sams', { within: 8, unless: CROSSFIRE_SIGNALS.destroyersSuppressed }),
+        { do: 'objective', id: 'survive_gauntlet', text: 'Sink SNS Ironclad & SNS Bastion (or knock out their SAMs) and clear the strike wing — Lancer holding defensive orbit', at: 'destroyerWest' },
+        { do: 'hint', text: 'Lock AMRAAMs and pour cannons straight into the destroyer hulls to sink them outright (destroying all deck turrets at once)! Pop [Q] flares to decoy SeaRAMs.', seconds: 9 },
         {
           do: 'until',
           when: {
-            any: [
-              { all: [{ signal: CROSSFIRE_SIGNALS.waveClearedDestroyerStrike }, { signal: CROSSFIRE_SIGNALS.destroyersSuppressed }] },
-              { all: [{ signal: CROSSFIRE_SIGNALS.waveClearedDestroyerStrike }, { signal: CROSSFIRE_SIGNALS.lancerMidstrait }] },
-              { signal: CROSSFIRE_SIGNALS.straitFeetDry },
+            all: [
+              { signal: CROSSFIRE_SIGNALS.waveClearedDestroyerStrike },
+              { signal: CROSSFIRE_SIGNALS.destroyersSuppressed },
             ],
           },
         },
         { do: 'done', id: 'survive_gauntlet' },
-        say('wingman.gauntlet.suppressed'),
+        say('wingman.gauntlet.suppressed', { within: 4 }),
         { do: 'goto', beat: 'coastal_aces' },
       ],
     },
@@ -169,10 +166,10 @@ export const CROSSFIRE_STRAIT: Mission = {
         { do: 'threat', level: 7, grade: 'veteran' },
         { do: 'music', state: 'hard' },
         { do: 'banner', text: 'HALCYON COASTLINE', sub: 'RED-WING INTERCEPT // FEET-DRY CORRIDOR' },
-        say('halvorsen.coastal.aces'),
         { do: 'call', name: 'cf.straitWave', arg: 'coastal_aces' },
         { do: 'call', name: 'cf.straitFeetDryWatch', arg: 'lancerFeetDry,halcyonCoastObj' },
-        say('wingman.coastal.incoming'),
+        say('halvorsen.coastal.aces', { within: 6, unless: CROSSFIRE_SIGNALS.waveClearedCoastalAces }),
+        say('wingman.coastal.incoming', { within: 7, unless: CROSSFIRE_SIGNALS.waveClearedCoastalAces }),
         { do: 'objective', id: 'clear_coastal_aces', text: 'Down Halvorsen’s Raptor Ace + Hornet CAP and escort the Lancer feet-dry', at: 'halcyonCoastObj' },
         {
           do: 'until',
@@ -180,12 +177,11 @@ export const CROSSFIRE_STRAIT: Mission = {
             any: [
               { all: [{ signal: CROSSFIRE_SIGNALS.waveClearedCoastalAces }, { signal: CROSSFIRE_SIGNALS.straitFeetDry }] },
               { all: [{ signal: CROSSFIRE_SIGNALS.waveClearedCoastalAces }, { zone: 'feetDryCorridor' }] },
-              { signal: CROSSFIRE_SIGNALS.straitFeetDry },
             ],
           },
         },
         { do: 'done', id: 'clear_coastal_aces' },
-        say('wingman.coastal.feet_dry'),
+        say('wingman.coastal.feet_dry', { within: 4 }),
         say('council.handoff.halcyon', { wait: true }),
         { do: 'call', name: 'cf.handoffToHalcyon' },
         { do: 'wait', seconds: 2.0 },

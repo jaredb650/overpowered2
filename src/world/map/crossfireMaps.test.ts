@@ -438,11 +438,17 @@ describe('Crossfire Map 2 — The Open-Sea Strait (`strait`)', () => {
     expect(deckHit).not.toBeNull();
     expect(deckHit!.point.y).toBeCloseTo(STRAIT_CARRIER_DECK_Y, 1);
 
-    // Both Southern Missile Destroyers have solid ship colliders directly beneath their exported SAM/CIWS mounts
-    for (const d of STRAIT_DESTROYERS) {
-      const hullHit = physics.raycast(V(d.x, 35, d.z), V(0, -1, 0), 40, CG.World);
-      expect(hullHit, `Missing collider on ${d.id}`).not.toBeNull();
+    // Friendly Escort Frigates flanking CVN-91 have solid static ship colliders
+    for (const f of STRAIT_FRIENDLY_ESCORTS) {
+      const hullHit = physics.raycast(V(f.x, 35, f.z), V(0, -1, 0), 40, CG.World);
+      expect(hullHit, `Missing collider on ${f.id}`).not.toBeNull();
       expect(hullHit!.point.y).toBeGreaterThan(2);
+    }
+
+    // Hostile Southern Missile Destroyers spawn dynamically (sinkable DestroyerShip hulls in StraitDirector) so map-static water stays clear
+    for (const d of STRAIT_DESTROYERS) {
+      const staticHit = physics.raycast(V(d.x, 35, d.z), V(0, -1, 0), 30, CG.World);
+      expect(staticHit, `Static hull should not block dynamic sinkable ${d.id}`).toBeNull();
     }
 
     // Cloud banks are strictly non-colliding so jets blast straight through them
