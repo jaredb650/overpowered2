@@ -9,6 +9,7 @@
  *   - FOB Vanguard Core HP alert (calm when safe, pulsing crimson when breached/damaged)
  *   - Crisp 4-second REDEPLOYING TO FOB VANGUARD overlay on player death
  */
+import type { BastionGateSnapshot } from './bastionDefense';
 import type { FacilityStateSnapshot } from './facilities';
 import type { WarLaneId } from '../../world/map/endlessWar/plan';
 
@@ -20,6 +21,7 @@ export interface EndlessWarHudState {
   readonly threatProgress: number;
   readonly frontlineStage: number; // 0..4
   readonly bridges: Readonly<Record<WarLaneId, BridgeOwner>>;
+  readonly gates?: readonly BastionGateSnapshot[];
   readonly facilities: readonly FacilityStateSnapshot[];
   readonly fobHpFrac: number;
   readonly fobUnderAttack: boolean;
@@ -28,6 +30,7 @@ export interface EndlessWarHudState {
   readonly mobilizeLeft: number;
   readonly credits: number;
   readonly redeployLeft: number; // > 0 while dead & respawning at FOB
+  readonly tacticalAlert?: { readonly text: string; readonly tone: 'danger' | 'warn' | 'ally' } | null;
 }
 
 const STAGE_NAMES = [
@@ -53,7 +56,7 @@ function ensureStyles(): void {
   color: #edf2f7;
 }
 .ew-bar {
-  display: flex; align-items: center; gap: 12px;
+  display: flex; align-items: center; gap: 11px;
   padding: 6px 14px;
   background: rgba(11, 14, 18, 0.78);
   border: 1px solid rgba(180, 198, 218, 0.22);
@@ -83,6 +86,14 @@ function ensureStyles(): void {
 }
 .ew-fac.up { background: rgba(255, 64, 52, 0.22); color: #ff8f85; border: 1px solid rgba(255, 72, 60, 0.45); }
 .ew-fac.down { background: rgba(74, 240, 152, 0.18); color: #7ef5b4; border: 1px solid rgba(74, 240, 152, 0.55); }
+.ew-gates { display: flex; align-items: center; gap: 3px; }
+.ew-gate-lbl { font-size: 0.58rem; font-weight: 800; letter-spacing: 0.08em; color: #b6c4d4; margin-right: 2px; }
+.ew-gate {
+  font-size: 0.58rem; font-weight: 800; letter-spacing: 0.06em;
+  padding: 2px 4px; border-radius: 3px;
+}
+.ew-gate.sealed { background: rgba(255, 92, 52, 0.22); color: #ff9c82; border: 1px solid rgba(255, 92, 52, 0.5); }
+.ew-gate.open { background: rgba(56, 232, 255, 0.22); color: #7ef2ff; border: 1px solid rgba(56, 232, 255, 0.65); }
 .ew-fob {
   font-size: 0.7rem; font-weight: 800; letter-spacing: 0.08em;
   padding: 3px 8px; border-radius: 4px;
@@ -97,6 +108,20 @@ function ensureStyles(): void {
   padding: 3px 12px; border-radius: 4px;
   font-size: 0.7rem; font-weight: 800; letter-spacing: 0.13em;
   background: rgba(255, 178, 46, 0.24); border: 1px solid rgba(255, 198, 72, 0.7); color: #ffe08a;
+}
+.ew-alert {
+  padding: 3px 12px; border-radius: 4px;
+  font-size: 0.7rem; font-weight: 800; letter-spacing: 0.13em;
+}
+.ew-alert.danger {
+  background: rgba(255, 44, 36, 0.32); border: 1px solid #ff473d; color: #ffd3cf;
+  animation: ew-pulse 0.75s infinite alternate;
+}
+.ew-alert.warn {
+  background: rgba(255, 152, 46, 0.26); border: 1px solid rgba(255, 168, 56, 0.75); color: #ffd996;
+}
+.ew-alert.ally {
+  background: rgba(46, 216, 255, 0.22); border: 1px solid rgba(56, 232, 255, 0.7); color: #8af4ff;
 }
 .ew-radio {
   font-size: 0.66rem; font-weight: 700; letter-spacing: 0.09em; color: #ffca6b;
@@ -165,9 +190,19 @@ export class EndlessWarHud {
       return `<span class="ew-fac ${f.alive ? 'up' : 'down'}">${label}</span>`;
     }).join('');
 
+    const gateHtml = state.gates && state.gates.length > 0
+      ? `<div class="ew-sep"></div><div class="ew-gates"><span class="ew-gate-lbl">GATES</span>${state.gates.map(g => {
+          const letter = g.lane[0]!.toUpperCase();
+          return `<span class="ew-gate ${g.sealed ? 'sealed' : 'open'}">${letter}</span>`;
+        }).join('')}</div>`
+      : '';
+
     const banners: string[] = [];
     if (state.momentumLeft > 0) banners.push(`MOMENTUM SURGE ${Math.ceil(state.momentumLeft)}s (+60% ALLY PUSH)`);
     if (state.mobilizeLeft > 0) banners.push(`TOTAL MOBILIZATION ${Math.ceil(state.mobilizeLeft)}s (2x ALLY TEMPO)`);
+    const alertHtml = state.tacticalAlert
+      ? `<div class="ew-alert ${state.tacticalAlert.tone}">${state.tacticalAlert.text}</div>`
+      : '';
 
     this.el.innerHTML = `
       <div class="ew-bar">
@@ -189,12 +224,14 @@ export class EndlessWarHud {
             <span class="ew-pip ${state.bridges.east}">E DAM</span>
           </div>
         </div>
+        ${gateHtml}
         <div class="ew-sep"></div>
         <div class="ew-facs">${facPips}</div>
         <div class="ew-sep"></div>
         <div class="ew-fob ${fobDanger ? 'danger' : ''}">FOB ${fobPct}%</div>
         <div class="ew-radio">[O] WAR CMD · ${Math.floor(state.credits).toLocaleString()} CR</div>
       </div>
+      ${alertHtml}
       ${banners.length > 0 ? `<div class="ew-surge">${banners.join('  ·  ')}</div>` : ''}
     `;
   }

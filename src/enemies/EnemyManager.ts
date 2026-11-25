@@ -34,6 +34,7 @@ import { MAX_ALIVE } from './waves';
 import { HELMET } from './wounds/armour';
 import { isGuest } from '../core/coop';
 import { DevFlags } from '../core/devflags';
+import { ACTIVE } from '../contracts/select';
 
 const byDistance = (a: EnemyRayHit, b: EnemyRayHit) => a.distance - b.distance;
 const _gridScratch: Enemy[] = [];
@@ -315,7 +316,8 @@ export class EnemyManager implements EnemySystem {
   // -------------------------------------------------------------------------------------------
 
   spawn(id: EnemyId, position: THREE.Vector3): Enemy | null {
-    if (this.alive.length >= MAX_ALIVE) return null;
+    const cap = ACTIVE.def.id === 'endless_war' ? 68 : MAX_ALIVE;
+    if (this.alive.length >= cap) return null;
     const { ctx } = this;
     const def = ENEMIES[id];
     const e = this.pool.get();

@@ -27,9 +27,10 @@ import type { Director } from '../enemies/director';
 import type { Enemy } from '../enemies/Enemy';
 import type { EnemyManager } from '../enemies/EnemyManager';
 import { updateMovement } from '../enemies/movement';
+import { ACTIVE } from '../contracts/select';
 import { CoverMap, type CoverSpot, type SpotQuery, type SpotReading } from '../enemies/outpost/cover';
 import { RouteFinder, type NavGrid, type Route } from '../enemies/outpost/routes';
-import { soldierOf } from '../enemies/outpost/soldier';
+import { soldierOf, type Foe, type Soldier } from '../enemies/outpost/soldier';
 import type { Telegraphs } from '../enemies/telegraph';
 import { WoundTuning, ZONES } from '../enemies/wounds/rules';
 import { resolveZone, type ZoneHit } from '../enemies/wounds/zones';
@@ -117,6 +118,8 @@ export class AllySystem implements GameSystem {
   readonly props: AllyProps;
   /** A riot line's mark: the gap they block, and which way is out. */
   breach: { point: THREE.Vector3; yaw: number } | null = null;
+  /** Optional provider of non-infantry Foes (e.g., friendly AI armor for enemy AT rocketeers, or FOB Core). */
+  extraFoeProvider: ((soldier: Soldier) => Foe | null) | null = null;
   /** Milliseconds this system took last frame, for the bench. */
   cpuMs = 0;
   /**
@@ -268,7 +271,8 @@ export class AllySystem implements GameSystem {
 
   /** One man at `at`, holding a post there (or at `post`) of `radius`. Null past the cap or off the map. */
   spawn(type: AllyType, at: THREE.Vector3, post?: THREE.Vector3, radius: number = ALLY.postRadius, yaw = Number.NaN): Ally | null {
-    if (this.allies.length >= ALLY.maxAlive || !this.prepare()) return null;
+    const maxAllies = ACTIVE.def.id === 'endless_war' ? 34 : ALLY.maxAlive;
+    if (this.allies.length >= maxAllies || !this.prepare()) return null;
     const { ctx } = this;
     const def = ALLY_TYPES[type];
     const a = this.pool.get();
@@ -411,7 +415,11 @@ export class AllySystem implements GameSystem {
     this.sensePlayer();
     this.orders.update(ctx.time.playerDt ?? dt);
     if (this.allies.length === 0) {
-      if (this.foesSet) this.clearFoes();
+      if (this.extraFoeProvider) {
+        if (now >= this.foeAt) this.assignFoes(now);
+      } else if (this.foesSet) {
+        this.clearFoes();
+      }
       this.cpuMs = 0;
       return;
     }
@@ -1238,25 +1246,41 @@ export class AllySystem implements GameSystem {
         s.foe = null;
         continue;
       }
+
+      // Check priority non-infantry Foes (e.g., friendly tanks for AT rocketeers, or FOB Vanguard Core during a breach)
+      const extra = this.extraFoeProvider ? this.extraFoeProvider(s) : null;
+      const preferExtra = extra !== null && (s.e.id === 'rocketeer' || extra.center.distanceTo(s.e.position) < 42);
+
       let best: Ally | null = null;
       let bestD: number = ALLY.foeRange;
-      for (const a of this.allies) {
-        if (a.state !== 'up') continue;
-        const d = a.body.position.distanceTo(s.e.position);
-        if (d < bestD) {
-          bestD = d;
-          best = a;
+      if (!preferExtra) {
+        for (const a of this.allies) {
+          if (a.state !== 'up') continue;
+          const d = a.body.position.distanceTo(s.e.position);
+          if (d < bestD) {
+            bestD = d;
+            best = a;
+          }
         }
       }
-      if (!best) {
+
+      const candidate: Foe | null = preferExtra ? extra : (best ?? extra);
+      if (!candidate || !candidate.alive) {
         s.foe = null;
         continue;
       }
+
       rays--;
       _a.copy(s.e.position);
       _a.y += s.e.def.eyeHeight;
-      const seen = this.clearLine(_a, best.body.center);
-      s.foe = seen && prefersAlly(s.sees, s.e.dist, bestD) ? best : null;
+      const candD = candidate.center.distanceTo(s.e.position);
+      const seen = this.clearLine(_a, candidate.center);
+      if (candidate === extra) {
+        // Extra war targets (tanks / FOB Core) are large & high-priority when visible or within close RPG range
+        s.foe = (seen || candD < 36) ? extra : null;
+      } else {
+        s.foe = seen && prefersAlly(s.sees, s.e.dist, bestD) ? best : null;
+      }
     }
   }
 

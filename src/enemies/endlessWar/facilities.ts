@@ -309,14 +309,14 @@ export class StrategicFacilitySystem implements ExtraTarget {
   }
 
   /** Direct programmatic sabotage helper (used by tests and artillery barrages). */
-  damageById(id: StrategicFacilityId, amount: number, source = 'player'): boolean {
+  damageById(id: StrategicFacilityId, amount: number, source = 'breach_charge'): boolean {
     const f = this.byId.get(id);
     if (!f || !f.alive) return false;
     this.damageFacility(f, amount, source);
     return true;
   }
 
-  applyBlast(center: THREE.Vector3, radius: number, damage: number, source = 'explosion'): number {
+  applyBlast(center: THREE.Vector3, radius: number, damage: number, source = 'breach_charge'): number {
     let hits = 0;
     for (const f of this.items) {
       if (!f.alive) continue;

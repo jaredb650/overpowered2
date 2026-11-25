@@ -3,16 +3,17 @@
  *
  * Nonstop, zero-downtime combined-arms war across a 480 m x 720 m overcast mud front divided
  * by a wide river with 3 fortified bridges:
- *   - Autonomous friendly army (`AllySystem` + `AiVehicleFleet`) continuously spawns at FOB Vanguard
- *     and fights across West, Center, and East lanes with zero micromanagement.
- *   - Uncapped Threat Escalation (`THREAT 1 -> ∞`) continuously ramps enemy Saltblood squads,
- *     convoys, tanks, attack choppers, hostile combat jets (`CrossfireAirWing`), SAM/Flak/Mortar
- *     emplacements (`BaseDefenseSystem`), paratroopers, Juggernauts, and Titans until inevitable defeat.
- *   - Pushing across the river to sabotage 5 Enemy Strategic Facilities (`StrategicFacilitySystem`)
- *     cripples enemy capabilities, pays large credit bounties, and fires 30-second Momentum Surges.
- *   - War Command Console (`[E]` at FOB kiosk or `[O]` Field Radio) spends credits on heavy
- *     reinforcement pushes (`Armored Spearhead`, `Airborne Platoon`, `Fighter/Gunship Wing`,
- *     `Rolling Artillery`, `Total Mobilization`, `FOB Repair & Overdrive`).
+ *   - Two reactive army commanders (`WarTacticalCommander`) orchestrate concentrated Main Effort
+ *     battlegroups, flank responses, emergency intruder defense inside base walls, frontline armor
+ *     pacing, active infantry marching, and threat-prioritized CAS air strikes.
+ *   - Destructible Iron Bastion Blast Gates (`BastionDefenseSystem`) seal the northern enemy fortress
+ *     against player & friendly armor rush while allowing enemy armor/reinforcements out cleanly.
+ *   - Uncapped Threat Escalation (`THREAT 1 -> ∞`) continuously ramps high-density enemy infantry
+ *     (including AT rocketeers from Threat 1), humvees, troop trucks, tanks, attack choppers,
+ *     hostile combat jets (`CrossfireAirWing`), SAM/Flak/Mortar emplacements, paratroopers,
+ *     Juggernauts, and Titans until inevitable defeat.
+ *   - Sabotaging 5 Enemy Strategic Facilities (`StrategicFacilitySystem`) cripples enemy capabilities,
+ *     pays large credit bounties, and fires 30-second Momentum Surges.
  *   - Infinite 4-second player respawn at Friendly FOB Vanguard; Lose Condition = FOB Command Core destroyed.
  */
 import * as THREE from 'three';
@@ -25,30 +26,39 @@ import { clamp, rand } from '../../core/math';
 import { AiVehicleFleet } from '../../vehicles/drive/aiDriver';
 import { EXPLOSIONS } from '../../weapons/data';
 import {
+  ENDLESS_WAR_BASTION_GATES,
   ENDLESS_WAR_CHOPPER_LZS,
   ENDLESS_WAR_CROSSINGS,
   ENDLESS_WAR_ENEMY_DEFENSES,
   ENDLESS_WAR_ENEMY_LANES,
+  ENDLESS_WAR_ENEMY_SALLY_SPAWNS,
   ENDLESS_WAR_ENEMY_SPAWNS,
   ENDLESS_WAR_FACILITIES,
+  ENDLESS_WAR_FOB_CORE,
   ENDLESS_WAR_FRIENDLY_LANES,
   ENDLESS_WAR_FRIENDLY_SPAWNS,
+  ENDLESS_WAR_OPENING_ENEMY_STAGING,
+  ENDLESS_WAR_OPENING_FRIENDLY_STAGING,
   ENDLESS_WAR_PLAYER_SPAWN,
   ENDLESS_WAR_PLAYER_YAW,
   ENDLESS_WAR_PROCUREMENT_POD,
   ENDLESS_WAR_RALLY_Z,
   ENDLESS_WAR_SKY_SPAWNS,
   ENDLESS_WAR_WAR_CONSOLE,
+  type BastionGatePlan,
   type StrategicFacilityPlan,
+  type Vec3,
   type WarLaneId,
 } from '../../world/map/endlessWar/plan';
 import type { AiJetKind, AiJetTheater } from '../dogfight/aiJet';
 import type { EnemyManager } from '../EnemyManager';
 import type { Outpost } from '../outpost';
 import { ParatrooperSystem, type DropZone } from '../rooftop/paratroopers';
+import { BastionDefenseSystem } from './bastionDefense';
 import { StrategicFacilitySystem } from './facilities';
 import { FobDefenseSystem } from './fobDefense';
 import { EndlessWarHud, type BridgeOwner } from './hudOverlay';
+import { WarTacticalCommander } from './tacticalAi';
 import { WAR_BOOSTS, WarCommandUi, type WarBoostId } from './warConsoleUi';
 
 export const ENDLESS_WAR_THREAT_STEP_SEC = 95;
@@ -57,14 +67,6 @@ export const ENDLESS_WAR_MOMENTUM_SEC = 30.0;
 
 const LANES: readonly WarLaneId[] = ['west', 'center', 'east'];
 const CONSOLE_INTERACT_RANGE = 5.4;
-
-const WAR_AIR_THEATER: AiJetTheater = {
-  minAlt: 36,
-  maxAlt: 330,
-  turnRadius: 920,
-  groundY: 0,
-  dynamicGroundTarget: true,
-};
 
 /** Pure uncapped Threat Level calculation from elapsed seconds + deep fortress pressure. */
 export function endlessWarThreatLevel(elapsedSec: number, deepSabotageCount = 0): { level: number; progress: number } {
@@ -75,7 +77,7 @@ export function endlessWarThreatLevel(elapsedSec: number, deepSabotageCount = 0)
   return { level, progress };
 }
 
-/** Pure enemy active force caps scaling with Threat Level while staying safely under MAX_ALIVE = 48. */
+/** High-density enemy active force caps scaling with Threat Level (safely under Endless War's 68-entity cap). */
 export function endlessWarEnemyCaps(threat: number): {
   infantryCap: number;
   groundVehCap: number;
@@ -88,14 +90,14 @@ export function endlessWarEnemyCaps(threat: number): {
 } {
   const t = Math.max(1, threat);
   return {
-    infantryCap: Math.min(36, 22 + t * 2),
-    groundVehCap: Math.min(6, 2 + Math.floor(t / 2)),
-    chopperCap: t < 2 ? 0 : Math.min(2, 1 + Math.floor((t - 2) / 4)),
-    jetCap: t < 4 ? 0 : Math.min(3, 1 + Math.floor((t - 4) / 3)),
-    infantryInterval: Math.max(2.6, 8.2 - (t - 1) * 0.55),
-    armorInterval: Math.max(11, 28 - (t - 1) * 1.8),
-    airInterval: Math.max(18, 46 - (t - 1) * 2.6),
-    bossInterval: Math.max(26, 72 - (t - 1) * 4.0),
+    infantryCap: Math.min(62, 38 + (t - 1) * 3),
+    groundVehCap: Math.min(14, 6 + Math.floor(t * 0.9)),
+    chopperCap: t < 2 ? 0 : Math.min(3, 1 + Math.floor((t - 2) / 3)),
+    jetCap: t < 4 ? 0 : Math.min(4, 1 + Math.floor((t - 4) / 2)),
+    infantryInterval: Math.max(1.8, 5.2 - (t - 1) * 0.4),
+    armorInterval: Math.max(6.5, 16.5 - (t - 1) * 1.1),
+    airInterval: Math.max(15, 38 - (t - 1) * 2.2),
+    bossInterval: Math.max(22, 64 - (t - 1) * 3.8),
   };
 }
 
@@ -118,6 +120,8 @@ export class EndlessWarWaves implements WaveSystem {
 
   readonly facilities: StrategicFacilitySystem;
   readonly fob: FobDefenseSystem;
+  readonly bastion: BastionDefenseSystem;
+  readonly commander: WarTacticalCommander;
   readonly allyFleet: AiVehicleFleet;
   readonly airWing: CrossfireAirWing;
   readonly baseDefense: BaseDefenseSystem;
@@ -145,14 +149,13 @@ export class EndlessWarWaves implements WaveSystem {
   private readonly pendingShells: PendingArtilleryShell[] = [];
 
   private friendlyInfTimer = 1.5;
-  private friendlyArmorTimer = 6.0;
-  private enemyInfTimer = 2.0;
-  private enemyArmorTimer = 12.0;
-  private enemyAirTimer = 28.0;
-  private enemyJetTimer = 42.0;
-  private enemyBossTimer = 50.0;
-  private frontlineTimer = 0.5;
-  private laneCursor = 0;
+  private friendlyArmorTimer = 8.0;
+  private enemyInfTimer = 1.8;
+  private enemyArmorTimer = 9.0;
+  private enemyAirTimer = 24.0;
+  private enemyJetTimer = 38.0;
+  private enemyBossTimer = 48.0;
+  private frontlineTimer = 0.45;
   private unprompt: (() => void) | null = null;
   private keyListener: ((e: KeyboardEvent) => void) | null = null;
   private readonly unsubs: (() => void)[] = [];
@@ -162,19 +165,41 @@ export class EndlessWarWaves implements WaveSystem {
     private readonly o: Outpost,
     private readonly manager: EnemyManager,
   ) {
+    this.commander = new WarTacticalCommander();
     this.facilities = new StrategicFacilitySystem(ctx, {
       onDestroyed: plan => this.onFacilityDestroyed(plan),
       onRebuilt: plan => this.onFacilityRebuilt(plan),
     });
     this.fob = new FobDefenseSystem(ctx, () => this.onFobDestroyed());
+    this.bastion = new BastionDefenseSystem(ctx, {
+      onGateBreached: plan => this.onBastionGateBreached(plan),
+      onGateRebuilt: plan => this.onBastionGateRebuilt(plan),
+    });
     this.allyFleet = new AiVehicleFleet(ctx);
+
+    const theater: AiJetTheater = {
+      minAlt: 36,
+      maxAlt: 330,
+      turnRadius: 920,
+      groundY: 0,
+      dynamicGroundTarget: true,
+      resolveGroundStrikeTarget: jet => this.commander.pickEnemyAirStrikeTarget(
+        jet,
+        this.allyFleet.units,
+        this.ctx.player?.alive ? this.ctx.player.position : null,
+        this.threatLevel,
+      ),
+    };
     this.airWing = new CrossfireAirWing(ctx, {
       onEnemyKilled: jet => {
         const shop = this.ctx.contracts?.shop as { credits?: number } | null | undefined;
         if (shop && typeof shop.credits === 'number') shop.credits += 350;
         this.ctx.progression?.award?.(350, `${jet.profile.name} SHOT DOWN`, jet.position);
       },
-    }, WAR_AIR_THEATER);
+      onGroundStrike: (from, hitPoint, damage, attackerName, heavyBomb) => {
+        this.resolveEnemyAirStrike(from, hitPoint, damage, attackerName, heavyBomb);
+      },
+    }, theater);
     this.baseDefense = new BaseDefenseSystem(ctx);
     this.paratroopers = new ParatrooperSystem(ctx, o, manager);
     this.hudOverlay = new EndlessWarHud();
@@ -218,7 +243,14 @@ export class EndlessWarWaves implements WaveSystem {
     this.active = true;
     this.facilities.init();
     this.fob.init();
+    this.bastion.init();
     this.hudOverlay.mount();
+
+    // Seal all 3 Iron Bastion Blast Gates in AiVehicleFleet until blasted open!
+    for (const g of ENDLESS_WAR_BASTION_GATES) {
+      this.allyFleet.setGateOpen(g.id, false);
+    }
+    this.allyFleet.setSiegeTargets(() => this.bastion.getSiegeTargets());
 
     // Wire Friendly FOB Core + AiVehicleFleet into VehicleSystem so enemy tanks & choppers fight our armor & base!
     const vehicles = this.manager.vehicles;
@@ -227,20 +259,39 @@ export class EndlessWarWaves implements WaveSystem {
       vehicles.setFriendlyVehicles(() => this.allyFleet.getLiveGroundTargets());
     }
 
+    // Wire enemy AT Rocketeers & breaching infantry -> friendly tanks & FOB Vanguard Core!
+    if (this.ctx.allies) {
+      this.ctx.allies.extraFoeProvider = s => this.commander.resolveExtraFoe(s, this.allyFleet.units, this.fob);
+    }
+
     // Spawn all Sector 3 & Sector 4 enemy SAM, Flak, Radar, and Mortar emplacements
     this.spawnAllBaseDefenses();
 
-    // Seed an immediate opening clash across all 3 lanes so combat roars from second 1!
+    // Seed an intense, realistic opening warfront across all 3 lanes (staged forward near the bridges & trenches)!
     for (const lane of LANES) {
-      this.spawnFriendlySquad(lane, 4);
-      this.spawnEnemySquad(lane, 5);
+      const fSpots = ENDLESS_WAR_OPENING_FRIENDLY_STAGING[lane];
+      for (const spot of fSpots) {
+        this.spawnFriendlySquad(lane, 3, spot);
+      }
+      const eSpots = ENDLESS_WAR_OPENING_ENEMY_STAGING[lane];
+      for (const spot of eSpots) {
+        this.spawnEnemySquad(lane, 4, 'assault', spot);
+      }
     }
-    this.spawnFriendlyArmor('center', 'aegis');
-    this.spawnFriendlyArmor('west', 'bastion');
-    this.spawnEnemyArmor('center', 'humvee');
-    this.spawnEnemyArmor('east', 'truck');
 
-    this.ctx.hud?.feed?.('ENDLESS WAR — PUSH THE RIVER BRIDGES & SABOTAGE ENEMY FACILITIES', '#6beeff');
+    // Opening combined-arms armor columns: friendly tanks hold with infantry & respect sealed Blast Gates!
+    this.spawnFriendlyArmor('center', 'aegis', 68);
+    this.spawnFriendlyArmor('west', 'bastion', 74);
+    this.spawnFriendlyArmor('east', 'aegis', 74);
+
+    // Opening enemy mechanized assault: tanks, humvees, and frontline troop trucks!
+    this.spawnEnemyArmor('center', 'tank');
+    this.spawnEnemyArmor('west', 'humvee');
+    this.spawnEnemyArmor('east', 'truck');
+    this.spawnEnemyArmor('center', 'truck');
+    this.spawnEnemyArmor('west', 'tank');
+
+    this.ctx.hud?.feed?.('ENDLESS WAR — HOLD THE BRIDGES, BREACH IRON BASTION GATES & SABOTAGE FACILITIES', '#6beeff');
   }
 
   reset(): void {
@@ -265,19 +316,26 @@ export class EndlessWarWaves implements WaveSystem {
     this.boostCooldowns.clear();
     this.pendingShells.length = 0;
 
-    this.friendlyInfTimer = 1.5;
-    this.friendlyArmorTimer = 7.0;
+    this.friendlyInfTimer = 2.0;
+    this.friendlyArmorTimer = 10.0;
     this.enemyInfTimer = 2.0;
-    this.enemyArmorTimer = 14.0;
-    this.enemyAirTimer = 30.0;
-    this.enemyJetTimer = 48.0;
-    this.enemyBossTimer = 55.0;
-    this.frontlineTimer = 0.5;
+    this.enemyArmorTimer = 9.5;
+    this.enemyAirTimer = 24.0;
+    this.enemyJetTimer = 38.0;
+    this.enemyBossTimer = 48.0;
+    this.frontlineTimer = 0.45;
+
+    if (this.ctx.allies) {
+      this.ctx.allies.extraFoeProvider = null;
+    }
+    this.allyFleet.setSiegeTargets(null);
 
     this.warConsole.close();
     this.clearPrompt();
+    this.commander.reset();
     this.facilities.dispose();
     this.fob.dispose();
+    this.bastion.dispose();
     this.allyFleet.clear();
     this.airWing.clear();
     this.baseDefense.clear();
@@ -312,7 +370,6 @@ export class EndlessWarWaves implements WaveSystem {
     } | undefined;
     if (!p) return;
 
-    // Exit any destroyed/occupied seat cleanly
     const seats = (this.ctx as { seats?: { occupied?: boolean; exit?: () => void } }).seats;
     if (seats?.occupied) seats.exit?.();
 
@@ -377,24 +434,46 @@ export class EndlessWarWaves implements WaveSystem {
     this.updateArtilleryShells(dt);
 
     const enemyVehicles = this.manager.vehicles?.live ?? [];
+    const friendlyInf = this.ctx.allies?.allies ?? [];
     this.fob.update(dt, this.manager.alive, enemyVehicles, this.airWing.enemies);
+    this.bastion.update(dt, this.threatLevel, this.allyFleet.units, friendlyInf, this.airWing.allies);
 
-    // Update enemy SAM/Flak/Radar/Mortar emplacements (suppress mortars/SAMs when linked facility is down!)
-    const artilleryUp = this.facilities.isAlive('artillery_battery');
-    const radarUp = this.facilities.isAlive('radar_aa');
+    // Update enemy SAM/Flak/Radar/Mortar emplacements
     this.baseDefense.update(dt, {
       alliedJets: this.airWing.allies,
       friendlyGroundTargets: [...this.allyFleet.getLiveGroundTargets(), this.fob],
     });
-    void artilleryUp;
-    void radarUp;
 
-    // 5. Frontline bridgehead control & autonomous reinforcement directors
+    // 5. Two-Army Tactical Evaluation, Frontline Bridge Control & Active Orders
     this.frontlineTimer -= dt;
     if (this.frontlineTimer <= 0) {
-      this.frontlineTimer = 0.6;
+      this.frontlineTimer = 0.55;
+      const playerPos = this.ctx.player?.alive ? this.ctx.player.position : null;
+      this.commander.evaluate(
+        0.55,
+        friendlyInf,
+        this.allyFleet.units,
+        this.manager.alive,
+        enemyVehicles,
+        playerPos,
+        this.bastion,
+      );
       this.evaluateFrontline();
+
+      // Emergency Iron Bastion QRF dispatch when player/friendly tanks breach inside enemy walls!
+      if (!this.fobLost && this.commander.shouldTriggerBastionQrf()) {
+        const sit = this.commander.getSituation();
+        const qrfLane = sit.bastionBreachLane ?? 'center';
+        this.spawnEnemySquad(qrfLane, 5, 'qrf');
+        if (this.facilities.isAlive('motor_pool')) {
+          this.spawnEnemyArmor(qrfLane, 'tank');
+        }
+        this.ctx.hud?.feed?.(`IRON BASTION INTRUSION — ENEMY ANTI-ARMOR QRF SCRAMBLED ON ${qrfLane.toUpperCase()}!`, '#ff523e');
+      }
     }
+
+    const nowSec = (this.o as { w?: { now?: number } })?.w?.now ?? this.elapsedSec;
+    this.commander.issueOrders(dt, nowSec, friendlyInf, this.allyFleet, this.bastion);
 
     if (!this.fobLost) {
       this.updateFriendlySpawners(dt);
@@ -411,6 +490,7 @@ export class EndlessWarWaves implements WaveSystem {
       threatProgress: this.threatProgress,
       frontlineStage: this.frontlineStage,
       bridges: this.bridges,
+      gates: this.bastion.getGateSnapshots(),
       facilities: this.facilities.getSnapshots(),
       fobHpFrac: this.fob.hpFrac,
       fobUnderAttack: this.fob.underAttackTimer > 0,
@@ -419,7 +499,60 @@ export class EndlessWarWaves implements WaveSystem {
       mobilizeLeft: this.mobilizeLeft,
       credits: this.getCredits(),
       redeployLeft: this.redeployLeft,
+      tacticalAlert: this.commander.getTacticalAlert(),
     });
+  }
+
+  // ---- Enemy CAS Air Strike Ground Resolution -------------------------------
+
+  private resolveEnemyAirStrike(
+    _from: THREE.Vector3,
+    hitPoint: THREE.Vector3,
+    damage: number,
+    attackerName: string,
+    heavyBomb: boolean,
+  ): void {
+    const radius = heavyBomb ? 18 : 11;
+    const scale = heavyBomb ? 1.55 : 1.05;
+    const at = _v.set(hitPoint.x, 0.4, hitPoint.z);
+
+    this.ctx.fx?.explosion?.(at, { radius, kind: heavyBomb ? 'thermobaric' : 'rocket', scale });
+    this.ctx.render?.lights?.flash?.(at, 0xff7426, 22, 60, 0.35);
+    this.ctx.audio?.play?.('explosion', { position: at, volume: heavyBomb ? 0.88 : 0.68 });
+
+    // 1. Damage friendly AI armor in blast radius
+    this.allyFleet.applyEnemyBlast(at, radius, damage * (heavyBomb ? 3.2 : 2.1), attackerName);
+
+    // 2. Damage friendly infantry in blast radius
+    for (const a of this.ctx.allies?.allies ?? []) {
+      if (!a.alive) continue;
+      const d = a.body.position.distanceTo(at);
+      if (d <= radius) {
+        const fall = clamp(1 - d / (radius + 2), 0.3, 1);
+        a.shotAt?.(at, damage * 0.9 * fall, 0.1, attackerName);
+      }
+    }
+
+    // 3. Damage Friendly FOB Vanguard Core if strike lands near the inner plaza
+    const fobDist = Math.hypot(at.x - this.fob.position.x, at.z - this.fob.position.z);
+    if (fobDist <= radius + 14) {
+      this.fob.takeDamage(damage * (heavyBomb ? 4.0 : 2.4), at, attackerName);
+    }
+
+    // 4. Splash player if caught in blast radius
+    const p = this.ctx.player as { alive?: boolean; position?: THREE.Vector3; takeDamage?: (d: unknown) => void } | undefined;
+    if (p?.alive && p.position) {
+      const pd = p.position.distanceTo(at);
+      if (pd <= radius) {
+        const fall = clamp(1 - pd / (radius + 2), 0.25, 1);
+        p.takeDamage?.({
+          amount: Math.round(damage * 0.45 * fall),
+          from: at,
+          type: 'explosive',
+          source: attackerName,
+        });
+      }
+    }
   }
 
   // ---- Frontline & Bridgehead Evaluation ------------------------------------
@@ -464,7 +597,6 @@ export class EndlessWarWaves implements WaveSystem {
       }
     }
 
-    // Count friendly presence deep in North Defense Belt (z < -70) & enemy breaches south (z > 180)
     let deepFriendlies = (playerPos && playerPos.z < -70) ? 3 : 0;
     for (const a of allies) if (a.alive && a.body.position.z < -70) deepFriendlies++;
     let southEnemies = this.fob.breachedCount;
@@ -475,7 +607,7 @@ export class EndlessWarWaves implements WaveSystem {
       stage = 0;
     } else if (enemyBridges >= 2 && southEnemies >= 4) {
       stage = 1;
-    } else if (friendlyBridges >= 2 && deepFriendlies >= 5 && this.facilities.destroyedCount >= 2) {
+    } else if (friendlyBridges >= 2 && deepFriendlies >= 5 && (this.bastion.breachedCount > 0 || this.facilities.destroyedCount >= 2)) {
       stage = 4;
     } else if (friendlyBridges >= 2 || deepFriendlies >= 4) {
       stage = 3;
@@ -494,46 +626,49 @@ export class EndlessWarWaves implements WaveSystem {
     if (this.momentumLeft > 0) tempo += 0.60;
     if (this.mobilizeLeft > 0) tempo *= 2.0;
 
-    // 1. Autonomous Friendly Infantry Squads
+    // 1. Autonomous Friendly Infantry Squads (concentrated on Allied Commander's Main Effort lane!)
     this.friendlyInfTimer -= dt * tempo;
     if (this.friendlyInfTimer <= 0) {
       const aliveAllies = this.ctx.allies?.allies.filter(a => a.alive).length ?? 0;
-      const cap = (this.momentumLeft > 0 || this.mobilizeLeft > 0) ? 22 : 16;
+      const cap = (this.momentumLeft > 0 || this.mobilizeLeft > 0) ? 32 : 24;
       if (aliveAllies < cap) {
-        const lane = this.nextLane();
-        const count = Math.min(4, cap - aliveAllies);
+        const lane = this.commander.pickFriendlySpawnLane();
+        const count = Math.min(5, cap - aliveAllies);
         this.spawnFriendlySquad(lane, count);
       }
-      this.friendlyInfTimer = 9.5;
+      this.friendlyInfTimer = 5.8;
     }
 
     // 2. Autonomous Friendly AI Armor (Jackals, Bastions, Aegis MBTs)
     this.friendlyArmorTimer -= dt * tempo;
     if (this.friendlyArmorTimer <= 0) {
       const liveGround = this.allyFleet.getLiveGroundTargets().length;
-      const armorCap = this.mobilizeLeft > 0 ? 7 : 4;
+      const armorCap = this.mobilizeLeft > 0 ? 8 : 5;
       if (liveGround < armorCap) {
-        const lane = this.nextLane();
+        const lane = this.commander.pickFriendlySpawnLane();
         const roll = Math.random();
-        const kind = roll < 0.42 ? 'aegis' : (roll < 0.78 ? 'bastion' : 'jackal');
+        const kind = roll < 0.45 ? 'aegis' : (roll < 0.80 ? 'bastion' : 'jackal');
         this.spawnFriendlyArmor(lane, kind);
       }
-      this.friendlyArmorTimer = 26.0;
+      this.friendlyArmorTimer = 18.5;
     }
   }
 
-  private spawnFriendlySquad(lane: WarLaneId, count: number): void {
+  private spawnFriendlySquad(lane: WarLaneId, count: number, spawnOverride?: Vec3): void {
     const allies = this.ctx.allies;
     if (!allies) return;
     const spawns = ENDLESS_WAR_FRIENDLY_SPAWNS[lane];
-    const rallyZ = ENDLESS_WAR_RALLY_Z[this.frontlineStage] ?? 42;
+    const intel = this.commander.getSituation().lanes[lane];
+    const gateSealed = this.bastion.isGateSealed(lane);
+    const minZ = gateSealed ? -230 : -295;
+    const rallyZ = clamp(intel ? intel.contactZ - 16 : (ENDLESS_WAR_RALLY_Z[this.frontlineStage] ?? 42), minZ, 232);
     const crossing = ENDLESS_WAR_CROSSINGS.find(c => c.id === lane)!;
     const types: readonly AllyType[] = ['rifleman', 'rifleman', 'gunner', 'rocketeer', 'riot', 'medic'];
 
     for (let i = 0; i < count; i++) {
-      const sp = spawns[i % spawns.length]!;
-      const at = new THREE.Vector3(sp[0] + rand(-4, 4), sp[1], sp[2] + rand(-4, 4));
-      const post = new THREE.Vector3(crossing.x + rand(-18, 18), 0, rallyZ + rand(-14, 14));
+      const sp = spawnOverride ?? spawns[i % spawns.length]!;
+      const at = new THREE.Vector3(sp[0] + rand(-5, 5), sp[1], sp[2] + rand(-5, 5));
+      const post = new THREE.Vector3(crossing.x + rand(-16, 16), 0, rallyZ + rand(-12, 12));
       const type = types[Math.floor(Math.random() * types.length)]!;
       const ally = allies.spawn(type, at, post, 22, Math.PI);
       if (ally) {
@@ -543,15 +678,25 @@ export class EndlessWarWaves implements WaveSystem {
     }
   }
 
-  private spawnFriendlyArmor(lane: WarLaneId, kind: 'aegis' | 'bastion' | 'jackal'): void {
+  private spawnFriendlyArmor(lane: WarLaneId, kind: 'aegis' | 'bastion' | 'jackal', initialHoldZ?: number): void {
     const pts = ENDLESS_WAR_FRIENDLY_LANES[lane];
     const spawnPt = pts[0]!;
-    this.allyFleet.spawnGround({
+    const wps = pts.slice(1);
+    const gatePlan = ENDLESS_WAR_BASTION_GATES.find(g => g.lane === lane);
+    // Waypoint `wps.length - 2` is `[laneX, -242]` right outside the Iron Bastion Blast Gate (`z = -258`)!
+    const gateIdx = Math.max(0, wps.length - 2);
+
+    const unit = this.allyFleet.spawnGround({
       kind,
       laneId: `ew_ally_${lane}`,
       spawn: [spawnPt[0] + rand(-3, 3), 0, spawnPt[1]],
-      waypoints: pts.slice(1).map(p => [p[0], 0, p[1]] as const),
+      waypoints: wps.map(p => [p[0], 0, p[1]] as const),
+      gateWaypoints: gatePlan ? { [gateIdx]: gatePlan.id } : undefined,
     });
+    unit.combatHold = true;
+    const intel = this.commander.getSituation().lanes[lane];
+    const gateSealed = this.bastion.isGateSealed(lane);
+    unit.holdNorthZ = initialHoldZ ?? clamp((intel?.friendlyFrontZ ?? 90) - 28, gateSealed ? -236 : -300, 180);
   }
 
   // ---- Escalating Enemy Army Spawners ---------------------------------------
@@ -565,28 +710,28 @@ export class EndlessWarWaves implements WaveSystem {
 
     const cadenceMult = fuelUp ? 1.0 : 0.75;
 
-    // 1. Enemy Saltblood Infantry Warbands
+    // 1. High-Density Enemy Saltblood Infantry Warbands (with AT Rocketeers from Threat 1!)
     this.enemyInfTimer -= dt * cadenceMult;
     if (this.enemyInfTimer <= 0) {
       const alive = this.manager.alive.length;
       if (alive < caps.infantryCap) {
-        const lane = this.nextLane();
-        const squadSize = Math.min(5, caps.infantryCap - alive);
-        this.spawnEnemySquad(lane, squadSize);
+        const lane = this.commander.pickEnemySpawnLane();
+        const squadSize = Math.min(6, caps.infantryCap - alive);
+        this.spawnEnemySquad(lane, squadSize, 'assault');
       }
       this.enemyInfTimer = caps.infantryInterval;
     }
 
-    // 2. Enemy Armor & Convoys (halted while Iron Bastion Motor Pool is destroyed!)
+    // 2. Enemy Armor & Mechanized Convoys (halted while Iron Bastion Motor Pool is destroyed!)
     if (motorUp) {
       this.enemyArmorTimer -= dt * cadenceMult;
       if (this.enemyArmorTimer <= 0) {
         const liveGround = this.countEnemyGroundVehicles();
         if (liveGround < caps.groundVehCap) {
-          const lane = this.nextLane();
-          const tankChance = clamp(0.18 + (this.threatLevel - 1) * 0.10, 0.18, 0.72);
+          const lane = this.commander.pickEnemySpawnLane();
+          const tankChance = clamp(0.26 + (this.threatLevel - 1) * 0.08, 0.26, 0.65);
           const roll = Math.random();
-          const kind = roll < tankChance ? 'tank' : (roll < tankChance + 0.35 ? 'truck' : 'humvee');
+          const kind = roll < tankChance ? 'tank' : (roll < tankChance + 0.36 ? 'truck' : 'humvee');
           this.spawnEnemyArmor(lane, kind);
         }
         this.enemyArmorTimer = caps.armorInterval;
@@ -609,7 +754,7 @@ export class EndlessWarWaves implements WaveSystem {
           if (this.airWing.enemies.length < caps.jetCap) {
             this.spawnEnemyJet();
           }
-          this.enemyJetTimer = Math.max(18, 52 - this.threatLevel * 2.5);
+          this.enemyJetTimer = Math.max(16, 48 - this.threatLevel * 2.5);
         }
       }
     }
@@ -618,9 +763,10 @@ export class EndlessWarWaves implements WaveSystem {
     if (this.threatLevel >= 3) {
       this.enemyBossTimer -= dt * cadenceMult;
       if (this.enemyBossTimer <= 0) {
-        if (this.manager.alive.length < 44) {
-          const lane = this.nextLane();
-          const sp = ENDLESS_WAR_ENEMY_SPAWNS[lane][0]!;
+        if (this.manager.alive.length < 62) {
+          const lane = this.commander.pickEnemySpawnLane();
+          const sealed = this.bastion.isGateSealed(lane);
+          const sp = sealed ? ENDLESS_WAR_ENEMY_SALLY_SPAWNS[lane][0]! : ENDLESS_WAR_ENEMY_SPAWNS[lane][0]!;
           const isTitan = this.threatLevel >= 5 && Math.random() < clamp(0.32 + (this.threatLevel - 5) * 0.08, 0.32, 0.75);
           const id: EnemyId = isTitan ? 'titan' : 'juggernaut';
           this.manager.spawn(id, new THREE.Vector3(sp[0], 0, sp[2]));
@@ -634,20 +780,44 @@ export class EndlessWarWaves implements WaveSystem {
     }
   }
 
-  private spawnEnemySquad(lane: WarLaneId, count: number): void {
-    const spawns = ENDLESS_WAR_ENEMY_SPAWNS[lane];
+  private spawnEnemySquad(
+    lane: WarLaneId,
+    count: number,
+    role: 'assault' | 'qrf' = 'assault',
+    spawnOverride?: Vec3,
+  ): void {
+    const sealed = this.bastion.isGateSealed(lane);
+    // Exterior sally ports when gate is sealed for outward assault squads; interior spawns for Bastion QRF!
+    const spawns = (role === 'qrf' || !sealed)
+      ? ENDLESS_WAR_ENEMY_SPAWNS[lane]
+      : ENDLESS_WAR_ENEMY_SALLY_SPAWNS[lane];
     const pool: EnemyId[] = this.threatLevel >= 4
       ? ['trooper', 'gunner', 'stalker', 'brute', 'rocketeer', 'sniper', 'riot']
-      : ['trooper', 'trooper', 'gunner', 'stalker', 'riot'];
+      : ['trooper', 'trooper', 'gunner', 'stalker', 'riot', 'rocketeer'];
+
     const ids: EnemyId[] = [];
-    for (let i = 0; i < count; i++) {
+    // Guarantee anti-armor AT Rocketeers in every squad (2 in QRF squads, 1 in regular squads!)
+    const guaranteedAt = role === 'qrf' ? Math.min(2, count) : (count >= 3 ? 1 : 0);
+    for (let i = 0; i < guaranteedAt; i++) ids.push('rocketeer');
+    while (ids.length < count) {
       ids.push(pool[Math.floor(Math.random() * pool.length)]!);
     }
-    const base = spawns[Math.floor(Math.random() * spawns.length)]!;
+
+    const base = spawnOverride ?? spawns[Math.floor(Math.random() * spawns.length)]!;
     const squad = this.o.muster(ids.length, new THREE.Vector3(base[0], 0, base[2]));
     for (let i = 0; i < ids.length; i++) {
-      this.o.enlistInto(squad, ids[i]!, new THREE.Vector3(base[0] + rand(-4, 4), 0, base[2] + rand(-4, 4)));
+      this.o.enlistInto(squad, ids[i]!, new THREE.Vector3(base[0] + rand(-5, 5), 0, base[2] + rand(-5, 5)));
     }
+
+    // Register squad with WarTacticalCommander & wake it up IMMEDIATELY via adopt() so it marches right away!
+    this.commander.registerEnemySquad(squad, lane, role);
+    const sit = this.commander.getSituation();
+    const crossing = ENDLESS_WAR_CROSSINGS.find(c => c.id === lane)!;
+    const initialGoal = (role === 'qrf' && sit.bastionBreachPos)
+      ? sit.bastionBreachPos.clone()
+      : new THREE.Vector3(crossing.x + rand(-10, 10), 0, Math.min(240, base[2] + 85));
+    const nowSec = (this.o as { w?: { now?: number } })?.w?.now ?? Math.max(0.1, this.elapsedSec);
+    squad.adopt?.(initialGoal, nowSec + 0.05);
   }
 
   private spawnEnemyArmor(lane: WarLaneId, kind: 'humvee' | 'truck' | 'tank'): void {
@@ -655,10 +825,13 @@ export class EndlessWarWaves implements WaveSystem {
     if (!vehicles) return;
     const pts = ENDLESS_WAR_ENEMY_LANES[lane];
     const start = pts[0]!;
-    const route = pts.slice(1).map(([x, z]) => ({ x, z, hold: 0 }));
-    const crew: EnemyId[] = kind === 'truck' ? ['trooper', 'trooper', 'gunner', 'stalker'] : (kind === 'humvee' ? ['trooper', 'stalker'] : []);
+    const route = this.commander.buildEnemyVehicleRoute(lane, kind);
+    const crew: EnemyId[] = kind === 'truck'
+      ? ['trooper', 'gunner', 'rocketeer', 'stalker', 'trooper']
+      : (kind === 'humvee' ? ['trooper', 'rocketeer'] : []);
+
     vehicles.spawnGround(kind, {
-      x: start[0] + rand(-2, 2),
+      x: start[0] + rand(-2.5, 2.5),
       y: 0,
       z: start[1],
       route,
@@ -668,7 +841,7 @@ export class EndlessWarWaves implements WaveSystem {
       holds: false,
       holdYaw: NaN,
       parked: false,
-      maxHostile: 38,
+      maxHostile: 64,
       waveQueued: false,
     });
   }
@@ -676,7 +849,11 @@ export class EndlessWarWaves implements WaveSystem {
   private spawnEnemyChopperOrDrop(chopperCap: number): void {
     const vehicles = this.manager.vehicles;
     if (!vehicles) return;
-    const lz = ENDLESS_WAR_CHOPPER_LZS[Math.floor(Math.random() * ENDLESS_WAR_CHOPPER_LZS.length)]!;
+    // Bias drop LZ toward Enemy Commander's Main Effort lane!
+    const mainLane = this.commander.enemyMainLane;
+    const laneLzs = ENDLESS_WAR_CHOPPER_LZS.filter(z => z.lane === mainLane);
+    const lzPool = laneLzs.length > 0 && Math.random() < 0.7 ? laneLzs : ENDLESS_WAR_CHOPPER_LZS;
+    const lz = lzPool[Math.floor(Math.random() * lzPool.length)]!;
     const sky = ENDLESS_WAR_SKY_SPAWNS[Math.floor(Math.random() * 3)]!;
 
     // Threat 5+: occasional paratrooper drop over the river / south trench belt
@@ -687,14 +864,15 @@ export class EndlessWarWaves implements WaveSystem {
         z: lz.pos[2],
         radius: 16,
       };
-      this.paratroopers.launchDrop(zone, ['stalker', 'gunner', 'trooper', 'brute']);
+      this.paratroopers.launchDrop(zone, ['rocketeer', 'gunner', 'trooper', 'brute']);
       this.ctx.hud?.feed?.('HOSTILE PARATROOPERS DROPPING OVER THE FRONT', '#ff8c42');
       return;
     }
 
     const activeChoppers = vehicles.live.filter(v => v.alive && v.def.kind === 'chopper').length;
-    if (chopperCap > 0 && activeChoppers < chopperCap && Math.random() < 0.55) {
-      const marks = ENDLESS_WAR_CROSSINGS.map(c => new THREE.Vector3(c.x, 26, c.capturePos[2] + rand(-40, 40)));
+    if (chopperCap > 0 && activeChoppers < chopperCap && Math.random() < 0.58) {
+      const marks = ENDLESS_WAR_CROSSINGS.map(c => new THREE.Vector3(c.x, 28, c.capturePos[2] + rand(-35, 35)));
+      this.commander.registerChopperMarks(marks);
       vehicles.spawnChopper(new THREE.Vector3(sky[0], 54, sky[2]), marks, 'ew_enemy_chopper');
       this.ctx.hud?.feed?.('ENEMY ATTACK HELICOPTER ON STATION', '#ff6448');
     } else {
@@ -702,7 +880,7 @@ export class EndlessWarWaves implements WaveSystem {
         new THREE.Vector3(sky[0], 42, sky[2]),
         new THREE.Vector3(lz.pos[0], 0, lz.pos[2]),
         14,
-        ['trooper', 'gunner', 'stalker', 'trooper'],
+        ['trooper', 'gunner', 'rocketeer', 'stalker'],
         'ew_enemy_transport',
       );
     }
@@ -732,12 +910,26 @@ export class EndlessWarWaves implements WaveSystem {
     }
   }
 
+  // ---- Iron Bastion Blast Gate Events ---------------------------------------
+
+  private onBastionGateBreached(plan: BastionGatePlan): void {
+    this.allyFleet.setGateOpen(plan.id, true);
+    // Enemy fortress scrambles immediate interior AT QRF when a gate falls!
+    this.spawnEnemySquad(plan.lane, 5, 'qrf');
+    if (this.facilities.isAlive('motor_pool')) {
+      this.spawnEnemyArmor(plan.lane, 'tank');
+    }
+  }
+
+  private onBastionGateRebuilt(plan: BastionGatePlan): void {
+    this.allyFleet.setGateOpen(plan.id, false);
+  }
+
   // ---- Strategic Facility Events & Momentum Surges --------------------------
 
   private onFacilityDestroyed(plan: StrategicFacilityPlan): void {
     if (plan.sector === 4) this.deepSabotageCount++;
 
-    // Destroy linked BaseDefense emplacements immediately when Artillery or Radar/AA goes down
     if (plan.id === 'artillery_battery' || plan.id === 'radar_aa') {
       for (const def of ENDLESS_WAR_ENEMY_DEFENSES) {
         if (def.facilityId === plan.id) {
@@ -746,7 +938,6 @@ export class EndlessWarWaves implements WaveSystem {
       }
     }
 
-    // Trigger 30-second MOMENTUM SURGE + immediate free breakthrough squad & tank!
     this.momentumLeft = Math.max(this.momentumLeft, ENDLESS_WAR_MOMENTUM_SEC);
     this.spawnFriendlySquad(plan.lane, 5);
     this.spawnFriendlyArmor(plan.lane, 'aegis');
@@ -789,23 +980,31 @@ export class EndlessWarWaves implements WaveSystem {
     this.boostsCalled++;
 
     if (id === 'spearhead') {
-      // 3 friendly Aegis MBTs + 2 Bastion guntrucks rolling straight up Center Highway!
+      // 3 friendly Aegis MBTs + 2 Bastion guntrucks rolling straight up Center Highway (respecting Center Blast Gate)!
+      const centerWps = ENDLESS_WAR_FRIENDLY_LANES.center.slice(1);
+      const centerGate = ENDLESS_WAR_BASTION_GATES.find(g => g.lane === 'center');
+      const gateIdx = Math.max(0, centerWps.length - 2);
+
       for (let i = 0; i < 3; i++) {
-        this.allyFleet.spawnGround({
+        const u = this.allyFleet.spawnGround({
           kind: 'aegis',
           laneId: 'ew_spearhead',
           spawn: [(i - 1) * 8, 0, 286 - i * 8],
-          waypoints: ENDLESS_WAR_FRIENDLY_LANES.center.slice(1).map(p => [p[0] + (i - 1) * 4, 0, p[1]] as const),
+          waypoints: centerWps.map(p => [p[0] + (i - 1) * 4, 0, p[1]] as const),
+          gateWaypoints: centerGate ? { [gateIdx]: centerGate.id } : undefined,
           label: `SPEARHEAD MBT-${i + 1}`,
         });
+        u.combatHold = true;
       }
       for (const sx of [-12, 12]) {
-        this.allyFleet.spawnGround({
+        const u = this.allyFleet.spawnGround({
           kind: 'bastion',
           laneId: 'ew_spearhead',
           spawn: [sx, 0, 294],
-          waypoints: ENDLESS_WAR_FRIENDLY_LANES.center.slice(1).map(p => [p[0] + sx * 0.4, 0, p[1]] as const),
+          waypoints: centerWps.map(p => [p[0] + sx * 0.4, 0, p[1]] as const),
+          gateWaypoints: centerGate ? { [gateIdx]: centerGate.id } : undefined,
         });
+        u.combatHold = true;
       }
       this.ctx.hud?.feed?.('ARMORED SPEARHEAD DEPLOYED — 3 MBTs + 2 GUNTRUCKS ROLLING NORTH!', '#ffca58');
     } else if (id === 'airborne') {
@@ -831,17 +1030,17 @@ export class EndlessWarWaves implements WaveSystem {
           label: sx < 0 ? 'VIPER-1' : 'VIPER-2',
         });
       }
-      const rallyZ = ENDLESS_WAR_RALLY_Z[this.frontlineStage] ?? -40;
+      const sit = this.commander.getSituation();
+      const hot = sit.lanes[this.commander.allyMainLane];
       this.allyFleet.spawnKestrel({
         spawn: [0, 56, 340],
-        orbitCenter: [0, 0, rallyZ - 35],
-        orbitRadius: 95,
+        orbitCenter: [hot.x, 0, clamp(hot.contactZ - 25, -210, 200)],
+        orbitRadius: 92,
         orbitAltitude: 44,
         label: 'KESTREL CAS-1',
       });
       this.ctx.hud?.feed?.('ALLIED FIGHTER & GUNSHIP WING SCRAMBLED!', '#5ceeff');
     } else if (id === 'artillery') {
-      // 14 heavy 155 mm howitzer shells targeted on enemy clusters & North Bridgeheads
       const targets: THREE.Vector3[] = [];
       for (const e of this.manager.alive) {
         if (e.alive && e.position.z < 140) targets.push(e.position.clone());
@@ -863,7 +1062,7 @@ export class EndlessWarWaves implements WaveSystem {
       this.ctx.hud?.feed?.('ROLLING 155mm ARTILLERY BARRAGE INBOUND — CLEAR THE TARGET ZONE!', '#ff9848');
     } else if (id === 'mobilize') {
       this.mobilizeLeft = 60;
-      for (const lane of LANES) this.spawnFriendlySquad(lane, 3);
+      for (const lane of LANES) this.spawnFriendlySquad(lane, 4);
       this.ctx.hud?.feed?.('TOTAL MOBILIZATION ACTIVE — 2x ALLIED SPAWN TEMPO (60s)!', '#ffe066');
     } else if (id === 'fob_overdrive') {
       this.fob.triggerOverdrive();
@@ -884,7 +1083,6 @@ export class EndlessWarWaves implements WaveSystem {
       this.ctx.render?.lights?.flash?.(sh.pos, 0xff8b34, 24, 65, 0.35);
       this.ctx.audio?.play?.('explosion', { position: sh.pos, volume: 0.9 });
 
-      // Damage enemy infantry, vehicles, base defenses, and strategic facilities in blast radius
       for (const e of this.manager.alive) {
         if (!e.alive) continue;
         const d = e.position.distanceTo(sh.pos);
@@ -908,6 +1106,7 @@ export class EndlessWarWaves implements WaveSystem {
         team: 'player',
       });
       this.facilities.applyBlast(sh.pos, 18, 420, 'war_artillery');
+      this.bastion.applyBlast(sh.pos, 18, 560, 'war_artillery');
       this.baseDefense.applyBlast(sh.pos, 18, 520, 'war_artillery');
     }
   }
@@ -927,7 +1126,6 @@ export class EndlessWarWaves implements WaveSystem {
     const reason = `FOB VANGUARD OVERRUN · THREAT ${this.threatLevel} · ${clock} · ${this.facilities.destroyedCount} FACILITIES SABOTAGED`;
 
     this.ctx.hud?.feed?.(reason, '#ff3d33');
-    // Force player death so Hud transitions cleanly to the End-of-War Game Over debrief
     const p = this.ctx.player as { alive: boolean; takeDamage: (d: unknown) => void } | undefined;
     if (p?.alive) {
       p.takeDamage({ amount: 999_999, from: this.fob.position, type: 'true', source: reason });
@@ -963,12 +1161,6 @@ export class EndlessWarWaves implements WaveSystem {
   private clearPrompt(): void {
     this.unprompt?.();
     this.unprompt = null;
-  }
-
-  private nextLane(): WarLaneId {
-    const lane = LANES[this.laneCursor % LANES.length]!;
-    this.laneCursor++;
-    return lane;
   }
 
   private countEnemyGroundVehicles(): number {

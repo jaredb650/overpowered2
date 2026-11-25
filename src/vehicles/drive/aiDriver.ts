@@ -20,6 +20,7 @@ import type { Ctx, DamageInfo, EmitterHandle } from '../../core/contracts';
 import type { EnemyInstance, ExplosionSpec } from '../../core/gameplay';
 import { clamp, damp, dampAngle, rand, wrapAngle } from '../../core/math';
 import type { EnemyManager } from '../../enemies/EnemyManager';
+import type { Foe } from '../../enemies/outpost/soldier';
 import type { FriendlyGroundTarget } from '../../enemies/vehicles';
 import type { Vehicle as EnemyVehicle } from '../../enemies/vehicles/vehicle';
 import { ModelMaterials } from '../../progression/modelkit';
@@ -31,6 +32,13 @@ export type AiFriendlyVehicleKind = 'aegis' | 'bastion' | 'jackal' | 'valkyrie' 
 export type AiGroundVehicleKind = 'aegis' | 'bastion' | 'jackal';
 export type AiVehicleRole = 'ground' | 'transport' | 'gunship';
 export type ValkyriePhase = 'inbound' | 'hover' | 'fast_rope' | 'egress' | 'departed';
+
+export interface AiSiegeTarget {
+  readonly id: string;
+  readonly position: THREE.Vector3;
+  readonly alive: boolean;
+  takeDamage(amount: number, source?: string): void;
+}
 
 export type WaypointLike = THREE.Vector3 | readonly [number, number] | readonly [number, number, number];
 
@@ -127,10 +135,11 @@ function groundAt(ctx: Ctx, x: number, yHint: number, z: number): number {
 }
 
 interface ResolvedEnemyTarget {
-  kind: 'vehicle' | 'infantry';
+  kind: 'vehicle' | 'infantry' | 'siege';
   pos: THREE.Vector3;
   vehicle?: EnemyVehicle;
   enemy?: EnemyInstance;
+  siege?: AiSiegeTarget;
   dist: number;
 }
 
@@ -170,7 +179,13 @@ export class AiFriendlyVehicle implements FriendlyGroundTarget {
   private readonly gateWaypoints = new Map<number, string>();
   waitingAtGate = false;
   routeCompleted = false;
+  /** Optional northern Z hold boundary set by tactical AI so armor paces with infantry instead of rushing ahead alone. */
+  holdNorthZ: number | null = null;
+  /** When true, armor brakes and holds fire position while actively dueling nearby enemy armor/infantry. */
+  combatHold = false;
   private readonly speedScale: number;
+  private readonly foeCenter = new THREE.Vector3();
+  private foeAdapter: Foe | null = null;
 
   // Valkyrie fast-rope state
   valkyriePhase: ValkyriePhase = 'inbound';
@@ -343,6 +358,58 @@ export class AiFriendlyVehicle implements FriendlyGroundTarget {
     if (altitude !== undefined) this.orbitAltitude = altitude;
   }
 
+  /** Dynamically replaces a ground vehicle's remaining waypoints (e.g., to intercept a FOB breach or shift lanes). */
+  retargetRoute(waypoints: readonly WaypointLike[], gateWaypoints?: Readonly<Record<number, string>>): void {
+    this.waypoints.length = 0;
+    for (const w of waypoints) {
+      const v = toVec3(w, this.position.y);
+      v.y = groundAt(this.ctx, v.x, v.y, v.z);
+      this.waypoints.push(v);
+    }
+    this.waypointIndex = 0;
+    this.routeCompleted = this.waypoints.length === 0;
+    this.waitingAtGate = false;
+    if (gateWaypoints !== undefined) {
+      this.gateWaypoints.clear();
+      for (const [rawIdx, lane] of Object.entries(gateWaypoints)) {
+        const idx = Number(rawIdx);
+        if (Number.isInteger(idx) && idx >= 0 && idx < this.waypoints.length) {
+          this.gateWaypoints.set(idx, lane);
+        }
+      }
+    }
+  }
+
+  /**
+   * Returns a cached `Foe` adapter so enemy infantry & AT rocketeers (`Soldier.foe`) can aim,
+   * shoot, and launch real 3D RPGs directly at this friendly vehicle!
+   */
+  asFoe(): Foe {
+    if (!this.foeAdapter) {
+      const self = this;
+      this.foeAdapter = {
+        get alive() { return self.alive && !self.disposed; },
+        get center() {
+          self.foeCenter.set(self.position.x, self.position.y + self.aimLift, self.position.z);
+          return self.foeCenter;
+        },
+        shotAt(from, damage, miss, source) {
+          if (!self.alive || self.disposed) return;
+          if (Math.random() < miss * 0.5) return;
+          // Heavy armor resists rifle fire; technicals take fuller small-arms damage
+          const scaled = self.armored ? damage * 0.22 : damage * 0.65;
+          self.takeDamage(scaled, from, source);
+        },
+        blast(at, radius, damage, delay, source) {
+          if (!self.alive || self.disposed) return;
+          // AT rockets pack heavy anti-armor punch on impact!
+          self.fleet.scheduleIncomingEnemyBlast(at, radius, damage * 2.4, Math.max(0.05, delay), source);
+        },
+      };
+    }
+    return this.foeAdapter;
+  }
+
   /** FriendlyGroundTarget damage intake from enemy tanks, humvees, choppers, or mortars. */
   takeDamage(amount: number, from?: THREE.Vector3, _source?: string): void {
     if (!this.alive || this.disposed || amount <= 0) return;
@@ -469,9 +536,19 @@ export class AiFriendlyVehicle implements FriendlyGroundTarget {
       const dist = Math.hypot(dx, dz);
 
       const blockedHere = this.isBlockedAtCurrentWaypoint();
-      if (blockedHere && dist <= 4.5) {
-        // Hold cleanly at the staging waypoint right in front of the closed perimeter wall!
-        this.waitingAtGate = true;
+      // Hold at tactical frontline boundary if moving north (-Z) past holdNorthZ!
+      const advancingNorth = dz < -1;
+      const heldByFrontline = this.holdNorthZ !== null && advancingNorth && this.position.z <= this.holdNorthZ;
+      // Brake to duel when actively fighting enemy armor within 78 m or infantry within 46 m ahead
+      const tgt = this.currentTarget;
+      const duelingAhead = this.combatHold && tgt !== null && (
+        (tgt.kind === 'vehicle' && tgt.dist < 78) ||
+        (tgt.kind === 'infantry' && tgt.dist < 46)
+      );
+
+      if ((blockedHere && dist <= 4.5) || heldByFrontline || duelingAhead) {
+        // Hold cleanly at the staging waypoint, frontline line, or firing position!
+        this.waitingAtGate = blockedHere && dist <= 4.5;
         this.speed = damp(this.speed, 0, 7.5, dt);
         this.velocity.set(Math.sin(this.yaw) * this.speed, 0, Math.cos(this.yaw) * this.speed);
       } else {
@@ -495,7 +572,10 @@ export class AiFriendlyVehicle implements FriendlyGroundTarget {
 
           const alignFactor = clamp(Math.cos(yawErr), 0.18, 1);
           const approachFactor = blockedHere ? clamp((dist - 3.5) / 14, 0, 1) : 1;
-          const desiredSpeed = topSpeed * alignFactor * approachFactor;
+          const holdFactor = (this.holdNorthZ !== null && advancingNorth)
+            ? clamp((this.position.z - this.holdNorthZ) / 18, 0, 1)
+            : 1;
+          const desiredSpeed = topSpeed * alignFactor * Math.min(approachFactor, holdFactor);
           this.speed = damp(this.speed, desiredSpeed, 3.6, dt);
           this.velocity.set(Math.sin(this.yaw) * this.speed, 0, Math.cos(this.yaw) * this.speed);
           this.position.x += this.velocity.x * dt;
@@ -701,6 +781,7 @@ export class AiFriendlyVehicle implements FriendlyGroundTarget {
   private isTargetAlive(t: ResolvedEnemyTarget | null): boolean {
     if (!t) return false;
     if (t.kind === 'vehicle') return Boolean(t.vehicle && t.vehicle.alive && !t.vehicle.retired);
+    if (t.kind === 'siege') return Boolean(t.siege && t.siege.alive);
     return Boolean(t.enemy && t.enemy.alive);
   }
 
@@ -738,6 +819,24 @@ export class AiFriendlyVehicle implements FriendlyGroundTarget {
         if (dist < bestScore) {
           bestScore = dist;
           best = { kind: 'infantry', pos: e.center, enemy: e, dist };
+        }
+      }
+    }
+
+    // 3. Optional siege targets (sealed Bastion Blast Gates & enemy Strategic Facilities)
+    const siegeTargets = this.fleet.getSiegeTargets();
+    if (siegeTargets.length > 0 && (this.kind === 'aegis' || this.kind === 'bastion' || this.kind === 'kestrel')) {
+      for (let i = 0; i < siegeTargets.length; i++) {
+        const s = siegeTargets[i]!;
+        if (!s.alive) continue;
+        const dist = this.position.distanceTo(s.position);
+        if (dist > maxRange) continue;
+        // Prefer live threats first unless holding directly at a sealed gate!
+        const weight = this.waitingAtGate && dist < 48 ? 0.55 : 1.15;
+        const score = dist * weight;
+        if (score < bestScore) {
+          bestScore = score;
+          best = { kind: 'siege', pos: s.position, siege: s, dist };
         }
       }
     }
@@ -815,6 +914,9 @@ export class AiFriendlyVehicle implements FriendlyGroundTarget {
       const eff = target.vehicle.def.armoured && this.kind === 'jackal' ? damage * 0.4 : damage;
       target.vehicle.take(eff, null, source, target.pos);
       this.ctx.fx?.sparks?.(target.pos, _up, 5, 0xffd080);
+    } else if (target.kind === 'siege' && target.siege && target.siege.alive) {
+      target.siege.takeDamage(damage * 0.85, source);
+      this.ctx.fx?.sparks?.(target.pos, _up, 6, 0xffaa44);
     } else if (target.kind === 'infantry' && target.enemy && target.enemy.alive) {
       _damageInfo.amount = damage;
       _damageInfo.type = 'bullet';
@@ -870,13 +972,24 @@ export class AiVehicleFleet {
   private readonly materials: ModelMaterials;
   private readonly laneGates = new Map<string, boolean>();
   private readonly pendingShells: PendingFriendlyShell[] = [];
+  private readonly pendingEnemyBlasts: PendingFriendlyShell[] = [];
   private readonly groundTargetCache: FriendlyGroundTarget[] = [];
+  private siegeTargetProvider: (() => readonly AiSiegeTarget[]) | null = null;
 
   constructor(
     private readonly ctx: Ctx,
     materials?: ModelMaterials,
   ) {
     this.materials = materials ?? new ModelMaterials(ctx);
+  }
+
+  /** Registers an optional provider of destructible siege targets (e.g. Bastion Blast Gates). */
+  setSiegeTargets(provider: (() => readonly AiSiegeTarget[]) | null): void {
+    this.siegeTargetProvider = provider;
+  }
+
+  getSiegeTargets(): readonly AiSiegeTarget[] {
+    return this.siegeTargetProvider ? this.siegeTargetProvider() : [];
   }
 
   /** Opens or closes a breach wall gate for `laneId`. Friendly armor holds cleanly until opened! */
@@ -1003,6 +1116,17 @@ export class AiVehicleFleet {
     return hits;
   }
 
+  /** Schedules an incoming enemy AT rocket / explosive blast aimed at friendly armor. */
+  scheduleIncomingEnemyBlast(at: THREE.Vector3, radius: number, damage: number, delay: number, source: string): void {
+    this.pendingEnemyBlasts.push({
+      at: at.clone(),
+      radius,
+      damage,
+      delay,
+      source,
+    });
+  }
+
   /** Internal helper for Aegis cannon shells & Kestrel rockets to resolve explosive splash on enemy targets. */
   scheduleFriendlyShell(at: THREE.Vector3, radius: number, damage: number, delay: number, source: string): void {
     this.pendingShells.push({
@@ -1064,6 +1188,17 @@ export class AiVehicleFleet {
       this.detonateFriendlyShell(s);
     }
 
+    // Tick incoming enemy AT rocketeer blasts targeting friendly armor
+    for (let i = this.pendingEnemyBlasts.length - 1; i >= 0; i--) {
+      const b = this.pendingEnemyBlasts[i]!;
+      b.delay -= dt;
+      if (b.delay > 0) continue;
+      this.pendingEnemyBlasts.splice(i, 1);
+      this.ctx.fx?.explosion?.(b.at, { radius: b.radius, kind: 'rocket', scale: 1.05 });
+      this.ctx.audio?.play?.('rocket_explosion', { position: b.at, volume: 0.6, pitchJitter: 0.08 });
+      this.applyEnemyBlast(b.at, b.radius + 1.5, b.damage, b.source);
+    }
+
     // Update all active friendly vehicles
     for (let i = this.units.length - 1; i >= 0; i--) {
       const u = this.units[i]!;
@@ -1079,6 +1214,7 @@ export class AiVehicleFleet {
     for (const u of this.units) u.dispose();
     this.units.length = 0;
     this.pendingShells.length = 0;
+    this.pendingEnemyBlasts.length = 0;
     this.laneGates.clear();
     this.groundTargetCache.length = 0;
   }

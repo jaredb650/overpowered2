@@ -59,6 +59,18 @@ export interface DefenseEmplacementPlan {
   readonly facilityId: StrategicFacilityId;
 }
 
+export interface BastionGatePlan {
+  readonly id: string;
+  readonly lane: WarLaneId;
+  readonly name: string;
+  readonly shortName: string;
+  readonly position: Vec3;
+  readonly half: Vec3;
+  readonly maxHp: number;
+  readonly bounty: number;
+  readonly rebuildSec: number;
+}
+
 export const ENDLESS_WAR_ATMOSPHERE = 'overcast' as const;
 
 /** Massive 2,200 m x 2,200 m flyable airspace (y in [-16, +380]). */
@@ -254,6 +266,51 @@ export const ENDLESS_WAR_ENEMY_DEFENSES: readonly DefenseEmplacementPlan[] = [
   { id: 'ew_flak_fc', kind: 'flak_tower', position: [-42, 0, -268], yaw: 0, facilityId: 'airfield_tower' },
 ];
 
+/** 3 armored destructible Blast Gates sealing Iron Bastion (z = -258). One-way for enemy armor/reinforcements; friendly armor & player must blast through! */
+export const ENDLESS_WAR_BASTION_GATES: readonly BastionGatePlan[] = [
+  {
+    id: 'ew_gate_west',
+    lane: 'west',
+    name: 'WEST BASTION BLAST GATE',
+    shortName: 'W GATE',
+    position: [-145, 0, -258],
+    half: [13, 4.4, 2.0],
+    maxHp: 4500,
+    bounty: 1200,
+    rebuildSec: 180,
+  },
+  {
+    id: 'ew_gate_center',
+    lane: 'center',
+    name: 'CENTER BASTION BLAST GATE',
+    shortName: 'C GATE',
+    position: [0, 0, -258],
+    half: [13, 4.4, 2.0],
+    maxHp: 4500,
+    bounty: 1200,
+    rebuildSec: 180,
+  },
+  {
+    id: 'ew_gate_east',
+    lane: 'east',
+    name: 'EAST BASTION BLAST GATE',
+    shortName: 'E GATE',
+    position: [145, 0, -258],
+    half: [13, 4.4, 2.0],
+    maxHp: 4500,
+    bounty: 1200,
+    rebuildSec: 180,
+  },
+];
+
+/** 4 heavy Iron Bastion wall-mounted anti-armor & AA defense towers guarding the enemy fortress against breaches. */
+export const ENDLESS_WAR_BASTION_TURRETS: readonly { readonly id: string; readonly pos: Vec3; readonly kind: 'at_cannon' | 'sam' }[] = [
+  { id: 'bastion_w_at', pos: [-186, 7.6, -258], kind: 'at_cannon' },
+  { id: 'bastion_cw_at', pos: [-48, 7.6, -258], kind: 'at_cannon' },
+  { id: 'bastion_ce_at', pos: [48, 7.6, -258], kind: 'at_cannon' },
+  { id: 'bastion_e_sam', pos: [186, 7.6, -258], kind: 'sam' },
+];
+
 /** Friendly base barracks / infantry spawn points inside FOB Vanguard. */
 export const ENDLESS_WAR_FRIENDLY_SPAWNS: Readonly<Record<WarLaneId, readonly Vec3[]>> = {
   west: [[-138, 0, 272], [-152, 0, 278], [-118, 0, 268]],
@@ -261,11 +318,31 @@ export const ENDLESS_WAR_FRIENDLY_SPAWNS: Readonly<Record<WarLaneId, readonly Ve
   east: [[138, 0, 272], [152, 0, 278], [118, 0, 268]],
 };
 
-/** Enemy fortress infantry & garrison spawn points inside Iron Bastion. */
+/** Enemy fortress infantry & garrison spawn points inside Iron Bastion (used for interior defense / breached gates). */
 export const ENDLESS_WAR_ENEMY_SPAWNS: Readonly<Record<WarLaneId, readonly Vec3[]>> = {
   west: [[-142, 0, -274], [-158, 0, -284], [-126, 0, -268]],
   center: [[-20, 0, -276], [20, 0, -276], [0, 0, -284]],
   east: [[142, 0, -274], [158, 0, -284], [126, 0, -268]],
+};
+
+/** Exterior Iron Bastion sally-port infantry exits just south of the Blast Gates so marching squads never jam behind sealed doors. */
+export const ENDLESS_WAR_ENEMY_SALLY_SPAWNS: Readonly<Record<WarLaneId, readonly Vec3[]>> = {
+  west: [[-145, 0, -244], [-132, 0, -246], [-158, 0, -246]],
+  center: [[0, 0, -244], [-16, 0, -246], [16, 0, -246]],
+  east: [[145, 0, -244], [132, 0, -246], [158, 0, -246]],
+};
+
+/** Forward opening deployment staging points so the opening clash roars across the river & trench belts immediately. */
+export const ENDLESS_WAR_OPENING_ENEMY_STAGING: Readonly<Record<WarLaneId, readonly Vec3[]>> = {
+  west: [[-145, 0, -68], [-124, 0, -118], [-152, 0, -172]],
+  center: [[0, 0, -68], [-22, 0, -118], [26, 0, -168]],
+  east: [[145, 0, -68], [124, 0, -118], [152, 0, -172]],
+};
+
+export const ENDLESS_WAR_OPENING_FRIENDLY_STAGING: Readonly<Record<WarLaneId, readonly Vec3[]>> = {
+  west: [[-145, 0, 74], [-136, 0, 152]],
+  center: [[0, 0, 76], [16, 0, 154]],
+  east: [[145, 0, 74], [136, 0, 152]],
 };
 
 /**

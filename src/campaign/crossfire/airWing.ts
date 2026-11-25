@@ -44,6 +44,7 @@ export interface CrossfireAirWingCallbacks {
   onWaveCleared?: (waveId: string) => void;
   onEnemyKilled?: (jet: AiCombatJet, waveId: string | null) => void;
   onAllyKilled?: (jet: AiCombatJet) => void;
+  onGroundStrike?: (from: THREE.Vector3, hitPoint: THREE.Vector3, damage: number, attackerName: string, heavyBomb: boolean) => void;
 }
 
 const _v = new THREE.Vector3();
@@ -138,7 +139,9 @@ export class CrossfireAirWing {
           this.spawnProjectile(from, dir, team, damage, 165, true, targetJet, targetsPlayer);
           this.ctx.audio?.play?.('aircraft_missile_fire', { position: from, volume: 0.68, pitch: 1.04 });
         },
-        onCarrierStrike: () => { /* Handled via escort/ground targets in Crossfire. */ },
+        onCarrierStrike: (from, hitPoint, damage, attackerName, heavyBomb) => {
+          this.cb.onGroundStrike?.(from, hitPoint, damage, attackerName, heavyBomb);
+        },
         onKilled: (killedJet, source, heavyKill) => {
           this.ctx.progression?.award?.(
             killedJet.profile.rewardScore,

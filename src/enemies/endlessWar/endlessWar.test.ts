@@ -16,12 +16,19 @@ import { defaultStarter, hasStarter } from '../../contracts/starter';
 import { WORLD_MODES } from '../../net';
 import { COOP_MODES } from '../../net/lobby';
 import { SURVIVAL_MAPS, modesOn } from '../../ui/screens/mainmenu';
-import { ENDLESS_WAR_FACILITIES, ENDLESS_WAR_FOB_MAX_HP, ENDLESS_WAR_PLAYER_SPAWN } from '../../world/map/endlessWar/plan';
+import {
+  ENDLESS_WAR_BASTION_GATES,
+  ENDLESS_WAR_FACILITIES,
+  ENDLESS_WAR_FOB_MAX_HP,
+  ENDLESS_WAR_PLAYER_SPAWN,
+} from '../../world/map/endlessWar/plan';
 import type { Ctx } from '../../core/contracts';
 import type { EnemyManager } from '../EnemyManager';
 import type { Outpost } from '../outpost';
+import { BastionDefenseSystem } from './bastionDefense';
 import { StrategicFacilitySystem } from './facilities';
 import { FobDefenseSystem } from './fobDefense';
+import { WarTacticalCommander } from './tacticalAi';
 import { WAR_BOOSTS } from './warConsoleUi';
 import {
   ENDLESS_WAR_MOMENTUM_SEC,
@@ -135,12 +142,15 @@ function makeWarHarness(initialCredits = 10_000) {
     },
     allies: {
       allies: [] as unknown[],
-      spawn(type: string, at: THREE.Vector3) {
+      extraFoeProvider: null as unknown,
+      spawn(type: string, at: THREE.Vector3, post?: THREE.Vector3) {
         const ally = {
           alive: true,
           expendable: false,
           detached: false,
+          post: (post ?? at).clone(),
           body: { position: at.clone() },
+          shotAt: vi.fn(),
         };
         this.allies.push(ally);
         spawnedAllies.push({ type, at: at.clone() });
@@ -166,9 +176,28 @@ function makeWarHarness(initialCredits = 10_000) {
     },
   } as unknown as EnemyManager;
 
+  const adoptCalls: { at: THREE.Vector3; time: number }[] = [];
   const outpost = {
-    muster: vi.fn(() => ({ id: 1 })),
-    enlistInto: vi.fn((_sq: unknown, id: string, at: THREE.Vector3) => manager.spawn(id as never, at)),
+    w: { now: 1.0 },
+    muster: vi.fn(() => {
+      const members: { fighting: boolean; e: { position: THREE.Vector3 } }[] = [];
+      return {
+        id: 1,
+        knownAt: -1,
+        members,
+        fighters: () => members.filter(m => m.fighting).length,
+        adopt: vi.fn((at: THREE.Vector3, time: number) => {
+          adoptCalls.push({ at: at.clone(), time });
+        }),
+      };
+    }),
+    enlistInto: vi.fn((sq: { members?: unknown[] }, id: string, at: THREE.Vector3) => {
+      const e = manager.spawn(id as never, at);
+      if (sq?.members && e) {
+        sq.members.push({ fighting: true, e });
+      }
+      return e;
+    }),
   } as unknown as Outpost;
 
   return {
@@ -185,6 +214,7 @@ function makeWarHarness(initialCredits = 10_000) {
     teleports,
     playerDamageCalls,
     podCalls,
+    adoptCalls,
   };
 }
 
@@ -207,7 +237,7 @@ describe('Endless War registration and pure scaling math', () => {
     expect(WORLD_MODES).toContain('endless_war');
   });
 
-  it('ramps Threat Level without cap and scales active caps safely under MAX_ALIVE = 48', () => {
+  it('ramps Threat Level without cap and scales high-density active caps safely under Endless War cap (68)', () => {
     expect(endlessWarThreatLevel(0).level).toBe(1);
     expect(endlessWarThreatLevel(ENDLESS_WAR_THREAT_STEP_SEC).level).toBe(2);
     expect(endlessWarThreatLevel(ENDLESS_WAR_THREAT_STEP_SEC * 14).level).toBe(15);
@@ -217,11 +247,14 @@ describe('Endless War registration and pure scaling math', () => {
     const t1 = endlessWarEnemyCaps(1);
     const t4 = endlessWarEnemyCaps(4);
     const t20 = endlessWarEnemyCaps(20);
+    expect(t1.infantryCap).toBeGreaterThanOrEqual(38);
+    expect(t1.groundVehCap).toBeGreaterThanOrEqual(6);
     expect(t1.chopperCap).toBe(0);
     expect(t1.jetCap).toBe(0);
     expect(t4.chopperCap).toBeGreaterThanOrEqual(1);
     expect(t4.jetCap).toBeGreaterThanOrEqual(1);
-    expect(t20.infantryCap).toBeLessThanOrEqual(36);
+    expect(t20.infantryCap).toBeLessThanOrEqual(62);
+    expect(t20.groundVehCap).toBeGreaterThanOrEqual(12);
     expect(t20.infantryInterval).toBeLessThan(t1.infantryInterval);
     expect(t20.armorInterval).toBeLessThan(t1.armorInterval);
   });
@@ -361,3 +394,152 @@ describe('EndlessWarWaves director, War Command Console & FOB redeploy/loss', ()
     fob.dispose();
   });
 });
+
+describe('BastionDefenseSystem Blast Gates and Iron Bastion AT turrets', () => {
+  it('seals all 3 Iron Bastion gates, resists small arms, breaches on heavy ordnance, pays bounty, and rebuilds', () => {
+    const h = makeWarHarness(500);
+    const breached: string[] = [];
+    const rebuilt: string[] = [];
+    const bastion = new BastionDefenseSystem(h.ctx, {
+      onGateBreached: p => breached.push(p.id),
+      onGateRebuilt: p => rebuilt.push(p.id),
+    });
+    bastion.init();
+
+    expect(bastion.getGateSnapshots()).toHaveLength(ENDLESS_WAR_BASTION_GATES.length);
+    expect(bastion.isGateSealed('center')).toBe(true);
+    expect(bastion.getSiegeTargets()).toHaveLength(3);
+
+    // Small-arms chip deals only 25% damage
+    const centerPlan = ENDLESS_WAR_BASTION_GATES.find(g => g.lane === 'center')!;
+    bastion.damageGateByLane('center', 400, 'rifle', false);
+    const afterChip = bastion.getGateSnapshots().find(g => g.lane === 'center')!;
+    expect(afterChip.hp).toBe(centerPlan.maxHp - 100);
+    expect(bastion.isGateSealed('center')).toBe(true);
+
+    // Heavy explosive ordnance breaches the gate and awards bounty
+    bastion.damageGateByLane('center', centerPlan.maxHp, 'tank_shell', true);
+    expect(bastion.isGateSealed('center')).toBe(false);
+    expect(breached).toEqual(['ew_gate_center']);
+    expect(h.shop.credits).toBe(500 + centerPlan.bounty);
+    expect(bastion.getSiegeTargets()).toHaveLength(2);
+
+    // Bastion AT turrets engage friendly tanks breaching inside z < -250
+    const intrudingTank = {
+      alive: true,
+      disposed: false,
+      airborne: false,
+      aimLift: 1.6,
+      position: new THREE.Vector3(-42, 0, -270),
+      takeDamage: vi.fn(),
+    };
+    bastion.update(1.5, 2, [intrudingTank as never], [], []);
+    expect(intrudingTank.takeDamage).toHaveBeenCalled();
+
+    // Advance timer past rebuildSec with doorway clear -> gate seals again stronger
+    bastion.update(centerPlan.rebuildSec + 5, 4, [], [], []);
+    expect(bastion.isGateSealed('center')).toBe(true);
+    expect(rebuilt).toEqual(['ew_gate_center']);
+
+    bastion.dispose();
+  });
+});
+
+describe('WarTacticalCommander two-army intelligence, pacing & anti-armor combat', () => {
+  it('actively marches enemy squads via adopt(), fields AT rocketeers on Threat 1, and holds friendly armor outside sealed Bastion gates', () => {
+    const h = makeWarHarness(5000);
+    const dir = new EndlessWarWaves(h.ctx, h.outpost, h.manager);
+    dir.init();
+    dir.start();
+
+    // Enemy squads wake up & march immediately via adopt() (never sit idle in base!)
+    expect(h.adoptCalls.length).toBeGreaterThanOrEqual(6);
+    // Threat 1 squads include AT rocketeers from second 1
+    expect(h.spawnedEnemies.some(e => e.id === 'rocketeer')).toBe(true);
+    // All 3 Iron Bastion gates start sealed in AiVehicleFleet
+    expect(dir.allyFleet.isGateOpen('ew_gate_center')).toBe(false);
+    expect(dir.allyFleet.isGateOpen('ew_gate_west')).toBe(false);
+    expect(dir.allyFleet.isGateOpen('ew_gate_east')).toBe(false);
+    // Friendly armor spawns with combatHold & frontline holdNorthZ pacing
+    for (const u of dir.allyFleet.units) {
+      expect(u.combatHold).toBe(true);
+      expect(u.holdNorthZ).not.toBeNull();
+    }
+
+    // Breaching the Center Blast Gate opens ew_gate_center for friendly armor & spawns QRF
+    const beforeEnemies = h.spawnedEnemies.length;
+    dir.bastion.damageGateByLane('center', 10_000, 'player', true);
+    expect(dir.allyFleet.isGateOpen('ew_gate_center')).toBe(true);
+    expect(h.spawnedEnemies.length).toBeGreaterThan(beforeEnemies);
+
+    dir.dispose();
+  });
+
+  it('reacts to FOB & Iron Bastion intrusions, targets intruders with enemy air/AT, and stops troop trucks at the frontline', () => {
+    const h = makeWarHarness(0);
+    const cmd = new WarTacticalCommander();
+    const fob = new FobDefenseSystem(h.ctx, () => {});
+    const bastion = new BastionDefenseSystem(h.ctx);
+    fob.init();
+    bastion.init();
+
+    // 1. Friendly tank breaching inside Iron Bastion walls -> enemy posture snaps to defend_bastion + air targets tank!
+    const friendlyTank = {
+      id: 'ally_mbt_1',
+      alive: true,
+      disposed: false,
+      airborne: false,
+      kind: 'aegis',
+      role: 'ground',
+      position: new THREE.Vector3(-140, 0, -278),
+      asFoe: () => ({
+        alive: true,
+        center: new THREE.Vector3(-140, 1.6, -278),
+        shotAt: vi.fn(),
+        blast: vi.fn(),
+      }),
+    };
+    const sit1 = cmd.evaluate(0.6, [], [friendlyTank as never], [], [], new THREE.Vector3(0, 0, 200), bastion);
+    expect(sit1.enemyPosture).toBe('defend_bastion');
+    expect(sit1.bastionBreachLane).toBe('west');
+    expect(cmd.shouldTriggerBastionQrf()).toBe(true);
+
+    const airTarget = cmd.pickEnemyAirStrikeTarget(null as never, [friendlyTank as never], new THREE.Vector3(0, 0, 200), 4);
+    expect(airTarget).not.toBeNull();
+    expect(airTarget!.z).toBeCloseTo(-278, 1);
+
+    // 2. Enemy AT rocketeer resolves friendly tank as Foe; breaching soldier resolves FOB Core as Foe!
+    const atSoldier = { e: { id: 'rocketeer', position: new THREE.Vector3(-135, 0, -255) } };
+    const atFoe = cmd.resolveExtraFoe(atSoldier as never, [friendlyTank as never], fob);
+    expect(atFoe).not.toBeNull();
+    expect(atFoe!.center.z).toBeCloseTo(-278, 1);
+
+    const breachingSoldier = { e: { id: 'trooper', position: new THREE.Vector3(6, 0, 310) } };
+    const fobFoe = cmd.resolveExtraFoe(breachingSoldier as never, [], fob);
+    expect(fobFoe).not.toBeNull();
+    const hpBefore = fob.hp;
+    fobFoe!.blast(fob.position, 5, 100, 0.1, 'enemy_rpg');
+    expect(fob.hp).toBeLessThan(hpBefore);
+
+    // 3. Enemy tank inside FOB Vanguard -> allied posture snaps to defend_fob!
+    const enemyTank = {
+      alive: true,
+      retired: false,
+      def: { kind: 'tank' },
+      position: new THREE.Vector3(145, 0, 272),
+    };
+    const sit2 = cmd.evaluate(0.6, [], [], [], [enemyTank as never], null, bastion);
+    expect(sit2.allyPosture).toBe('defend_fob');
+    expect(sit2.fobBreachLane).toBe('east');
+
+    // 4. Troop truck route stops near the active frontline, whereas enemy tank pushes all the way to FOB Vanguard
+    const truckRoute = cmd.buildEnemyVehicleRoute('center', 'truck');
+    const tankRoute = cmd.buildEnemyVehicleRoute('center', 'tank');
+    expect(truckRoute[truckRoute.length - 1]!.z).toBeLessThan(220);
+    expect(tankRoute[tankRoute.length - 1]!.z).toBeGreaterThan(300);
+
+    fob.dispose();
+    bastion.dispose();
+  });
+});
+

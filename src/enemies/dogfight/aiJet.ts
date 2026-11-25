@@ -226,6 +226,8 @@ export interface AiJetTheater {
   readonly groundY: number;
   /** When true, bombing/rocket/strafing runs dynamically track the player's position on the ground (Badlands CAS). */
   readonly dynamicGroundTarget?: boolean;
+  /** Optional tactical ground strike target resolver (used by Endless War to prioritize Bastion intruders, armor columns, or FOB Core). */
+  readonly resolveGroundStrikeTarget?: (jet: AiCombatJet) => THREE.Vector3 | null;
   /** Optional custom HUD alert when a B-1 Lancer begins its carpet-bombing salvo. */
   readonly bomberAlert?: string;
 }
@@ -924,7 +926,10 @@ export class AiCombatJet implements ExtraTarget, MissileTarget {
     priorityTarget: AiCombatJet | null = null,
   ): void {
     const th = this.theater;
-    if (th.dynamicGroundTarget) {
+    const customTarget = th.resolveGroundStrikeTarget?.(this) ?? null;
+    if (customTarget) {
+      this.strikeAnchor.set(customTarget.x, th.groundY, customTarget.z);
+    } else if (th.dynamicGroundTarget) {
       this.strikeAnchor.set(playerPos.x, th.groundY, playerPos.z);
     } else {
       this.strikeAnchor.copy(_carrierPos);

@@ -14,6 +14,7 @@ import type { Ctx } from '../../core/contracts';
 import type { EnemyInstance } from '../../core/gameplay';
 import { clamp } from '../../core/math';
 import type { AiCombatJet } from '../dogfight/aiJet';
+import type { Foe } from '../outpost/soldier';
 import type { FriendlyGroundTarget } from '../vehicles';
 import type { Vehicle as EnemyVehicle } from '../vehicles/vehicle';
 import {
@@ -40,7 +41,7 @@ interface TurretTracer {
 
 const GROUND_RANGE = 195;
 const AIR_RANGE = 340;
-const INFANTRY_SIEGE_RANGE = 34;
+const INFANTRY_SIEGE_RANGE = 38;
 
 const _v = new THREE.Vector3();
 const _dir = new THREE.Vector3();
@@ -68,6 +69,8 @@ export class FobDefenseSystem implements FriendlyGroundTarget {
   private readonly tracerGeo = new THREE.BoxGeometry(0.16, 0.16, 5.2);
   private readonly ciwsMat = new THREE.MeshBasicMaterial({ color: 0x5ce6ff });
   private readonly samMat = new THREE.MeshBasicMaterial({ color: 0xffd25a });
+  private readonly foeCenter = new THREE.Vector3(ENDLESS_WAR_FOB_CORE[0], ENDLESS_WAR_FOB_CORE[1] + 3.2, ENDLESS_WAR_FOB_CORE[2]);
+  private foeAdapter: Foe | null = null;
   private siegeTick = 0;
   private warnCd = 0;
   private destroyedCallbackFired = false;
@@ -85,6 +88,27 @@ export class FobDefenseSystem implements FriendlyGroundTarget {
 
   get hpFrac(): number {
     return clamp(this.hp / this.maxHp, 0, 1);
+  }
+
+  /** Exposes FOB Vanguard Core as a `Foe` so breaching enemy infantry & AT rocketeers physically shoot and RPG it! */
+  asFoe(): Foe {
+    if (!this.foeAdapter) {
+      const self = this;
+      this.foeAdapter = {
+        get alive() { return self.alive; },
+        get center() { return self.foeCenter; },
+        shotAt(from, damage, _miss, source) {
+          if (!self.alive) return;
+          self.takeDamage(damage * 0.85, from, source);
+        },
+        blast(at, radius, damage, _delay, source) {
+          if (!self.alive) return;
+          self.ctx.fx?.explosion?.(at, { radius: Math.max(4, radius), kind: 'rocket', scale: 1.0 });
+          self.takeDamage(damage * 2.5, at, source);
+        },
+      };
+    }
+    return this.foeAdapter;
   }
 
   init(): void {
@@ -212,10 +236,31 @@ export class FobDefenseSystem implements FriendlyGroundTarget {
       t.cooldown -= dt * rateMult;
       if (t.cooldown > 0) continue;
 
-      // Priority 1 (SAM turrets prefer enemy jets & choppers; CIWS engages air & breached armor/infantry)
+      // Priority 1: Enemy armor/vehicles breaching inside FOB walls (z > 240) get IMMEDIATE top priority!
       let fired = false;
 
-      if (enemyJets.length > 0) {
+      if (enemyVehicles.length > 0) {
+        let bestBreach: EnemyVehicle | null = null;
+        let bestDist = GROUND_RANGE + 50;
+        for (const v of enemyVehicles) {
+          if (!v.alive || v.position.y >= 8 || v.position.z <= 240) continue;
+          const d = v.position.distanceTo(t.pos);
+          if (d < bestDist) {
+            bestDist = d;
+            bestBreach = v;
+          }
+        }
+        if (bestBreach) {
+          _v.set(bestBreach.position.x, bestBreach.position.y + 1.6, bestBreach.position.z);
+          this.aimAndFire(t, _v, t.kind === 'sam');
+          bestBreach.take(t.kind === 'sam' ? 115 : 46, null, 'fob_defense', _v);
+          t.cooldown = t.kind === 'sam' ? 1.25 : 0.18;
+          fired = true;
+        }
+      }
+
+      // Priority 2: Hostile jets & attack choppers threatening FOB airspace
+      if (!fired && enemyJets.length > 0) {
         let bestJet: AiCombatJet | null = null;
         let bestDist = AIR_RANGE;
         for (const jet of enemyJets) {
@@ -234,6 +279,7 @@ export class FobDefenseSystem implements FriendlyGroundTarget {
         }
       }
 
+      // Priority 3: Approaching enemy vehicles & choppers in Sector 1
       if (!fired && enemyVehicles.length > 0) {
         let bestVeh: EnemyVehicle | null = null;
         let bestDist = t.kind === 'sam' ? 210 : GROUND_RANGE + 35;
