@@ -250,7 +250,7 @@ function makeHarness(missionId: string) {
   };
 }
 
-describe('CrossfireDirector & all 24 cf.* calls', () => {
+describe('CrossfireDirector & all 25 cf.* calls', () => {
   beforeEach(() => {
     vi.stubGlobal('sessionStorage', createMemoryStorage());
     vi.stubGlobal('localStorage', createMemoryStorage());
@@ -269,7 +269,7 @@ describe('CrossfireDirector & all 24 cf.* calls', () => {
       'cf.straitWave': 'outbound_probe',
     };
 
-    expect(CROSSFIRE_CALLS.size).toBe(24);
+    expect(CROSSFIRE_CALLS.size).toBe(25);
     for (const callName of CROSSFIRE_CALLS) {
       const handled = h.director.call(callName, callArgs[callName]);
       expect(handled, `Expected ${callName} to be handled`).toBe(true);
@@ -282,7 +282,7 @@ describe('CrossfireDirector & all 24 cf.* calls', () => {
     warnSpy.mockRestore();
   });
 
-  it('Part 1 (Valken Airbase): invasion staging, south gate breach, JP-8 pipeline chain breach of apron gate, ATC override, Viper boarding, Lancer takeoff & Strait handoff', () => {
+  it('Part 1 (Valken Airbase): invasion staging, south gate breach, JP-8 pipeline chain breach of apron gate, ATC override, Viper boarding, Lancer takeoff, escape cutscene & Strait handoff', () => {
     const h = makeHarness('crossfire_airbase');
     h.director.ensureBuilt();
 
@@ -333,7 +333,7 @@ describe('CrossfireDirector & all 24 cf.* calls', () => {
     expect(h.director.airbase.state.viperBoardedCount).toBe(2);
     expect(h.signals).toContain(CROSSFIRE_SIGNALS.raptorsSpooled);
 
-    // 5. Unlock Lancer -> board -> buddy Raptors launch -> climb past takeoff gate
+    // 5. Unlock Lancer -> board -> buddy Raptors launch -> climb past takeoff gate -> escape formation cutscene
     h.director.call('cf.lancerReady');
     expect(h.spawnedDriveables.length).toBe(1);
     const lancer = h.spawnedDriveables[0]!;
@@ -350,7 +350,12 @@ describe('CrossfireDirector & all 24 cf.* calls', () => {
     h.director.update(0.1);
     expect(h.signals).toContain(CROSSFIRE_SIGNALS.lancerAirborne);
 
-    // 6. Handoff persists Part 2 Contractor B chain state
+    // 5b. Escape formation cutscene stages 3-ship B-1B + F-22 climb-out and clears live driveables
+    expect(h.director.call('cf.airbaseEscapeCutscene')).toBe(true);
+    expect(h.director.airbase.state.escapeCutsceneActive).toBe(true);
+    h.director.update(1.2);
+
+    // 6. Handoff persists Part 2 Contractor B chain state with preserved Lancer HP
     h.director.call('cf.handoffToStrait');
     const saved = loadChainState();
     expect(saved?.part).toBe(2);

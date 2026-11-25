@@ -1,7 +1,7 @@
 /**
  * Crossfire Part 1 Runtime Director — "Valken Airbase" (`map: 'airbase'`, Contractor #7712-A).
  *
- * Handles all 8 Part 1 `cf.*` mission director calls:
+ * Handles all 9 Part 1 `cf.*` mission director calls:
  *   - `cf.airbaseInit`
  *   - `cf.airbaseBreach`
  *   - `cf.apronFuelWatch`
@@ -9,6 +9,7 @@
  *   - `cf.buddyRaptorsBoard`
  *   - `cf.lancerReady`
  *   - `cf.buddyRaptorsTakeoff`
+ *   - `cf.airbaseEscapeCutscene`
  *   - `cf.handoffToStrait`
  */
 import * as THREE from 'three';
@@ -183,6 +184,13 @@ export class AirbaseDirector {
   private lancerUnlocked = false;
   private lancerBoardedSignaled = false;
   private lancerAirborneSignaled = false;
+  private escapeCutsceneActive = false;
+  private escapeClock = 0;
+  private escapeSmokeCd = 0;
+  private escapeLancerHpRatio: number | null = null;
+  private escapeFormationRoot: THREE.Group | null = null;
+  private escapeLancerRig: VehicleModelRig | null = null;
+  private readonly escapeRaptorRigs: VehicleModelRig[] = [];
   private handoffTriggered = false;
   private lancerVehicle: DriveableVehicle | null = null;
   private beaconPulse = 0;
@@ -510,6 +518,9 @@ export class AirbaseDirector {
         return true;
       case 'cf.buddyRaptorsTakeoff':
         this.launchBuddyRaptors();
+        return true;
+      case 'cf.airbaseEscapeCutscene':
+        this.startEscapeCutscene();
         return true;
       case 'cf.handoffToStrait':
         this.handoffToStrait();
@@ -947,25 +958,159 @@ export class AirbaseDirector {
     this.parkedRaptors.length = 0;
 
     if (!this.airWing) return;
+    // Climb off the alert pads and orbit overhead above the north runway waiting for the player to rotate
     for (let i = 0; i < AIRBASE_BUDDY_RAPTOR_SPAWNS.length; i++) {
       const pad = AIRBASE_BUDDY_RAPTOR_SPAWNS[i]!;
-      const xOffset = i === 0 ? -24 : 24;
+      const side = i === 0 ? -1 : 1;
       const spawnPos = new THREE.Vector3(pad.at[0], Math.max(10, pad.at[1] + 10), pad.at[2]);
       this.airWing.spawnAlly('raptor', spawnPos, pad.yaw, 0.85, {
         label: pad.callsign,
         tacticalRole: 'hunter',
         spawnOptions: {
           doctrine: 'escort_bomber',
-          speedOverride: 62,
+          speedOverride: 44,
           waypoints: [
-            new THREE.Vector3(pad.at[0] * 0.5 + 30, 34, -170),
-            new THREE.Vector3(AIRBASE_TAKEOFF_GATE.beaconAt[0] + xOffset, 82, -310),
-            new THREE.Vector3(xOffset * 1.5, 112, -560),
+            new THREE.Vector3(62 + side * 26, 46, -185),
+            new THREE.Vector3(62 + side * 78, 62, -95),
+            new THREE.Vector3(62 + side * 52, 58, 15),
+            new THREE.Vector3(62 + side * 24, 52, -165),
+            new THREE.Vector3(62 + side * 74, 64, -80),
+            new THREE.Vector3(62 + side * 28, 56, -220),
           ],
         },
       });
     }
-    this.ctx.hud?.feed?.('VIPER-2 & VIPER-3 AIRBORNE — CLIMBING NORTH OFF RUNWAY 01/19!', '#38e8ff');
+    this.ctx.hud?.feed?.('VIPER-2 & VIPER-3 AIRBORNE — HOLDING OVERHEAD ESCORT FOR YOUR ROTATION!', '#38e8ff');
+  }
+
+  /**
+   * Stages the cinematic 3-ship Escape Formation (`B-1B Lancer` lead + `VIPER-2` & `VIPER-3` F-22
+   * wingmen tucked tight on its wingtips) climbing smoothly north across Valken Airbase during the
+   * `valkenEscape` cutscene so Darrow and Council finish dialogue cleanly with zero invisible-wall
+   * loitering.
+   */
+  private startEscapeCutscene(): void {
+    if (this.escapeCutsceneActive) return;
+    this.escapeCutsceneActive = true;
+    this.escapeClock = 0;
+    this.escapeSmokeCd = 0;
+
+    // Preserve surviving Lancer HP before exiting & clearing the live driveable
+    const activeVeh = this.lancerVehicle ?? this.driveables?.active ?? null;
+    if (activeVeh && activeVeh.def.maxHealth > 0) {
+      this.escapeLancerHpRatio = clamp(activeVeh.health / activeVeh.def.maxHealth, 0.25, 1);
+    }
+
+    // Quietly exit player from the live Lancer so vehicle flight controls & invisible-wall hits stop immediately
+    (this.lancerVehicle as unknown as { exit?: (quiet?: boolean) => void } | null)?.exit?.(true);
+    this.ctx.player?.teleport?.(new THREE.Vector3(AIRBASE_LANCER_SPAWN.at[0], 0, AIRBASE_LANCER_SPAWN.at[2]));
+    this.lancerVehicle = null;
+    this.driveables?.clear?.();
+    this.airWing?.clear();
+    this.raptorsLaunched = false;
+
+    for (const rig of this.parkedRaptors) {
+      this.propsRoot.remove(rig.root);
+    }
+    this.parkedRaptors.length = 0;
+
+    if (!this.materials) return;
+
+    const root = new THREE.Group();
+    root.name = 'crossfire.airbase.escape_formation';
+    root.position.set(30, 68, -30);
+
+    // Center lead: 28.2 m B-1B Lancer with gear up, afterburners lit, nose pitched gently into climb
+    const lancerRig = buildVehicleModel('lancer', this.materials);
+    lancerRig.root.name = 'crossfire.escape_lancer';
+    lancerRig.root.rotation.set(-0.105, Math.PI, 0, 'YXZ');
+    if (lancerRig.landingGear) lancerRig.landingGear.visible = false;
+    if (lancerRig.resupplyRing) lancerRig.resupplyRing.visible = false;
+    for (const g of lancerRig.boostGlow) {
+      g.visible = true;
+      g.scale.set(1, 1, 1.35);
+    }
+    root.add(lancerRig.root);
+    this.escapeLancerRig = lancerRig;
+
+    // Wingmen: Viper-2 (port) & Viper-3 (starboard) sliding cleanly onto the Lancer's wingtips
+    this.escapeRaptorRigs.length = 0;
+    for (let i = 0; i < 2; i++) {
+      const side = i === 0 ? -1 : 1;
+      const rig = buildVehicleModel('raptor', this.materials);
+      rig.root.name = i === 0 ? 'crossfire.escape_viper2' : 'crossfire.escape_viper3';
+      rig.root.position.set(side * 38, -5.0, 26);
+      rig.root.rotation.set(-0.105, Math.PI, -side * 0.14, 'YXZ');
+      if (rig.landingGear) rig.landingGear.visible = false;
+      if (rig.resupplyRing) rig.resupplyRing.visible = false;
+      for (const r of rig.riders) r.root.visible = false;
+      for (const g of rig.boostGlow) {
+        g.visible = true;
+        g.scale.set(1, 1, 1.25);
+      }
+      root.add(rig.root);
+      this.escapeRaptorRigs.push(rig);
+    }
+
+    this.propsRoot.add(root);
+    this.escapeFormationRoot = root;
+  }
+
+  private tickEscapeFormation(dt: number): void {
+    if (!this.escapeCutsceneActive || !this.escapeFormationRoot) return;
+    this.escapeClock += dt;
+    const t = this.escapeClock;
+
+    // Linear cruise climb synchronized with the 3-shot `valkenEscape` camera track (0 -> 26.2 s)
+    const fx = 30;
+    const fy = 68 + t * 2.3;
+    const fz = -30 - t * 17.5;
+    this.escapeFormationRoot.position.set(fx, fy, fz);
+
+    // Subtle aerodynamic bank-and-leveling feel + B-1B variable-geometry wing sweep
+    const bank = Math.sin(t * 0.42) * 0.055;
+    const pitch = -0.105 + clamp(t / 24, 0, 1) * 0.045;
+    if (this.escapeLancerRig) {
+      this.escapeLancerRig.root.rotation.set(pitch, Math.PI, bank, 'YXZ');
+      if (this.escapeLancerRig.wingsLeft && this.escapeLancerRig.wingsRight) {
+        const sweep = 0.14 + clamp(t / 7.5, 0, 1) * 0.54;
+        this.escapeLancerRig.wingsLeft.rotation.y = -sweep;
+        this.escapeLancerRig.wingsRight.rotation.y = sweep;
+      }
+      const glowScale = 1.25 + Math.sin(t * 21) * 0.14;
+      for (const g of this.escapeLancerRig.boostGlow) {
+        g.scale.set(1, 1, glowScale);
+      }
+    }
+
+    // Viper-2 & Viper-3 smoothly close into tight fingertip escort formation on the Lancer's wings
+    const join = clamp(t / 4.8, 0, 1);
+    const smoothJoin = join * join * (3 - 2 * join);
+    for (let i = 0; i < this.escapeRaptorRigs.length; i++) {
+      const side = i === 0 ? -1 : 1;
+      const rig = this.escapeRaptorRigs[i]!;
+      const bobY = Math.sin(t * 1.45 + i * 2.1) * 0.45;
+      const bobX = Math.cos(t * 0.95 + i * 1.7) * 0.35;
+      const targetX = side * (38 - smoothJoin * 13) + bobX;
+      const targetY = -5.0 + smoothJoin * 2.8 + bobY;
+      const targetZ = 26 - smoothJoin * 12 + (i === 1 ? 2 : 0);
+      rig.root.position.set(targetX, targetY, targetZ);
+      const joinBank = (1 - smoothJoin) * (-side * 0.22);
+      rig.root.rotation.set(pitch, Math.PI, bank + joinBank + Math.sin(t * 1.1 + i) * 0.03, 'YXZ');
+      const glowScale = 1.18 + Math.sin(t * 24 + i) * 0.12;
+      for (const g of rig.boostGlow) {
+        g.scale.set(1, 1, glowScale);
+      }
+    }
+
+    // Crisp afterburner exhaust trail behind the 3-ship flight
+    this.escapeSmokeCd -= dt;
+    if (this.escapeSmokeCd <= 0) {
+      this.escapeSmokeCd = 0.09;
+      this.ctx.fx?.smoke?.(_v.set(fx, fy - 0.8, fz + 15), 2, 0xdce6f2, 1.4);
+      this.ctx.fx?.smoke?.(_v.set(fx - 25, fy - 2.4, fz + 22), 1, 0xdce6f2, 0.9);
+      this.ctx.fx?.smoke?.(_v.set(fx + 25, fy - 2.4, fz + 24), 1, 0xdce6f2, 0.9);
+    }
   }
 
   private handoffToStrait(): void {
@@ -974,9 +1119,11 @@ export class AirbaseDirector {
 
     const prev = loadChainState() ?? createInitialChainState();
     const prog = this.ctx.progression;
-    const hpRatio = this.lancerVehicle && this.lancerVehicle.def.maxHealth > 0
-      ? Math.max(0.25, Math.min(1, this.lancerVehicle.health / this.lancerVehicle.def.maxHealth))
-      : 1;
+    const hpRatio = this.escapeLancerHpRatio !== null
+      ? this.escapeLancerHpRatio
+      : this.lancerVehicle && this.lancerVehicle.def.maxHealth > 0
+        ? Math.max(0.25, Math.min(1, this.lancerVehicle.health / this.lancerVehicle.def.maxHealth))
+        : 1;
     const lancerHp = Math.round(CROSSFIRE_DEFAULT_LANCER_MAX_HP * hpRatio);
 
     void transitionToCrossfirePart(
@@ -1154,8 +1301,9 @@ export class AirbaseDirector {
         const pos = this.lancerVehicle?.phys.position ?? activeVeh?.phys.position ?? this.ctx.player?.position;
         if (pos) {
           const pastGate = pos.z <= AIRBASE_TAKEOFF_GATE.northZ && pos.y >= AIRBASE_TAKEOFF_GATE.minAltitudeY;
-          const highClimb = pos.y >= AIRBASE_TAKEOFF_GATE.minAltitudeY + 26 && pos.z <= -160;
-          if (pastGate || highClimb) {
+          const runwayRotate = pos.z <= -195 && pos.y >= 30;
+          const highClimb = pos.y >= 46 && pos.z <= -120;
+          if (pastGate || runwayRotate || highClimb) {
             this.lancerAirborneSignaled = true;
             this.runner.signal(CROSSFIRE_SIGNALS.lancerAirborne);
           }
@@ -1163,9 +1311,12 @@ export class AirbaseDirector {
       }
     }
 
-    // 5. Update airborne buddy Raptors after takeoff
+    // 5. Update airborne buddy Raptors after takeoff & animated 3-ship escape cutscene formation
     if (this.raptorsLaunched) {
       this.airWing?.update(dt);
+    }
+    if (this.escapeCutsceneActive) {
+      this.tickEscapeFormation(dt);
     }
   }
 
@@ -1190,6 +1341,7 @@ export class AirbaseDirector {
       lancerUnlocked: this.lancerUnlocked,
       lancerBoardedSignaled: this.lancerBoardedSignaled,
       lancerAirborneSignaled: this.lancerAirborneSignaled,
+      escapeCutsceneActive: this.escapeCutsceneActive,
       handoffTriggered: this.handoffTriggered,
       parkedRaptorCount: this.parkedRaptors.length,
       alliedAirborneCount: this.airWing?.allies.length ?? 0,
@@ -1223,6 +1375,12 @@ export class AirbaseDirector {
       this.propsRoot.remove(this.lockedLancerRig.root);
       this.lockedLancerRig = null;
     }
+    if (this.escapeFormationRoot) {
+      this.propsRoot.remove(this.escapeFormationRoot);
+      this.escapeFormationRoot = null;
+    }
+    this.escapeLancerRig = null;
+    this.escapeRaptorRigs.length = 0;
     for (const rig of this.parkedRaptors) {
       this.propsRoot.remove(rig.root);
     }
@@ -1255,6 +1413,10 @@ export class AirbaseDirector {
     this.lancerUnlocked = false;
     this.lancerBoardedSignaled = false;
     this.lancerAirborneSignaled = false;
+    this.escapeCutsceneActive = false;
+    this.escapeClock = 0;
+    this.escapeSmokeCd = 0;
+    this.escapeLancerHpRatio = null;
     this.handoffTriggered = false;
     this.lancerVehicle = null;
   }

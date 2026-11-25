@@ -234,6 +234,43 @@ const CUTSCENES: Readonly<Record<string, Cutscene>> = {
       },
     ],
   },
+  valkenEscape: {
+    endsBlack: true,
+    shots: [
+      {
+        // Shot 1 (0.0 -> 9.5s): Hero low-rear 3/4 fly-by as Viper-2 & Viper-3 lock onto the Lancer's wings over Valken Airbase
+        from: [74, 48, -6],
+        to: [68, 78, -168],
+        lookFrom: [30, 68, -30],
+        lookTo: [30, 90, -196],
+        seconds: 9.5,
+        fov: 48,
+        fadeIn: 0.45,
+        caption: 'VALKEN AIRBASE // B-1B LANCER AIRBORNE',
+      },
+      {
+        // Shot 2 (9.5 -> 18.0s): Air-to-air nose-quarter sweep looking back across the swept-wing Lancer & F-22 escorts
+        from: [-12, 98, -238],
+        to: [-16, 118, -388],
+        lookFrom: [30, 90, -196],
+        lookTo: [30, 109.5, -345],
+        seconds: 8.5,
+        fov: 44,
+        caption: 'NORTHERN IFF TRANSPONDER: ACTIVE // COURSE 000° NORTH',
+      },
+      {
+        // Shot 3 (18.0 -> 26.2s): Smooth push-in onto Viper-2's escort F-22 cockpit as Council transfers neural seat & fades to black
+        from: [4, 122, -310],
+        to: [-10, 131, -456],
+        lookFrom: [14, 109, -337],
+        lookTo: [5, 126, -475],
+        seconds: 8.2,
+        fov: 42,
+        fadeOut: 1.4,
+        caption: 'NEURAL SEAT TRANSFER // CONTRACTOR #7712-A → #7712-B',
+      },
+    ],
+  },
 };
 
 export const CROSSFIRE_AIRBASE: Mission = {
@@ -519,10 +556,12 @@ export const CROSSFIRE_AIRBASE: Mission = {
           },
         },
         { do: 'done', id: 'lancer_takeoff' },
+        { do: 'call', name: 'cf.airbaseEscapeCutscene' },
         say('darrow.takeoff.airborne'),
-        say('council.takeoff.handoff', { wait: true }),
+        say('council.takeoff.handoff'),
+        { do: 'cutscene', id: 'valkenEscape' },
         { do: 'call', name: 'cf.handoffToStrait' },
-        { do: 'wait', seconds: 2.0 },
+        { do: 'wait', seconds: 0.6 },
         { do: 'finish' },
       ],
       cues: [

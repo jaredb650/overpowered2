@@ -52,7 +52,8 @@ export const CROSSFIRE_CALL_DOCS = {
   'cf.atcConsole': 'Arm the interactive Hangar Override & IFF Spoof Console at ATC Level 3 (`AIRBASE_ATC_CONSOLE`); signals `cf:atc_override_done`.',
   'cf.buddyRaptorsBoard': 'Order essential Viper-2 and Viper-3 wingmen to sprint to parked F-22 Raptors, board cockpits, and spool engines; signals `cf:raptors_spooled`.',
   'cf.lancerReady': 'Unlock the 28.2 m B-1B Lancer in the Alert Hangar for player boarding and runway takeoff; signals `cf:lancer_boarded` and `cf:lancer_airborne`.',
-  'cf.buddyRaptorsTakeoff': 'Launch both AI buddy F-22 Raptors off Runway 01/19 in formation alongside the player Lancer.',
+  'cf.buddyRaptorsTakeoff': 'Launch both AI buddy F-22 Raptors off Runway 01/19 to hold overhead escort until the player rotates.',
+  'cf.airbaseEscapeCutscene': 'Stage the 3-ship B-1B Lancer + twin F-22 Raptor formation climb-out cutscene so Darrow and Council finish dialogue cleanly before Strait handoff.',
   'cf.handoffToStrait': 'Persist Part 1 stats and transfer Contractor A -> Contractor B into `crossfire_strait`.',
 
   // Part 2 — Open-Sea Strait Outbound (`crossfireStrait.ts`)
