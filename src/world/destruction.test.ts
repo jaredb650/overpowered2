@@ -574,7 +574,7 @@ describe('next-gen jagged panel fracture, DMM deformation, splinters, and gradua
     expect(manager.splinters.woodSpawned).toBeGreaterThanOrEqual(3);
     expect(manager.activeSplinters).toBeGreaterThan(0);
     expect(manager.activeSplinters).toBeLessThanOrEqual(MAX_SPLINTERS);
-    expect(audioPlay).toHaveBeenCalledWith('bone_snap', expect.anything());
+    expect(audioPlay).toHaveBeenCalledWith('wood_crunch', expect.anything());
 
     // Non-lethal hit #2 (drops HP below 35%): bends even further & darkens crack zone vertex colors
     manager.damageCollider(post.staticCollider, 55, 'piledriver', impact1);
@@ -595,6 +595,7 @@ describe('next-gen jagged panel fracture, DMM deformation, splinters, and gradua
     const woodBeforeBreak = manager.splinters.woodSpawned;
     manager.damageCollider(post.staticCollider, 100, 'piledriver', impact1);
     expect(post.state).toBe('falling');
+    expect(audioPlay).toHaveBeenCalledWith('wood_destroyed', expect.anything());
     expect(manager.splinters.woodSpawned - woodBeforeBreak).toBeGreaterThanOrEqual(6);
     expect(manager.activeSplinters).toBeLessThanOrEqual(MAX_SPLINTERS);
 
@@ -906,6 +907,49 @@ describe('Destruction Overhaul — Material Matrix, Zero-Floating Solver, Concre
 
     manager.clear();
   });
+
+  it('plays material-matched destruction SFX across concrete, wood, drywall, sheet metal, and heavy steel', () => {
+    const { manager, audioPlay } = makeEnv();
+
+    const cluster = manager.addCluster({
+      id: 'sfx_material_matrix',
+      label: 'SFX MATERIAL MATRIX',
+      kind: 'building',
+      value: 10000,
+      nodes: [
+        { id: 'c_wall', pos: [0, 2, 0], half: [2, 2, 0.3], mat: 'concrete', hp: 100, tier: 1, anchored: true, kind: 'wall', structuralMaterial: 'concrete' },
+        { id: 'w_post', pos: [8, 2, 0], half: [0.3, 2, 0.3], mat: 'plywood', hp: 80, tier: 0, anchored: true, kind: 'column', structuralMaterial: 'timber' },
+        { id: 'd_part', pos: [16, 2, 0], half: [2, 2, 0.15], mat: 'plaster', hp: 40, tier: 0, anchored: true, kind: 'wall', structuralMaterial: 'drywall' },
+        { id: 's_sheet', pos: [24, 2, 0], half: [2, 2, 0.14], mat: 'rust', hp: 80, tier: 0, anchored: true, kind: 'wall', materialClass: 'metal', structuralMaterial: 'timber' },
+        { id: 'h_steel', pos: [32, 2, 0], half: [1, 2, 0.5], mat: 'steelDark', hp: 120, tier: 2, anchored: true, kind: 'column', materialClass: 'metal', structuralMaterial: 'heavy_steel' },
+      ],
+    });
+
+    const played = () => audioPlay.mock.calls.map(c => c[0] as string);
+
+    audioPlay.mockClear();
+    manager.damageCollider(cluster.getNode('c_wall')!.staticCollider, 500, 'tank_cannon', V(0, 2, 0));
+    expect(played()).toContain('concrete_destroyed');
+
+    audioPlay.mockClear();
+    manager.damageCollider(cluster.getNode('w_post')!.staticCollider, 500, 'piledriver', V(8, 2, 0));
+    expect(played()).toContain('wood_destroyed');
+
+    audioPlay.mockClear();
+    manager.damageCollider(cluster.getNode('d_part')!.staticCollider, 200, 'shotgun', V(16, 2, 0));
+    expect(played()).toContain('wood_crunch');
+
+    audioPlay.mockClear();
+    manager.damageCollider(cluster.getNode('s_sheet')!.staticCollider, 500, 'rocket', V(24, 2, 0));
+    expect(played()).toContain('sheet_metal_destroyed');
+
+    audioPlay.mockClear();
+    manager.damageCollider(cluster.getNode('h_steel')!.staticCollider, 800, 'tank_cannon', V(32, 2, 0));
+    expect(played()).toContain('metal_plate_destroyed');
+
+    manager.clear();
+  });
 });
+
 
 

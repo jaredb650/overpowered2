@@ -951,17 +951,29 @@ export class Structures {
       if (falling) fx.chips(_c, CHIPS[q.kind], 16);
     }
     if (!falling) {
-      audio.play('metal_clang', { position: mid, volume: 0.6, pitch: 0.8 });
+      if (isLight(q.kind)) {
+        audio.play('wood_crunch', { position: mid, volume: 0.6, pitch: 1.0, duration: 0.5 });
+      } else if (q.kind === 'wall' || q.kind === 'pillar') {
+        audio.play('impact_concrete', { position: mid, volume: 0.65, pitch: 0.9 });
+      } else {
+        audio.play('metal_clang', { position: mid, volume: 0.6, pitch: 0.8 });
+      }
       return;
     }
     const light = isLight(q.kind);
     fx.smoke(mid, 0x8a8478, light ? 2.5 : 3.5, 2.5);
     if (q.kind === 'gate') {
       audio.play('metal_groan', { position: mid, volume: 0.9 });
-      audio.play('metal_clang', { position: mid, pitch: 0.6 });
+      audio.play('metal_plate_destroyed', { position: mid, volume: 0.9, pitch: 0.92 });
+    } else if (q.kind === 'wall' || q.kind === 'pillar') {
+      audio.play('concrete_destroyed', { position: mid, volume: 0.92, pitchJitter: 0.08 });
+      audio.play('explosion_debris', { position: mid, volume: 0.6 });
+    } else if (q.kind === 'shack') {
+      audio.play('wood_destroyed', { position: mid, volume: 0.9, pitchJitter: 0.08 });
+      audio.play('sheet_metal_destroyed', { position: mid, volume: 0.55, pitch: 1.06 });
     } else {
-      audio.play(q.kind === 'wall' || q.kind === 'pillar' ? 'concrete_crumble' : 'impact_metal', { position: mid, pitch: light ? 0.7 : 1 });
-      audio.play('explosion_debris', { position: mid, volume: 0.8 });
+      audio.play('wood_crunch', { position: mid, volume: 0.85, pitch: 1.02, duration: 1.2 });
+      audio.play('sheet_metal_destroyed', { position: mid, volume: 0.65, pitch: 1.08 });
     }
     // Last: these use the same scratch vectors as `mid`.
     if (light && q.index === q.stages.length - 1) this.throwShack(q);

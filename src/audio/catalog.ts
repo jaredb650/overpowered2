@@ -379,6 +379,137 @@ const vehicleSamples: SoundDef[] = [
   }),
 ];
 
+/**
+ * Building & destructible environment SFX (sfx/destruction, owner-supplied 2026-11-27).
+ * Multi-take packs are level-matched per pack and auto-normalized by bank.ts (`trimFor` targets 0.3 RMS),
+ * so `volume = targetLevel / 0.3`. Shared `destruction` family cap keeps heavy ordnance chain-collapses punchy
+ * without saturating the limiter.
+ */
+const destructionSamples: SoundDef[] = [
+  {
+    ...MIX.blastSmall,
+    priority: 7,
+    maxVoices: 4,
+    perFrame: 1,
+    family: 'destruction',
+    familyMax: 6,
+    near: 20,
+    far: 300,
+    send: 0.36,
+    pitchJitter: 0.06,
+    airDelay: true,
+    duck: [0.22, 0.45],
+    volume: 0.42 / 0.3,
+    id: 'concrete_destroyed',
+    kind: 'sample',
+    loop: false,
+    fallback: 'concrete_crumble',
+    files: [
+      'destruction/concrete_destroyed_1.mp3',
+      'destruction/concrete_destroyed_2.mp3',
+      'destruction/concrete_destroyed_3.mp3',
+      'destruction/concrete_destroyed_4.mp3',
+    ],
+  },
+  {
+    ...MIX.blastSmall,
+    priority: 6,
+    maxVoices: 4,
+    perFrame: 1,
+    family: 'destruction',
+    familyMax: 6,
+    near: 16,
+    far: 220,
+    send: 0.28,
+    pitchJitter: 0.07,
+    airDelay: true,
+    volume: 0.36 / 0.3,
+    id: 'wood_destroyed',
+    kind: 'sample',
+    loop: false,
+    fallback: 'concrete_crumble',
+    files: [
+      'destruction/wood_destroyed_1.mp3',
+      'destruction/wood_destroyed_2.mp3',
+      'destruction/wood_destroyed_3.mp3',
+    ],
+  },
+  shot('wood_crunch', 'destruction/wood_crunch.mp3', 'impact', 0.26, 0.1612, {
+    priority: 5,
+    maxVoices: 4,
+    perFrame: 1,
+    family: 'destruction',
+    familyMax: 6,
+    near: 12,
+    far: 140,
+    send: 0.16,
+    pitchJitter: 0.09,
+  }),
+  {
+    ...MIX.blastSmall,
+    priority: 6,
+    maxVoices: 4,
+    perFrame: 1,
+    family: 'destruction',
+    familyMax: 6,
+    near: 16,
+    far: 220,
+    send: 0.28,
+    pitchJitter: 0.07,
+    airDelay: true,
+    volume: 0.36 / 0.3,
+    id: 'sheet_metal_destroyed',
+    kind: 'sample',
+    loop: false,
+    fallback: 'metal_clang',
+    files: [
+      'destruction/sheet_metal_destroyed_1.mp3',
+      'destruction/sheet_metal_destroyed_2.mp3',
+      'destruction/sheet_metal_destroyed_3.mp3',
+    ],
+  },
+  {
+    ...MIX.blastSmall,
+    priority: 7,
+    maxVoices: 4,
+    perFrame: 1,
+    family: 'destruction',
+    familyMax: 6,
+    near: 20,
+    far: 280,
+    send: 0.34,
+    pitchJitter: 0.06,
+    airDelay: true,
+    duck: [0.18, 0.35],
+    volume: 0.40 / 0.2467,
+    id: 'metal_plate_destroyed1',
+    kind: 'sample',
+    loop: false,
+    fallback: 'metal_clang',
+    file: 'destruction/metal_plate_destroyed_1.mp3',
+  },
+  {
+    ...MIX.blastSmall,
+    priority: 7,
+    maxVoices: 4,
+    perFrame: 1,
+    family: 'destruction',
+    familyMax: 6,
+    near: 20,
+    far: 280,
+    send: 0.34,
+    pitchJitter: 0.06,
+    airDelay: true,
+    duck: [0.18, 0.35],
+    volume: 0.40 / 0.247,
+    id: 'metal_plate_destroyed2',
+    kind: 'sample',
+    loop: false,
+    fallback: 'metal_clang',
+    file: 'destruction/metal_plate_destroyed_2.mp3',
+  },
+];
+
 
 /**
  * A gun shot set by how loud it lands rather than by its file's level: `level` is its place on the gun ladder and `loud`
@@ -541,6 +672,7 @@ const groups: SoundDef[] = [
   group('sword_hit', ['sword_hit1', 'sword_hit2']),
   group('player_footstep', ['player_footstep1', 'player_footstep2', 'player_footstep3']),
   group('sniper_crack', ['bullet_snap', 'bullet_crack']),
+  group('metal_plate_destroyed', ['metal_plate_destroyed1', 'metal_plate_destroyed2']),
 ];
 
 function stack(id: string, layers: readonly SoundLayer[]): SoundDef {
@@ -637,7 +769,7 @@ const gunShotIds = new Set(gunShots.map(d => d.id));
 
 export const CATALOG: ReadonlyMap<string, SoundDef> = new Map(
   [
-    ...samples, ...armourSamples, ...woundSamples, ...bodyGoreSamples, ...vehicleSamples, ...gunShots, ...packs, ...groups, ...stacks,
+    ...samples, ...armourSamples, ...woundSamples, ...bodyGoreSamples, ...vehicleSamples, ...destructionSamples, ...gunShots, ...packs, ...groups, ...stacks,
     ...recipes.filter(rec => !gunShotIds.has(rec.id)).map(synth),
   ].map(def => [def.id, def]),
 );

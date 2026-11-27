@@ -467,6 +467,45 @@ function splinterKindFor(materialClass: MaterialClass): SplinterKind {
   return 'concrete';
 }
 
+function isHeavyMetalNode(node: StructuralNode): boolean {
+  return node.structuralMaterial === 'heavy_steel' || (node.materialClass === 'metal' && node.tier >= 2);
+}
+
+function breakSfxFor(node: StructuralNode): string {
+  if (node.structuralMaterial === 'glass') return 'glass_break';
+  if (node.structuralMaterial === 'drywall') return 'wood_crunch';
+  if (node.materialClass === 'wood') return 'wood_destroyed';
+  if (node.materialClass === 'metal' || node.structuralMaterial === 'heavy_steel') {
+    return isHeavyMetalNode(node) ? 'metal_plate_destroyed' : 'sheet_metal_destroyed';
+  }
+  return 'concrete_destroyed';
+}
+
+function clusterCollapseSfxFor(cluster: StructuralCluster): string {
+  let concrete = 0;
+  let heavyMetal = 0;
+  let sheetMetal = 0;
+  let wood = 0;
+  for (let i = 0; i < cluster.nodes.length; i++) {
+    const n = cluster.nodes[i]!;
+    if (n.structuralMaterial === 'glass' || n.structuralMaterial === 'drywall') continue;
+    if (isHeavyMetalNode(n)) heavyMetal++;
+    else if (n.materialClass === 'metal') sheetMetal++;
+    else if (n.materialClass === 'wood') wood++;
+    else concrete++;
+  }
+  if (concrete >= heavyMetal && concrete >= sheetMetal && concrete >= wood && concrete > 0) {
+    return 'concrete_destroyed';
+  }
+  if (heavyMetal >= sheetMetal && heavyMetal >= wood && heavyMetal > 0) {
+    return 'metal_plate_destroyed';
+  }
+  if (sheetMetal >= wood && sheetMetal > 0) {
+    return 'sheet_metal_destroyed';
+  }
+  return wood > 0 ? 'wood_destroyed' : 'concrete_destroyed';
+}
+
 function distanceToOrientedBox(
   point: THREE.Vector3,
   center: THREE.Vector3,
@@ -1632,31 +1671,53 @@ export class DestructionManager implements DestructionManagerLike {
       if (node.materialClass === 'wood') {
         const splinterCount = 2 + Math.max(1, stage);
         this.splinters.spawnBurst(_v3, _v4, 'wood', splinterCount, chipCol, 6.8 + stage * 1.1);
-        audio?.play?.('bone_snap', {
+        audio?.play?.('wood_crunch', {
           position: _v3,
-          volume: crossedThreshold ? 0.65 : 0.45,
-          pitch: 0.72 + Math.random() * 0.14,
-          pitchJitter: 0.08,
+          volume: crossedThreshold ? 0.72 : 0.52,
+          pitch: 0.92 + Math.random() * 0.14,
+          pitchJitter: 0.1,
+          duration: crossedThreshold ? 0.9 : 0.45,
         });
-        if (crossedThreshold) {
-          audio?.play?.('impact_dirt', { position: _v3, volume: 0.42, pitch: 1.2 });
-        }
-      } else if (node.materialClass === 'metal') {
+      } else if (node.materialClass === 'metal' || node.structuralMaterial === 'heavy_steel') {
         fx?.sparks?.(_v3, _v4, 6 + stage * 4, 0xffcc66);
         if (crossedThreshold || hitFrac >= 0.15) {
           this.splinters.spawnBurst(_v3, _v4, 'metal', 1 + stage, chipCol, 7.5);
-          audio?.play?.('metal_clang', {
-            position: _v3,
-            volume: 0.48,
-            pitch: 1.18 + Math.random() * 0.18,
-            pitchJitter: 0.08,
-          });
+          if (crossedThreshold) {
+            const tearId = isHeavyMetalNode(node) ? 'metal_plate_destroyed' : 'sheet_metal_destroyed';
+            audio?.play?.(tearId, {
+              position: _v3,
+              volume: 0.55,
+              pitch: 1.08,
+              pitchJitter: 0.08,
+              duration: 0.55,
+            });
+          } else {
+            audio?.play?.('metal_clang', {
+              position: _v3,
+              volume: 0.48,
+              pitch: 1.18 + Math.random() * 0.18,
+              pitchJitter: 0.08,
+            });
+          }
         }
       } else {
         fx?.dust?.(_v3, _v4, 0.9 + stage * 0.35);
         this.splinters.spawnBurst(_v3, _v4, 'concrete', 2 + stage, chipCol, 5.8);
-        if (crossedThreshold || hitFrac >= 0.15) {
+        if (node.structuralMaterial === 'drywall') {
+          if (crossedThreshold || hitFrac >= 0.15) {
+            audio?.play?.('wood_crunch', {
+              position: _v3,
+              volume: crossedThreshold ? 0.6 : 0.44,
+              pitch: 1.18,
+              pitchJitter: 0.1,
+              duration: crossedThreshold ? 0.6 : 0.38,
+            });
+          }
+        } else if (crossedThreshold || hitFrac >= 0.15) {
           audio?.play?.('impact_concrete', { position: _v3, volume: 0.5, pitch: 0.92, pitchJitter: 0.1 });
+          if (crossedThreshold) {
+            audio?.play?.('concrete_crumble', { position: _v3, volume: 0.55, pitch: 0.9, pitchJitter: 0.08 });
+          }
         }
       }
 
@@ -1711,35 +1772,41 @@ export class DestructionManager implements DestructionManagerLike {
       const count = isNuke ? 5 : 7;
       this.splinters.spawnBurst(node.basePos, _v4, 'concrete', count, chipCol, 8.2);
       fx?.dust?.(node.basePos, _v4, 2.4);
-      audio?.play?.('impact_dirt', { position: node.basePos, volume: 0.7, pitch: 0.85, pitchJitter: 0.14 });
+      audio?.play?.('wood_crunch', {
+        position: node.basePos,
+        volume: isNuke ? 0.88 : 0.8,
+        pitch: 1.12,
+        pitchJitter: 0.12,
+        duration: 1.0,
+      });
     } else if (node.materialClass === 'wood') {
       const count = isNuke ? 7 : 7 + Math.floor(Math.random() * 4);
       this.splinters.spawnBurst(node.basePos, _v4, 'wood', count, chipCol, isNuke ? 13 : 9.5);
-      audio?.play?.('bone_snap', {
+      audio?.play?.('wood_destroyed', {
         position: node.basePos,
-        volume: isNuke ? 0.85 : 0.78,
-        pitch: 0.64,
-        pitchJitter: 0.12,
+        volume: isNuke ? 0.95 : 0.85,
+        pitchJitter: 0.1,
       });
-    } else if (node.materialClass === 'metal') {
+    } else if (node.materialClass === 'metal' || node.structuralMaterial === 'heavy_steel') {
       const count = isNuke ? 5 : 5 + Math.floor(Math.random() * 4);
       this.splinters.spawnBurst(node.basePos, _v4, 'metal', count, chipCol, isNuke ? 14 : 9.0);
       fx?.sparks?.(node.basePos, _v4, isNuke ? 22 : 14, 0xffc864);
-      audio?.play?.('metal_clang', {
+      const metalBreakId = isHeavyMetalNode(node) ? 'metal_plate_destroyed' : 'sheet_metal_destroyed';
+      audio?.play?.(metalBreakId, {
         position: node.basePos,
-        volume: isNuke ? 0.9 : 0.72,
-        pitchJitter: 0.14,
+        volume: isNuke ? 0.98 : 0.86,
+        pitchJitter: 0.09,
       });
     } else {
       const count = isNuke ? 6 : 6 + Math.floor(Math.random() * 5);
       this.splinters.spawnBurst(node.basePos, _v4, 'concrete', count, chipCol, isNuke ? 12 : 8.4);
-      audio?.play?.('concrete_crumble', {
+      audio?.play?.('concrete_destroyed', {
         position: node.basePos,
-        volume: isNuke ? 0.9 : 0.76,
-        pitchJitter: 0.14,
+        volume: isNuke ? 1.0 : 0.88,
+        pitchJitter: 0.1,
       });
     }
-    audio?.play?.('explosion_debris', { position: node.basePos, volume: 0.78, pitchJitter: 0.1 });
+    audio?.play?.('explosion_debris', { position: node.basePos, volume: 0.55, pitchJitter: 0.1 });
 
     if (node.kind === 'hazard') {
       this.pendingHazards.push({
@@ -1886,10 +1953,10 @@ export class DestructionManager implements DestructionManagerLike {
         pitchJitter: 0.12,
       });
       if (anyWood) {
-        this.ctx.audio?.play?.('bone_snap', {
+        this.ctx.audio?.play?.('wood_crunch', {
           position: cluster.center,
-          volume: 0.7,
-          pitch: 0.58,
+          volume: 0.85,
+          pitch: 0.82,
           pitchJitter: 0.1,
         });
       }
@@ -2139,6 +2206,13 @@ export class DestructionManager implements DestructionManagerLike {
         const moundR = clamp(cluster.radius * 0.28, 1.8, 3.4);
         this.spawnRubbleMound(cluster.center, moundR, 0x7c7870);
       }
+      const collapseSfx = clusterCollapseSfxFor(cluster);
+      this.ctx.audio?.play?.(collapseSfx, {
+        position: cluster.center,
+        volume: 1.0,
+        pitch: 0.84,
+        pitchJitter: 0.06,
+      });
       cluster.onCollapse?.(cluster);
       this.ctx.events?.emit?.('world:liquidated', {
         label: cluster.label,
@@ -2401,8 +2475,9 @@ export class DestructionManager implements DestructionManagerLike {
     fx?.dust?.(pos, UP, 3.2);
     fx?.smoke?.(pos, 0x8a8478, 4.0, 3.0);
     fx?.chips?.(pos, chipColorFor(entry.node.mat, entry.node.spec.color), 20);
-    audio?.play?.('concrete_crumble', { position: pos, volume: 0.9, pitch: 0.72 });
-    audio?.play?.('explosion_debris', { position: pos, volume: 0.85, pitch: 0.8 });
+    const impactSfx = breakSfxFor(entry.node);
+    audio?.play?.(impactSfx, { position: pos, volume: 0.95, pitch: 0.82, pitchJitter: 0.08 });
+    audio?.play?.('explosion_debris', { position: pos, volume: 0.65, pitch: 0.8 });
     if (player?.position instanceof THREE.Vector3) {
       const d = player.position.distanceTo(pos);
       camera?.addTrauma?.(clamp(1 - d / 40, 0, 1) * 0.65);
