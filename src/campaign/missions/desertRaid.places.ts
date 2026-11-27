@@ -122,6 +122,16 @@ export const MARKS: Readonly<Record<string, Mark>> = {
   caveMidHealth: { at: [6, SALT_CAVE.floorY, -182], yaw: 0 },
   planeDropAmmo: { at: [-8, 0, DESERT_Z.planeForecourt + 2], yaw: 0 },
   planeDropHealth: { at: [8, 0, DESERT_Z.planeForecourt + 2], yaw: 0 },
+
+  // ---- Hidden Easter Egg Weapon Caches (no HUD beacons — reward off-path exploration) ----
+  // 1. Piledriver .50 BMG: secluded far-east corner of the outer wall battlement walkway past East Side Gate (stairs at x = 70)
+  secretPiledriver: { at: [72.5, 3.6, 58.8], yaw: Math.PI },
+  // 2. Billhook (Flechette + Reflex): tucked inside far-west Warren shack (warren.shack.5)
+  secretBillhook: { at: [-44, 0, 2], yaw: 0 },
+  // 3. Flail MG42 Spec (Heavy Barrel, AP, Stock, EOTech Holo, Laser, 200rd Box, Lightened Bolt): behind NW Pump Yard water cistern
+  secretFlail: { at: [-44, 0, -51], yaw: Math.PI * 0.5 },
+  // 4. RGL Grenade Launcher: hidden behind Watchtower 0 in the shadowed SW canyon alcove right after emerging from the storm sewer
+  secretRgl: { at: [-35, 0, -96], yaw: 0 },
 };
 
 export const ZONES: Readonly<Record<string, Zone>> = {

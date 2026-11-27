@@ -105,9 +105,10 @@ const SHIELD = 'a ballistic riot shield carried on the left arm, stopping fronta
 
 export const REMOTE_MODS: Readonly<Record<ModId, { look: ModLook; sees: string }>> = {
   awlAcog: { look: 'none', sees: SIGHT }, harrowAcog: { look: 'none', sees: SIGHT }, gimletAcog: { look: 'none', sees: SIGHT },
-  gimletDot: { look: 'none', sees: SIGHT }, reddot: { look: 'none', sees: SIGHT }, piledriverDot: { look: 'none', sees: SIGHT },
+  gimletDot: { look: 'none', sees: SIGHT }, gimletHolo: { look: 'none', sees: SIGHT }, reddot: { look: 'none', sees: SIGHT },
+  harrowHolo: { look: 'none', sees: SIGHT }, piledriverDot: { look: 'none', sees: SIGHT }, piledriverHolo: { look: 'none', sees: SIGHT },
   piledriverAcog: { look: 'none', sees: SIGHT }, ultramagDot: { look: 'none', sees: SIGHT }, flailDot: { look: 'none', sees: SIGHT },
-  flailAcog: { look: 'none', sees: SIGHT }, rivetDot: { look: 'none', sees: SIGHT }, billhookDot: { look: 'none', sees: SIGHT },
+  flailHolo: { look: 'none', sees: SIGHT }, flailAcog: { look: 'none', sees: SIGHT }, rivetDot: { look: 'none', sees: SIGHT }, billhookDot: { look: 'none', sees: SIGHT },
   shotgunDot: { look: 'none', sees: SIGHT }, thresherDot: { look: 'none', sees: SIGHT }, deuceDot: { look: 'pellets', sees: 'the tighter pattern (the cone the shooter used is sent)' },
   bodkinAcog: { look: 'none', sees: SIGHT },
   awlCan: { look: 'report', sees: 'the suppressed report and the small dim flash' },
@@ -131,6 +132,7 @@ export const REMOTE_MODS: Readonly<Record<ModId, { look: ModLook; sees: string }
   awlBarrel: { look: 'round', sees: 'the longer, brighter vapour wake, through more cover' },
   gimletLong: { look: 'round', sees: 'the longer bright scout tracer through more cover at a slightly slower cadence' },
   flailHeavy: { look: 'rate', sees: 'the faster heavy-barrel rate through cover' },
+  flailBolt: { look: 'rate', sees: 'the lightened bolt hammering at a thousand rounds a minute' },
   billhookSlug: { look: 'round', sees: 'a single heavy slug tracer and larger wall impact in place of buckshot' },
   bodkinTungsten: { look: 'round', sees: 'the heavy sabot-grade dart wake punching through twice the cover' },
   raufoss: { look: 'round', sees: 'the Raufoss tracer, its burst, sparkle and scorch where it strikes, and the pellets out of the far side' },

@@ -82,6 +82,7 @@ const RESUPPLY_INTERVAL = 1.4;
 const RESUPPLY_RADIUS = 14;
 const AUTO_TURRET_RANGE = 68;
 const MAX_LEAD_PIPS = 6;
+const HOLD_R_SWITCH_SECONDS = 0.35;
 
 export type VehicleDamageKind = 'light' | 'heavy' | 'crash';
 
@@ -129,6 +130,9 @@ export class DriveableVehicle {
   private readonly primaryState: WeaponRuntime[] = [];
   private readonly secondaryState: (WeaponRuntime | null)[] = [];
   private podFlip = false;
+  private gunnerZoomed = false;
+  private secondarySelected = false;
+  private reloadHold = -1;
 
   // Viper chargeable Particle Lance state.
   private lanceCharge = 0;
@@ -209,8 +213,10 @@ export class DriveableVehicle {
     handbrake: false,
     firePrimary: false,
     fireSecondary: false,
+    aimHeld: false,
     specialPressed: false,
     reloadPressed: false,
+    reloadHeld: false,
     cameraTogglePressed: false,
     lookX: 0,
     lookY: 0,
@@ -379,6 +385,14 @@ export class DriveableVehicle {
 
   get activeSeatSpec(): VehicleSeatSpec {
     return this.def.seats[this._seatIndex]!;
+  }
+
+  get zoomed(): boolean {
+    return this.gunnerZoomed;
+  }
+
+  get secondaryModeSelected(): boolean {
+    return this.secondarySelected;
   }
 
   get audioTelemetry(): VehicleAudioTelemetry {
@@ -607,6 +621,9 @@ export class DriveableVehicle {
     if (usesMount && spec.mountGun) {
       this.activeMountGun = this.getOrBuildMountGun(spec.mountGun);
       this.activeMountGun.snap(wrapAngle(this.aimYaw - Math.PI), this.aimPitch);
+      if (spec.holdRToggleSecondary) {
+        this.activeMountGun.setActive(1, this.secondarySelected ? 1 : 0);
+      }
     }
 
     // Apply or clear Kestrel FLIR Thermal optic filter cleanly via GunnerSeat.look()!
@@ -661,6 +678,9 @@ export class DriveableVehicle {
     this.aimPitch = this.def.category === 'jet' ? 0.02 : -0.06;
     this.camDistCurrent = spec.chaseDist || 7.4;
     this.camFovCurrent = this.thirdPerson ? 76 : 64;
+    this.gunnerZoomed = false;
+    this.secondarySelected = false;
+    this.reloadHold = -1;
     this.keyCPressed = false;
     this.wasBoosting = false;
     this.wasAbandonedFall = false;
@@ -733,8 +753,15 @@ export class DriveableVehicle {
     const spec = this.activeSeatSpec;
     this.thirdPerson = next === 0 && spec.chaseDist > 0.5;
     this.camDistCurrent = spec.chaseDist || 7.4;
+    this.gunnerZoomed = false;
+    this.secondarySelected = false;
+    if (this.reloadHold >= 0) {
+      this.reloadHold = -1;
+      this.ctx.hud?.hold?.(0);
+    }
     this.lanceCharge = 0;
     this.lanceHeld = false;
+    this.seat.zoomed = false;
     this.seat.hintText = this.buildHintText();
     this.applySeatVisuals();
     this.ctx.audio?.play('veh_seat_click', { position: this.phys.position, volume: 0.78, pitch: 1.04 });
@@ -767,6 +794,12 @@ export class DriveableVehicle {
     this.remoteDriverSlot = -1;
     if (this.seatOccupants[this._seatIndex] === 'local') {
       this.seatOccupants[this._seatIndex] = null;
+    }
+    this.gunnerZoomed = false;
+    this.secondarySelected = false;
+    if (this.reloadHold >= 0) {
+      this.reloadHold = -1;
+      this.ctx.hud?.hold?.(0);
     }
     this.lanceCharge = 0;
     this.lanceHeld = false;
@@ -1030,8 +1063,10 @@ export class DriveableVehicle {
     inp.handbrake = false;
     inp.firePrimary = false;
     inp.fireSecondary = false;
+    inp.aimHeld = false;
     inp.specialPressed = false;
     inp.reloadPressed = false;
+    inp.reloadHeld = false;
     inp.cameraTogglePressed = false;
     inp.lookX = 0;
     inp.lookY = 0;
@@ -1054,11 +1089,14 @@ export class DriveableVehicle {
     }
     inp.boost = input.isDown('dash');
     // When using hand-held passenger weapons (Quad/Moto Seat 2), let Weapons.ts consume fire/aim/reload!
-    const handWeps = Boolean(this.activeSeatSpec.passengerWeapons);
+    const spec = this.activeSeatSpec;
+    const handWeps = Boolean(spec.passengerWeapons);
     inp.firePrimary = !handWeps && input.isDown('fire');
-    inp.fireSecondary = !handWeps && input.isDown('aim');
+    inp.aimHeld = !handWeps && input.isDown('aim');
+    inp.fireSecondary = !handWeps && !spec.aimZooms && !spec.holdRToggleSecondary && inp.aimHeld;
     inp.specialPressed = input.pressed('stim');
     inp.reloadPressed = !handWeps && input.pressed('reload');
+    inp.reloadHeld = !handWeps && input.isDown('reload');
     // Clean [C] view toggle (NO mouse-wheel accidental camera switching!).
     const isAir = this.def.category === 'helicopter' || this.def.category === 'jet';
     inp.cameraTogglePressed = this.keyCPressed || (!isAir && input.pressed('slide'));
@@ -1069,15 +1107,16 @@ export class DriveableVehicle {
 
   private updateMouseLook(dt: number): void {
     const { input, player } = this.ctx;
+    const spec = this.activeSeatSpec;
+    this.gunnerZoomed = Boolean(spec.aimZooms && this.inputScratch.aimHeld);
     const look = input.frameLook;
     if (Math.abs(look.x) > 0.001 || Math.abs(look.y) > 0.001) {
       this.mouseIdleTimer = 0;
     } else {
       this.mouseIdleTimer += dt;
     }
-    const scale = player.sensitivity * player.lookScale;
+    const scale = player.sensitivity * player.lookScale * (this.gunnerZoomed ? 0.55 : 1);
     this.aimYaw = wrapAngle(this.aimYaw - look.x * scale);
-    const spec = this.activeSeatSpec;
     this.aimPitch = clamp(
       this.aimPitch - look.y * scale * (player.invertY ? -1 : 1),
       spec.pitchMin,
@@ -1202,7 +1241,8 @@ export class DriveableVehicle {
       if (_hlLit.length > 0) this.ctx.render.highlight(_hlLit, '#ffd9a0', 1, 0.85);
     }
 
-    // Smoothly damped FOV (ZERO Shift boost jitter!).
+    // Smoothly damped FOV (ZERO Shift boost jitter!), with gunner optic zoom when RMB is held.
+    seat.zoomed = this.gunnerZoomed;
     const baseFov = !is1P
       ? 76
       : spec.hudMode === 'tank'
@@ -1215,8 +1255,10 @@ export class DriveableVehicle {
               ? 74
               : 66;
     const speedFov = clamp(this.phys.speed * (this.def.category === 'jet' ? 0.12 : 0.14), 0, 8);
-    const targetFov = baseFov + (this.phys.boosting ? 7.5 : 0) + speedFov;
-    this.camFovCurrent = damp(this.camFovCurrent, targetFov, 7.5, dt);
+    const targetFov = this.gunnerZoomed
+      ? (spec.zoomFov ?? 40)
+      : baseFov + (this.phys.boosting ? 7.5 : 0) + speedFov;
+    this.camFovCurrent = damp(this.camFovCurrent, targetFov, this.gunnerZoomed ? 12 : 7.5, dt);
     this.ctx.camera?.setZoom?.(this.camFovCurrent);
     this.ctx.camera?.syncSeat?.();
 
@@ -1654,6 +1696,54 @@ export class DriveableVehicle {
     const spec = this.activeSeatSpec;
     const prim = this.primaryState[this._seatIndex]!;
     const sec = this.secondaryState[this._seatIndex];
+
+    // Seats with Hold-R toggle (e.g. Jackal Roof Gunner .50 HMG <-> 40mm Smart-AGL):
+    // Hold R >= 0.35s switches active weapon; tap R reloads; LMB fires active weapon; RMB zooms.
+    if (spec.holdRToggleSecondary && spec.secondary && sec) {
+      if (this.inputScratch.reloadHeld) {
+        if (this.reloadHold === -1) this.reloadHold = 0;
+        if (this.reloadHold >= 0) {
+          this.reloadHold += dt;
+          this.ctx.hud?.hold?.(clamp(this.reloadHold / HOLD_R_SWITCH_SECONDS, 0, 1));
+          if (this.reloadHold >= HOLD_R_SWITCH_SECONDS) {
+            this.reloadHold = -2;
+            this.ctx.hud?.hold?.(0);
+            this.secondarySelected = !this.secondarySelected;
+            this.activeMountGun?.setActive(1, this.secondarySelected ? 1 : 0);
+            const activeName = this.secondarySelected ? spec.secondary.name : spec.primary.name;
+            this.ctx.audio?.play('reload_bolt', {
+              position: this.phys.position,
+              volume: 0.78,
+              pitch: this.secondarySelected ? 0.86 : 1.12,
+            });
+            this.ctx.hud?.callout?.(this.secondarySelected ? '40MM AGL' : '.50 CAL HMG');
+            this.ctx.hud?.feed?.(`TURRET MODE: ${activeName}`, this.secondarySelected ? '#ff9e3b' : this.def.color);
+          }
+        }
+      } else {
+        if (this.reloadHold >= 0) {
+          // Released before threshold -> treat as normal manual reload tap.
+          this.ctx.hud?.hold?.(0);
+          const pm = this.resolveWeaponMode(spec.primary, prim.modeIndex);
+          const sm = this.resolveWeaponMode(spec.secondary, sec.modeIndex);
+          if (this.secondarySelected) {
+            if (sm.magSize > 0 && sec.ammo < sm.magSize && sec.reloadLeft <= 0) sec.reloadLeft = sm.reloadSeconds;
+          } else if (pm.magSize > 0 && prim.ammo < pm.magSize && prim.reloadLeft <= 0) {
+            prim.reloadLeft = pm.reloadSeconds;
+          }
+        }
+        this.reloadHold = -1;
+      }
+
+      if (this.inputScratch.firePrimary && !this.overheated) {
+        if (this.secondarySelected) {
+          if (spec.secondary.kind !== 'none') this.tryFire(spec.secondary, sec, true);
+        } else if (spec.primary.kind !== 'none') {
+          this.tryFire(spec.primary, prim, false);
+        }
+      }
+      return;
+    }
 
     // [R]: Cycle alternate ammo / Fighter ordnance modes (or reload)!
     if (this.inputScratch.reloadPressed) {
@@ -2803,6 +2893,15 @@ export class DriveableVehicle {
         ? 'HAND WEAPONS ACTIVE // 1-9 SWITCH GUN // F DRIVER SEAT'
         : 'HAND WEAPONS ACTIVE // 1-9 SWITCH GUN // F DRIVER SEAT // E EXIT';
     }
+    if (spec.holdRToggleSecondary && spec.secondary) {
+      const parts: string[] = ['LMB FIRE'];
+      if (spec.aimZooms) parts.push('RMB ZOOM');
+      parts.push(`HOLD R ${spec.secondary.name}`, 'R RELOAD');
+      if (this.def.seats.length > 1) parts.push('F SEAT');
+      if (spec.chaseDist > 0.5) parts.push('C VIEW');
+      if (!this.exitLocked) parts.push('E EXIT');
+      return parts.join(' // ');
+    }
     const parts: string[] = ['WASD DRIVE', 'SHIFT BOOST'];
     if (this.def.category === 'jet') {
       parts.push(
@@ -2841,14 +2940,21 @@ export class DriveableVehicle {
     const sec = this.secondaryState[this._seatIndex];
 
     const primMode = this.resolveWeaponMode(spec.primary, prim.modeIndex);
+    const holdRToggle = Boolean(spec.holdRToggleSecondary && spec.secondary && sec);
     seat.weapons.length = 0;
     if (spec.primary.kind !== 'none') {
+      const primSelected = !holdRToggle || !this.secondarySelected;
+      const primPrefix = spec.primary.kind === 'lance'
+        ? 'HOLD LMB '
+        : holdRToggle
+          ? (primSelected ? 'LMB ' : 'HOLD R ')
+          : 'LMB ';
       seat.weapons.push({
-        name: spec.primary.kind === 'lance' ? `HOLD LMB ${primMode.name}` : `LMB ${primMode.name}`,
+        name: `${primPrefix}${primMode.name}`,
         ammo: primMode.magSize > 0 ? prim.ammo : 999,
         max: primMode.magSize > 0 ? primMode.magSize : 999,
         reload: prim.reloadLeft > 0 ? 1 - prim.reloadLeft / primMode.reloadSeconds : -1,
-        selected: true,
+        selected: primSelected,
       });
     }
     let ammoModeText = '';
@@ -2856,11 +2962,15 @@ export class DriveableVehicle {
     if (spec.secondary && sec && spec.secondary.kind !== 'none') {
       const secMode = this.resolveWeaponMode(spec.secondary, sec.modeIndex);
       if (spec.secondary.altMode) ammoModeText = secMode.name;
+      if (holdRToggle) ammoModeText = this.secondarySelected ? secMode.name : primMode.name;
       seat.weapons.push({
-        name: `RMB ${secMode.name}`,
+        name: holdRToggle
+          ? `${this.secondarySelected ? 'LMB' : 'HOLD R'} ${secMode.name}`
+          : `RMB ${secMode.name}`,
         ammo: secMode.magSize > 0 ? sec.ammo : 999,
         max: secMode.magSize > 0 ? secMode.magSize : 999,
         reload: sec.reloadLeft > 0 ? 1 - sec.reloadLeft / secMode.reloadSeconds : -1,
+        selected: holdRToggle ? this.secondarySelected : undefined,
       });
     }
 

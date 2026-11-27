@@ -161,6 +161,12 @@ export interface VehicleSeatSpec {
   readonly pitchMax: number;
   /** Turret yaw slew rate in rad/s (`Infinity` = instant mouse aim). */
   readonly turretSlew: number;
+  /** When true, RMB zooms the gunner optic instead of firing `secondary`. */
+  readonly aimZooms?: boolean;
+  /** Target FOV in degrees while zoomed via `aimZooms` (default 40). */
+  readonly zoomFov?: number;
+  /** When true, holding R switches LMB between `primary` and `secondary` (tap R reloads). */
+  readonly holdRToggleSecondary?: boolean;
   readonly primary: VehicleWeaponSpec;
   readonly secondary?: VehicleWeaponSpec;
 }
@@ -282,8 +288,10 @@ export interface VehicleInput {
   handbrake: boolean;
   firePrimary: boolean;
   fireSecondary: boolean;
+  aimHeld?: boolean;
   specialPressed: boolean;
   reloadPressed: boolean;
+  reloadHeld?: boolean;
   cameraTogglePressed: boolean;
   /** Jet pitch/roll mouse delta inputs. */
   lookX: number;

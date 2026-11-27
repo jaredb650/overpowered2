@@ -16,7 +16,7 @@ import { bump, hold, inOut, inQuad, outCubic, seg, thud } from '../curves';
 import { fill, pullTrigger } from './common';
 import type { Anim, ViewDef } from '../def';
 import { HANDS } from '../poses';
-import { OPTIC_GLOWS, acog, acogShade, redDot } from './optics';
+import { OPTIC_GLOWS, acog, acogShade, holoSight, redDot } from './optics';
 import { TORCH, weaponLight } from './light';
 import { LASER_GLOW, RIFLE_LAM_RANGE, lamSocket, weaponLam } from './laser';
 
@@ -506,6 +506,7 @@ function buildGimlet(kit: Kit): Built {
   suppressor(m);
   launcher(m);
   const dot = redDot(m, OPTIC_AT);
+  const holo = holoSight(m, OPTIC_AT);
   const scope = acog(m, OPTIC_AT);
 
   m.part('bolt', [0.0162, 0.052, -0.012], () => {
@@ -552,6 +553,7 @@ function buildGimlet(kit: Kit): Built {
     mods: {
       gimletAcog: scope,
       gimletDot: dot,
+      gimletHolo: holo,
       gimletCan: { part: 'can', muzzle: 'muzzleCan' },
       gimletGl: { part: 'gl' },
       gimletLight: { part: 'light' },

@@ -13,7 +13,7 @@ import { F } from '../kit/finishes';
 import type { Mesher } from '../kit/mesher';
 import { curve, poly, rect, slotRow } from '../kit/shapes';
 import { hexX, knurl, rail, screwX, serrations } from '../kit/details';
-import { OPTIC_GLOWS, acog, acogShade, redDot } from './optics';
+import { OPTIC_GLOWS, acog, acogShade, holoSight, redDot } from './optics';
 import { bump, hold, inOut, inQuad, outCubic, seg, thud } from '../curves';
 import { pullTrigger, round } from './common';
 import type { Anim, ViewDef } from '../def';
@@ -236,6 +236,7 @@ function buildPiledriver(kit: Kit): { model: Model; mods: NonNullable<ViewDef['m
   // The red dot ahead of where the ladder stood; the ACOG further back, its objective out of the cover's way as it opens.
   // Held further off the eye than a rifle's: at 0.26 m the buttpad under the eye fills the bottom of the picture.
   const dot = { ...redDot(m, [0, RAIL_TOP, 0.075]), relief: 0.42 };
+  const holo = { ...holoSight(m, [0, RAIL_TOP, 0.075]), relief: 0.42 };
   const scope = acog(m, [0, RAIL_TOP, 0.095]);
 
   m.part('bolt', [HALF - 0.0005, 0.05, -0.04], () => {
@@ -264,7 +265,7 @@ function buildPiledriver(kit: Kit): { model: Model; mods: NonNullable<ViewDef['m
   model.hand('boxHold', [-0.046, 0.0, 0.03], [-0.1, 0.1, -0.98], [0.9, 0.05, -0.2], 'box');
   model.hand('coverHold', [-0.02, 0.02, 0.12], [-0.3, 0.4, -0.86], [0.85, 0.3, -0.42], 'cover');
   model.hand('chargeHold', [-0.034, 0.0, 0.006], [-0.5, -0.2, -0.8], [0.8, -0.3, -0.5], 'charge');
-  return { model, mods: { piledriverBox: { part: 'boxExt', hides: 'boxStd' }, piledriverDot: dot, piledriverAcog: scope } };
+  return { model, mods: { piledriverBox: { part: 'boxExt', hides: 'boxStd' }, piledriverDot: dot, piledriverHolo: holo, piledriverAcog: scope } };
 }
 
 /** How far the barrel runs back in the jacket, and how far the bolt and the handle travel. */

@@ -176,6 +176,30 @@ describe('Desert Raid (Mission 5 — 8-Section Campaign)', () => {
     expect(DESERT_RAID.marks.planeEntry!.at[2]).toBe(DESERT_Z.planeForecourt);
     expect(DESERT_RAID.marks.quistTail!.at[2]).toBe(DESERT_Z.planeTail);
 
+    // Verify all 4 hidden Easter egg weapon caches (no HUD beacons, exact mods, RGL placed after sewer exit)
+    const racks = DESERT_RAID.beats.flatMap(b =>
+      (b.start ?? []).filter((s): s is Extract<typeof s, { do: 'rack' }> => s.do === 'rack').map(s => ({ beat: b.id, step: s })),
+    );
+    const piledriverCache = racks.find(r => r.step.weapon === 'piledriver');
+    const billhookCache = racks.find(r => r.step.weapon === 'billhook');
+    const flailCache = racks.find(r => r.step.weapon === 'flail');
+    const rglCache = racks.find(r => r.step.weapon === 'mgl');
+    expect(piledriverCache?.step).toMatchObject({ at: 'secretPiledriver', optional: true, hidden: true });
+    expect(billhookCache?.step).toMatchObject({
+      at: 'secretBillhook',
+      optional: true,
+      hidden: true,
+      mods: ['billhookFlechette', 'billhookDot'],
+    });
+    expect(flailCache?.step).toMatchObject({
+      at: 'secretFlail',
+      optional: true,
+      hidden: true,
+      mods: ['flailHeavy', 'flailAp', 'flailStock', 'flailHolo', 'flailLam', 'flailBox', 'flailBolt'],
+    });
+    expect(rglCache?.beat).toBe('high_terraces');
+    expect(rglCache?.step).toMatchObject({ at: 'secretRgl', optional: true, hidden: true });
+
     const withHarrow = missionWithStarter(DESERT_RAID, 'harrow');
     expect(validateMission(withHarrow)).toEqual([]);
     expect(withHarrow.loadout.weapons[0]).toBe('harrow');

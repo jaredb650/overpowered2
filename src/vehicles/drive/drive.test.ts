@@ -417,7 +417,18 @@ describe('AAA Driveable Vehicles (13-Vehicle Fleet)', () => {
     jackal.switchSeat(1);
     expect(jackal.activeSeatSpec.mountGun).toBe('hybrid');
     expect(jackal.model.turret?.visible).toBe(false);
-    h.held.add('aim'); // Fire 40mm Smart-AGL secondary!
+    // RMB zooms the optic (does NOT fire grenades)
+    h.held.add('aim');
+    jackal.update(1 / 30);
+    expect(jackal.zoomed).toBe(true);
+    expect(h.spawnProjectile).not.toHaveBeenCalled();
+    h.held.delete('aim');
+    // Hold R >= 0.35s switches active mode to 40mm Smart-AGL, then LMB fires arcing grenades!
+    h.held.add('reload');
+    for (let i = 0; i < 14; i++) jackal.update(1 / 30);
+    h.held.delete('reload');
+    expect(jackal.secondaryModeSelected).toBe(true);
+    h.held.add('fire');
     jackal.update(1 / 30);
     expect(h.spawnProjectile).toHaveBeenCalled();
 

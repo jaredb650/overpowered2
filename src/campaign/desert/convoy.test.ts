@@ -581,7 +581,7 @@ describe('DesertConvoy — WallLoop & Gate Dismount', () => {
     convoy.clear();
   });
 
-  it('signals dr:wall_loop_ready early when player pounds the outer wall with RMB 40mm AGL grenades (source: mgl) and LMB .50 HMG (source: jackal_hmg)', () => {
+  it('signals dr:wall_loop_ready early when player pounds the outer wall with LMB .50 HMG (source: jackal_hmg) and Hold-R 40mm AGL grenades (source: mgl)', () => {
     const fakeWallCol: FakeCollider = {
       handle: 777,
       translation: new THREE.Vector3(0, 2, DESERT_Z.wallLine),
@@ -597,10 +597,22 @@ describe('DesertConvoy — WallLoop & Gate Dismount', () => {
     convoy.startApproach();
     convoy.startWallLoop();
 
-    // Hold RMB (`aim` = 40mm AGL) + LMB (`fire` = .50 HMG) for 2.2s to hammer the wall plane at z=62
+    // Fire LMB .50 HMG while zooming with RMB (`aim`)
     env.downActions.add('aim');
     env.downActions.add('fire');
-    env.step(convoy, 2.2);
+    env.step(convoy, 1.0);
+    expect(convoy.zoomed).toBe(true);
+    expect(env.zoomFov).toBeLessThan(DESERT_CONVOY_CONSTANTS.turretFov - 10);
+    env.downActions.delete('fire');
+
+    // Hold R (>= 0.35s) to switch from .50 HMG to 40mm Smart-AGL, then fire LMB grenades
+    env.downActions.add('reload');
+    env.step(convoy, DESERT_CONVOY_CONSTANTS.holdRSeconds + 0.05);
+    env.downActions.delete('reload');
+    expect(convoy.weaponMode).toBe('agl');
+
+    env.downActions.add('fire');
+    env.step(convoy, 1.5);
     env.downActions.delete('aim');
     env.downActions.delete('fire');
     // Allow final in-flight grenades to reach the wall
@@ -845,8 +857,8 @@ describe('DesertConvoy — Exfil Pickup, Quist Bed Tracking, Chase & Ending Crui
   });
 });
 
-describe('DesertConvoy — Jackal Combination .50-Cal HMG (LMB) + 40mm Smart-AGL (RMB)', () => {
-  it('supports 360° yaw rotation, clamps pitch to [-25°, +45°], and fires 40mm AGL on RMB', () => {
+describe('DesertConvoy — Jackal Combination .50-Cal HMG + 40mm Smart-AGL (RMB Zoom, Hold R Switch)', () => {
+  it('supports 360° yaw rotation, clamps pitch to [-25°, +45°], zooms on RMB, and fires 40mm AGL on LMB after Hold R', () => {
     const env = createMockEnv();
     const convoy = new DesertConvoy(env.ctx, env.runner, env.ui);
 
@@ -866,10 +878,26 @@ describe('DesertConvoy — Jackal Combination .50-Cal HMG (LMB) + 40mm Smart-AGL
     env.step(convoy, 1 / 60);
     expect(convoy.pitch).toBeCloseTo(DESERT_CONVOY_CONSTANTS.pitchMax, 4);
 
-    // RMB (`aim`) fires coaxial 40mm AGL grenades at ~2.8 rps
+    // RMB (`aim`) zooms optic without firing grenades
     env.downActions.add('aim');
-    env.step(convoy, 1.0);
+    env.step(convoy, 0.5);
+    expect(convoy.zoomed).toBe(true);
+    expect(env.zoomFov).toBeLessThan(DESERT_CONVOY_CONSTANTS.turretFov - 15);
+    expect(env.playedSounds.filter(s => s === 'mgl_shot')).toHaveLength(0);
     env.downActions.delete('aim');
+    env.step(convoy, 0.5);
+    expect(convoy.zoomed).toBe(false);
+
+    // Hold R (>= 0.35s) switches from .50 HMG to 40mm Smart-AGL, then LMB fires at ~2.8 rps
+    expect(convoy.weaponMode).toBe('hmg');
+    env.downActions.add('reload');
+    env.step(convoy, DESERT_CONVOY_CONSTANTS.holdRSeconds + 0.05);
+    env.downActions.delete('reload');
+    expect(convoy.weaponMode).toBe('agl');
+
+    env.downActions.add('fire');
+    env.step(convoy, 1.0);
+    env.downActions.delete('fire');
     const mglCount1s = env.playedSounds.filter(s => s === 'mgl_shot').length;
     expect(mglCount1s).toBeGreaterThanOrEqual(2);
     expect(mglCount1s).toBeLessThanOrEqual(4);
@@ -878,7 +906,7 @@ describe('DesertConvoy — Jackal Combination .50-Cal HMG (LMB) + 40mm Smart-AGL
     convoy.clear();
   });
 
-  it('fires rapid .50-cal HMG on LMB (~10.5 rps, ~52 rounds to overheat), vents steam, locks out HMG while RMB AGL stays ready, then resumes', () => {
+  it('fires rapid .50-cal HMG on LMB (~10.5 rps, ~52 rounds to overheat), vents steam, locks out HMG while Hold-R AGL stays ready, then resumes', () => {
     const env = createMockEnv();
     const convoy = new DesertConvoy(env.ctx, env.runner, env.ui);
 
@@ -904,14 +932,22 @@ describe('DesertConvoy — Jackal Combination .50-Cal HMG (LMB) + 40mm Smart-AGL
     expect(env.playedSounds.filter(s => s === 'hmg_shot').length).toBe(shotsBeforeLockout);
     expect(env.playedSounds).toContain('weapon_dry');
 
-    // Secondary RMB 40mm AGL can still fire independently while HMG is venting!
-    env.downActions.add('aim');
+    // Holding R switches to 40mm AGL which can still fire independently while HMG vents!
+    env.downActions.delete('fire');
+    env.downActions.add('reload');
+    env.step(convoy, DESERT_CONVOY_CONSTANTS.holdRSeconds + 0.05);
+    env.downActions.delete('reload');
+    expect(convoy.weaponMode).toBe('agl');
+    env.downActions.add('fire');
     env.step(convoy, 0.1);
-    env.downActions.delete('aim');
+    env.downActions.delete('fire');
     expect(env.playedSounds).toContain('mgl_shot');
 
-    // Release fire and vent back down to cool
-    env.downActions.delete('fire');
+    // Switch back to HMG with Hold R and vent back down to cool
+    env.downActions.add('reload');
+    env.step(convoy, DESERT_CONVOY_CONSTANTS.holdRSeconds + 0.05);
+    env.downActions.delete('reload');
+    expect(convoy.weaponMode).toBe('hmg');
     env.step(convoy, 3.0);
     expect(convoy.heat.overheated).toBe(false);
     expect(convoy.heat.value).toBeLessThan(0.15);
@@ -1209,9 +1245,16 @@ describe('DesertConvoy — Cleanup, Reset & Real Audio Catalog Validation', () =
     convoy.spawnBanditWave('approach', 4);
     env.downActions.add('aim');
     env.downActions.add('fire');
-    env.step(convoy, 7.5); // fires 40mm grenades, detonates on wall/ground, overheats
+    env.step(convoy, 6.0); // fires .50 HMG while zoomed, overheats
     env.pressedActions.add('fire');
     env.step(convoy, 0.1); // dry click
+    env.downActions.delete('fire');
+    // Hold R to switch to 40mm AGL and fire grenades
+    env.downActions.add('reload');
+    env.step(convoy, DESERT_CONVOY_CONSTANTS.holdRSeconds + 0.05);
+    env.downActions.delete('reload');
+    env.downActions.add('fire');
+    env.step(convoy, 1.5); // fires 40mm grenades and detonates on wall/ground
     env.downActions.delete('fire');
     env.downActions.delete('aim');
 

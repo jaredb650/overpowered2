@@ -19,7 +19,7 @@ import { bump, hold, inOut, inQuad, outCubic, seg, thud } from '../curves';
 import { fill, pullTrigger } from './common';
 import type { Anim, ModLook, ViewDef } from '../def';
 import { HANDS } from '../poses';
-import { OPTIC_GLOWS, acog, acogShade, redDot } from './optics';
+import { OPTIC_GLOWS, acog, acogShade, holoSight, redDot } from './optics';
 import { LASER_GLOW, RIFLE_LAM_RANGE, lamSocket, weaponLam } from './laser';
 
 const BORE = 0.044;
@@ -586,9 +586,10 @@ function heavyFront(m: Mesher): void {
   });
 }
 
-function cover(m: Mesher): { dot: ModLook; scope: ModLook } {
+function cover(m: Mesher): { dot: ModLook; holo: ModLook; scope: ModLook } {
   // Hinged at its front, its rear latched down: the hand lifts it there to lay a belt. Everything on it moves with it.
   let dot: ModLook | null = null;
+  let holo: ModLook | null = null;
   let scope: ModLook | null = null;
   m.part('cover', [0, REC_TOP, COVER_FRONT], () => {
     const L = COVER_LEN;
@@ -628,9 +629,10 @@ function cover(m: Mesher): { dot: ModLook; scope: ModLook } {
     const at = [0, RAIL - REC_TOP, -0.03 - COVER_FRONT] as const;
     const shift = (l: ModLook): ModLook => ({ ...l, sight: [l.sight![0], l.sight![1] + REC_TOP, l.sight![2] + COVER_FRONT] });
     dot = shift(redDot(m, at, 'reddot'));
+    holo = shift(holoSight(m, at, 'holo'));
     scope = shift(acog(m, at, 'acog'));
   });
-  return { dot: dot!, scope: scope! };
+  return { dot: dot!, holo: holo!, scope: scope! };
 }
 
 /** The stock 100: a soft cloth pouch on a polymer frame. Part space: the middle of its top. */
@@ -730,7 +732,7 @@ function buildFlail(kit: Kit): { model: Model; mods: ViewDef['mods'] } {
     handleAndBipod(m);
   });
   heavyFront(m);
-  const { dot, scope } = cover(m);
+  const { dot, holo, scope } = cover(m);
   feed(m);
 
   // The charging handle at the receiver's front left: a folding bar the hand racks back, clear of the belt.
@@ -739,6 +741,23 @@ function buildFlail(kit: Kit): { model: Model; mods: ViewDef['mods'] } {
     m.box(0.004, 0.01, 0.026, 0.001);
     m.at([-0.011, 0, 0], [0, Math.PI / 2, 0], () => m.cyl(0.005, 0.02, 10));
     m.at([-0.026, 0, 0], [0, Math.PI / 2, 0], () => knurl(m, 0.0078, 0.018, F.steel, 14, 0.0005));
+    // Skeletonized TiN/titanium high-speed charging collar & lightening flutes (`flailBolt`).
+    m.part('boltLight', [0, 0, 0], () => {
+      m.use(F.brass);
+      m.at([-0.001, 0, 0], null, () => m.box(0.0046, 0.0072, 0.03, 0.0008));
+      m.at([-0.014, 0, 0], [0, Math.PI / 2, 0], () => m.cyl(0.0062, 0.006, 12));
+      m.use(F.steel);
+      m.at([-0.036, 0, 0], [0, Math.PI / 2, 0], () => m.cyl(0.0056, 0.006, 12));
+      // Milled titanium nitride carrier ribs showing through the right-side bolt track.
+      m.at([HALF * 2 + 0.0042, 0.003, 0.128], null, () => {
+        m.use(F.brass);
+        m.box(0.0024, 0.011, 0.072, 0.0006);
+        m.use(F.black);
+        for (const dz of [-0.022, -0.007, 0.008, 0.023]) {
+          m.at([0.001, 0, dz], null, () => m.box(0.0012, 0.0054, 0.009, 0));
+        }
+      });
+    });
   });
   m.part('trigger', [0, -0.0115, -0.002], () => {
     m.use(F.steelDark);
@@ -765,9 +784,11 @@ function buildFlail(kit: Kit): { model: Model; mods: ViewDef['mods'] } {
     model,
     mods: {
       flailDot: dot,
+      flailHolo: holo,
       flailAcog: scope,
       flailBox: { part: 'boxExt', hides: 'boxStd' },
       flailHeavy: { part: 'frontHeavy', hides: 'frontStd', muzzle: 'muzzleHeavy', alsoMoves: [{ part: 'lam', x: 0.0115 }] },
+      flailBolt: { part: 'boltLight' },
       flailStock: { part: 'stockEnh', hides: 'stockStd' },
       flailLam: { part: 'lam', laser: 'lam', laserRange: RIFLE_LAM_RANGE },
     },

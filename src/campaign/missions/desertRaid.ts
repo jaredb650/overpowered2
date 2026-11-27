@@ -71,7 +71,7 @@ export const DESERT_RAID: Mission = {
         say('council.approach.scold'),
         say('tiamat.approach.defiant'),
         { do: 'objective', id: 'approach_surplus', text: 'Ride the convoy across the dunes to Surplus', at: 'mainGateObj' },
-        { do: 'hint', text: 'You man the Jackal technical turret — LMB .50-cal HMG, RMB 40mm grenade launcher. Shred Saltblood lookouts, motos, quads, and technicals!', seconds: 8 },
+        { do: 'hint', text: 'You man the Jackal technical turret — LMB fire, RMB zoom, hold [R] to switch between .50-cal HMG and 40mm grenades. Shred Saltblood lookouts, motos, quads, and technicals!', seconds: 8 },
         { do: 'until', when: { any: [{ signal: 'dr:approach_done' }, { zone: 'wallFront' }] } },
         { do: 'done', id: 'approach_surplus' },
         { do: 'goto', beat: 'the_wall' },
@@ -128,7 +128,7 @@ export const DESERT_RAID: Mission = {
         { do: 'squad', tag: 'wall_towers_e', men: ['sniper', 'trooper', 'gunner'], at: 'wallTowersEast', orders: 'hold', ensure: true },
         say('tiamat.wall.broadside'),
         { do: 'objective', id: 'shred_wall', text: 'Tear apart the outer wall, watchtowers & Saltblood defenders', at: 'mainGateObj' },
-        { do: 'hint', text: 'Hammer the scrap wall with LMB .50-cal HMG and RMB 40mm grenades — blast holes through panels, drop watchtowers by their legs, and clear the battlements!', seconds: 8 },
+        { do: 'hint', text: 'Hammer the scrap wall with LMB .50-cal HMG, RMB zoom, and hold [R] to switch to 40mm grenades — blast holes through panels, drop watchtowers by their legs, and clear the battlements!', seconds: 8 },
         {
           do: 'until',
           when: {
@@ -191,6 +191,17 @@ export const DESERT_RAID: Mission = {
         { do: 'call', name: 'dr.warrenStart', arg: 'warrenMinigun' },
         { do: 'drop', item: 'ammo', at: 'warrenDropAmmo' },
         { do: 'drop', item: 'health', at: 'warrenDropHealth' },
+        // Hidden off-path Easter egg weapon caches (no HUD beacons)
+        { do: 'rack', weapon: 'piledriver', at: 'secretPiledriver', optional: true, hidden: true, label: 'PILEDRIVER .50 BMG' },
+        {
+          do: 'rack',
+          weapon: 'billhook',
+          at: 'secretBillhook',
+          optional: true,
+          hidden: true,
+          mods: ['billhookFlechette', 'billhookDot'],
+          label: 'BILLHOOK (FLECHETTE + REFLEX)',
+        },
         // Wave 1 (South/Mid Warren): 12 Saltblood raiders across shacks, alleys, and roofs
         { do: 'squad', tag: 'warren_south', men: ['trooper', 'trooper', 'gunner', 'riot'], at: 'warrenSouthPost', ensure: true },
         { do: 'squad', tag: 'warren_west_roof', men: ['trooper', 'gunner', 'sniper', 'trooper'], at: 'warrenWestRoof', orders: 'hold', ensure: true },
@@ -260,6 +271,16 @@ export const DESERT_RAID: Mission = {
         { do: 'call', name: 'dr.pumpStart' },
         { do: 'drop', item: 'ammo', at: 'pumpDropAmmo' },
         { do: 'drop', item: 'health', at: 'pumpDropHealth' },
+        // Hidden Flail MG42 Spec cache behind the NW steel water cistern
+        {
+          do: 'rack',
+          weapon: 'flail',
+          at: 'secretFlail',
+          optional: true,
+          hidden: true,
+          mods: ['flailHeavy', 'flailAp', 'flailStock', 'flailHolo', 'flailLam', 'flailBox', 'flailBolt'],
+          label: 'FLAIL MG42 SPEC (HOLO + LIGHTENED BOLT)',
+        },
         // Phase A (Pump Yard Surface): 12 fortified Saltblood pump guards
         { do: 'squad', tag: 'pump_west', men: ['trooper', 'gunner', 'warden', 'riot'], at: 'pumpWest', ensure: true },
         { do: 'squad', tag: 'pump_east', men: ['trooper', 'riot', 'sniper', 'gunner'], at: 'pumpEast', ensure: true },
@@ -323,6 +344,8 @@ export const DESERT_RAID: Mission = {
         { do: 'call', name: 'dr.terracesStart' },
         { do: 'drop', item: 'ammo', at: 'terracesDropAmmo' },
         { do: 'drop', item: 'health', at: 'terracesDropHealth' },
+        // Hidden RGL Grenade Launcher right after emerging from the storm sewer (behind SW watchtower)
+        { do: 'rack', weapon: 'mgl', at: 'secretRgl', optional: true, hidden: true, label: 'RGL GRENADE LAUNCHER' },
         // Dense vertical combat across 3 elevations (15 upfront + 6 upper-ridge cue = 21 enemies)
         { do: 'squad', tag: 'terrace_towers_low', men: ['sniper', 'gunner', 'trooper', 'sniper'], at: 'terraceTowersLow', orders: 'hold', ensure: true },
         { do: 'squad', tag: 'terrace_tents_mid', men: ['trooper', 'trooper', 'gunner', 'sniper', 'trooper', 'gunner'], at: 'terraceTentsMid', orders: 'hold', ensure: true },

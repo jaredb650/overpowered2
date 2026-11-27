@@ -42,6 +42,7 @@ export const GREASE = 0.75;
 /** An ACOG's view: four times the hip view's magnification (90 to 28 degrees), twice the red dot's. See docs/notes/weapons.md. */
 const ACOG = { zoom: 0.69, time: 0.24 } as const;
 const DOT = { zoom: 0.4, time: 0.2 } as const;
+const HOLO = { zoom: 0.42, time: 0.19 } as const;
 
 /** The guns that take AP, HP and +P rounds: the SMG, the rifles and the four pistols. */
 export const AMMO_GUNS: readonly WeaponId[] = ['smg', 'gimlet', 'harrow', 'shear', 'rivet', 'ultramag', 'autoraffica', 'judge', 'awl', 'flail'];
@@ -190,6 +191,7 @@ export const MODS: Readonly<Record<ModId, ModDef>> = {
   },
   // A sight, not a number: the optic on the dust cover and its dot in the ADS picture (viewmodels/models/harrow.ts).
   reddot: { id: 'reddot', weapon: 'harrow', name: 'Red dot sight', patch: {}, slot: 'sight' },
+  harrowHolo: { id: 'harrowHolo', weapon: 'harrow', name: 'Holo sight', patch: { ads: HOLO }, slot: 'sight' },
   // The ACOG (viewmodels/models/optics.ts), the Gimlet's own, for the Harrow: the view narrows to it.
   harrowAcog: { id: 'harrowAcog', weapon: 'harrow', name: 'ACOG', patch: { ads: ACOG }, slot: 'sight' },
   // Harrow wishlist: short barrel (+15% rate, 600→690 rpm), muzzle brake (+5%, stacks to ~725 rpm), 40-round magazine.
@@ -219,10 +221,12 @@ export const MODS: Readonly<Record<ModId, ModDef>> = {
   },
   // Optics on a short rail behind the Piledriver's feed cover; the ladder folds. The view narrows as the other guns' do.
   piledriverDot: { id: 'piledriverDot', weapon: 'piledriver', name: 'Red dot sight', slot: 'sight', patch: { ads: DOT } },
+  piledriverHolo: { id: 'piledriverHolo', weapon: 'piledriver', name: 'Holo sight', slot: 'sight', patch: { ads: HOLO } },
   piledriverAcog: { id: 'piledriverAcog', weapon: 'piledriver', name: 'ACOG', slot: 'sight', patch: { ads: ACOG } },
   // The Gimlet's. It is issued with the ACOG and the can on (`ISSUED`); the red dot swaps for the ACOG.
   gimletAcog: { id: 'gimletAcog', weapon: 'gimlet', name: 'ACOG', patch: { ads: ACOG }, slot: 'sight' },
   gimletDot: { id: 'gimletDot', weapon: 'gimlet', name: 'Red dot sight', patch: { ads: DOT }, slot: 'sight' },
+  gimletHolo: { id: 'gimletHolo', weapon: 'gimlet', name: 'Holo sight', patch: { ads: HOLO }, slot: 'sight' },
   // Its own suppressed shot (the owner's) and the small dim flash. Nothing else changes.
   gimletCan: {
     id: 'gimletCan', weapon: 'gimlet', name: 'Suppressor',
@@ -371,6 +375,7 @@ export const MODS: Readonly<Record<ModId, ModDef>> = {
   // The Flail's: a red dot or an ACOG on the feed cover's rail, one or the other; a box of 200 where it was 100, a beat longer to
   // swap; heavy M60/MG42-inspired barrel (880 rpm, 44 dmg, Harrow penetration/armour); enhanced stock; and the rifles' rounds.
   flailDot: { id: 'flailDot', weapon: 'flail', name: 'Red dot sight', slot: 'sight', patch: { ads: DOT } },
+  flailHolo: { id: 'flailHolo', weapon: 'flail', name: 'Holo sight', slot: 'sight', patch: { ads: HOLO } },
   flailAcog: { id: 'flailAcog', weapon: 'flail', name: 'ACOG', slot: 'sight', patch: { ads: ACOG } },
   flailBox: { id: 'flailBox', weapon: 'flail', name: 'Large box', slot: 'mag', patch: { magSize: 200, reloadTime: 3.1 } },
   flailHeavy: {
@@ -380,6 +385,11 @@ export const MODS: Readonly<Record<ModId, ModDef>> = {
       damage: d.damage * (44 / WEAPONS.flail.damage),
       penetration: d.load === 'hp' ? 0 : d.penetration + 0.3,
     }),
+  },
+  flailBolt: {
+    id: 'flailBolt', weapon: 'flail', name: 'Lightened bolt',
+    patch: {},
+    adjust: () => ({ interval: 60 / 1000 }),
   },
   flailStock: {
     id: 'flailStock', weapon: 'flail', name: 'Enhanced stock',
@@ -532,13 +542,13 @@ export const MODS: Readonly<Record<ModId, ModDef>> = {
 
 export const MOD_ORDER: readonly ModId[] = [
   'awlAcog', 'awl50', 'awlCan', 'awlAp', 'awlHp', 'awlPlusP', 'awlBarrel', 'awlBolt',
-  'suppressor', 'smgAp', 'smgHp', 'smgPlusP', 'gimletAcog', 'gimletDot', 'gimletCan', 'gimletGl', 'gimletAp', 'gimletHp', 'gimletPlusP', 'gimletLong',
-  'reddot', 'harrowAcog', 'harrowAp', 'harrowHp', 'harrowPlusP', 'harrowShort', 'harrowBrake', 'harrowMag',
+  'suppressor', 'smgAp', 'smgHp', 'smgPlusP', 'gimletAcog', 'gimletDot', 'gimletHolo', 'gimletCan', 'gimletGl', 'gimletAp', 'gimletHp', 'gimletPlusP', 'gimletLong',
+  'reddot', 'harrowHolo', 'harrowAcog', 'harrowAp', 'harrowHp', 'harrowPlusP', 'harrowShort', 'harrowBrake', 'harrowMag',
   'shearDot', 'shearAcog', 'shearBurst3', 'shearFast', 'shearMag', 'shearAp', 'shearHp', 'shearPlusP', 'shearLong', 'shearShort', 'shearCan', 'shearBrake',
   'bodkinAcog', 'bodkinMag', 'bodkinBurst5', 'bodkinAuto', 'bodkinTungsten', 'bodkinOicw',
   'raufoss', 'rivetAp', 'rivetHp', 'rivetPlusP', 'ultramagAp', 'ultramagHp', 'ultramagPlusP', 'judgeAp', 'judgeHp', 'judgePlusP',
   'autorafficaAp', 'autorafficaHp', 'autorafficaPlusP', 'autorafficaMag',
-  'sabotBrake', 'trommel12', 'autocannonFlak', 'autocannonBarrel', 'piledriverDot', 'piledriverAcog',
+  'sabotBrake', 'trommel12', 'autocannonFlak', 'autocannonBarrel', 'piledriverDot', 'piledriverHolo', 'piledriverAcog',
   'ultramagCan', 'ultramagDot', 'ultramagLam', 'ultramagMag', 'ultramagComp',
   'rivetCan', 'rivetDot', 'rivetLam', 'rivetComp',
   'smgMag', 'smgTape', 'smgStock', 'swordEnergy', 'gimletShort', 'rivetMag', 'piledriverBox',
@@ -546,7 +556,7 @@ export const MOD_ORDER: readonly ModId[] = [
   'billhookDot', 'billhookTube', 'billhookSlug',
   'judgeHammer', 'judgeGrip', 'judgeLong', 'judgeComp',
   'rocketTube', 'rocketWp', 'mglLong', 'mglTrigger', 'howitzerCluster',
-  'flailDot', 'flailAcog', 'flailBox', 'flailAp', 'flailHp', 'flailPlusP', 'flailHeavy', 'flailStock',
+  'flailDot', 'flailHolo', 'flailAcog', 'flailBox', 'flailAp', 'flailHp', 'flailPlusP', 'flailHeavy', 'flailBolt', 'flailStock',
   'metalstorm40mm', 'mglSticky',
   ...LIGHT_GUNS.map(lightOf),
   ...LAM_GUNS.map(lamOf),

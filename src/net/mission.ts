@@ -227,16 +227,20 @@ export class CoopMission {
     };
     // A rack is the team's. Whoever reaches their copy first takes it: the runner hears `took`, and everyone is issued the gun.
     const rack = real('rack');
-    parts.rack = (weapon: unknown, at: unknown, took: unknown, mods?: unknown, label?: unknown) => {
+    parts.rack = (weapon: unknown, at: unknown, took: unknown, mods?: unknown, label?: unknown, hidden?: unknown) => {
       const id = String(weapon);
-      const wireArgs = mods !== undefined || label !== undefined ? [weapon, at, mods ?? null, label ?? null] : [weapon, at];
+      const wireArgs = hidden
+        ? [weapon, at, mods ?? null, label ?? null, true]
+        : mods !== undefined || label !== undefined
+          ? [weapon, at, mods ?? null, label ?? null]
+          : [weapon, at];
       const list = this.racks.get(id) ?? [];
       list.push(tell('rack', wireArgs));
       this.racks.set(id, list);
       return rack(weapon, at, () => {
         (took as () => void)();
         this.rackTaken(id, this.takingFor ?? this.session.lobby.you);
-      }, mods, label);
+      }, mods, label, hidden);
     };
     // Everyone sees the film, rides the ride and flies the sortie: whoever is down or dead is got up for it.
     const cutscene = real('cutscene');
@@ -822,6 +826,7 @@ export class CoopMission {
         const weapon = String(args[0]);
         const mods = Array.isArray(args[2]) ? args[2].filter((m): m is ModId => typeof m === 'string' && Object.hasOwn(MODS, m)) : undefined;
         const label = typeof args[3] === 'string' ? args[3].slice(0, 60) : undefined;
+        const hidden = args[4] === true;
         // Sent again (a catch-up that crossed it), it is the one already standing.
         if (!Object.hasOwn(WEAPONS, weapon) || (!mods?.length && this.ctx.weapons.owned.has(weapon as WeaponId)) || this.standing.has(weapon)) return;
         this.standing.add(weapon);
@@ -832,6 +837,7 @@ export class CoopMission {
           () => { this.taking.add(weapon); this.send({ t: 'mission', op: 'took', args: [weapon] }); },
           mods?.length ? mods : undefined,
           label,
+          hidden,
         );
         return;
       }

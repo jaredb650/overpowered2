@@ -160,12 +160,12 @@ export const DESERT_CONVOY_CONSTANTS = {
   quistBedLocal: [0.54, 1.58, 1.92] as Pt3,
   maxHull: 500,
   phasePatchHeal: 160,
-  /** Primary (LMB) M2-X50 .50-cal HMG (~10.5 rps, shreds bandits, enemies & wooden walls/watchtowers). */
+  /** Active mode 1 (.50-cal HMG, ~10.5 rps, shreds bandits, enemies & wooden walls/watchtowers). */
   hmgRps: 10.5,
   hmgDamage: 46,
   hmgStructDamage: 32,
   hmgSpread: 0.011,
-  /** Secondary (RMB) 40mm Smart-AGL grenade launcher (~2.8 rps, heavy arcing HEDP grenades). */
+  /** Active mode 2 (40mm Smart-AGL grenade launcher, toggled with Hold R, ~2.8 rps arcing HEDP grenades). */
   turretRps: 2.8,
   turretDamage: 210,
   turretSpread: 0.008,
@@ -178,6 +178,7 @@ export const DESERT_CONVOY_CONSTANTS = {
   grenadeDirectBanditDamage: 125,
   turretFov: 74,
   turretZoomFov: 44,
+  holdRSeconds: 0.35,
   pitchMin: (-25 * Math.PI) / 180,
   pitchMax: (45 * Math.PI) / 180,
   /** Generous sustained .50-cal HMG burst (~52 rounds before cooling vent). */
@@ -530,6 +531,7 @@ export const MK19: GunSpec = {
   name: 'mk19-40mm',
   build: HYBRID_HMG_AGL.build,
   moving: HYBRID_HMG_AGL.moving,
+  extra: HYBRID_HMG_AGL.extra,
   muzzle: HYBRID_HMG_AGL.muzzle,
   follow: HYBRID_HMG_AGL.follow,
   return: HYBRID_HMG_AGL.return,
@@ -642,7 +644,9 @@ const CONVOY_HUD_CSS = `
 .dr-cv-stage { font-size: 0.84rem; letter-spacing: 0.07em; color: #ff8c42; font-weight: 700; }
 .dr-cv-speed { font-size: 0.9rem; letter-spacing: 0.08em; color: #9be88a; font-weight: 700; }
 .dr-cv-bot { position: absolute; bottom: 9.8rem; left: 50%; transform: translateX(-50%); display: flex; gap: 1.25rem; padding: 0.55rem 1.1rem; background: rgba(18, 14, 10, 0.84); border-bottom: 0.16rem solid #d89b38; box-shadow: 0.16rem 0.16rem 0 #000; }
-.dr-cv-gauge { width: 13.8rem; }
+.dr-cv-gauge { width: 13.8rem; padding: 0.16rem 0.32rem; border-left: 2px solid transparent; opacity: 0.62; transition: opacity 0.12s, border-color 0.12s; }
+.dr-cv-gauge.hull-g { opacity: 1; }
+.dr-cv-gauge.active { opacity: 1; border-left-color: #ffcf6e; }
 .dr-cv-ghead { display: flex; justify-content: space-between; font-size: 0.74rem; letter-spacing: 0.08em; margin-bottom: 0.24rem; }
 .dr-cv-track { height: 0.48rem; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.18); overflow: hidden; }
 .dr-cv-fill { height: 100%; width: 100%; transform-origin: 0 50%; transition: transform 0.06s linear; }
@@ -654,6 +658,7 @@ const CONVOY_HUD_CSS = `
 .dr-cv-overheat { color: #ff4228; font-weight: 800; }
 .dr-cv-xh { position: absolute; left: 50%; top: 50%; width: 32px; height: 32px; margin: -16px 0 0 -16px; border: 1.5px solid rgba(255, 224, 136, 0.88); border-radius: 50%; box-shadow: 0 0 8px rgba(255, 176, 48, 0.35); transition: transform 0.12s; }
 .dr-cv-xh.zoom { transform: scale(0.66); border-color: #ff7048; }
+.dr-cv-xh.agl { border-color: #ff9e3b; box-shadow: 0 0 10px rgba(255, 140, 40, 0.55); }
 .dr-cv-xh::after { content: ''; position: absolute; left: 50%; top: 50%; width: 4px; height: 4px; margin: -2px 0 0 -2px; background: #ffcf6e; border-radius: 50%; }
 @keyframes dr-cv-blink { from { opacity: 0.55; } to { opacity: 1; } }
 `;
@@ -664,8 +669,10 @@ interface ConvoyHudRefs {
   speed: Label;
   hullText: Label;
   hullFill: HTMLElement;
+  hmgGauge: HTMLElement;
   heatText: Label;
   heatFill: HTMLElement;
+  aglGauge: HTMLElement;
   aglText: Label;
   aglFill: HTMLElement;
   reticle: HTMLElement;
@@ -688,16 +695,18 @@ function createConvoyHud(): ConvoyHudRefs | null {
   const aglTextEl = span('', 'READY');
   const aglFill = div('dr-cv-fill agl');
   const reticle = div('dr-cv-xh');
+  const hmgGauge = div('dr-cv-gauge active', div('dr-cv-ghead', span('', '.50 HMG [LMB]'), heatTextEl), div('dr-cv-track', heatFill));
+  const aglGauge = div('dr-cv-gauge', div('dr-cv-ghead', span('', '40MM AGL [HOLD R]'), aglTextEl), div('dr-cv-track', aglFill));
 
   const root = div(
     'dr-cv-hud',
-    div('dr-cv-top', span('dr-cv-title', 'JACKAL TECHNICAL // LMB .50 HMG · RMB 40MM AGL'), stageEl, speedEl),
+    div('dr-cv-top', span('dr-cv-title', 'JACKAL TECHNICAL // LMB FIRE · RMB ZOOM · HOLD R SWITCH'), stageEl, speedEl),
     reticle,
     div(
       'dr-cv-bot',
-      div('dr-cv-gauge', div('dr-cv-ghead', span('', 'TRUCK ARMOR'), hullTextEl), div('dr-cv-track', hullFill)),
-      div('dr-cv-gauge', div('dr-cv-ghead', span('', 'LMB .50 HMG HEAT'), heatTextEl), div('dr-cv-track', heatFill)),
-      div('dr-cv-gauge', div('dr-cv-ghead', span('', 'RMB 40MM AGL'), aglTextEl), div('dr-cv-track', aglFill)),
+      div('dr-cv-gauge hull-g', div('dr-cv-ghead', span('', 'TRUCK ARMOR'), hullTextEl), div('dr-cv-track', hullFill)),
+      hmgGauge,
+      aglGauge,
     ),
   );
   const host = document.querySelector('.hud') ?? document.body;
@@ -708,8 +717,10 @@ function createConvoyHud(): ConvoyHudRefs | null {
     speed: new Label(speedEl),
     hullText: new Label(hullTextEl),
     hullFill,
+    hmgGauge,
     heatText: new Label(heatTextEl),
     heatFill,
+    aglGauge,
     aglText: new Label(aglTextEl),
     aglFill,
     reticle,
@@ -752,6 +763,9 @@ export class DesertConvoy implements ConvoyController, ExtraTarget {
   private _yaw = 0;
   private _pitch = 0;
   private _zoomed = false;
+  private _camFov: number = DESERT_CONVOY_CONSTANTS.turretFov;
+  private _weaponMode: 'hmg' | 'agl' = 'hmg';
+  private rHeld = -1;
   private _hull: number = DESERT_CONVOY_CONSTANTS.maxHull;
   readonly maxHull: number = DESERT_CONVOY_CONSTANTS.maxHull;
   readonly heat = new Heat({
@@ -792,7 +806,7 @@ export class DesertConvoy implements ConvoyController, ExtraTarget {
   private exfilPulseClock = 0;
   private exfilAutoSpawnTimer = 0;
 
-  // Firing (LMB .50-cal HMG + RMB arcing 40mm AGL projectiles) & audio
+  // Firing (LMB active mode: .50-cal HMG or 40mm AGL toggled via Hold R; RMB zooms) & audio
   private hmgCooldown = 0;
   private aglCooldown = 0;
   private shotsFired = 0;
@@ -824,6 +838,8 @@ export class DesertConvoy implements ConvoyController, ExtraTarget {
   private hudLastHeatHot: boolean | null = null;
   private hudLastAglText = '';
   private hudLastAglScale = '';
+  private hudLastMode: 'hmg' | 'agl' | null = null;
+  private hudLastZoom: boolean | null = null;
 
   constructor(
     private readonly ctx: Ctx,
@@ -865,6 +881,10 @@ export class DesertConvoy implements ConvoyController, ExtraTarget {
 
   get zoomed(): boolean {
     return this._zoomed;
+  }
+
+  get weaponMode(): 'hmg' | 'agl' {
+    return this._weaponMode;
   }
 
   get quistCaptured(): boolean {
@@ -2256,6 +2276,9 @@ export class DesertConvoy implements ConvoyController, ExtraTarget {
     this._yaw = wrapAngle(initialYaw);
     this._pitch = clamp(initialPitch, DESERT_CONVOY_CONSTANTS.pitchMin, DESERT_CONVOY_CONSTANTS.pitchMax);
     this._zoomed = false;
+    this._camFov = DESERT_CONVOY_CONSTANTS.turretFov;
+    this._weaponMode = 'hmg';
+    this.rHeld = -1;
 
     const { camera, player, weapons, audio } = this.ctx;
     weapons?.setHolstered?.(true);
@@ -2267,9 +2290,10 @@ export class DesertConvoy implements ConvoyController, ExtraTarget {
     };
 
     camera.setSeat(this.seatView);
-    camera.setZoom(DESERT_CONVOY_CONSTANTS.turretFov);
+    camera.setZoom(this._camFov);
 
     this.gun?.snap(this._yaw, this._pitch);
+    this.gun?.setActive(1, 0);
     this.syncTurretTransforms(0);
 
     audio?.play?.('weapon_draw_heavy', { volume: 0.78 });
@@ -2285,6 +2309,12 @@ export class DesertConvoy implements ConvoyController, ExtraTarget {
     }
     this._mounted = false;
     this._zoomed = false;
+    this._camFov = DESERT_CONVOY_CONSTANTS.turretFov;
+    this._weaponMode = 'hmg';
+    if (this.rHeld >= 0) {
+      this.rHeld = -1;
+      this.ctx.hud?.hold?.(0);
+    }
 
     const { camera, player, weapons } = this.ctx;
     player.interceptor = null;
@@ -2716,11 +2746,32 @@ export class DesertConvoy implements ConvoyController, ExtraTarget {
   }
 
   // -----------------------------------------------------------------------------------------------
-  // Player Combination .50-Cal HMG (LMB) + 40mm Smart-AGL (RMB) Turret Control
+  // Player Combination .50-Cal HMG + 40mm Smart-AGL Turret Control
+  // LMB fires active weapon, RMB zooms optic, Hold R switches between .50 HMG and 40mm AGL.
   // -----------------------------------------------------------------------------------------------
 
+  private toggleWeaponMode(): void {
+    this._weaponMode = this._weaponMode === 'hmg' ? 'agl' : 'hmg';
+    const isAgl = this._weaponMode === 'agl';
+    this.gun?.setActive(1, isAgl ? 1 : 0);
+    this.ctx.audio?.play?.('reload_bolt', { volume: 0.78, pitch: isAgl ? 0.86 : 1.12 });
+    this.ctx.hud?.callout?.(isAgl ? '40MM AGL' : '.50 CAL HMG');
+    this.ctx.hud?.feed?.(
+      isAgl ? 'TURRET MODE: 40MM SMART-AGL GRENADES' : 'TURRET MODE: .50-CAL HMG',
+      isAgl ? '#ff9e3b' : '#ffcf6e',
+    );
+  }
+
   private updateTurretControl(dt: number): void {
-    const { input, player, audio } = this.ctx;
+    const { input, player, audio, camera } = this.ctx;
+
+    // RMB (`aim`): optic zoom (scales mouse sensitivity & damps FOV smoothly)
+    this._zoomed = input.isDown('aim');
+    const targetFov = this._zoomed
+      ? DESERT_CONVOY_CONSTANTS.turretZoomFov
+      : DESERT_CONVOY_CONSTANTS.turretFov;
+    this._camFov = damp(this._camFov, targetFov, 12, dt);
+    camera?.setZoom?.(this._camFov);
 
     // Safe dual-path look input (works with live PlayerSystem AND standalone tests)
     const flX = input.frameLook?.x ?? 0;
@@ -2729,7 +2780,7 @@ export class DesertConvoy implements ConvoyController, ExtraTarget {
     const dx = consumed && (consumed.x !== 0 || consumed.y !== 0) ? consumed.x : flX;
     const dy = consumed && (consumed.x !== 0 || consumed.y !== 0) ? consumed.y : flY;
 
-    const sens = (player.sensitivity ?? 0.0022) * (player.lookScale ?? 1);
+    const sens = (player.sensitivity ?? 0.0022) * (player.lookScale ?? 1) * (this._zoomed ? 0.55 : 1);
     this._yaw = wrapAngle(this._yaw - dx * sens);
     this._pitch = clamp(
       this._pitch - dy * sens * (player.invertY ? -1 : 1),
@@ -2739,13 +2790,33 @@ export class DesertConvoy implements ConvoyController, ExtraTarget {
 
     this.syncTurretTransforms(dt);
 
-    // Primary LMB (`fire`): rapid .50-cal HMG with barrel heat/venting
+    // Hold R (`reload`): switch between .50-cal HMG and 40mm Smart-AGL grenades
+    const reloadDown = input.isDown('reload');
+    if (reloadDown) {
+      if (this.rHeld === -1) this.rHeld = 0;
+      if (this.rHeld >= 0) {
+        this.rHeld += dt;
+        const holdFrac = clamp(this.rHeld / DESERT_CONVOY_CONSTANTS.holdRSeconds, 0, 1);
+        this.ctx.hud?.hold?.(holdFrac);
+        if (this.rHeld >= DESERT_CONVOY_CONSTANTS.holdRSeconds) {
+          this.rHeld = -2;
+          this.ctx.hud?.hold?.(0);
+          this.toggleWeaponMode();
+        }
+      }
+    } else {
+      if (this.rHeld >= 0) this.ctx.hud?.hold?.(0);
+      this.rHeld = -1;
+    }
+
+    // LMB (`fire`): fires whichever weapon mode is currently active (.50-cal HMG or 40mm AGL)
     const fireHeld = input.isDown('fire');
-    if (fireHeld && this.heat.overheated && input.pressed('fire')) {
+    const inHmgMode = this._weaponMode === 'hmg';
+    if (inHmgMode && fireHeld && this.heat.overheated && input.pressed('fire')) {
       audio?.play?.('weapon_dry', { volume: 0.7 });
     }
 
-    const shootingHmg = fireHeld && !this.heat.overheated;
+    const shootingHmg = inHmgMode && fireHeld && !this.heat.overheated;
     if (shootingHmg) {
       this.hmgCooldown -= dt;
       let burst = 0;
@@ -2765,9 +2836,8 @@ export class DesertConvoy implements ConvoyController, ExtraTarget {
     }
     this.heat.cool(dt, shootingHmg);
 
-    // Secondary RMB (`aim`): coaxial 40mm Smart-AGL grenade launcher (independent of HMG heat!)
-    const aglHeld = input.isDown('aim');
-    if (aglHeld) {
+    const shootingAgl = !inHmgMode && fireHeld;
+    if (shootingAgl) {
       this.aglCooldown -= dt;
       let burst = 0;
       while (this.aglCooldown <= 0 && burst < 3) {
@@ -3251,6 +3321,19 @@ export class DesertConvoy implements ConvoyController, ExtraTarget {
     if (aglScale !== this.hudLastAglScale) {
       this.hudLastAglScale = aglScale;
       hud.aglFill.style.transform = aglScale;
+    }
+
+    if (this._weaponMode !== this.hudLastMode) {
+      this.hudLastMode = this._weaponMode;
+      const isAgl = this._weaponMode === 'agl';
+      hud.hmgGauge.classList.toggle('active', !isAgl);
+      hud.aglGauge.classList.toggle('active', isAgl);
+      hud.reticle.classList.toggle('agl', isAgl);
+    }
+
+    if (this._zoomed !== this.hudLastZoom) {
+      this.hudLastZoom = this._zoomed;
+      hud.reticle.classList.toggle('zoom', this._zoomed);
     }
   }
 }

@@ -304,8 +304,8 @@ export class GameHost implements MissionHost {
     this.ctx.weapons.addGrenades(count);
   }
 
-  rack(weapon: WeaponId, at: Mark, took: () => void, mods?: readonly ModId[], label?: string): void {
-    this.racks.add(weapon, at, took, mods, label);
+  rack(weapon: WeaponId, at: Mark, took: () => void, mods?: readonly ModId[], label?: string, hidden?: boolean): void {
+    this.racks.add(weapon, at, took, mods, label, hidden);
   }
 
   drop(item: PickupKind, at: Mark): void {

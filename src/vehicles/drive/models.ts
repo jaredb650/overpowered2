@@ -231,18 +231,33 @@ function buildJackal(materials: ModelMaterials): VehicleModelRig {
     boostGlow.push(g);
   }
 
-  // Roof .50 Cal Rotary Turret (rotates independently!)
+  // Roof Novel Twin-Barrel Dual-Belt Combo Turret (.50-cal HMG + 40mm AGL, rotates independently!)
   const turret = new THREE.Group();
   turret.position.set(0, 2.22, -0.78);
   body.add(turret);
   const tb = new VehicleBuilder();
-  tb.box(0.52, 0.44, 0.68, GUNMETAL, { at: [0, 0.26, 0] }, 'metal');
-  tb.box(0.86, 0.52, 0.07, SAND_DARK, { at: [0, 0.36, 0.46], rot: [-0.22, 0, 0] }, 'armor'); // gun shield
-  tb.box(0.28, 0.14, 0.09, GLASS, { at: [0, 0.5, 0.44], rot: [-0.22, 0, 0] }, 'canopy'); // armored gun-shield viewport
-  tb.box(0.24, 0.26, 0.36, AMBER, { at: [0.38, 0.22, -0.05] }, 'armor'); // ammo drum
+  // Monolithic twin-channel combo receiver + angled gun shield with viewport
+  tb.box(0.56, 0.36, 0.72, GUNMETAL, { at: [0, 0.24, 0] }, 'metal');
+  tb.box(0.22, 0.14, 0.62, STEEL, { at: [-0.14, 0.42, 0.02] }, 'metal'); // left .50-cal breech cowl
+  tb.box(0.24, 0.16, 0.56, STEEL, { at: [0.14, 0.43, 0.04] }, 'metal'); // right 40mm AGL breech cowl
+  tb.box(0.92, 0.52, 0.07, SAND_DARK, { at: [0, 0.36, 0.46], rot: [-0.22, 0, 0] }, 'armor'); // armored shield
+  tb.box(0.28, 0.14, 0.09, GLASS, { at: [0, 0.5, 0.44], rot: [-0.22, 0, 0] }, 'canopy'); // viewport
+  // Right flank: olive .50-cal ammo box + visible brass bullet belt (facing +Z forward in exterior vehicle space)
+  tb.box(0.22, 0.26, 0.36, '#434b35', { at: [0.42, 0.2, -0.04] }, 'armor');
+  for (let i = 0; i < 4; i++) {
+    const t = i / 3;
+    tb.cyl(0.018, 0.02, 0.18, 6, '#c59d45', { at: [0.36 - t * 0.14, 0.34 + Math.sin(t * Math.PI * 0.7) * 0.08, 0.02], rot: ALONG_Z }, 'metal');
+  }
+  // Left flank: amber-striped 40mm grenade box + visible chunky gold 40mm grenade belt
+  tb.box(0.24, 0.28, 0.34, SAND_DARK, { at: [-0.43, 0.2, -0.02] }, 'armor');
+  tb.box(0.03, 0.06, 0.26, AMBER, { at: [-0.56, 0.22, -0.02] }, 'armor');
+  for (let i = 0; i < 3; i++) {
+    const t = i / 2;
+    tb.cyl(0.032, 0.032, 0.15, 8, '#e8a82e', { at: [-0.36 + t * 0.14, 0.35 + Math.sin(t * Math.PI * 0.7) * 0.08, 0.02], rot: ALONG_Z }, 'metal');
+  }
   // Dual spade handles at rear of receiver
   for (const s of [-1, 1]) {
-    tb.cyl(0.022, 0.022, 0.22, 8, STEEL, { at: [s * 0.16, 0.22, -0.36] }, 'metal');
+    tb.cyl(0.024, 0.024, 0.22, 8, STEEL, { at: [s * 0.18, 0.24, -0.38] }, 'metal');
   }
   turret.add(tb.build(materials));
 
@@ -250,14 +265,21 @@ function buildJackal(materials: ModelMaterials): VehicleModelRig {
   barrel.position.set(0, 0.32, 0.44);
   turret.add(barrel);
   const bb = new VehicleBuilder();
-  // Triple-barrel rotary cluster + 40mm under-barrel grenade tube
-  for (let i = 0; i < 3; i++) {
-    const a = (i / 3) * Math.PI * 2;
-    bb.cyl(0.032, 0.034, 1.35, 10, STEEL, { at: [Math.cos(a) * 0.06, Math.sin(a) * 0.06, 0.66], rot: ALONG_Z }, 'metal');
+  // 2 Distinct side-by-side barrels bridged by twin-bore clamps (novel combo silhouette!)
+  // Right (+X in +Z forward space): long heavy .50-cal barrel + cooling shroud + wedge brake
+  bb.cyl(0.058, 0.062, 0.56, 10, GUNMETAL, { at: [0.11, 0.02, 0.34], rot: ALONG_Z }, 'metal');
+  bb.cyl(0.034, 0.036, 1.38, 10, STEEL, { at: [0.11, 0.02, 0.74], rot: ALONG_Z }, 'metal');
+  bb.box(0.11, 0.075, 0.18, GUNMETAL, { at: [0.11, 0.02, 1.46] }, 'metal');
+  // Left (-X in +Z forward space): thick wide-bore 40mm Smart-AGL barrel + radiator rings + diffuser
+  bb.cyl(0.062, 0.066, 0.96, 12, GUNMETAL, { at: [-0.11, 0.01, 0.54], rot: ALONG_Z }, 'metal');
+  for (const rz of [0.36, 0.54, 0.72, 0.88]) {
+    bb.cyl(0.078, 0.078, 0.035, 12, AMBER, { at: [-0.11, 0.01, rz], rot: ALONG_Z }, 'armor');
   }
-  bb.cyl(0.12, 0.12, 0.12, 12, GUNMETAL, { at: [0, 0, 1.05], rot: ALONG_Z }, 'metal');
-  bb.cyl(0.11, 0.11, 0.08, 12, GUNMETAL, { at: [0, 0, 0.52], rot: ALONG_Z }, 'metal');
-  bb.cyl(0.06, 0.065, 0.72, 10, AMBER, { at: [0, -0.14, 0.38], rot: ALONG_Z }, 'armor');
+  bb.cyl(0.078, 0.068, 0.14, 12, STEEL, { at: [-0.11, 0.01, 1.06], rot: ALONG_Z }, 'metal');
+  // Twin-bore barrel clamps bridging both barrels
+  for (const cz of [0.32, 0.76]) {
+    bb.box(0.32, 0.1, 0.08, STEEL, { at: [0, 0.015, cz] }, 'metal');
+  }
   barrel.add(bb.build(materials));
 
   // 4 Independent Big Off-Road Wheels

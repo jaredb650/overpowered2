@@ -549,6 +549,26 @@ const MOD_CATALOGUE: Readonly<Record<ModId, Ware>> = {
     price: 400, wave: 7,
     lore: 'An enhanced cheek-rest stock for the Flail, extending held-breath focus by sixty percent and shortening recovery. The Council approves of steady breathing while removing walls.',
   },
+  flailBolt: {
+    price: 1150, wave: 10,
+    lore: 'A skeletonized titanium bolt carrier milled down to the bare minimum. Pushes the Flail to a blistering 1,000 rounds a minute — Procurement politely described the sound as tearing canvas.',
+  },
+  flailHolo: {
+    price: 550, wave: 7,
+    lore: 'An armored EOTech-pattern holographic sight for the Flail: a crisp 65-MOA outer ring around a razor-fine center dot for superior precision under sustained fire.',
+  },
+  gimletHolo: {
+    price: 500, wave: 3,
+    lore: 'An armored holographic weapon sight for the Gimlet. Wide rectangular glass, outer donut ring, and a finer center dot than the standard tube red dot.',
+  },
+  harrowHolo: {
+    price: 500, wave: 2,
+    lore: 'An armored holographic weapon sight for the Harrow. Wide panoramic window with a donut reticle and a finer center dot for cleaner long-range holds.',
+  },
+  piledriverHolo: {
+    price: 600, wave: 11,
+    lore: 'An armored holographic sight rated for .50 BMG recoil. The fine center dot lets the contractor pick which hinge on the doorway goes first.',
+  },
   shotgunSawedOff: {
     price: 500, wave: 2,
     lore: 'Four shells, a brutal wide cone and thirty-four damage a pellet up close, polite at distance. Nothing left at the muzzle to screw a choke into.',

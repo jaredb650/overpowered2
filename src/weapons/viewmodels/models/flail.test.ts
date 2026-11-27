@@ -5,6 +5,7 @@ import { Kit } from '../kit/kit';
 import type { VmMaterials } from '../kit/materials';
 import { HANDS } from '../poses';
 import { flailDef } from './flail';
+import { HOLO_DOT_RADIUS, RED_DOT_RADIUS } from './optics';
 
 let def: ViewDef;
 beforeAll(() => {
@@ -39,13 +40,19 @@ function reloadAt(p: number): Anim {
 
 describe('Flail viewmodel', () => {
   it('has a hinged cover carrying the optics, a box with both its looks, a belt and a handle, under a triangle cap', () => {
-    for (const name of ['cover', 'box', 'boxStd', 'boxExt', 'belt', 'charge', 'irons', 'reddot', 'acog', 'countStd', 'countExt']) {
+    for (const name of ['cover', 'box', 'boxStd', 'boxExt', 'belt', 'charge', 'boltLight', 'irons', 'reddot', 'holo', 'acog', 'countStd', 'countExt']) {
       expect(def.model.parts[name], name).toBeDefined();
     }
-    // The optics ride up with the cover.
+    // The optics ride up with the cover; the skeletonized bolt rides with the charging handle.
     expect(def.model.parts.reddot!.parent).toBe(def.model.parts.cover);
+    expect(def.model.parts.holo!.parent).toBe(def.model.parts.cover);
     expect(def.model.parts.acog!.parent).toBe(def.model.parts.cover);
+    expect(def.model.parts.boltLight!.parent).toBe(def.model.parts.charge);
     expect(def.mods!.flailBox).toMatchObject({ part: 'boxExt', hides: 'boxStd' });
+    expect(def.mods!.flailHolo).toMatchObject({ part: 'holo' });
+    expect(def.mods!.flailBolt).toMatchObject({ part: 'boltLight' });
+    // EOTech holo center dot is strictly finer than the standard red dot for precision aiming.
+    expect(HOLO_DOT_RADIUS).toBeLessThan(RED_DOT_RADIUS);
     // Every look is built in, hidden until fitted: base + optics/boxes (~29.5k) plus flailLong and flailDouble (~55k total).
     expect(def.model.triangles).toBeLessThan(60000);
   });
@@ -53,7 +60,7 @@ describe('Flail viewmodel', () => {
   it('puts each optic\'s sight point on the cover where the cover puts it, centred over the bore', () => {
     def.model.resetParts();
     def.model.root.updateMatrixWorld(true);
-    for (const id of ['flailDot', 'flailAcog'] as const) {
+    for (const id of ['flailDot', 'flailHolo', 'flailAcog'] as const) {
       const look = def.mods![id]!;
       expect(look.sight![0]).toBe(0);
       expect(look.rear).toBeNull();

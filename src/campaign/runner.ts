@@ -493,14 +493,14 @@ export class MissionRunner implements WatchFacts {
         host.grenades(step.count);
         return;
       case 'rack': {
-        const { weapon, mods, label } = step;
+        const { weapon, mods, label, hidden } = step;
         const took = (): void => {
           this.taken.add(weapon);
           if (mods) for (const m of mods) this.takenMods.add(m);
           this.signal(`took:${weapon}`);
         };
         if (this.taken.has(weapon)) took();
-        else host.rack(weapon, this.mark(step.at), took, mods, label);
+        else host.rack(weapon, this.mark(step.at), took, mods, label, hidden);
         return;
       }
       case 'drop':

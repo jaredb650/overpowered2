@@ -513,4 +513,19 @@ describe('Surplus (Desert Raid 2.0) map', () => {
     expect(stilt!.state).not.toBe('intact');
     dm.dispose();
   });
+
+  it('places all 4 hidden Desert Raid Easter egg weapon caches on reachable NavGraph nodes', () => {
+    const caches: readonly [string, readonly [number, number, number]][] = [
+      ['secretPiledriver', [72.5, 3.6, 58.8]],
+      ['secretBillhook', [-44, 0, 2]],
+      ['secretFlail', [-44, 0, -51]],
+      ['secretRgl', [-35, 0, -96]],
+    ];
+    for (const [name, coords] of caches) {
+      const p = V(coords[0], coords[1], coords[2]);
+      expect(onNav(p, 2.0), `${name} at [${coords.join(', ')}] must sit on a NavGraph node`).toBe(true);
+      const dist = route(DESERT_HUB, p);
+      expect(Number.isFinite(dist) && dist < 999, `${name} must be mutually reachable from DESERT_HUB`).toBe(true);
+    }
+  });
 });

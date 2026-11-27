@@ -184,8 +184,8 @@ export type Step =
   /** Hands over a weapon on the spot. */
   | { do: 'give'; weapon: WeaponId }
   | { do: 'grenades'; count: number }
-  /** A weapon lying on the map, to be walked over. Raises `took:<weapon>`. `optional` is off the path: no checkpoint has to promise it. */
-  | { do: 'rack'; weapon: WeaponId; at: string; optional?: boolean; mods?: readonly ModId[]; label?: string }
+  /** A weapon lying on the map, to be walked over. Raises `took:<weapon>`. `optional` is off the path: no checkpoint has to promise it. `hidden` suppresses the HUD beacon for secret caches. */
+  | { do: 'rack'; weapon: WeaponId; at: string; optional?: boolean; mods?: readonly ModId[]; label?: string; hidden?: boolean }
   | { do: 'drop'; item: PickupKind; at: string }
   | { do: 'wait'; seconds: number }
   | { do: 'until'; when: Trigger }
@@ -352,7 +352,7 @@ export interface MissionHost {
 
   give(weapon: WeaponId): void;
   grenades(count: number): void;
-  rack(weapon: WeaponId, at: Mark, took: () => void, mods?: readonly ModId[], label?: string): void;
+  rack(weapon: WeaponId, at: Mark, took: () => void, mods?: readonly ModId[], label?: string, hidden?: boolean): void;
   drop(item: PickupKind, at: Mark): void;
   /** `skipped` says the player pressed through it. */
   cutscene(id: string, scene: Cutscene, done: (skipped: boolean) => void): void;

@@ -12,7 +12,7 @@ import { knurl, screwX, serrations } from '../kit/details';
 import { bump, hold, inOut, inQuad, outCubic, seg, thud } from '../curves';
 import { fill, pullTrigger } from './common';
 import type { Anim, ViewDef } from '../def';
-import { OPTIC_GLOWS, acog, acogShade, redDot } from './optics';
+import { OPTIC_GLOWS, acog, acogShade, holoSight, redDot } from './optics';
 import { HANDS } from '../poses';
 import { TORCH, weaponLight } from './light';
 import { LASER_GLOW, RIFLE_LAM_RANGE, lamSocket, weaponLam } from './laser';
@@ -319,6 +319,7 @@ function buildHarrow(kit: Kit): { model: Model; mods: ViewDef['mods'] } {
   magazine(m);
   // The shop's optics (weapons/mods.ts), each a part hidden until fitted. The irons stay and sit low under either.
   const dot = redDot(m, OPTIC_AT);
+  const holo = holoSight(m, OPTIC_AT);
   const scope = acog(m, OPTIC_AT);
 
   // Carrier in the port, and the handle it throws back and forth on the left.
@@ -358,6 +359,7 @@ function buildHarrow(kit: Kit): { model: Model; mods: ViewDef['mods'] } {
     model,
     mods: {
       reddot: dot,
+      harrowHolo: holo,
       harrowAcog: scope,
       harrowLight: { part: 'light' },
       harrowLam: { part: 'lam', laser: 'lam', laserRange: RIFLE_LAM_RANGE },

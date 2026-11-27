@@ -126,6 +126,9 @@ export const DRIVE_VEHICLES: Readonly<Record<DriveVehicleId, DriveVehicleDef>> =
         pitchMin: -0.45,
         pitchMax: 0.88,
         turretSlew: Infinity,
+        aimZooms: true,
+        zoomFov: 40,
+        holdRToggleSecondary: true,
         primary: {
           name: 'M2-X50 HYBRID .50-CAL',
           kind: 'hmg',

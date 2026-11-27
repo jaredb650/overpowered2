@@ -38,13 +38,114 @@ export function redDot(m: Mesher, at: Tuple3, name = 'reddot'): ModLook {
       m.at([0.0248, 0, 0.002], [0, Math.PI / 2, 0], () => knurl(m, 0.007, 0.002, F.steelDark, 16, 0.0004));
       m.glass(() => m.at([0, 0, -0.016], null, () => m.cyl(0.0138, 0.0008, 28, 0)));
     });
-    m.glow('dot', () => m.at([0, DOT_Y, DOT_Z], null, () => m.cyl(0.00055, 0.0002, 12, 0)));
+    m.glow('dot', () => m.at([0, DOT_Y, DOT_Z], null, () => m.cyl(RED_DOT_RADIUS, 0.0002, 12, 0)));
   });
   return { part: name, sight: [at[0], at[1] + DOT_Y, at[2] + DOT_Z], rear: null, relief: 0.26 };
 }
 
 const DOT_Y = 0.0345;
 const DOT_Z = -0.0212;
+/** Regular tube red-dot reticle radius (metres). */
+export const RED_DOT_RADIUS = 0.00055;
+/** EOTech holographic sight center-dot radius — noticeably finer than `RED_DOT_RADIUS` for superior precision aiming. */
+export const HOLO_DOT_RADIUS = 0.00032;
+const HOLO_Y = 0.0345;
+const HOLO_Z = -0.022;
+
+/**
+ * EOTech-pattern armored holographic weapon sight (`holoSight`): Picatinny QD base, transverse forward battery housing,
+ * iconic wide rectangular dual-wall protective hood with a panoramic glass window, side brightness buttons, and a crisp
+ * holographic donut-and-dot reticle (65-MOA outer ring with cardinal hash ticks + finer 1-MOA center dot for superior
+ * precision over the standard tube red dot).
+ */
+export function holoSight(m: Mesher, at: Tuple3, name = 'holo'): ModLook {
+  m.part(name, at, () => {
+    // Lower Picatinny rail clamp + raised EXPS-style deck spanning back under the hood.
+    m.use(F.anodized);
+    m.at([0, 0.0045, -0.004], null, () => m.box(0.033, 0.009, 0.068, 0.001));
+    m.at([0, 0.013, -0.004], null, () => m.box(0.035, 0.01, 0.064, 0.001));
+
+    // Left-side Quick-Detach (QD) throw lever + retention lock button.
+    m.use(F.steelDark);
+    m.at([-0.0185, 0.005, 0.008], null, () => m.box(0.0042, 0.007, 0.026, 0));
+    m.at([-0.0202, 0.005, -0.003], [0, Math.PI / 2, 0], () => m.cyl(0.0034, 0.0032, 8, 0));
+    m.use(F.steel);
+    m.at([-0.0188, 0.005, 0.018], [0, Math.PI / 2, 0], () => m.cyl(0.0022, 0.0024, 8, 0));
+
+    // Forward transverse CR123 battery compartment tucked ahead of the optic window + knurled right cap.
+    m.use(F.anodizedGrey);
+    m.at([0.001, 0.0175, -0.029], [0, Math.PI / 2, 0], () => m.cyl(0.0096, 0.037, 14, 0));
+    m.use(F.anodized);
+    m.at([0, 0.014, -0.029], null, () => m.box(0.034, 0.012, 0.019, 0.001));
+    m.at([0.0208, 0.0175, -0.029], [0, Math.PI / 2, 0], () => knurl(m, 0.0102, 0.0055, F.steelDark, 12, 0.0005));
+    m.use(F.rubber);
+    m.at([0.0238, 0.0175, -0.029], [0, Math.PI / 2, 0], () => m.cyl(0.0042, 0.0016, 10, 0));
+
+    // Iconic EOTech outer protective aluminum hood with wide panoramic rectangular viewing window.
+    const hoodOuter = poly([
+      [-0.0208, 0.0155], [0.0208, 0.0155],
+      [0.0214, 0.0445, 0.004], [0.0158, 0.0522, 0.004],
+      [-0.0158, 0.0522, 0.004], [-0.0214, 0.0445, 0.004],
+    ], 0.0012);
+    const hoodWindow = poly([
+      [-0.016, 0.0206, 0.002], [0.016, 0.0206, 0.002],
+      [0.016, 0.044, 0.003], [0.0126, 0.0478, 0.003],
+      [-0.0126, 0.0478, 0.003], [-0.016, 0.044, 0.003],
+    ], 0.0012);
+    m.use(F.anodized);
+    m.at([0, 0, -0.005], null, () => m.front(hoodOuter, 0.046, { bevel: 0.001, holes: [hoodWindow] }));
+
+    // Inner recessed optical frame inside the hood (gives authentic EOTech double-wall shroud silhouette).
+    const innerOuter = poly([
+      [-0.0166, 0.0195], [0.0166, 0.0195],
+      [0.0166, 0.0446], [0.0132, 0.0484],
+      [-0.0132, 0.0484], [-0.0166, 0.0446],
+    ], 0);
+    const innerWin = poly([
+      [-0.0144, 0.0216], [0.0144, 0.0216],
+      [0.0144, 0.0432], [0.0114, 0.0464],
+      [-0.0114, 0.0464], [-0.0144, 0.0432],
+    ], 0);
+    m.use(F.steelDark);
+    m.at([0, 0, -0.008], null, () => m.front(innerOuter, 0.036, { bevel: 0, holes: [innerWin] }));
+
+    // Rear deck electronics housing + tactile left-side brightness & NV buttons + right-side flush windage/elevation screws.
+    m.use(F.anodizedGrey);
+    m.at([0, 0.0165, 0.021], null, () => m.box(0.032, 0.009, 0.012, 0));
+    m.use(F.rubber);
+    for (const z of [-0.002, 0.007, 0.0155]) {
+      m.at([-0.0218, 0.025, z], null, () => m.box(0.0018, 0.0046, 0.0056, 0));
+    }
+    m.use(F.steel);
+    for (const [y, z] of [[0.024, 0.002], [0.024, 0.012]] as const) {
+      m.at([0.0214, y, z], [0, Math.PI / 2, 0], () => m.cyl(0.0026, 0.0016, 8, 0));
+    }
+    m.mirror(() => {
+      m.use(F.steelDark);
+      m.at([0.0212, 0.016, -0.016], [0, Math.PI / 2, 0], () => m.cyl(0.0024, 0.0014, 8, 0));
+      m.at([0.0212, 0.016, 0.008], [0, Math.PI / 2, 0], () => m.cyl(0.0024, 0.0014, 8, 0));
+    });
+
+    // Clear panoramic rectangular holographic glass pane.
+    m.glass(() => m.at([0, 0, HOLO_Z + 0.0012], null, () => m.front(innerWin, 0.0006, { bevel: 0 })));
+
+    // Iconic EOTech holographic reticle: 65-MOA outer donut ring + 4 cardinal ticks + finer 1-MOA center dot.
+    m.glow('dot', () => {
+      m.at([0, HOLO_Y, HOLO_Z], null, () => {
+        // Outer donut ring
+        m.pipe(0.0052, 0.00468, 0.00018, 28);
+        // 4 cardinal hash ticks at 12, 3, 6, 9 o'clock
+        for (const s of [-1, 1]) {
+          m.at([0, s * 0.00515, 0], null, () => m.box(0.00042, 0.00145, 0.00018, 0));
+          m.at([s * 0.00515, 0, 0], null, () => m.box(0.00145, 0.00042, 0.00018, 0));
+        }
+        // Finer precision 1-MOA center dot (42% finer than regular red dot)
+        m.cyl(HOLO_DOT_RADIUS, 0.00018, 10, 0);
+      });
+    });
+  });
+  return { part: name, sight: [at[0], at[1] + HOLO_Y, at[2] + HOLO_Z], rear: null, relief: 0.24 };
+}
 
 /** The ACOG's axis over the rail, its eyepiece's back face and clear radius, and the plane of its reticle. */
 const AXIS = 0.036;

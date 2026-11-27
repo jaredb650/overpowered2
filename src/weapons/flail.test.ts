@@ -9,7 +9,7 @@ import { familyOfSlot } from './families';
 import { AMMO_GUNS, API_GUNS, MODS, MOD_ORDER, moddedDef } from './mods';
 import { makeRange, type Range } from './testkit';
 
-const FLAIL_MODS: readonly ModId[] = ['flailDot', 'flailAcog', 'flailBox', 'flailAp', 'flailHp', 'flailPlusP', 'flailApi'];
+const FLAIL_MODS: readonly ModId[] = ['flailDot', 'flailHolo', 'flailAcog', 'flailBox', 'flailBolt', 'flailAp', 'flailHp', 'flailPlusP', 'flailApi'];
 
 let r: Range;
 beforeEach(async () => {
@@ -57,21 +57,44 @@ describe('the Flail on paper', () => {
     expect(MODS.flailBox.slot).toBe('mag');
   });
 
-  it('takes a red dot or an ACOG, never both, and the box and a round on top of either', () => {
+  it('takes a red dot, EOTech holo sight, or ACOG — never two optics at once — and stacks the box and rounds', () => {
     expect(MODS.flailDot.slot).toBe('sight');
+    expect(MODS.flailHolo.slot).toBe('sight');
     expect(MODS.flailAcog.slot).toBe('sight');
     draw();
     expect(fit('flailDot')).toBe(true);
-    expect(fit('flailAcog')).toBe(true);
+    expect(fit('flailHolo')).toBe(true);
     expect(r.weapons.fitted.has('flailDot')).toBe(false);
+    expect(r.weapons.fitted.has('flailHolo')).toBe(true);
+    expect(fit('flailAcog')).toBe(true);
+    expect(r.weapons.fitted.has('flailHolo')).toBe(false);
     expect(r.weapons.fitted.has('flailAcog')).toBe(true);
     expect(fit('flailDot')).toBe(true);
     expect(r.weapons.fitted.has('flailAcog')).toBe(false);
     expect(fit('flailBox')).toBe(true);
     expect(fit('flailHp')).toBe(true);
     expect([...r.weapons.fitted].filter(m => MODS[m].weapon === 'flail').sort()).toEqual(['flailBox', 'flailDot', 'flailHp']);
-    // The ACOG's view is narrower than the dot's.
+    // The ACOG's view is narrower than the dot's and holo's.
     expect(MODS.flailAcog.patch.ads!.zoom).toBeGreaterThan(MODS.flailDot.patch.ads!.zoom);
+    expect(MODS.flailAcog.patch.ads!.zoom).toBeGreaterThan(MODS.flailHolo.patch.ads!.zoom);
+  });
+
+  it('pushes fire rate to 1000 RPM with the Lightened bolt, including when stacked with Heavy barrel and full Desert Raid spec', () => {
+    expect(MODS.flailBolt.slot).toBeUndefined();
+    const boltOnly = moddedDef('flail', new Set(['flailBolt']));
+    expect(60 / boltOnly.interval).toBeCloseTo(1000, 6);
+
+    const desertSpec = moddedDef(
+      'flail',
+      new Set(['flailHeavy', 'flailAp', 'flailStock', 'flailHolo', 'flailLam', 'flailBox', 'flailBolt']),
+    );
+    expect(60 / desertSpec.interval).toBeCloseTo(1000, 6);
+    expect(desertSpec.magSize).toBe(200);
+    expect(desertSpec.armour).toBe('medium');
+    expect(desertSpec.load).toBe('ap');
+    const apOnly = moddedDef('flail', new Set(['flailAp']));
+    expect(desertSpec.damage).toBeGreaterThan(apOnly.damage);
+    expect(desertSpec.damage).toBeCloseTo(44 * 0.8, 4);
   });
 
   it('loads 200 into the large box on a reload, and a full 100 without it', () => {

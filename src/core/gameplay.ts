@@ -103,7 +103,9 @@ export type ModId = 'awlAcog' | 'awlCan' | 'awlAp' | 'awlHp' | 'suppressor' | 'r
   | 'shearBurst3' | 'shearFast' | 'shearMag' | 'shearLong' | 'shearShort' | 'shearCan' | 'shearBrake'
   | 'shearDot' | 'shearAcog' | 'shearAp' | 'shearHp' | 'shearPlusP'
   // Tactical rail laser sights for every rifle and shotgun (weapons/mods.ts LAM_GUNS; billhookLam above).
-  | 'gimletLam' | 'harrowLam' | 'shearLam' | 'bodkinLam' | 'flailLam' | 'awlLam' | 'sabotLam' | 'shotgunLam' | 'thresherLam' | 'deuceLam';
+  | 'gimletLam' | 'harrowLam' | 'shearLam' | 'bodkinLam' | 'flailLam' | 'awlLam' | 'sabotLam' | 'shotgunLam' | 'thresherLam' | 'deuceLam'
+  // Flail lightened bolt (1000 rpm MG42-class rate) and EOTech-style holographic sights.
+  | 'flailBolt' | 'flailHolo' | 'gimletHolo' | 'harrowHolo' | 'piledriverHolo';
 
 export type Team = 'player' | 'enemy';
 
