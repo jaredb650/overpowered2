@@ -1255,4 +1255,39 @@ describe('DesertConvoy — Cleanup, Reset & Real Audio Catalog Validation', () =
       expect(lookup(id), `Audio catalog missing sound ID "${id}"`).toBeDefined();
     }
   });
+
+  it('invokes physics.raycast and world.objects.tryVehicleRam with their receivers bound during moving convoy updates', () => {
+    const env = createMockEnv();
+    const fakeCollider = { handle: 99999 };
+    let rayCalls = 0;
+    let ramCalls = 0;
+    const physicsObj = {
+      ...env.ctx.physics,
+      sentinel: 'PHYSICS_OK',
+      raycast(this: { sentinel?: string }, origin: THREE.Vector3) {
+        if (this?.sentinel !== 'PHYSICS_OK') throw new TypeError('detached physics.raycast');
+        rayCalls++;
+        return { collider: fakeCollider, point: origin.clone(), normal: new THREE.Vector3(0, 0, 1), distance: 1.5 };
+      },
+    };
+    const objectsObj = {
+      ...env.ctx.world.objects,
+      sentinel: 'OBJECTS_OK',
+      tryVehicleRam(this: { sentinel?: string }) {
+        if (this?.sentinel !== 'OBJECTS_OK') throw new TypeError('detached objects.tryVehicleRam');
+        ramCalls++;
+        return { breached: true };
+      },
+    };
+    (env.ctx as unknown as { physics: unknown }).physics = physicsObj;
+    (env.ctx.world as unknown as { objects: unknown }).objects = objectsObj;
+
+    const convoy = new DesertConvoy(env.ctx, env.runner, env.ui);
+    convoy.startApproach();
+    expect(() => env.step(convoy, 0.4)).not.toThrow();
+    expect(rayCalls).toBeGreaterThan(0);
+    expect(ramCalls).toBeGreaterThan(0);
+    convoy.clear();
+  });
 });
+

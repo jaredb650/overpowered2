@@ -637,7 +637,7 @@ function buildBanditVehicleVisual(
 const CONVOY_HUD_CSS = `
 .dr-cv-hud { position: absolute; inset: 0; pointer-events: none; font-family: var(--mono, monospace); color: #f6efe2; opacity: 0; transition: opacity 0.22s; z-index: 5; }
 .dr-cv-hud.on { opacity: 1; }
-.dr-cv-top { position: absolute; top: 1.4rem; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 1.35rem; padding: 0.42rem 1.05rem; background: rgba(18, 14, 10, 0.82); border-top: 0.16rem solid #d89b38; box-shadow: 0.16rem 0.16rem 0 #000; }
+.dr-cv-top { position: absolute; top: 5.6rem; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 1.35rem; padding: 0.42rem 1.05rem; background: rgba(18, 14, 10, 0.82); border-top: 0.16rem solid #d89b38; box-shadow: 0.16rem 0.16rem 0 #000; }
 .dr-cv-title { font: 700 1.02rem/1 var(--display, sans-serif); letter-spacing: 0.08em; color: #ffcf6e; }
 .dr-cv-stage { font-size: 0.84rem; letter-spacing: 0.07em; color: #ff8c42; font-weight: 700; }
 .dr-cv-speed { font-size: 0.9rem; letter-spacing: 0.08em; color: #9be88a; font-weight: 700; }
@@ -2603,9 +2603,9 @@ export class DesertConvoy implements ConvoyController, ExtraTarget {
    * wooden shacks, timber frames, fences, and other weak Tier-0 destructibles along the convoy path.
    */
   private smashWeakDestructibles(t: RaidTruck, speed: number): void {
-    const tryRam = this.ctx.world?.objects?.tryVehicleRam;
-    const raycast = this.ctx.physics?.raycast;
-    if (typeof tryRam !== 'function' || typeof raycast !== 'function') return;
+    const objects = this.ctx.world?.objects;
+    const physics = this.ctx.physics;
+    if (typeof objects?.tryVehicleRam !== 'function' || typeof physics?.raycast !== 'function') return;
 
     const sy = Math.sin(t.yaw);
     const cy = Math.cos(t.yaw);
@@ -2615,12 +2615,12 @@ export class DesertConvoy implements ConvoyController, ExtraTarget {
 
     for (const lat of [-1.0, 0, 1.0]) {
       _tmp.set(t.position.x + lat * cy, 1.05, t.position.z - lat * sy);
-      const hit = raycast(_tmp, _dir, 3.4, CG.World);
+      const hit = physics.raycast(_tmp, _dir, 3.4, CG.World);
       if (!hit || !hit.collider) continue;
       if (this.banditByCollider.has(hit.collider.handle)) continue;
       if (Math.abs(hit.normal.y) >= 0.6) continue;
 
-      const res = tryRam(hit.collider, 'medium', ramSpeed, hit.point, _dir);
+      const res = objects.tryVehicleRam(hit.collider, 'medium', ramSpeed, hit.point, _dir);
       if (res.breached) {
         this.ctx.fx?.dust?.(hit.point, UP, 1.45);
         this.ctx.fx?.sparks?.(hit.point, UP, 8, 0xd8a86a);
