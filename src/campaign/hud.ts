@@ -26,7 +26,7 @@ const WHO: Record<Speaker, readonly [name: string, tag: string]> = {
   harbourmaster: ['The Harbourmaster', 'Holdfast port address'],
   governor: ['Governor Sterling', 'Brine Central Reserve / PA'],
   quist: ['Hadrek Quist', 'Surplus loudspeaker / the Salt King'],
-  marr: ['Sergeant Marr', 'Raid column / tactical net'],
+  tiamat: ['TIAMAT', 'Council Annihilation Engine // Raid Net'],
   darrow: ['Colonel Darrow', 'Northern Command / Valken Airbase'],
   halvorsen: ['General Halvorsen', 'Southern Directorate / Fortress Halcyon'],
   mercer: ['Captain Mercer', 'Bureau Ground Force / Halcyon Beachhead'],
@@ -188,7 +188,9 @@ export class CampaignHud {
     this.tag.set(tag);
     this.text.set(line.text);
     this.face.set(line.speaker, tone);
-    if (line.speaker === 'harbourmaster' || line.speaker === 'halvorsen') {
+    if (line.speaker === 'tiamat') {
+      this.ctx.audio.play('walkietalkie_fire', { pitch: 0.56, volume: 0.36, unaffectedByTime: true });
+    } else if (line.speaker === 'harbourmaster' || line.speaker === 'halvorsen') {
       this.ctx.audio.play('walkietalkie_fire', { pitch: 0.84, volume: 0.34, unaffectedByTime: true });
     } else if (line.speaker === 'governor' || line.speaker === 'darrow') {
       this.ctx.audio.play('walkietalkie_fire', { pitch: 1.08, volume: 0.32, unaffectedByTime: true });

@@ -10,7 +10,7 @@ import * as THREE from 'three';
 
 export type PostureName =
   | 'stand' | 'crouch' | 'cover' | 'peek' | 'leanLeft' | 'leanRight' | 'handsUp' | 'kneel' | 'cower' | 'flee' | 'drag' | 'revive' | 'downed'
-  | 'hunched' | 'pistol' | 'cuffed' | 'bound' | 'fumble' | 'temple';
+  | 'hunched' | 'pistol' | 'holster' | 'cuffed' | 'bound' | 'fumble' | 'temple';
 
 interface Shape {
   /** Hips lowered. */
@@ -64,13 +64,15 @@ const SHAPES: Record<PostureName, Shape> = {
   hunched: { ...FLAT, drop: 0.09, shift: -0.03, bend: 0.82, head: -0.5, brace: 0.3 },
   // One arm out in front with a pistol at the end of it, with the other hand gone and hanging.
   pistol: { ...FLAT, drop: 0.03, bend: 0.1, roll: -0.08, hands: 1, x: 0.04, y: 0.1, z: 0.84, leftOnly: 1 },
+  // Left hand reaching down to the hip holster before drawing a sidearm.
+  holster: { ...FLAT, drop: 0.03, bend: 0.12, head: 0.16, roll: -0.08, hands: 1, x: 0.18, y: -0.72, z: 0.16, flare: 0.4, leftOnly: 1 },
   // A prisoner in cuffs: on his knees, wrists together behind his back, head down. `bound` is the same on his feet, walked or lifted.
   cuffed: { ...FLAT, drop: 0.25, shift: 0.01, bend: 0.14, head: 0.34, kneel: 1, hands: 1, x: -0.26, y: -0.8, z: -0.36, tremble: 0.2 },
   bound: { ...FLAT, bend: 0.06, head: 0.2, hands: 1, x: -0.26, y: -0.8, z: -0.36 },
   // A kneeling prisoner whose hands have gone to his vest, working at something: the fake surrender's tell.
   fumble: { ...FLAT, drop: 0.25, shift: 0.01, bend: 0.2, head: 0.3, kneel: 1, hands: 1, x: -0.12, y: -0.36, z: 0.34, flare: 0.3, pump: 0.6, tremble: 1 },
-  // On his feet, head bowed, the pistol in his left hand up against his temple.
-  temple: { ...FLAT, drop: 0.04, bend: 0.12, head: 0.28, roll: 0.06, hands: 1, x: 0.08, y: 0.42, z: 0.02, flare: 1, tremble: 0.6, leftOnly: 1 },
+  // On his feet, head bowed slightly, the pistol in his left hand raised tight against his left temple.
+  temple: { ...FLAT, drop: 0.04, bend: 0.12, head: 0.24, roll: 0.08, hands: 1, x: 0.02, y: 0.46, z: 0.06, flare: 1, tremble: 0.75, leftOnly: 1 },
 };
 
 const KEYS = Object.keys(FLAT) as (keyof Shape)[];

@@ -1,11 +1,10 @@
 /**
  * Every spoken line in Mission 5 ("Desert Raid" — Surplus).
  *
- * Strictly NO Council story or Council voice anywhere in this mission.
  * Voices:
- *   quist — Hadrek Quist ("the Salt King"): calm, frightening, slow, never threatens twice.
- *   marr  — Sergeant Marr: short, clear tactical orders.
- *   radio — Convoy driver, Warthog / gunship pilots, friendly assault squad callouts.
+ *   quist  — Hadrek Quist ("the Salt King"): calm, frightening, slow, never threatens twice.
+ *   tiamat — TIAMAT: angry Council alien ogre-robot, grandiose maniacal trash-talker mocking Quist & his walls.
+ *   radio  — Convoy driver, Warthog / gunship pilots, friendly assault squad callouts.
  */
 import type { Emotion, Line, Speaker } from '../../enemies/commander/lines';
 
@@ -18,55 +17,196 @@ const line = (id: string, speaker: Speaker, emotion: Emotion, text: string): Lin
 
 export const LINES: readonly Line[] = [
   // ---- Section 1: The Approach (dawn open desert, Jackal .50-cal HMG + 40mm AGL turret) ----
-  line('marr.approach.start', 'marr', 'orders', 'Three Jackals, two birds overhead. Stay on the fifty-cal and forty-mil — turn anything moving on those dunes into dust.'),
+  line(
+    'tiamat.approach.start',
+    'tiamat',
+    'orders',
+    'YOUR SPECIES HAS BEEN DECLARED FORFEIT BY THE COUNCIL! PREPARE FOR EXTINCTION, INSECT! Contractor — man the fifty-cal and forty-mil and vaporize everything crawling on those dunes!',
+  ),
+  line(
+    'council.approach.scold',
+    'council',
+    'deadpan',
+    'Tiamat. This is an unencrypted desert band. Per Clause Nine, you are not authorized to announce the Galactic Council to local warlords.',
+  ),
+  line(
+    'tiamat.approach.defiant',
+    'tiamat',
+    'orders',
+    'WHO IS GOING TO REPORT US, MADAM SECRETARY?! ASHES DO NOT FILE COMPLAINTS! EVERY LAST BUG IN THIS CANYON WILL BE VAPORIZED BEFORE LUNCH!',
+  ),
   line('radio.approach.lookouts', 'radio', 'orders', 'Lookout towers on the ridge! Bikes, quads, and technicals cresting the dunes — light them up!'),
   line('radio.approach.bikes', 'radio', 'urgent', 'Second pack of Saltblood bikes, quads, and gun trucks flanking hard! Hit them with everything!'),
   line('quist.approach.warn', 'quist', 'smug', "You're a long way from water. Turn around and I'll let you die of thirst instead."),
-  line('marr.approach.horizon', 'marr', 'orders', "Surplus on the horizon. That crashed hull on the crest is Quist's house. Hold the trigger."),
+  line(
+    'tiamat.approach.horizon',
+    'tiamat',
+    'orders',
+    "Behold the pathetic dust-heap of Surplus! That rotting tin fuselage is the Salt King's throne?! HAHAHA! Keep the trigger pinned, Contractor — I want his kingdom reduced to gravel!",
+  ),
 
   // ---- Section 2: The Wall (broadside shooting gallery) ----
-  line('marr.wall.broadside', 'marr', 'orders', 'Slow pass along the outer wall. Hammer the scrap panels with 40mm, drop the towers by their legs, clear the battlements.'),
+  line(
+    'tiamat.wall.broadside',
+    'tiamat',
+    'orders',
+    "THESE WALLS ARE THE BEST DEFENSES YOU'VE GOT?! WHAT A JOKE! CONTRACTOR, BRING THEM DOWN! Blast his sheet-metal panels with forty-mil and snap those toothpick watchtowers at the knees!",
+  ),
   line('quist.wall.trucks', 'quist', 'smug', 'Open the side gates. Put two trucks on their flanks and bleed them in the sand.'),
   line('radio.wall.sidegates', 'radio', 'urgent', 'Side gates swinging open! Technicals rolling out left and right!'),
   line('quist.wall.gate', 'quist', 'smug', 'You can scratch my walls all day. That gate held off an army.'),
-  line('marr.wall.warthog', 'marr', 'orders', 'Hog-One, clearance hot on the bulldozer gate. Punch us a door.'),
-  line('radio.wall.warthog', 'radio', 'urgent', 'Copy, Marr. Rolling in hot — keep your heads down!'),
-  line('marr.wall.breached', 'marr', 'orders', "Gate's down. On foot. Go."),
+  line(
+    'tiamat.wall.warthog',
+    'tiamat',
+    'orders',
+    'Held off an army?! HA! Your scrap-iron gate is an insult to metallurgy! Hog-One, vaporize that glorified barn door right now!',
+  ),
+  line('radio.wall.warthog', 'radio', 'urgent', 'Copy, Tiamat! Rolling in hot — keep your heads down!'),
+  line(
+    'tiamat.wall.breached',
+    'tiamat',
+    'orders',
+    'HAHAHAHA! SO MUCH FOR YOUR MIGHTY GATE, SALT KING! Contractor — on foot! Go tear his ant-hill apart!',
+  ),
 
   // ---- Section 3: The Warren (shantytown on foot) ----
-  line('marr.warren.enter', 'marr', 'orders', 'Shantytown ahead. Walls are scrap tin — blow your own path through the shacks or take the roofs.'),
-  line('marr.warren.minigun', 'marr', 'orders', 'Spotter calls a mounted rotary on the west roof. Yours if you want to saw the street flat.'),
+  line(
+    'tiamat.warren.enter',
+    'tiamat',
+    'orders',
+    'Look at this cardboard slum! Tin shacks held together by rust and prayers! Blow straight through his pathetic walls, Contractor, or butcher them from the roofs!',
+  ),
+  line(
+    'tiamat.warren.minigun',
+    'tiamat',
+    'orders',
+    'My optics detect a mounted rotary cannon on the west roof! Seize it, Contractor, and turn his miserable street into confetti!',
+  ),
   line('quist.warren.bounty', 'quist', 'irritated', 'A year of water to whoever brings me one of their heads.'),
   line('radio.warren.squad', 'radio', 'urgent', 'Assault Two pushing the east alley — whole town is pouring out of the shacks!'),
-  line('marr.warren.push', 'marr', 'orders', "Keep pushing north to the pump yard. Don't get pinned in the alleys."),
+  line(
+    'quist.warren.banter',
+    'quist',
+    'irritated',
+    'Wait. What the hell is screaming on my radio? Are you using a broken megaphone or are you actually a toaster?',
+  ),
+  line(
+    'tiamat.warren.push',
+    'tiamat',
+    'orders',
+    'A TOASTER?! I AM TIAMAT, WORLD-BREAKER OF THE GALACTIC COUNCIL! AND YOU BRIBE YOUR VERMIN WITH PUDDLE SLUDGE?! Push north to his pump yard, Contractor — crush every last one of them!',
+  ),
+  line(
+    'council.warren.scold',
+    'council',
+    'deadpan',
+    'Tiamat. You just said Galactic Council over a public town loudspeaker. Again. I am deducting two hundred credits from your lubricant stipend.',
+  ),
+  line(
+    'tiamat.warren.defiant',
+    'tiamat',
+    'urgent',
+    'DEDUCT WHATEVER YOU WANT! THERE WILL BE ZERO WITNESSES WHEN WE ARE DONE!',
+  ),
 
   // ---- Section 4: The Pump Yard & Extended Dark Storm Sewer ----
-  line('marr.pump.enter', 'marr', 'orders', 'Pump yard. Cleaner steel, better guards. Quist keeps the well locked down here.'),
+  line(
+    'tiamat.pump.enter',
+    'tiamat',
+    'orders',
+    'The Pump Yard! Slightly thicker garbage steel, still worthless! Quist hoards his little mud-well here — shatter his guards!',
+  ),
   line('quist.pump.tower', 'quist', 'smug', 'You came for water. Have all of it.'),
-  line('marr.pump.sewer', 'marr', 'urgent', "Street's gone. Storm grate, west side. Thermal on."),
+  line(
+    'tiamat.pump.sewer',
+    'tiamat',
+    'urgent',
+    'He dropped his own water tower to block the street?! COWARD! Into the west storm grate, Contractor — engage Thermal and hunt the rats in the dark!',
+  ),
   line('quist.sewer.dark.1', 'quist', 'rattled', 'Down in the drains. Come out where I can see you.'),
-  line('marr.sewer.ambush', 'marr', 'urgent', 'Thermal signatures ahead in the gallery — Saltblood lurkers dug in behind the pillars. Clear the tunnel.'),
+  line(
+    'tiamat.sewer.ambush',
+    'tiamat',
+    'urgent',
+    'Thermal blooms ahead! His filthy tunnel-worms are cowering behind the pillars! Purge the drain, Contractor!',
+  ),
   line('quist.sewer.dark.2', 'quist', 'rattled', 'Check the grates! Put men on the terrace ridge before they climb out of the drain!'),
-  line('marr.sewer.exit', 'marr', 'orders', 'North ladder puts you right at the foot of the High Terraces. Weapons hot.'),
+  line(
+    'tiamat.sewer.exit',
+    'tiamat',
+    'orders',
+    'Up the north ladder! Climb out of his cesspit and storm the High Terraces! Weapons hot!',
+  ),
 
   // ---- Section 5: The High Terraces ("The Perches" — vertical village) ----
-  line('marr.terraces.start', 'marr', 'orders', "Upper terraces! Watchtowers and stilted tents up the ridge — take out their timber supports and drop 'em!"),
+  line(
+    'tiamat.terraces.start',
+    'tiamat',
+    'orders',
+    'Stilted tents and matchstick watchtowers?! THIS is his citadel?! Contractor, chew through the timber supports and drop his whole ridge into the dirt!',
+  ),
   line('quist.terraces.mock', 'quist', 'smug', 'Look up, little soldier. Every sniper in Surplus is staring down at your helmet.'),
-  line('marr.terraces.push', 'marr', 'orders', 'Upper ridge is hot! Knock out those high perches and breach the Salt Cave mouth.'),
+  line(
+    'quist.terraces.banter',
+    'quist',
+    'smug',
+    'And tell your screaming alien robot to take a breath before he blows a fuse. Those stilts cost me three months of salvage.',
+  ),
+  line(
+    'tiamat.terraces.push',
+    'tiamat',
+    'orders',
+    'THREE MONTHS OF SALVAGE?! MY TOASTER HAS BETTER STRUCTURAL INTEGRITY! Tear down those miserable perches, Contractor, and breach the Salt Cave!',
+  ),
 
   // ---- Section 6: The Salt Cave ("The Cistern Tunnels") ----
-  line('marr.cave.start', 'marr', 'orders', 'Into the Salt Cave. Timber mine-shoring overhead and Quist elites dug in deep — watch your corners.'),
+  line(
+    'tiamat.cave.start',
+    'tiamat',
+    'orders',
+    'Into his miserable little salt hole! Rotten timber shoring overhead and his elite vermin hiding in the dark — slaughter them all!',
+  ),
   line('quist.cave.warn', 'quist', 'irritated', 'You crawled into my cisterns. Bury them under the rock and salt.'),
-  line('marr.cave.push', 'marr', 'orders', 'Daylight past the next chamber — push through his vanguard to the crashed hull!'),
+  line(
+    'tiamat.cave.push',
+    'tiamat',
+    'orders',
+    'Daylight ahead! Smash through his vanguard, Contractor — the Salt King is cowering inside his broken metal bird!',
+  ),
 
   // ---- Section 7: The Plane (solid fuselage & Quist cornered finale) ----
-  line('marr.plane.enter', 'marr', 'orders', 'Crashed cargo hull ahead. Solid steel — no shooting through walls in there. Heavy welded armor on his guard.'),
+  line(
+    'tiamat.plane.enter',
+    'tiamat',
+    'orders',
+    "At last — Quist's rusted cargo coffin! Solid fuselage steel, so your rounds won't pierce the hull. Rip through his welded-armor pets!",
+  ),
   line('quist.door1', 'quist', 'irritated', 'Seal bulkhead one. Let them chew on iron.'),
-  line('marr.door1.locked', 'marr', 'orders', "He slammed the bulkhead. Clear his guards in that bay and I'll cycle the override."),
-  line('marr.door1.open', 'marr', 'orders', "Override took. Bulkhead one's open — move up."),
+  line(
+    'tiamat.door1.locked',
+    'tiamat',
+    'orders',
+    'He slammed bulkhead one like a frightened beetle! Annihilate his guards in that bay and I will rip the override wide open!',
+  ),
+  line(
+    'tiamat.door1.open',
+    'tiamat',
+    'orders',
+    'HAHA! Your precious iron lock lasted three seconds! Bulkhead one is open — advance, Contractor!',
+  ),
   line('quist.door2', 'quist', 'rattled', 'Hold the aft door! Keep them off the tail!'),
-  line('marr.door2.locked', 'marr', 'orders', "Second bulkhead shut. Drop his heavies and I'll pop the lock."),
-  line('marr.door2.open', 'marr', 'orders', "Aft bulkhead's clear. He has nowhere left to run."),
+  line(
+    'tiamat.door2.locked',
+    'tiamat',
+    'orders',
+    'A SECOND door?! Pathetic! Purge his heavies, Contractor, and I will crack his little tin can open!',
+  ),
+  line(
+    'tiamat.door2.open',
+    'tiamat',
+    'orders',
+    'Aft bulkhead breached! Nowhere left to slither, Salt King! Go finish him, Contractor!',
+  ),
 
   // Quist's 15-20 s cornered speech (4 crisp lines, honoring draft verbatim)
   line('quist.speech.1', 'quist', 'hushed', 'Eleven years I kept this town alive. Water, food, order.'),
@@ -78,38 +218,95 @@ export const LINES: readonly Line[] = [
   line('quist.reply.1', 'quist', 'smug', "Who sent you? Doesn't matter. Somebody always does."),
   line('quist.reply.2', 'quist', 'irritated', "No. I won't beg."),
 
-  // Quist outcome lines & Marr confirmations
+  // Quist outcome lines & TIAMAT confirmations
   line('quist.captured', 'quist', 'irritated', 'Watch the wrists. You think hauling me out changes what this desert is?'),
   line('quist.suicide', 'quist', 'hushed', 'Not by your hand.'),
   line('quist.grenade', 'quist', 'cracked', "Come closer. I'll tell you a secret."),
-  line('marr.quist.captured', 'marr', 'orders', 'Target cuffed and breathing. Drag him out to the forecourt — trucks are rolling in.'),
-  line('marr.quist.killed', 'marr', 'orders', "Quist is down. Salt King's finished. Move to the forecourt for pickup."),
-  line('marr.quist.suicide', 'marr', 'orders', "Took himself out. Still counts. Get to the forecourt — convoy's inbound."),
-  line('marr.quist.grenade', 'marr', 'urgent', 'Bastard pulled a pin in the tail. You still standing? Get out to the forecourt.'),
+  line(
+    'tiamat.quist.captured',
+    'tiamat',
+    'orders',
+    'HAHAHA! The mighty Salt King in chains! Drag the sniveling insect to the forecourt, Contractor — the trucks are rolling in!',
+  ),
+  line(
+    'tiamat.quist.killed',
+    'tiamat',
+    'orders',
+    'EXTINCTION CONFIRMED! The Salt King is paste! March to the forecourt for extraction, Contractor!',
+  ),
+  line(
+    'tiamat.quist.suicide',
+    'tiamat',
+    'orders',
+    'HAHA! The coward vaporized himself to avoid my wrath! Still fulfills the Council quota! Get to the forecourt!',
+  ),
+  line(
+    'tiamat.quist.grenade',
+    'tiamat',
+    'urgent',
+    'He pulled a pin in the tail?! What a desperate little bug! Still breathing, Contractor? Stomp out to the forecourt!',
+  ),
 
   // ---- Section 8: Escort & Exfil + Town-Flattening Ending ----
   line('radio.exfil.arrive', 'radio', 'orders', "Convoy smashing into the forecourt! Tailgate's down — get on the turret!"),
-  line('marr.exfil.board', 'marr', 'orders', 'Trucks are here. Mount up on the middle rig, now!'),
-  line('marr.escort.start', 'marr', 'orders', "Got the Salt King cuffed! Walk him out to the middle truck — watch for falling scrap, don't let a tower drop on him!"),
-  line('marr.escort.crushed', 'marr', 'orders', "Scratch the prisoner — falling scrap flattened him. Less paperwork. Get on the truck, we're rolling!"),
-  line('marr.escort.shot', 'marr', 'orders', "Guess you changed your mind on hauling him back alive. Get on the middle rig, we're moving!"),
+  line(
+    'tiamat.exfil.board',
+    'tiamat',
+    'orders',
+    'The rigs have arrived! Mount the middle turret now, Contractor — time to leave this dust-pit in flames!',
+  ),
+  line(
+    'tiamat.escort.start',
+    'tiamat',
+    'orders',
+    'March the pathetic warlord to the middle truck! And keep falling debris off his skull — the Council prefers its specimens intact!',
+  ),
+  line(
+    'tiamat.escort.crushed',
+    'tiamat',
+    'orders',
+    'HAHAHA! His own rotten junkyard fell on his head! Glorious poetic justice! Get on the rig, Contractor — we roll!',
+  ),
+  line(
+    'tiamat.escort.shot',
+    'tiamat',
+    'orders',
+    'Executive termination! I approve of your enthusiasm, Contractor! Climb on the middle rig — we are moving!',
+  ),
   line('radio.exfil.chase', 'radio', 'urgent', 'Pedal down! Every Saltblood left in Surplus is on our bumper — sweep the flanks!'),
-  line('marr.exfil.airstrike', 'marr', 'orders', "We're clear of the wall. All air, weapons free — flatten Surplus."),
+  line(
+    'tiamat.exfil.airstrike',
+    'tiamat',
+    'orders',
+    'Clear of his pathetic wall! All air units — OBLITERATE SURPLUS! Leave not one wall standing!',
+  ),
   line('radio.exfil.strikes', 'radio', 'orders', 'Hog-One and gunships inbound. Stand back and watch the dust.'),
+  line(
+    'council.exfil.scold',
+    'council',
+    'deadpan',
+    'For the record, Tiamat, flattening an entire settlement with close air support is not what the Bureau calls a covert extraction.',
+  ),
+  line(
+    'tiamat.exfil.defiant',
+    'tiamat',
+    'orders',
+    'HAHAHA! LOOK AT THAT DUST CLOUD, MADAM SECRETARY! NO SURVIVORS, NO WITNESSES, NO PAPERWORK! MISSION ACCOMPLISHED!',
+  ),
 
   // Captured Quist watching Surplus levelled from the truck bed
   line('quist.ending.1', 'quist', 'rattled', 'Listen to that. Eleven years of iron and water, turned back to sand in ten seconds.'),
   line('quist.ending.2', 'quist', 'cracked', "They'll dig another well. Somebody else will sit in that fuselage. You fixed nothing."),
   line('quist.ending.3', 'quist', 'hushed', "Keep driving. Don't look back at what you made."),
 
-  // ---- Redeploy Lines (Sergeant Marr) ----
-  line('marr.redeploy.1', 'marr', 'orders', 'Fresh gunner up. Dust off and get back in the fight.'),
-  line('marr.redeploy.2', 'marr', 'orders', 'Quist is still talking on those poles. Shut him up.'),
-  line('marr.redeploy.3', 'marr', 'orders', 'Regrouped at the last line. Move out.'),
+  // ---- Redeploy Lines (TIAMAT) ----
+  line('tiamat.redeploy.1', 'tiamat', 'orders', 'GET BACK UP, CONTRACTOR! The Council did not authorize your expiration — go crush his walls!'),
+  line('tiamat.redeploy.2', 'tiamat', 'orders', 'That insect Quist is still yammering on his loudspeakers! Silence him at once!'),
+  line('tiamat.redeploy.3', 'tiamat', 'orders', 'Fresh frame deployed! Stop bleeding and resume the extinction, Contractor!'),
 ];
 
 export const REDEPLOY_LINES: readonly string[] = [
-  'mission.desert_raid.marr.redeploy.1',
-  'mission.desert_raid.marr.redeploy.2',
-  'mission.desert_raid.marr.redeploy.3',
+  'mission.desert_raid.tiamat.redeploy.1',
+  'mission.desert_raid.tiamat.redeploy.2',
+  'mission.desert_raid.tiamat.redeploy.3',
 ];

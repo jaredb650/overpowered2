@@ -70,7 +70,7 @@ export class Portrait {
     else if (this.speaker === 'harbourmaster') this.horn(talking);
     else if (this.speaker === 'governor') this.governor(talking);
     else if (this.speaker === 'quist') this.quist(talking);
-    else if (this.speaker === 'marr') this.marr(talking);
+    else if (this.speaker === 'tiamat') this.tiamat(talking);
     else if (this.speaker === 'darrow') this.darrow(talking);
     else if (this.speaker === 'halvorsen') this.halvorsen(talking);
     else if (this.speaker === 'mercer') this.mercer(talking);
@@ -408,43 +408,157 @@ export class Portrait {
     this.blob(10, 10, 3, 3, talking && f % 2 === 0 ? '#ff6a22' : '#4a2210');
   }
 
-  /** Sergeant Marr: weathered desert raid squad leader on tactical radio. */
-  private marr(talking: boolean): void {
+  /** TIAMAT: angry Council alien ogre-robot — horned dark-iron cranium, glowing molten optics, tusked vocoder jaw. */
+  private tiamat(talking: boolean): void {
     const f = this.frame;
-    const cx = 48;
-    // Dust-olive tactical backdrop.
-    this.rect(0, 0, SIZE, SIZE, '#18211b');
-    for (let x = 8; x < SIZE; x += 16) this.line('#233128', 1, x, 0, x, SIZE);
-    // Rig vest + desert shemagh scarf.
-    this.poly('#4c4738', 12, 96, 20, 66, 76, 66, 84, 96);
-    this.poly('#b59f77', 26, 62, 70, 62, 72, 74, 48, 79, 24, 74);
-    this.rect(cx - 7, 54, 14, 10, '#9c7356');
-    this.blob(cx, 40, 15.5, 19, '#c39776');
-    // Desert tactical helmet + pushed-up goggles + comms boom mic.
-    this.poly('#6c634b', cx - 18, 33, cx - 16, 15, cx, 11, cx + 16, 15, cx + 18, 33, cx + 14, 27, cx - 14, 27);
-    this.rect(cx - 14, 21, 28, 5, '#3b372c');
-    this.rect(cx - 12, 22, 10, 3.5, '#68787a');
-    this.rect(cx + 2, 22, 10, 3.5, '#68787a');
-    // Headset earcup & boom mic.
-    this.rect(cx - 19, 34, 5, 12, '#2a2e2c');
-    this.line('#222624', 2, cx - 16, 44, cx - 4, 52);
-    this.blob(cx - 3, 52, 2.2, 2.2, '#181a1a');
-    // Focused eyes.
-    const ey = 38;
-    const blink = f % 37 === 0;
-    for (const side of [-1, 1]) {
-      const ex = cx + side * 6;
-      if (blink) this.line('#34241a', 1.5, ex - 3, ey, ex + 3, ey);
-      else {
-        this.blob(ex, ey, 2.9, 2.1, '#eef0ea');
-        this.blob(ex, ey, 1.3, 1.4, '#151a18');
-      }
-      this.line('#4c3a2c', 1.8, ex - 3.8, ey - 4.5, ex + 3.8, ey - 4.5);
+    const { g } = this;
+    const shakeX = talking ? ((f * 7) % 3) - 1 : 0;
+    const shakeY = talking && f % 3 === 0 ? -1 : 0;
+    const cx = 48 + shakeX;
+    const cy = shakeY;
+
+    // Furnace-crimson alien command chamber backdrop with pulsing energy conduits & embers.
+    this.rect(0, 0, SIZE, SIZE, '#140608');
+    for (let y = 10; y < SIZE; y += 16) this.line('#2a0d10', 1, 0, y, SIZE, y);
+    for (let x = 12; x < SIZE; x += 24) this.line('#260b0e', 1, x, 0, x, SIZE);
+    // Rising furnace sparks.
+    for (let i = 0; i < 6; i++) {
+      const sx = (11 + i * 17 + ((f * (i + 2)) % 9)) % SIZE;
+      const sy = SIZE - ((f * 5 + i * 19) % SIZE);
+      this.rect(sx, sy, 2, 2, i % 2 === 0 ? '#ff6a22' : '#ffbb33');
     }
-    const open = talking && f % 2 === 0 ? 2.5 : 0;
-    this.blob(cx, 51, 4.8, 1 + open, open > 0 ? '#3a1a16' : '#7b5040');
-    // Green tactical net active LED.
-    this.blob(10, 10, 3, 3, talking && f % 2 === 0 ? '#55e07a' : '#1b3d24');
+
+    // Massive spiked gunmetal-obsidian war-chassis shoulders & glowing molten chest vents.
+    this.poly('#1e2128', 2, 96, 12, 66, 30, 62, 66, 62, 84, 66, 94, 96);
+    this.poly('#343944', 10, 96, 17, 68, 32, 65, 64, 65, 79, 68, 86, 96);
+    // Jagged shoulder spikes.
+    this.poly('#585d68', 8, 69, 2, 54, 18, 65);
+    this.poly('#585d68', 88, 69, 94, 54, 78, 65);
+    // Molten reactor vents on chest collar.
+    const coreGlow = talking && f % 2 === 0 ? '#ff9426' : '#d93818';
+    this.rect(cx - 12, 74 + cy, 24, 5, '#0b0506');
+    this.rect(cx - 10, 75 + cy, 6, 3, coreGlow);
+    this.rect(cx - 2, 75 + cy, 4, 3, '#ffd266');
+    this.rect(cx + 4, 75 + cy, 6, 3, coreGlow);
+
+    // Armored piston neck.
+    this.rect(cx - 11, 56 + cy, 22, 12, '#1d2126');
+    this.line('#4b525c', 2, cx - 6, 56 + cy, cx - 6, 67 + cy);
+    this.line('#4b525c', 2, cx + 6, 56 + cy, cx + 6, 67 + cy);
+
+    // Twin massive curved biomechanical alien ogre horns sweeping upward from temples.
+    for (const side of [-1, 1] as const) {
+      const hx = cx + side * 20;
+      this.poly(
+        '#6a5d52',
+        hx, 34 + cy,
+        cx + side * 34, 24 + cy,
+        cx + side * 38, 10 + cy,
+        cx + side * 29, 4 + cy,
+        cx + side * 28, 15 + cy,
+        cx + side * 22, 23 + cy,
+        hx - side * 3, 27 + cy,
+      );
+      // Bone-titanium highlight along outer horn ridge & glowing plasma collar.
+      this.line('#c8b69b', 2, cx + side * 32, 22 + cy, cx + side * 36, 11 + cy);
+      this.line('#ff4e1c', 2.2, hx - side * 2, 27 + cy, hx + side * 3, 33 + cy);
+    }
+
+    // Brutish hexagonal dark-iron / alien-olive ogre-robot cranium.
+    this.poly(
+      '#283034',
+      cx - 22, 34 + cy,
+      cx - 18, 16 + cy,
+      cx - 8, 11 + cy,
+      cx + 8, 11 + cy,
+      cx + 18, 16 + cy,
+      cx + 22, 34 + cy,
+      cx + 20, 56 + cy,
+      cx + 12, 62 + cy,
+      cx - 12, 62 + cy,
+      cx - 20, 56 + cy,
+    );
+    // Forehead armor plate & crimson Council war-stripes.
+    this.poly('#3b454b', cx - 15, 16 + cy, cx + 15, 16 + cy, cx + 18, 30 + cy, cx, 34 + cy, cx - 18, 30 + cy);
+    this.poly('#b82018', cx - 4, 12 + cy, cx + 4, 12 + cy, cx + 2, 29 + cy, cx - 2, 29 + cy);
+    this.rect(cx - 13, 18 + cy, 3, 9, '#9e1c16');
+    this.rect(cx + 10, 18 + cy, 3, 9, '#9e1c16');
+
+    // Deep recessed visor cavity under heavy angry V-shaped steel brow ridge.
+    this.poly('#0d0507', cx - 17, 30 + cy, cx + 17, 30 + cy, cx + 15, 43 + cy, cx - 15, 43 + cy);
+
+    // Glowing furious molten-amber / crimson alien eyes + smaller outer sub-optics.
+    const eyeY = 36 + cy;
+    const ragePulse = talking && f % 2 === 0 ? 1.15 : 0.95;
+    for (const side of [-1, 1] as const) {
+      const ex = cx + side * 8;
+      // Outer red rage halo.
+      this.blob(ex, eyeY, 5.2 * ragePulse, 3.0 * ragePulse, '#c81c12');
+      // Burning amber optic slit angled fiercely inward.
+      this.poly(
+        '#ff941c',
+        ex - side * 4.5, eyeY + 1.5,
+        ex + side * 4.2, eyeY - 2.2,
+        ex + side * 4.2, eyeY + 0.6,
+        ex - side * 4.2, eyeY + 2.8,
+      );
+      this.blob(ex, eyeY, 1.8, 1.3, '#fff3b8');
+      // Secondary alien temple sub-optic.
+      this.blob(cx + side * 15, eyeY - 1, 1.6, 1.6, '#ff3b1a');
+    }
+
+    // Heavy scowling V-angled steel brow plates slamming down over the eyes.
+    this.poly('#4f5962', cx - 20, 26 + cy, cx, 33 + cy, cx + 20, 26 + cy, cx + 18, 31 + cy, cx, 37 + cy, cx - 18, 31 + cy);
+    this.line('#7c8791', 1.2, cx - 18, 27 + cy, cx, 33 + cy);
+    this.line('#7c8791', 1.2, cx + 18, 27 + cy, cx, 33 + cy);
+
+    // Metallic flared cheek vents & nose ridge.
+    this.poly('#1b2024', cx - 3, 38 + cy, cx + 3, 38 + cy, cx + 4, 44 + cy, cx - 4, 44 + cy);
+
+    // Heavy cybernetic lower ogre jaw / roaring furnace vocoder maw + 4 jagged chrome tusks!
+    const open = talking ? (f % 3 === 0 ? 7.5 : f % 2 === 0 ? 4.5 : 2) : 0;
+    const jawY = 51 + cy;
+    // Lower mandible drops downward as TIAMAT bellows.
+    this.poly(
+      '#343d43',
+      cx - 17, jawY - 2,
+      cx + 17, jawY - 2,
+      cx + 15, jawY + 9 + open * 0.75,
+      cx + 8, jawY + 13 + open * 0.85,
+      cx - 8, jawY + 13 + open * 0.85,
+      cx - 15, jawY + 9 + open * 0.75,
+    );
+    // Glowing furnace mouth interior & vertical vocoder grille bars.
+    this.rect(cx - 12, jawY - 1, 24, 5 + open, '#1a0406');
+    const barColor = open > 4 ? '#ffbb33' : '#ff441a';
+    for (let bx = -9; bx <= 9; bx += 3) {
+      const barH = Math.max(2, (3 + open) * (0.6 + 0.4 * Math.abs(Math.sin(f * 1.7 + bx))));
+      this.rect(cx + bx - 0.8, jawY + 1.5 + open * 0.5 - barH * 0.5, 1.6, barH, barColor);
+    }
+    // Four upward-jutting jagged titanium ogre tusks along the lower jaw!
+    const tuskBase = jawY + 4 + open * 0.75;
+    for (const side of [-1, 1] as const) {
+      // Big outer fangs.
+      this.poly(
+        '#dce2e6',
+        cx + side * 12, tuskBase,
+        cx + side * 8.5, tuskBase,
+        cx + side * 11, tuskBase - 9.5,
+      );
+      // Inner shorter fangs.
+      this.poly(
+        '#b8c2c9',
+        cx + side * 5.5, tuskBase,
+        cx + side * 3, tuskBase,
+        cx + side * 4.2, tuskBase - 5.5,
+      );
+    }
+
+    // Pulsing crimson Council Annihilation-Net status beacon in top-left corner.
+    g.globalAlpha = 0.9;
+    this.blob(10, 10, 3.3, 3.3, talking && f % 2 === 0 ? '#ff3b1a' : '#6e1610');
+    if (talking && f % 2 === 0) this.blob(10, 10, 1.4, 1.4, '#ffd685');
+    g.globalAlpha = 1;
   }
 
   /** Colonel Darrow (Northern Command CO, Valken Airbase): flight-ops radar room, steel-blue service jacket, ops glasses. */

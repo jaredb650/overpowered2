@@ -186,32 +186,43 @@ describe('Desert Raid (Mission 5 — 8-Section Campaign)', () => {
     }
   });
 
-  it('contains zero Council lines or references and preserves all draft Quist/Marr dialogue verbatim', () => {
-    const allowedSpeakers = new Set(['quist', 'marr', 'radio']);
+  it('uses TIAMAT, Council, Quist, and Radio speakers and preserves all agreed Quist dialogue verbatim', () => {
+    const allowedSpeakers = new Set(['quist', 'tiamat', 'council', 'radio']);
     for (const line of DESERT_RAID.lines) {
       expect(allowedSpeakers.has(line.speaker), `unexpected speaker ${line.speaker} on ${line.id}`).toBe(true);
-      expect(line.id).toMatch(/^mission\.desert_raid\.(quist|marr|radio)\.[a-z0-9.]+$/);
-      expect(line.id.toLowerCase()).not.toContain('council');
-      expect(line.text.toLowerCase()).not.toContain('council');
+      expect(line.id).toMatch(/^mission\.desert_raid\.(quist|tiamat|council|radio)\.[a-z0-9.]+$/);
     }
 
     expect(REDEPLOY_LINES.length).toBeGreaterThanOrEqual(3);
     for (const id of REDEPLOY_LINES) {
       const found = DESERT_RAID.lines.find(l => l.id === id);
       expect(found, `missing redeploy line ${id}`).toBeDefined();
-      expect(found!.speaker).toBe('marr');
+      expect(found!.speaker).toBe('tiamat');
     }
 
     const byKey = (key: string) => DESERT_RAID.lines.find(l => l.id === `mission.desert_raid.${key}`)?.text;
 
-    // Agreed verbatim lines from docs/campaign/DESERT-RAID.md
+    // Agreed verbatim Quist lines from docs/campaign/DESERT-RAID.md
     expect(byKey('quist.approach.warn')).toBe("You're a long way from water. Turn around and I'll let you die of thirst instead.");
     expect(byKey('quist.wall.gate')).toBe('You can scratch my walls all day. That gate held off an army.');
-    expect(byKey('marr.wall.breached')).toBe("Gate's down. On foot. Go.");
     expect(byKey('quist.warren.bounty')).toBe('A year of water to whoever brings me one of their heads.');
     expect(byKey('quist.pump.tower')).toBe('You came for water. Have all of it.');
-    expect(byKey('marr.pump.sewer')).toBe("Street's gone. Storm grate, west side. Thermal on.");
     expect(byKey('quist.sewer.dark.1')).toBe('Down in the drains. Come out where I can see you.');
+
+    // TIAMAT iconic lines & Council/Quist comedic banter
+    expect(byKey('tiamat.approach.start')).toContain('YOUR SPECIES HAS BEEN DECLARED FORFEIT BY THE COUNCIL');
+    expect(byKey('tiamat.approach.start')).toContain('fifty-cal');
+    expect(byKey('tiamat.wall.broadside')).toContain("THESE WALLS ARE THE BEST DEFENSES YOU'VE GOT");
+    expect(byKey('tiamat.wall.breached')).toContain('GATE');
+    expect(byKey('tiamat.pump.sewer')).toContain('Thermal');
+    expect(byKey('council.approach.scold')).toBeDefined();
+    expect(byKey('tiamat.approach.defiant')).toBeDefined();
+    expect(byKey('quist.warren.banter')).toBeDefined();
+    expect(byKey('council.warren.scold')).toBeDefined();
+    expect(byKey('tiamat.warren.defiant')).toBeDefined();
+    expect(byKey('quist.terraces.banter')).toBeDefined();
+    expect(byKey('council.exfil.scold')).toBeDefined();
+    expect(byKey('tiamat.exfil.defiant')).toBeDefined();
 
     // Quist's 15-20s cornered speech (4 crisp lines)
     expect(byKey('quist.speech.1')).toBe('Eleven years I kept this town alive. Water, food, order.');
@@ -228,15 +239,14 @@ describe('Desert Raid (Mission 5 — 8-Section Campaign)', () => {
     expect(byKey('quist.grenade')).toBe("Come closer. I'll tell you a secret.");
     expect(byKey('quist.captured')).toBeDefined();
 
-    // New 8-section dialogue lines (Jackal HMG+AGL, Sewer, High Terraces, Salt Cave, Live Cuffed Escort)
-    expect(byKey('marr.approach.start')).toContain('fifty-cal');
-    expect(byKey('marr.terraces.start')).toBeDefined();
+    // 8-section dialogue lines (Jackal HMG+AGL, Sewer, High Terraces, Salt Cave, Live Cuffed Escort)
+    expect(byKey('tiamat.terraces.start')).toBeDefined();
     expect(byKey('quist.terraces.mock')).toBeDefined();
-    expect(byKey('marr.cave.start')).toBeDefined();
+    expect(byKey('tiamat.cave.start')).toBeDefined();
     expect(byKey('quist.cave.warn')).toBeDefined();
-    expect(byKey('marr.escort.start')).toBeDefined();
-    expect(byKey('marr.escort.crushed')).toBeDefined();
-    expect(byKey('marr.escort.shot')).toBeDefined();
+    expect(byKey('tiamat.escort.start')).toBeDefined();
+    expect(byKey('tiamat.escort.crushed')).toBeDefined();
+    expect(byKey('tiamat.escort.shot')).toBeDefined();
 
     // Captured Quist ending lines
     expect(byKey('quist.ending.1')).toBeDefined();
@@ -396,21 +406,26 @@ describe('Desert Raid (Mission 5 — 8-Section Campaign)', () => {
     expect(host.calls).toContainEqual(['dr.caveStart', undefined]);
     expect(host.calls).toContainEqual(['dr.exfilChase', '6']);
 
+    expect(host.said).toContain('mission.desert_raid.tiamat.approach.start');
+    expect(host.said).toContain('mission.desert_raid.council.approach.scold');
+    expect(host.said).toContain('mission.desert_raid.tiamat.approach.defiant');
     expect(host.said).toContain('mission.desert_raid.quist.approach.warn');
     expect(host.said).toContain('mission.desert_raid.quist.wall.gate');
-    expect(host.said).toContain('mission.desert_raid.marr.wall.breached');
+    expect(host.said).toContain('mission.desert_raid.tiamat.wall.breached');
     expect(host.said).toContain('mission.desert_raid.quist.warren.bounty');
     expect(host.said).toContain('mission.desert_raid.quist.pump.tower');
-    expect(host.said).toContain('mission.desert_raid.marr.pump.sewer');
+    expect(host.said).toContain('mission.desert_raid.tiamat.pump.sewer');
     expect(host.said).toContain('mission.desert_raid.quist.sewer.dark.1');
-    expect(host.said).toContain('mission.desert_raid.marr.terraces.start');
+    expect(host.said).toContain('mission.desert_raid.tiamat.terraces.start');
     expect(host.said).toContain('mission.desert_raid.quist.terraces.mock');
-    expect(host.said).toContain('mission.desert_raid.marr.cave.start');
+    expect(host.said).toContain('mission.desert_raid.tiamat.cave.start');
     expect(host.said).toContain('mission.desert_raid.quist.cave.warn');
-    expect(host.said).toContain('mission.desert_raid.marr.door1.open');
-    expect(host.said).toContain('mission.desert_raid.marr.door2.open');
-    expect(host.said).toContain('mission.desert_raid.marr.quist.captured');
-    expect(host.said).toContain('mission.desert_raid.marr.escort.start');
+    expect(host.said).toContain('mission.desert_raid.tiamat.door1.open');
+    expect(host.said).toContain('mission.desert_raid.tiamat.door2.open');
+    expect(host.said).toContain('mission.desert_raid.tiamat.quist.captured');
+    expect(host.said).toContain('mission.desert_raid.tiamat.escort.start');
+    expect(host.said).toContain('mission.desert_raid.council.exfil.scold');
+    expect(host.said).toContain('mission.desert_raid.tiamat.exfil.defiant');
     expect(host.said).toContain('mission.desert_raid.quist.ending.1');
     expect(host.said).toContain('mission.desert_raid.quist.ending.3');
   });
@@ -499,7 +514,7 @@ describe('Desert Raid (Mission 5 — 8-Section Campaign)', () => {
     capturedHooks!.onEscortLost?.('crushed');
     expect(director.quistCaptured).toBe(false);
     expect(setQuistCapturedSpy).toHaveBeenCalledWith(false);
-    expect(spoken).toContain('mission.desert_raid.marr.escort.crushed');
+    expect(spoken).toContain('mission.desert_raid.tiamat.escort.crushed');
 
     director.call('dr.exfilChase', '6');
     expect(startChaseSpy).toHaveBeenLastCalledWith(false);
@@ -512,10 +527,10 @@ describe('Desert Raid (Mission 5 — 8-Section Campaign)', () => {
     capturedHooks!.onOutcome('captured');
     capturedHooks!.onEscortLost?.('shot');
     expect(director.quistCaptured).toBe(false);
-    expect(spoken).toContain('mission.desert_raid.marr.escort.shot');
+    expect(spoken).toContain('mission.desert_raid.tiamat.escort.shot');
   });
 
-  it('recovers cleanly from checkpoint deaths across all 8 beats and plays Marr redeploy lines', () => {
+  it('recovers cleanly from checkpoint deaths across all 8 beats and plays TIAMAT redeploy lines', () => {
     const host = new FakeHost();
     const run = new MissionRunner(DESERT_RAID, host);
     const died = new Set<string>();
@@ -569,9 +584,9 @@ describe('Desert Raid (Mission 5 — 8-Section Campaign)', () => {
     expect(died.size).toBe(allBeatIds.length);
     expect(run.deaths).toBe(8);
     expect(host.finishedCount).toBe(1);
-    expect(host.said).toContain('mission.desert_raid.marr.redeploy.1');
-    expect(host.said).toContain('mission.desert_raid.marr.redeploy.2');
-    expect(host.said).toContain('mission.desert_raid.marr.redeploy.3');
+    expect(host.said).toContain('mission.desert_raid.tiamat.redeploy.1');
+    expect(host.said).toContain('mission.desert_raid.tiamat.redeploy.2');
+    expect(host.said).toContain('mission.desert_raid.tiamat.redeploy.3');
   });
 
   it('SaltbloodStyler styles raiders & heavy Plane guards once per uid without duplicates', () => {
@@ -634,9 +649,9 @@ describe('Desert Raid (Mission 5 — 8-Section Campaign)', () => {
 
     director.ensureBuilt();
     const quistLine = DESERT_RAID.lines.find(l => l.speaker === 'quist')!;
-    const marrLine = DESERT_RAID.lines.find(l => l.speaker === 'marr')!;
+    const tiamatLine = DESERT_RAID.lines.find(l => l.speaker === 'tiamat')!;
 
-    fakeUi.speak(marrLine, () => {});
+    fakeUi.speak(tiamatLine, () => {});
     expect(pulseSpy).toHaveBeenCalledTimes(0);
 
     fakeUi.speak(quistLine, () => {});

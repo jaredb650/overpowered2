@@ -59,9 +59,13 @@ function makeHumanoidCharStub() {
   }
   const anim = {
     posture: 'stand',
+    postures: [] as string[],
     setPosture(p: string) {
       anim.posture = p;
+      anim.postures.push(p);
     },
+    disarm: vi.fn(),
+    play: vi.fn(),
   };
   return { root, bones, anim };
 }
@@ -148,12 +152,7 @@ function makeSetpiecesEnv(opts: { realEnemyManager?: boolean } = {}) {
     const char = makeHumanoidCharStub();
     char.root.position.copy(pos);
     scene.add(char.root);
-    const anim = {
-      posture: 'stand',
-      setPosture(p: string) {
-        anim.posture = p;
-      },
-    };
+    const anim = char.anim;
     const enemy = {
       uid: nextEnemyUid++,
       type,
@@ -804,6 +803,48 @@ describe('DesertSetpieces (Mission 5 — Desert Raid)', () => {
     env.step(1.5, 0.1);
     expect(env.sounds).not.toContain('enemy_pistol');
     expect(env.outcomes).toEqual(['killed']);
+  });
+
+  it('Outcome 5c: waits for Quist speech & final line to finish talking and animates holster -> pistol -> temple before shooting', () => {
+    const env = makeSetpiecesEnv({ realEnemyManager: true });
+    const uiMock = env.ui as unknown as { talking: boolean };
+    uiMock.talking = true;
+
+    env.setpieces.startPlaneChase(env.hooks);
+    env.setpieces.advanceQuistToTail();
+    const quist = env.aliveEnemies[0] as unknown as { anim: { postures: string[]; play: ReturnType<typeof vi.fn> } };
+    expect(quist).toBeTruthy();
+    env.player.position.set(0, CARGO_PLANE.floorY, CARGO_PLANE.quistCornerPos[2] + 10.5);
+
+    // Even after QUIST_SPEECH_DURATION, must NOT cut off speech while ui.talking is true
+    env.step(QUIST_SPEECH_DURATION + 1.0, 0.1);
+    expect(env.setpieces.quistState).toBe('speech');
+
+    // Once speech finishes talking, begins pistol draw in 'holster' posture
+    uiMock.talking = false;
+    env.step(0.1, 0.05);
+    expect(env.setpieces.quistState).toBe('suicide_draw');
+    expect(quist.anim.postures).toContain('holster');
+
+    // Mid-draw transitions to 'pistol', then 'temple'
+    uiMock.talking = true;
+    env.step(QUIST_SUICIDE_DRAW + 0.05, 0.05);
+    expect(env.setpieces.quistState).toBe('suicide_temple');
+    expect(quist.anim.postures).toContain('pistol');
+    expect(quist.anim.postures).toContain('temple');
+
+    // Must NOT pull the trigger while "Not by your hand." is still talking!
+    env.step(QUIST_SUICIDE_TEMPLE + 0.5, 0.05);
+    expect(env.setpieces.quistOutcome).toBeNull();
+    expect(env.setpieces.quistState).toBe('suicide_temple');
+
+    // Once the final line finishes, pulls the trigger cleanly
+    uiMock.talking = false;
+    env.step(0.1, 0.05);
+    expect(env.setpieces.quistOutcome).toBe('suicide');
+    expect(env.setpieces.quistState).toBe('dead');
+    expect(env.sounds).toContain('enemy_pistol');
+    expect(quist.anim.play).toHaveBeenCalledWith('shoot', 1);
   });
 
   // -----------------------------------------------------------------------------------------------

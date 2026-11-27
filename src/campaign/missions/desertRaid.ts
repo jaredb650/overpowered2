@@ -1,11 +1,11 @@
 /**
  * Campaign Mission 5 — "Desert Raid" (Surplus, the Saltblood shantytown).
  *
- * Strictly NO Council story or Council lines — pure gritty Saltblood raid led by Sergeant Marr
+ * Led by TIAMAT (angry Council alien ogre-robot) with deadpan Council scolding & comedic trash-talk
  * against Hadrek Quist ("the Salt King").
  *
  * Eight full sections with checkpoints on every beat and Thermal Vision brain chip equipped:
- *   1. approach      — Dawn 3-truck convoy rollout on the Mk 19 40mm grenade launcher, 4 manned lookout posts & 2 bandit bike/technical packs
+ *   1. approach      — Dawn 3-truck convoy rollout on the Jackal .50-cal + 40mm turret, 4 manned lookout posts & 2 bandit bike/technical packs
  *   2. the_wall      — Slow broadside shooting gallery along the sturdier scrap wall, 16 elevated defenders on battlements & watchtowers, side-gate trucks, Warthog breach & dismount
  *   3. the_warren    — Multi-stage cut-your-own-way shantytown fight on foot (Wave 1 + Quist water-bounty Wave 2 horde) & optional rooftop Minigun
  *   4. pump_yard     — Fortified Pump Yard, Quist drops the 18.5 m Water Tower to flood & seal the street, 50 m dark Storm Sewer push with Thermal Vision & 3 ambush squads
@@ -46,7 +46,7 @@ export const DESERT_RAID: Mission = {
 
   beats: [
     // -------------------------------------------------------------------------------------------
-    // Section 1: The Approach (dawn open desert on the Mk 19 40mm belt-fed grenade launcher)
+    // Section 1: The Approach (dawn open desert on the Jackal .50-cal HMG + 40mm AGL turret)
     // -------------------------------------------------------------------------------------------
     {
       id: 'approach',
@@ -67,7 +67,9 @@ export const DESERT_RAID: Mission = {
         { do: 'squad', tag: 'lookout_2', men: ['trooper', 'sniper'], at: 'lookoutPost2', orders: 'hold', ensure: true },
         { do: 'squad', tag: 'lookout_3', men: ['trooper', 'gunner', 'sniper'], at: 'lookoutPost3', orders: 'hold', ensure: true },
         { do: 'squad', tag: 'lookout_4', men: ['trooper', 'gunner'], at: 'lookoutPost4', orders: 'hold', ensure: true },
-        say('marr.approach.start'),
+        say('tiamat.approach.start'),
+        say('council.approach.scold'),
+        say('tiamat.approach.defiant'),
         { do: 'objective', id: 'approach_surplus', text: 'Ride the convoy across the dunes to Surplus', at: 'mainGateObj' },
         { do: 'hint', text: 'You man the Jackal technical turret — LMB .50-cal HMG, RMB 40mm grenade launcher. Shred Saltblood lookouts, motos, quads, and technicals!', seconds: 8 },
         { do: 'until', when: { any: [{ signal: 'dr:approach_done' }, { zone: 'wallFront' }] } },
@@ -95,7 +97,7 @@ export const DESERT_RAID: Mission = {
         },
         {
           when: { after: 18 },
-          run: [say('marr.approach.horizon')],
+          run: [say('tiamat.approach.horizon')],
         },
       ],
     },
@@ -124,7 +126,7 @@ export const DESERT_RAID: Mission = {
         { do: 'squad', tag: 'wall_east_top', men: ['trooper', 'trooper', 'gunner'], at: 'wallEastTop', orders: 'hold', ensure: true },
         { do: 'squad', tag: 'wall_towers_w', men: ['sniper', 'trooper', 'gunner'], at: 'wallTowersWest', orders: 'hold', ensure: true },
         { do: 'squad', tag: 'wall_towers_e', men: ['sniper', 'trooper', 'gunner'], at: 'wallTowersEast', orders: 'hold', ensure: true },
-        say('marr.wall.broadside'),
+        say('tiamat.wall.broadside'),
         { do: 'objective', id: 'shred_wall', text: 'Tear apart the outer wall, watchtowers & Saltblood defenders', at: 'mainGateObj' },
         { do: 'hint', text: 'Hammer the scrap wall with LMB .50-cal HMG and RMB 40mm grenades — blast holes through panels, drop watchtowers by their legs, and clear the battlements!', seconds: 8 },
         {
@@ -139,7 +141,7 @@ export const DESERT_RAID: Mission = {
         },
         { do: 'done', id: 'shred_wall' },
         say('quist.wall.gate', { wait: true }),
-        say('marr.wall.warthog'),
+        say('tiamat.wall.warthog'),
         say('radio.wall.warthog'),
         { do: 'objective', id: 'breach_gate', text: 'Warthog gun run inbound on the Bulldozer Gate', at: 'mainGateObj' },
         { do: 'call', name: 'dr.warthogGate' },
@@ -147,7 +149,7 @@ export const DESERT_RAID: Mission = {
         { do: 'done', id: 'breach_gate' },
         { do: 'call', name: 'dr.dropSquads' },
         { do: 'call', name: 'dr.dismount' },
-        say('marr.wall.breached', { now: true }),
+        say('tiamat.wall.breached', { now: true }),
         { do: 'wait', seconds: 1.5 },
         { do: 'goto', beat: 'the_warren' },
       ],
@@ -193,7 +195,7 @@ export const DESERT_RAID: Mission = {
         { do: 'squad', tag: 'warren_south', men: ['trooper', 'trooper', 'gunner', 'riot'], at: 'warrenSouthPost', ensure: true },
         { do: 'squad', tag: 'warren_west_roof', men: ['trooper', 'gunner', 'sniper', 'trooper'], at: 'warrenWestRoof', orders: 'hold', ensure: true },
         { do: 'squad', tag: 'warren_east_alley', men: ['trooper', 'gunner', 'trooper', 'riot'], at: 'warrenEastAlley', ensure: true },
-        say('marr.warren.enter'),
+        say('tiamat.warren.enter'),
         { do: 'objective', id: 'push_warren', text: 'Fight north through the Warren to the Pump Yard', at: 'pumpEntry' },
         { do: 'hint', text: 'Shack walls splinter under fire — blast through buildings, leap rooftops, or man the optional west rooftop Minigun.', seconds: 8 },
         {
@@ -214,10 +216,10 @@ export const DESERT_RAID: Mission = {
           when: { zone: 'warrenSouth' },
           run: [
             { do: 'wait', seconds: 3.0 },
-            say('marr.warren.minigun'),
+            say('tiamat.warren.minigun'),
           ],
         },
-        // Wave 2 (Water Bounty Horde — 12 fresh flankers & rooftop raiders)
+        // Wave 2 (Water Bounty Horde — 12 fresh flankers & rooftop raiders + Quist/TIAMAT/Council banter)
         {
           when: { any: [{ zone: 'warrenMid' }, { cleared: ['warren_south', 'warren_west_roof', 'warren_east_alley'] }] },
           run: [
@@ -227,7 +229,10 @@ export const DESERT_RAID: Mission = {
             { do: 'squad', tag: 'warren_bounty_e', men: ['trooper', 'gunner', 'brute', 'trooper'], at: 'warrenBountyEast', ensure: true },
             { do: 'squad', tag: 'warren_bounty_n', men: ['trooper', 'gunner', 'sniper', 'riot'], at: 'warrenBountyNorth', ensure: true },
             say('radio.warren.squad'),
-            say('marr.warren.push'),
+            say('quist.warren.banter'),
+            say('tiamat.warren.push'),
+            say('council.warren.scold'),
+            say('tiamat.warren.defiant'),
           ],
         },
       ],
@@ -259,13 +264,13 @@ export const DESERT_RAID: Mission = {
         { do: 'squad', tag: 'pump_west', men: ['trooper', 'gunner', 'warden', 'riot'], at: 'pumpWest', ensure: true },
         { do: 'squad', tag: 'pump_east', men: ['trooper', 'riot', 'sniper', 'gunner'], at: 'pumpEast', ensure: true },
         { do: 'squad', tag: 'pump_tower_guard', men: ['trooper', 'gunner', 'brute', 'warden'], at: 'pumpTowerGuard', ensure: true },
-        say('marr.pump.enter'),
+        say('tiamat.pump.enter'),
         { do: 'objective', id: 'cross_pump', text: 'Fight through the Pump Yard toward the Water Tower', at: 'waterTowerObj' },
         { do: 'until', when: { any: [{ signal: 'dr:tower_dropped' }, { zone: 'pumpTrigger' }, { zone: 'sewer' }, { zone: 'terracesEntry' }] } },
         { do: 'done', id: 'cross_pump' },
         say('quist.pump.tower', { now: true }),
         { do: 'wait', seconds: 1.6 },
-        say('marr.pump.sewer'),
+        say('tiamat.pump.sewer'),
         { do: 'hint', text: 'Press [T] for your Thermal Vision brain chip — 50 m of pitch-black vaulted storm sewer ahead, packed with Saltblood ambushers!', seconds: 9 },
         { do: 'objective', id: 'enter_sewer', text: 'Drop into the west storm sewer and fight north to the exit ladder', at: 'sewerGrate' },
         { do: 'drop', item: 'health', at: 'sewerDropHealth' },
@@ -286,10 +291,10 @@ export const DESERT_RAID: Mission = {
             { do: 'objective', id: 'exit_sewer', text: 'Fight through the storm sewer and climb the north ladder to the High Terraces', at: 'sewerExit' },
             say('quist.sewer.dark.1'),
             { do: 'wait', seconds: 4.5 },
-            say('marr.sewer.ambush'),
+            say('tiamat.sewer.ambush'),
             { do: 'wait', seconds: 4.0 },
             say('quist.sewer.dark.2'),
-            say('marr.sewer.exit'),
+            say('tiamat.sewer.exit'),
           ],
         },
       ],
@@ -322,7 +327,7 @@ export const DESERT_RAID: Mission = {
         { do: 'squad', tag: 'terrace_towers_low', men: ['sniper', 'gunner', 'trooper', 'sniper'], at: 'terraceTowersLow', orders: 'hold', ensure: true },
         { do: 'squad', tag: 'terrace_tents_mid', men: ['trooper', 'trooper', 'gunner', 'sniper', 'trooper', 'gunner'], at: 'terraceTentsMid', orders: 'hold', ensure: true },
         { do: 'squad', tag: 'terrace_courtyard', men: ['trooper', 'gunner', 'riot', 'trooper', 'brute'], at: 'terraceCourtyard', ensure: true },
-        say('marr.terraces.start'),
+        say('tiamat.terraces.start'),
         { do: 'objective', id: 'climb_terraces', text: 'Fight uphill through the High Terraces to the Salt Cave mouth', at: 'caveMouthObj' },
         { do: 'hint', text: 'Watch the upper perches — shoot out the timber legs under watchtowers and stilted tents to drop Saltblood snipers!', seconds: 8 },
         { do: 'until', when: { any: [{ zone: 'caveEntry' }, { signal: 'dr:cave_reached' }] } },
@@ -338,7 +343,8 @@ export const DESERT_RAID: Mission = {
             { do: 'release', tag: 'terrace_towers_low' },
             { do: 'release', tag: 'terrace_tents_mid' },
             { do: 'drop', item: 'ammo', at: 'terracesUpperAmmo' },
-            say('marr.terraces.push'),
+            say('quist.terraces.banter'),
+            say('tiamat.terraces.push'),
           ],
         },
       ],
@@ -366,7 +372,7 @@ export const DESERT_RAID: Mission = {
         { do: 'drop', item: 'health', at: 'caveDropHealth' },
         // 14 Saltblood Cave Elites across entry descent (4), main pillar chamber (6) & exit vanguard (4)
         { do: 'squad', tag: 'cave_mouth_guard', men: ['trooper', 'gunner', 'riot', 'gunner'], at: 'caveMouthGuard', orders: 'hold', ensure: true },
-        say('marr.cave.start'),
+        say('tiamat.cave.start'),
         { do: 'objective', id: 'push_cave', text: 'Fight through the Salt Cave to emerge at the Crashed Cargo Plane', at: 'planeEntry' },
         { do: 'hint', text: 'Close-quarters cavern fight — drop the timber mine-shoring gantries and use Thermal [T] to spot elites behind the salt pillars.', seconds: 8 },
         { do: 'until', when: { any: [{ zone: 'planeForecourtZone' }, { signal: 'dr:plane_reached' }] } },
@@ -381,7 +387,7 @@ export const DESERT_RAID: Mission = {
             { do: 'squad', tag: 'cave_chamber_main', men: ['brute', 'gunner', 'gunner', 'riot', 'warden', 'trooper'], at: 'caveChamberMain', ensure: true },
             { do: 'squad', tag: 'cave_exit_ambush', men: ['warden', 'brute', 'riot', 'gunner'], at: 'caveExitAmbush', orders: 'hold', ensure: true },
             { do: 'drop', item: 'health', at: 'caveMidHealth' },
-            say('marr.cave.push'),
+            say('tiamat.cave.push'),
           ],
         },
         {
@@ -419,7 +425,7 @@ export const DESERT_RAID: Mission = {
         { do: 'squad', tag: 'plane_bay2', men: ['brute', 'warden', 'gunner', 'riot'], at: 'planeBay2', orders: 'hold', ensure: true },
         { do: 'squad', tag: 'plane_tail_guard', men: ['warden', 'brute', 'gunner', 'riot'], at: 'planeTailGuard', orders: 'hold', ensure: true },
         { do: 'call', name: 'dr.planeStart' },
-        say('marr.plane.enter'),
+        say('tiamat.plane.enter'),
         { do: 'objective', id: 'corner_quist', text: 'Storm the Cargo Plane and corner Hadrek Quist at the tail', at: 'quistTail' },
         { do: 'until', when: { signal: 'dr:quist_done' } },
         { do: 'done', id: 'corner_quist' },
@@ -433,7 +439,7 @@ export const DESERT_RAID: Mission = {
             { do: 'door', door: 'plane.door1', open: 0, seconds: 0.55 },
             { do: 'release', tag: 'plane_bay1' },
             say('quist.door1', { now: true }),
-            say('marr.door1.locked'),
+            say('tiamat.door1.locked'),
           ],
         },
         {
@@ -441,7 +447,7 @@ export const DESERT_RAID: Mission = {
           run: [
             { do: 'wait', seconds: 0.8 },
             { do: 'door', door: 'plane.door1', open: 1, seconds: 1.0 },
-            say('marr.door1.open'),
+            say('tiamat.door1.open'),
           ],
         },
         {
@@ -457,7 +463,7 @@ export const DESERT_RAID: Mission = {
             { do: 'door', door: 'plane.door2', open: 0, seconds: 0.55 },
             { do: 'release', tag: 'plane_bay2' },
             say('quist.door2', { now: true }),
-            say('marr.door2.locked'),
+            say('tiamat.door2.locked'),
           ],
         },
         {
@@ -466,7 +472,7 @@ export const DESERT_RAID: Mission = {
             { do: 'wait', seconds: 0.8 },
             { do: 'door', door: 'plane.door2', open: 1, seconds: 1.0 },
             { do: 'release', tag: 'plane_tail_guard' },
-            say('marr.door2.open'),
+            say('tiamat.door2.open'),
           ],
         },
         {
@@ -478,19 +484,19 @@ export const DESERT_RAID: Mission = {
         },
         {
           when: { signal: 'dr:quist_captured' },
-          run: [say('marr.quist.captured')],
+          run: [say('tiamat.quist.captured')],
         },
         {
           when: { signal: 'dr:quist_killed' },
-          run: [say('marr.quist.killed', { now: true })],
+          run: [say('tiamat.quist.killed', { now: true })],
         },
         {
           when: { signal: 'dr:quist_suicide' },
-          run: [say('marr.quist.suicide')],
+          run: [say('tiamat.quist.suicide')],
         },
         {
           when: { signal: 'dr:quist_grenade_survived' },
-          run: [say('marr.quist.grenade')],
+          run: [say('tiamat.quist.grenade')],
         },
       ],
     },
@@ -508,8 +514,8 @@ export const DESERT_RAID: Mission = {
         { do: 'music', state: 'hard' },
         { do: 'banner', text: 'ESCORT & EXFIL', sub: 'CONVOY BREAKOUT // SURPLUS' },
         { do: 'call', name: 'dr.exfilArrive' },
-        say('radio.exfil.arrive', { now: true }),
-        say('marr.exfil.board'),
+        say('radio.exfil.arrive'),
+        say('tiamat.exfil.board'),
         { do: 'objective', id: 'board_convoy', text: 'Board the middle convoy truck in the forecourt', at: 'exfilPickup' },
         { do: 'hint', text: 'Press {interact} at the middle Jackal technical to mount the roof turret and break out!', seconds: 8 },
         { do: 'until', when: { signal: 'dr:exfil_boarded' } },
@@ -520,8 +526,10 @@ export const DESERT_RAID: Mission = {
         { do: 'objective', id: 'escape_surplus', text: 'Fight off pursuing Saltbloods down the bypass canyon road' },
         { do: 'until', when: { signal: 'dr:exfil_clear' } },
         { do: 'done', id: 'escape_surplus' },
-        say('marr.exfil.airstrike', { now: true }),
+        say('tiamat.exfil.airstrike', { now: true }),
         say('radio.exfil.strikes'),
+        say('council.exfil.scold'),
+        say('tiamat.exfil.defiant'),
         { do: 'call', name: 'dr.endingCutscene' },
         { do: 'until', when: { any: [{ signal: 'dr:ending_done' }, { after: 20 }] } },
         { do: 'wait', seconds: 0.25 },
@@ -531,7 +539,7 @@ export const DESERT_RAID: Mission = {
         {
           when: { signal: 'dr:escort_active' },
           run: [
-            say('marr.escort.start'),
+            say('tiamat.escort.start'),
             { do: 'squad', tag: 'exfil_stragglers', men: ['trooper', 'trooper', 'gunner', 'riot', 'gunner'], at: 'exfilStragglers', ensure: true },
             { do: 'hint', text: 'Escort cuffed Quist from the tail to the middle truck — watch for falling scrap and Saltblood stragglers!', seconds: 9 },
           ],

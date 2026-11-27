@@ -15,13 +15,13 @@ import { CALLSIGNS } from '../outpost/doctrine';
 import { ADAPTATIONS, TRICKS, type AdaptationId, type Tone, type TrickId } from './adaptations';
 
 /**
- * `harbourmaster`: Holdfast PA; `governor`: Reserve PA/gunship; `quist`: Hadrek Quist (Surplus PA); `marr`: Sgt Marr (Desert Raid);
+ * `harbourmaster`: Holdfast PA; `governor`: Reserve PA/gunship; `quist`: Hadrek Quist (Surplus PA); `tiamat`: TIAMAT (Desert Raid);
  * `darrow`: Col Darrow (Valken Airbase); `halvorsen`: Gen Halvorsen (Fortress Halcyon); `mercer`: Capt Mercer (Halcyon Beachhead);
  * `viper`: Viper Flight (Crossfire air wing); `carrier`: CVN-91 Actual (carrier air control).
  */
 export type Speaker =
   | 'commander' | 'council' | 'intercept' | 'radio'
-  | 'harbourmaster' | 'governor' | 'quist' | 'marr'
+  | 'harbourmaster' | 'governor' | 'quist' | 'tiamat'
   | 'darrow' | 'halvorsen' | 'mercer' | 'viper' | 'carrier';
 /** The arc's four, plus what the others sound like. */
 export type Emotion = Tone | 'orders' | 'deadpan' | 'urgent' | 'hushed';

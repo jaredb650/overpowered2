@@ -66,6 +66,13 @@
 .cmd-box.carrier { --accent: #38c9c9; background: #09181b; }
 .cmd-box.carrier .cmd-text { color: #ccf2f2; font-weight: 400; }
 
+/* Desert Raid: TIAMAT — angry alien ogre-robot Council war-engine. */
+.cmd-box.tiamat { --accent: #ff4422; background: #1a0a0c; }
+.cmd-box.tiamat .cmd-name { color: #120608; background: #ff4422; padding: 0.12rem 0.5rem 0.04rem; letter-spacing: 0.06em; }
+.cmd-box.tiamat .cmd-tag { color: #ff9c6e; }
+.cmd-box.tiamat .cmd-text { color: #ffe5d0; font-weight: 600; }
+.cmd-box.tiamat.urgent .cmd-name { animation: cmd-twitch 2.1s steps(1) infinite; }
+
 /* What the box does as the Commander comes apart. */
 .cmd-box.commander.rattled .cmd-text { color: #f5e6c8; }
 .cmd-box.commander.cracked { --accent: var(--blood); }

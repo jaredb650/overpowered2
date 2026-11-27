@@ -254,7 +254,7 @@ export class DesertRaid {
     if (!this.quistCaptured) return;
     this.quistCaptured = false;
     this.convoy.setQuistCaptured?.(false);
-    this.speakDirectorLine(reason === 'crushed' ? 'marr.escort.crushed' : 'marr.escort.shot', true);
+    this.speakDirectorLine(reason === 'crushed' ? 'tiamat.escort.crushed' : 'tiamat.escort.shot', true);
     this.emitOnce('dr:escort_lost');
   }
 

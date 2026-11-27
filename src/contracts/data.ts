@@ -229,7 +229,7 @@ export const CONTRACTS: readonly ContractDef[] = [
       subject: 'Hadrek Quist ("the Salt King") and the Saltblood gang at Surplus',
       body: [
         'Hadrek Quist holds the only water well within forty miles and rules the shantytown of Surplus from a crashed cargo plane at its north end. He hangs prisoners off the outer wall and raids every caravan on the salt road.',
-        'Three open trucks with mounted heavy guns are rolling across the dunes at dawn under two escort gunships. You man the heavy gun on the middle truck: strip the outer sheet-metal wall and guard towers, then storm the shantytown on foot beside Sergeant Marr\'s assault squads.',
+        'Three open trucks with mounted heavy guns are rolling across the dunes at dawn under two escort gunships. You man the heavy gun on the middle truck under the booming command of TIAMAT — an unhinged Council alien ogre-robot — stripping the outer sheet-metal wall and guard towers before storming the shantytown on foot.',
         'Everything in Surplus breaks except the plane. Cut your own path through the shacks, corner Quist in his fuselage, and decide how he leaves. Air support flattens what is left on the way out.',
       ],
       terms: [

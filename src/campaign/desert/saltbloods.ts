@@ -413,9 +413,20 @@ export function styleQuistNpc(enemy: EnemyInstance, ctx?: Ctx): QuistNpcProps {
   addPauldron(armLParent, 1);
   addPauldron(armRParent, -1);
 
+  // Disarm the trooper archetype so Quist stands unarmed (not clutching a rifle) and left-hand draw/temple postures drive freely.
+  (char?.anim as { disarm?: () => void } | undefined)?.disarm?.();
+  if (hasRig) {
+    for (const child of handRParent.children) {
+      if (child.name !== QUIST_GEAR_NAME && !(child instanceof THREE.Bone)) {
+        child.visible = false;
+      }
+    }
+  }
+
   // 6. LEFT HAND: Heavy revolver for suicide_draw / suicide_temple (hidden initially)
   const pistolInHand = new THREE.Group();
-  pistolInHand.position.set(0, hasRig ? -0.04 : 1.0, hasRig ? 0.05 : 0.1);
+  pistolInHand.position.set(0, hasRig ? -0.05 : 1.0, hasRig ? 0.06 : 0.1);
+  pistolInHand.scale.setScalar(1.35);
   const pGrip = new THREE.Mesh(geos.pGrip, gripWoodMat);
   pGrip.position.set(0, -0.03, 0);
   pGrip.rotation.x = 0.24;

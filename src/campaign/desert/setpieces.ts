@@ -70,8 +70,8 @@ export const QUIST_TAP_MAX = 0.4;
 export const QUIST_GRENADE_RANGE = 8.0;
 export const QUIST_GRENADE_WINDOW = 1.5;
 export const QUIST_GRENADE_RADIUS = 7.5;
-export const QUIST_SUICIDE_DRAW = 0.55;
-export const QUIST_SUICIDE_TEMPLE = 0.85;
+export const QUIST_SUICIDE_DRAW = 0.85;
+export const QUIST_SUICIDE_TEMPLE = 1.35;
 
 export const QUIST_ESCORT_STOP_DIST = 2.8;
 export const QUIST_ESCORT_TRAIL_DIST = 3.2;
@@ -2357,7 +2357,9 @@ export class DesertSetpieces implements SetpiecesController {
     this._speechElapsed += dt;
     this.emitDueSpeechBeats();
 
-    if (this._speechElapsed + 1e-6 >= QUIST_SPEECH_DURATION) {
+    // Never cut off Quist's final speech line while real voice audio is still playing (safety cap +12 s).
+    const speechVoiceDone = !this.ui?.talking || this._speechElapsed >= QUIST_SPEECH_DURATION + 12.0;
+    if (this._speechElapsed + 1e-6 >= QUIST_SPEECH_DURATION && speechVoiceDone) {
       this.ctx.hud?.hold?.(0);
       this.interactHeld = false;
       this.interactHoldTime = 0;
@@ -2641,14 +2643,17 @@ export class DesertSetpieces implements SetpiecesController {
     this.suicideElapsed = 0;
     this.hideQuistHud();
 
-    this.setQuistPosture('pistol');
+    // Stage 1 (0 .. 0.30 s): left hand reaches down to hip holster; pistol stays holstered until hand grabs it.
+    this.setQuistPosture('holster');
     if (this.quistNpcProps) {
-      this.quistNpcProps.pistolHolstered.visible = false;
-      this.quistNpcProps.pistolInHand.visible = true;
+      this.quistNpcProps.pistolHolstered.visible = true;
+      this.quistNpcProps.pistolInHand.visible = false;
+      this.quistNpcProps.pistolInHand.rotation.set(0, 0, 0);
     }
     if (this.quistRig) {
-      this.quistRig.pistolHolstered.visible = false;
-      this.quistRig.pistolInHand.visible = true;
+      this.quistRig.pistolHolstered.visible = true;
+      this.quistRig.pistolInHand.visible = false;
+      this.quistRig.pistolInHand.rotation.set(0, 0, 0);
     }
 
     this.ctx.audio?.play?.('weapon_draw', { position: this.quistPos, volume: 0.9 });
@@ -2656,12 +2661,52 @@ export class DesertSetpieces implements SetpiecesController {
   }
 
   private updateQuistSuicide(dt: number): void {
+    const prev = this.suicideElapsed;
     this.suicideElapsed += dt;
+
+    // Stage 2 (0.28 s .. QUIST_SUICIDE_DRAW): unholster revolver cleanly and sweep arm up in clear view.
+    const unholsterAt = Math.min(0.28, QUIST_SUICIDE_DRAW * 0.38);
+    if (this._quistState === 'suicide_draw' && this.suicideElapsed >= unholsterAt) {
+      if (prev < unholsterAt) {
+        this.setQuistPosture('pistol');
+        if (this.quistNpcProps) {
+          this.quistNpcProps.pistolHolstered.visible = false;
+          this.quistNpcProps.pistolInHand.visible = true;
+        }
+        if (this.quistRig) {
+          this.quistRig.pistolHolstered.visible = false;
+          this.quistRig.pistolInHand.visible = true;
+        }
+      }
+      // Smoothly rotate revolver barrel inward toward left temple as arm rises.
+      const liftT = clamp((this.suicideElapsed - unholsterAt) / Math.max(0.05, QUIST_SUICIDE_DRAW - unholsterAt));
+      const rotX = lerp(0.0, 0.14, liftT);
+      const rotY = lerp(0.0, -Math.PI * 0.52, liftT);
+      const rotZ = lerp(0.0, -0.22, liftT);
+      this.quistNpcProps?.pistolInHand.rotation.set(rotX, rotY, rotZ);
+      this.quistRig?.pistolInHand.rotation.set(rotX, rotY, rotZ);
+    }
+
+    // Stage 3 (QUIST_SUICIDE_DRAW .. shot): lock revolver barrel squarely against his left temple, trembling.
     if (this._quistState === 'suicide_draw' && this.suicideElapsed + 1e-6 >= QUIST_SUICIDE_DRAW) {
       this._quistState = 'suicide_temple';
       this.setQuistPosture('temple');
+      if (this.quistNpcProps) {
+        this.quistNpcProps.pistolHolstered.visible = false;
+        this.quistNpcProps.pistolInHand.visible = true;
+        this.quistNpcProps.pistolInHand.rotation.set(0.14, -Math.PI * 0.52, -0.22);
+      }
+      if (this.quistRig) {
+        this.quistRig.pistolHolstered.visible = false;
+        this.quistRig.pistolInHand.visible = true;
+        this.quistRig.pistolInHand.rotation.set(0.14, -Math.PI * 0.52, -0.22);
+      }
     }
-    if (this.suicideElapsed + 1e-6 >= QUIST_SUICIDE_DRAW + QUIST_SUICIDE_TEMPLE) {
+
+    // Wait for Quist's final line ("Not by your hand.") to finish speaking before pulling the trigger (safety cap +4.5 s).
+    const minTriggerAt = QUIST_SUICIDE_DRAW + QUIST_SUICIDE_TEMPLE;
+    const finalLineDone = !this.ui?.talking || this.suicideElapsed >= minTriggerAt + 4.5;
+    if (this.suicideElapsed + 1e-6 >= minTriggerAt && finalLineDone) {
       this.executePistolSuicide();
     }
   }
@@ -2674,15 +2719,21 @@ export class DesertSetpieces implements SetpiecesController {
     this.quistUnmark?.();
     this.quistUnmark = null;
 
+    // Trigger visible recoil kick on the arm/chest right on the gunshot frame.
+    (this.quistEnemy?.char?.anim as { play?: (action: string, speed?: number) => void } | undefined)?.play?.('shoot', 1.0);
+
     // Through the temple, left to right (matching src/enemies/outpost/flight.ts `shootSelf`)
     const headPos = _v.set(this.quistPos.x, this.quistPos.y + 1.66, this.quistPos.z).clone();
+    const headBone = this.quistEnemy?.char?.bones?.[HumanoidBone.head];
+    if (headBone) headBone.getWorldPosition(headPos);
     const shotDir = _dir.set(-Math.cos(this.quistYaw), 0, Math.sin(this.quistYaw)).clone();
+    const muzzlePos = headPos.clone().addScaledVector(shotDir, -0.11);
 
-    this.ctx.audio?.play?.('enemy_pistol', { position: headPos, volume: 1.1 });
+    this.ctx.audio?.play?.('enemy_pistol', { position: muzzlePos, volume: 1.1 });
     this.ctx.audio?.play?.('head_pop', { position: headPos, volume: 0.75 });
     this.ctx.audio?.play?.('body_thud', { position: this.quistPos, volume: 0.85 });
-    this.ctx.fx?.muzzleFlash?.(headPos, shotDir, 'pistol');
-    this.ctx.render.lights?.flash?.(headPos, 0xffd27a, 4.5, 9, 0.09);
+    this.ctx.fx?.muzzleFlash?.(muzzlePos, shotDir, 'pistol');
+    this.ctx.render.lights?.flash?.(muzzlePos, 0xffd27a, 5.2, 10, 0.11);
     this.ctx.fx?.bloodHit?.(headPos, shotDir, 1.5);
     this.ctx.fx?.bloodMist?.(headPos, 1.1);
     this.ctx.render.decals?.add?.('blood', _v2.set(this.quistPos.x, this.quistPos.y + 0.02, this.quistPos.z), _up, 1.3);
