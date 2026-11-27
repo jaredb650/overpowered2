@@ -614,6 +614,10 @@ const gunShots: SoundDef[] = [
   shot('flail_shot', 'guns/flail_shot.mp3', 'gun', 0.175, 0.385, { send: 0.22 }),
   // Thermal brain chip visor toggle (owner, 2026-11-27, thermalActivate.mp3): crisp electronic optic hum/engage on the reward mix.
   shot('thermal_activate', 'thermal_activate.mp3', 'reward', 0.22, 0.1682, { maxVoices: 2, pitchJitter: 0.02 }),
+  // Sparta kick & head stomp (owner, 2026-11-27): front_kick__1_.mp3, kick_to_the_chest_impact_punch__2_.mp3, head_stomp_exploding_head__3_.mp3.
+  shot('kick_swing', 'kick_swing.mp3', 'player', 0.22, 0.1517, { maxVoices: 2, pitchJitter: 0.05 }),
+  shot('kick_impact', 'kick_impact.mp3', 'gore', 0.36, 0.4151, { maxVoices: 3, perFrame: 1, priority: 7, pitchJitter: 0.04, near: 6, far: 60 }),
+  shot('stomp_impact', 'stomp_impact.mp3', 'gore', 0.40, 0.3086, { maxVoices: 2, priority: 8, pitchJitter: 0.03, near: 8, far: 75 }),
   // A Raufoss round bursting, up to eight a second from the Piledriver: three voices, one start a frame, oldest out.
   shot('raufoss_detonation', 'guns/raufoss_detonation.mp3', 'blastSmall', 0.1, 0.133, { maxVoices: 3, perFrame: 1 }),
 ];
@@ -715,17 +719,9 @@ const stacks: SoundDef[] = [
   stack('spade_flat', [{ id: 'hit_punch', pitch: 0.66 }, { id: 'metal_clang', pitch: 0.72, duration: 0.42, volume: 0.6 }]),
   stack('spade_wall', [{ id: 'metal_clang', pitch: 0.8, duration: 0.5, volume: 0.8 }, { id: 'impact_concrete', pitch: 0.8, volume: 0.6 }]),
   stack('baton_hit', [{ id: 'hit_punch', pitch: 1.12 }, { id: 'wet_slap', pitch: 0.85, volume: 0.35 }]),
-  // Sparta kick and crawling-enemy head stomp: heavy sub-bass boot thud layered with real body & wet gore crunch.
-  stack('kick_hit', [
-    { id: 'kick_impact', volume: 0.95 },
-    { id: 'hit_punch', pitch: 0.72, volume: 0.9 },
-    { id: 'armour_crunch', pitch: 0.85, duration: 0.16, volume: 0.35 },
-  ]),
-  stack('stomp_hit', [
-    { id: 'stomp_impact', volume: 1 },
-    { id: 'gore_splat', pitch: 0.85, volume: 0.9 },
-    { id: 'wet_squelch', pitch: 0.78, delay: 0.025, volume: 0.8 },
-  ]),
+  // Sparta kick chest impact and head stomp execution: play the owner-provided recordings cleanly.
+  stack('kick_hit', [{ id: 'kick_impact', volume: 1 }]),
+  stack('stomp_hit', [{ id: 'stomp_impact', volume: 1 }]),
   // The katana's stab and combo moves: stand-ins built from its own recordings and synth layers, until real ones come.
   stack('katana_stab', [{ id: 'sword_swing', pitch: 1.35, duration: 0.2, volume: 0.75 }, { id: 'sword_sweep', pitch: 2, duration: 0.16, volume: 0.45 }]),
   stack('katana_cleave', [{ id: 'sword_windup', pitch: 2.2, duration: 0.2, volume: 0.5 }, { id: 'sword_swing', pitch: 0.78, delay: 0.16, duration: 0.35 }]),

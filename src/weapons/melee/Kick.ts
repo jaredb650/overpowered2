@@ -1,33 +1,34 @@
 /**
- * First-person Sparta kick and crawling-enemy head stomp (`F` / `melee` action).
+ * First-person Sparta kick and grounded-enemy head stomp (`F` / `melee` action).
  *
  * Pressing `F` never draws or swings a knife or sword — blades only come out when explicitly equipped.
- *  - Against standing/rushing enemies (or swarms): a wide-arc Sparta boot thrust that launches humanoids
- *    straight back into a flying physics ragdoll (`source: 'kick'`), clears flanking enemies outward to
- *    create breathing room, shoves machines, knocks back Riot shielders, and punts live grenades.
- *  - Against a crawling prone wounded enemy (`isCrawlingProne`): lifts the boot high and slams straight
- *    down onto their skull (`source: 'stomp'`, `region: 'head'`), bursting their head cleanly.
+ *  - Against standing/rushing enemies (or swarms): a swift, violent wide-arc Sparta boot thrust that launches
+ *    humanoids straight back into a flying physics ragdoll (`source: 'kick'`), clears flanking enemies outward
+ *    to create breathing room, shoves machines, knocks back Riot shielders, and punts live grenades.
+ *  - Against ANY grounded opponent (`isGroundedOpponent` — knocked-down ragdoll, crawling prone wounded,
+ *    legless, mid-rise getting up, or collapsed low): rips the boot high and slams violently straight down onto
+ *    their skull (`source: 'stomp'`, `region: 'head'`), bursting their head cleanly.
  */
 import * as THREE from 'three';
 import { HumanoidBone } from '../../characters/rig';
-import { CG, type Ctx } from '../../core/contracts';
+import { CG, type CharacterInstance, type Ctx } from '../../core/contracts';
 import type { EnemyInstance, KickMove, WeaponModifiers } from '../../core/gameplay';
 import { clamp, rand } from '../../core/math';
 import type { Combat } from '../Combat';
 
 export const KICK = {
-  /** Total kick animation duration (seconds). */
-  duration: 0.42,
+  /** Total kick animation duration (seconds) — swift, snapping Sparta thrust. */
+  duration: 0.28,
   /** Seconds after press when the boot first connects. */
-  impactAt: 0.06,
+  impactAt: 0.04,
   /** Seconds after press when the active strike window closes. */
-  liveEnd: 0.19,
+  liveEnd: 0.14,
   /** Brief recovery gap after the kick finishes before another can begin. */
-  cooldown: 0.1,
+  cooldown: 0.07,
   /** Forward clearing reach from the player's eye (meters, plus target body radius). */
-  reach: 2.55,
+  reach: 2.6,
   /** Horizontal distance within which flanking enemies rubbing against the player are still cleared. */
-  pointBlank: 1.25,
+  pointBlank: 1.3,
   /** Minimum horizontal dot product with view forward (~70° half-angle arc). */
   minDot: 0.35,
   /** Wide dot product inside pointBlank so close swarmers on your hips get shoved away. */
@@ -39,40 +40,42 @@ export const KICK = {
   /** Knockback impulse force passed through DamageInfo. */
   force: 190,
   /** Hit-stop duration on non-lethal contact. */
-  hitStop: 0.048,
+  hitStop: 0.055,
   /** Hit-stop duration on a lethal Sparta kick. */
-  killStop: 0.075,
+  killStop: 0.08,
   /** Camera trauma on impact. */
-  shake: 0.24,
+  shake: 0.36,
   /** Live grenade punt reach (meters). */
   grenadeReach: 3.4,
 } as const;
 
 export const STOMP = {
-  /** Total stomp animation duration (seconds). */
-  duration: 0.48,
-  /** Seconds into the animation when the heel slams down onto the skull. */
-  impactAt: 0.13,
+  /** Total stomp animation duration (seconds) — swift, brutal heel slam. */
+  duration: 0.34,
+  /** Seconds into the animation when the heel slams down onto the skull (synced to stomp_impact.mp3 transient). */
+  impactAt: 0.09,
   /** Recovery gap after a stomp finishes. */
-  cooldown: 0.12,
-  /** Horizontal reach from the player to start a head stomp on a crawling prone enemy (meters). */
-  reach: 2.35,
-  /** Forgiving horizontal reach at the moment of heel impact so slight player drift still connects. */
-  impactReach: 3.25,
-  /** Maximum height difference between the crawling enemy's head and the player's feet (meters). */
-  verticalReach: 1.4,
-  /** Minimum horizontal dot product with view forward (ignored when standing almost directly over them). */
-  minDot: 0.18,
-  /** Horizontal distance within which a crawler directly underfoot is stomped regardless of look yaw. */
-  underfoot: 0.95,
-  /** Guaranteed lethal finisher damage on crawling non-boss humanoids. */
+  cooldown: 0.08,
+  /** Generous horizontal reach from the player to trigger a head stomp on any grounded enemy (meters). */
+  reach: 3.2,
+  /** Forgiving horizontal reach at the moment of heel impact so movement during windup still connects. */
+  impactReach: 4.2,
+  /** Maximum height above the player's feet for a grounded head (keeps airborne bodies from being stomped mid-flight). */
+  maxHeadHeight: 1.3,
+  /** Maximum height below the player's feet (stairs, curbs, ledges). */
+  minHeadHeight: -1.55,
+  /** Minimum horizontal dot product with view forward (full 180° front hemisphere outside underfoot radius). */
+  minDot: 0.0,
+  /** Horizontal distance within which any grounded opponent underfoot is stomped from any facing angle. */
+  underfoot: 1.65,
+  /** Guaranteed lethal finisher damage on grounded non-boss humanoids. */
   damage: 1000,
   /** Downward crush force passed through DamageInfo. */
-  force: 120,
+  force: 150,
   /** Hit-stop on skull burst. */
-  hitStop: 0.065,
+  hitStop: 0.075,
   /** Camera trauma on skull burst. */
-  shake: 0.34,
+  shake: 0.48,
 } as const;
 
 const UP = new THREE.Vector3(0, 1, 0);
@@ -80,8 +83,14 @@ const MAX_LIST = 48;
 
 interface EnemyExtras {
   downed?: boolean;
+  rising?: number;
   maim?: { legs?: number };
   def?: { radius?: number };
+}
+
+interface GoreGroundQuery {
+  downed?(char: CharacterInstance): { standing?: boolean } | null;
+  rising?(char: CharacterInstance): boolean;
 }
 
 /**
@@ -94,6 +103,30 @@ export function isCrawlingProne(e: EnemyInstance): boolean {
   if (e.char.anim.prone === true) return true;
   if (e.char.severed.has('legL') && e.char.severed.has('legR')) return true;
   return (e as unknown as EnemyExtras).maim?.legs === 0;
+}
+
+/**
+ * True when `e` is ANY grounded live humanoid opponent with an intact head:
+ *  - crawling prone wounded or legless (`isCrawlingProne`),
+ *  - knocked down / ragdolled on the floor (`downed` and not standing upright in a carry/stagger),
+ *  - mid-rise getting back up off the floor (`rising > 0` or `gore.rising(char)`),
+ *  - or collapsed low near the ground (`headY - e.position.y < 1.0`).
+ */
+export function isGroundedOpponent(
+  e: EnemyInstance,
+  gore?: GoreGroundQuery | null,
+  headY?: number,
+): boolean {
+  if (!e.alive || e.isBoss || e.machine) return false;
+  if (e.char.severed.has('head')) return false;
+  if (isCrawlingProne(e)) return true;
+  const extras = e as unknown as EnemyExtras;
+  if (extras.downed === true) {
+    if (gore?.downed?.(e.char)?.standing !== true) return true;
+  }
+  if ((extras.rising ?? 0) > 0 || gore?.rising?.(e.char) === true) return true;
+  if (headY !== undefined && headY - e.position.y < 1.0) return true;
+  return false;
 }
 
 export class Kick {
@@ -158,10 +191,11 @@ export class Kick {
     this.grenadePunted = false;
   }
 
-  /** Starts either a head stomp (if a crawling prone wounded enemy is in reach) or a Sparta kick. */
+  /** Starts either a head stomp (if any grounded opponent is in reach) or a swift Sparta kick. */
   start(): KickMove | null {
     if (!this.canStart) return null;
     const c = this.ctx;
+    const p = c.player;
     const stomp = this.findStompTarget();
     this.timer = 0;
     this.landed = false;
@@ -174,9 +208,24 @@ export class Kick {
       this.mode = 'stomp';
       this.stompTarget = stomp;
       this.duration = STOMP.duration;
+      const head = this.combat.headOf(stomp, this.contact);
       c.viewmodel.kick?.('stomp', STOMP.duration);
-      c.audio.play('kick_swing', { pitch: 0.85, volume: 0.78, pitchJitter: 0.05 });
-      c.camera.kick(-0.022, 0, -0.008);
+      // Owner head-stomp recording starts immediately on trigger: its ~95 ms lead-in slams into the skull burst right at STOMP.impactAt.
+      c.audio.play('stomp_hit', { position: head, pitchJitter: 0.03 });
+      c.camera.kick(-0.042, 0, -0.016);
+      c.camera.fovPunch?.(-2.5, 0.09);
+
+      // Crisp magnetic step-in when initiating from 0.85–3.2 m away so the heel lands squarely on the skull.
+      if (p.grounded) {
+        const dx = head.x - p.position.x;
+        const dz = head.z - p.position.z;
+        const horiz = Math.hypot(dx, dz);
+        if (horiz > 0.85) {
+          const lunge = Math.min(9.5, (horiz - 0.65) * 6.5);
+          p.velocity.x = (dx / horiz) * lunge;
+          p.velocity.z = (dz / horiz) * lunge;
+        }
+      }
       return 'stomp';
     }
 
@@ -184,8 +233,9 @@ export class Kick {
     this.stompTarget = null;
     this.duration = KICK.duration;
     c.viewmodel.kick?.('kick', KICK.duration);
-    c.audio.play('kick_swing', { pitchJitter: 0.06 });
-    c.camera.kick(-0.014, 0.008, -0.014);
+    c.audio.play('kick_swing', { pitchJitter: 0.05 });
+    c.camera.kick(-0.028, 0.016, -0.024);
+    c.camera.fovPunch?.(3.2, 0.12);
     return 'kick';
   }
 
@@ -255,14 +305,17 @@ export class Kick {
   }
 
   /**
-   * Finds the best crawling prone wounded enemy in front/underfoot to head-stomp.
-   * Yields to a Sparta kick if a standing enemy is closer, right in the player's face, and the player isn't looking down.
+   * Finds the best grounded opponent in front/underfoot to head-stomp.
+   * Generous by design: measures distance to the closer of the opponent's head or body so standing over
+   * their torso/legs still triggers effortlessly, and only yields to a Sparta kick if a standing enemy is
+   * literally point-blank straight ahead and closer while the player isn't looking down.
    */
   private findStompTarget(): EnemyInstance | null {
     const c = this.ctx;
     const p = c.player;
+    const gore = c.gore as unknown as GoreGroundQuery | undefined;
     const flat = this.computeFlatForward();
-    const n = Math.min(c.enemies.query(p.position, STOMP.reach + 2, this.list) || 0, MAX_LIST);
+    const n = Math.min(c.enemies.query(p.position, STOMP.reach + 2.5, this.list) || 0, MAX_LIST);
 
     let best: EnemyInstance | null = null;
     let bestScore = Infinity;
@@ -273,39 +326,50 @@ export class Kick {
       const e = this.list[i]!;
       if (!e.alive) continue;
 
-      if (!isCrawlingProne(e)) {
+      const head = this.combat.headOf(e, this.contact);
+      if (!isGroundedOpponent(e, gore, head.y)) {
         const dx = e.position.x - p.position.x;
         const dz = e.position.z - p.position.z;
         const horiz = Math.hypot(dx, dz);
-        if (horiz < 1.4 && horiz > 1e-4) {
+        if (horiz < 1.15 && horiz > 1e-4) {
           const dot = (dx * flat.x + dz * flat.z) / horiz;
-          if (dot > 0.7 && Math.abs(e.center.y - p.eye.y) <= KICK.verticalReach) {
+          if (dot > 0.78 && Math.abs(e.center.y - p.eye.y) <= KICK.verticalReach) {
             if (horiz < closestStanding) closestStanding = horiz;
           }
         }
         continue;
       }
 
-      const head = this.combat.headOf(e, this.contact);
-      const dx = head.x - p.position.x;
-      const dz = head.z - p.position.z;
-      const horiz = Math.hypot(dx, dz);
-      if (horiz > STOMP.reach) continue;
-      if (Math.abs(head.y - p.position.y) > STOMP.verticalReach) continue;
+      const relY = head.y - p.position.y;
+      if (relY > STOMP.maxHeadHeight || relY < STOMP.minHeadHeight) continue;
 
-      const dot = horiz > 1e-4 ? (dx * flat.x + dz * flat.z) / horiz : 1;
-      if (horiz > STOMP.underfoot && dot < STOMP.minDot) continue;
-      if (this.blocked(p.eye, head, 0.25)) continue;
+      const hdx = head.x - p.position.x;
+      const hdz = head.z - p.position.z;
+      const headHoriz = Math.hypot(hdx, hdz);
 
-      const score = horiz + (1 - Math.max(0, dot)) * 0.7;
+      const bdx = e.position.x - p.position.x;
+      const bdz = e.position.z - p.position.z;
+      const bodyHoriz = Math.hypot(bdx, bdz);
+
+      const effHoriz = Math.min(headHoriz, bodyHoriz);
+      if (effHoriz > STOMP.reach) continue;
+
+      const headDot = headHoriz > 1e-4 ? (hdx * flat.x + hdz * flat.z) / headHoriz : 1;
+      const bodyDot = bodyHoriz > 1e-4 ? (bdx * flat.x + bdz * flat.z) / bodyHoriz : 1;
+      const dot = Math.max(headDot, bodyDot);
+
+      if (effHoriz > STOMP.underfoot && dot < STOMP.minDot) continue;
+      if (this.blocked(p.eye, head, 0.35)) continue;
+
+      const score = effHoriz + (1 - Math.max(0, dot)) * 0.55;
       if (score < bestScore) {
         bestScore = score;
-        bestHoriz = horiz;
+        bestHoriz = effHoriz;
         best = e;
       }
     }
 
-    if (best && closestStanding < bestHoriz && p.forward.y > -0.25) return null;
+    if (best && closestStanding < bestHoriz && p.forward.y > -0.15) return null;
     return best;
   }
 
@@ -320,20 +384,21 @@ export class Kick {
 
     if (!target || !target.alive || target.char.severed.has('head')) {
       c.audio.play('impact_concrete', { position: p.position, volume: 0.85, pitch: 0.72 });
-      c.camera.kick(0.028, 0, 0.01);
+      c.camera.kick(0.042, 0, 0.016);
       return;
     }
 
     const head = this.combat.headOf(target, this.contact);
-    const horiz = Math.hypot(head.x - p.position.x, head.z - p.position.z);
-    if (horiz > STOMP.impactReach) {
+    const headHoriz = Math.hypot(head.x - p.position.x, head.z - p.position.z);
+    const bodyHoriz = Math.hypot(target.position.x - p.position.x, target.position.z - p.position.z);
+    if (Math.min(headHoriz, bodyHoriz) > STOMP.impactReach) {
       c.audio.play('impact_concrete', { position: p.position, volume: 0.85, pitch: 0.72 });
-      c.camera.kick(0.028, 0, 0.01);
+      c.camera.kick(0.042, 0, 0.016);
       return;
     }
 
     const flat = this.computeFlatForward();
-    this.strikeDir.set(flat.x * 0.42, -0.91, flat.z * 0.42).normalize();
+    this.strikeDir.set(flat.x * 0.38, -0.925, flat.z * 0.38).normalize();
     const o = this.combat.strikeOptions('melee', 'stomp');
     o.force = STOMP.force;
     o.severMult = 0;
@@ -345,11 +410,11 @@ export class Kick {
     const dmg = STOMP.damage * Math.max(1, this.modifiers.damage);
     const res = this.combat.strike(target, head, UP, this.strikeDir, headBone, 'head', dmg, o);
 
-    c.audio.play('stomp_hit', { position: head, pitchJitter: 0.05 });
-    c.fx.bloodHit(head, UP, 2.2);
-    c.fx.bloodJet(head, UP, 1.3);
+    c.fx.bloodHit(head, UP, 2.6);
+    c.fx.bloodJet(head, UP, 1.55);
     c.fx.impact(head, UP, 'concrete');
-    c.camera.kick(0.055, rand(-0.014, 0.014), 0.024);
+    c.camera.kick(0.095, rand(-0.024, 0.024), 0.042);
+    c.camera.fovPunch?.(6.5, 0.16);
     this.combat.feel.shake(STOMP.shake);
     this.combat.feel.stop(STOMP.hitStop, true);
     c.hud.hitMarker(res.killed ? 'kill' : 'head');
@@ -418,14 +483,15 @@ export class Kick {
       if (res.killed) this.killCount++;
 
       if (e.machine) {
-        c.fx.sparks(this.contact, this.normal, 10, 0xfff2cc);
+        c.fx.sparks(this.contact, this.normal, 12, 0xfff2cc);
+        c.audio.play('kick_hit', { position: this.contact, volume: 0.8, pitch: 0.96, pitchJitter: 0.04 });
         c.audio.play('machine_clang', { position: this.contact, volume: 0.85, pitch: 0.88, pitchJitter: 0.06 });
       } else if (res.blocked) {
         // Riot shielders already emit their shield clang & sparks in DamageModel.shieldHit and still ragdoll back.
-        c.audio.play('kick_impact', { position: this.contact, volume: 0.9, pitch: 0.92, pitchJitter: 0.05 });
+        c.audio.play('kick_hit', { position: this.contact, volume: 0.92, pitch: 0.94, pitchJitter: 0.04 });
       } else {
-        c.audio.play('kick_hit', { position: this.contact, pitchJitter: 0.05 });
-        c.fx.bloodHit(this.contact, this.strikeDir, res.killed ? 1.1 : 0.45);
+        c.audio.play('kick_hit', { position: this.contact, pitchJitter: 0.04 });
+        c.fx.bloodHit(this.contact, this.strikeDir, res.killed ? 1.25 : 0.55);
       }
     }
 
@@ -433,10 +499,11 @@ export class Kick {
       const batted = this.combat.batGrenade?.(eye, p.forward, KICK.grenadeReach);
       if (batted) {
         this.grenadePunted = true;
-        c.audio.play('kick_impact', { position: batted, pitch: 1.18, volume: 0.95 });
+        c.audio.play('kick_hit', { position: batted, pitch: 1.18, volume: 0.95 });
         c.fx.sparks(batted, p.forward, 14);
-        c.camera.kick(0.024, 0.01, 0.016);
-        this.combat.feel.stop(0.04, true);
+        c.camera.kick(0.036, 0.015, 0.024);
+        c.camera.fovPunch?.(4.5, 0.14);
+        this.combat.feel.stop(0.045, true);
         c.hud.hitMarker('armor');
         c.hud.callout?.('GRENADE PUNTED');
       }
@@ -445,7 +512,8 @@ export class Kick {
     if (this.hitCount === prevHits) return;
     const kills = this.killCount - prevKills;
     if (prevHits === 0) {
-      c.camera.kick(0.032, rand(-0.012, 0.012), 0.02);
+      c.camera.kick(0.052, rand(-0.02, 0.02), 0.034);
+      c.camera.fovPunch?.(5.2, 0.15);
       this.combat.feel.shake(KICK.shake);
     }
     this.combat.feel.stop(kills > 0 ? KICK.killStop : KICK.hitStop, true);
@@ -459,7 +527,7 @@ export class Kick {
     if (!wall) return;
     c.world.objects?.damageExplosive(wall.collider, KICK.damage * this.modifiers.damage, 'kick', wall.point);
     c.fx.impact(wall.point, wall.normal, wall.surface);
-    c.audio.play('kick_impact', { position: wall.point, volume: 0.72, pitch: 0.85, pitchJitter: 0.06 });
-    c.camera.kick(0.018, 0, 0.008);
+    c.audio.play('kick_impact', { position: wall.point, volume: 0.68, pitch: 0.85, pitchJitter: 0.06 });
+    c.camera.kick(0.026, 0, 0.012);
   }
 }

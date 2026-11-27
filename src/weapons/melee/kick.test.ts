@@ -1,10 +1,11 @@
 /**
- * Sparta kick & crawling-enemy head stomp (`F` / `melee` action):
+ * Sparta kick & grounded-enemy head stomp (`F` / `melee` action):
  *  - Weapons + Combat + Kick on real Rapier (makeRange): never draws/swings knife or sword, clears swarms,
- *    and switches to head stomp on crawling prone wounded or legless enemies.
+ *    plays kick_swing on throw and kick_hit on chest contact, plays stomp_hit immediately on head stomp trigger,
+ *    and effortlessly head-stomps ANY grounded opponent (downed ragdoll, rising, crawling prone, legless, collapsed).
  *  - Real EnemyManager + DamageModel: Sparta kick launches humans (and Riot shielders) into immediate flying
- *    ragdolls (`gore.knockdown`), and head stomp kills & explodes crawling heads (`gore.headshot(..., 'burst')`).
- *  - Viewmodel Legs: drives right-boot kick/stomp poses and weapon dip cleanly.
+ *    ragdolls (`gore.knockdown`), and a follow-up head stomp kills & explodes any grounded enemy's head (`'burst'`).
+ *  - Viewmodel Legs: drives swift, violent right-boot kick/stomp poses and weapon dip cleanly.
  */
 import * as THREE from 'three';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
@@ -17,7 +18,7 @@ import { makeCtx } from '../../sandbox/harness';
 import { makeRange, type Dummy, type Range } from '../testkit';
 import { Kit } from '../viewmodels/kit/kit';
 import { Legs } from '../viewmodels/legs';
-import { KICK, STOMP, isCrawlingProne } from './Kick';
+import { KICK, STOMP, isCrawlingProne, isGroundedOpponent } from './Kick';
 
 let r: Range;
 
@@ -32,6 +33,7 @@ function setup(weapon: WeaponId = 'smg'): void {
   r.player.forward.set(0, 0, -1);
   r.player.yaw = 0;
   r.player.velocity.set(0, 0, 0);
+  r.player.grounded = true;
   r.weapons.give(weapon);
   r.weapons.switchTo(weapon);
   r.run(0.5);
@@ -43,26 +45,34 @@ function press(action: 'melee' | 'fire' | 'aim'): void {
   r.input.simulate(action, false);
 }
 
-function makeCrawlingDummy(x: number, z: number, mode: 'prone' | 'legless' = 'prone'): Dummy {
-  const d = r.enemies.add(x, z);
+function makeGroundedDummy(
+  x: number,
+  z: number,
+  mode: 'prone' | 'legless' | 'downed' | 'rising' | 'collapsed' = 'prone',
+  headY = 0.25,
+): Dummy {
+  const d = r.enemies.add(x, z, 100);
   d.center.set(x, 0.35, z);
-  // Move head bone down near the floor so combat.headOf reads the crawling skull position.
   const headIdx = d.char.rig.bones.findIndex(b => b.name === 'head');
   if (headIdx >= 0) {
-    d.char.bones[headIdx]!.position.set(x, 0.25, z);
+    d.char.bones[headIdx]!.position.set(x, headY, z);
     d.char.bones[headIdx]!.updateMatrixWorld(true);
   }
   if (mode === 'prone') {
     (d.char as unknown as { anim: { prone: boolean } }).anim = { prone: true };
-  } else {
+  } else if (mode === 'legless') {
     (d.char.severed as Set<GoreRegion>).add('legL');
     (d.char.severed as Set<GoreRegion>).add('legR');
+  } else if (mode === 'downed') {
+    (d as unknown as { downed: boolean }).downed = true;
+  } else if (mode === 'rising') {
+    (d as unknown as { rising: number }).rising = 0.4;
   }
   return d;
 }
 
 describe('F key Sparta kick and head stomp (Weapons + Combat)', () => {
-  it('kicks on F without ever drawing or swinging the knife or sword, keeping the gun equipped', () => {
+  it('kicks on F without ever drawing or swinging the knife or sword, playing kick_swing on throw and kick_hit on hit', () => {
     setup('smg');
     const vm = r.ctx.viewmodel as unknown as {
       equip: ReturnType<typeof vi.fn>;
@@ -71,11 +81,13 @@ describe('F key Sparta kick and head stomp (Weapons + Combat)', () => {
     };
     const equipSpy = vi.spyOn(vm, 'equip');
     const swingSpy = vi.spyOn(vm, 'swing');
+    const audioPlay = vi.spyOn(r.ctx.audio, 'play');
     const kickCalls: { move: KickMove; seconds: number }[] = [];
     vm.kick = vi.fn((move: KickMove, seconds: number) => kickCalls.push({ move, seconds }));
 
     const target = r.enemies.add(0, -1.6);
     press('melee');
+    expect(audioPlay.mock.calls.some(call => call[0] === 'kick_swing')).toBe(true);
     r.run(KICK.impactAt + 0.05);
 
     expect(kickCalls).toEqual([{ move: 'kick', seconds: KICK.duration }]);
@@ -85,10 +97,12 @@ describe('F key Sparta kick and head stomp (Weapons + Combat)', () => {
     expect(target.hits[0]!.source).toBe('kick');
     expect(target.hits[0]!.type).toBe('melee');
     expect(target.hits[0]!.force).toBe(KICK.force);
+    expect(audioPlay.mock.calls.some(call => call[0] === 'kick_hit')).toBe(true);
 
     r.run(0.5);
     expect(r.weapons.current).toBe('smg');
     expect(equipSpy).not.toHaveBeenCalled();
+    audioPlay.mockRestore();
   });
 
   it('still kicks on F when knife or sword is equipped, while left click slashes normally', () => {
@@ -141,42 +155,82 @@ describe('F key Sparta kick and head stomp (Weapons + Combat)', () => {
     expect(walled.hits).toHaveLength(0);
   });
 
-  it('performs a lethal head stomp on a crawling prone wounded enemy (and on a legless crawler)', () => {
-    for (const mode of ['prone', 'legless'] as const) {
+  it('executes a lethal head stomp on ANY grounded opponent (downed ragdoll, rising, prone, legless, collapsed) and plays stomp_hit on trigger', () => {
+    for (const mode of ['prone', 'legless', 'downed', 'rising', 'collapsed'] as const) {
       setup('smg');
       const kickCalls: KickMove[] = [];
       (r.ctx.viewmodel as unknown as { kick?: (m: KickMove) => void }).kick = (m: KickMove) => kickCalls.push(m);
+      const audioPlay = vi.spyOn(r.ctx.audio, 'play');
 
-      const crawler = makeCrawlingDummy(0, -1.3, mode);
-      crawler.health = 100;
-      expect(isCrawlingProne(crawler)).toBe(true);
+      const grounded = makeGroundedDummy(0, -1.6, mode);
+      grounded.health = 100;
+      if (mode === 'prone' || mode === 'legless') expect(isCrawlingProne(grounded)).toBe(true);
+      expect(isGroundedOpponent(grounded, undefined, 0.25)).toBe(true);
 
       press('melee');
       expect(kickCalls).toEqual(['stomp']);
+      // Head stomp sound plays immediately when triggered (not kick_swing).
+      expect(audioPlay.mock.calls.some(call => call[0] === 'stomp_hit')).toBe(true);
+      expect(audioPlay.mock.calls.some(call => call[0] === 'kick_swing')).toBe(false);
       // Should not connect before heel slams down.
-      r.run(0.05);
-      expect(crawler.hits).toHaveLength(0);
+      r.run(0.04);
+      expect(grounded.hits).toHaveLength(0);
 
       // Connects at STOMP.impactAt with lethal head-piercing stomp.
       r.run(STOMP.impactAt);
-      expect(crawler.hits).toHaveLength(1);
-      const hit = crawler.hits[0]!;
+      expect(grounded.hits).toHaveLength(1);
+      const hit = grounded.hits[0]!;
       expect(hit.source).toBe('stomp');
       expect(hit.type).toBe('melee');
       expect(hit.region).toBe('head');
       expect(hit.amount).toBeGreaterThanOrEqual(STOMP.damage);
       expect(hit.dir.y).toBeLessThan(-0.7);
-      expect(crawler.alive).toBe(false);
+      expect(grounded.alive).toBe(false);
+      audioPlay.mockRestore();
     }
   });
 
-  it('Sparta-kicks a point-blank standing enemy ahead instead of locking onto a farther crawler when looking straight ahead', () => {
+  it('makes head stomp easy to land from generous reach (2.8 m) with lunge step-in and from underfoot angles', () => {
+    // 1) Long reach (2.8 m ahead) triggers stomp and adds crisp forward step-in velocity toward the skull.
+    setup('smg');
+    const kickCalls: KickMove[] = [];
+    (r.ctx.viewmodel as unknown as { kick?: (m: KickMove) => void }).kick = (m: KickMove) => kickCalls.push(m);
+    const farDowned = makeGroundedDummy(0, -2.8, 'downed');
+    press('melee');
+    expect(kickCalls).toEqual(['stomp']);
+    expect(r.player.velocity.z).toBeLessThan(-3);
+    r.run(STOMP.impactAt + 0.05);
+    expect(farDowned.alive).toBe(false);
+    expect(farDowned.hits[0]!.source).toBe('stomp');
+
+    // 2) Underfoot grounded enemy slightly behind/beside player (within STOMP.underfoot) still stomps cleanly.
+    setup('smg');
+    kickCalls.length = 0;
+    (r.ctx.viewmodel as unknown as { kick?: (m: KickMove) => void }).kick = (m: KickMove) => kickCalls.push(m);
+    const sideDowned = makeGroundedDummy(1.1, 0.4, 'downed');
+    press('melee');
+    expect(kickCalls).toEqual(['stomp']);
+    r.run(STOMP.impactAt + 0.05);
+    expect(sideDowned.alive).toBe(false);
+    expect(sideDowned.hits[0]!.source).toBe('stomp');
+  });
+
+  it('does not head-stomp a downed enemy still flying high in midair, and Sparta-kicks a point-blank standing threat ahead', () => {
     setup('smg');
     const kickCalls: KickMove[] = [];
     (r.ctx.viewmodel as unknown as { kick?: (m: KickMove) => void }).kick = (m: KickMove) => kickCalls.push(m);
 
+    // Midair flying body (head 1.8 m high) is not stomped.
+    makeGroundedDummy(0, -1.5, 'downed', 1.8);
+    press('melee');
+    expect(kickCalls).toEqual(['kick']);
+
+    // Standing enemy point-blank straight ahead wins over a farther grounded enemy when looking level.
+    setup('smg');
+    kickCalls.length = 0;
+    (r.ctx.viewmodel as unknown as { kick?: (m: KickMove) => void }).kick = (m: KickMove) => kickCalls.push(m);
     const standing = r.enemies.add(0, -1.0);
-    makeCrawlingDummy(0, -1.9, 'prone');
+    makeGroundedDummy(0, -1.9, 'prone');
 
     press('melee');
     r.run(KICK.impactAt + 0.05);
@@ -187,7 +241,7 @@ describe('F key Sparta kick and head stomp (Weapons + Combat)', () => {
 });
 
 // -------------------------------------------------------------------------------------------
-// Real EnemyManager + DamageModel integration (Sparta ragdoll + crawling head-stomp burst)
+// Real EnemyManager + DamageModel integration (Sparta ragdoll + grounded head-stomp burst)
 // -------------------------------------------------------------------------------------------
 
 function character(id: EnemyId): CharacterInstance {
@@ -218,7 +272,7 @@ function makeDamageWorld() {
     grounded: true, alive: true, sliding: false, wallRunning: false, speed: 0,
   };
   const knockdownCalls: { velocity: THREE.Vector3; stumble: unknown; impulse: THREE.Vector3 | null }[] = [];
-  const headshotCalls: { outcome: string; source: string }[] = [];
+  const headshotCalls: { outcome: string; source: string; hadVelocity: boolean }[] = [];
   const gore = {
     wound: vi.fn(() => false),
     headPellets: vi.fn(() => 1),
@@ -239,8 +293,8 @@ function makeDamageWorld() {
     rouse: vi.fn(),
     ragdoll: vi.fn(),
     collapse: vi.fn(),
-    headshot: vi.fn((_char: CharacterInstance, d: DamageInfo, _vel?: THREE.Vector3, outcome?: string) => {
-      headshotCalls.push({ outcome: outcome ?? '', source: d.source });
+    headshot: vi.fn((_char: CharacterInstance, d: DamageInfo, vel?: THREE.Vector3, outcome?: string) => {
+      headshotCalls.push({ outcome: outcome ?? '', source: d.source, hadVelocity: vel !== undefined });
       (_char.severed as Set<GoreRegion>).add('head');
     }),
     gib: vi.fn(),
@@ -341,14 +395,28 @@ describe('DamageModel Sparta kick ragdoll & head stomp skull burst', () => {
     expect(w.knockdownCalls[0]!.impulse!.y).toBeGreaterThan(30);
   });
 
-  it('kills and explodes a crawling prone wounded enemy head with outcome "burst" on head stomp', () => {
+  it('combos a Sparta-kicked downed trooper directly into a grounded head stomp bursting their head', () => {
     const w = makeDamageWorld();
-    const trooper = w.spawn('trooper', -1.2);
-    (trooper.char.anim as { prone?: boolean }).prone = true;
-    const dmg: DamageInfo = {
+    const trooper = w.spawn('trooper', -1.5);
+    const kickDmg: DamageInfo = {
+      amount: KICK.damage,
+      type: 'melee',
+      point: new THREE.Vector3(0, 1.1, -1.5),
+      dir: new THREE.Vector3(0, 0, -1),
+      force: KICK.force,
+      source: 'kick',
+      region: 'chest',
+      bone: B.chest,
+      severMult: 0,
+    };
+    w.manager.applyDamage(trooper, kickDmg);
+    expect(trooper.alive).toBe(true);
+    expect(trooper.downed).toBe(true);
+
+    const stompDmg: DamageInfo = {
       amount: STOMP.damage,
       type: 'melee',
-      point: new THREE.Vector3(0, 0.25, -1.2),
+      point: new THREE.Vector3(0, 0.25, -2.2),
       dir: new THREE.Vector3(0, -0.92, -0.39).normalize(),
       force: STOMP.force,
       source: 'stomp',
@@ -358,25 +426,24 @@ describe('DamageModel Sparta kick ragdoll & head stomp skull burst', () => {
       armorPiercing: true,
       pierces: true,
     };
-
-    const res = w.manager.applyDamage(trooper, dmg);
+    const res = w.manager.applyDamage(trooper, stompDmg);
     expect(res.killed).toBe(true);
     expect(res.headshot).toBe(true);
     expect(trooper.alive).toBe(false);
-    expect(w.headshotCalls).toEqual([{ outcome: 'burst', source: 'stomp' }]);
+    expect(w.headshotCalls).toEqual([{ outcome: 'burst', source: 'stomp', hadVelocity: false }]);
     expect(trooper.char.severed.has('head')).toBe(true);
   });
 });
 
 describe('First-person viewmodel Legs kick & stomp animation', () => {
-  it('animates the right boot forward for Sparta kick and down for stomp, dipping the held weapon', () => {
+  it('animates the right boot swiftly forward for Sparta kick and down for stomp, dipping the held weapon', () => {
     const mat = new THREE.MeshStandardMaterial();
     const mats = new Proxy({}, { get: () => mat });
     const legs = new Legs(new Kit(mats as never));
 
     legs.kick('kick', KICK.duration);
     expect(legs.kicking).toBe(true);
-    legs.update(null, 0, 0.11);
+    legs.update(null, 0, 0.06);
     expect(legs.root.visible).toBe(true);
     expect(legs.kickDip).toBeGreaterThan(0.5);
     legs.update(null, 0, KICK.duration);
@@ -385,7 +452,7 @@ describe('First-person viewmodel Legs kick & stomp animation', () => {
 
     legs.kick('stomp', STOMP.duration);
     expect(legs.kicking).toBe(true);
-    legs.update(null, 0, 0.15);
+    legs.update(null, 0, 0.10);
     expect(legs.root.visible).toBe(true);
     expect(legs.kickDip).toBeGreaterThan(0.5);
     legs.update(null, 0, STOMP.duration);

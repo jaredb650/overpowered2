@@ -2067,9 +2067,11 @@ export class Gore implements GoreSystem {
       }
       if (wasDown) {
         const { audio, time } = this.ctx;
-        audio.play('enemy_headshot', { position: at, volume: 0.75 });
-        audio.play('enemy_headshot2', { position: at, volume: 0.5625 });
-        audio.play('enemy_headshot3', { position: at, volume: 0.75 });
+        if (damage.source !== 'stomp') {
+          audio.play('enemy_headshot', { position: at, volume: 0.75 });
+          audio.play('enemy_headshot2', { position: at, volume: 0.5625 });
+          audio.play('enemy_headshot3', { position: at, volume: 0.75 });
+        }
         time.hitStop(GoreTuning.hitStopSeconds, GoreTuning.hitStopScale);
       }
       if (burst) this.burstHead(char, neck, damage);
@@ -2083,7 +2085,7 @@ export class Gore implements GoreSystem {
         const snapForce = clamp((damage.force || 12) * 0.45, 3, 14);
         down.rag.applyImpulse(headBone, damage.point, _v.copy(damage.dir).normalize().multiplyScalar(snapForce));
       }
-      if (wasDown) this.ctx.audio.play('enemy_die', { position: at, volume: 0.5 });
+      if (wasDown && damage.source !== 'stomp') this.ctx.audio.play('enemy_die', { position: at, volume: 0.5 });
       return;
     }
     if (neck === undefined || down || char.severed.has('head')) {
@@ -2094,9 +2096,11 @@ export class Gore implements GoreSystem {
     const at = this.headAt(char, neck);
 
     // Same frame, in this order: chips, sound, stutter. Nothing here waits on anything.
-    audio.play('enemy_headshot', { position: at, volume: 0.75 });
-    audio.play('enemy_headshot2', { position: at, volume: 0.5625 });
-    audio.play('enemy_headshot3', { position: at, volume: 0.75 });
+    if (damage.source !== 'stomp') {
+      audio.play('enemy_headshot', { position: at, volume: 0.75 });
+      audio.play('enemy_headshot2', { position: at, volume: 0.5625 });
+      audio.play('enemy_headshot3', { position: at, volume: 0.75 });
+    }
     time.hitStop(GoreTuning.hitStopSeconds, GoreTuning.hitStopScale);
 
     if (burst) {
@@ -2119,7 +2123,7 @@ export class Gore implements GoreSystem {
       const snapForce = clamp((damage.force || 12) * 0.45, 3, 14);
       body.rag.applyImpulse(headBone, damage.point, _v.copy(damage.dir).normalize().multiplyScalar(snapForce));
     }
-    audio.play('enemy_die', { position: at, volume: 0.5 });
+    if (damage.source !== 'stomp') audio.play('enemy_die', { position: at, volume: 0.5 });
   }
 
   private readonly headVolley = new Map<CharacterInstance, number>();
@@ -2174,9 +2178,11 @@ export class Gore implements GoreSystem {
       this.chunks.spawn('meat', at.x, at.y, at.z, _v.x, _v.y, _v.z, rand(0.03, 0.05));
     }
     char.hideLimb(neck);
-    this.ctx.audio.play('head_burst', { position: at, volume: 1, pitchJitter: 0.08 });
-    if (Math.random() < 0.7) {
-      this.ctx.audio.play('skull_fragments', { position: at, volume: 0.85, pitchJitter: 0.1, delay: 0.04 });
+    if (damage.source !== 'stomp') {
+      this.ctx.audio.play('head_burst', { position: at, volume: 1, pitchJitter: 0.08 });
+      if (Math.random() < 0.7) {
+        this.ctx.audio.play('skull_fragments', { position: at, volume: 0.85, pitchJitter: 0.1, delay: 0.04 });
+      }
     }
     this.startStump(char, neck, 1.7);
     fx.bloodMist(at, 0.3, 'headburst');

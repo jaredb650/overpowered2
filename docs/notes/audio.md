@@ -85,8 +85,8 @@ One call, all layers start on the same audio frame.
 | `spade_flat` | `hit_punch` at 0.66 + `metal_clang` at 0.72, cut at 420 ms. The face of the spade on anything |
 | `spade_wall` | `metal_clang` at 0.8, cut at 500 ms + `impact_concrete` at 0.8 |
 | `baton_hit` | `hit_punch` at 1.12 + `wet_slap` at 0.85, a third volume |
-| `kick_hit` | `kick_impact` + `hit_punch` at 0.72 + `armour_crunch` at 0.85, cut at 160 ms. Sparta kick body contact |
-| `stomp_hit` | `stomp_impact` + `gore_splat` at 0.85 + `wet_squelch` at 0.78, 25 ms later. Head stomp on a crawling wounded enemy |
+| `kick_hit` | Owner sample `kick_impact.mp3` (`kick_to_the_chest_impact_punch__2_.mp3`, loudness 0.4151, level 0.36). Sparta kick chest impact |
+| `stomp_hit` | Owner sample `stomp_impact.mp3` (`head_stomp_exploding_head__3_.mp3`, loudness 0.3086, level 0.40). Head stomp execution on a grounded opponent |
 | `katana_stab` | Stand-in. `sword_swing` at 1.35, cut at 200 ms + `sword_sweep` at 2, cut at 160 ms, under half volume. The katana's stab, and each stab of the flurry played rising |
 | `katana_cleave` | Stand-in. `sword_windup` at 2.2, cut at 200 ms, half volume + `sword_swing` at 0.78, 160 ms later. The cleave going up and coming down |
 | `katana_cleave_land` | Stand-in. `sword_slam` at 1.1 + `impact_concrete` at 0.7. The cleave going into the floor |

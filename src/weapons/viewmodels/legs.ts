@@ -144,27 +144,27 @@ export const LEG_POSES = {
     /** The second foot follows this far behind, and this far to the side. */
     lag: 0.16, spread: 0.13,
   },
-  /** Sparta kick: right boot chambers up and explodes straight out with the sole flat toward the target. */
+  /** Sparta kick: right boot whips up and explodes straight through center-screen with flat sole slamming forward. */
   kick: {
-    hip: [0.16, -0.50, 0.14],
-    start: [0.22, -0.82, 0.08],
-    chamber: [0.12, -0.32, -0.34],
-    thrust: [0.02, -0.14, -0.92],
-    peak: [0.01, -0.12, -0.97],
-    stow: [0.20, -0.86, 0.10],
-    toeStart: [0, 0.45, -0.88],
-    toeThrust: [0, 0.90, -0.44],
+    hip: [0.15, -0.46, 0.14],
+    start: [0.22, -0.86, 0.10],
+    chamber: [0.11, -0.24, -0.32],
+    thrust: [0.00, -0.07, -1.04],
+    peak: [-0.02, -0.04, -1.12],
+    stow: [0.22, -0.90, 0.12],
+    toeStart: [0, 0.42, -0.90],
+    toeThrust: [-0.04, 0.94, -0.34],
   },
-  /** Head stomp: right boot lifts high poised above center-bottom, then drives straight down into the skull. */
+  /** Head stomp: right boot rips violently high into view, then drives straight down through the skull into the concrete. */
   stomp: {
-    hip: [0.18, -0.46, 0.14],
-    start: [0.22, -0.82, 0.08],
-    liftMid: [0.12, -0.34, -0.28],
-    poised: [0.05, -0.14, -0.56],
-    crush: [0.02, -0.68, -0.62],
-    stow: [0.22, -0.88, 0.10],
-    toePoised: [0, 0.14, -0.99],
-    toeCrush: [0, -0.08, -0.99],
+    hip: [0.16, -0.42, 0.14],
+    start: [0.22, -0.86, 0.10],
+    liftMid: [0.10, -0.22, -0.24],
+    poised: [0.02, -0.02, -0.58],
+    crush: [0.00, -0.78, -0.68],
+    stow: [0.22, -0.92, 0.12],
+    toePoised: [0, 0.24, -0.97],
+    toeCrush: [0, -0.18, -0.98],
   },
 };
 
@@ -216,13 +216,13 @@ export class Legs {
     return this.kickMove !== null;
   }
 
-  /** 0..1 weapon dip factor while the leg is in view, so the held gun shifts aside cleanly without swapping. */
+  /** 0..1 weapon dip factor while the leg is in view, so the held gun whips aside cleanly without swapping. */
   get kickDip(): number {
     if (!this.kickMove || this.kickDuration <= 0) return 0;
     const u = clamp(this.kickTime / this.kickDuration);
-    if (u < 0.15) return u / 0.15;
-    if (u < 0.55) return 1;
-    return clamp((1 - u) / 0.45);
+    if (u < 0.09) return u / 0.09;
+    if (u < 0.56) return 1;
+    return clamp((1 - u) / 0.44);
   }
 
   update(pose: MovePose | null, pitch: number, dt: number): void {
@@ -278,7 +278,7 @@ export class Legs {
     }
   }
 
-  /** Animates the right leg in camera space so the boot thrusts straight along the sightline. */
+  /** Animates the right leg in camera space so the boot whips violently along the sightline. */
   private updateKick(move: KickMove, u: number): void {
     this.root.visible = true;
     this.root.rotation.set(0, 0, 0);
@@ -288,30 +288,30 @@ export class Legs {
 
     if (move === 'kick') {
       const P = LEG_POSES.kick;
-      if (u < 0.17) {
-        // Fast explosive chamber & snap forward (ease-out cubic).
-        const t = 1 - (1 - u / 0.17) ** 3;
+      if (u < 0.14) {
+        // Explosive quartic snap straight through the crosshair (~40 ms).
+        const t = 1 - (1 - u / 0.14) ** 4;
         along(P.start, P.chamber, P.thrust, t, _a);
         _toe.set(
           lerp(P.toeStart[0]!, P.toeThrust[0]!, t),
           lerp(P.toeStart[1]!, P.toeThrust[1]!, t),
           lerp(P.toeStart[2]!, P.toeThrust[2]!, t),
         );
-      } else if (u < 0.44) {
-        // Peak extension hold with heavy impact shudder.
-        const t = (u - 0.17) / 0.27;
+      } else if (u < 0.42) {
+        // Violent follow-through slam & impact recoil shudder.
+        const t = (u - 0.14) / 0.28;
         const hold = Math.sin(t * Math.PI);
-        const jitter = Math.sin(this.time * 95) * 0.005 * (1 - t);
+        const jitter = Math.sin(this.time * 140) * 0.011 * (1 - t);
         _a.set(
           lerp(P.thrust[0]!, P.peak[0]!, hold) + jitter,
-          lerp(P.thrust[1]!, P.peak[1]!, hold) + jitter * 0.6,
+          lerp(P.thrust[1]!, P.peak[1]!, hold) + jitter * 0.7 - 0.03 * t,
           lerp(P.thrust[2]!, P.peak[2]!, hold),
         );
         _toe.set(P.toeThrust[0]!, P.toeThrust[1]!, P.toeThrust[2]!);
       } else {
-        // Crisp recovery back under the frame.
-        const t = (u - 0.44) / 0.56;
-        const e = t * t * (3 - 2 * t);
+        // Rapid whip retraction back under the frame.
+        const t = (u - 0.42) / 0.58;
+        const e = Math.pow(t, 1.5);
         along(P.thrust, P.chamber, P.stow, e, _a);
         _toe.set(
           lerp(P.toeThrust[0]!, P.toeStart[0]!, e),
@@ -320,19 +320,19 @@ export class Legs {
         );
       }
       _h.set(P.hip[0]!, P.hip[1]!, P.hip[2]!);
-      this.place(this.legs[1]!, _h, _a, _pole.set(0.24, 1, 0.12), _toe);
+      this.place(this.legs[1]!, _h, _a, _pole.set(0.22, 1, 0.14), _toe);
       return;
     }
 
-    // Head stomp: lift high, drive straight down, grind briefly, withdraw.
+    // Head stomp: rip knee violently high (~68 ms), brutal cubic downward slam (~28 ms), crush-grind, swift retract.
     const P = LEG_POSES.stomp;
-    if (u < 0.27) {
-      const t = 1 - (1 - u / 0.27) ** 2;
+    if (u < 0.20) {
+      const t = 1 - (1 - u / 0.20) ** 3;
       along(P.start, P.liftMid, P.poised, t, _a);
       _toe.set(P.toePoised[0]!, P.toePoised[1]!, P.toePoised[2]!);
-    } else if (u < 0.37) {
-      // Accelerating downward smash.
-      const t = ((u - 0.27) / 0.10) ** 2;
+    } else if (u < 0.28) {
+      // Lightning-fast accelerating downward skull smash (~28 ms).
+      const t = ((u - 0.20) / 0.08) ** 3;
       _a.set(
         lerp(P.poised[0]!, P.crush[0]!, t),
         lerp(P.poised[1]!, P.crush[1]!, t),
@@ -343,14 +343,15 @@ export class Legs {
         lerp(P.toePoised[1]!, P.toeCrush[1]!, t),
         lerp(P.toePoised[2]!, P.toeCrush[2]!, t),
       );
-    } else if (u < 0.58) {
-      const t = (u - 0.37) / 0.21;
-      const grind = Math.sin(this.time * 110) * 0.006 * (1 - t);
-      _a.set(P.crush[0]! + grind, P.crush[1]! - 0.02 * Math.sin(t * Math.PI), P.crush[2]!);
+    } else if (u < 0.54) {
+      // Violent crush-grind tremor driving heel into the floor.
+      const t = (u - 0.28) / 0.26;
+      const grind = Math.sin(this.time * 165) * 0.012 * (1 - t);
+      _a.set(P.crush[0]! + grind, P.crush[1]! - 0.04 * Math.sin(t * Math.PI), P.crush[2]! - 0.02 * (1 - t));
       _toe.set(P.toeCrush[0]!, P.toeCrush[1]!, P.toeCrush[2]!);
     } else {
-      const t = (u - 0.58) / 0.42;
-      const e = t * t * (3 - 2 * t);
+      const t = (u - 0.54) / 0.46;
+      const e = Math.pow(t, 1.5);
       _a.set(
         lerp(P.crush[0]!, P.stow[0]!, e),
         lerp(P.crush[1]!, P.stow[1]!, e),

@@ -1160,16 +1160,16 @@ export class Rig implements ViewmodelRig {
       r.z += mv.gunRoll * c * m;
     }
 
-    // Sparta kick / head stomp: shift the held weapon slightly down and aside so the boot owns the center of the view.
+    // Sparta kick / head stomp: whip the held weapon sharply down and aside so the boot owns the center of the view.
     const kd = this.legs.kickDip;
     if (kd > 0) {
       const e = kd * kd * (3 - 2 * kd);
-      p.x += 0.055 * e * m;
-      p.y -= 0.095 * e;
-      p.z += 0.045 * e;
-      r.x -= 0.24 * e;
-      r.y -= 0.14 * e * m;
-      r.z -= 0.22 * e * m;
+      p.x += 0.085 * e * m;
+      p.y -= 0.145 * e;
+      p.z += 0.068 * e;
+      r.x -= 0.38 * e;
+      r.y -= 0.22 * e * m;
+      r.z -= 0.36 * e * m;
     }
 
     p.x += (this.lookP.x.x + this.moveP.x.x) * sway;
@@ -1254,12 +1254,12 @@ export class Rig implements ViewmodelRig {
     const kd = this.legs.kickDip;
     if (kd > 0) {
       const e = kd * kd * (3 - 2 * kd);
-      p.x -= 0.055 * e;
-      p.y -= 0.095 * e;
-      p.z += 0.045 * e;
-      r.x -= 0.24 * e;
-      r.y += 0.14 * e;
-      r.z += 0.22 * e;
+      p.x -= 0.085 * e;
+      p.y -= 0.145 * e;
+      p.z += 0.068 * e;
+      r.x -= 0.38 * e;
+      r.y += 0.22 * e;
+      r.z += 0.36 * e;
     }
     this.gunL.position.copy(p);
     this.gunLRot.copy(r);

@@ -1484,11 +1484,11 @@ export class DamageModel {
       this.ragdoll(e, d, force, body ? HEADSHOT_TWITCH : undefined, true);
     } else if (headshot && !e.def.machine) {
       // A bullet never takes a head off whole. Gore bursts a 'partial' on an enemy whose partial wound is not built yet.
-      // A head stomp on a crawling wounded enemy always explodes the entire head ('burst').
+      // A head stomp on any grounded opponent always explodes the entire head ('burst').
       const outcome = d.source === 'stomp' ? 'burst' : (told?.headOutcome ?? headOutcome(d.amount, heavyHead, e.def.id));
       found.headOutcome = outcome;
       const burst = outcome !== 'hole';
-      const down = e.rising > 0 || body?.floored === true;
+      const down = e.rising > 0 || e.downed || body?.floored === true;
       if (burst) this.throwHelmet(e, d);
       if (burst || (!down && !body)) {
         ctx.gore.headshot(e.char, d, down ? undefined : deathVelocity(e, _dying, this.w.now), outcome);
