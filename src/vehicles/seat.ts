@@ -16,7 +16,9 @@ import type { Point } from '../progression/callins/airframe';
 import type { GroundProbe } from '../progression/callins/ground';
 import { GunnerHud, type GunnerTone, type GunnerWeapon } from './hud';
 import type { FrameHullHud } from '../frame/parts';
+import { saveSettings, type Settings } from '../ui/settings';
 import { Skyline } from './skyline';
+import { VehicleVision } from './vision';
 
 export interface SeatPlan {
   /** Top of the screen. */
@@ -131,7 +133,7 @@ export class SeatRig {
   readonly prisoners = new Set<number>();
   seat: GunnerSeat | null = null;
 
-  constructor(ctx: Ctx, probe: GroundProbe, readonly holdGrade: (grade: GradeName | null) => void) {
+  constructor(private readonly ctx: Ctx, probe: GroundProbe, readonly holdGrade: (grade: GradeName | null) => void) {
     this.hud = new GunnerHud(ctx, this);
     this.shell = new BodyShell(ctx);
     this.skyline = new Skyline(ctx, probe);
@@ -144,6 +146,29 @@ export class SeatRig {
 
   get occupied(): boolean {
     return this.seat !== null;
+  }
+
+  /** Whether enemy highlighting silhouettes and target brackets are active while seated in vehicles/aircraft/Frame. */
+  get enemyVision(): boolean {
+    return VehicleVision.enabled;
+  }
+
+  set enemyVision(on: boolean) {
+    VehicleVision.enabled = on;
+    const hud = this.ctx.hud as { settings?: Settings } | undefined;
+    if (hud?.settings) {
+      hud.settings.vehicleVision = on;
+      saveSettings(hud.settings);
+    }
+  }
+
+  /** Flips vehicle enemy vision on or off, persists the choice, and notifies the pilot. */
+  toggleEnemyVision(): boolean {
+    const next = !this.enemyVision;
+    this.enemyVision = next;
+    this.ctx.audio?.play?.('ui_toggle');
+    this.ctx.hud?.callout?.(next ? 'ENEMY VISION ON' : 'ENEMY VISION OFF');
+    return next;
   }
 
   get shaders(): readonly THREE.Material[] {
@@ -375,6 +400,7 @@ export class GunnerSeat {
 
   /** Every frame it should show: see RenderSystem.highlight. */
   private mark(): void {
+    if (!VehicleVision.enabled || this.rig.enemyVision === false) return;
     const { enemies, render } = this.ctx;
     const { lit, held } = this;
     const { prisoners } = this.rig;

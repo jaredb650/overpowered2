@@ -203,3 +203,50 @@ describe('GunnerSeat exit', () => {
     expect(log.grades).toEqual([]);
   });
 });
+
+describe('GunnerSeat enemy vision toggle', () => {
+  it('suppresses enemy silhouette highlighting when VehicleVision is disabled and resumes when re-enabled', async () => {
+    const { VehicleVision } = await import('./vision');
+    const highlights: unknown[][] = [];
+    const mesh = new THREE.Object3D();
+    const ctx = {
+      input: { frameLook: look, isDown: () => false, pressed: () => false },
+      player: {
+        sensitivity: 0.002, lookScale: 1, invertY: false, grounded: true, position: new THREE.Vector3(),
+        park() {}, unpark() {},
+      },
+      camera: { setSeat() {}, setZoom() {}, syncSeat() {} },
+      hud: { seat() {} },
+      render: { highlight: (m: unknown[]) => highlights.push([...m]), post: { flash() {} } },
+      enemies: { alive: [{ uid: 1, char: { mesh } }] },
+      physics: { raycastInto: floorRay },
+      world: { objects: { hazardAt: () => null }, nav: { nearest: () => false }, playerSpawns: [] },
+    } as unknown as Ctx;
+    const rig = {
+      seat: null, prisoners: new Set<number>(), shell: { show() {}, hide() {}, update() {} }, hud: { open() {} },
+      holdGrade() {},
+    } as unknown as SeatRig;
+
+    try {
+      const seat = new GunnerSeat(ctx, rig, PLAN);
+      seat.board();
+      seat.sit(new THREE.Vector3(40, 0, 0), new THREE.Vector3(0, 30, 0));
+
+      VehicleVision.enabled = true;
+      seat.update(1 / 60, level, new THREE.Vector3(0, 30, 0));
+      expect(highlights).toHaveLength(1);
+      expect(highlights[0]).toEqual([mesh]);
+
+      VehicleVision.enabled = false;
+      seat.update(1 / 60, level, new THREE.Vector3(0, 30, 0));
+      expect(highlights).toHaveLength(1);
+
+      VehicleVision.enabled = true;
+      seat.update(1 / 60, level, new THREE.Vector3(0, 30, 0));
+      expect(highlights).toHaveLength(2);
+    } finally {
+      VehicleVision.enabled = true;
+    }
+  });
+});
+

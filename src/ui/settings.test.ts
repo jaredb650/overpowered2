@@ -284,4 +284,28 @@ describe('blood puff size settings', () => {
   });
 });
 
+describe('vehicle enemy vision setting', () => {
+  it('defaults to on, loads saved off state, and syncs VehicleVision.enabled', async () => {
+    const { applySettings } = await import('./settings');
+    const { VehicleVision } = await import('../vehicles/vision');
+    expect(DEFAULTS.vehicleVision).toBe(true);
+    store({ vehicleVision: false });
+    const loaded = loadSettings();
+    expect(loaded.vehicleVision).toBe(false);
+
+    const ctx = {
+      player: {}, weapons: {}, camera: {}, audio: {}, render: {}, hud: {},
+    } as never;
+    try {
+      applySettings(ctx, loaded);
+      expect(VehicleVision.enabled).toBe(false);
+      applySettings(ctx, { ...DEFAULTS, vehicleVision: true });
+      expect(VehicleVision.enabled).toBe(true);
+    } finally {
+      applySettings(ctx, { ...DEFAULTS });
+    }
+  });
+});
+
+
 

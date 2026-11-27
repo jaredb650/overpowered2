@@ -9,6 +9,7 @@ import type { MissileTarget, SeatPanel } from '../core/gameplay';
 import { Flag, Label, Meter, Num, Shown, div, markup, span } from '../ui/dom';
 import type { HudViewMode } from './drive/types';
 import type { GunnerSeat, SeatRig } from './seat';
+import { VehicleVision } from './vision';
 import './gunner.css';
 
 export type GunnerTone = 'thermal' | 'door' | 'mount' | 'gunship' | 'frame' | 'vehicle';
@@ -193,6 +194,9 @@ export class GunnerHud implements SeatPanel {
   private readonly vehSpecialActive: Flag;
   private readonly vehSpecialCool: Flag;
   private readonly vehCam: Label;
+  private readonly vehVision: Label;
+  private readonly vehVisionActive: Flag;
+  private readonly vehVisionOff: Flag;
   private readonly chargeBox: Shown;
   private readonly chargeBar: Meter;
   private readonly mslWarn: Shown;
@@ -228,10 +232,16 @@ export class GunnerHud implements SeatPanel {
   private readonly warning: Flag;
   private readonly hot: Flag;
   private readonly inverted: Flag;
+  private readonly visionOff: Flag;
   private width = 1;
   private height = 1;
   private tone: GunnerTone | null = null;
   private vMode: HudViewMode | null = null;
+  private baseHint = '';
+  private lastHintBase = '';
+  private lastHintVision: boolean | null = null;
+  private lastHintKey = '';
+  private visionKeyQueued = false;
 
   constructor(private readonly ctx: Ctx, private readonly rig: SeatRig) {
     const tags = div('gn-tags');
@@ -326,10 +336,11 @@ export class GunnerHud implements SeatPanel {
     const vehSeatEl = span('gn-veh-pill');
     const vehSpecialEl = span('gn-veh-pill');
     const vehCamEl = span('gn-veh-pill');
+    const vehVisionEl = span('gn-veh-pill');
     const vehEl = div('gn-veh',
       div('gn-veh-spd', vehSpdNum, span('gn-veh-unit', 'KM/H')),
       div('gn-veh-boost', span('gn-key', 'BOOST'), div('gn-veh-bbar', vehBoostFill)),
-      div('gn-veh-meta', vehSeatEl, vehSpecialEl, vehCamEl),
+      div('gn-veh-meta', vehSeatEl, vehSpecialEl, vehCamEl, vehVisionEl),
     );
 
     this.el = div('gn',
@@ -375,6 +386,7 @@ export class GunnerHud implements SeatPanel {
     this.warning = new Flag(this.el, 'warning');
     this.hot = new Flag(this.el, 'hot');
     this.inverted = new Flag(this.el, 'inverted');
+    this.visionOff = new Flag(this.el, 'vision-off');
     this.legsShown = new Shown(legs, 'block');
     this.fHullBox = new Shown(hullEl, 'flex');
     this.fHullHp = new Num(fHullHp);
@@ -397,6 +409,9 @@ export class GunnerHud implements SeatPanel {
     this.vehSpecialActive = new Flag(vehSpecialEl, 'active');
     this.vehSpecialCool = new Flag(vehSpecialEl, 'cool');
     this.vehCam = new Label(vehCamEl);
+    this.vehVision = new Label(vehVisionEl);
+    this.vehVisionActive = new Flag(vehVisionEl, 'active');
+    this.vehVisionOff = new Flag(vehVisionEl, 'off');
     this.chargeBox = new Shown(chargeEl, 'flex');
     this.chargeBar = new Meter(chargeFill);
     this.mslWarn = new Shown(mslWarnEl, 'block');
@@ -424,12 +439,52 @@ export class GunnerHud implements SeatPanel {
     this.gunPipShown.set(false);
     this.lockShown.set(false);
     addEventListener('resize', this.measure);
+    addEventListener('keydown', this.onKeyDown);
   }
 
   private measure = (): void => {
     this.width = this.el.clientWidth || innerWidth;
     this.height = this.el.clientHeight || innerHeight;
   };
+
+  private onKeyDown = (e: KeyboardEvent): void => {
+    if (e.repeat) return;
+    const seat = this.rig.seat;
+    if (!seat || seat.stage !== 'seated' || seat.plan.tone === 'mount') return;
+    if (this.ctx.time?.paused) return;
+    const target = e.target as HTMLElement | null;
+    if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable)) return;
+    const custom = this.ctx.input?.bindingsFor?.('vehicleVision');
+    if (custom && custom.length > 0) return;
+    const fallbackCode = seat.plan.tone === 'frame' ? 'KeyI' : 'KeyV';
+    if (e.code === fallbackCode) this.visionKeyQueued = true;
+  };
+
+  private visionKeyLabel(seat: GunnerSeat): string {
+    const custom = this.ctx.input?.bindingsFor?.('vehicleVision');
+    if (custom && custom.length > 0) {
+      const lbl = this.ctx.input.labelFor?.('vehicleVision');
+      if (lbl && lbl !== 'vehicleVision') return lbl;
+    }
+    return seat.plan.tone === 'frame' ? 'I' : 'V';
+  }
+
+  private refreshHint(seat: GunnerSeat, visionOn: boolean): void {
+    const base = seat.hintText || this.baseHint;
+    const key = this.visionKeyLabel(seat);
+    const hideSuffix = seat.plan.tone === 'mount' || seat.plan.tone === 'vehicle' || seat.vehicleHud !== null;
+    const effectiveKey = hideSuffix ? '' : key;
+    if (base === this.lastHintBase && visionOn === this.lastHintVision && effectiveKey === this.lastHintKey) return;
+    this.lastHintBase = base;
+    this.lastHintVision = visionOn;
+    this.lastHintKey = effectiveKey;
+    if (hideSuffix) {
+      this.hint.set(base);
+    } else {
+      const tag = `${key} VISION ${visionOn ? 'ON' : 'OFF'}`;
+      this.hint.set(base ? `${base} // ${tag}` : tag);
+    }
+  }
 
   private key(action: Action): string {
     return this.ctx.input.labelFor(action);
@@ -448,7 +503,7 @@ export class GunnerHud implements SeatPanel {
     this.label.set(plan.label);
     const out = seat.noWayOut ? '' : ` // ${this.key('interact')} ${plan.tone === 'mount' ? 'LEAVE' : plan.tone === 'frame' || plan.tone === 'vehicle' ? 'EXIT' : 'HAND TO AI'}`;
     const flares = plan.tone === 'gunship' || plan.tone === 'thermal' ? ` // ${this.key('jump')} FLARES` : '';
-    this.hint.set(seat.hintText
+    this.baseHint = seat.hintText
       ? seat.hintText
       : plan.tone === 'gunship'
         ? `${this.key('fire')} FIRE // 1-4 GUN, AGAIN FOR ROUND // ${this.key('aim')} ZOOM // ${this.key('reload')} VIEW${flares}${out}`
@@ -458,22 +513,41 @@ export class GunnerHud implements SeatPanel {
             ? `WASD DRIVE // SHIFT BOOST // F SEAT // C VIEW // Q SPECIAL${out}`
             : plan.aimZooms
               ? `${this.key('fire')} FIRE // ${this.key('aim')} ZOOM${out}`
-              : `${this.key('fire')} CANNON // ${this.key('aim')} ROCKETS // WHEEL ZOOM${flares}${out}`);
+              : `${this.key('fire')} CANNON // ${this.key('aim')} ROCKETS // WHEEL ZOOM${flares}${out}`;
+    this.lastHintBase = '';
+    this.lastHintVision = null;
+    this.lastHintKey = '';
+    this.visionKeyQueued = false;
+    this.refreshHint(seat, VehicleVision.enabled && this.rig.enemyVision !== false);
     this.el.style.setProperty('--gn-hot', plan.enemyColor);
     this.spinShown.set(plan.tone !== 'thermal' && plan.tone !== 'gunship');
   }
 
   update(): void {
     const seat = this.rig.seat;
-    if (!seat) return;
+    if (!seat) {
+      this.visionKeyQueued = false;
+      return;
+    }
     if (this.width <= 1) this.measure();
+    if (seat.stage === 'seated' && seat.plan.tone !== 'mount' && !this.ctx.time?.paused) {
+      const actionPressed = this.ctx.input?.pressed?.('vehicleVision') === true;
+      if (this.visionKeyQueued || actionPressed) {
+        this.visionKeyQueued = false;
+        this.rig.toggleEnemyVision?.();
+      }
+    } else {
+      this.visionKeyQueued = false;
+    }
+    const visionOn = VehicleVision.enabled && this.rig.enemyVision !== false;
+    this.visionOff.set(!visionOn);
     this.boarding.set(seat.stage !== 'seated');
     this.tagEnemies();
     this.tagBody();
     if (seat.stage !== 'seated') return;
     const { plan } = seat;
     this.label.set(seat.status ? `${plan.label} // ${seat.status}` : plan.label);
-    if (seat.hintText) this.hint.set(seat.hintText);
+    this.refreshHint(seat, visionOn);
     this.seconds.set(Math.ceil(seat.left));
     this.timeBar.set(seat.left / plan.seconds);
     this.warning.set(seat.left <= 10);
@@ -537,6 +611,10 @@ export class GunnerHud implements SeatPanel {
     this.vehSpecialActive.set(v.specialActive);
     this.vehSpecialCool.set(!v.specialReady && !v.specialActive);
     this.vehCam.set(v.ammoMode ? `${v.ammoMode} // ${v.cameraLabel}` : `CAM ${v.cameraLabel}`);
+    const visionOn = VehicleVision.enabled && this.rig.enemyVision !== false;
+    this.vehVision.set(`[${this.visionKeyLabel(seat)}] VISION ${visionOn ? 'ON' : 'OFF'}`);
+    this.vehVisionActive.set(visionOn);
+    this.vehVisionOff.set(!visionOn);
 
     // Viper Particle Lance Charge Bar & Incoming Missile Lock Warning.
     const charging = v.chargeFraction > 0.02;
@@ -685,8 +763,9 @@ export class GunnerHud implements SeatPanel {
     const { enemies, render } = this.ctx;
     const { prisoners } = this.rig;
     const camera = render.camera;
+    const showBoxes = VehicleVision.enabled && this.rig.enemyVision !== false && this.rig.seat?.boxes !== false;
     let used = 0;
-    for (const e of this.rig.seat?.boxes === false ? NONE : enemies.alive) {
+    for (const e of showBoxes ? enemies.alive : NONE) {
       if (used >= MAX_TAGS) break;
       _p.copy(e.center).project(camera);
       if (_p.z > 1 || Math.abs(_p.x) > 1 || Math.abs(_p.y) > 1) continue;

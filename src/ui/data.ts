@@ -415,6 +415,8 @@ export const KEY_GROUPS: readonly { title: string; rows: readonly [Action, strin
       ['streak', 'Airstrike'], ['callinWarthog', 'Warthog'], ['callinDoorGunner', 'Door Gunner'], ['callinChopper', 'Attack Chopper'], ['callinOrbital', 'Orbital Lance'],
       ['callinAc130', 'AC-130'], ['callinBlackSun', 'Black Sun'], ['callinNuke', 'Tactical Nuke'],
       ['callinSentry', 'AA Sentry'], ['callinFrame', 'Distraint Frame'], ['scoreboard', 'Run stats'],
+      ['showMarkers', 'Show objective markers (tap or hold)'],
+      ['vehicleVision', 'Vehicle enemy vision (default: V, or I in Frame)'],
       ['nextWave', 'Next wave now (Defense, Crucible shop; co-op: ready up)'],
       ['ping', 'Co-op only: mark a spot for the team'],
     ],

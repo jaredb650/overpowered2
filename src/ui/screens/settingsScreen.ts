@@ -256,15 +256,16 @@ export class SettingsScreen implements Screen {
     const hudCrosshair = new Stepper('Crosshair', ['Off', 'On'], () => (s.hudCrosshair ? 1 : 0), v => { s.hudCrosshair = v === 1; }, tick);
     const hudVitals = new Stepper('Vitals & armor', ['Off', 'On'], () => (s.hudVitals ? 1 : 0), v => { s.hudVitals = v === 1; }, tick);
     const hudWeapons = new Stepper('Weapons & ammo', ['Off', 'On'], () => (s.hudWeapons ? 1 : 0), v => { s.hudWeapons = v === 1; }, tick);
-    const hudMinimap = new Stepper('Minimap & radar', ['Off', 'On'], () => (s.hudMinimap ? 1 : 0), v => { s.hudMinimap = v === 1; }, tick);
+    const hudMinimap = new Stepper('Minimap, compass & radar', ['Off', 'On'], () => (s.hudMinimap ? 1 : 0), v => { s.hudMinimap = v === 1; }, tick);
     const hudScore = new Stepper('Wave, score & combo', ['Off', 'On'], () => (s.hudScore ? 1 : 0), v => { s.hudScore = v === 1; }, tick);
     const hudFeeds = new Stepper('Kill & radio feeds', ['Off', 'On'], () => (s.hudFeeds ? 1 : 0), v => { s.hudFeeds = v === 1; }, tick);
     const hudMarkers = new Stepper('World markers', ['Off', 'On'], () => (s.hudMarkers ? 1 : 0), v => { s.hudMarkers = v === 1; }, tick);
+    const vehicleVision = new Stepper('Vehicle enemy vision', ['Off', 'On'], () => (s.vehicleVision ? 1 : 0), v => { s.vehicleVision = v === 1; }, tick);
     const reports = new Stepper('Anonymous error reports', ['Off', 'On'], () => reporter.enabled() ? 1 : 0, v => reporter.setEnabled(v === 1), () => {});
     this.cheatRow = new CheatRow(text => this.note.set(text), id => this.ctx.audio.play?.(id));
     const general = [sensitivity, fov, invert, hop, aimMode, aimSens, master, sfx, music, voices, quality, suppression, hitText, chatter];
     const goreRows = [gore, mess, puffAll, puffBullet, puffShotgun, puffHeadshot, puffHeadburst, puffLimb, puffBlowout, puffGib];
-    const hudRows = [hudAll, hudCrosshair, hudVitals, hudWeapons, hudMinimap, hudScore, hudFeeds, hudMarkers];
+    const hudRows = [hudAll, hudCrosshair, hudVitals, hudWeapons, hudMinimap, hudScore, hudFeeds, hudMarkers, vehicleVision];
     this.refreshers = [...general, ...goreRows, ...hudRows, reports].map(r => () => r.refresh());
     const keys = this.keyRows();
     const resetKeys = menuButton('Reset keys', () => this.resetKeys());
@@ -290,7 +291,7 @@ export class SettingsScreen implements Screen {
       {
         el: div('gd-panel', div('set-list',
           span('gd-h', 'HUD visibility'), hudAll.el,
-          span('gd-h', 'HUD elements'), hudCrosshair.el, hudVitals.el, hudWeapons.el, hudMinimap.el, hudScore.el, hudFeeds.el, hudMarkers.el,
+          span('gd-h', 'HUD elements'), hudCrosshair.el, hudVitals.el, hudWeapons.el, hudMinimap.el, hudScore.el, hudFeeds.el, hudMarkers.el, vehicleVision.el,
         )),
         rows: hudRows,
       },

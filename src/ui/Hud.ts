@@ -32,6 +32,7 @@ import { Banner } from './hud/banner';
 import { LowFrame, Scope, Targeting } from './hud/overlays';
 import { DebugOverlays } from './hud/debug';
 import { Minimap, type MinimapPoint } from './hud/minimap';
+import { Compass } from './hud/compass';
 import { Scoreboard } from './hud/scoreboard';
 import { SonarChip } from './hud/sonar';
 import { Stragglers } from './hud/stragglers';
@@ -117,6 +118,7 @@ export class Hud implements HudSystem {
   private lowFrame: LowFrame;
   private debug: DebugOverlays;
   private minimap: Minimap;
+  private compass: Compass;
   private scoreboard: Scoreboard;
   private stragglers: Stragglers;
   private flythrough: Flythrough;
@@ -181,6 +183,7 @@ export class Hud implements HudSystem {
     this.lowFrame = new LowFrame();
     this.debug = new DebugOverlays(ctx);
     this.minimap = new Minimap(ctx, this.worldLayer);
+    this.compass = new Compass(ctx, this.worldLayer);
     this.scoreboard = new Scoreboard(this.report);
     this.commander = ACTIVE.def.ai === 'outpost' && !ACTIVE.def.noCommander ? new CommanderHud(ctx, this.settings) : null;
     this.defense = ACTIVE.def.economy ? new DefenseHud(ctx) : null;
@@ -203,6 +206,7 @@ export class Hud implements HudSystem {
     tagPart(this.callIns.el, 'weapons');
     tagPart(this.perks.el, 'weapons');
     tagPart(this.minimap.el, 'minimap');
+    tagPart(this.compass.el, 'minimap');
     tagPart(this.sonar.el, 'minimap');
     tagPart(this.tally.el, 'score');
     tagPart(this.combo.el, 'score');
@@ -247,6 +251,7 @@ export class Hud implements HudSystem {
         div('fill'),
         this.arms.el,
       ),
+      this.compass.el,
       this.tach.el,
       this.boss.el,
       this.bannerLanes.el,
@@ -294,6 +299,7 @@ export class Hud implements HudSystem {
   private onResize = (): void => {
     this.worldLayer.measure();
     this.minimap.measure();
+    this.compass.measure();
     this.bubbles.measure();
     this.crosshair.measure();
   };
@@ -394,6 +400,7 @@ export class Hud implements HudSystem {
     if (to === 'playing') {
       this.screens.show('none');
       this.minimap.measure();
+      this.compass.measure();
     }
   }
 
@@ -737,7 +744,14 @@ export class Hud implements HudSystem {
     this.crosshair.update(s, dt, this.combo.tier);
     this.holdRing.update(dt);
     this.seatPanel?.update();
+    this.worldLayer.updateReveal(
+      playing && input.pressed?.('showMarkers') === true,
+      playing && input.isDown?.('showMarkers') === true,
+      !playing || input.released?.('showMarkers') === true,
+      dt,
+    );
     this.worldLayer.update(dt);
+    this.compass.update();
     this.bubbles.update(playing ? dt : 0);
     this.grenadeWarn.update(playing);
     this.voices.update(dt, !playing);

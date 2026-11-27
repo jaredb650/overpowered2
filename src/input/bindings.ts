@@ -58,6 +58,10 @@ export const DEFAULT_BINDINGS: Readonly<Bindings> = {
   nextWave: ['KeyL'],
   // Co-op: a marker where you are looking, for the team. The middle button, as in other shooters, and P for a mouse without one.
   ping: [MOUSE_MIDDLE, 'KeyP'],
+  // Temporarily reveal objective/waypoint markers in the 3D visual field (tap for 5s, hold to peek).
+  showMarkers: ['AltLeft'],
+  // Optional custom override for toggling vehicle enemy vision (defaults to V in vehicles/aircraft, I in Distraint Frame).
+  vehicleVision: [],
   pause: ['Escape'],
   scoreboard: ['Tab'],
   debugFps: ['F3'],
@@ -91,10 +95,12 @@ export function loadBindings(): Bindings {
       merged.stim = DEFAULT_BINDINGS.stim;
       merged.weaponLast = DEFAULT_BINDINGS.weaponLast;
     }
-    // Ping came with co-op, after players had saved their keys: it takes only the default keys nothing of theirs is on, so a
-    // saved map never ends up with two actions on one key. Once it is in the saved map it is the player's own choice.
-    if (!Array.isArray(stored.ping)) {
-      merged.ping = DEFAULT_BINDINGS.ping.filter(code => !ACTIONS.some(a => a !== 'ping' && merged[a].includes(code)));
+    // Actions added after players had saved their keys take only the default keys nothing of theirs is on, so a saved map
+    // never ends up with two actions on one key. Once it is in the saved map it is the player's own choice.
+    for (const added of ['ping', 'showMarkers', 'vehicleVision'] as const) {
+      if (!Array.isArray(stored[added])) {
+        merged[added] = DEFAULT_BINDINGS[added].filter(code => !ACTIONS.some(a => a !== added && merged[a].includes(code)));
+      }
     }
   } catch {
     // Blocked storage or a corrupt entry falls back to defaults.
@@ -123,7 +129,7 @@ const LABELS: Record<string, string> = {
   [MOUSE_LEFT]: 'LMB', [MOUSE_MIDDLE]: 'MMB', [MOUSE_RIGHT]: 'RMB', Mouse3: 'MB4', Mouse4: 'MB5',
   [WHEEL_UP]: 'Wheel Up', [WHEEL_DOWN]: 'Wheel Down',
   Space: 'Space', ShiftLeft: 'L Shift', ShiftRight: 'R Shift', ControlLeft: 'L Ctrl', ControlRight: 'R Ctrl',
-  AltLeft: 'L Alt', AltRight: 'R Alt', Escape: 'Esc', Tab: 'Tab', Enter: 'Enter', Backspace: 'Backspace',
+  AltLeft: 'L Alt', AltRight: 'R Alt', Backquote: '~', Escape: 'Esc', Tab: 'Tab', Enter: 'Enter', Backspace: 'Backspace',
 };
 
 /** Short text for a binding, for menus and on-screen prompts. */

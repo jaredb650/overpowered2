@@ -24,6 +24,7 @@ import type { GoreRegion } from '../../characters/rig';
 import type { ModelMaterials } from '../../progression/modelkit';
 import { Gun, M134, type GunSpec } from '../guns';
 import { GunnerSeat, type SeatPlan, type SeatRig } from '../seat';
+import { VehicleVision } from '../vision';
 import { VehicleAudioController, type VehicleAudioTelemetry } from './audio';
 import { DRIVE_VEHICLES } from './data';
 import { HYBRID_HMG_AGL, VULCAN_AA } from './guns';
@@ -1193,7 +1194,7 @@ export class DriveableVehicle {
     }
 
     // Kestrel FLIR Thermal Cam: highlight live enemies glowing hot through dust & walls!
-    if (spec.hudMode === 'thermal' && this.ctx.render?.highlight) {
+    if (spec.hudMode === 'thermal' && VehicleVision.enabled && this.ctx.render?.highlight) {
       _hlLit.length = 0;
       for (const e of this.ctx.enemies.alive) {
         if (e.alive) _hlLit.push(e.char.mesh);

@@ -6,7 +6,7 @@ import { Num, div, span } from '../dom';
 
 const MAX_FLOATS = 24;
 const FLOAT_LIFE = 1.05;
-const MAX_MARKERS = 24;
+const MAX_MARKERS = 32;
 /**
  * Markers pin to a ring around the crosshair, as a fraction of the half-screen. Inside it they sit on their world
  * position. The ring keeps them near where you are looking and clear of the HUD columns, and because the pin is a
@@ -15,6 +15,15 @@ const MAX_MARKERS = 24;
 const RING_X = 0.5;
 const RING_Y = 0.56;
 
+/** Seconds a tap on the objective-markers key reveals 3D world waypoints before fading back to the compass. */
+export const MARKER_REVEAL_SECONDS = 5.0;
+/** Holding the key at least this long switches to hold-to-peek, fading out smoothly on release. */
+export const MARKER_HOLD_THRESHOLD = 0.35;
+/** Smooth fade-out tail in seconds when temporary markers hide again. */
+export const MARKER_FADE_SECONDS = 0.75;
+/** Seconds a newly placed waypoint pulses on the top compass. */
+const COMPASS_PULSE_SECONDS = 1.5;
+
 const _v = new THREE.Vector3();
 const _view = new THREE.Vector3();
 
@@ -22,6 +31,93 @@ const _view = new THREE.Vector3();
 export const TAG_ROW = 1.45;
 /** Half the width of a tag's text, in rem, from its characters: the plate's padding, the distance and its unit included. */
 export const tagHalfWidth = (chars: number): number => (chars + 5) * 0.31 + 0.5;
+
+/**
+ * True when a `follow()` marker is a close-range interaction prompt (e.g. `[E] BOARD`, `HOLD [E] ...`, `E MAN GUN`),
+ * which should stay visible in the 3D world rather than being tucked into the compass.
+ */
+export function isInteractivePrompt(label: string, target: THREE.Vector3 | null, interactKey = 'E'): boolean {
+  if (!target) return false;
+  const up = label.trim().toUpperCase();
+  if (!up) return false;
+  const k = (interactKey || 'E').trim().toUpperCase();
+  if (k) {
+    if (up.includes(`[${k}]`)) return true;
+    if (up.startsWith(`${k} `)) return true;
+    if (up.includes(`HOLD ${k}`) || up.includes(`TAP ${k}`) || up.includes(`PRESS ${k}`) || up.includes(`  ${k} `)) return true;
+  }
+  return up.startsWith('REVIVING') || up.startsWith('REPAIRING') || up.includes('NO STIMS TO REVIVE') || up.includes('KEEP HIM ALIVE');
+}
+
+/** True when a marker always renders in 3D space (teammate name tags, live co-op pings, or close-range interact prompts). */
+export function isAlwaysVisibleMarker(label: string, target: THREE.Vector3 | null, tag: boolean, interactKey = 'E'): boolean {
+  if (tag) return true;
+  if (label === 'YOUR PING' || label.startsWith('PING · ')) return true;
+  return isInteractivePrompt(label, target, interactKey);
+}
+
+/**
+ * Pure controller for the temporary 3D objective-marker reveal button:
+ * - Tap when hidden: reveals all world waypoints for `MARKER_REVEAL_SECONDS` (5 s), fading out over the last 0.75 s.
+ * - Hold (>= 0.35 s): keeps waypoints fully visible while held, fading out smoothly on release.
+ * - Tap again while already revealed from a prior tap: dismisses smoothly right away.
+ */
+export class MarkerReveal {
+  private left = 0;
+  private held = 0;
+  private holding = false;
+
+  /** Current 0..1 opacity for temporary 3D waypoint markers. */
+  get opacity(): number {
+    if (this.left <= 0) return 0;
+    if (this.left >= MARKER_FADE_SECONDS) return 1;
+    return this.left / MARKER_FADE_SECONDS;
+  }
+
+  /** Remaining fraction 0..1 of the reveal window, for the compass countdown bar. */
+  get fraction(): number {
+    return clamp(this.left / MARKER_REVEAL_SECONDS, 0, 1);
+  }
+
+  /** True while waypoints are currently visible or fading out. */
+  get active(): boolean {
+    return this.left > 0;
+  }
+
+  update(pressed: boolean, isDown: boolean, released: boolean, dt: number): void {
+    if (pressed) {
+      if (this.left > MARKER_FADE_SECONDS && !this.holding) {
+        // Already revealed from an earlier tap: dismiss cleanly.
+        this.left = MARKER_FADE_SECONDS * 0.5;
+        this.holding = false;
+        this.held = 0;
+      } else {
+        this.left = MARKER_REVEAL_SECONDS;
+        this.holding = true;
+        this.held = 0;
+      }
+    }
+    if (this.holding) {
+      if (isDown && !released) {
+        this.held += dt;
+        if (this.left < MARKER_FADE_SECONDS + 0.25) this.left = MARKER_FADE_SECONDS + 0.25;
+        return;
+      }
+      if (this.held >= MARKER_HOLD_THRESHOLD) {
+        this.left = Math.min(this.left, MARKER_FADE_SECONDS);
+      }
+      this.holding = false;
+      this.held = 0;
+    }
+    if (this.left > 0) this.left = Math.max(0, this.left - dt);
+  }
+
+  reset(): void {
+    this.left = 0;
+    this.held = 0;
+    this.holding = false;
+  }
+}
 
 /**
  * Co-op: which line each friend's name tag is printed on, so that two friends in the same direction (one behind the other,
@@ -66,6 +162,12 @@ export interface MapMarker {
   live: boolean;
   /** Set on a marker riding something that moves. The minimap already draws those. */
   target: THREE.Vector3 | null;
+  /** Raw text label, read by the top compass without touching the DOM. */
+  labelText: string;
+  /** True for teammate name tags, co-op pings and close-range interact prompts that always stay in 3D space. */
+  alwaysWorld: boolean;
+  /** Seconds left on the new-waypoint pulse ring on the top compass. */
+  pulse: number;
 }
 
 interface Marker extends MapMarker {
@@ -81,6 +183,8 @@ interface Marker extends MapMarker {
   tag: boolean;
   chars: number;
   row: number;
+  shown: boolean;
+  opacity: number;
   qx: number;
   qy: number;
   qa: number;
@@ -92,6 +196,7 @@ const MAX_TAGS = 4;
 export class WorldLayer {
   readonly el: HTMLElement;
   readonly markers: Marker[] = [];
+  readonly reveal = new MarkerReveal();
   private floats: FloatText[] = [];
   private nextFloat = 0;
   private activeFloats = 0;
@@ -122,7 +227,9 @@ export class WorldLayer {
       el.style.display = 'none';
       this.el.append(el);
       this.markers.push({
-        el, arrow, label, dist: new Num(dist), pos: new THREE.Vector3(), color: '', live: false, target: null, clock: 0, offscreen: null, use: 0, tag: false, chars: 0, row: 0,
+        el, arrow, label, dist: new Num(dist), pos: new THREE.Vector3(), color: '', live: false, target: null,
+        labelText: '', alwaysWorld: false, pulse: 0,
+        clock: 0, offscreen: null, use: 0, tag: false, chars: 0, row: 0, shown: false, opacity: -1,
         qx: NaN, qy: NaN, qa: NaN,
       });
     }
@@ -133,6 +240,23 @@ export class WorldLayer {
     this.width = innerWidth;
     this.height = innerHeight;
     this.rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+  }
+
+  /** Number of live compass-managed objective/waypoint markers (excludes interact prompts and friend tags). */
+  get waypointCount(): number {
+    if (this.activeMarkers === 0) return 0;
+    let n = 0;
+    for (const m of this.markers) if (m.live && !m.alwaysWorld) n++;
+    return n;
+  }
+
+  /** Feeds the show-markers key state into the temporary reveal controller. */
+  updateReveal(pressed: boolean, isDown: boolean, released: boolean, dt: number): void {
+    const wasActive = this.reveal.active;
+    this.reveal.update(pressed, isDown, released, dt);
+    if (pressed && !wasActive && this.reveal.active && this.waypointCount > 0) {
+      this.ctx.audio?.play?.('ui_click');
+    }
   }
 
   float(position: THREE.Vector3, text: string, color?: string): void {
@@ -163,10 +287,15 @@ export class WorldLayer {
     const m = this.markers.find(x => !x.live) ?? this.markers[0]!;
     const use = ++m.use;
     if (!m.live) this.activeMarkers++;
+    const interactKey = this.ctx.input?.labelFor?.('interact') || 'E';
+    const alwaysWorld = isAlwaysVisibleMarker(label, target, tag, interactKey);
     m.pos.copy(position);
     m.target = target;
     m.color = color ?? '#39e0ff';
     m.live = true;
+    m.labelText = label;
+    m.alwaysWorld = alwaysWorld;
+    m.pulse = alwaysWorld ? 0 : COMPASS_PULSE_SECONDS;
     m.offscreen = null;
     m.clock = 0;
     m.tag = tag;
@@ -175,11 +304,17 @@ export class WorldLayer {
     if (m.row !== 0) { m.row = 0; m.el.style.removeProperty('--row'); }
     m.label.textContent = label;
     m.el.style.setProperty('--c', m.color);
-    m.el.style.display = '';
+    const visibleNow = alwaysWorld || this.reveal.opacity > 0;
+    m.shown = visibleNow;
+    m.opacity = visibleNow ? (alwaysWorld ? 1 : this.reveal.opacity) : 0;
+    m.el.style.opacity = visibleNow ? m.opacity.toFixed(2) : '';
+    m.el.style.display = visibleNow ? '' : 'none';
     return () => {
       if (m.use !== use) return;
       if (m.live) this.activeMarkers--;
       m.live = false;
+      m.shown = false;
+      m.pulse = 0;
       m.el.style.display = 'none';
     };
   }
@@ -234,10 +369,24 @@ export class WorldLayer {
 
     if (this.activeMarkers === 0) return;
     const eye = this.ctx.player.eye;
+    const revealAlpha = this.reveal.opacity;
+    const revealQ = Math.round(revealAlpha * 100);
     let tags = 0;
     for (const m of this.markers) {
       if (!m.live) continue;
       if (m.target) m.pos.copy(m.target);
+      if (m.pulse > 0) m.pulse = Math.max(0, m.pulse - dt);
+      const show = m.alwaysWorld || revealQ > 0;
+      if (show !== m.shown) {
+        m.shown = show;
+        m.el.style.display = show ? '' : 'none';
+      }
+      if (!show) continue;
+      const alphaQ = m.alwaysWorld ? 100 : revealQ;
+      if (alphaQ !== m.opacity) {
+        m.opacity = alphaQ;
+        m.el.style.opacity = alphaQ === 100 ? '1' : (alphaQ / 100).toFixed(2);
+      }
       _view.copy(m.pos).applyMatrix4(camera.matrixWorldInverse);
       _v.copy(_view).applyMatrix4(camera.projectionMatrix);
       const behind = _view.z > -0.1;
@@ -314,6 +463,7 @@ export class WorldLayer {
   }
 
   reset(): void {
+    this.reveal.reset();
     this.activeFloats = 0;
     this.activeMarkers = 0;
     for (const f of this.floats) {
@@ -325,6 +475,11 @@ export class WorldLayer {
     for (const m of this.markers) {
       m.live = false;
       m.tag = false;
+      m.alwaysWorld = false;
+      m.labelText = '';
+      m.pulse = 0;
+      m.shown = false;
+      m.opacity = -1;
       m.qx = m.qy = m.qa = NaN;
       m.el.style.display = 'none';
     }

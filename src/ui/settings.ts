@@ -14,6 +14,7 @@ import { WoundTuning } from '../gore/wounds';
 import { clamp } from '../core/math';
 import { QUALITY, SETTINGS_KEY } from '../render/quality';
 import { HIT_TEXT_LEVELS, HitText } from '../progression/data';
+import { VehicleVision } from '../vehicles/vision';
 import { TUNING } from '../weapons/data';
 
 /** The renderer reads the saved quality from the same place before the settings are applied (`savedQuality`). */
@@ -97,6 +98,8 @@ export interface Settings {
   hudFeeds: boolean;
   /** Floating world markers, damage numbers, objective pings and speech bubbles. */
   hudMarkers: boolean;
+  /** Enemy target brackets and highlight silhouettes while seated in vehicles or gunner seats (toggleable in-seat with V). */
+  vehicleVision: boolean;
 }
 
 export const DEFAULTS: Readonly<Settings> = {
@@ -106,6 +109,7 @@ export const DEFAULTS: Readonly<Settings> = {
   bloodPuffBlowout: BLOOD_PUFF_DEFAULT, bloodPuffGib: BLOOD_PUFF_DEFAULT,
   holdToHop: false, aimHold: false, aimSensitivity: TUNING.ads.sensitivity, hitText: 0, chatter: CHATTER_BUBBLES, voices: 1,
   suppression: true, hud: true, hudCrosshair: true, hudVitals: true, hudWeapons: true, hudMinimap: true, hudScore: true, hudFeeds: true, hudMarkers: true,
+  vehicleVision: true,
 };
 
 /** Raised from 4 to 10 for low-DPI mice. Values saved under the old cap (0.1 to 4) are inside the new range and load unchanged. */
@@ -341,6 +345,7 @@ export function applySettings(ctx: Ctx, s: Settings): void {
   HitText.level = s.hitText;
   SuppressionSetting.enabled = s.suppression;
   if (!s.suppression) ctx.render?.post?.setSuppression?.(0);
+  VehicleVision.enabled = s.vehicleVision;
   (ctx.hud as { applyHudSettings?(settings: Settings): void } | undefined)?.applyHudSettings?.(s);
 }
 

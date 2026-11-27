@@ -1,13 +1,13 @@
 /* The track name. One line, top centre, above the boss bar. Never takes a click. */
 .np {
-  position: absolute; top: 0.3rem; left: 50%; max-width: 44rem; margin-left: -22rem; width: 44rem;
+  position: absolute; top: 0.1rem; left: 50%; max-width: 44rem; margin-left: -22rem; width: 44rem;
   display: flex; align-items: center; justify-content: center; gap: 0.5rem;
-  font-size: 0.8rem; font-weight: 600; line-height: 1.1rem; white-space: nowrap;
+  font-size: 0.74rem; font-weight: 600; line-height: 0.96rem; white-space: nowrap;
   opacity: 0; pointer-events: none; z-index: 30;
 }
 /* Co-op: the teammates strip starts one rem down, top centre, and this tag was drawn over its top edge for the seconds it
    shows. In a match with a strip it keeps to the screen's edge above it, a little smaller. Alone it is where it was. */
-.np.np-coop { top: 0; font-size: 0.72rem; line-height: 0.9rem; }
+.np.np-coop { top: 0; font-size: 0.7rem; line-height: 0.88rem; }
 .np-tag { padding: 0 0.35rem; background: var(--cold); color: #000; font-weight: 800; letter-spacing: 0.06em; }
 .np-local .np-tag { background: var(--steel); }
 .np-title { padding: 0 0.5rem; background: var(--plate); color: var(--ink); overflow: hidden; text-overflow: ellipsis; max-width: 36rem; text-shadow: var(--edge); }

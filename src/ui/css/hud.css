@@ -9,7 +9,7 @@
   gap: 0.7rem;
   contain: layout style;
 }
-.hud-cheats { display: none; position: absolute; left: 50%; top: 0.2rem; padding: 0 0.7rem; background: var(--blood); color: #000; font: 800 0.95rem/1.3 var(--mono); letter-spacing: 0.14em; transform: translateX(-50%); pointer-events: none; }
+.hud-cheats { display: none; position: absolute; left: 50%; top: 0.05rem; padding: 0 0.6rem; background: var(--blood); color: #000; font: 800 0.76rem/1.15 var(--mono); letter-spacing: 0.14em; transform: translateX(-50%); pointer-events: none; z-index: 7; }
 .hud-cheats.on { display: block; }
 .col-left { left: 2rem; width: 30rem; align-items: flex-start; }
 .col-right { right: 2rem; width: 36rem; align-items: flex-end; }
@@ -296,6 +296,105 @@
 .minimap { position: relative; width: 15rem; height: 15rem; background: var(--plate); box-shadow: 0 0 0 0.12rem #000, inset 0 0 0 0.09rem var(--steel); }
 .mm-canvas { display: block; width: 100%; height: 100%; }
 
+/* --- Top compass strip (ui/hud/compass.ts) --- */
+
+.compass {
+  position: absolute;
+  left: 50%;
+  top: 1.25rem;
+  width: 31rem;
+  margin-left: -15.5rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.12rem;
+  pointer-events: none;
+  z-index: 6;
+  contain: layout style;
+}
+.cp-bar {
+  position: relative;
+  width: 100%;
+  height: 2.5rem;
+  background: linear-gradient(90deg, transparent 0%, rgba(7, 10, 14, 0.72) 12%, rgba(7, 10, 14, 0.72) 88%, transparent 100%);
+  border-bottom: 1px solid rgba(238, 244, 247, 0.22);
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(90deg, transparent 0%, #000 9%, #000 91%, transparent 100%);
+  mask-image: linear-gradient(90deg, transparent 0%, #000 9%, #000 91%, transparent 100%);
+}
+.compass.revealing .cp-bar { border-bottom-color: rgba(57, 224, 255, 0.58); }
+.cp-canvas { display: block; width: 100%; height: 100%; }
+.cp-caret {
+  position: absolute;
+  left: 50%;
+  bottom: -0.04rem;
+  width: 0;
+  height: 0;
+  margin-left: -0.32rem;
+  border-left: 0.32rem solid transparent;
+  border-right: 0.32rem solid transparent;
+  border-bottom: 0.42rem solid var(--cold);
+  filter: drop-shadow(0 0 2px #000);
+}
+.cp-timer {
+  width: 13rem;
+  height: 0.14rem;
+  background: rgba(7, 10, 14, 0.65);
+  overflow: hidden;
+}
+.cp-tfill {
+  width: 100%;
+  height: 100%;
+  background: var(--cold);
+  transform-origin: 0 50%;
+}
+.cp-sub {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  min-height: 1.15rem;
+  margin-top: 0.06rem;
+}
+.cp-hdg {
+  padding: 0 0.36rem;
+  background: var(--plate);
+  color: var(--ink);
+  font: 800 0.86rem/1.22 var(--mono);
+  letter-spacing: 0.08em;
+  text-shadow: var(--edge);
+}
+.cp-focus {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0 0.48rem;
+  background: var(--plate-solid);
+  border-left: 0.16rem solid var(--cold);
+  color: var(--ink);
+  font: 700 0.84rem/1.24 var(--mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.cp-dot {
+  width: 0.44rem;
+  height: 0.44rem;
+  transform: rotate(45deg);
+  flex: none;
+  box-shadow: 0 0 0 1px #000;
+}
+.cp-hint {
+  padding: 0 0.42rem;
+  background: rgba(7, 10, 14, 0.56);
+  color: rgba(238, 244, 247, 0.62);
+  font: 700 0.78rem/1.24 var(--mono);
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.compass.revealing .cp-hint { color: var(--cold); }
+
 /* --- Feed and style lanes --- */
 
 .feed, .style { display: flex; flex-direction: column; align-items: flex-end; overflow: hidden; }
@@ -347,7 +446,7 @@
 
 /* --- Boss --- */
 
-.boss { display: none; position: absolute; top: 1.6rem; left: 50%; width: 54rem; margin-left: -27rem; }
+.boss { display: none; position: absolute; top: 5.8rem; left: 50%; width: 54rem; margin-left: -27rem; }
 .bs-head { display: flex; align-items: flex-end; justify-content: space-between; margin-bottom: 0.2rem; }
 .bs-name { font: 2.4rem/1 var(--display); text-transform: uppercase; text-shadow: var(--edge-big); }
 .bs-limbs { display: flex; gap: 0.25rem; }
@@ -796,7 +895,7 @@
   --st-c: #ffb84a;
   position: absolute;
   left: 50%;
-  top: 2rem;
+  top: 5.8rem;
   transform: translateX(-50%);
   min-width: 14rem;
   padding: 0.36rem 1.05rem 0.4rem;

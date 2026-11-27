@@ -24,6 +24,7 @@ import type { ModelMaterials } from '../progression/modelkit';
 import { Gun } from '../vehicles/guns';
 import type { GunnerWeapon } from '../vehicles/hud';
 import { GunnerSeat, type SeatRig } from '../vehicles/seat';
+import { VehicleVision } from '../vehicles/vision';
 import { ArmRack } from './arms';
 import { FRAME_PLACES, StandIn } from './cockpit';
 import { FrameCockpitSensor } from './cockpitSensor';
@@ -965,7 +966,7 @@ export class Frame {
         this.ctx.audio.play('weapon_dry');
       }
     }
-    this.sensor.update(this.ctx, this.stats.sensorRange, w.feet, this.stats.sensorRange > 0);
+    this.sensor.update(this.ctx, this.stats.sensorRange, w.feet, this.stats.sensorRange > 0 && VehicleVision.enabled && this.rig.enemyVision !== false);
     this.blows(dt);
     this.damageEffects(dt);
     this.panel(seat);

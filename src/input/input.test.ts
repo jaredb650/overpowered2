@@ -318,4 +318,20 @@ describe('rebinding', () => {
     expect(input.pressed('pause')).toBe(false);
     input.dispose();
   });
+
+  it('binds showMarkers to AltLeft with conflict-safe migration and leaves vehicleVision optional/rebindable', async () => {
+    const fresh = await make();
+    expect(fresh.input.bindingsFor('showMarkers')).toEqual(['AltLeft']);
+    expect(fresh.input.labelFor('showMarkers')).toBe('L Alt');
+    expect(fresh.input.bindingsFor('vehicleVision')).toEqual([]);
+    fresh.input.rebind('vehicleVision', ['Backquote']);
+    expect(fresh.input.labelFor('vehicleVision')).toBe('~');
+    fresh.input.dispose();
+
+    storage.set('op2.bindings.v2', JSON.stringify({ crouch: ['KeyC'], slide: ['AltLeft'] }));
+    const taken = await make();
+    expect(taken.input.bindingsFor('showMarkers')).toEqual([]);
+    taken.input.dispose();
+  });
 });
+

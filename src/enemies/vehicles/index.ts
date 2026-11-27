@@ -30,6 +30,7 @@ import { hitText } from '../../progression/data';
 import { ModelMaterials } from '../../progression/modelkit';
 import { Gun, type GunSpec } from '../../vehicles/guns';
 import { Skyline } from '../../vehicles/skyline';
+import { VehicleVision } from '../../vehicles/vision';
 import { EXPLOSIONS, SHAPED_CHARGE } from '../../weapons/data';
 import type { AiWorld } from '../aiWorld';
 import type { Enemy } from '../Enemy';
@@ -1181,7 +1182,7 @@ export class VehicleSystem implements VehicleTargets {
     for (const w of this.wrecks) w.update(dt);
     this.shoveMen(dt);
     if (this.waiting.length > 0) this.admit();
-    if (this.ctx.player.parked) this.mark();
+    if (this.ctx.player.parked && VehicleVision.enabled) this.mark();
   }
 
   /** From a gunner's seat a dark machine on a dark road is a guess. They get the same silhouette the men do. */
