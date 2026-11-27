@@ -157,6 +157,7 @@ function makeHarness(missionId: string) {
         structures: mockStructures,
         destruction: {
           getCluster: (id: string) => mockClusters.get(id),
+          blast: vi.fn(),
         },
         blastHandler: null as ((at: THREE.Vector3, radius: number, damage: number, source: string) => void) | null,
       },
@@ -185,6 +186,13 @@ function makeHarness(missionId: string) {
       sparks: vi.fn(),
       tracer: vi.fn(),
       muzzleFlash: vi.fn(),
+      ring: vi.fn(),
+      chips: vi.fn(),
+      embers: vi.fn(),
+      flame: vi.fn(),
+      napalm: vi.fn(),
+      napalmSplash: vi.fn(),
+      heatShimmer: vi.fn(),
       attachEmitter: vi.fn(() => ({ stop: vi.fn() })),
     },
     audio: {
@@ -824,13 +832,13 @@ describe('CrossfireDirector & all 25 cf.* calls', () => {
 
     const ironclad = fleet.getShip('destroyer_west')!;
     const bastion = fleet.getShip('destroyer_east')!;
-    expect(ironclad.maxHealth).toBe(1500);
-    expect(bastion.maxHealth).toBe(1500);
+    expect(ironclad.maxHealth).toBe(4200);
+    expect(bastion.maxHealth).toBe(4200);
 
     // Destroying a deck SAM on Ironclad also chunks Ironclad's global hull HP
     const ironcladSam = def.sites.find(s => s.shipId === 'destroyer_west' && s.kind === 'destroyer_sam')!;
     def.damageSite(ironcladSam.id, 9999);
-    expect(ironclad.health).toBeLessThan(1500);
+    expect(ironclad.health).toBeLessThan(4200);
 
     // Finish sinking Ironclad directly via hull damage -> surviving CIWS & aft SAM on Ironclad immediately die & hide!
     fleet.damageShip('destroyer_west', 9999);
@@ -1159,7 +1167,86 @@ describe('CrossfireDirector & all 25 cf.* calls', () => {
 
     h.director.reset();
   });
+
+  it('Part 2 Strait destroyers resist a single F-22 20mm Vulcan cannon burst and require heavy missile volleys or sustained runs to sink', () => {
+    const h = makeHarness('crossfire_strait');
+    h.director.ensureBuilt();
+    h.director.call('cf.straitOutboundInit');
+
+    const fleet = h.director.strait.destroyerFleet!;
+    const ironclad = fleet.getShip('destroyer_west')!;
+    const hullCol = ironclad.colliders[0]!;
+    expect(ironclad.maxHealth).toBeGreaterThanOrEqual(4000);
+
+    // Simulate a full 1.0-second F-22 20mm M61A2 Vulcan cannon burst (35 rounds: 58 direct + 24 shell splash @ 0.9 m)
+    for (let i = 0; i < 35; i++) {
+      fleet.direct(hullCol, ironclad.center, 58, 'shell', 'raptor_cannon');
+      fleet.blast(ironclad.center, {
+        radius: 0.9,
+        damage: 24,
+        kind: 'shell',
+        source: 'raptor_cannon',
+        team: 'player',
+      });
+    }
+    // Warship stays afloat with >75% hull integrity after a single cannon burst!
+    expect(ironclad.alive).toBe(true);
+    expect(ironclad.healthRatio).toBeGreaterThan(0.75);
+
+    // A dedicated anti-ship AIM-120D AMRAAM volley (4 hits: 660 direct + 420 rocket splash @ 7.5 m) sinks it cleanly!
+    for (let i = 0; i < 4; i++) {
+      fleet.direct(hullCol, ironclad.center, 660, 'rocket', 'raptor_atgm');
+      fleet.blast(ironclad.center, {
+        radius: 7.5,
+        damage: 420,
+        kind: 'rocket',
+        source: 'raptor_atgm',
+        team: 'player',
+      });
+    }
+    expect(ironclad.alive).toBe(false);
+    expect(ironclad.sinking).toBe(true);
+
+    h.director.reset();
+  });
+
+  it('Part 3 Citadel HQ erupts in a violent whole-HQ 3D flame inferno with staggered cook-offs on Stage 2 Napalm kill', () => {
+    const h = makeHarness('crossfire_halcyon');
+    h.director.ensureBuilt();
+    h.director.call('cf.halcyonCitadelSiege');
+
+    const hqPos = new THREE.Vector3(HALCYON_CITADEL_HQ_POS[0], 4, HALCYON_CITADEL_HQ_POS[2]);
+    // Stage 1: Thermobaric cracks reinforced concrete
+    h.ctx.world.objects.blastHandler?.(hqPos, 48, 2600, 'ac130_bomb');
+    h.director.update(0.1);
+    expect(h.director.halcyon.state.hqInfernoActive).toBe(false);
+
+    // Stage 2: BLU-27 Napalm ignites the unique whole-HQ volcanic flame eruption!
+    h.ctx.world.objects.blastHandler?.(hqPos, 22, 520, 'lancer_napalm');
+    expect(h.director.halcyon.state.hqInfernoActive).toBe(true);
+    expect(h.ctx.render.scene.getObjectByName('halcyon.citadel.inferno')).toBeDefined();
+    expect(h.ctx.world.objects.destruction?.blast).toHaveBeenCalled();
+    expect(h.ctx.fx.ring).toHaveBeenCalled();
+    expect(h.ctx.fx.chips).toHaveBeenCalled();
+
+    // Ticking 4 seconds fires staggered secondary vault/buttress cook-offs, skyward flames, embers & smoke
+    for (let i = 0; i < 40; i++) {
+      h.director.update(0.1);
+    }
+    expect(h.director.halcyon.state.hqInfernoCookoffs).toBeGreaterThanOrEqual(8);
+    expect(h.ctx.fx.flame).toHaveBeenCalled();
+    expect(h.ctx.fx.embers).toHaveBeenCalled();
+    expect(h.ctx.fx.napalm).toHaveBeenCalled();
+
+    // Cleanup removes the volumetric inferno rig from the scene cleanly
+    h.director.clear();
+    expect(h.director.halcyon.state.hqInfernoActive).toBe(false);
+    expect(h.ctx.render.scene.getObjectByName('halcyon.citadel.inferno')).toBeUndefined();
+
+    h.director.reset();
+  });
 });
+
 
 
 

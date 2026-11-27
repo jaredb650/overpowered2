@@ -2,13 +2,15 @@
  * Dynamic, Sinkable Southern Missile Destroyers (`SNS IRONCLAD` & `SNS BASTION`) for Crossfire Part 2 ("The Strait").
  *
  * Replaces static invincible map geometry with full 3D PBR stealth warships that carry a shared global
- * hull health pool (`DESTROYER_HULL_MAX_HP = 1500 HP`), missile lock-on center on the superstructure,
- * multi-part Rapier hull colliders, and a cinematic chain-explosion + listing + sinking animation.
+ * hull health pool (`DESTROYER_HULL_MAX_HP = 4200 HP`), naval steel hull armor that resists rapid-fire
+ * 20mm autocannon bursts, missile lock-on center on the superstructure, multi-part Rapier hull colliders,
+ * and a cinematic chain-explosion + listing + sinking animation.
  *
- * Players can sink each warship either by pouring AMRAAMs / AGMs / Vulcan cannons directly into the
- * hull OR by knocking out deck SAM/CIWS turrets (which also chunks hull HP). The moment a destroyer
- * reaches 0 HP it chain-detonates, immediately destroys all surviving turrets on its deck (never forcing
- * a hunt for tucked-away CIWS), lists hard to port/starboard, and slips beneath the ocean in fire & smoke.
+ * Players can sink each warship with anti-ship missile volleys (AMRAAMs / Sidewinders), multiple
+ * sustained strafing runs, OR by knocking out deck SAM/CIWS turrets (which also chunks hull HP). The
+ * moment a destroyer reaches 0 HP it chain-detonates, immediately destroys all surviving turrets on its
+ * deck (never forcing a hunt for tucked-away CIWS), lists hard to port/starboard, and slips beneath the
+ * ocean in fire & smoke.
  */
 import * as THREE from 'three';
 import type RAPIER from '@dimforge/rapier3d-compat';
@@ -22,9 +24,12 @@ import {
   type StraitShipPose,
 } from '../../world/map/strait/plan';
 
-export const DESTROYER_HULL_MAX_HP = 1500;
-export const DESTROYER_TURRET_KILL_HULL_DAMAGE = 340;
+export const DESTROYER_HULL_MAX_HP = 4200;
+export const DESTROYER_TURRET_KILL_HULL_DAMAGE = 520;
 export const DESTROYER_TURRET_HIT_PASS_RATIO = 0.35;
+/** Armored warship hull plating resists rapid-fire 20mm/30mm aircraft autocannons so a single burst can't sink it. */
+export const DESTROYER_CANNON_DIRECT_MULT = 0.22;
+export const DESTROYER_SMALL_SHELL_BLAST_MULT = 0.15;
 const SINK_DURATION_SECONDS = 5.8;
 
 let nextShipUid = 680_000;
@@ -530,23 +535,32 @@ export class DestroyerFleet implements ExtraTarget {
   // ExtraTarget integration (player guns, homing missiles, bomb/rocket blasts, radar, thermal)
   // -------------------------------------------------------------------------------------------
 
-  shot(collider: RAPIER.Collider, point: THREE.Vector3, amount: number, _source: string): boolean {
+  shot(collider: RAPIER.Collider, point: THREE.Vector3, amount: number, source: string): boolean {
+    const src = source.toLowerCase();
     for (let i = 0; i < this.ships.length; i++) {
       const s = this.ships[i]!;
       if (!s.alive || !s.ownsCollider(collider)) continue;
-      // Armored warship hull absorbs light rifle pellets slightly; aircraft cannons & missiles tear right in.
-      const mult = amount < 20 ? 0.5 : 1.0;
+      // Armored naval hull plating shrugs off rifle fire and resists rapid-fire 20mm/30mm autocannons.
+      const mult = amount < 20
+        ? 0.25
+        : (src.includes('cannon') || amount < 140)
+          ? DESTROYER_CANNON_DIRECT_MULT
+          : 0.75;
       this.applyDamageToShip(s, amount * mult, point, true);
       return true;
     }
     return false;
   }
 
-  direct(collider: RAPIER.Collider, point: THREE.Vector3, amount: number, _kind: ExplosionKind, _source: string): boolean {
+  direct(collider: RAPIER.Collider, point: THREE.Vector3, amount: number, kind: ExplosionKind, source: string): boolean {
+    const src = source.toLowerCase();
+    const isLightAutocannon = kind === 'shell' && (src.includes('cannon') || amount < 140);
     for (let i = 0; i < this.ships.length; i++) {
       const s = this.ships[i]!;
       if (!s.alive || !s.ownsCollider(collider)) continue;
-      this.applyDamageToShip(s, amount * 1.35, point, true);
+      // Rapid-fire 20mm Vulcan shells chip armored steel plating; missiles/rockets/bombs punch deep into the hull.
+      const mult = isLightAutocannon ? DESTROYER_CANNON_DIRECT_MULT : 1.15;
+      this.applyDamageToShip(s, amount * mult, point, true);
       return true;
     }
     return false;
@@ -554,6 +568,8 @@ export class DestroyerFleet implements ExtraTarget {
 
   blast(center: THREE.Vector3, spec: ExplosionSpec): number {
     const def = EXPLOSIONS[spec.kind];
+    const isSmallCannonSplash = spec.kind === 'shell' && spec.radius <= 2.2;
+    const armorMult = isSmallCannonSplash ? DESTROYER_SMALL_SHELL_BLAST_MULT : 1.0;
     let hit = 0;
     for (let i = 0; i < this.ships.length; i++) {
       const s = this.ships[i]!;
@@ -564,7 +580,7 @@ export class DestroyerFleet implements ExtraTarget {
       if (d > reach) continue;
       const edge = def?.edgeDamage ?? 0.30;
       const falloff = clamp(1 - (d / Math.max(1, reach)) * (1 - edge), 0.32, 1);
-      const dmg = spec.instakill ? Infinity : spec.damage * falloff;
+      const dmg = spec.instakill ? Infinity : spec.damage * falloff * armorMult;
       this.applyDamageToShip(s, dmg, center, spec.team === 'player');
       hit++;
     }

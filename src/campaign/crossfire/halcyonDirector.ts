@@ -39,6 +39,7 @@ import {
 import type { MissionRunner } from '../runner';
 import { CrossfireAirWing } from './airWing';
 import { BaseDefenseSystem } from './baseDefense';
+import { CitadelInfernoSpectacle } from './citadelInferno';
 import {
   CROSSFIRE_DEFAULT_LANCER_MAX_HP,
   CROSSFIRE_SIGNALS,
@@ -96,6 +97,7 @@ export class HalcyonDirector {
   private airWing: CrossfireAirWing | null = null;
   private defenses: BaseDefenseSystem | null = null;
   private fleet: AiVehicleFleet | null = null;
+  private citadelInferno: CitadelInfernoSpectacle | null = null;
   private built = false;
 
   private active = false;
@@ -195,6 +197,7 @@ export class HalcyonDirector {
     this.materials = new ModelMaterials(this.ctx);
     this.airWing = new CrossfireAirWing(this.ctx);
     this.fleet = new AiVehicleFleet(this.ctx, this.materials);
+    this.citadelInferno = new CitadelInfernoSpectacle(this.ctx);
     this.defenses = new BaseDefenseSystem(this.ctx, {
       onDestroyed: (id, kind, pos) => {
         const siteDef = HALCYON_DEFENSE_SITES.find(s => s.id === id);
@@ -338,14 +341,9 @@ export class HalcyonDirector {
     }
 
     this.hqBurned = true;
-    const hqPos = new THREE.Vector3(target.pos[0], target.pos[1] + 5, target.pos[2]);
-    // Multi-column napalm inferno engulfing the cracked bunker roof & air vents
-    for (let i = 0; i < 4; i++) {
-      const ang = (i / 4) * Math.PI * 2;
-      const p = new THREE.Vector3(hqPos.x + Math.cos(ang) * 9, hqPos.y, hqPos.z + Math.sin(ang) * 9);
-      this.ctx.fx?.explosion?.(p, { radius: 22, scale: 2.6, kind: 'barrel' });
-    }
-    this.ctx.audio?.play?.('flame_ignite', { position: hqPos, volume: 1.0, pitch: 0.68 });
+    const hqPos = new THREE.Vector3(target.pos[0], target.pos[1], target.pos[2]);
+    // Unique finale spectacle: violent whole-HQ volcanic napalm firestorm erupting across the entire 36 m x 31 m Citadel!
+    this.citadelInferno?.ignite(hqPos);
     this.markTargetDestroyed('citadel_command_hq', at);
   }
 
@@ -1413,6 +1411,9 @@ export class HalcyonDirector {
     // 5. Evaluate DestructionManager / Structure / BaseDefenseSystem milestone triggers
     this.evaluateMilestones();
 
+    // 5b. Tick violent whole-HQ napalm eruption finale spectacle
+    this.citadelInferno?.update(dt);
+
     // 6. Halcyon Leveled climax countdown -> `cf:halcyon_egress_ready`
     if (this.leveledActive && !this.egressReadySignaled) {
       this.leveledClock += dt;
@@ -1465,6 +1466,8 @@ export class HalcyonDirector {
       hqCracked: this.hqCracked,
       hqCrackedSignaled: this.hqCrackedSignaled,
       hqBurned: this.hqBurned,
+      hqInfernoActive: this.citadelInferno?.active ?? false,
+      hqInfernoCookoffs: this.citadelInferno?.totalCookoffsFired ?? 0,
       hqDestroyedSignaled: this.hqDestroyedSignaled,
       leveledActive: this.leveledActive,
       egressReadySignaled: this.egressReadySignaled,
@@ -1489,6 +1492,7 @@ export class HalcyonDirector {
     this.fleet?.clear();
     this.defenses?.clear();
     this.airWing?.clear();
+    this.citadelInferno?.clear();
     this.hudOverlay.hide();
 
     this.active = false;
@@ -1551,6 +1555,8 @@ export class HalcyonDirector {
     this.defenses = null;
     this.airWing?.dispose();
     this.airWing = null;
+    this.citadelInferno?.dispose();
+    this.citadelInferno = null;
     this.built = false;
   }
 }
