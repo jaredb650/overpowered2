@@ -428,9 +428,9 @@ own recording (trimmed of leading silence, 44.1 kHz stereo MP3 at 192 kbps, 1.97
 105 mm siege cannon, the AC-130's 105 mm gun (`g105` and `wp`), and the shoulder-fired Howitzer. 44.1 kHz stereo MP3, 2.0 s, measured
 loudness 0.378, on `gunHeavy` at 0.48 on the ladder (`send` 0.32, `near` 20 m, `far` 260 m, `pitchJitter` 0.03).
 
-**The Bodkin's shot** (2026-11-23, `guns/bodkin_shot.mp3`, the owner's `newBodkinShot.mp3`): `bodkin_shot` replaces the earlier
-flechette rifle recording. Source was a 2.01 s stereo 320 kbps MP3 at 44.1 kHz: averaged to mono at 44.1 kHz, 48 ms lead-in cut,
-faded out from 1.10 s to 1.402 s, peak at -0.85 dB (0 clipped), 160 kbit/s, measured loudness 0.367, on the `gun` mix at 0.22 on the ladder (`send` 0.2).
+**The Bodkin's shot** (2026-11-27, `guns/bodkin_shot.mp3`): `bodkin_shot` is a locally generated Stable Audio 3 Medium multiband
+hybrid (phase-aligned heavy bullpup low/mid punch + high-end supersonic flechette whip shine, with a light Earshot `hall` tail).
+44.1 kHz mono MP3 at 160 kbit/s, 1.050 s, peak at -1.18 dB (0 clipped), measured loudness 0.310, on the `gun` mix at 0.22 on the ladder (`send` 0.2).
 
 **The Pump Shotgun's suppressed shot** (2026-11-23, `guns/pump_shotgun_suppressed_shot.mp3`, the owner's `suppressorPump.mp3`):
 `pump_shotgun_suppressed_shot` plays when `shotgunCan` is fitted on the pump shotgun (full barrel, choke, or sawn-off). Source was a

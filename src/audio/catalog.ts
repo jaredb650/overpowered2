@@ -558,8 +558,8 @@ const gunShots: SoundDef[] = [
   shot('gimlet_suppressed_shot', 'guns/gimlet_suppressed_shot.mp3', 'gun', 0.115, 0.118, { send: 0.08 }),
   // The Shear AN-94 hyperburst rifle (owner, 2026-11-27, ShearShot.wav): sharp 1,800 RPM pulse crack between Gimlet and Harrow.
   shot('shear_shot', 'guns/shear_shot.mp3', 'gun', 0.16, 0.2602, { send: 0.2, perFrame: 2 }),
-  // The Bodkin flechette rifle (the owner's, 2026-11-23): crisp high-velocity flechette crack, boosted to cut through burst/auto fire.
-  shot('bodkin_shot', 'guns/bodkin_shot.mp3', 'gun', 0.22, 0.367, { send: 0.2 }),
+  // The Bodkin flechette rifle (2026-11-27, local SA3 Medium hybrid + subtle hall tail): beefy bullpup punch + supersonic flechette whip shine.
+  shot('bodkin_shot', 'guns/bodkin_shot.mp3', 'gun', 0.22, 0.310, { send: 0.2 }),
   // The Bodkin OICW 20 mm smart launcher (owner, 2026-11-27, bodkinGrenadeLaunc.mp3): snappy high-velocity 20 mm launch report over Gimlet's 40 mm tube.
   shot('bodkin_oicw_shot', 'guns/bodkin_oicw_shot.mp3', 'gun', 0.2, 0.2789, { send: 0.22 }),
   // The Autoraffica (the owner's, 2026-11-16): a suppressed pistol fired three at a time, so under the suppressed SMG.
