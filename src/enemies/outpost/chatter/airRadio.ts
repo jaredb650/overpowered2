@@ -109,6 +109,11 @@ export function resetAirRadio(): void {
   kindAt.clear();
   for (const k in roleSerial) roleSerial[k as AirCrewRole] = 0;
   nextAirAt = 0;
+  for (const f in _facts.flags) delete _facts.flags[f];
+  _facts.faction = FACTION;
+  _facts.tier = 'high';
+  _facts.role = null;
+  _pos.set(0, 0, 0);
 }
 
 /** Creates a pilot or vehicle crew speaker with a rotating tactical callsign and role-matched lifetime voice index. */
@@ -128,7 +133,9 @@ export function makeAirSpeaker(role: AirCrewRole, ally = false, customCallsign?:
 }
 
 function clockNow(ctx: Ctx): number {
-  return ctx.time?.elapsed ?? (typeof performance !== 'undefined' ? performance.now() / 1000 : 0);
+  const elapsed = ctx.time?.elapsed;
+  if (typeof elapsed === 'number' && Number.isFinite(elapsed)) return elapsed;
+  return typeof performance !== 'undefined' ? performance.now() / 1000 : 0;
 }
 
 function outpostOf(ctx: Ctx): Outpost | null {
@@ -148,6 +155,9 @@ export function sayAir(
 ): boolean {
   if (isGuest(ctx)) return false;
   const now = clockNow(ctx);
+  if (talks.size > 16) {
+    for (const [k, t] of talks) if (now >= t.until) talks.delete(k);
+  }
   const gapKey = `${speaker.ally ? 'ally' : 'hostile'}:${kind}`;
   const isUrgent = urgent || URGENT.has(kind);
   if (!isUrgent && now < nextAirAt) return false;

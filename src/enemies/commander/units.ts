@@ -10,12 +10,15 @@ import * as THREE from 'three';
 import type { PostureName } from '../../characters/animation/postures';
 import { HumanoidBone as B } from '../../characters/rig';
 import { chance, rand, TAU } from '../../core/math';
+import type { AttackDef } from '../brain';
 import type { Enemy } from '../Enemy';
 import { pose, type Soldier } from '../outpost/soldier';
 import { soldierAttacks } from '../outpost/weapons';
 import type { SquadPlan, UnitKind } from './director';
 import type { Commander } from './index';
 import type { PropKind } from './props';
+
+const EMPTY_ATTACKS: AttackDef[] = [];
 
 /** Seconds between looks at the job, per man. Staggered, and far slower than a frame: a post does not need a frame. */
 const TICK = 0.4;
@@ -139,7 +142,7 @@ export class Units {
     this.list.push(u);
     const prop = WORN[kind];
     if (prop) this.c.props.fit(s.e.char, prop);
-    if (kind === 'spotter' || kind === 'jammer' || kind === 'radio' || kind === 'hider') s.e.attacks = [];
+    if (kind === 'spotter' || kind === 'jammer' || kind === 'radio' || kind === 'hider') s.e.attacks = EMPTY_ATTACKS;
     return u;
   }
 
@@ -274,7 +277,7 @@ export class Units {
     const { c } = this;
     const s = u.s;
     const close = s.e.dist < SELF_DEFENCE;
-    if (u.kind === 'spotter') s.e.attacks = close ? soldierAttacks(s.e.id) : [];
+    if (u.kind === 'spotter') s.e.attacks = close ? soldierAttacks(s.e.id) : EMPTY_ATTACKS;
     if (close) return;
     if (!u.placed || (u.arrived && !s.sees && now - u.sawAt > patience)) {
       // A close line beats none. The far band is what he wants, and the near one is what a room full of walls may leave him.
@@ -522,7 +525,7 @@ export class Units {
     u.post.copy(at);
     u.pose = 'downed';
     u.until = this.c.w.now + rand(0.5, 1.5);
-    e.attacks = [];
+    e.attacks = EMPTY_ATTACKS;
     pose(e, 'downed');
     e.thinkAt = 0;
     return e;
@@ -540,7 +543,7 @@ export class Units {
     s.task = 'hold';
     s.morale = 40;
     s.state = 'panicked';
-    s.e.attacks = [];
+    s.e.attacks = EMPTY_ATTACKS;
     this.enrol(s, 'feign');
     s.e.thinkAt = 0;
     s.e.behaviourUntil = 0;

@@ -236,11 +236,16 @@ export class Injuries {
   }
 
   /** The wound his hand should be on. Not one on the arm that would have to reach for it. */
-  worst(): Wound | null {
+  worst(clutchHand?: 1 | -1): Wound | null {
     let best: Wound | null = null;
     for (let i = 0; i < this.count; i++) {
       const w = this.wounds[i]!;
       if (w.dressed || !w.bleed) continue;
+      if (w.zone === 'arm' || w.zone === 'hand' || w.zone === 'shoulder') {
+        if (clutchHand !== undefined && w.side === clutchHand) continue;
+        if (w.side > 0 && (this.armR || this.handR)) continue;
+        if (w.side < 0 && (this.armL || this.handL)) continue;
+      }
       if (!best || w.bleed > best.bleed) best = w;
     }
     return best;

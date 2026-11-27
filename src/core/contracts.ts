@@ -309,8 +309,8 @@ export interface CharacterAnimation {
    * it a body turns the shoulder that was struck. Left out, a hit to the trunk goes to one side and then the other.
    */
   flinch(bone: number, worldDir: THREE.Vector3, magnitude: number, worldPoint?: THREE.Vector3): void;
-  /** Advance by world dt. `lod` 0 is full rate; higher values skip work. */
-  update(dt: number, lod: number): void;
+  /** Advance by world dt. `lod` 0 is full rate; higher values skip work. `probing` skips plan refreshes for velocity measurement. */
+  update(dt: number, lod: number, probing?: boolean): void;
 }
 
 /** One live character mesh: skinned model, skeleton, animation and gore state. Pooled per archetype. */
@@ -513,7 +513,7 @@ export interface GoreSystem extends GameSystem {
    * Leaves the mark of a hit on the body: holes, craters, gashes, burns, broken limbs. `severity` is the share of the
    * body's health this hit took. Call it for lethal hits too, before the body is handed over. True if a limb broke.
    */
-  wound(char: CharacterInstance, damage: DamageInfo, severity: number): boolean;
+  wound(char: CharacterInstance, damage: DamageInfo, severity: number, opts?: { skipSurfaceBleed?: boolean }): boolean;
   /** A living body gore has on the floor gets up now, whatever it had left to lie (co-op: the host's copy already has). */
   rouse?(char: CharacterInstance): void;
   /** A downed body has begun to get itself up and is not yet handed back (gore/index.ts). */
@@ -553,6 +553,10 @@ export interface GoreSystem extends GameSystem {
   soakPool?(char: CharacterInstance, floorY: number, amount?: number): void;
   /** True where the floor is currently wet with blood (pools, fresh bursts). */
   wetAt?(x: number, y: number, z: number): boolean;
+  /** Drops any ragdoll, knockdown or surface-blood ownership for a character about to return to its pool. */
+  releaseChar?(char: CharacterInstance): void;
+  /** Registers a floor blood pool at (x, y, z) so footsteps, splashes and body soaking see it as wet blood. */
+  poolBlood?(x: number, y: number, z: number, radius?: number): void;
   clear(): void;
 }
 

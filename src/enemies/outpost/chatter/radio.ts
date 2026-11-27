@@ -12,6 +12,7 @@
  * Lines only: who knows where the player is still travels as before (index.ts `radio`). Every call is timed on the AI clock
  * (`Comms.after`), so a moment that has passed when its turn comes is looked up again then.
  */
+import { snapDead } from '../comms';
 import type { Outpost } from '../index';
 import { FEAR } from '../morale';
 import type { Soldier } from '../soldier';
@@ -77,6 +78,7 @@ export function radioLoss(o: Outpost, squad: OutpostSquad, dead: Soldier | null)
 
 function radioCheck(o: Outpost, squad: OutpostSquad, dead: Soldier): void {
   const slots = { squad: squad.name };
+  const deadSnap = snapDead(dead);
   o.comms.after(1.5, () => {
     const r = listener(o, squad);
     if (r) o.comms.say('sayAgain', r, null, { slots });
@@ -86,10 +88,10 @@ function radioCheck(o: Outpost, squad: OutpostSquad, dead: Soldier): void {
     if (r) o.comms.say('radioCheck', r, null, { slots });
   });
   o.comms.after(7, () => {
-    const survivor = squad.members.find(m => m.fighting && !m.injuries.mute) ?? null;
+    const survivor = squad.members.find(m => m.e?.alive !== false && m.fighting && !m.injuries.mute) ?? null;
     if (survivor && !squad.radioman && Math.random() < GRAB) {
       squad.radioman = survivor;
-      o.comms.say('radioGrab', survivor, dead, { slots });
+      o.comms.say('radioGrab', survivor, deadSnap, { slots });
       return;
     }
     const r = listener(o, squad);

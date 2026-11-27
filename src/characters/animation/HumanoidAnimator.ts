@@ -915,11 +915,47 @@ export class HumanoidAnimator implements CharacterAnimation {
    */
   update(dt: number, lod: number, probing = false): void {
     if (probing) {
-      this.advance(dt, this.lastLod >= 3 ? 2 : this.lastLod, true);
+      const lx = this.lastRoot.x, ly = this.lastRoot.y, lz = this.lastRoot.z;
+      const fx = this.frame.x, fy = this.frame.y, fz = this.frame.z;
+      const vx = this.vel.x, vy = this.vel.y, vz = this.vel.z;
+      const lyaw = this.lastYaw, yrate = this.yawRate, lfwd = this.lastFwd, facc = this.fwdAccel;
+      const lnf = this.leanFwd, lns = this.leanSide, spd = this.speed, tm = this.time;
+      const onFoot = this.onFootstep;
+      this.onFootstep = null;
+      try {
+        this.advance(dt, this.lastLod >= 3 ? 2 : this.lastLod, true);
+      } finally {
+        this.onFootstep = onFoot;
+        this.lastRoot.set(lx, ly, lz);
+        this.frame.set(fx, fy, fz);
+        this.vel.set(vx, vy, vz);
+        this.lastYaw = lyaw;
+        this.yawRate = yrate;
+        this.lastFwd = lfwd;
+        this.fwdAccel = facc;
+        this.leanFwd = lnf;
+        this.leanSide = lns;
+        this.speed = spd;
+        this.time = tm;
+      }
       return;
     }
     if (lod >= 3) {
       this.lastLod = lod;
+      if (dt > 0) {
+        const hadClip = this.clipKind !== null || this.snapLeft > 0;
+        if (this.clipKind) {
+          this.clipU = Math.min(1, this.clipU + dt / this.clipSeconds);
+          if (this.clipU >= 1) this.clipKind = null;
+        }
+        if (this.snapLeft > 0) this.snapLeft = Math.max(0, this.snapLeft - dt);
+        if (hadClip && this.clipKind === null && this.snapLeft <= 0) {
+          this.acc = 0;
+          this.needsHome = true;
+          this.advance(Math.min(dt, 0.05), 2, false);
+          return;
+        }
+      }
       this.acc = Math.min(this.acc + dt, 1.0);
       return;
     }

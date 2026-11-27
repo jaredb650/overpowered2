@@ -7,7 +7,7 @@
  * claim carries (that one the host's damage model has to decide by): only what showing the hit needs.
  */
 import * as THREE from 'three';
-import type { AmmoLoad, DamageInfo, DamageType } from '../../core/contracts';
+import type { AmmoLoad, DamageInfo, DamageType, HeadOutcome } from '../../core/contracts';
 import type { ArmourOutcome } from '../../core/gameplay';
 import type { BlastOutcome } from '../../enemies/blast';
 import { newFacts, type HitFacts, type HitStop, type KillFacts } from '../../enemies/damage';
@@ -123,16 +123,30 @@ export function unpackFacts(wire: unknown, out: HitFacts = newFacts()): HitFacts
 }
 
 /**
- * What the host found about a kill, in one number: the blast's roll (4 bits), frozen, a very damaging round to the head, and
- * above those the health the killing hit took, in tenths (its wound's size).
+ * What the host found about a kill, in one number: the blast's roll (4 bits), frozen (bit 4), a very damaging round to the
+ * head (bit 5), the rolled head outcome (bits 6..8), and above those the health the killing hit took, in tenths (its wound's size).
  */
+const HEAD_OUTCOMES: readonly (HeadOutcome | undefined)[] = [undefined, 'hole', 'partial', 'burst', 'off'];
+
 export const packKill = (k: KillFacts): number =>
-  (Math.max(0, BLASTS.indexOf(k.blast)) | (k.shatter ? 16 : 0) | (k.heavyHead ? 32 : 0)) + int(Math.max(0, k.wound ?? 0), 10, 1e7) * 64;
+  (Math.max(0, BLASTS.indexOf(k.blast))
+    | (k.shatter ? 16 : 0)
+    | (k.heavyHead ? 32 : 0)
+    | (Math.max(0, HEAD_OUTCOMES.indexOf(k.headOutcome)) << 6))
+  + int(Math.max(0, k.wound ?? 0), 10, 1e7) * 512;
 
 export function unpackKill(wire: unknown): KillFacts {
-  const all = whole(wire, 0, 64e7 + 63) ? wire : 0;
-  const bits = all % 64;
-  return { blast: BLASTS[bits & 15] ?? null, shatter: (bits & 16) !== 0, heavyHead: (bits & 32) !== 0, wound: Math.floor(all / 64) / 10 };
+  const all = whole(wire, 0, 512e7 + 511) ? wire : 0;
+  const bits = all % 512;
+  const out: KillFacts = {
+    blast: BLASTS[bits & 15] ?? null,
+    shatter: (bits & 16) !== 0,
+    heavyHead: (bits & 32) !== 0,
+    wound: Math.floor(all / 512) / 10,
+  };
+  const headOutcome = HEAD_OUTCOMES[(bits >> 6) & 7];
+  if (headOutcome !== undefined) out.headOutcome = headOutcome;
+  return out;
 }
 
 /**

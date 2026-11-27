@@ -248,13 +248,15 @@ export class CoverMap {
 
   private spaced(s: CoverSpot, q: SpotQuery): boolean {
     const r = q.spacing;
-    for (let dz = -1; dz <= 1; dz++) {
-      for (let dx = -1; dx <= 1; dx++) {
+    const reach = Math.max(1, Math.ceil(r / GRID));
+    const r2 = r * r;
+    for (let dz = -reach; dz <= reach; dz++) {
+      for (let dx = -reach; dx <= reach; dx++) {
         const list = this.cell(s.position.x + dx * GRID, s.position.z + dz * GRID);
         if (!list) continue;
         for (const o of list) {
           if (o === s || o.claimedBy === 0 || o.claimedBy === q.uid) continue;
-          if (o.position.distanceToSquared(s.position) < r * r) return false;
+          if (o.position.distanceToSquared(s.position) < r2) return false;
         }
       }
     }

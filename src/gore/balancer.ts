@@ -576,6 +576,14 @@ export class DynamicBalancer {
     const maxUpImpulse = t.maxSupportWeight * totalMass * gEff * vertSupport * dt;
     impulseY = clamp(impulseY, -0.35 * maxUpImpulse, maxUpImpulse);
 
+    // Facing basis and normalized horizontal velocity in pelvis heading frame.
+    const fwdX = Math.sin(this.facingYaw);
+    const fwdZ = Math.cos(this.facingYaw);
+    const leftX = Math.cos(this.facingYaw);
+    const leftZ = -Math.sin(this.facingYaw);
+    const vFwd = (liveVx * fwdX + liveVz * fwdZ) / vScale;
+    const vLeft = (liveVx * leftX + liveVz * leftZ) / vScale;
+
     // --- B. Horizontal Planted-Foot Braking (ZERO ghost tether — Euphoria Ankle Strategy vs Stepping Strategy) ---
     let impulseX = 0;
     let impulseZ = 0;
@@ -585,7 +593,8 @@ export class DynamicBalancer {
       const inAnkleStrategy = this.groundedCount >= 2 && this.swingLeg < 0 && horizSpeed < 0.55 * vScale && yielded < 0.2;
       // Ankle strategy strongly resists minor bumps without drifting hips; stepping strategy scales braking smoothly with speed.
       const speedScale = inAnkleStrategy ? 2.4 : (0.65 + 0.23 * normSpeed);
-      const brakeK = t.brakeRate * speedScale * traction * (this.groundedCount >= 2 ? 1.25 : 0.75);
+      const dirBrake = 1 + clamp(vFwd / 2.5, -1, 1) * 0.05;
+      const brakeK = t.brakeRate * speedScale * dirBrake * traction * (this.groundedCount >= 2 ? 1.25 : 0.75);
       // Cap braking at 85% of current whole-body momentum per substep so large dt never reverses velocity.
       const brakeCoeff = Math.min(totalMass * 0.85, totalMass * brakeK * dt);
       let fx = -liveVx * brakeCoeff;
@@ -629,12 +638,6 @@ export class DynamicBalancer {
 
     // --- C. Soft Pelvis Upright / Momentum-Lean Torque ---
     // Desired pelvis orientation: yaw along facing, leaning subtly with velocity & toward buckled leg.
-    const fwdX = Math.sin(this.facingYaw);
-    const fwdZ = Math.cos(this.facingYaw);
-    const leftX = Math.cos(this.facingYaw);
-    const leftZ = -Math.sin(this.facingYaw);
-    const vFwd = (liveVx * fwdX + liveVz * fwdZ) / vScale;
-    const vLeft = (liveVx * leftX + liveVz * leftZ) / vScale;
 
     // Pitch gently with velocity, forward when tripped or gut-curled.
     let targetPitch = clamp(vFwd * 0.065, -t.maxVelLean, t.maxVelLean) + this.gutCurl * 0.28 + (this.trippingOverCover ? 0.35 : 0);
@@ -659,20 +662,22 @@ export class DynamicBalancer {
     _q1.copy(hips.q).conjugate().premultiply(_q0);
     if (_q1.w < 0) _q1.set(-_q1.x, -_q1.y, -_q1.z, -_q1.w);
     const sinHalf = Math.hypot(_q1.x, _q1.y, _q1.z);
+    let ex = 0, ey = 0, ez = 0;
     if (sinHalf > 1e-5) {
       const ang = 2 * Math.atan2(sinHalf, _q1.w);
-      const ax = _q1.x / sinHalf;
-      const ay = _q1.y / sinHalf;
-      const az = _q1.z / sinHalf;
-      const orientStrength = effSupport * (1 - yielded * 0.75);
-      const ki = this.muscle.bodyInertia * t.uprightRate * t.uprightRate * orientStrength;
-      const di = this.muscle.bodyInertia * 2 * t.uprightDamping * t.uprightRate * orientStrength;
-      const invI = 1 / Math.max(hips.mass * 0.018 * scaleSq, 0.025);
-      const spinScale = (0.75 * dt) / (1 + (di * dt + ki * dt * dt) * invI);
-      hips.tau.x += (ki * ax * ang - di * hips.w.x) * spinScale;
-      hips.tau.y += (ki * ay * ang - di * hips.w.y) * spinScale * 0.55; // softer yaw so shoulder shots twist naturally!
-      hips.tau.z += (ki * az * ang - di * hips.w.z) * spinScale;
+      const inv = ang / sinHalf;
+      ex = _q1.x * inv;
+      ey = _q1.y * inv;
+      ez = _q1.z * inv;
     }
+    const orientStrength = effSupport * (1 - yielded * 0.75);
+    const ki = this.muscle.bodyInertia * t.uprightRate * t.uprightRate * orientStrength;
+    const di = this.muscle.bodyInertia * 2 * t.uprightDamping * t.uprightRate * orientStrength;
+    const invI = 1 / Math.max(hips.mass * 0.018 * scaleSq, 0.025);
+    const spinScale = (0.75 * dt) / (1 + (di * dt + ki * dt * dt) * invI);
+    hips.tau.x += (ki * ex - di * hips.w.x) * spinScale;
+    hips.tau.y += (ki * ey - di * hips.w.y) * spinScale * 0.55; // softer yaw so shoulder shots twist naturally!
+    hips.tau.z += (ki * ez - di * hips.w.z) * spinScale;
 
     // --- D. Soft Chest Vestibular Stabilization (cooperates with aligned spine joint PD, yields on hit) ---
     if (this.spine) {
@@ -685,18 +690,23 @@ export class DynamicBalancer {
         _q1.copy(sp.q).conjugate().premultiply(_q2);
         if (_q1.w < 0) _q1.set(-_q1.x, -_q1.y, -_q1.z, -_q1.w);
         const sH = Math.hypot(_q1.x, _q1.y, _q1.z);
+        let sex = 0, sey = 0, sez = 0;
         if (sH > 1e-5) {
           const ang = 2 * Math.atan2(sH, _q1.w);
-          const rate = 11.5;
-          const spI = sp.mass * 0.16 * scaleSq;
-          const k = spI * rate * rate * spAuth;
-          const d = spI * 2.1 * rate * spAuth;
-          const invI = 1 / Math.max(sp.mass * 0.08 * scaleSq, 0.08);
-          const sc = (0.85 * dt) / (1 + (d * dt + k * dt * dt) * invI);
-          sp.tau.x += (k * (_q1.x / sH) * ang - d * sp.w.x) * sc;
-          sp.tau.y += (k * (_q1.y / sH) * ang - d * sp.w.y) * sc * 0.35;
-          sp.tau.z += (k * (_q1.z / sH) * ang - d * sp.w.z) * sc;
+          const inv = ang / sH;
+          sex = _q1.x * inv;
+          sey = _q1.y * inv;
+          sez = _q1.z * inv;
         }
+        const rate = 11.5;
+        const spI = sp.mass * 0.16 * scaleSq;
+        const k = spI * rate * rate * spAuth;
+        const d = spI * 2.1 * rate * spAuth;
+        const invI = 1 / Math.max(sp.mass * 0.08 * scaleSq, 0.08);
+        const sc = (0.85 * dt) / (1 + (d * dt + k * dt * dt) * invI);
+        sp.tau.x += (k * sex - d * sp.w.x) * sc;
+        sp.tau.y += (k * sey - d * sp.w.y) * sc * 0.35;
+        sp.tau.z += (k * sez - d * sp.w.z) * sc;
       }
     }
 
@@ -946,7 +956,7 @@ export class DynamicBalancer {
       // Dynamically refine landing target slightly in first half of swing as momentum changes.
       if (this.swingT < 0.5 && !this.swingOverLedge) {
         this.computeStepTarget(this.swingLeg, _v2);
-        this.swingTarget.lerp(_v2, 0.25);
+        this.swingTarget.lerp(_v2, 1 - Math.pow(0.75, dt * 60));
       }
       const landed = this.swingT >= 1 || (this.swingT >= 0.65 && leg.grounded && leg.footPos.y <= this.swingTarget.y + 0.08 * this.scale);
       if (landed) {
@@ -959,7 +969,13 @@ export class DynamicBalancer {
         if (stepDist > StandTuning.stepLength * this.scale) {
           this.totalSteps++;
           drive.stand?.footfall();
-          (drive.anim as { onFootstep?: (() => void) | null }).onFootstep?.();
+          const fx = leg.footPos.x;
+          const fy = Number.isFinite(leg.groundY) ? leg.groundY : leg.footPos.y;
+          const fz = leg.footPos.z;
+          const strength = clamp(0.4 + speed / (6 * this.vScale), 0.35, 1);
+          if (Number.isFinite(fx + fy + fz + strength)) {
+            (drive.anim as { onFootstep?: ((x: number, y: number, z: number, strength: number) => void) | null }).onFootstep?.(fx, fy, fz, strength);
+          }
         }
         // Dying nervous system adds growing latency before next catch step.
         this.stepCooldown = dying ? t.dyingLatency * (1 - drive.support) : 0.025;

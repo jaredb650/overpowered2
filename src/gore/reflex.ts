@@ -461,6 +461,25 @@ export class Reflex {
         at.z += (bind[o + 2]! - bind[c + 2]!) / this.arms.length;
       }
     }
+    if ((this.phase === 'struggle' || this.pushed) && !this.canPush()) {
+      this.abortStruggle();
+    }
+  }
+
+  /** Aborts an active push-up/get-up struggle (e.g. an arm or leg was severed or broken mid-struggle). */
+  private abortStruggle(): void {
+    this.lift.force = 0;
+    this.startU = 0;
+    this.ready = false;
+    this.blow = 0;
+    const g = this.rag.gravity;
+    for (const part of this.rag.parts) {
+      const m = part.muscle;
+      if (!m) continue;
+      if (m.role === 'arm' || m.role === 'leg') m.gain = 1;
+      if (m.role === 'leg') part.body.setGravityScale(g, false);
+    }
+    this.enter('lying');
   }
 
   /** Remembers a wound for a hand to find. */
@@ -554,6 +573,7 @@ export class Reflex {
   die(): void {
     if (this.dying < 0) this.dying = ReflexTuning.dieSeconds;
     this.lift.force = 0;
+    this.ready = false;
   }
 
   private enter(phase: ReflexPhase): void {
@@ -728,8 +748,11 @@ export class Reflex {
       if (this.dying < 0 && this.time > this.lie && calm) this.rise();
     } else if (this.phase === 'struggle') {
       // Dead, it gets no further up and is not handed back.
-      if (this.dying < 0) this.push(dt);
-    } else if (this.time > (this.pushed ? t.upGather : t.gatherSeconds)) {
+      if (this.dying < 0) {
+        if (!this.canPush()) this.abortStruggle();
+        else this.push(dt);
+      }
+    } else if (this.dying < 0 && this.time > (this.pushed ? t.upGather : t.gatherSeconds)) {
       this.ready = true;
     }
   }

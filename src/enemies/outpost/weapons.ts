@@ -450,7 +450,8 @@ export function dropGrenade(e: Enemy, w: AiWorld): void {
 
 /** Riot officers still bash. It is the one melee a soldier does on purpose, and it needs the shield. */
 const shieldBash = melee({
-  name: 'bash', reach: 2.7, damage: 16, windup: 0.45, knock: 11, anim: 'attackHeavy', cooldown: [1.6, 2.4], requires: e => e.shield,
+  name: 'bash', reach: 2.7, damage: 16, windup: 0.45, knock: 11, anim: 'attackHeavy', cooldown: [1.6, 2.4],
+  requires: e => e.shield && e.maim.legs > 0 && !!soldierOf(e)?.fighting && !soldierOf(e)?.silent,
 });
 
 /** Get inside a rifle's reach and it comes round at your jaw. Closing on these men is not free. */

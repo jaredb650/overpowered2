@@ -197,8 +197,17 @@ export class RouteFinder {
   }
 
   private push(node: number, key: number): void {
-    const { heapNode, heapKey } = this;
     let i = this.heapSize++;
+    if (i >= this.heapNode.length) {
+      const nextCap = Math.max(64, this.heapNode.length * 2);
+      const nextNode = new Int32Array(nextCap);
+      const nextKey = new Float32Array(nextCap);
+      nextNode.set(this.heapNode);
+      nextKey.set(this.heapKey);
+      this.heapNode = nextNode;
+      this.heapKey = nextKey;
+    }
+    const { heapNode, heapKey } = this;
     while (i > 0) {
       const p = (i - 1) >> 1;
       if (heapKey[p]! <= key) break;

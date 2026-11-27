@@ -119,11 +119,13 @@ export class Smoke {
   private throwAtPlayer(now: number): void {
     const { o, w } = this.c;
     let best = null as (typeof o.soldiers)[number] | null;
-    let bestD = THROW_REACH;
+    let bestD2 = THROW_REACH * THROW_REACH;
     for (const s of o.soldiers) {
-      if (!s.fighting || s.e.maim.arms === 0 || s.e.dist >= bestD) continue;
+      if (!s.fighting || s.e.maim.arms === 0) continue;
+      const d2 = s.e.position.distanceToSquared(this.mark);
+      if (d2 >= bestD2) continue;
       best = s;
-      bestD = s.e.dist;
+      bestD2 = d2;
     }
     if (!best) return;
     this.restUntil = now + THROW_REST;
@@ -143,15 +145,32 @@ export class Smoke {
     this.c.radio('radio.smoke.out', best);
   }
 
-  /** True when a cloud lies across this line. Three circles at most, so this is cheap enough to ask for every man. */
+  /** True when a cloud lies across this line. Three cylinders at most, so this is cheap enough to ask for every man. */
   blocks(a: THREE.Vector3, b: THREE.Vector3): boolean {
     const now = this.c.w.now;
+    const r2 = RADIUS * RADIUS;
+    const dx = b.x - a.x, dy = b.y - a.y, dz = b.z - a.z;
+    const len2 = dx * dx + dz * dz;
     for (const k of this.clouds) {
       if (now >= k.until) continue;
-      const dx = b.x - a.x, dz = b.z - a.z;
-      const len2 = dx * dx + dz * dz || 1;
-      const t = Math.max(0, Math.min(1, ((k.at.x - a.x) * dx + (k.at.z - a.z) * dz) / len2));
-      if (Math.hypot(a.x + dx * t - k.at.x, a.z + dz * t - k.at.z) < RADIUS) return true;
+      const yMin = k.at.y - 1;
+      const yMax = k.at.y + 6.5;
+      const fx = a.x - k.at.x, fz = a.z - k.at.z;
+      if (len2 <= 1e-8) {
+        if (fx * fx + fz * fz < r2 && Math.max(a.y, b.y) >= yMin && Math.min(a.y, b.y) <= yMax) return true;
+        continue;
+      }
+      const B = fx * dx + fz * dz;
+      const C = fx * fx + fz * fz - r2;
+      const disc = B * B - len2 * C;
+      if (disc <= 0) continue;
+      const sq = Math.sqrt(disc);
+      const t0 = Math.max(0, (-B - sq) / len2);
+      const t1 = Math.min(1, (-B + sq) / len2);
+      if (t0 >= t1) continue;
+      const y0 = a.y + dy * t0;
+      const y1 = a.y + dy * t1;
+      if (Math.max(y0, y1) >= yMin && Math.min(y0, y1) <= yMax) return true;
     }
     return false;
   }

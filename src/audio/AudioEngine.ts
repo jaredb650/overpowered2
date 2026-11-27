@@ -167,6 +167,7 @@ export class AudioEngine implements AudioSystem {
   private bed: LoopHandle = DEAD_HANDLE;
   private bedRoom: RoomId | null = null;
   private inRun = false;
+  private priorityVoice = false;
 
   /** Resolves once the context and mixer exist. Only sandboxes need this. */
   opened: Promise<void> = Promise.resolve();
@@ -304,6 +305,7 @@ export class AudioEngine implements AudioSystem {
   /** Frames stop updating the systems that own loops, so nothing else will ever stop them. */
   private endRun(): void {
     this.inRun = false;
+    this.priorityVoice = false;
     this.stopLoops(RUN_END_FADE);
     this.foley?.reset();
     this.reactions?.reset();
@@ -317,6 +319,7 @@ export class AudioEngine implements AudioSystem {
   }
 
   reset(): void {
+    this.priorityVoice = false;
     this.stopLoops(0.1);
     this.foley?.reset();
     this.reactions?.reset();
@@ -762,6 +765,11 @@ export class AudioEngine implements AudioSystem {
   }
 
   get context(): AudioContext | null { return this.ac; }
+  /** Clean post-filter mixer input (uiIn -> master -> limiter -> clipper) for Commander and chatter voices. */
+  get voiceBus(): AudioNode | null { return this.mixer?.uiIn ?? null; }
+  /** True while a priority voice (Commander/Council/mission dialogue) is actively speaking so chatter voices duck underneath. */
+  get voicePriority(): boolean { return this.priorityVoice; }
+  setVoicePriority(active: boolean): void { this.priorityVoice = active; }
   get mixerForTests(): Mixer | null { return this.mixer; }
   get musicForTests(): MusicPlayer | null { return this.musicPlayer; }
   get contextForTests(): AudioContext | null { return this.ac; }

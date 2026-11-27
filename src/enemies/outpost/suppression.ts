@@ -69,6 +69,8 @@ export class Suppression {
   /** One round went somewhere near. `line` is whether it had a clear run at the player. */
   round(muzzle: THREE.Vector3, dir: THREE.Vector3, line: boolean): void {
     if (!SuppressionSetting.enabled) return;
+    const world = this.ctx.coop?.world;
+    if (world?.targetPlayer && world.targetPlayer !== world.me) return;
     const { player } = this.w;
     if (!player.alive) return;
     _to.subVectors(player.chest, muzzle);

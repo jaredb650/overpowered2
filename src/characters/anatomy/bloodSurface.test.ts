@@ -299,12 +299,22 @@ describe('SurfaceBloodField', () => {
 
     const layer = char.lastLayer - 1;
     // In island A, bind +X maps to increasing U (0.05 -> 0.45) at constant V (~0.25).
-    // Check that blood flowed sideways to U > 0.30 (bind +X), NOT straight down to V > 0.40!
+    // Check that blood flowed sideways to U > 0.30 (bind +X) across the V band, NOT straight down to V > 0.40!
     let rightSide = 0;
     for (let u = 0.30; u <= 0.44; u += 0.02) {
-      rightSide = Math.max(rightSide, pool.sampleUv(layer, u, 0.25)[0]);
+      for (let v = 0.15; v <= 0.35; v += 0.02) {
+        rightSide = Math.max(rightSide, pool.sampleUv(layer, u, v)[0]);
+      }
     }
     expect(rightSide).toBeGreaterThan(0.15);
+
+    let straightDown = 0;
+    for (let u = 0.15; u <= 0.35; u += 0.02) {
+      for (let v = 0.41; v <= 0.47; v += 0.02) {
+        straightDown = Math.max(straightDown, pool.sampleUv(layer, u, v)[0]);
+      }
+    }
+    expect(straightDown).toBeLessThan(0.15);
   });
 
   it('damps arterial spurt and stains clutching hand, stops on dressing, and clamps spurt on death', () => {

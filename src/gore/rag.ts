@@ -922,7 +922,8 @@ export class Rag {
     const weight = 1 - Math.min(1, Math.max(0, (angle - k.twistFadeStart) / (k.twistFadeEnd - k.twistFadeStart)));
     const twistExcess = (Math.abs(twist) - c.twist) * weight * hold;
     if (twistExcess > 0) {
-      _c.copy(c.axis).applyQuaternion(p.q);
+      // q = swing * twist, so twist acts about c.axis in the child's frame (world axis = c.q * c.axis).
+      _c.copy(c.axis).applyQuaternion(c.q);
       if (twist < 0) _c.negate();
       correct(c, p, _c, rel, twistExcess, dt);
     }

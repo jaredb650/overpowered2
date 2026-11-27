@@ -408,13 +408,13 @@ export class WoundPlanner {
   }
 
   /** A hit on a loose limb: holes, but nothing left to break. */
-  onLimb(limb: Flesh, info: RigInfo, d: DamageInfo, bone: number, point: THREE.Vector3): void {
+  onLimb(limb: Flesh, info: RigInfo, d: DamageInfo, bone: number, point: THREE.Vector3, machine = false): void {
     if (d.type === 'fire' || d.type === 'shock' || d.type === 'true' || d.type === 'explosive') return;
     const size = (info.rig.height / 1.85) ** 0.7;
     limb.bones[bone]!.updateWorldMatrix(true, false);
     if (d.type === 'slash') this.gash(limb, info, d, bone, point, 0.4, size);
     else if (d.type === 'melee' || d.type === 'crush') return;
     else if (d.type === 'pellet' || isShotgunSource(d.source)) this.pellet(limb, bone, point, d.dir, size, d.from);
-    else this.bullet(limb, info, BITES[d.source] ?? SMALL, bone, point, d.dir, size, false);
+    else this.bullet(limb, info, BITES[d.source] ?? SMALL, bone, point, d.dir, size, machine);
   }
 }

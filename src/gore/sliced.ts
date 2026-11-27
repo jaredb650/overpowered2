@@ -85,6 +85,8 @@ export class Half implements BurningPiece {
   scrap = false;
   /** Whether Rapier CCD is currently enabled on `body` (turned off once speed slows below 4 m/s). */
   ccd = false;
+  /** Stake pins attached to this half so waking a frozen pinned half restores its joints. */
+  readonly pins: { local: THREE.Vector3; anchor: THREE.Vector3 }[] = [];
   constructor(readonly mesh: THREE.Mesh, readonly side: CutSide) {}
 
   get root(): THREE.Object3D {
@@ -256,8 +258,15 @@ export class SliceField {
     const geometry = char.bakePose();
     const n = _v.copy(normal).normalize().clone();
     let weld = this.welds.get(char.rig);
-    if (!weld || weld.length !== geometry.getAttribute('position').count) {
-      weld = weldTable(geometry);
+    const vertCount = geometry.getAttribute('position').count;
+    if (!weld || weld.length !== vertCount) {
+      const bindGeo = char.bakePose(true);
+      if (bindGeo && bindGeo !== geometry && bindGeo.getAttribute('position').count === vertCount) {
+        weld = weldTable(bindGeo);
+        bindGeo.dispose();
+      } else {
+        weld = weldTable(geometry);
+      }
       this.welds.set(char.rig, weld);
     }
     const started = performance.now();
@@ -654,6 +663,13 @@ export class SliceField {
     h.calm = 0;
     h.mesh.matrixAutoUpdate = true;
     h.mesh.castShadow = true;
+    if (h.pins.length > 0) {
+      const anchorBody = this.ctx.physics.anchorBody;
+      for (const p of h.pins) {
+        const joint = world.createImpulseJoint(R.JointData.spherical(p.local, p.anchor), body, anchorBody, true);
+        joint.setContactsEnabled(false);
+      }
+    }
   }
 
   damage(handle: unknown, point: THREE.Vector3, impulse: THREE.Vector3): void {
@@ -735,8 +751,11 @@ export class SliceField {
     const body = handle.body;
     if (!body) return;
     const { R, world, anchorBody } = this.ctx.physics;
-    const local = _v.copy(point).sub(handle.mesh.position).applyQuaternion(_inv.copy(handle.mesh.quaternion).conjugate());
-    world.createImpulseJoint(R.JointData.spherical(local, anchor), body, anchorBody, true);
+    const local = _v.copy(point).sub(handle.mesh.position).applyQuaternion(_inv.copy(handle.mesh.quaternion).conjugate()).clone();
+    const pinAnchor = anchor.clone();
+    handle.pins.push({ local, anchor: pinAnchor });
+    const joint = world.createImpulseJoint(R.JointData.spherical(local, pinAnchor), body, anchorBody, true);
+    joint.setContactsEnabled(false);
   }
 
   clear(): void {

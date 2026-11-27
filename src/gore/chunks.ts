@@ -296,6 +296,7 @@ const _none = new THREE.Quaternion();
 const _rot = new THREE.Quaternion();
 const _p = new THREE.Vector3();
 const _o = new THREE.Vector3();
+const _burstPos = new THREE.Vector3();
 const _up = new THREE.Vector3(0, 1, 0);
 const _downward = new THREE.Vector3(0, -1, 0);
 const _ang = { x: 0, y: 0, z: 0 };
@@ -679,11 +680,11 @@ export class ChunkField {
     if (!body) return;
     body.linvel(c.v);
     this.dropBody(c);
-    if (c.v.lengthSq() < 1.5) return;
     _o.copy(c.p);
     _o.y += 0.1;
     if (!this.ctx.physics.raycastInto(_o, _downward, 40, CG.World, _floor)) return;
     c.floorY = _floor.point.y + Math.min(0.08, c.bulk * 0.6);
+    if (c.p.y <= c.floorY + 0.08 && c.v.lengthSq() < 1.5) return;
     if (c.p.y <= c.floorY + 0.02) return;
     c.restedAt = -1;
     this.ghosts.push(c);
@@ -940,32 +941,32 @@ export class ChunkField {
   private burst(c: Chunk, dir: THREE.Vector3): void {
     const { fx, audio } = this.ctx;
     const size = c.bulk;
-    _o.copy(c.p);
+    _burstPos.copy(c.p);
     this.bursts++;
     this.retire(c);
     // A cooked one crumbles: scraps as dark as it was, a little ash, and nothing wet.
     const was = this.char;
     if (c.dry) {
       this.char = 1;
-      fx.embers(_o, 3, 0.25);
+      fx.embers(_burstPos, 3, 0.25);
     } else {
-      fx.bloodMist(_o, 0.5 + size * 4);
-      fx.bloodHit(_o, _up, 1 + size * 6);
-      this.blood.stainBelow(_o, 0.45 + size * 4.5, 'blood', 1.3);
+      fx.bloodMist(_burstPos, 0.5 + size * 4);
+      fx.bloodHit(_burstPos, _up, 1 + size * 6);
+      this.blood.stainBelow(_burstPos, 0.45 + size * 4.5, 'blood', 1.3);
     }
-    audio.play('gib_squelch', { position: _o, volume: 0.45, pitch: 1.25, pitchJitter: 0.15 });
+    audio.play('gib_squelch', { position: _burstPos, volume: 0.45, pitch: 1.25, pitchJitter: 0.15 });
     if (!c.dry) {
-      audio.play('blood_squish', { position: _o, volume: 0.9, pitch: 1.05, pitchJitter: 0.12 });
-      audio.play('blood_splash', { position: _o, volume: 0.65, pitchJitter: 0.12, delay: 0.03 });
+      audio.play('blood_squish', { position: _burstPos, volume: 0.9, pitch: 1.05, pitchJitter: 0.12 });
+      audio.play('blood_splash', { position: _burstPos, volume: 0.65, pitchJitter: 0.12, delay: 0.03 });
     }
     for (let i = 0; i < 4; i++) {
       this.spawn(
-        i === 0 ? 'viscera' : 'meat', _o.x, _o.y + 0.04, _o.z,
+        i === 0 ? 'viscera' : 'meat', _burstPos.x, _burstPos.y + 0.04, _burstPos.z,
         dir.x * 1.5 + (Math.random() - 0.5) * 4, 1.5 + Math.random() * 2.5, dir.z * 1.5 + (Math.random() - 0.5) * 4, 0.018 + Math.random() * 0.016,
       );
     }
     this.char = was;
-    this.quiver(_o, 0.6);
+    this.quiver(_burstPos, 0.6);
   }
 
   /** Organs burst since the start, for checks. */

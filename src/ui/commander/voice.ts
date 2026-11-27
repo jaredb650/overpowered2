@@ -77,6 +77,8 @@ interface Playing {
   audio: HTMLAudioElement;
   src?: MediaElementAudioSourceNode;
   gain?: GainNode;
+  /** True when routed through AudioEngine's mixer voiceBus (which already applies master and sfx gain). */
+  onBus?: boolean;
   /** Takes every listener off it at once, so a clip that has been replaced cannot act on the one that replaced it. */
   off: AbortController;
   started: boolean;
@@ -105,6 +107,7 @@ export class Voice {
   /** Out of sight in a background tab, to be picked up again when it comes back. */
   private hidden = false;
   private sounded = false;
+  private priorityHeld = false;
 
   constructor(private readonly ctx: Ctx, private readonly settings: Settings, private readonly deps: VoiceDeps = PAGE) {
     const arrived = (list: ClipList): void => {
@@ -143,6 +146,7 @@ export class Voice {
     if (paused === this.paused) return;
     this.paused = paused;
     this.settle();
+    this.syncPriority();
     const p = this.current;
     if (!p || this.hidden) return;
     if (paused) p.audio.pause();
@@ -154,6 +158,7 @@ export class Voice {
     this.pending = null;
     const p = this.current;
     this.current = null;
+    this.syncPriority();
     if (!p) return;
     p.off.abort();
     // Cut off mid-word, it fades. Anything not yet sounding just goes.
@@ -217,7 +222,10 @@ export class Voice {
       unload(was.audio, was.src, was.gain);
     }
     const clip = this.queue.shift();
-    if (!clip) return;
+    if (!clip) {
+      this.syncPriority();
+      return;
+    }
     const audio = this.deps.audio(`${BASE}${encodeURIComponent(clip)}.mp3`);
     const p: Playing = { audio, off: new AbortController(), started: false, at: -1, still: 0 };
     const mine = { signal: p.off.signal };
@@ -230,11 +238,13 @@ export class Voice {
       p.started = this.sounded = true;
       // Time spent loading is not a stall: a slow download must not cut the clip the moment it starts.
       p.still = 0;
+      this.syncPriority();
       this.duck();
     }, mine);
     // From what is really playing, not from what the file says it will, so a stop or a pause lets the music back up.
     audio.addEventListener('timeupdate', () => this.duck(), mine);
     this.current = p;
+    this.syncPriority();
     if (!this.paused && !this.hidden) this.start(p);
   }
 
@@ -260,10 +270,19 @@ export class Voice {
     if (hidden === this.hidden) return;
     this.hidden = hidden;
     this.settle();
+    this.syncPriority();
     const p = this.current;
     if (!p || this.paused) return;
     if (hidden) p.audio.pause();
     else this.resume(p);
+  }
+
+  /** Signals AudioEngine while a priority voice (Commander/Council/mission) is actively playing so ambient chatter ducks underneath. */
+  private syncPriority(): void {
+    const active = this.current !== null && this.current.started && !this.paused && !this.hidden;
+    if (active === this.priorityHeld) return;
+    this.priorityHeld = active;
+    (this.ctx.audio as { setVoicePriority?: (active: boolean) => void } | undefined)?.setVoicePriority?.(active);
   }
 
   /** A fade has nobody left to finish it while the game is stopped. */
@@ -274,15 +293,18 @@ export class Voice {
 
   private attachBoost(p: Playing): void {
     if (this.deps !== PAGE) return;
-    const ac = (this.ctx.audio as { context?: AudioContext | null } | undefined)?.context ?? null;
+    const audio = this.ctx.audio as { context?: AudioContext | null; voiceBus?: AudioNode | null } | undefined;
+    const ac = audio?.context ?? null;
     if (!ac || typeof ac.createMediaElementSource !== 'function') return;
     try {
+      const bus = audio?.voiceBus ?? null;
       const src = ac.createMediaElementSource(p.audio);
       const gain = ac.createGain();
-      src.connect(gain).connect(ac.destination);
+      src.connect(gain).connect(bus ?? ac.destination);
       p.audio.volume = 1;
       p.src = src;
       p.gain = gain;
+      p.onBus = bus !== null;
     } catch {
       // Fall back cleanly to plain HTMLAudioElement.volume.
     }
@@ -290,7 +312,7 @@ export class Voice {
 
   private applyLevel(p: Playing): void {
     if (p.gain) {
-      p.gain.gain.value = Math.max(0, this.level * VOICE_BOOST);
+      p.gain.gain.value = p.onBus ? (this.level > 0 ? VOICE_BOOST : 0) : Math.max(0, this.level * VOICE_BOOST);
     } else {
       p.audio.volume = Math.min(1, Math.max(0, this.level));
     }

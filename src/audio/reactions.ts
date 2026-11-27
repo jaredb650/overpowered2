@@ -13,6 +13,7 @@ import type { ZoneId } from '../enemies/wounds/rules';
 import { clamp, lerp, rand } from '../core/math';
 import { WEAPONS } from '../weapons/data';
 import { ALLY_SOURCE } from '../allies/data';
+import { soldierOf } from '../enemies/outpost/soldier';
 import type { RoomId } from './reverb';
 import { DEAD_HANDLE } from './voices';
 
@@ -217,7 +218,17 @@ export class Reactions {
     events.on('gore:impact', e => this.onLanding(e));
     events.on('enemy:wounded', e => this.onWounded(e));
     events.on('enemy:condition', ({ enemy, condition }) => {
-      if ((condition === 'mortal' || condition === 'downed') && !this.voiced.has(enemy.uid)) this.dying.push(enemy);
+      if ((condition === 'mortal' || condition === 'downed') && !this.voiced.has(enemy.uid)) {
+        // Outpost soldiers voice their own downed/scream lines through ChatterVoices; skip synth vox_dying_human on downed to avoid double-voicing.
+        if (condition === 'downed' && soldierOf(enemy)) return;
+        this.dying.push(enemy);
+      }
+    });
+    events.on('comms:line', line => {
+      if (!line.enemy) return;
+      if (line.kind === 'downed' || line.kind === 'scream' || line.kind === 'dying' || line.kind === 'artery' || line.kind === 'gut' || line.kind === 'limbLost') {
+        this.voiced.add(line.enemy.uid);
+      }
     });
     events.on('player:damaged', () => this.onPlayerDamaged());
     events.on('player:healed', e => this.onHealed(e.amount));

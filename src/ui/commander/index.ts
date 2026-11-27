@@ -144,6 +144,11 @@ export class CommanderHud {
     return this.ctx.campaign?.talking === true;
   }
 
+  /** True while the Commander or Council has a voice line active. */
+  get talking(): boolean {
+    return this.voice.speaking;
+  }
+
   reset(): void {
     this.close();
     this.script.reset();

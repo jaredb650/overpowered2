@@ -38,7 +38,8 @@ export function dripTrail(e: Enemy, b: Injuries, w: AiWorld, now: number): void 
   const ground = w.ctx.world.nav.groundHeight(e.position.x, e.position.y + 0.5, e.position.z);
   _at.set(e.position.x, Number.isNaN(ground) ? e.position.y : ground, e.position.z);
   if (b.floored && still) {
-    decals.add('bloodPool', _at, UP, LYING_POOL);
+    if (w.ctx.gore.poolBlood) w.ctx.gore.poolBlood(_at.x, _at.y, _at.z, LYING_POOL);
+    else decals.add('bloodPool', _at, UP, LYING_POOL);
   } else if (b.floored) {
     decals.add('bloodSmear', _at, UP, SMEAR_SIZE, Math.atan2(e.position.x - b.dripX, e.position.z - b.dripZ));
   } else {

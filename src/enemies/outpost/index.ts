@@ -86,6 +86,8 @@ const CROSSFIRE_TICK = 2;
 const NOISE_TICK = 0.35;
 /** Seconds for a sighting to go round the other squads. */
 const RADIO_DELAY = 1.2;
+/** Metres a squad without radio still hears another squad shouting. */
+const SHOUT_RANGE = 22;
 /** How far a rescuer will go. */
 const AID_REACH = 28;
 /** Nobody walks up to a casualty with the monster standing over him. */
@@ -112,6 +114,7 @@ const GROUND_WALK = 36;
 const GROUND_HEIGHT = 3.5;
 /** Metres a shot is heard, a sword swing, a landing per metre fallen, and footfalls per metre per second. */
 const SHOT_NOISE = 42;
+const SUPPRESSED_SHOT_NOISE = 14;
 const BLADE_NOISE = 7;
 const LANDING_NOISE = 3;
 const STEP_NOISE = 0.75;
@@ -232,7 +235,10 @@ export class Outpost {
   lastFakeAt = -Infinity;
   private radioAt = -1;
   private radioSeen = false;
+  private radioFrom: OutpostSquad | null = null;
   private readonly radioPosition = new THREE.Vector3();
+  private readonly radioOrigin = new THREE.Vector3();
+  private readonly fleePlacesBuf: THREE.Vector3[] = [];
   private readonly bangs: Bang[] = [
     { at: 0, position: new THREE.Vector3(), live: false }, { at: 0, position: new THREE.Vector3(), live: false }, { at: 0, position: new THREE.Vector3(), live: false },
   ];
@@ -334,7 +340,10 @@ export class Outpost {
     }
     for (let i = 0; i < this.soldiers.length; i++) {
       const s = this.soldiers[i]!;
-      if (s.fighting) s.silent = false;
+      if (s.fighting) {
+        s.silent = false;
+        s.hasWatch = false;
+      }
     }
   }
 
@@ -502,6 +511,7 @@ export class Outpost {
     this.impactHeardAt = 0;
     this.lastFakeAt = -Infinity;
     this.radioAt = -1;
+    this.radioFrom = null;
     this.doctrine = defaultDoctrine();
     this.wounds.reset();
     this.commander.reset();
@@ -696,6 +706,18 @@ export class Outpost {
         mind.track.update(dt, crowd[i]!.player.velocity);
         this.watchStill(mind, crowd[i]!.player.position, dt);
       }
+      if (this.minds.size > crowd.length) {
+        for (const p of this.minds.keys()) {
+          let present = false;
+          for (let i = 0; i < crowd.length; i++) {
+            if (crowd[i]!.player === p) {
+              present = true;
+              break;
+            }
+          }
+          if (!present) this.minds.delete(p);
+        }
+      }
     } else {
       this.ownMind.track.update(dt, w.player.velocity);
       this.watchStill(this.ownMind, w.player.position, dt);
@@ -704,14 +726,6 @@ export class Outpost {
     this.suppression.update(dt);
     this.captives.update(dt);
     this.routesLeft = ROUTES_PER_FRAME;
-
-    if (this.stealthMode) {
-      const p = w.ctx.player;
-      this.stealthPerceptOpts.lightLevel = this.lightQuery ? this.lightQuery(p.position) : 1;
-      this.stealthPerceptOpts.crouched = p.crouched;
-      this.stealthPerceptOpts.flashlight = false;
-      this.stealthPerceptOpts.suppressSquadReport = true;
-    }
 
     for (let i = 0; i < this.soldiers.length; i++) {
       const s = this.soldiers[i]!;
@@ -722,6 +736,11 @@ export class Outpost {
         s.senseAt = now + SENSE_INTERVAL;
         if (crowd) this.manager.focus(s.e.quarry);
         if (this.stealthMode) {
+          const target = s.e.quarry ?? w.ctx.player;
+          this.stealthPerceptOpts.lightLevel = this.lightQuery ? this.lightQuery(target.position) : 1;
+          this.stealthPerceptOpts.crouched = target.crouched;
+          this.stealthPerceptOpts.flashlight = this.lightQuery ? this.lightQuery(s.e.position) < 0.5 : false;
+          this.stealthPerceptOpts.suppressSquadReport = true;
           sense(s, w, SENSE_INTERVAL, this.stealthPerceptOpts);
           this.stealth.syncPerception(s.e.uid, s.notice, s.sees, w.player.position, now);
         } else {
@@ -775,24 +794,30 @@ export class Outpost {
       const goal = this.stealth.getDesiredMove(s.e.uid, this.stealthTarget);
       if (goal === 'alarm_panel') {
         s.silent = true;
+        s.hasWatch = false;
         if (s.task !== 'move' || s.dest.distanceToSquared(this.stealthTarget) > 1.0) {
           this.order(s, this.stealthTarget, null, 2, 0);
         }
       } else if (goal === 'alarm_radio') {
-        s.silent = true;
+        s.silent = false;
         s.task = 'hold';
         s.hasOrder = false;
         const agent = this.stealth.getAgent(s.e.uid);
-        if (agent?.hasLastKnownPos) s.squad.watch.copy(agent.lastKnownPos);
+        if (agent?.hasLastKnownPos) {
+          s.watch.copy(agent.lastKnownPos);
+          s.hasWatch = true;
+        }
       } else if (goal === 'combat') {
         s.silent = false;
+        s.hasWatch = false;
         const agent = this.stealth.getAgent(s.e.uid);
         if (agent?.hasLastKnownPos && s.squad.knownAt < agent.lastSeenAt) {
           s.squad.adopt(agent.lastKnownPos, now);
         }
       } else if (goal === 'investigate') {
         s.silent = true;
-        s.squad.watch.copy(this.stealthTarget);
+        s.watch.copy(this.stealthTarget);
+        s.hasWatch = true;
         if (
           s.e.position.distanceToSquared(this.stealthTarget) > 3.2 &&
           (s.task !== 'move' || s.dest.distanceToSquared(this.stealthTarget) > 1.0)
@@ -801,7 +826,8 @@ export class Outpost {
         }
       } else if (goal === 'patrol') {
         s.silent = true;
-        s.squad.watch.copy(this.stealthTarget);
+        s.watch.copy(this.stealthTarget);
+        s.hasWatch = true;
         if (s.task !== 'move' || s.dest.distanceToSquared(this.stealthTarget) > 1.0) {
           this.order(s, this.stealthTarget, null, 0, 0);
         }
@@ -811,11 +837,12 @@ export class Outpost {
         s.hasOrder = false;
         const yaw = this.stealth.getDesiredYaw(s.e.uid);
         if (yaw !== null) {
-          s.squad.watch.set(
+          s.watch.set(
             s.e.position.x + Math.sin(yaw) * 8,
             s.e.position.y + 1.4,
             s.e.position.z + Math.cos(yaw) * 8,
           );
+          s.hasWatch = true;
         }
       }
     }
@@ -882,7 +909,7 @@ export class Outpost {
     if (!s) return;
     const i = this.soldiers.indexOf(s);
     if (i < 0) return;
-    if (this.stealthMode) this.stealth.onGuardKilled(e.uid, this.w.now);
+    if (this.stealthMode) this.stealth.unregister(e.uid, this.w.now);
     this.soldiers.splice(i, 1);
     if (s.surrendered) this.prisoners--;
     if (s.spot) s.spot.claimedBy = 0;
@@ -899,9 +926,10 @@ export class Outpost {
   // Orders
   // -------------------------------------------------------------------------------------------
 
-  order(s: Soldier, dest: THREE.Vector3, spot: CoverSpot | null, urgency: Urgency, delay: number): void {
+  order(s: Soldier, dest: THREE.Vector3, spot: CoverSpot | null, urgency: Urgency, delay: number, priority = 0, lockSec = 0): void {
     // Dazed by a blast, he does not know he was told anything.
     if (s.injuries.concussed(this.w.now)) return;
+    if (this.w.now < s.orderLockUntil && priority < s.orderPriority) return;
     if (s.spot && s.spot !== spot) s.spot.claimedBy = 0;
     s.spot = spot;
     if (spot) spot.claimedBy = s.e.uid;
@@ -909,6 +937,8 @@ export class Outpost {
     s.urgency = urgency;
     s.hasOrder = true;
     s.orderAt = this.w.now + delay;
+    s.orderPriority = priority;
+    s.orderLockUntil = lockSec > 0 ? this.w.now + lockSec : 0;
     s.canShoot = false;
   }
 
@@ -932,7 +962,16 @@ export class Outpost {
     this.routesLeft--;
     s.hasOrder = false;
     s.stalls = 0;
-    if (this.walkTo(s, s.dest, this.intel)) s.task = 'move';
+    if (this.walkTo(s, s.dest, this.intel)) {
+      s.task = 'move';
+    } else {
+      if (s.spot) {
+        s.spot.claimedBy = 0;
+        s.spot = null;
+      }
+      s.orderLockUntil = 0;
+      s.orderPriority = 0;
+    }
   }
 
   private walkTo(s: Soldier, to: THREE.Vector3, avoid: Intel | null): boolean {
@@ -968,9 +1007,13 @@ export class Outpost {
     return this.singleEye;
   }
 
-  private *fleePlaces(): Iterable<THREE.Vector3> {
-    for (const spot of this.cover.spots) yield spot.position;
-    yield* this.gates;
+  private fleePlaces(): readonly THREE.Vector3[] {
+    const out = this.fleePlacesBuf;
+    out.length = 0;
+    const spots = this.cover.spots;
+    for (let i = 0; i < spots.length; i++) out.push(spots[i]!.position);
+    for (let i = 0; i < this.gates.length; i++) out.push(this.gates[i]!);
+    return out;
   }
 
   /** Somewhere to run: far from every player and out of their sight (flight.ts). False if there is nowhere he can get to. */
@@ -1064,21 +1107,68 @@ export class Outpost {
   // Knowledge
   // -------------------------------------------------------------------------------------------
 
-  radio(at: THREE.Vector3, seen: boolean): void {
+  private hasLiveRadio(q: OutpostSquad): boolean {
+    const r = q.radioman;
+    return !!r && r.fighting && r.e.alive && q.members.includes(r);
+  }
+
+  private squadOrigin(q: OutpostSquad, out: THREE.Vector3): boolean {
+    const r = q.radioman;
+    if (r && r.fighting && r.e.alive) {
+      out.copy(r.e.position);
+      return true;
+    }
+    const lead = q.leader;
+    if (lead && lead.fighting && lead.e.alive) {
+      out.copy(lead.e.position);
+      return true;
+    }
+    for (let i = 0; i < q.members.length; i++) {
+      const m = q.members[i]!;
+      if (m.fighting && m.e.alive) {
+        out.copy(m.e.position);
+        return true;
+      }
+    }
+    return false;
+  }
+
+  radio(at: THREE.Vector3, seen: boolean, from: OutpostSquad | null = null): void {
     // In stealth mode, local squad sightings never auto-broadcast compound-wide before Lockdown.
     if (this.stealthMode && !this.stealth.lockdown) return;
     // One report in flight at a time. A sighting replaces a noise on its way out, and nothing replaces a sighting.
     if (this.radioAt >= 0 && (this.radioSeen || !seen)) return;
     this.radioPosition.copy(at);
     this.radioSeen = seen;
+    this.radioFrom = from;
+    if (from && this.squadOrigin(from, _a)) this.radioOrigin.copy(_a);
+    else this.radioOrigin.copy(at);
     if (this.radioAt < 0) this.radioAt = this.w.now + RADIO_DELAY;
   }
 
   private updateRadio(now: number): void {
     if (this.radioAt < 0 || now < this.radioAt) return;
-    this.intel.report(this.radioPosition, now, this.radioSeen);
-    for (const q of this.squads) q.adopt(this.radioPosition, now);
+    const from = this.radioFrom;
+    const senderHasRadio = from === null || this.hasLiveRadio(from);
+    if (from && this.squadOrigin(from, _a)) this.radioOrigin.copy(_a);
+    if (senderHasRadio) this.intel.report(this.radioPosition, now, this.radioSeen);
+    const shout2 = SHOUT_RANGE * SHOUT_RANGE;
+    for (let i = 0; i < this.squads.length; i++) {
+      const q = this.squads[i]!;
+      if (q === from) {
+        q.adopt(this.radioPosition, now);
+        continue;
+      }
+      if (senderHasRadio && this.hasLiveRadio(q)) {
+        q.adopt(this.radioPosition, now);
+        continue;
+      }
+      if (this.squadOrigin(q, _a) && _a.distanceToSquared(this.radioOrigin) <= shout2) {
+        q.adopt(this.radioPosition, now);
+      }
+    }
     this.radioAt = -1;
+    this.radioFrom = null;
   }
 
   /** Command's thermal pass: a rough position, so that nobody can win by hiding. */
@@ -1087,11 +1177,13 @@ export class Outpost {
     const { w, doctrine } = this;
     const now = w.now;
     if (now < this.nextFixAt) return;
+    // Co-op: one pass finds one living non-ghost player, so that nobody on the team can win by hiding.
+    const picked = this.anyPlayer();
+    if (this.crowd ? !picked : w.player.ghost) return;
     this.nextFixAt = now + doctrine.fixAfter * 0.5;
     const a = rand(0, TAU);
     const r = rand(0.3, 1) * doctrine.fixError;
-    // Co-op: one pass finds one player, any of them, so that nobody on the team can win by hiding.
-    const at = this.anyPlayer()?.position ?? w.player.position;
+    const at = picked?.position ?? w.player.position;
     _a.set(at.x + Math.sin(a) * r, at.y, at.z + Math.cos(a) * r);
     if (!w.ctx.world.nav.nearest(_a, 12, _a)) _a.copy(at);
     _a.y += 1;
@@ -1100,15 +1192,22 @@ export class Outpost {
     if (!opening) this.comms.say('fix', null);
   }
 
-  /** Co-op host: one living player, at random. Null alone (and no dice are thrown). */
+  /** Co-op host: one living non-ghost player, at random. Null alone (and no dice are thrown). */
   private anyPlayer(): PlayerSystem | null {
     const crowd = this.crowd?.players();
     if (!crowd) return null;
+    const world = this.w.ctx.coop?.world;
     let alive = 0;
-    for (let i = 0; i < crowd.length; i++) if (crowd[i]!.player.alive) alive++;
+    for (let i = 0; i < crowd.length; i++) {
+      const p = crowd[i]!.player;
+      if (p.alive && !world?.ghosted(p)) alive++;
+    }
     if (alive === 0) return null;
     let pick = alive === 1 ? 0 : Math.floor(Math.random() * alive);
-    for (let i = 0; i < crowd.length; i++) if (crowd[i]!.player.alive && pick-- === 0) return crowd[i]!.player;
+    for (let i = 0; i < crowd.length; i++) {
+      const p = crowd[i]!.player;
+      if (p.alive && !world?.ghosted(p) && pick-- === 0) return p;
+    }
     return null;
   }
 
@@ -1131,14 +1230,14 @@ export class Outpost {
   private onFired(weapon: WeaponId, origin: THREE.Vector3, suppressedFlag?: boolean): void {
     if (this.w.now < this.shotHeardAt) return;
     this.shotHeardAt = this.w.now + NOISE_TICK;
+    const suppressed = suppressedFlag !== undefined ? suppressedFlag : isWeaponSuppressed(weapon, this.w.ctx.weapons?.fitted);
     if (this.stealthMode) {
-      const suppressed = suppressedFlag !== undefined ? suppressedFlag : isWeaponSuppressed(weapon, this.w.ctx.weapons?.fitted);
       const radius = soundRadiusForShot(weapon, suppressed);
       const loud = !suppressed && !isMelee(weapon) && radius >= STEALTH_TUNING.loudSoundThreshold;
       this.reportSound(origin, radius, loud);
       return;
     }
-    this.noise(origin, isMelee(weapon) ? BLADE_NOISE : SHOT_NOISE);
+    this.noise(origin, isMelee(weapon) ? BLADE_NOISE : suppressed ? SUPPRESSED_SHOT_NOISE : SHOT_NOISE);
   }
 
   /** Bullet impact on world geometry: lures nearby guards toward the impact point in stealth mode. */
@@ -1256,16 +1355,18 @@ export class Outpost {
   private tickMorale(now: number): void {
     this.moraleAt = now + MORALE_TICK;
     const dread = this.dread.value;
+    const shared = this.crowd !== null;
     this.alight.length = 0;
     for (const s of this.soldiers) if (s.e.alive && s.e.burning > 0 && !s.e.def.fireproof) this.alight.push(s);
     for (let i = 0; i < this.soldiers.length; i++) {
       const s = this.soldiers[i]!;
       if (!s.fighting) continue;
       const e = s.e;
+      if (shared) this.manager.focus(e.quarry);
       const fire = this.watchingBurn(s, now);
       if (fire > 0) this.scare(s, fire * MORALE_TICK);
       if (e.pressure > 0.25) s.morale -= FEAR.underFire * e.pressure * MORALE_TICK * s.rankDef.fear;
-      const inFrame = this.w.ctx.player.parked && this.w.ctx.player.interceptor !== null;
+      const inFrame = this.w.player.mount === 'frame';
       if (inFrame && e.dist < 40 && e.hasLos) this.scare(s, FEAR.monsterClose * 1.45 * MORALE_TICK * (1 + dread / 40));
       else if (e.dist < MONSTER_RANGE && e.hasLos) this.scare(s, FEAR.monsterClose * MORALE_TICK * (1 + dread / 50));
       if (now - s.scaredAt > RECOVER_AFTER) {
@@ -1286,6 +1387,7 @@ export class Outpost {
       else if (s.state === 'panicked') this.comms.say('panic', s);
       else if (s.state === 'shaken' && was === 'steady') this.comms.say('fear', s);
     }
+    if (shared) this.manager.focus(null);
     tickOutcomes(this, now);
     this.offers.tick(this, now);
   }
@@ -1300,6 +1402,8 @@ export class Outpost {
     if (s.spot) s.spot.claimedBy = 0;
     s.spot = null;
     s.hasOrder = false;
+    s.orderLockUntil = 0;
+    s.orderPriority = 0;
     s.exposed = false;
     s.task = 'hold';
     s.stage = 'peek';
@@ -1409,6 +1513,7 @@ export class Outpost {
     s.surrenderedAt = this.w.now;
     // He has just made up his mind, and a man does not change it in the same breath.
     s.judgeAt = this.w.now + SECOND_THOUGHTS;
+    s.rearmCheckAt = 0;
     this.prisoners++;
     this.w.ctx.events.emit('enemy:surrendered', { enemy: s.e });
     if (this.prisoners > MAX_PRISONERS) this.releaseOldest();
@@ -1450,9 +1555,8 @@ export class Outpost {
     const s = soldierOf(k.enemy);
     if (!s) return;
     const { dread, w } = this;
-    if (this.stealthMode) {
-      this.stealth.onGuardKilled(s.e.uid, w.now);
-      if (!k.damage.vaporize) this.stealth.registerCorpse(k.enemy.position);
+    if (this.stealthMode && !k.damage.vaporize) {
+      this.stealth.registerCorpse(k.enemy.position);
     }
     this.names.died(s);
     const severed = k.severedCount;
@@ -1557,6 +1661,8 @@ export class Outpost {
       s.exposed = false;
       s.task = 'hold';
       s.hasOrder = false;
+      s.orderLockUntil = 0;
+      s.orderPriority = 0;
       if (s.spot) s.spot.claimedBy = 0;
       s.spot = null;
       if (s.squad.leader === s) s.squad.leave(s);
@@ -1565,6 +1671,7 @@ export class Outpost {
       s.rescuer = null;
       s.crawling = false;
       if (s.squad.members.indexOf(s) < 0) s.squad.join(s);
+      if (this.squads.indexOf(s.squad) < 0) this.squads.push(s.squad);
     }
     body.thinkAt = 0;
     body.behaviourUntil = 0;
@@ -1603,11 +1710,12 @@ export class Outpost {
 
   /** Nobody lets him go in alone. Which is how one man left alive brings a squad out of cover. */
   private sendEscort(rescuer: Soldier, hurt: Soldier): void {
+    if (rescuer.squad.directed) return;
     let sent = 0;
     for (const s of rescuer.squad.members) {
       if (sent >= WoundTuning.baitEscort) return;
-      if (s === rescuer || !this.canHelp(s)) continue;
-      this.order(s, hurt.e.position, null, 2, sent * 0.4);
+      if (s === rescuer || s.squad.directed || !this.canHelp(s)) continue;
+      this.order(s, hurt.e.position, null, 2, sent * 0.4, 1);
       sent++;
     }
   }

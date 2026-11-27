@@ -494,6 +494,8 @@ export interface KillFacts {
   shatter: boolean;
   /** A very damaging round to the head (`heavyHead`): it bursts. */
   heavyHead: boolean;
+  /** The host's rolled headshot outcome ('hole' | 'partial' | 'burst' | 'off'), synced so guests never diverge. */
+  headOutcome?: HeadOutcome;
 }
 
 /** A level that puts the body on the floor. */
@@ -773,8 +775,17 @@ export class DamageModel {
       if (d.bone !== undefined && d.source !== 'burn') e.char.setBurnOrigin?.(d.bone, d.point);
       this.char(e, e.charred + (amount / e.maxHealth) * FIRE_CHAR);
     }
+    const willOutpostBleed = facts && body !== null && placed !== null && !placed.glancing && placed.zone !== 'head' && placed.zone !== 'heart';
+    const willSwarmBleed = facts && !body && !e.def.machine && !e.isBoss
+      && d.bone !== undefined && d.bone >= 0
+      && (d.type === 'bullet' || d.type === 'pellet' || d.type === 'slash' || d.type === 'melee' || d.type === 'explosive')
+      && (e.health / e.maxHealth < 0.35 || e.darts > 0 || e.bleed > 0)
+      && (!isSmallArm(d) || d.bone === B.neck || e.darts > 0 || e.bleed > 0);
     // Before the death is picked, so a killing shot leaves its mark on the body too.
-    if (this.w.ctx.gore.wound(e.char, d, blast?.outcome === 'flesh' ? 1 : amount / e.maxHealth)) this.updateMaim(e);
+    if (this.w.ctx.gore.wound(
+      e.char, d, blast?.outcome === 'flesh' ? 1 : amount / e.maxHealth,
+      willOutpostBleed || willSwarmBleed ? { skipSurfaceBleed: true } : undefined,
+    )) this.updateMaim(e);
     this.wearTrunk(e, region, d, amount, area);
     res.dealt = amount;
     found.amount = amount;
@@ -928,6 +939,9 @@ export class DamageModel {
     out.blast = null;
     out.shatter = false;
     out.heavyHead = region === 'head' && !AREA_TYPES.has(d.type) && this.heavyHead(e, d);
+    out.headOutcome = region === 'head' && !AREA_TYPES.has(d.type) && !e.def.machine
+      ? headOutcome(d.amount, out.heavyHead, e.def.id)
+      : undefined;
     out.wound = 0;
     if (d.torso === undefined && !e.def.machine && blowsOut(d, e.position.distanceTo(this.w.player.position))) d.torso = 'blowout';
     return out;
@@ -1034,8 +1048,9 @@ export class DamageModel {
   }
 
   private headWearAllowance(e: Enemy): number {
-    if (this.headWornAt !== this.w.now) {
-      this.headWornAt = this.w.now;
+    const frame = this.w.ctx.time.frame ?? this.w.now;
+    if (this.headWornAt !== frame) {
+      this.headWornAt = frame;
       this.headWorn.clear();
     }
     return Math.max(0, WearTuning.headStep - (this.headWorn.get(e) ?? 0));
@@ -1043,8 +1058,9 @@ export class DamageModel {
 
   private recordHeadWear(e: Enemy, delta: number): void {
     if (delta <= 0) return;
-    if (this.headWornAt !== this.w.now) {
-      this.headWornAt = this.w.now;
+    const frame = this.w.ctx.time.frame ?? this.w.now;
+    if (this.headWornAt !== frame) {
+      this.headWornAt = frame;
       this.headWorn.clear();
     }
     this.headWorn.set(e, (this.headWorn.get(e) ?? 0) + delta);
@@ -1254,8 +1270,9 @@ export class DamageModel {
    */
   private armourClass(plate: Plate, d: DamageInfo): ArmourClass {
     if (d.type === 'pellet') {
-      if (this.volleyAt !== this.w.now) {
-        this.volleyAt = this.w.now;
+      const frame = this.w.ctx.time.frame ?? this.w.now;
+      if (this.volleyAt !== frame) {
+        this.volleyAt = frame;
         this.volley.clear();
       }
       const hits = (this.volley.get(plate) ?? 0) + 1;
@@ -1426,6 +1443,7 @@ export class DamageModel {
     found.blast = blast?.outcome ?? null;
     found.shatter = shatter;
     found.heavyHead = heavyHead;
+    found.headOutcome = undefined;
     // The hit that is killing it, if a hit is (`run` wounds before the death is picked): the other screens wound for it too.
     found.wound = res ? this.found.amount : 0;
     const blownUp = e.tankBlown || blast?.outcome === 'gib' || bursts(d);
@@ -1456,19 +1474,20 @@ export class DamageModel {
       this.ragdoll(e, d, force, body ? HEADSHOT_TWITCH : undefined, true);
     } else if (headshot && !e.def.machine) {
       // A bullet never takes a head off whole. Gore bursts a 'partial' on an enemy whose partial wound is not built yet.
-      const outcome = headOutcome(d.amount, heavyHead, e.def.id);
+      const outcome = told?.headOutcome ?? headOutcome(d.amount, heavyHead, e.def.id);
+      found.headOutcome = outcome;
       const burst = outcome !== 'hole';
       const down = e.rising > 0 || body?.floored === true;
       if (burst) this.throwHelmet(e, d);
-      if (!down && (burst || !body)) {
-        ctx.gore.headshot(e.char, d, deathVelocity(e, _dying, this.w.now), outcome);
+      if (burst || (!down && !body)) {
+        ctx.gore.headshot(e.char, d, down ? undefined : deathVelocity(e, _dying, this.w.now), outcome);
         if (!burst) ctx.audio.play('vox_choke', { position: e.center, pitch: e.def.voice.pitch });
       } else {
-        // A man keeps the death a light round gives him; one half up or lying down has the head opened where it lies.
+        // A man keeps the death a light round gives him; one half up or lying down falls where it lies.
         this.ragdoll(e, d, force, body ? HEADSHOT_TWITCH : undefined, true);
-        if (burst) ctx.gore.headshot(e.char, d, undefined, outcome);
       }
     } else if (blast?.outcome === 'head' && DevFlags.gibbing) {
+      this.throwHelmet(e, d);
       ctx.gore.headshot(e.char, d, deathVelocity(e, _dying, this.w.now));
     } else {
       if (blownUp && !DevFlags.explosiveDeaths) this.blastMaim(e, d);
@@ -1754,6 +1773,7 @@ export class DamageModel {
     }
     const felt = profile.pain > 0;
     const blast = d.type === 'explosive';
+    const hasWounds = Boolean(this.m.outpost?.wounds.bodyOf(e));
     if (r.level === 'flinch') {
       anim.flinch(bone, d.dir, flinch, d.point);
       if (ROUNDS.has(d.type)) this.swayPart(e, region, d, bone, flinch);
@@ -1763,7 +1783,7 @@ export class DamageModel {
         e.clutchAt = this.w.now + CLUTCH.gap;
         const share = clamp(amount / e.maxHealth);
         if (blast || region === 'head') anim.guard?.(CLUTCH.guard + share);
-        else anim.holdWound?.(bone, d.point, Math.min(CLUTCH.most, CLUTCH.seconds + share * CLUTCH.perShare), CLUTCH.delay);
+        else if (!hasWounds) anim.holdWound?.(bone, d.point, Math.min(CLUTCH.most, CLUTCH.seconds + share * CLUTCH.perShare), CLUTCH.delay);
       }
       return;
     }
@@ -1798,7 +1818,7 @@ export class DamageModel {
       if (ROUNDS.has(d.type)) this.swayPart(e, region, d, bone, flinch);
       if (felt) {
         if (blast || region === 'head') anim.guard?.(0.5 + r.strength * 0.5);
-        else if (!armoured) anim.holdWound?.(bone, d.point, 0.7 + r.strength);
+        else if (!armoured && !hasWounds) anim.holdWound?.(bone, d.point, 0.7 + r.strength);
       }
       // Past gore's budget. Staggering is what it would have done with one more foot under it.
       this.stagger(e, STAGGER_MAX, d.dir, r.strength, bone, profile.reel);
@@ -1847,7 +1867,7 @@ export class DamageModel {
     if (ROUNDS.has(d.type)) this.swayPart(e, region, d, bone, flinch);
     if (felt) {
       if (blast || region === 'head') anim.guard?.(0.5 + r.strength * 0.5);
-      else if (!armoured) anim.holdWound?.(bone, d.point, 0.7 + r.strength);
+      else if (!armoured && !hasWounds) anim.holdWound?.(bone, d.point, 0.7 + r.strength);
     }
     if (r.tripped) {
       // Stopped short by its own leg, with the rest of the body still going.
@@ -2030,7 +2050,8 @@ export class DamageModel {
     if (!this.facts) o.lie = REPLICA_LIE;
     // With all four limbs it pushes itself part of the way up on the floor, and the clip plays the rest in the rest of the time.
     const pushes = STRUGGLE_PASS && pushesUp(e);
-    e.riseSeconds = floored ? 0 : profile.rise * (0.85 + strength * 0.4) * (pushes ? 1 - RISE_PUSHED : 1);
+    const rest = pushes ? 1 - RISE_PUSHED : 1;
+    e.riseSeconds = floored ? 0 : Math.max(0.4 * rest, profile.rise * (0.85 + strength * 0.4) * rest);
     e.dazeSeconds = floored ? 0 : profile.daze * (thrown || cold ? 1 : strength);
     o.rise = e.riseSeconds;
     if (!ctx.gore.knockdown(e.char, o)) {

@@ -341,10 +341,11 @@ export class Hud implements HudSystem {
     events.on('comms:line', e => {
       const isAlly = e.kind === 'ally' || e.ally === true;
       const chatter = isAlly ? 0 : this.settings.chatter;
-      if (chatter === CHATTER_OFF) return;
-      const color = isAlly ? 'var(--friend)' : COMMS_FEAR.has(e.kind) ? 'var(--amber)' : 'var(--cold)';
-      this.comms.push(e.text, color, e.speaker ?? e.squad, e.enemy ?? e.speaker);
-      if (chatter === CHATTER_BUBBLES) this.bubbles.say(e, color);
+      if (chatter !== CHATTER_OFF) {
+        const color = isAlly ? 'var(--friend)' : COMMS_FEAR.has(e.kind) ? 'var(--amber)' : 'var(--cold)';
+        this.comms.push(e.text, color, e.speaker ?? e.squad, e.enemy ?? e.speaker);
+        if (chatter === CHATTER_BUBBLES) this.bubbles.say(e, color);
+      }
       if (!isAlly || (e.row !== undefined && e.row >= 0) || Boolean(e.clip)) this.voices.say(e);
       // A critical warning gets a cue whatever the setting: the player has to act on it.
       if (e.kind === 'flash' && e.enemy) this.bubbles.warn(e.position, 'FLASH INCOMING');
@@ -397,6 +398,7 @@ export class Hud implements HudSystem {
     if (view instanceof THREE.Object3D) view.visible = to === 'playing' || to === 'paused';
     this.flythrough.active = to === 'menu';
     this.commander?.setPaused(to !== 'playing');
+    if (to === 'gameover' || to === 'menu') this.voices.reset();
     if (to === 'playing') {
       this.screens.show('none');
       this.minimap.measure();
@@ -592,6 +594,7 @@ export class Hud implements HudSystem {
 
   quitToMenu(): void {
     this.lockAfter = null;
+    this.voices.reset();
     this.ctx.input.releaseLock?.();
     // Co-op lands back in its lobby: the host ends the match for everyone, a guest steps out while the others play on.
     const room = this.ctx.coop?.leave(true) ?? null;

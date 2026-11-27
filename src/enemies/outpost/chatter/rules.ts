@@ -75,16 +75,44 @@ export const URGENT: ReadonlySet<CommsKind> = new Set<CommsKind>([
 /** Rows by `faction/concept`, in table order. */
 const INDEX = new Map<string, number[]>();
 const PRIORITY = new Map<CommsKind, Priority>();
+const MIXED_PRIORITY = new Set<CommsKind>();
 RULES.forEach((r, i) => {
   const key = `${r.faction}/${r.concept}`;
   let list = INDEX.get(key);
   if (!list) INDEX.set(key, list = []);
   list.push(i);
-  if (!PRIORITY.has(r.concept)) PRIORITY.set(r.concept, r.priority);
+  const prev = PRIORITY.get(r.concept);
+  if (prev === undefined) PRIORITY.set(r.concept, r.priority);
+  else if (prev !== r.priority) {
+    MIXED_PRIORITY.add(r.concept);
+    // Conservative default when called without facts: never treat a mixed concept as unconditionally critical.
+    if (RANK[r.priority] < RANK[prev]) PRIORITY.set(r.concept, r.priority);
+  }
 });
 
-/** A concept's tier, from its rows. Words a caller chose (orders, relays) are tactical. */
-export const priorityOf = (concept: CommsKind): Priority => PRIORITY.get(concept) ?? 'tactical';
+/**
+ * A concept's tier, from its rows. Words a caller chose (orders, relays) are tactical.
+ * For mixed-priority concepts (e.g. `ordnance`, `airEvade`), passing `f` resolves the priority of the best-scoring matching rule.
+ */
+export function priorityOf(concept: CommsKind, f?: ChatterFacts): Priority {
+  if (f && MIXED_PRIORITY.has(concept)) {
+    const rows = rowsFor(concept, f.faction);
+    let best = -1;
+    let bestPriority: Priority | null = null;
+    for (const i of rows) {
+      const r = RULES[i]!;
+      const s = score(r, f);
+      if (s > best) {
+        best = s;
+        bestPriority = r.priority;
+      } else if (s === best && bestPriority !== null && RANK[r.priority] < RANK[bestPriority]) {
+        bestPriority = r.priority;
+      }
+    }
+    if (bestPriority !== null) return bestPriority;
+  }
+  return PRIORITY.get(concept) ?? 'tactical';
+}
 
 /** A faction with no rows of its own for a concept borrows the garrison's, until its own set is written. */
 export const rowsFor = (concept: CommsKind, faction: Faction): readonly number[] =>

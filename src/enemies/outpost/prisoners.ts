@@ -195,13 +195,13 @@ export class Prisoners {
       else this.bolt(s);
       return;
     }
-    if (now - s.watchedAt > SAFE_SECONDS && e.dist > SAFE_RANGE) {
+    if (now >= s.rearmCheckAt && now - s.watchedAt > SAFE_SECONDS && e.dist > SAFE_RANGE) {
       if (chance(s.rankDef.rearms)) {
         if (s.droppedAt) this.rearm(s);
         else this.bolt(s);
         return;
       }
-      s.judgeAt = now + SAFE_LOOK_AGAIN;
+      s.rearmCheckAt = now + SAFE_LOOK_AGAIN;
     }
     if (now - s.surrenderedAt > PRISONER_SECONDS) this.o.release(s);
   }
@@ -224,6 +224,7 @@ export class Prisoners {
     }
     s.released = false;
     s.fake = null;
+    s.rearmCheckAt = 0;
     // Whatever he does next, a run starts a fresh clock.
     s.fledAt = -1;
     s.e.thinkAt = 0;

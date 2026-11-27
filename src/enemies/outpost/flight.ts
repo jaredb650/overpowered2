@@ -153,13 +153,19 @@ export interface FleeCandidate {
 /** The best few places to run to, best first, before anyone has looked for a line of sight. */
 export function bestRuns(me: THREE.Vector3, places: Iterable<THREE.Vector3>, players: readonly THREE.Vector3[], out: FleeCandidate[], n = SIGHT_CHECKS): FleeCandidate[] {
   out.length = 0;
+  if (n <= 0) return out;
   for (const at of places) {
     const score = fleeScore(me, at, players, false);
     if (score === -Infinity) continue;
-    if (out.length < n) out.push({ at, score });
-    else if (score > out[out.length - 1]!.score) out[out.length - 1] = { at, score };
-    else continue;
-    out.sort((a, b) => b.score - a.score);
+    if (out.length === n && score <= out[n - 1]!.score) continue;
+    const item = { at, score };
+    let i = out.length < n ? out.length : n - 1;
+    if (out.length < n) out.push(item);
+    while (i > 0 && out[i - 1]!.score < score) {
+      out[i] = out[i - 1]!;
+      i--;
+    }
+    out[i] = item;
   }
   return out;
 }
@@ -175,7 +181,7 @@ export function cornerFacts(o: Outpost, s: Soldier, timeout: boolean): CornerFac
     rank: s.rank,
     gives: s.rankDef.gives,
     canSurrender: o.doctrine.surrender && !s.refused && !s.holdout,
-    armed: gunNear || (s.def.sidearm && !s.spentSidearm && (!b.armR || !b.armL)),
+    armed: gunNear || (s.def.sidearm && !s.spentSidearm && !b.armless),
     grenade: s.grenades > 0 && !b.mute && o.w.now - (o.lastFakeAt ?? -Infinity) >= FAKE_COOLDOWN,
     pistol,
     wounded: b.condition === 'mortal' ? 1 : Math.max(0, Math.min(1, 1 - e.health / e.maxHealth)),
@@ -228,7 +234,7 @@ function fightOn(o: Outpost, s: Soldier): void {
   e.attacks = soldierAttacks(e.id);
   const gun = s.droppedAt;
   if (gun && gun.distanceTo(e.position) < 15) s.scramble = gun;
-  else if (s.def.sidearm && !s.spentSidearm && (!b.armR || !b.armL)) o.wounds.drawSidearm(s, b);
+  else if (s.def.sidearm && !s.spentSidearm && !b.armless) o.wounds.drawSidearm(s, b);
   else o.reclaimWeapon(s);
   o.rejoin(s);
   o.comms.say('lastStand', s);

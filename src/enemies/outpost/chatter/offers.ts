@@ -85,12 +85,21 @@ export class Offers {
       }
       return false;
     }
-    c.claims = c.claims.filter(m => m.fighting && o.soldiers.includes(m));
-    // Claims: anyone near enough whose role fits, any squad.
+    let write = 0;
+    for (let i = 0; i < c.claims.length; i++) {
+      const m = c.claims[i]!;
+      if (m.fighting && m.e.alive && !m.squad.directed && o.soldiers.includes(m)) {
+        c.claims[write++] = m;
+      } else {
+        this.taken.delete(m);
+      }
+    }
+    c.claims.length = write;
+    // Claims: anyone near enough whose role fits, any squad (unless Commander-directed).
     const dist = s.e.dist;
     for (const m of o.soldiers) {
       if (c.claims.length >= MAX_CLAIMS || dist < BREAK_RANGE) break;
-      if (m === s || !m.fighting || this.taken.has(m) || c.had.has(m) || (m.role !== 'rifle' && m.role !== 'shotgun')) continue;
+      if (m === s || !m.fighting || !m.e.alive || m.squad.directed || this.taken.has(m) || c.had.has(m) || (m.role !== 'rifle' && m.role !== 'shotgun')) continue;
       if (m.e.position.distanceTo(s.e.position) > CLAIM_RANGE) continue;
       c.claims.push(m);
       c.had.add(m);
@@ -99,11 +108,20 @@ export class Offers {
     }
     // Close enough: the shotguns go.
     if (dist < BREAK_RANGE) {
-      const out = c.claims.filter(m => m.role === 'shotgun');
-      if (out.length > 0) {
-        o.comms.say('breakOut', out[0]!);
-        for (const m of out) this.taken.delete(m);
-        c.claims = c.claims.filter(m => m.role !== 'shotgun');
+      let firstShotgun: Soldier | null = null;
+      let kept = 0;
+      for (let i = 0; i < c.claims.length; i++) {
+        const m = c.claims[i]!;
+        if (m.role === 'shotgun') {
+          if (!firstShotgun) firstShotgun = m;
+          this.taken.delete(m);
+        } else {
+          c.claims[kept++] = m;
+        }
+      }
+      if (firstShotgun) {
+        c.claims.length = kept;
+        o.comms.say('breakOut', firstShotgun);
       }
     }
     // Gone round it.
@@ -127,12 +145,13 @@ export class Offers {
         o.order(s, _p, null, 1, 0);
       }
     }
-    c.claims.forEach((m, i) => {
+    for (let i = 0; i < c.claims.length; i++) {
+      const m = c.claims[i]!;
       const side = (i % 2 === 0 ? 1 : -1) * (m.role === 'rifle' ? 0.9 : 0.4);
       const back = 1.4 + Math.floor(i / 2) * 1.1;
       _p.set(s.e.position.x - fx * back - fz * side, s.e.position.y, s.e.position.z - fz * back + fx * side);
       if (m.e.position.distanceToSquared(_p) > 1 && o.w.ctx.world.nav.nearest(_p, 2, _p)) o.order(m, _p, null, 1, 0);
-    });
+    }
     return true;
   }
 }

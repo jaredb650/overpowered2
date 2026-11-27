@@ -90,6 +90,8 @@ export class Soldier {
   /** An order waiting to be walked. Orders reach men a beat apart, so a team never moves as one body. */
   hasOrder = false;
   orderAt = 0;
+  orderPriority = 0;
+  orderLockUntil = 0;
   urgency: Urgency = 1;
   sprintLeft = SPRINT_SECONDS;
   /** Route stall detection. */
@@ -113,6 +115,9 @@ export class Soldier {
   suppressing = false;
   /** Where the gun points when he cannot see the player. */
   readonly aim = new THREE.Vector3();
+  /** Per-guard look target (e.g. stealth patrol/investigate), so guards do not clobber squad.watch. */
+  readonly watch = new THREE.Vector3();
+  hasWatch = false;
   mag = 0;
   /** Spare magazines left. */
   reserve = 0;
@@ -157,6 +162,8 @@ export class Soldier {
   hitAt = -99;
   /** Next look at whether the fight has turned, or for a prisoner, at what he can get away with. */
   judgeAt = 0;
+  /** Separate cooldown for failed prisoner rearm rolls so rescue/release checks stay live. */
+  rearmCheckAt = 0;
   /** Last moment the player could see this prisoner. */
   watchedAt = 0;
 
@@ -190,6 +197,7 @@ export class Soldier {
   patient: Soldier | null = null;
   aidStage: AidStage = 'none';
   aidUntil = 0;
+  aidStalls = 0;
 
   /** Back to a blank man for the pool. */
   clear(): void {
@@ -219,6 +227,8 @@ export class Soldier {
     this.spot = null;
     this.hasOrder = false;
     this.orderAt = 0;
+    this.orderPriority = 0;
+    this.orderLockUntil = 0;
     this.urgency = 1;
     this.sprintLeft = SPRINT_SECONDS;
     this.progressAt = 0;
@@ -229,6 +239,8 @@ export class Soldier {
     this.noShotSince = 0;
     this.nextPeekAt = this.peekUntil = 0;
     this.exposed = this.blind = this.suppressing = false;
+    this.watch.set(0, 0, 0);
+    this.hasWatch = false;
     this.mag = this.reserve = 0;
     this.reloadUntil = 0;
     this.firedAt = -99;
@@ -246,12 +258,13 @@ export class Soldier {
     this.restUntil = this.cornerAt = this.selfStage = 0;
     this.corner = 'none';
     this.hitAt = -99;
-    this.judgeAt = this.watchedAt = 0;
+    this.judgeAt = this.rearmCheckAt = this.watchedAt = 0;
     this.wasLeader = false;
     this.downed = false;
     this.rescuer = this.patient = null;
     this.aidStage = 'none';
     this.aidUntil = 0;
+    this.aidStalls = 0;
     this.injuries.clear();
     this.baseSpeed = 1;
     this.weapon = 'primary';

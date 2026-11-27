@@ -205,6 +205,30 @@ function makeEmitter(): BleedEmitter {
   };
 }
 
+function resetEmitter(em: BleedEmitter): void {
+  em.active = false;
+  em.bone = 0;
+  em.tri = -1;
+  em.bx = 0;
+  em.by = 0;
+  em.bz = 0;
+  em.tier = 1;
+  em.zone = '';
+  em.soakRadius = 0;
+  em.maxRadius = 0;
+  em.growPerSec = 0;
+  em.collarAmount = 0;
+  em.fresh = 0;
+  em.started = 0;
+  em.ends = 0;
+  em.nextDrop = 0;
+  em.nextSoak = 0;
+  em.collarDone = false;
+  em.held = false;
+  em.spurtId = -1;
+  em.baseSpurtPower = 0;
+}
+
 function makeBody(): BodyTrack {
   return {
     active: false, char: null, mesh: null, bindPositions: null,
@@ -327,9 +351,7 @@ export class SurfaceBloodField {
     t.sentActive = -1;
     t.sentSoak = -1;
     for (const em of t.emitters) {
-      em.active = false;
-      em.collarDone = false;
-      em.spurtId = -1;
+      resetEmitter(em);
     }
     this.byChar.set(char, idx);
     this.syncBloodLayer(t, 0);
@@ -359,7 +381,10 @@ export class SurfaceBloodField {
   bleedWound(char: CharacterInstance, opts: BleedWoundOptions): boolean {
     const bone = char.bones[opts.bone];
     if (!bone) return false;
-    const res = this.ensureTrack(char, opts.tier === 3 ? 4 : opts.tier === 2 ? 3 : 2);
+    const existing = this.byChar.get(char);
+    const isDead = existing !== undefined && this.bodies[existing]!.dead;
+    const priority = isDead ? 1 : (opts.tier === 3 ? 4 : opts.tier === 2 ? 3 : 2);
+    const res = this.ensureTrack(char, priority);
     if (!res) return false;
     const { idx, track, pool } = res;
     const mesh = track.mesh!;
@@ -407,10 +432,11 @@ export class SurfaceBloodField {
         if (e.tier < em.tier || (e.tier === em.tier && e.started < em.started)) em = e;
       }
       if (em.spurtId > 0) this.spurts.stop(em.spurtId);
-      em.spurtId = -1;
+      resetEmitter(em);
     }
 
     const wasActive = em.active;
+    if (!wasActive) resetEmitter(em);
     const upgrade = wasActive && opts.tier > em.tier;
     const keepTier = wasActive ? (Math.max(em.tier, opts.tier) as BloodTier) : opts.tier;
     const effSpec = TIERS[keepTier];
@@ -422,15 +448,25 @@ export class SurfaceBloodField {
     em.by = by;
     em.bz = bz;
     em.tier = keepTier;
-    if (opts.zone) em.zone = opts.zone;
-    em.soakRadius = Math.max(em.soakRadius, effSpec.initRadius);
-    em.maxRadius = Math.max(em.maxRadius, effSpec.maxRadius);
-    em.growPerSec = Math.max(em.growPerSec, effSpec.growPerSec);
-    em.collarAmount = Math.max(em.collarAmount, effSpec.collarAmount);
-    em.fresh = Math.max(em.fresh, effSpec.fresh);
-    em.started = now;
     const dur = opts.duration ?? rand(effSpec.duration[0], effSpec.duration[1]);
-    em.ends = Math.max(em.ends, now + dur);
+    if (wasActive) {
+      if (opts.zone) em.zone = opts.zone;
+      em.soakRadius = Math.max(em.soakRadius, effSpec.initRadius);
+      em.maxRadius = Math.max(em.maxRadius, effSpec.maxRadius);
+      em.growPerSec = Math.max(em.growPerSec, effSpec.growPerSec);
+      em.collarAmount = Math.max(em.collarAmount, effSpec.collarAmount);
+      em.fresh = Math.max(em.fresh, effSpec.fresh);
+      em.ends = Math.max(em.ends, now + dur);
+    } else {
+      em.zone = opts.zone ?? '';
+      em.soakRadius = effSpec.initRadius;
+      em.maxRadius = effSpec.maxRadius;
+      em.growPerSec = effSpec.growPerSec;
+      em.collarAmount = effSpec.collarAmount;
+      em.fresh = effSpec.fresh;
+      em.ends = now + dur;
+    }
+    em.started = now;
     em.nextDrop = now + 0.04;
     em.nextSoak = now + 0.25;
     em.collarDone = false;
@@ -612,9 +648,7 @@ export class SurfaceBloodField {
     const char = track.char;
     for (const em of track.emitters) {
       if (em.spurtId > 0) this.spurts.stop(em.spurtId);
-      em.active = false;
-      em.collarDone = false;
-      em.spurtId = -1;
+      resetEmitter(em);
     }
     for (const d of this.droplets) {
       if (d.active && d.bodyIdx === idx) d.active = false;
@@ -685,8 +719,9 @@ export class SurfaceBloodField {
       const t = this.bodies[i]!;
       if (!t.active) continue;
       const char = t.char!;
-      if (!char.root.parent || !char.root.visible || pool.layerOf(char) !== t.layer) {
-        this.dropTrack(i, false);
+      const detached = !char.root.parent || !char.root.visible;
+      if (detached || pool.layerOf(char) !== t.layer) {
+        this.dropTrack(i, detached && pool.layerOf(char) === t.layer);
         continue;
       }
 

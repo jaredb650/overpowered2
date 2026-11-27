@@ -269,11 +269,14 @@ export class StealthDirector {
     return agent;
   }
 
-  unregister(enemyId: number): void {
+  unregister(enemyId: number, now?: number): void {
+    const t = now !== undefined ? (this.clock = now) : this.clock;
     const agent = this.agents.get(enemyId);
     if (!agent) return;
+    agent.alive = false;
+    agent.notice = 0;
     if (this.alarmCaller && this.alarmCaller.enemyId === enemyId) {
-      this.cancelAlarmCaller(this.clock);
+      this.cancelAlarmCaller(t);
     }
     this.agents.delete(enemyId);
     const idx = this.agentList.indexOf(agent);

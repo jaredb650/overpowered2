@@ -174,6 +174,7 @@ const _reading: SpotReading = { hidden: false, canShoot: false, side: 0 };
 const _query: SpotQuery = {
   anchor: _anchor, radius: 8, threat: new THREE.Vector3(), near: 0, far: 60, bearing: NaN, bearingSlack: 0.4, needShot: false, spacing: 2, uid: 0, from: new THREE.Vector3(), height: 0, anyFloor: false,
 };
+const _probePlan = new Int8Array(MAX_PLAN);
 
 export class OutpostSquad implements Squad {
   size = 0;
@@ -335,7 +336,10 @@ export class OutpostSquad implements Squad {
       o.comms.say('leaderDown', this.leader, dead);
       for (const m of this.members) o.scare(m, FEAR.leaderDown);
       this.leader.morale += 12;
-      o.comms.say('takingCommand', this.leader);
+      const newLeader = this.leader;
+      o.comms.after(1.5, () => {
+        if (newLeader.fighting && newLeader.e.alive && this.leader === newLeader) o.comms.say('takingCommand', newLeader);
+      });
     } else if (this.members.length > 0) {
       // His pair says it if he can. Who speaks changes, never what anyone does.
       const buddy = dead?.buddy;
@@ -343,11 +347,17 @@ export class OutpostSquad implements Squad {
       // A body taken apart is said as one.
       o.comms.say('manDown', voice, dead, { flags: { brutal: kill.gibbed || kill.headshot || kill.severedCount > 0 } });
       // The squad's anchor: losing him is said, and the men hear it (chatter/listeners.ts).
-      if (dead?.role === 'machinegun') o.comms.say('gunDown', voice, dead);
+      if (dead?.role === 'machinegun') {
+        o.comms.after(1.5, () => {
+          if (voice.fighting && voice.e.alive) o.comms.say('gunDown', voice, dead);
+        });
+      }
     }
     const pal = dead?.buddy;
     if (pal && pal.squad === this && this.members.includes(pal)) revenge(o, pal, dead!);
-    radioLoss(o, this, dead);
+    const deadRadio = dead !== null && dead === this.radioman;
+    if (deadRadio || this.fighters() === 0) radioLoss(o, this, dead);
+    else o.comms.after(1.8, () => { if (this.fighters() > 0 && this.radioman) radioLoss(o, this, dead); });
     while (this.lossTimes.length > 0 && now - this.lossTimes[0]! > RAPID_SECONDS) this.lossTimes.shift();
     if (this.lossTimes.length >= Math.ceil(this.strength * RAPID_SHARE) && this.members.length > 0) {
       // A squad cut down this fast leaves survivors who have just watched it happen.
@@ -363,11 +373,11 @@ export class OutpostSquad implements Squad {
     return n;
   }
 
-  private centroid(out: THREE.Vector3): THREE.Vector3 {
+  private centroid(out: THREE.Vector3): number {
     return this.teamCentre(out, -1);
   }
 
-  private teamCentre(out: THREE.Vector3, team: number): THREE.Vector3 {
+  private teamCentre(out: THREE.Vector3, team: number): number {
     out.set(0, 0, 0);
     let n = 0;
     for (const m of this.members) {
@@ -375,7 +385,8 @@ export class OutpostSquad implements Squad {
       out.add(m.e.position);
       n++;
     }
-    return n > 0 ? out.multiplyScalar(1 / n) : out;
+    if (n > 0) out.multiplyScalar(1 / n);
+    return n;
   }
 
   private meanMorale(): number {
@@ -432,12 +443,12 @@ export class OutpostSquad implements Squad {
       if (now - this.seenAt > CALLOUT_GAP) {
         // Found again after a long while, or by a man who has watched him kill: chatter/memory.ts.
         o.comms.say('contact', s, null, { flags: { again: this.seenAt > 0 && now - this.seenAt > AGAIN_AFTER, survivor: s.witnessed > 0 } });
-        contactReport(o, this);
+        o.comms.after(1.5, () => { if (this.fighters() > 0) contactReport(o, this); });
       }
       this.seenAt = now;
       this.trail.copy(o.track.velocity);
     } else if (stale > 6) o.comms.say('noise', s);
-    o.radio(at, seen);
+    o.radio(at, seen, this);
   }
 
   /** The radio has something newer than this squad knows. */
@@ -469,16 +480,28 @@ export class OutpostSquad implements Squad {
   obey(drill: ActionId, seconds: number): boolean {
     const now = this.outpost.w.now;
     const facts = this.readFacts(now);
-    this.ordered = drill;
-    this.orderedUntil = now + seconds;
-    const kept = this.goal;
-    this.replan(now, 'destroy', facts);
+    const until = now + seconds;
+    this.buildPrices(now, facts, drill, until);
+    const probeLen = makePlan(facts, GOALS.destroy, this.blocked(now, 'destroy'), this.prices, _probePlan);
     const index = actionIndex(drill);
-    for (let i = 0; i < this.planLength; i++) if (this.plan[i] === index) return true;
-    this.ordered = null;
-    this.goal = kept;
-    this.planLength = 0;
-    return false;
+    let found = false;
+    for (let i = 0; i < probeLen; i++) {
+      if (_probePlan[i] === index) {
+        found = true;
+        break;
+      }
+    }
+    if (!found) return false;
+    this.ordered = drill;
+    this.orderedUntil = until;
+    this.goal = 'destroy';
+    if (this.drill) this.leaveDrill();
+    this.evenTeams();
+    for (let i = 0; i < probeLen; i++) this.plan[i] = _probePlan[i]!;
+    this.planLength = probeLen;
+    this.planStep = 0;
+    this.planAt = now;
+    return true;
   }
 
   /** A mission's 'hold': quiet, on this mark, until somebody comes close or starts shooting. `patient` lets the player walk right in first. */
@@ -596,11 +619,7 @@ export class OutpostSquad implements Squad {
     return (lost * 2 >= this.strength && morale < 72) || morale < 45 + dread * 0.3;
   }
 
-  private replan(now: number, goal: GoalId, facts: number): void {
-    // The new goal first: what a drill leaves behind depends on whether the squad still means to lie in wait.
-    this.goal = goal;
-    if (this.drill) this.leaveDrill();
-    this.evenTeams();
+  private buildPrices(now: number, facts: number, ordered: ActionId | null, orderedUntil: number): void {
     const { prices } = this;
     basePrices(prices);
     // The same drills come out differently every time, because no two moments cost the same.
@@ -625,8 +644,16 @@ export class OutpostSquad implements Squad {
     // Somebody is holding one of ours. The way past that is round the side.
     if (facts & SHIELDED) prices[actionIndex('flank')] = 0.5;
     if (this.fighters() < 3) prices[actionIndex('flank')]! *= 1.6;
-    if (now < this.orderedUntil && this.ordered) prices[actionIndex(this.ordered)] = 0;
-    this.planLength = makePlan(facts, GOALS[goal], this.blocked(now, goal), prices, this.plan);
+    if (now < orderedUntil && ordered) prices[actionIndex(ordered)] = 0;
+  }
+
+  private replan(now: number, goal: GoalId, facts: number): void {
+    // The new goal first: what a drill leaves behind depends on whether the squad still means to lie in wait.
+    this.goal = goal;
+    if (this.drill) this.leaveDrill();
+    this.evenTeams();
+    this.buildPrices(now, facts, this.ordered, this.orderedUntil);
+    this.planLength = makePlan(facts, GOALS[goal], this.blocked(now, goal), this.prices, this.plan);
     this.planStep = 0;
     this.planAt = now;
   }
@@ -921,7 +948,10 @@ export class OutpostSquad implements Squad {
     this.mode = 'engage';
     this.movingTeam = 1;
     // Wherever the base is now, which is not always where it was when the drill was planned.
-    this.teamCentre(_p, 0);
+    if (this.teamCentre(_p, 0) === 0 && this.centroid(_p) === 0) {
+      this.stage = 0;
+      return;
+    }
     this.sector = Math.atan2(_p.x - this.threat.x, _p.z - this.threat.z);
     this.chooseFlankSide();
     this.coverFireUntil = now + COVER_FIRE_SECONDS;
@@ -934,7 +964,10 @@ export class OutpostSquad implements Squad {
     const mover = this.pick(1);
     if (mover) o.comms.say('flanking', mover);
     const cover = this.pick(0);
-    if (cover) o.comms.say('covering', cover);
+    if (cover) {
+      if (mover) o.comms.after(1.5, () => { if (cover.fighting && cover.e.alive) o.comms.say('covering', cover); });
+      else o.comms.say('covering', cover);
+    }
   }
 
   /** The side whose ground the threat cannot see, because a flank is worth nothing once it has been watched coming. */
@@ -1003,8 +1036,7 @@ export class OutpostSquad implements Squad {
   /** Radians between the two teams as the threat sees them. */
   flankAngle(): number {
     const { threat } = this;
-    this.teamCentre(_p, 0);
-    this.teamCentre(_q, 1);
+    if (this.teamCentre(_p, 0) === 0 || this.teamCentre(_q, 1) === 0) return 0;
     return Math.abs(wrapAngle(Math.atan2(_p.x - threat.x, _p.z - threat.z) - Math.atan2(_q.x - threat.x, _q.z - threat.z)));
   }
 
@@ -1376,7 +1408,7 @@ export class OutpostSquad implements Squad {
       this.goal = 'destroy';
       this.lying = false;
       this.planLength = 0;
-      o.radio(o.w.player.chest, true);
+      o.radio(o.w.player.chest, true, this);
       return DONE;
     }
     return GOING;

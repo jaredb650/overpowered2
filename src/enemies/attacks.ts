@@ -419,7 +419,7 @@ export function rocket(t: RocketTuning): AttackDef {
     },
     fire(e, w) {
       muzzleOf(e, _muzzle);
-      const inVehicle = Boolean(w.ctx.player.parked && w.ctx.player.interceptor !== null);
+      const inVehicle = w.player.mount !== 'foot';
       // Rockets aim at the feet on foot, or center-mass + lead with lock-on homing when tracking a player vehicle!
       const lead = inVehicle ? 0.8 : 0.5;
       _target.copy(w.player.position).addScaledVector(w.player.velocity, (e.dist / t.speed) * lead);

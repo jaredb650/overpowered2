@@ -13,6 +13,7 @@
 import type { Outpost } from '../index';
 import { ROLE_OF } from '../doctrine';
 import { soldierOf, type Soldier } from '../soldier';
+import { ALLY_SOURCE } from '../../../allies/data';
 import { isMelee } from '../../../weapons/melee/data';
 
 export type Habit = 'heads' | 'high' | 'blasts' | 'blade' | 'flanks' | 'roadkills' | 'airStrikes' | 'heavyArmor';
@@ -43,8 +44,9 @@ export class PlayerMemory {
   }
 }
 
-/** The player's own kills, not the men's own grenades, bleeding or the floor. */
-const byPlayer = (source: string): boolean => !(source in ROLE_OF) && source !== 'frag' && source !== 'bleed' && source !== 'hazard';
+/** The player's own kills, not the men's own grenades, bleeding, hazards, or friendly AI allies. */
+const byPlayer = (source: string): boolean =>
+  !(source in ROLE_OF) && source !== 'frag' && source !== 'bleed' && source !== 'hazard' && !ALLY_SOURCE.test(source);
 
 export function rememberPlayer(o: Outpost): void {
   const { w } = o;
@@ -60,7 +62,7 @@ export function rememberPlayer(o: Outpost): void {
   });
   events.on('enemy:backshot', b => {
     const s = soldierOf(b.enemy);
-    if (s && !s.surrendered && !b.fleeing) note(o, 'flanks');
+    if (s && !s.surrendered && !b.fleeing && (!b.damage || byPlayer(b.damage.source))) note(o, 'flanks');
   });
   events.on('vehicle:roadkill', () => note(o, 'roadkills'));
 }

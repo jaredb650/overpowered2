@@ -1,5 +1,5 @@
 /**
- * The squad comms voices, played (docs/design/squad-comms.md, "Build plan" 7; the proposal's section 7). Three pooled `<audio>`
+ * The squad comms voices, played (docs/design/squad-comms.md, "Build plan" 7; the proposal's section 7). Five pooled `<audio>`
  * elements, so only the clips being heard are ever decoded and the first page load carries none of them: the list of clips is
  * fetched on the first line said, each clip when it is said.
  *
@@ -78,8 +78,10 @@ interface Slot {
   playing: boolean;
   /** Seconds of fade left on a cut, or 0. */
   fade: number;
-  /** Monotonic generation counter so an aborted play() from a previous clip cannot kill a newly assigned clip. */
+  /** Monotonic generation counter so an aborted play() or stale ended/error event from a previous clip cannot kill a newly assigned clip. */
   gen: number;
+  /** Removes the current clip's ended/error listeners immediately on slot reuse or free. */
+  off: AbortController | null;
   lastGain: number;
   lastPan: number;
 }
@@ -92,6 +94,7 @@ export class ChatterVoices {
   private listed: Promise<void> | null = null;
   private ac: AudioContext | null = null;
   private wired = false;
+  private onBus = false;
   private unlockBound = false;
   private clock = 0;
   private activeCount = 0;
@@ -102,18 +105,13 @@ export class ChatterVoices {
       audio.preload = 'auto';
       const slot: Slot = {
         audio, gain: null, pan: null, dry: null, wet: null, enemy: null, speaker: null, rank: 0, radio: false,
-        bornAt: 0, playing: false, fade: 0, gen: 0, lastGain: NaN, lastPan: NaN,
+        bornAt: 0, playing: false, fade: 0, gen: 0, off: null, lastGain: NaN, lastPan: NaN,
       };
-      audio.addEventListener('ended', () => {
-        if (slot.playing) this.free(slot);
-      });
-      audio.addEventListener('error', () => {
-        if (slot.playing) this.free(slot);
-      });
       this.pool.push(slot);
     }
-    // Fetch the manifest up front so opening lines do not drop while the first request is in flight.
-    void this.load();
+    // Fetch the manifest up front when voices are audible so opening lines do not drop while the first request is in flight.
+    // When muted (settings.voices === 0), defer populating VOICED.clips so named text lines stay unrestricted.
+    if (this.level > 0) void this.load();
   }
 
   /** The list of clips, fetched once (retried if an earlier fetch failed). */
@@ -136,8 +134,8 @@ export class ChatterVoices {
 
   /** A line said aloud. Plays his take if there is one and he can be heard. */
   say(line: CommsLine): boolean {
-    void this.load();
     if (this.level <= 0) return false;
+    void this.load();
     const voice = line.voice !== undefined && line.voice >= 0 ? line.voice : 0;
     let radio: boolean;
     let clip: string | null;
@@ -147,9 +145,13 @@ export class ChatterVoices {
       if (!row) return false;
       radio = row.radio || line.radio === true;
       if (!radio && !line.enemy) return false;
-      const slots: Record<string, string> = { ...(line.slots ?? {}) };
-      if (line.dead !== undefined && line.dead >= 0) slots.dead = NAME_LIST[line.dead]!;
-      clip = clipFor(line.row, slots, voice);
+      if (line.clip && VOICED.clips.has(line.clip)) {
+        clip = line.clip;
+      } else {
+        const slots: Record<string, string> = { ...(line.slots ?? {}) };
+        if (line.dead !== undefined && line.dead >= 0) slots.dead = NAME_LIST[line.dead]!;
+        clip = clipFor(line.row, slots, voice);
+      }
       rank = RANK[row.priority];
     } else if (line.clip) {
       radio = line.radio === true;
@@ -175,6 +177,8 @@ export class ChatterVoices {
     }
     if (!slot) return false;
     this.wire();
+    slot.off?.abort();
+    slot.off = null;
     const gen = ++slot.gen;
     const wasPlaying = slot.playing;
     slot.audio.pause();
@@ -189,6 +193,17 @@ export class ChatterVoices {
     slot.lastGain = NaN;
     slot.lastPan = NaN;
     slot.audio.src = `${BASE}${encodeURIComponent(clip)}.${VOICED.ext}`;
+    const off = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    slot.off = off;
+    const listenerOpts = off ? { signal: off.signal } : undefined;
+    const onEnded = () => {
+      if (slot.playing && slot.gen === gen && slot.audio.ended !== false) this.free(slot);
+    };
+    const onError = () => {
+      if (slot.playing && slot.gen === gen) this.free(slot);
+    };
+    slot.audio.addEventListener('ended', onEnded, listenerOpts);
+    slot.audio.addEventListener('error', onError, listenerOpts);
     if (slot.dry && slot.wet) {
       slot.dry.gain.value = radio ? 0 : 1;
       slot.wet.gain.value = radio ? RADIO_MAKEUP : 0;
@@ -248,12 +263,15 @@ export class ChatterVoices {
       const p = this.pool[i]!;
       if (p.playing && p.rank === RANK.critical) { warning = true; break; }
     }
-    const campaignDuck = this.ctx.campaign?.talking === true ? UNDER_CAMPAIGN : 1;
+    const audio = this.ctx.audio as { voicePriority?: boolean } | undefined;
+    const campaignDuck = this.ctx.campaign?.talking === true || audio?.voicePriority === true ? UNDER_CAMPAIGN : 1;
     const camera = this.ctx.render.camera;
+    const fullLevel = this.level;
     for (const p of this.pool) {
       if (!p.playing) continue;
       if (!p.radio && !p.enemy) continue;
-      let level = this.level * campaignDuck * (warning && p.rank < RANK.critical ? UNDER_WARNING : 1);
+      const baseLevel = fullLevel <= 0 ? 0 : (p.gain && this.onBus ? this.settings.voices : fullLevel);
+      let level = baseLevel * campaignDuck * (warning && p.rank < RANK.critical ? UNDER_WARNING : 1);
       let side = 0;
       if (!p.radio && p.enemy) {
         const d = this.distance(p.enemy);
@@ -311,13 +329,25 @@ export class ChatterVoices {
     }
   }
 
-  /** The graph, built once, on the first line played. Shares AudioEngine's AudioContext when available. */
+  /** The graph, built once, on the first line played once AudioEngine's AudioContext is ready. */
   private wire(): void {
     if (this.wired) return;
+    const audio = this.ctx.audio as { context?: AudioContext | null; voiceBus?: AudioNode | null } | undefined;
+    let ac: AudioContext | null = null;
+    if (this.deps === PAGE && audio && 'context' in audio) {
+      ac = audio.context ?? null;
+      // AudioEngine opens its AudioContext asynchronously; use plain <audio> temporarily instead of creating an orphan AudioContext.
+      if (!ac) return;
+    } else {
+      ac = this.deps.context?.() ?? null;
+      if (!ac) return;
+    }
     this.wired = true;
-    const shared = this.deps === PAGE ? (this.ctx.audio as { context?: AudioContext | null } | undefined)?.context ?? null : null;
-    const ac = (this.ac = shared ?? this.deps.context());
+    this.ac = ac;
     if (!ac) return;
+    const bus = audio?.voiceBus ?? null;
+    this.onBus = bus !== null;
+    const out: AudioNode = bus ?? ac.destination;
     // The radio: a telephone band and a little grit, shared by every element.
     const low = ac.createBiquadFilter();
     low.type = 'highpass';
@@ -329,20 +359,27 @@ export class ChatterVoices {
     const curve = new Float32Array(1024);
     for (let i = 0; i < curve.length; i++) curve[i] = Math.tanh(((i / (curve.length - 1)) * 2 - 1) * 2.2) / Math.tanh(2.2);
     grit.curve = curve;
-    low.connect(high).connect(grit).connect(ac.destination);
+    low.connect(high).connect(grit).connect(out);
     for (const p of this.pool) {
       const src = ac.createMediaElementSource(p.audio);
+      p.audio.volume = 1;
       p.gain = ac.createGain();
       p.pan = ac.createStereoPanner();
       p.dry = ac.createGain();
       p.wet = ac.createGain();
+      p.dry.gain.value = p.radio ? 0 : 1;
+      p.wet.gain.value = p.radio ? RADIO_MAKEUP : 0;
+      p.lastGain = NaN;
+      p.lastPan = NaN;
       src.connect(p.gain);
-      p.gain.connect(p.dry).connect(p.pan).connect(ac.destination);
+      p.gain.connect(p.dry).connect(p.pan).connect(out);
       p.gain.connect(p.wet).connect(low);
     }
   }
 
   private free(p: Slot): void {
+    p.off?.abort();
+    p.off = null;
     p.gen++;
     if (p.playing) {
       p.playing = false;

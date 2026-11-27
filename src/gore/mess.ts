@@ -144,7 +144,7 @@ export const MessTuning = {
   bakeOver: 4,
   /** Bodies baked in one look, and how much nearer a baked body must be than a drawn one for the two to change places, m. */
   bakesPerLook: 2,
-  swapGain: 4,
+  swapGain: 4.5,
   /** `?messfar=0`: nothing is baked. Past the cap for bodies drawn as characters, the oldest go as they did. */
   far: typeof location === 'undefined' || new URLSearchParams(location.search).get('messfar') !== '0',
   /** `?messpush=0`: bodies at rest are never woken by being walked into (they still heap). */
@@ -401,10 +401,13 @@ export class MessField {
       || top.center.y >= lo.y + 0.22;
   }
 
+  private readonly blockedScratch = new Set<Rag>();
+
   /** Resting chains waiting to fall, plus anything stacked transitively on top of them. */
   private shedBlocked(): Set<Rag> | null {
     if (this.pending.length === 0) return null;
-    const blocked = new Set<Rag>();
+    const blocked = this.blockedScratch;
+    blocked.clear();
     for (const p of this.pending) if (p.on.rag) blocked.add(p.on.rag);
     let grew = true;
     while (grew) {
@@ -584,23 +587,29 @@ export class MessField {
   private pushers(): void {
     const { player, enemies } = this.ctx;
     const t = MessTuning;
+    const hasChains = this.host.bodies.length > 0 || this.host.limbs.length > 0 || this.host.far.length > 0;
     if (player?.alive === true && player.position?.isVector3 === true) {
-      this.pushFrom(player.position, player.velocity, 0.45 + t.reach, 1.8, 1, t.playerOver);
+      if (hasChains) this.pushFrom(player.position, player.velocity, 0.45 + t.reach, 1.8, 1, t.playerOver);
       // What is small enough to kick is kicked by the player alone: an enemy's feet are not watched that closely.
       const v = player.velocity;
       if (v.x * v.x + v.z * v.z > 1) this.host.kick(player.position, 0.45 + t.reach, v.x, v.z);
     }
+    if (!hasChains) return;
     const alive = enemies?.alive;
     if (!Array.isArray(alive) || player?.position?.isVector3 !== true) return;
     const range2 = t.enemyRange * t.enemyRange;
+    const px = player.position.x, py = player.position.y, pz = player.position.z;
     for (let i = 0; i < alive.length; i++) {
       const e = alive[i]! as unknown as { position: THREE.Vector3; velocity: THREE.Vector3; def?: { radius?: number }; char?: CharacterInstance };
-      if (!e.position || !e.velocity) continue;
-      if (e.position.distanceToSquared(player.position) > range2) continue;
+      const pos = e.position;
+      const vel = e.velocity;
+      if (!pos || !vel) continue;
       // One that stands still shoves nothing, and one that is down is a body itself.
-      if (e.velocity.x * e.velocity.x + e.velocity.z * e.velocity.z < 0.36) continue;
+      if (vel.x * vel.x + vel.z * vel.z < 0.36) continue;
+      const dx = pos.x - px, dy = pos.y - py, dz = pos.z - pz;
+      if (dx * dx + dy * dy + dz * dz > range2) continue;
       if (e.char && this.ctx.gore.downed?.(e.char)) continue;
-      this.pushFrom(e.position, e.velocity, (e.def?.radius ?? 0.45) + t.reach, 1.7, t.enemyPush, -t.othersUnder, true);
+      this.pushFrom(pos, vel, (e.def?.radius ?? 0.45) + t.reach, 1.7, t.enemyPush, -t.othersUnder, true);
     }
   }
 
@@ -617,9 +626,13 @@ export class MessField {
     let canWake = speed >= 0.5 && (!enemy || this.ctx.time.elapsed >= this.enemyWakeAt) && this.room(over);
     // Pass 2 (`host.far`) holds only resting baked bodies; skip it entirely when this pusher cannot wake anything.
     const passes = canWake ? 3 : 2;
+    const radiusSq = radius * radius;
+    const yLo = at.y - 2.5;
+    const yHi = at.y + height + 2.5;
     for (let pass = 0; pass < passes; pass++) {
       if (pass === 2 && !canWake) break;
       const list = pass === 0 ? bodies : pass === 1 ? this.host.limbs : this.host.far;
+      if (list.length === 0) continue;
       const reverse = pass === 2;
       for (let i = reverse ? list.length - 1 : 0; reverse ? i >= 0 : i < list.length; reverse ? i-- : i++) {
         const target = list[i]!;
@@ -628,10 +641,11 @@ export class MessField {
         if (!rag.active && !canWake) continue;
         if (pass === 0 && ((target as MessBody).down || (target as MessBody).vapor >= 0)) continue;
         const c = rag.center;
+        if (c.y < yLo || c.y > yHi) continue;
         const reach = rag.info.reach[rag.build.chainRoot]! + radius;
         const dx = c.x - at.x;
         const dz = c.z - at.z;
-        if (dx * dx + dz * dz > reach * reach || c.y < at.y - 2.5 || c.y > at.y + height + 2.5) continue;
+        if (dx * dx + dz * dz > reach * reach) continue;
         let shoveTarget = target;
         if (!rag.active) {
           // At rest it takes someone moving to wake it: standing on a heap does not stir it.
@@ -641,7 +655,7 @@ export class MessField {
           if (hi.y < at.y - 0.05 || lo.y > at.y + height) continue;
           const nx = Math.max(lo.x, Math.min(at.x, hi.x)) - at.x;
           const nz = Math.max(lo.z, Math.min(at.z, hi.z)) - at.z;
-          if (nx * nx + nz * nz > radius * radius) continue;
+          if (nx * nx + nz * nz > radiusSq) continue;
           if (!this.touches(rag, at, radius, height) || !this.room(over)) continue;
           if (enemy) this.enemyWakeAt = this.ctx.time.elapsed + t.enemyWakeEvery;
           this.count.pushWakes++;
@@ -662,10 +676,13 @@ export class MessField {
     // Where its capsules lie, not its bones: a baked body has no bones until it is stood up again.
     const p = rag.restPoints;
     const r = radius + 0.14;
+    const r2 = r * r;
+    const yLo = at.y - 0.15;
+    const yHi = at.y + height;
     for (let i = 0; i < p.length; i += 3) {
       const dx = p[i]! - at.x;
       const dz = p[i + 2]! - at.z;
-      if (dx * dx + dz * dz < r * r && p[i + 1]! > at.y - 0.15 && p[i + 1]! < at.y + height) return true;
+      if (dx * dx + dz * dz < r2 && p[i + 1]! > yLo && p[i + 1]! < yHi) return true;
     }
     return false;
   }
@@ -674,15 +691,19 @@ export class MessField {
     const t = MessTuning;
     let any = false;
     const scale = rag.throwScale;
+    const r = radius + 0.1;
+    const r2 = r * r;
+    const yLo = at.y - 0.2;
+    const yHi = at.y + height;
     for (let k = 0; k < rag.parts.length; k++) {
       const part = rag.parts[k]!;
       const p = part.body.translation(_t as never) as unknown as { x: number; y: number; z: number };
-      if (p.y < at.y - 0.2 || p.y > at.y + height) continue;
+      if (p.y < yLo || p.y > yHi) continue;
       let dx = p.x - at.x;
       let dz = p.z - at.z;
-      const d = Math.hypot(dx, dz);
-      const r = radius + 0.1;
-      if (d > r) continue;
+      const d2 = dx * dx + dz * dz;
+      if (d2 > r2) continue;
+      const d = Math.sqrt(d2);
       if (d > 1e-3) {
         dx /= d;
         dz /= d;
@@ -1060,6 +1081,7 @@ export class MessField {
   clear(): void {
     this.pending.length = 0;
     this.rests.length = 0;
+    this.blockedScratch.clear();
     this.shapes = 0;
     this.policyAt = 0;
     this.enemyWakeAt = 0;

@@ -1166,7 +1166,8 @@ export class MuscleState {
       const zone = Math.min(t.limitZone, c.twist * t.limitZoneShare);
       const depth = Math.abs(twist) - c.twist + zone;
       if (depth > 0 && weight > 0) {
-        const axis = _axis.copy(c.axis).applyQuaternion(p.q);
+        // q = swing * twist, so twist acts about c.axis in the child's frame (world axis = c.q * c.axis).
+        const axis = _axis.copy(c.axis).applyQuaternion(c.q);
         const sign = twist < 0 ? -1 : 1;
         resist(c, p, axis, sign, rel.dot(axis), depth, zone, dt, ligament * weight, this.hold, this.elastic);
       }
@@ -1189,9 +1190,20 @@ export class MuscleState {
       // While the hips are held the hold takes the reaction, so every body answers to one controller. As support
       // fades the reaction lands on the parent, and what is left are true joint torques carrying real weight.
       const back = 1 - this.support;
-      // Along the error, since a body offers far less inertia about some axes than others.
+      // Along the error, since a body offers far less inertia about some axes than others. When error is near zero,
+      // fall back to the relative spin axis (or conservative max inverse inertia) instead of series-chain 1/m.inertia.
       const size = e.length();
-      const free = size > 1e-5 ? invInertia(c, _a.copy(e).divideScalar(size)) + back * invInertia(p, _a) : 1 / m.inertia;
+      let free: number;
+      if (size > 1e-5) {
+        free = invInertia(c, _a.copy(e).divideScalar(size)) + back * invInertia(p, _a);
+      } else {
+        const relMag = rel.length();
+        if (relMag > 1e-5) {
+          free = invInertia(c, _a.copy(rel).divideScalar(relMag)) + back * invInertia(p, _a);
+        } else {
+          free = Math.max(c.invI.x, c.invI.y, c.invI.z) + back * Math.max(p.invI.x, p.invI.y, p.invI.z);
+        }
+      }
       const scale = (t.driveRelax * dt) / (1 + (d * dt + k * dt * dt) * free);
       const x = (k * e.x - d * rel.x) * scale;
       const y = (k * e.y - d * rel.y) * scale;
@@ -2026,10 +2038,12 @@ export class MuscleState {
 
     const e = rotationBetween(hips.q, drive.hipsRot, _e);
     const size = e.length();
-    if (size < 1e-5) return;
+    const wMag = hips.w.length();
+    if (size < 1e-5 && wMag < 1e-5) return;
     const ki = this.bodyInertia * w * w * a;
     const di = this.bodyInertia * 2 * t.hipDamping * w * a;
-    const spin = (pinned * t.driveRelax * dt) / (1 + (di * dt + ki * dt * dt) * invInertia(hips, _a.copy(e).divideScalar(size)));
+    const axis = size >= 1e-5 ? _a.copy(e).divideScalar(size) : _a.copy(hips.w).divideScalar(wMag);
+    const spin = (pinned * t.driveRelax * dt) / (1 + (di * dt + ki * dt * dt) * invInertia(hips, axis));
     hips.tau.x += (ki * e.x - di * hips.w.x) * spin;
     hips.tau.y += (ki * e.y - di * hips.w.y) * spin;
     hips.tau.z += (ki * e.z - di * hips.w.z) * spin;

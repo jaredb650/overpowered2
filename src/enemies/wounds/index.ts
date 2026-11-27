@@ -385,7 +385,7 @@ export class WoundSystem {
     s.mag = SIDEARM_MAG;
     s.reloadUntil = this.w.now + SIDEARM_DRAW;
     this.sidearms.draw(s.e, right, () => s.weapon === 'sidearm');
-    pose(s.e, 'stand');
+    if (!s.downed && !b.floored) pose(s.e, 'stand');
   }
 
   // -------------------------------------------------------------------------------------------
@@ -499,7 +499,13 @@ export class WoundSystem {
     const b = s.injuries;
     if (b.lastStand !== 'grenade' || s.grenades <= 0) return;
     this.lastGrenadeAt = this.w.now;
-    this.o.dropLiveGrenade(s);
+    const wasSilent = s.silent;
+    if (!s.e.alive) s.silent = true;
+    try {
+      this.o.dropLiveGrenade(s);
+    } finally {
+      s.silent = wasSilent;
+    }
   }
 
   /** Back on his feet, with a medic's work on him. Only ever called on a man who can stand. */
@@ -533,7 +539,7 @@ export class WoundSystem {
     if (s.weapon !== 'none') return;
     const usable = !b.armless && (!s.def.twoHanded || (!b.armL && !b.armR && !b.handL && !b.handR));
     if (usable && s.droppedAt) s.scramble = s.droppedAt;
-    else if (s.def.sidearm && !s.spentSidearm) this.drawSidearm(s, b);
+    else if (!b.armless && s.def.sidearm && !s.spentSidearm) this.drawSidearm(s, b);
     else this.o.breakNerve(s);
   }
 
@@ -655,7 +661,14 @@ export class WoundSystem {
     const e = s.e;
     // One arm gone and a pistol in the other: there is no hand left to put on anything.
     const busy = s.weapon === 'sidearm' && (b.armL || b.armR || b.handL || b.handR);
-    const w = b.armless || busy ? null : b.worst();
+    const clutchHand: 1 | -1 | undefined = s.weapon === 'sidearm'
+      ? (s.sidearmLeft ? -1 : 1)
+      : (b.armL || b.handL)
+        ? -1
+        : (b.armR || b.handR)
+          ? 1
+          : undefined;
+    const w = b.armless || busy ? null : b.worst(clutchHand);
     if (w !== b.held) {
       b.held = w;
       b.refresh();
@@ -666,7 +679,8 @@ export class WoundSystem {
     }
     const bone = e.char.bones[w.bone];
     if (!bone) return;
-    const useRight = s.weapon === 'sidearm' ? s.sidearmLeft : (b.armL || b.handL);
+    const armZone = w.zone === 'arm' || w.zone === 'hand' || w.zone === 'shoulder';
+    const useRight = clutchHand !== undefined ? clutchHand < 0 : (armZone && w.side > 0);
     this.w.ctx.gore.clutchWound?.(e.char, w.bone, useRight ? B.handR : B.handL, useRight ? B.foreArmR : B.foreArmL);
     e.char.anim.holdWound?.(w.bone, _v.set(w.x, w.y, w.z).applyMatrix4(bone.matrixWorld), HOLD_SECONDS);
   }
@@ -708,7 +722,6 @@ export class WoundSystem {
       this.o.comms.say('beg', s);
       return;
     }
-    shout(e, this.w, 'vox_scream', 0.9);
     this.o.comms.say('scream', s);
     s.calledAt = now;
     const r2 = T.screamRange * T.screamRange;

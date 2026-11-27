@@ -125,6 +125,7 @@ export class VehicleChatter {
   /** Orders fighting troopers inside `radius` of a bomb/napalm/mortar drop point to scatter radially outward. */
   scatterFrom(point: THREE.Vector3, radius: number): void {
     const { o } = this;
+    const order = o.order as (s: Soldier, dest: THREE.Vector3, spot: null, urgency: 0 | 1 | 2, delay: number, priority?: number, lockSec?: number) => void;
     const nav = o.w.ctx.world.nav;
     const rSq = radius * radius;
     let i = 0;
@@ -140,7 +141,7 @@ export class VehicleChatter {
       const run = Math.max(12, radius - d + 8);
       _escape.set(s.e.position.x + nx * run, s.e.position.y, s.e.position.z + nz * run);
       if (nav.nearest(_escape, 8, _escape)) {
-        o.order(s, _escape, null, 2, (i++ % 4) * 0.08);
+        order.call(o, s, _escape, null, 2, (i++ % 4) * 0.08, 2, 1.5);
       }
     }
   }
@@ -148,6 +149,7 @@ export class VehicleChatter {
   /** Orders troopers standing in front of a fast-moving ground vehicle to sidestep laterally. */
   private dodgeVehiclePath(): void {
     const { o } = this;
+    const order = o.order as (s: Soldier, dest: THREE.Vector3, spot: null, urgency: 0 | 1 | 2, delay: number, priority?: number, lockSec?: number) => void;
     const p = o.w.player;
     if (p.mount === 'foot' || p.airborne) return;
     const speed = Math.hypot(p.velocity.x, p.velocity.z);
@@ -159,7 +161,7 @@ export class VehicleChatter {
     const lookAhead = Math.min(34, speed * 2.2);
 
     for (const s of o.soldiers) {
-      if (!s.fighting) continue;
+      if (!s.fighting || s.squad.directed) continue;
       if (now - (this.dodgedAt.get(s) ?? -Infinity) < DODGE_COOLDOWN) continue;
       const rx = s.e.position.x - p.position.x;
       const rz = s.e.position.z - p.position.z;
@@ -173,7 +175,7 @@ export class VehicleChatter {
       _escape.set(s.e.position.x + _dir.x * 8.5, s.e.position.y, s.e.position.z + _dir.z * 8.5);
       if (nav.nearest(_escape, 5, _escape)) {
         this.dodgedAt.set(s, now);
-        o.order(s, _escape, null, 2, 0);
+        order.call(o, s, _escape, null, 2, 0, 2, 1.5);
       }
     }
   }

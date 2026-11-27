@@ -9,7 +9,7 @@ import { HumanoidBone as B, type GoreRegion } from '../characters/rig';
 import { CG, type CharacterInstance, type Ctx, type DamageInfo, type LocomotionInput, type PlayerSystem, type RagdollOptions, type RayHit } from '../core/contracts';
 import { SwayWorld } from '../characters/animation/sway';
 import type { CollapseOptions, KnockdownOptions } from '../gore/muscles';
-import type { DamageResult, EnemyId, EnemyInstance, EnemyRayHit, EnemySystem } from '../core/gameplay';
+import type { DamageResult, EnemyId, EnemyInstance, EnemyRayHit, EnemySystem, WeaponId } from '../core/gameplay';
 import { clamp, rand, TAU } from '../core/math';
 import { Pool } from '../core/pool';
 import { mountOfVehicle, PlayerSense, type AiWorld } from './aiWorld';
@@ -27,11 +27,13 @@ import { Enemy } from './Enemy';
 import { updateMovement } from './movement';
 import { EnemySpatialGrid } from './spatialGrid';
 import { Outpost, outpostActive } from './outpost';
+import { resetAirRadio } from './outpost/chatter/airRadio';
 import { Spawner } from './spawner';
 import { VehicleSystem, vehiclesActive } from './vehicles';
 import { Telegraphs } from './telegraph';
 import { MAX_ALIVE } from './waves';
 import { HELMET } from './wounds/armour';
+import { isMelee } from '../weapons/melee/data';
 import { isGuest } from '../core/coop';
 import { DevFlags } from '../core/devflags';
 import { ACTIVE } from '../contracts/select';
@@ -48,6 +50,7 @@ const THINK_INTERVAL = [0.12, 0.22, 0.4, 0.6] as const;
 /** Pressure fades over about this many seconds without being shot at. */
 const PRESSURE_DECAY = 0.28;
 const NEAR_MISS_RADIUS = 2.2;
+const NEAR_MISS_MAX_DIST = 45;
 const MAX_STRIKES = 16;
 const BURN_TICK = 0.25;
 const BURN_SPREAD_RADIUS = 2.4;
@@ -246,7 +249,7 @@ export class EnemyManager implements EnemySystem {
 
   init(ctx: Ctx): void {
     this.telegraphs.init();
-    ctx.events.on('weapon:fired', e => this.onShot(e.origin, e.dir));
+    ctx.events.on('weapon:fired', e => this.onShot(e.origin, e.dir, e.weapon));
     this.outpost?.init();
     this.vehicles?.init();
   }
@@ -279,6 +282,7 @@ export class EnemyManager implements EnemySystem {
     this.debris.clear();
     this.spawner.reset();
     this.outpost?.reset();
+    resetAirRadio();
     this.vehicles?.reset();
   }
 
@@ -349,12 +353,7 @@ export class EnemyManager implements EnemySystem {
     e.attacks = def.attacks;
     e.shield = id === 'riot';
 
-    for (const key in LIMB_SIZE) {
-      const region = key as GoreRegion;
-      e.limbHp.set(region, e.maxHealth * def.limbFrac * LIMB_SIZE[region]!);
-    }
-    if (id === 'drone') e.limbHp.set('abdomen', e.maxHealth * 0.3);
-    e.limbHp.set('head', def.headPoolFixed ? def.headPool : e.maxHealth * def.headPool);
+    this.initLimbHp(e);
 
     if (def.plates) this.fitPlates(e, def.plates);
     else if (CRUCIBLE_HELMETS.has(id) && this.tuning.helmetsFrom > 0 && this.wave >= this.tuning.helmetsFrom) this.fitPlates(e, [HELMET]);
@@ -365,10 +364,22 @@ export class EnemyManager implements EnemySystem {
     e.alive = true;
     this.alive.push(e);
     this.grid.dirty = true;
+    const preMax = e.maxHealth;
     this.outpost?.onSpawn(e);
+    if (e.maxHealth !== preMax) this.initLimbHp(e);
     this.place(e);
     ctx.events.emit('enemy:spawned', { enemy: e });
     return e;
+  }
+
+  private initLimbHp(e: Enemy): void {
+    const def = e.def;
+    for (const key in LIMB_SIZE) {
+      const region = key as GoreRegion;
+      e.limbHp.set(region, e.maxHealth * def.limbFrac * LIMB_SIZE[region]!);
+    }
+    if (e.id === 'drone') e.limbHp.set('abdomen', e.maxHealth * 0.3);
+    e.limbHp.set('head', def.headPoolFixed ? def.headPool : e.maxHealth * def.headPool);
   }
 
   /** Silently removes a living scripted enemy (e.g. an ejected pilot splashing into the sea) without awarding kill score. */
@@ -380,6 +391,9 @@ export class EnemyManager implements EnemySystem {
     e.pinned = false;
     e.scriptedNpc = false;
     this.stopEffects(e);
+    this.director.releaseAll(e);
+    this.outpost?.onDetach(e);
+    this.ctx.gore?.releaseChar?.(e.char);
     e.char.release();
     this.pool.release(e);
     this.grid.dirty = true;
@@ -644,6 +658,7 @@ export class EnemyManager implements EnemySystem {
     if (e.shaken > 0) e.shaken = Math.max(0, e.shaken - dt / SPOIL.seconds);
     if (e.downed) {
       this.updateDowned(e);
+      if (!e.downed && e.alive) this.animate(e, dt);
       return;
     }
 
@@ -701,7 +716,12 @@ export class EnemyManager implements EnemySystem {
         this.applyDamage(e, this.statusDamage(e, 'fell', 'true', e.health + 1));
         return;
       }
-      e.position.set(c.x, Math.max(c.y - e.def.chest, e.groundY), c.z);
+      const navGy = ctx.world?.nav?.groundHeight?.(c.x, c.y + 0.5, c.z);
+      const floorY = navGy !== undefined && Number.isFinite(navGy) && navGy <= c.y + 0.5
+        ? navGy
+        : Math.min(e.groundY, c.y - e.def.chest);
+      e.groundY = floorY;
+      e.position.set(c.x, Math.max(c.y - e.def.chest, floorY), c.z);
       e.center.copy(c);
       return;
     }
@@ -717,12 +737,14 @@ export class EnemyManager implements EnemySystem {
     if (ctx.gore.handedBack(e.char) === 'stand') {
       e.rising = 0;
       e.stagger = STOOD_STAGGER;
+      this.place(e);
       return;
     }
     const rise = e.maim.legs === 0 ? 0 : e.riseSeconds;
     e.rising = rise;
     e.stagger = rise + e.dazeSeconds;
     if (e.dazeSeconds > 0) e.char.anim.daze?.(rise + e.dazeSeconds);
+    this.place(e);
   }
 
   /**
@@ -866,7 +888,8 @@ export class EnemyManager implements EnemySystem {
    * disappointment. Anything in the air is above it.
    */
   private updateHazard(e: Enemy, dt: number): void {
-    if (!this.hasHazards || e.isBoss || e.airborne || e.pinned || e.def.id === 'drone') return;
+    const aloft = e.airborne && (!e.downed || e.position.y > e.groundY + 0.8);
+    if (!this.hasHazards || e.isBoss || aloft || e.pinned || e.def.id === 'drone') return;
     const { ctx } = this;
     const h = ctx.world.objects.hazardAt(e.position);
     if (!h) {
@@ -1129,14 +1152,17 @@ export class EnemyManager implements EnemySystem {
   // -------------------------------------------------------------------------------------------
 
   /** Near misses count: enemies that hear rounds passing react before they are hit. */
-  private onShot(origin: THREE.Vector3, dir: THREE.Vector3): void {
+  private onShot(origin: THREE.Vector3, dir: THREE.Vector3, weapon?: WeaponId): void {
+    if (weapon && isMelee(weapon)) return;
     for (let i = 0; i < this.alive.length; i++) {
       const e = this.alive[i]!;
       _a.subVectors(e.center, origin);
       const along = _a.dot(dir);
-      if (along < 0) continue;
+      if (along < 0 || along > NEAR_MISS_MAX_DIST) continue;
       const off2 = _a.lengthSq() - along * along;
-      if (off2 < NEAR_MISS_RADIUS * NEAR_MISS_RADIUS) e.pressure = Math.min(1, e.pressure + 0.09);
+      if (off2 >= NEAR_MISS_RADIUS * NEAR_MISS_RADIUS) continue;
+      if (this.ctx.physics && !this.director.clearLine(origin, e.center)) continue;
+      e.pressure = Math.min(1, e.pressure + 0.09);
     }
   }
 
@@ -1536,6 +1562,7 @@ export class EnemyManager implements EnemySystem {
   withdraw(e: Enemy): void {
     e.alive = false;
     this.detach(e);
+    this.ctx.gore?.releaseChar?.(e.char);
     e.char.release();
     this.retire(e);
   }

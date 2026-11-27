@@ -648,7 +648,6 @@ export class Commander {
     if (near < 3 || !close) return;
     if (!this.mortars.call(on, 'mortar', 5)) return;
     this.radio('radio.dangerClose', close);
-    w.ctx.audio.play('vox_scream', { position: close.e.center, volume: 0.8 });
   }
 
   // -------------------------------------------------------------------------------------------

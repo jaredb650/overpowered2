@@ -187,6 +187,9 @@ export class FarBatch {
     return buffers;
   }
 
+  private generation = 0;
+  private savedOnAfterRender: THREE.Mesh['onAfterRender'] | null = null;
+
   /** Compiles the batch's program at load, so the first body baked in a fight does not stall its frame. */
   warm(source: FarBakeable): void {
     this.ensure(source.farMaterial);
@@ -194,10 +197,14 @@ export class FarBatch {
     const slot = this.add(source);
     const mesh = this.mesh!;
     if (slot < 0) return;
+    const gen = this.generation;
+    if (!this.savedOnAfterRender) this.savedOnAfterRender = mesh.onAfterRender;
     const drawn = mesh.onAfterRender;
-    mesh.onAfterRender = () => {
+    mesh.onAfterRender = (...args) => {
       mesh.onAfterRender = drawn;
-      this.remove(slot);
+      if (drawn === this.savedOnAfterRender) this.savedOnAfterRender = null;
+      if (this.generation === gen) this.remove(slot);
+      drawn.apply(mesh, args);
     };
   }
 
@@ -291,6 +298,11 @@ export class FarBatch {
   }
 
   clear(): void {
+    this.generation++;
+    if (this.mesh && this.savedOnAfterRender) {
+      this.mesh.onAfterRender = this.savedOnAfterRender;
+      this.savedOnAfterRender = null;
+    }
     if (!this.buffers) return;
     if (this.high > 0) {
       const count = this.high * this.shape.slotIndices;

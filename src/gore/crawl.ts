@@ -76,7 +76,7 @@ export class Crawler implements TorsoHalf {
   }
 
   step(dt: number): void {
-    if (!this.alive || !this.rag.active) return;
+    if (!this.alive || !this.rag.active || dt <= 0 || !Number.isFinite(dt)) return;
     const { chest, head } = this;
     chest.body.translation(_chest);
     this.position.copy(_chest);
@@ -91,6 +91,8 @@ export class Crawler implements TorsoHalf {
 
     // Require floor proximity/contact so a torso falling off a ledge falls under full gravity instead of flying mid-air.
     const scale = this.rag.source.rig.height / HUMAN_HEIGHT;
+    const scaleSq = scale * scale;
+    const vScale = Math.sqrt(Math.max(scale, 0.25));
     const liftPad = 0.1 * scale;
     const groundReach = 0.55 * scale;
     _b.set(_chest.x, _chest.y + liftPad, _chest.z);
@@ -104,21 +106,24 @@ export class Crawler implements TorsoHalf {
     const toTarget = _a.copy(this.target).sub(_chest);
     toTarget.y = 0;
     const dist = toTarget.length();
-    if (dist < 1e-3) return;
+    if (dist < 1e-3) {
+      this.planted = false;
+      return;
+    }
     toTarget.divideScalar(dist);
 
     const t = CrawlTuning;
     this.clock += dt;
     if (this.clock >= t.stroke) {
-      this.clock -= t.stroke;
+      this.clock %= t.stroke;
       this.side ^= 1;
       this.planted = false;
     }
     const activeSide = (this.side === 0 ? armL : armR) ? this.side : (armL ? 0 : 1);
     const arm = activeSide === 0 ? armL! : armR!;
     const reaching = this.clock < t.stroke * t.reach;
-    // A share of the weight that acts on it, which the tempo dial sets.
-    const lift = -GRAVITY * this.rag.gravity * t.lift * dt;
+    // A share of the weight that acts on it, which the tempo dial sets. Clamped for dt spikes.
+    const lift = -GRAVITY * this.rag.gravity * t.lift * Math.min(dt, 0.1);
 
     // Up on the elbows: part of the weight of the chest and head comes off the floor.
     _vec.x = 0;
@@ -139,43 +144,68 @@ export class Crawler implements TorsoHalf {
       // 180° steering deadlock: break anti-parallel symmetry decisively around world +Y.
       _b.set(0, activeSide === 0 ? 1 : -1, 0);
     }
+    const steerScale = dt / (1 + t.steerDamping * dt + t.steer * dt * dt);
     _b.multiplyScalar(t.steer);
     _b.addScaledVector(chest.w, -t.steerDamping);
-    const inertia = chest.mass * 0.09;
-    _vec.x = _b.x * inertia * dt;
-    _vec.y = _b.y * inertia * dt;
-    _vec.z = _b.z * inertia * dt;
+    _b.multiplyScalar(steerScale);
+    const maxDw = 12;
+    if (_b.lengthSq() > maxDw * maxDw) _b.setLength(maxDw);
+    const inertia = chest.mass * 0.09 * scaleSq;
+    _vec.x = _b.x * inertia;
+    _vec.y = _b.y * inertia;
+    _vec.z = _b.z * inertia;
     chest.body.applyTorqueImpulse(_vec, true);
 
-    if (dist < t.arrive) return;
+    if (dist < t.arrive) {
+      this.planted = false;
+      return;
+    }
 
     arm.body.translation(arm.p);
     arm.body.linvel(arm.v);
+    const maxArmDv = 6 * vScale;
     if (reaching) {
-      // Throw the forearm out ahead and to its own side, then let it drop on the floor.
-      const out = activeSide === 0 ? 0.22 : -0.22;
-      _b.set(_chest.x + toTarget.x * t.handAhead - toTarget.z * out, _chest.y + 0.1, _chest.z + toTarget.z * t.handAhead + toTarget.x * out);
+      // Throw the forearm out ahead and to its own side (left = up × toTarget = (+toTarget.z, 0, -toTarget.x)), then let it drop on the floor.
+      const out = (activeSide === 0 ? 0.22 : -0.22) * scale;
+      _b.set(
+        _chest.x + toTarget.x * t.handAhead * scale + toTarget.z * out,
+        _chest.y + 0.1 * scale,
+        _chest.z + toTarget.z * t.handAhead * scale - toTarget.x * out,
+      );
+      const reachScale = dt / (1 + t.reachDamping * dt + t.reachStiffness * dt * dt);
       _c.copy(_b).sub(arm.p).multiplyScalar(t.reachStiffness);
       _c.addScaledVector(arm.v, -t.reachDamping);
-      _vec.x = _c.x * arm.mass * dt;
-      _vec.y = _c.y * arm.mass * dt;
-      _vec.z = _c.z * arm.mass * dt;
+      _c.multiplyScalar(reachScale);
+      if (_c.lengthSq() > maxArmDv * maxArmDv) _c.setLength(maxArmDv);
+      _vec.x = _c.x * arm.mass;
+      _vec.y = _c.y * arm.mass;
+      _vec.z = _c.z * arm.mass;
       arm.body.applyImpulse(_vec, true);
+      // Equal-and-opposite shoulder reaction on the chest while reaching in the air.
+      _vec.x = -_vec.x;
+      _vec.y = -_vec.y;
+      _vec.z = -_vec.z;
+      chest.body.applyImpulse(_vec, true);
       return;
     }
     if (!this.planted) {
       this.planted = true;
       this.plant.copy(arm.p);
     }
-    // Hand stays where it landed, chest hauls toward it. The two forces are equal and opposite.
-    _c.copy(this.plant).sub(arm.p).multiplyScalar(160);
-    _c.addScaledVector(arm.v, -22);
+    // Hand stays pinned on the floor where it landed (floor grip) while the chest hauls toward the target.
+    const plantK = 160;
+    const plantD = 22;
+    const plantScale = dt / (1 + plantD * dt + plantK * dt * dt);
+    _c.copy(this.plant).sub(arm.p).multiplyScalar(plantK);
+    _c.addScaledVector(arm.v, -plantD);
     _c.y -= 12;
-    _vec.x = _c.x * arm.mass * dt;
-    _vec.y = _c.y * arm.mass * dt;
-    _vec.z = _c.z * arm.mass * dt;
+    _c.multiplyScalar(plantScale);
+    if (_c.lengthSq() > maxArmDv * maxArmDv) _c.setLength(maxArmDv);
+    _vec.x = _c.x * arm.mass;
+    _vec.y = _c.y * arm.mass;
+    _vec.z = _c.z * arm.mass;
     arm.body.applyImpulse(_vec, true);
-    const haul = chest.mass * t.pull * dt;
+    const haul = chest.mass * Math.min(t.pull * dt, 3.5 * vScale);
     _vec.x = toTarget.x * haul;
     _vec.y = 0;
     _vec.z = toTarget.z * haul;

@@ -6,7 +6,7 @@
 import * as THREE from 'three';
 import { chance, dampAngle, rand } from '../../core/math';
 import type { AiWorld } from '../aiWorld';
-import { panic } from '../behaviours';
+import { bolted, panic } from '../behaviours';
 import { finishAttack, type Behaviour } from '../brain';
 import { posted } from '../commander/behaviours';
 import type { Enemy } from '../Enemy';
@@ -136,7 +136,7 @@ const hold: Behaviour = {
     const q = s.squad;
     if (s.silent) {
       // On the door, weapon up, not breathing. He looks and he waits.
-      s.aim.copy(q.watch);
+      s.aim.copy(s.hasWatch ? s.watch : q.watch);
       s.stage = 'peek';
       s.exposed = false;
       e.face = 'lock';
@@ -205,6 +205,8 @@ const move: Behaviour = {
     e.pace = sprinting ? paceFor(e, SPRINT_SPEED) : s.urgency === 0 ? WALK_SHARE : 1;
     if (walkRoute(e, s, w)) {
       s.task = 'hold';
+      s.orderLockUntil = 0;
+      s.orderPriority = 0;
       // "Set!": the bound is done, and the player hears it land.
       if (s.squad.inContact) w.enemies.outpost!.comms.say('set', s);
     }
@@ -290,6 +292,7 @@ const surrender: Behaviour = {
     e.mode = 'hold';
     e.face = 'player';
     pose(e, 'handsUp');
+    s.stage = 'peek';
     s.peekUntil = w.now + KNEEL_DELAY;
     w.enemies.outpost!.onSurrender(s);
   },
@@ -381,9 +384,16 @@ const flee: Behaviour = {
   },
   think(e, w) {
     const s = soldierOf(e)!;
-    if (s.released || s.corner !== 'none') return;
+    if (s.released) return;
     const o = w.enemies.outpost!;
     const now = w.now;
+    if (s.corner !== 'none') {
+      if (standOff(o, s, now)) {
+        if (s.corner === 'cower') pose(e, 'cower');
+        else if (s.corner === 'taunt') pose(e, 'stand');
+      } else plan(e, s, w);
+      return;
+    }
     if (now - s.fledAt > FLEE_LIMIT) return void corner(o, s, true);
     const seen = e.hasLos && e.dist < CAUGHT_RANGE;
     if (!seen) s.caughtSince = -1;
@@ -405,10 +415,6 @@ const flee: Behaviour = {
         e.mode = 'hold';
         e.face = 'player';
       }
-      if (standOff(o, s, w.now)) {
-        if (s.corner === 'cower') pose(e, 'cower');
-        else if (s.corner === 'taunt') pose(e, 'stand');
-      } else plan(e, s, w);
       return;
     }
     if (s.restUntil > 0) {
@@ -451,6 +457,7 @@ const aid: Behaviour = {
   enter(e, w) {
     const s = soldierOf(e)!;
     s.aidStage = 'reach';
+    s.aidStalls = 0;
     e.mode = 'point';
     e.face = 'move';
     e.pace = paceFor(e, SPRINT_SPEED);
@@ -464,7 +471,21 @@ const aid: Behaviour = {
     const o = w.enemies.outpost!;
     if (s.aidStage === 'reach') {
       // He may have crawled from where he was when this man set out.
-      if (walkRoute(e, s, w)) o.routeTo(s, patient.e.position);
+      if (walkRoute(e, s, w)) {
+        if (e.position.distanceTo(patient.e.position) > REACH_PATIENT) {
+          if (++s.aidStalls >= 3) {
+            patient.rescuer = null;
+            s.patient = null;
+            s.aidStage = 'none';
+            s.aidStalls = 0;
+            s.task = 'hold';
+            e.thinkAt = 0;
+            e.behaviourUntil = 0;
+            return;
+          }
+          o.routeTo(s, patient.e.position);
+        }
+      }
       // Gore has him until he stops falling, and there is no dragging a body the physics owns.
       if (e.position.distanceTo(patient.e.position) > REACH_PATIENT || patient.e.downed) return;
       if (o.routeToShelter(s, patient, DRAG_REACH)) {
@@ -487,6 +508,7 @@ const aid: Behaviour = {
     const s = soldierOf(e);
     if (!s) return;
     s.aidStage = 'none';
+    s.aidStalls = 0;
     if (s.patient) s.patient.rescuer = null;
     s.patient = null;
     pose(e, 'stand');
@@ -497,4 +519,4 @@ const aid: Behaviour = {
  * Burning is the only maimed rule a soldier keeps from the swarm. Crawling is the wounds' business, and always away. Headbutts and
  * disarmed rushes are out: a man who loses his gun arm reaches for a sidearm, or runs, or gives up.
  */
-export const SOLDIER_BEHAVIOURS: Behaviour[] = [panic(), downed, cuffed, held, surrender, flee, aid, scramble, selfAid, posted, move, hold];
+export const SOLDIER_BEHAVIOURS: Behaviour[] = [panic(), bolted(), downed, cuffed, held, surrender, flee, aid, scramble, selfAid, posted, move, hold];

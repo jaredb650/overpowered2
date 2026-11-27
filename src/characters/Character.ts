@@ -633,9 +633,9 @@ export class Character implements CharacterInstance {
     this.breaks = new FracturePose(a.rig, this.bones);
     // Wrapped here so a break holds through every animator, whatever it writes and however often it runs.
     const pose = this.anim.update.bind(this.anim);
-    this.anim.update = (dt, lod) => {
-      pose(dt, lod);
-      this.breaks.apply(dt);
+    this.anim.update = (dt, lod, probing) => {
+      pose(dt, lod, probing);
+      if (!probing) this.breaks.apply(dt);
     };
     // The fade runs where the draw happens, so it needs no per-frame update from whoever owns the body now.
     this.mesh.onBeforeRender = () => {
@@ -1465,7 +1465,8 @@ export class SeveredPart implements SeveredLimb {
     }
     this.root.add(rootBone);
     // A bone the body has a stand-in on (`Character.standIn`) keeps its skin folded away here too.
-    this.skeleton.boneInverses = src.skeleton.boneInverses;
+    // Copy the array so subsequent `src.standIn()` calls on the body cannot mutate this limb's inverses.
+    this.skeleton.boneInverses = src.skeleton.boneInverses.slice();
     m.decompose(rootBone.position, rootBone.quaternion, s);
     rootBone.scale.setScalar(1);
 
@@ -1529,6 +1530,7 @@ export class SeveredPart implements SeveredLimb {
     this.kitCharred = false;
     this.book.clear();
     this.worn.clear();
+    this.skeleton.boneInverses = this.a.bindInverses;
     this.mesh.material = this.a.material;
     this.mesh.castShadow = true;
     if (this.inside) this.showInside(false);

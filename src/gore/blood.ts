@@ -513,6 +513,14 @@ export class BloodField {
     this.overLedge(p.x, p.y, p.z, size * 0.4, seconds);
   }
 
+  /** Places a known-ground blood pool directly at (x, y, z) and registers its wet spot for footprints, splashes, and soaking. */
+  placePool(x: number, y: number, z: number, radius = 0.6): void {
+    this.t.set(x, y, z);
+    this.n.set(0, 1, 0);
+    this.ctx.render.decals.add('bloodPool', this.t, this.n, radius, Math.random() * TAU);
+    this.wetSpot(x, y, z, Math.max(0.2, radius * 0.45));
+  }
+
   /**
    * A pool that reaches a drop runs over it: from the first edge found within `r` (four rays), blood drips to
    * whatever is below for half a minute, once the pool has had `after` seconds to get there.

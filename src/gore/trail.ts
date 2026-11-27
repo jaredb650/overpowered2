@@ -106,8 +106,9 @@ export class GibTrail {
    */
   leave(p: THREE.Vector3, v: THREE.Vector3, size: number): boolean {
     const { time, fx } = this.ctx;
-    if (this.frame !== time.elapsed) {
-      this.frame = time.elapsed;
+    const frame = time.frame;
+    if (this.frame !== frame) {
+      this.frame = frame;
       this.used = 0;
     }
     if (this.used >= TrailTuning.perFrame) return false;
