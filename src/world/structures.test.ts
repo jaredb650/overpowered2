@@ -81,17 +81,24 @@ describe('placing', () => {
 });
 
 describe('what wears them', () => {
-  it('walls and gates ignore small arms; shacks are chipped by them', () => {
+  it('walls, gates, and timber shacks ignore assault rifles/SMGs; .50 cal and HMGs shred shacks', () => {
     reset();
     const ray = physics.raycast(V(0, 1.5, -3), V(0, 0, 1), 6)!;
-    for (let i = 0; i < 200; i++) walls.hit(ray.collider, 80);
+    for (let i = 0; i < 200; i++) walls.hit(ray.collider, 80, 'rifle');
     expect(mid.stage).toBe('intact');
     expect(mid.health).toBe(HEALTH.wall[0]);
+
     const onShack = physics.raycast(V(-8, 1, -14), V(0, 0, 1), 10)!;
     expect(walls.pieceOf(onShack.collider)).toBe(shack);
-    walls.hit(onShack.collider, 40);
-    expect(shack.health).toBeCloseTo(HEALTH.shack[0] - 40 * SHACK_BULLET);
-    for (let i = 0; i < 20; i++) walls.hit(onShack.collider, 40);
+    // Assault rifles / SMGs cannot chip or destroy timber shacks!
+    for (let i = 0; i < 50; i++) walls.hit(onShack.collider, 40, 'rifle');
+    expect(shack.stage).toBe('intact');
+    expect(shack.health).toBe(HEALTH.shack[0]);
+
+    // .50 cal / heavy machine guns shred wooden shacks cleanly
+    walls.hit(onShack.collider, 40, 'piledriver');
+    expect(shack.health).toBeLessThan(HEALTH.shack[0]);
+    for (let i = 0; i < 12; i++) walls.hit(onShack.collider, 40, 'hmg');
     expect(shack.stage).toBe('breached');
   });
 

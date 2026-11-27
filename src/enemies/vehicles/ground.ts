@@ -8,7 +8,7 @@
  * engine slows it and its loader, a jammed ring turns the turret into a slow thing the player can outrun.
  */
 import * as THREE from 'three';
-import type { EmitterHandle, LoopHandle, PlayerSystem } from '../../core/contracts';
+import { CG, type EmitterHandle, type LoopHandle, type PlayerSystem } from '../../core/contracts';
 import type { EnemyId, ProjectileSpec } from '../../core/gameplay';
 import { clamp, damp, dampAngle, rand, wrapAngle } from '../../core/math';
 import { EngineSound } from '../../progression/callins/airframe';
@@ -134,6 +134,7 @@ export class GroundVehicle extends Vehicle {
   private shuffleWay = -1;
   private readonly shuffleTo: RoutePoint[] = [{ x: 0, z: 0, hold: 0 }];
   private ramReady = 0;
+  private ramWallIn = 0;
   private placed = false;
 
   private stage: GunStage = 'loading';
@@ -284,12 +285,38 @@ export class GroundVehicle extends Vehicle {
     this.pose(dt);
     this.moved();
     if (order.parked) return;
+    this.ramStructures(dt);
     if (this.def.cannon) this.mainGun(dt, this.def.cannon);
     this.roofGun(dt);
     this.disembark(dt);
     this.shuffle(dt);
     this.bump(dt);
     this.engine.update(this.position, 1, dt, undefined, 0.8 + 0.5 * Math.abs(drive.speed) / this.def.drive.top);
+  }
+
+  private ramStructures(dt: number): void {
+    this.ramWallIn -= dt;
+    if (this.ramWallIn > 0) return;
+    this.ramWallIn = 0.14;
+    const speed = Math.abs(this.drive.speed);
+    if (speed < 2.4) return;
+    const objects = this.sys.ctx.world?.objects;
+    if (!objects?.tryVehicleRam) return;
+    const sign = this.drive.speed >= 0 ? 1 : -1;
+    const s = Math.sin(this.drive.yaw) * sign;
+    const c = Math.cos(this.drive.yaw) * sign;
+    _pivot.set(this.drive.x, this.y + 1.25, this.drive.z);
+    _dir.set(s, 0, c);
+    const reach = this.def.halfLength + 1.35;
+    const hit = this.sys.ctx.physics.raycast(_pivot, _dir, reach, CG.World);
+    if (!hit?.collider || Math.abs(hit.normal.y) >= 0.55) return;
+    const ramClass = this.def.kind === 'tank' ? 'heavy' : this.def.kind === 'truck' ? 'medium' : 'light';
+    const res = objects.tryVehicleRam(hit.collider, ramClass, speed, hit.point, _dir);
+    if (res.breached) {
+      this.drive.speed *= res.speedRetain;
+      this.sys.ctx.fx.dust(hit.point, _up, ramClass === 'heavy' ? 2.0 : 1.3);
+      this.sys.ctx.audio.play('veh_hit_heavy', { position: hit.point, volume: 0.78, pitch: 0.85 });
+    }
   }
 
   private look(dt: number): void {

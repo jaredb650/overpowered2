@@ -738,7 +738,7 @@ export class Combat implements CombatSystem {
         c.fx.sparks(wall.point, wall.normal, 8, 0xff9a28);
         c.render.decals.add('scorch', wall.point, wall.normal, rand(0.32, 0.52), rand(0, 6.2832));
       }
-      if (!watching) c.world.objects?.damageExplosive(wall.collider, atWall, spec.source);
+      if (!watching) c.world.objects?.damageExplosive(wall.collider, atWall, spec.source, wall.point);
       const vehicleDmg = spec.bossDamage ? spec.bossDamage * damageKept(budget) : atWall;
       const vehicle = !watching && c.enemies.vehicles?.shot(wall.collider, wall.point, vehicleDmg, spec.source) === true;
       left -= wall.distance;
@@ -1071,7 +1071,7 @@ export class Combat implements CombatSystem {
     if (wall) {
       c.fx.impact(wall.point, wall.normal, wall.surface, 0.7);
       this.play(SURFACE_SOUND[wall.surface], wall.point, 0.7, 0.08);
-      c.world.objects?.damageExplosive(wall.collider, spec.damage, spec.source);
+      c.world.objects?.damageExplosive(wall.collider, spec.damage, spec.source, wall.point);
     }
   }
 

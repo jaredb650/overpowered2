@@ -929,7 +929,7 @@ export class Projectiles {
         c.fx.impact(wall.point, wall.normal, wall.surface, 0.7);
         c.audio.play(SURFACE_SOUND[wall.surface], { position: wall.point, volume: 0.7, pitchJitter: 0.08 });
         if (p.cosmetic) break;
-        c.world.objects?.damageExplosive(wall.collider, p.damage, p.source);
+        c.world.objects?.damageExplosive(wall.collider, p.damage, p.source, wall.point);
         if (p.team === 'player') c.enemies.vehicles?.shot(wall.collider, wall.point, p.damage, p.source);
         break;
       default:
@@ -955,7 +955,7 @@ export class Projectiles {
     if (!passWall(c.physics, p.budget, wall, dir, this.exit, this.exitNormal)) return false;
     c.fx.impact(wall.point, wall.normal, wall.surface, 1);
     c.audio.play(SURFACE_SOUND[wall.surface], { position: wall.point, volume: 0.8, pitchJitter: 0.08 });
-    if (!p.cosmetic) c.world.objects?.damageExplosive(wall.collider, p.damage, p.source);
+    if (!p.cosmetic) c.world.objects?.damageExplosive(wall.collider, p.damage, p.source, wall.point);
     this.combat.exitWall(this.exit, dir, this.exitNormal, wall.surface, 1);
     p.position.copy(this.exit).addScaledVector(dir, 0.02);
     p.damage = p.baseDamage * damageKept(p.budget);
@@ -971,7 +971,7 @@ export class Projectiles {
     c.fx.impact(wall.point, wall.normal, wall.surface, 1.2);
     c.render.decals.add('crack', wall.point, wall.normal, 0.5, rand(0, 6.28));
     c.audio.play('stake_hit_wall', { position: wall.point });
-    if (!p.cosmetic) c.world.objects?.damageExplosive(wall.collider, p.damage, p.source);
+    if (!p.cosmetic) c.world.objects?.damageExplosive(wall.collider, p.damage, p.source, wall.point);
     if (bomb) {
       this.stickBomb(p, wall.point, this.dir, wall.normal, null, undefined);
       return;

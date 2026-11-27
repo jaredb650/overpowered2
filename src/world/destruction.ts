@@ -1,12 +1,10 @@
 /**
- * THE FINALS-inspired physics-enabled structural destruction engine for OVERPOWERED 2.
+ * Physics-enabled structural destruction engine for OVERPOWERED 2.
  *
- * Structures are composed of load-bearing graphs (`StructuralCluster`) whose intact nodes carry Three.js meshes
- * and static Rapier box colliders. When blasts or ordnance break a node, its static collider is removed and
- * replaced by a live dynamic Rapier rigid body launched outward from the blast. A BFS from all surviving
- * ground-anchored nodes immediately identifies any newly unsupported upper sections (roofs, slabs, catwalks,
- * crane booms), putting them through a dramatic hinge/groan warning phase before releasing them as falling
- * dynamic bodies capable of crushing enemies and triggering domino collapses on neighboring structures.
+ * Combines *The Finals* (localized impact-centered fracture, gradual hinged sagging, exposed rebar),
+ * *Red Faction: Guerrilla* (4-pass structural integrity solver with support-polygon tipping, cantilever
+ * shear, and compressive column buckling cascades), and *Battlefield* (material-vs-damage matrix,
+ * tank smash-through on light/masonry walls vs bunker deflection, persistent walkable rubble mounds).
  */
 import * as THREE from 'three';
 import type RAPIER from '@dimforge/rapier3d-compat';
@@ -16,12 +14,16 @@ import {
   type DestructionManagerLike,
   type DestructionTier,
   type StructuralClusterLike,
+  type StructuralMaterial,
   type SurfaceKind,
+  type VehicleRamClass,
+  type VehicleRamResult,
 } from '../core/contracts';
 import type { EnemyInstance } from '../core/gameplay';
 import { clamp } from '../core/math';
 import { groups } from '../physics/Physics';
 import type { Mat } from './kit/geo';
+import type { NavGraph } from './nav';
 import {
   applyBreakFractureDeform,
   buildFractureCellGeometry,
@@ -32,12 +34,45 @@ import {
   planPanelFracture,
   resolveFractureGrid,
   SplinterPool,
+  type FractureGridPlan,
   type MaterialClass,
   type SplinterKind,
 } from './fracture';
+import {
+  blockedHintFor,
+  canDamageMaterial,
+  canDamageTier,
+  canVehicleRamMaterial,
+  classifyDamageSource,
+  damageMultiplierFor,
+  damageMultiplierForMaterial,
+  DESTRUCTION_SOURCE_MULT,
+  ramSourceFor,
+  resolveStructuralMaterial,
+  STRUCTURAL_MATERIAL_PROPS,
+} from './destructionMaterials';
+import {
+  computeInitialSupportMetadata,
+  computeNodeLoadCapacity,
+  computeNodeMass,
+  inferSupportRole,
+  solveStructuralIntegrity,
+  type SupportRole,
+} from './structuralSolver';
 
-export type { DestructionTier, MaterialClass };
-export { MAX_SPLINTERS };
+export type { DestructionTier, MaterialClass, StructuralMaterial, SupportRole, VehicleRamClass, VehicleRamResult };
+export {
+  canDamageMaterial,
+  canDamageTier,
+  canVehicleRamMaterial,
+  classifyDamageSource,
+  damageMultiplierFor,
+  damageMultiplierForMaterial,
+  DESTRUCTION_SOURCE_MULT,
+  MAX_SPLINTERS,
+  resolveStructuralMaterial,
+  STRUCTURAL_MATERIAL_PROPS,
+};
 
 export type DestructionTierName = 'timber' | 'masonry' | 'heavy' | 'reinforced';
 
@@ -62,6 +97,8 @@ export type StructuralNodeState = 'intact' | 'tilting' | 'falling' | 'settled' |
 
 /** Cap on simultaneously active dynamic falling structural rigid bodies for steady 60 FPS even during Nuke sweeps. */
 export const MAX_DYNAMIC_BODIES = 96;
+/** Cap on persistent walkable rubble mounds left behind by collapsed masonry/concrete buildings. */
+export const MAX_RUBBLE_MOUNDS = 24;
 /** Expanding shockwave ring speed (m/s) for Nuke structural sweeps. */
 export const NUKE_SWEEP_SPEED = 115;
 /** Kinetic speed threshold (m/s) above which a falling chunk deals lethal crush damage to enemies. */
@@ -74,152 +111,8 @@ const DEFAULT_COLLAPSE_THRESHOLD = 0.65;
 /** Maximum dynamic lifetime (seconds) before a chunk settles into static rubble and releases its rigid body. */
 const DYNAMIC_MAX_AGE = 6.0;
 const DYNAMIC_STILL_TIME = 1.1;
-
-// ---------------------------------------------------------------------------------------------
-// Armor Tier Gating & Source Multipliers
-// ---------------------------------------------------------------------------------------------
-
-/** Sources capable of penetrating Tier 3 (Reinforced Concrete / Heavy Steel). */
-const TIER3_SOURCES = new Set<string>([
-  'howitzer',
-  'frame_howitzer',
-  'ac130_105mm',
-  'ac130_bomb',
-  'nuke',
-  'hazard_chain',
-  'breach_charge',
-  'hydraulic_overload',
-]);
-
-/** Sources capable of penetrating Tier 2 (Heavy Industrial: Cannery, Market Hall, Concrete Terraces, Heavy Pillars). */
-const TIER2_SOURCES = new Set<string>([
-  'howitzer',
-  'frame_40mm',
-  'frame_40mm_ap',
-  'frame_howitzer',
-  'frame_stomp',
-  'frame_charge',
-  'frame_crush',
-  'frame_backhand',
-  'frame_pod',
-  'ac130_105mm',
-  'ac130_bomb',
-  'ac130_40mm',
-  'ac130_40mm_ap',
-  'tank_cannon',
-  'hazard_chain',
-  'nuke',
-  'breach_charge',
-  'hydraulic_overload',
-]);
-
-/** Sources capable of penetrating Tier 1 (Masonry, Barracks, Emplacement Platforms, Walls). */
-const TIER1_SOURCES = new Set<string>([
-  'howitzer',
-  'satchel',
-  'rocket',
-  'mgl',
-  'grenade',
-  'c4',
-  'tank_cannon',
-  'nuke',
-  'hazard_chain',
-  'breach_charge',
-  'hydraulic_overload',
-  // Frame ordnance & melee
-  'frame_40mm',
-  'frame_40mm_ap',
-  'frame_howitzer',
-  'frame_stomp',
-  'frame_charge',
-  'frame_crush',
-  'frame_backhand',
-  'frame_pod',
-  // Other heavy explosive/call-in/map sources
-  'barrel',
-  'tank',
-  'airstrike',
-  'orbital',
-  'ac130',
-  'ac130_105mm',
-  'ac130_bomb',
-  'ac130_40mm',
-  'ac130_40mm_ap',
-  'ac130_25mm',
-  'ac130_wp',
-  'black_sun',
-  'warthog',
-  'drop_pod',
-  'chopper_rocket',
-  'chopper_cannon',
-  'sapper',
-  'sapper_charge',
-  'enemy_rocket',
-  'mortar',
-  'shell',
-  'explosive',
-  'test',
-]);
-
-/** Hand-held explosive sources that trigger a helpful bounce hint when hitting Tier 2+ armor. */
-const HANDHELD_EXPLOSIVES = new Set<string>(['rocket', 'satchel', 'mgl', 'grenade', 'c4']);
-
-/** Frame/heavy sources that trigger a Tier 3 bounce hint when hitting Reinforced Concrete. */
-const TIER2_NON_HOWITZER = new Set<string>([
-  'frame_40mm',
-  'frame_40mm_ap',
-  'frame_stomp',
-  'frame_charge',
-  'frame_crush',
-  'frame_backhand',
-  'frame_pod',
-  'ac130_40mm',
-  'ac130_40mm_ap',
-  'tank_cannon',
-]);
-
-export const DESTRUCTION_SOURCE_MULT: Readonly<Record<string, number>> = {
-  howitzer: 8.0,
-  satchel: 3.2,
-  frame_howitzer: 8.0,
-  ac130_105mm: 8.0,
-  ac130_bomb: 12.0,
-  ac130_40mm_ap: 2.5,
-  ac130_40mm: 2.2,
-  ac130_wp: 1.8,
-  ac130_25mm: 0.9,
-  frame_40mm_ap: 2.5,
-  frame_40mm: 2.2,
-  frame_stomp: 4.5,
-  frame_charge: 4.5,
-  frame_crush: 4.5,
-  frame_backhand: 3.0,
-  frame_pod: 2.5,
-  tank_cannon: 4.0,
-  hazard_chain: 2.5,
-  breach_charge: 2.5,
-  hydraulic_overload: 3.0,
-  nuke: 100,
-};
-
-/** Returns true if `source` can damage a structural element of the given `tier`. */
-export function canDamageTier(tier: DestructionTier, source: string): boolean {
-  if (tier === 0) return true;
-  // Rotary airburst / rotary bullets never damage masonry or heavier tiers.
-  if (source === 'frame_rotary_airburst' || source === 'frame_rotary' || source === 'frame_flak') return false;
-  if (tier === 3) return TIER3_SOURCES.has(source);
-  if (tier === 2) return TIER2_SOURCES.has(source);
-  // Tier 1: masonry
-  if (TIER1_SOURCES.has(source)) return true;
-  if (source.startsWith('frame_')) return true;
-  return false;
-}
-
-/** Returns the effective damage multiplier for `source` against `tier` (0 when blocked by armor tier). */
-export function damageMultiplierFor(tier: DestructionTier, source: string): number {
-  if (!canDamageTier(tier, source)) return 0;
-  return DESTRUCTION_SOURCE_MULT[source] ?? 1;
-}
+/** Minimum intact node count in a cluster to enable merged per-material intact batch rendering. */
+const BATCH_MIN_NODES = 16;
 
 // ---------------------------------------------------------------------------------------------
 // Cluster & Node Types
@@ -255,8 +148,20 @@ export interface StructuralNodeSpec {
   keyNode?: boolean;
   /** Optional material class hint for splinter/bend/shatter fracture dynamics. */
   materialClass?: 'wood' | 'metal' | 'concrete' | 'stone';
+  /** Physical structural material governing weapon/vehicle damage susceptibility, mass, and cantilever limits. */
+  structuralMaterial?: StructuralMaterial;
+  /** Structural support role: `infill` (drywall/glass/parapets) never transmits support to hold up upper slabs. */
+  supportRole?: SupportRole;
+  /** Optional explicit vertical compressive load capacity (kg) for columns/bearing walls. */
+  loadCapacity?: number;
   /** Optional `[cols, rows]` subdivision grid hint for localized irregular panel fracturing. */
   fractureGrid?: readonly [number, number];
+  /** If true, spawns as 1 collider and fractures lazily around the exact impact point on first damaging hit. */
+  lazyFracture?: boolean;
+  /** If true, marks NavGraph blocked while intact and unblocks AI pathing when breached. */
+  navBlock?: boolean;
+  /** If true, marks elevated NavGraph cells blocked when this floor/stair/ramp collapses. */
+  navWalkable?: boolean;
 }
 
 export interface StructuralClusterSpec {
@@ -273,6 +178,8 @@ export interface StructuralClusterSpec {
   collapseThreshold?: number;
   /** Temporary static colliders placed before navGraph.build() for elevated walkable floors/stairs; removed when the cluster spawns. */
   navProxies?: RAPIER.Collider[];
+  /** Force batched intact rendering on or off (defaults to auto when node count >= BATCH_MIN_NODES). */
+  batched?: boolean;
   onCollapse?: (cluster: StructuralCluster) => void;
 }
 
@@ -287,7 +194,17 @@ export interface StructuralNode {
   readonly baseQuat: THREE.Quaternion;
   readonly mat: Mat;
   readonly materialClass: MaterialClass;
+  readonly structuralMaterial: StructuralMaterial;
+  readonly supportRole: SupportRole;
+  readonly mass: number;
+  readonly loadCapacity: number;
   readonly isFractureCell: boolean;
+  readonly lazyFracture: boolean;
+  readonly navBlock: boolean;
+  readonly navWalkable: boolean;
+  navBlocked: boolean;
+  initialSupportCount: number;
+  initialAnchoredSupportCount: number;
   readonly tier: DestructionTier;
   readonly anchored: boolean;
   readonly kind: StructuralNodeKind;
@@ -299,6 +216,7 @@ export interface StructuralNode {
   readonly restColors: Uint8Array;
   hp: number;
   state: StructuralNodeState;
+  batched: boolean;
   deformStrain: number;
   deformStage: number;
   readonly bendDirLocal: THREE.Vector3;
@@ -332,6 +250,9 @@ export class StructuralCluster implements StructuralClusterLike {
   /** Maps original spec node ID -> its cell nodes (1 entry if unsubdivided, cols*rows if fractured). */
   readonly cellGroups = new Map<string, StructuralNode[]>();
   readonly adjacency = new Map<string, Set<string>>();
+  readonly batchMeshes: THREE.Mesh[] = [];
+  batchEnabled = false;
+  batchDirty = false;
   readonly center = new THREE.Vector3();
   radius = 0;
   collapsed = false;
@@ -398,6 +319,19 @@ interface DynamicEntry {
   readonly crushedUids: Set<number>;
 }
 
+interface BucklingEntry {
+  cluster: StructuralCluster;
+  node: StructuralNode;
+  delay: number;
+  origin: THREE.Vector3 | null;
+}
+
+interface RubbleMound {
+  mesh: THREE.Mesh;
+  geom: THREE.BufferGeometry;
+  collider: RAPIER.Collider | null;
+}
+
 interface PendingHazard {
   pos: THREE.Vector3;
   radius: number;
@@ -452,6 +386,39 @@ function surfaceForMat(mat: Mat): SurfaceKind {
   }
 }
 
+/**
+ * Registers temporary static colliders for every `navWalkable` node (elevated slabs, stairs, driveable ramps,
+ * watchtower decks) in `clusters` so `NavGraph.build()` discovers multi-story walkable areas before
+ * `DestructionManager.addCluster()` spawns the live destructible colliders.
+ * Call the returned cleanup callback right after `NavGraph.build()` completes.
+ */
+export function registerDestructionNavProxies(
+  physics: Ctx['physics'],
+  clusters: readonly StructuralClusterSpec[],
+): () => void {
+  const created: RAPIER.Collider[] = [];
+  const e = new THREE.Euler(0, 0, 0, 'YXZ');
+  for (let i = 0; i < clusters.length; i++) {
+    const c = clusters[i]!;
+    for (let j = 0; j < c.nodes.length; j++) {
+      const ns = c.nodes[j]!;
+      if (!ns.navWalkable) continue;
+      const pos = toVec3(ns.pos);
+      const half = toVec3(ns.half);
+      const quat = new THREE.Quaternion().setFromEuler(e.set(ns.pitch ?? 0, ns.yaw ?? 0, ns.roll ?? 0, 'YXZ'));
+      created.push(physics.addStaticBox(pos, half, quat, surfaceForMat(ns.mat)));
+    }
+  }
+  const flush = (physics as { flushQueries?: () => void }).flushQueries;
+  if (created.length > 0) flush?.call(physics);
+  return () => {
+    for (let i = 0; i < created.length; i++) {
+      physics.world.removeCollider(created[i]!, true);
+    }
+    if (created.length > 0) flush?.call(physics);
+  };
+}
+
 function chipColorFor(mat: Mat, color?: number | readonly [number, number, number]): number {
   if (typeof color === 'number') return color;
   if (Array.isArray(color)) return _c.setRGB(color[0], color[1], color[2]).getHex();
@@ -474,12 +441,13 @@ function chipColorFor(mat: Mat, color?: number | readonly [number, number, numbe
   }
 }
 
-function densityFor(tier: DestructionTier, mat: Mat): number {
-  if (mat === 'plywood') return 550;
-  if (tier === 0) return 650;
-  if (tier === 1) return 1800;
-  if (tier === 2) return 2350;
-  return 2650;
+const DOWN = new THREE.Vector3(0, -1, 0);
+const _mat4 = new THREE.Matrix4();
+const _normMat3 = new THREE.Matrix3();
+const _scaleOne = new THREE.Vector3(1, 1, 1);
+
+function densityFor(material: StructuralMaterial): number {
+  return STRUCTURAL_MATERIAL_PROPS[material].density;
 }
 
 function defaultImpactRadius(node: StructuralNode): number {
@@ -521,6 +489,179 @@ function pairNodeDistance(a: StructuralNode, b: StructuralNode): number {
   return Math.min(dAB, dBA);
 }
 
+/** Computes damage multiplier for a structural node, keeping Tier-0 volatile hazards (ammo crates) shootable by rifles. */
+function nodeDamageMultiplier(node: StructuralNode, source: string): number {
+  const mult = damageMultiplierForMaterial(node.structuralMaterial, source);
+  if (mult > 0) return mult;
+  if (node.kind === 'hazard' && node.tier === 0) return 1.0;
+  return 0;
+}
+
+/** Merges a list of intact batched structural nodes sharing a `Mat` into a single world-space BufferGeometry. */
+function mergeIntactBatchGeometry(nodes: readonly StructuralNode[]): THREE.BufferGeometry | null {
+  let totalVerts = 0;
+  let totalIndices = 0;
+  for (let i = 0; i < nodes.length; i++) {
+    const geom = nodes[i]!.mesh?.geometry;
+    if (!geom) continue;
+    const pos = geom.getAttribute('position') as THREE.BufferAttribute | undefined;
+    if (!pos) continue;
+    totalVerts += pos.count;
+    const idx = geom.getIndex();
+    totalIndices += idx ? idx.count : pos.count;
+  }
+  if (totalVerts === 0 || totalIndices === 0) return null;
+
+  const positions = new Float32Array(totalVerts * 3);
+  const normals = new Float32Array(totalVerts * 3);
+  const uvs = new Float32Array(totalVerts * 2);
+  const colors = new Uint8Array(totalVerts * 4);
+  const indices = new Uint32Array(totalIndices);
+
+  let vOffset = 0;
+  let iOffset = 0;
+  for (let nIdx = 0; nIdx < nodes.length; nIdx++) {
+    const node = nodes[nIdx]!;
+    const geom = node.mesh?.geometry;
+    if (!geom) continue;
+    const posAttr = geom.getAttribute('position') as THREE.BufferAttribute | undefined;
+    const nrmAttr = geom.getAttribute('normal') as THREE.BufferAttribute | undefined;
+    const uvAttr = geom.getAttribute('uv') as THREE.BufferAttribute | undefined;
+    const colAttr = geom.getAttribute('color') as THREE.BufferAttribute | undefined;
+    if (!posAttr) continue;
+
+    _mat4.compose(node.basePos, node.baseQuat, _scaleOne);
+    _normMat3.getNormalMatrix(_mat4);
+
+    const vCount = posAttr.count;
+    const pArr = posAttr.array as Float32Array;
+    const nArr = nrmAttr ? (nrmAttr.array as Float32Array) : null;
+    const uArr = uvAttr ? (uvAttr.array as Float32Array) : null;
+    const cArr = colAttr ? (colAttr.array as Uint8Array) : null;
+
+    for (let v = 0; v < vCount; v++) {
+      const o3 = v * 3;
+      const d3 = (vOffset + v) * 3;
+      _v.set(pArr[o3]!, pArr[o3 + 1]!, pArr[o3 + 2]!).applyMatrix4(_mat4);
+      positions[d3] = _v.x;
+      positions[d3 + 1] = _v.y;
+      positions[d3 + 2] = _v.z;
+
+      if (nArr) {
+        _v.set(nArr[o3]!, nArr[o3 + 1]!, nArr[o3 + 2]!).applyMatrix3(_normMat3).normalize();
+        normals[d3] = _v.x;
+        normals[d3 + 1] = _v.y;
+        normals[d3 + 2] = _v.z;
+      } else {
+        normals[d3] = 0;
+        normals[d3 + 1] = 1;
+        normals[d3 + 2] = 0;
+      }
+
+      const d2 = (vOffset + v) * 2;
+      if (uArr) {
+        uvs[d2] = uArr[v * 2]!;
+        uvs[d2 + 1] = uArr[v * 2 + 1]!;
+      }
+
+      const d4 = (vOffset + v) * 4;
+      if (cArr) {
+        const c4 = v * 4;
+        colors[d4] = cArr[c4]!;
+        colors[d4 + 1] = cArr[c4 + 1]!;
+        colors[d4 + 2] = cArr[c4 + 2]!;
+        colors[d4 + 3] = cArr[c4 + 3] ?? 255;
+      } else {
+        colors[d4] = 255;
+        colors[d4 + 1] = 255;
+        colors[d4 + 2] = 255;
+        colors[d4 + 3] = 255;
+      }
+    }
+
+    const idxAttr = geom.getIndex();
+    if (idxAttr) {
+      const arr = idxAttr.array;
+      for (let k = 0; k < idxAttr.count; k++) {
+        indices[iOffset++] = (arr[k] as number) + vOffset;
+      }
+    } else {
+      for (let k = 0; k < vCount; k++) {
+        indices[iOffset++] = k + vOffset;
+      }
+    }
+    vOffset += vCount;
+  }
+
+  const merged = new THREE.BufferGeometry();
+  merged.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  merged.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
+  merged.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+  merged.setAttribute('color', new THREE.BufferAttribute(colors, 4, true));
+  merged.setIndex(new THREE.BufferAttribute(indices, 1));
+  merged.computeBoundingSphere();
+  return merged;
+}
+
+/** Builds a low walkable jagged concrete/brick rubble pile mesh (1 draw call) for collapsed buildings. */
+function buildRubbleMoundGeometry(radius: number, height: number, colorHex: number): THREE.BufferGeometry {
+  _c.setHex(colorHex);
+  const cr = _c.r;
+  const cg = _c.g;
+  const cb = _c.b;
+
+  const parts: { pos: [number, number, number]; half: [number, number, number]; yaw: number; pitch: number; shade: number }[] = [
+    { pos: [0, height * 0.45, 0], half: [radius * 0.72, height * 0.48, radius * 0.65], yaw: 0.25, pitch: 0.08, shade: 0.76 },
+    { pos: [-radius * 0.42, height * 0.34, radius * 0.28], half: [radius * 0.48, height * 0.36, radius * 0.42], yaw: -0.55, pitch: -0.14, shade: 0.86 },
+    { pos: [radius * 0.46, height * 0.32, -radius * 0.22], half: [radius * 0.45, height * 0.35, radius * 0.46], yaw: 0.9, pitch: 0.16, shade: 0.72 },
+    { pos: [radius * 0.14, height * 0.62, radius * 0.12], half: [radius * 0.36, height * 0.22, radius * 0.28], yaw: 1.4, pitch: -0.22, shade: 0.92 },
+    { pos: [-radius * 0.24, height * 0.28, -radius * 0.44], half: [radius * 0.38, height * 0.28, radius * 0.34], yaw: 0.45, pitch: 0.12, shade: 0.80 },
+  ];
+
+  const positions: number[] = [];
+  const normals: number[] = [];
+  const uvs: number[] = [];
+  const colors: number[] = [];
+  const indices: number[] = [];
+
+  for (const p of parts) {
+    const b = new THREE.BoxGeometry(p.half[0] * 2, p.half[1] * 2, p.half[2] * 2);
+    const q = new THREE.Quaternion().setFromEuler(new THREE.Euler(p.pitch, p.yaw, p.pitch * 0.5, 'YXZ'));
+    _mat4.compose(new THREE.Vector3(p.pos[0], p.pos[1], p.pos[2]), q, _scaleOne);
+    _normMat3.getNormalMatrix(_mat4);
+
+    const pAttr = b.getAttribute('position') as THREE.BufferAttribute;
+    const nAttr = b.getAttribute('normal') as THREE.BufferAttribute;
+    const uAttr = b.getAttribute('uv') as THREE.BufferAttribute;
+    const vStart = positions.length / 3;
+    for (let i = 0; i < pAttr.count; i++) {
+      _v.set(pAttr.getX(i), pAttr.getY(i), pAttr.getZ(i)).applyMatrix4(_mat4);
+      positions.push(_v.x, Math.max(0.01, _v.y), _v.z);
+      _v.set(nAttr.getX(i), nAttr.getY(i), nAttr.getZ(i)).applyMatrix3(_normMat3).normalize();
+      normals.push(_v.x, _v.y, _v.z);
+      uvs.push(uAttr.getX(i), uAttr.getY(i));
+      colors.push(
+        clamp(Math.round(cr * p.shade * 255), 0, 255),
+        clamp(Math.round(cg * p.shade * 255), 0, 255),
+        clamp(Math.round(cb * p.shade * 255), 0, 255),
+        255,
+      );
+    }
+    const idx = b.getIndex()!;
+    for (let i = 0; i < idx.count; i++) indices.push(idx.getX(i) + vStart);
+    b.dispose();
+  }
+
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(positions), 3));
+  g.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(normals), 3));
+  g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(uvs), 2));
+  g.setAttribute('color', new THREE.BufferAttribute(new Uint8Array(colors), 4, true));
+  g.setIndex(new THREE.BufferAttribute(new Uint32Array(indices), 1));
+  g.computeBoundingSphere();
+  return g;
+}
+
 // ---------------------------------------------------------------------------------------------
 // DestructionManager
 // ---------------------------------------------------------------------------------------------
@@ -530,18 +671,19 @@ export type SecondaryBlastHook = (center: THREE.Vector3, radius: number, amount:
 export class DestructionManager implements DestructionManagerLike {
   readonly root = new THREE.Group();
   readonly splinters = new SplinterPool(MAX_SPLINTERS);
+  private nav: NavGraph | null = null;
   private readonly clusters: StructuralCluster[] = [];
   private readonly byTag = new Map<string, StructuralCluster>();
   private readonly byCollider = new Map<number, { cluster: StructuralCluster; node: StructuralNode }>();
   private readonly tilting: { cluster: StructuralCluster; node: StructuralNode }[] = [];
+  private readonly buckling: BucklingEntry[] = [];
+  private readonly bucklingIds = new Set<string>();
   private readonly dynamicPool: DynamicEntry[] = [];
+  private readonly rubbleMounds: RubbleMound[] = [];
   private readonly pendingHazards: PendingHazard[] = [];
   private readonly sweeps: NukeSweepState[] = [];
   private readonly nearEnemies: EnemyInstance[] = [];
   private readonly geometries: THREE.BufferGeometry[] = [];
-  private readonly bfsVisited = new Set<string>();
-  private readonly bfsQueue: string[] = [];
-  private readonly bfsDetached: StructuralNode[] = [];
   private readonly _t = { x: 0, y: 0, z: 0 };
   private readonly _r = { x: 0, y: 0, z: 0, w: 1 };
   private readonly _lv = { x: 0, y: 0, z: 0 };
@@ -565,6 +707,57 @@ export class DestructionManager implements DestructionManagerLike {
     this.root.add(this.splinters.root);
   }
 
+  /** Attaches the world NavGraph so breached ground walls unblock AI paths and collapsed floors block air paths. */
+  attachNav(nav: NavGraph | null): void {
+    this.nav = nav;
+    if (!nav) return;
+    for (let ci = 0; ci < this.clusters.length; ci++) {
+      const cluster = this.clusters[ci]!;
+      for (let ni = 0; ni < cluster.nodes.length; ni++) {
+        const node = cluster.nodes[ni]!;
+        if (node.state === 'intact' && node.navBlock && !node.navBlocked) {
+          this.setNodeNavBlocked(node, true);
+        }
+      }
+    }
+  }
+
+  private setNodeNavBlocked(node: StructuralNode, blocked: boolean): void {
+    if (!this.nav) return;
+    if (blocked && node.navBlocked) return;
+    if (!blocked && !node.navBlocked) return;
+
+    // Horizontal orientation unit vector along node's local X axis
+    _v.set(1, 0, 0).applyQuaternion(node.baseQuat);
+    const lenXZ = Math.hypot(_v.x, _v.z);
+    const ux = lenXZ > 1e-4 ? _v.x / lenXZ : 1;
+    const uz = lenXZ > 1e-4 ? _v.z / lenXZ : 0;
+    const floorY = node.navWalkable
+      ? node.basePos.y + node.half.y
+      : Math.max(0, node.basePos.y - node.half.y);
+    this.nav.setBlocked(
+      node.basePos.x,
+      node.basePos.z,
+      floorY,
+      ux,
+      uz,
+      node.half.x + 0.35,
+      node.half.z + 0.35,
+      blocked,
+    );
+    node.navBlocked = blocked;
+  }
+
+  private onNodeLostNavSync(node: StructuralNode): void {
+    if (!this.nav) return;
+    if (node.navBlock && node.navBlocked) {
+      this.setNodeNavBlocked(node, false);
+    }
+    if (node.navWalkable && !node.navBlocked) {
+      this.setNodeNavBlocked(node, true);
+    }
+  }
+
   private requestStaticShadowRefresh(): void {
     this.shadowRefreshPending = true;
   }
@@ -583,6 +776,11 @@ export class DestructionManager implements DestructionManagerLike {
   /** Number of currently active pooled 3D splinters / shards (always <= MAX_SPLINTERS). */
   get activeSplinters(): number {
     return this.splinters.activeCount;
+  }
+
+  /** Number of active persistent walkable rubble mounds (always <= MAX_RUBBLE_MOUNDS). */
+  get activeRubbleMounds(): number {
+    return this.rubbleMounds.length;
   }
 
   /** Registers and spawns a new structural cluster into the world. */
@@ -608,13 +806,172 @@ export class DestructionManager implements DestructionManagerLike {
     baseQuat: THREE.Quaternion,
     surface: SurfaceKind,
   ): RAPIER.Collider | null {
-    // Oriented cuboid matching the jagged cell's bounds is watertight along seams and avoids building
-    // hundreds of per-cell Rapier trimesh BVHs while keeping visual jagged fracture meshes intact.
     return this.ctx.physics.addStaticBox(basePos, half, baseQuat, surface);
+  }
+
+  private clearClusterBatchMeshes(cluster: StructuralCluster): void {
+    for (let i = 0; i < cluster.batchMeshes.length; i++) {
+      const m = cluster.batchMeshes[i]!;
+      this.root.remove(m);
+      m.geometry.dispose();
+    }
+    cluster.batchMeshes.length = 0;
+  }
+
+  private rebuildClusterBatch(cluster: StructuralCluster): void {
+    cluster.batchDirty = false;
+    this.clearClusterBatchMeshes(cluster);
+    if (!cluster.batchEnabled) return;
+
+    const byMat = new Map<Mat, StructuralNode[]>();
+    for (let i = 0; i < cluster.nodes.length; i++) {
+      const n = cluster.nodes[i]!;
+      if (n.state !== 'intact' || !n.batched) continue;
+      let list = byMat.get(n.mat);
+      if (!list) {
+        list = [];
+        byMat.set(n.mat, list);
+      }
+      list.push(n);
+    }
+
+    for (const [mat, list] of byMat) {
+      const geom = mergeIntactBatchGeometry(list);
+      if (!geom) continue;
+      const mesh = new THREE.Mesh(geom, this.material(mat));
+      mesh.matrixAutoUpdate = false;
+      mesh.updateMatrix();
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      mesh.userData.staticShadow = true;
+      this.root.add(mesh);
+      cluster.batchMeshes.push(mesh);
+    }
+    this.requestStaticShadowRefresh();
+  }
+
+  private flushDirtyBatches(): void {
+    for (let i = 0; i < this.clusters.length; i++) {
+      const c = this.clusters[i]!;
+      if (c.batchDirty) this.rebuildClusterBatch(c);
+    }
+  }
+
+  /** Promotes an intact batched node to its own live Three.js mesh on first deformation/tilt/break. */
+  private promoteNodeFromBatch(cluster: StructuralCluster, node: StructuralNode): void {
+    if (!node.batched) return;
+    node.batched = false;
+    if (node.mesh && node.mesh.parent !== this.root) {
+      this.root.add(node.mesh);
+    }
+    if (cluster.batchEnabled) {
+      cluster.batchDirty = true;
+    }
+  }
+
+  private createNodeRecord(
+    cluster: StructuralCluster,
+    ns: StructuralNodeSpec,
+    nodeId: string,
+    basePos: THREE.Vector3,
+    half: THREE.Vector3,
+    baseQuat: THREE.Quaternion,
+    anchored: boolean,
+    geom: THREE.BufferGeometry,
+    materialClass: MaterialClass,
+    structuralMaterial: StructuralMaterial,
+    isFractureCell: boolean,
+    lazyFracture: boolean,
+    navBlock: boolean,
+    navWalkable: boolean,
+    staticCollider: RAPIER.Collider | null,
+    batched: boolean,
+  ): StructuralNode {
+    this.geometries.push(geom);
+    const mesh = new THREE.Mesh(geom, this.material(ns.mat));
+    mesh.position.copy(basePos);
+    mesh.quaternion.copy(baseQuat);
+    mesh.matrixAutoUpdate = false;
+    mesh.updateMatrix();
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    mesh.userData.staticShadow = true;
+    if (!batched) {
+      this.root.add(mesh);
+    }
+
+    const posAttr = geom.getAttribute('position') as THREE.BufferAttribute;
+    const colAttr = geom.getAttribute('color') as THREE.BufferAttribute;
+    const restPositions = new Float32Array(posAttr.array as Float32Array);
+    const restColors = new Uint8Array(colAttr.array as Uint8Array);
+    const supportRole = inferSupportRole(ns.kind, structuralMaterial, ns.supportRole);
+    const mass = computeNodeMass(half, structuralMaterial);
+    const loadCapacity = computeNodeLoadCapacity(half, ns.kind, structuralMaterial, ns.loadCapacity);
+
+    const node: StructuralNode = {
+      id: nodeId,
+      origId: ns.id,
+      clusterId: cluster.id,
+      spec: ns,
+      basePos,
+      half,
+      baseQuat,
+      mat: ns.mat,
+      materialClass,
+      structuralMaterial,
+      supportRole,
+      mass,
+      loadCapacity,
+      isFractureCell,
+      lazyFracture,
+      navBlock,
+      navWalkable,
+      navBlocked: false,
+      initialSupportCount: 0,
+      initialAnchoredSupportCount: 0,
+      tier: ns.tier,
+      anchored,
+      kind: ns.kind,
+      maxHp: ns.hp,
+      keyNode: ns.keyNode === true,
+      restPositions,
+      restColors,
+      hp: ns.hp,
+      state: 'intact',
+      batched,
+      deformStrain: 0,
+      deformStage: 0,
+      bendDirLocal: new THREE.Vector3(),
+      lastImpactLocal: new THREE.Vector3(),
+      mesh,
+      staticCollider,
+      dynamicBody: null,
+      tiltElapsed: 0,
+      tiltDuration: 0,
+      tiltMaxAngle: 0.48,
+      tiltFxTimer: 0,
+      tiltBendApplied: false,
+      tiltAxis: new THREE.Vector3(1, 0, 0),
+      tiltHingeOffset: new THREE.Vector3(),
+      tiltBlastOrigin: null,
+      tiltIsNuke: false,
+    };
+
+    cluster.nodes.push(node);
+    cluster.byId.set(node.id, node);
+    cluster.adjacency.set(node.id, new Set());
+    if (staticCollider) {
+      this.byCollider.set(staticCollider.handle, { cluster, node });
+    }
+    if (this.nav && navBlock) {
+      this.setNodeNavBlocked(node, true);
+    }
+    return node;
   }
 
   private buildClusterRuntime(cluster: StructuralCluster): void {
     const { spec } = cluster;
+    this.clearClusterBatchMeshes(cluster);
     cluster.nodes.length = 0;
     cluster.byId.clear();
     cluster.cellGroups.clear();
@@ -623,6 +980,8 @@ export class DestructionManager implements DestructionManagerLike {
     cluster.lastGroanAt = -10;
     cluster.center.set(0, 0, 0);
     cluster.radius = 0;
+    cluster.batchEnabled = spec.batched ?? (spec.nodes.length >= BATCH_MIN_NODES);
+    cluster.batchDirty = false;
 
     const linkExact = (a: string, b: string) => {
       if (a === b) return;
@@ -634,83 +993,6 @@ export class DestructionManager implements DestructionManagerLike {
       }
     };
 
-    const registerNode = (
-      ns: StructuralNodeSpec,
-      nodeId: string,
-      basePos: THREE.Vector3,
-      half: THREE.Vector3,
-      baseQuat: THREE.Quaternion,
-      anchored: boolean,
-      geom: THREE.BufferGeometry,
-      materialClass: MaterialClass,
-      isFractureCell: boolean,
-      staticCollider: RAPIER.Collider | null,
-    ): StructuralNode => {
-      this.geometries.push(geom);
-      const mesh = new THREE.Mesh(geom, this.material(ns.mat));
-      mesh.position.copy(basePos);
-      mesh.quaternion.copy(baseQuat);
-      mesh.matrixAutoUpdate = false;
-      mesh.updateMatrix();
-      mesh.castShadow = true;
-      mesh.receiveShadow = true;
-      mesh.userData.staticShadow = true;
-      this.root.add(mesh);
-
-      const posAttr = geom.getAttribute('position') as THREE.BufferAttribute;
-      const colAttr = geom.getAttribute('color') as THREE.BufferAttribute;
-      const restPositions = new Float32Array(posAttr.array as Float32Array);
-      const restColors = new Uint8Array(colAttr.array as Uint8Array);
-
-      const node: StructuralNode = {
-        id: nodeId,
-        origId: ns.id,
-        clusterId: cluster.id,
-        spec: ns,
-        basePos,
-        half,
-        baseQuat,
-        mat: ns.mat,
-        materialClass,
-        isFractureCell,
-        tier: ns.tier,
-        anchored,
-        kind: ns.kind,
-        maxHp: ns.hp,
-        keyNode: ns.keyNode === true,
-        restPositions,
-        restColors,
-        hp: ns.hp,
-        state: 'intact',
-        deformStrain: 0,
-        deformStage: 0,
-        bendDirLocal: new THREE.Vector3(),
-        lastImpactLocal: new THREE.Vector3(),
-        mesh,
-        staticCollider,
-        dynamicBody: null,
-        tiltElapsed: 0,
-        tiltDuration: 0,
-        tiltMaxAngle: 0.48,
-        tiltFxTimer: 0,
-        tiltBendApplied: false,
-        tiltAxis: new THREE.Vector3(1, 0, 0),
-        tiltHingeOffset: new THREE.Vector3(),
-        tiltBlastOrigin: null,
-        tiltIsNuke: false,
-      };
-
-      cluster.nodes.push(node);
-      cluster.byId.set(node.id, node);
-      cluster.adjacency.set(node.id, new Set());
-      cluster.center.add(basePos);
-
-      if (staticCollider) {
-        this.byCollider.set(staticCollider.handle, { cluster, node });
-      }
-      return node;
-    };
-
     for (const ns of spec.nodes) {
       const parentPos = toVec3(ns.pos);
       const parentHalf = toVec3(ns.half);
@@ -718,17 +1000,21 @@ export class DestructionManager implements DestructionManagerLike {
         _e.set(ns.pitch ?? 0, ns.yaw ?? 0, ns.roll ?? 0, 'YXZ'),
       );
       const materialClass = inferMaterialClass(ns.mat, ns.materialClass);
+      const structuralMaterial = resolveStructuralMaterial(ns.tier, ns.mat, ns.structuralMaterial);
       const surface = surfaceForMat(ns.mat);
-      const gridPlan = resolveFractureGrid(ns, parentHalf);
+      const useLazy = ns.lazyFracture === true;
+      const gridPlan = useLazy ? null : resolveFractureGrid(ns, parentHalf, false);
 
       if (gridPlan) {
         const cells = planPanelFracture(ns, parentHalf, gridPlan);
+        const exposeRebar = structuralMaterial === 'concrete' || structuralMaterial === 'reinforced_concrete';
         const created: StructuralNode[] = [];
         for (const cell of cells) {
           const cellWorldPos = cell.localOffset.clone().applyQuaternion(parentQuat).add(parentPos);
-          const geom = buildFractureCellGeometry(cell, ns.color, materialClass);
+          const geom = buildFractureCellGeometry(cell, ns.color, materialClass, exposeRebar);
           const col = this.createStaticCellCollider(geom, cellWorldPos, cell.half, parentQuat, surface);
-          const node = registerNode(
+          const node = this.createNodeRecord(
+            cluster,
             ns,
             cell.id,
             cellWorldPos,
@@ -737,13 +1023,18 @@ export class DestructionManager implements DestructionManagerLike {
             cell.anchored,
             geom,
             materialClass,
+            structuralMaterial,
             true,
+            false,
+            ns.navBlock === true && cell.row === 0,
+            ns.navWalkable === true,
             col,
+            cluster.batchEnabled,
           );
+          cluster.center.add(cellWorldPos);
           created.push(node);
         }
 
-        // Wire intra-panel orthogonal neighbor graph so adjacent jagged cells share structural load
         const { cols, rows } = gridPlan;
         for (let r = 0; r < rows; r++) {
           for (let c = 0; c < cols; c++) {
@@ -757,7 +1048,8 @@ export class DestructionManager implements DestructionManagerLike {
       } else {
         const geom = buildSubdividedBoxGeometry(parentHalf, ns.color);
         const col = this.ctx.physics.addStaticBox(parentPos, parentHalf, parentQuat, surface);
-        const node = registerNode(
+        const node = this.createNodeRecord(
+          cluster,
           ns,
           ns.id,
           parentPos,
@@ -766,9 +1058,15 @@ export class DestructionManager implements DestructionManagerLike {
           ns.anchored,
           geom,
           materialClass,
+          structuralMaterial,
           false,
+          useLazy,
+          ns.navBlock === true,
+          ns.navWalkable === true,
           col,
+          cluster.batchEnabled,
         );
+        cluster.center.add(parentPos);
         cluster.cellGroups.set(ns.id, [node]);
       }
     }
@@ -795,7 +1093,6 @@ export class DestructionManager implements DestructionManagerLike {
         return;
       }
 
-      // Connect the spatially closest touching boundary cells between the two groups
       let minDist = Infinity;
       for (let i = 0; i < groupA.length; i++) {
         for (let j = 0; j < groupB.length; j++) {
@@ -821,6 +1118,137 @@ export class DestructionManager implements DestructionManagerLike {
         for (const other of ns.supports) linkGroups(ns.id, other);
       }
     }
+
+    // Precompute initial support topology for the 4-pass structural integrity solver
+    const supportMeta = computeInitialSupportMetadata(cluster);
+    for (let i = 0; i < cluster.nodes.length; i++) {
+      const n = cluster.nodes[i]!;
+      const m = supportMeta.get(n.id);
+      if (m) {
+        n.initialSupportCount = m.directSupports;
+        n.initialAnchoredSupportCount = m.anchoredSupports;
+      }
+    }
+
+    if (cluster.batchEnabled) {
+      this.rebuildClusterBatch(cluster);
+    }
+  }
+
+  /**
+   * Lazily subdivides an intact panel node around `worldImpact` into irregular jagged fracture cells
+   * with exposed steel rebar stubs (on concrete/reinforced_concrete) and preserves graph connectivity.
+   */
+  private subdivideNodeAroundImpact(
+    cluster: StructuralCluster,
+    parent: StructuralNode,
+    worldImpact: THREE.Vector3,
+    plan: FractureGridPlan,
+  ): StructuralNode[] {
+    // Transform impact into parent's local frame
+    _q.copy(parent.baseQuat).invert();
+    const localHit = new THREE.Vector3().subVectors(worldImpact, parent.basePos).applyQuaternion(_q);
+    localHit.set(
+      clamp(localHit.x, -parent.half.x, parent.half.x),
+      clamp(localHit.y, -parent.half.y, parent.half.y),
+      clamp(localHit.z, -parent.half.z, parent.half.z),
+    );
+
+    const cells = planPanelFracture(parent.spec, parent.half, plan, localHit);
+    const exposeRebar =
+      parent.structuralMaterial === 'concrete' || parent.structuralMaterial === 'reinforced_concrete';
+    const surface = surfaceForMat(parent.mat);
+
+    // Record parent's external neighbors before replacing it
+    const externalNeighbors = [...(cluster.adjacency.get(parent.id) ?? [])];
+
+    // Tear down parent runtime state cleanly
+    this.removeStaticCollider(parent);
+    if (parent.navBlocked) this.setNodeNavBlocked(parent, false);
+    if (parent.mesh && parent.mesh.parent === this.root) {
+      this.root.remove(parent.mesh);
+    }
+    if (parent.batched && cluster.batchEnabled) {
+      cluster.batchDirty = true;
+    }
+    parent.batched = false;
+    parent.state = 'gone';
+
+    const parentIdx = cluster.nodes.indexOf(parent);
+    if (parentIdx >= 0) cluster.nodes.splice(parentIdx, 1);
+    cluster.byId.delete(parent.id);
+    cluster.adjacency.delete(parent.id);
+    for (let i = 0; i < externalNeighbors.length; i++) {
+      cluster.adjacency.get(externalNeighbors[i]!)?.delete(parent.id);
+    }
+
+    const created: StructuralNode[] = [];
+    const hpRatio = clamp(parent.hp / Math.max(1, parent.maxHp), 0.15, 1);
+    for (const cell of cells) {
+      const cellWorldPos = cell.localOffset.clone().applyQuaternion(parent.baseQuat).add(parent.basePos);
+      const geom = buildFractureCellGeometry(cell, parent.spec.color, parent.materialClass, exposeRebar);
+      const col = this.createStaticCellCollider(geom, cellWorldPos, cell.half, parent.baseQuat, surface);
+      const child = this.createNodeRecord(
+        cluster,
+        parent.spec,
+        cell.id,
+        cellWorldPos,
+        cell.half,
+        parent.baseQuat.clone(),
+        cell.anchored,
+        geom,
+        parent.materialClass,
+        parent.structuralMaterial,
+        true,
+        false,
+        parent.navBlock && cell.row === 0,
+        parent.navWalkable,
+        col,
+        false, // Newly fractured panel cells render live immediately for DMM deformation & breakage
+      );
+      // Scale cell HP gently (individually punchable by heavy shells, yet coherent as a wall)
+      child.hp = Math.max(25, Math.round(parent.maxHp * 0.65 * hpRatio));
+      child.initialSupportCount = parent.initialSupportCount;
+      child.initialAnchoredSupportCount = parent.initialAnchoredSupportCount;
+      created.push(child);
+    }
+
+    const linkExact = (a: string, b: string) => {
+      if (a === b) return;
+      cluster.adjacency.get(a)?.add(b);
+      cluster.adjacency.get(b)?.add(a);
+    };
+
+    // Wire intra-panel orthogonal edges
+    const { cols, rows } = plan;
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const idx = r * cols + c;
+        const curr = created[idx]!;
+        if (c + 1 < cols) linkExact(curr.id, created[idx + 1]!.id);
+        if (r + 1 < rows) linkExact(curr.id, created[idx + cols]!.id);
+      }
+    }
+
+    // Reconnect parent's external neighbors to the closest boundary cells
+    for (let i = 0; i < externalNeighbors.length; i++) {
+      const extNode = cluster.byId.get(externalNeighbors[i]!);
+      if (!extNode) continue;
+      let minDist = Infinity;
+      for (let j = 0; j < created.length; j++) {
+        const d = pairNodeDistance(extNode, created[j]!);
+        if (d < minDist) minDist = d;
+      }
+      const threshold = minDist + 0.85;
+      for (let j = 0; j < created.length; j++) {
+        if (pairNodeDistance(extNode, created[j]!) <= threshold) {
+          linkExact(extNode.id, created[j]!.id);
+        }
+      }
+    }
+
+    cluster.cellGroups.set(parent.origId, created);
+    return created;
   }
 
   /** True when the tagged cluster exists and has not collapsed. */
@@ -858,22 +1286,120 @@ export class DestructionManager implements DestructionManagerLike {
     if (!collider) return false;
     const entry = this.byCollider.get(collider.handle);
     if (!entry) return false;
-    const { cluster, node } = entry;
+    const { cluster } = entry;
+    let node = entry.node;
     if (node.state !== 'intact' || amount <= 0) return true;
 
     const pt = hitPoint ?? node.basePos;
-    const mult = damageMultiplierFor(node.tier, source);
+    const mult = nodeDamageMultiplier(node, source);
     if (mult <= 0) {
-      this.emitBlockedHit(node.tier, source, pt, true);
+      this.emitBlockedHit(node.structuralMaterial, source, pt, true);
       return true;
+    }
+
+    // Lazy impact-centered fracture on first damaging hit!
+    if (node.lazyFracture && !node.isFractureCell) {
+      const plan = resolveFractureGrid(node.spec, node.half, true);
+      if (plan) {
+        const cells = this.subdivideNodeAroundImpact(cluster, node, pt, plan);
+        // Pick the jagged cell closest to the exact hit point
+        let closest = cells[0]!;
+        let bestD = distanceToOrientedBox(pt, closest.basePos, closest.half, closest.baseQuat);
+        for (let i = 1; i < cells.length; i++) {
+          const d = distanceToOrientedBox(pt, cells[i]!.basePos, cells[i]!.half, cells[i]!.baseQuat);
+          if (d < bestD) {
+            bestD = d;
+            closest = cells[i]!;
+          }
+        }
+        node = closest;
+      }
     }
 
     const dealt = source === 'nuke' ? node.hp + 1 : amount * mult;
     this.applyNodeDamage(cluster, node, dealt, pt, source);
+    this.flushDirtyBatches();
     return true;
   }
 
-  /** Radial blast against all intact structural nodes in range, enforcing armor tiers and source multipliers. */
+  /**
+   * Vehicle collision ram check: tanks smash smoothly through drywall/timber/masonry walls
+   * (triggering jagged fractures + structural collapse behind them) while bouncing hard off
+   * reinforced concrete bunkers.
+   */
+  tryVehicleRam(
+    collider: RAPIER.Collider | null,
+    ramClass: VehicleRamClass,
+    speed: number,
+    hitPoint: THREE.Vector3,
+    forwardDir: THREE.Vector3,
+  ): VehicleRamResult {
+    if (!collider) return { hit: false, breached: false, speedRetain: 1 };
+    const entry = this.byCollider.get(collider.handle);
+    if (!entry) return { hit: false, breached: false, speedRetain: 1 };
+
+    const { cluster } = entry;
+    let node = entry.node;
+    if (node.state !== 'intact') {
+      return { hit: true, breached: true, speedRetain: 0.96, material: node.structuralMaterial };
+    }
+
+    const mat = node.structuralMaterial;
+    const ramSource = ramSourceFor(ramClass);
+    if (!canVehicleRamMaterial(mat, ramClass, speed)) {
+      if (speed >= 4.0) {
+        this.emitBlockedHit(mat, ramSource, hitPoint, true);
+      }
+      return { hit: true, breached: false, speedRetain: 0, material: mat };
+    }
+
+    // Subdivide lazy wall around vehicle bumper impact before punching out the hole
+    if (node.lazyFracture && !node.isFractureCell) {
+      const plan = resolveFractureGrid(node.spec, node.half, true);
+      if (plan) {
+        const cells = this.subdivideNodeAroundImpact(cluster, node, hitPoint, plan);
+        let closest = cells[0]!;
+        let bestD = distanceToOrientedBox(hitPoint, closest.basePos, closest.half, closest.baseQuat);
+        for (let i = 1; i < cells.length; i++) {
+          const d = distanceToOrientedBox(hitPoint, cells[i]!.basePos, cells[i]!.half, cells[i]!.baseQuat);
+          if (d < bestD) {
+            bestD = d;
+            closest = cells[i]!;
+          }
+        }
+        node = closest;
+      }
+    }
+
+    const bumperRadius = ramClass === 'heavy' ? 2.4 : ramClass === 'medium' ? 1.75 : 1.25;
+    const launchOrigin = hitPoint.clone().addScaledVector(forwardDir, -2.5);
+    const toBreak: StructuralNode[] = [node];
+    for (let i = 0; i < cluster.nodes.length; i++) {
+      const other = cluster.nodes[i]!;
+      if (other === node || other.state !== 'intact') continue;
+      if (Math.abs(other.basePos.y - hitPoint.y) > 2.2) continue;
+      if (!canVehicleRamMaterial(other.structuralMaterial, ramClass, speed)) continue;
+      if (distanceToOrientedBox(hitPoint, other.basePos, other.half, other.baseQuat) <= bumperRadius) {
+        toBreak.push(other);
+      }
+    }
+
+    for (let i = 0; i < toBreak.length; i++) {
+      const target = toBreak[i]!;
+      if (target.state !== 'intact') continue;
+      target.hp = 0;
+      this.breakNode(cluster, target, launchOrigin, false, true);
+    }
+
+    this.propagateSupportLoss(cluster, launchOrigin, false);
+    this.checkClusterCollapse(cluster);
+    this.flushDirtyBatches();
+
+    const retain = STRUCTURAL_MATERIAL_PROPS[mat].ramSpeedRetain;
+    return { hit: true, breached: true, speedRetain: retain, material: mat };
+  }
+
+  /** Radial blast against all intact structural nodes in range, enforcing material matrix & lazy fracture. */
   blast(
     center: THREE.Vector3,
     radius: number,
@@ -883,7 +1409,34 @@ export class DestructionManager implements DestructionManagerLike {
   ): void {
     if (radius <= 0 || amount <= 0) return;
 
-    let highestBlockedTier: DestructionTier | -1 = -1;
+    // Pre-pass: lazily fracture any large untouched panel hit by a damaging blast so explosives
+    // blow irregular jagged holes right where the shell landed instead of popping whole walls off!
+    for (let ci = 0; ci < this.clusters.length; ci++) {
+      const cluster = this.clusters[ci]!;
+      if (excludeClusterId && cluster.id === excludeClusterId) continue;
+      const reach = radius + cluster.radius;
+      if (center.distanceToSquared(cluster.center) > reach * reach) continue;
+      let toSplit: StructuralNode[] | null = null;
+      for (let ni = 0; ni < cluster.nodes.length; ni++) {
+        const node = cluster.nodes[ni]!;
+        if (node.state !== 'intact' || !node.lazyFracture || node.isFractureCell) continue;
+        if (nodeDamageMultiplier(node, source) <= 0) continue;
+        if (distanceToOrientedBox(center, node.basePos, node.half, node.baseQuat) <= radius) {
+          if (!toSplit) toSplit = [];
+          toSplit.push(node);
+        }
+      }
+      if (toSplit) {
+        for (let i = 0; i < toSplit.length; i++) {
+          const n = toSplit[i]!;
+          const plan = resolveFractureGrid(n.spec, n.half, true);
+          if (plan) this.subdivideNodeAroundImpact(cluster, n, center, plan);
+        }
+      }
+    }
+
+    let highestBlockedMat: StructuralMaterial | null = null;
+    let highestBlockedTier = -1;
     let blockedPos: THREE.Vector3 | null = null;
     const hits: { cluster: StructuralCluster; node: StructuralNode; damage: number }[] = [];
 
@@ -896,7 +1449,7 @@ export class DestructionManager implements DestructionManagerLike {
         const node = cluster.nodes[ni]!;
         if (node.state === 'tilting') {
           const d = distanceToOrientedBox(center, node.basePos, node.half, node.baseQuat);
-          if (d <= radius && canDamageTier(node.tier, source)) {
+          if (d <= radius && nodeDamageMultiplier(node, source) > 0) {
             this.releaseTiltingNodeNow(cluster, node, center, source === 'nuke');
           }
           continue;
@@ -906,10 +1459,12 @@ export class DestructionManager implements DestructionManagerLike {
         const d = distanceToOrientedBox(center, node.basePos, node.half, node.baseQuat);
         if (d > radius) continue;
 
-        const mult = damageMultiplierFor(node.tier, source);
+        const mult = nodeDamageMultiplier(node, source);
         if (mult <= 0) {
-          if (node.tier > highestBlockedTier) {
-            highestBlockedTier = node.tier;
+          const rank = STRUCTURAL_MATERIAL_PROPS[node.structuralMaterial].legacyTier;
+          if (rank > highestBlockedTier) {
+            highestBlockedTier = rank;
+            highestBlockedMat = node.structuralMaterial;
             blockedPos = node.basePos;
           }
           continue;
@@ -921,11 +1476,12 @@ export class DestructionManager implements DestructionManagerLike {
       }
     }
 
-    if (highestBlockedTier >= 1 && blockedPos) {
-      this.emitBlockedHit(highestBlockedTier as DestructionTier, source, blockedPos, false);
+    if (highestBlockedMat && blockedPos) {
+      this.emitBlockedHit(highestBlockedMat, source, blockedPos, false);
     }
 
     let dirtyClusters: Set<StructuralCluster> | null = null;
+    let damagedClusters: Set<StructuralCluster> | null = null;
     for (let i = 0; i < hits.length; i++) {
       const h = hits[i]!;
       if (h.node.state !== 'intact') continue;
@@ -933,6 +1489,9 @@ export class DestructionManager implements DestructionManagerLike {
       if (broke) {
         if (!dirtyClusters) dirtyClusters = new Set();
         dirtyClusters.add(h.cluster);
+      } else {
+        if (!damagedClusters) damagedClusters = new Set();
+        damagedClusters.add(h.cluster);
       }
     }
 
@@ -942,7 +1501,14 @@ export class DestructionManager implements DestructionManagerLike {
         this.propagateSupportLoss(cluster, center, isNuke);
         this.checkClusterCollapse(cluster);
       }
+    } else if (damagedClusters) {
+      // Heavy damage to columns without breaking them outright can still trigger load-overload buckling
+      for (const cluster of damagedClusters) {
+        this.checkOverloadOnly(cluster, center);
+      }
     }
+
+    this.flushDirtyBatches();
   }
 
   /** Starts an expanding nuke shockwave ring (115 m/s) shattering all structural nodes outward. */
@@ -956,9 +1522,19 @@ export class DestructionManager implements DestructionManagerLike {
     this.ctx.render?.sweep?.(epicenter, 0xffaa44, NUKE_SWEEP_SPEED, maxRadius);
   }
 
-  private emitBlockedHit(tier: DestructionTier, source: string, pos: THREE.Vector3, direct: boolean): void {
+  private emitBlockedHit(
+    material: StructuralMaterial,
+    source: string,
+    pos: THREE.Vector3,
+    direct: boolean,
+  ): void {
     const { fx, audio, hud } = this.ctx;
-    if (tier === 1) {
+    if (material === 'timber' || material === 'drywall') {
+      if (this.time - this.lastBounceFxAt >= 0.08 || direct) {
+        this.lastBounceFxAt = this.time;
+        fx?.chips?.(pos, material === 'timber' ? 0x9b7a4a : 0xc8c0b4, 3);
+      }
+    } else if (material === 'masonry') {
       if (this.time - this.lastBounceFxAt >= 0.06 || direct) {
         this.lastBounceFxAt = this.time;
         fx?.chips?.(pos, 0x999287, 5);
@@ -966,27 +1542,27 @@ export class DestructionManager implements DestructionManagerLike {
       }
     } else if (this.time - this.lastClangAt >= 0.06 || direct) {
       this.lastClangAt = this.time;
-      if (tier === 2) {
-        fx?.sparks?.(pos, UP, 14, 0xffc864);
+      if (material === 'heavy_steel') {
+        fx?.sparks?.(pos, UP, 12, 0xffc864);
+        fx?.chips?.(pos, 0x8f8a80, 6);
         audio?.play?.('metal_clang', { position: pos, volume: 0.65, pitch: 1.32, pitchJitter: 0.08 });
-      } else if (tier === 3) {
-        fx?.sparks?.(pos, UP, 12, 0xdce4ee);
+      } else if (material === 'concrete') {
+        fx?.sparks?.(pos, UP, 10, 0xffd280);
+        fx?.chips?.(pos, 0x8f8a80, 6);
+        audio?.play?.('impact_concrete', { position: pos, volume: 0.65, pitch: 1.05, pitchJitter: 0.08 });
+      } else if (material === 'reinforced_concrete') {
+        fx?.sparks?.(pos, UP, 14, 0xdce4ee);
         fx?.chips?.(pos, 0x9aa0a8, 8);
-        audio?.play?.('metal_clang', { position: pos, volume: 0.7, pitch: 0.85, pitchJitter: 0.06 });
-        audio?.play?.('impact_concrete', { position: pos, volume: 0.6, pitch: 1.1 });
+        audio?.play?.('metal_clang', { position: pos, volume: 0.72, pitch: 0.85, pitchJitter: 0.06 });
+        audio?.play?.('impact_concrete', { position: pos, volume: 0.65, pitch: 1.1 });
       }
     }
 
-    const showTier2Hint = tier === 2 && HANDHELD_EXPLOSIVES.has(source);
-    const showTier3Hint = tier === 3 && (HANDHELD_EXPLOSIVES.has(source) || TIER2_NON_HOWITZER.has(source));
-    if ((showTier2Hint || showTier3Hint) && this.time - this.lastHintAt >= 3.5) {
+    const hint = blockedHintFor(material, source);
+    if (hint && this.time - this.lastHintAt >= 3.5) {
       this.lastHintAt = this.time;
       hud?.hitMarker?.('armor');
-      if (showTier2Hint) {
-        hud?.feed?.('HEAVY ARMOR — FRAME ORDNANCE REQUIRED', '#f5a623');
-      } else {
-        hud?.feed?.('REINFORCED CONCRETE — 105MM HOWITZER OR NUKE REQUIRED', '#ff6b4a');
-      }
+      hud?.feed?.(hint.text, hint.color);
     }
   }
 
@@ -998,6 +1574,8 @@ export class DestructionManager implements DestructionManagerLike {
     source: string,
     deferSupportCheck = false,
   ): boolean {
+    this.promoteNodeFromBatch(cluster, node);
+
     // Transform impact point and push direction into node local space
     _q.copy(node.baseQuat).invert();
     _v.subVectors(origin, node.basePos).applyQuaternion(_q);
@@ -1010,7 +1588,6 @@ export class DestructionManager implements DestructionManagerLike {
 
     _v2.subVectors(node.basePos, origin).applyQuaternion(_q);
     if (_v2.lengthSq() < 1e-4) {
-      // Direct centered hit: push along thinnest axis
       if (node.half.x <= node.half.y && node.half.x <= node.half.z) _v2.set(1, 0, 0);
       else if (node.half.y <= node.half.x && node.half.y <= node.half.z) _v2.set(0, -1, 0);
       else _v2.set(0, 0, 1);
@@ -1028,7 +1605,6 @@ export class DestructionManager implements DestructionManagerLike {
       const crossedThreshold = stage > node.deformStage;
       node.deformStrain = Math.max(node.deformStrain, damageFrac);
 
-      // Progressive DMM vertex deformation in place (only on this hit node, zero idle cost)
       if (node.mesh) {
         deformNodeGeometry({
           geom: node.mesh.geometry,
@@ -1044,7 +1620,6 @@ export class DestructionManager implements DestructionManagerLike {
         });
       }
 
-      // Compute world impact point & outward splatter direction for FX & pooled 3D splinters
       _v3.copy(node.lastImpactLocal).applyQuaternion(node.baseQuat).add(node.basePos);
       _v4.subVectors(origin, node.basePos);
       if (_v4.lengthSq() < 1e-4) _v4.copy(UP);
@@ -1086,6 +1661,9 @@ export class DestructionManager implements DestructionManagerLike {
       }
 
       if (crossedThreshold) node.deformStage = stage;
+      if (!deferSupportCheck && node.kind === 'column') {
+        this.checkOverloadOnly(cluster, origin);
+      }
       return false;
     }
 
@@ -1103,18 +1681,18 @@ export class DestructionManager implements DestructionManagerLike {
     deferSupportCheck = false,
   ): void {
     if (node.state !== 'intact') return;
+    this.promoteNodeFromBatch(cluster, node);
     this.removeStaticCollider(node);
+    this.onNodeLostNavSync(node);
 
-    // Apply jagged split-end tear (wood) or curled edge warp (metal) right before detaching
     if (node.mesh) {
       applyBreakFractureDeform(node.mesh.geometry, node.half, node.materialClass);
     }
 
-    // Emit immediate shatter FX, pooled 3D splinters/shards & material-specific audio
     const { fx, audio } = this.ctx;
     const chipCol = chipColorFor(node.mat, node.spec.color);
     fx?.chips?.(node.basePos, chipCol, isNuke ? 22 : 16);
-    fx?.dust?.(node.basePos, UP, isNuke ? 3.0 : 2.0);
+    fx?.dust?.(node.basePos, UP, isNuke ? 3.0 : 2.2);
     fx?.smoke?.(node.basePos, 0x8a8478, isNuke ? 4.2 : 2.8, isNuke ? 3.2 : 2.2);
 
     if (blastOrigin) {
@@ -1125,9 +1703,17 @@ export class DestructionManager implements DestructionManagerLike {
       _v4.copy(UP);
     }
 
-    if (node.materialClass === 'wood') {
-      // Burst of 6-10 elongated 3D jagged wood splinters + snapping timber audio
-      const count = isNuke ? 6 : 6 + Math.floor(Math.random() * 5);
+    if (node.structuralMaterial === 'glass') {
+      const count = isNuke ? 5 : 6;
+      this.splinters.spawnBurst(node.basePos, _v4, 'metal', count, 0xb8d4e6, 9.0);
+      audio?.play?.('glass_break', { position: node.basePos, volume: 0.72, pitchJitter: 0.12 });
+    } else if (node.structuralMaterial === 'drywall') {
+      const count = isNuke ? 5 : 7;
+      this.splinters.spawnBurst(node.basePos, _v4, 'concrete', count, chipCol, 8.2);
+      fx?.dust?.(node.basePos, _v4, 2.4);
+      audio?.play?.('impact_dirt', { position: node.basePos, volume: 0.7, pitch: 0.85, pitchJitter: 0.14 });
+    } else if (node.materialClass === 'wood') {
+      const count = isNuke ? 7 : 7 + Math.floor(Math.random() * 4);
       this.splinters.spawnBurst(node.basePos, _v4, 'wood', count, chipCol, isNuke ? 13 : 9.5);
       audio?.play?.('bone_snap', {
         position: node.basePos,
@@ -1136,7 +1722,7 @@ export class DestructionManager implements DestructionManagerLike {
         pitchJitter: 0.12,
       });
     } else if (node.materialClass === 'metal') {
-      const count = isNuke ? 4 : 4 + Math.floor(Math.random() * 4);
+      const count = isNuke ? 5 : 5 + Math.floor(Math.random() * 4);
       this.splinters.spawnBurst(node.basePos, _v4, 'metal', count, chipCol, isNuke ? 14 : 9.0);
       fx?.sparks?.(node.basePos, _v4, isNuke ? 22 : 14, 0xffc864);
       audio?.play?.('metal_clang', {
@@ -1145,17 +1731,16 @@ export class DestructionManager implements DestructionManagerLike {
         pitchJitter: 0.14,
       });
     } else {
-      const count = isNuke ? 5 : 5 + Math.floor(Math.random() * 4);
-      this.splinters.spawnBurst(node.basePos, _v4, 'concrete', count, chipCol, isNuke ? 12 : 7.8);
+      const count = isNuke ? 6 : 6 + Math.floor(Math.random() * 5);
+      this.splinters.spawnBurst(node.basePos, _v4, 'concrete', count, chipCol, isNuke ? 12 : 8.4);
       audio?.play?.('concrete_crumble', {
         position: node.basePos,
-        volume: isNuke ? 0.9 : 0.72,
+        volume: isNuke ? 0.9 : 0.76,
         pitchJitter: 0.14,
       });
     }
     audio?.play?.('explosion_debris', { position: node.basePos, volume: 0.78, pitchJitter: 0.1 });
 
-    // Chain-reaction hazard scheduling (brine boilers, fuel silos, ammo crates)
     if (node.kind === 'hazard') {
       this.pendingHazards.push({
         pos: node.basePos.clone(),
@@ -1165,10 +1750,8 @@ export class DestructionManager implements DestructionManagerLike {
       });
     }
 
-    // Spawn real dynamic Rapier rigid body launched away from the blast
     this.spawnDynamicBody(cluster, node, blastOrigin, isNuke, false);
 
-    // Optional individual node liquidation event (when spec sets explicit per-node value)
     if (node.spec.value && node.spec.value > 0) {
       this.ctx.events?.emit?.('world:liquidated', {
         label: node.spec.label ?? node.kind.toUpperCase(),
@@ -1179,10 +1762,7 @@ export class DestructionManager implements DestructionManagerLike {
     }
 
     if (!deferSupportCheck) {
-      // Load-bearing BFS: any intact node no longer connected to an intact ground anchor detaches!
       this.propagateSupportLoss(cluster, blastOrigin, isNuke);
-
-      // Check cluster collapse threshold / key node collapse
       this.checkClusterCollapse(cluster);
     }
   }
@@ -1194,102 +1774,111 @@ export class DestructionManager implements DestructionManagerLike {
     node.staticCollider = null;
   }
 
+  private queueOverloadedColumns(
+    cluster: StructuralCluster,
+    overloadedIds: readonly string[],
+    origin: THREE.Vector3 | null,
+  ): void {
+    for (let i = 0; i < overloadedIds.length; i++) {
+      const id = overloadedIds[i]!;
+      const key = `${cluster.id}:${id}`;
+      if (this.bucklingIds.has(key)) continue;
+      const node = cluster.byId.get(id);
+      if (!node || node.state !== 'intact') continue;
+      this.bucklingIds.add(key);
+      this.promoteNodeFromBatch(cluster, node);
+      this.buckling.push({
+        cluster,
+        node,
+        delay: 0.22 + Math.random() * 0.22,
+        origin: origin ? origin.clone() : null,
+      });
+      this.ctx.fx?.dust?.(node.basePos, UP, 1.3);
+      this.ctx.fx?.sparks?.(node.basePos, UP, 6, 0xffcc66);
+    }
+  }
+
+  private checkOverloadOnly(cluster: StructuralCluster, origin: THREE.Vector3 | null): void {
+    const res = solveStructuralIntegrity(cluster);
+    if (res.overloaded.length > 0) {
+      this.queueOverloadedColumns(cluster, res.overloaded, origin);
+    }
+  }
+
   private propagateSupportLoss(
     cluster: StructuralCluster,
     blastOrigin: THREE.Vector3 | null,
     isNuke: boolean,
   ): void {
-    const visited = this.bfsVisited;
-    const queue = this.bfsQueue;
-    const detached = this.bfsDetached;
-    visited.clear();
-    queue.length = 0;
-    detached.length = 0;
-
-    for (let i = 0; i < cluster.nodes.length; i++) {
-      const n = cluster.nodes[i]!;
-      if (n.state === 'intact' && n.anchored) {
-        visited.add(n.id);
-        queue.push(n.id);
-      }
+    const result = solveStructuralIntegrity(cluster);
+    if (result.overloaded.length > 0 && !isNuke) {
+      this.queueOverloadedColumns(cluster, result.overloaded, blastOrigin);
     }
-
-    let head = 0;
-    while (head < queue.length) {
-      const currId = queue[head++]!;
-      const neighbors = cluster.adjacency.get(currId);
-      if (!neighbors) continue;
-      for (const nextId of neighbors) {
-        if (visited.has(nextId)) continue;
-        const nextNode = cluster.byId.get(nextId);
-        if (!nextNode || nextNode.state !== 'intact') continue;
-        visited.add(nextId);
-        queue.push(nextId);
-      }
-    }
+    if (result.detached.length === 0) return;
 
     let minY = Infinity;
     let maxY = -Infinity;
-    for (let i = 0; i < cluster.nodes.length; i++) {
-      const n = cluster.nodes[i]!;
-      if (n.state !== 'intact' || visited.has(n.id)) continue;
-      detached.push(n);
+    const detachedNodes: { node: StructuralNode; tipDirX: number; tipDirZ: number; reason: string }[] = [];
+    for (let i = 0; i < result.detached.length; i++) {
+      const d = result.detached[i]!;
+      const n = cluster.byId.get(d.nodeId);
+      if (!n || n.state !== 'intact') continue;
+      detachedNodes.push({ node: n, tipDirX: d.tipDirX, tipDirZ: d.tipDirZ, reason: d.reason });
       if (n.basePos.y < minY) minY = n.basePos.y;
       if (n.basePos.y > maxY) maxY = n.basePos.y;
     }
 
     const spanY = Math.max(0.01, maxY - minY);
     let anyWood = false;
-    for (let i = 0; i < detached.length; i++) {
-      const n = detached[i]!;
+    for (let i = 0; i < detachedNodes.length; i++) {
+      const { node: n, tipDirX, tipDirZ, reason } = detachedNodes[i]!;
       if (n.materialClass === 'wood') anyWood = true;
-      const hFrac = detached.length > 1 ? (n.basePos.y - minY) / spanY : 0;
+      this.promoteNodeFromBatch(cluster, n);
+      this.onNodeLostNavSync(n);
+
+      const hFrac = detachedNodes.length > 1 ? (n.basePos.y - minY) / spanY : 0;
       n.state = 'tilting';
       if (n.mesh) {
         n.mesh.matrixAutoUpdate = true;
         n.mesh.userData.staticShadow = false;
       }
       n.tiltElapsed = 0;
-      // Gradual 0.55-0.90s groan-and-sag phase ("The Finals" intermediate collapse layer);
-      // lower unsupported slabs shear free slightly ahead of upper roofs.
       n.tiltDuration = isNuke ? 0.06 : 0.55 + hFrac * 0.22 + Math.random() * 0.13;
-      n.tiltMaxAngle = 0.42 + Math.random() * 0.16;
+      n.tiltMaxAngle = reason === 'tipping' ? 0.52 + Math.random() * 0.16 : 0.42 + Math.random() * 0.16;
       n.tiltFxTimer = 0.08;
       n.tiltBendApplied = false;
       n.tiltBlastOrigin = blastOrigin ? blastOrigin.clone() : null;
       n.tiltIsNuke = isNuke;
 
-      // Pick asymmetric hinge edge OPPOSITE the broken support side so the unsupported side sags downward
-      if (blastOrigin) {
+      // Orient tipping/hinge axis from the 4-pass solver's exact tip vector when available!
+      if (Math.hypot(tipDirX, tipDirZ) > 0.05) {
+        _v.set(tipDirX, 0, tipDirZ).normalize();
+      } else if (blastOrigin) {
         _v.subVectors(blastOrigin, n.basePos).setY(0);
+        if (_v.lengthSq() < 0.02) _v.subVectors(n.basePos, cluster.center).setY(0);
+        if (_v.lengthSq() < 0.02) _v.set(1, 0, 0);
+        _v.normalize();
       } else {
         _v.subVectors(cluster.center, n.basePos).setY(0);
-      }
-      if (_v.lengthSq() < 0.02) {
-        // Centered break: lean outward from cluster center or deterministic fallback
-        _v.subVectors(n.basePos, cluster.center).setY(0);
         if (_v.lengthSq() < 0.02) _v.set(1, 0, 0);
+        _v.normalize();
       }
-      _v.normalize();
 
-      // Project node's horizontal half-extents onto the collapse direction for true edge-hinge pivot
       _q.copy(n.baseQuat).invert();
       _v2.copy(_v).applyQuaternion(_q);
       const projHalf = Math.abs(_v2.x) * n.half.x + Math.abs(_v2.z) * n.half.z;
       const hingeDist = clamp(projHalf * 0.85, 0.35, 3.2);
       n.tiltHingeOffset.copy(_v).multiplyScalar(-hingeDist);
-      // tiltAxis = UP x toBroken -> positive rotation swings the unsupported side DOWNWARD in Y
       n.tiltAxis.set(_v.z, 0, -_v.x).normalize();
 
       this.tilting.push({ cluster, node: n });
     }
 
-    const anyDetached = detached.length > 0;
-    if (anyDetached) {
+    if (detachedNodes.length > 0) {
       this.requestStaticShadowRefresh();
     }
 
-    if (anyDetached && this.time - cluster.lastGroanAt >= 0.4) {
+    if (detachedNodes.length > 0 && this.time - cluster.lastGroanAt >= 0.4) {
       cluster.lastGroanAt = this.time;
       this.ctx.audio?.play?.('metal_groan', {
         position: cluster.center,
@@ -1331,11 +1920,11 @@ export class DestructionManager implements DestructionManagerLike {
   ): void {
     node.state = 'falling';
     if (!node.mesh) return;
+    if (node.mesh.parent !== this.root) this.root.add(node.mesh);
     node.mesh.matrixAutoUpdate = true;
     node.mesh.userData.staticShadow = false;
     this.requestStaticShadowRefresh();
 
-    // Enforce active dynamic body cap smoothly
     while (this.dynamicPool.length >= MAX_DYNAMIC_BODIES) {
       this.recycleOldestDynamicBody();
     }
@@ -1344,7 +1933,6 @@ export class DestructionManager implements DestructionManagerLike {
     const pos = node.mesh.position;
     const quat = node.mesh.quaternion;
 
-    // Compute launch velocity outward from blast (or smooth hinge release if detached by collapse)
     if (isNuke && blastOrigin) {
       _vel.subVectors(pos, blastOrigin);
       const dist = Math.max(1, _vel.length());
@@ -1356,7 +1944,6 @@ export class DestructionManager implements DestructionManagerLike {
       _vel.subVectors(pos, blastOrigin);
       const rawLen = _vel.length();
       if (rawLen < 0.25) {
-        // Blast directly on the node (e.g. satchel planted on a column): kick outward from cluster center
         _vel.subVectors(pos, cluster.center).setY(0);
         if (_vel.lengthSq() < 0.01) {
           const a = Math.random() * Math.PI * 2;
@@ -1372,16 +1959,13 @@ export class DestructionManager implements DestructionManagerLike {
       _vel.multiplyScalar(speed);
       _vel.y += 1.5 + Math.random() * 2.5;
 
-      // Stored elastic wood whip velocity when a bent timber snaps free!
       if (node.materialClass === 'wood' && node.deformStrain > 0.1 && node.bendDirLocal.lengthSq() > 0.01) {
         _v3.copy(node.bendDirLocal).applyQuaternion(node.baseQuat);
         _vel.addScaledVector(_v3, 3.8 * node.deformStrain);
         _vel.y += 1.2 * node.deformStrain;
       }
     } else {
-      // Seamless handoff from hinged sagging: carry hinge tangential swing velocity downward
       const omegaMag = (2.2 * node.tiltMaxAngle) / Math.max(0.12, node.tiltDuration);
-      // Tangential velocity = (omega * tiltAxis) x (-tiltHingeOffset)
       _v3.copy(node.tiltAxis).multiplyScalar(omegaMag);
       _v4.copy(node.tiltHingeOffset).negate();
       _vel.crossVectors(_v3, _v4);
@@ -1402,8 +1986,6 @@ export class DestructionManager implements DestructionManagerLike {
     const angY = (Math.random() - 0.5) * spin * 0.7;
     const angZ = (Math.random() - 0.5) * spin + (fromTilt ? node.tiltAxis.z * tiltOmega : 0);
 
-    // Directly blasted nodes fracture slightly smaller so columns/walls clear their mortar joints
-    // instead of jamming floor-to-ceiling under still-tilting upper slabs.
     const cScaleXZ = fromTilt ? 0.94 : 0.82;
     const cScaleY = fromTilt ? 0.94 : 0.75;
     const hx = Math.max(0.08, node.half.x * cScaleXZ);
@@ -1420,12 +2002,10 @@ export class DestructionManager implements DestructionManagerLike {
         .setAngularDamping(0.4),
     );
 
-    // Fast cuboid collider avoids runtime QuickHull stalls on fracture breaks while preserving
-    // the full jagged fracture mesh visually.
     const colDesc = R.ColliderDesc.cuboid(hx, hy, hz);
     world.createCollider(
       colDesc
-        .setDensity(densityFor(node.tier, node.mat))
+        .setDensity(densityFor(node.structuralMaterial))
         .setFriction(fromTilt ? 0.65 : 0.45)
         .setRestitution(0.14)
         .setCollisionGroups(groups(CG.Debris, CG.World | CG.Debris)),
@@ -1466,38 +2046,81 @@ export class DestructionManager implements DestructionManagerLike {
     this.settleDynamicEntry(oldest, true);
   }
 
+  /** Spawns a persistent low walkable rubble pile on the ground when heavy concrete/masonry buildings collapse. */
+  private spawnRubbleMound(center: THREE.Vector3, radius: number, colorHex: number): void {
+    while (this.rubbleMounds.length >= MAX_RUBBLE_MOUNDS) {
+      const oldest = this.rubbleMounds.shift()!;
+      this.root.remove(oldest.mesh);
+      oldest.geom.dispose();
+      if (oldest.collider) this.ctx.physics.world.removeCollider(oldest.collider, false);
+    }
+
+    // Raycast down to place mound flush on terrain/floor
+    _v.set(center.x, Math.max(2, center.y + 4), center.z);
+    const groundHit = this.ctx.physics.raycast?.(_v, DOWN, 30, CG.World) ?? null;
+    const baseY = groundHit ? groundHit.point.y : 0;
+
+    const r = clamp(radius, 1.4, 3.6);
+    const h = clamp(0.45 + r * 0.08, 0.45, 0.72);
+    const geom = buildRubbleMoundGeometry(r, h, colorHex);
+    const mesh = new THREE.Mesh(geom, this.material('concreteDark'));
+    mesh.position.set(center.x, baseY, center.z);
+    mesh.matrixAutoUpdate = false;
+    mesh.updateMatrix();
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    mesh.userData.staticShadow = true;
+    this.root.add(mesh);
+
+    // Low step-over walkable box collider so soldiers can scramble over collapsed rubble as cover
+    const colPos = new THREE.Vector3(center.x, baseY + h * 0.34, center.z);
+    const colHalf = new THREE.Vector3(r * 0.65, h * 0.34, r * 0.65);
+    const collider = this.ctx.physics.addStaticBox(colPos, colHalf, null, 'concrete');
+    this.rubbleMounds.push({ mesh, geom, collider });
+    this.requestStaticShadowRefresh();
+  }
+
   private settleDynamicEntry(entry: DynamicEntry, recycledByCap: boolean): void {
     const { node, body } = entry;
-    if (node.dynamicBody) {
-      const t = body.translation(this._t);
-      const r = body.rotation(this._r);
-      if (node.mesh) {
-        node.mesh.position.set(t.x, t.y, t.z);
-        node.mesh.quaternion.set(r.x, r.y, r.z, r.w);
-        node.mesh.updateMatrix();
-        node.mesh.matrixAutoUpdate = false;
-        if (recycledByCap && t.y > 4) {
-          // If recycled mid-air under extreme nuke load, hide cleanly instead of freezing floating blocks
-          node.mesh.visible = false;
-          node.mesh.userData.staticShadow = false;
-          node.state = 'gone';
-        } else {
-          node.state = 'settled';
-          const maxHalf = Math.max(node.half.x, node.half.y, node.half.z);
-          if (maxHalf < 0.55) {
-            node.mesh.castShadow = false;
-            node.mesh.userData.staticShadow = false;
-          } else {
-            node.mesh.userData.staticShadow = true;
-          }
-          this.requestStaticShadowRefresh();
-        }
-      } else {
-        node.state = 'gone';
+    if (!node.dynamicBody) return;
+    const t = body.translation(this._t);
+    const r = body.rotation(this._r);
+
+    // Zero-air settle verification: never freeze a floating debris block in mid-air!
+    const maxExtent = Math.max(node.half.x, node.half.y, node.half.z);
+    let grounded = t.y <= maxExtent + 1.1;
+    if (!grounded && this.ctx.physics.raycast) {
+      _v.set(t.x, t.y, t.z);
+      const hit = this.ctx.physics.raycast(_v, DOWN, maxExtent + 1.8, CG.World);
+      if (hit && hit.distance <= maxExtent + 1.55) {
+        grounded = true;
       }
-      this.ctx.physics.world.removeRigidBody(body);
-      node.dynamicBody = null;
     }
+
+    if (node.mesh) {
+      node.mesh.position.set(t.x, t.y, t.z);
+      node.mesh.quaternion.set(r.x, r.y, r.z, r.w);
+      node.mesh.updateMatrix();
+      node.mesh.matrixAutoUpdate = false;
+      if (!grounded || (recycledByCap && t.y > 3.5)) {
+        node.mesh.visible = false;
+        node.mesh.userData.staticShadow = false;
+        node.state = 'gone';
+      } else {
+        node.state = 'settled';
+        if (maxExtent < 0.55) {
+          node.mesh.castShadow = false;
+          node.mesh.userData.staticShadow = false;
+        } else {
+          node.mesh.userData.staticShadow = true;
+        }
+        this.requestStaticShadowRefresh();
+      }
+    } else {
+      node.state = 'gone';
+    }
+    this.ctx.physics.world.removeRigidBody(body);
+    node.dynamicBody = null;
   }
 
   private checkClusterCollapse(cluster: StructuralCluster): void {
@@ -1505,6 +2128,17 @@ export class DestructionManager implements DestructionManagerLike {
     const keyBroken = cluster.nodes.some(n => n.keyNode && n.state !== 'intact');
     if (keyBroken || cluster.destroyedFraction >= cluster.collapseThreshold) {
       cluster.collapsed = true;
+      // Leave persistent walkable rubble piles behind collapsed masonry/concrete buildings
+      const hasHeavyMasonry = cluster.nodes.some(
+        n =>
+          n.structuralMaterial === 'concrete' ||
+          n.structuralMaterial === 'masonry' ||
+          n.structuralMaterial === 'reinforced_concrete',
+      );
+      if (hasHeavyMasonry && cluster.nodes.length >= 6) {
+        const moundR = clamp(cluster.radius * 0.28, 1.8, 3.4);
+        this.spawnRubbleMound(cluster.center, moundR, 0x7c7870);
+      }
       cluster.onCollapse?.(cluster);
       this.ctx.events?.emit?.('world:liquidated', {
         label: cluster.label,
@@ -1541,7 +2175,7 @@ export class DestructionManager implements DestructionManagerLike {
     }
   }
 
-  /** Advance splinters, sagging nodes, dynamic falling physics, kinetic crush, hazard chains, and nuke sweeps. */
+  /** Advance splinters, buckling columns, sagging nodes, dynamic falling physics, kinetic crush, hazard chains, and nuke sweeps. */
   update(dt: number): void {
     if (dt <= 0) return;
     this.time += dt;
@@ -1584,7 +2218,7 @@ export class DestructionManager implements DestructionManagerLike {
       }
     }
 
-    // 2. Staggered secondary hazard explosions (brine boilers, fuel silos, ammo crates)
+    // 2. Staggered secondary hazard explosions
     for (let i = this.pendingHazards.length - 1; i >= 0; i--) {
       const h = this.pendingHazards[i]!;
       h.delay -= dt;
@@ -1594,20 +2228,32 @@ export class DestructionManager implements DestructionManagerLike {
       this.detonateHazard(h);
     }
 
-    // 3. Gradual hinged sagging ("The Finals Season 12" intermediate groan-and-sag phase)
+    // 2.5. Compressive overload column-buckling cascades (Red Faction pancake collapses)
+    for (let i = this.buckling.length - 1; i >= 0; i--) {
+      const b = this.buckling[i]!;
+      b.delay -= dt;
+      if (b.delay > 0) continue;
+      const last = this.buckling.pop()!;
+      if (i < this.buckling.length) this.buckling[i] = last;
+      this.bucklingIds.delete(`${b.cluster.id}:${b.node.id}`);
+      if (b.node.state === 'intact') {
+        b.node.hp = 0;
+        this.breakNode(b.cluster, b.node, b.origin, false, false);
+      }
+    }
+
+    // 3. Gradual hinged sagging ("The Finals" intermediate groan-and-sag phase)
     for (let i = this.tilting.length - 1; i >= 0; i--) {
       const item = this.tilting[i]!;
       const { cluster, node } = item;
       node.tiltElapsed += dt;
       const t = clamp(node.tiltElapsed / Math.max(0.01, node.tiltDuration), 0, 1);
       if (node.mesh) {
-        // Gravity-accelerated sag curve t^2.2 hinging asymmetrically around the tearing support edge
         const ease = Math.pow(t, 2.2);
         const angle = ease * node.tiltMaxAngle;
         _q2.setFromAxisAngle(node.tiltAxis, angle);
         node.mesh.quaternion.multiplyQuaternions(_q2, node.baseQuat);
 
-        // Rotate center around hingeWorld = basePos + tiltHingeOffset, plus shear slip & groan tremor
         _v.copy(node.tiltHingeOffset).negate().applyQuaternion(_q2).add(node.tiltHingeOffset).add(node.basePos);
         const jitter = (1 - t * 0.65) * 0.035;
         node.mesh.position.set(
@@ -1616,7 +2262,6 @@ export class DestructionManager implements DestructionManagerLike {
           _v.z + (Math.random() - 0.5) * jitter,
         );
 
-        // Mid-sag structural flex deformation as beams/roofs bend before shearing loose
         if (!node.tiltBendApplied && !node.tiltIsNuke && t >= 0.4) {
           node.tiltBendApplied = true;
           _q.copy(node.baseQuat).invert();
@@ -1636,7 +2281,6 @@ export class DestructionManager implements DestructionManagerLike {
           });
         }
 
-        // Continuous joint-tearing dust, wood splinters, and sparks while groaning & sagging
         node.tiltFxTimer -= dt;
         if (!node.tiltIsNuke && node.tiltFxTimer <= 0) {
           node.tiltFxTimer = 0.13 + Math.random() * 0.06;
@@ -1691,10 +2335,8 @@ export class DestructionManager implements DestructionManagerLike {
         node.mesh.quaternion.set(r.x, r.y, r.z, r.w);
       }
 
-      // Kinetic crush check against living enemies
       this.checkCrush(entry, _v2, _vel, speed);
 
-      // Domino kinetic impact when heavy falling structural sections slam into the ground/structures
       if (entry.impactRadius > 0 && !entry.impactTriggered) {
         if (speed > entry.peakSpeed) entry.peakSpeed = speed;
         const minH = Math.min(node.half.x, node.half.y, node.half.z);
@@ -1725,6 +2367,7 @@ export class DestructionManager implements DestructionManagerLike {
       }
     }
 
+    this.flushDirtyBatches();
     this.flushStaticShadowRefresh();
   }
 
@@ -1782,7 +2425,7 @@ export class DestructionManager implements DestructionManagerLike {
     this.flushStaticShadowRefresh();
   }
 
-  /** Removes all clusters, meshes, colliders, dynamic bodies, splinters, pending hazards, and active sweeps. */
+  /** Removes all clusters, meshes, colliders, dynamic bodies, rubble mounds, splinters, pending hazards, and active sweeps. */
   clear(): void {
     for (const entry of this.dynamicPool) {
       this.ctx.physics.world.removeRigidBody(entry.body);
@@ -1790,12 +2433,23 @@ export class DestructionManager implements DestructionManagerLike {
     }
     this.dynamicPool.length = 0;
     this.tilting.length = 0;
+    this.buckling.length = 0;
+    this.bucklingIds.clear();
     this.pendingHazards.length = 0;
     this.sweeps.length = 0;
     this.splinters.clear();
 
+    for (const m of this.rubbleMounds) {
+      this.root.remove(m.mesh);
+      m.geom.dispose();
+      if (m.collider) this.ctx.physics.world.removeCollider(m.collider, false);
+    }
+    this.rubbleMounds.length = 0;
+
     for (const cluster of this.clusters) {
+      this.clearClusterBatchMeshes(cluster);
       for (const node of cluster.nodes) {
+        if (node.navBlocked) this.setNodeNavBlocked(node, false);
         if (node.staticCollider) {
           this.ctx.physics.world.removeCollider(node.staticCollider, false);
           node.staticCollider = null;

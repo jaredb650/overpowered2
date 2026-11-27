@@ -287,7 +287,8 @@ describe('Crossfire Map 1 — Valken Airbase (`airbase`)', () => {
 
   it('registers 5 Tier-0 destructible bunker & JP-8 fuel clusters that break cleanly in DestructionManager', () => {
     expect(spec.destructionClusters.length).toBe(AIRBASE_DESTRUCTIBLES.length);
-    expect(canDamageTier(0, 'smg')).toBe(true);
+    expect(canDamageTier(0, 'smg')).toBe(false);
+    expect(canDamageTier(0, 'piledriver')).toBe(true);
 
     const stubMat = () => new THREE.MeshBasicMaterial();
     const dm = new DestructionManager({ physics } as never, stubMat);

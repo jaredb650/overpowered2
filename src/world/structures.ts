@@ -8,11 +8,19 @@
  */
 import * as THREE from 'three';
 import type RAPIER from '@dimforge/rapier3d-compat';
-import type { Ctx, DestructionTier, Structure, StructureStage, SurfaceKind } from '../core/contracts';
+import type { Ctx, DestructionTier, StructuralMaterial, Structure, StructureStage, SurfaceKind, VehicleRamClass, VehicleRamResult } from '../core/contracts';
 import type { EnemyInstance } from '../core/gameplay';
 import { mulberry32 } from '../core/math';
 import { Debris, type DebrisMat } from './debris';
-import { canDamageTier, NUKE_SWEEP_SPEED } from './destruction';
+import { NUKE_SWEEP_SPEED } from './destruction';
+import {
+  blockedHintFor,
+  canDamageMaterial,
+  canVehicleRamMaterial,
+  damageMultiplierForMaterial,
+  ramSourceFor,
+  STRUCTURAL_MATERIAL_PROPS,
+} from './destructionMaterials';
 import { Geo, type Mat } from './kit/geo';
 import type { NavGraph } from './nav';
 
@@ -696,30 +704,81 @@ export class Structures {
     return collider ? this.byCollider.get(collider.handle) ?? null : null;
   }
 
-  /** A round, blade or direct hit on a collider. Tier 0 (shacks/stalls) takes small arms; higher tiers enforce armor gating. */
+  private materialForPiece(piece: Piece): StructuralMaterial {
+    if (piece.tier === 3) return 'reinforced_concrete';
+    if (piece.tier === 2) return 'heavy_steel';
+    if (piece.kind === 'stall') return 'drywall';
+    if (piece.kind === 'shack') return 'timber';
+    return 'masonry';
+  }
+
+  /**
+   * Direct hit on a piece collider, gated by the global material-vs-damage matrix:
+   * - Wooden shacks (`timber`) are immune to small arms (AR/SMG/pistol) and shredded by .50 cal/HMGs/autocannons/fire/explosives.
+   * - Market stalls (`drywall`) are shredded by shotguns, HMGs, explosives, and vehicle rams.
+   * - Walls/gates (`masonry`) require explosives, autocannons, or heavy armor.
+   * - Pillars (`heavy_steel`) and Tier-3 fortifications (`reinforced_concrete`) require heavy/siege ordnance.
+   */
   hit(collider: RAPIER.Collider | null, amount: number, source = ''): void {
     const piece = collider ? this.byCollider.get(collider.handle) : undefined;
     if (!piece) return;
-    if (piece.tier === 0) {
-      if (this.link?.guest) this.link.hit(piece, amount);
-      else this.damage(piece, amount * SHACK_BULLET);
-      return;
-    }
-    if (!canDamageTier(piece.tier, source)) {
-      if (piece.tier >= 2 && source !== '') {
-        this.emitArmorBounce(piece, source);
-      }
+    const mat = this.materialForPiece(piece);
+    if (!canDamageMaterial(mat, source)) {
+      if (source !== '') this.emitArmorBounce(piece, mat, source);
       return;
     }
     if (this.link?.guest) {
       this.link.hit(piece, amount);
       return;
     }
-    const mult = SOURCE_MULT[source] ?? 1;
+    const mult = SOURCE_MULT[source] ?? damageMultiplierForMaterial(mat, source);
+    if (isLight(piece.kind)) {
+      this.damage(piece, source === 'nuke' ? piece.health + 1e6 : amount * Math.max(SHACK_BULLET, mult * 0.55));
+      return;
+    }
     this.damage(piece, source === 'nuke' ? piece.health + 1e6 : amount * mult);
   }
 
-  /** A blast. Each piece takes `amount` by its distance to the nearest point of it, down to EDGE at `radius`, gated by armor tier. */
+  /** Vehicle ram check against a wall, gate, shack, stall, or pillar. */
+  tryVehicleRam(
+    collider: RAPIER.Collider | null,
+    ramClass: VehicleRamClass,
+    speed: number,
+    hitPoint: THREE.Vector3,
+    forwardDir: THREE.Vector3,
+  ): VehicleRamResult {
+    const piece = collider ? this.byCollider.get(collider.handle) : undefined;
+    if (!piece) return { hit: false, breached: false, speedRetain: 1 };
+    const last = piece.stages.length - 1;
+    const mat = this.materialForPiece(piece);
+    if (piece.index === last) {
+      return { hit: true, breached: true, speedRetain: 0.96, material: mat };
+    }
+    if (!canVehicleRamMaterial(mat, ramClass, speed)) {
+      if (speed >= 4.0) this.emitArmorBounce(piece, mat, ramSourceFor(ramClass));
+      return { hit: true, breached: false, speedRetain: 0, material: mat };
+    }
+    if (!this.link?.guest) {
+      this.blastAt = hitPoint.clone().addScaledVector(forwardDir, -2.5);
+      this.blastPower = Math.max(400, speed * 50);
+      try {
+        piece.repairing = -1;
+        piece.health = 0;
+        this.setStage(piece, last, true);
+        piece.health = 0;
+      } finally {
+        this.blastAt = null;
+      }
+    }
+    return {
+      hit: true,
+      breached: true,
+      speedRetain: STRUCTURAL_MATERIAL_PROPS[mat].ramSpeedRetain,
+      material: mat,
+    };
+  }
+
+  /** A blast. Each piece takes `amount` by its distance to the nearest point of it, down to EDGE at `radius`, gated by material. */
   blast(center: THREE.Vector3, radius: number, amount: number, source: string): void {
     if (this.link?.guest) {
       if (amount > 0) this.link.blast(center, radius, amount, source);
@@ -728,13 +787,18 @@ export class Structures {
     this.blastAt = center;
     this.blastPower = amount * (SOURCE_MULT[source] ?? 1);
     let bounced: Piece | null = null;
+    let bouncedMat: StructuralMaterial | null = null;
     try {
       for (const piece of this.all) {
         if (piece.index === piece.stages.length - 1) continue;
         const d = this.distance(piece, center);
         if (d > radius) continue;
-        if (!canDamageTier(piece.tier, source)) {
-          if (piece.tier >= 2 && (!bounced || piece.tier > bounced.tier)) bounced = piece;
+        const mat = this.materialForPiece(piece);
+        if (!canDamageMaterial(mat, source)) {
+          if (piece.tier >= 2 && (!bounced || piece.tier > bounced.tier)) {
+            bounced = piece;
+            bouncedMat = mat;
+          }
           continue;
         }
         const mult = SOURCE_MULT[source] ?? 1;
@@ -744,26 +808,23 @@ export class Structures {
     } finally {
       this.blastAt = null;
     }
-    if (bounced) this.emitArmorBounce(bounced, source);
+    if (bounced && bouncedMat) this.emitArmorBounce(bounced, bouncedMat, source);
   }
 
-  private emitArmorBounce(piece: Piece, source: string): void {
+  private emitArmorBounce(piece: Piece, mat: StructuralMaterial, source: string): void {
     const mid = piece.toWorld(0, piece.height * 0.5, 0, _p);
     const { fx, audio, hud } = this.ctx;
-    fx?.sparks?.(mid, UP, 12, piece.tier === 3 ? 0xdce4ee : 0xffc864);
-    audio?.play?.('metal_clang', { position: mid, volume: 0.6, pitch: piece.tier === 3 ? 0.85 : 1.3 });
-    const handheld = source === 'rocket' || source === 'satchel' || source === 'mgl' || source === 'grenade' || source === 'c4';
-    const heavyNonHowitzer = source === 'frame_40mm' || source === 'frame_40mm_ap' || source === 'frame_stomp' || source === 'frame_charge' || source === 'tank_cannon';
-    if (this.time - this.lastHintAt >= 3.5) {
-      if (piece.tier === 2 && handheld) {
-        this.lastHintAt = this.time;
-        hud?.hitMarker?.('armor');
-        hud?.feed?.('HEAVY ARMOR — FRAME ORDNANCE REQUIRED', '#f5a623');
-      } else if (piece.tier === 3 && (handheld || heavyNonHowitzer)) {
-        this.lastHintAt = this.time;
-        hud?.hitMarker?.('armor');
-        hud?.feed?.('REINFORCED CONCRETE — 105MM HOWITZER OR NUKE REQUIRED', '#ff6b4a');
-      }
+    if (piece.tier >= 2) {
+      fx?.sparks?.(mid, UP, 12, piece.tier === 3 ? 0xdce4ee : 0xffc864);
+      audio?.play?.('metal_clang', { position: mid, volume: 0.6, pitch: piece.tier === 3 ? 0.85 : 1.3 });
+    } else {
+      fx?.chips?.(mid, CHIPS[piece.kind], 3);
+    }
+    const hint = blockedHintFor(mat, source);
+    if (hint && this.time - this.lastHintAt >= 3.5) {
+      this.lastHintAt = this.time;
+      hud?.hitMarker?.('armor');
+      hud?.feed?.(hint.text, hint.color);
     }
   }
 

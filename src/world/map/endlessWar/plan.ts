@@ -108,8 +108,8 @@ export const ENDLESS_WAR_LIGHT_BOUNDS = {
 
 export const ENDLESS_WAR_LIGHT_CELL = 3.6;
 
-/** Primary walkable floor levels (ground y=0, trenches/ford y=0, artillery/radar terrace y=3.6). */
-export const ENDLESS_WAR_LEVELS = [0] as const;
+/** Primary walkable floor levels (ground y=0, 2nd floor/L1 garage/watchtower y=3.6, 3rd floor/L2 garage y=7.2, office roof y=10.8). */
+export const ENDLESS_WAR_LEVELS = [0, 3.6, 7.2, 10.8] as const;
 
 export const ENDLESS_WAR_HUB_PT: Vec3 = [0, 0, 294];
 

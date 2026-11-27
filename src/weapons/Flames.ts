@@ -386,7 +386,7 @@ export class Flames {
       f.position.addScaledVector(dir, len);
       return;
     }
-    if (f.team === 'player' && f.damage > 0) c.world.objects?.damageExplosive(wall.collider, f.damage, f.source);
+    if (f.team === 'player' && f.damage > 0) c.world.objects?.damageExplosive(wall.collider, f.damage, f.source, wall.point);
     if (f.napalm) {
       // Liquid does not slide off: it splashes and stays, burning.
       this.feed(wall.point, wall.normal, f.source, f.owner > 0);

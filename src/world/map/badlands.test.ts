@@ -237,7 +237,8 @@ describe('Badlands open-desert survival map', () => {
 
   it('authors 8 Tier-0 destructible desert clusters (4 lookout posts + 4 landmark sheds) that break cleanly', () => {
     expect(spec.destructionClusters.length).toBe(8);
-    expect(canDamageTier(0, 'smg')).toBe(true);
+    expect(canDamageTier(0, 'smg')).toBe(false);
+    expect(canDamageTier(0, 'piledriver')).toBe(true);
 
     for (const post of BADLANDS_LOOKOUT_POSTS) {
       const c = spec.destructionClusters.find(cl => cl.tag === post.id);
@@ -254,7 +255,10 @@ describe('Badlands open-desert survival map', () => {
     expect(post).toBeDefined();
     const stilt = post!.getNode('stilt_fl');
     expect(stilt).toBeDefined();
+    // Small arms cannot break timber stilts; .50 cal / HMG shreds them cleanly
     expect(dm.damageCollider(stilt!.staticCollider, 150, 'smg', stilt!.basePos)).toBe(true);
+    expect(stilt!.state).toBe('intact');
+    expect(dm.damageCollider(stilt!.staticCollider, 150, 'piledriver', stilt!.basePos)).toBe(true);
     expect(stilt!.state).not.toBe('intact');
     dm.dispose();
   });

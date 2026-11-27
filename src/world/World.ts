@@ -10,6 +10,7 @@ import { buildPlywoodMaterial, buildStencilMaterial } from './kit/stencil';
 import { type MapDef, selectMap } from './map/maps';
 import { MapSpec } from './map/spec';
 import { NavGraph, type NavBuildStats } from './nav';
+import { registerDestructionNavProxies } from './destruction';
 import { Objects } from './objects';
 import { buildSpawns } from './spawns';
 import { drawMinimap } from './minimap';
@@ -149,13 +150,20 @@ export class World implements WorldSystem {
     });
 
     const navBounds = def.navBounds ?? this.bounds;
-    const stats: NavBuildStats = await this.navGraph.build(navBounds, spec.jumpLinks, def.navHub, f => report(0.42 + f * 0.4, 'Walking the floors'), def.nav);
+    const releaseNavProxies = registerDestructionNavProxies(ctx.physics, spec.destructionClusters);
+    let stats: NavBuildStats;
+    try {
+      stats = await this.navGraph.build(navBounds, spec.jumpLinks, def.navHub, f => report(0.42 + f * 0.4, 'Walking the floors'), def.nav);
+    } finally {
+      releaseNavProxies();
+    }
     this.report.navNodes = stats.nodes;
     this.report.navLinks = stats.links;
     this.report.navRemoved = stats.removed;
     this.report.navMs = Math.round(stats.ms);
     this.objects.walls.attach(this.navGraph);
     this.objects.props.attach(this.navGraph);
+    this.objects.destruction.attachNav(this.navGraph);
     for (const c of spec.destructionClusters) this.objects.destruction.addCluster(c);
 
     this.zones = spec.zones;

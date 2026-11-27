@@ -251,6 +251,11 @@ export interface VehiclePhysicsState {
   /** Instantaneous wall/ground crash speed from this physics tick (0 when clean). */
   crashImpact: number;
   readonly crashNormal: THREE.Vector3;
+  /** Instantaneous speed of a destructible wall/building smashed through on this tick (0 when none). */
+  ramBreachImpact: number;
+  readonly ramBreachPoint: THREE.Vector3;
+  /** True when a destructible structure rejected this vehicle's ram (e.g., tank hitting reinforced bunker). */
+  ramBlocked: boolean;
   /** VTOL Hover / STOL tarmac mode flag for Jets (Harrier / Warthog / STOL takeoff). */
   vtolMode: boolean;
   /** Current forward jet throttle 0..1. */

@@ -15,7 +15,7 @@
  * Zero per-frame heap allocations.
  */
 import * as THREE from 'three';
-import { CG, type PhysicsSystem, type RayHit, type WorldSystem } from '../../core/contracts';
+import { CG, type PhysicsSystem, type RayHit, type VehicleRamClass, type WorldSystem } from '../../core/contracts';
 import { clamp, damp, dampAngle } from '../../core/math';
 import type { DriveVehicleDef, VehicleInput, VehiclePhysicsState } from './types';
 
@@ -25,6 +25,15 @@ const WALL_PAD = 0.65;
 const _origin = new THREE.Vector3();
 const _dir = new THREE.Vector3();
 const _hit: RayHit = { point: new THREE.Vector3(), normal: new THREE.Vector3(), distance: 0, surface: 'concrete', collider: null };
+const _sideOrigin = new THREE.Vector3();
+const _sideHit: RayHit = { point: new THREE.Vector3(), normal: new THREE.Vector3(), distance: 0, surface: 'concrete', collider: null };
+
+function ramClassOf(def: DriveVehicleDef): VehicleRamClass | null {
+  if (def.category === 'helicopter' || def.category === 'jet') return null;
+  if (def.category === 'tracked' || def.mass >= 9) return 'heavy';
+  if (def.id === 'bastion' || def.mass >= 4.5) return 'medium';
+  return 'light';
+}
 
 export function createPhysicsState(position: THREE.Vector3, yaw: number, velocity?: THREE.Vector3): VehiclePhysicsState {
   return {
@@ -55,6 +64,9 @@ export function createPhysicsState(position: THREE.Vector3, yaw: number, velocit
     climbCarryTimer: 0,
     crashImpact: 0,
     crashNormal: new THREE.Vector3(0, 1, 0),
+    ramBreachImpact: 0,
+    ramBreachPoint: new THREE.Vector3(),
+    ramBlocked: false,
     vtolMode: true,
     airThrottle: 0,
     abandonedFall: false,
@@ -105,7 +117,7 @@ function sampleGround(
   return fallback;
 }
 
-/** Slides horizontal velocity off nearby static walls and records `crashImpact` for high-speed crash damage! */
+/** Slides horizontal velocity off nearby static walls, or smashes straight through weaker destructible structures! */
 function resolveHorizontalWalls(
   def: DriveVehicleDef,
   state: VehiclePhysicsState,
@@ -123,7 +135,8 @@ function resolveHorizontalWalls(
     const dz = vz * inv;
     const radius = Math.max(def.halfWidth, def.halfLength * 0.72) + WALL_PAD;
     const reach = radius + horizSpeed * dt;
-    _origin.set(state.position.x, state.position.y + Math.max(1.05, def.halfHeight * 0.82), state.position.z);
+    const rayY = state.position.y + Math.max(1.05, def.halfHeight * 0.82);
+    _origin.set(state.position.x, rayY, state.position.z);
     _dir.set(dx, 0, dz);
     if (physics.raycastInto(_origin, _dir, reach, CG.World, _hit)) {
       if (ownHandle === undefined || _hit.collider?.handle !== ownHandle) {
@@ -132,17 +145,50 @@ function resolveHorizontalWalls(
           const vn = vx * _hit.normal.x + vz * _hit.normal.z;
           if (vn < 0) {
             const impact = -vn;
-            if (impact > state.crashImpact) {
-              state.crashImpact = impact;
-              state.crashNormal.copy(_hit.normal);
+            const ramClass = ramClassOf(def);
+            let breached = false;
+            if (ramClass && _hit.collider && impact >= 2.2 && world?.objects?.tryVehicleRam) {
+              const ramRes = world.objects.tryVehicleRam(_hit.collider, ramClass, impact, _hit.point, _dir);
+              if (ramRes.breached) {
+                breached = true;
+                state.velocity.x *= ramRes.speedRetain;
+                state.velocity.z *= ramRes.speedRetain;
+                if (impact > state.ramBreachImpact) {
+                  state.ramBreachImpact = impact;
+                  state.ramBreachPoint.copy(_hit.point);
+                }
+                // Wide armored bumpers (tanks & 6x6 trucks) clear flanking drywall/timber/masonry panels cleanly.
+                if (ramClass === 'heavy' || ramClass === 'medium') {
+                  const perpX = -dz;
+                  const perpZ = dx;
+                  const sideOff = def.halfWidth * 0.72;
+                  for (const s of [-1, 1]) {
+                    _sideOrigin.set(state.position.x + perpX * sideOff * s, rayY, state.position.z + perpZ * sideOff * s);
+                    if (physics.raycastInto(_sideOrigin, _dir, reach + 0.6, CG.World, _sideHit)) {
+                      if (_sideHit.collider && (ownHandle === undefined || _sideHit.collider.handle !== ownHandle) && Math.abs(_sideHit.normal.y) < 0.55) {
+                        world.objects.tryVehicleRam(_sideHit.collider, ramClass, impact, _sideHit.point, _dir);
+                      }
+                    }
+                  }
+                }
+              } else if (ramRes.hit) {
+                state.ramBlocked = true;
+              }
             }
-            // Slide cleanly along walls with minimal bounce so holding W never ping-pongs!
-            state.velocity.x -= _hit.normal.x * vn * 1.04;
-            state.velocity.z -= _hit.normal.z * vn * 1.04;
-            const pen = radius - _hit.distance;
-            if (pen > 0) {
-              state.position.x += _hit.normal.x * pen;
-              state.position.z += _hit.normal.z * pen;
+
+            if (!breached) {
+              if (impact > state.crashImpact) {
+                state.crashImpact = impact;
+                state.crashNormal.copy(_hit.normal);
+              }
+              // Slide cleanly along walls with minimal bounce so holding W never ping-pongs!
+              state.velocity.x -= _hit.normal.x * vn * 1.04;
+              state.velocity.z -= _hit.normal.z * vn * 1.04;
+              const pen = radius - _hit.distance;
+              if (pen > 0) {
+                state.position.x += _hit.normal.x * pen;
+                state.position.z += _hit.normal.z * pen;
+              }
             }
           }
         }
@@ -215,8 +261,10 @@ export function stepVehiclePhysics(
   if (dt <= 0) return;
   const h = Math.min(dt, 0.05);
 
-  // Clear per-tick crash readout & decay animations.
+  // Clear per-tick crash & structural ram readouts and decay animations.
   state.crashImpact = 0;
+  state.ramBreachImpact = 0;
+  state.ramBlocked = false;
   state.recoilOffset = damp(state.recoilOffset, 0, 12, h);
   state.deployAnim = damp(state.deployAnim, state.deployed ? 1 : 0, 8, h);
   if (state.hopCooldown > 0) state.hopCooldown = Math.max(0, state.hopCooldown - h);

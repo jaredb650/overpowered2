@@ -1087,6 +1087,27 @@ export interface Structure {
 /** Material armor tier for structural destruction: 0 timber, 1 masonry, 2 heavy industrial, 3 reinforced concrete. */
 export type DestructionTier = 0 | 1 | 2 | 3;
 
+/** Physical structural material governing weapon/vehicle damage susceptibility, density, and collapse physics. */
+export type StructuralMaterial =
+  | 'glass'
+  | 'drywall'
+  | 'timber'
+  | 'masonry'
+  | 'concrete'
+  | 'heavy_steel'
+  | 'reinforced_concrete';
+
+/** Vehicle ramming weight class: light (Quad/Moto/Jackal), medium (Bastion/APC), heavy (Aegis MBT/Frame). */
+export type VehicleRamClass = 'light' | 'medium' | 'heavy';
+
+/** Outcome of a moving vehicle attempting to smash through a world collider. */
+export interface VehicleRamResult {
+  readonly hit: boolean;
+  readonly breached: boolean;
+  readonly speedRetain: number;
+  readonly material?: StructuralMaterial;
+}
+
 /** Structural cluster contract exposed via WorldObjects.destruction. Full runtime type lives in src/world/destruction.ts. */
 export interface StructuralClusterLike {
   readonly id: string;
@@ -1109,6 +1130,13 @@ export interface DestructionManagerLike {
   nukeSweep(epicenter: THREE.Vector3, maxRadius?: number): void;
   blast(center: THREE.Vector3, radius: number, amount: number, source: string): void;
   damageCollider(collider: RAPIER.Collider | null, amount: number, source: string, hitPoint?: THREE.Vector3): boolean;
+  tryVehicleRam?(
+    collider: RAPIER.Collider | null,
+    ramClass: VehicleRamClass,
+    speed: number,
+    hitPoint: THREE.Vector3,
+    forwardDir: THREE.Vector3,
+  ): VehicleRamResult;
   clear(): void;
   reset(): void;
 }
@@ -1124,9 +1152,17 @@ export interface WorldObjects {
   /** True when `collider` belongs to an explosive barrel or tank. */
   isExplosive(collider: RAPIER.Collider | null): boolean;
   /** Damages the explosive owning `collider`. Returns true if the collider was an explosive. */
-  damageExplosive(collider: RAPIER.Collider | null, amount: number, source: string): boolean;
+  damageExplosive(collider: RAPIER.Collider | null, amount: number, source: string, hitPoint?: THREE.Vector3): boolean;
   /** Damages every explosive in range, with distance falloff. Rockets and grenades call this so barrels chain. */
   damageExplosivesInRadius(center: THREE.Vector3, radius: number, amount: number, source: string): void;
+  /** Attempts to smash a moving vehicle through a destructible structure/wall collider. */
+  tryVehicleRam?(
+    collider: RAPIER.Collider | null,
+    ramClass: VehicleRamClass,
+    speed: number,
+    hitPoint: THREE.Vector3,
+    forwardDir: THREE.Vector3,
+  ): VehicleRamResult;
   /** Hazard at a position, or null. Enemies poll this and apply dps themselves. */
   hazardAt(position: THREE.Vector3): HazardState | null;
   /** If `position` is on a jump pad, writes its launch velocity to `out` and returns true. */

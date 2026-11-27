@@ -2242,6 +2242,35 @@ export class DriveableVehicle {
       return;
     }
 
+    // 2b. Structural smash-through (tanks plowing through drywall houses/shacks/masonry walls) or bunker deflection!
+    if (this.phys.ramBreachImpact > 0) {
+      const impact = this.phys.ramBreachImpact;
+      const heavy = this.def.mass >= 4.5 || impact >= 12;
+      if (this.bumpAudioCooldown <= 0) {
+        this.bumpAudioCooldown = 0.22;
+        const sound = heavy ? 'veh_hit_heavy' : 'veh_hit_light';
+        const vol = clamp(0.72 + impact * 0.015, 0.72, 1.0);
+        if (occupied) {
+          this.ctx.audio?.play(sound, { volume: vol, pitch: rand(0.84, 0.98) });
+        } else {
+          this.ctx.audio?.play(sound, { position: this.phys.ramBreachPoint, volume: vol * 0.8, pitch: rand(0.84, 0.98) });
+        }
+      }
+      if (occupied) this.ctx.camera?.addTrauma?.(clamp(impact * 0.012, 0.14, 0.36));
+      this.ctx.fx?.dust?.(this.phys.ramBreachPoint, _up, heavy ? 2.4 : 1.5);
+      this.ctx.fx?.sparks?.(this.phys.ramBreachPoint, _up, heavy ? 14 : 8, 0xd8c6a8);
+    } else if (this.phys.ramBlocked && this.phys.crashImpact > 4.5 && this.bumpAudioCooldown <= 0) {
+      const impact = this.phys.crashImpact;
+      this.bumpAudioCooldown = 0.42;
+      if (occupied) {
+        this.ctx.audio?.play('veh_hit_heavy', { volume: clamp(0.76 + impact * 0.015, 0.76, 1.0), pitch: 0.78 });
+        this.ctx.camera?.addTrauma?.(clamp(impact * 0.015, 0.14, 0.34));
+      } else {
+        this.ctx.audio?.play('veh_hit_heavy', { position: this.phys.position, volume: 0.72, pitch: 0.78 });
+      }
+      this.ctx.fx?.sparks?.(this.phys.position, this.phys.crashNormal, 14, 0xffc060);
+    }
+
     // 3. Wall / ground crash feedback:
     //    - Minor bumps / hard landings (`7..25 m/s`): crisp light hull thud + light sparks (no self-damage).
     //    - High-speed wall / ground crashes (`> 25 m/s`): heavy crunch + capped self-damage.

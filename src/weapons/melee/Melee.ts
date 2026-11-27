@@ -1198,7 +1198,7 @@ export class Melee {
     const wall = c.physics.raycast(eye, c.player.forward, reach, CG.World);
     if (!wall) return;
     const row = WEAPONS[this.id];
-    c.world.objects?.damageExplosive(wall.collider, row.damage * this.swing.mult * this.modifiers.damage, this.id);
+    c.world.objects?.damageExplosive(wall.collider, row.damage * this.swing.mult * this.modifiers.damage, this.id, wall.point);
     const size = d.wallDecal === 'slash' ? rand(0.9, 1.3) * (this.id === 'knife' ? 0.5 : 1) : rand(0.35, 0.5);
     c.render.decals.add(d.wallDecal, wall.point, wall.normal, size, Math.atan2(this.sweepDir.y, this.sweepDir.x));
     c.fx.sparks(wall.point, wall.normal, d.sparks, 0xfff2cc);

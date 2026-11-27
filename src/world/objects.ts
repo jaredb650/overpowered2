@@ -378,13 +378,18 @@ export class Objects implements WorldObjects {
     return !!collider && this.byCollider.has(collider.handle);
   }
 
-  damageExplosive(collider: RAPIER.Collider | null, amount: number, source: string): boolean {
+  damageExplosive(
+    collider: RAPIER.Collider | null,
+    amount: number,
+    source: string,
+    hitPoint?: THREE.Vector3,
+  ): boolean {
     if (!collider) return false;
     const e = this.byCollider.get(collider.handle);
     if (!e) {
       if (this.colliderHitHandler?.(collider, amount, source)) return false;
       if (!this.props.hit(collider, amount, source)) {
-        if (!this.destruction.damageCollider(collider, amount, source)) {
+        if (!this.destruction.damageCollider(collider, amount, source, hitPoint)) {
           this.walls.hit(collider, amount, source);
         }
       }
@@ -394,6 +399,19 @@ export class Objects implements WorldObjects {
     if (this.link?.guest) this.link.hit('x', e.id, amount, source);
     this.hurt(e, amount, source);
     return true;
+  }
+
+  tryVehicleRam(
+    collider: RAPIER.Collider | null,
+    ramClass: import('../core/contracts').VehicleRamClass,
+    speed: number,
+    hitPoint: THREE.Vector3,
+    forwardDir: THREE.Vector3,
+  ): import('../core/contracts').VehicleRamResult {
+    if (!collider) return { hit: false, breached: false, speedRetain: 1 };
+    const dRes = this.destruction.tryVehicleRam(collider, ramClass, speed, hitPoint, forwardDir);
+    if (dRes.hit) return dRes;
+    return this.walls.tryVehicleRam(collider, ramClass, speed, hitPoint, forwardDir);
   }
 
   damageExplosivesInRadius(center: THREE.Vector3, radius: number, amount: number, source: string): void {

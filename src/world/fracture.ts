@@ -16,7 +16,7 @@ import type { StructuralNodeKind, StructuralNodeSpec } from './destruction';
 export type MaterialClass = 'wood' | 'metal' | 'concrete' | 'stone';
 
 /** Cap on simultaneously active pooled 3D splinters / shards / masonry chunks. */
-export const MAX_SPLINTERS = 90;
+export const MAX_SPLINTERS = 160;
 
 const _c = new THREE.Color();
 const _m = new THREE.Matrix4();
@@ -126,12 +126,15 @@ const FRACTURABLE_KINDS = new Set<StructuralNodeKind>(['wall', 'roof', 'slab']);
 
 /**
  * Determines whether a node should be subdivided into a watertight irregular jagged fracture grid.
- * Subdivides when `fractureGrid` is specified OR automatically for broad thin Tier-0/1 walls/roofs/slabs
- * (two largest full dimensions >= 2.2m, thin axis <= 0.75m). Never subdivides columns, posts, or small trim.
+ * Subdivides when `fractureGrid` is specified OR automatically for broad thin walls/roofs/slabs
+ * (two largest full dimensions >= 2.0m, thin axis <= 0.85m). When `allowAllTiers` is false (eager spawn),
+ * restricts auto-subdivision to Tier-0/1 unless `fractureGrid` is set; when true (lazy on-hit fracture),
+ * subdivides concrete and reinforced concrete panels as well.
  */
 export function resolveFractureGrid(
   spec: StructuralNodeSpec,
   half: THREE.Vector3,
+  allowAllTiers = false,
 ): FractureGridPlan | null {
   if (!FRACTURABLE_KINDS.has(spec.kind)) return null;
 
@@ -164,19 +167,24 @@ export function resolveFractureGrid(
     return { cols, rows, uAxis, vAxis, nAxis, handedness };
   }
 
-  // Automatic subdivision: large thin Tier-0/1 panels only (keeps heavy Tier-2/3 structures & collider budgets tight)
-  if (spec.tier > 1) return null;
+  // Automatic subdivision: eager mode skips Tier 2+ to keep untouched world collider budgets lean,
+  // while lazy on-hit fracturing (`allowAllTiers = true`) fractures poured & reinforced concrete too.
+  if (!allowAllTiers && spec.tier > 1) return null;
   const fullN = hArr[nAxis] * 2;
   const fullU = hArr[uAxis] * 2;
   const fullV = hArr[vAxis] * 2;
-  if (fullN > 0.75 || fullU < 2.2 || fullV < 2.2) return null;
+  const maxThick = allowAllTiers ? 0.9 : 0.75;
+  const minSpan = allowAllTiers ? 1.85 : 2.2;
+  if (fullN > maxThick || fullU < minSpan || fullV < minSpan) return null;
 
-  let cols = fullU >= 5.2 ? 3 : 2;
-  let rows = fullV >= 5.2 ? 3 : 2;
-  // Cap automatic cell count at <= 6 (e.g., 2x2 or 3x2) for blazing runtime performance
-  if (cols * rows > 6) {
-    if (fullU >= fullV) rows = 2;
-    else cols = 2;
+  let cols = fullU >= 6.8 ? 4 : fullU >= 4.4 ? 3 : 2;
+  let rows = fullV >= 6.8 ? 4 : fullV >= 4.4 ? 3 : 2;
+  // Cap cell count (<= 9 for lazy concrete breaches, <= 6 for eager panels) for smooth 60 FPS
+  const maxCells = allowAllTiers ? 9 : 6;
+  while (cols * rows > maxCells) {
+    if (cols >= rows && cols > 2) cols--;
+    else if (rows > 2) rows--;
+    else break;
   }
   return { cols, rows, uAxis, vAxis, nAxis, handedness };
 }
@@ -185,11 +193,14 @@ export function resolveFractureGrid(
  * Generates a watertight irregular jagged cell partition for a broad structural panel.
  * Shared interior edges use identical perturbed jagged polylines so adjacent cells interlock
  * with zero gaps when intact and expose sharp jagged edges when punched out.
+ * When `localHit` is supplied (lazy impact-centered fracture), nearby interior vertices gently
+ * pull around the impact point so blasts punch organic localized holes right where shells land.
  */
 export function planPanelFracture(
   spec: StructuralNodeSpec,
   half: THREE.Vector3,
   plan: FractureGridPlan,
+  localHit?: THREE.Vector3,
 ): FractureCellSpec[] {
   const { cols, rows, uAxis, vAxis, nAxis } = plan;
   const hArr = [half.x, half.y, half.z];
@@ -198,7 +209,11 @@ export function planPanelFracture(
   const halfN = hArr[nAxis]!;
   const cellW = (halfU * 2) / cols;
   const cellH = (halfV * 2) / rows;
-  const seed = hashString(spec.id);
+  const hitU = localHit ? clamp(localHit.getComponent(uAxis), -halfU, halfU) : 0;
+  const hitV = localHit ? clamp(localHit.getComponent(vAxis), -halfV, halfV) : 0;
+  const seed = hashString(
+    localHit ? `${spec.id}@${Math.round(hitU * 4)},${Math.round(hitV * 4)}` : spec.id,
+  );
 
   // Build (rows + 1) x (cols + 1) perturbed lattice of cell corners
   const grid: { u: number; v: number }[][] = [];
@@ -209,11 +224,26 @@ export function planPanelFracture(
       let v = -halfV + r * cellH;
       if (c > 0 && c < cols) {
         const amp = r === 0 || r === rows ? 0.16 : 0.24;
-        u += hashSigned(seed, c * 17 + 3, r * 31 + 5) * cellW * amp;
+        let du = hashSigned(seed, c * 17 + 3, r * 31 + 5) * cellW * amp;
+        if (localHit) {
+          // Gently pull/focus nearby cuts around the impact crater while keeping cells monotonic
+          const deltaU = hitU - u;
+          const prox = Math.exp(-(deltaU * deltaU) / Math.max(0.25, cellW * cellW * 1.4));
+          du += clamp(deltaU * 0.22 * prox, -cellW * 0.16, cellW * 0.16);
+          du = clamp(du, -cellW * 0.34, cellW * 0.34);
+        }
+        u += du;
       }
       if (r > 0 && r < rows) {
         const amp = c === 0 || c === cols ? 0.16 : 0.24;
-        v += hashSigned(seed, c * 29 + 11, r * 13 + 7) * cellH * amp;
+        let dv = hashSigned(seed, c * 29 + 11, r * 13 + 7) * cellH * amp;
+        if (localHit) {
+          const deltaV = hitV - v;
+          const prox = Math.exp(-(deltaV * deltaV) / Math.max(0.25, cellH * cellH * 1.4));
+          dv += clamp(deltaV * 0.22 * prox, -cellH * 0.16, cellH * 0.16);
+          dv = clamp(dv, -cellH * 0.34, cellH * 0.34);
+        }
+        v += dv;
       }
       rowPts.push({ u, v });
     }
@@ -241,15 +271,15 @@ export function planPanelFracture(
 
     const pu = -dv / len;
     const pv = du / len;
-    const maxOffset = Math.min(cellW, cellH) * 0.11;
+    const maxOffset = Math.min(cellW, cellH) * 0.13;
     const raw1 = hashSigned(seed, edgeKeyA * 19 + 1, edgeKeyB * 43 + 3);
     const sign1 = raw1 >= 0 ? 1 : -1;
-    const amp1 = Math.min(maxOffset, len * (0.065 + 0.045 * Math.abs(raw1))) * sign1;
+    const amp1 = Math.min(maxOffset, len * (0.075 + 0.05 * Math.abs(raw1))) * sign1;
     const raw2 = hashSigned(seed, edgeKeyA * 37 + 7, edgeKeyB * 53 + 11);
-    const amp2 = -Math.min(maxOffset, len * (0.065 + 0.045 * Math.abs(raw2))) * sign1;
+    const amp2 = -Math.min(maxOffset, len * (0.075 + 0.05 * Math.abs(raw2))) * sign1;
 
-    const p1 = { u: a.u + du * 0.34 + pu * amp1, v: a.v + dv * 0.34 + pv * amp1 };
-    const p2 = { u: a.u + du * 0.66 + pu * amp2, v: a.v + dv * 0.66 + pv * amp2 };
+    const p1 = { u: a.u + du * 0.33 + pu * amp1, v: a.v + dv * 0.33 + pv * amp1 };
+    const p2 = { u: a.u + du * 0.67 + pu * amp2, v: a.v + dv * 0.67 + pv * amp2 };
     return reverse ? [p2, p1] : [p1, p2];
   };
 
@@ -361,12 +391,15 @@ function mapUVN(
  * Builds an extruded jagged shard geometry for a single fracture cell, with:
  * - 2-ring spiderweb face subdivision on front & back faces for smooth DMM bending/denting
  * - Mid-thickness jagged beveled interior fracture cross-sections with darkened exposed core shading
+ * - Optional bent steel rebar stubs embedded along interior concrete fracture edges (invisible while
+ *   adjacent cells are intact, dramatically exposed the moment the neighbor blows away!)
  * - Seamless planar UVs matching parent panel coordinates
  */
 export function buildFractureCellGeometry(
   cell: FractureCellSpec,
   color?: number | readonly [number, number, number],
   materialClass: MaterialClass = 'concrete',
+  exposeRebar = false,
 ): THREE.BufferGeometry {
   const { polygon, halfN, plan, localOffset } = cell;
   const { uAxis, vAxis, nAxis, handedness } = plan;
@@ -376,8 +409,8 @@ export function buildFractureCellGeometry(
   const cvOff = localOffset.getComponent(vAxis);
   const uvScale = 0.35;
 
-  // Exposed interior fracture cross-section shade (raw splintered wood / sheared metal / masonry core)
-  const coreMul = materialClass === 'wood' ? 0.72 : materialClass === 'metal' ? 0.76 : 0.68;
+  // Exposed interior fracture cross-section shade (raw splintered wood / sheared metal / rough aggregate concrete core)
+  const coreMul = materialClass === 'wood' ? 0.72 : materialClass === 'metal' ? 0.76 : 0.56;
   const outerSideMul = 0.92;
 
   const positions: number[] = [];
@@ -387,6 +420,34 @@ export function buildFractureCellGeometry(
   const indices: number[] = [];
   const tmp: [number, number, number] = [0, 0, 0];
   const nrm: [number, number, number] = [0, 0, 0];
+
+  const pushVertRGB = (
+    u: number,
+    v: number,
+    n: number,
+    nu: number,
+    nv: number,
+    nn: number,
+    uv0: number,
+    uv1: number,
+    r: number,
+    g: number,
+    b: number,
+  ): number => {
+    const idx = positions.length / 3;
+    mapUVN(u, v, n, uAxis, vAxis, nAxis, tmp);
+    mapUVN(nu, nv, nn, uAxis, vAxis, nAxis, nrm);
+    positions.push(tmp[0], tmp[1], tmp[2]);
+    normals.push(nrm[0], nrm[1], nrm[2]);
+    uvs.push(uv0, uv1);
+    colors.push(
+      clamp(Math.round(r * 255), 0, 255),
+      clamp(Math.round(g * 255), 0, 255),
+      clamp(Math.round(b * 255), 0, 255),
+      255,
+    );
+    return idx;
+  };
 
   const pushVert = (
     u: number,
@@ -398,21 +459,7 @@ export function buildFractureCellGeometry(
     uv0: number,
     uv1: number,
     shade: number,
-  ): number => {
-    const idx = positions.length / 3;
-    mapUVN(u, v, n, uAxis, vAxis, nAxis, tmp);
-    mapUVN(nu, nv, nn, uAxis, vAxis, nAxis, nrm);
-    positions.push(tmp[0], tmp[1], tmp[2]);
-    normals.push(nrm[0], nrm[1], nrm[2]);
-    uvs.push(uv0, uv1);
-    colors.push(
-      clamp(Math.round(cr * shade * 255), 0, 255),
-      clamp(Math.round(cg * shade * 255), 0, 255),
-      clamp(Math.round(cb * shade * 255), 0, 255),
-      255,
-    );
-    return idx;
-  };
+  ): number => pushVertRGB(u, v, n, nu, nv, nn, uv0, uv1, cr * shade, cg * shade, cb * shade);
 
   const pushTri = (a: number, b: number, c: number, flip: boolean) => {
     if (flip) indices.push(a, c, b);
@@ -457,6 +504,50 @@ export function buildFractureCellGeometry(
   const seed = hashString(cell.id);
   let arc = 0;
 
+  const emitRebarStub = (
+    bu: number,
+    bv: number,
+    bn: number,
+    dirU: number,
+    dirV: number,
+    tanU: number,
+    tanV: number,
+    length: number,
+    bendT: number,
+    bendN: number,
+  ) => {
+    const rBase = 0.017;
+    const rTip = 0.011;
+    // Rusted dark steel rebar color
+    const rr = 0.24;
+    const rg = 0.19;
+    const rb = 0.17;
+    const tu = bu + dirU * length + tanU * bendT;
+    const tv = bv + dirV * length + tanV * bendT;
+    const tn = clamp(bn + bendN, -halfN * 0.65, halfN * 0.65);
+
+    // 4-sided tapered rod prism (8 verts, 8 side tris + 2 cap tris)
+    const b0 = pushVertRGB(bu + tanU * rBase, bv + tanV * rBase, bn, tanU, tanV, 0, 0, 0, rr, rg, rb);
+    const b1 = pushVertRGB(bu, bv, bn + rBase, 0, 0, 1, 0, 0, rr, rg, rb);
+    const b2 = pushVertRGB(bu - tanU * rBase, bv - tanV * rBase, bn, -tanU, -tanV, 0, 0, 0, rr, rg, rb);
+    const b3 = pushVertRGB(bu, bv, bn - rBase, 0, 0, -1, 0, 0, rr, rg, rb);
+
+    const t0 = pushVertRGB(tu + tanU * rTip, tv + tanV * rTip, tn, tanU, tanV, 0, 0.2, 0, rr * 1.15, rg * 1.1, rb * 1.05);
+    const t1 = pushVertRGB(tu, tv, tn + rTip, 0, 0, 1, 0.2, 0, rr * 1.15, rg * 1.1, rb * 1.05);
+    const t2 = pushVertRGB(tu - tanU * rTip, tv - tanV * rTip, tn, -tanU, -tanV, 0, 0.2, 0, rr * 1.15, rg * 1.1, rb * 1.05);
+    const t3 = pushVertRGB(tu, tv, tn - rTip, 0, 0, -1, 0.2, 0, rr * 1.15, rg * 1.1, rb * 1.05);
+
+    const bs = [b0, b1, b2, b3];
+    const ts = [t0, t1, t2, t3];
+    for (let k = 0; k < 4; k++) {
+      const kn = (k + 1) % 4;
+      pushTri(bs[k]!, bs[kn]!, ts[kn]!, sideFlip);
+      pushTri(bs[k]!, ts[kn]!, ts[k]!, sideFlip);
+    }
+    pushTri(t0, t1, t2, sideFlip);
+    pushTri(t0, t2, t3, sideFlip);
+  };
+
   for (let i = 0; i < N; i++) {
     const a = polygon[i]!;
     const b = polygon[(i + 1) % N]!;
@@ -468,12 +559,16 @@ export function buildFractureCellGeometry(
     // Outward 2D normal for CCW edge a -> b is (+dv, -du)
     const nu = dv / len;
     const nv = -du / len;
+    const tu = du / len;
+    const tv = dv / len;
     const isCrack = a.interiorEdge;
     const shade = isCrack ? coreMul : outerSideMul;
 
-    // Subtle jagged mid-thickness bevel on interior cracked edges (keeps outer silhouette watertight)
-    const jagA = isCrack ? hashSigned(seed, i * 11, 3) * Math.min(0.035, halfN * 0.25) : 0;
-    const jagB = isCrack ? hashSigned(seed, ((i + 1) % N) * 11, 3) * Math.min(0.035, halfN * 0.25) : 0;
+    // Rougher jagged mid-thickness bevel on interior cracked edges (keeps outer silhouette watertight)
+    const jagScale = materialClass === 'concrete' || materialClass === 'stone' ? 0.34 : 0.25;
+    const jagMax = materialClass === 'concrete' || materialClass === 'stone' ? 0.055 : 0.035;
+    const jagA = isCrack ? hashSigned(seed, i * 11, 3) * Math.min(jagMax, halfN * jagScale) : 0;
+    const jagB = isCrack ? hashSigned(seed, ((i + 1) % N) * 11, 3) * Math.min(jagMax, halfN * jagScale) : 0;
 
     const u0 = arc * uvScale;
     const u1 = (arc + len) * uvScale;
@@ -481,8 +576,8 @@ export function buildFractureCellGeometry(
 
     const b0 = pushVert(a.u, a.v, -halfN, nu, nv, 0, u0, -halfN * uvScale, shade);
     const b1 = pushVert(b.u, b.v, -halfN, nu, nv, 0, u1, -halfN * uvScale, shade);
-    const m0 = pushVert(a.u + nu * jagA, a.v + nv * jagA, 0, nu, nv, 0, u0, 0, shade * (isCrack ? 0.9 : 1));
-    const m1 = pushVert(b.u + nu * jagB, b.v + nv * jagB, 0, nu, nv, 0, u1, 0, shade * (isCrack ? 0.9 : 1));
+    const m0 = pushVert(a.u + nu * jagA, a.v + nv * jagA, 0, nu, nv, 0, u0, 0, shade * (isCrack ? 0.85 : 1));
+    const m1 = pushVert(b.u + nu * jagB, b.v + nv * jagB, 0, nu, nv, 0, u1, 0, shade * (isCrack ? 0.85 : 1));
     const f0 = pushVert(a.u, a.v, halfN, nu, nv, 0, u0, halfN * uvScale, shade);
     const f1 = pushVert(b.u, b.v, halfN, nu, nv, 0, u1, halfN * uvScale, shade);
 
@@ -491,6 +586,21 @@ export function buildFractureCellGeometry(
     pushTri(b0, m1, m0, sideFlip);
     pushTri(m0, m1, f1, sideFlip);
     pushTri(m0, f1, f0, sideFlip);
+
+    // Embedded steel rebar stubs along broken concrete interior seams (tucked within slab thickness)
+    if (exposeRebar && isCrack && halfN >= 0.08 && len >= 0.42 && i % 2 === 0) {
+      const rodCount = len >= 1.25 ? 2 : 1;
+      for (let r = 0; r < rodCount; r++) {
+        const frac = rodCount === 2 ? (r === 0 ? 0.3 : 0.72) : 0.5;
+        const ru = a.u + du * frac;
+        const rv = a.v + dv * frac;
+        const rn = hashSigned(seed, i * 23 + r * 7, 19) * halfN * 0.28;
+        const rLen = 0.17 + Math.abs(hashSigned(seed, i * 17 + r * 13, 29)) * 0.16;
+        const bendT = hashSigned(seed, i * 31 + r * 5, 37) * 0.08;
+        const bendN = hashSigned(seed, i * 41 + r * 11, 43) * Math.min(0.05, halfN * 0.25);
+        emitRebarStub(ru, rv, rn, nu, nv, tu, tv, rLen, bendT, bendN);
+      }
+    }
   }
 
   const g = new THREE.BufferGeometry();
@@ -926,7 +1036,33 @@ export function applyBreakFractureDeform(
       }
     }
   } else {
-    return;
+    // Concrete / stone: rough angular spalling along outer corners & fracture lips
+    const maxSpan = Math.max(hx, hy, hz);
+    const colAttr = geom.getAttribute('color') as THREE.BufferAttribute | undefined;
+    const colArr = colAttr ? (colAttr.array as Uint8Array) : null;
+    for (let i = 0; i < vCount; i++) {
+      const o = i * 3;
+      const px = posArr[o]!;
+      const py = posArr[o + 1]!;
+      const pz = posArr[o + 2]!;
+      const nx = Math.abs(px) / hx;
+      const ny = Math.abs(py) / hy;
+      const nz = Math.abs(pz) / hz;
+      if (nx > 0.78 || ny > 0.78 || nz > 0.78) {
+        const chip = Math.min(0.08, maxSpan * 0.06) * Math.sin(px * 19.1 + py * 13.7 + pz * 23.3);
+        posArr[o] = px + chip * (px >= 0 ? -0.6 : 0.6);
+        posArr[o + 1] = py + chip * (py >= 0 ? -0.45 : 0.45);
+        posArr[o + 2] = pz + chip * (pz >= 0 ? -0.6 : 0.6);
+        if (colArr) {
+          const co = i * 4;
+          const dark = 0.84;
+          colArr[co] = Math.round(colArr[co]! * dark);
+          colArr[co + 1] = Math.round(colArr[co + 1]! * dark);
+          colArr[co + 2] = Math.round(colArr[co + 2]! * dark);
+        }
+      }
+    }
+    if (colAttr) colAttr.needsUpdate = true;
   }
 
   posAttr.needsUpdate = true;

@@ -130,7 +130,7 @@ describe('one fort for the whole team', () => {
     const g = await game(1);
     const guest = g.guests[0]!;
     const shack = guest.walls.all.find(p => p.kind === 'shack')!;
-    guest.walls.hit(shack.colliders[0]!, 4000);
+    guest.walls.hit(shack.colliders[0]!, 4000, 'hmg');
     expect(shack.stage).toBe('intact');
     tick(g); tick(g);
     expect(g.host.walls.all[shack.id]!.stage).toBe('breached');

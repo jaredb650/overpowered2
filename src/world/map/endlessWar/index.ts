@@ -9,12 +9,19 @@
  */
 import * as THREE from 'three';
 import type { SpawnPoint } from '../../../core/contracts';
-import type { StructuralClusterSpec, StructuralNodeSpec } from '../../destruction';
 import { FACE, type Mat } from '../../kit/geo';
 import type { Kit } from '../../kit/kit';
 import { cable, pipe, scrapHeap, truck, tyres } from '../../kit/props';
 import { floorStencil, stencil } from '../../kit/stencil';
 import type { MapSpec } from '../spec';
+import {
+  buildFieldWatchtowerCluster,
+  buildParkingGarageCluster,
+  buildReinforcedBunkerCluster,
+  buildTimberShackCluster,
+  buildWarHouseCluster,
+  buildWarOfficeCluster,
+} from './buildings';
 import {
   ENDLESS_WAR_AIRCRAFT_PAD,
   ENDLESS_WAR_ATMOSPHERE,
@@ -56,6 +63,7 @@ export {
   ENDLESS_WAR_NAV_BOUNDS,
 };
 export * from './plan';
+export * from './buildings';
 
 export const ENDLESS_WAR_HUB = new THREE.Vector3(ENDLESS_WAR_HUB_PT[0], ENDLESS_WAR_HUB_PT[1], ENDLESS_WAR_HUB_PT[2]);
 
@@ -434,36 +442,6 @@ function powerPylon(k: Kit, x: number, z: number, yaw = 0): void {
   k.pop();
 }
 
-/** Tier-0 destructible wooden watchtower / ammo shack scattered across No-Man's-Land. */
-function buildFieldWatchtower(id: string, x: number, z: number, yaw: number): StructuralClusterSpec {
-  const c = Math.cos(yaw);
-  const s = Math.sin(yaw);
-  const pt = (lx: number, ly: number, lz: number): [number, number, number] => [
-    x + lx * c + lz * s,
-    ly,
-    z - lx * s + lz * c,
-  ];
-  const H = 3.8;
-  const W = 1.8;
-  const D = 1.6;
-  const nodes: StructuralNodeSpec[] = [
-    { id: 'stilt_fl', pos: pt(-W, H / 2, D), half: [0.18, H / 2, 0.18], mat: 'plywood', color: 0x524234, hp: 95, tier: 0, anchored: true, kind: 'column', yaw, materialClass: 'wood' },
-    { id: 'stilt_fr', pos: pt(W, H / 2, D), half: [0.18, H / 2, 0.18], mat: 'plywood', color: 0x524234, hp: 95, tier: 0, anchored: true, kind: 'column', yaw, materialClass: 'wood' },
-    { id: 'stilt_bl', pos: pt(-W, H / 2, -D), half: [0.18, H / 2, 0.18], mat: 'plywood', color: 0x48382c, hp: 95, tier: 0, anchored: true, kind: 'column', yaw, materialClass: 'wood' },
-    { id: 'stilt_br', pos: pt(W, H / 2, -D), half: [0.18, H / 2, 0.18], mat: 'plywood', color: 0x48382c, hp: 95, tier: 0, anchored: true, kind: 'column', yaw, materialClass: 'wood' },
-    { id: 'deck', pos: pt(0, H + 0.14, 0), half: [W + 0.35, 0.14, D + 0.35], mat: 'plywood', color: 0x62503e, hp: 110, tier: 0, anchored: false, kind: 'slab', yaw, impactRadius: 6.5, materialClass: 'wood' },
-    { id: 'parapet', pos: pt(0, H + 0.72, D), half: [W + 0.25, 0.5, 0.18], mat: 'dirt', color: 0x766c58, hp: 100, tier: 0, anchored: false, kind: 'wall', yaw, materialClass: 'stone' },
-    { id: 'roof', pos: pt(0, H + 2.35, 0), half: [W + 0.5, 0.12, D + 0.5], mat: 'rust', color: 0x5d4438, hp: 105, tier: 0, anchored: false, kind: 'roof', yaw, impactRadius: 6.5, materialClass: 'metal' },
-    { id: 'fuel_drum', pos: pt(W + 0.85, 0.55, D + 0.3), half: [0.42, 0.55, 0.42], mat: 'paintRed', color: 0xb8261e, hp: 35, tier: 0, anchored: true, kind: 'hazard', yaw, hazardRadius: 9.0, hazardDamage: 240, materialClass: 'metal' },
-  ];
-  return {
-    id,
-    kind: 'watchtower',
-    label: 'FIELD WATCHTOWER',
-    nodes,
-  };
-}
-
 // ---------------------------------------------------------------------------
 // Stage 1: Overcast Mud Valley, Split River Gorge, Roads & Distant Theater Rim
 // ---------------------------------------------------------------------------
@@ -716,9 +694,11 @@ function stageSouthFront(k: Kit, spec: MapSpec): void {
   trenchRedoubt(k, spec, 104, 206, 28, 0.06, false);
   trenchRedoubt(k, spec, 182, 214, 24, -0.08, false);
 
-  // Forward trench outposts & pillboxes
-  bunkerCasemate(k, spec, -66, 192, Math.PI, false);
-  bunkerCasemate(k, spec, 66, 192, Math.PI, false);
+  // Forward trench outposts & enterable Tier-3 reinforced concrete bunkers (tank-proof, siege ordnance only!)
+  spec.destructionClusters.push(
+    buildReinforcedBunkerCluster('ew.bunker.south_w', -66, 192, Math.PI, false, { spec }),
+    buildReinforcedBunkerCluster('ew.bunker.south_e', 66, 192, Math.PI, false, { spec }),
+  );
   bunkerCasemate(k, spec, -166, 184, Math.PI + 0.18, false);
   bunkerCasemate(k, spec, 166, 184, Math.PI - 0.18, false);
 
@@ -733,16 +713,21 @@ function stageSouthFront(k: Kit, spec: MapSpec): void {
   blastedTreeCopse(k, -196, 162, 10, 16, 37);
   blastedTreeCopse(k, 196, 162, 10, 16, 41);
 
-  // 3b. CENTER APPROACH: Shattered Crossroads Town (z = +56..+148)
-  // Multi-story bombed-out masonry blocks flanking Center Highway (x = -12..+12 stays clear for tanks!)
-  ruinedBuilding(k, spec, -26, 134, 14, 12, 2, 0.06, WAR_PALETTE.brickRuins);
-  ruinedBuilding(k, spec, 28, 132, 15, 11, 3, -0.08, [0.42, 0.40, 0.38]);
-  ruinedBuilding(k, spec, -44, 104, 16, 13, 3, 0.12, [0.46, 0.34, 0.28]);
-  ruinedBuilding(k, spec, -22, 86, 12, 11, 2, -0.05, WAR_PALETTE.wetConcrete);
-  ruinedBuilding(k, spec, 25, 92, 14, 12, 2, 0.09, WAR_PALETTE.brickRuins);
-  ruinedBuilding(k, spec, 48, 106, 15, 13, 3, -0.11, [0.38, 0.37, 0.36]);
-  ruinedBuilding(k, spec, -24, 54, 12, 10, 2, 0.04, WAR_PALETTE.wetConcrete);
-  ruinedBuilding(k, spec, 26, 54, 13, 10, 2, -0.06, WAR_PALETTE.brickRuins);
+  // 3b. CENTER APPROACH: Shattered Crossroads Urban District (z = +54..+145)
+  // Full multi-story ENTERABLE destructible buildings flanking Center Highway (x = -14..+14 clear for tanks!):
+  //   - 3-Story Poured-Concrete Office HQ on West Crossroads (rooftop + 3 floors of firing windows)
+  //   - 3-Level Driveable Concrete Parking Garage on East Crossroads (wide ramps for infantry & vehicles!)
+  //   - Enterable 2-Story Brick & Timber Houses (tank-smashable!) + Timber Supply Shack
+  spec.destructionClusters.push(
+    buildWarOfficeCluster('ew.office.south_hq', -32, 118, 0, 3, { spec, label: 'WEST CROSSROADS OFFICE HQ' }),
+    buildParkingGarageCluster('ew.garage.crossroads', 38, 108, Math.PI, { spec, label: 'CROSSROADS PARKING GARAGE' }),
+    buildWarHouseCluster('ew.house.south_cw', -26, 68, 0.05, { style: 'brick', spec, label: 'BRIDGEHEAD BRICK HOUSE' }),
+    buildWarHouseCluster('ew.house.south_ce', 26, 66, -0.06, { style: 'brick', spec, label: 'EAST CROSSROADS HOUSE' }),
+    buildWarHouseCluster('ew.house.south_flank_w', -48, 86, Math.PI / 2, { style: 'wood', spec, label: 'WEST FLANK TIMBER HOUSE' }),
+    buildTimberShackCluster('ew.shack.south_ce', 58, 78, -0.2, { spec }),
+  );
+  // One bombed-out concrete ruin on the south-west avenue for layered war-torn texture
+  ruinedBuilding(k, spec, -26, 140, 12, 10, 2, 0.06, WAR_PALETTE.brickRuins);
 
   // Burned vehicles, craters & anti-tank traps in the town approaches
   wreckedArmor(k, spec, -11, 118, 0.42, 'tank');
@@ -751,9 +736,12 @@ function stageSouthFront(k: Kit, spec: MapSpec): void {
   dragonsTeeth(k, -66, 56, -34, 56);
   dragonsTeeth(k, 34, 56, 66, 56);
 
-  // 3c. WEST APPROACH: Ruined Grain Mill, Silos & Rail Siding (x = -195..-110, z = +54..+146)
-  ruinedBuilding(k, spec, -172, 114, 16, 14, 3, 0.05, [0.44, 0.42, 0.40]);
-  ruinedBuilding(k, spec, -118, 92, 14, 11, 2, -0.08, WAR_PALETTE.brickRuins);
+  // 3c. WEST APPROACH: Mill District, Grain Silos & Rail Siding (x = -195..-110, z = +54..+146)
+  spec.destructionClusters.push(
+    buildWarOfficeCluster('ew.office.west_mill', -172, 110, Math.PI / 2, 2, { tint: [0.46, 0.44, 0.42], spec, label: 'WEST MILL ADMIN BUILDING' }),
+    buildWarHouseCluster('ew.house.west_siding', -118, 92, -Math.PI / 2, { style: 'brick', spec, label: 'RAIL SIDING HOUSE' }),
+    buildTimberShackCluster('ew.shack.west_siding', -124, 62, 0.12, { spec }),
+  );
   // Twin tall concrete grain silos (huge silhouette breaking West sightline)
   for (const sz of [126, 136]) {
     k.geo.use('concrete').tint(0.45, 0.46, 0.45);
@@ -765,8 +753,11 @@ function stageSouthFront(k: Kit, spec: MapSpec): void {
   blastedTreeCopse(k, -112, 58, 9, 14, 53);
 
   // 3d. EAST APPROACH: Flooded Hydro Quarry & Concrete Plant (x = +110..+200, z = +54..+146)
-  ruinedBuilding(k, spec, 174, 112, 16, 13, 2, -0.06, WAR_PALETTE.darkConcrete);
-  ruinedBuilding(k, spec, 118, 96, 13, 12, 2, 0.10, WAR_PALETTE.wetConcrete);
+  spec.destructionClusters.push(
+    buildWarOfficeCluster('ew.office.east_quarry', 174, 112, -Math.PI / 2, 2, { tint: [0.42, 0.44, 0.46], spec, label: 'QUARRY OPERATIONS OFFICE' }),
+    buildWarHouseCluster('ew.house.east_road', 118, 94, Math.PI / 2, { style: 'wood', spec, label: 'QUARRY TIMBER HOUSE' }),
+    buildTimberShackCluster('ew.shack.east_yard', 172, 140, -0.18, { spec }),
+  );
   // Tall rusted quarry crusher tower + overhead conveyor pipes
   solidBox(k, 176, 5.2, 76, 5.5, 5.2, 5.5, 'rust', { tint: WAR_PALETTE.rustSteel });
   pipe(k, [172, 8.2, 76, 172, 6.4, 108], 0.55, 'rust');
@@ -789,10 +780,10 @@ function stageSouthFront(k: Kit, spec: MapSpec): void {
   ];
   for (const [cx, cz, cr] of craters) shellCrater(k, cx, cz, cr);
 
-  // Destructible field watchtowers
+  // Walkable 4-leg destructible timber watchtowers (climbable ramp to 3.6 m lookout deck, zero floating!)
   spec.destructionClusters.push(
-    buildFieldWatchtower('ew.tower.sw', -126, 166, 0.15),
-    buildFieldWatchtower('ew.tower.se', 126, 166, -0.15),
+    buildFieldWatchtowerCluster('ew.tower.sw', -124, 168, 0.15),
+    buildFieldWatchtowerCluster('ew.tower.se', 124, 168, -0.15),
   );
 }
 
@@ -898,13 +889,15 @@ function stageRiverCrossings(k: Kit, spec: MapSpec): void {
 function stageNorthDefenseBelt(k: Kit, spec: MapSpec): void {
   const g = k.geo;
 
-  // 5a. North Bridgehead Bunkers & Zig-Zag Enemy Trenches (z = -46..-108)
-  bunkerCasemate(k, spec, -166, -48, 0.16, true);
+  // 5a. North Bridgehead Reinforced Bunkers (Tier-3 siege-only, tank-proof!) & Zig-Zag Enemy Trenches (z = -46..-108)
+  spec.destructionClusters.push(
+    buildReinforcedBunkerCluster('ew.bunker.north_w', -166, -48, 0.16, true, { spec }),
+    buildReinforcedBunkerCluster('ew.bunker.north_cw', -24, -50, 0.10, true, { spec }),
+    buildReinforcedBunkerCluster('ew.bunker.north_ce', 24, -50, -0.10, true, { spec }),
+    buildReinforcedBunkerCluster('ew.bunker.north_e', 166, -48, -0.16, true, { spec }),
+  );
   bunkerCasemate(k, spec, -124, -48, -0.16, true);
-  bunkerCasemate(k, spec, -24, -50, 0.10, true);
-  bunkerCasemate(k, spec, 24, -50, -0.10, true);
   bunkerCasemate(k, spec, 124, -48, 0.16, true);
-  bunkerCasemate(k, spec, 166, -48, -0.16, true);
 
   trenchRedoubt(k, spec, -184, -84, 24, -0.06, true);
   trenchRedoubt(k, spec, -96, -80, 30, 0.08, true);
@@ -926,8 +919,10 @@ function stageNorthDefenseBelt(k: Kit, spec: MapSpec): void {
   blastedTreeCopse(k, -68, -216, 12, 18, 97);
   blastedTreeCopse(k, 68, -216, 12, 18, 109);
 
-  // Ruined North Checkpoint Buildings flanking Center Highway
-  ruinedBuilding(k, spec, -30, -148, 14, 12, 2, -0.08, WAR_PALETTE.darkConcrete);
+  // Enterable 3-Story North Command Office & checkpoint ruin flanking Center Highway
+  spec.destructionClusters.push(
+    buildWarOfficeCluster('ew.office.north_cmd', -32, -148, Math.PI, 3, { tint: [0.40, 0.42, 0.44], spec, label: 'NORTH COMMAND OFFICE' }),
+  );
   ruinedBuilding(k, spec, -34, -196, 15, 11, 2, 0.06, WAR_PALETTE.brickRuins);
   wreckedArmor(k, spec, 12, -88, 0.35, 'tank');
   wreckedArmor(k, spec, -132, -102, -0.42, 'tank');
@@ -981,10 +976,10 @@ function stageNorthDefenseBelt(k: Kit, spec: MapSpec): void {
     k.light(fx, 8.0, fz, 0xff4238, 8, 28);
   }
 
-  // North field watchtowers
+  // Walkable 4-leg North field watchtowers (climbable ramp to 3.6 m lookout deck, zero floating!)
   spec.destructionClusters.push(
-    buildFieldWatchtower('ew.tower.nw', -112, -138, Math.PI - 0.2),
-    buildFieldWatchtower('ew.tower.ne', 112, -138, Math.PI + 0.2),
+    buildFieldWatchtowerCluster('ew.tower.nw', -112, -138, Math.PI - 0.2),
+    buildFieldWatchtowerCluster('ew.tower.ne', 112, -138, Math.PI + 0.2),
   );
   g.tint(1);
 }
@@ -1172,16 +1167,19 @@ function stageWarDetailAndLOS(k: Kit, spec: MapSpec): void {
     }
   }
 
-  // 3. Additional North-Sector Ruined Farmhouses, Supply Depots & Industrial Sheds (dense fighting past the river!)
-  ruinedBuilding(k, spec, -178, -112, 15, 12, 2, 0.08, WAR_PALETTE.brickRuins);
-  ruinedBuilding(k, spec, -112, -138, 14, 11, 2, -0.12, WAR_PALETTE.darkConcrete);
-  ruinedBuilding(k, spec, 176, -112, 15, 12, 2, -0.08, WAR_PALETTE.wetConcrete);
-  ruinedBuilding(k, spec, 112, -136, 14, 11, 2, 0.11, WAR_PALETTE.brickRuins);
-  ruinedBuilding(k, spec, 28, -124, 13, 11, 2, -0.06, WAR_PALETTE.darkConcrete);
+  // 3. North-Sector Enterable Houses, Garrison Offices & Supply Shacks (dense multi-story fighting past the river!)
+  spec.destructionClusters.push(
+    buildWarHouseCluster('ew.house.north_w', -178, -112, Math.PI / 2, { style: 'brick', spec, label: 'NORTH WEST FARMHOUSE' }),
+    buildWarHouseCluster('ew.house.north_e', 176, -112, -Math.PI / 2, { style: 'wood', spec, label: 'NORTH EAST FARMHOUSE' }),
+    buildWarHouseCluster('ew.house.north_c', 30, -124, Math.PI - 0.08, { style: 'brick', spec, label: 'NORTH HIGHWAY HOUSE' }),
+    buildWarOfficeCluster('ew.office.north_garrison_w', -184, -226, Math.PI, 2, { tint: [0.38, 0.39, 0.41], spec, label: 'WEST GARRISON OFFICE' }),
+    buildWarOfficeCluster('ew.office.north_garrison_e', 184, -226, Math.PI, 2, { tint: [0.38, 0.39, 0.41], spec, label: 'EAST GARRISON OFFICE' }),
+    buildTimberShackCluster('ew.shack.north_w', -126, -104, Math.PI + 0.14, { spec }),
+    buildTimberShackCluster('ew.shack.north_e', 126, -104, Math.PI - 0.14, { spec }),
+  );
+  // Bombed-out gatehouse ruins flanking the Bastion approach
   ruinedBuilding(k, spec, -28, -234, 14, 11, 2, 0.09, WAR_PALETTE.darkConcrete);
   ruinedBuilding(k, spec, 28, -234, 14, 11, 2, -0.09, WAR_PALETTE.darkConcrete);
-  ruinedBuilding(k, spec, -184, -228, 15, 12, 3, 0.05, [0.36, 0.36, 0.38]);
-  ruinedBuilding(k, spec, 184, -228, 15, 12, 3, -0.05, [0.36, 0.36, 0.38]);
 
   // 4. Downed Transport Helicopter Carcasses (iconic war-front landmarks on the mud flats!)
   for (const [dx, dz, dyaw] of [[-78, 86, 0.65], [82, -132, -0.82]] as const) {

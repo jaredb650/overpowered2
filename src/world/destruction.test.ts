@@ -37,6 +37,14 @@ import {
   NUKE_SWEEP_SPEED,
   type StructuralClusterSpec,
 } from './destruction';
+import { canDamageMaterial, canVehicleRamMaterial } from './destructionMaterials';
+import {
+  buildFieldWatchtowerCluster,
+  buildReinforcedBunkerCluster,
+  buildTimberShackCluster,
+  buildWarHouseCluster,
+  buildWarOfficeCluster,
+} from './map/endlessWar/buildings';
 
 const V = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
 
@@ -100,8 +108,11 @@ function stepPhysics(manager: DestructionManager, frames: number, dt = 1 / 60): 
 
 describe('armor tier gating and source multipliers', () => {
   it('enforces all 4 material armor tiers accurately', () => {
-    // Tier 0: timber — damaged by everything
-    for (const src of ['smg', 'shotgun', 'sword', 'rocket', 'satchel', 'frame_rotary_airburst', 'frame_40mm', 'frame_howitzer', 'nuke']) {
+    // Tier 0: timber — immune to light small arms (AR/SMG/pistol), shredded by .50 cal / HMG / fire / explosives
+    for (const blocked of ['smg', 'rifle', 'pistol']) {
+      expect(canDamageTier(0, blocked), `tier 0 should block ${blocked}`).toBe(false);
+    }
+    for (const src of ['piledriver', 'hmg', 'minigun', 'flame', 'rocket', 'satchel', 'frame_rotary_airburst', 'frame_40mm', 'frame_howitzer', 'nuke']) {
       expect(canDamageTier(0, src), `tier 0 vs ${src}`).toBe(true);
     }
 
@@ -218,14 +229,10 @@ describe('support-graph BFS collapse and physics', () => {
     const slab = cluster.getNode('slab')!;
     const roof = cluster.getNode('roof')!;
 
-    // Break left column only: right column still supports slab & roof!
+    // Break left column of the 2-column pavilion: the slab's CoM now overhangs outside the single remaining
+    // column footprint -> 4-pass structural solver tips slab & roof immediately (no floating on 1 leg!)
     manager.blast(V(-3, 2, 0), 2, 200, 'satchel');
     expect(cluster.getNode('col_l')!.state).toBe('falling');
-    expect(slab.state).toBe('intact');
-    expect(roof.state).toBe('intact');
-
-    // Break right column: slab & roof lose all paths to anchored nodes -> enter tilting warning phase!
-    manager.blast(V(3, 2, 0), 2, 200, 'satchel');
     expect(slab.state).toBe('tilting');
     expect(roof.state).toBe('tilting');
     expect(audioPlay).toHaveBeenCalledWith('metal_groan', expect.anything());
@@ -506,11 +513,11 @@ describe('next-gen jagged panel fracture, DMM deformation, splinters, and gradua
       }
     }
 
-    // Punch ONLY the top-left cell (row=1, col=0 -> cell index 3) via direct collider hit
+    // Punch ONLY the top-left cell (row=1, col=0 -> cell index 3) via direct .50 cal collider hit
     const targetCell = cells[3]!;
     const farNeighbor = cells[2]!; // bottom-right cell
     const hitPoint = targetCell.basePos.clone();
-    expect(manager.damageCollider(targetCell.staticCollider, 150, 'smg', hitPoint)).toBe(true);
+    expect(manager.damageCollider(targetCell.staticCollider, 150, 'piledriver', hitPoint)).toBe(true);
     physics.flushQueries();
 
     // ONLY the punched cell broke away; surrounding jagged cells remain standing!
@@ -527,7 +534,7 @@ describe('next-gen jagged panel fracture, DMM deformation, splinters, and gradua
 
     // Blowing out all 3 bottom-row anchored cells drops the remaining unsupported top cells into sagging!
     for (const bottomCell of [cells[0]!, cells[1]!, cells[2]!]) {
-      manager.damageCollider(bottomCell.staticCollider, 200, 'smg', bottomCell.basePos);
+      manager.damageCollider(bottomCell.staticCollider, 200, 'piledriver', bottomCell.basePos);
     }
     expect(cells[4]!.state).toBe('tilting');
     expect(cells[5]!.state).toBe('tilting');
@@ -557,11 +564,11 @@ describe('next-gen jagged panel fracture, DMM deformation, splinters, and gradua
     expect(post.materialClass).toBe('wood');
     expect(maxVertexDisplacement(post.mesh!.geometry, post.restPositions)).toBe(0);
 
-    // Non-lethal hit #1 (drops HP to 70% < 85%): bends/twists wood + spawns wood splinters + wood crack audio
+    // Non-lethal .50 cal hit #1 (drops HP below 85%): bends/twists wood + spawns wood splinters + wood crack audio
     const impact1 = V(-130.22, 2.1, 0);
-    manager.damageCollider(post.staticCollider, 60, 'smg', impact1);
+    manager.damageCollider(post.staticCollider, 50, 'piledriver', impact1);
     expect(post.state).toBe('intact');
-    expect(post.hp).toBe(140);
+    expect(post.hp).toBeLessThan(170);
     const disp1 = maxVertexDisplacement(post.mesh!.geometry, post.restPositions);
     expect(disp1).toBeGreaterThan(0.05);
     expect(manager.splinters.woodSpawned).toBeGreaterThanOrEqual(3);
@@ -569,8 +576,8 @@ describe('next-gen jagged panel fracture, DMM deformation, splinters, and gradua
     expect(manager.activeSplinters).toBeLessThanOrEqual(MAX_SPLINTERS);
     expect(audioPlay).toHaveBeenCalledWith('bone_snap', expect.anything());
 
-    // Non-lethal hit #2 (drops HP to 30% < 35%): bends even further & darkens crack zone vertex colors
-    manager.damageCollider(post.staticCollider, 80, 'smg', impact1);
+    // Non-lethal hit #2 (drops HP below 35%): bends even further & darkens crack zone vertex colors
+    manager.damageCollider(post.staticCollider, 55, 'piledriver', impact1);
     const disp2 = maxVertexDisplacement(post.mesh!.geometry, post.restPositions);
     expect(disp2).toBeGreaterThan(disp1);
 
@@ -586,7 +593,7 @@ describe('next-gen jagged panel fracture, DMM deformation, splinters, and gradua
 
     // Final lethal hit: launches with burst of 6-10 elongated wood splinters & elastic whip
     const woodBeforeBreak = manager.splinters.woodSpawned;
-    manager.damageCollider(post.staticCollider, 100, 'smg', impact1);
+    manager.damageCollider(post.staticCollider, 100, 'piledriver', impact1);
     expect(post.state).toBe('falling');
     expect(manager.splinters.woodSpawned - woodBeforeBreak).toBeGreaterThanOrEqual(6);
     expect(manager.activeSplinters).toBeLessThanOrEqual(MAX_SPLINTERS);
@@ -620,9 +627,9 @@ describe('next-gen jagged panel fracture, DMM deformation, splinters, and gradua
     const plate = cluster.getNode('plate')!;
     expect(plate.materialClass).toBe('metal');
 
-    // Hit on front (+Z) face near (-0.4, +0.3, +0.2) in local space
+    // Hit on front (+Z) face near (-0.4, +0.3, +0.2) in local space with .50 cal HMG
     const worldHit = V(-150.4, 2.3, 0.2);
-    manager.damageCollider(plate.staticCollider, 140, 'smg', worldHit);
+    manager.damageCollider(plate.staticCollider, 140, 'piledriver', worldHit);
     expect(plate.state).toBe('intact');
 
     const posAttr = plate.mesh!.geometry.getAttribute('position') as THREE.BufferAttribute;
@@ -724,4 +731,181 @@ describe('next-gen jagged panel fracture, DMM deformation, splinters, and gradua
     expect(manager.activeSplinters).toBe(0);
   });
 });
+
+describe('Destruction Overhaul — Material Matrix, Zero-Floating Solver, Concrete Fracture & Vehicle Ramming', () => {
+  it('enforces realistic material-vs-damage rules across all 7 structural materials', () => {
+    // Glass: even pistols & SMGs shatter it
+    expect(canDamageMaterial('glass', 'pistol')).toBe(true);
+    expect(canDamageMaterial('glass', 'rifle')).toBe(true);
+
+    // Drywall: shotguns, HMGs, explosives, and any vehicle ram shred it
+    expect(canDamageMaterial('drywall', 'shotgun')).toBe(true);
+    expect(canDamageMaterial('drywall', 'hmg')).toBe(true);
+    expect(canDamageMaterial('drywall', 'ram_light')).toBe(true);
+
+    // Timber (wooden shacks & watchtowers): immune to assault rifles / SMGs / pistols;
+    // shredded by .50 cal (piledriver), HMGs, autocannons, fire, explosives, and medium+ vehicle rams
+    expect(canDamageMaterial('timber', 'rifle')).toBe(false);
+    expect(canDamageMaterial('timber', 'smg')).toBe(false);
+    expect(canDamageMaterial('timber', 'pistol')).toBe(false);
+    expect(canDamageMaterial('timber', 'piledriver')).toBe(true);
+    expect(canDamageMaterial('timber', 'hmg')).toBe(true);
+    expect(canDamageMaterial('timber', 'autocannon')).toBe(true);
+    expect(canDamageMaterial('timber', 'rocket')).toBe(true);
+    expect(canVehicleRamMaterial('timber', 'light', 14)).toBe(false);
+    expect(canVehicleRamMaterial('timber', 'medium', 14)).toBe(true);
+    expect(canVehicleRamMaterial('timber', 'heavy', 14)).toBe(true);
+
+    // Masonry (brick houses): immune to small arms & HMGs; breached by explosives, autocannons, heavy tank rams
+    expect(canDamageMaterial('masonry', 'rifle')).toBe(false);
+    expect(canDamageMaterial('masonry', 'hmg')).toBe(false);
+    expect(canDamageMaterial('masonry', 'rocket')).toBe(true);
+    expect(canVehicleRamMaterial('masonry', 'medium', 14)).toBe(false);
+    expect(canVehicleRamMaterial('masonry', 'heavy', 14)).toBe(true);
+
+    // Poured Concrete (offices & parking garages): immune to small arms, HMGs, .50 cal; blown apart by heavy explosives
+    expect(canDamageMaterial('concrete', 'rifle')).toBe(false);
+    expect(canDamageMaterial('concrete', 'piledriver')).toBe(false);
+    expect(canDamageMaterial('concrete', 'hmg')).toBe(false);
+    expect(canDamageMaterial('concrete', 'rocket')).toBe(true);
+    expect(canDamageMaterial('concrete', 'tank_cannon')).toBe(true);
+    expect(canDamageMaterial('concrete', 'satchel')).toBe(true);
+
+    // Reinforced Concrete (Tier-3 bunkers): immune to small arms, standard rockets, and tank rams; siege ordnance only!
+    expect(canDamageMaterial('reinforced_concrete', 'rifle')).toBe(false);
+    expect(canDamageMaterial('reinforced_concrete', 'rocket')).toBe(false);
+    expect(canDamageMaterial('reinforced_concrete', 'ram_heavy')).toBe(false);
+    expect(canVehicleRamMaterial('reinforced_concrete', 'heavy', 18)).toBe(false);
+    expect(canDamageMaterial('reinforced_concrete', 'howitzer')).toBe(true);
+    expect(canDamageMaterial('reinforced_concrete', 'bomb')).toBe(true);
+    expect(canDamageMaterial('reinforced_concrete', 'breach_charge')).toBe(true);
+    expect(canDamageMaterial('reinforced_concrete', 'nuke')).toBe(true);
+  });
+
+  it('blocks assault rifles from damaging wooden shacks while .50 cal shreds them', () => {
+    const { manager } = makeEnv();
+    const cluster = manager.addCluster(buildTimberShackCluster('shack_mat_test', -100, 120, 0));
+    const wall = cluster.getNode('shack_n')!;
+    const startHp = wall.hp;
+    const initialNodes = cluster.nodes.length;
+
+    // Assault rifle / SMG cannot scratch the timber shack
+    const arRes = manager.damageCollider(wall.staticCollider!, 80, 'rifle', wall.basePos);
+    expect(arRes).toBe(true);
+    expect(wall.hp).toBe(startHp);
+    expect(cluster.nodes.length).toBe(initialNodes);
+
+    // .50 cal (piledriver) punches straight through timber (lazily fracturing & damaging/breaching cells!)
+    const fiftyRes = manager.damageCollider(wall.staticCollider!, 80, 'piledriver', wall.basePos);
+    expect(fiftyRes).toBe(true);
+    const children = cluster.nodes.filter((n) => n.origId === 'shack_n' && n.id !== 'shack_n');
+    expect(children.length).toBeGreaterThanOrEqual(2);
+    expect(children.some((c) => c.hp < c.maxHp || c.state !== 'intact')).toBe(true);
+
+    manager.clear();
+  });
+
+  it('prevents floating watchtowers: 1 broken leg stands, but 2 adjacent or 3 broken legs immediately tip & collapse the deck', () => {
+    const { manager } = makeEnv();
+    const cluster = manager.addCluster(buildFieldWatchtowerCluster('wt_zero_float', -40, 120, 0));
+    const deck = cluster.getNode('deck')!;
+    const roof = cluster.getNode('roof')!;
+
+    // Break 1 stilt (stilt_fl) -> 3 remaining stilts still form a stable triangle supporting the center of mass!
+    const stiltFL = cluster.getNode('stilt_fl')!;
+    manager.damageCollider(stiltFL.staticCollider!, 500, 'hmg', stiltFL.basePos);
+    expect(stiltFL.state).not.toBe('intact');
+    expect(deck.state).toBe('intact');
+    expect(roof.state).toBe('intact');
+
+    // Break an adjacent stilt (stilt_fr) -> both front stilts gone! CoM now lies completely outside the 2-rear-leg support hull -> tips & collapses!
+    const stiltFR = cluster.getNode('stilt_fr')!;
+    manager.damageCollider(stiltFR.staticCollider!, 500, 'hmg', stiltFR.basePos);
+    expect(stiltFR.state).not.toBe('intact');
+    expect(deck.state === 'tilting' || deck.state === 'falling').toBe(true);
+    expect(roof.state === 'tilting' || roof.state === 'falling').toBe(true);
+
+    manager.clear();
+
+    // Also verify 3 legs broken (even non-adjacent first, then 3rd) guarantees total collapse
+    const cluster2 = manager.addCluster(buildFieldWatchtowerCluster('wt_three_legs', 0, 120, 0));
+    const deck2 = cluster2.getNode('deck')!;
+    for (const id of ['stilt_fl', 'stilt_br', 'stilt_fr']) {
+      const leg = cluster2.getNode(id)!;
+      if (leg.staticCollider) {
+        manager.damageCollider(leg.staticCollider, 500, 'hmg', leg.basePos);
+      }
+    }
+    expect(deck2.state === 'tilting' || deck2.state === 'falling').toBe(true);
+
+    manager.clear();
+  });
+
+  it('lazily fractures poured-concrete office walls around explosive impact points with exposed rebar cores', () => {
+    const { manager } = makeEnv();
+    const cluster = manager.addCluster(buildWarOfficeCluster('office_fracture_test', 45, 120, 0, 2));
+    const sill = cluster.getNode('side_sill_f0_e')!;
+    expect(sill.spec.lazyFracture).toBe(true);
+    expect(sill.spec.structuralMaterial).toBe('concrete');
+
+    const initialNodeCount = cluster.nodes.length;
+    const startHp = sill.hp;
+
+    // Small arms must be blocked on poured concrete
+    const arHit = manager.damageCollider(sill.staticCollider!, 120, 'rifle', sill.basePos);
+    expect(arHit).toBe(true);
+    expect(sill.hp).toBe(startHp);
+    expect(cluster.nodes.length).toBe(initialNodeCount);
+
+    // Heavy explosive hit triggers lazy localized fracture around the hit point into jagged concrete + rebar cells!
+    const impactPt = sill.basePos.clone().add(V(0, 0, 1.2));
+    const rocketHit = manager.damageCollider(sill.staticCollider!, 250, 'tank_cannon', impactPt);
+    expect(rocketHit).toBe(true);
+    expect(cluster.nodes.length).toBeGreaterThan(initialNodeCount);
+
+    // Verify spawned fracture cells were created with concrete rebar fracture metadata
+    const fractureChildren = cluster.nodes.filter((n) => n.origId === 'side_sill_f0_e' && n.id !== 'side_sill_f0_e');
+    expect(fractureChildren.length).toBeGreaterThanOrEqual(2);
+
+    manager.clear();
+  });
+
+  it('lets heavy tanks smash straight through drywall/masonry houses while deflecting off Tier-3 reinforced bunkers', () => {
+    const { manager } = makeEnv();
+
+    // 1) Heavy tank smashing into a 2-story brick house wall -> breaches cleanly with high speed retention!
+    const house = manager.addCluster(buildWarHouseCluster('house_ram_test', 95, 120, 0, { style: 'brick' }));
+    const houseWall = house.getNode('h_wall_f0_e')!;
+    const hitPt = houseWall.basePos.clone();
+    const ramDir = V(-1, 0, 0);
+
+    // Light jeep bounces off masonry house wall
+    const lightRes = manager.tryVehicleRam(houseWall.staticCollider!, 'light', 14, hitPt, ramDir);
+    expect(lightRes.hit).toBe(true);
+    expect(lightRes.breached).toBe(false);
+    expect(lightRes.speedRetain).toBe(0);
+    expect(houseWall.state).toBe('intact');
+
+    // Heavy MBT smashes right through the masonry house wall!
+    const tankHouseRes = manager.tryVehicleRam(houseWall.staticCollider!, 'heavy', 14, hitPt, ramDir);
+    expect(tankHouseRes.hit).toBe(true);
+    expect(tankHouseRes.breached).toBe(true);
+    expect(tankHouseRes.speedRetain).toBeGreaterThan(0.6);
+    expect(houseWall.state).not.toBe('intact');
+
+    // 2) Heavy tank ramming a Tier-3 reinforced concrete bunker -> hard deflect (breached: false, speedRetain: 0)!
+    const bunker = manager.addCluster(buildReinforcedBunkerCluster('bunker_ram_test', 135, 120, 0, true));
+    const bunkerWall = bunker.getNode('bk_w')!;
+    const bHitPt = bunkerWall.basePos.clone();
+    const tankBunkerRes = manager.tryVehicleRam(bunkerWall.staticCollider!, 'heavy', 18, bHitPt, V(1, 0, 0));
+    expect(tankBunkerRes.hit).toBe(true);
+    expect(tankBunkerRes.breached).toBe(false);
+    expect(tankBunkerRes.speedRetain).toBe(0);
+    expect(bunkerWall.state).toBe('intact');
+    expect(bunkerWall.hp).toBe(1400);
+
+    manager.clear();
+  });
+});
+
 

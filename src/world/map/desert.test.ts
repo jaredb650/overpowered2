@@ -155,7 +155,8 @@ describe('Surplus (Desert Raid 2.0) map', () => {
 
     const tier0Clusters = clusters.filter(c => c.nodes.every(n => n.tier === 0));
     expect(tier0Clusters.length).toBe(clusters.length);
-    expect(canDamageTier(0, 'smg')).toBe(true);
+    expect(canDamageTier(0, 'smg')).toBe(false);
+    expect(canDamageTier(0, 'piledriver')).toBe(true);
     expect(canDamageTier(0, 'minigun')).toBe(true);
 
     // 4 Approach lookout posts at APPROACH_POSTS with red fuel drum hazards
@@ -428,13 +429,15 @@ describe('Surplus (Desert Raid 2.0) map', () => {
     expect(leg).toBeDefined();
     expect(leg!.tier).toBe(0);
     expect(dm.damageCollider(leg!.staticCollider, 220, 'smg', leg!.basePos)).toBe(true);
+    expect(leg!.state).toBe('intact');
+    expect(dm.damageCollider(leg!.staticCollider, 220, 'piledriver', leg!.basePos)).toBe(true);
     expect(leg!.state).not.toBe('intact');
 
     const tent = dm.getCluster('terraces.tent.0');
     expect(tent).toBeDefined();
     const stilt = tent!.getNode('stilt_sw');
     expect(stilt).toBeDefined();
-    expect(dm.damageCollider(stilt!.staticCollider, 150, 'smg', stilt!.basePos)).toBe(true);
+    expect(dm.damageCollider(stilt!.staticCollider, 150, 'piledriver', stilt!.basePos)).toBe(true);
     expect(stilt!.state).not.toBe('intact');
     dm.dispose();
   });

@@ -11,6 +11,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { CG } from '../../core/contracts';
 import { Physics } from '../../physics/Physics';
 import { Kit } from '../kit/kit';
+import { registerDestructionNavProxies } from '../destruction';
 import { NavGraph } from '../nav';
 import { MapSpec } from './spec';
 import {
@@ -53,10 +54,15 @@ beforeAll(async () => {
     V(ENDLESS_WAR_NAV_BOUNDS.x1, ENDLESS_WAR_NAV_BOUNDS.y1, ENDLESS_WAR_NAV_BOUNDS.z1),
   );
   nav = new NavGraph(physics);
-  await nav.build(bounds, spec.jumpLinks, ENDLESS_WAR_HUB, async () => {}, {
-    mutual: true,
-    levels: [...ENDLESS_WAR_LEVELS],
-  });
+  const releaseProxies = registerDestructionNavProxies(physics, spec.destructionClusters);
+  try {
+    await nav.build(bounds, spec.jumpLinks, ENDLESS_WAR_HUB, async () => {}, {
+      mutual: true,
+      levels: [...ENDLESS_WAR_LEVELS],
+    });
+  } finally {
+    releaseProxies();
+  }
 }, 120000);
 
 describe('Endless War map (480x720m front + 2200m sky)', () => {
@@ -79,6 +85,7 @@ describe('Endless War map (480x720m front + 2200m sky)', () => {
       colliders,
       lights: kit.lights.length,
       navNodes: nav.nodeCount,
+      destructibleClusters: spec.destructionClusters.length,
     }));
 
     expect(tris).toBeGreaterThan(10000);
@@ -122,5 +129,34 @@ describe('Endless War map (480x720m front + 2200m sky)', () => {
     const runwayOrigin = V(ENDLESS_WAR_AIRCRAFT_PAD[0], 2.5, ENDLESS_WAR_AIRCRAFT_PAD[2]);
     const runwayHit = physics.raycast(runwayOrigin, V(0, 0, -1), 155, CG.World);
     expect(runwayHit).toBeNull();
+  });
+
+  it('authors enterable multi-story offices, driveable 3-level parking garage, houses, watchtowers, and Tier-3 bunkers with reachable upper floors', () => {
+    const kinds = new Set(spec.destructionClusters.map(c => c.kind));
+    expect(kinds.has('war_office')).toBe(true);
+    expect(kinds.has('parking_garage')).toBe(true);
+    expect(kinds.has('war_house')).toBe(true);
+    expect(kinds.has('watchtower')).toBe(true);
+    expect(kinds.has('timber_shack')).toBe(true);
+    expect(kinds.has('reinforced_bunker')).toBe(true);
+    expect(spec.destructionClusters.length).toBeGreaterThanOrEqual(24);
+
+    // 3-Story Crossroads Office HQ (-32, 118): Ground, 2nd floor, 3rd floor, AND Rooftop all have connected nav!
+    expect(nav.locate(V(-29, 0, 118), 3), 'office ground floor').toBeGreaterThanOrEqual(0);
+    expect(nav.locate(V(-29, 3.6, 118), 3), 'office 2nd floor').toBeGreaterThanOrEqual(0);
+    expect(nav.locate(V(-29, 7.2, 118), 3), 'office 3rd floor').toBeGreaterThanOrEqual(0);
+    expect(nav.locate(V(-29, 10.8, 118), 3), 'office rooftop').toBeGreaterThanOrEqual(0);
+
+    // 3-Level Driveable Parking Garage (+38, 108): Ground, Level 1, and Level 2 Roof Deck are all walkable!
+    expect(nav.locate(V(38, 0, 108), 4), 'garage ground').toBeGreaterThanOrEqual(0);
+    expect(nav.locate(V(38, 3.6, 112), 4), 'garage level 1').toBeGreaterThanOrEqual(0);
+    expect(nav.locate(V(38, 7.2, 104), 4), 'garage level 2 roof').toBeGreaterThanOrEqual(0);
+
+    // 2-Story Enterable Bridgehead House (-26, 68): Ground & 2nd floor walkable!
+    expect(nav.locate(V(-26, 0, 69), 3), 'house ground').toBeGreaterThanOrEqual(0);
+    expect(nav.locate(V(-26, 3.6, 69), 3), 'house 2nd floor').toBeGreaterThanOrEqual(0);
+
+    // Walkable 4-leg Field Watchtower (-124, 168): Lookout deck at y = 3.6 m is walkable!
+    expect(nav.locate(V(-124, 3.6, 168), 2.5), 'watchtower lookout deck').toBeGreaterThanOrEqual(0);
   });
 });
