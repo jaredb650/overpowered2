@@ -355,6 +355,63 @@ describe('comms: who speaks, and when a line is cut', () => {
     comms.relay('Words.', null, 'Command');
     expect(heard).toHaveLength(0);
   });
+
+  it('paces separate squad radio transmissions on the shared net while keeping replies and radio-check follow-ups intact', () => {
+    const { w, heard, soldiers, comms } = world();
+    const outpost = w.enemies.outpost as unknown as { squads: OutpostSquad[]; comms: Comms };
+    const alpha = new OutpostSquad(1, 'Alpha', outpost as unknown as Outpost);
+    const bravo = new OutpostSquad(2, 'Bravo', outpost as unknown as Outpost);
+    const charlie = new OutpostSquad(3, 'Charlie', outpost as unknown as Outpost);
+    const aOp = man(alpha, soldiers, 0, 'steady');
+    const bOp = man(bravo, soldiers, 1, 'steady');
+    const cOp = man(charlie, soldiers, 2, 'steady');
+    alpha.radioman = aOp;
+    bravo.radioman = bOp;
+    charlie.radioman = cOp;
+    outpost.squads = [alpha, bravo, charlie];
+    outpost.comms = comms;
+
+    // Alpha transmits a contactReport on the net -> Bravo's queued 'copy' reply should follow once Alpha finishes.
+    w.now = 10;
+    comms.say('contactReport', aOp, null, { slots: { squad: 'Alpha', to: 'Bravo', range: '40 metres', cardinal: 'north' } });
+    expect(heard).toHaveLength(1);
+    expect(heard[0]!.kind).toBe('contactReport');
+
+    // Charlie tries to jump onto the net immediately with status / squadWiped while Alpha is talking -> blocked by shared radio pacing.
+    w.now = 11.5;
+    comms.say('status', cOp, null, { slots: { squad: 'Charlie', count: 'two' } });
+    comms.say('squadWiped', cOp, null, { slots: { squad: 'Echo' } });
+    expect(heard).toHaveLength(1);
+
+    // Advance past Alpha's airtime: Bravo's 'copy' reply fires cleanly despite nextRadioAt.
+    for (let t = 11.6; t <= 18; t += 0.2) {
+      w.now = t;
+      comms.update();
+    }
+    expect(heard.map(l => l.kind)).toEqual(['contactReport', 'copy']);
+
+    // Once the net clears (after Bravo's copy + tail gap), Charlie can transmit squadWiped,
+    // and a second squadWiped inside its 14s KIND_GAP is suppressed.
+    w.now = 25;
+    comms.say('squadWiped', cOp, null, { slots: { squad: 'Echo' } });
+    w.now = 32;
+    comms.say('squadWiped', bOp, null, { slots: { squad: 'Delta' } });
+    expect(heard.filter(l => l.kind === 'squadWiped')).toHaveLength(1);
+  });
+
+  it('suppresses exact duplicate radio relay text within its dedupe window', () => {
+    const { w, heard, comms } = world();
+    w.now = 10;
+    comms.relay('Echo is down!', null, 'Bravo', 'radio.test', true);
+    w.now = 15;
+    comms.relay('Echo is down!', null, 'Charlie', 'radio.test', true);
+    expect(heard).toHaveLength(1);
+
+    // Allowed again after the 20s relay dedupe window expires.
+    w.now = 35;
+    comms.relay('Echo is down!', null, 'Charlie', 'radio.test', true);
+    expect(heard).toHaveLength(2);
+  });
 });
 
 describe('men hear each other', () => {
@@ -476,6 +533,29 @@ describe('the radio net', () => {
     charlie.members.length = 0;
     radioLoss(o as unknown as Outpost, charlie, null);
     expect(comms.say.mock.calls.at(-1)![0]).toBe('squadWiped');
+  });
+
+  it('reports squadWiped at most once per squad even if downed members die later, and cancels pending radioCheck timers', () => {
+    const { o, timers, comms, squad } = net();
+    const echo = squad('Echo', ['rifle', 'rifle'], 0);
+    squad('Bravo', ['rifle', 'rifle'], 10);
+    const op = echo.radioman!;
+
+    // Radioman dies while a teammate is still fighting -> schedules radioCheck timers.
+    echo.leave(op);
+    radioLoss(o as unknown as Outpost, echo, op);
+    expect(timers.length).toBe(3);
+
+    // Remaining fighter goes down before timers fire -> squad is reported wiped once.
+    echo.members.length = 0;
+    radioLoss(o as unknown as Outpost, echo, null);
+    // Second radioLoss call (e.g. a crawling/bleeding soldier dying later) must not repeat squadWiped.
+    radioLoss(o as unknown as Outpost, echo, null);
+    // Pending radioCheck timers from earlier must stay silent now that Echo is already wiped.
+    for (const t of timers) t();
+
+    expect(comms.say.mock.calls.map(c => c[0])).toEqual(['squadWiped']);
+    expect(o.memory.wiped).toEqual(['Echo']);
   });
 });
 
@@ -791,6 +871,33 @@ describe('combined-arms air radio, vehicle chatter, and vehicle habits', () => {
     w.now = 22;
     outpost.comms.update();
     expect(heard.some(l => l.kind === 'groundAirCall' && RULES[l.row!]!.radio === true)).toBe(true);
+  });
+
+  it('paces consecutive aircraft radio calls so multiple jets do not talk over each other', () => {
+    resetAirRadio();
+    const events = new EventBus<GameEvents>();
+    const heard: CommsLine[] = [];
+    events.on('comms:line', l => heard.push({ ...l }));
+    const ctx = {
+      time: { elapsed: 10 },
+      events,
+      player: { position: new THREE.Vector3(0, 50, 0) },
+      enemies: {},
+    } as unknown as Ctx;
+
+    const hog = makeAirSpeaker('warthog');
+    const hornet = makeAirSpeaker('hornet');
+
+    expect(sayAir(ctx, 'airInbound', hog, { cas: true })).toBe(true);
+    // Another aircraft evading 0.5s later is paced until the first pilot finishes + tail gap.
+    ctx.time.elapsed = 10.5;
+    expect(sayAir(ctx, 'airEvade', hornet, { missile: true })).toBe(false);
+    // A shootdown (airDown) can still break in cleanly.
+    expect(sayAir(ctx, 'airDown', hog)).toBe(true);
+    // After the channel clears, normal air radio resumes.
+    ctx.time.elapsed = 20;
+    expect(sayAir(ctx, 'airEvade', hornet, { missile: true })).toBe(true);
+    expect(heard.map(l => l.kind)).toEqual(['airInbound', 'airDown', 'airEvade']);
   });
 
   it('scatters troopers away from live CCIP bomb aim and reacts to hijacks and roadkills', () => {

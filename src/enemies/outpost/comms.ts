@@ -30,13 +30,25 @@ const KIND_GAP: Partial<Record<CommsKind, number>> = {
   set: 6, playerHit: 10, rocketOut: 2.5, gunDown: 4, hold: 6,
   shieldUp: 8, stackOn: 4, shieldPush: 10, breakOut: 4, shieldFlanked: 6, shieldDown: 3, merge: 4,
   habit: 3, flee: 4, holdout: 2, fakeOut: 1, revenge: 4, taunt: 12,
-  contactReport: 12, copy: 3, status: 10, squadWiped: 4, sayAgain: 1, radioCheck: 1, radioLost: 1, radioGrab: 1, hit: 3, dying: 6, plateHeld: 15, plateGone: 4, pierced: 10, artery: 5, gut: 5, limbLost: 1, downed: 6, beg: 5, scream: 4, rescue: 6, lastStand: 5, pinning: 7, flushing: 6, rushing: 5, cutoff: 6, opening: 8, wounded: 7, dry: 5, hostage: 5, clearShot: 5,
-  vehSpotted: 7, ordnance: 2.5, vehHijack: 4, vehRoadkill: 4, vehAir: 7, vehArmor: 7, groundAirCall: 7,
-  airInbound: 4, airStrike: 3.5, airDogfight: 4, airEvade: 3, airDown: 2, airSplash: 3.5,
+  contactReport: 22, copy: 4, status: 20, squadWiped: 14, sayAgain: 14, radioCheck: 14, radioLost: 14, radioGrab: 14, hit: 3, dying: 6, plateHeld: 15, plateGone: 4, pierced: 10, artery: 5, gut: 5, limbLost: 1, downed: 6, beg: 5, scream: 4, rescue: 6, lastStand: 5, pinning: 7, flushing: 6, rushing: 5, cutoff: 6, opening: 8, wounded: 7, dry: 5, hostage: 5, clearShot: 5,
+  vehSpotted: 7, ordnance: 2.5, vehHijack: 4, vehRoadkill: 4, vehAir: 7, vehArmor: 7, groundAirCall: 14,
+  airInbound: 8, airStrike: 7, airDogfight: 8, airEvade: 6.5, airDown: 4, airSplash: 6,
 };
 const DEFAULT_KIND_GAP = 2.5;
 /** Spacing between any two lines, so the feed stays readable. A casualty cuts in regardless. */
 const LINE_GAP = 1.3;
+/** Breathing room on the shared radio net after a transmission ends, and minimum spacing between separate radio calls. */
+const RADIO_TAIL_GAP = 1.4;
+const RADIO_MIN_GAP = 3.2;
+/** Seconds before the exact same rendered sentence can repeat (prevents callsign wrap-around and burst spam). */
+const SAME_RADIO_TEXT_GAP = 45;
+const SAME_COPY_TEXT_GAP = 10;
+const SAME_RELAY_TEXT_GAP = 20;
+const SAME_SHOUT_TEXT_GAP = 15;
+/** Concepts whose rows transmit on the shared radio net, derived directly from the rule table. */
+const RADIO_KINDS: ReadonlySet<CommsKind> = new Set(RULES.filter(r => r.radio).map(r => r.concept));
+/** Follow-up steps of an active missing-radioman check: allowed to complete their sequence on the net without waiting for RADIO_TAIL_GAP. */
+const RADIO_FOLLOWUP: ReadonlySet<CommsKind> = new Set<CommsKind>(['radioCheck', 'radioLost', 'radioGrab']);
 /** What radio silence takes off the air. A man on fire does not keep radio discipline. */
 const DISCIPLINED: ReadonlySet<CommsKind> = new Set<CommsKind>([
   'contact', 'lost', 'noise', 'moving', 'covering', 'flanking', 'breach', 'fallback', 'regroup', 'fix', 'reloading', 'takingCommand', 'frag', 'flash',
@@ -128,7 +140,9 @@ interface Pending {
 
 export class Comms {
   private nextLineAt = 0;
+  private nextRadioAt = 0;
   private readonly kindAt = new Map<CommsKind, number>();
+  private readonly recentTextAt = new Map<string, number>();
   readonly memory = new ChatterMemory();
   /** Who is talking for each squad (null for Command), and until when. */
   private readonly talks = new Map<OutpostSquad | null, Talk>();
@@ -152,12 +166,31 @@ export class Comms {
 
   reset(): void {
     this.nextLineAt = 0;
+    this.nextRadioAt = 0;
     this.kindAt.clear();
+    this.recentTextAt.clear();
     this.memory.reset();
     this.talks.clear();
     this.pending.length = 0;
     this.timers.length = 0;
     this.relayVoice = 0;
+  }
+
+  /** Reserves the shared radio net until `until`, so ground squads do not talk over air/vehicle radio calls. */
+  noteRadio(until: number): void {
+    const next = Math.max(until + RADIO_TAIL_GAP, this.w.now + RADIO_MIN_GAP);
+    if (next > this.nextRadioAt) this.nextRadioAt = next;
+  }
+
+  private textDuplicate(text: string, gap: number, now: number): boolean {
+    const key = text.trim().toLowerCase();
+    const prev = this.recentTextAt.get(key);
+    if (prev !== undefined && now - prev < gap) return true;
+    if (this.recentTextAt.size > 64) {
+      for (const [k, t] of this.recentTextAt) if (now - t >= SAME_RADIO_TEXT_GAP) this.recentTextAt.delete(k);
+    }
+    this.recentTextAt.set(key, now);
+    return false;
   }
 
   /** Something to decide `seconds` from now, on the AI clock: the radio's calls into silence. */
@@ -251,6 +284,7 @@ export class Comms {
     const key = s?.squad ?? null;
     const talk = this.talks.get(key);
     const priority = priorityOf(kind, facts);
+    if (RADIO_KINDS.has(kind) && now < this.nextRadioAt && !reply && !RADIO_FOLLOWUP.has(kind)) return;
     let cut = false;
     if (talk && now < talk.until) {
       // His own pain cuts his own line; anything else of his waits until he has finished. Another man cuts in only with a higher call.
@@ -268,19 +302,26 @@ export class Comms {
     const row = this.memory.pick(kind, facts, now);
     if (row < 0) return;
     const rule = RULES[row]!;
-    this.nextLineAt = now + LINE_GAP;
-    line.kind = kind;
-    line.row = row;
-    line.name = s ? (rule.radio && s.desig >= 0 ? s.desig : s.name) : -1;
-    line.dead = canNameDead ? (voiced && deadSnap!.nick >= 0 ? deadSnap!.nick : callName(deadSnap!, rule.radio, buddies)) : -1;
+    const nameId = s ? (rule.radio && s.desig >= 0 ? s.desig : s.name) : -1;
+    const deadId = canNameDead ? (voiced && deadSnap!.nick >= 0 ? deadSnap!.nick : callName(deadSnap!, rule.radio, buddies)) : -1;
     if (extra?.slots) Object.assign(this.slots, extra.slots);
     if (pal && rule.text.includes('{buddy}')) this.slots.buddy = NAME_LIST[voiced && mate!.nick >= 0 ? mate!.nick : callName(mate!, false, true)]!;
     // Everything but {dead} goes to co-op guests as words; {dead} goes as a name id.
     const sent: Record<string, string> = {};
     for (const k in this.slots) if (rule.text.includes(`{${k}}`)) sent[k] = this.slots[k]!;
-    if (line.dead >= 0) this.slots.dead = NAME_LIST[line.dead]!;
+    if (deadId >= 0) this.slots.dead = NAME_LIST[deadId]!;
+    const text = lineText(row, this.slots);
+    if (!PAIN.has(kind) && kind !== 'ack') {
+      const dedupeGap = rule.radio ? (kind === 'copy' ? SAME_COPY_TEXT_GAP : SAME_RADIO_TEXT_GAP) : SAME_SHOUT_TEXT_GAP;
+      if (this.textDuplicate(text, dedupeGap, now)) return;
+    }
+    this.nextLineAt = now + LINE_GAP;
+    line.kind = kind;
+    line.row = row;
+    line.name = nameId;
+    line.dead = deadId;
     line.slots = Object.keys(sent).length > 0 ? sent : null;
-    line.text = lineText(row, this.slots);
+    line.text = text;
     line.squad = s ? s.squad.name : 'Command';
     line.speaker = s ? speakerTag(line.name, s.rankDef.label, s.squad.name) : null;
     line.enemy = s ? s.e : null;
@@ -296,6 +337,7 @@ export class Comms {
     for (const f in facts.flags) if (facts.flags[f]) flags += ` ${f}`;
     line.why = `${rule.id}  ${why.score} pts, ${why.rivals} tied  ${facts.tier}${facts.role ? ` ${facts.role}` : ''}${flags}  ${rule.priority}`;
     const until = now + airtime(line.text);
+    if (rule.radio) this.noteRadio(until);
     this.talks.set(key, { s, from: now, until, priority: rule.priority, interruptible: rule.interruptible, text: line.text, pain: PAIN.has(kind), radio: rule.radio });
     setReactedInSay(true);
     try {
@@ -308,10 +350,10 @@ export class Comms {
     if (s && kind !== 'dying' && !resolvedClip) shout(s.e, w, rule.channel === 'scream' ? 'vox_scream' : s.e.def.voice.attack, 0.45);
     const answer = CHAIN[kind];
     const by = s && answer ? this.answerer(s) : null;
-    if (by) this.queue(answer!, by, null, null, until + 0.1, now, true);
+    if (by) this.queue(answer!, by, null, null, until + 0.1, until + 0.1, true);
     const net = NET_CHAIN[kind];
     const op = s && net && w.enemies.outpost ? listener(w.enemies.outpost, s.squad) : null;
-    if (op) this.queue(net!, op, null, { slots: { squad: s!.squad.name, to: op.squad.name } }, until + 0.3, now, true);
+    if (op) this.queue(net!, op, null, { slots: { squad: s!.squad.name, to: op.squad.name } }, until + 0.3, until + 0.3, true);
   }
 
   /**
@@ -370,12 +412,14 @@ export class Comms {
   /** Words the caller chose, on the same feed. `who` names a voice that belongs to nobody on the map. */
   relay(text: string, s: Soldier | null, who: string | null, clip: string | null = null, radio = false): void {
     const { w, line } = this;
+    const now = w.now;
     if (this.deaf || s?.injuries.mute || s?.silent || (s && !s.e.alive)) return;
+    if (radio && this.textDuplicate(text, SAME_RELAY_TEXT_GAP, now)) return;
     if (s) {
       const prev = this.talks.get(s.squad);
-      if (prev && w.now < prev.until) this.cut(s.squad, prev);
+      if (prev && now < prev.until) this.cut(s.squad, prev);
     }
-    this.nextLineAt = w.now + LINE_GAP;
+    this.nextLineAt = now + LINE_GAP;
     line.kind = 'order';
     line.text = text;
     line.row = line.dead = -1;
@@ -389,9 +433,11 @@ export class Comms {
     line.squad = s ? s.squad.name : 'Command';
     line.speaker = who ?? (s ? speakerTag(line.name, s.rankDef.label, s.squad.name) : null);
     line.enemy = s ? s.e : null;
+    const until = now + airtime(text);
+    if (radio) this.noteRadio(until);
     if (s) {
       line.position.copy(s.e.center);
-      this.talks.set(s.squad, { s, from: w.now, until: w.now + airtime(text), priority: 'tactical', interruptible: true, text, pain: false, radio });
+      this.talks.set(s.squad, { s, from: now, until, priority: 'tactical', interruptible: true, text, pain: false, radio });
     } else line.position.copy(w.player.position);
     w.ctx.events.emit('comms:line', line);
   }

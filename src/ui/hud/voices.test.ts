@@ -213,4 +213,58 @@ it('ducks enemy radio and chopper chatter while campaign/mission dialogue is tal
   expect(audios[0]!.volume).toBeCloseTo(1);
 });
 
+it('frees an ended audio slot in update() instead of restarting it in a loop', () => {
+  const { voices, audios } = setup();
+  expect(voices.say(line(RADIO, man(EARSHOT + 50), 0, { squad: 'Charlie' }))).toBe(true);
+  const a = audios[0]! as FakeAudio & { ended?: boolean };
+  expect(a.play).toHaveBeenCalledTimes(1);
+
+  // Browser reaches EOF: sets audio.ended = true and audio.paused = true before the async 'ended' DOM event fires.
+  a.ended = true;
+  a.paused = true;
+  voices.update(0.016, false);
+
+  expect(voices.pool[0]!.playing).toBe(false);
+  expect(a.play).toHaveBeenCalledTimes(1);
+});
+
+it('pauses and resumes active clips only on game pause transitions', () => {
+  const { voices, audios } = setup();
+  expect(voices.say(line(RADIO, man(EARSHOT + 50), 0, { squad: 'Charlie' }))).toBe(true);
+  const a = audios[0]!;
+  expect(a.play).toHaveBeenCalledTimes(1);
+
+  // Still-loading / transiently paused element while unpaused must NOT trigger extra play() calls.
+  a.paused = true;
+  voices.update(0.016, false);
+  expect(a.play).toHaveBeenCalledTimes(1);
+
+  // Pausing the game pauses the slot; unpausing resumes it once.
+  a.paused = false;
+  voices.update(0.016, true);
+  expect(a.paused).toBe(true);
+  voices.update(0.016, false);
+  expect(a.play).toHaveBeenCalledTimes(2);
+  expect(a.paused).toBe(false);
+});
+
+it('does not double-layer the exact same radio clip while it is already playing on the net', () => {
+  const { voices, audios } = setup();
+  const a = man(EARSHOT + 50);
+  const b = man(EARSHOT + 60);
+  expect(voices.say(line(RADIO, a, 0, { squad: 'Charlie' }))).toBe(true);
+  // Second soldier trying to play the exact same radio clip simultaneously is suppressed.
+  expect(voices.say(line(RADIO, b, 0, { squad: 'Charlie' }))).toBe(false);
+  expect(voices.pool.filter(p => p.playing)).toHaveLength(1);
+
+  // Once the first slot reaches EOF and is freed, the clip can play again later.
+  const first = audios[0]! as FakeAudio & { ended?: boolean };
+  first.ended = true;
+  first.paused = true;
+  voices.update(0.016, false);
+  expect(voices.pool.filter(p => p.playing)).toHaveLength(0);
+  expect(voices.say(line(RADIO, b, 0, { squad: 'Charlie' }))).toBe(true);
+});
+
+
 

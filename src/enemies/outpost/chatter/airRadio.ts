@@ -11,7 +11,7 @@ import type { CommsKind, CommsLine } from '../events';
 import type { Outpost } from '../index';
 import { FACTION } from './names';
 import { RULES } from './lines';
-import { ChatterMemory, SPEAK_RATE, URGENT, airtime, lineText, type ChatterFacts } from './rules';
+import { ChatterMemory, SPEAK_RATE, airtime, lineText, type ChatterFacts } from './rules';
 import { VOICE_INDEX } from './voices';
 
 export type AirCrewRole =
@@ -81,19 +81,22 @@ const CALLSIGN_POOLS: Record<AirCrewRole, { prefix: readonly string[]; flight: s
 };
 
 const KIND_GAP_AIR: Partial<Record<CommsKind, number>> = {
-  airInbound: 3.5,
-  airStrike: 3.2,
-  airDogfight: 3.8,
-  airEvade: 2.8,
-  airDown: 1.5,
-  airSplash: 3.0,
+  airInbound: 8.0,
+  airStrike: 7.0,
+  airDogfight: 8.0,
+  airEvade: 6.5,
+  airDown: 4.0,
+  airSplash: 6.0,
 };
 
-const GLOBAL_AIR_GAP = 0.85;
+const GLOBAL_AIR_GAP = 2.6;
+const AIR_TAIL_GAP = 0.8;
+const SAME_AIR_TEXT_GAP = 35;
 
 const fallbackMemory = new ChatterMemory();
 const talks = new Map<string, AirTalk>();
 const kindAt = new Map<string, number>();
+const recentAirTextAt = new Map<string, number>();
 const roleSerial: Record<AirCrewRole, number> = {
   warthog: 0, lancer: 0, harrier: 0, hornet: 0, raptor: 0,
   chopper: 0, doorGunner: 0, transport: 0, tank: 0, allyWingman: 0,
@@ -107,6 +110,7 @@ export function resetAirRadio(): void {
   fallbackMemory.reset();
   talks.clear();
   kindAt.clear();
+  recentAirTextAt.clear();
   for (const k in roleSerial) roleSerial[k as AirCrewRole] = 0;
   nextAirAt = 0;
   for (const f in _facts.flags) delete _facts.flags[f];
@@ -159,8 +163,8 @@ export function sayAir(
     for (const [k, t] of talks) if (now >= t.until) talks.delete(k);
   }
   const gapKey = `${speaker.ally ? 'ally' : 'hostile'}:${kind}`;
-  const isUrgent = urgent || URGENT.has(kind);
-  if (!isUrgent && now < nextAirAt) return false;
+  const bypassAirGap = urgent || kind === 'airDown';
+  if (!bypassAirGap && now < nextAirAt) return false;
   if (!urgent && now < (kindAt.get(gapKey) ?? 0)) return false;
 
   const active = talks.get(speaker.callsign);
@@ -180,11 +184,19 @@ export function sayAir(
   if (row < 0) return false;
   const rule = RULES[row]!;
   const text = lineText(row, {});
-
-  nextAirAt = now + GLOBAL_AIR_GAP;
-  kindAt.set(gapKey, now + (KIND_GAP_AIR[kind] ?? 3));
+  const textKey = text.trim().toLowerCase();
+  const prevAt = recentAirTextAt.get(textKey);
+  if (!urgent && prevAt !== undefined && now - prevAt < SAME_AIR_TEXT_GAP) return false;
+  if (recentAirTextAt.size > 64) {
+    for (const [k, t] of recentAirTextAt) if (now - t >= SAME_AIR_TEXT_GAP) recentAirTextAt.delete(k);
+  }
+  recentAirTextAt.set(textKey, now);
 
   const until = now + airtime(text);
+  nextAirAt = Math.max(now + GLOBAL_AIR_GAP, until + AIR_TAIL_GAP);
+  kindAt.set(gapKey, now + (KIND_GAP_AIR[kind] ?? 6));
+  outpost?.comms.noteRadio(until);
+
   talks.set(speaker.callsign, { from: now, until, text });
 
   _pos.copy(ctx.player.position);
@@ -245,7 +257,7 @@ function scheduleGroundAirReply(
       if (!q.inContact) continue;
       const speaker = q.radioman?.fighting ? q.radioman : q.leader?.fighting ? q.leader : null;
       if (!speaker) continue;
-      outpost.comms.say('groundAirCall', speaker, null, { flags });
+      outpost.comms.say('groundAirCall', speaker, null, { flags }, null, true);
       return;
     }
   });

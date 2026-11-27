@@ -214,6 +214,8 @@ export class OutpostSquad implements Squad {
 
   /** Who carries the squad's radio (chatter/radio.ts). Null when it died with him and nobody picked it up. */
   radioman: Soldier | null = null;
+  /** True once this squad has been reported wiped on the radio net, preventing duplicate announcements as downed men bleed out. */
+  wipeReported = false;
   private stunnedUntil = 0;
   private readonly axis = new Route();
   private readonly rally = new THREE.Vector3();
@@ -280,6 +282,7 @@ export class OutpostSquad implements Squad {
     // The first rifleman who is not the leader carries the radio; the leader only until somebody else can.
     const r = this.radioman;
     if (!r || !this.members.includes(r) || r === this.leader || r.role !== 'rifle') this.radioman = this.members.find(m => m.role === 'rifle' && m !== this.leader) ?? this.leader;
+    this.wipeReported = false;
   }
 
   /** The last man without a pair of his own takes the newcomer. With none, the newcomer pairs one way with the leader. */

@@ -72,6 +72,7 @@ interface Slot {
   wet: GainNode | null;
   enemy: EnemyInstance | null;
   speaker: string | null;
+  clip: string | null;
   rank: number;
   radio: boolean;
   bornAt: number;
@@ -80,6 +81,8 @@ interface Slot {
   fade: number;
   /** Monotonic generation counter so an aborted play() or stale ended/error event from a previous clip cannot kill a newly assigned clip. */
   gen: number;
+  /** True only when paused by the game pause state, so update() never restarts an ended or still-loading element. */
+  pausedByGame: boolean;
   /** Removes the current clip's ended/error listeners immediately on slot reuse or free. */
   off: AbortController | null;
   lastGain: number;
@@ -104,8 +107,8 @@ export class ChatterVoices {
       const audio = deps.audio();
       audio.preload = 'auto';
       const slot: Slot = {
-        audio, gain: null, pan: null, dry: null, wet: null, enemy: null, speaker: null, rank: 0, radio: false,
-        bornAt: 0, playing: false, fade: 0, gen: 0, off: null, lastGain: NaN, lastPan: NaN,
+        audio, gain: null, pan: null, dry: null, wet: null, enemy: null, speaker: null, clip: null, rank: 0, radio: false,
+        bornAt: 0, playing: false, fade: 0, gen: 0, pausedByGame: false, off: null, lastGain: NaN, lastPan: NaN,
       };
       this.pool.push(slot);
     }
@@ -162,6 +165,8 @@ export class ChatterVoices {
       return false;
     }
     if (!clip) return false;
+    // Never double-layer the exact same radio clip while it is already playing on the net.
+    if (radio && this.pool.some(p => p.playing && p.fade === 0 && p.radio && p.clip === clip)) return false;
     if (!radio && line.enemy && this.distance(line.enemy) > EARSHOT) return false;
     // His own earlier line ends where the new one starts; otherwise a free element, or the lowest and oldest, never for a lower line.
     const speakerTag = !line.enemy && line.speaker ? line.speaker : null;
@@ -184,12 +189,14 @@ export class ChatterVoices {
     slot.audio.pause();
     slot.enemy = line.enemy ?? null;
     slot.speaker = speakerTag;
+    slot.clip = clip;
     slot.rank = rank;
     slot.radio = radio;
     slot.bornAt = this.clock;
     slot.playing = true;
     if (!wasPlaying) this.activeCount++;
     slot.fade = 0;
+    slot.pausedByGame = false;
     slot.lastGain = NaN;
     slot.lastPan = NaN;
     slot.audio.src = `${BASE}${encodeURIComponent(clip)}.${VOICED.ext}`;
@@ -231,9 +238,18 @@ export class ChatterVoices {
     if (this.activeCount === 0) return;
     for (const p of this.pool) {
       if (!p.playing) continue;
-      if (paused !== p.audio.paused && p.fade === 0) {
-        if (paused) p.audio.pause();
-        else {
+      if (p.audio.ended === true) {
+        this.free(p);
+        continue;
+      }
+      if (paused) {
+        if (!p.pausedByGame && p.fade === 0) {
+          p.pausedByGame = true;
+          p.audio.pause();
+        }
+      } else if (p.pausedByGame) {
+        p.pausedByGame = false;
+        if (p.fade === 0) {
           const gen = p.gen;
           void p.audio.play().catch(() => {
             if (p.gen === gen) this.free(p);
@@ -387,7 +403,9 @@ export class ChatterVoices {
     }
     p.enemy = null;
     p.speaker = null;
+    p.clip = null;
     p.fade = 0;
+    p.pausedByGame = false;
     p.lastGain = NaN;
     p.lastPan = NaN;
     p.audio.pause();

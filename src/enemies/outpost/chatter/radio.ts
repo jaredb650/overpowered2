@@ -63,6 +63,8 @@ export function contactReport(o: Outpost, squad: OutpostSquad): void {
 export function radioLoss(o: Outpost, squad: OutpostSquad, dead: Soldier | null): void {
   const left = squad.members.filter(m => m.fighting).length;
   if (left === 0) {
+    if (squad.wipeReported) return;
+    squad.wipeReported = true;
     o.memory.wiped.push(squad.name);
     const r = listener(o, squad);
     if (r) o.comms.say('squadWiped', r, null, { slots: { squad: squad.name } });
@@ -80,14 +82,17 @@ function radioCheck(o: Outpost, squad: OutpostSquad, dead: Soldier): void {
   const slots = { squad: squad.name };
   const deadSnap = snapDead(dead);
   o.comms.after(1.5, () => {
+    if (squad.wipeReported) return;
     const r = listener(o, squad);
     if (r) o.comms.say('sayAgain', r, null, { slots });
   });
   o.comms.after(4, () => {
+    if (squad.wipeReported) return;
     const r = listener(o, squad);
     if (r) o.comms.say('radioCheck', r, null, { slots });
   });
   o.comms.after(7, () => {
+    if (squad.wipeReported) return;
     const survivor = squad.members.find(m => m.e?.alive !== false && m.fighting && !m.injuries.mute) ?? null;
     if (survivor && !squad.radioman && Math.random() < GRAB) {
       squad.radioman = survivor;
