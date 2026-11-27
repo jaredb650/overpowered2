@@ -2,10 +2,15 @@
 
 First-person weapons, arms and off-hand items. `src/weapons/viewmodels/**`, sandbox at `/?sandbox=viewmodels`. `createViewmodels(ctx)` from `src/weapons/viewmodels/index.ts` returns the `Rig`, which implements `ViewmodelRig`. It never changes game state.
 
+## SHEAR & Bodkin OICW Viewmodels
+
+- **SHEAR (`models/shear.ts`):** Sleek AN-94-inspired delayed-blowback rifle with matte dark-charcoal polymer outer chassis, reciprocating gunmetal barrel/pulley carriage (`carriage`, recoiling cleanly rearward on fire), lower spring guide tube, hooded tritium front sight tower, star-wheel diopter rear aperture, 15°-right-canted dark-plum 30-round (`magStd`) and 60-round casket (`magExt`) magazines, signature figure-8 dual-chamber muzzle brake (`muzzleStd`), and all 15 mod parts (`shearDot`, `shearAcog`, `shearBurst3` titanium pulley housing, `shearFast`, `shearMag`, `shearLong`, `shearShort`, `shearCan`, `shearBrake`, `shearMagwell`, `shearLight`, `shearLam`). Barrel-length mods move `muzzleMount` inside `carriage` so muzzle devices (`muzzle`, `muzzleBrake`, `muzzleCan`) follow both reciprocating kick and barrel swaps. Zero-roll, zero-yaw draw and tactical/empty reloads.
+- **Bodkin OICW Over-Barrel Launcher (`models/bodkin.ts`, mod `bodkinOicw`):** Mounts an XM29-inspired 20mm titanium over-barrel launcher assembly (`oicw`) cleanly underneath the carry-handle / optic sightline (`muzzle1` above the flechette muzzle, 2-port rectangular 20mm brake, left-side TA/FCS laser rangefinder pod with a thin inset amber glow line, reciprocating left-side `oicwBolt` with `oicwBoltHold` socket, and right-canted 5-round 20mm box cassette magazine clear of the ADS camera). When `a.alt` (20mm mode) is active, firing cycles `oicwBolt` and reloads swap the upper 20mm cassette mag with zero roll/yaw twist.
+
 ## Weapons Wishlist Viewmodels (2026-11-22)
 
 - **Hero new viewmodels:**
-  - **Bodkin (`models/bodkin.ts`):** Steyr ACR-inspired bullpup flechette rifle with carry-handle optic, rear flush magwell, and all 6 mod geometries (`bodkinAcog`, `bodkinDot`, `bodkinLong`, `bodkinCan`, `bodkinMag`, `bodkinAuto`).
+  - **Bodkin (`models/bodkin.ts`):** Steyr ACR-inspired bullpup flechette rifle with carry-handle optic, rear flush magwell, and all 7 mod geometries (`bodkinAcog`, `bodkinDot`, `bodkinLong`, `bodkinCan`, `bodkinMag`, `bodkinAuto`, `bodkinOicw`).
   - **Billhook (`models/billhook.ts`):** SPAS-12-inspired combat shotgun with perforated top-folding skeleton stock and curved arm-brace hook, ventilated flat barrel heat shield, side shell-counter screen, and mod parts (`billhookChoke`, `billhookLong`, `billhookExt`, `billhookDot`, ammo colour coding).
   - **Autoclave (`models/autoclave.ts`):** Industrial-sci-fi directed microwave emitter with off-white sterilizer ceramic and dark steel chassis, twin finned cooling arrays, copper waveguides/induction coils, magnetron heater vents (zero glow at rest, warm amber-red pulse while firing/hot), and open flared parabolic horn dish with brass dipole feed.
   - **Gaff (`models/gaff.ts`):** Shoulder-fired harpoon cannon with dark parkerized body, machined steel twin-rail launch trough, oversized barbed spear (hidden while in flight), weathered brass underslung cable winch drum, and exposed chrome recoil buffer springs.

@@ -20,7 +20,7 @@ import type { FireKind, FireNote, MeleeFx, ModId, ProjectileSpec, ShotSpec, Weap
 import { lookup } from '../audio/catalog';
 import { SeededRandom, randomInCone } from '../core/math';
 import type { Combat } from './Combat';
-import { LAUNCHER, TUNING, WEAPONS, type SoundLayer, type WeaponDef } from './data';
+import { LAUNCHER, OICW_LAUNCHER, TUNING, WEAPONS, type SoundLayer, type WeaponDef } from './data';
 import { FRIEND_EVERY } from './Flames';
 import { Lance, type LanceHolder, type LanceHost, type LanceShot } from './lance';
 import { MODS, moddedDef } from './mods';
@@ -58,6 +58,7 @@ export const REMOTE_FX: Readonly<Record<WeaponId, RemoteRow>> = {
   smg: { kind: 'rounds', sees: BULLET },
   gimlet: { kind: 'rounds', sees: `${BULLET}; its launcher's grenade flies as a projectile` },
   harrow: { kind: 'rounds', sees: `${BULLET}, on through a body or a sheet of cover with the exit mark` },
+  shear: { kind: 'rounds', sees: `${BULLET}; opening hyperburst fires two or three rounds in one tight cluster` },
   flail: { kind: 'rounds', sees: `${BULLET}, through thin cover` },
   shotgun: { kind: 'pellets', sees: 'every pellet the shooter fired, from the same seed: its tracer, impact and hole' },
   thresher: { kind: 'pellets', sees: 'every pellet of every shell, from the same seed' },
@@ -87,7 +88,7 @@ export const REMOTE_FX: Readonly<Record<WeaponId, RemoteRow>> = {
   autoclave: { kind: 'hose', sees: 'the heat shimmer ahead of the emitter and the rising hum as targets steam, swell and burst' },
   stakegun: { kind: 'projectile', sees: 'the stake in flight and standing in the wall; an exploding bolt sticks, beeps and blinks' },
   gaff: { kind: 'projectile', sees: 'the heavy harpoon in flight with its steel tether cable, skewering bodies to the wall and reeling' },
-  bodkin: { kind: 'rounds', sees: 'three-round bursts of thin flechette tracers through plates and cover, leaving needles in the wall' },
+  bodkin: { kind: 'rounds', sees: 'three-round bursts of thin flechette tracers through plates and cover, leaving needles in the wall; its 20 mm OICW launcher fires flat-arc smart grenades' },
   billhook: { kind: 'pellets', sees: 'every pellet of the semi-auto twelve-gauge shell from the same seed, or a single heavy slug when loaded' },
 };
 
@@ -196,6 +197,19 @@ export const REMOTE_MODS: Readonly<Record<ModId, { look: ModLook; sees: string }
   deuceLoader: { look: 'none', sees: 'a faster reload: the reload gesture is shorter' },
   judgeHammer: { look: 'rate', sees: 'the faster fan only' }, judgeComp: { look: 'rate', sees: 'the faster fan charge only' },
   judgeGrip: { look: 'none', sees: 'more fanned rounds: each is drawn as it is fired' },
+  bodkinOicw: { look: 'shell', sees: 'the flat-arc 20 mm grenade firing from the over-barrel launcher, airbursting mid-air with an amber ring when lased' },
+  shearDot: { look: 'none', sees: SIGHT }, shearAcog: { look: 'none', sees: SIGHT },
+  shearBurst3: { look: 'rate', sees: 'a three-round hyperburst opening instead of two' },
+  shearFast: { look: 'rate', sees: 'the faster sustained auto rate only' },
+  shearMag: { look: 'none', sees: MAG },
+  shearLong: { look: 'round', sees: 'the longer barrel\'s rifle tracer through light cover' },
+  shearShort: { look: 'rate', sees: 'the faster carbine rate only' },
+  shearCan: { look: 'report', sees: 'the suppressed report and the small dim flash' },
+  shearBrake: { look: 'rate', sees: 'the flatter compensator cycle only' },
+  shearAp: { look: 'round', sees: AP }, shearHp: { look: 'round', sees: AP }, shearPlusP: { look: 'round', sees: AP },
+  shearMagwell: { look: 'none', sees: MAGWELL },
+  shearLight: { look: 'light', sees: LIGHT },
+  shearLam: { look: 'none', sees: 'a laser sight and faster aim: nothing a watcher sees' },
 };
 
 // ---------------------------------------------------------------------------------------------
@@ -334,9 +348,11 @@ export class Watcher {
    */
   fire(weapon: WeaponId, origin: THREE.Vector3, dir: THREE.Vector3, note: FireNote): void {
     const s = this.shooter;
-    // A rifle with an under-barrel launcher that fired no hitscan rays fired its launcher tube, not the rifle.
+    // A rifle with an attached launcher that fired no hitscan rays fired its launcher tube, not the rifle.
     const row = this.rowOf(weapon);
-    const def = note.rays === 0 && note.kind === 'gun' && (weapon === 'gimlet' || row.launcher) ? LAUNCHER : row;
+    const def = note.rays === 0 && note.kind === 'gun' && (weapon === 'gimlet' || weapon === 'bodkin' || row.launcher)
+      ? (weapon === 'bodkin' ? OICW_LAUNCHER : LAUNCHER)
+      : row;
     // Traced from where they stood and looked as they fired. Their body's own aim takes these back next frame.
     s.eye.copy(origin);
     s.forward.copy(dir);

@@ -202,6 +202,10 @@ const WEAPON_CATALOGUE: Readonly<Partial<Record<WeaponId, Ware>>> = {
     price: 250, wave: 0,
     lore: 'Issued because the blade, unlike the ammunition, is not billed. It stops bullets, which the Council regards as a perk rather than a benefit.',
   },
+  shear: {
+    price: 1150, wave: 5,
+    lore: 'A delayed-blowback hyperburst rifle with a canted magazine and a pulley inside the receiver. Two rounds leave at eighteen hundred a minute before the recoil arrives; Procurement has classified the second round as complimentary.',
+  },
   bodkin: {
     price: 1500, wave: 8,
     lore: 'A bullpup flechette rifle firing steel darts in three-round bursts at twelve hundred a minute. Plates and riot shields do not slow it down, and neither does the man behind them.',
@@ -749,6 +753,71 @@ const MOD_CATALOGUE: Readonly<Record<ModId, Ware>> = {
   bodkinLam: {
     price: 650, wave: 8,
     lore: 'A low-profile laser sight tucked on the Bodkin\'s right fore-end opposite the light, marking zero-spread flechette bursts and aiming thirty percent faster.',
+  },
+  bodkinOicw: {
+    price: 1500, wave: 10,
+    lore: 'An over-barrel semi-auto 20 mm smart grenade launcher with five-round cassette mags and a laser rangefinder. Hold R to switch tubes; aim and tap Shift to lase a wall or ledge and program every shell to airburst a metre and a half behind it.',
+  },
+  // SHEAR hyperburst assault rifle mods: optics, hyperburst internals, magazines, barrels, muzzle devices, rounds, magwell, light & LAM.
+  shearDot: {
+    price: 350, wave: 5,
+    lore: 'A side-dovetail reflex sight clamped clear of the SHEAR\'s reciprocating carriage, giving a clean red dot for two-round double-taps.',
+  },
+  shearAcog: {
+    price: 700, wave: 6,
+    lore: 'Four-power glass on the SHEAR\'s side bridge, turning the zero-climb hyperburst into a mid-range pair of identical holes.',
+  },
+  shearBurst3: {
+    price: 950, wave: 8,
+    lore: 'A twin-pulley cam upgrade that lifts the SHEAR\'s delayed-blowback hyperburst from two rounds at eighteen hundred RPM to three rounds at twenty-one hundred RPM before the recoil catches up.',
+  },
+  shearFast: {
+    price: 750, wave: 7,
+    lore: 'A lightened sustained-auto sear that raises the SHEAR\'s follow-on automatic rate from six hundred to eight hundred RPM once the hyperburst finishes.',
+  },
+  shearMag: {
+    price: 600, wave: 6,
+    lore: 'A quad-stack sixty-round canted casket magazine for the SHEAR. Doubles the capacity on the same angled well; Procurement notes that thirty hyperbursts is considered a thorough conversation.',
+  },
+  shearLong: {
+    price: 850, wave: 7,
+    lore: 'An extended heavy carriage barrel for the SHEAR, pushing damage to fifty-two, punching deeper through cover, and holding full damage at any range.',
+  },
+  shearShort: {
+    price: 800, wave: 6,
+    lore: 'A cut-down carbine carriage for the SHEAR that lifts sustained fire rate by fifteen percent, cuts burst recovery, and speeds draw and sight acquisition.',
+  },
+  shearCan: {
+    price: 650, wave: 5,
+    lore: 'A high-pressure suppressor threaded onto the SHEAR\'s reciprocating barrel, keeping both hyperburst rounds quiet enough to share one complaint form.',
+  },
+  shearBrake: {
+    price: 500, wave: 5,
+    lore: 'A tuned twin-chamber compensator replacing the factory figure-8 brake, cutting sustained-auto climb by forty-five percent, kick by a third, and burst recovery by fifteen percent.',
+  },
+  shearAp: {
+    price: 550, wave: 5,
+    lore: 'Steel-cored armour-piercing rounds for the SHEAR. Two hyperburst darts on the exact same spot persuade most plates on the first pull.',
+  },
+  shearHp: {
+    price: 550, wave: 5,
+    lore: 'Hollow-point rounds for the SHEAR: ruinous two-round clusters against unarmoured targets, polite against ballistic plate.',
+  },
+  shearPlusP: {
+    price: 500, wave: 0,
+    lore: 'Overpressure loads for the SHEAR: twenty percent more damage per round across both the hyperburst and sustained auto.',
+  },
+  shearMagwell: {
+    price: 300, wave: 5,
+    lore: 'A canted CNC-flared magazine funnel bolted to the SHEAR\'s angled well, seating thirty- and sixty-round magazines fifteen percent faster.',
+  },
+  shearLight: {
+    price: 150, wave: 0,
+    lore: 'A compact weapon light clamped under the SHEAR\'s guide rod, always on so the hyperburst lands in the dark as cleanly as in daylight.',
+  },
+  shearLam: {
+    price: 550, wave: 5,
+    lore: 'A right-flank laser aiming module mounted on the SHEAR\'s outer chassis, clear of the moving barrel and cutting sight-raise time by thirty percent.',
   },
 };
 

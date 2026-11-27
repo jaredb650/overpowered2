@@ -249,6 +249,8 @@ const CASES = [
   { id: 'gimlet-launcher', weapon: 'gimlet', mods: ['gimletGl'], set: { launcher: true }, fire: { pump: 900, ms: 2400 }, settle: 2800, shotAt: 1500, expect: launcher({ sounds: ['launcher_thump'] }) },
   { id: 'harrow', weapon: 'harrow', fire: { hold: 700 }, settle: 700, shotAt: 400, expect: gun() },
   { id: 'harrow-api', weapon: 'harrow', mods: ['harrowApi'], fire: { hold: 700 }, settle: 700, shotAt: 400, expect: gun({ more(s, w, ok) { ok(n(w.log.fx, 'sparks') >= s.sent.fire, 'API sparks where the rounds land', w.log.fx); } }) },
+  { id: 'shear', weapon: 'shear', fire: { hold: 700 }, settle: 700, shotAt: 400, expect: gun() },
+  { id: 'bodkin-oicw', weapon: 'bodkin', mods: ['bodkinOicw'], set: { launcher: true }, fire: { pump: 700, ms: 1800 }, settle: 2400, shotAt: 1000, expect: launcher({ sounds: ['launcher_thump'] }) },
   { id: 'flail', weapon: 'flail', fire: { hold: 700 }, settle: 700, shotAt: 400, expect: gun() },
   { id: 'shotgun', weapon: 'shotgun', fire: { pump: 650, ms: 1500 }, settle: 900, shotAt: 120, expect: gun({ casing: false }) },
   { id: 'shotgun-flechette', weapon: 'shotgun', mods: ['shotgunFlechette'], fire: { pump: 650, ms: 1500 }, settle: 900, shotAt: 120,

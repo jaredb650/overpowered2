@@ -15,6 +15,7 @@ import { F } from '../kit/finishes';
 import { Kind, type Finish, type Mesher } from '../kit/mesher';
 import { circle, curve, poly, rect, slot, type V2 } from '../kit/shapes';
 import { hexX, knurl, rail, screwX, serrations } from '../kit/details';
+import { damp } from '../../../core/math';
 import { bump, hold, inOut, inQuad, outCubic, seg, thud } from '../curves';
 import { fill, pullTrigger } from './common';
 import type { Anim, ViewDef } from '../def';
@@ -25,6 +26,10 @@ import { LASER_GLOW, RIFLE_LAM_RANGE, lamSocket, weaponLam } from './laser';
 
 /** Bore axis height above origin. */
 const BORE = 0.042;
+/** Bore axis height of the over-barrel 20 mm OICW smart launcher (`bodkinOicw`), tucked cleanly under the optic sightline. */
+const OICW_BORE = 0.071;
+/** Muzzle tip of the 20 mm OICW launcher brake. */
+const OICW_MUZZLE = -0.502;
 /** Top deck of the swept carry-rib bridge where either the integral optic or the 4x ACOG mounts. */
 const RIB_DECK = 0.084;
 /** Sight axis of the integrated low-power carry-rib optic. */
@@ -656,6 +661,122 @@ function modParts(m: Mesher): void {
       hexX(m, 0.0212, -0.002, -0.026, 1, 0.0018);
     });
   });
+
+  // Over-barrel 20 mm OICW smart airburst launcher (`bodkinOicw`): fluted heavy 20 mm barrel tucked cleanly beneath
+  // the optic sightline (`OICW_BORE = 0.071`), vented 3-baffle rectangular brake, upper breech shroud with amber
+  // TA/FCS status line, left-flank laser rangefinder pod (clear of both ribOptic and 4x ACOG), and a right-canted
+  // detachable 5-round 20 mm bullpup cassette magazine.
+  m.part('oicw', [0, 0, 0], () => {
+    // Upper 20 mm receiver spine & vented breech cheeks hugging the Bodkin crown below RIB_DECK (0.084).
+    m.use(SHELL_TRIM);
+    const upperProf = poly([
+      [0.215, 0.081, 0.004], [0.215, 0.062, 0.003], [-0.258, 0.060, 0.003],
+      [-0.274, 0.070, 0.004], [-0.256, 0.082, 0.004], [0.185, 0.083, 0.004],
+    ], 0.002);
+    m.mirror(() => {
+      m.at([0.0172, 0, 0], null, () => m.side(upperProf, 0.0072, { bevel: 0.0014 }));
+    });
+    // Dark anodized inner 20 mm barrel trunnion & forward clamp bridge tying upper 20 mm barrel to lower flechette shroud.
+    m.use(F.anodized);
+    m.at([0, OICW_BORE, -0.275], null, () => m.box(0.032, 0.024, 0.088, 0.0022));
+    m.at([0, 0.056, -0.355], null, () => m.box(0.024, 0.032, 0.022, 0.002));
+    m.use(F.steelDark);
+    m.mirror(() => {
+      hexX(m, 0.0124, 0.056, -0.355, 1, 0.0018);
+      hexX(m, 0.021, 0.072, -0.235, 1, 0.0018);
+      hexX(m, 0.021, 0.072, 0.145, 1, 0.0018);
+    });
+
+    // Heavy fluted 20 mm airburst launcher barrel projecting cleanly above the lower flechette shroud.
+    m.at([0, OICW_BORE, 0], null, () => {
+      m.use(F.anodized);
+      m.lathe([
+        [0.0138, -0.24, 0], [0.0138, -0.315], [0.0126, -0.324], [0.0126, -0.456],
+        [0.0114, -0.464], [0.0102, -0.464, 0],
+      ], 24);
+      // Six machined heat-dissipation flutes along the exposed 20 mm barrel.
+      m.use(F.steelDark);
+      for (let i = 0; i < 6; i++) {
+        const a = (i / 6) * Math.PI * 2 + Math.PI / 6;
+        m.at([Math.cos(a) * 0.0122, Math.sin(a) * 0.0122, -0.39], [0, 0, a], () => {
+          m.box(0.0016, 0.0026, 0.115, 0.0004);
+        });
+      }
+      // Sculpted 3-baffle rectangular 20 mm muzzle brake (kept below y = 0.082 so ADS sightline stays 100% open).
+      m.use(F.barrelBlack);
+      m.at([0, 0, -0.483], null, () => m.box(0.027, 0.021, 0.038, 0.0022));
+      m.use(F.black);
+      m.mirror(() => {
+        for (const dz of [-0.471, -0.483, -0.494]) {
+          m.at([0.0132, 0, dz], null, () => m.box(0.004, 0.011, 0.0055, 0.0005));
+        }
+      });
+      // Deep 20 mm dark bore aperture at the brake face.
+      m.lathe([[0.0092, OICW_MUZZLE + 0.0005, 0], [0.0086, OICW_MUZZLE + 0.034, 0], [0, OICW_MUZZLE + 0.036, 0]], 18);
+    });
+
+    // Left-mounted angular TA/FCS Laser Rangefinder & Airburst Ballistic Computer Pod (clamped beside the carry-rib,
+    // right edge at x = -0.0235 so both the integral ribOptic and 4x ACOG stay completely unobstructed).
+    m.at([-0.032, 0.084, -0.145], null, () => {
+      m.use(SHELL_PALE);
+      m.box(0.016, 0.021, 0.112, 0.0025);
+      // Dark anodized sensor bezel & bracket arm gripping the carry-rib flank.
+      m.use(F.anodized);
+      m.at([0.011, -0.004, 0.01], null, () => m.box(0.010, 0.011, 0.068, 0.0014));
+      m.at([0, 0, -0.056], null, () => m.box(0.014, 0.018, 0.008, 0.0014));
+      // Twin laser rangefinder transmitter/receiver lenses on the front face.
+      m.use(F.black);
+      m.at([0, 0.0038, -0.0605], null, () => m.cyl(0.0042, 0.002, 16));
+      m.at([0, -0.0042, -0.0605], null, () => m.cyl(0.003, 0.002, 14));
+      m.glass(() => {
+        m.at([0, 0.0038, -0.0616], null, () => m.cyl(0.0036, 0.0005, 16, 0));
+      });
+      // Thin inset amber TA/FCS status glow line along the rear-left pod bevel (CLAUDE.md: thin inset line only).
+      m.use(F.black);
+      m.at([-0.0082, 0.002, 0.012], null, () => m.box(0.001, 0.003, 0.044, 0.0002));
+      m.glow('oicwStatus', () => m.at([-0.0087, 0.002, 0.012], null, () => m.box(0.0007, 0.0013, 0.038, 0)));
+      // Rangefinder laser emitter pip.
+      m.glow('oicwStatus', () => m.at([0, -0.0042, -0.0616], null, () => m.cyl(0.0014, 0.0004, 10, 0)));
+      screwX(m, -0.0082, -0.006, 0.042, -1, 0.0014);
+      screwX(m, -0.0082, -0.006, -0.034, -1, 0.0014);
+    });
+
+    // Right-side 20 mm ejection port recess.
+    m.use(F.black);
+    m.at([0.0212, 0.072, 0.048], null, () => m.box(0.003, 0.014, 0.056, 0.0008));
+
+    // Reciprocating left-side 20 mm bolt / charging handle (`oicwBolt`).
+    m.part('oicwBolt', [-0.023, 0.073, -0.055], () => {
+      m.use(F.steelDark);
+      m.box(0.008, 0.0055, 0.014, 0.0008);
+      m.at([-0.008, 0, 0], [0, Math.PI / 2, 0], () => knurl(m, 0.0046, 0.012, F.anodized, 12, 0.0005));
+    });
+
+    // Detachable right-canted 5-round 20 mm smart-grenade bullpup cassette magazine (`oicwMag`), completely clear of ADS.
+    m.part('oicwMag', [0.026, 0.072, 0.132], () => {
+      m.at([0, 0, 0], [0, 0, -0.78], () => {
+        // Tapered dark polymer 20 mm cassette body with bevelled ribs.
+        m.use(F.polymer);
+        m.at([0, 0.032, 0], null, () => m.box(0.028, 0.068, 0.074, 0.0028));
+        m.use(F.anodized);
+        for (const dy of [0.014, 0.034, 0.054]) {
+          m.at([0, dy, 0], null, () => m.box(0.0305, 0.004, 0.076, 0.0008));
+        }
+        // Brass-rimmed 20 mm smart-grenade witness rounds visible through the upper side cut-out.
+        m.use(F.black);
+        m.at([0, 0.036, -0.0372], null, () => m.box(0.012, 0.046, 0.002, 0.0004));
+        m.use(F.brass);
+        for (let i = 0; i < 4; i++) {
+          m.at([0, 0.019 + i * 0.011, -0.0368], null, () => m.cyl(0.0042, 0.003, 12));
+        }
+        // Ribbed rubber cassette baseplate with amber ordnance stripe.
+        m.use(F.rubber);
+        m.at([0, 0.068, 0], null, () => m.box(0.032, 0.009, 0.079, 0.0018));
+        m.use(FOLLOWER);
+        m.at([0, 0.062, 0], null, () => m.box(0.031, 0.0032, 0.077, 0.0005));
+      });
+    });
+  });
 }
 
 interface Built {
@@ -708,12 +829,14 @@ function buildBodkin(kit: Kit): Built {
   weaponLam(m, [0.0355, 0.016, -0.312], Math.PI / 2);
 
   const model = new Model(m, kit.mats, {
-    glows: { reticle: [0xff4a1c, 7], status: [0x2ff0d0, 4], torch: TORCH, laser: LASER_GLOW, ...OPTIC_GLOWS },
+    glows: { reticle: [0xff4a1c, 7], status: [0x2ff0d0, 4], oicwStatus: [0xffa832, 5], torch: TORCH, laser: LASER_GLOW, ...OPTIC_GLOWS },
   });
   acogShade(model);
   lamSocket(model);
 
   model.socket('muzzle', [0, BORE, MUZZLE - 0.004]);
+  // Upper 20 mm OICW launcher muzzle (Weapons.shootGun selects barrel 1 when oicwSlot fires).
+  model.socket('muzzle1', [0, OICW_BORE, OICW_MUZZLE - 0.004]);
   model.socket('eject', [0, -0.018, 0.085]);
 
   // Ergonomic firing hand on the bullpup pistol grip, and shared handguard support frame on the smooth fore-end.
@@ -723,6 +846,7 @@ function buildBodkin(kit: Kit): Built {
   // Reload sockets for the left hand: natural palm-inward grasp on the rear bullpup magazine, and crisp side pinch on the handle.
   model.grasp('magHold', [-0.016, -0.056, -0.004], [0.92, 0.35, 0.12], [0.22, -0.15, -0.96], 'mag');
   model.grasp('chargeHold', [-0.018, -0.008, 0.004], [0.95, 0.26, -0.15], [0.2, 0.12, -0.97], 'charge');
+  model.grasp('oicwBoltHold', [-0.018, -0.004, 0.004], [0.95, 0.24, -0.14], [0.2, 0.1, -0.97], 'oicwBolt');
 
   const mods: ViewDef['mods'] = {
     bodkinAcog: scope,
@@ -730,6 +854,7 @@ function buildBodkin(kit: Kit): Built {
     bodkinBurst5: { part: 'burstCam' },
     bodkinAuto: { part: 'autoSear' },
     bodkinTungsten: { part: 'tungstenMuzzle', also: ['tungstenBreech', 'tungstenMagStd', 'tungstenMagExt'] },
+    bodkinOicw: { part: 'oicw' },
     bodkinLight: { part: 'light' },
     bodkinLam: { part: 'lam', laser: 'lam', laserRange: RIFLE_LAM_RANGE },
     bodkinMagwell: { part: 'magwell' },
@@ -764,23 +889,43 @@ function updateClearMag(
   }
 }
 
+/** Smooth 0..1 blend when the Bodkin's 20 mm OICW launcher is raised (`a.alt`). */
+let oicwRaised = 0;
+
 function clip(a: Anim): void {
   const P = a.parts;
+  oicwRaised = damp(oicwRaised, a.alt ? 1 : 0, 12, a.dt);
 
-  // Crisp 1200 RPM burst trigger pull and rising-block chamber vertical pulse.
-  const cycle = 0.044;
-  const c = a.sinceFire < cycle ? a.sinceFire / cycle : 1;
-  P.chamber!.position.y += Math.sin(c * Math.PI) * 0.0075;
-  pullTrigger(a, 0.052, 0.28);
+  // Crisp 1200 RPM flechette chamber cycle, or heavier 20 mm bolt kick when the OICW launcher is active.
+  if (a.alt) {
+    const cycle20 = 0.14;
+    const c20 = a.sinceFire < cycle20 ? a.sinceFire / cycle20 : 1;
+    P.oicwBolt!.position.z += Math.sin(c20 * Math.PI) * 0.055;
+    pullTrigger(a, 0.09, 0.32);
+    a.glow('status', 0.35);
+    a.glow('oicwStatus', 1.1 + (1 - c20) * 0.9);
+  } else {
+    const cycle = 0.044;
+    const c = a.sinceFire < cycle ? a.sinceFire / cycle : 1;
+    P.chamber!.position.y += Math.sin(c * Math.PI) * 0.0075;
+    pullTrigger(a, 0.052, 0.28);
+    a.glow('status', 0.8 + (1 - c) * 0.6);
+    a.glow('oicwStatus', 0.25);
+  }
 
-  // Subtle glow drives (reticle crisp and steady; side chamber pip pulses faintly on firing).
+  // Subtle steady reticle glow.
   a.glow('reticle', 1);
-  a.glow('status', 0.8 + (1 - c) * 0.6);
+
+  // Subtle hip-fire pitch-and-lift cue when switching to the 20 mm launcher (zero roll, zero yaw, fades to 0 in ADS).
+  const hipRaise = oicwRaised * (1 - a.aim);
+  a.gunR.x += hipRaise * 0.045;
+  a.gunP.y += hipRaise * 0.009;
+  a.gunP.z += hipRaise * 0.012;
 
   // Clear rear magazine: stacked flechette cartridges visibly count down; fresh mag enters full mid-reload.
   const p = a.reload;
   const empty = a.reloadFromEmpty || a.mag <= 0;
-  const shownFill = p > (empty ? 0.36 : 0.4) ? 1 : fill(a);
+  const shownFill = !a.alt && p > (empty ? 0.36 : 0.4) ? 1 : a.alt ? 1 : fill(a);
   updateClearMag(P, 'dartStd', STD_TIERS, 'followerStd', 'springStd', STD_FOOT, shownFill);
   updateClearMag(P, 'dartExt', EXT_TIERS, 'followerExt', 'springExt', EXT_FOOT, shownFill);
 
@@ -792,6 +937,33 @@ function clip(a: Anim): void {
   }
 
   if (p < 0) return;
+
+  // 20 mm OICW 5-round cassette reload (strictly zero roll, zero yaw twist).
+  if (a.alt) {
+    const out = seg(p, 0.06, 0.26);
+    const inn = seg(p, 0.44, 0.62);
+    const away = inQuad(out) * (1 - outCubic(inn));
+    const oMag = P.oicwMag!;
+    oMag.position.x += away * 0.14;
+    oMag.position.y += away * 0.15;
+    if (p > 0.27 && p < 0.42) oMag.visible = false;
+    const seat = p >= 0.61 ? thud(seg(p, 0.61, 0.72)) : 0;
+    const rack = bump(p, 0.74, 0.88);
+    P.oicwBolt!.position.z += rack * 0.058;
+
+    const present = hold(p, 0.0, 0.14, 0.88, 1);
+    a.gunR.x += present * 0.12 + seat * 0.045 - rack * 0.03;
+    a.gunP.y += present * 0.025 + seat * 0.012;
+    a.gunP.z -= present * 0.055 - rack * 0.012;
+
+    const h = a.left;
+    h.fingerRate = 36;
+    h.to('pouchL', inOut(seg(p, 0.14, 0.34)));
+    h.to('oicwBoltHold', inOut(seg(p, 0.64, 0.74)));
+    h.to('gripL', inOut(seg(p, 0.89, 1)));
+    h.shape(HANDS.pinch, hold(p, 0.68, 0.74, 0.86, 0.92));
+    return;
+  }
 
   // Bullpup rear-magazine reload: full empty reload racks forward charging handle; tactical reload swaps mag only.
   // Strictly ZERO roll (gunR.z === 0) and ZERO yaw twist (gunR.y === 0).

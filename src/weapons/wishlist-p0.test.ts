@@ -50,7 +50,7 @@ describe('wishlist Phase 0 data and mods', () => {
   });
 
   it('applies flared magwell 15% faster reload last, stacking with mags and akimbo', () => {
-    expect(MAGWELL_GUNS).toEqual(['harrow', 'gimlet', 'ultramag', 'rivet', 'bodkin']);
+    expect(MAGWELL_GUNS).toEqual(['harrow', 'gimlet', 'shear', 'ultramag', 'rivet', 'bodkin']);
     for (const gun of MAGWELL_GUNS) {
       const id = magwellOf(gun);
       expect(MODS[id].slot).toBe('loader');

@@ -64,7 +64,7 @@ export type LoopEvent = { t: 'loop'; k: 'beam' | 'giant' | 'hose' | 'spin' | 'wh
 export type ProjEvent = {
   t: 'round'; slot?: number; k: string; src: string; o: Vec; v: Vec; i?: number;
   g?: number; l?: number; fu?: number; tr?: string; sz?: number; tc?: string; x?: 1; w?: 1; fk?: 1; st?: 1; wp?: 1; cl?: 1;
-  tg?: number; q?: number[]; hx?: number[];
+  ab?: number; tg?: number; q?: number[]; hx?: number[];
 };
 /** The gun a player holds and the mods fitted to it, in MOD_ORDER. `on`: bit 1 the rocket's laser sight is up. */
 export type KitEvent = { t: 'held'; weapon: string; mods: string[]; slot?: number };
@@ -253,6 +253,7 @@ export class RemoteFire implements WorldModule {
     if (spec.sticky) event.st = 1;
     if (spec.wp) event.wp = 1;
     if (spec.cluster) event.cl = 1;
+    if (spec.airburstDist !== undefined && spec.airburstDist > 0) event.ab = mm(spec.airburstDist);
     if (spec.turnRate) {
       event.q = [mm(spec.turnRate), mm(spec.steerDelay ?? 0), mm(spec.weave ?? 0), mm(spec.accel ?? 0), mm(spec.topSpeed ?? 0)];
       const uid = (spec.target as { uid?: number } | null | undefined)?.uid;
@@ -452,6 +453,7 @@ export class RemoteFire implements WorldModule {
     spec.sticky = event.st === 1;
     spec.wp = event.wp === 1;
     spec.cluster = event.cl === 1;
+    spec.airburstDist = finite(event.ab, 0.5, 500) ? event.ab : undefined;
     const q = Array.isArray(event.q) && event.q.length === 5 && event.q.every(n => finite(n, 0, 1000)) ? event.q : null;
     spec.turnRate = q ? q[0] : undefined;
     spec.steerDelay = q ? q[1] : undefined;

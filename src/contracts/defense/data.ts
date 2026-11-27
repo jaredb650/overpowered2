@@ -85,6 +85,7 @@ export const WEAPON_PRICES: Partial<Record<WeaponId, WeaponPrice>> = {
   thresher: { price: 800, loadout: 'primary', ammo: 'basic', box: 80 },
   shotgun: { price: 1000, loadout: 'primary', ammo: 'basic', box: 70 },
   billhook: { price: 1700, loadout: 'primary', ammo: 'basic', box: 90 },
+  shear: { price: 1150, loadout: 'primary', ammo: 'basic', box: 90 },
   bodkin: { price: 1450, loadout: 'primary', ammo: 'basic', box: 100 },
   stakegun: { price: 1100, loadout: 'primary', ammo: 'specialty', box: 220 },
   gaff: { price: 2200, loadout: 'primary', ammo: 'specialty', box: 260 },

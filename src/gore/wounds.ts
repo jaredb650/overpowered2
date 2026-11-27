@@ -52,7 +52,7 @@ const BITES: Record<string, Bite> = {
   judge: REVOLVER, stakegun: STAKE, autocannon: CANNON, lance: LANCE,
   // Family members (src/weapons/families.ts). The Harrow's rifle round tears like the Judge's; the Sabot's dart goes through like the Lance.
   harrow: REVOLVER, rivet: SMALL, sabot: LANCE,
-  gimlet: RIFLE, flail: RIFLE,
+  gimlet: RIFLE, shear: RIFLE, flail: RIFLE,
   autoraffica: { ...SMALL, ragged: 0.45, breaks: 0.45 },
   metalstorm: { entry: 0.0135, exit: 0.028, limbExit: 0.024, depth: 0.065, ragged: 0.6, breaks: 0.7 },
   awl: { entry: 0.032, exit: 0.068, limbExit: 0.048, depth: 0.14, ragged: 0.85, breaks: 0.9 },

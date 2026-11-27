@@ -37,6 +37,7 @@ import { autorafficaDef } from './autoraffica';
 import { autoclaveDef } from './autoclave';
 import { billhookDef } from './billhook';
 import { bodkinDef } from './bodkin';
+import { shearDef } from './shear';
 import { gaffDef } from './gaff';
 import { SLOT8_OLD } from '../../data';
 import { HANDS } from '../poses';
@@ -56,7 +57,7 @@ export function buildDefs(kit: Kit): Record<string, ViewDef> {
     // Key 8: the Trommel wears the `buzzsaw` id. `?slot8=old` brings the Buzzsaw's own model back with its numbers.
     buzzsaw: SLOT8_OLD ? buzzsawDef(kit) : trommelDef(kit), piledriver: piledriverDef(kit), metalstorm: metalstormDef(kit),
     // Family members: the second weapon on a number key. One line here and one row in WEAPONS is the whole of adding one.
-    harrow: harrowDef(kit), bodkin: bodkinDef(kit), rivet: rivetDef(kit), sabot: sabotDef(kit), awl: awlDef(kit), thresher: thresherDef(kit), billhook: billhookDef(kit), quiver: quiverDef(kit), mgl: mglDef(kit), satchel: satchelDef(kit), howitzer: howitzerDef(kit),
+    harrow: harrowDef(kit), shear: shearDef(kit), bodkin: bodkinDef(kit), rivet: rivetDef(kit), sabot: sabotDef(kit), awl: awlDef(kit), thresher: thresherDef(kit), billhook: billhookDef(kit), quiver: quiverDef(kit), mgl: mglDef(kit), satchel: satchelDef(kit), howitzer: howitzerDef(kit),
     deuce: deuceDef(kit), ultramag: ultramagDef(kit), gimlet: gimletDef(kit), autoraffica: autorafficaDef(kit),
     flail: flailDef(kit),
     // Key 5 beside the sword. Their swings are one clip, models/melee.ts, with each one's own poses.

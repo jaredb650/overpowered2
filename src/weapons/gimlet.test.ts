@@ -59,7 +59,7 @@ describe('the Gimlet on paper', () => {
     expect(60 / g.interval).toBeGreaterThanOrEqual(800);
     expect(60 / g.interval).toBeLessThanOrEqual(900);
     expect(g.magSize).toBe(30);
-    expect(familyOfSlot(1)).toEqual(['smg', 'gimlet', 'harrow', 'bodkin', 'flail']);
+    expect(familyOfSlot(1)).toEqual(['smg', 'gimlet', 'harrow', 'shear', 'bodkin', 'flail']);
     expect(g.base).toBe('smg');
   });
 

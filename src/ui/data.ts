@@ -48,6 +48,11 @@ export const WEAPONS: Record<WeaponId, WeaponInfo> = {
     role: `Battle rifle. ${def.harrow.damage} damage, ${def.harrow.magSize} rounds, ${Math.round(1 / def.harrow.interval)} a second`,
     note: 'Press 1 again to swap with the SMG. Full damage at any range. Goes through one body or a sheet of cover, and takes limbs off. Hold R: auto or semi.',
   },
+  shear: {
+    name: 'SHEAR', key: '1',
+    role: `Hyperburst rifle. ${def.shear.damage} damage, ${def.shear.magSize} rounds, 2-round 1,800 RPM hyperburst into 600 RPM auto`,
+    note: `Press 1 again to step to it. First two rounds of every trigger pull land on the same point with zero climb before settling into full auto. Keeps ${def.shear.falloff!.floor * 100}% past ${def.shear.falloff!.to} m. Hold R: hyperburst auto, 2-round burst, semi. Tap R reloads.`,
+  },
   flail: {
     name: 'Flail', key: '1',
     role: `Light machine gun. ${def.flail.damage} damage, a box of ${def.flail.magSize}, ${Math.round(1 / def.flail.interval)} a second`,
@@ -194,7 +199,7 @@ export const WEAPONS: Record<WeaponId, WeaponInfo> = {
   bodkin: {
     name: 'Bodkin', key: '1',
     role: `Flechette bullpup. ${def.bodkin.damage} a dart, ${def.bodkin.magSize} rounds, 3-round burst at 1,200 RPM`,
-    note: 'Press 1 again to step to it. Steel darts ignore plates and riot shields, punch through cover and bleed flesh, with full damage at any range. Hold R toggles burst and semi.',
+    note: 'Press 1 again to step to it. Steel darts ignore plates and riot shields, punch through cover and bleed flesh, with full damage at any range. Hold R toggles burst and semi, or switches to the over-barrel 20 mm smart airburst launcher when fitted (tap Shift while aimed to lase airburst range).',
   },
   billhook: {
     name: 'Billhook', key: '2',

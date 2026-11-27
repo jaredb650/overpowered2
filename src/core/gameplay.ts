@@ -42,7 +42,9 @@ export type WeaponId =
   | 'howitzer'
   // Weapons wishlist (docs/proposals/weapons-wishlist.md): semi-auto combat shotgun (key 2), flechette bullpup (key 1),
   // microwave gun (key 7), and harpoon cannon (key 0).
-  | 'billhook' | 'bodkin' | 'autoclave' | 'gaff';
+  | 'billhook' | 'bodkin' | 'autoclave' | 'gaff'
+  // AN-94-inspired hyperburst assault rifle on key 1 (2-round 1,800 RPM zero-climb opener -> 600 RPM auto).
+  | 'shear';
 
 /**
  * A weapon mod (src/weapons/mods.ts): the SMG's suppressor, the Harrow's red dot and ACOG, the Sabot's Raufoss rounds, the
@@ -70,7 +72,7 @@ export type ModId = 'awlAcog' | 'awlCan' | 'awlAp' | 'awlHp' | 'suppressor' | 'r
   // The katana's energy blade (weapons/melee/data.ts ENERGY).
   | 'swordEnergy'
   // The weapon light, one a gun: every rifle, shotgun and pistol (weapons/mods.ts LIGHT_GUNS).
-  | 'smgLight' | 'gimletLight' | 'harrowLight' | 'awlLight' | 'shotgunLight' | 'thresherLight' | 'deuceLight'
+  | 'smgLight' | 'gimletLight' | 'harrowLight' | 'shearLight' | 'awlLight' | 'shotgunLight' | 'thresherLight' | 'deuceLight'
   | 'judgeLight' | 'rivetLight' | 'ultramagLight' | 'autorafficaLight' | 'billhookLight' | 'bodkinLight'
   // Flechettes for every shotgun and API rounds for the Harrow (weapons/mods.ts FLECHETTE_GUNS, API_GUNS).
   | 'shotgunFlechette' | 'thresherFlechette' | 'deuceFlechette' | 'billhookFlechette' | 'harrowApi' | 'flailApi'
@@ -85,7 +87,7 @@ export type ModId = 'awlAcog' | 'awlCan' | 'awlAp' | 'awlHp' | 'suppressor' | 'r
   // Rifles wishlist: Gimlet long barrel, Harrow short barrel/brake/40-rd mag, Flail heavy barrel/stock.
   | 'gimletLong' | 'harrowShort' | 'harrowBrake' | 'harrowMag' | 'flailHeavy' | 'flailStock'
   // Flared magwells (weapons/mods.ts MAGWELL_GUNS): 15% faster reload.
-  | 'harrowMagwell' | 'gimletMagwell' | 'ultramagMagwell' | 'rivetMagwell' | 'bodkinMagwell'
+  | 'harrowMagwell' | 'gimletMagwell' | 'shearMagwell' | 'ultramagMagwell' | 'rivetMagwell' | 'bodkinMagwell'
   // Shotguns wishlist: pump sawed-off & greased bolt, Thresher & Billhook dragon's breath, Deuce long barrel, shotgun reflex sights.
   | 'shotgunSawedOff' | 'shotgunBolt' | 'shotgunCan' | 'shotgunDot' | 'thresherDragon' | 'thresherDot' | 'billhookDragon' | 'deuceLong' | 'deuceDot'
   // Launchers & key 4 wishlist: Rocket tube & WP, MGL long barrel & trigger, Howitzer cluster, Autocannon barrel.
@@ -95,10 +97,13 @@ export type ModId = 'awlAcog' | 'awlCan' | 'awlAp' | 'awlHp' | 'suppressor' | 'r
   | 'rivetShield' | 'ultramagShield' | 'judgeShield' | 'autorafficaShield'
   // Billhook mods: reflex, laser, extended tube, slugs (light, flechette, dragon above).
   | 'billhookDot' | 'billhookLam' | 'billhookTube' | 'billhookSlug'
-  // Bodkin mods: 4x optic, extended mag, 5-round burst, full-auto conversion, tungsten darts (light, magwell above).
-  | 'bodkinAcog' | 'bodkinMag' | 'bodkinBurst5' | 'bodkinAuto' | 'bodkinTungsten'
+  // Bodkin mods: 4x optic, extended mag, 5-round burst, full-auto conversion, tungsten darts, 20mm OICW airburst launcher.
+  | 'bodkinAcog' | 'bodkinMag' | 'bodkinBurst5' | 'bodkinAuto' | 'bodkinTungsten' | 'bodkinOicw'
+  // Shear mods: 3-round hyperburst, overdrive sear, 60-rd casket mag, long/short barrel, suppressor, figure-8 brake, optics, ammo.
+  | 'shearBurst3' | 'shearFast' | 'shearMag' | 'shearLong' | 'shearShort' | 'shearCan' | 'shearBrake'
+  | 'shearDot' | 'shearAcog' | 'shearAp' | 'shearHp' | 'shearPlusP'
   // Tactical rail laser sights for every rifle and shotgun (weapons/mods.ts LAM_GUNS; billhookLam above).
-  | 'gimletLam' | 'harrowLam' | 'bodkinLam' | 'flailLam' | 'awlLam' | 'sabotLam' | 'shotgunLam' | 'thresherLam' | 'deuceLam';
+  | 'gimletLam' | 'harrowLam' | 'shearLam' | 'bodkinLam' | 'flailLam' | 'awlLam' | 'sabotLam' | 'shotgunLam' | 'thresherLam' | 'deuceLam';
 
 export type Team = 'player' | 'enemy';
 
@@ -253,8 +258,10 @@ export interface WeaponSystem extends GameSystem {
   readonly paint?: PaintView;
   /** Weapon mods fitted now (src/weapons/mods.ts), for the viewmodels. Unset on a weapon system that has none. */
   readonly fitted?: ReadonlySet<ModId>;
-  /** The Gimlet's under-barrel launcher is up (hold R): the shots and the reload are its. Unset on a weapon system that has none. */
+  /** The Gimlet's or Bodkin's attached launcher is up (hold R): the shots and the reload are its. Unset on a weapon system that has none. */
   readonly launcherUp?: boolean;
+  /** The Bodkin's 20mm OICW smart airburst launcher rangefinder & locked distance, for the HUD. */
+  readonly oicw?: OicwView;
   /** The Autoraffica's smart aim, for the HUD's circle and the gun turning to the head. Unset on a weapon system that has none. */
   readonly smartAim?: SmartAimView;
   /** Riot shield state (src/weapons/shield.ts), for the HUD arm-fatigue meter and co-op sync. */
@@ -274,6 +281,18 @@ export interface WeaponSystem extends GameSystem {
   kata?(): KataResult;
   /** Who a Gun Kata would shoot now, in order, written into `out`: the brain chip's red highlight while it charges. */
   kataTargets?(out: EnemyInstance[]): EnemyInstance[];
+}
+
+/** Live rangefinder & programmed airburst state of the Bodkin's 20mm OICW launcher, read by the HUD. */
+export interface OicwView {
+  /** True while holding the Bodkin with the 20mm launcher active (Hold R). */
+  readonly active: boolean;
+  /** True while actively aiming down the OICW TA/FCS optic. */
+  readonly aiming: boolean;
+  /** Live rangefinder distance (metres) under the crosshair while aiming, or null on open sky. */
+  readonly range: number | null;
+  /** Programmed airburst detonation distance (metres), or null when in dumb impact mode. */
+  readonly locked: number | null;
 }
 
 /** What the Gun Kata brain chip got when it asked the guns: it went, or why it did not (and spent nothing). */
@@ -600,6 +619,8 @@ export interface ProjectileSpec {
   napalm?: boolean;
   /** High-drag Snake-Eye retarded parachute bomb: deploys cruciform drag chute after release for low-level supersonic bombing. */
   chute?: boolean;
+  /** Bodkin OICW 20mm smart grenade: programmed mid-air detonation distance in metres (0/unset = explode on impact). */
+  airburstDist?: number;
 }
 
 export interface CombatSystem extends GameSystem {

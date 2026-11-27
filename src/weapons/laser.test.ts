@@ -11,7 +11,7 @@ import { buildDefs } from './viewmodels/models';
 import { RIFLE_LAM_RANGE, SNIPER_LAM_RANGE } from './viewmodels/models/laser';
 import { dressModel } from './viewmodels/rest';
 
-const RIFLES = ['gimlet', 'harrow', 'bodkin', 'flail'] as const;
+const RIFLES = ['gimlet', 'harrow', 'shear', 'bodkin', 'flail'] as const;
 const SNIPERS = ['awl', 'sabot'] as const;
 const SHOTGUNS = ['shotgun', 'thresher', 'deuce', 'billhook'] as const;
 

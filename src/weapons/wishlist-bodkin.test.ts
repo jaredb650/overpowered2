@@ -44,7 +44,7 @@ function holdR(seconds: number): void {
 
 describe('Bodkin firing range behaviour', () => {
   it('fires 3-round 1200 RPM bursts (0.05 s spacing, 0.25 s recover) with zero spread, flechette load, and plate bypass', () => {
-    expect(familyOfSlot(1)).toEqual(['smg', 'gimlet', 'harrow', 'bodkin', 'flail']);
+    expect(familyOfSlot(1)).toEqual(['smg', 'gimlet', 'harrow', 'shear', 'bodkin', 'flail']);
     expect(WEAPONS.bodkin.spread).toBe(0);
     expect(WEAPONS.bodkin.interval).toBeCloseTo(0.05, 6);
     expect(WEAPONS.bodkin.load).toBe('flechette');

@@ -59,7 +59,7 @@ describe('+P rounds', () => {
       expect(shot.armorPiercing).toBeFalsy();
       if (boosted) {
         expect(shot.load).toBe('plusP');
-        expect(r.weapons.ammoMode).toMatch(/^\+P(?: · BURST)?$/);
+        expect(r.weapons.ammoMode).toMatch(/^\+P(?: · (?:BURST|HYPER))?$/);
         expect(r.record.tracers.some(t => t.kind === 'plusP')).toBe(true);
       }
       return shot.amount;

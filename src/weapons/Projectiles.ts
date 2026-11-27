@@ -4,7 +4,7 @@
  */
 import * as THREE from 'three';
 import { CG, type Ctx, type CorpseHit, type ExplosionKind, type LoopHandle, type RayHit } from '../core/contracts';
-import { toldKill, type DamageResult, type EnemyInstance, type MissileTarget, type ProjectileSpec, type ProjectileTrail, type Team } from '../core/gameplay';
+import { toldKill, type DamageResult, type EnemyInstance, type MissileTarget, type ProjectileSpec, type ProjectileTrail, type ShotSpec, type Team } from '../core/gameplay';
 import { clamp, rand } from '../core/math';
 import type { GoreRegion } from '../characters/rig';
 import type { Combat } from './Combat';
@@ -188,6 +188,10 @@ export interface Projectile {
   initialFuse: number;
   /** True once the player has snatched or batted this enemy grenade back. */
   thrownBack: boolean;
+  /** Programmed airburst distance in metres (OICW 20 mm smart grenade), 0 when impact-only. */
+  airburstDist: number;
+  /** Cumulative distance travelled along flight path in metres (used by programmed airburst). */
+  traveled: number;
 }
 
 function createProjectile(): Projectile {
@@ -203,7 +207,7 @@ function createProjectile(): Projectile {
     budget: makeBudget(), baseDamage: 0, armorPiercing: false,
     target: null, turnRate: 0, line: new THREE.Vector3(), steerDelay: 0, weave: 0, weavePhase: 0, accel: 0, topSpeed: 0, age: 0, size: 1, wired: false,
     blastScale: undefined, blastShake: undefined, flak: false, wp: false, cluster: false, aerialCluster: false, thermobaric: false, bomb: false, whistleLoop: null, napalm: false, chute: false, cosmetic: false, netId: 0, laser: ROCKET_LASER, tag: 0, ghost: false, blastMirrored: false,
-    initialFuse: 0, thrownBack: false,
+    initialFuse: 0, thrownBack: false, airburstDist: 0, traveled: 0,
     helix: null, helixData: { phase: 0, reach: 0, radius: 0, pitch: 0, startRadius: 0, convergence: 0 }, helixTravel: 0, helixRight: new THREE.Vector3(), helixUp: new THREE.Vector3(), helixOffset: new THREE.Vector3(),
   };
 }
@@ -379,6 +383,8 @@ export class Projectiles {
     p.laser = spec.laser ?? ROCKET_LASER;
     p.tag = spec.tag ?? 0;
     p.sticky = spec.sticky ?? false;
+    p.airburstDist = spec.airburstDist ?? 0;
+    p.traveled = 0;
     p.stuckEnemy = null;
     p.stuckBone = null;
     p.stuckOffset.set(0, 0, 0);
@@ -422,6 +428,8 @@ export class Projectiles {
     p.stuckBone = null;
     p.stuckEnemy = null;
     p.sticky = false;
+    p.airburstDist = 0;
+    p.traveled = 0;
     p.wp = false;
     p.cluster = false;
     p.aerialCluster = false;
@@ -513,11 +521,13 @@ export class Projectiles {
     if (p.flak && this.flakFuze(p, dir, len)) return;
     if (p.aerialCluster && p.age >= 0.08 && this.aerialClusterFuze(p, dt)) return;
     if (!p.aerialCluster && p.cluster && this.clusterFuze(p, dir, speed, dt)) return;
-    const wall = c.physics.raycast(p.position, dir, len, CG.World);
-    const limit = wall ? wall.distance : len;
+    const airburstRemain = p.airburstDist > 0 ? p.airburstDist - p.traveled : Infinity;
+    const checkLen = Math.min(len, Math.max(0, airburstRemain));
+    const wall = checkLen > 0 ? c.physics.raycast(p.position, dir, checkLen, CG.World) : null;
+    const limit = wall ? wall.distance : checkLen;
     if (p.ghost) {
       // A call-in copy's round: it bursts on the first body or wall in its way, as its caller's does, and hurts neither.
-      const body = p.team === 'player' ? c.enemies.raycast(p.position, dir, limit) : null;
+      const body = p.team === 'player' && limit > 0 ? c.enemies.raycast(p.position, dir, limit) : null;
       if (body) {
         p.position.copy(body.point);
         if (p.explosive) this.explode(p, undefined);
@@ -525,7 +535,14 @@ export class Projectiles {
         return;
       }
       if (!wall) {
+        if (airburstRemain <= len) {
+          p.position.addScaledVector(dir, Math.max(0, airburstRemain));
+          this.detonateAirburst(p, dir);
+          p.live = false;
+          return;
+        }
         p.position.addScaledVector(dir, len);
+        p.traveled += len;
         return;
       }
       p.position.copy(wall.point);
@@ -535,19 +552,28 @@ export class Projectiles {
       return;
     }
 
-    if (p.team === 'player') {
-      // A stake that punched through stops short for this frame, so the next enemy on the line still gets swept.
-      if (this.sweepEnemies(p, dir, limit)) return;
-      if (p.kind === 'stake' && !p.cosmetic) this.sweepCorpses(p, dir, limit);
-    } else if (this.sweepPlayer(p, dir, limit)) {
-      return;
+    if (limit > 0) {
+      if (p.team === 'player') {
+        // A stake that punched through stops short for this frame, so the next enemy on the line still gets swept.
+        if (this.sweepEnemies(p, dir, limit)) return;
+        if (p.kind === 'stake' && !p.cosmetic) this.sweepCorpses(p, dir, limit);
+      } else if (this.sweepPlayer(p, dir, limit)) {
+        return;
+      }
     }
 
     if (wall) {
       this.hitWorld(p, wall);
       return;
     }
+    if (airburstRemain <= len) {
+      p.position.addScaledVector(dir, Math.max(0, airburstRemain));
+      this.detonateAirburst(p, dir);
+      p.live = false;
+      return;
+    }
     p.position.addScaledVector(dir, len);
+    p.traveled += len;
   }
 
   /** Enemy team homes on the player (unless spoofed by vehicle IR flares/smoke!), player team on the closest enemy or vehicle. */
@@ -1185,6 +1211,46 @@ export class Projectiles {
     this.explode(p, undefined);
     p.live = false;
     return true;
+  }
+
+  /**
+   * Bodkin OICW 20 mm programmed airburst: detonates in mid-air at the lased distance with a crisp amber shock ring,
+   * sparks, and radial/downward shrapnel fragments that reach enemies tucked behind low cover.
+   */
+  private detonateAirburst(p: Projectile, dir: THREE.Vector3): void {
+    const c = this.ctx;
+    const at = this.end.copy(p.position);
+    if (p.explosive) this.explode(p, undefined);
+    c.fx.ring(at, UP, '#ffaa38', Math.max(3.6, p.blastRadius * 1.15));
+    c.fx.sparks(at, dir, 26, '#ffc864');
+    c.render.lights.flash(at, '#ffaa38', 18, 12, 0.08);
+    if (p.cosmetic || p.ghost) return;
+    const t = TUNING.oicw;
+    const frag: ShotSpec = {
+      damage: t.shrapnelDamage,
+      source: p.source || 'bodkin',
+      team: p.team,
+      maxDistance: t.shrapnelRadius,
+      force: 10,
+      severMult: 1.8,
+      type: 'pellet',
+      tracer: 'heavy',
+      tracerFrom: at,
+      impactScale: 0.9,
+    };
+    const n = c.enemies.query(at, t.shrapnelRadius, this.nearby) || 0;
+    let hits = 0;
+    for (let i = 0; i < n && hits < t.shrapnelMaxTargets; i++) {
+      const e = this.nearby[i]!;
+      if (!e.alive) continue;
+      this.want.subVectors(e.center, at);
+      const dist = this.want.length();
+      if (dist < 1e-3 || dist > t.shrapnelRadius) continue;
+      this.want.divideScalar(dist);
+      this.combat.fireRay(at, this.want, frag);
+      hits++;
+    }
+    this.nearby.length = 0;
   }
 
   explode(p: Projectile, normal: THREE.Vector3 | undefined): void {

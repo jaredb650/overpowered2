@@ -558,6 +558,10 @@
 .xh-breath.cool { opacity: 0.45; }
 .xh-focus { top: 5.3rem; }
 .xh-focus.cool { opacity: 0.4; }
+/* Bodkin OICW 20 mm TA/FCS rangefinder & programmed airburst readout under the optic sight. */
+.xh-oicw { top: 4.9rem; }
+.xh-oicw-t { display: inline-block; padding: 0.1rem 0.55rem; background: rgba(10, 14, 18, 0.78); color: #cde6f5; border: 1px solid rgba(205, 230, 245, 0.35); font-weight: 800; font-size: 0.78rem; letter-spacing: 0.08em; }
+.xh-oicw.locked .xh-oicw-t { background: rgba(28, 16, 4, 0.85); color: #ffaa38; border-color: #ffaa38; }
 .xh-prompt-t { display: inline-block; padding: 0 0.5rem; background: var(--amber); color: #000; font-weight: 800; }
 .xh-charge { position: absolute; left: -4rem; top: 3.2rem; width: 8rem; height: 0.32rem; background: var(--plate); }
 .xh-charge-fill { width: 100%; height: 100%; background: var(--cold); transform-origin: 0 50%; }

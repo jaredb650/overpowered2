@@ -19,6 +19,11 @@ const WEAPON_PATHS: Record<WeaponId, string> = {
   harrow:
     'M1 11H20L24 8H58V17H24L20 21H7L1 19Z M58 9H78V16H58Z M78 11H89V14H78Z M89 9H95V16H89Z ' +
     'M72 4H75V9H72Z M30 4H36V8H30Z M27 17H37L33 30H24Z M43 17H55L52 31H44Z',
+  // AN-94 hyperburst rifle: folding stock, sleek receiver with rotary diopter, lower guide rod, figure-8 brake, curved plum mag.
+  shear:
+    'M1 11H6V21H1Z M6 12H23V16L10 20H6Z M23 9H58V17H23Z M27 5H34V9H27Z M58 10H75V16H58Z ' +
+    'M75 10.5H88V13H75Z M75 14H86V16H75Z M82 6H86V10.5H82Z M88 9H95V12H88Z M88 13H95V16H88Z ' +
+    'M27 17H36L32 30H24Z M44 17H54L58 30L49 31Z',
   // A light machine gun: a skeleton stock, a feed cover on the receiver, a carry handle, a box under it, a folded bipod.
   flail:
     'M1 9H5V22H1Z M5 11H22V19L18 21H5Z M22 8H54V18H22Z M28 5H50V8H28Z M54 9H72V17H54Z M72 11H90V14H72Z M90 10H95V15H90Z ' +

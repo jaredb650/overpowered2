@@ -157,6 +157,14 @@ export interface WeaponDef {
     readonly hold: number; readonly modes: readonly FireSelect[]; readonly burst?: { readonly rounds: number; readonly recover: number };
   };
   /**
+   * AN-94-style hyperburst opener (the Shear's): fires `rounds` at `interval` with zero `climb` on each trigger pull
+   * before seamlessly continuing into normal `interval` auto with `climb` (in `'auto'` mode), or stopping for `recover`
+   * (in `'burst'` mode). Releasing the trigger for `reset` seconds re-arms the hyperburst.
+   */
+  hyperBurst?: {
+    readonly rounds: number; readonly interval: number; readonly reset: number; readonly recover: number;
+  };
+  /**
    * Electronic multi-rate fire selector (hold R to cycle): steps through RPM settings, up to a hyper-volley mode
    * that dumps up to `volley` stacked rounds instantaneously in a single trigger pull (Metal Storm).
    */
@@ -356,7 +364,26 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     // Hold R: full auto or one round a pull.
     select: { hold: 0.3, modes: ['auto', 'semi'] },
   },
-  // The flechette rifle (Steyr ACR inspired), after the Harrow on key 1: three-round 1200 RPM bursts or semi-auto (hold R),
+  // The AN-94-inspired hyperburst assault rifle, after the Harrow on key 1: every pull opens with two 1,800 RPM rounds
+  // at zero climb before settling into 600 RPM auto (or pure 2-round hyperburst / semi via Hold R). Round 1 breaks a plate
+  // and round 2 lands 33 ms later on the exact same pixel.
+  shear: {
+    ...BASE, id: 'shear', name: 'SHEAR', slot: 1, base: 'smg', mode: 'auto',
+    magSize: 30, reserve: 180, maxReserve: 360, reloadTime: 1.15, drawTime: 0.2,
+    interval: 0.1, damage: 44, severMult: 1.5, canSever: true, force: 11, headshotMult: 2, armour: 'medium',
+    penetration: 0.25,
+    falloff: { from: 75, to: 160, floor: 0.8 },
+    muzzle: 'rifle', tracer: 'carbine', casing: 'rifle',
+    sounds: [{ id: 'harrow_shot', pitch: 1.12, pitchJitter: 0.03 }],
+    reloadFoley: [[0.05, 'harrow_mag_out'], [0.5, 'harrow_mag_in'], [0.76, 'harrow_rack_bolt']],
+    tacticalReload: { scale: 0.78, foley: [[0.06, 'harrow_mag_out'], [0.62, 'harrow_mag_in']] },
+    recoil: 0.85, kick: 0.003, shake: 0.007, fovPunch: 0.28, impactScale: 1.15,
+    climb: { pitch: 0.002, yaw: 0.001 },
+    ads: { zoom: 0.36, time: 0.2 },
+    select: { hold: 0.3, modes: ['auto', 'burst', 'semi'], burst: { rounds: 2, recover: 0.16 } },
+    hyperBurst: { rounds: 2, interval: 1 / 30, reset: 0.14, recover: 0.16 },
+  },
+  // The flechette rifle (Steyr ACR inspired), after the Shear on key 1: three-round 1200 RPM bursts or semi-auto (hold R),
   // steel darts that pass straight through plates, riot shields and four men in a line, bleed in flesh, and never lose damage at range.
   bodkin: {
     ...BASE, id: 'bodkin', name: 'BODKIN', slot: 1, base: 'smg', mode: 'auto',
@@ -797,6 +824,23 @@ export const LAUNCHER: WeaponDef = {
   recoil: 1.4, kick: 0.03, shake: 0.03, fovPunch: 1.4,
 };
 
+/**
+ * The Bodkin's over-barrel 20 mm smart airburst launcher (its `bodkinOicw` mod): semi-auto 5-round box mag firing
+ * high-velocity, flat-arc 20 mm rounds. Explodes on impact by default, or mid-air at a Shift-lased airburst distance
+ * (`distance + 1.5 m`) programmed while aiming down the TA/FCS optic.
+ */
+export const OICW_LAUNCHER: WeaponDef = {
+  ...BASE, id: 'bodkin', name: 'BODKIN', slot: 1, mode: 'semi', round: 'grenade',
+  magSize: 5, reserve: 15, maxReserve: 30, reloadTime: 1.9, drawTime: 0.25,
+  interval: 0.45, damage: 45, severMult: 2.2, force: 50,
+  grenade: { speed: 95, gravity: 4.0, life: 6, radius: 4.0, blast: 120 },
+  muzzle: 'rifle', tracer: 'heavy',
+  sounds: [{ id: 'launcher_thump', pitch: 1.28, pitchJitter: 0.04 }],
+  reloadFoley: [[0.08, 'reload_mag_out'], [0.55, 'reload_mag_in'], [0.84, 'reload_bolt']],
+  recoil: 1.0, kick: 0.018, shake: 0.02, fovPunch: 1.0,
+  ads: { zoom: 0.45, time: 0.18 },
+};
+
 if (SLOT4_OLD) WEAPONS.sabot.base = 'autocannon';
 if (SLOT8_OLD) {
   // The BUZZSAW's row as it was. With no base and no cache, the PILEDRIVER is never handed out, and families.ts leaves it
@@ -1106,6 +1150,14 @@ export const TUNING = {
    * (EXPLOSIONS.grenade), smaller.
    */
   launcher: { speed: 55, gravity: 9.8, life: 8, radius: 5.5, blast: 170 },
+  /**
+   * Bodkin 20 mm OICW smart airburst launcher (`bodkinOicw`): tapping Shift while ADS lases the surface under the
+   * crosshair and locks `distance + offset` metres so the round clears cover and bursts right behind it.
+   */
+  oicw: {
+    offset: 1.5, minRange: 4, maxRange: 160, clearTolerance: 0.8,
+    shrapnelRadius: 5.5, shrapnelDamage: 48, shrapnelMaxTargets: 10,
+  },
   grenade: {
     fuse: 2.6, throwSpeed: 25, throwUp: 6.5, inherit: 0.75, gravity: -22, restitution: 0.42, friction: 0.72,
     radius: 7, damage: 190, start: 3, max: 6, cookSound: 0.8,

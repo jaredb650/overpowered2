@@ -10,7 +10,7 @@ import { ACTIVE } from '../contracts/select';
 import { survivalLoadout } from '../contracts/loadouts';
 import { CG, type Ctx, type ExplosionKind, type LoopHandle, type RayHit, type SurfaceKind } from '../core/contracts';
 import type {
-  AmmoState, EnemyInstance, FireKind, FireNote, KataResult, LoadoutOptions, MissileTarget, ModId, PaintView, ProjectileSpec, ProjectileTrail, ShotResult, ShotSpec, SmartAimView,
+  AmmoState, EnemyInstance, FireKind, FireNote, KataResult, LoadoutOptions, MissileTarget, ModId, OicwView, PaintView, ProjectileSpec, ProjectileTrail, ShotResult, ShotSpec, SmartAimView,
   WeaponId, WeaponModifiers, WeaponSystem,
 } from '../core/gameplay';
 import { SeededRandom, clamp, damp, invLerp, lerp, randomInCone, smoothstep, wrapAngle } from '../core/math';
@@ -18,7 +18,7 @@ import { MOVE } from '../player/tuning';
 import type { Combat, CombatShotResult, Guard, GuardOptions, GuardResult } from './Combat';
 import { AdsZoom } from './adsZoom';
 import { ISSUED, MODS, MOD_ORDER, moddedDef } from './mods';
-import { HIT_STOP, LAUNCHER, SWORD, TUNING, WEAPONS, WEAPON_ORDER, type FireSelect, type ReloadCue, type SoundLayer, type WeaponDef } from './data';
+import { HIT_STOP, LAUNCHER, OICW_LAUNCHER, SWORD, TUNING, WEAPONS, WEAPON_ORDER, type FireSelect, type ReloadCue, type SoundLayer, type WeaponDef } from './data';
 import { Fan, type FanHooks, type FanLock } from './fan';
 import { familyOf, familyOfSlot, membersOf, pressSlot, wheelSlot } from './families';
 import { Handling, holdSpeed } from './handling';
@@ -181,6 +181,10 @@ export class Weapons implements WeaponSystem, Guard {
   private quickReturn = 0;
   /** Rounds left in a burst under way (`pullBurst`, or a `select` gun's). */
   private burstLeft = 0;
+  /** Rounds left in an AN-94-style zero-climb hyperburst (`def.hyperBurst`), plus trigger-release re-arm state. */
+  private hyperLeft = 0;
+  private hyperArmed = true;
+  private hyperReleaseT = 0;
   /** The guns with their `altAmmo` loaded. A new run starts on the standard rounds. */
   private readonly altLoaded = new Set<WeaponId>();
   private raufossRounds: Raufoss | null = null;
@@ -188,7 +192,17 @@ export class Weapons implements WeaponSystem, Guard {
   private readonly glSlot: Slot = {
     def: LAUNCHER, cooldown: 0, ammo: { mag: 1, magSize: 1, reserve: LAUNCHER.reserve, maxReserve: LAUNCHER.maxReserve },
   };
+  /** The Bodkin's over-barrel 20 mm OICW smart airburst launcher: 5-round semi-auto magazine, raised via Hold R. */
+  private readonly oicwSlot: Slot = {
+    def: { ...OICW_LAUNCHER },
+    cooldown: 0,
+    ammo: { mag: OICW_LAUNCHER.magSize, magSize: OICW_LAUNCHER.magSize, reserve: OICW_LAUNCHER.reserve, maxReserve: OICW_LAUNCHER.maxReserve },
+  };
   private glUp = false;
+  /** Live laser rangefinder reading (metres) while ADS on the Bodkin 20 mm launcher, and locked airburst distance (null = impact). */
+  private oicwRange: number | null = null;
+  private oicwLocked: number | null = null;
+  private readonly oicwView = { active: false, aiming: false, range: null as number | null, locked: null as number | null };
   /** What each `select` gun's selector is on (hold R), unset for its first mode. Kept across a switch, cleared by a reset. */
   private readonly selector = new Map<WeaponId, FireSelect>();
   /** What each `rateSelect` gun's electronic RPM index is on (hold R), default 0. Kept across switches, cleared by reset. */
@@ -414,6 +428,13 @@ export class Weapons implements WeaponSystem, Guard {
     this.glSlot.cooldown = 0;
     this.glSlot.ammo.mag = LAUNCHER.magSize;
     this.glSlot.ammo.reserve = LAUNCHER.reserve;
+    this.oicwSlot.def = { ...OICW_LAUNCHER, ads: this.slots.bodkin.def.ads ?? OICW_LAUNCHER.ads };
+    this.oicwSlot.cooldown = 0;
+    this.oicwSlot.ammo.mag = OICW_LAUNCHER.magSize;
+    this.oicwSlot.ammo.reserve = OICW_LAUNCHER.reserve;
+    this.oicwRange = null;
+    this.oicwLocked = null;
+    this.resetHyper();
     ROCKET_LASER.sight = ROCKET_LASER.on = false;
     this.drawLeft = 0;
     this.dropped.reset();
@@ -488,19 +509,44 @@ export class Weapons implements WeaponSystem, Guard {
     return this.akimboOn ? 2 : 1;
   }
 
-  /** The Gimlet's launcher is up: its shots, its reload and its count on the HUD. */
+  /** The Gimlet or Bodkin launcher is up: its shots, its reload and its count on the HUD. */
   get launcherUp(): boolean {
     return this.glUp;
   }
 
-  /** What the trigger and R work now: the gun in hand, or its launcher while that is up. */
-  private get held(): Slot {
-    return this.glUp ? this.glSlot : this.slots[this.current];
+  /** Bodkin OICW 20 mm smart launcher state for the HUD rangefinder and airburst readout. */
+  get oicw(): OicwView {
+    const v = this.oicwView;
+    v.active = this.glUp && this.current === 'bodkin';
+    v.aiming = v.active && this.aimT > 0.25;
+    v.range = v.aiming ? this.oicwRange : null;
+    v.locked = v.active ? this.oicwLocked : null;
+    return v;
   }
 
-  /** A gun's selector: its first mode until hold R steps it on; full auto with a launcher fitted, whose hold R raises it. */
+  private launcherSlotOf(id: WeaponId): Slot {
+    return id === 'bodkin' ? this.oicwSlot : this.glSlot;
+  }
+
+  private isLauncherSlot(s: Slot): boolean {
+    return s === this.glSlot || s === this.oicwSlot;
+  }
+
+  private resetHyper(): void {
+    this.hyperLeft = 0;
+    this.hyperArmed = true;
+    this.hyperReleaseT = 0;
+  }
+
+  /** What the trigger and R work now: the gun in hand, or its launcher while that is up. */
+  private get held(): Slot {
+    return this.glUp ? this.launcherSlotOf(this.current) : this.slots[this.current];
+  }
+
+  /** A gun's selector: its first mode until hold R steps it on; its primary mode with a launcher fitted, whose hold R raises it. */
   private selectOf(def: WeaponDef): FireSelect {
-    if (!def.select || def.launcher) return 'auto';
+    if (!def.select) return 'auto';
+    if (def.launcher) return def.select.modes[0]!;
     const saved = this.selector.get(def.id);
     return saved !== undefined && def.select.modes.includes(saved) ? saved : def.select.modes[0]!;
   }
@@ -532,7 +578,12 @@ export class Weapons implements WeaponSystem, Guard {
   get ammoMode(): string {
     const def = this.slots[this.current].def;
     const alt = def.altAmmo;
-    if (this.glUp) return 'LAUNCHER';
+    if (this.glUp) {
+      if (this.current === 'bodkin') {
+        return this.oicwLocked !== null ? `20MM AB ${this.oicwLocked.toFixed(1)}M` : '20MM IMPACT';
+      }
+      return 'LAUNCHER';
+    }
     if (def.rateSelect) {
       const label = this.rateOf(def)!.label;
       return def.round === 'grenade' ? `40MM · ${label}` : label;
@@ -551,9 +602,10 @@ export class Weapons implements WeaponSystem, Guard {
       if (this.harpoon.ropeOut) return this.harpoon.reeling ? 'REELING · RELEASE CUT' : 'HOLD RMB TO REEL';
       return 'RMB GRAPPLE';
     }
-    // An ammo mod (AP or HP) comes first, beside the Gimlet's bursts.
+    // An ammo mod (AP or HP) comes first, beside the Gimlet's bursts or Shear's hyperburst.
     const load = def.load === 'plusP' ? '+P' : def.load ? def.load.toUpperCase() : '';
     const sel = this.selectOf(def);
+    if (def.hyperBurst && sel === 'auto') return load ? `${load} · HYPER` : 'HYPER';
     if (sel !== 'auto') return load ? `${load} · ${sel.toUpperCase()}` : sel.toUpperCase();
     // The Autoraffica: its bursts, or smart paint-then-snap mode and current lock/mark state.
     if (def.smart) {
@@ -590,6 +642,14 @@ export class Weapons implements WeaponSystem, Guard {
     this.fittedVersion++;
     const nextDef = moddedDef(weapon, this.fitted);
     this.slots[weapon].def = nextDef;
+    if (weapon === 'bodkin') {
+      // Keep the 20 mm launcher's TA/FCS ADS magnification synced with the Bodkin's fitted optic (e.g. 4x ACOG).
+      this.oicwSlot.def = { ...OICW_LAUNCHER, ads: nextDef.ads ?? OICW_LAUNCHER.ads };
+      if (!nextDef.launcher) {
+        this.oicwLocked = null;
+        this.oicwRange = null;
+      }
+    }
     // A magazine or caliber conversion mod changes what the gun holds: overflow goes back to reserve, clamped to maxReserve.
     const a = this.slots[weapon].ammo;
     if (a.magSize !== nextDef.magSize) {
@@ -609,7 +669,10 @@ export class Weapons implements WeaponSystem, Guard {
       this.selector.delete(weapon);
     }
     if (!nextDef.altAmmo) this.altLoaded.delete(weapon);
-    if (weapon === this.current) this.clearScope(false);
+    if (weapon === this.current) {
+      this.clearScope(false);
+      this.resetHyper();
+    }
     if (!this.slots[this.current].def.launcher) this.glUp = false;
     return this.fitted.has(id);
   }
@@ -758,6 +821,7 @@ export class Weapons implements WeaponSystem, Guard {
   addAmmo(fraction: number): void {
     for (const id of WEAPON_ORDER) this.addReserve(this.slots[id], fraction);
     this.addReserve(this.glSlot, fraction);
+    this.addReserve(this.oicwSlot, fraction);
   }
 
   addGrenades(count: number): void {
@@ -778,11 +842,14 @@ export class Weapons implements WeaponSystem, Guard {
     }
     const g = this.glSlot.ammo;
     if (this.fitted.has('gimletGl')) g.reserve = Math.max(g.reserve, Math.ceil(g.maxReserve * TUNING.ammo.waveFloor));
+    const o = this.oicwSlot.ammo;
+    if (this.fitted.has('bodkinOicw')) o.reserve = Math.max(o.reserve, Math.ceil(o.maxReserve * TUNING.ammo.waveFloor));
   }
 
   refillMagazines(): void {
     for (const id of WEAPON_ORDER) this.slots[id].ammo.mag = this.slots[id].def.magSize;
     this.glSlot.ammo.mag = LAUNCHER.magSize;
+    this.oicwSlot.ammo.mag = OICW_LAUNCHER.magSize;
     if (this.reloading) this.endReload(false);
   }
 
@@ -848,6 +915,7 @@ export class Weapons implements WeaponSystem, Guard {
     this.drySwap = -1;
     this.quickReturn = 0;
     this.burstLeft = 0;
+    this.resetHyper();
     this.rHeld = -1;
     if (this.harpoon.ropeOut) this.harpoon.cut();
     this.ctx.viewmodel.setCharge(0);
@@ -945,6 +1013,7 @@ export class Weapons implements WeaponSystem, Guard {
       if (s.cooldown > 0) s.cooldown -= dt;
     }
     if (this.glSlot.cooldown > 0) this.glSlot.cooldown -= dt;
+    if (this.oicwSlot.cooldown > 0) this.oicwSlot.cooldown -= dt;
     this.syncAkimbo();
 
     if (this.holstered) return;
@@ -1129,6 +1198,7 @@ export class Weapons implements WeaponSystem, Guard {
     this.drySwap = -1;
     this.quickReturn = 0;
     this.burstLeft = 0;
+    this.resetHyper();
     this.rHeld = -1;
     this.glUp = false;
     this.current = id;
@@ -1168,6 +1238,7 @@ export class Weapons implements WeaponSystem, Guard {
     // A salvo in the air finishes before the tubes are opened.
     if (this.salvoLeft > 0 || this.fan.phase === 'fire') return false;
     if (this.boltPending === s.def.id) this.boltPending = null;
+    this.resetHyper();
     this.stopPaint();
     this.endContinuous();
     this.chargeLevel = 0;
@@ -1393,14 +1464,16 @@ export class Weapons implements WeaponSystem, Guard {
     const next = modes[(modes.indexOf(this.selectOf(def)) + 1) % modes.length]!;
     this.selector.set(def.id, next);
     this.burstLeft = 0;
+    this.resetHyper();
     this.ctx.audio.play('fire_select', { pitch: SELECT_PITCH[next] });
-    this.ctx.hud.callout?.(next.toUpperCase());
+    this.ctx.hud.callout?.(next === 'auto' && def.hyperBurst ? 'HYPER' : next.toUpperCase());
   }
 
-  /** Brings the launcher to bear, or back to the rifle: a moment's handling (`LAUNCHER.drawTime`), never during a reload. */
+  /** Brings the launcher to bear, or back to the rifle: a moment's handling (`slot.def.drawTime`), never during a reload. */
   private raiseLauncher(up: boolean): void {
     if (this.glUp === up) return;
-    const g = this.glSlot.ammo;
+    const slot = this.launcherSlotOf(this.current);
+    const g = slot.ammo;
     if (up && g.mag === 0 && g.reserve === 0 && !this.modifiers.bottomlessMag) {
       this.ctx.audio.play('weapon_dry');
       this.ctx.hud.callout?.('NO GRENADES');
@@ -1410,10 +1483,11 @@ export class Weapons implements WeaponSystem, Guard {
     this.burstLeft = 0;
     this.pressBuffer = 0;
     this.aimOn = false;
-    this.drawLeft = Math.max(this.drawLeft, LAUNCHER.drawTime);
-    this.autoReload = this.held.ammo.mag === 0 && this.held.ammo.reserve > 0 ? LAUNCHER.drawTime + TUNING.autoReloadDelay : -1;
+    const drawTime = slot.def.drawTime;
+    this.drawLeft = Math.max(this.drawLeft, drawTime);
+    this.autoReload = this.held.ammo.mag === 0 && this.held.ammo.reserve > 0 ? drawTime + TUNING.autoReloadDelay : -1;
     this.ctx.audio.play('fire_select', { pitch: up ? 0.8 : 1 });
-    this.ctx.hud.callout?.(up ? 'LAUNCHER' : 'RIFLE');
+    this.ctx.hud.callout?.(up ? (this.current === 'bodkin' ? '20MM LAUNCHER' : 'LAUNCHER') : 'RIFLE');
   }
 
   private updateGun(dt: number): void {
@@ -1438,7 +1512,7 @@ export class Weapons implements WeaponSystem, Guard {
     // Akimbo: the off hand has its own gun, not the hammer, and right click is the zoom.
     if (def.altFan && !def.akimbo && this.updateFan(s, dt)) return;
     switch (def.mode) {
-      case 'auto': this.updateAuto(s, held); break;
+      case 'auto': this.updateAuto(s, dt, held); break;
       case 'semi': this.updateSemi(s, held); break;
       case 'charge':
         if (LANCE_ON) this.lance.update(s, dt, held);
@@ -1449,7 +1523,7 @@ export class Weapons implements WeaponSystem, Guard {
       case 'paint': this.updatePaint(s, dt, held); break;
     }
     if (def.mode === 'auto' || def.mode === 'spin') {
-      if (!held && s.cooldown < 0) s.cooldown = 0;
+      if (!held && this.hyperLeft === 0 && s.cooldown < 0) s.cooldown = 0;
     }
   }
 
@@ -1488,7 +1562,7 @@ export class Weapons implements WeaponSystem, Guard {
       if (!this.shouldHoldBolt(s.def)) this.autoReload = Math.max(TUNING.autoReloadDelay, s.def.cycleTime ?? 0);
     }
     // The last grenade gone: back on the rifle, which still has rounds.
-    else if (s === this.glSlot) this.raiseLauncher(false);
+    else if (this.isLauncherSlot(s)) this.raiseLauncher(false);
     // Keep the clacker in hand after tossing the final satchel so RMB can still detonate planted charges.
     else if (s.def.id !== 'satchel') this.wentDry();
   }
@@ -1528,7 +1602,7 @@ export class Weapons implements WeaponSystem, Guard {
     return a.magSize === 0 || a.mag > 0 || a.reserve > 0;
   }
 
-  private updateAuto(s: Slot, held: boolean): void {
+  private updateAuto(s: Slot, dt: number, held: boolean): void {
     const rate = this.rateOf(s.def);
     if (rate) {
       if (rate.volley) {
@@ -1577,6 +1651,42 @@ export class Weapons implements WeaponSystem, Guard {
       this.updateSemi(s, held);
       return;
     }
+    const hb = s.def.hyperBurst;
+    if (hb) {
+      if (!held && this.hyperLeft === 0 && this.pressBuffer <= 0) {
+        if (!this.hyperArmed) {
+          this.hyperReleaseT += dt;
+          if (this.hyperReleaseT >= hb.reset) this.hyperArmed = true;
+        }
+        return;
+      }
+      if (this.hyperLeft === 0 && this.hyperArmed && (held || this.pressBuffer > 0)) {
+        if (s.cooldown > 0) return;
+        if (!this.canShoot(s)) {
+          this.dryFire();
+          this.pressBuffer = 0;
+          return;
+        }
+        this.pressBuffer = 0;
+        this.hyperLeft = hb.rounds;
+        this.hyperArmed = false;
+        this.hyperReleaseT = 0;
+        s.cooldown = Math.min(s.cooldown, 0);
+      }
+      if (this.hyperLeft > 0) {
+        const akimbo = this.akimboOn;
+        const hbInterval = hb.interval / Math.max(this.modifiers.fireRate, 0.01) / this.ak;
+        const autoInterval = this.interval(s.def) / this.ak;
+        while (this.hyperLeft > 0 && s.cooldown <= 0 && this.canShoot(s)) {
+          this.shootGun(s, akimbo && this.leftNext, false, false, true);
+          if (akimbo) this.leftNext = !this.leftNext;
+          this.hyperLeft--;
+          s.cooldown += this.hyperLeft > 0 ? hbInterval : autoInterval;
+        }
+        if (!this.canShoot(s)) this.hyperLeft = 0;
+        if (this.hyperLeft > 0 || !held) return;
+      }
+    }
     if (!held) return;
     if (!this.canShoot(s)) {
       this.dryFire();
@@ -1591,7 +1701,7 @@ export class Weapons implements WeaponSystem, Guard {
     }
   }
 
-  /** A pull fires `rounds` at the row's rate, then waits `recover`. Letting go does not cut a burst short. */
+  /** A pull fires `rounds` at the row's rate (or `hyperBurst.interval` with zero climb), then waits `recover`. */
   private updateBurst(s: Slot, burst: { readonly rounds: number; readonly recover: number }): void {
     if (this.burstLeft === 0) {
       if (this.pressBuffer <= 0 || s.cooldown > 0) return;
@@ -1604,11 +1714,13 @@ export class Weapons implements WeaponSystem, Guard {
       this.burstLeft = burst.rounds;
       s.cooldown = Math.min(s.cooldown, 0);
     }
+    const hb = s.def.hyperBurst;
+    const stepInterval = hb ? hb.interval / Math.max(this.modifiers.fireRate, 0.01) : this.interval(s.def);
     // Akimbo: a pull's burst from one gun, the next pull's from the other, and half the wait between them.
     while (this.burstLeft > 0 && s.cooldown <= 0 && this.canShoot(s)) {
-      this.shootGun(s, this.akimboOn && this.leftNext);
+      this.shootGun(s, this.akimboOn && this.leftNext, false, false, hb !== undefined);
       this.burstLeft--;
-      s.cooldown += this.burstLeft > 0 ? this.interval(s.def) : burst.recover / Math.max(this.modifiers.fireRate, 0.01) / this.ak;
+      s.cooldown += this.burstLeft > 0 ? stepInterval : burst.recover / Math.max(this.modifiers.fireRate, 0.01) / this.ak;
       if (this.burstLeft === 0 && this.akimboOn) this.leftNext = !this.leftNext;
     }
     if (!this.canShoot(s)) this.burstLeft = 0;
@@ -2064,13 +2176,13 @@ export class Weapons implements WeaponSystem, Guard {
     return fillShot(this.shot, def, damage, this.modifiers, this.muzzleAt);
   }
 
-  private shootGun(s: Slot, left: boolean, both = false, grapple = false): void {
+  private shootGun(s: Slot, left: boolean, both = false, grapple = false, noClimb = false): void {
     const def = s.def;
     // A break-open gun fires its barrels in turn, from the next one loaded; `both` fires every loaded one together (the
-    // Deuce's two, the quad's four). Only an under-barrel launcher (`glSlot`) forces `muzzle1`.
+    // Deuce's two, the quad's four). An attached launcher (`glSlot` or `oicwSlot`) forces `muzzle1`.
     const barrel = def.altBoth
       ? Math.max(0, def.magSize - s.ammo.mag)
-      : s === this.glSlot
+      : this.isLauncherSlot(s)
         ? 1
         : def.rateSelect && def.round !== 'grenade'
           ? (this.msBarrel++ & 3)
@@ -2100,7 +2212,7 @@ export class Weapons implements WeaponSystem, Guard {
     } else note.alt = grapple || this.altLoaded.has(def.id);
     this.shotFeedback(def, left, two ? 1 + (two.kick - 1) * (barrels - 1) : 1, barrel);
     if (def.slow !== undefined) this.handling.shot();
-    if (def.climb && CLIMB_ON) this.climb(def.climb, lerp(1, TUNING.ads.climb, this.aim));
+    if (def.climb && CLIMB_ON && !noClimb) this.climb(def.climb, lerp(1, TUNING.ads.climb, this.aim));
     // By what the row says leaves the barrel, never by which gun it is: a family member picks its own.
     switch (def.round) {
       case 'rocket': this.shootRocket(def); return;
@@ -2242,6 +2354,7 @@ export class Weapons implements WeaponSystem, Guard {
     p.sticky = undefined;
     p.wp = undefined;
     p.cluster = undefined;
+    p.airburstDist = undefined;
     p.trail = trail;
     p.gib = false;
     p.severMult = this.modifiers.alwaysSever ? 1000 : def.canSever ? def.severMult : 0;
@@ -2325,7 +2438,7 @@ export class Weapons implements WeaponSystem, Guard {
     this.shoveBack(t.push, t.groundPush);
   }
 
-  /** A 40 mm grenade or lobbed demolition satchel charge, using `def.grenade` or `TUNING.launcher`. */
+  /** A 40 mm grenade, Bodkin 20 mm smart grenade, or lobbed demolition satchel charge, using `def.grenade` or `TUNING.launcher`. */
   private shootGrenade(def: WeaponDef, spread = 0, speedScale = 1): void {
     const t = def.grenade ?? TUNING.launcher;
     const m = this.modifiers;
@@ -2343,6 +2456,9 @@ export class Weapons implements WeaponSystem, Guard {
     p.gravity = t.gravity;
     p.lifetime = t.life;
     p.sticky = sticky;
+    if (def.id === 'bodkin' && this.oicwLocked !== null) {
+      p.airburstDist = this.oicwLocked;
+    }
     p.gib = true;
     p.killStop = HIT_STOP.heavyKill;
     p.explosion = isSatchel
@@ -2835,20 +2951,54 @@ export class Weapons implements WeaponSystem, Guard {
       this.riotShield.update(dt, false, false, false);
       c.viewmodel.setCharge(0);
     }
+    const aimDef = this.glUp ? this.held.def : def;
+    const oicwUp = this.glUp && this.current === 'bodkin';
     // A press while holstered is a call-in's cancel, not ours; a press that detonated MGL stickies suppresses ADS.
-    if (def.ads && !busy && !this.aimHold && !this.aimSuppress && c.input.pressed('aim')) this.aimOn = !this.aimOn;
+    if (aimDef.ads && !busy && !this.aimHold && !this.aimSuppress && c.input.pressed('aim')) this.aimOn = !this.aimOn;
     if (moving) this.aimOn = false;
     const wants = !this.aimSuppress && (this.aimHold ? c.input.isDown('aim') : this.aimOn);
-    // The launcher is fired from the shoulder over its own leaf, not through the rifle's sight.
-    const blocked = busy || moving || !def.ads || this.glUp || this.reloading || this.drawLeft > 0
-      || this.sword.inQuickStrike || this.quickReturn > 0 || (!!def.cycleTime && this.held.cooldown > 0);
+    // The Gimlet's M203 has no ads and is fired from the shoulder; the Bodkin's 20 mm OICW aims through its TA/FCS optic.
+    const blocked = busy || moving || !aimDef.ads || this.reloading || this.drawLeft > 0
+      || this.sword.inQuickStrike || this.quickReturn > 0 || (!!aimDef.cycleTime && this.held.cooldown > 0);
     const up = wants && !blocked;
     if (this.boltPending === def.id && !def.scope && !up) this.beginDeferredCycle(def);
-    this.aimT = clamp(this.aimT + (up ? dt : -dt) / (def.ads?.time ?? 0.2));
+    this.aimT = clamp(this.aimT + (up ? dt : -dt) / (aimDef.ads?.time ?? 0.2));
     const w = this.aim;
-    this.aimHeld = (!!def.ads && wants && !busy) || this.zoomed;
-    this.adsZoom.update(c.time.realDt, up || this.scopeShown, c.input.isDown('dash'), def.breath);
-    c.camera.setAim?.(1 - (def.ads?.zoom ?? 0) * w, lerp(1, this.aimSensitivity, w), this.adsZoom.mag);
+    this.aimHeld = (!!aimDef.ads && wants && !busy) || this.zoomed;
+    if (oicwUp && up) {
+      const oicwT = TUNING.oicw;
+      const wall = c.physics.raycast(p.eye, p.forward, oicwT.maxRange, CG.World);
+      let hitDist = wall ? wall.distance : Infinity;
+      const body = c.enemies.raycast(p.eye, p.forward, Math.min(hitDist, oicwT.maxRange));
+      if (body && body.distance < hitDist) hitDist = body.distance;
+      this.oicwRange = Number.isFinite(hitDist) ? hitDist : null;
+      if (c.input.pressed('dash')) {
+        if (this.oicwRange !== null && this.oicwRange >= oicwT.minRange && this.oicwRange <= oicwT.maxRange) {
+          const programmed = clamp(this.oicwRange + oicwT.offset, oicwT.minRange, oicwT.maxRange);
+          if (this.oicwLocked !== null && Math.abs(this.oicwLocked - programmed) <= oicwT.clearTolerance) {
+            this.oicwLocked = null;
+            c.audio.play('fire_select', { pitch: 0.72, volume: 0.8 });
+            c.hud.callout?.('IMPACT MODE');
+          } else {
+            this.oicwLocked = Math.round(programmed * 10) / 10;
+            c.audio.play('stake_beep', { pitch: 1.65, volume: 0.85 });
+            c.hud.callout?.(`AIRBURST ${this.oicwLocked.toFixed(1)}M`);
+          }
+        } else {
+          if (this.oicwLocked !== null) {
+            this.oicwLocked = null;
+            c.audio.play('fire_select', { pitch: 0.72, volume: 0.8 });
+            c.hud.callout?.('IMPACT MODE');
+          } else {
+            c.audio.play('fire_select', { pitch: 0.72, volume: 0.65 });
+          }
+        }
+      }
+    } else {
+      this.oicwRange = null;
+    }
+    this.adsZoom.update(c.time.realDt, up || this.scopeShown, oicwUp ? false : c.input.isDown('dash'), aimDef.breath);
+    c.camera.setAim?.(1 - (aimDef.ads?.zoom ?? 0) * w, lerp(1, this.aimSensitivity, w), this.adsZoom.mag);
     // Akimbo has no sights to look down: the view zooms and the guns stay at the hip.
     c.viewmodel.setAim?.(this.akimboOn ? 0 : w);
   }

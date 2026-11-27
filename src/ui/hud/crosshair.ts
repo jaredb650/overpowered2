@@ -6,7 +6,7 @@
  */
 import * as THREE from 'three';
 import type { Ctx } from '../../core/contracts';
-import type { ModId, SmartAimView, WeaponId } from '../../core/gameplay';
+import type { ModId, OicwView, SmartAimView, WeaponId } from '../../core/gameplay';
 import { clamp, damp, wrapAngle } from '../../core/math';
 import { Flag, Label, Meter, Shown, div, markup, span } from '../dom';
 import type { HudState } from '../state';
@@ -67,6 +67,17 @@ const RETICLES: Record<WeaponId, Reticle> = {
   gimlet: { core: DOT + poly('0,4.5 3.5,8.5 2.2,9.6 0,7.1 -2.2,9.6 -3.5,8.5'), arms: four(tick(9, 1.4)), gap: 6.5, kick: 2, speedGap: 3 },
   // The SMG's cross with heavier, longer arms set wider: the same family, a bigger round.
   harrow: { core: DOT, arms: four(tick(11, 1.6)), gap: 8, kick: 3.2, speedGap: 3 },
+  // SHEAR: tight precision cross with twin hyperburst side ticks.
+  shear: {
+    core: DOT,
+    arms: [
+      tick(8.5, 1.3),
+      poly('0,-1.3 9.5,-1.3 9.5,1.3 0,1.3') + poly('3.5,-3.6 5,-3.6 5,3.6 3.5,3.6'),
+      turned(tick(8.5, 1.3), 180),
+      poly('0,-1.3 -9.5,-1.3 -9.5,1.3 0,1.3') + poly('-3.5,-3.6 -5,-3.6 -5,3.6 -3.5,3.6'),
+    ],
+    gap: 5.5, kick: 1.8, speedGap: 3,
+  },
   // The Harrow's weight of arm on the SMG's length, set a touch wider: a box of rounds behind it.
   flail: { core: DOT, arms: four(tick(9, 1.7)), gap: 7, kick: 2.4, speedGap: 3 },
   shotgun: {
@@ -363,6 +374,10 @@ export class Crosshair {
   private focus: Label;
   private focusShown: Shown;
   private focusCool: Flag;
+  /** Bodkin OICW 20 mm TA/FCS live laser rangefinder & locked airburst distance readout. */
+  private oicw: Label;
+  private oicwShown: Shown;
+  private oicwLocked: Flag;
   private charge: Meter;
   private chargeShown: Shown;
   /** The Lance's bar: notches shown, and one flag a stage reached. */
@@ -418,6 +433,8 @@ export class Crosshair {
     const breathHost = div('xh-breath', breathFill);
     const focus = span('xh-prompt-t');
     const focusHost = div('xh-prompt xh-focus', focus);
+    const oicw = span('xh-oicw-t');
+    const oicwHost = div('xh-prompt xh-oicw', oicw);
     const chargeFill = div('xh-charge-fill');
     const chargeHost = div('xh-charge', chargeFill);
     for (let i = 0; i < CHARGE_STAGES.length; i++) {
@@ -458,6 +475,7 @@ export class Crosshair {
       healHost,
       breathHost,
       focusHost,
+      oicwHost,
       this.hits.body.el, this.hits.armor.el, this.hits.armorThrough.el, this.hits.armorBroken.el, this.hits.head.el, this.hits.kill.el,
     );
     for (let i = 0; i < MAX_ARCS; i++) {
@@ -482,6 +500,9 @@ export class Crosshair {
     this.focus = new Label(focus);
     this.focusShown = new Shown(focusHost);
     this.focusCool = new Flag(focusHost, 'cool');
+    this.oicw = new Label(oicw);
+    this.oicwShown = new Shown(oicwHost);
+    this.oicwLocked = new Flag(oicwHost, 'locked');
     this.charge = new Meter(chargeFill);
     this.chargeShown = new Shown(chargeHost);
     this.locks = new LockMarkers(ctx);
@@ -642,16 +663,32 @@ export class Crosshair {
     if (healText !== null) this.heal.set(healText);
 
     // Shown through a scope too: the breath is the scope's as much as the sights'.
+    // When the Bodkin 20 mm OICW launcher is active, Shift lases airburst range instead of holding breath.
+    const oicw = (this.ctx.weapons as { oicw?: OicwView } | undefined)?.oicw;
+    const oicwActive = s.targeting === null && oicw?.active === true;
     const zoom = (this.ctx.weapons as { adsZoom?: AdsZoom } | undefined)?.adsZoom;
     const dashKey = typeof input.labelFor === 'function' ? input.labelFor('dash') : '';
-    const cooling = !!zoom && zoom.cool > 0;
-    this.breathShown.set(!!zoom && zoom.aimed && (zoom.on || cooling));
+    const cooling = !oicwActive && !!zoom && zoom.cool > 0;
+    this.breathShown.set(!oicwActive && !!zoom && zoom.aimed && (zoom.on || cooling));
     if (zoom) this.breath.set(zoom.breath);
     this.breathCool.set(cooling);
-    const hint = !!zoom && zoom.aimed && !zoom.on && zoom.hint && typeof dashKey === 'string' && dashKey !== '';
+    const hint = !oicwActive && !!zoom && zoom.aimed && !zoom.on && zoom.hint && typeof dashKey === 'string' && dashKey !== '';
     this.focusShown.set(hint);
     if (hint) this.focus.set(`Hold [${dashKey as string}] to focus`);
     this.focusCool.set(cooling);
+
+    const oicwShow = oicwActive && (oicw.aiming || oicw.locked !== null);
+    this.oicwShown.set(oicwShow);
+    this.oicwLocked.set(oicwShow && oicw.locked !== null);
+    if (oicwShow) {
+      const laseKey = typeof dashKey === 'string' && dashKey !== '' ? dashKey : 'SHIFT';
+      const live = oicw.range !== null ? `${oicw.range.toFixed(1)}M` : '---';
+      if (oicw.locked !== null) {
+        this.oicw.set(oicw.aiming ? `AB ${oicw.locked.toFixed(1)}M // RNG ${live} [${laseKey}]` : `AIRBURST ${oicw.locked.toFixed(1)}M`);
+      } else {
+        this.oicw.set(`RNG ${live} // [${laseKey}] LASE AB`);
+      }
+    }
 
     const charging = s.charge > 0.01 && !hidden;
     this.chargeShown.set(charging);
