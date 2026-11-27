@@ -18,7 +18,7 @@ export const DEFAULT_BINDINGS: Readonly<Bindings> = {
   left: ['KeyA'],
   right: ['KeyD'],
   jump: ['Space'],
-  dash: ['ShiftLeft', 'ShiftRight'],
+  dash: ['ShiftLeft'],
   slide: ['ControlLeft', 'KeyC'],
   fire: [MOUSE_LEFT],
   aim: [MOUSE_RIGHT],
@@ -58,8 +58,8 @@ export const DEFAULT_BINDINGS: Readonly<Bindings> = {
   nextWave: ['KeyL'],
   // Co-op: a marker where you are looking, for the team. The middle button, as in other shooters, and P for a mouse without one.
   ping: [MOUSE_MIDDLE, 'KeyP'],
-  // Temporarily reveal objective/waypoint markers in the 3D visual field (tap for 5s, hold to peek).
-  showMarkers: ['AltLeft'],
+  // Temporarily reveal objective/waypoint markers in the 3D visual field (tap for 5s, hold to peek). Right Shift works on Mac too.
+  showMarkers: ['ShiftRight'],
   // Optional custom override for toggling vehicle enemy vision (defaults to V in vehicles/aircraft, I in Distraint Frame).
   vehicleVision: [],
   pause: ['Escape'],
@@ -94,6 +94,12 @@ export function loadBindings(): Bindings {
       && merged.weaponLast.length === 1 && merged.weaponLast[0] === 'KeyQ') {
       merged.stim = DEFAULT_BINDINGS.stim;
       merged.weaponLast = DEFAULT_BINDINGS.weaponLast;
+    }
+    // Before showMarkers moved to ShiftRight, dash claimed both Shift keys by default. If the player never saved a
+    // showMarkers binding and still has that exact legacy pair on dash, release ShiftRight so showMarkers gets its default.
+    if (!Array.isArray(stored.showMarkers) && merged.dash.length === 2
+      && merged.dash[0] === 'ShiftLeft' && merged.dash[1] === 'ShiftRight') {
+      merged.dash = DEFAULT_BINDINGS.dash;
     }
     // Actions added after players had saved their keys take only the default keys nothing of theirs is on, so a saved map
     // never ends up with two actions on one key. Once it is in the saved map it is the player's own choice.

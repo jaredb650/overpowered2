@@ -319,16 +319,25 @@ describe('rebinding', () => {
     input.dispose();
   });
 
-  it('binds showMarkers to AltLeft with conflict-safe migration and leaves vehicleVision optional/rebindable', async () => {
+  it('binds showMarkers to ShiftRight with conflict-safe migration and leaves vehicleVision optional/rebindable', async () => {
     const fresh = await make();
-    expect(fresh.input.bindingsFor('showMarkers')).toEqual(['AltLeft']);
-    expect(fresh.input.labelFor('showMarkers')).toBe('L Alt');
+    expect(fresh.input.bindingsFor('dash')).toEqual(['ShiftLeft']);
+    expect(fresh.input.bindingsFor('showMarkers')).toEqual(['ShiftRight']);
+    expect(fresh.input.labelFor('showMarkers')).toBe('R Shift');
     expect(fresh.input.bindingsFor('vehicleVision')).toEqual([]);
     fresh.input.rebind('vehicleVision', ['Backquote']);
     expect(fresh.input.labelFor('vehicleVision')).toBe('~');
     fresh.input.dispose();
 
-    storage.set('op2.bindings.v2', JSON.stringify({ crouch: ['KeyC'], slide: ['AltLeft'] }));
+    // Existing saved defaults where dash still held both Shift keys migrate cleanly so showMarkers gets ShiftRight.
+    storage.set('op2.bindings.v2', JSON.stringify({ dash: ['ShiftLeft', 'ShiftRight'] }));
+    const migrated = await make();
+    expect(migrated.input.bindingsFor('dash')).toEqual(['ShiftLeft']);
+    expect(migrated.input.bindingsFor('showMarkers')).toEqual(['ShiftRight']);
+    migrated.input.dispose();
+
+    // Custom ShiftRight bindings on another action are respected (showMarkers does not double-bind).
+    storage.set('op2.bindings.v2', JSON.stringify({ slide: ['ShiftRight'] }));
     const taken = await make();
     expect(taken.input.bindingsFor('showMarkers')).toEqual([]);
     taken.input.dispose();

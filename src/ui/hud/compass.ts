@@ -2,7 +2,7 @@
  * Minimal top-of-screen tactical compass strip.
  *
  * Replaces always-on 3D screen waypoints with a slim horizontal bearing tape so big maps with many objectives,
- * turrets, vehicles and caches never clutter the player's view. Pressing the objective-markers key (default L Alt)
+ * turrets, vehicles and caches never clutter the player's view. Pressing the objective-markers key (default R Shift)
  * reveals the full 3D markers temporarily while the compass stays up at all times, on foot and in vehicles.
  */
 import * as THREE from 'three';
@@ -227,7 +227,7 @@ export class Compass {
       if (wpCount > 0) {
         this.hintShown.set(true);
         const raw = this.ctx.input?.labelFor?.('showMarkers');
-        const key = raw && raw !== 'showMarkers' ? raw : 'L Alt';
+        const key = raw && raw !== 'showMarkers' ? raw : 'R Shift';
         this.hintLabel.set(revealActive ? `[${key}] HIDE MARKERS` : `[${key}] MARKERS (${wpCount})`);
       } else {
         this.hintShown.set(false);
