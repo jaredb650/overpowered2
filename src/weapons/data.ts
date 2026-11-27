@@ -406,7 +406,7 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     interval: 0.075, damage: 36, severMult: 1.4, force: 11, penetration: 0.2,
     falloff: { from: 50, to: 120, floor: 0.7 },
     muzzle: 'rifle', tracer: 'carbine', casing: 'rifle',
-    sounds: [{ id: 'gimlet_shot', pitch: 0.9, pitchJitter: 0.03 }],
+    sounds: [{ id: 'flail_shot', pitchJitter: 0.03 }],
     // Cover up, old box off, new box on, belt on the tray, cover down, the handle: viewmodels/models/flail.ts times its clip by these.
     reloadFoley: [[0.07, 'revolver_open'], [0.17, 'reload_mag_out'], [0.49, 'reload_mag_in'], [0.6, 'reload_shell_in'], [0.69, 'revolver_close'], [0.84, 'reload_bolt']],
     drawSound: 'weapon_draw_heavy',

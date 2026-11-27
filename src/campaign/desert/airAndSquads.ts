@@ -1088,7 +1088,7 @@ export class DesertAirAndSquads implements AirAndSquadsController {
     this.ctx.fx?.muzzleFlash?.(_v1, _dir, 'rocket');
     this.ctx.fx?.tracer?.(_v1, _impact, 'hellfire');
     this.ctx.fx?.explosion?.(_impact, { radius: 9, kind: 'rocket', scale: 1.5 });
-    this.ctx.audio?.play?.('rocket_fire', { position: _v1, volume: 0.75, pitch: rand(0.95, 1.1) });
+    this.ctx.audio?.play?.('aircraft_missile_fire', { position: _v1, volume: 0.85, pitch: rand(0.95, 1.08) });
     this.ctx.audio?.play?.('rocket_explosion', { position: _impact, volume: 0.85 });
     this.ctx.world?.objects?.damageExplosivesInRadius?.(_impact, 22, 2400, 'airstrike');
   }

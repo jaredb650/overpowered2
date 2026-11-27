@@ -17,7 +17,6 @@
  *     Bypass Road, separated from the combat terraces by a sculpted sandstone ridge at `x = +40.5`.
  */
 import {
-  createNavNodeProxy,
   type StructuralClusterSpec,
   type StructuralNodeSpec,
 } from '../../destruction';
@@ -43,14 +42,13 @@ const TENT_PALETTE: readonly number[] = [
 /**
  * Builds one of the 6 Tall Timber-Stilt Guard Towers at `HIGH_TERRACES.towers`.
  * Platform sits +3.6 m above `yBase` (exact `y = 3.6` for Tier 1 towers, exact `y = 7.2` for Tier 2 towers!).
- * Shooting/blasting 2 of the 4 timber legs (`materialClass: 'wood'`, `hp: 140`) causes the tower to
- * bend, splinter, groan, sag, and crash down!
+ * Shooting/blasting 2 adjacent timber legs (`structuralMaterial: 'timber'`, `hp: 140`) causes the tower to
+ * bend, splinter, tip, and collapse cleanly with zero floating pieces!
  */
 function buildTerraceTowerCluster(
-  k: Kit,
   idx: number,
   pos: Pt3,
-  withNavProxy: boolean,
+  withNavWalkable: boolean,
 ): StructuralClusterSpec {
   const [x, yBase, z] = pos;
   const W = 1.8;
@@ -72,25 +70,29 @@ function buildTerraceTowerCluster(
     kind: 'slab',
     impactRadius: 8.5,
     materialClass: 'wood',
+    structuralMaterial: 'timber',
+    supportRole: 'load_bearing',
+    lazyFracture: true,
+    navWalkable: withNavWalkable || undefined,
   };
 
   const nodes: StructuralNodeSpec[] = [
-    // 4 Timber stilt legs (`materialClass: 'wood'`, `hp: 140`, anchored)
-    { id: 'leg_sw', pos: [x - W, yBase + legH / 2, z + D], half: [0.2, legH / 2, 0.2], mat: 'plywood', color: 0x735133, hp: 140, tier: 0, anchored: true, kind: 'column', materialClass: 'wood' },
-    { id: 'leg_se', pos: [x + W, yBase + legH / 2, z + D], half: [0.2, legH / 2, 0.2], mat: 'plywood', color: 0x735133, hp: 140, tier: 0, anchored: true, kind: 'column', materialClass: 'wood' },
-    { id: 'leg_nw', pos: [x - W, yBase + legH / 2, z - D], half: [0.2, legH / 2, 0.2], mat: 'plywood', color: 0x67472c, hp: 140, tier: 0, anchored: true, kind: 'column', materialClass: 'wood' },
-    { id: 'leg_ne', pos: [x + W, yBase + legH / 2, z - D], half: [0.2, legH / 2, 0.2], mat: 'plywood', color: 0x67472c, hp: 140, tier: 0, anchored: true, kind: 'column', materialClass: 'wood' },
+    // 4 Timber stilt legs (`structuralMaterial: 'timber'`, `hp: 140`, anchored)
+    { id: 'leg_sw', pos: [x - W, yBase + legH / 2, z + D], half: [0.2, legH / 2, 0.2], mat: 'plywood', color: 0x735133, hp: 140, tier: 0, anchored: true, kind: 'column', materialClass: 'wood', structuralMaterial: 'timber', supportRole: 'load_bearing', loadCapacity: 24_000 },
+    { id: 'leg_se', pos: [x + W, yBase + legH / 2, z + D], half: [0.2, legH / 2, 0.2], mat: 'plywood', color: 0x735133, hp: 140, tier: 0, anchored: true, kind: 'column', materialClass: 'wood', structuralMaterial: 'timber', supportRole: 'load_bearing', loadCapacity: 24_000 },
+    { id: 'leg_nw', pos: [x - W, yBase + legH / 2, z - D], half: [0.2, legH / 2, 0.2], mat: 'plywood', color: 0x67472c, hp: 140, tier: 0, anchored: true, kind: 'column', materialClass: 'wood', structuralMaterial: 'timber', supportRole: 'load_bearing', loadCapacity: 24_000 },
+    { id: 'leg_ne', pos: [x + W, yBase + legH / 2, z - D], half: [0.2, legH / 2, 0.2], mat: 'plywood', color: 0x67472c, hp: 140, tier: 0, anchored: true, kind: 'column', materialClass: 'wood', structuralMaterial: 'timber', supportRole: 'load_bearing', loadCapacity: 24_000 },
     deck,
     // Waist-high corrugated metal sniper parapets facing south (+Z) & outer flanks (leaving catwalk entry clear!)
-    { id: 'parapet_s', pos: [x, deckTop + 0.48, z + D + 0.24], half: [W + 0.35, 0.48, 0.16], mat: 'rust', color: 0x8e5236, hp: 150, tier: 0, anchored: false, kind: 'wall', materialClass: 'metal', fractureGrid: [2, 1] },
+    { id: 'parapet_s', pos: [x, deckTop + 0.48, z + D + 0.24], half: [W + 0.35, 0.48, 0.16], mat: 'rust', color: 0x8e5236, hp: 150, tier: 0, anchored: false, kind: 'wall', materialClass: 'metal', structuralMaterial: 'timber', supportRole: 'infill', lazyFracture: true, fractureGrid: [2, 1] },
     ...(idx !== 4
-      ? [{ id: 'parapet_w', pos: [x - W - 0.24, deckTop + 0.45, z] as readonly [number, number, number], half: [0.16, 0.45, D + 0.1] as readonly [number, number, number], mat: 'rust' as const, color: 0x7e4a30, hp: 140, tier: 0 as const, anchored: false, kind: 'wall' as const, materialClass: 'metal' as const }]
+      ? [{ id: 'parapet_w', pos: [x - W - 0.24, deckTop + 0.45, z] as readonly [number, number, number], half: [0.16, 0.45, D + 0.1] as readonly [number, number, number], mat: 'rust' as const, color: 0x7e4a30, hp: 140, tier: 0 as const, anchored: false, kind: 'wall' as const, materialClass: 'metal' as const, structuralMaterial: 'timber' as const, supportRole: 'infill' as const }]
       : []),
     ...(idx !== 5
-      ? [{ id: 'parapet_e', pos: [x + W + 0.24, deckTop + 0.45, z] as readonly [number, number, number], half: [0.16, 0.45, D + 0.1] as readonly [number, number, number], mat: 'rust' as const, color: 0x7e4a30, hp: 140, tier: 0 as const, anchored: false, kind: 'wall' as const, materialClass: 'metal' as const }]
+      ? [{ id: 'parapet_e', pos: [x + W + 0.24, deckTop + 0.45, z] as readonly [number, number, number], half: [0.16, 0.45, D + 0.1] as readonly [number, number, number], mat: 'rust' as const, color: 0x7e4a30, hp: 140, tier: 0 as const, anchored: false, kind: 'wall' as const, materialClass: 'metal' as const, structuralMaterial: 'timber' as const, supportRole: 'infill' as const }]
       : []),
-    // Canopy timber corner posts + corrugated roof canopy
-    { id: 'canopy_roof', pos: [x, deckTop + 2.55, z], half: [W + 0.6, 0.12, D + 0.6], mat: 'rust', color: 0x8a5234, hp: 145, tier: 0, anchored: false, kind: 'roof', impactRadius: 7.5, materialClass: 'metal', fractureGrid: [2, 2] },
+    // Corrugated roof canopy
+    { id: 'canopy_roof', pos: [x, deckTop + 2.55, z], half: [W + 0.6, 0.12, D + 0.6], mat: 'rust', color: 0x8a5234, hp: 145, tier: 0, anchored: false, kind: 'roof', impactRadius: 7.5, materialClass: 'metal', structuralMaterial: 'timber', supportRole: 'infill', lazyFracture: true, fractureGrid: [2, 2] },
   ];
 
   const links: [string, string][] = [
@@ -104,26 +106,22 @@ function buildTerraceTowerCluster(
     ['deck', 'canopy_roof'],
   ];
 
-  const navProxies = withNavProxy
-    ? [createNavNodeProxy(k.physics, deck)].filter((c): c is NonNullable<typeof c> => c !== null)
-    : undefined;
-
   return {
     id: `terraces.tower.${idx}`,
     tag: `terraces.tower.${idx}`,
     kind: 'terraceTower',
     label: 'TERRACE GUARD TOWER',
     value: 82_000,
+    batched: true,
     nodes,
     links,
     collapseThreshold: 0.35,
-    navProxies,
   };
 }
 
 /**
  * Builds one of the 6 Elevated Canvas-and-Timber Stilted Tents at `HIGH_TERRACES.tents`.
- * Raised on 4 visible timber stilts (`stiltH = 1.45 m`, `hp: 120`, `materialClass: 'wood'`) with open
+ * Raised on 4 visible timber stilts (`stiltH = 1.45 m`, `hp: 120`, `structuralMaterial: 'timber'`) with open
  * south firing bays so enemies stand INSIDE and ON TOP of the tent — shooting out the stilts collapses
  * the entire deck and canopy onto everyone inside!
  */
@@ -140,21 +138,21 @@ function buildTerraceTentCluster(idx: number, pos: Pt3): StructuralClusterSpec {
   const clothColor = TENT_PALETTE[idx % TENT_PALETTE.length]!;
 
   const nodes: StructuralNodeSpec[] = [
-    // 4 visible wooden stilts lifting the tent platform off the terrace (`hp: 120`, `materialClass: 'wood'`)
-    { id: 'stilt_sw', pos: [x - W + 0.25, yBase + stiltH / 2, z + D - 0.25], half: [0.16, stiltH / 2, 0.16], mat: 'plywood', color: 0x6f4d30, hp: 120, tier: 0, anchored: true, kind: 'column', materialClass: 'wood' },
-    { id: 'stilt_se', pos: [x + W - 0.25, yBase + stiltH / 2, z + D - 0.25], half: [0.16, stiltH / 2, 0.16], mat: 'plywood', color: 0x6f4d30, hp: 120, tier: 0, anchored: true, kind: 'column', materialClass: 'wood' },
-    { id: 'stilt_nw', pos: [x - W + 0.25, yBase + stiltH / 2, z - D + 0.25], half: [0.16, stiltH / 2, 0.16], mat: 'plywood', color: 0x63442a, hp: 120, tier: 0, anchored: true, kind: 'column', materialClass: 'wood' },
-    { id: 'stilt_ne', pos: [x + W - 0.25, yBase + stiltH / 2, z - D + 0.25], half: [0.16, stiltH / 2, 0.16], mat: 'plywood', color: 0x63442a, hp: 120, tier: 0, anchored: true, kind: 'column', materialClass: 'wood' },
+    // 4 visible wooden stilts lifting the tent platform off the terrace (`hp: 120`, `structuralMaterial: 'timber'`)
+    { id: 'stilt_sw', pos: [x - W + 0.25, yBase + stiltH / 2, z + D - 0.25], half: [0.16, stiltH / 2, 0.16], mat: 'plywood', color: 0x6f4d30, hp: 120, tier: 0, anchored: true, kind: 'column', materialClass: 'wood', structuralMaterial: 'timber', supportRole: 'load_bearing', loadCapacity: 20_000 },
+    { id: 'stilt_se', pos: [x + W - 0.25, yBase + stiltH / 2, z + D - 0.25], half: [0.16, stiltH / 2, 0.16], mat: 'plywood', color: 0x6f4d30, hp: 120, tier: 0, anchored: true, kind: 'column', materialClass: 'wood', structuralMaterial: 'timber', supportRole: 'load_bearing', loadCapacity: 20_000 },
+    { id: 'stilt_nw', pos: [x - W + 0.25, yBase + stiltH / 2, z - D + 0.25], half: [0.16, stiltH / 2, 0.16], mat: 'plywood', color: 0x63442a, hp: 120, tier: 0, anchored: true, kind: 'column', materialClass: 'wood', structuralMaterial: 'timber', supportRole: 'load_bearing', loadCapacity: 20_000 },
+    { id: 'stilt_ne', pos: [x + W - 0.25, yBase + stiltH / 2, z - D + 0.25], half: [0.16, stiltH / 2, 0.16], mat: 'plywood', color: 0x63442a, hp: 120, tier: 0, anchored: true, kind: 'column', materialClass: 'wood', structuralMaterial: 'timber', supportRole: 'load_bearing', loadCapacity: 20_000 },
     // Elevated wooden plank tent floor deck
-    { id: 'tent_deck', pos: [x, deckY, z], half: [W + 0.2, deckHalfY, D + 0.2], mat: 'plywood', color: 0x8f6b44, hp: 130, tier: 0, anchored: false, kind: 'slab', impactRadius: 7.0, materialClass: 'wood' },
-    // Colorful desert-cloth tent walls (south face left open as a firing porch!)
-    { id: 'cloth_w', pos: [x - W + 0.1, floorTop + wallH / 2, z], half: [0.1, wallH / 2, D - 0.15], mat: 'paintWhite', color: clothColor, hp: 95, tier: 0, anchored: false, kind: 'wall', materialClass: 'wood', fractureGrid: [2, 2] },
-    { id: 'cloth_e', pos: [x + W - 0.1, floorTop + wallH / 2, z], half: [0.1, wallH / 2, D - 0.15], mat: 'paintWhite', color: clothColor, hp: 95, tier: 0, anchored: false, kind: 'wall', materialClass: 'wood', fractureGrid: [2, 2] },
-    { id: 'cloth_b', pos: [x, floorTop + wallH / 2, z - D + 0.1], half: [W - 0.2, wallH / 2, 0.1], mat: 'paintWhite', color: clothColor, hp: 100, tier: 0, anchored: false, kind: 'wall', materialClass: 'wood', fractureGrid: [2, 2] },
+    { id: 'tent_deck', pos: [x, deckY, z], half: [W + 0.2, deckHalfY, D + 0.2], mat: 'plywood', color: 0x8f6b44, hp: 130, tier: 0, anchored: false, kind: 'slab', impactRadius: 7.0, materialClass: 'wood', structuralMaterial: 'timber', supportRole: 'load_bearing', lazyFracture: true, navBlock: true },
+    // Colorful desert-cloth tent walls (drywall-class soft canvas shreds even from rifle bursts!)
+    { id: 'cloth_w', pos: [x - W + 0.1, floorTop + wallH / 2, z], half: [0.1, wallH / 2, D - 0.15], mat: 'paintWhite', color: clothColor, hp: 95, tier: 0, anchored: false, kind: 'wall', materialClass: 'wood', structuralMaterial: 'drywall', supportRole: 'infill', lazyFracture: true, fractureGrid: [2, 2] },
+    { id: 'cloth_e', pos: [x + W - 0.1, floorTop + wallH / 2, z], half: [0.1, wallH / 2, D - 0.15], mat: 'paintWhite', color: clothColor, hp: 95, tier: 0, anchored: false, kind: 'wall', materialClass: 'wood', structuralMaterial: 'drywall', supportRole: 'infill', lazyFracture: true, fractureGrid: [2, 2] },
+    { id: 'cloth_b', pos: [x, floorTop + wallH / 2, z - D + 0.1], half: [W - 0.2, wallH / 2, 0.1], mat: 'paintWhite', color: clothColor, hp: 100, tier: 0, anchored: false, kind: 'wall', materialClass: 'wood', structuralMaterial: 'drywall', supportRole: 'infill', lazyFracture: true, fractureGrid: [2, 2] },
     // Low front sandbag/timber lip on the open south tent porch
-    { id: 'front_lip', pos: [x, floorTop + 0.42, z + D - 0.1], half: [W - 0.25, 0.42, 0.14], mat: 'plywood', color: 0x886440, hp: 105, tier: 0, anchored: false, kind: 'wall', materialClass: 'wood' },
+    { id: 'front_lip', pos: [x, floorTop + 0.42, z + D - 0.1], half: [W - 0.25, 0.42, 0.14], mat: 'plywood', color: 0x886440, hp: 105, tier: 0, anchored: false, kind: 'wall', materialClass: 'wood', structuralMaterial: 'timber', supportRole: 'infill' },
     // Sturdy colorful canvas-and-timber roof deck (enemies stand ON TOP of the tent too!)
-    { id: 'tent_roof', pos: [x, roofY, z], half: [W + 0.45, 0.14, D + 0.45], mat: 'paintWhite', color: clothColor, hp: 115, tier: 0, anchored: false, kind: 'roof', impactRadius: 7.5, materialClass: 'wood', fractureGrid: [2, 2] },
+    { id: 'tent_roof', pos: [x, roofY, z], half: [W + 0.45, 0.14, D + 0.45], mat: 'paintWhite', color: clothColor, hp: 115, tier: 0, anchored: false, kind: 'roof', impactRadius: 7.5, materialClass: 'wood', structuralMaterial: 'timber', supportRole: 'infill', lazyFracture: true, fractureGrid: [2, 2] },
   ];
 
   const links: [string, string][] = [
@@ -178,6 +176,7 @@ function buildTerraceTentCluster(idx: number, pos: Pt3): StructuralClusterSpec {
     kind: 'terraceTent',
     label: 'STILTED SALTBLOOD TENT',
     value: 56_000,
+    batched: true,
     nodes,
     links,
     collapseThreshold: 0.35,
@@ -186,7 +185,6 @@ function buildTerraceTentCluster(idx: number, pos: Pt3): StructuralClusterSpec {
 
 /** Builds a destructible overhead timber/rope catwalk connecting towers and terrace ledges. */
 function buildTerraceCatwalkCluster(
-  k: Kit,
   idx: number,
   ax: number,
   az: number,
@@ -217,15 +215,16 @@ function buildTerraceCatwalkCluster(
     yaw,
     impactRadius: 6.0,
     materialClass: 'wood',
+    structuralMaterial: 'timber',
+    supportRole: 'load_bearing',
+    navWalkable: true,
   };
 
   const nodes: StructuralNodeSpec[] = [
-    { id: 'post_a', pos: [ax, yBase + postH / 2, az], half: [0.16, postH / 2, 0.75], mat: 'plywood', color: 0x6c4c2f, hp: 110, tier: 0, anchored: true, kind: 'column', yaw, materialClass: 'wood' },
-    { id: 'post_b', pos: [bx, yBase + postH / 2, bz], half: [0.16, postH / 2, 0.75], mat: 'plywood', color: 0x6c4c2f, hp: 110, tier: 0, anchored: true, kind: 'column', yaw, materialClass: 'wood' },
+    { id: 'post_a', pos: [ax, yBase + postH / 2, az], half: [0.16, postH / 2, 0.75], mat: 'plywood', color: 0x6c4c2f, hp: 110, tier: 0, anchored: true, kind: 'column', yaw, materialClass: 'wood', structuralMaterial: 'timber', supportRole: 'load_bearing', loadCapacity: 20_000 },
+    { id: 'post_b', pos: [bx, yBase + postH / 2, bz], half: [0.16, postH / 2, 0.75], mat: 'plywood', color: 0x6c4c2f, hp: 110, tier: 0, anchored: true, kind: 'column', yaw, materialClass: 'wood', structuralMaterial: 'timber', supportRole: 'load_bearing', loadCapacity: 20_000 },
     deck,
   ];
-
-  const navProxies = [createNavNodeProxy(k.physics, deck)].filter((c): c is NonNullable<typeof c> => c !== null);
 
   return {
     id: `terraces.catwalk.${idx}`,
@@ -233,13 +232,13 @@ function buildTerraceCatwalkCluster(
     kind: 'terraceCatwalk',
     label: 'TIMBER OVERHEAD CATWALK',
     value: 32_000,
+    batched: true,
     nodes,
     links: [
       ['post_a', 'catwalk_planks'],
       ['post_b', 'catwalk_planks'],
     ],
     collapseThreshold: 0.45,
-    navProxies,
   };
 }
 
@@ -382,11 +381,11 @@ export function authorDesertTerraces(k: Kit, spec: MapSpec): void {
   // 2. Canyon walls & East Separating Ridge preserving the flat Eastern Convoy Bypass Road (x = 43..58)
   buildTerraceCanyonWalls(k, spec);
 
-  // 3. All 6 Tall Timber-Stilt Guard Towers at exact HIGH_TERRACES.towers (4 connected via catwalks have navProxies!)
+  // 3. All 6 Tall Timber-Stilt Guard Towers at exact HIGH_TERRACES.towers (4 connected via catwalks have navWalkable decks!)
   for (let i = 0; i < HIGH_TERRACES.towers.length; i++) {
     const pos = HIGH_TERRACES.towers[i]!;
     const hasCatwalk = i === 0 || i === 1 || i === 4 || i === 5;
-    spec.cluster(buildTerraceTowerCluster(k, i, pos, hasCatwalk));
+    spec.cluster(buildTerraceTowerCluster(i, pos, hasCatwalk));
     spec.plan?.blocks.push({ x0: pos[0] - 2.2, z0: pos[2] - 2.2, x1: pos[0] + 2.2, z1: pos[2] + 2.2 });
     // Warm lantern under 4 of the 6 tower canopies (4 lights)
     if (i === 0 || i === 1 || i === 2 || i === 3) {
@@ -407,11 +406,11 @@ export function authorDesertTerraces(k: Kit, spec: MapSpec): void {
 
   // 5. 4 Destructible Overhead Rope/Timber Catwalks bridging towers & upper ridges
   // Catwalks 0 & 1 connect Tier 1 Tower decks (y = 3.6) straight onto the Tier 2 terrace ledge!
-  spec.cluster(buildTerraceCatwalkCluster(k, 0, -26, -96.2, -26, -102.0, T2, 0));
-  spec.cluster(buildTerraceCatwalkCluster(k, 1, 26, -98.2, 26, -102.0, T2, 0));
+  spec.cluster(buildTerraceCatwalkCluster(0, -26, -96.2, -26, -102.0, T2, 0));
+  spec.cluster(buildTerraceCatwalkCluster(1, 26, -98.2, 26, -102.0, T2, 0));
   // Catwalks 2 & 3 connect Tier 3 Upper Ridges (y = 7.2) across to Tier 2 North Tower decks (y = 7.2)!
-  spec.cluster(buildTerraceCatwalkCluster(k, 2, -21.0, -136.0, -17.8, -134.5, T3, T2));
-  spec.cluster(buildTerraceCatwalkCluster(k, 3, 21.0, -136.0, 19.8, -134.5, T3, T2));
+  spec.cluster(buildTerraceCatwalkCluster(2, -21.0, -136.0, -17.8, -134.5, T3, T2));
+  spec.cluster(buildTerraceCatwalkCluster(3, 21.0, -136.0, 19.8, -134.5, T3, T2));
 
   // 6. Tactical sandstone cover rocks & scattered cover on Tier 1 & Tier 2 (keeping sewerExitTop & ramps wide open!)
   sandstoneMesa(k, spec, -7.0, -88.0, 2.1, 1.5, 1.45, 0.25, true);

@@ -52,6 +52,7 @@ function createMockEnv(opts?: {
   const explodeCalls: { pos: THREE.Vector3; spec: ExplosionSpec }[] = [];
   const blastCalls: { center: THREE.Vector3; radius: number; amount: number; source: string }[] = [];
   const damageColliderCalls: { collider: unknown; amount: number; source: string }[] = [];
+  const ramCalls: { collider: unknown; ramClass: string; speed: number }[] = [];
   const progressionAwards: { points: number; label: string }[] = [];
   const emittedEvents: { event: string; payload: unknown }[] = [];
   const promptsShown: { text: string; key: string }[] = [];
@@ -204,6 +205,10 @@ function createMockEnv(opts?: {
     world: {
       objects: {
         damageExplosive: vi.fn(),
+        tryVehicleRam(collider: unknown, ramClass: string, speed: number) {
+          ramCalls.push({ collider, ramClass, speed });
+          return { hit: true, breached: true, speedRetain: 0.92 };
+        },
         destruction: {
           blast(center: THREE.Vector3, radius: number, amount: number, source: string) {
             blastCalls.push({ center: center.clone(), radius, amount, source });
@@ -408,6 +413,7 @@ function createMockEnv(opts?: {
     explodeCalls,
     blastCalls,
     damageColliderCalls,
+    ramCalls,
     progressionAwards,
     emittedEvents,
     promptsShown,
@@ -575,7 +581,7 @@ describe('DesertConvoy — WallLoop & Gate Dismount', () => {
     convoy.clear();
   });
 
-  it('signals dr:wall_loop_ready early when player pounds the outer wall with Mk 19 40mm grenades (source: mgl)', () => {
+  it('signals dr:wall_loop_ready early when player pounds the outer wall with RMB 40mm AGL grenades (source: mgl) and LMB .50 HMG (source: jackal_hmg)', () => {
     const fakeWallCol: FakeCollider = {
       handle: 777,
       translation: new THREE.Vector3(0, 2, DESERT_Z.wallLine),
@@ -591,9 +597,11 @@ describe('DesertConvoy — WallLoop & Gate Dismount', () => {
     convoy.startApproach();
     convoy.startWallLoop();
 
-    // Hold fire for 2.2s -> ~10 arcing 40mm grenades impacting the wall plane at z=62
+    // Hold RMB (`aim` = 40mm AGL) + LMB (`fire` = .50 HMG) for 2.2s to hammer the wall plane at z=62
+    env.downActions.add('aim');
     env.downActions.add('fire');
     env.step(convoy, 2.2);
+    env.downActions.delete('aim');
     env.downActions.delete('fire');
     // Allow final in-flight grenades to reach the wall
     env.step(convoy, 0.5);
@@ -605,12 +613,9 @@ describe('DesertConvoy — WallLoop & Gate Dismount', () => {
     expect(env.explodeCalls[0]!.spec.kind).toBe('grenade');
     expect(env.explodeCalls[0]!.spec.damage).toBe(DESERT_CONVOY_CONSTANTS.turretDamage);
     expect(env.explodeCalls[0]!.spec.radius).toBe(DESERT_CONVOY_CONSTANTS.grenadeBlastRadius);
-    expect(env.blastCalls.length).toBeGreaterThan(0);
-    expect(env.blastCalls[0]!.source).toBe('mgl');
-    expect(env.blastCalls[0]!.amount).toBe(DESERT_CONVOY_CONSTANTS.grenadeStructDamage);
-    expect(env.blastCalls[0]!.radius).toBe(DESERT_CONVOY_CONSTANTS.grenadeStructRadius);
-    expect(env.damageColliderCalls.length).toBeGreaterThan(0);
-    expect(env.damageColliderCalls[0]!.source).toBe('mgl');
+    expect(env.blastCalls.some(c => c.source === 'mgl' && c.amount === DESERT_CONVOY_CONSTANTS.grenadeStructDamage)).toBe(true);
+    expect(env.damageColliderCalls.some(c => c.source === 'mgl')).toBe(true);
+    expect(env.damageColliderCalls.some(c => c.source === 'jackal_hmg')).toBe(true);
 
     convoy.clear();
   });
@@ -620,9 +625,7 @@ describe('DesertConvoy — WallLoop & Gate Dismount', () => {
     const convoy = new DesertConvoy(env.ctx, env.runner, env.ui);
 
     convoy.startApproach();
-    env.downActions.add('aim');
-    env.step(convoy, 0.1);
-    expect(env.zoomFov).toBe(DESERT_CONVOY_CONSTANTS.turretZoomFov);
+    expect(env.zoomFov).toBe(DESERT_CONVOY_CONSTANTS.turretFov);
 
     convoy.dismountAtGate();
 
@@ -842,8 +845,8 @@ describe('DesertConvoy — Exfil Pickup, Quist Bed Tracking, Chase & Ending Crui
   });
 });
 
-describe('DesertConvoy — Mk 19 Belt-Fed 40mm Automatic Grenade Launcher', () => {
-  it('supports 360° yaw rotation, clamps pitch to [-25°, +45°], and toggles RMB zoom', () => {
+describe('DesertConvoy — Jackal Combination .50-Cal HMG (LMB) + 40mm Smart-AGL (RMB)', () => {
+  it('supports 360° yaw rotation, clamps pitch to [-25°, +45°], and fires 40mm AGL on RMB', () => {
     const env = createMockEnv();
     const convoy = new DesertConvoy(env.ctx, env.runner, env.ui);
 
@@ -863,46 +866,49 @@ describe('DesertConvoy — Mk 19 Belt-Fed 40mm Automatic Grenade Launcher', () =
     env.step(convoy, 1 / 60);
     expect(convoy.pitch).toBeCloseTo(DESERT_CONVOY_CONSTANTS.pitchMax, 4);
 
+    // RMB (`aim`) fires coaxial 40mm AGL grenades at ~2.8 rps
     env.downActions.add('aim');
-    env.step(convoy, 1 / 60);
-    expect(convoy.zoomed).toBe(true);
-    expect(env.zoomFov).toBe(DESERT_CONVOY_CONSTANTS.turretZoomFov);
-
+    env.step(convoy, 1.0);
     env.downActions.delete('aim');
-    env.step(convoy, 1 / 60);
-    expect(convoy.zoomed).toBe(false);
-    expect(env.zoomFov).toBe(DESERT_CONVOY_CONSTANTS.turretFov);
+    const mglCount1s = env.playedSounds.filter(s => s === 'mgl_shot').length;
+    expect(mglCount1s).toBeGreaterThanOrEqual(2);
+    expect(mglCount1s).toBeLessThanOrEqual(4);
+    expect(env.playedSounds).toContain('autocannon_fire');
 
     convoy.clear();
   });
 
-  it('fires arcing 40mm HEDP grenades at ~4.8 rps (~30 rounds to overheat), vents steam, locks out, then resumes', () => {
+  it('fires rapid .50-cal HMG on LMB (~10.5 rps, ~52 rounds to overheat), vents steam, locks out HMG while RMB AGL stays ready, then resumes', () => {
     const env = createMockEnv();
     const convoy = new DesertConvoy(env.ctx, env.runner, env.ui);
 
     convoy.startApproach();
     env.downActions.add('fire');
 
-    // Fire 1.0s at 4.8 rps -> 5 shots
+    // Fire 1.0s at 10.5 rps -> ~10-11 rounds
     env.step(convoy, 1.0);
-    const mglCount1s = env.playedSounds.filter(s => s === 'mgl_shot').length;
-    expect(mglCount1s).toBeGreaterThanOrEqual(4);
-    expect(mglCount1s).toBeLessThanOrEqual(6);
-    expect(env.playedSounds).toContain('mgl_shot');
-    expect(env.playedSounds).toContain('autocannon_fire');
-    expect(env.playedSounds).toContain('reload_bolt');
+    const hmgCount1s = env.playedSounds.filter(s => s === 'hmg_shot').length;
+    expect(hmgCount1s).toBeGreaterThanOrEqual(9);
+    expect(hmgCount1s).toBeLessThanOrEqual(12);
+    expect(env.playedSounds).toContain('hmg_shot');
 
-    // Keep firing until ~30-round belt heat triggers overheat (~5.5s more)
-    env.step(convoy, 6.0);
+    // Keep firing until ~52-round heat triggers overheat (~4.5s more)
+    env.step(convoy, 5.0);
     expect(convoy.heat.overheated).toBe(true);
     expect(env.playedSounds).toContain('steam_burst');
 
-    // Clicking fire while overheated should NOT fire new grenades and plays weapon_dry
-    const shotsBeforeLockout = env.playedSounds.filter(s => s === 'mgl_shot').length;
+    // Clicking fire while overheated should NOT fire HMG and plays weapon_dry
+    const shotsBeforeLockout = env.playedSounds.filter(s => s === 'hmg_shot').length;
     env.pressedActions.add('fire');
     env.step(convoy, 0.25);
-    expect(env.playedSounds.filter(s => s === 'mgl_shot').length).toBe(shotsBeforeLockout);
+    expect(env.playedSounds.filter(s => s === 'hmg_shot').length).toBe(shotsBeforeLockout);
     expect(env.playedSounds).toContain('weapon_dry');
+
+    // Secondary RMB 40mm AGL can still fire independently while HMG is venting!
+    env.downActions.add('aim');
+    env.step(convoy, 0.1);
+    env.downActions.delete('aim');
+    expect(env.playedSounds).toContain('mgl_shot');
 
     // Release fire and vent back down to cool
     env.downActions.delete('fire');
@@ -913,7 +919,7 @@ describe('DesertConvoy — Mk 19 Belt-Fed 40mm Automatic Grenade Launcher', () =
     // Firing resumes cleanly after vent
     env.downActions.add('fire');
     env.step(convoy, 0.25);
-    expect(env.playedSounds.filter(s => s === 'mgl_shot').length).toBeGreaterThan(shotsBeforeLockout);
+    expect(env.playedSounds.filter(s => s === 'hmg_shot').length).toBeGreaterThan(shotsBeforeLockout);
 
     convoy.clear();
   });
@@ -970,10 +976,33 @@ describe('DesertConvoy — Mk 19 Belt-Fed 40mm Automatic Grenade Launcher', () =
 
     convoy.clear();
   });
+
+  it('smashes weak destructible structures along the path when convoy Jackals are rolling', () => {
+    const fakeShackCol: FakeCollider = {
+      handle: 888,
+      translation: new THREE.Vector3(0, 1, DESERT_Z.approachStart - 2),
+      setTranslation() {},
+      setRotation() {},
+    };
+    const env = createMockEnv({
+      worldHitPoint: new THREE.Vector3(0, 1.05, DESERT_Z.approachStart - 2),
+      worldHitCollider: fakeShackCol,
+    });
+    const convoy = new DesertConvoy(env.ctx, env.runner, env.ui);
+
+    convoy.startApproach();
+    env.step(convoy, 0.15);
+
+    expect(env.ramCalls.length).toBeGreaterThan(0);
+    expect(env.ramCalls[0]!.ramClass).toBe('medium');
+    expect(env.ramCalls[0]!.speed).toBeGreaterThanOrEqual(12);
+
+    convoy.clear();
+  });
 });
 
-describe('DesertConvoy — Saltblood Motorcycles, Technicals, Crew Gore & ExtraTarget Integration', () => {
-  it('spawns mixed motorcycles (75 HP) & technicals (240 HP), triggers crew gore on rider/gunner kills, and destroys via Mk 19 fire', () => {
+describe('DesertConvoy — Saltblood 2-Up Motos, 2-Up Quads, Colored Technicals & ExtraTarget Integration', () => {
+  it('spawns 2-up motos (75 HP), 2-up quads (115 HP) & colored technicals (240 HP), silences rear pillion gunners when sniped, and blows them up', () => {
     const env = createMockEnv();
     const convoy = new DesertConvoy(env.ctx, env.runner, env.ui);
 
@@ -982,14 +1011,41 @@ describe('DesertConvoy — Saltblood Motorcycles, Technicals, Crew Gore & ExtraT
     expect(convoy.bandits).toHaveLength(4);
 
     const bikes = convoy.bandits.filter(b => b.kind === 'bike');
+    const quads = convoy.bandits.filter(b => b.kind === 'quad');
     const trucks = convoy.bandits.filter(b => b.kind === 'truck');
     expect(bikes.length).toBeGreaterThanOrEqual(2);
+    expect(quads.length).toBeGreaterThanOrEqual(1);
     expect(trucks.length).toBeGreaterThanOrEqual(1);
     expect(bikes[0]!.maxHp).toBe(DESERT_CONVOY_CONSTANTS.bikeMaxHp);
+    expect(quads[0]!.maxHp).toBe(DESERT_CONVOY_CONSTANTS.quadMaxHp);
     expect(trucks[0]!.maxHp).toBe(DESERT_CONVOY_CONSTANTS.truckMaxHp);
 
-    // Direct rider kill on a motorcycle triggers gore burst + bike flip
+    // 2-up motos and quads have BOTH driverRider and rear pillion gunnerRider visible & armed
+    const targetQuad = quads[0]!;
+    expect(targetQuad.driverRider).not.toBeNull();
+    expect(targetQuad.gunnerRider).not.toBeNull();
+    expect(targetQuad.gunnerAlive).toBe(true);
+    expect(targetQuad.gunnerRider!.root.visible).toBe(true);
+
+    // Sniping the rear pillion shooter on a quad kills & hides the gunner without destroying the quad yet!
+    const quadGunnerZone = targetQuad.zones.find(z => z.kind === 'gunner')!;
+    const quadDestroyedByGunnerHit = convoy.damageBanditZone(targetQuad, quadGunnerZone, 60, targetQuad.center, 'jackal_hmg');
+    expect(quadDestroyedByGunnerHit).toBe(false);
+    expect(targetQuad.alive).toBe(true);
+    expect(targetQuad.gunnerAlive).toBe(false);
+    expect(targetQuad.gunnerRider!.root.visible).toBe(false);
+    expect(env.feeds).toContain('REAR GUNNER DOWN!');
+
+    // Blowing up the quad destroys it cleanly and awards quadScore
+    const quadDestroyed = convoy.damageBandit(targetQuad, 200, 'mgl');
+    expect(quadDestroyed).toBe(true);
+    expect(targetQuad.alive).toBe(false);
+    expect(env.feeds).toContain('SALTBLOOD QUAD DESTROYED!');
+
+    // Direct rider kill on a 2-up motorcycle triggers gore burst + bike flip
     const targetBike = bikes[0]!;
+    expect(targetBike.driverRider).not.toBeNull();
+    expect(targetBike.gunnerRider).not.toBeNull();
     const riderZone = targetBike.zones.find(z => z.kind === 'rider')!;
     const riderKilled = convoy.damageBanditZone(targetBike, riderZone, 125, targetBike.center, 'mgl');
     expect(riderKilled).toBe(true);
@@ -998,7 +1054,7 @@ describe('DesertConvoy — Saltblood Motorcycles, Technicals, Crew Gore & ExtraT
     expect(env.bloodMists.length).toBeGreaterThanOrEqual(1);
     expect(env.playedSounds).toContain('gore_splat');
 
-    // Spawn side-gate trucks from west and east gates
+    // Spawn side-gate technicals from west and east gates — verify distinct Saltblood warband liveries!
     convoy.spawnSideGateTruck('west');
     convoy.spawnSideGateTruck('east');
     const westGate = SIDE_GATES.find(g => g.id === 'west')!;
@@ -1007,8 +1063,9 @@ describe('DesertConvoy — Saltblood Motorcycles, Technicals, Crew Gore & ExtraT
     const eastTruck = convoy.bandits[convoy.bandits.length - 1]!;
     expect(westTruck.position.x).toBeCloseTo(westGate.x, 0);
     expect(eastTruck.position.x).toBeCloseTo(eastGate.x, 0);
+    expect(westTruck.liveryColor).not.toBe(eastTruck.liveryColor);
 
-    // Position a technical directly ahead of the Mk 19 launcher
+    // Position a technical directly ahead of the player Jackal turret
     const targetTruck = trucks[0]!;
     const mid = convoy.getTruckPosition(new THREE.Vector3());
     targetTruck.position.set(mid.x, 0, mid.z - 22);
@@ -1021,23 +1078,25 @@ describe('DesertConvoy — Saltblood Motorcycles, Technicals, Crew Gore & ExtraT
     env.step(convoy, 0.4);
     expect(env.smokeCalls.length).toBeGreaterThan(0);
 
-    // Aim Mk 19 straight north toward truck and fire 40mm grenades
+    // Aim straight north toward truck and shred with LMB .50 HMG + RMB 40mm AGL
     const curMid = convoy.getTruckPosition(new THREE.Vector3());
     targetTruck.position.set(curMid.x, 0, curMid.z - 20);
     targetTruck.root.position.copy(targetTruck.position);
     convoy.setAim(0, -0.05);
     env.downActions.add('fire');
+    env.downActions.add('aim');
     env.step(convoy, 1.4);
     env.downActions.delete('fire');
+    env.downActions.delete('aim');
     env.step(convoy, 0.4);
 
     expect(targetTruck.alive).toBe(false);
-    expect(convoy.banditVehiclesDestroyed).toBeGreaterThanOrEqual(2);
-    expect(env.explosions.length).toBeGreaterThanOrEqual(2);
+    expect(convoy.banditVehiclesDestroyed).toBeGreaterThanOrEqual(3);
+    expect(env.explosions.length).toBeGreaterThanOrEqual(3);
     expect(convoy.wrecks.length).toBeGreaterThanOrEqual(1);
-    expect(env.progressionAwards.length).toBeGreaterThanOrEqual(2);
+    expect(env.progressionAwards.length).toBeGreaterThanOrEqual(3);
     expect(env.emittedEvents.some(e => e.event === 'vehicle:destroyed')).toBe(true);
-    expect(env.feeds.length).toBeGreaterThanOrEqual(2);
+    expect(env.feeds.length).toBeGreaterThanOrEqual(3);
 
     // Step wrecks to verify tumbling physics & eventual expiry cleanup
     env.step(convoy, 5.0);

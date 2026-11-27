@@ -45,15 +45,15 @@ function buildCaveShoringCluster(idx: number, z: number): StructuralClusterSpec 
 
   const nodes: StructuralNodeSpec[] = [
     // Twin anchored vertical timber mine-shoring posts
-    { id: 'post_w', pos: [-postX, FLOOR_Y + postH / 2, z], half: [0.22, postH / 2, 0.22], mat: 'plywood', color: 0x6c4b2e, hp: 130, tier: 0, anchored: true, kind: 'column', materialClass: 'wood' },
-    { id: 'post_e', pos: [postX, FLOOR_Y + postH / 2, z], half: [0.22, postH / 2, 0.22], mat: 'plywood', color: 0x6c4b2e, hp: 130, tier: 0, anchored: true, kind: 'column', materialClass: 'wood' },
+    { id: 'post_w', pos: [-postX, FLOOR_Y + postH / 2, z], half: [0.22, postH / 2, 0.22], mat: 'plywood', color: 0x6c4b2e, hp: 130, tier: 0, anchored: true, kind: 'column', materialClass: 'wood', structuralMaterial: 'timber', supportRole: 'load_bearing', loadCapacity: 24_000 },
+    { id: 'post_e', pos: [postX, FLOOR_Y + postH / 2, z], half: [0.22, postH / 2, 0.22], mat: 'plywood', color: 0x6c4b2e, hp: 130, tier: 0, anchored: true, kind: 'column', materialClass: 'wood', structuralMaterial: 'timber', supportRole: 'load_bearing', loadCapacity: 24_000 },
     // Heavy overhead timber header beam spanning the mine drift
-    { id: 'crossbeam', pos: [0, beamY, z], half: [postX + 0.65, 0.18, 0.24], mat: 'plywood', color: 0x7b5636, hp: 125, tier: 0, anchored: false, kind: 'slab', impactRadius: 7.0, materialClass: 'wood' },
+    { id: 'crossbeam', pos: [0, beamY, z], half: [postX + 0.65, 0.18, 0.24], mat: 'plywood', color: 0x7b5636, hp: 125, tier: 0, anchored: false, kind: 'slab', impactRadius: 7.0, materialClass: 'wood', structuralMaterial: 'timber', supportRole: 'load_bearing', lazyFracture: true },
     // Wooden overhead loot/ammo gantry planks resting on the shoring beam
-    { id: 'gantry_deck', pos: [0, deckY, z], half: [postX + 0.3, 0.1, 1.05], mat: 'plywood', color: 0x8e6942, hp: 115, tier: 0, anchored: false, kind: 'catwalk', impactRadius: 7.5, materialClass: 'wood', fractureGrid: [2, 1] },
+    { id: 'gantry_deck', pos: [0, deckY, z], half: [postX + 0.3, 0.1, 1.05], mat: 'plywood', color: 0x8e6942, hp: 115, tier: 0, anchored: false, kind: 'catwalk', impactRadius: 7.5, materialClass: 'wood', structuralMaterial: 'timber', supportRole: 'load_bearing', lazyFracture: true, fractureGrid: [2, 1] },
     // Supply & ammo crates perched on the overhead gantry (crash down when shoring snaps!)
-    { id: 'crate_w', pos: [-2.4, deckY + 0.58, z], half: [0.58, 0.48, 0.54], mat: 'plywood', color: 0x9c784a, hp: 90, tier: 0, anchored: false, kind: 'wall', materialClass: 'wood' },
-    { id: 'crate_e', pos: [2.2, deckY + 0.58, z], half: [0.58, 0.48, 0.54], mat: 'plywood', color: 0x8c683e, hp: 90, tier: 0, anchored: false, kind: 'wall', materialClass: 'wood' },
+    { id: 'crate_w', pos: [-2.4, deckY + 0.58, z], half: [0.58, 0.48, 0.54], mat: 'plywood', color: 0x9c784a, hp: 90, tier: 0, anchored: false, kind: 'wall', materialClass: 'wood', structuralMaterial: 'timber', supportRole: 'infill' },
+    { id: 'crate_e', pos: [2.2, deckY + 0.58, z], half: [0.58, 0.48, 0.54], mat: 'plywood', color: 0x8c683e, hp: 90, tier: 0, anchored: false, kind: 'wall', materialClass: 'wood', structuralMaterial: 'timber', supportRole: 'infill' },
   ];
 
   return {
@@ -62,6 +62,7 @@ function buildCaveShoringCluster(idx: number, z: number): StructuralClusterSpec 
     kind: 'caveShoring',
     label: 'MINE SHORING GANTRY',
     value: 44_000,
+    batched: true,
     nodes,
     links: [
       ['post_w', 'crossbeam'],

@@ -55,7 +55,7 @@ function buildWallPanelCluster(
   const upperH = isEmbrasure ? 1.95 : 2.55; // Embrasure top = 4.55 (waist-high above 3.6); Merlon top = 5.15
 
   const nodes: StructuralNodeSpec[] = [
-    // Sturdy lower corrugated sheet bulkhead (Tier 0, metal, 2x2 localized fracture grid)
+    // Sturdy lower corrugated sheet bulkhead (Tier 0 timber-gated metal sheet, lazy impact-centered 2x2 fracture)
     {
       id: 'panel_lower',
       pos: [cx, lowerH / 2, WALL_Z],
@@ -67,7 +67,12 @@ function buildWallPanelCluster(
       anchored: true,
       kind: 'wall',
       materialClass: 'metal',
+      structuralMaterial: 'timber',
+      supportRole: 'load_bearing',
+      loadCapacity: 28_000,
+      lazyFracture: true,
       fractureGrid: [2, 2],
+      navBlock: true,
     },
     // Upper corrugated scrap parapet / waist-high firing embrasure
     {
@@ -81,6 +86,9 @@ function buildWallPanelCluster(
       anchored: false,
       kind: 'wall',
       materialClass: 'metal',
+      structuralMaterial: 'timber',
+      supportRole: 'infill',
+      lazyFracture: true,
       fractureGrid: [2, 2],
     },
     // Vertical timber brace post behind panel
@@ -95,6 +103,9 @@ function buildWallPanelCluster(
       anchored: true,
       kind: 'column',
       materialClass: 'wood',
+      structuralMaterial: 'timber',
+      supportRole: 'load_bearing',
+      loadCapacity: 24_000,
     },
   ];
 
@@ -115,6 +126,9 @@ function buildWallPanelCluster(
       anchored: true,
       kind: 'wall',
       materialClass: 'stone',
+      structuralMaterial: 'timber',
+      supportRole: 'infill',
+      navBlock: true,
     });
   }
 
@@ -144,7 +158,11 @@ function buildSideGateBarricadeCluster(side: 'west' | 'east', gx: number): Struc
       anchored: true,
       kind: 'wall',
       materialClass: 'metal',
+      structuralMaterial: 'timber',
+      supportRole: 'load_bearing',
+      lazyFracture: true,
       fractureGrid: [2, 2],
+      navBlock: true,
     },
     {
       id: 'gate_leaf_r',
@@ -157,7 +175,11 @@ function buildSideGateBarricadeCluster(side: 'west' | 'east', gx: number): Struc
       anchored: true,
       kind: 'wall',
       materialClass: 'metal',
+      structuralMaterial: 'timber',
+      supportRole: 'load_bearing',
+      lazyFracture: true,
       fractureGrid: [2, 2],
+      navBlock: true,
     },
     {
       id: 'gate_crossbar',
@@ -170,6 +192,8 @@ function buildSideGateBarricadeCluster(side: 'west' | 'east', gx: number): Struc
       anchored: false,
       kind: 'wall',
       materialClass: 'metal',
+      structuralMaterial: 'timber',
+      supportRole: 'infill',
     },
   ];
 
@@ -190,8 +214,8 @@ function buildSideGateBarricadeCluster(side: 'west' | 'east', gx: number): Struc
 
 /**
  * Builds one of the 6 Tier-0 timber-legged Watchtowers at WALL_TOWERS.
- * Timber legs (`materialClass: 'wood'`, `hp: 185`) splinter and bend under sustained fire before
- * toppling the whole tower! Low waist-high front parapet exposes defenders standing on the platform.
+ * Connected to the 4-pass zero-floating structural solver: breaking 2 adjacent legs or 3 legs
+ * immediately tips and collapses the entire lookout deck and canopy!
  */
 function buildWallWatchtowerCluster(id: string, x: number, z: number, height: number, yaw: number): StructuralClusterSpec {
   const W = 1.95;
@@ -199,19 +223,19 @@ function buildWallWatchtowerCluster(id: string, x: number, z: number, height: nu
   const legH = height;
 
   const nodes: StructuralNodeSpec[] = [
-    // 4 Tier-0 timber legs (materialClass: 'wood', hp: 185, anchored)
-    { id: 'leg_sw', pos: [x - W, legH / 2, z + D], half: [0.22, legH / 2, 0.22], mat: 'plywood', color: 0x7d5a38, hp: 185, tier: 0, anchored: true, kind: 'column', yaw, materialClass: 'wood' },
-    { id: 'leg_se', pos: [x + W, legH / 2, z + D], half: [0.22, legH / 2, 0.22], mat: 'plywood', color: 0x7d5a38, hp: 185, tier: 0, anchored: true, kind: 'column', yaw, materialClass: 'wood' },
-    { id: 'leg_nw', pos: [x - W, legH / 2, z - D], half: [0.22, legH / 2, 0.22], mat: 'plywood', color: 0x725032, hp: 185, tier: 0, anchored: true, kind: 'column', yaw, materialClass: 'wood' },
-    { id: 'leg_ne', pos: [x + W, legH / 2, z - D], half: [0.22, legH / 2, 0.22], mat: 'plywood', color: 0x725032, hp: 185, tier: 0, anchored: true, kind: 'column', yaw, materialClass: 'wood' },
+    // 4 Tier-0 load-bearing timber legs (`structuralMaterial: 'timber'`, `hp: 185`, anchored)
+    { id: 'leg_sw', pos: [x - W, legH / 2, z + D], half: [0.22, legH / 2, 0.22], mat: 'plywood', color: 0x7d5a38, hp: 185, tier: 0, anchored: true, kind: 'column', yaw, materialClass: 'wood', structuralMaterial: 'timber', supportRole: 'load_bearing', loadCapacity: 26_000 },
+    { id: 'leg_se', pos: [x + W, legH / 2, z + D], half: [0.22, legH / 2, 0.22], mat: 'plywood', color: 0x7d5a38, hp: 185, tier: 0, anchored: true, kind: 'column', yaw, materialClass: 'wood', structuralMaterial: 'timber', supportRole: 'load_bearing', loadCapacity: 26_000 },
+    { id: 'leg_nw', pos: [x - W, legH / 2, z - D], half: [0.22, legH / 2, 0.22], mat: 'plywood', color: 0x725032, hp: 185, tier: 0, anchored: true, kind: 'column', yaw, materialClass: 'wood', structuralMaterial: 'timber', supportRole: 'load_bearing', loadCapacity: 26_000 },
+    { id: 'leg_ne', pos: [x + W, legH / 2, z - D], half: [0.22, legH / 2, 0.22], mat: 'plywood', color: 0x725032, hp: 185, tier: 0, anchored: true, kind: 'column', yaw, materialClass: 'wood', structuralMaterial: 'timber', supportRole: 'load_bearing', loadCapacity: 26_000 },
     // Elevated timber lookout platform deck
-    { id: 'deck', pos: [x, legH + 0.16, z], half: [W + 0.55, 0.16, D + 0.5], mat: 'plywood', color: 0x9b764e, hp: 210, tier: 0, anchored: false, kind: 'slab', yaw, impactRadius: 8.5, materialClass: 'wood' },
-    // Low waist-high front & side firing parapets (0.86 m tall -> Saltblood gunners clearly visible!)
-    { id: 'parapet_front', pos: [x, legH + 0.75, z + D + 0.22], half: [W + 0.45, 0.43, 0.2], mat: 'rust', color: 0x8e5638, hp: 180, tier: 0, anchored: false, kind: 'wall', yaw, materialClass: 'metal', fractureGrid: [2, 1] },
-    { id: 'parapet_w', pos: [x - W - 0.22, legH + 0.72, z], half: [0.18, 0.4, D + 0.1], mat: 'rust', color: 0x844e34, hp: 165, tier: 0, anchored: false, kind: 'wall', yaw, materialClass: 'metal' },
-    { id: 'parapet_e', pos: [x + W + 0.22, legH + 0.72, z], half: [0.18, 0.4, D + 0.1], mat: 'rust', color: 0x844e34, hp: 165, tier: 0, anchored: false, kind: 'wall', yaw, materialClass: 'metal' },
+    { id: 'deck', pos: [x, legH + 0.16, z], half: [W + 0.55, 0.16, D + 0.5], mat: 'plywood', color: 0x9b764e, hp: 210, tier: 0, anchored: false, kind: 'slab', yaw, impactRadius: 8.5, materialClass: 'wood', structuralMaterial: 'timber', supportRole: 'load_bearing', lazyFracture: true, fractureGrid: [2, 2] },
+    // Low waist-high front & side firing parapets (infill — never falsely hold up the tower!)
+    { id: 'parapet_front', pos: [x, legH + 0.75, z + D + 0.22], half: [W + 0.45, 0.43, 0.2], mat: 'rust', color: 0x8e5638, hp: 180, tier: 0, anchored: false, kind: 'wall', yaw, materialClass: 'metal', structuralMaterial: 'timber', supportRole: 'infill', lazyFracture: true, fractureGrid: [2, 1] },
+    { id: 'parapet_w', pos: [x - W - 0.22, legH + 0.72, z], half: [0.18, 0.4, D + 0.1], mat: 'rust', color: 0x844e34, hp: 165, tier: 0, anchored: false, kind: 'wall', yaw, materialClass: 'metal', structuralMaterial: 'timber', supportRole: 'infill' },
+    { id: 'parapet_e', pos: [x + W + 0.22, legH + 0.72, z], half: [0.18, 0.4, D + 0.1], mat: 'rust', color: 0x844e34, hp: 165, tier: 0, anchored: false, kind: 'wall', yaw, materialClass: 'metal', structuralMaterial: 'timber', supportRole: 'infill' },
     // Corrugated tin canopy roof raised high (2.7 m clearance) for clean open firing view
-    { id: 'canopy', pos: [x, legH + 2.78, z], half: [W + 0.65, 0.12, D + 0.6], mat: 'rust', color: 0x864c34, hp: 185, tier: 0, anchored: false, kind: 'roof', yaw, impactRadius: 7.5, materialClass: 'metal', fractureGrid: [2, 2] },
+    { id: 'canopy', pos: [x, legH + 2.78, z], half: [W + 0.65, 0.12, D + 0.6], mat: 'rust', color: 0x864c34, hp: 185, tier: 0, anchored: false, kind: 'roof', yaw, impactRadius: 7.5, materialClass: 'metal', structuralMaterial: 'timber', supportRole: 'load_bearing', lazyFracture: true, fractureGrid: [2, 2] },
   ];
 
   const links: [string, string][] = [
@@ -240,9 +264,9 @@ function buildWallWatchtowerCluster(id: string, x: number, z: number, height: nu
 /** Builds a low Tier-0 outer sandbag machine-gun nest well forward of the wall (isolated optional drum). */
 function buildOuterSandbagNestCluster(idx: number, x: number, z: number, withDrum: boolean): StructuralClusterSpec {
   const nodes: StructuralNodeSpec[] = [
-    { id: 'bags_front', pos: [x, 0.62, z + 0.9], half: [2.1, 0.62, 0.42], mat: 'dirt', color: 0x9b8660, hp: 150, tier: 0, anchored: true, kind: 'wall', materialClass: 'stone' },
-    { id: 'bags_w', pos: [x - 2.0, 0.55, z], half: [0.38, 0.55, 1.0], mat: 'dirt', color: 0x937e5a, hp: 140, tier: 0, anchored: true, kind: 'wall', materialClass: 'stone' },
-    { id: 'bags_e', pos: [x + 2.0, 0.55, z], half: [0.38, 0.55, 1.0], mat: 'dirt', color: 0x937e5a, hp: 140, tier: 0, anchored: true, kind: 'wall', materialClass: 'stone' },
+    { id: 'bags_front', pos: [x, 0.62, z + 0.9], half: [2.1, 0.62, 0.42], mat: 'dirt', color: 0x9b8660, hp: 150, tier: 0, anchored: true, kind: 'wall', materialClass: 'stone', structuralMaterial: 'timber', supportRole: 'infill', navBlock: true },
+    { id: 'bags_w', pos: [x - 2.0, 0.55, z], half: [0.38, 0.55, 1.0], mat: 'dirt', color: 0x937e5a, hp: 140, tier: 0, anchored: true, kind: 'wall', materialClass: 'stone', structuralMaterial: 'timber', supportRole: 'infill', navBlock: true },
+    { id: 'bags_e', pos: [x + 2.0, 0.55, z], half: [0.38, 0.55, 1.0], mat: 'dirt', color: 0x937e5a, hp: 140, tier: 0, anchored: true, kind: 'wall', materialClass: 'stone', structuralMaterial: 'timber', supportRole: 'infill', navBlock: true },
   ];
 
   if (withDrum) {
@@ -260,6 +284,8 @@ function buildOuterSandbagNestCluster(idx: number, x: number, z: number, withDru
       hazardRadius: 6.0,
       hazardDamage: 180,
       materialClass: 'metal',
+      structuralMaterial: 'timber',
+      supportRole: 'infill',
     });
   }
 

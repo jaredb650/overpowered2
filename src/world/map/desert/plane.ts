@@ -303,11 +303,11 @@ function buildForecourtAndCanyon(k: Kit, spec: MapSpec): void {
       label: 'FORECOURT COVER NEST',
       value: 28_000,
       nodes: [
-        { id: 'sandbags', pos: pt(0, 0.62, 0), half: [2.2, 0.62, 0.42], mat: 'dirt', color: 0x9b8660, hp: 145, tier: 0, anchored: true, kind: 'wall', yaw, materialClass: 'stone' },
-        { id: 'crate_l', pos: pt(-1.6, 0.56, -0.75), half: [0.6, 0.56, 0.6], mat: 'plywood', color: 0x987448, hp: 120, tier: 0, anchored: true, kind: 'wall', yaw, materialClass: 'wood' },
-        { id: 'crate_r', pos: pt(1.6, 0.56, -0.75), half: [0.6, 0.56, 0.6], mat: 'plywood', color: 0x8d6940, hp: 120, tier: 0, anchored: true, kind: 'wall', yaw, materialClass: 'wood' },
+        { id: 'sandbags', pos: pt(0, 0.62, 0), half: [2.2, 0.62, 0.42], mat: 'dirt', color: 0x9b8660, hp: 145, tier: 0, anchored: true, kind: 'wall', yaw, materialClass: 'stone', structuralMaterial: 'timber', supportRole: 'infill', navBlock: true },
+        { id: 'crate_l', pos: pt(-1.6, 0.56, -0.75), half: [0.6, 0.56, 0.6], mat: 'plywood', color: 0x987448, hp: 120, tier: 0, anchored: true, kind: 'wall', yaw, materialClass: 'wood', structuralMaterial: 'timber', supportRole: 'infill', navBlock: true },
+        { id: 'crate_r', pos: pt(1.6, 0.56, -0.75), half: [0.6, 0.56, 0.6], mat: 'plywood', color: 0x8d6940, hp: 120, tier: 0, anchored: true, kind: 'wall', yaw, materialClass: 'wood', structuralMaterial: 'timber', supportRole: 'infill', navBlock: true },
         ...(withDrum
-          ? [{ id: 'drum', pos: pt(0.2, 0.56, -0.85), half: [0.42, 0.56, 0.42] as readonly [number, number, number], mat: 'paintRed' as const, color: 0xcc2820, hp: 38, tier: 0 as const, anchored: true, kind: 'hazard' as const, yaw, hazardRadius: 7.5, hazardDamage: 205, materialClass: 'metal' as const }]
+          ? [{ id: 'drum', pos: pt(0.2, 0.56, -0.85), half: [0.42, 0.56, 0.42] as readonly [number, number, number], mat: 'paintRed' as const, color: 0xcc2820, hp: 38, tier: 0 as const, anchored: true, kind: 'hazard' as const, yaw, hazardRadius: 7.5, hazardDamage: 205, materialClass: 'metal' as const, structuralMaterial: 'timber' as const, supportRole: 'infill' as const }]
           : []),
       ],
       collapseThreshold: 0.5,

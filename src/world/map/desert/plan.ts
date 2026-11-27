@@ -226,17 +226,23 @@ export const CONVOY_PATHS = {
     [0, 0, 80],
   ] as readonly Pt3[],
 
-  /** Section 8: exfil pickup at plane forecourt, sweeping south via the wide eastern bypass canyon road. */
+  /**
+   * Section 8: exfil pickup at plane forecourt, sweeping south down the open Eastern Bypass Road (x ≈ 51,
+   * cleanly clearing Pump Yard cisterns & concrete walls), smashing through wooden Tier-0 Warren shacks,
+   * avoiding solid rock/cistern landmarks, and punching dead-center through the Main Gate into the dunes.
+   */
   exfil: [
     [0, 0, -204],
     [26, 0, -196],
-    [48, 0, -172],
-    [50, 0, -126],
-    [48, 0, -78],
-    [36, 0, -34],
-    [18, 0, 6],
-    [4, 0, 40],
-    [0, 0, 68],
+    [50, 0, -172],
+    [51, 0, -126],
+    [51, 0, -78],
+    [51, 0, -34],
+    [48, 0, -4],
+    [22, 0, 8],
+    [6, 0, 26],
+    [2, 0, 44],
+    [0, 0, 62],
     [0, 0, 96],
     [-8, 0, 132],
     [0, 0, 168],

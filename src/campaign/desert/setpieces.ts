@@ -1281,7 +1281,7 @@ export class DesertSetpieces implements SetpiecesController {
     this.ctx.fx?.sparks?.(_v, _south, 10, 0xffe49e);
     this.ctx.render.lights?.flash?.(_v, 0xffd27a, 2.4, 7, 0.08);
     this.ctx.audio?.play?.('ricochet', { position: _v, volume: 0.78, pitchJitter: 0.14 });
-    this.ctx.audio?.play?.('impact_metal', { position: _v, volume: 0.65, pitchJitter: 0.1 });
+    this.ctx.audio?.play?.('armour_stopped', { position: _v, volume: 0.76, pitchJitter: 0.1 });
   }
 
   shatterMainGate(): void {
@@ -1300,9 +1300,9 @@ export class DesertSetpieces implements SetpiecesController {
     this.ctx.render.lights?.flash?.(origin, 0xff8022, 8.0, 34, 0.45);
     this.ctx.camera?.addTrauma?.(0.88);
     this.ctx.audio?.play?.('explosion_tank', { position: origin, volume: 1.0 });
-    this.ctx.audio?.play?.('explosion_debris', { position: origin, volume: 0.9 });
-    this.ctx.audio?.play?.('metal_clang', { position: origin, volume: 0.95, pitch: 0.68 });
-    this.ctx.audio?.play?.('wreck_land', { position: origin, volume: 0.85 });
+    this.ctx.audio?.play?.('metal_plate_destroyed', { position: origin, volume: 0.95, pitchJitter: 0.06 });
+    this.ctx.audio?.play?.('concrete_destroyed', { position: origin, volume: 0.85, pitchJitter: 0.08 });
+    this.ctx.audio?.play?.('explosion_debris', { position: origin, volume: 0.85 });
 
     this.spawnMainGateDebris();
     this.gateSmokeTimer = 12.0;
@@ -1427,6 +1427,7 @@ export class DesertSetpieces implements SetpiecesController {
     }
     _v.set(bx, by + 3.0, bz - 2.5);
     this.ctx.audio?.play?.('explosion_small', { position: _v, volume: 1.0 });
+    this.ctx.audio?.play?.('metal_plate_destroyed', { position: _v, volume: 0.9, pitchJitter: 0.08 });
     this.ctx.audio?.play?.('metal_groan', { position: _v, volume: 1.0, pitch: 0.8 });
     this.ctx.camera?.addTrauma?.(0.45);
   }
@@ -1492,9 +1493,9 @@ export class DesertSetpieces implements SetpiecesController {
       this.ctx.render.post?.radialBlur?.(0.28, 0.35);
     }
     this.ctx.audio?.play?.('crusher_slam', { position: impactAt, volume: 1.0 });
-    this.ctx.audio?.play?.('wreck_land', { position: impactAt, volume: 1.0 });
-    this.ctx.audio?.play?.('explosion_debris', { position: impactAt, volume: 0.95 });
-    this.ctx.audio?.play?.('metal_clang', { position: impactAt, volume: 0.95, pitch: 0.58 });
+    this.ctx.audio?.play?.('metal_plate_destroyed', { position: impactAt, volume: 1.0, pitch: 0.85 });
+    this.ctx.audio?.play?.('concrete_destroyed', { position: impactAt, volume: 0.95, pitchJitter: 0.08 });
+    this.ctx.audio?.play?.('sheet_metal_destroyed', { position: impactAt, volume: 0.9, pitchJitter: 0.08 });
     this.ctx.audio?.play?.('steam_burst', { position: impactAt, volume: 1.0, pitch: 0.55 });
 
     // Impact water burst & dust plumes
@@ -1734,7 +1735,7 @@ export class DesertSetpieces implements SetpiecesController {
     ) {
       _v.set(this.quistPos.x, this.quistPos.y + 1.45, this.quistPos.z);
       this.ctx.fx?.sparks?.(_v, _south, 8, 0xffd27a);
-      this.ctx.audio?.play?.('impact_metal', { position: _v, volume: 0.7, pitchJitter: 0.1 });
+      this.ctx.audio?.play?.('armour_stopped', { position: _v, volume: 0.75, pitchJitter: 0.1 });
       if (this._quistState === 'wait_ramp') {
         this.triggerBulkhead1Retreat();
       } else if (this._quistState === 'wait_mid') {
@@ -1949,7 +1950,7 @@ export class DesertSetpieces implements SetpiecesController {
     // Phase A cowardly retreat: shots glance off his welded steel shoulder pauldrons & hurry him along
     _v.set(this.quistPos.x, this.quistPos.y + 1.45, this.quistPos.z);
     this.ctx.fx?.sparks?.(_v, _south, 8, 0xffd27a);
-    this.ctx.audio?.play?.('impact_metal', { position: _v, volume: 0.7, pitchJitter: 0.1 });
+    this.ctx.audio?.play?.('armour_stopped', { position: _v, volume: 0.75, pitchJitter: 0.1 });
     if (this._quistState === 'wait_ramp') {
       this.triggerBulkhead1Retreat();
     } else if (this._quistState === 'wait_mid') {

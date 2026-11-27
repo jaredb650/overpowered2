@@ -31,7 +31,7 @@ const _sideHit: RayHit = { point: new THREE.Vector3(), normal: new THREE.Vector3
 function ramClassOf(def: DriveVehicleDef): VehicleRamClass | null {
   if (def.category === 'helicopter' || def.category === 'jet') return null;
   if (def.category === 'tracked' || def.mass >= 9) return 'heavy';
-  if (def.id === 'bastion' || def.mass >= 4.5) return 'medium';
+  if (def.id === 'bastion' || def.id === 'jackal' || def.mass >= 2.0) return 'medium';
   return 'light';
 }
 

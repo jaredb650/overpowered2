@@ -1084,6 +1084,8 @@ declare module './contracts' {
 
     /** The left hand has started for the helmet. */
     'sonar:tap': Record<string, never>;
+    /** The left hand taps the visor to toggle the Thermal brain chip on or off. */
+    'thermal:tap': { on: boolean };
     /** The ring went out. `origin` is reused, so copy it to keep it. */
     'sonar:ping': { origin: THREE.Vector3 };
     /** The player started a stim injection. The heal lands `STIM.injectAt` seconds later. */

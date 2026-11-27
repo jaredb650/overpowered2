@@ -14,7 +14,12 @@ import * as THREE from 'three';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { CG } from '../../core/contracts';
 import { Physics } from '../../physics/Physics';
-import { canDamageTier, DestructionManager } from '../destruction';
+import {
+  canDamageTier,
+  DestructionManager,
+  registerDestructionNavProxies,
+} from '../destruction';
+import { canDamageMaterial } from '../destructionMaterials';
 import { Kit } from '../kit/kit';
 import { NavGraph } from '../nav';
 import {
@@ -61,10 +66,15 @@ beforeAll(async () => {
     V(DESERT_BOUNDS.x1, DESERT_BOUNDS.y1, DESERT_BOUNDS.z1),
   );
   nav = new NavGraph(physics);
-  await nav.build(bounds, spec.jumpLinks, DESERT_HUB, async () => {}, {
-    mutual: true,
-    levels: [...DESERT_LEVELS],
-  });
+  const releaseProxies = registerDestructionNavProxies(physics, spec.destructionClusters);
+  try {
+    await nav.build(bounds, spec.jumpLinks, DESERT_HUB, async () => {}, {
+      mutual: true,
+      levels: [...DESERT_LEVELS],
+    });
+  } finally {
+    releaseProxies();
+  }
 }, 120000);
 
 const onNav = (p: THREE.Vector3, r = 1.6): boolean => {
@@ -149,15 +159,50 @@ describe('Surplus (Desert Raid 2.0) map', () => {
     expect(s2.roads.length).toBe(3);
   });
 
-  it('authors sturdy metal walls with <= 4 wall explosives, wood watchtowers, High Terraces towers/tents & Salt Cave shoring', () => {
+  it('authors multi-material destructible structures (timber, drywall, glass, masonry, concrete), sturdy walls, watchtowers & enterable compounds', () => {
     const clusters = spec.destructionClusters;
     expect(clusters.length).toBeGreaterThan(60);
 
-    const tier0Clusters = clusters.filter(c => c.nodes.every(n => n.tier === 0));
-    expect(tier0Clusters.length).toBe(clusters.length);
+    // Every cluster uses explicit structuralMaterial & supportRole from the new destruction system
+    const allNodes = clusters.flatMap(c => c.nodes);
+    const mats = new Set(allNodes.map(n => n.structuralMaterial));
+    expect(mats.has('timber')).toBe(true);
+    expect(mats.has('drywall')).toBe(true);
+    expect(mats.has('glass')).toBe(true);
+    expect(mats.has('masonry')).toBe(true);
+    expect(mats.has('concrete')).toBe(true);
+    expect(allNodes.every(n => n.structuralMaterial !== undefined && n.supportRole !== undefined)).toBe(true);
+    expect(allNodes.some(n => n.lazyFracture)).toBe(true);
+    expect(allNodes.some(n => n.navWalkable)).toBe(true);
+    expect(allNodes.some(n => n.navBlock)).toBe(true);
+
+    // Material & tier gating across glass / timber / masonry / concrete
+    expect(canDamageMaterial('glass', 'smg')).toBe(true);
     expect(canDamageTier(0, 'smg')).toBe(false);
     expect(canDamageTier(0, 'piledriver')).toBe(true);
     expect(canDamageTier(0, 'minigun')).toBe(true);
+    expect(canDamageMaterial('masonry', 'jackal_agl')).toBe(true);
+    expect(canDamageMaterial('concrete', 'piledriver')).toBe(false);
+    expect(canDamageMaterial('concrete', 'satchel')).toBe(true);
+
+    // Enterable 2-story Desert Masonry Compounds (reusing Endless War buildWarHouseCluster)
+    const warHouses = clusters.filter(c => c.kind === 'war_house');
+    expect(warHouses.length).toBe(2);
+    for (const wh of warHouses) {
+      expect(wh.batched).toBe(true);
+      expect(wh.nodes.some(n => n.structuralMaterial === 'masonry')).toBe(true);
+      expect(wh.nodes.some(n => n.structuralMaterial === 'drywall')).toBe(true);
+      expect(wh.nodes.some(n => n.structuralMaterial === 'glass')).toBe(true);
+      expect(wh.nodes.some(n => n.navWalkable)).toBe(true);
+    }
+
+    // Enterable poured-concrete Pump Control Station (Tier-2 concrete + glass + drywall + walkable roof)
+    const pumpStation = clusters.find(c => c.tag === 'pumpyard.controlShack');
+    expect(pumpStation).toBeDefined();
+    expect(pumpStation!.nodes.some(n => n.structuralMaterial === 'concrete' && n.tier === 2)).toBe(true);
+    expect(pumpStation!.nodes.some(n => n.structuralMaterial === 'glass')).toBe(true);
+    expect(pumpStation!.nodes.some(n => n.structuralMaterial === 'drywall')).toBe(true);
+    expect(pumpStation!.nodes.some(n => n.id === 'roof' && n.navWalkable)).toBe(true);
 
     // 4 Approach lookout posts at APPROACH_POSTS with red fuel drum hazards
     for (const post of APPROACH_POSTS) {
@@ -336,6 +381,10 @@ describe('Surplus (Desert Raid 2.0) map', () => {
       { label: 'wall_walkway_west', p: V(-36, 3.6, DESERT_Z.wallWalkway) },
       { label: 'wall_walkway_east', p: V(36, 3.6, DESERT_Z.wallWalkway) },
       { label: 'warren_minigun_nest', p: V(WARREN_MINIGUN.pos[0], WARREN_MINIGUN.pos[1], WARREN_MINIGUN.pos[2]) },
+      { label: 'warren_masonry_west_2f', p: V(-61.8, 3.6, 22) },
+      { label: 'warren_masonry_east_2f', p: V(61.8, 3.6, 34) },
+      { label: 'pumpyard_control_interior', p: V(18.8, 0, -36) },
+      { label: 'pumpyard_control_roof', p: V(20, 3.6, -36) },
       { label: 'pump_yard_sewer_drop', p: V(PUMP_YARD.sewerDropPos[0], PUMP_YARD.sewerDropPos[1], PUMP_YARD.sewerDropPos[2]) },
       { label: 'sewer_south', p: V(0, PUMP_YARD.sewerFloorY, -34) },
       { label: 'sewer_gallery_west', p: V(-5, PUMP_YARD.sewerFloorY, -49) },
@@ -392,7 +441,7 @@ describe('Surplus (Desert Raid 2.0) map', () => {
     expect(broken).toEqual([]);
   });
 
-  it('validates cluster graph links, convoy/setpiece clearances, and live Tier-0 DestructionManager breakage', () => {
+  it('validates cluster graph links, convoy/setpiece clearances, multi-material gating, and 4-pass zero-floating collapse', () => {
     for (const c of spec.destructionClusters) {
       const ids = new Set(c.nodes.map(n => n.id));
       for (const [a, b] of c.links ?? []) {
@@ -415,7 +464,7 @@ describe('Surplus (Desert Raid 2.0) map', () => {
       expect(hit!.point.y).toBeCloseTo(pt[1], 1);
     }
 
-    // Mount all Tier-0 clusters into a real DestructionManager and verify bullets break a watchtower leg & terrace tent stilt
+    // Mount all clusters into a real DestructionManager and verify multi-material gating + 4-pass tipping collapse
     const stubMat = () => new THREE.MeshBasicMaterial();
     const dm = new DestructionManager({ physics } as never, stubMat);
     for (const c of spec.destructionClusters) {
@@ -423,16 +472,39 @@ describe('Surplus (Desert Raid 2.0) map', () => {
     }
     expect(dm.allClusters().length).toBe(spec.destructionClusters.length);
 
+    // 1. Timber watchtower: SMG blocked, .50-cal piledriver breaks 2 adjacent legs -> entire upper deck tips/falls (zero floating!)
     const tower = dm.getCluster('wall_tower_w1');
     expect(tower).toBeDefined();
-    const leg = tower!.getNode('leg_sw');
-    expect(leg).toBeDefined();
-    expect(leg!.tier).toBe(0);
-    expect(dm.damageCollider(leg!.staticCollider, 220, 'smg', leg!.basePos)).toBe(true);
-    expect(leg!.state).toBe('intact');
-    expect(dm.damageCollider(leg!.staticCollider, 220, 'piledriver', leg!.basePos)).toBe(true);
-    expect(leg!.state).not.toBe('intact');
+    const legSw = tower!.getNode('leg_sw');
+    const legSe = tower!.getNode('leg_se');
+    expect(legSw).toBeDefined();
+    expect(legSe).toBeDefined();
+    expect(legSw!.tier).toBe(0);
+    expect(dm.damageCollider(legSw!.staticCollider, 220, 'smg', legSw!.basePos)).toBe(true);
+    expect(legSw!.state).toBe('intact');
+    expect(dm.damageCollider(legSw!.staticCollider, 220, 'piledriver', legSw!.basePos)).toBe(true);
+    expect(legSw!.state).not.toBe('intact');
+    expect(dm.damageCollider(legSe!.staticCollider, 220, 'piledriver', legSe!.basePos)).toBe(true);
+    expect(legSe!.state).not.toBe('intact');
+    // After breaking 2 adjacent legs, the 4-pass solver must release the upper deck/roof (no floating parts)
+    const deck = tower!.getNode('deck');
+    expect(deck!.state).not.toBe('intact');
 
+    // 2. Poured-concrete Pump Control Station: rifles & .50-cal bounce off concrete, heavy satchel breaches it, glass shatters on SMG
+    const pumpStation = dm.getCluster('pumpyard.controlShack');
+    expect(pumpStation).toBeDefined();
+    const concreteWall = pumpStation!.getNode('wall_n');
+    const obsGlass = pumpStation!.getNode('glass_s');
+    expect(concreteWall).toBeDefined();
+    expect(obsGlass).toBeDefined();
+    expect(dm.damageCollider(concreteWall!.staticCollider, 450, 'piledriver', concreteWall!.basePos)).toBe(true);
+    expect(concreteWall!.state).toBe('intact');
+    expect(dm.damageCollider(concreteWall!.staticCollider, 900, 'satchel', concreteWall!.basePos)).toBe(true);
+    expect(concreteWall!.state).not.toBe('intact');
+    expect(dm.damageCollider(obsGlass!.staticCollider, 30, 'smg', obsGlass!.basePos)).toBe(true);
+    expect(obsGlass!.state).not.toBe('intact');
+
+    // 3. Stilted terrace tent breaks cleanly on .50-cal
     const tent = dm.getCluster('terraces.tent.0');
     expect(tent).toBeDefined();
     const stilt = tent!.getNode('stilt_sw');

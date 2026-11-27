@@ -228,8 +228,8 @@ describe('Desert Raid (Mission 5 — 8-Section Campaign)', () => {
     expect(byKey('quist.grenade')).toBe("Come closer. I'll tell you a secret.");
     expect(byKey('quist.captured')).toBeDefined();
 
-    // New 8-section dialogue lines (Mk 19, Sewer, High Terraces, Salt Cave, Live Cuffed Escort)
-    expect(byKey('marr.approach.start')).toContain('Mk 19');
+    // New 8-section dialogue lines (Jackal HMG+AGL, Sewer, High Terraces, Salt Cave, Live Cuffed Escort)
+    expect(byKey('marr.approach.start')).toContain('fifty-cal');
     expect(byKey('marr.terraces.start')).toBeDefined();
     expect(byKey('quist.terraces.mock')).toBeDefined();
     expect(byKey('marr.cave.start')).toBeDefined();

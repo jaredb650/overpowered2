@@ -280,16 +280,16 @@ function buildApproachPostCluster(id: string, x: number, z: number, yaw: number)
   const D = 1.6;
 
   const nodes: StructuralNodeSpec[] = [
-    { id: 'stilt_fl', pos: pt(-W, H / 2, D), half: [0.18, H / 2, 0.18], mat: 'plywood', color: 0x7c5b3b, hp: 90, tier: 0, anchored: true, kind: 'column', yaw, materialClass: 'wood' },
-    { id: 'stilt_fr', pos: pt(W, H / 2, D), half: [0.18, H / 2, 0.18], mat: 'plywood', color: 0x7c5b3b, hp: 90, tier: 0, anchored: true, kind: 'column', yaw, materialClass: 'wood' },
-    { id: 'stilt_bl', pos: pt(-W, H / 2, -D), half: [0.18, H / 2, 0.18], mat: 'plywood', color: 0x7d4c32, hp: 90, tier: 0, anchored: true, kind: 'column', yaw, materialClass: 'wood' },
-    { id: 'stilt_br', pos: pt(W, H / 2, -D), half: [0.18, H / 2, 0.18], mat: 'plywood', color: 0x7d4c32, hp: 90, tier: 0, anchored: true, kind: 'column', yaw, materialClass: 'wood' },
-    { id: 'deck', pos: pt(0, H + 0.14, 0), half: [W + 0.4, 0.14, D + 0.4], mat: 'plywood', color: 0x9b764c, hp: 105, tier: 0, anchored: false, kind: 'slab', yaw, impactRadius: 6.5, materialClass: 'wood' },
-    { id: 'wall_back', pos: pt(0, H + 1.25, -D), half: [W + 0.2, 1.0, 0.12], mat: 'rust', color: 0x9b5a3c, hp: 110, tier: 0, anchored: false, kind: 'wall', yaw, materialClass: 'metal', fractureGrid: [2, 2] },
-    { id: 'parapet_front', pos: pt(0, H + 0.72, D + 0.1), half: [W + 0.25, 0.48, 0.18], mat: 'dirt', color: 0x9c8864, hp: 95, tier: 0, anchored: false, kind: 'wall', yaw, materialClass: 'stone' },
-    { id: 'roof', pos: pt(0, H + 2.38, 0), half: [W + 0.55, 0.1, D + 0.55], mat: 'panel', color: 0xb58d52, hp: 100, tier: 0, anchored: false, kind: 'roof', yaw, impactRadius: 6.5, materialClass: 'metal', fractureGrid: [2, 2] },
-    { id: 'sandbags_base', pos: pt(0, 0.6, D + 0.9), half: [W + 0.6, 0.6, 0.38], mat: 'dirt', color: 0x9b8660, hp: 100, tier: 0, anchored: true, kind: 'wall', yaw, materialClass: 'stone' },
-    { id: 'fuel_drum', pos: pt(W + 0.85, 0.55, D + 0.35), half: [0.42, 0.55, 0.42], mat: 'paintRed', color: 0xc82820, hp: 35, tier: 0, anchored: true, kind: 'hazard', yaw, hazardRadius: 8.5, hazardDamage: 220, materialClass: 'metal' },
+    { id: 'stilt_fl', pos: pt(-W, H / 2, D), half: [0.18, H / 2, 0.18], mat: 'plywood', color: 0x7c5b3b, hp: 90, tier: 0, anchored: true, kind: 'column', yaw, materialClass: 'wood', structuralMaterial: 'timber', supportRole: 'load_bearing', loadCapacity: 24_000 },
+    { id: 'stilt_fr', pos: pt(W, H / 2, D), half: [0.18, H / 2, 0.18], mat: 'plywood', color: 0x7c5b3b, hp: 90, tier: 0, anchored: true, kind: 'column', yaw, materialClass: 'wood', structuralMaterial: 'timber', supportRole: 'load_bearing', loadCapacity: 24_000 },
+    { id: 'stilt_bl', pos: pt(-W, H / 2, -D), half: [0.18, H / 2, 0.18], mat: 'plywood', color: 0x7d4c32, hp: 90, tier: 0, anchored: true, kind: 'column', yaw, materialClass: 'wood', structuralMaterial: 'timber', supportRole: 'load_bearing', loadCapacity: 24_000 },
+    { id: 'stilt_br', pos: pt(W, H / 2, -D), half: [0.18, H / 2, 0.18], mat: 'plywood', color: 0x7d4c32, hp: 90, tier: 0, anchored: true, kind: 'column', yaw, materialClass: 'wood', structuralMaterial: 'timber', supportRole: 'load_bearing', loadCapacity: 24_000 },
+    { id: 'deck', pos: pt(0, H + 0.14, 0), half: [W + 0.4, 0.14, D + 0.4], mat: 'plywood', color: 0x9b764c, hp: 105, tier: 0, anchored: false, kind: 'slab', yaw, impactRadius: 6.5, materialClass: 'wood', structuralMaterial: 'timber', supportRole: 'load_bearing', lazyFracture: true, fractureGrid: [2, 2], navWalkable: true },
+    { id: 'wall_back', pos: pt(0, H + 1.25, -D), half: [W + 0.2, 1.0, 0.12], mat: 'rust', color: 0x9b5a3c, hp: 110, tier: 0, anchored: false, kind: 'wall', yaw, materialClass: 'metal', structuralMaterial: 'timber', supportRole: 'infill', lazyFracture: true, fractureGrid: [2, 2] },
+    { id: 'parapet_front', pos: pt(0, H + 0.72, D + 0.1), half: [W + 0.25, 0.48, 0.18], mat: 'dirt', color: 0x9c8864, hp: 95, tier: 0, anchored: false, kind: 'wall', yaw, materialClass: 'stone', structuralMaterial: 'timber', supportRole: 'infill' },
+    { id: 'roof', pos: pt(0, H + 2.38, 0), half: [W + 0.55, 0.1, D + 0.55], mat: 'panel', color: 0xb58d52, hp: 100, tier: 0, anchored: false, kind: 'roof', yaw, impactRadius: 6.5, materialClass: 'metal', structuralMaterial: 'timber', supportRole: 'load_bearing', lazyFracture: true, fractureGrid: [2, 2] },
+    { id: 'sandbags_base', pos: pt(0, 0.6, D + 0.9), half: [W + 0.6, 0.6, 0.38], mat: 'dirt', color: 0x9b8660, hp: 100, tier: 0, anchored: true, kind: 'wall', yaw, materialClass: 'stone', structuralMaterial: 'timber', supportRole: 'infill', navBlock: true },
+    { id: 'fuel_drum', pos: pt(W + 0.85, 0.55, D + 0.35), half: [0.42, 0.55, 0.42], mat: 'paintRed', color: 0xc82820, hp: 35, tier: 0, anchored: true, kind: 'hazard', yaw, hazardRadius: 8.5, hazardDamage: 220, materialClass: 'metal', structuralMaterial: 'timber', supportRole: 'infill' },
   ];
 
   const links: [string, string][] = [

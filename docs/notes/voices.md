@@ -90,6 +90,14 @@ Currently saved voices:
 
 > **Crossfire casting (`crossfire.lines.ts`):** `council` → `council`, `darrow` → `co_darrow`, `halvorsen` → `co_halvorsen`, `mercer` → `tank_ironclad_sgt`, `viper` → `pilot_serious_atc`, `carrier` → `pilot_airline_vet`. (All 6 are dedicated speakers in `src/enemies/commander/lines.ts`, separate from Bank Run's Governor, Foreclosure's Harbourmaster, and Desert Raid's Sgt Marr.)
 
+#### Desert Raid Voices (`src/campaign/missions/desertRaid.lines.ts`)
+
+| Voice ID (`voice_id`) | Speaker ID | Character / role | Personality prompt | Game file convention |
+|---|---|---|---|---|
+| `desert_quist` | `quist` | **Hadrek Quist** ("the Salt King") — Surplus warlord on loudspeaker PA | Older man in his late fifties, deep dry gravelly baritone, slow unhurried desert warlord authority, dangerously calm quiet menace, never shouts | `public/audio/voice/<line.id>.mp3` |
+| `desert_marr` | `marr` | **Sergeant Marr** — Raid column tactical leader | Seasoned female military sergeant in her mid-thirties, firm steady low alto, clipped tactical radio cadence, cool under heavy fire, zero wasted words | `public/audio/voice/<line.id>.mp3` |
+| `desert_radio` | `radio` | **Convoy Driver / Hog-One CAS & Assault Squad Radio** | Gritty male combat driver and CAS radio operator in his early thirties, energetic mid-baritone American military field comms, urgent under fire | `public/audio/voice/<line.id>.mp3` |
+
 Check if the server is running:
 
 ```sh

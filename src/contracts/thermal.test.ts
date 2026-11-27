@@ -35,6 +35,8 @@ function createRig() {
   const highlights: HighlightCall[] = [];
   const postGrades: GradeCall[] = [];
   const heldGrades: (GradeName | null)[] = [];
+  const sounds: string[] = [];
+  const taps: boolean[] = [];
   const style = { filter: '' };
   const enemies: TestEnemy[] = [];
   const player = {
@@ -55,10 +57,11 @@ function createRig() {
     events: {
       on: (k: string, fn: (e: unknown) => void) => handlers.set(k, [...(handlers.get(k) ?? []), fn]),
       emit: (k: string, e: unknown) => {
+        if (k === 'thermal:tap') taps.push((e as { on: boolean }).on);
         for (const fn of handlers.get(k) ?? []) fn(e);
       },
     },
-    audio: { play: () => {} },
+    audio: { play: (id: string) => { sounds.push(id); } },
     hud: { callout: () => {} },
     player,
     enemies: { remaining: 0, alive: enemies },
@@ -102,7 +105,7 @@ function createRig() {
     for (let i = 0; i < steps; i++) step(1 / FPS);
   };
 
-  return { ctx, chips, enemies, player, style, highlights, postGrades, heldGrades, step, advance };
+  return { ctx, chips, enemies, player, style, highlights, postGrades, heldGrades, sounds, taps, step, advance };
 }
 
 let r: ReturnType<typeof createRig>;
@@ -111,20 +114,22 @@ beforeEach(() => {
 });
 
 describe('FLIR Thermal Vision', () => {
-  it('never applies CSS invert(1) to the canvas style when toggled on or off', () => {
-    expect(THERMAL.filter).toBe('');
-    expect(THERMAL.filter).not.toContain('invert');
+  it('applies AC-130 black-hot filter, visor tap animation, and thermal_activate audio on toggle', () => {
+    expect(THERMAL.filter).toBe('grayscale(1) contrast(1.3) invert(1)');
+    expect(THERMAL.enemyColor).toBe('#ffffff');
 
     r.step(1 / FPS, true);
     expect(r.chips.thermal).toBe(true);
-    expect(r.style.filter).toBe('');
-    expect(r.style.filter).not.toContain('invert');
+    expect(r.style.filter).toBe(THERMAL.filter);
+    expect(r.taps).toEqual([true]);
+    expect(r.sounds).toContain('thermal_activate');
 
     r.step(1 / FPS);
     r.step(1 / FPS, true);
     expect(r.chips.thermal).toBe(false);
     expect(r.style.filter).toBe('');
-    expect(r.style.filter).not.toContain('invert');
+    expect(r.taps).toEqual([true, false]);
+    expect(r.sounds.filter(s => s === 'thermal_activate')).toHaveLength(2);
   });
 
   it('activates the thermal post grade (0.14 s blend) and restores default cleanly on off and reset', () => {

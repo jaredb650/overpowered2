@@ -368,6 +368,7 @@ export class Rig implements ViewmodelRig {
       on('player:damaged', e => this.onHurt(e.amount)),
       on('callin:used', () => this.offhand.confirm()),
       on('sonar:tap', () => this.offhand.tap()),
+      on('thermal:tap', () => this.offhand.tap()),
       on('stim:inject', () => this.offhand.inject()),
       on('enemy:killed', e => this.onKill(e)),
       on('enemy:hit', e => this.onStrike(e.enemy, e.damage, e.result.dealt)),

@@ -69,7 +69,7 @@ export const DESERT_RAID: Mission = {
         { do: 'squad', tag: 'lookout_4', men: ['trooper', 'gunner'], at: 'lookoutPost4', orders: 'hold', ensure: true },
         say('marr.approach.start'),
         { do: 'objective', id: 'approach_surplus', text: 'Ride the convoy across the dunes to Surplus', at: 'mainGateObj' },
-        { do: 'hint', text: 'You man the middle truck Mk 19 40mm belt-fed grenade launcher. Blast Saltblood lookout posts, bikes, and technicals on the dunes!', seconds: 8 },
+        { do: 'hint', text: 'You man the Jackal technical turret — LMB .50-cal HMG, RMB 40mm grenade launcher. Shred Saltblood lookouts, motos, quads, and technicals!', seconds: 8 },
         { do: 'until', when: { any: [{ signal: 'dr:approach_done' }, { zone: 'wallFront' }] } },
         { do: 'done', id: 'approach_surplus' },
         { do: 'goto', beat: 'the_wall' },
@@ -126,7 +126,7 @@ export const DESERT_RAID: Mission = {
         { do: 'squad', tag: 'wall_towers_e', men: ['sniper', 'trooper', 'gunner'], at: 'wallTowersEast', orders: 'hold', ensure: true },
         say('marr.wall.broadside'),
         { do: 'objective', id: 'shred_wall', text: 'Tear apart the outer wall, watchtowers & Saltblood defenders', at: 'mainGateObj' },
-        { do: 'hint', text: 'Hammer the scrap wall with 40mm grenades — blast jagged holes through panels, drop watchtowers by their legs, and clear the battlements!', seconds: 8 },
+        { do: 'hint', text: 'Hammer the scrap wall with LMB .50-cal HMG and RMB 40mm grenades — blast holes through panels, drop watchtowers by their legs, and clear the battlements!', seconds: 8 },
         {
           do: 'until',
           when: {
@@ -511,7 +511,7 @@ export const DESERT_RAID: Mission = {
         say('radio.exfil.arrive', { now: true }),
         say('marr.exfil.board'),
         { do: 'objective', id: 'board_convoy', text: 'Board the middle convoy truck in the forecourt', at: 'exfilPickup' },
-        { do: 'hint', text: 'Press {interact} at the middle convoy truck to mount the Mk 19 and break out!', seconds: 8 },
+        { do: 'hint', text: 'Press {interact} at the middle Jackal technical to mount the roof turret and break out!', seconds: 8 },
         { do: 'until', when: { signal: 'dr:exfil_boarded' } },
         { do: 'done', id: 'board_convoy' },
         { do: 'sweep', tag: 'exfil_stragglers' },

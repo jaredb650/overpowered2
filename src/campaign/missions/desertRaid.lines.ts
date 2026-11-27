@@ -17,10 +17,10 @@ const line = (id: string, speaker: Speaker, emotion: Emotion, text: string): Lin
 });
 
 export const LINES: readonly Line[] = [
-  // ---- Section 1: The Approach (dawn open desert, Mk 19 40mm belt-fed launcher) ----
-  line('marr.approach.start', 'marr', 'orders', 'Three trucks, two birds overhead. Stay on the Mk 19 40mm — turn anything moving on those dunes into dust.'),
-  line('radio.approach.lookouts', 'radio', 'orders', 'Lookout towers on the ridge! Bikes and technicals cresting the dunes — light them up!'),
-  line('radio.approach.bikes', 'radio', 'urgent', 'Second pack of Saltblood bikes and gun trucks flanking hard! Feed that 40mm belt!'),
+  // ---- Section 1: The Approach (dawn open desert, Jackal .50-cal HMG + 40mm AGL turret) ----
+  line('marr.approach.start', 'marr', 'orders', 'Three Jackals, two birds overhead. Stay on the fifty-cal and forty-mil — turn anything moving on those dunes into dust.'),
+  line('radio.approach.lookouts', 'radio', 'orders', 'Lookout towers on the ridge! Bikes, quads, and technicals cresting the dunes — light them up!'),
+  line('radio.approach.bikes', 'radio', 'urgent', 'Second pack of Saltblood bikes, quads, and gun trucks flanking hard! Hit them with everything!'),
   line('quist.approach.warn', 'quist', 'smug', "You're a long way from water. Turn around and I'll let you die of thirst instead."),
   line('marr.approach.horizon', 'marr', 'orders', "Surplus on the horizon. That crashed hull on the crest is Quist's house. Hold the trigger."),
 
@@ -88,7 +88,7 @@ export const LINES: readonly Line[] = [
   line('marr.quist.grenade', 'marr', 'urgent', 'Bastard pulled a pin in the tail. You still standing? Get out to the forecourt.'),
 
   // ---- Section 8: Escort & Exfil + Town-Flattening Ending ----
-  line('radio.exfil.arrive', 'radio', 'orders', "Convoy smashing into the forecourt! Tailgate's down — get on the Mk 19!"),
+  line('radio.exfil.arrive', 'radio', 'orders', "Convoy smashing into the forecourt! Tailgate's down — get on the turret!"),
   line('marr.exfil.board', 'marr', 'orders', 'Trucks are here. Mount up on the middle rig, now!'),
   line('marr.escort.start', 'marr', 'orders', "Got the Salt King cuffed! Walk him out to the middle truck — watch for falling scrap, don't let a tower drop on him!"),
   line('marr.escort.crushed', 'marr', 'orders', "Scratch the prisoner — falling scrap flattened him. Less paperwork. Get on the truck, we're rolling!"),

@@ -18,7 +18,7 @@ const ALONG_Z: readonly [number, number, number] = [Math.PI / 2, 0, 0];
 /**
  * M2-X50 / 40MM HYBRID AUTOCANNON-AGL (Jackal Seat 2):
  * Futuristic over/under heavy .50-cal rail-cooled autocannon paired with an underslung 40mm rotary
- * grenade drum, dual feed chutes, glowing cyan holo ring sight, and armored spade grips.
+ * grenade drum, dual feed chutes, and armored spade grips (clean top rail for unobstructed crosshair aim).
  */
 export const HYBRID_HMG_AGL: GunSpec = {
   name: 'hybrid_hmg_agl',
@@ -54,12 +54,6 @@ export const HYBRID_HMG_AGL: GunSpec = {
     // Right-side digital smart-fuse telemetry box + glowing cyan status strip
     b.box(0.06, 0.11, 0.22, IRON, { at: [0.14, 0.04, 0.08] });
     b.glow(new THREE.BoxGeometry(0.015, 0.035, 0.14), '#38e8ff', 2.4, { at: [0.172, 0.05, 0.08] });
-
-    // Glowing cyan holographic ring sight standing cleanly above the receiver
-    b.box(0.022, 0.075, 0.035, IRON, { at: [0, 0.195, -0.06] });
-    b.solid(new THREE.TorusGeometry(0.058, 0.006, 8, 22), IRON, { at: [0, 0.265, -0.06] });
-    b.glow(new THREE.TorusGeometry(0.046, 0.0035, 6, 20), '#38e8ff', 2.6, { at: [0, 0.265, -0.06] });
-    b.glow(new THREE.SphereGeometry(0.006, 6, 6), '#ff8a38', 3.0, { at: [0, 0.265, -0.06] });
 
     // Ergonomic dual spade grips + dual triggers (LMB .50-cal + RMB 40mm thumb paddles)
     b.box(0.28, 0.032, 0.05, IRON, { at: [0, -0.01, 0.43] });

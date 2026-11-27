@@ -31,30 +31,68 @@ const SEWER_Y = PUMP_YARD.sewerFloorY; // -5.5
 const SEWER_CEIL = -1.2; // vaulted dark ceiling underside (ground slab underside is -0.8)
 const WALL_NORTH_Z = DESERT_Z.pumpNorthGate; // -56
 
-/** Builds the Tier-0 destructible Pump Control Shack at (20, 0, -36). */
+/**
+ * Builds the enterable poured-concrete Pump Control Station at (20, 0, -36) using the new
+ * multi-material destruction system:
+ *   - Reinforced Tier-2 concrete columns, walls & walkable roof deck (`y = 3.6`, `navWalkable: true`)
+ *     with `lazyFracture: true` rebar/aggregate cracking on explosive breach.
+ *   - Wide open west yard doorway (`z = -37.2 .. -34.8`), shatterable south observation glass,
+ *     interior drywall partition, volatile fuel drum inside, and an exterior concrete access stair
+ *     climbing onto the `y = 3.6` rooftop lookout!
+ */
 function buildPumpControlShackCluster(): StructuralClusterSpec {
   const x = 20;
   const z = -36;
-  const hw = 2.8;
-  const hd = 2.2;
-  const H = 3.2;
+  const hw = 3.2; // x: 16.8 .. 23.2
+  const hd = 2.6; // z: -38.6 .. -33.4
+  const H = 3.6; // exact match with DESERT_LEVELS[4] = 3.6
+  const slabHalfY = 0.14;
+  const clearH = H - slabHalfY * 2; // 3.32
+  const roofCy = H - slabHalfY; // 3.46 -> top surface exact y = 3.6!
+  const wt = 0.22;
+  const concreteTint: [number, number, number] = [0.64, 0.56, 0.48];
+  const concreteDarkTint: [number, number, number] = [0.46, 0.42, 0.38];
+
+  // Exterior stair ascending south from (20, 0, -45.4) up to north roof edge (20, 3.6, -38.8)
+  const stairRun = 6.6;
+  const stairAngle = Math.atan2(H, stairRun);
+  const stairLen = Math.hypot(stairRun, H);
 
   return {
     id: 'pumpyard.controlShack',
     tag: 'pumpyard.controlShack',
     kind: 'pumpControlShack',
-    label: 'PUMP CONTROL SHACK',
-    value: 52_000,
+    label: 'PUMP CONTROL STATION',
+    value: 92_000,
+    batched: true,
     nodes: [
-      { id: 'col_sw', pos: [x - hw, H / 2, z + hd], half: [0.18, H / 2, 0.18], mat: 'steelDark', hp: 145, tier: 0, anchored: true, kind: 'column', materialClass: 'metal' },
-      { id: 'col_se', pos: [x + hw, H / 2, z + hd], half: [0.18, H / 2, 0.18], mat: 'steelDark', hp: 145, tier: 0, anchored: true, kind: 'column', materialClass: 'metal' },
-      { id: 'col_nw', pos: [x - hw, H / 2, z - hd], half: [0.18, H / 2, 0.18], mat: 'steelDark', hp: 145, tier: 0, anchored: true, kind: 'column', materialClass: 'metal' },
-      { id: 'col_ne', pos: [x + hw, H / 2, z - hd], half: [0.18, H / 2, 0.18], mat: 'steelDark', hp: 145, tier: 0, anchored: true, kind: 'column', materialClass: 'metal' },
-      { id: 'wall_n', pos: [x, H / 2, z - hd], half: [hw - 0.2, H / 2, 0.14], mat: 'panel', color: 0x6e7b7e, hp: 165, tier: 0, anchored: true, kind: 'wall', materialClass: 'metal', fractureGrid: [2, 2] },
-      { id: 'wall_s', pos: [x, H / 2, z + hd], half: [hw - 0.2, H / 2, 0.14], mat: 'panel', color: 0x6e7b7e, hp: 165, tier: 0, anchored: true, kind: 'wall', materialClass: 'metal', fractureGrid: [2, 2] },
-      { id: 'wall_e', pos: [x + hw, H / 2, z], half: [0.14, H / 2, hd - 0.2], mat: 'rust', color: 0x84543c, hp: 165, tier: 0, anchored: true, kind: 'wall', materialClass: 'metal', fractureGrid: [2, 2] },
-      { id: 'roof', pos: [x, H + 0.12, z], half: [hw + 0.3, 0.12, hd + 0.3], mat: 'rust', color: 0x764c34, hp: 155, tier: 0, anchored: false, kind: 'roof', impactRadius: 7, materialClass: 'metal', fractureGrid: [2, 2] },
-      { id: 'pump_drum', pos: [x + 1.0, 0.56, z - 0.4], half: [0.42, 0.56, 0.42], mat: 'paintRed', color: 0xcc2820, hp: 38, tier: 0, anchored: true, kind: 'hazard', hazardRadius: 7.5, hazardDamage: 210, materialClass: 'metal' },
+      // 4 Reinforced poured-concrete load-bearing corner columns
+      { id: 'col_sw', pos: [x - hw + 0.26, clearH / 2, z + hd - 0.26], half: [0.26, clearH / 2, 0.26], mat: 'concreteDark', color: concreteDarkTint, hp: 460, tier: 2, anchored: true, kind: 'column', materialClass: 'concrete', structuralMaterial: 'concrete', supportRole: 'load_bearing', loadCapacity: 75_000, navBlock: true },
+      { id: 'col_se', pos: [x + hw - 0.26, clearH / 2, z + hd - 0.26], half: [0.26, clearH / 2, 0.26], mat: 'concreteDark', color: concreteDarkTint, hp: 460, tier: 2, anchored: true, kind: 'column', materialClass: 'concrete', structuralMaterial: 'concrete', supportRole: 'load_bearing', loadCapacity: 75_000, navBlock: true },
+      { id: 'col_nw', pos: [x - hw + 0.26, clearH / 2, z - hd + 0.26], half: [0.26, clearH / 2, 0.26], mat: 'concreteDark', color: concreteDarkTint, hp: 460, tier: 2, anchored: true, kind: 'column', materialClass: 'concrete', structuralMaterial: 'concrete', supportRole: 'load_bearing', loadCapacity: 75_000, navBlock: true },
+      { id: 'col_ne', pos: [x + hw - 0.26, clearH / 2, z - hd + 0.26], half: [0.26, clearH / 2, 0.26], mat: 'concreteDark', color: concreteDarkTint, hp: 460, tier: 2, anchored: true, kind: 'column', materialClass: 'concrete', structuralMaterial: 'concrete', supportRole: 'load_bearing', loadCapacity: 75_000, navBlock: true },
+      // Solid poured-concrete north & east load-bearing walls
+      { id: 'wall_n', pos: [x, clearH / 2, z - hd + wt], half: [hw - 0.52, clearH / 2, wt], mat: 'concrete', color: concreteTint, hp: 380, tier: 2, anchored: true, kind: 'wall', materialClass: 'concrete', structuralMaterial: 'concrete', supportRole: 'load_bearing', lazyFracture: true, fractureGrid: [2, 2], navBlock: true },
+      { id: 'wall_e', pos: [x + hw - wt, clearH / 2, z], half: [wt, clearH / 2, hd - 0.52], mat: 'concrete', color: concreteTint, hp: 380, tier: 2, anchored: true, kind: 'wall', materialClass: 'concrete', structuralMaterial: 'concrete', supportRole: 'load_bearing', lazyFracture: true, fractureGrid: [2, 2], navBlock: true },
+      // West yard entrance jambs flanking a wide open 2.4 m doorway (z = -37.2 .. -34.8 open!)
+      { id: 'wall_w_n', pos: [x - hw + wt, clearH / 2, z - 1.75], half: [wt, clearH / 2, 0.55], mat: 'concrete', color: concreteTint, hp: 340, tier: 2, anchored: true, kind: 'wall', materialClass: 'concrete', structuralMaterial: 'concrete', supportRole: 'load_bearing', navBlock: true },
+      { id: 'wall_w_s', pos: [x - hw + wt, clearH / 2, z + 1.75], half: [wt, clearH / 2, 0.55], mat: 'concrete', color: concreteTint, hp: 340, tier: 2, anchored: true, kind: 'wall', materialClass: 'concrete', structuralMaterial: 'concrete', supportRole: 'load_bearing', navBlock: true },
+      // South observation window bay: concrete knee-wall sill + header + shatterable glass pane
+      { id: 'wall_s_sill', pos: [x, 0.52, z + hd - wt], half: [hw - 0.52, 0.52, wt], mat: 'concrete', color: concreteTint, hp: 280, tier: 2, anchored: true, kind: 'wall', materialClass: 'concrete', structuralMaterial: 'concrete', supportRole: 'infill', lazyFracture: true, fractureGrid: [2, 1], navBlock: true },
+      { id: 'wall_s_head', pos: [x, clearH - 0.34, z + hd - wt], half: [hw - 0.52, 0.34, wt], mat: 'concreteDark', color: concreteDarkTint, hp: 300, tier: 2, anchored: false, kind: 'wall', materialClass: 'concrete', structuralMaterial: 'concrete', supportRole: 'load_bearing' },
+      { id: 'glass_s', pos: [x, 1.84, z + hd - wt], half: [hw - 0.6, 0.78, 0.05], mat: 'glass', color: [0.48, 0.58, 0.64], hp: 18, tier: 0, anchored: false, kind: 'wall', materialClass: 'concrete', structuralMaterial: 'glass', supportRole: 'infill' },
+      // Interior drywall control-room partition (shreds cleanly with rifles/shotguns/breaches!)
+      { id: 'drywall_mid', pos: [x + 0.5, clearH / 2, z + 1.1], half: [0.1, clearH / 2 - 0.04, 1.05], mat: 'plaster', color: [0.74, 0.70, 0.63], hp: 55, tier: 0, anchored: true, kind: 'wall', materialClass: 'wood', structuralMaterial: 'drywall', supportRole: 'infill', lazyFracture: true, fractureGrid: [2, 2], navBlock: true },
+      // Walkable poured-concrete roof lookout deck (top exact y = 3.6, navWalkable: true)
+      { id: 'roof', pos: [x, roofCy, z], half: [hw + 0.2, slabHalfY, hd + 0.2], mat: 'concrete', color: [0.54, 0.49, 0.44], hp: 440, tier: 2, anchored: false, kind: 'slab', impactRadius: 8.5, materialClass: 'concrete', structuralMaterial: 'concrete', supportRole: 'load_bearing', lazyFracture: true, fractureGrid: [2, 2], navWalkable: true },
+      // Low concrete rooftop firing parapets (north edge left open for stair landing!)
+      { id: 'para_w', pos: [x - hw, H + 0.5, z], half: [0.18, 0.5, hd], mat: 'concreteDark', color: concreteDarkTint, hp: 260, tier: 2, anchored: false, kind: 'wall', materialClass: 'concrete', structuralMaterial: 'concrete', supportRole: 'infill', lazyFracture: true, fractureGrid: [2, 1] },
+      { id: 'para_s', pos: [x, H + 0.5, z + hd], half: [hw, 0.5, 0.18], mat: 'concreteDark', color: concreteDarkTint, hp: 260, tier: 2, anchored: false, kind: 'wall', materialClass: 'concrete', structuralMaterial: 'concrete', supportRole: 'infill', lazyFracture: true, fractureGrid: [2, 1] },
+      { id: 'para_e', pos: [x + hw, H + 0.5, z], half: [0.18, 0.5, hd], mat: 'concreteDark', color: concreteDarkTint, hp: 260, tier: 2, anchored: false, kind: 'wall', materialClass: 'concrete', structuralMaterial: 'concrete', supportRole: 'infill', lazyFracture: true, fractureGrid: [2, 1] },
+      // Exterior concrete access ramp climbing onto the y = 3.6 rooftop lookout from the north apron
+      { id: 'roof_stair', pos: [x, H / 2 - slabHalfY, z - hd - 0.2 - stairRun / 2], half: [stairLen / 2 + 0.15, 0.14, 1.0], mat: 'concreteDark', color: concreteDarkTint, hp: 380, tier: 2, anchored: true, kind: 'catwalk', yaw: Math.PI / 2, roll: -stairAngle, materialClass: 'concrete', structuralMaterial: 'concrete', supportRole: 'load_bearing', navWalkable: true },
+      // Volatile red fuel drum tucked inside the east pump bay
+      { id: 'pump_drum', pos: [x + 1.8, 0.56, z - 1.1], half: [0.42, 0.56, 0.42], mat: 'paintRed', color: 0xcc2820, hp: 38, tier: 0, anchored: true, kind: 'hazard', hazardRadius: 7.5, hazardDamage: 210, materialClass: 'metal', structuralMaterial: 'timber', supportRole: 'infill' },
     ],
     links: [
       ['col_sw', 'roof'],
@@ -62,14 +100,24 @@ function buildPumpControlShackCluster(): StructuralClusterSpec {
       ['col_nw', 'roof'],
       ['col_ne', 'roof'],
       ['wall_n', 'roof'],
-      ['wall_s', 'roof'],
       ['wall_e', 'roof'],
+      ['wall_w_n', 'roof'],
+      ['wall_w_s', 'roof'],
+      ['col_sw', 'wall_s_head'],
+      ['col_se', 'wall_s_head'],
+      ['wall_s_head', 'roof'],
+      ['wall_s_sill', 'glass_s'],
+      ['drywall_mid', 'roof'],
+      ['roof', 'para_w'],
+      ['roof', 'para_s'],
+      ['roof', 'para_e'],
+      ['roof_stair', 'roof'],
     ],
-    collapseThreshold: 0.45,
+    collapseThreshold: 0.52,
   };
 }
 
-/** Builds a Tier-0 industrial sandbag checkpoint in the Pump Yard. */
+/** Builds a destructible industrial sandbag checkpoint in the Pump Yard. */
 function buildPumpCheckpointCluster(idx: number, x: number, z: number, yaw: number, withDrum: boolean): StructuralClusterSpec {
   const c = Math.cos(yaw);
   const s = Math.sin(yaw);
@@ -79,11 +127,11 @@ function buildPumpCheckpointCluster(idx: number, x: number, z: number, yaw: numb
     z - lx * s + lz * c,
   ];
   const nodes: StructuralClusterSpec['nodes'] = [
-    { id: 'bags_main', pos: pt(0, 0.62, 0), half: [2.2, 0.62, 0.42], mat: 'dirt', color: 0x9b8660, hp: 140, tier: 0, anchored: true, kind: 'wall', yaw, materialClass: 'stone' },
-    { id: 'shield_side', pos: pt(-2.1, 0.85, -0.7), half: [0.32, 0.85, 0.85], mat: 'rust', color: 0x82543c, hp: 145, tier: 0, anchored: true, kind: 'wall', yaw, materialClass: 'metal' },
+    { id: 'bags_main', pos: pt(0, 0.62, 0), half: [2.2, 0.62, 0.42], mat: 'dirt', color: 0x9b8660, hp: 140, tier: 0, anchored: true, kind: 'wall', yaw, materialClass: 'stone', structuralMaterial: 'timber', supportRole: 'infill', navBlock: true },
+    { id: 'shield_side', pos: pt(-2.1, 0.85, -0.7), half: [0.32, 0.85, 0.85], mat: 'rust', color: 0x82543c, hp: 145, tier: 0, anchored: true, kind: 'wall', yaw, materialClass: 'metal', structuralMaterial: 'timber', supportRole: 'infill', navBlock: true },
     ...(withDrum
-      ? [{ id: 'drum', pos: pt(1.9, 0.56, -0.45), half: [0.4, 0.56, 0.4] as readonly [number, number, number], mat: 'paintRed' as const, color: 0xcc2820, hp: 38, tier: 0 as const, anchored: true, kind: 'hazard' as const, yaw, hazardRadius: 7.5, hazardDamage: 200, materialClass: 'metal' as const }]
-      : [{ id: 'crate_side', pos: pt(1.8, 0.54, -0.45), half: [0.55, 0.54, 0.55] as readonly [number, number, number], mat: 'plywood' as const, color: 0x8a6640, hp: 115, tier: 0 as const, anchored: true, kind: 'wall' as const, yaw, materialClass: 'wood' as const }]),
+      ? [{ id: 'drum', pos: pt(1.9, 0.56, -0.45), half: [0.4, 0.56, 0.4] as readonly [number, number, number], mat: 'paintRed' as const, color: 0xcc2820, hp: 38, tier: 0 as const, anchored: true, kind: 'hazard' as const, yaw, hazardRadius: 7.5, hazardDamage: 200, materialClass: 'metal' as const, structuralMaterial: 'timber' as const, supportRole: 'infill' as const }]
+      : [{ id: 'crate_side', pos: pt(1.8, 0.54, -0.45), half: [0.55, 0.54, 0.55] as readonly [number, number, number], mat: 'plywood' as const, color: 0x8a6640, hp: 115, tier: 0 as const, anchored: true, kind: 'wall' as const, yaw, materialClass: 'wood' as const, structuralMaterial: 'timber' as const, supportRole: 'infill' as const, navBlock: true }]),
   ];
   return {
     id: `pumpyard.checkpoint.${idx}`,
@@ -166,6 +214,7 @@ function buildSurfacePumpYard(k: Kit, spec: MapSpec): void {
   g.tint(1);
 
   // 4. North Dividing Wall at z = -56 with Central Street Arch (x = -8..+8, h = 6.2 m — OPEN for nav, blocked by fallen tower!)
+  //    and Eastern Convoy Bypass Road Gateway (x = +41..+62 — open canyon exit so exfil technicals never clip concrete).
   k.wall(-76, WALL_NORTH_Z, -8, WALL_NORTH_Z, 0, 7.6, {
     mat: 'concrete',
     backing: 'concreteDark',
@@ -174,11 +223,19 @@ function buildSurfacePumpYard(k: Kit, spec: MapSpec): void {
     back: true,
     pilasters: true,
   });
-  k.wall(8, WALL_NORTH_Z, 76, WALL_NORTH_Z, 0, 7.6, {
+  k.wall(8, WALL_NORTH_Z, 41, WALL_NORTH_Z, 0, 7.6, {
     mat: 'concrete',
     backing: 'concreteDark',
     thick: 1.6,
     bay: 10,
+    back: true,
+    pilasters: true,
+  });
+  k.wall(62, WALL_NORTH_Z, 76, WALL_NORTH_Z, 0, 7.6, {
+    mat: 'concrete',
+    backing: 'concreteDark',
+    thick: 1.6,
+    bay: 7,
     back: true,
     pilasters: true,
   });
@@ -188,15 +245,26 @@ function buildSurfacePumpYard(k: Kit, spec: MapSpec): void {
   for (const side of [-1, 1] as const) {
     k.block('steelDark', side * 8.4 - 0.5, 0, WALL_NORTH_Z - 1.15, side * 8.4 + 0.5, 8.2, WALL_NORTH_Z + 1.15, 0.08);
   }
+  // Flanking steel gateway piers framing the open Eastern Convoy Bypass Road (x = 41..62)
+  for (const gx of [40.8, 62.2]) {
+    k.block('steelDark', gx - 0.6, 0, WALL_NORTH_Z - 1.15, gx + 0.6, 7.8, WALL_NORTH_Z + 1.15, 0.08);
+    g.use('hazard').box(gx, 4.2, WALL_NORTH_Z + 1.18, 0.52, 0.4, 0.02, FACE.pz);
+    g.use('hazard').box(gx, 4.2, WALL_NORTH_Z - 1.18, 0.52, 0.4, 0.02, FACE.nz);
+  }
   spec.plan?.walls.push(
     { ax: -76, az: WALL_NORTH_Z, bx: -8, bz: WALL_NORTH_Z, half: 0.8 },
-    { ax: 8, az: WALL_NORTH_Z, bx: 76, bz: WALL_NORTH_Z, half: 0.8 },
+    { ax: 8, az: WALL_NORTH_Z, bx: 41, bz: WALL_NORTH_Z, half: 0.8 },
+    { ax: 62, az: WALL_NORTH_Z, bx: 76, bz: WALL_NORTH_Z, half: 0.8 },
   );
-  spec.plan?.gates.push({ x: 0, z: WALL_NORTH_Z, yaw: 0, w: 16, bay: true });
+  spec.plan?.gates.push(
+    { x: 0, z: WALL_NORTH_Z, yaw: 0, w: 16, bay: true },
+    { x: 51.5, z: WALL_NORTH_Z, yaw: 0, w: 20, bay: false },
+  );
 
-  // 5. Tier-0 Destructible Pump Control Shack & Sandbag Checkpoints
+  // 5. Enterable Poured-Concrete Pump Control Station & Sandbag Checkpoints
   spec.cluster(buildPumpControlShackCluster());
-  spec.plan?.blocks.push({ x0: 17.2, z0: -38.2, x1: 22.8, z1: -33.8 });
+  spec.plan?.blocks.push({ x0: 16.8, z0: -38.6, x1: 23.2, z1: -33.4 });
+  spec.plan?.decks.push({ x0: 16.6, z0: -38.8, x1: 23.4, z1: -33.2 });
 
   spec.cluster(buildPumpCheckpointCluster(0, -14, -18, 0.1, false));
   spec.cluster(buildPumpCheckpointCluster(1, -12, -48, 0.18, true));
@@ -327,7 +395,7 @@ function buildDarkStormSewer(k: Kit, spec: MapSpec): void {
     k.block('concreteDark', bx - 1.15, SEWER_Y, bz - 0.26, bx + 1.15, SEWER_Y + 1.15, bz + 0.26, 0.04);
   }
 
-  // 2 Tier-0 Destructible Wooden Barricades tucked in the gallery flank lanes
+  // 2 Destructible Wooden Barricades tucked in the gallery flank lanes
   for (const [idx, sx, sz] of [
     [0, -5.2, -46],
     [1, 5.2, -56],
@@ -339,8 +407,8 @@ function buildDarkStormSewer(k: Kit, spec: MapSpec): void {
       label: 'SEWER BARRICADE',
       value: 14_000,
       nodes: [
-        { id: 'plank_wall', pos: [sx, SEWER_Y + 0.62, sz], half: [1.25, 0.62, 0.24], mat: 'plywood', color: 0x7c6244, hp: 115, tier: 0, anchored: true, kind: 'wall', materialClass: 'wood' },
-        { id: 'crate', pos: [sx - Math.sign(sx) * 0.9, SEWER_Y + 0.48, sz - 0.55], half: [0.46, 0.48, 0.46], mat: 'plywood', color: 0x6f563a, hp: 105, tier: 0, anchored: true, kind: 'wall', materialClass: 'wood' },
+        { id: 'plank_wall', pos: [sx, SEWER_Y + 0.62, sz], half: [1.25, 0.62, 0.24], mat: 'plywood', color: 0x7c6244, hp: 115, tier: 0, anchored: true, kind: 'wall', materialClass: 'wood', structuralMaterial: 'timber', supportRole: 'infill', navBlock: true },
+        { id: 'crate', pos: [sx - Math.sign(sx) * 0.9, SEWER_Y + 0.48, sz - 0.55], half: [0.46, 0.48, 0.46], mat: 'plywood', color: 0x6f563a, hp: 105, tier: 0, anchored: true, kind: 'wall', materialClass: 'wood', structuralMaterial: 'timber', supportRole: 'infill', navBlock: true },
       ],
       collapseThreshold: 0.5,
     });

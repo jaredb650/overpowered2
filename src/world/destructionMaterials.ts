@@ -82,7 +82,7 @@ export const STRUCTURAL_MATERIAL_PROPS: Readonly<Record<StructuralMaterial, Mate
     loadCapacityPerM2: 24_000,
     maxCantilever: 2.8,
     ramSpeedRetain: 0.84,
-    ramMinSpeed: 6.5,
+    ramMinSpeed: 5.0,
     fxClass: 'wood',
     legacyTier: 0,
   },

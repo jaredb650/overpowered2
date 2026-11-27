@@ -48,24 +48,24 @@ export interface ThermalSources {
 
 export type ThermalSourceProvider = () => ThermalSources;
 
-/** Thermal: modern FLIR thermal optics, worn on foot. No limit: T turns it on and off. */
+/** Thermal: AC-130 black-hot optics worn on foot (heat renders black via invert(1)). No limit: T turns it on and off. */
 export const THERMAL = {
-  /** Empty: FLIR optics are driven by the 'thermal' post grade and XRay visibleFill, never CSS invert(1). */
-  filter: '',
-  /** Living bodies glow white-hot with warm gold edges. */
-  enemyColor: '#fff2cc',
-  /** Distant living bodies in the 26..32 m falloff band cool slightly toward amber. */
-  enemyFarColor: '#ffaa33',
+  /** AC-130 BLACK HOT filter: monochrome high-contrast inverted so hot targets burn ink-black against bright cold terrain. */
+  filter: 'grayscale(1) contrast(1.3) invert(1)',
+  /** Living bodies highlight pure white before CSS invert(1), rendering jet-black hot like the AC-130 optic. */
+  enemyColor: '#ffffff',
+  /** Distant living bodies in the 26..32 m falloff band soften slightly before invert(1). */
+  enemyFarColor: '#d8d8d8',
   /** Visible-surface heat fill for unoccluded living bodies in pitch-black rooms. */
   visibleFill: 0.88,
-  /** Fresh cooling corpses glow hot orange-red. */
-  corpseHotColor: '#ff6622',
-  /** Older cooling corpses fade toward dull ember red before going cold. */
-  corpseCoolColor: '#b82814',
+  /** Fresh cooling corpses show dark gray under black-hot inversion. */
+  corpseHotColor: '#c8c8c8',
+  /** Older cooling corpses fade toward mid-gray before going cold. */
+  corpseCoolColor: '#8a8a8a',
   /** Hot environmental heat sources (live bulbs, heaters, hot machinery). */
-  sourceHotColor: '#ffaa33',
+  sourceHotColor: '#e6e6e6',
   /** Warm environmental heat sources (powered breaker boxes, security cameras, alarm panels). */
-  sourceWarmColor: '#44c8e8',
+  sourceWarmColor: '#b0b0b0',
   /** Metres it reads heat at, through cover too. Past it Sonar is still the chip for the whole map. */
   range: THERMAL_RANGE,
   /** Metres at which thermal signal begins fading smoothly to zero at `range`. */
@@ -103,8 +103,8 @@ export const CHIPS: Readonly<Record<ChipId, ChipDef>> = {
   },
   thermal: {
     id: 'thermal', name: 'Thermal', price: 1400, wave: 3, color: '#ff6a2c',
-    does: `Tap: FLIR thermal vision, on or off, for as long as you like. Living targets glow white-hot and cooling bodies and powered hardware show through cover out to ${THERMAL.range} m.`,
-    lore: 'Military FLIR microbolometers fitted behind the optic nerve. Cold concrete drops to midnight slate while every pulse, filament and fresh corpse burns white-orange.',
+    does: `Tap: AC-130 black-hot thermal vision, on or off, for as long as you like. Heat reads pitch-black through cover out to ${THERMAL.range} m.`,
+    lore: 'Gunship black-hot FLIR optics wired straight behind the visor. Cold concrete washes pale silver while every pulse, filament and fresh corpse burns ink-black.',
   },
   focus: {
     id: 'focus', name: 'Focus', price: 2200, wave: 6, color: '#ffc14a',
@@ -343,9 +343,11 @@ export class Chips {
 
   setThermal(on: boolean): void {
     if (on && !this.ctx.player.alive) return;
+    if (on === this.thermal) return;
     this.thermal = on;
     if (!on) this.view(false);
-    this.ctx.audio.play('ui_toggle');
+    this.ctx.events.emit('thermal:tap', { on });
+    this.ctx.audio.play('thermal_activate', { pitch: on ? 1 : 0.86 });
   }
 
   setFocus(on: boolean): void {
@@ -635,7 +637,7 @@ export class Chips {
     }
   }
 
-  /** Puts the FLIR thermal grade up or takes it down. Never uses CSS invert(1). Returns `on`. */
+  /** Puts the AC-130 black-hot thermal grade & canvas filter up or takes them down. Returns `on`. */
   private view(on: boolean): boolean {
     const style = this.ctx.render.renderer?.domElement?.style;
     if (on) {
@@ -647,6 +649,7 @@ export class Chips {
       }
       return true;
     }
+    if (style && style.filter === THERMAL.filter) style.filter = '';
     // A dead man's screen is the death grade's; the hold goes when he is back, or at the next run.
     if (this.graded && this.ctx.player.alive) {
       this.graded = false;

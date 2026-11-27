@@ -14,13 +14,13 @@
  *     stairs, Tier-0 destructible front sandbag cover + sunshade, and mounted M134 emplacement.
  */
 import {
-  createNavNodeProxy,
   type StructuralClusterSpec,
   type StructuralNodeSpec,
 } from '../../destruction';
 import { FACE, type Mat } from '../../kit/geo';
 import type { Kit } from '../../kit/kit';
 import { cable, tank, tyres } from '../../kit/props';
+import { buildWarHouseCluster } from '../endlessWar/buildings';
 import type { MapSpec } from '../spec';
 import { DESERT_PALETTE, type Rgb } from './dunes';
 import { WARREN_MINIGUN } from './plan';
@@ -76,8 +76,8 @@ const WARREN_SHACKS: readonly ShackSpec[] = [
   { id: 'warren.shack.19', x: 44, z: -5, w: 6.4, d: 4.8, stories: 1, yaw: Math.PI, color: 0x8e6b46, hasHazard: false, hasAwning: true },
 ];
 
-/** Builds a cut-your-own-way Tier-0 destructible shack (1-storey 3.6 m or 2-storey 7.2 m). */
-function buildWarrenShackCluster(k: Kit, s: ShackSpec): StructuralClusterSpec {
+/** Builds a cut-your-own-way Tier-0 destructible shack (1-storey 3.6 m or 2-storey 7.2 m) using the overhauled structural solver. */
+function buildWarrenShackCluster(s: ShackSpec): StructuralClusterSpec {
   const c = Math.cos(s.yaw);
   const sn = Math.sin(s.yaw);
   const pt = (lx: number, ly: number, lz: number): [number, number, number] => [
@@ -92,22 +92,22 @@ function buildWarrenShackCluster(k: Kit, s: ShackSpec): StructuralClusterSpec {
   const matWall: Mat = s.color === 0x7c7668 ? 'panel' : 'paintWhite';
 
   const nodes: StructuralNodeSpec[] = [
-    // 4 corner Tier-0 timber posts (materialClass: 'wood', hp: 135) — snapping them bends & drops the roof!
-    { id: 'post_fl', pos: pt(-hw + 0.15, wallH / 2, hd - 0.15), half: [0.16, wallH / 2, 0.16], mat: 'plywood', color: 0x6e4e32, hp: 135, tier: 0, anchored: true, kind: 'column', yaw: s.yaw, materialClass: 'wood' },
-    { id: 'post_fr', pos: pt(hw - 0.15, wallH / 2, hd - 0.15), half: [0.16, wallH / 2, 0.16], mat: 'plywood', color: 0x6e4e32, hp: 135, tier: 0, anchored: true, kind: 'column', yaw: s.yaw, materialClass: 'wood' },
-    { id: 'post_bl', pos: pt(-hw + 0.15, wallH / 2, -hd + 0.15), half: [0.16, wallH / 2, 0.16], mat: 'plywood', color: 0x64462c, hp: 135, tier: 0, anchored: true, kind: 'column', yaw: s.yaw, materialClass: 'wood' },
-    { id: 'post_br', pos: pt(hw - 0.15, wallH / 2, -hd + 0.15), half: [0.16, wallH / 2, 0.16], mat: 'plywood', color: 0x64462c, hp: 135, tier: 0, anchored: true, kind: 'column', yaw: s.yaw, materialClass: 'wood' },
+    // 4 corner Tier-0 load-bearing timber posts — snapping them tips & collapses the roof!
+    { id: 'post_fl', pos: pt(-hw + 0.15, wallH / 2, hd - 0.15), half: [0.16, wallH / 2, 0.16], mat: 'plywood', color: 0x6e4e32, hp: 135, tier: 0, anchored: true, kind: 'column', yaw: s.yaw, materialClass: 'wood', structuralMaterial: 'timber', supportRole: 'load_bearing', loadCapacity: 24_000 },
+    { id: 'post_fr', pos: pt(hw - 0.15, wallH / 2, hd - 0.15), half: [0.16, wallH / 2, 0.16], mat: 'plywood', color: 0x6e4e32, hp: 135, tier: 0, anchored: true, kind: 'column', yaw: s.yaw, materialClass: 'wood', structuralMaterial: 'timber', supportRole: 'load_bearing', loadCapacity: 24_000 },
+    { id: 'post_bl', pos: pt(-hw + 0.15, wallH / 2, -hd + 0.15), half: [0.16, wallH / 2, 0.16], mat: 'plywood', color: 0x64462c, hp: 135, tier: 0, anchored: true, kind: 'column', yaw: s.yaw, materialClass: 'wood', structuralMaterial: 'timber', supportRole: 'load_bearing', loadCapacity: 24_000 },
+    { id: 'post_br', pos: pt(hw - 0.15, wallH / 2, -hd + 0.15), half: [0.16, wallH / 2, 0.16], mat: 'plywood', color: 0x64462c, hp: 135, tier: 0, anchored: true, kind: 'column', yaw: s.yaw, materialClass: 'wood', structuralMaterial: 'timber', supportRole: 'load_bearing', loadCapacity: 24_000 },
 
-    // Sheet-metal siding panels (`materialClass: 'metal'`, `fractureGrid: [2, 2]`, hp: 160-185) -> blast jagged walk-through holes!
-    { id: 'wall_w', pos: pt(-hw, wallH / 2, 0), half: [0.14, wallH / 2, hd - 0.32], mat: matWall, color: s.color, hp: 170, tier: 0, anchored: true, kind: 'wall', yaw: s.yaw, materialClass: 'metal', fractureGrid: [2, 2] },
-    { id: 'wall_e', pos: pt(hw, wallH / 2, 0), half: [0.14, wallH / 2, hd - 0.32], mat: matWall, color: s.color, hp: 170, tier: 0, anchored: true, kind: 'wall', yaw: s.yaw, materialClass: 'metal', fractureGrid: [2, 2] },
-    { id: 'wall_b', pos: pt(0, wallH / 2, -hd), half: [hw - 0.32, wallH / 2, 0.14], mat: 'rust', color: s.color, hp: 185, tier: 0, anchored: true, kind: 'wall', yaw: s.yaw, materialClass: 'metal', fractureGrid: [2, 2] },
+    // Corrugated sheet-metal siding panels (`materialClass: 'metal'`, `structuralMaterial: 'timber'`, `lazyFracture: true`) -> smashable by technicals & shredded by .50 cal / 40mm!
+    { id: 'wall_w', pos: pt(-hw, wallH / 2, 0), half: [0.14, wallH / 2, hd - 0.32], mat: matWall, color: s.color, hp: 170, tier: 0, anchored: true, kind: 'wall', yaw: s.yaw, materialClass: 'metal', structuralMaterial: 'timber', supportRole: 'load_bearing', lazyFracture: true, fractureGrid: [2, 2], navBlock: true },
+    { id: 'wall_e', pos: pt(hw, wallH / 2, 0), half: [0.14, wallH / 2, hd - 0.32], mat: matWall, color: s.color, hp: 170, tier: 0, anchored: true, kind: 'wall', yaw: s.yaw, materialClass: 'metal', structuralMaterial: 'timber', supportRole: 'load_bearing', lazyFracture: true, fractureGrid: [2, 2], navBlock: true },
+    { id: 'wall_b', pos: pt(0, wallH / 2, -hd), half: [hw - 0.32, wallH / 2, 0.14], mat: 'rust', color: s.color, hp: 185, tier: 0, anchored: true, kind: 'wall', yaw: s.yaw, materialClass: 'metal', structuralMaterial: 'timber', supportRole: 'load_bearing', lazyFracture: true, fractureGrid: [2, 2], navBlock: true },
     // Front wall cheeks framing a 1.8 m doorway
-    { id: 'wall_fl', pos: pt(-hw * 0.58, wallH / 2, hd), half: [hw * 0.34, wallH / 2, 0.14], mat: matWall, color: s.color, hp: 155, tier: 0, anchored: true, kind: 'wall', yaw: s.yaw, materialClass: 'metal', fractureGrid: [2, 2] },
-    { id: 'wall_fr', pos: pt(hw * 0.58, wallH / 2, hd), half: [hw * 0.34, wallH / 2, 0.14], mat: matWall, color: s.color, hp: 155, tier: 0, anchored: true, kind: 'wall', yaw: s.yaw, materialClass: 'metal', fractureGrid: [2, 2] },
+    { id: 'wall_fl', pos: pt(-hw * 0.58, wallH / 2, hd), half: [hw * 0.34, wallH / 2, 0.14], mat: matWall, color: s.color, hp: 155, tier: 0, anchored: true, kind: 'wall', yaw: s.yaw, materialClass: 'metal', structuralMaterial: 'timber', supportRole: 'load_bearing', lazyFracture: true, fractureGrid: [2, 2], navBlock: true },
+    { id: 'wall_fr', pos: pt(hw * 0.58, wallH / 2, hd), half: [hw * 0.34, wallH / 2, 0.14], mat: matWall, color: s.color, hp: 155, tier: 0, anchored: true, kind: 'wall', yaw: s.yaw, materialClass: 'metal', structuralMaterial: 'timber', supportRole: 'load_bearing', lazyFracture: true, fractureGrid: [2, 2], navBlock: true },
   ];
 
-  // First-floor timber/corrugated roof deck (top exact y = 3.6, materialClass: 'wood')
+  // First-floor timber/corrugated roof deck (top exact y = 3.6, dynamic NavGraph walkable when marked)
   const roof1: StructuralNodeSpec = {
     id: 'roof_1',
     pos: pt(0, SINGLE_H - roofHalfY, 0),
@@ -121,7 +121,11 @@ function buildWarrenShackCluster(k: Kit, s: ShackSpec): StructuralClusterSpec {
     yaw: s.yaw,
     impactRadius: 7.5,
     materialClass: 'wood',
+    structuralMaterial: 'timber',
+    supportRole: 'load_bearing',
+    lazyFracture: true,
     fractureGrid: [2, 2],
+    navWalkable: !!s.walkableRoof,
   };
   nodes.push(roof1);
 
@@ -139,17 +143,22 @@ function buildWarrenShackCluster(k: Kit, s: ShackSpec): StructuralClusterSpec {
     const upperWallH = DOUBLE_H - SINGLE_H - roofHalfY * 2; // 3.32 m -> top roof exact 7.2 m
     const yMid = SINGLE_H + upperWallH / 2;
     nodes.push(
-      { id: 'up_wall_w', pos: pt(-hw + 0.12, yMid, 0), half: [0.14, upperWallH / 2, hd - 0.25], mat: 'panel', color: s.color, hp: 165, tier: 0, anchored: false, kind: 'wall', yaw: s.yaw, materialClass: 'metal', fractureGrid: [2, 2] },
-      { id: 'up_wall_e', pos: pt(hw - 0.12, yMid, 0), half: [0.14, upperWallH / 2, hd - 0.25], mat: 'panel', color: s.color, hp: 165, tier: 0, anchored: false, kind: 'wall', yaw: s.yaw, materialClass: 'metal', fractureGrid: [2, 2] },
-      { id: 'up_wall_b', pos: pt(0, yMid, -hd + 0.12), half: [hw - 0.25, upperWallH / 2, 0.14], mat: 'rust', color: 0x86543a, hp: 170, tier: 0, anchored: false, kind: 'wall', yaw: s.yaw, materialClass: 'metal', fractureGrid: [2, 2] },
-      { id: 'up_parapet_f', pos: pt(0, SINGLE_H + 0.62, hd - 0.12), half: [hw - 0.25, 0.62, 0.14], mat: 'plywood', color: 0x9b764e, hp: 130, tier: 0, anchored: false, kind: 'wall', yaw: s.yaw, materialClass: 'wood' },
-      { id: 'roof_2', pos: pt(0, DOUBLE_H - roofHalfY, 0), half: [hw + 0.35, roofHalfY, hd + 0.35], mat: 'plywood', color: 0x6f4b34, hp: 160, tier: 0, anchored: false, kind: 'roof', yaw: s.yaw, impactRadius: 9.0, materialClass: 'wood', fractureGrid: [2, 2] },
+      // Interior drywall dividing wall on ground floor (shreds from shotguns, HMGs, explosives, or vehicle rams!)
+      { id: 'int_drywall', pos: pt(0, wallH / 2, -hd * 0.15), half: [0.09, wallH / 2 - 0.04, hd * 0.45], mat: 'plaster', color: [0.74, 0.66, 0.56], hp: 55, tier: 0, anchored: true, kind: 'wall', yaw: s.yaw, materialClass: 'wood', structuralMaterial: 'drywall', supportRole: 'infill', lazyFracture: true, fractureGrid: [2, 2], navBlock: true },
+      { id: 'up_wall_w', pos: pt(-hw + 0.12, yMid, 0), half: [0.14, upperWallH / 2, hd - 0.25], mat: 'panel', color: s.color, hp: 165, tier: 0, anchored: false, kind: 'wall', yaw: s.yaw, materialClass: 'metal', structuralMaterial: 'timber', supportRole: 'load_bearing', lazyFracture: true, fractureGrid: [2, 2] },
+      { id: 'up_wall_e', pos: pt(hw - 0.12, yMid, 0), half: [0.14, upperWallH / 2, hd - 0.25], mat: 'panel', color: s.color, hp: 165, tier: 0, anchored: false, kind: 'wall', yaw: s.yaw, materialClass: 'metal', structuralMaterial: 'timber', supportRole: 'load_bearing', lazyFracture: true, fractureGrid: [2, 2] },
+      { id: 'up_wall_b', pos: pt(0, yMid, -hd + 0.12), half: [hw - 0.25, upperWallH / 2, 0.14], mat: 'rust', color: 0x86543a, hp: 170, tier: 0, anchored: false, kind: 'wall', yaw: s.yaw, materialClass: 'metal', structuralMaterial: 'timber', supportRole: 'load_bearing', lazyFracture: true, fractureGrid: [2, 2] },
+      { id: 'up_parapet_f', pos: pt(0, SINGLE_H + 0.62, hd - 0.12), half: [hw - 0.25, 0.62, 0.14], mat: 'plywood', color: 0x9b764e, hp: 130, tier: 0, anchored: false, kind: 'wall', yaw: s.yaw, materialClass: 'wood', structuralMaterial: 'timber', supportRole: 'infill' },
+      { id: 'up_glass_f', pos: pt(0, SINGLE_H + 1.9, hd - 0.12), half: [hw - 0.55, 0.62, 0.04], mat: 'glass', color: [0.56, 0.64, 0.68], hp: 14, tier: 0, anchored: false, kind: 'wall', yaw: s.yaw, materialClass: 'concrete', structuralMaterial: 'glass', supportRole: 'infill' },
+      { id: 'roof_2', pos: pt(0, DOUBLE_H - roofHalfY, 0), half: [hw + 0.35, roofHalfY, hd + 0.35], mat: 'plywood', color: 0x6f4b34, hp: 160, tier: 0, anchored: false, kind: 'roof', yaw: s.yaw, impactRadius: 9.0, materialClass: 'wood', structuralMaterial: 'timber', supportRole: 'load_bearing', lazyFracture: true, fractureGrid: [2, 2] },
     );
     links.push(
+      ['int_drywall', 'roof_1'],
       ['roof_1', 'up_wall_w'],
       ['roof_1', 'up_wall_e'],
       ['roof_1', 'up_wall_b'],
       ['roof_1', 'up_parapet_f'],
+      ['up_parapet_f', 'up_glass_f'],
       ['up_wall_w', 'roof_2'],
       ['up_wall_e', 'roof_2'],
       ['up_wall_b', 'roof_2'],
@@ -170,6 +179,8 @@ function buildWarrenShackCluster(k: Kit, s: ShackSpec): StructuralClusterSpec {
       yaw: s.yaw,
       pitch: 0.18,
       materialClass: 'wood',
+      structuralMaterial: 'timber',
+      supportRole: 'infill',
     });
     links.push(['post_fl', 'awning'], ['post_fr', 'awning']);
   }
@@ -189,12 +200,10 @@ function buildWarrenShackCluster(k: Kit, s: ShackSpec): StructuralClusterSpec {
       hazardRadius: 7.5,
       hazardDamage: 200,
       materialClass: 'metal',
+      structuralMaterial: 'timber',
+      supportRole: 'infill',
     });
   }
-
-  const navProxies = s.walkableRoof
-    ? [createNavNodeProxy(k.physics, roof1)].filter((c): c is NonNullable<typeof c> => c !== null)
-    : undefined;
 
   return {
     id: s.id,
@@ -202,22 +211,21 @@ function buildWarrenShackCluster(k: Kit, s: ShackSpec): StructuralClusterSpec {
     kind: 'warrenShack',
     label: s.stories === 2 ? 'TWO-STOREY SHANTY' : 'WARREN SHANTY',
     value: s.stories === 2 ? 78_000 : 48_000,
+    batched: s.stories === 2,
     nodes,
     links,
     collapseThreshold: 0.42,
-    navProxies,
   };
 }
 
 /** Builds a Tier-0 destructible rooftop catwalk bridge at y = 3.6 between alley shacks. */
 function buildRooftopCatwalkCluster(
-  k: Kit,
   idx: number,
   ax: number,
   az: number,
   bx: number,
   bz: number,
-  withNavProxy: boolean,
+  withNavWalkable: boolean,
 ): StructuralClusterSpec {
   const dx = bx - ax;
   const dz = bz - az;
@@ -241,17 +249,18 @@ function buildRooftopCatwalkCluster(
     yaw,
     impactRadius: 6,
     materialClass: 'wood',
+    structuralMaterial: 'timber',
+    supportRole: 'load_bearing',
+    lazyFracture: true,
+    fractureGrid: [2, 1],
+    navWalkable: withNavWalkable,
   };
 
   const nodes: StructuralNodeSpec[] = [
-    { id: 'leg_a', pos: [ax, legH / 2, az], half: [0.18, legH / 2, 0.85], mat: 'plywood', color: 0x6f4d32, hp: 130, tier: 0, anchored: true, kind: 'column', yaw, materialClass: 'wood' },
-    { id: 'leg_b', pos: [bx, legH / 2, bz], half: [0.18, legH / 2, 0.85], mat: 'plywood', color: 0x6f4d32, hp: 130, tier: 0, anchored: true, kind: 'column', yaw, materialClass: 'wood' },
+    { id: 'leg_a', pos: [ax, legH / 2, az], half: [0.18, legH / 2, 0.85], mat: 'plywood', color: 0x6f4d32, hp: 130, tier: 0, anchored: true, kind: 'column', yaw, materialClass: 'wood', structuralMaterial: 'timber', supportRole: 'load_bearing', loadCapacity: 22_000 },
+    { id: 'leg_b', pos: [bx, legH / 2, bz], half: [0.18, legH / 2, 0.85], mat: 'plywood', color: 0x6f4d32, hp: 130, tier: 0, anchored: true, kind: 'column', yaw, materialClass: 'wood', structuralMaterial: 'timber', supportRole: 'load_bearing', loadCapacity: 22_000 },
     deck,
   ];
-
-  const navProxies = withNavProxy
-    ? [createNavNodeProxy(k.physics, deck)].filter((c): c is NonNullable<typeof c> => c !== null)
-    : undefined;
 
   return {
     id: `warren.catwalk.${idx}`,
@@ -265,7 +274,6 @@ function buildRooftopCatwalkCluster(
       ['leg_b', 'catwalk_deck'],
     ],
     collapseThreshold: 0.45,
-    navProxies,
   };
 }
 
@@ -286,9 +294,9 @@ function buildStreetCoverCluster(idx: number, x: number, z: number, yaw: number)
     label: 'STREET BARRICADE',
     value: 18_000,
     nodes: [
-      { id: 'sandbags', pos: pt(0, 0.56, 0), half: [1.9, 0.56, 0.42], mat: 'dirt', color: 0x9b8660, hp: 135, tier: 0, anchored: true, kind: 'wall', yaw, materialClass: 'stone' },
-      { id: 'crate_l', pos: pt(-1.6, 0.52, -0.7), half: [0.55, 0.52, 0.55], mat: 'plywood', color: 0x9a7549, hp: 120, tier: 0, anchored: true, kind: 'wall', yaw, materialClass: 'wood' },
-      { id: 'crate_r', pos: pt(1.5, 0.52, -0.55), half: [0.52, 0.52, 0.52], mat: 'plywood', color: 0x8a6640, hp: 120, tier: 0, anchored: true, kind: 'wall', yaw, materialClass: 'wood' },
+      { id: 'sandbags', pos: pt(0, 0.56, 0), half: [1.9, 0.56, 0.42], mat: 'dirt', color: 0x9b8660, hp: 135, tier: 0, anchored: true, kind: 'wall', yaw, materialClass: 'stone', structuralMaterial: 'timber', supportRole: 'infill', navBlock: true },
+      { id: 'crate_l', pos: pt(-1.6, 0.52, -0.7), half: [0.55, 0.52, 0.55], mat: 'plywood', color: 0x9a7549, hp: 120, tier: 0, anchored: true, kind: 'wall', yaw, materialClass: 'wood', structuralMaterial: 'timber', supportRole: 'infill', navBlock: true },
+      { id: 'crate_r', pos: pt(1.5, 0.52, -0.55), half: [0.52, 0.52, 0.52], mat: 'plywood', color: 0x8a6640, hp: 120, tier: 0, anchored: true, kind: 'wall', yaw, materialClass: 'wood', structuralMaterial: 'timber', supportRole: 'infill', navBlock: true },
     ],
     collapseThreshold: 0.5,
   };
@@ -326,11 +334,11 @@ function buildMinigunNest(k: Kit, spec: MapSpec): void {
     label: 'MINIGUN NEST PARAPET',
     value: 35_000,
     nodes: [
-      { id: 'bags_north', pos: [mx, my + 0.48, mz - 2.5], half: [2.9, 0.48, 0.32], mat: 'dirt', color: 0x9b8660, hp: 140, tier: 0, anchored: true, kind: 'wall', materialClass: 'stone' },
-      { id: 'bags_east', pos: [mx + 3.1, my + 0.48, mz - 0.4], half: [0.32, 0.48, 2.1], mat: 'dirt', color: 0x937e5a, hp: 140, tier: 0, anchored: true, kind: 'wall', materialClass: 'stone' },
-      { id: 'post_nw', pos: [mx - 3.0, my + 1.35, mz - 2.4], half: [0.12, 1.35, 0.12], mat: 'plywood', color: 0x764c34, hp: 130, tier: 0, anchored: true, kind: 'column', materialClass: 'wood' },
-      { id: 'post_ne', pos: [mx + 3.0, my + 1.35, mz - 2.4], half: [0.12, 1.35, 0.12], mat: 'plywood', color: 0x764c34, hp: 130, tier: 0, anchored: true, kind: 'column', materialClass: 'wood' },
-      { id: 'sunshade', pos: [mx, my + 2.75, mz - 1.1], half: [3.3, 0.08, 1.6], mat: 'rust', color: 0x9a5638, hp: 145, tier: 0, anchored: false, kind: 'roof', materialClass: 'metal', fractureGrid: [2, 2] },
+      { id: 'bags_north', pos: [mx, my + 0.48, mz - 2.5], half: [2.9, 0.48, 0.32], mat: 'dirt', color: 0x9b8660, hp: 140, tier: 0, anchored: true, kind: 'wall', materialClass: 'stone', structuralMaterial: 'timber', supportRole: 'infill', navBlock: true },
+      { id: 'bags_east', pos: [mx + 3.1, my + 0.48, mz - 0.4], half: [0.32, 0.48, 2.1], mat: 'dirt', color: 0x937e5a, hp: 140, tier: 0, anchored: true, kind: 'wall', materialClass: 'stone', structuralMaterial: 'timber', supportRole: 'infill', navBlock: true },
+      { id: 'post_nw', pos: [mx - 3.0, my + 1.35, mz - 2.4], half: [0.12, 1.35, 0.12], mat: 'plywood', color: 0x764c34, hp: 130, tier: 0, anchored: true, kind: 'column', materialClass: 'wood', structuralMaterial: 'timber', supportRole: 'load_bearing', loadCapacity: 24_000 },
+      { id: 'post_ne', pos: [mx + 3.0, my + 1.35, mz - 2.4], half: [0.12, 1.35, 0.12], mat: 'plywood', color: 0x764c34, hp: 130, tier: 0, anchored: true, kind: 'column', materialClass: 'wood', structuralMaterial: 'timber', supportRole: 'load_bearing', loadCapacity: 24_000 },
+      { id: 'sunshade', pos: [mx, my + 2.75, mz - 1.1], half: [3.3, 0.08, 1.6], mat: 'rust', color: 0x9a5638, hp: 145, tier: 0, anchored: false, kind: 'roof', materialClass: 'metal', structuralMaterial: 'timber', supportRole: 'load_bearing', lazyFracture: true, fractureGrid: [2, 2] },
     ],
     links: [
       ['post_nw', 'sunshade'],
@@ -398,20 +406,39 @@ function streetBrazier(k: Kit, x: number, z: number, lit: boolean): void {
 }
 
 export function authorDesertWarren(k: Kit, spec: MapSpec): void {
-  // 1. 20 distinct Tier-0 destructible shacks (14 single-storey + 6 two-storey)
+  // 1. 20 distinct destructible timber/sheet-metal shacks (14 single-storey + 6 two-storey)
   for (const s of WARREN_SHACKS) {
-    spec.cluster(buildWarrenShackCluster(k, s));
+    spec.cluster(buildWarrenShackCluster(s));
     const hw = s.w / 2;
     const hd = s.d / 2;
     spec.plan?.blocks.push({ x0: s.x - hw, z0: s.z - hd, x1: s.x + hw, z1: s.z + hd });
   }
+
+  // 1b. Two 2-story enterable Desert Masonry Compounds on the open west & east Warren flanks
+  //     (reusing the Endless War structural house system: breachable adobe/brick masonry, drywall, glass, interior stairs!)
+  spec.cluster(
+    buildWarHouseCluster('warren.masonry.west', -63, 22, Math.PI / 2, {
+      style: 'brick',
+      tint: [0.76, 0.56, 0.39],
+      spec,
+      label: 'DESERT MASONRY COMPOUND',
+    }),
+  );
+  spec.cluster(
+    buildWarHouseCluster('warren.masonry.east', 63, 34, -Math.PI / 2, {
+      style: 'brick',
+      tint: [0.72, 0.50, 0.36],
+      spec,
+      label: 'DESERT MASONRY COMPOUND',
+    }),
+  );
 
   // 2. Walkable steel access stairs up to 3 single-storey shanty roofs (y = 3.6)
   k.stairs(-16, 51.0, 0, -16, 44.8, SINGLE_H, 1.8, 'steel', true);
   k.stairs(-30, 22.8, 0, -30, 16.4, SINGLE_H, 1.8, 'steel', true);
   k.stairs(34, 40.8, 0, 34, 34.4, SINGLE_H, 1.8, 'steel', true);
 
-  // 3. 4 Tier-0 Destructible Rooftop Catwalks bridging shanty alleys at y = 3.6
+  // 3. 4 Destructible Rooftop Catwalks bridging shanty alleys at y = 3.6
   const catwalks: readonly [number, number, number, number, boolean][] = [
     [-27.0, 14.0, -17.0, 8.0, true],
     [-44.0, 44.0, -33.2, 44.0, false],
@@ -420,7 +447,7 @@ export function authorDesertWarren(k: Kit, spec: MapSpec): void {
   ];
   for (let i = 0; i < catwalks.length; i++) {
     const [ax, az, bx, bz, navProxy] = catwalks[i]!;
-    spec.cluster(buildRooftopCatwalkCluster(k, i, ax, az, bx, bz, navProxy));
+    spec.cluster(buildRooftopCatwalkCluster(i, ax, az, bx, bz, navProxy));
     spec.plan?.decks.push({
       x0: Math.min(ax, bx) - 1.1,
       z0: Math.min(az, bz) - 1.1,

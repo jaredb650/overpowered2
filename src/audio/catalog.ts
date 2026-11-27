@@ -377,6 +377,10 @@ const vehicleSamples: SoundDef[] = [
   shot('aircraft_missile_fire', 'vehicles/aircraft_missile_fire.mp3', 'gunHeavy', 0.27, 0.2493, {
     maxVoices: 4, perFrame: 1, near: 18, far: 260, send: 0.24, pitchJitter: 0.04,
   }),
+  // Tank main gun (owner, 2026-11-27, tank_cannon__4_.mp3): replaces the synth tank_cannon recipe with a real 120 mm blast.
+  shot('tank_cannon', 'vehicles/tank_cannon.mp3', 'blast', 0.44, 0.2807, {
+    near: 22, far: 420, send: 0.5, maxVoices: 3, duck: [0.35, 0.6], pitchJitter: 0.04,
+  }),
 ];
 
 /**
@@ -606,6 +610,10 @@ const gunShots: SoundDef[] = [
   shot('gaff_shot', 'guns/gaff_shot.mp3', 'gunHeavy', 0.25, 0.375, { send: 0.26 }),
   shot('stakegun_string', 'guns/stakegun_string.mp3', 'foley', 0.054, 0.072),
   shot('stake_beep', 'guns/stake_beep.mp3', 'enemyFx', 0.08, 0.373, { priority: 7, maxVoices: 4, perFrame: 2, near: 6, far: 60, pitchJitter: 0 }),
+  // The Flail LMG (owner, 2026-11-27, flailShot.mp3): punchy 800 RPM light machine gun report between the Harrow and auto shotgun.
+  shot('flail_shot', 'guns/flail_shot.mp3', 'gun', 0.175, 0.385, { send: 0.22 }),
+  // Thermal brain chip visor toggle (owner, 2026-11-27, thermalActivate.mp3): crisp electronic optic hum/engage on the reward mix.
+  shot('thermal_activate', 'thermal_activate.mp3', 'reward', 0.22, 0.1682, { maxVoices: 2, pitchJitter: 0.02 }),
   // A Raufoss round bursting, up to eight a second from the Piledriver: three voices, one start a frame, oldest out.
   shot('raufoss_detonation', 'guns/raufoss_detonation.mp3', 'blastSmall', 0.1, 0.133, { maxVoices: 3, perFrame: 1 }),
 ];
@@ -765,12 +773,12 @@ const aliases: Record<string, string> = {
   knife_hit: 'stealth_takedown',
 };
 
-const gunShotIds = new Set(gunShots.map(d => d.id));
+const sampleOverrideIds = new Set([...vehicleSamples, ...gunShots].map(d => d.id));
 
 export const CATALOG: ReadonlyMap<string, SoundDef> = new Map(
   [
     ...samples, ...armourSamples, ...woundSamples, ...bodyGoreSamples, ...vehicleSamples, ...destructionSamples, ...gunShots, ...packs, ...groups, ...stacks,
-    ...recipes.filter(rec => !gunShotIds.has(rec.id)).map(synth),
+    ...recipes.filter(rec => !sampleOverrideIds.has(rec.id)).map(synth),
   ].map(def => [def.id, def]),
 );
 
