@@ -168,6 +168,7 @@ describe('SHEAR firing range behaviour', () => {
     expect(pitches[1]).toBe(0);
     expect(pitches[2]!).toBeGreaterThan(0);
     expect(pitches[3]!).toBeGreaterThan(pitches[2]!);
+    expect(r.record.sounds).toContain('shear_shot');
   });
 
   it('re-arms the zero-climb hyperburst cleanly after releasing and re-pulling the trigger', () => {

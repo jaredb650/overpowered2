@@ -447,6 +447,16 @@ peak at -0.3 dB (0 clipped), 160 kbit/s, measured loudness 0.376, on the `gun` m
 44.1 kHz, 141 ms lead-in cut, scaled -2.4 dB to avoid MP3 overshoot, faded out from 1.45 s to 1.709 s, peak at -0.5 dB (0 clipped),
 160 kbit/s, measured loudness 0.375, on `gunHeavy` at 0.25 on the ladder (`send` 0.26).
 
+**The Shear's shot** (2026-11-27, `guns/shear_shot.mp3`, the owner's `ShearShot.wav`): `shear_shot` replaces the borrowed pitched
+`harrow_shot` on the AN-94-inspired Shear hyperburst rifle. Source was a 1.20 s stereo 44.1 kHz WAV: averaged to mono at 44.1 kHz,
+faded out 0.96–1.16 s, peak at -1.22 dB (0 clipped), 160 kbit/s, measured loudness 0.2602, on the `gun` mix at 0.16 on the ladder
+(`send` 0.2, `perFrame` 2 so two-round 1,800 RPM hyperburst taps never collide on low-FPS frames).
+
+**The Bodkin OICW 20 mm launcher's shot** (2026-11-27, `guns/bodkin_oicw_shot.mp3`, the owner's `bodkinGrenadeLaunc.mp3`):
+`bodkin_oicw_shot` replaces the borrowed pitched `launcher_thump` on `OICW_LAUNCHER`. Source was a 2.00 s stereo 40 kHz WAV inside
+an `.mp3` name: averaged to mono at 44.1 kHz, faded out 1.35–1.65 s, peak at -1.29 dB (0 clipped), 160 kbit/s, measured loudness
+0.2789, on the `gun` mix at 0.20 on the ladder (`send` 0.22) — just above Gimlet's 40 mm `launcher_thump` (0.19) and under `mgl_shot` (0.22).
+
 ## Sample packs
 
 Real recordings from free libraries. Sources, authors and licences for every file are in `docs/CREDITS.md`. One id holds all its variants, and pitch

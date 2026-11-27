@@ -202,6 +202,7 @@ describe('Bodkin OICW toggle, ADS rangefinder, Shift-to-lase, and airburst physi
     expect(r.record.blasts[0]!.z).toBeLessThan(-15.5);
     // Shell retired cleanly after detonating
     expect(r.combat.projectiles.active.length).toBe(0);
+    expect(r.record.sounds).toContain('bodkin_oicw_shot');
   });
 
   it('explodes immediately on impact (failsafe) when a wall is closer than the locked airburst distance', () => {
