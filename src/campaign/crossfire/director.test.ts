@@ -52,6 +52,7 @@ interface MockDriveable {
     velocity: THREE.Vector3;
   };
   refilledMode: number | null;
+  refillCount: number;
   board: (seat?: number) => void;
   setExitLocked: (locked: boolean) => void;
   refillOrdnance: (mode?: number) => void;
@@ -68,6 +69,8 @@ function makeHarness(missionId: string) {
   const spawnedDriveables: MockDriveable[] = [];
   const spawnedEnemyOrders: { kind: string; tag: string }[] = [];
   const spawnedAllies: string[] = [];
+  const spawnedEnemyInfantry: string[] = [];
+  const adoptedSquadGoals: THREE.Vector3[] = [];
   const extraTargets = new Set<unknown>();
   let friendlyVehiclesProvider: unknown = null;
   let interactPressed = false;
@@ -97,6 +100,7 @@ function makeHarness(missionId: string) {
           velocity: new THREE.Vector3(),
         },
         refilledMode: null,
+        refillCount: 0,
         board: vi.fn(() => {
           veh.occupied = true;
           driveables.active = veh;
@@ -105,6 +109,7 @@ function makeHarness(missionId: string) {
           veh.exitLocked = locked;
         }),
         refillOrdnance: (mode?: number) => {
+          veh.refillCount++;
           veh.refilledMode = mode ?? null;
         },
       };
@@ -115,6 +120,20 @@ function makeHarness(missionId: string) {
 
   const mockStructures: { stage: string }[] = Array.from({ length: 40 }, () => ({ stage: 'intact' }));
   const mockClusters = new Map<string, { collapsed: boolean; destroyedFraction: number }>();
+  const mockAlliesList: Array<{
+    alive: boolean;
+    state: string;
+    essential: boolean;
+    expendable: boolean;
+    detached: boolean;
+    order: string;
+    post: THREE.Vector3;
+    postRadius: number;
+    thinkAt: number;
+    scriptedGoal: THREE.Vector3 | null;
+    body: { position: THREE.Vector3; center: THREE.Vector3; velocity: THREE.Vector3 };
+  }> = [];
+  const mockEnemiesAlive: Array<{ alive: boolean; id: string; position: THREE.Vector3 }> = [];
 
   const ctx = {
     events,
@@ -178,11 +197,12 @@ function makeHarness(missionId: string) {
       driveables,
     },
     allies: {
-      allies: [],
+      allies: mockAlliesList,
+      extraFoeProvider: null as unknown,
       spawn: vi.fn((type: string, at?: THREE.Vector3, post?: THREE.Vector3) => {
         spawnedAllies.push(type);
         const pos = at ? at.clone() : new THREE.Vector3();
-        return {
+        const ally = {
           alive: true,
           state: 'up',
           essential: false,
@@ -195,13 +215,44 @@ function makeHarness(missionId: string) {
           scriptedGoal: null as THREE.Vector3 | null,
           body: { position: pos, center: pos.clone().setY(pos.y + 1.2), velocity: new THREE.Vector3() },
         };
+        mockAlliesList.push(ally);
+        return ally;
       }),
       dismiss: vi.fn(),
     },
     enemies: {
-      alive: [],
+      alive: mockEnemiesAlive,
       query: vi.fn(() => 0),
       applyDamage: vi.fn(),
+      spawn: vi.fn((id: string, at: THREE.Vector3) => {
+        spawnedEnemyInfantry.push(id);
+        const enemy = {
+          alive: true,
+          id,
+          position: at.clone(),
+          velocity: new THREE.Vector3(),
+          groundY: 0,
+          char: { root: new THREE.Group(), limbs: {} },
+        };
+        mockEnemiesAlive.push(enemy);
+        return enemy;
+      }),
+      outpost: {
+        w: { now: 1 },
+        muster: vi.fn(() => ({
+          members: [] as Array<{ e: { alive: boolean; id: string; position: THREE.Vector3 } }>,
+          adopt: vi.fn((goal: THREE.Vector3) => {
+            adoptedSquadGoals.push(goal.clone());
+          }),
+        })),
+        enlistInto: vi.fn((squad: { members: Array<{ e: { alive: boolean; id: string; position: THREE.Vector3 } }> }, id: string, at: THREE.Vector3) => {
+          spawnedEnemyInfantry.push(id);
+          const e = { alive: true, id, position: at.clone() };
+          mockEnemiesAlive.push(e);
+          squad.members.push({ e });
+          return e;
+        }),
+      },
       vehicles: {
         live: [],
         addExtra: vi.fn((e: unknown) => { extraTargets.add(e); }),
@@ -244,6 +295,10 @@ function makeHarness(missionId: string) {
     spawnedDriveables,
     spawnedEnemyOrders,
     spawnedAllies,
+    spawnedEnemyInfantry,
+    adoptedSquadGoals,
+    mockAlliesList,
+    mockEnemiesAlive,
     extraTargets,
     mockStructures,
     mockClusters,
@@ -491,14 +546,27 @@ describe('CrossfireDirector & all 25 cf.* calls', () => {
     expect(h.signals).toContain(CROSSFIRE_SIGNALS.halcyonRadarDown);
     expect(h.signals).toContain(CROSSFIRE_SIGNALS.halcyonWarBroken);
 
-    // 6. Citadel Siege: refills Lancer into Mode 3 (BLU-121 Thermobaric) and destroys HQ
+    // 6. Citadel Siege: refills Lancer bomb bays (without forcing mode switch) -> Thermobaric cracks HQ -> Napalm burns Halvorsen out
     h.director.call('cf.halcyonCitadelSiege');
-    expect(h.spawnedDriveables[0]?.refilledMode).toBe(3);
+    expect(h.spawnedDriveables[0]?.refillCount).toBeGreaterThanOrEqual(1);
+    expect(h.spawnedDriveables[0]?.refilledMode).toBeNull();
 
     h.events.emit('combat:explosion', {
       position: new THREE.Vector3(HALCYON_CITADEL_HQ_POS[0], 4, HALCYON_CITADEL_HQ_POS[2]),
-      radius: 40,
-      damage: 6000,
+      radius: 48,
+      damage: 2600,
+      source: 'ac130_bomb',
+      kind: 'thermobaric',
+    });
+    h.director.update(0.1);
+    expect(h.signals).toContain(CROSSFIRE_SIGNALS.halcyonHqCracked);
+    expect(h.signals).not.toContain(CROSSFIRE_SIGNALS.halcyonHqDestroyed);
+
+    h.events.emit('combat:explosion', {
+      position: new THREE.Vector3(HALCYON_CITADEL_HQ_POS[0], 4, HALCYON_CITADEL_HQ_POS[2]),
+      radius: 22,
+      damage: 520,
+      source: 'lancer_napalm',
     });
     h.director.update(0.1);
     expect(h.signals).toContain(CROSSFIRE_SIGNALS.halcyonHqDestroyed);
@@ -932,6 +1000,166 @@ describe('CrossfireDirector & all 25 cf.* calls', () => {
 
     director.reset();
   });
+
+  it('Part 3 Citadel HQ enforces 2-stage ordnance lock: BLU-121 Thermobaric cracks concrete, then BLU-27 Napalm burns Halvorsen out', () => {
+    const h = makeHarness('crossfire_halcyon');
+    h.director.ensureBuilt();
+    h.director.call('cf.halcyonCitadelSiege');
+
+    const hqPos = new THREE.Vector3(HALCYON_CITADEL_HQ_POS[0], 4, HALCYON_CITADEL_HQ_POS[2]);
+    // Even if DestructionManager reports the HQ cluster collapsed, Stage 2 Napalm is still required
+    h.mockClusters.set('halcyon.citadel.hq', { collapsed: true, destroyedFraction: 1 });
+
+    // Stage 1 rejects Snake-Eyes, CBU-105 Cluster, and Napalm before concrete is cracked
+    for (const src of ['lancer_chute', 'lancer_bomb', 'lancer_cluster', 'lancer_napalm']) {
+      h.ctx.world.objects.blastHandler?.(hqPos, 24, 3000, src);
+    }
+    h.director.update(0.1);
+    expect(h.director.halcyon.state.hqCracked).toBe(false);
+    expect(h.signals).not.toContain(CROSSFIRE_SIGNALS.halcyonHqCracked);
+    expect(h.signals).not.toContain(CROSSFIRE_SIGNALS.halcyonHqDestroyed);
+
+    // BLU-121 Thermobaric (`ac130_bomb` via world.objects.blastHandler) cracks the reinforced concrete!
+    h.ctx.world.objects.blastHandler?.(hqPos, 48, 2600, 'ac130_bomb');
+    h.director.update(0.1);
+    expect(h.director.halcyon.state.hqCracked).toBe(true);
+    expect(h.signals).toContain(CROSSFIRE_SIGNALS.halcyonHqCracked);
+    expect(h.signals).not.toContain(CROSSFIRE_SIGNALS.halcyonHqDestroyed);
+
+    // Stage 2 rejects Snake-Eyes, Cluster, and additional Thermobaric — ONLY Napalm burns Halvorsen out!
+    for (const src of ['lancer_chute', 'lancer_cluster', 'ac130_bomb', 'lancer_thermobaric']) {
+      h.ctx.world.objects.blastHandler?.(hqPos, 48, 2600, src);
+    }
+    h.director.update(0.1);
+    expect(h.director.halcyon.state.hqBurned).toBe(false);
+    expect(h.signals).not.toContain(CROSSFIRE_SIGNALS.halcyonHqDestroyed);
+
+    // BLU-27 Napalm (`lancer_napalm`) torches the cracked vault and kills Halvorsen!
+    h.ctx.world.objects.blastHandler?.(hqPos, 22, 520, 'lancer_napalm');
+    h.director.update(0.1);
+    expect(h.director.halcyon.state.hqBurned).toBe(true);
+    expect(h.signals).toContain(CROSSFIRE_SIGNALS.halcyonHqDestroyed);
+
+    h.director.reset();
+  });
+
+  it('Part 3 free-flow carpet-bombing skips stale dialogue, never resurrects pre-bombed defenses, and flows cleanly into 2-stage Citadel finale', () => {
+    const h = makeHarness('crossfire_halcyon');
+    const host = new FakeHost();
+    const runner = new MissionRunner(CROSSFIRE_HALCYON, host);
+    const director = new CrossfireDirector(h.ctx, runner);
+    host.call = (name, arg) => {
+      director.call(name, arg);
+    };
+
+    runner.start();
+    expect(host.cutsceneDone).not.toBeNull();
+    host.cutsceneDone!(false);
+    runner.update(0.05);
+    expect(runner.beat?.id).toBe('breach');
+
+    // Player ignores dialogue pacing and carpet-bombs the entire fortress in Beat 1!
+    const earlyTargets = [
+      'wall_section_b',
+      'flak_west',
+      'flak_east',
+      'mortar_west',
+      'mortar_center',
+      'mortar_east',
+      'sam_sw',
+      'sam_se',
+      'tank_armory_depot',
+      'hangar_north',
+      'hangar_south',
+      'fuel_tank_farm',
+      'radar_west',
+      'radar_east',
+    ] as const;
+
+    for (const tid of earlyTargets) {
+      const def = HALCYON_TARGETS.find(t => t.id === tid)!;
+      h.ctx.world.objects.blastHandler?.(new THREE.Vector3(def.pos[0], 2, def.pos[2]), 34, 4500, 'lancer_bomb');
+    }
+
+    // Pump mission ticks so runner catches up through Beat 1 -> Beat 2 -> Beat 3 -> Beat 4 (`citadel_hq`)
+    for (let i = 0; i < 20; i++) {
+      runner.update(0.1);
+      director.update(0.1);
+    }
+
+    // Runner caught straight up to Beat 4 (`citadel_hq`) without softlocking or resurrecting pre-bombed mortars/SAMs!
+    expect(runner.beat?.id).toBe('citadel_hq');
+    expect(director.halcyon.defenseSystem!.getSite('site_mortar_west')).toBeUndefined();
+    expect(director.halcyon.defenseSystem!.getSite('site_sam_sw')).toBeUndefined();
+    // Stale Beat 2 & Beat 3 radio lines were skipped via `unless`
+    expect(host.said).not.toContain('mission.crossfire.halcyon.halvorsen.ridge.traps');
+    expect(host.said).not.toContain('mission.crossfire.halcyon.mercer.ridge.pinned');
+    expect(host.said).not.toContain('mission.crossfire.halcyon.halvorsen.warmachine.unleash');
+    expect(host.said).not.toContain('mission.crossfire.halcyon.mercer.warmachine.hunt');
+
+    // Beat 4 Stage 1: Crack Citadel HQ concrete with BLU-121 Thermobaric
+    expect(runner.objectives.map(o => o.id)).toContain('crack_citadel');
+    const hqPos = new THREE.Vector3(HALCYON_CITADEL_HQ_POS[0], 4, HALCYON_CITADEL_HQ_POS[2]);
+    h.ctx.world.objects.blastHandler?.(hqPos, 48, 2600, 'ac130_bomb');
+    for (let i = 0; i < 6; i++) {
+      runner.update(0.1);
+      director.update(0.1);
+    }
+
+    // Halvorsen taunts -> Mercer demands Napalm -> `burn_citadel` objective opens!
+    expect(host.said).toContain('mission.crossfire.halcyon.halvorsen.citadel.taunt');
+    expect(host.said).toContain('mission.crossfire.halcyon.mercer.citadel.napalm');
+    expect(runner.objectives.map(o => o.id)).toEqual(['burn_citadel']);
+
+    // Beat 4 Stage 2: Drop BLU-27 Napalm -> Halvorsen burns to death screaming on radio!
+    h.ctx.world.objects.blastHandler?.(hqPos, 22, 520, 'lancer_napalm');
+    runner.update(0.05);
+    expect(host.said).toContain('mission.crossfire.halcyon.halvorsen.citadel.final');
+    // Finish Halvorsen's screaming radio line (`wait: true`) -> cf.halcyonLeveled triggers!
+    host.speaking?.();
+    runner.update(0.05);
+    expect(director.halcyon.state.leveledActive).toBe(true);
+
+    director.reset();
+  });
+
+  it('Part 3 deploys and continuously reinforces an Endless-War-style Mercer vs Halcyon combined-arms ground war', () => {
+    const h = makeHarness('crossfire_halcyon');
+    h.director.ensureBuilt();
+    h.director.call('cf.halcyonInit');
+
+    // Initial ground battle deployment: 14 Mercer infantry, 21 Halcyon garrison soldiers across 5 squads, 3 patrol vehicles, and extraFoeProvider
+    expect(h.spawnedAllies.length).toBe(14);
+    expect(h.mockAlliesList.every(a => a.expendable && a.detached)).toBe(true);
+    expect(h.spawnedEnemyInfantry.length).toBeGreaterThanOrEqual(20);
+    expect(h.director.halcyon.state.enemyGroundSquads).toBe(5);
+    expect(h.adoptedSquadGoals.length).toBeGreaterThanOrEqual(5);
+    expect(h.spawnedEnemyOrders.filter(o => o.kind === 'humvee').length).toBe(2);
+    expect(h.spawnedEnemyOrders.filter(o => o.kind === 'tank').length).toBe(1);
+
+    const provider = (h.ctx.allies as unknown as { extraFoeProvider?: (s: unknown) => unknown }).extraFoeProvider;
+    expect(provider).toBeTypeOf('function');
+    // Enemy AT rocketeer near Mercer's Aegis tank locks onto the friendly tank as a valid Foe
+    const aegisPos = h.director.halcyon.vehicleFleet!.units[0]!.position.clone();
+    const foe = provider!({ e: { id: 'rocketeer', position: aegisPos.clone().add(new THREE.Vector3(20, 0, 0)) } });
+    expect(foe).not.toBeNull();
+
+    // Simulate 17 seconds of live battle -> continuous infantry & armor reinforcements deploy for both armies
+    const initialSpawns = h.director.halcyon.state.groundWarSpawns;
+    const initialOrders = h.spawnedEnemyOrders.length;
+    for (let i = 0; i < 34; i++) {
+      h.director.update(0.5);
+    }
+    expect(h.director.halcyon.state.groundWarSpawns).toBeGreaterThan(initialSpawns);
+    expect(h.spawnedEnemyOrders.length).toBeGreaterThan(initialOrders);
+
+    // Cleanup clears extraFoeProvider cleanly
+    h.director.clear();
+    expect((h.ctx.allies as unknown as { extraFoeProvider?: unknown }).extraFoeProvider).toBeNull();
+
+    h.director.reset();
+  });
 });
+
 
 

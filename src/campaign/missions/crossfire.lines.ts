@@ -372,7 +372,7 @@ export const CROSSFIRE_HALCYON_LINES: readonly Line[] = [
     'Their war machine is cooked! My tanks are ringing the central Citadel — only Halvorsen’s Command HQ is left standing!',
   ),
 
-  // Section 4: Citadel Command HQ & Sea Egress
+  // Section 4: Citadel Command HQ (Thermobaric Breach -> Napalm Burn-Out) & Sea Egress
   line(
     'halcyon.halvorsen.citadel.seal',
     'halvorsen',
@@ -383,19 +383,31 @@ export const CROSSFIRE_HALCYON_LINES: readonly Line[] = [
     'halcyon.mercer.citadel.thermobaric',
     'mercer',
     'urgent',
-    'Citadel Command HQ is Tier-3 reinforced! Switch to BLU-121 Thermobaric and drop the whole roof on Halvorsen’s head!',
+    'Citadel Command HQ is Tier-3 reinforced concrete! Switch to BLU-121 Thermobaric and crack that bunker roof wide open!',
+  ),
+  line(
+    'halcyon.halvorsen.citadel.taunt',
+    'halvorsen',
+    'smug',
+    'Ha! Is that all the North’s got?! You cracked the roof, you gutless bastards, and I’m still breathing down here! Our launch codes are already out — you can’t touch me in this vault!',
+  ),
+  line(
+    'halcyon.mercer.citadel.napalm',
+    'mercer',
+    'urgent',
+    'Listen to that bastard still talking shit in the rubble! Lancer, switch to BLU-27 Napalm and flood that cracked bunker — burn him to death!',
   ),
   line(
     'halcyon.halvorsen.citadel.final',
     'halvorsen',
     'cracked',
-    'The ceiling is buckling— tell High Command... burn the North to the bedrock—',
+    'AAARGH!! FIRE— IT’S POURING THROUGH THE VENTS! TURN IT OFF! GET IT OFF ME— AAAAAH!! TELL HIGH COMMAND— BURN THE NORTH— AAAAARGH—',
   ),
   line(
     'halcyon.mercer.citadel.destroyed',
     'mercer',
     'orders',
-    'Direct hit! Citadel HQ is a crater! Fortress Halcyon is flattened — get that smoking bomber back out to sea before their last fighters box you in!',
+    'Radio just went dead... Citadel HQ is a furnace! Fortress Halcyon is flattened — get that smoking bomber back out to sea before their last fighters box you in!',
   ),
   line(
     'halcyon.wingman.egress.damage',

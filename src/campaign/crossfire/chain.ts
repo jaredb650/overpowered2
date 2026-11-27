@@ -108,6 +108,7 @@ export const CROSSFIRE_SIGNALS = {
   halcyonFuelDown: 'cf:halcyon_fuel_down',
   halcyonRadarDown: 'cf:halcyon_radar_down',
   halcyonWarBroken: 'cf:halcyon_war_broken',
+  halcyonHqCracked: 'cf:halcyon_hq_cracked',
   halcyonHqDestroyed: 'cf:halcyon_hq_destroyed',
   halcyonEgressReady: 'cf:halcyon_egress_ready',
   // Part 4
