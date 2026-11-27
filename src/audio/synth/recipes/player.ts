@@ -24,6 +24,24 @@ export const player = [
     click(s, 1400, 0.55);
     s.at(0.015, () => whoosh(s, { from: 600, to: 1600, dur: 0.26, q: 1, peakAt: 0.2, level: 0.75 }));
   }),
+  // Sparta kick: crisp heavy leg whip + cloth snap, then a chest-caving boot thud on contact.
+  r('kick_swing', { dur: 0.28, n: 3, mix: 'player', over: { volume: 0.58, pitchJitter: 0.06 }, expect: { attackMs: [0, 14] } }, s => {
+    whoosh(s, { from: s.r(360, 480), to: s.r(1200, 1550), dur: 0.22, q: 0.85, peakAt: 0.06, level: 1.05 });
+    s.noise('pink', 0.14).bp(s.r(1500, 2100), 0.9).env(perc(0.1, 0.65, 0.004)).out();
+    thump(s, 95, 0.055, 0.45, 2);
+  }),
+  r('kick_impact', { dur: 0.34, n: 3, mix: 'impact', over: { volume: 0.92, pitchJitter: 0.05 }, expect: { attackMs: [0, 8], minSub: 0.06 } }, s => {
+    s.osc('sine', [[0, s.r(145, 175)], [0.04, s.r(56, 68)], [0.24, 34]], 0.95).env(perc(0.24, 1, 0.0008)).drive(3.2).out();
+    slap(s, 0.9, s.r(420, 620));
+    s.noise('brown', 0.22).lp([[0, 1600], [0.16, 220]]).env(perc(0.18, 0.95, 0.001)).drive(2.4).out();
+    click(s, s.r(1200, 1600), 0.5);
+  }),
+  r('stomp_impact', { dur: 0.38, n: 3, mix: 'impact', over: { volume: 0.96, pitchJitter: 0.05 }, expect: { attackMs: [0, 8], minSub: 0.07 } }, s => {
+    s.osc('sine', [[0, s.r(130, 160)], [0.035, 48], [0.28, 28]], 1).env(perc(0.28, 1, 0.0008)).drive(3.6).out();
+    s.noise('white', 0.05).hp(1100).env(perc(0.02, 0.95)).drive(3.5).out();
+    s.grains(0.16, t => 220 * Math.exp(-t * 18), 0.0022).bp(s.r(1400, 2200), 1.4).drive(2).out(0.85);
+    s.noise('brown', 0.28).lp([[0, 2100], [0.2, 200]]).env(perc(0.22, 0.95, 0.001)).drive(2.6).out();
+  }),
   r('wallrun_start', { dur: 0.28, mix: 'player' }, s => {
     thump(s, 150, 0.06, 0.6, 2);
     s.noise('white', 0.25).bp([[0, 1400], [0.2, 3000]], 1).env(perc(0.2, 0.75, 0.004)).out();

@@ -42,8 +42,8 @@ import { Stims } from './stims';
 
 const COMBO_PITCH_STEP = 0.015;
 const COMBO_BREAK_MIN = 5;
-/** Every kill by hand on key 5: the sword's moves and the four beside it. */
-const SWORD = /^(sword|knife|crowbar|shovel|baton)/;
+/** Every close-quarters kill: key 5 melee weapons plus Sparta kick and head stomp. */
+const SWORD = /^(sword|knife|crowbar|shovel|baton|kick|stomp)/;
 /** Damage that counts as the player taking a limb off by hand, for Butcher. */
 const BY_HAND: ReadonlySet<DamageInfo['type']> = new Set(['bullet', 'pellet', 'melee', 'slash']);
 const MAX_SEVER_MEMORY = 64;

@@ -85,6 +85,8 @@ One call, all layers start on the same audio frame.
 | `spade_flat` | `hit_punch` at 0.66 + `metal_clang` at 0.72, cut at 420 ms. The face of the spade on anything |
 | `spade_wall` | `metal_clang` at 0.8, cut at 500 ms + `impact_concrete` at 0.8 |
 | `baton_hit` | `hit_punch` at 1.12 + `wet_slap` at 0.85, a third volume |
+| `kick_hit` | `kick_impact` + `hit_punch` at 0.72 + `armour_crunch` at 0.85, cut at 160 ms. Sparta kick body contact |
+| `stomp_hit` | `stomp_impact` + `gore_splat` at 0.85 + `wet_squelch` at 0.78, 25 ms later. Head stomp on a crawling wounded enemy |
 | `katana_stab` | Stand-in. `sword_swing` at 1.35, cut at 200 ms + `sword_sweep` at 2, cut at 160 ms, under half volume. The katana's stab, and each stab of the flurry played rising |
 | `katana_cleave` | Stand-in. `sword_windup` at 2.2, cut at 200 ms, half volume + `sword_swing` at 0.78, 160 ms later. The cleave going up and coming down |
 | `katana_cleave_land` | Stand-in. `sword_slam` at 1.1 + `impact_concrete` at 0.7. The cleave going into the floor |
@@ -531,7 +533,7 @@ Rendered at load. x4 means four rendered variants behind one id.
 
 ### Player
 
-- **Movement:** `dash` x3, `double_jump`, `wall_kick`, `wallrun_start`, `wallrun_loop`, `slide_start`, `slide_loop`, `slide_stop`, `slam_start`, `slam_fall_loop`, `slam_impact` x2, `slam_bounce`, `mantle`, `jump_pad`, `land_hard`, `speed_wind_loop`
+- **Movement:** `dash` x3, `double_jump`, `wall_kick`, `kick_swing` x3, `kick_impact` x3, `stomp_impact` x3, `wallrun_start`, `wallrun_loop`, `slide_start`, `slide_loop`, `slide_stop`, `slam_start`, `slam_fall_loop`, `slam_impact` x2, `slam_bounce`, `mantle`, `jump_pad`, `land_hard`, `speed_wind_loop`
 - **Hands and boots on a move, all quiet:** `hand_plant` x3 (ledge, cover, wall, the floor in a slam and a tenth of a second into a slide), `boot_scuff` x3 (top of a climb, far side of a vault, walking off an edge), `vault_over` (the body passing over cover), `gear_rustle` x3 (double jump tuck, hard landing). Played from `src/player/feedback.ts` through `body()`, which is silent under `?moveanim=0`: they are the sounds of the first-person body and go with it. `vault_over` stays, because the vault has its own switch
 - **Footsteps:** `footstep_concrete`, `footstep_metal`, `footstep_grate`, `footstep_dirt`, `footstep_glass`, `footstep_flesh` (wet), all x4. `footstep_armor`, `footstep_energy` and `footstep_lava` alias to the nearest of these, so every `SurfaceKind` works
 - **Health:** `player_hurt` x4, `player_hurt_heavy` x2, `player_death`, `armor_hit` x3, `armor_break`, `shield_hit` x3, `heal_tick`, `stim_click`, `stim_hiss`, `low_health_warn`, `heartbeat`, `heartbeat_loop`

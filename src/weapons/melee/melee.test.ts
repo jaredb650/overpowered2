@@ -437,16 +437,18 @@ describe('the four beside it', () => {
     }
   });
 
-  it('the melee key swings what key 5 last drew', () => {
-    // The four are off key 5, so the knife is drawn by hand, as the lab would with `?melee=four`.
+  it('the melee key kicks without drawing or swinging the knife or sword', () => {
     hold('knife');
     expect(r.weapons.current).toBe('knife');
     r.weapons.switchTo('smg');
     r.run(0.4);
     const d = ahead(1.2);
     click('melee' as 'fire');
-    expect(d.hits[0]?.source).toBe('knife');
-    r.run(0.6);
+    r.run(0.12);
+    expect(d.hits.length).toBe(1);
+    expect(d.hits[0]?.source).toBe('kick');
+    expect(d.hits[0]?.type).toBe('melee');
+    r.run(0.5);
     expect(r.weapons.current).toBe('smg');
   });
 });

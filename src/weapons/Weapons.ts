@@ -27,6 +27,7 @@ import { Raufoss } from './raufoss';
 import { FLAK } from './flak';
 import { Painter, angleOff, type PaintCandidate } from './swarm';
 import { isMelee } from './melee/data';
+import { Kick } from './melee/Kick';
 import { Melee } from './melee/Melee';
 import { LANCE_ON, Lance } from './lance';
 import { ROCKET_LASER } from './laser';
@@ -94,6 +95,8 @@ export class Weapons implements WeaponSystem, Guard {
   private readonly slots: Record<WeaponId, Slot>;
   /** Every weapon on key 5, the katana and its family: src/weapons/melee. */
   private readonly sword: Melee;
+  /** First-person Sparta kick and crawling-enemy head stomp (F / melee key). */
+  private readonly kicker: Kick;
   /** Slot 7's gun: tap for a plasma ball, hold for a beam. `?lance=old` leaves it idle and `updateCharge` fires instead. */
   readonly lance: Lance;
   /** Guns dropped on the ground for anyone to take (dropped.ts). */
@@ -154,7 +157,7 @@ export class Weapons implements WeaponSystem, Guard {
   /** Aim down sights. Settings write the first two: right click toggles it unless `aimHold`, and the mouse share while aimed. */
   aimHold = false;
   aimSensitivity: number = TUNING.ads.sensitivity;
-  /** The toggle's state. A reload, a quick melee or a draw suspends it; a dash, a slide or a switch drops it. */
+  /** The toggle's state. A reload, a kick or a draw suspends it; a dash, a slide or a switch drops it. */
   private aimOn = false;
   /** 0 to 1, linear over the gun's `ads.time`. `aim` is it eased. */
   private aimT = 0;
@@ -178,7 +181,6 @@ export class Weapons implements WeaponSystem, Guard {
   private kataClock = 0;
   private readonly kataFrom = new THREE.Vector3();
   private readonly kataDir = new THREE.Vector3();
-  private quickReturn = 0;
   /** Rounds left in a burst under way (`pullBurst`, or a `select` gun's). */
   private burstLeft = 0;
   /** Rounds left in an AN-94-style zero-climb hyperburst (`def.hyperBurst`), plus trigger-release re-arm state. */
@@ -300,6 +302,7 @@ export class Weapons implements WeaponSystem, Guard {
     }
     this.slots = slots;
     this.sword = new Melee(ctx, this.combat, this.modifiers);
+    this.kicker = new Kick(ctx, this.combat, this.modifiers);
     this.microwave = new Microwave(ctx);
     this.harpoon = new Harpoon(ctx);
     // The Lance's trigger, its beams and its bursts are lance.ts. This is all it needs of the arsenal.
@@ -412,6 +415,7 @@ export class Weapons implements WeaponSystem, Guard {
     this.holstered = false;
     this.occupied = 0;
     this.sword.reset();
+    this.kicker.reset();
     this.lance.reset();
     this.microwave.reset();
     this.harpoon.reset();
@@ -795,7 +799,7 @@ export class Weapons implements WeaponSystem, Guard {
   /** The drop key's part: the gun in hand, unless the hands are busy with it (a reload, a draw, a swing, a grenade, a Gun Kata). */
   dropHeld(): GunKit | null {
     const busy = this.reloading || this.drawLeft > 0 || this.holstered || this.occupied > 0 || this.cooking || this.glUp || this.pendingSwitch !== null
-      || this.sword.committed || this.sword.inQuickStrike || this.quickReturn > 0 || this.salvoLeft > 0 || this.kataQueue.length > 0;
+      || this.sword.committed || this.kicker.active || this.salvoLeft > 0 || this.kataQueue.length > 0;
     return busy ? null : this.part(this.current);
   }
 
@@ -904,6 +908,7 @@ export class Weapons implements WeaponSystem, Guard {
     this.clearScope(false);
     this.cancelReload();
     this.sword.cancel();
+    this.kicker.cancel();
     this.cooking = false;
     this.chargeLevel = 0;
     this.chargeFull = false;
@@ -913,7 +918,6 @@ export class Weapons implements WeaponSystem, Guard {
     this.pressBuffer = 0;
     this.autoReload = -1;
     this.drySwap = -1;
-    this.quickReturn = 0;
     this.burstLeft = 0;
     this.resetHyper();
     this.rHeld = -1;
@@ -985,6 +989,7 @@ export class Weapons implements WeaponSystem, Guard {
     if (smartSpec) this.smart.cone = smartSpec.cone;
     if (!this.smart.on) this.smart.drop();
     this.sword.tick(dt);
+    this.kicker.tick(dt);
     // RMB while holding MGL or Satchel Charge with planted charges immediately detonates all of them and suppresses ADS on that click.
     if (c.player.alive !== false && !this.holstered && this.occupied <= 0
       && (this.current === 'mgl' || this.current === 'satchel')
@@ -1027,14 +1032,9 @@ export class Weapons implements WeaponSystem, Guard {
     this.updateLaser();
     this.updateDrySwap(dt);
 
-    if (this.sword.inQuickStrike) {
-      this.sword.updateQuick(dt);
-      if (!this.sword.inQuickStrike) this.afterQuick();
+    if (this.kicker.active) {
+      this.kicker.update(dt);
       this.endContinuous();
-      return;
-    }
-    if (this.quickReturn > 0) {
-      this.quickReturn -= dt;
       return;
     }
 
@@ -1043,15 +1043,15 @@ export class Weapons implements WeaponSystem, Guard {
       if (this.drawLeft > 0) return;
     }
 
+    if (c.input.pressed('melee') && this.kicker.canStart && !this.sword.committed) {
+      this.startKick();
+      return;
+    }
+
     if (this.bladeOut) {
       // A loadout or a reset can put a blade in hand without a draw: the swings are always the ones of the weapon held.
       this.sword.equip(this.current);
       this.sword.update(dt);
-      return;
-    }
-
-    if (c.input.pressed('melee')) {
-      this.startQuickMelee();
       return;
     }
     const alt = this.slots[this.current].def.altAmmo;
@@ -1188,6 +1188,7 @@ export class Weapons implements WeaponSystem, Guard {
     this.clearScope(false);
     this.cancelReload();
     this.sword.cancel();
+    this.kicker.cancel();
     this.chargeLevel = 0;
     this.chargeFull = false;
     this.spin = 0;
@@ -1196,7 +1197,6 @@ export class Weapons implements WeaponSystem, Guard {
     this.pressBuffer = 0;
     this.autoReload = -1;
     this.drySwap = -1;
-    this.quickReturn = 0;
     this.burstLeft = 0;
     this.resetHyper();
     this.rHeld = -1;
@@ -2936,7 +2936,7 @@ export class Weapons implements WeaponSystem, Guard {
     if (def.shield) {
       const wantRaise = !this.aimSuppress && c.input.isDown('aim');
       const shieldBusy = busy || moving || this.reloading || this.drawLeft > 0
-        || this.sword.inQuickStrike || this.quickReturn > 0;
+        || this.kicker.active;
       const st = this.riotShield.update(dt, true, wantRaise, shieldBusy);
       this.aimOn = false;
       this.aimT = 0;
@@ -2959,7 +2959,7 @@ export class Weapons implements WeaponSystem, Guard {
     const wants = !this.aimSuppress && (this.aimHold ? c.input.isDown('aim') : this.aimOn);
     // The Gimlet's M203 has no ads and is fired from the shoulder; the Bodkin's 20 mm OICW aims through its TA/FCS optic.
     const blocked = busy || moving || !aimDef.ads || this.reloading || this.drawLeft > 0
-      || this.sword.inQuickStrike || this.quickReturn > 0 || (!!aimDef.cycleTime && this.held.cooldown > 0);
+      || this.kicker.active || (!!aimDef.cycleTime && this.held.cooldown > 0);
     const up = wants && !blocked;
     if (this.boltPending === def.id && !def.scope && !up) this.beginDeferredCycle(def);
     this.aimT = clamp(this.aimT + (up ? dt : -dt) / (aimDef.ads?.time ?? 0.2));
@@ -3091,29 +3091,23 @@ export class Weapons implements WeaponSystem, Guard {
   }
 
   // -------------------------------------------------------------------------------------------
-  // Quick melee
+  // Kick / Head stomp
   // -------------------------------------------------------------------------------------------
 
-  private startQuickMelee(): void {
-    const { viewmodel } = this.ctx;
+  private startKick(): void {
     this.flushBoltPending();
+    this.kataQueue.length = 0;
     this.stopPaint();
     this.endContinuous();
     this.cancelReload();
     this.clearScope(false);
-    this.chargeLevel = 0;
-    this.chargeFull = false;
-    viewmodel.setCharge(0);
-    // The melee key swings whatever key 5 would draw: the knife, if that is the one last held there.
-    const blade = this.slotMember(WEAPONS.sword.slot);
-    viewmodel.equip(blade, 0.02);
-    this.sword.quickStrike(blade);
-  }
-
-  private afterQuick(): void {
-    const def = WEAPONS[this.current];
-    this.ctx.viewmodel.equip(this.current, def.drawTime);
-    this.quickReturn = SWORD.quickMelee.recover;
+    this.sword.cancel();
+    if (this.chargeLevel > 0 || this.chargeFull) {
+      this.chargeLevel = 0;
+      this.chargeFull = false;
+      this.ctx.viewmodel.setCharge(0);
+    }
+    this.kicker.start();
   }
 
   // -------------------------------------------------------------------------------------------

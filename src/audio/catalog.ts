@@ -715,6 +715,17 @@ const stacks: SoundDef[] = [
   stack('spade_flat', [{ id: 'hit_punch', pitch: 0.66 }, { id: 'metal_clang', pitch: 0.72, duration: 0.42, volume: 0.6 }]),
   stack('spade_wall', [{ id: 'metal_clang', pitch: 0.8, duration: 0.5, volume: 0.8 }, { id: 'impact_concrete', pitch: 0.8, volume: 0.6 }]),
   stack('baton_hit', [{ id: 'hit_punch', pitch: 1.12 }, { id: 'wet_slap', pitch: 0.85, volume: 0.35 }]),
+  // Sparta kick and crawling-enemy head stomp: heavy sub-bass boot thud layered with real body & wet gore crunch.
+  stack('kick_hit', [
+    { id: 'kick_impact', volume: 0.95 },
+    { id: 'hit_punch', pitch: 0.72, volume: 0.9 },
+    { id: 'armour_crunch', pitch: 0.85, duration: 0.16, volume: 0.35 },
+  ]),
+  stack('stomp_hit', [
+    { id: 'stomp_impact', volume: 1 },
+    { id: 'gore_splat', pitch: 0.85, volume: 0.9 },
+    { id: 'wet_squelch', pitch: 0.78, delay: 0.025, volume: 0.8 },
+  ]),
   // The katana's stab and combo moves: stand-ins built from its own recordings and synth layers, until real ones come.
   stack('katana_stab', [{ id: 'sword_swing', pitch: 1.35, duration: 0.2, volume: 0.75 }, { id: 'sword_sweep', pitch: 2, duration: 0.16, volume: 0.45 }]),
   stack('katana_cleave', [{ id: 'sword_windup', pitch: 2.2, duration: 0.2, volume: 0.5 }, { id: 'sword_swing', pitch: 0.78, delay: 0.16, duration: 0.35 }]),
@@ -791,7 +802,7 @@ export function lookup(id: string): SoundDef | undefined {
 /** Render order, by what a run reaches first. Whatever matches none of these can wait for the rest. */
 const RENDER_TIERS: readonly RegExp[] = [
   // Menu, the first fight, and moving around in it.
-  /^(ui_|hit_marker|wave_|footstep_|impact_|ricochet|casing_|weapon_|reload_|dash|double_jump|wall_kick|slide_|wallrun_|slam_|mantle|hand_plant|boot_scuff|vault_over|gear_rustle|land_hard|jump_pad$|speed_wind|amb_)/,
+  /^(ui_|hit_marker|wave_|footstep_|impact_|ricochet|casing_|weapon_|reload_|dash|double_jump|wall_kick|kick_|stomp_|slide_|wallrun_|slam_|mantle|hand_plant|boot_scuff|vault_over|gear_rustle|land_hard|jump_pad$|speed_wind|amb_)/,
   // The first kills: gore, enemy voices, and what a player feels getting hurt or picking something up. `machine_clang` is
   // a drone or skitter being shot, and `metal_clang` its wreck.
   /^(limb_|bone_|gib_|torso_|blood_|head_pop|head_burst|skull_fragments|body_|flesh_|vox_(grunt|pain|death|husk|radio)|enemy_|player_|heartbeat|low_health|armor_|heal_|pickup_|combo_|multikill|style_|grenade_|bullet_|machine_clang|metal_clang|stealth_|breaker_|camera_|shutter_|bunker_)/,

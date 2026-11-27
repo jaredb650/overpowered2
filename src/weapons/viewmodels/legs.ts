@@ -7,7 +7,8 @@
  */
 import * as THREE from 'three';
 import type { MovePose } from '../../core/contracts';
-import { clamp } from '../../core/math';
+import type { KickMove } from '../../core/gameplay';
+import { clamp, lerp } from '../../core/math';
 import { bakeAo } from './kit/ao';
 import { F } from './kit/finishes';
 import type { Kit } from './kit/kit';
@@ -143,12 +144,43 @@ export const LEG_POSES = {
     /** The second foot follows this far behind, and this far to the side. */
     lag: 0.16, spread: 0.13,
   },
+  /** Sparta kick: right boot chambers up and explodes straight out with the sole flat toward the target. */
+  kick: {
+    hip: [0.16, -0.50, 0.14],
+    start: [0.22, -0.82, 0.08],
+    chamber: [0.12, -0.32, -0.34],
+    thrust: [0.02, -0.14, -0.92],
+    peak: [0.01, -0.12, -0.97],
+    stow: [0.20, -0.86, 0.10],
+    toeStart: [0, 0.45, -0.88],
+    toeThrust: [0, 0.90, -0.44],
+  },
+  /** Head stomp: right boot lifts high poised above center-bottom, then drives straight down into the skull. */
+  stomp: {
+    hip: [0.18, -0.46, 0.14],
+    start: [0.22, -0.82, 0.08],
+    liftMid: [0.12, -0.34, -0.28],
+    poised: [0.05, -0.14, -0.56],
+    crush: [0.02, -0.68, -0.62],
+    stow: [0.22, -0.88, 0.10],
+    toePoised: [0, 0.14, -0.99],
+    toeCrush: [0, -0.08, -0.99],
+  },
+};
+
+const setLegVisible = (leg: Leg, visible: boolean): void => {
+  leg.thigh.visible = visible;
+  leg.shin.visible = visible;
+  leg.boot.visible = visible;
 };
 
 export class Legs {
   readonly root = new THREE.Group();
   private readonly legs: Leg[] = [];
   private time = 0;
+  private kickMove: KickMove | null = null;
+  private kickTime = 0;
+  private kickDuration = 0;
 
   constructor(kit: Kit) {
     this.root.name = 'legs';
@@ -166,13 +198,53 @@ export class Legs {
     this.root.visible = false;
   }
 
+  /** Starts a first-person Sparta kick or downward head stomp with the right leg. */
+  kick(move: KickMove, seconds: number): void {
+    this.kickMove = move;
+    this.kickTime = 0;
+    this.kickDuration = Math.max(seconds, 0.12);
+  }
+
+  /** Cancels any kick/stomp animation in progress (e.g. holster or reset). */
+  cancelKick(): void {
+    this.kickMove = null;
+    this.kickTime = 0;
+    this.kickDuration = 0;
+  }
+
+  get kicking(): boolean {
+    return this.kickMove !== null;
+  }
+
+  /** 0..1 weapon dip factor while the leg is in view, so the held gun shifts aside cleanly without swapping. */
+  get kickDip(): number {
+    if (!this.kickMove || this.kickDuration <= 0) return 0;
+    const u = clamp(this.kickTime / this.kickDuration);
+    if (u < 0.15) return u / 0.15;
+    if (u < 0.55) return 1;
+    return clamp((1 - u) / 0.45);
+  }
+
   update(pose: MovePose | null, pitch: number, dt: number): void {
+    if (this.kickMove) {
+      this.kickTime += dt;
+      if (this.kickTime >= this.kickDuration) {
+        this.kickMove = null;
+      } else {
+        this.time += dt;
+        this.updateKick(this.kickMove, clamp(this.kickTime / this.kickDuration));
+        return;
+      }
+    }
+
     const w = pose ? pose.legsW : 0;
     if (!pose || w <= 0.01 || pose.legsMode === 0) {
       this.root.visible = false;
       return;
     }
     this.root.visible = true;
+    setLegVisible(this.legs[0]!, true);
+    setLegVisible(this.legs[1]!, true);
     this.time += dt;
     // Legs belong to the body, so they turn against the look. They rise from below the view rather than fading in.
     this.root.rotation.x = -clamp(pitch, -1.2, 1.2);
@@ -204,6 +276,90 @@ export class Legs {
       _toe.set(-0.35, 0.35 - 0.9 * t, -0.85);
       this.place(this.legs[i]!, _h, _a, _pole.set(0.5, 1, -0.1), _toe);
     }
+  }
+
+  /** Animates the right leg in camera space so the boot thrusts straight along the sightline. */
+  private updateKick(move: KickMove, u: number): void {
+    this.root.visible = true;
+    this.root.rotation.set(0, 0, 0);
+    this.root.position.set(0, 0, 0);
+    setLegVisible(this.legs[0]!, false);
+    setLegVisible(this.legs[1]!, true);
+
+    if (move === 'kick') {
+      const P = LEG_POSES.kick;
+      if (u < 0.17) {
+        // Fast explosive chamber & snap forward (ease-out cubic).
+        const t = 1 - (1 - u / 0.17) ** 3;
+        along(P.start, P.chamber, P.thrust, t, _a);
+        _toe.set(
+          lerp(P.toeStart[0]!, P.toeThrust[0]!, t),
+          lerp(P.toeStart[1]!, P.toeThrust[1]!, t),
+          lerp(P.toeStart[2]!, P.toeThrust[2]!, t),
+        );
+      } else if (u < 0.44) {
+        // Peak extension hold with heavy impact shudder.
+        const t = (u - 0.17) / 0.27;
+        const hold = Math.sin(t * Math.PI);
+        const jitter = Math.sin(this.time * 95) * 0.005 * (1 - t);
+        _a.set(
+          lerp(P.thrust[0]!, P.peak[0]!, hold) + jitter,
+          lerp(P.thrust[1]!, P.peak[1]!, hold) + jitter * 0.6,
+          lerp(P.thrust[2]!, P.peak[2]!, hold),
+        );
+        _toe.set(P.toeThrust[0]!, P.toeThrust[1]!, P.toeThrust[2]!);
+      } else {
+        // Crisp recovery back under the frame.
+        const t = (u - 0.44) / 0.56;
+        const e = t * t * (3 - 2 * t);
+        along(P.thrust, P.chamber, P.stow, e, _a);
+        _toe.set(
+          lerp(P.toeThrust[0]!, P.toeStart[0]!, e),
+          lerp(P.toeThrust[1]!, P.toeStart[1]!, e),
+          lerp(P.toeThrust[2]!, P.toeStart[2]!, e),
+        );
+      }
+      _h.set(P.hip[0]!, P.hip[1]!, P.hip[2]!);
+      this.place(this.legs[1]!, _h, _a, _pole.set(0.24, 1, 0.12), _toe);
+      return;
+    }
+
+    // Head stomp: lift high, drive straight down, grind briefly, withdraw.
+    const P = LEG_POSES.stomp;
+    if (u < 0.27) {
+      const t = 1 - (1 - u / 0.27) ** 2;
+      along(P.start, P.liftMid, P.poised, t, _a);
+      _toe.set(P.toePoised[0]!, P.toePoised[1]!, P.toePoised[2]!);
+    } else if (u < 0.37) {
+      // Accelerating downward smash.
+      const t = ((u - 0.27) / 0.10) ** 2;
+      _a.set(
+        lerp(P.poised[0]!, P.crush[0]!, t),
+        lerp(P.poised[1]!, P.crush[1]!, t),
+        lerp(P.poised[2]!, P.crush[2]!, t),
+      );
+      _toe.set(
+        lerp(P.toePoised[0]!, P.toeCrush[0]!, t),
+        lerp(P.toePoised[1]!, P.toeCrush[1]!, t),
+        lerp(P.toePoised[2]!, P.toeCrush[2]!, t),
+      );
+    } else if (u < 0.58) {
+      const t = (u - 0.37) / 0.21;
+      const grind = Math.sin(this.time * 110) * 0.006 * (1 - t);
+      _a.set(P.crush[0]! + grind, P.crush[1]! - 0.02 * Math.sin(t * Math.PI), P.crush[2]!);
+      _toe.set(P.toeCrush[0]!, P.toeCrush[1]!, P.toeCrush[2]!);
+    } else {
+      const t = (u - 0.58) / 0.42;
+      const e = t * t * (3 - 2 * t);
+      _a.set(
+        lerp(P.crush[0]!, P.stow[0]!, e),
+        lerp(P.crush[1]!, P.stow[1]!, e),
+        lerp(P.crush[2]!, P.stow[2]!, e),
+      );
+      _toe.set(P.toeCrush[0]!, P.toeCrush[1]!, P.toeCrush[2]!);
+    }
+    _h.set(P.hip[0]!, P.hip[1]!, P.hip[2]!);
+    this.place(this.legs[1]!, _h, _a, _pole.set(0.32, 1, 0.25), _toe);
   }
 
   /** Two-bone solve from hip to ankle. Out of reach, the hip follows the foot: it is off screen and never seen to move. */

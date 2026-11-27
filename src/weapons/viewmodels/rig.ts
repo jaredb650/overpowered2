@@ -8,7 +8,7 @@ import * as THREE from 'three';
 import { clamp, damp, lerp, smoothstep, wrapAngle } from '../../core/math';
 import { DevFlags } from '../../core/devflags';
 import { CG, type Ctx, type DamageInfo, type MovePose, type RayHit } from '../../core/contracts';
-import type { CallInId, EnemyInstance, KillEvent, ModId, PerkId, PowerupId, ReloadMeta, SwordMove, ViewmodelRig, WeaponId } from '../../core/gameplay';
+import type { CallInId, EnemyInstance, KickMove, KillEvent, ModId, PerkId, PowerupId, ReloadMeta, SwordMove, ViewmodelRig, WeaponId } from '../../core/gameplay';
 import { Arm } from './arms';
 import { inQuad, outBack, outCubic } from './curves';
 import { Anim, HandCtl, ironsUp, type ModLook, type Tuple3, type ViewDef } from './def';
@@ -432,6 +432,7 @@ export class Rig implements ViewmodelRig {
     this.lookCacheVer = -1;
     this.lookCache.clear();
     this.offhand.reset();
+    this.legs.cancelKick();
     this.lastYaw = this.ctx.player.yaw;
     this.lastPitch = this.ctx.player.pitch;
   }
@@ -490,6 +491,7 @@ export class Rig implements ViewmodelRig {
     this.a.reloadShells = 0;
     this.a.reloadFromEmpty = false;
     this.a.swing = null;
+    this.legs.cancelKick();
   }
 
   fire(strength = 1, left = false): void {
@@ -563,6 +565,11 @@ export class Rig implements ViewmodelRig {
     a.swing = move;
     a.swingP = 0;
     a.swingSeconds = Math.max(seconds, 0.05);
+  }
+
+  kick(move: KickMove, seconds: number): void {
+    this.a.swing = null;
+    this.legs.kick(move, seconds);
   }
 
   setCharge(amount: number): void {
@@ -857,7 +864,7 @@ export class Rig implements ViewmodelRig {
     const restX = def.rot[0] * (1 - this.aimW);
     const restY = def.rot[1] * (1 - this.aimW);
     const offAxis = Math.hypot(this.gunRot.x - restX, this.gunRot.y - restY) > 0.16;
-    const freeTarget = a.reload >= 0 || a.draw < 0.98 || this.holsterW > 0.01 || a.swing !== null || this.akDrop > 0.01 || offAxis ? 1 : 0;
+    const freeTarget = a.reload >= 0 || a.draw < 0.98 || this.holsterW > 0.01 || a.swing !== null || this.legs.kicking || this.akDrop > 0.01 || offAxis ? 1 : 0;
     this.lamFree = damp(this.lamFree, freeTarget, freeTarget > this.lamFree ? 28 : 16, dt);
     this.lam.free = this.lamFree;
   }
@@ -1153,6 +1160,18 @@ export class Rig implements ViewmodelRig {
       r.z += mv.gunRoll * c * m;
     }
 
+    // Sparta kick / head stomp: shift the held weapon slightly down and aside so the boot owns the center of the view.
+    const kd = this.legs.kickDip;
+    if (kd > 0) {
+      const e = kd * kd * (3 - 2 * kd);
+      p.x += 0.055 * e * m;
+      p.y -= 0.095 * e;
+      p.z += 0.045 * e;
+      r.x -= 0.24 * e;
+      r.y -= 0.14 * e * m;
+      r.z -= 0.22 * e * m;
+    }
+
     p.x += (this.lookP.x.x + this.moveP.x.x) * sway;
     p.y += (this.lookP.y.x + this.moveP.y.x) * sway;
     p.z += this.moveP.z.x * sway;
@@ -1231,6 +1250,16 @@ export class Rig implements ViewmodelRig {
       r.x += mv.gunPitch * c;
       r.y -= mv.gunYaw * c;
       r.z -= mv.gunRoll * c;
+    }
+    const kd = this.legs.kickDip;
+    if (kd > 0) {
+      const e = kd * kd * (3 - 2 * kd);
+      p.x -= 0.055 * e;
+      p.y -= 0.095 * e;
+      p.z += 0.045 * e;
+      r.x -= 0.24 * e;
+      r.y += 0.14 * e;
+      r.z += 0.22 * e;
     }
     this.gunL.position.copy(p);
     this.gunLRot.copy(r);

@@ -107,6 +107,8 @@ interface Knock {
   roll?: number;
   /** Entry ballistic impulse magnitude (N*s) applied at `point` on Frame 0 so r x J torque and muscle shock fire. */
   force?: number;
+  /** Direct full-body launch velocity (m/s, including upward lift) for a Sparta kick ragdoll throw. */
+  launch?: THREE.Vector3;
 }
 const _stumble: { seconds: number; budget?: number } = { seconds: 0 };
 /**
@@ -241,7 +243,7 @@ const HEAD_BURST_DAMAGE = 40;
 const PARTIAL_HEADS: ReadonlySet<string> = new Set(['trooper', 'gunner', 'husk', 'brute']);
 /** Rounds that always trigger a head burst (partial or full), regardless of falloff or AP scaling. */
 const HEAD_BURSTERS: ReadonlySet<string> = new Set([
-  'autocannon', 'sabot', 'awl', 'ultramag', 'stakegun', 'piledriver', 'lance', 'gaff', 'gimlet', 'flail',
+  'autocannon', 'sabot', 'awl', 'ultramag', 'stakegun', 'piledriver', 'lance', 'gaff', 'gimlet', 'flail', 'stomp',
 ]);
 const JUDGE_BURST_RANGE = 8;
 
@@ -342,12 +344,15 @@ const _n = new THREE.Vector3();
 const _dying = new THREE.Vector3();
 const _check = new THREE.Vector3();
 const _checkTopple = new THREE.Vector3();
+const _kickDir = new THREE.Vector3();
+const _kickLaunch = new THREE.Vector3();
+const _kickTopple = new THREE.Vector3();
 const _fall = new THREE.Vector3();
 const UP = new THREE.Vector3(0, 1, 0);
 
 const _knock: Knock = {};
 /** The one `Knock` every caller fills, all of it each time. */
-function knockAs(topple: THREE.Vector3 | null | undefined, impact: number | undefined, knockout: boolean, point: THREE.Vector3 | undefined, stumble?: number, budget?: number, roll?: number, force?: number): Knock {
+function knockAs(topple: THREE.Vector3 | null | undefined, impact: number | undefined, knockout: boolean, point: THREE.Vector3 | undefined, stumble?: number, budget?: number, roll?: number, force?: number, launch?: THREE.Vector3): Knock {
   _knock.topple = topple;
   _knock.impact = impact;
   _knock.knockout = knockout;
@@ -356,6 +361,7 @@ function knockAs(topple: THREE.Vector3 | null | undefined, impact: number | unde
   _knock.budget = budget;
   _knock.roll = roll;
   _knock.force = force;
+  _knock.launch = launch;
   return _knock;
 }
 
@@ -695,7 +701,7 @@ export class DamageModel {
     let amount = d.amount * (area ? 1 : region === 'head' ? headMul : REGION_DAMAGE[region]);
     const kneeling = body !== null && wounds!.kneeling(e);
     if (body) amount = wounds!.priced(placed, d, amount, region, kneeling);
-    res.headshot = region === 'head' && !area && (placed === null || (placed.zone === 'head' && !placed.glancing));
+    res.headshot = region === 'head' && !area && (d.source === 'stomp' || placed === null || (placed.zone === 'head' && !placed.glancing));
     if (told) {
       amount = told.amount;
       res.headshot = told.headshot;
@@ -940,7 +946,7 @@ export class DamageModel {
     out.shatter = false;
     out.heavyHead = region === 'head' && !AREA_TYPES.has(d.type) && this.heavyHead(e, d);
     out.headOutcome = region === 'head' && !AREA_TYPES.has(d.type) && !e.def.machine
-      ? headOutcome(d.amount, out.heavyHead, e.def.id)
+      ? (d.source === 'stomp' ? 'burst' : headOutcome(d.amount, out.heavyHead, e.def.id))
       : undefined;
     out.wound = 0;
     if (d.torso === undefined && !e.def.machine && blowsOut(d, e.position.distanceTo(this.w.player.position))) d.torso = 'blowout';
@@ -1373,6 +1379,10 @@ export class DamageModel {
     // Sustained fire batters the arm behind the shield: enough of it and the arm goes, shield and all.
     const left = this.spendPool(e, 'armL', d.amount * (d.type === 'explosive' ? 0.35 : 0.22), d);
     if (left <= 0 && this.facts) this.sever(e, 'armL', d, res);
+    if (d.source === 'kick' && e.alive && !e.downed) {
+      const profile = profileOf(e);
+      if (profile) this.spartaKick(e, d, profile, 0.85);
+    }
     this.emitHit(e, d, res);
   }
 
@@ -1468,13 +1478,14 @@ export class DamageModel {
     } else if (d.slicePlaneNormal) {
       sliced = true;
       ctx.gore.slice(e.char, d.point, d.slicePlaneNormal, d);
-    } else if (headshot && !e.def.machine && d.type === 'melee') {
+    } else if (headshot && !e.def.machine && d.type === 'melee' && d.source !== 'stomp') {
       // A club kills a man and leaves him his head: key 5's blunt blows, the only hits on an enemy typed 'melee'. An edge
-      // takes a head with a slice plane, above.
+      // takes a head with a slice plane, above, and a head stomp explodes the skull below.
       this.ragdoll(e, d, force, body ? HEADSHOT_TWITCH : undefined, true);
     } else if (headshot && !e.def.machine) {
       // A bullet never takes a head off whole. Gore bursts a 'partial' on an enemy whose partial wound is not built yet.
-      const outcome = told?.headOutcome ?? headOutcome(d.amount, heavyHead, e.def.id);
+      // A head stomp on a crawling wounded enemy always explodes the entire head ('burst').
+      const outcome = d.source === 'stomp' ? 'burst' : (told?.headOutcome ?? headOutcome(d.amount, heavyHead, e.def.id));
       found.headOutcome = outcome;
       const burst = outcome !== 'hole';
       const down = e.rising > 0 || body?.floored === true;
@@ -1608,7 +1619,7 @@ export class DamageModel {
     if (d) {
       const bone = d.bone ?? REGION_BONE[d.region ?? 'chest'] ?? 0;
       _v.copy(d.dir).multiplyScalar(force);
-      _v.y += force * 0.15;
+      _v.y += force * (d.source === 'kick' ? 0.24 : 0.15);
       this.m.ragdollOptions.impulses![0]!.bone = bone;
       this.m.ragdollOptions.impulses![0]!.point.copy(d.point);
       this.m.ragdollOptions.impulses![0]!.impulse.copy(_v);
@@ -1647,6 +1658,34 @@ export class DamageModel {
 
     const pushForce = d.force || DEFAULT_FORCE[d.type];
     e.pressure = Math.min(1, e.pressure + 0.22 + frac);
+    if (d.source === 'kick') {
+      if (e.downed) {
+        _kickDir.copy(d.dir);
+        _kickDir.y = Math.max(_kickDir.y, 0.28);
+        if (_kickDir.lengthSq() > 1e-6) _kickDir.normalize();
+        this.hitWhileDown(e, d, bone, pushForce * 1.35, frac, _kickDir);
+        return;
+      }
+      if (profile) {
+        if (e.pinned) dropOff(e);
+        this.spartaKick(e, d, profile, 1);
+        return;
+      }
+      const hLen = Math.hypot(d.dir.x, d.dir.z);
+      const hx = hLen > 1e-4 ? d.dir.x / hLen : 0;
+      const hz = hLen > 1e-4 ? d.dir.z / hLen : 0;
+      const shove = e.isBoss ? 1.2 : 7.5 * clamp(1 - e.def.mass * 0.5, 0.35, 1);
+      e.push.x += hx * shove;
+      e.push.z += hz * shove;
+      unmoved(e, this.w.now, hx * shove, hz * shove);
+      if (e.pinned) dropOff(e);
+      e.poise += amount * 1.5;
+      if (e.poise >= e.def.poise * e.maxHealth) {
+        e.poise = 0;
+        this.stagger(e, 0.65);
+      }
+      return;
+    }
     if (e.downed) {
       // Catching its balance, a round costs it what it took of its health, and one in the head more than it has: it goes over.
       this.hitWhileDown(e, d, bone, pushForce, region === 'head' && !armoured ? HEAD_COST : frac);
@@ -1997,13 +2036,62 @@ export class DamageModel {
     return false;
   }
 
+  /**
+   * Sparta kick: launches a standing humanoid straight back into a flying physics ragdoll (`gore.knockdown`)
+   * with upward lift, chest lever-arm torque, and zero stumble delay so kicking a crowd opens real space.
+   */
+  private spartaKick(e: Enemy, d: DamageInfo, profile: ReactionProfile, scale: number): void {
+    const hLen = Math.hypot(d.dir.x, d.dir.z);
+    if (hLen > 1e-4) {
+      _kickDir.set(d.dir.x / hLen, 0, d.dir.z / hLen);
+    } else {
+      _kickDir.set(-Math.sin(e.yaw), 0, -Math.cos(e.yaw));
+    }
+    const weight = clamp(1 - e.def.mass * 0.55, 0.42, 1) * scale;
+    const held = e.frozen > 0 || e.entrance !== 'none';
+    const strength = clamp(0.85 * weight, 0.45, 1);
+    const launched = KNOCK_PASS && !held && (() => {
+      _kickLaunch.set(_kickDir.x * 7.6 * weight, 2.3 * weight, _kickDir.z * 7.6 * weight);
+      _kickTopple.copy(_kickDir).multiplyScalar(2.8 * weight);
+      const how = knockAs(_kickTopple, 0.9 * weight, false, d.point, undefined, undefined, undefined, 115 * weight, _kickLaunch);
+      return this.knockDown(e, _kickDir, strength, B.chest, profile, false, how);
+    })();
+    if (launched) {
+      const found = this.found;
+      found.level = 'thrown';
+      found.strength = strength;
+      found.knockout = false;
+      found.tripped = false;
+      e.shock = 0;
+      e.reactAt = this.w.now + profile.cooldown;
+      if (profile.pain > 0) this.cryOut(e);
+      return;
+    }
+    // Fallback when gore ragdoll slots are full, frozen, or mid-entrance: heavy shove + full stagger.
+    const shove = 7.8 * weight;
+    e.push.x += _kickDir.x * shove;
+    e.push.z += _kickDir.z * shove;
+    unmoved(e, this.w.now, _kickDir.x * shove, _kickDir.z * shove);
+    e.char.anim.flinch(B.chest, _kickDir, 1, d.point);
+    this.stagger(e, STAGGER_MAX, _kickDir, 1, B.chest, profile.reel * 2);
+    if (profile.pain > 0) this.cryOut(e);
+  }
+
   /** False if gore has no room for another body on the floor. */
   private knockDown(e: Enemy, dir: THREE.Vector3, strength: number, bone: number, profile: ReactionProfile, thrown: boolean, how?: Knock): boolean {
     const { ctx } = this.w;
     const m = this.m;
     const o = m.knockOptions;
     const cold = how?.knockout === true;
-    o.velocity.set(e.velocity.x + e.reel.x + e.push.x, e.airborne ? e.verticalSpeed : 0, e.velocity.z + e.reel.z + e.push.z);
+    if (how?.launch) {
+      o.velocity.set(
+        e.velocity.x + how.launch.x,
+        Math.max(e.airborne ? e.verticalSpeed : 0, how.launch.y),
+        e.velocity.z + how.launch.z,
+      );
+    } else {
+      o.velocity.set(e.velocity.x + e.reel.x + e.push.x, e.airborne ? e.verticalSpeed : 0, e.velocity.z + e.reel.z + e.push.z);
+    }
     m.knockImpact.dir.copy(dir);
     m.knockImpact.strength = how?.impact ?? strength * 0.4;
     o.impact = m.knockImpact;
@@ -2072,13 +2160,13 @@ export class DamageModel {
   }
 
   /** It keeps taking hits on the floor, and every one lands on the body as it lies. */
-  private hitWhileDown(e: Enemy, d: DamageInfo, bone: number, force: number, cost: number): void {
+  private hitWhileDown(e: Enemy, d: DamageInfo, bone: number, force: number, cost: number, dir?: THREE.Vector3): void {
     const m = this.m;
     const o = m.knockOptions;
     const i = m.knockImpulses[0]!;
     i.bone = bone;
     i.point.copy(d.point);
-    i.impulse.copy(d.dir).multiplyScalar(force);
+    i.impulse.copy(dir ?? d.dir).multiplyScalar(force);
     o.impulses = m.knockImpulses;
     o.impact = undefined;
     o.topple = undefined;

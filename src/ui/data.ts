@@ -409,7 +409,7 @@ export const KEY_GROUPS: readonly { title: string; rows: readonly [Action, strin
   {
     title: 'Fight',
     rows: [
-      ['fire', 'Fire'], ['aim', 'Aim and alt fire'], ['reload', 'Reload'], ['melee', 'Quick melee'],
+      ['fire', 'Fire'], ['aim', 'Aim and alt fire'], ['reload', 'Reload'], ['melee', 'Kick / Head stomp'],
       ['grenade', 'Grenade'], ['stim', 'Use stim'], ['sonar', 'Brain chip (hold: next)'], ['weaponLast', 'Last weapon'], ['weaponNext', 'Next weapon'], ['weaponPrev', 'Previous weapon'],
       ['dropWeapon', 'Drop weapon (a friend takes it with E)'],
     ],

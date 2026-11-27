@@ -351,6 +351,9 @@ export interface PaintView {
  */
 export type SwordMove = 'light1' | 'light2' | 'light3' | 'windup' | 'block' | 'heavy' | 'stab' | 'cleave' | 'spin' | 'wave' | 'flurry';
 
+/** First-person leg strikes triggered on F: a Sparta kick forward, or a downward head stomp on a crawling wounded enemy. */
+export type KickMove = 'kick' | 'stomp';
+
 /** Reload metadata passed to the viewmodel (empty vs tactical reload, plus tubular-magazine shell timings). */
 export interface ReloadMeta {
   /** True when reloading from an empty magazine (ends with slide release / bolt drop / rack). */
@@ -378,6 +381,8 @@ export interface ViewmodelRig extends GameSystem {
   /** Cancels any active reload animation immediately (or smoothly over `fadeSeconds` on a shotgun interrupt). */
   cancelReload?(fadeSeconds?: number): void;
   swing(move: SwordMove, seconds: number): void;
+  /** Plays a first-person kick or head stomp animation with the player's leg over `seconds`. Optional for stand-in rigs. */
+  kick?(move: KickMove, seconds: number): void;
   /** 0..1 charge or spin level, for the Lance and Buzzsaw. */
   setCharge(amount: number): void;
   setAkimbo(on: boolean): void;

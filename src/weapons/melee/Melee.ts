@@ -98,7 +98,6 @@ export class Melee {
   private swingIndex = 0;
   private fireBuffer = 0;
   private aimBuffer = 0;
-  private quick = false;
   /** The katana's chain of inputs toward a combo move, and the special in progress. */
   private combo = '';
   private special: Special = null;
@@ -209,7 +208,6 @@ export class Melee {
     this.timer = 0;
     this.fireBuffer = this.aimBuffer = 0;
     this.next = 0;
-    this.quick = false;
     this.combo = '';
     this.special = null;
     this.lungeTarget = null;
@@ -223,19 +221,6 @@ export class Melee {
     this.wave.on = false;
     this.clock = 0;
     this.lastAttackAt = -10;
-  }
-
-  /** One swing of `id` from any weapon, on the melee key. */
-  quickStrike(id: WeaponId = this.id): void {
-    this.equip(id);
-    this.next = 0;
-    this.quick = true;
-    this.special = null;
-    this.startLight();
-  }
-
-  get inQuickStrike(): boolean {
-    return this.quick && this.state === 'swing';
   }
 
   /** Runs every frame for the clock and the pull, whether or not a blade is out. */
@@ -265,16 +250,6 @@ export class Melee {
     this.hum.setPitch(up ? H.swing : H.rest, up ? 0.04 : 0.25);
   }
 
-  /** Quick strikes run with no button logic: one swing and hand the gun back. */
-  updateQuick(dt: number): void {
-    this.timer += dt;
-    this.landSwing();
-    if (this.timer >= this.length) {
-      this.state = 'idle';
-      this.quick = false;
-    }
-  }
-
   /** The swing still cuts: inside its live share, or for as long as a step or a dash is carrying the player in. */
   private live(): boolean {
     if (this.timer < this.impactAt) return false;
@@ -302,7 +277,7 @@ export class Melee {
     // A press during a swing is held until the swing ends: a queued attack never expires, as in the first game. Outside
     // a swing it has a short life, so a stray click does not fire a second later.
     const decay = this.state === 'swing' ? 0 : dt;
-    const clicked = input.pressed('fire') || input.pressed('melee');
+    const clicked = input.pressed('fire');
     this.fireBuffer = clicked ? SWORD.buffer : Math.max(0, this.fireBuffer - decay);
     this.aimBuffer = input.pressed('aim') ? SWORD.buffer : Math.max(0, this.aimBuffer - decay);
     const fireDown = input.isDown('fire');
@@ -415,7 +390,7 @@ export class Melee {
   private startLight(): void {
     const d = this.def;
     this.chainOn();
-    if (this.katana && !this.quick) {
+    if (this.katana) {
       const read = readCombo(this.combo, 's');
       this.combo = read.chain;
       if (read.move) return this.startMove(read.move, null);
