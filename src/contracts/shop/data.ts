@@ -551,7 +551,7 @@ const MOD_CATALOGUE: Readonly<Record<ModId, Ware>> = {
   },
   flailBolt: {
     price: 1150, wave: 10,
-    lore: 'A skeletonized titanium bolt carrier milled down to the bare minimum. Pushes the Flail to a blistering 1,000 rounds a minute — Procurement politely described the sound as tearing canvas.',
+    lore: 'A skeletonized titanium bolt carrier milled down to the bare minimum. Pushes the Flail to a blistering 1,200 rounds a minute — Procurement politely described the sound as tearing canvas.',
   },
   flailHolo: {
     price: 550, wave: 7,

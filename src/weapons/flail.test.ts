@@ -79,16 +79,16 @@ describe('the Flail on paper', () => {
     expect(MODS.flailAcog.patch.ads!.zoom).toBeGreaterThan(MODS.flailHolo.patch.ads!.zoom);
   });
 
-  it('pushes fire rate to 1000 RPM with the Lightened bolt, including when stacked with Heavy barrel and full Desert Raid spec', () => {
+  it('pushes fire rate to 1200 RPM with the Lightened bolt, including when stacked with Heavy barrel and full Desert Raid spec', () => {
     expect(MODS.flailBolt.slot).toBeUndefined();
     const boltOnly = moddedDef('flail', new Set(['flailBolt']));
-    expect(60 / boltOnly.interval).toBeCloseTo(1000, 6);
+    expect(60 / boltOnly.interval).toBeCloseTo(1200, 6);
 
     const desertSpec = moddedDef(
       'flail',
       new Set(['flailHeavy', 'flailAp', 'flailStock', 'flailHolo', 'flailLam', 'flailBox', 'flailBolt']),
     );
-    expect(60 / desertSpec.interval).toBeCloseTo(1000, 6);
+    expect(60 / desertSpec.interval).toBeCloseTo(1200, 6);
     expect(desertSpec.magSize).toBe(200);
     expect(desertSpec.armour).toBe('medium');
     expect(desertSpec.load).toBe('ap');

@@ -389,7 +389,7 @@ export const MODS: Readonly<Record<ModId, ModDef>> = {
   flailBolt: {
     id: 'flailBolt', weapon: 'flail', name: 'Lightened bolt',
     patch: {},
-    adjust: () => ({ interval: 60 / 1000 }),
+    adjust: () => ({ interval: 60 / 1200 }),
   },
   flailStock: {
     id: 'flailStock', weapon: 'flail', name: 'Enhanced stock',

@@ -132,7 +132,7 @@ export const REMOTE_MODS: Readonly<Record<ModId, { look: ModLook; sees: string }
   awlBarrel: { look: 'round', sees: 'the longer, brighter vapour wake, through more cover' },
   gimletLong: { look: 'round', sees: 'the longer bright scout tracer through more cover at a slightly slower cadence' },
   flailHeavy: { look: 'rate', sees: 'the faster heavy-barrel rate through cover' },
-  flailBolt: { look: 'rate', sees: 'the lightened bolt hammering at a thousand rounds a minute' },
+  flailBolt: { look: 'rate', sees: 'the lightened bolt hammering at twelve hundred rounds a minute' },
   billhookSlug: { look: 'round', sees: 'a single heavy slug tracer and larger wall impact in place of buckshot' },
   bodkinTungsten: { look: 'round', sees: 'the heavy sabot-grade dart wake punching through twice the cover' },
   raufoss: { look: 'round', sees: 'the Raufoss tracer, its burst, sparkle and scorch where it strikes, and the pellets out of the far side' },
