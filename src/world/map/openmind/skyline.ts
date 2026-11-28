@@ -216,13 +216,11 @@ function buildTower1(k: Kit, spec: MapSpec): void {
   mountSign(k, -71, y + 9.2, -126.68, 0, 'COMPLIANCE IS MANDATORY', 8.8);
 
   // Canyon Zipline start pylon at (-68, 52, -136) pointing toward Tower 2 (-8, 38, -112).
+  // The cable itself is rendered and snapped dynamically by `ZiplineManager` (`zipline.ts`).
   const zip = ZIPLINES[0]!;
   const zipYaw = Math.atan2(zip.end[0] - zip.start[0], zip.end[2] - zip.start[2]);
   buildZiplinePylon(k, zip.start[0], y, zip.start[2], zip.start[1], zipYaw);
-  mountSign(k, zip.start[0] - 0.6, y + 3.4, zip.start[2] - 2.6, Math.PI / 2, 'LAUNCH', 2.6);
-
-  // Visual tensioned steel guide cable (non-colliding; runtime zipline.ts animates snap).
-  k.beam(zip.start[0], zip.start[1], zip.start[2], zip.end[0], zip.end[1], zip.end[2], 0.035, 0.035, 'steelDark', false);
+  mountSign(k, zip.start[0] - 0.6, y + 3.8, zip.start[2] - 2.6, Math.PI / 2, 'LAUNCH', 2.6);
 }
 
 /** Tower 2: Meridian Relay Deck, Rescue Gaff Crane, Lower Safety Ledge, Retracted Skybridge Stub & Wall-Run Lip. */
@@ -431,9 +429,9 @@ function buildTower3(k: Kit, spec: MapSpec): void {
   spec.plan?.decks.push({ x0: -lc.width / 2, z0: lc.z0, x1: lc.width / 2, z1: lc.z1 });
 
   // Second Zipline (`hq_launch_zipline`) running from Launch Crane mast straight through HQ's glass curtain wall!
+  // Cable itself is rendered dynamically by `ZiplineManager` (`zipline.ts`).
   const hqZip = ZIPLINES[1]!;
   buildZiplinePylon(k, hqZip.start[0], lc.startY, hqZip.start[2], hqZip.start[1], 0);
-  k.beam(hqZip.start[0], hqZip.start[1], hqZip.start[2], hqZip.end[0], hqZip.end[1], hqZip.end[2], 0.03, 0.03, 'steelDark', false);
 }
 
 /** Non-colliding chasm canyon floor & distant sunlit white/glass metropolis skyscrapers around the skyline. */

@@ -82,7 +82,9 @@ export interface ZiplineRideStepOutput {
 export const ZIPLINE_DEFAULTS = {
   baseSpeed: 28,
   maxSpeed: 34,
-  attachRadius: 3.5,
+  attachRadius: 6.5,
+  /** Distance along the start of the cable that also counts for grabbing (helps mid-air / edge catches). */
+  attachCableReach: 6.0,
   hangOffset: 2.15,
   snapUpwardLift: 6.5,
   snapForwardScale: 1.0,
@@ -290,6 +292,16 @@ export class ZiplineManager {
   /** Id of the zipline currently showing the `[E] ZIPLINE` proximity prompt, or null. */
   get promptedId(): string | null {
     return this.promptLineId;
+  }
+
+  /** Human-readable label of the zipline currently in grab range, or null. */
+  get promptedLabel(): string | null {
+    return this.promptLineId ? (this.lines.get(this.promptLineId)?.label ?? null) : null;
+  }
+
+  /** Human-readable label of the zipline currently being ridden, or null. */
+  get activeLabel(): string | null {
+    return this.activeLine?.label ?? null;
   }
 
   /** Registers a zipline and builds its procedural 3D anchors, cable, entry ring, and trolley. */
@@ -557,11 +569,25 @@ export class ZiplineManager {
 
     for (const inst of this.lines.values()) {
       if (inst.snapped) continue;
-      // Measure from player chest/eye height as well as feet so jumping near the cable catches cleanly.
-      const dx = player.position.x - inst.start.x;
-      const dz = player.position.z - inst.start.z;
+      // Measure against the entry segment of the cable (start..start+6 m) at both feet and chest height
+      // so walking up to the pylon OR leaping off the lip onto the wire catches cleanly.
+      const reach = Math.min(ZIPLINE_DEFAULTS.attachCableReach, inst.length);
+      const px = player.position.x - inst.start.x;
+      const py = player.position.y + 1.1 - inst.start.y;
+      const pz = player.position.z - inst.start.z;
+      const proj = clamp(
+        px * inst.direction.x + py * inst.direction.y + pz * inst.direction.z,
+        0,
+        reach,
+      );
+      const cx = inst.start.x + inst.direction.x * proj;
+      const cy = inst.start.y + inst.direction.y * proj;
+      const cz = inst.start.z + inst.direction.z * proj;
+
+      const dx = player.position.x - cx;
+      const dz = player.position.z - cz;
       const chestY = player.position.y + 1.2;
-      const dy = Math.min(Math.abs(player.position.y - inst.start.y), Math.abs(chestY - inst.start.y));
+      const dy = Math.min(Math.abs(player.position.y - cy), Math.abs(chestY - cy));
       const dSq = dx * dx + dy * dy + dz * dz;
       const r = inst.attachRadius;
       if (dSq <= r * r && dSq < nearestDistSq) {
@@ -579,7 +605,7 @@ export class ZiplineManager {
       this.clearPrompt();
       this.promptLineId = nearest.def.id;
       this.promptAnchor.copy(nearest.start);
-      this.promptAnchor.y += 0.9;
+      this.promptAnchor.y += 0.35;
       const key = input?.labelFor?.('interact') ?? 'E';
       if (this.ctx.hud?.follow) {
         this.promptCleanup = this.ctx.hud.follow(this.promptAnchor, `[${key}] ${nearest.label}`, '#22e8ff');
@@ -587,8 +613,7 @@ export class ZiplineManager {
     }
 
     const interactTriggered =
-      Boolean(input?.pressed?.('interact')) ||
-      (!player.grounded && Boolean(input?.isDown?.('interact')));
+      Boolean(input?.pressed?.('interact')) || Boolean(input?.isDown?.('interact'));
     if (interactTriggered) {
       this.attach(nearest.def.id);
     }
@@ -741,7 +766,7 @@ export class ZiplineManager {
     materials.push(orangeMat, steelMat, cableMat, ringMat);
 
     // Main tensioned braided steel cable stretched between start and end anchors.
-    const cableGeo = new THREE.CylinderGeometry(0.032, 0.032, length, 6, 1, false);
+    const cableGeo = new THREE.CylinderGeometry(0.055, 0.055, length, 6, 1, false);
     geometries.push(cableGeo);
     const cable = new THREE.Mesh(cableGeo, cableMat);
     _tmpMid.addVectors(start, end).multiplyScalar(0.5);
@@ -752,7 +777,7 @@ export class ZiplineManager {
 
     // Severed dangling stub (shown after scripted snap).
     const stubLen = Math.min(length * 0.32, 14);
-    const stubGeo = new THREE.CylinderGeometry(0.03, 0.028, stubLen, 6, 1, false);
+    const stubGeo = new THREE.CylinderGeometry(0.048, 0.044, stubLen, 6, 1, false);
     stubGeo.translate(0, -stubLen * 0.5, 0);
     geometries.push(stubGeo);
     const snappedStub = new THREE.Mesh(stubGeo, cableMat);
@@ -761,9 +786,9 @@ export class ZiplineManager {
     root.add(snappedStub);
 
     // Start & end orange anchor pylons.
-    const pylonPostGeo = new THREE.BoxGeometry(0.36, 2.4, 0.36);
+    const pylonPostGeo = new THREE.BoxGeometry(0.36, 2.8, 0.36);
     const pylonBaseGeo = new THREE.BoxGeometry(0.75, 0.24, 0.75);
-    const pulleyGeo = new THREE.CylinderGeometry(0.22, 0.22, 0.14, 10);
+    const pulleyGeo = new THREE.CylinderGeometry(0.24, 0.24, 0.16, 10);
     pulleyGeo.rotateZ(Math.PI / 2);
     geometries.push(pylonPostGeo, pylonBaseGeo, pulleyGeo);
 
@@ -771,9 +796,9 @@ export class ZiplineManager {
       const g = new THREE.Group();
       g.position.copy(anchor);
       const post = new THREE.Mesh(pylonPostGeo, orangeMat);
-      post.position.y = -1.0;
+      post.position.y = -1.4;
       const base = new THREE.Mesh(pylonBaseGeo, steelMat);
-      base.position.y = -2.18;
+      base.position.y = -2.68;
       const pulley = new THREE.Mesh(pulleyGeo, steelMat);
       pulley.position.y = 0.08;
       g.add(post, base, pulley);
@@ -784,8 +809,8 @@ export class ZiplineManager {
     const endPylon = makePylon(end);
     root.add(startPylon, endPylon);
 
-    // Pulsing cyan entry ring around the start anchor.
-    const ringGeo = new THREE.TorusGeometry(0.95, 0.055, 8, 24);
+    // Large pulsing cyan entry ring around the start anchor so it reads from across the roof.
+    const ringGeo = new THREE.TorusGeometry(1.35, 0.08, 10, 28);
     geometries.push(ringGeo);
     const entryRing = new THREE.Mesh(ringGeo, ringMat);
     entryRing.position.copy(start);

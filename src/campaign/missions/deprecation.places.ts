@@ -142,7 +142,11 @@ export const ZONES: Readonly<Record<string, Zone>> = {
   },
   'office.lobby': {
     min: [OFFICE.serviceLobby.x0 - 1, OFFICE.mezzY - 1, OFFICE.serviceLobby.z0 - 1],
-    max: [OFFICE.serviceLobby.x1 + 1, OFFICE.mezzCeil, OFFICE.serviceLobby.z1 + 1],
+    max: [ELEVATOR_SHAFT.x1 + 1, OFFICE.mezzCeil, OFFICE.serviceLobby.z1 + 1],
+  },
+  'vault.floor': {
+    min: [DATACENTER.x0 - 1, DATACENTER.floorY - 2, DATACENTER.z0 - 1],
+    max: [DATACENTER.x1 + 1, DATACENTER.floorY + 0.6, DATACENTER.z1 + 1],
   },
   'boulevard.plaza': {
     min: [-38, LV.garage - 2, BOULEVARD.z0],

@@ -1,4 +1,3 @@
-import { DeprecationDirector } from './deprecation/director';
 /**
  * The campaign: a mission played as data over the game's own systems. Game.ts finds `createCampaign` by convention. On a page with no
  * mission this builds nothing and costs an empty call a frame.
@@ -25,6 +24,7 @@ import './events';
 import { BankRun } from './bankRun';
 import { Chancery } from './chancery';
 import { CrossfireDirector, isCrossfireMissionId } from './crossfire/director';
+import { DeprecationDirector } from './deprecation/director';
 import { DesertRaid } from './desertRaid';
 import { Foreclosure } from './foreclosure';
 import { GameHost } from './host';
@@ -86,12 +86,13 @@ class Campaign implements CampaignSystem {
   private readonly desertRaid: DesertRaid | null = null;
   /** Crossfire's 4-part multi-map runtime director (crossfire/director.ts). */
   private readonly crossfire: CrossfireDirector | null = null;
+  /** Deprecation's OpenMind HQ skyline, elevator, datacenter & ORION-0 runtime director (deprecation/director.ts). */
   private readonly deprecation: DeprecationDirector | null = null;
   result: MissionResult | null = null;
 
   constructor(private readonly ctx: Ctx, id: string) {
     const source = MISSIONS[id];
-    const starterContract = id === 'outpost' ? 'campaign' : id === 'foreclosure' ? 'foreclosure' : id === 'bank_run' ? 'bank_run' : id === 'desert_raid' ? 'desert_raid' : null;
+    const starterContract = id === 'outpost' ? 'campaign' : id === 'foreclosure' ? 'foreclosure' : id === 'bank_run' ? 'bank_run' : id === 'desert_raid' ? 'desert_raid' : id === 'deprecation' ? 'deprecation' : null;
     const starterGun = starterContract ? selectedStarter(starterContract) : null;
     const starterMods = starterContract && starterGun && starterModsAvailable(starterContract, starterGun, missionModsUnlocked(starterContract)) ? selectedStarterMods(starterGun) : undefined;
     const mission = source && starterGun ? missionWithStarter(source, starterGun, starterMods) : source;
@@ -120,6 +121,9 @@ class Campaign implements CampaignSystem {
     } else if (isCrossfireMissionId(mission.id)) {
       const cf = (this.crossfire = new CrossfireDirector(ctx, this.runner, this.ui, () => this.host.film.playing));
       this.host.crossfireCall = (name, arg) => { cf.call(name, arg); };
+    } else if (mission.id === 'deprecation') {
+      const dp = (this.deprecation = new DeprecationDirector(ctx, this.runner, this.ui));
+      this.host.deprecationCall = (name, arg) => dp.call(name, arg);
     }
     // A mission with friendly squads (Foreclosure, Desert Raid, Crossfire) loads their bodies now.
     if (mission.id === 'desert_raid' || isCrossfireMissionId(mission.id) || /"do":"(roster|battle)"/.test(JSON.stringify(mission.beats))) void ctx.allies?.preload();

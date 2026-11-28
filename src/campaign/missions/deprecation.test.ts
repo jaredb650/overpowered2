@@ -317,4 +317,40 @@ describe('Deprecation (Form 7742-A)', () => {
     expect(host.said).toContain('mission.deprecation.council.redeploy.1');
     expect(host.said).toContain('mission.deprecation.council.redeploy.2');
   });
+
+  it('opens the freight lift immediately when both lobby QRF waves are cleared', () => {
+    const host = new FakeHost();
+    const run = new MissionRunner(DEPRECATION, host);
+    run.start('elevator_drop');
+    run.update(FRAME);
+    expect(host.objectiveText.some(o => o.includes('Hold the Service Lobby'))).toBe(true);
+
+    // Clear qrf_1 -> qrf_2 spawns immediately.
+    for (let i = 0; i < 4; i++) run.unitGone('qrf_1', true, 'smg');
+    run.update(FRAME);
+    // Clear qrf_2 -> hold_lobby completes and dp.elevatorRide runs without waiting out the 25 s timer.
+    for (let i = 0; i < 4; i++) run.unitGone('qrf_2', true, 'smg');
+    run.update(FRAME);
+
+    expect(host.calls.map(([name]) => name)).toContain('dp.elevatorRide');
+    expect(host.objectiveText.some(o => o.includes('Board the Freight Elevator'))).toBe(true);
+  });
+
+  it('advances cleanly to datacenter if the player drops down the shaft into Sub-Level 4 during office_breach or elevator_drop', () => {
+    for (const startBeat of ['office_breach', 'elevator_drop'] as const) {
+      const host = new FakeHost();
+      const run = new MissionRunner(DEPRECATION, host);
+      run.start(startBeat);
+      run.update(FRAME);
+
+      host.feet = centerOf('vault.floor');
+      for (let i = 0; i < 10; i++) run.update(FRAME);
+
+      expect(run.beat?.id, `dropping into vault.floor from ${startBeat}`).toBe('datacenter');
+      expect(host.calls.map(([name]) => name)).toContain('dp.datacenter');
+      expect(host.objectiveText.some(o => o.includes('Compute Clusters'))).toBe(true);
+      expect(host.objectiveText.some(o => o.includes('Service Lobby'))).toBe(false);
+    }
+  });
 });
+

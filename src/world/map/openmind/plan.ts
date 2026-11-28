@@ -104,15 +104,15 @@ export interface ZiplineSpec {
 export const ZIPLINES: readonly ZiplineSpec[] = [
   {
     id: 'canyon_zipline',
-    start: [-68, LV.tower1 + 1.5, -136],
-    end: [-8, LV.tower2 + 1.5, -112],
+    start: [-68, LV.tower1 + 2.8, -136],
+    end: [-8, LV.tower2 + 2.8, -112],
     snapAt: 0.65,
     label: 'CANYON MAINTENANCE ZIPLINE',
   },
   {
     id: 'hq_launch_zipline',
-    start: [0, LV.tower3Top + 1.5, -26],
-    end: [0, LV.exec + 2.2, -11.5],
+    start: [0, LV.tower3Top + 2.8, -26],
+    end: [0, LV.exec + 2.8, -11.5],
     label: 'HQ GLASS BREACH LINE',
   },
 ];

@@ -48,7 +48,7 @@
 .hud:has(.ms-cinema) .ms-radio .cmd-text { font-size: 1.4rem; line-height: 1.3; color: #fff; text-shadow: 0 0 0.4rem #000, 0.09rem 0.09rem 0 #000; }
 
 /* A cutscene has no use for any of this. */
-.hud:has(.ms-cinema) .col-left, .hud:has(.ms-cinema) .col-right, .hud:has(.ms-cinema) .compass, .hud:has(.ms-cinema) .xh-reticle, .hud:has(.ms-cinema) .ms-objs, .hud:has(.ms-cinema) .ms-hint, .hud:has(.ms-cinema) .fc-bar, .hud:has(.ms-cinema) .fc-ledger, .hud:has(.ms-cinema) .fc-nuke-prompt, .hud:has(.ms-cinema) .bk-carry, .hud:has(.ms-cinema) .bk-bags, .hud:has(.ms-cinema) .bk-hw { display: none; }
+.hud:has(.ms-cinema) .col-left, .hud:has(.ms-cinema) .col-right, .hud:has(.ms-cinema) .compass, .hud:has(.ms-cinema) .xh-reticle, .hud:has(.ms-cinema) .ms-objs, .hud:has(.ms-cinema) .ms-hint, .hud:has(.ms-cinema) .fc-bar, .hud:has(.ms-cinema) .fc-ledger, .hud:has(.ms-cinema) .fc-nuke-prompt, .hud:has(.ms-cinema) .dp-zip-prompt, .hud:has(.ms-cinema) .bk-carry, .hud:has(.ms-cinema) .bk-bags, .hud:has(.ms-cinema) .bk-hw { display: none; }
 
 /* Foreclosure: Distraint Frame Slip boot ticker & Boss integrity bar. */
 .fc-bar {
@@ -299,5 +299,67 @@
 .bk-hw-fill.heat.hot { background: #ff2a24; animation: fc-nuke-pulse 0.4s ease-in-out infinite; }
 .bk-hw-status { margin-top: 0.32rem; font-size: 0.78rem; color: #ffe89e; display: flex; justify-content: space-between; }
 
-
-
+/* Deprecation: Huge unmistakable center-screen zipline grab & ride prompt (clears .ms-hint below). */
+.dp-zip-prompt {
+  position: absolute;
+  left: 50%;
+  bottom: 19rem;
+  transform: translateX(-50%) scale(0.96);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.34rem;
+  min-width: 30rem;
+  padding: 0.95rem 2.2rem 1rem;
+  background: rgba(4, 12, 22, 0.94);
+  border: 0.2rem solid #22e8ff;
+  box-shadow: 0 0 2.4rem rgba(34, 232, 255, 0.65), 0.26rem 0.26rem 0 #000;
+  font-family: var(--mono);
+  text-align: center;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.08s ease, transform 0.08s ease;
+  z-index: 8;
+}
+.dp-zip-prompt.on {
+  opacity: 1;
+  transform: translateX(-50%) scale(1);
+  animation: dp-zip-pulse 1.05s ease-in-out infinite;
+}
+.dp-zip-prompt.riding {
+  bottom: 18.5rem;
+  min-width: 22rem;
+  padding: 0.55rem 1.45rem 0.6rem;
+  border-color: #ff8a2a;
+  box-shadow: 0 0 1.4rem rgba(255, 138, 42, 0.5), 0.18rem 0.18rem 0 #000;
+  animation: none;
+}
+.dp-zip-badge {
+  font-size: 0.9rem;
+  font-weight: 800;
+  letter-spacing: 0.22em;
+  color: #22e8ff;
+}
+.dp-zip-prompt.riding .dp-zip-badge {
+  color: #ff9c38;
+}
+.dp-zip-main {
+  font: 2.15rem/1.1 var(--display);
+  letter-spacing: 0.06em;
+  color: #ffffff;
+  text-shadow: 0 0 0.9rem rgba(34, 232, 255, 0.9), var(--edge);
+}
+.dp-zip-prompt.riding .dp-zip-main {
+  font-size: 1.35rem;
+  text-shadow: 0 0 0.6rem rgba(255, 138, 42, 0.75), var(--edge);
+}
+.dp-zip-sub {
+  font-size: 0.92rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: #ffe39e;
+}
+@keyframes dp-zip-pulse {
+  0%, 100% { box-shadow: 0 0 1.8rem rgba(34, 232, 255, 0.55), 0.26rem 0.26rem 0 #000; border-color: #22e8ff; }
+  50% { box-shadow: 0 0 3.2rem rgba(255, 152, 48, 0.92), 0.26rem 0.26rem 0 #000; border-color: #ff9830; }
+}

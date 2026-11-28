@@ -243,7 +243,7 @@ describe('ZiplineManager & pure math helpers', () => {
     expect(t).toBe(1);
   });
 
-  it('shows [E] ZIPLINE prompt within 3.5 m, attaches without parking, preserves look, and launches on Space', () => {
+  it('shows [E] ZIPLINE prompt within 6.5 m (and along cable entry), attaches without parking, preserves look, and launches on Space', () => {
     const env = makeTestEnv();
     const onDetach = vi.fn();
     const mgr = new ZiplineManager(env.ctx, { onDetach });
@@ -254,16 +254,18 @@ describe('ZiplineManager & pure math helpers', () => {
       end: [0, 34, -64],
     });
 
-    // Outside 3.5 m -> no prompt.
+    // Outside 6.5 m behind start -> no prompt.
     env.ctx.player.position.set(0, 48, 8);
     mgr.update(0.016);
     expect(mgr.promptedId).toBeNull();
+    expect(mgr.promptedLabel).toBeNull();
     expect(env.hudFollowCalls.length).toBe(0);
 
-    // Inside 3.5 m -> shows [E] ZIPLINE prompt.
-    env.ctx.player.position.set(0, 48.5, 1.5);
+    // Inside widened 6.5 m grab zone (e.g., 5.2 m away) -> shows [E] ZIPLINE prompt.
+    env.ctx.player.position.set(0, 48.5, 5.2);
     mgr.update(0.016);
     expect(mgr.promptedId).toBe('canyon');
+    expect(mgr.promptedLabel).toBe('ZIPLINE');
     expect(env.hudFollowCalls[0]?.label).toBe('[E] ZIPLINE');
 
     // Press interact while looking sideways/up -> attaches without parking & preserves yaw/pitch.
@@ -274,6 +276,7 @@ describe('ZiplineManager & pure math helpers', () => {
     env.input.justPressed.clear();
 
     expect(mgr.riding).toBe(true);
+    expect(mgr.activeLabel).toBe('ZIPLINE');
     expect(env.ctx.player.parked).toBe(false);
     expect(env.ctx.player.yaw).toBeCloseTo(0.75, 5);
     expect(env.ctx.player.pitch).toBeCloseTo(0.35, 5);
@@ -777,5 +780,60 @@ describe('Edge cases: zipline completion & elevator pre-jam guard', () => {
     expect(elevator.doorOpen).toBe(1);
     elevator.dispose();
   });
+
+  it('blocks doorway with a solid door collider while holding and does not leave on a brief threshold graze', async () => {
+    const physics = await Physics.create();
+    const env = makeTestEnv(physics);
+    const elevator = new ServiceElevator(env.ctx, {
+      position: [17, 34, 11],
+      topY: 34,
+      jamY: 18,
+      bottomY: -6,
+      size: 6,
+      doorYaw: -Math.PI / 2,
+    });
+
+    physics.flushQueries();
+    expect(elevator.doorBarrierCollider).not.toBeNull();
+
+    // Door barrier blocks horizontal ray from lobby (x=12) into shaft (x=17) while idle_top & holding.
+    const rayFromLobby = () =>
+      physics.raycast(new THREE.Vector3(12, 35.5, 11), new THREE.Vector3(1, 0, 0), 5, CG.World);
+    expect(rayFromLobby()?.collider?.handle).toBe(elevator.doorBarrierCollider!.handle);
+
+    elevator.startHold();
+    elevator.update(0.1);
+    physics.step(0.1);
+    expect(rayFromLobby()?.collider?.handle).toBe(elevator.doorBarrierCollider!.handle);
+
+    // Doors open -> barrier disables so the player can walk inside cleanly.
+    elevator.openDoors();
+    elevator.update(0.05);
+    physics.step(0.05);
+    expect(rayFromLobby()).toBeNull();
+
+    // Brief graze across x=14.5 (threshold) followed by stepping back out must NOT depart without the player.
+    env.ctx.player.position.set(14.5, 34, 11);
+    elevator.update(0.15);
+    expect(elevator.state).toBe('doors_open');
+    env.ctx.player.position.set(12.5, 34, 11);
+    elevator.update(0.15);
+    expect(elevator.state).toBe('doors_open');
+
+    // Staying on the threshold for >= 0.45 s nudges the player safely inside behind the closing door & departs.
+    env.ctx.player.position.set(14.5, 34, 11);
+    elevator.update(0.25);
+    expect(elevator.state).toBe('doors_open');
+    elevator.update(0.25);
+    expect(elevator.state).toBe('descending_1');
+    expect(env.ctx.player.position.x).toBeGreaterThanOrEqual(14.8);
+
+    // Door barrier re-engages during descent.
+    physics.step(0.05);
+    expect(elevator.doorBarrierCollider!.isEnabled()).toBe(true);
+
+    elevator.dispose();
+  });
 });
+
 

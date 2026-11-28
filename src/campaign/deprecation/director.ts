@@ -176,6 +176,13 @@ export class DeprecationDirector {
   private hudMode: HudMode = 'none';
   private hudPipSignature = '';
 
+  // Large center-screen zipline grab & ride prompt (campaign.css `.dp-zip-prompt`)
+  private readonly zipPromptEl: HTMLElement;
+  private readonly zipPromptBadge: Label;
+  private readonly zipPromptMain: Label;
+  private readonly zipPromptSub: Label;
+  private zipPromptState: 'off' | 'ready' | 'riding' = 'off';
+
   private readonly unsubs: (() => void)[] = [];
 
   constructor(
@@ -201,6 +208,15 @@ export class DeprecationDirector {
     this.hudPct = new Label(pctEl);
     this.hudClause = new Label(clauseEl);
     this.ui.el.append(this.hudEl);
+
+    const zipBadgeEl = div('dp-zip-badge');
+    const zipMainEl = div('dp-zip-main');
+    const zipSubEl = div('dp-zip-sub');
+    this.zipPromptEl = div('dp-zip-prompt', zipBadgeEl, zipMainEl, zipSubEl);
+    this.zipPromptBadge = new Label(zipBadgeEl);
+    this.zipPromptMain = new Label(zipMainEl);
+    this.zipPromptSub = new Label(zipSubEl);
+    this.ui.el.append(this.zipPromptEl);
 
     if (ctx.events?.on) {
       this.unsubs.push(
@@ -481,6 +497,11 @@ export class DeprecationDirector {
     this.disableAllGrappleMarks();
     this.civilians?.stop();
     this.orion?.hide();
+    if (this.isPlayerInVault()) {
+      this.elevator?.setCheckpointState('arrived_vault');
+      this.setHudMode('none');
+      return;
+    }
     if (this.elevator) {
       this.elevator.reset();
       this.elevator.startHold();
@@ -490,6 +511,13 @@ export class DeprecationDirector {
 
   private ensureElevatorRide(): void {
     if (!this.elevator) return;
+    if (this.elevator.state === 'arrived_vault' || this.isPlayerInVault()) {
+      if (this.elevator.state !== 'arrived_vault') {
+        this.elevator.setCheckpointState('arrived_vault');
+      }
+      this.setHudMode('none');
+      return;
+    }
     if (this.elevator.state === 'idle_top' || this.elevator.state === 'holding') {
       this.elevator.openDoors();
     }
@@ -648,8 +676,36 @@ export class DeprecationDirector {
 
     this.updateSkylineWatchers();
     this.updateGlassBreachWatcher();
+    this.updateElevatorVaultFallback();
     this.updateVaultTracker();
     this.updateHud();
+  }
+
+  private isPlayerInVault(): boolean {
+    const player = this.ctx.player;
+    if (!player || !player.alive || player.parked) return false;
+    const p = player.position;
+    return (
+      p.x >= DATACENTER.x0 - 1 &&
+      p.x <= DATACENTER.x1 + 1 &&
+      p.z >= DATACENTER.z0 - 1 &&
+      p.z <= DATACENTER.z1 + 1 &&
+      p.y >= DATACENTER.floorY - 2 &&
+      p.y <= DATACENTER.ceilY - 0.5
+    );
+  }
+
+  private updateElevatorVaultFallback(): void {
+    const el = this.elevator;
+    if (!el || el.state === 'falling' || el.state === 'arrived_vault') return;
+    const beatId = this.runner.beat?.id;
+    if (beatId !== 'office_breach' && beatId !== 'elevator_drop') return;
+    if (!this.isPlayerInVault()) return;
+
+    // Player dropped down the shaft (or reached Sub-Level 4) ahead of the elevator sequence:
+    // snap the cab to the bottom landing and advance cleanly into Sub-Level 4.
+    el.setCheckpointState('arrived_vault');
+    this.setHudMode('none');
   }
 
   private updateSkylineWatchers(): void {
@@ -880,7 +936,43 @@ export class DeprecationDirector {
     }
   }
 
+  private updateZiplinePrompt(): void {
+    const z = this.ziplines;
+    if (z?.riding) {
+      const jumpKey = (this.ctx.input?.labelFor?.('jump') || 'SPACE').toUpperCase();
+      this.zipPromptBadge.set('RIDING ZIPLINE');
+      this.zipPromptMain.set(`PRESS [${jumpKey}] TO DETACH`);
+      this.zipPromptSub.set('AIM & SHOOT FREELY');
+      if (this.zipPromptState !== 'riding') {
+        this.zipPromptState = 'riding';
+        this.zipPromptEl.classList.add('on', 'riding');
+      }
+      return;
+    }
+
+    const label = z?.promptedLabel ?? null;
+    if (label) {
+      const key = (this.ctx.input?.labelFor?.('interact') || 'E').toUpperCase();
+      const jumpKey = (this.ctx.input?.labelFor?.('jump') || 'SPACE').toUpperCase();
+      this.zipPromptBadge.set('ZIPLINE READY');
+      this.zipPromptMain.set(`PRESS [${key}] TO RIDE`);
+      this.zipPromptSub.set(`${label} · [${jumpKey}] TO DETACH`);
+      if (this.zipPromptState !== 'ready') {
+        this.zipPromptState = 'ready';
+        this.zipPromptEl.classList.add('on');
+        this.zipPromptEl.classList.remove('riding');
+      }
+      return;
+    }
+
+    if (this.zipPromptState !== 'off') {
+      this.zipPromptState = 'off';
+      this.zipPromptEl.classList.remove('on', 'riding');
+    }
+  }
+
   private updateHud(): void {
+    this.updateZiplinePrompt();
     if (this.hudMode === 'none') return;
 
     if (this.hudMode === 'elevator' && this.elevator) {
@@ -1099,6 +1191,8 @@ export class DeprecationDirector {
     this.bossDroneUids.clear();
 
     this.setHudMode('none');
+    this.zipPromptState = 'off';
+    this.zipPromptEl.classList.remove('on', 'riding');
     this.ziplines?.reset();
     this.disableAllGrappleMarks();
     this.elevator?.reset();
@@ -1127,5 +1221,6 @@ export class DeprecationDirector {
     this.orion?.dispose();
     this.orion = null;
     this.hudEl.remove();
+    this.zipPromptEl.remove();
   }
 }

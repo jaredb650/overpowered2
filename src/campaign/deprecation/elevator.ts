@@ -129,6 +129,7 @@ interface ElevatorVisuals {
   cabGroup: THREE.Group;
   doorLeft: THREE.Mesh;
   doorRight: THREE.Mesh;
+  doorStatusMat: THREE.MeshStandardMaterial;
   beaconMeshes: THREE.Mesh[];
   beaconMat: THREE.MeshStandardMaterial;
   stripGroup: THREE.Group;
@@ -169,9 +170,12 @@ export class ServiceElevator implements ExtraTarget {
   private clock = 0;
   private rumbleTimer = 0;
   private windTimer = 0;
+  private boardDwellTimer = 0;
 
   private floorBody: RAPIER.RigidBody | null = null;
   private floorCollider: RAPIER.Collider | null = null;
+  private doorBody: RAPIER.RigidBody | null = null;
+  private doorCollider: RAPIER.Collider | null = null;
   private readonly clamps: BrakeClampInternal[] = [];
   private readonly clampByHandle = new Map<number, BrakeClampInternal>();
   private visuals: ElevatorVisuals | null = null;
@@ -286,6 +290,11 @@ export class ServiceElevator implements ExtraTarget {
     return this.floorCollider;
   }
 
+  /** Kinematic Rapier front-door barrier collider (enabled whenever doors are closed). */
+  get doorBarrierCollider(): RAPIER.Collider | null {
+    return this.doorCollider;
+  }
+
   /** Read-only snapshot of the 4 corner hydraulic brake clamps. */
   getClamps(): BrakeClampSnapshot[] {
     return this.clamps.map(c => ({
@@ -312,6 +321,7 @@ export class ServiceElevator implements ExtraTarget {
   startHold(): boolean {
     if (this._state !== 'idle_top') return false;
     this._holdElapsed = 0;
+    this.boardDwellTimer = 0;
     this.setState('holding');
     this.ctx.audio?.play?.('metal_groan', {
       position: _tmpVec.set(this.centerX, this._cabY + 2, this.centerZ),
@@ -325,6 +335,7 @@ export class ServiceElevator implements ExtraTarget {
   openDoors(): void {
     if (this._state === 'idle_top' || this._state === 'holding') {
       this._holdElapsed = this.holdDuration;
+      this.boardDwellTimer = 0;
       this.setState('doors_open');
     }
   }
@@ -335,7 +346,9 @@ export class ServiceElevator implements ExtraTarget {
       return false;
     }
     this._doorOpen = 0;
+    this.boardDwellTimer = 0;
     this._verticalSpeed = this.descentSpeed;
+    this.nudgeThresholdPlayerInside();
     this.setState('descending_1');
     const pos = _tmpVec.set(this.centerX, this._cabY + 1.5, this.centerZ);
     this.ctx.audio?.play?.('crusher_rise', { position: pos, volume: 0.75, pitch: 0.78 });
@@ -346,6 +359,7 @@ export class ServiceElevator implements ExtraTarget {
   /** Forces the elevator directly into a checkpoint state cleanly. */
   setCheckpointState(target: ElevatorState): void {
     this._verticalSpeed = 0;
+    this.boardDwellTimer = 0;
     this._ceilingBreached = target === 'arrived_vault';
     if (target === 'idle_top') {
       this._cabY = this.topY;
@@ -382,6 +396,7 @@ export class ServiceElevator implements ExtraTarget {
     }
     this.setState(target);
     this.syncTransforms(true);
+    this.updateVisualFX();
   }
 
   // -------------------------------------------------------------------------------------------
@@ -525,15 +540,22 @@ export class ServiceElevator implements ExtraTarget {
       case 'doors_open': {
         this._doorOpen = Math.min(1, this._doorOpen + dt * 1.8);
         const player = this.ctx.player;
-        if (
+        const onFloor = Boolean(
           this.autoStartDescentOnBoard &&
-          player &&
-          player.alive &&
-          !player.parked &&
-          this.isInsideFootprint(player.position, 0.35) &&
-          Math.abs(player.position.y - this._cabY) <= 2.4
-        ) {
+            player &&
+            player.alive &&
+            !player.parked &&
+            Math.abs(player.position.y - this._cabY) <= 2.4,
+        );
+        if (onFloor && player && this.isInsideFootprint(player.position, 1.05)) {
           this.startDescent();
+        } else if (onFloor && player && this.isInsideFootprint(player.position, 0.35)) {
+          this.boardDwellTimer += dt;
+          if (this.boardDwellTimer >= 0.45) {
+            this.startDescent();
+          }
+        } else {
+          this.boardDwellTimer = 0;
         }
         break;
       }
@@ -622,6 +644,7 @@ export class ServiceElevator implements ExtraTarget {
     this.clock = 0;
     this.rumbleTimer = 0;
     this.windTimer = 0;
+    this.boardDwellTimer = 0;
     this.restoreClamps();
     if (this.visuals) {
       this.visuals.ceilingGrate.visible = true;
@@ -651,6 +674,11 @@ export class ServiceElevator implements ExtraTarget {
       } else if (this.floorCollider) {
         world.removeCollider(this.floorCollider, true);
       }
+      if (this.doorBody) {
+        world.removeRigidBody(this.doorBody);
+      } else if (this.doorCollider) {
+        world.removeCollider(this.doorCollider, true);
+      }
       for (const c of this.clamps) {
         if (c.body) {
           world.removeRigidBody(c.body);
@@ -663,6 +691,8 @@ export class ServiceElevator implements ExtraTarget {
     }
     this.floorBody = null;
     this.floorCollider = null;
+    this.doorBody = null;
+    this.doorCollider = null;
     this.clampByHandle.clear();
 
     if (this.visuals) {
@@ -702,10 +732,17 @@ export class ServiceElevator implements ExtraTarget {
     if (this.visuals) {
       this.visuals.ceilingGrate.visible = false;
     }
+    // Shatter the breakable shaft ceiling grate panes directly so the plunging cab never snags on them.
+    const props = (
+      this.ctx.world?.objects as { props?: { blast?: (p: THREE.Vector3, r: number, d: number, src: string) => void } } | undefined
+    )?.props;
+    props?.blast?.(breachPos, 6.5, 120, 'elevator_breach');
+
+    // Emit world:explosion with 0 damage so nearby listeners/FX react without blasting the player riding inside the cab.
     this.ctx.events?.emit?.('world:explosion', {
       position: breachPos,
       radius: 8,
-      damage: 140,
+      damage: 0,
       kind: 'barrel',
       source: 'elevator_breach',
     });
@@ -822,6 +859,23 @@ export class ServiceElevator implements ExtraTarget {
       .setFriction(0.9);
     this.floorCollider = phys.world.createCollider(colDesc, this.floorBody);
     (phys as { register?: (c: RAPIER.Collider, s: 'metal') => void }).register?.(this.floorCollider, 'metal');
+
+    // Solid kinematic front door barrier aligned with the cab doorway (enabled whenever doors are closed).
+    const outX = Math.sin(this.doorYaw);
+    const outZ = Math.cos(this.doorYaw);
+    const doorOffset = this.halfSize - 0.08;
+    const doorDesc = phys.R.RigidBodyDesc.kinematicPositionBased()
+      .setTranslation(
+        this.centerX + outX * doorOffset,
+        this._cabY + this.cabHeight * 0.5,
+        this.centerZ + outZ * doorOffset,
+      )
+      .setRotation({ x: 0, y: Math.sin(this.doorYaw * 0.5), z: 0, w: Math.cos(this.doorYaw * 0.5) });
+    this.doorBody = phys.world.createRigidBody(doorDesc);
+    const doorColDesc = phys.R.ColliderDesc.cuboid(this.halfSize, this.cabHeight * 0.5, 0.14)
+      .setCollisionGroups(rapierGroups(CG.World, 0xffff));
+    this.doorCollider = phys.world.createCollider(doorColDesc, this.doorBody);
+    (phys as { register?: (c: RAPIER.Collider, s: 'metal') => void }).register?.(this.doorCollider, 'metal');
   }
 
   private initClamps(): void {
@@ -886,6 +940,26 @@ export class ServiceElevator implements ExtraTarget {
       }
     }
 
+    if (this.doorBody) {
+      const outX = Math.sin(this.doorYaw);
+      const outZ = Math.cos(this.doorYaw);
+      const doorOffset = this.halfSize - 0.08;
+      const doorPos = {
+        x: this.centerX + outX * doorOffset,
+        y: this._cabY + this.cabHeight * 0.5,
+        z: this.centerZ + outZ * doorOffset,
+      };
+      if (immediate) {
+        this.doorBody.setTranslation(doorPos, true);
+      } else {
+        this.doorBody.setNextKinematicTranslation(doorPos);
+      }
+    }
+    if (this.doorCollider) {
+      const doorBlocked = this._state !== 'doors_open' && this._state !== 'arrived_vault';
+      this.doorCollider.setEnabled(doorBlocked);
+    }
+
     for (let i = 0; i < this.clamps.length; i++) {
       const c = this.clamps[i]!;
       c.worldPos.set(
@@ -908,6 +982,41 @@ export class ServiceElevator implements ExtraTarget {
       this.visuals.doorLeft.position.x = -this.halfSize * 0.5 - slide;
       this.visuals.doorRight.position.x = this.halfSize * 0.5 + slide;
     }
+  }
+
+  /**
+   * When descent begins while the player is standing right on the doorway threshold,
+   * gently steps them behind the closing door barrier so the doors never shove them back into the lobby.
+   */
+  private nudgeThresholdPlayerInside(): void {
+    const player = this.ctx.player;
+    if (!player || !player.alive || player.parked) return;
+    if (!this.isInsideFootprint(player.position, 0.05)) return;
+    if (Math.abs(player.position.y - this._cabY) > 2.4) return;
+
+    const outX = Math.sin(this.doorYaw);
+    const outZ = Math.cos(this.doorYaw);
+    const projOut = (player.position.x - this.centerX) * outX + (player.position.z - this.centerZ) * outZ;
+    const safeMaxOut = this.halfSize - 0.85;
+    if (projOut <= safeMaxOut) return;
+
+    const pullIn = projOut - safeMaxOut;
+    const savedYaw = player.yaw;
+    const savedPitch = player.pitch;
+    const savedVx = player.velocity.x;
+    const savedVy = player.velocity.y;
+    const savedVz = player.velocity.z;
+
+    _tmpFeet.set(
+      player.position.x - outX * pullIn,
+      Math.max(player.position.y, this._cabY + 0.01),
+      player.position.z - outZ * pullIn,
+    );
+    player.teleport(_tmpFeet, savedYaw);
+    player.pitch = savedPitch;
+    const cp = Math.cos(savedPitch);
+    player.forward.set(-Math.sin(savedYaw) * cp, Math.sin(savedPitch), -Math.cos(savedYaw) * cp);
+    player.velocity.set(savedVx, savedVy, savedVz);
   }
 
   /**
@@ -963,7 +1072,22 @@ export class ServiceElevator implements ExtraTarget {
 
     const deckMat = new THREE.MeshStandardMaterial({ color: 0x383f47, roughness: 0.65, metalness: 0.7 });
     const frameMat = new THREE.MeshStandardMaterial({ color: 0x252a30, roughness: 0.5, metalness: 0.85 });
+    const doorMat = new THREE.MeshStandardMaterial({ color: 0x3b444f, roughness: 0.48, metalness: 0.72 });
     const hazardMat = new THREE.MeshStandardMaterial({ color: 0xe68a19, roughness: 0.5, metalness: 0.45 });
+    const doorStatusMat = new THREE.MeshStandardMaterial({
+      color: 0xff9830,
+      emissive: 0xff7a1a,
+      emissiveIntensity: 1.6,
+      roughness: 0.25,
+      metalness: 0.1,
+    });
+    const cabLightMat = new THREE.MeshStandardMaterial({
+      color: 0xdff6ff,
+      emissive: 0x8ce8ff,
+      emissiveIntensity: 1.4,
+      roughness: 0.2,
+      metalness: 0.1,
+    });
     const meshWallMat = new THREE.MeshStandardMaterial({
       color: 0x4c5866,
       roughness: 0.45,
@@ -991,7 +1115,7 @@ export class ServiceElevator implements ExtraTarget {
       roughness: 0.6,
       metalness: 0.8,
     });
-    materials.push(deckMat, frameMat, hazardMat, meshWallMat, beaconMat, stripMat, grateMat);
+    materials.push(deckMat, frameMat, doorMat, hazardMat, doorStatusMat, cabLightMat, meshWallMat, beaconMat, stripMat, grateMat);
 
     // 6 m x 6 m industrial floor deck.
     const deckGeo = new THREE.BoxGeometry(this.size, ELEVATOR_DEFAULTS.floorThickness, this.size);
@@ -1044,7 +1168,7 @@ export class ServiceElevator implements ExtraTarget {
     backPanel.position.set(0, this.cabHeight * 0.5, -this.halfSize + 0.06);
     cabGroup.add(backPanel);
 
-    // Top ceiling frame with open central escape/rappel hatch.
+    // Top ceiling frame with open central escape/rappel hatch + interior overhead work light bar.
     const headerGeo = new THREE.BoxGeometry(this.size, 0.22, 0.35);
     geometries.push(headerGeo);
     for (const sz of [-1, 1]) {
@@ -1053,13 +1177,34 @@ export class ServiceElevator implements ExtraTarget {
       cabGroup.add(beam);
     }
 
-    // Sliding front freight doors.
-    const doorGeo = new THREE.BoxGeometry(this.halfSize - 0.08, this.cabHeight - 0.2, 0.14);
+    const cabFixtureGeo = new THREE.BoxGeometry(this.size * 0.55, 0.08, 0.22);
+    geometries.push(cabFixtureGeo);
+    const cabFixture = new THREE.Mesh(cabFixtureGeo, cabLightMat);
+    cabFixture.position.set(0, this.cabHeight - 0.14, 0);
+    cabGroup.add(cabFixture);
+
+    // Glowing status header bar on the doorway (amber while summoning, green when open to board, red when jammed).
+    const statusBarGeo = new THREE.BoxGeometry(3.4, 0.14, 0.18);
+    geometries.push(statusBarGeo);
+    const statusBar = new THREE.Mesh(statusBarGeo, doorStatusMat);
+    statusBar.position.set(0, this.cabHeight - 0.26, this.halfSize - 0.02);
+    cabGroup.add(statusBar);
+
+    // Sliding front freight doors (flush center seam with hazard kick stripe so doors read clearly in the lobby).
+    const doorGeo = new THREE.BoxGeometry(this.halfSize + 0.02, this.cabHeight - 0.2, 0.16);
     geometries.push(doorGeo);
-    const doorLeft = new THREE.Mesh(doorGeo, frameMat);
+    const doorStripeGeo = new THREE.BoxGeometry(this.halfSize - 0.12, 0.24, 0.18);
+    geometries.push(doorStripeGeo);
+    const doorLeft = new THREE.Mesh(doorGeo, doorMat);
     doorLeft.position.set(-this.halfSize * 0.5, (this.cabHeight - 0.2) * 0.5, this.halfSize - 0.08);
-    const doorRight = new THREE.Mesh(doorGeo, frameMat);
+    const leftStripe = new THREE.Mesh(doorStripeGeo, hazardMat);
+    leftStripe.position.set(0, -0.35, 0);
+    doorLeft.add(leftStripe);
+    const doorRight = new THREE.Mesh(doorGeo, doorMat);
     doorRight.position.set(this.halfSize * 0.5, (this.cabHeight - 0.2) * 0.5, this.halfSize - 0.08);
+    const rightStripe = new THREE.Mesh(doorStripeGeo, hazardMat);
+    rightStripe.position.set(0, -0.35, 0);
+    doorRight.add(rightStripe);
     cabGroup.add(doorLeft, doorRight);
 
     // Twin overhead emergency beacon domes.
@@ -1125,6 +1270,7 @@ export class ServiceElevator implements ExtraTarget {
       cabGroup,
       doorLeft,
       doorRight,
+      doorStatusMat,
       beaconMeshes,
       beaconMat,
       stripGroup,
@@ -1143,6 +1289,20 @@ export class ServiceElevator implements ExtraTarget {
     const emergency = this._state === 'jammed' || this._state === 'falling';
     const pulse = 0.5 + 0.5 * Math.sin(this.clock * (this._state === 'falling' ? 16 : 8));
     v.beaconMat.emissiveIntensity = emergency ? 0.8 + pulse * 2.4 : 0.12;
+
+    if (this._state === 'doors_open' || this._state === 'arrived_vault') {
+      v.doorStatusMat.color.setHex(0x4dff9e);
+      v.doorStatusMat.emissive.setHex(0x22ee88);
+      v.doorStatusMat.emissiveIntensity = 1.9 + pulse * 0.5;
+    } else if (emergency) {
+      v.doorStatusMat.color.setHex(0xff3322);
+      v.doorStatusMat.emissive.setHex(0xff1100);
+      v.doorStatusMat.emissiveIntensity = 1.2 + pulse * 2.0;
+    } else {
+      v.doorStatusMat.color.setHex(0xff9830);
+      v.doorStatusMat.emissive.setHex(0xff7a1a);
+      v.doorStatusMat.emissiveIntensity = this._state === 'holding' ? 1.0 + pulse * 1.1 : 0.6;
+    }
 
     // Brighten brake clamps sharply while jammed so players spot all 4 instantly.
     for (const c of this.clamps) {
