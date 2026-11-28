@@ -669,6 +669,7 @@ export class EnemyManager implements EnemySystem {
       return;
     }
     if (e.stagger > 0) e.stagger -= dt;
+    if (e.shieldBroken > 0) e.shieldBroken = Math.max(0, e.shieldBroken - dt);
     if (e.rising > 0) e.rising -= dt;
     if (e.fallIn > 0) {
       e.fallIn -= dt;

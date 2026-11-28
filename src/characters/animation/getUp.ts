@@ -183,6 +183,8 @@ declare module '../../core/contracts' {
     guard?(seconds: number): void;
     /** Swaying and stupid: a hand to the head and no real balance, while the caller keeps it from acting. */
     daze?(seconds: number): void;
+    /** Shield arm flung wide open, torso twisted off-balance, and weapon dropped so the chest and head stand exposed. */
+    breakShield?(seconds: number): void;
     /**
      * Takes over from the pose on the bones right now, without a pop, and plays the get-up. `seconds` is the whole clip, or
      * from `startU` (0..1, where in the clip the body already is) the rest of it, which then blends in over a shorter match.

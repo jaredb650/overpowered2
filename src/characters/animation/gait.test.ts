@@ -130,4 +130,29 @@ describe('gait', () => {
     for (let n = 0; n < 150; n++) b.anim.update(1 / 60, 0);
     expect(b.bones[H.chest]!.quaternion.angleTo(rest)).toBeLessThan(0.03);
   });
+
+  it('breakShield flings a Riot shielder left arm wide open even while dazed, then recovers', () => {
+    const b = body('riot');
+    b.anim.setShield(new THREE.Quaternion());
+    for (let n = 0; n < 45; n++) b.anim.update(1 / 60, 0);
+    b.root.updateMatrixWorld(true);
+    const guardHand = b.bones[H.handL]!.getWorldPosition(new THREE.Vector3());
+
+    b.anim.breakShield(1.5);
+    b.anim.daze(1.3);
+    for (let n = 0; n < 20; n++) b.anim.update(1 / 60, 0);
+    b.root.updateMatrixWorld(true);
+    const openHand = b.bones[H.handL]!.getWorldPosition(new THREE.Vector3());
+
+    expect(finite(b.bones)).toBe(true);
+    // Shield hand moves clearly out to his left (+X) and back (-Z), opening the chest.
+    expect(openHand.x).toBeGreaterThan(guardHand.x + 0.18);
+    expect(openHand.z).toBeLessThan(guardHand.z - 0.18);
+
+    // After the timer expires, the shield hand pulls smoothly back into guard.
+    for (let n = 0; n < 150; n++) b.anim.update(1 / 60, 0);
+    b.root.updateMatrixWorld(true);
+    const recoveredHand = b.bones[H.handL]!.getWorldPosition(new THREE.Vector3());
+    expect(recoveredHand.distanceTo(guardHand)).toBeLessThan(0.05);
+  });
 });

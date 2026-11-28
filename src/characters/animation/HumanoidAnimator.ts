@@ -424,6 +424,9 @@ export class HumanoidAnimator implements CharacterAnimation {
 
   private grip: WeaponGrip | null = null;
   private shieldRot: THREE.Quaternion | null = null;
+  /** Seconds the riot shield is kicked wide open, and its smoothed 0..1 pose weight. */
+  private shieldBreakFor = 0;
+  private shieldBreakW = 0;
   private readonly posture = new Postures();
   /** What `disarm` took out of his hands, for the next body the pool makes of him. */
   private droppedGrip: WeaponGrip | null = null;
@@ -746,6 +749,10 @@ export class HumanoidAnimator implements CharacterAnimation {
     this.dazeFor = Math.max(this.dazeFor, seconds);
   }
 
+  breakShield(seconds: number): void {
+    this.shieldBreakFor = Math.max(this.shieldBreakFor, seconds);
+  }
+
   /** The ragdoll's pose, kept so it can be blended out. Bones hold it right now. */
   private matchPose(seconds: number): void {
     const bones = this.bones;
@@ -768,6 +775,7 @@ export class HumanoidAnimator implements CharacterAnimation {
 
   blendFrom(seconds: number): void {
     this.reel = this.flail = this.flailW = this.buckle = this.buckleW = 0;
+    this.shieldBreakFor = this.shieldBreakW = 0;
     this.action = null;
     this.stepAside = 0;
     this.needsHome = true;
@@ -781,6 +789,7 @@ export class HumanoidAnimator implements CharacterAnimation {
   getUp(kind: GetUpKind, seconds: number, hurt: number, startU = 0): number {
     this.refreshPlan();
     this.reel = this.flail = this.flailW = this.buckle = this.buckleW = 0;
+    this.shieldBreakFor = this.shieldBreakW = 0;
     this.action = null;
     this.stepAside = 0;
     this.needsHome = true;
@@ -865,6 +874,7 @@ export class HumanoidAnimator implements CharacterAnimation {
     this.hands[1]!.planted.set(0, 0, 0);
     this.reel = this.flail = this.flailW = this.buckle = this.buckleW = 0;
     this.guardFor = this.guardW = this.dazeFor = this.dazeW = 0;
+    this.shieldBreakFor = this.shieldBreakW = 0;
     this.clutchBone = -1;
     this.clutchFor = this.clutchW = this.clutchIn = 0;
     this.hurt = this.hurtW = this.limp = this.limpW = this.guardWait = 0;
@@ -1075,6 +1085,8 @@ export class HumanoidAnimator implements CharacterAnimation {
     this.guardW = damp(this.guardW, this.guardFor > 0 ? 1 : 0, GUARD_RATE, dt);
     this.dazeFor = Math.max(0, this.dazeFor - dt);
     this.dazeW = damp(this.dazeW, this.dazeFor > 0 ? 1 : 0, 4, dt);
+    this.shieldBreakFor = Math.max(0, this.shieldBreakFor - dt);
+    this.shieldBreakW = damp(this.shieldBreakW, this.shieldBreakFor > 0 ? 1 : 0, this.shieldBreakFor > 0 ? 18 : 5.5, dt);
     if (this.clutchIn > 0) this.clutchIn -= dt;
     else this.clutchFor = Math.max(0, this.clutchFor - dt);
     this.clutchW = damp(this.clutchW, this.clutchFor > 0 && this.clutchIn <= 0 ? 1 : 0, CLUTCH_RATE, dt);
@@ -1426,11 +1438,20 @@ export class HumanoidAnimator implements CharacterAnimation {
     roll += this.posture.roll;
     headPitch += this.hurtW * HurtShape.head;
     if (this.dazeW > 0.01) {
-      // Head down and rolling, with the body a beat behind it.
-      bend += 0.22 * this.dazeW;
+      // Head down and rolling, with the body a beat behind it; stay upright while shield stance is kicked wide open.
+      const open = 1 - this.shieldBreakW;
+      bend += 0.22 * this.dazeW * open;
       roll += Math.sin(this.time * 1.9 + this.seed + 0.7) * DAZE_SWAY * this.dazeW;
-      headPitch += (0.28 + 0.14 * Math.sin(this.time * 2.7)) * this.dazeW;
+      headPitch += (0.28 * open + 0.14 * Math.sin(this.time * 2.7)) * this.dazeW;
       headYaw += Math.sin(this.time * 1.3 + this.seed) * 0.3 * this.dazeW;
+    }
+    if (this.shieldBreakW > 0.01) {
+      const sb = this.shieldBreakW;
+      // Kicked wide open: left shield shoulder twisted back, torso staggered upright/back, chest & head exposed.
+      twist += 0.56 * sb;
+      bend -= 0.24 * sb;
+      roll -= 0.12 * sb;
+      headPitch -= 0.22 * sb;
     }
     if (this.clutchLow) {
       bend += CLUTCH_BEND * this.clutchW;
@@ -1544,7 +1565,8 @@ export class HumanoidAnimator implements CharacterAnimation {
         qB.copy(this.weaponQ).multiply(qC.copy(this.grip!.socketRot).invert());
         h.limb.setHand(qB);
       } else if (h.side > 0 && this.shieldRot) {
-        qEuler(qB, 0, this.aimYaw * 0.7, 0).multiply(qC.copy(this.shieldRot).invert());
+        const sb = this.shieldBreakW;
+        qEuler(qB, 0.18 * sb, this.aimYaw * 0.7 * (1 - sb) + 1.35 * sb, -0.22 * sb).multiply(qC.copy(this.shieldRot).invert());
         h.limb.setHand(qB);
       } else if (lod <= 1) {
         h.limb.relaxEnd();
@@ -1573,6 +1595,11 @@ export class HumanoidAnimator implements CharacterAnimation {
   private protect(h: Hand, armed: boolean, shoulder: THREE.Vector3): void {
     const s = this.L / 1.85;
     const side = h.side;
+    // While the shield has been kicked wide open, keep flail/guard/daze from pulling the shield hand back across the face.
+    if (this.shieldBreakW > 0.05 && side > 0 && this.shieldRot) {
+      this.clutch(h);
+      return;
+    }
     const reach = ((h.limb!.l1 + h.limb!.l2) / 0.56) * s;
     const gun = armed && side < 0;
     if (this.flailW > 0.02) {
@@ -1626,10 +1653,20 @@ export class HumanoidAnimator implements CharacterAnimation {
     const run = this.runBlend * this.moveBlend;
     // Sprinting drops the muzzle, so a charging soldier looks like one.
     if (st === 'rifle') { wy -= run * 0.09; wz -= run * 0.04; pitch += run * 0.32; }
+    let weaponYawOff = 0;
+    if (this.shieldBreakW > 0.01 && (st === 'shield' || this.shieldRot !== null)) {
+      const sb = this.shieldBreakW;
+      // Staggered off-balance: right-hand sidearm drops and swings wide off-aim.
+      wx -= 0.18 * sb;
+      wy -= 0.22 * sb;
+      wz -= 0.18 * sb;
+      pitch += 0.45 * sb;
+      weaponYawOff = -0.35 * sb;
+    }
     this.weaponPos.set(wx * s, wy * s, wz * s).applyQuaternion(this.chestQ).add(this.chestPos);
     this.weaponPos.addScaledVector(vB.set(0, 0, 1).applyQuaternion(this.chestQ), R.z * 0.07 * s);
     // The muzzle follows the aim, with a little of the torso's stride sway left in so the gun feels held.
-    qEuler(this.weaponQ, pitch + R.z * 0.4, this.aimYaw + (this.chestYaw() - this.aimYaw * 0.6) * 0.3, 0);
+    qEuler(this.weaponQ, pitch + R.z * 0.4, this.aimYaw + (this.chestYaw() - this.aimYaw * 0.6) * 0.3 + weaponYawOff, 0);
     if (st === 'staff') qEuler(this.weaponQ, 0.05, this.chestYaw(), -0.05);
   }
 
@@ -1673,9 +1710,14 @@ export class HumanoidAnimator implements CharacterAnimation {
     }
 
     if (side > 0 && this.shieldRot) {
-      vB.set(0.17 * s, 0.1 * s, 0.34 * s).applyQuaternion(this.chestQ).add(this.chestPos);
+      const sb = this.shieldBreakW;
+      vB.set(
+        lerp(0.17, 0.56, sb) * s,
+        lerp(0.1, -0.06, sb) * s,
+        lerp(0.34, -0.1, sb) * s,
+      ).applyQuaternion(this.chestQ).add(this.chestPos);
       h.target.copy(vB);
-      h.pole.set(0.9, -0.5, -0.3);
+      h.pole.set(lerp(0.9, 0.85, sb), lerp(-0.5, -0.35, sb), lerp(-0.3, -0.85, sb));
       return;
     }
 

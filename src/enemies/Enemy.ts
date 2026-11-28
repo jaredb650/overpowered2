@@ -242,6 +242,8 @@ export class Enemy implements EnemyInstance {
   buff = 0;
   /** Riot shield is still up. */
   shield = false;
+  /** Seconds the riot shield stance has been kicked wide open (frontal shots bypass shield). */
+  shieldBroken = 0;
 
   /** Set after the killing blow while the body plays out a death: a drone's crash, a boss's last act. */
   dying = 0;
@@ -340,6 +342,7 @@ export class Enemy implements EnemyInstance {
     this.wardVisual = -1;
     this.buff = 0;
     this.shield = false;
+    this.shieldBroken = 0;
     this.dying = 0;
     this.dyingKind = 'none';
     this.lod = 0;

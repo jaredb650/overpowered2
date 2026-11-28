@@ -477,7 +477,8 @@ function updateFacing(e: Enemy, w: AiWorld, dt: number): void {
     const vz = e.velocity.z;
     if (vx * vx + vz * vz > 0.25) target = Math.atan2(vx, vz);
   } else return;
-  e.yaw = dampAngle(e.yaw, target, e.def.turn, dt);
+  const turn = e.shieldBroken > 0 ? e.def.turn * 0.15 : e.def.turn;
+  e.yaw = dampAngle(e.yaw, target, turn, dt);
 }
 
 /** True when a short straight walk from the enemy in `dir` stays on floor of about the same height. */

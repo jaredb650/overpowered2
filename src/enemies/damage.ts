@@ -44,6 +44,19 @@ const SHOVE_MAX = 6.5;
 /** Seconds a stagger lasts, at no strength and at full. */
 const STAGGER_MIN = 0.45;
 const STAGGER_MAX = 1.05;
+/** Seconds a Riot cop's shield stays kicked wide open after a front kick breaks his stance. */
+const SHIELD_BREAK_SECONDS = 2.4;
+/** Every melee kick move source (standard Sparta, dive kick, slide sweep, roundhouse, tornado, wall-run kick). */
+const KICK_SOURCES: ReadonlySet<string> = new Set([
+  'kick', 'diveKick', 'slideKick', 'roundhouse', 'tornado', 'wallKick',
+]);
+const kickScale = (source: string): number => (
+  source === 'tornado' ? 1.52
+    : source === 'diveKick' ? 1.48
+      : source === 'wallKick' ? 1.35
+        : source === 'roundhouse' ? 1.18
+          : 1
+);
 /** Seconds of failing to catch itself before a fall, least and most. */
 const FALL_LEAD_MIN = 0.16;
 const FALL_LEAD_MAX = 0.42;
@@ -1353,6 +1366,7 @@ export class DamageModel {
   }
 
   private shieldStops(e: Enemy, d: DamageInfo, res: DamageResult): boolean {
+    if (e.shieldBroken > 0 || e.downed) return false;
     const facing = Math.sin(e.yaw) * d.dir.x + Math.cos(e.yaw) * d.dir.z;
     // Angle of the incoming shot against the body. The shield covers a little over the front half.
     if (facing > -0.35) return false;
@@ -1370,19 +1384,48 @@ export class DamageModel {
 
   /** The shield took it: its ring, the arm behind it jolted, and that arm worn a little further. */
   private shieldHit(e: Enemy, d: DamageInfo, res: DamageResult): void {
+    const { ctx } = this.w;
+    if (KICK_SOURCES.has(d.source)) {
+      // Purposeful shield-break: kick slams the shield wide open, staggers him back on his feet, and exposes his chest/head.
+      res.blocked = true;
+      res.armour = 'broken';
+      this.found.armour = 'broken';
+      const heavy = d.source === 'diveKick' || d.source === 'tornado' || d.source === 'wallKick';
+      const openFor = heavy ? SHIELD_BREAK_SECONDS + 0.45 : SHIELD_BREAK_SECONDS;
+      const hLen = Math.hypot(d.dir.x, d.dir.z);
+      if (hLen > 1e-4) _kickDir.set(d.dir.x / hLen, 0, d.dir.z / hLen);
+      else _kickDir.set(-Math.sin(e.yaw), 0, -Math.cos(e.yaw));
+      _n.copy(_kickDir).negate();
+      ctx.audio.play('riot_shield_hit', { position: d.point, volume: heavy ? 1.35 : 1.2, pitch: heavy ? 0.68 : 0.74, pitchJitter: 0.05 });
+      ctx.fx.sparks?.(d.point, _n, heavy ? 22 : 16, 0xffe4a8);
+      ctx.fx.impact?.(d.point, _n, 'metal', heavy ? 1.45 : 1.2);
+      const left = this.spendPool(e, 'armL', d.amount * (heavy ? 0.65 : 0.45), d);
+      if (left <= 0 && this.facts) this.sever(e, 'armL', d, res);
+      if (e.alive && !e.downed) {
+        e.shieldBroken = openFor;
+        if (e.attack) finishAttack(e, this.w, true);
+        e.char.hitFlash(0.65);
+        const anim = e.char.anim;
+        anim.breakShield?.(openFor);
+        anim.daze?.(openFor - 0.15);
+        const shove = heavy ? 7.2 : 5.0;
+        e.push.x += _kickDir.x * shove;
+        e.push.z += _kickDir.z * shove;
+        unmoved(e, this.w.now, _kickDir.x * shove, _kickDir.z * shove);
+        this.stagger(e, openFor - 0.15, _kickDir, heavy ? 1.0 : 0.9, B.upperArmL, heavy ? 2.8 : 2.2);
+        this.cryOut(e);
+      }
+      this.emitHit(e, d, res);
+      return;
+    }
     res.blocked = true;
     res.armour = 'stopped';
-    const { ctx } = this.w;
     ctx.audio.play('riot_shield_hit', { position: d.point, pitchJitter: 0.1 });
     e.char.anim.flinch(B.upperArmL, d.dir, 0.3);
     if (d.type === 'explosive' || d.amount >= 40) e.char.anim.play('block', 1.4);
     // Sustained fire batters the arm behind the shield: enough of it and the arm goes, shield and all.
     const left = this.spendPool(e, 'armL', d.amount * (d.type === 'explosive' ? 0.35 : 0.22), d);
     if (left <= 0 && this.facts) this.sever(e, 'armL', d, res);
-    if (d.source === 'kick' && e.alive && !e.downed) {
-      const profile = profileOf(e);
-      if (profile) this.spartaKick(e, d, profile, 0.85);
-    }
     this.emitHit(e, d, res);
   }
 
@@ -1619,7 +1662,10 @@ export class DamageModel {
     if (d) {
       const bone = d.bone ?? REGION_BONE[d.region ?? 'chest'] ?? 0;
       _v.copy(d.dir).multiplyScalar(force);
-      _v.y += force * (d.source === 'kick' ? 0.24 : 0.15);
+      const lift = KICK_SOURCES.has(d.source)
+        ? (d.source === 'diveKick' || d.source === 'tornado' ? 0.30 : d.source === 'slideKick' ? 0.34 : 0.24)
+        : 0.15;
+      _v.y += force * lift;
       this.m.ragdollOptions.impulses![0]!.bone = bone;
       this.m.ragdollOptions.impulses![0]!.point.copy(d.point);
       this.m.ragdollOptions.impulses![0]!.impulse.copy(_v);
@@ -1658,28 +1704,30 @@ export class DamageModel {
 
     const pushForce = d.force || DEFAULT_FORCE[d.type];
     e.pressure = Math.min(1, e.pressure + 0.22 + frac);
-    if (d.source === 'kick') {
+    if (KICK_SOURCES.has(d.source)) {
+      const scale = kickScale(d.source);
       if (e.downed) {
         _kickDir.copy(d.dir);
         _kickDir.y = Math.max(_kickDir.y, 0.28);
         if (_kickDir.lengthSq() > 1e-6) _kickDir.normalize();
-        this.hitWhileDown(e, d, bone, pushForce * 1.35, frac, _kickDir);
+        this.hitWhileDown(e, d, bone, pushForce * 1.35 * Math.min(scale, 1.3), frac, _kickDir);
         return;
       }
       if (profile) {
         if (e.pinned) dropOff(e);
-        this.spartaKick(e, d, profile, 1);
+        if (d.source === 'slideKick') this.legSweep(e, d, profile);
+        else this.spartaKick(e, d, profile, scale);
         return;
       }
       const hLen = Math.hypot(d.dir.x, d.dir.z);
       const hx = hLen > 1e-4 ? d.dir.x / hLen : 0;
       const hz = hLen > 1e-4 ? d.dir.z / hLen : 0;
-      const shove = e.isBoss ? 1.2 : 7.5 * clamp(1 - e.def.mass * 0.5, 0.35, 1);
+      const shove = (e.isBoss ? 1.2 : 7.5 * clamp(1 - e.def.mass * 0.5, 0.35, 1)) * scale;
       e.push.x += hx * shove;
       e.push.z += hz * shove;
       unmoved(e, this.w.now, hx * shove, hz * shove);
       if (e.pinned) dropOff(e);
-      e.poise += amount * 1.5;
+      e.poise += amount * 1.5 * scale;
       if (e.poise >= e.def.poise * e.maxHealth) {
         e.poise = 0;
         this.stagger(e, 0.65);
@@ -2077,6 +2125,47 @@ export class DamageModel {
     if (profile.pain > 0) this.cryOut(e);
   }
 
+  /**
+   * Slide-tackle leg sweep: blasts a standing humanoid's legs forward out from under them (`B.thighL`) while tipping
+   * their upper body backward so they flip onto their back right at your feet (prime Head Stomp setup).
+   */
+  private legSweep(e: Enemy, d: DamageInfo, profile: ReactionProfile): void {
+    const hLen = Math.hypot(d.dir.x, d.dir.z);
+    if (hLen > 1e-4) {
+      _kickDir.set(d.dir.x / hLen, 0, d.dir.z / hLen);
+    } else {
+      _kickDir.set(-Math.sin(e.yaw), 0, -Math.cos(e.yaw));
+    }
+    const weight = clamp(1 - e.def.mass * 0.45, 0.5, 1);
+    const held = e.frozen > 0 || e.entrance !== 'none';
+    const strength = clamp(0.9 * weight, 0.55, 1);
+    const launched = KNOCK_PASS && !held && (() => {
+      _kickLaunch.set(_kickDir.x * 3.8 * weight, 3.4 * weight, _kickDir.z * 3.8 * weight);
+      // Negative topple tips the shoulders backward while the thigh impulse whips the legs forward under them.
+      _kickTopple.copy(_kickDir).multiplyScalar(-3.2 * weight);
+      const how = knockAs(_kickTopple, 1.05 * weight, false, d.point, undefined, undefined, undefined, 130 * weight, _kickLaunch);
+      return this.knockDown(e, _kickDir, strength, B.thighL, profile, false, how);
+    })();
+    if (launched) {
+      const found = this.found;
+      found.level = 'felled';
+      found.strength = strength;
+      found.knockout = false;
+      found.tripped = true;
+      e.shock = 0;
+      e.reactAt = this.w.now + profile.cooldown;
+      if (profile.pain > 0) this.cryOut(e);
+      return;
+    }
+    const shove = 5.5 * weight;
+    e.push.x += _kickDir.x * shove;
+    e.push.z += _kickDir.z * shove;
+    unmoved(e, this.w.now, _kickDir.x * shove, _kickDir.z * shove);
+    e.char.anim.flinch(B.thighL, _kickDir, 1, d.point);
+    this.stagger(e, STAGGER_MAX, _kickDir, 1, B.thighL, profile.reel * 1.8);
+    if (profile.pain > 0) this.cryOut(e);
+  }
+
   /** False if gore has no room for another body on the floor. */
   private knockDown(e: Enemy, dir: THREE.Vector3, strength: number, bone: number, profile: ReactionProfile, thrown: boolean, how?: Knock): boolean {
     const { ctx } = this.w;
@@ -2151,7 +2240,7 @@ export class DamageModel {
     e.downed = true;
     e.airborne = true;
     e.ballistic = false;
-    e.fallIn = e.stagger = 0;
+    e.fallIn = e.stagger = e.shieldBroken = 0;
     e.verticalSpeed = e.flightLeft = 0;
     e.reel.set(0, 0, 0);
     e.push.set(0, 0, 0);

@@ -250,7 +250,7 @@ const riot: EnemyDef = {
   voice: { bark: 'vox_radio', attack: 'vox_grunt', pain: 'vox_pain', die: 'vox_dying_human', pitch: 0.95 }, mass: 0.35,
   behaviours: [advance(0.9, 0), shieldWall(), ...maimedBehaviours()],
   attacks: [
-    melee({ name: 'bash', reach: 2.7, damage: 12, windup: 0.5, knock: 11, anim: 'attackHeavy', cooldown: [1.8, 2.8], requires: e => e.shield }),
+    melee({ name: 'bash', reach: 2.7, damage: 12, windup: 0.5, knock: 11, anim: 'attackHeavy', cooldown: [1.8, 2.8], requires: e => e.shield && e.shieldBroken <= 0 }),
     gun({
       name: 'pistol', range: [4, 24], shots: 2, gap: 0.2, damage: 4, speed: 44, windup: 0.5, cooldown: [2, 3.2], lead: 0.4,
       missStill: 0.4, missFast: 4.5, sound: 'enemy_pistol', muzzle: 'enemy', moveMul: 0.8,

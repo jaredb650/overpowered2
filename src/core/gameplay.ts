@@ -351,8 +351,19 @@ export interface PaintView {
  */
 export type SwordMove = 'light1' | 'light2' | 'light3' | 'windup' | 'block' | 'heavy' | 'stab' | 'cleave' | 'spin' | 'wave' | 'flurry';
 
-/** First-person leg strikes triggered on F: a Sparta kick forward, or a downward head stomp on a crawling wounded enemy. */
-export type KickMove = 'kick' | 'stomp';
+/** First-person leg strikes triggered on F, selected dynamically from movement state and directional input. */
+export type KickMove =
+  | 'kick'
+  | 'stomp'
+  | 'diveKick'
+  | 'slideKick'
+  | 'roundhouseL'
+  | 'roundhouseR'
+  | 'tornadoL'
+  | 'tornadoR'
+  | 'wallKickL'
+  | 'wallKickR'
+  | 'backKick';
 
 /** Reload metadata passed to the viewmodel (empty vs tactical reload, plus tubular-magazine shell timings). */
 export interface ReloadMeta {

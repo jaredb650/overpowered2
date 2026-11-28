@@ -154,6 +154,8 @@ export class StubPlayer {
   alive = true;
   grounded = true;
   sliding = false;
+  wallRunning = false;
+  wallSide = 0;
   yaw = 0;
   pitch = 0;
   modifiers = { speed: 1, jump: 1, damageTaken: 1, invulnerable: false, infiniteDash: false };

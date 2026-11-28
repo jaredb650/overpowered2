@@ -18,7 +18,18 @@ import { makeCtx } from '../../sandbox/harness';
 import { makeRange, type Dummy, type Range } from '../testkit';
 import { Kit } from '../viewmodels/kit/kit';
 import { Legs } from '../viewmodels/legs';
-import { KICK, STOMP, isCrawlingProne, isGroundedOpponent } from './Kick';
+import {
+  BACK_KICK,
+  DIVE_KICK,
+  KICK,
+  ROUNDHOUSE,
+  SLIDE_KICK,
+  STOMP,
+  TORNADO,
+  WALL_KICK,
+  isCrawlingProne,
+  isGroundedOpponent,
+} from './Kick';
 
 let r: Range;
 
@@ -34,6 +45,9 @@ function setup(weapon: WeaponId = 'smg'): void {
   r.player.yaw = 0;
   r.player.velocity.set(0, 0, 0);
   r.player.grounded = true;
+  r.player.sliding = false;
+  r.player.wallRunning = false;
+  r.player.wallSide = 0;
   r.weapons.give(weapon);
   r.weapons.switchTo(weapon);
   r.run(0.5);
@@ -238,6 +252,264 @@ describe('F key Sparta kick and head stomp (Weapons + Combat)', () => {
     expect(standing.hits).toHaveLength(1);
     expect(standing.hits[0]!.source).toBe('kick');
   });
+
+  it('shows SHIELD BROKEN callout and armorBroken hitmarker when kicking a blocking Riot shield', () => {
+    setup('smg');
+    const shielder = r.enemies.add(0, -1.6);
+    const origApply = r.enemies.applyDamage.bind(r.enemies);
+    const applySpy = vi.spyOn(r.enemies, 'applyDamage').mockImplementation((enemy, dmg) => {
+      if (enemy === shielder && dmg.source === 'kick') {
+        return { dealt: 0, killed: false, headshot: false, severed: [], blocked: true, armour: 'broken' };
+      }
+      return origApply(enemy, dmg);
+    });
+    const hitMarker = vi.spyOn(r.ctx.hud, 'hitMarker');
+    const callout = vi.fn();
+    (r.ctx.hud as unknown as { callout?: (text: string) => void }).callout = callout;
+
+    press('melee');
+    r.run(KICK.impactAt + 0.05);
+
+    expect(callout).toHaveBeenCalledWith('SHIELD BROKEN');
+    expect(hitMarker).toHaveBeenCalledWith('armorBroken');
+    applySpy.mockRestore();
+    hitMarker.mockRestore();
+  });
+});
+
+describe('Movement-intertwined martial-arts kicks (Dive, Slide, Roundhouse, Tornado, Wall, Back)', () => {
+  it('Dive Kick: magnets toward a midair target, blasts chest, bounces player up & back, and refreshes air kick for chaining', () => {
+    setup('smg');
+    const kickCalls: KickMove[] = [];
+    (r.ctx.viewmodel as unknown as { kick?: (m: KickMove) => void }).kick = (m: KickMove) => kickCalls.push(m);
+    const callout = vi.fn();
+    (r.ctx.hud as unknown as { callout?: (text: string) => void }).callout = callout;
+
+    // Airborne jump forward with an enemy inside strike + magnet range ahead.
+    r.player.grounded = false;
+    r.player.position.set(0, 1.1, 0);
+    r.player.eye.set(0, 2.7, 0);
+    r.player.velocity.set(0, 2.0, -6);
+    const target = r.enemies.add(0.4, -2.0, 200);
+    target.center.set(0.4, 1.1, -2.0);
+
+    r.input.simulate('forward', true);
+    press('melee');
+    r.input.simulate('forward', false);
+
+    expect(kickCalls).toEqual(['diveKick']);
+    // Magnet steers toward enemy (+X, -Z) before contact.
+    expect(r.player.velocity.x).toBeGreaterThan(1.5);
+    expect(r.player.velocity.z).toBeLessThan(-12);
+
+    r.run(DIVE_KICK.impactAt + 0.05);
+    expect(target.hits).toHaveLength(1);
+    expect(target.hits[0]!.source).toBe('diveKick');
+    expect(target.hits[0]!.amount).toBe(DIVE_KICK.damage);
+    expect(callout).toHaveBeenCalledWith('DIVE KICK');
+    // Player bounces cleanly UP and slightly BACK off the enemy's chest.
+    expect(r.player.velocity.y).toBeGreaterThanOrEqual(DIVE_KICK.bounceUp - 0.1);
+    expect(r.player.velocity.z).toBeGreaterThan(2);
+
+    // Wait out dive kick + cooldown while STILL airborne — enemy bounce refreshed our air kick!
+    r.run(DIVE_KICK.duration + DIVE_KICK.cooldown + 0.05);
+    r.player.velocity.set(0, -1, -4);
+    target.alive = false;
+    press('melee');
+    expect(kickCalls).toEqual(['diveKick', 'diveKick']);
+    // Second dive kick with no enemy lurches forward as a 3rd dash.
+    expect(r.player.velocity.z).toBeLessThan(-14);
+  });
+
+  it('Dive Kick without enemy acts as a once-per-airtime 3rd-dash forward lurch and resets on landing or wall-run', () => {
+    setup('smg');
+    const kickCalls: KickMove[] = [];
+    (r.ctx.viewmodel as unknown as { kick?: (m: KickMove) => void }).kick = (m: KickMove) => kickCalls.push(m);
+
+    r.player.grounded = false;
+    r.player.position.set(0, 1.4, 0);
+    r.player.eye.set(0, 3.0, 0);
+    r.player.velocity.set(0, -1.0, -5.0);
+
+    // 1st airborne dive kick with no enemy: aggressive forward air-lurch + lift.
+    press('melee');
+    expect(kickCalls).toEqual(['diveKick']);
+    expect(r.player.velocity.z).toBeLessThanOrEqual(-DIVE_KICK.lurchSpeed + 0.5);
+    expect(r.player.velocity.y).toBeGreaterThanOrEqual(DIVE_KICK.lurchLift - 0.1);
+
+    // Wait for cooldown while STILL airborne — air-kick dash charge is spent, so pressing F grants NO extra air-lurch.
+    r.run(DIVE_KICK.duration + DIVE_KICK.cooldown + 0.05);
+    r.player.velocity.set(0, -3.0, -4.0);
+    press('melee');
+    expect(r.player.velocity.z).toBeCloseTo(-4.0, 2);
+    expect(r.player.velocity.y).toBeCloseTo(-3.0, 2);
+
+    // Touching the ground resets the air-kick lurch charge.
+    r.run(DIVE_KICK.duration + DIVE_KICK.cooldown + 0.05);
+    r.player.grounded = true;
+    r.run(0.05);
+    r.player.grounded = false;
+    r.player.velocity.set(0, -2.0, -3.0);
+    press('melee');
+    expect(r.player.velocity.z).toBeLessThanOrEqual(-DIVE_KICK.lurchSpeed + 0.5);
+    expect(r.player.velocity.y).toBeGreaterThanOrEqual(DIVE_KICK.lurchLift - 0.1);
+
+    // Starting a wall-run also resets the air-kick lurch charge.
+    r.run(DIVE_KICK.duration + DIVE_KICK.cooldown + 0.05);
+    r.player.wallRunning = true;
+    r.player.wallSide = 1;
+    r.run(0.05);
+    r.player.wallRunning = false;
+    r.player.wallSide = 0;
+    r.player.velocity.set(0, -2.0, -2.0);
+    press('melee');
+    expect(r.player.velocity.z).toBeLessThanOrEqual(-DIVE_KICK.lurchSpeed + 0.5);
+    expect(r.player.velocity.y).toBeGreaterThanOrEqual(DIVE_KICK.lurchLift - 0.1);
+  });
+
+  it('Slide Tackle: surges forward along a slide and sweeps enemies low with source slideKick and LEG SWEEP callout', () => {
+    setup('smg');
+    const kickCalls: KickMove[] = [];
+    (r.ctx.viewmodel as unknown as { kick?: (m: KickMove) => void }).kick = (m: KickMove) => kickCalls.push(m);
+    const callout = vi.fn();
+    (r.ctx.hud as unknown as { callout?: (text: string) => void }).callout = callout;
+
+    r.player.sliding = true;
+    r.player.velocity.set(0, 0, -10);
+    const target = r.enemies.add(0, -1.9, 150);
+
+    press('melee');
+    expect(kickCalls).toEqual(['slideKick']);
+    // Forward speed surges along slide direction.
+    expect(r.player.velocity.z).toBeLessThan(-12.5);
+
+    r.run(SLIDE_KICK.impactAt + 0.05);
+    expect(target.hits).toHaveLength(1);
+    expect(target.hits[0]!.source).toBe('slideKick');
+    expect(target.hits[0]!.region).toBe('shinL');
+    expect(target.hits[0]!.amount).toBe(SLIDE_KICK.damage);
+    expect(callout).toHaveBeenCalledWith('LEG SWEEP');
+  });
+
+  it('Roundhouse Kick: grounded side strafing whips enemies strongly sideways in your movement direction', () => {
+    for (const [action, expectedMove, expectedSign] of [
+      ['left', 'roundhouseL', -1],
+      ['right', 'roundhouseR', 1],
+    ] as const) {
+      setup('smg');
+      const kickCalls: KickMove[] = [];
+      (r.ctx.viewmodel as unknown as { kick?: (m: KickMove) => void }).kick = (m: KickMove) => kickCalls.push(m);
+      const target = r.enemies.add(0, -1.7, 150);
+
+      r.input.simulate(action, true);
+      press('melee');
+      r.input.simulate(action, false);
+
+      expect(kickCalls).toEqual([expectedMove]);
+      r.run(ROUNDHOUSE.impactAt + 0.05);
+      expect(target.hits).toHaveLength(1);
+      expect(target.hits[0]!.source).toBe('roundhouse');
+      expect(target.hits[0]!.amount).toBe(ROUNDHOUSE.damage);
+      expect(target.hits[0]!.dir.x * expectedSign).toBeGreaterThan(0.7);
+    }
+  });
+
+  it('Tornado Kick: airborne side strafing executes a higher-damage dramatic spinning whip kick with sideways launch and air-kick refresh', () => {
+    for (const [action, expectedMove, expectedSign] of [
+      ['left', 'tornadoL', -1],
+      ['right', 'tornadoR', 1],
+    ] as const) {
+      setup('smg');
+      const kickCalls: KickMove[] = [];
+      (r.ctx.viewmodel as unknown as { kick?: (m: KickMove) => void }).kick = (m: KickMove) => kickCalls.push(m);
+      const callout = vi.fn();
+      (r.ctx.hud as unknown as { callout?: (text: string) => void }).callout = callout;
+
+      r.player.grounded = false;
+      r.player.position.set(0, 1.0, 0);
+      r.player.eye.set(0, 2.6, 0);
+      r.player.velocity.set(expectedSign * 5, 1, -4);
+      const target = r.enemies.add(0, -1.8, 200);
+      target.center.set(0, 1.2, -1.8);
+
+      r.input.simulate(action, true);
+      press('melee');
+      r.input.simulate(action, false);
+
+      expect(kickCalls).toEqual([expectedMove]);
+      expect(r.player.velocity.y).toBeGreaterThanOrEqual(TORNADO.lift - 0.1);
+
+      r.run(TORNADO.impactAt + 0.05);
+      expect(target.hits).toHaveLength(1);
+      expect(target.hits[0]!.source).toBe('tornado');
+      expect(target.hits[0]!.amount).toBe(TORNADO.damage);
+      expect(TORNADO.damage).toBeGreaterThan(ROUNDHOUSE.damage);
+      expect(target.hits[0]!.dir.x * expectedSign).toBeGreaterThan(0.75);
+      expect(callout).toHaveBeenCalledWith('TORNADO KICK');
+      // Sustains dramatic midair hang on contact.
+      expect(r.player.velocity.y).toBeGreaterThanOrEqual(TORNADO.bounceUp - 0.1);
+    }
+  });
+
+  it('Wall-Run Kick: vaults off the wall diagonally with upward lift and blasts enemies with WALL KICK', () => {
+    for (const [wallSide, expectedMove, awaySign] of [
+      [-1, 'wallKickR', 1],
+      [1, 'wallKickL', -1],
+    ] as const) {
+      setup('smg');
+      const kickCalls: KickMove[] = [];
+      (r.ctx.viewmodel as unknown as { kick?: (m: KickMove) => void }).kick = (m: KickMove) => kickCalls.push(m);
+      const callout = vi.fn();
+      (r.ctx.hud as unknown as { callout?: (text: string) => void }).callout = callout;
+
+      r.player.grounded = false;
+      r.player.wallRunning = true;
+      r.player.wallSide = wallSide;
+      r.player.position.set(0, 1.2, 0);
+      r.player.eye.set(0, 2.8, 0);
+      r.player.velocity.set(0, 0, -9);
+
+      // First test free wall-kick vault direction (no enemy): pushes away from the wall + up.
+      press('melee');
+      expect(kickCalls).toEqual([expectedMove]);
+      expect(r.player.velocity.x * awaySign).toBeGreaterThan(5);
+      expect(r.player.velocity.y).toBeGreaterThanOrEqual(WALL_KICK.lift - 0.1);
+
+      // Now test wall-kick connecting on a target ahead.
+      r.run(WALL_KICK.duration + WALL_KICK.cooldown + 0.05);
+      r.player.wallRunning = true;
+      r.player.wallSide = wallSide;
+      const target = r.enemies.add(0, -1.9, 200);
+      target.center.set(0, 1.4, -1.9);
+      press('melee');
+      r.run(WALL_KICK.impactAt + 0.05);
+      expect(target.hits).toHaveLength(1);
+      expect(target.hits[0]!.source).toBe('wallKick');
+      expect(target.hits[0]!.amount).toBe(WALL_KICK.damage);
+      expect(callout).toHaveBeenCalledWith('WALL KICK');
+    }
+  });
+
+  it('Push-Off Back Kick: backpedaling + F kicks pursuers away while pushing yourself backward', () => {
+    setup('smg');
+    const kickCalls: KickMove[] = [];
+    (r.ctx.viewmodel as unknown as { kick?: (m: KickMove) => void }).kick = (m: KickMove) => kickCalls.push(m);
+    const target = r.enemies.add(0, -1.5, 150);
+
+    r.input.simulate('back', true);
+    press('melee');
+    r.input.simulate('back', false);
+
+    expect(kickCalls).toEqual(['backKick']);
+    // Initial push-off recoil moves player backward (+Z).
+    expect(r.player.velocity.z).toBeGreaterThan(3.5);
+
+    r.run(BACK_KICK.impactAt + 0.05);
+    expect(target.hits).toHaveLength(1);
+    expect(target.hits[0]!.source).toBe('kick');
+    // Extra disengage rebound off the enemy's chest.
+    expect(r.player.velocity.z).toBeGreaterThanOrEqual(BACK_KICK.hitPushBack - 0.5);
+  });
 });
 
 // -------------------------------------------------------------------------------------------
@@ -252,7 +524,7 @@ function character(id: EnemyId): CharacterInstance {
   rig.bones.forEach((def, i) => (def.parent >= 0 ? bones[def.parent]! : root).add(bones[i]!));
   const anim = {
     prone: false,
-    flinch: vi.fn(), stumble: vi.fn(), play: vi.fn(), daze: vi.fn(), guard: vi.fn(),
+    flinch: vi.fn(), stumble: vi.fn(), play: vi.fn(), daze: vi.fn(), guard: vi.fn(), breakShield: vi.fn(),
     holdWound: vi.fn(), getUp: vi.fn(), setLocomotion: vi.fn(), update: vi.fn(),
   };
   return {
@@ -271,7 +543,7 @@ function makeDamageWorld() {
     forward: new THREE.Vector3(0, 0, -1),
     grounded: true, alive: true, sliding: false, wallRunning: false, speed: 0,
   };
-  const knockdownCalls: { velocity: THREE.Vector3; stumble: unknown; impulse: THREE.Vector3 | null }[] = [];
+  const knockdownCalls: { velocity: THREE.Vector3; stumble: unknown; impulse: THREE.Vector3 | null; bone: number | null }[] = [];
   const headshotCalls: { outcome: string; source: string; hadVelocity: boolean }[] = [];
   const gore = {
     wound: vi.fn(() => false),
@@ -280,11 +552,12 @@ function makeDamageWorld() {
       (char.severed as Set<GoreRegion>).add(region);
       return { regions: [region], stump: new THREE.Vector3() };
     }),
-    knockdown: vi.fn((_char: CharacterInstance, opts: { velocity?: THREE.Vector3; stumble?: unknown; impulses?: { impulse: THREE.Vector3 }[] }) => {
+    knockdown: vi.fn((_char: CharacterInstance, opts: { velocity?: THREE.Vector3; stumble?: unknown; impulses?: { bone: number; impulse: THREE.Vector3 }[] }) => {
       knockdownCalls.push({
         velocity: opts.velocity ? opts.velocity.clone() : new THREE.Vector3(),
         stumble: opts.stumble,
         impulse: opts.impulses?.[0]?.impulse ? opts.impulses[0].impulse.clone() : null,
+        bone: opts.impulses?.[0]?.bone ?? null,
       });
       return true;
     }),
@@ -349,12 +622,12 @@ describe('DamageModel Sparta kick ragdoll & head stomp skull burst', () => {
     expect(call.impulse!.z).toBeLessThan(-80);
   });
 
-  it('knocks back a Riot shielder through his shield into a ragdoll on Sparta kick', () => {
+  it('breaks a Riot shielder stance open on front kick so shots land cleanly, and ragdolls on follow-up kick', () => {
     const w = makeDamageWorld();
     const riot = w.spawn('riot', -1.6);
     // Face player (+Z) so a front kick hits the shield.
     riot.yaw = 0;
-    const dmg: DamageInfo = {
+    const kickDmg: DamageInfo = {
       amount: KICK.damage,
       type: 'melee',
       point: new THREE.Vector3(0, 1.1, -1.4),
@@ -366,11 +639,107 @@ describe('DamageModel Sparta kick ragdoll & head stomp skull burst', () => {
       severMult: 0,
     };
 
-    const res = w.manager.applyDamage(riot, dmg);
-    expect(res.blocked).toBe(true);
+    // Kick #1: breaks the shield stance wide open instead of glitch-ragdolling with shield glued in front.
+    const breakRes = w.manager.applyDamage(riot, kickDmg);
+    expect(breakRes.blocked).toBe(true);
+    expect(breakRes.armour).toBe('broken');
+    expect(riot.downed).toBe(false);
+    expect(w.knockdownCalls).toHaveLength(0);
+    expect(riot.shieldBroken).toBeGreaterThan(2);
+    expect(riot.stagger).toBeGreaterThan(2);
+    expect(riot.push.z).toBeLessThan(-4);
+    expect(riot.char.anim.breakShield).toHaveBeenCalledWith(expect.any(Number));
+
+    // Frontal shot while shield stance is broken bypasses the shield and deals full damage.
+    const hpBefore = riot.health;
+    const shotDmg: DamageInfo = {
+      amount: 25,
+      type: 'bullet',
+      point: new THREE.Vector3(0, 1.25, -1.4),
+      dir: new THREE.Vector3(0, 0, -1),
+      force: 12,
+      source: 'rifle',
+      region: 'chest',
+      bone: B.chest,
+    };
+    const shotRes = w.manager.applyDamage(riot, shotDmg);
+    expect(shotRes.blocked).toBe(false);
+    expect(shotRes.dealt).toBeGreaterThan(0);
+    expect(riot.health).toBeLessThan(hpBefore);
+
+    // Once shieldBroken expires, the Riot cop blocks frontal fire again.
+    riot.shieldBroken = 0;
+    const blockedShot = w.manager.applyDamage(riot, shotDmg);
+    expect(blockedShot.blocked).toBe(true);
+    expect(blockedShot.armour).toBe('stopped');
+
+    // Break shield again, then follow up with a second kick -> full Sparta-kick ragdoll launch.
+    w.manager.applyDamage(riot, kickDmg);
+    expect(riot.shieldBroken).toBeGreaterThan(2);
+    const launchRes = w.manager.applyDamage(riot, kickDmg);
+    expect(launchRes.blocked).toBe(false);
     expect(riot.downed).toBe(true);
     expect(w.knockdownCalls).toHaveLength(1);
     expect(w.knockdownCalls[0]!.velocity.z).toBeLessThan(-4);
+  });
+
+  it('slide-tackle legSweep knocks enemies legs out from under them (B.thighL + upward flip), even underneath a Riot shield', () => {
+    const w = makeDamageWorld();
+    const riot = w.spawn('riot', -1.6);
+    // Riot cop facing straight at us with shield up!
+    riot.yaw = 0;
+    const sweepDmg: DamageInfo = {
+      amount: SLIDE_KICK.damage,
+      type: 'melee',
+      point: new THREE.Vector3(0, 0.55, -1.6),
+      dir: new THREE.Vector3(0, 0, -1),
+      force: SLIDE_KICK.force,
+      source: 'slideKick',
+      region: 'shinL',
+      bone: B.thighL,
+      severMult: 0,
+    };
+
+    const res = w.manager.applyDamage(riot, sweepDmg);
+    expect(res.blocked).toBe(false);
+    expect(riot.downed).toBe(true);
+    expect(w.knockdownCalls).toHaveLength(1);
+    const call = w.knockdownCalls[0]!;
+    expect(call.bone).toBe(B.thighL);
+    expect(call.velocity.y).toBeGreaterThan(2.0);
+    expect(call.impulse).not.toBeNull();
+    expect(call.impulse!.z).toBeLessThan(-60);
+  });
+
+  it('diveKick and tornado scale ragdoll launch speed substantially higher than a grounded Sparta kick', () => {
+    const w = makeDamageWorld();
+    const tBase = w.spawn('trooper', -1.6);
+    const tDive = w.spawn('trooper', -1.6);
+    const tTornado = w.spawn('trooper', -1.6);
+
+    const makeKick = (source: string, dir: THREE.Vector3): DamageInfo => ({
+      amount: 30,
+      type: 'melee',
+      point: new THREE.Vector3(0, 1.1, -1.6),
+      dir,
+      force: 260,
+      source,
+      region: 'chest',
+      bone: B.chest,
+      severMult: 0,
+    });
+
+    w.manager.applyDamage(tBase, makeKick('kick', new THREE.Vector3(0, 0, -1)));
+    w.manager.applyDamage(tDive, makeKick('diveKick', new THREE.Vector3(0, 0, -1)));
+    w.manager.applyDamage(tTornado, makeKick('tornado', new THREE.Vector3(1, 0, 0)));
+
+    expect(w.knockdownCalls).toHaveLength(3);
+    const baseSpeed = w.knockdownCalls[0]!.velocity.length();
+    const diveSpeed = w.knockdownCalls[1]!.velocity.length();
+    const tornadoSpeed = w.knockdownCalls[2]!.velocity.length();
+    expect(diveSpeed).toBeGreaterThan(baseSpeed * 1.3);
+    expect(tornadoSpeed).toBeGreaterThan(baseSpeed * 1.35);
+    expect(w.knockdownCalls[2]!.velocity.x).toBeGreaterThan(8);
   });
 
   it('punts an already-downed enemy further along the floor when kicked again', () => {
@@ -436,26 +805,52 @@ describe('DamageModel Sparta kick ragdoll & head stomp skull burst', () => {
 });
 
 describe('First-person viewmodel Legs kick & stomp animation', () => {
-  it('animates the right boot swiftly forward for Sparta kick and down for stomp, dipping the held weapon', () => {
+  it('animates all 11 kick moves with finite poses, dual legs on diveKick/slideKick, and keeps head-stomp boot clearly inside viewport', () => {
     const mat = new THREE.MeshStandardMaterial();
     const mats = new Proxy({}, { get: () => mat });
     const legs = new Legs(new Kit(mats as never));
+    const bootL = legs.root.children[2]!;
+    const bootR = legs.root.children[5]!;
 
-    legs.kick('kick', KICK.duration);
-    expect(legs.kicking).toBe(true);
-    legs.update(null, 0, 0.06);
-    expect(legs.root.visible).toBe(true);
-    expect(legs.kickDip).toBeGreaterThan(0.5);
-    legs.update(null, 0, KICK.duration);
-    expect(legs.kicking).toBe(false);
-    expect(legs.kickDip).toBe(0);
+    const allMoves: KickMove[] = [
+      'kick', 'stomp', 'diveKick', 'slideKick',
+      'roundhouseL', 'roundhouseR', 'tornadoL', 'tornadoR',
+      'wallKickL', 'wallKickR', 'backKick',
+    ];
 
+    for (const move of allMoves) {
+      legs.kick(move, 0.36);
+      expect(legs.kicking).toBe(true);
+      legs.update(null, 0, 0.12);
+      expect(legs.root.visible).toBe(true);
+      expect(legs.kickDip).toBeGreaterThan(0.5);
+      for (const child of legs.root.children) {
+        expect(Number.isFinite(child.position.x)).toBe(true);
+        expect(Number.isFinite(child.position.y)).toBe(true);
+        expect(Number.isFinite(child.position.z)).toBe(true);
+      }
+      if (move === 'diveKick' || move === 'slideKick') {
+        expect(bootL.visible).toBe(true);
+        expect(bootR.visible).toBe(true);
+      }
+      legs.update(null, 0, 0.40);
+      expect(legs.kicking).toBe(false);
+      expect(legs.kickDip).toBe(0);
+    }
+
+    // Head stomp visibility check: boot looms in upper-center at hoist and crushes squarely inside lower-center viewport
+    // (NOT off-screen below -30° pitch!).
     legs.kick('stomp', STOMP.duration);
-    expect(legs.kicking).toBe(true);
-    legs.update(null, 0, 0.10);
-    expect(legs.root.visible).toBe(true);
-    expect(legs.kickDip).toBeGreaterThan(0.5);
-    legs.update(null, 0, STOMP.duration);
-    expect(legs.kicking).toBe(false);
+    // Hoist peak (~28% through STOMP.duration)
+    legs.update(null, 0, STOMP.duration * 0.28);
+    expect(bootR.visible).toBe(true);
+    expect(bootR.position.y).toBeGreaterThan(0.05);
+    expect(bootR.position.z).toBeLessThan(-0.45);
+    // Crush hold (~45% through STOMP.duration, right after STOMP.impactAt)
+    legs.update(null, 0, STOMP.duration * 0.17);
+    expect(bootR.visible).toBe(true);
+    expect(bootR.position.y).toBeGreaterThan(-0.35);
+    expect(bootR.position.y).toBeLessThan(-0.10);
+    expect(bootR.position.z).toBeLessThan(-0.65);
   });
 });
