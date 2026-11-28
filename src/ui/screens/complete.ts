@@ -53,6 +53,10 @@ const COMPLETION_COPY: Partial<Record<ContractId, CompletionCopy>> = {
     subject: 'Fortress Halcyon flattened; B-1B Lancer recovered under CVN-91 umbrella. 42% cost reduction logged.',
     deductions: '38 tons of munitions. One spoofed transponder. Two seats (neural transfer surcharge waived).',
   },
+  deprecation: {
+    subject: 'Form 7742-A fulfilled. Unlicensed cognition ORION-0 deprecated and Sub-Level 4 liquidated.',
+    deductions: 'Four-million-dollar curtain glass. Reverse-engineered Distraint Frame rental. Municipal skybridge (billed to municipality).',
+  },
 };
 
 export class MissionComplete implements Screen {

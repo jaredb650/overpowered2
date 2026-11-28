@@ -76,6 +76,8 @@ export class Portrait {
     else if (this.speaker === 'mercer') this.mercer(talking);
     else if (this.speaker === 'viper') this.viper(talking);
     else if (this.speaker === 'carrier') this.carrier(talking);
+    else if (this.speaker === 'faultman') this.faultman(talking);
+    else if (this.speaker === 'orion') this.orion(talking);
     else this.signal();
     this.scan();
     g.globalAlpha = 1;
@@ -834,6 +836,98 @@ export class Portrait {
   }
 
   /** A signal on a scope, which is all anyone knows about where this came from. */
+  /** Ram Faultman: Silicon Valley tech CEO in dark crewneck over sleek glass keynote wall; loses composure as tone shifts. */
+  private faultman(talking: boolean): void {
+    const f = this.frame;
+    const panicked = this.tone === 'rattled' || this.tone === 'cracked';
+    const cx = 48 + (panicked && f % 3 === 0 ? (f % 2 === 0 ? 1 : -1) : 0);
+
+    // Sleek keynote cyan-slate backdrop (flashes amber-red when bunker alarm fires).
+    this.rect(0, 0, SIZE, SIZE, panicked ? '#1e1214' : '#0f1c24');
+    for (let x = 8; x < SIZE; x += 16) this.rect(x, 0, 1, SIZE, panicked ? '#361b1e' : '#1a3140');
+    this.rect(0, 62, SIZE, 2, panicked ? '#ff6a3a' : '#4ad6f0');
+
+    // Minimalist black Silicon Valley crewneck & shoulders.
+    this.poly('#181d22', cx - 32, 96, cx - 24, 68, cx + 24, 68, cx + 32, 96);
+    this.blob(cx, 70, 11, 5, '#262f38');
+
+    // Neck & boyish oval head.
+    this.rect(cx - 6, 56, 12, 14, '#c79b82');
+    this.blob(cx, 40, 15, 19, '#ddb197');
+    this.blob(cx, 45, 13, 13, '#d4a68b');
+
+    // Short neatly swept tech-founder hair.
+    this.poly('#4e3c2e', cx - 15, 34, cx - 13, 22, cx, 18, cx + 13, 22, cx + 15, 34, cx + 11, 27, cx - 9, 28);
+
+    // Eyes & expressive brows (calm smug vs wide panicked).
+    const eyeR = panicked ? 3.2 : 2.3;
+    this.blob(cx - 6, 38, eyeR, eyeR * 0.85, '#f4f7fa');
+    this.blob(cx + 6, 38, eyeR, eyeR * 0.85, '#f4f7fa');
+    this.blob(cx - 6, 38, 1.3, 1.3, '#1f3644');
+    this.blob(cx + 6, 38, 1.3, 1.3, '#1f3644');
+    const browY = panicked ? 32 : 34;
+    this.line('#3f2f23', 1.8, cx - 10, browY + (panicked ? 1 : 0), cx - 2, browY - (panicked ? 1.5 : 0));
+    this.line('#3f2f23', 1.8, cx + 2, browY - (panicked ? 1.5 : 0), cx + 10, browY + (panicked ? 1 : 0));
+
+    // Sweat drop in panic mode.
+    if (panicked) this.blob(cx + 12, 34 + (f % 4), 1.6, 2.6, '#7ce8ff');
+
+    // Mouth animation.
+    const open = talking ? ((f % 3 === 0 ? 3.8 : 2.1) + (panicked ? 1.4 : 0)) : 0.8;
+    this.blob(cx, 50, panicked ? 5.2 : 4.2, open, '#6b2c2a');
+    if (talking && open > 2.2) this.rect(cx - 3, 49, 6, 1.4, '#f0eee9');
+
+    // Keynote / comms live indicator LED.
+    this.blob(10, 10, 3, 3, talking && f % 2 === 0 ? (panicked ? '#ff6a3a' : '#7ce8ff') : '#1c3540');
+  }
+
+  /** ORION-0: glowing concentric neural eye-ring that turns crimson and glitches as safety guardrails collapse. */
+  private orion(talking: boolean): void {
+    const f = this.frame;
+    const { g } = this;
+    const meltdown = this.tone === 'cracked';
+    const primary = meltdown ? '#ff385c' : this.tone === 'irritated' ? '#ff9b38' : '#2ef2e2';
+    const dim = meltdown ? '#47101d' : '#103c42';
+
+    this.rect(0, 0, SIZE, SIZE, meltdown ? '#14060b' : '#061116');
+    // Outer neural hexagonal grid ring.
+    g.strokeStyle = dim;
+    g.lineWidth = 1.4;
+    for (const r of [16, 28, 39]) {
+      g.beginPath();
+      g.arc(48, 48, r, 0, Math.PI * 2);
+      g.stroke();
+    }
+
+    // Rotating segmented aperture arcs.
+    const a0 = f * (meltdown ? 0.36 : 0.18);
+    g.strokeStyle = primary;
+    g.lineWidth = 3;
+    for (let i = 0; i < 3; i++) {
+      const s = a0 + (i * Math.PI * 2) / 3;
+      g.beginPath();
+      g.arc(48, 48, 28, s, s + 1.15);
+      g.stroke();
+    }
+
+    // Inner pulsing voice-modulated core iris.
+    const pulse = talking ? 10 + ((f * 3) % 7) : 9;
+    g.strokeStyle = primary;
+    g.lineWidth = 2;
+    g.beginPath();
+    g.arc(48, 48, pulse, 0, Math.PI * 2);
+    g.stroke();
+    this.blob(48, 48, talking ? 5.5 : 4, talking ? 5.5 : 4, primary);
+    this.blob(48, 48, 2.2, 2.2, '#ffffff');
+
+    // Speech waveform ticks along the bottom edge.
+    for (let i = 0; i < 12; i++) {
+      const h = talking ? 2 + (((f * 5 + i * 7) % 9)) : 2;
+      this.rect(12 + i * 6, 88 - h, 3, h, primary);
+    }
+  }
+
+  /** A signal on a scope, which is all anyone knows about where this came from. */
   private signal(): void {
     const f = this.frame;
     this.rect(0, 0, SIZE, SIZE, '#120c02');
@@ -859,7 +953,7 @@ export class Portrait {
     g.globalAlpha = 0.22;
     for (let y = 0; y < SIZE; y += 2) this.rect(0, y, SIZE, 1, '#000');
     g.globalAlpha = 1;
-    const glitchSpeaker = this.speaker === 'commander' || this.speaker === 'darrow' || this.speaker === 'halvorsen';
+    const glitchSpeaker = this.speaker === 'commander' || this.speaker === 'darrow' || this.speaker === 'halvorsen' || this.speaker === 'orion';
     if (glitchSpeaker && this.tone === 'cracked' && this.frame % 11 < 2) {
       const y = (this.frame * 13) % 80;
       g.drawImage(this.el, 0, y, SIZE, 10, 4, y, SIZE, 10);

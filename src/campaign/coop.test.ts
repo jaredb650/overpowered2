@@ -6,6 +6,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { MIRRORED, REPORTS } from '../net/mission';
 import { CALLS, CUES, EVENTS, OPS, TRIGGERS, arrivalZones, countedGuns, matches, plainFields, playerEvents, steps, triggers, type HostOp } from './coop';
+import { DEPRECATION } from './missions/deprecation';
 import { FORECLOSURE } from './missions/foreclosure';
 import { OUTPOST } from './missions/outpost';
 import type { Step, Trigger } from './types';
@@ -109,7 +110,7 @@ describe('co-op: every mission operation has a class', () => {
   it('classes every `call` the host knows, and every one a mission makes', () => {
     const known = casesOf(HOST, /^ {2}call\(name: string/m);
     expect(known.sort()).toEqual(Object.keys(CALLS).sort());
-    for (const mission of [OUTPOST, FORECLOSURE]) {
+    for (const mission of [OUTPOST, FORECLOSURE, DEPRECATION]) {
       steps(mission, step => {
         if (step.do === 'call') expect(CALLS[step.name], `${mission.id}: call ${step.name}`).toBeDefined();
       });
@@ -125,7 +126,7 @@ describe('co-op: every mission operation has a class', () => {
   });
 
   it('says for every event a mission waits on whether it is a player\'s or the world\'s', () => {
-    for (const mission of [OUTPOST, FORECLOSURE]) {
+    for (const mission of [OUTPOST, FORECLOSURE, DEPRECATION]) {
       triggers(mission, t => {
         if ('event' in t) expect(EVENTS[t.event], `${mission.id}: event ${t.event}`).toBeDefined();
       });

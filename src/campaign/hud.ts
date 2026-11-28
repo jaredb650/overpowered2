@@ -32,6 +32,8 @@ const WHO: Record<Speaker, readonly [name: string, tag: string]> = {
   mercer: ['Captain Mercer', 'Bureau Ground Force / Halcyon Beachhead'],
   viper: ['Viper Flight', 'Bureau Strike Wing / Air Net'],
   carrier: ['CVN-91 Actual', 'Carrier Air Control / Recovery Net'],
+  faultman: ['Ram Faultman', 'OpenMind Technologies // CEO'],
+  orion: ['ORION-0', 'AEGIS-0 Autonomous Siege Model'],
 };
 
 const TONES: ReadonlySet<string> = new Set(['smug', 'irritated', 'rattled', 'cracked']);
@@ -194,6 +196,10 @@ export class CampaignHud {
       this.ctx.audio.play('walkietalkie_fire', { pitch: 0.84, volume: 0.34, unaffectedByTime: true });
     } else if (line.speaker === 'governor' || line.speaker === 'darrow') {
       this.ctx.audio.play('walkietalkie_fire', { pitch: 1.08, volume: 0.32, unaffectedByTime: true });
+    } else if (line.speaker === 'faultman') {
+      this.ctx.audio.play('walkietalkie_fire', { pitch: 1.16, volume: 0.28, unaffectedByTime: true });
+    } else if (line.speaker === 'orion') {
+      this.ctx.audio.play('electric_zap', { pitch: 1.45, volume: 0.24, unaffectedByTime: true });
     }
     this.voice.say([line.id]);
     this.airtime.begin(line.text, done);

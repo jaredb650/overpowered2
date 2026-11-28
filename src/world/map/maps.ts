@@ -53,13 +53,17 @@ import {
   authorEndlessWar, ENDLESS_WAR_ATMOSPHERE, ENDLESS_WAR_BOUNDS, ENDLESS_WAR_HUB, ENDLESS_WAR_LEVELS,
   ENDLESS_WAR_LIGHT_BOUNDS, ENDLESS_WAR_LIGHT_CELL, ENDLESS_WAR_NAV_BOUNDS, ENDLESS_WAR_STAGES,
 } from './endlessWar';
+import {
+  authorOpenmind, OPENMIND_BOUNDS, OPENMIND_HUB, OPENMIND_LEVELS,
+  OPENMIND_LIGHT_BOUNDS, OPENMIND_LIGHT_CELL, OPENMIND_STAGES,
+} from './openmind';
 import { KH } from './killhouse/plan';
 import { LEVEL, RING } from './layout';
 import type { MapSpec } from './spec';
 import type { MapZone } from '../../core/contracts';
 import { ACTIVE } from '../../contracts/select';
 
-export type MapId = 'crucible' | 'killhouse' | 'outpost' | 'fort' | 'holdfast' | 'office' | 'range' | 'annex' | 'rooftop' | 'chancery' | 'bank' | 'desert' | 'badlands' | 'dogfight' | 'airbase' | 'strait' | 'halcyon' | 'endless_war';
+export type MapId = 'crucible' | 'killhouse' | 'outpost' | 'fort' | 'holdfast' | 'office' | 'range' | 'annex' | 'rooftop' | 'chancery' | 'bank' | 'desert' | 'badlands' | 'dogfight' | 'airbase' | 'strait' | 'halcyon' | 'endless_war' | 'openmind';
 
 export interface MapDef {
   id: MapId;
@@ -383,7 +387,23 @@ const endless_war: MapDef = {
   atmosphere: ENDLESS_WAR_ATMOSPHERE,
 };
 
-const MAPS: Record<MapId, MapDef> = { crucible, killhouse, outpost, fort, holdfast, office, range, annex, rooftop, chancery, bank, desert, badlands, dogfight, airbase, strait, halcyon, endless_war };
+const OM = OPENMIND_BOUNDS;
+const OML = OPENMIND_LIGHT_BOUNDS;
+const openmind: MapDef = {
+  id: 'openmind',
+  bounds: box(OM.x0, OM.y0, OM.z0, OM.x1, OM.y1, OM.z1),
+  lightBounds: box(OML.x0, OML.y0, OML.z0, OML.x1, OML.y1, OML.z1),
+  lightCell: OPENMIND_LIGHT_CELL,
+  minimapExtent: 180,
+  navHub: OPENMIND_HUB,
+  nav: { mutual: true, levels: [...OPENMIND_LEVELS] },
+  stages: OPENMIND_STAGES,
+  author: authorOpenmind,
+  readyLabel: 'Serving Form 7742-A on OpenMind HQ',
+  atmosphere: 'dawn',
+};
+
+const MAPS: Record<MapId, MapDef> = { crucible, killhouse, outpost, fort, holdfast, office, range, annex, rooftop, chancery, bank, desert, badlands, dogfight, airbase, strait, halcyon, endless_war, openmind };
 
 /** The map of the page's contract, or whatever `?map=` names. contracts/select.ts has the rules. */
 export function selectMap(): MapDef {

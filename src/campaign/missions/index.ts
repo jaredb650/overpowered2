@@ -5,6 +5,7 @@ import { CROSSFIRE_AIRBASE } from './crossfireAirbase';
 import { CROSSFIRE_HALCYON } from './crossfireHalcyon';
 import { CROSSFIRE_RETURN } from './crossfireReturn';
 import { CROSSFIRE_STRAIT } from './crossfireStrait';
+import { DEPRECATION } from './deprecation';
 import { DESERT_RAID } from './desertRaid';
 import { FORECLOSURE } from './foreclosure';
 import { OUTPOST } from './outpost';
@@ -23,5 +24,6 @@ export const MISSIONS: Readonly<Record<string, Mission>> = {
   crossfire_strait: CROSSFIRE_STRAIT,
   crossfire_halcyon: CROSSFIRE_HALCYON,
   crossfire_return: CROSSFIRE_RETURN,
+  deprecation: DEPRECATION,
   retraining: RETRAINING,
 };

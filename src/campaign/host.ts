@@ -522,6 +522,20 @@ export class GameHost implements MissionHost {
       case 'fc.hideBoss':
         this.foreclosureCall?.(name, arg);
         return;
+      case 'dp.skyline':
+      case 'dp.chopperWatch':
+      case 'dp.glassRun':
+      case 'dp.office':
+      case 'dp.elevatorHold':
+      case 'dp.elevatorRide':
+      case 'dp.datacenter':
+      case 'dp.breakout':
+      case 'dp.orionStage1':
+      case 'dp.orionStage2':
+      case 'dp.orionStage3':
+      case 'dp.hideBoss':
+        this.deprecationCall?.(name, arg);
+        return;
       default:
         if (name.startsWith('fc.')) {
           this.foreclosureCall?.(name, arg);
@@ -543,6 +557,10 @@ export class GameHost implements MissionHost {
           this.crossfireCall?.(name, arg);
           return;
         }
+        if (name.startsWith('dp.')) {
+          this.deprecationCall?.(name, arg);
+          return;
+        }
         console.warn(`[campaign] nothing provides the call "${name}"`);
     }
   }
@@ -561,6 +579,8 @@ export class GameHost implements MissionHost {
   desertRaidCall?: (name: string, arg: string | undefined) => void;
   /** Crossfire's 4-part multi-map runtime handler (campaign/crossfire/director.ts). */
   crossfireCall?: (name: string, arg: string | undefined) => void;
+  /** Deprecation's OpenMind HQ & ORION-0 runtime handler (campaign/deprecation/director.ts). */
+  deprecationCall?: (name: string, arg: string | undefined) => void;
 
   /** Co-op: every living player's feet (types.ts). net/mission.ts provides it; alone it is unset. */
   crowd?: () => readonly { x: number; y: number; z: number }[];

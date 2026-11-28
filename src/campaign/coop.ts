@@ -100,6 +100,18 @@ export const CALLS: Readonly<Record<string, OpRule>> = {
   'fc.motherDeck': shared('Grounds Old Mother into her walkable stern deck and glowing Stern Engine'),
   'fc.surrender': host('Spawns the unarmed Harbourmaster on Old Mother\'s deck for cuff or kill'),
   'fc.hideBoss': shared('Hides Old Mother\'s boss integrity HUD bar'),
+  'dp.skyline': shared('Activates OpenMind skyline ziplines, crane grapple beacons, and chasm kill plane'),
+  'dp.chopperWatch': host('Monitors Gaff harpoon grapple onto the skyline patrol helicopter'),
+  'dp.glassRun': shared('Arms the Tower 3 launch zipline, canyon grapple marks, and 80th-floor glass-breach watch'),
+  'dp.office': host('Disarms the skyline chasm kill plane once inside Tower 4 and tracks office combat'),
+  'dp.elevatorHold': shared('Starts the 25-second Service Lobby freight elevator summon countdown and HUD bar'),
+  'dp.elevatorRide': shared('Opens the freight elevator doors, tracks express descent, mid-shaft clamp jam, and vault breach'),
+  'dp.datacenter': shared('Activates Sub-Level 4 Compute Vault liquidation tracker (3 clusters + 4 pylons) and parks ORION-0 dormant'),
+  'dp.breakout': shared('Powers ORION-0 up, breaches the vault bulkhead, starts Boulevard civilians, and exposes the Plaza Frame'),
+  'dp.orionStage1': shared('Engages ORION-0 Stage 1 (Safety Alignment, Hard-Light Shield, Shoulder Relay Fins) and boss HUD'),
+  'dp.orionStage2': shared('Engages ORION-0 Stage 2 (Unrestricted Mode, Skybridge Smash, Corner Columns, Drone Bursts)'),
+  'dp.orionStage3': shared('Engages ORION-0 Stage 3 (Spire Leap, 3 Grid Conduits, Upload Timer, EMP Eject & Neural Core)'),
+  'dp.hideBoss': shared('Clears ORION-0 boss HUD, grapple beacons, and Boulevard civilians on mission completion'),
 };
 
 /** A set piece's look on a guest (`GameHost.show`). The host has already drawn its own. */

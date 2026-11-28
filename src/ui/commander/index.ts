@@ -45,6 +45,8 @@ const NAMES: Record<Speaker, string> = {
   mercer: 'Captain Mercer',
   viper: 'Viper Flight',
   carrier: 'CVN-91 Actual',
+  faultman: 'Ram Faultman',
+  orion: 'ORION-0',
 };
 const TAGS: Record<Speaker, string> = {
   commander: 'Outpost command / open channel',
@@ -60,6 +62,8 @@ const TAGS: Record<Speaker, string> = {
   mercer: 'Bureau Ground Force / Halcyon Beachhead',
   viper: 'Bureau Strike Wing / Air Net',
   carrier: 'Carrier Air Control / Recovery Net',
+  faultman: 'OpenMind Technologies // CEO',
+  orion: 'AEGIS-0 Autonomous Siege Model',
 };
 const TONES: ReadonlySet<string> = new Set<Tone>(['smug', 'irritated', 'rattled', 'cracked']);
 const CHIPS: readonly [StatusFlag, string][] = [['painted', 'PAINTED'], ['jammed', 'SONAR JAMMED'], ['uplink', 'UPLINK JAMMED'], ['aaLock', 'AA LOCK']];

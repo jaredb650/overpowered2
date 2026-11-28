@@ -1,3 +1,4 @@
+import { DeprecationDirector } from './deprecation/director';
 /**
  * The campaign: a mission played as data over the game's own systems. Game.ts finds `createCampaign` by convention. On a page with no
  * mission this builds nothing and costs an empty call a frame.
@@ -85,6 +86,7 @@ class Campaign implements CampaignSystem {
   private readonly desertRaid: DesertRaid | null = null;
   /** Crossfire's 4-part multi-map runtime director (crossfire/director.ts). */
   private readonly crossfire: CrossfireDirector | null = null;
+  private readonly deprecation: DeprecationDirector | null = null;
   result: MissionResult | null = null;
 
   constructor(private readonly ctx: Ctx, id: string) {
@@ -145,6 +147,7 @@ class Campaign implements CampaignSystem {
   provide(parts: Partial<MissionHost>): void {
     Object.assign(this.host, parts);
     if (parts.frame && this.foreclosure) this.foreclosure.wrapFrame(this.host);
+    if (parts.frame && this.deprecation) this.deprecation.wrapFrame(this.host);
   }
 
   signal(name: string): void {
@@ -217,6 +220,7 @@ class Campaign implements CampaignSystem {
     this.bankRun?.update(dt);
     this.desertRaid?.update(dt);
     this.crossfire?.update(dt);
+    this.deprecation?.update(dt);
     this.runner.update(dt);
     this.ui.beat(this.runner.beat?.title ?? '');
     this.ui.update(this.ctx.time.realDt);
@@ -237,6 +241,8 @@ class Campaign implements CampaignSystem {
     this.desertRaid?.clear();
     this.crossfire?.ensureBuilt();
     this.crossfire?.clear();
+    this.deprecation?.ensureBuilt();
+    this.deprecation?.clear();
     this.ui.reset();
     // Apply the mission's corpse cap for both hosts and co-op guests, and persist it so mid-run setting changes clamp to it.
     setMissionCorpseCap(this.runner.mission.corpses);
@@ -265,6 +271,7 @@ class Campaign implements CampaignSystem {
     this.bankRun?.reset();
     this.desertRaid?.reset();
     this.crossfire?.reset();
+    this.deprecation?.reset();
     this.ui.reset();
   }
 }

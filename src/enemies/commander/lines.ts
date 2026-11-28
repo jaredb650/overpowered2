@@ -17,12 +17,14 @@ import { ADAPTATIONS, TRICKS, type AdaptationId, type Tone, type TrickId } from 
 /**
  * `harbourmaster`: Holdfast PA; `governor`: Reserve PA/gunship; `quist`: Hadrek Quist (Surplus PA); `tiamat`: TIAMAT (Desert Raid);
  * `darrow`: Col Darrow (Valken Airbase); `halvorsen`: Gen Halvorsen (Fortress Halcyon); `mercer`: Capt Mercer (Halcyon Beachhead);
- * `viper`: Viper Flight (Crossfire air wing); `carrier`: CVN-91 Actual (carrier air control).
+ * `viper`: Viper Flight (Crossfire air wing); `carrier`: CVN-91 Actual (carrier air control);
+ * `faultman`: Ram Faultman (OpenMind CEO); `orion`: ORION-0 (OpenMind rogue AI in AEGIS-0).
  */
 export type Speaker =
   | 'commander' | 'council' | 'intercept' | 'radio'
   | 'harbourmaster' | 'governor' | 'quist' | 'tiamat'
-  | 'darrow' | 'halvorsen' | 'mercer' | 'viper' | 'carrier';
+  | 'darrow' | 'halvorsen' | 'mercer' | 'viper' | 'carrier'
+  | 'faultman' | 'orion';
 /** The arc's four, plus what the others sound like. */
 export type Emotion = Tone | 'orders' | 'deadpan' | 'urgent' | 'hushed';
 

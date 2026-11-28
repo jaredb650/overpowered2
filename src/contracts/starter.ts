@@ -9,7 +9,7 @@ export const DESERT_RAID_STARTERS = ['smg', 'gimlet', 'harrow', 'flail'] as cons
 export type StarterGun = typeof ALL_STARTERS[number];
 export const STARTER_KEY = 'op2_starter';
 export const STARTER_DESERT_RAID_KEY = 'op2_starter.desert_raid';
-export const hasStarter = (mode: ContractId): boolean => ['crucible', 'outpost', 'rooftop', 'badlands', 'endless_war', 'dogfight', 'campaign', 'foreclosure', 'bank_run', 'desert_raid'].includes(mode);
+export const hasStarter = (mode: ContractId): boolean => ['crucible', 'outpost', 'rooftop', 'badlands', 'endless_war', 'dogfight', 'campaign', 'foreclosure', 'bank_run', 'desert_raid', 'deprecation'].includes(mode);
 export const startersFor = (mode: ContractId): readonly StarterGun[] => mode === 'desert_raid' ? DESERT_RAID_STARTERS : STARTERS;
 export const isStarter = (value: unknown): value is StarterGun => ALL_STARTERS.includes(value as StarterGun);
 export const isStarterFor = (mode: ContractId, value: unknown): value is StarterGun => startersFor(mode).includes(value as StarterGun);

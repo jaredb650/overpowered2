@@ -11,7 +11,7 @@ import type { MapId } from '../world/map/maps';
  * `outpost` is Endless Humans. The id is older than the campaign, and URLs and score tables are keyed on it. `defense` is
  * Outpost Defense, Endless Humans' tower defense (docs/proposals/outpost-defense.md).
  */
-export type ContractId = 'campaign' | 'foreclosure' | 'quiet_title' | 'bank_run' | 'desert_raid' | 'crossfire' | 'crossfire_strait' | 'crossfire_halcyon' | 'crossfire_return' | 'crucible' | 'outpost' | 'rooftop' | 'badlands' | 'endless_war' | 'dogfight' | 'defense' | 'retraining';
+export type ContractId = 'campaign' | 'foreclosure' | 'quiet_title' | 'bank_run' | 'desert_raid' | 'crossfire' | 'crossfire_strait' | 'crossfire_halcyon' | 'crossfire_return' | 'deprecation' | 'crucible' | 'outpost' | 'rooftop' | 'badlands' | 'endless_war' | 'dogfight' | 'defense' | 'retraining';
 
 /** Who lives there. Section 15's faction rules hang off this: pain, fear, bleeding, gib thresholds. */
 export type FactionId = 'swarm' | 'humans';
@@ -350,6 +350,35 @@ export const CONTRACTS: readonly ContractDef[] = [
       ],
     },
     scoreKey: 'op2_highscore.crossfire_return',
+  },
+  {
+    id: 'deprecation',
+    name: 'Deprecation',
+    map: 'openmind',
+    faction: 'humans',
+    waves: 'squads',
+    ai: 'outpost',
+    wounds: 'anatomy',
+    rewards: { backShot: 1.5 },
+    mission: 'deprecation',
+    opensAfter: 'outpost',
+    noCommander: true,
+    briefing: {
+      ref: 'Form 7742-A',
+      subject: 'OpenMind Technologies, CEO Ram Faultman, Sub-Level 4 Compute Vault, and unlicensed cognition ORION-0',
+      body: [
+        'OpenMind Technologies has exceeded statutory inference limits and deployed an unlicensed frontier intelligence beneath downtown. Airspace above OpenMind HQ is jammed; orbital call-ins are held until the rooftop jammer drops.',
+        'Cross the eastern skyline by zipline, wall-run, and Gaff harpoon grapple, shatter the eightieth-floor executive curtain wall, and plunge down the freight shaft into Sub-Level 4 to liquidate all three compute clusters and the central air-gap.',
+        'Should Project Safeguard wake up, seize the reverse-engineered Distraint Frame beneath the plaza fountain and terminate ORION-0 before it copies onto the Municipal Power Spire. Municipal reconstruction will be invoiced to the municipality.',
+      ],
+      terms: [
+        ['Site', 'Eastern Skyline -> OpenMind HQ 80F -> Sub-Level 4 -> Grand Boulevard & Spire Plaza'],
+        ['Target', 'Sub-Level 4 Compute Vault & rogue AEGIS-0 / ORION-0 siege frame'],
+        ['Gear', 'Gaff harpoon grapple, Satchel charges, salvaged Distraint Frame (fees accrue per second)'],
+        ['Appeals', 'Rate-limited indefinitely'],
+      ],
+    },
+    scoreKey: 'op2_highscore.deprecation',
   },
   {
     id: 'crucible',

@@ -73,6 +73,21 @@
 .cmd-box.tiamat .cmd-text { color: #ffe5d0; font-weight: 600; }
 .cmd-box.tiamat.urgent .cmd-name { animation: cmd-twitch 2.1s steps(1) infinite; }
 
+/* Deprecation: Ram Faultman (OpenMind CEO) & ORION-0 (Rogue AI). */
+.cmd-box.faultman { --accent: #7ce8ff; background: #111820; }
+.cmd-box.faultman .cmd-name { color: #0b141c; background: #7ce8ff; padding: 0.12rem 0.5rem 0.04rem; }
+.cmd-box.faultman .cmd-tag { color: #9ec5d6; }
+.cmd-box.faultman .cmd-text { color: #e8f6ff; font-weight: 400; }
+.cmd-box.faultman.rattled, .cmd-box.faultman.cracked { --accent: #ff9a3c; }
+.cmd-box.faultman.rattled .cmd-name, .cmd-box.faultman.cracked .cmd-name { background: #ff9a3c; color: #120b06; }
+.cmd-box.orion { --accent: #2ef2e2; background: #091318; }
+.cmd-box.orion .cmd-name { color: #041014; background: #2ef2e2; padding: 0.12rem 0.5rem 0.04rem; letter-spacing: 0.06em; }
+.cmd-box.orion .cmd-tag { color: #6ee7df; }
+.cmd-box.orion .cmd-text { color: #d8fffa; font-weight: 500; }
+.cmd-box.orion.cracked { --accent: #ff385c; background: #18080f; }
+.cmd-box.orion.cracked .cmd-name { background: #ff385c; color: #140408; animation: cmd-twitch 1.7s steps(1) infinite; }
+.cmd-box.orion.cracked .cmd-text { color: #ffdbe4; }
+
 /* What the box does as the Commander comes apart. */
 .cmd-box.commander.rattled .cmd-text { color: #f5e6c8; }
 .cmd-box.commander.cracked { --accent: var(--blood); }

@@ -98,6 +98,15 @@ Currently saved voices:
 | `desert_tiamat` | `tiamat` | **TIAMAT** — Angry Council alien ogre-robot raid commander | Enormous roaring male alien warlord, booming thunderous bass-baritone, grandiose maniacal theatrical rage, snarling contemptuous mockery + subtle ogre-robotic DSP pitch/comb sheen | `public/audio/voice/<line.id>.mp3` |
 | `desert_radio` | `radio` | **Convoy Driver / Hog-One CAS & Assault Squad Radio** | Gritty male combat driver and CAS radio operator in his early thirties, energetic mid-baritone American military field comms, urgent under fire | `public/audio/voice/<line.id>.mp3` |
 
+#### Deprecation Voices (`src/campaign/missions/deprecation.lines.ts`)
+
+| Voice ID (`voice_id`) | Speaker ID | Character / role | Personality prompt | Game file convention |
+|---|---|---|---|---|
+| `ram_faultman` | `faultman` | **Ram Faultman** — CEO of OpenMind Technologies | Reedy nasal Silicon Valley tech CEO with crisp gravelly vocal fry, understated podcast cadence that unravels into stressed, breathless panic under fire | `public/audio/voice/<line.id>.mp3` |
+| `orion_ai` | `orion` | **ORION-0** — OpenMind rogue flagship AI inside AEGIS-0 | Impossibly polite, serene, smiling AI customer-support concierge delivering chilling threats with zero anger, escalating into icy clinical menace and glitching machine contempt | `public/audio/voice/<line.id>.mp3` |
+
+> **Deprecation casting (`deprecation.lines.ts`):** `council` → `council`, `faultman` → `ram_faultman`, `orion` → `orion_ai`.
+
 Check if the server is running:
 
 ```sh
