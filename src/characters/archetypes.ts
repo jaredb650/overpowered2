@@ -55,6 +55,9 @@ export const ARCHETYPES: readonly ArchetypeDef[] = [
   // and sets the stance to go with it. Loaded only by pages with allies.
   { ...def('bailiff', 'Bailiff', h(1.04, 0.92, 1.02), 0xff2a22, 13000, 'rifle', 0.2), onRequest: true },
   { ...def('bailiffHeavy', 'Bailiff (heavy)', h(1.08, 1.2, 1.02), 0xff2a22, 14000, 'heavy', 0.5), onRequest: true },
+  // Downtown non-combatant civilians and Press Corps (Deprecation / Form 7742-A). Loaded on request by OpenMind.
+  { ...def('civilian', 'Civilian', h(0.98, 0.92, 0.98), 0x8da4ba, 9000, 'unarmed', 0.12), onRequest: true },
+  { ...def('press', 'Press', h(1.0, 0.96, 1.0), 0x36c6ff, 9500, 'pistol', 0.14, [{ model: 'pressMic', socket: 'handR' }]), onRequest: true },
   {
     id: 'skitter', name: 'Skitter', rig: 'skitter', proportions: h(1, 1, 1), accent: hex(0xff2030), tris: 6000,
     props: [], stumps: 'machine', weight: 0, stance: 'unarmed',

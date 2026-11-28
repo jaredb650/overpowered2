@@ -264,6 +264,24 @@
    "bytes": 756016,
    "triangles": 13938,
    "kind": "character"
+  },
+  "civilian": {
+   "file": "civilian.bin",
+   "bytes": 483072,
+   "triangles": 9000,
+   "kind": "character"
+  },
+  "press": {
+   "file": "press.bin",
+   "bytes": 570368,
+   "triangles": 8977,
+   "kind": "character"
+  },
+  "pressMic": {
+   "file": "pressMic.bin",
+   "bytes": 25384,
+   "triangles": 900,
+   "kind": "prop"
   }
  }
 }

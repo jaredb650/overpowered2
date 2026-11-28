@@ -359,8 +359,30 @@ function partialHead(archetype: string, body: (m: Model, sk: Sk, def: ArchetypeD
   };
 }
 
+/** Broadcast field-reporter handheld microphone with royal-blue press flag cube and glowing ON-AIR tally ring. */
+const pressMic: PropDef = {
+  tris: 900,
+  atlas: 256,
+  build(m) {
+    const body = paintedMetal(0x1b2028, 0.42, 0.85);
+    const flagBlue = paintedMetal(0x1756cc, 0.35, 0.15);
+    const badgeCyan = glow([0.24, 0.82, 1.0], 0.7);
+    const onAirRed = glow([1.0, 0.18, 0.14], 1.1);
+    const foam = rubber;
+    // Handle aligned along +Y/+Z out of the gripping hand
+    m.add(cyl([0, -0.06, 0.0], [0, 0.12, 0.04], 0.015, 0.004), body, 0);
+    // Square broadcast mic flag (unmistakable news-reporter silhouette)
+    m.add(rbox([0, 0.12, 0.04], [0.036, 0.036, 0.036], 0.006), flagBlue, 0);
+    m.paint(rbox([0, 0.12, 0.04], [0.042, 0.014, 0.042], 0.002), badgeCyan, 0.001);
+    // Foam windscreen capsule + subtle glowing red live-broadcast tally ring
+    m.add(ellipsoid([0, 0.185, 0.055], [0.026, 0.042, 0.026]), foam, 0);
+    m.add(cyl([0, 0.148, 0.046], [0, 0.156, 0.048], 0.02, 0.002), onAirRed, 0);
+    return {};
+  },
+};
+
 export const PROPS: Record<string, PropDef> = {
-  smg, pistol, shotgun, minigun, launcher, sniperRifle, riotShield, militiaShield, blade, flamer, wardenStaff, fuelTank, twinTanks, rocketPack,
+  smg, pistol, shotgun, minigun, launcher, sniperRifle, riotShield, militiaShield, blade, flamer, wardenStaff, fuelTank, twinTanks, rocketPack, pressMic,
   trooperHelmet: wornOnHead('trooper', trooperHelmet),
   gunnerHelmet: wornOnHead('gunner', gunnerHelmet),
   rocketeerHelmet: wornOnHead('rocketeer', rocketeerHelmet),

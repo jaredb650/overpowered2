@@ -732,6 +732,105 @@ describe('CivilianCrowd pool cap, blast panic, and safe subway recycling', () =>
     expect(crowd.activeCount).toBe(6);
     crowd.dispose();
   });
+
+  it('spawns killable, ragdollable Press Corps & Civilians with zero score, kills, or hit-marker penalty/reward', async () => {
+    const physics = await Physics.create();
+    const env = makeTestEnv(physics);
+    const ragdollCalls: unknown[] = [];
+    const ctxAny = env.ctx as unknown as Record<string, unknown>;
+    ctxAny.gore = {
+      ragdoll: vi.fn((...args: unknown[]) => ragdollCalls.push(args)),
+      gib: vi.fn(),
+      headshot: vi.fn(),
+    };
+    ctxAny.characters = {
+      load: vi.fn(() => Promise.resolve()),
+      spawn: vi.fn(() => ({
+        root: new THREE.Group(),
+        anim: { play: vi.fn(), update: vi.fn(), flinch: vi.fn() },
+        attach: vi.fn(),
+        release: vi.fn(),
+      })),
+    };
+    ctxAny.fx = {
+      ...(ctxAny.fx as Record<string, unknown>),
+      bloodPuff: vi.fn(),
+    };
+
+    const pressKills: number[] = [];
+    const crowd = new CivilianCrowd(env.ctx, {
+      count: 10,
+      onPressKilled: n => pressKills.push(n),
+      routes: [
+        {
+          id: 'plaza_press',
+          pressZone: true,
+          waypoints: [
+            [-14, 0, 14],
+            [-14, 0, 42],
+          ],
+        },
+        {
+          id: 'east_sidewalk',
+          waypoints: [
+            [14, 0, 14],
+            [14, 0, 42],
+          ],
+        },
+      ],
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(env.extras.has(crowd)).toBe(true);
+    const snaps = crowd.getSnapshots();
+    const pressSnaps = snaps.filter(s => s.role === 'press');
+    const civSnaps = snaps.filter(s => s.role === 'civilian');
+    expect(pressSnaps.length).toBeGreaterThanOrEqual(4);
+    expect(civSnaps.length).toBeGreaterThanOrEqual(4);
+
+    // 1. Kill a Press reporter via raycast -> ragdolls, fires onPressKilled(1), plays valid flesh audio, zero score/kills.
+    const p0 = pressSnaps[0]!;
+    const hitIdx = crowd.damageByRay(
+      new THREE.Vector3(p0.position.x, p0.position.y + 1.0, p0.position.z - 3),
+      new THREE.Vector3(0, 0, 1),
+      8,
+      100,
+      'smg',
+    );
+    expect(hitIdx).toBe(p0.index);
+    expect(crowd.pressKilledCount).toBe(1);
+    expect(pressKills).toEqual([1]);
+    expect(ragdollCalls.length).toBe(1);
+    expect(env.audioPlayed).toContain('flesh_bullet_impact');
+    expect(env.ctx.progression.score).toBe(0);
+    expect(env.ctx.progression.kills).toBe(0);
+
+    // 2. Kill a civilian via blast -> ragdolls without touching pressKilledCount or score/kills.
+    const c0 = civSnaps[0]!;
+    const blasted = crowd.blast(c0.position.clone(), {
+      radius: 4,
+      damage: 90,
+      kind: 'grenade',
+      source: 'grenade',
+      team: 'player',
+    });
+    expect(blasted).toBeGreaterThanOrEqual(1);
+    expect(ragdollCalls.length).toBeGreaterThanOrEqual(2);
+    expect(env.ctx.progression.score).toBe(0);
+    expect(env.ctx.progression.kills).toBe(0);
+
+    // 3. Trample another Press reporter with ORION / Frame -> ragdolls and increments pressKilledCount.
+    const p1 = crowd.getSnapshots().find(s => s.role === 'press' && s.alive)!;
+    const trampled = crowd.checkTrample(p1.position, 2.5, 12, 'orion_trample');
+    expect(trampled).toBeGreaterThanOrEqual(1);
+    expect(crowd.pressKilledCount).toBeGreaterThanOrEqual(2);
+    expect(env.ctx.progression.score).toBe(0);
+    expect(env.ctx.progression.kills).toBe(0);
+
+    crowd.dispose();
+    expect(env.extras.has(crowd)).toBe(false);
+  });
 });
 
 describe('Edge cases: zipline completion & elevator pre-jam guard', () => {

@@ -51,6 +51,12 @@ export const LINES: readonly Line[] = [
     "Wait, he just harpooned the crane arm. Cool. That's actually super impressive from a kinetic standpoint, please shoot him.",
   ),
   line(
+    'faultman.zipline.landed',
+    'faultman',
+    'irritated',
+    'Wait, he still cleared the gap? How much momentum did that maintenance cable have? Security, stop staring and shoot him!',
+  ),
+  line(
     'faultman.chopper.grapple',
     'faultman',
     'rattled',
@@ -69,6 +75,12 @@ export const LINES: readonly Line[] = [
     'faultman',
     'irritated',
     'Drop the roof blast shutter. Nobody makes that gap. Okay, he slid right under it. Cool. Great.',
+  ),
+  line(
+    'faultman.shutter.bypass',
+    'faultman',
+    'irritated',
+    'Wait, did he just bypass the roof blast shutter completely? Why did we spend nine hundred grand on an automated bulkhead?',
   ),
   line(
     'faultman.crane.glass',
@@ -257,6 +269,20 @@ export const LINES: readonly Line[] = [
     'council',
     'deadpan',
     'Form 7742-A fulfilled. Unlicensed cognition deprecated. Municipal reconstruction has been invoiced to the municipality. Have a compliant day.',
+  ),
+
+  // ---- Downtown Press Corps casualty reactions (GTA-style bystander commentary) ----
+  line(
+    'faultman.press.kill1',
+    'faultman',
+    'rattled',
+    "Whoa, hey! That was a reporter from TechCrunch! Okay, honestly he gave our last keynote a four, so mixed feelings, but please stop shooting the press!",
+  ),
+  line(
+    'faultman.press.kill3',
+    'faultman',
+    'cracked',
+    "Oh my god, you are actively massacring the press corps! PR, draft a statement saying we do not endorse the Bureau's media relations strategy! Actually, take my name off that!",
   ),
 
   // ---- Redeploy lines ----

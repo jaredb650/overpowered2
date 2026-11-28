@@ -42,7 +42,7 @@ export const MARKS: Readonly<Record<string, Mark>> = {
   't1.guardB': { at: [-71, T1.y, -142], yaw: Math.PI * 0.4 },
   't2.landing': { at: [-2, T2.y, -110], yaw: Math.PI },
   't2.guardA': { at: [8, T2.y, -114], yaw: Math.PI * 0.65 },
-  't2.guardB': { at: [16, T2.y, -106], yaw: Math.PI * 0.75 },
+  't2.guardB': { at: [10, T2.y, -102], yaw: Math.PI * 0.75 },
   't2.sniper': { at: [18, T2.y, -100], yaw: Math.PI * 0.8 },
   't2.chopper': { at: [14, T2.y + 18, -86], yaw: Math.PI },
   'chopper.p1': { at: [-24, T2.y + 19, -108], hold: 1.8 },
@@ -53,18 +53,19 @@ export const MARKS: Readonly<Record<string, Mark>> = {
   // ---- Section 3: Tower 3 — The Glass Run ----
   't3.start': { at: [0, T3.y, PARKOUR_GEOM.shutter.runupStartZ + 1], yaw: Math.PI },
   't3.shutter': { at: [PARKOUR_GEOM.shutter.x, PARKOUR_GEOM.shutter.y, PARKOUR_GEOM.shutter.z], yaw: Math.PI },
-  't3.defenderA': { at: [-6, T3.y, -30], yaw: 0 },
-  't3.defenderB': { at: [6, T3.y, -30], yaw: 0 },
+  // Open upper launch roof flanking the chimney exit (clear of the solid concrete chimney halves below!)
+  't3.defenderA': { at: [-5.5, PARKOUR_GEOM.chimney.topY, -29.5], yaw: 0 },
+  't3.defenderB': { at: [5.5, PARKOUR_GEOM.chimney.topY, -29.5], yaw: 0 },
   't3.launch': { at: [HQ_ZIP.start[0], PARKOUR_GEOM.chimney.topY, HQ_ZIP.start[2]], yaw: Math.PI },
 
   // ---- Section 4: 80th-Floor Executive Office & Mezzanine ----
   'office.entry': { at: [0, OFFICE.execY, OFFICE.curtainWall.z + 2], yaw: Math.PI },
   'office.thresher': { at: [-6, OFFICE.execY, -6], yaw: Math.PI },
-  'office.guardA': { at: [-14, OFFICE.execY, 2], yaw: 0 },
-  'office.guardB': { at: [14, OFFICE.execY, 2], yaw: 0 },
+  'office.guardA': { at: [-15.5, OFFICE.execY, 0], yaw: 0 },
+  'office.guardB': { at: [9.0, OFFICE.execY, 2], yaw: 0 },
   'office.riot': { at: [4, OFFICE.execY, 8], yaw: 0 },
-  'office.mezzA': { at: [-10, OFFICE.mezzY, 6], yaw: 0 },
-  'office.mezzB': { at: [6, OFFICE.mezzY, 2], yaw: 0 },
+  'office.mezzA': { at: [-10, OFFICE.mezzY, 5], yaw: 0 },
+  'office.mezzB': { at: [7, OFFICE.mezzY, 2], yaw: 0 },
   'office.lobby': {
     at: [OFFICE.serviceLobby.x0 + 4, OFFICE.mezzY, (OFFICE.serviceLobby.z0 + OFFICE.serviceLobby.z1) / 2],
     yaw: -Math.PI / 2,
@@ -74,23 +75,23 @@ export const MARKS: Readonly<Record<string, Mark>> = {
   'elev.lobby': { at: [OFFICE.serviceLobby.x0 + 5, ELEVATOR_SHAFT.topY, ELEVATOR_SHAFT.cz], yaw: -Math.PI / 2 },
   'elev.autocannon': { at: [OFFICE.serviceLobby.x0 + 3, ELEVATOR_SHAFT.topY, ELEVATOR_SHAFT.cz + 1.8], yaw: -Math.PI / 2 },
   'elev.cab': { at: [ELEVATOR_SHAFT.cx, ELEVATOR_SHAFT.topY, ELEVATOR_SHAFT.cz], yaw: Math.PI / 2 },
-  'elev.qrfA': { at: [-2, OFFICE.mezzY, 4], yaw: -Math.PI / 2 },
-  'elev.qrfB': { at: [2, OFFICE.mezzY, -4], yaw: -Math.PI / 2 },
+  'elev.qrfA': { at: [-3.5, OFFICE.mezzY, 4.5], yaw: -Math.PI / 2 },
+  'elev.qrfB': { at: [2, OFFICE.mezzY, -3.5], yaw: -Math.PI / 2 },
 
   // ---- Section 6: Sub-Level 4 Compute Vault ----
   'vault.landing': { at: [13, DATACENTER.floorY, 1.5], yaw: Math.PI * 0.35 },
   'vault.core': { at: DATACENTER.airGapCore.center, yaw: Math.PI },
   'vault.guardA': { at: [-10, DATACENTER.floorY, -10], yaw: 0 },
   'vault.guardB': { at: [10, DATACENTER.floorY, -10], yaw: 0 },
-  'vault.catwalkA': { at: [-14, DATACENTER.catwalkY, -12], yaw: Math.PI },
-  'vault.catwalkB': { at: [14, DATACENTER.catwalkY, -12], yaw: Math.PI },
-  'vault.sniper': { at: [0, DATACENTER.catwalkY, -22], yaw: Math.PI },
+  'vault.catwalkA': { at: [-12, DATACENTER.catwalkY, -10.5], yaw: Math.PI },
+  'vault.catwalkB': { at: [12, DATACENTER.catwalkY, -10.5], yaw: Math.PI },
+  'vault.sniper': { at: [0, DATACENTER.catwalkY, -10.5], yaw: Math.PI },
 
   // ---- Section 7: Breakout & Plaza Distraint Frame ----
   'vault.breach': { at: [0, DATACENTER.floorY, DATACENTER.breakoutRamp.z0 + 4], yaw: Math.PI },
   'plaza.frame': { at: BOULEVARD.plazaGarage.framePos, yaw: Math.PI },
-  'plaza.guardA': { at: [14, LV.street, 34], yaw: Math.PI / 2 },
-  'plaza.guardB': { at: [18, LV.street, 48], yaw: 0 },
+  'plaza.guardA': { at: [8, LV.street, 38], yaw: Math.PI / 2 },
+  'plaza.guardB': { at: [15, LV.street, 50], yaw: 0 },
 
   // ---- Section 8: Boss Stage 1 — Grand Boulevard ----
   'blvd.start': { at: [0, LV.street, 34], yaw: Math.PI },

@@ -93,6 +93,10 @@ function mountSign(k: Kit, x: number, y: number, z: number, yaw: number, name: S
   k.pop();
 }
 
+const CORE_SLATE: readonly [number, number, number] = [0.16, 0.23, 0.32];
+const WARM_OFFICE: readonly [number, number, number] = [0.92, 0.84, 0.7];
+const COOL_OFFICE: readonly [number, number, number] = [0.54, 0.66, 0.78];
+
 /** Sculpted Mirror's Edge skyscraper shaft beneath Towers 1-3 (visual sides only, walkable rooftop slab). */
 function buildSkylineTowerShell(k: Kit, spec: MapSpec, t: OpenmindTowerSpec): void {
   const g = k.geo;
@@ -112,21 +116,51 @@ function buildSkylineTowerShell(k: Kit, spec: MapSpec, t: OpenmindTowerSpec): vo
   g.use('tile').tint(0.92, 0.95, 0.99).slab(cx, t.y + 0.012, cz, hx - 0.8, 0.01, hz - 0.8, 4, FACE.py);
   g.tint(1);
 
-  // Deep reflective blue-glass & white architectural shaft plunging into the canyon (visual only).
+  // Solid opaque recessed architectural interior core behind the reflective curtain wall (ZERO see-through void!).
   const shaftTop = t.y - SLAB_THICK;
   const shaftH = shaftTop - CHASM_Y;
   const shaftCy = CHASM_Y + shaftH / 2;
+  const coreHx = Math.max(2, hx - 0.95);
+  const coreHz = Math.max(2, hz - 0.95);
+  g.use('panel').tint(...CORE_SLATE).box(cx, shaftCy, cz, coreHx, shaftH / 2, coreHz, FACE.sides);
+
+  // Segmented warm/cool dusk office window bays on the recessed core visible behind the glazing!
+  for (let y = shaftTop - 4.0, fi = 0; y > CHASM_Y + 6; y -= 5.5, fi++) {
+    for (let bi = -1; bi <= 1; bi++) {
+      if (((fi * 3 + bi + 4) & 3) === 0) continue; // Organic unlit office rooms
+      const warm = ((fi + bi + 2) & 1) === 0;
+      g.use(warm ? 'emissiveDim' : 'screen').tint(...(warm ? WARM_OFFICE : COOL_OFFICE));
+      const bx = cx + bi * (coreHx * 0.56);
+      const bz = cz + bi * (coreHz * 0.56);
+      g.box(bx, y - 1.5, cz + coreHz + 0.08, coreHx * 0.21, 0.85, 0.02, FACE.pz);
+      g.box(bx, y - 1.5, cz - coreHz - 0.08, coreHx * 0.21, 0.85, 0.02, FACE.nz);
+      g.box(cx + coreHx + 0.08, y - 1.5, bz, 0.02, 0.85, coreHz * 0.21, FACE.px);
+      g.box(cx - coreHx - 0.08, y - 1.5, bz, 0.02, 0.85, coreHz * 0.21, FACE.nx);
+    }
+  }
+
+  // Deep reflective blue-glass exterior curtain wall over the opaque core.
   g.use('glass').tint(...GLASS_TINT).box(cx, shaftCy, cz, hx - 0.18, shaftH / 2, hz - 0.18, FACE.sides);
 
   // White structural corner fins & floor spandrel bands for crisp modernist skyscraper silhouette.
   g.use('concrete').tint(...WHITE);
   for (const sx of [t.x0 + 0.5, t.x1 - 0.5]) {
     for (const sz of [t.z0 + 0.5, t.z1 - 0.5]) {
-      g.box(sx, shaftCy, sz, 0.55, shaftH / 2, 0.55, FACE.sides);
+      g.box(sx, shaftCy, sz, 0.6, shaftH / 2, 0.6, FACE.sides);
     }
   }
   for (let y = shaftTop - 4; y > CHASM_Y + 4; y -= 5.5) {
-    g.box(cx, y, cz, hx + 0.06, 0.32, hz + 0.06, FACE.sides);
+    g.box(cx, y, cz, hx + 0.1, 0.38, hz + 0.1, FACE.sides);
+  }
+  // Vertical aluminum mullions on all 4 faces.
+  g.use('steel').tint(...SILVER);
+  for (let mx = t.x0 + 4.5; mx <= t.x1 - 4.5; mx += 4.5) {
+    g.box(mx, shaftCy, t.z1 - 0.06, 0.1, shaftH / 2, 0.12, FACE.pz | FACE.px | FACE.nx);
+    g.box(mx, shaftCy, t.z0 + 0.06, 0.1, shaftH / 2, 0.12, FACE.nz | FACE.px | FACE.nx);
+  }
+  for (let mz = t.z0 + 4.5; mz <= t.z1 - 4.5; mz += 4.5) {
+    g.box(t.x0 + 0.06, shaftCy, mz, 0.12, shaftH / 2, 0.1, FACE.nx | FACE.pz | FACE.nz);
+    g.box(t.x1 - 0.06, shaftCy, mz, 0.12, shaftH / 2, 0.1, FACE.px | FACE.pz | FACE.nz);
   }
   // Upper cornice collar + crisp glowing cyan/orange accent strip.
   g.use('steel').tint(...SILVER).bevel(cx, t.y - 0.45, cz, hx + 0.24, 0.45, hz + 0.24, 0.06);
@@ -402,6 +436,29 @@ function buildTower3(k: Kit, spec: MapSpec): void {
     solidBevel(k, 'glass', ch.x0, ch.baseY, ch.z1, ch.x1, ch.topY - 0.45, t.z1, GLASS_TINT, 0.04);
   });
 
+  // Architectural facade details on the outer concrete halves flanking the lightwell chimney (visual only, clear of interior).
+  const g3 = k.geo;
+  const chMidY = (ch.baseY + ch.topY) / 2;
+  const chHalfH = (ch.topY - ch.baseY) / 2 - 0.8;
+  for (const side of [-1, 1] as const) {
+    const fx = side * 5.4;
+    // Recessed dark-framed architectural mechanical louver panels on North face
+    g3.use('steelDark').tint(...GRAPHITE).box(fx, chMidY, ch.z0 - 0.04, 3.2, chHalfH - 0.6, 0.04, FACE.nz);
+    g3.use('steel').tint(...SILVER);
+    for (let ly = ch.baseY + 1.4; ly <= ch.topY - 1.6; ly += 1.1) {
+      g3.box(fx, ly, ch.z0 - 0.09, 3.0, 0.14, 0.06, FACE.nz);
+    }
+    // Crisp dark architectural trim ribbon wrapping the top & mid belt of the penthouse
+    g3.use('steelDark').tint(...GRAPHITE).box(fx, ch.midY, ch.z0 - 0.08, 4.3, 0.18, 0.08, FACE.nz);
+  }
+  // Vertical mullions framing the side pavilion glass walls so they read as engineered glass curtain walls
+  g3.use('steelDark').tint(...GRAPHITE);
+  for (let mz = sh.z + 2.0; mz <= t.z1 - 0.5; mz += 2.6) {
+    g3.box(t.x0 + 0.3, (y + pavTopY) / 2, mz, 0.36, (pavTopY - y) / 2, 0.1, FACE.sides);
+    g3.box(t.x1 - 0.3, (y + pavTopY) / 2, mz, 0.36, (pavTopY - y) / 2, 0.1, FACE.sides);
+  }
+  g3.tint(1);
+
   // Intermediate glass observation balcony overlooking the lightwell at Stage 1 height (y = 43.2 = LV.tower3Mid).
   k.floor('grate', -11.4, ch.z0 - 1.4, -10, t.z1, ch.midY, 0.3, 2);
   k.rail([-11.4, ch.midY, ch.z0 - 1.4, -11.4, ch.midY, t.z1]);
@@ -434,38 +491,148 @@ function buildTower3(k: Kit, spec: MapSpec): void {
   buildZiplinePylon(k, hqZip.start[0], lc.startY, hqZip.start[2], hqZip.start[1], 0);
 }
 
-/** Non-colliding chasm canyon floor & distant sunlit white/glass metropolis skyscrapers around the skyline. */
+type TowerStyle = 'glass_blue' | 'white_modern' | 'slate_corporate' | 'warm_stone';
+
+/** Builds a realistic solid-core multi-tiered metropolis skyscraper (NEVER a hollow transparent glass shell!). */
+function buildSolidSkyscraper(
+  k: Kit,
+  cx: number,
+  cz: number,
+  w: number,
+  d: number,
+  baseY: number,
+  topY: number,
+  style: TowerStyle,
+  seed: number,
+): void {
+  const g = k.geo;
+  const h = topY - baseY;
+  const hw = w / 2;
+  const hd = d / 2;
+
+  // Palette per architectural style (every facade has an opaque solid core!)
+  const bodyMat: Mat = style === 'white_modern' || style === 'warm_stone' ? 'concrete' : 'panel';
+  const bodyTint: readonly [number, number, number] =
+    style === 'glass_blue'
+      ? [0.22, 0.34, 0.48]
+      : style === 'slate_corporate'
+        ? [0.24, 0.28, 0.35]
+        : style === 'warm_stone'
+          ? [0.84, 0.81, 0.76]
+          : [0.9, 0.93, 0.97];
+  const spandrelTint: readonly [number, number, number] =
+    style === 'slate_corporate' ? [0.46, 0.52, 0.6] : style === 'warm_stone' ? [0.72, 0.69, 0.64] : WHITE;
+
+  // Primary solid opaque shaft (reaches all the way down to baseY)
+  const tier1H = h * 0.76;
+  const tier1Top = baseY + tier1H;
+  g.use(bodyMat).tint(...bodyTint).box(cx, baseY + tier1H / 2, cz, hw, tier1H / 2, hd, FACE.sides | FACE.py);
+
+  // Upper setback tier (gives real Manhattan / Mirror's Edge skyline silhouette!)
+  const tier2H = h - tier1H;
+  const hw2 = hw * 0.82;
+  const hd2 = hd * 0.82;
+  g.use(bodyMat).tint(...bodyTint).box(cx, tier1Top + tier2H / 2, cz, hw2, tier2H / 2, hd2, FACE.sides | FACE.py);
+
+  // Horizontal floor spandrel bands + subtle dark window bands + realistic segmented lit/unlit office bays
+  const step = 7.0;
+  for (let y = baseY + 10, fi = 0; y < topY - 2; y += step, fi++) {
+    const isUpper = y > tier1Top;
+    const rw = isUpper ? hw2 : hw;
+    const rd = isUpper ? hd2 : hd;
+    g.use('concrete').tint(...spandrelTint).box(cx, y, cz, rw + 0.16, 0.42, rd + 0.16, FACE.sides);
+
+    // Continuous dark reflective window ribbon recessed behind floor spandrels
+    g.use('panel').tint(...CORE_SLATE).box(cx, y - 2.3, cz, rw + 0.04, 1.35, rd + 0.04, FACE.sides);
+
+    // Varied segmented warm & cool lit office bays (never blinding white bars!)
+    for (let bi = -1; bi <= 1; bi++) {
+      if (((fi * 5 + bi * 3 + seed) % 5) === 0 || ((fi + bi + seed) % 4) === 0) continue;
+      const warm = ((fi + bi + seed) & 1) === 0;
+      g.use(warm ? 'emissiveDim' : 'screen').tint(...(warm ? WARM_OFFICE : COOL_OFFICE));
+      const bx = cx + bi * (rw * 0.56);
+      const bz = cz + bi * (rd * 0.56);
+      g.box(bx, y - 2.3, cz + rd + 0.08, rw * 0.21, 0.72, 0.02, FACE.pz);
+      g.box(bx, y - 2.3, cz - rd - 0.08, rw * 0.21, 0.72, 0.02, FACE.nz);
+      g.box(cx + rw + 0.08, y - 2.3, bz, 0.02, 0.72, rd * 0.21, FACE.px);
+      g.box(cx - rw - 0.08, y - 2.3, bz, 0.02, 0.72, rd * 0.21, FACE.nx);
+    }
+  }
+
+  // Structural corner piers & rooftop parapet / mechanical penthouse / spire
+  g.use('concrete').tint(...spandrelTint);
+  for (const sx of [-1, 1]) {
+    for (const sz of [-1, 1]) {
+      g.box(cx + sx * (hw - 0.45), baseY + tier1H / 2, cz + sz * (hd - 0.45), 0.65, tier1H / 2, 0.65, FACE.sides);
+    }
+  }
+  g.box(cx, topY + 1.4, cz, hw2 * 0.52, 1.4, hd2 * 0.52, FACE.noBottom);
+  g.use('steelDark').tint(...GRAPHITE).box(cx, topY + 0.35, cz, hw2 + 0.18, 0.35, hd2 + 0.18, FACE.sides | FACE.py);
+
+  // Subtle architectural crown accent on select glass towers & optional communications spire
+  if (style === 'glass_blue' && (seed % 3) === 0) {
+    g.use('screen').tint(0.55, 0.76, 0.92).box(cx, topY - 0.8, cz, hw2 + 0.2, 0.16, hd2 + 0.2, FACE.sides);
+  }
+  if (seed % 3 === 0) {
+    g.use('steel').tint(...SILVER).cyl(cx, topY + 2.8, cz, cx, topY + 12.5, cz, 0.26, 0.06, 6);
+    g.use('emissiveRed').tint(0.95).box(cx, topY + 12.7, cz, 0.22, 0.22, 0.22, FACE.all);
+  }
+  g.tint(1);
+}
+
+/** Non-colliding chasm canyon floor & dense sunlit metropolis skyscrapers framing the skyline. */
 function buildSkylineBackdrop(k: Kit): void {
   const g = k.geo;
+
+  // Vast urban dusk ground plane out to the distant horizon (sits safely below CHASM_Y so zero clipping with playable map!).
+  g.use('paintWhite').tint(0.06, 0.07, 0.095).gridStep(-460, CHASM_Y - 0.4, 420, 920, 0, 0, 0, 0, -880, 60);
 
   // Deep chasm avenue floor far below Towers 1-3 (strictly north of z = -28 so it never clips Datacenter/Boulevard).
   g.use('asphalt').tint(0.24, 0.28, 0.34).quad(-240, CHASM_Y, -28, 240, CHASM_Y, -28, 240, CHASM_Y, -240, -240, CHASM_Y, -240);
   g.use('paintWhite').tint(0.65);
   for (const x of [-40, 40]) g.box(x, CHASM_Y + 0.06, -134, 0.4, 0.04, 102, FACE.py);
   for (const z of [-76, -138]) g.box(0, CHASM_Y + 0.06, z, 200, 0.04, 0.4, FACE.py);
-
-  // Distant sunlit white/blue-glass skyscrapers framing the northern/eastern/western skyline (zero colliders).
-  const towers: readonly [number, number, number, number, number, Mat][] = [
-    [-142, -166, 26, 26, 74, 'glass'],
-    [-86, -184, 30, 24, 68, 'concrete'],
-    [-24, -180, 28, 26, 76, 'glass'],
-    [42, -172, 26, 26, 66, 'panel'],
-    [98, -158, 30, 28, 72, 'glass'],
-    [76, -108, 26, 26, 64, 'concrete'],
-    [82, -52, 28, 26, 70, 'glass'],
-    [-140, -104, 28, 26, 62, 'concrete'],
-    [-76, -84, 24, 24, 58, 'glass'],
-    [-72, -36, 26, 24, 56, 'panel'],
-  ];
-  for (const [cx, cz, w, d, topY, mat] of towers) {
-    const h = topY - CHASM_Y;
-    const tint = mat === 'glass' ? [0.68, 0.84, 0.96] : [0.88, 0.91, 0.96];
-    g.use(mat).tint(tint[0]!, tint[1]!, tint[2]!).box(cx, CHASM_Y + h / 2, cz, w / 2, h / 2, d / 2, FACE.sides | FACE.py);
-    g.use('concrete').tint(...WHITE);
-    g.box(cx, topY + 0.9, cz, w * 0.38, 0.9, d * 0.38, FACE.noBottom);
-    g.use('emissiveCyan').tint(0.75).box(cx, topY - 1.2, cz, w / 2 + 0.1, 0.18, d / 2 + 0.1, FACE.sides);
-  }
   g.tint(1);
+
+  // Dense inner + outer rings of solid-core downtown skyscrapers surrounding the northern, eastern, and western skyline (zero colliders).
+  const towers: readonly [number, number, number, number, number, TowerStyle][] = [
+    [-156, -172, 28, 28, 80, 'glass_blue'],
+    [-118, -192, 30, 26, 72, 'white_modern'],
+    [-76, -188, 30, 26, 86, 'slate_corporate'],
+    [-26, -186, 30, 28, 92, 'glass_blue'],
+    [24, -184, 28, 26, 74, 'warm_stone'],
+    [68, -176, 30, 26, 82, 'white_modern'],
+    [110, -158, 30, 28, 78, 'glass_blue'],
+    [96, -116, 28, 26, 68, 'slate_corporate'],
+    [76, -98, 26, 24, 64, 'white_modern'],
+    [82, -52, 28, 26, 74, 'glass_blue'],
+    [116, -64, 30, 28, 86, 'warm_stone'],
+    [78, -6, 26, 26, 68, 'slate_corporate'],
+    [-144, -124, 28, 28, 70, 'white_modern'],
+    [-142, -74, 28, 26, 76, 'slate_corporate'],
+    [-112, -52, 26, 26, 66, 'warm_stone'],
+    [-78, -84, 24, 24, 62, 'glass_blue'],
+    [-74, -36, 26, 24, 60, 'white_modern'],
+    [-78, -2, 26, 26, 68, 'glass_blue'],
+    // Outer metropolitan skyline horizon silhouettes (breaks up empty horizon from rooftop viewpoints!)
+    [-198, -210, 34, 30, 96, 'slate_corporate'],
+    [-148, -242, 36, 30, 108, 'glass_blue'],
+    [-86, -244, 34, 30, 114, 'warm_stone'],
+    [-18, -248, 38, 32, 122, 'glass_blue'],
+    [48, -242, 34, 30, 102, 'white_modern'],
+    [114, -228, 36, 30, 94, 'slate_corporate'],
+    [164, -188, 34, 30, 104, 'glass_blue'],
+    [170, -122, 34, 30, 92, 'warm_stone'],
+    [172, -50, 34, 32, 108, 'slate_corporate'],
+    [168, 22, 34, 30, 96, 'glass_blue'],
+    [-200, -142, 34, 30, 98, 'warm_stone'],
+    [-196, -72, 34, 30, 104, 'glass_blue'],
+    [-190, 6, 34, 30, 92, 'white_modern'],
+  ];
+  for (let i = 0; i < towers.length; i++) {
+    const [cx, cz, w, d, topY, style] = towers[i]!;
+    buildSolidSkyscraper(k, cx, cz, w, d, CHASM_Y, topY, style, i + 1);
+  }
 }
 
 /** Crisp daylight rooftop washes across Towers 1-3 & Gaff Canyon. */

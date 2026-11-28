@@ -117,6 +117,10 @@ export const DEPRECATION: Mission = {
           run: [{ do: 'say', line: 'mission.deprecation.faultman.zipline.save' }],
         },
         {
+          when: { signal: 'dp:zipline_landed' },
+          run: [{ do: 'say', line: 'mission.deprecation.faultman.zipline.landed' }],
+        },
+        {
           when: { signal: 'dp:chopper_grappled' },
           run: [{ do: 'say', line: 'mission.deprecation.faultman.chopper.grapple', now: true }],
         },
@@ -170,7 +174,6 @@ export const DEPRECATION: Mission = {
           },
         },
         { do: 'done', id: 'shutter' },
-        { do: 'say', line: 'mission.deprecation.faultman.shutter' },
         { do: 'release', tag: 't3_def_w' },
         { do: 'release', tag: 't3_def_e' },
         { do: 'objective', id: 'launch', text: 'Climb the Lightwell Chimney & Breach the 80th-Floor Glass', at: 't3.launch' },
@@ -191,6 +194,14 @@ export const DEPRECATION: Mission = {
         { do: 'goto', beat: 'office_breach' },
       ],
       cues: [
+        {
+          when: { signal: 'dp:shutter_slid' },
+          run: [{ do: 'say', line: 'mission.deprecation.faultman.shutter' }],
+        },
+        {
+          when: { signal: 'dp:shutter_bypassed' },
+          run: [{ do: 'say', line: 'mission.deprecation.faultman.shutter.bypass' }],
+        },
         {
           when: { zone: 'tower3.launch' },
           run: [{ do: 'say', line: 'mission.deprecation.faultman.crane.glass', now: true }],
@@ -378,6 +389,16 @@ export const DEPRECATION: Mission = {
         { do: 'sweep', tag: 'plaza_sec_b' },
         { do: 'goto', beat: 'boss_stage1' },
       ],
+      cues: [
+        {
+          when: { signal: 'dp:press_kill1' },
+          run: [{ do: 'say', line: 'mission.deprecation.faultman.press.kill1', now: true }],
+        },
+        {
+          when: { signal: 'dp:press_kill3' },
+          run: [{ do: 'say', line: 'mission.deprecation.faultman.press.kill3', now: true }],
+        },
+      ],
     },
 
     // =========================================================================
@@ -409,6 +430,14 @@ export const DEPRECATION: Mission = {
         {
           when: { signal: 'dp:shield_broken' },
           run: [{ do: 'say', line: 'mission.deprecation.orion.stage1.shieldDown', now: true }],
+        },
+        {
+          when: { signal: 'dp:press_kill1' },
+          run: [{ do: 'say', line: 'mission.deprecation.faultman.press.kill1', now: true }],
+        },
+        {
+          when: { signal: 'dp:press_kill3' },
+          run: [{ do: 'say', line: 'mission.deprecation.faultman.press.kill3', now: true }],
         },
       ],
     },
@@ -446,6 +475,14 @@ export const DEPRECATION: Mission = {
         {
           when: { signal: 'dp:orion_staggered' },
           run: [{ do: 'say', line: 'mission.deprecation.faultman.stage2.staggerHit', now: true }],
+        },
+        {
+          when: { signal: 'dp:press_kill1' },
+          run: [{ do: 'say', line: 'mission.deprecation.faultman.press.kill1', now: true }],
+        },
+        {
+          when: { signal: 'dp:press_kill3' },
+          run: [{ do: 'say', line: 'mission.deprecation.faultman.press.kill3', now: true }],
         },
       ],
     },
@@ -493,6 +530,14 @@ export const DEPRECATION: Mission = {
         {
           when: { signal: 'dp:conduits_down' },
           run: [{ do: 'say', line: 'mission.deprecation.faultman.stage3.vulnerable', now: true }],
+        },
+        {
+          when: { signal: 'dp:press_kill1' },
+          run: [{ do: 'say', line: 'mission.deprecation.faultman.press.kill1', now: true }],
+        },
+        {
+          when: { signal: 'dp:press_kill3' },
+          run: [{ do: 'say', line: 'mission.deprecation.faultman.press.kill3', now: true }],
         },
       ],
     },

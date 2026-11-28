@@ -18,6 +18,7 @@ import { NavGraph } from '../../nav';
 import { Objects } from '../../objects';
 import { registerDestructionNavProxies } from '../../destruction';
 import { MapSpec } from '../spec';
+import { MARKS as DEPRECATION_MARKS } from '../../../campaign/missions/deprecation.places';
 import {
   authorOpenmind,
   BOULEVARD,
@@ -480,6 +481,43 @@ describe('openmind map — Stage 1 geometry, budgets & parkour proof', () => {
       expect(floorHit, `groundSpawn ${tag} (${x},${y},${z}) floor`).not.toBeNull();
       expect(floorHit!.point.y).toBeCloseTo(y, 0);
       expect(nav.nearest(V(x, y + 0.2, z), 3.5, nearest), `groundSpawn nav ${tag} (${x},${y},${z})`).toBe(true);
+    }
+  });
+
+  it('keeps every Deprecation campaign enemy spawn mark (including Tower 3 chimney defenders) clear of solid geometry', () => {
+    const ENEMY_MARKS = [
+      't1.guardA', 't1.guardB',
+      't2.guardA', 't2.guardB', 't2.sniper',
+      't3.defenderA', 't3.defenderB',
+      'office.guardA', 'office.guardB', 'office.riot', 'office.mezzA', 'office.mezzB',
+      'elev.qrfA', 'elev.qrfB',
+      'vault.guardA', 'vault.guardB', 'vault.catwalkA', 'vault.catwalkB', 'vault.sniper',
+      'plaza.guardA', 'plaza.guardB',
+      'blvd.troopW', 'blvd.troopE',
+      'inter.guardW', 'inter.guardE',
+      'spire.catwalkW',
+    ] as const;
+
+    const CARDINALS = [V(1, 0, 0), V(-1, 0, 0), V(0, 0, 1), V(0, 0, -1)];
+    for (const key of ENEMY_MARKS) {
+      const mark = DEPRECATION_MARKS[key];
+      expect(mark, `mark ${key}`).toBeDefined();
+      const [x, y, z] = mark!.at;
+
+      // 1. Solid walkable floor right beneath feet
+      const floorHit = physics.raycast(V(x, y + 1.0, z), DOWN, 1.8, CG.World);
+      expect(floorHit, `${key} floor`).not.toBeNull();
+      expect(Math.abs(floorHit!.point.y - y), `${key} floor y (${floorHit!.point.y} vs ${y})`).toBeLessThan(0.35);
+
+      // 2. Headroom: ray upward from ankle to head must not hit solid world geometry
+      const headHit = physics.raycast(V(x, y + 0.15, z), V(0, 1, 0), 1.8, CG.World);
+      expect(headHit, `${key} headroom blocked at y=${headHit?.point.y}`).toBeNull();
+
+      // 3. Horizontal body clearance at chest height (0.55 m radius in all 4 directions)
+      for (const dir of CARDINALS) {
+        const sideHit = physics.raycast(V(x, y + 1.0, z), dir, 0.55, CG.World);
+        expect(sideHit, `${key} embedded horizontally (${dir.x},${dir.z})`).toBeNull();
+      }
     }
   });
 });

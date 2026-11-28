@@ -22,7 +22,9 @@ import {
   DATACENTER,
   ELEVATOR_SHAFT,
   GRAPPLE_ANCHORS,
+  LV,
   OFFICE,
+  PARKOUR_GEOM,
   SKYLINE_KILL_Y,
   TOWER_BY_ID,
   ZIPLINES,
@@ -105,6 +107,18 @@ function buildCivilianRoutes(): CivilianRouteDef[] {
   const [w1, e1, w2, e2] = BOULEVARD.subwayEntrances;
   return [
     {
+      id: 'press_plaza_west',
+      waypoints: [[-11, 0, 24], [-18, 0, 31], [-20, 0, 36], [w1.x, 0, w1.z]],
+      subwayExit: [w1.x, 0, w1.z],
+      pressZone: true,
+    },
+    {
+      id: 'press_plaza_east',
+      waypoints: [[11, 0, 25], [18, 0, 32], [20, 0, 56], [e1.x, 0, e1.z]],
+      subwayExit: [e1.x, 0, e1.z],
+      pressZone: true,
+    },
+    {
       id: 'west_north',
       waypoints: [[-20, 0, 26], [-20, 0, 35], [w1.x, 0, w1.z]],
       subwayExit: [w1.x, 0, w1.z],
@@ -144,9 +158,17 @@ export class DeprecationDirector {
   private chopperGrappled = false;
   private zipSnapped = false;
   private zipSaved = false;
+  private shutterPassed = false;
+  private shutterOutcomeSignalled = false;
   private glassWatchActive = false;
   private glassBreached = false;
   private initialCurtainPanes = 0;
+
+  // Press & bystander commentary guards (GTA-style: purely flavor, zero score/penalty)
+  private pressKill1Signalled = false;
+  private pressKill3Signalled = false;
+  private readonly prevOrionPos = new THREE.Vector3();
+  private hasPrevOrionPos = false;
 
   // Datacenter demolition tracker
   private vaultActive = false;
@@ -331,12 +353,13 @@ export class DeprecationDirector {
       onStateChange: (state) => this.onElevatorState(state),
     });
 
-    // 4. Grand Boulevard Fleeing Civilians (capped at 24, non-combatant, paused until Breakout)
+    // 4. Grand Boulevard Civilians & Press Corps (capped at 24, killable/ragdollable GTA-style, paused until Breakout)
     this.civilians = new CivilianCrowd(this.ctx, {
       routes: buildCivilianRoutes(),
       count: 24,
       autoStart: false,
       autoListenExplosions: true,
+      onPressKilled: (totalPressKilled) => this.onPressKilled(totalPressKilled),
     });
 
     // 5. ORION-0 / AEGIS-0 Multi-Stage 12 m Mech Boss
@@ -465,6 +488,8 @@ export class DeprecationDirector {
     this.chopperWatchActive = false;
     this.glassWatchActive = true;
     this.glassBreached = false;
+    this.shutterPassed = false;
+    this.shutterOutcomeSignalled = false;
     this.vaultActive = false;
     this.clearVaultMarkers();
     this.setHudMode('none');
@@ -574,6 +599,9 @@ export class DeprecationDirector {
   private activateBreakout(): void {
     this.skylineKillActive = false;
     this.vaultActive = false;
+    this.pressKill1Signalled = false;
+    this.pressKill3Signalled = false;
+    this.hasPrevOrionPos = false;
     this.clearVaultMarkers();
     this.disableAllGrappleMarks();
     this.setHudMode('none');
@@ -674,6 +702,27 @@ export class DeprecationDirector {
     this.civilians?.update(dt);
     this.orion?.update(dt);
 
+    // Let ORION-0 trample bystanders underfoot while stomping/charging across Grand Boulevard
+    if (
+      dt > 0 &&
+      this.orion &&
+      this.civilians?.isRunning &&
+      this.orion.stage !== 'dormant' &&
+      this.orion.stage !== 'dead'
+    ) {
+      const op = this.orion.position;
+      if (this.hasPrevOrionPos) {
+        const speed = Math.hypot(op.x - this.prevOrionPos.x, op.z - this.prevOrionPos.z) / dt;
+        if (speed > 2.8) {
+          this.civilians.checkTrample(op, 4.4, speed, 'orion_trample');
+        }
+      }
+      this.prevOrionPos.copy(op);
+      this.hasPrevOrionPos = true;
+    } else {
+      this.hasPrevOrionPos = false;
+    }
+
     this.updateSkylineWatchers();
     this.updateGlassBreachWatcher();
     this.updateElevatorVaultFallback();
@@ -725,7 +774,7 @@ export class DeprecationDirector {
 
     const hState = this.harpoonState;
 
-    // 2. Zipline snap crane-grapple / landing save reaction
+    // 2. Zipline snap reaction — ONLY claim the player harpooned the crane arm if they ACTUALLY harpooned!
     if (this.zipSnapped && !this.zipSaved) {
       const t2 = TOWER_BY_ID.tower2;
       const onTower2 =
@@ -734,16 +783,43 @@ export class DeprecationDirector {
         player.position.z >= t2.z0 - 2 &&
         player.position.z <= t2.z1 + 2 &&
         player.position.y >= t2.y - 3;
-      if (hState === 'anchored_wall' || onTower2) {
+      if (hState === 'anchored_wall') {
         this.zipSaved = true;
         this.runner.signal('dp:zipline_saved');
+      } else if (onTower2) {
+        this.zipSaved = true;
+        this.runner.signal('dp:zipline_landed');
       }
     }
 
-    // 3. Gaff harpoon grapple onto the patrol helicopter
+    // 3. Gaff harpoon grapple onto the patrol helicopter (verify a chopper is actually airborne!)
     if (this.chopperWatchActive && !this.chopperGrappled && hState === 'anchored_vehicle') {
-      this.chopperGrappled = true;
-      this.runner.signal('dp:chopper_grappled');
+      const choppers = this.vehicles?.choppers;
+      const hasLiveChopper = !choppers || choppers.some(c => c.alive);
+      if (hasLiveChopper) {
+        this.chopperGrappled = true;
+        this.runner.signal('dp:chopper_grappled');
+      }
+    }
+
+    // 4. Tower 3 Blast Shutter slide vs roof-bypass accurate commentary
+    if (this.glassWatchActive && !this.shutterOutcomeSignalled) {
+      const sh = PARKOUR_GEOM.shutter;
+      const p = player.position;
+      const insideShutter =
+        Math.abs(p.x - sh.x) <= sh.width / 2 + 0.5 &&
+        p.z >= sh.z - 1.2 &&
+        p.z <= sh.z + 2.2 &&
+        p.y >= LV.tower2 - 1.5 &&
+        p.y <= LV.tower2 + sh.height + 0.6;
+      if (insideShutter) {
+        this.shutterPassed = true;
+        this.shutterOutcomeSignalled = true;
+        this.runner.signal('dp:shutter_slid');
+      } else if (p.z > sh.z + 2.6 && p.z < OFFICE.z1 && p.y >= LV.tower2 - 1.5) {
+        this.shutterOutcomeSignalled = true;
+        this.runner.signal('dp:shutter_bypassed');
+      }
     }
   }
 
@@ -893,6 +969,17 @@ export class DeprecationDirector {
     if ((stage === 'spire_leap' || stage === 'stage3_meltdown') && !this.stage2DoneSignalled) {
       this.stage2DoneSignalled = true;
       this.runner.signal('dp:stage2_done');
+    }
+  }
+
+  private onPressKilled(totalPressKilled: number): void {
+    if (totalPressKilled >= 1 && !this.pressKill1Signalled) {
+      this.pressKill1Signalled = true;
+      this.runner.signal('dp:press_kill1');
+    }
+    if (totalPressKilled >= 3 && !this.pressKill3Signalled) {
+      this.pressKill3Signalled = true;
+      this.runner.signal('dp:press_kill3');
     }
   }
 
@@ -1175,8 +1262,13 @@ export class DeprecationDirector {
     this.chopperGrappled = false;
     this.zipSnapped = false;
     this.zipSaved = false;
+    this.shutterPassed = false;
+    this.shutterOutcomeSignalled = false;
     this.glassWatchActive = false;
     this.glassBreached = false;
+    this.pressKill1Signalled = false;
+    this.pressKill3Signalled = false;
+    this.hasPrevOrionPos = false;
     this.vaultActive = false;
     this.vaultClustersSignalled = false;
     this.vaultClearedSignalled = false;

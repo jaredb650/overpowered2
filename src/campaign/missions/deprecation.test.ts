@@ -110,6 +110,7 @@ function stepBot(
         sent.add('entered_runup');
         host.feet = centerOf('tower3.runup');
       } else {
+        if (triggerOptionalCues) fireOnce('dp:shutter_slid');
         host.feet = centerOf('tower3.beyondShutter');
       }
     } else if (hasObj('Lightwell Chimney')) {
@@ -155,7 +156,9 @@ function stepBot(
     // `frame: kneel` resolves automatically via `advanceHost(host)`.
   } else if (beat.id === 'boss_stage1') {
     if (hasObj('Shoulder Relay Fins')) {
-      if (triggerOptionalCues && !sent.has('dp:shield_broken')) fireOnce('dp:shield_broken');
+      if (triggerOptionalCues && !sent.has('dp:press_kill1')) fireOnce('dp:press_kill1');
+      else if (triggerOptionalCues && !sent.has('dp:press_kill3')) fireOnce('dp:press_kill3');
+      else if (triggerOptionalCues && !sent.has('dp:shield_broken')) fireOnce('dp:shield_broken');
       else fireOnce('dp:stage1_done');
     }
   } else if (beat.id === 'boss_stage2') {
@@ -198,7 +201,7 @@ describe('Deprecation (Form 7742-A)', () => {
     }
   });
 
-  it('registers every dp.* call in DEPRECATION_CALLS and co-op CALLS, and references all 39 voiced lines', () => {
+  it('registers every dp.* call in DEPRECATION_CALLS and co-op CALLS, and references all 43 voiced lines', () => {
     const allSteps = collectAllSteps();
     const usedCalls = new Set<string>();
     const usedLines = new Set<string>(REDEPLOY_LINES);
@@ -216,7 +219,7 @@ describe('Deprecation (Form 7742-A)', () => {
       expect(usedCalls.has(callName), `unused dp.* call: ${callName}`).toBe(true);
     }
 
-    expect(LINES.length).toBe(39);
+    expect(LINES.length).toBe(43);
     for (const line of LINES) {
       expect(line.id).toMatch(/^mission\.deprecation\.(council|faultman|orion)\.[a-zA-Z0-9.]+$/);
       expect(usedLines.has(line.id), `unreferenced line: ${line.id}`).toBe(true);
@@ -274,6 +277,8 @@ describe('Deprecation (Form 7742-A)', () => {
       'mission.deprecation.faultman.street.ally',
       'mission.deprecation.council.frame.fee',
       'mission.deprecation.orion.stage1.shieldDown',
+      'mission.deprecation.faultman.press.kill1',
+      'mission.deprecation.faultman.press.kill3',
       'mission.deprecation.orion.stage1.break',
       'mission.deprecation.faultman.stage2.jammer',
       'mission.deprecation.faultman.stage2.staggerHit',
@@ -285,6 +290,27 @@ describe('Deprecation (Form 7742-A)', () => {
     ]) {
       expect(host.said, `expected line ${expectedLine}`).toContain(expectedLine);
     }
+  });
+
+  it('plays accurate alternate Faultman commentary when landing without harpoon or bypassing the shutter', () => {
+    const host = new FakeHost();
+    const run = new MissionRunner(DEPRECATION, host);
+    run.start('skyline_drop');
+    run.update(FRAME);
+    run.signal('dp:zipline_snapped');
+    run.signal('dp:zipline_landed');
+    run.update(FRAME);
+    expect(host.said).toContain('mission.deprecation.faultman.zipline.landed');
+    expect(host.said).not.toContain('mission.deprecation.faultman.zipline.save');
+
+    const host2 = new FakeHost();
+    const run2 = new MissionRunner(DEPRECATION, host2);
+    run2.start('glass_run');
+    run2.update(FRAME);
+    run2.signal('dp:shutter_bypassed');
+    run2.update(FRAME);
+    expect(host2.said).toContain('mission.deprecation.faultman.shutter.bypass');
+    expect(host2.said).not.toContain('mission.deprecation.faultman.shutter');
   });
 
   it('recovers cleanly with checkpoint parity across every single checkpoint section', () => {
