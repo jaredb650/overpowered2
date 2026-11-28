@@ -101,15 +101,19 @@ export class WorldMaterials implements MaterialLibrary {
     shared.opNoise.value = this.baker.noiseTexture();
   }
 
-  /** Bakes every texture set, then the decal atlas, and frees the scratch targets. */
+  private scratchReleased = false;
+
+  /** Bakes the decal atlas at boot; surface sets bake lazily on first `world(name)` call during map load. */
   async bakeAll(): Promise<BakedSet> {
-    for (const name of Object.keys(SETS) as SetName[]) {
-      this.set(name);
-      await new Promise(resolve => setTimeout(resolve, 0));
-    }
     const decals = await this.sheet(this.baker);
-    this.baker.dispose();
+    this.baker.releaseScratch();
     return decals;
+  }
+
+  /** Frees the temporary half-float scratch target after map load finishes. */
+  releaseScratch(): void {
+    this.scratchReleased = true;
+    this.baker.releaseScratch();
   }
 
   private async sheet(baker: TextureBaker): Promise<BakedSet> {
@@ -142,6 +146,8 @@ export class WorldMaterials implements MaterialLibrary {
       const s = SETS[name];
       set = this.baker.bake(name, Math.round(s.size * this.sizeScale), s.bump * this.sizeScale, s.extraMode ?? 0);
       this.sets.set(name, set);
+      // If a new surface set is requested after map load, free the scratch target immediately so VRAM never lingers.
+      if (this.scratchReleased) this.baker.releaseScratch();
     }
     return set;
   }
@@ -177,7 +183,8 @@ export class WorldMaterials implements MaterialLibrary {
         lava: s.set === 'lava',
         masked,
       }, this.shared);
-      this.patcher.apply(m, hook, `world:${name}`);
+      const variantKey = `world:${s.wet ? 'w' : ''}${s.set === 'lava' ? 'l' : ''}${masked ? 'm' : ''}`;
+      this.patcher.apply(m, hook, variantKey);
     } else {
       this.patcher.apply(m);
     }

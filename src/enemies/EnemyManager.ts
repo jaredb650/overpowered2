@@ -411,6 +411,7 @@ export class EnemyManager implements EnemySystem {
         if (prop instanceof THREE.Mesh) return prop;
         const mesh = new THREE.Mesh(plateGeometry(spec), plateMaterial(this.ctx));
         mesh.castShadow = true;
+        this.ctx.render.registerBatchedProp?.(mesh);
         e.char.attachProp(spec.bone, mesh);
         return mesh;
       });

@@ -25,8 +25,8 @@ export interface BakeJob {
 }
 
 export interface BakeResult {
-  /** RGBA half floats, one array per texture. 0: DC rgb + sky visibility. 1..3: L1 of r, g, b. */
-  textures: [Uint16Array, Uint16Array, Uint16Array, Uint16Array];
+  /** 0: RGBA half floats (DC rgb + sky visibility). 1..3: RGBA8 normalized L1 of r, g, b (scaled by 2*dc, biased to 127/255). */
+  textures: [Uint16Array, Uint8Array, Uint8Array, Uint8Array];
 }
 
 const floatView = new Float32Array(1);
@@ -364,24 +364,35 @@ export function runBake(job: BakeJob, progress: (fraction: number) => void): Bak
   progress(0.92);
 
   const t0 = new Uint16Array(n * 4);
-  const t1 = new Uint16Array(n * 4);
-  const t2 = new Uint16Array(n * 4);
-  const t3 = new Uint16Array(n * 4);
+  const t1 = new Uint8Array(n * 4);
+  const t2 = new Uint8Array(n * 4);
+  const t3 = new Uint8Array(n * 4);
+  const packL1 = (out: Uint8Array, q: number, x: number, y: number, z: number, dcVal: number) => {
+    const scale = 2 * dcVal;
+    if (scale <= 1e-6) {
+      out[q] = 127;
+      out[q + 1] = 127;
+      out[q + 2] = 127;
+      out[q + 3] = 0;
+      return;
+    }
+    const len = Math.hypot(x, y, z);
+    const inv = len > scale ? 1 / len : 1 / scale;
+    out[q] = Math.min(254, Math.max(0, Math.round(x * inv * 127 + 127)));
+    out[q + 1] = Math.min(254, Math.max(0, Math.round(y * inv * 127 + 127)));
+    out[q + 2] = Math.min(254, Math.max(0, Math.round(z * inv * 127 + 127)));
+    out[q + 3] = 0;
+  };
   for (let i = 0; i < n; i++) {
     const k = i * 3, q = i * 4;
-    t0[q] = toHalf(dc[k]!);
-    t0[q + 1] = toHalf(dc[k + 1]!);
-    t0[q + 2] = toHalf(dc[k + 2]!);
+    const d0 = dc[k]!, d1 = dc[k + 1]!, d2 = dc[k + 2]!;
+    t0[q] = toHalf(d0);
+    t0[q + 1] = toHalf(d1);
+    t0[q + 2] = toHalf(d2);
     t0[q + 3] = toHalf(Math.min(sky[i]!, 1));
-    t1[q] = toHalf(lr[k]!);
-    t1[q + 1] = toHalf(lr[k + 1]!);
-    t1[q + 2] = toHalf(lr[k + 2]!);
-    t2[q] = toHalf(lg[k]!);
-    t2[q + 1] = toHalf(lg[k + 1]!);
-    t2[q + 2] = toHalf(lg[k + 2]!);
-    t3[q] = toHalf(lb[k]!);
-    t3[q + 1] = toHalf(lb[k + 1]!);
-    t3[q + 2] = toHalf(lb[k + 2]!);
+    packL1(t1, q, lr[k]!, lr[k + 1]!, lr[k + 2]!, d0);
+    packL1(t2, q, lg[k]!, lg[k + 1]!, lg[k + 2]!, d1);
+    packL1(t3, q, lb[k]!, lb[k + 1]!, lb[k + 2]!, d2);
   }
   progress(1);
   return { textures: [t0, t1, t2, t3] };

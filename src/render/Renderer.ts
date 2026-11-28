@@ -21,6 +21,7 @@ import { FullscreenPass } from './fullscreen';
 import { DynamicResolution } from './DynamicResolution';
 import { EmissiveLines } from './EmissiveLines';
 import { XRay } from './XRay';
+import { PropBatcher } from './PropBatcher';
 
 type ListMode = 'all' | 'opaque' | 'decals' | 'transparent' | 'shadowStatic' | 'shadowDynamic' | 'xray';
 
@@ -60,9 +61,11 @@ const STILL_DRAWS = 3;
 /** Sizes stay even so half-resolution targets line up exactly with the area they cover. */
 const even = (v: number): number => Math.max(2, Math.round(v / 2) * 2);
 const INVALIDATE_DEPTH = [0x8d00 /* DEPTH_ATTACHMENT */];
+const INVALIDATE_COLOR = [0x8ce0 /* COLOR_ATTACHMENT0 */];
 /** Isolated layers so single-purpose passes skip traversing the rest of the world. */
 const DECAL_LAYER = 1;
 const XRAY_LAYER = 4;
+const NOOP_MATRIX_WORLD = (): void => {};
 
 export class Renderer implements RenderSystem {
   readonly renderer: THREE.WebGLRenderer;
@@ -93,6 +96,8 @@ export class Renderer implements RenderSystem {
   private readonly ssr = new Ssr();
   private readonly emissiveLines = new EmissiveLines();
   private readonly xray = new XRay();
+  private readonly propBatcher = new PropBatcher();
+  private worldStatic: THREE.Object3D | null = null;
   readonly volume: LightVolume;
   /** Live fog tuning. The world can change this per zone. */
   readonly fog: FogSettings;
@@ -184,7 +189,7 @@ export class Renderer implements RenderSystem {
     this.moon.updateMatrix();
     this.moon.target.matrixAutoUpdate = false;
     this.moon.target.updateMatrix();
-    this.scene.add(this.moon, this.moon.target);
+    this.scene.add(this.moon, this.moon.target, this.propBatcher.group);
     this.viewMoon.color.copy(this.moon.color);
     this.viewMoon.intensity = this.moon.intensity;
     this.viewScene.add(this.viewMoon, this.viewMoon.target);
@@ -201,6 +206,14 @@ export class Renderer implements RenderSystem {
 
     this.resize();
     addEventListener('resize', this.resize);
+  }
+
+  registerBatchedProp(mesh: THREE.Mesh): void {
+    this.propBatcher.register(mesh);
+  }
+
+  unregisterBatchedProp(mesh: THREE.Mesh): void {
+    this.propBatcher.unregister(mesh);
   }
 
   /** Bakes textures, atlas and environment, yielding between sets so a loading screen can paint. */
@@ -435,7 +448,7 @@ export class Renderer implements RenderSystem {
   }
 
   get depthTexture(): THREE.DepthTexture | null {
-    return this.frames > 0 ? this.depthCopy.depthTexture : null;
+    return this.depthCopy?.depthTexture ?? null;
   }
 
   async bakeLightVolume(input: LightVolumeBakeInput): Promise<void> {
@@ -448,21 +461,33 @@ export class Renderer implements RenderSystem {
     });
     this.shadows.setBounds(input.bounds);
     this.emissiveLines.attach(this.scene, this.quality.msaa === 0);
-    // Freeze the merged static level geometry so updateMatrixWorld() skips recomputing it every frame.
+    // Freeze the merged static level geometry so updateMatrixWorld() skips its entire subtree every frame.
+    this.worldStatic = null;
     this.scene.traverse(o => {
       if (o.name === 'world-static') {
+        let purelyStatic = true;
         o.traverse(c => {
           c.matrixAutoUpdate = false;
           c.updateMatrix();
+          if (c.userData.dynamicShadow || c.layers.isEnabled(DECAL_LAYER) || c.layers.isEnabled(XRAY_LAYER)) {
+            purelyStatic = false;
+          }
         });
-        o.updateMatrixWorld();
+        o.updateMatrixWorld(true);
+        o.traverse(c => {
+          c.updateMatrixWorld = NOOP_MATRIX_WORLD;
+        });
+        if (purelyStatic) this.worldStatic = o;
       }
     });
+    this.worldMaterials.releaseScratch();
+    this.propBatcher.sync(this.scene, this.camera);
     // Program linking runs on the driver's threads, so it overlaps the bake worker for free and the
     // first frame does not hitch on twenty big shaders.
     await Promise.all([
       this.volume.bake(input),
       this.renderer.compileAsync(this.scene, this.camera),
+      this.renderer.compileAsync(this.viewScene, this.viewCamera),
       this.decalSystem?.floor.warm(this.renderer),
       this.xray.warm(this.renderer, this.hdrColorOnly, this.camera),
     ]);
@@ -578,7 +603,7 @@ export class Renderer implements RenderSystem {
   }
 
   private drawXRay(realDt: number, worldFrame: number): void {
-    const { renderer, scene, camera, xray } = this;
+    const { renderer, scene, camera, xray, worldStatic } = this;
     const depth = this.depthCopy.depthTexture!;
     xray.drawSweep(renderer, this.hdrColorOnly, depth, camera, realDt);
     renderer.setRenderTarget(this.hdrColorOnly);
@@ -586,6 +611,7 @@ export class Renderer implements RenderSystem {
     this.listMode = 'xray';
     const prevMask = camera.layers.mask;
     camera.layers.set(XRAY_LAYER);
+    if (worldStatic) worldStatic.visible = false;
     while (xray.next(depth, camera)) {
       const lit = xray.current!;
       for (const o of lit) o.layers.enable(XRAY_LAYER);
@@ -595,14 +621,19 @@ export class Renderer implements RenderSystem {
       renderer.info.render.frame = saved;
       for (const o of lit) o.layers.disable(XRAY_LAYER);
     }
+    if (worldStatic) worldStatic.visible = true;
     camera.layers.mask = prevMask;
     this.listMode = 'all';
     scene.overrideMaterial = null;
   }
 
   private drawShadow = (kind: ShadowPassKind, camera: THREE.Camera): void => {
-    this.listMode = kind === 'static' ? 'shadowStatic' : 'shadowDynamic';
+    const dynamic = kind === 'dynamic';
+    this.listMode = dynamic ? 'shadowDynamic' : 'shadowStatic';
+    const ws = dynamic ? this.worldStatic : null;
+    if (ws) ws.visible = false;
     this.renderer.render(this.scene, camera);
+    if (ws) ws.visible = true;
     this.listMode = 'all';
   };
 
@@ -669,6 +700,7 @@ export class Renderer implements RenderSystem {
     if (camera.parent === null) camera.updateMatrixWorld();
     if (viewCamera.parent === null) viewCamera.updateMatrixWorld();
     scene.updateMatrixWorld();
+    this.propBatcher.sync(scene, camera);
     viewScene.updateMatrixWorld();
     engine.opCamToWorld.value.copy(camera.matrixWorld);
     engine.opTime.value = time;
@@ -728,7 +760,9 @@ export class Renderer implements RenderSystem {
       this.listMode = 'decals';
       const prevMask = camera.layers.mask;
       camera.layers.set(DECAL_LAYER);
+      if (this.worldStatic) this.worldStatic.visible = false;
       renderer.render(scene, camera);
+      if (this.worldStatic) this.worldStatic.visible = true;
       camera.layers.mask = prevMask;
     }
 
@@ -744,9 +778,11 @@ export class Renderer implements RenderSystem {
     if (fogOn) this.fogPass.render(renderer, this.gtao.depth.texture, camera, this.tanHalf, time);
     const ssrOn = q.ssrSteps > 0 && this.passes.ssr && this.frames > 0;
     if (ssrOn) this.ssr.render(renderer, this.gtao.depth.texture, this.sceneTarget.texture, this.hdrTarget.texture, camera, this.tanHalf);
-    this.combine.render(renderer, this.hdrColorOnly, this.sceneTarget.texture, depth, this.gtao.depth.texture, this.gtao.texture, this.fogPass.texture, this.ssr.texture, camera, aoOn ? 1 : 0, fogOn ? 1 : 0, ssrOn ? 1 : 0);
+    // Render Combine directly into hdrTarget (which shares sceneTarget's depth attachment while Combine reads depthCopy),
+    // so Combine + Transparent stay in one TBDR tile pass without storing and reloading hdrTarget's RGBA16F buffer.
+    this.combine.render(renderer, this.hdrTarget, this.sceneTarget.texture, depth, this.gtao.depth.texture, this.gtao.texture, this.fogPass.texture, this.ssr.texture, camera, aoOn ? 1 : 0, fogOn ? 1 : 0, ssrOn ? 1 : 0);
 
-    // Transparent pass into the resolved image, against the world's depth.
+    // Transparent pass into the resolved image, against the world's depth (already bound in hdrTarget).
     engine.opFogTex.value = this.fogPass.texture;
     renderer.setRenderTarget(this.hdrTarget);
     this.listMode = 'transparent';

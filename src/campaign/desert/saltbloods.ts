@@ -561,6 +561,14 @@ export class SaltbloodStyler {
     return this.assets;
   }
 
+  private unregisterGroup(group: THREE.Object3D): void {
+    const unreg = this.ctx.render?.unregisterBatchedProp;
+    if (!unreg) return;
+    group.traverse(o => {
+      if ((o as THREE.Mesh).isMesh) unreg.call(this.ctx.render, o as THREE.Mesh);
+    });
+  }
+
   /** Strips any leftover Saltblood or Quist cosmetics on a recycled character rig before applying fresh gear. */
   private stripExisting(root: THREE.Object3D, bones: readonly THREE.Bone[]): void {
     const stripFrom = (parent: THREE.Object3D | undefined): void => {
@@ -568,6 +576,7 @@ export class SaltbloodStyler {
       for (let i = parent.children.length - 1; i >= 0; i--) {
         const child = parent.children[i]!;
         if (child.name === GEAR_NAME || child.name === QUIST_GEAR_NAME) {
+          this.unregisterGroup(child);
           parent.remove(child);
           this.attached.delete(child);
         }
@@ -581,6 +590,12 @@ export class SaltbloodStyler {
     group.name = GEAR_NAME;
     parent.add(group);
     this.attached.add(group);
+    const reg = this.ctx.render?.registerBatchedProp;
+    if (reg) {
+      for (const child of group.children) {
+        if ((child as THREE.Mesh).isMesh) reg.call(this.ctx.render, child as THREE.Mesh);
+      }
+    }
   }
 
   private styleEnemy(enemy: EnemyInstance): void {
@@ -688,6 +703,7 @@ export class SaltbloodStyler {
 
   clear(): void {
     for (const grp of this.attached) {
+      this.unregisterGroup(grp);
       grp.parent?.remove(grp);
     }
     this.attached.clear();

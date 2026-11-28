@@ -56,6 +56,9 @@ export class CrossfireHudOverlay {
   private repairEl: HTMLElement | null = null;
   private lastMode: 'none' | 'strait' | 'halcyon' = 'none';
   private lastBadgeSignature = '';
+  private anchored = false;
+  private lastStraitSig = '';
+  private lastHalcyonSig = '';
 
   private anchorToObjectives(root: HTMLElement): void {
     const objs = document.querySelector('.hud .col-left .ms-objs');
@@ -71,6 +74,7 @@ export class CrossfireHudOverlay {
         maxWidth: '24rem',
         marginTop: '-0.3rem',
       });
+      this.anchored = true;
       return;
     }
     if (colLeft) {
@@ -102,9 +106,10 @@ export class CrossfireHudOverlay {
   private ensureDom(): boolean {
     if (typeof document === 'undefined' || !document.body) return false;
     if (this.root && this.root.isConnected) {
-      this.anchorToObjectives(this.root);
+      if (!this.anchored) this.anchorToObjectives(this.root);
       return true;
     }
+    this.anchored = false;
 
     document.getElementById(ROOT_ID)?.remove();
 
@@ -282,14 +287,19 @@ export class CrossfireHudOverlay {
 
   updateStrait(state: StraitHudState): void {
     if (!this.ensureDom()) return;
-    const root = this.root!;
-    root.style.display = 'block';
-    this.lastMode = 'strait';
-
     const maxHp = Math.max(1, Math.round(state.lancerMaxHp));
     const hp = Math.max(0, Math.min(maxHp, Math.round(state.lancerHp)));
     const hpFrac = hp / maxHp;
     const pct = Math.max(0, Math.min(100, Math.round(state.progress * 100)));
+    const eta = state.holdingOrbit ? -1 : Math.max(0, Math.ceil(state.etaSeconds));
+    const sig = `${state.mode}|${hp}/${maxHp}|${pct}|${eta}|${state.banditsRemaining}|${state.statusLine ?? ''}|${state.repairBanner?.tone ?? ''}:${state.repairBanner?.text ?? ''}`;
+    if (this.lastMode === 'strait' && sig === this.lastStraitSig) return;
+    this.lastStraitSig = sig;
+    this.lastHalcyonSig = '';
+
+    const root = this.root!;
+    root.style.display = 'block';
+    this.lastMode = 'strait';
 
     this.titleEl!.textContent = state.mode === 'outbound'
       ? 'B-1B LANCER ESCORT // OUTBOUND'
@@ -320,7 +330,6 @@ export class CrossfireHudOverlay {
     if (state.holdingOrbit) {
       this.secValueEl!.textContent = `${pct}% · HOLDING ORBIT`;
     } else {
-      const eta = Math.max(0, Math.ceil(state.etaSeconds));
       const mins = Math.floor(eta / 60);
       const secs = String(eta % 60).padStart(2, '0');
       this.secValueEl!.textContent = `${pct}% · ${mins}:${secs}`;
@@ -355,11 +364,21 @@ export class CrossfireHudOverlay {
 
   updateHalcyon(state: HalcyonHudState): void {
     if (!this.ensureDom()) return;
+    const pct = Math.max(0, Math.min(100, Math.round(state.flattenedPct)));
+    let badgeSig = '';
+    for (let i = 0; i < state.badges.length; i++) {
+      const b = state.badges[i]!;
+      badgeSig += (i > 0 ? '|' : '') + b.id + ':' + (b.done ? '1' : '0') + ':' + (b.active ? '1' : '0');
+    }
+    const halSig = `${pct}|${state.callout}|${badgeSig}`;
+    if (this.lastMode === 'halcyon' && halSig === this.lastHalcyonSig) return;
+    this.lastHalcyonSig = halSig;
+    this.lastStraitSig = '';
+
     const root = this.root!;
     root.style.display = 'block';
     this.lastMode = 'halcyon';
 
-    const pct = Math.max(0, Math.min(100, Math.round(state.flattenedPct)));
     this.titleEl!.textContent = 'FORTRESS HALCYON // COMBINED-ARMS SIEGE';
     this.subEl!.textContent = `${pct}% FLATTENED`;
     this.subEl!.style.color = pct >= 65 ? '#54ff9d' : '#ffd25a';
@@ -376,9 +395,8 @@ export class CrossfireHudOverlay {
 
     const badgeRow = this.badgeRowEl!;
     badgeRow.style.display = 'flex';
-    const sig = state.badges.map(b => `${b.id}:${b.done ? 1 : 0}:${b.active ? 1 : 0}`).join('|');
-    if (sig !== this.lastBadgeSignature) {
-      this.lastBadgeSignature = sig;
+    if (badgeSig !== this.lastBadgeSignature) {
+      this.lastBadgeSignature = badgeSig;
       badgeRow.replaceChildren();
       for (const b of state.badges) {
         const chip = document.createElement('span');
@@ -416,11 +434,14 @@ export class CrossfireHudOverlay {
   hide(): void {
     this.lastMode = 'none';
     this.lastBadgeSignature = '';
+    this.lastStraitSig = '';
+    this.lastHalcyonSig = '';
     if (this.root) this.root.style.display = 'none';
   }
 
   dispose(): void {
     this.hide();
+    this.anchored = false;
     this.root?.remove();
     this.root = null;
     this.titleEl = null;

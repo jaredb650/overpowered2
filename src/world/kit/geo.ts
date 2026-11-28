@@ -7,7 +7,8 @@
  */
 import * as THREE from 'three';
 import type { WorldMaterialName } from '../../core/contracts';
-import { signRect } from './signs';
+import { finalizeSignUVs, signRect } from './signs';
+import { finalizeStencilUVs } from './stencil';
 
 export type Mat = WorldMaterialName | 'signs' | 'stencil' | 'plywood';
 
@@ -20,8 +21,8 @@ export const MATERIALS: readonly Mat[] = [
 
 /** Chunks across the map per material. */
 const CHUNKS_ACROSS: Partial<Record<Mat, number>> = {
-  concrete: 5, concreteDark: 5, steel: 5, steelDark: 5, panel: 4, asphalt: 3, rust: 3, tile: 3, dirt: 3, grate: 3,
-  hazard: 2, glass: 2, rubber: 2, plaster: 3, carpet: 2,
+  concrete: 5, concreteDark: 5, steel: 5, steelDark: 5, panel: 4, plywood: 4, asphalt: 3, rust: 3, tile: 3, dirt: 3, grate: 3,
+  paintWhite: 3, paintRed: 3, paintYellow: 3, hazard: 2, glass: 2, rubber: 2, plaster: 3, carpet: 2,
 };
 const MAP_MIN = -180;
 const MAP_SIZE = 360;
@@ -629,9 +630,12 @@ export class Geo {
     for (const b of this.buckets.values()) {
       if (b.ni === 0) continue;
       const g = new THREE.BufferGeometry();
+      const uv = b.uv.slice(0, b.nv * 2);
+      if (b.mat === 'signs') finalizeSignUVs(uv, b.nv);
+      else if (b.mat === 'stencil') finalizeStencilUVs(uv, b.nv);
       g.setAttribute('position', new THREE.BufferAttribute(b.p.slice(0, b.nv * 3), 3));
       g.setAttribute('normal', new THREE.BufferAttribute(b.n.slice(0, b.nv * 3), 3));
-      g.setAttribute('uv', new THREE.BufferAttribute(b.uv.slice(0, b.nv * 2), 2));
+      g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
       g.setAttribute('color', new THREE.BufferAttribute(b.c.slice(0, b.nv * 4), 4, true));
       g.setIndex(
         new THREE.BufferAttribute(
@@ -645,9 +649,10 @@ export class Geo {
       mesh.name = `${b.mat}:${b.chunk}`;
       mesh.matrixAutoUpdate = false;
       const emissive = isEmissive(b.mat);
+      const skyHigh = g.boundingBox !== null && g.boundingBox.min.y > 160;
       // Stencils lie on a surface that already casts, and the shadow pass ignores their cut-out alpha.
-      mesh.castShadow = !emissive && b.mat !== 'glass' && b.mat !== 'stencil';
-      mesh.receiveShadow = !emissive;
+      mesh.castShadow = !emissive && !skyHigh && b.mat !== 'glass' && b.mat !== 'stencil';
+      mesh.receiveShadow = !emissive && !skyHigh;
       group.add(mesh);
     }
     return group;

@@ -131,6 +131,7 @@ export class MoonShadows {
     } else {
       // A zero matrix puts every point outside the map, so the shader's range check fails.
       this.engine.opShadowMatD.value.set(0, 0, 0, -1, 0, 0, 0, -1, 0, 0, 0, -1, 0, 0, 0, 1);
+      this.engine.opShadowInfo.value.y = 0;
     }
   }
 

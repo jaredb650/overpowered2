@@ -191,6 +191,9 @@ const paint: WoundHit = { kind: WoundKind.graze, bone: 0, point: paintDir, dir: 
 
 /** Past this LOD a body is too far off for anything but paint. */
 export const FAR_LOD = 2;
+
+/** Baked LOD geometry arrays for attached prop meshes, kept out of `userData` so Three's JSON clone never touches them. */
+export const propLodsMap = new WeakMap<THREE.Object3D, readonly THREE.BufferGeometry[]>();
 /** From this LOD on, nothing under the skin is drawn. */
 const INSIDE_LOD = 1;
 
@@ -992,6 +995,15 @@ export class Character implements CharacterInstance {
     // The last LOD indexes welded vertices, so its UVs are meaningless and it paints from vertex colour.
     this.mesh.material = this.skinMaterialFor(i);
     if (this.inside) this.showInside(this.book.open > 0 ? i : FAR_LOD);
+    // Attached props also have baked LODs (e.g. 70% fewer triangles at lod1); swap them alongside the body.
+    for (let k = 0; k < this.props.length; k++) {
+      const obj = this.props[k]!.object;
+      const lods = propLodsMap.get(obj);
+      if (lods && lods.length > 1) {
+        const g = lods[Math.min(level, lods.length - 1)]!;
+        if ((obj as THREE.Mesh).geometry !== g) (obj as THREE.Mesh).geometry = g;
+      }
+    }
   }
 
   spawnSevered(boneIndex: number): SeveredLimb {
@@ -1038,7 +1050,11 @@ export class Character implements CharacterInstance {
       // A stand-in is this body's alone and leaves the instance at its reset, so it is carried as it is. Gear is the
       // instance's for good: a copy is carried, as a severed limb carries one.
       if (p.untilReset) standIns.push({ bone: p.bone, object: p.object, folds: this.skeleton.boneInverses[p.bone] !== this.a.bindInverses[p.bone] });
-      else gear.push({ bone: p.bone, object: p.object.clone() });
+      else {
+        const clone = p.object.clone();
+        clone.layers.set(0);
+        gear.push({ bone: p.bone, object: clone });
+      }
     }
     const q = this.root.quaternion;
     const at = this.root.position;
@@ -1221,6 +1237,9 @@ export class Character implements CharacterInstance {
       }
       charKit(p.object, false);
       p.object.visible = true;
+      p.object.layers.set(0);
+      const lods = propLodsMap.get(p.object);
+      if (lods && lods.length > 0) (p.object as THREE.Mesh).geometry = lods[0]!;
     }
     this.mesh.geometry = this.a.model.lods[0]!;
     this.mesh.material = this.a.material;
@@ -1512,6 +1531,7 @@ export class SeveredPart implements SeveredLimb {
       if (!chain[p.bone] || p.object.parent !== src.bones[p.bone] || !p.object.visible) continue;
       // A clone, because the limb can outlive the instance that shed it.
       const clone = p.object.clone();
+      clone.layers.set(0);
       clone.visible = true;
       if (this.kitCharred) charKit(clone, true);
       this.bones[p.bone]!.add(clone);

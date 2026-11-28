@@ -12,20 +12,20 @@ const OCCUPANCY_BUDGET_S = 3;
 
 const yieldToBrowser = () => new Promise<void>(resolve => setTimeout(resolve, 0));
 
-function texture3D(data: Uint16Array, nx: number, ny: number, nz: number): THREE.Data3DTexture {
+function texture3D(data: Uint16Array | Uint8Array, nx: number, ny: number, nz: number, type: THREE.TextureDataType): THREE.Data3DTexture {
   const t = new THREE.Data3DTexture(data, nx, ny, nz);
   t.format = THREE.RGBAFormat;
-  t.type = THREE.HalfFloatType;
+  t.type = type;
   t.minFilter = THREE.LinearFilter;
   t.magFilter = THREE.LinearFilter;
   t.wrapS = t.wrapT = t.wrapR = THREE.ClampToEdgeWrapping;
   t.unpackAlignment = 1;
   t.needsUpdate = true;
-  // Release the CPU backing store once Three.js finishes uploading to the GPU (25-61 MB across the 4 volumes).
+  // Release the CPU backing store once Three.js finishes uploading to the GPU.
   // Setting source.dataReady = false ensures Three.js won't dereference null image.data if a re-upload is triggered.
   t.onUpdate = () => {
     t.source.dataReady = false;
-    (t.image as { data: Uint16Array | null }).data = null;
+    (t.image as { data: Uint16Array | Uint8Array | null }).data = null;
     t.onUpdate = null;
   };
   return t;
@@ -61,27 +61,28 @@ export class LightVolume {
     c0[1] = h(0.14);
     c0[2] = h(0.22);
     c0[3] = h(1);
-    const up = (v: number) => {
-      const d = new Uint16Array(4);
-      d[1] = h(v);
+    const up = (v: number, dcVal: number) => {
+      const d = new Uint8Array([127, 127, 127, 0]);
+      const norm = Math.max(-1, Math.min(1, v / (2 * dcVal)));
+      d[1] = Math.round(norm * 127 + 127);
       return d;
     };
-    this.assign([c0, up(0.05), up(0.08), up(0.14)], 1, 1, 1);
+    this.assign([c0, up(0.05, 0.09), up(0.08, 0.14), up(0.14, 0.22)], 1, 1, 1);
     this.engine.opVolOrigin.value.set(-1e4, -1e4, -1e4);
     this.engine.opVolInvSize.value.setScalar(0.5e-4);
     this.engine.opVolInfo.value.set(1, 0);
   }
 
-  private assign(data: Uint16Array[], nx: number, ny: number, nz: number): void {
+  private assign(data: [Uint16Array, Uint8Array, Uint8Array, Uint8Array], nx: number, ny: number, nz: number): void {
     const e = this.engine;
     e.opVol0.value?.dispose();
     e.opVol1.value?.dispose();
     e.opVol2.value?.dispose();
     e.opVol3.value?.dispose();
-    e.opVol0.value = texture3D(data[0]!, nx, ny, nz);
-    e.opVol1.value = texture3D(data[1]!, nx, ny, nz);
-    e.opVol2.value = texture3D(data[2]!, nx, ny, nz);
-    e.opVol3.value = texture3D(data[3]!, nx, ny, nz);
+    e.opVol0.value = texture3D(data[0], nx, ny, nz, THREE.HalfFloatType);
+    e.opVol1.value = texture3D(data[1], nx, ny, nz, THREE.UnsignedByteType);
+    e.opVol2.value = texture3D(data[2], nx, ny, nz, THREE.UnsignedByteType);
+    e.opVol3.value = texture3D(data[3], nx, ny, nz, THREE.UnsignedByteType);
   }
 
   async bake(input: LightVolumeBakeInput): Promise<void> {

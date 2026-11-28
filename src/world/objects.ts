@@ -54,10 +54,11 @@ class Instances {
   constructor(root: THREE.Object3D, parts: { mat: Mat; geometry: THREE.BufferGeometry }[], count: number, material: (m: Mat) => THREE.Material) {
     for (const p of parts) {
       const mesh = new THREE.InstancedMesh(p.geometry, material(p.mat), Math.max(1, count));
+      const casts = !p.mat.startsWith('emissive') && p.mat !== 'glass' && p.mat !== 'screen' && p.mat !== 'lava';
       mesh.frustumCulled = false;
-      mesh.castShadow = true;
-      mesh.receiveShadow = true;
-      mesh.userData.dynamicShadow = true;
+      mesh.castShadow = casts;
+      mesh.receiveShadow = casts;
+      if (casts) mesh.userData.dynamicShadow = true;
       mesh.count = count;
       mesh.visible = count > 0;
       mesh.matrixAutoUpdate = false;
@@ -69,6 +70,7 @@ class Instances {
   set(i: number, m: THREE.Matrix4): void {
     for (const mesh of this.meshes) {
       mesh.setMatrixAt(i, m);
+      mesh.instanceMatrix.addUpdateRange(i * 16, 16);
       mesh.instanceMatrix.needsUpdate = true;
     }
   }

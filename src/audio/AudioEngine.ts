@@ -463,15 +463,17 @@ export class AudioEngine implements AudioSystem {
     return buffers[i]!;
   }
 
-  private claim(def: SoundDef, pool: Pool, limit: number, wantHrtf: boolean): Voice | null {
+  private claim(def: SoundDef, pool: Pool, limit: number, wantHrtf: boolean, isUi: boolean, is2d: boolean): Voice | null {
     const decision = arbitrate(pool.all, def, limit);
     if (decision.kind === 'drop') {
       if (decision.reason === 'family') this.counts.droppedFamily++;
       else this.counts.droppedBudget++;
       return null;
     }
+    let stolen = false;
     if (decision.kind === 'steal') {
       this.counts.stolen++;
+      stolen = true;
       const victim = decision.victim;
       victim.steal();
       // Its fade finishes on the audio thread. Until then the slot is busy, so take another if one is free.
@@ -480,7 +482,13 @@ export class AudioEngine implements AudioSystem {
         return victim;
       }
     }
-    return (wantHrtf ? pool.freeHrtf.pop() : undefined) ?? pool.free.pop() ?? pool.freeHrtf.pop() ?? null;
+    const voice = (wantHrtf ? pool.freeHrtf.pop() : undefined) ?? pool.free.pop() ?? pool.freeHrtf.pop() ?? null;
+    // A stolen voice was already counted in active/active2d (and is now releasing), so only fresh claims add +1.
+    if (voice && !stolen && !isUi) {
+      this.active++;
+      if (is2d) this.active2d++;
+    }
+    return voice;
   }
 
   /** 2D sounds are the player's own, so the world gets what they leave of the budget. */
@@ -545,10 +553,21 @@ export class AudioEngine implements AudioSystem {
     delay += layer.delay ?? 0;
     let attenuated = 1;
     let distance = 0;
+    const canCull = !def.loop && !def.critical;
     if (position) {
-      distance = position.distanceTo(this.listener);
-      attenuated = attenuation(distance, def.near, def.far);
-      if (def.airDelay && distance > AIR_DELAY_MIN) delay += distance / SPEED_OF_SOUND;
+      const dx = position.x - this.listener.x;
+      const dy = position.y - this.listener.y;
+      const dz = position.z - this.listener.z;
+      const d2 = dx * dx + dy * dy + dz * dz;
+      const far = def.far;
+      if (canCull && d2 >= far * far) {
+        // Past def.far attenuation is identically 0; skip Math.sqrt and airDelay math.
+        attenuated = 0;
+      } else {
+        distance = Math.sqrt(d2);
+        attenuated = attenuation(distance, def.near, far);
+        if (def.airDelay && distance > AIR_DELAY_MIN) delay += distance / SPEED_OF_SOUND;
+      }
     }
 
     const jitter = (options as PlayOptions).pitchJitter ?? def.pitchJitter;
@@ -561,25 +580,19 @@ export class AudioEngine implements AudioSystem {
       return null;
     }
 
-    const now = ac.currentTime;
-    if (!def.loop && !def.critical) {
-      if (position && attenuated * gain < quietFloor(0)) {
-        this.counts.culled++;
-        return null;
-      }
-      if (this.thin(def, attenuated * gain, now)) return null;
+    if (canCull && position && attenuated * gain < quietFloor(0)) {
+      this.counts.culled++;
+      return null;
     }
+    const now = ac.currentTime;
+    if (canCull && this.thin(def, attenuated * gain, now)) return null;
 
     const ui = def.bus === 'ui';
     const pool = ui ? this.poolUi : position ? this.pool3d : this.pool2d;
     const limit = ui || !position ? pool.all.length : this.limit3d();
     const wantHrtf = def.hrtf && distance < HRTF_RANGE && this.governor.step === 0;
-    const voice = this.claim(def, pool, limit, wantHrtf);
+    const voice = this.claim(def, pool, limit, wantHrtf, ui, !position);
     if (!voice) return null;
-    if (!ui) {
-      this.active++;
-      if (!position) this.active2d++;
-    }
 
     const exempt = options.unaffectedByTime === true || def.exempt;
     const when = sharedWhen > 0 ? sharedWhen + delay : now + delay;

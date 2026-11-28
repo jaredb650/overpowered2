@@ -159,6 +159,7 @@ uniform float uPuffRim;
 uniform float uPuffEdge;
 uniform float uPuffCore;
 uniform float uPuffFloor;
+uniform sampler2D opNoise;
 
 float bloodSpeck(vec2 p) {
   vec3 p3 = fract(vec3(p.xyx) * 0.1031);
@@ -170,25 +171,13 @@ vec2 bloodHash2(vec2 p) {
   p3 += dot(p3, p3.yzx + 33.33);
   return fract((p3.xx + p3.yz) * p3.zy);
 }
-/** Smooth value noise, 0..1. */
+/** Smooth value noise, 0..1 via hardware-filtered opNoise.g (base freq 9 -> 1/9 UV per lattice unit). */
 float bloodCloud(vec2 p) {
-  vec2 i = floor(p);
-  vec2 f = fract(p);
-  f = f * f * (3.0 - 2.0 * f);
-  float a = bloodSpeck(i);
-  float b = bloodSpeck(i + vec2(1.0, 0.0));
-  float c = bloodSpeck(i + vec2(0.0, 1.0));
-  float d = bloodSpeck(i + vec2(1.0, 1.0));
-  return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+  return texture2D(opNoise, p * 0.1111).g;
 }
-/** 3-octave rotated fBM, 0..1: organic fluid turbulence with zero grid alignment. */
+/** Multi-octave fluid turbulence, 0..1 via pre-baked 6-octave opNoise.r (base freq 4 -> 0.25 UV per unit). */
 float bloodFbm(vec2 p) {
-  float v = 0.0;
-  mat2 m = mat2(0.80, -0.60, 0.60, 0.80);
-  v += 0.54 * bloodCloud(p); p = m * p * 2.07 + vec2(13.1, 7.7);
-  v += 0.27 * bloodCloud(p); p = m * p * 2.03 + vec2(5.3, 19.4);
-  v += 0.135 * bloodCloud(p);
-  return v / 0.945;
+  return texture2D(opNoise, p * 0.25).r;
 }
 /** Jittered cellular droplet field: returns crisp oval/teardrop splatter mask (0..1) with open air between drops. */
 float bloodDrops(vec2 p, float density, float stretchY, float radiusScale) {
@@ -505,6 +494,8 @@ export class BloodLayer {
     mesh.receiveShadow = true;
     mesh.renderOrder = ORDER.blood;
     mesh.name = 'fx.blood';
+    mesh.matrixAutoUpdate = false;
+    mesh.updateMatrix();
     this.ring.object = mesh;
     scene.add(mesh);
   }

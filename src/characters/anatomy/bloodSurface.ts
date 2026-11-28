@@ -580,15 +580,19 @@ export class BloodSurfacePool {
       const t = s / steps;
       const cx = x0 + dx * t;
       const cy = y0 + dy * t;
+      const r2 = r * r;
+      const invR2 = 1 / r2;
       const ix0 = Math.max(0, Math.floor(cx - ri));
       const ix1 = Math.min(BLOOD_MAP_SIZE - 1, Math.ceil(cx + ri));
       const iy0 = Math.max(0, Math.floor(cy - ri));
       const iy1 = Math.min(BLOOD_MAP_SIZE - 1, Math.ceil(cy + ri));
       for (let py = iy0; py <= iy1; py++) {
+        const dy2 = (py - cy) * (py - cy);
         for (let px = ix0; px <= ix1; px++) {
-          const d = Math.hypot(px - cx, py - cy) / r;
-          if (d >= 1) continue;
-          const fall = (1 - d * d);
+          const dpx = px - cx;
+          const d2 = dpx * dpx + dy2;
+          if (d2 >= r2) continue;
+          const fall = 1 - d2 * invR2;
           const grain = 0.86 + 0.28 * hashTexel(px, py);
           const cov = Math.min(1, amount * fall * grain);
           if (cov > 0.02 && this.stampPixel(slot, base, px, py, cov, fresh * fall)) changed = true;
@@ -711,6 +715,8 @@ export class BloodSurfacePool {
 
     // Small negative tolerance dilates 1 texel across UV island borders to prevent seam cracks under bilinear filtering.
     const pad = -0.14;
+    const invR = 1 / radius;
+    const maxD2 = (1.15 * radius) * (1.15 * radius);
     let changed = false;
 
     for (let py = minY; py <= maxY; py++) {
@@ -729,8 +735,9 @@ export class BloodSurfacePool {
         const wy = py0 * iw0 + py1 * iw1 + py2 * iw2 - by;
         const wz = pz0 * iw0 + pz1 * iw1 + pz2 * iw2 - bz;
         const sy = wy < 0 ? wy * downMul : wy;
-        const normD = Math.hypot(wx, sy, wz) / radius;
-        if (normD >= 1.15) continue;
+        const d2 = wx * wx + sy * sy + wz * wz;
+        if (d2 >= maxD2) continue;
+        const normD = Math.sqrt(d2) * invR;
 
         const jitter = (hashTexel(px, py) - 0.5) * 0.28;
         const edge = 1 - Math.min(1, Math.max(0, (normD + jitter - 0.2) / 0.85));
@@ -759,6 +766,35 @@ export class BloodSurfacePool {
     return changed;
   }
 
+  /** Cached per-bone maximum bind-space triangle centroid radius for exact vertical bone culling in `paintFloorSoak`. */
+  private readonly boneExtents = new WeakMap<WalkMesh, Float32Array>();
+
+  private getBoneExtents(mesh: WalkMesh, bindPositions: readonly THREE.Vector3[]): Float32Array {
+    let ext = this.boneExtents.get(mesh);
+    if (ext) return ext;
+    const n = mesh.boneTris.length;
+    ext = new Float32Array(n);
+    const c = mesh.triCenter;
+    for (let b = 0; b < n; b++) {
+      const tris = mesh.boneTris[b];
+      const bind = bindPositions[b];
+      if (!tris || !bind) continue;
+      const bx = bind.x, by = bind.y, bz = bind.z;
+      let maxR2 = 0;
+      for (let i = 0; i < tris.length; i++) {
+        const t3 = tris[i]! * 3;
+        const lx = c[t3]! - bx;
+        const ly = c[t3 + 1]! - by;
+        const lz = c[t3 + 2]! - bz;
+        const r2 = lx * lx + ly * ly + lz * lz;
+        if (r2 > maxR2) maxR2 = r2;
+      }
+      ext[b] = Math.sqrt(maxR2);
+    }
+    this.boneExtents.set(mesh, ext);
+    return ext;
+  }
+
   /**
    * Soaks the underside/floor-contact side of a downed, crawling, or settled body lying in a wet blood pool.
    */
@@ -771,25 +807,33 @@ export class BloodSurfacePool {
     const slot = this.slots[layer]!;
     const base = layer * LAYER_BYTES;
     const c = mesh.triCenter;
+    const extents = this.getBoneExtents(mesh, bindPositions);
+    const invMaxH = 1 / maxHeight;
     let changed = false;
 
-    for (let t = 0; t < mesh.triCount; t++) {
-      const b = mesh.triBone[t]!;
+    for (let b = 0; b < mesh.boneTris.length; b++) {
+      const tris = mesh.boneTris[b];
+      if (!tris || tris.length === 0) continue;
       const bone = bones[b];
       const bind = bindPositions[b];
       if (!bone || !bind) continue;
       const e = bone.matrixWorld.elements;
-      // Skip collapsed (severed) bones.
+      // Skip collapsed (severed) bones once per bone instead of per triangle.
       if (Math.abs(e[0]!) + Math.abs(e[1]!) + Math.abs(e[2]!) < 1e-3) continue;
-      const lx = c[t * 3]! - bind.x;
-      const ly = c[t * 3 + 1]! - bind.y;
-      const lz = c[t * 3 + 2]! - bind.z;
-      // World Y of the triangle center.
-      const wy = e[1]! * lx + e[5]! * ly + e[9]! * lz + e[13]!;
-      const h = wy - floorY;
-      if (h > maxHeight) continue;
-      const k = 1 - Math.max(0, h) / maxHeight;
-      if (this.rasterizeTriUniform(slot, base, mesh, t, amount * (0.45 + 0.55 * k), fresh * k)) changed = true;
+      const e1 = e[1]!, e5 = e[5]!, e9 = e[9]!, e13 = e[13]!;
+      // Exact Cauchy-Schwarz lower bound on wy: e13 - sqrt(e1^2 + e5^2 + e9^2) * boneExtent[b].
+      const maxReachY = Math.sqrt(e1 * e1 + e5 * e5 + e9 * e9) * extents[b]!;
+      if (e13 - floorY > maxHeight + maxReachY) continue;
+      const bx = bind.x, by = bind.y, bz = bind.z;
+      for (let i = 0; i < tris.length; i++) {
+        const t = tris[i]!;
+        const t3 = t * 3;
+        const wy = e1 * (c[t3]! - bx) + e5 * (c[t3 + 1]! - by) + e9 * (c[t3 + 2]! - bz) + e13;
+        const h = wy - floorY;
+        if (h > maxHeight) continue;
+        const k = 1 - Math.max(0, h) * invMaxH;
+        if (this.rasterizeTriUniform(slot, base, mesh, t, amount * (0.45 + 0.55 * k), fresh * k)) changed = true;
+      }
     }
 
     if (changed) slot.dirty = true;

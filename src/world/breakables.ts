@@ -232,6 +232,7 @@ interface Prop {
   readonly def: KindDef;
   readonly spec: BreakableSpec;
   readonly slot: number;
+  wreckSlot: number;
   hp: number;
   alive: boolean;
   sparking: boolean;
@@ -309,7 +310,8 @@ function meshParts(geo: Geo): { mat: Mat; geometry: THREE.BufferGeometry }[] {
     g.setAttribute('normal', new THREE.Float32BufferAttribute(m.n, 3));
     g.setAttribute('uv', new THREE.Float32BufferAttribute(m.uv, 2));
     g.setAttribute('color', new THREE.BufferAttribute(new Uint8Array(m.c), 4, true));
-    g.setIndex(m.idx);
+    const vCount = m.p.length / 3;
+    g.setIndex(new THREE.BufferAttribute(vCount <= 65535 ? new Uint16Array(m.idx) : new Uint32Array(m.idx), 1));
     out.push({ mat, geometry: g });
   }
   return out;
@@ -329,9 +331,10 @@ const _bRayHit = {
 
 class Look {
   readonly meshes: THREE.InstancedMesh[] = [];
+  activeCount = 0;
   private dirtyMin = Infinity;
   private dirtyMax = -1;
-  constructor(root: THREE.Group, model: Model, wreck: boolean, count: number, material: (m: Mat) => THREE.Material, name: string) {
+  constructor(root: THREE.Group, model: Model, private readonly wreck: boolean, count: number, material: (m: Mat) => THREE.Material, name: string) {
     const geo = new Geo();
     model(geo, wreck);
     for (const p of meshParts(geo)) {
@@ -339,14 +342,23 @@ class Look {
       mesh.name = `breakable:${name}${wreck ? ':wreck' : ''}`;
       mesh.matrixAutoUpdate = false;
       mesh.updateMatrix();
-      for (let i = 0; i < count; i++) mesh.setMatrixAt(i, _hide);
-      mesh.instanceMatrix.needsUpdate = true;
+      if (wreck) {
+        mesh.count = 0;
+        mesh.visible = false;
+      } else {
+        for (let i = 0; i < count; i++) mesh.setMatrixAt(i, _hide);
+        mesh.instanceMatrix.needsUpdate = true;
+      }
       root.add(mesh);
       this.meshes.push(mesh);
     }
   }
   set(i: number, m: THREE.Matrix4): void {
     const shown = m !== _hide;
+    if (this.wreck && shown && i + 1 > this.activeCount) {
+      this.activeCount = i + 1;
+      for (const mesh of this.meshes) mesh.count = this.activeCount;
+    }
     for (const mesh of this.meshes) {
       mesh.setMatrixAt(i, m);
       // A wreck mesh draws nothing until the first wreck: hidden slots still cost their triangles.
@@ -368,7 +380,11 @@ class Look {
     this.dirtyMax = -1;
   }
   hideAll(): void {
-    for (const mesh of this.meshes) mesh.visible = false;
+    if (this.wreck) this.activeCount = 0;
+    for (const mesh of this.meshes) {
+      if (this.wreck) mesh.count = 0;
+      mesh.visible = false;
+    }
   }
   /** Bounds over every slot, so a kind that does not move can be culled as a whole. */
   fit(moves: boolean): void {
@@ -417,7 +433,7 @@ export class Breakables {
       const q = new THREE.Quaternion().setFromEuler(_e.set(s.flat ? -Math.PI / 2 : 0, s.yaw, 0, 'YXZ'));
       const sc = new THREE.Vector3(s.w ?? 1, s.h ?? 1, 1);
       this.props.push({
-        kind: s.kind, def, spec: s, slot, hp: def.hp, alive: true, sparking: false, burnUntil: 0, collider: null, blocked: false,
+        kind: s.kind, def, spec: s, slot, wreckSlot: -1, hp: def.hp, alive: true, sparking: false, burnUntil: 0, collider: null, blocked: false,
         p: new THREE.Vector3(s.x, s.y, s.z), q, s: sc, body: null, still: 0, thrownAt: 0,
       });
     }
@@ -458,7 +474,14 @@ export class Breakables {
     const l = this.looks.get(p.kind)!;
     _m.compose(p.p, p.q, p.s);
     l.whole.set(p.slot, p.alive ? _m : _hide);
-    if (l.wreck) l.wreck.set(p.slot, p.alive ? _hide : _m);
+    if (l.wreck) {
+      if (p.alive) {
+        if (p.wreckSlot >= 0) l.wreck.set(p.wreckSlot, _hide);
+      } else {
+        if (p.wreckSlot < 0) p.wreckSlot = l.wreck.activeCount;
+        l.wreck.set(p.wreckSlot, _m);
+      }
+    }
   }
 
   /** The prop's collider where it stands now, and its nav block. */
@@ -881,6 +904,7 @@ export class Breakables {
       this.unstand(p, true);
       p.hp = p.def.hp;
       p.alive = true;
+      p.wreckSlot = -1;
       p.sparking = false;
       p.p.set(p.spec.x, p.spec.y, p.spec.z);
       p.q.setFromEuler(_e.set(p.spec.flat ? -Math.PI / 2 : 0, p.spec.yaw, 0, 'YXZ'));

@@ -33,12 +33,14 @@ interface FobTurret {
 }
 
 interface TurretTracer {
-  readonly mesh: THREE.Mesh;
   readonly pos: THREE.Vector3;
   readonly vel: THREE.Vector3;
+  readonly quat: THREE.Quaternion;
+  isSam: boolean;
   life: number;
 }
 
+const MAX_TRACERS = 24;
 const GROUND_RANGE = 195;
 const AIR_RANGE = 340;
 const INFANTRY_SIEGE_RANGE = 38;
@@ -48,6 +50,8 @@ const _dir = new THREE.Vector3();
 const _up = new THREE.Vector3(0, 1, 0);
 const _quat = new THREE.Quaternion();
 const _zAxis = new THREE.Vector3(0, 0, 1);
+const _oneScale = new THREE.Vector3(1, 1, 1);
+const _instMat = new THREE.Matrix4();
 
 export class FobDefenseSystem implements FriendlyGroundTarget {
   readonly id = 'fob_vanguard_core';
@@ -66,9 +70,12 @@ export class FobDefenseSystem implements FriendlyGroundTarget {
 
   private readonly turrets: FobTurret[] = [];
   private readonly tracers: TurretTracer[] = [];
+  private readonly tracerPool: TurretTracer[] = [];
   private readonly tracerGeo = new THREE.BoxGeometry(0.16, 0.16, 5.2);
   private readonly ciwsMat = new THREE.MeshBasicMaterial({ color: 0x5ce6ff });
   private readonly samMat = new THREE.MeshBasicMaterial({ color: 0xffd25a });
+  private readonly ciwsTracerInst: THREE.InstancedMesh;
+  private readonly samTracerInst: THREE.InstancedMesh;
   private readonly foeCenter = new THREE.Vector3(ENDLESS_WAR_FOB_CORE[0], ENDLESS_WAR_FOB_CORE[1] + 3.2, ENDLESS_WAR_FOB_CORE[2]);
   private foeAdapter: Foe | null = null;
   private siegeTick = 0;
@@ -80,6 +87,33 @@ export class FobDefenseSystem implements FriendlyGroundTarget {
     private readonly onDestroyed: () => void,
   ) {
     this.root.name = 'endless-war-fob-defense';
+    this.ciwsTracerInst = new THREE.InstancedMesh(this.tracerGeo, this.ciwsMat, MAX_TRACERS);
+    this.samTracerInst = new THREE.InstancedMesh(this.tracerGeo, this.samMat, MAX_TRACERS);
+    for (const inst of [this.ciwsTracerInst, this.samTracerInst]) {
+      inst.count = 0;
+      inst.visible = false;
+      inst.frustumCulled = false;
+      inst.castShadow = false;
+      inst.receiveShadow = false;
+    }
+  }
+
+  private syncTracers(): void {
+    let ciws = 0;
+    let sam = 0;
+    for (let i = 0; i < this.tracers.length; i++) {
+      const tr = this.tracers[i]!;
+      _instMat.compose(tr.pos, tr.quat, _oneScale);
+      if (tr.isSam) this.samTracerInst.setMatrixAt(sam++, _instMat);
+      else this.ciwsTracerInst.setMatrixAt(ciws++, _instMat);
+    }
+    this.ciwsTracerInst.count = ciws;
+    this.ciwsTracerInst.visible = ciws > 0;
+    if (ciws > 0) this.ciwsTracerInst.instanceMatrix.needsUpdate = true;
+
+    this.samTracerInst.count = sam;
+    this.samTracerInst.visible = sam > 0;
+    if (sam > 0) this.samTracerInst.instanceMatrix.needsUpdate = true;
   }
 
   get alive(): boolean {
@@ -122,6 +156,7 @@ export class FobDefenseSystem implements FriendlyGroundTarget {
     if (this.ctx.render.scene instanceof THREE.Scene) {
       this.ctx.render.scene.add(this.root);
     }
+    this.root.add(this.ciwsTracerInst, this.samTracerInst);
 
     const baseMat = new THREE.MeshStandardMaterial({ color: 0x38424d, roughness: 0.6, metalness: 0.55 });
     const gunMat = new THREE.MeshStandardMaterial({ color: 0x262d35, roughness: 0.45, metalness: 0.72 });
@@ -334,13 +369,13 @@ export class FobDefenseSystem implements FriendlyGroundTarget {
       const tr = this.tracers[i]!;
       tr.life -= dt;
       if (tr.life <= 0) {
-        tr.mesh.removeFromParent();
+        this.tracerPool.push(tr);
         this.tracers.splice(i, 1);
         continue;
       }
       tr.pos.addScaledVector(tr.vel, dt);
-      tr.mesh.position.copy(tr.pos);
     }
+    this.syncTracers();
   }
 
   private aimAndFire(t: FobTurret, targetPos: THREE.Vector3, isSam: boolean): void {
@@ -349,26 +384,36 @@ export class FobDefenseSystem implements FriendlyGroundTarget {
     _dir.divideScalar(dist);
     t.head.rotation.y = Math.atan2(_dir.x, _dir.z);
 
-    if (this.tracers.length < 24) {
+    if (this.tracers.length < MAX_TRACERS) {
       const speed = isSam ? 165 : 260;
-      const mesh = new THREE.Mesh(this.tracerGeo, isSam ? this.samMat : this.ciwsMat);
-      mesh.position.copy(t.pos).addScaledVector(_dir, 2.2);
       _quat.setFromUnitVectors(_zAxis, _dir);
-      mesh.quaternion.copy(_quat);
-      this.root.add(mesh);
-      this.tracers.push({
-        mesh,
-        pos: mesh.position.clone(),
-        vel: _dir.clone().multiplyScalar(speed),
-        life: Math.min(0.9, dist / speed),
-      });
+      let tr = this.tracerPool.pop();
+      if (!tr) {
+        tr = {
+          pos: t.pos.clone().addScaledVector(_dir, 2.2),
+          vel: _dir.clone().multiplyScalar(speed),
+          quat: _quat.clone(),
+          isSam,
+          life: Math.min(0.9, dist / speed),
+        };
+      } else {
+        tr.pos.copy(t.pos).addScaledVector(_dir, 2.2);
+        tr.vel.copy(_dir).multiplyScalar(speed);
+        tr.quat.copy(_quat);
+        tr.isSam = isSam;
+        tr.life = Math.min(0.9, dist / speed);
+      }
+      this.tracers.push(tr);
     }
     void _up;
   }
 
   dispose(): void {
-    for (const tr of this.tracers) tr.mesh.removeFromParent();
+    for (const tr of this.tracers) this.tracerPool.push(tr);
     this.tracers.length = 0;
+    this.syncTracers();
+    this.ciwsTracerInst.removeFromParent();
+    this.samTracerInst.removeFromParent();
     for (const t of this.turrets) t.group.removeFromParent();
     this.turrets.length = 0;
     this.root.removeFromParent();

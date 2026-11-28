@@ -723,14 +723,21 @@ export class Hud implements HudSystem {
 
     if (game && game.state !== 'playing' && game.state !== 'paused') return;
 
-    const camera = ctx.render.camera;
-    // CameraRig updates the camera's world matrix right before the HUD during play; refresh only if stale or paused.
-    if (camera instanceof THREE.Camera && (!playing || ctx.time.paused || camera.matrixWorldNeedsUpdate)) camera.updateMatrixWorld();
-
     const s = this.state;
+    if (!playing) {
+      this.voices.update(dt, true);
+      this.debug.update(s, dt);
+      this.updateDeath(dt);
+      return;
+    }
+
+    const camera = ctx.render.camera;
+    // CameraRig updates the camera's world matrix right before the HUD during play; refresh only if stale.
+    if (camera instanceof THREE.Camera && (ctx.time.paused || camera.matrixWorldNeedsUpdate)) camera.updateMatrixWorld();
+
     s.read(ctx);
-    if (playing) this.report.sample(dt, s.speed, s.multiplier, s.score, s.kills, s.wave);
-    if (playing && MISSION_ID) this.report.mission(ctx.campaign.runner?.beat?.title ?? '', ctx.campaign.runner?.deaths ?? 0);
+    this.report.sample(dt, s.speed, s.multiplier, s.score, s.kills, s.wave);
+    if (MISSION_ID) this.report.mission(ctx.campaign.runner?.beat?.title ?? '', ctx.campaign.runner?.deaths ?? 0);
 
     this.vitals.update(s, dt);
     this.arms.update(s, dt);
@@ -739,7 +746,7 @@ export class Hud implements HudSystem {
     this.combo.update(s, dt);
     this.perks.update(s, dt);
     this.callIns.update(s, dt);
-    if (playing) this.commander?.update(dt);
+    this.commander?.update(dt);
     this.feedLane.update(dt);
     this.styleLane.update(dt);
     this.comms.update(dt);
@@ -748,16 +755,16 @@ export class Hud implements HudSystem {
     this.holdRing.update(dt);
     this.seatPanel?.update();
     this.worldLayer.updateReveal(
-      playing && input.pressed?.('showMarkers') === true,
-      playing && input.isDown?.('showMarkers') === true,
-      !playing || input.released?.('showMarkers') === true,
+      input.pressed?.('showMarkers') === true,
+      input.isDown?.('showMarkers') === true,
+      input.released?.('showMarkers') === true,
       dt,
     );
     this.worldLayer.update(dt);
     this.compass.update();
-    this.bubbles.update(playing ? dt : 0);
-    this.grenadeWarn.update(playing);
-    this.voices.update(dt, !playing);
+    this.bubbles.update(dt);
+    this.grenadeWarn.update(true);
+    this.voices.update(dt, false);
     this.boss.update(s, dt);
     this.commander?.nameBoss(this.boss.el);
     if (!ctx.coop?.freeRoam) {
@@ -774,7 +781,7 @@ export class Hud implements HudSystem {
     this.minimap.update(s, dt, this.readPickupsBound);
     s.enemies = seen;
     this.stragglers.update(s);
-    this.scoreboard.update(input.isDown?.('scoreboard') === true && playing === true, dt);
+    this.scoreboard.update(input.isDown?.('scoreboard') === true, dt);
     this.updateDeath(dt);
   }
 

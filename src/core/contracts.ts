@@ -235,6 +235,9 @@ export interface RenderSystem extends GameSystem {
   sweep(origin: THREE.Vector3, color: THREE.ColorRepresentation, speed: number, reach: number): void;
   /** Quality preset 0 (low) to 3 (ultra). */
   setQuality(level: number): void;
+  /** Registers a repeated opaque prop mesh (weapon, helmet, armor plate) for automatic instanced batching. */
+  registerBatchedProp?(mesh: THREE.Mesh): void;
+  unregisterBatchedProp?(mesh: THREE.Mesh): void;
   drawCalls(): number;
   triangles(): number;
 }

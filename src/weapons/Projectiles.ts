@@ -243,6 +243,8 @@ export class Projectiles {
   private pendingCount = 0;
   private readonly shotResult = { projectile: null as unknown as Projectile, at: 0 };
   private readonly ahead: [number, number] = [Infinity, 0];
+  private readonly wallHit: RayHit = { point: new THREE.Vector3(), normal: new THREE.Vector3(), distance: 0, surface: 'concrete', collider: null };
+  private readonly steerTargets: import('../core/gameplay').VehicleRadarTarget[] = [];
   private readonly blastSpec = {
     radius: 0, damage: 0, kind: 'rocket' as ExplosionKind, source: '', team: 'player' as Team,
     instakill: undefined as boolean | undefined, selfDamage: undefined as number | undefined,
@@ -523,7 +525,11 @@ export class Projectiles {
     if (!p.aerialCluster && p.cluster && this.clusterFuze(p, dir, speed, dt)) return;
     const airburstRemain = p.airburstDist > 0 ? p.airburstDist - p.traveled : Infinity;
     const checkLen = Math.min(len, Math.max(0, airburstRemain));
-    const wall = checkLen > 0 ? c.physics.raycast(p.position, dir, checkLen, CG.World) : null;
+    const wall = checkLen > 0
+      ? (typeof c.physics.raycastInto === 'function'
+        ? (c.physics.raycastInto(p.position, dir, checkLen, CG.World, this.wallHit) ? this.wallHit : null)
+        : c.physics.raycast(p.position, dir, checkLen, CG.World))
+      : null;
     const limit = wall ? wall.distance : checkLen;
     if (p.ghost) {
       // A call-in copy's round: it bursts on the first body or wall in its way, as its caller's does, and hurts neither.
@@ -609,7 +615,8 @@ export class Projectiles {
         }
       }
       // Player homing missiles also track live enemy vehicles & helicopters!
-      const vTargets: import('../core/gameplay').VehicleRadarTarget[] = [];
+      const vTargets = this.steerTargets;
+      vTargets.length = 0;
       c.enemies.vehicles?.listTargets?.(vTargets);
       for (let i = 0; i < vTargets.length; i++) {
         const vt = vTargets[i]!;
@@ -1157,7 +1164,10 @@ export class Projectiles {
           return;
         }
       }
-      const wall = c.physics.raycast(p.position, dir, reach, CG.World);
+      const hasInto = typeof c.physics.raycastInto === 'function';
+      const wall = hasInto
+        ? (c.physics.raycastInto(p.position, dir, reach, CG.World, this.wallHit) ? this.wallHit : null)
+        : c.physics.raycast(p.position, dir, reach, CG.World);
       if (!wall) {
         p.position.addScaledVector(dir, len);
         break;
@@ -1183,7 +1193,10 @@ export class Projectiles {
 
   /** A flak shell's fuze over this step: true when it went off. */
   private flakFuze(p: Projectile, dir: THREE.Vector3, len: number): boolean {
-    const wall = this.ctx.physics.raycast(p.position, dir, len + 1, CG.World);
+    const hasInto = typeof this.ctx.physics.raycastInto === 'function';
+    const wall = hasInto
+      ? (this.ctx.physics.raycastInto(p.position, dir, len + 1, CG.World, this.wallHit) ? this.wallHit : null)
+      : this.ctx.physics.raycast(p.position, dir, len + 1, CG.World);
     const [along, off] = nearestAhead(this.ctx, p.position, dir, len, this.ahead);
     const at = flakFuze(len, wall ? wall.distance : Infinity, along, off);
     if (at < 0) return false;

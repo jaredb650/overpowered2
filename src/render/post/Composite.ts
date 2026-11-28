@@ -74,8 +74,8 @@ vec3 bloomFetch(vec2 uv) {
   return texture(tBloom, min(uv * uBloomScale, uBloomEdge)).rgb * uBloomStrength;
 }
 
-vec3 hdrFetch(vec2 uv) {
-  return texture(tHdr, min(uv * uHdrScale, uHdrEdge)).rgb + bloomFetch(uv);
+vec3 hdrTap(vec2 uv) {
+  return texture(tHdr, min(uv * uHdrScale, uHdrEdge)).rgb;
 }
 
 // Folds HDR into 0..1. Blended raw, the mean of a 9x emissive strip and a dark wall still tone-maps to white
@@ -135,12 +135,12 @@ void main() {
       float t = (float(i) + 0.5 + jitter) / 9.0;
       float w = 1.0 - t * 0.6;
       float a = spin + float(i) * 2.39996;
-      sum += hdrFetch(uv - fromCentre * blur * t + vec2(cos(a), sin(a)) * disc * sqrt(t)) * w;
+      sum += hdrTap(uv - fromCentre * blur * t + vec2(cos(a), sin(a)) * disc * sqrt(t)) * w;
       total += w;
     }
     color = sum / total;
   } else {
-    color = sceneFetch(uv) + bloomFetch(uv);
+    color = sceneFetch(uv);
   }
 
   // Lens fringing grows toward the corners and the pulse adds to it.
@@ -148,9 +148,12 @@ void main() {
   if (caMix > 0.0) {
     float ca = uChroma + 0.0005 + edge * 0.001;
     vec2 o = fromCentre * ca;
-    vec3 fringe = vec3(hdrFetch(uv + o).r, color.g, hdrFetch(uv - o).b);
+    vec3 fringe = vec3(hdrTap(uv + o).r, color.g, hdrTap(uv - o).b);
     color = mix(color, fringe, caMix);
   }
+
+  // Bloom is already a wide low-frequency blur, so one tap after CA/radial blur saves 2-9 full-res fetches per pixel.
+  color += bloomFetch(uv);
 
   color += uFlash;
   color *= uExposure;
@@ -174,10 +177,12 @@ void main() {
   float shadowW = 1.0 - smoothstep(0.0, 0.42, luma);
   float highW = smoothstep(0.3, 0.95, luma);
   c *= 1.0 + (uShadowTint - 0.5) * 2.0 * shadowW * 0.5 + (uHighlightTint - 0.5) * 2.0 * highW * 0.5;
-  // Contrast pivots in perceptual space around display mid-grey.
-  vec3 p = pow(max(c, 0.0), vec3(1.0 / 2.2));
-  p = (p - 0.46) * uContrast + 0.46;
-  c = pow(max(p, 0.0), vec3(2.2));
+  // Contrast pivots in perceptual space around display mid-grey; skip completely when neutral.
+  if (abs(uContrast - 1.0) > 0.001) {
+    vec3 p = sqrt(max(c, 0.0));
+    p = max((p - 0.46) * uContrast + 0.46, 0.0);
+    c = p * p;
+  }
 
   // Low health: colour drains from the edges in, with a heartbeat.
   if (uLow > 0.0) {
@@ -241,10 +246,11 @@ void main() {
   }
 
   vec3 display = srgb(c);
-  // Triangular dither at one 8-bit step. The blue-hour gradients band without it.
-  float d0 = hash12(gl_FragCoord.xy * 0.71 + 17.0 + t);
-  float d1 = hash12(gl_FragCoord.xy * 1.13 + 41.0 + t);
-  display += (d0 + d1 - 1.0) / 255.0;
+  // Triangular IGN dither at one 8-bit step. The blue-hour gradients band without it.
+  float ign = fract(52.9829189 * fract(dot(gl_FragCoord.xy + t * 59.0, vec2(0.06711056, 0.00583715))));
+  float tri = ign * 2.0 - 1.0;
+  tri = sign(tri) * (1.0 - sqrt(1.0 - abs(tri)));
+  display += tri / 255.0;
   outColor = vec4(display, 1.0);
 }`;
 

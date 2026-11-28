@@ -244,6 +244,12 @@ export class SpurtField {
     let rays = t.raysPerFrame;
     let activeLeft = 0;
     for (const s of this.spurts) if (s.alive) activeLeft++;
+    const camPos = (this.ctx.render?.camera as { position?: THREE.Vector3 } | undefined)?.position;
+    const hasCam = camPos !== undefined;
+    const camX = hasCam ? camPos.x : 0;
+    const camY = hasCam ? camPos.y : 0;
+    const camZ = hasCam ? camPos.z : 0;
+    const maxRayDistSq = 75 * 75;
     // Each frame a different spurt asks first, so the ray budget is shared out over them.
     this.firstSpurt = (this.firstSpurt + 1) % this.spurts.length;
     for (let si = 0; si < this.spurts.length; si++) {
@@ -290,9 +296,13 @@ export class SpurtField {
           s.fired++;
         }
       }
-      if (now >= s.nextGround) {
+      const refPt = s.emitting ? s.nozzle : s.lastNozzle;
+      const farSpurt = hasCam
+        && ((refPt.x - camX) ** 2 + (refPt.y - camY) ** 2 + (refPt.z - camZ) ** 2 > maxRayDistSq);
+      if (farSpurt) spurtRays = 0;
+      if (now >= s.nextGround && (!farSpurt || s.floor <= -1e3)) {
         s.nextGround = now + 0.3;
-        _a.copy(s.emitting ? s.nozzle : s.lastNozzle);
+        _a.copy(refPt);
         _a.y += 0.3;
         if (this.ctx.physics.raycastInto(_a, _down, 4, CG.World, _hit)) s.floor = _hit.point.y;
       }
@@ -331,7 +341,7 @@ export class SpurtField {
         if (s.globs[g + 1]! <= s.floor) {
           s.globs[g + 7] = 0;
           // A drop of the blood field's where it lands, which stains the floor there. One a spurt a frame is plenty.
-          if (s.drops++ === 0) this.blood.droplet(s.globs[g]!, s.floor + 0.05, s.globs[g + 2]!, s.globs[g + 3]! * 0.1, -0.5, s.globs[g + 5]! * 0.1, 0.05 + 0.07 * pressure * s.power);
+          if (!farSpurt && s.drops++ === 0) this.blood.droplet(s.globs[g]!, s.floor + 0.05, s.globs[g + 2]!, s.globs[g + 3]! * 0.1, -0.5, s.globs[g + 5]! * 0.1, 0.05 + 0.07 * pressure * s.power);
           continue;
         }
         if (s.globs[g + 6]! > t.life) {

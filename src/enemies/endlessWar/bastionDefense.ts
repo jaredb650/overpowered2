@@ -13,6 +13,7 @@
  *     as well as allied aircraft raiding the fortress.
  */
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type RAPIER from '@dimforge/rapier3d-compat';
 import type { Ally } from '../../allies/ally';
 import { type Ctx, type ExplosionKind } from '../../core/contracts';
@@ -73,19 +74,24 @@ interface BastionTurret {
 }
 
 interface BastionTracer {
-  readonly mesh: THREE.Mesh;
   readonly pos: THREE.Vector3;
   readonly vel: THREE.Vector3;
+  readonly quat: THREE.Quaternion;
+  isSam: boolean;
   life: number;
 }
 
+const MAX_TRACERS = 24;
 const TURRET_GROUND_RANGE = 175;
 const TURRET_AIR_RANGE = 320;
 
 const _v = new THREE.Vector3();
 const _dir = new THREE.Vector3();
+const _up = new THREE.Vector3(0, 1, 0);
 const _quat = new THREE.Quaternion();
 const _zAxis = new THREE.Vector3(0, 0, 1);
+const _oneScale = new THREE.Vector3(1, 1, 1);
+const _instMat = new THREE.Matrix4();
 
 function buildGateVisuals(plan: BastionGatePlan): {
   group: THREE.Group;
@@ -143,6 +149,49 @@ function buildGateVisuals(plan: BastionGatePlan): {
     breachedGroup.add(stub);
   }
 
+  const mergeChildren = (grp: THREE.Group, skip?: THREE.Object3D): void => {
+    const byMat = new Map<THREE.Material, THREE.Mesh[]>();
+    for (const ch of grp.children) {
+      if (!(ch as THREE.Mesh).isMesh || ch === skip) continue;
+      const m = ch as THREE.Mesh;
+      if (Array.isArray(m.material)) continue;
+      let list = byMat.get(m.material);
+      if (!list) { list = []; byMat.set(m.material, list); }
+      list.push(m);
+    }
+    for (const [mat, list] of byMat) {
+      if (list.length < 2) {
+        list[0]!.matrixAutoUpdate = false;
+        list[0]!.updateMatrix();
+        continue;
+      }
+      const geos: THREE.BufferGeometry[] = [];
+      for (const m of list) {
+        m.updateMatrix();
+        const g = m.geometry.index ? m.geometry.toNonIndexed() : m.geometry.clone();
+        g.applyMatrix4(m.matrix);
+        geos.push(g);
+        grp.remove(m);
+      }
+      const merged = mergeGeometries(geos, false);
+      for (const g of geos) g.dispose();
+      if (merged) {
+        const mm = new THREE.Mesh(merged, mat);
+        mm.matrixAutoUpdate = false;
+        mm.updateMatrix();
+        grp.add(mm);
+      }
+    }
+  };
+  mergeChildren(intactGroup, beaconMesh);
+  mergeChildren(breachedGroup);
+  group.matrixAutoUpdate = false;
+  group.updateMatrix();
+  intactGroup.matrixAutoUpdate = false;
+  intactGroup.updateMatrix();
+  breachedGroup.matrixAutoUpdate = false;
+  breachedGroup.updateMatrix();
+
   return { group, intactGroup, breachedGroup, beaconMesh, beaconMat };
 }
 
@@ -154,9 +203,12 @@ export class BastionDefenseSystem implements ExtraTarget {
   private readonly gateByCollider = new Map<RAPIER.Collider, LiveBastionGate>();
   private readonly turrets: BastionTurret[] = [];
   private readonly tracers: BastionTracer[] = [];
+  private readonly tracerPool: BastionTracer[] = [];
   private readonly tracerGeo = new THREE.BoxGeometry(0.2, 0.2, 5.6);
   private readonly atMat = new THREE.MeshBasicMaterial({ color: 0xff5a2c });
   private readonly samMat = new THREE.MeshBasicMaterial({ color: 0xff2e44 });
+  private readonly atTracerInst: THREE.InstancedMesh;
+  private readonly samTracerInst: THREE.InstancedMesh;
   private unsubExplosion: (() => void) | null = null;
   private pulseClock = 0;
   private armorHintCd = 0;
@@ -167,6 +219,33 @@ export class BastionDefenseSystem implements ExtraTarget {
     private readonly cb: BastionDefenseCallbacks = {},
   ) {
     this.root.name = 'endless-war-bastion-defense';
+    this.atTracerInst = new THREE.InstancedMesh(this.tracerGeo, this.atMat, MAX_TRACERS);
+    this.samTracerInst = new THREE.InstancedMesh(this.tracerGeo, this.samMat, MAX_TRACERS);
+    for (const inst of [this.atTracerInst, this.samTracerInst]) {
+      inst.count = 0;
+      inst.visible = false;
+      inst.frustumCulled = false;
+      inst.castShadow = false;
+      inst.receiveShadow = false;
+    }
+  }
+
+  private syncTracers(): void {
+    let at = 0;
+    let sam = 0;
+    for (let i = 0; i < this.tracers.length; i++) {
+      const tr = this.tracers[i]!;
+      _instMat.compose(tr.pos, tr.quat, _oneScale);
+      if (tr.isSam) this.samTracerInst.setMatrixAt(sam++, _instMat);
+      else this.atTracerInst.setMatrixAt(at++, _instMat);
+    }
+    this.atTracerInst.count = at;
+    this.atTracerInst.visible = at > 0;
+    if (at > 0) this.atTracerInst.instanceMatrix.needsUpdate = true;
+
+    this.samTracerInst.count = sam;
+    this.samTracerInst.visible = sam > 0;
+    if (sam > 0) this.samTracerInst.instanceMatrix.needsUpdate = true;
   }
 
   init(): void {
@@ -174,6 +253,7 @@ export class BastionDefenseSystem implements ExtraTarget {
     if (this.ctx.render.scene instanceof THREE.Scene) {
       this.ctx.render.scene.add(this.root);
     }
+    this.root.add(this.atTracerInst, this.samTracerInst);
 
     // 1. Build the 3 destructible Iron Bastion Blast Gates
     for (const plan of ENDLESS_WAR_BASTION_GATES) {
@@ -476,13 +556,13 @@ export class BastionDefenseSystem implements ExtraTarget {
       const tr = this.tracers[i]!;
       tr.life -= dt;
       if (tr.life <= 0) {
-        tr.mesh.removeFromParent();
+        this.tracerPool.push(tr);
         this.tracers.splice(i, 1);
         continue;
       }
       tr.pos.addScaledVector(tr.vel, dt);
-      tr.mesh.position.copy(tr.pos);
     }
+    this.syncTracers();
   }
 
   private isDoorwayClear(g: LiveBastionGate, friendlyVehicles: readonly AiFriendlyVehicle[]): boolean {
@@ -572,19 +652,26 @@ export class BastionDefenseSystem implements ExtraTarget {
     _dir.divideScalar(dist);
     t.head.rotation.y = Math.atan2(_dir.x, _dir.z);
 
-    if (this.tracers.length < 24) {
+    if (this.tracers.length < MAX_TRACERS) {
       const speed = isSam ? 165 : 230;
-      const mesh = new THREE.Mesh(this.tracerGeo, isSam ? this.samMat : this.atMat);
-      mesh.position.copy(t.pos).addScaledVector(_dir, 2.4);
       _quat.setFromUnitVectors(_zAxis, _dir);
-      mesh.quaternion.copy(_quat);
-      this.root.add(mesh);
-      this.tracers.push({
-        mesh,
-        pos: mesh.position.clone(),
-        vel: _dir.clone().multiplyScalar(speed),
-        life: Math.min(0.9, dist / speed),
-      });
+      let tr = this.tracerPool.pop();
+      if (!tr) {
+        tr = {
+          pos: t.pos.clone().addScaledVector(_dir, 2.4),
+          vel: _dir.clone().multiplyScalar(speed),
+          quat: _quat.clone(),
+          isSam,
+          life: Math.min(0.9, dist / speed),
+        };
+      } else {
+        tr.pos.copy(t.pos).addScaledVector(_dir, 2.4);
+        tr.vel.copy(_dir).multiplyScalar(speed);
+        tr.quat.copy(_quat);
+        tr.isSam = isSam;
+        tr.life = Math.min(0.9, dist / speed);
+      }
+      this.tracers.push(tr);
     }
   }
 
@@ -593,7 +680,7 @@ export class BastionDefenseSystem implements ExtraTarget {
   shot(collider: RAPIER.Collider, point: THREE.Vector3, amount: number, source: string): boolean {
     const g = this.gateByCollider.get(collider);
     if (!g || !g.sealed) return false;
-    this.ctx.fx?.sparks?.(point, new THREE.Vector3(0, 1, 0), 7, 0xffaa44);
+    this.ctx.fx?.sparks?.(point, _up, 7, 0xffaa44);
     this.damageGate(g, amount, source, amount >= 80);
     return true;
   }
@@ -601,7 +688,7 @@ export class BastionDefenseSystem implements ExtraTarget {
   direct(collider: RAPIER.Collider, point: THREE.Vector3, amount: number, _kind: ExplosionKind, source: string): boolean {
     const g = this.gateByCollider.get(collider);
     if (!g || !g.sealed) return false;
-    this.ctx.fx?.sparks?.(point, new THREE.Vector3(0, 1, 0), 14, 0xff6b22);
+    this.ctx.fx?.sparks?.(point, _up, 14, 0xff6b22);
     this.damageGate(g, amount * 1.35, source, true);
     return true;
   }
@@ -654,8 +741,11 @@ export class BastionDefenseSystem implements ExtraTarget {
     const vs = this.ctx.enemies?.vehicles as { removeExtra?: (t: ExtraTarget) => void } | undefined;
     vs?.removeExtra?.(this);
 
-    for (const tr of this.tracers) tr.mesh.removeFromParent();
+    for (const tr of this.tracers) this.tracerPool.push(tr);
     this.tracers.length = 0;
+    this.syncTracers();
+    this.atTracerInst.removeFromParent();
+    this.samTracerInst.removeFromParent();
     for (const t of this.turrets) t.group.removeFromParent();
     this.turrets.length = 0;
     for (const g of this.gates) {

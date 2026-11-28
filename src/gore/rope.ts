@@ -396,22 +396,36 @@ export class RopeField {
           r.floorsSeeded = 0;
         }
       }
+      const camPos = (this.ctx.render?.camera as { position?: THREE.Vector3 } | undefined)?.position;
+      const farRope = camPos !== undefined
+        && ((x[0]! - camPos.x) ** 2 + (x[1]! - camPos.y) ** 2 + (x[2]! - camPos.z) ** 2 > 75 * 75);
+      if (farRope && r.floors[0]! > -1e3) {
+        skipGround = true;
+      }
       if (!skipGround) {
         // From above the strand's highest point, so a point already pushed under a floor still finds that floor.
         let top = -Infinity;
         for (let i = 1; i < P * 3; i += 3) top = Math.max(top, x[i]!);
-        for (let k = 0; k < t.groundPerFrame; k++) {
-          const i = r.groundAt;
-          r.groundAt = (r.groundAt + 1) % P;
-          _p.set(x[i * 3]!, top + 0.4, x[i * 3 + 2]!);
-          // A loose strand lies on whatever is under it: the world, and bodies (`DRAPE_ON`). One still hanging from a body
-          // finds only the world, or it would be held up by the body it hangs out of.
-          if (this.under(_p, top + 4 - x[i * 3 + 1]!, loose)) r.floors[i] = _hit.point.y;
+        if (farRope) {
+          // Far away (>75m): seed once with a single floor raycast across the strand instead of per-node raycasting every frame.
+          _p.set(x[0]!, top + 0.4, x[2]!);
+          const fy = this.under(_p, top + 4 - x[1]!, false) ? _hit.point.y : 0;
+          r.floors.fill(fy);
+          if (r.target) r.floorsSeeded = P;
+        } else {
+          for (let k = 0; k < t.groundPerFrame; k++) {
+            const i = r.groundAt;
+            r.groundAt = (r.groundAt + 1) % P;
+            _p.set(x[i * 3]!, top + 0.4, x[i * 3 + 2]!);
+            // A loose strand lies on whatever is under it: the world, and bodies (`DRAPE_ON`). One still hanging from a body
+            // finds only the world, or it would be held up by the body it hangs out of.
+            if (this.under(_p, top + 4 - x[i * 3 + 1]!, loose)) r.floors[i] = _hit.point.y;
+          }
+          if (r.target) r.floorsSeeded += t.groundPerFrame;
         }
-        if (r.target) r.floorsSeeded += t.groundPerFrame;
       }
       // In flight, a point or two a frame are tested along their own step: what a thrown strand hits, it slaps and stops at.
-      if (loose) {
+      if (loose && !farRope) {
         for (let k = 0; k < t.wallRays; k++) {
           const i = r.wallAt;
           r.wallAt = (r.wallAt + 1) % P;

@@ -107,12 +107,10 @@ vec3 moonDisc(vec3 d, out float cover) {
 }
 
 float cloudField(vec2 p, float t) {
-  float n = texture2D(opNoise, p * 0.11 + vec2(t, t * 0.3)).r;
-  n += texture2D(opNoise, p * 0.27 + vec2(-t * 1.3, t * 0.5)).g * 0.5;
-  n += texture2D(opNoise, p * 0.72 + vec2(t * 2.1, -t)).b * 0.25;
-  n += texture2D(opNoise, p * 1.9 + vec2(-t * 3.0, t * 1.7)).g * 0.125;
-  n += texture2D(opNoise, p * 4.3 + vec2(t * 4.0, t * 2.1)).b * 0.0625;
-  return n / 1.9375;
+  float a = texture2D(opNoise, p * 0.11 + vec2(t, t * 0.3)).r;
+  vec3 b = texture2D(opNoise, p * 0.27 + vec2(-t * 1.3, t * 0.5)).rgb;
+  vec3 c = texture2D(opNoise, p * 1.9 + vec2(-t * 3.0, t * 1.7)).rgb;
+  return (a + b.g * 0.5 + b.b * 0.25 + c.g * 0.125 + c.b * 0.0625) / 1.9375;
 }
 
 // Thin cirrus lit from behind by the moon/sun, then a lower broken deck that shows dark against the glow.

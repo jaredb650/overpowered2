@@ -308,6 +308,7 @@ export class ProjectileVisuals {
   private stuckNextExpire = Infinity;
   private prevStakeLive = 0;
   private hadLive = false;
+  private warmed = false;
 
   private readonly matrix = new THREE.Matrix4();
   private readonly quat = new THREE.Quaternion();
@@ -396,7 +397,7 @@ export class ProjectileVisuals {
   draw(live: readonly Projectile[], dt: number): void {
     const now = this.ctx.time.elapsed;
     const expired = now >= this.stuckNextExpire;
-    if (live.length === 0 && !this.hadLive && !this.stuckDirty && !expired) return;
+    if (this.warmed && live.length === 0 && !this.hadLive && !this.stuckDirty && !expired) return;
 
     const L = this.layers;
     const list = this.layerList;
@@ -431,6 +432,7 @@ export class ProjectileVisuals {
     for (let i = 0; i < list.length; i++) {
       const l = list[i]!;
       l.mesh.count = l.count;
+      l.mesh.visible = l.count > 0;
       if (l.count === 0 || (l === stakes && !writeStakes)) continue;
       l.mesh.instanceMatrix.clearUpdateRanges();
       l.mesh.instanceMatrix.addUpdateRange(0, l.count * 16);
@@ -441,6 +443,7 @@ export class ProjectileVisuals {
         l.mesh.instanceColor.needsUpdate = true;
       }
     }
+    this.warmed = true;
     this.hadLive = live.length > 0;
   }
 

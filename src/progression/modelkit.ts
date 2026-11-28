@@ -88,6 +88,7 @@ export class ModelBuilder {
 
 /** Materials shared by every model here. Vertex colours carry the paint, so two materials cover the system. */
 export class ModelMaterials {
+  readonly ctx: Ctx;
   readonly solid: THREE.MeshStandardMaterial;
   readonly glow: THREE.MeshBasicMaterial;
   /**
@@ -97,6 +98,7 @@ export class ModelMaterials {
   readonly nearby: THREE.MeshStandardMaterial;
 
   constructor(ctx: Ctx) {
+    this.ctx = ctx;
     this.solid = ctx.render.materials.patch(
       new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, metalness: 0.75, roughness: 0.42 }),
     );

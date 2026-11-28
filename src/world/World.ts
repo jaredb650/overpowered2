@@ -5,8 +5,8 @@ import type {
 } from '../core/contracts';
 import { Kit } from './kit/kit';
 import type { Mat } from './kit/geo';
-import { buildSignMaterial } from './kit/signs';
-import { buildPlywoodMaterial, buildStencilMaterial } from './kit/stencil';
+import { buildSignMaterial, resetSignAtlas } from './kit/signs';
+import { buildPlywoodMaterial, buildStencilMaterial, resetStencilAtlas } from './kit/stencil';
 import { type MapDef, selectMap } from './map/maps';
 import { MapSpec } from './map/spec';
 import { NavGraph, type NavBuildStats } from './nav';
@@ -96,6 +96,8 @@ export class World implements WorldSystem {
       }
     };
 
+    resetSignAtlas();
+    resetStencilAtlas();
     const kit = new Kit(ctx.physics);
     const spec = this.spec;
     await report(0.01, 'Pouring concrete');
@@ -165,6 +167,9 @@ export class World implements WorldSystem {
     this.objects.props.attach(this.navGraph);
     this.objects.destruction.attachNav(this.navGraph);
     for (const c of spec.destructionClusters) this.objects.destruction.addCluster(c);
+    this.objects.destruction.flushBatches();
+    this.objects.walls.debris.warm();
+    this.objects.props.debris.warm();
 
     this.zones = spec.zones;
     this.playerSpawns = spec.playerSpawns;
@@ -180,9 +185,16 @@ export class World implements WorldSystem {
 
     await report(0.87, def.readyLabel);
     if (bake instanceof Promise) await bake;
-    this.objects.walls.debris.warm();
-    this.objects.props.debris.warm();
-    (ctx.render as { refreshStaticShadows?: () => void }).refreshStaticShadows?.();
+    const renderExt = ctx.render as {
+      renderer?: THREE.WebGLRenderer;
+      scene?: THREE.Scene;
+      camera?: THREE.Camera;
+      refreshStaticShadows?: () => void;
+    };
+    if (renderExt.renderer?.compileAsync && renderExt.scene && renderExt.camera) {
+      await renderExt.renderer.compileAsync(renderExt.scene, renderExt.camera).catch(() => {});
+    }
+    renderExt.refreshStaticShadows?.();
     this.report.lightBakeMs = Math.round(performance.now() - t3);
     this.report.totalMs = Math.round(performance.now() - t0);
     await report(1, 'Ready');

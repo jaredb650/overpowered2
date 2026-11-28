@@ -77,42 +77,69 @@ function makeMarker(parent: THREE.Object3D, x: number, y: number, z: number): TH
   return o;
 }
 
+const wheelTemplates = new WeakMap<ModelMaterials, Map<string, { geometry: THREE.BufferGeometry; material: THREE.Material }[]>>();
+
 /** High-detail knobby off-road / sport wheel with PBR vulcanized tread, spoked alloy rim, brake disc & caliper. */
 function makeWheelGroup(materials: ModelMaterials, radius: number, width: number, rimColor: string): THREE.Group {
-  const b = new VehicleBuilder();
-  // Round vulcanized knobby tire carcass + subtle sidewall shoulder bevels
-  b.cyl(radius, radius, width, 24, TYRE, { rot: ALONG_X }, 'tread');
-  b.cyl(radius * 0.88, radius * 0.88, width + 0.025, 20, '#1f2328', { rot: ALONG_X }, 'tread');
-  // Recessed alloy wheel barrel & inner brake rotor
-  b.cyl(radius * 0.62, radius * 0.62, width + 0.04, 16, rimColor, { rot: ALONG_X }, 'metal');
-  b.cyl(radius * 0.54, radius * 0.54, width + 0.055, 16, '#1a1f25', { rot: ALONG_X }, 'metal');
-  b.cyl(radius * 0.42, radius * 0.42, width * 0.45, 14, '#8d97a1', { rot: ALONG_X }, 'metal'); // ventilated brake disc
-  b.box(width * 0.58, radius * 0.24, radius * 0.16, BRAKE_RED, { at: [0, radius * 0.34, radius * 0.24] }, 'armor'); // caliper
-  b.cyl(radius * 0.24, radius * 0.24, width + 0.1, 12, STEEL, { rot: ALONG_X }, 'metal');
-
-  // 5 machined alloy rim spokes + lug nuts
-  for (let i = 0; i < 5; i++) {
-    const a = (i / 5) * Math.PI * 2;
-    b.box(width + 0.07, radius * 0.46, radius * 0.1, rimColor, {
-      at: [0, Math.cos(a) * radius * 0.34, Math.sin(a) * radius * 0.34],
-      rot: [a, 0, 0],
-    }, 'metal');
-    b.cyl(0.028, 0.028, width + 0.115, 6, BOLT, {
-      at: [0, Math.cos(a) * radius * 0.16, Math.sin(a) * radius * 0.16],
-      rot: ALONG_X,
-    }, 'metal');
+  let byKey = wheelTemplates.get(materials);
+  if (!byKey) {
+    byKey = new Map();
+    wheelTemplates.set(materials, byKey);
   }
+  const key = `${radius}:${width}:${rimColor}`;
+  let parts = byKey.get(key);
+  if (!parts) {
+    const b = new VehicleBuilder();
+    // Round vulcanized knobby tire carcass + subtle sidewall shoulder bevels
+    b.cyl(radius, radius, width, 24, TYRE, { rot: ALONG_X }, 'tread');
+    b.cyl(radius * 0.88, radius * 0.88, width + 0.025, 20, '#1f2328', { rot: ALONG_X }, 'tread');
+    // Recessed alloy wheel barrel & inner brake rotor
+    b.cyl(radius * 0.62, radius * 0.62, width + 0.04, 16, rimColor, { rot: ALONG_X }, 'metal');
+    b.cyl(radius * 0.54, radius * 0.54, width + 0.055, 16, '#1a1f25', { rot: ALONG_X }, 'metal');
+    b.cyl(radius * 0.42, radius * 0.42, width * 0.45, 14, '#8d97a1', { rot: ALONG_X }, 'metal'); // ventilated brake disc
+    b.box(width * 0.58, radius * 0.24, radius * 0.16, BRAKE_RED, { at: [0, radius * 0.34, radius * 0.24] }, 'metal'); // painted caliper
+    b.cyl(radius * 0.24, radius * 0.24, width + 0.1, 12, STEEL, { rot: ALONG_X }, 'metal');
 
-  // 12 sculpted off-road tread blocks so tire rotation reads cleanly at every speed
-  for (let i = 0; i < 12; i++) {
-    const a = (i / 12) * Math.PI * 2;
-    const shift = i % 2 === 0 ? width * 0.12 : -width * 0.12;
-    b.box(width * 0.72, radius * 0.13, radius * 0.2, TYRE_LUG, {
-      at: [shift, Math.cos(a) * radius * 0.96, Math.sin(a) * radius * 0.96],
-      rot: [a, 0, 0],
-    }, 'tread');
+    // 5 machined alloy rim spokes + lug nuts
+    for (let i = 0; i < 5; i++) {
+      const a = (i / 5) * Math.PI * 2;
+      b.box(width + 0.07, radius * 0.46, radius * 0.1, rimColor, {
+        at: [0, Math.cos(a) * radius * 0.34, Math.sin(a) * radius * 0.34],
+        rot: [a, 0, 0],
+      }, 'metal');
+      b.cyl(0.028, 0.028, width + 0.115, 6, BOLT, {
+        at: [0, Math.cos(a) * radius * 0.16, Math.sin(a) * radius * 0.16],
+        rot: ALONG_X,
+      }, 'metal');
+    }
+
+    // 12 sculpted off-road tread blocks so tire rotation reads cleanly at every speed
+    for (let i = 0; i < 12; i++) {
+      const a = (i / 12) * Math.PI * 2;
+      const shift = i % 2 === 0 ? width * 0.12 : -width * 0.12;
+      b.box(width * 0.72, radius * 0.13, radius * 0.2, TYRE_LUG, {
+        at: [shift, Math.cos(a) * radius * 0.96, Math.sin(a) * radius * 0.96],
+        rot: [a, 0, 0],
+      }, 'tread');
+    }
+    const built = b.build(materials);
+    parts = [];
+    for (const child of built.children) {
+      if ((child as THREE.Mesh).isMesh) {
+        const m = child as THREE.Mesh;
+        parts.push({ geometry: m.geometry, material: m.material as THREE.Material });
+      }
+    }
+    byKey.set(key, parts);
   }
-  return b.build(materials);
+  const group = new THREE.Group();
+  for (const p of parts) {
+    const mesh = new THREE.Mesh(p.geometry, p.material);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    group.add(mesh);
+  }
+  return group;
 }
 
 function collectMeshes(root: THREE.Object3D): THREE.Object3D[] {
@@ -1875,7 +1902,9 @@ function buildLancer(materials: ModelMaterials): VehicleModelRig {
   };
 }
 
-export function buildVehicleModel(id: DriveVehicleId, materials: ModelMaterials): VehicleModelRig {
+const vehicleTemplates = new WeakMap<ModelMaterials, Map<DriveVehicleId, VehicleModelRig>>();
+
+function buildVehicleTemplate(id: DriveVehicleId, materials: ModelMaterials): VehicleModelRig {
   switch (id) {
     case 'jackal': return buildJackal(materials);
     case 'quad': return buildQuad(materials);
@@ -1891,4 +1920,128 @@ export function buildVehicleModel(id: DriveVehicleId, materials: ModelMaterials)
     case 'hornet': return buildHornet(materials);
     case 'lancer': return buildLancer(materials);
   }
+}
+
+function cloneVehicleRig(tpl: VehicleModelRig): VehicleModelRig {
+  const map = new Map<THREE.Object3D, THREE.Object3D>();
+  const accentSet = new Set<THREE.Object3D>();
+  for (const r of tpl.riders) {
+    for (const m of r.accentMeshes) accentSet.add(m);
+  }
+  const clonedAccentMats = new Map<THREE.Material, THREE.Material>();
+
+  const cloneNode = (src: THREE.Object3D): THREE.Object3D => {
+    let dst: THREE.Object3D;
+    if ((src as THREE.Mesh).isMesh) {
+      const m = src as THREE.Mesh;
+      let mat = m.material;
+      if (accentSet.has(m) && !Array.isArray(mat)) {
+        let cloned = clonedAccentMats.get(mat);
+        if (!cloned) {
+          cloned = mat.clone();
+          clonedAccentMats.set(mat, cloned);
+        }
+        mat = cloned;
+      }
+      const dm = new THREE.Mesh(m.geometry, mat);
+      dm.castShadow = m.castShadow;
+      dm.receiveShadow = m.receiveShadow;
+      dm.frustumCulled = m.frustumCulled;
+      dm.renderOrder = m.renderOrder;
+      dst = dm;
+    } else if ((src as THREE.Group).isGroup) {
+      dst = new THREE.Group();
+    } else {
+      dst = new THREE.Object3D();
+    }
+    dst.name = src.name;
+    dst.position.copy(src.position);
+    dst.quaternion.copy(src.quaternion);
+    dst.scale.copy(src.scale);
+    dst.visible = src.visible;
+    if (src.userData && Object.keys(src.userData).length > 0) {
+      Object.assign(dst.userData, src.userData);
+    }
+    map.set(src, dst);
+    for (let i = 0; i < src.children.length; i++) {
+      dst.add(cloneNode(src.children[i]!));
+    }
+    return dst;
+  };
+
+  const root = cloneNode(tpl.root) as THREE.Group;
+  const get = <T extends THREE.Object3D>(o: T): T => map.get(o) as T;
+  const getOpt = <T extends THREE.Object3D>(o: T | null | undefined): T | null => (o ? (map.get(o) as T) : null);
+
+  return {
+    root,
+    body: get(tpl.body),
+    turret: getOpt(tpl.turret),
+    barrel: getOpt(tpl.barrel),
+    barrelBaseZ: tpl.barrelBaseZ,
+    subTurret: getOpt(tpl.subTurret),
+    wheelsFront: tpl.wheelsFront.map(get),
+    wheelsRear: tpl.wheelsRear.map(get),
+    rotorMain: getOpt(tpl.rotorMain),
+    rotorTail: getOpt(tpl.rotorTail),
+    outriggers: tpl.outriggers.map(get),
+    boostGlow: tpl.boostGlow.map(get),
+    resupplyRing: getOpt(tpl.resupplyRing),
+    muzzles: {
+      main: get(tpl.muzzles.main),
+      coax: get(tpl.muzzles.coax),
+      podLeft: get(tpl.muzzles.podLeft),
+      podRight: get(tpl.muzzles.podRight),
+      roof: get(tpl.muzzles.roof),
+      front: get(tpl.muzzles.front),
+      rear: get(tpl.muzzles.rear),
+    },
+    meshes: collectMeshes(root),
+    riders: tpl.riders.map(r => ({
+      seatIndex: r.seatIndex,
+      posture: r.posture,
+      root: get(r.root),
+      torso: get(r.torso),
+      head: get(r.head),
+      accentMeshes: r.accentMeshes.map(get),
+      occupantId: null,
+    })),
+    ...(tpl.bodyBaseY !== undefined ? { bodyBaseY: tpl.bodyBaseY } : {}),
+    ...(tpl.fpHideParts ? { fpHideParts: tpl.fpHideParts.map(get) } : {}),
+    ...(tpl.vtolGlow ? { vtolGlow: tpl.vtolGlow.map(get) } : {}),
+    ...(tpl.wingsLeft ? { wingsLeft: get(tpl.wingsLeft) } : {}),
+    ...(tpl.wingsRight ? { wingsRight: get(tpl.wingsRight) } : {}),
+    ...(tpl.nozzles ? { nozzles: tpl.nozzles.map(get) } : {}),
+    ...(tpl.dumpBurnGlow ? { dumpBurnGlow: tpl.dumpBurnGlow.map(get) } : {}),
+    ...(tpl.landingGear ? { landingGear: get(tpl.landingGear) } : {}),
+    ...(tpl.bombBayDoors ? { bombBayDoors: tpl.bombBayDoors.map(get) } : {}),
+  };
+}
+
+export function buildVehicleModel(id: DriveVehicleId, materials: ModelMaterials): VehicleModelRig {
+  let byId = vehicleTemplates.get(materials);
+  if (!byId) {
+    byId = new Map();
+    vehicleTemplates.set(materials, byId);
+  }
+  let tpl = byId.get(id);
+  if (!tpl) {
+    tpl = buildVehicleTemplate(id, materials);
+    byId.set(id, tpl);
+  }
+  const rig = cloneVehicleRig(tpl);
+  const reg = materials.ctx?.render?.registerBatchedProp?.bind(materials.ctx.render);
+  if (reg) {
+    const skip = new Set<THREE.Object3D>();
+    if (rig.resupplyRing) skip.add(rig.resupplyRing);
+    for (const r of rig.riders) {
+      for (const m of r.accentMeshes) skip.add(m);
+    }
+    for (const obj of rig.meshes) {
+      if ((obj as THREE.Mesh).isMesh && !skip.has(obj)) {
+        reg(obj as THREE.Mesh);
+      }
+    }
+  }
+  return rig;
 }

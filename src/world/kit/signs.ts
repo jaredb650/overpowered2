@@ -28,21 +28,51 @@ export const SIGNS = [
 export type SignName = (typeof SIGNS)[number];
 export const signId = (name: SignName): number => SIGNS.indexOf(name);
 
-/** UV rectangle of a sign. */
+const activeSigns: number[] = [];
+const activeSlot = new Map<number, number>();
+let signRows = Math.ceil(SIGNS.length / COLS);
+
+/** Clears the active sign set before authoring a new map. */
+export function resetSignAtlas(): void {
+  activeSigns.length = 0;
+  activeSlot.clear();
+  signRows = Math.ceil(SIGNS.length / COLS);
+}
+
+/** UV rectangle of a sign. Stores unnormalized row indices when active atlas tracking is used; finalized in Geo.finish. */
 export function signRect(id: number): [number, number, number, number] {
-  const rows = Math.ceil(SIGNS.length / COLS);
-  const c = id % COLS, r = Math.floor(id / COLS);
-  return [c / COLS, 1 - (r + 1) / rows, (c + 1) / COLS, 1 - r / rows];
+  let slot = activeSlot.get(id);
+  if (slot === undefined) {
+    slot = activeSigns.length;
+    activeSigns.push(id);
+    activeSlot.set(id, slot);
+  }
+  const c = slot % COLS, r = Math.floor(slot / COLS);
+  // Store r + 1 and r as raw row numbers; finalizeSignUVs converts them to [0, 1] once all signs are known.
+  return [c / COLS, r + 1, (c + 1) / COLS, r];
+}
+
+/** Converts raw row numbers written by signRect() into normalized V coordinates for the compacted atlas. */
+export function finalizeSignUVs(uv: Float32Array, nv: number): void {
+  signRows = Math.max(1, Math.ceil(activeSigns.length / COLS));
+  const invRows = 1 / signRows;
+  for (let i = 0; i < nv; i++) {
+    const o = i * 2 + 1;
+    uv[o] = 1 - uv[o]! * invRows;
+  }
 }
 
 function paint(): HTMLCanvasElement {
-  const rows = Math.ceil(SIGNS.length / COLS);
+  const list = activeSigns.length > 0 ? activeSigns : SIGNS.map((_, i) => i);
+  const rows = Math.max(1, Math.ceil(list.length / COLS));
+  signRows = rows;
   const canvas = document.createElement('canvas');
   canvas.width = CELL_W * COLS;
   canvas.height = CELL_H * rows;
   const c = canvas.getContext('2d')!;
   c.textBaseline = 'middle';
-  SIGNS.forEach((text, i) => {
+  for (let i = 0; i < list.length; i++) {
+    const text = SIGNS[list[i]!]!;
     const x = (i % COLS) * CELL_W, y = Math.floor(i / COLS) * CELL_H;
     const warn = /DANGER|VOLTAGE|CRUSH|NO ENTRY|EVACUATE|GAP|NO SMOKING|HALT|MINES|AMMO|MANDATORY|AUDITED|MONITORED|UNDER REVIEW|LOITERING|ITEMISED|EXIT|FIRE ESCAPE/.test(text);
     c.fillStyle = warn ? '#3a0d10' : '#08141f';
@@ -62,7 +92,7 @@ function paint(): HTMLCanvasElement {
       }
       c.fill();
       c.restore();
-      return;
+      continue;
     }
     c.font = '700 62px ui-monospace, Menlo, monospace';
     const w = c.measureText(text).width;
@@ -73,7 +103,7 @@ function paint(): HTMLCanvasElement {
     c.textAlign = 'center';
     c.fillText(text, 0, 0);
     c.restore();
-  });
+  }
   return canvas;
 }
 

@@ -72,7 +72,8 @@ void main() {
     vec3 projN = N - axis * dot(N, axis);
     float projLen = length(projN);
     float cosN = clamp(dot(projN / max(projLen, 1e-4), V), -1.0, 1.0);
-    float n = sign(dot(orthoDir, projN)) * acos(cosN);
+    float sgnN = sign(dot(orthoDir, projN));
+    float n = sgnN * acos(cosN);
     float h0 = -1.0, h1 = -1.0;
     for (int j = 0; j < STEPS; j++) {
       float t = (float(j) + shift + 0.15) / float(STEPS);
@@ -91,7 +92,7 @@ void main() {
     }
     float a0 = n + clamp(-acos(h1) - n, -PI * 0.5, PI * 0.5);
     float a1 = n + clamp(acos(h0) - n, -PI * 0.5, PI * 0.5);
-    float cn = cos(n), sn = sin(n);
+    float cn = cosN, sn = sgnN * sqrt(max(1.0 - cosN * cosN, 0.0));
     vis += projLen * 0.25 * ((cn + 2.0 * a0 * sn - cos(2.0 * a0 - n)) + (cn + 2.0 * a1 * sn - cos(2.0 * a1 - n)));
   }
   // Depth rides along so the blur reads one texture instead of two.
@@ -106,12 +107,14 @@ out vec4 outColor;
 void main() {
   ivec2 p = ivec2(gl_FragCoord.xy);
   ivec2 last = ivec2(uLast);
-  float z = texelFetch(tAo, p, 0).g;
+  vec2 center = texelFetch(tAo, p, 0).rg;
+  float z = center.y;
   if (z > 2e4 || z < 0.16) { outColor = vec4(1.0); return; }
-  float sum = 0.0, wsum = 0.0;
+  float sum = center.x, wsum = 1.0;
   float invRange = 1.0 / max(z * 0.02, 0.02);
   for (int y = -2; y <= 1; y++) {
     for (int x = -2; x <= 1; x++) {
+      if (x == 0 && y == 0) continue;
       vec2 s = texelFetch(tAo, clamp(p + ivec2(x, y), ivec2(0), last), 0).rg;
       float w = exp(-abs(s.y - z) * invRange);
       sum += s.x * w;
@@ -153,7 +156,7 @@ export class Gtao {
     const w = fullWidth / 2;
     const h = fullHeight / 2;
     const base = { depthBuffer: false, generateMipmaps: false, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter };
-    this.depth = new THREE.WebGLRenderTarget(w, h, { ...base, type: THREE.FloatType, format: THREE.RedFormat });
+    this.depth = new THREE.WebGLRenderTarget(w, h, { ...base, type: THREE.HalfFloatType, format: THREE.RedFormat });
     this.raw = new THREE.WebGLRenderTarget(w, h, { ...base, type: THREE.HalfFloatType, format: THREE.RGFormat });
     this.blurred = new THREE.WebGLRenderTarget(w, h, {
       ...base, type: THREE.UnsignedByteType, format: THREE.RedFormat, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter,

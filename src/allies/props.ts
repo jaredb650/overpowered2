@@ -26,37 +26,62 @@ export interface Kit {
 }
 
 export class AllyProps {
+  private readonly ctx: Ctx;
   private readonly materials: ModelMaterials;
   private readonly up = new THREE.MeshBasicMaterial({ color: new THREE.Color(ALLY_BEACON).multiplyScalar(4), toneMapped: false, fog: false });
   private readonly down = new THREE.MeshBasicMaterial({ color: new THREE.Color(ALLY_DOWN_COLOR).multiplyScalar(5), toneMapped: false, fog: false });
   private readonly beaconShape = new THREE.OctahedronGeometry(0.075, 0);
+  private readonly packSolidGeo: THREE.BufferGeometry;
+  private readonly packGlowGeo: THREE.BufferGeometry;
+  private readonly barGeo: THREE.BufferGeometry;
+  private readonly bandGeo: THREE.BufferGeometry;
   private readonly spare: Kit[] = [];
   private readonly worn = new WeakMap<CharacterInstance, Kit>();
 
   constructor(ctx: Ctx) {
+    this.ctx = ctx;
     this.materials = new ModelMaterials(ctx);
-  }
-
-  private build(): Kit {
     const p = new ModelBuilder()
       .box(0.32, 0.44, 0.12, ALLY_FRAME)
       .box(0.36, 0.04, 0.14, ALLY_FRAME, { at: [0, 0.24, 0] })
       .box(0.02, 1.15, 0.02, STEEL, { at: [0.12, 0.78, -0.02], rot: [0.04, 0, -0.03] })
       .glow(new THREE.BoxGeometry(0.26, 0.035, 0.02), ALLY_MARK, 3, { at: [0, 0.08, -0.065] });
-    const pack = this.materials.group(p);
+    this.packSolidGeo = p.solidGeometry()!;
+    this.packGlowGeo = p.glowGeometry()!;
+    this.barGeo = new ModelBuilder().glow(new THREE.BoxGeometry(0.24, 0.04, 0.02), ALLY_MARK, 2.5, { at: [0, 0.12, 0.22] }).glowGeometry()!;
+    this.bandGeo = new ModelBuilder()
+      .glow(new THREE.BoxGeometry(0.23, 0.035, 0.02), ALLY_MARK, 2.5, { at: [0, 0, 0.115] })
+      .glow(new THREE.BoxGeometry(0.23, 0.035, 0.02), ALLY_MARK, 2.5, { at: [0, 0, -0.115] })
+      .glow(new THREE.BoxGeometry(0.02, 0.035, 0.23), ALLY_MARK, 2.5, { at: [0.115, 0, 0] })
+      .glow(new THREE.BoxGeometry(0.02, 0.035, 0.23), ALLY_MARK, 2.5, { at: [-0.115, 0, 0] })
+      .glowGeometry()!;
+  }
+
+  private build(): Kit {
+    const reg = this.ctx.render?.registerBatchedProp?.bind(this.ctx.render);
+    const pack = new THREE.Group();
+    const packSolid = new THREE.Mesh(this.packSolidGeo, this.materials.solid);
+    const packGlow = new THREE.Mesh(this.packGlowGeo, this.materials.glow);
+    pack.add(packSolid, packGlow);
     pack.position.set(0, 0.1, -0.2);
     const beacon = new THREE.Mesh(this.beaconShape, this.up);
     beacon.position.set(0.135, 1.38, -0.02);
     pack.add(beacon);
     // The chest bar and the helmet band. Glow only, so they read in the dark and through smoke.
-    const bar = this.materials.group(new ModelBuilder().glow(new THREE.BoxGeometry(0.24, 0.04, 0.02), ALLY_MARK, 2.5, { at: [0, 0.12, 0.22] }));
-    const b = new ModelBuilder()
-      .glow(new THREE.BoxGeometry(0.23, 0.035, 0.02), ALLY_MARK, 2.5, { at: [0, 0, 0.115] })
-      .glow(new THREE.BoxGeometry(0.23, 0.035, 0.02), ALLY_MARK, 2.5, { at: [0, 0, -0.115] })
-      .glow(new THREE.BoxGeometry(0.02, 0.035, 0.23), ALLY_MARK, 2.5, { at: [0.115, 0, 0] })
-      .glow(new THREE.BoxGeometry(0.02, 0.035, 0.23), ALLY_MARK, 2.5, { at: [-0.115, 0, 0] });
-    const band = this.materials.group(b);
+    const bar = new THREE.Group();
+    const barMesh = new THREE.Mesh(this.barGeo, this.materials.glow);
+    bar.add(barMesh);
+    const band = new THREE.Group();
+    const bandMesh = new THREE.Mesh(this.bandGeo, this.materials.glow);
+    band.add(bandMesh);
     band.position.set(0, 0.11, 0.01);
+    if (reg) {
+      reg(packSolid);
+      reg(packGlow);
+      reg(beacon);
+      reg(barMesh);
+      reg(bandMesh);
+    }
     return { pack, band, bar, beacon };
   }
 

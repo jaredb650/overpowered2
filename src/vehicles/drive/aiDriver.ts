@@ -103,6 +103,8 @@ interface PendingFriendlyShell {
   source: string;
 }
 
+const scorchedMaterials = new WeakMap<THREE.Material, THREE.Material>();
+
 const DEFAULT_SQUAD_TYPES: readonly AllyType[] = ['rifleman', 'rifleman', 'shotgunner', 'medic'];
 
 const _v = new THREE.Vector3();
@@ -453,14 +455,20 @@ export class AiFriendlyVehicle implements FriendlyGroundTarget {
     this.ctx.render?.decals?.add?.('scorch', this.position, _up, this.def.halfLength * 2.1, rand(0, 6.28));
     this.ctx.audio?.play?.('vehicle_explode', { position: blastCenter, volume: 0.85 });
 
-    // Scorch hull meshes charcoal black & attach burning wreck smoke/fire emitters!
+    // Scorch hull meshes charcoal black using a shared scorched material cache & attach burning wreck emitters!
     for (const m of this.rig.meshes) {
       if (m instanceof THREE.Mesh && m.material && !Array.isArray(m.material)) {
-        const cloned = m.material.clone();
-        if ('color' in cloned && cloned.color instanceof THREE.Color) {
-          cloned.color.multiplyScalar(0.24);
+        const base = m.material;
+        let scorched = scorchedMaterials.get(base);
+        if (!scorched) {
+          const next = base.clone();
+          if ('color' in next && next.color instanceof THREE.Color) {
+            next.color.multiplyScalar(0.24);
+          }
+          scorchedMaterials.set(base, next);
+          scorched = next;
         }
-        m.material = cloned;
+        m.material = scorched;
       }
     }
     const fire = this.ctx.fx?.attachEmitter?.(this.rig.root, 'burning', new THREE.Vector3(0, 1.4, 0), 90);
@@ -961,6 +969,12 @@ export class AiFriendlyVehicle implements FriendlyGroundTarget {
       (r.material as THREE.Material).dispose();
     }
     this.ropes.length = 0;
+    const unreg = this.ctx.render?.unregisterBatchedProp?.bind(this.ctx.render);
+    if (unreg) {
+      for (const m of this.rig.meshes) {
+        if ((m as THREE.Mesh).isMesh) unreg(m as THREE.Mesh);
+      }
+    }
     this.ctx.render?.scene?.remove(this.rig.root);
     (this.beacon.material as THREE.Material).dispose();
     this.beacon.geometry.dispose();

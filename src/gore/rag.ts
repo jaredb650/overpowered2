@@ -1053,6 +1053,23 @@ export class Rag {
   measure(dt: number, calmSpeed: number, calmSpin: number): void {
     // Killed in the air, it landed at full gravity last frame, and was heard that way. From here on it falls at the dial.
     if (this.landed) this.setGravity(RagTuning.gravityScale);
+    const parts = this.parts;
+    const busy = this.muscle?.busy === true;
+    if (parts.length > 0 && !busy && !this.pushed && !this.lofted && !this.landed && this.droveSleeping && this.velFresh && this.speed === 0 && parts[0]!.body.isSleeping()) {
+      this.thudPart = null;
+      this.thud = 0;
+      this.thudSpeed = 0;
+      this.age += dt;
+      this.muscle?.advance(dt, this.source.bones);
+      if (!Boolean(this.muscle?.busy)) {
+        this.quiet += dt;
+        this.calm += dt;
+      } else {
+        this.quiet = 0;
+        this.calm = 0;
+      }
+      return;
+    }
     let v = 0;
     let w = 0;
     let px = 0;
@@ -1061,7 +1078,6 @@ export class Rag {
     let mass = 0;
     let worst = 0;
     this.thudPart = null;
-    const parts = this.parts;
     const readVel = !this.velFresh;
     for (let i = 0; i < parts.length; i++) {
       const part = parts[i]!;
@@ -1100,11 +1116,11 @@ export class Rag {
     this.age += dt;
     this.muscle?.advance(dt, this.source.bones);
     // A body holding itself up, or twitching, is not a body at rest, however slowly it moves.
-    const busy = this.muscle?.busy === true;
-    if (this.speed < RagTuning.quietSpeed && !busy) this.quiet += dt;
+    const stillBusy = this.muscle?.busy === true;
+    if (this.speed < RagTuning.quietSpeed && !stillBusy) this.quiet += dt;
     else this.quiet = 0;
     const still = w < calmSpin * calmSpin || this.quiet > RagTuning.limitsOffAfter;
-    if (this.speed < calmSpeed && still && !busy) this.calm += dt;
+    if (this.speed < calmSpeed && still && !stillBusy) this.calm += dt;
     else this.calm = 0;
   }
 

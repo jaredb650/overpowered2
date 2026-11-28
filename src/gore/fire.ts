@@ -221,6 +221,8 @@ export class FireField {
   licks = 0;
   /** Which of an entry's capsules `pointOn` last chose. */
   private lastCap = 0;
+  /** Reusable scratch array for sorting active flaming fires by distance without allocation. */
+  private readonly flamingScratch: Fire[] = [];
 
   /**
    * @param isCorpse True while gore has this body as a corpse: dead, not being vaporized, not handed back.
@@ -681,26 +683,37 @@ export class FireField {
 
     // How much of its fire each gets: the budget, shared by how near each is.
     let all = 0;
-    for (const f of this.fires) {
+    const flamingList = this.flamingScratch;
+    flamingList.length = 0;
+    for (let i = 0; i < this.fires.length; i++) {
+      const f = this.fires[i]!;
       if (!f.live || f.capCount === 0) continue;
-      let nearer = 0;
-      for (const o of this.fires) if (o.live && o !== f && o.heat > 0 && o.dist2 < f.dist2) nearer++;
-      const flaming = f.heat > 0;
-      const rank = flaming ? nearer : t.max;
+      if (f.heat > 0) {
+        flamingList.push(f);
+      } else {
+        f.near = false;
+        f.curling = false;
+      }
+    }
+    if (flamingList.length > 1) flamingList.sort((a, b) => a.dist2 - b.dist2);
+    let rank = 0;
+    for (let i = 0; i < flamingList.length; i++) {
+      const f = flamingList[i]!;
+      if (i > 0 && f.dist2 > flamingList[i - 1]!.dist2) rank = i;
       f.near = rank < t.near;
-      if (flaming) all += t.rate * f.heat * f.amount * (f.near ? 1 : t.farRate);
+      all += t.rate * f.heat * f.amount * (f.near ? 1 : t.farRate);
       // The nearest few burning corpses draw up; one further off, or done, is left to lie and freeze as any body does.
       const draws = f.phase === Phase.Corpse && f.curl > 0 && (now - f.since) / f.lasts < t.curlBy + t.curlHold && rank < t.curls && DevFlags.fire;
       f.curling = draws;
       if (draws) this.drawUp(f);
-      if (flaming && rank < t.lights && now >= f.nextLight) {
+      if (rank < t.lights && now >= f.nextLight) {
         const gap = rand(0.11, 0.2);
         f.nextLight = now + gap;
         const size = Math.sqrt(f.amount);
         _p.copy(f.at).addScaledVector(_up, 0.35 * f.scale);
         render.lights.flash(_p, LIGHT, rand(t.light[0], t.light[1]) * f.heat * size, t.lightRadius * (0.6 + 0.4 * size), gap);
       }
-      if (flaming && rank < t.shimmers && f.heat > 0.4 && now >= f.nextShimmer) {
+      if (rank < t.shimmers && f.heat > 0.4 && now >= f.nextShimmer) {
         f.nextShimmer = now + 0.45;
         _p.copy(f.at).addScaledVector(_up, 0.5 * f.scale);
         fx.heatShimmer(_p, 0.85 * Math.sqrt(f.amount), 0.8);

@@ -7,6 +7,9 @@ const INITIAL_FIXTURE_CAP = 128;
 
 const _p = new THREE.Vector3();
 const _c = new THREE.Color();
+const _projView = new THREE.Matrix4();
+const _frustum = new THREE.Frustum();
+const _sphere = new THREE.Sphere();
 
 export interface FixtureLightSpec {
   position: THREE.Vector3;
@@ -256,6 +259,12 @@ export class DynamicLightPool implements DynamicLights {
     const cx = this.lastCamX;
     const cy = this.lastCamY;
     const cz = this.lastCamZ;
+    let hasFrustum = false;
+    if (camera) {
+      _projView.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+      _frustum.setFromProjectionMatrix(_projView);
+      hasFrustum = true;
+    }
 
     // Score transient flashes: boosted when bright/close so muzzle flashes and blasts win over distant fixtures.
     for (let i = 0; i < MAX_REQUESTS; i++) {
@@ -269,13 +278,19 @@ export class DynamicLightPool implements DynamicLights {
         this.score[i] = 0;
         continue;
       }
+      const r = this.radius[i]! > 1 ? this.radius[i]! : 1;
+      let visMul = 1;
+      if (hasFrustum) {
+        _sphere.center.set(this.px[i]!, this.py[i]!, this.pz[i]!);
+        _sphere.radius = r + 1.5;
+        if (!_frustum.intersectsSphere(_sphere)) visMul = 1e-4;
+      }
       const dx = this.px[i]! - cx;
       const dy = this.py[i]! - cy;
       const dz = this.pz[i]! - cz;
       const distSq = dx * dx + dy * dy + dz * dz;
       const p = this.power[i]! * t * t;
-      const r = this.radius[i]! > 1 ? this.radius[i]! : 1;
-      this.score[i] = (p * r * 2.5) / (1 + distSq * 0.03);
+      this.score[i] = ((p * r * 2.5) / (1 + distSq * 0.03)) * visMul;
     }
 
     // Score enabled persistent fixtures by intensity * radius / (1 + distSq * 0.02).
@@ -291,11 +306,17 @@ export class DynamicLightPool implements DynamicLights {
         this.fscore[i] = 0;
         continue;
       }
+      let visMul = 1;
+      if (hasFrustum) {
+        _sphere.center.set(this.fpx[i]!, this.fpy[i]!, this.fpz[i]!);
+        _sphere.radius = r + 1.5;
+        if (!_frustum.intersectsSphere(_sphere)) visMul = 1e-4;
+      }
       const dx = this.fpx[i]! - cx;
       const dy = this.fpy[i]! - cy;
       const dz = this.fpz[i]! - cz;
       const distSq = dx * dx + dy * dy + dz * dz;
-      this.fscore[i] = (p * r) / (1 + distSq * 0.02);
+      this.fscore[i] = ((p * r) / (1 + distSq * 0.02)) * visMul;
     }
 
     const count = this.worldLights.length;

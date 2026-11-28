@@ -150,90 +150,297 @@ function formatTime(sec: number): string {
 export class EndlessWarHud {
   private el: HTMLDivElement | null = null;
   private redeployEl: HTMLDivElement | null = null;
+  private redeploySubEl: HTMLDivElement | null = null;
+  private threatLblEl: HTMLSpanElement | null = null;
+  private clockEl: HTMLSpanElement | null = null;
+  private threatFillEl: HTMLDivElement | null = null;
+  private stageEl: HTMLDivElement | null = null;
+  private bridgeWEl: HTMLSpanElement | null = null;
+  private bridgeCEl: HTMLSpanElement | null = null;
+  private bridgeEEl: HTMLSpanElement | null = null;
+  private gateSepEl: HTMLDivElement | null = null;
+  private gatesWrapEl: HTMLDivElement | null = null;
+  private gateEls: HTMLSpanElement[] = [];
+  private facsWrapEl: HTMLDivElement | null = null;
+  private facEls: HTMLSpanElement[] = [];
+  private fobEl: HTMLDivElement | null = null;
+  private radioEl: HTMLDivElement | null = null;
+  private alertEl: HTMLDivElement | null = null;
+  private surgeEl: HTMLDivElement | null = null;
+
   private updateAccum = 0;
+  private lastRedeployShown = false;
+  private lastRedeployText = '';
+  private lastThreat = -1;
+  private lastClockSec = -1;
+  private lastThreatPct = -1;
+  private lastStage = -1;
+  private lastBridgeW = '';
+  private lastBridgeC = '';
+  private lastBridgeE = '';
+  private lastFobText = '';
+  private lastFobDanger = false;
+  private lastCredits = -1;
+  private lastAlertKey = '';
+  private lastSurgeText = '';
 
   mount(): void {
     if (typeof document === 'undefined' || this.el) return;
     ensureStyles();
-    this.el = document.createElement('div');
-    this.el.className = 'ew-hud';
-    document.body.appendChild(this.el);
+    const el = document.createElement('div');
+    el.className = 'ew-hud';
 
-    this.redeployEl = document.createElement('div');
-    this.redeployEl.className = 'ew-redeploy';
-    this.redeployEl.style.display = 'none';
-    document.body.appendChild(this.redeployEl);
+    const bar = document.createElement('div');
+    bar.className = 'ew-bar';
+
+    const threat = document.createElement('div');
+    threat.className = 'ew-threat';
+    const threatTop = document.createElement('div');
+    threatTop.className = 'ew-threat-top';
+    const threatLbl = document.createElement('span');
+    const clock = document.createElement('span');
+    threatTop.append(threatLbl, clock);
+    const threatTrack = document.createElement('div');
+    threatTrack.className = 'ew-threat-track';
+    const threatFill = document.createElement('div');
+    threatFill.className = 'ew-threat-fill';
+    threatTrack.appendChild(threatFill);
+    threat.append(threatTop, threatTrack);
+
+    const sep1 = document.createElement('div');
+    sep1.className = 'ew-sep';
+
+    const front = document.createElement('div');
+    front.className = 'ew-front';
+    const stage = document.createElement('div');
+    stage.className = 'ew-stage';
+    const bridges = document.createElement('div');
+    bridges.className = 'ew-bridges';
+    const bW = document.createElement('span');
+    bW.textContent = 'W BRIDGE';
+    const bC = document.createElement('span');
+    bC.textContent = 'C VIADUCT';
+    const bE = document.createElement('span');
+    bE.textContent = 'E DAM';
+    bridges.append(bW, bC, bE);
+    front.append(stage, bridges);
+
+    const gateSep = document.createElement('div');
+    gateSep.className = 'ew-sep';
+    gateSep.style.display = 'none';
+    const gatesWrap = document.createElement('div');
+    gatesWrap.className = 'ew-gates';
+    gatesWrap.style.display = 'none';
+    const gateLbl = document.createElement('span');
+    gateLbl.className = 'ew-gate-lbl';
+    gateLbl.textContent = 'GATES';
+    gatesWrap.appendChild(gateLbl);
+
+    const sep2 = document.createElement('div');
+    sep2.className = 'ew-sep';
+
+    const facsWrap = document.createElement('div');
+    facsWrap.className = 'ew-facs';
+
+    const sep3 = document.createElement('div');
+    sep3.className = 'ew-sep';
+
+    const fob = document.createElement('div');
+    fob.className = 'ew-fob';
+
+    const radio = document.createElement('div');
+    radio.className = 'ew-radio';
+
+    bar.append(threat, sep1, front, gateSep, gatesWrap, sep2, facsWrap, sep3, fob, radio);
+
+    const alertEl = document.createElement('div');
+    alertEl.className = 'ew-alert';
+    alertEl.style.display = 'none';
+
+    const surgeEl = document.createElement('div');
+    surgeEl.className = 'ew-surge';
+    surgeEl.style.display = 'none';
+
+    el.append(bar, alertEl, surgeEl);
+    document.body.appendChild(el);
+
+    const redeployEl = document.createElement('div');
+    redeployEl.className = 'ew-redeploy';
+    redeployEl.style.display = 'none';
+    const redeployTitle = document.createElement('div');
+    redeployTitle.className = 'ew-redeploy-title';
+    redeployTitle.textContent = 'KIA — REDEPLOYING TO FOB VANGUARD';
+    const redeploySub = document.createElement('div');
+    redeploySub.className = 'ew-redeploy-sub';
+    redeployEl.append(redeployTitle, redeploySub);
+    document.body.appendChild(redeployEl);
+
+    this.el = el;
+    this.redeployEl = redeployEl;
+    this.redeploySubEl = redeploySub;
+    this.threatLblEl = threatLbl;
+    this.clockEl = clock;
+    this.threatFillEl = threatFill;
+    this.stageEl = stage;
+    this.bridgeWEl = bW;
+    this.bridgeCEl = bC;
+    this.bridgeEEl = bE;
+    this.gateSepEl = gateSep;
+    this.gatesWrapEl = gatesWrap;
+    this.facsWrapEl = facsWrap;
+    this.fobEl = fob;
+    this.radioEl = radio;
+    this.alertEl = alertEl;
+    this.surgeEl = surgeEl;
   }
 
   update(dt: number, state: EndlessWarHudState): void {
     if (!this.el || !this.redeployEl) return;
 
-    if (state.redeployLeft > 0) {
-      this.redeployEl.style.display = 'flex';
-      this.redeployEl.innerHTML = `
-        <div class="ew-redeploy-title">KIA — REDEPLOYING TO FOB VANGUARD</div>
-        <div class="ew-redeploy-sub">RETURNING TO THE FRONT IN ${state.redeployLeft.toFixed(1)}s</div>
-      `;
-    } else {
-      this.redeployEl.style.display = 'none';
+    const showRedeploy = state.redeployLeft > 0;
+    if (showRedeploy !== this.lastRedeployShown) {
+      this.lastRedeployShown = showRedeploy;
+      this.redeployEl.style.display = showRedeploy ? 'flex' : 'none';
+    }
+    if (showRedeploy) {
+      const txt = `RETURNING TO THE FRONT IN ${state.redeployLeft.toFixed(1)}s`;
+      if (txt !== this.lastRedeployText) {
+        this.lastRedeployText = txt;
+        this.redeploySubEl!.textContent = txt;
+      }
     }
 
     this.updateAccum += dt;
     if (this.updateAccum < 0.2) return;
     this.updateAccum = 0;
 
-    const stageName = STAGE_NAMES[Math.max(0, Math.min(STAGE_NAMES.length - 1, state.frontlineStage))] ?? 'FRONT';
+    if (state.threatLevel !== this.lastThreat) {
+      this.lastThreat = state.threatLevel;
+      this.threatLblEl!.textContent = `THREAT ${state.threatLevel}`;
+    }
+    const clockSec = Math.max(0, Math.floor(state.elapsedSec));
+    if (clockSec !== this.lastClockSec) {
+      this.lastClockSec = clockSec;
+      this.clockEl!.textContent = formatTime(clockSec);
+    }
+    const threatPct = Math.round(state.threatProgress * 100);
+    if (threatPct !== this.lastThreatPct) {
+      this.lastThreatPct = threatPct;
+      this.threatFillEl!.style.width = `${threatPct}%`;
+    }
+
+    const stageIdx = Math.max(0, Math.min(STAGE_NAMES.length - 1, state.frontlineStage));
+    if (stageIdx !== this.lastStage) {
+      this.lastStage = stageIdx;
+      this.stageEl!.textContent = STAGE_NAMES[stageIdx] ?? 'FRONT';
+    }
+    if (state.bridges.west !== this.lastBridgeW) {
+      this.lastBridgeW = state.bridges.west;
+      this.bridgeWEl!.className = `ew-pip ${state.bridges.west}`;
+    }
+    if (state.bridges.center !== this.lastBridgeC) {
+      this.lastBridgeC = state.bridges.center;
+      this.bridgeCEl!.className = `ew-pip ${state.bridges.center}`;
+    }
+    if (state.bridges.east !== this.lastBridgeE) {
+      this.lastBridgeE = state.bridges.east;
+      this.bridgeEEl!.className = `ew-pip ${state.bridges.east}`;
+    }
+
+    const gates = state.gates;
+    const hasGates = Boolean(gates && gates.length > 0);
+    const gateDisp = hasGates ? '' : 'none';
+    if (this.gateSepEl!.style.display !== gateDisp) {
+      this.gateSepEl!.style.display = gateDisp;
+      this.gatesWrapEl!.style.display = gateDisp;
+    }
+    if (hasGates && gates) {
+      while (this.gateEls.length < gates.length) {
+        const sp = document.createElement('span');
+        this.gatesWrapEl!.appendChild(sp);
+        this.gateEls.push(sp);
+      }
+      for (let i = 0; i < this.gateEls.length; i++) {
+        const sp = this.gateEls[i]!;
+        if (i >= gates.length) {
+          if (sp.style.display !== 'none') sp.style.display = 'none';
+          continue;
+        }
+        if (sp.style.display === 'none') sp.style.display = '';
+        const g = gates[i]!;
+        const cls = g.sealed ? 'ew-gate sealed' : 'ew-gate open';
+        const lbl = g.lane[0]!.toUpperCase();
+        if (sp.className !== cls) sp.className = cls;
+        if (sp.textContent !== lbl) sp.textContent = lbl;
+      }
+    }
+
+    const facs = state.facilities;
+    while (this.facEls.length < facs.length) {
+      const sp = document.createElement('span');
+      this.facsWrapEl!.appendChild(sp);
+      this.facEls.push(sp);
+    }
+    for (let i = 0; i < this.facEls.length; i++) {
+      const sp = this.facEls[i]!;
+      if (i >= facs.length) {
+        if (sp.style.display !== 'none') sp.style.display = 'none';
+        continue;
+      }
+      if (sp.style.display === 'none') sp.style.display = '';
+      const f = facs[i]!;
+      const cls = f.alive ? 'ew-fac up' : 'ew-fac down';
+      const firstWord = f.shortName.split(' ')[0]!;
+      const lbl = f.alive ? firstWord : `${firstWord} ${f.rebuildLeft}s`;
+      if (sp.className !== cls) sp.className = cls;
+      if (sp.textContent !== lbl) sp.textContent = lbl;
+    }
+
     const fobPct = Math.ceil(state.fobHpFrac * 100);
     const fobDanger = state.fobUnderAttack || state.fobBreached || fobPct < 80;
-    const facPips = state.facilities.map(f => {
-      const label = f.alive ? f.shortName.split(' ')[0] : `${f.shortName.split(' ')[0]} ${f.rebuildLeft}s`;
-      return `<span class="ew-fac ${f.alive ? 'up' : 'down'}">${label}</span>`;
-    }).join('');
+    const fobText = `FOB ${fobPct}%`;
+    if (fobText !== this.lastFobText) {
+      this.lastFobText = fobText;
+      this.fobEl!.textContent = fobText;
+    }
+    if (fobDanger !== this.lastFobDanger) {
+      this.lastFobDanger = fobDanger;
+      this.fobEl!.className = fobDanger ? 'ew-fob danger' : 'ew-fob';
+    }
 
-    const gateHtml = state.gates && state.gates.length > 0
-      ? `<div class="ew-sep"></div><div class="ew-gates"><span class="ew-gate-lbl">GATES</span>${state.gates.map(g => {
-          const letter = g.lane[0]!.toUpperCase();
-          return `<span class="ew-gate ${g.sealed ? 'sealed' : 'open'}">${letter}</span>`;
-        }).join('')}</div>`
-      : '';
+    const credits = Math.floor(state.credits);
+    if (credits !== this.lastCredits) {
+      this.lastCredits = credits;
+      this.radioEl!.textContent = `[O] WAR CMD · ${credits.toLocaleString()} CR`;
+    }
 
-    const banners: string[] = [];
-    if (state.momentumLeft > 0) banners.push(`MOMENTUM SURGE ${Math.ceil(state.momentumLeft)}s (+60% ALLY PUSH)`);
-    if (state.mobilizeLeft > 0) banners.push(`TOTAL MOBILIZATION ${Math.ceil(state.mobilizeLeft)}s (2x ALLY TEMPO)`);
-    const alertHtml = state.tacticalAlert
-      ? `<div class="ew-alert ${state.tacticalAlert.tone}">${state.tacticalAlert.text}</div>`
-      : '';
+    const alertKey = state.tacticalAlert ? `${state.tacticalAlert.tone}:${state.tacticalAlert.text}` : '';
+    if (alertKey !== this.lastAlertKey) {
+      this.lastAlertKey = alertKey;
+      if (state.tacticalAlert) {
+        this.alertEl!.style.display = '';
+        this.alertEl!.className = `ew-alert ${state.tacticalAlert.tone}`;
+        this.alertEl!.textContent = state.tacticalAlert.text;
+      } else {
+        this.alertEl!.style.display = 'none';
+      }
+    }
 
-    this.el.innerHTML = `
-      <div class="ew-bar">
-        <div class="ew-threat">
-          <div class="ew-threat-top">
-            <span>THREAT ${state.threatLevel}</span>
-            <span>${formatTime(state.elapsedSec)}</span>
-          </div>
-          <div class="ew-threat-track">
-            <div class="ew-threat-fill" style="width:${Math.round(state.threatProgress * 100)}%"></div>
-          </div>
-        </div>
-        <div class="ew-sep"></div>
-        <div class="ew-front">
-          <div class="ew-stage">${stageName}</div>
-          <div class="ew-bridges">
-            <span class="ew-pip ${state.bridges.west}">W BRIDGE</span>
-            <span class="ew-pip ${state.bridges.center}">C VIADUCT</span>
-            <span class="ew-pip ${state.bridges.east}">E DAM</span>
-          </div>
-        </div>
-        ${gateHtml}
-        <div class="ew-sep"></div>
-        <div class="ew-facs">${facPips}</div>
-        <div class="ew-sep"></div>
-        <div class="ew-fob ${fobDanger ? 'danger' : ''}">FOB ${fobPct}%</div>
-        <div class="ew-radio">[O] WAR CMD · ${Math.floor(state.credits).toLocaleString()} CR</div>
-      </div>
-      ${alertHtml}
-      ${banners.length > 0 ? `<div class="ew-surge">${banners.join('  ·  ')}</div>` : ''}
-    `;
+    let surgeText = '';
+    if (state.momentumLeft > 0) surgeText = `MOMENTUM SURGE ${Math.ceil(state.momentumLeft)}s (+60% ALLY PUSH)`;
+    if (state.mobilizeLeft > 0) {
+      const m = `TOTAL MOBILIZATION ${Math.ceil(state.mobilizeLeft)}s (2x ALLY TEMPO)`;
+      surgeText = surgeText ? `${surgeText}  ·  ${m}` : m;
+    }
+    if (surgeText !== this.lastSurgeText) {
+      this.lastSurgeText = surgeText;
+      if (surgeText) {
+        this.surgeEl!.style.display = '';
+        this.surgeEl!.textContent = surgeText;
+      } else {
+        this.surgeEl!.style.display = 'none';
+      }
+    }
   }
 
   dispose(): void {
@@ -241,5 +448,7 @@ export class EndlessWarHud {
     this.el = null;
     this.redeployEl?.remove();
     this.redeployEl = null;
+    this.gateEls.length = 0;
+    this.facEls.length = 0;
   }
 }

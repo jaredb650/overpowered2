@@ -8,7 +8,7 @@
  * engine slows it and its loader, a jammed ring turns the turret into a slow thing the player can outrun.
  */
 import * as THREE from 'three';
-import { CG, type EmitterHandle, type LoopHandle, type PlayerSystem } from '../../core/contracts';
+import { CG, type EmitterHandle, type LoopHandle, type PlayerSystem, type RayHit } from '../../core/contracts';
 import type { EnemyId, ProjectileSpec } from '../../core/gameplay';
 import { clamp, damp, dampAngle, rand, wrapAngle } from '../../core/math';
 import { EngineSound } from '../../progression/callins/airframe';
@@ -86,6 +86,7 @@ const _vel = new THREE.Vector3();
 const _p = new THREE.Vector3();
 const _q = new THREE.Quaternion();
 const _up = new THREE.Vector3(0, 1, 0);
+const _ramHit: RayHit = { point: new THREE.Vector3(), normal: new THREE.Vector3(), distance: 0, surface: 'concrete', collider: null };
 
 const SHELL: ProjectileSpec = {
   origin: _muzzle, velocity: _vel, kind: 'shell', team: 'enemy', damage: 0, source: 'tank_cannon',
@@ -308,7 +309,10 @@ export class GroundVehicle extends Vehicle {
     _pivot.set(this.drive.x, this.y + 1.25, this.drive.z);
     _dir.set(s, 0, c);
     const reach = this.def.halfLength + 1.35;
-    const hit = this.sys.ctx.physics.raycast(_pivot, _dir, reach, CG.World);
+    const physics = this.sys.ctx.physics;
+    const hit = typeof physics.raycastInto === 'function'
+      ? (physics.raycastInto(_pivot, _dir, reach, CG.World, _ramHit) ? _ramHit : null)
+      : physics.raycast(_pivot, _dir, reach, CG.World);
     if (!hit?.collider || Math.abs(hit.normal.y) >= 0.55) return;
     const ramClass = this.def.kind === 'tank' ? 'heavy' : this.def.kind === 'truck' ? 'medium' : 'light';
     const res = objects.tryVehicleRam(hit.collider, ramClass, speed, hit.point, _dir);

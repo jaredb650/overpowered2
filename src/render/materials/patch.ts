@@ -57,8 +57,8 @@ float opMoonVisibility(vec3 wp, vec3 wn) {
   float vis = 1.0;
   vec3 s = (opShadowMatS * vec4(wp + wn * (opShadowInfo.z * 1.6), 1.0)).xyz;
   if (s.x > 0.0 && s.x < 1.0 && s.y > 0.0 && s.y < 1.0 && s.z < 1.0) vis = opPcf(opShadowS, s, opShadowInfo.x * 1.6);
-  // Already in full shadow, so nothing the dynamic map holds could change the answer.
-  if (vis > 0.0) {
+  // Already in full shadow, or dynamic shadow map disabled, so skip the dynamic lookup.
+  if (vis > 0.0 && opShadowInfo.y > 0.0) {
     vec3 d = (opShadowMatD * vec4(wp + wn * (opShadowInfo.w * 1.6), 1.0)).xyz;
     if (d.x > 0.0 && d.x < 1.0 && d.y > 0.0 && d.y < 1.0 && d.z < 1.0) vis = min(vis, opPcf(opShadowD, d, opShadowInfo.y * 1.6));
   }
@@ -72,19 +72,21 @@ vec3 opWP = (opCamToWorld * vec4(-vViewPosition, 1.0)).xyz;
 vec3 opWN = mat3(opCamToWorld) * normal;
 // A surface turned away from the moon gets none of its light, so the answer cannot matter. That is a third of
 // the pixels on most views, and shadow lookups are the dearest thing here.
-float opMoonVis = receiveShadow && dot(opWN, opMoonDir) > 0.0 ? opMoonVisibility(opWP, opWN) : 1.0;
+float opMoonVis = receiveShadow && opShadowAmount > 0.0 && dot(opWN, opMoonDir) > 0.0 ? opMoonVisibility(opWP, opWN) : 1.0;
 `;
 
 const VOLUME_LIGHTING = /* glsl */ `
 {
   vec3 opUvw = (opWP + opWN * opVolInfo.y - opVolOrigin) * opVolInvSize;
   vec4 opV0 = texture(opVol0, opUvw);
-  vec3 opCr = texture(opVol1, opUvw).xyz;
-  vec3 opCg = texture(opVol2, opUvw).xyz;
-  vec3 opCb = texture(opVol3, opUvw).xyz;
+  vec3 opC0 = opV0.rgb;
+  // L1 volumes are stored normalized to [-1, 1] over 2 * c0 as RGBA8 (127 = exact zero).
+  vec3 opL1Scale = opC0 * (2.0 / 127.0);
+  vec3 opCr = (texture(opVol1, opUvw).xyz * 255.0 - 127.0) * opL1Scale.r;
+  vec3 opCg = (texture(opVol2, opUvw).xyz * 255.0 - 127.0) * opL1Scale.g;
+  vec3 opCb = (texture(opVol3, opUvw).xyz * 255.0 - 127.0) * opL1Scale.b;
 
   // Non-linear L1 reconstruction (Geomerics), shared across both normal (diffuse) and reflection lookups.
-  vec3 opC0 = opV0.rgb;
   vec3 opShLen = vec3(length(opCr), length(opCg), length(opCb));
   vec3 opShInvLen = 1.0 / max(opShLen, vec3(1e-5));
   vec3 opShR = min(opShLen / (2.0 * max(opC0, vec3(1e-6))), vec3(0.98));

@@ -50,8 +50,10 @@ opW = max(opW - 0.02, 0.0);
 opW /= opW.x + opW.y + opW.z;
 float opTile = opSurf.x;
 vec3 opP = opTexP * opTile;
-vec3 opDx = dFdx(opTexP) * opTile;
-vec3 opDy = dFdy(opTexP) * opTile;
+vec3 opRawDx = dFdx(opTexP);
+vec3 opRawDy = dFdy(opTexP);
+vec3 opDx = opRawDx * opTile;
+vec3 opDy = opRawDy * opTile;
 vec4 opA = vec4(0.0);
 vec4 opS = vec4(0.0);
 vec3 opNrm = vec3(0.0);
@@ -89,8 +91,8 @@ float opHeight = opA.w;
 vec3 opAlbedo = opA.rgb;
 
 // Macro variation at scales the tile cannot repeat: broad stains, plus vertical runs on walls.
-vec3 opPosDx = dFdx(opPos);
-vec3 opPosDy = dFdy(opPos);
+vec3 opPosDx = opViewPass > 0.5 ? dFdx(opPos) : opRawDx;
+vec3 opPosDy = opViewPass > 0.5 ? dFdy(opPos) : opRawDy;
 vec4 opMacro = texture(opNoise, opPos.xz * 0.019 + opPos.y * 0.011);
 float opWall = 1.0 - abs(opGeoN.y);
 float opRun = 0.0;
@@ -113,7 +115,7 @@ opRough = clamp(opRough * (1.0 - opVar * 0.55), 0.04, 1.0);
     float wide = textureGrad(opNoise, opPos.xz * 0.0067 + 0.17, opPosDx.xz * 0.0067, opPosDy.xz * 0.0067).r;
     float mid = textureGrad(opNoise, opPos.xz * 0.029, opPosDx.xz * 0.029, opPosDy.xz * 0.029).r;
     float fine = textureGrad(opNoise, opPos.xz * 0.13 + 0.3, opPosDx.xz * 0.13, opPosDy.xz * 0.13).g;
-    float depth = mid * 0.5 + wide * 0.32 + fine * 0.18 + (0.5 - opHeight) * 0.07 + (opWetness - 0.5) * 0.16;
+    float depth = mid * 0.5 + wide * 0.32 + fine * 0.18 + (0.5 - opHeight) * 0.07 + (opSurf.z - 0.5) * 0.16;
     float puddle = up * smoothstep(0.545, 0.6, depth);
     float damp = up * smoothstep(0.42, 0.56, depth);
     opAlbedo *= mix(1.0, 0.6, damp);
@@ -160,12 +162,12 @@ export function worldSurfaceHook(p: WorldSurfaceParams, shared: { opNoise: THREE
   const own = {
     opT0: { value: p.albedo },
     opT1: { value: p.surface },
-    opSurf: { value: new THREE.Vector4(1 / p.tile, p.normalScale, 0, p.macro) },
+    opSurf: { value: new THREE.Vector4(1 / p.tile, p.normalScale, p.wetness, p.macro) },
   };
   return shader => {
     Object.assign(shader.uniforms, own, shared);
     let f = shader.fragmentShader;
-    const defines = `${p.wetness > 0 ? `#define OP_WET\n#define opWetness ${p.wetness.toFixed(3)}\n` : ''}${p.masked ? '#define OP_MASKED\n' : ''}`;
+    const defines = `${p.wetness > 0 ? '#define OP_WET\n' : ''}${p.masked ? '#define OP_MASKED\n' : ''}`;
     f = f.replace('#include <map_pars_fragment>', `#include <map_pars_fragment>\n${defines}${PARS}`);
     f = f.replace('#include <map_fragment>', SURFACE);
     f = f.replace('#include <roughnessmap_fragment>', 'float roughnessFactor = roughness * opRough;');

@@ -95,13 +95,16 @@ void main() {
       if (i >= uLightCount) break;
       vec3 c = uLightCol[i];
       if (c.r + c.g + c.b <= 0.0) continue;
+      float r = max(uLightPos[i].w, 1e-3);
       vec3 q = uLightPos[i].xyz - ro;
       float b = dot(q, rd);
+      if (b + r <= 0.0 || b - r >= dist) continue;
       float h2 = max(dot(q, q) - b * b, 0.04);
+      float r2 = r * r;
+      if (h2 >= r2) continue;
       float s = inversesqrt(h2);
       float I = (atan((dist - b) * s) + atan(b * s)) * s;
-      float r = max(uLightPos[i].w, 1e-3);
-      float win = clamp(1.0 - h2 / (r * r), 0.0, 1.0);
+      float win = 1.0 - h2 / r2;
       scatter += c * (I * local * win * T * 0.5 / (4.0 * PI));
     }
   }
@@ -112,8 +115,7 @@ const RESOLVE = /* glsl */ `
 uniform sampler2D tCurrent;
 uniform sampler2D tHistory;
 uniform sampler2D tDepth;
-uniform mat4 uPrevViewProj;
-uniform mat4 uCamToWorld;
+uniform mat4 uCurToPrev;
 uniform vec2 uTanHalf;
 uniform float uBlend;
 uniform vec2 uLast;
@@ -129,8 +131,7 @@ void main() {
   if (uBlend <= 0.001) { outColor = cur; return; }
   float z = min(texelFetch(tDepth, p, 0).r, 400.0);
   vec3 eye = vec3((vUv * 2.0 - 1.0) * uTanHalf * z, -z);
-  vec4 world = uCamToWorld * vec4(eye, 1.0);
-  vec4 prev = uPrevViewProj * world;
+  vec4 prev = uCurToPrev * vec4(eye, 1.0);
   if (prev.w <= 1e-4) { outColor = cur; return; }
   vec2 uv = prev.xy / prev.w * 0.5 + 0.5;
   float inside = step(0.0, uv.x) * step(uv.x, 1.0) * step(0.0, uv.y) * step(uv.y, 1.0);
@@ -215,8 +216,8 @@ export class Fog {
   };
   private march: FullscreenPass | null = null;
   private readonly resolve = new FullscreenPass(RESOLVE, {
-    tCurrent: { value: null }, tHistory: { value: null }, tDepth: { value: null }, uPrevViewProj: { value: new THREE.Matrix4() },
-    uCamToWorld: { value: new THREE.Matrix4() }, uTanHalf: { value: new THREE.Vector2() }, uBlend: { value: 0.9 },
+    tCurrent: { value: null }, tHistory: { value: null }, tDepth: { value: null }, uCurToPrev: { value: new THREE.Matrix4() },
+    uTanHalf: { value: new THREE.Vector2() }, uBlend: { value: 0.9 },
     uLast: { value: new THREE.Vector2() }, uHistoryScale: { value: new THREE.Vector2(1, 1) }, uHistoryEdge: { value: new THREE.Vector2(1, 1) },
   });
   private raw!: THREE.WebGLRenderTarget;
@@ -310,9 +311,8 @@ export class Fog {
     r.tCurrent!.value = this.raw.texture;
     r.tHistory!.value = this.history[prev]!.texture;
     r.tDepth!.value = depth;
-    (r.uCamToWorld!.value as THREE.Matrix4).copy(camera.matrixWorld);
+    (r.uCurToPrev!.value as THREE.Matrix4).multiplyMatrices(this.prevViewProj, camera.matrixWorld);
     (r.uTanHalf!.value as THREE.Vector2).copy(tanHalf);
-    (r.uPrevViewProj!.value as THREE.Matrix4).copy(this.prevViewProj);
     r.uBlend!.value = this.hasHistory && !cameraCut ? 0.9 : 0;
     this.resolve.render(renderer, this.history[this.flip]!);
     (r.uHistoryScale!.value as THREE.Vector2).copy(this.scale);

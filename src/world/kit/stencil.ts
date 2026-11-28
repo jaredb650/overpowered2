@@ -26,16 +26,80 @@ const WORDS = [
 export type StencilName = (typeof GLYPHS)[number] | (typeof WORDS)[number];
 
 interface Cell { u0: number; v0: number; u1: number; v1: number; aspect: number }
+interface StencilLayout {
+  height: number;
+  glyphs: { name: StencilName; x: number; y: number }[];
+  words: { name: StencilName; x: number; y: number }[];
+  rects: Cell[];
+}
 
-const cells = new Map<string, Cell>();
-GLYPHS.forEach((name, i) => {
-  const x = (i % COLS) * CELL, y = Math.floor(i / COLS) * CELL;
-  cells.set(name, { u0: x / SIZE, v0: 1 - (y + CELL) / SIZE, u1: (x + CELL) / SIZE, v1: 1 - y / SIZE, aspect: 1 });
-});
-WORDS.forEach((name, i) => {
-  const x = (i % 2) * WORD_W, y = WORD_TOP + Math.floor(i / 2) * WORD_H;
-  cells.set(name, { u0: x / SIZE, v0: 1 - (y + WORD_H) / SIZE, u1: (x + WORD_W) / SIZE, v1: 1 - y / SIZE, aspect: WORD_W / WORD_H });
-});
+const GLYPH_SET = new Set<string>(GLYPHS);
+const activeNames: StencilName[] = [];
+const activeSlot = new Map<StencilName, number>();
+let cachedLayout: StencilLayout | null = null;
+
+/** Clears active stencil tracking before authoring a new map. */
+export function resetStencilAtlas(): void {
+  activeNames.length = 0;
+  activeSlot.clear();
+  cachedLayout = null;
+}
+
+function getStencilLayout(): StencilLayout {
+  if (cachedLayout) return cachedLayout;
+  const list: readonly StencilName[] = activeNames.length > 0 ? activeNames : [...GLYPHS, ...WORDS];
+  const glyphNames: StencilName[] = [];
+  const wordNames: StencilName[] = [];
+  for (const name of list) {
+    if (GLYPH_SET.has(name)) glyphNames.push(name);
+    else wordNames.push(name);
+  }
+  const glyphRows = Math.ceil(glyphNames.length / COLS);
+  const wordTop = glyphRows * CELL;
+  const wordRows = Math.ceil(wordNames.length / 2);
+  const rawHeight = Math.max(128, wordTop + wordRows * WORD_H);
+  // Round up to a power-of-two height (max 2048) for clean mipmapping on all GPUs.
+  let height = 128;
+  while (height < rawHeight && height < SIZE) height <<= 1;
+
+  const glyphs: { name: StencilName; x: number; y: number }[] = [];
+  const words: { name: StencilName; x: number; y: number }[] = [];
+  const byName = new Map<StencilName, Cell>();
+
+  glyphNames.forEach((name, i) => {
+    const x = (i % COLS) * CELL, y = Math.floor(i / COLS) * CELL;
+    glyphs.push({ name, x, y });
+    byName.set(name, {
+      u0: x / SIZE, v0: 1 - (y + CELL) / height, u1: (x + CELL) / SIZE, v1: 1 - y / height, aspect: 1,
+    });
+  });
+  wordNames.forEach((name, i) => {
+    const x = (i % 2) * WORD_W, y = wordTop + Math.floor(i / 2) * WORD_H;
+    words.push({ name, x, y });
+    byName.set(name, {
+      u0: x / SIZE, v0: 1 - (y + WORD_H) / height, u1: (x + WORD_W) / SIZE, v1: 1 - y / height, aspect: WORD_W / WORD_H,
+    });
+  });
+
+  const rects = list.map(name => byName.get(name)!);
+  cachedLayout = { height, glyphs, words, rects };
+  return cachedLayout;
+}
+
+/** Converts encoded slot UVs written by stencil() into finalized atlas UVs for the compacted stencil sheet. */
+export function finalizeStencilUVs(uv: Float32Array, nv: number): void {
+  const layout = getStencilLayout();
+  for (let i = 0; i + 3 < nv; i += 4) {
+    const slot = Math.round(uv[i * 2]!);
+    const cell = layout.rects[slot];
+    if (!cell) continue;
+    const o = i * 2;
+    uv[o] = cell.u0; uv[o + 1] = cell.v0;
+    uv[o + 2] = cell.u1; uv[o + 3] = cell.v0;
+    uv[o + 4] = cell.u1; uv[o + 5] = cell.v1;
+    uv[o + 6] = cell.u0; uv[o + 7] = cell.v1;
+  }
+}
 
 const FONT = 'Impact, "Arial Black", "Helvetica Neue", sans-serif';
 
@@ -82,23 +146,23 @@ function drawSymbol(c: CanvasRenderingContext2D, name: (typeof SYMBOLS)[number],
 }
 
 function paint(): HTMLCanvasElement {
+  const layout = getStencilLayout();
   const canvas = document.createElement('canvas');
-  canvas.width = canvas.height = SIZE;
+  canvas.width = SIZE;
+  canvas.height = layout.height;
   const c = canvas.getContext('2d')!;
   c.fillStyle = c.strokeStyle = '#fff';
   c.textAlign = 'center';
   c.textBaseline = 'middle';
-  GLYPHS.forEach((name, i) => {
-    const x = (i % COLS) * CELL, y = Math.floor(i / COLS) * CELL;
+  for (const { name, x, y } of layout.glyphs) {
     if (name.length > 1) {
       drawSymbol(c, name as (typeof SYMBOLS)[number], x, y);
-      return;
+      continue;
     }
     c.font = `${CELL * 0.98}px ${FONT}`;
     c.fillText(name, x + CELL / 2, y + CELL / 2 + 8);
-  });
-  WORDS.forEach((name, i) => {
-    const x = (i % 2) * WORD_W, y = WORD_TOP + Math.floor(i / 2) * WORD_H;
+  }
+  for (const { name, x, y } of layout.words) {
     c.font = `${WORD_H * 0.84}px ${FONT}`;
     const w = c.measureText(name).width;
     c.save();
@@ -106,17 +170,19 @@ function paint(): HTMLCanvasElement {
     c.scale(Math.min(1, (WORD_W - 24) / w), 1);
     c.fillText(name, 0, 0);
     c.restore();
-  });
+  }
   // The bridges a real stencil needs, then wear: paint sprayed through a plate is never a clean print.
   c.globalCompositeOperation = 'destination-out';
-  for (let i = 0; i < 2; i++) {
+  const glyphRows = Math.ceil(layout.glyphs.length / COLS);
+  for (let i = 0; i < glyphRows; i++) {
     for (let col = 0; col < COLS; col++) c.fillRect(col * CELL, i * CELL + CELL / 2 - 3, CELL, 6);
   }
   const rng = mulberry32(0x57e9c11);
-  for (let i = 0; i < 30000; i++) {
+  const speckles = Math.round(30000 * (layout.height / SIZE));
+  for (let i = 0; i < speckles; i++) {
     const r = 0.6 + rng() * rng() * rng() * 6;
     c.beginPath();
-    c.arc(rng() * SIZE, rng() * SIZE, r, 0, Math.PI * 2);
+    c.arc(rng() * SIZE, rng() * layout.height, r, 0, Math.PI * 2);
     c.fill();
   }
   return canvas;
@@ -180,10 +246,18 @@ export function buildPlywoodMaterial(ctx: Ctx): THREE.Material {
 
 /** Paints `name` in the local XY plane facing +Z, centred on (x, y). `h` is the height of the cell in meters. */
 export function stencil(k: Kit, name: StencilName, x: number, y: number, z: number, h: number, rgb: readonly [number, number, number]): void {
-  const cell = cells.get(name)!;
-  const w = h * cell.aspect;
+  let slot = activeSlot.get(name);
+  if (slot === undefined) {
+    slot = activeNames.length;
+    activeNames.push(name);
+    activeSlot.set(name, slot);
+    cachedLayout = null;
+  }
+  const aspect = GLYPH_SET.has(name) ? 1 : WORD_W / WORD_H;
+  const w = h * aspect;
   k.geo.use('stencil').tint(rgb[0], rgb[1], rgb[2]);
-  k.geo.quadRect(x - w / 2, y - h / 2, z, x + w / 2, y + h / 2, cell.u0, cell.v0, cell.u1, cell.v1);
+  // Encode slot index in u0; finalizeStencilUVs() remaps each quad to its compacted atlas cell in Geo.finish().
+  k.geo.quadRect(x - w / 2, y - h / 2, z, x + w / 2, y + h / 2, slot, 0, slot + 1, 1);
   k.geo.tint(1);
 }
 

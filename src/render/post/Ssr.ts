@@ -64,6 +64,7 @@ void main() {
   float jitter = float((c.x + c.y * 4) * 7 % 16) / 16.0;
   float tLast = 0.0;
   float hit = -1.0;
+  float zHit = 0.0;
   for (int i = 0; i < STEPS; i++) {
     float f = (float(i) + 0.5 + jitter * 0.8) / float(STEPS);
     float t = f * f * tMax;
@@ -73,21 +74,21 @@ void main() {
     float thickness = 0.25 + rayZ * 0.05;
     if (rayZ > sceneZ && rayZ - sceneZ < thickness && sceneZ > uViewCut) {
       float lo = tLast, hi = t;
+      zHit = sceneZ;
       for (int b = 0; b < 4; b++) {
         float m = (lo + hi) * 0.5;
         vec2 um = uv0 + span * m;
         float rz = 1.0 / mix(iz0, iz1, m);
-        if (rz > depthAt(um)) hi = m; else lo = m;
+        float zm = depthAt(um);
+        if (rz > zm) { hi = m; zHit = zm; } else lo = m;
       }
       hit = hi;
       break;
     }
     tLast = t;
   }
-  if (hit < 0.0) return;
+  if (hit < 0.0 || zHit > 2e4) return;
   vec2 uvHit = uv0 + span * hit;
-  float zHit = depthAt(uvHit);
-  if (zHit > 2e4) return;
   vec3 pHit = viewPos(uvHit, zHit);
   // Last frame's image, so the hit point has to be carried through last frame's camera.
   vec4 prev = uCurToPrev * vec4(pHit, 1.0);

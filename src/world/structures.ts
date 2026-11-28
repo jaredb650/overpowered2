@@ -507,6 +507,7 @@ export class Structures {
   private readonly chunks = new Map<string, Chunk>();
   private readonly dirty = new Set<Chunk>();
   private readonly gates: Piece[] = [];
+  private readonly repairingPieces = new Set<Piece>();
   private readonly sweeps: StructureSweep[] = [];
   private nav: NavGraph | null = null;
   private attached = false;
@@ -588,7 +589,10 @@ export class Structures {
       : s.kind === 'stall' ? stallStages(rng)
       : shackStages(s.look ?? 'planks', rng);
     const piece = new Piece(this.all.length, s.kind, s, parts, s.opens && gate ? gate.open : null);
-    piece.notify = () => this.link?.changed(piece, false, null, 0);
+    piece.notify = () => {
+      if (piece.repairing >= 0) this.repairingPieces.add(piece);
+      this.link?.changed(piece, false, null, 0);
+    };
     this.all.push(piece);
     if (piece.openParts) this.gates.push(piece);
     piece.chunk = this.chunkAt(s.x, s.z);
@@ -784,8 +788,10 @@ export class Structures {
       if (amount > 0) this.link.blast(center, radius, amount, source);
       return;
     }
+    const mult = SOURCE_MULT[source] ?? 1;
+    const isNuke = source === 'nuke';
     this.blastAt = center;
-    this.blastPower = amount * (SOURCE_MULT[source] ?? 1);
+    this.blastPower = amount * mult;
     let bounced: Piece | null = null;
     let bouncedMat: StructuralMaterial | null = null;
     try {
@@ -801,9 +807,8 @@ export class Structures {
           }
           continue;
         }
-        const mult = SOURCE_MULT[source] ?? 1;
         const scale = (1 - (d / radius) * (1 - EDGE)) * mult * (isLight(piece.kind) ? SHACK_BLAST : 1);
-        this.damage(piece, source === 'nuke' ? piece.health + 1e6 : amount * scale);
+        this.damage(piece, isNuke ? piece.health + 1e6 : amount * scale);
       }
     } finally {
       this.blastAt = null;
@@ -908,7 +913,11 @@ export class Structures {
       if (q.repairing < 0) q.repairTick = 0;
       q.repairing = Math.min(0.999, repairing);
       q.repairSeconds = Math.max(0.01, repairSeconds);
-    } else q.repairing = -1;
+      this.repairingPieces.add(q);
+    } else {
+      q.repairing = -1;
+      this.repairingPieces.delete(q);
+    }
   }
 
   /** Puts a piece in a stage at once, with full health for it. `loud` plays the dust and the sound. */
@@ -1164,8 +1173,12 @@ export class Structures {
   }
 
   private updateRepairs(dt: number): void {
-    for (const q of this.all) {
-      if (q.repairing < 0) continue;
+    if (this.repairingPieces.size === 0) return;
+    for (const q of this.repairingPieces) {
+      if (q.repairing < 0) {
+        this.repairingPieces.delete(q);
+        continue;
+      }
       q.repairing = Math.min(1, q.repairing + dt / q.repairSeconds);
       q.repairTick -= dt;
       if (q.repairTick <= 0 && q.repairing < 1) {
@@ -1180,6 +1193,7 @@ export class Structures {
       // Nobody gets walled in: the last moment waits until the gap is clear.
       if (q.index === q.stages.length - 1 && this.occupied(q)) continue;
       q.repairing = -1;
+      this.repairingPieces.delete(q);
       if (q.index > 0) this.setStage(q, q.index - 1, true);
       else {
         q.health = q.maxHealth;
@@ -1191,6 +1205,7 @@ export class Structures {
   /** A new run: everything back up, whole. */
   reset(): void {
     this.sweeps.length = 0;
+    this.repairingPieces.clear();
     for (const q of this.all) {
       q.repairing = -1;
       q.hostOpen = q.nearOpen = false;

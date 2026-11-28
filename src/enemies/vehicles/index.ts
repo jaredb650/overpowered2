@@ -141,6 +141,19 @@ const _near: { distance: number; part: PartState | null } = { distance: 0, part:
 const _men: Enemy[] = [];
 const _losPt = new THREE.Vector3();
 
+interface GroundCand {
+  kind: 'player' | 'ally' | 'friendly_vehicle';
+  score: number;
+  distance: number;
+  aimLift: number;
+  position: THREE.Vector3;
+  velocity: THREE.Vector3;
+  player?: PlayerSystem;
+  ally?: Ally;
+  vehicle?: FriendlyGroundTarget;
+}
+const _groundCands: GroundCand[] = [];
+
 const NO_BEHAVIOURS: Enemy['behaviours'] = [];
 
 interface Waiting {
@@ -355,8 +368,109 @@ export class VehicleSystem implements VehicleTargets {
     const requireLos = opts?.requireLos !== false;
     const includeAirborne = opts?.includeAirbornePlayer === true;
     const preferArmor = opts?.preferArmor === true;
-    let best: GroundTargetResult | null = null;
-    let bestScore = Infinity;
+
+    if (!requireLos) {
+      let best: GroundTargetResult | null = null;
+      let bestScore = Infinity;
+
+      const player = this.quarry(from);
+      if (player && player.alive && (!player.parked || player.interceptor !== null)) {
+        const py = player.position.y;
+        const maxY = opts?.maxPlayerY ?? 22;
+        const elevOk = includeAirborne ? true : (py < maxY && py <= 25);
+        if (elevOk) {
+          _losPt.set(player.position.x, player.position.y + 1.1, player.position.z);
+          const dist = from.distanceTo(_losPt);
+          if (dist < maxRange) {
+            bestScore = dist;
+            best = {
+              kind: 'player',
+              position: player.position,
+              velocity: player.velocity,
+              distance: dist,
+              aimLift: 1.1,
+              player,
+            };
+          }
+        }
+      }
+
+      const allies = this.ctx.allies?.allies;
+      if (allies && allies.length > 0) {
+        for (let i = 0; i < allies.length; i++) {
+          const a = allies[i]!;
+          if (!a.alive) continue;
+          const pos = a.body.position;
+          _losPt.set(pos.x, pos.y + 1.1, pos.z);
+          const dist = from.distanceTo(_losPt);
+          if (dist >= maxRange || dist >= bestScore) continue;
+          bestScore = dist;
+          best = {
+            kind: 'ally',
+            position: pos,
+            velocity: a.body.velocity,
+            distance: dist,
+            aimLift: 1.1,
+            ally: a,
+          };
+        }
+      }
+
+      this.forEachFriendlyVehicle(v => {
+        if (!v.alive) return;
+        if (v.airborne && !includeAirborne) return;
+        const lift = v.aimLift ?? 1.4;
+        _losPt.set(v.position.x, v.position.y + lift, v.position.z);
+        const dist = from.distanceTo(_losPt);
+        if (dist >= maxRange) return;
+        const score = (preferArmor && v.armored) ? dist * 0.78 : dist;
+        if (score >= bestScore) return;
+        bestScore = score;
+        best = {
+          kind: 'friendly_vehicle',
+          position: v.position,
+          velocity: v.velocity,
+          distance: dist,
+          aimLift: lift,
+          vehicle: v,
+        };
+      });
+
+      return best;
+    }
+
+    // Collect in-range candidates into reusable scratch buffer, sort ascending by score, and
+    // return on the first unobstructed LOS raycast (exact same best target, ~10x fewer rays).
+    const maxR2 = maxRange * maxRange;
+    let count = 0;
+    const pushCand = (
+      kind: 'player' | 'ally' | 'friendly_vehicle',
+      score: number,
+      distance: number,
+      aimLift: number,
+      position: THREE.Vector3,
+      velocity: THREE.Vector3,
+      player?: PlayerSystem,
+      ally?: Ally,
+      vehicle?: FriendlyGroundTarget,
+    ) => {
+      let c = _groundCands[count];
+      if (!c) {
+        c = { kind, score, distance, aimLift, position, velocity, player, ally, vehicle };
+        _groundCands.push(c);
+      } else {
+        c.kind = kind;
+        c.score = score;
+        c.distance = distance;
+        c.aimLift = aimLift;
+        c.position = position;
+        c.velocity = velocity;
+        c.player = player;
+        c.ally = ally;
+        c.vehicle = vehicle;
+      }
+      count++;
+    };
 
     // 1. Player candidate
     const player = this.quarry(from);
@@ -365,18 +479,13 @@ export class VehicleSystem implements VehicleTargets {
       const maxY = opts?.maxPlayerY ?? 22;
       const elevOk = includeAirborne ? true : (py < maxY && py <= 25);
       if (elevOk) {
-        _losPt.set(player.position.x, player.position.y + 1.1, player.position.z);
-        const dist = from.distanceTo(_losPt);
-        if (dist < maxRange && (!requireLos || this.lineClear(from, _losPt))) {
-          bestScore = dist;
-          best = {
-            kind: 'player',
-            position: player.position,
-            velocity: player.velocity,
-            distance: dist,
-            aimLift: 1.1,
-            player,
-          };
+        const dx = player.position.x - from.x;
+        const dy = player.position.y + 1.1 - from.y;
+        const dz = player.position.z - from.z;
+        const d2 = dx * dx + dy * dy + dz * dz;
+        if (d2 < maxR2) {
+          const dist = Math.sqrt(d2);
+          pushCand('player', dist, dist, 1.1, player.position, player.velocity, player, undefined, undefined);
         }
       }
     }
@@ -388,21 +497,13 @@ export class VehicleSystem implements VehicleTargets {
         const a = allies[i]!;
         if (!a.alive) continue;
         const pos = a.body.position;
-        _losPt.set(pos.x, pos.y + 1.1, pos.z);
-        const dist = from.distanceTo(_losPt);
-        if (dist >= maxRange) continue;
-        const score = dist;
-        if (score >= bestScore) continue;
-        if (requireLos && !this.lineClear(from, _losPt)) continue;
-        bestScore = score;
-        best = {
-          kind: 'ally',
-          position: pos,
-          velocity: a.body.velocity,
-          distance: dist,
-          aimLift: 1.1,
-          ally: a,
-        };
+        const dx = pos.x - from.x;
+        const dy = pos.y + 1.1 - from.y;
+        const dz = pos.z - from.z;
+        const d2 = dx * dx + dy * dy + dz * dz;
+        if (d2 >= maxR2) continue;
+        const dist = Math.sqrt(d2);
+        pushCand('ally', dist, dist, 1.1, pos, a.body.velocity, undefined, a, undefined);
       }
     }
 
@@ -411,24 +512,46 @@ export class VehicleSystem implements VehicleTargets {
       if (!v.alive) return;
       if (v.airborne && !includeAirborne) return;
       const lift = v.aimLift ?? 1.4;
-      _losPt.set(v.position.x, v.position.y + lift, v.position.z);
-      const dist = from.distanceTo(_losPt);
-      if (dist >= maxRange) return;
+      const dx = v.position.x - from.x;
+      const dy = v.position.y + lift - from.y;
+      const dz = v.position.z - from.z;
+      const d2 = dx * dx + dy * dy + dz * dz;
+      if (d2 >= maxR2) return;
+      const dist = Math.sqrt(d2);
       const score = (preferArmor && v.armored) ? dist * 0.78 : dist;
-      if (score >= bestScore) return;
-      if (requireLos && !this.lineClear(from, _losPt)) return;
-      bestScore = score;
-      best = {
-        kind: 'friendly_vehicle',
-        position: v.position,
-        velocity: v.velocity,
-        distance: dist,
-        aimLift: lift,
-        vehicle: v,
-      };
+      pushCand('friendly_vehicle', score, dist, lift, v.position, v.velocity, undefined, undefined, v);
     });
 
-    return best;
+    if (count === 0) return null;
+
+    // Stable insertion sort preserves exact tie-breaking order (player -> allies -> friendly vehicles).
+    for (let i = 1; i < count; i++) {
+      const cur = _groundCands[i]!;
+      let j = i - 1;
+      while (j >= 0 && _groundCands[j]!.score > cur.score) {
+        _groundCands[j + 1] = _groundCands[j]!;
+        j--;
+      }
+      _groundCands[j + 1] = cur;
+    }
+
+    for (let i = 0; i < count; i++) {
+      const c = _groundCands[i]!;
+      _losPt.set(c.position.x, c.position.y + c.aimLift, c.position.z);
+      if (!this.lineClear(from, _losPt)) continue;
+      return {
+        kind: c.kind,
+        position: c.position,
+        velocity: c.velocity,
+        distance: c.distance,
+        aimLift: c.aimLift,
+        player: c.player,
+        ally: c.ally,
+        vehicle: c.vehicle,
+      };
+    }
+
+    return null;
   }
 
   /** Schedules an enemy tank shell / chopper rocket / mortar blast against friendly allies and AI vehicles. */

@@ -1295,6 +1295,7 @@ export class DriveableVehicle {
       const isChute = secResolved.chute;
       const step = isChute ? 0.12 : 0.18;
       const maxSteps = isChute ? 110 : 60;
+      let lastGy = this.phys.groundY;
       for (let i = 0; i < maxSteps; i++) {
         const t = (i + 1) * step;
         _ccipVel.y -= g * step;
@@ -1305,8 +1306,10 @@ export class DriveableVehicle {
           if (_ccipVel.y < -26) _ccipVel.y = -26;
         }
         _ccipPos.addScaledVector(_ccipVel, step);
+        if (_ccipPos.y > lastGy + 24 && (i % 3) !== 2) continue;
         const navGy = this.ctx.world?.nav?.groundHeight?.(_ccipPos.x, _ccipPos.y + 4, _ccipPos.z);
         const gy = typeof navGy === 'number' && Number.isFinite(navGy) ? navGy : this.phys.groundY;
+        lastGy = gy;
         if (_ccipPos.y <= gy) {
           this.ccipOut[0] = _ccipPos.x;
           this.ccipOut[1] = gy + 0.25;
@@ -3022,6 +3025,12 @@ export class DriveableVehicle {
       this.ctx.render?.scene?.remove(gun.root);
     }
     this.mountGuns.clear();
+    const unreg = this.ctx.render?.unregisterBatchedProp?.bind(this.ctx.render);
+    if (unreg) {
+      for (const m of this.model.meshes) {
+        if ((m as THREE.Mesh).isMesh) unreg(m as THREE.Mesh);
+      }
+    }
     this.ctx.render?.scene?.remove(this.model.root);
     if (this.collider) {
       this.ctx.physics?.world?.removeCollider?.(this.collider, false);

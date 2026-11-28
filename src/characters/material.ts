@@ -84,6 +84,12 @@ vWear = op2Wear();
   vSk1 = vec3(2.0 * (q.x * q.y - q.z * q.w), 1.0 - 2.0 * (q.x * q.x + q.z * q.z), 2.0 * (q.y * q.z + q.x * q.w));
   vSk2 = vec3(2.0 * (q.x * q.z + q.y * q.w), 2.0 * (q.y * q.z - q.x * q.w), 1.0 - 2.0 * (q.x * q.x + q.y * q.y));
   #endif
+  #ifdef USE_INSTANCING
+  mat3 op2Inst = mat3(instanceMatrix);
+  vSk0 = op2Inst * vSk0;
+  vSk1 = op2Inst * vSk1;
+  vSk2 = op2Inst * vSk2;
+  #endif
 }
 `;
 

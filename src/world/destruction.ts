@@ -57,6 +57,7 @@ import {
   computeNodeMass,
   inferSupportRole,
   solveStructuralIntegrity,
+  solveVerticalOverloadOnly,
   type SupportRole,
 } from './structuralSolver';
 
@@ -111,8 +112,10 @@ const DEFAULT_COLLAPSE_THRESHOLD = 0.65;
 /** Maximum dynamic lifetime (seconds) before a chunk settles into static rubble and releases its rigid body. */
 const DYNAMIC_MAX_AGE = 6.0;
 const DYNAMIC_STILL_TIME = 1.1;
-/** Minimum intact node count in a cluster to enable merged per-material intact batch rendering. */
-const BATCH_MIN_NODES = 16;
+/** Spatial chunk size (m) for global cross-cluster intact destruction batching. */
+const DESTRUCT_CHUNK_SIZE = 256;
+/** Minimum interval (s) between 4096² static shadow map refreshes during active bombardment. */
+const SHADOW_REFRESH_COOLDOWN = 0.3;
 
 // ---------------------------------------------------------------------------------------------
 // Cluster & Node Types
@@ -536,18 +539,220 @@ function nodeDamageMultiplier(node: StructuralNode, source: string): number {
   return 0;
 }
 
-/** Merges a list of intact batched structural nodes sharing a `Mat` into a single world-space BufferGeometry. */
-function mergeIntactBatchGeometry(nodes: readonly StructuralNode[]): THREE.BufferGeometry | null {
+function matCastsShadow(mat: Mat): boolean {
+  return mat !== 'glass' && !mat.startsWith('emissive');
+}
+
+function resolveColorBytes(color?: number | readonly [number, number, number]): [number, number, number] {
+  if (typeof color === 'number') {
+    _c.setHex(color);
+    return [clamp(Math.round(_c.r * 255), 0, 255), clamp(Math.round(_c.g * 255), 0, 255), clamp(Math.round(_c.b * 255), 0, 255)];
+  }
+  if (Array.isArray(color)) {
+    return [clamp(Math.round(color[0] * 255), 0, 255), clamp(Math.round(color[1] * 255), 0, 255), clamp(Math.round(color[2] * 255), 0, 255)];
+  }
+  return [255, 255, 255];
+}
+
+interface SpatialBatch {
+  readonly key: string;
+  readonly mat: Mat;
+  readonly nodes: Set<StructuralNodeImpl>;
+  mesh: THREE.Mesh | null;
+  dirty: boolean;
+}
+
+/**
+ * Runtime node record that lazily constructs its subdivided deformable geometry, `THREE.Mesh`, and rest buffers
+ * on first access (`promoteNodeFromBatch` or direct test inspection). Intact batched cuboids therefore cost zero
+ * subdivided geometry and zero `THREE.Mesh` objects until struck!
+ */
+class StructuralNodeImpl implements StructuralNode {
+  readonly id: string;
+  readonly origId: string;
+  readonly clusterId: string;
+  readonly spec: StructuralNodeSpec;
+  readonly basePos: THREE.Vector3;
+  readonly half: THREE.Vector3;
+  readonly baseQuat: THREE.Quaternion;
+  readonly mat: Mat;
+  readonly materialClass: MaterialClass;
+  readonly structuralMaterial: StructuralMaterial;
+  readonly supportRole: SupportRole;
+  readonly mass: number;
+  readonly loadCapacity: number;
+  readonly isFractureCell: boolean;
+  readonly lazyFracture: boolean;
+  readonly navBlock: boolean;
+  readonly navWalkable: boolean;
+  navBlocked = false;
+  initialSupportCount = 0;
+  initialAnchoredSupportCount = 0;
+  readonly tier: DestructionTier;
+  readonly anchored: boolean;
+  readonly kind: StructuralNodeKind;
+  readonly maxHp: number;
+  readonly keyNode: boolean;
+  hp: number;
+  state: StructuralNodeState = 'intact';
+  batched: boolean;
+  batchKey: string | null = null;
+  deformStrain = 0;
+  deformStage = 0;
+  readonly bendDirLocal = new THREE.Vector3();
+  readonly lastImpactLocal = new THREE.Vector3();
+  staticCollider: RAPIER.Collider | null;
+  dynamicBody: RAPIER.RigidBody | null = null;
+  tiltElapsed = 0;
+  tiltDuration = 0;
+  tiltMaxAngle = 0.48;
+  tiltFxTimer = 0;
+  tiltBendApplied = false;
+  readonly tiltAxis = new THREE.Vector3(1, 0, 0);
+  readonly tiltHingeOffset = new THREE.Vector3();
+  tiltBlastOrigin: THREE.Vector3 | null = null;
+  tiltIsNuke = false;
+
+  _mesh: THREE.Mesh | null = null;
+  _geom: THREE.BufferGeometry | null;
+  _restPositions: Float32Array | null = null;
+  _restColors: Uint8Array | null = null;
+  _cleared = false;
+  private readonly _materialFn: (m: Mat) => THREE.Material;
+  private readonly _geomRegistry: THREE.BufferGeometry[];
+
+  constructor(
+    clusterId: string,
+    ns: StructuralNodeSpec,
+    nodeId: string,
+    basePos: THREE.Vector3,
+    half: THREE.Vector3,
+    baseQuat: THREE.Quaternion,
+    anchored: boolean,
+    geom: THREE.BufferGeometry | null,
+    materialClass: MaterialClass,
+    structuralMaterial: StructuralMaterial,
+    isFractureCell: boolean,
+    lazyFracture: boolean,
+    navBlock: boolean,
+    navWalkable: boolean,
+    staticCollider: RAPIER.Collider | null,
+    batched: boolean,
+    materialFn: (m: Mat) => THREE.Material,
+    geomRegistry: THREE.BufferGeometry[],
+  ) {
+    this.id = nodeId;
+    this.origId = ns.id;
+    this.clusterId = clusterId;
+    this.spec = ns;
+    this.basePos = basePos;
+    this.half = half;
+    this.baseQuat = baseQuat;
+    this.mat = ns.mat;
+    this.materialClass = materialClass;
+    this.structuralMaterial = structuralMaterial;
+    this.supportRole = inferSupportRole(ns.kind, structuralMaterial, ns.supportRole);
+    this.mass = computeNodeMass(half, structuralMaterial);
+    this.loadCapacity = computeNodeLoadCapacity(half, ns.kind, structuralMaterial, ns.loadCapacity);
+    this.isFractureCell = isFractureCell;
+    this.lazyFracture = lazyFracture;
+    this.navBlock = navBlock;
+    this.navWalkable = navWalkable;
+    this.tier = ns.tier;
+    this.anchored = anchored;
+    this.kind = ns.kind;
+    this.maxHp = ns.hp;
+    this.keyNode = ns.keyNode === true;
+    this.hp = ns.hp;
+    this.batched = batched;
+    this.staticCollider = staticCollider;
+    this._geom = geom;
+    this._materialFn = materialFn;
+    this._geomRegistry = geomRegistry;
+    if (geom) geomRegistry.push(geom);
+  }
+
+  materialize(): THREE.Mesh {
+    if (this._mesh) return this._mesh;
+    let geom = this._geom;
+    if (!geom) {
+      geom = buildSubdividedBoxGeometry(this.half, this.spec.color);
+      this._geom = geom;
+      this._geomRegistry.push(geom);
+    }
+    const mesh = new THREE.Mesh(geom, this._materialFn(this.mat));
+    mesh.position.copy(this.basePos);
+    mesh.quaternion.copy(this.baseQuat);
+    mesh.matrixAutoUpdate = false;
+    mesh.updateMatrix();
+    const casts = matCastsShadow(this.mat);
+    mesh.castShadow = casts;
+    mesh.receiveShadow = true;
+    mesh.userData.staticShadow = casts;
+    this._mesh = mesh;
+    return mesh;
+  }
+
+  get mesh(): THREE.Mesh | null {
+    if (this._cleared) return null;
+    if (!this._mesh) this.materialize();
+    return this._mesh;
+  }
+
+  set mesh(v: THREE.Mesh | null) {
+    this._mesh = v;
+    if (v === null) this._cleared = true;
+  }
+
+  get restPositions(): Float32Array {
+    if (!this._restPositions) {
+      if (!this._geom) this.materialize();
+      const posAttr = this._geom!.getAttribute('position') as THREE.BufferAttribute;
+      this._restPositions = new Float32Array(posAttr.array as Float32Array);
+    }
+    return this._restPositions;
+  }
+
+  get restColors(): Uint8Array {
+    if (!this._restColors) {
+      if (!this._geom) this.materialize();
+      const colAttr = this._geom!.getAttribute('color') as THREE.BufferAttribute;
+      this._restColors = new Uint8Array(colAttr.array as Uint8Array);
+    }
+    return this._restColors;
+  }
+}
+
+// 6-face flat cuboid template matching buildSubdividedBoxGeometry's exact planar UVs (scale 0.35) & CCW outward winding.
+const BOX_FACE_NORMALS: readonly [number, number, number][] = [
+  [1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1],
+];
+// Per-face 4 corner signs [sx, sy, sz] in CCW order viewed from outside.
+const BOX_FACE_SIGNS: readonly (readonly [number, number, number])[] = [
+  [1, -1, 1], [1, -1, -1], [1, 1, -1], [1, 1, 1],       // +X
+  [-1, -1, -1], [-1, -1, 1], [-1, 1, 1], [-1, 1, -1],   // -X
+  [-1, 1, 1], [1, 1, 1], [1, 1, -1], [-1, 1, -1],       // +Y
+  [-1, -1, -1], [1, -1, -1], [1, -1, 1], [-1, -1, 1],   // -Y
+  [-1, -1, 1], [1, -1, 1], [1, 1, 1], [-1, 1, 1],       // +Z
+  [1, -1, -1], [-1, -1, -1], [-1, 1, -1], [1, 1, -1],   // -Z
+];
+
+/** Merges intact batched structural nodes sharing a spatial chunk and `Mat` into one world-space BufferGeometry. */
+function mergeSpatialBatchGeometry(nodes: ReadonlySet<StructuralNodeImpl>): THREE.BufferGeometry | null {
   let totalVerts = 0;
   let totalIndices = 0;
-  for (let i = 0; i < nodes.length; i++) {
-    const geom = nodes[i]!.mesh?.geometry;
-    if (!geom) continue;
-    const pos = geom.getAttribute('position') as THREE.BufferAttribute | undefined;
-    if (!pos) continue;
-    totalVerts += pos.count;
-    const idx = geom.getIndex();
-    totalIndices += idx ? idx.count : pos.count;
+  for (const node of nodes) {
+    if (node.state !== 'intact' || !node.batched) continue;
+    if (node._geom) {
+      const pos = node._geom.getAttribute('position') as THREE.BufferAttribute | undefined;
+      if (!pos) continue;
+      totalVerts += pos.count;
+      const idx = node._geom.getIndex();
+      totalIndices += idx ? idx.count : pos.count;
+    } else {
+      totalVerts += 24;
+      totalIndices += 36;
+    }
   }
   if (totalVerts === 0 || totalIndices === 0) return null;
 
@@ -555,22 +760,82 @@ function mergeIntactBatchGeometry(nodes: readonly StructuralNode[]): THREE.Buffe
   const normals = new Float32Array(totalVerts * 3);
   const uvs = new Float32Array(totalVerts * 2);
   const colors = new Uint8Array(totalVerts * 4);
-  const indices = new Uint32Array(totalIndices);
+  const indices = totalVerts <= 65535 ? new Uint16Array(totalIndices) : new Uint32Array(totalIndices);
 
   let vOffset = 0;
   let iOffset = 0;
-  for (let nIdx = 0; nIdx < nodes.length; nIdx++) {
-    const node = nodes[nIdx]!;
-    const geom = node.mesh?.geometry;
-    if (!geom) continue;
+  const uvScale = 0.35;
+
+  for (const node of nodes) {
+    if (node.state !== 'intact' || !node.batched) continue;
+    const geom = node._geom;
+    const bp = node.basePos;
+    const bq = node.baseQuat;
+
+    if (!geom) {
+      // Fast 24-vertex / 12-triangle flat cuboid (visually identical to intact subdivided cuboid at 5-10x fewer verts).
+      const hx = node.half.x;
+      const hy = node.half.y;
+      const hz = node.half.z;
+      const [r8, g8, b8] = resolveColorBytes(node.spec.color);
+
+      for (let f = 0; f < 6; f++) {
+        const fn = BOX_FACE_NORMALS[f]!;
+        _v2.set(fn[0], fn[1], fn[2]).applyQuaternion(bq);
+        const nx = _v2.x;
+        const ny = _v2.y;
+        const nz = _v2.z;
+        const faceBase = vOffset;
+
+        for (let c = 0; c < 4; c++) {
+          const s = BOX_FACE_SIGNS[f * 4 + c]!;
+          const lx = s[0] * hx;
+          const ly = s[1] * hy;
+          const lz = s[2] * hz;
+          _v.set(lx, ly, lz).applyQuaternion(bq).add(bp);
+          const d3 = vOffset * 3;
+          positions[d3] = _v.x;
+          positions[d3 + 1] = _v.y;
+          positions[d3 + 2] = _v.z;
+          normals[d3] = nx;
+          normals[d3 + 1] = ny;
+          normals[d3 + 2] = nz;
+
+          const d2 = vOffset * 2;
+          if (f < 2) {
+            uvs[d2] = lz * uvScale;
+            uvs[d2 + 1] = ly * uvScale;
+          } else if (f < 4) {
+            uvs[d2] = lx * uvScale;
+            uvs[d2 + 1] = lz * uvScale;
+          } else {
+            uvs[d2] = lx * uvScale;
+            uvs[d2 + 1] = ly * uvScale;
+          }
+
+          const d4 = vOffset * 4;
+          colors[d4] = r8;
+          colors[d4 + 1] = g8;
+          colors[d4 + 2] = b8;
+          colors[d4 + 3] = 255;
+          vOffset++;
+        }
+
+        indices[iOffset++] = faceBase;
+        indices[iOffset++] = faceBase + 1;
+        indices[iOffset++] = faceBase + 2;
+        indices[iOffset++] = faceBase;
+        indices[iOffset++] = faceBase + 2;
+        indices[iOffset++] = faceBase + 3;
+      }
+      continue;
+    }
+
     const posAttr = geom.getAttribute('position') as THREE.BufferAttribute | undefined;
     const nrmAttr = geom.getAttribute('normal') as THREE.BufferAttribute | undefined;
     const uvAttr = geom.getAttribute('uv') as THREE.BufferAttribute | undefined;
     const colAttr = geom.getAttribute('color') as THREE.BufferAttribute | undefined;
     if (!posAttr) continue;
-
-    _mat4.compose(node.basePos, node.baseQuat, _scaleOne);
-    _normMat3.getNormalMatrix(_mat4);
 
     const vCount = posAttr.count;
     const pArr = posAttr.array as Float32Array;
@@ -581,13 +846,13 @@ function mergeIntactBatchGeometry(nodes: readonly StructuralNode[]): THREE.Buffe
     for (let v = 0; v < vCount; v++) {
       const o3 = v * 3;
       const d3 = (vOffset + v) * 3;
-      _v.set(pArr[o3]!, pArr[o3 + 1]!, pArr[o3 + 2]!).applyMatrix4(_mat4);
+      _v.set(pArr[o3]!, pArr[o3 + 1]!, pArr[o3 + 2]!).applyQuaternion(bq).add(bp);
       positions[d3] = _v.x;
       positions[d3 + 1] = _v.y;
       positions[d3 + 2] = _v.z;
 
       if (nArr) {
-        _v.set(nArr[o3]!, nArr[o3 + 1]!, nArr[o3 + 2]!).applyMatrix3(_normMat3).normalize();
+        _v.set(nArr[o3]!, nArr[o3 + 1]!, nArr[o3 + 2]!).applyQuaternion(bq);
         normals[d3] = _v.x;
         normals[d3 + 1] = _v.y;
         normals[d3 + 2] = _v.z;
@@ -714,6 +979,8 @@ export class DestructionManager implements DestructionManagerLike {
   private readonly clusters: StructuralCluster[] = [];
   private readonly byTag = new Map<string, StructuralCluster>();
   private readonly byCollider = new Map<number, { cluster: StructuralCluster; node: StructuralNode }>();
+  private readonly spatialBatches = new Map<string, SpatialBatch>();
+  private readonly dirtyBatches = new Set<SpatialBatch>();
   private readonly tilting: { cluster: StructuralCluster; node: StructuralNode }[] = [];
   private readonly buckling: BucklingEntry[] = [];
   private readonly bucklingIds = new Set<string>();
@@ -729,6 +996,7 @@ export class DestructionManager implements DestructionManagerLike {
   private readonly _crushPt = new THREE.Vector3();
   private readonly _crushDir = new THREE.Vector3();
   private shadowRefreshPending = false;
+  private lastShadowRefreshAt = -10;
   private time = 0;
   private nextId = 1;
   private lastHintAt = -10;
@@ -801,9 +1069,11 @@ export class DestructionManager implements DestructionManagerLike {
     this.shadowRefreshPending = true;
   }
 
-  private flushStaticShadowRefresh(): void {
+  private flushStaticShadowRefresh(force = false): void {
     if (!this.shadowRefreshPending) return;
+    if (!force && this.time - this.lastShadowRefreshAt < SHADOW_REFRESH_COOLDOWN) return;
     this.shadowRefreshPending = false;
+    this.lastShadowRefreshAt = this.time;
     (this.ctx.render as { refreshStaticShadows?: () => void } | undefined)?.refreshStaticShadows?.();
   }
 
@@ -848,63 +1118,91 @@ export class DestructionManager implements DestructionManagerLike {
     return this.ctx.physics.addStaticBox(basePos, half, baseQuat, surface);
   }
 
-  private clearClusterBatchMeshes(cluster: StructuralCluster): void {
-    for (let i = 0; i < cluster.batchMeshes.length; i++) {
-      const m = cluster.batchMeshes[i]!;
-      this.root.remove(m);
-      m.geometry.dispose();
-    }
-    cluster.batchMeshes.length = 0;
+  private spatialBatchKey(pos: THREE.Vector3, mat: Mat): string {
+    const cx = Math.floor(pos.x / DESTRUCT_CHUNK_SIZE);
+    const cz = Math.floor(pos.z / DESTRUCT_CHUNK_SIZE);
+    return `${cx}:${cz}:${mat}`;
   }
 
-  private rebuildClusterBatch(cluster: StructuralCluster): void {
-    cluster.batchDirty = false;
-    this.clearClusterBatchMeshes(cluster);
-    if (!cluster.batchEnabled) return;
-
-    const byMat = new Map<Mat, StructuralNode[]>();
-    for (let i = 0; i < cluster.nodes.length; i++) {
-      const n = cluster.nodes[i]!;
-      if (n.state !== 'intact' || !n.batched) continue;
-      let list = byMat.get(n.mat);
-      if (!list) {
-        list = [];
-        byMat.set(n.mat, list);
-      }
-      list.push(n);
+  private registerBatchedNode(node: StructuralNodeImpl): void {
+    const key = this.spatialBatchKey(node.basePos, node.mat);
+    let batch = this.spatialBatches.get(key);
+    if (!batch) {
+      batch = { key, mat: node.mat, nodes: new Set(), mesh: null, dirty: false };
+      this.spatialBatches.set(key, batch);
     }
-
-    for (const [mat, list] of byMat) {
-      const geom = mergeIntactBatchGeometry(list);
-      if (!geom) continue;
-      const mesh = new THREE.Mesh(geom, this.material(mat));
-      mesh.matrixAutoUpdate = false;
-      mesh.updateMatrix();
-      mesh.castShadow = true;
-      mesh.receiveShadow = true;
-      mesh.userData.staticShadow = true;
-      this.root.add(mesh);
-      cluster.batchMeshes.push(mesh);
+    batch.nodes.add(node);
+    node.batchKey = key;
+    if (!batch.dirty) {
+      batch.dirty = true;
+      this.dirtyBatches.add(batch);
     }
+  }
+
+  private unregisterBatchedNode(node: StructuralNodeImpl): void {
+    const key = node.batchKey;
+    if (!key) return;
+    node.batchKey = null;
+    const batch = this.spatialBatches.get(key);
+    if (!batch) return;
+    if (batch.nodes.delete(node) && !batch.dirty) {
+      batch.dirty = true;
+      this.dirtyBatches.add(batch);
+    }
+  }
+
+  private rebuildSpatialBatch(batch: SpatialBatch): void {
+    batch.dirty = false;
+    if (batch.mesh) {
+      this.root.remove(batch.mesh);
+      batch.mesh.geometry.dispose();
+      batch.mesh = null;
+    }
+    if (batch.nodes.size === 0) {
+      this.spatialBatches.delete(batch.key);
+      return;
+    }
+    const geom = mergeSpatialBatchGeometry(batch.nodes);
+    if (!geom) {
+      if (batch.nodes.size === 0) this.spatialBatches.delete(batch.key);
+      return;
+    }
+    const mesh = new THREE.Mesh(geom, this.material(batch.mat));
+    mesh.name = `destruct-batch:${batch.key}`;
+    mesh.matrixAutoUpdate = false;
+    mesh.updateMatrix();
+    const casts = matCastsShadow(batch.mat);
+    mesh.castShadow = casts;
+    mesh.receiveShadow = true;
+    mesh.userData.staticShadow = casts;
+    this.root.add(mesh);
+    batch.mesh = mesh;
+  }
+
+  /** Builds all dirty cross-cluster spatial batches immediately (call once after loading map clusters). */
+  flushBatches(): void {
+    this.flushDirtyBatches(true);
+  }
+
+  private flushDirtyBatches(forceShadow = false): void {
+    if (this.dirtyBatches.size === 0) return;
+    for (const batch of this.dirtyBatches) {
+      this.rebuildSpatialBatch(batch);
+    }
+    this.dirtyBatches.clear();
     this.requestStaticShadowRefresh();
-  }
-
-  private flushDirtyBatches(): void {
-    for (let i = 0; i < this.clusters.length; i++) {
-      const c = this.clusters[i]!;
-      if (c.batchDirty) this.rebuildClusterBatch(c);
-    }
+    if (forceShadow) this.flushStaticShadowRefresh(true);
   }
 
   /** Promotes an intact batched node to its own live Three.js mesh on first deformation/tilt/break. */
-  private promoteNodeFromBatch(cluster: StructuralCluster, node: StructuralNode): void {
+  private promoteNodeFromBatch(_cluster: StructuralCluster, node: StructuralNode): void {
     if (!node.batched) return;
-    node.batched = false;
-    if (node.mesh && node.mesh.parent !== this.root) {
-      this.root.add(node.mesh);
-    }
-    if (cluster.batchEnabled) {
-      cluster.batchDirty = true;
+    const impl = node as StructuralNodeImpl;
+    impl.batched = false;
+    this.unregisterBatchedNode(impl);
+    const mesh = impl.materialize();
+    if (mesh.parent !== this.root) {
+      this.root.add(mesh);
     }
   }
 
@@ -916,7 +1214,7 @@ export class DestructionManager implements DestructionManagerLike {
     half: THREE.Vector3,
     baseQuat: THREE.Quaternion,
     anchored: boolean,
-    geom: THREE.BufferGeometry,
+    geom: THREE.BufferGeometry | null,
     materialClass: MaterialClass,
     structuralMaterial: StructuralMaterial,
     isFractureCell: boolean,
@@ -926,75 +1224,33 @@ export class DestructionManager implements DestructionManagerLike {
     staticCollider: RAPIER.Collider | null,
     batched: boolean,
   ): StructuralNode {
-    this.geometries.push(geom);
-    const mesh = new THREE.Mesh(geom, this.material(ns.mat));
-    mesh.position.copy(basePos);
-    mesh.quaternion.copy(baseQuat);
-    mesh.matrixAutoUpdate = false;
-    mesh.updateMatrix();
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
-    mesh.userData.staticShadow = true;
-    if (!batched) {
-      this.root.add(mesh);
-    }
-
-    const posAttr = geom.getAttribute('position') as THREE.BufferAttribute;
-    const colAttr = geom.getAttribute('color') as THREE.BufferAttribute;
-    const restPositions = new Float32Array(posAttr.array as Float32Array);
-    const restColors = new Uint8Array(colAttr.array as Uint8Array);
-    const supportRole = inferSupportRole(ns.kind, structuralMaterial, ns.supportRole);
-    const mass = computeNodeMass(half, structuralMaterial);
-    const loadCapacity = computeNodeLoadCapacity(half, ns.kind, structuralMaterial, ns.loadCapacity);
-
-    const node: StructuralNode = {
-      id: nodeId,
-      origId: ns.id,
-      clusterId: cluster.id,
-      spec: ns,
+    const node = new StructuralNodeImpl(
+      cluster.id,
+      ns,
+      nodeId,
       basePos,
       half,
       baseQuat,
-      mat: ns.mat,
+      anchored,
+      geom,
       materialClass,
       structuralMaterial,
-      supportRole,
-      mass,
-      loadCapacity,
       isFractureCell,
       lazyFracture,
       navBlock,
       navWalkable,
-      navBlocked: false,
-      initialSupportCount: 0,
-      initialAnchoredSupportCount: 0,
-      tier: ns.tier,
-      anchored,
-      kind: ns.kind,
-      maxHp: ns.hp,
-      keyNode: ns.keyNode === true,
-      restPositions,
-      restColors,
-      hp: ns.hp,
-      state: 'intact',
-      batched,
-      deformStrain: 0,
-      deformStage: 0,
-      bendDirLocal: new THREE.Vector3(),
-      lastImpactLocal: new THREE.Vector3(),
-      mesh,
       staticCollider,
-      dynamicBody: null,
-      tiltElapsed: 0,
-      tiltDuration: 0,
-      tiltMaxAngle: 0.48,
-      tiltFxTimer: 0,
-      tiltBendApplied: false,
-      tiltAxis: new THREE.Vector3(1, 0, 0),
-      tiltHingeOffset: new THREE.Vector3(),
-      tiltBlastOrigin: null,
-      tiltIsNuke: false,
-    };
+      batched,
+      this.material,
+      this.geometries,
+    );
+
+    if (batched) {
+      this.registerBatchedNode(node);
+    } else {
+      const mesh = node.materialize();
+      this.root.add(mesh);
+    }
 
     cluster.nodes.push(node);
     cluster.byId.set(node.id, node);
@@ -1010,7 +1266,6 @@ export class DestructionManager implements DestructionManagerLike {
 
   private buildClusterRuntime(cluster: StructuralCluster): void {
     const { spec } = cluster;
-    this.clearClusterBatchMeshes(cluster);
     cluster.nodes.length = 0;
     cluster.byId.clear();
     cluster.cellGroups.clear();
@@ -1019,7 +1274,7 @@ export class DestructionManager implements DestructionManagerLike {
     cluster.lastGroanAt = -10;
     cluster.center.set(0, 0, 0);
     cluster.radius = 0;
-    cluster.batchEnabled = spec.batched ?? (spec.nodes.length >= BATCH_MIN_NODES);
+    cluster.batchEnabled = spec.batched !== false;
     cluster.batchDirty = false;
 
     const linkExact = (a: string, b: string) => {
@@ -1085,7 +1340,8 @@ export class DestructionManager implements DestructionManagerLike {
         }
         cluster.cellGroups.set(ns.id, created);
       } else {
-        const geom = buildSubdividedBoxGeometry(parentHalf, ns.color);
+        // Batched intact cuboids skip subdivided geometry allocation until promoted on impact!
+        const geom = cluster.batchEnabled ? null : buildSubdividedBoxGeometry(parentHalf, ns.color);
         const col = this.ctx.physics.addStaticBox(parentPos, parentHalf, parentQuat, surface);
         const node = this.createNodeRecord(
           cluster,
@@ -1168,10 +1424,6 @@ export class DestructionManager implements DestructionManagerLike {
         n.initialAnchoredSupportCount = m.anchoredSupports;
       }
     }
-
-    if (cluster.batchEnabled) {
-      this.rebuildClusterBatch(cluster);
-    }
   }
 
   /**
@@ -1201,16 +1453,18 @@ export class DestructionManager implements DestructionManagerLike {
     // Record parent's external neighbors before replacing it
     const externalNeighbors = [...(cluster.adjacency.get(parent.id) ?? [])];
 
-    // Tear down parent runtime state cleanly
+    // Tear down parent runtime state cleanly without materializing unused lazy mesh
     this.removeStaticCollider(parent);
     if (parent.navBlocked) this.setNodeNavBlocked(parent, false);
-    if (parent.mesh && parent.mesh.parent === this.root) {
-      this.root.remove(parent.mesh);
+    const parentImpl = parent as StructuralNodeImpl;
+    if (parentImpl._mesh && parentImpl._mesh.parent === this.root) {
+      this.root.remove(parentImpl._mesh);
     }
-    if (parent.batched && cluster.batchEnabled) {
-      cluster.batchDirty = true;
+    if (parentImpl.batched) {
+      parentImpl.batched = false;
+      this.unregisterBatchedNode(parentImpl);
     }
-    parent.batched = false;
+    parentImpl._cleared = true;
     parent.state = 'gone';
 
     const parentIdx = cluster.nodes.indexOf(parent);
@@ -1866,9 +2120,9 @@ export class DestructionManager implements DestructionManagerLike {
   }
 
   private checkOverloadOnly(cluster: StructuralCluster, origin: THREE.Vector3 | null): void {
-    const res = solveStructuralIntegrity(cluster);
-    if (res.overloaded.length > 0) {
-      this.queueOverloadedColumns(cluster, res.overloaded, origin);
+    const overloaded = solveVerticalOverloadOnly(cluster);
+    if (overloaded.length > 0) {
+      this.queueOverloadedColumns(cluster, overloaded, origin);
     }
   }
 
@@ -2496,8 +2750,9 @@ export class DestructionManager implements DestructionManagerLike {
       this.clusters.push(cluster);
       if (cluster.tag) this.byTag.set(cluster.tag, cluster);
     }
+    this.flushBatches();
     this.requestStaticShadowRefresh();
-    this.flushStaticShadowRefresh();
+    this.flushStaticShadowRefresh(true);
   }
 
   /** Removes all clusters, meshes, colliders, dynamic bodies, rubble mounds, splinters, pending hazards, and active sweeps. */
@@ -2521,18 +2776,30 @@ export class DestructionManager implements DestructionManagerLike {
     }
     this.rubbleMounds.length = 0;
 
+    for (const batch of this.spatialBatches.values()) {
+      if (batch.mesh) {
+        this.root.remove(batch.mesh);
+        batch.mesh.geometry.dispose();
+        batch.mesh = null;
+      }
+      batch.nodes.clear();
+    }
+    this.spatialBatches.clear();
+    this.dirtyBatches.clear();
+
     for (const cluster of this.clusters) {
-      this.clearClusterBatchMeshes(cluster);
       for (const node of cluster.nodes) {
         if (node.navBlocked) this.setNodeNavBlocked(node, false);
         if (node.staticCollider) {
           this.ctx.physics.world.removeCollider(node.staticCollider, false);
           node.staticCollider = null;
         }
-        if (node.mesh) {
-          this.root.remove(node.mesh);
-          node.mesh = null;
+        const impl = node as StructuralNodeImpl;
+        if (impl._mesh) {
+          this.root.remove(impl._mesh);
+          impl._mesh = null;
         }
+        impl._cleared = true;
       }
     }
     this.byCollider.clear();
@@ -2542,7 +2809,7 @@ export class DestructionManager implements DestructionManagerLike {
     for (const g of this.geometries) g.dispose();
     this.geometries.length = 0;
     this.requestStaticShadowRefresh();
-    this.flushStaticShadowRefresh();
+    this.flushStaticShadowRefresh(true);
   }
 
   dispose(): void {

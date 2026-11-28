@@ -27,10 +27,10 @@ import type { VehicleSystem } from '../../enemies/vehicles';
 import { ModelMaterials } from '../../progression/modelkit';
 
 interface AirProjectile {
-  mesh: THREE.Mesh;
   pos: THREE.Vector3;
   lastTrail: THREE.Vector3;
   vel: THREE.Vector3;
+  quat: THREE.Quaternion;
   team: AiJetTeam;
   damage: number;
   life: number;
@@ -47,6 +47,8 @@ export interface CrossfireAirWingCallbacks {
   onGroundStrike?: (from: THREE.Vector3, hitPoint: THREE.Vector3, damage: number, attackerName: string, heavyBomb: boolean) => void;
 }
 
+const MAX_PROJECTILES = 90;
+
 const _v = new THREE.Vector3();
 const _v2 = new THREE.Vector3();
 const _trailPt = new THREE.Vector3();
@@ -54,6 +56,8 @@ const _back = new THREE.Vector3();
 const _up = new THREE.Vector3(0, 1, 0);
 const _quat = new THREE.Quaternion();
 const _zAxis = new THREE.Vector3(0, 0, 1);
+const _oneScale = new THREE.Vector3(1, 1, 1);
+const _instMat = new THREE.Matrix4();
 
 export const CROSSFIRE_AIR_THEATER: AiJetTheater = {
   minAlt: 24,
@@ -86,6 +90,7 @@ export class CrossfireAirWing {
   readonly materials: ModelMaterials;
 
   private readonly projectiles: AirProjectile[] = [];
+  private readonly projectilePool: AirProjectile[] = [];
   private readonly waveJets = new Map<string, Set<AiCombatJet>>();
   private readonly jetToWave = new Map<AiCombatJet, string>();
   private readonly clearedWaves = new Set<string>();
@@ -102,6 +107,11 @@ export class CrossfireAirWing {
   private readonly allyTracerMat = new THREE.MeshBasicMaterial({ color: 0xffe484 });
   private readonly enemyMissileMat = new THREE.MeshBasicMaterial({ color: 0xff3b30 });
   private readonly allyMissileMat = new THREE.MeshBasicMaterial({ color: 0x56f0ff });
+  private readonly enemyTracerInst: THREE.InstancedMesh;
+  private readonly allyTracerInst: THREE.InstancedMesh;
+  private readonly enemyMissileInst: THREE.InstancedMesh;
+  private readonly allyMissileInst: THREE.InstancedMesh;
+  private instAdded = false;
 
   constructor(
     private readonly ctx: Ctx,
@@ -109,6 +119,10 @@ export class CrossfireAirWing {
     private readonly theater: AiJetTheater = CROSSFIRE_AIR_THEATER,
   ) {
     this.missileGeo.rotateX(Math.PI / 2);
+    this.enemyTracerInst = this.makeInst(this.tracerGeo, this.enemyTracerMat);
+    this.allyTracerInst = this.makeInst(this.tracerGeo, this.allyTracerMat);
+    this.enemyMissileInst = this.makeInst(this.missileGeo, this.enemyMissileMat);
+    this.allyMissileInst = this.makeInst(this.missileGeo, this.allyMissileMat);
     this.materials = new ModelMaterials(ctx);
     this.wreckage = new DogfightWreckageSystem(ctx, ctx.enemies as unknown as EnemyManager, {
       onBombHitCarrier: () => { /* Crossfire bombers attack ground/escort targets, not CVN-88. */ },
@@ -119,6 +133,62 @@ export class CrossfireAirWing {
         this.handlePlayerFlares();
       });
     }
+  }
+
+  private makeInst(geo: THREE.BufferGeometry, mat: THREE.Material): THREE.InstancedMesh {
+    const inst = new THREE.InstancedMesh(geo, mat, MAX_PROJECTILES);
+    inst.count = 0;
+    inst.visible = false;
+    inst.frustumCulled = false;
+    inst.castShadow = false;
+    inst.receiveShadow = false;
+    return inst;
+  }
+
+  private ensureInstAdded(): void {
+    if (this.instAdded) return;
+    const scene = this.ctx.render?.scene;
+    if (!scene) return;
+    scene.add(this.enemyTracerInst, this.allyTracerInst, this.enemyMissileInst, this.allyMissileInst);
+    this.instAdded = true;
+  }
+
+  private releaseProjectile(p: AirProjectile): void {
+    p.targetJet = null;
+    this.projectilePool.push(p);
+  }
+
+  private syncProjectileInstances(): void {
+    let et = 0;
+    let at = 0;
+    let em = 0;
+    let am = 0;
+    for (let i = 0; i < this.projectiles.length; i++) {
+      const p = this.projectiles[i]!;
+      _instMat.compose(p.pos, p.quat, _oneScale);
+      if (p.missile) {
+        if (p.team === 'enemy') this.enemyMissileInst.setMatrixAt(em++, _instMat);
+        else this.allyMissileInst.setMatrixAt(am++, _instMat);
+      } else {
+        if (p.team === 'enemy') this.enemyTracerInst.setMatrixAt(et++, _instMat);
+        else this.allyTracerInst.setMatrixAt(at++, _instMat);
+      }
+    }
+    this.enemyTracerInst.count = et;
+    this.enemyTracerInst.visible = et > 0;
+    if (et > 0) this.enemyTracerInst.instanceMatrix.needsUpdate = true;
+
+    this.allyTracerInst.count = at;
+    this.allyTracerInst.visible = at > 0;
+    if (at > 0) this.allyTracerInst.instanceMatrix.needsUpdate = true;
+
+    this.enemyMissileInst.count = em;
+    this.enemyMissileInst.visible = em > 0;
+    if (em > 0) this.enemyMissileInst.instanceMatrix.needsUpdate = true;
+
+    this.allyMissileInst.count = am;
+    this.allyMissileInst.visible = am > 0;
+    if (am > 0) this.allyMissileInst.instanceMatrix.needsUpdate = true;
   }
 
   private get vehicleSystem(): Partial<VehicleSystem> | undefined {
@@ -330,35 +400,46 @@ export class CrossfireAirWing {
     targetJet: AiCombatJet | null,
     targetPlayer: boolean,
   ): void {
-    if (this.projectiles.length >= 90) {
-      const oldest = this.projectiles.shift();
-      if (oldest) this.ctx.render?.scene?.remove(oldest.mesh);
+    this.ensureInstAdded();
+    let p: AirProjectile | undefined;
+    if (this.projectiles.length >= MAX_PROJECTILES) {
+      p = this.projectiles.shift();
+    } else {
+      p = this.projectilePool.pop();
     }
 
-    const geo = missile ? this.missileGeo : this.tracerGeo;
-    const mat = missile
-      ? (team === 'enemy' ? this.enemyMissileMat : this.allyMissileMat)
-      : (team === 'enemy' ? this.enemyTracerMat : this.allyTracerMat);
-    const mesh = new THREE.Mesh(geo, mat);
-    mesh.position.copy(from);
     _v2.copy(dir).normalize();
     _quat.setFromUnitVectors(_zAxis, _v2);
-    mesh.quaternion.copy(_quat);
-    this.ctx.render?.scene?.add(mesh);
 
-    this.projectiles.push({
-      mesh,
-      pos: from.clone(),
-      lastTrail: from.clone(),
-      vel: _v2.clone().multiplyScalar(speed),
-      team,
-      damage,
-      life: missile ? 6.5 : 2.1,
-      missile,
-      targetJet,
-      targetPlayer,
-      smokeCd: 0,
-    });
+    if (!p) {
+      p = {
+        pos: from.clone(),
+        lastTrail: from.clone(),
+        vel: _v2.clone().multiplyScalar(speed),
+        quat: _quat.clone(),
+        team,
+        damage,
+        life: missile ? 6.5 : 2.1,
+        missile,
+        targetJet,
+        targetPlayer,
+        smokeCd: 0,
+      };
+    } else {
+      p.pos.copy(from);
+      p.lastTrail.copy(from);
+      p.vel.copy(_v2).multiplyScalar(speed);
+      p.quat.copy(_quat);
+      p.team = team;
+      p.damage = damage;
+      p.life = missile ? 6.5 : 2.1;
+      p.missile = missile;
+      p.targetJet = targetJet;
+      p.targetPlayer = targetPlayer;
+      p.smokeCd = 0;
+    }
+
+    this.projectiles.push(p);
   }
 
   handlePlayerFlares(): void {
@@ -366,14 +447,17 @@ export class CrossfireAirWing {
     for (const e of this.enemies) {
       if (e.alive) e.breakPlayerLock(4.2);
     }
+    let changed = false;
     for (let i = this.projectiles.length - 1; i >= 0; i--) {
       const p = this.projectiles[i]!;
       if (p.team === 'enemy' && p.missile && p.targetPlayer) {
         this.ctx.fx?.sparks?.(p.pos, _up, 16, 0xfff0aa);
-        this.ctx.render?.scene?.remove(p.mesh);
+        this.releaseProjectile(p);
         this.projectiles.splice(i, 1);
+        changed = true;
       }
     }
+    if (changed) this.syncProjectileInstances();
   }
 
   update(dt: number, priorityTarget: AiCombatJet | null = null): void {
@@ -447,13 +531,11 @@ export class CrossfireAirWing {
           _v.subVectors(aim, p.pos).normalize();
           _v2.copy(p.vel).normalize().lerp(_v, clamp(3.8 * dt, 0, 1)).normalize();
           p.vel.copy(_v2).multiplyScalar(speed);
-          _quat.setFromUnitVectors(_zAxis, _v2);
-          p.mesh.quaternion.copy(_quat);
+          p.quat.setFromUnitVectors(_zAxis, _v2);
         }
       }
 
       p.pos.addScaledVector(p.vel, dt);
-      p.mesh.position.copy(p.pos);
 
       if (p.missile) {
         const dist = p.pos.distanceTo(p.lastTrail);
@@ -477,7 +559,8 @@ export class CrossfireAirWing {
 
       let hit = false;
       if (p.team === 'enemy') {
-        if (playerAirborne && p.pos.distanceTo(playerPos) <= (p.missile ? 7.5 : 5.2)) {
+        const hitR = p.missile ? 7.5 : 5.2;
+        if (playerAirborne && p.pos.distanceToSquared(playerPos) <= hitR * hitR) {
           this.ctx.events?.emit?.('dogfight:damage_player_jet', {
             amount: p.damage,
             from: p.pos,
@@ -493,7 +576,7 @@ export class CrossfireAirWing {
             const ally = this.allies[j]!;
             if (!ally.alive || ally.disposed) continue;
             const rad = ally.kind === 'lancer' ? 14.0 : 7.5;
-            if (p.pos.distanceTo(ally.position) <= rad) {
+            if (p.pos.distanceToSquared(ally.position) <= rad * rad) {
               ally.applyDamage(p.damage, p.pos, p.missile ? 'enemy_aam' : 'enemy_gun', false, p.missile);
               if (p.missile) {
                 this.ctx.fx?.explosion?.(p.pos, { radius: 8, scale: 1.2 });
@@ -508,7 +591,7 @@ export class CrossfireAirWing {
           const enemy = this.enemies[j]!;
           if (!enemy.alive || enemy.disposed) continue;
           const rad = enemy.kind === 'lancer' ? 14.0 : (p.missile ? 9.5 : 6.8);
-          if (p.pos.distanceTo(enemy.position) <= rad) {
+          if (p.pos.distanceToSquared(enemy.position) <= rad * rad) {
             enemy.applyDamage(p.damage, p.pos, p.missile ? 'ally_aam' : 'ally_gun', false, p.missile);
             if (p.missile) {
               this.ctx.fx?.explosion?.(p.pos, { radius: 8, scale: 1.2 });
@@ -520,10 +603,11 @@ export class CrossfireAirWing {
       }
 
       if (hit || p.life <= 0 || p.pos.y <= 0.2) {
-        this.ctx.render?.scene?.remove(p.mesh);
+        this.releaseProjectile(p);
         this.projectiles.splice(i, 1);
       }
     }
+    this.syncProjectileInstances();
   }
 
   private emitRwr(playerAirborne: boolean): void {
@@ -536,7 +620,14 @@ export class CrossfireAirWing {
         label = e.name;
       }
     }
-    const missileInbound = this.projectiles.some(p => p.team === 'enemy' && p.missile && p.targetPlayer);
+    let missileInbound = false;
+    for (let i = 0; i < this.projectiles.length; i++) {
+      const p = this.projectiles[i]!;
+      if (p.team === 'enemy' && p.missile && p.targetPlayer) {
+        missileInbound = true;
+        break;
+      }
+    }
     const active = playerAirborne && (maxLock > 0.08 || missileInbound);
 
     if (!active) {
@@ -570,8 +661,9 @@ export class CrossfireAirWing {
     this.enemies.length = 0;
     for (const a of this.allies) a.dispose();
     this.allies.length = 0;
-    for (const p of this.projectiles) this.ctx.render?.scene?.remove(p.mesh);
+    for (const p of this.projectiles) this.releaseProjectile(p);
     this.projectiles.length = 0;
+    this.syncProjectileInstances();
     this.waveJets.clear();
     this.jetToWave.clear();
     this.clearedWaves.clear();
@@ -591,6 +683,19 @@ export class CrossfireAirWing {
 
   dispose(): void {
     this.clear();
+    if (this.instAdded) {
+      this.ctx.render?.scene?.remove(
+        this.enemyTracerInst,
+        this.allyTracerInst,
+        this.enemyMissileInst,
+        this.allyMissileInst,
+      );
+      this.instAdded = false;
+    }
+    this.enemyTracerInst.dispose();
+    this.allyTracerInst.dispose();
+    this.enemyMissileInst.dispose();
+    this.allyMissileInst.dispose();
     this.unsubFlares?.();
     this.unsubFlares = null;
     this.tracerGeo.dispose();

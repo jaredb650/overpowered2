@@ -39,6 +39,9 @@ interface Piece {
   still: number;
   restedAt: number;
   restingIndex: number;
+  r: number;
+  g: number;
+  b: number;
   readonly half: THREE.Vector3;
   readonly p: THREE.Vector3;
   readonly q: THREE.Quaternion;
@@ -47,7 +50,6 @@ interface Piece {
 
 const _m = new THREE.Matrix4();
 const _s = new THREE.Vector3();
-const _hide = new THREE.Matrix4().makeScale(0, 0, 0);
 const _c = new THREE.Color();
 const _v = new THREE.Vector3();
 
@@ -55,11 +57,11 @@ export class Debris {
   /** Its own group: the map adds it beside the structures' chunks. */
   readonly root = new THREE.Group();
   private readonly meshes = new Map<DebrisMat, THREE.InstancedMesh>();
-  private readonly slots = new Map<DebrisMat, Piece[]>();
-  private readonly ring = new Map<DebrisMat, number>();
-  private readonly aliveCount = new Map<DebrisMat, number>();
+  private readonly active = new Map<DebrisMat, Piece[]>();
+  private readonly free = new Map<DebrisMat, Piece[]>();
   private readonly dirtyMin = new Map<DebrisMat, number>();
   private readonly dirtyMax = new Map<DebrisMat, number>();
+  private readonly colorDirty = new Map<DebrisMat, boolean>();
   private readonly moving: Piece[] = [];
   private readonly resting: Piece[] = [];
   private readonly all: Piece[] = [];
@@ -118,28 +120,28 @@ export class Debris {
       mesh.userData.dynamicShadow = true;
       mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
       mesh.frustumCulled = false;
-      mesh.castShadow = true;
+      mesh.castShadow = mat !== 'glass';
       mesh.receiveShadow = true;
       for (let i = 0; i < cap; i++) {
-        mesh.setMatrixAt(i, _hide);
         mesh.setColorAt(i, _c.setScalar(1));
       }
-      mesh.instanceMatrix.needsUpdate = true;
+      mesh.count = 0;
       if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
       // Nothing to draw until the first piece flies.
       mesh.visible = false;
       this.root.add(mesh);
       this.meshes.set(mat, mesh);
-      this.ring.set(mat, 0);
-      this.aliveCount.set(mat, 0);
       this.dirtyMin.set(mat, cap);
       this.dirtyMax.set(mat, -1);
-      const slots: Piece[] = Array.from({ length: cap }, (_, slot) => ({
-        mat, slot, body: null, alive: false, born: 0, still: 0, restedAt: -1, restingIndex: -1,
+      this.colorDirty.set(mat, false);
+      const pool: Piece[] = Array.from({ length: cap }, () => ({
+        mat, slot: -1, body: null, alive: false, born: 0, still: 0, restedAt: -1, restingIndex: -1,
+        r: 1, g: 1, b: 1,
         half: new THREE.Vector3(), p: new THREE.Vector3(), q: new THREE.Quaternion(), v: new THREE.Vector3(),
       }));
-      this.slots.set(mat, slots);
-      this.all.push(...slots);
+      this.active.set(mat, []);
+      this.free.set(mat, pool);
+      this.all.push(...pool);
     }
   }
 
@@ -163,14 +165,24 @@ export class Debris {
 
   private flushDirty(): void {
     for (const [mat, mesh] of this.meshes) {
-      const hi = this.dirtyMax.get(mat)!;
-      if (hi < 0) continue;
+      const count = mesh.count;
+      const hi = Math.min(this.dirtyMax.get(mat)!, count - 1);
       const lo = this.dirtyMin.get(mat)!;
-      mesh.instanceMatrix.clearUpdateRanges();
-      mesh.instanceMatrix.addUpdateRange(lo * 16, (hi - lo + 1) * 16);
-      mesh.instanceMatrix.needsUpdate = true;
+      if (hi >= 0 && lo <= hi) {
+        mesh.instanceMatrix.clearUpdateRanges();
+        mesh.instanceMatrix.addUpdateRange(lo * 16, (hi - lo + 1) * 16);
+        mesh.instanceMatrix.needsUpdate = true;
+      }
       this.dirtyMin.set(mat, DebrisTuning.capacity);
       this.dirtyMax.set(mat, -1);
+      if (this.colorDirty.get(mat)) {
+        this.colorDirty.set(mat, false);
+        if (mesh.instanceColor && count > 0) {
+          mesh.instanceColor.clearUpdateRanges();
+          mesh.instanceColor.addUpdateRange(0, count * 3);
+          mesh.instanceColor.needsUpdate = true;
+        }
+      }
     }
   }
 
@@ -178,17 +190,26 @@ export class Debris {
   throw(mat: DebrisMat, pos: THREE.Vector3, q: THREE.Quaternion, half: THREE.Vector3, vel: THREE.Vector3, spin: number, tint?: number | readonly [number, number, number], again?: Piece): void {
     this.ensure();
     const { R, world } = this.ctx.physics;
+    const mesh = this.meshes.get(mat)!;
+    const active = this.active.get(mat)!;
+    const free = this.free.get(mat)!;
     let c: Piece;
     if (again) {
       c = again;
       this.removeResting(c);
     } else {
-      const slots = this.slots.get(mat)!;
-      const at = this.ring.get(mat)!;
-      this.ring.set(mat, (at + 1) % slots.length);
-      c = slots[at]!;
-      if (c.alive) this.retire(c);
-      this.aliveCount.set(mat, this.aliveCount.get(mat)! + 1);
+      if (free.length === 0) {
+        // Evict the oldest live piece of this material.
+        let oldest = active[0]!;
+        for (let i = 1; i < active.length; i++) {
+          if (active[i]!.born < oldest.born) oldest = active[i]!;
+        }
+        this.retire(oldest);
+      }
+      c = free.pop()!;
+      c.slot = active.length;
+      active.push(c);
+      mesh.count = active.length;
     }
     if (this.moving.length >= DebrisTuning.maxBodies) this.freeze(this.moving[0]!);
     // A thin board would slip through the floor's contact in one step at speed; it is thrown a little thicker than it looks.
@@ -219,11 +240,16 @@ export class Debris {
     c.p.copy(pos);
     c.q.copy(q);
     this.moving.push(c);
-    const mesh = this.meshes.get(mat)!;
     mesh.visible = true;
     if (tint !== undefined) {
-      mesh.setColorAt(c.slot, typeof tint === 'number' ? _c.setScalar(tint) : _c.setRGB(tint[0], tint[1], tint[2]));
-      if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+      if (typeof tint === 'number') { c.r = tint; c.g = tint; c.b = tint; }
+      else { c.r = tint[0]; c.g = tint[1]; c.b = tint[2]; }
+      mesh.setColorAt(c.slot, _c.setRGB(c.r, c.g, c.b));
+      this.colorDirty.set(mat, true);
+    } else if (!again) {
+      c.r = 1; c.g = 1; c.b = 1;
+      mesh.setColorAt(c.slot, _c.setScalar(1));
+      this.colorDirty.set(mat, true);
     }
     this.write(c, 1);
   }
@@ -263,12 +289,26 @@ export class Debris {
     this.removeResting(c);
     c.alive = false;
     c.restedAt = -1;
+
     const mesh = this.meshes.get(c.mat)!;
-    mesh.setMatrixAt(c.slot, _hide);
-    this.markDirty(c.mat, c.slot);
-    const nextAlive = Math.max(0, this.aliveCount.get(c.mat)! - 1);
-    this.aliveCount.set(c.mat, nextAlive);
-    if (nextAlive === 0) mesh.visible = false;
+    const active = this.active.get(c.mat)!;
+    const free = this.free.get(c.mat)!;
+    const slot = c.slot;
+    const last = active.pop()!;
+    if (last !== c && slot >= 0 && slot < active.length) {
+      active[slot] = last;
+      last.slot = slot;
+      // Copy last's instance matrix & color into the vacated slot.
+      const matArr = mesh.instanceMatrix.array as Float32Array;
+      matArr.copyWithin(slot * 16, active.length * 16, (active.length + 1) * 16);
+      mesh.setColorAt(slot, _c.setRGB(last.r, last.g, last.b));
+      this.markDirty(c.mat, slot);
+      this.colorDirty.set(c.mat, true);
+    }
+    c.slot = -1;
+    free.push(c);
+    mesh.count = active.length;
+    if (active.length === 0) mesh.visible = false;
   }
 
   private write(c: Piece, scale: number): void {

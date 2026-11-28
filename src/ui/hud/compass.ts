@@ -64,8 +64,10 @@ export interface FocusedMarker {
   distance: number;
 }
 
-/** Picks the live compass-managed waypoint closest to the center bearing within `focusRad`, if any. */
-export function selectFocusedMarker(
+const _focusedScratch: FocusedMarker = { marker: null as unknown as MapMarker, absAngle: 0, distance: 0 };
+
+function selectFocusedMarkerInto(
+  out: FocusedMarker,
   markers: readonly MapMarker[],
   ox: number,
   oy: number,
@@ -92,7 +94,24 @@ export function selectFocusedMarker(
       bestDist = dist;
     }
   }
-  return best ? { marker: best, absAngle: bestAngle, distance: bestDist } : null;
+  if (!best) return null;
+  out.marker = best;
+  out.absAngle = bestAngle;
+  out.distance = bestDist;
+  return out;
+}
+
+/** Picks the live compass-managed waypoint closest to the center bearing within `focusRad`, if any. */
+export function selectFocusedMarker(
+  markers: readonly MapMarker[],
+  ox: number,
+  oy: number,
+  oz: number,
+  heading: number,
+  focusRad = COMPASS_FOCUS_RAD,
+): FocusedMarker | null {
+  const hit = selectFocusedMarkerInto(_focusedScratch, markers, ox, oy, oz, heading, focusRad);
+  return hit ? { marker: hit.marker, absAngle: hit.absAngle, distance: hit.distance } : null;
 }
 
 export class Compass {
@@ -116,6 +135,15 @@ export class Compass {
   private majorFont = '800 12px ui-monospace, Menlo, monospace';
   private minorFont = '700 10px ui-monospace, Menlo, monospace';
   private lastFocusColor = '';
+  private layoutMeasured = false;
+  private resizeObserver: ResizeObserver | null = null;
+  private lastDrawHeading = NaN;
+  private lastDrawOx = NaN;
+  private lastDrawOy = NaN;
+  private lastDrawOz = NaN;
+  private lastDrawMarkerHash = NaN;
+  private lastDrawW = 0;
+  private lastDrawH = 0;
 
   constructor(private readonly ctx: Ctx, private readonly world: WorldLayer) {
     this.canvas = h('canvas', 'cp-canvas');
@@ -148,30 +176,49 @@ export class Compass {
     this.focusShown.set(false);
     this.hintShown.set(false);
     this.measure();
+    if (typeof ResizeObserver !== 'undefined') {
+      this.resizeObserver = new ResizeObserver(entries => {
+        const entry = entries[0];
+        if (!entry) return;
+        const cw = entry.contentRect.width;
+        const ch = entry.contentRect.height;
+        if (cw > 0 && ch > 0) this.applySize(cw, ch);
+      });
+      this.resizeObserver.observe(this.canvas);
+    }
   }
 
-  measure(): void {
-    const cssW = this.canvas.clientWidth || 480;
-    const cssH = this.canvas.clientHeight || 38;
+  private applySize(cssW: number, cssH: number): void {
     this.dpr = Math.min(devicePixelRatio || 1, 2);
-    this.width = Math.max(120, Math.round(cssW * this.dpr));
-    this.height = Math.max(24, Math.round(cssH * this.dpr));
+    const nextW = Math.max(120, Math.round(cssW * this.dpr));
+    const nextH = Math.max(24, Math.round(cssH * this.dpr));
+    this.layoutMeasured = true;
+    if (Math.abs(this.width - nextW) <= 2 && Math.abs(this.height - nextH) <= 2 && this.canvas.width === this.width && this.canvas.height === this.height) {
+      return;
+    }
+    this.width = nextW;
+    this.height = nextH;
     this.canvas.width = this.width;
     this.canvas.height = this.height;
     const majorPx = Math.max(9, Math.round(Math.min(11 * this.dpr, this.height * 0.34)));
     const minorPx = Math.max(8, Math.round(Math.min(9 * this.dpr, this.height * 0.27)));
     this.majorFont = `800 ${majorPx}px ui-monospace, Menlo, monospace`;
     this.minorFont = `700 ${minorPx}px ui-monospace, Menlo, monospace`;
+    this.lastDrawW = 0;
+  }
+
+  measure(): void {
+    const cssW = this.canvas.clientWidth;
+    const cssH = this.canvas.clientHeight;
+    this.applySize(cssW || 480, cssH || 38);
+    this.layoutMeasured = cssW > 0 && cssH > 0;
   }
 
   update(): void {
-    const cw = this.canvas.clientWidth;
-    const ch = this.canvas.clientHeight;
-    if (
-      (cw > 0 && Math.abs(this.width - Math.round(cw * this.dpr)) > 2) ||
-      (ch > 0 && Math.abs(this.height - Math.round(ch * this.dpr)) > 2)
-    ) {
-      this.measure();
+    if (!this.layoutMeasured && !this.resizeObserver) {
+      const cw = this.canvas.clientWidth;
+      const ch = this.canvas.clientHeight;
+      if (cw > 0 && ch > 0) this.applySize(cw, ch);
     }
     const camera = this.ctx.render.camera;
     let heading = 0;
@@ -204,7 +251,32 @@ export class Compass {
     const deg = headingDegrees(heading);
     this.hdgText.set(String(deg).padStart(3, '0'));
 
-    this.draw(heading, ox, oy, oz);
+    const markers = this.world.markers;
+    let markerHash = 0;
+    let anyPulse = false;
+    for (let i = 0; i < markers.length; i++) {
+      const m = markers[i]!;
+      if (!m.live || m.alwaysWorld) continue;
+      if (m.pulse > 0) anyPulse = true;
+      markerHash = (markerHash * 31 + Math.round(m.pos.x * 4) + Math.round(m.pos.y * 4) * 3 + Math.round(m.pos.z * 4) * 7 + (i + 1) * 13) | 0;
+    }
+    if (
+      anyPulse ||
+      this.width !== this.lastDrawW ||
+      this.height !== this.lastDrawH ||
+      markerHash !== this.lastDrawMarkerHash ||
+      !(Math.abs(heading - this.lastDrawHeading) < 0.0004) ||
+      !(Math.abs(ox - this.lastDrawOx) < 0.05 && Math.abs(oy - this.lastDrawOy) < 0.05 && Math.abs(oz - this.lastDrawOz) < 0.05)
+    ) {
+      this.lastDrawHeading = heading;
+      this.lastDrawOx = ox;
+      this.lastDrawOy = oy;
+      this.lastDrawOz = oz;
+      this.lastDrawMarkerHash = markerHash;
+      this.lastDrawW = this.width;
+      this.lastDrawH = this.height;
+      this.draw(heading, ox, oy, oz);
+    }
 
     const wpCount = this.world.waypointCount;
     const revealActive = this.world.reveal.active && wpCount > 0;
@@ -212,7 +284,7 @@ export class Compass {
     this.timerShown.set(revealActive);
     if (revealActive) this.timerBar.set(this.world.reveal.fraction);
 
-    const focused = wpCount > 0 ? selectFocusedMarker(this.world.markers, ox, oy, oz, heading) : null;
+    const focused = wpCount > 0 ? selectFocusedMarkerInto(_focusedScratch, markers, ox, oy, oz, heading) : null;
     if (focused) {
       this.focusShown.set(true);
       this.hintShown.set(false);

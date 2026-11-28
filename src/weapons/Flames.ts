@@ -10,7 +10,7 @@
  * flames never did.
  */
 import * as THREE from 'three';
-import { CG, type Ctx, type PlayerSystem } from '../core/contracts';
+import { CG, type Ctx, type PlayerSystem, type RayHit } from '../core/contracts';
 import { toldKill, type EnemyInstance, type ProjectileSpec, type Team } from '../core/gameplay';
 import { clamp, lerp, rand } from '../core/math';
 import type { Combat } from './Combat';
@@ -111,6 +111,7 @@ export class Flames {
   private readonly head = new THREE.Vector3();
   private readonly end = new THREE.Vector3();
   private readonly drawn = new THREE.Vector3();
+  private readonly wallHit: RayHit = { point: new THREE.Vector3(), normal: new THREE.Vector3(), distance: 0, surface: 'concrete', collider: null };
   private scorchClock = 0;
   private markerClock = 0;
   private splashClock = 0;
@@ -381,7 +382,10 @@ export class Flames {
     if (speed < 1e-3) return;
     const dir = this.dir.copy(f.velocity).divideScalar(speed);
     const len = speed * dt;
-    const wall = c.physics.raycast(f.position, dir, len, CG.World);
+    const hasInto = typeof c.physics.raycastInto === 'function';
+    const wall = hasInto
+      ? (c.physics.raycastInto(f.position, dir, len, CG.World, this.wallHit) ? this.wallHit : null)
+      : c.physics.raycast(f.position, dir, len, CG.World);
     if (!wall) {
       f.position.addScaledVector(dir, len);
       return;
@@ -486,7 +490,7 @@ export class Flames {
   }
 
   private lickEnemies(f: Flame): void {
-    if (f.damage <= 0) return;
+    if (f.damage <= 0 || f.hitCount >= MAX_HITS) return;
     const c = this.ctx;
     const radius = this.radius(f);
     const n = c.enemies.query(f.position, radius + 2.6, this.nearby) || 0;

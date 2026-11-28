@@ -604,11 +604,12 @@ export function buildFractureCellGeometry(
   }
 
   const g = new THREE.BufferGeometry();
+  const vertCount = positions.length / 3;
   g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(positions), 3));
   g.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(normals), 3));
   g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(uvs), 2));
   g.setAttribute('color', new THREE.BufferAttribute(new Uint8Array(colors), 4, true));
-  g.setIndex(new THREE.BufferAttribute(new Uint32Array(indices), 1));
+  g.setIndex(new THREE.BufferAttribute(vertCount <= 65535 ? new Uint16Array(indices) : new Uint32Array(indices), 1));
   g.computeVertexNormals();
   g.computeBoundingSphere();
   return g;
@@ -877,12 +878,19 @@ export function deformNodeGeometry(params: DeformNodeParams): void {
     dentY /= dnLen;
     dentZ /= dnLen;
 
+    const rimR2 = rimR * rimR;
+    const maxDisp2 = maxDisp * maxDisp;
     for (let i = 0; i < vCount; i++) {
       const o = i * 3;
       const rx = restPos[o]!;
       const ry = restPos[o + 1]!;
       const rz = restPos[o + 2]!;
-      const dist = Math.hypot(rx - hitX, ry - hitY, rz - hitZ);
+      const dvx = rx - hitX;
+      const dvy = ry - hitY;
+      const dvz = rz - hitZ;
+      const d2 = dvx * dvx + dvy * dvy + dvz * dvz;
+      if (d2 >= rimR2) continue;
+      const dist = Math.sqrt(d2);
 
       let push = 0;
       let shadeMul = 1;
@@ -891,7 +899,7 @@ export function deformNodeGeometry(params: DeformNodeParams): void {
         const crater = Math.pow(1 - u * u, 1.4);
         push = dentDepth * crater;
         shadeMul = 1 - 0.28 * crater;
-      } else if (dist < rimR) {
+      } else {
         // Outward buckling & sheet-metal oil-canning warp around crater rim
         const rt = (dist - dentR) / (rimR - dentR);
         const rimWave = Math.sin(rt * Math.PI);
@@ -907,9 +915,9 @@ export function deformNodeGeometry(params: DeformNodeParams): void {
         const ox = px - rx;
         const oy = py - ry;
         const oz = pz - rz;
-        const oLen = Math.hypot(ox, oy, oz);
-        if (oLen > maxDisp) {
-          const s = maxDisp / oLen;
+        const o2 = ox * ox + oy * oy + oz * oz;
+        if (o2 > maxDisp2) {
+          const s = maxDisp / Math.sqrt(o2);
           px = rx + ox * s;
           py = ry + oy * s;
           pz = rz + oz * s;
@@ -933,8 +941,10 @@ export function deformNodeGeometry(params: DeformNodeParams): void {
     const maxSpan = Math.max(hx, hy, hz);
     const craterR = clamp(maxSpan * 0.52, 0.42, 1.5);
     const crackR = craterR * 1.95;
+    const crackR2 = crackR * crackR;
     const depth = clamp(0.08 + 0.18 * strain, 0.06, 0.28);
     const maxDisp = clamp(Math.min(0.36, maxSpan * 0.25), 0.12, 0.36);
+    const maxDisp2 = maxDisp * maxDisp;
 
     for (let i = 0; i < vCount; i++) {
       const o = i * 3;
@@ -944,7 +954,9 @@ export function deformNodeGeometry(params: DeformNodeParams): void {
       const vx = rx - hitX;
       const vy = ry - hitY;
       const vz = rz - hitZ;
-      const dist = Math.hypot(vx, vy, vz);
+      const d2 = vx * vx + vy * vy + vz * vz;
+      if (d2 >= crackR2) continue;
+      const dist = Math.sqrt(d2);
 
       if (dist < craterR) {
         const t = 1 - dist / craterR;
@@ -956,9 +968,9 @@ export function deformNodeGeometry(params: DeformNodeParams): void {
         const ox = px - rx;
         const oy = py - ry;
         const oz = pz - rz;
-        const oLen = Math.hypot(ox, oy, oz);
-        if (oLen > maxDisp) {
-          const s = maxDisp / oLen;
+        const o2 = ox * ox + oy * oy + oz * oz;
+        if (o2 > maxDisp2) {
+          const s = maxDisp / Math.sqrt(o2);
           px = rx + ox * s;
           py = ry + oy * s;
           pz = rz + oz * s;
@@ -972,17 +984,15 @@ export function deformNodeGeometry(params: DeformNodeParams): void {
         }
       }
 
-      if (dist < crackR) {
-        const ang = Math.atan2(vy + vz * 0.5, vx + 1e-4);
-        const ray = Math.pow(Math.abs(Math.sin(ang * 3.5 + hitX * 2.1)), 6);
-        const radial = 1 - dist / crackR;
-        const crackDark = clamp(radial * (0.22 + 0.32 * ray) * strain, 0, 0.45);
-        const shade = 1 - crackDark;
-        const co = i * 4;
-        colArr[co] = Math.round(restCol[co]! * shade);
-        colArr[co + 1] = Math.round(restCol[co + 1]! * shade);
-        colArr[co + 2] = Math.round(restCol[co + 2]! * shade);
-      }
+      const ang = Math.atan2(vy + vz * 0.5, vx + 1e-4);
+      const ray = Math.pow(Math.abs(Math.sin(ang * 3.5 + hitX * 2.1)), 6);
+      const radial = 1 - dist / crackR;
+      const crackDark = clamp(radial * (0.22 + 0.32 * ray) * strain, 0, 0.45);
+      const shade = 1 - crackDark;
+      const co = i * 4;
+      colArr[co] = Math.round(restCol[co]! * shade);
+      colArr[co + 1] = Math.round(restCol[co + 1]! * shade);
+      colArr[co + 2] = Math.round(restCol[co + 2]! * shade);
     }
   }
 
@@ -1199,6 +1209,8 @@ export class SplinterPool {
   private _metalSpawned = 0;
   private _concreteSpawned = 0;
   private dirty = false;
+  private colorsDirty = false;
+  private readonly activeList: number[] = [];
 
   private readonly woodGeo: THREE.BufferGeometry;
   private readonly metalGeo: THREE.BufferGeometry;
@@ -1319,9 +1331,13 @@ export class SplinterPool {
     const bz = dirLen > 1e-4 ? dir.z / dirLen : 0;
 
     for (let i = 0; i < count; i++) {
-      const slot = this.slots[this.cursor]!;
+      const slotIdx = this.cursor;
+      const slot = this.slots[slotIdx]!;
       this.cursor = (this.cursor + 1) % this.cap;
-      if (!slot.active) this._activeCount++;
+      if (!slot.active) {
+        this._activeCount++;
+        this.activeList.push(slotIdx);
+      }
 
       slot.active = true;
       slot.kind = kind;
@@ -1368,6 +1384,7 @@ export class SplinterPool {
     }
 
     this.dirty = true;
+    this.colorsDirty = true;
   }
 
   update(dt: number): void {
@@ -1381,14 +1398,15 @@ export class SplinterPool {
     }
 
     const gravity = -19;
-    let remaining = 0;
-
-    for (let i = 0; i < this.cap; i++) {
-      const s = this.slots[i]!;
-      if (!s.active) continue;
+    const active = this.activeList;
+    for (let a = active.length - 1; a >= 0; a--) {
+      const s = this.slots[active[a]!]!;
       s.age += dt;
       if (s.age >= s.maxAge) {
         s.active = false;
+        const last = active.pop()!;
+        if (a < active.length) active[a] = last;
+        this.colorsDirty = true;
         continue;
       }
 
@@ -1419,10 +1437,9 @@ export class SplinterPool {
       s.rx += s.ax * dt;
       s.ry += s.ay * dt;
       s.rz += s.az * dt;
-      remaining++;
     }
 
-    this._activeCount = remaining;
+    this._activeCount = active.length;
     this.syncInstances();
     this.dirty = false;
   }
@@ -1431,30 +1448,30 @@ export class SplinterPool {
     let wCount = 0;
     let mCount = 0;
     let cCount = 0;
+    const writeColor = this.colorsDirty;
+    const active = this.activeList;
 
-    for (let i = 0; i < this.cap; i++) {
-      const s = this.slots[i]!;
-      if (!s.active) continue;
-
+    for (let a = 0; a < active.length; a++) {
+      const s = this.slots[active[a]!]!;
       const fade = s.age > s.maxAge - 0.35 ? clamp((s.maxAge - s.age) / 0.35, 0.01, 1) : 1;
       _v.set(s.px, s.py, s.pz);
       _e.set(s.rx, s.ry, s.rz);
       _q.setFromEuler(_e);
       _s.set(s.sx * fade, s.sy * fade, s.sz * fade);
       _m.compose(_v, _q, _s);
-      _c.setHex(s.colorHex);
+      if (writeColor) _c.setHex(s.colorHex);
 
       if (s.kind === 'wood') {
         this.woodMesh.setMatrixAt(wCount, _m);
-        this.woodMesh.setColorAt(wCount, _c);
+        if (writeColor) this.woodMesh.setColorAt(wCount, _c);
         wCount++;
       } else if (s.kind === 'metal') {
         this.metalMesh.setMatrixAt(mCount, _m);
-        this.metalMesh.setColorAt(mCount, _c);
+        if (writeColor) this.metalMesh.setColorAt(mCount, _c);
         mCount++;
       } else {
         this.concreteMesh.setMatrixAt(cCount, _m);
-        this.concreteMesh.setColorAt(cCount, _c);
+        if (writeColor) this.concreteMesh.setColorAt(cCount, _c);
         cCount++;
       }
     }
@@ -1466,7 +1483,7 @@ export class SplinterPool {
         mesh.instanceMatrix.clearUpdateRanges();
         mesh.instanceMatrix.addUpdateRange(0, count * 16);
         mesh.instanceMatrix.needsUpdate = true;
-        if (mesh.instanceColor) {
+        if (writeColor && mesh.instanceColor) {
           mesh.instanceColor.clearUpdateRanges();
           mesh.instanceColor.addUpdateRange(0, count * 3);
           mesh.instanceColor.needsUpdate = true;
@@ -1477,15 +1494,18 @@ export class SplinterPool {
     flushMesh(this.woodMesh, wCount);
     flushMesh(this.metalMesh, mCount);
     flushMesh(this.concreteMesh, cCount);
+    this.colorsDirty = false;
   }
 
   clear(): void {
     for (let i = 0; i < this.cap; i++) {
       this.slots[i]!.active = false;
     }
+    this.activeList.length = 0;
     this._activeCount = 0;
     this.cursor = 0;
     this.dirty = false;
+    this.colorsDirty = false;
     this.woodMesh.count = 0;
     this.woodMesh.visible = false;
     this.metalMesh.count = 0;

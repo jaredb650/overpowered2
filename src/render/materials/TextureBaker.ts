@@ -161,9 +161,14 @@ void main() {
     return target.texture;
   }
 
-  dispose(): void {
+  /** Frees only the temporary half-float scratch target so unused VRAM is returned between lazy surface bakes. */
+  releaseScratch(): void {
     this.scratch?.dispose();
     this.scratch = null;
+  }
+
+  dispose(): void {
+    this.releaseScratch();
     this.normalPass.dispose();
   }
 }

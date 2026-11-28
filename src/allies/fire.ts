@@ -6,7 +6,7 @@
  * push and no hit marker.
  */
 import * as THREE from 'three';
-import { CG, type Ctx, type DamageInfo } from '../core/contracts';
+import { CG, type Ctx, type DamageInfo, type PhysicsSystem, type RayHit } from '../core/contracts';
 import type { EnemyInstance } from '../core/gameplay';
 import { rand, randomUnit } from '../core/math';
 import { muzzleOf } from '../enemies/attacks';
@@ -23,6 +23,13 @@ const _rand = new THREE.Vector3();
 const _to = new THREE.Vector3();
 const _n = new THREE.Vector3();
 const UP = new THREE.Vector3(0, 1, 0);
+const _rayHit: RayHit = { point: new THREE.Vector3(), normal: new THREE.Vector3(), distance: 0, surface: 'concrete', collider: null };
+
+function raycastWorld(physics: PhysicsSystem, origin: THREE.Vector3, dir: THREE.Vector3, maxDist: number): RayHit | null {
+  return typeof physics.raycastInto === 'function'
+    ? (physics.raycastInto(origin, dir, maxDist, CG.World, _rayHit) ? _rayHit : null)
+    : physics.raycast(origin, dir, maxDist, CG.World);
+}
 
 /** Metres either side of the line of fire the player has to be clear by, or the man holds his burst. */
 const PLAYER_CLEAR = 0.75;
@@ -134,7 +141,7 @@ export class AllyGuns {
   /** One round down a line. Walls stop it, enemies take it, and nothing else is tested. */
   private round(from: THREE.Vector3, dir: THREE.Vector3, g: AllyGun, tracer: boolean): void {
     const { physics, fx, audio } = this.ctx;
-    const wall = physics.raycast(from, dir, g.range * 1.3, CG.World);
+    const wall = raycastWorld(physics, from, dir, g.range * 1.3);
     const limit = wall ? wall.distance : g.range * 1.3;
     const hit = this.enemies.raycast(from, dir, limit);
     if (hit && hit.enemy.alive) {
@@ -175,7 +182,7 @@ export class AllyGuns {
     _dir.subVectors(at, from);
     const len = _dir.length();
     _dir.divideScalar(len || 1);
-    const wall = physics.raycast(from, _dir, len, CG.World);
+    const wall = raycastWorld(physics, from, _dir, len);
     const r = this.take();
     if (!r) return;
     r.live = true;
@@ -237,7 +244,7 @@ export class AllyGuns {
       _n.subVectors(_to, r.point);
       if (dist > 0.1) {
         _n.divideScalar(dist);
-        if (physics.raycast(r.point, _n, dist, CG.World)) continue;
+        if (raycastWorld(physics, r.point, _n, dist)) continue;
       } else _n.copy(UP);
       const d = this.damage;
       d.amount = r.damage * (1 - (dist / r.radius) * 0.5);

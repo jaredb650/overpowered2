@@ -151,6 +151,7 @@ export class AllySystem implements GameSystem {
   private readonly candidates: EnemyInstance[] = [];
   private readonly ranked: EnemyInstance[] = [];
   private readonly rankScore: number[] = [];
+  private readonly armourCands: Array<{ pos: THREE.Vector3; d2: number }> = [];
   private readonly downTags = new Map<Ally, () => void>();
   private readonly query: SpotQuery = {
     anchor: new THREE.Vector3(), radius: 0, threat: new THREE.Vector3(), near: 0, far: 0, bearing: Number.NaN, bearingSlack: 0,
@@ -583,17 +584,45 @@ export class AllySystem implements GameSystem {
   private findArmour(a: Ally, eye: THREE.Vector3): boolean {
     const v = this.enemies.vehicles;
     if (!v) return false;
-    let best = a.def.gun.range;
-    for (const car of v.live) {
+    const maxR = a.def.gun.range;
+    const minR = a.def.gun.closeBad;
+    const maxR2 = maxR * maxR;
+    const minR2 = minR * minR;
+    const live = v.live;
+    let n = 0;
+    for (let i = 0; i < live.length; i++) {
+      const car = live[i]!;
       if (!car.alive) continue;
-      const d = car.position.distanceTo(a.body.position);
-      if (d >= best || d < a.def.gun.closeBad) continue;
-      _a.copy(car.position);
-      _a.y += 1.2;
+      const d2 = car.position.distanceToSquared(a.body.position);
+      if (d2 >= maxR2 || d2 < minR2) continue;
+      let slot = this.armourCands[n];
+      if (!slot) {
+        slot = { pos: car.position, d2 };
+        this.armourCands.push(slot);
+      } else {
+        slot.pos = car.position;
+        slot.d2 = d2;
+      }
+      n++;
+    }
+    if (n === 0) return a.hasArmour;
+    // Insertion sort by ascending squared distance so the first clear LOS is guaranteed closest.
+    for (let i = 1; i < n; i++) {
+      const cur = this.armourCands[i]!;
+      let j = i - 1;
+      while (j >= 0 && this.armourCands[j]!.d2 > cur.d2) {
+        this.armourCands[j + 1] = this.armourCands[j]!;
+        j--;
+      }
+      this.armourCands[j + 1] = cur;
+    }
+    for (let i = 0; i < n; i++) {
+      const pos = this.armourCands[i]!.pos;
+      _a.set(pos.x, pos.y + 1.2, pos.z);
       if (!this.clearLine(eye, _a)) continue;
-      best = d;
       a.armour.copy(_a);
       a.hasArmour = true;
+      return true;
     }
     return a.hasArmour;
   }

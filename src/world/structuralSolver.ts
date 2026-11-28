@@ -550,8 +550,25 @@ export function solveStructuralIntegrity(cluster: SolverClusterView): Structural
   // ---------------------------------------------------------------------------
   // Pass 4: Vertical Load Overload Cascade (Red Faction Column Buckling)
   // ---------------------------------------------------------------------------
-  // Only evaluate overload if the cluster has actually suffered structural damage/breaks.
-  let hasAnyDamage = detachedMap.size > 0;
+  runVerticalOverloadPass(cluster, isIntact, detachedMap.size > 0, overloaded);
+
+  return {
+    detached: [...detachedMap.values()],
+    overloaded,
+  };
+}
+
+let _colLoads = new Float64Array(64);
+let _candIdx = new Int32Array(64);
+let _candW = new Float64Array(64);
+const _activeColumnsScratch: SolverNodeView[] = [];
+
+function runVerticalOverloadPass(
+  cluster: SolverClusterView,
+  isIntact: (n: SolverNodeView) => boolean,
+  hasAnyDamage: boolean,
+  overloaded: string[],
+): void {
   if (!hasAnyDamage) {
     for (let i = 0; i < cluster.nodes.length; i++) {
       const n = cluster.nodes[i]!;
@@ -561,61 +578,73 @@ export function solveStructuralIntegrity(cluster: SolverClusterView): Structural
       }
     }
   }
+  if (!hasAnyDamage) return;
 
-  if (hasAnyDamage) {
-    const loadBySupport = new Map<string, number>();
-    const activeColumns: SolverNodeView[] = [];
-    for (let i = 0; i < cluster.nodes.length; i++) {
-      const n = cluster.nodes[i]!;
-      if (isIntact(n) && n.supportRole === 'load_bearing' && VERTICAL_KINDS.has(n.kind) && Number.isFinite(n.loadCapacity)) {
-        activeColumns.push(n);
-        loadBySupport.set(n.id, 0);
-      }
+  _activeColumnsScratch.length = 0;
+  for (let i = 0; i < cluster.nodes.length; i++) {
+    const n = cluster.nodes[i]!;
+    if (isIntact(n) && n.supportRole === 'load_bearing' && VERTICAL_KINDS.has(n.kind) && Number.isFinite(n.loadCapacity)) {
+      _activeColumnsScratch.push(n);
     }
+  }
+  const colCount = _activeColumnsScratch.length;
+  if (colCount === 0) return;
 
-    if (activeColumns.length > 0) {
-      // Distribute every intact upper node's mass downward onto nearby vertical supports beneath it
-      for (let i = 0; i < cluster.nodes.length; i++) {
-        const upper = cluster.nodes[i]!;
-        if (!isIntact(upper) || upper.anchored) continue;
+  if (_colLoads.length < colCount) {
+    const nextCap = Math.max(colCount, _colLoads.length * 2);
+    _colLoads = new Float64Array(nextCap);
+    _candIdx = new Int32Array(nextCap);
+    _candW = new Float64Array(nextCap);
+  }
+  _colLoads.fill(0, 0, colCount);
 
-        let weightSum = 0;
-        const candidates: { id: string; w: number }[] = [];
-        for (let c = 0; c < activeColumns.length; c++) {
-          const col = activeColumns[c]!;
-          if (col.id === upper.id) continue;
-          if (col.basePos.y >= upper.basePos.y - 0.1) continue;
-          const dx = upper.basePos.x - col.basePos.x;
-          const dz = upper.basePos.z - col.basePos.z;
-          const d2 = dx * dx + dz * dz;
-          if (d2 > 144) continue; // Only supports within 12 m carry this bay's tributary weight
-          const w = 1 / (1 + d2 * 0.25);
-          candidates.push({ id: col.id, w });
-          weightSum += w;
-        }
-        if (weightSum > 0) {
-          for (let k = 0; k < candidates.length; k++) {
-            const c = candidates[k]!;
-            loadBySupport.set(c.id, (loadBySupport.get(c.id) ?? 0) + upper.mass * (c.w / weightSum));
-          }
-        }
-      }
+  // Distribute every intact upper node's mass downward onto nearby vertical supports beneath it
+  for (let i = 0; i < cluster.nodes.length; i++) {
+    const upper = cluster.nodes[i]!;
+    if (!isIntact(upper) || upper.anchored) continue;
 
-      for (let c = 0; c < activeColumns.length; c++) {
-        const col = activeColumns[c]!;
-        const carried = loadBySupport.get(col.id) ?? 0;
-        const hpFrac = Math.max(0, Math.min(1, col.hp / Math.max(1, col.maxHp)));
-        // Damaged columns lose compressive strength quickly; pristine columns have full capacity.
-        const effectiveCap = col.loadCapacity * (0.3 + 0.7 * hpFrac);
-        if (carried > effectiveCap && effectiveCap > 0) {
-          overloaded.push(col.id);
-        }
+    let weightSum = 0;
+    let candCount = 0;
+    const uy = upper.basePos.y - 0.1;
+    const ux = upper.basePos.x;
+    const uz = upper.basePos.z;
+    for (let c = 0; c < colCount; c++) {
+      const col = _activeColumnsScratch[c]!;
+      if (col === upper || col.basePos.y >= uy) continue;
+      const dx = ux - col.basePos.x;
+      const dz = uz - col.basePos.z;
+      const d2 = dx * dx + dz * dz;
+      if (d2 > 144) continue; // Only supports within 12 m carry this bay's tributary weight
+      const w = 1 / (1 + d2 * 0.25);
+      _candIdx[candCount] = c;
+      _candW[candCount] = w;
+      candCount++;
+      weightSum += w;
+    }
+    if (weightSum > 0) {
+      const scale = upper.mass / weightSum;
+      for (let k = 0; k < candCount; k++) {
+        _colLoads[_candIdx[k]!]! += _candW[k]! * scale;
       }
     }
   }
 
-  return {
-    detached: [...detachedMap.values()],
-    overloaded,
-  };
+  for (let c = 0; c < colCount; c++) {
+    const col = _activeColumnsScratch[c]!;
+    const carried = _colLoads[c]!;
+    const hpFrac = Math.max(0, Math.min(1, col.hp / Math.max(1, col.maxHp)));
+    // Damaged columns lose compressive strength quickly; pristine columns have full capacity.
+    const effectiveCap = col.loadCapacity * (0.3 + 0.7 * hpFrac);
+    if (carried > effectiveCap && effectiveCap > 0) {
+      overloaded.push(col.id);
+    }
+  }
+  _activeColumnsScratch.length = 0;
+}
+
+/** Fast Pass-4-only overload check when nodes are damaged without breaking (skips Passes 1-3). */
+export function solveVerticalOverloadOnly(cluster: SolverClusterView): string[] {
+  const overloaded: string[] = [];
+  runVerticalOverloadPass(cluster, n => n.state === 'intact', true, overloaded);
+  return overloaded;
 }

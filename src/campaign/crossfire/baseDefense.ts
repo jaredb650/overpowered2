@@ -15,6 +15,7 @@
  * plus exposes `applyBlast(center, radius, damage, source)` for scripted ordnance drops.
  */
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type RAPIER from '@dimforge/rapier3d-compat';
 import type { Ctx, EmitterHandle, ExplosionKind } from '../../core/contracts';
 import type { ExplosionSpec, MissileTarget, VehicleRadarTarget } from '../../core/gameplay';
@@ -397,6 +398,53 @@ function buildDefenseRig(kind: BaseDefenseKind): DefenseVisualRig {
 
     beacon = addMesh(turret, new THREE.SphereGeometry(0.22, 8, 6), beaconMat, 0, 3.35, -0.1);
   }
+
+  // Merge repeated static sub-meshes per rigid sub-group & material (e.g. 10 mortar sandbags -> 1 mesh, 4 SAM tubes -> 1 mesh).
+  const mergeSubgroup = (grp: THREE.Object3D | null): void => {
+    if (!grp) return;
+    const byMat = new Map<THREE.Material, THREE.Mesh[]>();
+    for (let i = 0; i < grp.children.length; i++) {
+      const ch = grp.children[i]!;
+      if (!(ch as THREE.Mesh).isMesh || ch === beacon) continue;
+      const m = ch as THREE.Mesh;
+      if (Array.isArray(m.material)) continue;
+      let list = byMat.get(m.material);
+      if (!list) { list = []; byMat.set(m.material, list); }
+      list.push(m);
+    }
+    for (const [mat, list] of byMat) {
+      if (list.length < 2) {
+        list[0]!.matrixAutoUpdate = false;
+        list[0]!.updateMatrix();
+        continue;
+      }
+      const geos: THREE.BufferGeometry[] = [];
+      for (const m of list) {
+        m.updateMatrix();
+        const g = m.geometry.index ? m.geometry.toNonIndexed() : m.geometry.clone();
+        g.applyMatrix4(m.matrix);
+        geos.push(g);
+        grp.remove(m);
+      }
+      const merged = mergeGeometries(geos, false);
+      for (const g of geos) g.dispose();
+      if (merged) {
+        const mm = new THREE.Mesh(merged, mat);
+        mm.matrixAutoUpdate = false;
+        mm.updateMatrix();
+        grp.add(mm);
+      }
+    }
+  };
+  mergeSubgroup(root);
+  mergeSubgroup(turret);
+  mergeSubgroup(barrel);
+  mergeSubgroup(radar);
+
+  meshes.length = 0;
+  root.traverse(o => {
+    if ((o as THREE.Mesh).isMesh) meshes.push(o as THREE.Mesh);
+  });
 
   return { root, turret, barrel, radar, beacon, meshes };
 }

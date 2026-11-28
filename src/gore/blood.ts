@@ -840,6 +840,12 @@ export class BloodField {
     const g = BloodTuning.dropletGravity;
     const check = BloodTuning.dropletCheck;
     const { px, py, pz, lx, ly, lz, vx, vy, vz, life, since, size } = this;
+    const camPos = (this.ctx.render?.camera as { position?: THREE.Vector3 } | undefined)?.position;
+    const hasCam = camPos !== undefined;
+    const camX = hasCam ? camPos.x : 0;
+    const camY = hasCam ? camPos.y : 0;
+    const camZ = hasCam ? camPos.z : 0;
+    const maxRayDistSq = 75 * 75;
     for (let i = 0; i < BloodTuning.maxDroplets; i++) {
       if (life[i]! <= 0) continue;
       life[i] = life[i]! - dt;
@@ -850,6 +856,17 @@ export class BloodField {
       since[i] = since[i]! + dt;
       if (since[i]! < check || !this.budgetLeft) continue;
       since[i] = 0;
+      if (hasCam) {
+        const dx = px[i]! - camX;
+        const dy = py[i]! - camY;
+        const dz = pz[i]! - camZ;
+        if (dx * dx + dy * dy + dz * dz > maxRayDistSq) {
+          lx[i] = px[i]!;
+          ly[i] = py[i]!;
+          lz[i] = pz[i]!;
+          continue;
+        }
+      }
       const sx = px[i]! - lx[i]!;
       const sy = py[i]! - ly[i]!;
       const sz = pz[i]! - lz[i]!;

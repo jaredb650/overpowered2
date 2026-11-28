@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import type { CharacterInstance, CharacterLibrary, Ctx } from '../core/contracts';
 import { CAST, archetypeById, rigFor, type ArchetypeDef } from './archetypes';
-import { Character, FAR_LOD, SeveredPart, type ArchetypeData } from './Character';
+import { Character, FAR_LOD, propLodsMap, SeveredPart, type ArchetypeData } from './Character';
 import { buildInterior } from './anatomy/build';
 import { BloodSurfacePool, buildWalkMesh } from './anatomy/bloodSurface';
 import { createInteriorMaterial } from './anatomy/interior';
@@ -225,6 +225,8 @@ export class CharacterLibraryImpl implements CharacterLibrary {
     mesh.name = name;
     mesh.castShadow = true;
     mesh.receiveShadow = true;
+    if (loaded.model.lods.length > 1) propLodsMap.set(mesh, loaded.model.lods);
+    this.ctx.render.registerBatchedProp?.(mesh);
     return mesh;
   }
 

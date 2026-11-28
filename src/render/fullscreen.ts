@@ -60,9 +60,9 @@ export class FullscreenPass {
    */
   render(renderer: THREE.WebGLRenderer, target: THREE.WebGLRenderTarget | null, keepContents = false): void {
     renderer.setRenderTarget(target);
-    if (!keepContents && target) {
+    if (!keepContents) {
       const gl = renderer.getContext() as WebGL2RenderingContext;
-      gl.invalidateFramebuffer(gl.FRAMEBUFFER, INVALIDATE_COLOR);
+      gl.invalidateFramebuffer(gl.FRAMEBUFFER, target ? INVALIDATE_COLOR : INVALIDATE_DEFAULT_COLOR);
     }
     renderer.render(this.scene, dummyCamera);
   }
@@ -82,3 +82,4 @@ export class FullscreenPass {
 }
 
 const INVALIDATE_COLOR = [0x8ce0 /* COLOR_ATTACHMENT0 */];
+const INVALIDATE_DEFAULT_COLOR = [0x1800 /* COLOR */];

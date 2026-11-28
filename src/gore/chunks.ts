@@ -125,6 +125,10 @@ interface Chunk {
   /** Whether Rapier CCD is currently enabled on `body` (turned off once speed drops below 4 m/s). */
   ccd: boolean;
   alive: boolean;
+  /** Index inside `ChunkField.aliveList`, or -1 when retired. */
+  aliveIdx: number;
+  /** Index inside `ChunkField.aliveOrgans` (for organ kinds), or -1 when retired/non-organ. */
+  organIdx: number;
   readonly p: THREE.Vector3;
   readonly q: THREE.Quaternion;
   readonly v: THREE.Vector3;
@@ -326,7 +330,13 @@ export class ChunkField {
   private readonly slots = new Map<ChunkKind, Chunk[]>();
   private readonly ring = new Map<ChunkKind, number>();
   private readonly live: Chunk[] = [];
-  /** Every slot of every kind, so the per-frame sweep needs no iterators. */
+  /** Compact list of currently alive chunks across all kinds (swap-removed on retire). */
+  private readonly aliveList: Chunk[] = [];
+  /** Compact list of currently alive organ chunks (swap-removed on retire). */
+  private readonly aliveOrgans: Chunk[] = [];
+  /** Count of currently alive pieces per kind (for toggling `mesh.visible` when empty). */
+  private readonly kindAlive = new Map<ChunkKind, number>();
+  /** Every slot of every kind, kept for full lookup when needed. */
   private readonly all: Chunk[] = [];
   private ready = false;
   private readonly impactDir = new THREE.Vector3();
@@ -369,7 +379,7 @@ export class ChunkField {
       cookable(m);
       return render.materials?.patch ? render.materials.patch(m) ?? m : m;
     };
-    const make = (kind: Exclude<ChunkKind, CutKind>, geometry: THREE.BufferGeometry, material: THREE.Material) => this.make(kind, geometry, material, ChunkTuning.capacity[kind]);
+    const make = (kind: Exclude<ChunkKind, CutKind>, geometry: THREE.BufferGeometry, material: THREE.Material) => this.make(kind, geometry, material, ChunkTuning.capacity[kind], true);
     // Soft torn flesh, smooth-shaded and wet (organs.ts): faceted lumps read as red gems.
     const flesh = buildFlesh();
     const meat = wet(0.24, 0.9, 0x180304);
@@ -408,7 +418,7 @@ export class ChunkField {
     }
   }
 
-  private make(kind: ChunkKind, geometry: THREE.BufferGeometry, material: THREE.Material | THREE.Material[], cap: number): THREE.InstancedMesh {
+  private make(kind: ChunkKind, geometry: THREE.BufferGeometry, material: THREE.Material | THREE.Material[], cap: number, warmCommon = false): THREE.InstancedMesh {
     const mesh = new THREE.InstancedMesh(geometry, material, cap);
     mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     mesh.matrixAutoUpdate = false;
@@ -419,11 +429,27 @@ export class ChunkField {
     for (let i = 0; i < cap; i++) mesh.setMatrixAt(i, _hide);
     // Every kind has a colour per piece from the start, all white: one program for burnt and unburnt alike.
     mesh.setColorAt(0, burnTint(_tint, 0));
+    if (warmCommon) {
+      // Draw 1 degenerate instance once at load to pre-compile the shader, then hide until a piece actually spawns.
+      mesh.count = 1;
+      const own = new Set(Array.isArray(material) ? material : [material]);
+      mesh.onAfterRender = (_renderer, _scene, _camera, _geometry, used) => {
+        own.delete(used);
+        if (own.size > 0) return;
+        mesh.onAfterRender = () => {};
+        this.drawn.add(kind);
+        if ((this.kindAlive.get(kind) ?? 0) === 0) {
+          mesh.count = 0;
+          mesh.visible = false;
+        }
+      };
+    }
     this.ctx.render.scene.add(mesh);
     this.meshes.set(kind, mesh);
     this.ring.set(kind, 0);
+    this.kindAlive.set(kind, 0);
     const slots: Chunk[] = Array.from({ length: cap }, (_, slot) => ({
-      kind, slot, body: null, size: 0, bulk: 0, sx: 1, sy: 1, sz: 1, born: 0, simAt: 0, still: 0, restedAt: -1, speed: 0, splats: 0, nextThud: 0, wob: 0, wobV: 0, sag: 0, kickAt: 0, floorY: 0, trailAt: 0, ribbon: null, dry: false, hx: 0, hy: 0, hz: 0, perched: false, roused: false, ccd: false, alive: false,
+      kind, slot, body: null, size: 0, bulk: 0, sx: 1, sy: 1, sz: 1, born: 0, simAt: 0, still: 0, restedAt: -1, speed: 0, splats: 0, nextThud: 0, wob: 0, wobV: 0, sag: 0, kickAt: 0, floorY: 0, trailAt: 0, ribbon: null, dry: false, hx: 0, hy: 0, hz: 0, perched: false, roused: false, ccd: false, alive: false, aliveIdx: -1, organIdx: -1,
       p: new THREE.Vector3(), q: new THREE.Quaternion(), v: new THREE.Vector3(),
     }));
     this.slots.set(kind, slots);
@@ -445,8 +471,18 @@ export class ChunkField {
     this.extent.set(kind, half.clone().multiplyScalar(0.85));
     RIBBONED.add(kind);
     this.cut.set(kind, 0);
+    // All humanoid archetypes share the exact same character shader program; warm only one representative mesh per unique
+    // program signature so we pre-compile the shader at load without uploading 100+ MB of unused archetype 1024^2 textures.
+    const mats = Array.isArray(material) ? material : [material];
+    const progKey = mats.map(m => `${m.type}:${m.customProgramCacheKey?.() ?? ''}:${JSON.stringify((m as THREE.MeshStandardMaterial).defines ?? '')}`).join('|');
+    if (this.warmedPrograms.has(progKey)) {
+      this.drawn.add(kind);
+      mesh.visible = false;
+      return;
+    }
+    this.warmedPrograms.add(progKey);
     // Drawn with each of its own materials, that is: a depth pass draws it with another, and compiles nothing of these.
-    const own = new Set(Array.isArray(material) ? material : [material]);
+    const own = new Set(mats);
     mesh.onAfterRender = (_renderer, _scene, _camera, _geometry, used) => {
       own.delete(used);
       if (own.size > 0) return;
@@ -459,6 +495,7 @@ export class ChunkField {
   /** Pieces alive of each registered kind, and the kinds whose mesh has been drawn once. */
   private readonly cut = new Map<ChunkKind, number>();
   private readonly drawn = new Set<ChunkKind>();
+  private readonly warmedPrograms = new Set<string>();
 
   /**
    * One whole ribcage bursting: each of `kinds` starts where it sits in the chest (`at`, turned `turn`, at `scale` of a 1.85 m
@@ -510,7 +547,6 @@ export class ChunkField {
     rotation?: THREE.Quaternion, spin = 30,
   ): void {
     this.ensure();
-    const { R, world } = this.ctx.physics;
     const ring = this.ring.get(kind)!;
     const slots = this.slots.get(kind)!;
     if (this.shared !== ChunkTuning.share) this.share();
@@ -518,15 +554,17 @@ export class ChunkField {
     const limit = kind in ChunkTuning.capacity ? Math.max(1, Math.round(slots.length * ChunkTuning.share)) : slots.length;
     const c = slots[ring < limit ? ring : 0]!;
     this.ring.set(kind, (c.slot + 1) % limit);
-    if (kind in ChunkTuning.capacity && (this.high.get(kind) ?? 0) <= c.slot) {
-      this.high.set(kind, c.slot + 1);
-      this.meshes.get(kind)!.count = c.slot + 1;
+    const tinted = this.meshes.get(kind)!;
+    if (kind in ChunkTuning.capacity) {
+      const nextHigh = Math.max(this.high.get(kind) ?? 0, c.slot + 1);
+      this.high.set(kind, nextHigh);
+      tinted.count = Math.min(limit, nextHigh);
+      tinted.visible = true;
     }
     // An organ whose slot is wanted does not just go: it bursts where it lies.
     if (c.alive && ORGAN_SET.has(kind) && c.restedAt >= 0) this.burst(c, _up);
     else if (c.alive) this.retire(c);
     // Burnt (`char`): toward black, unevenly, so a heap of them is not one flat colour.
-    const tinted = this.meshes.get(kind)!;
     tinted.setColorAt(c.slot, burnTint(_tint, this.char, 0.18, this.ctx.time.elapsed));
     markRange(tinted.instanceColor!, c.slot, 3);
     c.dry = this.char >= FireTuning.sootFrom;
@@ -543,7 +581,7 @@ export class ChunkField {
     c.sz = box === undefined ? 0.75 + Math.random() * 0.5 : 1;
     if (own !== undefined) {
       this.cut.set(kind, own + 1);
-      this.meshes.get(kind)!.visible = true;
+      tinted.visible = true;
     }
     // Never started under the floor of the gib it came out of, however it is turned: a body lying down turns its
     // ribcage on its side, and a piece started half in a thin floor is pushed out of either face of it.
@@ -580,6 +618,13 @@ export class ChunkField {
     // An organ or a slab draws a ribbon behind it; a lump of meat or a rib fragment leaves strands.
     c.ribbon = this.trail && RIBBONED.has(kind) && !c.dry ? this.trail.open(c) : null;
     c.alive = true;
+    c.aliveIdx = this.aliveList.length;
+    this.aliveList.push(c);
+    this.kindAlive.set(kind, (this.kindAlive.get(kind) ?? 0) + 1);
+    if (ORGAN_SET.has(kind)) {
+      c.organIdx = this.aliveOrgans.length;
+      this.aliveOrgans.push(c);
+    }
     this.live.push(c);
   }
 
@@ -622,10 +667,10 @@ export class ChunkField {
    */
   unsettle(lo: THREE.Vector3, hi: THREE.Vector3): number {
     let n = 0;
-    const all = this.all;
-    for (let i = 0; i < all.length && n < 12; i++) {
-      const c = all[i]!;
-      if (!c.alive || c.restedAt < 0 || !c.perched || c.body) continue;
+    const alive = this.aliveList;
+    for (let i = 0; i < alive.length && n < 12; i++) {
+      const c = alive[i]!;
+      if (c.restedAt < 0 || !c.perched || c.body) continue;
       const p = c.p;
       if (p.x < lo.x - 0.15 || p.x > hi.x + 0.15 || p.z < lo.z - 0.15 || p.z > hi.z + 0.15 || p.y < lo.y - 0.1 || p.y > hi.y + 0.6) continue;
       n++;
@@ -697,14 +742,36 @@ export class ChunkField {
     if (c.body) this.dropBody(c);
     const flying = this.ghosts.indexOf(c);
     if (flying >= 0) this.ghosts.splice(flying, 1);
-    c.alive = false;
-    const mesh = this.meshes.get(c.kind)!;
-    mesh.setMatrixAt(c.slot, _hide);
-    markRange(mesh.instanceMatrix, c.slot, 16);
-    const own = this.cut.get(c.kind);
-    if (own !== undefined) {
-      this.cut.set(c.kind, own - 1);
-      if (own <= 1 && this.drawn.has(c.kind)) mesh.visible = false;
+    if (c.alive) {
+      c.alive = false;
+      if (c.aliveIdx >= 0) {
+        const last = this.aliveList.pop()!;
+        if (c.aliveIdx < this.aliveList.length) {
+          this.aliveList[c.aliveIdx] = last;
+          last.aliveIdx = c.aliveIdx;
+        }
+        c.aliveIdx = -1;
+      }
+      if (c.organIdx >= 0) {
+        const last = this.aliveOrgans.pop()!;
+        if (c.organIdx < this.aliveOrgans.length) {
+          this.aliveOrgans[c.organIdx] = last;
+          last.organIdx = c.organIdx;
+        }
+        c.organIdx = -1;
+      }
+      const nextAlive = Math.max(0, (this.kindAlive.get(c.kind) ?? 1) - 1);
+      this.kindAlive.set(c.kind, nextAlive);
+      const mesh = this.meshes.get(c.kind)!;
+      mesh.setMatrixAt(c.slot, _hide);
+      markRange(mesh.instanceMatrix, c.slot, 16);
+      const own = this.cut.get(c.kind);
+      if (own !== undefined) {
+        this.cut.set(c.kind, own - 1);
+        if (own <= 1 && this.drawn.has(c.kind)) mesh.visible = false;
+      } else if (nextAlive === 0 && this.drawn.has(c.kind)) {
+        mesh.visible = false;
+      }
     }
   }
 
@@ -746,6 +813,7 @@ export class ChunkField {
 
   update(dt: number): void {
     if (!this.ready) return;
+    if (this.aliveList.length === 0 && this.shadowKinds.length === 0) return;
     const now = this.ctx.time.elapsed;
     const t = ChunkTuning;
     for (let i = 0; i < this.live.length; i++) this.markShadow(this.live[i]!.kind, now);
@@ -805,7 +873,8 @@ export class ChunkField {
       if (c.still > t.settle || now - c.simAt > 7) this.dropBody(c);
     }
     if (this.ghosts.length > 0) {
-      const g = this.ctx.physics.world.gravity.y;
+      const p = this.ctx.physics as { gravityY?: number; world: { gravity: { y: number } } };
+      const g = p.gravityY ?? p.world.gravity.y;
       for (let i = this.ghosts.length - 1; i >= 0; i--) {
         const c = this.ghosts[i]!;
         c.v.y += g * dt;
@@ -821,10 +890,10 @@ export class ChunkField {
     }
     this.updateOrgans(dt, now);
     if (Number.isFinite(t.linger) || this.dismissed > -Infinity) {
-      const all = this.all;
-      for (let i = 0; i < all.length; i++) {
-        const c = all[i]!;
-        if (!c.alive || c.restedAt < 0) continue;
+      const alive = this.aliveList;
+      for (let i = alive.length - 1; i >= 0; i--) {
+        const c = alive[i]!;
+        if (c.restedAt < 0) continue;
         // The organs and the ribcage are what a gib is read by: they lie twice as long as torn meat.
         const age = c.restedAt <= this.dismissed ? now - this.dismissed : now - c.restedAt - t.linger * (LASTING.has(c.kind) ? 2 : 1);
         if (age <= 0) continue;
@@ -847,42 +916,39 @@ export class ChunkField {
    * them, and burst under one who steps on them. A few dozen distance checks a frame.
    */
   private updateOrgans(dt: number, now: number): void {
+    const organs = this.aliveOrgans;
+    if (organs.length === 0) return;
     const o = OrganTuning;
     const player = this.ctx.player;
     const feet = player?.position?.isVector3 === true ? player.position : null;
-    for (const kind of ORGANS) {
-      const slots = this.slots.get(kind);
-      if (!slots) continue;
-      for (let i = 0; i < slots.length; i++) {
-        const c = slots[i]!;
-        if (!c.alive) continue;
-        const resting = c.restedAt >= 0;
-        if (resting) {
-          const moving = Math.abs(c.wob) > 0.002 || Math.abs(c.wobV) > 0.02 || c.sag < 1;
-          if (moving) {
-            c.sag = Math.min(1, c.sag + dt / o.sagSeconds);
-            this.spring(c, dt);
-            this.write(c, 1);
-          }
+    const v = feet && player.velocity?.isVector3 === true ? player.velocity : null;
+    const speed = v ? Math.hypot(v.x, v.z) : 0;
+    for (let i = organs.length - 1; i >= 0; i--) {
+      const c = organs[i]!;
+      const resting = c.restedAt >= 0;
+      if (resting) {
+        const moving = Math.abs(c.wob) > 0.002 || Math.abs(c.wobV) > 0.02 || c.sag < 1;
+        if (moving) {
+          c.sag = Math.min(1, c.sag + dt / o.sagSeconds);
+          this.spring(c, dt);
+          this.write(c, 1);
         }
-        if (!feet) continue;
-        const dx = c.p.x - feet.x;
-        const dz = c.p.z - feet.z;
-        const reach = o.kickReach + c.bulk;
-        if (Math.abs(dx) > reach || Math.abs(dz) > reach || Math.abs(c.p.y - feet.y) > 0.45) continue;
-        const d = Math.hypot(dx, dz);
-        const v = player.velocity?.isVector3 === true ? player.velocity : null;
-        const speed = v ? Math.hypot(v.x, v.z) : 0;
-        if (d < o.stepReach + c.bulk * 0.5 && speed > 0.5 && (resting || c.v.lengthSq() < 4)) {
-          // Underfoot.
-          this.burst(c, _up);
-          continue;
-        }
-        if (d < reach && speed > 0.8 && now >= c.kickAt && v) {
-          // Walked into: it rolls off ahead and to the side, and bursts if the walker catches it up.
-          c.kickAt = now + o.kickEvery;
-          this.kick(c, v.x * o.kick + (dx / (d || 1)) * 1.2, 0.9 + speed * 0.12, v.z * o.kick + (dz / (d || 1)) * 1.2);
-        }
+      }
+      if (!feet) continue;
+      const dx = c.p.x - feet.x;
+      const dz = c.p.z - feet.z;
+      const reach = o.kickReach + c.bulk;
+      if (Math.abs(dx) > reach || Math.abs(dz) > reach || Math.abs(c.p.y - feet.y) > 0.45) continue;
+      const d = Math.hypot(dx, dz);
+      if (d < o.stepReach + c.bulk * 0.5 && speed > 0.5 && (resting || c.v.lengthSq() < 4)) {
+        // Underfoot.
+        this.burst(c, _up);
+        continue;
+      }
+      if (d < reach && speed > 0.8 && now >= c.kickAt && v) {
+        // Walked into: it rolls off ahead and to the side, and bursts if the walker catches it up.
+        c.kickAt = now + o.kickEvery;
+        this.kick(c, v.x * o.kick + (dx / (d || 1)) * 1.2, 0.9 + speed * 0.12, v.z * o.kick + (dz / (d || 1)) * 1.2);
       }
     }
   }
@@ -919,18 +985,17 @@ export class ChunkField {
 
   /** Shakes every organ within reach of `at`, by `strength` 0..1: something landed there. */
   quiver(at: THREE.Vector3, strength: number, but: Chunk | null = null): void {
+    const organs = this.aliveOrgans;
+    if (organs.length === 0) return;
     const o = OrganTuning;
-    for (const kind of ORGANS) {
-      const slots = this.slots.get(kind);
-      if (!slots) continue;
-      for (let i = 0; i < slots.length; i++) {
-        const c = slots[i]!;
-        if (!c.alive || c === but) continue;
-        const d2 = c.p.distanceToSquared(at);
-        if (d2 > o.quiverReach * o.quiverReach) continue;
-        c.wobV += o.quiver * strength * (1 - Math.sqrt(d2) / o.quiverReach) * (Math.random() < 0.5 ? 1 : -1);
-        if (c.restedAt >= 0) c.sag = Math.min(c.sag, 0.999);
-      }
+    const reach2 = o.quiverReach * o.quiverReach;
+    for (let i = 0; i < organs.length; i++) {
+      const c = organs[i]!;
+      if (c === but) continue;
+      const d2 = c.p.distanceToSquared(at);
+      if (d2 > reach2) continue;
+      c.wobV += o.quiver * strength * (1 - Math.sqrt(d2) / o.quiverReach) * (Math.random() < 0.5 ? 1 : -1);
+      if (c.restedAt >= 0) c.sag = Math.min(c.sag, 0.999);
     }
   }
 
@@ -979,23 +1044,19 @@ export class ChunkField {
   raycastOrgan(origin: THREE.Vector3, dir: THREE.Vector3, maxDist: number): number {
     let best = maxDist;
     this.hit = null;
-    for (const kind of ORGANS) {
-      const slots = this.slots.get(kind);
-      if (!slots) continue;
-      for (let i = 0; i < slots.length; i++) {
-        const c = slots[i]!;
-        if (!c.alive) continue;
-        const r = c.bulk * 1.1;
-        const mx = c.p.x - origin.x, my = c.p.y - origin.y, mz = c.p.z - origin.z;
-        const along = mx * dir.x + my * dir.y + mz * dir.z;
-        if (along < 0 || along - r > best) continue;
-        const off2 = mx * mx + my * my + mz * mz - along * along;
-        if (off2 > r * r) continue;
-        const t = along - Math.sqrt(r * r - off2);
-        if (t < best) {
-          best = Math.max(0, t);
-          this.hit = c;
-        }
+    const organs = this.aliveOrgans;
+    for (let i = 0; i < organs.length; i++) {
+      const c = organs[i]!;
+      const r = c.bulk * 1.1;
+      const mx = c.p.x - origin.x, my = c.p.y - origin.y, mz = c.p.z - origin.z;
+      const along = mx * dir.x + my * dir.y + mz * dir.z;
+      if (along < 0 || along - r > best) continue;
+      const off2 = mx * mx + my * my + mz * mz - along * along;
+      if (off2 > r * r) continue;
+      const t = along - Math.sqrt(r * r - off2);
+      if (t < best) {
+        best = Math.max(0, t);
+        this.hit = c;
       }
     }
     return this.hit ? best : -1;
@@ -1022,9 +1083,7 @@ export class ChunkField {
 
   /** Pieces of a kind in the world, moving or lying still. For checks. */
   aliveOf(kind: ChunkKind): number {
-    let n = 0;
-    for (const c of this.slots.get(kind) ?? []) if (c.alive) n++;
-    return n;
+    return this.kindAlive.get(kind) ?? 0;
   }
 
   /** Speed of the fastest piece in flight. For checks. */
@@ -1036,7 +1095,7 @@ export class ChunkField {
 
   clear(): void {
     if (!this.ready) return;
-    for (const c of this.all) if (c.alive) this.retire(c);
+    for (let i = this.aliveList.length - 1; i >= 0; i--) this.retire(this.aliveList[i]!);
     this.ghosts.length = 0;
     for (const kind of this.shadowKinds) {
       const mesh = this.meshes.get(kind);
@@ -1060,9 +1119,10 @@ export class ChunkField {
   trim(): void {
     if (!this.ready) return;
     const room = ChunkTuning.capacity as Partial<Record<ChunkKind, number>>;
-    for (const c of this.all) {
+    for (let i = this.aliveList.length - 1; i >= 0; i--) {
+      const c = this.aliveList[i]!;
       const cap = room[c.kind];
-      if (c.alive && cap !== undefined && c.slot >= Math.max(1, Math.round(cap * ChunkTuning.share))) this.retire(c);
+      if (cap !== undefined && c.slot >= Math.max(1, Math.round(cap * ChunkTuning.share))) this.retire(c);
     }
     this.share();
   }
@@ -1077,7 +1137,11 @@ export class ChunkField {
     const room = ChunkTuning.capacity as Partial<Record<ChunkKind, number>>;
     for (const [kind, mesh] of this.meshes) {
       const cap = room[kind];
-      if (cap !== undefined) mesh.count = Math.min(Math.max(1, Math.round(cap * ChunkTuning.share)), this.high.get(kind) ?? 0);
+      if (cap !== undefined) {
+        const count = Math.min(Math.max(1, Math.round(cap * ChunkTuning.share)), this.high.get(kind) ?? 0);
+        mesh.count = count > 0 ? count : this.drawn.has(kind) ? 0 : 1;
+        if (count === 0 && this.drawn.has(kind)) mesh.visible = false;
+      }
     }
   }
 
@@ -1086,16 +1150,17 @@ export class ChunkField {
    * along `vx, vz`, a few a call. Organs are left alone: they answer a foot themselves (they roll, and burst underfoot).
    */
   shove(at: THREE.Vector3, radius: number, vx: number, vz: number): number {
-    if (!this.ready) return 0;
+    if (!this.ready || this.aliveList.length === 0) return 0;
     let kicked = 0;
-    const all = this.all;
+    const alive = this.aliveList;
     const speed = Math.hypot(vx, vz);
-    for (let i = 0; i < all.length && kicked < 3; i++) {
-      const c = all[i]!;
-      if (!c.alive || c.body || c.restedAt < 0 || ORGAN_SET.has(c.kind)) continue;
+    const radius2 = radius * radius;
+    for (let i = 0; i < alive.length && kicked < 3; i++) {
+      const c = alive[i]!;
+      if (c.body || c.restedAt < 0 || ORGAN_SET.has(c.kind)) continue;
       const dx = c.p.x - at.x;
       const dz = c.p.z - at.z;
-      if (dx * dx + dz * dz > radius * radius || c.p.y < at.y - 0.3 || c.p.y > at.y + 1.2) continue;
+      if (dx * dx + dz * dz > radius2 || c.p.y < at.y - 0.3 || c.p.y > at.y + 1.2) continue;
       if (this.live.length >= ChunkTuning.maxBodies) break;
       const d = Math.hypot(dx, dz) || 1;
       // Away from the foot and along the stride, and up a little: a kick, at most a few metres a second.

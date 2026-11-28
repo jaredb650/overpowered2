@@ -695,9 +695,11 @@ export class MessField {
     const r2 = r * r;
     const yLo = at.y - 0.2;
     const yHi = at.y + height;
+    const poseFresh = rag.poseFresh;
+    const velFresh = rag.velFresh;
     for (let k = 0; k < rag.parts.length; k++) {
       const part = rag.parts[k]!;
-      const p = part.body.translation(_t as never) as unknown as { x: number; y: number; z: number };
+      const p = poseFresh ? part.p : (part.body.translation(_t as never) as unknown as { x: number; y: number; z: number });
       if (p.y < yLo || p.y > yHi) continue;
       let dx = p.x - at.x;
       let dz = p.z - at.z;
@@ -716,7 +718,7 @@ export class MessField {
       const depth = 1 - d / r;
       if (closing <= 0 && depth < 0.35) continue;
       const want = Math.min(t.pushMax, (t.pushBase * depth + t.pushPerSpeed * Math.max(closing, 0)) * strength) * scale;
-      const lv = part.body.linvel(_lv as never) as unknown as { x: number; y: number; z: number };
+      const lv = velFresh ? part.v : (part.body.linvel(_lv as never) as unknown as { x: number; y: number; z: number });
       const have = lv.x * dx + lv.z * dz;
       if (have >= want) continue;
       const j = (want - have) * part.mass;

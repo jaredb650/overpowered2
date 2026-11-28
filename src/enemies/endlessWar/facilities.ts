@@ -9,6 +9,7 @@
  *     associated enemy capability, and fire a 30-second Momentum Surge until enemy engineers rebuild them.
  */
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type RAPIER from '@dimforge/rapier3d-compat';
 import { CG, type Ctx, type ExplosionKind } from '../../core/contracts';
 import type { ExplosionSpec, MissileTarget, VehicleRadarTarget } from '../../core/gameplay';
@@ -136,6 +137,54 @@ function buildFacilityVisuals(plan: StrategicFacilityPlan): {
   const slag = new THREE.Mesh(new THREE.BoxGeometry(hx * 0.85, 2.3, hz * 0.75), charredMat);
   slag.position.set(hx * 0.25, 1.15, -hz * 0.18);
   ruinedGroup.add(slag);
+
+  const mergeChildren = (grp: THREE.Group, skip?: THREE.Object3D): void => {
+    const byMat = new Map<THREE.Material, THREE.Mesh[]>();
+    for (const ch of grp.children) {
+      if (!(ch as THREE.Mesh).isMesh || ch === skip) continue;
+      const m = ch as THREE.Mesh;
+      if (Array.isArray(m.material)) continue;
+      let list = byMat.get(m.material);
+      if (!list) { list = []; byMat.set(m.material, list); }
+      list.push(m);
+    }
+    for (const [mat, list] of byMat) {
+      if (list.length < 2) {
+        list[0]!.matrixAutoUpdate = false;
+        list[0]!.updateMatrix();
+        continue;
+      }
+      const geos: THREE.BufferGeometry[] = [];
+      for (const m of list) {
+        m.updateMatrix();
+        const g = m.geometry.index ? m.geometry.toNonIndexed() : m.geometry.clone();
+        g.applyMatrix4(m.matrix);
+        geos.push(g);
+        grp.remove(m);
+      }
+      const merged = mergeGeometries(geos, false);
+      for (const g of geos) g.dispose();
+      if (merged) {
+        const mm = new THREE.Mesh(merged, mat);
+        mm.matrixAutoUpdate = false;
+        mm.updateMatrix();
+        grp.add(mm);
+      }
+    }
+  };
+  mergeChildren(intactGroup, beaconMesh);
+  mergeChildren(ruinedGroup);
+  group.matrixAutoUpdate = false;
+  group.updateMatrix();
+  intactGroup.matrixAutoUpdate = false;
+  intactGroup.updateMatrix();
+  ruinedGroup.matrixAutoUpdate = false;
+  ruinedGroup.updateMatrix();
+
+  meshes.length = 0;
+  intactGroup.traverse(o => {
+    if ((o as THREE.Mesh).isMesh && o !== beaconMesh) meshes.push(o);
+  });
 
   return { group, intactGroup, ruinedGroup, beaconMesh, beaconMat, meshes };
 }
