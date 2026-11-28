@@ -55,6 +55,10 @@ class Fx implements FxSystem {
     listen(this.ctx, this.core);
   }
 
+  warm(): void {
+    this.core?.primeWarm();
+  }
+
   update(): void {
     this.emitters.update();
     this.core.runTinkles(this.onTinkle);

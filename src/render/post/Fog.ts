@@ -322,6 +322,15 @@ export class Fog {
     this.prevViewProj.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
   }
 
+  async warm(renderer: THREE.WebGLRenderer): Promise<void> {
+    const keep = renderer.getRenderTarget();
+    const jobs: Promise<void>[] = [];
+    if (this.history[0]) jobs.push(this.resolve.compile(renderer, this.history[0]));
+    if (this.march && this.raw) jobs.push(this.march.compile(renderer, this.raw));
+    renderer.setRenderTarget(keep);
+    await Promise.all(jobs);
+  }
+
   dispose(): void {
     this.march?.dispose();
     this.resolve.dispose();

@@ -216,6 +216,8 @@ export interface RenderSystem extends GameSystem {
   decals: DecalSystem;
   /** Bakes static lights. Call once after the map is built. */
   bakeLightVolume(input: LightVolumeBakeInput): Promise<void>;
+  /** Pre-compiles scene, viewmodel, shadow, and runtime shader permutations against the HDR render target. */
+  compileScene?(includePermutations?: boolean): Promise<void>;
   /** Scene depth from this frame, for soft particles. Null until the first render or when unavailable. */
   readonly depthTexture: THREE.DepthTexture | null;
   /** Render one frame. Reads the camera as left by CameraRig. */
@@ -341,6 +343,10 @@ export interface CharacterInstance {
   readonly skinMaterial: THREE.Material;
   /** Geometry and material detail, 0 to 3. */
   setLod?(level: number): void;
+  /** Enables or disables dynamic shadow casting (used to cull characters outside the dynamic shadow map). */
+  setShadowActive?(active: boolean): void;
+  /** Freezes or unfreezes bone matrixAutoUpdate when animation is paused at LOD 3. */
+  setBonesFrozen?(frozen: boolean): void;
   /** Hits per bone that broke nothing yet. Gore's to read and write. Reset with the instance. */
   readonly stress: Float32Array;
   /** 0..1 overall blood coverage on the skin. */
@@ -604,6 +610,8 @@ export interface EmitterHandle {
 export type BloodPuffKind = 'bullet' | 'headshot' | 'headburst' | 'shotgun' | 'limb' | 'blowout' | 'gib';
 
 export interface FxSystem extends GameSystem {
+  /** Primes soft-depth defines and empty ring warm-ups during load so FX shaders compile off the main thread. */
+  warm?(): void;
   /** `view` draws it in the view scene with the weapon. Pass the muzzle in view-scene coordinates then. */
   muzzleFlash(position: THREE.Vector3, dir: THREE.Vector3, kind: MuzzleKind, view?: boolean): void;
   tracer(from: THREE.Vector3, to: THREE.Vector3, kind: TracerKind): void;

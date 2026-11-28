@@ -160,6 +160,14 @@ export class Ssr {
     readArea(image, this.prevScale, this.prevEdge);
   }
 
+  async warm(renderer: THREE.WebGLRenderer): Promise<void> {
+    if (!this.pass || !this.target) return;
+    const keep = renderer.getRenderTarget();
+    const job = this.pass.compile(renderer, this.target);
+    renderer.setRenderTarget(keep);
+    await job;
+  }
+
   dispose(): void {
     this.pass?.dispose();
     this.target?.dispose();

@@ -135,6 +135,40 @@ export class MoonShadows {
     }
   }
 
+  /** Pre-compiles plain, instanced, and skinned shadow depth shaders so shadow passes never hitch mid-run. */
+  async warm(renderer: THREE.WebGLRenderer, scene: THREE.Scene): Promise<void> {
+    const target = this.dynamicMap ?? this.staticMap;
+    if (!target) return;
+    const keep = renderer.getRenderTarget();
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(9), 3));
+    geo.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(new Uint16Array(12), 4));
+    geo.setAttribute('skinWeight', new THREE.BufferAttribute(new Float32Array([1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0]), 4));
+    const warmScene = new THREE.Scene();
+    warmScene.add(new THREE.Mesh(geo, this.depthMaterial));
+    const inst = new THREE.InstancedMesh(geo, this.depthMaterial, 1);
+    warmScene.add(inst);
+    const instColor = new THREE.InstancedMesh(geo, this.depthMaterial, 1);
+    instColor.setColorAt(0, new THREE.Color(1, 1, 1));
+    warmScene.add(instColor);
+    const skinned = new THREE.SkinnedMesh(geo, this.depthMaterial);
+    const bone = new THREE.Bone();
+    skinned.add(bone);
+    skinned.bind(new THREE.Skeleton([bone]));
+    warmScene.add(skinned);
+    renderer.setRenderTarget(target);
+    const job = renderer.compileAsync(warmScene, this.dynamicCamera, scene);
+    renderer.setRenderTarget(keep);
+    try {
+      await job;
+    } finally {
+      skinned.skeleton.dispose();
+      inst.dispose();
+      instColor.dispose();
+      geo.dispose();
+    }
+  }
+
   dispose(): void {
     this.staticMap?.dispose();
     this.dynamicMap?.dispose();

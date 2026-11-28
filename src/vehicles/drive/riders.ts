@@ -49,6 +49,21 @@ const GUN_STEEL = '#2b3138';
 /** Default operator accent colors by co-op slot (Slot 0 local player = tactical cyan, Slot 1 = amber, etc.). */
 export const RIDER_ACCENTS: readonly string[] = ['#38e8ff', '#ffaa2b', '#52ff88', '#ff5478'];
 
+const accentMatCache = new Map<string, THREE.MeshBasicMaterial>();
+function getAccentMat(color: string): THREE.MeshBasicMaterial {
+  const key = color.toLowerCase();
+  let mat = accentMatCache.get(key);
+  if (!mat) {
+    mat = new THREE.MeshBasicMaterial({ color, toneMapped: false });
+    accentMatCache.set(key, mat);
+  }
+  return mat;
+}
+
+const stripGeo = new THREE.BoxGeometry(0.035, 0.08, 0.19);
+const chestTagGeo = new THREE.BoxGeometry(0.14, 0.045, 0.03);
+const visorGeo = new THREE.BoxGeometry(0.22, 0.082, 0.08);
+
 function buildTorsoAndArms(
   materials: ModelMaterials,
   posture: RiderPosture,
@@ -106,15 +121,15 @@ function buildTorsoAndArms(
 
   torso.add(b.build(materials));
 
-  // Separate accent stripe mesh so co-op player slot colors can be tinted dynamically at runtime!
-  const accentMat = new THREE.MeshBasicMaterial({ color: accentHex, toneMapped: false });
+  // Shared pooled accent material per color so co-op/AI riders batch together in PropBatcher!
+  const accentMat = getAccentMat(accentHex);
   for (const s of [-1, 1]) {
-    const strip = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.08, 0.19), accentMat);
+    const strip = new THREE.Mesh(stripGeo, accentMat);
     strip.position.set(s * 0.34, 0.46, 0);
     torso.add(strip);
     accentMeshes.push(strip);
   }
-  const chestTag = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.045, 0.03), accentMat);
+  const chestTag = new THREE.Mesh(chestTagGeo, accentMat);
   chestTag.position.set(0, 0.38, 0.155);
   torso.add(chestTag);
   accentMeshes.push(chestTag);
@@ -131,7 +146,7 @@ function buildTorsoAndArms(
   hb.box(0.06, 0.07, 0.22, ARMOR_PLATE, { at: [0, 0.27, -0.02] }, 'armor'); // helmet ridge rail
   head.add(hb.build(materials));
 
-  const visor = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.082, 0.08), accentMat);
+  const visor = new THREE.Mesh(visorGeo, accentMat);
   visor.position.set(0, 0.15, 0.125);
   head.add(visor);
   accentMeshes.push(visor);
@@ -204,8 +219,9 @@ export function buildRiderRig(materials: ModelMaterials, spec: RiderSocketSpec):
 
 /** Update rider accent color (e.g. for co-op player slot distinction). */
 export function setRiderAccent(rig: RiderRig, color: string): void {
+  const mat = getAccentMat(color);
   for (const m of rig.accentMeshes) {
-    (m.material as THREE.MeshBasicMaterial).color.set(color);
+    m.material = mat;
   }
 }
 

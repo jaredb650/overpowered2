@@ -1298,6 +1298,8 @@ export class Gore implements GoreSystem {
   }
 
   private adopt(char: CharacterInstance): DeadBody {
+    char.setShadowActive?.(true);
+    char.setBonesFrozen?.(false);
     const body = new DeadBody(char, rigInfo(char.rig));
     body.freshAt = this.ctx.time.elapsed;
     markSevered(body.info, char.severed, body.skip);

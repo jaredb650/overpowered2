@@ -316,10 +316,16 @@ export class Renderer implements RenderSystem {
 
   private filterList(list: RenderList): void {
     switch (this.listMode) {
-      case 'opaque':
+      case 'opaque': {
         list.transparent.length = 0;
         list.transmissive.length = 0;
+        let n = 0;
+        for (const item of list.opaque) {
+          if (item.object.userData.shadowOnly !== true) list.opaque[n++] = item;
+        }
+        list.opaque.length = n;
         break;
+      }
       case 'decals': {
         list.opaque.length = 0;
         list.transmissive.length = 0;
@@ -401,12 +407,15 @@ export class Renderer implements RenderSystem {
     this.decalTarget?.dispose();
 
     const hdr = { type: THREE.HalfFloatType, format: THREE.RGBAFormat, generateMipmaps: false, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter };
+    // Nothing reads hdrTarget's alpha channel (sceneTarget carries reflectivity in .a for SSR), so packed
+    // R11F_G11F_B10F halves full-res HDR VRAM and bandwidth across Combine, Transparents, XRay, Bloom, SSR, and Composite.
+    const hdrRgb = { type: THREE.UnsignedInt101111Type, format: THREE.RGBFormat, generateMipmaps: false, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter };
     const depth = new THREE.DepthTexture(w, h, THREE.FloatType);
     depth.format = THREE.DepthFormat;
     depth.minFilter = depth.magFilter = THREE.NearestFilter;
     this.sceneTarget = new THREE.WebGLRenderTarget(w, h, { ...hdr, samples: this.quality.msaa, depthTexture: depth, depthBuffer: true });
-    this.hdrTarget = new THREE.WebGLRenderTarget(w, h, { ...hdr, depthTexture: depth, depthBuffer: true });
-    this.hdrColorOnly = new THREE.WebGLRenderTarget(w, h, { ...hdr, depthBuffer: false });
+    this.hdrTarget = new THREE.WebGLRenderTarget(w, h, { ...hdrRgb, depthTexture: depth, depthBuffer: true });
+    this.hdrColorOnly = new THREE.WebGLRenderTarget(w, h, { ...hdrRgb, depthBuffer: false });
     this.hdrColorOnly.texture.dispose();
     this.hdrColorOnly.texture = this.hdrTarget.texture;
 
@@ -482,15 +491,108 @@ export class Renderer implements RenderSystem {
     });
     this.worldMaterials.releaseScratch();
     this.propBatcher.sync(this.scene, this.camera);
-    // Program linking runs on the driver's threads, so it overlaps the bake worker for free and the
-    // first frame does not hitch on twenty big shaders.
-    await Promise.all([
-      this.volume.bake(input),
-      this.renderer.compileAsync(this.scene, this.camera),
-      this.renderer.compileAsync(this.viewScene, this.viewCamera),
-      this.decalSystem?.floor.warm(this.renderer),
-      this.xray.warm(this.renderer, this.hdrColorOnly, this.camera),
-    ]);
+    const keepTarget = this.renderer.getRenderTarget();
+    try {
+      await Promise.all([
+        this.volume.bake(input),
+        this.compileScene(true),
+        this.gtao.warm(this.renderer),
+        this.fogPass.warm(this.renderer),
+        this.ssr.warm(this.renderer),
+        this.combine.warm(this.renderer, this.hdrTarget),
+        this.bloom.warm(this.renderer),
+        this.composite.warm(this.renderer),
+        this.decalSystem?.floor.warm(this.renderer),
+        this.xray.warm(this.renderer, this.hdrColorOnly, this.camera),
+      ]);
+    } finally {
+      this.renderer.setRenderTarget(keepTarget);
+    }
+  }
+
+  private readonly warmPinMats: THREE.Material[] = [];
+  private warmPinTex: THREE.DataTexture | null = null;
+
+  /**
+   * Pre-compiles scene, viewmodel, shadow depth, and runtime combat/vehicle/debris shader permutations
+   * against the HDR scene target so gameplay frames never stall linking new shaders.
+   */
+  async compileScene(includePermutations = false): Promise<void> {
+    this.scene.updateMatrixWorld();
+    this.propBatcher.sync(this.scene, this.camera);
+    const keepTarget = this.renderer.getRenderTarget();
+    let warmGroup: THREE.Group | null = null;
+    let warmGeo: THREE.BufferGeometry | null = null;
+    let warmSkinned: THREE.SkinnedMesh | null = null;
+    const warmInsts: THREE.InstancedMesh[] = [];
+    if (includePermutations) {
+      warmGeo = new THREE.BufferGeometry();
+      warmGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(9), 3));
+      warmGeo.setAttribute('normal', new THREE.BufferAttribute(new Float32Array([0, 1, 0, 0, 1, 0, 0, 1, 0]), 3));
+      warmGeo.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(6), 2));
+      warmGeo.setAttribute('color', new THREE.BufferAttribute(new Float32Array([1, 1, 1, 1, 1, 1, 1, 1, 1]), 3));
+      warmGeo.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(new Uint16Array(12), 4));
+      warmGeo.setAttribute('skinWeight', new THREE.BufferAttribute(new Float32Array([1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0]), 4));
+      if (!this.warmPinTex) {
+        this.warmPinTex = new THREE.DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1);
+        this.warmPinTex.needsUpdate = true;
+      }
+      const warmTex = this.warmPinTex;
+      if (this.warmPinMats.length === 0) {
+        this.warmPinMats.push(
+          new THREE.MeshBasicMaterial(),
+          new THREE.MeshBasicMaterial({ transparent: true }),
+          new THREE.MeshBasicMaterial({ side: THREE.DoubleSide }),
+          new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide }),
+          new THREE.MeshStandardMaterial(),
+          new THREE.MeshStandardMaterial({ map: warmTex }),
+          new THREE.MeshStandardMaterial({ vertexColors: true }),
+          new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true }),
+          new THREE.MeshStandardMaterial({ map: warmTex, bumpMap: warmTex, vertexColors: true }),
+          new THREE.MeshStandardMaterial({ map: warmTex, bumpMap: warmTex, roughnessMap: warmTex, vertexColors: true }),
+          new THREE.MeshStandardMaterial({ transparent: true }),
+          this.patcher.apply(new THREE.MeshStandardMaterial()),
+          this.patcher.apply(new THREE.MeshStandardMaterial({ vertexColors: true })),
+          this.patcher.apply(new THREE.MeshStandardMaterial({ vertexColors: true, side: THREE.DoubleSide })),
+          this.patcher.apply(new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, side: THREE.DoubleSide })),
+          this.patcher.apply(new THREE.MeshPhysicalMaterial({ map: warmTex, vertexColors: true, clearcoat: 0.4 })),
+        );
+      }
+      warmGroup = new THREE.Group();
+      for (const mat of this.warmPinMats) {
+        warmGroup.add(new THREE.Mesh(warmGeo, mat));
+        const inst = new THREE.InstancedMesh(warmGeo, mat, 1);
+        warmInsts.push(inst);
+        warmGroup.add(inst);
+        const instColor = new THREE.InstancedMesh(warmGeo, mat, 1);
+        instColor.setColorAt(0, new THREE.Color(1, 1, 1));
+        warmInsts.push(instColor);
+        warmGroup.add(instColor);
+      }
+      warmSkinned = new THREE.SkinnedMesh(warmGeo, this.warmPinMats[2]!);
+      const bone = new THREE.Bone();
+      warmSkinned.add(bone);
+      warmSkinned.bind(new THREE.Skeleton([bone]));
+      warmGroup.add(warmSkinned);
+      this.scene.add(warmGroup);
+    }
+    try {
+      this.renderer.setRenderTarget(this.sceneTarget);
+      const pScene = this.renderer.compileAsync(this.scene, this.camera);
+      const pView = this.renderer.compileAsync(this.viewScene, this.viewCamera);
+      this.renderer.setRenderTarget(keepTarget);
+      await Promise.all([
+        pScene,
+        pView,
+        this.shadows.warm(this.renderer, this.scene),
+      ]);
+    } finally {
+      this.renderer.setRenderTarget(keepTarget);
+      if (warmGroup) this.scene.remove(warmGroup);
+      warmSkinned?.skeleton.dispose();
+      for (const inst of warmInsts) inst.dispose();
+      warmGeo?.dispose();
+    }
   }
 
   setQuality(level: number): void {

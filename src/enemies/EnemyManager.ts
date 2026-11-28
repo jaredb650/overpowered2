@@ -1012,9 +1012,11 @@ export class EnemyManager implements EnemySystem {
     l.aimPitch = aiming ? clamp(Math.atan2(eye.y - (e.position.y + e.def.eyeHeight), flat), -0.8, 0.8) : 0;
     l.grounded = !e.airborne;
     e.char.anim.setLocomotion(l);
-    const drawn = this.drawnLod(e);
+    const view = this.localView(e);
+    const drawn = e.isBoss ? e.lod : view.lod;
     e.char.anim.update(dt, drawn);
     (e.char as unknown as Skin).setLod(drawn);
+    e.char.setShadowActive?.(e.isBoss || view.dist < 54);
   }
 
   /**

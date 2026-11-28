@@ -124,6 +124,8 @@ export class Game {
     await c.characters.load?.();
     // Gore cuts each body's trunk into the pieces it breaks into now, not on the first gib of a fight.
     c.gore.warm?.();
+    c.fx.warm?.();
+    await c.render.compileScene?.(true);
     await c.coop?.init();
     onProgress(1, 'Ready');
     await breathe();

@@ -21,6 +21,8 @@ interface Bucket {
   mesh: THREE.InstancedMesh;
   capacity: number;
   count: number;
+  hasNearShadow: boolean;
+  hasInFrustum: boolean;
   /** Number of consecutive frames this bucket had zero instances (for pruning stale LOD/material combos if needed). */
   idleFrames: number;
 }
@@ -81,7 +83,10 @@ export class PropBatcher {
 
     // Reset counts on previously active buckets.
     for (let i = 0; i < this.activeBuckets.length; i++) {
-      this.activeBuckets[i]!.count = 0;
+      const b = this.activeBuckets[i]!;
+      b.count = 0;
+      b.hasNearShadow = false;
+      b.hasInFrustum = false;
     }
     this.activeBuckets.length = 0;
 
@@ -114,6 +119,8 @@ export class PropBatcher {
 
       // Per-instance frustum + shadow-range cull (skipped when frustumCulled=false, e.g. shader warm-up props).
       const g = m.geometry;
+      let nearShadow = true;
+      let inFrustum = true;
       if (m.frustumCulled) {
         if (!g.boundingSphere) g.computeBoundingSphere();
         const bs = g.boundingSphere;
@@ -132,11 +139,11 @@ export class PropBatcher {
           const dy = cy - _camPos.y;
           const dz = cz - _camPos.z;
           const shadowRange = SHADOW_KEEP_RADIUS + r;
-          if (dx * dx + dy * dy + dz * dz > shadowRange * shadowRange) {
-            _sphere.center.set(cx, cy, cz);
-            _sphere.radius = r;
-            if (!_frustum.intersectsSphere(_sphere)) continue;
-          }
+          nearShadow = dx * dx + dy * dy + dz * dz <= shadowRange * shadowRange;
+          _sphere.center.set(cx, cy, cz);
+          _sphere.radius = r;
+          inFrustum = _frustum.intersectsSphere(_sphere);
+          if (!nearShadow && !inFrustum) continue;
         }
       }
 
@@ -147,6 +154,8 @@ export class PropBatcher {
         bucket = this.createBucket(key, g, mat, cast);
       }
       if (bucket.count === 0) this.activeBuckets.push(bucket);
+      if (nearShadow) bucket.hasNearShadow = true;
+      if (inFrustum) bucket.hasInFrustum = true;
       if (bucket.count >= bucket.capacity) this.growBucket(bucket);
 
       const dst = bucket.mesh.instanceMatrix.array as Float32Array;
@@ -161,11 +170,15 @@ export class PropBatcher {
       if (bucket.count === 0) {
         bucket.mesh.count = 0;
         bucket.mesh.visible = false;
+        bucket.mesh.castShadow = false;
+        bucket.mesh.userData.shadowOnly = false;
         bucket.idleFrames++;
       } else {
         bucket.idleFrames = 0;
         bucket.mesh.count = bucket.count;
         bucket.mesh.visible = true;
+        bucket.mesh.castShadow = bucket.castShadow && bucket.hasNearShadow;
+        bucket.mesh.userData.shadowOnly = !bucket.hasInFrustum;
         bucket.mesh.instanceMatrix.clearUpdateRanges();
         bucket.mesh.instanceMatrix.addUpdateRange(0, bucket.count * 16);
         bucket.mesh.instanceMatrix.needsUpdate = true;
@@ -187,7 +200,7 @@ export class PropBatcher {
     mesh.updateMatrix();
     mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.group.add(mesh);
-    const bucket: Bucket = { geometry, material, castShadow, mesh, capacity, count: 0, idleFrames: 0 };
+    const bucket: Bucket = { geometry, material, castShadow, mesh, capacity, count: 0, hasNearShadow: false, hasInFrustum: false, idleFrames: 0 };
     this.buckets.set(key, bucket);
     return bucket;
   }

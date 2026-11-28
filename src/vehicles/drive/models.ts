@@ -1924,26 +1924,12 @@ function buildVehicleTemplate(id: DriveVehicleId, materials: ModelMaterials): Ve
 
 function cloneVehicleRig(tpl: VehicleModelRig): VehicleModelRig {
   const map = new Map<THREE.Object3D, THREE.Object3D>();
-  const accentSet = new Set<THREE.Object3D>();
-  for (const r of tpl.riders) {
-    for (const m of r.accentMeshes) accentSet.add(m);
-  }
-  const clonedAccentMats = new Map<THREE.Material, THREE.Material>();
 
   const cloneNode = (src: THREE.Object3D): THREE.Object3D => {
     let dst: THREE.Object3D;
     if ((src as THREE.Mesh).isMesh) {
       const m = src as THREE.Mesh;
-      let mat = m.material;
-      if (accentSet.has(m) && !Array.isArray(mat)) {
-        let cloned = clonedAccentMats.get(mat);
-        if (!cloned) {
-          cloned = mat.clone();
-          clonedAccentMats.set(mat, cloned);
-        }
-        mat = cloned;
-      }
-      const dm = new THREE.Mesh(m.geometry, mat);
+      const dm = new THREE.Mesh(m.geometry, m.material);
       dm.castShadow = m.castShadow;
       dm.receiveShadow = m.receiveShadow;
       dm.frustumCulled = m.frustumCulled;
@@ -2032,13 +2018,9 @@ export function buildVehicleModel(id: DriveVehicleId, materials: ModelMaterials)
   const rig = cloneVehicleRig(tpl);
   const reg = materials.ctx?.render?.registerBatchedProp?.bind(materials.ctx.render);
   if (reg) {
-    const skip = new Set<THREE.Object3D>();
-    if (rig.resupplyRing) skip.add(rig.resupplyRing);
-    for (const r of rig.riders) {
-      for (const m of r.accentMeshes) skip.add(m);
-    }
+    const skip = rig.resupplyRing;
     for (const obj of rig.meshes) {
-      if ((obj as THREE.Mesh).isMesh && !skip.has(obj)) {
+      if ((obj as THREE.Mesh).isMesh && obj !== skip) {
         reg(obj as THREE.Mesh);
       }
     }

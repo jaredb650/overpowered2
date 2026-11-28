@@ -574,6 +574,9 @@ export class Character implements CharacterInstance {
   private skeletonDirty = true;
   private boneTextureUploaded = false;
   private lastPoseSum = Number.NaN;
+  private shadowActive = true;
+  private shadowProps: THREE.Object3D[] | null = null;
+  private bonesFrozen = false;
   /** Hits taken per bone that did not break it on their own, so sustained fire gets there too. */
   readonly stress: Float32Array;
 
@@ -686,6 +689,7 @@ export class Character implements CharacterInstance {
     if (this.hidden[boneIndex]) return;
     const def = this.rig.bones[boneIndex]!;
     this.bones[boneIndex]!.scale.setScalar(COLLAPSED);
+    if (this.bonesFrozen) this.bones[boneIndex]!.updateMatrix();
     this.skeletonDirty = true;
     this.markChain(boneIndex, 1);
     for (let i = 0; i < this.bones.length; i++) {
@@ -986,9 +990,50 @@ export class Character implements CharacterInstance {
     prop.visible = !this.hidden[boneIndex];
   }
 
+  setShadowActive(active: boolean): void {
+    if (this.shadowActive === active) return;
+    this.shadowActive = active;
+    if (this.inside && this.backing) {
+      const open = this.backing.visible;
+      this.mesh.castShadow = active && !open;
+      this.backing.castShadow = active && open;
+    } else {
+      this.mesh.castShadow = active;
+    }
+    if (!active) {
+      const list = this.shadowProps ?? (this.shadowProps = []);
+      list.length = 0;
+      for (let i = 0; i < this.props.length; i++) {
+        const p = this.props[i]!;
+        if (p.object.parent !== this.bones[p.bone]) continue;
+        p.object.traverse(o => {
+          if ((o as THREE.Mesh).isMesh && o.castShadow) {
+            o.castShadow = false;
+            list.push(o);
+          }
+        });
+      }
+    } else if (this.shadowProps) {
+      for (let i = 0; i < this.shadowProps.length; i++) this.shadowProps[i]!.castShadow = true;
+      this.shadowProps.length = 0;
+    }
+  }
+
+  setBonesFrozen(frozen: boolean): void {
+    if (this.bonesFrozen === frozen) return;
+    this.bonesFrozen = frozen;
+    const auto = !frozen;
+    for (let i = 0; i < this.bones.length; i++) {
+      const b = this.bones[i]!;
+      b.matrixAutoUpdate = auto;
+      if (!auto) b.updateMatrix();
+    }
+  }
+
   setLod(level: number, force = false): void {
     if (level === this.lod && !force) return;
     this.lod = level;
+    this.setBonesFrozen(level >= 3);
     const set = this.activeCaps.size ? this.a.model.lodsWithCaps : this.a.model.lods;
     const i = Math.min(level, set.length - 1);
     this.mesh.geometry = set[i]!;
@@ -1072,6 +1117,7 @@ export class Character implements CharacterInstance {
 
   /** Lays a fresh instance out as `snap` had it. The instance must be as the library gives it: reset. */
   restore(snap: CorpseSnapshot): void {
+    this.setBonesFrozen(false);
     this.root.position.set(snap.root[0]!, snap.root[1]!, snap.root[2]!);
     this.root.quaternion.set(snap.root[3]!, snap.root[4]!, snap.root[5]!, snap.root[6]!);
     for (let i = 0; i < this.bones.length; i++) {
@@ -1200,6 +1246,8 @@ export class Character implements CharacterInstance {
 
   /** Called by the library. Restores the pristine pose and surface. */
   reset(): void {
+    this.setBonesFrozen(false);
+    this.setShadowActive(true);
     for (const cap of this.activeCaps) {
       cap.removeFromParent();
       cap.scale.setScalar(COLLAPSED);

@@ -151,6 +151,19 @@ export class Bloom {
     }
   }
 
+  async warm(renderer: THREE.WebGLRenderer): Promise<void> {
+    const target = this.down[0];
+    if (!target) return;
+    const keep = renderer.getRenderTarget();
+    const jobs = [
+      this.first.compile(renderer, target),
+      this.downPass.compile(renderer, this.down[1] ?? target),
+      this.upPass.compile(renderer, target),
+    ];
+    renderer.setRenderTarget(keep);
+    await Promise.all(jobs);
+  }
+
   dispose(): void {
     for (const t of this.down) t.dispose();
     this.first.dispose();

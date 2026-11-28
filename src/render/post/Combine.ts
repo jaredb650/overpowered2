@@ -118,6 +118,13 @@ export class Combine {
     this.pass.render(renderer, target);
   }
 
+  async warm(renderer: THREE.WebGLRenderer, target: THREE.WebGLRenderTarget): Promise<void> {
+    const keep = renderer.getRenderTarget();
+    const job = this.pass.compile(renderer, target);
+    renderer.setRenderTarget(keep);
+    await job;
+  }
+
   dispose(): void {
     this.pass.dispose();
   }

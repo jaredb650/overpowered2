@@ -184,6 +184,20 @@ export class FxCore {
    * first blood of a run and every new kind of blood after it, 70 to 300 ms each. So the questions all get
    * asked now, for every program the renderer has, and every layer draws once, empty.
    */
+  /** Primes soft-depth defines and empty ring warm-ups during load so FX shaders compile off the main thread. */
+  primeWarm(): void {
+    if (this.warmed) return;
+    const depth = this.ctx.render.depthTexture;
+    if (!depth) return;
+    const u = this.uniforms;
+    u.uDepth.value = depth;
+    const image = depth.image as { width: number; height: number };
+    u.uDepthRes.value.set(image.width, image.height);
+    this.smoke.enableSoftDepth();
+    this.shimmer.enableSoftDepth();
+    this.warm();
+  }
+
   private warm(): void {
     this.warmed = true;
     for (const program of this.ctx.render.renderer.info.programs ?? []) {

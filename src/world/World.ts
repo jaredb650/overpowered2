@@ -186,13 +186,11 @@ export class World implements WorldSystem {
     await report(0.87, def.readyLabel);
     if (bake instanceof Promise) await bake;
     const renderExt = ctx.render as {
-      renderer?: THREE.WebGLRenderer;
-      scene?: THREE.Scene;
-      camera?: THREE.Camera;
+      compileScene?: () => Promise<void>;
       refreshStaticShadows?: () => void;
     };
-    if (renderExt.renderer?.compileAsync && renderExt.scene && renderExt.camera) {
-      await renderExt.renderer.compileAsync(renderExt.scene, renderExt.camera).catch(() => {});
+    if (renderExt.compileScene) {
+      await renderExt.compileScene().catch(() => {});
     }
     renderExt.refreshStaticShadows?.();
     this.report.lightBakeMs = Math.round(performance.now() - t3);

@@ -131,7 +131,7 @@ export class CharacterLibraryImpl implements CharacterLibrary {
    */
   private warmWounds(): void {
     if (this.warmed) return;
-    const entry = [...this.entries.values()].find(e => e.interior && e.def.props.length > 0)
+    const entry = [...this.entries.values()].find(e => e.interior && kitOf(e.def).length > 0)
       ?? [...this.entries.values()].find(e => e.interior);
     const scene = this.ctx.render.scene as THREE.Scene | undefined;
     if (!entry || !scene?.isScene) return;
@@ -152,7 +152,13 @@ export class CharacterLibraryImpl implements CharacterLibrary {
     const plain = this.spawn(entry.id) as Character;
     const far = this.spawn(entry.id) as Character;
     far.setLod(FAR_LOD, true);
-    for (const extra of [graze, plain, far]) {
+    const extras: Character[] = [graze, plain, far];
+    const machineEntry = [...this.entries.values()].find(e => !e.interior);
+    if (machineEntry) {
+      const machine = this.spawn(machineEntry.id) as Character;
+      extras.push(machine);
+    }
+    for (const extra of extras) {
       extra.root.position.y = WARM_DEPTH;
       extra.root.traverse(o => { o.frustumCulled = false; });
       scene.add(extra.root);
@@ -160,7 +166,7 @@ export class CharacterLibraryImpl implements CharacterLibrary {
     body.inside!.onAfterRender = () => {
       body.inside!.onAfterRender = () => {};
       queueMicrotask(() => {
-        for (const warm of [body, graze, plain, far]) {
+        for (const warm of [body, ...extras]) {
           warm.root.traverse(o => { o.frustumCulled = true; });
           warm.release();
         }

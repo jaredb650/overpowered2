@@ -346,6 +346,13 @@ export class Composite {
     this.pass.render(renderer, null);
   }
 
+  async warm(renderer: THREE.WebGLRenderer): Promise<void> {
+    const keep = renderer.getRenderTarget();
+    const job = this.pass.compile(renderer, null);
+    renderer.setRenderTarget(keep);
+    await job;
+  }
+
   dispose(): void {
     this.pass.dispose();
   }

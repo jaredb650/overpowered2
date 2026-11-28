@@ -1047,6 +1047,7 @@ export class AllySystem implements GameSystem {
     e.char.anim.setLocomotion(l);
     e.char.anim.update(dt, e.lod);
     e.char.setLod?.(e.lod);
+    e.char.setShadowActive?.(dist < 54);
   }
 
   // -------------------------------------------------------------------------------------------

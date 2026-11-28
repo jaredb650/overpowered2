@@ -193,6 +193,17 @@ export class Gtao {
     this.blur.render(renderer, this.blurred);
   }
 
+  async warm(renderer: THREE.WebGLRenderer): Promise<void> {
+    const keep = renderer.getRenderTarget();
+    const jobs = [
+      this.prep.compile(renderer, this.depth),
+      this.blur.compile(renderer, this.blurred),
+    ];
+    if (this.ao) jobs.push(this.ao.compile(renderer, this.raw));
+    renderer.setRenderTarget(keep);
+    await Promise.all(jobs);
+  }
+
   dispose(): void {
     this.depth?.dispose();
     this.raw?.dispose();
