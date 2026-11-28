@@ -21,8 +21,8 @@ import { ACTIVE, contractSearch, playsOn } from '../../contracts/select';
 import { isShut, missionModsUnlocked, missionWins } from '../../contracts/unlocks';
 import { isFirstLaunch, markPlayed } from '../../contracts/firstLaunch';
 import { INVITE } from './coop';
-import { hasStarter, selectedStarter, saveStarter, type StarterGun } from '../../contracts/starter';
-import { starterCards, starterModConfig } from './starter';
+import { hasStarter, saveStarter, selectedStarter, starterModsAvailable, startersFor, type StarterGun } from '../../contracts/starter';
+import { starterCards, starterModConfig, updateStarterCard } from './starter';
 import { WEAPONS } from '../../weapons/data';
 import type { Ctx } from '../../core/contracts';
 import type { MapId } from '../../world/map/maps';
@@ -234,32 +234,62 @@ export class MainMenu implements Screen {
     const { contract, map } = m;
     if (isShut(contract)) this.ctx.audio.play?.('ui_error');
     else if (hasStarter(contract.id)) {
+      const guns = startersFor(contract.id);
       let gun = selectedStarter(contract.id);
       const deploy = () => {
-        saveStarter(gun);
+        saveStarter(gun, contract.id);
         const params = new URLSearchParams(contractSearch(contract.id, location.search, map));
         params.set('starter', gun);
         location.search = params.toString();
       };
       const freeMods = Boolean(contract.mission && missionModsUnlocked(contract.id));
       const wins = freeMods ? missionWins(contract.id) : 0;
+      const canMod = (g: StarterGun) => Boolean(contract.mission && starterModsAvailable(contract.id, g, freeMods));
+      const anyMod = guns.some(canMod);
       const level = this.makeLevel(`${this.level.crumb} / Starter gun`, this.level, []);
-      if (freeMods) {
-        level.header = div('starter-unlock-note', `Mission cleared ${wins}× · pick a gun to configure free mods`);
+      if (anyMod) {
+        level.header = div(
+          'starter-unlock-note',
+          freeMods
+            ? `Mission cleared ${wins}× · pick a gun to configure free mods`
+            : 'Desert Raid default: Flail LMG · click Flail or Configure Flail mods to customize it for free',
+        );
+        let cards: NavItem[] = [];
         const openMods = (picked: StarterGun) => {
           gun = picked;
-          saveStarter(gun);
-          const cfg = starterModConfig(gun, wins);
+          saveStarter(gun, contract.id);
+          const cfg = starterModConfig(gun, wins, () => {
+            const idx = guns.indexOf(gun);
+            if (idx >= 0) updateStarterCard(cards[idx]!.el, gun, canMod(gun));
+          });
           const modLevel = this.makeLevel(`${level.crumb} / ${WEAPONS[gun].name} mods`, level, []);
           modLevel.header = cfg.header;
           modLevel.items.push(...cfg.items, menuButton('Deploy', deploy), this.backButton(modLevel));
           this.enter(modLevel);
           this.paint(m);
         };
-        const cards = starterCards(gun, openMods, { modsUnlocked: true });
-        level.items.push(...cards, menuButton('Configure mods', () => openMods(gun)), menuButton('Deploy', deploy), this.backButton(level));
+        const selectCard = (picked: StarterGun) => {
+          gun = picked;
+          saveStarter(gun, contract.id);
+          if (canMod(picked)) openMods(picked);
+        };
+        cards = starterCards(gun, selectCard, { guns, modsUnlocked: canMod });
+        const modBtn = freeMods
+          ? menuButton('Configure mods', () => openMods(gun))
+          : menuButton('Configure Flail mods', () => {
+              const target = canMod(gun) ? gun : guns.find(canMod)!;
+              const idx = guns.indexOf(target);
+              if (idx >= 0) {
+                cards.forEach((c, i) => {
+                  c.el.classList.toggle('selected', i === idx);
+                  c.el.setAttribute('aria-pressed', String(i === idx));
+                });
+              }
+              openMods(target);
+            });
+        level.items.push(...cards, modBtn, menuButton('Deploy', deploy), this.backButton(level));
       } else {
-        const cards = starterCards(gun, picked => { gun = picked; saveStarter(gun); });
+        const cards = starterCards(gun, picked => { gun = picked; saveStarter(gun, contract.id); }, { guns });
         level.items.push(...cards, menuButton('Deploy', deploy), this.backButton(level));
       }
       this.enter(level);

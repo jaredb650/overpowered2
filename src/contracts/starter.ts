@@ -4,26 +4,37 @@ import { ISSUED, MODS, MOD_ORDER } from '../weapons/mods';
 import type { ContractId } from './data';
 
 export const STARTERS = ['smg', 'gimlet', 'harrow'] as const;
-export type StarterGun = typeof STARTERS[number];
+export const ALL_STARTERS = ['smg', 'gimlet', 'harrow', 'flail'] as const;
+export const DESERT_RAID_STARTERS = ['smg', 'gimlet', 'harrow', 'flail'] as const;
+export type StarterGun = typeof ALL_STARTERS[number];
 export const STARTER_KEY = 'op2_starter';
+export const STARTER_DESERT_RAID_KEY = 'op2_starter.desert_raid';
 export const hasStarter = (mode: ContractId): boolean => ['crucible', 'outpost', 'rooftop', 'badlands', 'endless_war', 'dogfight', 'campaign', 'foreclosure', 'bank_run', 'desert_raid'].includes(mode);
-export const isStarter = (value: unknown): value is StarterGun => STARTERS.includes(value as StarterGun);
-export const defaultStarter = (mode: ContractId): StarterGun => mode === 'outpost' || mode === 'rooftop' || mode === 'badlands' || mode === 'endless_war' || mode === 'dogfight' ? 'harrow' : 'smg';
+export const startersFor = (mode: ContractId): readonly StarterGun[] => mode === 'desert_raid' ? DESERT_RAID_STARTERS : STARTERS;
+export const isStarter = (value: unknown): value is StarterGun => ALL_STARTERS.includes(value as StarterGun);
+export const isStarterFor = (mode: ContractId, value: unknown): value is StarterGun => startersFor(mode).includes(value as StarterGun);
+export const defaultStarter = (mode: ContractId): StarterGun =>
+  mode === 'desert_raid' ? 'flail'
+  : mode === 'outpost' || mode === 'rooftop' || mode === 'badlands' || mode === 'endless_war' || mode === 'dogfight' ? 'harrow'
+  : 'smg';
 
-export function starterPreference(): StarterGun | undefined {
+export function starterPreference(mode?: ContractId): StarterGun | undefined {
+  const valid = (v: unknown): v is StarterGun => mode ? isStarterFor(mode, v) : STARTERS.includes(v as typeof STARTERS[number]);
   const value = typeof location === 'undefined' ? null : new URLSearchParams(location.search).get('starter');
-  if (isStarter(value)) return value;
+  if (valid(value)) return value;
   try {
-    const saved = localStorage.getItem(STARTER_KEY);
-    if (isStarter(saved)) return saved;
+    const saved = localStorage.getItem(mode === 'desert_raid' ? STARTER_DESERT_RAID_KEY : STARTER_KEY);
+    if (valid(saved)) return saved;
   } catch { /* Storage may be blocked. The URL still works. */ }
   return undefined;
 }
 
-export const selectedStarter = (mode: ContractId): StarterGun => starterPreference() ?? defaultStarter(mode);
+export const selectedStarter = (mode: ContractId): StarterGun => starterPreference(mode) ?? defaultStarter(mode);
 
-export function saveStarter(gun: StarterGun): void {
-  try { localStorage.setItem(STARTER_KEY, gun); } catch { /* Keep the choice in the deployment URL. */ }
+export function saveStarter(gun: StarterGun, mode?: ContractId): void {
+  const key = mode === 'desert_raid' ? STARTER_DESERT_RAID_KEY : STARTER_KEY;
+  if (mode !== 'desert_raid' && !STARTERS.includes(gun as typeof STARTERS[number])) return;
+  try { localStorage.setItem(key, gun); } catch { /* Keep the choice in the deployment URL. */ }
 }
 
 /** Replace only the issued key-1 gun; scripted pickups and all other keys retain their order. */
@@ -31,7 +42,15 @@ export function starterLoadout(weapons: readonly WeaponId[], gun: StarterGun): r
   return weapons.map(id => isStarter(id) ? gun : id);
 }
 
-/** Per-gun starter mod configuration (JSON map of StarterGun -> ModId[]), unlocked per mission after 2 wins. */
+/**
+ * Whether free starter mod customization is available for `gun` in `mode`.
+ * Any mission unlocks free mods for all starters after 2 wins; Desert Raid always allows customizing Flail.
+ */
+export function starterModsAvailable(mode: ContractId, gun: StarterGun, missionUnlocked: boolean): boolean {
+  return missionUnlocked || (mode === 'desert_raid' && gun === 'flail');
+}
+
+/** Per-gun starter mod configuration (JSON map of StarterGun -> ModId[]), unlocked per mission after 2 wins (always open for Flail in Desert Raid). */
 export const STARTER_MODS_KEY = 'op2_starter_mods';
 
 /** Every mod that fits `gun`, in canonical `MOD_ORDER`. */

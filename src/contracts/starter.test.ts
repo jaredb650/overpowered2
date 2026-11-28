@@ -6,7 +6,18 @@ import { FakeHost } from '../campaign/testkit';
 import { validateMission } from '../campaign/validate';
 import { survivalLoadout } from './loadouts';
 import { weaponWares } from './shop/data';
-import { STARTERS, STARTER_KEY, saveStarter, selectedStarter, starterPreference } from './starter';
+import {
+  DESERT_RAID_STARTERS,
+  STARTERS,
+  STARTER_DESERT_RAID_KEY,
+  STARTER_KEY,
+  isStarterFor,
+  saveStarter,
+  selectedStarter,
+  starterModsAvailable,
+  starterPreference,
+  startersFor,
+} from './starter';
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -14,8 +25,10 @@ describe('starter choice', () => {
   it('defaults to each mode’s original gun and survives blocked storage', () => {
     vi.stubGlobal('localStorage', { getItem() { throw Error('blocked'); }, setItem() { throw Error('blocked'); } });
     expect(selectedStarter('outpost')).toBe('harrow');
+    expect(selectedStarter('desert_raid')).toBe('flail');
     for (const mode of ['crucible', 'campaign', 'foreclosure'] as const) expect(selectedStarter(mode)).toBe('smg');
     expect(() => saveStarter('gimlet')).not.toThrow();
+    expect(() => saveStarter('flail', 'desert_raid')).not.toThrow();
   });
 
   it('remembers a choice, ignores invalid values, and gives the URL precedence', () => {
@@ -29,6 +42,42 @@ describe('starter choice', () => {
     expect(starterPreference()).toBe('gimlet');
     data.set(STARTER_KEY, 'rocket');
     expect(starterPreference()).toBeUndefined();
+  });
+
+  it('offers Flail as Desert Raid’s default and selectable starter without leaking Flail into other modes', () => {
+    const data = new Map<string, string>();
+    vi.stubGlobal('localStorage', { getItem: (key: string) => data.get(key), setItem: (key: string, value: string) => data.set(key, value) });
+
+    expect(startersFor('desert_raid')).toEqual(DESERT_RAID_STARTERS);
+    expect(startersFor('desert_raid')).toContain('flail');
+    expect(startersFor('outpost')).toEqual(STARTERS);
+    expect(isStarterFor('desert_raid', 'flail')).toBe(true);
+    expect(isStarterFor('outpost', 'flail')).toBe(false);
+    expect(isStarterFor('crucible', 'flail')).toBe(false);
+
+    // Even if another mode saved SMG, Desert Raid defaults to Flail until explicitly changed for Desert Raid.
+    saveStarter('smg');
+    expect(selectedStarter('desert_raid')).toBe('flail');
+
+    // Desert Raid remembers its own starter independently of global starter storage.
+    saveStarter('harrow', 'desert_raid');
+    expect(data.get(STARTER_DESERT_RAID_KEY)).toBe('harrow');
+    expect(selectedStarter('desert_raid')).toBe('harrow');
+    expect(selectedStarter('campaign')).toBe('smg');
+
+    saveStarter('flail', 'desert_raid');
+    expect(selectedStarter('desert_raid')).toBe('flail');
+
+    // A ?starter=flail URL works on Desert Raid and is ignored on other modes.
+    vi.stubGlobal('location', { search: '?starter=flail' });
+    expect(selectedStarter('desert_raid')).toBe('flail');
+    expect(selectedStarter('outpost')).toBe('smg');
+
+    // Free starter mods are always open for Flail in Desert Raid, even with 0 clears.
+    expect(starterModsAvailable('desert_raid', 'flail', false)).toBe(true);
+    expect(starterModsAvailable('desert_raid', 'smg', false)).toBe(false);
+    expect(starterModsAvailable('desert_raid', 'smg', true)).toBe(true);
+    expect(starterModsAvailable('campaign', 'smg', false)).toBe(false);
   });
 
   it.each(STARTERS)('issues %s in both survival modes and sells the other two at their normal prices', gun => {

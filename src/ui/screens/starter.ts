@@ -3,6 +3,7 @@ import {
   STARTERS, saveStarterMods, selectedStarterMods, starterGunMods, toggleStarterMod,
   type StarterGun,
 } from '../../contracts/starter';
+import { MISSION_MOD_WINS } from '../../contracts/unlocks';
 import type { ModId } from '../../core/gameplay';
 import { WEAPONS } from '../../weapons/data';
 import { MODS, moddedDef } from '../../weapons/mods';
@@ -43,21 +44,46 @@ function statsLine(gun: StarterGun, mods: readonly ModId[]): string {
   return parts.join(' · ');
 }
 
+function stockStatsLine(gun: StarterGun): string {
+  const def = WEAPONS[gun];
+  const suffix = gun === 'gimlet'
+    ? ' · 4× + suppressor'
+    : gun === 'smg'
+      ? ' · weapon light'
+      : gun === 'flail'
+        ? ' · belt-fed LMG'
+        : '';
+  return `${def.damage} DMG · ${Math.round(60 / def.interval)} RPM · ${def.magSize} RDS${suffix}`;
+}
+
 export interface StarterCardOptions {
-  /** True when the selected mission has been beaten twice, unlocking free starter mods. */
-  modsUnlocked?: boolean;
+  /** Which starter guns to display. Defaults to the standard 3 (`STARTERS`). */
+  guns?: readonly StarterGun[];
+  /** True when free starter mods are unlocked for every listed gun, or a per-gun predicate. */
+  modsUnlocked?: boolean | ((gun: StarterGun) => boolean);
+}
+
+const isModUnlocked = (opts: StarterCardOptions | undefined, gun: StarterGun): boolean =>
+  typeof opts?.modsUnlocked === 'function' ? opts.modsUnlocked(gun) : Boolean(opts?.modsUnlocked);
+
+/** Refreshes a starter card's mod count badge and live stats line after mods change. */
+export function updateStarterCard(el: HTMLElement, gun: StarterGun, modsUnlocked: boolean): void {
+  const saved = modsUnlocked ? selectedStarterMods(gun) : null;
+  const statsEl = el.querySelector<HTMLElement>('.starter-stats');
+  if (statsEl) statsEl.textContent = saved ? statsLine(gun, saved) : stockStatsLine(gun);
+  const badgeEl = el.querySelector<HTMLElement>('.starter-card-mods');
+  if (badgeEl && saved) badgeEl.textContent = saved.length ? `${saved.length} MOD${saved.length === 1 ? '' : 'S'}` : 'STOCK';
 }
 
 /** Shared menu/lobby cards, with the same silhouette and live numbers as the arsenal. */
 export function starterCards(selected: StarterGun | undefined, pick: (gun: StarterGun) => void, opts?: StarterCardOptions): NavItem[] {
-  const cards = STARTERS.map(gun => {
+  const guns = opts?.guns ?? STARTERS;
+  const cards = guns.map(gun => {
     const def = WEAPONS[gun];
     const icon = span('starter-icon');
     icon.innerHTML = weaponIcon(gun);
-    const saved = opts?.modsUnlocked ? selectedStarterMods(gun) : null;
-    const stats = saved
-      ? statsLine(gun, saved)
-      : `${def.damage} DMG · ${Math.round(60 / def.interval)} RPM · ${def.magSize} RDS${gun === 'gimlet' ? ' · 4× + suppressor' : gun === 'smg' ? ' · weapon light' : ''}`;
+    const saved = isModUnlocked(opts, gun) ? selectedStarterMods(gun) : null;
+    const stats = saved ? statsLine(gun, saved) : stockStatsLine(gun);
     const nameRow = saved
       ? div('starter-namerow', span('starter-name', def.name), span('starter-card-mods', saved.length ? `${saved.length} MOD${saved.length === 1 ? '' : 'S'}` : 'STOCK'))
       : span('starter-name', def.name);
@@ -66,12 +92,13 @@ export function starterCards(selected: StarterGun | undefined, pick: (gun: Start
       span('starter-stats', stats),
     ));
     el.type = 'button';
+    el.dataset.starter = gun;
     el.setAttribute('aria-label', `Starter: ${def.name}`);
     const activate = () => { paint(gun); pick(gun); };
     return { el, activate };
   });
   const paint = (gun: StarterGun | undefined) => cards.forEach((card, i) => {
-    const on = STARTERS[i] === gun;
+    const on = guns[i] === gun;
     card.el.classList.toggle('selected', on);
     card.el.setAttribute('aria-pressed', String(on));
   });
@@ -90,7 +117,7 @@ export interface StarterModConfig {
 
 const DEFAULT_NOTE = 'Every attachment for this weapon is free with no point limit. Same-slot items replace one another.';
 
-/** Step 2 on the starter screen once a mission has been beaten twice: free mod configuration for the picked gun. */
+/** Step 2 on the starter screen once free mods are unlocked (2+ mission clears, or Flail on Desert Raid). */
 export function starterModConfig(gun: StarterGun, wins: number, onChange?: (mods: ModId[]) => void): StarterModConfig {
   const all = starterGunMods(gun);
   let mods = selectedStarterMods(gun);
@@ -100,7 +127,10 @@ export function starterModConfig(gun: StarterGun, wins: number, onChange?: (mods
   const countEl = span('starter-mod-count');
   const statsEl = span('starter-mod-stats');
   const noteEl = div('starter-mod-note', DEFAULT_NOTE);
-  const badgeEl = span('starter-mod-badge', `CLEARED ${wins}× · FREE MODS · NO LIMIT`);
+  const badgeEl = span(
+    'starter-mod-badge',
+    wins >= MISSION_MOD_WINS ? `CLEARED ${wins}× · FREE MODS · NO LIMIT` : 'DESERT RAID · FREE MODS · NO LIMIT',
+  );
 
   const header = div('starter-mod-head',
     div('starter-mod-titlebar', icon, div('starter-mod-heading',
@@ -174,7 +204,12 @@ export function starterModConfig(gun: StarterGun, wins: number, onChange?: (mods
 export function starterLobbyMods(gun: StarterGun, wins: number, onChange?: (mods: ModId[]) => void): HTMLElement {
   const all = starterGunMods(gun);
   let mods = selectedStarterMods(gun);
-  const title = span('nt-k', `${WEAPONS[gun].name} mods · cleared ${wins}× · all free, no limit`);
+  const title = span(
+    'nt-k',
+    wins >= MISSION_MOD_WINS
+      ? `${WEAPONS[gun].name} mods · cleared ${wins}× · all free, no limit`
+      : `${WEAPONS[gun].name} mods · all free, no limit`,
+  );
   const list = div('starter-lobby-grid');
   const buttons: { id: ModId; el: HTMLButtonElement }[] = [];
 

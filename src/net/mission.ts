@@ -33,7 +33,7 @@ import type { GameHost } from '../campaign/host';
 import type { Beat, Zone } from '../campaign/types';
 import { START_BEAT } from '../campaign/select';
 import { CHIPS, type ChipId } from '../contracts/chips';
-import { hasStarter, isStarter, selectedStarter, selectedStarterMods, starterLoadout } from '../contracts/starter';
+import { hasStarter, isStarter, selectedStarter, selectedStarterMods, starterLoadout, starterModsAvailable } from '../contracts/starter';
 import { missionModsUnlocked, recordCampaignBeaten, recordMissionWin } from '../contracts/unlocks';
 import type { Ctx, GameEvents } from '../core/contracts';
 import type { ModId, WeaponId } from '../core/gameplay';
@@ -800,7 +800,7 @@ export class CoopMission {
         let exclusiveMods: boolean | undefined;
         if (hasStarter(mode)) {
           const fixed = wireMods.filter(m => !isStarter(MODS[m].weapon));
-          if (missionModsUnlocked(mode)) {
+          if (starterModsAvailable(mode, gun, missionModsUnlocked(mode))) {
             mods = [...fixed, ...selectedStarterMods(gun)];
             exclusiveMods = true;
           } else if (fixed.length > 0) {

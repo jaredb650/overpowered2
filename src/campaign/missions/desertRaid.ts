@@ -24,9 +24,9 @@ const say = (key: string, opts: { wait?: boolean; now?: boolean; again?: boolean
   ...opts,
 });
 
-/** Standard raid loadout with Thermal Vision brain chip fitted for the dark Sewer & Salt Cave. */
+/** Standard raid loadout with Flail LMG as default key-1 weapon and Thermal Vision brain chip fitted for the dark Sewer & Salt Cave. */
 const RAID_LOADOUT: Loadout = {
-  weapons: ['smg', 'ultramag', 'satchel', 'knife'],
+  weapons: ['flail', 'ultramag', 'satchel', 'knife'],
   grenades: 4,
   chip: 'thermal',
 };

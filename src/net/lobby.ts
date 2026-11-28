@@ -12,7 +12,7 @@ import { turnConfigured } from './turn';
  * connection, the version check), and a timeout names the stage that stalled.
  */
 import { BUILD } from './build';
-import { defaultStarter, isStarter, type StarterGun } from '../contracts/starter';
+import { defaultStarter, isStarter, isStarterFor, type StarterGun } from '../contracts/starter';
 import { decodePose, encodePose, type Pose } from './pose';
 import { BEHIND_BYTES, type Channel, type ChannelOptions, type LobbyRooms, type NetError, type NetRoom } from './room';
 import { Batcher, KIND_JSON, RecordWriter, batchTag, matchTag, readBatch, readJson, type Packer } from './batch';
@@ -627,7 +627,9 @@ export class Lobby {
       return false;
     }
     this.stopCount();
-    for (const player of this.players) player.starter ??= defaultStarter(mode);
+    for (const player of this.players) {
+      if (!isStarterFor(mode, player.starter)) player.starter = defaultStarter(mode);
+    }
     this.broadcast();
     this.match = map ? { id, mode, map } : { id, mode };
     // The barrier is the map page's: only there is there a world to hold and a click to wait for.

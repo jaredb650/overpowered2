@@ -13,7 +13,7 @@ import { Lobby, validMatch, type Match, type SeatRecord } from './lobby';
 import { BUILD } from './build';
 import { carryNet } from './mode';
 import { simText } from './netsim';
-import { isStarter, selectedStarter, type StarterGun } from '../contracts/starter';
+import { isStarterFor, selectedStarter, type StarterGun } from '../contracts/starter';
 
 interface Handoff {
   code: string; password: string; name: string; hosting: boolean; match: Match; starter?: StarterGun;
@@ -70,9 +70,10 @@ export function canDeploy(): string {
 }
 
 export function deployMatch(code: string, password: string, lobby: Lobby, match: Match): void {
+  const picked = lobby.starter ?? lobby.me?.starter;
   const handoff: Handoff = { code, password, name: lobby.me?.name ?? 'PLAYER', hosting: lobby.hosting, match,
     // This player's own pick first: the host's list can lag a pick made as the count ran out.
-    starter: lobby.starter ?? lobby.me?.starter ?? selectedStarter(match.mode),
+    starter: isStarterFor(match.mode, picked) ? picked : selectedStarter(match.mode),
     ...(lobby.hosting ? lobby.seatRecords() : {}) };
   // If storage is blocked, fail on the lobby page rather than reloading into an unrelated single-player run.
   try { sessionStorage.setItem(KEY, JSON.stringify(handoff)); }
@@ -124,7 +125,7 @@ export async function reconnectMatch(): Promise<void> {
     const seats = Array.isArray(data.seats) ? data.seats.filter(s => Array.isArray(s) && typeof s[0] === 'string' && typeof s[1] === 'string') : [];
     const slots = Array.isArray(data.slots) ? data.slots.filter(s => Array.isArray(s) && typeof s[0] === 'string' && Number.isInteger(s[1])) : [];
     const lobby = resumedLobby = new Lobby(await openLobby(data.code, data.password), data.hosting, data.name, BUILD,
-      { page: match.id, roster, seats, slots }, isStarter(data.starter) ? data.starter : selectedStarter(data.match.mode));
+      { page: match.id, roster, seats, slots }, isStarterFor(data.match.mode, data.starter) ? data.starter : selectedStarter(data.match.mode));
     lobby.onEnd = () => { whileLoading.ended = true; };
     // The host moved on to another match while this page loaded (or reloaded): go there.
     lobby.onMatch = next => { if (next.id !== match.id) deployMatch(data.code, data.password, lobby, next); };

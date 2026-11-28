@@ -184,11 +184,31 @@ describe('per-gun starter mod persistence and slot exclusion', () => {
   });
 
   it('lists all mods for each starter gun from MOD_ORDER', () => {
-    for (const gun of ['smg', 'gimlet', 'harrow'] as const) {
+    for (const gun of ['smg', 'gimlet', 'harrow', 'flail'] as const) {
       const expected = MOD_ORDER.filter(id => MODS[id].weapon === gun);
       expect(starterGunMods(gun)).toEqual(expected);
       expect(expected.length).toBeGreaterThanOrEqual(9);
     }
+  });
+
+  it('persists custom Flail starter mods with sight/ammo slot exclusion and open-mod stacking', () => {
+    stubStorage();
+    expect(defaultStarterMods('flail')).toEqual([]);
+    expect(selectedStarterMods('flail')).toEqual([]);
+
+    let mods = toggleStarterMod([], 'flail', 'flailDot');
+    mods = toggleStarterMod(mods, 'flail', 'flailHolo'); // replaces flailDot in sight slot
+    mods = toggleStarterMod(mods, 'flail', 'flailBox');
+    mods = toggleStarterMod(mods, 'flail', 'flailHeavy');
+    mods = toggleStarterMod(mods, 'flail', 'flailBolt');
+    mods = toggleStarterMod(mods, 'flail', 'flailStock');
+    mods = toggleStarterMod(mods, 'flail', 'flailLam');
+    mods = toggleStarterMod(mods, 'flail', 'flailAp');
+    mods = toggleStarterMod(mods, 'flail', 'flailApi'); // replaces flailAp in ammo slot
+    expect(mods).toEqual(['flailHolo', 'flailBox', 'flailHeavy', 'flailBolt', 'flailStock', 'flailLam', 'flailApi']);
+
+    saveStarterMods('flail', mods);
+    expect(selectedStarterMods('flail')).toEqual(['flailHolo', 'flailBox', 'flailHeavy', 'flailBolt', 'flailStock', 'flailLam', 'flailApi']);
   });
 });
 

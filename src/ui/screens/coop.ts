@@ -9,7 +9,7 @@ import { report, reportLobby, reportSolo } from '../../core/report';
  * Stage 1 starts an enemy-free match on the host's selected map.
  */
 import { CONTRACTS } from '../../contracts/data';
-import { STARTERS, defaultStarter, saveStarter, starterPreference } from '../../contracts/starter';
+import { defaultStarter, isStarterFor, saveStarter, starterModsAvailable, starterPreference, startersFor } from '../../contracts/starter';
 import { missionModsUnlocked, missionWins } from '../../contracts/unlocks';
 import { starterCards, starterLobbyMods } from './starter';
 import type { Ctx } from '../../core/contracts';
@@ -356,13 +356,14 @@ export class CoopScreen implements Screen {
         step(`3. The host starts the match${pick ? `: ${pick}` : ''}`, ready ? 'now' : ''));
     }
     // An untouched pick is the mode's gun, which the host's mode decides (startMatch).
-    const mine = lobby.starter ?? defaultStarter(lobby.pick.mode);
+    const guns = startersFor(lobby.pick.mode);
+    const mine = isStarterFor(lobby.pick.mode, lobby.starter) ? lobby.starter : defaultStarter(lobby.pick.mode);
     this.starter.querySelectorAll('.starter-card').forEach((el, i) => {
-      el.classList.toggle('selected', STARTERS[i] === mine);
-      el.setAttribute('aria-pressed', String(STARTERS[i] === mine));
+      el.classList.toggle('selected', guns[i] === mine);
+      el.setAttribute('aria-pressed', String(guns[i] === mine));
     });
     const missionMode = Boolean(CONTRACTS.find(c => c.id === lobby.pick.mode)?.mission);
-    if (missionMode && missionModsUnlocked(lobby.pick.mode)) {
+    if (missionMode && starterModsAvailable(lobby.pick.mode, mine, missionModsUnlocked(lobby.pick.mode))) {
       const wins = missionWins(lobby.pick.mode);
       const key = `${lobby.pick.mode}:${mine}:${wins}`;
       if (key !== this.lobbyModsKey) {

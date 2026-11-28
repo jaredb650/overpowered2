@@ -200,12 +200,26 @@ describe('Desert Raid (Mission 5 — 8-Section Campaign)', () => {
     expect(rglCache?.beat).toBe('high_terraces');
     expect(rglCache?.step).toMatchObject({ at: 'secretRgl', optional: true, hidden: true });
 
+    expect(DESERT_RAID.loadout.weapons[0]).toBe('flail');
     const withHarrow = missionWithStarter(DESERT_RAID, 'harrow');
     expect(validateMission(withHarrow)).toEqual([]);
     expect(withHarrow.loadout.weapons[0]).toBe('harrow');
     expect(withHarrow.loadout.chip).toBe('thermal');
     for (const beat of withHarrow.beats) {
       expect(beat.checkpoint!.loadout.weapons[0]).toBe('harrow');
+      expect(beat.checkpoint!.loadout.chip).toBe('thermal');
+    }
+
+    const withModdedFlail = missionWithStarter(DESERT_RAID, 'flail', ['flailHeavy', 'flailHolo', 'flailBox', 'flailBolt', 'flailAp', 'flailLam']);
+    expect(validateMission(withModdedFlail)).toEqual([]);
+    expect(withModdedFlail.loadout.weapons[0]).toBe('flail');
+    expect(withModdedFlail.loadout.exclusiveMods).toBe(true);
+    expect(withModdedFlail.loadout.mods).toEqual(['flailHolo', 'flailBox', 'flailAp', 'flailHeavy', 'flailBolt', 'flailLam']);
+    expect(withModdedFlail.loadout.chip).toBe('thermal');
+    for (const beat of withModdedFlail.beats) {
+      expect(beat.checkpoint!.loadout.weapons[0]).toBe('flail');
+      expect(beat.checkpoint!.loadout.exclusiveMods).toBe(true);
+      expect(beat.checkpoint!.loadout.mods).toEqual(['flailHolo', 'flailBox', 'flailAp', 'flailHeavy', 'flailBolt', 'flailLam']);
       expect(beat.checkpoint!.loadout.chip).toBe('thermal');
     }
   });
