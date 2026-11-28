@@ -1,6 +1,7 @@
 /** Screen stack: one visible at a time, hard cuts between them, and a return path for guide and settings. */
 import type { Ctx } from '../../core/contracts';
 import { adoptLoading } from '../boot';
+import { makeDemoSticker } from '../demo';
 import { div } from '../dom';
 import type { Hud } from '../Hud';
 import type { Regroup, Room } from '../../net';
@@ -80,6 +81,8 @@ export class Screens {
       s.el.style.display = 'none';
       this.el.append(s.el);
     }
+    const demoSticker = makeDemoSticker();
+    if (demoSticker) this.el.append(demoSticker);
     addEventListener('keydown', e => {
       if (this.current === 'none' || this.current === 'loading' || e.repeat) return;
       // Typing in the lobby's fields must not drive the menu.

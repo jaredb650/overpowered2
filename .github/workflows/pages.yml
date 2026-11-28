@@ -34,6 +34,8 @@ jobs:
           echo '{"menu":[],"easy":[],"hard":[]}' > public/audio/ost/manifest.json
           find public/audio/ost -type f ! -name manifest.json -delete
       - run: npm run build
+        env:
+          OP2_DEMO_BUILD: '1'
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist

@@ -9,6 +9,7 @@ import * as THREE from 'three';
 import type { Ctx, GameState } from '../core/contracts';
 import type { HudSystem, PickupKind, SeatPanel } from '../core/gameplay';
 import { cheatsOn, onCheats } from '../core/cheats';
+import { IS_DEMO } from './demo';
 import { div, span } from './dom';
 import { HudState } from './state';
 import { RunReport } from './runreport';
@@ -191,10 +192,12 @@ export class Hud implements HudSystem {
     // A mission has an ending of its own to get through after he falls.
     if (this.commander) this.commander.onFulfilled = () => { if (!MISSION_ID) this.fulfilled(); };
 
-    // A reminder while the cheats are on: every run is unranked (core/cheats.ts).
-    const cheatTag = div('hud-cheats', 'CHEATS');
+    // Top-center status tags: DEMO on deployed builds, CHEATS while cheats are on (core/cheats.ts).
+    const cheatTag = div('hud-tag hud-cheats', 'CHEATS');
     cheatTag.classList.toggle('on', cheatsOn());
     onCheats(on => cheatTag.classList.toggle('on', on));
+    const demoTag = IS_DEMO ? div('hud-tag hud-demo on', 'DEMO') : null;
+    const hudTags = div('hud-tags', demoTag, cheatTag);
     // Tag every HUD widget with its visibility group so players can hide individual parts or the entire HUD.
     const tagPart = (el: HTMLElement | undefined, part: string) => { if (el) el.dataset.hudPart = part; };
     tagPart(this.crosshair.el, 'crosshair');
@@ -258,7 +261,7 @@ export class Hud implements HudSystem {
       this.scoreboard.el,
       this.commander?.el,
       this.debug.el,
-      cheatTag,
+      hudTags,
     );
     this.hud.style.display = 'none';
     this.applyHudSettings(this.settings);

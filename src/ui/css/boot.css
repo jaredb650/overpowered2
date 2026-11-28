@@ -48,3 +48,30 @@
 .ld-log { display: flex; flex-direction: column; gap: 0.1rem; height: 7.2rem; margin-top: 0.3rem; }
 .ld-done { color: var(--dim); font-size: 1rem; font-weight: 500; }
 .ld-done::after { content: ' ok'; color: var(--steel); }
+
+/* --- Demo build sticker: slapped onto every menu on deployed builds --- */
+
+.demo-sticker {
+  position: absolute;
+  top: 1.15rem;
+  right: 1.6rem;
+  z-index: 40;
+  pointer-events: none;
+  display: inline-flex;
+  align-items: center;
+  padding: 0.28rem 0.95rem 0.22rem 1.45rem;
+  background:
+    repeating-linear-gradient(-45deg, #000 0 0.24rem, var(--amber) 0.24rem 0.48rem) 0 0 / 0.72rem 100% no-repeat,
+    var(--amber);
+  color: #000;
+  border: 0.14rem solid #000;
+  box-shadow: 0.22rem 0.22rem 0 rgba(0, 0, 0, 0.85);
+  transform: rotate(3deg);
+  transform-origin: center;
+}
+.demo-sticker-text {
+  font: 400 1.45rem/1 var(--display);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}

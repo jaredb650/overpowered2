@@ -7,10 +7,11 @@ import '@fontsource-variable/jetbrains-mono/wght.css';
 import './css/base.css';
 import './css/boot.css';
 import { div } from './dom';
+import { makeDemoSticker } from './demo';
 import { LoadingScreen } from './screens/loading';
 
 export const loadingScreen = new LoadingScreen();
-const host = div('screens live', loadingScreen.el);
+const host = div('screens live', loadingScreen.el, makeDemoSticker());
 
 export function showLoading(): void {
   const root = document.getElementById('ui') ?? document.body;

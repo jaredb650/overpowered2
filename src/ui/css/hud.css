@@ -9,8 +9,11 @@
   gap: 0.7rem;
   contain: layout style;
 }
-.hud-cheats { display: none; position: absolute; left: 50%; top: 0.05rem; padding: 0 0.6rem; background: var(--blood); color: #000; font: 800 0.76rem/1.15 var(--mono); letter-spacing: 0.14em; transform: translateX(-50%); pointer-events: none; z-index: 7; }
-.hud-cheats.on { display: block; }
+.hud-tags { position: absolute; left: 50%; top: 0.05rem; display: flex; align-items: center; gap: 0.35rem; transform: translateX(-50%); pointer-events: none; z-index: 7; }
+.hud-tag { display: none; padding: 0 0.6rem; color: #000; font: 800 0.76rem/1.15 var(--mono); letter-spacing: 0.14em; }
+.hud-tag.on { display: block; }
+.hud-cheats { background: var(--blood); }
+.hud-demo { background: var(--amber); }
 .col-left { left: 2rem; width: 30rem; align-items: flex-start; }
 .col-right { right: 2rem; width: 36rem; align-items: flex-end; }
 

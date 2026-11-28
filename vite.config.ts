@@ -22,7 +22,10 @@ function buildId(): string {
 
 export default defineConfig({
   base: './',
-  define: { __BUILD__: JSON.stringify(buildId()) },
+  define: {
+    __BUILD__: JSON.stringify(buildId()),
+    __DEMO__: JSON.stringify(process.env.OP2_DEMO_BUILD === '1' || process.env.GITHUB_ACTIONS === 'true'),
+  },
   resolve: { alias: { '@': resolve(dirname(fileURLToPath(import.meta.url)), 'src') } },
   server: { port: 5173, strictPort: false, host: '127.0.0.1', hmr: process.env.OP2_NO_HMR ? false : undefined },
   build: { target: 'es2022', chunkSizeWarningLimit: 4000, sourcemap: true },
